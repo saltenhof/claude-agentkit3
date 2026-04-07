@@ -1,0 +1,434 @@
+---
+concept_id: FK-10
+title: Runtime, Deployment und Speicher
+module: runtime
+status: active
+doc_kind: core
+parent_concept_id:
+authority_over:
+  - scope: runtime
+  - scope: deployment
+  - scope: directory-structure
+  - scope: locking
+defers_to:
+  - target: FK-03
+    scope: configuration
+    reason: Pipeline-Konfiguration ist in FK-03 definiert
+  - target: FK-02
+    scope: sperrdatei-mechanismus
+    reason: Sperrdatei-Details sind im Domänenmodell definiert
+supersedes: []
+superseded_by:
+tags: [runtime, deployment, verzeichnisstruktur, persistenz, locking]
+---
+
+# 10 — Runtime, Deployment und Speicher
+
+## 10.1 Laufzeitkomponenten
+
+AgentKit besteht zur Laufzeit aus drei Kategorien von Prozessen,
+die alle auf der Entwicklermaschine laufen.
+
+### 10.1.1 Prozesslandschaft
+
+```mermaid
+graph TB
+    subgraph SESSION["Claude Code Session (Hauptprozess)"]
+        ORCH["Orchestrator-Agent<br/>(Claude LLM)"]
+        HOOKS["Hook-Prozesse<br/>(Python, kurzlebig)"]
+        SUBAGENTS["Sub-Agents<br/>(Worker, Adversarial)"]
+
+        ORCH -->|"spawnt"| SUBAGENTS
+        ORCH -->|"löst aus"| HOOKS
+        SUBAGENTS -->|"löst aus"| HOOKS
+    end
+
+    subgraph PIPELINE["Pipeline-Skripte (vom Agent aufgerufen)"]
+        CLI["agentkit CLI<br/>(python -m agentkit)"]
+        SCRIPTS["Deterministische Skripte<br/>(preflight, structural,<br/>policy, closure)"]
+    end
+
+    subgraph EXTERN["Externe Prozesse (dauerhaft laufend)"]
+        POOL_C["ChatGPT-Pool (optional)<br/>(:9100)"]
+        POOL_G["Gemini-Pool (optional)<br/>(:9200)"]
+        POOL_Q["Qwen-Pool (optional)<br/>(:9300)"]
+        POOL_X["Grok-Pool (optional)<br/>(:9400)"]
+        DASHBOARD["AgentKit Dashboard<br/>(:9700)"]
+        ARE_EXT["ARE Server (optional)<br/>(:9800)"]
+        WEAVIATE["Story-Knowledge-Base (optional)<br/>Weaviate (:9902)"]
+    end
+
+    ORCH -->|"Bash-Tool"| CLI
+    CLI --> SCRIPTS
+    HOOKS -.->|"Dateisystem"| LOCKFILES["Lock-Dateien<br/>Telemetrie-JSONL<br/>QA-Artefakte"]
+    SUBAGENTS -->|"MCP"| POOL_C
+    SUBAGENTS -->|"MCP"| POOL_G
+    SUBAGENTS -->|"MCP"| POOL_Q
+    SUBAGENTS -->|"MCP"| POOL_X
+    SUBAGENTS -->|"MCP"| WEAVIATE
+    SCRIPTS -.->|"MCP"| ARE_EXT
+```
+
+### 10.1.2 Prozesstypen
+
+| Typ | Lebensdauer | Gestartet von | Beispiele |
+|-----|-------------|---------------|-----------|
+| **Claude-Code-Session** | Minuten bis Stunden | Mensch (CLI `claude`) | Orchestrator, Worker, Adversarial |
+| **Hook-Prozess** | Millisekunden | Claude Code (pro Tool-Call) | `branch_guard.py`, `integrity.py`, `hook.py` |
+| **Pipeline-Skript** | Sekunden bis Minuten | Agent via Bash-Tool | `agentkit run-phase`, `agentkit structural` |
+| **MCP-Server** | Dauerhaft | Mensch oder Autostart | LLM-Pools (optional, mind. 1), Story-Knowledge-Base (optional), ARE (optional) |
+| **Docker-Container** | Dauerhaft | `docker-compose up` | Weaviate + text2vec-transformers (optional, nur bei `vectordb: true`) |
+
+### 10.1.3 Hook-Prozesse im Detail
+
+Hooks sind die leistungskritischste Komponente. Sie werden bei
+**jedem Tool-Call** als eigener Python-Prozess gestartet und müssen
+schnell entscheiden.
+
+**Lebenszyklus eines Hook-Aufrufs:**
+
+1. Claude Code forkt einen Python-Prozess
+2. Hook liest Tool-Call-Daten von `sys.stdin` (JSON)
+3. Hook prüft Regeln (Dateisystem-Reads: Lock-Dateien, Config)
+4. Hook schreibt optional Telemetrie (JSONL-Append)
+5. Hook beendet sich: `exit(0)` = erlauben, `exit(2)` = blockieren
+
+**Performance-Designregel:** Hooks müssen billig sein — nur lokale,
+deterministische Operationen (Datei-Reads, SQLite-Zugriff,
+Regex-Match). Keine LLM-Aufrufe, keine Netzwerk-Calls, keine
+aufwändigen Dateisystem-Scans. Details in Kap. 30.4.
+
+**Parallelität:** Claude Code ruft Hooks sequentiell auf (ein Hook
+pro Tool-Call). Mehrere Sub-Agent-Sessions können aber parallel
+laufen, was bedeutet: Mehrere Hook-Prozesse können gleichzeitig
+in die Telemetrie-DB schreiben. SQLite serialisiert Writes intern
+(WAL-Modus empfohlen für bessere Read-Concurrency).
+
+## 10.2 Deployment-Modell
+
+### 10.2.1 Installation
+
+AgentKit wird als Python-Paket installiert und dann über den
+Installer in ein Zielprojekt deployt:
+
+```mermaid
+sequenceDiagram
+    participant M as Mensch
+    participant PIP as pip
+    participant INS as agentkit install
+    participant PROJ as Zielprojekt
+
+    M->>PIP: pip install agentkit
+    Note over PIP: Python-Paket global/venv verfügbar
+    M->>INS: agentkit install --gh-owner acme --gh-repo platform
+    INS->>PROJ: 13 Checkpoints ausführen
+    Note over PROJ: .story-pipeline.yaml<br/>.claude/settings.json (Hooks)<br/>skills/, prompts/, schemas/<br/>.installed-manifest.json
+```
+
+**Keine Docker-Abhängigkeit für AgentKit selbst.** Docker wird nur
+für optionale externe Dienste benötigt (Weaviate).
+
+### 10.2.2 Laufzeitabhängigkeiten
+
+| Abhängigkeit | Pflicht/Optional | Prüfung |
+|-------------|-----------------|---------|
+| Python 3.14 | Pflicht | Installer Checkpoint 1 |
+| Git ≥ 2.30 | Pflicht | Installer Checkpoint 2 |
+| `gh` CLI | Pflicht | Installer Checkpoint 2 |
+| Claude Code | Pflicht | Voraussetzung (nicht geprüft) |
+| LLM-Pools (MCP) | Pflicht: mind. 2 verschiedene Pools zusätzlich zu Claude (Schicht 2 fordert verschiedene LLMs für QA-Review und Semantic Review) | Integrity-Gate bei Closure prüft konfigurierte `llm_roles` gegen Telemetrie |
+| Weaviate + MCP-Wrapper | Optional (`vectordb: true`) | Installer Checkpoint 9 |
+| ARE (MCP) | Optional (`are: true`) | Installer prüft Erreichbarkeit des MCP-Servers |
+
+**LLM-Pool-Anforderung im Detail:**
+
+Das FK fordert neben Claude mindestens ein weiteres LLM, idealerweise
+zwei (FK-06-090). Jeder Pool ist optional, aber die Summe muss die
+`llm_roles`-Konfiguration bedienen können:
+
+| Konfiguration | Pools nötig | Bewertung |
+|--------------|------------|-----------|
+| Nur Claude (kein Pool) | 0 | Unzulässig — Multi-LLM ist Pflicht |
+| Claude + 1 Pool | 1 | Unzulässig — Schicht 2 Verify fordert zwei verschiedene LLMs für QA-Review und Semantic Review |
+| Claude + 2 Pools (z.B. ChatGPT + Gemini) | 2 | Minimum — qa_review und semantic_review auf verschiedenen Pools |
+| Claude + 3 Pools (ChatGPT + Gemini + Grok) | 3 | Empfohlen — maximale Diversität |
+
+Die `llm_roles`-Konfiguration in `.story-pipeline.yaml` ordnet Rollen
+konkreten Pools zu. Das Integrity-Gate prüft bei Closure, dass für
+jede konfigurierte Rolle mindestens ein `llm_call`-Event mit dem
+zugeordneten Pool in der Telemetrie vorliegt.
+
+### 10.2.3 Kein zentraler Server
+
+AgentKit hat keinen eigenen Server-Prozess. Alles läuft als:
+- Kurzlebige CLI-Aufrufe (Pipeline-Skripte)
+- Kurzlebige Hook-Prozesse (PreToolUse/PostToolUse)
+- Dateisystem-I/O (Artefakte, Telemetrie, Locks)
+
+Die einzigen dauerhaft laufenden Prozesse sind externe Dienste
+(LLM-Pools, Weaviate), die unabhängig von AgentKit gestartet werden.
+
+## 10.3 Verzeichnisstruktur
+
+### 10.3.1 Zielprojekt nach Installation
+
+```
+{projekt-root}/
+├── .story-pipeline.yaml            # Pipeline-Konfiguration (Kap. 03)
+├── .installed-manifest.json        # Installations-Manifest (Kap. 50)
+├── .claude/
+│   ├── settings.json               # Hook-Registrierung
+│   └── ccag/
+│       └── rules/                  # CCAG-Regeln (Kap. 42)
+│           ├── global.yaml
+│           ├── main-agent.yaml
+│           ├── subagents.yaml
+│           └── approved.yaml
+│
+├── .agent-guard/
+│   └── context.json                # Branch-Guard-Kontext (aktiver Worktree)
+│
+├── prompts/                        # Rollenprompts (Kap. 08)
+│   ├── orchestrator-system.md
+│   ├── worker-implementation.md
+│   ├── worker-bugfix.md
+│   ├── worker-concept.md
+│   ├── worker-research.md
+│   ├── worker-remediation.md
+│   ├── worker-exploration.md
+│   ├── adversarial-testing.md
+│   ├── qa-semantic.md
+│   ├── qa-guardrail.md
+│   └── sparring/                   # LLM-Sparring-Templates
+│
+├── skills/                         # Skills (Kap. 43)
+│   ├── create-userstory/
+│   ├── execute-userstory/
+│   ├── lookup-userstory/
+│   └── manage-requirements/
+│
+├── tools/
+│   ├── hooks/                      # Git-Hooks (pre-push)
+│   └── qa/
+│       └── schemas/                # JSON Schemas (Kap. 03)
+│
+├── stories/                        # Story-Verzeichnisse
+│   ├── INDEX.md
+│   └── ODIN-042_implement-broker-api/
+│       └── ...
+│
+├── concepts/                       # Konzept-Dokumente
+│
+├── _guardrails/                    # Guardrail-Dokumente
+│
+├── _temp/                          # Temporäre Laufzeitdaten (Story-gebunden)
+│   ├── qa/                         # QA-Artefakte pro Story
+│   │   └── {story_id}/
+│   │       ├── context.json
+│   │       ├── structural.json
+│   │       ├── llm-review.json
+│   │       ├── semantic-review.json
+│   │       ├── adversarial.json
+│   │       ├── decision.json
+│   │       ├── closure.json
+│   │       ├── phase-state.json
+│   │       └── integrity-violations.log
+│   │
+│   ├── agentkit.db                  # SQLite Telemetrie-DB (alle Stories)
+│   ├── story-telemetry/            # JSONL-Export bei Closure (Archiv)
+│   │   └── {story_id}.jsonl
+│   │
+│   ├── governance/                  # Governance-Laufzeitdaten
+│   │   ├── .story-execution-active  # Marker: Story-Umsetzung läuft
+│   │   ├── locks/                   # Sperrdateien pro Story (Kap. 02.7)
+│   │   │   └── {story_id}/
+│   │   │       └── qa-lock.json
+│   │   └── risk-window.json         # Rolling Window (Governance-Beobachtung)
+│   │
+│   └── adversarial/                 # Adversarial-Test-Sandbox (Kap. 02)
+│       └── {story_id}/
+│
+└── .agentkit/                      # Permanente AgentKit-Daten
+    └── failure-corpus/              # Failure Corpus (Kap. 41) — NICHT in _temp!
+        ├── incidents.jsonl          # Langfristig, projektübergreifend
+        ├── patterns.jsonl
+        └── checks/
+            └── CHK-{NNNN}/
+```
+
+### 10.3.2 Verzeichnis-Ownership
+
+| Verzeichnis | Schreiber | Leser | Schutz |
+|-------------|----------|-------|--------|
+| `_temp/qa/{story_id}/` | Pipeline-Skripte | Orchestrator, QA-Agents | Lock-Datei + Hook (Kap. 02.7) |
+| `_temp/agentkit.db` | Hook-Prozesse + Pipeline-Skripte (INSERT) | Integrity-Gate, Postflight, Governance (SELECT) | SQLite serialisiert Writes intern |
+| `_temp/story-telemetry/` | Closure-Skript (JSONL-Export) | Mensch, Archivierung | Export-only, nicht Laufzeit-Speicher |
+| `_temp/governance/` | Pipeline-Skripte | Hooks | Nur Pipeline schreibt |
+| `_temp/governance/locks/` | Setup-/Closure-Skripte | Hooks | Nur Pipeline schreibt |
+| `_temp/adversarial/{story_id}/` | Adversarial Agent | Pipeline (Promotion-Skript) | Ephemer, nach Promotion löschbar |
+| `.agentkit/failure-corpus/` | Governance-Beobachtung, Pipeline | Failure-Corpus-Engine | Append-only, permanent |
+| `prompts/`, `skills/`, `schemas/` | Installer | Agents (read-only) | Vom Installer deployt |
+| `.story-pipeline.yaml` | Mensch, Installer | Alle Pipeline-Komponenten | Menschlich editierbar |
+
+## 10.4 Persistenz und Datenflüsse
+
+### 10.4.1 Was wird wo gespeichert
+
+| Daten | Speicher | Format | Lebensdauer |
+|-------|---------|--------|-------------|
+| Pipeline-Konfiguration | `.story-pipeline.yaml` | YAML | Permanent (projektweite Config) |
+| Story-Zustände (extern) | GitHub Project Board | Custom Fields | Permanent |
+| Story-Zustände (intern) | `_temp/qa/{id}/phase-state.json` | JSON | Bis Story-Closure |
+| Story-Context (Snapshot) | `_temp/qa/{id}/context.json` | JSON | Bis Story-Closure |
+| QA-Ergebnisse | `_temp/qa/{id}/*.json` | JSON (Envelope) | Bis Story-Closure (danach archivierbar) |
+| Telemetrie (Laufzeit) | `_temp/agentkit.db` | SQLite | Permanent (eine DB für alle Stories) |
+| Telemetrie (Archiv) | `_temp/story-telemetry/{id}.jsonl` | JSONL | Export bei Closure, danach archivierbar |
+| Locks | `_temp/governance/locks/{id}/` | JSON | Während Story-Lauf (danach gelöscht) |
+| Failure Corpus | `.agentkit/failure-corpus/` | JSONL + Verzeichnisse | Permanent (projektübergreifend, nicht in `_temp/`) |
+| Konzept-Dokumente | `concepts/` | Markdown | Permanent |
+| Story-Dokumentation | `stories/{id}_{slug}/` | Markdown + JSON | Permanent |
+| Installations-Manifest | `.installed-manifest.json` | JSON | Permanent |
+| VektorDB-Inhalte | Weaviate (Docker Volume) | Weaviate-intern | Permanent (reindexierbar) |
+
+### 10.4.2 Cleanup-Strategie
+
+| Was | Wann | Wie |
+|-----|------|-----|
+| QA-Artefakte (`_temp/qa/{id}/`) | Nach Story-Closure + Postflight | Archivierbar, nicht automatisch gelöscht |
+| Telemetrie (`_temp/story-telemetry/{id}.jsonl`) | Nach Story-Closure | Archivierbar, nicht automatisch gelöscht |
+| Locks (`_temp/governance/locks/{id}/`) | Closure-Skript entfernt sie | Automatisch bei Closure; stale Locks via PID+TTL |
+| Adversarial-Sandbox (`_temp/adversarial/{id}/`) | Nach Test-Promotion durch Pipeline | Automatisch löschbar |
+| Worktree | Closure-Phase (teardown) | `git worktree remove` |
+| Story-Branch | Closure-Phase (nach Merge) | `git branch -d` |
+
+**Kein automatisches Löschen von QA-Artefakten und Telemetrie.**
+Diese Daten sind Audit-Trail und Grundlage für den Failure Corpus.
+Archivierung ist eine manuelle Entscheidung des Menschen.
+
+## 10.5 Locking und Parallelität
+
+### 10.5.1 Parallelitätsszenarien
+
+| Szenario | Möglich? | Mechanismus |
+|----------|----------|-------------|
+| Mehrere Stories parallel | Ja | Jede Story hat eigenen Worktree, eigene QA-Verzeichnisse, eigene Locks, eigene Telemetrie-Datei |
+| Mehrere Sub-Agents parallel | Ja (innerhalb einer Story) | Claude Code spawnt Sub-Agents als parallele Sessions |
+| Mehrere Pipeline-Skripte parallel | Nein | Phase Runner steuert sequentiell |
+| Mehrere Hook-Prozesse parallel | Ja | Verschiedene Sub-Agent-Sessions lösen gleichzeitig Hooks aus |
+
+### 10.5.2 Konfliktzonen
+
+| Konfliktzone | Risiko | Absicherung |
+|-------------|--------|-------------|
+| SQLite-Telemetrie (mehrere Hooks schreiben gleichzeitig) | Write-Contention | SQLite serialisiert Writes intern (WAL-Modus empfohlen) |
+| Lock-Dateien (mehrere Stories parallel) | Falsche Zuordnung | Story-spezifische Lock-Verzeichnisse (`locks/{story_id}/`) |
+| QA-Artefakte | Überschreiben durch falschen Prozess | Sperrdatei + Hook blockiert Sub-Agents; Producer-Check im Integrity-Gate |
+| Git-Worktree | Branch-Konflikte | Jede Story hat eigenen Branch (`story/{story_id}`) |
+| GitHub-Issue-Status | Race Condition bei parallelen Status-Updates | Pipeline aktualisiert Status nur bei Phasenwechsel (sequentiell pro Story) |
+
+### 10.5.3 Idempotenz
+
+Alle Pipeline-Skripte müssen idempotent sein:
+
+| Skript | Idempotenz-Garantie |
+|--------|-------------------|
+| Preflight | Prüft nur, ändert nichts. Wiederholbar. |
+| Setup (Worktree) | Prüft ob Worktree existiert, erstellt nur wenn nicht vorhanden. |
+| Structural Checks | Liest nur, schreibt Ergebnis. Wiederholbar (überschreibt vorheriges Ergebnis). |
+| LLM-Evaluator | Sendet an Pool, schreibt Ergebnis. Wiederholbar (überschreibt). |
+| Closure | Nicht pauschal idempotent — Closure hat sequentielle Seiteneffekte über verschiedene Systeme (Merge, Issue-Close, Metriken, Postflight). Wird über persistierte Substates abgesichert: `integrity_passed`, `merge_done`, `issue_closed`, `metrics_written`, `postflight_done`. Bei Crash: Recovery setzt beim letzten bestätigten Substate wieder an. |
+| Postflight | Prüft nur, ändert nichts. Wiederholbar. |
+
+## 10.6 Fehlerbehandlung und Recovery
+
+### 10.6.1 Absturz-Szenarien
+
+| Szenario | Zustand nach Absturz | Recovery |
+|----------|---------------------|---------|
+| Claude-Code-Session crashed | Worktree existiert, Lock aktiv, Telemetrie unvollständig | PID-basierte Lock-Erkennung (Kap. 02.7). Neuer Run mit neuer `run_id`, bestehender Worktree wird wiederverwendet. |
+| Pipeline-Skript crashed | QA-Artefakt möglicherweise unvollständig | Phase Runner kann Phase wiederholen. Idempotente Skripte. |
+| Hook-Prozess crashed | Tool-Call wird blockiert (fail-closed: kein exit(0) = blockiert) | Claude Code behandelt Hook-Fehler als Blockade. Agent erhält Fehlermeldung. |
+| LLM-Pool nicht erreichbar | Pool-Call schlägt fehl | Retry-Logik im LLM-Evaluator (1 Retry). Bei Scheitern: Check = FAIL (fail-closed). |
+| Weaviate nicht erreichbar | VektorDB-Suche schlägt fehl | Story-Erstellung kann ohne VektorDB fortfahren (Warnung). Kein fail-closed — VektorDB ist Optimierung, nicht Pflichtgate. |
+| GitHub nicht erreichbar | API-Calls schlagen fehl | Preflight scheitert → Story startet nicht. Closure scheitert → Eskalation an Mensch. |
+
+### 10.6.2 Recovery-Protokoll
+
+Bei einem abgebrochenen Story-Run:
+
+1. Mensch erkennt Problem (Stagnation, Fehlermeldung, Lock-Timeout)
+2. Mensch prüft Zustand: `_temp/qa/{story_id}/phase-state.json`
+3. Stale Locks werden via PID-Prüfung automatisch erkannt
+4. Neuer Run mit `agentkit run-phase setup --story {id}` —
+   Preflight erkennt bestehenden Worktree/Branch und kann
+   konfigurierbar damit umgehen (abbrechen oder wiederverwenden)
+5. Alternativ: Manuelles Cleanup via
+   `agentkit cleanup --story {id}` (Worktree, Branch, Locks, Artefakte)
+
+## 10.7 Service-Port-Katalog
+
+### 10.7.1 Uebersicht
+
+Alle Services im Dunstkreis von AgentKit und seiner
+Softwareentwicklungsumgebung sind im Portbereich 9000-9999
+angesiedelt. Einzige Ausnahme: PostgreSQL auf dem Standardport.
+
+```
+Portbereich-Schema:
+
+  5432        PostgreSQL (Standardport, ausserhalb 9000er-Block)
+  9100-9400   LLM-Pools (MCP-Server, Browser-Automation)
+  9500-9699   Reserviert (frei fuer kuenftige LLM-Pools oder Services)
+  9700-9799   AgentKit-eigene Services
+  9800-9899   Fachliche Integrationen
+  9900-9999   DevOps- und Infrastruktur-Services
+```
+
+### 10.7.2 Service-Tabelle
+
+| Port | Service | Kategorie | Protokoll | Pflicht/Optional | Autostart |
+|------|---------|-----------|-----------|-----------------|-----------|
+| 5432 | PostgreSQL | Dateninfrastruktur | TCP | Optional (spaetere Analytics-Evolutionsstufe, FK-60 P8) | Systemdienst |
+| 9100 | ChatGPT Pool | LLM-Pool | MCP (HTTP+SSE) | Optional (mind. 1 Pool Pflicht) | Windows Startup `.pyw` |
+| 9200 | Gemini Pool | LLM-Pool | MCP (HTTP+SSE) | Optional | Windows Startup `.pyw` |
+| 9300 | Qwen Pool | LLM-Pool | MCP (HTTP+SSE) | Optional | Windows Startup `.pyw` |
+| 9400 | Grok Pool | LLM-Pool | MCP (HTTP+SSE) | Optional | Windows Startup `.pyw` |
+| 9700 | AgentKit KPI Dashboard | AgentKit | HTTP (Chart.js SPA) | Optional | `agentkit dashboard` |
+| 9800 | ARE Server | Fachliche Integration | MCP | Optional (FK-40) | Manuell |
+| 9900 | Jenkins (Web-UI) | CI/CD | HTTP | Optional (externe Stage-Registry, FK-33) | Docker Compose |
+| 9901 | SonarQube | Code-Qualitaet | HTTP | Optional (externe Stage-Registry, FK-33) | Systemdienst |
+| 9902 | Jenkins (Agent-Port) | CI/CD | TCP | Optional (Jenkins-Agent-Kommunikation) | Docker Compose |
+| 9903 | Weaviate (VektorDB) | Dateninfrastruktur | HTTP + gRPC | Optional (FK-13) | Docker Compose |
+
+### 10.7.3 Designregeln
+
+- **LLM-Pools**: 9100-9400 (ein Port pro Pool, aufsteigend).
+  Neue Pools erhalten den naechsten freien Port in diesem Bereich.
+- **AgentKit-Services**: 9700-9799. Aktuell nur Dashboard.
+  Kuenftige AgentKit-eigene Services (z.B. Analytics-API) hier.
+- **Fachliche Integrationen**: 9800-9899. ARE und kuenftige
+  externe Fachservices.
+- **DevOps/Infra**: 9900-9999. Jenkins, SonarQube, Weaviate
+  und kuenftige Infrastruktur-Services.
+- **PostgreSQL**: Bleibt auf Standardport 5432. Kein Grund
+  fuer einen nicht-standard Port bei einem Datenbankserver.
+
+### 10.7.4 Konfiguration
+
+Die Ports sind konfigurierbar:
+
+| Service | Konfigurationsort | Default |
+|---------|-------------------|---------|
+| LLM-Pools | MCP-Server-Konfiguration in `.claude/settings.json` + Pool-Startup-Skripte | 9100/9200/9300/9400 |
+| Dashboard | `agentkit dashboard --port N` | 9700 |
+| ARE | `.story-pipeline.yaml` → `are.base_url` | 9800 |
+| Weaviate | `.story-pipeline.yaml` → `vectordb.url` | 9903 |
+| Jenkins/SonarQube | `.story-pipeline.yaml` → Stage-Registry `external_tools` | 9900/9901 (Jenkins Agent: 9902) |
+| PostgreSQL | Umgebungsvariable oder Connection-String (spaeter) | 5432 |
+
+---
+
+*FK-Referenzen: FK-05-067 (Worktree-Isolation),
+FK-06-004/005 (Hook-Enforcement ueber Plattform),
+FK-08-002 (JSONL pro Story),
+FK-11-001 bis FK-11-009 (Installation/Checkpoints)*

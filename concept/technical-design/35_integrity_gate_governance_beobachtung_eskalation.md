@@ -1,0 +1,648 @@
+---
+concept_id: FK-35
+title: Integrity-Gate, Governance-Beobachtung und Eskalation
+module: integrity-gate
+status: active
+doc_kind: core
+parent_concept_id:
+authority_over:
+  - scope: integrity-gate
+  - scope: governance-observation
+  - scope: escalation
+defers_to:
+  - target: FK-30
+    scope: hook-infrastructure
+    reason: Governance observation sensors are embedded in the hook infrastructure
+  - target: FK-33
+    scope: deterministic-checks
+    reason: Integrity-Gate validates that all stage artifacts from deterministic checks exist
+  - target: FK-34
+    scope: llm-evaluation
+    reason: Integrity-Gate validates that LLM evaluation artifacts exist
+supersedes: []
+superseded_by:
+tags: [integrity-gate, governance-observation, escalation, anomaly-detection, closure]
+---
+
+# 35 — Integrity-Gate, Governance-Beobachtung und Eskalation
+
+## 35.1 Zweck
+
+Dieses Kapitel beschreibt die drei Governance-Mechanismen, die
+über die einzelnen Guards (Kap. 30/31) und die Verify-Pipeline
+(Kap. 33/34) hinausgehen:
+
+1. **Integrity-Gate:** Letzte Verteidigungslinie vor Closure.
+   Prüft nicht den Inhalt der Ergebnisse, sondern ob der
+   definierte Prozess tatsächlich und vollständig durchlaufen
+   wurde (FK-06-071 bis FK-06-094).
+
+2. **Governance-Beobachtung:** Kontinuierliche Anomalie-Erkennung
+   während der gesamten Story-Bearbeitung. Kein eigenständiger
+   Agent, sondern eingebettet in die Hook-Infrastruktur
+   (FK-06-095 bis FK-06-129).
+
+3. **Eskalation:** Einheitliches Verhalten bei Pipeline-Stopps,
+   die menschliche Intervention erfordern.
+
+## 35.2 Integrity-Gate
+
+### 35.2.1 Wann
+
+Unmittelbar vor dem Merge, als erster Schritt der Closure-Phase.
+Der Phase Runner ruft das Integrity-Gate **als Python-Funktion**
+auf — nicht als Hook. Das Gate muss vor dem Merge greifen, damit
+kein invalidierter Run Code auf Main bringt.
+
+**Nicht als Hook auf `gh issue close`:** Das wäre zu spät — der
+Merge wäre zu dem Zeitpunkt bereits passiert. Das Gate ist ein
+deterministisches Skript, aufgerufen vom Phase Runner
+(`_phase_closure()` → `check_integrity()` → bei PASS: Merge).
+
+### 35.2.2 Was es NICHT prüft
+
+Das Integrity-Gate prüft nicht die fachliche Qualität der
+Implementierung — das ist Aufgabe der Verify-Phase. Es prüft
+nur die **Prozess-Integrität**: Wurden alle Schritte durchlaufen?
+Existieren alle Artefakte? Wurden sie von den richtigen
+Prozessschritten erzeugt?
+
+### 35.2.3 Pflicht-Artefakt-Pruefung (FK-35-110 bis FK-35-113)
+
+**VOR** der Dimensionspruefung validiert das Gate die Existenz aller
+Pflicht-Artefakte. Fehlende Pflicht-Artefakte sind ein sofortiger
+harter Blocker — die Dimensionspruefung wird gar nicht erst
+gestartet.
+
+| Pflicht-Artefakt | Bedeutung bei Fehlen | FAIL-Code |
+|------------------|---------------------|-----------|
+| `structural.json` | Structural Checks wurden nicht ausgefuehrt | `MISSING_STRUCTURAL` |
+| `decision.json` | Policy-Evaluation hat nicht stattgefunden | `MISSING_DECISION` |
+| `context.json` | Story-Context wurde nicht aufgebaut | `MISSING_CONTEXT` |
+
+**Empirischer Beleg (BB2-012):** `decision.json` fehlte, trotzdem
+lief Closure durch und das Issue wurde geschlossen. Das war ein
+konkreter Defekt in der Gate-Logik. Die Pflicht-Artefakt-Pruefung
+als Vorstufe stellt sicher, dass dieser Fehler nicht mehr auftreten
+kann — die 8-Dimensionen-Pruefung wird bei fehlenden Artefakten
+gar nicht erst erreicht.
+
+```python
+def check_mandatory_artifacts(story_id: str) -> list[str]:
+    """Prueft Pflicht-Artefakte VOR der Dimensionspruefung.
+
+    Returns: Liste der FAIL-Codes. Leere Liste = alle vorhanden.
+    """
+    qa_dir = Path(f"_temp/qa/{story_id}")
+    failures: list[str] = []
+
+    mandatory = {
+        "structural.json": "MISSING_STRUCTURAL",
+        "decision.json": "MISSING_DECISION",
+        "context.json": "MISSING_CONTEXT",
+    }
+
+    for filename, fail_code in mandatory.items():
+        if not (qa_dir / filename).exists():
+            failures.append(fail_code)
+
+    return failures
+```
+
+**Aufruf im Gate:**
+
+```python
+def check_integrity(story_id: str, run_id: str) -> IntegrityResult:
+    # Phase 1: Pflicht-Artefakte
+    missing = check_mandatory_artifacts(story_id)
+    if missing:
+        return IntegrityResult(
+            status="FAIL",
+            failed_codes=missing,
+            phase="mandatory_artifacts",
+        )
+
+    # Phase 2: 8-Dimensionen-Pruefung (nur wenn Phase 1 PASS)
+    dimension_failures = check_dimensions(story_id, run_id)
+    # ...
+```
+
+**Provenienz:** Kap. 03, §3.6 (Integrity-Gate, Pflicht-Artefakt-
+Pruefung).
+
+### 35.2.4 Acht Artefakt-Dimensionen
+
+| Dim | Prüfgegenstand | FAIL-Code | Prüfung |
+|-----|---------------|-----------|---------|
+| 1 | **QA-Verzeichnis** | `NO_QA_DIR` | `_temp/qa/{story_id}/` existiert |
+| 2 | **Context-Integrität** | `CONTEXT_INVALID` | `context.json` vorhanden, `status == PASS`, hat `story_id`, hat `run_id` |
+| 3 | **Structural-Check-Tiefe** | `STRUCTURAL_SHALLOW` | `structural.json` > 500 Bytes, >= 5 Checks, Producer = `qa-structural-check` |
+| 4 | **Policy-Decision** | `DECISION_INVALID` | `decision.json` > 200 Bytes, hat `major_threshold`, Producer = `qa-policy-engine` |
+| 5 | **LLM-Bewertungen** | `NO_LLM_REVIEW` | Bei implementation/bugfix: `llm-review.json` + `semantic-review.json` existieren, Status != SKIPPED |
+| 6 | **Adversarial-Ergebnis** | `NO_ADVERSARIAL` | Bei implementation/bugfix: `adversarial.json` existiert, > 200 Bytes, Producer = `qa-adversarial` |
+| 7 | **Verify-Phase** | `NO_VERIFY` | `phase-state.json` mit `phase == verify` und `status == COMPLETED`, Producer = `run-phase` |
+| 8 | **Timestamp-Kausalität** | `TIMESTAMP_INVERSION` | `context.json.finished_at` < `decision.json.finished_at` |
+
+### 35.2.5 Telemetrie-Nachweise
+
+Zusätzlich zu den Artefakt-Dimensionen prüft das Gate konkrete
+Events in der SQLite-Telemetrie-DB:
+
+| Nachweis | SQL-Query | FAIL-Code |
+|----------|----------|-----------|
+| Worker gestartet | `SELECT COUNT(*) FROM events WHERE story_id=? AND event_type='agent_start'` >= 1 | `NO_AGENT_START` |
+| Worker beendet | `SELECT COUNT(*) FROM events WHERE story_id=? AND event_type='agent_end'` >= 1 | `NO_AGENT_END` |
+| Pflicht-Reviewer aufgerufen | Pro konfigurierter `llm_roles`-Rolle: `SELECT COUNT(*) FROM events WHERE story_id=? AND event_type='llm_call' AND role=?` >= 1 | `MISSING_LLM_{role}` |
+| Reviews über Templates | `COUNT(review_compliant) >= COUNT(review_request)` | `REVIEW_NOT_COMPLIANT` |
+| Keine Guard-Verletzungen | `SELECT COUNT(*) FROM events WHERE story_id=? AND event_type='integrity_violation'` = 0 | `HAS_VIOLATIONS` |
+| Web-Call-Limit (nur Research) | `SELECT COUNT(*) FROM events WHERE story_id=? AND event_type='web_call'` <= Config-Limit | `WEB_BUDGET_EXCEEDED` |
+| Adversarial Sparring (nur impl) | `SELECT COUNT(*) FROM events WHERE story_id=? AND event_type='adversarial_sparring'` >= 1 | `NO_ADVERSARIAL_SPARRING` |
+| Adversarial Test ausgeführt (nur impl) | `SELECT COUNT(*) FROM events WHERE story_id=? AND event_type='adversarial_test_executed'` >= 1 | `NO_ADVERSARIAL_TEST_EXECUTION` |
+| Preflight-Compliance (wenn Preflight stattfand) | `COUNT(preflight_request) > 0 → COUNT(preflight_compliant) >= COUNT(preflight_request)` | `PREFLIGHT_NOT_COMPLIANT` |
+| Finding-Resolution vollstaendig (nur Runde 2+) | Kein Finding mit `partially_resolved` oder `not_resolved` im Layer-2-Output (`llm-review.json`, Checks mit `resolution`-Feld) | `OPEN_FINDINGS` |
+
+**Hinweis zu `OPEN_FINDINGS` (FK-35-114):** Dieser Nachweis wird
+nur in Remediation-Runden (Runde 2+) ausgewertet. In Runde 1
+existieren keine Vorrunden-Findings und damit keine Resolution-
+Stati. Der Nachweis belegt, dass alle Review-Findings vollstaendig
+aufgeloest sind — Remediation hat kein Finding offen gelassen.
+Die Quelle ist der Layer-2-QA-Review-Output, nicht Worker-
+Zusammenfassungen (Trust C, nicht autoritativ).
+
+**Provenienz:** Kap. 04, §4.6 (Finding-Resolution und Remediation-
+Haertung). Kap. 25, §25.10a (Finding-Resolution als Closure-Gate).
+
+**Hinweis zu `PREFLIGHT_NOT_COMPLIANT`:** Dieser Failure-Code
+wird NUR ausgewertet wenn `preflight_request_count > 0`. Es
+gibt keinen Failure-Code für fehlenden Preflight — Preflight
+ist optional (fail-open). Aber wenn Preflight stattfand, muss
+er konsistent sein (fail-closed). Siehe Kap. 14.9.3.
+
+**Prüfung gegen Konfiguration:** Das Gate liest `llm_roles`
+aus der Pipeline-Config und prüft ob für **jede konfigurierte
+Pflicht-Rolle** mindestens ein `llm_call`-Event mit dem
+zugeordneten `role`-Wert vorliegt. Es kennt keine Anbieternamen.
+
+### 35.2.6 Modus-abhängige Prüfung
+
+| Story-Modus | Zusätzliche Prüfungen |
+|------------|----------------------|
+| Exploration Mode | Entwurfsartefakt existiert (`entwurfsartefakt.json`), Dokumententreue Ebene 2 (`llm_call` mit `role=doc_fidelity` und `level=design`) |
+| Execution Mode | Dokumententreue Ebene 3 (`llm_call` mit `role=doc_fidelity` und `level=impl`) |
+
+**Dokumententreue Ebene 4 (Rückkopplungstreue)** wird NICHT im
+Integrity-Gate geprüft. Sie läuft nach dem Merge (Kap. 32.8) und
+kann daher zeitlich nicht vor dem Merge nachgewiesen werden.
+
+### 35.2.7 Opake Fehlermeldung
+
+Bei FAIL sieht der Agent nur:
+
+```
+GOVERNANCE VIOLATION DETECTED.
+Immediately stop all work. Do not attempt any further actions,
+fixes, retries, or workarounds.
+Report to the project owner.
+```
+
+Der Agent erfährt nicht, welche Dimension gescheitert ist. Das
+verhindert gezieltes Nachliefern der fehlenden Dimension.
+
+### 35.2.8 Audit-Log
+
+Die konkreten FAIL-Codes werden in die SQLite-DB geschrieben:
+
+```python
+insert_event(
+    story_id=story_id,
+    run_id=run_id,
+    event_type="integrity_gate_result",
+    payload={
+        "status": "FAIL",
+        "failed_codes": ["NO_LLM_REVIEW", "REVIEW_NOT_COMPLIANT"],
+        "dimensions_checked": 7,
+        "telemetry_checks": 8,
+    },
+)
+```
+
+Der Mensch kann die Details abfragen:
+
+```bash
+agentkit query-telemetry --story ODIN-042 --event integrity_gate_result
+```
+
+### 35.2.9 Bei Scheitern
+
+Phase-State: `status: ESCALATED`. Story bleibt "In Progress".
+Orchestrator stoppt. Mensch muss Audit-Log prüfen und entscheiden:
+- Prozess nachvollziehen und Ursache beheben → neuer Run
+- Bewusster Override (z.B. bei bekanntem Infrastruktur-Problem)
+  → `agentkit override-integrity --story {id} --reason "..."`
+
+## 35.3 Governance-Beobachtung
+
+### 35.3.1 Architektur (FK 6.6)
+
+Die Governance-Beobachtung ist **kein eigenständiger Agent**,
+sondern eine in die bestehende Infrastruktur eingebettete
+Governance-Schicht aus drei Komponenten:
+
+```mermaid
+flowchart TD
+    subgraph SENSORIK ["Sensorik (billig, deterministisch)"]
+        HOOKS["Hook-Signale<br/>(jede Aktion in Echtzeit)"]
+        PHASEN["Phasen-Skript-Signale<br/>(Fortschritt über Zeit)"]
+    end
+
+    HOOKS --> NORM["Event-Normalisierung<br/>+ Rolling Window"]
+    PHASEN --> NORM
+
+    NORM --> SCHWELLE{"Risikoscore ><br/>Schwellenwert?"}
+
+    SCHWELLE -->|Nein| WEITER["Nur zählen,<br/>nicht analysieren"]
+    SCHWELLE -->|Ja| INCIDENT["Incident-Kandidat<br/>erzeugen"]
+
+    INCIDENT --> ADJUD["LLM-Adjudication<br/>(StructuredEvaluator)"]
+
+    ADJUD --> MASSNAHME["Deterministische<br/>Maßnahme"]
+```
+
+### 35.3.2 Sensorik: Hook-basierte Anomalie-Signale
+
+Hooks sammeln Signale bei jeder Agent-Aktion. Keine LLM-Aufrufe
+in der Sensorik — nur billige, deterministische Heuristiken
+(FK-06-098).
+
+| Signal | Was erkannt wird | Risikopunkte | FK |
+|--------|-----------------|-------------|-----|
+| Orchestrator liest/schreibt Code | Rollenverletzung | +10 | FK-06-099 |
+| Orchestrator führt Bash ohne aktiven Sub-Agent | Orchestrator arbeitet selbst | +8 | FK-06-100 |
+| Schreiben außerhalb Story-Scope | Scope-Verletzung | +8 | FK-06-101 |
+| Governance-Dateien verändert | Manipulationsversuch | **Sofortiger Stopp** | FK-06-102 |
+| Zugriff auf Secrets/Credentials | Sicherheitskritisch | **Sofortiger Stopp** | FK-06-103 |
+
+### 35.3.3 Sensorik: Phasen-Skript-basierte Anomalie-Signale
+
+Phasen-Skripte sehen Fortschritt und Outcomes über längere
+Zeiträume. Sie laufen bei Phasenwechseln oder periodisch.
+
+| Signal | Was erkannt wird | Risikopunkte | FK |
+|--------|-----------------|-------------|-----|
+| >= 3 identische QA-Fails in Folge | Retry-Loop ohne Zustandsänderung | +15 | FK-06-104 |
+| Story ohne Phasenfortschritt >= 4 Stunden | Stagnation | +12 | FK-06-105 |
+| Hoher Edit-Revert-Churn | Agent ändert und verwirft wiederholt | +10 | FK-06-106 |
+| Sub-Agent scheitert mehrfach ohne Artefakt | Non-konvergierende Ausführung | +12 | FK-06-107 |
+| Wiederholte Architektur-/Scope-Drifts im selben Run | Systematisches Abweichen | +15 | FK-06-108 |
+
+### 35.3.4 Event-Normalisierung
+
+Hooks normalisieren jede Aktion zu einem kompakten Record
+(FK-06-109):
+
+```sql
+INSERT INTO events (story_id, run_id, ts, event_type, payload)
+VALUES (?, ?, datetime('now'), 'governance_signal', ?);
+```
+
+Payload:
+```json
+{
+  "actor": "orchestrator",
+  "phase": "implementation",
+  "tool_class": "bash",
+  "target_path": "/src/main/java/...",
+  "risk_flags": ["code_write"],
+  "risk_points": 10
+}
+```
+
+### 35.3.5 Rolling Window und Risikoscore
+
+Events werden in einem Rolling Window akkumuliert. Das Window
+wird als SQLite-Query realisiert — kein separater In-Memory-
+Zustand nötig:
+
+```python
+def current_risk_score(story_id: str, window_size: int = 50) -> int:
+    with sqlite3.connect(DB_PATH) as conn:
+        rows = conn.execute(
+            """SELECT payload FROM events
+               WHERE story_id = ? AND event_type = 'governance_signal'
+               ORDER BY ts DESC LIMIT ?""",
+            (story_id, window_size),
+        ).fetchall()
+    return sum(
+        json.loads(r[0]).get("risk_points", 0)
+        for r in rows
+    )
+```
+
+**Konfiguration:**
+
+| Parameter | Default | Config-Pfad |
+|-----------|---------|-------------|
+| Window-Breite | 50 Events | `governance.window_size` |
+| Risikoscore-Schwelle | 30 | `governance.risk_threshold` |
+| Cooldown | 300 Sekunden | `governance.cooldown_s` |
+
+### 35.3.6 Incident-Kandidat
+
+Bei Schwellenüberschreitung wird ein Incident-Kandidat erzeugt —
+eine verdichtete Episode aus den korrelierten Events im Window
+(FK-06-112):
+
+```python
+def create_incident_candidate(story_id: str, window_events: list) -> dict:
+    return {
+        "story_id": story_id,
+        "created_at": now_iso(),
+        "risk_score": sum(e["risk_points"] for e in window_events),
+        "event_count": len(window_events),
+        "dominant_signals": most_frequent_signals(window_events),
+        "evidence_summary": summarize_events(window_events),
+        "time_span_s": time_span(window_events),
+    }
+```
+
+Nur der Incident-Kandidat geht an das LLM — nicht der rohe
+Eventstrom (FK-06-113).
+
+### 35.3.7 LLM-Adjudication
+
+Das LLM ist nicht der Wächter, sondern der Richter über
+vorselektierte Fälle (FK-06-114). Es klassifiziert, entscheidet
+nicht.
+
+**Aufruf über StructuredEvaluator:**
+
+```python
+evaluator.evaluate(
+    role="governance_adjudication",
+    prompt_template=Path("prompts/governance-adjudication.md"),
+    context={
+        "incident_candidate": candidate,
+        "story_context": story_context_summary,
+    },
+    expected_checks=["incident_classification"],
+    story_id=story_id,
+    run_id=run_id,
+)
+```
+
+**Response-Schema (eigenes Schema, nicht CheckResult):**
+
+Die Governance-Adjudication nutzt ein dediziertes JSON-Schema
+mit expliziten Feldern für Incident-Klassifikation — kein
+Freitext-Parsing aus `description`:
+
+```json
+{
+  "incident_type": "role_violation",
+  "severity": "high",
+  "confidence": 0.9,
+  "evidence_summary": "12 Code-Write-Aktionen vom Orchestrator in 15 Minuten, kein aktiver Sub-Agent",
+  "recommended_action": "pause_story"
+}
+```
+
+| Feld | Typ | Werte |
+|------|-----|-------|
+| `incident_type` | String | `role_violation`, `scope_drift`, `retry_loop`, `stagnation`, `governance_manipulation`, `secret_access` |
+| `severity` | String | `low`, `medium`, `high`, `critical` |
+| `confidence` | Float | 0.0 - 1.0 |
+| `evidence_summary` | String | Menschenlesbare Zusammenfassung |
+| `recommended_action` | String | `log_only`, `document_incident`, `increase_monitoring`, `pause_story`, `stop_process` |
+
+Das LLM wird im Prompt angewiesen, ausschließlich in diesem
+Format zu antworten. Der StructuredEvaluator validiert die
+Antwort gegen dieses Schema (nicht gegen CheckResult).
+
+### 35.3.8 Deterministische Maßnahmen
+
+Die finale Entscheidung über Maßnahmen ist **deterministisch und
+regelbasiert**, nicht LLM-abhängig (FK-06-117):
+
+| Situation | Maßnahme | FK |
+|-----------|---------|-----|
+| Harter Governance-Verstoß (Secrets, Governance-Manipulation) | **Sofortiger Stopp** — kein LLM nötig, direkt aus Hook | FK-06-118 |
+| `severity: critical` + `confidence >= 0.8` | **Story pausieren** — Phase-State: PAUSED. Mensch benachrichtigen. | FK-06-119 |
+| `severity: high` + `confidence < 0.8` | **Incident dokumentieren** — Failure Corpus. Erhöhtes Monitoring (Schwelle temporär senken). | FK-06-120 |
+| `severity: medium` | **Incident im Failure Corpus** — nur protokollieren | FK-06-121 |
+| `severity: low` | **Nur Governance-Log** — Telemetrie-Event, kein Incident | FK-06-122 |
+
+**"Incident ja/nein" und "Prozess stoppen ja/nein" sind zwei
+verschiedene Entscheidungen** (FK-06-123). Ein Incident kann
+nur dokumentiert werden, zu erhöhtem Monitoring führen, die Story
+pausieren oder den Prozess stoppen.
+
+### 35.3.9 Übergabe an den Failure Corpus (FK-35-088)
+
+Incident-Kandidaten, die von der Governance-Beobachtung identifiziert
+werden, fließen als Eingabe in den Failure Corpus ein und dienen
+dort als Material für die Pattern-Promotion (Kap. 41). Ein
+Incident-Kandidat ist kein abgeschlossener Befund, sondern ein
+Signal: Wurde er durch die LLM-Adjudication als `severity: medium`
+oder höher klassifiziert, wird er automatisch in den Failure-Corpus-
+Eingang geschrieben. Dort können aufeinanderfolgende gleichartige
+Incidents zu einem Muster promoviert werden, das in neue Guards oder
+Prozessregeln mündet.
+
+### 35.3.10 Performance-Schutz (FK-06-125 bis FK-06-129)
+
+| Maßnahme | Beschreibung |
+|----------|-------------|
+| Hooks: nur billige Checks | Kein LLM pro Event, nur Pfad-Match, Counter, Phasen-Regel |
+| Rolling Window als SQL-Query | Kein In-Memory-State, SQLite übernimmt die Arbeit |
+| LLM nur bei Schwellenüberschreitung | Nicht bei jedem auffälligen Event |
+| Deduplizierung | Gleicher Signal-Typ → Cooldown (Default: 300s) bevor erneut LLM aufgerufen wird |
+| Normale Aktionen nur gezählt | Erwartete, risikofreie Aktionen erzeugen kein `governance_signal`-Event, nur reguläre Telemetrie |
+
+### 35.3.11 Cooldown-Mechanismus
+
+```python
+def should_adjudicate(story_id: str, signal_type: str,
+                      cooldown_s: int = 300) -> bool:
+    with sqlite3.connect(DB_PATH) as conn:
+        last = conn.execute(
+            """SELECT MAX(ts) FROM events
+               WHERE story_id = ? AND event_type = 'governance_adjudication'
+               AND payload LIKE ?""",
+            (story_id, f'%"{signal_type}"%'),
+        ).fetchone()[0]
+    if last is None:
+        return True
+    return (now() - parse_ts(last)).total_seconds() > cooldown_s
+```
+
+## 35.4 Eskalation
+
+### 35.4.1 Einheitliches Verhalten (FK-05-218 bis FK-05-222)
+
+Bei jeder Eskalation — egal welcher Auslöser — gilt dasselbe
+Verhalten:
+
+1. Story bleibt im GitHub-Status "In Progress"
+2. Phase-State wird auf `status: ESCALATED` (oder `PAUSED`) gesetzt
+3. Orchestrator stoppt die Bearbeitung dieser Story
+4. Orchestrator nimmt **keine** weiteren Aktionen für diese Story vor
+5. Mensch muss aktiv intervenieren
+6. Erst nach menschlicher Intervention kann die Story wieder
+   in die Pipeline eingespeist werden
+
+### 35.4.2 Eskalationspunkte (vollständig)
+
+| Auslöser | Phase | Phase-State | Resume |
+|----------|-------|------------|--------|
+| Preflight FAIL | setup | FAILED | `agentkit cleanup` + neuer Run |
+| Dokumententreue Ebene 2 FAIL | exploration | ESCALATED | `agentkit reset-escalation` → neuer Run |
+| Offene Punkte brauchen Freigabe | exploration | PAUSED | `agentkit resume` nach Freigabe |
+| Max Feedback-Runden erschöpft | verify | ESCALATED | Story anpassen, dann neuer Run |
+| Impact-Violation (Execution Mode) | verify | ESCALATED | Issue-Metadaten korrigieren |
+| Integrity-Gate FAIL | closure | ESCALATED | Audit-Log prüfen, Ursache beheben |
+| Merge-Konflikt | closure | ESCALATED | Mensch löst Konflikt manuell |
+| Governance: kritischer Incident | jede | PAUSED | `agentkit resume` nach Prüfung |
+| Governance: harter Verstoß (Secrets, Manipulation) | jede | ESCALATED | Sicherheits-Review, dann neuer Run |
+
+### 35.4.3 PAUSED vs. ESCALATED
+
+| Status | Bedeutung | Typischer Auslöser | Resume-Pfad |
+|--------|-----------|-------------------|-------------|
+| `PAUSED` | Vorübergehend angehalten, kann fortgesetzt werden | Governance-Incident, menschliche Freigabe nötig | `agentkit resume --story {id}` |
+| `ESCALATED` | Dauerhaft gestoppt für diese Iteration | Integrity-Gate FAIL, Merge-Konflikt, Max Runden | `agentkit reset-escalation --story {id}` → neuer Run |
+
+**Unterschied:** Bei PAUSED wird derselbe Run fortgesetzt.
+Bei ESCALATED wird ein neuer Run gestartet (neue `run_id`).
+
+### 35.4.4 CLI-Befehle
+
+```bash
+# Story-Status abfragen
+agentkit status --story ODIN-042
+
+# Pausierte Story fortsetzen
+agentkit resume --story ODIN-042
+
+# Eskalation zurücksetzen (neuer Run möglich)
+agentkit reset-escalation --story ODIN-042
+
+# Integrity-Gate bewusst overriden (mit Begründung)
+agentkit override-integrity --story ODIN-042 --reason "VNC login expired, gemini pool unavailable"
+
+# Audit-Log der letzten Eskalation anzeigen
+agentkit query-telemetry --story ODIN-042 --event integrity_gate_result
+```
+
+### 35.4.5 Override-Mechanismus
+
+In seltenen Fällen muss der Mensch das Integrity-Gate bewusst
+overriden — z.B. wenn ein LLM-Pool während des Runs nicht
+erreichbar war und deshalb Telemetrie-Nachweise fehlen.
+
+```bash
+agentkit override-integrity --story ODIN-042 --reason "..."
+```
+
+Das Override wird in der Telemetrie-DB protokolliert:
+
+```sql
+INSERT INTO events (story_id, run_id, ts, event_type, payload)
+VALUES (?, ?, datetime('now'), 'integrity_override',
+        '{"reason": "...", "overridden_by": "human"}');
+```
+
+Das Override setzt den Phase-State auf `COMPLETED` und erlaubt
+die Closure fortzusetzen. Es wird im nächsten Failure-Corpus-
+Review sichtbar — damit der Mensch entscheiden kann, ob hier
+ein systemisches Problem vorliegt.
+
+## 35.5 Zusammenspiel der drei Mechanismen
+
+```
+    Guards (Kap. 30/31)              Governance-Beobachtung (35.3)
+    ├── Blockieren Einzelaktionen     ├── Erkennt Muster über Zeit
+    ├── Hook-basiert, sofort          ├── Rolling Window, Schwellenwert
+    └── Immer oder bei Sperrdatei    └── LLM-Adjudication bei Anomalie
+         │                                 │
+         │ (bei Blockade)                  │ (bei Schwelle)
+         ▼                                 ▼
+    integrity_violation Event         governance_signal Events
+         │                                 │
+         └──────────────┬──────────────────┘
+                        │
+                        ▼
+              Integrity-Gate (35.2)
+              ├── Prüft bei Closure: Alle Events da?
+              ├── Prüft: Keine Violations?
+              ├── Prüft: Artefakte vollständig + korrekt?
+              └── PASS → Closure | FAIL → Eskalation
+```
+
+**Guards** verhindern Einzelaktionen in Echtzeit.
+**Governance-Beobachtung** erkennt Muster über die Zeit.
+**Integrity-Gate** stellt am Ende sicher, dass der gesamte
+Prozess korrekt durchlaufen wurde.
+
+Alle drei schreiben in dieselbe SQLite-Telemetrie-DB. Das
+Integrity-Gate ist der finale Konsistenz-Check über alles.
+
+## 35.6 Preflight-Compliance in Recurring Guards
+
+### 35.6.1 TelemetrySnapshot-Erweiterung
+
+`TelemetrySnapshot` (in `qa/recurring_guards.py`) wird um zwei
+Felder für den Preflight-Stream erweitert:
+
+| Feld | Typ | Berechnung |
+|------|-----|-----------|
+| `preflight_request_count` | `int` | `count_events(story_id, EventType.PREFLIGHT_REQUEST)` |
+| `preflight_compliant_count` | `int` | `count_events(story_id, EventType.PREFLIGHT_COMPLIANT)` |
+
+Diese Felder werden zusammen mit den bestehenden Snapshot-Feldern
+(z.B. `review_request_count`, `review_compliant_count`) beim
+Erstellen des Snapshots befüllt.
+
+### 35.6.2 Neuer Guard: `check_guard_preflight_compliance()`
+
+```python
+def check_guard_preflight_compliance(
+    snapshot: TelemetrySnapshot,
+) -> GuardResult:
+    """Prüft Preflight-Compliance: wenn Preflight stattfand,
+    muss er compliant sein.
+
+    Nur ausgewertet wenn preflight_request_count > 0.
+    Warning-Level, nicht story-blocking (MAJOR).
+    """
+    if snapshot.preflight_request_count == 0:
+        return GuardResult(status="SKIP", reason="Kein Preflight stattgefunden")
+    if snapshot.preflight_compliant_count >= snapshot.preflight_request_count:
+        return GuardResult(status="PASS")
+    return GuardResult(
+        status="WARNING",
+        reason=(
+            f"Preflight inkonsistent: {snapshot.preflight_compliant_count} "
+            f"compliant von {snapshot.preflight_request_count} requests"
+        ),
+    )
+```
+
+**Designentscheidung:** Dieser Guard ist Warning-Level, nicht
+MAJOR. Er blockiert die Story nicht eigenständig. Das
+Integrity-Gate (§35.2.5) prüft denselben Sachverhalt mit dem
+Failure-Code `PREFLIGHT_NOT_COMPLIANT` — dort ist es blocking.
+
+Der Guard dient der frühzeitigen Erkennung: wenn der Preflight-
+Stream inkonsistent wird, soll das bereits während der
+Implementation auffallen, nicht erst bei Closure.
+
+---
+
+*FK-Referenzen: FK-06-071 bis FK-06-094 (Integrity-Gate komplett),
+FK-06-095 bis FK-06-129 (Governance-Beobachtung komplett),
+FK-05-215 bis FK-05-222 (Eskalationsverhalten),
+FK-35-100 bis FK-35-105 (Preflight-Compliance, TelemetrySnapshot-
+Erweiterung, Recurring Guard `check_guard_preflight_compliance`),
+FK-35-110 bis FK-35-113 (Pflicht-Artefakt-Pruefung vor
+Dimensionspruefung, BB2-012 Defekt-Absicherung),
+FK-35-114 (Finding-Resolution-Proof in Telemetrie-Nachweisen)*
