@@ -52,6 +52,7 @@ def list_project_items(
         "--owner", owner,
         "--format", "json",
         "--limit", "500",
+        owner=owner,
     )
     if not isinstance(result, dict):
         raise IntegrationError(
@@ -92,6 +93,7 @@ def add_issue_to_project(
         "--owner", owner,
         "--url", issue_url,
         "--format", "json",
+        owner=owner,
     )
     if not isinstance(result, dict):
         raise IntegrationError(
@@ -112,6 +114,8 @@ def _update_project_field(
     item_id: str,
     field_id: str,
     value_payload: str,
+    *,
+    owner: str | None = None,
 ) -> None:
     """Run the updateProjectV2ItemFieldValue GraphQL mutation.
 
@@ -121,6 +125,7 @@ def _update_project_field(
         field_id: The field node ID (e.g. ``PVTF_...`` or ``PVTSSF_...``).
         value_payload: The GraphQL ``value`` object as a JSON-like string
             fragment, e.g. ``'{singleSelectOptionId: "abc"}'``.
+        owner: Optional repository owner for token routing.
 
     Raises:
         IntegrationError: On GraphQL errors.
@@ -139,11 +144,16 @@ def _update_project_field(
       }}
     }}
     """
-    run_gh_graphql(query)
+    run_gh_graphql(query, owner=owner)
 
 
 def set_field_single_select(
-    project_id: str, item_id: str, field_id: str, option_id: str
+    project_id: str,
+    item_id: str,
+    field_id: str,
+    option_id: str,
+    *,
+    owner: str | None = None,
 ) -> None:
     """Set a single-select custom field (e.g. Status).
 
@@ -152,6 +162,7 @@ def set_field_single_select(
         item_id: The item node ID.
         field_id: The field node ID.
         option_id: The option node ID to select.
+        owner: Optional repository owner for token routing.
 
     Raises:
         IntegrationError: On GraphQL errors.
@@ -159,11 +170,17 @@ def set_field_single_select(
     _update_project_field(
         project_id, item_id, field_id,
         f'{{singleSelectOptionId: "{option_id}"}}',
+        owner=owner,
     )
 
 
 def set_field_text(
-    project_id: str, item_id: str, field_id: str, value: str
+    project_id: str,
+    item_id: str,
+    field_id: str,
+    value: str,
+    *,
+    owner: str | None = None,
 ) -> None:
     """Set a text custom field.
 
@@ -172,6 +189,7 @@ def set_field_text(
         item_id: The item node ID.
         field_id: The field node ID.
         value: The text value to set.
+        owner: Optional repository owner for token routing.
 
     Raises:
         IntegrationError: On GraphQL errors.
@@ -181,11 +199,17 @@ def set_field_text(
     _update_project_field(
         project_id, item_id, field_id,
         f'{{text: "{escaped}"}}',
+        owner=owner,
     )
 
 
 def set_field_number(
-    project_id: str, item_id: str, field_id: str, value: float
+    project_id: str,
+    item_id: str,
+    field_id: str,
+    value: float,
+    *,
+    owner: str | None = None,
 ) -> None:
     """Set a number custom field.
 
@@ -194,6 +218,7 @@ def set_field_number(
         item_id: The item node ID.
         field_id: The field node ID.
         value: The numeric value to set.
+        owner: Optional repository owner for token routing.
 
     Raises:
         IntegrationError: On GraphQL errors.
@@ -201,11 +226,17 @@ def set_field_number(
     _update_project_field(
         project_id, item_id, field_id,
         f"{{number: {value}}}",
+        owner=owner,
     )
 
 
 def set_field_date(
-    project_id: str, item_id: str, field_id: str, value: str
+    project_id: str,
+    item_id: str,
+    field_id: str,
+    value: str,
+    *,
+    owner: str | None = None,
 ) -> None:
     """Set a date custom field (ISO 8601).
 
@@ -214,6 +245,7 @@ def set_field_date(
         item_id: The item node ID.
         field_id: The field node ID.
         value: The date value in ISO 8601 format (e.g. ``"2024-01-15"``).
+        owner: Optional repository owner for token routing.
 
     Raises:
         IntegrationError: On GraphQL errors.
@@ -221,6 +253,7 @@ def set_field_date(
     _update_project_field(
         project_id, item_id, field_id,
         f'{{date: "{value}"}}',
+        owner=owner,
     )
 
 
@@ -243,6 +276,7 @@ def get_project_field_ids(
         "project", "field-list", str(project_number),
         "--owner", owner,
         "--format", "json",
+        owner=owner,
     )
     if not isinstance(result, dict):
         raise IntegrationError(
@@ -280,6 +314,7 @@ def get_project_field_options(
         "project", "field-list", str(project_number),
         "--owner", owner,
         "--format", "json",
+        owner=owner,
     )
     if not isinstance(result, dict):
         raise IntegrationError(

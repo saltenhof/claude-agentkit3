@@ -17,7 +17,7 @@ Project operations:
 
 from __future__ import annotations
 
-from agentkit.integrations.github.client import run_gh
+from agentkit.integrations.github.client import resolve_token_for_owner, run_gh
 from agentkit.integrations.github.issues import (
     IssueData,
     add_comment,
@@ -46,5 +46,6 @@ __all__ = [
     "list_project_items",
     "remove_labels",
     "reopen_issue",
+    "resolve_token_for_owner",
     "run_gh",
 ]

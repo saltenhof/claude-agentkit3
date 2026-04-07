@@ -73,6 +73,7 @@ def get_issue(owner: str, repo: str, issue_nr: int) -> IssueData:
         "issue", "view", str(issue_nr),
         "--repo", f"{owner}/{repo}",
         "--json", "number,title,state,body,labels,url",
+        owner=owner,
     )
     if not isinstance(result, dict):
         from agentkit.exceptions import IntegrationError
@@ -117,7 +118,7 @@ def create_issue(
         cmd.extend(["--label", ",".join(labels)])
 
     # gh issue create returns the URL of the new issue on stdout
-    url_output = run_gh(*cmd).strip()
+    url_output = run_gh(*cmd, owner=owner).strip()
 
     # Extract issue number from the URL (last path segment)
     issue_nr = int(url_output.rstrip("/").split("/")[-1])
@@ -140,6 +141,7 @@ def close_issue(owner: str, repo: str, issue_nr: int) -> None:
     run_gh(
         "issue", "close", str(issue_nr),
         "--repo", f"{owner}/{repo}",
+        owner=owner,
     )
 
 
@@ -157,6 +159,7 @@ def reopen_issue(owner: str, repo: str, issue_nr: int) -> None:
     run_gh(
         "issue", "reopen", str(issue_nr),
         "--repo", f"{owner}/{repo}",
+        owner=owner,
     )
 
 
@@ -176,6 +179,7 @@ def add_labels(owner: str, repo: str, issue_nr: int, labels: list[str]) -> None:
         "issue", "edit", str(issue_nr),
         "--repo", f"{owner}/{repo}",
         "--add-label", ",".join(labels),
+        owner=owner,
     )
 
 
@@ -197,6 +201,7 @@ def remove_labels(
         "issue", "edit", str(issue_nr),
         "--repo", f"{owner}/{repo}",
         "--remove-label", ",".join(labels),
+        owner=owner,
     )
 
 
@@ -216,4 +221,5 @@ def add_comment(owner: str, repo: str, issue_nr: int, body: str) -> None:
         "issue", "comment", str(issue_nr),
         "--repo", f"{owner}/{repo}",
         "--body", body,
+        owner=owner,
     )
