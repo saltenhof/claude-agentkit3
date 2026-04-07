@@ -1,0 +1,613 @@
+"""Pipeline interpreter that executes workflow definitions.
+
+The engine is the bridge between the declarative workflow DSL (topology)
+and the imperative phase handlers (execution). It evaluates preconditions,
+guards, calls phase handlers, persists state atomically, and records
+attempt history for audit trails.
+
+The engine does NOT make LLM calls or contain business logic -- that
+responsibility belongs to the phase handlers.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
+
+from agentkit.exceptions import PipelineError
+from agentkit.pipeline.state import (
+    AttemptRecord,
+    load_attempts,
+    save_attempt,
+    save_phase_snapshot,
+    save_phase_state,
+)
+from agentkit.story.models import PhaseSnapshot, PhaseState, PhaseStatus, StoryContext
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from agentkit.pipeline.lifecycle import (
+        HandlerResult,
+        PhaseHandler,
+        PhaseHandlerRegistry,
+    )
+    from agentkit.pipeline.workflow.model import (
+        PhaseDefinition,
+        TransitionRule,
+        WorkflowDefinition,
+    )
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class EngineResult:
+    """Result of an engine operation (run_phase or resume_phase).
+
+    Tells the orchestrator what happened so it can decide what to do next.
+
+    Args:
+        status: One of ``"phase_completed"``, ``"yielded"``, ``"failed"``,
+            ``"escalated"``, or ``"blocked"``.
+        phase: Name of the current or just-completed phase.
+        yield_status: Descriptive yield reason (only when
+            ``status == "yielded"``).
+        next_phase: Suggested next phase name (only when
+            ``status == "phase_completed"`` and a valid transition exists).
+        errors: Error detail messages.
+        attempt_id: Unique identifier for this execution attempt.
+    """
+
+    status: str
+    phase: str
+    yield_status: str | None = None
+    next_phase: str | None = None
+    errors: tuple[str, ...] = ()
+    attempt_id: str | None = None
+
+
+class PipelineEngine:
+    """Interprets a WorkflowDefinition by coordinating handlers and state.
+
+    The engine is the bridge between the declarative DSL (topology) and
+    the imperative phase handlers (execution). It:
+
+    - Evaluates preconditions before entering a phase
+    - Evaluates guards on transitions
+    - Calls phase handlers (on_enter, on_exit, on_resume)
+    - Persists state atomically after each step
+    - Records attempt history
+    - Handles yield/resume cycles
+
+    The engine does NOT make LLM calls or do any business logic.
+    That's the handler's job.
+
+    Args:
+        workflow: The immutable workflow definition describing topology.
+        registry: Registry mapping phase names to handler implementations.
+        story_dir: Root directory for this story's persistent artifacts.
+    """
+
+    def __init__(
+        self,
+        workflow: WorkflowDefinition,
+        registry: PhaseHandlerRegistry,
+        story_dir: Path,
+    ) -> None:
+        self._workflow = workflow
+        self._registry = registry
+        self._story_dir = story_dir
+
+    def run_phase(
+        self, ctx: StoryContext, state: PhaseState,
+    ) -> EngineResult:
+        """Run the current phase through its handler.
+
+        Steps:
+            1. Look up current phase definition in workflow.
+            2. Evaluate preconditions -- if ANY fails, return ``"blocked"``.
+            3. Get handler from registry.
+            4. Call ``handler.on_enter(ctx, state)``.
+            5. Based on ``HandlerResult``:
+               - COMPLETED: call ``handler.on_exit``, save snapshot,
+                 evaluate transitions for next phase.
+               - PAUSED: save state with yield_status, return ``"yielded"``.
+               - FAILED/ESCALATED/BLOCKED: save state, return matching status.
+            6. Persist state and attempt record.
+
+        Args:
+            ctx: The story context for this pipeline run.
+            state: The current phase state.
+
+        Returns:
+            An ``EngineResult`` describing the outcome.
+
+        Raises:
+            PipelineError: If the phase is not defined in the workflow
+                or no handler is registered for it.
+        """
+        phase_name = state.phase
+
+        # 1. Look up phase definition
+        phase_def = self._workflow.get_phase(phase_name)
+        if phase_def is None:
+            raise PipelineError(
+                f"Phase '{phase_name}' is not defined in workflow "
+                f"'{self._workflow.name}'",
+                detail={
+                    "phase": phase_name,
+                    "workflow": self._workflow.name,
+                    "defined_phases": list(self._workflow.phase_names),
+                },
+            )
+
+        # 2. Evaluate preconditions
+        can_enter, failure_reasons = self.can_enter_phase(
+            phase_name, ctx, state,
+        )
+        if not can_enter:
+            attempt_id = self._generate_attempt_id(phase_name)
+            blocked_state = PhaseState(
+                story_id=state.story_id,
+                phase=phase_name,
+                status=PhaseStatus.BLOCKED,
+                errors=failure_reasons,
+                attempt_id=attempt_id,
+            )
+            save_phase_state(self._story_dir, blocked_state)
+            attempt = AttemptRecord(
+                attempt_id=attempt_id,
+                phase=phase_name,
+                entered_at=datetime.now(tz=UTC),
+                exit_status=PhaseStatus.BLOCKED,
+                outcome="blocked",
+            )
+            save_attempt(self._story_dir, attempt)
+            return EngineResult(
+                status="blocked",
+                phase=phase_name,
+                errors=tuple(failure_reasons),
+                attempt_id=attempt_id,
+            )
+
+        # 3. Get handler (raises PipelineError if not registered)
+        handler = self._registry.get_handler(phase_name)
+
+        # Generate attempt ID and evaluate guards for audit trail
+        attempt_id = self._generate_attempt_id(phase_name)
+        guard_evals = self._evaluate_guards(phase_def, ctx, state)
+
+        # 4. Call handler.on_enter, catching exceptions
+        try:
+            result = handler.on_enter(ctx, state)
+        except Exception as exc:
+            return self._handle_handler_exception(
+                phase_name, attempt_id, guard_evals, exc,
+                story_id=state.story_id,
+            )
+
+        # 5. Process handler result
+        return self._process_handler_result(
+            ctx, state, phase_def, handler, result,
+            attempt_id, guard_evals,
+        )
+
+    def resume_phase(
+        self,
+        ctx: StoryContext,
+        state: PhaseState,
+        trigger: str,
+    ) -> EngineResult:
+        """Resume a yielded phase after external input.
+
+        Steps:
+            1. Verify ``state.status`` is ``PAUSED``.
+            2. Verify trigger is valid for the current yield point.
+            3. Call ``handler.on_resume(ctx, state, trigger)``.
+            4. Process result same as ``run_phase`` step 5.
+
+        Args:
+            ctx: The story context for this pipeline run.
+            state: The current phase state (must be PAUSED).
+            trigger: The resume trigger event name.
+
+        Returns:
+            An ``EngineResult`` describing the outcome. Returns
+            ``status="failed"`` if the state is not PAUSED or the
+            trigger is not valid for the current yield point.
+        """
+        phase_name = state.phase
+
+        # 1. Verify state is PAUSED
+        if state.status != PhaseStatus.PAUSED:
+            return EngineResult(
+                status="failed",
+                phase=phase_name,
+                errors=(
+                    f"Cannot resume phase '{phase_name}': status is "
+                    f"'{state.status.value}', expected 'paused'",
+                ),
+            )
+
+        # Look up phase definition
+        phase_def = self._workflow.get_phase(phase_name)
+        if phase_def is None:
+            raise PipelineError(
+                f"Phase '{phase_name}' is not defined in workflow "
+                f"'{self._workflow.name}'",
+                detail={
+                    "phase": phase_name,
+                    "workflow": self._workflow.name,
+                },
+            )
+
+        # 2. Verify trigger is valid for a yield point
+        valid_trigger = False
+        for yp in phase_def.yield_points:
+            if yp.status == state.paused_reason and trigger in yp.resume_triggers:
+                valid_trigger = True
+                break
+
+        if not valid_trigger:
+            return EngineResult(
+                status="failed",
+                phase=phase_name,
+                errors=(
+                    f"Invalid resume trigger '{trigger}' for phase "
+                    f"'{phase_name}' with paused_reason "
+                    f"'{state.paused_reason}'",
+                ),
+            )
+
+        # 3. Get handler and call on_resume
+        handler = self._registry.get_handler(phase_name)
+        attempt_id = self._generate_attempt_id(phase_name)
+        guard_evals = self._evaluate_guards(phase_def, ctx, state)
+
+        try:
+            result = handler.on_resume(ctx, state, trigger)
+        except Exception as exc:
+            return self._handle_handler_exception(
+                phase_name, attempt_id, guard_evals, exc,
+                story_id=state.story_id,
+            )
+
+        # 4. Process result same as run_phase
+        return self._process_handler_result(
+            ctx, state, phase_def, handler, result,
+            attempt_id, guard_evals, resume_trigger=trigger,
+        )
+
+    def evaluate_transitions(
+        self, ctx: StoryContext, state: PhaseState,
+    ) -> TransitionRule | None:
+        """Find the first valid transition from the current phase.
+
+        Evaluates guards in definition order. Returns the first
+        transition whose guard passes (or that has no guard). Returns
+        ``None`` if no transition is available.
+
+        Args:
+            ctx: The story context.
+            state: The current phase state.
+
+        Returns:
+            The first matching ``TransitionRule``, or ``None``.
+        """
+        transitions = self._workflow.get_transitions_from(state.phase)
+        for transition in transitions:
+            if transition.guard is None:
+                return transition
+            guard_result = transition.guard(ctx, state)
+            if guard_result.passed:
+                return transition
+        return None
+
+    def can_enter_phase(
+        self,
+        phase_name: str,
+        ctx: StoryContext,
+        state: PhaseState,
+    ) -> tuple[bool, list[str]]:
+        """Check whether a phase's preconditions are met.
+
+        Only evaluates preconditions whose ``when`` condition matches
+        (or that have no ``when`` condition).
+
+        Args:
+            phase_name: The phase to check.
+            ctx: The story context.
+            state: The current phase state.
+
+        Returns:
+            A tuple of ``(True, [])`` if all preconditions pass, or
+            ``(False, [list of failure reasons])`` if any fail.
+        """
+        phase_def = self._workflow.get_phase(phase_name)
+        if phase_def is None:
+            return (True, [])
+
+        if not phase_def.preconditions:
+            return (True, [])
+
+        failures: list[str] = []
+        for precondition in phase_def.preconditions:
+            # Skip preconditions whose `when` condition does not apply
+            if precondition.when is not None:
+                try:
+                    applies = precondition.when(ctx, state)
+                except Exception:
+                    # If the when-condition itself fails, treat as applicable
+                    applies = True
+                if not applies:
+                    continue
+
+            guard_result = precondition.guard(ctx, state)
+            if not guard_result.passed:
+                reason = guard_result.reason or "Precondition failed"
+                failures.append(reason)
+
+        if failures:
+            return (False, failures)
+        return (True, [])
+
+    def _generate_attempt_id(self, phase: str) -> str:
+        """Generate a unique attempt ID like ``'setup-001'``.
+
+        Counts existing attempts for the phase and increments.
+
+        Args:
+            phase: The phase name.
+
+        Returns:
+            A string like ``"setup-001"`` or ``"verify-003"``.
+        """
+        existing = load_attempts(self._story_dir, phase)
+        next_num = len(existing) + 1
+        return f"{phase}-{next_num:03d}"
+
+    def _evaluate_guards(
+        self,
+        phase: PhaseDefinition,
+        ctx: StoryContext,
+        state: PhaseState,
+    ) -> list[dict[str, object]]:
+        """Evaluate all guards on a phase and return evaluation records.
+
+        Each record contains the guard name, whether it passed, and
+        any failure reason. This is used for the audit trail in
+        ``AttemptRecord``.
+
+        Args:
+            phase: The phase definition containing guards.
+            ctx: The story context.
+            state: The current phase state.
+
+        Returns:
+            List of guard evaluation dictionaries.
+        """
+        evaluations: list[dict[str, object]] = []
+        for guard_fn in phase.guards:
+            guard_name = getattr(guard_fn, "guard_name", str(guard_fn))
+            try:
+                result = guard_fn(ctx, state)
+                evaluations.append({
+                    "guard": guard_name,
+                    "passed": result.passed,
+                    "reason": result.reason,
+                })
+            except Exception as exc:
+                evaluations.append({
+                    "guard": guard_name,
+                    "passed": False,
+                    "reason": f"Guard raised exception: {exc}",
+                })
+        return evaluations
+
+    def _process_handler_result(
+        self,
+        ctx: StoryContext,
+        state: PhaseState,
+        phase_def: PhaseDefinition,
+        handler: PhaseHandler,
+        result: HandlerResult,
+        attempt_id: str,
+        guard_evals: list[dict[str, object]],
+        *,
+        resume_trigger: str | None = None,
+    ) -> EngineResult:
+        """Process a handler result and persist state and attempt records.
+
+        Called by both ``run_phase`` and ``resume_phase`` after the
+        handler has returned.
+
+        Args:
+            ctx: The story context.
+            state: The phase state before the handler ran.
+            phase_def: The phase definition.
+            handler: The handler instance (for calling on_exit).
+            result: The handler's result.
+            attempt_id: The attempt identifier.
+            guard_evals: Guard evaluation records for the audit trail.
+            resume_trigger: If resuming, the trigger that was used.
+
+        Returns:
+            An ``EngineResult`` for the orchestrator.
+        """
+        phase_name = state.phase
+
+        if result.status == PhaseStatus.COMPLETED:
+            # Call on_exit
+            try:
+                handler.on_exit(ctx, state)
+            except Exception as exc:
+                logger.warning(
+                    "on_exit raised for phase '%s': %s", phase_name, exc,
+                )
+
+            # Save phase snapshot
+            snapshot = PhaseSnapshot(
+                story_id=state.story_id,
+                phase=phase_name,
+                status=PhaseStatus.COMPLETED,
+                completed_at=datetime.now(tz=UTC),
+                artifacts=list(result.artifacts_produced),
+            )
+            save_phase_snapshot(self._story_dir, snapshot)
+
+            # Update and persist phase state
+            completed_state = PhaseState(
+                story_id=state.story_id,
+                phase=phase_name,
+                status=PhaseStatus.COMPLETED,
+                attempt_id=attempt_id,
+            )
+            save_phase_state(self._story_dir, completed_state)
+
+            # Save attempt record
+            attempt = AttemptRecord(
+                attempt_id=attempt_id,
+                phase=phase_name,
+                entered_at=datetime.now(tz=UTC),
+                exit_status=PhaseStatus.COMPLETED,
+                guard_evaluations=tuple(guard_evals),
+                artifacts_produced=result.artifacts_produced,
+                outcome="phase_completed",
+                resume_trigger=resume_trigger,
+            )
+            save_attempt(self._story_dir, attempt)
+
+            # Evaluate transitions for next phase
+            transition = self.evaluate_transitions(ctx, completed_state)
+            next_phase = transition.target if transition else None
+
+            return EngineResult(
+                status="phase_completed",
+                phase=phase_name,
+                next_phase=next_phase,
+                attempt_id=attempt_id,
+            )
+
+        if result.status == PhaseStatus.PAUSED:
+            # Save paused state
+            paused_state = PhaseState(
+                story_id=state.story_id,
+                phase=phase_name,
+                status=PhaseStatus.PAUSED,
+                paused_reason=result.yield_status,
+                attempt_id=attempt_id,
+            )
+            save_phase_state(self._story_dir, paused_state)
+
+            # Save attempt record
+            attempt = AttemptRecord(
+                attempt_id=attempt_id,
+                phase=phase_name,
+                entered_at=datetime.now(tz=UTC),
+                exit_status=PhaseStatus.PAUSED,
+                guard_evaluations=tuple(guard_evals),
+                artifacts_produced=result.artifacts_produced,
+                outcome="yielded",
+                yield_status=result.yield_status,
+                resume_trigger=resume_trigger,
+            )
+            save_attempt(self._story_dir, attempt)
+
+            return EngineResult(
+                status="yielded",
+                phase=phase_name,
+                yield_status=result.yield_status,
+                attempt_id=attempt_id,
+            )
+
+        # FAILED, ESCALATED, BLOCKED
+        status_map = {
+            PhaseStatus.FAILED: "failed",
+            PhaseStatus.ESCALATED: "escalated",
+            PhaseStatus.BLOCKED: "blocked",
+        }
+        engine_status = status_map.get(result.status, "failed")
+
+        error_state = PhaseState(
+            story_id=state.story_id,
+            phase=phase_name,
+            status=result.status,
+            errors=list(result.errors),
+            attempt_id=attempt_id,
+        )
+        save_phase_state(self._story_dir, error_state)
+
+        attempt = AttemptRecord(
+            attempt_id=attempt_id,
+            phase=phase_name,
+            entered_at=datetime.now(tz=UTC),
+            exit_status=result.status,
+            guard_evaluations=tuple(guard_evals),
+            artifacts_produced=result.artifacts_produced,
+            outcome=engine_status,
+            resume_trigger=resume_trigger,
+        )
+        save_attempt(self._story_dir, attempt)
+
+        return EngineResult(
+            status=engine_status,
+            phase=phase_name,
+            errors=result.errors,
+            attempt_id=attempt_id,
+        )
+
+    def _handle_handler_exception(
+        self,
+        phase_name: str,
+        attempt_id: str,
+        guard_evals: list[dict[str, object]],
+        exc: Exception,
+        *,
+        story_id: str,
+    ) -> EngineResult:
+        """Handle an exception raised by a phase handler.
+
+        Persists a FAILED state and attempt record, then returns
+        an ``EngineResult`` with ``status="failed"``.
+
+        Args:
+            phase_name: The phase that was executing.
+            attempt_id: The attempt identifier.
+            guard_evals: Guard evaluation records for the audit trail.
+            exc: The exception that was raised.
+            story_id: The story identifier for the failed state.
+
+        Returns:
+            An ``EngineResult`` with ``status="failed"`` and error details.
+        """
+        error_msg = f"Handler for phase '{phase_name}' raised: {exc}"
+        logger.error(error_msg, exc_info=exc)
+
+        failed_state = PhaseState(
+            story_id=story_id,
+            phase=phase_name,
+            status=PhaseStatus.FAILED,
+            errors=[error_msg],
+            attempt_id=attempt_id,
+        )
+        save_phase_state(self._story_dir, failed_state)
+
+        attempt = AttemptRecord(
+            attempt_id=attempt_id,
+            phase=phase_name,
+            entered_at=datetime.now(tz=UTC),
+            exit_status=PhaseStatus.FAILED,
+            guard_evaluations=tuple(guard_evals),
+            outcome="failed",
+        )
+        save_attempt(self._story_dir, attempt)
+
+        return EngineResult(
+            status="failed",
+            phase=phase_name,
+            errors=(error_msg,),
+            attempt_id=attempt_id,
+        )

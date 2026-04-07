@@ -1,0 +1,11 @@
+story_id: AG3-001
+title: "Workflow-DSL fuer die 5-Phasen-Pipeline"
+type: concept
+status: in_progress
+phase: exploration
+created: "2026-04-07"
+sparring_status: round_1_complete
+sparring_participants:
+  - chatgpt
+  - grok
+  - qwen
