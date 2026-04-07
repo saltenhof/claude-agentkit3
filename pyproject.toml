@@ -40,6 +40,7 @@ markers = [
     "slow: marks tests as slow",
     "requires_git: marks tests requiring git",
     "requires_gh: marks tests requiring GitHub CLI",
+    "unit: unit tests",
     "integration: integration tests",
     "contract: contract/snapshot tests",
     "e2e: end-to-end tests against live systems",
