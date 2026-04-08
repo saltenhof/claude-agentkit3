@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from agentkit.exceptions import CorruptStateError
 from agentkit.pipeline.engine import PipelineEngine
 from agentkit.pipeline.state import load_phase_state, save_phase_state
 from agentkit.pipeline.workflow.definitions import resolve_workflow
@@ -82,8 +83,20 @@ def run_pipeline(
     # 2. Create engine
     engine = PipelineEngine(resolved_workflow, handler_registry, story_dir)
 
-    # 3. Load or create initial state
-    state = load_phase_state(story_dir)
+    # 3. Load or create initial state (fail-closed on corrupt state)
+    try:
+        state = load_phase_state(story_dir)
+    except CorruptStateError:
+        return PipelineRunResult(
+            story_id=story_context.story_id,
+            phases_executed=(),
+            final_status="failed",
+            final_phase="",
+            errors=(
+                "Corrupt phase-state.json — cannot continue. "
+                "Manual investigation required.",
+            ),
+        )
     if state is None:
         first_phase = resolved_workflow.phases[0].name
         state = PhaseState(

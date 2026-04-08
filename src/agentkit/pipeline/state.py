@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, cast
 
+from agentkit.exceptions import CorruptStateError
 from agentkit.story.models import PhaseSnapshot, PhaseState, PhaseStatus, StoryContext
 
 if TYPE_CHECKING:
@@ -105,15 +106,34 @@ def load_phase_state(story_dir: Path) -> PhaseState | None:
         story_dir: Root directory for this story's artifacts.
 
     Returns:
-        The deserialized ``PhaseState``, or ``None`` if missing/corrupt.
+        The deserialized ``PhaseState``, or ``None`` if the file does
+        not exist.
+
+    Raises:
+        CorruptStateError: If ``phase-state.json`` exists but contains
+            invalid JSON, is not a JSON object, or fails schema
+            validation.
     """
-    data = load_json_safe(story_dir / "phase-state.json")
-    if data is None:
+    path = story_dir / "phase-state.json"
+    if not path.exists():
         return None
     try:
+        raw = path.read_text(encoding="utf-8")
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise CorruptStateError(
+            f"phase-state.json is corrupt: {path}: {exc}",
+        ) from exc
+    if not isinstance(data, dict):
+        raise CorruptStateError(
+            f"phase-state.json is not a JSON object: {path}",
+        )
+    try:
         return PhaseState.model_validate(data)
-    except Exception:  # noqa: BLE001 — intentionally broad to handle any validation error
-        return None
+    except Exception as exc:
+        raise CorruptStateError(
+            f"phase-state.json validation failed: {path}: {exc}",
+        ) from exc
 
 
 def save_story_context(story_dir: Path, ctx: StoryContext) -> None:

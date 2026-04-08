@@ -3,14 +3,19 @@
 Each check examines one specific aspect. No side effects (ARCH-31).
 No god-class aggregation (ARCH-05). Each function receives its inputs
 explicitly and returns Finding(s) or None/empty list.
+
+IMPORTANT: This module must NOT import from ``agentkit.pipeline`` to
+avoid a circular dependency (pipeline -> qa -> pipeline). All I/O is
+done inline using only ``json`` and ``pathlib`` (ARCH-03, ARCH-31).
 """
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
-from agentkit.pipeline.state import load_phase_state, load_story_context
 from agentkit.qa.protocols import Finding, Severity, TrustClass
+from agentkit.story.models import StoryContext
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -39,9 +44,8 @@ def check_context_exists(story_dir: Path) -> Finding | None:
 def check_context_valid(story_dir: Path) -> Finding | None:
     """Check that context.json is valid and loadable.
 
-    Attempts to load context.json via ``load_story_context``. If the
-    file exists but cannot be parsed or validated, returns a CRITICAL
-    finding.
+    Reads and validates context.json directly via ``json.loads`` and
+    Pydantic, without importing ``agentkit.pipeline.state``.
 
     Args:
         story_dir: Directory containing story artifacts.
@@ -54,8 +58,12 @@ def check_context_valid(story_dir: Path) -> Finding | None:
         # Existence is checked by check_context_exists; skip here.
         return None
 
-    ctx = load_story_context(story_dir)
-    if ctx is None:
+    try:
+        data = json.loads(context_path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("context.json is not a JSON object")  # noqa: TRY301
+        StoryContext.model_validate(data)
+    except Exception:  # noqa: BLE001 — any parse/validation failure = corrupt
         return Finding(
             layer="structural",
             check="context_valid",
@@ -136,6 +144,8 @@ def check_no_corrupt_state(story_dir: Path) -> Finding | None:
 
     If phase-state.json does not exist, this check passes (it is
     optional). If it exists but cannot be loaded, returns a finding.
+    Reads and validates directly via ``json.loads`` and Pydantic,
+    without importing ``agentkit.pipeline.state`` (ARCH-03).
 
     Args:
         story_dir: Directory containing story artifacts.
@@ -143,12 +153,18 @@ def check_no_corrupt_state(story_dir: Path) -> Finding | None:
     Returns:
         A HIGH finding if phase-state.json is corrupt, otherwise ``None``.
     """
+    from agentkit.story.models import PhaseState
+
     state_path = story_dir / "phase-state.json"
     if not state_path.exists():
         return None
 
-    state = load_phase_state(story_dir)
-    if state is None:
+    try:
+        data = json.loads(state_path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("phase-state.json is not a JSON object")  # noqa: TRY301
+        PhaseState.model_validate(data)
+    except Exception:  # noqa: BLE001 — any parse/validation failure = corrupt
         return Finding(
             layer="structural",
             check="no_corrupt_state",

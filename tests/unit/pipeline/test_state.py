@@ -6,6 +6,9 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path  # noqa: TCH003 — used at runtime by tmp_path fixture type
 
+import pytest
+
+from agentkit.exceptions import CorruptStateError
 from agentkit.pipeline.state import (
     AttemptRecord,
     atomic_write_json,
@@ -170,19 +173,19 @@ class TestPhaseStatePersistence:
         result = load_phase_state(tmp_path)
         assert result is None
 
-    def test_load_corrupt_returns_none(self, tmp_path: Path) -> None:
+    def test_load_corrupt_raises_error(self, tmp_path: Path) -> None:
         (tmp_path / "phase-state.json").write_text(
             "not json", encoding="utf-8",
         )
-        result = load_phase_state(tmp_path)
-        assert result is None
+        with pytest.raises(CorruptStateError, match="corrupt"):
+            load_phase_state(tmp_path)
 
-    def test_load_invalid_schema_returns_none(self, tmp_path: Path) -> None:
+    def test_load_invalid_schema_raises_error(self, tmp_path: Path) -> None:
         (tmp_path / "phase-state.json").write_text(
             '{"wrong_field": "value"}', encoding="utf-8",
         )
-        result = load_phase_state(tmp_path)
-        assert result is None
+        with pytest.raises(CorruptStateError, match="validation failed"):
+            load_phase_state(tmp_path)
 
 
 # --- save_story_context / load_story_context ---
@@ -307,12 +310,13 @@ class TestPipelineRobustness:
     gracefully instead of crashing.
     """
 
-    def test_corrupt_phase_state_returns_none(self, tmp_path: Path) -> None:
-        """phase-state.json exists but contains garbage."""
+    def test_corrupt_phase_state_raises_error(self, tmp_path: Path) -> None:
+        """phase-state.json exists but contains garbage -> CorruptStateError."""
         (tmp_path / "phase-state.json").write_text(
             "{invalid json!!!", encoding="utf-8",
         )
-        assert load_phase_state(tmp_path) is None
+        with pytest.raises(CorruptStateError):
+            load_phase_state(tmp_path)
 
     def test_missing_context_json_returns_none(self, tmp_path: Path) -> None:
         """context.json does not exist at all."""
@@ -338,7 +342,7 @@ class TestPipelineRobustness:
         assert "good" in ids
         assert "also-good" in ids
 
-    def test_phase_state_with_wrong_schema_returns_none(
+    def test_phase_state_with_wrong_schema_raises_error(
         self, tmp_path: Path,
     ) -> None:
         """phase-state.json has valid JSON but wrong Pydantic schema."""
@@ -346,7 +350,8 @@ class TestPipelineRobustness:
             tmp_path / "phase-state.json",
             {"totally": "wrong", "fields": 123},
         )
-        assert load_phase_state(tmp_path) is None
+        with pytest.raises(CorruptStateError, match="validation failed"):
+            load_phase_state(tmp_path)
 
     def test_snapshot_with_corrupt_json_returns_none(
         self, tmp_path: Path,
@@ -356,3 +361,15 @@ class TestPipelineRobustness:
             "{{broken", encoding="utf-8",
         )
         assert load_phase_snapshot(tmp_path, "verify") is None
+
+    def test_load_phase_state_missing_returns_none(self, tmp_path: Path) -> None:
+        """Missing phase-state.json returns None (fresh run)."""
+        assert load_phase_state(tmp_path) is None
+
+    def test_load_phase_state_non_dict_raises_error(self, tmp_path: Path) -> None:
+        """Array instead of object in phase-state.json -> CorruptStateError."""
+        (tmp_path / "phase-state.json").write_text(
+            "[1, 2, 3]", encoding="utf-8",
+        )
+        with pytest.raises(CorruptStateError, match="not a JSON object"):
+            load_phase_state(tmp_path)

@@ -104,7 +104,11 @@ class PhaseDefinition:
 
     Args:
         name: Unique phase name (e.g. "setup", "verify").
-        guards: Guard functions evaluated on phase entry.
+        guards: Exit-validation guards evaluated after handler completion.
+            Unlike preconditions (which are entry-gates checked before the
+            handler runs), guards are checked after a handler returns
+            COMPLETED.  If any guard fails, the phase transitions to
+            FAILED instead of proceeding to the next phase.
         gates: Quality gates that must pass within this phase.
         yield_points: Points where the phase can yield to external input.
         preconditions: Conditions that must hold before entering the phase.

@@ -79,6 +79,16 @@ class GateError(WorkflowError):
     """
 
 
+class CorruptStateError(PipelineError):
+    """Raised when phase-state.json exists but is corrupt or invalid.
+
+    This indicates a file-system-level corruption (invalid JSON, wrong
+    schema, non-dict content) rather than a missing file (which is a
+    normal "fresh run" condition).  The pipeline MUST fail-closed on
+    corrupt state instead of silently restarting from scratch.
+    """
+
+
 class PreconditionError(PipelineError):
     """Phase precondition not met.
 

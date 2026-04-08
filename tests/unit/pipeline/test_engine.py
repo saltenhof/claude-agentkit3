@@ -877,7 +877,7 @@ class TestTransitionEvaluation:
         tmp_path: Path,
         story_ctx: StoryContext,
     ) -> None:
-        """Guard evaluations are recorded in the attempt record."""
+        """Exit-guard evaluations are recorded in the attempt record."""
         workflow = (
             Workflow("guard-audit")
             .phase("setup")
@@ -892,11 +892,52 @@ class TestTransitionEvaluation:
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.PENDING,
         )
-        engine.run_phase(story_ctx, state)
+        result = engine.run_phase(story_ctx, state)
+        assert result.status == "phase_completed"
 
         attempts = load_attempts(tmp_path, "setup")
         assert len(attempts) == 1
         assert len(attempts[0].guard_evaluations) == 1
+
+    def test_guard_failure_after_completion_blocks_transition(
+        self,
+        tmp_path: Path,
+        story_ctx: StoryContext,
+    ) -> None:
+        """Handler completes but exit-guard FAIL -> EngineResult status='failed'."""
+        workflow = (
+            Workflow("guard-exit-fail")
+            .phase("setup")
+                .guard(_always_fail)
+            .phase("closure")
+            .transition("setup", "closure")
+            .build()
+        )
+        registry = PhaseHandlerRegistry()
+        registry.register("setup", NoOpHandler())
+        registry.register("closure", NoOpHandler())
+        engine = PipelineEngine(workflow, registry, tmp_path)
+
+        state = PhaseState(
+            story_id="TEST-001", phase="setup",
+            status=PhaseStatus.PENDING,
+        )
+        result = engine.run_phase(story_ctx, state)
+        # Handler completed but guard blocked the transition
+        assert result.status == "failed"
+        assert result.phase == "setup"
+        assert "Guard always fails" in result.errors[0]
+
+        # Verify state persisted as FAILED
+        loaded = load_phase_state(tmp_path)
+        assert loaded is not None
+        assert loaded.status == PhaseStatus.FAILED
+
+        # Guard evaluation should be recorded in attempt
+        attempts = load_attempts(tmp_path, "setup")
+        assert len(attempts) == 1
+        assert len(attempts[0].guard_evaluations) == 1
+        assert attempts[0].guard_evaluations[0]["passed"] is False
 
     def test_can_enter_phase_unknown_phase(
         self,

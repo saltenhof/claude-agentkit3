@@ -76,7 +76,7 @@ class PipelineEngine:
     the imperative phase handlers (execution). It:
 
     - Evaluates preconditions before entering a phase
-    - Evaluates guards on transitions
+    - Evaluates exit-guards after handler completion
     - Calls phase handlers (on_enter, on_exit, on_resume)
     - Persists state atomically after each step
     - Records attempt history
@@ -112,8 +112,9 @@ class PipelineEngine:
             3. Get handler from registry.
             4. Call ``handler.on_enter(ctx, state)``.
             5. Based on ``HandlerResult``:
-               - COMPLETED: call ``handler.on_exit``, save snapshot,
-                 evaluate transitions for next phase.
+               - COMPLETED: call ``handler.on_exit``, evaluate exit-guards;
+                 if any guard fails return ``"failed"``, otherwise save
+                 snapshot and evaluate transitions for next phase.
                - PAUSED: save state with yield_status, return ``"yielded"``.
                - FAILED/ESCALATED/BLOCKED: save state, return matching status.
             6. Persist state and attempt record.
@@ -176,23 +177,22 @@ class PipelineEngine:
         # 3. Get handler (raises PipelineError if not registered)
         handler = self._registry.get_handler(phase_name)
 
-        # Generate attempt ID and evaluate guards for audit trail
+        # Generate attempt ID (guards are evaluated post-completion)
         attempt_id = self._generate_attempt_id(phase_name)
-        guard_evals = self._evaluate_guards(phase_def, ctx, state)
 
         # 4. Call handler.on_enter, catching exceptions
         try:
             result = handler.on_enter(ctx, state)
         except Exception as exc:
             return self._handle_handler_exception(
-                phase_name, attempt_id, guard_evals, exc,
+                phase_name, attempt_id, [], exc,
                 story_id=state.story_id,
             )
 
         # 5. Process handler result
         return self._process_handler_result(
             ctx, state, phase_def, handler, result,
-            attempt_id, guard_evals,
+            attempt_id,
         )
 
     def resume_phase(
@@ -265,20 +265,19 @@ class PipelineEngine:
         # 3. Get handler and call on_resume
         handler = self._registry.get_handler(phase_name)
         attempt_id = self._generate_attempt_id(phase_name)
-        guard_evals = self._evaluate_guards(phase_def, ctx, state)
 
         try:
             result = handler.on_resume(ctx, state, trigger)
         except Exception as exc:
             return self._handle_handler_exception(
-                phase_name, attempt_id, guard_evals, exc,
+                phase_name, attempt_id, [], exc,
                 story_id=state.story_id,
             )
 
         # 4. Process result same as run_phase
         return self._process_handler_result(
             ctx, state, phase_def, handler, result,
-            attempt_id, guard_evals, resume_trigger=trigger,
+            attempt_id, resume_trigger=trigger,
         )
 
     def evaluate_transitions(
@@ -375,11 +374,12 @@ class PipelineEngine:
         ctx: StoryContext,
         state: PhaseState,
     ) -> list[dict[str, object]]:
-        """Evaluate all guards on a phase and return evaluation records.
+        """Evaluate all exit-guards on a phase and return evaluation records.
 
-        Each record contains the guard name, whether it passed, and
-        any failure reason. This is used for the audit trail in
-        ``AttemptRecord``.
+        Exit-guards are evaluated after the handler has completed
+        successfully. Each record contains the guard name, whether it
+        passed, and any failure reason. A guard failure causes the
+        phase to transition to FAILED instead of proceeding.
 
         Args:
             phase: The phase definition containing guards.
@@ -415,7 +415,6 @@ class PipelineEngine:
         handler: PhaseHandler,
         result: HandlerResult,
         attempt_id: str,
-        guard_evals: list[dict[str, object]],
         *,
         resume_trigger: str | None = None,
     ) -> EngineResult:
@@ -431,7 +430,6 @@ class PipelineEngine:
             handler: The handler instance (for calling on_exit).
             result: The handler's result.
             attempt_id: The attempt identifier.
-            guard_evals: Guard evaluation records for the audit trail.
             resume_trigger: If resuming, the trigger that was used.
 
         Returns:
@@ -448,6 +446,54 @@ class PipelineEngine:
                     "on_exit raised for phase '%s': %s", phase_name, exc,
                 )
 
+            # Evaluate exit-guards AFTER handler completion
+            completed_state = PhaseState(
+                story_id=state.story_id,
+                phase=phase_name,
+                status=PhaseStatus.COMPLETED,
+                attempt_id=attempt_id,
+            )
+            guard_evals = self._evaluate_guards(
+                phase_def, ctx, completed_state,
+            )
+
+            # If any exit-guard fails, block the transition
+            guard_failures = [
+                g for g in guard_evals if not g.get("passed", False)
+            ]
+            if guard_failures:
+                failure_reasons = [
+                    str(g.get("reason", "Guard failed"))
+                    for g in guard_failures
+                ]
+                failed_state = PhaseState(
+                    story_id=state.story_id,
+                    phase=phase_name,
+                    status=PhaseStatus.FAILED,
+                    errors=failure_reasons,
+                    attempt_id=attempt_id,
+                )
+                save_phase_state(self._story_dir, failed_state)
+
+                attempt = AttemptRecord(
+                    attempt_id=attempt_id,
+                    phase=phase_name,
+                    entered_at=datetime.now(tz=UTC),
+                    exit_status=PhaseStatus.FAILED,
+                    guard_evaluations=tuple(guard_evals),
+                    artifacts_produced=result.artifacts_produced,
+                    outcome="failed",
+                    resume_trigger=resume_trigger,
+                )
+                save_attempt(self._story_dir, attempt)
+
+                return EngineResult(
+                    status="failed",
+                    phase=phase_name,
+                    errors=tuple(failure_reasons),
+                    attempt_id=attempt_id,
+                )
+
             # Save phase snapshot
             snapshot = PhaseSnapshot(
                 story_id=state.story_id,
@@ -458,13 +504,7 @@ class PipelineEngine:
             )
             save_phase_snapshot(self._story_dir, snapshot)
 
-            # Update and persist phase state
-            completed_state = PhaseState(
-                story_id=state.story_id,
-                phase=phase_name,
-                status=PhaseStatus.COMPLETED,
-                attempt_id=attempt_id,
-            )
+            # Persist phase state
             save_phase_state(self._story_dir, completed_state)
 
             # Save attempt record
@@ -502,13 +542,12 @@ class PipelineEngine:
             )
             save_phase_state(self._story_dir, paused_state)
 
-            # Save attempt record
+            # Save attempt record (no guard evals -- guards are exit-only)
             attempt = AttemptRecord(
                 attempt_id=attempt_id,
                 phase=phase_name,
                 entered_at=datetime.now(tz=UTC),
                 exit_status=PhaseStatus.PAUSED,
-                guard_evaluations=tuple(guard_evals),
                 artifacts_produced=result.artifacts_produced,
                 outcome="yielded",
                 yield_status=result.yield_status,
@@ -540,12 +579,12 @@ class PipelineEngine:
         )
         save_phase_state(self._story_dir, error_state)
 
+        # No guard evals -- guards are exit-only, handler didn't complete
         attempt = AttemptRecord(
             attempt_id=attempt_id,
             phase=phase_name,
             entered_at=datetime.now(tz=UTC),
             exit_status=result.status,
-            guard_evaluations=tuple(guard_evals),
             artifacts_produced=result.artifacts_produced,
             outcome=engine_status,
             resume_trigger=resume_trigger,

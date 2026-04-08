@@ -623,11 +623,11 @@ class TestSmokePipelineRobustness:
             run_pipeline(ctx, s_dir, registry, workflow)
 
     def test_corrupt_state_file_during_run(self, tmp_path: Path) -> None:
-        """Pipeline handles corrupt state file gracefully.
+        """Pipeline fails closed on corrupt state file.
 
         Corrupts the phase-state.json before pipeline start.
-        The runner should handle the None return from load_phase_state
-        and start from the first phase.
+        The runner must NOT silently restart -- it must fail with
+        a clear error message (fail-closed behavior).
         """
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
@@ -647,11 +647,12 @@ class TestSmokePipelineRobustness:
         workflow = resolve_workflow(StoryType.RESEARCH)
         registry = _registry_for_workflow(workflow)
 
-        # Pipeline should handle the corrupt file by starting fresh
+        # Pipeline must fail-closed on corrupt state
         result = run_pipeline(ctx, s_dir, registry, workflow)
 
-        assert result.final_status == "completed"
-        assert result.phases_executed[0] == "setup"
+        assert result.final_status == "failed"
+        assert result.phases_executed == ()
+        assert any("Corrupt" in e for e in result.errors)
 
     def test_pipeline_with_yielding_handler(self, tmp_path: Path) -> None:
         """Pipeline correctly yields when a handler returns PAUSED."""
