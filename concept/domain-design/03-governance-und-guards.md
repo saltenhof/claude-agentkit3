@@ -544,8 +544,13 @@ Heuristiken mit unterschiedlicher Aussagekraft:
 Der Gesamtscore ergibt sich aus der Summe aller Komponenten. In der
 Praxis liegt er zwischen 0 und 100, da nicht alle Heuristiken
 gleichzeitig ihr Maximum erreichen. Die Score-Berechnung ist
-vollständig deterministisch; das LLM-Assessment ist ein optionaler
+vollständig deterministisch; das LLM-Assessment ist ein Pflicht-
 Korrekturfaktor, der den Score in beide Richtungen verschieben kann.
+Deterministische Eingriffe (Hard Stop) bleiben auch ohne LLM-Antwort
+möglich (Timeout-Sicherheit), aber der Sidecar wird immer gestartet.
+
+> **[Entscheidung 2026-04-08]** Element 23 — LLM-Assessment-Sidecar ist Pflicht. Kein Feature-Flag. Der Sidecar-Prozess ist keine optionale Erweiterung, sondern integraler Bestandteil der Produktionsarchitektur.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 23.
 
 **Eskalationsleiter:**
 
@@ -562,17 +567,19 @@ Soft-Intervention der Score weiter steigt, geht es direkt zum Hard
 Stop.
 
 **Designprinzip:** Determinismus zuerst — der Hard Stop muss auch
-ohne LLM-Assessment möglich sein. Das LLM darf die Scoring-Präzision
-verbessern, ist aber nie Voraussetzung für eine Intervention. Wenn
-der Sidecar-Prozess (asynchrones LLM-Assessment) ausfällt oder der
-MCP-Pool nicht erreichbar ist, funktioniert die deterministische
-Score-Berechnung unverändert weiter. Der LLM-Anteil fällt auf 0
-zurück.
+ohne LLM-Antwort möglich sein. Der Sidecar-Prozess wird immer
+gestartet und ist kein optionaler Baustein. Wenn der Sidecar ausfällt
+oder der MCP-Pool nicht erreichbar ist, funktioniert die
+deterministische Score-Berechnung unverändert weiter — der
+LLM-Anteil fällt auf 0 zurück. Das LLM-Assessment ist damit kein
+Voraussetzung für deterministische Interventionen, aber der Sidecar
+selbst ist Pflicht.
 
-**Asynchrones LLM-Assessment:** Das Assessment läuft nicht im Hook
-(das würde den Worker blockieren), sondern in einem separaten
-Sidecar-Prozess, der parallel zum Worker pollt. Bei Score >= 50
-wird ein externes LLM (rotierend über konfigurierte Pools) befragt,
+**LLM-Assessment-Sidecar:** Der Sidecar-Prozess läuft nicht im Hook
+(das würde den Worker blockieren), sondern parallel zum Worker und
+pollt kontinuierlich. Der Sidecar startet mit dem Worker-Spawn und
+läuft bis zu dessen Terminierung. LLM-Abfragen werden bei Score >= 50
+ausgelöst: ein externes LLM (rotierend über konfigurierte Pools) wird befragt,
 ob das beobachtete Tool-Call-Muster auf einen Loop hindeutet. Das
 Ergebnis fließt als Korrekturfaktor in die nächste Score-Berechnung
 ein. Debounce-Regeln verhindern übermäßige LLM-Aufrufe: maximal ein
@@ -591,3 +598,6 @@ Runden-Budget) und den PAUSED-Deadlock-Guard. Das Web-Call-Budget
 limitiert externe Zugriffe, der Deadlock-Guard greift nach Worker-
 Completion (Evidence-Fingerprint), der Health-Monitor greift
 präventiv während der Worker-Laufzeit. Alle drei sind orthogonal.
+
+> **[Entscheidung 2026-04-08]** Element 19 — Evidence-Fingerprint wird verbessert: SHA256-Hash statt Dateigroessen. Trivial, robust.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 19.

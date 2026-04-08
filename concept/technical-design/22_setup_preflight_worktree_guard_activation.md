@@ -50,9 +50,10 @@ flowchart TD
         P5 --> P6["6. Saubere Telemetrie?"]
         P6 --> P7["7. Kein Story-Branch?"]
         P7 --> P8["8. Kein staler Worktree?"]
+        P8 --> P9["9. Kein Scope-Overlap?"]
     end
 
-    P8 -->|"Alle PASS"| CONTEXT
+    P9 -->|"Alle PASS"| CONTEXT
     PREFLIGHT -->|"Ein FAIL"| ABORT(["Abbruch:<br/>Story startet nicht"])
     P2 -->|"FAIL"| ABORT
     P3 -->|"FAIL"| ABORT
@@ -61,6 +62,7 @@ flowchart TD
     P6 -->|"FAIL"| ABORT
     P7 -->|"FAIL"| ABORT
     P8 -->|"FAIL"| ABORT
+    P9 -->|"FAIL"| ABORT
 
     CONTEXT["Story-Context berechnen<br/>→ context.json"] --> ARE_BUNDLE["ARE-Bundle laden<br/>→ are_bundle.json<br/>(nur wenn ARE aktiv)"]
     ARE_BUNDLE -->|"LOADED oder SKIPPED"| TYPCHECK{"Story-Typ?"}
@@ -79,6 +81,10 @@ flowchart TD
     GUARDS --> MODE["Modus-Ermittlung<br/>(4 Trigger)"]
     MODE --> DONE_FULL(["Setup abgeschlossen<br/>mode: execution|exploration<br/>agents_to_spawn gesetzt"])
 ```
+
+> **[Entscheidung 2026-04-08]** Element 15 — Multi-Repo Worktree Logic ist Produktionsanforderung. `worktree_paths` (Dict: repo-id → Pfad) + `primary_repo_id` im Spawn-Vertrag. Runtime-Anforderung fuer Multi-Repo-Zielprojekte.
+> Element 29 — Scope-Overlap-Check (Preflight-Check 9) ist Pflicht. Parallele Story-Ausfuehrung ist Produktionsszenario.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Elemente 15, 29.
 
 ## 22.3 Preflight-Gates
 
@@ -99,7 +105,7 @@ flowchart TD
 ### 22.3.2 Fail-closed
 
 Jeder einzelne Check-Failure führt zum Abbruch. Es werden trotzdem
-alle 8 Checks ausgeführt (nicht beim ersten Failure abbrechen),
+alle 9 Checks ausgeführt (nicht beim ersten Failure abbrechen),
 damit der Mensch alle Probleme auf einmal sieht.
 
 ### 22.3.3 Ergebnis
@@ -323,6 +329,9 @@ Story-Bearbeitungen und Konzept-Stories abrufbar bleibt, ohne
 dass der Research-Agent noch einmal ausgeführt werden muss.
 
 Der Phase-State wird gesetzt:
+
+> **[Hinweis 2026-04-08]** Dieses Beispiel zeigt noch die flache PhaseState-Struktur aus v2. In v3 wird PhaseState in StoryContext + PhaseStateCore + PhasePayload (diskriminierte Union) + RuntimeMetadata aufgeteilt. Detailkonzept ausstehend. Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 16.
+
 ```json
 {
   "phase": "setup",
@@ -476,10 +485,10 @@ aufgerufen.
 | Immer-aktive Regeln | Aktiv (Force-Push, Hard-Reset, Secrets) | Aktiv |
 
 **Orchestrator-Guard:** Wird durch dieselbe Sperrdatei gesteuert
-wie Branch-Guard und QA-Schutz. Prüft ob die Story-Execution-
-Marker-Datei (`.story-execution-active`) existiert. Wenn ja:
-blockiert Codebase-Zugriff für den Orchestrator (konfigurierte
-Pfade aus `.story-pipeline.yaml`, Kap. 03).
+wie Branch-Guard und QA-Schutz. Prüft ob Story-Execution-
+Marker in `_temp/governance/active/` existieren (§22.7.1). Wenn
+ja: blockiert Codebase-Zugriff für den Orchestrator
+(konfigurierte Pfade aus `.story-pipeline.yaml`, Kap. 03).
 
 ### 22.7.3 Wer kann Guards deaktivieren
 
@@ -576,6 +585,8 @@ Die folgenden Felder und Kriterien wurden in REF-032 entfernt:
 
 ### 22.8.3 Ergebnis im Phase-State
 
+> **[Hinweis 2026-04-08]** Diese Beispiele zeigen noch die flache PhaseState-Struktur aus v2. In v3 wird PhaseState in StoryContext + PhaseStateCore + PhasePayload (diskriminierte Union) + RuntimeMetadata aufgeteilt. Detailkonzept ausstehend. Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 16.
+
 ```json
 {
   "phase": "setup",
@@ -637,7 +648,7 @@ Der Orchestrator liest ausschließlich `phase-state.json`.
 ---
 
 *FK-Referenzen: FK-05-052 bis FK-05-073 (Setup-Phase komplett),
-FK-05-058 bis FK-05-066 (8 Preflight-Checks),
+FK-05-058 bis FK-05-066 (9 Preflight-Checks),
 FK-05-067 bis FK-05-069 (Worktree, Context, Guards),
 FK-05-070 bis FK-05-073 (Modus-Ermittlung),
 REF-032 (4-Trigger-Modell, ersetzt FK-06-044 bis FK-06-055)*

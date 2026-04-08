@@ -65,10 +65,7 @@ flowchart TD
 
     subgraph DEFINITION ["Story-Definition"]
         SKILL --> KONZEPT["Konzeption:<br/>Problem, Lösungsansatz,<br/>Akzeptanzkriterien"]
-        KONZEPT --> VEKTORDB{"VektorDB<br/>verfügbar?"}
-
-        VEKTORDB -->|Nein| FIELDS
-        VEKTORDB -->|Ja| SEARCH["Zweistufiger Abgleich:<br/>1. Similarity-Suche<br/>2. LLM-Konfliktbewertung"]
+        KONZEPT --> SEARCH["VektorDB-Abgleich<br/>(Pflicht):<br/>1. Similarity-Suche<br/>2. LLM-Konfliktbewertung"]
 
         SEARCH --> CONFLICT{"Konflikt<br/>erkannt?"}
         CONFLICT -->|Ja| RESOLVE["Konflikt klären:<br/>zusammenführen,<br/>abgrenzen, verwerfen"]
@@ -233,6 +230,9 @@ nicht-deterministische Ermessensentscheidung des Story-Erstellers.
 Die Absicherung erfolgt über die obligatorische Peer-Review jeder
 Story vor Freigabe.
 
+> **[Entscheidung 2026-04-08]** Element 22 — VektorDB-Abgleich ist immer aktiv. Keine Feature-Flag-Stufung.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 22.
+
 ## 21.4 VektorDB-Abgleich
 
 ### 21.4.1 Zweistufiger Ablauf (FK-05-017 bis FK-05-023)
@@ -299,20 +299,18 @@ Jeder Abgleich wird protokolliert (FK-05-022):
 Wird im Story-Verzeichnis abgelegt. Dient der Anpassung des
 Schwellenwerts über die Zeit (FK-05-023).
 
-### 21.4.3 Fallback ohne VektorDB
+### 21.4.3 VektorDB-Ausfallverhalten
 
-Wenn `features.vectordb: false` oder Weaviate nicht erreichbar:
-- Abgleich entfällt komplett
-- Story-Erstellung geht direkt zu Feldbelegung
-- Kein Fehler, nur Warnung
-- Risiko: Duplikate werden nicht erkannt
+Die VektorDB ist Pflicht für die Story-Erstellung. Wenn Weaviate
+nicht erreichbar ist, wird die Story-Erstellung abgebrochen
+(fail-closed). Kein Fallback ohne VektorDB.
 
 ## 21.5 Dokumententreue Ebene 1: Zieltreue
 
 ### 21.5.1 Prüfung (FK-06-056)
 
-Nach dem VektorDB-Abgleich (oder direkt nach Konzeption, wenn
-keine VektorDB) prüft der StructuredEvaluator die Zieltreue:
+Nach dem VektorDB-Abgleich prüft der StructuredEvaluator die
+Zieltreue:
 
 **Frage:** Passt die Absicht der neuen Story zur Strategie? Kollidiert
 das Vorhaben mit bestehenden Leitplanken?
@@ -682,32 +680,24 @@ Felder:
 
 ### 21.11.4 VectorDB-Indizierung und Concept-Corpus-Prüfung
 
-Die VektorDB ist eine **Qualitätsoptimierung**, kein kritischer
-Pfad (Kap. 13.8). Der Export-Befehl versucht nach dem Schreiben
-der `story.md` eine Weaviate-Indizierung. Wenn Weaviate nicht
-erreichbar ist, wird eine Warnung protokolliert, aber der Export
-schlägt **nicht** fehl — die Story existiert als GitHub Issue und
-lokale `story.md`, die VektorDB-Indizierung wird beim nächsten
-`story_sync` nachgeholt.
+Die VektorDB ist Pflichtbestandteil (Kap. 13.8). Der Export-Befehl
+führt nach dem Schreiben der `story.md` eine Weaviate-Indizierung
+durch. Weaviate muss erreichbar sein — ist es nicht, schlägt der
+Export fehl.
 
 **Preflight-Prüfung:** Vor der Story-Erstellung werden im Skill
 (Step 0) zwei Checks durchgeführt:
 
-1. **Weaviate-Readiness** (nur wenn `features.vectordb: true`):
+1. **Weaviate-Readiness** (Pflichtprüfung):
 
 ```bash
 python -m agentkit.vectordb.wait_for_weaviate --timeout 10
 ```
 
 Exit 0 → Weaviate bereit, VektorDB-Suche verfügbar.
-Exit 1 → **Warnung** (VektorDB nicht erreichbar). Die Story-
-Erstellung darf fortfahren, verliert aber VektorDB-basierte
-Discovery (semantische Suche, Duplikatcheck). INDEX.yaml und
-Grep bleiben als Fallback verfügbar (Kap. 13.8, 13.9.12).
-
-> **Hinweis:** Die VektorDB ist eine Qualitätsoptimierung, kein
-> kritischer Pfad (Kap. 13.8). Ihr Ausfall blockiert nicht die
-> Story-Erstellung, erzeugt aber eine Warnung in der Telemetrie.
+Exit 1 → **Fehler** (VektorDB nicht erreichbar). Die Story-
+Erstellung wird abgebrochen (fail-closed). Die VektorDB ist
+Pflichtbestandteil (Kap. 13.8).
 
 2. **Concept-Corpus-Freshness** (Kap. 13.9.9, immer aktiv):
 
@@ -725,11 +715,12 @@ Weaviate-Synchronisierung durch (`build_closure_sync_fn` /
 Issue-Body, Titel und Metadaten (Story-Type, Module, Epic) als
 Chunks in die `StoryContext`-Collection geschrieben.
 
-**Bei Fehler der Indizierung:** VectorDB-Fehler werden als
-Warnung protokolliert, blockieren aber nicht den Export
-(Kap. 13.8 — fire-and-forget). Die Story existiert vollständig
-als GitHub Issue und lokale `story.md`. Die VectorDB-Indizierung
-wird beim nächsten `story_sync` nachgeholt.
+**Bei Fehler der Indizierung:** VectorDB-Indizierungsfehler sind
+ein harter Blocker (fail-closed). Der Export schlägt fehl und
+der Agent muss den Fehler melden. Die VektorDB ist
+Pflichtbestandteil (Kap. 13.8) — ein Indizierungsfehler darf
+nicht als Warning toleriert oder als Nachholpfad aufgeschoben
+werden.
 
 **Bei Fehler des Exports selbst** (story.md nicht geschrieben):
 Der Export-Befehl gibt FAIL zurück. Die Story existiert dann als

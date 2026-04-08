@@ -107,7 +107,7 @@ Kap. 01 P8).
 
 | Event | Wann | Zusatzfelder | Erwartungswert | Quelle |
 |-------|------|-------------|----------------|--------|
-| `review_request` | Worker fordert Review von Pflicht-LLM an | `pool`, `role` | Abhängig von Story-Größe (XS/S: >= 1, M: >= 2, L/XL: >= 3) | Hook (PreToolUse für Pool-Send mit Review-Template) |
+| `review_request` | Worker fordert Review von Pflicht-LLM an | `pool`, `role` | Mindestens 1 pro Story | Hook (PreToolUse für Pool-Send mit Review-Template) |
 | `review_response` | Pflicht-LLM liefert Review-Ergebnis | `pool`, `role` | Gleiche Anzahl wie review_request | Hook (PostToolUse für Pool-Send) |
 | `review_compliant` | Review lief über freigegebenes Template | `pool`, `template_name` | Jeder review_request muss ein review_compliant haben | Review-Guard (PostToolUse) |
 
@@ -135,7 +135,7 @@ hält die Pool-Abstraktion intakt (Kap. 01 P8, Kap. 11).
 
 | Event | Wann | Zusatzfelder | Erwartungswert | Quelle |
 |-------|------|-------------|----------------|--------|
-| `preflight_request` | Preflight-Prompt an LLM-Pool gesendet. Hook: PreToolUse für Pool-Send wenn Preflight-Sentinel `[PREFLIGHT:...-v1:{story_id}]` erkannt. | `pool` | 0..n pro Story (optional) | Hook (PreToolUse Pool-Send, Preflight-Sentinel) |
+| `preflight_request` | Preflight-Prompt an LLM-Pool gesendet. Hook: PreToolUse für Pool-Send wenn Preflight-Sentinel `[PREFLIGHT:...-v1:{story_id}]` erkannt. | `pool` | >= 1 pro Story (Pflicht) | Hook (PreToolUse Pool-Send, Preflight-Sentinel) |
 | `preflight_response` | Preflight-Antwort vom LLM empfangen. Hook: PostToolUse für Pool-Send. | `pool`, `request_count` | == preflight_request count | Hook (PostToolUse Pool-Send, Preflight-Sentinel) |
 | `preflight_compliant` | Preflight verwendete genehmigtes Template. Emittiert durch review_guard wenn Preflight-Sentinel gefunden. | `pool`, `template_name` | == preflight_request count | Review-Guard (PostToolUse, Preflight-Sentinel) |
 
@@ -206,9 +206,11 @@ nicht über einen Hook läuft.
 Hooks müssen die aktive Story-ID kennen, um Events zuzuordnen.
 Zwei Mechanismen:
 
-1. **Marker-Datei:** `_temp/governance/.story-execution-active`
-   enthält die Story-ID. Wird beim Setup geschrieben, bei Closure
-   gelöscht. Hooks lesen diese Datei.
+1. **Marker-Datei:** `_temp/governance/active/{story_id}.active`
+   (pro Story, nicht global). Wird beim Setup geschrieben
+   (Kap. 22, §22.7.1), bei Closure gelöscht. Hooks lesen die
+   Dateien in `_temp/governance/active/` und ermitteln die
+   Story-ID aus dem Dateinamen.
 2. **Prompt-Analyse:** Bei `agent_start` Events wird die Story-ID
    aus dem Agent-Prompt extrahiert (Regex auf Story-ID-Pattern).
 
@@ -310,11 +312,10 @@ Gate-Code).
 Für `review_request`-Events wird die Erwartung basierend auf der
 Story-Größe aus `context.json` geprüft:
 
-| Story-Größe | Min. review_request-Events |
-|-------------|--------------------------|
-| XS, S | 1 |
-| M | 2 |
-| L, XL | 3 |
+| Metrik | Minimum-Schwelle |
+|--------|-----------------|
+| `review_request` | Mindestens 1 pro Story |
+| `drift_check` | Mindestens 1 pro Story |
 
 ## 14.5 Review-Guard
 
@@ -521,9 +522,10 @@ Preflight-Events stören NICHT die bestehenden Review-Invarianten:
 
 ### 14.9.3 Fail-open / Fail-closed
 
-- **Fail-open:** Fehlender Preflight ist OK. Preflight ist
-  optional — Stories können ohne Preflight-Events abgeschlossen
-  werden. Es gibt keinen Failure-Code für fehlenden Preflight.
+- **Fail-closed:** Fehlender Preflight ist ein Fehler. Preflight ist
+  Pflicht — jede Story muss mindestens ein `preflight_request`-Event
+  aufweisen. Fehlende Preflight-Events erzeugen den Failure-Code
+  `PREFLIGHT_MISSING`.
 - **Fail-closed:** Inkonsistenter Preflight ist ein Fehler. Wenn
   `preflight_request > 0`, dann MUSS
   `preflight_response == preflight_request` UND
@@ -572,7 +574,7 @@ Die Trennung der Streams ist **logisch**, nicht **zeitlich**:
 
 Preflight-Events werden NICHT in die Worker-Contract-Rules
 (`review_min_count`, `ReviewFrequencyRule`) aufgenommen.
-Preflight ist optional und wird vom Worker selbst ausgelöst
+Preflight ist Pflicht, wird vom Worker selbst ausgelöst
 (Kap. 24, §24.5b), zählt aber nicht als Review.
 Die bestehenden Contract-Rules bleiben unverändert:
 
@@ -587,12 +589,15 @@ Statt Preflight in die Worker-Contract-Rules einzubauen, gilt
 eine eigene Validierungsregel:
 
 ```
-WENN count_events(story_id, "preflight_request") > 0:
-    DANN count_events(story_id, "preflight_response")
-         == count_events(story_id, "preflight_request")
-    UND  count_events(story_id, "preflight_compliant")
-         == count_events(story_id, "preflight_request")
+count_events(story_id, "preflight_request") >= 1
+UND count_events(story_id, "preflight_response")
+     == count_events(story_id, "preflight_request")
+UND count_events(story_id, "preflight_compliant")
+     == count_events(story_id, "preflight_request")
 ```
+
+> **[Entscheidung 2026-04-08]** Element 12 — Telemetry Contract: Crash-Detection (Start/End-Paarung) ist essentiell. Event-Count-Vertrag auf Minimum-Schwellen ("mindestens 1 Review", "mindestens 1 Drift-Check"), keine exakten Zaehler pro Story-Groesse.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 12.
 
 Diese Regel wird in `telemetry_contract.py` als eigener
 Constraint implementiert, der `EventType.PREFLIGHT_REQUEST`,

@@ -41,6 +41,9 @@ Ob die eingereichte Evidenz den Anspruch der Anforderung tatsächlich
 erfüllt, bleibt Aufgabe der Verify-Phase ([04-qualitaetssicherung.md](04-qualitaetssicherung.md)) und des
 menschlichen Reviewers.
 
+> **[Entscheidung 2026-04-08]** Element 21 — ARE-Integration: Beide Modi sind Produktionspfade. ARE deaktiviert: Pipeline laeuft ohne ARE-Gate. ARE aktiviert: ARE-Gate ist Pflicht, ohne ARE-Bestaetigung kein Merge. Installer entscheidet Modus. Kein Fallback, kein Graceful-Degradation.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 21.
+
 ### 6.1 Andock-Punkte in AgentKit
 
 ARE ist eine eigenständige Komponente außerhalb von AgentKit. Die

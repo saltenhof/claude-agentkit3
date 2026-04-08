@@ -1361,9 +1361,9 @@ def backfill_metrics(closure_dirs: list[Path], db_path: str = DB_PATH) -> int:
 | Tabelle | Zeilen pro | Primaer-Artefakt | Haupt-Aggregationen |
 |---------|-----------|------------------|---------------------|
 | `schema_versions` | 1 pro Schema+Version | — | Schema-Migrations-Status |
-| `qa_findings` | 1 pro Check pro Stage pro Attempt | `_temp/qa/{id}/{stage}.json` | Check-Failure-Rate, Agent-Vergleich, Severity-Verteilung |
-| `qa_stage_results` | 1 pro Stage pro Attempt | `_temp/qa/{id}/{stage}.json` | Stage-Failure-Rate, Duration-Tracking, Schicht-Uebersicht |
-| `story_metrics` | 1 pro Story | `_temp/closure/{id}/closure.json` | Typ-Analyse, Trends, Config-Vergleich |
+| `qa_findings` | 1 pro Check pro Stage pro Attempt | `_temp/qa/{story_id}/{stage}.json` | Check-Failure-Rate, Agent-Vergleich, Severity-Verteilung |
+| `qa_stage_results` | 1 pro Stage pro Attempt | `_temp/qa/{story_id}/{stage}.json` | Stage-Failure-Rate, Duration-Tracking, Schicht-Uebersicht |
+| `story_metrics` | 1 pro Story | `_temp/closure/{story_id}/closure.json` | Typ-Analyse, Trends, Config-Vergleich |
 | `fc_incidents` | 1 pro Incident | `.agentkit/failure-corpus/incidents.jsonl` | Kategorie-Trends, Monatszaehler, Phase-Analyse |
 | `fc_patterns` | 1 pro Pattern | `.agentkit/failure-corpus/patterns.jsonl` | Pattern-Pipeline, Kategorie-Verteilung |
 | `fc_check_proposals` | 1 pro Check | `.agentkit/failure-corpus/checks/CHK-*/proposal.json` + `metrics.json` | Wirksamkeit, Status-Uebersicht, Auto-Deaktivierung |

@@ -40,6 +40,9 @@ der Worker selbst basierend auf Story, Konzept und Prompt. AgentKit
 steuert den **Rahmen**: Worktree-Isolation, Guards, Review-Pflicht,
 Inkrement-Disziplin, Handover-Paket.
 
+> **[Entscheidung 2026-04-08]** Element 2 — SpawnReason wird als StrEnum in `core/types.py` konsolidiert. Werte: `INITIAL`, `PAUSED_RETRY`, `REMEDIATION`. Betrifft den Worker-Start (§24.2) und die Worker-Varianten (§24.2.3).
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 2.
+
 ## 24.2 Worker-Start
 
 ### 24.2.1 Startprotokoll
@@ -55,8 +58,11 @@ sequenceDiagram
     O->>CC: Agent-Tool: spawn worker<br/>prompt_file=worker-implementation.md
     Note over CC: Hook: agent_start Event<br/>(Telemetrie)
     CC->>W: Neue Session mit Prompt
-    Note over W: Worker hat Zugriff auf:<br/>- Worktree (story/{id})<br/>- Prompts, Skills<br/>- LLM-Pools (für Reviews)<br/>- NICHT: QA-Artefakte (gesperrt)
+    Note over W: Worker hat Zugriff auf:<br/>- Worktree (story/{story_id})<br/>- Prompts, Skills<br/>- LLM-Pools (für Reviews)<br/>- NICHT: QA-Artefakte (gesperrt)
 ```
+
+> **[Entscheidung 2026-04-08]** Element 9 — WorkerContextItem / WORKER_CONTEXT_SPEC wird als Runtime-Gate in `prompting/workers` uebernommen. `WorkerContextItemKey` als StrEnum. Registry mit `key`, `source`, `required_when`, `applies_to`. Aufrufkette: `resolve_worker_context()` → `validate_worker_context()` → `compose_worker_prompt()`. Getrennt von Workflow-DSL (Phasenlogik ≠ Spawn-Vertrag).
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 9.
 
 ### 24.2.2 Worker-Kontext
 
@@ -68,7 +74,7 @@ Der Worker erhält bei Start folgende Informationen:
 | Akzeptanzkriterien | Issue-Body (aus `context.json`) | Im Prompt eingebettet |
 | Konzept/Entwurf (wenn vorhanden) | `entwurfsartefakt.json` oder Konzeptquellen (aus `concept_paths`) | Als Datei-Referenz im Prompt |
 | Guardrails | `_guardrails/` Dateien (aus `context.json`) | Als Datei-Referenzen im Prompt |
-| Mängelliste (bei Remediation) | `_temp/qa/{id}/feedback.json` | Als Datei-Referenz im Prompt |
+| Mängelliste (bei Remediation) | `_temp/qa/{story_id}/feedback.json` | Als Datei-Referenz im Prompt |
 | Story-Typ und Größe | `context.json` | Im Prompt (bestimmt Review-Häufigkeit) |
 | ARE must_cover (wenn aktiviert) | Über MCP von ARE | Im Prompt eingebettet |
 
@@ -102,6 +108,9 @@ Inkrement 1: MarketQuote Entity + BrokerAdapter + REST-Endpoint + Tests
 Inkrement 2: WebSocket-Streaming + Event-Handling + Tests
 Inkrement 3: Error-Handling + Retry-Logik + Tests
 ```
+
+> **[Entscheidung 2026-04-08]** Element 4 — IncrementStep / INCREMENT_CYCLE wird als StrEnum + geordnetes Tupel uebernommen. Exakt wie FK-24 spezifiziert. Beschreibungen als Enum-Property, nicht als separate Dicts.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 4.
 
 ### 24.3.2 Vier-Schritt-Zyklus pro Inkrement
 
@@ -236,6 +245,9 @@ nach Regelwerk:
 
 ## 24.5 Reviews durch konfigurierte LLMs
 
+> **[Entscheidung 2026-04-08]** Element 25 — LLM-Pool-basierte Reviews sind Pflicht. Immer ueber LLM-Pools. Kein Claude-Sub-Agent-Fallback.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 25.
+
 ### 24.5.1 Pflicht-Reviews (FK-05-116 bis FK-05-122)
 
 Der Worker holt sich während der Implementierung Reviews von
@@ -246,13 +258,15 @@ nicht frei wählbar.
 Flecken aufdecken, Seiteneffekte identifizieren. Reviews ersetzen
 nicht die Verify-Phase.
 
-### 24.5.2 Review-Häufigkeit nach Story-Größe
+### 24.5.2 Review-Mindestfrequenz
 
-| Story-Größe | Review-Punkte | Telemetrie-Erwartung |
-|-------------|--------------|---------------------|
-| XS, S | 1 Review vor Handover | `review_request` >= 1 |
-| M | 1 Review nach dem ersten Inkrement + 1 vor Handover | `review_request` >= 2 |
-| L, XL | Review nach jedem 2.-3. Inkrement + 1 vor Handover | `review_request` >= 3 |
+| Metrik | Minimum-Schwelle |
+|--------|-----------------|
+| `review_request` | Mindestens 1 pro Story |
+| `drift_check` | Mindestens 1 pro Story |
+
+> **[Entscheidung 2026-04-08]** Element 10 — ReviewFlowModel / ReviewFlowStep entfaellt als Runtime-Datenstruktur in v3. Der Review-Ablauf beschreibt Worker-Verhalten, keine Runtime-Steuerung. Die Sequenz gehoert in das Prompt-Template.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 10.
 
 ### 24.5.3 Review-Ablauf
 
@@ -276,6 +290,9 @@ freigegebenes Template senden (nicht freiformulieren). Der
 Review-Guard (Kap. 14.5) erkennt den Sentinel und erzeugt ein
 `review_compliant`-Event. Das Integrity-Gate prüft bei Closure,
 ob alle Review-Requests ein zugehöriges `review_compliant` haben.
+
+> **[Entscheidung 2026-04-08]** Element 5 — ReviewTemplate / REVIEW_TEMPLATE_REGISTRY wird als StrEnum + Registry uebernommen. Felder: `template`, `filename`, `applies_to`. Felder `description` und `use_case` entfallen (nicht programmatisch genutzt).
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 5.
 
 ### 24.5.4 Review-Templates
 
@@ -363,10 +380,13 @@ Der Assembler:
 
 ## 24.5b Preflight-Turn im Review-Flow
 
-### 24.5b.1 Optionaler Preflight vor dem Review (FK-24-210)
+> **[Entscheidung 2026-04-08]** Element 24 — Preflight-Turn / Request-DSL ist Pflicht. FK-24 §24.5b, 7 Request-Typen.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 24.
+
+### 24.5b.1 Pflicht-Preflight vor dem Review (FK-24-210)
 
 Zwischen Evidence Assembly (§24.5a) und dem eigentlichen Review
-liegt ein optionaler Preflight-Turn. Der Preflight gibt dem
+liegt ein Pflicht-Preflight-Turn. Der Preflight gibt dem
 Review-LLM die Möglichkeit, fehlenden Kontext nachzufordern,
 bevor der eigentliche Review startet.
 
@@ -416,7 +436,7 @@ sequenceDiagram
 
 **Design-Entscheidung D1: Preflight ist kein Review.**
 
-- Der Preflight-Turn zählt NICHT zur Review-Mindestfrequenz
+- Der Preflight-Turn ist Pflicht, zählt aber NICHT zur Review-Mindestfrequenz
   (§24.5.2). Er erzeugt KEIN `review_compliant`-Event.
 - Preflight hat einen eigenen Telemetrie-Stream:
   `preflight_request` / `preflight_response` (Design-Entscheidung
@@ -430,7 +450,7 @@ sequenceDiagram
 
 | Event | Wann | Erwartungswert |
 |-------|------|---------------|
-| `preflight_request` | Preflight-Prompt gesendet | 0 oder 1 pro Review-Punkt |
+| `preflight_request` | Preflight-Prompt gesendet | 1 pro Review-Punkt |
 | `preflight_response` | Preflight-Antwort empfangen | = `preflight_request` |
 | `preflight_compliant` | Preflight-Sentinel erkannt | = `preflight_request` |
 
@@ -445,7 +465,7 @@ Der vollständige Review-Ablauf ab Evidence Assembly:
 # agentkit evidence assemble --story-id ... --story-dir ... --output-dir ...
 # → BundleManifest mit merge_paths
 
-# 2. Preflight-Turn (optional, LLM)
+# 2. Preflight-Turn (Pflicht, LLM)
 # preflight_prompt = render_preflight_prompt(manifest)
 # raw_response = chatgpt_send(preflight_prompt, merge_paths=manifest.file_paths)
 # requests = parse_preflight_response(raw_response)
@@ -459,6 +479,9 @@ Der vollständige Review-Ablauf ab Evidence Assembly:
 # review_prompt = render_review_prompt(manifest, resolved_requests=results)
 # chatgpt_send(review_prompt, merge_paths=extended_paths)
 ```
+
+> **[Entscheidung 2026-04-08]** Element 6 — FinalBuildStep Dataclasses entfallen in v3. Die hier beschriebene Anforderung (finaler Build + Gesamttest) bleibt im Prompt bestehen, wird aber NICHT als Runtime-Dataclass modelliert. Reines Doku-Artefakt ohne Runtime-Logik.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 6.
 
 ## 24.6 Finaler Build und Gesamttest
 
@@ -566,6 +589,9 @@ Ansatzpunkte statt einer blinden Suche.
 | Schicht 3 (Adversarial) | `risks_for_qa` (gezielte Ansatzpunkte), `existing_tests` (was schon getestet ist) |
 
 ## 24.8 Worker-Manifest
+
+> **[Entscheidung 2026-04-08]** Element 11 — WorkerArtifactDescriptor / REGISTRY wird uebernommen. `WorkerArtifactKind` als StrEnum. Registry mit `kind`, `filename`, `format`, `min_size`. `checked_by` entfaellt. Falls Routing noetig: `required_checks: frozenset[ArtifactCheck]` statt freier String.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 11.
 
 ### 24.8.1 Drei Worker-Artefakte
 
@@ -708,6 +734,9 @@ Structural Checks validieren: Red Phase (exit != 0), Green Phase
 (exit == 0), Suite Phase (exit == 0), Red/Green-Konsistenz
 (gleicher Befehl, verschiedene Commits).
 
+> **[Entscheidung 2026-04-08]** Element 12 — Telemetry Contract: Crash-Detection (Start/End-Paarung) ist essentiell. Event-Count-Vertrag auf Minimum-Schwellen ("mindestens 1 Review", "mindestens 1 Drift-Check"), keine exakten Zaehler pro Story-Groesse.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 12.
+
 ## 24.10 Telemetrie der Implementation-Phase
 
 | Event | Wann | Erwartungswert |
@@ -715,7 +744,7 @@ Structural Checks validieren: Red Phase (exit != 0), Green Phase
 | `agent_start` (subagent_type: worker) | Worker-Start | Genau 1 |
 | `increment_commit` | Pro Inkrement | >= 1 |
 | `drift_check` | Pro Inkrement | >= 1 |
-| `review_request` | Bei Review-Punkt | Abhängig von Größe (XS/S: 1, M: 2, L/XL: 3) |
+| `review_request` | Bei Review-Punkt | Mindestens 1 pro Story |
 | `review_response` | Nach Review | = Anzahl review_request |
 | `review_compliant` | Review über Template | = Anzahl review_request |
 | `llm_call` (role: Worker-Review) | Bei Pool-Send | = Anzahl review_request |
@@ -815,6 +844,9 @@ ein gültiges Handover-Paket und das Verify-System entscheidet
 die gesamte Aufgabe nicht weiter verfolgen, weil ein externer
 Constraint dies verhindert.
 
+> **[Entscheidung 2026-04-08]** Element 23 — LLM-Assessment-Sidecar (Schicht 3 des Health-Monitors) ist Pflicht. Kein Feature-Flag.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 23.
+
 ## 24.12 Worker-Health-Monitor (REF-042)
 
 Während der Implementation überwacht ein Worker-Health-Monitor
@@ -845,12 +877,14 @@ und einer mehrstufigen Eskalationsleiter.
    der bei Score ≥ 50 ein externes LLM konsultiert. Das
    Ergebnis fliesst als Korrekturfaktor (−10 bis +10 Punkte)
    in die nächste Score-Berechnung ein. Der Sidecar ist
-   optional — der deterministische Score funktioniert auch
-   ohne LLM-Assessment.
+   Pflichtbestandteil — der deterministische Score funktioniert
+   auch ohne LLM-Antwort (Timeout-Sicherheit), aber der Sidecar
+   wird immer gestartet.
 
 **Designprinzip:** Ein Hard Stop ist auch ohne LLM-Assessment
 zulässig. Das LLM darf nie Voraussetzung für einen Kill sein.
-Alle harten Entscheidungen laufen deterministisch.
+Alle harten Entscheidungen laufen deterministisch. Deterministische
+Eingriffe bleiben auch bei Sidecar-Timeout möglich.
 
 Details zum Scoring-Modell, zu den Score-Komponenten und
 Schwellwerten, zur Sidecar-Architektur, zur

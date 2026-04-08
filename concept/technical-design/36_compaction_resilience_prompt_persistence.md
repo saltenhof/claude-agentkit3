@@ -46,7 +46,10 @@ Compaction keinen Verweis mehr darauf.
 
 Spawn-Spec-basierte Recovery mit Ein-Phasen-Bindung und autoritativer Rehydrierung:
 
-1. **Compose-Time**: `compose-prompt.py` erzeugt neben dem `prompt_file` eine
+> **[Entscheidung 2026-04-08]** Element 1 — Der dynamische Import `compose-prompt.py` entfaellt in v3. Die Funktionalitaet wird als regulaeres Python-Modul implementiert. Alle Referenzen auf `compose-prompt.py` in diesem Dokument sind entsprechend als regulaere Module-Aufrufe umzusetzen.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 1.
+
+1. **Compose-Time**: Das Prompt-Compose-Modul (`agentkit.prompting.compose`) erzeugt neben dem `prompt_file` eine
    kompakte `resume-capsule.md` sowie einen `spawn-spec--{spawn_key}.json`.
 2. **Binding**: `SubagentStart`-Hook materialisiert das Per-Agent-Manifest in
    einem einzigen Schritt (Kind-`agent_id` → Spawn-Spec → Manifest).
@@ -100,12 +103,12 @@ Folgende Ansaetze wurden durch die Validierung als nicht tragfaehig identifizier
 
 ### 36.4.1 Erzeugung
 
-Die Resume-Kapsel wird bei Compose-Time von `compose-prompt.py` als
+Die Resume-Kapsel wird bei Compose-Time vom Prompt-Compose-Modul (`agentkit.prompting.compose`) als
 **eigenstaendiges Artefakt** erzeugt — zeitgleich mit dem `prompt_file`,
 aber aus den strukturierten Quelldaten (context.json, Story-Metadaten),
 NICHT durch Extraktion/Truncation des Prompts (DD-12, Dual-Write).
 
-Pfad: `_temp/prompts/{story_id}/resume-capsule--{spawn_key}.md`.
+Pfad: `_temp/qa/{story_id}/resume-capsule--{spawn_key}.md`.
 
 ### 36.4.2 Inhalt (Positiv-Liste)
 
@@ -162,7 +165,7 @@ erzeugt und versioniert (`guardrail_version` im Spawn-Spec).
 
 ### 36.5.1 Erzeugung
 
-Der Spawn-Spec wird bei Compose-Time von `compose-prompt.py` erzeugt —
+Der Spawn-Spec wird bei Compose-Time vom Prompt-Compose-Modul (`agentkit.prompting.compose`) erzeugt —
 zeitgleich mit `prompt_file` und Resume-Kapsel. Pfad:
 `_temp/qa/{story_id}/spawn-spec--{spawn_key}.json`
 
@@ -262,13 +265,13 @@ Agent wird per Prompt-Instruktion angewiesen, nach Step 0 dorthin zu wechseln.
 
 ### 36.7.1 Schritt 0: Compose-Time (deterministisch, kein Hook)
 
-`compose-prompt.py` erzeugt fuer jeden geplanten Agent-Spawn:
+Das Prompt-Compose-Modul (`agentkit.prompting.compose`) erzeugt fuer jeden geplanten Agent-Spawn:
 - `prompt_file` (vollstaendiges composed Prompt, wie bisher)
 - `resume-capsule--{spawn_key}.md` (kompakter Recovery-Extrakt mit Guardrails)
 - `spawn-spec--{spawn_key}.json` (Metadaten fuer Runtime-Bindung)
 
 Alle Dateien liegen unter `_temp/qa/{story_id}/`. Die Erzeugung ist
-deterministisch — `compose-prompt.py` kennt die Prompt-Struktur und kann die
+deterministisch — das Prompt-Compose-Modul kennt die Prompt-Struktur und kann die
 relevanten Teile mechanisch extrahieren.
 
 ### 36.7.2 Schritt 1: Ein-Phasen-Manifest bei SubagentStart
@@ -283,7 +286,7 @@ relevanten Teile mechanisch extrahieren.
 - **Ablauf**:
   1. Lese `agent_type` aus Hook-stdin → `spawn_key`
   2. Parse `story_id` aus spawn_key (Format: `{base}--story={id}--r{N}`)
-  3. Lade `_temp/prompts/{story_id}/spawn-spec--{spawn_key}.json`
+  3. Lade `_temp/qa/{story_id}/spawn-spec--{spawn_key}.json`
   4. Verifiziere `resume_capsule_hash` gegen aktuelle Kapsel-Datei (Drift-Check)
   5. Lese aktuellen Story-Epoch aus SQLite-Store → `baseline_epoch`
   6. Schreibe `_temp/agent-prompts/{agent_id}.manifest.json`:
@@ -438,7 +441,7 @@ SubagentStop:
 - Encoding: UTF-8
 - Format: JSON (Pydantic-serialisierbar)
 - Felder: siehe 36.5.2
-- Erzeugt von `compose-prompt.py`, nicht von einem Hook
+- Erzeugt vom Prompt-Compose-Modul (`agentkit.prompting.compose`), nicht von einem Hook
 
 ### 36.9.3 Resume-Kapsel
 
@@ -448,7 +451,7 @@ SubagentStop:
 - Format: Plaintext Markdown
 - Max 8.000 Zeichen
 - Enthaelt Guardrail-Invarianten-Block (36.4.6)
-- Erzeugt von `compose-prompt.py`, nicht von einem Hook
+- Erzeugt vom Prompt-Compose-Modul (`agentkit.prompting.compose`), nicht von einem Hook
 
 ### 36.9.4 Story-Kontext-Marker
 
@@ -541,13 +544,13 @@ spawn_key). Keine Kollision mit vorherigen Runden.
 
 ### DD-01: Kein erneutes Speichern des Prompts
 
-Das composed Prompt wird NICHT separat gespeichert. `prompt_file` (erzeugt von
-`compose-prompt.py`) ist die Single Source of Truth. Duplikation wuerde
+Das composed Prompt wird NICHT separat gespeichert. `prompt_file` (erzeugt vom
+Prompt-Compose-Modul) ist die Single Source of Truth. Duplikation wuerde
 Sync-Probleme erzeugen.
 
 ### DD-02: Resume-Kapsel als Compose-Time-Artefakt
 
-Die Kapsel wird bei Compose-Time erzeugt, nicht spaeter. `compose-prompt.py`
+Die Kapsel wird bei Compose-Time erzeugt, nicht spaeter. Das Prompt-Compose-Modul
 kennt die Prompt-Struktur und kann relevante Teile mechanisch extrahieren.
 Keine LLM-Zusammenfassung, keine Laufzeit-Abhaengigkeit.
 

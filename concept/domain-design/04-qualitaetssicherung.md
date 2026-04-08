@@ -382,6 +382,9 @@ Statt "The source files for this story are attached — review them all" wird da
 - handover.json: changes_summary, risks_for_qa, acceptance_criteria_status
 ```
 
+> **[Entscheidung 2026-04-08]** Element 24 — Preflight-Turn / Request-DSL ist Pflicht. FK-24 §24.5b, 7 Request-Typen.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 24.
+
 #### 4.5.3.3 Säule 3 — Request-DSL (einmaliger Nachforderungs-Turn)
 
 **Ziel:** Der Reviewer kann in einer strukturierten ersten Runde fehlenden Kontext nachfordern, bevor der eigentliche Review beginnt.
@@ -421,6 +424,9 @@ Worker assembliert Bundle (via Evidence Assembler)
 **Begrenzung:** Max 8 Requests pro Reviewer. Jeder Request wird deterministisch aufgelöst (Datei lesen, Grep ausführen, Test ausführen). Timeout: 30 Sekunden pro Request. Nicht auflösbare Requests werden als "UNRESOLVED" dokumentiert und dem Reviewer mitgeteilt.
 
 **Aktivierung:** Immer — unabhängig von Story-Größe. Eine größenabhängige Aktivierung (z.B. nur ab M) würde voraussetzen, dass die Story-Größe zuverlässig geschätzt ist. Empirisch ist das nicht der Fall: LLMs schätzen Story-Größen nicht zuverlässig ein. Daher volles Programm für jede Story.
+
+> **[Entscheidung 2026-04-08]** Element 26 — Quorum / Tiebreaker ist Pflicht. Dritter Reviewer bei Divergenz.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 26.
 
 #### 4.5.3.4 Säule 4 — Divergenz-Instrumentierung und Quorum
 
@@ -471,6 +477,9 @@ Der StructuredEvaluator-Contract ist auf "ein Prompt → strukturierte Checks �
 - Unbekannte Check-IDs werden verworfen
 
 Ein Preflight-Roundtrip wäre hier ein Fremdkörper. Stattdessen wird der Kontext VOR dem Evaluator deterministisch optimiert.
+
+> **[Entscheidung 2026-04-08]** Element 27 — Context Sufficiency Builder ist Pflicht-Gate VOR dem Review. Reviews finden IMMER statt.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 27.
 
 #### 4.5.4.2 Context Sufficiency Builder (neue deterministische Stufe)
 
@@ -548,6 +557,9 @@ eingeschraenktes, aber informiertes Review. Fehlende Pflichtfelder
 bedeuten, dass der Reviewer zentrale Informationen nicht hat.
 
 **Policy-Integration:** Die `sufficiency`-Klassifikation ist ein **Audit-Metadatum**, kein Gate-Faktor. Die Policy Engine loggt eine WARNING bei `reviewable_with_gaps` oder `partially_reviewable`, blockiert aber nicht.
+
+> **[Entscheidung 2026-04-08]** Element 28 — Section-aware Bundle-Packing ist Pflicht. FK-34-121 normativ.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 28.
 
 #### 4.5.4.3 Smarteres Bundle-Packing
 

@@ -265,7 +265,7 @@ stateDiagram-v2
     state StoryExecution {
         [*] --> Guarded
         Guarded : Branch-Guard aktiv
-        Guarded : Nur story/{id} Branch
+        Guarded : Nur story/{story_id} Branch
         Guarded : Destruktive Ops blockiert
     }
 ```
@@ -405,7 +405,7 @@ repos:
 | Aspekt | Single-Repo | Multi-Repo |
 |--------|------------|-----------|
 | Worktree | 1 Worktree | 1 Worktree pro betroffenes Repo |
-| Branch | 1 Branch `story/{id}` | 1 Branch pro Repo, gleicher Name |
+| Branch | 1 Branch `story/{story_id}` | 1 Branch pro Repo, gleicher Name |
 | Structural Checks | 1 Durchlauf | 1 Durchlauf pro Repo |
 | Merge | 1 Merge | N Merges (alle oder keiner) |
 | Scope-Erkennung | Aus Diff | Aus Diff pro Repo + Repo-Typ |

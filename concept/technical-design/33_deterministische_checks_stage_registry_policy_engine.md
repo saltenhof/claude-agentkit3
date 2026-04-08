@@ -77,15 +77,15 @@ Keine Sonderbenennungen:
 
 | Stage-ID | Artefakt-Datei |
 |----------|---------------|
-| `structural` | `_temp/qa/{id}/structural.json` |
-| `qa_review` | `_temp/qa/{id}/qa_review.json` |
-| `semantic_review` | `_temp/qa/{id}/semantic_review.json` |
-| `doc_fidelity_impl` | `_temp/qa/{id}/doc_fidelity_impl.json` |
-| `adversarial` | `_temp/qa/{id}/adversarial.json` |
-| `context_sufficiency` | `_temp/qa/{id}/context_sufficiency.json` |
-| `policy` | `_temp/qa/{id}/policy.json` |
+| `structural` | `_temp/qa/{story_id}/structural.json` |
+| `qa_review` | `_temp/qa/{story_id}/qa_review.json` |
+| `semantic_review` | `_temp/qa/{story_id}/semantic_review.json` |
+| `doc_fidelity_impl` | `_temp/qa/{story_id}/doc_fidelity_impl.json` |
+| `adversarial` | `_temp/qa/{story_id}/adversarial.json` |
+| `context_sufficiency` | `_temp/qa/{story_id}/context_sufficiency.json` |
+| `policy` | `_temp/qa/{story_id}/policy.json` |
 
-Die Policy-Engine lädt Artefakte über `_temp/qa/{id}/{stage.id}.json`
+Die Policy-Engine lädt Artefakte über `_temp/qa/{story_id}/{stage.id}.json`
 — kein separates Mapping nötig.
 
 **Migration:** Die bisherigen Namen (`llm-review.json`,
@@ -152,7 +152,7 @@ class StructuralCheck:
 
 | Check-ID | Was | Severity | FK |
 |----------|-----|----------|-----|
-| `branch.story` | Auf korrektem Branch `story/{id}` | BLOCKING | — |
+| `branch.story` | Auf korrektem Branch `story/{story_id}` | BLOCKING | — |
 | `branch.commit_trailers` | Story-ID in Commit-Message | BLOCKING | FK-05-139 |
 | `completion.commit` | Mindestens 1 Commit seit Base-Ref | BLOCKING | FK-05-135 |
 | `completion.push` | Branch auf Remote gepusht | BLOCKING | — |

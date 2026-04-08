@@ -26,10 +26,10 @@ tags: [api, events, cli, hooks, reference]
 | `agentkit policy` | 33 | Policy-Evaluation ausführen |
 | `agentkit stages` | 33 | Stage-Registry anzeigen |
 | `agentkit status` | 52 | Systemstatus anzeigen |
-| `agentkit cleanup --story {id}` | 20 | Stale Worktree/Branch/Locks aufräumen |
-| `agentkit resume --story {id}` | 35 | Pausierte Story fortsetzen |
-| `agentkit reset-escalation --story {id}` | 35 | Eskalation zurücksetzen |
-| `agentkit override-integrity --story {id}` | 35 | Integrity-Gate bewusst overriden |
+| `agentkit cleanup --story {story_id}` | 20 | Stale Worktree/Branch/Locks aufräumen |
+| `agentkit resume --story {story_id}` | 35 | Pausierte Story fortsetzen |
+| `agentkit reset-escalation --story {story_id}` | 35 | Eskalation zurücksetzen |
+| `agentkit override-integrity --story {story_id}` | 35 | Integrity-Gate bewusst overriden |
 | `agentkit query-telemetry` | 52 | Telemetrie-Events abfragen |
 | `agentkit weekly-review` | 52 | Wöchentlichen Review-Slot anzeigen |
 | `agentkit failure-corpus suggest-patterns` | 41 | Pattern-Kandidaten vorschlagen |

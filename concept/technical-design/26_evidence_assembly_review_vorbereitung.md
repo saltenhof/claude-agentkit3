@@ -120,6 +120,9 @@ flowchart TD
 | 2 — Import-Extraktion | Regex-basierte Import-Auflösung für Python, TypeScript, Java | `SECONDARY_CONTEXT` | Gering — Regex kann False Positives erzeugen, Confidence Labels quantifizieren das |
 | 3 — Worker-Hints | `handover.json` und `worker-manifest.json` | `WORKER_ASSERTION` | Hoch — Worker-Claims sind ungeprüft, niedrigste Beweiskraft |
 
+> **[Entscheidung 2026-04-08]** Element 15 — Multi-Repo Worktree Logic ist Produktionsanforderung. `worktree_paths` (Dict: repo-id → Pfad) + `primary_repo_id` im Spawn-Vertrag. Runtime-Anforderung fuer Multi-Repo-Zielprojekte.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 15.
+
 ### 26.3.2 Multi-Repo-Contract (`RepoContext`) (FK-26-001)
 
 AgentKit unterstützt Multi-Repo-Stories (mehrere Repositories in
@@ -313,6 +316,9 @@ def _check_self_reference(self, hint_path: Path) -> bool:
    nicht dupliziert — das Hint wird ignoriert.
 3. Dateien, die der Worker selbst geändert hat, erzeugen ein
    WARNING (Self-Reference-Check).
+
+> **[Entscheidung 2026-04-08]** Element 28 — Section-aware Bundle-Packing ist Pflicht. FK-34-121 normativ. Die Priorisierung und das Bundle-Packing muessen section-aware erfolgen.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 28.
 
 ### 26.3.6 Bundle-Größenlimit und Priorisierung (FK-26-003)
 

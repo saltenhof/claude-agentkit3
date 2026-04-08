@@ -50,6 +50,9 @@ Review) und beim Menschen im GitHub-Review. Diese Trennung ist
 beabsichtigt: ARE garantiert Lückenlosigkeit des Prozesses,
 nicht die fachliche Korrektheit des Ergebnisses.
 
+> **[Entscheidung 2026-04-08]** Element 21 — ARE-Integration: Beide Modi sind Produktionspfade. ARE deaktiviert: Pipeline laeuft ohne ARE-Gate. ARE aktiviert: ARE-Gate ist Pflicht, ohne ARE-Bestaetigung kein Merge. Installer entscheidet Modus. Kein Fallback, kein Graceful-Degradation.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 21.
+
 ## 40.2 Aktivierung
 
 ```yaml

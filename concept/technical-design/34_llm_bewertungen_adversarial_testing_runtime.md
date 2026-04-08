@@ -172,8 +172,8 @@ werden an Schicht 3 (Adversarial) als Ansatzpunkte weitergegeben
 
 | Artefakt | Producer | Inhalt |
 |----------|---------|--------|
-| `_temp/qa/{id}/llm-review.json` | `qa-llm-review` | 12 CheckResults + Roh-Prompt + Roh-Response |
-| `_temp/qa/{id}/semantic-review.json` | `qa-semantic-review` | 1 CheckResult + Roh-Prompt + Roh-Response |
+| `_temp/qa/{story_id}/llm-review.json` | `qa-llm-review` | 12 CheckResults + Roh-Prompt + Roh-Response |
+| `_temp/qa/{story_id}/semantic-review.json` | `qa-semantic-review` | 1 CheckResult + Roh-Prompt + Roh-Response |
 
 Die Umsetzungstreue wird im `llm-review.json` als zusätzlicher
 Check gespeichert (gleicher Producer oder separates Artefakt —
@@ -284,7 +284,7 @@ Setze die Sparring-Ideen in weitere Tests um.
 
 ```mermaid
 flowchart TD
-    SANDBOX["Tests in Sandbox<br/>_temp/adversarial/{id}/"] --> CHECK{"Pipeline-Skript<br/>prüft:"}
+    SANDBOX["Tests in Sandbox<br/>_temp/adversarial/{story_id}/"] --> CHECK{"Pipeline-Skript<br/>prüft:"}
 
     CHECK -->|"Schema-valide?"| V1["Korrekte Test-Struktur<br/>(Dateinamen, Imports)"]
     CHECK -->|"Ausführbar?"| V2["Kein Syntax-Error<br/>(Trockenlauf)"]
@@ -462,6 +462,10 @@ Schicht 2 fokussiert bei Implementierungen mit starkem Umbauanteil stärker auf:
 Durchlaufen Schicht 2 und 3 **nicht**. Eigene leichtgewichtige
 Checks in Kap. 33.8.
 
+> **[Entscheidung 2026-04-08]** Element 23 — LLM-Assessment-Sidecar ist Pflicht. Kein Feature-Flag.
+> Element 28 — Section-aware Bundle-Packing ist Pflicht. FK-34-121 normativ. In v2 bereits implementiert.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Elemente 23, 28.
+
 ## 34.7 Kontext-Aufbereitung vor Layer 2 (FK-34-120)
 
 ### 34.7.1 Ablauf zwischen Layer 1 PASS und Layer 2 START
@@ -604,6 +608,9 @@ Treueprüfung.
 Der Caller wählt die Prioritäten pro Evaluator-Rolle und übergibt
 sie beim Packing-Schritt. Der Runner selbst kennt keine Rollen
 und keine Prioritäten.
+
+> **[Entscheidung 2026-04-08]** Element 26 — Quorum / Tiebreaker ist Pflicht. Dritter Reviewer bei Divergenz.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 26.
 
 ## 34.8 Review-Paar-Divergenz (FK-34-130)
 

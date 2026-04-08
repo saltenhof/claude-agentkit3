@@ -75,11 +75,11 @@ agentkit status
 | Log | Speicherort | Inhalt |
 |-----|------------|--------|
 | Telemetrie (Laufzeit) | `_temp/agentkit.db` | Alle Events (SQLite) |
-| Telemetrie (Archiv) | `_temp/story-telemetry/{id}.jsonl` | JSONL-Export bei Closure |
+| Telemetrie (Archiv) | `_temp/story-telemetry/{story_id}.jsonl` | JSONL-Export bei Closure |
 | Integrity-Violations | `_temp/agentkit.db` (Event-Typ `integrity_violation`) | Guard-Blockaden |
 | Integrity-Gate-Ergebnisse | `_temp/agentkit.db` (Event-Typ `integrity_gate_result`) | FAIL-Codes |
 | Governance-Adjudication | `_temp/agentkit.db` (Event-Typ `governance_adjudication`) | Incident-Klassifikation |
-| QA-Artefakte | `_temp/qa/{id}/*.json` | Structural, LLM-Review, Adversarial, Policy |
+| QA-Artefakte | `_temp/qa/{story_id}/*.json` | Structural, LLM-Review, Adversarial, Policy |
 | Failure Corpus | `.agentkit/failure-corpus/` | Incidents, Patterns, Checks |
 
 ### 52.3.2 Abfragen
@@ -157,7 +157,7 @@ Ursache: Vorheriger Run abgestürzt, Lock nicht aufgeräumt
 
 Lösung:
 1. PID in Lock-Datei prüfen: Prozess noch aktiv?
-2. Wenn Prozess tot: agentkit cleanup --story {id}
+2. Wenn Prozess tot: agentkit cleanup --story {story_id}
 3. Wenn Prozess aktiv: Warten oder Prozess manuell beenden
 ```
 
@@ -168,11 +168,11 @@ Symptom: Story kann nicht geschlossen werden
 Ursache: Prozess nicht vollständig durchlaufen
 
 Lösung:
-1. agentkit query-telemetry --story {id} --event integrity_gate_result
+1. agentkit query-telemetry --story {story_id} --event integrity_gate_result
 2. FAIL-Codes analysieren (z.B. MISSING_LLM_qa_review)
 3. Ursache beheben (z.B. Pool war offline während Run)
 4. Neuer Run oder Override:
-   agentkit override-integrity --story {id} --reason "..."
+   agentkit override-integrity --story {story_id} --reason "..."
 ```
 
 ### 52.5.4 Stagnation (Story ohne Fortschritt)
@@ -182,10 +182,10 @@ Symptom: Story seit > 4 Stunden in derselben Phase
 Ursache: Agent hängt, Claude-Code-Session abgelaufen, oder Loop
 
 Lösung:
-1. agentkit status --story {id}
-2. Phase-State prüfen: _temp/qa/{id}/phase-state.json
+1. agentkit status --story {story_id}
+2. Phase-State prüfen: _temp/qa/{story_id}/phase-state.json
 3. Telemetrie: letzte Events prüfen
-4. Wenn Loop: agentkit reset-escalation --story {id}
+4. Wenn Loop: agentkit reset-escalation --story {story_id}
 5. Story-Anforderungen vereinfachen oder Mensch greift ein
 ```
 
@@ -204,7 +204,7 @@ Lösung:
 1. In Worktree wechseln: cd worktrees/{story_id}
 2. Rebase: git rebase main  (manuell, kein Agent)
 3. Konflikte manuell lösen
-4. agentkit reset-escalation --story {id}
+4. agentkit reset-escalation --story {story_id}
 5. Pipeline neu starten (ab Verify oder Closure)
 ```
 

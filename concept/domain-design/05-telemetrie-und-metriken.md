@@ -314,6 +314,9 @@ Das `detail`-Feld ist ein strukturiertes Objekt, dessen Felder vom
 Event-Typ abhängen. Die folgenden Tabellen definieren die Pflichtfelder
 pro Event-Typ.
 
+> **[Entscheidung 2026-04-08]** Element 12 — Telemetry Contract: Crash-Detection (Start/End-Paarung, agent_start/agent_end) ist essentiell. Event-Count-Vertrag auf Minimum-Schwellen ("mindestens 1 Review", "mindestens 1 Drift-Check"), keine exakten Zaehler pro Story-Groesse.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 12.
+
 **agent_start, agent_end:**
 
 | Feld | Typ | Beschreibung |

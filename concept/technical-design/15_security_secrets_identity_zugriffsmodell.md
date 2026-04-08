@@ -87,7 +87,7 @@ um rollenspezifische Regeln anzuwenden:
 | Hauptagent vs. Sub-Agent | Claude Code setzt Hook-Kontext (`is_subagent` Flag) | Plattform-garantiert |
 | Sub-Agent-Typ | `subagent_type` im Agent-Spawn-Prompt | Prompt-basiert — kann der Orchestrator setzen, aber der Hook validiert gegen erwartete Typen |
 | Pipeline-Skript | Kein Claude-Code-Kontext, direkter Python-Aufruf | Eindeutig — Skript wird nicht über Hook-Schicht aufgerufen |
-| Story-Execution aktiv | Marker-Datei `_temp/governance/.story-execution-active` existiert | Dateisystem — vom Pipeline-Tooling gesteuert, nicht vom Agent |
+| Story-Execution aktiv | Marker-Datei `_temp/governance/active/{story_id}.active` existiert | Dateisystem — vom Pipeline-Tooling gesteuert, nicht vom Agent |
 
 ## 15.4 Berechtigungsmodell
 
@@ -265,7 +265,7 @@ Governance selbst zu manipulieren:
 .story-pipeline.yaml
 .installed-manifest.json
 _temp/governance/locks/
-_temp/governance/.story-execution-active
+_temp/governance/active/{story_id}.active
 ```
 
 ### 15.7.2 Hook-Integrität

@@ -272,6 +272,9 @@ Wenn `story_type in {implementation, bugfix}` und keine Umsetzungsevidence vorli
 
 ## 23a.9 Sichtbares Exploration-Ergebnis
 
+> **[Entscheidung 2026-04-08]** Element 14 — Exploration-Summary Markdown ist Pflichtartefakt. Menschenlesbares Aggregat aus strukturierten Artefakten. Primaerdokument bei Eskalation an Operator.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 14.
+
 ### 23a.9.1 Menschenlesbares Pflichtartefakt
 
 Wenn Exploration innerhalb einer `implementation`- oder `bugfix`-Story stattfindet, muss das Ergebnis ausserhalb des reinen QA-Temp-Bereichs sichtbar sein.

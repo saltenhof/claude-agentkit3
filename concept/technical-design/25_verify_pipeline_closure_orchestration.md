@@ -64,6 +64,9 @@ mit drei Identitätsfeldern:
 | `qa_cycle_round` | Monotoner Zähler (ab 1) | Inkrementiert bei jedem neuen Zyklus |
 | `evidence_epoch` | ISO-8601 Timestamp | Zeitpunkt der letzten Code-/Artefakt-Mutation |
 
+> **[Entscheidung 2026-04-08]** Element 19 — Evidence-Fingerprint wird verbessert: SHA256-Hash statt Dateigroessen. Betrifft die Berechnung des `evidence_epoch` und die Artefakt-Integritaetspruefung.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 19.
+
 Die QA-Zyklus-Felder werden im Story-State persistiert und in
 alle QA-Artefakte geschrieben (Traceability).
 
@@ -288,7 +291,7 @@ Laufen parallel zur Artefakt-Prüfung (nach deren PASS):
 
 | Check-ID | Kategorie | Was | Severity |
 |----------|-----------|-----|----------|
-| `branch.story` | Branch | Auf korrektem Branch `story/{id}` | BLOCKING |
+| `branch.story` | Branch | Auf korrektem Branch `story/{story_id}` | BLOCKING |
 | `branch.commit_trailers` | Branch | Story-ID in Commit-Message | BLOCKING |
 | `completion.commit` | Completion | Mindestens 1 Commit seit Base-Ref | BLOCKING |
 | `completion.push` | Completion | Branch auf Remote gepusht | BLOCKING |
@@ -415,6 +418,9 @@ Gibt es systemische Risiken, die die Einzelchecks nicht sehen?
 
 - `_temp/qa/{story_id}/llm-review.json` (Producer: `qa-llm-review`)
 - `_temp/qa/{story_id}/semantic-review.json` (Producer: `qa-semantic-review`)
+
+> **[Entscheidung 2026-04-08]** Element 27 — Context Sufficiency Builder ist Pflicht-Gate VOR dem Review: stellt sicher dass genuegend Informationen vorhanden sind. Wenn nicht → Informationen zusammentragen, NICHT Review ueberspringen. Reviews finden IMMER statt.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 27.
 
 ## 25.5a Context Sufficiency Builder (Pre-Step Schicht 2)
 
@@ -570,6 +576,9 @@ context_dict = _pack_and_convert(enriched_bundle)
 runner.run(context=context_dict, ...)
 ```
 
+> **[Entscheidung 2026-04-08]** Element 28 — Section-aware Bundle-Packing ist Pflicht. FK-34-121 normativ. In v2 bereits implementiert.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 28.
+
 ## 25.5b Layer-2-Caller-Verantwortung und Section-aware Packing
 
 ### 25.5b.1 Design-Entscheidung D7: Domänen-Abstraktion vs. Transport-Schicht (FK-25-210)
@@ -686,6 +695,9 @@ generischen Evaluator-Helper:
 QA_PRIORITY_HEADINGS = ["Acceptance Criteria", "Akzeptanzkriterien", "Requirements"]
 DOC_FIDELITY_PRIORITY_HEADINGS = ["Design", "Architecture", "Architektur"]
 ```
+
+> **[Entscheidung 2026-04-08]** Element 26 — Quorum / Tiebreaker ist Pflicht. Dritter Reviewer bei Divergenz.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 26.
 
 ## 25.6 Schicht 3: Adversarial Testing
 
@@ -1035,6 +1047,9 @@ verboten (§25.3a.4). Es ist ausschließlich bei
 `verify_context = "post_exploration"` sowie bei Concept- und
 Research-Stories zulässig.
 
+> **[Entscheidung 2026-04-08]** Element 17 — Alle 11 Eskalations-Trigger werden beibehalten. FK-20 §20.6.1 und FK-35 §35.4.2 normativ. Kein Trigger ist redundant.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 17.
+
 ### 25.10.2 Ablauf mit Substates
 
 ```mermaid
@@ -1219,6 +1234,9 @@ verhindert. Details: Kap. 35, §35.2.3.
 | 6 | Verify-Phase | `NO_VERIFY` | `phase-state.json` mit `phase == verify`, Producer = `run-phase` |
 | 7 | Timestamp-Kausalität | `TIMESTAMP_INVERSION` | `context.json.finished_at` < `decision.json.finished_at` |
 
+> **[Entscheidung 2026-04-08]** Element 12 — Telemetry Contract: Crash-Detection (Start/End-Paarung) essentiell. Event-Count-Vertrag auf Minimum-Schwellen ("mindestens 1 Review", "mindestens 1 Drift-Check"), keine exakten Zaehler pro Story-Groesse.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 12.
+
 ### 25.11.2 Telemetrie-Nachweise (FK-06-082 bis FK-06-091)
 
 | Nachweis | Prüfung | FAIL-Code |
@@ -1231,6 +1249,8 @@ verhindert. Details: Kap. 35, §35.2.3.
 | `web_call` <= Limit | Nur bei Research: Count <= `web_call_limit` | `WEB_BUDGET_EXCEEDED` |
 | `adversarial_sparring` | Mindestens 1 Event (nur impl Stories) | `NO_ADVERSARIAL_SPARRING` |
 | `adversarial_test_executed` | Mindestens 1 Event (nur impl Stories) — Nachweis dass tatsächlich getestet wurde | `NO_ADVERSARIAL_TEST_EXECUTION` |
+| `preflight_request` (Pflicht) | Mindestens 1 Preflight-Turn pro Story nachgewiesen | `PREFLIGHT_MISSING` |
+| `preflight_compliant` | Anzahl `preflight_compliant` Events >= Anzahl `preflight_request` Events | `PREFLIGHT_NOT_COMPLIANT` |
 
 ### 25.11.3 Opake Fehlermeldung
 

@@ -331,7 +331,7 @@ QA-Agent:
 | Agent | Darf lesen | Darf schreiben | Darf ausführen |
 |-------|-----------|---------------|---------------|
 | QA-Agent | Alles | Nur Notizen | Tests |
-| Adversarial | Alles | Nur Sandbox (`_temp/adversarial/{id}/`) | Tests (auch neue) |
+| Adversarial | Alles | Nur Sandbox (`_temp/adversarial/{story_id}/`) | Tests (auch neue) |
 
 ## 31.5 Story-Erstellungs-Guard
 

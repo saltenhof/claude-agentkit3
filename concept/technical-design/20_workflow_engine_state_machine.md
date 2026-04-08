@@ -142,12 +142,19 @@ flowchart TD
 - Pflicht-Feedback-Loop mit 2 verschiedenen LLMs (Kap. 02.2.4)
 - QA-Prüfung der Feedback-Einarbeitung
 
+> **[Entscheidung 2026-04-08]** Element 13 — `_guard_failure` und `_loaded_from_file` werden als RuntimeMetadata uebernommen (nicht als Felder auf PhaseState). `_loaded_from_file` wird veredelt zu `origin` (NEW | LOADED). `_guard_failure` verhindert Persistierung von invalidem State.
+> Element 13b — `_recovered_from_context` Flag entfaellt. Konzepte verbieten automatische State-Rekonstruktion. Fehlendes `phase-state.json` → nur `setup` erlaubt. Korrupt → PIPELINE_ERROR. Recovery nur als bewusste Mensch-Aktion (§20.7.2).
+> Element 16 — PhaseState-Restructuring: Ownership-Trennung in StoryContext (langlebige Story-Semantik), PhaseStateCore (aktueller Laufzeitstatus), PhasePayload (diskriminierte Union pro Phase), RuntimeMetadata (nicht-fachliche Loader-/Guard-Infos). `mode`, `story_type` → raus aus PhaseState, rein in StoryContext. QA-Zyklus-Felder → VerifyState. Exploration-Gate-Felder → ExplorationState. Closure-Substates → ClosureState. Detailkonzept wird separat ausgearbeitet.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Elemente 13, 13b, 16.
+
 ## 20.3 Phase-State-Persistenz
 
 ### 20.3.1 Phase-State-Datei
 
 Der aktuelle Zustand der Pipeline wird pro Story persistiert in
 `_temp/qa/{story_id}/phase-state.json`:
+
+> **[Hinweis 2026-04-08]** Dieses Beispiel zeigt noch die flache PhaseState-Struktur aus v2. In v3 wird PhaseState in StoryContext + PhaseStateCore + PhasePayload (diskriminierte Union) + RuntimeMetadata aufgeteilt. Detailkonzept ausstehend. Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 16.
 
 ```json
 {
@@ -186,6 +193,8 @@ Der aktuelle Zustand der Pipeline wird pro Story persistiert in
 ```
 
 ### 20.3.2 Schlüsselfelder
+
+> **[Hinweis 2026-04-08]** Diese Feldliste zeigt noch die flache PhaseState-Struktur aus v2. In v3 wird PhaseState in StoryContext + PhaseStateCore + PhasePayload (diskriminierte Union) + RuntimeMetadata aufgeteilt. Detailkonzept ausstehend. Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 16.
 
 | Feld | Typ | Beschreibung |
 |------|-----|-------------|
@@ -464,6 +473,9 @@ Nach Erreichen des Limits: Pipeline stoppt, Story bleibt
 
 ## 20.6 Eskalation
 
+> **[Entscheidung 2026-04-08]** Alle 11 Eskalations-Trigger werden beibehalten. FK-20 §20.6.1 und FK-35 §35.4.2 sind normativ. Kein Trigger ist redundant.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 17.
+
 ### 20.6.1 Eskalationspunkte
 
 | Auslöser | Phase | Reaktion |
@@ -494,13 +506,19 @@ Bei jeder Eskalation gilt dasselbe Verhalten (FK-05-218 bis FK-05-222):
 
 **PAUSED vs. ESCALATED:**
 
+> **[Entscheidung 2026-04-08]** Element 20 — Yield/Resume-Funktionalitaet wird beibehalten. String-basierte `pause_reason` wird ersetzt durch `PauseReason` StrEnum + typisierte Resume-Handler. `resume_handler_for(reason: PauseReason) -> ResumeHandler` oder Workflow-Modell mit Yield-Definitionen + `resume_triggers`. Detailkonzept offen, zusammen mit Element 16 auszuarbeiten.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 20.
+
 | Status | Auslöser | Bedeutung | Resume |
 |--------|---------|-----------|--------|
-| `PAUSED` | Governance-Beobachtung: kritischer Incident | Pipeline ist vorübergehend angehalten. Kann vom Menschen nach Prüfung wieder aufgenommen werden. | `agentkit resume --story {id}` |
-| `ESCALATED` | Preflight FAIL, Worker BLOCKED, Integrity-Gate FAIL, Max Runden, Merge-Konflikt | Pipeline ist dauerhaft gestoppt für diese Iteration. Mensch muss Ursache klären und ggf. neuen Run starten. | `agentkit reset-escalation --story {id}` → neuer Run |
+| `PAUSED` | Governance-Beobachtung: kritischer Incident | Pipeline ist vorübergehend angehalten. Kann vom Menschen nach Prüfung wieder aufgenommen werden. | `agentkit resume --story {story_id}` |
+| `ESCALATED` | Preflight FAIL, Worker BLOCKED, Integrity-Gate FAIL, Max Runden, Merge-Konflikt | Pipeline ist dauerhaft gestoppt für diese Iteration. Mensch muss Ursache klären und ggf. neuen Run starten. | `agentkit reset-escalation --story {story_id}` → neuer Run |
 
 **Technisch:** Der Phase-State mit `status: ESCALATED` oder `PAUSED`
 verhindert, dass der Orchestrator die nächste Phase aufruft.
+
+> **[Entscheidung 2026-04-08]** Element 7 — CrashScenario / CRASH_SCENARIO_CATALOG entfaellt als eigene Runtime-Datenstruktur in v3. Die Recovery-Logik (§20.7) existiert separat und bleibt bestehen. Die Szenario-Informationen bleiben in den Konzeptdokumenten (hier §20.7.1).
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 7.
 
 ## 20.7 Recovery
 
@@ -511,7 +529,7 @@ verhindert, dass der Orchestrator die nächste Phase aufruft.
 | Agent-Session crashed mitten in Implementation | `phase: implementation, status: IN_PROGRESS` | Neuer Run mit neuer `run_id`. Worktree existiert noch, Commits sind da. Orchestrator spawnt neuen Worker, der die Arbeit fortsetzt. |
 | Phase Runner crashed mitten in Verify | `phase: verify, verify_layer: 2` | `run-phase verify` erneut aufrufen. Schicht 1 hat bereits `structural.json` geschrieben (idempotent). Schicht 2 wird neu ausgeführt. |
 | Closure crashed nach Merge aber vor Issue-Close | `closure_substates: {merge_done: true, issue_closed: false}` | `run-phase closure` erneut aufrufen. Merge wird übersprungen (bereits gemergt). Issue-Close wird ausgeführt. |
-| Mensch will eskalierten Run fortsetzen | `status: ESCALATED` | Mensch setzt Phase-State zurück: `agentkit reset-escalation --story {id}`. Dann neuer Run. |
+| Mensch will eskalierten Run fortsetzen | `status: ESCALATED` | Mensch setzt Phase-State zurück: `agentkit reset-escalation --story {story_id}`. Dann neuer Run. |
 
 ### 20.7.2 Run-ID und Retry
 
@@ -525,6 +543,9 @@ selbstständig, eine gescheiterte Phase zu wiederholen. Recovery
 ist immer eine bewusste Entscheidung — entweder des Orchestrators
 (bei Verify-Failure → Feedback-Loop) oder des Menschen (bei
 Eskalation).
+
+> **[Entscheidung 2026-04-08]** Element 8 — Scheduling Policies (3 Klassen) entfallen als Runtime-Datenstrukturen in v3. Die Scheduling-Informationen bleiben in der Konzeptdokumentation (hier §20.8). Reines Doku-Artefakt ohne Verhalten.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 8.
 
 ## 20.8 Scheduling und Priorisierung
 
@@ -543,10 +564,12 @@ Mehrere Stories können parallel bearbeitet werden (Kap. 10.5.1):
 - Der Orchestrator kann mehrere Worker-Agents parallel spawnen
 - Der Phase Runner arbeitet pro Story sequentiell
 
-**Keine Pipeline-übergreifende Koordination.** Wenn zwei Stories
-denselben Code-Bereich betreffen, gibt es keine automatische
-Konflikterkennung. Das wird beim Merge sichtbar (FF-only scheitert)
-und dann über den Feedback-Loop oder Eskalation gelöst.
+**Pipeline-übergreifende Koordination via Scope-Overlap-Check.**
+Wenn zwei Stories denselben Code-Bereich betreffen, erkennt der
+Preflight-Scope-Overlap-Check (FK-22 §22.3.1, Check 9) dies
+vor dem Start der zweiten Story. Die Story bleibt im Backlog
+bis die parallele Story gemergt ist. Zusätzlich greift beim Merge
+die FF-only-Prüfung als zweite Verteidigungslinie.
 
 ---
 

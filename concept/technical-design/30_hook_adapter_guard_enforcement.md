@@ -332,7 +332,7 @@ für die Artefakt-Aktualität (Kap. 13.9.9, Tabelle
 | Trigger | Aktion | Härte |
 |---------|--------|-------|
 | Commit enthielt `_concept/`-Änderungen | `concept build` (INDEX.yaml + concept_graph.json) | Non-blocking (Post-Commit kann nicht abbrechen) |
-| `--sync` Flag oder Konfiguration | `concept sync` (VectorDB, optional) | Fail-silent (Warning bei VectorDB-Ausfall) |
+| `--sync` Flag oder Konfiguration | `concept sync` (VectorDB, Pflicht) | Bei VectorDB-Ausfall: Fehler protokolliert |
 | Keine Konzeptänderungen im Commit | Überspringt Concept-Build | — |
 
 **Abgrenzung zu §30.5.3 (Pre-Commit):**
@@ -343,7 +343,7 @@ für die Artefakt-Aktualität (Kap. 13.9.9, Tabelle
 | Blockierend? | Ja (kann Commit verhindern) | Nein (Commit ist bereits durch) |
 | Aufruf | `concept validate --staged` | `concept build [--sync]` |
 | Bei Fehler | Commit blockiert | Warning auf stderr, kein Abbruch |
-| VectorDB | Nicht involviert | Optional (`--sync`), fail-silent |
+| VectorDB | Nicht involviert | Pflicht (`--sync`), Fehler bei Ausfall |
 
 **Erkennung der Konzeptänderungen:** Der Post-Commit-Hook nutzt
 `git diff --name-only HEAD~1 HEAD` um zu prüfen ob Dateien unter
@@ -351,7 +351,7 @@ für die Artefakt-Aktualität (Kap. 13.9.9, Tabelle
 
 **Laufzeit:** `concept build` ist deterministisch (Parse + Write),
 keine Netzwerk-Aufrufe, ~1s für typische Corpus-Größen (~50
-Dokumente). `concept sync` kommt optional hinzu (~2-5s bei
+Dokumente). `concept sync` folgt als Pflichtschritt (~2-5s bei
 inkrementellem Sync).
 
 **Installer-Integration:** Der Post-Commit-Hook wird über
@@ -786,6 +786,9 @@ Health-Monitor dem Agent erklären, was passiert und welche
 Exit-Optionen er hat. Das Ziel ist nicht Blockade, sondern
 kooperative Deeskalation.
 
+> **[Entscheidung 2026-04-08]** Element 23 — LLM-Assessment-Sidecar ist Pflicht. Kein Feature-Flag. Der Sidecar-Prozess ist keine optionale Erweiterung, sondern integraler Bestandteil der Produktionsarchitektur.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 23.
+
 ### 30.10.3 Sidecar-Prozess: LLM-Assessment
 
 Das LLM-Assessment läuft nicht im Hook (das würde den Worker
@@ -867,9 +870,10 @@ Antworte nur mit: LOOP_PROBABILITY: <0-100>
 - **Stop:** Beendet sich selbst wenn `agent-health.json` nicht
   mehr aktualisiert wird (Timeout 5 Minuten) oder wenn der
   Worker terminiert
-- **Crash-Resilience:** Wenn der Sidecar abstürzt, fehlt nur
+- **Crash-Resilience:** Wenn der Sidecar abstürzt, fehlt
   die LLM-Komponente. Das deterministische Scoring funktioniert
-  unverändert weiter. Der LLM-Anteil fällt auf 0 zurück.
+  unverändert weiter (Timeout-Sicherheit). Der LLM-Anteil fällt auf 0 zurück.
+  Der Sidecar wird jedoch immer gestartet — er ist Pflichtbestandteil.
 
 ### 30.10.4 Hook-Commit-Failure-Klassifikation
 
@@ -958,7 +962,7 @@ Alle Schwellwerte, Gewichte und Sidecar-Parameter werden in
 
 ```yaml
 worker_health:
-  enabled: true
+  # Der Worker-Health-Monitor ist Pflichtbestandteil und nicht abschaltbar.
 
   scoring:
     thresholds:
@@ -992,7 +996,8 @@ worker_health:
       max_points: 10
 
   llm_assessment:
-    enabled: true
+    # Der LLM-Assessment-Sidecar ist Pflichtbestandteil und nicht abschaltbar.
+    # Timeout-Konfiguration (timeout_seconds) bleibt konfigurierbar.
     trigger_score: 50
     throttle_seconds: 600    # 10 Minuten Mindestabstand
     timeout_seconds: 45

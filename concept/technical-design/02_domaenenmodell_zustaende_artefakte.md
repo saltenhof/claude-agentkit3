@@ -97,7 +97,13 @@ stateDiagram-v2
     }
 ```
 
+> **[Entscheidung 2026-04-08]** Element 3 — NON_DETERMINISTIC_PHASE Konstanten entfallen in v3. Stattdessen `requires_llm: bool` pro Phase in der Phase-Config.
+> Element 16 — PhaseState wird in v3 nach Ownership getrennt: StoryContext (langlebige Story-Semantik), PhaseStateCore (aktueller Laufzeitstatus), PhasePayload (diskriminierte Union pro Phase), RuntimeMetadata (nicht-fachliche Loader-/Guard-Infos). `mode`, `story_type` raus aus PhaseState, rein in StoryContext. Detailkonzept wird separat ausgearbeitet.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Elemente 3, 16.
+
 **Pipeline-State-Datei:** `_temp/qa/{story_id}/phase-state.json`
+
+> **[Hinweis 2026-04-08]** Dieses Beispiel zeigt noch die flache PhaseState-Struktur aus v2. In v3 wird PhaseState in StoryContext + PhaseStateCore + PhasePayload (diskriminierte Union) + RuntimeMetadata aufgeteilt. Detailkonzept ausstehend. Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 16.
 
 ```json
 {
@@ -241,7 +247,7 @@ flowchart TD
 | Keine blinde Übernahme | Es besteht keine Pflicht, alles einzuarbeiten — LLMs können auch Unsinn liefern |
 | Begründungspflicht | Jeder Feedback-Punkt, der nicht eingearbeitet wird, muss im Konzeptdokument mit Begründung dokumentiert werden |
 | QA-Prüfung | Ein QA-Agent (oder LLM-Bewertungsfunktion) prüft, ob zu jedem Feedback-Punkt eine Einarbeitung oder eine nachvollziehbare Begründung der Ablehnung vorliegt |
-| Nachweis im Integrity-Gate | Die Telemetrie muss die Feedback-Calls nachweisen (analog zu `review_compliant` bei implementierenden Stories) |
+| Telemetrie-Nachweis | Die Telemetrie muss die Feedback-Calls vollständig protokollieren. Der Nachweis wird von der leichtgewichtigen QA-Prüfung (nicht vom Integrity-Gate, das Konzept-Stories nicht durchlaufen) ausgewertet. |
 
 **Abgrenzung zum Verify-Prozess:** Dieser Feedback-Loop ist bewusst
 leichtgewichtig. Er ersetzt nicht die 4-Schichten-Verify-Pipeline

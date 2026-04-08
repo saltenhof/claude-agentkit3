@@ -342,8 +342,11 @@ Dokumententreue PASS. Der Mensch muss die offenen Punkte
 freigeben (z.B. "Einführung einer neuen Entity — akzeptabel?"),
 bevor die Implementation beginnen darf.
 
+> **[Entscheidung 2026-04-08]** Element 20 — `pause_reason` wird in v3 durch `PauseReason` StrEnum ersetzt. Typisierte Resume-Handler statt String-basierter Reason. Detailkonzept zusammen mit Element 16 (PhaseState-Restructuring) offen.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 20.
+
 Phase-State: `status: PAUSED`, `pause_reason: "human_approval_required"`.
-Resume: `agentkit resume --story {id}` nach menschlicher Prüfung.
+Resume: `agentkit resume --story {story_id}` nach menschlicher Prüfung.
 
 **Bei FAIL:** Der Phase-State wird auf `status: ESCALATED` gesetzt.
 Der Mensch muss den Konflikt klären — z.B. das Konzept anpassen,
@@ -419,7 +422,7 @@ Impact-Überschreitung):
 
 1. Worker markiert den Drift im Handover-Paket
 2. Worker meldet Drift an den Orchestrator
-3. Orchestrator ruft `agentkit run-phase exploration --story {id}`
+3. Orchestrator ruft `agentkit run-phase exploration --story {story_id}`
    erneut auf — **ohne** das Entwurfsartefakt neu zu erzeugen,
    nur die Dokumententreue-Prüfung wird wiederholt
 4. Bei PASS: Worker darf weiterarbeiten

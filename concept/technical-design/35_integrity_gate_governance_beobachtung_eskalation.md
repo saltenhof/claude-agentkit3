@@ -158,7 +158,8 @@ Events in der SQLite-Telemetrie-DB:
 | Web-Call-Limit (nur Research) | `SELECT COUNT(*) FROM events WHERE story_id=? AND event_type='web_call'` <= Config-Limit | `WEB_BUDGET_EXCEEDED` |
 | Adversarial Sparring (nur impl) | `SELECT COUNT(*) FROM events WHERE story_id=? AND event_type='adversarial_sparring'` >= 1 | `NO_ADVERSARIAL_SPARRING` |
 | Adversarial Test ausgeführt (nur impl) | `SELECT COUNT(*) FROM events WHERE story_id=? AND event_type='adversarial_test_executed'` >= 1 | `NO_ADVERSARIAL_TEST_EXECUTION` |
-| Preflight-Compliance (wenn Preflight stattfand) | `COUNT(preflight_request) > 0 → COUNT(preflight_compliant) >= COUNT(preflight_request)` | `PREFLIGHT_NOT_COMPLIANT` |
+| Preflight durchgeführt (Pflicht) | `COUNT(preflight_request) >= 1` | `PREFLIGHT_MISSING` |
+| Preflight-Compliance | `COUNT(preflight_compliant) >= COUNT(preflight_request)` | `PREFLIGHT_NOT_COMPLIANT` |
 | Finding-Resolution vollstaendig (nur Runde 2+) | Kein Finding mit `partially_resolved` oder `not_resolved` im Layer-2-Output (`llm-review.json`, Checks mit `resolution`-Feld) | `OPEN_FINDINGS` |
 
 **Hinweis zu `OPEN_FINDINGS` (FK-35-114):** Dieser Nachweis wird
@@ -172,11 +173,14 @@ Zusammenfassungen (Trust C, nicht autoritativ).
 **Provenienz:** Kap. 04, §4.6 (Finding-Resolution und Remediation-
 Haertung). Kap. 25, §25.10a (Finding-Resolution als Closure-Gate).
 
-**Hinweis zu `PREFLIGHT_NOT_COMPLIANT`:** Dieser Failure-Code
-wird NUR ausgewertet wenn `preflight_request_count > 0`. Es
-gibt keinen Failure-Code für fehlenden Preflight — Preflight
-ist optional (fail-open). Aber wenn Preflight stattfand, muss
-er konsistent sein (fail-closed). Siehe Kap. 14.9.3.
+**Hinweis zu Preflight-Nachweisen:** Preflight ist Pflicht
+(fail-closed). Zwei Failure-Codes stellen dies sicher:
+- `PREFLIGHT_MISSING`: `preflight_request_count == 0` — kein
+  Preflight stattgefunden. Harter Blocker.
+- `PREFLIGHT_NOT_COMPLIANT`: `preflight_request_count > 0`,
+  aber `preflight_compliant_count < preflight_request_count` —
+  Preflight inkonsistent. Harter Blocker.
+Siehe Kap. 14.9.3.
 
 **Prüfung gegen Konfiguration:** Das Gate liest `llm_roles`
 aus der Pipeline-Config und prüft ob für **jede konfigurierte
@@ -238,7 +242,7 @@ Phase-State: `status: ESCALATED`. Story bleibt "In Progress".
 Orchestrator stoppt. Mensch muss Audit-Log prüfen und entscheiden:
 - Prozess nachvollziehen und Ursache beheben → neuer Run
 - Bewusster Override (z.B. bei bekanntem Infrastruktur-Problem)
-  → `agentkit override-integrity --story {id} --reason "..."`
+  → `agentkit override-integrity --story {story_id} --reason "..."`
 
 ## 35.3 Governance-Beobachtung
 
@@ -490,6 +494,9 @@ Verhalten:
 6. Erst nach menschlicher Intervention kann die Story wieder
    in die Pipeline eingespeist werden
 
+> **[Entscheidung 2026-04-08]** Element 17 — Alle 11 Eskalations-Trigger werden beibehalten. FK-20 §20.6.1 und FK-35 §35.4.2 normativ. Kein Trigger ist redundant.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 17.
+
 ### 35.4.2 Eskalationspunkte (vollständig)
 
 | Auslöser | Phase | Phase-State | Resume |
@@ -508,8 +515,8 @@ Verhalten:
 
 | Status | Bedeutung | Typischer Auslöser | Resume-Pfad |
 |--------|-----------|-------------------|-------------|
-| `PAUSED` | Vorübergehend angehalten, kann fortgesetzt werden | Governance-Incident, menschliche Freigabe nötig | `agentkit resume --story {id}` |
-| `ESCALATED` | Dauerhaft gestoppt für diese Iteration | Integrity-Gate FAIL, Merge-Konflikt, Max Runden | `agentkit reset-escalation --story {id}` → neuer Run |
+| `PAUSED` | Vorübergehend angehalten, kann fortgesetzt werden | Governance-Incident, menschliche Freigabe nötig | `agentkit resume --story {story_id}` |
+| `ESCALATED` | Dauerhaft gestoppt für diese Iteration | Integrity-Gate FAIL, Merge-Konflikt, Max Runden | `agentkit reset-escalation --story {story_id}` → neuer Run |
 
 **Unterschied:** Bei PAUSED wird derselbe Run fortgesetzt.
 Bei ESCALATED wird ein neuer Run gestartet (neue `run_id`).
@@ -608,18 +615,20 @@ Erstellen des Snapshots befüllt.
 def check_guard_preflight_compliance(
     snapshot: TelemetrySnapshot,
 ) -> GuardResult:
-    """Prüft Preflight-Compliance: wenn Preflight stattfand,
-    muss er compliant sein.
+    """Prüft Preflight-Compliance: Preflight ist Pflicht.
 
-    Nur ausgewertet wenn preflight_request_count > 0.
-    Warning-Level, nicht story-blocking (MAJOR).
+    preflight_request_count == 0 → MAJOR (fehlender Preflight).
+    preflight_compliant_count < preflight_request_count → MAJOR (inkonsistent).
     """
     if snapshot.preflight_request_count == 0:
-        return GuardResult(status="SKIP", reason="Kein Preflight stattgefunden")
+        return GuardResult(
+            status="MAJOR",
+            reason="Kein Preflight stattgefunden — Preflight ist Pflicht",
+        )
     if snapshot.preflight_compliant_count >= snapshot.preflight_request_count:
         return GuardResult(status="PASS")
     return GuardResult(
-        status="WARNING",
+        status="MAJOR",
         reason=(
             f"Preflight inkonsistent: {snapshot.preflight_compliant_count} "
             f"compliant von {snapshot.preflight_request_count} requests"
@@ -627,13 +636,14 @@ def check_guard_preflight_compliance(
     )
 ```
 
-**Designentscheidung:** Dieser Guard ist Warning-Level, nicht
-MAJOR. Er blockiert die Story nicht eigenständig. Das
-Integrity-Gate (§35.2.5) prüft denselben Sachverhalt mit dem
-Failure-Code `PREFLIGHT_NOT_COMPLIANT` — dort ist es blocking.
+**Designentscheidung:** Dieser Guard ist MAJOR-Level und
+blockiert die Story. Preflight ist Pflicht (fail-closed).
+Das Integrity-Gate (§35.2.5) prüft denselben Sachverhalt mit
+den Failure-Codes `PREFLIGHT_MISSING` und
+`PREFLIGHT_NOT_COMPLIANT`.
 
-Der Guard dient der frühzeitigen Erkennung: wenn der Preflight-
-Stream inkonsistent wird, soll das bereits während der
+Der Guard dient der frühzeitigen Erkennung: wenn Preflight
+fehlt oder inkonsistent wird, soll das bereits während der
 Implementation auffallen, nicht erst bei Closure.
 
 ---

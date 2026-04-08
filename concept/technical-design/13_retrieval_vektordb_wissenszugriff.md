@@ -23,11 +23,10 @@ tags: [vektordb, weaviate, retrieval, chunking, concept-graph]
 ## 13.1 Zweck und Einsatzstellen
 
 Die VektorDB dient der semantischen Suche über den Wissensbestand
-des Projekts. Sie ist kein Kernsystem von AgentKit, sondern ein
-optionaler externer Dienst (`features.vectordb: true`). Ohne VektorDB
-läuft AgentKit vollständig — verliert aber die Fähigkeit, bei
-Story-Erstellung und Exploration automatisch nach Duplikaten,
-Überschneidungen und relevanten Konzepten zu suchen.
+des Projekts. Sie ist ein Pflichtbestandteil der AgentKit-Infrastruktur.
+Die VektorDB ermöglicht bei Story-Erstellung und Exploration die
+automatische Suche nach Duplikaten, Überschneidungen und relevanten
+Konzepten.
 
 ### 13.1.1 Einsatzstellen in der Pipeline
 
@@ -38,6 +37,9 @@ Story-Erstellung und Exploration automatisch nach Duplikaten,
 | **Konzept-Stories** | Überschneidungen mit bestehenden Konzepten | Duplikatwarnung vor Konzepterstellung | FK-05-042 |
 | **Kontext-Selektion (P6)** | Relevante Regeln und Wissensabschnitte für eine Rolle | Gefiltertes Kontextpaket für Agent-Prompt | FK-04-021 bis FK-04-023 |
 
+> **[Entscheidung 2026-04-08]** Element 22 — VektorDB-Abgleich ist immer aktiv. Keine Feature-Flag-Stufung.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 22.
+
 ## 13.2 Technologie-Stack
 
 | Komponente | Technologie | Konfiguration |
@@ -45,7 +47,7 @@ Story-Erstellung und Exploration automatisch nach Duplikaten,
 | VektorDB | Weaviate 1.25+ | Docker-Container, HTTP `:9903`, gRPC `:50051` |
 | Embedding-Modell | text2vec-transformers | Docker-Sidecar, automatisch von Weaviate gestartet |
 | MCP-Wrapper | Python, FastMCP | stdio-Transport, registriert in `.mcp.json` |
-| Client-Library | weaviate-client 4.9-5.0 | Python, optionale Dependency |
+| Client-Library | weaviate-client 4.9-5.0 | Python, Pflicht-Dependency |
 
 **Docker-Compose** (in `userstory/vectordb/docker-compose.yaml`):
 
@@ -161,8 +163,8 @@ chunked sie, vergleicht Hashes, indiziert neue/geänderte Chunks.
 
 ### 13.4.3 Registrierung
 
-Der MCP-Server wird bei Installation (Checkpoint 9, nur bei
-`vectordb: true`) in `.mcp.json` registriert:
+Der MCP-Server wird bei Installation (Checkpoint 9) in
+`.mcp.json` registriert:
 
 ```json
 {
@@ -250,7 +252,7 @@ nach Ähnlichkeit finden.
 1. Story-Metadaten (Module, Typ, Tech-Stack) bestimmen
    Filterkriterien
 2. Manifest-Index liefert getaggte Abschnitte (deterministisch)
-3. Optional: VektorDB-Suche liefert semantisch ähnliche
+3. VektorDB-Suche liefert semantisch ähnliche
    Abschnitte, die kein Tag-Match haben
 4. Ergebnis: Kontextpaket als Kontext-Bundle (Kap. 11)
 
@@ -270,9 +272,9 @@ wird in der Postflight-Phase ein asynchroner, nicht-blockierender
 dass frisch geschlossene Stories und Konzepte für nachfolgende
 Story-Erstellungen und Exploration-Phasen suchbar sind.
 
-Der Sync ist bewusst asynchron und nicht-blockierend: Wenn Weaviate
-nicht erreichbar ist, scheitert die Closure nicht. Die VektorDB
-bleibt eine Optimierung, kein kritischer Pfad.
+Der Sync in der Closure-Phase ist asynchron. Wenn Weaviate bei
+Closure nicht erreichbar ist, wird ein Fehler protokolliert.
+Die VektorDB ist Pflichtbestandteil der Infrastruktur.
 
 ### 13.7.2 Re-Indexierung
 
@@ -285,20 +287,12 @@ Bei `full_reindex=true`:
 **Dauer:** Abhängig von Projektgröße. Typisch 2-10 Minuten für
 100-500 Stories/Dokumente.
 
-## 13.8 Fallback ohne VektorDB
+## 13.8 VektorDB-Ausfallverhalten
 
-Wenn `features.vectordb: false` oder Weaviate nicht erreichbar:
-
-| Einsatzstelle | Fallback |
-|--------------|---------|
-| Story-Erstellung (Duplikat-Check) | Entfällt. Kein automatischer Abgleich. |
-| Exploration (Referenzdokumente) | Manuelle Angabe im Issue-Body (`## Konzept-Referenzen` → `concept_paths`) |
-| Konzept-Stories (Überschneidungen) | Entfällt. |
-| Kontext-Selektion | Nur Manifest-Indexer (deterministisch, ohne semantische Suche) |
-
-**Kein fail-closed bei VektorDB-Ausfall.** Die VektorDB ist eine
-Qualitätsoptimierung. Ihr Ausfall blockiert nicht die Pipeline,
-erzeugt aber eine Warnung in der Telemetrie.
+Die VektorDB ist ein Pflichtbestandteil. Ihr Ausfall blockiert die
+Pipeline — Weaviate muss erreichbar sein, bevor eine Story gestartet
+oder erstellt werden kann. Ist Weaviate nicht erreichbar, wird die
+betroffene Operation mit einem Fehler abgebrochen (fail-closed).
 
 ## 13.9 ConceptContext — Schema-Erweiterung für Konzeptdokumente
 
@@ -585,7 +579,7 @@ Warnings: Commit erlaubt, Summary wird angezeigt.
 `concept validate --corpus --strict` in CI prüft den gesamten
 Corpus. `--strict` behandelt Warnings als Errors. Danach
 `concept build` erzeugt `concept_graph.json` und `INDEX.yaml`.
-Optional: `concept sync` (VectorDB, nur wenn verfügbar).
+`concept sync` (VectorDB-Synchronisierung).
 
 **Verantwortlichkeit und Trigger für Corpus-Build und VectorDB-Sync:**
 
@@ -598,8 +592,8 @@ kein Prozessschritt würde sie nutzen.
 | Artefakt / Aktion | Verantwortlicher | Trigger | Befähigung |
 |--------------------|-----------------|---------|------------|
 | INDEX.yaml + concept_graph.json | **Post-Commit-Hook** (§30.5.4a) | Automatisch nach jedem Commit mit `_concept/`-Änderungen | Pfadbasiertes Dispatching erkennt `_concept/`; `concept build` ist deterministisch, kein LLM, ~1s Laufzeit |
-| VectorDB-Sync (Erstindizierung) | **Installer** (CP 9a) | Einmalig bei Installation/Upgrade | Checkpoint-Engine, features.vectordb=true |
-| VectorDB-Sync (laufend) | **Post-Commit-Hook** (§30.5.4a) | Optional nach `concept build`, fail-silent | `concept build --sync`; bei VectorDB-Ausfall: Warning, kein Fehler |
+| VectorDB-Sync (Erstindizierung) | **Installer** (CP 9a) | Einmalig bei Installation/Upgrade | Checkpoint-Engine (VektorDB ist Pflicht) |
+| VectorDB-Sync (laufend) | **Post-Commit-Hook** (§30.5.4a) | Nach `concept build` | `concept build --sync`; bei VectorDB-Ausfall: Fehler protokolliert |
 | VectorDB-Sync (manuell) | **Operator / Agent** | CLI `concept sync` oder MCP-Tool | Expliziter Aufruf |
 | Freshness-Gate | **create-userstory Skill** | Vor Story-Erstellung | Vergleicht `corpus_revision` gegen Datei-Stand; Hard Stop bei Stale |
 
@@ -607,7 +601,7 @@ kein Prozessschritt würde sie nutzen.
 für die Artefakt-Aktualisierung. Er stellt sicher, dass nach jedem
 Commit der Corpus-Stand konsistent ist — ohne dass ein Mensch oder
 Agent daran denken muss. Der Hook ist deterministisch (kein LLM),
-schnell (~1s), und fail-silent für den optionalen VectorDB-Sync.
+schnell (~1s), und führt den VectorDB-Sync als Pflichtschritt durch.
 
 Der Pre-Commit-Hook (Ring 2) bleibt ausschließlich für die
 Validierung zuständig — er erzeugt keine Artefakte.
@@ -653,19 +647,19 @@ Regeln:
 4. Archived/Draft-Konzepte erhalten Abzug
 5. Module-Match boosted nur ohne stärkeren Cross-Module-Authority
 
-### 13.9.12 Fallback
+### 13.9.12 Ausfallverhalten
 
 Konsistent mit §13.8:
 
 | Situation | Verhalten |
 |-----------|----------|
-| VectorDB nicht erreichbar | `concept_search` entfällt, INDEX.yaml + Grep verfügbar |
+| VectorDB nicht erreichbar | Betroffene Operation wird abgebrochen (fail-closed) |
 | `concept_graph.json` fehlt/stale | `create-userstory` Hard Stop |
 | `concept_validate` findet Errors | Commit blockiert, Sync blockiert |
 
-**Kernregel:** Discovery (VectorDB) darf weich ausfallen.
-Normvalidierung (Authority, Deferrals, Zyklen via concept_graph)
-muss deterministisch hart bleiben.
+**Kernregel:** VectorDB ist Pflicht (§13.8). Normvalidierung
+(Authority, Deferrals, Zyklen via concept_graph) muss
+deterministisch hart bleiben.
 
 ### 13.9.13 Concept Excludes (`.conceptignore`)
 

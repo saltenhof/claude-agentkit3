@@ -55,7 +55,7 @@ graph TB
         POOL_X["Grok-Pool (optional)<br/>(:9400)"]
         DASHBOARD["AgentKit Dashboard<br/>(:9700)"]
         ARE_EXT["ARE Server (optional)<br/>(:9800)"]
-        WEAVIATE["Story-Knowledge-Base (optional)<br/>Weaviate (:9902)"]
+        WEAVIATE["Story-Knowledge-Base<br/>Weaviate (:9902)"]
     end
 
     ORCH -->|"Bash-Tool"| CLI
@@ -76,8 +76,8 @@ graph TB
 | **Claude-Code-Session** | Minuten bis Stunden | Mensch (CLI `claude`) | Orchestrator, Worker, Adversarial |
 | **Hook-Prozess** | Millisekunden | Claude Code (pro Tool-Call) | `branch_guard.py`, `integrity.py`, `hook.py` |
 | **Pipeline-Skript** | Sekunden bis Minuten | Agent via Bash-Tool | `agentkit run-phase`, `agentkit structural` |
-| **MCP-Server** | Dauerhaft | Mensch oder Autostart | LLM-Pools (optional, mind. 1), Story-Knowledge-Base (optional), ARE (optional) |
-| **Docker-Container** | Dauerhaft | `docker-compose up` | Weaviate + text2vec-transformers (optional, nur bei `vectordb: true`) |
+| **MCP-Server** | Dauerhaft | Mensch oder Autostart | LLM-Pools (optional, mind. 1), Story-Knowledge-Base (Pflicht), ARE (optional) |
+| **Docker-Container** | Dauerhaft | `docker-compose up` | Weaviate + text2vec-transformers (Pflicht) |
 
 ### 10.1.3 Hook-Prozesse im Detail
 
@@ -125,8 +125,8 @@ sequenceDiagram
     Note over PROJ: .story-pipeline.yaml<br/>.claude/settings.json (Hooks)<br/>skills/, prompts/, schemas/<br/>.installed-manifest.json
 ```
 
-**Keine Docker-Abhängigkeit für AgentKit selbst.** Docker wird nur
-für optionale externe Dienste benötigt (Weaviate).
+**Keine Docker-Abhängigkeit für AgentKit selbst.** Docker wird für
+Pflicht-Infrastrukturdienste benötigt (Weaviate).
 
 ### 10.2.2 Laufzeitabhängigkeiten
 
@@ -137,7 +137,7 @@ für optionale externe Dienste benötigt (Weaviate).
 | `gh` CLI | Pflicht | Installer Checkpoint 2 |
 | Claude Code | Pflicht | Voraussetzung (nicht geprüft) |
 | LLM-Pools (MCP) | Pflicht: mind. 2 verschiedene Pools zusätzlich zu Claude (Schicht 2 fordert verschiedene LLMs für QA-Review und Semantic Review) | Integrity-Gate bei Closure prüft konfigurierte `llm_roles` gegen Telemetrie |
-| Weaviate + MCP-Wrapper | Optional (`vectordb: true`) | Installer Checkpoint 9 |
+| Weaviate + MCP-Wrapper | Pflicht | Installer Checkpoint 9 |
 | ARE (MCP) | Optional (`are: true`) | Installer prüft Erreichbarkeit des MCP-Servers |
 
 **LLM-Pool-Anforderung im Detail:**
@@ -239,7 +239,8 @@ Die einzigen dauerhaft laufenden Prozesse sind externe Dienste
 │   │   └── {story_id}.jsonl
 │   │
 │   ├── governance/                  # Governance-Laufzeitdaten
-│   │   ├── .story-execution-active  # Marker: Story-Umsetzung läuft
+│   │   ├── active/                  # Per-Story-Aktivierungsmarker
+│   │   │   └── {story_id}.active    # Marker: Story-Umsetzung läuft
 │   │   ├── locks/                   # Sperrdateien pro Story (Kap. 02.7)
 │   │   │   └── {story_id}/
 │   │   │       └── qa-lock.json
@@ -278,15 +279,15 @@ Die einzigen dauerhaft laufenden Prozesse sind externe Dienste
 |-------|---------|--------|-------------|
 | Pipeline-Konfiguration | `.story-pipeline.yaml` | YAML | Permanent (projektweite Config) |
 | Story-Zustände (extern) | GitHub Project Board | Custom Fields | Permanent |
-| Story-Zustände (intern) | `_temp/qa/{id}/phase-state.json` | JSON | Bis Story-Closure |
-| Story-Context (Snapshot) | `_temp/qa/{id}/context.json` | JSON | Bis Story-Closure |
-| QA-Ergebnisse | `_temp/qa/{id}/*.json` | JSON (Envelope) | Bis Story-Closure (danach archivierbar) |
+| Story-Zustände (intern) | `_temp/qa/{story_id}/phase-state.json` | JSON | Bis Story-Closure |
+| Story-Context (Snapshot) | `_temp/qa/{story_id}/context.json` | JSON | Bis Story-Closure |
+| QA-Ergebnisse | `_temp/qa/{story_id}/*.json` | JSON (Envelope) | Bis Story-Closure (danach archivierbar) |
 | Telemetrie (Laufzeit) | `_temp/agentkit.db` | SQLite | Permanent (eine DB für alle Stories) |
-| Telemetrie (Archiv) | `_temp/story-telemetry/{id}.jsonl` | JSONL | Export bei Closure, danach archivierbar |
-| Locks | `_temp/governance/locks/{id}/` | JSON | Während Story-Lauf (danach gelöscht) |
+| Telemetrie (Archiv) | `_temp/story-telemetry/{story_id}.jsonl` | JSONL | Export bei Closure, danach archivierbar |
+| Locks | `_temp/governance/locks/{story_id}/` | JSON | Während Story-Lauf (danach gelöscht) |
 | Failure Corpus | `.agentkit/failure-corpus/` | JSONL + Verzeichnisse | Permanent (projektübergreifend, nicht in `_temp/`) |
 | Konzept-Dokumente | `concepts/` | Markdown | Permanent |
-| Story-Dokumentation | `stories/{id}_{slug}/` | Markdown + JSON | Permanent |
+| Story-Dokumentation | `stories/{story_id}_{slug}/` | Markdown + JSON | Permanent |
 | Installations-Manifest | `.installed-manifest.json` | JSON | Permanent |
 | VektorDB-Inhalte | Weaviate (Docker Volume) | Weaviate-intern | Permanent (reindexierbar) |
 
@@ -294,10 +295,10 @@ Die einzigen dauerhaft laufenden Prozesse sind externe Dienste
 
 | Was | Wann | Wie |
 |-----|------|-----|
-| QA-Artefakte (`_temp/qa/{id}/`) | Nach Story-Closure + Postflight | Archivierbar, nicht automatisch gelöscht |
-| Telemetrie (`_temp/story-telemetry/{id}.jsonl`) | Nach Story-Closure | Archivierbar, nicht automatisch gelöscht |
-| Locks (`_temp/governance/locks/{id}/`) | Closure-Skript entfernt sie | Automatisch bei Closure; stale Locks via PID+TTL |
-| Adversarial-Sandbox (`_temp/adversarial/{id}/`) | Nach Test-Promotion durch Pipeline | Automatisch löschbar |
+| QA-Artefakte (`_temp/qa/{story_id}/`) | Nach Story-Closure + Postflight | Archivierbar, nicht automatisch gelöscht |
+| Telemetrie (`_temp/story-telemetry/{story_id}.jsonl`) | Nach Story-Closure | Archivierbar, nicht automatisch gelöscht |
+| Locks (`_temp/governance/locks/{story_id}/`) | Closure-Skript entfernt sie | Automatisch bei Closure; stale Locks via PID+TTL |
+| Adversarial-Sandbox (`_temp/adversarial/{story_id}/`) | Nach Test-Promotion durch Pipeline | Automatisch löschbar |
 | Worktree | Closure-Phase (teardown) | `git worktree remove` |
 | Story-Branch | Closure-Phase (nach Merge) | `git branch -d` |
 
@@ -349,7 +350,7 @@ Alle Pipeline-Skripte müssen idempotent sein:
 | Pipeline-Skript crashed | QA-Artefakt möglicherweise unvollständig | Phase Runner kann Phase wiederholen. Idempotente Skripte. |
 | Hook-Prozess crashed | Tool-Call wird blockiert (fail-closed: kein exit(0) = blockiert) | Claude Code behandelt Hook-Fehler als Blockade. Agent erhält Fehlermeldung. |
 | LLM-Pool nicht erreichbar | Pool-Call schlägt fehl | Retry-Logik im LLM-Evaluator (1 Retry). Bei Scheitern: Check = FAIL (fail-closed). |
-| Weaviate nicht erreichbar | VektorDB-Suche schlägt fehl | Story-Erstellung kann ohne VektorDB fortfahren (Warnung). Kein fail-closed — VektorDB ist Optimierung, nicht Pflichtgate. |
+| Weaviate nicht erreichbar | VektorDB-Suche schlägt fehl | Story-Erstellung schlägt fehl (fail-closed). VektorDB ist Pflichtbestandteil der Infrastruktur. |
 | GitHub nicht erreichbar | API-Calls schlagen fehl | Preflight scheitert → Story startet nicht. Closure scheitert → Eskalation an Mensch. |
 
 ### 10.6.2 Recovery-Protokoll
@@ -359,11 +360,11 @@ Bei einem abgebrochenen Story-Run:
 1. Mensch erkennt Problem (Stagnation, Fehlermeldung, Lock-Timeout)
 2. Mensch prüft Zustand: `_temp/qa/{story_id}/phase-state.json`
 3. Stale Locks werden via PID-Prüfung automatisch erkannt
-4. Neuer Run mit `agentkit run-phase setup --story {id}` —
+4. Neuer Run mit `agentkit run-phase setup --story {story_id}` —
    Preflight erkennt bestehenden Worktree/Branch und kann
    konfigurierbar damit umgehen (abbrechen oder wiederverwenden)
 5. Alternativ: Manuelles Cleanup via
-   `agentkit cleanup --story {id}` (Worktree, Branch, Locks, Artefakte)
+   `agentkit cleanup --story {story_id}` (Worktree, Branch, Locks, Artefakte)
 
 ## 10.7 Service-Port-Katalog
 
@@ -398,7 +399,7 @@ Portbereich-Schema:
 | 9900 | Jenkins (Web-UI) | CI/CD | HTTP | Optional (externe Stage-Registry, FK-33) | Docker Compose |
 | 9901 | SonarQube | Code-Qualitaet | HTTP | Optional (externe Stage-Registry, FK-33) | Systemdienst |
 | 9902 | Jenkins (Agent-Port) | CI/CD | TCP | Optional (Jenkins-Agent-Kommunikation) | Docker Compose |
-| 9903 | Weaviate (VektorDB) | Dateninfrastruktur | HTTP + gRPC | Optional (FK-13) | Docker Compose |
+| 9903 | Weaviate (VektorDB) | Dateninfrastruktur | HTTP + gRPC | Pflicht (FK-13) | Docker Compose |
 
 ### 10.7.3 Designregeln
 

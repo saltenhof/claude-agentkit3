@@ -92,6 +92,9 @@ Ein Agent erstellt die Story-Definition mit Problemstellung,
 Lösungsansatz und Akzeptanzkriterien. Bei komplexen Vorhaben geht dem
 eine eigene Konzept-Story voraus, deren Ergebnis als Grundlage dient.
 
+> **[Entscheidung 2026-04-08]** Element 22 — VektorDB-Abgleich ist immer aktiv. Keine Feature-Flag-Stufung.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 22.
+
 **VektorDB-Abgleich:** Bevor die Story finalisiert wird, gleicht der
 Agent den Inhalt gegen die Wissensbasis (VektorDB) ab. Gibt es bereits
 Stories, die denselben oder einen ähnlichen Bereich adressieren? Gibt es
@@ -530,6 +533,9 @@ unterschiedlich stark zum Score bei:
 | Fortschritts-Stagnation | Stark | Kein Commit, kein Manifest trotz grüner Tests |
 | Tool-Call-Anzahl | Schwach | Nur als Verstärker, da problemabhängig |
 | LLM-Assessment | Korrekturfaktor | Optionaler asynchroner Sidecar, verschiebt Score um ±10 Punkte |
+
+> **[Entscheidung 2026-04-08]** Element 23 — LLM-Assessment-Sidecar ist Pflicht. Kein Feature-Flag. Der Sidecar ist keine optionale Erweiterung, sondern integraler Bestandteil der Produktionsarchitektur.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 23.
 
 Das Scoring läuft deterministisch im Hook. Ein optionaler
 asynchroner LLM-Assessment-Sidecar kann die Bewertung verfeinern,
