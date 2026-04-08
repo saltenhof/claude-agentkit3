@@ -1,8 +1,14 @@
-"""E2E tests for the closure phase against the live GitHub testbed.
+"""Integration tests for the ClosurePhaseHandler against live GitHub.
 
 Testbed: saltenhof/agentkit3-testbed
-These tests create real issues, close them via the closure phase,
-and reopen them for repeatability.
+
+These tests exercise the ClosurePhaseHandler in isolation with real
+GitHub operations. They are NOT full pipeline E2E tests -- prior-phase
+snapshots are created directly via ``save_phase_snapshot()``, not by
+running the actual pipeline. This is acceptable for handler-level
+integration testing but does not prove the full production path.
+
+For real E2E pipeline tests, see ``tests/e2e/smoke/test_real_pipeline.py``.
 """
 
 from __future__ import annotations
@@ -56,10 +62,16 @@ def _save_snapshot(
     save_phase_snapshot(s_dir, snapshot)
 
 
-@pytest.mark.e2e
+@pytest.mark.integration
 @pytest.mark.requires_gh
 class TestClosurePhaseE2E:
-    """End-to-end tests for the closure phase against real GitHub."""
+    """Integration tests for the closure phase handler against real GitHub.
+
+    These test the ClosurePhaseHandler's logic with real GitHub I/O,
+    but prior-phase state is constructed directly -- not produced by
+    running prior pipeline phases. This makes them handler-level
+    integration tests, not full pipeline E2E tests.
+    """
 
     def test_closure_closes_real_issue(self, tmp_path: Path) -> None:
         """Closure phase closes a real GitHub issue."""

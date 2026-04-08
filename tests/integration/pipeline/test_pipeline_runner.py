@@ -1,12 +1,15 @@
-"""E2E smoke tests for the AgentKit pipeline.
+"""Integration tests for the AgentKit pipeline runner.
 
-These tests exercise the full path:
+These tests verify the runner's orchestration logic:
 1. Install AgentKit into a simulated target project
-2. Create a story context
-3. Run the pipeline through all phases
-4. Verify artifacts and state
+2. Create a story context (manually -- acceptable for integration level)
+3. Run the pipeline through all phases using NoOpHandler
+4. Verify artifacts, state, and workflow topology
 
-All state arises from real function calls -- no manual state setup.
+Note: These tests use NoOpHandler for all phases, which means they
+test the runner/engine orchestration, NOT the real production path.
+For real E2E tests that exercise actual handlers, see
+``tests/e2e/smoke/test_real_pipeline.py``.
 """
 
 from __future__ import annotations
@@ -90,7 +93,7 @@ def _registry_for_workflow(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.e2e
+@pytest.mark.integration
 class TestSmokeImplementationStory:
     """Smoke test: Implementation story — full pipeline with real workflow."""
 
@@ -257,7 +260,7 @@ class TestSmokeImplementationStory:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.e2e
+@pytest.mark.integration
 class TestSmokeExplorationMode:
     """Smoke test: Implementation story with EXPLORATION mode."""
 
@@ -320,7 +323,7 @@ class TestSmokeExplorationMode:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.e2e
+@pytest.mark.integration
 class TestSmokeBugfixStory:
     """Smoke test: Bugfix story (no exploration, no mode routing)."""
 
@@ -382,7 +385,7 @@ class TestSmokeBugfixStory:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.e2e
+@pytest.mark.integration
 class TestSmokeConceptStory:
     """Smoke test: Concept story (no worktree, no full QA)."""
 
@@ -438,7 +441,7 @@ class TestSmokeConceptStory:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.e2e
+@pytest.mark.integration
 class TestSmokeResearchStory:
     """Smoke test: Research story (minimal pipeline, no verify)."""
 
@@ -594,7 +597,7 @@ class _YieldingHandler:
         return HandlerResult(status=PhaseStatus.COMPLETED)
 
 
-@pytest.mark.e2e
+@pytest.mark.integration
 class TestSmokePipelineRobustness:
     """Pipeline robustness tests per testing-standards.md."""
 
