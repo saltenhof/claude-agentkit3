@@ -1,70 +1,12 @@
 """Shared file operations for project_ops.
 
-Provides atomic write helpers and directory utilities used across
-install, upgrade, and checkpoint operations.
+Re-exports atomic write helpers from :mod:`agentkit.utils.io` for
+backwards compatibility within ``project_ops``.  New code outside
+``project_ops`` should import directly from ``agentkit.utils.io``.
 """
 
 from __future__ import annotations
 
-import os
-from typing import TYPE_CHECKING
+from agentkit.utils.io import atomic_write_text, atomic_write_yaml, ensure_dir
 
-import yaml
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
-
-def atomic_write_text(path: Path, content: str) -> None:
-    """Write text content atomically via temporary file and ``os.replace``.
-
-    Creates parent directories if they do not exist.  Writes to a
-    temporary file first, flushes to disk, then atomically replaces
-    the target file.
-
-    Args:
-        path: Destination file path.
-        content: Text content to write.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    try:
-        with tmp.open("w", encoding="utf-8") as f:
-            f.write(content)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(str(tmp), str(path))
-    except BaseException:
-        # Clean up temp file on any failure
-        if tmp.exists():
-            tmp.unlink()
-        raise
-
-
-def atomic_write_yaml(path: Path, data: dict[str, object]) -> None:
-    """Write a dictionary as YAML atomically.
-
-    Args:
-        path: Destination file path.
-        data: Dictionary to serialise as YAML.
-    """
-    content = yaml.dump(
-        data,
-        default_flow_style=False,
-        allow_unicode=True,
-        sort_keys=False,
-    )
-    atomic_write_text(path, content)
-
-
-def ensure_dir(path: Path) -> Path:
-    """Create a directory and all parents if they do not exist.
-
-    Args:
-        path: Directory path to create.
-
-    Returns:
-        The same *path* for convenient chaining.
-    """
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+__all__ = ["atomic_write_text", "atomic_write_yaml", "ensure_dir"]

@@ -58,7 +58,7 @@ def atomic_write_json(path: Path, data: dict[str, object]) -> None:
         path: Target file path. Parent directories are created if missing.
         data: Dictionary to serialize as JSON.
     """
-    from agentkit.project_ops.shared.file_ops import atomic_write_text
+    from agentkit.utils.io import atomic_write_text
 
     content = json.dumps(data, indent=2, sort_keys=True, default=str)
     atomic_write_text(path, content)

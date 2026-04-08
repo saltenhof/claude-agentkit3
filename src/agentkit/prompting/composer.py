@@ -5,10 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from agentkit.project_ops.shared.file_ops import atomic_write_text
 from agentkit.prompting.selectors import select_template_name
 from agentkit.prompting.sentinels import extract_sentinel
 from agentkit.prompting.templates import TEMPLATES
+from agentkit.utils.io import atomic_write_text
 
 if TYPE_CHECKING:
     from pathlib import Path

@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from agentkit.project_ops.shared.file_ops import atomic_write_text
+from agentkit.utils.io import atomic_write_text
 
 if TYPE_CHECKING:
     from pathlib import Path

@@ -7,17 +7,19 @@ engine decides whether to re-enter for remediation.
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from agentkit.pipeline.lifecycle import HandlerResult
-from agentkit.pipeline.phases.verify.cycle import VerifyCycle
+from agentkit.pipeline.phases.verify.cycle import VerifyCycle, VerifyCycleResult
 from agentkit.qa.adversarial.challenger import AdversarialChallenger
 from agentkit.qa.evaluators.reviewer import SemanticReviewer
 from agentkit.qa.policy_engine.engine import PolicyEngine
 from agentkit.qa.structural.checker import StructuralChecker
 from agentkit.story.models import PhaseStatus
+from agentkit.utils.io import atomic_write_text
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -101,6 +103,9 @@ class VerifyPhaseHandler:
         cycle = VerifyCycle(layers=layers, policy_engine=engine)
         result = cycle.run(ctx, s_dir, attempt_nr=attempt_nr)
 
+        # Persist verify-decision.json for audit trail
+        self._write_decision(s_dir, result)
+
         if result.decision.passed:
             logger.info(
                 "Verify passed for %s: %s",
@@ -123,6 +128,42 @@ class VerifyPhaseHandler:
         return HandlerResult(
             status=PhaseStatus.FAILED,
             errors=tuple(error_msgs),
+            artifacts_produced=("verify-decision.json",),
+        )
+
+    @staticmethod
+    def _write_decision(story_dir: Path, cycle_result: VerifyCycleResult) -> None:
+        """Persist ``verify-decision.json`` for audit trail.
+
+        Writes the policy engine decision as a JSON file so that
+        downstream phases (closure) and external tooling can inspect
+        the verify outcome without re-running the QA cycle.
+
+        Args:
+            story_dir: Directory where story artifacts are stored.
+            cycle_result: The completed verify cycle result.
+        """
+        decision = cycle_result.decision
+        decision_data: dict[str, object] = {
+            "passed": decision.passed,
+            "status": decision.status,
+            "blocking_findings": [
+                {
+                    "layer": f.layer,
+                    "check": f.check,
+                    "severity": f.severity.value,
+                    "message": f.message,
+                }
+                for f in decision.blocking_findings
+            ],
+            "all_findings_count": len(decision.all_findings),
+            "summary": decision.summary,
+            "attempt_nr": cycle_result.attempt_nr,
+        }
+        decision_path = story_dir / "verify-decision.json"
+        atomic_write_text(
+            decision_path,
+            json.dumps(decision_data, indent=2, default=str),
         )
 
     def on_exit(self, ctx: StoryContext, state: PhaseState) -> None:

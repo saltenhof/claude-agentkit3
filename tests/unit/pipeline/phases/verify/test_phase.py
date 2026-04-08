@@ -145,3 +145,40 @@ class TestVerifyPhaseHandler:
         # Should contain structured feedback
         full_errors = "\n".join(result.errors)
         assert "Remediation Feedback" in full_errors or "FAIL" in full_errors
+
+    def test_verify_decision_json_written_on_pass(self, tmp_path: Path) -> None:
+        story_dir = _setup_complete_story_dir(tmp_path)
+        config = VerifyConfig(story_dir=story_dir)
+        handler = VerifyPhaseHandler(config)
+        ctx = _make_context()
+        state = _make_state()
+
+        result = handler.on_enter(ctx, state)
+        assert result.status == PhaseStatus.COMPLETED
+
+        decision_path = story_dir / "verify-decision.json"
+        assert decision_path.exists(), "verify-decision.json must be written"
+        data = json.loads(decision_path.read_text(encoding="utf-8"))
+        assert data["passed"] is True
+        assert data["status"] == "PASS"
+        assert "summary" in data
+        assert isinstance(data["blocking_findings"], list)
+        assert isinstance(data["all_findings_count"], int)
+
+    def test_verify_decision_json_written_on_fail(self, tmp_path: Path) -> None:
+        config = VerifyConfig(story_dir=tmp_path)
+        handler = VerifyPhaseHandler(config)
+        ctx = _make_context()
+        state = _make_state()
+
+        result = handler.on_enter(ctx, state)
+        assert result.status == PhaseStatus.FAILED
+
+        decision_path = tmp_path / "verify-decision.json"
+        assert decision_path.exists(), (
+            "verify-decision.json must be written even on FAIL"
+        )
+        data = json.loads(decision_path.read_text(encoding="utf-8"))
+        assert data["passed"] is False
+        assert data["status"] == "FAIL"
+        assert len(data["blocking_findings"]) > 0
