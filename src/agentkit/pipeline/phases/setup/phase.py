@@ -10,6 +10,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from agentkit.exceptions import WorktreeError
 from agentkit.pipeline.lifecycle import HandlerResult
 from agentkit.pipeline.phases.setup.context_builder import build_story_context
 from agentkit.pipeline.phases.setup.preflight import run_preflight
@@ -17,6 +18,7 @@ from agentkit.pipeline.state import save_story_context
 from agentkit.project_ops.shared.paths import story_dir
 from agentkit.story.models import PhaseStatus
 from agentkit.story.types import get_profile
+from agentkit.utils.git import create_worktree
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -68,8 +70,8 @@ class SetupPhaseHandler:
             1. Run preflight checks -- if any fail, return ``FAILED``.
             2. Build ``StoryContext`` from the GitHub issue.
             3. Save ``context.json`` to the story directory.
-            4. Compute the git worktree path if the story type
-               requires one (actual ``git worktree add`` is deferred).
+            4. Create a git worktree via ``git worktree add`` if the story
+               type requires one; on failure return ``FAILED``.
             5. Return ``COMPLETED`` with a list of produced artifacts.
 
         Note:
@@ -113,21 +115,30 @@ class SetupPhaseHandler:
 
         artifacts: list[str] = [str(s_dir / "context.json")]
 
-        # 4. Worktree path (compute only)
+        # 4. Create git worktree
         profile = get_profile(enriched.story_type)
         if cfg.create_worktree and profile.uses_worktree:
             worktree_path = _compute_worktree_path(
                 cfg.project_root, enriched.story_id,
             )
-            # TODO: Actually run `git worktree add` here once we have
-            # a real git repo in the execution environment. For now we
-            # only compute and persist the intended path.
+            branch_name = f"story/{enriched.story_id}"
+            try:
+                create_worktree(
+                    repo_root=cfg.project_root,
+                    worktree_path=worktree_path,
+                    branch=branch_name,
+                )
+            except WorktreeError as e:
+                return HandlerResult(
+                    status=PhaseStatus.FAILED,
+                    errors=(str(e),),
+                )
             enriched = enriched.model_copy(
                 update={"worktree_path": worktree_path},
             )
             save_story_context(s_dir, enriched)
             logger.info(
-                "Worktree path computed: %s (creation deferred)", worktree_path,
+                "Worktree created: %s (branch: %s)", worktree_path, branch_name,
             )
 
         # 5. Return COMPLETED

@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from agentkit.pipeline.lifecycle import PhaseHandler
+
+if TYPE_CHECKING:
+    from pathlib import Path
 from agentkit.pipeline.phases.verify.phase import VerifyConfig, VerifyPhaseHandler
 from agentkit.qa.structural.checker import StructuralChecker
 from agentkit.story.models import PhaseState, PhaseStatus, StoryContext

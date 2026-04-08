@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from agentkit.pipeline.phases.verify.cycle import VerifyCycle
+
+if TYPE_CHECKING:
+    from pathlib import Path
 from agentkit.qa.adversarial.challenger import AdversarialChallenger
 from agentkit.qa.evaluators.reviewer import SemanticReviewer
 from agentkit.qa.policy_engine.engine import PolicyEngine

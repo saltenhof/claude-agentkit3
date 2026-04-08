@@ -127,3 +127,12 @@ class ArtifactError(AgentKitError):
     Raised when a required artifact (protocol.md, manifest, handover,
     QA reports) is missing, incomplete, or fails integrity checks.
     """
+
+
+class WorktreeError(AgentKitError):
+    """Git worktree operation failure.
+
+    Raised when creating or removing a git worktree fails, e.g. because
+    the target path already exists, the git command returns a non-zero
+    exit code, or the repository is in an unexpected state.
+    """

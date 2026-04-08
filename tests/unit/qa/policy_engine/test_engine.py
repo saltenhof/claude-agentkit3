@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agentkit.qa.policy_engine.engine import PolicyEngine, VerifyDecision
+from agentkit.qa.policy_engine.engine import PolicyEngine
 from agentkit.qa.protocols import Finding, LayerResult, Severity, TrustClass
 
 

@@ -19,7 +19,10 @@ class TestTrustWeight:
         assert TRUST_WEIGHT[TrustClass.WORKER_ASSERTION] == 1
 
     def test_system_weight_greater_than_worker(self) -> None:
-        assert TRUST_WEIGHT[TrustClass.SYSTEM] > TRUST_WEIGHT[TrustClass.WORKER_ASSERTION]
+        assert (
+            TRUST_WEIGHT[TrustClass.SYSTEM]
+            > TRUST_WEIGHT[TrustClass.WORKER_ASSERTION]
+        )
 
 
 class TestEffectiveSeverity:

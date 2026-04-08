@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from agentkit.qa.evaluators.reviewer import SemanticReviewer
+
+if TYPE_CHECKING:
+    from pathlib import Path
 from agentkit.qa.protocols import QALayer
 from agentkit.story.models import StoryContext
 from agentkit.story.types import StoryMode, StoryType
