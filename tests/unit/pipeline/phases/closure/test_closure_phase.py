@@ -264,6 +264,87 @@ class TestClosurePhaseHandler:
         assert result.status == PhaseStatus.FAILED
         assert "story_dir" in result.errors[0]
 
+    def test_closure_fails_when_prior_phase_has_failed_snapshot(
+        self, tmp_path: Path,
+    ) -> None:
+        """Closure returns FAILED when a prior phase snapshot has FAILED status.
+
+        A snapshot that exists but has status != COMPLETED must be
+        rejected -- presence alone is not sufficient.
+        """
+        s_dir = tmp_path / "stories" / "TEST-FAIL"
+        s_dir.mkdir(parents=True)
+
+        # Save completed snapshots for setup and exploration
+        _save_snapshot(s_dir, "setup", story_id="TEST-FAIL")
+        _save_snapshot(s_dir, "exploration", story_id="TEST-FAIL")
+
+        # Save a FAILED snapshot for implementation
+        failed_snapshot = PhaseSnapshot(
+            story_id="TEST-FAIL",
+            phase="implementation",
+            status=PhaseStatus.FAILED,
+            completed_at=datetime.now(tz=UTC),
+            artifacts=[],
+            evidence={},
+        )
+        save_phase_snapshot(s_dir, failed_snapshot)
+
+        # Save completed verify
+        _save_snapshot(s_dir, "verify", story_id="TEST-FAIL")
+
+        config = ClosureConfig(story_dir=s_dir, close_issue=False)
+        handler = ClosurePhaseHandler(config)
+        ctx = _make_ctx(story_id="TEST-FAIL")
+        state = _make_state(story_id="TEST-FAIL")
+
+        result = handler.on_enter(ctx, state)
+
+        assert result.status == PhaseStatus.FAILED
+        assert len(result.errors) >= 1
+        error_text = " ".join(result.errors)
+        assert "implementation" in error_text
+        assert "failed" in error_text
+
+    def test_closure_fails_when_prior_phase_has_escalated_snapshot(
+        self, tmp_path: Path,
+    ) -> None:
+        """Closure returns FAILED when a prior phase has ESCALATED status.
+
+        ESCALATED means the phase exceeded retry limits -- closure
+        must not proceed.
+        """
+        s_dir = tmp_path / "stories" / "TEST-ESC"
+        s_dir.mkdir(parents=True)
+
+        # Save completed snapshots for setup, exploration, implementation
+        for phase in ("setup", "exploration", "implementation"):
+            _save_snapshot(s_dir, phase, story_id="TEST-ESC")
+
+        # Save an ESCALATED snapshot for verify
+        escalated_snapshot = PhaseSnapshot(
+            story_id="TEST-ESC",
+            phase="verify",
+            status=PhaseStatus.ESCALATED,
+            completed_at=datetime.now(tz=UTC),
+            artifacts=[],
+            evidence={},
+        )
+        save_phase_snapshot(s_dir, escalated_snapshot)
+
+        config = ClosureConfig(story_dir=s_dir, close_issue=False)
+        handler = ClosurePhaseHandler(config)
+        ctx = _make_ctx(story_id="TEST-ESC")
+        state = _make_state(story_id="TEST-ESC")
+
+        result = handler.on_enter(ctx, state)
+
+        assert result.status == PhaseStatus.FAILED
+        assert len(result.errors) >= 1
+        error_text = " ".join(result.errors)
+        assert "verify" in error_text
+        assert "escalated" in error_text
+
 
 # ---------------------------------------------------------------------------
 # ExecutionReport tests

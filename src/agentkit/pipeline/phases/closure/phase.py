@@ -106,15 +106,19 @@ class ClosurePhaseHandler:
         for phase in prior_phases:
             snapshot = load_phase_snapshot(s_dir, phase)
             if snapshot is None:
-                missing.append(phase)
+                missing.append(
+                    f"Phase '{phase}': no snapshot found",
+                )
+            elif snapshot.status != PhaseStatus.COMPLETED:
+                missing.append(
+                    f"Phase '{phase}': status is "
+                    f"'{snapshot.status}', expected 'completed'",
+                )
 
         if missing:
             return HandlerResult(
                 status=PhaseStatus.FAILED,
-                errors=tuple(
-                    f"Prior phase '{p}' has no completed snapshot"
-                    for p in missing
-                ),
+                errors=tuple(missing),
             )
 
         # 3. Close GitHub issue (best-effort)
