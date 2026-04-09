@@ -72,7 +72,8 @@ der Entscheidung passiert.
 
 Die Exploration-Phase endet erst, wenn ein dreistufiges Exit-Gate vollständig
 bestanden wurde (REF-034). Die Phase ist erst `COMPLETED` wenn
-`exploration_gate_status == "approved_for_implementation"`.
+`ExplorationPayload.gate_status == ExplorationGateStatus.APPROVED`.
+[Entscheidung 2026-04-09] Gate-Status verwendet `ExplorationGateStatus` StrEnum statt String-Literale.
 
 ```mermaid
 flowchart TD
@@ -89,33 +90,66 @@ flowchart TD
 
     SCHREIBEN --> FREEZE["Entwurf einfrieren<br/>(read-only markieren)"]
 
-    FREEZE --> STUFE1["Stufe 1: Dokumententreue Ebene 2<br/>(StructuredEvaluator, synchron)<br/>exploration_gate_status = doc_compliance_passed"]
+    FREEZE --> STUFE1["Stufe 1: Dokumententreue Ebene 2<br/>(StructuredEvaluator, synchron)<br/>gate_status bleibt PENDING"]
 
-    STUFE1 -->|FAIL| ESC1(["ESCALATED:<br/>Konflikt mit Architektur"])
+    STUFE1 -->|FAIL| REJECT_GS1["gate_status = REJECTED"]
+    REJECT_GS1 --> ESC1(["ESCALATED:<br/>Konflikt mit Architektur"])
 
-    STUFE1 -->|PASS| PAUSED_DR["PAUSED: awaiting_design_review<br/>agents_to_spawn: [design-reviewer]"]
+    STUFE1 -->|PASS| PAUSED_DR["PAUSED: PauseReason.AWAITING_DESIGN_REVIEW<br/>agents_to_spawn: [design-reviewer]"]
 
     subgraph STUFE2 ["Stufe 2: Design-Review Gate (REF-034)"]
         PAUSED_DR --> RESUME_DR["Resume: design-review-preliminary.json gelesen"]
         RESUME_DR --> TRIGGER["Trigger-Evaluation (deterministisch)<br/>Risikotrigger vorhanden?"]
-        TRIGGER -->|Ja| PAUSED_DC["PAUSED: awaiting_design_challenge<br/>agents_to_spawn: [design-challenger]"]
+        TRIGGER -->|Ja| PAUSED_DC["PAUSED: PauseReason.AWAITING_DESIGN_CHALLENGE<br/>agents_to_spawn: [design-challenger]"]
         PAUSED_DC --> RESUME_DC["Resume: design-challenge.json gelesen"]
         RESUME_DC --> AGG["Stufe 2c: Finale Aggregation"]
         TRIGGER -->|Nein| AGG
         AGG --> VERDICT{"Verdict?"}
     end
 
-    VERDICT -->|PASS| GATE_PASS["exploration_gate_status = design_review_passed"]
-    VERDICT -->|PASS_WITH_CONCERNS<br/>required_before_impl| HUMAN["PAUSED: human_approval_required"]
+    VERDICT -->|PASS| GATE_PASS["gate_status = APPROVED"]
+    VERDICT -->|PASS_WITH_CONCERNS<br/>required_before_impl| HUMAN["PAUSED: PauseReason.AWAITING_DESIGN_REVIEW"]
     VERDICT -->|PASS_WITH_CONCERNS<br/>nur advisory/required_in_impl| GATE_PASS
-    VERDICT -->|FAIL remediable<br/>round ≤ 2| REMED["PAUSED: awaiting_exploration_remediation<br/>exploration_review_round += 1"]
-    VERDICT -->|FAIL non-remediable<br/>oder round > 2| ESC2(["ESCALATED"])
+    VERDICT -->|FAIL remediable<br/>round < 3| REMED["IN_PROGRESS: Remediation<br/>review_rounds += 1"]
+    VERDICT -->|FAIL non-remediable<br/>oder round ≥ 3| REJECT_GS2["gate_status = REJECTED"]
+    REJECT_GS2 --> ESC2(["ESCALATED"])
     REMED --> WORKER
 
-    HUMAN --> |Mensch genehmigt| GATE_PASS
-    GATE_PASS --> APPROVED["exploration_gate_status = approved_for_implementation<br/>→ spawn implementation worker"]
+    HUMAN -->|"Mensch genehmigt"| GATE_PASS
+    HUMAN -->|"Mensch lehnt ab"| REJECT_GS3["gate_status = REJECTED"]
+    REJECT_GS3 --> ESC_HUMAN(["ESCALATED: Design-Review abgelehnt"])
+    GATE_PASS --> APPROVED["gate_status = APPROVED<br/>→ spawn implementation worker"]
     APPROVED --> DONE(["Phase: exploration COMPLETED"])
 ```
+
+[Hinweis 2026-04-09] Korrekturen im Mermaid-Diagramm gegenüber Vorgängerversion:
+- Gate-Status-Werte verwenden `ExplorationGateStatus` StrEnum (`PENDING`, `APPROVED`, `REJECTED`) statt String-Literale (`doc_compliance_passed`, `design_review_passed`, `approved_for_implementation`).
+- `human_approval_required` ersetzt durch `PauseReason.AWAITING_DESIGN_REVIEW` — Mensch muss Exploration-Ergebnis freigeben.
+- `awaiting_exploration_remediation` war fälschlich als PAUSED modelliert. Remediation ist ein aktiver Zustand (`IN_PROGRESS`), kein Pause-Zustand. Korrigiert zu `IN_PROGRESS: Remediation`.
+- Remediation-Rundenlimit von 2 auf 3 angehoben (`ExplorationPhaseMemory.review_rounds`, max 3).
+
+[Korrektur 2026-04-09: gate_status = REJECTED wird vor ESCALATED-Transition gesetzt — konsistent mit Contract-Definition in §23.5.0.]
+
+[Korrektur 2026-04-09] Off-by-one im Remediation-Limit: Die Bedingung `round ≤ 3` / `round > 3`
+war fehlerhaft — bei `review_rounds == 3` (bereits 3 Runden gelaufen) haette `≤ 3` eine vierte
+Remediation-Runde erlaubt, was "max 3 Runden" widerspricht. Korrigiert zu `round < 3` (erlaubt
+Remediation bei 0, 1, 2 gelaufenen Runden — nach Inkrement also max Runde 3) und `round ≥ 3`
+(Eskalation ab 3 gelaufenen Runden). Semantik: `review_rounds` wird VOR der Pruefung gelesen;
+der Inkrement `+= 1` erfolgt erst im Remediation-Pfad. Damit sind exakt 3 Remediation-Runden moeglich.
+
+[Hinweis 2026-04-09] Feldpfade im Mermaid-Diagramm: Die Kurzform `gate_status` im Diagramm
+referenziert den kanonischen Feldpfad `ExplorationPayload.gate_status` (Typ: `ExplorationGateStatus`
+StrEnum). Der alte v2-Name `exploration_gate_status` ist obsolet und darf nicht mehr verwendet werden.
+
+[Korrektur 2026-04-09] Gate-Zustandslogik im Mermaid-Diagramm: Stufe 1 (Dokumententreue Ebene 2)
+setzt `payload.gate_status` **nicht** auf `APPROVED`. Der Status bleibt `PENDING`, solange das
+dreistufige Gate nicht vollständig bestanden ist. Die korrekte Semantik:
+- `PENDING` = Gate noch nicht vollständig abgeschlossen (auch wenn Stufe 1 und/oder Stufe 2 bereits bestanden)
+- `APPROVED` = Vollständiges Gate bestanden (alle Stufen OK, ggf. menschliche Freigabe erhalten)
+- `REJECTED` = Gate endgültig abgelehnt — tritt ein bei: (a) Stufe-1-FAIL (Architekturkonflikt), (b) Stufe-2c FAIL non-remediable, (c) Rundenlimit erreicht (review_rounds ≥ 3), (d) menschliche Ablehnung im HUMAN-Knoten
+Der Wechsel zu `APPROVED` erfolgt erst am Knoten `GATE_PASS` bzw. `APPROVED` im Diagramm — also nach vollständigem Durchlauf aller Stufen.
+
+[Korrektur 2026-04-09: design_rejected-Pfad aus HUMAN-Knoten ergänzt — PauseReason.AWAITING_DESIGN_REVIEW hat zwei Resume-Trigger: design_approved und design_rejected.]
 
 ### 23.3.2 Feste Schrittfolge des Workers
 
@@ -259,21 +293,53 @@ Dateiberechtigungen.
 
 ## 23.5 Exploration Exit-Gate: Drei-Stufen-Modell (REF-034)
 
+> **[Entscheidung 2026-04-09]** Das Feld `gate_status` (Typ: `ExplorationGateStatus`) auf `ExplorationPayload` (diskriminierte Union, §20.3) ersetzt den v2-String `exploration_gate_status`. `ExplorationGateStatus` ist ein StrEnum: `PENDING | APPROVED | REJECTED`. Hat Transition-Relevanz: Guards prüfen `gate_status == APPROVED` für den Eintritt in die Implementation-Phase. `design_artifact_path` kommt nicht in ExplorationPayload (ableitbar aus Story-Verzeichniskonvention). Verweis auf Designwizard R1+R2 vom 2026-04-09.
+
+### 23.5.0 ExplorationPayload — durable Contract Fields
+
+`ExplorationPayload` ist die phasenspezifische Payload für die Exploration-Phase (diskriminierte Union, §20.3):
+
+```python
+class ExplorationGateStatus(StrEnum):
+    PENDING = "pending"      # Gate noch nicht vollständig bestanden
+    APPROVED = "approved"    # Alle Stufen bestanden — bereit für Implementation
+    REJECTED = "rejected"    # Gate endgültig abgelehnt (Eskalation)
+
+class ExplorationPayload(BaseModel):
+    phase_type: Literal["exploration"]
+    gate_status: ExplorationGateStatus = ExplorationGateStatus.PENDING
+```
+
+`gate_status` hat Transition-Relevanz: `can_enter_phase("implementation")` prüft `gate_status == APPROVED`. Ohne `APPROVED` wird die Implementation-Phase nicht betreten (Defense-in-Depth, §20.4.2a).
+
+**Nicht in ExplorationPayload:** `design_artifact_path` — ableitbar aus der Story-Verzeichniskonvention (`_temp/qa/{story_id}/entwurfsartefakt.json`), kein orchestrierungsvertragliches Feld.
+
+**Granulare Gate-Stufen:** Die v2-Werte `doc_compliance_passed`, `design_review_passed`, `design_review_failed` werden nicht auf einzelne StrEnum-Werte abgebildet. Die Zwischenzustände während des Gate-Durchlaufs sind Implementierungsdetail des Phase Handlers, nicht Teil des persistierten Contracts. Der Contract kennt nur das Endergebnis: `PENDING | APPROVED | REJECTED`.
+
 Das Ende der Exploration-Phase ist ein dreistufiges Exit-Gate.
-`phase-state.json` verfolgt den Fortschritt über das Feld
-`exploration_gate_status`:
+`ExplorationPayload.gate_status` (Typ: `ExplorationGateStatus` StrEnum)
+verfolgt den Fortschritt im `phase-state.json`:
 
 | Wert | Bedeutung |
 |------|-----------|
-| `""` (leer) | Gate noch nicht gestartet |
-| `"doc_compliance_passed"` | Stufe 1 (Dokumententreue Ebene 2) bestanden |
-| `"design_review_passed"` | Stufe 2c Aggregation PASS oder PASS_WITH_CONCERNS |
-| `"design_review_failed"` | Stufe 2c FAIL — Remediation läuft |
-| `"approved_for_implementation"` | Alle Stufen bestanden — bereit für Implementation |
+| `ExplorationGateStatus.PENDING` | Gate noch nicht gestartet oder Zwischenstufe (Stufe 1 bestanden, Design-Review läuft) |
+| `ExplorationGateStatus.APPROVED` | Alle Stufen bestanden — bereit für Implementation |
+| `ExplorationGateStatus.REJECTED` | Gate endgültig abgelehnt — tritt ein bei: (a) Stufe-1-FAIL (Architekturkonflikt), (b) Stufe-2c FAIL non-remediable, (c) Rundenlimit erreicht (`review_rounds ≥ 3`), (d) menschliche Ablehnung im HUMAN-Knoten — Eskalation. [Korrektur 2026-04-09: Stufe-1-FAIL und menschliche Ablehnung ergänzt] |
 
-Zusätzlich verfolgt `exploration_review_round` (Integer) wie viele
-Design-Review-Remediation-Runden bereits gelaufen sind.
-Maximum: 2 Runden, dann Eskalation an Mensch.
+[Entscheidung 2026-04-09] Die bisherigen String-Literale (`doc_compliance_passed`,
+`design_review_passed`, `design_review_failed`, `approved_for_implementation`) sind
+durch das `ExplorationGateStatus` StrEnum mit genau 3 Werten ersetzt. Zwischenstände
+(z.B. "Stufe 1 bestanden, Stufe 2 steht aus") werden durch `PENDING` abgebildet, da
+sie keine eigenständige Gate-Entscheidung darstellen. Die Detailinformation, welche
+Stufe zuletzt bestanden wurde, ergibt sich aus den vorhandenen QA-Artefakten
+(`doc-fidelity.json`, `design-review.json`).
+
+Die Anzahl gelaufener Design-Review-Remediation-Runden wird in
+`ExplorationPhaseMemory.review_rounds` (Integer) in der PhaseMemory-Schicht
+verfolgt — nicht mehr im Phase-State selbst.
+Maximum: 3 Runden, dann Eskalation an Mensch.
+
+> **[Entscheidung 2026-04-09]** `exploration_review_round` aus v2 ist kein Artefakt, sondern wird als `PhaseMemory.exploration.review_rounds` in die neue PhaseMemory-Schicht überführt (max 3 Remediation-Runden). Die Engine verwaltet diesen Zähler als Carry-Forward analog zu `phase_memory.verify.feedback_rounds`. Siehe FK-20 §20.3.7.
 
 ### Trennung Dokumententreue vs. Design-Review
 
@@ -283,7 +349,7 @@ Maximum: 2 Runden, dann Eskalation an Mensch.
 | **Prüfgegenstände** | Architekturkonformität, Referenzbindungen | Innere Konsistenz, Vollständigkeit, Machbarkeit |
 | **Ausführung** | StructuredEvaluator (deterministisch) | LLM-Review-Agent (unabhängig vom Worker) |
 | **Ergebnis** | PASS / FAIL (binär) | PASS / PASS_WITH_CONCERNS / FAIL |
-| **Bei FAIL** | Eskalation an Mensch | Remediation (max 2 Runden) |
+| **Bei FAIL** | Eskalation an Mensch (`gate_status = REJECTED` → ESCALATED) | Remediation wenn remediable und `round < 3` (max 3 Runden, `ExplorationPhaseMemory.review_rounds`); bei non-remediable oder `round ≥ 3`: `gate_status = REJECTED` → ESCALATED [Entscheidung 2026-04-09] |
 | **Verboten** | Qualitätskritik | Architekturregeln neu erfinden |
 
 ### 23.5.1 Stufe 1: Dokumententreue Ebene 2: Entwurfstreue
@@ -311,7 +377,7 @@ evaluator.evaluate(
 )
 ```
 
-### 23.5.2 Referenzdokument-Identifikation
+### 23.5.2a Referenzdokument-Identifikation
 
 Die Referenzdokumente werden aus zwei Quellen ermittelt:
 
@@ -328,25 +394,40 @@ Beide Listen werden dem LLM als Kontext-Bundle übergeben
 
 ### 23.5.3 Ergebnis
 
+[Korrektur 2026-04-09] Tabelle korrigiert: `PASS_WITH_CONCERNS` entfernt (gehört zu
+Stufe 2, nicht zu Stufe 1 — Stufe 1 ist der StructuredEvaluator, der binär urteilt,
+vgl. Trenntabelle in §23.5). Reaktion bei PASS korrigiert: nach Stufe 1 folgt
+Stufe 2 (Design-Review-Gate), nicht direkt die Implementation. Beschreibung des
+`freigabe_noetig`-Blocks präzisiert bezüglich Zusammenspiel mit Stufe 2.
+
 | Status | Bedeutung | Reaktion |
 |--------|-----------|---------|
-| PASS | Entwurf ist konform mit bestehender Architektur | Prüfe `offene_punkte.freigabe_noetig` (siehe unten), dann weiter zu Implementation |
-| PASS_WITH_CONCERNS | Entwurf ist grundsätzlich konform, aber es gibt Hinweise | Wie PASS, Concerns werden an Worker weitergegeben |
-| FAIL | Entwurf kollidiert mit bestehender Architektur | Eskalation an Mensch. Pipeline pausiert. |
+| PASS | Entwurf ist konform mit bestehender Architektur | Weiter zu Stufe 2: Design-Review-Gate |
+| FAIL | Entwurf kollidiert mit bestehender Architektur | Eskalation an Mensch (`status: ESCALATED`) |
 
 **Gate für freigabepflichtige Entscheidungen:**
 
-Wenn das Entwurfsartefakt `offene_punkte.freigabe_noetig` mit
-nicht-leerer Liste enthält, **pausiert die Pipeline** auch bei
-Dokumententreue PASS. Der Mensch muss die offenen Punkte
-freigeben (z.B. "Einführung einer neuen Entity — akzeptabel?"),
-bevor die Implementation beginnen darf.
+Wenn das Entwurfsartefakt `offene_punkte.freigabe_noetig` eine
+nicht-leere Liste enthält, wird dies **nach Stufe 1 PASS erkannt**,
+aber die Pipeline pausiert **nicht** sofort. Stufe 2 (Design-Review-Gate)
+läuft trotzdem vollständig durch — das Design-Review kann die
+freigabepflichtigen Punkte in seine Bewertung einbeziehen.
 
-> **[Entscheidung 2026-04-08]** Element 20 — `pause_reason` wird in v3 durch `PauseReason` StrEnum ersetzt. Typisierte Resume-Handler statt String-basierter Reason. Detailkonzept zusammen mit Element 16 (PhaseState-Restructuring) offen.
+Die Pause tritt ein, wenn das dreistufige Gate insgesamt zu einem
+Zustand führt, der menschliche Freigabe erfordert:
+- Stufe 2 ergibt `PASS_WITH_CONCERNS` mit `required_before_impl`-Concerns, oder
+- `offene_punkte.freigabe_noetig` enthält Punkte, die weder durch das
+  Design-Review aufgelöst noch als unbedenklich eingestuft wurden.
+
+In beiden Fällen: Phase-State `status: PAUSED`,
+`pause_reason: PauseReason.AWAITING_DESIGN_REVIEW` (Python-Code) bzw. `"awaiting_design_review"` (Wire-Format in phase-state.json — lowercase serialisierter StrEnum-Wert).
+Resume: `agentkit resume --story {id}` nach menschlicher Prüfung.
+[Entscheidung 2026-04-09] `human_approval_required` ersetzt durch `PauseReason.AWAITING_DESIGN_REVIEW` (StrEnum). Der Mensch muss das Exploration-Ergebnis freigeben.
+
+> **[Entscheidung 2026-04-08, ausgearbeitet 2026-04-09]** Element 20 — `pause_reason` wird in v3 durch `PauseReason` StrEnum ersetzt. Typisierte Resume-Handler statt String-basierter Reason. Detailkonzept ausgearbeitet (FK-20 §20.6.2a, 2026-04-09): PauseReason hat genau 3 Werte (AWAITING_DESIGN_REVIEW, AWAITING_DESIGN_CHALLENGE, GOVERNANCE_INCIDENT). Exploration-spezifische Werte und Resume-Trigger folgen unmittelbar unten.
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 20.
 
-Phase-State: `status: PAUSED`, `pause_reason: "human_approval_required"`.
-Resume: `agentkit resume --story {story_id}` nach menschlicher Prüfung.
+> **[Entscheidung 2026-04-09]** Für die Exploration-Phase gelten die PauseReason-Werte `PauseReason.AWAITING_DESIGN_REVIEW` und `PauseReason.AWAITING_DESIGN_CHALLENGE`. `AWAITING_DESIGN_REVIEW` wird in zwei Kontexten verwendet: (1) **Agent-basiert** (PAUSED_DR im Diagramm): Pipeline wartet auf Abschluss des Design-Review-Agents; Resume erfolgt systemgesteuert wenn `design-review-preliminary.json` verfügbar ist — kein manueller Trigger. (2) **Mensch-basiert** (HUMAN-Knoten): Pipeline wartet auf menschliche Freigabe; Resume-Trigger: `design_approved` (→ GATE_PASS) oder `design_rejected` (→ REJECTED → ESCALATED). `AWAITING_DESIGN_CHALLENGE`: Resume-Trigger `challenge_resolved`. Kein eigener Pause-Wert für `human_approval_required` — dieser Fall wird über `AWAITING_DESIGN_REVIEW` (Kontext 2) abgedeckt. Verweis auf Designwizard R1+R2 vom 2026-04-09.
 
 **Bei FAIL:** Der Phase-State wird auf `status: ESCALATED` gesetzt.
 Der Mensch muss den Konflikt klären — z.B. das Konzept anpassen,
@@ -359,10 +440,11 @@ Pipeline eingespeist werden.
 ### 23.6.1 Bei Exploration Mode (REF-034)
 
 Nach bestandenem vollständigem Exit-Gate
-(`exploration_gate_status = "approved_for_implementation"`):
+(`payload.gate_status == ExplorationGateStatus.APPROVED`):
+[Entscheidung 2026-04-09] Gate-Status verwendet `ExplorationPayload.gate_status` (`ExplorationGateStatus` StrEnum).
 
 1. Phase-State: `phase: exploration, status: COMPLETED`,
-   `exploration_gate_status: "approved_for_implementation"`
+   `payload.gate_status: ExplorationGateStatus.APPROVED`
 2. Phase Runner setzt `agents_to_spawn` auf Worker-Implementation
 3. `agents_to_spawn` enthält auch:
    - `required_acceptance_criteria`: Aus `required_in_impl`-Concerns
@@ -382,8 +464,10 @@ Nach bestandenem vollständigem Exit-Gate
 Der Worker darf vom Entwurf abweichen, aber nur mit expliziter
 Markierung und Begründung (FK-05-101). Wenn die Abweichung
 neue Strukturen einführt oder den Impact-Level überschreitet,
-muss die Dokumententreue-Prüfung erneut ausgelöst werden
-(FK-05-102).
+muss der Worker die Implementierung korrigieren (Selbstkorrektur)
+oder `status: BLOCKED` melden (-> `status: ESCALATED`). Eine erneute
+Dokumententreue-Prüfung aus der Implementation heraus findet nicht
+statt (siehe §23.7.3). [Korrektur 2026-04-09]
 
 ### 23.6.2 Bei Execution Mode
 
@@ -401,10 +485,10 @@ Entwurf abweicht:
 
 | Drift-Art | Erkennung | Reaktion |
 |-----------|-----------|---------|
-| Neue Strukturen (APIs, Datenmodelle) nicht im Entwurf | Worker erkennt selbst | **Erneute Dokumententreue-Prüfung** muss ausgelöst werden, bevor der Worker weiterarbeiten darf |
-| Deklarierter Impact-Level überschritten | Worker erkennt selbst | **Erneute Dokumententreue-Prüfung** |
-| Anderes Pattern gewählt als im Entwurf | Worker erkennt selbst | Dokumentation der Abweichung im Handover-Paket reicht |
-| Detailentscheidung anders als im Entwurf | Worker erkennt selbst | Dokumentation im Handover-Paket reicht |
+| Neue Strukturen (APIs, Datenmodelle) nicht im Entwurf | Worker erkennt selbst | **Signifikanter Drift**: Worker muss Implementierung korrigieren (Selbstkorrektur) oder BLOCKED melden [Entscheidung 2026-04-09] |
+| Deklarierter Impact-Level überschritten | Worker erkennt selbst | **Signifikanter Drift**: Worker muss Implementierung korrigieren (Selbstkorrektur) oder BLOCKED melden [Entscheidung 2026-04-09] |
+| Anderes Pattern gewählt als im Entwurf | Worker erkennt selbst | Normale Drift: Dokumentation der Abweichung im Handover-Paket reicht |
+| Detailentscheidung anders als im Entwurf | Worker erkennt selbst | Normale Drift: Dokumentation im Handover-Paket reicht |
 
 ### 23.7.2 Telemetrie
 
@@ -415,18 +499,47 @@ Jede Drift-Prüfung erzeugt ein Telemetrie-Event in der SQLite-DB:
 | `drift_check` | `{"result": "ok"}` |
 | `drift_check` | `{"result": "drift", "drift_type": "new_structure", "description": "Neue Entity MarketQuoteHistory nicht im Entwurf"}` |
 
-### 23.7.3 Erneute Dokumententreue-Prüfung bei signifikantem Drift
+### 23.7.3 Reaktion bei signifikantem Drift [Entscheidung 2026-04-09]
 
-Wenn der Worker signifikanten Drift erkennt (neue Strukturen oder
-Impact-Überschreitung):
+Wenn der Worker während der Implementierung signifikanten Drift
+erkennt (neue Strukturen oder Impact-Überschreitung), hat er genau
+zwei Handlungsoptionen. Ein automatischer Rücksprung von der
+Implementation in die Exploration-Phase findet **nicht** statt —
+weder durch den Worker noch durch den Orchestrator.
 
-1. Worker markiert den Drift im Handover-Paket
-2. Worker meldet Drift an den Orchestrator
-3. Orchestrator ruft `agentkit run-phase exploration --story {story_id}`
-   erneut auf — **ohne** das Entwurfsartefakt neu zu erzeugen,
-   nur die Dokumententreue-Prüfung wird wiederholt
-4. Bei PASS: Worker darf weiterarbeiten
-5. Bei FAIL: Eskalation an Mensch
+**Option A — Selbstkorrektur:**
+
+1. Worker erkennt, dass die Implementierung vom genehmigten
+   Exploration-Design oder den Fach-/IT-Konzepten abweicht
+2. Worker korrigiert die Implementierung selbständig, sodass sie
+   mit dem Exploration-Design und den Konzepten übereinstimmt
+3. Worker dokumentiert den erkannten Drift und die Korrektur im
+   Handover-Paket
+4. Implementierung läuft normal weiter
+
+**Option B — BLOCKED melden:**
+
+1. Worker stellt fest, dass das Exploration-Design und die
+   Fach-/IT-Konzepte widersprüchlich oder nicht umsetzbar sind —
+   eine konforme Implementierung ist unmöglich
+2. Worker meldet `status: BLOCKED` mit Begründung in
+   `worker-manifest.json`
+3. Der Phase Runner (`_phase_implementation()`) erkennt das
+   BLOCKED-Signal im Worker-Output (`worker-manifest.json`) und
+   setzt selbst `status: ESCALATED` mit
+   `escalation_reason: "worker_blocked"` im Phase-State.
+   Der Orchestrator triggert lediglich `run-phase implementation` —
+   die State-Mutation erfolgt ausschließlich durch den Phase Runner
+   (FK-20). [Korrektur 2026-04-09]
+4. Mensch entscheidet über nächste Schritte (z.B. neues
+   Explorationsmandat, Konzeptanpassung, Story-Verwurf)
+
+**Verboten:** `agentkit run-phase exploration` aus der
+Implementierung heraus aufrufen. Eine Abweichung von Exploration-
+Design oder Konzepten ist ein Implementierungsversagen, kein Grund
+für erneute Exploration.
+
+Jede Drift-Prüfung erzeugt weiterhin ein Telemetrie-Event (§23.7.2).
 
 ## 23.8 Impact-Violation-Check in der Verify-Phase
 
@@ -472,10 +585,16 @@ def check_impact_violation(context: StoryContext, git: GitOperations) -> Structu
 
 ### 23.8.3 Reaktion bei Violation
 
+[Entscheidung 2026-04-09] Eine Impact-Violation ist ein Implementierungsversagen, kein
+Explorationsfehler. Ein automatischer Rücksprung in die Exploration-Phase findet nicht
+statt — weder für Exploration-Mode- noch für Execution-Mode-Stories. Beide Modi
+eskalieren an den Menschen, der über die nächsten Schritte entscheidet: Implementierung
+nachbessern, neue Exploration mit neuem Mandat starten oder Story verwerfen.
+
 | Story-Modus | Reaktion | FK-Referenz |
 |-------------|---------|-------------|
-| Exploration Mode | Story geht zurück in Exploration-Phase (Entwurf nicht eingehalten) | FK-06-067 |
-| Execution Mode | Eskalation an Mensch (Issue-Metadaten waren falsch deklariert) | FK-06-068 |
+| Exploration Mode | `status: ESCALATED` — Eskalation an Mensch (Implementierung hat genehmigten Entwurf verletzt) | FK-06-067 |
+| Execution Mode | `status: ESCALATED` — Eskalation an Mensch (tatsächlicher Impact überschreitet Deklaration) | FK-06-068 |
 
 ---
 
