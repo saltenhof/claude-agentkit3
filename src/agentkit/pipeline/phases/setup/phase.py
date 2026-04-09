@@ -6,6 +6,7 @@ and optionally creates a git worktree.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -18,7 +19,7 @@ from agentkit.pipeline.state import save_story_context
 from agentkit.project_ops.shared.paths import story_dir
 from agentkit.story.models import PhaseStatus
 from agentkit.story.types import get_profile
-from agentkit.utils.git import create_worktree
+from agentkit.utils.git import create_worktree, remove_worktree
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -136,7 +137,17 @@ class SetupPhaseHandler:
             enriched = enriched.model_copy(
                 update={"worktree_path": worktree_path},
             )
-            save_story_context(s_dir, enriched)
+            try:
+                save_story_context(s_dir, enriched)
+            except Exception as persist_err:
+                # Worktree was created but context persistence failed.
+                # Clean up the worktree so it does not leak.
+                with contextlib.suppress(WorktreeError):
+                    remove_worktree(cfg.project_root, worktree_path)
+                return HandlerResult(
+                    status=PhaseStatus.FAILED,
+                    errors=(f"Failed to persist worktree context: {persist_err}",),
+                )
             logger.info(
                 "Worktree created: %s (branch: %s)", worktree_path, branch_name,
             )

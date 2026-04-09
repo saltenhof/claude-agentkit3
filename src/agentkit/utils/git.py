@@ -67,42 +67,52 @@ def create_worktree(repo_root: Path, worktree_path: Path, branch: str) -> None:
 def remove_worktree(repo_root: Path, worktree_path: Path) -> None:
     """Remove a git worktree at *worktree_path*.
 
-    Runs ``git -C <repo_root> worktree remove --force <worktree_path>``.
-    If *worktree_path* does not exist the function returns without error
-    (idempotent).
+    If *worktree_path* exists on disk, runs
+    ``git -C <repo_root> worktree remove --force <worktree_path>``.
+
+    If *worktree_path* does not exist (e.g. deleted externally without going
+    through git), the directory removal is skipped but
+    ``git worktree prune`` is still executed so that any dangling git
+    metadata is cleaned up.  This makes the function fully idempotent.
 
     Args:
         repo_root: Root directory of the git repository.
         worktree_path: Absolute path of the worktree to remove.
 
     Raises:
-        WorktreeError: If the ``git worktree remove`` command exits non-zero
-            for a reason other than the path not existing.
+        WorktreeError: If the ``git worktree remove`` command exits non-zero.
     """
-    if not worktree_path.exists():
+    if worktree_path.exists():
+        result = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo_root),
+                "worktree",
+                "remove",
+                "--force",
+                str(worktree_path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            stderr = result.stderr.strip()
+            raise WorktreeError(
+                f"git worktree remove failed (exit {result.returncode}): {stderr}",
+                detail={
+                    "repo_root": str(repo_root),
+                    "worktree_path": str(worktree_path),
+                    "stderr": result.stderr,
+                    "stdout": result.stdout,
+                },
+            )
         return
 
-    result = subprocess.run(
-        [
-            "git",
-            "-C",
-            str(repo_root),
-            "worktree",
-            "remove",
-            "--force",
-            str(worktree_path),
-        ],
+    # Path absent on disk: git metadata may still be registered.
+    # ``git worktree prune`` removes metadata for all missing worktrees.
+    subprocess.run(
+        ["git", "-C", str(repo_root), "worktree", "prune"],
         capture_output=True,
         text=True,
     )
-    if result.returncode != 0:
-        stderr = result.stderr.strip()
-        raise WorktreeError(
-            f"git worktree remove failed (exit {result.returncode}): {stderr}",
-            detail={
-                "repo_root": str(repo_root),
-                "worktree_path": str(worktree_path),
-                "stderr": result.stderr,
-                "stdout": result.stdout,
-            },
-        )

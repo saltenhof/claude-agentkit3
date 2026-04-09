@@ -204,6 +204,53 @@ class TestSetupPhaseHandlerWorktree:
         assert len(result.errors) == 1
         assert "Worktree path already exists" in result.errors[0]
 
+    def test_worktree_created_but_persist_fails_cleans_up(
+        self, tmp_path: Path
+    ) -> None:
+        """on_enter removes the worktree and returns FAILED when the second
+        save_story_context call (which persists the worktree path) raises."""
+        cfg = SetupConfig(
+            owner="owner",
+            repo="repo",
+            issue_nr=5,
+            project_root=tmp_path,
+            story_id="AG3-005",
+            create_worktree=True,
+        )
+        handler = SetupPhaseHandler(cfg)
+        ctx = _make_story_context(story_id="AG3-005", project_root=tmp_path)
+        state = _make_phase_state(story_id="AG3-005")
+        enriched = _make_story_context(story_id="AG3-005", project_root=tmp_path)
+
+        with (
+            patch(
+                "agentkit.pipeline.phases.setup.phase.run_preflight",
+                return_value=_make_preflight_pass(),
+            ),
+            patch(
+                "agentkit.pipeline.phases.setup.phase.build_story_context",
+                return_value=enriched,
+            ),
+            patch(
+                "agentkit.pipeline.phases.setup.phase.create_worktree",
+            ),
+            patch(
+                "agentkit.pipeline.phases.setup.phase.save_story_context",
+                # First call (initial save) succeeds; second call (with worktree
+                # path) raises to simulate a disk-full or permission error.
+                side_effect=[None, OSError("disk full")],
+            ),
+            patch(
+                "agentkit.pipeline.phases.setup.phase.remove_worktree",
+            ) as mock_remove,
+        ):
+            result = handler.on_enter(ctx, state)
+
+        assert result.status == PhaseStatus.FAILED
+        assert "disk full" in result.errors[0]
+        # Cleanup must have been attempted to avoid a leaked worktree.
+        mock_remove.assert_called_once()
+
     def test_preflight_failure_returns_failed(self, tmp_path: Path) -> None:
         """on_enter returns FAILED immediately when preflight fails."""
         cfg = SetupConfig(

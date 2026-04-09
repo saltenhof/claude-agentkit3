@@ -6,12 +6,13 @@ snapshot models used throughout the AgentKit pipeline.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from agentkit.story.types import StoryMode, StoryType
 
@@ -61,6 +62,26 @@ class StoryContext(BaseModel):
     story_type: StoryType
     mode: StoryMode
     issue_nr: int | None = None
+
+    @field_validator("story_id")
+    @classmethod
+    def _validate_story_id_branch_safe(cls, v: str) -> str:
+        """Ensure story_id is safe to embed in a git branch name.
+
+        A ``story/{story_id}`` branch is created for implementation and bugfix
+        stories.  The story_id must therefore consist only of characters that
+        are legal in git ref names.
+
+        Raises:
+            ValueError: If *v* contains characters that are invalid in a git
+                branch name component.
+        """
+        if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$", v):
+            raise ValueError(
+                f"story_id {v!r} must start with an alphanumeric character and "
+                "contain only alphanumeric characters, dots, hyphens, or underscores"
+            )
+        return v
     title: str = ""
     project_root: Path | None = None
     worktree_path: Path | None = None

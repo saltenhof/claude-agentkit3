@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from typing import TYPE_CHECKING
 
@@ -101,3 +102,28 @@ class TestRemoveWorktree:
         nonexistent = tmp_path / "does-not-exist"
         # Must not raise
         remove_worktree(git_repo, nonexistent)
+
+    def test_externally_deleted_path_cleans_git_metadata(
+        self, git_repo: Path, tmp_path: Path
+    ) -> None:
+        """remove_worktree prunes git metadata when directory was deleted externally.
+
+        Simulates the scenario where a worktree directory is removed without
+        going through git (e.g. ``rm -rf``).  The git worktree metadata still
+        refers to the old path.  ``remove_worktree`` must clean up that
+        metadata so the path can be reused.
+        """
+        worktree_path = tmp_path / "wt-external-delete"
+        create_worktree(git_repo, worktree_path, "story/AG3-011")
+        assert worktree_path.exists()
+
+        # Simulate external deletion — bypass git entirely.
+        shutil.rmtree(str(worktree_path))
+        assert not worktree_path.exists()
+
+        # Must not raise even though path is absent.
+        remove_worktree(git_repo, worktree_path)
+
+        # Verify metadata was pruned: the same path can now host a new worktree.
+        create_worktree(git_repo, worktree_path, "story/AG3-011b")
+        assert worktree_path.exists()
