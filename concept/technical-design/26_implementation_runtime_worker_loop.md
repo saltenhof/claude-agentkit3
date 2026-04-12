@@ -1,5 +1,5 @@
 ---
-concept_id: FK-24
+concept_id: FK-26
 title: Implementation-Runtime und Worker-Loop
 module: implementation
 status: active
@@ -17,9 +17,9 @@ defers_to:
   - target: FK-20
     scope: phase-model
     reason: Implementation als Phase im Phasenmodell von FK-20
-  - target: FK-26
+  - target: FK-28
     scope: evidence-assembly
-    reason: Evidence Assembly fuer Review-Vorbereitung in Kap. 26 beschrieben
+    reason: Evidence Assembly fuer Review-Vorbereitung in Kap. 28 beschrieben
   - target: FK-30
     scope: worker-health-monitor
     reason: Scoring-Modell, Eskalationsleiter und Sidecar-Architektur in Kap. 30 definiert
@@ -28,9 +28,9 @@ superseded_by:
 tags: [implementation, worker-loop, handover, incremental-development, review]
 ---
 
-# 24 — Implementation-Runtime und Worker-Loop
+# 26 — Implementation-Runtime und Worker-Loop
 
-## 24.1 Zweck
+## 26.1 Zweck
 
 Die Implementation-Phase ist der einzige nicht-deterministische
 Schritt in der Pipeline (FK-05-093). Der Worker-Agent (Claude Code
@@ -40,12 +40,12 @@ der Worker selbst basierend auf Story, Konzept und Prompt. AgentKit
 steuert den **Rahmen**: Worktree-Isolation, Guards, Review-Pflicht,
 Inkrement-Disziplin, Handover-Paket.
 
-> **[Entscheidung 2026-04-08]** Element 2 — SpawnReason wird als StrEnum in `core/types.py` konsolidiert. Werte: `INITIAL`, `PAUSED_RETRY`, `REMEDIATION`. Betrifft den Worker-Start (§24.2) und die Worker-Varianten (§24.2.3).
+> **[Entscheidung 2026-04-08]** Element 2 — SpawnReason wird als StrEnum in `core/types.py` konsolidiert. Werte: `INITIAL`, `PAUSED_RETRY`, `REMEDIATION`. Betrifft den Worker-Start (§26.2) und die Worker-Varianten (§26.2.3).
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 2.
 
-## 24.2 Worker-Start
+## 26.2 Worker-Start
 
-### 24.2.1 Startprotokoll
+### 26.2.1 Startprotokoll
 
 Der Orchestrator spawnt den Worker als Claude-Code-Sub-Agent:
 
@@ -64,7 +64,7 @@ sequenceDiagram
 > **[Entscheidung 2026-04-08]** Element 9 — WorkerContextItem / WORKER_CONTEXT_SPEC wird als Runtime-Gate in `prompting/workers` uebernommen. `WorkerContextItemKey` als StrEnum. Registry mit `key`, `source`, `required_when`, `applies_to`. Aufrufkette: `resolve_worker_context()` → `validate_worker_context()` → `compose_worker_prompt()`. Getrennt von Workflow-DSL (Phasenlogik ≠ Spawn-Vertrag).
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 9.
 
-### 24.2.2 Worker-Kontext
+### 26.2.2 Worker-Kontext
 
 Der Worker erhält bei Start folgende Informationen:
 
@@ -78,7 +78,7 @@ Der Worker erhält bei Start folgende Informationen:
 | Story-Typ und Größe | `context.json` | Im Prompt (bestimmt Review-Häufigkeit) |
 | ARE must_cover (wenn aktiviert) | Über MCP von ARE | Im Prompt eingebettet |
 
-### 24.2.3 Worker-Varianten
+### 26.2.3 Worker-Varianten
 
 | Story-Typ | Prompt | Besonderheiten |
 |-----------|--------|---------------|
@@ -86,9 +86,9 @@ Der Worker erhält bei Start folgende Informationen:
 | Bugfix | `worker-bugfix.md` | Red-Green-Suite TDD-Workflow, Reproducer-Pflicht |
 | Remediation | `worker-remediation.md` | Arbeitet Mängelliste ab (Feedback-Loop) |
 
-## 24.3 Inkrementelles Vorgehen
+## 26.3 Inkrementelles Vorgehen
 
-### 24.3.1 Vertikale Inkremente (FK-05-094 bis FK-05-104)
+### 26.3.1 Vertikale Inkremente (FK-05-094 bis FK-05-104)
 
 Der Worker schneidet die Story in **vertikale Inkremente**, nicht
 nach technischen Schichten. Jedes Inkrement ist ein fachlich
@@ -109,10 +109,10 @@ Inkrement 2: WebSocket-Streaming + Event-Handling + Tests
 Inkrement 3: Error-Handling + Retry-Logik + Tests
 ```
 
-> **[Entscheidung 2026-04-08]** Element 4 — IncrementStep / INCREMENT_CYCLE wird als StrEnum + geordnetes Tupel uebernommen. Exakt wie FK-24 spezifiziert. Beschreibungen als Enum-Property, nicht als separate Dicts.
+> **[Entscheidung 2026-04-08]** Element 4 — IncrementStep / INCREMENT_CYCLE wird als StrEnum + geordnetes Tupel uebernommen. Exakt wie FK-26 spezifiziert. Beschreibungen als Enum-Property, nicht als separate Dicts.
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 4.
 
-### 24.3.2 Vier-Schritt-Zyklus pro Inkrement
+### 26.3.2 Vier-Schritt-Zyklus pro Inkrement
 
 ```mermaid
 flowchart TD
@@ -128,12 +128,12 @@ flowchart TD
     NEXT -->|"Nein"| FINAL["Finaler Build +<br/>Gesamttest"]
 ```
 
-### 24.3.3 Schritt 1: Implementieren
+### 26.3.3 Schritt 1: Implementieren
 
 Code für genau diesen Slice schreiben. Nicht mehr, nicht weniger.
 Kein opportunistisches Refactoring benachbarter Bereiche.
 
-### 24.3.4 Schritt 2: Lokal verifizieren
+### 26.3.4 Schritt 2: Lokal verifizieren
 
 Kleinster verlässlicher Check — **nicht** Full-Build:
 
@@ -143,7 +143,7 @@ Kleinster verlässlicher Check — **nicht** Full-Build:
 | Betroffene Tests | Nur Tests für den geänderten Bereich (z.B. `pytest test_broker.py`) |
 | Nicht: Full-Build | Der vollständige Build bleibt dem finalen Check vor Handover vorbehalten |
 
-### 24.3.5 Schritt 3: Drift prüfen
+### 26.3.5 Schritt 3: Drift prüfen
 
 Der Worker prüft bei jedem Inkrement:
 
@@ -200,7 +200,7 @@ oder Impact-Überschreitung):
 Bei kleineren Abweichungen (anderes Pattern, Detailentscheidung)
 reicht die Dokumentation im Handover-Paket — kein Stopp nötig.
 
-### 24.3.6 Schritt 4: Committen
+### 26.3.6 Schritt 4: Committen
 
 Erst wenn der Slice intern konsistent und lokal grün ist:
 
@@ -214,9 +214,9 @@ Story-ID: ODIN-042"
 Der Telemetrie-Hook erkennt `git commit` im Worktree und erzeugt
 ein `increment_commit`-Event.
 
-## 24.4 Teststrategie
+## 26.4 Teststrategie
 
-### 24.4.1 Regelwerk (FK-05-106 bis FK-05-115)
+### 26.4.1 Regelwerk (FK-05-106 bis FK-05-115)
 
 Der Worker wählt die Teststrategie **nicht frei**, sondern situativ
 nach Regelwerk:
@@ -227,7 +227,7 @@ nach Regelwerk:
 | **TDD (Bugfix)** | Bugfix-Reproduktionen: erst den Bug als fehlschlagenden Test formulieren | Red-Green-Suite-Workflow (Kap. `worker-bugfix.md`) |
 | **Test-After** | Integrations-Verdrahtung: neue E2E-Verkabelung, externe Integrationen, Framework-Konfiguration, Migrationspfade | Erst muss die technische Lauffähigkeit hergestellt werden, bevor sinnvolle Tests formuliert werden können |
 
-### 24.4.2 Testtypen
+### 26.4.2 Testtypen
 
 | Testtyp | Wann | Beispiel |
 |---------|------|---------|
@@ -235,7 +235,7 @@ nach Regelwerk:
 | **Integrationstests** | Wahrheit an echter Grenze | DB-Zugriff, API-Vertrag, Messaging, Berechtigungen |
 | **E2E-Tests** | Nur Gesamtablauf beweist Story | Geschäftskritischer User-Flow, Zusammenspiel mehrerer Schichten |
 
-### 24.4.3 Pflichten
+### 26.4.3 Pflichten
 
 - Vor Handover müssen beide Testarten (TDD und Test-After)
   zusammengeführt sein (FK-05-114)
@@ -243,12 +243,12 @@ nach Regelwerk:
 - Mindestens 1 Integrationstest pro Story (Prompt-Vorgabe)
 - Bei Bugfix: Reproducer-Test ist Pflicht (Red-Green-Suite)
 
-## 24.5 Reviews durch konfigurierte LLMs
+## 26.5 Reviews durch konfigurierte LLMs
 
 > **[Entscheidung 2026-04-08]** Element 25 — LLM-Pool-basierte Reviews sind Pflicht. Immer ueber LLM-Pools. Kein Claude-Sub-Agent-Fallback.
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 25.
 
-### 24.5.1 Pflicht-Reviews (FK-05-116 bis FK-05-122)
+### 26.5.1 Pflicht-Reviews (FK-05-116 bis FK-05-122)
 
 Der Worker holt sich während der Implementierung Reviews von
 anderen LLMs. Die Reviewer sind in `llm_roles` konfiguriert,
@@ -258,7 +258,7 @@ nicht frei wählbar.
 Flecken aufdecken, Seiteneffekte identifizieren. Reviews ersetzen
 nicht die Verify-Phase.
 
-### 24.5.2 Review-Mindestfrequenz
+### 26.5.2 Review-Mindestfrequenz
 
 | Metrik | Minimum-Schwelle |
 |--------|-----------------|
@@ -268,7 +268,7 @@ nicht die Verify-Phase.
 > **[Entscheidung 2026-04-08]** Element 10 — ReviewFlowModel / ReviewFlowStep entfaellt als Runtime-Datenstruktur in v3. Der Review-Ablauf beschreibt Worker-Verhalten, keine Runtime-Steuerung. Die Sequenz gehoert in das Prompt-Template.
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 10.
 
-### 24.5.3 Review-Ablauf
+### 26.5.3 Review-Ablauf
 
 ```mermaid
 sequenceDiagram
@@ -294,7 +294,7 @@ ob alle Review-Requests ein zugehöriges `review_compliant` haben.
 > **[Entscheidung 2026-04-08]** Element 5 — ReviewTemplate / REVIEW_TEMPLATE_REGISTRY wird als StrEnum + Registry uebernommen. Felder: `template`, `filename`, `applies_to`. Felder `description` und `use_case` entfallen (nicht programmatisch genutzt).
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 5.
 
-### 24.5.4 Review-Templates
+### 26.5.4 Review-Templates
 
 Die Templates liegen in `prompts/sparring/`:
 
@@ -307,13 +307,13 @@ Die Templates liegen in `prompts/sparring/`:
 | `review-test-sparring.md` | Test-Sparring (Edge Cases) |
 | `review-synthesis.md` | Synthese über alle bisherigen Reviews |
 
-## 24.5a Review-Versand über Evidence Assembly
+## 26.5a Review-Versand über Evidence Assembly
 
-### 24.5a.1 Ablösung der manuellen merge_paths-Kuration (FK-24-200)
+### 26.5a.1 Ablösung der manuellen merge_paths-Kuration (FK-26-200)
 
-Zusätzlich zum bisherigen Review-Ablauf (§24.5.3) wird der
+Zusätzlich zum bisherigen Review-Ablauf (§26.5.3) wird der
 Kontext-Zusammenstellungsschritt ab Version 3.0 durch die
-deterministische Evidence Assembly (Kap. 26) ersetzt. Der Worker
+deterministische Evidence Assembly (Kap. 28) ersetzt. Der Worker
 verwendet NICHT mehr selbst-kuratierte `merge_paths`, sondern ruft
 den Evidence Assembler über die CLI auf:
 
@@ -345,7 +345,7 @@ sequenceDiagram
     W->>P: Pool-Send mit Review-Template<br/>merge_paths aus BundleManifest
 ```
 
-Das CLI assembliert das Bundle deterministisch (Kap. 26):
+Das CLI assembliert das Bundle deterministisch (Kap. 28):
 1. **Stufe 1** (deterministisch): Git-Diff gegen Base-Branch, geänderte
    Dateien + Nachbardateien, Story-Spec, Konzept-Dokumente, Guardrails
 2. **Stufe 2** (deterministisch): Sprachspezifische Import-Extraktion
@@ -358,7 +358,7 @@ Der Worker nutzt das `BundleManifest` aus dem Ergebnis als
 `merge_paths` für den Review-Versand. Die bisherige manuelle
 Kuration der `merge_paths` entfällt.
 
-### 24.5a.2 Änderung in den Worker-Templates
+### 26.5a.2 Änderung in den Worker-Templates
 
 Die DoD-Review-Sektion in `worker-implementation.md` und
 `worker-bugfix.md` wird aktualisiert:
@@ -378,14 +378,14 @@ Der Assembler:
 6. Kürzt bei >350 KB nach Priorität
 ```
 
-## 24.5b Preflight-Turn im Review-Flow
+## 26.5b Preflight-Turn im Review-Flow
 
-> **[Entscheidung 2026-04-08]** Element 24 — Preflight-Turn / Request-DSL ist Pflicht. FK-24 §24.5b, 7 Request-Typen.
+> **[Entscheidung 2026-04-08]** Element 24 — Preflight-Turn / Request-DSL ist Pflicht. FK-26 §26.5b, 7 Request-Typen.
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 24.
 
-### 24.5b.1 Pflicht-Preflight vor dem Review (FK-24-210)
+### 26.5b.1 Pflicht-Preflight vor dem Review (FK-26-210)
 
-Zwischen Evidence Assembly (§24.5a) und dem eigentlichen Review
+Zwischen Evidence Assembly (§26.5a) und dem eigentlichen Review
 liegt ein Pflicht-Preflight-Turn. Der Preflight gibt dem
 Review-LLM die Möglichkeit, fehlenden Kontext nachzufordern,
 bevor der eigentliche Review startet.
@@ -417,30 +417,30 @@ sequenceDiagram
 
 **Schritte im Detail:**
 
-1. Worker assembliert das Evidence Bundle (§24.5a)
+1. Worker assembliert das Evidence Bundle (§26.5a)
 2. Worker sendet den Preflight-Prompt an das Review-LLM.
    Der Preflight verwendet einen eigenen Sentinel:
    `[PREFLIGHT:review-preflight-v1:{story_id}]`
 3. Das LLM antwortet mit bis zu **8 strukturierten Requests**
-   gemäß der Request-DSL (Kap. 26, 7 Request-Typen:
+   gemäß der Request-DSL (Kap. 28, 7 Request-Typen:
    `NEED_FILE`, `NEED_SCHEMA`, `NEED_CALLSITE`,
    `NEED_RUNTIME_BINDING`, `NEED_TEST_EVIDENCE`,
    `NEED_CONCEPT_SOURCE`, `NEED_DIFF_EXPANSION`)
 4. AgentKit löst die Requests deterministisch auf
-   (`RequestResolver`, Kap. 26)
+   (`RequestResolver`, Kap. 28)
 5. Aufgelöste Dateien werden dem Bundle hinzugefügt
    (Authority-Klasse `SECONDARY_CONTEXT`)
 6. Das erweiterte Bundle geht an den eigentlichen Review
 
-### 24.5b.2 Preflight-Sonderregeln
+### 26.5b.2 Preflight-Sonderregeln
 
 **Design-Entscheidung D1: Preflight ist kein Review.**
 
 - Der Preflight-Turn ist Pflicht, zählt aber NICHT zur Review-Mindestfrequenz
-  (§24.5.2). Er erzeugt KEIN `review_compliant`-Event.
+  (§26.5.2). Er erzeugt KEIN `review_compliant`-Event.
 - Preflight hat einen eigenen Telemetrie-Stream:
   `preflight_request` / `preflight_response` (Design-Entscheidung
-  D8, Kap. 26)
+  D8, Kap. 28)
 - Der Preflight-Sentinel `[PREFLIGHT:...]` wird bewusst NICHT
   vom bestehenden Review-Sentinel-Regex `[TEMPLATE:...]` erfasst
 - Bei Parse-Fehler der Preflight-Response: `requests = []` +
@@ -454,14 +454,14 @@ sequenceDiagram
 | `preflight_response` | Preflight-Antwort empfangen | = `preflight_request` |
 | `preflight_compliant` | Preflight-Sentinel erkannt | = `preflight_request` |
 
-### 24.5b.3 Erweiterter Review-Ablauf (Gesamtsequenz)
+### 26.5b.3 Erweiterter Review-Ablauf (Gesamtsequenz)
 
 Der vollständige Review-Ablauf ab Evidence Assembly:
 
 ```python
 # Sequenz im Worker-Prompt:
 
-# 1. Evidence Assembly (deterministisch, Kap. 26)
+# 1. Evidence Assembly (deterministisch, Kap. 28)
 # agentkit evidence assemble --story-id ... --story-dir ... --output-dir ...
 # → BundleManifest mit merge_paths
 
@@ -470,7 +470,7 @@ Der vollständige Review-Ablauf ab Evidence Assembly:
 # raw_response = chatgpt_send(preflight_prompt, merge_paths=manifest.file_paths)
 # requests = parse_preflight_response(raw_response)
 
-# 3. Request-Auflösung (deterministisch, Kap. 26)
+# 3. Request-Auflösung (deterministisch, Kap. 28)
 # resolver = RequestResolver(repos=repo_contexts, primary_repo_id=primary_id)
 # results = resolver.resolve_all(requests)
 # extended_paths = manifest.file_paths + [resolved files]
@@ -483,7 +483,7 @@ Der vollständige Review-Ablauf ab Evidence Assembly:
 > **[Entscheidung 2026-04-08]** Element 6 — FinalBuildStep Dataclasses entfallen in v3. Die hier beschriebene Anforderung (finaler Build + Gesamttest) bleibt im Prompt bestehen, wird aber NICHT als Runtime-Dataclass modelliert. Reines Doku-Artefakt ohne Runtime-Logik.
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 6.
 
-## 24.6 Finaler Build und Gesamttest
+## 26.6 Finaler Build und Gesamttest
 
 Nachdem alle Inkremente fertig und commited sind:
 
@@ -496,15 +496,15 @@ Nachdem alle Inkremente fertig und commited sind:
 
 Erst wenn Build und Tests grün sind, geht der Worker zum Handover.
 
-## 24.7 Handover-Paket
+## 26.7 Handover-Paket
 
-### 24.7.1 Zweck (FK-05-123 bis FK-05-126)
+### 26.7.1 Zweck (FK-05-123 bis FK-05-126)
 
 Das Handover-Paket ist die strukturierte Übergabe vom Worker an
 die Verify-Phase. Es gibt dem QA-Agenten (Schicht 2+3) gezielte
 Ansatzpunkte statt einer blinden Suche.
 
-### 24.7.2 Schema: `handover.json`
+### 26.7.2 Schema: `handover.json`
 
 ```json
 {
@@ -568,7 +568,7 @@ Ansatzpunkte statt einer blinden Suche.
 }
 ```
 
-### 24.7.3 Pflichtfelder
+### 26.7.3 Pflichtfelder
 
 | Feld | Pflicht | Beschreibung |
 |------|---------|-------------|
@@ -580,7 +580,7 @@ Ansatzpunkte statt einer blinden Suche.
 | `drift_log` | Ja | Dokumentierte Abweichungen vom Entwurf (dürfen leer sein) |
 | `acceptance_criteria_status` | Ja | Status pro AC: ADDRESSED, NOT_APPLICABLE, BLOCKED |
 
-### 24.7.4 Nutzung in der Verify-Phase
+### 26.7.4 Nutzung in der Verify-Phase
 
 | Verify-Schicht | Nutzt aus Handover |
 |---------------|-------------------|
@@ -588,12 +588,12 @@ Ansatzpunkte statt einer blinden Suche.
 | Schicht 2 (LLM-Review) | `changes_summary`, `assumptions`, `drift_log`, `acceptance_criteria_status` |
 | Schicht 3 (Adversarial) | `risks_for_qa` (gezielte Ansatzpunkte), `existing_tests` (was schon getestet ist) |
 
-## 24.8 Worker-Manifest
+## 26.8 Worker-Manifest
 
 > **[Entscheidung 2026-04-08]** Element 11 — WorkerArtifactDescriptor / REGISTRY wird uebernommen. `WorkerArtifactKind` als StrEnum. Registry mit `kind`, `filename`, `format`, `min_size`. `checked_by` entfaellt. Falls Routing noetig: `required_checks: frozenset[ArtifactCheck]` statt freier String.
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 11.
 
-### 24.8.1 Drei Worker-Artefakte
+### 26.8.1 Drei Worker-Artefakte
 
 Der Worker erzeugt am Ende der Implementation drei Artefakte:
 
@@ -614,7 +614,7 @@ technische Kurzfassung (welche Dateien geändert, welche Tests
 hinzugefügt, welcher Commit). Das Handover ist die fachliche
 Langfassung (warum, welche Annahmen, welche Risiken).
 
-### 24.8.2 Manifest-Schema
+### 26.8.2 Manifest-Schema
 
 Der Worker beendet die Implementation mit einem von drei Status:
 
@@ -702,9 +702,9 @@ existieren auf Disk, Commit-SHA existiert auf Branch. Bei
 die Pflichtfelder `blocking_issue`, `blocking_category` und
 `attempted_remediations` (mindestens ein Eintrag).
 
-## 24.9 Bugfix-Workflow
+## 26.9 Bugfix-Workflow
 
-### 24.9.1 Red-Green-Suite (FK-05-107, FK-05-108)
+### 26.9.1 Red-Green-Suite (FK-05-107, FK-05-108)
 
 Bugfix-Stories folgen einem speziellen TDD-Workflow:
 
@@ -717,7 +717,7 @@ flowchart TD
     SUITE --> HANDOVER["Handover"]
 ```
 
-### 24.9.2 Bugfix-Reproducer
+### 26.9.2 Bugfix-Reproducer
 
 ```json
 {
@@ -737,7 +737,7 @@ Structural Checks validieren: Red Phase (exit != 0), Green Phase
 > **[Entscheidung 2026-04-08]** Element 12 — Telemetry Contract: Crash-Detection (Start/End-Paarung) ist essentiell. Event-Count-Vertrag auf Minimum-Schwellen ("mindestens 1 Review", "mindestens 1 Drift-Check"), keine exakten Zaehler pro Story-Groesse.
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 12.
 
-## 24.10 Telemetrie der Implementation-Phase
+## 26.10 Telemetrie der Implementation-Phase
 
 | Event | Wann | Erwartungswert |
 |-------|------|---------------|
@@ -752,9 +752,9 @@ Structural Checks validieren: Red Phase (exit != 0), Green Phase
 | `worker_health_intervention` | Bei Soft-Intervention oder Hard Stop | 0 oder 1 |
 | `agent_end` (subagent_type: worker) | Worker beendet | Genau 1 |
 
-## 24.11 Abbruch und Rework
+## 26.11 Abbruch und Rework
 
-### 24.11.1 Worker bricht ab
+### 26.11.1 Worker bricht ab
 
 Wenn der Worker abstürzt oder die Claude-Code-Session beendet wird:
 
@@ -765,7 +765,7 @@ Wenn der Worker abstürzt oder die Claude-Code-Session beendet wird:
 5. Recovery: Orchestrator spawnt neuen Worker (neuer Run mit neuer
    `run_id`). Bestehende Commits bleiben erhalten.
 
-### 24.11.2 Worker meldet BLOCKED (REF-042)
+### 26.11.2 Worker meldet BLOCKED (REF-042)
 
 Wenn der Worker auf eine unlösbare Constraint-Kollision stösst
 (z.B. Hook-Barriere, fehlende Dependency, Policy-Widerspruch),
@@ -775,7 +775,7 @@ sauber eskalieren:
 1. Worker erkennt, dass die Aufgabe unter den aktuellen
    Constraints nicht erfüllbar ist
 2. Worker schreibt `worker-manifest.json` mit
-   `status: "BLOCKED"` und allen Pflichtfeldern (§24.8.2)
+   `status: "BLOCKED"` und allen Pflichtfeldern (§26.8.2)
 3. Phase Runner erkennt `status: BLOCKED` und setzt
    `PhaseStatus.ESCALATED` mit
    `escalation_reason: "worker_blocked"`
@@ -825,7 +825,7 @@ fehlende Dependency):
 → Der Orchestrator leitet Recovery ein.
 ```
 
-### 24.11.3 Worker scheitert fachlich
+### 26.11.3 Worker scheitert fachlich
 
 Wenn der Worker die Akzeptanzkriterien nicht umsetzen kann:
 
@@ -836,8 +836,8 @@ Wenn der Worker die Akzeptanzkriterien nicht umsetzen kann:
 4. Feedback-Loop: Remediation-Worker erhält Mängelliste
 5. Nach max N Runden: Eskalation an Mensch
 
-**Abgrenzung:** Fachliches Scheitern (§24.11.3) ist nicht
-dasselbe wie BLOCKED (§24.11.2). Fachlich gescheitert bedeutet:
+**Abgrenzung:** Fachliches Scheitern (§26.11.3) ist nicht
+dasselbe wie BLOCKED (§26.11.2). Fachlich gescheitert bedeutet:
 der Worker konnte einzelne ACs nicht umsetzen, liefert aber
 ein gültiges Handover-Paket und das Verify-System entscheidet
 über den weiteren Verlauf. BLOCKED bedeutet: der Worker kann
@@ -847,7 +847,7 @@ Constraint dies verhindert.
 > **[Entscheidung 2026-04-08]** Element 23 — LLM-Assessment-Sidecar (Schicht 3 des Health-Monitors) ist Pflicht. Kein Feature-Flag.
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 23.
 
-## 24.12 Worker-Health-Monitor (REF-042)
+## 26.12 Worker-Health-Monitor (REF-042)
 
 Während der Implementation überwacht ein Worker-Health-Monitor
 den laufenden Worker auf Anzeichen von Stagnation,
@@ -898,12 +898,12 @@ FK-05-116 bis FK-05-122 (Reviews),
 FK-05-123 bis FK-05-126 (Handover-Paket),
 FK-08-006 bis FK-08-012 (Telemetrie-Events Worker),
 FK-06-069/070 (Konzept-Überschreibungsschutz),
-FK-24-200 (Evidence Assembly im Worker-Loop),
-FK-24-210 (Preflight-Turn im Review-Flow),
+FK-26-200 (Evidence Assembly im Worker-Loop),
+FK-26-210 (Preflight-Turn im Review-Flow),
 REF-042 (Worker-Runaway-Prevention: BLOCKED-Exit, Worker-Health-Monitor)*
 
 **Querverweise:**
 - Kap. 02 (Domain-Design) — Pipeline-Orchestrierung: Worker-Runaway-Prevention, BLOCKED als valider Worker-Exit-Status
-- Kap. 26 — Evidence Assembly: Assembler, Import-Resolver, Autoritätsklassen, Request-DSL, BundleManifest
+- Kap. 28 — Evidence Assembly: Assembler, Import-Resolver, Autoritätsklassen, Request-DSL, BundleManifest
 - Kap. 30 — Worker-Health-Monitor: Scoring-Modell, Eskalationsleiter, Sidecar-Architektur, Hook-Commit-Failure-Klassifikation
 - Kap. 34 — LLM-Evaluierungen: StructuredEvaluator, ParallelEvalRunner, Prompt-Templates

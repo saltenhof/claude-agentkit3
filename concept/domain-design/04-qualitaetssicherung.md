@@ -382,7 +382,7 @@ Statt "The source files for this story are attached — review them all" wird da
 - handover.json: changes_summary, risks_for_qa, acceptance_criteria_status
 ```
 
-> **[Entscheidung 2026-04-08]** Element 24 — Preflight-Turn / Request-DSL ist Pflicht. FK-24 §24.5b, 7 Request-Typen.
+> **[Entscheidung 2026-04-08]** Element 24 — Preflight-Turn / Request-DSL ist Pflicht. FK-26 §26.5b, 7 Request-Typen.
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 24.
 
 #### 4.5.3.3 Säule 3 — Request-DSL (einmaliger Nachforderungs-Turn)

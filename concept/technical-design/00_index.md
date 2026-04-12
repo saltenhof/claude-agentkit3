@@ -55,10 +55,11 @@ Anforderungen.
 | `21_story_creation_pipeline.md` | Story-Erstellung, VektorDB-Abgleich, Feldbelegung, fachliche Labels, Repo-Affinität, Freigabe |
 | `22_setup_preflight_worktree_guard_activation.md` | Preflight-Gates, Multi-Repo-Worktrees (Participating Repos), Context, Guard-Aktivierung (4 Guards) |
 | `23_modusermittlung_exploration_change_frame.md` | 6-Kriterien-Routing, Entwurfsartefakt, Freeze, Dokumententreue |
-| `23a_story_type_mode_terminalitaet.md` | Kanonische Story Types, Mode-vs-Typ-Vertrag, Exploration als Vorzustand, terminale Abschlussregeln |
-| `24_implementation_runtime_worker_loop.md` | Inkrement-Loop, Drift, Reviews, Handover-Paket |
-| `25_verify_pipeline_closure_orchestration.md` | Atomarer QA-Zyklus, 4-Schichten-Verify, Artefakt-Invalidierung, Remediation-Loop (max Runden), Closure-Sequenz, Execution Report, Postflight |
-| `26_evidence_assembly_review_vorbereitung.md` | Evidence Assembly, Import-Resolver, Autoritätsklassen, Request-DSL, Preflight-Turn, BundleManifest |
+| `24_story_type_mode_terminalitaet.md` | Kanonische Story Types, Mode-vs-Typ-Vertrag, Exploration als Vorzustand, terminale Abschlussregeln |
+| `25_mandatsgrenzen_feindesign_autonomie.md` | Mandatsprinzip, 4 Eskalationsklassen, Feindesign-Subprozess (Multi-LLM), Scope-Explosion-Erkennung, Tragweiten-Vergleich |
+| `26_implementation_runtime_worker_loop.md` | Inkrement-Loop, Drift, Reviews, Handover-Paket |
+| `27_verify_pipeline_closure_orchestration.md` | Atomarer QA-Zyklus, 4-Schichten-Verify, Artefakt-Invalidierung, Remediation-Loop (max Runden), Closure-Sequenz, Execution Report, Postflight |
+| `28_evidence_assembly_review_vorbereitung.md` | Evidence Assembly, Import-Resolver, Autoritätsklassen, Request-DSL, Preflight-Turn, BundleManifest |
 
 ## 4. Governance, Guarding und technische Qualitätssicherung
 

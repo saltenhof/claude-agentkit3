@@ -278,7 +278,7 @@ Setze die Sparring-Ideen in weitere Tests um.
 | Erstellt von | Phase Runner (vor Agent-Spawn) |
 | Schreibbar für | Nur Adversarial Agent (Hook-Scoping, Kap. 31.6) |
 | Lesbar für | Alle |
-| Cleanup | Nach Test-Promotion (Kap. 25.5.3) oder bei Story-Closure |
+| Cleanup | Nach Test-Promotion (Kap. 27.5.3) oder bei Story-Closure |
 
 ### 34.3.5 Test-Promotion nach Adversarial
 
@@ -307,7 +307,7 @@ nachweist (= Befund des Adversarial Agent), wird er nicht in die
 reguläre Suite kopiert (wo er den Build brechen würde), sondern in
 `tests/adversarial_quarantine/`. Der Remediation-Worker bekommt
 den expliziten Auftrag, diesen Test grün zu machen — analog zum
-Red-Green-Bugfix-Workflow (Kap. 25.5.3).
+Red-Green-Bugfix-Workflow (Kap. 27.5.3).
 
 ### 34.3.6 Sparring-Protokoll
 
@@ -738,7 +738,7 @@ flowchart LR
 ### 34.9.1 Motivation
 
 Die Verify-Pipeline kann eine Story in bis zu 3 Remediation-Runden
-durch den Loop schicken (Kap. 25). In der ersten Runde bewertet
+durch den Loop schicken (Kap. 27). In der ersten Runde bewertet
 Layer 2 die Implementierung erstmalig. Ab Runde 2 existieren jedoch
 bereits konkrete Findings aus der Vorrunde — und die zentrale Frage
 ist nicht mehr "ist das korrekt?", sondern "wurden die benannten
@@ -1187,7 +1187,7 @@ flowchart TD
 3. Dieser Status fliesst in die naechste Remediation-Runde
    als Input fuer §34.9 (Finding-Resolution)
 4. Die Rueckkopplung nutzt den bestehenden Remediation-Loop
-   (Kap. 25) — maximal 3 Runden, dann Eskalation
+   (Kap. 27) — maximal 3 Runden, dann Eskalation
 
 **Kein neuer Status-Lifecycle:** Die Rueckkopplung erzeugt
 keinen neuen Zustandsautomaten. Sie nutzt ausschliesslich

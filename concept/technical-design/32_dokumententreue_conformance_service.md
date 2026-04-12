@@ -255,7 +255,7 @@ freigeben, bevor Implementation beginnt.
 ### 32.7.1 Trigger
 
 Läuft als Teil der Verify-Phase (Schicht 2), parallel zu
-QA-Bewertung und Semantic Review (Kap. 25.4).
+QA-Bewertung und Semantic Review (Kap. 27.4).
 
 ### 32.7.2 Input
 
@@ -295,7 +295,7 @@ Umsetzungstreue ist semantisch (passt die Lösung zum Konzept).
 ### 32.8.1 Trigger
 
 Aufgerufen in der Closure-Phase, nach dem Merge, vor den
-Postflight-Gates (Kap. 25.12).
+Postflight-Gates (Kap. 27.12).
 
 ### 32.8.2 Input
 
@@ -353,7 +353,7 @@ Drift.
 
 ### 32.9.3 Zusätzliche Hook-basierte Erkennung
 
-Die Drift-Erkennung per `increment_commit`-Hook (Kap. 24.3.5)
+Die Drift-Erkennung per `increment_commit`-Hook (Kap. 26.3.5)
 fängt signifikanten Drift bereits während der Implementation
 ab — bevor er in der Verify-Phase erkannt wird. Damit wird
 das Problem früher sichtbar und der Worker kann korrigieren,

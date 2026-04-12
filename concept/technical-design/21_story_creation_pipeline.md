@@ -147,7 +147,7 @@ Der Story-Ersteller kann drei Typen autoritärer Quellen referenzieren:
 |-------------|-----|-----------|------------------------|
 | **Konzeptquellen** | `concept/`-Verzeichnis des Zielprojekts | Fachkonzept.md, Feinkonzept.md, Muster-Layout.html, Design-System-Assets | Deterministisch auflösen und dem Reviewer als Teil des Bundles liefern |
 | **Externe autoritäre Quellen** | URL, externes System | Jira-Anforderungen, OpenAPI-Spec-URL, Schnittstellen-Dokumentation externer Komponenten | Referenz an Reviewer weiterreichen; Zugriff muss zur Laufzeit durch den Reviewer erfolgen |
-| **Explorations-Konzept** | Story-Artefakt (aus vorgelagerter Exploration) | Technisches Feinkonzept für den konkreten Implementierungsscope | Entsteht erst zur Laufzeit; qualitätsgesichert, aber subordiniert zu Primärkonzepten (s. FK 23a.5.3) |
+| **Explorations-Konzept** | Story-Artefakt (aus vorgelagerter Exploration) | Technisches Feinkonzept für den konkreten Implementierungsscope | Entsteht erst zur Laufzeit; qualitätsgesichert, aber subordiniert zu Primärkonzepten (s. FK 24.5.3) |
 
 **Konzeptquellen** sind Dateien im `concept/`-Verzeichnis des
 Zielprojekts. Der `concept/`-Ordner ist nicht auf Markdown

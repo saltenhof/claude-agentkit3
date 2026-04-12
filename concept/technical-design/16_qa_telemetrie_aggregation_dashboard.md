@@ -517,11 +517,11 @@ Aggregation erfolgt ueber `config_version`.
 
 | Quelle | Wann |
 |--------|------|
-| Closure-Skript (`agentkit.closure.closure`) | Bei erfolgreichem Story-Abschluss, als Teil des Closure-Ablaufs (Kap. 25.9.2, nach Merge + Issue Close) |
+| Closure-Skript (`agentkit.closure.closure`) | Bei erfolgreichem Story-Abschluss, als Teil des Closure-Ablaufs (Kap. 27.9.2, nach Merge + Issue Close) |
 
 **F-16-008 — Metrics-Write bei Closure (FK-16-008):** Das
 Closure-Skript schreibt nach dem Metriken-Compute (Schritt 5,
-Kap. 25.9.2) einen Row in `story_metrics`. Der Write erfolgt
+Kap. 27.9.2) einen Row in `story_metrics`. Der Write erfolgt
 nach dem `closure.json`-Write, aber vor dem Postflight.
 
 **F-16-009 — UNIQUE on story_id (FK-16-009):** Pro Story existiert
@@ -1027,7 +1027,7 @@ ORDER BY p.risk_level DESC, cp.status;
 
 Deterministische Checks die sicherstellen, dass die DB-Kopie
 konsistent mit den Primaer-Artefakten und der Telemetrie ist.
-Diese Checks laufen als Teil des Postflight (Kap. 25.11) und
+Diese Checks laufen als Teil des Postflight (Kap. 27.11) und
 koennen auch manuell via CLI ausgefuehrt werden.
 
 ### 16.9.2 Check-Katalog
@@ -1143,7 +1143,7 @@ WHERE qsr.failed != COALESCE(f.actual_fails, 0);
 
 **F-16-023 — Postflight-Integration (FK-16-023):** Die
 Integritaets-Checks werden als zusaetzlicher Postflight-Check
-ausgefuehrt (Kap. 25.11). FAIL fuehrt zu einer Warnung (nicht
+ausgefuehrt (Kap. 27.11). FAIL fuehrt zu einer Warnung (nicht
 Blockade, da Primaer-Artefakte intakt sind).
 
 **F-16-024 — CLI-Befehl (FK-16-024):** Die Checks sind manuell

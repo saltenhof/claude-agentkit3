@@ -1,5 +1,5 @@
 ---
-concept_id: FK-26
+concept_id: FK-28
 title: Evidence Assembly und Review-Vorbereitung
 module: evidence-assembly
 status: active
@@ -11,9 +11,9 @@ authority_over:
   - scope: request-dsl
   - scope: bundle-manifest
 defers_to:
-  - target: FK-25
+  - target: FK-27
     scope: verify-phase
-    reason: Evidence Assembly dient der Vorbereitung fuer Verify Schicht 2 (Kap. 25)
+    reason: Evidence Assembly dient der Vorbereitung fuer Verify Schicht 2 (Kap. 27)
   - target: FK-34
     scope: llm-evaluations
     reason: LLM-basierte Reviews in der Verify-Phase in Kap. 34 beschrieben
@@ -28,9 +28,9 @@ superseded_by:
 tags: [evidence-assembly, import-resolution, request-dsl, review-preparation, authority-classes]
 ---
 
-# 26 — Evidence Assembly und Review-Vorbereitung
+# 28 — Evidence Assembly und Review-Vorbereitung
 
-## 26.1 Zweck
+## 28.1 Zweck
 
 Die Evidence Assembly ist der deterministische Vorbereitungsschritt
 für alle LLM-basierten Reviews in der Verify-Phase (Schicht 2,
@@ -64,7 +64,7 @@ Signaturen, die Import-Resolution, die Request-DSL, die
 CLI-Registrierung und die Integration in den bestehenden
 Review-Flow.
 
-## 26.2 Package-Struktur (`agentkit/evidence/`)
+## 28.2 Package-Struktur (`agentkit/evidence/`)
 
 Komplett neues Package für Evidence Assembly, Import Resolution
 und Request-DSL. Keine neuen externen Abhängigkeiten — alle Module
@@ -92,9 +92,9 @@ agentkit/evidence/
 | `request_resolver.py` | Deterministische Auflösung der 7 Request-Typen | `request_types.py`, `core/git.py` |
 | `bundle_manifest.py` | `BundleManifest` mit Prompt-Header-Rendering | `authority.py` |
 
-## 26.3 Evidence Assembler
+## 28.3 Evidence Assembler
 
-### 26.3.1 3-Stufen-Architektur
+### 28.3.1 3-Stufen-Architektur
 
 Der Evidence Assembler arbeitet in drei sequentiellen Stufen mit
 aufsteigender Unsicherheit:
@@ -123,7 +123,7 @@ flowchart TD
 > **[Entscheidung 2026-04-08]** Element 15 — Multi-Repo Worktree Logic ist Produktionsanforderung. `worktree_paths` (Dict: repo-id → Pfad) + `primary_repo_id` im Spawn-Vertrag. Runtime-Anforderung fuer Multi-Repo-Zielprojekte.
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 15.
 
-### 26.3.2 Multi-Repo-Contract (`RepoContext`) (FK-26-001)
+### 28.3.2 Multi-Repo-Contract (`RepoContext`) (FK-28-001)
 
 AgentKit unterstützt Multi-Repo-Stories (mehrere Repositories in
 einem Arbeitspaket). Der Evidence Assembler operiert daher nicht
@@ -183,7 +183,7 @@ class RepoContext:
    in `context.json` erzeugen ein Repo-Set mit einem einzigen
    Eintrag. Der Assembler behandelt beides uniform.
 
-### 26.3.3 Stufe 1: Deterministischer Kern
+### 28.3.3 Stufe 1: Deterministischer Kern
 
 Stufe 1 sammelt alle Evidenz, die ohne Heuristik aus dem
 Dateisystem und Git ableitbar ist.
@@ -197,7 +197,7 @@ Dateisystem und Git ableitbar ist.
 | Normative Quellen | `_collect_normative_sources()` | `PRIMARY_NORMATIVE` | Story-Spec, Concept-Docs, Guardrails aus `context.json` / `.story-pipeline.yaml` |
 | YAML/JSON-Configs | `_collect_yaml_json_configs()` | `SECONDARY_CONTEXT` | Konfigurationsdateien im selben Modul wie geänderte Dateien |
 
-**Diff-Basis-Ermittlung (D4, FK-26-002):**
+**Diff-Basis-Ermittlung (D4, FK-28-002):**
 
 Die Diff-Basis wird nicht hart an `"main"` festgetackert, sondern
 aus dem Story-Kontext ermittelt:
@@ -253,7 +253,7 @@ def _collect_module_neighbors(
     return sorted(neighbors)
 ```
 
-### 26.3.4 Stufe 2: Sprachspezifische Import-Extraktion
+### 28.3.4 Stufe 2: Sprachspezifische Import-Extraktion
 
 Stufe 2 delegiert an den `ImportResolver` (Sektion 26.4). Pro Repo
 wird eine Instanz erzeugt, die alle Imports der geänderten Dateien
@@ -287,7 +287,7 @@ def _stage2_imports(self) -> list[BundleEntry]:
     return entries
 ```
 
-### 26.3.5 Stufe 3: Worker-Hints
+### 28.3.5 Stufe 3: Worker-Hints
 
 Stufe 3 liest `handover.json` und `worker-manifest.json` und
 extrahiert vom Worker vorgeschlagene Dateien. Diese erhalten die
@@ -320,7 +320,7 @@ def _check_self_reference(self, hint_path: Path) -> bool:
 > **[Entscheidung 2026-04-08]** Element 28 — Section-aware Bundle-Packing ist Pflicht. FK-34-121 normativ. Die Priorisierung und das Bundle-Packing muessen section-aware erfolgen.
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 28.
 
-### 26.3.6 Bundle-Größenlimit und Priorisierung (FK-26-003)
+### 28.3.6 Bundle-Größenlimit und Priorisierung (FK-28-003)
 
 Das Bundle hat ein hartes Limit von **350 KB** (unkomprimiert).
 Bei Überschreitung wird nach Autoritätsklasse und innerhalb einer
@@ -523,14 +523,14 @@ def diff_full(self, base: str = "main", paths: list[str] | None = None) -> str:
 Implementierung der neuen Methoden wird `checks_impact.py` auf
 `GitOperations.diff_name_only()` umgestellt.
 
-## 26.4 Import-Resolver
+## 28.4 Import-Resolver
 
 Der Import-Resolver ist das zentrale Modul für Stufe 2 der
 Evidence Assembly. Er arbeitet ausschließlich mit Regex und
 Dateisystem-Operationen — kein AST-Framework, keine externen
 Abhängigkeiten.
 
-### 26.4.1 Python-Resolver
+### 28.4.1 Python-Resolver
 
 **Regex-Pattern:**
 
@@ -592,7 +592,7 @@ def _resolve_python(self, source: Path) -> list[ResolvedImport]:
     return results
 ```
 
-### 26.4.2 TypeScript-Resolver (inkl. JS/JSX/TSX)
+### 28.4.2 TypeScript-Resolver (inkl. JS/JSX/TSX)
 
 **6 Pattern-Klassen:**
 
@@ -692,7 +692,7 @@ def _resolve_barrel(
 die eigentlichen Quelldateien zu finden. Re-Exports in der Barrel
 erhalten `ConfidenceLabel.BARREL_CONTEXT`.
 
-### 26.4.3 Java-Resolver (inkl. Spring-Heuristiken)
+### 28.4.3 Java-Resolver (inkl. Spring-Heuristiken)
 
 **Regex-Patterns:**
 
@@ -779,7 +779,7 @@ def _resolve_same_package(
     ...
 ```
 
-### 26.4.4 Confidence Labels (FK-26-004)
+### 28.4.4 Confidence Labels (FK-28-004)
 
 Jeder aufgelöste Import erhält ein Confidence Label, das die
 Zuverlässigkeit der Auflösung quantifiziert:
@@ -907,9 +907,9 @@ class ImportResolver:
     def _resolve_spring_annotations(self, source: Path) -> list[ResolvedImport]: ...
 ```
 
-## 26.5 Autoritätsklassen und BundleEntry
+## 28.5 Autoritätsklassen und BundleEntry
 
-### 26.5.1 AuthorityClass (4 Stufen) (FK-26-005)
+### 28.5.1 AuthorityClass (4 Stufen) (FK-28-005)
 
 Jede Datei im Review-Bundle erhält eine Autoritätsklasse, die
 ihre Beweiskraft im Review-Prozess bestimmt:
@@ -936,7 +936,7 @@ class AuthorityClass(IntEnum):
 | `SECONDARY_CONTEXT` | Nachbardateien, Import-Ziele, Configs | Mittel | Kontext für Verifikation (nicht-autoritativ) |
 | `WORKER_ASSERTION` | Worker-Hints aus handover.json | Niedrigste | Ungeprüfte Worker-Claims — mit Vorsicht behandeln |
 
-### 26.5.2 BundleEntry-Datenmodell (FK-26-006)
+### 28.5.2 BundleEntry-Datenmodell (FK-28-006)
 
 ```python
 # agentkit/evidence/authority.py
@@ -986,7 +986,7 @@ class BundleEntry:
         return (-self.authority.value, -conf_rank)
 ```
 
-### 26.5.3 BundleManifest (FK-26-007)
+### 28.5.3 BundleManifest (FK-28-007)
 
 Das `BundleManifest` ist die Zusammenfassung des assemblierten
 Bundles. Es wird als JSON-Artefakt geschrieben und als Header
@@ -1088,7 +1088,7 @@ class BundleManifest:
         return "\n".join(lines)
 ```
 
-### 26.5.4 Evidence-Epoch (D2) (FK-26-008)
+### 28.5.4 Evidence-Epoch (D2) (FK-28-008)
 
 Jedes assemblierte Bundle erhält eine eingefrorene
 Evidenz-Identität, bestehend aus:
@@ -1117,9 +1117,9 @@ Der Hash ist deterministisch: gleiche Dateien in gleicher
 Zusammensetzung erzeugen denselben Hash, unabhängig von der
 Reihenfolge der Assembly-Stufen.
 
-## 26.6 Request-DSL und Preflight-Turn
+## 28.6 Request-DSL und Preflight-Turn
 
-### 26.6.1 7 Request-Typen (FK-26-009)
+### 28.6.1 7 Request-Typen (FK-28-009)
 
 Die Request-DSL definiert 7 strukturierte Typen, mit denen ein
 Reviewer fehlende Informationen anfordern kann:
@@ -1174,7 +1174,7 @@ class RequestResult(BaseModel):
 | `NEED_CONCEPT_SOURCE` | Dokument-Abschnitt | Heading-Match in `_concept/` und `stories/` | — |
 | `NEED_DIFF_EXPANSION` | Datei + Region | `git diff` mit erweitertem Kontext für spezifische Region | — |
 
-### 26.6.2 RequestResolver (Multi-Repo) (FK-26-010)
+### 28.6.2 RequestResolver (Multi-Repo) (FK-28-010)
 
 Der `RequestResolver` bekommt den vollen `RepoContext`, weil
 verschiedene Request-Typen unterschiedliche Context-Felder
@@ -1327,7 +1327,7 @@ class RequestResolver:
         ...
 ```
 
-### 26.6.3 Mehrdeutigkeitsregel (D3) (FK-26-011)
+### 28.6.3 Mehrdeutigkeitsregel (D3) (FK-28-011)
 
 Strikte Auflösungspolitik für alle 7 Request-Typen — kein stilles
 Heuristik-Picking bei Mehrdeutigkeit:
@@ -1342,7 +1342,7 @@ Diese Regel gilt auch für den Import-Resolver (Stufe 2): Bei
 mehreren Kandidaten für denselben Import-Specifier wird der Import
 als `UNRESOLVED_DYNAMIC` markiert.
 
-### 26.6.4 Preflight-Turn-Architektur (FK-26-012)
+### 28.6.4 Preflight-Turn-Architektur (FK-28-012)
 
 Der Preflight-Turn ist ein eigenständiger Kommunikationsschritt
 zwischen dem Orchestrator und einem LLM-Reviewer **vor** dem
@@ -1404,7 +1404,7 @@ sequenceDiagram
 - Timeout bei `NEED_TEST_EVIDENCE` → `status="TIMEOUT"`, andere
   Requests werden trotzdem aufgelöst.
 
-### 26.6.5 Prompt-Template: `review-preflight.md` (FK-26-013)
+### 28.6.5 Prompt-Template: `review-preflight.md` (FK-28-013)
 
 Neues Template unter `userstory/prompts/sparring/review-preflight.md`:
 
@@ -1470,9 +1470,9 @@ Preflight-Sentinel mit `[PREFLIGHT:...]` wird bewusst NICHT von
 diesem Regex erfasst. Damit stört der Preflight-Turn nicht die
 bestehenden Review-Invarianten (Kap. 14, Kap. 35).
 
-## 26.7 CLI-Surface
+## 28.7 CLI-Surface
 
-### 26.7.1 `agentkit evidence assemble` (FK-26-014)
+### 28.7.1 `agentkit evidence assemble` (FK-28-014)
 
 Worker-Templates referenzieren `agentkit evidence assemble` als
 CLI-Command. AgentKit CLI nutzt manuelles argparse-Subparser-Wiring
@@ -1538,9 +1538,9 @@ def _handle_evidence_assemble(args) -> int:
 2. Nutzbar in Worker-Prompts UND manuell/debugging.
 3. Testbar über Integrationstests mit subprocess.
 
-## 26.8 Integration in den Review-Flow
+## 28.8 Integration in den Review-Flow
 
-### 26.8.1 Ablauf: Assembly → Preflight → Resolution → Review (FK-26-015)
+### 28.8.1 Ablauf: Assembly → Preflight → Resolution → Review (FK-28-015)
 
 Der vollständige Review-Flow mit Evidence Assembly:
 
@@ -1575,7 +1575,7 @@ Checks) und **vor** Schicht 2 (LLM-Bewertungen). Sie ist selbst
 ein deterministischer Schritt — kein LLM beteiligt. Der
 Preflight-Turn ist der erste LLM-Kontakt im Review-Flow.
 
-### 26.8.2 Worker-Template-Aenderungen (FK-26-016)
+### 28.8.2 Worker-Template-Aenderungen (FK-28-016)
 
 `worker-implementation.md` und `worker-bugfix.md` erhalten in
 der DoD-Review-Sektion:
@@ -1595,7 +1595,7 @@ Der Assembler:
 6. Kürzt bei >350 KB nach Priorität
 ```
 
-### 26.8.3 Bestehende Review-Template-Erweiterungen (FK-26-017)
+### 28.8.3 Bestehende Review-Template-Erweiterungen (FK-28-017)
 
 Alle Review-Templates in `userstory/prompts/sparring/` erhalten
 den `{{BUNDLE_MANIFEST_HEADER}}`-Platzhalter, der vom Evidence
@@ -1612,7 +1612,7 @@ Einleitung.
 | `review-test-sparring.md` | `{{BUNDLE_MANIFEST_HEADER}}` einfügen |
 | `review-synthesis.md` | `{{BUNDLE_MANIFEST_HEADER}}` einfügen |
 
-**Prompt-Header nach Preflight erweitern (D5, FK-26-018):**
+**Prompt-Header nach Preflight erweitern (D5, FK-28-018):**
 
 Nach dem Preflight-Turn und der Request-Auflösung wird der
 Prompt-Header für den eigentlichen Review um einen neuen
@@ -1635,7 +1635,7 @@ Aufgelöste Dateien erhalten die Autoritätsklasse
 eingeführt. UNRESOLVED-Requests werden dem Reviewer explizit
 als "nicht auflösbar" mitgeteilt.
 
-## 26.9 Test-Strategie (FK-26-019)
+## 28.9 Test-Strategie (FK-28-019)
 
 | Modul | Testart | Schwerpunkt | Fixture |
 |-------|---------|-------------|---------|
@@ -1671,9 +1671,9 @@ def multi_repo_fixture(tmp_path: Path) -> dict[str, RepoContext]:
 **Coverage-Erwartung:** Alle neuen Module >= 85%
 (`fail_under = 85` in `pyproject.toml`).
 
-## 26.10 Design-Entscheidungen
+## 28.10 Design-Entscheidungen
 
-### 26.10.1 D2: Evidence-Epoch als Audit-Bindung (FK-26-020)
+### 28.10.1 D2: Evidence-Epoch als Audit-Bindung (FK-28-020)
 
 **Entscheidung:** Jedes assemblierte Bundle erhält eine eingefrorene
 Evidenz-Identität (`evidence_epoch` + `manifest_hash`).
@@ -1694,7 +1694,7 @@ Evidenz-Identität (`evidence_epoch` + `manifest_hash`).
 wären nicht an eine Evidenzbasis gebunden, Divergenz-Ursachen
 wären nicht unterscheidbar.
 
-### 26.10.2 D3: Resolver-Mehrdeutigkeitsregel (FK-26-021)
+### 28.10.2 D3: Resolver-Mehrdeutigkeitsregel (FK-28-021)
 
 **Entscheidung:** Bei mehreren Treffern für einen Request wird
 `UNRESOLVED` mit Kandidatenliste zurückgegeben. Der Resolver wählt
@@ -1714,7 +1714,7 @@ bei Mehrdeutigkeit NICHT eigenständig aus.
 zum geänderten Code gewinnt) — nicht sprachübergreifend definierbar,
 potentiell irreführend.
 
-### 26.10.3 D4: Diff-Basis aus Story-Kontext (FK-26-022)
+### 28.10.3 D4: Diff-Basis aus Story-Kontext (FK-28-022)
 
 **Entscheidung:** Die Diff-Basis wird nicht hart an `"main"`
 festgetackert, sondern aus dem Story-Kontext ermittelt:
@@ -1734,7 +1734,7 @@ festgetackert, sondern aus dem Story-Kontext ermittelt:
 **Alternative verworfen:** Hardcoded `"main"` — funktioniert nicht
 für Release-Branches und Multi-Branch-Workflows.
 
-### 26.10.4 D5: Prompt-Header nach Preflight erweitern (FK-26-023)
+### 28.10.4 D5: Prompt-Header nach Preflight erweitern (FK-28-023)
 
 **Entscheidung:** Nach dem Preflight-Turn wird der Review-Prompt
 um einen Abschnitt "Nachgereichte Reviewer-Requests" erweitert.

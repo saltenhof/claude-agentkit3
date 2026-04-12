@@ -143,7 +143,7 @@ hält die Pool-Abstraktion intakt (Kap. 01 P8, Kap. 11).
 
 | Event | Wann | Zusatzfelder | Erwartungswert | Quelle |
 |-------|------|-------------|----------------|--------|
-| `review_divergence` | Divergenz zwischen zwei Reviewern gemessen. Emittiert nach jedem Review-Paar durch den Divergenz-Score-Rechner (Kap. 26). | `reviewer_a`, `reviewer_b`, `score` (LOW/MEDIUM/HIGH), `routing` | 0..n pro Story | `telemetry/divergence.py` |
+| `review_divergence` | Divergenz zwischen zwei Reviewern gemessen. Emittiert nach jedem Review-Paar durch den Divergenz-Score-Rechner (Kap. 28). | `reviewer_a`, `reviewer_b`, `score` (LOW/MEDIUM/HIGH), `routing` | 0..n pro Story | `telemetry/divergence.py` |
 
 #### Governance
 
@@ -546,8 +546,8 @@ Preflight-Events stören NICHT die bestehenden Review-Invarianten:
 
 Preflight-Events liegen zeitlich INNERHALB der
 `agent_start`…`agent_end`-Klammer, weil der **Worker** den
-Preflight als Teil seines Review-Ablaufs auslöst (Kap. 24,
-§24.5b). Der Worker assembliert das Evidence-Bundle (Kap. 26),
+Preflight als Teil seines Review-Ablaufs auslöst (Kap. 26,
+§26.5b). Der Worker assembliert das Evidence-Bundle (Kap. 28),
 sendet den Preflight-Prompt an das Review-LLM, löst die
 Requests deterministisch auf und sendet dann den eigentlichen
 Review.
@@ -575,7 +575,7 @@ Die Trennung der Streams ist **logisch**, nicht **zeitlich**:
 Preflight-Events werden NICHT in die Worker-Contract-Rules
 (`review_min_count`, `ReviewFrequencyRule`) aufgenommen.
 Preflight ist Pflicht, wird vom Worker selbst ausgelöst
-(Kap. 24, §24.5b), zählt aber nicht als Review.
+(Kap. 26, §26.5b), zählt aber nicht als Review.
 Die bestehenden Contract-Rules bleiben unverändert:
 
 | Contract-Rule | Zählt | Zählt NICHT |

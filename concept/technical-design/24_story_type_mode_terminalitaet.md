@@ -1,5 +1,5 @@
 ---
-concept_id: FK-23a
+concept_id: FK-24
 title: Story Type, Mode und Terminalitaet
 module: story-types
 status: active
@@ -20,9 +20,9 @@ superseded_by:
 tags: [story-types, terminality, delivery-contract, exploration-guard, fail-closed]
 ---
 
-# 23a — Story Type, Mode und Terminalitaet
+# 24 — Story Type, Mode und Terminalitaet
 
-## 23a.1 Ziel
+## 24.1 Ziel
 
 Dieses Dokument definiert den normativen Runtime-Vertrag fuer:
 
@@ -39,9 +39,9 @@ Es schliesst eine kritische Architektur-Luecke:
 
 ---
 
-## 23a.2 Kanonische Story-Type-Wertemenge
+## 24.2 Kanonische Story-Type-Wertemenge
 
-### 23a.2.1 Erlaubte Werte
+### 24.2.1 Erlaubte Werte
 
 Die einzig gueltigen Story Types in AgentKit sind:
 
@@ -50,7 +50,7 @@ Die einzig gueltigen Story Types in AgentKit sind:
 - `concept`
 - `research`
 
-### 23a.2.2 Verbotene Werte
+### 24.2.2 Verbotene Werte
 
 Die folgenden Werte sind ungueltig:
 
@@ -59,7 +59,7 @@ Die folgenden Werte sind ungueltig:
 - `refactor`
 - jeder sonstige nicht explizit erlaubte Wert
 
-### 23a.2.3 Normative Regel
+### 24.2.3 Normative Regel
 
 Ein ungueltiger oder leerer Story Type darf **niemals**:
 
@@ -71,9 +71,9 @@ Stattdessen muss der Lauf **fail-closed** anhalten.
 
 ---
 
-## 23a.3 Fachliche Bedeutung von `story_type`
+## 24.3 Fachliche Bedeutung von `story_type`
 
-### 23a.3.1 `story_type` ist ein Liefervertrag
+### 24.3.1 `story_type` ist ein Liefervertrag
 
 `story_type` beschreibt nicht nur Routing, sondern die fachliche Pflicht der Story.
 
@@ -84,7 +84,7 @@ Die Pflichten sind:
 - `implementation`: erzeugt zwingend Code-/Test-/Lieferartefakte
 - `bugfix`: erzeugt zwingend Code-/Test-/Lieferartefakte
 
-### 23a.3.2 `mode` ist kein fachlicher Ersatz fuer `story_type`
+### 24.3.2 `mode` ist kein fachlicher Ersatz fuer `story_type`
 
 `mode` beschreibt nur den Laufweg:
 
@@ -103,9 +103,9 @@ Insbesondere gilt:
 
 ---
 
-## 23a.4 Setup-Vertrag
+## 24.4 Setup-Vertrag
 
-### 23a.4.1 Story Type ist Pflichtfeld
+### 24.4.1 Story Type ist Pflichtfeld
 
 Vor Worktree-Erzeugung, Worker-Spawn und Mode-Routing muss ein gueltiger Story Type feststehen.
 
@@ -117,16 +117,16 @@ Wenn der Story Type fehlt oder ungueltig ist, muss `setup`:
 - **keinen** Worker spawnen
 - **keinen** Phase-Fortschritt erlauben
 
-### 23a.4.2 Mode-Routing nur nach erfolgreicher Typvalidierung
+### 24.4.2 Mode-Routing nur nach erfolgreicher Typvalidierung
 
 Erst nachdem ein gueltiger Story Type festgestellt wurde, darf das System zwischen
 `exploration` und `execution` fuer implementierende Storys routen.
 
 ---
 
-## 23a.5 Exploration-Vertrag fuer implementierende Storys
+## 24.5 Exploration-Vertrag fuer implementierende Storys
 
-### 23a.5.1 Exploration ist nur Zwischenzustand
+### 24.5.1 Exploration ist nur Zwischenzustand
 
 Fuer `implementation` und `bugfix` ist Exploration ausdruecklich erlaubt, aber nur als vorbereitender Schritt.
 
@@ -144,7 +144,7 @@ Exploration darf in diesen Story-Typen **nicht**:
 - GitHub-Issue schliessen
 - Project-Status `Done` setzen
 
-### 23a.5.2 Verpflichtender Folge-Zustand
+### 24.5.2 Verpflichtender Folge-Zustand
 
 Wenn Exploration fuer `implementation` oder `bugfix` erfolgreich endet, muss AgentKit explizit persistieren:
 
@@ -157,7 +157,7 @@ Optional zusaetzlich:
 - `exploration_completed = true`
 - `execution_pending = true`
 
-### 23a.5.3 Konzept-Hierarchie bei Implementation mit Exploration
+### 24.5.3 Konzept-Hierarchie bei Implementation mit Exploration
 
 Wenn eine Implementation-Story eine vorgelagerte Exploration
 durchlaeuft, koennen zwei Konzeptebenen koexistieren:
@@ -199,7 +199,7 @@ urspruengliche Story fortgesetzt werden.
 
 ---
 
-## 23a.6 Mindestnachweise fuer `implementation` und `bugfix`
+## 24.6 Mindestnachweise fuer `implementation` und `bugfix`
 
 Eine Story vom Typ `implementation` oder `bugfix` darf nur dann als abgeschlossen gelten, wenn mindestens folgende Nachweise vorliegen:
 
@@ -219,9 +219,9 @@ Zusaetzliche Nachweise koennen je nach Story/Config gelten:
 
 ---
 
-## 23a.7 Verify-Vertrag
+## 24.7 Verify-Vertrag
 
-### 23a.7.1 Harte Precondition fuer implementierende Storys
+### 24.7.1 Harte Precondition fuer implementierende Storys
 
 `verify` muss bei `story_type in {implementation, bugfix}` vor dem eigentlichen QA-Lauf pruefen:
 
@@ -240,15 +240,15 @@ mit einem klaren Fehlergrund, z. B.:
 
 - `IMPLEMENTATION_REQUIRED_AFTER_EXPLORATION`
 
-### 23a.7.2 Exploration-only Verify ist nicht terminal
+### 24.7.2 Exploration-only Verify ist nicht terminal
 
 Eine Exploration-Verifikation bei `implementation`/`bugfix` darf nur ein Zwischenresultat erzeugen, nie ein terminales Weitergehen in Closure.
 
 ---
 
-## 23a.8 Closure-Vertrag
+## 24.8 Closure-Vertrag
 
-### 23a.8.1 Fachliche Terminalitaet
+### 24.8.1 Fachliche Terminalitaet
 
 Closure darf fuer `implementation` und `bugfix` nur laufen, wenn die Story fachlich lieferfaehig ist.
 
@@ -258,7 +258,7 @@ Das bedeutet:
 - ein Design Artifact allein reicht nicht
 - ein erfolgreiches Exploration-QA allein reicht nicht
 
-### 23a.8.2 Fail-Closed Regeln
+### 24.8.2 Fail-Closed Regeln
 
 Wenn `story_type in {implementation, bugfix}` und keine Umsetzungsevidence vorliegt, dann muss Closure:
 
@@ -270,12 +270,12 @@ Wenn `story_type in {implementation, bugfix}` und keine Umsetzungsevidence vorli
 
 ---
 
-## 23a.9 Sichtbares Exploration-Ergebnis
+## 24.9 Sichtbares Exploration-Ergebnis
 
 > **[Entscheidung 2026-04-08]** Element 14 — Exploration-Summary Markdown ist Pflichtartefakt. Menschenlesbares Aggregat aus strukturierten Artefakten. Primaerdokument bei Eskalation an Operator.
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 14.
 
-### 23a.9.1 Menschenlesbares Pflichtartefakt
+### 24.9.1 Menschenlesbares Pflichtartefakt
 
 Wenn Exploration innerhalb einer `implementation`- oder `bugfix`-Story stattfindet, muss das Ergebnis ausserhalb des reinen QA-Temp-Bereichs sichtbar sein.
 
@@ -284,7 +284,7 @@ Es muss mindestens ein menschenlesbares Artefakt im Story-Verzeichnis existieren
 - `exploration-summary.md`
 - oder ein definierter Exploration-Abschnitt in `protocol.md`
 
-### 23a.9.2 Mindestinhalt
+### 24.9.2 Mindestinhalt
 
 Dieses Artefakt muss mindestens enthalten:
 
@@ -296,7 +296,7 @@ Dieses Artefakt muss mindestens enthalten:
 
 ---
 
-## 23a.10 Orchestrator-Reaktionsvertrag
+## 24.10 Orchestrator-Reaktionsvertrag
 
 Die Orchestrator-Reaktionsmatrix muss zwischen diesen zwei Faellen unterscheiden:
 
@@ -315,7 +315,7 @@ Die Reaktionsmatrix muss diesen Zustand explizit modellieren.
 
 ---
 
-## 23a.11 Konsistenzanforderung fuer Story Types
+## 24.11 Konsistenzanforderung fuer Story Types
 
 Die Wertemenge der Story Types muss in allen normativen und ausfuehrbaren Stellen identisch sein:
 
@@ -335,7 +335,7 @@ Abweichungen sind Build- oder Review-Fehler.
 
 ---
 
-## 23a.12 Testpflichten
+## 24.12 Testpflichten
 
 Folgende Tests sind Pflicht:
 
@@ -353,9 +353,9 @@ Folgende Tests sind Pflicht:
 
 ---
 
-## 23a.13 Architekturentscheidungen
+## 24.13 Architekturentscheidungen
 
-### 23a.13.0 Begruendungsprinzip fuer Story Types
+### 24.13.0 Begruendungsprinzip fuer Story Types
 
 Story Types werden in AgentKit nicht nach alltagssprachlicher Taetigkeit
 benannt, sondern nach **governance-semantischem Verhalten**.
@@ -374,7 +374,7 @@ Wenn sich das System fuer einen vermeintlich neuen Typ nicht substantiell
 anders verhalten muss, ist dieser Typ unzulaessig und darf nicht in die
 kanonische Wertemenge aufgenommen werden.
 
-### 23a.13.1 Explizite Entscheidung
+### 24.13.1 Explizite Entscheidung
 
 AgentKit kennt fachlich nur vier Story Types:
 
@@ -383,7 +383,7 @@ AgentKit kennt fachlich nur vier Story Types:
 - `concept`
 - `research`
 
-### 23a.13.2 Explizite Entscheidung
+### 24.13.2 Explizite Entscheidung
 
 `refactoring` ist **kein** Story Type von AgentKit.
 
@@ -414,14 +414,14 @@ Explizit gilt:
   Impact-Grenzen des Bugfix-Vertrags eingehalten werden.
 - Refactoring allein rechtfertigt niemals einen eigenen Story Type.
 
-### 23a.13.3 Explizite Entscheidung
+### 24.13.3 Explizite Entscheidung
 
 Eine `implementation`- oder `bugfix`-Story darf nie mit reiner Exploration
 geschlossen werden.
 
 ---
 
-## 23a.14 Konsequenz fuer BB2-093-artige Faelle
+## 24.14 Konsequenz fuer BB2-093-artige Faelle
 
 Ein Lauf wie BB2-093 haette nach diesem Vertrag so enden muessen:
 

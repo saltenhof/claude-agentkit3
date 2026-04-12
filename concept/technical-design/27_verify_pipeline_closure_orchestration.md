@@ -1,5 +1,5 @@
 ---
-concept_id: FK-25
+concept_id: FK-27
 title: Verify-Pipeline und Closure-Orchestration
 module: verify-closure
 status: active
@@ -12,9 +12,9 @@ authority_over:
   - scope: policy-evaluation
   - scope: closure-sequence
 defers_to:
-  - target: FK-24
+  - target: FK-26
     scope: handover-paket
-    reason: Verify konsumiert Handover-Paket und Worker-Manifest aus FK-24
+    reason: Verify konsumiert Handover-Paket und Worker-Manifest aus FK-26
   - target: FK-20
     scope: feedback-loop
     reason: Feedback-Loop-Mechanismus in FK-20.5 definiert
@@ -35,16 +35,16 @@ superseded_by:
 tags: [verify, closure, qa-cycle, adversarial-testing, policy-evaluation]
 ---
 
-# 25 — Verify-Pipeline und Closure-Orchestration
+# 27 — Verify-Pipeline und Closure-Orchestration
 
-## 25.1 Zweck
+## 27.1 Zweck
 
 Die Verify-Phase ist die maschinelle Qualitätssicherung. Sie prüft
 die Implementierung in vier aufeinander aufbauenden Schichten.
 
 Dateisystem-Zugriff nach Layer:
 - **Schicht 1 (Skripte)**: Lese-Zugriff — Artefakt-Existenzprüfung, Build-Ergebnisse, JSON-Validierung (FK-05-128 bis FK-05-130).
-- **Schicht 2 Pre-Step (ContextSufficiencyBuilder)**: Lese-Zugriff — lädt Kontext-Artefakte aus dem Story-Verzeichnis (§25.5a).
+- **Schicht 2 Pre-Step (ContextSufficiencyBuilder)**: Lese-Zugriff — lädt Kontext-Artefakte aus dem Story-Verzeichnis (§27.5a).
 - **Schicht 2 LLM-Bewertungen**: Kein direkter Dateisystem-Zugriff — die LLM-Evaluatoren erhalten gebundelte Kontext-Daten vom ContextSufficiencyBuilder; kein eigenes Dateisystem-Lesen.
 - **Schicht 3 (Adversarial Agent)**: Lese-Zugriff auf alles + Schreib-Zugriff auf Sandbox-Pfad (`_temp/adversarial/{story_id}/`).
 
@@ -53,9 +53,9 @@ Issue-Close, Metriken, Postflight. Ihre Schritte sind sequentielle
 Seiteneffekte über verschiedene Systeme und werden über persistierte
 Substates abgesichert (Kap. 10.5.3).
 
-## 25.2 Atomarer QA-Zyklus
+## 27.2 Atomarer QA-Zyklus
 
-### 25.2.1 Identitätsfelder
+### 27.2.1 Identitätsfelder
 
 Jede Verify-Remediation-Iteration bildet einen atomaren QA-Zyklus
 mit drei Identitätsfeldern:
@@ -73,7 +73,7 @@ mit drei Identitätsfeldern:
 Die QA-Zyklus-Felder werden im Story-State persistiert und in
 alle QA-Artefakte geschrieben (Traceability).
 
-### 25.2.2 State Machine
+### 27.2.2 State Machine
 
 ```
 idle → awaiting_qa → awaiting_policy → pass
@@ -90,7 +90,7 @@ idle → awaiting_qa → awaiting_policy → pass
 - `awaiting_remediation`: Verify gescheitert, Worker-Remediation erwartet
 - `escalated`: Direkter Übergang aus `awaiting_qa` bei `impact.violation` (vor Policy-Evaluation); oder aus `awaiting_remediation` bei `max_rounds_exceeded`
 
-### 25.2.3 Artefakt-Invalidierung
+### 27.2.3 Artefakt-Invalidierung
 
 **Zweck:** Verhindert, dass veraltete Artefakte aus einer früheren
 Verify-Runde nach einer Remediation in späteren Runden konsumiert
@@ -98,34 +98,34 @@ werden.
 
 Wenn ein neuer Zyklus beginnt (`advance_qa_cycle()`), werden alle
 zyklusgebundenen Artefaktdateien gelöscht oder nach `stale/`
-verschoben (11 Dateien): [Korrektur 2026-04-09: 11→10 — `qa_review.json` war kein eigenständiges Artefakt, sondern identisch mit `llm-review.json`; `semantic.json`→`semantic-review.json` (§25.5.5)] [Ergänzung 2026-04-09: 10→11 — doc-fidelity.json als drittes Layer-2-Artefakt ergänzt (§25.5.5).]
+verschoben (11 Dateien): [Korrektur 2026-04-09: 11→10 — `qa_review.json` war kein eigenständiges Artefakt, sondern identisch mit `llm-review.json`; `semantic.json`→`semantic-review.json` (§27.5.5)] [Ergänzung 2026-04-09: 10→11 — doc-fidelity.json als drittes Layer-2-Artefakt ergänzt (§27.5.5).]
 
 | Artefakt | Datei |
 |----------|-------|
 | Semantic Review | `semantic-review.json` |
-| Guardrail Check | `guardrail.json` | <!-- [Hinweis 2026-04-09] Kein aktiver Producer in §25.5 definiert — in früherer Layer-2-Architektur war ein separater Guardrail-Evaluator vorgesehen. Artefakt verbleibt in der Invalidierungs-Liste für den Fall, dass es aus einem früheren Zyklus noch existiert. -->
+| Guardrail Check | `guardrail.json` | <!-- [Hinweis 2026-04-09] Kein aktiver Producer in §27.5 definiert — in früherer Layer-2-Architektur war ein separater Guardrail-Evaluator vorgesehen. Artefakt verbleibt in der Invalidierungs-Liste für den Fall, dass es aus einem früheren Zyklus noch existiert. -->
 | Policy Decision | `decision.json` |
-| LLM Review (QA-Bewertung) | `llm-review.json` | <!-- [Korrektur 2026-04-09] Separaten `qa_review.json`-Eintrag entfernt — QA-Bewertung (Rolle `qa_review`) wird in `llm-review.json` geschrieben (§25.5.5). -->
+| LLM Review (QA-Bewertung) | `llm-review.json` | <!-- [Korrektur 2026-04-09] Separaten `qa_review.json`-Eintrag entfernt — QA-Bewertung (Rolle `qa_review`) wird in `llm-review.json` geschrieben (§27.5.5). -->
 | Umsetzungstreue | `doc-fidelity.json` |
 | Feedback | `feedback.json` |
 | Adversarial | `adversarial.json` |
-| E2E Verify | `e2e_verify.json` | <!-- [Hinweis 2026-04-09] Kein aktiver Producer in §25.5 definiert — reserviert für eine zukünftige End-to-End-Integritätsprüfung. Artefakt verbleibt in der Invalidierungs-Liste für den Fall, dass es aus einem früheren Zyklus noch existiert. -->
+| E2E Verify | `e2e_verify.json` | <!-- [Hinweis 2026-04-09] Kein aktiver Producer in §27.5 definiert — reserviert für eine zukünftige End-to-End-Integritätsprüfung. Artefakt verbleibt in der Invalidierungs-Liste für den Fall, dass es aus einem früheren Zyklus noch existiert. -->
 | Structural | `structural.json` |
-| Context | `context.json` | <!-- [Hinweis 2026-04-09] context.json ist keine Löschung — es wird vor Schicht 2 vom Phase Runner neu aufgebaut (rebuild pre-step), um dem Context Sufficiency Builder (§25.5a.6) ein aktuelles Artefakt zu liefern. Ohne diesen Rebuild wäre der Remediation-Re-Entry-Pfad nicht implementierbar. Der Eintrag in der Invalidierungs-Liste bedeutet: altes context.json wird nach stale/ verschoben, dann neu erzeugt. -->
+| Context | `context.json` | <!-- [Hinweis 2026-04-09] context.json ist keine Löschung — es wird vor Schicht 2 vom Phase Runner neu aufgebaut (rebuild pre-step), um dem Context Sufficiency Builder (§27.5a.6) ein aktuelles Artefakt zu liefern. Ohne diesen Rebuild wäre der Remediation-Re-Entry-Pfad nicht implementierbar. Der Eintrag in der Invalidierungs-Liste bedeutet: altes context.json wird nach stale/ verschoben, dann neu erzeugt. -->
 | Context Sufficiency | `context_sufficiency.json` |
 
-### 25.2.4 Runtime-Staleness-Check
+### 27.2.4 Runtime-Staleness-Check
 
 `artifact_matches_current_cycle()` prüft bei jedem Artefakt-Zugriff,
 ob das eingebettete `qa_cycle_id` mit dem aktuellen Zyklus
 übereinstimmt. Bei Mismatch: **fail-closed** — das Artefakt wird
 abgelehnt, als wäre es nicht vorhanden.
 
-### 25.2.5 FK-Referenz
+### 27.2.5 FK-Referenz
 
 Domänenkonzept 5.2 "Atomarer QA-Zyklus".
 
-## 25.3 Verify-Phase: Gesamtablauf
+## 27.3 Verify-Phase: Gesamtablauf
 
 ```mermaid
 flowchart TD
@@ -185,15 +185,15 @@ flowchart TD
     FB --> WORKER["→ Zurück zu Implementation<br/>(Feedback-Loop, Kap. 20.5)"]
 ```
 
-[Hinweis: Für concept/research-Stories: `integrity_passed` und `merge_done` werden direkt auf `true` gesetzt (kein Worktree, kein Branch-Merge). Finding-Resolution-Gate und Integrity-Gate entfallen vollständig. Der Closure-Ablauf geht direkt von `issue_closed` weiter (§25.10a.1).]
+[Hinweis: Für concept/research-Stories: `integrity_passed` und `merge_done` werden direkt auf `true` gesetzt (kein Worktree, kein Branch-Merge). Finding-Resolution-Gate und Integrity-Gate entfallen vollständig. Der Closure-Ablauf geht direkt von `issue_closed` weiter (§27.10a.1).]
 
-[Hinweis: Das Flowchart zeigt den **logischen** Ablauf. Schicht 3 (Adversarial) ist kein synchroner Inline-Schritt — der Phase Runner setzt `agents_to_spawn` und der Orchestrator spawnt den Adversarial-Agenten extern (§25.6.1). Der Gesamtfluss (S2G → Schicht 3 → S4) beschreibt die fachliche Reihenfolge, nicht den mechanischen Ablauf.]
+[Hinweis: Das Flowchart zeigt den **logischen** Ablauf. Schicht 3 (Adversarial) ist kein synchroner Inline-Schritt — der Phase Runner setzt `agents_to_spawn` und der Orchestrator spawnt den Adversarial-Agenten extern (§27.6.1). Der Gesamtfluss (S2G → Schicht 3 → S4) beschreibt die fachliche Reihenfolge, nicht den mechanischen Ablauf.]
 
-## 25.3a Verify-Kontext: QA-Tiefe über `verify_context` (FK-25-250)
+## 27.3a Verify-Kontext: QA-Tiefe über `verify_context` (FK-27-250)
 
 > **[Entscheidung 2026-04-09]** `verify_context` wird als typisiertes `VerifyContext`-Feld auf `VerifyPayload` (diskriminierte Union, §20.3) geführt statt als freier String auf dem flachen PhaseState. `VerifyContext` ist ein StrEnum: `POST_IMPLEMENTATION | POST_REMEDIATION`. Steuert die QA-Tiefe normativ. Verweis auf Designwizard R1+R2 vom 2026-04-09.
 
-### 25.3a.0 VerifyPayload — durable Contract Fields
+### 27.3a.0 VerifyPayload — durable Contract Fields
 
 `VerifyPayload` ist die phasenspezifische Payload für den Verify-Eintritt (diskriminierte Union, §20.3):
 
@@ -214,11 +214,11 @@ class VerifyPayload(BaseModel):
 | Implementation-Phase abgeschlossen | `post_implementation` |
 | Remediation abgeschlossen (Verify-Failure-Loop) | `post_remediation` |
 
-[Korrektur 2026-04-09: "Exploration-Phase abgeschlossen" als Trigger entfernt — Verify wird nie direkt nach Exploration aufgerufen (§25.3a.1, §25.10.1).]
+[Korrektur 2026-04-09: "Exploration-Phase abgeschlossen" als Trigger entfernt — Verify wird nie direkt nach Exploration aufgerufen (§27.3a.1, §27.10.1).]
 
 **Nicht in VerifyPayload:** `feedback_rounds` — dieser Zähler lebt in `PhaseMemory.verify.feedback_rounds` (§20.3.7, carry-forward über Phasenwechsel).
 
-### 25.3a.1 Problem: `mode` ist kein hinreichender Diskriminator
+### 27.3a.1 Problem: `mode` ist kein hinreichender Diskriminator
 
 Das Feld `mode` wird in der Setup-Phase gesetzt und bleibt über den
 gesamten Story-Lifecycle konstant. Verify läuft ausschließlich nach
@@ -239,7 +239,7 @@ leere `agents_to_spawn` → Closure. Der Bug lag zu 100% im
 deterministischen Code (Phase Runner), nicht im nicht-deterministischen
 Orchestrator.
 
-### 25.3a.2 Lösung: `verify_context`-Feld im Phase-State
+### 27.3a.2 Lösung: `verify_context`-Feld im Phase-State
 
 Ein dediziertes Feld `verify_context` im Phase-State identifiziert,
 in welchem Kontext der aktuelle Verify-Durchlauf stattfindet. Der
@@ -254,7 +254,7 @@ Exploration-Phase selbst (§23.5). `STRUCTURAL_ONLY_PASS` entfällt ebenfalls.]
 | `VerifyContext.POST_IMPLEMENTATION` | Verify nach abgeschlossener Implementation-Phase | Volle 4-Schichten-QA (Structural, Semantisch, Adversarial, Policy). | Primärer QA-Durchlauf — unabhängig davon, ob `mode = "exploration"` oder `mode = "execution"`. |
 | `VerifyContext.POST_REMEDIATION` | Verify nach einer Remediation-Runde | Volle 4-Schichten-QA (Structural, Semantisch, Adversarial, Policy). | Erneuter vollständiger QA-Durchlauf nach Worker-Remediation — identische Prüftiefe wie nach Implementation. |
 
-### 25.3a.3 Entscheidungsregel
+### 27.3a.3 Entscheidungsregel
 
 [Entscheidung 2026-04-09: Code-Beispiel auf VerifyContext StrEnum umgestellt.
 `post_exploration`-Zweig und `STRUCTURAL_ONLY_PASS` entfernt.]
@@ -267,10 +267,10 @@ kein Orchestrator-Roundtrip, kein PAUSED-Zustand in Verify.]
 # Im Phase Runner — Verify-Einstieg:
 # [Entscheidung 2026-04-09] VerifyContext ist ein StrEnum, kein String-Literal.
 # [Korrektur 2026-04-09] Layer 2 laeuft intern im Phase Runner (ThreadPoolExecutor),
-# kein Orchestrator-Roundtrip. Layer 3 (Adversarial) spawnt externen Agenten (§25.3a.4).
+# kein Orchestrator-Roundtrip. Layer 3 (Adversarial) spawnt externen Agenten (§27.3a.4).
 
 if state.verify_context is None:
-    # fail-closed (§25.3a.0): kein Verify-Lauf ohne bekannten Kontext
+    # fail-closed (§27.3a.0): kein Verify-Lauf ohne bekannten Kontext
     return PhaseResult(status="ESCALATED", reason="Missing verify_context — Phase Runner Defekt")
 
 if state.verify_context in (
@@ -279,35 +279,35 @@ if state.verify_context in (
 ):
     # Volle 4-Schichten-QA, UNABHAENGIG von state.mode
 
-    # Schicht 1: Deterministische Checks (Layer-1-Orchestrierung, §25.4)
+    # Schicht 1: Deterministische Checks (Layer-1-Orchestrierung, §27.4)
     # run_structural_checks() orchestriert alle 4 parallelen Layer-1-Zweige:
-    #   (1) Artefakt-Prüfung (§25.4.1)
-    #   (2) Structural Checks (§25.4.2)
-    #   (3) Recurring Guards (§25.4.3)
-    #   (4) ARE-Gate (§25.4.4, optional)
-    # Impact-Violation (§25.4.2) führt zu sofortigem ESCALATED (kein Feedback-Loop).
+    #   (1) Artefakt-Prüfung (§27.4.1)
+    #   (2) Structural Checks (§27.4.2)
+    #   (3) Recurring Guards (§27.4.3)
+    #   (4) ARE-Gate (§27.4.4, optional)
+    # Impact-Violation (§27.4.2) führt zu sofortigem ESCALATED (kein Feedback-Loop).
     # Stoppt NUR bei BLOCKING-FAIL. MAJOR/MINOR Findings laufen durch zu Schicht 2.
     result = run_structural_checks(state)
-    if result.has_blocking_failure():  # NUR BLOCKING-FAIL stoppt (§25.4.5)
+    if result.has_blocking_failure():  # NUR BLOCKING-FAIL stoppt (§27.4.5)
         return _handle_verify_failure(state, result)
 
     # Schicht 2: LLM-Bewertungen — intern via ThreadPoolExecutor
     # Phase Runner ruft externe LLMs direkt auf (kein Orchestrator,
     # kein PAUSED, kein agents_to_spawn). Ergebnisse als JSON persistiert.
     layer2_results = _run_layer2_parallel(context)  # ThreadPoolExecutor
-    # -> llm-review.json, semantic-review.json, doc-fidelity.json (§25.5.5)
-    # Stoppt bei FAIL. PASS_WITH_CONCERNS blockiert NICHT (§25.5.4).
+    # -> llm-review.json, semantic-review.json, doc-fidelity.json (§27.5.5)
+    # Stoppt bei FAIL. PASS_WITH_CONCERNS blockiert NICHT (§27.5.4).
     if layer2_results.has_failure():  # NUR FAIL stoppt, nicht PASS_WITH_CONCERNS
         return _handle_verify_failure(state, layer2_results)
 
-    # Schicht 3: Adversarial Testing (Agent-Spawn via Orchestrator, §25.6.1)
-    # Steuerungsvertrag (qa_cycle_status, kanonischer Feldname, §25.2.2/§25.8.3):
+    # Schicht 3: Adversarial Testing (Agent-Spawn via Orchestrator, §27.6.1)
+    # Steuerungsvertrag (qa_cycle_status, kanonischer Feldname, §27.2.2/§27.8.3):
     #   Phase Runner setzt agents_to_spawn + speichert State (qa_cycle_status = awaiting_qa).
     #   Orchestrator spawnt Adversarial Agent; dieser schreibt adversarial.json.
     #   Phase Runner wird re-entered wenn adversarial.json vorliegt → qa_cycle_status = awaiting_policy.
-    # Schicht 4: Policy-Evaluation (deterministisch, §25.7.1):
+    # Schicht 4: Policy-Evaluation (deterministisch, §27.7.1):
     #   → PASS: qa_cycle_status = pass
-    #   → FAIL (remediable): qa_cycle_status = awaiting_remediation (Feedback-Loop, §25.2.2)
+    #   → FAIL (remediable): qa_cycle_status = awaiting_remediation (Feedback-Loop, §27.2.2)
     #   → FAIL (impact.violation oder max_rounds_exceeded): qa_cycle_status = escalated
 ```
 
@@ -315,7 +315,7 @@ if state.verify_context in (
 `POST_REMEDIATION`) lösen IMMER die volle 4-Schichten-QA aus,
 unabhängig von `mode`. Es gibt keinen Structural-only-Verify-Pfad.
 
-### 25.3a.4 Invariante: Verify läuft immer mit voller 4-Schichten-Pipeline
+### 27.3a.4 Invariante: Verify läuft immer mit voller 4-Schichten-Pipeline
 
 [Entscheidung 2026-04-09: `STRUCTURAL_ONLY_PASS` existiert nicht mehr.
 Die gesamte alte Invariante (STRUCTURAL_ONLY_PASS nach Implementation verboten)
@@ -332,15 +332,15 @@ Verify-Phase). In jedem Fall — ob `POST_IMPLEMENTATION` oder
 
 1. Schicht 1: Deterministische Checks (Structural, Recurring Guards, ARE, Impact)
 2. Schicht 2: LLM-Bewertungen (QA, Semantic, Umsetzungstreue) — intern, kein Orchestrator-Roundtrip
-3. Schicht 3: Adversarial Testing — extern, via `agents_to_spawn` (§25.6.1)
+3. Schicht 3: Adversarial Testing — extern, via `agents_to_spawn` (§27.6.1)
 4. Schicht 4: Policy-Evaluation
 
-[Korrektur 2026-04-09: "Verify ist atomar" bezieht sich nur auf Layer 2 — Layer 3 (Adversarial) spawnt weiterhin einen externen Agenten via Orchestrator (§25.6.1), da Dateisystem-Zugriff und Subprocess-Ausführung erforderlich sind.]
+[Korrektur 2026-04-09: "Verify ist atomar" bezieht sich nur auf Layer 2 — Layer 3 (Adversarial) spawnt weiterhin einen externen Agenten via Orchestrator (§27.6.1), da Dateisystem-Zugriff und Subprocess-Ausführung erforderlich sind.]
 
 Layer 2 (LLM-Bewertungen) läuft vollständig intern im Phase Runner
 via `ThreadPoolExecutor` — kein Orchestrator-Roundtrip, kein
 PAUSED-Zustand. Layer 3 (Adversarial) hingegen spawnt einen externen
-Agenten über `agents_to_spawn` (§25.6.1), da dieser Dateisystem-Zugriff
+Agenten über `agents_to_spawn` (§27.6.1), da dieser Dateisystem-Zugriff
 und Subprocess-Ausführung benötigt — beides liegt außerhalb der
 Fähigkeiten eines einfachen LLM-Aufrufs. Verify ist damit für Layer 2
 nicht-unterbrechend, für Layer 3 jedoch Orchestrator-vermittelt.
@@ -352,14 +352,14 @@ PAUSED-Zwischenstatus, kein `agents_to_spawn` fuer Layer 2 und kein
 drei Werte (AWAITING_DESIGN_REVIEW, AWAITING_DESIGN_CHALLENGE,
 GOVERNANCE_INCIDENT) — keiner davon gilt fuer Layer 2.
 
-### 25.3a.5 Fehlende LLM-Reviews sind ein HARD BLOCKER
+### 27.3a.5 Fehlende LLM-Reviews sind ein HARD BLOCKER
 
 Fehlende LLM-Reviews bei Implementation- und Bugfix-Stories sind ein
 HARD BLOCKER, kein Warning. Zwei unabhängige Gates stellen dies sicher:
 
 - **Gate 1 (`guard.llm_reviews`):** Wurden Reviews überhaupt
   angefordert? 0 `review_request` Events bei Implementation/Bugfix →
-  sofortiger FAIL in Layer 1 (Recurring Guards, §25.4.3).
+  sofortiger FAIL in Layer 1 (Recurring Guards, §27.4.3).
 - **Gate 2 (`guard.multi_llm`):** Liegen für ALLE mandatory Reviewer
   (qa_review, semantic_review, doc_fidelity) Telemetrie-Evidenzen vor? Gate 2 ist
   UNABHÄNGIG von Gate 1 — auch wenn Reviews angefordert wurden
@@ -369,15 +369,15 @@ HARD BLOCKER, kein Warning. Zwei unabhängige Gates stellen dies sicher:
 
 Beide Gates sind als BLOCKING klassifiziert (nicht WARNING/MAJOR) und
 dürfen NICHT zu einem einzigen Gate zusammengefasst werden (siehe
-§25.4.3).
+§27.4.3).
 
-[Korrektur 2026-04-09: guard.llm_reviews und guard.multi_llm sind Schicht-1-Checks (§25.4.3), kein Layer-4-Gate. Ein BLOCKING-FAIL in Schicht 1 stoppt die Pipeline, Layer 4 wird nicht erreicht.]
+[Korrektur 2026-04-09: guard.llm_reviews und guard.multi_llm sind Schicht-1-Checks (§27.4.3), kein Layer-4-Gate. Ein BLOCKING-FAIL in Schicht 1 stoppt die Pipeline, Layer 4 wird nicht erreicht.]
 
 **Provenienz:** REF-036, Domänenkonzept 4.4a.
 
-## 25.4 Schicht 1: Deterministische Checks
+## 27.4 Schicht 1: Deterministische Checks
 
-### 25.4.1 Artefakt-Prüfung
+### 27.4.1 Artefakt-Prüfung
 
 Erste Prüfung, vor allem anderen. Stellt sicher, dass die
 Grundvoraussetzungen für die weiteren Prüfungen erfüllt sind.
@@ -389,10 +389,10 @@ Grundvoraussetzungen für die weiteren Prüfungen erfüllt sind.
 | `artifact.manifest_claims` | Deklarierte Dateien in Manifest existieren auf Disk | Eine deklarierte Datei fehlt | BLOCKING |
 | `artifact.handover` | `handover.json` existiert und Schema-valide | Datei fehlt oder Schema-Verletzung | BLOCKING |
 
-### 25.4.2 Structural Checks
+### 27.4.2 Structural Checks
 
-Laufen sequenziell nach erfolgreichem Artefakt-Check (§25.4.1 PASS),
-dann parallel zueinander (gemeinsam mit Recurring Guards §25.4.3, ARE-Gate §25.4.4
+Laufen sequenziell nach erfolgreichem Artefakt-Check (§27.4.1 PASS),
+dann parallel zueinander (gemeinsam mit Recurring Guards §27.4.3, ARE-Gate §27.4.4
 und Impact-Check — alle vier parallel nach Artefakt-Prüfungs-PASS):
 
 | Check-ID | Kategorie | Was | Severity |
@@ -411,17 +411,17 @@ und Impact-Check — alle vier parallel nach Artefakt-Prüfungs-PASS):
 | `hygiene.commented_code` | Hygiene | Keine großen auskommentierten Code-Blöcke | MINOR |
 | `impact.violation` | Impact | Tatsächlicher Impact ≤ deklarierter Impact (Kap. 23.8). **Reaktion:** Impact-Violation → ESCALATED (Eskalation an Mensch, kein Rücksprung zur Exploration-Phase). [Korrektur 2026-04-09: Modus-abhängige Reaktion entfällt — Impact-Violation führt immer zu ESCALATED, analog FK-20 und FK-23.] | BLOCKING |
 
-### 25.4.3 Recurring Guards (Telemetrie-basiert)
+### 27.4.3 Recurring Guards (Telemetrie-basiert)
 
 Prüfen den Prozess, nicht die fachliche Lösung. Laufen parallel
 zu den Structural Checks:
 
 | Check-ID | Was | Quelle | Severity |
 |----------|-----|--------|----------|
-| `guard.llm_reviews` | Pflicht-Reviews durchgeführt (mindestens 1 `review_request`-Event; kein größenabhängiger exakter Zähler — konsistent mit §25.11.2 Minimum-Schwellen-Vertrag) | Telemetrie: `review_request` Events zählen | **BLOCKING** |
+| `guard.llm_reviews` | Pflicht-Reviews durchgeführt (mindestens 1 `review_request`-Event; kein größenabhängiger exakter Zähler — konsistent mit §27.11.2 Minimum-Schwellen-Vertrag) | Telemetrie: `review_request` Events zählen | **BLOCKING** |
 | `guard.review_compliance` | Reviews über freigegebene Templates | Telemetrie: `review_compliant` Events | MAJOR |
 | `guard.no_violations` | Keine Guard-Verletzungen während der Bearbeitung | Telemetrie: keine `integrity_violation` Events | BLOCKING |
-| `guard.multi_llm` | Alle konfigurierten Pflicht-Reviewer mit Ergebnis abgeschlossen | Telemetrie: `llm_call_complete` Events mit passenden `pool`/`role` Werten. **`llm_call_complete` darf erst nach erfolgreichem Schreiben des Review-Artefakts (§25.5.5) emittiert werden** — nicht bei bloßer API-Antwort. Fängt "Review gestartet, nie abgeschlossen" (§25.3a.5). | **BLOCKING** |
+| `guard.multi_llm` | Alle konfigurierten Pflicht-Reviewer mit Ergebnis abgeschlossen | Telemetrie: `llm_call_complete` Events mit passenden `pool`/`role` Werten. **`llm_call_complete` darf erst nach erfolgreichem Schreiben des Review-Artefakts (§27.5.5) emittiert werden** — nicht bei bloßer API-Antwort. Fängt "Review gestartet, nie abgeschlossen" (§27.3a.5). | **BLOCKING** |
 
 **Zwei-Stufen-Prüfung für LLM-Reviews (REF-036):**
 
@@ -442,7 +442,7 @@ werden. Empirischer Anlass: BB2-057 — beide Guards erkannten die
 fehlenden Reviews korrekt, waren aber nur als WARNING klassifiziert
 und konnten den Closure-Pfad nicht blockieren.
 
-### 25.4.4 ARE-Gate (optional)
+### 27.4.4 ARE-Gate (optional)
 
 Nur bei `features.are: true`. Deterministisches Skript fragt ARE
 über MCP ab:
@@ -451,27 +451,27 @@ Nur bei `features.are: true`. Deterministisches Skript fragt ARE
 |----------|-----|----------|
 | `are.coverage` | Alle `must_cover`-Anforderungen haben Evidence | Eine Pflichtanforderung ohne Evidence |
 
-### 25.4.5 Gate-Entscheidung Schicht 1
+### 27.4.5 Gate-Entscheidung Schicht 1
 
-- Ein BLOCKING-FAIL → Story geht zurück an Worker (Feedback). **Ausnahme:** `impact.violation` (BLOCKING) führt direkt zu ESCALATED — kein Feedback-Loop, kein Worker-Rückgabe (§25.4.2).
+- Ein BLOCKING-FAIL → Story geht zurück an Worker (Feedback). **Ausnahme:** `impact.violation` (BLOCKING) führt direkt zu ESCALATED — kein Feedback-Loop, kein Worker-Rückgabe (§27.4.2).
 - Nachfolgende Schichten werden nicht gestartet (FK-05-151)
 - MAJOR/MINOR Failures werden gesammelt und fließen in die
   Policy-Evaluation (Schicht 4)
 
-### 25.4.6 Ergebnis-Artefakt
+### 27.4.6 Ergebnis-Artefakt
 
 `_temp/qa/{story_id}/structural.json` (Envelope-Format, Producer:
 `qa-structural-check`).
 
-## 25.5 Schicht 2: LLM-Bewertungen
+## 27.5 Schicht 2: LLM-Bewertungen
 
-### 25.5.1 Parallele Ausführung
+### 27.5.1 Parallele Ausführung
 
 Drei LLM-Bewertungen laufen parallel über `ThreadPoolExecutor`
 (Kap. 11.7). Alle nutzen den StructuredEvaluator (Kap. 11.4).
-[Korrektur 2026-04-09: "Zwei" → "Drei" — Schicht 2 umfasst drei parallele LLM-Bewertungen: QA-Bewertung, Semantic Review, Umsetzungstreue (§25.9.1).]
+[Korrektur 2026-04-09: "Zwei" → "Drei" — Schicht 2 umfasst drei parallele LLM-Bewertungen: QA-Bewertung, Semantic Review, Umsetzungstreue (§27.9.1).]
 
-### 25.5.2 QA-Bewertung (12 Checks)
+### 27.5.2 QA-Bewertung (12 Checks)
 
 **Rolle:** `qa_review` (konfiguriertes LLM, z.B. ChatGPT)
 
@@ -500,7 +500,7 @@ Drei LLM-Bewertungen laufen parallel über `ThreadPoolExecutor`
 **Antwort-Schema:** Pro Check: `status` (PASS/PASS_WITH_CONCERNS/FAIL),
 `reason` (Einzeiler), `description` (max 300 Zeichen).
 
-### 25.5.3 Semantic Review
+### 27.5.3 Semantic Review
 
 **Rolle:** `semantic_review` (anderes LLM, z.B. Gemini)
 
@@ -514,29 +514,29 @@ Systemkontext? Ist der Change im Verhältnis zum Problem angemessen?
 Gibt es systemische Risiken, die die Einzelchecks nicht sehen?
 (FK-05-180/181)
 
-### 25.5.4 Aggregation
+### 27.5.4 Aggregation
 
 - Ein einzelnes FAIL in irgendeinem Check → blockiert (FK-05-164)
 - PASS_WITH_CONCERNS blockiert nicht → fließt als Warnung in
   Policy-Evaluation + wird an Adversarial Agent als Ansatzpunkt
   weitergegeben (FK-05-165/166)
 
-### 25.5.5 Ergebnis-Artefakte
+### 27.5.5 Ergebnis-Artefakte
 
 - `_temp/qa/{story_id}/llm-review.json` (Producer: `qa-llm-review`)
 - `_temp/qa/{story_id}/semantic-review.json` (Producer: `qa-semantic-review`)
 - `_temp/qa/{story_id}/doc-fidelity.json` (Producer: `qa-doc-fidelity`)
 
-[Ergänzung 2026-04-09: doc-fidelity.json als drittes Layer-2-Artefakt ergänzt — Umsetzungstreue (§25.9.1) schreibt Ergebnis in doc-fidelity.json (Rolle: doc_fidelity).]
+[Ergänzung 2026-04-09: doc-fidelity.json als drittes Layer-2-Artefakt ergänzt — Umsetzungstreue (§27.9.1) schreibt Ergebnis in doc-fidelity.json (Rolle: doc_fidelity).]
 
 > **[Entscheidung 2026-04-08]** Element 27 — Context Sufficiency Builder ist Pflicht-Gate VOR dem Review: stellt sicher dass genuegend Informationen vorhanden sind. Wenn nicht → Informationen zusammentragen, NICHT Review ueberspringen. Reviews finden IMMER statt.
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 27.
 
-## 25.5a Context Sufficiency Builder (Pre-Step Schicht 2)
+## 27.5a Context Sufficiency Builder (Pre-Step Schicht 2)
 
-### 25.5a.1 Zweck (FK-25-200)
+### 27.5a.1 Zweck (FK-27-200)
 
-Zusätzlich zur bestehenden Schicht 2 (§25.5) wird ab Version 3.0
+Zusätzlich zur bestehenden Schicht 2 (§27.5) wird ab Version 3.0
 ein deterministischer Pre-Step eingeführt, der VOR dem Start des
 `ParallelEvalRunner` die Vollständigkeit des Kontext-Bundles prüft
 und ergänzt. Ziel: Schicht-2-Evaluatoren erhalten ein geprüftes,
@@ -557,7 +557,7 @@ separate Caller-Komponente. Er wird NICHT innerhalb des
 ParallelEvalRunner aufgerufen (Runner ist reiner Executor,
 Builder benötigt Dateisystem-Zugriff).
 
-### 25.5a.2 Prüfungen
+### 27.5a.2 Prüfungen
 
 Der Context Sufficiency Builder prüft alle 6 `ContextBundle`-Felder:
 
@@ -588,7 +588,7 @@ Kanonische Loader-Methoden und Quellen:
 | `arch_references` | `_load_arch_references()` | `concept_paths` aus `context.json` (inkl. `external_sources`) |
 | `evidence_manifest` | Caller-seitig aus `context.json` übergeben; kein eigener Loader im Builder | `context.json` (Evidence-Assembly) |
 
-### 25.5a.3 Sufficiency-Klassifikation
+### 27.5a.3 Sufficiency-Klassifikation
 
 | Stufe | Bedingung | Konsequenz |
 |-------|-----------|------------|
@@ -606,14 +606,14 @@ aber kein Review. Fehlende Pflichtfelder machen ein vollständiges
 Review unmöglich.
 
 **Scope von `partially_reviewable`:** `story_spec` und `diff_summary`
-haben keine dedizierten Structural Checks in §25.4.1 (der prüft nur
+haben keine dedizierten Structural Checks in §27.4.1 (der prüft nur
 Worker-Artefakte: protocol.md, worker-manifest, manifest-claims,
 handover.json). Fehlt `story_spec` oder `diff_summary`, führt das
 zur Einstufung `partially_reviewable` und einer Warning — Layer 2
 läuft trotzdem weiter (fail-open für Sufficiency). Reviews dürfen
 nicht wegen fehlender Kontexte übersprungen werden.
 
-### 25.5a.4 Enrichment
+### 27.5a.4 Enrichment
 
 Wo möglich ergänzt der Builder fehlende Felder:
 - `story_spec`: `story.md` aus `story_dir` laden (REF-035).
@@ -650,7 +650,7 @@ alternative Keys wie `arch_references`, `architecture_docs` oder
 `concept_files`. Was das Template vorgibt, muss die Pipeline
 verwenden.
 
-### 25.5a.5 Ergebnis-Artefakt
+### 27.5a.5 Ergebnis-Artefakt
 
 `_temp/qa/{story_id}/context_sufficiency.json`
 (Producer: `qa-context-sufficiency`):
@@ -673,7 +673,7 @@ verwenden.
 }
 ```
 
-### 25.5a.6 Ablauf in _run_layer2_parallel()
+### 27.5a.6 Ablauf in _run_layer2_parallel()
 
 ```python
 # In _run_layer2_parallel() des Phase Runners:
@@ -681,7 +681,7 @@ verwenden.
 from agentkit.qa.context_sufficiency import ContextSufficiencyBuilder, SufficiencyLevel
 from agentkit.core.packing import pack_markdown, pack_code
 
-# 0. context.json rebuild (Remediation-Re-Entry-Pflicht, §25.2.3):
+# 0. context.json rebuild (Remediation-Re-Entry-Pflicht, §27.2.3):
 #    Falls context.json nach advance_qa_cycle() nach stale/ verschoben wurde,
 #    wird es hier neu aufgebaut (Caller-Verantwortung vor _run_layer2_parallel()).
 #    context_json = rebuild_context(story_id)  # Phase-Runner-eigene Funktion
@@ -708,7 +708,7 @@ if sufficiency_result.sufficiency != SufficiencyLevel.SUFFICIENT:
         f"gaps: {sufficiency_result.gaps}"
     )
 
-# 4. Per-Feld Packing (§25.5b)
+# 4. Per-Feld Packing (§27.5b)
 context_dict = _pack_and_convert(enriched_bundle)
 
 # 5. ParallelEvalRunner starten
@@ -718,9 +718,9 @@ runner.run(context=context_dict, ...)
 > **[Entscheidung 2026-04-08]** Element 28 — Section-aware Bundle-Packing ist Pflicht. FK-34-121 normativ. In v2 bereits implementiert.
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 28.
 
-## 25.5b Konvertierungs-Verantwortung und Section-aware Packing
+## 27.5b Konvertierungs-Verantwortung und Section-aware Packing
 
-### 25.5b.1 Design-Entscheidung D7: Domänen-Abstraktion vs. Transport-Schicht (FK-25-210)
+### 27.5b.1 Design-Entscheidung D7: Domänen-Abstraktion vs. Transport-Schicht (FK-27-210)
 
 [Korrektur 2026-04-09: "Layer-2-Caller" als eigenständige Komponente entfernt — die Konvertierung (ContextBundle → dict[str, str]) findet innerhalb von `_run_layer2_parallel()` statt, nicht in einer separaten Caller-Komponente.]
 
@@ -739,11 +739,11 @@ werden mit der jeweils anderen Abstraktion belastet.
 Die Konvertierung geschieht in `_run_layer2_parallel()` (Phase Runner) —
 dies ist die einzige Stelle, die beide Abstraktionen kennt.
 
-### 25.5b.2 Konvertierung in _run_layer2_parallel()
+### 27.5b.2 Konvertierung in _run_layer2_parallel()
 
 `BUNDLE_TOKEN_LIMIT`: Maximale Zeichenanzahl pro Bundle-Feld nach dem Packing.
 Default: 32.000 Zeichen (konfigurierbar in `pipeline.yaml` unter `layer2.bundle_token_limit`).
-Referenz: §25.5a.2 `diff_summary` Trunkierungsbeispiel (84.979 → 32.000).
+Referenz: §27.5a.2 `diff_summary` Trunkierungsbeispiel (84.979 → 32.000).
 
 `_run_layer2_parallel()` (Phase Runner) ist die einzige Stelle, die beide Abstraktionen
 kennt. Es führt zwei Schritte aus:
@@ -790,7 +790,7 @@ def _pack_and_convert(bundle: ContextBundle) -> dict[str, str]:
 `ParallelEvalRunner.run(context=context_dict)` — die
 Runner-Signatur bleibt unverändert.
 
-### 25.5b.3 Section-aware Packing (Kap. 26, Modul `agentkit/core/packing.py`)
+### 27.5b.3 Section-aware Packing (Kap. 28, Modul `agentkit/core/packing.py`)
 
 Das neue Modul `agentkit/core/packing.py` stellt zwei Packer bereit:
 
@@ -815,7 +815,7 @@ zum Dispatcher erweitert: delegiert an `pack_markdown()` wenn
 `priority_headings` gesetzt, sonst bisheriger beginning+end-Fallback.
 Die Signatur bleibt abwärtskompatibel.
 
-[Hinweis: `_pack_and_convert()` (§25.5b.2) ruft die Packer direkt auf —
+[Hinweis: `_pack_and_convert()` (§27.5b.2) ruft die Packer direkt auf —
 nicht über den Dispatcher. Der Dispatcher ist für externe Aufrufer in
 `evaluator.py` vorgesehen. Dies ist kein Widerspruch: `_pack_and_convert()`
 ist der kanonische Packing-Pfad für Layer 2; der Dispatcher deckt Legacy-
@@ -840,7 +840,7 @@ def truncate_bundle(
     return content[:half] + TRUNCATION_MARKER + content[-half:]
 ```
 
-### 25.5b.4 Evaluator-rollenspezifische Prioritäten
+### 27.5b.4 Evaluator-rollenspezifische Prioritäten
 
 Die Priorisierung der Markdown-Sektionen ist **feldspezifisch** (nicht
 rollenspezifisch): `_pack_and_convert()` erzeugt ein einziges gepacktes
@@ -870,11 +870,11 @@ ARCH_PRIORITY_HEADINGS = ["Architecture", "Architektur", "Components", "Komponen
 
 > **[Entscheidung 2026-04-08]** Element 26 — Quorum / Tiebreaker ist Pflicht. Dritter Reviewer bei Divergenz.
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 26.
-> [Scope-Begrenzung FK-25 (2026-04-09): FK-25 beschreibt drei feste parallele Evaluatoren (QA, Semantic, Umsetzungstreue) ohne Tiebreaker-Mechanismus. Die Quorum/Divergenz-Logik (Divergenzbedingung, Tiebreak-Reviewer, Aggregationsregel) ist normativ nach FK-34 ausgelagert und implementierbar erst wenn FK-34 diese Verträge definiert. Bis dahin gilt: alle drei Evaluatoren müssen PASS liefern, FAIL in einem Evaluator → gesamte Schicht 2 FAIL (kein Tiebreaker).]
+> [Scope-Begrenzung FK-27 (2026-04-09): FK-27 beschreibt drei feste parallele Evaluatoren (QA, Semantic, Umsetzungstreue) ohne Tiebreaker-Mechanismus. Die Quorum/Divergenz-Logik (Divergenzbedingung, Tiebreak-Reviewer, Aggregationsregel) ist normativ nach FK-34 ausgelagert und implementierbar erst wenn FK-34 diese Verträge definiert. Bis dahin gilt: alle drei Evaluatoren müssen PASS liefern, FAIL in einem Evaluator → gesamte Schicht 2 FAIL (kein Tiebreaker).]
 
-## 25.6 Schicht 3: Adversarial Testing
+## 27.6 Schicht 3: Adversarial Testing
 
-### 25.6.1 Agent-Spawn
+### 27.6.1 Agent-Spawn
 
 Der Phase Runner setzt `agents_to_spawn` im Phase-State:
 
@@ -903,7 +903,7 @@ Sub-Agent. Der Agent hat:
 - Pflicht, Sparring-LLM zu holen
 - Write-Scoping über CCAG-Regel (Kap. 02.7, 15.4.2)
 
-### 25.6.2 Ablauf (FK-05-197 bis FK-05-207)
+### 27.6.2 Ablauf (FK-05-197 bis FK-05-207)
 
 1. Agent **prüft die vorhandene Test-Suite** — Abdeckung,
    Aussagekraft, Edge-Case-Behandlung bewerten (FK-05-197)
@@ -918,10 +918,10 @@ Sub-Agent. Der Agent hat:
    oder neu) als Nachweis (FK-05-200/201)
 8. Ergebnis: Mängelliste oder "keine Befunde"
 
-### 25.6.3 Test-Suite-Wachstum und Konsolidierungsverbot
+### 27.6.3 Test-Suite-Wachstum und Konsolidierungsverbot
 
 Es findet keine automatische Konsolidierung der Test-Suite statt
-(FK-25-051). Wenn die Test-Suite im Laufe der Zeit zu groß wird,
+(FK-27-051). Wenn die Test-Suite im Laufe der Zeit zu groß wird,
 ist menschliche Intervention erforderlich. Agents dürfen
 vorhandene Tests weder eigenständig löschen noch zusammenführen —
 auch nicht wenn sie inhaltlich redundant erscheinen. Jede
@@ -929,7 +929,7 @@ Verkleinerung der Test-Suite ist eine bewusste menschliche
 Entscheidung, die außerhalb des automatisierten Pipeline-Ablaufs
 getroffen wird.
 
-### 25.6.4 Test-Promotion
+### 27.6.4 Test-Promotion
 
 Tests, die der Adversarial Agent in der Sandbox erzeugt hat,
 werden **nicht unkonditioniert** ins Repo übernommen. Ein
@@ -955,7 +955,7 @@ Red-Green-Workflow bei Bugfixes. Damit hat der Remediation-Worker
 den fehlschlagenden Test als konkreten Ausgangspunkt statt nur
 einer textuellen Mängelbeschreibung.
 
-### 25.6.5 Ergebnis-Artefakt
+### 27.6.5 Ergebnis-Artefakt
 
 `_temp/qa/{story_id}/adversarial.json` (Producer: `qa-adversarial`)
 
@@ -984,7 +984,7 @@ einer textuellen Mängelbeschreibung.
 }
 ```
 
-### 25.6.6 Telemetrie
+### 27.6.6 Telemetrie
 
 | Event | Erwartungswert |
 |-------|---------------|
@@ -994,9 +994,9 @@ einer textuellen Mängelbeschreibung.
 | `adversarial_test_executed` | >= 1 (Pflicht: mindestens 1 Test ausführen) |
 | `adversarial_end` | Genau 1 |
 
-## 25.7 Schicht 4: Policy-Evaluation
+## 27.7 Schicht 4: Policy-Evaluation
 
-### 25.7.1 Aggregation
+### 27.7.1 Aggregation
 
 Die Policy-Engine (Kap. 02.9) aggregiert die Ergebnisse aller
 vorherigen Schichten:
@@ -1030,24 +1030,24 @@ def evaluate_policy(story_id: str, story_type: str, config: PipelineConfig) -> P
     minor_failures = sum(1 for r in results if r.severity == "MINOR" and r.status == "FAIL")
     major_threshold = config.policy.get("major_threshold", 3)
 
-    # §25.7.2: Entscheidungsregel
+    # §27.7.2: Entscheidungsregel
     if blocking_failures > 0 or major_failures > major_threshold:
         status = "FAIL"
     else:
         status = "PASS"
 
-    # Finding-Resolution (§25.10a) ist ein separates Closure-Gate — kein Teil der Policy-Evaluation.
+    # Finding-Resolution (§27.10a) ist ein separates Closure-Gate — kein Teil der Policy-Evaluation.
     return PolicyResult(
         status=status,
         stages=results,
         blocking_failures=blocking_failures,
         major_failures=major_failures,
-        minor_failures=minor_failures,  # Quelle für Execution Report §25.13.2
+        minor_failures=minor_failures,  # Quelle für Execution Report §27.13.2
         major_threshold=major_threshold,
     )
 ```
 
-### 25.7.2 Entscheidung
+### 27.7.2 Entscheidung
 
 | Bedingung | Ergebnis |
 |-----------|---------|
@@ -1055,13 +1055,13 @@ def evaluate_policy(story_id: str, story_type: str, config: PipelineConfig) -> P
 | Mindestens 1 blocking FAIL | FAIL → Feedback an Worker |
 | `major_failures > policy.major_threshold` (Default: 3) | FAIL (auch ohne blocking FAIL) |
 
-### 25.7.3 Ergebnis-Artefakt
+### 27.7.3 Ergebnis-Artefakt
 
 `_temp/qa/{story_id}/decision.json` (Producer: `qa-policy-engine`)
 
-## 25.8 Feedback-Mechanismus
+## 27.8 Feedback-Mechanismus
 
-### 25.8.1 Mängelliste erzeugen
+### 27.8.1 Mängelliste erzeugen
 
 Bei Verify-FAIL wird aus den Ergebnissen aller Schichten eine
 strukturierte Mängelliste erzeugt:
@@ -1106,7 +1106,7 @@ def build_feedback(story_id: str) -> list[Finding]:
     return findings
 ```
 
-### 25.8.2 Feedback-Datei
+### 27.8.2 Feedback-Datei
 
 `_temp/qa/{story_id}/feedback.json`:
 
@@ -1133,9 +1133,9 @@ def build_feedback(story_id: str) -> list[Finding]:
 }
 ```
 
-Der Remediation-Worker (Kap. 24.2.3) erhält diese Datei als Input.
+Der Remediation-Worker (Kap. 26.2.3) erhält diese Datei als Input.
 
-### 25.8.3 Remediation-Loop und Max-Rounds-Eskalation
+### 27.8.3 Remediation-Loop und Max-Rounds-Eskalation
 
 > **[Entscheidung 2026-04-09]** `feedback_rounds` wird nicht mehr im Verify-Handler inkrementiert. In v3 verwaltet die Engine `phase_memory.verify.feedback_rounds` als Carry-Forward-Akkumulator: Inkrementierung erfolgt beim Phasenwechsel verify→implementation (Remediation-Pfad), VOR Erzeugung des neuen Implementation-States. Der Verify-Handler selbst liest `verify_context: VerifyContext` aus dem VerifyPayload, schreibt aber keine Zähler. Siehe FK-20 §20.3.7.
 
@@ -1163,10 +1163,10 @@ von Runden begrenzt:
   setzt `feedback_rounds` zurück und erlaubt erneute Bearbeitung.
 - Wenn Verify nach Remediation erneut betreten wird (Status
   `awaiting_remediation`): `advance_qa_cycle()` feuert und
-  invalidiert alle zyklusgebundenen Artefakte (siehe Kap. 25.2).
+  invalidiert alle zyklusgebundenen Artefakte (siehe Kap. 27.2).
   Danach laufen alle vier Verify-Schichten vollständig von vorne.
 
-### 25.8.4 Mandatory-Target-Rueckkopplung im Remediation-Loop (FK-25-220)
+### 27.8.4 Mandatory-Target-Rueckkopplung im Remediation-Loop (FK-27-220)
 
 Wenn ein mandatory adversarial target (Kap. 34, abgeleitet aus
 Layer-2-Findings vom Typ `assertion_weakness`) nicht erfuellt wird,
@@ -1212,9 +1212,9 @@ Empirischer Beleg BB2-012: Der Wrong-Phase-Fall war im P3-Review
 konkret benannt, wurde aber vom Adversarial Agent nicht eigenstaendig
 gefunden.
 
-## 25.9 Dokumententreue Ebene 3: Umsetzungstreue
+## 27.9 Dokumententreue Ebene 3: Umsetzungstreue
 
-### 25.9.1 Integration in Verify
+### 27.9.1 Integration in Verify
 
 Die Umsetzungstreue (FK-06-058) läuft als Teil der Schicht 2, über
 den StructuredEvaluator:
@@ -1226,7 +1226,7 @@ Adapter-Vertrag (Bundle → doc_fidelity context):
 | `diff` | `bundle.diff_summary` (aus `context_dict["diff_summary"]`) |
 | `entwurfsartefakt_or_concept` | `bundle.concept_excerpt` (aus `context_dict["concept_excerpt"]`) |
 | `handover` | `bundle.handover` (aus `context_dict["handover"]`) |
-| `drift_log` | `handover.drift_log` — aus `handover.json` geladen (§25.5a.2 `_load_handover()`) |
+| `drift_log` | `handover.drift_log` — aus `handover.json` geladen (§27.5a.2 `_load_handover()`) |
 
 ```python
 evaluator.evaluate(
@@ -1247,15 +1247,15 @@ evaluator.evaluate(
 **Frage:** Hat der Worker gebaut, was konzeptionell vorgesehen war?
 Gibt es undokumentierten Drift?
 
-**Bei FAIL:** Story geht in den Feedback-Loop (via S2G → FAIL → §25.8).
+**Bei FAIL:** Story geht in den Feedback-Loop (via S2G → FAIL → §27.8).
 [Korrektur 2026-04-09: Impact-Violation wird ausschließlich durch den
-deterministischen Layer-1-Check `impact.violation` (§25.4.2) erkannt und
+deterministischen Layer-1-Check `impact.violation` (§27.4.2) erkannt und
 direkt zu ESCALATED eskaliert. Ein Layer-2-Doc-Fidelity-Befund führt
 immer in den Feedback-Loop — es gibt keinen LLM-basierten Pfad zu ESCALATED.]
 
-## 25.10 Closure-Phase
+## 27.10 Closure-Phase
 
-### 25.10.0 ClosurePayload — durable Contract Fields
+### 27.10.0 ClosurePayload — durable Contract Fields
 
 > **[Entscheidung 2026-04-09]** `ClosurePayload` führt `ClosureProgress` als typisiertes Objekt mit granularen Booleans. Granularität ist notwendig, weil "nach Merge vor Issue-Close" als Recovery-Zustand eindeutig identifizierbar sein muss. Ein grobes `current_substate`-Enum würde diese Eindeutigkeit nicht liefern. Verweis auf Designwizard R1+R2 vom 2026-04-09.
 
@@ -1274,40 +1274,40 @@ class ClosurePayload(BaseModel):
     progress: ClosureProgress = Field(default_factory=ClosureProgress)
 ```
 
-`ClosureProgress` hat Recovery-Relevanz: Jedes Boolean entspricht einem abgeschlossenen Closure-Substate. Bei Crash und Wiederaufnahme (§25.10.3) überspringt der Phase Runner alle Schritte, deren Boolean bereits `true` ist.
+`ClosureProgress` hat Recovery-Relevanz: Jedes Boolean entspricht einem abgeschlossenen Closure-Substate. Bei Crash und Wiederaufnahme (§27.10.3) überspringt der Phase Runner alle Schritte, deren Boolean bereits `true` ist.
 
 **Granularität:** Die Einzelbooleans sind notwendig, weil Closure-Substates nicht zurückgerollt werden können (Merge ist irreversibel, Issue-Close ist ein GitHub-Seiteneffekt). Ein einziges `current_substate`-Enum würde den Zustand "nach Merge, vor Issue-Close" nicht eindeutig von "vor Merge" unterscheiden.
 
-### 25.10.1 Voraussetzung
+### 27.10.1 Voraussetzung
 
 Closure wird nur aufgerufen wenn Verify PASS. **Ausnahme: Concept- und Research-Stories** durchlaufen keine Verify-Phase — für diese Story-Typen wird Closure direkt nach der Implementation-Phase aufgerufen. `integrity_passed` und `merge_done` werden für Concept/Research direkt auf `true` gesetzt (kein Worktree, kein Branch-Merge, §20.8.2).
 
 **REF-034:** Für Exploration-Mode-Stories gilt: Verify läuft erst NACH der vollständigen Exploration-Phase (einschließlich Design-Review-Gate). Das Design-Review-Gate (`ExplorationGateStatus.APPROVED`) wird durch den Phase-Runner-Guard am Übergang `exploration → implementation` erzwungen (FK-20 §20.4.2a). Wenn Verify erreicht wird, ist `APPROVED` durch die State-Machine-Invariante garantiert — kein erneuter Payload-Zugriff aus der Verify-Phase nötig. [Korrektur 2026-04-09: Direkte Referenz auf `ExplorationPayload.gate_status` aus der Verify-Phase entfernt — ExplorationPayload ist nicht der aktive Payload in der Verify-Phase (aktiv: VerifyPayload). Die Garantie stammt aus dem Transition-Guard, nicht aus einem Laufzeit-Check in Verify.]
 
-**REF-036 / §25.3a:** Die QA-Tiefe wird über `verify_context` gesteuert,
+**REF-036 / §27.3a:** Die QA-Tiefe wird über `verify_context` gesteuert,
 nicht über `mode`. Nach der Implementation-Phase gilt
 `verify_context = VerifyContext.POST_IMPLEMENTATION`, nach einer
 Remediation-Runde `verify_context = VerifyContext.POST_REMEDIATION` —
 beide lösen die volle 4-Schichten-Verify aus, unabhängig davon ob
 die Story im Exploration- oder Execution-Modus gestartet wurde.
 [Korrektur 2026-04-09: `STRUCTURAL_ONLY_PASS` und `post_exploration`
-entfernt — Verify läuft immer mit voller Pipeline (§25.3a.4).]
+entfernt — Verify läuft immer mit voller Pipeline (§27.3a.4).]
 
 > **[Entscheidung 2026-04-08]** Element 17 — Alle 11 Eskalations-Trigger werden beibehalten. FK-20 §20.6.1 und FK-35 §35.4.2 normativ. Kein Trigger ist redundant.
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 17.
 
-### 25.10.2 Ablauf mit Substates
+### 27.10.2 Ablauf mit Substates
 
 ```mermaid
 flowchart TD
     START(["agentkit run-phase closure<br/>--story ODIN-042"]) --> STYPE{Story-Typ?}
 
     STYPE -->|"impl / bugfix"| FR
-    STYPE -->|"concept / research<br/>(kein Verify, kein Merge)"| CR_SUB1["Substate:<br/>integrity_passed = true<br/>merge_done = true<br/>(direkt gesetzt, §25.10.1)"]
+    STYPE -->|"concept / research<br/>(kein Verify, kein Merge)"| CR_SUB1["Substate:<br/>integrity_passed = true<br/>merge_done = true<br/>(direkt gesetzt, §27.10.1)"]
     CR_SUB1 --> CLOSE_CR["Issue schließen<br/>(gh issue close)"]
     CLOSE_CR --> SUB3
 
-    FR["Finding-Resolution-Gate<br/>(§25.10a)"]
+    FR["Finding-Resolution-Gate<br/>(§27.10a)"]
     FR -->|"FAIL: Ungelöste Findings"| ESC_FR(["ESCALATED:<br/>Offene Findings."])
     FR -->|PASS| INTEGRITY
 
@@ -1327,10 +1327,10 @@ flowchart TD
     STATUS --> SUB4["Substate:<br/>metrics_written = true"]
 
     SUB4 --> DOCTREUE4["Dokumententreue Ebene 4:<br/>Rückkopplungstreue<br/>(StructuredEvaluator)"]
-    DOCTREUE4 -->|"FAIL (non-blocking)"| WARN_DT(["Warnung an Mensch<br/>(§25.14.1)"])
+    DOCTREUE4 -->|"FAIL (non-blocking)"| WARN_DT(["Warnung an Mensch<br/>(§27.14.1)"])
     DOCTREUE4 -->|"PASS"| POSTFLIGHT["Postflight-Gates"]
     WARN_DT --> POSTFLIGHT
-    POSTFLIGHT -->|"FAIL (non-blocking)"| WARN_PF(["Warnung an Mensch<br/>(§25.12.2)"])
+    POSTFLIGHT -->|"FAIL (non-blocking)"| WARN_PF(["Warnung an Mensch<br/>(§27.12.2)"])
     POSTFLIGHT -->|"PASS"| SUB5["Substate:<br/>postflight_done = true"]
     WARN_PF --> SUB5
 
@@ -1339,7 +1339,7 @@ flowchart TD
     GUARDS_OFF --> DONE(["Story abgeschlossen"])
 ```
 
-### 25.10.3 Substates und Recovery
+### 27.10.3 Substates und Recovery
 
 [Entscheidung 2026-04-09: `closure_substates` ersetzt durch
 `ClosurePayload.progress` (Typ `ClosureProgress`). Die fünf
@@ -1382,12 +1382,12 @@ Issue-Close wird ausgeführt.
 
 Teardown (Worktree aufräumen, Branch löschen) ist idempotent — er wird bei jedem Recovery-Lauf mit `merge_done == true && issue_closed == false` erneut ausgeführt. Ein eigenes `teardown_done`-Feld ist nicht erforderlich, da ein fehlgeschlagener oder bereits erledigter Teardown keinen Datenverlust verursacht.
 
-### 25.10.4 Reihenfolge ist Pflicht (FK-05-226)
+### 27.10.4 Reihenfolge ist Pflicht (FK-05-226)
 
 Die Reihenfolge stellt sicher, dass ein Issue nie geschlossen wird,
 wenn der Merge scheitert:
 
-1. Erst Finding-Resolution-Gate (§25.10a) → sicherstellt: alle Findings vollständig aufgelöst
+1. Erst Finding-Resolution-Gate (§27.10a) → sicherstellt: alle Findings vollständig aufgelöst
 2. Erst Integrity-Gate → sicherstellt: Prozess wurde durchlaufen
 3. Erst mergen → Code ist auf Main
 4. Erst Worktree aufräumen → kein staler Worktree
@@ -1398,9 +1398,9 @@ wenn der Merge scheitert:
 9. Dann VektorDB-Sync → für nachfolgende Stories suchbar
 10. Zuletzt Guards deaktivieren → AI-Augmented-Modus wieder frei
 
-## 25.10a Finding-Resolution als Closure-Gate (FK-25-221 bis FK-25-225)
+## 27.10a Finding-Resolution als Closure-Gate (FK-27-221 bis FK-27-225)
 
-### 25.10a.1 Prinzip
+### 27.10a.1 Prinzip
 
 Closure blockiert, wenn mindestens ein Finding aus dem Layer-2-Output
 den Resolution-Status `partially_resolved` oder `not_resolved` hat.
@@ -1411,14 +1411,14 @@ harter Blocker.
 entfallen Finding-Resolution-Gate UND Integrity-Gate vollständig (kein
 Layer-2-QA, kein Verify, kein Merge). `integrity_passed` und `merge_done`
 werden direkt auf `true` gesetzt; der Closure-Ablauf startet effektiv
-bei `issue_closed` (§25.10.2 Concept/Research-Pfad im Flowchart).
+bei `issue_closed` (§27.10.2 Concept/Research-Pfad im Flowchart).
 
 **Provenienz:** Kap. 04, §4.6. Empirischer Beleg BB2-012: Worker
 markierte ein Finding als `ADDRESSED`, obwohl nur ein Teilfall
 behoben war. Das System uebernahm die Teilbehebung als
 Vollbehebung, weil keine andere Instanz den Finding-Status setzte.
 
-### 25.10a.2 Quelle des Resolution-Status (FK-25-222)
+### 27.10a.2 Quelle des Resolution-Status (FK-27-222)
 
 Der Resolution-Status kommt ausschliesslich aus den Layer-2-QA-
 Review-Checks (StructuredEvaluator im Remediation-Modus, Kap. 34).
@@ -1431,10 +1431,10 @@ Es gibt keine eigene Quelle und kein separates Artefakt:
   eines Findings nicht autoritativ setzen (Kap. 04, §4.2)
 
 Die Bewertung erfolgt als zusaetzliche Check-IDs in den bestehenden
-Layer-2-Artefakten (`llm-review.json`, `semantic-review.json`, `doc-fidelity.json`, §25.5.5). Kein
-neues Artefakt. [Korrektur 2026-04-09: `qa_review.json` → kanonische Artefaktnamen aus §25.5.5; Ergaenzung 2026-04-09: `doc-fidelity.json` als drittes Layer-2-Artefakt ergaenzt (§25.5.5).]
+Layer-2-Artefakten (`llm-review.json`, `semantic-review.json`, `doc-fidelity.json`, §27.5.5). Kein
+neues Artefakt. [Korrektur 2026-04-09: `qa_review.json` → kanonische Artefaktnamen aus §27.5.5; Ergaenzung 2026-04-09: `doc-fidelity.json` als drittes Layer-2-Artefakt ergaenzt (§27.5.5).]
 
-### 25.10a.3 Finding-Laden im Remediation-Zyklus (FK-25-223)
+### 27.10a.3 Finding-Laden im Remediation-Zyklus (FK-27-223)
 
 Im Remediation-Zyklus (Runde 2+) werden die Findings der Vorrunde
 direkt aus den Review-Artefakten geladen, NICHT aus Worker-
@@ -1460,22 +1460,22 @@ def load_previous_findings(story_id: str, previous_cycle_id: str) -> list[dict]:
     return findings
 ```
 
-### 25.10a.4 Gate-Pruefung vor Closure (FK-25-224)
+### 27.10a.4 Gate-Pruefung vor Closure (FK-27-224)
 
 [Korrektur 2026-04-09: Die Finding-Resolution-Pruefung laeuft als
-**Closure-Gate** (§25.10a.1), nicht als Teil der Policy-Evaluation
+**Closure-Gate** (§27.10a.1), nicht als Teil der Policy-Evaluation
 (Schicht 4). Policy-Evaluation prueft auf BLOCKING-Failures und
 major_threshold — Finding-Resolution ist ein eigenstaendiger
 Vorstufen-Check am Beginn der Closure-Phase, konsistent mit dem
-Abschnittstitel "Finding-Resolution als Closure-Gate" und §25.7.1.]
+Abschnittstitel "Finding-Resolution als Closure-Gate" und §27.7.1.]
 
-Die Finding-Resolution-Pruefung laeuft als Closure-Gate (§25.10a.1)
+Die Finding-Resolution-Pruefung laeuft als Closure-Gate (§27.10a.1)
 — vor dem Integrity-Gate, am Beginn der Closure-Phase. Sie prueft
 alle drei Layer-2-Artefakte:
 
 ```python
-# [Korrektur 2026-04-09] Alle drei Layer-2-Artefakte pruefen (§25.5.5),
-# konsistent mit §25.10a.3 und §25.8.1.
+# [Korrektur 2026-04-09] Alle drei Layer-2-Artefakte pruefen (§27.5.5),
+# konsistent mit §27.10a.3 und §27.8.1.
 def check_finding_resolution(story_id: str) -> bool:
     """Prueft ob alle Findings vollstaendig aufgeloest sind.
 
@@ -1491,7 +1491,7 @@ def check_finding_resolution(story_id: str) -> bool:
             resolution = check.get("resolution")
             # Design-Invariante: Erstlauf (Runde 1, kein Remediation) → keine Checks haben
             # ein resolution-Feld → Gate gibt True zurück → Closure nicht blockiert.
-            # Ab Runde 2 (Remediation-Modus, §25.10a.2): Checks haben resolution-Feld →
+            # Ab Runde 2 (Remediation-Modus, §27.10a.2): Checks haben resolution-Feld →
             # Gate wird aktiv. fail-closed für unbekannte/problematische Werte.
             if resolution is None:
                 continue  # kein Remediation-Check, nicht prüfen
@@ -1500,20 +1500,20 @@ def check_finding_resolution(story_id: str) -> bool:
     return True
 ```
 
-### 25.10a.5 Artefakt-Invalidierung (FK-25-225)
+### 27.10a.5 Artefakt-Invalidierung (FK-27-225)
 
 Die Finding-Resolution ist Teil der bestehenden Layer-2-Artefakte
-`llm-review.json`, `semantic-review.json` und `doc-fidelity.json` (§25.5.5) — alle drei
-Artefakte sind bereits in der Invalidierungstabelle (§25.2.3)
+`llm-review.json`, `semantic-review.json` und `doc-fidelity.json` (§27.5.5) — alle drei
+Artefakte sind bereits in der Invalidierungstabelle (§27.2.3)
 enthalten. Eine Erweiterung der Tabelle ist daher nicht erforderlich.
-[Korrektur 2026-04-09: `qa_review.json` → kanonische Artefaktnamen aus §25.5.5; Ergaenzung 2026-04-09: `doc-fidelity.json` als drittes Layer-2-Artefakt ergaenzt.]
+[Korrektur 2026-04-09: `qa_review.json` → kanonische Artefaktnamen aus §27.5.5; Ergaenzung 2026-04-09: `doc-fidelity.json` als drittes Layer-2-Artefakt ergaenzt.]
 
 **Querverweis:** Kap. 34 fuer die technische Erweiterung des
 StructuredEvaluator um den Remediation-Modus.
 
-## 25.11 Integrity-Gate
+## 27.11 Integrity-Gate
 
-### 25.11.0 Pflicht-Artefakt-Pruefung (Vorstufe)
+### 27.11.0 Pflicht-Artefakt-Pruefung (Vorstufe)
 
 Vor der Dimensionspruefung validiert das Gate die Existenz aller
 Pflicht-Artefakte. Fehlende Pflicht-Artefakte sind ein sofortiger
@@ -1529,7 +1529,7 @@ harter Blocker — die Dimensionspruefung wird nicht gestartet.
 lief Closure durch. Dieser Defekt wird durch die Vorstufe
 verhindert. Details: Kap. 35, §35.2.3.
 
-### 25.11.1 Sieben Dimensionen (FK-06-075 bis FK-06-081)
+### 27.11.1 Sieben Dimensionen (FK-06-075 bis FK-06-081)
 
 | Dim | Prüfgegenstand | FAIL-Code | Prüfung |
 |-----|---------------|-----------|---------|
@@ -1543,18 +1543,18 @@ verhindert. Details: Kap. 35, §35.2.3.
 
 [Korrektur 2026-04-09: Dimension 6 prüft nicht das aktive `phase-state.json` (das zeigt während Closure `phase == closure`), sondern den Phasen-Abschluss-Eintrag im Phase-History-Log des Story-Verzeichnisses. Dieser wird vom Phase Runner beim Abschluss jeder Phase geschrieben.]
 
-[Hinweis: Die Dimensionsprüfung wird story-type-abhängig gefiltert — analog zur Stage-Registry in §25.7.1. Der Integrity-Gate-Runner lädt `story_type` aus dem Phase-State und überspringt Dimensionen, die für den jeweiligen Typ nicht gelten (Dimension 5 und 6 für concept/research). Dieser Filter-Mechanismus entspricht dem Stage-Registry-Prinzip: welche Stages/Dimensionen aktiv sind, hängt vom Story-Typ ab.]
+[Hinweis: Die Dimensionsprüfung wird story-type-abhängig gefiltert — analog zur Stage-Registry in §27.7.1. Der Integrity-Gate-Runner lädt `story_type` aus dem Phase-State und überspringt Dimensionen, die für den jeweiligen Typ nicht gelten (Dimension 5 und 6 für concept/research). Dieser Filter-Mechanismus entspricht dem Stage-Registry-Prinzip: welche Stages/Dimensionen aktiv sind, hängt vom Story-Typ ab.]
 
 > **[Entscheidung 2026-04-08]** Element 12 — Telemetry Contract: Crash-Detection (Start/End-Paarung) essentiell. Event-Count-Vertrag auf Minimum-Schwellen ("mindestens 1 Review", "mindestens 1 Drift-Check"), keine exakten Zaehler pro Story-Groesse.
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 12.
 
-### 25.11.2 Telemetrie-Nachweise (FK-06-082 bis FK-06-091)
+### 27.11.2 Telemetrie-Nachweise (FK-06-082 bis FK-06-091)
 
 | Nachweis | Prüfung | FAIL-Code |
 |----------|---------|-----------|
 | `agent_start` mit Story-ID | Event vorhanden | `NO_AGENT_START` |
 | `agent_end` mit Story-ID | Event vorhanden | `NO_AGENT_END` |
-| `llm_call_complete` pro Pflicht-Rolle | Für jede konfigurierte Rolle mindestens 1 Abschluss-Event (konsistent mit guard.multi_llm §25.4.3) | `MISSING_LLM_{role}` |
+| `llm_call_complete` pro Pflicht-Rolle | Für jede konfigurierte Rolle mindestens 1 Abschluss-Event (konsistent mit guard.multi_llm §27.4.3) | `MISSING_LLM_{role}` |
 | `review_compliant` | Anzahl `review_compliant` Events >= Anzahl `review_request` Events (jeder Request braucht ein Compliant) | `REVIEW_NOT_COMPLIANT` |
 | Kein `integrity_violation` | 0 Events dieses Typs | `HAS_VIOLATIONS` |
 | `web_call` <= Limit | Nur bei Research: Count <= `web_call_limit` | `WEB_BUDGET_EXCEEDED` |
@@ -1563,7 +1563,7 @@ verhindert. Details: Kap. 35, §35.2.3.
 | `preflight_request` (Pflicht) | Mindestens 1 Preflight-Turn pro Story nachgewiesen | `PREFLIGHT_MISSING` |
 | `preflight_compliant` | Anzahl `preflight_compliant` Events >= Anzahl `preflight_request` Events | `PREFLIGHT_NOT_COMPLIANT` |
 
-### 25.11.3 Opake Fehlermeldung
+### 27.11.3 Opake Fehlermeldung
 
 Bei FAIL sieht der Agent nur:
 
@@ -1578,12 +1578,12 @@ Die konkreten FAIL-Codes werden in
 `_temp/qa/{story_id}/integrity-violations.log` geschrieben
 (JSON, für den Menschen lesbar).
 
-## 25.12 Postflight-Gates
+## 27.12 Postflight-Gates
 
-### 25.12.1 Checks (FK-05-227 bis FK-05-231)
+### 27.12.1 Checks (FK-05-227 bis FK-05-231)
 
 Nach erfolgreichem Merge und Issue-Close (für Concept/Research: nach
-`merge_done = true` und `issue_closed = true`, §25.10.1):
+`merge_done = true` und `issue_closed = true`, §27.10.1):
 
 | Check | Was | FAIL wenn |
 |-------|-----|----------|
@@ -1593,16 +1593,16 @@ Nach erfolgreichem Merge und Issue-Close (für Concept/Research: nach
 | `telemetry_complete` | `agent_start` und `agent_end` Events vorhanden | Events fehlen |
 | `artifacts_complete` | Bei impl/bugfix: `structural.json`, `decision.json`, `context.json` vorhanden. Bei concept/research: nur `context.json` Pflicht (`structural.json` und `decision.json` entfallen — kein Verify). | Pflicht-Artefakte fehlen |
 
-### 25.12.2 Postflight-FAIL
+### 27.12.2 Postflight-FAIL
 
 Postflight-Failure nach erfolgreichem Merge ist ein Sonderfall:
 Der Code ist bereits auf Main. Ein Rollback ist nicht vorgesehen.
 Stattdessen: Warnung an den Menschen, dass die Konsistenz
 unvollständig ist. Der Mensch entscheidet, ob Nacharbeit nötig ist.
 
-## 25.13 Execution Report
+## 27.13 Execution Report
 
-### 25.13.1 Zweck
+### 27.13.1 Zweck
 
 Am Ende jeder Story-Bearbeitung — unabhängig vom Ergebnis (COMPLETED,
 ESCALATED, FAILED) — wird ein konsolidierter Markdown-Report erzeugt:
@@ -1610,7 +1610,7 @@ ESCALATED, FAILED) — wird ein konsolidierter Markdown-Report erzeugt:
 (Oversight/Audit); bei erfolgreich abgeschlossenen Stories ist keine
 aktive Intervention erforderlich.
 
-### 25.13.2 Report-Sektionen
+### 27.13.2 Report-Sektionen
 
 | Sektion | Inhalt |
 |---------|--------|
@@ -1624,7 +1624,7 @@ aktive Intervention erforderlich.
 | **Telemetry Event Counts** | Zähler aller relevanten Telemetrie-Events |
 | **Integrity Violations Log** | Vollständiger Integrity-Violations-Auszug (falls vorhanden) |
 
-### 25.13.3 Graceful Degradation
+### 27.13.3 Graceful Degradation
 
 Jede Datenquelle ist optional. Wenn ein Artefakt fehlt oder nicht
 ladbar ist, wird der Ladestatus in der Sektion "Artifact Health"
@@ -1632,16 +1632,16 @@ als `MISSING` oder `LOAD_ERROR` dokumentiert. Die restlichen Sektionen
 werden trotzdem befüllt — der Report wird nie wegen fehlender
 Einzeldaten abgebrochen.
 
-### 25.13.4 FK-Referenz
+### 27.13.4 FK-Referenz
 
 Domänenkonzept 5.2 Closure-Phase "Execution Report".
 
-## 25.14 Dokumententreue Ebene 4: Rückkopplungstreue
+## 27.14 Dokumententreue Ebene 4: Rückkopplungstreue
 
-### 25.14.1 Prüfung (FK-06-059)
+### 27.14.1 Prüfung (FK-06-059)
 
 Nach dem Merge (bzw. nach `merge_done = true` für Concept/Research,
-§25.10.1), vor Postflight. Prüft ob bestehende Dokumentation
+§27.10.1), vor Postflight. Prüft ob bestehende Dokumentation
 aktualisiert werden muss:
 
 ```python
@@ -1667,7 +1667,7 @@ Ein FAIL erzeugt einen Incident-Kandidaten für den Failure Corpus
 und eine Empfehlung an den Menschen, welche Dokumente aktualisiert
 werden sollten.
 
-## 25.15 Guard-Deaktivierung
+## 27.15 Guard-Deaktivierung
 
 Nach erfolgreichem Postflight:
 
@@ -1685,17 +1685,17 @@ FK-05-215 bis FK-05-232 (Closure-Phase komplett),
 FK-06-057 bis FK-06-063 (Dokumententreue Ebene 3+4),
 FK-06-071 bis FK-06-094 (Integrity-Gate komplett),
 FK-07-001 bis FK-07-021 (QA-Prinzipien),
-FK-25-200 (Context Sufficiency Builder),
-FK-25-210 (Layer-2-Konvertierung via `_run_layer2_parallel()`, kein eigenständiger Layer-2-Caller, Korrektur 2026-04-09),
-FK-25-220 (Mandatory-Target-Rueckkopplung im Remediation-Loop),
-FK-25-221 bis FK-25-225 (Finding-Resolution als Closure-Gate),
-FK-25-250 (Verify-Kontext: QA-Tiefe ueber `verify_context`)*
+FK-27-200 (Context Sufficiency Builder),
+FK-27-210 (Layer-2-Konvertierung via `_run_layer2_parallel()`, kein eigenständiger Layer-2-Caller, Korrektur 2026-04-09),
+FK-27-220 (Mandatory-Target-Rueckkopplung im Remediation-Loop),
+FK-27-221 bis FK-27-225 (Finding-Resolution als Closure-Gate),
+FK-27-250 (Verify-Kontext: QA-Tiefe ueber `verify_context`)*
 
 **Querverweise:**
-- Kap. 26 — Evidence Assembly: EvidenceAssembler, Import-Resolver, Autoritätsklassen, Request-DSL, BundleManifest, Section-aware Packing (`agentkit/core/packing.py`)
+- Kap. 28 — Evidence Assembly: EvidenceAssembler, Import-Resolver, Autoritätsklassen, Request-DSL, BundleManifest, Section-aware Packing (`agentkit/core/packing.py`)
 - Kap. 34 — LLM-Evaluierungen: StructuredEvaluator, ParallelEvalRunner, ContextBundle, `truncate_bundle()` Dispatcher, Evaluator-Erweiterung fuer Finding-Resolution im Remediation-Modus
-- Kap. 04 §4.6 — Finding-Resolution und Remediation-Haertung (Fachkonzept-Provenienz fuer §25.10a und §25.8.4)
-- Kap. 02 §"Verify-Kontext" — Verify-Kontext-Differenzierung POST_IMPLEMENTATION vs. POST_REMEDIATION (Fachkonzept-Provenienz fuer §25.3a) [Korrektur 2026-04-09: post_exploration entfällt]
-- Kap. 04 §4.4a — Verify-Kontext-Differenzierung, Guard-Severity (Fachkonzept-Provenienz fuer §25.3a und §25.4.3) [Korrektur 2026-04-09: STRUCTURAL_ONLY_PASS-Invariante entfällt]
+- Kap. 04 §4.6 — Finding-Resolution und Remediation-Haertung (Fachkonzept-Provenienz fuer §27.10a und §27.8.4)
+- Kap. 02 §"Verify-Kontext" — Verify-Kontext-Differenzierung POST_IMPLEMENTATION vs. POST_REMEDIATION (Fachkonzept-Provenienz fuer §27.3a) [Korrektur 2026-04-09: post_exploration entfällt]
+- Kap. 04 §4.4a — Verify-Kontext-Differenzierung, Guard-Severity (Fachkonzept-Provenienz fuer §27.3a und §27.4.3) [Korrektur 2026-04-09: STRUCTURAL_ONLY_PASS-Invariante entfällt]
 - REF-036 — Verify Layer 2 Skip Blocker (empirischer Anlass BB2-057)
 - REF-035 — Context Sufficiency Builder Gaps (Loader-Vollstaendigkeit, Path-Resolution, kanonische Feldnamen, Klassifikationslogik)

@@ -175,7 +175,7 @@ flowchart TD
 
 > **[Korrektur 2026-04-09]** Element 13 — Präzisierung: `guard_failure` wird **nicht** als Feld in `RuntimeMetadata` modelliert. `RuntimeMetadata` enthält ausschließlich `origin: PhaseOrigin` (NEW | LOADED). Das durable Signal für Guard-Failures ist `AttemptRecord.failure_cause: FailureCause` (StrEnum). Siehe §20.3.4.
 >
-> **[Ergänzung 2026-04-09]** Das Detailkonzept zu Element 16 liegt nun vollständig vor (Designwizard R1+R2 vom 2026-04-09). Die ausgearbeiteten Entscheidungen sind in FK-20 eingetragen: PhaseEnvelope + RuntimeMetadata (§20.3.3), AttemptRecord-Typisierung (§20.3.4), PhaseMemory mit Carry-Forward (§20.3.7), PauseReason StrEnum (§20.6.2a), PhasePayload Discriminated Union mit ExplorationPayload, VerifyPayload, ClosurePayload (FK-25 §25.3a, FK-23 §23.5).
+> **[Ergänzung 2026-04-09]** Das Detailkonzept zu Element 16 liegt nun vollständig vor (Designwizard R1+R2 vom 2026-04-09). Die ausgearbeiteten Entscheidungen sind in FK-20 eingetragen: PhaseEnvelope + RuntimeMetadata (§20.3.3), AttemptRecord-Typisierung (§20.3.4), PhaseMemory mit Carry-Forward (§20.3.7), PauseReason StrEnum (§20.6.2a), PhasePayload Discriminated Union mit ExplorationPayload, VerifyPayload, ClosurePayload (FK-27 §27.3a, FK-23 §23.5).
 >
 > [Korrektur 2026-04-09: SetupPayload und ImplementationPayload existieren nicht. Nur Exploration (ExplorationPayload), Verify (VerifyPayload) und Closure (ClosurePayload) haben typed Payloads. Setup und Implementation haben payload: null.]
 
@@ -341,7 +341,7 @@ Durable Contract Fields:
 |-------|-------------|--------|-------------|
 | exploration | `ExplorationPayload` | `gate_status: ExplorationGateStatus` | Fortschritt durch das Exit-Gate. Werte: `PENDING`, `APPROVED`, `REJECTED` |
 | verify | `VerifyPayload` | `verify_context: VerifyContext` | QA-Tiefe: `POST_IMPLEMENTATION` (volle 4-Schichten-QA) oder `POST_REMEDIATION` (Nachprüfung nach Remediation). Wird vom Phase Runner vor dem Verify gesetzt. Siehe DK-02 §Verify-Kontext. |
-| closure | `ClosurePayload` | `progress: ClosureProgress` | Fortschritt der Closure-Substates: `integrity_passed`, `merge_done`, `issue_closed`, `metrics_written`, `postflight_done` (je `bool`). [Hinweis: Für Concept/Research-Stories ohne Worktree/Branch werden `integrity_passed` und `merge_done` vom Phase Handler direkt auf `true` gesetzt (kein Branch vorhanden = nichts zu prüfen/mergen). Detaillierte Closure-Logik in FK-25 §25.10.] |
+| closure | `ClosurePayload` | `progress: ClosureProgress` | Fortschritt der Closure-Substates: `integrity_passed`, `merge_done`, `issue_closed`, `metrics_written`, `postflight_done` (je `bool`). [Hinweis: Für Concept/Research-Stories ohne Worktree/Branch werden `integrity_passed` und `merge_done` vom Phase Handler direkt auf `true` gesetzt (kein Branch vorhanden = nichts zu prüfen/mergen). Detaillierte Closure-Logik in FK-27 §27.10.] |
 | setup, implementation | — | — | Kein Payload erforderlich (`payload: null`) |
 
 #### PhaseMemory (phasenübergreifend, carry-forward)

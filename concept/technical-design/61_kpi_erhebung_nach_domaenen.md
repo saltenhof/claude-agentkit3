@@ -39,7 +39,7 @@ Es ist das zweite Dokument des Analytics-Blocks (FK-60 bis FK-63).
 
 Dieses Dokument beschreibt WO und WANN Daten entstehen. Die
 KPI-Definition (Name, Formel, Koernung, Entscheidungsfrage) steht
-ausschliesslich in FK-60. Domain-FKs (FK-25, FK-30, FK-34, etc.)
+ausschliesslich in FK-60. Domain-FKs (FK-27, FK-30, FK-34, etc.)
 beschreiben das Laufzeitverhalten, aus dem Events entstehen — sie
 werden hier referenziert, nicht dupliziert.
 

@@ -214,15 +214,16 @@ flowchart TD
     subgraph EXPLORE_PHASE ["Exploration-Phase (REF-034: inkl. Exit-Gate)"]
         EXPLORE["Story verdichten,<br/>Änderungsfläche lokalisieren,<br/>Lösungsrichtung wählen"]:::exploration
         EXPLORE --> SELF_CONFORM["Selbst-Konformitätsprüfung<br/>gegen Referenzdokumente"]:::exploration
-        SELF_CONFORM --> FREEZE["Entwurfsartefakt<br/>einfrieren"]:::exploration
-        FREEZE --> DOC_CHECK["Stufe 1: Dokumententreue-Prüfung<br/>(deterministisch, unabhängig)"]:::exploration
+        SELF_CONFORM --> DOC_CHECK["Stufe 1: Dokumententreue-Prüfung<br/>(LLM-basiert, unabhängig)"]:::exploration
         DOC_CHECK -->|Konflikt| ESCALATE_DOC(["Eskalation an Mensch"])
         DOC_CHECK -->|PASS| DESIGN_REV["Stufe 2a: Design-Review<br/>(LLM via Evaluator)"]:::exploration
-        DESIGN_REV --> TRIGGER_EVAL["Trigger-Evaluation<br/>(deterministisch)"]:::exploration
+        DESIGN_REV --> PREMISE_CHECK["Prämissen-Challenge<br/>(LLM, fokussiert)"]:::exploration
+        PREMISE_CHECK --> TRIGGER_EVAL["Trigger-Evaluation<br/>(deterministisch)"]:::exploration
         TRIGGER_EVAL -->|Trigger vorhanden| DESIGN_CHAL["Stufe 2b: Design-Challenge<br/>(LLM via Evaluator)"]:::exploration
         DESIGN_CHAL --> AGG["Stufe 2c: Finale Aggregation"]:::exploration
         TRIGGER_EVAL -->|Kein Trigger| AGG
-        AGG -->|PASS / PASS_WITH_CONCERNS| PLAN
+        AGG -->|PASS / PASS_WITH_CONCERNS| FREEZE["Entwurfsartefakt<br/>einfrieren"]:::exploration
+        FREEZE --> PLAN
         AGG -->|FAIL remediable| EXPLORE
         AGG -->|FAIL non-remediable| ESCALATE_DR(["Eskalation an Mensch"])
     end
@@ -417,8 +418,11 @@ auf eine präzise Veränderungsabsicht verdichten, relevante
 Referenzdokumente heranziehen (nur die für diese Story passenden,
 nicht alles), die Änderungsfläche im bestehenden System lokalisieren,
 eine Lösungsrichtung wählen und gegen Referenzdokumente auf
-Konformität prüfen. Am Ende wird der Entwurf eingefroren und an die
-LLM-basierte Dokumententreue-Prüfung übergeben.
+Konformität prüfen. Anschließend durchläuft der Entwurf den
+Review-Zyklus: LLM-basierte Dokumententreue-Prüfung, Design-Review,
+Prämissen-Challenge und ggf. Design-Challenge. Erst nach bestandenem
+Gate wird das Artefakt eingefroren (Details zur Reihenfolge: FK-25
+§25.4.2).
 
 Der Worker gleicht den Entwurf bereits selbst gegen bestehende
 Architektur ab. Die nachfolgende Dokumententreue-Prüfung ist damit
@@ -426,6 +430,28 @@ nicht die erste, sondern die zweite, unabhängige Konformitätsprüfung.
 
 Erkennt die Prüfung einen Konflikt, wird an den Menschen eskaliert.
 Erst nach bestandener Prüfung geht die Story in die Implementierung.
+
+**Mandatsprinzip:** Der Mensch legt normative Leitplanken fest (Fach-
+und IT-Konzepte). Alles, was innerhalb dieser Leitplanken liegt und
+keine neue fachliche Substanz erzeugt, entscheiden Agenten autonom.
+Die Mandatsgrenze ist: Braucht die Entscheidung Wissen oder Autorität,
+die nicht in Konzepten, Code und Story-Spezifikationen liegt? Wenn ja,
+eskaliert der Agent an den Menschen. Wenn nein, löst der Agent das
+Problem selbständig — bei Feindesign-Entscheidungen mit
+modulübergreifender Wirkung unter Hinzuziehung externer LLMs in einem
+agentengeführten Diskussionsprozess (nicht einmaliger Broadcast,
+sondern iterativer Dialog mit Austausch von Gegenpositionen und
+Kontextnachlieferung).
+
+Technische Feindesign-Entscheidungen, die über die mittlere
+Abstraktionsebene der IT-Konzepte hinausgehen — etwa die exakte
+Semantik eines Schnittstellenvertrags oder die Zuordnung einer
+Scope-Lücke zwischen zwei Stories — werden im Rahmen der Exploration
+aufgelöst, nicht erst in der Implementierung. Denn diese Entscheidungen
+haben Wirkung über die einzelne Methode hinaus und müssen daher in
+einem abgesicherten Designentscheidungsprozess stattfinden.
+
+Referenz: FK-25 (Mandatsgrenzen und Feindesign-Autonomie).
 
 ### Implementierung
 

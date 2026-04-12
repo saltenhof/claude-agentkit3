@@ -601,3 +601,44 @@ präventiv während der Worker-Laufzeit. Alle drei sind orthogonal.
 
 > **[Entscheidung 2026-04-08]** Element 19 — Evidence-Fingerprint wird verbessert: SHA256-Hash statt Dateigroessen. Trivial, robust.
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 19.
+
+### 3.9 Eskalationsklassen und Mandatsgrenzen
+
+AgentKit unterscheidet vier Klassen von Eskalationen. Nicht jede
+Eskalation erfordert menschliches Eingreifen — die Klasse bestimmt,
+ob der Mensch entscheidet oder der Agent die Auflösung selbst
+verantwortet.
+
+| Klasse | Bezeichnung | Auslöser | Wer entscheidet |
+|--------|-------------|----------|-----------------|
+| 1 | Fachliche Lücke oder Normativ-Konflikt | (a) Fehlende Fachkonzepte, fehlende Domänendaten — das benötigte Wissen existiert nicht im System. (b) Normative Quellen widersprechen sich untereinander und der Widerspruch ist innerhalb des Konzeptrahmens nicht auflösbar — menschliche Präzedenzentscheidung nötig. | Mensch |
+| 2 | Technische Feindesign-Entscheidung | Unaufgelöste technische Details innerhalb des normativen Rahmens: Schnittstellensemantik, Schema-Ausprägungen, Scope-Zuordnungen zwischen Stories. Das Wissen liegt in Konzepten, Code und Specs vor. | Agent (Multi-LLM-Beratung) |
+| 3 | Scope-Explosion | Der Implementierungsumfang wächst signifikant über den deklarierten Story-Scope hinaus (quantitative Schwellen: Klassen-Count, neue Schnittstellen, Komplexitätsindikatoren). Die Story muss neu geschnitten werden. | Mensch (Story-Split) |
+| 4 | Breaking Change außerhalb der deklarierten Tragweite | Die notwendige Änderung überschreitet den deklarierten Wirksamkeitsgrad der Story (Komponente → Architektur, Architektur → Applikation). Bestehende Schnittstellen oder Implementierungen müssen angepasst werden, was über den Story-Scope hinausgeht. | Mensch |
+
+**Mandatsgrenze:** Die zentrale Unterscheidung ist, ob eine
+Entscheidung Wissen oder Autorität erfordert, die nicht in den
+normativen Quellen (Fach-/IT-Konzepte, Code, Story-Specs) enthalten
+ist. Klasse 1 erfordert neues Domänenwissen oder menschliche
+Präzedenzentscheidung bei Normativ-Konflikten. Klassen 3 und 4
+erfordern Autorität über Story-Scope und Systemgrenzen. Klasse 2
+erfordert weder neues Wissen noch neue Autorität — die Antwort liegt
+im bestehenden Rahmen und wird durch den Agenten mit Multi-LLM-
+Beratung aufgelöst.
+
+**Prüfreihenfolge:** Die Klassifikation erfolgt fail-closed —
+restriktivste Klasse zuerst: 1 → 3 → 4 → 2 → methodenlokal.
+Damit wird kein Fall zu früh als autonom aufgelöst, der eigentlich
+an den Menschen eskaliert werden müsste.
+
+**Tragweite als Bezugsrahmen für Klasse 4:** Ob ein Breaking Change
+eskaliert werden muss, ist relativ zum deklarierten Wirksamkeitsgrad
+der Story (kanonische Enum: `Local`, `Component`, `Cross-Component`,
+`Architecture Impact` — DK-02 §Issue-Schema). Eine als
+`Architecture Impact` deklarierte Refactoring-Story hat das Mandat
+für anwendungsweite Schnittstellenänderungen. Eine als `Component`
+deklarierte Story hat dieses Mandat nicht. Der Vergleich zwischen
+festgestellter und deklarierter Tragweite ist deterministisch prüfbar.
+
+Referenz: FK-25 (Mandatsgrenzen und Feindesign-Autonomie),
+FK-35 §35.4 (Eskalationspunkte).

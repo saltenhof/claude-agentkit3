@@ -171,7 +171,7 @@ Die Quelle ist der Layer-2-QA-Review-Output, nicht Worker-
 Zusammenfassungen (Trust C, nicht autoritativ).
 
 **Provenienz:** Kap. 04, §4.6 (Finding-Resolution und Remediation-
-Haertung). Kap. 25, §25.10a (Finding-Resolution als Closure-Gate).
+Haertung). Kap. 27, §27.10a (Finding-Resolution als Closure-Gate).
 
 **Hinweis zu Preflight-Nachweisen:** Preflight ist Pflicht
 (fail-closed). Zwei Failure-Codes stellen dies sicher:
