@@ -83,18 +83,47 @@ def check_fidelity(
     5. Telemetrie-Event schreiben
     """
     refs = identify_references(level, context)
-    result = evaluator.evaluate(
-        role="doc_fidelity",
-        prompt_template=PROMPT_TEMPLATES[level],
-        context={
-            "subject": context.subject,         # Was geprüft wird
-            "references": refs,                  # Wogegen geprüft wird
-            "story_description": context.story,
-        },
-        expected_checks=[f"{level}_fidelity"],
-        story_id=context.story_id,
-        run_id=context.run_id,
-    )
+
+    # 3-Tier Prompt-Größenkontrolle (§32.4b)
+    data_size = len(context.subject.encode()) + len(refs.encode())
+    merge_paths: list[str] | None = None
+
+    if data_size >= HARD_LIMIT_BYTES:
+        return FidelityResult(
+            level=level, status="FAIL",
+            reason=f"Payload ({data_size} bytes) exceeds hard limit ({HARD_LIMIT_BYTES})",
+            description="LLM call blocked — payload too large for reliable evaluation.",
+            references_used=refs,
+        )
+
+    if data_size >= FILE_UPLOAD_THRESHOLD_BYTES:
+        merge_paths = _write_temp_files(context.subject, refs, context.story_id)
+        # Inline-Kontext wird durch Pointer-Text ersetzt
+        subject_inline = f"[Subject uploaded as file — {len(context.subject)} chars]"
+        refs_inline = f"[References uploaded as file — {len(refs)} chars]"
+    else:
+        subject_inline = context.subject
+        refs_inline = refs
+
+    try:
+        result = evaluator.evaluate(
+            role="doc_fidelity",
+            prompt_template=PROMPT_TEMPLATES[level],
+            context={
+                "subject": subject_inline,
+                "references": refs_inline,
+                "story_description": context.story,
+            },
+            expected_checks=[f"{level}_fidelity"],
+            story_id=context.story_id,
+            run_id=context.run_id,
+            merge_paths=merge_paths,
+        )
+    finally:
+        if merge_paths:
+            for path in merge_paths:
+                Path(path).unlink(missing_ok=True)
+
     return FidelityResult(
         level=level,
         status=result.checks[0].status,
@@ -189,6 +218,76 @@ Menschen.
 kuratierte Einträge. Nicht jedes Markdown im Projekt ist ein
 Referenzdokument für die Dokumententreue. Der Mensch entscheidet,
 welche Dokumente normativ sind.
+
+## 32.4b Prompt-Größenkontrolle (3-Tier)
+
+### 32.4b.1 Problem
+
+Die Payload-Größe der Dokumententreue-Aufrufe variiert stark.
+Zieltreue (Ebene 1) hat kompakte Eingaben (Story-Body + wenige
+Referenzdokumente). Umsetzungstreue (Ebene 3) und Rückkopplungstreue
+(Ebene 4) können sehr große Diffs enthalten — bei umfangreichen
+Stories mehrere hundert Kilobyte.
+
+Ein LLM-Aufruf mit übergroßem Inline-Kontext scheitert oder
+produziert degradierte Ergebnisse. Gleichzeitig darf relevanter
+Kontext nicht verloren gehen — Trunkierung ist keine akzeptable
+Strategie, weil sie semantisch relevante Teile abschneiden kann.
+
+### 32.4b.2 Drei Stufen
+
+Die Conformance-Service-Funktion `check_fidelity()` entscheidet
+anhand der Gesamtgröße von Subject + Referenzdokumenten, welcher
+Übertragungsweg gewählt wird:
+
+| Stufe | Bedingung | Verhalten |
+|-------|-----------|-----------|
+| **Tier 1 — Inline** | `data_size < FILE_UPLOAD_THRESHOLD` | Subject und Referenzen werden als Inline-Text im Prompt-Kontext an den Evaluator übergeben. Normaler Weg. |
+| **Tier 2 — Datei-Upload** | `FILE_UPLOAD_THRESHOLD ≤ data_size < HARD_LIMIT` | Subject und Referenzen werden in temporäre Dateien geschrieben und per `merge_paths` (Kap. 11, Hub-Mechanismus) als zusammengefasster Upload an das LLM gesendet. Der Inline-Kontext enthält nur einen kurzen Pointer-Text. |
+| **Tier 3 — Blockade** | `data_size ≥ HARD_LIMIT` | Der LLM-Aufruf wird **nicht durchgeführt**. `check_fidelity()` liefert sofort `FAIL` mit einer Beschreibung, die erklärt, dass die Payload die maximale Verarbeitungsgrenze überschreitet. |
+
+### 32.4b.3 Schwellwerte
+
+| Konstante | Wert | Begründung |
+|-----------|------|------------|
+| `FILE_UPLOAD_THRESHOLD_BYTES` | 50 KB | Inline-Kontext bleibt unter typischen Prompt-Größen für zuverlässige LLM-Verarbeitung |
+| `HARD_LIMIT_BYTES` | 500 KB | Auch per Datei-Upload nicht sinnvoll verarbeitbar — LLM-Qualität degradiert bei dieser Größe |
+
+Konfigurierbar in `pipeline.yaml` unter `conformance.file_upload_threshold`
+und `conformance.hard_limit`.
+
+### 32.4b.4 Temporäre Dateien
+
+Bei Tier 2 erzeugt `check_fidelity()` temporäre Dateien:
+
+- Erstellt mit `NamedTemporaryFile(delete=False)`, Prefix
+  `fidelity-subject-{story_id}-` bzw. `fidelity-refs-{story_id}-`
+- An den Evaluator als `merge_paths=[subject_path, refs_path]`
+  übergeben
+- **Cleanup im `finally`-Block** — garantierte Löschung auch bei
+  Evaluator-Fehlern
+- `merge_paths` wird nur beim ersten Send übergeben, nicht beim
+  Retry — das LLM hat die Dateiinhalte bereits
+
+### 32.4b.5 Designentscheidung: Kein Trunkieren
+
+Trunkierung (`content[:32000]`) ist für die Dokumententreue-Prüfung
+**nicht zulässig**. Begründung: Wenn ein Referenzdokument abgeschnitten
+wird, kann das LLM Konflikte in den abgeschnittenen Teilen nicht
+erkennen. Das Prüfergebnis wäre falsch-positiv (PASS trotz Konflikt).
+
+Die korrekte Strategie bei zu großen Payloads ist Tier 2 (Upload)
+oder Tier 3 (Blockade mit klarer Fehlermeldung), nie stilles
+Abschneiden.
+
+**Abgrenzung zum Verify-Layer-2-Bundle (Kap. 27.5b):** Das
+Context-Bundle der Layer-2-Evaluatoren (Umsetzungstreue, Adversarial)
+nutzt ein separates Packing-Verfahren mit `BUNDLE_TOKEN_LIMIT`
+(Kap. 27.5b.2). Dieses ist symbol-aware und verlustbehaftet — dort
+ist kontrollierte Kompression akzeptabel, weil der Layer-2-Evaluator
+eine andere Prüffrage stellt (Code-Qualität, nicht Dokumententreue).
+Für die Dokumententreue-Spezifische Prüfung gilt die 3-Tier-Regel
+dieses Abschnitts.
 
 ## 32.5 Ebene 1: Zieltreue
 

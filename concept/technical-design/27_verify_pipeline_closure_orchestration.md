@@ -1662,6 +1662,12 @@ evaluator.evaluate(
 künftige Dokumententreue-Prüfungen gegen eine korrekte Wahrheit
 laufen? (FK-06-063)
 
+**Prompt-Größenkontrolle:** Der `final_diff` kann bei umfangreichen
+Stories mehrere hundert Kilobyte umfassen. Die 3-Tier-Strategie
+(Kap. 32.4b) greift: Inline bei kleinen Diffs, Datei-Upload via
+`merge_paths` bei mittleren, Blockade bei übergroßen Payloads.
+Kein Trunkieren.
+
 **Bei FAIL:** Warnung, keine Blockade. Die Story ist bereits gemergt.
 Ein FAIL erzeugt einen Incident-Kandidaten für den Failure Corpus
 und eine Empfehlung an den Menschen, welche Dokumente aktualisiert
