@@ -26,6 +26,11 @@ Zielprojekt erhält lokale Konfiguration und Claude-Code-kompatible
 Symlink-Bindungen für Skills, aber keine kopierten AgentKit-
 Laufzeitartefakte.
 
+**Architekturzuordnung:** Der Installer ist im Komponentenmodell eine
+eigene Top-Level-Komponente. Er ist kein Teil der `PipelineEngine`,
+sondern vorgelagerter Bootstrap- und Registrierungsmechanismus für
+Projekte, Hooks, Skill-Bindungen und Backend-Registrierung.
+
 ## 50.2 Aufruf
 
 ```bash

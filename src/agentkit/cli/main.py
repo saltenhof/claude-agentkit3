@@ -89,7 +89,7 @@ def _cmd_install(args: argparse.Namespace) -> int:
     """Handle ``agentkit install`` command.
 
     Creates the AgentKit directory structure in the target project
-    using the installer from :mod:`agentkit.project_ops.install`.
+    using the installer from :mod:`agentkit.installer`.
 
     Args:
         args: Parsed CLI arguments with ``project_name`` and
@@ -100,7 +100,7 @@ def _cmd_install(args: argparse.Namespace) -> int:
     """
     from pathlib import Path
 
-    from agentkit.project_ops.install import InstallConfig, install_agentkit
+    from agentkit.installer import InstallConfig, install_agentkit
 
     config = InstallConfig(
         project_name=args.project_name,

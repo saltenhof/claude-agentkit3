@@ -35,6 +35,12 @@ Die Stage-Registry typisiert die Prüfschritte aller Schichten.
 Die Policy-Engine aggregiert die Ergebnisse und entscheidet über
 PASS oder FAIL der gesamten Verify-Phase.
 
+**Architekturzuordnung:** `StructuralChecker` und `PolicyEngine` sind
+fachlich Subkomponenten der `VerifyPhase`. Die `StageRegistry` ist
+dagegen eine eigenstaendige Top-Level-Komponente, weil sie nicht nur
+von der Verify-Phase konsumiert wird, sondern auch Ziel der
+Pattern-/Check-Promotion aus dem `FailureCorpus` ist.
+
 ## 33.2 Stage-Registry
 
 ### 33.2.1 Typisiertes Modell (Kap. 02.9)

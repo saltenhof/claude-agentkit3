@@ -19,6 +19,26 @@ tags: [naming, conventions, directory-structure, reference]
 
 Vollständige Struktur in Kap. 10.3.1. Hier nur die Konventionen.
 
+### 92.1.1 Namespace-Konvention fuer Produktionscode
+
+Produktionscode unter `src/agentkit/` folgt einer
+komponentenorientierten Namespace-Regel:
+
+| Regel | Bedeutung |
+|-------|-----------|
+| Komponentenname statt Technikname | Namespaces werden nach fachlicher Verantwortung benannt (`pipeline_engine`, `guard_system`, `conformance_service`) |
+| Snake Case fuer Pakete | Paketnamen sind klein und `snake_case` |
+| Subkomponenten als Unterpakete | Beispiel: `pipeline_engine/setup_phase/` |
+| Adapter bleiben unter `integrations/` | Externe Systemgrenzen bleiben technisch gebuendelt |
+| Kein Sammelbecken `utils` fuer Fachlogik | Fachwissen gehoert in Komponenten, nicht in neutrale Hilfspakete |
+
+**Zielstruktur:**
+
+```text
+src/agentkit/{component_name}/
+src/agentkit/{component_name}/{subcomponent_name}/
+```
+
 ## 92.2 Naming-Schemata
 
 | Entität | Format | Beispiel |

@@ -34,6 +34,15 @@ Wie Hooks registriert werden, wie sie aufgerufen werden, welche
 Arten es gibt, und wie sie zusammenspielen. Die einzelnen Guards
 (Branch, Orchestrator, QA-Schutz) werden in Kap. 31 detailliert.
 
+**Architekturzuordnung:** Im Komponentenmodell aus FK-01 bildet dieses
+Kapitel zusammen mit FK-31 die Top-Level-Komponente `GuardSystem` ab.
+Zum `GuardSystem` gehoeren nicht nur die klassischen Branch- und
+Artefakt-Guards, sondern alle blockierenden oder hart eingreifenden
+Hook-Bausteine inklusive Self-Protection, Story-Creation-Guard,
+Budget-Guard und Worker-Health-Monitor. CCAG gehoert ausdruecklich
+nicht zu diesem System, sondern ist eine separate Permission-Runtime
+(FK-42).
+
 ## 30.2 Hook-Architektur in Claude Code
 
 ### 30.2.1 Hook-Typen

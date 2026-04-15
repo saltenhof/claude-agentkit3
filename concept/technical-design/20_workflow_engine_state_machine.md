@@ -33,6 +33,20 @@ Orchestrator hat keinen Einfluss auf die Phasenlogik selbst. Der
 Phase Runner entscheidet über Phasenwechsel, Feedback-Loops und
 Eskalation.
 
+### 20.1.1 Komponentenschnitt
+
+Im fachlichen Komponentenmodell aus FK-01 ist die Workflow-Engine die
+Top-Level-Komponente `PipelineEngine`. Der Phase Runner ist ihre
+deterministische Laufzeitimplementierung.
+
+| Ebene | Zugehoerigkeit | Verantwortung |
+|-------|----------------|---------------|
+| `PipelineEngine` | Top-Level-Komponente | State Machine, Transition-Guards, Feedback-/Review-Loops, Eskalation |
+| `SetupPhase`, `ExplorationPhase`, `ImplementationPhase`, `VerifyPhase`, `ClosurePhase` | Subkomponenten der `PipelineEngine` | Innere Fachlogik je Phase |
+| `PreflightChecker`, `ModeResolver` | Subkomponenten von `SetupPhase` | Vorbedingungen und Modusermittlung |
+| `StructuralChecker`, `PolicyEngine` | Subkomponenten von `VerifyPhase` | Layer-1-Pruefung und finale Aggregation |
+| `IntegrityGate` | Subkomponente von `ClosurePhase` | Vorbedingung fuer Merge/Abschluss |
+
 ## 20.2 Phasenmodell
 
 ### 20.2.1 Fünf Phasen

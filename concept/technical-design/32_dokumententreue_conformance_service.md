@@ -39,6 +39,12 @@ läuft sie über den StructuredEvaluator (Kap. 11) — ein
 deterministisches Python-Skript ruft ein LLM über den Browser-Pool
 auf und validiert die Antwort.
 
+**Architekturzuordnung:** Der `ConformanceService` ist im
+Komponentenmodell eine eigenstaendige Top-Level-Komponente. Er ist
+bewusst keiner einzelnen Phase untergeordnet, weil seine vier
+Conformance-Ebenen von Story-Erstellung, Exploration, Verify und
+Closure genutzt werden.
+
 **Geltungsbereich:** Nur implementierende Story-Typen (Implementation,
 Bugfix). Konzept- und Research-Stories erzeugen
 Dokumente, keinen Code — für sie gelten andere, leichtgewichtige

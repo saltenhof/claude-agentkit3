@@ -116,6 +116,54 @@ eingehalten wird.
 Gemini und Grok laufen auf derselben WSL2-Instanz mit getrennten
 Linux-Usern, X11-Displays und Ports.
 
+### 1.2.2a Fachliches Komponentenmodell
+
+Fuer AK3 wird "Komponente" fachlich verstanden: als logisch
+abgegrenztes Verantwortungsbuendel mit klarer Schnittstelle. Eine
+Komponente ist **nicht** automatisch eine Python-Klasse, ein Modul
+oder ein Prozess.
+
+**Bildungsregeln:**
+
+| Regel | Bedeutung |
+|-------|-----------|
+| Verantwortung vor Technik | Komponenten werden nach fachlicher Aufgabe benannt, nicht nach Datei, Klasse oder Pipeline-Schritt |
+| Ein Aufrufer, gekapselte Innenlogik | Wird ein Baustein ausschliesslich von genau einer Komponente genutzt und ist Teil ihres inneren Ablaufwissens, ist er Subkomponente |
+| Mehrere Aufrufer, eigener Vertrag | Wird ein Baustein von mehreren Komponenten genutzt, ist er Top-Level-Komponente mit eigenem Vertrag |
+| Architekturbuendel sind erlaubt | `IntegrationHub` oder `ArtifactManager` duerfen als Architekturbuendel beschrieben werden, auch wenn die Implementierung aus mehreren Modulen statt aus einem "God Object" besteht |
+
+**Top-Level-Komponenten von AK3:**
+
+| Komponente | Typische Subkomponenten | Fachliche Verantwortung | Autoritative FK-Schwerpunkte |
+|------------|-------------------------|-------------------------|------------------------------|
+| `PipelineEngine` | `SetupPhase`, `ExplorationPhase`, `ImplementationPhase`, `VerifyPhase`, `ClosurePhase` | Steuert die 5-Phasen-State-Machine, Transitions, Feedback-Loops und Eskalationen | FK-20, FK-22 bis FK-28 |
+| `GuardSystem` | `BranchGuard`, `OrchestratorGuard`, `QaArtifactGuard`, `QaAgentGuard`, `AdversarialGuard`, `PromptIntegrityGuard`, `SelfProtectionHook`, `StoryCreationGuard`, `BudgetGuard`, `WorkerHealthMonitor` | Plattform-Enforcement ueber Hooks mit statisch codierten oder deterministisch berechneten Regeln | FK-30, FK-31, FK-35 |
+| `ArtifactManager` | `EnvelopeValidator`, `ProducerRegistry` | Typisierter Artefakt-Lifecycle, Envelope-/Producer-Validierung und Artefaktvertrag | FK-02, FK-33, FK-90 |
+| `IntegrationHub` | `GitHubAdapter`, `LlmPoolAdapter`, `AreAdapter`, `KnowledgeBaseAdapter` | Logisches Buendel aller externen Integrationen hinter klaren Adaptervertraegen | FK-11, FK-12, FK-13, FK-40 |
+| `StoryContextManager` | — | Ableitung und Verwaltung des autoritativen Story-Kontexts nach Setup | FK-21, FK-22 |
+| `WorktreeManager` | — | Git-Worktree- und Branch-Lifecycle fuer Story-Runs | FK-22, FK-27 |
+| `PromptComposer` | — | Prompt-Assembling aus Story-Kontext, Template-Auswahl und Kontext-Selektion | FK-01 P6, FK-43 |
+| `LlmEvaluator` | — | Strukturierte, schema-validierte LLM-Bewertungen ohne Dateisystemzugriff | FK-11 |
+| `ConformanceService` | — | Gestufte Dokumententreue-/Conformance-Pruefungen ueber mehrere Pipeline-Zeitpunkte | FK-32 |
+| `StageRegistry` | — | Autoritativer Katalog aller Verify-/QA-Stages und ihrer Producer-/Trust-Vertraege | FK-33 |
+| `TelemetryService` | — | Append-only Eventing, Telemetrieabfragen und Prozessnachweise | FK-14 |
+| `PhaseStateStore` | — | Persistenz und Laden von `PhaseState`-Strukturen als laufzeitrelevanter Story-Status | FK-20 |
+| `GovernanceObserver` | — | Erkennung, Verdichtung und Klassifikation von Governance-Anomalien | FK-35 |
+| `FailureCorpus` | — | Dauerhafte Sammlung, Clustering und Promotion wiederkehrender Fehlmuster | FK-41 |
+| `CcagPermissionRuntime` | — | Lernfaehige, sessionpersistente Tool-Permission-Schicht ausserhalb der harten Guards | FK-42 |
+| `KpiAnalyticsEngine` | — | KPI-Aggregation, Rollups und Dashboard-Datenmodell | FK-60 bis FK-63 |
+| `Installer` | — | Projektregistrierung, Bootstrap, Hook-/Skill-Bindung und Verifikation | FK-50, FK-51 |
+
+**Wichtige Abgrenzungen:**
+
+| Abgrenzung | AK3-Regel |
+|------------|-----------|
+| `PipelineEngine` vs. Phasen | Die Engine ist Top-Level; die Phasen sind ihre Subkomponenten. `PreflightChecker`, `ModeResolver`, `StructuralChecker`, `PolicyEngine` und `IntegrityGate` sind wiederum phasennahe Subkomponenten |
+| `StageRegistry` | Bleibt Top-Level, weil sie sowohl von `VerifyPhase` als auch vom `FailureCorpus` genutzt wird; sie darf nicht in `VerifyPhase` aufgehen |
+| `GuardSystem` vs. `CcagPermissionRuntime` | CCAG ist **nicht** Teil des GuardSystems. Guards erzwingen harte Regeln; CCAG verwaltet lernfaehige, vom Menschen freigegebene Permission-Pfade |
+| `PromptComposer` vs. Prompt-Integritaet | Der Composer assembliert Prompts. Sentinel-/Spawn-Integritaet und Governance-Escape-Erkennung gehoeren zum Guard-/Hook-System, nicht zum Composer |
+| `IntegrationHub` | Ist ein Architekturbuendel, kein Zwang zu einer zentralen Runtime-Klasse. Die Adapter bleiben fachlich getrennt |
+
 ### 1.2.3 Was AgentKit NICHT ist
 
 - Kein CI/CD-System — es ersetzt keine Build-Pipeline, sondern

@@ -24,6 +24,11 @@ Dieses Dokument definiert den vollstaendigen Katalog aller KPIs fuer
 AgentKit, die Infrastruktur-Architektur fuer deren Speicherung und
 die Designprinzipien fuer Erhebung, Aggregation und Auswertung.
 
+**Architekturzuordnung:** Der Analytics-Block FK-60 bis FK-63 bildet
+zusammen die Top-Level-Komponente `KpiAnalyticsEngine`. Das ist kein
+einzelnes Runtime-Objekt, sondern das fachliche Buendel aus
+Datenerhebung, Aggregation und Dashboard-Serving.
+
 Es ist das Meta-Dokument des Analytics-Blocks (Nummernkreis 60-69):
 
 | Dokument | Scope |

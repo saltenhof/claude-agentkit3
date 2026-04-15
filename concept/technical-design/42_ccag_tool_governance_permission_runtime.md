@@ -32,6 +32,12 @@ Guards (Kap. 30/31), ersetzt sie aber nicht (FK-12-018).
 | Bei Verstoß | Opake Fehlermeldung | Mensch wird gefragt |
 | Implementierung | Dedizierte Python-Hooks | CCAG Gate-Keeper-Hook |
 
+**Architekturzuordnung:** `CcagPermissionRuntime` ist im
+Komponentenmodell absichtlich eine **eigene** Top-Level-Komponente und
+nicht Teil des `GuardSystem`. Der Unterschied ist fachlich, nicht nur
+technisch: Guards erzwingen nicht verhandelbare Regeln; CCAG verwaltet
+persistente, vom Menschen gelernte Freigaben.
+
 ## 42.2 Kernfunktionen
 
 ### 42.2.1 Sessionübergreifende Persistenz (FK-12-002 bis FK-12-005)
