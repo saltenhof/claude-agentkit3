@@ -43,7 +43,7 @@ Das AgentKit QA Dashboard ist eine Single-Page-Applikation:
 
 - **Technologie**: Python stdlib HTTP-Server + Chart.js 4.4.7 (CDN)
 - **Start**: `agentkit dashboard [--port 9700]`
-- **Datenquelle**: Liest read-only aus `_temp/agentkit.db` (raw.db)
+- **Datenquelle**: Liest read-only aus PostgreSQL (runtime/analytics)
 - **5 Tabs**: QA Findings, Stage Results, Story Metrics,
   Failure Corpus, Trends
 - **11 API-Endpoints** mit vorgefertigten SQL-Queries
@@ -52,7 +52,7 @@ Das AgentKit QA Dashboard ist eine Single-Page-Applikation:
 
 ### 63.2.2 Einschraenkungen des Ist-Zustands
 
-- Liest nur aus raw.db — keine vorberechneten Aggregationen
+- Liest bislang noch nicht aus den geplanten Analytics-Rollups
 - Keine Perzentile, keine Raten, keine Trend-Berechnung in SQL
 - Keine frei definierbaren Zeitraeume oder Filter
 - Keine Guard-, Pool- oder Template-spezifischen Sichten
@@ -66,10 +66,14 @@ Das AgentKit QA Dashboard ist eine Single-Page-Applikation:
 
 Das Dashboard liest aus zwei Quellen:
 
-1. **analytics.db** (primaer): Fact-Tabellen mit vorberechneten
+1. **analytics schema** (primaer): Fact-Tabellen mit vorberechneten
    KPIs, Perzentilen, Raten, Trend-Werten
-2. **raw.db** (ergaenzend): Live-Sicht fuer laufende Stories
+2. **runtime schema** (ergaenzend): Live-Sicht fuer laufende Stories
    (aktueller Phase-Status, bisherige Laufzeit, bisherige Events)
+
+Alle Dashboard-Abfragen sind projektgebunden. Die zentrale
+PostgreSQL-Instanz wird nie ungefiltert ueber alle Projekte
+ausgewertet; jede Session arbeitet gegen genau einen `project_key`.
 
 ### 63.3.2 Geplante Erweiterungen (Ueberblick)
 
@@ -80,7 +84,7 @@ Das Dashboard liest aus zwei Quellen:
 | **LLM-Performance-Tab** | Antwortzeiten (P50/P95), Verdict-Adoption, Finding-Precision pro Pool (aus `fact_pool_period`). |
 | **Pipeline-Trends-Tab** | First-Pass-Rate, QA-Runden-Trend, Processing-Time-Trend, Execution/Exploration-Ratio (aus `fact_pipeline_period`). |
 | **Failure-Corpus-Tab** | Incident-Volumen-Trend, Conversion-Funnel, Pattern-Status (aus `fact_corpus_period`). |
-| **Live-Sicht** | Laufende Stories mit aktuellem Phase-Status (aus `raw.db`). |
+| **Live-Sicht** | Laufende Stories mit aktuellem Phase-Status (aus dem Runtime-Schema). |
 
 ### 63.3.3 Nutzerseitige Auswertungen
 
@@ -113,7 +117,7 @@ wird in einer spaeteren Iteration definiert.
 | `GET /api/kpi/pools` | `fact_pool_period` | LLM-Performance ueber Zeit |
 | `GET /api/kpi/pipeline` | `fact_pipeline_period` | Pipeline-Trends |
 | `GET /api/kpi/corpus` | `fact_corpus_period` | Failure-Corpus-Trends |
-| `GET /api/live/stories` | `raw.db` (events, phase-state) | Laufende Stories |
+| `GET /api/live/stories` | runtime schema (events, workflow_state) | Laufende Stories |
 
 ### 63.4.2 Query-Parameter
 
@@ -122,6 +126,7 @@ Endpoint hat seine natuerliche Koernung (siehe FK-62 Fact-Tabellen).
 
 | Parameter | Typ | Anwendbar auf | Beschreibung |
 |-----------|-----|---------------|--------------|
+| `project_key` | String | Alle Endpoints (pflichtig oder implizit aus Projektkontext) | Zielprojekt / Mandanten-Scope |
 | `from` | ISO 8601 Date | Alle Endpoints | Beginn des Zeitraums |
 | `to` | ISO 8601 Date | Alle Endpoints | Ende des Zeitraums |
 | `guard` | String | `/api/kpi/guards` | Filter auf bestimmten Guard |
@@ -133,7 +138,7 @@ Endpoint hat seine natuerliche Koernung (siehe FK-62 Fact-Tabellen).
 Modellierung als JSON-Feld in `fact_pool_period` abgelegt und
 daher nicht ueber einen eigenen Filter ansteuerbar. Fuer
 detaillierte Template-Analyse ist ein Drill-Down in die
-Rohdaten (raw.db) noetig. Eine Erweiterung um eine eigene
+Rohdaten des Runtime-Schemas noetig. Eine Erweiterung um eine eigene
 Template-Fact-Tabelle ist ein INVENTAR-Punkt fuer spaetere
 Iterationen.
 
@@ -141,7 +146,7 @@ Iterationen.
 
 ## 63.5 Abgrenzung
 
-- **FK-62** definiert WAS in analytics.db steht (Schema,
+- **FK-62** definiert WAS im Analytics-Schema steht (Schema,
   Refresh-Logik, Berechnung). FK-63 definiert WIE es dem
   Nutzer praesentiert wird.
 - **FK-52** (Betrieb, Monitoring) definiert operative Sichten

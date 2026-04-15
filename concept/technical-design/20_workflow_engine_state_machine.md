@@ -58,10 +58,22 @@ stateDiagram-v2
     state exploration {
         [*] --> entwurf_erstellen
         entwurf_erstellen --> selbst_konformitaet : Worker prüft selbst
-        selbst_konformitaet --> entwurf_freeze : Entwurf einfrieren
-        entwurf_freeze --> doc_fidelity_check : Unabhängige Prüfung (LLM)
+        selbst_konformitaet --> doc_fidelity_check : Unabhängige Prüfung (LLM)
         doc_fidelity_check --> ESKALATION_DOC : FAIL
-        doc_fidelity_check --> [*] : PASS
+        doc_fidelity_check --> design_review : PASS
+        design_review --> premise_challenge
+        premise_challenge --> trigger_eval
+        trigger_eval --> design_challenge : Trigger vorhanden
+        trigger_eval --> aggregation : Kein Trigger
+        design_challenge --> aggregation
+        aggregation --> mensch_pause : Klasse 1/3/4 (FK-25)
+        aggregation --> feindesign : Klasse 2 (FK-25)
+        aggregation --> remediation : Review-Findings remediable
+        feindesign --> design_review
+        remediation --> entwurf_erstellen
+        mensch_pause --> design_review : Resume nach Klärung
+        aggregation --> entwurf_freeze : PASS ohne Findings
+        entwurf_freeze --> [*]
     }
 
     exploration --> implementation : Exploration-Exit-Gate vollständig bestanden
@@ -120,18 +132,13 @@ stateDiagram-v2
 > Exploration-interne Remediation (max 3 Runden) bleibt davon unberührt.
 
 > [Korrektur 2026-04-09] **Exploration-Exit-Gate:** Die Transition
-> `exploration --> implementation` erfordert das vollständige
-> dreistufige Exit-Gate gemäß FK-23 §23.5:
-> 1. **Dokumententreue** (LLM-Prüfung): Entwurf ist konform zu
->    Architektur-Konzepten
-> 2. **Design-Review** (Mensch oder Agent): Fachliche Freigabe des
->    Entwurfsartefakts
-> 3. **Ggf. menschliche Freigabe** (bei Design-Challenge oder
->    Governance-Eskalation)
->
-> Erst wenn alle drei Stufen bestanden sind (`payload.gate_status:
-> APPROVED`), darf die Implementation-Phase betreten werden. Details
-> siehe FK-23 §23.5 (Exploration-Exit-Gate).
+> `exploration --> implementation` erfordert den vollständigen Ablauf
+> gemäß FK-23 und FK-25: Dokumententreue, Design-Review,
+> Prämissen-Challenge, optionale Design-Challenge, H1-Aggregation,
+> H2-Nachklassifikation und ggf. Feindesign-Subprozess. Erst wenn
+> der Draft alle Prüfungen bestanden hat, eingefroren wurde und
+> `payload.gate_status: APPROVED` erreicht ist, darf die
+> Implementation-Phase betreten werden.
 
 ### 20.2.3 Abweichende Pfade nach Story-Typ
 

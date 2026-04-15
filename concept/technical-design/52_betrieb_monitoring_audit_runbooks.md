@@ -23,10 +23,10 @@ tags: [operations, monitoring, audit, runbooks, telemetry]
 
 ## 52.1 Zweck
 
-AgentKit hat keinen zentralen Server und keinen Betriebsprozess
+AgentKit hat keinen projektlokalen Server und keinen Betriebsprozess
 im klassischen Sinne. "Betrieb" bedeutet hier: Wie stellt der
-Mensch sicher, dass die Infrastruktur läuft, die Qualität stimmt
-und Probleme erkannt werden?
+Mensch sicher, dass die zentrale Infrastruktur läuft, die Qualität
+stimmt und Probleme erkannt werden?
 
 ## 52.2 Operatives Monitoring
 
@@ -37,10 +37,10 @@ und Probleme erkannt werden?
 | LLM-Pools | Erreichbar? Login aktiv? | `{pool}_health` MCP-Call |
 | Weaviate | Erreichbar? Daten aktuell? | `docker ps` + `story_search` Test-Query |
 | ARE (wenn aktiv) | MCP-Server erreichbar? | `are_check_gate` mit Test-Story |
+| PostgreSQL | Erreichbar? Rollen/Rechte korrekt? | `agentkit backend health` |
 | Git | Keine stale Worktrees/Branches | `git worktree list` |
-| Locks | Keine stale Locks | `ls _temp/governance/locks/` + PID-Prüfung |
-| SQLite-DB | Datei existiert, nicht korrupt | `sqlite3 _temp/agentkit.db "SELECT COUNT(*) FROM events"` |
-| Disk-Space | `_temp/` nicht übermäßig groß | `du -sh _temp/` |
+| Locks | Keine stale Locks | `agentkit query-state --locks` |
+| Audit-Export | Exportziel erreichbar | `agentkit export-telemetry --dry-run` |
 
 ### 52.2.2 Status-Befehl
 
@@ -65,7 +65,7 @@ agentkit status
 #   ODIN-045: verify (run c3d4..., 15min active)
 #
 # Stale Locks: none
-# Disk Usage: _temp/ 23MB
+# Backend: PostgreSQL OK
 ```
 
 ## 52.3 Audit-Logs
@@ -74,13 +74,13 @@ agentkit status
 
 | Log | Speicherort | Inhalt |
 |-----|------------|--------|
-| Telemetrie (Laufzeit) | `_temp/agentkit.db` | Alle Events (SQLite) |
-| Telemetrie (Archiv) | `_temp/story-telemetry/{story_id}.jsonl` | JSONL-Export bei Closure |
-| Integrity-Violations | `_temp/agentkit.db` (Event-Typ `integrity_violation`) | Guard-Blockaden |
-| Integrity-Gate-Ergebnisse | `_temp/agentkit.db` (Event-Typ `integrity_gate_result`) | FAIL-Codes |
-| Governance-Adjudication | `_temp/agentkit.db` (Event-Typ `governance_adjudication`) | Incident-Klassifikation |
-| QA-Artefakte | `_temp/qa/{story_id}/*.json` | Structural, LLM-Review, Adversarial, Policy |
-| Failure Corpus | `.agentkit/failure-corpus/` | Incidents, Patterns, Checks |
+| Telemetrie (Laufzeit) | PostgreSQL | Alle Events |
+| Telemetrie (Archiv) | Audit-Export / Objektspeicher | JSONL-Export bei Closure |
+| Integrity-Violations | PostgreSQL (Event-Typ `integrity_violation`) | Guard-Blockaden |
+| Integrity-Gate-Ergebnisse | PostgreSQL (Event-Typ `integrity_gate_result`) | FAIL-Codes |
+| Governance-Adjudication | PostgreSQL (Event-Typ `governance_adjudication`) | Incident-Klassifikation |
+| QA-Artefakte | PostgreSQL | Structural, LLM-Review, Adversarial, Policy |
+| Failure Corpus | PostgreSQL / Artefaktspeicher | Incidents, Patterns, Checks |
 
 ### 52.3.2 Abfragen
 
@@ -156,7 +156,7 @@ Symptom: Story kann nicht gestartet werden (Preflight FAIL: stale lock)
 Ursache: Vorheriger Run abgestürzt, Lock nicht aufgeräumt
 
 Lösung:
-1. PID in Lock-Datei prüfen: Prozess noch aktiv?
+1. Lock-Record prüfen: Prozess noch aktiv?
 2. Wenn Prozess tot: agentkit cleanup --story {story_id}
 3. Wenn Prozess aktiv: Warten oder Prozess manuell beenden
 ```
@@ -183,7 +183,7 @@ Ursache: Agent hängt, Claude-Code-Session abgelaufen, oder Loop
 
 Lösung:
 1. agentkit status --story {story_id}
-2. Phase-State prüfen: _temp/qa/{story_id}/phase-state.json
+2. Phase-State prüfen: `agentkit query-state --story {story_id}`
 3. Telemetrie: letzte Events prüfen
 4. Wenn Loop: agentkit reset-escalation --story {story_id}
 5. Story-Anforderungen vereinfachen oder Mensch greift ein
@@ -238,11 +238,9 @@ kein zusätzliches Limit nötig.
 | Daten | Wichtigkeit | Backup-Methode |
 |-------|-----------|---------------|
 | `.story-pipeline.yaml` | Hoch | Teil des Git-Repos |
-| `.installed-manifest.json` | Mittel | Teil des Git-Repos |
 | `.claude/ccag/rules/` | Hoch | Teil des Git-Repos |
-| `.agentkit/failure-corpus/` | Hoch | Separates Backup (nicht in Git: zu groß) |
-| `_temp/agentkit.db` | Mittel | Wiederherstellbar aus JSONL-Exports |
-| `_temp/qa/` | Niedrig | Archivierbar nach Closure |
+| PostgreSQL | Hoch | Zentrales DB-Backup / PITR |
+| Audit-Exports | Mittel | Objektspeicher / Archiv-Backup |
 
 ### 52.7.2 Retention
 

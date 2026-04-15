@@ -95,8 +95,10 @@ Anleitung nicht konsistent anwenden würde.
 | Semantic Review | LLM-basierte Code-Bewertung | Strukturiertes Scoring-Schema, Fokus auf die 12 definierten Checks |
 | Research | Strukturierte Internetrecherche | Systematische Suche, Quellenvielfalt, Bewertungskriterien, Ergebnisablage |
 
-Skills werden bei der Installation ([08-installation-und-bootstrap.md](08-installation-und-bootstrap.md)) automatisch ins
-Zielprojekt deployt. Neue Skills können hinzugefügt werden, ohne den
-Kern von AgentKit zu ändern. Die Qualität der Story-Umsetzung hängt
-wesentlich davon ab, dass Agents nicht bei jeder Aufgabe ihre eigene
-Methodik erfinden, sondern auf erprobte Abläufe zurückgreifen.
+Skills werden bei der Projektregistrierung ([08-installation-und-bootstrap.md](08-installation-und-bootstrap.md)) nicht inhaltlich ins Zielprojekt kopiert. Stattdessen
+liegen sie systemweit in versionierten Bundles und werden projektlokal
+über `.claude/skills/` per Symlink gebunden. Neue Skills können
+hinzugefügt werden, ohne den Kern von AgentKit zu ändern. Die Qualität
+der Story-Umsetzung hängt wesentlich davon ab, dass Agents nicht bei
+jeder Aufgabe ihre eigene Methodik erfinden, sondern auf erprobte
+Abläufe zurückgreifen.

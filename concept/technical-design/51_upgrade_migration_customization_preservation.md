@@ -20,12 +20,12 @@ tags: [upgrade, migration, customization, idempotency]
 
 ## 51.1 Zweck
 
-AgentKit-Upgrades müssen nutzerseitige Anpassungen erkennen und
-erhalten, statt sie zu überschreiben (FK-11-008). Gleichzeitig
-müssen neue Features, geänderte Schemas und aktualisierte Prompts
-ins Zielprojekt übertragen werden.
+AgentKit-Upgrades müssen projektspezifische Anpassungen erkennen und
+erhalten, statt sie zu überschreiben (FK-11-008). Laufzeit-Assets wie
+Skills und Prompts werden systemweit versioniert bereitgestellt; im
+Projekt werden nur Konfiguration und Symlink-Bindungen aktualisiert.
 
-**F-51-023 — Erkennung und Erhalt nutzerseitiger Customizations (FK-11-023):** Upgrades müssen aktiv erkennen, welche projektseitigen Anpassungen vorgenommen wurden — dazu zählen modifizierte Prompts und Skill-Dateien, hinzugefügte eigene Skills, geänderte Schwellenwerte in der Konfiguration sowie projektspezifische CCAG-Regeln. Erkannte Anpassungen werden niemals stillschweigend überschrieben; stattdessen erstellt der Installer eine Sicherheitskopie und informiert den Menschen über den Konflikt, damit er seine Änderungen in die neue Version überführen kann.
+**F-51-023 — Erkennung und Erhalt nutzerseitiger Customizations (FK-11-023):** Upgrades müssen aktiv erkennen, welche projektseitigen Anpassungen vorgenommen wurden — dazu zählen geänderte Schwellenwerte in der Konfiguration, projektspezifische CCAG-Regeln und bewusst gesetzte Projektprofil-/Bundle-Bindungen. Erkannte Anpassungen werden niemals stillschweigend überschrieben.
 
 ## 51.2 Upgrade-Trigger
 
@@ -34,40 +34,40 @@ ins Zielprojekt übertragen werden.
 pip install --upgrade agentkit
 
 # Installer erneut laufen (erkennt Upgrade automatisch)
-agentkit install --gh-owner acme-corp --gh-repo trading-platform
+agentkit register-project --gh-owner acme-corp --gh-repo trading-platform
 ```
 
-Der Installer erkennt anhand des Manifests, ob ein Upgrade nötig
-ist (Version im Manifest vs. `agentkit.__version__`).
+Der Installer erkennt anhand der installierten Paketversion, der
+registrierten Bundle-Version und des Konfigurations-Digests, ob ein
+Upgrade oder eine Re-Bindung nötig ist.
 
 ## 51.3 Drei Upgrade-Szenarien
 
-### 51.3.1 Datei unverändert (häufigster Fall)
+### 51.3.1 Konfiguration und Bindung unverändert (häufigster Fall)
 
 ```
-Manifest-Hash == Datei-Hash auf Disk == neuer Source-Hash?
-→ Ja: Datei nicht angefasst. Kein Update nötig.
+Konfig-Digest == Datei-Hash auf Disk und Bundle-Version unverändert?
+→ Ja: Kein Update nötig.
 
-Manifest-Hash == Datei-Hash, aber != neuer Source-Hash?
-→ Nutzer hat nichts geändert, AgentKit hat Update.
-→ Datei wird aktualisiert. Kein Backup nötig.
+Konfig-Digest == Datei-Hash, aber Ziel-Bundle-Version hat sich geändert?
+→ Konfiguration unverändert, AgentKit hat neue Version.
+→ Symlink-Bindung kann bewusst auf neue Bundle-Version umgestellt werden.
 ```
 
-### 51.3.2 Datei vom Nutzer angepasst
+### 51.3.2 Konfiguration vom Nutzer angepasst
 
 ```
-Manifest-Hash != Datei-Hash auf Disk?
+Registrierter Digest != Datei-Hash auf Disk?
 → Nutzer hat Datei editiert.
 → .bak Backup erstellen, dann neue Version schreiben.
 → Mensch muss Anpassungen manuell nachziehen.
 ```
 
-### 51.3.3 Neue Datei (in neuem AgentKit, nicht im Manifest)
+### 51.3.3 Neue Skill-/Prompt-Variante
 
-```
-Datei existiert nicht auf Disk und nicht im Manifest?
-→ Neue Datei, einfach kopieren.
-```
+Neue Varianten werden systemweit installiert. Ein Projekt erhält sie
+erst, wenn seine Bindung explizit auf das neue Bundle bzw. Profil
+umgestellt wird.
 
 ## 51.4 Config-Migration
 
@@ -109,10 +109,9 @@ Vor jeder Migration wird `.story-pipeline.yaml.bak` geschrieben.
 
 ## 51.5 Schema-Migration
 
-Artefakt-Schemas (`schema_version` in JSON Envelopes) werden
-**nicht migriert**. Alte Artefakte gehören zu abgeschlossenen
-Stories und bleiben unverändert. Neue Stories erzeugen Artefakte
-mit der aktuellen Schema-Version (Kap. 03.3.4).
+Artefakt-Schemas (`schema_version`) werden im zentralen State-Backend
+versioniert. Alte Artefakte abgeschlossener Stories bleiben
+unverändert. Neue Runs schreiben die aktuelle Schema-Version.
 
 ## 51.6 Hook-Migration
 
@@ -145,16 +144,16 @@ Bei Upgrades von einer Version ohne Dispatching-Logik:
 
 ## 51.7 Cleanup alter Dateien
 
-Der Installer kann mit `--cleanup` veraltete Dateien entfernen
-(z.B. Shell-Skripte aus einer früheren AgentKit-Generation):
+Der Installer kann mit `--cleanup` veraltete lokale Bindungen oder
+obsolet gewordene Projektkonfiguration entfernen:
 
 ```bash
-agentkit install --gh-owner acme-corp --gh-repo trading-platform --cleanup
+agentkit register-project --gh-owner acme-corp --gh-repo trading-platform --cleanup
 ```
 
-Cleanup entfernt nur Dateien, die im Manifest als "von AgentKit
-installiert" markiert sind und in der aktuellen Version nicht
-mehr existieren.
+Cleanup entfernt nur obsolete Symlink-Bindungen und lokale
+AgentKit-Konfigurationsreste, nicht aber Projektcode oder zentrale
+Laufzeitdaten.
 
 ---
 

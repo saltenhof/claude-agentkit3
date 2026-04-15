@@ -1,6 +1,6 @@
 ---
 concept_id: DK-08
-title: Checkpoint-basierte Selbstinstallation
+title: Projektregistrierung und Bootstrap
 module: installation
 status: active
 doc_kind: core
@@ -13,7 +13,7 @@ superseded_by:
 tags: [installation, bootstrap, checkpoints, idempotent, upgrades]
 ---
 
-# 08 — Checkpoint-basierte Selbstinstallation
+# 08 — Projektregistrierung und Bootstrap
 
 **Quelle:** Konsolidiert aus agentkit-domain-concept.md, Kapitel 11
 **Datum:** 2026-04-02
@@ -21,10 +21,10 @@ tags: [installation, bootstrap, checkpoints, idempotent, upgrades]
 
 ---
 
-AgentKit installiert sich über eine Folge idempotenter Checkpoints selbst
-in ein Zielprojekt: GitHub-Projekt-Setup mit Custom Fields, Pipeline-
-Konfiguration, Hook-Registration, Skill- und Prompt-Deployment. Jeder
-Checkpoint ist einzeln wiederholbar, der Gesamtzustand wird in einem
-Manifest festgehalten. Upgrades erkennen nutzerseitige Anpassungen und
-erhalten sie, statt sie zu überschreiben. Eine nachgelagerte Verifikation
-prüft den Installationszustand auf Konsistenz.
+AgentKit wird systemweit installiert und registriert anschließend ein
+Zielprojekt über eine Folge idempotenter Checkpoints: GitHub-Projekt-
+Setup mit Custom Fields, projektlokale Pipeline-Konfiguration,
+Hook-Registration und projektlokale Symlink-Bindung auf systemweite,
+versionierte Skill-Bundles. Laufzeitdaten und kanonische Zustände
+liegen nicht im Projekt, sondern zentral. Eine nachgelagerte
+Verifikation prüft den Registrierungszustand auf Konsistenz.

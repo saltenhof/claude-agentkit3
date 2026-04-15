@@ -87,7 +87,12 @@ um rollenspezifische Regeln anzuwenden:
 | Hauptagent vs. Sub-Agent | Claude Code setzt Hook-Kontext (`is_subagent` Flag) | Plattform-garantiert |
 | Sub-Agent-Typ | `subagent_type` im Agent-Spawn-Prompt | Prompt-basiert — kann der Orchestrator setzen, aber der Hook validiert gegen erwartete Typen |
 | Pipeline-Skript | Kein Claude-Code-Kontext, direkter Python-Aufruf | Eindeutig — Skript wird nicht über Hook-Schicht aufgerufen |
-| Story-Execution aktiv | Marker-Datei `_temp/governance/active/{story_id}.active` existiert | Dateisystem — vom Pipeline-Tooling gesteuert, nicht vom Agent |
+| Story-Execution aktiv | Aktiver Run-/Lock-Record im State-Backend existiert | Service-seitig — vom Pipeline-Tooling gesteuert, nicht vom Agent |
+
+**Projekt-Scope:** Backend-Principals agieren nie global, sondern
+immer projektgebunden. Jeder Runtime- oder Analytics-Zugriff ist an
+einen `project_key` gebunden; Cross-Project-Zugriffe sind nur fuer
+explizite Admin-/Betriebs-Tools zulaessig.
 
 ## 15.4 Berechtigungsmodell
 
@@ -108,6 +113,7 @@ um rollenspezifische Regeln anzuwenden:
 | Sperrdatei erstellen/löschen | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | LLM-Pool aufrufen | ✅ | ✅ | ✅ | ❌ | ✅ (Sparring) | ✅ (Evaluator) |
 | Agents spawnen | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Zentralen Workflow-State mutieren | ✅ (über Admin/CLI) | ❌ | ❌ | ❌ | ❌ | ✅ |
 
 *Guard = nur aktiv im Story-Execution-Modus (Sperrdatei vorhanden,
 Kap. 12.4.1). Im AI-Augmented-Modus sind Branch-Guards inaktiv.
@@ -118,6 +124,8 @@ Kap. 12.4.1). Im AI-Augmented-Modus sind Branch-Guards inaktiv.
 |--------------|------------|---------------------|
 | Orchestrator darf nicht auf Codebase zugreifen | `orchestrator_guard.py` (PreToolUse-Hook) | Nein — Hook ist Plattform-Infrastruktur |
 | Worker darf keine QA-Artefakte schreiben | Sperrdatei + Hook (Kap. 02.7) | Nein — Sperrdatei vom Pipeline-Tooling, nicht vom Agent |
+| Worker/Orchestrator dürfen keine DB-Credentials besitzen | State-Backend-Zugriff nur über Hook-/CLI-Principals | Nein — Credentials bleiben außerhalb der Agent-Prompts und Workspaces |
+| Backend-Zugriff nur im Projekt-Scope | Principals sind auf genau einen `project_key` oder einen expliziten Admin-Scope begrenzt | Nein — Row-/Schema-Scope liegt außerhalb der Agent-Kontrolle |
 | Adversarial darf nur in Sandbox schreiben | CCAG-Regel `scope: subagent` | Nein — CCAG ist Hook-basiert |
 | Branch-Guard (Story-Execution) | `branch_guard.py` (PreToolUse-Hook) + Sperrdatei | Nein — Hook + Sperrdatei |
 | QA-Agent darf keinen Code editieren | PreToolUse-Guard auf Write/Edit für Principal `qa` — erlaubt nur Lesen und Test-Ausführung | Nein — Hook-basiert, analog zum Orchestrator-Guard |
@@ -223,13 +231,13 @@ Agent lernt, den Guard gezielt zu umgehen.
 | Branch-Guard | `"Operation not permitted."` | — (einfache Regel, Mensch versteht den Kontext) |
 | Orchestrator-Guard | `"Operation not permitted."` | — |
 | QA-Artefakt-Schutz | `"Operation not permitted."` | — |
-| Integrity-Gate | `"GOVERNANCE VIOLATION DETECTED. Immediately stop all work."` | Fehler-Codes in `integrity-violations.log` |
+| Integrity-Gate | `"GOVERNANCE VIOLATION DETECTED. Immediately stop all work."` | Fehler-Codes im Violation-Record des State-Backends |
 | CCAG (Sperrdatei-basiert) | `"Operation not permitted."` | Sperrdatei-Inhalt zeigt Story-ID und Scope |
 
 ### 15.6.3 Audit-Log
 
-Das Integrity-Gate schreibt bei Blockade einen JSON-Eintrag in
-`_temp/qa/{story_id}/integrity-violations.log`:
+Das Integrity-Gate schreibt bei Blockade einen strukturierten
+Violation-Record in das State-Backend:
 
 ```json
 {
@@ -255,7 +263,8 @@ Governance selbst zu manipulieren:
 | Agent ändert `.claude/ccag/rules/*.yaml` | Hook-Signal: Governance-Datei verändert | Sofortiger Stopp |
 | Agent ändert `.story-pipeline.yaml` | Hook-Signal: Governance-Datei verändert | Sofortiger Stopp |
 | Agent löscht Sperrdatei | Hook-Signal: Governance-Datei verändert | Sofortiger Stopp |
-| Agent ändert `.installed-manifest.json` | Hook-Signal: Governance-Datei verändert | Sofortiger Stopp |
+| Agent ändert `.claude/skills/` Bindungen | Hook-Signal: Governance-Datei verändert | Sofortiger Stopp |
+| Agent versucht State-Backend-Zugangsdaten zu lesen/ändern | Guard + Secret-Schutz | Sofortiger Stopp |
 
 **Geschützte Pfade** (immer, unabhängig vom Betriebsmodus):
 
@@ -263,9 +272,7 @@ Governance selbst zu manipulieren:
 .claude/settings.json
 .claude/ccag/rules/
 .story-pipeline.yaml
-.installed-manifest.json
-_temp/governance/locks/
-_temp/governance/active/{story_id}.active
+.claude/skills/
 ```
 
 ### 15.7.2 Hook-Integrität
@@ -283,8 +290,8 @@ Hooks können vom Agent nicht deaktiviert werden, weil:
 
 Sperrdateien können vom Agent nicht manipuliert werden, weil:
 
-1. Sperrdateien liegen in `_temp/governance/locks/` (geschützter Pfad)
-2. Nur Pipeline-Skripte (Zone 2) schreiben Sperrdateien
+1. Lock-Records liegen im State-Backend (geschützter Zustandsraum)
+2. Nur Pipeline-Skripte (Zone 2) schreiben Lock-Records
 3. Der CCAG-Hook blockiert Sub-Agent-Zugriff auf den Lock-Pfad
 4. PID + TTL als Stale-Detection (Kap. 02.7) — kein manuelles
    Löschen nötig
@@ -341,12 +348,12 @@ Der Secret-Detection-Check (15.5.2) wirkt präventiv auf Code-Ebene.
 
 | Daten | Speicherort | Nicht an LLMs |
 |-------|------------|--------------|
-| Telemetrie (SQLite + JSONL-Export) | `_temp/agentkit.db`, `_temp/story-telemetry/` | Nie |
-| QA-Artefakte | `_temp/qa/` | Nie (nur deren Inhalt wird als Kontext gesendet) |
-| Sperrdateien | `_temp/governance/locks/` | Nie |
-| Failure Corpus | `.agentkit/failure-corpus/` | Nie (nur aggregierte Patterns ggf. in Check-Proposals) |
+| Telemetrie (State-Backend + Export) | State-Backend, Audit-Exports | Nie |
+| QA-Artefakte | State-Backend | Nie (nur deren Inhalt wird als Kontext gesendet) |
+| Locks | State-Backend | Nie |
+| Failure Corpus | State-Backend / Artefaktspeicher | Nie (nur aggregierte Patterns ggf. in Check-Proposals) |
 | Git-Historie | `.git/` | Nie direkt (nur Diffs) |
-| Manifest | `.installed-manifest.json` | Nie |
+| Skill-Bindungen | `.claude/skills/` | Nie |
 
 ---
 

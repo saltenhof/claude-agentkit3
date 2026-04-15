@@ -38,6 +38,10 @@ Aufgabe wirkt **nach** der Story-Umsetzung (KPIs informieren
 Entscheidungen ueber Story-Sizing, LLM-Auswahl, Prompt-Qualitaet,
 QA-Effektivitaet).
 
+**Plattformentscheidung:** Die kanonische Speicherung von Telemetrie,
+Workflow-State und KPI-Rohdaten erfolgt in einer systemweiten
+PostgreSQL-Instanz, nicht in projektlokalen Dateien oder SQLite-DBs.
+
 Deterministische Pipeline-Schritte (Structural Checks, LLM-Bewertungen
 ueber Skripte) brauchen keine Telemetrie-Nachweise, weil ihr Ablauf
 durch den Code garantiert ist. Telemetrie-Nachweise sind dort relevant,

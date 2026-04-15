@@ -14,6 +14,11 @@ defers_to:
   - target: FK-23
     scope: exploration-phase
     reason: Exploration-Ablauf, Entwurfsartefakt und Exit-Gate in FK-23 definiert
+    override_note: >
+      FK-25 überschreibt die Freeze-Position aus FK-23
+      (SCHREIBEN → FREEZE → Dokumententreue). In FK-25 findet der
+      Freeze NACH dem Review/Challenge-Gate statt, nicht davor
+      (§25.4.2). FK-23 muss entsprechend angepasst werden.
   - target: FK-35
     scope: escalation-mechanics
     reason: Eskalations-Infrastruktur (PAUSED/ESCALATED, CLI-Befehle, Resume) in FK-35
@@ -23,7 +28,12 @@ defers_to:
   - target: FK-02
     scope: domain-model
     reason: Story-Typen, Wirksamkeitsgrade und Phase-Enums in FK-02
-supersedes: []
+supersedes:
+  - target: FK-23
+    scope: freeze-position
+    reason: >
+      Freeze verschoben von vor Review auf nach Gate-PASS.
+      Ein Draft einzufrieren und dann zu reviewen ist widersprüchlich.
 superseded_by:
 tags: [exploration, mandate, escalation, fine-design, scope-explosion, multi-llm, autonomy]
 ---
@@ -125,11 +135,12 @@ Präzedenzentscheidung zwischen widersprüchlichen normativen Quellen
 
 **Entscheidungsträger:** Mensch.
 
-**Reaktion:** `status: ESCALATED`, `escalation_class: "domain_gap"`
+**Reaktion:** `status: PAUSED`, `escalation_class: "domain_gap"`
 (Variante a) oder `escalation_class: "normative_conflict"` (Variante b).
-Story bleibt in Exploration. Mensch klärt die fachliche Frage bzw.
-entscheidet die Präzedenz, passt ggf. das Fachkonzept an. Resume
-startet Exploration erneut.
+PAUSED statt ESCALATED, weil die Pipeline nach menschlicher Klärung
+fortsetzbar ist. Story bleibt in Exploration. Mensch klärt die
+fachliche Frage bzw. entscheidet die Präzedenz, passt ggf. das
+Fachkonzept an. Resume startet Exploration erneut.
 
 **Beispiel:** "Konkrete Kernpositionen für ausgleichsruecklage —
 die tatsächlichen Positionsbezeichnungen sind fachbereichsseitig zu
@@ -154,9 +165,9 @@ Quellen — sie muss nur ausdetailliert werden.
 - Klassendesign mit modulübergreifender Wirkung (nicht methodenlokale
   Implementierungsentscheidungen)
 
-**Erkennung:** Der Feindesign-Subprozess (§25.5) wird ausgelöst,
-wenn die Exploration in den Schritten A4–A6 (Lösungsrichtung bis
-Artefakt schreiben) auf unaufgelöste technische Details stößt, die:
+**Erkennung:** Der Feindesign-Subprozess (§25.5, Schritt J) wird
+ausgelöst, wenn die Nachklassifikation (H2) in Review-Findings
+unaufgelöste technische Details identifiziert, die:
 
 1. Wirkung über die einzelne Methode hinaus haben, **und**
 2. durch normative Quellen gedeckt (nicht widersprochen) sind, **und**
@@ -194,7 +205,7 @@ Indikatoren mit Gewicht "Hoch" lösen Klasse 3 aus.
 
 **Entscheidungsträger:** Mensch (Story-Split-Entscheidung).
 
-**Reaktion:** `status: ESCALATED`, `escalation_class: "scope_explosion"`.
+**Reaktion:** `status: PAUSED`, `escalation_class: "scope_explosion"`.
 Dem Menschen wird die Gegenüberstellung (erwartet vs. festgestellt)
 vorgelegt.
 
@@ -217,7 +228,7 @@ deklarierten Wirksamkeitsgrad (`change_impact` aus Story-Metadaten):
 
 **Entscheidungsträger:** Mensch.
 
-**Reaktion:** `status: ESCALATED`, `escalation_class: "impact_exceeded"`.
+**Reaktion:** `status: PAUSED`, `escalation_class: "impact_exceeded"`.
 Dem Menschen wird die Diskrepanz zwischen deklariertem und
 festgestelltem Wirksamkeitsgrad vorgelegt.
 
@@ -231,16 +242,27 @@ Klasse 4 greift nur bei Überschreitung der deklarierten Stufe.
 Die Klassifikation findet an zwei Stellen im bestehenden
 Ablaufmodell (FK-23 §23.3) statt:
 
-### 25.4.1 Während der Worker-Schritte A4–A6
+### 25.4.1 Mandatsklassifikation — Regelwerk und Natur
 
-Der Exploration-Worker erkennt während Lösungsrichtung (A4),
-Selbst-Konformität (A5) und Artefakt-Schreiben (A6), ob
-unaufgelöste Feindesign-Entscheidungen vorliegen. Er klassifiziert
-jede einzeln:
+Die Mandatsklassifikation ist ein LLM-gestützter semantischer
+Prozess, kein deterministischer Algorithmus. Die Eingangsfragen
+("Fehlt hier Domänenwissen?", "Sprengt das den Scope?",
+"Überschreitet das die deklarierte Tragweite?") erfordern
+semantisches Verständnis des Kontexts.
 
-Die Prüfreihenfolge ist fail-closed — die restriktivste Klasse
-wird zuerst geprüft, damit kein Fall zu früh als autonom aufgelöst
-wird:
+Klasse 3 und 4 haben deterministische Teilberechnungen
+(quantitative Indikatoren aus Artefakt vs. Story-Spec, ordinaler
+Impact-Vergleich), aber diese arbeiten auf nicht-deterministischen
+Eingangsdaten: die Story-Spec ist eine grobe Absichtserklärung,
+keine exakte KPI-Vorgabe, und das Artefakt enthält Einschätzungen
+des Workers, keine gemessenen Fakten. Die Berechnungen sind
+Signale, keine Beweise.
+
+Klasse 1 und die Abgrenzung Klasse 2 vs. methodenlokal sind
+durchgehend semantische Einschätzungen.
+
+**Prüfreihenfolge (fail-closed):** Die restriktivste Klasse wird
+zuerst geprüft, damit kein Fall zu früh als autonom aufgelöst wird:
 
 ```
 Für jede unaufgelöste Designentscheidung:
@@ -258,6 +280,12 @@ Für jede unaufgelöste Designentscheidung:
   5. Sonst: Methodenlokale Detailentscheidung
      → Delegation an Implementation-Worker (§23.7.1)
 ```
+
+**Zeitpunkt:** Die Klassifikation findet NICHT während der
+Worker-Schritte A1–A6 statt. Der Worker erstellt das Artefakt —
+die Probleme darin werden erst durch die Review-Kette sichtbar.
+Die Klassifikation erfolgt in Schritt H2 (Nachklassifikation),
+auf Basis konkreter Findings aus den Reviews.
 
 ### 25.4.2 Exploration-Ablauf mit korrigierter Freeze-Position
 
@@ -278,12 +306,17 @@ Korrigierter Ablauf:
 | B | Validierung (strukturell) | deterministisch |
 | D | Doc Fidelity Stufe 1 | LLM |
 | E | Design-Review | LLM |
-| **E2** | **Prämissen-Challenge** | **LLM** |
+| E2 | Prämissen-Challenge | LLM |
 | F | Trigger-Evaluation | deterministisch |
-| G | Design-Challenge (adversarial) | LLM |
-| H | Aggregation + Gate | deterministisch |
-| → | Bei FAIL: Remediation, zurück zu E (max. 3 Runden) |  |
-| **C** | **Freeze — erst nach bestandenem Gate** | deterministisch |
+| G | Design-Challenge (adversarial, bedingt bei Trigger) | LLM |
+| H1 | Aggregation (Verdicts zusammenführen) | deterministisch |
+| H2 | Nachklassifikation (Mandatsregelwerk auf Findings) | LLM-gestützt (§25.4.1) |
+| → | Klasse 1/3/4: Eskalation an Mensch | |
+| → | Nur Review-Findings: Remediation zurück zu E (max. 3 Runden) | |
+| J | Feindesign-Subprozess (bei Klasse-2-Findings) | LLM (§25.5) |
+| → | Nach J: zurück zu E (Review des nachgebesserten Entwurfs) | |
+| → | PASS ohne Findings: weiter zu C | |
+| C | Freeze — erst nach bestandenem Gate | deterministisch |
 | I | Freigabe-Gate | deterministisch |
 
 **E2 — Prämissen-Challenge:** Eigenständiger Prüfschritt mit genau
@@ -313,31 +346,68 @@ Drei verschiedene Denkrichtungen, drei fokussierte Aufträge.
 ### 25.4.3 Nachklassifikation im Review-Zyklus
 
 Das Design-Review (E), die Prämissen-Challenge (E2) und der
-Design-Challenger (G) können zusätzliche unaufgelöste Entscheidungen
-identifizieren, die der Worker selbst nicht erkannt hat. Da das
-Artefakt zu diesem Zeitpunkt noch nicht eingefroren ist, können
-Ergänzungen direkt eingearbeitet werden.
+Design-Challenger (G) liefern Findings — offene Punkte, Schwächen,
+Widersprüche. Diese Findings sind der konkrete Handlungsauftrag für
+die Nachklassifikation.
 
-Für jede identifizierte Entscheidung wird dieselbe
-Klassifikationslogik (§25.4.1) angewandt:
+Die Nachklassifikation (H2) wendet das Mandatsregelwerk (§25.4.1)
+auf jedes Finding an. Sie ist ein LLM-gestützter Schritt: das
+Regelwerk (fail-closed 1→3→4→2→methodenlokal) gibt die Reihenfolge
+vor, aber die Einordnung jedes einzelnen Findings in eine Klasse
+erfordert semantisches Verständnis. Klasse 3 und 4 werden durch
+quantitative Indikatoren unterstützt (Signale, keine Beweise),
+Klasse 1 und die Abgrenzung Klasse 2 vs. methodenlokal sind rein
+semantisch.
 
-| Bisheriges Verhalten | Neues Verhalten |
-|---------------------|-----------------|
-| `required_before_impl` → PAUSED (Mensch) | Klasse prüfen: Klasse 2 → Feindesign-Subprozess, Klasse 1/3/4 → weiterhin Mensch |
+Da das Artefakt zu diesem Zeitpunkt noch nicht eingefroren ist,
+können Nachbesserungen direkt eingearbeitet werden.
 
-## 25.5 Feindesign-Subprozess (Klasse 2)
+**Differenziertes Routing nach Klassifikationsergebnis:**
 
-Wenn eine Klasse-2-Entscheidung identifiziert wird, durchläuft sie
-einen abgesicherten Multi-LLM-Designentscheidungsprozess. Dieser
-findet innerhalb der Exploration-Phase statt, nicht in der
-Implementierung.
+| Klasse | Routing | Ziel |
+|--------|---------|------|
+| 1 (Domain Gap / Normativ-Konflikt) | Eskalation an Mensch | PAUSED |
+| 3 (Scope-Explosion) | Eskalation an Mensch | PAUSED |
+| 4 (Tragweiten-Überschreitung) | Eskalation an Mensch | PAUSED |
+| 2 (Feindesign) | Feindesign-Subprozess (J) | J → E |
+| Methodenlokal | Delegation an Implementation-Worker | Kein Handlungsbedarf |
+| Nur Review-Findings (kein Mandats-Thema) | Remediation-Worker | E |
+
+**Feindesign-Routing (Klasse 2):** Die konkreten Klasse-2-Findings
+aus H2 sind der Handlungsauftrag für J. Der Feindesign-Worker
+empfängt nicht vage Anweisungen, sondern spezifische Findings mit
+Kontext: welche Designentscheidung, warum unaufgelöst, welche
+Artefakt-Sektionen betroffen. Nach J geht der nachgebesserte
+Entwurf zurück in die Review-Kette (E), weil die Nachbesserungen
+geprüft werden müssen.
+
+## 25.5 Feindesign-Subprozess — Schritt J (Klasse 2)
+
+Der Feindesign-Subprozess (Schritt J) wird durch konkrete
+Klasse-2-Findings aus der Nachklassifikation (H2) ausgelöst — nicht
+spekulativ während der Artefakt-Erstellung (A). Zum Zeitpunkt von A
+sind die Probleme noch nicht sichtbar; sie werden erst durch die
+Review-Kette (E, E2, G) aufgedeckt und in H2 klassifiziert.
+
+**Trigger:** Klasse-2-Findings aus H2, mit konkretem
+Handlungsauftrag (welche Designentscheidung, warum unaufgelöst,
+betroffene Artefakt-Sektionen).
+
+**Zwei Outputs:** J hat nicht nur eine Diskussion zu führen,
+sondern das Artefakt konsistent nachzubessern:
+1. `feindesign_entscheidungen` — Diskussionsprotokoll (§25.5.5)
+2. Aktualisierte Artefakt-Bestandteile — die betroffenen Sektionen
+   (vertragsaenderungen, betroffene_bausteine, loesungsrichtung
+   etc.) mit den Konsequenzen der Entscheidung
+
+Nach J geht der Entwurf zurück in die Review-Kette (E).
 
 **Zentrale Architekturentscheidung:** Der Feindesign-Subprozess wird
 vom Claude Code Agent geführt, nicht von AgentKit orchestriert. Der
 Agent akquiriert externe LLMs, führt eine echte Diskussion mit ihnen,
 reicht Kontext nach und iteriert bis zur Konvergenz. AgentKit
-überwacht den Prozess deterministisch via Telemetrie und Hub-Abfragen,
-steuert ihn aber nicht.
+überwacht den Prozess via Telemetrie und Hub-Abfragen, steuert ihn
+aber nicht.
 
 Begründung: Initiale Review-Einschätzungen divergieren häufig. Durch
 Austausch von Gegenpositionen und Nachreichen fehlenden Kontexts
@@ -349,8 +419,8 @@ Dialog, keinen einmaligen Broadcast.
 
 ```mermaid
 flowchart TD
-    TRIGGER["Klasse-2-Entscheidung identifiziert"] --> CONTEXT["Kontext-Bundle zusammenstellen"]
-    CONTEXT --> ACQUIRE["LLM-Session acquiren<br/>(2 externe LLMs)"]
+    TRIGGER["H2: Klasse-2-Finding<br/>mit konkretem Handlungsauftrag"] --> CONTEXT["Kontext-Bundle zusammenstellen<br/>(Finding + Artefakt + Story-Spec)"]
+    CONTEXT --> ACQUIRE["LLM-Session acquiren<br/>(ChatGPT Pflicht, Qwen bevorzugt)"]
     ACQUIRE --> INITIAL["Designfrage + Kontext<br/>an beide LLMs senden"]
     INITIAL --> ASSESS{"Diskrepanz in<br/>Einschätzungen?"}
     ASSESS -- Nein --> DECIDE["Agent entscheidet<br/>auf Konsensbasis"]
@@ -358,9 +428,9 @@ flowchart TD
     DISCUSS --> ROUND{"Konvergenz oder<br/>Runde 10 erreicht?"}
     ROUND -- Nein --> DISCUSS
     ROUND -- Ja --> DECIDE
-    DECIDE --> DOCUMENT["Entscheidung dokumentieren<br/>im Entwurfsartefakt"]
+    DECIDE --> DOCUMENT["1. feindesign_entscheidungen dokumentieren<br/>2. Betroffene Artefakt-Sektionen aktualisieren"]
     DOCUMENT --> RELEASE["LLM-Session releasen"]
-    RELEASE --> CONTINUE["Exploration fortsetzen"]
+    RELEASE --> REVIEW["Zurück zu E<br/>(Review des nachgebesserten Entwurfs)"]
 ```
 
 **Rundenlimit:** Maximal 10 Runden (Send-Aufrufe pro LLM). Nach
@@ -467,7 +537,7 @@ Enforcement-Logik.
 keine Response), wird der Feindesign-Subprozess abgebrochen. Die
 Klasse-2-Entscheidung kann ohne Multi-Perspektiven-Absicherung nicht
 autonom getroffen werden. Die Entscheidung wird an den Menschen
-eskaliert: `status: ESCALATED`,
+eskaliert: `status: PAUSED`,
 `escalation_class: "infra_unavailable"`,
 `escalation_reason: "Multi-LLM-Quorum nicht erreichbar"`.
 Dies ist ein eigener Eskalationscode — kein Rückfall auf `domain_gap`
@@ -521,10 +591,13 @@ Exit-Gate.
 
 ### 25.6.1 Erkennungszeitpunkt
 
-Die Prüfung findet statt, nachdem der Exploration-Worker das
-Entwurfsartefakt geschrieben hat (nach A6, vor dem Review-Zyklus).
-Zu diesem Zeitpunkt liegt das vollständige Artefakt vor und kann
-gegen die Story-Spezifikation verglichen werden.
+Die Scope-Explosion-Indikatoren werden als Teil der
+Nachklassifikation (H2, §25.4.3) berechnet — also NACH dem
+Review-Zyklus, nicht davor. Zu diesem Zeitpunkt liegt sowohl das
+vollständige Artefakt als auch die Review-Findings vor. Die
+quantitativen Indikatoren sind deterministische Teilberechnungen auf
+nicht-deterministischen Eingangsdaten und dienen als Signale für die
+LLM-gestützte Klassifikation (§25.4.1).
 
 ### 25.6.2 Prüflogik (deterministisch)
 
@@ -592,7 +665,7 @@ def check_scope_explosion(
 ### 25.6.3 Reaktion bei Explosion
 
 Scope-Explosion ist Klasse 3 — Eskalation an den Menschen.
-Phase-State: `status: ESCALATED`, `escalation_class: "scope_explosion"`.
+Phase-State: `status: PAUSED`, `escalation_class: "scope_explosion"`.
 
 Dem Menschen wird eine Gegenüberstellung vorgelegt:
 
@@ -637,7 +710,7 @@ def check_impact_exceedance(
 ### 25.7.2 Reaktion bei Überschreitung
 
 Klasse 4 — Eskalation an den Menschen. Phase-State:
-`status: ESCALATED`, `escalation_class: "impact_exceeded"`.
+`status: PAUSED`, `escalation_class: "impact_exceeded"`.
 
 ## 25.8 Telemetrie
 
@@ -658,7 +731,7 @@ Der Orchestrator (Claude Code) sieht:
 
 | Was | Wie | Wann |
 |-----|-----|------|
-| Klasse-1/3/4-Eskalationen | `status: ESCALATED` mit `escalation_class` | Sofort (Pipeline stoppt) |
+| Klasse-1/3/4-Eskalationen | `status: PAUSED` mit `escalation_class` | Sofort (Pipeline pausiert, resumable nach menschlicher Klärung) |
 | Klasse-2-Entscheidungen | Nicht sichtbar (Background, innerhalb Worker-Lauf) | — |
 | Feindesign-Ergebnisse | Im fertigen Entwurfsartefakt, Abschnitt `feindesign_entscheidungen` | Nach Worker-Completion |
 | Scope-Prüfung | Telemetrie-Event | Nach Prüfung |
@@ -678,7 +751,7 @@ Bestandteil:
 | 1–7 | Bestehende Bestandteile (FK-23 §23.4.1) | Ja | Immer |
 | 8 | `feindesign_entscheidungen` | Nein | Nur wenn Klasse-2-Entscheidungen getroffen wurden |
 
-Schema: Siehe §25.5.4 (Entscheidungsprotokoll).
+Schema: Siehe §25.5.5 (Entscheidungsprotokoll).
 
 Wenn keine Klasse-2-Entscheidungen nötig waren, fehlt der Abschnitt
 oder ist eine leere Liste. Die Artefakt-Validierung (FK-23 §23.4)

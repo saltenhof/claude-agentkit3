@@ -295,9 +295,11 @@ Implementierung den deklarierten Impact überschritten hat. Wenn ein
 Bugfix mit deklariertem Impact "Local" tatsächlich Datenmodelle ändert
 oder neue Schnittstellen einführt, wird das als Verletzung gewertet.
 War die Story im Exploration Mode (es gab einen freigegebenen
-Entwurf), geht sie zurück in die Exploration-Phase, weil der Entwurf
-nicht eingehalten wurde. War die Story im Execution Mode, wird an den
-Menschen eskaliert, weil die Issue-Metadaten falsch deklariert waren.
+Entwurf), wird an den Menschen eskaliert. Es gibt keinen automatischen
+Rücksprung in die Exploration-Phase; die Entscheidung über ein neues
+Explorationsmandat trifft der Mensch bewusst. War die Story im
+Execution Mode, wird ebenfalls an den Menschen eskaliert, weil die
+Issue-Metadaten falsch deklariert waren.
 
 #### Ein Worker darf ein Konzept nicht stillschweigend überschreiben
 
@@ -630,6 +632,18 @@ Beratung aufgelöst.
 restriktivste Klasse zuerst: 1 → 3 → 4 → 2 → methodenlokal.
 Damit wird kein Fall zu früh als autonom aufgelöst, der eigentlich
 an den Menschen eskaliert werden müsste.
+
+**Zeitpunkt und Routing:** Die Klassifikation erfolgt nicht schon
+beim ersten Schreiben des Exploration-Drafts, sondern nach
+Design-Review, Prämissen-Challenge und ggf. Design-Challenge auf
+Basis konkreter Findings. Das Routing ist dann eindeutig:
+
+- **Klasse 2** bleibt innerhalb des KI-Mandats. Die Exploration
+  löst den Punkt selbst im Feindesign-Subprozess mit Multi-LLM-
+  Beratung auf.
+- **Klasse 1/3/4** pausieren die Pipeline für menschliche
+  Entscheidung. Das sind keine endgültigen Abbrüche, sondern
+  resumable Klärungspunkte.
 
 **Tragweite als Bezugsrahmen für Klasse 4:** Ob ein Breaking Change
 eskaliert werden muss, ist relativ zum deklarierten Wirksamkeitsgrad

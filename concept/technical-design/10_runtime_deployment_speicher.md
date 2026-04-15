@@ -26,8 +26,10 @@ tags: [runtime, deployment, verzeichnisstruktur, persistenz, locking]
 
 ## 10.1 Laufzeitkomponenten
 
-AgentKit besteht zur Laufzeit aus drei Kategorien von Prozessen,
-die alle auf der Entwicklermaschine laufen.
+AgentKit besteht zur Laufzeit aus lokalen Ausführungsprozessen und
+einem zentralen State-Backend. Das Zielprojekt enthält keine
+deployste AgentKit-Runtime und keine kanonischen AgentKit-
+Zustandsdateien.
 
 ### 10.1.1 Prozesslandschaft
 
@@ -49,6 +51,7 @@ graph TB
     end
 
     subgraph EXTERN["Externe Prozesse (dauerhaft laufend)"]
+        STATE["State-Backend<br/>(zentral, pflicht)<br/>DB + Access Layer"]
         POOL_C["ChatGPT-Pool (optional)<br/>(:9100)"]
         POOL_G["Gemini-Pool (optional)<br/>(:9200)"]
         POOL_Q["Qwen-Pool (optional)<br/>(:9300)"]
@@ -60,7 +63,8 @@ graph TB
 
     ORCH -->|"Bash-Tool"| CLI
     CLI --> SCRIPTS
-    HOOKS -.->|"Dateisystem"| LOCKFILES["Lock-Dateien<br/>Telemetrie-JSONL<br/>QA-Artefakte"]
+    HOOKS -->|"service call"| STATE
+    CLI -->|"service call"| STATE
     SUBAGENTS -->|"MCP"| POOL_C
     SUBAGENTS -->|"MCP"| POOL_G
     SUBAGENTS -->|"MCP"| POOL_Q
@@ -76,6 +80,7 @@ graph TB
 | **Claude-Code-Session** | Minuten bis Stunden | Mensch (CLI `claude`) | Orchestrator, Worker, Adversarial |
 | **Hook-Prozess** | Millisekunden | Claude Code (pro Tool-Call) | `branch_guard.py`, `integrity.py`, `hook.py` |
 | **Pipeline-Skript** | Sekunden bis Minuten | Agent via Bash-Tool | `agentkit run-phase`, `agentkit structural` |
+| **State-Backend** | Dauerhaft | Zentrale Infrastruktur | Workflow-State, Telemetrie, Artefakt-Metadaten |
 | **MCP-Server** | Dauerhaft | Mensch oder Autostart | LLM-Pools (optional, mind. 1), Story-Knowledge-Base (Pflicht), ARE (optional) |
 | **Docker-Container** | Dauerhaft | `docker-compose up` | Weaviate + text2vec-transformers (Pflicht) |
 
@@ -89,40 +94,45 @@ schnell entscheiden.
 
 1. Claude Code forkt einen Python-Prozess
 2. Hook liest Tool-Call-Daten von `sys.stdin` (JSON)
-3. Hook prüft Regeln (Dateisystem-Reads: Lock-Dateien, Config)
-4. Hook schreibt optional Telemetrie (JSONL-Append)
+3. Hook prüft Regeln (lokale Config + State-Backend-Lookups)
+4. Hook schreibt optional Telemetrie (State-Backend)
 5. Hook beendet sich: `exit(0)` = erlauben, `exit(2)` = blockieren
 
 **Performance-Designregel:** Hooks müssen billig sein — nur lokale,
-deterministische Operationen (Datei-Reads, SQLite-Zugriff,
-Regex-Match). Keine LLM-Aufrufe, keine Netzwerk-Calls, keine
-aufwändigen Dateisystem-Scans. Details in Kap. 30.4.
+deterministische Operationen plus eng begrenzte State-Backend-
+Operationen (z.B. Event-Write, Run-Lookup, Lock-Check). Keine
+LLM-Aufrufe, keine freien Netzwerk-Calls, keine aufwändigen
+Dateisystem-Scans. Details in Kap. 30.4.
 
 **Parallelität:** Claude Code ruft Hooks sequentiell auf (ein Hook
 pro Tool-Call). Mehrere Sub-Agent-Sessions können aber parallel
-laufen, was bedeutet: Mehrere Hook-Prozesse können gleichzeitig
-in die Telemetrie-DB schreiben. SQLite serialisiert Writes intern
-(WAL-Modus empfohlen für bessere Read-Concurrency).
+laufen, was bedeutet: Mehrere Hook-Prozesse können gleichzeitig in
+das State-Backend schreiben. Konsistenz und Serialisierung sind
+Aufgabe des Backends, nicht des Projekt-Dateisystems.
 
 ## 10.2 Deployment-Modell
 
 ### 10.2.1 Installation
 
-AgentKit wird als Python-Paket installiert und dann über den
-Installer in ein Zielprojekt deployt:
+AgentKit wird als Python-Paket systemweit installiert. Der Installer
+registriert anschließend ein Zielprojekt und schreibt nur die
+projektlokale Konfiguration:
 
 ```mermaid
 sequenceDiagram
     participant M as Mensch
     participant PIP as pip
-    participant INS as agentkit install
+    participant INS as agentkit register-project
     participant PROJ as Zielprojekt
+    participant STATE as State-Backend
 
     M->>PIP: pip install agentkit
     Note over PIP: Python-Paket global/venv verfügbar
-    M->>INS: agentkit install --gh-owner acme --gh-repo platform
-    INS->>PROJ: 13 Checkpoints ausführen
-    Note over PROJ: .story-pipeline.yaml<br/>.claude/settings.json (Hooks)<br/>skills/, prompts/, schemas/<br/>.installed-manifest.json
+    M->>INS: agentkit register-project --gh-owner acme --gh-repo platform
+    INS->>STATE: Projekt registrieren / Konfiguration validieren
+    INS->>PROJ: .story-pipeline.yaml + .claude/settings.json aktualisieren
+    INS->>PROJ: .claude/skills/ Symlinks auf Bundle-Version erzeugen
+    Note over PROJ: Nur lokale Konfiguration und Skill-Bindungen<br/>keine kopierten Skills/Prompts/DB-Dateien
 ```
 
 **Keine Docker-Abhängigkeit für AgentKit selbst.** Docker wird für
@@ -158,15 +168,17 @@ konkreten Pools zu. Das Integrity-Gate prüft bei Closure, dass für
 jede konfigurierte Rolle mindestens ein `llm_call`-Event mit dem
 zugeordneten Pool in der Telemetrie vorliegt.
 
-### 10.2.3 Kein zentraler Server
+### 10.2.3 Zentrales State-Backend statt Projektzustand
 
-AgentKit hat keinen eigenen Server-Prozess. Alles läuft als:
+AgentKit hat keine projektlokale Runtime. Alles Projektseitige läuft als:
 - Kurzlebige CLI-Aufrufe (Pipeline-Skripte)
 - Kurzlebige Hook-Prozesse (PreToolUse/PostToolUse)
-- Dateisystem-I/O (Artefakte, Telemetrie, Locks)
+- Zugriff auf Projektcode und Projektkonfiguration
 
-Die einzigen dauerhaft laufenden Prozesse sind externe Dienste
-(LLM-Pools, Weaviate), die unabhängig von AgentKit gestartet werden.
+Der kanonische AgentKit-Zustand liegt in einem zentralen
+State-Backend. Dieses trennt Laufzeitdaten vom Projekt-Repository,
+stellt Retention sicher und erzwingt Rollenrechte gegenüber
+Orchestrator und Worker.
 
 ## 10.3 Verzeichnisstruktur
 
@@ -174,101 +186,38 @@ Die einzigen dauerhaft laufenden Prozesse sind externe Dienste
 
 ```
 {projekt-root}/
-├── .story-pipeline.yaml            # Pipeline-Konfiguration (Kap. 03)
-├── .installed-manifest.json        # Installations-Manifest (Kap. 50)
+├── .story-pipeline.yaml            # Projektspezifische AgentKit-Konfiguration
 ├── .claude/
 │   ├── settings.json               # Hook-Registrierung
+│   ├── skills/                     # Projektlokale Symlink-Bindungen auf systemweite Skill-Bundles
 │   └── ccag/
-│       └── rules/                  # CCAG-Regeln (Kap. 42)
-│           ├── global.yaml
-│           ├── main-agent.yaml
-│           ├── subagents.yaml
-│           └── approved.yaml
+│       └── rules/                  # Projektbezogene Permission-/Policy-Konfiguration
 │
-├── .agent-guard/
-│   └── context.json                # Branch-Guard-Kontext (aktiver Worktree)
-│
-├── prompts/                        # Rollenprompts (Kap. 08)
-│   ├── orchestrator-system.md
-│   ├── worker-implementation.md
-│   ├── worker-bugfix.md
-│   ├── worker-concept.md
-│   ├── worker-research.md
-│   ├── worker-remediation.md
-│   ├── worker-exploration.md
-│   ├── adversarial-testing.md
-│   ├── qa-semantic.md
-│   ├── qa-guardrail.md
-│   └── sparring/                   # LLM-Sparring-Templates
-│
-├── skills/                         # Skills (Kap. 43)
-│   ├── create-userstory/
-│   ├── execute-userstory/
-│   ├── lookup-userstory/
-│   └── manage-requirements/
-│
-├── tools/
-│   ├── hooks/                      # Git-Hooks (pre-push)
-│   └── qa/
-│       └── schemas/                # JSON Schemas (Kap. 03)
-│
-├── stories/                        # Story-Verzeichnisse
-│   ├── INDEX.md
-│   └── ODIN-042_implement-broker-api/
-│       └── ...
-│
-├── concepts/                       # Konzept-Dokumente
-│
-├── _guardrails/                    # Guardrail-Dokumente
-│
-├── _temp/                          # Temporäre Laufzeitdaten (Story-gebunden)
-│   ├── qa/                         # QA-Artefakte pro Story
-│   │   └── {story_id}/
-│   │       ├── context.json
-│   │       ├── structural.json
-│   │       ├── llm-review.json
-│   │       ├── semantic-review.json
-│   │       ├── adversarial.json
-│   │       ├── decision.json
-│   │       ├── closure.json
-│   │       ├── phase-state.json
-│   │       └── integrity-violations.log
-│   │
-│   ├── agentkit.db                  # SQLite Telemetrie-DB (alle Stories)
-│   ├── story-telemetry/            # JSONL-Export bei Closure (Archiv)
-│   │   └── {story_id}.jsonl
-│   │
-│   ├── governance/                  # Governance-Laufzeitdaten
-│   │   ├── active/                  # Per-Story-Aktivierungsmarker
-│   │   │   └── {story_id}.active    # Marker: Story-Umsetzung läuft
-│   │   ├── locks/                   # Sperrdateien pro Story (Kap. 02.7)
-│   │   │   └── {story_id}/
-│   │   │       └── qa-lock.json
-│   │   └── risk-window.json         # Rolling Window (Governance-Beobachtung)
-│   │
-│   └── adversarial/                 # Adversarial-Test-Sandbox (Kap. 02)
-│       └── {story_id}/
-│
-└── .agentkit/                      # Permanente AgentKit-Daten
-    └── failure-corpus/              # Failure Corpus (Kap. 41) — NICHT in _temp!
-        ├── incidents.jsonl          # Langfristig, projektübergreifend
-        ├── patterns.jsonl
-        └── checks/
-            └── CHK-{NNNN}/
+├── stories/                        # Projektdokumentation / Story-Arbeitsraum
+├── concepts/                       # Projektspezifische Konzepte
+├── _guardrails/                    # Projektspezifische Guardrails
+└── <Projektdateien>                # Quellcode, Tests, Build-Dateien
 ```
+
+**Projektlokal weiterhin vorgesehen, aber nicht kanonisch:**
+- `.claude/skills/` als Symlink-Bindung auf systemweite, versionierte Bundles
+
+**Nicht mehr im Projekt vorgesehen:**
+- keine projektlokalen Telemetrie-DBs
+- keine AgentKit-`_temp/`-Zustandsverzeichnisse als Source of Truth
+- keine kopierten Prompt-/Skill-/Schema-Bundles
+- kein Installations-Manifest als Laufzeitanker
 
 ### 10.3.2 Verzeichnis-Ownership
 
 | Verzeichnis | Schreiber | Leser | Schutz |
 |-------------|----------|-------|--------|
-| `_temp/qa/{story_id}/` | Pipeline-Skripte | Orchestrator, QA-Agents | Lock-Datei + Hook (Kap. 02.7) |
-| `_temp/agentkit.db` | Hook-Prozesse + Pipeline-Skripte (INSERT) | Integrity-Gate, Postflight, Governance (SELECT) | SQLite serialisiert Writes intern |
-| `_temp/story-telemetry/` | Closure-Skript (JSONL-Export) | Mensch, Archivierung | Export-only, nicht Laufzeit-Speicher |
-| `_temp/governance/` | Pipeline-Skripte | Hooks | Nur Pipeline schreibt |
-| `_temp/governance/locks/` | Setup-/Closure-Skripte | Hooks | Nur Pipeline schreibt |
-| `_temp/adversarial/{story_id}/` | Adversarial Agent | Pipeline (Promotion-Skript) | Ephemer, nach Promotion löschbar |
-| `.agentkit/failure-corpus/` | Governance-Beobachtung, Pipeline | Failure-Corpus-Engine | Append-only, permanent |
-| `prompts/`, `skills/`, `schemas/` | Installer | Agents (read-only) | Vom Installer deployt |
+| State-Backend: Workflow-State | Pipeline-Skripte | Orchestrator, QA, Status-Abfragen | Rollen- und Principal-basierte Rechte |
+| State-Backend: Telemetrie | Hook-Prozesse + Pipeline-Skripte | Integrity-Gate, Postflight, Governance | Zentraler Audit-Trail |
+| State-Backend: Governance/Locks | Pipeline-Skripte | Hooks | Nur deterministische Komponenten schreiben |
+| State-Backend: Failure Corpus | Governance-Beobachtung, Pipeline | Failure-Corpus-Engine | Append-only, permanent |
+| Systemweite Skill-/Prompt-Bundles | AgentKit-Installer | Agents (read-only via Projekt-Symlink) | Versioniert, immutable pro Bundle-Version |
+| `.claude/skills/` | Installer | Claude Code / Agents | Nur Symlink-Bindung, kein kanonischer Inhalt |
 | `.story-pipeline.yaml` | Mensch, Installer | Alle Pipeline-Komponenten | Menschlich editierbar |
 
 ## 10.4 Persistenz und Datenflüsse
@@ -279,32 +228,30 @@ Die einzigen dauerhaft laufenden Prozesse sind externe Dienste
 |-------|---------|--------|-------------|
 | Pipeline-Konfiguration | `.story-pipeline.yaml` | YAML | Permanent (projektweite Config) |
 | Story-Zustände (extern) | GitHub Project Board | Custom Fields | Permanent |
-| Story-Zustände (intern) | `_temp/qa/{story_id}/phase-state.json` | JSON | Bis Story-Closure |
-| Story-Context (Snapshot) | `_temp/qa/{story_id}/context.json` | JSON | Bis Story-Closure |
-| QA-Ergebnisse | `_temp/qa/{story_id}/*.json` | JSON (Envelope) | Bis Story-Closure (danach archivierbar) |
-| Telemetrie (Laufzeit) | `_temp/agentkit.db` | SQLite | Permanent (eine DB für alle Stories) |
-| Telemetrie (Archiv) | `_temp/story-telemetry/{story_id}.jsonl` | JSONL | Export bei Closure, danach archivierbar |
-| Locks | `_temp/governance/locks/{story_id}/` | JSON | Während Story-Lauf (danach gelöscht) |
-| Failure Corpus | `.agentkit/failure-corpus/` | JSONL + Verzeichnisse | Permanent (projektübergreifend, nicht in `_temp/`) |
+| Story-Zustände (intern) | State-Backend | Strukturierte Records | Permanent mit Run-Historie |
+| Story-Context (Snapshot) | State-Backend | Strukturierte Records | Permanent / versioniert |
+| QA-Ergebnisse | State-Backend | Strukturierte Artefakt-Records | Permanent mit Retention-Regeln |
+| Telemetrie (Laufzeit) | State-Backend | DB-Events | Permanent |
+| Telemetrie (Archiv) | Export-Service / Objektspeicher | JSONL/Bundle | Export bei Closure oder Audit |
+| Locks | State-Backend | Lock-Records | Während Story-Lauf |
+| Failure Corpus | State-Backend / Artefaktspeicher | JSONL + strukturierte Datensätze | Permanent, projektübergreifend |
 | Konzept-Dokumente | `concepts/` | Markdown | Permanent |
 | Story-Dokumentation | `stories/{story_id}_{slug}/` | Markdown + JSON | Permanent |
-| Installations-Manifest | `.installed-manifest.json` | JSON | Permanent |
+| Projektregistrierung | State-Backend + lokale Config-Version | Record | Permanent |
 | VektorDB-Inhalte | Weaviate (Docker Volume) | Weaviate-intern | Permanent (reindexierbar) |
 
 ### 10.4.2 Cleanup-Strategie
 
 | Was | Wann | Wie |
 |-----|------|-----|
-| QA-Artefakte (`_temp/qa/{story_id}/`) | Nach Story-Closure + Postflight | Archivierbar, nicht automatisch gelöscht |
-| Telemetrie (`_temp/story-telemetry/{story_id}.jsonl`) | Nach Story-Closure | Archivierbar, nicht automatisch gelöscht |
-| Locks (`_temp/governance/locks/{story_id}/`) | Closure-Skript entfernt sie | Automatisch bei Closure; stale Locks via PID+TTL |
-| Adversarial-Sandbox (`_temp/adversarial/{story_id}/`) | Nach Test-Promotion durch Pipeline | Automatisch löschbar |
+| Export-Bundles | Nach Story-Closure | Nach zentraler Retention-Policy archivierbar |
+| Locks | Closure-Skript entfernt sie | Automatisch bei Closure; stale Locks via Lease/TTL |
+| Ephemere Sandboxes außerhalb des Projekts | Nach Test-Promotion durch Pipeline | Automatisch löschbar |
 | Worktree | Closure-Phase (teardown) | `git worktree remove` |
 | Story-Branch | Closure-Phase (nach Merge) | `git branch -d` |
 
-**Kein automatisches Löschen von QA-Artefakten und Telemetrie.**
-Diese Daten sind Audit-Trail und Grundlage für den Failure Corpus.
-Archivierung ist eine manuelle Entscheidung des Menschen.
+**Kein kanonischer Audit-Trail im Projekt-Dateisystem.**
+Audit- und QA-Daten leben zentral; lokale Exporte sind nur Kopien.
 
 ## 10.5 Locking und Parallelität
 
@@ -312,7 +259,7 @@ Archivierung ist eine manuelle Entscheidung des Menschen.
 
 | Szenario | Möglich? | Mechanismus |
 |----------|----------|-------------|
-| Mehrere Stories parallel | Ja | Jede Story hat eigenen Worktree, eigene QA-Verzeichnisse, eigene Locks, eigene Telemetrie-Datei |
+| Mehrere Stories parallel | Ja | Jede Story hat eigenen Worktree, eigene zentrale Locks und eigene Run-Records |
 | Mehrere Sub-Agents parallel | Ja (innerhalb einer Story) | Claude Code spawnt Sub-Agents als parallele Sessions |
 | Mehrere Pipeline-Skripte parallel | Nein | Phase Runner steuert sequentiell |
 | Mehrere Hook-Prozesse parallel | Ja | Verschiedene Sub-Agent-Sessions lösen gleichzeitig Hooks aus |
@@ -321,9 +268,9 @@ Archivierung ist eine manuelle Entscheidung des Menschen.
 
 | Konfliktzone | Risiko | Absicherung |
 |-------------|--------|-------------|
-| SQLite-Telemetrie (mehrere Hooks schreiben gleichzeitig) | Write-Contention | SQLite serialisiert Writes intern (WAL-Modus empfohlen) |
-| Lock-Dateien (mehrere Stories parallel) | Falsche Zuordnung | Story-spezifische Lock-Verzeichnisse (`locks/{story_id}/`) |
-| QA-Artefakte | Überschreiben durch falschen Prozess | Sperrdatei + Hook blockiert Sub-Agents; Producer-Check im Integrity-Gate |
+| State-Backend-Telemetrie (mehrere Hooks schreiben gleichzeitig) | Write-Contention | DB-Transaktionen / service-seitige Serialisierung |
+| Story-Locks | Falsche Zuordnung | Story-spezifische Lease-/Lock-Records |
+| QA-Artefakte | Überschreiben durch falschen Prozess | Nur Pipeline-/Service-Principals dürfen mutieren |
 | Git-Worktree | Branch-Konflikte | Jede Story hat eigenen Branch (`story/{story_id}`) |
 | GitHub-Issue-Status | Race Condition bei parallelen Status-Updates | Pipeline aktualisiert Status nur bei Phasenwechsel (sequentiell pro Story) |
 
@@ -358,7 +305,8 @@ Alle Pipeline-Skripte müssen idempotent sein:
 Bei einem abgebrochenen Story-Run:
 
 1. Mensch erkennt Problem (Stagnation, Fehlermeldung, Lock-Timeout)
-2. Mensch prüft Zustand: `_temp/qa/{story_id}/phase-state.json`
+2. Mensch prüft Zustand: `agentkit status --story {story_id}` oder
+   State-Backend-Eintrag des Runs
 3. Stale Locks werden via PID-Prüfung automatisch erkannt
 4. Neuer Run mit `agentkit run-phase setup --story {story_id}` —
    Preflight erkennt bestehenden Worktree/Branch und kann
@@ -372,7 +320,8 @@ Bei einem abgebrochenen Story-Run:
 
 Alle Services im Dunstkreis von AgentKit und seiner
 Softwareentwicklungsumgebung sind im Portbereich 9000-9999
-angesiedelt. Einzige Ausnahme: PostgreSQL auf dem Standardport.
+angesiedelt. Ausnahme bleibt die zentrale Datenbank auf ihrem
+Standardport.
 
 ```
 Portbereich-Schema:
@@ -389,7 +338,7 @@ Portbereich-Schema:
 
 | Port | Service | Kategorie | Protokoll | Pflicht/Optional | Autostart |
 |------|---------|-----------|-----------|-----------------|-----------|
-| 5432 | PostgreSQL | Dateninfrastruktur | TCP | Optional (spaetere Analytics-Evolutionsstufe, FK-60 P8) | Systemdienst |
+| 5432 | PostgreSQL / zentrales DBMS | Dateninfrastruktur | TCP | Pflicht (State-Backend) | Zentraler Dienst |
 | 9100 | ChatGPT Pool | LLM-Pool | MCP (HTTP+SSE) | Optional (mind. 1 Pool Pflicht) | Windows Startup `.pyw` |
 | 9200 | Gemini Pool | LLM-Pool | MCP (HTTP+SSE) | Optional | Windows Startup `.pyw` |
 | 9300 | Qwen Pool | LLM-Pool | MCP (HTTP+SSE) | Optional | Windows Startup `.pyw` |
@@ -411,8 +360,9 @@ Portbereich-Schema:
   externe Fachservices.
 - **DevOps/Infra**: 9900-9999. Jenkins, SonarQube, Weaviate
   und kuenftige Infrastruktur-Services.
-- **PostgreSQL**: Bleibt auf Standardport 5432. Kein Grund
-  fuer einen nicht-standard Port bei einem Datenbankserver.
+- **State-Backend/DB**: Kanonischer Laufzeitzustand und Audit-Trail.
+  Direkter Agentenzugriff ist verboten; Zugriffe laufen ueber
+  deterministische AgentKit-Komponenten.
 
 ### 10.7.4 Konfiguration
 

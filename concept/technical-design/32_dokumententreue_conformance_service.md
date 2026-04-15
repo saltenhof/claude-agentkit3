@@ -314,15 +314,16 @@ inhaltlich anpassen.
 
 ### 32.6.1 Trigger
 
-Aufgerufen vom Phase Runner nach der Exploration-Phase, nachdem
-das Entwurfsartefakt eingefroren wurde (Kap. 23.5). Nur im
-Exploration Mode.
+Aufgerufen vom Phase Runner innerhalb der Exploration-Phase,
+nachdem der Worker den Draft-Entwurf geschrieben und strukturell
+validiert hat, aber bevor der Entwurf eingefroren wird (Kap. 23.3,
+Kap. 25.4). Nur im Exploration Mode.
 
 ### 32.6.2 Input
 
 | Input | Quelle |
 |-------|--------|
-| Entwurfsartefakt | `_temp/qa/{story_id}/entwurfsartefakt.json` (frozen) |
+| Draft-Entwurfsartefakt | Arbeitsstand des Exploration-Workers vor Freeze |
 | Vom Worker deklarierte Referenzdokumente | `konformitaetsaussage.referenzdokumente` aus dem Entwurf |
 | Vom System ergänzte Referenzdokumente | Manifest-Index gefiltert auf betroffene Module und Story-Typ |
 | Story-Beschreibung | `context.json` |
@@ -337,17 +338,21 @@ ein PASS ausstellt.
 
 ### 32.6.4 Bei FAIL
 
-Eskalation an Mensch. Pipeline pausiert (`status: ESCALATED`).
+Eskalation an Mensch. Pipeline stoppt mit `status: ESCALATED`.
 Der Mensch muss den Konflikt mit der Architektur klären — z.B.
 den Entwurf anpassen, die Architektur-Leitplanken lockern, oder
 die Story verwerfen.
 
 ### 32.6.5 Gate für freigabepflichtige Entscheidungen
 
-Wenn das Entwurfsartefakt `offene_punkte.freigabe_noetig` mit
-nicht-leerer Liste enthält, pausiert die Pipeline auch bei
-Entwurfstreue PASS (Kap. 23.5.3). Mensch muss offene Punkte
-freigeben, bevor Implementation beginnt.
+Ein nicht-leerer Block `offene_punkte.freigabe_noetig` führt nicht
+zu einer sofortigen menschlichen Pause nach Stufe 1. Diese Punkte
+gehen zunächst in Design-Review, Prämissen-Challenge,
+Design-Challenge und H2-Nachklassifikation ein. Erst das Ergebnis
+der Nachklassifikation entscheidet:
+
+- Klasse 2: KI löst den Punkt im Feindesign-Subprozess selbst auf.
+- Klasse 1/3/4: Pipeline pausiert für menschliche Klärung.
 
 ## 32.7 Ebene 3: Umsetzungstreue
 
@@ -375,8 +380,9 @@ QA-Bewertung und Semantic Review (Kap. 27.4).
 ### 32.7.4 Bei FAIL
 
 Story geht in den Feedback-Loop (Mängelliste an Remediation-
-Worker). Bei signifikantem Drift im Exploration Mode: zurück
-in die Exploration-Phase (Kap. 20.2.2).
+Worker). Bei signifikantem Drift oder Impact-Verletzung gibt es
+keinen automatischen Rücksprung in die Exploration-Phase; der Fall
+wird an den Menschen eskaliert.
 
 ### 32.7.5 Unterschied zu Impact-Violation-Check
 

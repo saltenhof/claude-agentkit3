@@ -33,7 +33,7 @@ Es ist das zweite Dokument des Analytics-Blocks (FK-60 bis FK-63).
 |--------|-----------|
 | `[R]` | Rohdaten bereits vorhanden — KPI kann aus bestehenden Events abgeleitet werden |
 | `[N]` | Neues Event oder angereichertes Payload noetig |
-| `→ fact_*` | Ziel-Fact-Tabelle in analytics.db (Schema in FK-62) |
+| `→ fact_*` | Ziel-Fact-Tabelle im Analytics-Schema (FK-62) |
 
 ### 61.1.2 Authority-Split (Erinnerung)
 
@@ -42,6 +42,12 @@ KPI-Definition (Name, Formel, Koernung, Entscheidungsfrage) steht
 ausschliesslich in FK-60. Domain-FKs (FK-27, FK-30, FK-34, etc.)
 beschreiben das Laufzeitverhalten, aus dem Events entstehen — sie
 werden hier referenziert, nicht dupliziert.
+
+**Projekt-Scope-Regel:** Alle Erhebungspunkte schreiben oder lesen
+kanonische Daten immer unter `project_key`. KPI-Formeln koennen
+weiterhin von `story_id`, `guard_key` oder `pool_key` sprechen, die
+physische Speicherung im Runtime-/Analytics-Schema ist jedoch immer
+projektgebunden.
 
 ---
 
@@ -62,7 +68,7 @@ werden hier referenziert, nicht dupliziert.
 | KPI | Neues Event / Payload | Erhebungspunkt | Aenderung |
 |-----|----------------------|----------------|-----------|
 | `compaction_count_per_story` | **Neues Event**: `compaction_event` mit Feld `story_id` (abgeleitet aus `.agentkit-story.json` im cwd). | PostCompact-Hook (`epoch_writer.py`) schreibt bereits Epoch-Counter. Zusaetzlich wird ein `compaction_event` in die `events`-Tabelle geschrieben. | → `fact_story.compaction_count` |
-| `execution_vs_exploration_ratio` | Kein neues Event noetig. `story_metrics.mode` in raw.db enthaelt den Wert (execution/exploration/not_applicable). Wird bei Closure durch `upsert_workflow_metrics()` geschrieben. | Refresh-Worker liest `story_metrics.mode` | → `fact_story.pipeline_mode`, aggregiert in `fact_pipeline_period.execution_count`, `fact_pipeline_period.exploration_count` |
+| `execution_vs_exploration_ratio` | Kein neues Event noetig. `runtime.story_metrics.mode` enthaelt den Wert (execution/exploration/not_applicable). Wird bei Closure durch `upsert_workflow_metrics()` geschrieben. | Refresh-Worker liest `runtime.story_metrics.mode` | → `fact_story.pipeline_mode`, aggregiert in `fact_pipeline_period.execution_count`, `fact_pipeline_period.exploration_count` |
 
 ---
 
@@ -97,7 +103,7 @@ werden hier referenziert, nicht dupliziert.
 
 | KPI | Neues Event / Payload | Erhebungspunkt | Aenderung |
 |-----|----------------------|----------------|-----------|
-| `guard_violation_rate_by_guard` | **Kein Event** — Scratchpad-Counter statt High-Volume-Events. Siehe §61.4.3. | Jeder Guard-Hook inkrementiert einen UPSERT-Counter in `guard_invocation_counters` (raw.db). Bei Closure und Week-Rollover wird der Counter geflusht. | → `fact_guard_period.invocation_count`, `fact_guard_period.violation_rate` (= blocks/invocations) |
+| `guard_violation_rate_by_guard` | **Kein Event** — Scratchpad-Counter statt High-Volume-Events. Siehe §61.4.3. | Jeder Guard-Hook inkrementiert einen UPSERT-Counter in `runtime.guard_invocation_counters`. Bei Closure und Week-Rollover wird der Counter in die Analytics-Schicht uebernommen. | → `fact_guard_period.invocation_count`, `fact_guard_period.violation_rate` (= blocks/invocations) |
 | `prompt_integrity_violation_by_stage` | Angereichertes Payload im `integrity_violation` Event: neues Feld `stage` (escape_detection / schema_validation / template_integrity). | `prompt_integrity_guard.py` setzt das `stage`-Feld je nachdem welche Pruefstufe den Block ausgeloest hat | → `fact_guard_period.violation_stage_escape_count`, `...schema_count`, `...template_count` |
 | `governance_escape_detection_count` | Teilmenge von `prompt_integrity_violation_by_stage` WHERE `stage = 'escape_detection'` | Keine separate Erhebung — wird aus dem angereicherten Payload abgeleitet | → `fact_guard_period.escape_detection_count` (Subset) |
 | `orchestrator_governance_violation_count` | Teilmenge von `guard_violation_count_by_type` WHERE `guard = 'orchestrator_guard'` | Keine separate Erhebung — wird aus bestehenden Events gefiltert | → `fact_guard_period.violation_count` WHERE `guard_key = 'orchestrator_guard'` |
@@ -114,18 +120,19 @@ Events/Jahr. Das ueberschreitet die Volumenabschaetzung
 Hot-Path-Latenz.
 
 **Loesung**: Kein `guard_invocation` Event-Typ. Stattdessen eine
-leichtgewichtige Scratchpad-Tabelle in raw.db:
+leichtgewichtige Scratchpad-Tabelle im Runtime-Schema:
 
 ```sql
 CREATE TABLE guard_invocation_counters (
+    project_key TEXT NOT NULL,
     story_id    TEXT NOT NULL,
     guard_key   TEXT NOT NULL,
     week_start  TEXT NOT NULL,
     invocations INTEGER NOT NULL DEFAULT 0,
     blocks      INTEGER NOT NULL DEFAULT 0,
     updated_at  TEXT NOT NULL,
-    PRIMARY KEY (story_id, guard_key, week_start)
-) WITHOUT ROWID;
+    PRIMARY KEY (project_key, story_id, guard_key, week_start)
+);
 ```
 
 **Hot Path**: Jeder Guard-Hook fuehrt am Ende (vor `sys.exit()`)
@@ -239,7 +246,7 @@ und `WITHOUT ROWID`.
 
 | KPI | Quelle | Erhebungspunkt | Ziel |
 |-----|--------|----------------|------|
-| `incident_volume_per_month` | `fc_incidents` Tabelle, `COUNT WHERE created_at >= month_start` | Refresh-Worker aggregiert aus raw.db | → `fact_corpus_period.new_incident_count` |
+| `incident_volume_per_month` | `runtime.fc_incidents` Tabelle, `COUNT WHERE created_at >= month_start` | Refresh-Worker aggregiert aus dem Runtime-Schema | → `fact_corpus_period.new_incident_count` |
 | `pattern_to_check_conversion_rate` | `fc_patterns` (status = 'check_active') / `fc_patterns` (total) | Refresh-Worker berechnet Ratio | → `fact_corpus_period.patterns_with_active_check`, `fact_corpus_period.patterns_total_count` |
 
 ---

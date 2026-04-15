@@ -25,6 +25,8 @@ verwendet werden. Jeder Begriff hat eine exakte technische Bedeutung.
 | Begriff | Definition | Technische Repräsentation |
 |---------|-----------|--------------------------|
 | **Story** | Kleinste planbare Arbeitseinheit. Entspricht einem GitHub Issue mit AgentKit Custom Fields. | GitHub Issue + Project Item |
+| **Projekt** | Ein registriertes Zielprojekt, gegen das eine zentrale AgentKit-Installation arbeitet. | Projektregistrierung + lokale Projektkonfiguration |
+| **Project-Key** | Mandanten-Schlüssel eines registrierten Projekts. Alle kanonischen Runtime- und Analytics-Records sind daran gebunden. | String, systemweit eindeutig |
 | **Story-ID** | Eindeutiger Identifikator einer Story. Format: `{PREFIX}-{NNN}`, z.B. `ODIN-042`. | String, Regex: `[A-Z][A-Z0-9]+(?:-[A-Z][A-Z0-9]+)*-\d+` |
 | **Story-Typ** | Klassifikation der Story. Bestimmt den Pipeline-Pfad. | Enum: `implementation`, `bugfix`, `concept`, `research` |
 | **Story-Größe** | Geschätzter Umfang. Beeinflusst Review-Häufigkeit. | Enum: `XS`, `S`, `M`, `L`, `XL` |
@@ -33,7 +35,7 @@ verwendet werden. Jeder Begriff hat eine exakte technische Bedeutung.
 | **Stage** | Ein Prüfschritt innerhalb einer Phase. Typisiert mit Schicht, Story-Typ-Geltung und Blocking-Modus. | Typisiertes Objekt in Stage-Registry (siehe 2.9) |
 | **Guard** | Permanenter Hook-basierter Schutzmechanismus. Blockiert verbotene Aktionen. | Python-Skript, PreToolUse-Hook, exit(0)/exit(2) |
 | **Gate** | Einmaliger Prüfpunkt, der passiert werden muss. Blockiert bei Failure den Fortschritt. | Python-Funktion, liefert PASS/FAIL |
-| **Artefakt** | Maschinenlesbares Ergebnis eines Pipeline-Schritts. | JSON-Datei in `_temp/qa/{story_id}/` |
+| **Artefakt** | Maschinenlesbares Ergebnis eines Pipeline-Schritts. | Strukturierter Record im zentralen State-Backend; optional als JSON exportierbar |
 | **Incident** | Einzelbeobachtung eines Agent-Fehlverhaltens. | JSONL-Eintrag in Failure Corpus |
 | **Pattern** | Wiederkehrendes Muster über mehrere Incidents. | JSONL-Eintrag in Failure Corpus |
 | **Check** | Deterministischer Guard, abgeleitet aus einem Pattern. | Python-Skript, registriert in Stage-Registry |
@@ -78,8 +80,8 @@ mutation {
 ### 2.2.2 Interne Pipeline-Zustände
 
 Interne Zustände ändern den GitHub-Status NICHT. Die Story bleibt
-"In Progress". Interne Zustände leben in der Pipeline-State-Datei
-und der Telemetrie.
+"In Progress". Interne Zustände leben im zentralen State-Backend
+und in der Telemetrie.
 
 ```mermaid
 stateDiagram-v2
@@ -101,13 +103,15 @@ stateDiagram-v2
 > Element 16 — PhaseState wird in v3 nach Ownership getrennt: StoryContext (langlebige Story-Semantik), PhaseStateCore (aktueller Laufzeitstatus), PhasePayload (diskriminierte Union pro Phase), RuntimeMetadata (nicht-fachliche Loader-/Guard-Infos). `mode`, `story_type` raus aus PhaseState, rein in StoryContext. Detailkonzept wird separat ausgearbeitet.
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Elemente 3, 16.
 
-**Pipeline-State-Datei:** `_temp/qa/{story_id}/phase-state.json`
+**Pipeline-State-Record:** zentraler Workflow-State-Eintrag
+(`workflow_phase_state`) im State-Backend.
 
 > **[Hinweis 2026-04-08]** Dieses Beispiel zeigt noch die flache PhaseState-Struktur aus v2. In v3 wird PhaseState in StoryContext + PhaseStateCore + PhasePayload (diskriminierte Union) + RuntimeMetadata aufgeteilt. Detailkonzept ausstehend. Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 16.
 
 ```json
 {
   "schema_version": "3.0",
+  "project_key": "odin-trading",
   "story_id": "PROJ-042",
   "run_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   "phase": "verify",
@@ -146,6 +150,10 @@ stateDiagram-v2
 **Entfernt (REF-034):** `verify_result = "STRUCTURAL_ONLY_PASS"` ist kein gültiger Wert mehr.
 Exploration-mode Stories durchlaufen nach der Implementation die volle 4-Schichten-Verify.
 
+**Mandantenregel:** `story_id` ist kein systemweit ausreichender
+Schlüssel. Kanonische Records im State-Backend werden immer mindestens
+unter `(project_key, story_id, run_id?)` geführt.
+
 ### 2.2.3 Verify-Schicht-Zustände (implementierende Stories)
 
 Die vollständige Verify-Pipeline mit vier Schichten gilt **nur für
@@ -176,7 +184,8 @@ flowchart TD
 ```
 
 **Zustandspersistenz:** Jede Schicht schreibt ihr Ergebnis als
-separates JSON-Artefakt in `_temp/qa/{story_id}/`:
+separaten Artefakt-Record in das State-Backend; daraus können bei
+Bedarf JSON-Exporte erzeugt werden:
 
 | Schicht | Artefakt | Producer |
 |---------|----------|----------|
@@ -344,7 +353,7 @@ einer Story.
 | **Worker-Artefakte** | Worker-Agent | Kein Schutz (Agent kann überschreiben) | `worker-manifest.json`, `protocol.md`, Quellcode |
 | **QA-Artefakte** | Pipeline-Skripte, QA-Agenten | Schreibschutz via Sperrdatei + Hook (2.7) | `structural.json`, `decision.json`, `semantic.json`, `closure.json`, `context.json` |
 | **Pipeline-Artefakte** | Phase Runner, Preflight, Postflight | Implizit geschützt (nur Pipeline schreibt) | `phase-state.json`, `preflight.json`, `postflight.json` |
-| **Telemetrie** | Hooks + Pipeline-Skripte | SQLite-DB (`_temp/agentkit.db`), JSONL-Export bei Closure | `events`-Tabelle (Laufzeit), `{story_id}.jsonl` (Archiv) |
+| **Telemetrie** | Hooks + Pipeline-Skripte | Zentrales State-Backend, optionaler Export bei Closure | `events`-Tabelle/Collection (Laufzeit), Export-Bundle (Archiv) |
 | **Governance-Artefakte** | Guards, Integrity-Gate | Log-only | `integrity-violations.log` |
 | **Entwurfsartefakte** | Worker (Exploration) | Read-only nach Freeze | `entwurfsartefakt.json` |
 | **Handover-Artefakte** | Worker (Implementation) | Kein Schutz | `handover.json` |

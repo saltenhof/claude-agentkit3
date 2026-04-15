@@ -434,7 +434,7 @@ der Kontext-Selektion (P6).
 
 Für jeden LLM-Evaluator-Aufruf wird protokolliert:
 
-**In der Telemetrie-DB (SQLite):**
+**In der Telemetrie-DB (PostgreSQL):**
 ```sql
 INSERT INTO events (story_id, run_id, ts, event_type, pool, role, payload)
 VALUES ('PROJ-042', 'a1b2...', '...', 'llm_call', 'chatgpt', 'qa_review',

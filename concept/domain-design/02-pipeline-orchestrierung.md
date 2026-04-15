@@ -220,12 +220,17 @@ flowchart TD
         DESIGN_REV --> PREMISE_CHECK["Prämissen-Challenge<br/>(LLM, fokussiert)"]:::exploration
         PREMISE_CHECK --> TRIGGER_EVAL["Trigger-Evaluation<br/>(deterministisch)"]:::exploration
         TRIGGER_EVAL -->|Trigger vorhanden| DESIGN_CHAL["Stufe 2b: Design-Challenge<br/>(LLM via Evaluator)"]:::exploration
-        DESIGN_CHAL --> AGG["Stufe 2c: Finale Aggregation"]:::exploration
+        DESIGN_CHAL --> AGG["H1: Aggregation"]:::exploration
         TRIGGER_EVAL -->|Kein Trigger| AGG
-        AGG -->|PASS / PASS_WITH_CONCERNS| FREEZE["Entwurfsartefakt<br/>einfrieren"]:::exploration
+        AGG --> CLASSIFY["H2: Nachklassifikation<br/>(Mandatsregelwerk)"]:::exploration
+        CLASSIFY -->|Klasse 2| FEINDESIGN["J: Feindesign-Subprozess<br/>(KI entscheidet selbst)"]:::exploration
+        FEINDESIGN --> DESIGN_REV
+        CLASSIFY -->|Klasse 1/3/4| PAUSE_PO(["PAUSED:<br/>Menschliche Klärung nötig"])
+        PAUSE_PO --> DESIGN_REV
+        CLASSIFY -->|PASS ohne Findings| FREEZE["Entwurfsartefakt<br/>einfrieren"]:::exploration
         FREEZE --> PLAN
-        AGG -->|FAIL remediable| EXPLORE
-        AGG -->|FAIL non-remediable| ESCALATE_DR(["Eskalation an Mensch"])
+        CLASSIFY -->|Review-Findings remediable| EXPLORE
+        CLASSIFY -->|FAIL non-remediable| ESCALATE_DR(["Eskalation an Mensch"])
     end
 
     subgraph IMPL_PHASE [Implementierung]
@@ -428,8 +433,16 @@ Der Worker gleicht den Entwurf bereits selbst gegen bestehende
 Architektur ab. Die nachfolgende Dokumententreue-Prüfung ist damit
 nicht die erste, sondern die zweite, unabhängige Konformitätsprüfung.
 
-Erkennt die Prüfung einen Konflikt, wird an den Menschen eskaliert.
-Erst nach bestandener Prüfung geht die Story in die Implementierung.
+Mandatskritische Punkte werden nicht blind an den Menschen gegeben.
+Stattdessen klassifiziert AgentKit die Findings nach vier Klassen:
+Klasse 2 bleibt innerhalb des KI-Mandats und wird im
+Feindesign-Subprozess autonom mit Multi-LLM-Beratung aufgelöst.
+Nur Klasse 1 (fachliche Lücke / Normativ-Konflikt), Klasse 3
+(Scope-Explosion) und Klasse 4 (Tragweiten-Überschreitung)
+pausieren die Pipeline für menschliche Klärung.
+
+Erst nach bestandener Prüfung, bestandener Nachklassifikation und
+abgeschlossenem Feindesign-Fall geht die Story in die Implementierung.
 
 **Mandatsprinzip:** Der Mensch legt normative Leitplanken fest (Fach-
 und IT-Konzepte). Alles, was innerhalb dieser Leitplanken liegt und
@@ -606,35 +619,32 @@ LLM-basierten Bewertungen laufen als deterministische Pipeline-Schritte,
 die LLMs über API/Pool als Bewertungsfunktion aufrufen, nicht als
 eigenständige Agents.
 
-#### Verify-Kontext: Post-Exploration vs. Post-Implementation
+#### Verify-Kontext: Post-Implementation vs. Post-Remediation
 
 Die Verify-Phase unterscheidet zwischen zwei Kontexten:
-
-- **Verify nach Exploration** (`verify_context = "post_exploration"`):
-  Leichtgewichtige Prüfung. Nur die Structural Checks (Schicht 1) laufen,
-  um die Entwurfstreue des Exploration-Artefakts zu validieren. Die
-  Schichten 2–4 (LLM-Bewertungen, Adversarial Testing, Policy-Evaluation)
-  entfallen.
 
 - **Verify nach Implementation** (`verify_context = "post_implementation"`):
   Vollständige 4-Schichten-QA mit allen Guards, LLM-Bewertungen,
   Adversarial Testing und Policy-Evaluation.
 
+ - **Verify nach Remediation** (`verify_context = "post_remediation"`):
+  Erneut vollständige 4-Schichten-QA. Nach einer Nachbesserung wird
+  nicht nur ein Teil der Prüfung wiederholt, sondern der gesamte
+  QA-Zyklus neu aufgesetzt.
+
 Das Pipeline-Feld `mode` (gesetzt in der Setup-Phase) bleibt über den
 gesamten Story-Lifecycle konstant und reicht nicht aus, um den
 Verify-Kontext zu bestimmen. Eine Story im Exploration Mode hat
-`mode = "exploration"` sowohl beim Verify nach Exploration als auch beim
-Verify nach Implementation. Der Verify-Kontext wird daher über ein
-separates Feld `verify_context` ermittelt, das die letzte abgeschlossene
-Phase vor dem Verify identifiziert.
+`mode = "exploration"` sowohl nach der ersten Implementation als auch
+nach späteren Remediation-Schleifen. Der Verify-Kontext wird daher
+über ein separates Feld `verify_context` ermittelt, das die letzte
+abgeschlossene Phase vor dem Verify identifiziert.
 
 **Entscheidungsregel:** `verify_context = "post_implementation"` löst
 immer die volle 4-Schichten-QA aus, unabhängig davon, ob
-`mode = "exploration"` oder `mode = "execution"`. Nur
-`verify_context = "post_exploration"` beschränkt den Umfang auf
-Structural Checks. `STRUCTURAL_ONLY_PASS` als Verify-Ergebnis ist
-ausschließlich bei `verify_context = "post_exploration"` sowie bei
-Konzept- und Research-Stories zulässig.
+`mode = "exploration"` oder `mode = "execution"`. Dasselbe gilt für
+`verify_context = "post_remediation"`. Einen Structural-only-Pfad für
+Implementation- und Bugfix-Stories gibt es nicht.
 
 #### Atomarer QA-Zyklus
 

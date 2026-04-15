@@ -15,10 +15,10 @@ defers_to:
     reason: Trust-Zonen bestimmen Event-Quellen und Vertrauenswürdigkeit
   - target: FK-02
     scope: domain-model
-    reason: Story-ID und Run-ID als Korrelationsschlüssel aus FK-02
+    reason: Project-Key, Story-ID und Run-ID als Korrelationsschlüssel aus FK-02
 supersedes: []
 superseded_by:
-tags: [telemetrie, eventing, metriken, sqlite, review-guard]
+tags: [telemetrie, eventing, metriken, state-backend, review-guard]
 ---
 
 # 14 — Telemetrie, Eventing und Workflow-Metriken
@@ -41,49 +41,50 @@ ihr Ablauf durch den Code garantiert ist.
 
 ## 14.2 Event-Modell
 
-### 14.2.1 Speicherung: SQLite
+### 14.2.1 Speicherung: PostgreSQL
 
-Events werden in einer SQLite-Datenbank gespeichert:
-`_temp/agentkit.db`. Eine DB für alle Stories (nicht pro Story).
+Events werden in einer zentralen PostgreSQL-Datenbank des
+State-Backends gespeichert. Diese DB ist projektunabhängig,
+langlebig und Principal-geschützt.
 
-**Vorteile gegenüber JSONL:**
-- Agents müssen kein JSONL parsen — alle Abfragen laufen über
-  deterministische SQL-Queries (CLI-Befehle oder Pipeline-Skripte)
-- Atomare Writes (kein Risiko halb geschriebener Zeilen bei Crash)
-- Effiziente Queries für Integrity-Gate, Governance-Beobachtung,
-  Metriken (COUNT, EXISTS, Filter statt zeilenweises Parsen)
-- `sqlite3` ist Teil der Python-Standardbibliothek (keine
-  externe Dependency, konsistent mit P7)
+**Vorteile gegenüber Projektdateien/JSONL:**
+- kein frei manipulierbarer Projektzustand für Orchestrator/Worker
+- atomare Writes und transaktionale Queries
+- saubere Retention und Traceability unabhängig vom Projekt-Temp
+- rollenbasierte Zugriffskontrolle bis auf Principal-Ebene
 
 **Schema:**
 
 ```sql
 CREATE TABLE events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id BIGSERIAL PRIMARY KEY,
+    project_key TEXT NOT NULL,
     story_id TEXT NOT NULL,
     run_id TEXT NOT NULL,
-    ts TEXT NOT NULL,           -- ISO 8601 + Zeitzone
+    ts TIMESTAMPTZ NOT NULL,
     event_type TEXT NOT NULL,
     pool TEXT,                  -- bei llm_call, review_*, adversarial_sparring
     role TEXT,                  -- bei llm_call
-    payload TEXT,               -- JSON für event-spezifische Daten
-    created_at TEXT DEFAULT (datetime('now'))
+    payload JSONB,              -- JSON für event-spezifische Daten
+    created_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE INDEX idx_events_story_type ON events(story_id, event_type);
-CREATE INDEX idx_events_run ON events(run_id);
+CREATE INDEX idx_events_project_story_type
+    ON events(project_key, story_id, event_type);
+CREATE INDEX idx_events_project_run
+    ON events(project_key, run_id);
 ```
 
-**JSONL als Export-/Audit-Format:** Bei Closure wird die Telemetrie
-einer Story aus SQLite als JSONL-Datei exportiert
-(`_temp/story-telemetry/{story_id}.jsonl`). Diese Datei dient der
-langfristigen Archivierung und menschlichen Lesbarkeit — sie ist
-kein Laufzeit-Speicher.
+**JSONL als Export-/Audit-Format:** Bei Closure kann die Telemetrie
+einer Story als JSONL oder Audit-Bundle exportiert werden. Diese
+Datei dient der menschlichen Lesbarkeit oder externen Ablage — sie
+ist nie Laufzeit-Speicher.
 
 **Pflichtfelder jedes Events (Spalten):**
 
 | Feld | Typ | Beschreibung |
 |------|-----|-------------|
+| `project_key` | String | Registriertes Zielprojekt / Mandanten-Schlüssel |
 | `ts` | String (ISO 8601 + Zeitzone) | Zeitstempel des Events |
 | `story` | String | Story-ID |
 | `run_id` | String (UUID) | Run-Identifikator (Kap. 02) |
@@ -91,6 +92,10 @@ kein Laufzeit-Speicher.
 
 Darüber hinaus event-spezifische Felder (max 2 Ebenen Nesting,
 Kap. 01 P8).
+
+**Mandantenregel:** Alle Runtime-Tabellen im State-Backend tragen
+`project_key` als führenden Scope-Schlüssel. `story_id` ist nur
+innerhalb eines Projekts eindeutig.
 
 ### 14.2.2 Event-Katalog
 
@@ -151,7 +156,7 @@ hält die Pool-Abstraktion intakt (Kap. 01 P8, Kap. 11).
 |-------|------|-------------|----------------|--------|
 | `integrity_violation` | Ein Guard wurde verletzt | `guard`, `detail`, `stage` (bei prompt_integrity_guard: escape_detection/schema_validation/template_integrity) | Erwartet: 0 (jeder Eintrag ist ein Befund) | Guard-Hooks bei Blockade |
 | `web_call` | Agent führt Web-Suche/-Abruf durch | — | <= konfiguriertes Budget (Default: 200) | Budget-Hook (PostToolUse für WebSearch/WebFetch) |
-| ~~`guard_invocation`~~ | Guard-Invokationen werden NICHT als Event erfasst (Volumen: 2500-10000/Story). Stattdessen Scratchpad-Counter `guard_invocation_counters` in raw.db. Siehe FK-61 §61.4.3. | — | — | — |
+| ~~`guard_invocation`~~ | Guard-Invokationen werden NICHT als Event erfasst (Volumen: 2500-10000/Story). Stattdessen Scratchpad-Counter `runtime.guard_invocation_counters` im State-Backend. Siehe FK-61 §61.4.3. | — | — | — |
 | `impact_violation_check` | Impact-Violation wird geprueft | `declared_impact`, `actual_impact`, `result` (pass/violation) | 1 pro implementierender Story | Structural Check in Verify-Phase (FK-33). Ergaenzt FK-61 §61.4.2. |
 | `doc_fidelity_check` | Dokumententreue wird geprueft | `level` (goal/design/implementation/feedback_fidelity), `result` (pass/conflict/skipped) | 1-4 pro Story (je nach Typ und Modus) | Dokumententreue-Service (FK-32). Ergaenzt FK-61 §61.5.1. |
 | `vectordb_search` | VektorDB-Abgleich bei Story-Erstellung | `total_hits`, `hits_above_threshold`, `hits_classified_conflict`, `threshold_value` | 1 pro Story-Erstellung | Story-Creation-Pipeline (FK-21). Konzeptmandatiert (Kap. 02 §2.1). Ergaenzt FK-61 §61.8.1. |
@@ -171,7 +176,7 @@ hält die Pool-Abstraktion intakt (Kap. 01 P8, Kap. 11).
 {"ts":"2026-03-17T11:00:30+01:00","story":"ODIN-042","run_id":"a1b2...","event":"llm_call","pool":"gemini","role":"semantic_review","retry":false,"status":"PASS"}
 {"ts":"2026-03-17T11:05:00+01:00","story":"ODIN-042","run_id":"a1b2...","event":"adversarial_start"}
 {"ts":"2026-03-17T11:10:00+01:00","story":"ODIN-042","run_id":"a1b2...","event":"adversarial_sparring","pool":"grok"}
-{"ts":"2026-03-17T11:12:00+01:00","story":"ODIN-042","run_id":"a1b2...","event":"adversarial_test_created","file_path":"_temp/adversarial/ODIN-042/test_edge_cases.py"}
+{"ts":"2026-03-17T11:12:00+01:00","story":"ODIN-042","run_id":"a1b2...","event":"adversarial_test_created","file_path":"sandbox://ODIN-042/test_edge_cases.py"}
 {"ts":"2026-03-17T11:13:00+01:00","story":"ODIN-042","run_id":"a1b2...","event":"adversarial_test_executed","result":"pass","test_count":4}
 {"ts":"2026-03-17T11:15:00+01:00","story":"ODIN-042","run_id":"a1b2...","event":"adversarial_end","findings_count":0}
 ```
@@ -187,7 +192,7 @@ dass der Agent davon weiß oder die Erfassung umgehen kann.
 | Hook | Typ | Erkennung | Events |
 |------|-----|-----------|--------|
 | `telemetry/hook.py` | PostToolUse (Agent) | Tool = `Agent`, `subagent_type` aus Prompt | `agent_start`, `agent_end`, `adversarial_start`, `adversarial_end` |
-| `telemetry/hook.py` | PostToolUse (Pool-Send) | Tool enthält `_send`, Story aus Marker-Datei | `llm_call` |
+| `telemetry/hook.py` | PostToolUse (Pool-Send) | Tool enthält `_send`, Story aus aktivem Run im State-Backend | `llm_call` |
 | `telemetry/hook.py` | PreToolUse (Bash) | `git commit` im Worktree | `increment_commit` |
 | `telemetry/hook.py` | PreToolUse (Bash) | Marker-Befehl `DRIFT_CHECK:` | `drift_check` |
 | `telemetry/hook.py` | PostToolUse (Pool-Send) | Review-Template-Sentinel erkannt | `review_request`, `review_response` |
@@ -198,7 +203,7 @@ dass der Agent davon weiß oder die Erfassung umgehen kann.
 ### 14.3.2 Skript-basierte Erfassung
 
 Der LLM-Evaluator (Kap. 11) schreibt `llm_call`-Events direkt
-in die SQLite-DB, weil er ein deterministisches Skript ist und
+in das State-Backend, weil er ein deterministisches Skript ist und
 nicht über einen Hook läuft.
 
 ### 14.3.3 Story-ID-Ermittlung
@@ -206,37 +211,31 @@ nicht über einen Hook läuft.
 Hooks müssen die aktive Story-ID kennen, um Events zuzuordnen.
 Zwei Mechanismen:
 
-1. **Marker-Datei:** `_temp/governance/active/{story_id}.active`
-   (pro Story, nicht global). Wird beim Setup geschrieben
-   (Kap. 22, §22.7.1), bei Closure gelöscht. Hooks lesen die
-   Dateien in `_temp/governance/active/` und ermitteln die
-   Story-ID aus dem Dateinamen.
+1. **Aktiver Run im State-Backend:** Setup legt für jede Story
+   einen aktiven Run-/Lock-Record an. Hooks fragen diesen
+   Record read-only ab und ermitteln daraus Story-ID und Run-ID.
 2. **Prompt-Analyse:** Bei `agent_start` Events wird die Story-ID
    aus dem Agent-Prompt extrahiert (Regex auf Story-ID-Pattern).
 
 ### 14.3.4 Schreib-Mechanismus
 
 ```python
-import sqlite3, json, os
-
-DB_PATH = "_temp/agentkit.db"
-
-def insert_event(story_id: str, run_id: str, event_type: str,
-                 pool: str = None, role: str = None,
-                 payload: dict = None) -> None:
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute(
-            """INSERT INTO events (story_id, run_id, ts, event_type, pool, role, payload)
-               VALUES (?, ?, datetime('now'), ?, ?, ?, ?)""",
-            (story_id, run_id, event_type, pool, role,
-             json.dumps(payload) if payload else None),
-        )
+def insert_event(client, story_id: str, run_id: str, event_type: str,
+                 pool: str | None = None, role: str | None = None,
+                 payload: dict | None = None) -> None:
+    client.insert_event(
+        story_id=story_id,
+        run_id=run_id,
+        event_type=event_type,
+        pool=pool,
+        role=role,
+        payload=payload or {},
+    )
 ```
 
-**Kein `filelock` nötig.** SQLite serialisiert Writes intern.
-Die DB-Datei (`_temp/agentkit.db`) wird beim ersten Event
-automatisch erstellt (Tabelle wird per `CREATE TABLE IF NOT EXISTS`
-angelegt).
+**Kein projektlokales Locking nötig.** Die Synchronisation übernimmt
+PostgreSQL. Agents erhalten keine direkten DB-
+Zugangsdaten; nur Hooks und Pipeline-Skripte schreiben.
 
 ### 14.3.5 Query-Mechanismus
 
@@ -244,46 +243,30 @@ Pipeline-Skripte und das Integrity-Gate fragen Telemetrie über
 SQL ab — kein JSONL-Parsing durch Agents:
 
 ```python
-def count_events(story_id: str, event_type: str) -> int:
-    with sqlite3.connect(DB_PATH) as conn:
-        row = conn.execute(
-            "SELECT COUNT(*) FROM events WHERE story_id = ? AND event_type = ?",
-            (story_id, event_type),
-        ).fetchone()
-        return row[0]
+def count_events(client, story_id: str, event_type: str) -> int:
+    return client.count_events(story_id=story_id, event_type=event_type)
 
-def has_event(story_id: str, event_type: str) -> bool:
-    return count_events(story_id, event_type) > 0
+def has_event(client, story_id: str, event_type: str) -> bool:
+    return count_events(client, story_id, event_type) > 0
 
-def events_for_run(run_id: str) -> list[dict]:
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT * FROM events WHERE run_id = ? ORDER BY ts",
-            (run_id,),
-        ).fetchall()
-        return [dict(r) for r in rows]
+def events_for_run(client, run_id: str) -> list[dict]:
+    return client.events_for_run(run_id=run_id)
 ```
 
 ### 14.3.6 JSONL-Export bei Closure
 
-Bei Closure wird die Telemetrie einer Story als JSONL exportiert:
+Bei Closure kann die Telemetrie einer Story als JSONL exportiert werden:
 
 ```python
 def export_jsonl(story_id: str, output_path: str) -> None:
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT * FROM events WHERE story_id = ? ORDER BY ts",
-            (story_id,),
-        ).fetchall()
+    rows = state_backend_client.events_for_story(story_id=story_id)
     with open(output_path, "w", encoding="utf-8") as f:
         for row in rows:
-            f.write(json.dumps(dict(row), ensure_ascii=False) + "\n")
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
 ```
 
-Die JSONL-Datei (`_temp/story-telemetry/{story_id}.jsonl`) dient
-der langfristigen Archivierung und menschlichen Lesbarkeit.
+Die JSONL-Datei dient der langfristigen Archivierung und
+menschlichen Lesbarkeit, ist aber kein kanonischer Datenspeicher.
 
 ## 14.4 Telemetrie-Nachweise im Integrity-Gate
 
@@ -380,9 +363,8 @@ Bei allen anderen Story-Typen: `web_call`-Event wird geschrieben
 bei Nicht-Research-Stories auftritt, erkennt das die Governance-
 Beobachtung (Kap. 14.8) als Anomalie über den Risikoscore.
 
-**Counter-Persistenz:** `_temp/qa/{story_id}/web-call-count.txt`
-(einfacher Integer). Wird bei jedem WebSearch/WebFetch-Call
-inkrementiert.
+**Counter-Persistenz:** zentraler Counter-Record pro Run/Story im
+State-Backend. Wird bei jedem WebSearch/WebFetch-Call inkrementiert.
 
 ## 14.7 Workflow-Metriken
 
@@ -468,8 +450,8 @@ normalisieren sie auch zu kompakten Records für das Rolling Window.
 
 ### 14.8.2 Akkumulation
 
-Normalisierte Events werden in einem Rolling Window
-(`_temp/governance/risk-window.json`) akkumuliert. Das Window hat
+Normalisierte Events werden in einem Rolling Window im
+State-Backend akkumuliert. Das Window hat
 eine konfigurierbare Breite (Default: 50 Events, Kap. 03).
 
 Risikopunkte pro Signal:

@@ -110,14 +110,12 @@ Rollen ([01-rollen-und-llm-einsatz.md](01-rollen-und-llm-einsatz.md)) ist hier V
 ### Problem: `mode` ist kein hinreichender Diskriminator fuer die Verify-Tiefe
 
 Das Feld `mode` wird in der Setup-Phase gesetzt und bleibt ueber
-den gesamten Story-Lifecycle konstant. Im Exploration Mode durchlaeuft
-eine Story jedoch ZWEI verschiedene Verify-Kontexte: einen nach der
-Exploration-Phase (leichtgewichtige Entwurfstreue-Pruefung) und einen
-nach der Implementation-Phase (volle 4-Schichten-QA). Wenn die
-Pipeline nur `mode` auswertet, werden Layer 2-4 fuer ALLE
-Verify-Durchlaeufe uebersprungen — ein kritischer Governance-Fehler,
-der AgentKits gesamte Qualitaetssicherung fuer Exploration-Mode-Stories
-aushebelt.
+den gesamten Story-Lifecycle konstant. Wenn die Pipeline nur `mode`
+auswertet, werden bei Exploration-Mode-Stories spaetere Verify-
+Durchlaeufe faelschlich als "leichtgewichtig" behandelt. Das ist ein
+kritischer Governance-Fehler: Nach der Implementation wuerden Layer
+2-4 uebersprungen, obwohl bereits Code existiert und volle QA noetig
+ist.
 
 ### Loesung: Separates `verify_context`-Feld
 
@@ -126,32 +124,22 @@ Kontext der aktuelle Verify-Durchlauf stattfindet:
 
 | `verify_context` | Ausloeser | QA-Tiefe | Begruendung |
 |------------------|-----------|----------|-------------|
-| `post_exploration` | Verify nach abgeschlossener Exploration-Phase | Nur Structural Checks (Schicht 1). Layer 2-4 sind fuer diesen Kontext nicht vorgesehen. | Es existiert noch kein Code — semantische, adversariale und Policy-Pruefung sind gegenstandslos. Die Pruefung beschraenkt sich auf Entwurfstreue. |
 | `post_implementation` | Verify nach abgeschlossener Implementation-Phase | Volle 4-Schichten-QA (Structural, Semantisch, Adversarial, Policy). | Dies ist der primaere QA-Durchlauf — unabhaengig davon, ob `mode = "exploration"` oder `mode = "execution"`. |
+| `post_remediation` | Verify nach einer Remediation-Runde | Volle 4-Schichten-QA (Structural, Semantisch, Adversarial, Policy). | Nach einer Nachbesserung muss erneut die komplette QA laufen; ein Teilpfad waere ein Governance-Leck. |
 
-### Invariante: STRUCTURAL_ONLY_PASS nach Implementation ist verboten
+### Invariante: Kein Structural-only-Verify fuer Code-Stories
 
-`STRUCTURAL_ONLY_PASS` darf als Verify-Ergebnis fuer
-Implementation- und Bugfix-Stories niemals nach der
-Implementation-Phase zurueckgegeben werden. Nur in den folgenden
-Kontexten ist dieses Ergebnis gueltig:
-
-- **Nach der Exploration-Phase** (`verify_context = "post_exploration"`):
-  Entwurfstreue-Pruefung ohne Code — Structural Checks genuegen.
-- **Fuer Concept- und Research-Stories**: Keine Code-Aenderungen,
-  daher keine Code-QA erforderlich.
-
-In allen anderen Faellen MUSS Layer 2 gestartet werden
-(`agents_to_spawn` befuellt, Status PAUSED, Ergebnis
-`RUN_SEMANTIC`). Fehlende LLM-Reviews bei Implementation- und
-Bugfix-Stories sind ein HARD BLOCKER, kein Warning.
+Es gibt keinen gueltigen Structural-only-Verify-Pfad fuer
+Implementation- und Bugfix-Stories. Sobald Code implementiert oder
+nachgebessert wurde, sind Layer 2-4 Pflicht. Fehlende LLM-Reviews
+bei Code-Stories sind ein HARD BLOCKER, kein Warning.
 
 ### Empirischer Anlass (BB2-057)
 
 Eine Implementation-Story im Exploration Mode wurde nach der
 Implementation ohne ein einziges LLM-Review durchgewunken. Die
 Ursache: Der Phase Runner verwendete `mode == "exploration"` als
-Trigger fuer den Structural-Only-Pfad — unabhaengig davon, welche
+Trigger fuer einen Structural-Only-Pfad — unabhaengig davon, welche
 Phase gerade verifiziert wurde. Der Orchestrator handelte korrekt
 nach Phase-State-Vertrag: COMPLETED + leere `agents_to_spawn` →
 Closure. Der Bug lag zu 100% im deterministischen Code (Phase

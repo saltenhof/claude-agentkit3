@@ -19,11 +19,12 @@ tags: [architektur, systemkontext, fail-closed, trust-boundaries, multi-llm]
 
 ## 1.1 Zielbild
 
-AgentKit ist ein Python-Paket (`agentkit`), das in ein Zielprojekt
-installiert wird und dort den vollständigen Lifecycle KI-gesteuerter
-Story-Umsetzung orchestriert. Es läuft nicht als eigenständiger Server,
-sondern als Bibliothek und Hook-Schicht innerhalb von Claude-Code-
-Sessions auf der Entwicklermaschine.
+AgentKit ist ein systemweit installiertes Python-Paket (`agentkit`),
+das gegen Zielprojekte betrieben wird, ohne seine Laufzeitartefakte in
+deren Repository zu deployen. Im Projekt liegen nur die
+projektspezifische Konfiguration und die Anbindung an Claude Code; der
+kanonische Laufzeit- und Zustandsraum liegt außerhalb des Projekts in
+einem zentralen State-Backend.
 
 Das Zielbild: 1-2 Menschen steuern eine Flotte autonomer Agenten, die
 98% der Konzeptions-, Implementierungs- und Absicherungsarbeit an
@@ -79,7 +80,7 @@ graph TB
 | Komponente | Typ | Technologie |
 |------------|-----|-------------|
 | `agentkit` Python-Paket | Bibliothek + CLI + Hooks | Python 3.14, Pydantic 2.7+, PyYAML 6+ |
-| Rollenprompts + Skills | Markdown-Dateien | Deployt vom Installer |
+| Rollenprompts + Skills | Paketressourcen / systemweite Bundles | Nicht im Projekt deployt |
 | JSON Schemas | Artefakt-Validierung | JSON Schema Draft 2020-12 |
 
 **Plattform** (Voraussetzung, nicht Teil von AgentKit):
@@ -119,7 +120,9 @@ Linux-Usern, X11-Displays und Ports.
 
 - Kein CI/CD-System — es ersetzt keine Build-Pipeline, sondern
   orchestriert Agenten, die in einer solchen arbeiten.
-- Kein zentraler Server — alles läuft lokal auf der Entwicklermaschine.
+- Kein projektlokaler AgentKit-Server — Zielprojekte enthalten keine
+  eigene AgentKit-Runtime. Das State-Backend ist zentral und vom
+  Projekt entkoppelt.
 - Kein LLM-Anbieter — es nutzt Claude (via Claude Code), ChatGPT,
   Gemini und Grok als externe Dienste.
 - Kein Testframework — es orchestriert Tests, schreibt aber selbst
@@ -277,26 +280,29 @@ Optionale Dependencies:
 | `weaviate-client` 4.9-5.0 | VektorDB-Anbindung | `features.vectordb: true` |
 | `mcp[cli]` ≥ 1.2.0 | MCP-Server für Story-Knowledge-Base | `features.vectordb: true` |
 
-Keine Datenbank-Treiber, keine Web-Frameworks, keine ML-Bibliotheken
-im Kern. Externe Systeme werden über CLI-Tools (`gh`, `git`) oder
-MCP-Protokoll angesprochen.
+**Infrastruktur-Dependency:** Die systemweite AgentKit-Installation
+setzt eine zentrale PostgreSQL-Instanz als State- und Analytics-Store
+voraus. Der passende Treiber ist deshalb Teil der Runtime-
+Implementierung, auch wenn er nicht zum minimalen Agenten-Kern gehört.
+Externe Systeme werden über CLI-Tools (`gh`, `git`), MCP-Protokoll
+oder die zentrale Postgres-Infrastruktur angesprochen.
 
 ### P8: Datenformate
 
 | Artefakttyp | Format | Begründung |
 |-------------|--------|------------|
-| Telemetrie-Events (Laufzeit) | SQLite (`_temp/agentkit.db`) | Atomare Writes, SQL-Queries für Integrity-Gate und Governance. `sqlite3` ist Teil der Python-Standardbibliothek. |
-| Telemetrie-Events (Archiv) | JSONL (Export bei Closure) | Menschenlesbar, langfristige Archivierung |
-| QA-Ergebnisse | JSON (stage-envelope) | Validierbar gegen JSON Schema |
-| Pipeline-State | JSON | Zustandspersistenz zwischen Phasen |
+| Telemetrie-Events (Laufzeit) | PostgreSQL | Kanonischer, projektunabhängiger Audit-Trail mit Berechtigungsgrenzen |
+| Telemetrie-Events (Archiv) | Export/Bundle aus dem State-Backend | Menschenlesbar, langfristige Archivierung |
+| QA-Ergebnisse | Strukturierte Records in PostgreSQL + optionale JSON-Exporte | Validierbar gegen JSON Schema, aber nicht dateibasiert kanonisch |
+| Pipeline-State | Strukturierte Records in PostgreSQL | Zustandspersistenz zwischen Phasen mit Zugriffskontrolle |
 | Konfiguration | YAML | Menschenlesbar, editierbar |
-| Prompts | Markdown | Menschenlesbar, Template-fähig |
-| Manifest | JSON | Maschinell prüfbar |
+| Prompts | Markdown | Paketressourcen, versioniert mit AgentKit |
+| Manifest/Installationsmetadaten | Service-Record + lokale Config-Version | Maschinell prüfbar ohne Projekt-Manifest |
 
-**Telemetrie-Prinzip:** Events werden zur Laufzeit in SQLite
-geschrieben und über deterministische SQL-Queries abgefragt
-(kein JSONL-Parsing durch Agents). Bei Closure wird die
-Story-Telemetrie als JSONL exportiert (Audit-Trail).
+**Telemetrie-Prinzip:** Events werden zur Laufzeit in das zentrale
+PostgreSQL-Backend geschrieben und über deterministische Abfragen
+ausgewertet. Exportformate wie JSONL sind Audit- oder
+Untersuchungsformate, aber nie kanonischer Laufzeit-Speicher.
 
 **LLM-Call-Events:** Telemetrie-Events für externe LLM-Aufrufe
 verwenden den generischen Event-Typ `llm_call` mit dem Feld `pool`
@@ -337,7 +343,7 @@ nur eine Konfigurationsänderung, keine Code-Änderung.
 | Regel | Bedeutung |
 |-------|-----------|
 | Zone 3 darf Zone 1 nicht umgehen | Agent kann Hooks nicht deaktivieren |
-| Zone 3 darf Zone 2 nicht manipulieren | Agent kann Pipeline-State nicht direkt schreiben (QA-Artefakt-Schutz) |
+| Zone 3 darf Zone 2 nicht manipulieren | Agent kann Pipeline-State nicht direkt schreiben; State-Mutationen laufen nur über deterministische Services mit Rollenrechten |
 | Zone 4 entscheidet nicht | LLM-Antworten werden geparst und validiert; die Pipeline entscheidet basierend auf dem Ergebnis |
 | Trust-Klasse C ist nie blocking | Vom Agent selbst erzeugte Evidence (Screenshots, API-Logs) kann QA nicht bestehen/nicht blockieren |
 | Opake Fehlermeldungen an Zone 3 | Guards geben dem Agent keine Details, warum er blockiert wurde |

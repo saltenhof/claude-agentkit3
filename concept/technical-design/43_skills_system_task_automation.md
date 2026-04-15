@@ -13,7 +13,7 @@ defers_to:
     reason: Execute-userstory skill orchestrates pipeline phases managed by the workflow engine
 supersedes: []
 superseded_by:
-tags: [skills, automation, prompt-templates, deployment, extensibility]
+tags: [skills, automation, prompt-templates, symlink-binding, extensibility]
 ---
 
 # 43 — Skills-System und Task-Automation
@@ -26,22 +26,38 @@ Ablauf, sondern heben die Qualität des Ergebnisses, indem sie
 bewährte Methodik einbetten, die ein Agent ohne Anleitung nicht
 konsistent anwenden würde (FK-12-019 bis FK-12-021).
 
-## 43.2 Skill-Format
+## 43.2 Skill-Format und Ablage
 
 ### 43.2.1 Dateistruktur
 
 Ein Skill ist ein Verzeichnis mit einer `SKILL.md` (oder `skill.md`)
-Datei:
+Datei. Claude Code erwartet Skills an normierten Orten; AgentKit
+weicht davon nicht ab.
 
 ```
-skills/
+<skill-root>/
 └── create-userstory/
-    └── skill.md
+    └── SKILL.md
 ```
 
-Die `skill.md` ist ein Markdown-Dokument, das Claude Code als
+Die `SKILL.md` ist ein Markdown-Dokument, das Claude Code als
 Skill erkennt und bei Aufruf (z.B. `/create-userstory`) als
 Prompt lädt.
+
+**Normierte Skill-Orte:**
+
+| Ort | Zweck |
+|-----|------|
+| `~/.claude/skills/` | User-/systemweite Skills |
+| `{projekt-root}/.claude/skills/` | Projektspezifische Skill-Bindung |
+
+**Architekturentscheidung für AgentKit 3/4:**
+- Der kanonische Skill-Inhalt liegt systemweit in versionierten
+  AgentKit-Bundles.
+- Im Projekt liegen unter `.claude/skills/` nur Symlinks auf die
+  ausgewählten Bundle-Verzeichnisse.
+- Das Projekt enthält damit einen Claude-Code-kompatiblen Bindungspunkt,
+  aber nicht die Skill-Quelle selbst.
 
 ### 43.2.2 Skill-Aufbau
 
@@ -66,8 +82,9 @@ Wenn der Nutzer eine neue Story erstellen möchte.
 
 ### 43.2.3 Platzhalter
 
-Skills können Platzhalter enthalten, die vom Installer bei der
-Deployment substituiert werden (Kap. 50):
+Skills können Platzhalter enthalten, die beim Binden eines Projekts
+aus der Projektkonfiguration substituiert oder zur Laufzeit aufgelöst
+werden (Kap. 50):
 
 | Platzhalter | Ersetzt durch |
 |-------------|--------------|
@@ -82,8 +99,10 @@ Deployment substituiert werden (Kap. 50):
 
 | Skill | Verzeichnis | Aufgabe | Was er standardisiert |
 |-------|-----------|---------|---------------------|
-| **User Story Creation** | `create-userstory/` | Neue Stories erstellen | VektorDB-Abgleich, Anforderungsstruktur, ACs, Feldbelegung, Größenschätzung |
-| **Execute User Story** | `execute-userstory/` | Story-Umsetzung orchestrieren | 5-Phasen-Pipeline, Agent-Spawn, Phase-State lesen/reagieren |
+| **User Story Creation (core)** | `create-userstory-core/` | Neue Stories erstellen | VektorDB-Abgleich, Anforderungsstruktur, ACs, Feldbelegung, Größenschätzung |
+| **User Story Creation (ARE)** | `create-userstory-are/` | Neue Stories mit ARE erstellen | Wie oben plus ARE-spezifische Pflichtschritte |
+| **Execute User Story (core)** | `execute-userstory-core/` | Story-Umsetzung orchestrieren | 5-Phasen-Pipeline ohne ARE-Annahmen |
+| **Execute User Story (ARE)** | `execute-userstory-are/` | Story-Umsetzung mit ARE orchestrieren | 5-Phasen-Pipeline mit ARE-Pfaden |
 | **Lookup User Story** | `lookup-userstory/` | Stories suchen und anzeigen | VektorDB-Suche, GitHub-Issue-Abfrage |
 | **LLM Discussion** | `llm-discussion/` | Multi-LLM-Sparring | Rollenverteilung, Rundenstruktur, Konvergenzprüfung |
 
@@ -94,6 +113,12 @@ Deployment substituiert werden (Kap. 50):
 | **Manage Requirements** | `manage-requirements/` | ARE-Anforderungen verwalten | `features.are: true` |
 | **Research** | Kein eigener Skill, Worker-Prompt | Strukturierte Recherche | — |
 | **Semantic Review** | `semantic-review/` | Strukturierte Code-Qualitätsbewertung | — |
+
+**Profilregel:** Skills und Prompts müssen so spezifisch wie möglich
+sein. Profilunterschiede wie `ARE` vs. `non-ARE` werden deshalb nicht
+als große Fallunterscheidung innerhalb eines Skills modelliert, sondern
+über getrennte Varianten. Die Projektauswahl der passenden Variante
+erfolgt bei der Registrierung/Bundlung, nicht während der Skill-Laufzeit.
 
 **F-43-029 — Semantic Review Skill (FK-12-029):** Ein dedizierter Semantic-Review-Skill muss mitgeliefert werden. Er bewertet Code-Beiträge anhand eines strukturierten Scoring-Schemas mit mindestens 12 definierten Prüfdimensionen, darunter Benennung, Fehlerbehandlung, zyklomatische Komplexität, Testabdeckung, Kopplung, Kohäsion, Dokumentation, Sicherheitsaspekte, Rückwärtskompatibilität, Performance-Implikationen, Konsistenz mit dem Projektstandard und Anforderungstreue. Für jede Dimension wird ein normierter Score und eine Begründung ausgegeben; das Gesamtergebnis fliesst als strukturiertes Artefakt in die Verify-Phase ein.
 
@@ -116,29 +141,33 @@ den Phase-State liest und die richtigen Aktionen ableitet. Der
 Phase Runner ist das deterministische Backend, der Skill ist
 die Agent-seitige Steuerungsschicht.
 
-## 43.4 Skill-Deployment
+## 43.4 Skill-Bereitstellung und Projektbindung
 
-### 43.4.1 Installation (FK-12-026)
+### 43.4.1 Systemweite Installation (FK-12-026)
 
-Der Installer (Checkpoint 7) kopiert Skills ins Zielprojekt:
+Der Installer kopiert Skills nicht inhaltlich ins Zielprojekt.
+Stattdessen:
 
-```python
-def deploy_skills(agentkit_path: Path, project_root: Path,
-                  config: PipelineConfig) -> list[str]:
-    skills_src = agentkit_path / "userstory" / "skills"
-    skills_dst = project_root / "skills"
+1. installiert er versionierte AgentKit-Skill-Bundles systemweit
+2. wählt projektweise das passende Profil (`core`, `are`, ...)
+3. erzeugt unter `.claude/skills/` Symlinks auf genau diese
+   systemweiten Bundle-Verzeichnisse
 
-    deployed = []
-    for skill_dir in skills_src.iterdir():
-        if skill_dir.is_dir():
-            dst = skills_dst / skill_dir.name
-            copy_with_placeholders(skill_dir, dst, config)
-            deployed.append(skill_dir.name)
+Beispiel:
 
-    return deployed
+```text
+C:\ProgramData\AgentKit\bundles\4.0.0\core\skills\execute-userstory\
+T:\repo\.claude\skills\execute-userstory  ->  C:\ProgramData\AgentKit\bundles\4.0.0\core\skills\execute-userstory
 ```
 
-### 43.4.2 Platzhalter-Substitution
+```python
+def bind_skill(skill_name: str, bundle_root: Path, project_root: Path) -> None:
+    source = bundle_root / "skills" / skill_name
+    target = project_root / ".claude" / "skills" / skill_name
+    create_symlink(source, target)
+```
+
+### 43.4.2 Platzhalter-Substitution und Bundle-Parameter
 
 Nur in `.md`-Dateien. Einfaches String-Replace, keine
 Template-Engine:
@@ -158,47 +187,43 @@ def substitute_placeholders(content: str, config: PipelineConfig) -> str:
 
 ## 43.5 Skill-Versionierung
 
-### 43.5.1 Versionierung über Installer-Manifest
+### 43.5.1 Versionierung über Bundle-Version und Projektbindung
 
-Das Manifest (`.installed-manifest.json`) trackt welche Skills
-in welcher Version deployt wurden:
+Die Projektbindung trackt, auf welche Bundle-Version ein Projekt zeigt:
 
 ```json
 {
-  "installed_files": {
-    "skills/create-userstory/skill.md": {
-      "source_hash": "abc123...",
-      "installed_at": "2026-03-17T10:00:00+01:00"
-    }
-  }
+  "agentkit_bundle_version": "4.0.0",
+  "project_profile": "core",
+  "bound_skills": ["create-userstory-core", "execute-userstory-core"]
 }
 ```
 
 ### 43.5.2 Upgrade-Verhalten
 
-Bei AgentKit-Upgrade vergleicht der Installer die Source-Hashes:
-- Gleicher Hash → Datei unverändert, kein Update nötig
-- Verschiedener Hash + Nutzer hat Datei nicht geändert → Update
-- Verschiedener Hash + Nutzer hat Datei geändert → `.bak` Backup,
-  dann Update. Nutzer-Anpassungen müssen manuell nachgezogen werden.
+Bei AgentKit-Upgrade werden bestehende Projekte nicht automatisch auf
+`latest` umgehängt. Der Installer zeigt auf eine konkrete Bundle-Version.
+Ein Projekt erhält eine neue Skill-Version erst, wenn seine
+Symlink-Bindungen bewusst auf die neue Bundle-Version umgestellt werden.
 
 ## 43.6 Erweiterbarkeit (FK-12-027)
 
 ### 43.6.1 Eigene Skills hinzufügen
 
 Neue Skills können hinzugefügt werden, ohne den AgentKit-Kern zu
-ändern. Einfach ein neues Verzeichnis unter `skills/` mit
-`SKILL.md` erstellen:
+ändern. Dazu wird ein neues systemweites Bundle oder Teilbundle
+bereitgestellt; das Projekt bindet es anschließend über Symlink ein:
 
 ```
-skills/
-├── create-userstory/     # Mitgeliefert
-├── execute-userstory/    # Mitgeliefert
-└── my-custom-review/     # Projektspezifisch
+C:\ProgramData\AgentKit\bundles\4.0.0\custom\
+├── create-userstory-core/
+├── execute-userstory-core/
+└── my-custom-review/
     └── SKILL.md
 ```
 
-Claude Code erkennt den Skill automatisch.
+Claude Code erkennt den Skill automatisch über den projektlokalen
+Symlink unter `.claude/skills/`.
 
 ### 43.6.2 Skill-Qualität
 

@@ -10,10 +10,10 @@ authority_over:
 defers_to:
   - target: FK-14
     scope: event-infrastructure
-    reason: Event model, event catalog, and SQLite schema defined in FK-14; FK-60 consumes events as raw data source
+    reason: Event model, event catalog, and PostgreSQL schema defined in FK-14; FK-60 consumes events as raw data source
 supersedes: []
 superseded_by:
-tags: [kpi, analytics, architecture, sqlite, metrics]
+tags: [kpi, analytics, architecture, postgres, metrics]
 ---
 
 # 60 — KPI-Katalog und Analytics-Architektur
@@ -50,8 +50,8 @@ Es ist das Meta-Dokument des Analytics-Blocks (Nummernkreis 60-69):
 
 | Konzept | Autoritaet fuer | Beziehung zu FK-60ff |
 |---------|-----------------|----------------------|
-| FK-14 (Event-Infrastruktur) | Event-Modell, Event-Katalog, SQLite-Schema (`events`-Tabelle), Hook-Mechanik | FK-60ff konsumiert Events als Rohdatenquelle. FK-14 definiert WAS ein Event ist. FK-60ff definiert WAS eine KPI ist. |
-| FK-16 (QA-/FC-Raw-Store) | Querybare SQLite-Spiegel (`qa_findings`, `story_metrics`, `fc_*`) in raw.db | FK-62 baut die Analytics-Schicht (analytics.db) auf diesen Raw-Tabellen auf. Dashboard-Autoritaet wandert von FK-16 nach FK-63. |
+| FK-14 (Event-Infrastruktur) | Event-Modell, Event-Katalog, PostgreSQL-Schema (`events`-Tabelle), Hook-Mechanik | FK-60ff konsumiert Events als Rohdatenquelle. FK-14 definiert WAS ein Event ist. FK-60ff definiert WAS eine KPI ist. |
+| FK-16 (QA-/FC-Raw-Store) | Querybare Raw-/Mirror-Tabellen im zentralen PostgreSQL-Store | FK-62 baut die Analytics-Schicht auf diesen Raw-Tabellen auf. Dashboard-Autoritaet wandert von FK-16 nach FK-63. |
 | FK-41 (Failure Corpus) | Incident-Lifecycle, Pattern-Promotion, Check-Ableitung, Taxonomie | FK-60ff aggregiert UEBER FC-Entitaeten (Incidents, Patterns, Checks), definiert aber nicht deren Semantik oder Lifecycle. Analytics misst — Failure Corpus lernt. |
 | FK-30 (Hook-Adapter) | Hook-Architektur, Registration, Matcher | FK-61 definiert neue Events/Erhebungspunkte. FK-30 definiert den Hook-Mechanismus ueber den sie transportiert werden. |
 | FK-52 (Betrieb, Monitoring) | Operatives Monitoring (Pool-Health, Disk, Locks), CLI-Queries | FK-60ff ist analytisch (Trends, Optimierung). FK-52 ist operativ (Ist der Service gesund?). |
@@ -89,20 +89,19 @@ Rohdaten werden synchron im Hook-/Pipeline-Kontext geschrieben
 (niedrige Latenz, kein Netzwerk). Aggregationen laufen asynchron
 bei Story-Closure oder Dashboard-Start.
 
-### P3: Zwei Datenbanken, eine Wahrheit
+### P3: Ein Datenbanksystem, getrennte Schemas
 
-`raw.db` zusammen mit den kanonischen Pipeline-Artefakten
-(`context.json`, `phase-state.json`, `handover.json`,
-`decision.json` im Story-Verzeichnis) bilden die kanonische
-Datenquelle. `analytics.db` ist vollstaendig aus diesen Quellen
-ableitbar und jederzeit neu berechenbar. Kein Datenverlust bei
-Analytics-Verlust.
+Der kanonische AgentKit-Zustand liegt in PostgreSQL. Rohdaten,
+Workflow-State und Analytics liegen im selben DBMS, aber logisch
+getrennt in dedizierten Schemas bzw. Tabellengruppen. Analytics ist
+aus den Rohdaten jederzeit neu berechenbar.
 
-**Hinweis**: Die Pipeline-Artefakte sind Dateisystem-Objekte,
-keine SQLite-Daten. Die Snapshot-Konsistenz zwischen raw.db und
-den Artefakten ist nur bei Story-Closure gegeben (alle Artefakte
-sind zu diesem Zeitpunkt finalisiert). Fuer laufende Stories
-gibt es keine atomare Sicht ueber beide Quellen.
+**P3a: Mandantenfaehigkeit ueber `project_key`**
+
+Die zentrale PostgreSQL-Instanz ist projektuebergreifend, aber alle
+kanonischen Runtime- und Analytics-Daten sind logisch an einen
+`project_key` gebunden. `story_id` ist damit keine systemweite
+Identitaet, sondern nur innerhalb eines Projekts eindeutig.
 
 ### P4: Breite Fact-Tabellen statt EAV
 
@@ -121,137 +120,127 @@ Jede KPI hat genau eine primaere Koernung:
 | **Pro Entitaet + Periode** | 1 Zeile pro Guard/Pool/Template pro Woche | `guard_violation_rate_by_guard`, `llm_availability_rate` |
 | **Pro Periode** | 1 Zeile pro Woche/Monat (global) | `first_pass_success_rate`, `incident_volume_per_month` |
 
-### P6: Perzentile in Python, nicht in SQL
+### P6: Perzentile bevorzugt in SQL, Python nur wenn fachlich sinnvoll
 
-SQLite hat kein natives `percentile_cont()`. KPIs die Perzentile
-oder statistische Masse erfordern (`llm_response_time_p50`,
-`story_predictability` als Varianz) werden
-im Refresh-Worker in Python berechnet und als fertige Werte in
-die Fact-Tabellen geschrieben.
+PostgreSQL kann analytische Aggregationen deutlich besser tragen als
+SQLite. KPIs wie `llm_response_time_p50` koennen daher direkt in SQL
+oder in materialisierten Rollups berechnet werden; Python bleibt fuer
+komplexere, nicht rein relationale Berechnungen zulaessig.
 
 ### P7: Evolutionsfaehigkeit
 
 Neue KPIs werden als `ALTER TABLE ADD COLUMN` in die bestehenden
 Fact-Tabellen aufgenommen. Migrationen sind idempotent via
-`PRAGMA table_info`-Introspection. Das Schema waechst mit dem
+`ALTER TABLE ... ADD COLUMN IF NOT EXISTS` oder Introspection gegen
+`information_schema`. Das Schema waechst mit dem
 KPI-Katalog, ohne Rebuild.
 
-### P8: Postgres als spaetere Evolutionsstufe
+### P8: PostgreSQL als verbindliche Plattformentscheidung
 
-Die Architektur ist so gestaltet, dass ein spaeterer
-One-Way-Export nach Postgres (fuer ad-hoc Analytics, freie
-Slice-and-Dice-Exploration, Percentile-Aggregationen direkt
-in SQL) moeglich ist, ohne das Grundmodell zu aendern.
-Postgres wird erst eingefuehrt, wenn mindestens eines dieser
-Kriterien zutrifft:
+PostgreSQL ist die verbindliche Datenbankplattform fuer AgentKit.
+Begruendung:
 
-- Regelmaessige ad-hoc Percentile/Funnel-Analysen ueber lange
-  Historien
-- Mehrere Konsumenten greifen parallel auf Analytics zu
-- Dashboard-Queries werden trotz Rollups unhandlich
+- eine systemweite AgentKit-Installation braucht eine systemweite,
+  langlebige Datenhaltung
+- Rechte und Principal-Zugriffe lassen sich in PostgreSQL sauberer
+  modellieren als in SQLite-Dateien
+- Analytics, Audit-Trail und State-Verwaltung profitieren von einem
+  echten Mehrbenutzer-DBMS
 
 ---
 
 ## 60.3 Infrastruktur-Architektur
 
-### 60.3.1 Zwei-Datei-Modell
+### 60.3.1 PostgreSQL-Schema-Modell
 
 ```
 Hook-Hot-Path (synchron, latenzkritisch)
     │
     ▼
-┌──────────────┐     ┌─────────────────────────┐
-│   raw.db     │     │ Pipeline-Artefakte       │
-│              │     │ (Dateisystem, pro Story)  │
-│  - events    │     │  - context.json           │
-│  - qa_*      │     │  - phase-state.json       │
-│  - story_*   │     │  - handover.json          │
-│  - fc_*      │     │  - decision.json          │
-└──────┬───────┘     └──────────┬──────────────┘
-       │                        │
-       └────────┬───────────────┘
-                │  Refresh-Worker (Python, bei Closure / Dashboard-Start)
-                │  liest read-only aus beiden Quellen
-                ▼
-┌──────────────┐
-│ analytics.db │  SQLite, WAL-Modus, STRICT-Tabellen
-│              │  - fact_story
-│              │  - fact_guard_period
-│              │  - fact_pool_period
-│              │  - fact_pipeline_period
-│              │  - fact_corpus_period
-│              │  - sync_state
-└──────────────┘
+┌───────────────────────────────────────────────┐
+│ PostgreSQL                                    │
+│                                               │
+│  schema runtime                               │
+│   - events                                    │
+│   - workflow_state                            │
+│   - qa_*                                      │
+│   - story_*                                   │
+│   - fc_*                                      │
+│                                               │
+│  schema analytics                             │
+│   - fact_story                                │
+│   - fact_guard_period                         │
+│   - fact_pool_period                          │
+│   - fact_pipeline_period                      │
+│   - fact_corpus_period                        │
+│   - sync_state                                │
+└───────────────────────────────────────────────┘
                 │
                 ▼
 ┌──────────────┐
-│  Dashboard   │  liest read-only aus analytics.db
-│  (Chart.js)  │  + Live-Sicht aus raw.db fuer laufende Stories
+│  Dashboard   │  liest read-only aus analytics-Schema
+│  (Chart.js)  │  + Live-Sicht aus runtime-Schema fuer laufende Stories
 └──────────────┘
 ```
 
-### 60.3.2 Begruendung des Zwei-Datei-Modells
+### 60.3.2 Begruendung des PostgreSQL-Modells
 
-**Problem**: Hooks schreiben synchron in SQLite (WAL, ein Writer).
-Ein Refresh-Job der gleichzeitig Rollup-Tabellen aktualisiert
-wuerde mit dem Hook um den Write-Lock konkurrieren. SQLite hat
-genau einen Writer pro Datei.
+**Problem des alten SQLite-Modells**: Dateibasierte State- und
+Analytics-Speicher erschweren Rechtevergabe, Mehrbenutzerzugriffe,
+Retention und systemweite Betriebsfuehrung.
 
-**Loesung**: Separate Dateien isolieren den Hot Path (raw.db) vom
-Analytics-Refresh (analytics.db). Kein Writer-Contention.
+**Loesung**: Ein zentrales PostgreSQL-DBMS mit logisch getrennten
+Schemas isoliert Rollen und Datenbereiche, ohne auf mehrere
+Dateidatenbanken ausweichen zu muessen.
 
 **Verworfene Alternativen**:
 
 | Alternative | Verworfen weil |
 |-------------|----------------|
-| Eine SQLite-DB fuer alles | Writer-Contention zwischen Hooks und Refresh-Job |
-| Postgres als sofortige zweite Schicht | Over-Engineering bei 10k-100k Events/Jahr, doppelte Wahrheitsschicht, ETL-Komplexitaet |
+| Mehrere dateibasierte DBs | Verteilte Wahrheitsschicht, schwache Rechteverwaltung, schwieriger Betrieb |
+| SQLite als Primärmodell | Unsaubere Rechtegrenzen und unpassend für systemweite AgentKit-Installation |
 | EAV-Tabelle (`metric_value`) | Schlechtes Serving-Modell, Query-Komplexitaet, keine Typsicherheit |
 
-### 60.3.3 raw.db (bestehend, unveraendert)
+### 60.3.3 Runtime-Schema
 
-Die bestehende `_temp/agentkit.db` wird zu `raw.db` (logischer
-Name; der physische Pfad bleibt `_temp/agentkit.db` fuer
-Rueckwaertskompatibilitaet).
-
-Schema: Unveraendert. Alle bestehenden Tabellen und Indexe
-bleiben. Neue Events (FK-61) werden als neue `EventType`-Werte
-hinzugefuegt, das Tabellenschema aendert sich nicht.
+Das Runtime-Schema enthaelt die kanonischen Tabellen fuer Events,
+Workflow-State, QA-Resultate und Failure-Corpus-Rohdaten.
 
 **Invariante**: `events` ist append-only. Keine Updates, keine
 Deletes an historischen Events. Korrekturen nur ueber neue
 kompensierende Events.
 
-### 60.3.4 analytics.db (neu)
+### 60.3.4 Analytics-Schema
 
-Pfad: `_temp/agentkit-analytics.db`
-
-Alle Tabellen werden als `STRICT` angelegt (SQLite >= 3.37.0)
-fuer Typ-Enforcement.
+Das Analytics-Schema enthaelt die abgeleiteten Fact-Tabellen und
+den Sync-State.
 
 **Fact-Tabellen** (Detail-Schema in FK-62):
 
 | Tabelle | Koernung | Primaerschluessel |
 |---------|----------|-------------------|
-| `fact_story` | 1 Zeile pro Story | `story_id` |
-| `fact_guard_period` | 1 Zeile pro Guard pro Woche | `(guard_key, period_start)` |
-| `fact_pool_period` | 1 Zeile pro Pool pro Woche | `(pool_key, period_start)` |
-| `fact_pipeline_period` | 1 Zeile pro Woche | `period_start` |
-| `fact_corpus_period` | 1 Zeile pro Monat | `period_start` |
+| `fact_story` | 1 Zeile pro Story | `(project_key, story_id)` |
+| `fact_guard_period` | 1 Zeile pro Guard pro Woche | `(project_key, guard_key, period_start)` |
+| `fact_pool_period` | 1 Zeile pro Pool pro Woche | `(project_key, pool_key, period_start)` |
+| `fact_pipeline_period` | 1 Zeile pro Woche | `(project_key, period_start)` |
+| `fact_corpus_period` | 1 Zeile pro Monat | `(project_key, period_start)` |
 
 **Sync-State**:
 
 ```sql
 CREATE TABLE sync_state (
-    key         TEXT PRIMARY KEY,
+    project_key TEXT NOT NULL,
+    key         TEXT NOT NULL,
     value_int   INTEGER,
     value_text  TEXT,
-    updated_at  TEXT NOT NULL
-) STRICT;
+    updated_at  TEXT NOT NULL,
+    PRIMARY KEY (project_key, key)
+);
 ```
 
 Eintraege: `last_event_id` (monotoner Cursor), `last_synced_at`
-(ISO 8601).
+(ISO 8601). Der Cursor ist projektgebunden; `sync_state` wird daher
+pro `project_key` geführt.
 
 ### 60.3.5 Sync-Mechanismus
 
@@ -266,20 +255,20 @@ Ausloeser:
 
 **Ablauf von `sync_analytics()`**:
 
-1. Read-only Connection auf `raw.db` oeffnen
-2. Read-write Connection auf `analytics.db` oeffnen
+1. Read-only Snapshot auf Runtime-Schema oeffnen
+2. Read-write Transaktion auf Analytics-Schema oeffnen
 3. `sync_state.last_event_id` lesen
-4. Konsistenten Snapshot auf `raw.db`: `watermark = MAX(event_id)`
+4. Konsistenten Snapshot auf Runtime-Schema: `watermark = MAX(event_id)`
 5. Delta-Events lesen: `WHERE event_id > last_event_id AND event_id <= watermark`
 6. **Dirty Sets** ableiten:
-   - `dirty_story_ids`: Story-IDs aus Delta-Events
-   - `dirty_guard_weeks`: `(guard_key, week_start)` aus Delta-Events
-   - `dirty_pool_weeks`: `(pool_key, week_start)` aus Delta-Events
-   - `dirty_pipeline_weeks`: `week_start` aus Delta-Events
-   - `dirty_corpus_months`: `month_start` aus Delta-Events
+   - `dirty_story_ids`: `(project_key, story_id)` aus Delta-Events
+   - `dirty_guard_weeks`: `(project_key, guard_key, week_start)` aus Delta-Events
+   - `dirty_pool_weeks`: `(project_key, pool_key, week_start)` aus Delta-Events
+   - `dirty_pipeline_weeks`: `(project_key, week_start)` aus Delta-Events
+   - `dirty_corpus_months`: `(project_key, month_start)` aus Delta-Events
 7. Pro Dirty Set: Betroffene Slices **komplett neu berechnen**
-   aus `raw.db` (kein inkrementelles Hochzaehlen)
-8. **Eine Transaktion** auf `analytics.db`:
+   aus dem Runtime-Schema (kein inkrementelles Hochzaehlen)
+8. **Eine Transaktion** auf dem Analytics-Schema:
    - UPSERT `fact_story` fuer dirty Stories
    - DELETE+INSERT `fact_guard_period` fuer dirty Guard-Wochen
    - DELETE+INSERT `fact_pool_period` fuer dirty Pool-Wochen
@@ -289,12 +278,12 @@ Ausloeser:
 9. COMMIT
 
 **Crash-Sicherheit**: Wenn der Prozess vor COMMIT crasht, ist
-nichts sichtbar in `analytics.db`. Beim naechsten Lauf wird
+nichts sichtbar im Analytics-Schema. Beim naechsten Lauf wird
 derselbe Delta-Bereich erneut verarbeitet (idempotent).
 
 **Laufende Stories**: Erscheinen nicht in `fact_story`. Das
 Dashboard zeigt laufende Stories ueber eine separate Live-Sicht
-direkt aus `raw.db` (aktueller Phasen-Status, bisherige
+direkt aus dem Runtime-Schema (aktueller Phasen-Status, bisherige
 Laufzeit, bisherige Events).
 
 ---
@@ -307,7 +296,7 @@ Laufzeit, bisherige Events).
 |--------|-----------|
 | **AKTIV** | KPI wird in FK-61/62 ausgearbeitet und implementiert |
 | INVENTAR | KPI ist identifiziert, aber nicht im ersten Release |
-| `[R]` | Rohdaten bereits erhoben (Event existiert in raw.db) |
+| `[R]` | Rohdaten bereits erhoben (Event/Record existiert im Runtime-Schema) |
 | `[N]` | Neues Event oder neuer Erhebungspunkt noetig |
 
 ### 60.4.2 Domaene 1 — Story-Dimensionierung und Pipeline-Steuerung

@@ -20,29 +20,29 @@ tags: [installer, checkpoint, bootstrap, idempotency]
 
 ## 50.1 Zweck
 
-AgentKit installiert sich über eine Folge idempotenter Checkpoints
-selbst in ein Zielprojekt (FK 11). Jeder Checkpoint prüft den
-bestehenden Zustand und führt nur fehlende Aktionen aus. Das
-bedeutet: Der Installer kann beliebig oft laufen — er erzeugt
-keine Duplikate und überschreibt keine nutzerseitigen Anpassungen.
+AgentKit wird systemweit installiert und registriert anschließend ein
+Zielprojekt über eine Folge idempotenter Checkpoints (FK 11). Das
+Zielprojekt erhält lokale Konfiguration und Claude-Code-kompatible
+Symlink-Bindungen für Skills, aber keine kopierten AgentKit-
+Laufzeitartefakte.
 
 ## 50.2 Aufruf
 
 ```bash
-# Erstinstallation
-agentkit install --gh-owner acme-corp --gh-repo trading-platform
+# Erstregistrierung
+agentkit register-project --gh-owner acme-corp --gh-repo trading-platform
 
 # Erneut laufen (idempotent)
-agentkit install --gh-owner acme-corp --gh-repo trading-platform
+agentkit register-project --gh-owner acme-corp --gh-repo trading-platform
 
 # Dry-Run (zeigt was passieren würde)
-agentkit install --gh-owner acme-corp --gh-repo trading-platform --dry-run
+agentkit register-project --gh-owner acme-corp --gh-repo trading-platform --dry-run
 
 # Verifikation (read-only Prüfung)
-agentkit verify
+agentkit verify-project
 ```
 
-## 50.3 Vierzehn Checkpoints
+## 50.3 Zwölf Checkpoints
 
 ```mermaid
 flowchart TD
@@ -51,15 +51,13 @@ flowchart TD
     CP3["CP 3: GitHub Project<br/>erstellen/finden"] --> CP4
     CP4["CP 4: Custom Fields<br/>(13 Felder)"] --> CP5
     CP5["CP 5: Pipeline-Config<br/>.story-pipeline.yaml"] --> CP6
-    CP6["CP 6: Verzeichnisse<br/>anlegen"] --> CP7
-    CP7["CP 7: Skills, Prompts,<br/>Schemas deployen"] --> CP8
-    CP8["CP 8: Hooks<br/>registrieren"] --> CP9
-    CP9["CP 9: MCP-Server<br/>(wenn VektorDB)"] --> CP10
-    CP10["CP 10: ARE-Scope-<br/>Validierung<br/>(wenn ARE)"] --> CP11
-    CP11["CP 11: Git-Hooks<br/>(pre-commit, pre-push)"] --> CP12
-    CP12["CP 12: Manifest<br/>schreiben"] --> CP13
-    CP13["CP 13: CLAUDE.md<br/>(nur bei Erstinstallation)"] --> CP14
-    CP14["CP 14: Verifikation<br/>(read-only)"]
+    CP6["CP 6: Projektprofil<br/>ermitteln"] --> CP7
+    CP7["CP 7: Projekt im<br/>State-Backend registrieren"] --> CP8
+    CP8["CP 8: Skill-Symlinks<br/>binden"] --> CP9
+    CP9["CP 9: Hooks<br/>registrieren"] --> CP10
+    CP10["CP 10: MCP-Server<br/>(wenn VektorDB/ARE)"] --> CP11
+    CP11["CP 11: Git-Hooks +<br/>CLAUDE.md"] --> CP12
+    CP12["CP 12: Verifikation<br/>(read-only)"]
 ```
 
 ### CP 1: Python-Paket
@@ -119,49 +117,54 @@ bestehender Datei: prüft `config_version`, migriert bei Bedarf
 
 **Idempotenz:** Überschreibt nie bestehende Config.
 
-### CP 6: Verzeichnisse
+### CP 6: Projektprofil ermitteln
 
-Erstellt die Verzeichnisstruktur (Kap. 10.3.1):
+Ermittelt das Projektprofil, aus dem sich die zu bindenden Skills
+und Prompt-Varianten ableiten. Zentrale Minimalunterscheidung:
 
+- `core`
+- `are`
+
+Die Profilwahl erfolgt bei der Registrierung und nicht zur Laufzeit
+innerhalb der Skills.
+
+**Idempotenz:** Bereits ermitteltes Profil wird wiederverwendet,
+sofern die Projektkonfiguration unverändert ist.
+
+### CP 7: Projekt im State-Backend registrieren
+
+Legt einen Projekt-Record im zentralen State-Backend an und
+hinterlegt:
+
+- Projektkennung
+- GitHub-Owner/Repo/Project-ID
+- Konfigurations-Digest
+- Projektprofil
+- zulässige Bundle-Version
+
+**Idempotenz:** Upsert auf Projektkennung; nur Deltas werden geschrieben.
+
+### CP 8: Skill-Symlinks binden
+
+Erzeugt unter `.claude/skills/` die projektlokalen Symlinks auf die
+systemweit installierten, versionierten Bundle-Verzeichnisse.
+
+Beispiel:
+
+```text
+C:\ProgramData\AgentKit\bundles\4.0.0\are\skills\execute-userstory
+T:\repo\.claude\skills\execute-userstory  ->  C:\ProgramData\AgentKit\bundles\4.0.0\are\skills\execute-userstory
 ```
-_temp/qa/
-_temp/story-telemetry/
-_temp/governance/
-_temp/governance/locks/
-_temp/governance/active/
-_temp/adversarial/
-.agentkit/failure-corpus/
-.agent-guard/
-worktrees/
-stories/
-concepts/
-_guardrails/
-prompts/
-prompts/sparring/
-skills/
-tools/hooks/
-tools/qa/schemas/
-```
 
-**Idempotenz:** `mkdir -p` (erstellt nur wenn nicht vorhanden).
+**Regeln:**
+- Der Symlink zeigt auf eine konkrete Bundle-Version, nie auf `latest`.
+- Pro Projekt wird nur die profilpassende Skill-Variante gebunden.
+- Der Symlink ist Bindungspunkt, nicht Source of Truth.
 
-### CP 7: Skills, Prompts, Schemas
+**Idempotenz:** Bestehende korrekte Symlinks bleiben unverändert;
+falsche oder veraltete Bindungen werden gezielt ersetzt.
 
-Kopiert Dateien aus dem AgentKit-Paket ins Zielprojekt:
-
-- `userstory/skills/` → `skills/`
-- `userstory/prompts/` → `prompts/`
-- `userstory/schemas/` → `tools/qa/schemas/`
-- `userstory/templates/` → `templates/`
-- `ccag/bundle/rules/` → `.claude/ccag/rules/`
-
-Platzhalter-Substitution in `.md`-Dateien (Kap. 43.4.2).
-
-**Idempotenz:** Vergleicht Source-Hash mit Manifest. Nur
-geänderte Dateien werden überschrieben. Nutzer-Anpassungen werden
-als `.bak` gesichert.
-
-### CP 8: Hooks registrieren
+### CP 9: Hooks registrieren
 
 Schreibt Hook-Einträge in `.claude/settings.json` (Kap. 30.3.1).
 Merge-Modus: bestehende Hooks bleiben erhalten, nur fehlende
@@ -169,7 +172,7 @@ AgentKit-Hooks werden hinzugefügt.
 
 **Idempotenz:** Prüft ob jeder Hook bereits registriert ist.
 
-### CP 9: MCP-Server
+### CP 10: MCP-Server
 
 Nur wenn `features.vectordb: true`. Registriert den
 Story-Knowledge-Base MCP-Server in `.mcp.json`:
@@ -191,7 +194,7 @@ Auch ARE-MCP-Server wenn `features.are: true`.
 
 **Idempotenz:** Prüft ob Server bereits registriert ist.
 
-### CP 9a: ConceptContext-Properties und Erstindizierung
+### CP 10a: ConceptContext-Properties und Erstindizierung
 
 Nur wenn `features.vectordb: true`. Erweitert die `StoryContext`-
 Collection um konzeptspezifische Properties (Kap. 13.9.3):
@@ -206,12 +209,12 @@ Collection um konzeptspezifische Properties (Kap. 13.9.3):
 4. Führt Erstindizierung aller Konzeptdokumente mit gültigem
    Frontmatter durch (`concept_sync(full_reindex=true)`)
 
-**Abhängigkeiten:** CP 9 (MCP-Server muss registriert sein).
+**Abhängigkeiten:** CP 10 (MCP-Server muss registriert sein).
 
 **Idempotenz:** Prüft ob Properties bereits existieren. Überspring
 bereits indizierte Konzepte (Hash-basiert).
 
-### CP 9b: Concept-Validation-Hook
+### CP 10b: Concept-Validation-Hook
 
 Registriert den konzeptspezifischen Pre-Commit-Hook (Kap. 13.9.9)
 in `tools/hooks/pre-commit`. Der Hook führt bei Änderungen unter
@@ -225,7 +228,7 @@ und wird durch die pfadbasierte Dispatching-Logik nicht berührt.
 **Idempotenz:** Prüft ob Dispatching-Logik bereits im Hook
 enthalten ist.
 
-### CP 10: ARE-Scope-Validierung
+### CP 10c: ARE-Scope-Validierung
 
 Nur wenn `features.are: true`.
 
@@ -235,11 +238,11 @@ Nur wenn `features.are: true`.
 - Agentischer Modus: gibt `PENDING_SELECTION` zurück mit Metadaten, orchestrierender Agent muss `resolve_pending_scope_mapping()` aufrufen
 - Idempotenz: bereits zugeordnete Items werden nicht erneut abgefragt
 
-**Abhängigkeiten:** CP 5 (Pipeline-Config), CP 4 (Custom Fields), CP 9 (ARE MCP-Server)
+**Abhängigkeiten:** CP 5 (Pipeline-Config), CP 4 (Custom Fields), CP 10 (ARE MCP-Server)
 
 **Idempotenz:** Nur fehlende/unmapped Einträge werden abgefragt.
 
-### CP 11: Git-Hooks
+### CP 11: Git-Hooks + CLAUDE.md
 
 Installiert `pre-commit` Hook (Secret-Detection, Kap. 15.5.2)
 und `pre-push` Hook:
@@ -251,36 +254,21 @@ git config core.hooksPath tools/hooks/
 
 **Idempotenz:** Prüft ob hooksPath bereits gesetzt ist.
 
-### CP 12: Manifest
-
-Schreibt `.installed-manifest.json` mit:
-
-- AgentKit-Version und Commit-SHA
-- Installationszeitpunkt
-- GitHub-Project-ID und Field-IDs (aus CP 3/4)
-- Datei-Map mit Source-Hashes (aus CP 7)
-- Feature-Flags zum Zeitpunkt der Installation
-
-**Idempotenz:** Wird bei jedem Lauf aktualisiert (ist der
-Zustandsträger).
-
-### CP 13: CLAUDE.md
-
 Erzeugt ein Skelett für die `CLAUDE.md`-Datei des Projekts.
 **Nur bei Erstinstallation** — wird nie überschrieben, weil
 CLAUDE.md ein vom Menschen gepflegtes Dokument ist.
 
 **Idempotenz:** Nur erstellen wenn nicht vorhanden.
 
-### CP 14: Verifikation
+### CP 12: Verifikation
 
 Read-only Validierung aller vorherigen Checkpoints:
 
 - Config lesbar und Schema-valide?
-- Alle Verzeichnisse existieren?
-- Alle Skills/Prompts/Schemas deployt?
+- Projektprofil bestimmt?
+- Projekt im State-Backend registriert?
+- Alle erwarteten Skill-Symlinks vorhanden und korrekt?
 - Alle Hooks registriert?
-- Manifest konsistent?
 - GitHub-Fields vorhanden?
 - ARE-Scope-Zuordnung vollständig? (alle Code-Repos haben `are_scope`, alle Modul-Werte gemappt — nur wenn `features.are: true`)
 
@@ -305,29 +293,24 @@ class CheckpointResult:
 | SKIPPED | Nicht relevant (z.B. VektorDB bei `vectordb: false`) |
 | FAILED | Checkpoint gescheitert — Installation abbrechen |
 
-## 50.5 SQLite-DB Bootstrap
+## 50.5 Symlink-Bindung
 
-Beim Installer-Run wird die Telemetrie-DB initialisiert:
+Der Installer erzeugt projektlokale Symlinks auf systemweite
+Bundle-Verzeichnisse:
 
 ```python
-def bootstrap_db():
-    with sqlite3.connect("_temp/agentkit.db") as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                story_id TEXT NOT NULL,
-                run_id TEXT NOT NULL,
-                ts TEXT NOT NULL,
-                event_type TEXT NOT NULL,
-                pool TEXT,
-                role TEXT,
-                payload TEXT,
-                created_at TEXT DEFAULT (datetime('now'))
-            )
-        """)
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_events_story_type ON events(story_id, event_type)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_events_run ON events(run_id)")
+def bind_project_skills(project_root: Path, bundle_root: Path, skills: list[str]) -> None:
+    skills_dir = project_root / ".claude" / "skills"
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    for skill_name in skills:
+        source = bundle_root / "skills" / skill_name
+        target = skills_dir / skill_name
+        create_or_update_symlink(source, target)
 ```
+
+**Fail-closed:** Kann ein erwarteter Symlink nicht angelegt werden,
+scheitert die Projektregistrierung. Ein partiell gebundenes Profil ist
+nicht zulässig.
 
 ## 50.6 Fehlerbehandlung
 
@@ -337,7 +320,9 @@ def bootstrap_db():
 | `gh` nicht authentifiziert | CP 2 | FAILED, Hinweis auf `gh auth login` |
 | Repo nicht gefunden | CP 2 | FAILED |
 | GitHub API Rate Limit | CP 3/4 | Retry mit Backoff, dann FAILED |
-| Keine Schreibrechte im Projekt | CP 6 | FAILED |
+| Keine Schreibrechte im Projekt | CP 8/9/11 | FAILED |
+| State-Backend nicht erreichbar | CP 7 | FAILED |
+| Symlink kann nicht angelegt oder aktualisiert werden | CP 8 | FAILED |
 | Bestehende Config mit inkompatiblem Schema | CP 5 | Migration versuchen (Kap. 51), bei Scheitern FAILED |
 
 **Bei FAILED:** Alle vorherigen Checkpoints waren erfolgreich und

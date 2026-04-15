@@ -29,7 +29,7 @@ tags: [domain-overview, navigation, agentkit, architecture]
 | 05 | [05-telemetrie-und-metriken.md](05-telemetrie-und-metriken.md) | Telemetrie, Metriken und KPIs |
 | 06 | [06-are-integration.md](06-are-integration.md) | Agent Requirements Engine |
 | 07 | [07-failure-corpus.md](07-failure-corpus.md) | Failure Corpus als Lernschleife |
-| 08 | [08-installation-und-bootstrap.md](08-installation-und-bootstrap.md) | Checkpoint-basierte Selbstinstallation |
+| 08 | [08-installation-und-bootstrap.md](08-installation-und-bootstrap.md) | Projektregistrierung und Bootstrap |
 | 09 | [09-tools-und-skills.md](09-tools-und-skills.md) | Umsetzungsautomatisierung und Werkzeuge |
 
 ---
@@ -170,9 +170,11 @@ Beobachtetes Fehlverhalten wird als Artefakt festgehalten. Wiederkehrende
 Muster werden in deterministische Checks überführt. Brücke zwischen
 nicht-deterministischer LLM-Welt und deterministischer QA-Pipeline.
 
-**4.8 Checkpoint-basierte Selbstinstallation** (→ [08-installation-und-bootstrap.md](08-installation-und-bootstrap.md)).
-AgentKit installiert sich über idempotente Checkpoints selbst in ein
-Zielprojekt. Upgrades erhalten nutzerseitige Anpassungen.
+**4.8 Projektregistrierung und Bootstrap** (→ [08-installation-und-bootstrap.md](08-installation-und-bootstrap.md)).
+AgentKit wird systemweit betrieben und registriert Projekte über
+idempotente Checkpoints. Im Projekt liegen nur Konfiguration und
+Claude-Code-kompatible Skill-Bindungen; der kanonische Inhalt liegt
+systemweit bzw. im zentralen State-Backend.
 
 **4.9 Umsetzungsautomatisierung und Werkzeuge** (→ [09-tools-und-skills.md](09-tools-und-skills.md)).
 Parameterbasierte Tool-Governance (CCAG) mit sessionübergreifender
@@ -333,7 +335,8 @@ nutzt Multi-LLM-Debatten zur Schwachstellensuche.
 
 ## 9. Artefakte und Nachvollziehbarkeit
 
-Jede Phase hinterlässt Artefakte im Story-Verzeichnis (`_temp/qa/{story_id}/`):
+Jede Phase hinterlässt Artefakte im zentralen State-Backend; bei
+Bedarf können daraus Exportdateien erzeugt werden:
 
 - `phase-state.json` — Laufzeit-Zustand (Status, Fehler, Warnungen, Timing)
 - `context.json` — Story-Kontext (Typ, Größe, Scope, GitHub-Daten)

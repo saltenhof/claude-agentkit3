@@ -20,6 +20,9 @@ defers_to:
   - target: FK-11
     scope: structured-evaluator
     reason: Dokumententreue-Pruefung ueber StructuredEvaluator (Kap. 11)
+  - target: FK-25
+    scope: exploration-mandate
+    reason: Mandatsklassifikation, Feindesign-Subprozess und Eskalationsklassen fuer Review-Findings sind in Kap. 25 definiert
 supersedes: []
 superseded_by:
 tags: [exploration, change-frame, drift-detection, mode-routing, document-fidelity]
@@ -79,77 +82,47 @@ bestanden wurde (REF-034). Die Phase ist erst `COMPLETED` wenn
 flowchart TD
     START(["Phase: exploration"]) --> WORKER["Worker-Agent wird gespawnt<br/>Prompt: worker-exploration.md"]
 
-    subgraph WORKER_ARBEIT ["Worker erstellt Entwurfsartefakt"]
+    subgraph WORKER_ARBEIT ["Worker erstellt Draft-Entwurf"]
         WORKER --> VERDICHTEN["1. Story auf präzise<br/>Veränderungsabsicht verdichten"]
         VERDICHTEN --> REFERENZ["2. Relevante Referenzdokumente<br/>heranziehen (nur passende)"]
         REFERENZ --> LOKALISIEREN["3. Änderungsfläche im<br/>bestehenden System lokalisieren"]
         LOKALISIEREN --> RICHTUNG["4. Lösungsrichtung wählen"]
         RICHTUNG --> SELBST["5. Selbst-Konformitätsprüfung<br/>gegen Referenzdokumente"]
-        SELBST --> SCHREIBEN["6. Entwurfsartefakt<br/>(7 Bestandteile) schreiben"]
+        SELBST --> SCHREIBEN["6. Draft-Entwurfsartefakt<br/>(7+ Bestandteile) schreiben"]
     end
 
-    SCHREIBEN --> FREEZE["Entwurf einfrieren<br/>(read-only markieren)"]
-
-    FREEZE --> STUFE1["Stufe 1: Dokumententreue Ebene 2<br/>(StructuredEvaluator, synchron)<br/>gate_status bleibt PENDING"]
+    SCHREIBEN --> VALID["Strukturelle Validierung<br/>(deterministisch)"]
+    VALID --> STUFE1["Stufe 1: Dokumententreue Ebene 2<br/>(StructuredEvaluator, synchron)<br/>Draft bleibt editierbar"]
 
     STUFE1 -->|FAIL| REJECT_GS1["gate_status = REJECTED"]
     REJECT_GS1 --> ESC1(["ESCALATED:<br/>Konflikt mit Architektur"])
 
-    STUFE1 -->|PASS| PAUSED_DR["PAUSED: PauseReason.AWAITING_DESIGN_REVIEW<br/>agents_to_spawn: [design-reviewer]"]
+    STUFE1 -->|PASS| REVIEW["E: Design-Review"]
+    REVIEW --> PREMISE["E2: Prämissen-Challenge"]
+    PREMISE --> TRIGGER["F: Trigger-Evaluation"]
+    TRIGGER -->|Ja| CHALLENGE["G: Design-Challenge"]
+    TRIGGER -->|Nein| H1["H1: Aggregation"]
+    CHALLENGE --> H1
+    H1 --> H2["H2: Nachklassifikation<br/>(gemäß FK-25)"]
 
-    subgraph STUFE2 ["Stufe 2: Design-Review Gate (REF-034)"]
-        PAUSED_DR --> RESUME_DR["Resume: design-review-preliminary.json gelesen"]
-        RESUME_DR --> TRIGGER["Trigger-Evaluation (deterministisch)<br/>Risikotrigger vorhanden?"]
-        TRIGGER -->|Ja| PAUSED_DC["PAUSED: PauseReason.AWAITING_DESIGN_CHALLENGE<br/>agents_to_spawn: [design-challenger]"]
-        PAUSED_DC --> RESUME_DC["Resume: design-challenge.json gelesen"]
-        RESUME_DC --> AGG["Stufe 2c: Finale Aggregation"]
-        TRIGGER -->|Nein| AGG
-        AGG --> VERDICT{"Verdict?"}
-    end
+    H2 -->|Klasse 1/3/4| HUMAN_PAUSE["PAUSED:<br/>Menschliche Klärung / Resume"]
+    H2 -->|Klasse 2| FEINDESIGN["J: Feindesign-Subprozess<br/>(Multi-LLM-Diskussion)"]
+    H2 -->|Review-Findings remediable| REMED["IN_PROGRESS: Remediation<br/>review_rounds += 1"]
+    H2 -->|PASS ohne Findings| FREEZE["Entwurf einfrieren<br/>(read-only markieren)"]
 
-    VERDICT -->|PASS| GATE_PASS["gate_status = APPROVED"]
-    VERDICT -->|PASS_WITH_CONCERNS<br/>required_before_impl| HUMAN["PAUSED: PauseReason.AWAITING_DESIGN_REVIEW"]
-    VERDICT -->|PASS_WITH_CONCERNS<br/>nur advisory/required_in_impl| GATE_PASS
-    VERDICT -->|FAIL remediable<br/>round < 3| REMED["IN_PROGRESS: Remediation<br/>review_rounds += 1"]
-    VERDICT -->|FAIL non-remediable<br/>oder round ≥ 3| REJECT_GS2["gate_status = REJECTED"]
-    REJECT_GS2 --> ESC2(["ESCALATED"])
+    FEINDESIGN --> REVIEW
     REMED --> WORKER
+    HUMAN_PAUSE --> REVIEW
 
-    HUMAN -->|"Mensch genehmigt"| GATE_PASS
-    HUMAN -->|"Mensch lehnt ab"| REJECT_GS3["gate_status = REJECTED"]
-    REJECT_GS3 --> ESC_HUMAN(["ESCALATED: Design-Review abgelehnt"])
-    GATE_PASS --> APPROVED["gate_status = APPROVED<br/>→ spawn implementation worker"]
-    APPROVED --> DONE(["Phase: exploration COMPLETED"])
+    FREEZE --> GATE_PASS["gate_status = APPROVED<br/>→ spawn implementation worker"]
+    GATE_PASS --> DONE(["Phase: exploration COMPLETED"])
 ```
 
-[Hinweis 2026-04-09] Korrekturen im Mermaid-Diagramm gegenüber Vorgängerversion:
-- Gate-Status-Werte verwenden `ExplorationGateStatus` StrEnum (`PENDING`, `APPROVED`, `REJECTED`) statt String-Literale (`doc_compliance_passed`, `design_review_passed`, `approved_for_implementation`).
-- `human_approval_required` ersetzt durch `PauseReason.AWAITING_DESIGN_REVIEW` — Mensch muss Exploration-Ergebnis freigeben.
-- `awaiting_exploration_remediation` war fälschlich als PAUSED modelliert. Remediation ist ein aktiver Zustand (`IN_PROGRESS`), kein Pause-Zustand. Korrigiert zu `IN_PROGRESS: Remediation`.
-- Remediation-Rundenlimit von 2 auf 3 angehoben (`ExplorationPhaseMemory.review_rounds`, max 3).
-
-[Korrektur 2026-04-09: gate_status = REJECTED wird vor ESCALATED-Transition gesetzt — konsistent mit Contract-Definition in §23.5.0.]
-
-[Korrektur 2026-04-09] Off-by-one im Remediation-Limit: Die Bedingung `round ≤ 3` / `round > 3`
-war fehlerhaft — bei `review_rounds == 3` (bereits 3 Runden gelaufen) haette `≤ 3` eine vierte
-Remediation-Runde erlaubt, was "max 3 Runden" widerspricht. Korrigiert zu `round < 3` (erlaubt
-Remediation bei 0, 1, 2 gelaufenen Runden — nach Inkrement also max Runde 3) und `round ≥ 3`
-(Eskalation ab 3 gelaufenen Runden). Semantik: `review_rounds` wird VOR der Pruefung gelesen;
-der Inkrement `+= 1` erfolgt erst im Remediation-Pfad. Damit sind exakt 3 Remediation-Runden moeglich.
-
-[Hinweis 2026-04-09] Feldpfade im Mermaid-Diagramm: Die Kurzform `gate_status` im Diagramm
-referenziert den kanonischen Feldpfad `ExplorationPayload.gate_status` (Typ: `ExplorationGateStatus`
-StrEnum). Der alte v2-Name `exploration_gate_status` ist obsolet und darf nicht mehr verwendet werden.
-
-[Korrektur 2026-04-09] Gate-Zustandslogik im Mermaid-Diagramm: Stufe 1 (Dokumententreue Ebene 2)
-setzt `payload.gate_status` **nicht** auf `APPROVED`. Der Status bleibt `PENDING`, solange das
-dreistufige Gate nicht vollständig bestanden ist. Die korrekte Semantik:
-- `PENDING` = Gate noch nicht vollständig abgeschlossen (auch wenn Stufe 1 und/oder Stufe 2 bereits bestanden)
-- `APPROVED` = Vollständiges Gate bestanden (alle Stufen OK, ggf. menschliche Freigabe erhalten)
-- `REJECTED` = Gate endgültig abgelehnt — tritt ein bei: (a) Stufe-1-FAIL (Architekturkonflikt), (b) Stufe-2c FAIL non-remediable, (c) Rundenlimit erreicht (review_rounds ≥ 3), (d) menschliche Ablehnung im HUMAN-Knoten
-Der Wechsel zu `APPROVED` erfolgt erst am Knoten `GATE_PASS` bzw. `APPROVED` im Diagramm — also nach vollständigem Durchlauf aller Stufen.
-
-[Korrektur 2026-04-09: design_rejected-Pfad aus HUMAN-Knoten ergänzt — PauseReason.AWAITING_DESIGN_REVIEW hat zwei Resume-Trigger: design_approved und design_rejected.]
+**Korrektur gegenüber früherem Stand:** Der Draft wird nicht mehr vor
+der unabhängigen Prüfung eingefroren. Dokumententreue, Review,
+Prämissen-Challenge, Design-Challenge, Nachklassifikation und
+gegebenenfalls Feindesign laufen auf einem noch editierbaren Draft.
+Der Freeze markiert das bestandene Ergebnis, nicht den Prüfgegenstand.
 
 ### 23.3.2 Feste Schrittfolge des Workers
 
@@ -278,7 +251,12 @@ Das Schema `entwurfsartefakt.schema.json` validiert:
 
 ### 23.4.3 Freeze-Mechanismus
 
-Nach Fertigstellung wird das Entwurfsartefakt eingefroren:
+Der Freeze findet **nach** bestandenem Exit-Gate statt, nicht direkt
+nach dem ersten Schreiben des Artefakts. Während Dokumententreue,
+Review, Challenge, Nachklassifikation und Feindesign bleibt der
+Entwurf editierbar.
+
+Nach bestandenem Gate wird das Entwurfsartefakt eingefroren:
 
 1. `frozen: true` im JSON gesetzt
 2. Datei wird in `_temp/qa/{story_id}/entwurfsartefakt.json`
@@ -356,8 +334,9 @@ Maximum: 3 Runden, dann Eskalation an Mensch.
 
 ### 23.5.2 Prüfung (FK-06-057)
 
-Nach dem Freeze prüft der StructuredEvaluator (Kap. 11) die
-Entwurfstreue — unabhängig vom Worker, der den Entwurf erstellt hat:
+Vor dem Freeze prüft der StructuredEvaluator (Kap. 11) die
+Entwurfstreue auf dem Draft-Entwurf — unabhängig vom Worker, der den
+Entwurf erstellt hat:
 
 **Frage:** Ist der geplante Lösungsweg mit bestehender Architektur
 und Konzepten vereinbar?
@@ -402,38 +381,13 @@ Stufe 2 (Design-Review-Gate), nicht direkt die Implementation. Beschreibung des
 
 | Status | Bedeutung | Reaktion |
 |--------|-----------|---------|
-| PASS | Entwurf ist konform mit bestehender Architektur | Weiter zu Stufe 2: Design-Review-Gate |
+| PASS | Entwurf ist konform mit bestehender Architektur | Weiter zu Review-/Challenge-Zyklus und Nachklassifikation |
 | FAIL | Entwurf kollidiert mit bestehender Architektur | Eskalation an Mensch (`status: ESCALATED`) |
 
-**Gate für freigabepflichtige Entscheidungen:**
-
-Wenn das Entwurfsartefakt `offene_punkte.freigabe_noetig` eine
-nicht-leere Liste enthält, wird dies **nach Stufe 1 PASS erkannt**,
-aber die Pipeline pausiert **nicht** sofort. Stufe 2 (Design-Review-Gate)
-läuft trotzdem vollständig durch — das Design-Review kann die
-freigabepflichtigen Punkte in seine Bewertung einbeziehen.
-
-Die Pause tritt ein, wenn das dreistufige Gate insgesamt zu einem
-Zustand führt, der menschliche Freigabe erfordert:
-- Stufe 2 ergibt `PASS_WITH_CONCERNS` mit `required_before_impl`-Concerns, oder
-- `offene_punkte.freigabe_noetig` enthält Punkte, die weder durch das
-  Design-Review aufgelöst noch als unbedenklich eingestuft wurden.
-
-In beiden Fällen: Phase-State `status: PAUSED`,
-`pause_reason: PauseReason.AWAITING_DESIGN_REVIEW` (Python-Code) bzw. `"awaiting_design_review"` (Wire-Format in phase-state.json — lowercase serialisierter StrEnum-Wert).
-Resume: `agentkit resume --story {id}` nach menschlicher Prüfung.
-[Entscheidung 2026-04-09] `human_approval_required` ersetzt durch `PauseReason.AWAITING_DESIGN_REVIEW` (StrEnum). Der Mensch muss das Exploration-Ergebnis freigeben.
-
-> **[Entscheidung 2026-04-08, ausgearbeitet 2026-04-09]** Element 20 — `pause_reason` wird in v3 durch `PauseReason` StrEnum ersetzt. Typisierte Resume-Handler statt String-basierter Reason. Detailkonzept ausgearbeitet (FK-20 §20.6.2a, 2026-04-09): PauseReason hat genau 3 Werte (AWAITING_DESIGN_REVIEW, AWAITING_DESIGN_CHALLENGE, GOVERNANCE_INCIDENT). Exploration-spezifische Werte und Resume-Trigger folgen unmittelbar unten.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 20.
-
-> **[Entscheidung 2026-04-09]** Für die Exploration-Phase gelten die PauseReason-Werte `PauseReason.AWAITING_DESIGN_REVIEW` und `PauseReason.AWAITING_DESIGN_CHALLENGE`. `AWAITING_DESIGN_REVIEW` wird in zwei Kontexten verwendet: (1) **Agent-basiert** (PAUSED_DR im Diagramm): Pipeline wartet auf Abschluss des Design-Review-Agents; Resume erfolgt systemgesteuert wenn `design-review-preliminary.json` verfügbar ist — kein manueller Trigger. (2) **Mensch-basiert** (HUMAN-Knoten): Pipeline wartet auf menschliche Freigabe; Resume-Trigger: `design_approved` (→ GATE_PASS) oder `design_rejected` (→ REJECTED → ESCALATED). `AWAITING_DESIGN_CHALLENGE`: Resume-Trigger `challenge_resolved`. Kein eigener Pause-Wert für `human_approval_required` — dieser Fall wird über `AWAITING_DESIGN_REVIEW` (Kontext 2) abgedeckt. Verweis auf Designwizard R1+R2 vom 2026-04-09.
-
-**Bei FAIL:** Der Phase-State wird auf `status: ESCALATED` gesetzt.
-Der Mensch muss den Konflikt klären — z.B. das Konzept anpassen,
-die Architektur-Leitplanken lockern, oder die Story verwerfen.
-Erst nach menschlicher Intervention kann die Story erneut in die
-Pipeline eingespeist werden.
+**Wichtig:** Stufe 1 entscheidet nur über Architekturkonformität.
+Offene technische Feindesign-Fragen oder offene menschliche
+Entscheidungspunkte werden nicht hier eskaliert, sondern erst im
+Review-Zyklus durch H2 gemäß FK-25 klassifiziert.
 
 ## 23.6 Übergang zur Implementation
 

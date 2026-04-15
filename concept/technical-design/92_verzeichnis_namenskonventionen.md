@@ -30,7 +30,7 @@ Vollständige Struktur in Kap. 10.3.1. Hier nur die Konventionen.
 | Story-Verzeichnis | `{story_id}_{slug}` | `ODIN-042_implement-broker-api` |
 | QA-Verzeichnis | `_temp/qa/{story_id}/` | `_temp/qa/ODIN-042/` |
 | QA-Artefakt | `{stage_id}.json` | `structural.json`, `qa_review.json` |
-| Telemetrie-DB | `_temp/agentkit.db` | (eine für alle Stories) |
+| Telemetrie-Schema | `runtime.events` | PostgreSQL-Tabelle fuer alle Stories |
 | Telemetrie-Export | `_temp/story-telemetry/{story_id}.jsonl` | `ODIN-042.jsonl` |
 | Lock-Verzeichnis | `_temp/governance/locks/{story_id}/` | `_temp/governance/locks/ODIN-042/` |
 | Lock-Datei | `qa-lock.json` | `_temp/governance/locks/ODIN-042/qa-lock.json` |
@@ -49,7 +49,7 @@ Vollständige Struktur in Kap. 10.3.1. Hier nur die Konventionen.
 | `.jsonl` | Event-Stream (1 Zeile/Event) | Telemetrie-Export, Failure Corpus |
 | `.yaml` | Konfiguration | Pipeline-Config, CCAG-Regeln |
 | `.md` | Menschenlesbare Dokumente | Prompts, Skills, Protokolle, Konzepte |
-| `.db` | SQLite-Datenbank | Telemetrie-Laufzeitspeicher |
+| `.db` | Nicht projektlokal kanonisch | DB-Dateien sind fuer AgentKit nicht Source of Truth |
 | `.active` | Marker-Datei (JSON) | Story-Execution-Marker |
 | `.bak` | Backup bei Upgrade | Gesicherte Nutzer-Anpassungen |
 
