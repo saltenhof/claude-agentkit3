@@ -213,7 +213,7 @@ Orchestrator-Agenten.
 Das Ergebnis wird als strukturiertes Signal in den Phase-State eingetragen.
 Der Phase-State ist das maßgebliche Control-Plane-Artefakt, das der
 Orchestrator liest — neben weiteren Steuerungs-Artefakten wie
-Sperrdatei und Marker (vgl. FK 31.2):
+Lock-Record und Marker-Exporte (vgl. FK 31.2):
 
 ```json
 {
@@ -328,7 +328,7 @@ Bei `false` wird sie nicht geladen und nicht evaluiert.
 
 ## 40.8 Telemetrie
 
-ARE-Interaktionen werden in der SQLite-DB geloggt:
+ARE-Interaktionen werden in `execution_events` geloggt:
 
 | Event | Wann |
 |-------|------|

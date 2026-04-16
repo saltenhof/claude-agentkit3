@@ -12,7 +12,7 @@ from agentkit.pipeline.phases.setup.context_builder import (
     _extract_story_type,
     build_story_context,
 )
-from agentkit.story.types import StoryMode, StoryType
+from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path

@@ -11,7 +11,7 @@ from agentkit.pipeline.workflow.gates import Gate, GateStage
 from agentkit.pipeline.workflow.guards import GuardResult
 
 if TYPE_CHECKING:
-    from agentkit.story.models import PhaseState, StoryContext
+    from agentkit.story_context_manager.models import PhaseState, StoryContext
 
 
 class TestGateStage:

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from agentkit.exceptions import PipelineError
+from agentkit.phase_state_store import load_flow_execution, load_node_execution_ledger
 from agentkit.pipeline.engine import PipelineEngine
 from agentkit.pipeline.lifecycle import (
     HandlerResult,
@@ -20,8 +21,8 @@ from agentkit.pipeline.lifecycle import (
 from agentkit.pipeline.state import load_attempts, load_phase_state
 from agentkit.pipeline.workflow.builder import Workflow
 from agentkit.pipeline.workflow.guards import GuardResult, guard
-from agentkit.story.models import PhaseState, PhaseStatus, StoryContext
-from agentkit.story.types import StoryMode, StoryType
+from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
+from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -257,6 +258,18 @@ class TestRunPhaseNormal:
         assert loaded.phase == "setup"
         assert loaded.status == PhaseStatus.COMPLETED
 
+        flow = load_flow_execution(tmp_path)
+        assert flow is not None
+        assert flow.flow_id == "simple"
+        assert flow.status == "COMPLETED"
+        assert flow.current_node_id == "setup"
+
+        ledger = load_node_execution_ledger(tmp_path, "simple", "setup")
+        assert ledger is not None
+        assert ledger.execution_count == 1
+        assert ledger.success_count == 1
+        assert ledger.last_outcome == "PASS"
+
     def test_pausing_handler_yields(
         self,
         tmp_path: Path,
@@ -287,6 +300,16 @@ class TestRunPhaseNormal:
         assert result.status == "yielded"
         assert result.yield_status == "awaiting_review"
         assert result.phase == "exploration"
+
+        flow = load_flow_execution(tmp_path)
+        assert flow is not None
+        assert flow.flow_id == "yield-test"
+        assert flow.status == "YIELDED"
+
+        ledger = load_node_execution_ledger(tmp_path, "yield-test", "exploration")
+        assert ledger is not None
+        assert ledger.last_outcome == "YIELD"
+        assert ledger.success_count == 0
 
     def test_resume_after_yield(
         self,
@@ -648,6 +671,16 @@ class TestPipelineRobustness:
         assert result.status == "failed"
         assert len(result.errors) > 0
         assert "Boom!" in result.errors[0]
+
+        flow = load_flow_execution(tmp_path)
+        assert flow is not None
+        assert flow.flow_id == "exception"
+        assert flow.status == "FAILED"
+
+        ledger = load_node_execution_ledger(tmp_path, "exception", "setup")
+        assert ledger is not None
+        assert ledger.last_outcome == "FAIL"
+        assert ledger.execution_count == 1
 
     def test_handler_exception_preserves_story_id(
         self,

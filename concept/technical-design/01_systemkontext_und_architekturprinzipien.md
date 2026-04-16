@@ -164,6 +164,31 @@ oder ein Prozess.
 | `PromptComposer` vs. Prompt-Integritaet | Der Composer assembliert Prompts. Sentinel-/Spawn-Integritaet und Governance-Escape-Erkennung gehoeren zum Guard-/Hook-System, nicht zum Composer |
 | `IntegrationHub` | Ist ein Architekturbuendel, kein Zwang zu einer zentralen Runtime-Klasse. Die Adapter bleiben fachlich getrennt |
 
+**Prozessvertrag pro Komponente:**
+
+Alle nichttrivialen Ablaufanteile von AK3 werden ueber eine
+einheitliche hierarchische Prozess-DSL modelliert (FK-20). Das gilt
+nicht nur fuer die Gesamtpipeline, sondern auch fuer Komponenten und
+ihre Subschritte.
+
+| Vertragsbestandteil | Bedeutung |
+|---------------------|-----------|
+| `FlowDefinition` | Beschreibt Reihenfolge, Branching, Rueckspruenge und Yield-Points |
+| `NodeDefinition` | Definiert atomare oder zusammengesetzte Ausfuehrungsschritte |
+| `ExecutionPolicy` | Regelt, ob ein Knoten erneut laufen darf oder nach Erfolg uebersprungen wird |
+| `OverridePolicy` | Regelt, welche CLI-/Mensch-Overrides zulaessig sind |
+| Handler-Implementierung | Enthaelt die Fachlogik, I/O und Seiteneffekte des Knotens |
+
+**Architekturregel:** Eine Komponente besitzt damit zwei klar getrennte
+Vertraege:
+
+- einen **Kontrollflussvertrag** in der gemeinsamen DSL
+- einen **Ausfuehrungsvertrag** ihrer Schritt-Handler
+
+Diese Trennung ist die Gegenmassnahme gegen neue imperative
+God-Files: Kontrollfluss wird deklarativ und auditierbar modelliert,
+Fachlogik bleibt lokal in der Komponente.
+
 ### 1.2.3 Was AgentKit NICHT ist
 
 - Kein CI/CD-System — es ersetzt keine Build-Pipeline, sondern

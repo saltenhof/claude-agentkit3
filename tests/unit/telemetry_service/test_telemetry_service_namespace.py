@@ -1,6 +1,8 @@
-from agentkit.telemetry import Event as LegacyEvent
-from agentkit.telemetry_service import Event
+from agentkit.telemetry_service import Event, EventEmitter, EventType, MemoryEmitter
 
 
-def test_telemetry_service_namespace_reexports_legacy_api() -> None:
-    assert Event is LegacyEvent
+def test_telemetry_service_namespace_exposes_public_types() -> None:
+    assert Event.__name__ == "Event"
+    assert EventType.__name__ == "EventType"
+    assert EventEmitter.__name__ == "EventEmitter"
+    assert MemoryEmitter.__name__ == "MemoryEmitter"

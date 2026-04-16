@@ -27,11 +27,17 @@ tags: [telemetrie, eventing, metriken, state-backend, review-guard]
 
 Die Telemetrie erfüllt zwei Aufgaben (FK 8):
 
-1. **Nachvollziehbarkeit:** Was ist während einer Story-Bearbeitung
+1. **Nachvollziehbarkeit:** Was ist während einer gültigen Story-Bearbeitung
    passiert? Welche Agents liefen, welche LLMs wurden aufgerufen,
    welche Tools verwendet?
 2. **Prüfbarkeit:** Wurde der definierte Prozess eingehalten? Das
    Integrity-Gate prüft bei Closure die Telemetrie als Nachweis.
+
+**Reset-Grenze:** Telemetrie ist Langzeitaudit für gültige Runs. Wird
+eine Story-Umsetzung vollständig zurückgesetzt, gelten die
+`execution_events` dieses Runs als fachlich ungültig und werden
+entfernt. Ein zurückgesetzter Run zählt weder für Langzeitaudit noch
+für Metrikbildung.
 
 Telemetrie-Nachweise sind dort relevant, wo Agents autonom handeln
 und der Prozess nicht durch Code erzwungen wird (FK-08-005).
@@ -53,45 +59,38 @@ langlebig und Principal-geschützt.
 - saubere Retention und Traceability unabhängig vom Projekt-Temp
 - rollenbasierte Zugriffskontrolle bis auf Principal-Ebene
 
-**Schema:**
-
-```sql
-CREATE TABLE events (
-    id BIGSERIAL PRIMARY KEY,
-    project_key TEXT NOT NULL,
-    story_id TEXT NOT NULL,
-    run_id TEXT NOT NULL,
-    ts TIMESTAMPTZ NOT NULL,
-    event_type TEXT NOT NULL,
-    pool TEXT,                  -- bei llm_call, review_*, adversarial_sparring
-    role TEXT,                  -- bei llm_call
-    payload JSONB,              -- JSON für event-spezifische Daten
-    created_at TIMESTAMPTZ DEFAULT now()
-);
-
-CREATE INDEX idx_events_project_story_type
-    ON events(project_key, story_id, event_type);
-CREATE INDEX idx_events_project_run
-    ON events(project_key, run_id);
-```
+**Logisches Zielmodell:** Die kanonische Telemetrietabelle heißt
+`execution_events`. Ihre relationale Abbildung ist in FK-18
+autorisiert. FK-14 definiert das Eventmodell und die fachlichen Felder,
+nicht die finale SQL-DDL.
 
 **JSONL als Export-/Audit-Format:** Bei Closure kann die Telemetrie
 einer Story als JSONL oder Audit-Bundle exportiert werden. Diese
 Datei dient der menschlichen Lesbarkeit oder externen Ablage — sie
 ist nie Laufzeit-Speicher.
 
+**Gültigkeitsregel:** Audit-Bundles dürfen nur aus gültigen,
+nicht vollständig zurückgesetzten Runs erzeugt oder aufbewahrt werden.
+Ein vollständiger Story-Reset verwirft auch den zugehörigen
+Telemetrie-Export.
+
 **Pflichtfelder jedes Events (Spalten):**
 
 | Feld | Typ | Beschreibung |
 |------|-----|-------------|
 | `project_key` | String | Registriertes Zielprojekt / Mandanten-Schlüssel |
-| `ts` | String (ISO 8601 + Zeitzone) | Zeitstempel des Events |
-| `story` | String | Story-ID |
+| `story_id` | String | Story-ID |
 | `run_id` | String (UUID) | Run-Identifikator (Kap. 02) |
-| `event` | String | Event-Typ (siehe 14.2.2) |
+| `event_id` | String | eindeutige Event-Kennung innerhalb des Runs |
+| `event_type` | String | Event-Typ (siehe 14.2.2) |
+| `occurred_at` | String (ISO 8601 + Zeitzone) | fachlicher Ereigniszeitpunkt |
+| `source_component` | String | emittierende Komponente |
+| `severity` | String | debug/info/warning/error/critical |
 
-Darüber hinaus event-spezifische Felder (max 2 Ebenen Nesting,
-Kap. 01 P8).
+Darüber hinaus event-spezifische Felder als Detailpayload oder
+Payload-Referenz. `pool`, `role`, `reviewer_a`, `score`,
+`target_node_id` etc. sind keine festen Top-Level-Spalten des
+fachlichen Eventmodells, sondern event-spezifische Felder.
 
 **Mandantenregel:** Alle Runtime-Tabellen im State-Backend tragen
 `project_key` als führenden Scope-Schlüssel. `story_id` ist nur
@@ -107,6 +106,30 @@ innerhalb eines Projekts eindeutig.
 | `agent_end` | Worker-Agent beendet regulär | `subagent_type` | Genau 1, nach agent_start | Hook (PostToolUse für Agent) |
 | `increment_commit` | Worker committet ein Inkrement | `sha` | >= 1 pro Story | Hook (PreToolUse für Bash bei `git commit` im Worktree) |
 | `drift_check` | Worker prüft Impact/Konzept-Konformität | `result` (ok/drift) | >= 1 pro Story | Worker führt Marker-Befehl aus, Hook erkennt |
+
+#### Ablauf- und Override-Events
+
+Die Einheits-DSL aus FK-20 ist nur dann auditierbar, wenn die Engine
+auch ihre eigenen Kontrollflussentscheidungen sichtbar macht. Deshalb
+schreibt die `PipelineEngine` sowie jede komponentenseitige
+Flow-Runtime normierte Ablauf-Events.
+
+| Event | Wann | Zusatzfelder | Erwartungswert | Quelle |
+|-------|------|-------------|----------------|--------|
+| `flow_start` | Ein `FlowDefinition` beginnt | `flow_id`, `level`, `owner`, `attempt_no` | Genau 1 pro Flow-Attempt | PipelineEngine / Komponenten-Runtime |
+| `flow_end` | Ein Flow endet | `flow_id`, `level`, `owner`, `attempt_no`, `status` | Genau 1 pro `flow_start` | PipelineEngine / Komponenten-Runtime |
+| `node_result` | Ein Knoten wurde ausgewertet | `flow_id`, `node_id`, `kind`, `outcome`, `attempt_no`, `target_node_id?` | 1..n pro Node | PipelineEngine / Komponenten-Runtime |
+| `override_applied` | Ein Override-Record wurde konsumiert | `flow_id`, `node_id`, `override_type`, `actor_type`, `override_id` | 0..n | PipelineEngine / Komponenten-Runtime |
+
+**Outcome-Werte fuer `node_result`:**
+- `PASS`
+- `FAIL`
+- `SKIP`
+- `YIELD`
+- `BACKTRACK`
+
+`target_node_id` ist nur gesetzt, wenn ein Ruecksprung oder Sprung auf
+einen expliziten Zielknoten erfolgt.
 
 #### Worker-Reviews
 
@@ -165,20 +188,10 @@ hält die Pool-Abstraktion intakt (Kap. 01 P8, Kap. 11).
 ### 14.2.3 Beispiel-Events
 
 ```jsonl
-{"ts":"2026-03-17T10:00:01+01:00","story":"ODIN-042","run_id":"a1b2...","event":"agent_start","subagent_type":"worker"}
-{"ts":"2026-03-17T10:15:23+01:00","story":"ODIN-042","run_id":"a1b2...","event":"increment_commit","sha":"c3d4e5f"}
-{"ts":"2026-03-17T10:15:30+01:00","story":"ODIN-042","run_id":"a1b2...","event":"drift_check","result":"ok"}
-{"ts":"2026-03-17T10:30:00+01:00","story":"ODIN-042","run_id":"a1b2...","event":"review_request","pool":"chatgpt","role":"qa_review"}
-{"ts":"2026-03-17T10:31:45+01:00","story":"ODIN-042","run_id":"a1b2...","event":"review_response","pool":"chatgpt","role":"qa_review"}
-{"ts":"2026-03-17T10:31:45+01:00","story":"ODIN-042","run_id":"a1b2...","event":"review_compliant","pool":"chatgpt","template_name":"review-consolidated"}
-{"ts":"2026-03-17T10:45:00+01:00","story":"ODIN-042","run_id":"a1b2...","event":"agent_end","subagent_type":"worker"}
-{"ts":"2026-03-17T11:00:00+01:00","story":"ODIN-042","run_id":"a1b2...","event":"llm_call","pool":"chatgpt","role":"qa_review","retry":false,"status":"PASS"}
-{"ts":"2026-03-17T11:00:30+01:00","story":"ODIN-042","run_id":"a1b2...","event":"llm_call","pool":"gemini","role":"semantic_review","retry":false,"status":"PASS"}
-{"ts":"2026-03-17T11:05:00+01:00","story":"ODIN-042","run_id":"a1b2...","event":"adversarial_start"}
-{"ts":"2026-03-17T11:10:00+01:00","story":"ODIN-042","run_id":"a1b2...","event":"adversarial_sparring","pool":"grok"}
-{"ts":"2026-03-17T11:12:00+01:00","story":"ODIN-042","run_id":"a1b2...","event":"adversarial_test_created","file_path":"sandbox://ODIN-042/test_edge_cases.py"}
-{"ts":"2026-03-17T11:13:00+01:00","story":"ODIN-042","run_id":"a1b2...","event":"adversarial_test_executed","result":"pass","test_count":4}
-{"ts":"2026-03-17T11:15:00+01:00","story":"ODIN-042","run_id":"a1b2...","event":"adversarial_end","findings_count":0}
+{"project_key":"odin-trading","story_id":"ODIN-042","run_id":"a1b2...","event_id":"evt-001","event_type":"agent_start","occurred_at":"2026-03-17T10:00:01+01:00","source_component":"telemetry_hook","severity":"info","payload":{"subagent_type":"worker"}}
+{"project_key":"odin-trading","story_id":"ODIN-042","run_id":"a1b2...","event_id":"evt-002","event_type":"increment_commit","occurred_at":"2026-03-17T10:15:23+01:00","source_component":"telemetry_hook","severity":"info","payload":{"sha":"c3d4e5f"}}
+{"project_key":"odin-trading","story_id":"ODIN-042","run_id":"a1b2...","event_id":"evt-003","event_type":"review_request","occurred_at":"2026-03-17T10:30:00+01:00","source_component":"telemetry_hook","severity":"info","payload":{"pool":"chatgpt","role":"qa_review"}}
+{"project_key":"odin-trading","story_id":"ODIN-042","run_id":"a1b2...","event_id":"evt-004","event_type":"llm_call","occurred_at":"2026-03-17T11:00:00+01:00","source_component":"llm_evaluator","severity":"info","payload":{"pool":"chatgpt","role":"qa_review","retry":false,"status":"PASS"}}
 ```
 
 ## 14.3 Event-Quellen
@@ -206,6 +219,20 @@ Der LLM-Evaluator (Kap. 11) schreibt `llm_call`-Events direkt
 in das State-Backend, weil er ein deterministisches Skript ist und
 nicht über einen Hook läuft.
 
+### 14.3.2a Engine-basierte Erfassung
+
+Die Ablauf-Events `flow_start`, `flow_end`, `node_result` und
+`override_applied` werden von der Runtime geschrieben, die die
+jeweilige `FlowDefinition` ausfuehrt:
+
+- die `PipelineEngine` fuer Pipeline- und Phasen-Flows
+- komponentenseitige Flow-Runtimes fuer Komponentensubflows wie
+  `StageRegistry` oder `Installer`
+
+Hooks sind dafuer ungeeignet, weil sie nur Tool-Aufrufe sehen, nicht
+aber semantische Entscheidungen wie `SKIP_AFTER_SUCCESS`,
+Rueckspruenge oder Override-Konsum.
+
 ### 14.3.3 Story-ID-Ermittlung
 
 Hooks müssen die aktive Story-ID kennen, um Events zuzuordnen.
@@ -220,22 +247,31 @@ Zwei Mechanismen:
 ### 14.3.4 Schreib-Mechanismus
 
 ```python
-def insert_event(client, story_id: str, run_id: str, event_type: str,
-                 pool: str | None = None, role: str | None = None,
+def insert_event(project_key: str, client, story_id: str, run_id: str, event_type: str,
+                 source_component: str,
+                 severity: str = "info",
                  payload: dict | None = None) -> None:
     client.insert_event(
+        project_key=project_key,
         story_id=story_id,
         run_id=run_id,
         event_type=event_type,
-        pool=pool,
-        role=role,
+        source_component=source_component,
+        severity=severity,
         payload=payload or {},
     )
 ```
 
 **Kein projektlokales Locking nötig.** Die Synchronisation übernimmt
 PostgreSQL. Agents erhalten keine direkten DB-
-Zugangsdaten; nur Hooks und Pipeline-Skripte schreiben.
+Zugangsdaten; nur Hook-/Pipeline-Principals schreiben **über den
+telemetry_service bzw. dessen Insert-API**.
+
+**Korrelation fuer Prozess-DSL-Events:** Ablauf-Events tragen in ihrem
+Payload mindestens `flow_id`, `level`, `owner`, `attempt_no` und bei
+Knotenereignissen `node_id`. Nur so kann spaeter nachvollzogen werden,
+warum ein Schritt gelaufen, uebersprungen, wiederholt oder per
+Override veraendert wurde.
 
 ### 14.3.5 Query-Mechanismus
 
@@ -243,14 +279,18 @@ Pipeline-Skripte und das Integrity-Gate fragen Telemetrie über
 SQL ab — kein JSONL-Parsing durch Agents:
 
 ```python
-def count_events(client, story_id: str, event_type: str) -> int:
-    return client.count_events(story_id=story_id, event_type=event_type)
+def count_events(project_key: str, client, story_id: str, event_type: str) -> int:
+    return client.count_events(
+        project_key=project_key,
+        story_id=story_id,
+        event_type=event_type,
+    )
 
-def has_event(client, story_id: str, event_type: str) -> bool:
-    return count_events(client, story_id, event_type) > 0
+def has_event(project_key: str, client, story_id: str, event_type: str) -> bool:
+    return count_events(project_key, client, story_id, event_type) > 0
 
-def events_for_run(client, run_id: str) -> list[dict]:
-    return client.events_for_run(run_id=run_id)
+def events_for_run(project_key: str, client, run_id: str) -> list[dict]:
+    return client.events_for_run(project_key=project_key, run_id=run_id)
 ```
 
 ### 14.3.6 JSONL-Export bei Closure
@@ -293,7 +333,8 @@ Gate-Code).
 ### 14.4.1 Größenabhängige Prüfung
 
 Für `review_request`-Events wird die Erwartung basierend auf der
-Story-Größe aus `context.json` geprüft:
+Story-Größe aus `StoryContext` bzw. dessen `context.json`-Export
+geprüft:
 
 | Metrik | Minimum-Schwelle |
 |--------|-----------------|
@@ -370,13 +411,14 @@ State-Backend. Wird bei jedem WebSearch/WebFetch-Call inkrementiert.
 
 ### 14.7.1 Metriken-Katalog
 
-Am Ende einer Story (in der Closure-Phase) werden Metriken aus der
+Am Ende einer gültigen, nicht zurückgesetzten Story (in der
+Closure-Phase) werden Metriken aus der
 Telemetrie aggregiert:
 
 | Metrik | Berechnung | Quelle |
 |--------|-----------|--------|
 | `processing_time_min` | Differenz erstes `agent_start` bis Closure | Telemetrie-Timestamps |
-| `qa_rounds` | Anzahl verify→implementation-Übergänge | `phase-state.json` Attempt-Feld |
+| `qa_rounds` | Anzahl verify→implementation-Übergänge | `phase_state_projection.attempt_no` bzw. deren `phase-state.json`-Export |
 | `adversarial_findings` | `findings_count` aus `adversarial_end`-Event | Telemetrie |
 | `adversarial_tests_created` | Anzahl `adversarial_test_created`-Events | Telemetrie |
 | `files_changed` | `git diff --stat` Zeilenzahl | Git |
@@ -399,9 +441,9 @@ ermöglichen (FK-08-032):
 | `agentkit_commit` | Manifest (`agentkit_commit`) | Exakter Codestand |
 | `llm_roles` | Pipeline-Config | Welche LLMs in welchen Rollen |
 | `config_version` | Pipeline-Config | Konfigurationsstand |
-| `story_type` | `context.json` | Typvergleich |
-| `story_size` | `context.json` | Größenvergleich |
-| `mode` | `phase-state.json` | Execution vs. Exploration |
+| `story_type` | `StoryContext` bzw. dessen `context.json`-Export | Typvergleich |
+| `story_size` | `StoryContext` bzw. dessen `context.json`-Export | Größenvergleich |
+| `mode` | `phase_state_projection` bzw. deren `phase-state.json`-Export | Execution vs. Exploration |
 
 ### 14.7.3 Metriken-Persistenz
 
@@ -431,9 +473,9 @@ normalisieren sie auch zu kompakten Records für das Rolling Window.
 
 ```json
 {
-  "ts": "2026-03-17T10:15:23+01:00",
+  "occurred_at": "2026-03-17T10:15:23+01:00",
   "actor": "worker",
-  "story": "ODIN-042",
+  "story_id": "ODIN-042",
   "phase": "implementation",
   "tool_class": "bash",
   "target_path": "/src/main/java/...",
@@ -545,9 +587,9 @@ Die Trennung der Streams ist **logisch**, nicht **zeitlich**:
 ### 14.9.5 Beispiel-Events (Preflight-Stream)
 
 ```jsonl
-{"ts":"2026-03-17T09:55:00+01:00","story":"ODIN-042","run_id":"a1b2...","event":"preflight_request","pool":"chatgpt"}
-{"ts":"2026-03-17T09:56:30+01:00","story":"ODIN-042","run_id":"a1b2...","event":"preflight_response","pool":"chatgpt","request_count":1}
-{"ts":"2026-03-17T09:56:30+01:00","story":"ODIN-042","run_id":"a1b2...","event":"preflight_compliant","pool":"chatgpt","template_name":"review-preflight"}
+{"occurred_at":"2026-03-17T09:55:00+01:00","story_id":"ODIN-042","run_id":"a1b2...","event_type":"preflight_request","pool":"chatgpt"}
+{"occurred_at":"2026-03-17T09:56:30+01:00","story_id":"ODIN-042","run_id":"a1b2...","event_type":"preflight_response","pool":"chatgpt","request_count":1}
+{"occurred_at":"2026-03-17T09:56:30+01:00","story_id":"ODIN-042","run_id":"a1b2...","event_type":"preflight_compliant","pool":"chatgpt","template_name":"review-preflight"}
 ```
 
 ## 14.10 Telemetrie-Contract-Erweiterung
@@ -571,11 +613,11 @@ Statt Preflight in die Worker-Contract-Rules einzubauen, gilt
 eine eigene Validierungsregel:
 
 ```
-count_events(story_id, "preflight_request") >= 1
-UND count_events(story_id, "preflight_response")
-     == count_events(story_id, "preflight_request")
-UND count_events(story_id, "preflight_compliant")
-     == count_events(story_id, "preflight_request")
+count_events(project_key, story_id, "preflight_request") >= 1
+UND count_events(project_key, story_id, "preflight_response")
+     == count_events(project_key, story_id, "preflight_request")
+UND count_events(project_key, story_id, "preflight_compliant")
+     == count_events(project_key, story_id, "preflight_request")
 ```
 
 > **[Entscheidung 2026-04-08]** Element 12 — Telemetry Contract: Crash-Detection (Start/End-Paarung) ist essentiell. Event-Count-Vertrag auf Minimum-Schwellen ("mindestens 1 Review", "mindestens 1 Drift-Check"), keine exakten Zaehler pro Story-Groesse.

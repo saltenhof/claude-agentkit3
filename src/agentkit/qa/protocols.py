@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.story.models import StoryContext
+    from agentkit.story_context_manager.models import StoryContext
 
 
 class Severity(StrEnum):

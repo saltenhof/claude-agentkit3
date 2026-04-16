@@ -13,8 +13,8 @@ from unittest.mock import patch
 
 from agentkit.exceptions import WorktreeError
 from agentkit.pipeline.phases.setup.phase import SetupConfig, SetupPhaseHandler
-from agentkit.story.models import PhaseState, PhaseStatus, StoryContext
-from agentkit.story.types import StoryMode, StoryType
+from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
+from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path

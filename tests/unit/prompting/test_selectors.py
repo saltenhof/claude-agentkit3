@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from agentkit.prompting.selectors import select_template_name
-from agentkit.story.types import StoryMode, StoryType
+from agentkit.prompt_composer.selectors import select_template_name
+from agentkit.story_context_manager.types import StoryMode, StoryType
 
 
 class TestSelectTemplateName:

@@ -9,8 +9,8 @@ from agentkit.qa.evaluators.reviewer import SemanticReviewer
 if TYPE_CHECKING:
     from pathlib import Path
 from agentkit.qa.protocols import QALayer
-from agentkit.story.models import StoryContext
-from agentkit.story.types import StoryMode, StoryType
+from agentkit.story_context_manager.models import StoryContext
+from agentkit.story_context_manager.types import StoryMode, StoryType
 
 
 class TestSemanticReviewer:

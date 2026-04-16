@@ -31,9 +31,10 @@ späteren Kapiteln entstehen, werden hier nachgetragen.
 
 AgentKit verwendet vier Konfigurationsebenen. Höhere Ebenen
 überschreiben niedrigere. **Wichtig:** Ebene 3 (GitHub Custom Fields)
-wird ausschließlich einmalig während der Setup-Phase gelesen und in
-`context.json` serialisiert. Ab da liest die Pipeline nur noch den
-Snapshot, nie mehr GitHub. Die Hierarchie beschreibt die
+wird ausschließlich einmalig während der Setup-Phase gelesen und als
+`StoryContext` im State-Backend persistiert. Ein `context.json` ist nur
+ein materialisierter Export dieses Snapshots. Ab da liest die Pipeline
+nur noch den Snapshot, nie mehr GitHub. Die Hierarchie beschreibt die
 **Startup-Auflösung**, nicht ein Laufzeit-Merge.
 
 ```
@@ -45,7 +46,7 @@ Ebene 2: Projektkonfiguration     (.story-pipeline.yaml, bei Start geladen)
     ▼
 Ebene 1: AgentKit-Defaults        (im Python-Code, Pydantic-Defaults)
     ▼
-Ergebnis: context.json (autoritativer Snapshot, ab hier einzige Wahrheit)
+Ergebnis: StoryContext (autoritiver Snapshot, optional als `context.json` exportiert)
 ```
 
 ### Ebene 1: AgentKit-Defaults (im Code)
@@ -184,7 +185,8 @@ Pipeline-Verhalten für genau diese Story:
 
 **Modus-Ermittlung** (REF-032 + Remediation: 4-Trigger-Modell) liest die Felder
 `Story Type`, `Change Impact`, `New Structures` und `Concept Quality` sowie
-Konzeptpfade (`concept_paths`, aus dem Issue-Body geparst) über `context.json`.
+Konzeptpfade (`concept_paths`, aus dem Issue-Body geparst) über `StoryContext`
+bzw. dessen `context.json`-Export.
 `Maturity`, `External Integrations` und `Requires Exploration` wurden entfernt.
 
 ### Ebene 4: CLI-Argumente

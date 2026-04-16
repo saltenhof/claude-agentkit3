@@ -57,6 +57,8 @@ class StageDefinition:
     blocking: bool              # Blockiert bei FAIL
     trust_class: str | None     # "A", "B", "C" oder None
     producer: str               # Erlaubter Producer-Name
+    execution_policy: str       # DSL-Policy des Stage-Aufrufs
+    override_policy: str        # normativer Override-Rahmen fuer diese Stage
 ```
 
 ### 33.2.2 Standard-Stages
@@ -76,10 +78,20 @@ class StageDefinition:
 | `concept_feedback` | — | llm_evaluation | concept | Ja | `qa-concept-feedback` |
 | `research_quality` | — | deterministic | research | Nein | `qa-research-check` |
 
+**Policy-Defaults:**
+
+- deterministic Stages: standardmaessig `execution_policy = ALWAYS`
+- kosten- oder agentintensive Stages duerfen `UNTIL_SUCCESS` oder
+  `SKIP_AFTER_SUCCESS` verwenden, wenn dies explizit in der Registry
+  deklariert ist
+- `override_policy` ist pro Stage restriktiv zu waehlen; harte
+  Layer-1-Stages sind standardmaessig nicht skipbar
+
 ### 33.2.3 Einheitliche Namenskonvention: Stage-ID = Dateiname
 
-Die Stage-ID bestimmt den Dateinamen des Ergebnis-Artefakts.
-Keine Sonderbenennungen:
+Die Stage-ID bestimmt den Standardnamen eines materialisierten
+Ergebnis-Artefakts. Kanonisch referenziert die Pipeline die Artefakte
+ueber `artifact_records`; Dateipfade sind nur Export-/Arbeitskonvention:
 
 | Stage-ID | Artefakt-Datei |
 |----------|---------------|
@@ -91,11 +103,13 @@ Keine Sonderbenennungen:
 | `context_sufficiency` | `_temp/qa/{story_id}/context_sufficiency.json` |
 | `policy` | `_temp/qa/{story_id}/policy.json` |
 
-Die Policy-Engine lädt Artefakte über `_temp/qa/{story_id}/{stage.id}.json`
-— kein separates Mapping nötig.
+Die Policy-Engine lädt Artefakte fachlich ueber `ArtifactRecord`
+(`artifact_kind = stage.id`). Falls ein Dateiexport materialisiert
+wird, gilt `_temp/qa/{story_id}/{stage.id}.json` als Standardpfad —
+kein separates Mapping nötig.
 
-**Migration:** Die bisherigen Namen (`llm-review.json`,
-`semantic-review.json`, `decision.json`) werden auf die neuen
+**Migration:** Die bisherigen Namen (`qa_review.json`,
+`semantic_review.json`, `decision.json`) werden auf die neuen
 Stage-ID-basierten Namen umgestellt. Das betrifft auch die
 Producer-Registry und das Integrity-Gate.
 
@@ -126,6 +140,72 @@ def stages_for(self, story_type: str) -> list[StageDefinition]:
 
 Konzept- und Research-Stories durchlaufen nur ihre eigenen,
 leichtgewichtigen Stages — nicht die Verify-Pipeline.
+
+### 33.2.5 StageRegistry als Komponenten-Flow
+
+Die `StageRegistry` ist nicht nur eine statische Liste, sondern eine
+eigene Top-Level-Komponente mit einem komponentenseitigen
+`FlowDefinition`. Ihre Aufgabe ist nicht die Ausfuehrung von Checks,
+sondern die deterministische Materialisierung eines Stage-Plans fuer
+ein konkretes Gate.
+
+Typischer Registry-Flow:
+
+```text
+resolve_candidate_stages
+  -> filter_by_story_type
+  -> apply_project_overrides
+  -> materialize_stage_plan
+  -> handoff_to_gate_runner
+```
+
+**Verantwortungstrennung:**
+
+- `StageRegistry` liest Definitionen und baut daraus einen
+  `StageExecutionPlan`
+- `GateRunner` fuehrt die Stages gemaess Plan aus
+- `PolicyEngine` aggregiert die Resultate gemaess Gate-Vertrag
+
+Damit bleibt die Registry ein planender Owner der Verify-Struktur,
+ohne selbst Check-Code auszufuehren.
+
+### 33.2.6 StageExecutionPlan und GateRunner-Schnittstelle
+
+```python
+@dataclass(frozen=True)
+class StageInvocation:
+    stage_id: str
+    producer: str
+    layer: int
+    blocking: bool
+    execution_policy: str
+    override_policy: str
+
+
+@dataclass(frozen=True)
+class StageExecutionPlan:
+    gate_id: str
+    flow_id: str
+    invocations: tuple[StageInvocation, ...]
+
+
+class GateRunner(Protocol):
+    def run_gate(
+        self,
+        context: StepExecutionContext,
+        plan: StageExecutionPlan,
+    ) -> StepResult: ...
+```
+
+**Normative Regeln:**
+
+1. Die Reihenfolge der Verify-Stages kommt aus dem
+   `StageExecutionPlan`, nicht aus frei verdrahteten Python-`if`s.
+2. Stage-bezogene `ExecutionPolicy` und `OverridePolicy` werden von
+   der Engine vor der Invocation ausgewertet, nicht im Producer.
+3. Promotion aus dem `FailureCorpus` erweitert die `StageRegistry`;
+   sie umgeht nicht den Registry-Flow durch direkte Hardcodierung in
+   `VerifyPhase`.
 
 ## 33.3 Deterministische Checks (Schicht 1)
 
@@ -197,10 +277,10 @@ class StructuralCheck:
 
 | Check-ID | Was | Quelle | FK |
 |----------|-----|--------|-----|
-| `guard.llm_reviews` | Review-Anzahl nach Story-Größe eingehalten | SQLite: `COUNT(*) FROM events WHERE event_type='review_request'` | FK-05-119 bis FK-05-121 |
-| `guard.review_compliance` | Alle Reviews über freigegebene Templates | SQLite: `COUNT(review_compliant) >= COUNT(review_request)` | FK-06-087 |
-| `guard.no_violations` | Keine Guard-Verletzungen | SQLite: `COUNT(*) FROM events WHERE event_type='integrity_violation'` = 0 | FK-06-088 |
-| `guard.multi_llm` | Alle Pflicht-Reviewer aufgerufen | SQLite: pro konfigurierter `llm_roles`-Rolle mindestens 1 `llm_call`-Event | FK-06-091 |
+| `guard.llm_reviews` | Review-Anzahl nach Story-Größe eingehalten | `execution_events`: `COUNT(*) WHERE project_key=? AND story_id=? AND event_type='review_request'` | FK-05-119 bis FK-05-121 |
+| `guard.review_compliance` | Alle Reviews über freigegebene Templates | `execution_events`: `COUNT(review_compliant) >= COUNT(review_request)` im Scope `(project_key, story_id, run_id)` | FK-06-087 |
+| `guard.no_violations` | Keine Guard-Verletzungen | `execution_events`: `COUNT(*) WHERE project_key=? AND story_id=? AND event_type='integrity_violation'` = 0 | FK-06-088 |
+| `guard.multi_llm` | Alle Pflicht-Reviewer aufgerufen | `execution_events`: pro konfigurierter `llm_roles`-Rolle mindestens 1 `llm_call`-Event im Scope `(project_key, story_id, run_id)` | FK-06-091 |
 
 #### Bugfix-spezifisch
 

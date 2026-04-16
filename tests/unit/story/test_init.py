@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import agentkit.story as story_pkg
+import agentkit.story_context_manager as story_pkg
 
 
 class TestPackageExports:

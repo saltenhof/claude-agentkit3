@@ -15,8 +15,11 @@ defers_to:
     scope: configuration
     reason: Pipeline-Konfiguration ist in FK-03 definiert
   - target: FK-02
-    scope: sperrdatei-mechanismus
-    reason: Sperrdatei-Details sind im Domänenmodell definiert
+    scope: lock-mechanismus
+    reason: Lock- und Schutzdetails sind im Domänenmodell definiert
+  - target: FK-18
+    scope: relational-schema
+    reason: Die logische PostgreSQL-Abbildung des State-Backends ist in FK-18 definiert
 supersedes: []
 superseded_by:
 tags: [runtime, deployment, verzeichnisstruktur, persistenz, locking]
@@ -239,6 +242,10 @@ Orchestrator und Worker.
 | Story-Dokumentation | `stories/{story_id}_{slug}/` | Markdown + JSON | Permanent |
 | Projektregistrierung | State-Backend + lokale Config-Version | Record | Permanent |
 | VektorDB-Inhalte | Weaviate (Docker Volume) | Weaviate-intern | Permanent (reindexierbar) |
+
+**Hinweis:** Die logische Tabellenfamilien- und Schluesselstruktur des
+zentralen PostgreSQL-State-Backends steht in FK-18. FK-10 definiert nur
+Speicherorte, Laufzeitrollen und Datenfluesse.
 
 ### 10.4.2 Cleanup-Strategie
 

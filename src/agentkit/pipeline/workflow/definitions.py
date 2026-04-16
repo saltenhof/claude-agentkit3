@@ -20,11 +20,11 @@ from agentkit.pipeline.workflow.guards import (
     verify_completed,
     verify_needs_remediation,
 )
-from agentkit.story.types import StoryMode, StoryType
+from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from agentkit.pipeline.workflow.model import WorkflowDefinition
-    from agentkit.story.models import PhaseState, StoryContext
+    from agentkit.story_context_manager.models import PhaseState, StoryContext
 
 # ---------------------------------------------------------------------------
 # Local guard: inverse of mode_is_exploration

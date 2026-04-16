@@ -97,6 +97,10 @@ CREATE TABLE fact_story (
 );
 ```
 
+**Reset-Regel:** `fact_story` repraesentiert nur die aktuell gueltige
+Story-Umsetzung. Wird eine Story vollstaendig zurueckgesetzt, wird die
+zugehoerige `fact_story`-Zeile geloescht.
+
 ### 62.2.2 fact_guard_period
 
 Koernung: 1 Zeile pro Guard pro Woche.
@@ -250,6 +254,10 @@ Der Refresh-Worker liest diese Tabelle, uebertraegt die Werte
 in `analytics.fact_guard_period` und loescht die verarbeiteten
 Eintraege.
 
+Bei einem vollstaendigen Story-Reset werden die zugehoerigen
+Scratchpad-Beitraege ebenfalls entfernt; bereits aggregierte
+Perioden-Facts muessen danach neu berechnet werden.
+
 ### 62.2.7 sync_state
 
 ```sql
@@ -264,11 +272,31 @@ CREATE TABLE sync_state (
 ```
 
 Eintraege:
-- `last_event_id` (monotoner Cursor ueber `events.id`)
+- `last_event_id` (monotoner Cursor ueber `execution_events.event_id`)
 - `last_synced_at` (ISO 8601)
 
 Jeder Sync-Cursor ist projektbezogen. Es gibt keinen globalen
 Refresh-Zeiger ueber alle Projekte hinweg.
+
+**Grenze des Cursors:** `sync_state` reicht nicht aus, um einen
+vollstaendigen Story-Reset abzubilden, weil die Quell-Events des
+korrupten Runs geloescht werden. Reset-Purges muessen daher aktiv in
+die Analytics-Bereinigung eingreifen.
+
+### 62.2.8 Reset-Semantik fuer Analytics-Facts
+
+Ein vollstaendiger Story-Reset invalidiert die korrupten
+Analytics-Ableitungen aktiv. Es gilt:
+
+- `fact_story`-Zeilen der betroffenen Story werden geloescht
+- run-gebundene Read Models aus FK-16 werden geloescht
+- periodische Facts (`fact_guard_period`, `fact_pool_period`,
+  `fact_pipeline_period`, `fact_corpus_period`) werden fuer die
+  betroffenen Perioden neu berechnet oder gezielt korrigiert
+
+**Harte Regel:** Analytics arbeitet nicht mit "ungueltig, aber noch
+vorhanden". Vollstaendig zurueckgesetzte Runs muessen aus den
+Fact-Tabellen verschwinden.
 
 ---
 
@@ -279,17 +307,22 @@ Refresh-Zeiger ueber alle Projekte hinweg.
 Kein Daemon, kein Cron. Zwei event-getriebene Trigger:
 
 1. **Story-Closure** (primaer): `sync_analytics(trigger='closure',
-   hint_story_id='BB2-056')` wird am Ende der Closure-Phase
-   aufgerufen, nach MetricsCollector und JSONL-Export.
+   project_key='brainbox', hint_story_id='BB2-056')` wird am Ende der
+   Closure-Phase aufgerufen, nach MetricsCollector und Abschluss der
+   kanonischen Runtime-Persistenz. Optionale JSONL-Exports sind davon getrennt.
 2. **Dashboard-Start** (Catch-up): `sync_analytics(trigger='dashboard')`
    wird beim Start von `agentkit dashboard` aufgerufen. Bei Lock
    auf dem Analytics-Schema wird mit vorhandenem Stand gestartet.
+3. **Story-Reset** (Purge/Rebuild): Ein vollstaendiger Story-Reset
+   startet einen Analytics-Cleanup fuer die betroffene Story und die
+   beruehrten Perioden.
 
-### 62.3.2 Ablauf
+### 62.3.2 Ablauf fuer Closure/Dashboard-Sync
 
 ```python
 def sync_analytics(
     trigger: str,
+    project_key: str,
     hint_story_id: str | None = None,
     client,
 ) -> SyncResult:
@@ -301,7 +334,7 @@ def sync_analytics(
     analytics_tx = client.open_analytics_transaction()
 
     # 2. Cursor lesen
-    last_event_id = _read_sync_cursor(analytics_tx)
+    last_event_id = _read_sync_cursor(analytics_tx, project_key)
 
     # 3. Watermark bestimmen (konsistenter Snapshot)
     watermark = _get_watermark(runtime_snapshot)
@@ -309,10 +342,10 @@ def sync_analytics(
         return SyncResult(status="up_to_date")
 
     # 4. Delta-Events lesen
-    delta_events = _read_delta(runtime_snapshot, last_event_id, watermark)
+    delta_events = _read_delta(runtime_snapshot, project_key, last_event_id, watermark)
 
     # 5. Dirty Sets ableiten
-    dirty = _derive_dirty_sets(delta_events, hint_story_id)
+    dirty = _derive_dirty_sets(project_key, delta_events, hint_story_id)
 
     # 6. Fuer jedes Dirty Set: Slices komplett neu berechnen
     new_facts = _recompute_all(runtime_snapshot, dirty)
@@ -324,7 +357,7 @@ def sync_analytics(
         _replace_fact_pool_period(analytics_tx, new_facts.pools)
         _replace_fact_pipeline_period(analytics_tx, new_facts.pipeline)
         _replace_fact_corpus_period(analytics_tx, new_facts.corpus)
-        _update_sync_cursor(analytics_tx, watermark)
+        _update_sync_cursor(analytics_tx, project_key, watermark)
         analytics_tx.commit()
     except Exception:
         analytics_tx.rollback()
@@ -337,15 +370,44 @@ def sync_analytics(
     )
 ```
 
-### 62.3.3 Dirty Sets
+### 62.3.3 Ablauf fuer vollstaendigen Story-Reset
+
+```python
+def purge_story_analytics(
+    project_key: str,
+    story_id: str,
+    affected_periods,
+    client,
+) -> None:
+    """Entfernt alle Analytics-Ableitungen der korrupten Umsetzung
+    und baut betroffene Perioden-Facts aus verbleibenden gueltigen
+    Quellen neu auf."""
+
+    runtime_snapshot = client.open_runtime_snapshot()
+    analytics_tx = client.open_analytics_transaction()
+
+    try:
+        _delete_fact_story(analytics_tx, project_key, story_id)
+        _delete_fk16_rows_for_story_reset(analytics_tx, project_key, story_id)
+        _replace_fact_guard_period(analytics_tx, _recompute_guard_periods(runtime_snapshot, affected_periods.guards))
+        _replace_fact_pool_period(analytics_tx, _recompute_pool_periods(runtime_snapshot, affected_periods.pools))
+        _replace_fact_pipeline_period(analytics_tx, _recompute_pipeline_periods(runtime_snapshot, affected_periods.pipeline))
+        _replace_fact_corpus_period(analytics_tx, _recompute_corpus_periods(runtime_snapshot, affected_periods.corpus))
+        analytics_tx.commit()
+    except Exception:
+        analytics_tx.rollback()
+        raise
+```
+
+### 62.3.4 Dirty Sets
 
 Dirty Sets werden aus zwei Quellen abgeleitet: Delta-Events im
 Runtime-Schema UND dem Closure-Hint (hint_story_id). Nicht alle KPIs
-basieren auf Events — einige lesen aus Raw-Tabellen
-(`qa_findings`, `fc_incidents`) oder Pipeline-Artefakten
-(`context.json`, `phase-state.json`). Diese Nicht-Event-Quellen
-werden nur bei Story-Closure konsistent, deshalb ist Closure der
-primaere Sync-Trigger.
+basieren rein auf Events — einige lesen aus kanonischen
+`artifact_records`, `story_contexts`, `phase_state_projection` oder aus
+rebuildbaren Analytics-Hilfsmodellen. Diese Nicht-Event-Quellen werden
+nur bei Story-Closure konsistent, deshalb ist Closure der primaere
+Sync-Trigger.
 
 | Dirty Set | Abgeleitet aus | Typ | Hinweis |
 |-----------|---------------|-----|---------|
@@ -355,15 +417,15 @@ primaere Sync-Trigger.
 | `dirty_pipeline_weeks` | `(project_key, week_start(ts))` aus allen Delta-Events + `week_start(closed_at)` der hint_story | `set[tuple[str, str]]` | Schliesst die Woche der gerade geschlossenen Story ein |
 | `dirty_corpus_months` | Immer `(project_key, current_month)` bei jedem Sync | `set[tuple[str, str]]` | FC-Tabellen (`fc_incidents`, `fc_patterns`) haben keinen Event-Cursor — Corpus-Perioden werden bei jedem Sync fuer den aktuellen Monat komplett neu berechnet |
 
-**Begruendung fuer den Corpus-Sonderfall**: `fc_incidents` und
-`fc_patterns` werden nicht ueber die `events`-Tabelle getrackt.
-Sie sind eigenstaendige Tabellen im Runtime-Schema, die durch den
-Failure-Corpus-Lifecycle (FK-41) befuellt werden. Da das Volumen
+**Begruendung fuer den Corpus-Sonderfall**: Failure-Corpus-Daten
+werden nicht ueber `execution_events` getrackt. Sie kommen aus dem
+Failure-Corpus-Lifecycle (FK-41) und werden fuer Analytics als eigener
+rebuildbarer Slice verarbeitet. Da das Volumen
 gering ist (Ziel: <20 Incidents/Monat) und die Koernung monatlich
 ist, ist ein Full-Recompute des aktuellen Monats bei jedem
 Sync-Lauf vertretbar.
 
-### 62.3.4 Slice-Neuberechnung
+### 62.3.5 Slice-Neuberechnung
 
 Pro Dirty Set wird der betroffene Slice **komplett aus dem Runtime-Schema
 neu berechnet**, nicht inkrementell hochgezaehlt.
@@ -371,8 +433,8 @@ neu berechnet**, nicht inkrementell hochgezaehlt.
 Beispiel `fact_story` fuer eine dirty Story:
 ```python
 def _compute_fact_story(runtime_snapshot, project_key: str, story_id: str) -> FactStoryRow:
-    # Liest story_metrics, qa_findings, context.json,
-    # phase-state.json, events fuer diese Story
+    # Liest story_metrics, artifact_records, story_contexts,
+    # phase_state_projection und execution_events fuer diese Story
     # Berechnet alle Spalten frisch
     # Berechnet adversarial_hit_rate als Division
     # Kein Carry-Over von vorherigen Werten
@@ -393,7 +455,7 @@ def _compute_fact_pool_period(
     ...
 ```
 
-### 62.3.5 Perzentil-Berechnung
+### 62.3.6 Perzentil-Berechnung
 
 ```python
 def _percentile(values: list[float], p: int) -> float | None:
@@ -413,7 +475,7 @@ Keine numpy/scipy-Abhaengigkeit. Fuer unser Volumen
 (10-100 Werte pro Slice) ist die lineare Interpolation
 ausreichend.
 
-### 62.3.6 Crash-Sicherheit
+### 62.3.7 Crash-Sicherheit
 
 - Read-Snapshot auf dem Runtime-Schema fuer den gesamten Sync-Lauf
 - Write-Transaktion auf dem Analytics-Schema vor allen Writes
@@ -447,7 +509,7 @@ materialisiert auch nicht-geschlossene Stories:
 2. Fuer diese Stories: `fact_story` mit den verfuegbaren Daten
    befuellen (Laufzeit bis jetzt, QA-Runden bis jetzt, etc.)
 3. `final_status` = `'RUNNING'`, `'ESCALATED'` oder `'PAUSED'`
-   (abgeleitet aus `phase-state.json`)
+   (abgeleitet aus `phase_state_projection`)
 4. Bei spaeterer Closure wird der Eintrag per UPSERT aktualisiert
 
 **Konsequenz fuer Trend-KPIs**: Perioden-Aggregationen in

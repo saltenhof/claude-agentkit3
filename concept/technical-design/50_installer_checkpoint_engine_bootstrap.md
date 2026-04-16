@@ -65,6 +65,52 @@ flowchart TD
     CP12["CP 12: Verifikation<br/>(read-only)"]
 ```
 
+### 50.3.1 Checkpoint-Engine als Komponenten-Flow
+
+Die Checkpoint-Engine des `Installer` wird ebenfalls ueber die
+Einheits-DSL modelliert. Jeder Checkpoint ist ein expliziter
+`step`-Knoten innerhalb eines
+`FlowDefinition(level="component", owner="Installer")`.
+
+**Wichtige Konsequenz:**
+
+- Reihenfolge und optionale Aeste der Registrierung gehoeren in den
+  Flow-Vertrag
+- die Idempotenz einzelner Checkpoints bleibt Aufgabe ihrer Handler
+- Profil- und Feature-Entscheidungen (`core` vs. `are`,
+  `vectordb` an/aus) werden ueber `branch`-Knoten modelliert, nicht
+  ueber verstreute Imperativlogik
+
+Minimaler Installer-Flow:
+
+```text
+cp_01_package_check
+  -> cp_02_repo_check
+  -> cp_03_project_lookup
+  -> cp_04_custom_fields
+  -> cp_05_pipeline_config
+  -> cp_06_profile_resolution
+  -> cp_07_backend_registration
+  -> cp_08_skill_bindings
+  -> cp_09_hook_registration
+  -> branch_vectordb_enabled
+  -> cp_10_mcp_registration?
+  -> branch_are_enabled
+  -> cp_10c_are_scope_validation?
+  -> cp_11_git_hooks_and_claude
+  -> cp_12_verify_registration
+```
+
+Die Frage "Checkpoint laeuft erneut oder nicht?" wird damit sauber
+geteilt:
+
+- Kontrollfluss: durch die DSL
+- Konvergenz/Idempotenz: durch den Checkpoint-Handler
+
+Ein Checkpoint darf also im Flow erneut besucht werden, muss aber
+handlerseitig denselben Zielzustand ohne Seiteneffekt-Explosion
+herstellen.
+
 ### CP 1: Python-Paket
 
 Prüft ob `agentkit` als Python-Paket verfügbar ist:

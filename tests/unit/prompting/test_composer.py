@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agentkit.prompting.composer import (
+from agentkit.prompt_composer.composer import (
     ComposeConfig,
     ComposedPrompt,
     compose_prompt,
     write_prompt,
 )
-from agentkit.story.models import StoryContext
-from agentkit.story.types import StoryMode, StoryType
+from agentkit.story_context_manager.models import StoryContext
+from agentkit.story_context_manager.types import StoryMode, StoryType
 
 
 def _make_context(

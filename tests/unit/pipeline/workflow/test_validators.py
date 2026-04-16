@@ -18,12 +18,12 @@ class TestWorkflowValidatorValid:
     def test_valid_minimal_workflow_no_errors(self) -> None:
         """A valid 2-phase workflow produces no validation errors."""
         wf = WorkflowDefinition(
-            name="valid",
-            phases=(
+            flow_id="valid",
+            nodes=(
                 PhaseDefinition(name="start"),
                 PhaseDefinition(name="end"),
             ),
-            transitions=(
+            edges=(
                 TransitionRule(source="start", target="end"),
             ),
             hooks=HookPoints(),
@@ -35,13 +35,13 @@ class TestWorkflowValidatorValid:
     def test_valid_three_phase_chain(self) -> None:
         """A valid 3-phase chain produces no validation errors."""
         wf = WorkflowDefinition(
-            name="chain",
-            phases=(
+            flow_id="chain",
+            nodes=(
                 PhaseDefinition(name="a"),
                 PhaseDefinition(name="b"),
                 PhaseDefinition(name="c"),
             ),
-            transitions=(
+            edges=(
                 TransitionRule(source="a", target="b"),
                 TransitionRule(source="b", target="c"),
             ),
@@ -54,8 +54,8 @@ class TestWorkflowValidatorValid:
     def test_valid_workflow_with_yield_points(self) -> None:
         """A workflow with properly configured yield points passes."""
         wf = WorkflowDefinition(
-            name="yield_ok",
-            phases=(
+            flow_id="yield_ok",
+            nodes=(
                 PhaseDefinition(
                     name="start",
                     yield_points=(
@@ -67,7 +67,7 @@ class TestWorkflowValidatorValid:
                 ),
                 PhaseDefinition(name="end"),
             ),
-            transitions=(
+            edges=(
                 TransitionRule(source="start", target="end"),
             ),
             hooks=HookPoints(),
@@ -83,13 +83,13 @@ class TestWorkflowValidatorErrors:
     def test_unreachable_phase_produces_error(self) -> None:
         """A phase not reachable from the first phase triggers an error."""
         wf = WorkflowDefinition(
-            name="unreachable",
-            phases=(
+            flow_id="unreachable",
+            nodes=(
                 PhaseDefinition(name="start"),
                 PhaseDefinition(name="island"),
                 PhaseDefinition(name="end"),
             ),
-            transitions=(
+            edges=(
                 TransitionRule(source="start", target="end"),
             ),
             hooks=HookPoints(),
@@ -102,12 +102,12 @@ class TestWorkflowValidatorErrors:
     def test_transition_to_unknown_phase_produces_error(self) -> None:
         """A transition referencing a non-existent phase triggers an error."""
         wf = WorkflowDefinition(
-            name="bad_target",
-            phases=(
+            flow_id="bad_target",
+            nodes=(
                 PhaseDefinition(name="start"),
                 PhaseDefinition(name="end"),
             ),
-            transitions=(
+            edges=(
                 TransitionRule(source="start", target="ghost"),
             ),
             hooks=HookPoints(),
@@ -120,12 +120,12 @@ class TestWorkflowValidatorErrors:
     def test_transition_from_unknown_phase_produces_error(self) -> None:
         """A transition with unknown source triggers an error."""
         wf = WorkflowDefinition(
-            name="bad_source",
-            phases=(
+            flow_id="bad_source",
+            nodes=(
                 PhaseDefinition(name="start"),
                 PhaseDefinition(name="end"),
             ),
-            transitions=(
+            edges=(
                 TransitionRule(source="phantom", target="end"),
             ),
             hooks=HookPoints(),
@@ -138,8 +138,8 @@ class TestWorkflowValidatorErrors:
     def test_yield_point_without_resume_triggers_produces_error(self) -> None:
         """A YieldPoint with no resume_triggers triggers a validation error."""
         wf = WorkflowDefinition(
-            name="bad_yield",
-            phases=(
+            flow_id="bad_yield",
+            nodes=(
                 PhaseDefinition(
                     name="start",
                     yield_points=(
@@ -148,7 +148,7 @@ class TestWorkflowValidatorErrors:
                 ),
                 PhaseDefinition(name="end"),
             ),
-            transitions=(
+            edges=(
                 TransitionRule(source="start", target="end"),
             ),
             hooks=HookPoints(),
@@ -161,13 +161,13 @@ class TestWorkflowValidatorErrors:
     def test_no_transition_to_last_phase_produces_error(self) -> None:
         """No transition to the last phase triggers a validation error."""
         wf = WorkflowDefinition(
-            name="no_end",
-            phases=(
+            flow_id="no_end",
+            nodes=(
                 PhaseDefinition(name="start"),
                 PhaseDefinition(name="middle"),
                 PhaseDefinition(name="end"),
             ),
-            transitions=(
+            edges=(
                 TransitionRule(source="start", target="middle"),
                 # Missing: middle -> end
             ),
@@ -181,13 +181,13 @@ class TestWorkflowValidatorErrors:
     def test_disconnected_middle_phase_produces_error(self) -> None:
         """A middle phase with no transitions produces an error."""
         wf = WorkflowDefinition(
-            name="disconnected",
-            phases=(
+            flow_id="disconnected",
+            nodes=(
                 PhaseDefinition(name="start"),
                 PhaseDefinition(name="orphan"),
                 PhaseDefinition(name="end"),
             ),
-            transitions=(
+            edges=(
                 TransitionRule(source="start", target="end"),
             ),
             hooks=HookPoints(),
@@ -205,7 +205,7 @@ class TestWorkflowValidatorErrors:
 
     def test_empty_workflow_produces_error(self) -> None:
         """A workflow with no phases produces a validation error."""
-        wf = WorkflowDefinition(name="empty")
+        wf = WorkflowDefinition(flow_id="empty")
 
         errors = WorkflowValidator.validate(wf)
         assert len(errors) > 0

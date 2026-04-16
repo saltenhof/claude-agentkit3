@@ -13,8 +13,8 @@ from agentkit.pipeline.workflow.model import (
     TransitionRule,
     WorkflowDefinition,
 )
-from agentkit.story.models import PhaseState, PhaseStatus, StoryContext
-from agentkit.story.types import StoryMode, StoryType
+from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
+from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if False:  # TYPE_CHECKING — avoid import for type checkers only
     pass
@@ -94,12 +94,12 @@ def _always_fail(ctx: StoryContext, state: PhaseState) -> GuardResult:
 def minimal_workflow() -> WorkflowDefinition:
     """A minimal two-phase workflow for structural tests."""
     return WorkflowDefinition(
-        name="minimal",
-        phases=(
+        flow_id="minimal",
+        nodes=(
             PhaseDefinition(name="start"),
             PhaseDefinition(name="end"),
         ),
-        transitions=(
+        edges=(
             TransitionRule(source="start", target="end"),
         ),
         hooks=HookPoints(),
@@ -112,8 +112,8 @@ def three_phase_workflow() -> WorkflowDefinition:
     gate_stage = GateStage(name="check", actor="system")
     gate = Gate(id="test_gate", stages=(gate_stage,))
     return WorkflowDefinition(
-        name="three_phase",
-        phases=(
+        flow_id="three_phase",
+        nodes=(
             PhaseDefinition(name="alpha"),
             PhaseDefinition(
                 name="beta",
@@ -127,7 +127,7 @@ def three_phase_workflow() -> WorkflowDefinition:
                 ),
             ),
         ),
-        transitions=(
+        edges=(
             TransitionRule(source="alpha", target="beta", guard=_always_pass),
             TransitionRule(source="beta", target="gamma"),
         ),

@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from agentkit.config.loader import load_project_config
-from agentkit.project_ops.install import InstallConfig, install_agentkit
+from agentkit.installer import InstallConfig, install_agentkit
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -149,7 +149,7 @@ class TestInstallScaffoldContract:
         This test ensures the installer deploys from the single source
         of truth (resources/target_project/) and not from hardcoded paths.
         """
-        from agentkit.project_ops.install.runner import (
+        from agentkit.installer.runner import (
             _resources_target_project_dir,
         )
 

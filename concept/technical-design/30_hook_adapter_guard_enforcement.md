@@ -67,7 +67,7 @@ sequenceDiagram
     A->>CC: Tool-Aufruf (z.B. Bash "git push")
     CC->>PRE: Fork Python-Prozess, stdin: {tool_name, tool_input}
     PRE->>PRE: Regeln prüfen (Guard-Logik)
-    PRE->>PRE: Optional: Telemetrie-Event schreiben (SQLite INSERT)
+    PRE->>PRE: Optional: Telemetrie-Event schreiben (`execution_events`)
 
     alt exit(0) — erlaubt
         PRE-->>CC: exit 0
@@ -121,6 +121,51 @@ Claude Code sendet dem Hook-Prozess ein JSON-Objekt über stdin:
 **Fail-closed:** Ein crashender Hook (exit 1, Timeout, Exception)
 blockiert das Tool. Das ist Absicht — ein kaputtes Sicherheits-
 system soll nicht durchlassen.
+
+### 30.2.5 GuardSystem als Komponenten-Flow
+
+Das `GuardSystem` ist nicht nur eine Sammlung lose nebeneinander
+stehender Hook-Skripte. Fachlich bildet jeder Guard-Hook einen kleinen
+Komponenten-Flow derselben Prozess-DSL aus FK-20.
+
+Typischer Guard-Flow:
+
+```text
+decode_hook_event
+  -> resolve_guard_scope
+  -> evaluate_guard_rules
+  -> emit_violation_event?
+  -> return_hook_decision
+```
+
+**Normative Zuordnung zur Einheits-DSL:**
+
+- der Hook-Aufruf ist ein `FlowDefinition(level="component")` des
+  `GuardSystem`
+- `decode_hook_event`, `resolve_guard_scope`, `evaluate_guard_rules`,
+  `emit_violation_event` und `return_hook_decision` sind
+  `step`-Knoten
+- Allow/Block-Entscheidungen werden ueber `branch`-Knoten oder
+  Guard-gesteuerte Kanten modelliert, nicht ueber versteckte
+  Python-Nebenlogik
+
+**Override-Regel:** Harte Guards sind grundsaetzlich nicht ueber die
+generischen Laufzeit-Overrides aushebelbar. Ihre `OverridePolicy` ist
+normativ restriktiv:
+
+- kein `skip_node`
+- kein `force_pass`
+- kein `jump_to`
+
+Abweichungen duerfen nur ueber bewusste Konfigurations- oder
+Administrationsaenderungen ausserhalb des Story-Runs erfolgen. Die
+generische Override-Mechanik der DSL ist fuer Prozesssteuerung
+gedacht, nicht fuer Sicherheitsumgehung.
+
+**Abgrenzung zum Story-Reset:** Der `StoryResetService` ist keine
+Override-Variante des `GuardSystem`, sondern eine separate
+administrative Recovery-Operation. Guards duerfen den Reset nicht in
+einen normalen Story-Override umdeuten.
 
 ## 30.3 Hook-Registrierung
 
@@ -218,6 +263,26 @@ Hooks werden in `.claude/settings.json` registriert. Der Installer
 | `"*_send"` | Alle MCP-Pool-Send-Tools (`chatgpt_send`, `gemini_send`, etc.) |
 | `"WebSearch\|WebFetch"` | Web-Tools |
 
+### 30.3.3 Guard-Verhalten beim Story-Reset
+
+Ein vollstaendiger Story-Reset ist ein **menschlich initiierter
+CLI-Administrationsbefehl**. Das `GuardSystem` behandelt ihn deshalb
+anders als freie Git- oder Dateisystem-Eingriffe waehrend eines
+normalen Story-Runs.
+
+**Normative Regeln:**
+
+1. Der Story-Reset darf nur ueber offizielle AgentKit-CLI-Kommandos
+   ausgeloest werden, nicht ueber freie `git`, `rm`, `del` oder
+   Dateibearbeitungsbefehle.
+2. Guards blockieren weiterhin manuelle Umgehungen, lassen aber den
+   offiziellen `StoryResetService`-Pfad zu.
+3. Der Hook-Kontext fuer `agentkit reset-story ...` oder aequivalente
+   offizielle Reset-Kommandos gilt als administrativer Kontrollpfad,
+   nicht als freier Agent-Eingriff.
+4. Ein Agent darf diesen Pfad nicht selbststaendig waehlen; zulaessig
+   ist nur die ausdrueckliche menschliche CLI-Ausfuehrung.
+
 ### 30.3.3 Hook-Reihenfolge
 
 Mehrere Hooks für denselben Matcher werden **sequentiell**
@@ -250,8 +315,8 @@ Story-Umsetzung ausgeführt. Deshalb gilt:
 **Erlaubte Operationen** (billig, lokal, deterministisch):
 
 - stdin lesen + JSON parsen
-- Dateisystem-Read (Lock-Datei, Config, `.agent-guard/context.json`)
-- SQLite INSERT/SELECT (Telemetrie-DB)
+- Dateisystem-Read (Lock-Export, Config, `.agent-guard/lock.json`)
+- Write/Read auf `execution_events` und zentrale Lock-/State-Records
 - Regex-Match auf Tool-Parameter
 - Einfache Pfad-Vergleiche
 
@@ -380,18 +445,18 @@ selbst (Kap. 15.7):
 | `.story-pipeline.yaml` | Sofortiger Stopp |
 | `.installed-manifest.json` | Sofortiger Stopp |
 | `_temp/governance/locks/` | Sofortiger Stopp |
-| `_temp/governance/active/` | Sofortiger Stopp |
+| Aktive Lock-Records / deren Exporte | Sofortiger Stopp |
 
 Dieser Hook ist **immer aktiv** — unabhängig vom Betriebsmodus
 (AI-Augmented oder Story-Execution). Ein Agent darf nie
 Governance-Dateien manipulieren.
 
-## 30.6 Sperrdatei-Integration
+## 30.6 Lock-Record-Integration
 
 ### 30.6.1 Zustandsabhängige Guards
 
 Die meisten Guards sind nur aktiv, wenn eine Story-Execution
-läuft (Sperrdatei vorhanden, Kap. 02.7, 12.4.1). Der
+läuft (Lock-Record vorhanden, Kap. 02.7, 12.4.1). Der
 Hook prüft bei jedem Aufruf:
 
 ```python
@@ -461,7 +526,7 @@ INTEGRITY_MESSAGE = (
 ### 30.7.3 Audit-Details
 
 Die Details der Blockade werden nicht an den Agent gegeben,
-sondern in die SQLite-Telemetrie-DB geschrieben als
+sondern in `execution_events` geschrieben als
 `integrity_violation`-Event:
 
 ```python
@@ -495,8 +560,8 @@ Jeder Guard hat Unit-Tests, die prüfen:
 | Erlaubte Operationen werden durchgelassen | exit(0) für alle nicht-blockierten Aktionen |
 | Blockierte Operationen werden blockiert | exit(2) für alle definierten Blockade-Regeln |
 | Opake Meldung | Stderr enthält nur `"Operation not permitted."`, keine Details |
-| Kein Story-Execution → durchwinken | Guard ist inaktiv ohne Sperrdatei |
-| Immer-aktive Regeln | Force-Push etc. auch ohne Sperrdatei blockiert |
+| Kein Story-Execution → durchwinken | Guard ist inaktiv ohne Lock-Record |
+| Immer-aktive Regeln | Force-Push etc. auch ohne Lock-Record blockiert |
 | Edge Cases | Regex-Varianten, Whitespace, Quoting, Pfad-Varianten |
 
 ### 30.8.2 Integration in CI
@@ -633,7 +698,7 @@ def compute_health_score(state: AgentHealthState) -> int:
 ```
 
 **Persistenz:** Der Hook schreibt den aktualisierten Score und
-alle Komponenten nach `_temp/qa/<STORY-ID>/agent-health.json`:
+alle Komponenten zentral im State-Backend; `agent-health.json` ist nur ein Export:
 
 ```json
 {
@@ -953,7 +1018,7 @@ und Telemetrie-Hooks:
 | Bestehender Hook | Beziehung zum Health-Monitor |
 |------------------|------------------------------|
 | Guard-Hooks (branch, orchestrator, integrity, etc.) | Laufen vor dem Health-Monitor (§30.3.3). Wenn ein Guard blockiert, erreicht der Call den Health-Monitor nicht. Der PostToolUse-Hook des Health-Monitors sieht aber das Ergebnis des fehlgeschlagenen Tool-Calls und kann Hook-Failures klassifizieren. |
-| `telemetry.hook` | Emittiert Events in die SQLite-DB. Der Health-Monitor nutzt eine eigene Persistenz (`agent-health.json`), nicht die Telemetrie-DB. Beide sind unabhängig. |
+| `telemetry.hook` | Emittiert Events in `execution_events`. Der Health-Monitor nutzt eigene State-Backend-Persistenz; `agent-health.json` ist nur Export. |
 | `budget` (Web-Call-Budget) | Referenz-Implementation für Hook-basierte Budgets. Der Health-Monitor folgt demselben Muster (PostToolUse zählt, PreToolUse erzwingt), arbeitet aber mit einem gewichteten Score statt einem einfachen Zähler. |
 | `review_guard` | Keine Interaktion. Der Review-Guard prüft Pool-Send-Compliance, der Health-Monitor prüft Worker-Gesundheit. |
 

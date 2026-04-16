@@ -13,7 +13,7 @@ defers_to:
     reason: All guards are implemented as hooks registered via FK-30 hook architecture
   - target: FK-02
     scope: operating-modes
-    reason: Guard activation depends on lock files and operating modes defined in FK-02
+    reason: Guard activation depends on lock records and operating modes defined in FK-02
 supersedes: []
 superseded_by:
 tags: [branch-guard, orchestrator-guard, artifact-protection, qa-guard, adversarial-guard]
@@ -33,8 +33,8 @@ die die Historie beschädigen oder den zugewiesenen Scope verlassen.
 
 | Betriebsmodus | Status | Begründung |
 |--------------|--------|-----------|
-| AI-Augmented (keine Sperrdatei) | **Teilweise aktiv** — nur immer-aktive Regeln | Mensch arbeitet interaktiv, Commits auf Main erlaubt |
-| Story-Execution (Sperrdatei vorhanden) | **Voll aktiv** — alle Regeln | Isolation auf Story-Branch erzwungen |
+| AI-Augmented (kein aktiver Lock-Record) | **Teilweise aktiv** — nur immer-aktive Regeln | Mensch arbeitet interaktiv, Commits auf Main erlaubt |
+| Story-Execution (Lock-Record vorhanden) | **Voll aktiv** — alle Regeln | Isolation auf Story-Branch erzwungen |
 
 ### 31.1.3 Regelsatz
 
@@ -46,7 +46,7 @@ die die Historie beschädigen oder den zugewiesenen Scope verlassen.
 | Hard-Reset | `\bgit\s+reset\s+--hard\b` | Blockiert | FK-06-015 |
 | Force Branch-Delete | `\bgit\s+branch\b.*(?:-D\b\|--delete\s+--force\|--force\s+--delete)` | Blockiert | FK-06-016 |
 
-**Story-Execution-Regeln** (nur bei aktiver Sperrdatei):
+**Story-Execution-Regeln** (nur bei aktivem Lock-Record):
 
 | Aktion | Regex | Reaktion | FK |
 |--------|-------|---------|-----|
@@ -60,7 +60,20 @@ die die Historie beschädigen oder den zugewiesenen Scope verlassen.
 |--------|---------|-----------|
 | Commit auf Story-Branch | `git commit -m "..."` | Normale Arbeit |
 | Push auf Story-Branch | `git push -u origin story/ODIN-042` | Normale Arbeit |
+| Offizieller Closure-Push auf Story-Branch | `agentkit run-phase closure ...` → interner `git push origin story/{story_id}` | Vorgeschriebener Closure-Substep vor dem Merge |
+| Offizieller Closure-Merge mit `--no-ff` | `agentkit run-phase closure --story ODIN-042 --no-ff` | Offizieller Pipeline-Fallback, kein Guard-Bypass |
+| Offizieller Story-Reset | `agentkit reset-story --story ODIN-042 --reason "..."` | Administrativer Recovery-Pfad, kein freier Git-Eingriff |
 | `git checkout -- datei` (File-Restore) | `git checkout -- src/main.py` | Datei wiederherstellen, kein Branch-Wechsel |
+
+**Normative Klarstellung:** Der Branch-Guard unterscheidet zwischen
+freien Git-Eingriffen und offiziellen Pipeline-Pfaden. Er blockiert
+nicht den von AgentKit selbst ausgelösten Closure-Push und den
+offiziellen `--no-ff`-Closure-Pfad, blockiert aber weiterhin manuelle
+Rebases, Force-Pushes und sonstige Guard-Umgehungen.
+
+Ein offizieller `StoryResetService`-Aufruf ist ebenfalls erlaubt,
+weil er als administrativer AgentKit-Kontrollpfad und nicht als freier
+Git-Befehl gilt.
 
 ### 31.1.4 Push-Remote-Erkennung
 
@@ -69,18 +82,23 @@ Der Regex für Push auf Main matcht alle Remote-Namen (nicht nur
 
 ### 31.1.5 Erkennung des aktiven Worktrees
 
-Der Branch-Guard prüft ob er in einem managed Worktree läuft
-über `.agent-guard/context.json` (Kap. 12.5.1):
+Der Branch-Guard prüft den aktiven Story-Execution-Kontext
+kanonisch über den Lock-Record im State-Backend. Ein optionaler
+`.agent-guard/lock.json`-Export im Worktree dient nur als
+lokale Materialisierung (Kap. 12.5.1):
 
 ```python
-def is_in_managed_worktree() -> bool:
-    ctx = Path(".agent-guard/context.json")
-    return ctx.exists()
+def has_active_story_lock(project_key: str, story_id: str) -> bool:
+    return state_backend.has_active_lock_record(
+        project_key=project_key,
+        story_id=story_id,
+        lock_type="story_execution",
+    )
 
 def get_story_branch() -> str | None:
-    ctx = Path(".agent-guard/context.json")
-    if ctx.exists():
-        data = json.loads(ctx.read_text())
+    export = Path(".agent-guard/lock.json")
+    if export.exists():
+        data = json.loads(export.read_text())
         return data.get("branch")
     return None
 ```
@@ -103,17 +121,21 @@ Implementierung ab (FK-05-006: Scope-Drift aus Hilfsbereitschaft).
 Inhaltsdateien. Der Orchestrator erhält keine fachlichen Inhaltsdaten —
 nur das strukturierte Steuerungssignal aus dem Phase-State (FK 4.5).
 
+**Reset-Grenze:** Der Orchestrator darf einen Story-Reset nur
+vorschlagen oder protokollieren. Er darf ihn nicht selbststaendig
+entscheiden oder ueber freie Tool-Operationen nachbauen.
+
 **Artefaktklassen:**
 
 | Klasse | Beispiele | Orchestrator-Zugriff |
 |--------|-----------|----------------------|
-| Control-Plane | `phase-state.json`, Sperrdatei, Marker | Erlaubt (lesend) |
+| Control-Plane | `phase-state.json`, Lock-Export, Marker | Erlaubt (lesend) |
 | Content-Plane | `context.json`, `are_bundle.json` | Blockiert |
 | Codebase | Quellcode, Build-Dateien, Konfigurationen des Zielsystems | Blockiert |
 
 ### 31.2.2 Aktivierung
 
-Nur im Story-Execution-Modus (Sperrdatei vorhanden). Im
+Nur im Story-Execution-Modus (Lock-Record vorhanden). Im
 AI-Augmented-Modus ist der Guard inaktiv — der Mensch arbeitet
 direkt mit Claude Code und braucht vollen Zugriff.
 
@@ -175,8 +197,8 @@ immer erlaubt:
 | Pfad | Klasse | Begründung |
 |------|--------|-----------|
 | `prompts/`, `templates/`, `skills/` | Control-Plane | Orchestrator braucht Prompt-Zugriff |
-| `_temp/qa/{story_id}/phase-state.json` | Control-Plane | Phasen-Steuerungsartefakt — einzige Informationsquelle |
-| `_temp/governance/` | Control-Plane | Sperrdateien, Marker lesen |
+| `_temp/qa/{story_id}/phase-state.json` | Control-Plane | Materialisierter Export der `phase_state_projection` |
+| `_temp/governance/` | Control-Plane | Materialisierte Lock-/Marker-Exporte lesen |
 | `_guardrails/` | Control-Plane | Guardrail-Dokumente |
 | `concepts/`, `stories/` | Control-Plane | Konzepte und Story-Dokumentation |
 | `CLAUDE.md`, `README.md` | Control-Plane | Projektdokumentation |
@@ -249,7 +271,7 @@ ein PASS ausstellen.
 ### 31.3.2 Aktivierung
 
 Nur im Story-Execution-Modus. Gesteuert über die story-spezifische
-Sperrdatei `_temp/governance/locks/{story_id}/qa-lock.json`
+Lock-Record `(project_key, story_id, run_id, lock_type='qa_artifact_write')`
 (Kap. 02.7).
 
 ### 31.3.3 Geschützte Pfade
@@ -276,8 +298,8 @@ def is_qa_path(path: str, active_stories: list[str]) -> bool:
 | Sub-Agent (Worker, QA, Adversarial) | **Blockiert** | Dürfen nicht eigene QA-Ergebnisse manipulieren |
 
 **Erkennung:** Der Guard nutzt das `is_subagent` Flag aus dem
-Hook-Kontext. Nur wenn `is_subagent == true` und die Sperrdatei
-existiert, blockiert er.
+Hook-Kontext. Nur wenn `is_subagent == true` und ein aktiver
+Lock-Record existiert, blockiert er.
 
 ### 31.3.5 CCAG-Regel
 
@@ -289,7 +311,7 @@ Zusätzlich zum Hook eine CCAG-Regel als zweite Absicherungsschicht:
   description: "Blockiert Sub-Agent-Zugriff auf QA-Verzeichnisse"
   scope: subagent
   condition:
-    lock_dir_has_files: "_temp/governance/locks/"
+    state_backend_has_active_lock: "qa_artifact_write"
   tools: [Write, Edit, Bash]
   block_pattern: "_temp/qa/"
   action: block
@@ -299,7 +321,7 @@ Zusätzlich zum Hook eine CCAG-Regel als zweite Absicherungsschicht:
 ### 31.3.6 Audit-Trail
 
 Jeder Blockade-Versuch wird als `integrity_violation`-Event in
-die SQLite-Telemetrie geschrieben (Kap. 30.7.3). Das Integrity-Gate
+`execution_events` geschrieben (Kap. 14). Das Integrity-Gate
 prüft bei Closure, dass keine Violations vorliegen (FK-06-088).
 
 ## 31.4 QA-Agent-Guard
@@ -472,7 +494,7 @@ flowchart TD
     PROMPT_INT -->|"Kein Spawn / OK"| ALWAYS{"Immer-aktive<br/>Regeln?<br/>(Force-Push,<br/>Secrets,<br/>Governance)"}
 
     ALWAYS -->|"Ja"| BLOCK
-    ALWAYS -->|"Nein"| SPERR{"Sperrdatei<br/>vorhanden?"}
+    ALWAYS -->|"Nein"| SPERR{"Lock-Record<br/>vorhanden?"}
 
     SPERR -->|"Nein"| STORY_CREATE{"Story-Create<br/>Guard?"}
     STORY_CREATE -->|"gh issue create"| BLOCK

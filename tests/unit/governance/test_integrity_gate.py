@@ -10,7 +10,7 @@ import json
 from typing import TYPE_CHECKING
 
 from agentkit.governance.integrity_gate import IntegrityGate
-from agentkit.story.types import StoryType
+from agentkit.story_context_manager.types import StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path

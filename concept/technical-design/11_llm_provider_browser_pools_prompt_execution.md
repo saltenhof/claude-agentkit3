@@ -436,12 +436,18 @@ Für jeden LLM-Evaluator-Aufruf wird protokolliert:
 
 **In der Telemetrie-DB (PostgreSQL):**
 ```sql
-INSERT INTO events (story_id, run_id, ts, event_type, pool, role, payload)
-VALUES ('PROJ-042', 'a1b2...', '...', 'llm_call', 'chatgpt', 'qa_review',
-        '{"retry": false, "check_count": 12, "status": "PASS"}');
+INSERT INTO execution_events (
+    project_key, story_id, run_id, event_id, event_type, occurred_at,
+    source_component, severity, payload
+)
+VALUES (
+    'odin-trading', 'PROJ-042', 'a1b2...', 'evt-001', 'llm_call', '...',
+    'llm_evaluator', 'info',
+    '{"pool":"chatgpt","role":"qa_review","retry":false,"check_count":12,"status":"PASS"}'
+);
 ```
 
-**Im QA-Artefakt** (z.B. `llm-review.json`):
+**Im QA-Artefakt** (z.B. `qa_review.json`):
 - Vollständiger gerenderter Prompt (für Reproduzierbarkeit)
 - Vollständige LLM-Antwort (roh)
 - Geparste CheckResults

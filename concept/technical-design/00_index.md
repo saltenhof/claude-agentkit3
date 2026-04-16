@@ -19,8 +19,8 @@ tags: [feinkonzept, index, dokumentenstruktur, architekturrahmen]
 
 Dieses Feinkonzept detailliert das fachliche Domänenkonzept
 (`agentkit-domain-concept.md`) so weit technisch aus, dass ein
-Entwickler sofort Code schreiben kann. Es ist in 26 Kapitel-Dokumente
-plus 4 Referenzanhänge gegliedert.
+Entwickler sofort Code schreiben kann. Es ist in thematische
+Kapitel-Dokumente und Referenzanhänge gegliedert.
 
 Grundlage für die Priorisierung und Vollständigkeitsprüfung ist die
 Fachkonzept-Checkliste (`fachkonzept-checkliste.md`) mit 568 atomaren
@@ -88,6 +88,7 @@ Anforderungen.
 | `50_installer_checkpoint_engine_bootstrap.md` | 14 Checkpoints (inkl. ARE-Scope-Validierung), Manifest, Idempotenz, Verifikation |
 | `51_upgrade_migration_customization_preservation.md` | Upgrade-Strategie, Anpassungsschutz, Schema-Migration |
 | `52_betrieb_monitoring_audit_runbooks.md` | Monitoring, Audit-Logs, Runbooks, SLOs |
+| `53_story_reset_service_recovery_flow.md` | Vollstaendiger Story-Reset, Purge-Reihenfolge, Worktree-/Branch-Behandlung, Endzustand |
 
 ## 7. Referenzanhänge
 

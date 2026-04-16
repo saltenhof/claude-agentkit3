@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from agentkit.story.models import PhaseState, StoryContext
+    from agentkit.story_context_manager.models import PhaseState, StoryContext
 
 
 @dataclass(frozen=True)
@@ -110,7 +110,7 @@ def preflight_passed(ctx: StoryContext, state: PhaseState) -> GuardResult:
     Returns:
         ``GuardResult.PASS()`` if setup is completed, ``FAIL`` otherwise.
     """
-    from agentkit.story.models import PhaseStatus
+    from agentkit.story_context_manager.models import PhaseStatus
 
     if state.phase == "setup" and state.status == PhaseStatus.COMPLETED:
         return GuardResult.PASS()
@@ -140,7 +140,7 @@ def exploration_gate_approved(
     Returns:
         ``GuardResult.PASS()`` if exploration is completed, ``FAIL`` otherwise.
     """
-    from agentkit.story.models import PhaseStatus
+    from agentkit.story_context_manager.models import PhaseStatus
 
     if state.phase == "exploration" and state.status == PhaseStatus.COMPLETED:
         return GuardResult.PASS()
@@ -165,7 +165,7 @@ def verify_completed(ctx: StoryContext, state: PhaseState) -> GuardResult:
     Returns:
         ``GuardResult.PASS()`` if verify is completed, ``FAIL`` otherwise.
     """
-    from agentkit.story.models import PhaseStatus
+    from agentkit.story_context_manager.models import PhaseStatus
 
     if state.phase == "verify" and state.status == PhaseStatus.COMPLETED:
         return GuardResult.PASS()
@@ -197,7 +197,7 @@ def verify_needs_remediation(
         ``GuardResult.PASS()`` if verify is not completed (remediation needed),
         ``GuardResult.FAIL`` if verify completed successfully.
     """
-    from agentkit.story.models import PhaseStatus
+    from agentkit.story_context_manager.models import PhaseStatus
 
     if state.phase == "verify" and state.status != PhaseStatus.COMPLETED:
         return GuardResult.PASS()
@@ -221,7 +221,7 @@ def mode_is_exploration(ctx: StoryContext, state: PhaseState) -> GuardResult:
     Returns:
         ``GuardResult.PASS()`` if mode is EXPLORATION, ``FAIL`` otherwise.
     """
-    from agentkit.story.types import StoryMode
+    from agentkit.story_context_manager.types import StoryMode
 
     if ctx.mode == StoryMode.EXPLORATION:
         return GuardResult.PASS()

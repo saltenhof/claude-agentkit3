@@ -15,7 +15,7 @@ import json
 from typing import TYPE_CHECKING
 
 from agentkit.qa.protocols import Finding, Severity, TrustClass
-from agentkit.story.models import StoryContext
+from agentkit.story_context_manager.models import StoryContext
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -153,7 +153,7 @@ def check_no_corrupt_state(story_dir: Path) -> Finding | None:
     Returns:
         A HIGH finding if phase-state.json is corrupt, otherwise ``None``.
     """
-    from agentkit.story.models import PhaseState
+    from agentkit.story_context_manager.models import PhaseState
 
     state_path = story_dir / "phase-state.json"
     if not state_path.exists():

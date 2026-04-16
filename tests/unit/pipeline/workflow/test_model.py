@@ -10,16 +10,21 @@ import pytest
 from agentkit.pipeline.workflow.gates import Gate
 from agentkit.pipeline.workflow.guards import GuardResult
 from agentkit.pipeline.workflow.model import (
+    ExecutionPolicy,
+    FlowLevel,
     HookPoints,
+    OverridePolicy,
     PhaseDefinition,
     Precondition,
+    RetryPolicy,
+    StepResult,
     TransitionRule,
     WorkflowDefinition,
     YieldPoint,
 )
 
 if TYPE_CHECKING:
-    from agentkit.story.models import PhaseState, StoryContext
+    from agentkit.story_context_manager.models import PhaseState, StoryContext
 
 
 class TestYieldPoint:
@@ -144,6 +149,10 @@ class TestPhaseDefinition:
     def test_defaults(self) -> None:
         pd = PhaseDefinition(name="setup")
         assert pd.name == "setup"
+        assert pd.node_id == "setup"
+        assert pd.execution_policy == ExecutionPolicy.ALWAYS
+        assert pd.retry_policy is None
+        assert pd.override_policy == OverridePolicy()
         assert pd.guards == ()
         assert pd.gates == ()
         assert pd.yield_points == ()
@@ -186,8 +195,11 @@ class TestWorkflowDefinition:
     """Tests for WorkflowDefinition frozen dataclass and helper methods."""
 
     def test_defaults(self) -> None:
-        wd = WorkflowDefinition(name="empty")
+        wd = WorkflowDefinition(flow_id="empty")
         assert wd.name == "empty"
+        assert wd.flow_id == "empty"
+        assert wd.level == FlowLevel.PIPELINE
+        assert wd.owner == "PipelineEngine"
         assert wd.phases == ()
         assert wd.transitions == ()
         assert wd.hooks == HookPoints()
@@ -219,8 +231,8 @@ class TestWorkflowDefinition:
 
     def test_phase_names_order_preserved(self) -> None:
         wd = WorkflowDefinition(
-            name="ordered",
-            phases=(
+            flow_id="ordered",
+            nodes=(
                 PhaseDefinition(name="c"),
                 PhaseDefinition(name="a"),
                 PhaseDefinition(name="b"),
@@ -240,13 +252,13 @@ class TestWorkflowDefinition:
             return GuardResult.FAIL(reason="nope")
 
         wd = WorkflowDefinition(
-            name="branching",
-            phases=(
+            flow_id="branching",
+            nodes=(
                 PhaseDefinition(name="a"),
                 PhaseDefinition(name="b"),
                 PhaseDefinition(name="c"),
             ),
-            transitions=(
+            edges=(
                 TransitionRule(source="a", target="b", guard=g1),
                 TransitionRule(source="a", target="c", guard=g2),
             ),
@@ -255,6 +267,37 @@ class TestWorkflowDefinition:
         assert len(transitions) == 2
         assert transitions[0].target == "b"
         assert transitions[1].target == "c"
+
+    def test_transition_priority_descending(self) -> None:
+        wd = WorkflowDefinition(
+            flow_id="priority",
+            nodes=(
+                PhaseDefinition(name="a"),
+                PhaseDefinition(name="b"),
+                PhaseDefinition(name="c"),
+            ),
+            edges=(
+                TransitionRule(source="a", target="b", priority=1),
+                TransitionRule(source="a", target="c", priority=10),
+            ),
+        )
+        transitions = wd.get_transitions_from("a")
+        assert [transition.target for transition in transitions] == ["c", "b"]
+
+
+class TestDslSupportTypes:
+    """Tests for generic DSL support types introduced beyond phases."""
+
+    def test_retry_policy_construction(self) -> None:
+        policy = RetryPolicy(max_attempts=3, backtrack_target="setup")
+        assert policy.max_attempts == 3
+        assert policy.backtrack_target == "setup"
+
+    def test_step_result_defaults(self) -> None:
+        result = StepResult(outcome="PASS")
+        assert result.outcome == "PASS"
+        assert result.produced_artifacts == ()
+        assert result.emitted_events == ()
 
     def test_three_phase_workflow_structure(
         self, three_phase_workflow: WorkflowDefinition,

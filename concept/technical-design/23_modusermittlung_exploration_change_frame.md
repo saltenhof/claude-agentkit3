@@ -13,7 +13,7 @@ authority_over:
 defers_to:
   - target: FK-22
     scope: mode-determination-implementation
-    reason: Technische Umsetzung der 6-Kriterien-Entscheidung ist in Kap. 22.8 beschrieben
+    reason: Technische Umsetzung der Modusentscheidung ist in Kap. 22.8 beschrieben
   - target: FK-02
     scope: domain-model
     reason: Story-Typen und Mode-Enums im Domaenenmodell definiert
@@ -48,7 +48,7 @@ weder Modus-Ermittlung noch Exploration-Phase (Kap. 20.2.3).
 
 ## 23.2 Modus-Ermittlung
 
-Die technische Umsetzung der 6-Kriterien-Entscheidung ist in
+Die technische Umsetzung der Modusentscheidung ist in
 Kap. 22.8 vollständig beschrieben (Code, Entscheidungsregel,
 Fehlerbehandlung). Dieses Kapitel fokussiert auf das, was nach
 der Entscheidung passiert.
@@ -57,8 +57,8 @@ der Entscheidung passiert.
 
 | Ergebnis | Bedingung |
 |----------|----------|
-| **Execution Mode** | Alle 6 Kriterien stehen auf Execution UND kein VektorDB-Konflikt |
-| **Exploration Mode** | Mindestens 1 Kriterium steht auf Exploration ODER fehlendes Feld ODER VektorDB-Konflikt |
+| **Execution Mode** | Kein Exploration-Trigger aus Kap. 22.8 greift UND kein VektorDB-Konflikt liegt vor |
+| **Exploration Mode** | Mindestens 1 Exploration-Trigger greift ODER ein Pflichtfeld fehlt ODER ein VektorDB-Konflikt liegt vor |
 
 **Default:** Exploration Mode (fail-closed).
 
@@ -262,7 +262,7 @@ Nach bestandenem Gate wird das Entwurfsartefakt eingefroren:
 2. Datei wird in `_temp/qa/{story_id}/entwurfsartefakt.json`
    geschrieben
 3. Ab hier darf der Worker das Artefakt nicht mehr ändern — der
-   QA-Artefakt-Schutz (Sperrdatei + Hook) verhindert
+   QA-Artefakt-Schutz (Lock-Record + Hook) verhindert
    Schreibzugriffe auf `_temp/qa/`
 
 **Kein technischer Read-Only-Schutz auf Dateisystemebene.** Der
@@ -310,7 +310,7 @@ durch das `ExplorationGateStatus` StrEnum mit genau 3 Werten ersetzt. Zwischenst
 (z.B. "Stufe 1 bestanden, Stufe 2 steht aus") werden durch `PENDING` abgebildet, da
 sie keine eigenständige Gate-Entscheidung darstellen. Die Detailinformation, welche
 Stufe zuletzt bestanden wurde, ergibt sich aus den vorhandenen QA-Artefakten
-(`doc-fidelity.json`, `design-review.json`).
+(`doc_fidelity.json`, `design-review.json`).
 
 Die Anzahl gelaufener Design-Review-Remediation-Runden wird in
 `ExplorationPhaseMemory.review_rounds` (Integer) in der PhaseMemory-Schicht
@@ -446,7 +446,7 @@ Entwurf abweicht:
 
 ### 23.7.2 Telemetrie
 
-Jede Drift-Prüfung erzeugt ein Telemetrie-Event in der SQLite-DB:
+Jede Drift-Prüfung erzeugt ein Telemetrie-Event in `execution_events`:
 
 | event_type | payload |
 |-----------|---------|
@@ -504,7 +504,7 @@ tatsächliche Impact gegen den deklarierten Impact verglichen:
 
 ```python
 def check_impact_violation(context: StoryContext, git: GitOperations) -> StructuralCheck:
-    declared_impact = context.change_impact  # aus context.json
+    declared_impact = context.change_impact  # aus StoryContext / context.json-Export
 
     # Tatsächlichen Impact aus Diff ableiten
     changed_files = git.diff_stat(context.base_ref)

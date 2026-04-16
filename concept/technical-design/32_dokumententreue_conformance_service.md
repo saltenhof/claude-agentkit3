@@ -332,7 +332,7 @@ Kap. 25.4). Nur im Exploration Mode.
 | Draft-Entwurfsartefakt | Arbeitsstand des Exploration-Workers vor Freeze |
 | Vom Worker deklarierte Referenzdokumente | `konformitaetsaussage.referenzdokumente` aus dem Entwurf |
 | Vom System ergänzte Referenzdokumente | Manifest-Index gefiltert auf betroffene Module und Story-Typ |
-| Story-Beschreibung | `context.json` |
+| Story-Beschreibung | `StoryContext` bzw. dessen `context.json`-Export |
 
 ### 32.6.3 Zweite, unabhängige Prüfung
 
@@ -439,7 +439,7 @@ erzeugt:
 2. Einen **Incident im Failure Corpus** (Kap. 41) — automatisch
    erfasst über die Pipeline-Erfassung (FK-10-011). Kategorie:
    `requirements_miss`, Tag: `doc_staleness`. Das Incident wird
-   als `INSERT INTO events` in die Telemetrie-DB geschrieben
+   als `INSERT INTO execution_events` geschrieben
    und vom Failure-Corpus-Erfassungsmechanismus aufgegriffen.
 3. Optional: automatische Erzeugung einer Follow-up-Story
    (Typ: Concept) für die Dokumentations-Aktualisierung
@@ -473,12 +473,15 @@ bevor er das gesamte Handover fertigstellt.
 ## 32.10 Telemetrie
 
 Jede Dokumententreue-Prüfung erzeugt ein `llm_call`-Event in
-der SQLite-DB mit `role: doc_fidelity`:
+`execution_events` mit `role: doc_fidelity`:
 
 ```sql
-INSERT INTO events (story_id, run_id, ts, event_type, pool, role, payload)
-VALUES (?, ?, datetime('now'), 'llm_call', 'gemini', 'doc_fidelity',
-        '{"level": "design", "status": "PASS"}');
+INSERT INTO execution_events (
+    project_key, story_id, run_id, event_id, event_type, occurred_at,
+    source_component, severity, payload
+)
+VALUES ($1, $2, $3, $4, 'llm_call', NOW(), 'conformance_service', 'info',
+        '{"pool":"gemini","role":"doc_fidelity","level":"design","status":"PASS"}');
 ```
 
 Das Integrity-Gate prüft bei Closure, dass für jede relevante

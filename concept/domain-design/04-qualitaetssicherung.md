@@ -237,8 +237,8 @@ Der Assembler arbeitet in drei Stufen:
 **Stufe 1 — Deterministischer Kern (ohne Sprachwissen)**
 
 Für jede geänderte Datei (aus Git-Diff) automatisch einsammeln:
-- Story-Spec (aus context.json → story_dir)
-- Concept-Docs (aus context.json → concept_paths)
+- Story-Spec (aus StoryContext bzw. dessen `context.json`-Export → story_dir)
+- Concept-Docs (aus StoryContext bzw. dessen `context.json`-Export → concept_paths)
 - Guardrail-Dokumente (aus Pipeline-Config → guardrails.dir)
 - Modul-Nachbarn: `__init__.py`, `schemas.py`, `protocols.py`, `config.py`, `types.py` im selben Verzeichnis und übergeordneten Verzeichnis
 - Referenzierte YAML/JSON-Configs im selben Modul
@@ -481,8 +481,8 @@ Läuft vor jedem `LlmEvaluator.evaluate()`-Aufruf:
 
 **Ergänzungen:**
 - Automatisch fehlende Nachbar-Artefakte nachladen (analog zum Evidence Assembler, aber für die 6 Bundle-Felder)
-- Concept-Excerpt durch Primärquelle ersetzen: Konzeptdokumente über `concept_paths` aus `context.json` auflösen und aus dem `concept/`-Verzeichnis des Zielprojekts laden, wenn vorhanden und innerhalb des Token-Limits
-- Externe autoritäre Quellen (`external_sources` aus `context.json`) als Referenzen an den Reviewer weiterreichen. Bei Nichterreichbarkeit: unresolved evidence gap — kein PASS auf Claims, die diese Quelle benötigen (FK 21.3.3)
+- Concept-Excerpt durch Primärquelle ersetzen: Konzeptdokumente über `concept_paths` aus `StoryContext` bzw. dessen `context.json`-Export auflösen und aus dem `concept/`-Verzeichnis des Zielprojekts laden, wenn vorhanden und innerhalb des Token-Limits
+- Externe autoritäre Quellen (`external_sources` aus `StoryContext` bzw. dessen `context.json`-Export) als Referenzen an den Reviewer weiterreichen. Bei Nichterreichbarkeit: unresolved evidence gap — kein PASS auf Claims, die diese Quelle benötigen (FK 21.3.3)
 
 **Artefakt:**
 Schreibt `context_sufficiency.json` ins QA-Verzeichnis:
@@ -517,7 +517,7 @@ Implementierungs-Invariante: Jeder Bundle-Typ in der Konfiguration
 erfordert einen korrespondierenden Loader.
 
 **Path-Resolution fuer Concept-Excerpts:** Concept-Pfade in
-`context.json` koennen als nackte Dateinamen gespeichert sein (z.B.
+Im `StoryContext` bzw. dessen `context.json`-Export koennen Concept-Pfade als nackte Dateinamen gespeichert sein (z.B.
 `02-komponentenstruktur.md` statt
 `_concept/technical-design/02-komponentenstruktur.md`). Der Builder
 muss eine Fallback-Suche in bekannten Concept-Verzeichnissen
@@ -711,7 +711,7 @@ gezielt adressiert worden.
 
 | Voraussetzung | Status | Für |
 |---------------|--------|------|
-| context.json mit concept_paths, guardrail_paths | Vorhanden | Evidence Assembler Stufe 1 |
+| StoryContext / `context.json`-Export mit `concept_paths`, `guardrail_paths` | Vorhanden | Evidence Assembler Stufe 1 |
 | Git-Diff-Zugriff aus dem Worker-Kontext | Vorhanden | Evidence Assembler Stufe 1 |
 | Import-Extraktion Python/TS/Java | Neu zu bauen | Evidence Assembler Stufe 2 |
 | ContextBundle-Erweiterung (Autoritätsklassen) | Neu zu bauen | Autoritätsmarkierung |

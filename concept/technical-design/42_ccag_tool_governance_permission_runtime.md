@@ -27,7 +27,7 @@ Guards (Kap. 30/31), ersetzt sie aber nicht (FK-12-018).
 | Verantwortung | Guards (Kap. 30/31) | CCAG |
 |--------------|--------------------|----|
 | Zweck | Harte Sicherheitsregeln erzwingen | Komfortable Tool-Freigaben verwalten |
-| Regelquelle | Hook-Code + Sperrdateien | YAML-Regeldateien (sessionübergreifend) |
+| Regelquelle | Hook-Code + Lock-Records | YAML-Regeldateien (sessionübergreifend) |
 | Lernfähig | Nein (statisch) | Ja (wächst mit jeder Freigabe) |
 | Bei Verstoß | Opake Fehlermeldung | Mensch wird gefragt |
 | Implementierung | Dedizierte Python-Hooks | CCAG Gate-Keeper-Hook |

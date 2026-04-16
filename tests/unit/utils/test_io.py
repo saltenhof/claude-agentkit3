@@ -121,29 +121,20 @@ class TestEnsureDir:
         assert file_path.read_text(encoding="utf-8") == "chained"
 
 
-class TestBackwardsCompatibility:
-    """Verify that project_ops.shared.file_ops re-exports work."""
+class TestInstallerFileOpsNamespace:
+    """Verify that installer file-ops entrypoints expose the write helpers."""
 
-    def test_file_ops_reexport_atomic_write_text(self) -> None:
-        from agentkit.project_ops.shared.file_ops import (
-            atomic_write_text as reexported,
-        )
-        from agentkit.utils.io import atomic_write_text as original
+    def test_file_ops_exposes_atomic_write_text(self) -> None:
+        from agentkit.installer.file_ops import atomic_write_text as exported
 
-        assert reexported is original
+        assert exported is atomic_write_text
 
-    def test_file_ops_reexport_atomic_write_yaml(self) -> None:
-        from agentkit.project_ops.shared.file_ops import (
-            atomic_write_yaml as reexported,
-        )
-        from agentkit.utils.io import atomic_write_yaml as original
+    def test_file_ops_exposes_atomic_write_yaml(self) -> None:
+        from agentkit.installer.file_ops import atomic_write_yaml as exported
 
-        assert reexported is original
+        assert exported is atomic_write_yaml
 
-    def test_file_ops_reexport_ensure_dir(self) -> None:
-        from agentkit.project_ops.shared.file_ops import (
-            ensure_dir as reexported,
-        )
-        from agentkit.utils.io import ensure_dir as original
+    def test_file_ops_exposes_ensure_dir(self) -> None:
+        from agentkit.installer.file_ops import ensure_dir as exported
 
-        assert reexported is original
+        assert exported is ensure_dir

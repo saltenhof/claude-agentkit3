@@ -6,8 +6,8 @@ import json
 
 from agentkit.qa.protocols import QALayer, Severity
 from agentkit.qa.structural.checker import StructuralChecker
-from agentkit.story.models import StoryContext
-from agentkit.story.types import StoryMode, StoryType
+from agentkit.story_context_manager.models import StoryContext
+from agentkit.story_context_manager.types import StoryMode, StoryType
 
 
 def _make_context(
@@ -42,7 +42,7 @@ def _setup_complete_story_dir(
     (story_dir / "context.json").write_text(json.dumps(ctx_data))
 
     # Phase snapshots for all phases before verify
-    from agentkit.story.types import get_profile
+    from agentkit.story_context_manager.types import get_profile
 
     profile = get_profile(story_type)
     for phase in profile.phases:

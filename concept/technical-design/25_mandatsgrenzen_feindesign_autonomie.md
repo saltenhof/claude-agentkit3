@@ -723,7 +723,7 @@ Jede Mandatsentscheidung erzeugt ein Telemetrie-Event:
 | `scope_explosion_check` | `status`, `indicators`, `story_id` | Nach Scope-Prüfung |
 | `impact_exceedance_check` | `declared`, `actual`, `exceeded`, `story_id` | Nach Tragweiten-Vergleich |
 
-Persistenz: SQLite-DB (`_temp/agentkit.db`), Tabelle `events`.
+Persistenz: `execution_events` im zentralen PostgreSQL-State-Backend.
 
 ## 25.9 Orchestrator-Sichtbarkeit
 

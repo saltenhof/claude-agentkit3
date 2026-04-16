@@ -12,7 +12,7 @@ from agentkit.pipeline.workflow.definitions import (
     resolve_workflow,
 )
 from agentkit.pipeline.workflow.validators import WorkflowValidator
-from agentkit.story.types import StoryType
+from agentkit.story_context_manager.types import StoryType
 
 
 class TestWorkflowsBuildSuccessfully:

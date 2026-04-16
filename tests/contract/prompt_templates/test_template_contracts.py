@@ -14,8 +14,8 @@ import re
 
 import pytest
 
-from agentkit.prompting.sentinels import SENTINEL_PATTERN, extract_sentinel
-from agentkit.prompting.templates import TEMPLATES
+from agentkit.prompt_composer.sentinels import SENTINEL_PATTERN, extract_sentinel
+from agentkit.prompt_composer.templates import TEMPLATES
 
 # Sentinel in template form (before rendering): [SENTINEL:<name>-v<N>:{story_id}]
 _TEMPLATE_SENTINEL_RE = re.compile(

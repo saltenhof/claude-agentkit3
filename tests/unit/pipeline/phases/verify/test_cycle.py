@@ -13,8 +13,8 @@ from agentkit.qa.adversarial.challenger import AdversarialChallenger
 from agentkit.qa.evaluators.reviewer import SemanticReviewer
 from agentkit.qa.policy_engine.engine import PolicyEngine
 from agentkit.qa.structural.checker import StructuralChecker
-from agentkit.story.models import StoryContext
-from agentkit.story.types import StoryMode, StoryType, get_profile
+from agentkit.story_context_manager.models import StoryContext
+from agentkit.story_context_manager.types import StoryMode, StoryType, get_profile
 
 
 def _make_context(

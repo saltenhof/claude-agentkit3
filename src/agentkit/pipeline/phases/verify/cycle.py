@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from agentkit.qa.policy_engine.engine import PolicyEngine, VerifyDecision
     from agentkit.qa.protocols import QALayer
     from agentkit.qa.remediation.feedback import RemediationFeedback
-    from agentkit.story.models import StoryContext
+    from agentkit.story_context_manager.models import StoryContext
 
 
 @dataclass(frozen=True)

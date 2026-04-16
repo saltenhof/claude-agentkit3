@@ -11,20 +11,27 @@ responsibility belongs to the phase handlers.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from agentkit.exceptions import PipelineError
-from agentkit.pipeline.state import (
+from agentkit.phase_state_store import (
     AttemptRecord,
+    FlowExecution,
+    NodeExecutionLedger,
+    load_flow_execution,
+    load_node_execution_ledger,
     load_attempts,
     save_attempt,
+    save_flow_execution,
+    save_node_execution_ledger,
     save_phase_snapshot,
     save_phase_state,
 )
-from agentkit.story.models import PhaseSnapshot, PhaseState, PhaseStatus, StoryContext
+from agentkit.story_context_manager.models import PhaseSnapshot, PhaseState, PhaseStatus, StoryContext
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -151,6 +158,13 @@ class PipelineEngine:
         )
         if not can_enter:
             attempt_id = self._generate_attempt_id(phase_name)
+            self._record_flow_execution(
+                ctx,
+                phase_name,
+                attempt_id,
+                status="BLOCKED",
+                node_id=phase_name,
+            )
             blocked_state = PhaseState(
                 story_id=state.story_id,
                 phase=phase_name,
@@ -167,6 +181,12 @@ class PipelineEngine:
                 outcome="blocked",
             )
             save_attempt(self._story_dir, attempt)
+            self._record_node_outcome(
+                ctx,
+                phase_name,
+                attempt_id,
+                outcome="FAIL",
+            )
             return EngineResult(
                 status="blocked",
                 phase=phase_name,
@@ -179,13 +199,24 @@ class PipelineEngine:
 
         # Generate attempt ID (guards are evaluated post-completion)
         attempt_id = self._generate_attempt_id(phase_name)
+        self._record_flow_execution(
+            ctx,
+            phase_name,
+            attempt_id,
+            status="IN_PROGRESS",
+            node_id=phase_name,
+        )
 
         # 4. Call handler.on_enter, catching exceptions
         try:
             result = handler.on_enter(ctx, state)
         except Exception as exc:
             return self._handle_handler_exception(
-                phase_name, attempt_id, [], exc,
+                ctx,
+                phase_name,
+                attempt_id,
+                [],
+                exc,
                 story_id=state.story_id,
             )
 
@@ -270,7 +301,11 @@ class PipelineEngine:
             result = handler.on_resume(ctx, state, trigger)
         except Exception as exc:
             return self._handle_handler_exception(
-                phase_name, attempt_id, [], exc,
+                ctx,
+                phase_name,
+                attempt_id,
+                [],
+                exc,
                 story_id=state.story_id,
             )
 
@@ -466,6 +501,14 @@ class PipelineEngine:
                     str(g.get("reason", "Guard failed"))
                     for g in guard_failures
                 ]
+                self._record_flow_execution(
+                    ctx,
+                    phase_name,
+                    attempt_id,
+                    status="FAILED",
+                    node_id=phase_name,
+                    finished_at=datetime.now(tz=UTC),
+                )
                 failed_state = PhaseState(
                     story_id=state.story_id,
                     phase=phase_name,
@@ -486,6 +529,12 @@ class PipelineEngine:
                     resume_trigger=resume_trigger,
                 )
                 save_attempt(self._story_dir, attempt)
+                self._record_node_outcome(
+                    ctx,
+                    phase_name,
+                    attempt_id,
+                    outcome="FAIL",
+                )
 
                 return EngineResult(
                     status="failed",
@@ -506,6 +555,14 @@ class PipelineEngine:
 
             # Persist phase state
             save_phase_state(self._story_dir, completed_state)
+            self._record_flow_execution(
+                ctx,
+                phase_name,
+                attempt_id,
+                status="COMPLETED",
+                node_id=phase_name,
+                finished_at=datetime.now(tz=UTC),
+            )
 
             # Save attempt record
             attempt = AttemptRecord(
@@ -519,6 +576,12 @@ class PipelineEngine:
                 resume_trigger=resume_trigger,
             )
             save_attempt(self._story_dir, attempt)
+            self._record_node_outcome(
+                ctx,
+                phase_name,
+                attempt_id,
+                outcome="PASS",
+            )
 
             # Evaluate transitions for next phase
             transition = self.evaluate_transitions(ctx, completed_state)
@@ -541,6 +604,13 @@ class PipelineEngine:
                 attempt_id=attempt_id,
             )
             save_phase_state(self._story_dir, paused_state)
+            self._record_flow_execution(
+                ctx,
+                phase_name,
+                attempt_id,
+                status="YIELDED",
+                node_id=phase_name,
+            )
 
             # Save attempt record (no guard evals -- guards are exit-only)
             attempt = AttemptRecord(
@@ -554,6 +624,12 @@ class PipelineEngine:
                 resume_trigger=resume_trigger,
             )
             save_attempt(self._story_dir, attempt)
+            self._record_node_outcome(
+                ctx,
+                phase_name,
+                attempt_id,
+                outcome="YIELD",
+            )
 
             return EngineResult(
                 status="yielded",
@@ -578,6 +654,14 @@ class PipelineEngine:
             attempt_id=attempt_id,
         )
         save_phase_state(self._story_dir, error_state)
+        self._record_flow_execution(
+            ctx,
+            phase_name,
+            attempt_id,
+            status=result.status.value.upper(),
+            node_id=phase_name,
+            finished_at=datetime.now(tz=UTC),
+        )
 
         # No guard evals -- guards are exit-only, handler didn't complete
         attempt = AttemptRecord(
@@ -590,6 +674,12 @@ class PipelineEngine:
             resume_trigger=resume_trigger,
         )
         save_attempt(self._story_dir, attempt)
+        self._record_node_outcome(
+            ctx,
+            phase_name,
+            attempt_id,
+            outcome="FAIL",
+        )
 
         return EngineResult(
             status=engine_status,
@@ -600,6 +690,7 @@ class PipelineEngine:
 
     def _handle_handler_exception(
         self,
+        ctx: StoryContext,
         phase_name: str,
         attempt_id: str,
         guard_evals: list[dict[str, object]],
@@ -633,6 +724,14 @@ class PipelineEngine:
             attempt_id=attempt_id,
         )
         save_phase_state(self._story_dir, failed_state)
+        self._record_flow_execution(
+            ctx,
+            phase_name,
+            attempt_id,
+            status="FAILED",
+            node_id=phase_name,
+            finished_at=datetime.now(tz=UTC),
+        )
 
         attempt = AttemptRecord(
             attempt_id=attempt_id,
@@ -643,6 +742,12 @@ class PipelineEngine:
             outcome="failed",
         )
         save_attempt(self._story_dir, attempt)
+        self._record_node_outcome(
+            ctx,
+            phase_name,
+            attempt_id,
+            outcome="FAIL",
+        )
 
         return EngineResult(
             status="failed",
@@ -650,3 +755,104 @@ class PipelineEngine:
             errors=(error_msg,),
             attempt_id=attempt_id,
         )
+
+    def _project_key_for(self, ctx: StoryContext) -> str:
+        """Derive a stable project key until project registration is explicit."""
+
+        if ctx.project_root is not None:
+            return ctx.project_root.name
+        if ctx.worktree_path is not None:
+            return ctx.worktree_path.parent.name
+        return "default-project"
+
+    def _resolve_run_id(self, ctx: StoryContext) -> str:
+        """Reuse an existing run id for the flow or derive a deterministic fallback."""
+
+        existing = load_flow_execution(self._story_dir)
+        if existing is not None and existing.flow_id == self._workflow.flow_id:
+            return existing.run_id
+        digest = hashlib.sha1(
+            f"{self._project_key_for(ctx)}:{ctx.story_id}:{self._workflow.flow_id}".encode(
+                "utf-8",
+            ),
+            usedforsecurity=False,
+        ).hexdigest()[:12]
+        return f"run-{digest}"
+
+    def _attempt_number(self, attempt_id: str) -> int:
+        """Parse the numeric suffix from an attempt id."""
+
+        try:
+            return int(attempt_id.rsplit("-", maxsplit=1)[1])
+        except (IndexError, ValueError):
+            return 1
+
+    def _record_flow_execution(
+        self,
+        ctx: StoryContext,
+        phase_name: str,
+        attempt_id: str,
+        *,
+        status: str,
+        node_id: str | None,
+        finished_at: datetime | None = None,
+    ) -> None:
+        """Persist the current top-level flow execution state."""
+
+        existing = load_flow_execution(self._story_dir)
+        run_id = self._resolve_run_id(ctx)
+        started_at = (
+            existing.started_at
+            if existing is not None and existing.flow_id == self._workflow.flow_id
+            else datetime.now(tz=UTC)
+        )
+        record = FlowExecution(
+            project_key=self._project_key_for(ctx),
+            story_id=ctx.story_id,
+            run_id=run_id,
+            flow_id=self._workflow.flow_id,
+            level=self._workflow.level.value,
+            owner=self._workflow.owner,
+            parent_flow_id=None,
+            status=status,
+            current_node_id=node_id or phase_name,
+            attempt_no=self._attempt_number(attempt_id),
+            started_at=started_at,
+            finished_at=finished_at,
+        )
+        save_flow_execution(self._story_dir, record)
+
+    def _record_node_outcome(
+        self,
+        ctx: StoryContext,
+        node_id: str,
+        attempt_id: str,
+        *,
+        outcome: str,
+    ) -> None:
+        """Persist node execution history for the current flow node."""
+
+        existing = load_node_execution_ledger(
+            self._story_dir,
+            self._workflow.flow_id,
+            node_id,
+        )
+        execution_count = 1
+        success_count = 1 if outcome == "PASS" else 0
+        if existing is not None and existing.run_id == self._resolve_run_id(ctx):
+            execution_count = existing.execution_count + 1
+            success_count = existing.success_count + (1 if outcome == "PASS" else 0)
+
+        ledger = NodeExecutionLedger(
+            project_key=self._project_key_for(ctx),
+            story_id=ctx.story_id,
+            run_id=self._resolve_run_id(ctx),
+            flow_id=self._workflow.flow_id,
+            node_id=node_id,
+            execution_count=execution_count,
+            success_count=success_count,
+            last_outcome=outcome,
+            last_attempt_no=self._attempt_number(attempt_id),
+            last_executed_at=datetime.now(tz=UTC),
+        )
+        save_node_execution_ledger(self._story_dir, ledger)

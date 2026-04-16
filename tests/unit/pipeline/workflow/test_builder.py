@@ -13,7 +13,7 @@ from agentkit.pipeline.workflow.guards import GuardResult
 from agentkit.pipeline.workflow.model import WorkflowDefinition
 
 if TYPE_CHECKING:
-    from agentkit.story.models import PhaseState, StoryContext
+    from agentkit.story_context_manager.models import PhaseState, StoryContext
 
 
 def _trivial_guard(ctx: StoryContext, state: PhaseState) -> GuardResult:

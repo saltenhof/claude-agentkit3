@@ -8,11 +8,11 @@ parent_concept_id:
 authority_over:
   - scope: domain-model
   - scope: artefakt-envelope
-  - scope: sperrdatei-mechanismus
+  - scope: lock-mechanismus
 defers_to: []
 supersedes: []
 superseded_by:
-tags: [domaenenmodell, zustaende, artefakte, sperrdatei, stage-registry]
+tags: [domaenenmodell, zustaende, artefakte, lock-record, stage-registry]
 ---
 
 # 02 — Domänenmodell, Zustände und Artefakte
@@ -33,8 +33,12 @@ verwendet werden. Jeder Begriff hat eine exakte technische Bedeutung.
 | **Run** | Eine Ausführung der Pipeline für eine Story. Eine Story kann mehrere Runs haben (bei Retry/Rework). | `run_id` (UUID), erzeugt beim Setup. Technischer Ausführungsschlüssel neben `story_id`. |
 | **Phase** | Ein Abschnitt des Pipeline-Ablaufs. | Enum: `setup`, `exploration`, `implementation`, `verify`, `closure` |
 | **Stage** | Ein Prüfschritt innerhalb einer Phase. Typisiert mit Schicht, Story-Typ-Geltung und Blocking-Modus. | Typisiertes Objekt in Stage-Registry (siehe 2.9) |
+| **Flow** | Hierarchisch interpretierbarer Ablaufvertrag. Kann Pipeline, Phase oder Komponente beschreiben. | `FlowDefinition` der Prozess-DSL |
+| **Node / Schritt** | Atomarer oder zusammengesetzter Kontrollfluss-Knoten innerhalb eines Flows. | `NodeDefinition(kind="step" \| "gate" \| "yield" \| "branch" \| "subflow")` |
 | **Guard** | Permanenter Hook-basierter Schutzmechanismus. Blockiert verbotene Aktionen. | Python-Skript, PreToolUse-Hook, exit(0)/exit(2) |
-| **Gate** | Einmaliger Prüfpunkt, der passiert werden muss. Blockiert bei Failure den Fortschritt. | Python-Funktion, liefert PASS/FAIL |
+| **Gate** | Einmaliger oder mehrstufiger Prüfpunkt innerhalb eines Flows. Blockiert bei Failure den Fortschritt. | `Gate`-Knoten der Prozess-DSL + deterministischer Gate-Runner |
+| **Execution Policy** | Regel, ob ein Schritt immer, nur einmal oder nur bis zum Erfolg ausgeführt werden darf. | Enum auf `NodeDefinition` |
+| **Override** | Expliziter, auditierbarer Eingriff von Mensch/Orchestrator in den Ablauf. | Override-Record / CLI-Kommando, durch Engine ausgewertet |
 | **Artefakt** | Maschinenlesbares Ergebnis eines Pipeline-Schritts. | Strukturierter Record im zentralen State-Backend; optional als JSON exportierbar |
 | **Incident** | Einzelbeobachtung eines Agent-Fehlverhaltens. | JSONL-Eintrag in Failure Corpus |
 | **Pattern** | Wiederkehrendes Muster über mehrere Incidents. | JSONL-Eintrag in Failure Corpus |
@@ -99,14 +103,23 @@ stateDiagram-v2
     }
 ```
 
+**Normative Auslegung:** Die sichtbare State Machine ist die
+Pipeline-Ebene eines groesseren hierarchischen Ablaufmodells. Dieselben
+Konstrukte (Guards, Gates, Yield-Points, Rueckspruenge, Execution
+Policies, Overrides) gelten auch innerhalb von Phasen und Komponenten.
+Die Pipeline ist also kein Sonderfall, sondern die oberste
+`FlowDefinition` des Systems.
+
 > **[Entscheidung 2026-04-08]** Element 3 — NON_DETERMINISTIC_PHASE Konstanten entfallen in v3. Stattdessen `requires_llm: bool` pro Phase in der Phase-Config.
-> Element 16 — PhaseState wird in v3 nach Ownership getrennt: StoryContext (langlebige Story-Semantik), PhaseStateCore (aktueller Laufzeitstatus), PhasePayload (diskriminierte Union pro Phase), RuntimeMetadata (nicht-fachliche Loader-/Guard-Infos). `mode`, `story_type` raus aus PhaseState, rein in StoryContext. Detailkonzept wird separat ausgearbeitet.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Elemente 3, 16.
+> Element 16 — PhaseState wird in v3 nach Ownership getrennt: StoryContext (langlebige Story-Semantik), PhaseStateCore (aktueller Laufzeitstatus), PhasePayload (diskriminierte Union pro Phase), RuntimeMetadata (nicht-fachliche Loader-/Guard-Infos). `mode`, `story_type` raus aus PhaseState, rein in StoryContext.
+> Die fachliche Ausmodellierung steht jetzt in FK-17, die relationale Abbildung in FK-18.
 
-**Pipeline-State-Record:** zentraler Workflow-State-Eintrag
-(`workflow_phase_state`) im State-Backend.
+**Pipeline-State-Record:** zentrale Runtime-Projektion
+(`phase_state_projection`) im State-Backend.
 
-> **[Hinweis 2026-04-08]** Dieses Beispiel zeigt noch die flache PhaseState-Struktur aus v2. In v3 wird PhaseState in StoryContext + PhaseStateCore + PhasePayload (diskriminierte Union) + RuntimeMetadata aufgeteilt. Detailkonzept ausstehend. Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 16.
+> **[Hinweis 2026-04-08]** Das folgende JSON-Beispiel ist nur noch ein
+> Legacy-Uebergangsbild fuer die fachliche Idee. Autoritativ sind jetzt
+> FK-17 (Attributvertraege) und FK-18 (relationale Abbildung).
 
 ```json
 {
@@ -154,6 +167,99 @@ Exploration-mode Stories durchlaufen nach der Implementation die volle 4-Schicht
 Schlüssel. Kanonische Records im State-Backend werden immer mindestens
 unter `(project_key, story_id, run_id?)` geführt.
 
+### 2.2.2a Flow-Ausfuehrung, Node-Ledger und Overrides
+
+Die Einheits-DSL aus FK-20 braucht einen kanonischen Laufzeitzustand,
+damit `ExecutionPolicy`, Rueckspruenge und Overrides nicht implizit in
+Handlern versteckt werden. Dieser Zustand gehoert fachlich zum
+`PhaseStateStore`.
+
+**Normative Aufteilung:**
+
+- `StoryContext`: langlebige Story-Semantik wie `story_type`, `mode`,
+  Konzept-Referenzen und Scope
+- `PhaseStateCore`: aktueller Top-Level-Phasenstatus der Pipeline
+- `FlowExecution`: aktueller Ausfuehrungszustand eines konkreten
+  `FlowDefinition`-Versuchs
+- `NodeExecution`: persistierte Node-Historie pro `node_id`
+- `AttemptRecord`: append-only Historie eines Phasenversuchs
+- `OverrideRecord`: auditierbarer Eingriff von Mensch/Orchestrator
+
+```python
+@dataclass(frozen=True)
+class FlowExecution:
+    project_key: str
+    story_id: str
+    run_id: str
+    flow_id: str
+    level: str              # pipeline | phase | component
+    owner: str              # PipelineEngine, Installer, StageRegistry, ...
+    parent_flow_id: str | None
+    status: str             # READY | IN_PROGRESS | YIELDED | COMPLETED | FAILED | ABORTED
+    current_node_id: str | None
+    attempt_no: int
+    started_at: datetime
+    finished_at: datetime | None
+
+
+@dataclass(frozen=True)
+class NodeExecution:
+    project_key: str
+    story_id: str
+    run_id: str
+    flow_id: str
+    node_id: str
+    attempt_no: int
+    outcome: str               # PASS | FAIL | SKIP | YIELD | BACKTRACK
+    started_at: datetime
+    finished_at: datetime | None
+    resume_trigger: str | None
+    backtrack_target: str | None
+
+
+@dataclass(frozen=True)
+class AttemptRecord:
+    project_key: str
+    story_id: str
+    run_id: str
+    phase: str
+    attempt_no: int
+    outcome: str               # COMPLETED | FAILED | ESCALATED | YIELDED | BLOCKED | SKIPPED
+    failure_cause: str | None
+    started_at: datetime
+    ended_at: datetime
+
+
+@dataclass(frozen=True)
+class OverrideRecord:
+    override_id: str
+    project_key: str
+    story_id: str
+    run_id: str
+    flow_id: str
+    target_node_id: str | None
+    override_type: str         # skip_node | force_gate_pass | force_gate_fail | jump_to | truncate_flow | freeze_retries
+    actor_type: str            # human | orchestrator
+    actor_id: str
+    reason: str
+    created_at: datetime
+    consumed_at: datetime | None
+```
+
+**Semantik:**
+
+1. `ExecutionPolicy` wird ausschliesslich gegen `NodeExecution`
+   ausgewertet.
+2. Rueckspruenge erhoehen `attempt_no` des betroffenen Flows, loeschen
+   aber keine Historie.
+3. Ein `subflow` erzeugt einen eigenen `FlowExecution`-Record mit
+   `parent_flow_id`, nicht bloss einen Flag im Elternflow.
+4. Overrides werden nie inline ausgefuehrt, sondern als
+   `OverrideRecord` persistiert und erst bei der naechsten
+   Engine-Auswertung konsumiert.
+5. `story_id` allein reicht auch fuer diese Records nicht; der Scope
+   ist immer mindestens `(project_key, story_id, run_id, flow_id)`.
+
 ### 2.2.3 Verify-Schicht-Zustände (implementierende Stories)
 
 Die vollständige Verify-Pipeline mit vier Schichten gilt **nur für
@@ -190,8 +296,8 @@ Bedarf JSON-Exporte erzeugt werden:
 | Schicht | Artefakt | Producer |
 |---------|----------|----------|
 | 1 | `structural.json` | `qa-structural-check` |
-| 2 | `llm-review.json` | `qa-llm-review` |
-| 2 | `semantic-review.json` | `qa-semantic-review` |
+| 2 | `qa_review.json` | `qa-llm-review` |
+| 2 | `semantic_review.json` | `qa-semantic-review` |
 | 3 | `adversarial.json` | `qa-adversarial` |
 | 4 | `decision.json` | `qa-policy-engine` |
 
@@ -312,9 +418,9 @@ stateDiagram-v2
 | Issue-Nummer | Integer | `42` | GitHub (auto-increment) |
 | Branch-Name | `story/{story_id}` | `story/ODIN-042` | Worktree-Setup |
 | Story-Verzeichnis | `{story_id}_{slug}` | `ODIN-042_implement-broker-api` | Context-Berechnung |
-| Telemetrie-Datei | `{story_id}.jsonl` | `ODIN-042.jsonl` | Telemetrie-Hook |
-| QA-Verzeichnis | `_temp/qa/{story_id}/` | `_temp/qa/ODIN-042/` | Phase Runner |
-| Lock-Verzeichnis | `_temp/governance/locks/{story_id}/` | `_temp/governance/locks/ODIN-042/` | Pipeline-Skripte |
+| Story-Paket | `{story_id}_{slug}` | `ODIN-042_implement-broker-api` | Story-Export |
+| Artefakt-Referenz | `artifact_id` | `art-structural-001` | Artifact Manager |
+| Lock-Record | `(project_key, story_id, run_id, lock_type)` | `(odin, ODIN-042, run-123, qa_artifact_write)` | Pipeline-Skripte |
 | Adversarial-Sandbox | `_temp/adversarial/{story_id}/` | `_temp/adversarial/ODIN-042/` | Phase Runner |
 | Incident-ID | `FC-{YYYY}-{NNNN}` | `FC-2026-0017` | Failure Corpus |
 | Pattern-ID | `FP-{NNNN}` | `FP-0003` | Failure Corpus |
@@ -328,7 +434,7 @@ Alle Artefakte und Events werden über zwei Schlüssel korreliert:
 - **`story_id`** — fachlicher Schlüssel. Identifiziert die Story
   über alle Runs hinweg. Pflichtfeld in jedem Telemetrie-Event,
   jedem QA-Artefakt-Envelope, Teil des Branch-Namens, des
-  Verzeichnisnamens und der Telemetrie-Datei.
+  Verzeichnisnamens und der zentralen Runtime-/Telemetry-Records.
 
 - **`run_id`** — technischer Ausführungsschlüssel. Identifiziert
   einen einzelnen Pipeline-Durchlauf. Wird beim Setup als UUID
@@ -351,9 +457,9 @@ einer Story.
 | Klasse | Erzeuger | Schutz | Beispiele |
 |--------|----------|--------|-----------|
 | **Worker-Artefakte** | Worker-Agent | Kein Schutz (Agent kann überschreiben) | `worker-manifest.json`, `protocol.md`, Quellcode |
-| **QA-Artefakte** | Pipeline-Skripte, QA-Agenten | Schreibschutz via Sperrdatei + Hook (2.7) | `structural.json`, `decision.json`, `semantic.json`, `closure.json`, `context.json` |
-| **Pipeline-Artefakte** | Phase Runner, Preflight, Postflight | Implizit geschützt (nur Pipeline schreibt) | `phase-state.json`, `preflight.json`, `postflight.json` |
-| **Telemetrie** | Hooks + Pipeline-Skripte | Zentrales State-Backend, optionaler Export bei Closure | `events`-Tabelle/Collection (Laufzeit), Export-Bundle (Archiv) |
+| **QA-Artefakte** | Pipeline-Skripte, QA-Agenten | Schreibschutz via Lock-Record + Hook (2.7) | `structural.json`, `decision.json`, `semantic.json`, `closure.json`, `context.json` |
+| **Pipeline-Artefakte** | Phase Runner, Preflight, Postflight | Implizit geschützt (nur Pipeline schreibt) | `phase_state_projection` / materialisierte Exporte wie `phase-state.json`, `preflight.json`, `postflight.json` |
+| **Telemetrie** | `telemetry_service` | Zentrales State-Backend, optionaler Export bei Closure | `execution_events` (Laufzeit), Export-Bundle (Archiv) |
 | **Governance-Artefakte** | Guards, Integrity-Gate | Log-only | `integrity-violations.log` |
 | **Entwurfsartefakte** | Worker (Exploration) | Read-only nach Freeze | `entwurfsartefakt.json` |
 | **Handover-Artefakte** | Worker (Implementation) | Kein Schutz | `handover.json` |
@@ -368,8 +474,8 @@ durch den Worker geschützt:
 PROTECTED_ARTIFACTS = [
     "structural.json",
     "semantic.json",
-    "llm-review.json",
-    "semantic-review.json",
+"qa_review.json",
+"semantic_review.json",
     "adversarial.json",
     "decision.json",
     "closure.json",
@@ -441,10 +547,10 @@ pro Check einen von drei Werten: `PASS`, `PASS_WITH_CONCERNS`, `FAIL`
 |----------|-------------------|
 | `structural.json` | `qa-structural-check` |
 | `decision.json` | `qa-policy-engine` |
-| `phase-state.json` | `run-phase` |
-| `context.json` | `compute-story-context` |
-| `llm-review.json` | `qa-llm-review` |
-| `semantic-review.json` | `qa-semantic-review` |
+| `phase-state.json` | `run-phase` (Export der `phase_state_projection`) |
+| `context.json` | `compute-story-context` (Export aus `StoryContext`) |
+| `qa_review.json` | `qa-llm-review` |
+| `semantic_review.json` | `qa-semantic-review` |
 | `adversarial.json` | `qa-adversarial` |
 | `closure.json` | `story-closure` |
 
@@ -458,53 +564,54 @@ richtigen Producer erzeugt wurde (Dimensionen 3, 4, 6).
 | Ein Agent kann nicht entscheiden, was implementiert wird | Preflight prüft `Status == "Approved"` | `preflight.py` |
 | Alle Änderungen auf Story-Branch isoliert | Branch-Guard blockiert Main-Operationen | `branch_guard.py` Hook |
 | Orchestrator implementiert nicht | Orchestrator-Guard blockiert Codebase-Zugriff | `orchestrator_guard.py` Hook |
-| Worker kann QA nicht manipulieren | Sperrdatei-Mechanismus + CCAG blockiert Sub-Agents (siehe 2.7) | Sperrdatei + CCAG-Regeln |
+| Worker kann QA nicht manipulieren | Lock-Record-Mechanismus + CCAG blockiert Sub-Agents (siehe 2.7) | Lock-Record + CCAG-Regeln |
 | LLM bewertet, Pipeline entscheidet | LLM-Antwort wird geparst; Pipeline wertet Status-Feld aus | `llm_evaluator.py` |
 | Kein Issue-Close ohne Merge | Closure führt Merge vor Close durch | `closure.py` |
 | Kein Issue-Close ohne Integrity-Gate | Integrity-Hook fängt `gh issue close` ab | `integrity.py` Hook |
 | Multi-LLM ist Pflicht | Integrity-Gate prüft Telemetrie-Nachweise für alle Pflicht-Reviewer | `integrity.py` |
 | Fehlende Felder → Exploration Mode | Mode-Router behandelt fehlendes Feld als Exploration-Kriterium | `mode_router.py` |
-| GitHub-Felder sind Eingabe, nicht operative Wahrheit | Nach Setup wird `context.json` als autoritativer Snapshot erzeugt. Ab da liest die Pipeline nur noch den Snapshot, nicht mehr GitHub. Enums validiert, Referenzen aufgelöst, abgeleitete Flags berechnet. | `context.py` → `context.json` |
+| GitHub-Felder sind Eingabe, nicht operative Wahrheit | Nach Setup wird `StoryContext` als autoritativer Snapshot im State-Backend persistiert. Optional kann daraus ein `context.json` exportiert werden. Ab da liest die Pipeline den Snapshot, nicht mehr GitHub. Enums validiert, Referenzen aufgelöst, abgeleitete Flags berechnet. | `context.py` → `story_contexts` / optional `context.json` |
 | Maximal 2 LLM-Aufrufe pro Check | LLM-Evaluator begrenzt Retry auf 1 | `llm_evaluator.py` |
 | Konzept-Feedback ist Pflicht | Telemetrie + QA-Agent prüfen Feedback-Einarbeitung | Konzept-Feedback-Loop (2.2.4) |
 | Adversarial Agent schreibt nicht direkt ins Repo | Tests nur in Sandbox, Promotion durch Pipeline-Skript | Adversarial-Sandbox + Promotion-Skript |
 
-## 2.7 Sperrdatei-Mechanismus für QA-Artefaktschutz
+## 2.7 Lock-Mechanismus für QA-Artefaktschutz
 
-### 2.7.1 Prinzip: Hook + Sperrdatei als Zusammenspiel
+### 2.7.1 Prinzip: Hook + Lock-Record als Zusammenspiel
 
-Sperrdateien ersetzen keine Hooks — sie erweitern sie. Der Hook
+Lock-Records ersetzen keine Hooks — sie erweitern sie. Der Hook
 (CCAG oder dedizierter PreToolUse-Hook) ist der Enforcement-Mechanismus.
-Die Sperrdatei ist der Zustandsträger, der dem Hook mitteilt, ob
+Der Lock-Record ist der Zustandsträger, der dem Hook mitteilt, ob
 gerade eine Sperre aktiv ist.
 
 Dieses Muster ist bereits heute beim Preflight implementiert: Wenn der
-Preflight fehlschlägt, schreibt das Preflight-Skript eine Sperrdatei,
+Preflight fehlschlägt, schreibt das Preflight-Skript einen Lock-Record,
 die den CCAG-Hook veranlasst, dem Orchestrator-Agent **sämtliche
 Tool-Aufrufe** zu verbieten — die agentische Pipeline wird hart
 angehalten. Derselbe Mechanismus wird für den QA-Artefakt-Schutz
 angewendet.
 
-### 2.7.2 Anwendung: QA-Artefakt-Schutz via Sperrdatei
+### 2.7.2 Anwendung: QA-Artefakt-Schutz via zentralem Lock-Record
 
 Das Tooling (Execute-User-Story-Skill bzw. Pipeline-Skripte) legt
-bei Story-Start automatisch eine **Sperrdatei** an. Der Agent selbst
-weiß davon nichts und kann sie nicht beeinflussen.
+bei Story-Start automatisch einen **zentralen Lock-Record** im
+State-Backend an. Der Agent selbst weiß davon nichts und kann ihn
+nicht beeinflussen.
 
-**Sperrdatei:** `_temp/governance/locks/{story_id}/qa-lock.json`
+**Lock-Record:** fachlich `qa_artifact_write_lock`
 
-Pro Story eine eigene Lock-Datei in einem story-spezifischen
-Verzeichnis. Das verhindert Konflikte bei parallelen Story-Umsetzungen.
-
-**Inhalt:**
+**Inhalt (logisch):**
 ```json
 {
+  "project_key": "odin-trading",
   "story_id": "PROJ-042",
   "run_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-  "locked_at": "2026-03-16T14:00:00+01:00",
-  "locked_paths": [
-    "_temp/qa/PROJ-042/"
+  "lock_type": "qa_artifact_write",
+  "created_at": "2026-03-16T14:00:00+01:00",
+  "scope_refs": [
+    "artifact_class:qa"
   ],
+  "owner_principal": "pipeline_script",
   "owner_pid": 12345,
   "ttl_s": 86400
 }
@@ -514,28 +621,25 @@ Verzeichnis. Das verhindert Konflikte bei parallelen Story-Umsetzungen.
 
 ```mermaid
 flowchart LR
-    START["Pipeline-Skript:<br/>Story-Setup"] -->|"erstellt lock"| LOCKED["Lock aktiv<br/>locks/{story_id}/qa-lock.json"]
-    LOCKED -->|"Closure-Skript<br/>entfernt lock"| FREE["Lock entfernt"]
-    LOCKED -->|"TTL abgelaufen"| STALE["Stale Lock<br/>(Hook reapet automatisch)"]
+    START["Pipeline-Skript:<br/>Story-Setup"] -->|"erstellt lock record"| LOCKED["Lock aktiv<br/>State-Backend"]
+    LOCKED -->|"Closure-Skript<br/>beendet lock"| FREE["Lock inaktiv"]
+    LOCKED -->|"TTL/PID stale"| STALE["Stale Lock<br/>(Hook ignoriert / reaped)"]
 ```
 
 1. **Erstellung:** Das Setup-Skript (nicht der Agent) erstellt
-   die Lock-Datei als Teil der Guard-Aktivierung.
+   den Lock-Record als Teil der Guard-Aktivierung.
 2. **Wirkung:** Hook prüft bei jedem Tool-Call von Sub-Agents,
-   ob eine Lock-Datei für die aktive Story existiert.
-   Wenn ja: Zugriff auf die gesperrten Pfade wird für Sub-Agents
-   blockiert.
-3. **Entfernung:** Das Closure-Skript (nicht der Agent) entfernt
-   die Lock-Datei nach erfolgreichem Abschluss.
+   ob ein aktiver Lock-Record für die Story existiert.
+   Wenn ja: Zugriff auf gesperrte QA-Artefakte wird blockiert.
+3. **Beendigung:** Das Closure-Skript markiert oder entfernt den
+   Lock-Record nach erfolgreichem Abschluss.
 4. **Stale-Erkennung (zweistufig):**
-   - **PID-Prüfung (primär):** Die Lock-Datei enthält die PID des
+   - **PID-Prüfung (primär):** Der Lock-Record enthält die PID des
      orchestrierenden Prozesses (`owner_pid`). Der Hook prüft vor
      der Blockade, ob der Prozess noch läuft (`os.kill(pid, 0)`).
-     Ist der Prozess tot, gilt der Lock sofort als stale — kein
-     Warten auf TTL nötig.
-   - **TTL (Fallback):** Falls die PID-Prüfung nicht greift (z.B.
-     PID recycled), wird nach `ttl_s` Sekunden (Default: 86400)
-     der Lock unabhängig davon als stale behandelt.
+     Ist der Prozess tot, gilt der Lock sofort als stale.
+   - **TTL (Fallback):** Falls die PID-Prüfung nicht greift, wird
+     der Lock nach `ttl_s` Sekunden als stale behandelt.
 
 ### 2.7.3 Scoping: Nur Sub-Agents gesperrt
 
@@ -557,29 +661,29 @@ nicht für den Hauptagenten oder Pipeline-Skripte:
   description: "Blockiert Sub-Agent-Zugriff auf QA-Verzeichnisse während Story-Umsetzung"
   scope: subagent
   condition:
-    lock_dir_has_files: "_temp/governance/locks/"
+    state_backend_has_active_lock: "qa_artifact_write"
   tools: [Write, Edit, Bash]
-  block_pattern: "_temp/qa/"
+  block_scope: "artifact_class:qa"
   action: block
   message: "Operation not permitted."
 ```
 
-### 2.7.5 Zusammenspiel Hook + Sperrdatei
+### 2.7.5 Zusammenspiel Hook + Lock-Record
 
-| Aspekt | Ohne Sperrdatei | Mit Sperrdatei |
+| Aspekt | Ohne Lock-Record | Mit Lock-Record |
 |--------|----------------|---------------|
 | Zustand | Kein Story-Lauf aktiv | Story-Umsetzung läuft |
 | QA-Verzeichnisse | Frei zugänglich (normaler Alltag) | Durch Hook gesperrt für Sub-Agents |
-| Hook-Verhalten | Hook prüft, findet keine Sperrdatei, winkt durch | Hook prüft, findet Sperrdatei, blockiert |
+| Hook-Verhalten | Hook prüft, findet keinen aktiven Lock, winkt durch | Hook prüft, findet aktiven Lock, blockiert |
 | Wer steuert die Sperre | — | Pipeline-Tooling (nicht der Agent) |
 
 **Bestehendes Muster (Preflight):**
-Preflight schreibt bei Failure → `.preflight-lock` → CCAG-Hook
+Preflight schreibt bei Failure → zentraler `preflight_lock`-Record → CCAG-Hook
 blockiert ALLE Tool-Aufrufe des Orchestrators → Pipeline komplett
 angehalten.
 
 **Neues Muster (QA-Artefakt-Schutz):**
-Setup schreibt bei Story-Start → `.qa-lock` → Hook blockiert
+Setup schreibt bei Story-Start → `qa_artifact_write_lock`-Record → Hook blockiert
 Sub-Agent-Zugriff auf QA-Pfade → nur Pipeline-Skripte können
 QA-Artefakte schreiben.
 

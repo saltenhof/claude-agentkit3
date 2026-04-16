@@ -13,7 +13,7 @@ import pytest
 
 from agentkit.config import load_project_config
 from agentkit.exceptions import ProjectError
-from agentkit.project_ops.install import InstallConfig, InstallResult, install_agentkit
+from agentkit.installer import InstallConfig, InstallResult, install_agentkit
 
 
 @pytest.mark.integration

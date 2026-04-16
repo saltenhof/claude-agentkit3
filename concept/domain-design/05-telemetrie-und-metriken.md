@@ -280,15 +280,15 @@ menschliche Lesbarkeit). Referenz: Hauptkonzept Kapitel 8.
 
 | Feld | Typ | Beschreibung | Pflicht |
 |------|-----|-------------|---------|
-| event_id | String (UUID) | Eindeutiger Bezeichner des Events | Ja |
-| timestamp | String (ISO 8601) | Zeitpunkt des Events, UTC | Ja |
-| story_id | String | GitHub-Issue-Referenz der zugehörigen Story | Ja |
+| project_key | String | Mandanten-Schluessel des Zielprojekts | Ja |
+| story_id | String | Story-Kennung innerhalb des Projekts | Ja |
 | run_id | String (UUID) | Bezeichner des Pipeline-Runs (ein Run umfasst einen vollständigen Story-Durchlauf) | Ja |
-| phase | Enum | Aktuelle Phase: setup, exploration, implementation, verify, closure | Ja |
-| actor_type | Enum | Typ des Akteurs: orchestrator, worker, adversarial, script | Ja |
-| actor_id | String | Bezeichner der konkreten Instanz (z.B. Worker-Session-ID, Skript-Name) | Ja |
+| event_id | String (UUID) | Eindeutiger Bezeichner des Events | Ja |
 | event_type | String | Typ des Events (siehe Katalog in E.2) | Ja |
-| detail | Objekt | Strukturierter Inhalt, abhängig vom event_type (siehe E.3) | Ja |
+| occurred_at | String (ISO 8601 mit Offset) | Fachlicher Zeitpunkt des Events, intern UTC-normalisiert | Ja |
+| source_component | String | Fachliche Herkunft des Events (z.B. `telemetry_hook`, `guard_system`) | Ja |
+| severity | Enum | `debug`, `info`, `warning`, `error`, `critical` | Ja |
+| payload | Objekt | Strukturierter Inhalt, abhängig vom event_type (siehe E.3) | Ja |
 
 ### E.2 Event-Typ-Katalog
 
@@ -314,7 +314,7 @@ Zuordnung zu Actor-Typ und Phase.
 
 ### E.3 Detail-Struktur nach Event-Typ
 
-Das `detail`-Feld ist ein strukturiertes Objekt, dessen Felder vom
+Das `payload`-Feld ist ein strukturiertes Objekt, dessen Felder vom
 Event-Typ abhängen. Die folgenden Tabellen definieren die Pflichtfelder
 pro Event-Typ.
 

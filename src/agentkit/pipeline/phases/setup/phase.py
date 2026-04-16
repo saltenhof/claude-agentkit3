@@ -16,15 +16,15 @@ from agentkit.pipeline.lifecycle import HandlerResult
 from agentkit.pipeline.phases.setup.context_builder import build_story_context
 from agentkit.pipeline.phases.setup.preflight import run_preflight
 from agentkit.pipeline.state import save_story_context
-from agentkit.project_ops.shared.paths import story_dir
-from agentkit.story.models import PhaseStatus
-from agentkit.story.types import get_profile
+from agentkit.installer.paths import story_dir
+from agentkit.story_context_manager.models import PhaseStatus
+from agentkit.story_context_manager.types import get_profile
 from agentkit.utils.git import create_worktree, remove_worktree
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.story.models import PhaseState, StoryContext
+    from agentkit.story_context_manager.models import PhaseState, StoryContext
 
 logger = logging.getLogger(__name__)
 

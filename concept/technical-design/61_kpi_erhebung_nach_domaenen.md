@@ -49,6 +49,12 @@ weiterhin von `story_id`, `guard_key` oder `pool_key` sprechen, die
 physische Speicherung im Runtime-/Analytics-Schema ist jedoch immer
 projektgebunden.
 
+**Reset-Regel:** Eine vollstaendig zurueckgesetzte Story-Umsetzung gilt
+fuer FK-61 als ungueltige Quelle. Ihre `execution_events`,
+Read-Models und daraus abgeleiteten KPI-Beitraege sind aktiv zu
+entfernen oder bei der naechsten Aggregation neu zu berechnen. Ein
+spaeteres Herausfiltern in einzelnen KPI-Queries ist unzulaessig.
+
 ---
 
 ## 61.2 Domaene 1 — Story-Dimensionierung
@@ -58,8 +64,8 @@ projektgebunden.
 | KPI | Quelle | Erhebungspunkt | Ziel |
 |-----|--------|----------------|------|
 | `qa_round_count` | `story_metrics.qa_rounds` | Bereits bei Closure durch `MetricsCollector` berechnet | → `fact_story.qa_round_count` |
-| `processing_time_by_type_and_size` | `story_metrics.processing_time_min` + `context.json` (story_type, story_size) | Bereits bei Closure berechnet | → `fact_story.processing_time_ms`, `fact_story.story_type`, `fact_story.story_size` |
-| `feedback_loop_convergence` | `qa_findings` Tabelle, verglichen ueber `attempt`-Spalte | Findings pro Runde aus `qa_findings WHERE story_id = ? GROUP BY attempt`. Convergence = Findings(N+1) < Findings(N) | → `fact_story.feedback_converged` (boolean) |
+| `processing_time_by_type_and_size` | `story_metrics.processing_time_min` + `story_contexts` / `StoryContext` (story_type, story_size) | Bereits bei Closure berechnet | → `fact_story.processing_time_ms`, `fact_story.story_type`, `fact_story.story_size` |
+| `feedback_loop_convergence` | Read-Model ueber `artifact_records` der Verify-Runden, verglichen ueber `attempt_no` | Findings pro Runde aus den Verify-Artefakten je `(project_key, story_id, run_id)`. Convergence = Findings(N+1) < Findings(N) | → `fact_story.feedback_converged` (boolean) |
 | `blocked_ac_distribution` | `handover.json` → `blocked_acs` Feld | Gelesen bei Closure aus dem Handover-Artefakt | → `fact_story.blocked_ac_count`, Payload in `fact_story.blocked_ac_detail_json` |
 | `policy_required_stage_miss_rate` | `decision.json` → fehlende Required-Stages | Policy-Engine (FK-33) prueft Required Stages. Fehlende werden in `decision.json` dokumentiert | → `fact_pipeline_period.stage_miss_count`, `fact_pipeline_period.stage_miss_detail_json` |
 
@@ -67,8 +73,12 @@ projektgebunden.
 
 | KPI | Neues Event / Payload | Erhebungspunkt | Aenderung |
 |-----|----------------------|----------------|-----------|
-| `compaction_count_per_story` | **Neues Event**: `compaction_event` mit Feld `story_id` (abgeleitet aus `.agentkit-story.json` im cwd). | PostCompact-Hook (`epoch_writer.py`) schreibt bereits Epoch-Counter. Zusaetzlich wird ein `compaction_event` in die `events`-Tabelle geschrieben. | → `fact_story.compaction_count` |
+| `compaction_count_per_story` | **Neues Event**: `compaction_event` im Scope `(project_key, story_id, run_id)` | PostCompact-Hook (`epoch_writer.py`) schreibt bereits Epoch-Counter. Zusaetzlich wird ein `compaction_event` in `execution_events` geschrieben. | → `fact_story.compaction_count` |
 | `execution_vs_exploration_ratio` | Kein neues Event noetig. `runtime.story_metrics.mode` enthaelt den Wert (execution/exploration/not_applicable). Wird bei Closure durch `upsert_workflow_metrics()` geschrieben. | Refresh-Worker liest `runtime.story_metrics.mode` | → `fact_story.pipeline_mode`, aggregiert in `fact_pipeline_period.execution_count`, `fact_pipeline_period.exploration_count` |
+
+**Fachregel:** `story_metrics` aus vollstaendig zurueckgesetzten Runs
+duerfen nicht in `fact_story` oder periodische Pipeline-KPIs
+einfließen.
 
 ---
 
@@ -78,8 +88,8 @@ projektgebunden.
 
 | KPI | Quelle | Erhebungspunkt | Ziel |
 |-----|--------|----------------|------|
-| `llm_response_time_p50` | Zeitstempel-Delta: `review_request.ts` → `review_response.ts` pro `pool` | Events existieren bereits. Refresh-Worker berechnet Perzentile in Python | → `fact_pool_period.response_time_p50_ms` |
-| `llm_call_count_per_story` | `COUNT(events WHERE event_type = 'llm_call' AND story_id = ?)` | Events existieren bereits | → `fact_story.llm_call_count` |
+| `llm_response_time_p50` | Zeitstempel-Delta: `review_request.occurred_at` → `review_response.occurred_at` pro `pool` | Events existieren bereits. Refresh-Worker berechnet Perzentile in Python | → `fact_pool_period.response_time_p50_ms` |
+| `llm_call_count_per_story` | `COUNT(execution_events WHERE project_key = ? AND story_id = ? AND event_type = 'llm_call')` | Events existieren bereits | → `fact_story.llm_call_count` |
 
 ### 61.3.2 Neu zu erheben [N]
 
@@ -97,7 +107,7 @@ projektgebunden.
 
 | KPI | Quelle | Erhebungspunkt | Ziel |
 |-----|--------|----------------|------|
-| `guard_violation_count_by_type` | `events WHERE event_type = 'integrity_violation'`, Payload-Feld `guard` | Events existieren. Gruppierung nach `guard`-Feld | → `fact_guard_period.violation_count` |
+| `guard_violation_count_by_type` | `execution_events WHERE event_type = 'integrity_violation'`, Payload-Feld `guard` | Events existieren. Gruppierung nach `guard`-Feld | → `fact_guard_period.violation_count` |
 
 ### 61.4.2 Neu zu erheben [N]
 
@@ -140,9 +150,9 @@ ein einzelnes UPSERT aus:
 
 ```python
 INSERT INTO guard_invocation_counters
-    (story_id, guard_key, week_start, invocations, blocks, updated_at)
-VALUES (?, ?, ?, 1, ?, CURRENT_TIMESTAMP)
-ON CONFLICT(story_id, guard_key, week_start) DO UPDATE SET
+    (project_key, story_id, guard_key, week_start, invocations, blocks, updated_at)
+VALUES ($1, $2, $3, $4, 1, $5, CURRENT_TIMESTAMP)
+ON CONFLICT(project_key, story_id, guard_key, week_start) DO UPDATE SET
     invocations = invocations + 1,
     blocks = blocks + EXCLUDED.blocks,
     updated_at = CURRENT_TIMESTAMP;
@@ -158,9 +168,13 @@ Latenz: ~0.05-0.1ms pro UPSERT. Kein Volumen-Problem
   koennen aeltere Wochenbuckets derselben Story geflusht werden.
 - **Housekeeping**: Counter aelter als 24h ohne Update werden
   geflusht (fuer abgebrochene/eskalierende Stories).
+- **Vollstaendiger Story-Reset**: Counter des betroffenen `run_id`
+  beziehungsweise `story_id` werden purgt und ihre bereits in
+  `fact_guard_period` eingerechneten Beitraege muessen neu
+  aggregiert werden.
 
 **Audit bleibt intakt**: `integrity_violation` Events (exit 2)
-werden weiterhin in die `events`-Tabelle geschrieben. Der
+werden weiterhin in `execution_events` geschrieben. Der
 Scratchpad-Counter ersetzt nur die Volumen-KPI (Nenner der
 Violation-Rate), nicht den Audit-Trail.
 
@@ -230,7 +244,7 @@ und `WITHOUT ROWID`.
 
 | KPI | Quelle | Erhebungspunkt | Ziel |
 |-----|--------|----------------|------|
-| `are_gate_result` | `events WHERE event_type = 'are_gate_result'`, Payload `result` (PASS/FAIL) | ARE-Telemetrie existiert (`are/telemetry.py`) | → `fact_story.are_gate_passed` (boolean) |
+| `are_gate_result` | `execution_events WHERE event_type = 'are_gate_result'`, Payload `result` (PASS/FAIL) | ARE-Telemetrie existiert (`are/telemetry.py`) | → `fact_story.are_gate_passed` (boolean) |
 
 ### 61.9.2 Neu zu erheben [N]
 
@@ -249,6 +263,10 @@ und `WITHOUT ROWID`.
 | `incident_volume_per_month` | `runtime.fc_incidents` Tabelle, `COUNT WHERE created_at >= month_start` | Refresh-Worker aggregiert aus dem Runtime-Schema | → `fact_corpus_period.new_incident_count` |
 | `pattern_to_check_conversion_rate` | `fc_patterns` (status = 'check_active') / `fc_patterns` (total) | Refresh-Worker berechnet Ratio | → `fact_corpus_period.patterns_with_active_check`, `fact_corpus_period.patterns_total_count` |
 
+**Fachregel:** Failure-Corpus-KPIs duerfen nur auf `fc_incidents` und
+`fc_patterns` aus gueltigen, nicht vollstaendig zurueckgesetzten Runs
+basieren.
+
 ---
 
 ## 61.11 Domaene 10 — Prozess-Effizienz
@@ -266,7 +284,7 @@ und `WITHOUT ROWID`.
 
 | KPI | Neues Event / Payload | Erhebungspunkt | Aenderung |
 |-----|----------------------|----------------|-----------|
-| `phase_time_distribution` | Kein neues Event. `phase-state.json` enthaelt Timestamps pro Phase (setup_started, implementation_started, verify_started, closure_started, closed_at). | Refresh-Worker liest `phase-state.json` bei Story-Closure und berechnet Deltas | → `fact_story.phase_setup_ms`, `fact_story.phase_exploration_ms`, `fact_story.phase_implementation_ms`, `fact_story.phase_verify_ms`, `fact_story.phase_closure_ms` |
+| `phase_time_distribution` | Kein neues Event. `phase_state_projection` enthaelt Timestamps pro Phase (setup_started, implementation_started, verify_started, closure_started, closed_at). | Refresh-Worker liest `phase_state_projection` bei Story-Closure und berechnet Deltas | → `fact_story.phase_setup_ms`, `fact_story.phase_exploration_ms`, `fact_story.phase_implementation_ms`, `fact_story.phase_verify_ms`, `fact_story.phase_closure_ms` |
 | `story_predictability` | Kein neues Event. Varianz der `processing_time_min` fuer Stories mit gleichem `(story_type, story_size)`. | Refresh-Worker berechnet Varianz in Python | → `fact_pipeline_period.processing_time_variance_ms2` |
 
 ---
@@ -285,7 +303,7 @@ und `WITHOUT ROWID`.
 **Hinweis**: `guard_invocation` ist bewusst KEIN Event-Typ.
 Guard-Invokationen werden ueber die Scratchpad-Tabelle
 `guard_invocation_counters` erfasst (siehe §61.4.3), um das
-Volumen in der `events`-Tabelle nicht um Faktor 12-120 zu
+Volumen in `execution_events` nicht um Faktor 12-120 zu
 erhoehen.
 
 ### 61.12.2 Angereicherte Payloads (bestehende Events)

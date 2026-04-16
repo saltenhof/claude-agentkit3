@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Self
 
 from agentkit.exceptions import WorkflowError
 from agentkit.pipeline.workflow.model import (
+    FlowLevel,
     HookPoints,
     PhaseDefinition,
     Precondition,
@@ -25,7 +26,7 @@ if TYPE_CHECKING:
 
     from agentkit.pipeline.workflow.gates import Gate
     from agentkit.pipeline.workflow.guards import GuardFn
-    from agentkit.story.models import PhaseState, StoryContext
+    from agentkit.story_context_manager.models import PhaseState, StoryContext
 
 
 class WorkflowBuilder:
@@ -51,10 +52,24 @@ class WorkflowBuilder:
 
     def __init__(self, name: str) -> None:
         self._name = name
+        self._level = FlowLevel.PIPELINE
+        self._owner = "PipelineEngine"
         self._phases: list[_PhaseAccumulator] = []
         self._transitions: list[TransitionRule] = []
         self._hooks: HookPoints = HookPoints()
         self._current_phase: _PhaseAccumulator | None = None
+
+    def level(self, level: FlowLevel) -> Self:
+        """Set the hierarchy level of the flow being built."""
+
+        self._level = level
+        return self
+
+    def owner(self, owner: str) -> Self:
+        """Set the logical component owner of the flow."""
+
+        self._owner = owner
+        return self
 
     def phase(self, name: str) -> Self:
         """Register a new phase and set it as the current phase.
@@ -323,9 +338,11 @@ class WorkflowBuilder:
         transitions = tuple(self._transitions)
 
         return WorkflowDefinition(
-            name=self._name,
-            phases=phases,
-            transitions=transitions,
+            flow_id=self._name,
+            level=self._level,
+            owner=self._owner,
+            nodes=phases,
+            edges=transitions,
             hooks=self._hooks,
         )
 

@@ -1,37 +1,96 @@
-"""Core data model for the workflow DSL.
+"""Core data model for the hierarchical process DSL.
 
-Defines the immutable (frozen) data structures that describe workflow
-topology: phases, transitions, guards, gates, yield points, and hooks.
-These are pure value objects -- they describe WHAT is allowed, not HOW
-it executes.
+The workflow package started as a phase-only pipeline DSL. AK3 now uses
+the same control-flow vocabulary for pipelines, phases, components, and
+their substeps. This module therefore keeps the existing phase-oriented
+API surface intact while introducing the generic terms required by the
+concept model:
+
+- ``FlowDefinition`` for any control-flow graph
+- ``NodeDefinition`` for a graph node
+- ``EdgeRule`` for a directed edge
+- ``ExecutionPolicy`` / ``RetryPolicy`` / ``OverridePolicy`` for generic
+  runtime semantics
+
+The current engine still interprets the phase-oriented compatibility
+surface (``WorkflowDefinition``, ``PhaseDefinition``,
+``TransitionRule``). Those names are maintained as aliases over the
+generic model so the runtime can evolve without forking the DSL.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from enum import StrEnum
+from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
     from agentkit.pipeline.workflow.gates import Gate
     from agentkit.pipeline.workflow.guards import GuardFn
-    from agentkit.story.models import PhaseState, StoryContext
+    from agentkit.story_context_manager.models import PhaseState, StoryContext
+
+
+class FlowLevel(StrEnum):
+    """Hierarchy level of a flow definition."""
+
+    PIPELINE = "pipeline"
+    PHASE = "phase"
+    COMPONENT = "component"
+
+
+class NodeKind(StrEnum):
+    """Generic node kinds shared by all flow levels."""
+
+    STEP = "step"
+    GATE = "gate"
+    YIELD = "yield"
+    BRANCH = "branch"
+    SUBFLOW = "subflow"
+
+
+class ExecutionPolicy(StrEnum):
+    """Runtime execution semantics for a node."""
+
+    ALWAYS = "always"
+    ONCE_PER_RUN = "once_per_run"
+    ONCE_PER_STORY = "once_per_story"
+    UNTIL_SUCCESS = "until_success"
+    SKIP_AFTER_SUCCESS = "skip_after_success"
+
+
+@dataclass(frozen=True)
+class RetryPolicy:
+    """Retry and backtracking limits for a node.
+
+    Args:
+        max_attempts: Maximum number of attempts for this node or loop.
+            ``None`` means unbounded from the DSL perspective.
+        backtrack_target: Explicit node id to jump back to when retrying.
+        cooldown_policy: Optional runtime cooldown hint.
+    """
+
+    max_attempts: int | None = None
+    backtrack_target: str | None = None
+    cooldown_policy: str | None = None
+
+
+@dataclass(frozen=True)
+class OverridePolicy:
+    """Allowed manual interventions for a node or flow."""
+
+    allow_skip: bool = False
+    allow_force_pass: bool = False
+    allow_force_fail: bool = False
+    allow_jump: bool = False
+    allow_truncate: bool = False
+    allow_freeze_retries: bool = False
 
 
 @dataclass(frozen=True)
 class YieldPoint:
-    """A point where the pipeline yields control and waits for external input.
-
-    Yield points model situations like awaiting a design review or
-    human approval before resuming execution.
-
-    Args:
-        status: The status string to set when yielding (e.g. "awaiting_design_review").
-        resume_triggers: Events that can resume execution from this yield point.
-        required_artifacts: Artifacts that must be present before resuming.
-        timeout_policy: Optional timeout policy name (e.g. "24h", "manual").
-    """
+    """A point where the pipeline yields control and waits for external input."""
 
     status: str
     resume_triggers: tuple[str, ...] = ()
@@ -41,18 +100,7 @@ class YieldPoint:
 
 @dataclass(frozen=True)
 class HookPoints:
-    """Named hook insertion points for workflow lifecycle events.
-
-    Hook names are string references to external hook implementations.
-    The workflow definition does not execute hooks -- it only declares
-    where they can be attached.
-
-    Args:
-        pre_transition: Hooks to run before a transition fires.
-        post_transition: Hooks to run after a transition completes.
-        on_yield: Hooks to run when the pipeline yields.
-        on_escalate: Hooks to run when an escalation occurs.
-    """
+    """Named hook insertion points for flow lifecycle events."""
 
     pre_transition: tuple[str, ...] = ()
     post_transition: tuple[str, ...] = ()
@@ -62,62 +110,27 @@ class HookPoints:
 
 @dataclass(frozen=True)
 class Precondition:
-    """A precondition that must be satisfied before entering a phase.
-
-    Args:
-        guard: The guard function to evaluate.
-        when: Optional callable that determines whether this precondition
-            applies. If ``None``, the precondition always applies.
-    """
+    """A precondition that must be satisfied before entering a node."""
 
     guard: GuardFn
     when: Callable[[StoryContext, PhaseState], bool] | None = None
 
 
 @dataclass(frozen=True)
-class TransitionRule:
-    """A rule describing a valid transition between two phases.
+class NodeDefinition:
+    """Definition of a control-flow node.
 
-    Multiple transitions with the same ``(source, target)`` but different
-    guards are allowed -- the first passing guard wins.
-
-    Args:
-        source: Name of the source phase.
-        target: Name of the target phase.
-        guard: Optional guard that must pass for this transition to fire.
-        resume_policy: Optional resume policy name for transitions that
-            follow a yield point.
-    """
-
-    source: str
-    target: str
-    guard: GuardFn | None = None
-    resume_policy: str | None = None
-
-
-@dataclass(frozen=True)
-class PhaseDefinition:
-    """Definition of a single pipeline phase.
-
-    A phase is a named stage in the workflow with optional guards,
-    gates, yield points, preconditions, and substates.
-
-    Args:
-        name: Unique phase name (e.g. "setup", "verify").
-        guards: Exit-validation guards evaluated after handler completion.
-            Unlike preconditions (which are entry-gates checked before the
-            handler runs), guards are checked after a handler returns
-            COMPLETED.  If any guard fails, the phase transitions to
-            FAILED instead of proceeding to the next phase.
-        gates: Quality gates that must pass within this phase.
-        yield_points: Points where the phase can yield to external input.
-        preconditions: Conditions that must hold before entering the phase.
-        max_remediation_rounds: Maximum number of remediation attempts
-            within this phase (``None`` means no limit from this definition).
-        substates: Named sub-states within this phase for fine-grained tracking.
+    The current runtime still uses subflow-style nodes to represent
+    pipeline phases. For that reason this generic node also carries the
+    legacy phase-specific fields used by the engine today.
     """
 
     name: str
+    kind: NodeKind = NodeKind.SUBFLOW
+    handler_ref: str | None = None
+    execution_policy: ExecutionPolicy = ExecutionPolicy.ALWAYS
+    retry_policy: RetryPolicy | None = None
+    override_policy: OverridePolicy = field(default_factory=OverridePolicy)
     guards: tuple[GuardFn, ...] = ()
     gates: tuple[Gate, ...] = ()
     yield_points: tuple[YieldPoint, ...] = ()
@@ -125,57 +138,146 @@ class PhaseDefinition:
     max_remediation_rounds: int | None = None
     substates: tuple[str, ...] = ()
 
+    @property
+    def node_id(self) -> str:
+        """Canonical identifier used by the generic DSL."""
+
+        return self.name
+
 
 @dataclass(frozen=True)
-class WorkflowDefinition:
-    """Complete immutable workflow definition.
+class EdgeRule:
+    """A directed edge between two nodes in a flow graph."""
 
-    Describes the full topology of a workflow: which phases exist,
-    how they connect via transitions, and what hooks are available.
-    This is a pure data object -- it does not execute anything.
+    source: str
+    target: str
+    guard: GuardFn | None = None
+    resume_policy: str | None = None
+    priority: int = 0
 
-    Args:
-        name: Human-readable workflow name (e.g. "implementation").
-        phases: Ordered tuple of phase definitions.
-        transitions: Tuple of transition rules between phases.
-        hooks: Hook insertion points for lifecycle events.
+
+@dataclass(frozen=True)
+class FlowDefinition:
+    """Complete immutable flow definition.
+
+    ``FlowDefinition`` is the canonical name in the concepts. The
+    compatibility properties ``name``, ``phases`` and ``transitions``
+    allow the existing engine to continue consuming the same object.
     """
 
-    name: str
-    phases: tuple[PhaseDefinition, ...] = ()
-    transitions: tuple[TransitionRule, ...] = ()
+    flow_id: str
+    level: FlowLevel = FlowLevel.PIPELINE
+    owner: str = "PipelineEngine"
+    nodes: tuple[NodeDefinition, ...] = ()
+    edges: tuple[EdgeRule, ...] = ()
     hooks: HookPoints = field(default_factory=HookPoints)
 
-    def get_phase(self, name: str) -> PhaseDefinition | None:
-        """Look up a phase definition by name.
+    @property
+    def name(self) -> str:
+        """Compatibility alias for the previous workflow naming."""
 
-        Args:
-            name: The phase name to search for.
+        return self.flow_id
 
-        Returns:
-            The matching ``PhaseDefinition``, or ``None`` if not found.
-        """
-        for phase in self.phases:
-            if phase.name == name:
-                return phase
+    @property
+    def phases(self) -> tuple[NodeDefinition, ...]:
+        """Compatibility alias for phase-oriented consumers."""
+
+        return self.nodes
+
+    @property
+    def transitions(self) -> tuple[EdgeRule, ...]:
+        """Compatibility alias for transition-oriented consumers."""
+
+        return self.edges
+
+    def get_node(self, name: str) -> NodeDefinition | None:
+        """Look up a node definition by name."""
+
+        for node in self.nodes:
+            if node.name == name:
+                return node
         return None
 
-    def get_transitions_from(self, phase: str) -> tuple[TransitionRule, ...]:
-        """Get all transitions originating from a given phase.
+    def get_phase(self, name: str) -> NodeDefinition | None:
+        """Compatibility alias for phase lookups."""
 
-        Args:
-            phase: The source phase name.
+        return self.get_node(name)
 
-        Returns:
-            Tuple of ``TransitionRule`` objects with matching source.
-        """
-        return tuple(t for t in self.transitions if t.source == phase)
+    def get_edges_from(self, node: str) -> tuple[EdgeRule, ...]:
+        """Get all outgoing edges from a node ordered by priority."""
+
+        matches = [edge for edge in self.edges if edge.source == node]
+        return tuple(sorted(matches, key=lambda edge: edge.priority, reverse=True))
+
+    def get_transitions_from(self, phase: str) -> tuple[EdgeRule, ...]:
+        """Compatibility alias for phase transition lookups."""
+
+        return self.get_edges_from(phase)
+
+    @property
+    def node_names(self) -> tuple[str, ...]:
+        """Return the ordered tuple of node names."""
+
+        return tuple(node.name for node in self.nodes)
 
     @property
     def phase_names(self) -> tuple[str, ...]:
-        """Return the ordered tuple of phase names.
+        """Compatibility alias for phase-oriented tests and engine code."""
 
-        Returns:
-            Tuple of phase name strings in definition order.
-        """
-        return tuple(p.name for p in self.phases)
+        return self.node_names
+
+
+@dataclass(frozen=True)
+class StepExecutionContext:
+    """Immutable runtime view for a single node execution."""
+
+    project_key: str
+    story_id: str
+    run_id: str
+    flow_id: str
+    node_id: str
+    story_context: StoryContext
+    phase_state: PhaseState
+    active_overrides: tuple[object, ...] = ()
+    artifact_handles: Mapping[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class StepResult:
+    """Result envelope returned by a step or gate handler."""
+
+    outcome: str
+    produced_artifacts: tuple[str, ...] = ()
+    emitted_events: tuple[str, ...] = ()
+    requested_yield: YieldPoint | None = None
+    diagnostics: Mapping[str, object] = field(default_factory=dict)
+
+
+class StepHandler(Protocol):
+    """Execution contract for a ``step`` node."""
+
+    def __call__(self, context: StepExecutionContext) -> StepResult:
+        """Execute a single node and return its result envelope."""
+
+
+class SubflowProvider(Protocol):
+    """Execution contract for a ``subflow`` node."""
+
+    def __call__(
+        self,
+        context: StepExecutionContext,
+    ) -> tuple[FlowDefinition, Mapping[str, StepHandler]]:
+        """Return the nested flow and its handler registry."""
+
+
+class GateRunner(Protocol):
+    """Execution contract for a ``gate`` node."""
+
+    def __call__(self, context: StepExecutionContext) -> StepResult:
+        """Evaluate the gate and return an aggregated result."""
+
+
+# Compatibility aliases used throughout the current runtime.
+PhaseDefinition = NodeDefinition
+TransitionRule = EdgeRule
+WorkflowDefinition = FlowDefinition

@@ -336,7 +336,7 @@ wird an den Menschen eskaliert, nicht an einen Agenten.
 **Telemetrie-Nachweise:**
 
 Neben den sieben Artefakt-Dimensionen prüft das Integrity-Gate konkrete
-Einträge in der Story-Telemetrie. Diese Einträge werden während der
+Einträge in `execution_events`. Diese Einträge werden während der
 Story-Bearbeitung automatisch durch die Hook-Schicht erfasst und müssen
 bei Closure vollständig vorliegen.
 
@@ -408,7 +408,7 @@ endlos versuchen, den "Fehler" zu beheben.
 
 Der Phasenübergangsgraph (`PHASE_TRANSITION_GRAPH`) wird zur Laufzeit
 erzwungen. Jeder `run_phase()`-Aufruf prüft, ob der Übergang von der
-vorherigen Phase (aus der persistierten `phase-state.json`) zur
+vorherigen Phase (aus der persistierten `phase_state_projection`) zur
 aktuellen Phase im Graphen erlaubt ist. Ungültige Übergänge werden
 fail-closed blockiert — die Phase wird nicht betreten, der Status wird
 auf ESCALATED gesetzt.
@@ -589,8 +589,8 @@ pending Assessment, Mindestabstand 10 Minuten, neues Assessment nur
 bei Score-Anstieg >= 10 Punkte.
 
 **Persistenz:** Der Score, die Einzelkomponenten, das Tool-Call-Log
-und der Interventions-Verlauf werden in
-`_temp/qa/<STORY-ID>/agent-health.json` persistiert. Damit ist der
+und der Interventions-Verlauf werden zentral im State-Backend
+persistiert; ein `agent-health.json`-Export ist optional. Damit ist der
 Zustand auch über Context-Compaction-Zyklen hinweg verfügbar und für
 Post-mortem-Analysen nutzbar.
 

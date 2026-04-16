@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.story.types import (
+from agentkit.story_context_manager.types import (
     PROFILES,
     StoryMode,
     StoryType,

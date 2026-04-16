@@ -47,6 +47,184 @@ deterministische Laufzeitimplementierung.
 | `StructuralChecker`, `PolicyEngine` | Subkomponenten von `VerifyPhase` | Layer-1-Pruefung und finale Aggregation |
 | `IntegrityGate` | Subkomponente von `ClosurePhase` | Vorbedingung fuer Merge/Abschluss |
 
+**Abgrenzung:** Der vollstaendige Story-Reset ist **keine**
+Subkomponente der `PipelineEngine`. Er ist eine separate
+Top-Level-Komponente `StoryResetService`, weil er keinen normalen
+Story-Run fortsetzt, sondern eine menschlich autorisierte
+Recovery-Operation ausserhalb des Pipeline-Kontrollflusses ist.
+
+### 20.1.2 Einheitliche Prozess-DSL
+
+AK3 verwendet fuer die Ablaufmodellierung **eine einzige hierarchische
+Prozess-DSL**. Dieselben Sprachkonstrukte gelten fuer die komplette
+Pipeline, fuer einzelne Phasen, fuer fachliche Komponenten und fuer
+deren Subschritte. Es gibt **kein zweites Kontrollflussmodell** auf
+Komponentenebene.
+
+**Abgrenzung:** Die in FK-28 definierte Request-DSL bleibt eine
+fachspezifische Nachforderungssprache fuer Reviewer. Sie ist **nicht**
+Teil der hier beschriebenen Kontrollfluss-DSL.
+
+| Ebene | DSL-Sicht | Typischer Owner | Zweck |
+|-------|-----------|-----------------|-------|
+| Pipeline | `FlowDefinition(level="pipeline")` | `PipelineEngine` | Gesamtablauf einer Story |
+| Phase | `FlowDefinition(level="phase")` | `SetupPhase`, `VerifyPhase`, ... | Ablauf innerhalb einer Phase |
+| Komponente | `FlowDefinition(level="component")` | `StageRegistry`, `Installer`, `GuardSystem`, ... | Innere Kontrolllogik einer Komponente |
+| Subschritt | `NodeDefinition(kind="step")` oder `subflow` | jeweilige Komponente | Atomarer oder zusammengesetzter Ausfuehrungsschritt |
+
+Die DSL modelliert **Kontrollfluss**, nicht Fachinhalt. Fachlogik,
+I/O, Artefaktproduktion und Seiteneffekte bleiben in den
+Schritt-Handlern der jeweiligen Komponente implementiert. Die DSL
+beschreibt dagegen:
+
+- Reihenfolge
+- Fallunterscheidungen
+- Wiederholungen und Rueckspruenge
+- Gates und Yield-Points
+- Once-only-/Until-success-Semantik
+- manuelle oder orchestratorseitige Overrides
+
+### 20.1.3 Kernkonstrukte der Prozess-DSL
+
+| Konstrukt | Bedeutung | Typische Felder |
+|-----------|-----------|-----------------|
+| `FlowDefinition` | Vollstaendiger Ablaufvertrag einer Pipeline, Phase oder Komponente | `flow_id`, `level`, `owner`, `nodes`, `edges`, `hooks` |
+| `NodeDefinition` | Knoten im Ablaufgraph | `node_id`, `kind`, `handler_ref`, `execution_policy`, `override_policy` |
+| `EdgeRule` | Gerichtete Kante zwischen zwei Knoten | `source`, `target`, `when`, `priority`, `resume_policy` |
+| `Guard` | Seiteneffektfreie Vorbedingung / Entscheidungsbedingung | `name`, `reads`, `predicate` |
+| `Gate` | Mehrstufiger Pruefpunkt mit Aggregationsregel | `id`, `stages`, `final_aggregation`, `max_remediation_rounds` |
+| `YieldPoint` | Typisierte Pause mit Resume-Triggern | `status`, `resume_triggers`, `required_artifacts` |
+| `ExecutionPolicy` | Wiederholungs- und Skip-Semantik eines Knotens | `ALWAYS`, `ONCE_PER_RUN`, `ONCE_PER_STORY`, `UNTIL_SUCCESS`, `SKIP_AFTER_SUCCESS` |
+| `RetryPolicy` | Begrenzung und Ziel von Wiederholungen | `max_attempts`, `backtrack_target`, `cooldown_policy` |
+| `OverridePolicy` | Erlaubte manuelle Eingriffe | `allow_skip`, `allow_force_pass`, `allow_jump`, `allow_truncate` |
+
+**Node-Klassen:** Die DSL verwendet auf allen Ebenen dieselben
+Knotentypen:
+
+| `kind` | Semantik |
+|--------|----------|
+| `step` | Atomarer Ausfuehrungsschritt mit konkretem Handler |
+| `gate` | Qualitaets-/Freigabepunkt mit Stage-Aggregation |
+| `yield` | Pause bis externer Trigger / Mensch / Orchestrator resumiert |
+| `branch` | Fallunterscheidung; ausgehende Kanten werden ueber Guards gewaehlt |
+| `subflow` | Eingebetteter Ablauf, der wieder dieselbe DSL benutzt |
+
+**Normative Regel:** Komponenten modellieren ihre Subschritte als
+`subflow` + `step`-Kombinationen. Imperative Einzelschritt-Logik in
+beliebigen Python-Dateien ohne expliziten DSL-Vertrag ist fuer
+nichttriviale Ablaufteile nicht zulaessig.
+
+### 20.1.4 Fallunterscheidung, Wiederholung und Ruecksprung
+
+Die DSL muss dieselben generischen Ablaufmuster auf allen Ebenen
+abbilden koennen:
+
+| Muster | Normative Modellierung |
+|--------|------------------------|
+| Fallunterscheidung | `branch`-Node oder mehrere `EdgeRule`s mit Guards; erste passende Kante gewinnt nach `priority` |
+| Wiederholung | Explizite Rueckkante auf frueheren `node_id` + `RetryPolicy` |
+| Gezielter Ruecksprung | Ruecksprung erfolgt immer auf **explizite** `node_id`s, nie auf implizite "minus 2 Schritte" ohne DSL-Kante |
+| Remediation-Loop | Rueckkante + `max_attempts` + persistierter Zaehler im Laufzeitstate |
+| Einmalige Schritte | `ExecutionPolicy = ONCE_PER_RUN` oder `ONCE_PER_STORY` |
+| Nur bis Erfolg wiederholen | `ExecutionPolicy = UNTIL_SUCCESS` |
+| Nach Erfolg ueberspringen | `ExecutionPolicy = SKIP_AFTER_SUCCESS` |
+
+Damit gilt auch fuer Rueckspruenge aus spaeteren Phasen oder
+Komponenten: Wenn der Ablauf erneut vorwaerts durchlaufen wird,
+entscheidet **nicht** der Handler ad hoc, welche Schritte erneut
+laufen, sondern die DSL zusammen mit dem persistierten
+Execution-Ledger.
+
+### 20.1.5 Overrides und manuelle Eingriffe
+
+Overrides sind ein normierter Teil der Ablaufsteuerung und werden
+nicht als ad-hoc-Sonderlogik in einzelnen Komponenten modelliert.
+
+| Override | Semantik |
+|----------|----------|
+| `skip_node` | Knoten wird fuer diesen Run bewusst uebergangen |
+| `force_gate_pass` / `force_gate_fail` | Gate-Entscheidung wird manuell gesetzt |
+| `jump_to` | Ausfuehrung springt auf einen expliziten `node_id` |
+| `truncate_flow` | Restlicher Teil eines Subflows wird bewusst abgeschnitten |
+| `freeze_retries` | Weitere Rueckspruenge / Wiederholungen werden fuer diesen Ast unterbunden |
+
+**Regeln:**
+
+1. Overrides duerfen nur durch Mensch oder Orchestrator via CLI
+   beantragt werden, nie durch Worker.
+2. Jeder Override wird als auditierbarer Override-Record persistiert
+   und von der Engine ausgewertet.
+3. Ob ein Override zulaessig ist, entscheidet die `OverridePolicy`
+   des betroffenen Knotens oder Flows.
+4. Auch ein Override mutiert den Zustand nicht direkt; die Engine
+   wendet ihn deterministisch bei der naechsten Auswertung an.
+
+**Abgrenzung zum Story-Reset:** Ein vollstaendiger Story-Reset ist
+kein Override. Er ersetzt keinen Knotenentscheid und springt nicht im
+laufenden Flow, sondern beendet die korrupt gewordene Umsetzung
+administrativ und schafft einen neuen sauberen Startzustand.
+
+### 20.1.6 Evolution der bestehenden Workflow-DSL
+
+Die bereits implementierte Workflow-DSL unter
+`agentkit.pipeline.workflow` ist die **erste Auspraegung** der
+hierarchischen Prozess-DSL und wird nicht verworfen, sondern
+verallgemeinert.
+
+| Heutiger Begriff | Zielbegriff in der Einheits-DSL | Rolle |
+|------------------|----------------------------------|-------|
+| `WorkflowDefinition` | `FlowDefinition` | Ablaufvertrag auf beliebiger Ebene |
+| `PhaseDefinition` | `NodeDefinition(kind="subflow")` oder phasenbezogene Spezialisierung | Zusammengesetzter Knoten |
+| `TransitionRule` | `EdgeRule` | Kante im Ablaufgraph |
+| `GuardFn` | `Guard` | Bedingung |
+| `Gate` | `Gate` | unveraendert, aber nicht mehr nur phasenbezogen |
+| `YieldPoint` | `YieldPoint` | unveraendert, aber auf allen Ebenen nutzbar |
+
+**Konsequenz fuer AK3:** Die Pipeline bleibt phasenorientiert
+modelliert. Komponenten fuehren jedoch **dieselbe** Sprache fuer ihre
+eigenen Subschritte. Dadurch werden Kontrollfluss-Semantik, Override-
+Verhalten und Wiederholungslogik systemweit vereinheitlicht.
+
+### 20.1.7 Ausfuehrungsvertrag fuer Knoten
+
+Die Einheits-DSL definiert den Kontrollfluss. Damit Komponenten
+andockbar bleiben, ohne die Engine zu unterlaufen, gilt fuer alle
+ausfuehrbaren Knoten ein gemeinsamer Handler-Vertrag.
+
+| Vertragsteil | Bedeutung |
+|--------------|-----------|
+| `StepExecutionContext` | Immutable Laufzeitansicht auf `project_key`, `story_id`, `run_id`, `flow_id`, `node_id`, `StoryContext`, `PhaseState`, aktive Overrides und lesbare Artefakt-Handles |
+| `StepHandler` | Deterministische oder agentische Implementierung eines `step`-Knotens; fuehrt Fachlogik aus, mutiert aber den globalen State nicht direkt |
+| `StepResult` | Rueckgabe eines Knotens: `outcome`, `produced_artifacts`, `emitted_events`, `requested_yield`, `diagnostics` |
+| `SubflowProvider` | Liefert fuer `subflow`-Knoten die untergeordnete `FlowDefinition` plus Handler-Registry |
+| `GateRunner` | Fuehrt `gate`-Knoten aus und aggregiert Stage-Ergebnisse gemaess Gate-Vertrag |
+
+**Normative Regeln:**
+
+1. Schritt-Handler schreiben den globalen Ablaufstate nicht direkt.
+   Sie liefern `StepResult`; die Engine wendet daraus den
+   Zustandsuebergang an.
+2. Rueckspruenge, Wiederholungen, Skips und Overrides duerfen nicht
+   im Handler versteckt implementiert werden; sie muessen ueber die
+   DSL-Kanten, Policies und Override-Records sichtbar sein.
+3. Ein `subflow`-Knoten darf nur ueber einen `SubflowProvider` neue
+   Knoten einbringen. Dynamisch zusammengebaute implizite Python-Loops
+   ausserhalb der DSL sind nicht zulaessig.
+4. Agentische Schritte sind erlaubt, aber nur als Handler eines
+   expliziten `step`-Knotens. Auch sie sind an `ExecutionPolicy`,
+   `RetryPolicy` und `OverridePolicy` gebunden.
+
+**Folge fuer die Komponentenmodellierung:** Jede nichttriviale
+Komponente liefert kuenftig mindestens:
+
+- eine `FlowDefinition` fuer ihren internen Ablauf
+- eine Handler-Registry fuer ihre `step`-Knoten
+- einen klaren Satz lesbarer Inputs und produzierter Artefakte
+
+Damit werden Komponenten zu expliziten, auditierbaren
+Ausfuehrungseinheiten derselben Sprache, statt ihre innere
+Kontrolllogik in frei formulierten Python-Dateien zu verstecken.
+
 ## 20.2 Phasenmodell
 
 ### 20.2.1 Fünf Phasen
@@ -58,6 +236,25 @@ deterministische Laufzeitimplementierung.
 | `implementation` | Agent-gesteuert | Code/Konzept/Research umsetzen | Worker-Agent |
 | `verify` | Deterministisch + LLM | 4-Schichten-QA | Pipeline-Skripte + LLM-Evaluator + Adversarial Agent |
 | `closure` | Deterministisch | Integrity-Gate, Merge, Issue-Close, Metriken, Postflight | Pipeline-Skript |
+
+### 20.2.1a StoryResetService
+
+Der `StoryResetService` ist die administrative Recovery-Komponente fuer
+Faelle, in denen ein eskalierter Story-Run nicht mehr ueber den
+normalen Workflow repariert oder weitergefuehrt werden kann.
+
+| Aspekt | Regel |
+|--------|-------|
+| Ausloeser | nur ausdruecklicher menschlicher CLI-Befehl |
+| Erlaubender Vorzustand | typischerweise `ESCALATED`, nie automatischer Trigger |
+| Initiator | Mensch; Orchestrator darf nur empfehlen oder dokumentieren |
+| Wirkung | Purge von Runtime-State, Read Models, Analytics-Ableitungen, story-bezogenen Sperren und ephemeren Arbeitsartefakten |
+| Ergebnis | Story verbleibt als fachliche Arbeitseinheit, aber die bisherige korrupt gewordene Umsetzung verschwindet vollstaendig |
+
+**Normative Regel:** `PipelineEngine` darf niemals selbststaendig einen
+vollstaendigen Story-Reset ausfuehren. Sie darf hoechstens in einen
+eskalierten Zustand uebergehen und damit den Menschen zu einer
+Entscheidung zwingen.
 
 ### 20.2.2 State Machine
 
@@ -207,13 +404,14 @@ flowchart TD
 Der Phase-State folgt einer vierschichtigen Architektur. Die
 oberste Schicht (`PhaseEnvelope`) ist ein frozen Dataclass, der
 **nie als Ganzes persistiert** wird. Nur die `state`-Schicht wird
-als `phase-state.json` geschrieben; die `runtime`-Schicht ist
-ephemer und existiert ausschließlich im Speicher des laufenden
-Phase-Runner-Prozesses.
+als `phase_state_projection` im State-Backend persistiert; ein
+`phase-state.json` ist nur ihr materialisierter Export. Die
+`runtime`-Schicht ist ephemer und existiert ausschließlich im Speicher
+des laufenden Phase-Runner-Prozesses.
 
 ```
 PhaseEnvelope (frozen dataclass, nie persistiert als Ganzes)
-├── state: PhaseState          ← wird als phase-state.json persistiert
+├── state: PhaseState          ← wird als `phase_state_projection` persistiert
 │   ├── PhaseStateCore          (story_id, phase, status, pause_reason, …)
 │   ├── payload: PhasePayload   (discriminated union, phase-spezifische Durable Fields)
 │   └── memory: PhaseMemory     (phasenübergreifende Zähler, carry-forward)
@@ -224,10 +422,15 @@ PhaseEnvelope (frozen dataclass, nie persistiert als Ganzes)
 > [Korrektur 2026-04-09: RuntimeMetadata enthält ausschliesslich origin: PhaseOrigin — guard_failure/retry_count/elapsed_seconds entfernt.]
 
 **Persistierung:** Nur `PhaseState` (= `PhaseStateCore` +
-`payload` + `memory`) wird als `_temp/qa/{story_id}/phase-state.json`
-geschrieben. `RuntimeMetadata` wird **nie** auf die Platte
-geschrieben — sie existiert nur in-memory für die Dauer eines
-`run-phase`-Aufrufs.
+`payload` + `memory`) wird zentral als `phase_state_projection`
+persistiert. Ein `_temp/qa/{story_id}/phase-state.json` ist nur ein
+Export dieser Projektion. `RuntimeMetadata` wird **nie** auf Platte
+oder in den Store geschrieben — sie existiert nur in-memory für die
+Dauer eines `run-phase`-Aufrufs.
+
+**Normative Leseregel:** Alle spaeteren Verweise in diesem Dokument
+auf `phase-state.json` meinen den Export der kanonischen
+`phase_state_projection`, nicht eine eigenstaendige Wahrheit.
 
 **Abgrenzung ephemer vs. durable:** Durable Fehlerinformation
 (die einen Crash überleben muss) wird über `AttemptRecord` erfasst

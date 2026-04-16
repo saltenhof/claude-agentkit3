@@ -18,14 +18,14 @@ from agentkit.qa.adversarial.challenger import AdversarialChallenger
 from agentkit.qa.evaluators.reviewer import SemanticReviewer
 from agentkit.qa.policy_engine.engine import PolicyEngine
 from agentkit.qa.structural.checker import StructuralChecker
-from agentkit.story.models import PhaseStatus
+from agentkit.story_context_manager.models import PhaseStatus
 from agentkit.utils.io import atomic_write_text
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.qa.protocols import QALayer
-    from agentkit.story.models import PhaseState, StoryContext
+    from agentkit.story_context_manager.models import PhaseState, StoryContext
 
 logger = logging.getLogger(__name__)
 

@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, cast
 
 from agentkit.exceptions import CorruptStateError
-from agentkit.story.models import PhaseSnapshot, PhaseState, PhaseStatus, StoryContext
+from agentkit.story_context_manager.models import PhaseSnapshot, PhaseState, PhaseStatus, StoryContext
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -51,7 +51,7 @@ class AttemptRecord:
 def atomic_write_json(path: Path, data: dict[str, object]) -> None:
     """Write JSON atomically via ``atomic_write_text``.
 
-    Delegates to :func:`agentkit.project_ops.shared.file_ops.atomic_write_text`
+    Delegates to :func:`agentkit.utils.io.atomic_write_text`
     for crash-safe temp-file-plus-replace semantics.
 
     Args:

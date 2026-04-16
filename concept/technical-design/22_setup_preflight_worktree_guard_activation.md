@@ -47,7 +47,7 @@ flowchart TD
         P2 --> P3["3. Status == Freigegeben?"]
         P3 --> P4["4. Abhängigkeiten geschlossen?"]
         P4 --> P5["5. Keine Ausführungsartefakte?"]
-        P5 --> P6["6. Saubere Telemetrie?"]
+        P5 --> P6["6. Kein aktiver Runtime-Rest?"]
         P6 --> P7["7. Kein Story-Branch?"]
         P7 --> P8["8. Kein staler Worktree?"]
         P8 --> P9["9. Kein Scope-Overlap?"]
@@ -64,7 +64,7 @@ flowchart TD
     P8 -->|"FAIL"| ABORT
     P9 -->|"FAIL"| ABORT
 
-    CONTEXT["Story-Context berechnen<br/>→ context.json"] --> ARE_BUNDLE["ARE-Bundle laden<br/>→ are_bundle.json<br/>(nur wenn ARE aktiv)"]
+    CONTEXT["StoryContext persistieren<br/>→ optional context.json"] --> ARE_BUNDLE["ARE-Bundle laden<br/>→ are_bundle.json<br/>(nur wenn ARE aktiv)"]
     ARE_BUNDLE -->|"LOADED oder SKIPPED"| TYPCHECK{"Story-Typ?"}
     ARE_BUNDLE -->|"FAILED"| ABORT
 
@@ -76,7 +76,7 @@ flowchart TD
     REPOS -->|"Ja (1..n)"| MULTI_WT["Worktree + Branch<br/>pro teilnehmendem Repo<br/>erstellen"]
     REPOS -->|"Nein"| SINGLE_WT["Einzelner Worktree<br/>für primäres Codebase-Repo"]
 
-    MULTI_WT --> GUARDS["4 Guards aktivieren:<br/>Sperrdatei schreiben"]
+    MULTI_WT --> GUARDS["4 Guards aktivieren:<br/>Lock-Record anlegen"]
     SINGLE_WT --> GUARDS
     GUARDS --> MODE["Modus-Ermittlung<br/>(4 Trigger)"]
     MODE --> DONE_FULL(["Setup abgeschlossen<br/>mode: execution|exploration<br/>agents_to_spawn gesetzt"])
@@ -96,11 +96,11 @@ flowchart TD
 | 2 | `story_in_project` | Story-ID existiert als Item im GitHub Project | `gh project item-list` + Filter auf Story-ID | Issue nicht im Project eingestellt |
 | 3 | `status_freigegeben` | Project-Item-Status ist "Approved" | GraphQL-Query auf Status-Feld | Status ist Backlog, In Progress oder Done |
 | 4 | `dependencies_closed` | Alle referenzierten Dependency-Issues sind geschlossen | Issue-Body parsen (`## Dependencies`), jede `#NNN`-Referenz via `gh issue view` prüfen | Mindestens eine Dependency ist noch offen |
-| 5 | `no_execution_artifacts` | Keine Reste aus vorherigen Läufen **oder** vorheriger Run sauber abgeschlossen | Prüfe ob `_temp/qa/{story_id}/` Artefakte enthält. Wenn ja: prüfe ob `phase-state.json` Status `COMPLETED` oder `ESCALATED` (+ explizit reset) hat. Bei unabgeschlossenem Run: FAIL. Bei sauber abgeschlossenem Run: Artefakte archivierbar, kein Blocker. | Artefakte eines unabgeschlossenen vorherigen Laufs gefunden |
-| 6 | `clean_telemetry` | Keine Events eines aktiven, unabgeschlossenen Runs in der SQLite-DB | Query: `SELECT COUNT(*) FROM events WHERE story_id = ? AND event_type = 'agent_start' AND NOT EXISTS (SELECT 1 FROM events e2 WHERE e2.story_id = events.story_id AND e2.run_id = events.run_id AND e2.event_type = 'agent_end')`. Bei unabgeschlossenem Run: FAIL. Bei abgeschlossenen Runs: kein Problem (neue `run_id` trennt Events). | Events eines aktiv laufenden oder abgestürzten Runs vorhanden |
+| 5 | `no_execution_artifacts` | Keine Reste aus vorherigen Läufen **oder** vorheriger Run sauber abgeschlossen | Prüfe `artifact_records` und `phase_state_projection` fuer die Story. Bei unabgeschlossenem Run: FAIL. Bei sauber abgeschlossenem Run: Exporte archiviertbar, kein Blocker. | Artefakte eines unabgeschlossenen vorherigen Laufs gefunden |
+| 6 | `no_active_runtime_residue` | Keine aktiven Runtime-Reste eines vorherigen Runs | Prüfe kanonische Runtime-Zustände (`flow_executions`, aktive Lock-Records, `phase_state_projection`) für die Story. Telemetrie in `execution_events` ist **kein** Start-Gate; sie darf nur diagnostisch herangezogen werden. Bei aktivem oder inkonsistentem Runtime-Zustand: FAIL. | Aktiver oder inkonsistenter Runtime-Zustand eines vorherigen Runs vorhanden |
 | 7 | `no_story_branch` | Kein Branch `story/{story_id}` existiert **oder** Branch gehört zu abgeschlossenem Run | `git rev-parse --verify story/{story_id}`. Bei Existenz: prüfe ob zugehöriger Run abgeschlossen. Bei abgestürztem Run: FAIL (Mensch muss entscheiden: Cleanup oder Recovery). | Branch eines unaufgeräumten Runs vorhanden |
 | 8 | `no_stale_worktree` | Kein Worktree für diese Story **oder** Worktree gehört zu abgeschlossenem Run | `git worktree list --porcelain` + Suche nach Story-ID. Logik analog zu Check 7. | Worktree eines unaufgeräumten Runs vorhanden |
-| 9 | `no_scope_overlap` | Keine aktive parallele Story arbeitet an denselben Modulen/Pfaden | Aktive Story-Marker in `_temp/governance/active/` lesen, deren `context.json` Module vergleichen mit den Modulen der neuen Story. Bei Pfad-Überschneidung: FAIL (Story bleibt in Backlog bis parallele Story gemergt). | Parallele Story arbeitet an überlappenden Modulen — Merge-Konflikt vorprogrammiert |
+| 9 | `no_scope_overlap` | Keine aktive parallele Story arbeitet an denselben Modulen/Pfaden | Aktive Lock-Records und deren `StoryContext` im State-Backend lesen und Scope ueber `scope_keys`/`repo_bindings` vergleichen. Bei Ueberschneidung: FAIL. | Parallele Story arbeitet an überlappenden Modulen — Merge-Konflikt vorprogrammiert |
 
 ### 22.3.2 Fail-closed
 
@@ -189,10 +189,11 @@ def compute_story_context(story_id: str, config: PipelineConfig) -> StoryContext
     )
 ```
 
-### 22.4.2 Persistenz: context.json
+### 22.4.2 Persistenz: StoryContext + optionaler Export
 
-Der Context wird als JSON in `_temp/qa/{story_id}/context.json`
-geschrieben (Envelope-Format mit Producer `compute-story-context`).
+Der Context wird kanonisch als `StoryContext` im State-Backend
+persistiert. Optional kann ein JSON-Export in
+`_temp/qa/{story_id}/context.json` materialisiert werden.
 
 ```json
 {
@@ -225,8 +226,9 @@ geschrieben (Envelope-Format mit Producer `compute-story-context`).
 }
 ```
 
-**Ab hier ist `context.json` die einzige Wahrheit.** Keine
-nachfolgende Phase liest GitHub-Custom-Fields erneut (Kap. 03).
+**Ab hier ist `StoryContext` die einzige Wahrheit.** Keine
+nachfolgende Phase liest GitHub-Custom-Fields erneut; `context.json`
+ist nur der Export dieses Snapshots.
 
 ### 22.4.3 GitHub-Status auf "In Progress" setzen
 
@@ -403,12 +405,14 @@ def setup_worktree(story_id: str, repo: RepoRef,
     git_worktree_add(worktree_path, f"story/{story_id}", base_ref,
                      cwd=repo.path)
 
-    # 5. Branch-Guard-Context im Worktree schreiben
-    agent_guard = worktree_path / ".agent-guard" / "context.json"
+    # 5. Optionalen Lock-Export im Worktree schreiben
+    agent_guard = worktree_path / ".agent-guard" / "lock.json"
     agent_guard.parent.mkdir(parents=True, exist_ok=True)
     agent_guard.write_text(json.dumps({
+        "project_key": context.project_key,
         "story_id": story_id,
         "repo": repo.name,
+        "run_id": context.run_id,
         "branch": f"story/{story_id}",
         "created_at": now_iso(),
     }))
@@ -428,55 +432,43 @@ def setup_worktree(story_id: str, repo: RepoRef,
 | Pfad | `{repo.path}/worktrees/{story_id}` (pro teilnehmendem Repo) |
 | Branch | `story/{story_id}` (identisch in allen teilnehmenden Repos) |
 | Base | `main` (oder konfigurierbar) |
-| `.agent-guard/context.json` | Im Worktree, aktiviert Branch-Guard, enthält `repo`-Feld |
+| `.agent-guard/lock.json` | Optionaler Worktree-Export des Lock-Records, enthält `repo`-Feld |
 | Nicht-teilnehmende Repos | Kein Worktree, kein Feature-Branch — Worker arbeitet auf `main` |
 
 ## 22.7 Guard-Aktivierung
 
-### 22.7.1 Sperrdatei schreiben
+### 22.7.1 Lock-Record anlegen
 
-Das Setup-Skript (nicht der Agent) erstellt die Sperrdatei, die
+Das Setup-Skript (nicht der Agent) erstellt den Lock-Record, der
 alle zustandsabhängigen Guards aktiviert (Kap. 02.7):
 
 ```python
-def activate_guards(story_id: str, run_id: str) -> None:
-    # 1. Story-Execution-Marker (pro Story, nicht global)
-    marker_dir = Path("_temp/governance/active")
-    marker_dir.mkdir(parents=True, exist_ok=True)
-    marker_path = marker_dir / f"{story_id}.active"
-    marker_path.write_text(json.dumps({
-        "story_id": story_id,
-        "run_id": run_id,
-        "activated_at": now_iso(),
-    }))
+def activate_guards(project_key: str, story_id: str, run_id: str) -> None:
+    # 1. Kanonischen Lock-Record im State-Backend anlegen
+    state_backend.create_lock_record(
+        project_key=project_key,
+        story_id=story_id,
+        run_id=run_id,
+        lock_type="story_execution",
+    )
 
-    # 2. QA-Lock (aktiviert QA-Artefakt-Schutz + Branch-Guard)
-    lock_dir = Path(f"_temp/governance/locks/{story_id}")
-    lock_dir.mkdir(parents=True, exist_ok=True)
-    lock_file = lock_dir / "qa-lock.json"
-    lock_file.write_text(json.dumps({
-        "story_id": story_id,
-        "run_id": run_id,
-        "locked_at": now_iso(),
-        "locked_paths": [f"_temp/qa/{story_id}/"],
-        "owner_pid": os.getpid(),
-        "ttl_s": 86400,
-    }))
+    # 2. Optionalen Lock-Export fuer lokale Tooling-Pfade materialisieren
+    export_lock_json(project_key=project_key, story_id=story_id, run_id=run_id)
 
     # 3. QA-Verzeichnis erstellen
     qa_dir = Path(f"_temp/qa/{story_id}")
     qa_dir.mkdir(parents=True, exist_ok=True)
 ```
 
-### 22.7.2 Was die Sperrdatei aktiviert
+### 22.7.2 Was der Lock-Record aktiviert
 
-Die Sperrdatei aktiviert die vier permanenten Guards (FK 6.0).
+Der Lock-Record aktiviert die vier permanenten Guards (FK 6.0).
 Das Integrity-Gate ist kein Guard, sondern ein einmaliger
-Prüfpunkt vor Closure — es wird nicht durch die Sperrdatei
+Prüfpunkt vor Closure — es wird nicht durch den Lock-Record
 aktiviert, sondern durch den Phase Runner in der Closure-Phase
 aufgerufen.
 
-| Guard | Ohne Sperrdatei | Mit Sperrdatei |
+| Guard | Ohne Lock-Record | Mit Lock-Record |
 |-------|----------------|---------------|
 | Branch-Guard | Inaktiv (AI-Augmented) | Aktiv: nur Story-Branch, kein Main-Push |
 | QA-Artefakt-Schutz | Inaktiv | Aktiv: Sub-Agents können QA-Pfade nicht schreiben |
@@ -484,15 +476,14 @@ aufgerufen.
 | Prompt-Integrity-Guard | Aktiv (Governance-Escape, Spawn-Schema) | Aktiv (+ Template-Integritätsprüfung) |
 | Immer-aktive Regeln | Aktiv (Force-Push, Hard-Reset, Secrets) | Aktiv |
 
-**Orchestrator-Guard:** Wird durch dieselbe Sperrdatei gesteuert
-wie Branch-Guard und QA-Schutz. Prüft ob Story-Execution-
-Marker in `_temp/governance/active/` existieren (§22.7.1). Wenn
-ja: blockiert Codebase-Zugriff für den Orchestrator
-(konfigurierte Pfade aus `.story-pipeline.yaml`, Kap. 03).
+**Orchestrator-Guard:** Wird durch denselben Lock-Record gesteuert
+wie Branch-Guard und QA-Schutz. Er liest den aktiven Lock-Record
+read-only aus dem State-Backend. Lokale Marker-/Lock-Exporte sind
+nur Materialisierung, nicht kanonische Aktivierung.
 
 ### 22.7.3 Wer kann Guards deaktivieren
 
-Nur das Closure-Skript (Pipeline-Zone 2) entfernt die Sperrdatei.
+Nur das Closure-Skript (Pipeline-Zone 2) beendet den Lock-Record.
 Kein Agent kann sie manipulieren — der Pfad
 `_temp/governance/locks/` ist durch den Governance-Selbstschutz
 (Kap. 15.7.1) geschützt.
@@ -501,8 +492,8 @@ Kein Agent kann sie manipulieren — der Pfad
 
 ### 22.8.1 Vier Trigger (REF-032)
 
-Die Modus-Ermittlung liest die Custom Fields aus `context.json`
-(nicht aus GitHub — der Context ist der autoritative Snapshot).
+Die Modus-Ermittlung liest die Felder aus `StoryContext`
+(optional ueber dessen `context.json`-Export, nicht aus GitHub).
 
 **Vorbedingung**: Nur `implementation`- und `bugfix`-Stories erreichen
 diese Funktion. Concept- und Research-Stories werden vorher durch die
@@ -624,15 +615,16 @@ Sie erzeugt folgende Artefakte:
 | Artefakt | Datei | Producer | Artefaktklasse |
 |----------|-------|----------|----------------|
 | Preflight-Ergebnis | `_temp/qa/{story_id}/preflight.json` | `preflight-check` | Control-Plane |
-| Story-Context | `_temp/qa/{story_id}/context.json` | `compute-story-context` | Content-Plane |
+| Story-Context | `_temp/qa/{story_id}/context.json` | `compute-story-context` | Content-Plane-Export |
 | ARE-Bundle | `_temp/qa/{story_id}/are_bundle.json` | `load-are-bundle` | Content-Plane |
-| Phase-State | `_temp/qa/{story_id}/phase-state.json` | `run-phase` | Control-Plane |
-| Sperrdatei | `_temp/governance/locks/{story_id}/qa-lock.json` | `run-phase` | Control-Plane |
-| SQLite-DB (Tabelle sichergestellt) | `_temp/agentkit.db` | (CREATE TABLE IF NOT EXISTS) | — |
+| Phase-State | `_temp/qa/{story_id}/phase-state.json` | `run-phase` | Control-Plane-Export |
+| Lock-Export | `_temp/governance/locks/{story_id}/qa-lock.json` | `run-phase` | Control-Plane-Export |
+| State-Backend | zentrale PostgreSQL-Instanz | Migration/Bootstrap | Kanonische Runtime-Persistenz |
 
-Content-Plane-Artefakte (`context.json`, `are_bundle.json`) sind für den
+Content-Plane-Artefakte (`context.json`-Export, `are_bundle.json`) sind für den
 Orchestrator-Agenten durch den Orchestrator-Guard blockiert (Kap. 31.2).
-Der Orchestrator liest ausschließlich `phase-state.json`.
+Der Orchestrator liest ausschließlich die `phase_state_projection`
+bzw. deren `phase-state.json`-Export.
 
 ## 22.10 Fehlerbehandlung
 
@@ -641,7 +633,7 @@ Der Orchestrator liest ausschließlich `phase-state.json`.
 | Preflight-Check scheitert | Preflight | Story startet nicht. Phase-State: FAILED. Mensch muss Voraussetzungen klären. |
 | GitHub nicht erreichbar | Context-Berechnung | Setup FAIL. Mensch muss Netzwerk/Auth prüfen. |
 | Worktree-Erstellung scheitert | Worktree | Setup FAIL. Best-effort Cleanup (Branch löschen wenn erstellt). |
-| Sperrdatei kann nicht geschrieben werden | Guard-Aktivierung | Setup FAIL. Dateisystem-Berechtigungen prüfen. |
+| Lock-Record kann nicht angelegt werden | Guard-Aktivierung | Setup FAIL. State-Backend-/Berechtigungsproblem prüfen. |
 | Modus-Ermittlung: unbekannter Feldwert | Modus-Ermittlung | Exploration Mode (fail-closed). Kein Fehler, nur Warnung. |
 | ARE nicht erreichbar (bei `features.are: true`) | ARE-Bundle-Laden | Setup FAIL. Phase-State enthält `are_bundle.status: FAILED`. Orchestrator-Agent verweigert Worker-Start. Mensch muss ARE-Verbindung prüfen. |
 

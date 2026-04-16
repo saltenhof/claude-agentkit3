@@ -53,6 +53,17 @@ Issue-Close, Metriken, Postflight. Ihre Schritte sind sequentielle
 Seiteneffekte über verschiedene Systeme und werden über persistierte
 Substates abgesichert (Kap. 10.5.3).
 
+**Normative Klarstellung:** Bei implementierenden Stories muss
+Closure vor dem Merge den finalen Story-Branch-Stand auf den Remote
+pushen. Ein nur lokal vorhandener Commit-Stand ist kein zulässiger
+Closure-Eingang.
+
+**Abgrenzung:** Ein vollstaendiger Story-Reset ist kein Schritt der
+Verify- oder Closure-Phase. Wenn Verify oder Closure in einen harten,
+nicht ueber den offiziellen Workflow reparierbaren Fehler laufen,
+eskaliert die Pipeline. Erst danach kann der Mensch ueber die CLI
+einen `StoryResetService` ausloesen.
+
 ## 27.2 Atomarer QA-Zyklus
 
 ### 27.2.1 Identitätsfelder
@@ -98,15 +109,15 @@ werden.
 
 Wenn ein neuer Zyklus beginnt (`advance_qa_cycle()`), werden alle
 zyklusgebundenen Artefaktdateien gelöscht oder nach `stale/`
-verschoben (11 Dateien): [Korrektur 2026-04-09: 11→10 — `qa_review.json` war kein eigenständiges Artefakt, sondern identisch mit `llm-review.json`; `semantic.json`→`semantic-review.json` (§27.5.5)] [Ergänzung 2026-04-09: 10→11 — doc-fidelity.json als drittes Layer-2-Artefakt ergänzt (§27.5.5).]
+verschoben (11 Dateien).
 
 | Artefakt | Datei |
 |----------|-------|
-| Semantic Review | `semantic-review.json` |
+| Semantic Review | `semantic_review.json` |
 | Guardrail Check | `guardrail.json` | <!-- [Hinweis 2026-04-09] Kein aktiver Producer in §27.5 definiert — in früherer Layer-2-Architektur war ein separater Guardrail-Evaluator vorgesehen. Artefakt verbleibt in der Invalidierungs-Liste für den Fall, dass es aus einem früheren Zyklus noch existiert. -->
 | Policy Decision | `decision.json` |
-| LLM Review (QA-Bewertung) | `llm-review.json` | <!-- [Korrektur 2026-04-09] Separaten `qa_review.json`-Eintrag entfernt — QA-Bewertung (Rolle `qa_review`) wird in `llm-review.json` geschrieben (§27.5.5). -->
-| Umsetzungstreue | `doc-fidelity.json` |
+| LLM Review (QA-Bewertung) | `qa_review.json` |
+| Umsetzungstreue | `doc_fidelity.json` |
 | Feedback | `feedback.json` |
 | Adversarial | `adversarial.json` |
 | E2E Verify | `e2e_verify.json` | <!-- [Hinweis 2026-04-09] Kein aktiver Producer in §27.5 definiert — reserviert für eine zukünftige End-to-End-Integritätsprüfung. Artefakt verbleibt in der Invalidierungs-Liste für den Fall, dass es aus einem früheren Zyklus noch existiert. -->
@@ -124,6 +135,22 @@ abgelehnt, als wäre es nicht vorhanden.
 ### 27.2.5 FK-Referenz
 
 Domänenkonzept 5.2 "Atomarer QA-Zyklus".
+
+## 27.2a Eskalation versus Story-Reset
+
+Verify oder Closure koennen in `ESCALATED` enden, wenn Standardpfade
+wie Remediation, offizieller Closure-Retry oder `--no-ff`-Fallback den
+Sachverhalt nicht mehr sauber beherrschen.
+
+**Normative Regeln:**
+
+1. `ESCALATED` fuehrt nicht automatisch zu einem Story-Reset.
+2. Der Orchestrator darf einen Reset nur empfehlen oder dokumentieren.
+3. Die Ausfuehrung eines vollstaendigen Resets erfolgt ausschliesslich
+   durch einen menschlichen CLI-Befehl gegen den `StoryResetService`.
+4. Vor einem Reset muss die bisherige Umsetzung als korrupt oder
+   fachlich unbrauchbar bewertet sein; ein Reset ist kein Routinepfad
+   fuer gewoehnliche Verify-Fails.
 
 ## 27.3 Verify-Phase: Gesamtablauf
 
@@ -295,7 +322,7 @@ if state.verify_context in (
     # Phase Runner ruft externe LLMs direkt auf (kein Orchestrator,
     # kein PAUSED, kein agents_to_spawn). Ergebnisse als JSON persistiert.
     layer2_results = _run_layer2_parallel(context)  # ThreadPoolExecutor
-    # -> llm-review.json, semantic-review.json, doc-fidelity.json (§27.5.5)
+    # -> qa_review.json, semantic_review.json, doc_fidelity.json (§27.5.5)
     # Stoppt bei FAIL. PASS_WITH_CONCERNS blockiert NICHT (§27.5.4).
     if layer2_results.has_failure():  # NUR FAIL stoppt, nicht PASS_WITH_CONCERNS
         return _handle_verify_failure(state, layer2_results)
@@ -346,7 +373,7 @@ Fähigkeiten eines einfachen LLM-Aufrufs. Verify ist damit für Layer 2
 nicht-unterbrechend, für Layer 3 jedoch Orchestrator-vermittelt.
 
 Die LLM-Ergebnisse (Layer 2) werden als parsebares JSON persistiert
-(`llm-review.json`, `semantic-review.json`, `doc-fidelity.json`). Es gibt keinen
+(`qa_review.json`, `semantic_review.json`, `doc_fidelity.json`). Es gibt keinen
 PAUSED-Zwischenstatus, kein `agents_to_spawn` fuer Layer 2 und kein
 `RUN_SEMANTIC`-Ergebnis fuer Layer 2. Der PauseReason-Enum hat nur
 drei Werte (AWAITING_DESIGN_REVIEW, AWAITING_DESIGN_CHALLENGE,
@@ -523,11 +550,11 @@ Gibt es systemische Risiken, die die Einzelchecks nicht sehen?
 
 ### 27.5.5 Ergebnis-Artefakte
 
-- `_temp/qa/{story_id}/llm-review.json` (Producer: `qa-llm-review`)
-- `_temp/qa/{story_id}/semantic-review.json` (Producer: `qa-semantic-review`)
-- `_temp/qa/{story_id}/doc-fidelity.json` (Producer: `qa-doc-fidelity`)
+- `_temp/qa/{story_id}/qa_review.json` (Producer: `qa-llm-review`)
+- `_temp/qa/{story_id}/semantic_review.json` (Producer: `qa-semantic-review`)
+- `_temp/qa/{story_id}/doc_fidelity.json` (Producer: `qa-doc-fidelity`)
 
-[Ergänzung 2026-04-09: doc-fidelity.json als drittes Layer-2-Artefakt ergänzt — Umsetzungstreue (§27.9.1) schreibt Ergebnis in doc-fidelity.json (Rolle: doc_fidelity).]
+[Ergänzung 2026-04-09: `doc_fidelity.json` als drittes Layer-2-Artefakt ergänzt — Umsetzungstreue (§27.9.1) schreibt Ergebnis in `doc_fidelity.json` (Rolle: `doc_fidelity`).]
 
 > **[Entscheidung 2026-04-08]** Element 27 — Context Sufficiency Builder ist Pflicht-Gate VOR dem Review: stellt sicher dass genuegend Informationen vorhanden sind. Wenn nicht → Informationen zusammentragen, NICHT Review ueberspringen. Reviews finden IMMER statt.
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 27.
@@ -887,9 +914,9 @@ Der Phase Runner setzt `agents_to_spawn` im Phase-State:
   "inputs": {
     "handover": "stories/ODIN-042/handover.json",
     "layer2_concerns": [
-      "_temp/qa/ODIN-042/llm-review.json",
-      "_temp/qa/ODIN-042/semantic-review.json",
-      "_temp/qa/ODIN-042/doc-fidelity.json"
+"_temp/qa/ODIN-042/qa_review.json",
+"_temp/qa/ODIN-042/semantic_review.json",
+"_temp/qa/ODIN-042/doc_fidelity.json"
     ]
   }
 }
@@ -1084,7 +1111,7 @@ def build_feedback(story_id: str) -> list[Finding]:
             ))
 
     # Schicht 2: LLM-Review Failures (inkl. Umsetzungstreue)
-    for artifact_id in ("llm-review", "semantic-review", "doc-fidelity"):
+for artifact_id in ("qa_review", "semantic_review", "doc_fidelity"):
         review = load_artifact(story_id, artifact_id)
         if review:
             for check in review.checks:
@@ -1123,7 +1150,7 @@ def build_feedback(story_id: str) -> list[Finding]:
       "detail": "3 Tests failed"
     },
     {
-      "source": "llm-review",
+"source": "qa_review",
       "check_id": "error_handling",
       "status": "FAIL",
       "reason": "Timeout wird verschluckt",
@@ -1264,6 +1291,7 @@ immer in den Feedback-Loop — es gibt keinen LLM-basierten Pfad zu ESCALATED.]
 ```python
 class ClosureProgress(BaseModel):
     integrity_passed: bool = False
+    story_branch_pushed: bool = False
     merge_done: bool = False
     issue_closed: bool = False
     metrics_written: bool = False
@@ -1303,7 +1331,7 @@ flowchart TD
     START(["agentkit run-phase closure<br/>--story ODIN-042"]) --> STYPE{Story-Typ?}
 
     STYPE -->|"impl / bugfix"| FR
-    STYPE -->|"concept / research<br/>(kein Verify, kein Merge)"| CR_SUB1["Substate:<br/>integrity_passed = true<br/>merge_done = true<br/>(direkt gesetzt, §27.10.1)"]
+    STYPE -->|"concept / research<br/>(kein Verify, kein Merge)"| CR_SUB1["Substate:<br/>integrity_passed = true<br/>story_branch_pushed = true<br/>merge_done = true<br/>(direkt gesetzt, §27.10.1)"]
     CR_SUB1 --> CLOSE_CR["Issue schließen<br/>(gh issue close)"]
     CLOSE_CR --> SUB3
 
@@ -1315,8 +1343,12 @@ flowchart TD
     INTEGRITY -->|FAIL| ESC_I(["ESCALATED:<br/>Opake Meldung.<br/>Details in Audit-Log."])
     INTEGRITY -->|PASS| SUB1["Substate:<br/>integrity_passed = true"]
 
-    SUB1 --> MERGE["Branch mergen<br/>(git merge --ff-only)"]
-    MERGE -->|Merge-Konflikt| ESC_M(["ESCALATED:<br/>Merge-Konflikt.<br/>Mensch muss intervenieren."])
+    SUB1 --> PUSH_SB["Story-Branch pushen<br/>(git push origin story/{story_id})"]
+    PUSH_SB -->|Push-Fehler| ESC_P(["ESCALATED:<br/>Story-Branch-Push fehlgeschlagen."])
+    PUSH_SB -->|Erfolg| SUB_PUSH["Substate:<br/>story_branch_pushed = true"]
+
+    SUB_PUSH --> MERGE["Branch mergen<br/>(Default: git merge --ff-only)<br/>Fallback: git merge --no-ff"]
+    MERGE -->|Merge-Fehler| ESC_M(["ESCALATED:<br/>Merge fehlgeschlagen.<br/>Closure-Retry mit offizieller Merge-Policy prüfen."])
     MERGE -->|Erfolg| SUB2["Substate:<br/>merge_done = true"]
 
     SUB2 --> TEARDOWN["Worktree aufräumen<br/>Branch löschen"]
@@ -1335,21 +1367,28 @@ flowchart TD
     WARN_PF --> SUB5
 
     SUB5 --> VDBSYNC["VektorDB-Sync<br/>(async, Fire-and-Forget)"]
-    VDBSYNC --> GUARDS_OFF["Guards deaktivieren:<br/>Sperrdateien entfernen"]
+VDBSYNC --> GUARDS_OFF["Guards deaktivieren:<br/>Lock-Record beenden"]
     GUARDS_OFF --> DONE(["Story abgeschlossen"])
 ```
 
 ### 27.10.3 Substates und Recovery
 
 [Entscheidung 2026-04-09: `closure_substates` ersetzt durch
-`ClosurePayload.progress` (Typ `ClosureProgress`). Die fünf
-Boolean-Felder liegen jetzt unter `payload.progress.*` im Phase-State.]
+`ClosurePayload.progress` (Typ `ClosureProgress`). Die Bool-
+Felder liegen jetzt unter `payload.progress.*` im Phase-State.]
 
-Die fünf ClosureProgress-Booleans markieren die kritischen Checkpoints mit Crash-Recovery-Relevanz. Weitere Schritte (Finding-Resolution-Gate, VectorDB-Sync, Guards-Off) werden nicht separat im Progress-Feld verfolgt — Finding-Resolution ist eine Vorstufe, VectorDB-Sync und Guards-Off sind idempotente Fire-and-Forget-Operationen. Bei Crash: Recovery setzt beim letzten bestätigten Fortschrittsfeld wieder an (Kap. 10.5.3).
+Die sechs ClosureProgress-Booleans markieren die kritischen
+Checkpoints mit Crash-Recovery-Relevanz. Weitere Schritte
+(Finding-Resolution-Gate, VectorDB-Sync, Guards-Off) werden nicht
+separat im Progress-Feld verfolgt — Finding-Resolution ist eine
+Vorstufe, VectorDB-Sync und Guards-Off sind idempotente
+Fire-and-Forget-Operationen. Bei Crash: Recovery setzt beim letzten
+bestätigten Fortschrittsfeld wieder an (Kap. 10.5.3).
 
 ```python
 class ClosureProgress(BaseModel):
     integrity_passed: bool = False
+    story_branch_pushed: bool = False
     merge_done: bool = False
     issue_closed: bool = False
     metrics_written: bool = False
@@ -1365,6 +1404,7 @@ Im Phase-State (`phase-state.json`):
 "payload": {
   "progress": {
     "integrity_passed": true,
+    "story_branch_pushed": true,
     "merge_done": true,
     "issue_closed": false,
     "metrics_written": false,
@@ -1374,11 +1414,17 @@ Im Phase-State (`phase-state.json`):
 ```
 
 Zugriff: `payload.progress.integrity_passed`,
+`payload.progress.story_branch_pushed`,
 `payload.progress.merge_done` etc.
 
-Bei erneutem Aufruf von `agentkit run-phase closure`: Merge wird
-übersprungen (bereits erledigt, `payload.progress.merge_done == true`),
-Issue-Close wird ausgeführt.
+Bei erneutem Aufruf von `agentkit run-phase closure`:
+
+- Story-Branch-Push wird übersprungen, wenn
+  `payload.progress.story_branch_pushed == true`
+- Merge wird übersprungen, wenn
+  `payload.progress.merge_done == true`
+- Issue-Close wird ausgeführt, wenn
+  `payload.progress.issue_closed == false`
 
 Teardown (Worktree aufräumen, Branch löschen) ist idempotent — er wird bei jedem Recovery-Lauf mit `merge_done == true && issue_closed == false` erneut ausgeführt. Ein eigenes `teardown_done`-Feld ist nicht erforderlich, da ein fehlgeschlagener oder bereits erledigter Teardown keinen Datenverlust verursacht.
 
@@ -1389,14 +1435,30 @@ wenn der Merge scheitert:
 
 1. Erst Finding-Resolution-Gate (§27.10a) → sicherstellt: alle Findings vollständig aufgelöst
 2. Erst Integrity-Gate → sicherstellt: Prozess wurde durchlaufen
-3. Erst mergen → Code ist auf Main
-4. Erst Worktree aufräumen → kein staler Worktree
-5. Dann Issue schließen → fachlich abgeschlossen
-6. Dann Metriken → Nachvollziehbarkeit
-7. Dann Rückkopplungstreue → Doku aktuell?
-8. Dann Postflight → Konsistenzprüfung
-9. Dann VektorDB-Sync → für nachfolgende Stories suchbar
-10. Zuletzt Guards deaktivieren → AI-Augmented-Modus wieder frei
+3. Erst Story-Branch pushen → Remote enthält den finalen Integrationsstand
+4. Erst mergen → Code ist auf Main
+5. Erst Worktree aufräumen → kein staler Worktree
+6. Dann Issue schließen → fachlich abgeschlossen
+7. Dann Metriken → Nachvollziehbarkeit
+8. Dann Rückkopplungstreue → Doku aktuell?
+9. Dann Postflight → Konsistenzprüfung
+10. Dann VektorDB-Sync → für nachfolgende Stories suchbar
+11. Zuletzt Guards deaktivieren → AI-Augmented-Modus wieder frei
+
+### 27.10.5 Merge-Policy
+
+Closure kennt zwei offizielle Merge-Policies:
+
+| Merge-Policy | Bedeutung | Verwendung |
+|--------------|-----------|-----------|
+| `ff_only` | Merge ohne Merge-Commit | Default |
+| `no_ff` | Merge mit explizitem Merge-Commit | Offizieller Fallback-/Recovery-Pfad |
+
+**Verbotene Recovery:** Manuelle Rebases, Force-Pushes oder
+Guard-Umgehungen sind kein zulässiger Closure-Fix.
+
+**Zulässige Recovery:** Ein dokumentierter Closure-Retry mit der
+offiziellen Merge-Policy `no_ff`.
 
 ## 27.10a Finding-Resolution als Closure-Gate (FK-27-221 bis FK-27-225)
 
@@ -1431,8 +1493,8 @@ Es gibt keine eigene Quelle und kein separates Artefakt:
   eines Findings nicht autoritativ setzen (Kap. 04, §4.2)
 
 Die Bewertung erfolgt als zusaetzliche Check-IDs in den bestehenden
-Layer-2-Artefakten (`llm-review.json`, `semantic-review.json`, `doc-fidelity.json`, §27.5.5). Kein
-neues Artefakt. [Korrektur 2026-04-09: `qa_review.json` → kanonische Artefaktnamen aus §27.5.5; Ergaenzung 2026-04-09: `doc-fidelity.json` als drittes Layer-2-Artefakt ergaenzt (§27.5.5).]
+Layer-2-Artefakten (`qa_review.json`, `semantic_review.json`, `doc_fidelity.json`, §27.5.5). Kein
+neues Artefakt.
 
 ### 27.10a.3 Finding-Laden im Remediation-Zyklus (FK-27-223)
 
@@ -1450,7 +1512,7 @@ def load_previous_findings(story_id: str, previous_cycle_id: str) -> list[dict]:
     """
     stale_dir = Path(f"_temp/qa/{story_id}/stale/{previous_cycle_id}")
     findings = []
-    for artifact_name in ("llm-review.json", "semantic-review.json", "doc-fidelity.json"):
+    for artifact_name in ("qa_review.json", "semantic_review.json", "doc_fidelity.json"):
         artifact_path = stale_dir / artifact_name
         if artifact_path.exists():
             artifact = json.loads(artifact_path.read_text())
@@ -1482,7 +1544,7 @@ def check_finding_resolution(story_id: str) -> bool:
     Returns False wenn mindestens ein Finding partially_resolved
     oder not_resolved ist.
     """
-    for artifact_id in ("llm-review", "semantic-review", "doc-fidelity"):
+for artifact_id in ("qa_review", "semantic_review", "doc_fidelity"):
         review = load_artifact(story_id, artifact_id)
         if review is None:
             return False  # fail-closed
@@ -1503,10 +1565,9 @@ def check_finding_resolution(story_id: str) -> bool:
 ### 27.10a.5 Artefakt-Invalidierung (FK-27-225)
 
 Die Finding-Resolution ist Teil der bestehenden Layer-2-Artefakte
-`llm-review.json`, `semantic-review.json` und `doc-fidelity.json` (§27.5.5) — alle drei
+`qa_review.json`, `semantic_review.json` und `doc_fidelity.json` (§27.5.5) — alle drei
 Artefakte sind bereits in der Invalidierungstabelle (§27.2.3)
 enthalten. Eine Erweiterung der Tabelle ist daher nicht erforderlich.
-[Korrektur 2026-04-09: `qa_review.json` → kanonische Artefaktnamen aus §27.5.5; Ergaenzung 2026-04-09: `doc-fidelity.json` als drittes Layer-2-Artefakt ergaenzt.]
 
 **Querverweis:** Kap. 34 fuer die technische Erweiterung des
 StructuredEvaluator um den Remediation-Modus.
@@ -1523,7 +1584,7 @@ harter Blocker — die Dimensionspruefung wird nicht gestartet.
 |------------------|----------------|
 | `structural.json` | Structural Checks nicht ausgefuehrt |
 | `decision.json` | Policy-Evaluation nicht stattgefunden |
-| `context.json` | Story-Context nicht aufgebaut |
+| `ArtifactRecord(context)` | Story-Context nicht aufgebaut |
 
 **Empirischer Beleg (BB2-012):** `decision.json` fehlte, trotzdem
 lief Closure durch. Dieser Defekt wird durch die Vorstufe
@@ -1533,13 +1594,13 @@ verhindert. Details: Kap. 35, §35.2.3.
 
 | Dim | Prüfgegenstand | FAIL-Code | Prüfung |
 |-----|---------------|-----------|---------|
-| 1 | QA-Verzeichnis existiert | `NO_QA_DIR` | `_temp/qa/{story_id}/` vorhanden |
-| 2 | Context-Integrität | `CONTEXT_INVALID` | `context.json` vorhanden, `status == PASS`, hat `story_id` |
+| 1 | QA-Artefaktbestand | `NO_QA_ARTIFACTS` | Pflicht-`artifact_records` vorhanden |
+| 2 | Context-Integrität | `CONTEXT_INVALID` | `ArtifactRecord(context)` vorhanden, `status == PASS`, hat `story_id` |
 | 3 | Structural-Check-Tiefe | `STRUCTURAL_SHALLOW` | `structural.json` > 500 Bytes, >= 5 Checks, Producer = `qa-structural-check` |
 | 4 | Policy-Decision | `DECISION_INVALID` | `decision.json` > 200 Bytes, hat `major_threshold`, Producer = `qa-policy-engine` |
-| 5 | Semantic-Validierung | `NO_SEMANTIC` | Bei impl/bugfix: `llm-review.json` + `semantic-review.json` + `doc-fidelity.json` existieren |
+| 5 | Semantic-Validierung | `NO_SEMANTIC` | Bei impl/bugfix: `qa_review.json` + `semantic_review.json` + `doc_fidelity.json` existieren |
 | 6 | Verify-Phase | `NO_VERIFY` | Bei impl/bugfix: Abgeschlossener Verify-Phaseneintrag in `story_dir/phase-history.json` vorhanden (`phase == verify`, `status == COMPLETED`). Bei concept/research: Dimension entfällt (kein Verify). |
-| 7 | Timestamp-Kausalität | `TIMESTAMP_INVERSION` | `context.json.finished_at` > `decision.json.finished_at` (Inversion: Context darf nicht nach Policy-Decision abgeschlossen sein) |
+| 7 | Timestamp-Kausalität | `TIMESTAMP_INVERSION` | `ArtifactRecord(context).finished_at` > `ArtifactRecord(decision).finished_at` (Inversion: Context darf nicht nach Policy-Decision abgeschlossen sein) |
 
 [Korrektur 2026-04-09: Dimension 6 prüft nicht das aktive `phase-state.json` (das zeigt während Closure `phase == closure`), sondern den Phasen-Abschluss-Eintrag im Phase-History-Log des Story-Verzeichnisses. Dieser wird vom Phase Runner beim Abschluss jeder Phase geschrieben.]
 
@@ -1620,7 +1681,7 @@ aktive Intervention erforderlich.
 | **Errors and Warnings** | Aggregierte Fehler und Warnungen aus allen Phasen |
 | **Structural Check Results** | Ergebnisse der deterministischen Checks (Schicht 1) |
 | **Policy Engine Verdict** | Aggregiertes Policy-Ergebnis mit Blocking/Major/Minor Counts |
-| **Closure Sub-Step Status** | Status jedes `ClosureProgress`-Feldes (`payload.progress.integrity_passed`, `payload.progress.merge_done`, `payload.progress.issue_closed`, `payload.progress.metrics_written`, `payload.progress.postflight_done`) [Entscheidung 2026-04-09] |
+| **Closure Sub-Step Status** | Status jedes `ClosureProgress`-Feldes (`payload.progress.integrity_passed`, `payload.progress.story_branch_pushed`, `payload.progress.merge_done`, `payload.progress.issue_closed`, `payload.progress.metrics_written`, `payload.progress.postflight_done`) [Entscheidung 2026-04-09] |
 | **Telemetry Event Counts** | Zähler aller relevanten Telemetrie-Events |
 | **Integrity Violations Log** | Vollständiger Integrity-Violations-Auszug (falls vorhanden) |
 
@@ -1677,11 +1738,10 @@ werden sollten.
 
 Nach erfolgreichem Postflight:
 
-1. Sperrdateien entfernen:
+1. Lock-Record im State-Backend beenden und optionale Lock-Exporte entfernen:
    `_temp/governance/locks/{story_id}/qa-lock.json`
-2. Story-Execution-Marker entfernen:
-   `_temp/governance/active/{story_id}.active`
-3. Ab hier: AI-Augmented-Modus wieder aktiv (Branch-Guard inaktiv,
+   sowie `.agent-guard/lock.json` in betroffenen Worktrees
+2. Ab hier: AI-Augmented-Modus wieder aktiv (Branch-Guard inaktiv,
    Orchestrator-Guard inaktiv, QA-Schutz inaktiv)
 
 ---

@@ -11,8 +11,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 from agentkit.pipeline.phases.verify.phase import VerifyConfig, VerifyPhaseHandler
 from agentkit.qa.structural.checker import StructuralChecker
-from agentkit.story.models import PhaseState, PhaseStatus, StoryContext
-from agentkit.story.types import StoryMode, StoryType, get_profile
+from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
+from agentkit.story_context_manager.types import StoryMode, StoryType, get_profile
 
 
 def _make_context(

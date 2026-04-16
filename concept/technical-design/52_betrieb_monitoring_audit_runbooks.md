@@ -41,6 +41,7 @@ stimmt und Probleme erkannt werden?
 | Git | Keine stale Worktrees/Branches | `git worktree list` |
 | Locks | Keine stale Locks | `agentkit query-state --locks` |
 | Audit-Export | Exportziel erreichbar | `agentkit export-telemetry --dry-run` |
+| Reset-Faehigkeit | Offizieller Reset-Pfad verfuegbar | `agentkit reset-story --help` |
 
 ### 52.2.2 Status-Befehl
 
@@ -75,7 +76,7 @@ agentkit status
 | Log | Speicherort | Inhalt |
 |-----|------------|--------|
 | Telemetrie (Laufzeit) | PostgreSQL | Alle Events |
-| Telemetrie (Archiv) | Audit-Export / Objektspeicher | JSONL-Export bei Closure |
+| Telemetrie (Archiv) | Audit-Export / Objektspeicher | JSONL-Export gueltiger, nicht vollstaendig zurueckgesetzter Runs |
 | Integrity-Violations | PostgreSQL (Event-Typ `integrity_violation`) | Guard-Blockaden |
 | Integrity-Gate-Ergebnisse | PostgreSQL (Event-Typ `integrity_gate_result`) | FAIL-Codes |
 | Governance-Adjudication | PostgreSQL (Event-Typ `governance_adjudication`) | Incident-Klassifikation |
@@ -195,17 +196,37 @@ Lösung:
 Symptom: Closure ESCALATED mit Merge-Konflikt
 Ursache: Main hat sich seit Story-Start weiterentwickelt
 
-WICHTIG: Rebase auf Main ist durch den Branch-Guard blockiert.
-Dieser Schritt erfolgt MANUELL durch den Menschen, NICHT durch
-einen Agent. Der Mensch arbeitet direkt im Terminal, nicht in
-einer Claude-Code-Session.
+Lösung:
+1. Offiziellen Closure-Retry pruefen: `agentkit run-phase closure --story {story_id} --no-ff`
+2. Wenn Closure damit sauber abschliesst: Story normal beenden
+3. Wenn weiterhin harter, nicht workflowfaehiger Konflikt vorliegt:
+   Eskalation bestehen lassen und menschliche Entscheidung treffen
+4. Nur wenn die Umsetzung als korrupt oder unbrauchbar gilt:
+   `agentkit reset-story --story {story_id} --reason "..."`
+```
+
+### 52.5.6 Vollstaendiger Story-Reset
+
+```
+Symptom: Story ist ESCALATED und kann ueber Standardpfade nicht mehr
+sauber weitergefuehrt werden
+Ursache: Schwerer technischer Fehler, irreparabler Merge-Konflikt,
+inkonsistenter Runtime-State oder vergleichbarer Ausnahmefall
+
+WICHTIG: Ein Story-Reset wird nie automatisch vom Orchestrator oder
+von AgentKit selbst ausgeloest. Er ist eine ausdruecklich menschliche
+Recovery-Entscheidung.
 
 Lösung:
-1. In Worktree wechseln: cd worktrees/{story_id}
-2. Rebase: git rebase main  (manuell, kein Agent)
-3. Konflikte manuell lösen
-4. agentkit reset-escalation --story {story_id}
-5. Pipeline neu starten (ab Verify oder Closure)
+1. Eskalationsgrund und letzte gueltige Telemetrie pruefen
+2. Sicherstellen, dass normale Recovery-Pfade nicht mehr tragfaehig sind
+3. Reset ausloesen:
+   agentkit reset-story --story {story_id} --reason "..."
+4. Ergebnis pruefen:
+   - keine aktiven Locks
+   - kein aktiver Runtime-State
+   - keine FK-16/FK-60ff-Ableitungen der korrupten Umsetzung
+5. Story bei Bedarf neu starten
 ```
 
 ## 52.6 Kapazitäts- und Kostensteuerung
@@ -247,10 +268,15 @@ kein zusätzliches Limit nötig.
 | Daten | Retention | Begründung |
 |-------|----------|-----------|
 | QA-Artefakte abgeschlossener Stories | 90 Tage, dann archivierbar | Audit-Trail, Failure-Corpus-Grundlage |
-| JSONL-Exports | Permanent | Langfrist-Audit |
+| JSONL-Exports | Permanent fuer gueltige Runs | Langfrist-Audit |
 | Failure Corpus | Permanent | Wächst über die Projektlaufzeit |
 | Stale Locks/Marker | Sofort löschbar nach Cleanup | Kein Langfrist-Wert |
 | Adversarial-Sandbox | Löschbar nach Promotion | Ephemer |
+
+**Reset-Regel:** Ein vollstaendig zurueckgesetzter Story-Run ist kein
+retentionswuerdiger gueltiger Lauf. Seine runtime-nahen Auditdaten und
+abgeleiteten Artefakte werden mit entfernt; dauerhafte Aufbewahrung
+gilt nur fuer gueltige Runs.
 
 ---
 

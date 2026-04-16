@@ -247,7 +247,7 @@ Zwei LLM-Bewertungen laufen parallel, gesteuert durch deterministische
 Python-Skripte über konfigurierte LLM-Pools (nicht als eigenständige
 Agents): eine QA-Bewertung (Code-Qualität, Testabdeckung,
 Akzeptanzkriterien) und ein Semantic Review (Architektur-Compliance).
-Ergebnis: `semantic-review.json`, `guardrail.json`.
+Ergebnis: `semantic_review.json`, `guardrail.json`.
 
 **Layer 3 — Adversarial Testing (LLM-Agent)**
 Ein Agent schreibt gezielt Edge-Case-Tests, führt sie aus und führt
@@ -336,12 +336,12 @@ nutzt Multi-LLM-Debatten zur Schwachstellensuche.
 ## 9. Artefakte und Nachvollziehbarkeit
 
 Jede Phase hinterlässt Artefakte im zentralen State-Backend; bei
-Bedarf können daraus Exportdateien erzeugt werden:
+Bedarf können daraus Exportdateien materialisiert werden:
 
-- `phase-state.json` — Laufzeit-Zustand (Status, Fehler, Warnungen, Timing)
-- `context.json` — Story-Kontext (Typ, Größe, Scope, GitHub-Daten)
+- `phase-state.json` — Export der `phase_state_projection`
+- `context.json` — Export aus `StoryContext`
 - `structural.json` — Ergebnisse der strukturellen Checks
-- `semantic-review.json` — LLM-Review-Ergebnisse
+- `semantic_review.json` — LLM-Review-Ergebnisse
 - `decision.json` — Policy-Engine-Verdikt
 - `execution-report.md` — Konsolidierter Ausführungsbericht (Zusammenfassung,
   Fehler, Warnungen, Timing, Artifact Health)

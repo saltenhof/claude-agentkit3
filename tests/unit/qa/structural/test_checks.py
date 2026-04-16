@@ -12,8 +12,8 @@ from agentkit.qa.structural.checks import (
     check_no_corrupt_state,
     check_phase_snapshots,
 )
-from agentkit.story.models import PhaseStatus
-from agentkit.story.types import StoryMode, StoryType
+from agentkit.story_context_manager.models import PhaseStatus
+from agentkit.story_context_manager.types import StoryMode, StoryType
 
 
 class TestCheckContextExists:

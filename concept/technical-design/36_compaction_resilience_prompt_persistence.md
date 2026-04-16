@@ -105,7 +105,7 @@ Folgende Ansaetze wurden durch die Validierung als nicht tragfaehig identifizier
 
 Die Resume-Kapsel wird bei Compose-Time vom Prompt-Compose-Modul (`agentkit.prompting.compose`) als
 **eigenstaendiges Artefakt** erzeugt — zeitgleich mit dem `prompt_file`,
-aber aus den strukturierten Quelldaten (context.json, Story-Metadaten),
+aber aus den strukturierten Quelldaten (`StoryContext`/`context.json`-Export, Story-Metadaten),
 NICHT durch Extraktion/Truncation des Prompts (DD-12, Dual-Write).
 
 Pfad: `_temp/qa/{story_id}/resume-capsule--{spawn_key}.md`.
@@ -288,7 +288,7 @@ relevanten Teile mechanisch extrahieren.
   2. Parse `story_id` aus spawn_key (Format: `{base}--story={id}--r{N}`)
   3. Lade `_temp/qa/{story_id}/spawn-spec--{spawn_key}.json`
   4. Verifiziere `resume_capsule_hash` gegen aktuelle Kapsel-Datei (Drift-Check)
-  5. Lese aktuellen Story-Epoch aus SQLite-Store → `baseline_epoch`
+  5. Lese aktuellen Story-Epoch aus dem zentralen Compaction-State-Store → `baseline_epoch`
   6. Schreibe `_temp/agent-prompts/{agent_id}.manifest.json`:
      ```json
      {
@@ -352,7 +352,7 @@ relevanten Teile mechanisch extrahieren.
         ```
      f. Aktualisiere `recovered_epoch = current_epoch` im Manifest
 - **Compaction-Erkennung**: Lese `story_id` aus Manifest → lese Story-Epoch
-  aus SQLite-Store → vergleiche mit `recovered_epoch` im Manifest.
+  aus dem zentralen Compaction-State-Store → vergleiche mit `recovered_epoch` im Manifest.
   `current_epoch > recovered_epoch` → Compaction erkannt.
 - **Fail-open**: Wenn Manifest fehlt, Kapsel fehlt, oder Hash-Mismatch →
   Warning auf stderr, exit 0. Agent arbeitet degradiert weiter.
@@ -367,16 +367,17 @@ relevanten Teile mechanisch extrahieren.
   1. Walk-up-Suche: Suche `.agentkit-story.json` ab `cwd` aufwaerts bis
      Repository-Root oder Filesystem-Root. Nimm den naechsten Marker.
   2. Extrahiere `story_id` aus dem Marker.
-  3. Oeffne SQLite-Store `_temp/agent-prompts/compact_epochs.sqlite3`
-  4. Atomar: `INSERT OR UPDATE epoch = epoch + 1 WHERE story_id = ?`
+  3. Oeffne den zentralen Compaction-State-Store
+  4. Atomar: `UPSERT epoch = epoch + 1 WHERE (project_key, story_id)`
   5. Kein Marker gefunden → Warning, kein Epoch-Update (fail-open).
 - **Zweck**: Stellt ein **story-scoped** Compaction-Signal bereit, das
   `PreToolUse` auswerten kann. Die Story-Zuordnung erfolgt ueber den
   cwd-Marker (`.agentkit-story.json`), da PostCompact kein `agent_id` hat.
 - **Cross-Story-Isolation**: Jede Story hat ihren eigenen Epoch-Counter.
   Compaction in Story A beeinflusst nur Story A's Agents, nicht Story B.
-- **SQLite statt Dateien**: Atomares `epoch = epoch + 1` ohne Lost-Update
-  bei parallelen Compactions. AgentKit nutzt SQLite bereits fuer Telemetrie.
+- **Zentraler Store statt Dateien**: Atomares `epoch = epoch + 1` ohne
+  Lost-Update bei parallelen Compactions. Der Epoch-State ist kein
+  projektlokales SQLite-Artefakt mehr.
 
 ### 36.7.5 Schritt 4: Cleanup
 
@@ -465,13 +466,13 @@ SubagentStop:
 ### 36.9.5 Signal- und Flag-Dateien
 
 - `_temp/agent-prompts/{agent_id}.first-tool` — leere Datei, erster Tool-Call Marker
-- `_temp/agent-prompts/compact_epochs.sqlite3` — Story-scoped Epoch-Store
-  (Tabelle `session_epochs(story_id TEXT PK, epoch INTEGER, updated_at TEXT)`)
+- zentraler Compaction-State-Store — Story-scoped Epoch-Store
+  (`(project_key, story_id) -> epoch, updated_at`)
 
 **Entfallene Dateien (ab Revision 2):**
 - ~~`{agent_id}.active`~~ → ersetzt durch `baseline_epoch` im Manifest
 - ~~`{agent_id}.recovered`~~ → ersetzt durch `recovered_epoch` im Manifest
-- ~~`.compact-epoch`~~ → ersetzt durch SQLite-Store
+- ~~`.compact-epoch`~~ → ersetzt durch zentralen Compaction-State-Store
 
 ## 36.10 Sicherheitsaspekte
 
@@ -567,12 +568,12 @@ Manifest-Lookup moeglich. PreToolUse ist der einzige Sub-Agent-Hook mit
 ### DD-04: PostCompact als Story-Scoped Epoch-Signal (revidiert, 2x)
 
 **Erste Revision**: Globaler Epoch-Counter statt agent-spezifischer Marker.
-**Zweite Revision**: Story-scoped Epoch via SQLite + cwd-Marker statt global.
+**Zweite Revision**: Story-scoped Epoch via zentralem Compaction-State-Store + cwd-Marker statt global.
 
 **Begruendung**: Globaler Counter verursacht Cross-Story False Positives bei
 paralleler Story-Bearbeitung. `session_id` ist nicht nutzbar (alle Stories
 teilen eine CLI-Session). `cwd` + Walk-up-Suche nach `.agentkit-story.json`
-liefert die Story-Zuordnung. SQLite garantiert Atomizitaet.
+liefert die Story-Zuordnung. Der zentrale Store garantiert Atomizitaet.
 
 ### DD-05: Ein-Phasen-Manifest in SubagentStart (revidiert)
 

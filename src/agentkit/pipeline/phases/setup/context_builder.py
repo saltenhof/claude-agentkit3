@@ -6,8 +6,8 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from agentkit.integrations.github.issues import get_issue
-from agentkit.story.models import StoryContext
-from agentkit.story.types import StoryMode, StoryType, get_profile
+from agentkit.story_context_manager.models import StoryContext
+from agentkit.story_context_manager.types import StoryMode, StoryType, get_profile
 
 if TYPE_CHECKING:
     from pathlib import Path

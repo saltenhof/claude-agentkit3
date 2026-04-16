@@ -149,7 +149,7 @@ class RepoContext:
         git: Bereits instanziierte GitOperations (single-repo per design).
         git_base_branch: Branch gegen den der Diff berechnet wird.
         role: Semantische Rolle ("app" | "docs" | "frontend" | "infra").
-        affected: Ob dieses Repo von der Story betroffen ist (aus context.json).
+        affected: Ob dieses Repo von der Story betroffen ist (aus StoryContext bzw. dessen `context.json`-Export).
     """
     repo_id: str
     repo_path: Path
@@ -180,7 +180,7 @@ class RepoContext:
      herangezogen, nicht für Diff-Collection.
 
 4. **Single-Repo-Kompatibilität:** Stories ohne `worktree_paths`
-   in `context.json` erzeugen ein Repo-Set mit einem einzigen
+im `StoryContext` bzw. dessen `context.json`-Export erzeugen ein Repo-Set mit einem einzigen
    Eintrag. Der Assembler behandelt beides uniform.
 
 ### 28.3.3 Stufe 1: Deterministischer Kern
@@ -194,7 +194,7 @@ Dateisystem und Git ableitbar ist.
 |-----------|---------|-----------|--------------|
 | Geänderte Dateien | `_collect_changed_files()` | `PRIMARY_IMPLEMENTATION` | `git diff --name-only {base} HEAD` |
 | Modul-Nachbarn | `_collect_module_neighbors()` | `SECONDARY_CONTEXT` | `__init__.py`, `schemas.py`, `protocols.py`, `config.py`, `types.py` im selben und übergeordneten Verzeichnis |
-| Normative Quellen | `_collect_normative_sources()` | `PRIMARY_NORMATIVE` | Story-Spec, Concept-Docs, Guardrails aus `context.json` / `.story-pipeline.yaml` |
+| Normative Quellen | `_collect_normative_sources()` | `PRIMARY_NORMATIVE` | Story-Spec, Concept-Docs, Guardrails aus `StoryContext` / `.story-pipeline.yaml` |
 | YAML/JSON-Configs | `_collect_yaml_json_configs()` | `SECONDARY_CONTEXT` | Konfigurationsdateien im selben Modul wie geänderte Dateien |
 
 **Diff-Basis-Ermittlung (D4, FK-28-002):**
@@ -207,7 +207,7 @@ def _resolve_base(self, repo_ctx: RepoContext) -> str:
     """Ermittelt die korrekte Diff-Basis aus dem Story-Kontext.
 
     Auflösungsreihenfolge:
-    1. context.json → base_branch (explizite Überschreibung)
+1. StoryContext / `context.json`-Export → `base_branch` (explizite Überschreibung)
     2. RepoContext.git_base_branch (aus Pipeline-Config)
     3. Idealerweise git merge-base für Rebase-Sicherheit
     """
@@ -401,7 +401,7 @@ class EvidenceAssembler:
         repos: Repo-Set mit RepoContext pro Repository.
         primary_repo_id: ID des primären Repos (höhere Priorität).
         story_dir: Verzeichnis der Story-Artefakte.
-        context_json: Geladenes context.json.
+context_json: Geladener `context.json`-Export eines `StoryContext`.
         pipeline_config: Geladene .story-pipeline.yaml.
     """
 
@@ -452,7 +452,7 @@ class EvidenceAssembler:
         ...
 
     def _collect_normative_sources(self) -> list[Path]:
-        """Story-Spec, Concept-Docs, Guardrails aus context.json/pipeline-config."""
+"""Story-Spec, Concept-Docs, Guardrails aus StoryContext/context-export/pipeline-config."""
         ...
 
     def _collect_yaml_json_configs(
@@ -1493,7 +1493,7 @@ agentkit evidence assemble \
 | Parameter | Pflicht | Beschreibung |
 |-----------|---------|--------------|
 | `--story-id` | Ja | Story-ID für Telemetrie und Artefakt-Benennung |
-| `--story-dir` | Ja | Verzeichnis der Story-Artefakte (enthält `context.json`) |
+| `--story-dir` | Ja | Verzeichnis der Story-Artefakt-Exporte (enthaelt optional `context.json`) |
 | `--output-dir` | Ja | Zielverzeichnis für `bundle_manifest.json` und assemblierte Dateien |
 | `--config` | Nein | Pfad zur `.story-pipeline.yaml` (Default: `.story-pipeline.yaml` im Repo-Root) |
 
@@ -1521,8 +1521,8 @@ def _register_evidence_commands(subparsers) -> None:
 def _handle_evidence_assemble(args) -> int:
     """Handler für 'agentkit evidence assemble'.
 
-    1. Lädt context.json aus --story-dir
-    2. Baut RepoContext-Set aus context.json repos[] + worktree_paths
+1. Lädt `context.json`-Export aus `--story-dir` oder nutzt direkt `StoryContext`
+2. Baut RepoContext-Set aus `repos[]` + `worktree_paths`
     3. Instanziiert EvidenceAssembler mit Multi-Repo-API
     4. Ruft assemble() auf
     5. Schreibt bundle_manifest.json in --output-dir
@@ -1718,7 +1718,7 @@ potentiell irreführend.
 
 **Entscheidung:** Die Diff-Basis wird nicht hart an `"main"`
 festgetackert, sondern aus dem Story-Kontext ermittelt:
-1. `context.json → base_branch` (explizite Überschreibung)
+1. `StoryContext` / `context.json`-Export → `base_branch` (explizite Überschreibung)
 2. `RepoContext.git_base_branch` (aus Pipeline-Config)
 3. `git merge-base` für Rebase-Sicherheit
 

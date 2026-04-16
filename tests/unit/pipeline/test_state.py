@@ -22,8 +22,8 @@ from agentkit.pipeline.state import (
     save_phase_state,
     save_story_context,
 )
-from agentkit.story.models import PhaseSnapshot, PhaseState, PhaseStatus, StoryContext
-from agentkit.story.types import StoryMode, StoryType
+from agentkit.story_context_manager.models import PhaseSnapshot, PhaseState, PhaseStatus, StoryContext
+from agentkit.story_context_manager.types import StoryMode, StoryType
 
 
 def _make_ctx() -> StoryContext:

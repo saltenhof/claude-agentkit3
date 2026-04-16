@@ -15,12 +15,12 @@ from agentkit.qa.structural.checks import (
     check_no_corrupt_state,
     check_phase_snapshots,
 )
-from agentkit.story.types import get_profile
+from agentkit.story_context_manager.types import get_profile
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.story.models import StoryContext
+    from agentkit.story_context_manager.models import StoryContext
 
 
 class StructuralChecker:

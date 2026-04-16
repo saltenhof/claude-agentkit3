@@ -55,7 +55,7 @@ Es ist das Meta-Dokument des Analytics-Blocks (Nummernkreis 60-69):
 
 | Konzept | Autoritaet fuer | Beziehung zu FK-60ff |
 |---------|-----------------|----------------------|
-| FK-14 (Event-Infrastruktur) | Event-Modell, Event-Katalog, PostgreSQL-Schema (`events`-Tabelle), Hook-Mechanik | FK-60ff konsumiert Events als Rohdatenquelle. FK-14 definiert WAS ein Event ist. FK-60ff definiert WAS eine KPI ist. |
+| FK-14 (Event-Infrastruktur) | Event-Modell, Event-Katalog, PostgreSQL-Schema (`execution_events`), Hook-Mechanik | FK-60ff konsumiert Events als Rohdatenquelle. FK-14 definiert WAS ein Event ist. FK-60ff definiert WAS eine KPI ist. |
 | FK-16 (QA-/FC-Raw-Store) | Querybare Raw-/Mirror-Tabellen im zentralen PostgreSQL-Store | FK-62 baut die Analytics-Schicht auf diesen Raw-Tabellen auf. Dashboard-Autoritaet wandert von FK-16 nach FK-63. |
 | FK-41 (Failure Corpus) | Incident-Lifecycle, Pattern-Promotion, Check-Ableitung, Taxonomie | FK-60ff aggregiert UEBER FC-Entitaeten (Incidents, Patterns, Checks), definiert aber nicht deren Semantik oder Lifecycle. Analytics misst — Failure Corpus lernt. |
 | FK-30 (Hook-Adapter) | Hook-Architektur, Registration, Matcher | FK-61 definiert neue Events/Erhebungspunkte. FK-30 definiert den Hook-Mechanismus ueber den sie transportiert werden. |
@@ -100,6 +100,14 @@ Der kanonische AgentKit-Zustand liegt in PostgreSQL. Rohdaten,
 Workflow-State und Analytics liegen im selben DBMS, aber logisch
 getrennt in dedizierten Schemas bzw. Tabellengruppen. Analytics ist
 aus den Rohdaten jederzeit neu berechenbar.
+
+**P3b: Vollstaendiger Story-Reset purgt auch Analytics-Ableitungen**
+
+Wird eine Story-Umsetzung vollstaendig zurueckgesetzt, werden nicht nur
+Runtime-State und `execution_events`, sondern auch alle daraus
+abgeleiteten Read Models und Facts der korrupten Umsetzung entfernt
+oder aus den verbleibenden gueltigen Daten neu berechnet. Analytics
+darf keine spaet herauszufilternden Invalid-Run-Reste enthalten.
 
 **P3a: Mandantenfaehigkeit ueber `project_key`**
 
@@ -166,7 +174,7 @@ Hook-Hot-Path (synchron, latenzkritisch)
 │ PostgreSQL                                    │
 │                                               │
 │  schema runtime                               │
-│   - events                                    │
+│   - execution_events                          │
 │   - workflow_state                            │
 │   - qa_*                                      │
 │   - story_*                                   │
@@ -208,17 +216,21 @@ Dateidatenbanken ausweichen zu muessen.
 
 ### 60.3.3 Runtime-Schema
 
-Das Runtime-Schema enthaelt die kanonischen Tabellen fuer Events,
+Das Runtime-Schema enthaelt die kanonischen Tabellen fuer `execution_events`,
 Workflow-State, QA-Resultate und Failure-Corpus-Rohdaten.
 
-**Invariante**: `events` ist append-only. Keine Updates, keine
-Deletes an historischen Events. Korrekturen nur ueber neue
-kompensierende Events.
+**Invariante**: `execution_events` ist append-only innerhalb einer
+gueltigen Story-Umsetzung. Wird eine Umsetzung vollstaendig
+zurueckgesetzt, werden ihre Events zusammen mit den abgeleiteten
+Runtime-/Read-Model-Daten physisch entfernt.
 
 ### 60.3.4 Analytics-Schema
 
 Das Analytics-Schema enthaelt die abgeleiteten Fact-Tabellen und
 den Sync-State.
+
+**Invariante**: Das Analytics-Schema enthaelt nur Daten gueltiger,
+nicht vollstaendig zurueckgesetzter Story-Umsetzungen.
 
 **Fact-Tabellen** (Detail-Schema in FK-62):
 
@@ -253,10 +265,25 @@ pro `project_key` geführt.
 Ausloeser:
 
 1. **Story-Closure** (primaer): Nach Metriken-Berechnung und
-   JSONL-Export ruft die Closure-Phase `sync_analytics()` auf.
+   Abschluss der kanonischen Runtime-Persistenz ruft die Closure-Phase
+   `sync_analytics()` auf. Optionale JSONL-Exports sind davon getrennt.
 2. **Dashboard-Start** (Catch-up): `agentkit dashboard` ruft
    beim Start `sync_analytics()` auf (best-effort, bei Lock
    wird mit vorhandenem Stand gestartet).
+
+### 60.3.6 Reset-Purge-Mechanismus
+
+Ein vollstaendiger Story-Reset darf **nicht** nur ueber spaetere
+Dashboard-Filter oder periodische Aggregation kompensiert werden.
+Stattdessen gilt:
+
+1. runtime-nahe Daten des betroffenen `run_id` werden entfernt
+2. FK-16-Read-Models des betroffenen `run_id` werden entfernt
+3. betroffene Analytics-Facts werden aktiv geloescht oder aus den
+   verbleibenden gueltigen Quellen neu berechnet
+
+`sync_state` oder Event-Cursor allein genuegen dafuer nicht, weil die
+Quell-Events des korrupten Runs bereits geloescht werden.
 
 **Ablauf von `sync_analytics()`**:
 
@@ -474,17 +501,15 @@ Entscheidungsfrage: Wo verbringen wir Zeit? Wird es besser?
 Die Architektur-Entscheidungen in 60.3 wurden in einem
 strukturierten Sparring erarbeitet:
 
-- **Claude (Opus)**: Architektur-Entwurf, These (Zwei-Schichten
-  SQLite+Postgres), KPI-Katalog-Erstellung
-- **ChatGPT**: Gegenposition (SQLite-only), Schema-Design,
-  Sync-Mechanismus, EAV-Kritik
+- **Claude (Opus)**: KPI-Katalog, Sync-Mechanismus, Slicing
+- **ChatGPT**: Gegenpositionen zu Schema-Schnitt und Serving-Modell
 
 ### 60.5.1 Sparring-Verlauf (4 Runden)
 
 | Runde | Thema | Ergebnis |
 |-------|-------|----------|
-| 1 | SQLite vs. Postgres | ChatGPT: Postgres ist Over-Engineering bei 10k-100k Events/Jahr. SQLite-only mit Rollup-Tabellen |
-| 2 | Concurrent Access, Perzentile, Schema-Evolution | Claude challenged Writer-Contention. ChatGPT revidiert: Zwei SQLite-Dateien statt einer |
+| 1 | Zentrales Runtime-Backend | Alternative lokale DB-/Dateimodelle verworfen; zentrale PostgreSQL-Instanz als kanonische Runtime-Wahrheit |
+| 2 | Concurrent Access, Perzentile, Schema-Evolution | SQLite-Varianten verworfen zugunsten klarer Writer-/Reader-Trennung auf PostgreSQL |
 | 3 | EAV vs. breite Fact-Tabellen | Claude challenged metric_value EAV. ChatGPT stimmt zu: Breite Fact-Tabellen sind besseres Serving-Modell |
 | 4 | Sync-Mechanismus | Konvergenz auf idempotenten Repair-Worker mit Dirty Sets und atomarer Transaktion |
 
@@ -492,9 +517,9 @@ strukturierten Sparring erarbeitet:
 
 | Alternative | Verworfen in Runde | Begruendung |
 |-------------|-------------------|-------------|
-| Postgres als sofortige zweite Schicht | 1 | Over-Engineering, doppelte Wahrheitsschicht, ETL-Komplexitaet |
-| Eine SQLite-DB fuer Raw + Analytics | 2 | Writer-Contention zwischen Hooks und Refresh-Job |
+| Projektlokale DB-/Datei-Wahrheiten | 1 | Bricht zentrale Ownership, Mandantenfaehigkeit und Zugriffssteuerung |
+| Eine SQLite-DB fuer Raw + Analytics | 2 | Writer-Contention, schwache Rechtegrenzen, kein sauberes System-Backend |
 | EAV `metric_value`-Tabelle | 3 | Self-Join-Queries, keine Typsicherheit, schlechtes Dashboard-Serving |
-| Perzentile in SQL (SQLite) | 2 | Kein natives `percentile_cont()`. Python-Berechnung ist sauberer |
-| Materialized Views in SQLite | 1 | Existieren nicht in SQLite. Explizite Rollup-Tabellen sind steuerbarer |
+| Perzentile ausschliesslich im SQL-Layer | 2 | Python-/Batch-Berechnung bleibt fuer komplexe Kennzahlen sauberer |
+| Materialized Views als Primaermodell | 1 | Rebuildbare Fact-Tabellen und Projektionen sind expliziter und steuerbarer |
 | Inkrementelles Hochzaehlen bei Sync | 4 | Fragil bei Crashes. Komplett-Neuberechnung der Dirty Slices ist robuster |

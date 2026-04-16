@@ -1,8 +1,11 @@
+from pathlib import Path
+
 from agentkit.installer import InstallConfig, install_agentkit
-from agentkit.project_ops.install import InstallConfig as LegacyInstallConfig
-from agentkit.project_ops.install import install_agentkit as legacy_install_agentkit
 
 
-def test_installer_namespace_reexports_legacy_api() -> None:
-    assert InstallConfig is LegacyInstallConfig
-    assert install_agentkit is legacy_install_agentkit
+def test_installer_namespace_exposes_install_api(tmp_path: Path) -> None:
+    config = InstallConfig(project_name="demo", project_root=tmp_path)
+    result = install_agentkit(config)
+
+    assert result.success is True
+    assert (tmp_path / ".agentkit" / "config" / "project.yaml").exists()

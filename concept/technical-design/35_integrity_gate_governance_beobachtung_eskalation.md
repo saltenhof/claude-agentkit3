@@ -78,7 +78,7 @@ gestartet.
 |------------------|---------------------|-----------|
 | `structural.json` | Structural Checks wurden nicht ausgefuehrt | `MISSING_STRUCTURAL` |
 | `decision.json` | Policy-Evaluation hat nicht stattgefunden | `MISSING_DECISION` |
-| `context.json` | Story-Context wurde nicht aufgebaut | `MISSING_CONTEXT` |
+| `ArtifactRecord(context)` | Story-Context wurde nicht aufgebaut | `MISSING_CONTEXT` |
 
 **Empirischer Beleg (BB2-012):** `decision.json` fehlte, trotzdem
 lief Closure durch und das Issue wurde geschlossen. Das war ein
@@ -88,22 +88,26 @@ kann — die 8-Dimensionen-Pruefung wird bei fehlenden Artefakten
 gar nicht erst erreicht.
 
 ```python
-def check_mandatory_artifacts(story_id: str) -> list[str]:
+def check_mandatory_artifacts(project_key: str, story_id: str, run_id: str, client) -> list[str]:
     """Prueft Pflicht-Artefakte VOR der Dimensionspruefung.
 
     Returns: Liste der FAIL-Codes. Leere Liste = alle vorhanden.
     """
-    qa_dir = Path(f"_temp/qa/{story_id}")
     failures: list[str] = []
 
     mandatory = {
-        "structural.json": "MISSING_STRUCTURAL",
-        "decision.json": "MISSING_DECISION",
-        "context.json": "MISSING_CONTEXT",
+        "structural": "MISSING_STRUCTURAL",
+        "decision": "MISSING_DECISION",
+        "context": "MISSING_CONTEXT",
     }
 
-    for filename, fail_code in mandatory.items():
-        if not (qa_dir / filename).exists():
+    for artifact_kind, fail_code in mandatory.items():
+        if not client.has_artifact_record(
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            artifact_kind=artifact_kind,
+        ):
             failures.append(fail_code)
 
     return failures
@@ -112,9 +116,9 @@ def check_mandatory_artifacts(story_id: str) -> list[str]:
 **Aufruf im Gate:**
 
 ```python
-def check_integrity(story_id: str, run_id: str) -> IntegrityResult:
+def check_integrity(project_key: str, story_id: str, run_id: str) -> IntegrityResult:
     # Phase 1: Pflicht-Artefakte
-    missing = check_mandatory_artifacts(story_id)
+    missing = check_mandatory_artifacts(project_key, story_id, run_id, client)
     if missing:
         return IntegrityResult(
             status="FAIL",
@@ -134,33 +138,43 @@ Pruefung).
 
 | Dim | Prüfgegenstand | FAIL-Code | Prüfung |
 |-----|---------------|-----------|---------|
-| 1 | **QA-Verzeichnis** | `NO_QA_DIR` | `_temp/qa/{story_id}/` existiert |
-| 2 | **Context-Integrität** | `CONTEXT_INVALID` | `context.json` vorhanden, `status == PASS`, hat `story_id`, hat `run_id` |
-| 3 | **Structural-Check-Tiefe** | `STRUCTURAL_SHALLOW` | `structural.json` > 500 Bytes, >= 5 Checks, Producer = `qa-structural-check` |
-| 4 | **Policy-Decision** | `DECISION_INVALID` | `decision.json` > 200 Bytes, hat `major_threshold`, Producer = `qa-policy-engine` |
-| 5 | **LLM-Bewertungen** | `NO_LLM_REVIEW` | Bei implementation/bugfix: `llm-review.json` + `semantic-review.json` existieren, Status != SKIPPED |
-| 6 | **Adversarial-Ergebnis** | `NO_ADVERSARIAL` | Bei implementation/bugfix: `adversarial.json` existiert, > 200 Bytes, Producer = `qa-adversarial` |
-| 7 | **Verify-Phase** | `NO_VERIFY` | `phase-state.json` mit `phase == verify` und `status == COMPLETED`, Producer = `run-phase` |
-| 8 | **Timestamp-Kausalität** | `TIMESTAMP_INVERSION` | `context.json.finished_at` < `decision.json.finished_at` |
+| 1 | **QA-Artefaktbestand** | `NO_QA_ARTIFACTS` | Pflicht-`artifact_records` fuer die Story existieren |
+| 2 | **Context-Integrität** | `CONTEXT_INVALID` | `ArtifactRecord(context)` vorhanden, `status == PASS`, hat `story_id`, hat `run_id` |
+| 3 | **Structural-Check-Tiefe** | `STRUCTURAL_SHALLOW` | `ArtifactRecord(structural)` > 500 Bytes, >= 5 Checks, Producer = `qa-structural-check` |
+| 4 | **Policy-Decision** | `DECISION_INVALID` | `ArtifactRecord(decision)` > 200 Bytes, hat `major_threshold`, Producer = `qa-policy-engine` |
+| 5 | **LLM-Bewertungen** | `NO_LLM_REVIEW` | Bei implementation/bugfix: `ArtifactRecord(llm_review)` + `ArtifactRecord(semantic_review)` existieren, Status != SKIPPED |
+| 6 | **Adversarial-Ergebnis** | `NO_ADVERSARIAL` | Bei implementation/bugfix: `ArtifactRecord(adversarial)` existiert, > 200 Bytes, Producer = `qa-adversarial` |
+| 7 | **Verify-Phase** | `NO_VERIFY` | `flow_end` fuer `flow_id=verify` bzw. den Verify-Phasen-Flow mit `status == COMPLETED`; optional zusaetzlich entsprechende `phase_state_projection` |
+| 8 | **Timestamp-Kausalität** | `TIMESTAMP_INVERSION` | `ArtifactRecord(context).finished_at` < `ArtifactRecord(decision).finished_at` |
 
 ### 35.2.5 Telemetrie-Nachweise
 
 Zusätzlich zu den Artefakt-Dimensionen prüft das Gate konkrete
-Events in der SQLite-Telemetrie-DB:
+Events im zentralen Telemetrie-Store des State-Backends
+(PostgreSQL):
+
+**Mandantenregel:** Die SQL-Beispiele sind verkürzt. Real werden sie
+immer mindestens unter `project_key` und `story_id` gescoped.
+
+**Run-Gültigkeit:** Das Integrity-Gate wertet nur die `execution_events`
+des aktuellen, gültigen `run_id` aus. Wird die Story-Umsetzung
+vollständig zurückgesetzt, werden diese Events verworfen; ein späterer
+Run beginnt mit neuem `run_id` und leerem Telemetrie-Nachweisraum.
 
 | Nachweis | SQL-Query | FAIL-Code |
 |----------|----------|-----------|
-| Worker gestartet | `SELECT COUNT(*) FROM events WHERE story_id=? AND event_type='agent_start'` >= 1 | `NO_AGENT_START` |
-| Worker beendet | `SELECT COUNT(*) FROM events WHERE story_id=? AND event_type='agent_end'` >= 1 | `NO_AGENT_END` |
-| Pflicht-Reviewer aufgerufen | Pro konfigurierter `llm_roles`-Rolle: `SELECT COUNT(*) FROM events WHERE story_id=? AND event_type='llm_call' AND role=?` >= 1 | `MISSING_LLM_{role}` |
+| Worker gestartet | `SELECT COUNT(*) FROM execution_events WHERE project_key=$1 AND story_id=$2 AND run_id=$3 AND event_type='agent_start'` >= 1 | `NO_AGENT_START` |
+| Worker beendet | `SELECT COUNT(*) FROM execution_events WHERE project_key=$1 AND story_id=$2 AND run_id=$3 AND event_type='agent_end'` >= 1 | `NO_AGENT_END` |
+| Pflicht-Reviewer aufgerufen | Pro konfigurierter `llm_roles`-Rolle: `SELECT COUNT(*) FROM execution_events WHERE project_key=$1 AND story_id=$2 AND run_id=$3 AND event_type='llm_call' AND payload->>'role'=$4` >= 1 | `MISSING_LLM_{role}` |
 | Reviews über Templates | `COUNT(review_compliant) >= COUNT(review_request)` | `REVIEW_NOT_COMPLIANT` |
-| Keine Guard-Verletzungen | `SELECT COUNT(*) FROM events WHERE story_id=? AND event_type='integrity_violation'` = 0 | `HAS_VIOLATIONS` |
-| Web-Call-Limit (nur Research) | `SELECT COUNT(*) FROM events WHERE story_id=? AND event_type='web_call'` <= Config-Limit | `WEB_BUDGET_EXCEEDED` |
-| Adversarial Sparring (nur impl) | `SELECT COUNT(*) FROM events WHERE story_id=? AND event_type='adversarial_sparring'` >= 1 | `NO_ADVERSARIAL_SPARRING` |
-| Adversarial Test ausgeführt (nur impl) | `SELECT COUNT(*) FROM events WHERE story_id=? AND event_type='adversarial_test_executed'` >= 1 | `NO_ADVERSARIAL_TEST_EXECUTION` |
+| Keine Guard-Verletzungen | `SELECT COUNT(*) FROM execution_events WHERE project_key=$1 AND story_id=$2 AND run_id=$3 AND event_type='integrity_violation'` = 0 | `HAS_VIOLATIONS` |
+| Web-Call-Limit (nur Research) | `SELECT COUNT(*) FROM execution_events WHERE project_key=$1 AND story_id=$2 AND run_id=$3 AND event_type='web_call'` <= Config-Limit | `WEB_BUDGET_EXCEEDED` |
+| Adversarial Sparring (nur impl) | `SELECT COUNT(*) FROM execution_events WHERE project_key=$1 AND story_id=$2 AND run_id=$3 AND event_type='adversarial_sparring'` >= 1 | `NO_ADVERSARIAL_SPARRING` |
+| Adversarial Test ausgeführt (nur impl) | `SELECT COUNT(*) FROM execution_events WHERE project_key=$1 AND story_id=$2 AND run_id=$3 AND event_type='adversarial_test_executed'` >= 1 | `NO_ADVERSARIAL_TEST_EXECUTION` |
 | Preflight durchgeführt (Pflicht) | `COUNT(preflight_request) >= 1` | `PREFLIGHT_MISSING` |
 | Preflight-Compliance | `COUNT(preflight_compliant) >= COUNT(preflight_request)` | `PREFLIGHT_NOT_COMPLIANT` |
-| Finding-Resolution vollstaendig (nur Runde 2+) | Kein Finding mit `partially_resolved` oder `not_resolved` im Layer-2-Output (`llm-review.json`, Checks mit `resolution`-Feld) | `OPEN_FINDINGS` |
+| Verify-Flow abgeschlossen | `SELECT COUNT(*) FROM execution_events WHERE project_key=$1 AND story_id=$2 AND run_id=$3 AND event_type='flow_end' AND payload->>'flow_id'='verify' AND payload->>'status'='COMPLETED'` >= 1 | `NO_VERIFY_FLOW_END` |
+| Finding-Resolution vollstaendig (nur Runde 2+) | Kein Finding mit `partially_resolved` oder `not_resolved` im Layer-2-Output (`qa_review.json`, Checks mit `resolution`-Feld) | `OPEN_FINDINGS` |
 
 **Hinweis zu `OPEN_FINDINGS` (FK-35-114):** Dieser Nachweis wird
 nur in Remediation-Runden (Runde 2+) ausgewertet. In Runde 1
@@ -214,7 +228,8 @@ verhindert gezieltes Nachliefern der fehlenden Dimension.
 
 ### 35.2.8 Audit-Log
 
-Die konkreten FAIL-Codes werden in die SQLite-DB geschrieben:
+Die konkreten FAIL-Codes werden in den Telemetrie-Store des
+State-Backends geschrieben:
 
 ```python
 insert_event(
@@ -239,7 +254,8 @@ agentkit query-telemetry --story ODIN-042 --event integrity_gate_result
 ### 35.2.9 Bei Scheitern
 
 Phase-State: `status: ESCALATED`. Story bleibt "In Progress".
-Orchestrator stoppt. Mensch muss Audit-Log prüfen und entscheiden:
+Orchestrator stoppt. Mensch muss Audit-Log des aktuellen gültigen Runs
+prüfen und entscheiden:
 - Prozess nachvollziehen und Ursache beheben → neuer Run
 - Bewusster Override (z.B. bei bekanntem Infrastruktur-Problem)
   → `agentkit override-integrity --story {story_id} --reason "..."`
@@ -305,8 +321,11 @@ Hooks normalisieren jede Aktion zu einem kompakten Record
 (FK-06-109):
 
 ```sql
-INSERT INTO events (story_id, run_id, ts, event_type, payload)
-VALUES (?, ?, datetime('now'), 'governance_signal', ?);
+INSERT INTO execution_events (
+    project_key, story_id, run_id, event_id, event_type, occurred_at,
+    source_component, severity, payload
+)
+VALUES ($1, $2, $3, $4, 'governance_signal', NOW(), 'guard_system', 'warning', $5);
 ```
 
 Payload:
@@ -324,18 +343,20 @@ Payload:
 ### 35.3.5 Rolling Window und Risikoscore
 
 Events werden in einem Rolling Window akkumuliert. Das Window
-wird als SQLite-Query realisiert — kein separater In-Memory-
-Zustand nötig:
+wird als PostgreSQL-Query ueber `execution_events` realisiert — kein
+separater In-Memory-Zustand nötig:
 
 ```python
-def current_risk_score(story_id: str, window_size: int = 50) -> int:
-    with sqlite3.connect(DB_PATH) as conn:
-        rows = conn.execute(
-            """SELECT payload FROM events
-               WHERE story_id = ? AND event_type = 'governance_signal'
-               ORDER BY ts DESC LIMIT ?""",
-            (story_id, window_size),
-        ).fetchall()
+def current_risk_score(project_key: str, story_id: str, run_id: str, client, window_size: int = 50) -> int:
+    rows = client.fetch_all(
+        """SELECT payload FROM execution_events
+           WHERE project_key = $1
+             AND story_id = $2
+             AND run_id = $3
+             AND event_type = 'governance_signal'
+           ORDER BY occurred_at DESC LIMIT $4""",
+        project_key, story_id, run_id, window_size,
+    )
     return sum(
         json.loads(r[0]).get("risk_points", 0)
         for r in rows
@@ -357,9 +378,11 @@ eine verdichtete Episode aus den korrelierten Events im Window
 (FK-06-112):
 
 ```python
-def create_incident_candidate(story_id: str, window_events: list) -> dict:
+def create_incident_candidate(project_key: str, story_id: str, run_id: str, window_events: list) -> dict:
     return {
+        "project_key": project_key,
         "story_id": story_id,
+        "run_id": run_id,
         "created_at": now_iso(),
         "risk_score": sum(e["risk_points"] for e in window_events),
         "event_count": len(window_events),
@@ -457,7 +480,7 @@ Prozessregeln mündet.
 | Maßnahme | Beschreibung |
 |----------|-------------|
 | Hooks: nur billige Checks | Kein LLM pro Event, nur Pfad-Match, Counter, Phasen-Regel |
-| Rolling Window als SQL-Query | Kein In-Memory-State, SQLite übernimmt die Arbeit |
+| Rolling Window als SQL-Query | Kein In-Memory-State, PostgreSQL uebernimmt die Arbeit |
 | LLM nur bei Schwellenüberschreitung | Nicht bei jedem auffälligen Event |
 | Deduplizierung | Gleicher Signal-Typ → Cooldown (Default: 300s) bevor erneut LLM aufgerufen wird |
 | Normale Aktionen nur gezählt | Erwartete, risikofreie Aktionen erzeugen kein `governance_signal`-Event, nur reguläre Telemetrie |
@@ -465,15 +488,17 @@ Prozessregeln mündet.
 ### 35.3.11 Cooldown-Mechanismus
 
 ```python
-def should_adjudicate(story_id: str, signal_type: str,
-                      cooldown_s: int = 300) -> bool:
-    with sqlite3.connect(DB_PATH) as conn:
-        last = conn.execute(
-            """SELECT MAX(ts) FROM events
-               WHERE story_id = ? AND event_type = 'governance_adjudication'
-               AND payload LIKE ?""",
-            (story_id, f'%"{signal_type}"%'),
-        ).fetchone()[0]
+def should_adjudicate(project_key: str, story_id: str, run_id: str,
+                      signal_type: str, client, cooldown_s: int = 300) -> bool:
+    last = client.fetch_value(
+        """SELECT MAX(occurred_at) FROM execution_events
+           WHERE project_key = $1
+             AND story_id = $2
+             AND run_id = $3
+             AND event_type = 'governance_adjudication'
+             AND payload::text LIKE $4""",
+        project_key, story_id, run_id, f'%"{signal_type}"%',
+    )
     if last is None:
         return True
     return (now() - parse_ts(last)).total_seconds() > cooldown_s
@@ -536,7 +561,7 @@ agentkit reset-escalation --story ODIN-042
 # Integrity-Gate bewusst overriden (mit Begründung)
 agentkit override-integrity --story ODIN-042 --reason "VNC login expired, gemini pool unavailable"
 
-# Audit-Log der letzten Eskalation anzeigen
+# Audit-Log der letzten Eskalation des aktuellen Runs anzeigen
 agentkit query-telemetry --story ODIN-042 --event integrity_gate_result
 ```
 
@@ -550,11 +575,15 @@ erreichbar war und deshalb Telemetrie-Nachweise fehlen.
 agentkit override-integrity --story ODIN-042 --reason "..."
 ```
 
-Das Override wird in der Telemetrie-DB protokolliert:
+Das Override wird in `execution_events` protokolliert:
 
 ```sql
-INSERT INTO events (story_id, run_id, ts, event_type, payload)
-VALUES (?, ?, datetime('now'), 'integrity_override',
+INSERT INTO execution_events (
+    project_key, story_id, run_id, event_id, event_type, occurred_at,
+    source_component, severity, payload
+)
+VALUES ($1, $2, $3, $4, 'integrity_override', NOW(),
+        'integrity_gate', 'warning',
         '{"reason": "...", "overridden_by": "human"}');
 ```
 
@@ -569,7 +598,7 @@ ein systemisches Problem vorliegt.
     Guards (Kap. 30/31)              Governance-Beobachtung (35.3)
     ├── Blockieren Einzelaktionen     ├── Erkennt Muster über Zeit
     ├── Hook-basiert, sofort          ├── Rolling Window, Schwellenwert
-    └── Immer oder bei Sperrdatei    └── LLM-Adjudication bei Anomalie
+└── Immer oder bei Lock-Record   └── LLM-Adjudication bei Anomalie
          │                                 │
          │ (bei Blockade)                  │ (bei Schwelle)
          ▼                                 ▼
@@ -590,7 +619,7 @@ ein systemisches Problem vorliegt.
 **Integrity-Gate** stellt am Ende sicher, dass der gesamte
 Prozess korrekt durchlaufen wurde.
 
-Alle drei schreiben in dieselbe SQLite-Telemetrie-DB. Das
+Alle drei schreiben in dieselbe zentrale `execution_events`-Tabelle. Das
 Integrity-Gate ist der finale Konsistenz-Check über alles.
 
 ## 35.6 Preflight-Compliance in Recurring Guards
@@ -602,8 +631,8 @@ Felder für den Preflight-Stream erweitert:
 
 | Feld | Typ | Berechnung |
 |------|-----|-----------|
-| `preflight_request_count` | `int` | `count_events(story_id, EventType.PREFLIGHT_REQUEST)` |
-| `preflight_compliant_count` | `int` | `count_events(story_id, EventType.PREFLIGHT_COMPLIANT)` |
+| `preflight_request_count` | `int` | `count_events(project_key, story_id, run_id, EventType.PREFLIGHT_REQUEST)` |
+| `preflight_compliant_count` | `int` | `count_events(project_key, story_id, run_id, EventType.PREFLIGHT_COMPLIANT)` |
 
 Diese Felder werden zusammen mit den bestehenden Snapshot-Feldern
 (z.B. `review_request_count`, `review_compliant_count`) beim

@@ -18,13 +18,13 @@ from agentkit.pipeline.phases.closure.execution_report import (
     write_execution_report,
 )
 from agentkit.pipeline.state import load_phase_snapshot
-from agentkit.story.models import PhaseStatus
-from agentkit.story.types import get_profile
+from agentkit.story_context_manager.models import PhaseStatus
+from agentkit.story_context_manager.types import get_profile
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.story.models import PhaseState, StoryContext
+    from agentkit.story_context_manager.models import PhaseState, StoryContext
 
 logger = logging.getLogger(__name__)
 

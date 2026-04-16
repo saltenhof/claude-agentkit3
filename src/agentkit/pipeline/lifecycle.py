@@ -12,10 +12,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from agentkit.exceptions import PipelineError
-from agentkit.story.models import PhaseStatus
+from agentkit.story_context_manager.models import PhaseStatus
 
 if TYPE_CHECKING:
-    from agentkit.story.models import PhaseState, StoryContext
+    from agentkit.story_context_manager.models import PhaseState, StoryContext
 
 
 @dataclass(frozen=True)

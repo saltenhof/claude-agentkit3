@@ -172,10 +172,10 @@ werden an Schicht 3 (Adversarial) als Ansatzpunkte weitergegeben
 
 | Artefakt | Producer | Inhalt |
 |----------|---------|--------|
-| `_temp/qa/{story_id}/llm-review.json` | `qa-llm-review` | 12 CheckResults + Roh-Prompt + Roh-Response |
-| `_temp/qa/{story_id}/semantic-review.json` | `qa-semantic-review` | 1 CheckResult + Roh-Prompt + Roh-Response |
+| `_temp/qa/{story_id}/qa_review.json` | `qa-llm-review` | 12 CheckResults + Roh-Prompt + Roh-Response |
+| `_temp/qa/{story_id}/semantic_review.json` | `qa-semantic-review` | 1 CheckResult + Roh-Prompt + Roh-Response |
 
-Die Umsetzungstreue wird im `llm-review.json` als zusätzlicher
+Die Umsetzungstreue wird im `qa_review.json` als zusätzlicher
 Check gespeichert (gleicher Producer oder separates Artefakt —
 Implementierungsentscheidung).
 
@@ -758,14 +758,14 @@ adressiert wurde — der Negativfall bleibt offen.
 Im Remediation-Modus (Runde 2+) erhaelt der QA-Review-Prompt
 zusaetzlichen Kontext: die konkreten Findings der Vorrunde. Die
 Findings werden direkt aus den Review-Artefakten der Vorrunde
-gelesen (z.B. `_temp/qa/{story_id}/llm-review.json` der vorherigen
+gelesen (z.B. `_temp/qa/{story_id}/qa_review.json` der vorherigen
 Runde), NICHT aus Worker-Zusammenfassungen.
 
 ```mermaid
 flowchart TD
     R1["Runde 1:<br/>Layer 2 liefert Findings"] --> REM["Remediation-Worker<br/>korrigiert"]
     REM --> R2["Runde 2:<br/>Layer 2 erhaelt Vorrunden-Findings"]
-    R2 --> READ["Liest Findings aus<br/>llm-review.json (Runde 1)"]
+    R2 --> READ["Liest Findings aus<br/>qa_review.json (Runde 1)"]
     READ --> EVAL["Evaluator bewertet<br/>pro Finding: Resolution-Status"]
     EVAL --> CHECK{"Alle fully_resolved?"}
     CHECK -->|Ja| PASS["Layer 2 PASS"]
@@ -775,9 +775,9 @@ flowchart TD
 **Datenfluss im Detail:**
 
 1. Der Layer-2-Caller erkennt `remediation_round >= 2` aus
-   `context.json`
-2. Er liest die FAIL-Checks aus `llm-review.json` und
-   `semantic-review.json` der Vorrunde (deterministische
+   `phase_state_projection` und `StoryContext`
+2. Er liest die FAIL-Checks aus `qa_review.json` und
+   `semantic_review.json` der Vorrunde (deterministische
    Dateioperation, kein LLM)
 3. Er injiziert die Findings als zusaetzlichen Prompt-Abschnitt
    (siehe §34.9.3)
@@ -812,8 +812,8 @@ Bewerte dieses Finding mit einer zusaetzlichen Check-ID
 {{/each}}
 ```
 
-**Prompt-Kontext-Quelle:** Die Findings werden aus `llm-review.json`
-und `semantic-review.json` der Vorrunde extrahiert — nicht aus
+**Prompt-Kontext-Quelle:** Die Findings werden aus `qa_review.json`
+und `semantic_review.json` der Vorrunde extrahiert — nicht aus
 `handover.json` oder `protocol.md`. Dies stellt sicher, dass die
 Bewertungsbasis Trust B ist (LLM-Evaluator der Vorrunde), nicht
 Trust C (Worker-Selbstauskunft). Beide Review-Artefakte werden
@@ -930,7 +930,7 @@ def aggregate_layer2(
 ### 34.9.6 Ergebnis-Integration
 
 Die Finding-Resolution-Checks werden im bestehenden
-`_temp/qa/{story_id}/llm-review.json` geschrieben — kein neues
+`_temp/qa/{story_id}/qa_review.json` geschrieben — kein neues
 Artefakt. Das JSON-Array der Checks enthaelt in Runde 2+ sowohl
 die 12 regulaeren Checks als auch die `finding_resolution_*`-Checks:
 
@@ -964,7 +964,7 @@ BB2-012 dokumentiert den Fehlermodus, den §34.9 adressiert:
   die Worker-Selbstauskunft. Der offene Negativfall ist nicht mehr
   sichtbar.
 - **Mit §34.9:** Layer 2 in Runde 2 erhaelt das Original-Finding
-  direkt aus `llm-review.json` (Runde 1). Der Evaluator prueft
+direkt aus `qa_review.json` (Runde 1). Der Evaluator prueft
   gezielt den Negativfall und klassifiziert korrekt als
   `partially_resolved` → FAIL → weitere Remediation-Runde.
 

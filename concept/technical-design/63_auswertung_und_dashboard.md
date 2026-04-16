@@ -75,6 +75,11 @@ Alle Dashboard-Abfragen sind projektgebunden. Die zentrale
 PostgreSQL-Instanz wird nie ungefiltert ueber alle Projekte
 ausgewertet; jede Session arbeitet gegen genau einen `project_key`.
 
+**Gueltigkeitsregel:** Dashboard und Drill-Down zeigen nur Daten
+gueltiger, nicht vollstaendig zurueckgesetzter Story-Umsetzungen.
+Korrupt verworfene Runs duerfen weder in KPI-Sichten noch in
+Event-Drill-Downs sichtbar bleiben.
+
 ### 63.3.2 Geplante Erweiterungen (Ueberblick)
 
 | Bereich | Beschreibung |
@@ -117,7 +122,11 @@ wird in einer spaeteren Iteration definiert.
 | `GET /api/kpi/pools` | `fact_pool_period` | LLM-Performance ueber Zeit |
 | `GET /api/kpi/pipeline` | `fact_pipeline_period` | Pipeline-Trends |
 | `GET /api/kpi/corpus` | `fact_corpus_period` | Failure-Corpus-Trends |
-| `GET /api/live/stories` | runtime schema (events, workflow_state) | Laufende Stories |
+| `GET /api/live/stories` | runtime schema (`execution_events`, `flow_executions`, `phase_state_projection`) | Laufende Stories |
+
+**Reset-Regel:** Kein Endpoint kompensiert vollstaendig
+zurueckgesetzte Runs durch spaete Query-Filter. Die zugrunde liegenden
+Read Models und Facts muessen bereits bereinigt sein.
 
 ### 63.4.2 Query-Parameter
 
@@ -155,6 +164,9 @@ Iterationen.
 - Das Dashboard ist **Consumer** des Analytics-Modells, nicht
   Eigentuemer der KPI-Semantik. KPI-Definitionen stehen
   ausschliesslich in FK-60.
+- Das Dashboard ist **kein** Aufbewahrungsort fuer korrupt verwarfene
+  Story-Runs. Vollstaendige Story-Resets muessen vor dem Serving bereits
+  aus Runtime-, Read-Model- und Analytics-Sichten entfernt sein.
 
 ---
 

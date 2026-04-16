@@ -8,13 +8,13 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from agentkit.story.models import (
+from agentkit.story_context_manager.models import (
     PhaseSnapshot,
     PhaseState,
     PhaseStatus,
     StoryContext,
 )
-from agentkit.story.types import StoryMode, StoryType
+from agentkit.story_context_manager.types import StoryMode, StoryType
 
 
 class TestPhaseStatus:

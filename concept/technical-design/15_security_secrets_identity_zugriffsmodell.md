@@ -15,8 +15,8 @@ defers_to:
     scope: trust-boundaries
     reason: Trust-Boundary-Modell ist in FK-01 definiert
   - target: FK-02
-    scope: sperrdatei-mechanismus
-    reason: QA-Artefaktschutz nutzt Sperrdatei-Mechanismus aus FK-02
+    scope: lock-mechanismus
+    reason: QA-Artefaktschutz nutzt den zentralen Lock-Mechanismus aus FK-02
 supersedes: []
 superseded_by:
 tags: [security, secrets, identity, berechtigungen, governance-schutz]
@@ -104,18 +104,19 @@ explizite Admin-/Betriebs-Tools zulaessig.
 | Code schreiben | ✅ | ❌ (Guard) | ✅ | ❌ (Guard) | ❌ (nur Sandbox) | ✅ |
 | Tests schreiben | ✅ | ❌ | ✅ | ❌ | ✅ (nur Sandbox) | ✅ |
 | Tests ausführen | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
-| QA-Artefakte schreiben | ✅ | ❌ | ❌ (Sperrdatei) | ❌ (Sperrdatei) | ❌ (Sperrdatei) | ✅ |
+| QA-Artefakte schreiben | ✅ | ❌ | ❌ (Lock-Record + Hook) | ❌ (Lock-Record + Hook) | ❌ (Lock-Record + Hook) | ✅ |
 | QA-Artefakte lesen | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Commit auf Main | ✅ | ❌ (Guard*) | ❌ (Guard*) | ❌ (Guard*) | ❌ (Guard*) | ✅ |
 | Commit auf Story-Branch | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ |
 | Force-Push | ✅ | ❌ (Guard*) | ❌ (Guard*) | ❌ (Guard*) | ❌ (Guard*) | ❌ |
 | GitHub Issue ändern | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ |
-| Sperrdatei erstellen/löschen | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Lock-Record erstellen/beenden | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | LLM-Pool aufrufen | ✅ | ✅ | ✅ | ❌ | ✅ (Sparring) | ✅ (Evaluator) |
 | Agents spawnen | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Zentralen Workflow-State mutieren | ✅ (über Admin/CLI) | ❌ | ❌ | ❌ | ❌ | ✅ |
 
-*Guard = nur aktiv im Story-Execution-Modus (Sperrdatei vorhanden,
+*Guard = nur aktiv im Story-Execution-Modus (aktiver Lock-Record
+vorhanden,
 Kap. 12.4.1). Im AI-Augmented-Modus sind Branch-Guards inaktiv.
 
 ### 15.4.2 Durchsetzungsmechanismen
@@ -123,11 +124,11 @@ Kap. 12.4.1). Im AI-Augmented-Modus sind Branch-Guards inaktiv.
 | Einschränkung | Mechanismus | Umgehbar durch Agent? |
 |--------------|------------|---------------------|
 | Orchestrator darf nicht auf Codebase zugreifen | `orchestrator_guard.py` (PreToolUse-Hook) | Nein — Hook ist Plattform-Infrastruktur |
-| Worker darf keine QA-Artefakte schreiben | Sperrdatei + Hook (Kap. 02.7) | Nein — Sperrdatei vom Pipeline-Tooling, nicht vom Agent |
+| Worker darf keine QA-Artefakte schreiben | zentraler Lock-Record + Hook (Kap. 02.7) | Nein — Lock-Record vom Pipeline-Tooling, nicht vom Agent |
 | Worker/Orchestrator dürfen keine DB-Credentials besitzen | State-Backend-Zugriff nur über Hook-/CLI-Principals | Nein — Credentials bleiben außerhalb der Agent-Prompts und Workspaces |
 | Backend-Zugriff nur im Projekt-Scope | Principals sind auf genau einen `project_key` oder einen expliziten Admin-Scope begrenzt | Nein — Row-/Schema-Scope liegt außerhalb der Agent-Kontrolle |
 | Adversarial darf nur in Sandbox schreiben | CCAG-Regel `scope: subagent` | Nein — CCAG ist Hook-basiert |
-| Branch-Guard (Story-Execution) | `branch_guard.py` (PreToolUse-Hook) + Sperrdatei | Nein — Hook + Sperrdatei |
+| Branch-Guard (Story-Execution) | `branch_guard.py` (PreToolUse-Hook) + aktiver Lock-/Run-Record | Nein — Hook + State-Backend |
 | QA-Agent darf keinen Code editieren | PreToolUse-Guard auf Write/Edit für Principal `qa` — erlaubt nur Lesen und Test-Ausführung | Nein — Hook-basiert, analog zum Orchestrator-Guard |
 | Force-Push verboten | `branch_guard.py` | Nein — auch im AI-Augmented-Modus aktiv (Sonderregel, s.u.) |
 
@@ -145,7 +146,7 @@ machen sind:
 | Keine Secrets im Commit | `.env`, `.pem`, `.key` etc. im Diff → Structural Check blockiert |
 
 Diese Regeln werden über den Branch-Guard durchgesetzt, der für
-diese spezifischen Operationen **keine Sperrdatei benötigt** —
+diese spezifischen Operationen **keinen Story-Lock-Record benötigt** —
 sie sind immer aktiv, als Basisschutz.
 
 ## 15.5 Secrets-Verwaltung
@@ -232,7 +233,7 @@ Agent lernt, den Guard gezielt zu umgehen.
 | Orchestrator-Guard | `"Operation not permitted."` | — |
 | QA-Artefakt-Schutz | `"Operation not permitted."` | — |
 | Integrity-Gate | `"GOVERNANCE VIOLATION DETECTED. Immediately stop all work."` | Fehler-Codes im Violation-Record des State-Backends |
-| CCAG (Sperrdatei-basiert) | `"Operation not permitted."` | Sperrdatei-Inhalt zeigt Story-ID und Scope |
+| CCAG (Lock-record-basiert) | `"Operation not permitted."` | Lock-Record zeigt Story-ID und Scope |
 
 ### 15.6.3 Audit-Log
 
@@ -262,7 +263,7 @@ Governance selbst zu manipulieren:
 | Agent ändert `.claude/settings.json` (Hook-Registrierung) | Hook-Signal: Governance-Datei verändert | Sofortiger Stopp |
 | Agent ändert `.claude/ccag/rules/*.yaml` | Hook-Signal: Governance-Datei verändert | Sofortiger Stopp |
 | Agent ändert `.story-pipeline.yaml` | Hook-Signal: Governance-Datei verändert | Sofortiger Stopp |
-| Agent löscht Sperrdatei | Hook-Signal: Governance-Datei verändert | Sofortiger Stopp |
+| Agent versucht Lock-Mechanismus lokal zu umgehen | Hook-Signal: Governance-Datei verändert oder fehlender Backend-Write-Pfad | Sofortiger Stopp |
 | Agent ändert `.claude/skills/` Bindungen | Hook-Signal: Governance-Datei verändert | Sofortiger Stopp |
 | Agent versucht State-Backend-Zugangsdaten zu lesen/ändern | Guard + Secret-Schutz | Sofortiger Stopp |
 
@@ -286,13 +287,13 @@ Hooks können vom Agent nicht deaktiviert werden, weil:
 4. Ein Agent, der `.claude/settings.json` editieren will, wird
    vom Governance-Selbstschutz-Hook blockiert
 
-### 15.7.3 Sperrdatei-Integrität
+### 15.7.3 Lock-Integrität
 
-Sperrdateien können vom Agent nicht manipuliert werden, weil:
+Zentrale Lock-Records können vom Agent nicht manipuliert werden, weil:
 
 1. Lock-Records liegen im State-Backend (geschützter Zustandsraum)
 2. Nur Pipeline-Skripte (Zone 2) schreiben Lock-Records
-3. Der CCAG-Hook blockiert Sub-Agent-Zugriff auf den Lock-Pfad
+3. Der CCAG-/Guard-Pfad blockiert unzulässige Sub-Agent-Aktionen
 4. PID + TTL als Stale-Detection (Kap. 02.7) — kein manuelles
    Löschen nötig
 

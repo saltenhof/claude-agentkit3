@@ -28,6 +28,14 @@ ihrer Bearbeitung. Beide folgen einer festen Phasenfolge mit definierten
 Ein- und Ausgaben. Kein Agent entscheidet über den Ablauf, der Ablauf
 entscheidet, wann welcher Agent arbeiten darf.
 
+Die Ablaufsteuerung wird in AK3 nicht nur fuer die Gesamtpipeline,
+sondern einheitlich ueber alle Ebenen modelliert: Pipeline, Phase,
+Komponente und Subschritt verwenden dieselben Kontrollflussbausteine
+(Guards, Gates, Branching, Rueckspruenge, Yield-Points,
+Execution-Policies, Overrides). Die Pipeline ist damit nur die oberste
+Ebene einer gemeinsamen hierarchischen Prozesssprache, nicht ein
+Sonderfall mit eigener Logik.
+
 Eine Story durchläuft vier Zustände im GitHub Project Board: Backlog,
 Freigegeben, In Progress und Done. Interne Zustände wie Verify-Fail,
 Eskalation oder Pause ändern den GitHub-Status nicht (die Story bleibt
@@ -161,10 +169,12 @@ Nach erfolgter Freigabe durchläuft die Story die Bearbeitungs-Pipeline.
 Der Ablauf unterscheidet sich grundlegend nach Story-Typ:
 
 **Implementierende Stories** (Implementation, Bugfix) durchlaufen
-die vollständige Pipeline mit Guards, QA-Stufen und Gates. Ein
-deterministischer Kriterienkatalog (siehe Abschnitt 3.5 in [03-governance-und-guards.md](03-governance-und-guards.md)) entscheidet
-zusätzlich, ob die Story direkt implementiert wird (Execution Mode)
-oder zuerst eine Konzeptionsphase durchlaufen muss (Exploration Mode).
+die vollständige Pipeline mit Guards, QA-Stufen und Gates. Eine
+deterministische, fail-closed Modus-Ermittlung (Details in
+[23_modusermittlung_exploration_change_frame.md](../technical-design/23_modusermittlung_exploration_change_frame.md))
+entscheidet zusätzlich, ob die Story direkt implementiert wird
+(Execution Mode) oder zuerst eine Konzeptionsphase durchlaufen muss
+(Exploration Mode).
 
 **Konzept-Stories** produzieren Dokumente, keinen Code. Sie durchlaufen
 einen leichtgewichtigen Pfad: Der Worker erstellt das Konzeptdokument,
@@ -206,7 +216,7 @@ flowchart TD
     RESEARCH_PATH["Research-Story:<br/>Skill laden,<br/>strukturierte Recherche,<br/>Ergebnis ablegen"]:::lightweight --> DONE
 
     WORKTREE["Worktree + Branch<br/>erstellen"] --> GUARDS["Guards aktivieren"]
-    GUARDS --> ROUTING{"Modus-Ermittlung<br/>6 Kriterien"}
+    GUARDS --> ROUTING{"Modus-Ermittlung<br/>(fail-closed)"}
 
     ROUTING -->|Execution Mode| PLAN
     ROUTING -->|Exploration Mode| EXPLORE
@@ -215,7 +225,7 @@ flowchart TD
         EXPLORE["Story verdichten,<br/>Änderungsfläche lokalisieren,<br/>Lösungsrichtung wählen"]:::exploration
         EXPLORE --> SELF_CONFORM["Selbst-Konformitätsprüfung<br/>gegen Referenzdokumente"]:::exploration
         SELF_CONFORM --> DOC_CHECK["Stufe 1: Dokumententreue-Prüfung<br/>(LLM-basiert, unabhängig)"]:::exploration
-        DOC_CHECK -->|Konflikt| ESCALATE_DOC(["Eskalation an Mensch"])
+        DOC_CHECK -->|Konflikt| ESCALATE_DOC["ESCALATED:<br/>Mensch entscheidet<br/>→ neuer Run"]
         DOC_CHECK -->|PASS| DESIGN_REV["Stufe 2a: Design-Review<br/>(LLM via Evaluator)"]:::exploration
         DESIGN_REV --> PREMISE_CHECK["Prämissen-Challenge<br/>(LLM, fokussiert)"]:::exploration
         PREMISE_CHECK --> TRIGGER_EVAL["Trigger-Evaluation<br/>(deterministisch)"]:::exploration
@@ -225,12 +235,14 @@ flowchart TD
         AGG --> CLASSIFY["H2: Nachklassifikation<br/>(Mandatsregelwerk)"]:::exploration
         CLASSIFY -->|Klasse 2| FEINDESIGN["J: Feindesign-Subprozess<br/>(KI entscheidet selbst)"]:::exploration
         FEINDESIGN --> DESIGN_REV
-        CLASSIFY -->|Klasse 1/3/4| PAUSE_PO(["PAUSED:<br/>Menschliche Klärung nötig"])
+        CLASSIFY -->|Klasse 1/3/4| PAUSE_PO["PAUSED:<br/>Menschliche Klärung<br/>→ Resume derselben Phase"]
         PAUSE_PO --> DESIGN_REV
         CLASSIFY -->|PASS ohne Findings| FREEZE["Entwurfsartefakt<br/>einfrieren"]:::exploration
-        FREEZE --> PLAN
-        CLASSIFY -->|Review-Findings remediable| EXPLORE
-        CLASSIFY -->|FAIL non-remediable| ESCALATE_DR(["Eskalation an Mensch"])
+        FREEZE --> GATE_APPROVED["gate_status = APPROVED"]:::exploration
+        GATE_APPROVED --> PLAN
+        CLASSIFY -->|Nur Review-Findings| REMEDIATE["Draft nachbessern"]:::exploration
+        REMEDIATE --> DESIGN_REV
+        CLASSIFY -->|FAIL non-remediable| ESCALATE_DR["ESCALATED:<br/>Mensch entscheidet<br/>→ neuer Run"]
     end
 
     subgraph IMPL_PHASE [Implementierung]
@@ -295,7 +307,7 @@ flowchart TD
         FEEDBACK["Feedback an Worker:<br/>konkrete Mängelliste"] --> ROUND_CHECK{"Runde<br/>< max?"}
         ROUND_CHECK -->|ja| REMEDIATION["Remediation Worker<br/>Artefakte invalidiert,<br/>neuer QA-Zyklus"]
         REMEDIATION --> VERIFY
-        ROUND_CHECK -->|nein| ESCALATE_QA(["Eskalation an Mensch"])
+        ROUND_CHECK -->|nein| ESCALATE_QA["ESCALATED:<br/>Mensch entscheidet<br/>→ neuer Run"]
         EXIT_VERIFY[Verify bestanden]
     end
 
@@ -303,7 +315,7 @@ flowchart TD
 
     subgraph CLOSURE_PHASE [Closure-Phase]
         CLOSURE["Integrity-Gate<br/>7 Dimensionen"]
-        CLOSURE -->|FAIL| ESCALATE([Eskalation an Mensch])
+        CLOSURE -->|FAIL| ESCALATE["ESCALATED:<br/>Mensch entscheidet<br/>→ neuer Run oder Override"]
         CLOSURE -->|PASS| MERGE["Branch mergen<br/>Worktree aufräumen"]
         MERGE --> CLOSE_ISSUE["Issue schließen<br/>Status: Done"]
         CLOSE_ISSUE --> METRICS["Metriken setzen<br/>QA-Runden, Durchlaufzeit"]
@@ -320,6 +332,11 @@ flowchart TD
 | Grüne Box | Leichtgewichtiger Pfad (Konzept / Research) |
 | Gelbe Box | Exploration Mode (nur bei unreifen oder architekturwirksamen Stories) |
 | Graue Box, gestrichelte Linie | Optionaler Schritt (nur bei verfügbarer ARE) |
+
+`PAUSED` ist kein terminaler Zustand: Nach menschlicher Klärung wird
+derselbe Run fortgesetzt. `ESCALATED` beendet dagegen nur den aktuellen
+Run; die Story bleibt offen und wird nach menschlicher Intervention per
+neuem Run oder bewusstem Override weiterbearbeitet.
 
 ### Setup-Phase
 
@@ -342,13 +359,13 @@ Participating Repos) erfasst und die Guards aktiviert:
 Orchestrator-Guard, Branch-Guard, Prompt-Integrity-Guard und
 Integrity-Guard sind ab diesem Zeitpunkt scharf geschaltet.
 
-Am Ende der Setup-Phase steht die deterministische Modus-Ermittlung
-anhand von sechs Kriterien am GitHub-Issue (Story-Typ, `concept_paths`,
-Reifegrad, Change-Impact, neue Strukturen, externe Integrationen). Nur
-wenn alle sechs Kriterien auf Execution stehen, geht die Story direkt
-in die Implementierung. Andernfalls durchläuft sie zuerst die
-Exploration-Phase. Details zum Kriterienkatalog und zur
-Entscheidungsregel stehen in Abschnitt 3.5 in [03-governance-und-guards.md](03-governance-und-guards.md).
+Am Ende der Setup-Phase steht die deterministische, fail-closed
+Modus-Ermittlung. Für implementierende Stories gilt: Sobald ein
+Exploration-Trigger greift, Pflichtfelder fehlen oder ein
+VektorDB-Konflikt vorliegt, geht die Story in die Exploration-Phase.
+Nur wenn kein Trigger greift und kein Konflikt vorliegt, geht sie
+direkt in die Implementierung. Details zur Entscheidungsregel stehen in
+[23_modusermittlung_exploration_change_frame.md](../technical-design/23_modusermittlung_exploration_change_frame.md).
 
 ### Phase-Transition-Enforcement
 
@@ -357,7 +374,9 @@ Phasenübergangsgraphen. `run_phase()` prüft bei jedem Aufruf,
 ob der Übergang von der letzten Phase zur aktuellen Phase gültig
 ist. Ungültige Übergänge werden blockiert (fail-closed,
 PIPELINE_ERROR). Die letzte bekannte Phase wird aus der
-persistierten `phase-state.json` gelesen.
+persistierten `phase_state_projection` gelesen. Ein eventueller
+`phase-state.json`-Export ist nur eine Materialisierung derselben
+Projektion.
 
 **Graphen-Enforcement:** Der Phasenübergangsgraph definiert die
 erlaubten Übergänge:
@@ -371,7 +390,7 @@ erlaubten Übergänge:
 | closure | (Terminal — kein Folgezustand) |
 
 Jeder Übergang, der nicht im Graphen steht, wird abgelehnt. Ohne
-vorherige `phase-state.json` darf ausschließlich die Setup-Phase
+vorherige `phase_state_projection` darf ausschließlich die Setup-Phase
 aufgerufen werden. Das Resume derselben Phase (z.B. Exploration
 nach PAUSED) ist kein Phasenübergang und wird nicht blockiert.
 
@@ -384,12 +403,12 @@ Von `verify` zu `closure` ist nur bei COMPLETED zulässig.
 
 **Semantische Vorbedingungen:** Zusätzlich zum Graphen werden
 modusabhängige Bedingungen geprüft. Im Exploration Mode muss das
-Exploration-Gate bestanden sein (`exploration_gate_status =
-"approved_for_implementation"`), bevor die Implementation-Phase
-betreten werden darf. Die Closure-Phase erfordert eine
-abgeschlossene Verify-Phase. Defense-in-Depth: Sowohl beim
-Phaseneintritt in `run_phase()` als auch in der Verify-Phase
-wird der Gate-Status unabhängig voneinander geprüft.
+Exploration-Gate bestanden sein
+(`payload.gate_status == ExplorationGateStatus.APPROVED`), bevor die
+Implementation-Phase betreten werden darf. Die Closure-Phase erfordert
+eine abgeschlossene Verify-Phase. Defense-in-Depth: Sowohl beim
+Phaseneintritt in `run_phase()` als auch in der Verify-Phase wird der
+Gate-Status unabhängig voneinander geprüft.
 
 **Fehlermeldungen:** Jede Ablehnung enthält diagnostisch
 nützliche Informationen: Ausgangsphase, Zielphase, Status der
@@ -884,7 +903,7 @@ Agent gestartet wird. Scheitert ein Check, wird die Story nicht gestartet
 | PRE-03 | Status = "Approved" | Das Projektfeld "Status" hat den Wert "Approved" | Status ist "Backlog", "In Progress", "Done" oder ein anderer Wert |
 | PRE-04 | Abhängigkeiten geschlossen | Alle im Issue referenzierten Abhängigkeiten (verlinkte Issues mit Dependency-Markierung) haben den Status "Done" oder "Closed" | Mindestens eine Abhängigkeit ist offen oder in Bearbeitung |
 | PRE-05 | Keine Ausführungsartefakte | Im Story-Verzeichnis existieren weder `worker-manifest.json` noch `protocol.md` | Mindestens eines der Artefakte existiert bereits (Hinweis auf einen vorherigen, nicht aufgeräumten Lauf) |
-| PRE-06 | Saubere Telemetrie | Keine JSONL-Datei für diese Story-ID im Telemetrie-Verzeichnis vorhanden, oder vorhandene Datei ist als abgeschlossen markiert (enthält `agent_end`) | JSONL-Datei vorhanden ohne `agent_end` (stale Telemetrie aus abgebrochenem Lauf) |
+| PRE-06 | Saubere Telemetrie | Kein offener Lauf oder inkonsistentes `agent_start`/fehlendes terminales Telemetrie-Paar in `execution_events` bzw. `flow_executions` fuer `(project_key, story_id)` | Vorheriger Lauf fuer dieselbe Story ist telemetrisch oder runtime-seitig unvollstaendig |
 | PRE-07 | Kein Story-Branch | Kein Branch mit dem Story-Branch-Namensschema für diese Story-ID existiert lokal oder remote | Branch existiert bereits (Hinweis auf einen vorherigen, nicht aufgeräumten Lauf) |
 | PRE-08 | Kein staler Worktree | Kein Git-Worktree für diese Story-ID vorhanden | Worktree existiert bereits (Hinweis auf einen vorherigen, nicht aufgeräumten Lauf) |
 
@@ -1058,7 +1077,7 @@ Closure-Phase.
 | POST-01 | Issue geschlossen | `gh issue view` zeigt den Status "Closed" | Issue ist noch offen oder hat einen anderen Status |
 | POST-02 | Projektstatus = Done | Das Projektfeld "Status" hat den Wert "Done" | Status hat einen anderen Wert als "Done" |
 | POST-03 | Metriken gesetzt | Die Projektfelder "QA-Runden" und "Completed At" sind befüllt und enthalten gültige Werte | Mindestens eines der Felder ist leer oder enthält einen ungültigen Wert |
-| POST-04 | Telemetrie vollständig | Die JSONL-Datei der Story enthält sowohl ein `agent_start`-Event als auch ein `agent_end`-Event mit übereinstimmender Story-ID | Eines oder beide Events fehlen, oder die Story-IDs stimmen nicht überein |
+| POST-04 | Telemetrie vollständig | `execution_events` enthalten fuer `(project_key, story_id, run_id)` sowohl ein `agent_start`-Event als auch ein `agent_end`-Event | Eines oder beide Events fehlen, oder der Scope ist inkonsistent |
 | POST-05 | Commit vorhanden | Mindestens ein Commit mit der Story-ID existiert im Main-Branch (nach dem Merge) | Kein Commit mit der Story-ID im Main-Branch gefunden |
 | POST-06 | Story-Verzeichnis vollständig | Das Story-Verzeichnis enthält `protocol.md` und mindestens einen QA-Report (Datei mit Präfix `qa-` oder im Unterverzeichnis `qa/`) | `protocol.md` fehlt oder kein QA-Report vorhanden |
 

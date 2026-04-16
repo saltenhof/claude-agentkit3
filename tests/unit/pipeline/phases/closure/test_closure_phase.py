@@ -21,8 +21,8 @@ from agentkit.pipeline.phases.closure.phase import (
     ClosurePhaseHandler,
 )
 from agentkit.pipeline.state import save_phase_snapshot
-from agentkit.story.models import PhaseSnapshot, PhaseState, PhaseStatus, StoryContext
-from agentkit.story.types import StoryMode, StoryType
+from agentkit.story_context_manager.models import PhaseSnapshot, PhaseState, PhaseStatus, StoryContext
+from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path

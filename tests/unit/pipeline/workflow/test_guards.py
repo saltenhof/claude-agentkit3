@@ -12,8 +12,8 @@ from agentkit.pipeline.workflow.guards import (
     preflight_passed,
     verify_completed,
 )
-from agentkit.story.models import PhaseState, PhaseStatus, StoryContext
-from agentkit.story.types import StoryMode, StoryType
+from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
+from agentkit.story_context_manager.types import StoryMode, StoryType
 
 
 class TestGuardResult:

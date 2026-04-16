@@ -14,8 +14,8 @@ defers_to:
     scope: configuration
     reason: GitHub-Config und Custom Fields in FK-03 definiert
   - target: FK-02
-    scope: sperrdatei-mechanismus
-    reason: Branch-Guard nutzt Sperrdatei-Mechanismus aus FK-02
+    scope: lock-mechanismus
+    reason: Branch-Guard nutzt Lock-Mechanismus aus FK-02
 supersedes: []
 superseded_by:
 tags: [github, branching, worktree, merge, custom-fields]
@@ -66,9 +66,10 @@ wurden entfernt. `Concept Quality` ersetzt alle drei als neues Pflichtfeld (Defa
 ### 12.2.2 Feld-Zugriff: Nur einmalig bei Setup
 
 GitHub Custom Fields werden **ausschließlich einmalig** während der
-Setup-Phase gelesen und in `context.json` serialisiert (siehe
-Kap. 03, Konfigurationshierarchie). Ab da liest die Pipeline nur
-noch den Snapshot, nie mehr GitHub.
+Setup-Phase gelesen und als `StoryContext` im State-Backend
+persistiert (siehe Kap. 03, Konfigurationshierarchie). Optional
+kann daraus ein `context.json` exportiert werden. Ab da liest die
+Pipeline nur noch den Snapshot, nie mehr GitHub.
 
 **Lese-Ablauf:**
 
@@ -76,13 +77,13 @@ noch den Snapshot, nie mehr GitHub.
 sequenceDiagram
     participant PR as Phase Runner (Setup)
     participant GH as GitHub GraphQL
-    participant CTX as context.json
+    participant CTX as StoryContext
 
     PR->>GH: gh api graphql (Project Item Fields)
     GH-->>PR: Story Type, Size, Maturity, Change Impact, ...
     PR->>PR: Enums validieren, Referenzen auflösen
-    PR->>CTX: Normalisierten Snapshot schreiben
-    Note over CTX: Ab hier einzige Wahrheit
+    PR->>CTX: Normalisierten Snapshot persistieren
+    Note over CTX: Optionaler context.json-Export, aber StoryContext bleibt kanonisch
 ```
 
 **Schreib-Ablauf** (nur bei Statuswechseln und Metriken):
@@ -240,20 +241,20 @@ stattfinden. Destruktive Git-Operationen werden blockiert.
 
 **Technische Umsetzung:**
 
-Der Branch-Guard nutzt dasselbe Sperrdatei-Muster wie der
-QA-Artefakt-Schutz (Kap. 02.7): Er ist nur aktiv, wenn eine
-Story-Execution-Sperrdatei existiert.
+Der Branch-Guard nutzt denselben Lock-Record-Mechanismus wie der
+QA-Artefakt-Schutz (Kap. 02.7): Er ist nur aktiv, wenn ein
+Story-Execution-Lock-Record existiert.
 
-| Zustand | Sperrdatei | Branch-Guard | Erlaubt |
+| Zustand | Lock-Record | Branch-Guard | Erlaubt |
 |---------|-----------|-------------|---------|
-| AI-Augmented | Keine Sperrdatei | **Inaktiv** | Commits auf `main`, freies Arbeiten |
-| Story-Execution | `_temp/governance/locks/{story_id}/qa-lock.json` existiert | **Aktiv** | Nur Commits auf `story/{story_id}`, destruktive Ops blockiert |
+| AI-Augmented | Kein aktiver Story-Lock | **Inaktiv** | Commits auf `main`, freies Arbeiten |
+| Story-Execution | Aktiver Lock-Record `(project_key, story_id, run_id, lock_type)` | **Aktiv** | Nur Commits auf `story/{story_id}`, destruktive Ops blockiert |
 
 ```mermaid
 stateDiagram-v2
     [*] --> AiAugmented : Normaler Arbeitsalltag
-    AiAugmented --> StoryExecution : Pipeline-Setup schreibt Sperrdatei
-    StoryExecution --> AiAugmented : Closure-Skript entfernt Sperrdatei
+    AiAugmented --> StoryExecution : Pipeline-Setup erstellt Lock-Record
+    StoryExecution --> AiAugmented : Closure-Skript beendet Lock-Record
 
     state AiAugmented {
         [*] --> FreeWork
@@ -273,10 +274,10 @@ stateDiagram-v2
 Damit ist sichergestellt, dass:
 - Im normalen Arbeitsalltag keine unnötigen Einschränkungen gelten
 - Sobald die Story-Pipeline startet, die vollen Guardrails greifen
-- Der Übergang automatisch über die Sperrdatei gesteuert wird,
+- Der Übergang automatisch über den Lock-Record gesteuert wird,
   nicht über manuelle Konfiguration
 - Der Agent den Branch-Guard nicht selbst aktivieren oder
-  deaktivieren kann (Pipeline-Tooling steuert die Sperrdatei)
+  deaktivieren kann (Pipeline-Tooling steuert den Lock-Record)
 
 ### 12.4.2 Branch-Namenskonvention
 
@@ -294,9 +295,15 @@ Ticket-Nummern über die Story-ID hinaus.
 flowchart LR
     CREATE["git worktree add<br/>story/{story_id}"] --> WORK["Worker arbeitet<br/>(Commits auf Branch)"]
     WORK --> PUSH["git push -u origin<br/>story/{story_id}"]
-    PUSH --> MERGE["git merge --ff-only<br/>story/{story_id}"]
+    PUSH --> MERGE["Closure:<br/>Story-Branch remote verifiziert<br/>→ dann Merge nach main"]
     MERGE --> CLEANUP["git worktree remove<br/>git branch -d"]
 ```
+
+**Normative Klarstellung:** Closure darf nicht auf nur lokal
+vorhandenen Commits arbeiten. Vor jedem Merge muss der aktuelle
+Story-Branch in allen beteiligten Repos erfolgreich auf den Remote
+gepusht worden sein. Erst danach darf der Merge nach `main`
+beginnen.
 
 ### 12.4.4 Commit-Konventionen (Story-Execution)
 
@@ -328,42 +335,60 @@ def setup_worktree(story_id: str, base_ref: str = "main") -> WorktreeResult:
     2. Prüfe: Branch story/{story_id} darf nicht existieren
     3. Prüfe: Worktree-Pfad darf nicht existieren
     4. git worktree add worktrees/{story_id} -b story/{story_id} {base_ref}
-    5. Schreibe .agent-guard/context.json im Worktree
+    5. Schreibe optionalen .agent-guard/lock.json-Export im Worktree
     6. Bei Fehler: Best-effort Cleanup
     """
 ```
 
 **Worktree-Pfad:** `worktrees/{story_id}` (relativ zum Projekt-Root)
 
-**`.agent-guard/context.json`** im Worktree:
+**`.agent-guard/lock.json`** im Worktree:
 
 ```json
 {
+  "project_key": "odin-trading",
   "story_id": "ODIN-042",
+  "run_id": "a1b2c3d4-...",
   "branch": "story/ODIN-042",
   "created_at": "2026-03-17T10:00:00+01:00"
 }
 ```
 
-Diese Datei aktiviert den Branch-Guard. Solange sie existiert,
-blockiert der Guard destruktive Git-Operationen.
+Diese Datei ist nur ein lokaler Control-Plane-Export fuer Worktree-
+Tooling. Der Branch-Guard aktiviert sich kanonisch ueber den
+zentralen Lock-Record.
 
 ### 12.5.2 Worktree-Merge (Closure-Phase)
 
 ```python
-def merge_worktree(story_id: str) -> MergeResult:
+def merge_worktree(story_id: str, *, merge_policy: str = "ff_only") -> MergeResult:
     """
-    1. git checkout main (im Hauptrepo, nicht im Worktree)
-    2. git pull origin main
-    3. git merge --ff-only story/{story_id}
-    4. git push origin main
-    5. Bei Merge-Konflikt: FAIL → Eskalation
+    1. git push origin story/{story_id}
+    2. git checkout main (im Hauptrepo, nicht im Worktree)
+    3. git pull origin main
+    4. git merge --ff-only story/{story_id}   # merge_policy == "ff_only"
+       oder
+       git merge --no-ff story/{story_id}     # merge_policy == "no_ff"
+    5. git push origin main
+    6. Bei Push- oder Merge-Fehler: FAIL → Eskalation
     """
 ```
 
-**Fast-Forward-Only:** Kein Merge-Commit. Wenn der Story-Branch
-nicht fast-forward-fähig ist (Main hat sich weiterentwickelt),
-scheitert der Merge. Recovery: Worker muss rebasen (Feedback-Loop).
+**Vorgeschriebene Merge-Policy:**
+
+- Standard: `ff_only`
+- Offizieller Fallback: `no_ff`
+
+Wenn der Story-Branch nicht fast-forward-fähig ist, darf die Pipeline
+nicht in manuelle Git-Recovery ausweichen. Der normative Recovery-Pfad
+ist ein erneuter Closure-Lauf mit offizieller Merge-Policy
+`no_ff`. Manuelle Rebases, Force-Pushes oder Guard-Umgehungen sind
+nicht Teil des Sollprozesses.
+
+**Vorgeschriebener Remote-Stand:** Der Merge nach `main` arbeitet
+immer gegen den bereits gepushten Story-Branch. Closure ist damit
+nicht nur ein lokaler Merge-Ablauf, sondern ein Remote-synchroner
+Integrationsschritt.
 
 ### 12.5.3 Worktree-Teardown (Closure-Phase)
 
@@ -372,7 +397,7 @@ def teardown_worktree(story_id: str) -> None:
     """
     1. git worktree remove worktrees/{story_id} --force
     2. git branch -d story/{story_id}
-    3. .agent-guard/context.json wird mit Worktree gelöscht
+    3. .agent-guard/lock.json wird mit Worktree gelöscht
     """
 ```
 
@@ -407,12 +432,14 @@ repos:
 | Worktree | 1 Worktree | 1 Worktree pro betroffenes Repo |
 | Branch | 1 Branch `story/{story_id}` | 1 Branch pro Repo, gleicher Name |
 | Structural Checks | 1 Durchlauf | 1 Durchlauf pro Repo |
-| Merge | 1 Merge | N Merges (alle oder keiner) |
+| Merge | 1 Push + 1 Merge | N Pushes + N Merges (alle oder keiner) |
 | Scope-Erkennung | Aus Diff | Aus Diff pro Repo + Repo-Typ |
 
-**Atomarer Multi-Repo-Merge:** Alle Repos werden gemergt oder keines.
-Bei Merge-Fehler in einem Repo: Eskalation, kein partieller Merge.
-Die Closure-Substates tracken den Merge-Status pro Repo.
+**Atomarer Multi-Repo-Closure:** Alle beteiligten Repos werden zuerst
+auf ihren Story-Branch-Remote gepusht und danach mit derselben
+Merge-Policy (`ff_only` oder `no_ff`) integriert. Bei Push- oder
+Merge-Fehler in einem Repo: Eskalation, kein partieller Abschluss.
+Die Closure-Substates tracken Push- und Merge-Status pro Repo.
 
 ## 12.7 GitHub-Operationen in der Pipeline
 
@@ -422,8 +449,9 @@ Die Closure-Substates tracken den Merge-Status pro Repo.
 |-------|----------|---------------|---------|
 | **Story-Erstellung** | Issue erstellen + Fields setzen | Issues + Project V2 | Schreiben |
 | **Preflight** | Issue existiert? Status = Freigegeben? Dependencies geschlossen? | Issues + Project V2 | Lesen |
-| **Setup** | Custom Fields lesen → `context.json` | Project V2 | Lesen |
+| **Setup** | Custom Fields lesen → `StoryContext` / optional `context.json`-Export | Project V2 | Lesen |
 | **Setup** | Status → "In Progress" | Project V2 | Schreiben |
+| **Closure** | Story-Branch auf Remote pushen | Repository Remote | Schreiben |
 | **Closure** | Issue schließen | Issues | Schreiben |
 | **Closure** | Status → "Done", QA Rounds, Completed At | Project V2 | Schreiben |
 | **Postflight** | Issue geschlossen? Metriken gesetzt? | Issues + Project V2 | Lesen |

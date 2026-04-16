@@ -12,10 +12,10 @@ import pytest
 
 from agentkit.pipeline.phases.setup.phase import SetupConfig, SetupPhaseHandler
 from agentkit.pipeline.state import load_story_context
-from agentkit.project_ops.install import InstallConfig, install_agentkit
-from agentkit.project_ops.shared.paths import story_dir
-from agentkit.story.models import PhaseState, PhaseStatus, StoryContext
-from agentkit.story.types import StoryMode, StoryType
+from agentkit.installer import InstallConfig, install_agentkit
+from agentkit.installer.paths import story_dir
+from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
+from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path
