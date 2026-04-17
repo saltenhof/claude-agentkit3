@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-WORKER_IMPLEMENTATION = """\
+
+def _worker_implementation() -> str:
+    return """\
 # Worker-Prompt: Implementation Story {story_id}
 
 ## Auftrag
@@ -29,7 +31,9 @@ Implementiere die User Story **{story_id}: {title}**.
 [SENTINEL:worker-implementation-v1:{story_id}]
 """
 
-WORKER_BUGFIX = """\
+
+def _worker_bugfix() -> str:
+    return """\
 # Worker-Prompt: Bugfix Story {story_id}
 
 ## Auftrag
@@ -54,7 +58,9 @@ Behebe den Bug beschrieben in **{story_id}: {title}**.
 [SENTINEL:worker-bugfix-v1:{story_id}]
 """
 
-WORKER_CONCEPT = """\
+
+def _worker_concept() -> str:
+    return """\
 # Worker-Prompt: Concept Story {story_id}
 
 ## Auftrag
@@ -76,7 +82,9 @@ Erstelle das Konzeptdokument fuer **{story_id}: {title}**.
 [SENTINEL:worker-concept-v1:{story_id}]
 """
 
-WORKER_RESEARCH = """\
+
+def _worker_research() -> str:
+    return """\
 # Worker-Prompt: Research Story {story_id}
 
 ## Auftrag
@@ -98,7 +106,9 @@ Recherchiere das Thema beschrieben in **{story_id}: {title}**.
 [SENTINEL:worker-research-v1:{story_id}]
 """
 
-WORKER_EXPLORATION = """\
+
+def _worker_exploration() -> str:
+    return """\
 # Worker-Prompt: Exploration fuer {story_id}
 
 ## Auftrag
@@ -121,7 +131,9 @@ Erstelle ein Design-Artefakt fuer \
 [SENTINEL:worker-exploration-v1:{story_id}]
 """
 
-WORKER_REMEDIATION = """\
+
+def _worker_remediation() -> str:
+    return """\
 # Worker-Prompt: Remediation fuer {story_id} (Runde {round_nr})
 
 ## Auftrag
@@ -140,13 +152,18 @@ fuer **{story_id}: {title}**.
 [SENTINEL:worker-remediation-v1:{story_id}]
 """
 
-TEMPLATES: dict[str, str] = {
-    "worker-implementation": WORKER_IMPLEMENTATION,
-    "worker-bugfix": WORKER_BUGFIX,
-    "worker-concept": WORKER_CONCEPT,
-    "worker-research": WORKER_RESEARCH,
-    "worker-exploration": WORKER_EXPLORATION,
-    "worker-remediation": WORKER_REMEDIATION,
-}
+
+def _build_templates() -> dict[str, str]:
+    return {
+        "worker-implementation": _worker_implementation(),
+        "worker-bugfix": _worker_bugfix(),
+        "worker-concept": _worker_concept(),
+        "worker-research": _worker_research(),
+        "worker-exploration": _worker_exploration(),
+        "worker-remediation": _worker_remediation(),
+    }
+
+
+TEMPLATES = _build_templates()
 
 __all__ = ["TEMPLATES"]

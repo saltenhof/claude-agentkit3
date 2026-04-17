@@ -21,7 +21,12 @@ from agentkit.pipeline.phases.closure.phase import (
     ClosurePhaseHandler,
 )
 from agentkit.pipeline.state import save_phase_snapshot
-from agentkit.story_context_manager.models import PhaseSnapshot, PhaseState, PhaseStatus, StoryContext
+from agentkit.story_context_manager.models import (
+    PhaseSnapshot,
+    PhaseState,
+    PhaseStatus,
+    StoryContext,
+)
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
@@ -33,6 +38,7 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_ctx(
     *,
@@ -79,11 +85,13 @@ def _save_snapshot(story_dir: Path, phase: str, story_id: str = "TEST-001") -> N
 # ClosurePhaseHandler tests
 # ---------------------------------------------------------------------------
 
+
 class TestClosurePhaseHandler:
     """Tests for ``ClosurePhaseHandler.on_enter``."""
 
     def test_closure_completes_when_all_prior_phases_done(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """Closure succeeds when all prior phase snapshots exist."""
         # Implementation profile: setup, exploration, implementation, verify, closure
@@ -103,7 +111,8 @@ class TestClosurePhaseHandler:
         assert len(result.errors) == 0
 
     def test_closure_fails_when_prior_phase_missing(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """Closure fails when a required prior phase snapshot is missing."""
         s_dir = tmp_path / "stories" / "TEST-001"
@@ -173,7 +182,9 @@ class TestClosurePhaseHandler:
         assert data["issue_closed"] is False
 
     def test_closure_github_error_is_warning_not_failure(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """GitHub issue close failure produces warning, not FAILED status."""
         s_dir = tmp_path / "stories" / "TEST-001"
@@ -191,7 +202,9 @@ class TestClosurePhaseHandler:
 
         # Monkeypatch close_issue to raise IntegrationError
         def _raise_integration_error(
-            owner: str, repo: str, issue_nr: int,
+            owner: str,
+            repo: str,
+            issue_nr: int,
         ) -> None:
             raise IntegrationError("Issue not found")
 
@@ -228,7 +241,8 @@ class TestClosurePhaseHandler:
         assert "resume" in result.errors[0].lower()
 
     def test_closure_research_story_has_fewer_prior_phases(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """Research stories only need setup + implementation snapshots.
 
@@ -265,7 +279,8 @@ class TestClosurePhaseHandler:
         assert "story_dir" in result.errors[0]
 
     def test_closure_fails_when_prior_phase_has_failed_snapshot(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """Closure returns FAILED when a prior phase snapshot has FAILED status.
 
@@ -307,7 +322,8 @@ class TestClosurePhaseHandler:
         assert "failed" in error_text
 
     def test_closure_fails_when_prior_phase_has_escalated_snapshot(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """Closure returns FAILED when a prior phase has ESCALATED status.
 
@@ -350,11 +366,13 @@ class TestClosurePhaseHandler:
 # ExecutionReport tests
 # ---------------------------------------------------------------------------
 
+
 class TestExecutionReport:
     """Tests for ``ExecutionReport`` and ``write_execution_report``."""
 
     def test_execution_report_contains_correct_fields(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """ExecutionReport has story_id, type, phases, timestamps."""
         report = ExecutionReport(
@@ -362,8 +380,11 @@ class TestExecutionReport:
             story_type="implementation",
             status="completed",
             phases_executed=(
-                "setup", "exploration", "implementation",
-                "verify", "closure",
+                "setup",
+                "exploration",
+                "implementation",
+                "verify",
+                "closure",
             ),
             started_at="2026-01-01T00:00:00+00:00",
             completed_at="2026-01-01T01:00:00+00:00",
@@ -384,7 +405,8 @@ class TestExecutionReport:
         assert data["warnings"] == []
 
     def test_write_execution_report_creates_file(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """``write_execution_report`` writes valid JSON to closure.json."""
         report = ExecutionReport(

@@ -27,8 +27,8 @@ from typing import TYPE_CHECKING, Protocol
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
-    from agentkit.pipeline.workflow.gates import Gate
-    from agentkit.pipeline.workflow.guards import GuardFn
+    from agentkit.process.language.gates import Gate
+    from agentkit.process.language.guards import GuardFn
     from agentkit.story_context_manager.models import PhaseState, StoryContext
 
 

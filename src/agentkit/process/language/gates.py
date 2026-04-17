@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from agentkit.pipeline.workflow.guards import GuardFn
+    from agentkit.process.language.guards import GuardFn
 
 
 @dataclass(frozen=True)

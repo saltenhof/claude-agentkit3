@@ -22,7 +22,12 @@ from agentkit.pipeline.state import (
     save_phase_state,
     save_story_context,
 )
-from agentkit.story_context_manager.models import PhaseSnapshot, PhaseState, PhaseStatus, StoryContext
+from agentkit.story_context_manager.models import (
+    PhaseSnapshot,
+    PhaseState,
+    PhaseStatus,
+    StoryContext,
+)
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 
@@ -175,14 +180,16 @@ class TestPhaseStatePersistence:
 
     def test_load_corrupt_raises_error(self, tmp_path: Path) -> None:
         (tmp_path / "phase-state.json").write_text(
-            "not json", encoding="utf-8",
+            "not json",
+            encoding="utf-8",
         )
         with pytest.raises(CorruptStateError, match="corrupt"):
             load_phase_state(tmp_path)
 
     def test_load_invalid_schema_raises_error(self, tmp_path: Path) -> None:
         (tmp_path / "phase-state.json").write_text(
-            '{"wrong_field": "value"}', encoding="utf-8",
+            '{"wrong_field": "value"}',
+            encoding="utf-8",
         )
         with pytest.raises(CorruptStateError, match="validation failed"):
             load_phase_state(tmp_path)
@@ -211,7 +218,8 @@ class TestStoryContextPersistence:
 
     def test_load_corrupt_returns_none(self, tmp_path: Path) -> None:
         (tmp_path / "context.json").write_text(
-            "not json", encoding="utf-8",
+            "not json",
+            encoding="utf-8",
         )
         result = load_story_context(tmp_path)
         assert result is None
@@ -238,11 +246,14 @@ class TestAttemptPersistence:
 
     def test_roundtrip_multiple(self, tmp_path: Path) -> None:
         save_attempt(tmp_path, _make_attempt(attempt_id="exploration-001"))
-        save_attempt(tmp_path, _make_attempt(
-            attempt_id="exploration-002",
-            exit_status=PhaseStatus.FAILED,
-            outcome="failed",
-        ))
+        save_attempt(
+            tmp_path,
+            _make_attempt(
+                attempt_id="exploration-002",
+                exit_status=PhaseStatus.FAILED,
+                outcome="failed",
+            ),
+        )
 
         loaded = load_attempts(tmp_path, "exploration")
         assert len(loaded) == 2
@@ -251,13 +262,15 @@ class TestAttemptPersistence:
         assert loaded[1].exit_status == PhaseStatus.FAILED
 
     def test_load_empty_directory_returns_empty_list(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         result = load_attempts(tmp_path, "exploration")
         assert result == []
 
     def test_load_nonexistent_phase_returns_empty_list(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         result = load_attempts(tmp_path, "nonexistent")
         assert result == []
@@ -313,7 +326,8 @@ class TestPipelineRobustness:
     def test_corrupt_phase_state_raises_error(self, tmp_path: Path) -> None:
         """phase-state.json exists but contains garbage -> CorruptStateError."""
         (tmp_path / "phase-state.json").write_text(
-            "{invalid json!!!", encoding="utf-8",
+            "{invalid json!!!",
+            encoding="utf-8",
         )
         with pytest.raises(CorruptStateError):
             load_phase_state(tmp_path)
@@ -343,7 +357,8 @@ class TestPipelineRobustness:
         assert "also-good" in ids
 
     def test_phase_state_with_wrong_schema_raises_error(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """phase-state.json has valid JSON but wrong Pydantic schema."""
         atomic_write_json(
@@ -354,11 +369,13 @@ class TestPipelineRobustness:
             load_phase_state(tmp_path)
 
     def test_snapshot_with_corrupt_json_returns_none(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """phase-state-<phase>.json contains garbage."""
         (tmp_path / "phase-state-verify.json").write_text(
-            "{{broken", encoding="utf-8",
+            "{{broken",
+            encoding="utf-8",
         )
         assert load_phase_snapshot(tmp_path, "verify") is None
 
@@ -369,7 +386,8 @@ class TestPipelineRobustness:
     def test_load_phase_state_non_dict_raises_error(self, tmp_path: Path) -> None:
         """Array instead of object in phase-state.json -> CorruptStateError."""
         (tmp_path / "phase-state.json").write_text(
-            "[1, 2, 3]", encoding="utf-8",
+            "[1, 2, 3]",
+            encoding="utf-8",
         )
         with pytest.raises(CorruptStateError, match="not a JSON object"):
             load_phase_state(tmp_path)

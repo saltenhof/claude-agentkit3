@@ -11,11 +11,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self
 
 from agentkit.exceptions import WorkflowError
-from agentkit.pipeline.workflow.model import (
+from agentkit.process.language.model import (
+    ExecutionPolicy,
     FlowLevel,
     HookPoints,
+    NodeKind,
+    OverridePolicy,
     PhaseDefinition,
     Precondition,
+    RetryPolicy,
     TransitionRule,
     WorkflowDefinition,
     YieldPoint,
@@ -24,8 +28,8 @@ from agentkit.pipeline.workflow.model import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from agentkit.pipeline.workflow.gates import Gate
-    from agentkit.pipeline.workflow.guards import GuardFn
+    from agentkit.process.language.gates import Gate
+    from agentkit.process.language.guards import GuardFn
     from agentkit.story_context_manager.models import PhaseState, StoryContext
 
 
@@ -95,6 +99,77 @@ class WorkflowBuilder:
         acc = _PhaseAccumulator(name=name)
         self._phases.append(acc)
         self._current_phase = acc
+        return self
+
+    def node(
+        self,
+        name: str,
+        *,
+        kind: NodeKind = NodeKind.SUBFLOW,
+        handler_ref: str | None = None,
+    ) -> Self:
+        """Register a generic node and set it as the current builder target."""
+
+        if any(p.name == name for p in self._phases):
+            raise WorkflowError(
+                f"Duplicate phase name: '{name}'",
+                detail={"workflow": self._name, "phase": name},
+            )
+        acc = _PhaseAccumulator(name=name)
+        acc.kind = kind
+        acc.handler_ref = handler_ref
+        self._phases.append(acc)
+        self._current_phase = acc
+        return self
+
+    def execution_policy(self, policy: ExecutionPolicy) -> Self:
+        """Set the execution policy for the current node."""
+
+        self._require_current_phase("execution_policy")
+        assert self._current_phase is not None
+        self._current_phase.execution_policy = policy
+        return self
+
+    def retry_policy(
+        self,
+        *,
+        max_attempts: int | None = None,
+        backtrack_target: str | None = None,
+        cooldown_policy: str | None = None,
+    ) -> Self:
+        """Set retry/backtrack semantics for the current node."""
+
+        self._require_current_phase("retry_policy")
+        assert self._current_phase is not None
+        self._current_phase.retry_policy = RetryPolicy(
+            max_attempts=max_attempts,
+            backtrack_target=backtrack_target,
+            cooldown_policy=cooldown_policy,
+        )
+        return self
+
+    def override_policy(
+        self,
+        *,
+        allow_skip: bool = False,
+        allow_force_pass: bool = False,
+        allow_force_fail: bool = False,
+        allow_jump: bool = False,
+        allow_truncate: bool = False,
+        allow_freeze_retries: bool = False,
+    ) -> Self:
+        """Set allowed manual interventions for the current node."""
+
+        self._require_current_phase("override_policy")
+        assert self._current_phase is not None
+        self._current_phase.override_policy = OverridePolicy(
+            allow_skip=allow_skip,
+            allow_force_pass=allow_force_pass,
+            allow_force_fail=allow_force_fail,
+            allow_jump=allow_jump,
+            allow_truncate=allow_truncate,
+            allow_freeze_retries=allow_freeze_retries,
+        )
         return self
 
     def guard(self, fn: GuardFn) -> Self:
@@ -374,6 +449,11 @@ class _PhaseAccumulator:
 
     def __init__(self, name: str) -> None:
         self.name = name
+        self.kind = NodeKind.SUBFLOW
+        self.handler_ref: str | None = None
+        self.execution_policy = ExecutionPolicy.ALWAYS
+        self.retry_policy: RetryPolicy | None = None
+        self.override_policy = OverridePolicy()
         self.guards: list[GuardFn] = []
         self.gates: list[Gate] = []
         self.yield_points: list[YieldPoint] = []
@@ -389,6 +469,11 @@ class _PhaseAccumulator:
         """
         return PhaseDefinition(
             name=self.name,
+            kind=self.kind,
+            handler_ref=self.handler_ref,
+            execution_policy=self.execution_policy,
+            retry_policy=self.retry_policy,
+            override_policy=self.override_policy,
             guards=tuple(self.guards),
             gates=tuple(self.gates),
             yield_points=tuple(self.yield_points),

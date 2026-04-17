@@ -7,9 +7,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.pipeline.workflow.gates import Gate
-from agentkit.pipeline.workflow.guards import GuardResult
-from agentkit.pipeline.workflow.model import (
+from agentkit.process.language.gates import Gate
+from agentkit.process.language.guards import GuardResult
+from agentkit.process.language.model import (
     ExecutionPolicy,
     FlowLevel,
     HookPoints,

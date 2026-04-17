@@ -12,11 +12,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from agentkit.exceptions import WorktreeError
+from agentkit.installer.paths import story_dir
 from agentkit.pipeline.lifecycle import HandlerResult
 from agentkit.pipeline.phases.setup.context_builder import build_story_context
 from agentkit.pipeline.phases.setup.preflight import run_preflight
 from agentkit.pipeline.state import save_story_context
-from agentkit.installer.paths import story_dir
 from agentkit.story_context_manager.models import PhaseStatus
 from agentkit.story_context_manager.types import get_profile
 from agentkit.utils.git import create_worktree, remove_worktree
@@ -92,9 +92,7 @@ class SetupPhaseHandler:
         # 1. Preflight
         preflight = run_preflight(cfg.owner, cfg.repo, cfg.issue_nr)
         if not preflight.passed:
-            error_msgs = tuple(
-                c.message for c in preflight.checks if not c.passed
-            )
+            error_msgs = tuple(c.message for c in preflight.checks if not c.passed)
             return HandlerResult(
                 status=PhaseStatus.FAILED,
                 errors=error_msgs,
@@ -120,7 +118,8 @@ class SetupPhaseHandler:
         profile = get_profile(enriched.story_type)
         if cfg.create_worktree and profile.uses_worktree:
             worktree_path = _compute_worktree_path(
-                cfg.project_root, enriched.story_id,
+                cfg.project_root,
+                enriched.story_id,
             )
             branch_name = f"story/{enriched.story_id}"
             try:
@@ -149,7 +148,9 @@ class SetupPhaseHandler:
                     errors=(f"Failed to persist worktree context: {persist_err}",),
                 )
             logger.info(
-                "Worktree created: %s (branch: %s)", worktree_path, branch_name,
+                "Worktree created: %s (branch: %s)",
+                worktree_path,
+                branch_name,
             )
 
         # 5. Return COMPLETED
@@ -167,7 +168,10 @@ class SetupPhaseHandler:
         """
 
     def on_resume(
-        self, ctx: StoryContext, state: PhaseState, trigger: str,
+        self,
+        ctx: StoryContext,
+        state: PhaseState,
+        trigger: str,
     ) -> HandlerResult:
         """Setup phase does not support resume -- return FAILED.
 

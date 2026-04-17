@@ -17,6 +17,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from agentkit.installer import InstallConfig, install_agentkit
+from agentkit.installer.paths import story_dir
+from agentkit.integrations.github.client import run_gh, run_gh_json
 from agentkit.integrations.github.issues import (
     create_issue,
     get_issue,
@@ -31,9 +34,7 @@ from agentkit.pipeline.phases.setup.phase import SetupConfig, SetupPhaseHandler
 from agentkit.pipeline.phases.verify.phase import VerifyConfig, VerifyPhaseHandler
 from agentkit.pipeline.runner import run_pipeline
 from agentkit.pipeline.state import load_story_context, save_story_context
-from agentkit.pipeline.workflow.definitions import resolve_workflow
-from agentkit.installer import InstallConfig, install_agentkit
-from agentkit.installer.paths import story_dir
+from agentkit.process.language.definitions import resolve_workflow
 from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
@@ -42,6 +43,36 @@ if TYPE_CHECKING:
 
 OWNER = "saltenhof"
 REPO = "agentkit3-testbed"
+
+
+def _ensure_label(name: str, *, color: str, description: str) -> None:
+    """Ensure a required test label exists in the GitHub testbed repo."""
+
+    raw = run_gh_json(
+        "label",
+        "list",
+        "--repo",
+        f"{OWNER}/{REPO}",
+        "--json",
+        "name",
+        owner=OWNER,
+    )
+    if not isinstance(raw, list):
+        return
+    if any(isinstance(item, dict) and item.get("name") == name for item in raw):
+        return
+    run_gh(
+        "label",
+        "create",
+        name,
+        "--repo",
+        f"{OWNER}/{REPO}",
+        "--color",
+        color,
+        "--description",
+        description,
+        owner=OWNER,
+    )
 
 
 @pytest.mark.e2e
@@ -61,9 +92,16 @@ class TestRealPipelineE2E:
         Real setup -> NoOp impl -> real verify -> real closure.
         This is the simplest story type that exercises real handlers.
         """
+        _ensure_label(
+            "concept",
+            color="1d76db",
+            description="Concept story test label",
+        )
+
         # 1. Create a real GitHub issue for this test
         issue = create_issue(
-            OWNER, REPO,
+            OWNER,
+            REPO,
             title="E2E-AUTO: real pipeline concept test",
             body="Automated E2E test. Type: concept.",
             labels=["concept"],
@@ -73,10 +111,12 @@ class TestRealPipelineE2E:
             # 2. Install AgentKit
             project_dir = tmp_path / "project"
             project_dir.mkdir()
-            install_agentkit(InstallConfig(
-                project_name="e2e-test",
-                project_root=project_dir,
-            ))
+            install_agentkit(
+                InstallConfig(
+                    project_name="e2e-test",
+                    project_root=project_dir,
+                )
+            )
 
             # 3. Prepare story directory and initial context
             story_id = f"E2E-{issue.number}"
@@ -112,13 +152,15 @@ class TestRealPipelineE2E:
             )
             registry.register(
                 "closure",
-                ClosurePhaseHandler(ClosureConfig(
-                    owner=OWNER,
-                    repo=REPO,
-                    issue_nr=issue.number,
-                    story_dir=s_dir,
-                    close_issue=True,
-                )),
+                ClosurePhaseHandler(
+                    ClosureConfig(
+                        owner=OWNER,
+                        repo=REPO,
+                        issue_nr=issue.number,
+                        story_dir=s_dir,
+                        close_issue=True,
+                    )
+                ),
             )
 
             # 5. Run the full pipeline
@@ -154,8 +196,15 @@ class TestRealPipelineE2E:
         Research stories skip verify entirely -- tests the simplest
         full pipeline path with real GitHub integration.
         """
+        _ensure_label(
+            "research",
+            color="5319e7",
+            description="Research story test label",
+        )
+
         issue = create_issue(
-            OWNER, REPO,
+            OWNER,
+            REPO,
             title="E2E-AUTO: real pipeline research test",
             body="Automated E2E test. Type: research.",
             labels=["research"],
@@ -164,10 +213,12 @@ class TestRealPipelineE2E:
         try:
             project_dir = tmp_path / "project"
             project_dir.mkdir()
-            install_agentkit(InstallConfig(
-                project_name="e2e-test",
-                project_root=project_dir,
-            ))
+            install_agentkit(
+                InstallConfig(
+                    project_name="e2e-test",
+                    project_root=project_dir,
+                )
+            )
 
             story_id = f"E2E-{issue.number}"
             s_dir = story_dir(project_dir, story_id)
@@ -196,13 +247,15 @@ class TestRealPipelineE2E:
             registry.register("implementation", NoOpHandler())  # OK: LLM phase
             registry.register(
                 "closure",
-                ClosurePhaseHandler(ClosureConfig(
-                    owner=OWNER,
-                    repo=REPO,
-                    issue_nr=issue.number,
-                    story_dir=s_dir,
-                    close_issue=True,
-                )),
+                ClosurePhaseHandler(
+                    ClosureConfig(
+                        owner=OWNER,
+                        repo=REPO,
+                        issue_nr=issue.number,
+                        story_dir=s_dir,
+                        close_issue=True,
+                    )
+                ),
             )
 
             result = run_pipeline(initial_ctx, s_dir, registry, workflow)
@@ -211,7 +264,9 @@ class TestRealPipelineE2E:
                 f"Pipeline failed: {result.errors}"
             )
             assert result.phases_executed == (
-                "setup", "implementation", "closure",
+                "setup",
+                "implementation",
+                "closure",
             )
 
             # Context was enriched by real setup

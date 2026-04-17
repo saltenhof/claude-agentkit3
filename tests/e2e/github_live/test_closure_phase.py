@@ -19,6 +19,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from agentkit.installer import InstallConfig, install_agentkit
+from agentkit.installer.paths import story_dir
 from agentkit.integrations.github.issues import (
     create_issue,
     get_issue,
@@ -30,8 +32,6 @@ from agentkit.pipeline.phases.closure.phase import (
 )
 from agentkit.pipeline.phases.setup.phase import SetupConfig, SetupPhaseHandler
 from agentkit.pipeline.state import save_phase_snapshot
-from agentkit.installer import InstallConfig, install_agentkit
-from agentkit.installer.paths import story_dir
 from agentkit.story_context_manager.models import (
     PhaseSnapshot,
     PhaseState,
@@ -48,7 +48,9 @@ REPO = "agentkit3-testbed"
 
 
 def _save_snapshot(
-    s_dir: Path, phase: str, story_id: str = "E2E-CLOSURE",
+    s_dir: Path,
+    phase: str,
+    story_id: str = "E2E-CLOSURE",
 ) -> None:
     """Persist a completed phase snapshot to disk."""
     snapshot = PhaseSnapshot(
@@ -77,7 +79,8 @@ class TestClosurePhaseE2E:
         """Closure phase closes a real GitHub issue."""
         # 1. Create a fresh issue in the testbed
         issue = create_issue(
-            OWNER, REPO,
+            OWNER,
+            REPO,
             title="[E2E] Closure test issue",
             body="Automated test -- will be closed and reopened.",
         )
@@ -131,14 +134,17 @@ class TestClosurePhaseE2E:
         This is the central E2E test: setup to closure with real GitHub.
         """
         # 1. Install AgentKit
-        install_agentkit(InstallConfig(
-            project_name="e2e-closure-test",
-            project_root=tmp_path,
-        ))
+        install_agentkit(
+            InstallConfig(
+                project_name="e2e-closure-test",
+                project_root=tmp_path,
+            )
+        )
 
         # 2. Create a fresh issue
         issue = create_issue(
-            OWNER, REPO,
+            OWNER,
+            REPO,
             title="[E2E] Full pipeline closure test",
             body="Automated test -- setup to closure.",
         )
@@ -201,7 +207,8 @@ class TestClosurePhaseE2E:
             )
 
             closure_result = closure_handler.on_enter(
-                closure_ctx, closure_state,
+                closure_ctx,
+                closure_state,
             )
 
             # 6. Verify

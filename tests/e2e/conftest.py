@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.pipeline.lifecycle import NoOpHandler, PhaseHandlerRegistry
 from agentkit.installer import InstallConfig, install_agentkit
+from agentkit.pipeline.lifecycle import NoOpHandler, PhaseHandlerRegistry
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -22,10 +22,12 @@ def installed_project(tmp_path: Path) -> Path:
     """
     project_dir = tmp_path / "test-project"
     project_dir.mkdir()
-    install_agentkit(InstallConfig(
-        project_name="test-project",
-        project_root=project_dir,
-    ))
+    install_agentkit(
+        InstallConfig(
+            project_name="test-project",
+            project_root=project_dir,
+        )
+    )
     return project_dir
 
 

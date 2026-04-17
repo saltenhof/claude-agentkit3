@@ -21,6 +21,8 @@ import pytest
 
 from agentkit.config.loader import load_project_config
 from agentkit.exceptions import PipelineError
+from agentkit.installer import InstallConfig, install_agentkit
+from agentkit.installer.paths import story_dir
 from agentkit.pipeline.lifecycle import (
     HandlerResult,
     NoOpHandler,
@@ -32,14 +34,12 @@ from agentkit.pipeline.state import (
     load_story_context,
     save_story_context,
 )
-from agentkit.pipeline.workflow.definitions import (
+from agentkit.process.language.definitions import (
     BUGFIX_WORKFLOW,
     IMPLEMENTATION_WORKFLOW,
     RESEARCH_WORKFLOW,
     resolve_workflow,
 )
-from agentkit.installer import InstallConfig, install_agentkit
-from agentkit.installer.paths import story_dir
 from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
@@ -79,7 +79,7 @@ def _registry_for_workflow(
     workflow_def: object,
 ) -> PhaseHandlerRegistry:
     """Build a PhaseHandlerRegistry with NoOpHandler for all phases in a workflow."""
-    from agentkit.pipeline.workflow.model import WorkflowDefinition
+    from agentkit.process.language.model import WorkflowDefinition
 
     assert isinstance(workflow_def, WorkflowDefinition)
     registry = PhaseHandlerRegistry()
@@ -102,10 +102,12 @@ class TestSmokeImplementationStory:
         # 1. Install AgentKit
         project_dir = tmp_path / "my-project"
         project_dir.mkdir()
-        install_result = install_agentkit(InstallConfig(
-            project_name="my-project",
-            project_root=project_dir,
-        ))
+        install_result = install_agentkit(
+            InstallConfig(
+                project_name="my-project",
+                project_root=project_dir,
+            )
+        )
         assert install_result.success
 
         # 2. Verify install created loadable config
@@ -114,8 +116,10 @@ class TestSmokeImplementationStory:
 
         # 3. Create story
         ctx, s_dir = _setup_story(
-            project_dir, "TEST-001",
-            StoryType.IMPLEMENTATION, StoryMode.EXECUTION,
+            project_dir,
+            "TEST-001",
+            StoryType.IMPLEMENTATION,
+            StoryMode.EXECUTION,
         )
 
         # 4. Use real IMPLEMENTATION_WORKFLOW
@@ -129,7 +133,10 @@ class TestSmokeImplementationStory:
         assert result.final_status == "completed"
         assert result.final_phase == "closure"
         assert result.phases_executed == (
-            "setup", "implementation", "verify", "closure",
+            "setup",
+            "implementation",
+            "verify",
+            "closure",
         )
 
         # 7. Verify artifacts
@@ -142,13 +149,18 @@ class TestSmokeImplementationStory:
         """EXECUTION mode uses transition guard to skip exploration."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(InstallConfig(
-            project_name="proj", project_root=project_dir,
-        ))
+        install_agentkit(
+            InstallConfig(
+                project_name="proj",
+                project_root=project_dir,
+            )
+        )
 
         ctx, s_dir = _setup_story(
-            project_dir, "TEST-002",
-            StoryType.IMPLEMENTATION, StoryMode.EXECUTION,
+            project_dir,
+            "TEST-002",
+            StoryType.IMPLEMENTATION,
+            StoryMode.EXECUTION,
         )
 
         workflow = IMPLEMENTATION_WORKFLOW
@@ -163,19 +175,25 @@ class TestSmokeImplementationStory:
         assert "closure" in result.phases_executed
 
     def test_verify_routes_to_closure_not_remediation(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """When verify completes, the guarded closure transition wins
         over the guardless remediation fallback."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(InstallConfig(
-            project_name="proj", project_root=project_dir,
-        ))
+        install_agentkit(
+            InstallConfig(
+                project_name="proj",
+                project_root=project_dir,
+            )
+        )
 
         ctx, s_dir = _setup_story(
-            project_dir, "TEST-003",
-            StoryType.IMPLEMENTATION, StoryMode.EXECUTION,
+            project_dir,
+            "TEST-003",
+            StoryType.IMPLEMENTATION,
+            StoryMode.EXECUTION,
         )
 
         workflow = IMPLEMENTATION_WORKFLOW
@@ -193,13 +211,18 @@ class TestSmokeImplementationStory:
         """All state files produced by the pipeline are valid, loadable JSON."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(InstallConfig(
-            project_name="proj", project_root=project_dir,
-        ))
+        install_agentkit(
+            InstallConfig(
+                project_name="proj",
+                project_root=project_dir,
+            )
+        )
 
         ctx, s_dir = _setup_story(
-            project_dir, "TEST-004",
-            StoryType.IMPLEMENTATION, StoryMode.EXECUTION,
+            project_dir,
+            "TEST-004",
+            StoryType.IMPLEMENTATION,
+            StoryMode.EXECUTION,
         )
 
         workflow = IMPLEMENTATION_WORKFLOW
@@ -213,21 +236,24 @@ class TestSmokeImplementationStory:
         for json_file in json_files:
             content = json_file.read_text(encoding="utf-8")
             parsed = json.loads(content)
-            assert isinstance(parsed, dict), (
-                f"{json_file.name} is not a JSON object"
-            )
+            assert isinstance(parsed, dict), f"{json_file.name} is not a JSON object"
 
     def test_attempt_records_created_per_phase(self, tmp_path: Path) -> None:
         """Each phase creates an attempt record in phase-runs/."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(InstallConfig(
-            project_name="proj", project_root=project_dir,
-        ))
+        install_agentkit(
+            InstallConfig(
+                project_name="proj",
+                project_root=project_dir,
+            )
+        )
 
         ctx, s_dir = _setup_story(
-            project_dir, "TEST-005",
-            StoryType.IMPLEMENTATION, StoryMode.EXECUTION,
+            project_dir,
+            "TEST-005",
+            StoryType.IMPLEMENTATION,
+            StoryMode.EXECUTION,
         )
 
         workflow = IMPLEMENTATION_WORKFLOW
@@ -243,9 +269,7 @@ class TestSmokeImplementationStory:
                 f"No attempt directory for phase '{phase_name}'"
             )
             attempt_files = list(attempt_dir.glob("attempt-*.json"))
-            assert len(attempt_files) >= 1, (
-                f"No attempt files for phase '{phase_name}'"
-            )
+            assert len(attempt_files) >= 1, f"No attempt files for phase '{phase_name}'"
 
             # Each attempt file should be valid JSON with required fields
             for af in attempt_files:
@@ -265,18 +289,24 @@ class TestSmokeExplorationMode:
     """Smoke test: Implementation story with EXPLORATION mode."""
 
     def test_exploration_mode_runs_all_five_phases(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """EXPLORATION mode runs all five phases in order."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(InstallConfig(
-            project_name="proj", project_root=project_dir,
-        ))
+        install_agentkit(
+            InstallConfig(
+                project_name="proj",
+                project_root=project_dir,
+            )
+        )
 
         ctx, s_dir = _setup_story(
-            project_dir, "EXPL-001",
-            StoryType.IMPLEMENTATION, StoryMode.EXPLORATION,
+            project_dir,
+            "EXPL-001",
+            StoryType.IMPLEMENTATION,
+            StoryMode.EXPLORATION,
         )
 
         workflow = IMPLEMENTATION_WORKFLOW
@@ -286,22 +316,32 @@ class TestSmokeExplorationMode:
 
         assert result.final_status == "completed"
         assert result.phases_executed == (
-            "setup", "exploration", "implementation", "verify", "closure",
+            "setup",
+            "exploration",
+            "implementation",
+            "verify",
+            "closure",
         )
 
     def test_exploration_mode_creates_exploration_artifacts(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """EXPLORATION mode creates attempt records for the exploration phase."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(InstallConfig(
-            project_name="proj", project_root=project_dir,
-        ))
+        install_agentkit(
+            InstallConfig(
+                project_name="proj",
+                project_root=project_dir,
+            )
+        )
 
         ctx, s_dir = _setup_story(
-            project_dir, "EXPL-002",
-            StoryType.IMPLEMENTATION, StoryMode.EXPLORATION,
+            project_dir,
+            "EXPL-002",
+            StoryType.IMPLEMENTATION,
+            StoryMode.EXPLORATION,
         )
 
         workflow = IMPLEMENTATION_WORKFLOW
@@ -331,13 +371,18 @@ class TestSmokeBugfixStory:
         """Bugfix story runs setup -> implementation -> verify -> closure."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(InstallConfig(
-            project_name="proj", project_root=project_dir,
-        ))
+        install_agentkit(
+            InstallConfig(
+                project_name="proj",
+                project_root=project_dir,
+            )
+        )
 
         ctx, s_dir = _setup_story(
-            project_dir, "BUG-001",
-            StoryType.BUGFIX, StoryMode.EXECUTION,
+            project_dir,
+            "BUG-001",
+            StoryType.BUGFIX,
+            StoryMode.EXECUTION,
         )
 
         workflow = BUGFIX_WORKFLOW
@@ -348,20 +393,28 @@ class TestSmokeBugfixStory:
         assert result.final_status == "completed"
         assert result.final_phase == "closure"
         assert result.phases_executed == (
-            "setup", "implementation", "verify", "closure",
+            "setup",
+            "implementation",
+            "verify",
+            "closure",
         )
 
     def test_bugfix_skips_exploration(self, tmp_path: Path) -> None:
         """Bugfix workflow never touches exploration phase."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(InstallConfig(
-            project_name="proj", project_root=project_dir,
-        ))
+        install_agentkit(
+            InstallConfig(
+                project_name="proj",
+                project_root=project_dir,
+            )
+        )
 
         ctx, s_dir = _setup_story(
-            project_dir, "BUG-002",
-            StoryType.BUGFIX, StoryMode.EXECUTION,
+            project_dir,
+            "BUG-002",
+            StoryType.BUGFIX,
+            StoryMode.EXECUTION,
         )
 
         workflow = BUGFIX_WORKFLOW
@@ -393,13 +446,18 @@ class TestSmokeConceptStory:
         """Concept story runs setup -> implementation -> verify -> closure."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(InstallConfig(
-            project_name="proj", project_root=project_dir,
-        ))
+        install_agentkit(
+            InstallConfig(
+                project_name="proj",
+                project_root=project_dir,
+            )
+        )
 
         ctx, s_dir = _setup_story(
-            project_dir, "CONCEPT-001",
-            StoryType.CONCEPT, StoryMode.NOT_APPLICABLE,
+            project_dir,
+            "CONCEPT-001",
+            StoryType.CONCEPT,
+            StoryMode.NOT_APPLICABLE,
         )
 
         workflow = resolve_workflow(StoryType.CONCEPT)
@@ -410,20 +468,28 @@ class TestSmokeConceptStory:
         assert result.final_status == "completed"
         assert result.final_phase == "closure"
         assert result.phases_executed == (
-            "setup", "implementation", "verify", "closure",
+            "setup",
+            "implementation",
+            "verify",
+            "closure",
         )
 
     def test_concept_story_context_persisted(self, tmp_path: Path) -> None:
         """Story context is loadable after pipeline completion."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(InstallConfig(
-            project_name="proj", project_root=project_dir,
-        ))
+        install_agentkit(
+            InstallConfig(
+                project_name="proj",
+                project_root=project_dir,
+            )
+        )
 
         ctx, s_dir = _setup_story(
-            project_dir, "CONCEPT-002",
-            StoryType.CONCEPT, StoryMode.NOT_APPLICABLE,
+            project_dir,
+            "CONCEPT-002",
+            StoryType.CONCEPT,
+            StoryMode.NOT_APPLICABLE,
         )
 
         workflow = resolve_workflow(StoryType.CONCEPT)
@@ -449,13 +515,18 @@ class TestSmokeResearchStory:
         """Research story runs setup -> implementation -> closure."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(InstallConfig(
-            project_name="proj", project_root=project_dir,
-        ))
+        install_agentkit(
+            InstallConfig(
+                project_name="proj",
+                project_root=project_dir,
+            )
+        )
 
         ctx, s_dir = _setup_story(
-            project_dir, "RES-001",
-            StoryType.RESEARCH, StoryMode.NOT_APPLICABLE,
+            project_dir,
+            "RES-001",
+            StoryType.RESEARCH,
+            StoryMode.NOT_APPLICABLE,
         )
 
         workflow = resolve_workflow(StoryType.RESEARCH)
@@ -466,20 +537,27 @@ class TestSmokeResearchStory:
         assert result.final_status == "completed"
         assert result.final_phase == "closure"
         assert result.phases_executed == (
-            "setup", "implementation", "closure",
+            "setup",
+            "implementation",
+            "closure",
         )
 
     def test_research_skips_verify(self, tmp_path: Path) -> None:
         """Research workflow has no verify phase."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(InstallConfig(
-            project_name="proj", project_root=project_dir,
-        ))
+        install_agentkit(
+            InstallConfig(
+                project_name="proj",
+                project_root=project_dir,
+            )
+        )
 
         ctx, s_dir = _setup_story(
-            project_dir, "RES-002",
-            StoryType.RESEARCH, StoryMode.NOT_APPLICABLE,
+            project_dir,
+            "RES-002",
+            StoryType.RESEARCH,
+            StoryMode.NOT_APPLICABLE,
         )
 
         workflow = resolve_workflow(StoryType.RESEARCH)
@@ -507,7 +585,9 @@ class _FailingHandler:
         self._error_msg = error_msg
 
     def on_enter(
-        self, ctx: StoryContext, state: PhaseState,
+        self,
+        ctx: StoryContext,
+        state: PhaseState,
     ) -> HandlerResult:
         """Return FAILED status.
 
@@ -532,7 +612,10 @@ class _FailingHandler:
         """
 
     def on_resume(
-        self, ctx: StoryContext, state: PhaseState, trigger: str,
+        self,
+        ctx: StoryContext,
+        state: PhaseState,
+        trigger: str,
     ) -> HandlerResult:
         """Return FAILED status on resume.
 
@@ -557,7 +640,9 @@ class _YieldingHandler:
         self._yield_status = yield_status
 
     def on_enter(
-        self, ctx: StoryContext, state: PhaseState,
+        self,
+        ctx: StoryContext,
+        state: PhaseState,
     ) -> HandlerResult:
         """Return PAUSED status.
 
@@ -582,7 +667,10 @@ class _YieldingHandler:
         """
 
     def on_resume(
-        self, ctx: StoryContext, state: PhaseState, trigger: str,
+        self,
+        ctx: StoryContext,
+        state: PhaseState,
+        trigger: str,
     ) -> HandlerResult:
         """Return COMPLETED status on resume.
 
@@ -605,13 +693,18 @@ class TestSmokePipelineRobustness:
         """Pipeline fails clearly when a phase has no registered handler."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(InstallConfig(
-            project_name="proj", project_root=project_dir,
-        ))
+        install_agentkit(
+            InstallConfig(
+                project_name="proj",
+                project_root=project_dir,
+            )
+        )
 
         ctx, s_dir = _setup_story(
-            project_dir, "ROBUST-001",
-            StoryType.RESEARCH, StoryMode.NOT_APPLICABLE,
+            project_dir,
+            "ROBUST-001",
+            StoryType.RESEARCH,
+            StoryMode.NOT_APPLICABLE,
         )
 
         workflow = resolve_workflow(StoryType.RESEARCH)
@@ -634,13 +727,18 @@ class TestSmokePipelineRobustness:
         """
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(InstallConfig(
-            project_name="proj", project_root=project_dir,
-        ))
+        install_agentkit(
+            InstallConfig(
+                project_name="proj",
+                project_root=project_dir,
+            )
+        )
 
         ctx, s_dir = _setup_story(
-            project_dir, "ROBUST-002",
-            StoryType.RESEARCH, StoryMode.NOT_APPLICABLE,
+            project_dir,
+            "ROBUST-002",
+            StoryType.RESEARCH,
+            StoryMode.NOT_APPLICABLE,
         )
 
         # Write corrupt state file before running
@@ -661,13 +759,18 @@ class TestSmokePipelineRobustness:
         """Pipeline correctly yields when a handler returns PAUSED."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(InstallConfig(
-            project_name="proj", project_root=project_dir,
-        ))
+        install_agentkit(
+            InstallConfig(
+                project_name="proj",
+                project_root=project_dir,
+            )
+        )
 
         ctx, s_dir = _setup_story(
-            project_dir, "ROBUST-003",
-            StoryType.RESEARCH, StoryMode.NOT_APPLICABLE,
+            project_dir,
+            "ROBUST-003",
+            StoryType.RESEARCH,
+            StoryMode.NOT_APPLICABLE,
         )
 
         workflow = resolve_workflow(StoryType.RESEARCH)
@@ -695,13 +798,18 @@ class TestSmokePipelineRobustness:
         """Pipeline stops cleanly when a handler fails."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(InstallConfig(
-            project_name="proj", project_root=project_dir,
-        ))
+        install_agentkit(
+            InstallConfig(
+                project_name="proj",
+                project_root=project_dir,
+            )
+        )
 
         ctx, s_dir = _setup_story(
-            project_dir, "ROBUST-004",
-            StoryType.RESEARCH, StoryMode.NOT_APPLICABLE,
+            project_dir,
+            "ROBUST-004",
+            StoryType.RESEARCH,
+            StoryMode.NOT_APPLICABLE,
         )
 
         workflow = resolve_workflow(StoryType.RESEARCH)
@@ -727,13 +835,18 @@ class TestSmokePipelineRobustness:
         """Completed phases produce phase-state-{phase}.json snapshots."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(InstallConfig(
-            project_name="proj", project_root=project_dir,
-        ))
+        install_agentkit(
+            InstallConfig(
+                project_name="proj",
+                project_root=project_dir,
+            )
+        )
 
         ctx, s_dir = _setup_story(
-            project_dir, "ROBUST-005",
-            StoryType.RESEARCH, StoryMode.NOT_APPLICABLE,
+            project_dir,
+            "ROBUST-005",
+            StoryType.RESEARCH,
+            StoryMode.NOT_APPLICABLE,
         )
 
         workflow = resolve_workflow(StoryType.RESEARCH)
@@ -754,18 +867,24 @@ class TestSmokePipelineRobustness:
             assert data["status"] == "completed"
 
     def test_handler_exception_produces_failed_result(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """An unhandled exception in a handler produces a failed result."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(InstallConfig(
-            project_name="proj", project_root=project_dir,
-        ))
+        install_agentkit(
+            InstallConfig(
+                project_name="proj",
+                project_root=project_dir,
+            )
+        )
 
         ctx, s_dir = _setup_story(
-            project_dir, "ROBUST-006",
-            StoryType.RESEARCH, StoryMode.NOT_APPLICABLE,
+            project_dir,
+            "ROBUST-006",
+            StoryType.RESEARCH,
+            StoryMode.NOT_APPLICABLE,
         )
 
         workflow = resolve_workflow(StoryType.RESEARCH)
@@ -774,18 +893,25 @@ class TestSmokePipelineRobustness:
             """Handler that raises an exception."""
 
             def on_enter(
-                self, ctx: StoryContext, state: PhaseState,
+                self,
+                ctx: StoryContext,
+                state: PhaseState,
             ) -> HandlerResult:
                 msg = "Boom!"
                 raise RuntimeError(msg)
 
             def on_exit(
-                self, ctx: StoryContext, state: PhaseState,
+                self,
+                ctx: StoryContext,
+                state: PhaseState,
             ) -> None:
                 pass
 
             def on_resume(
-                self, ctx: StoryContext, state: PhaseState, trigger: str,
+                self,
+                ctx: StoryContext,
+                state: PhaseState,
+                trigger: str,
             ) -> HandlerResult:
                 msg = "Boom!"
                 raise RuntimeError(msg)
@@ -805,13 +931,18 @@ class TestSmokePipelineRobustness:
         """PipelineRunResult contains all expected fields after completion."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(InstallConfig(
-            project_name="proj", project_root=project_dir,
-        ))
+        install_agentkit(
+            InstallConfig(
+                project_name="proj",
+                project_root=project_dir,
+            )
+        )
 
         ctx, s_dir = _setup_story(
-            project_dir, "ROBUST-007",
-            StoryType.RESEARCH, StoryMode.NOT_APPLICABLE,
+            project_dir,
+            "ROBUST-007",
+            StoryType.RESEARCH,
+            StoryMode.NOT_APPLICABLE,
         )
 
         workflow = resolve_workflow(StoryType.RESEARCH)

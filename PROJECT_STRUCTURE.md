@@ -74,6 +74,8 @@ src/agentkit/
   story_context_manager/
   worktree_manager/
   prompt_composer/
+  process/
+    language/                  # Querschnittliche Prozesssprache fuer Pipeline und Komponenten
   llm_evaluator/
   conformance_service/
   stage_registry/
@@ -116,6 +118,7 @@ src/agentkit/
 | `story_context_manager/` | Autoritativer Story-Kontext nach Setup | Wird von Pipeline und PromptComposer genutzt |
 | `worktree_manager/` | Worktree-/Branch-Lifecycle | Wird von Setup/Closure genutzt |
 | `prompt_composer/` | Prompt-Assembling und Kontext-Selektion | Nutzt StoryContext, Resources |
+| `process/` | Querschnittliche Prozesssprache und Ablaufvertraege | Wird von PipelineEngine und anderen Komponenten genutzt |
 | `llm_evaluator/` | Strukturierte LLM-Bewertungen | Nutzt Integrationen und Schemas |
 | `conformance_service/` | Dokumententreue-/Conformance-Kette | Nutzt LlmEvaluator |
 | `stage_registry/` | Autoritativer Staging-Katalog | Wird von Verify und FailureCorpus genutzt |

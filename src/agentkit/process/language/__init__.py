@@ -1,21 +1,17 @@
-"""Workflow DSL for the 5-phase pipeline.
-
-Public API for defining workflow topology: phases, transitions,
-guards, gates, yield points, hooks, and recovery contracts.
-"""
+"""Shared process language for pipelines and component flows."""
 
 from __future__ import annotations
 
-from agentkit.pipeline.workflow.builder import Workflow, WorkflowBuilder
-from agentkit.pipeline.workflow.definitions import (
+from agentkit.process.language.builder import Workflow, WorkflowBuilder
+from agentkit.process.language.definitions import (
     BUGFIX_WORKFLOW,
     CONCEPT_WORKFLOW,
     IMPLEMENTATION_WORKFLOW,
     RESEARCH_WORKFLOW,
     resolve_workflow,
 )
-from agentkit.pipeline.workflow.gates import Gate, GateStage
-from agentkit.pipeline.workflow.guards import (
+from agentkit.process.language.gates import Gate, GateStage
+from agentkit.process.language.guards import (
     GuardFn,
     GuardResult,
     exploration_gate_approved,
@@ -25,7 +21,7 @@ from agentkit.pipeline.workflow.guards import (
     verify_completed,
     verify_needs_remediation,
 )
-from agentkit.pipeline.workflow.model import (
+from agentkit.process.language.model import (
     EdgeRule,
     ExecutionPolicy,
     FlowDefinition,
@@ -43,13 +39,13 @@ from agentkit.pipeline.workflow.model import (
     WorkflowDefinition,
     YieldPoint,
 )
-from agentkit.pipeline.workflow.recovery import (
+from agentkit.process.language.recovery import (
     DEFAULT_RECOVERY_CONTRACT,
     FieldSource,
     RecoveryContract,
     RehydrationRule,
 )
-from agentkit.pipeline.workflow.validators import ValidationError, WorkflowValidator
+from agentkit.process.language.validators import ValidationError, WorkflowValidator
 
 __all__ = [
     # model

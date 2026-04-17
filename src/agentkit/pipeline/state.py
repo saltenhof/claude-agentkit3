@@ -13,7 +13,12 @@ from datetime import datetime
 from typing import TYPE_CHECKING, cast
 
 from agentkit.exceptions import CorruptStateError
-from agentkit.story_context_manager.models import PhaseSnapshot, PhaseState, PhaseStatus, StoryContext
+from agentkit.story_context_manager.models import (
+    PhaseSnapshot,
+    PhaseState,
+    PhaseStatus,
+    StoryContext,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -217,43 +222,44 @@ def load_attempts(story_dir: Path, phase: str) -> list[AttemptRecord]:
         data = load_json_safe(path)
         if data is not None:
             try:
-                records.append(AttemptRecord(
-                    attempt_id=str(data.get("attempt_id", "")),
-                    phase=str(data.get("phase", phase)),
-                    entered_at=datetime.fromisoformat(
-                        str(data.get("entered_at", "")),
-                    ),
-                    exit_status=(
-                        PhaseStatus(str(data["exit_status"]))
-                        if data.get("exit_status")
-                        else None
-                    ),
-                    guard_evaluations=tuple(
-                        cast(
-                            "list[dict[str, object]]",
-                            data.get("guard_evaluations", []),
+                records.append(
+                    AttemptRecord(
+                        attempt_id=str(data.get("attempt_id", "")),
+                        phase=str(data.get("phase", phase)),
+                        entered_at=datetime.fromisoformat(
+                            str(data.get("entered_at", "")),
                         ),
-                    ),
-                    artifacts_produced=tuple(
-                        str(x) for x in cast(
-                            "list[object]",
-                            data.get("artifacts_produced", []),
-                        )
-                    ),
-                    outcome=(
-                        str(data["outcome"]) if data.get("outcome") else None
-                    ),
-                    yield_status=(
-                        str(data["yield_status"])
-                        if data.get("yield_status")
-                        else None
-                    ),
-                    resume_trigger=(
-                        str(data["resume_trigger"])
-                        if data.get("resume_trigger")
-                        else None
-                    ),
-                ))
+                        exit_status=(
+                            PhaseStatus(str(data["exit_status"]))
+                            if data.get("exit_status")
+                            else None
+                        ),
+                        guard_evaluations=tuple(
+                            cast(
+                                "list[dict[str, object]]",
+                                data.get("guard_evaluations", []),
+                            ),
+                        ),
+                        artifacts_produced=tuple(
+                            str(x)
+                            for x in cast(
+                                "list[object]",
+                                data.get("artifacts_produced", []),
+                            )
+                        ),
+                        outcome=(str(data["outcome"]) if data.get("outcome") else None),
+                        yield_status=(
+                            str(data["yield_status"])
+                            if data.get("yield_status")
+                            else None
+                        ),
+                        resume_trigger=(
+                            str(data["resume_trigger"])
+                            if data.get("resume_trigger")
+                            else None
+                        ),
+                    )
+                )
             except (ValueError, KeyError, TypeError):
                 continue
     return records

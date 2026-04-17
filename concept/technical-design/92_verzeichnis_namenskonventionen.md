@@ -32,6 +32,11 @@ komponentenorientierten Namespace-Regel:
 | Adapter bleiben unter `integrations/` | Externe Systemgrenzen bleiben technisch gebuendelt |
 | Kein Sammelbecken `utils` fuer Fachlogik | Fachwissen gehoert in Komponenten, nicht in neutrale Hilfspakete |
 
+**Sonderfall Prozesssprache:** Die querschnittliche Ablauf- und
+Kontrollsprache liegt unter `agentkit/process/language/`. Sie gehoert
+keiner einzelnen Fachkomponente wie `pipeline_engine`, sondern wird von
+mehreren Komponenten konsumiert.
+
 **Zielstruktur:**
 
 ```text

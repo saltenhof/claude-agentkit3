@@ -167,7 +167,7 @@ administrativ und schafft einen neuen sauberen Startzustand.
 ### 20.1.6 Evolution der bestehenden Workflow-DSL
 
 Die bereits implementierte Workflow-DSL unter
-`agentkit.pipeline.workflow` ist die **erste Auspraegung** der
+`agentkit.process.language` ist die **erste Auspraegung** der
 hierarchischen Prozess-DSL und wird nicht verworfen, sondern
 verallgemeinert.
 

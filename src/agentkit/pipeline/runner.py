@@ -11,16 +11,16 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from agentkit.exceptions import CorruptStateError
-from agentkit.phase_state_store import load_phase_state, save_phase_state
 from agentkit.pipeline.engine import PipelineEngine
-from agentkit.pipeline.workflow.definitions import resolve_workflow
+from agentkit.pipeline.state import load_phase_state, save_phase_state
+from agentkit.process.language.definitions import resolve_workflow
 from agentkit.story_context_manager.models import PhaseState, PhaseStatus
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.pipeline.lifecycle import PhaseHandlerRegistry
-    from agentkit.pipeline.workflow.model import WorkflowDefinition
+    from agentkit.process.language.model import WorkflowDefinition
     from agentkit.story_context_manager.models import StoryContext
 
 
@@ -72,7 +72,7 @@ def run_pipeline(
         handler_registry: Registry of phase handlers.
         workflow: Optional workflow override.  If ``None``, resolved
             from the story type via
-            :func:`~agentkit.pipeline.workflow.definitions.resolve_workflow`.
+        :func:`~agentkit.process.language.definitions.resolve_workflow`.
 
     Returns:
         A :class:`PipelineRunResult` summarising the execution.

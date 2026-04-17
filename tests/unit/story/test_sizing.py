@@ -1,8 +1,8 @@
-"""Unit tests for agentkit.story.sizing."""
+"""Unit tests for story sizing."""
 
 from __future__ import annotations
 
-from agentkit.story.sizing import StorySize, estimate_size
+from agentkit.story_context_manager.sizing import StorySize, estimate_size
 
 
 class TestStorySize:

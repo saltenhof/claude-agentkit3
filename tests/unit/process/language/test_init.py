@@ -1,4 +1,4 @@
-"""Tests that all expected symbols are importable from the workflow package."""
+"""Tests that all expected symbols are importable from the process language package."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import pytest
 
 
 class TestPublicAPI:
-    """All expected symbols are importable from agentkit.pipeline.workflow."""
+    """All expected symbols are importable from agentkit.process.language."""
 
     @pytest.mark.parametrize(
         "symbol",
@@ -49,16 +49,16 @@ class TestPublicAPI:
         ],
     )
     def test_symbol_importable(self, symbol: str) -> None:
-        """Each expected symbol is importable from the workflow package."""
-        import agentkit.pipeline.workflow as wf_mod
+        """Each expected symbol is importable from the process language package."""
+        import agentkit.process.language as wf_mod
 
         assert hasattr(wf_mod, symbol), (
-            f"Symbol {symbol!r} not found in agentkit.pipeline.workflow"
+            f"Symbol {symbol!r} not found in agentkit.process.language"
         )
 
     def test_all_exports_listed(self) -> None:
         """__all__ contains all expected symbols."""
-        import agentkit.pipeline.workflow as wf_mod
+        import agentkit.process.language as wf_mod
 
         expected = {
             "WorkflowDefinition",

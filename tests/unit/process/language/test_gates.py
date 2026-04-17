@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.pipeline.workflow.gates import Gate, GateStage
-from agentkit.pipeline.workflow.guards import GuardResult
+from agentkit.process.language.gates import Gate, GateStage
+from agentkit.process.language.guards import GuardResult
 
 if TYPE_CHECKING:
     from agentkit.story_context_manager.models import PhaseState, StoryContext

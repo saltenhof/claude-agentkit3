@@ -6,7 +6,7 @@ import dataclasses
 
 import pytest
 
-from agentkit.pipeline.workflow.recovery import (
+from agentkit.process.language.recovery import (
     DEFAULT_RECOVERY_CONTRACT,
     FieldSource,
     RecoveryContract,

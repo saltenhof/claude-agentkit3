@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.pipeline.workflow.definitions import (
+from agentkit.process.language.definitions import (
     BUGFIX_WORKFLOW,
     CONCEPT_WORKFLOW,
     IMPLEMENTATION_WORKFLOW,
     RESEARCH_WORKFLOW,
     resolve_workflow,
 )
-from agentkit.pipeline.workflow.validators import WorkflowValidator
+from agentkit.process.language.validators import WorkflowValidator
 from agentkit.story_context_manager.types import StoryType
 
 

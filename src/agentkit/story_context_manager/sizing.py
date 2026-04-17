@@ -19,7 +19,14 @@ _EPIC_KEYWORDS: frozenset[str] = frozenset(
     {"refactor", "redesign", "migration", "overhaul", "rewrite", "rearchitect"}
 )
 _LARGE_KEYWORDS: frozenset[str] = frozenset(
-    {"implement", "integration", "pipeline", "framework", "infrastructure", "architecture"}
+    {
+        "implement",
+        "integration",
+        "pipeline",
+        "framework",
+        "infrastructure",
+        "architecture",
+    }
 )
 
 
@@ -37,6 +44,7 @@ def estimate_size(labels: list[str], title: str) -> StorySize:
     if words & _LARGE_KEYWORDS:
         return StorySize.MEDIUM
     return StorySize.SMALL
+
 
 __all__ = [
     "StorySize",

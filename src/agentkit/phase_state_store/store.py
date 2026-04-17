@@ -2,29 +2,71 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
-from datetime import datetime
 import json
 import re
-from typing import TYPE_CHECKING, cast
+from dataclasses import asdict
+from datetime import datetime
+from typing import TYPE_CHECKING, Any, cast
 
 from agentkit.phase_state_store.models import (
     FlowExecution,
     NodeExecutionLedger,
     OverrideRecord,
 )
-from agentkit.pipeline.state import atomic_write_json, load_json_safe
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 
-def _serialize_dataclass(obj: object) -> dict[str, object]:
+def atomic_write_json(path: Path, data: dict[str, object]) -> None:
+    """Write JSON atomically without depending on pipeline state helpers."""
+
+    from agentkit.utils.io import atomic_write_text
+
+    content = json.dumps(data, indent=2, sort_keys=True, default=str)
+    atomic_write_text(path, content)
+
+
+def load_json_safe(path: Path) -> dict[str, object] | None:
+    """Load JSON object from disk, returning None when absent or invalid."""
+
+    if not path.exists():
+        return None
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _serialize_dataclass(obj: Any) -> dict[str, object]:
     data = cast("dict[str, object]", asdict(obj))
     for key, value in list(data.items()):
         if isinstance(value, datetime):
             data[key] = value.isoformat()
     return data
+
+
+def _parse_int(value: object, default: int) -> int:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    try:
+        return int(cast("Any", value))
+    except (TypeError, ValueError):
+        return default
+
+
+_EPOCH = datetime.fromisoformat("1970-01-01T00:00:00+00:00")
 
 
 def _parse_datetime(value: object) -> datetime | None:
@@ -66,10 +108,8 @@ def load_flow_execution(story_dir: Path) -> FlowExecution | None:
             current_node_id=(
                 str(data["current_node_id"]) if data.get("current_node_id") else None
             ),
-            attempt_no=int(data.get("attempt_no", 1)),
-            started_at=_parse_datetime(data.get("started_at")) or datetime.fromisoformat(
-                "1970-01-01T00:00:00+00:00",
-            ),
+            attempt_no=_parse_int(data.get("attempt_no"), 1),
+            started_at=_parse_datetime(data.get("started_at")) or _EPOCH,
             finished_at=_parse_datetime(data.get("finished_at")),
         )
     except (KeyError, TypeError, ValueError):
@@ -110,13 +150,15 @@ def load_node_execution_ledger(
             run_id=str(data["run_id"]),
             flow_id=str(data["flow_id"]),
             node_id=str(data["node_id"]),
-            execution_count=int(data.get("execution_count", 0)),
-            success_count=int(data.get("success_count", 0)),
+            execution_count=_parse_int(data.get("execution_count"), 0),
+            success_count=_parse_int(data.get("success_count"), 0),
             last_outcome=(
                 str(data["last_outcome"]) if data.get("last_outcome") else None
             ),
             last_attempt_no=(
-                int(data["last_attempt_no"]) if data.get("last_attempt_no") else None
+                _parse_int(data.get("last_attempt_no"), 0)
+                if data.get("last_attempt_no")
+                else None
             ),
             last_executed_at=_parse_datetime(data.get("last_executed_at")),
         )
@@ -134,3 +176,42 @@ def save_override_record(story_dir: Path, record: OverrideRecord) -> None:
         _serialize_dataclass(record),
     )
 
+
+def load_override_records(story_dir: Path) -> tuple[OverrideRecord, ...]:
+    """Load all persisted override records in append-only order."""
+
+    overrides_dir = story_dir / "overrides"
+    if not overrides_dir.exists():
+        return ()
+
+    records: list[OverrideRecord] = []
+    for path in sorted(overrides_dir.glob("*.json")):
+        data = load_json_safe(path)
+        if data is None:
+            continue
+        try:
+            records.append(
+                OverrideRecord(
+                    override_id=str(data["override_id"]),
+                    project_key=str(data["project_key"]),
+                    story_id=str(data["story_id"]),
+                    run_id=str(data["run_id"]),
+                    flow_id=str(data["flow_id"]),
+                    target_node_id=(
+                        str(data["target_node_id"])
+                        if data.get("target_node_id")
+                        else None
+                    ),
+                    override_type=str(data["override_type"]),
+                    actor_type=str(data["actor_type"]),
+                    actor_id=str(data["actor_id"]),
+                    reason=str(data["reason"]),
+                    created_at=_parse_datetime(data["created_at"]) or _EPOCH,
+                    consumed_at=_parse_datetime(data.get("consumed_at")),
+                ),
+            )
+        except (KeyError, TypeError, ValueError):
+            continue
+
+    records.sort(key=lambda record: record.created_at)
+    return tuple(records)

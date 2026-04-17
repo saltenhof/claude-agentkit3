@@ -7,10 +7,14 @@ from typing import TYPE_CHECKING
 import pytest
 
 from agentkit.exceptions import WorkflowError
-from agentkit.pipeline.workflow.builder import Workflow, WorkflowBuilder
-from agentkit.pipeline.workflow.gates import Gate, GateStage
-from agentkit.pipeline.workflow.guards import GuardResult
-from agentkit.pipeline.workflow.model import WorkflowDefinition
+from agentkit.process.language.builder import Workflow, WorkflowBuilder
+from agentkit.process.language.gates import Gate, GateStage
+from agentkit.process.language.guards import GuardResult
+from agentkit.process.language.model import (
+    ExecutionPolicy,
+    NodeKind,
+    WorkflowDefinition,
+)
 
 if TYPE_CHECKING:
     from agentkit.story_context_manager.models import PhaseState, StoryContext
@@ -308,3 +312,64 @@ class TestWorkflowBuilderMethods:
         )
 
         assert wf.transitions[0].resume_policy == "remediation"
+
+    def test_execution_policy_on_phase(self) -> None:
+        """execution_policy() sets the value on the current node."""
+        wf = (
+            Workflow("policy")
+            .phase("start")
+            .execution_policy(ExecutionPolicy.ONCE_PER_RUN)
+            .phase("end")
+            .transition("start", "end")
+            .build()
+        )
+
+        start = wf.get_phase("start")
+        assert start is not None
+        assert start.execution_policy == ExecutionPolicy.ONCE_PER_RUN
+
+    def test_retry_policy_on_phase(self) -> None:
+        """retry_policy() sets backtrack semantics on the current node."""
+        wf = (
+            Workflow("retry")
+            .phase("verify")
+            .retry_policy(max_attempts=3, backtrack_target="implementation")
+            .phase("implementation")
+            .transition("verify", "implementation")
+            .build()
+        )
+
+        verify = wf.get_phase("verify")
+        assert verify is not None
+        assert verify.retry_policy is not None
+        assert verify.retry_policy.max_attempts == 3
+        assert verify.retry_policy.backtrack_target == "implementation"
+
+    def test_override_policy_on_phase(self) -> None:
+        """override_policy() sets allowed manual interventions."""
+        wf = (
+            Workflow("override")
+            .phase("verify")
+            .override_policy(allow_skip=True, allow_jump=True)
+            .phase("closure")
+            .transition("verify", "closure")
+            .build()
+        )
+
+        verify = wf.get_phase("verify")
+        assert verify is not None
+        assert verify.override_policy.allow_skip is True
+        assert verify.override_policy.allow_jump is True
+
+    def test_generic_node_construction(self) -> None:
+        """node() can define a non-subflow node kind."""
+        wf = (
+            Workflow("component")
+            .node("gatekeeper", kind=NodeKind.GATE, handler_ref="guard.run")
+            .build()
+        )
+
+        node = wf.get_node("gatekeeper")
+        assert node is not None
+        assert node.kind == NodeKind.GATE
+        assert node.handler_ref == "guard.run"

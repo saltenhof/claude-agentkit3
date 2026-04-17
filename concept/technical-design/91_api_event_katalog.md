@@ -29,6 +29,7 @@ tags: [api, events, cli, hooks, reference]
 | `agentkit cleanup --story {story_id}` | 20 | Stale Worktree/Branch/Locks aufräumen |
 | `agentkit resume --story {story_id}` | 35 | Pausierte Story fortsetzen |
 | `agentkit reset-escalation --story {story_id}` | 35 | Eskalation zurücksetzen |
+| `agentkit reset-story --story {story_id}` | 53 | Vollständige korrupt gewordene Umsetzung administrativ zurücksetzen |
 | `agentkit override-integrity --story {story_id}` | 35 | Integrity-Gate bewusst overriden |
 | `agentkit query-telemetry` | 52 | Telemetrie-Events abfragen |
 | `agentkit weekly-review` | 52 | Wöchentlichen Review-Slot anzeigen |
@@ -63,6 +64,10 @@ tags: [api, events, cli, hooks, reference]
 | `governance_adjudication` | 35 | Governance-Beobachtung | LLM-Klassifikation eines Incidents |
 | `integrity_gate_result` | 35 | Phase Runner (Closure) | Integrity-Gate PASS/FAIL |
 | `integrity_override` | 35 | CLI (Mensch) | Manueller Override |
+| `story_reset_requested` | 53 | CLI / StoryResetService | Menschlicher Reset-Vorgang angefordert |
+| `story_reset_started` | 53 | StoryResetService | Reset-Fencing und Purge begonnen |
+| `story_reset_completed` | 53 | StoryResetService | Reset vollständig abgeschlossen, Story in sauberem Neustartzustand |
+| `story_reset_failed` | 53 | StoryResetService | Reset unvollständig gescheitert, Story bleibt administrativ blockiert |
 | `preflight_request` | 14 | Hook (PreToolUse Pool-Send) | Preflight-Prompt an LLM-Pool gesendet (Preflight-Sentinel) |
 | `preflight_response` | 14 | Hook (PostToolUse Pool-Send) | Preflight-Antwort vom LLM empfangen |
 | `preflight_compliant` | 14 | Review-Guard (PostToolUse) | Preflight verwendete genehmigtes Template (Preflight-Sentinel) |
@@ -126,3 +131,15 @@ tags: [api, events, cli, hooks, reference]
 | `FAILED` | Phase gescheitert (z.B. Preflight) | 20.3.2 |
 | `ESCALATED` | Dauerhaft gestoppt, neuer Run nötig | 35.4.3 |
 | `PAUSED` | Vorübergehend angehalten, fortsetzbar | 35.4.3 |
+
+## 91.6 Story-Reset-Statuswerte
+
+Diese Werte gehoeren **nicht** zum normalen Phase-State, sondern zum
+administrativen Reset-Vorgang aus FK-53.
+
+| Status | Bedeutung | Kapitel |
+|--------|----------|---------|
+| `STARTED` | Reset-Vorgang angelegt, aber noch nicht abgeschlossen | 53.5 |
+| `RESETTING` | Story ist gefenced und der Purge-Flow läuft | 53.7 |
+| `COMPLETED` | Reset vollständig abgeschlossen | 53.9.3 |
+| `RESET_FAILED` | Reset unvollständig gescheitert; Story bleibt blockiert | 53.9.2 |

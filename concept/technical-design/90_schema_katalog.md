@@ -46,6 +46,7 @@ Detaillierte Felddefinitionen stehen im jeweiligen Owning-Chapter.
 | Story-Search-Result | `story_search_result.schema.json` | 13 | VektorDB-Suchergebnisse |
 | Feedback | `feedback.schema.json` | 25 | Mängelliste für Remediation |
 | Governance-Adjudication | `governance_adjudication.schema.json` | 35 | Incident-Klassifikation |
+| Story-Reset-Record | `story_reset_record.schema.json` | 53 | Auditierbarer Reset-Vorgang mit Actor, Grund und Fortschritt |
 
 ## 90.2 Namenskonvention
 

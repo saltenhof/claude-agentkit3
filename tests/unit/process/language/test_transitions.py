@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.pipeline.workflow.definitions import (
+from agentkit.process.language.definitions import (
     BUGFIX_WORKFLOW,
     CONCEPT_WORKFLOW,
     IMPLEMENTATION_WORKFLOW,
@@ -20,7 +20,7 @@ from agentkit.pipeline.workflow.definitions import (
 )
 
 if TYPE_CHECKING:
-    from agentkit.pipeline.workflow.model import WorkflowDefinition
+    from agentkit.process.language.model import WorkflowDefinition
 
 
 def _get_transition_targets(wf: WorkflowDefinition, source: str) -> set[str]:

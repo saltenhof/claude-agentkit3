@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.pipeline.workflow.guards import (
+from agentkit.process.language.guards import (
     GuardResult,
     exploration_gate_approved,
     guard,

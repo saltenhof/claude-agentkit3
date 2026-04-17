@@ -10,10 +10,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.pipeline.phases.setup.phase import SetupConfig, SetupPhaseHandler
-from agentkit.pipeline.state import load_story_context
 from agentkit.installer import InstallConfig, install_agentkit
 from agentkit.installer.paths import story_dir
+from agentkit.pipeline.phases.setup.phase import SetupConfig, SetupPhaseHandler
+from agentkit.pipeline.state import load_story_context
 from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
@@ -33,9 +33,12 @@ class TestSetupPhaseE2E:
     def test_setup_reads_real_issue(self, tmp_path: Path) -> None:
         """Setup phase reads testbed issue #1 and builds StoryContext."""
         # 1. Install AgentKit
-        install_agentkit(InstallConfig(
-            project_name="test", project_root=tmp_path,
-        ))
+        install_agentkit(
+            InstallConfig(
+                project_name="test",
+                project_root=tmp_path,
+            )
+        )
 
         # 2. Run setup with real issue
         config = SetupConfig(
@@ -71,12 +74,16 @@ class TestSetupPhaseE2E:
         assert loaded.story_id == "TEST-001"
 
     def test_setup_preflight_fails_on_nonexistent_issue(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """Setup fails cleanly when issue doesn't exist."""
-        install_agentkit(InstallConfig(
-            project_name="test", project_root=tmp_path,
-        ))
+        install_agentkit(
+            InstallConfig(
+                project_name="test",
+                project_root=tmp_path,
+            )
+        )
 
         config = SetupConfig(
             owner=OWNER,
