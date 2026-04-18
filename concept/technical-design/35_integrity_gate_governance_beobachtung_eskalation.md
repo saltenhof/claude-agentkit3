@@ -22,6 +22,41 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [integrity-gate, governance-observation, escalation, anomaly-detection, closure]
+formal_refs:
+  - formal.deterministic-checks.invariants
+  - formal.deterministic-checks.scenarios
+  - formal.guard-system.invariants
+  - formal.guard-system.scenarios
+  - formal.integrity-gate.entities
+  - formal.integrity-gate.state-machine
+  - formal.integrity-gate.commands
+  - formal.integrity-gate.events
+  - formal.integrity-gate.invariants
+  - formal.integrity-gate.scenarios
+  - formal.governance-observation.entities
+  - formal.governance-observation.state-machine
+  - formal.governance-observation.commands
+  - formal.governance-observation.events
+  - formal.governance-observation.invariants
+  - formal.governance-observation.scenarios
+  - formal.escalation.entities
+  - formal.escalation.state-machine
+  - formal.escalation.commands
+  - formal.escalation.events
+  - formal.escalation.invariants
+  - formal.escalation.scenarios
+  - formal.exploration.state-machine
+  - formal.exploration.commands
+  - formal.exploration.events
+  - formal.exploration.invariants
+  - formal.exploration.scenarios
+  - formal.story-workflow.state-machine
+  - formal.story-workflow.commands
+  - formal.story-workflow.events
+  - formal.story-workflow.invariants
+  - formal.story-split.state-machine
+  - formal.story-split.invariants
+  - formal.story-split.scenarios
 ---
 
 # 35 — Integrity-Gate, Governance-Beobachtung und Eskalation

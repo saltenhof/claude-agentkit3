@@ -17,6 +17,17 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [branch-guard, orchestrator-guard, artifact-protection, qa-guard, adversarial-guard]
+formal_refs:
+  - formal.guard-system.entities
+  - formal.guard-system.state-machine
+  - formal.guard-system.commands
+  - formal.guard-system.events
+  - formal.guard-system.invariants
+  - formal.guard-system.scenarios
+  - formal.story-closure.state-machine
+  - formal.story-closure.commands
+  - formal.story-closure.invariants
+  - formal.story-closure.scenarios
 ---
 
 # 31 — Branch-Guard, Orchestrator-Guard und Artefaktschutz

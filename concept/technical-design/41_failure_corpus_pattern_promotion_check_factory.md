@@ -19,6 +19,9 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [failure-corpus, pattern-promotion, check-factory, incident, deterministic-guard]
+formal_refs:
+  - formal.deterministic-checks.invariants
+  - formal.deterministic-checks.scenarios
 ---
 
 # 41 — Failure Corpus, Pattern-Promotion und Check-Factory

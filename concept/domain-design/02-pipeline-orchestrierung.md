@@ -11,6 +11,27 @@ defers_to: []
 supersedes: []
 superseded_by:
 tags: [pipeline, story-lifecycle, determinism, phases, story-routing]
+formal_refs:
+  - formal.setup-preflight.state-machine
+  - formal.setup-preflight.invariants
+  - formal.setup-preflight.scenarios
+  - formal.implementation.entities
+  - formal.implementation.commands
+  - formal.implementation.events
+  - formal.implementation.state-machine
+  - formal.implementation.invariants
+  - formal.implementation.scenarios
+  - formal.verify.state-machine
+  - formal.verify.invariants
+  - formal.verify.scenarios
+  - formal.exploration.state-machine
+  - formal.exploration.invariants
+  - formal.exploration.scenarios
+  - formal.story-workflow.state-machine
+  - formal.story-workflow.commands
+  - formal.story-workflow.events
+  - formal.story-workflow.invariants
+  - formal.story-workflow.scenarios
 ---
 
 # 02 — Deterministische Pipeline-Orchestrierung

@@ -16,6 +16,29 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [state-machine, phase-runner, pipeline, feedback-loop, orchestration]
+formal_refs:
+  - formal.setup-preflight.entities
+  - formal.setup-preflight.state-machine
+  - formal.setup-preflight.invariants
+  - formal.setup-preflight.scenarios
+  - formal.implementation.entities
+  - formal.implementation.state-machine
+  - formal.implementation.commands
+  - formal.implementation.events
+  - formal.implementation.invariants
+  - formal.implementation.scenarios
+  - formal.verify.entities
+  - formal.verify.state-machine
+  - formal.verify.commands
+  - formal.verify.events
+  - formal.verify.invariants
+  - formal.verify.scenarios
+  - formal.story-workflow.state-machine
+  - formal.story-workflow.commands
+  - formal.story-workflow.events
+  - formal.story-workflow.invariants
+  - formal.story-workflow.scenarios
+  - formal.story-reset.invariants
 ---
 
 # 20 — Workflow-Engine und State Machine

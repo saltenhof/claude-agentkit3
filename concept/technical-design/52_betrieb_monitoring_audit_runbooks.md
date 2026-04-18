@@ -17,6 +17,15 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [operations, monitoring, audit, runbooks, telemetry]
+formal_refs:
+  - formal.story-closure.commands
+  - formal.story-closure.events
+  - formal.story-closure.invariants
+  - formal.story-closure.scenarios
+  - formal.story-reset.commands
+  - formal.story-reset.events
+  - formal.story-reset.invariants
+  - formal.story-reset.scenarios
 ---
 
 # 52 — Betrieb, Monitoring, Audit und Runbooks

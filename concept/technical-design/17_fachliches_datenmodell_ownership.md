@@ -16,6 +16,12 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [datenmodell, ownership, bounded-context, runtime-state, analytics]
+formal_refs:
+  - formal.story-creation.entities
+  - formal.dependency-rebinding.entities
+  - formal.story-closure.entities
+  - formal.story-split.entities
+  - formal.story-reset.entities
 ---
 
 # 17 — Fachliches Datenmodell und Ownership

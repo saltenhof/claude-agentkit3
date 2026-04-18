@@ -18,6 +18,13 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [llm-evaluation, adversarial-testing, qa-review, semantic-review, verify-phase]
+formal_refs:
+  - formal.llm-evaluations.entities
+  - formal.llm-evaluations.state-machine
+  - formal.llm-evaluations.commands
+  - formal.llm-evaluations.events
+  - formal.llm-evaluations.invariants
+  - formal.llm-evaluations.scenarios
 ---
 
 # 34 — LLM-Bewertungen und Adversarial-Testing-Runtime

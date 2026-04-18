@@ -25,6 +25,13 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [story-reset, recovery, purge, operations, reset]
+formal_refs:
+  - formal.story-reset.entities
+  - formal.story-reset.state-machine
+  - formal.story-reset.commands
+  - formal.story-reset.events
+  - formal.story-reset.invariants
+  - formal.story-reset.scenarios
 ---
 
 # 53 — StoryResetService und Recovery-Flow

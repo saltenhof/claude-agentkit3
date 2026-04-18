@@ -101,6 +101,7 @@ src/agentkit/
   prompt_composer/
   process/
     language/                  # Querschnittliche Prozesssprache fuer Pipeline und Komponenten
+  concept_compiler/            # Compiler/Linter fuer formale Konzept-Spezifikationen
   llm_evaluator/
   conformance_service/
   stage_registry/
@@ -144,6 +145,7 @@ src/agentkit/
 | `worktree_manager/` | Worktree-/Branch-Lifecycle | Wird von Setup/Closure genutzt |
 | `prompt_composer/` | Prompt-Assembling und Kontext-Selektion | Nutzt StoryContext, Resources |
 | `process/` | Querschnittliche Prozesssprache und Ablaufvertraege | Wird von PipelineEngine und anderen Komponenten genutzt |
+| `concept_compiler/` | Parse, Lint, Referenzauflösung und Drift-Audit der Formalspezifikation | Nutzt `concept/formal-spec/` als Quelle und schreibt nur Reports nach `var/` |
 | `llm_evaluator/` | Strukturierte LLM-Bewertungen | Nutzt Integrationen und Schemas |
 | `conformance_service/` | Dokumententreue-/Conformance-Kette | Nutzt LlmEvaluator |
 | `stage_registry/` | Autoritativer Staging-Katalog | Wird von Verify und FailureCorpus genutzt |

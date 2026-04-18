@@ -22,6 +22,13 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [story-creation, vectordb-abgleich, zieltreue, classification, github-project]
+formal_refs:
+  - formal.story-creation.entities
+  - formal.story-creation.state-machine
+  - formal.story-creation.commands
+  - formal.story-creation.events
+  - formal.story-creation.invariants
+  - formal.story-creation.scenarios
 ---
 
 # 21 — Story-Creation-Pipeline

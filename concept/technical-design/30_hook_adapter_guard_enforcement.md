@@ -17,6 +17,13 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [hooks, guard-enforcement, pretooluse, posttooluse, fail-closed, worker-health-monitor]
+formal_refs:
+  - formal.guard-system.entities
+  - formal.guard-system.state-machine
+  - formal.guard-system.commands
+  - formal.guard-system.events
+  - formal.guard-system.invariants
+  - formal.guard-system.scenarios
 ---
 
 # 30 — Hook-Adapter und Guard-Enforcement

@@ -20,6 +20,13 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [conformance, document-fidelity, llm-evaluation, strategy-compliance, drift-detection]
+formal_refs:
+  - formal.conformance.entities
+  - formal.conformance.state-machine
+  - formal.conformance.commands
+  - formal.conformance.events
+  - formal.conformance.invariants
+  - formal.conformance.scenarios
 ---
 
 # 32 — Dokumententreue und Conformance-Service

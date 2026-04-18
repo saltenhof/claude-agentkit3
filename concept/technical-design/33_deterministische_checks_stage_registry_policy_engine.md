@@ -19,6 +19,13 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [deterministic-checks, stage-registry, policy-engine, verify-phase, trust-classes]
+formal_refs:
+  - formal.deterministic-checks.entities
+  - formal.deterministic-checks.state-machine
+  - formal.deterministic-checks.commands
+  - formal.deterministic-checks.events
+  - formal.deterministic-checks.invariants
+  - formal.deterministic-checks.scenarios
 ---
 
 # 33 — Deterministische Checks, Stage-Registry und Policy-Engine

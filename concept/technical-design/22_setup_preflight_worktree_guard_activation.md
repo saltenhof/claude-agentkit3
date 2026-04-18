@@ -20,6 +20,13 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [setup, preflight, worktree, guards, mode-routing]
+formal_refs:
+  - formal.setup-preflight.entities
+  - formal.setup-preflight.state-machine
+  - formal.setup-preflight.commands
+  - formal.setup-preflight.events
+  - formal.setup-preflight.invariants
+  - formal.setup-preflight.scenarios
 ---
 
 # 22 — Setup, Preflight, Worktree und Guard-Aktivierung

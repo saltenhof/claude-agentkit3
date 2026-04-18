@@ -93,6 +93,17 @@ pipeline {
             }
         }
 
+        stage('Formal Spec Compile') {
+            steps {
+                dir('agentkit-src') {
+                    sh '''
+                        . .venv/bin/activate
+                        PYTHONPATH=src python scripts/ci/compile_formal_specs.py
+                    '''
+                }
+            }
+        }
+
         stage('LOC Analysis') {
             steps {
                 dir('agentkit-src') {

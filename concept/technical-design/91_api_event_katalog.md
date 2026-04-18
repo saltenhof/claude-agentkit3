@@ -11,6 +11,39 @@ defers_to: []
 supersedes: []
 superseded_by:
 tags: [api, events, cli, hooks, reference]
+formal_refs:
+  - formal.deterministic-checks.commands
+  - formal.deterministic-checks.events
+  - formal.guard-system.commands
+  - formal.guard-system.events
+  - formal.conformance.commands
+  - formal.conformance.events
+  - formal.llm-evaluations.commands
+  - formal.llm-evaluations.events
+  - formal.integrity-gate.commands
+  - formal.integrity-gate.events
+  - formal.governance-observation.commands
+  - formal.governance-observation.events
+  - formal.escalation.commands
+  - formal.escalation.events
+  - formal.setup-preflight.commands
+  - formal.setup-preflight.events
+  - formal.verify.commands
+  - formal.verify.events
+  - formal.exploration.commands
+  - formal.exploration.events
+  - formal.story-creation.commands
+  - formal.story-creation.events
+  - formal.dependency-rebinding.events
+  - formal.story-closure.commands
+  - formal.story-closure.events
+  - formal.story-workflow.commands
+  - formal.story-workflow.events
+  - formal.story-split.commands
+  - formal.story-split.events
+  - formal.story-reset.state-machine
+  - formal.story-reset.commands
+  - formal.story-reset.events
 ---
 
 # 91 — API- und Event-Katalog
@@ -54,6 +87,11 @@ tags: [api, events, cli, hooks, reference]
 | `review_response` | 14 | Hook (PostToolUse Pool-Send) | Review-Antwort empfangen |
 | `review_compliant` | 14 | Review-Guard (PostToolUse) | Review über freigegebenes Template |
 | `llm_call` | 14 | LLM-Evaluator / Hook | LLM über Pool aufgerufen |
+| `conformance_assessment_started` | 32 | ConformanceService | Dokumententreue-Bewertung begonnen |
+| `conformance_level_evaluated` | 32 | ConformanceService | Dokumententreue-Ebene bewertet |
+| `conformance_assessment_completed` | 32 | ConformanceService | Dokumententreue-Bewertung abgeschlossen |
+| `llm_evaluation_started` | 34 | Verify Layer 2/3 Runner | Layer-2- oder Layer-3-Bewertung gestartet |
+| `llm_evaluation_completed` | 34 | Verify Layer 2/3 Runner | Layer-2- oder Layer-3-Bewertung abgeschlossen |
 | `adversarial_start` | 14 | Hook (PostToolUse Agent) | Adversarial Agent gestartet |
 | `adversarial_sparring` | 14 | Hook (PostToolUse Pool-Send) | Sparring-LLM aufgerufen |
 | `adversarial_test_created` | 14 | Hook (PostToolUse Write) | Neuer Test in Sandbox |
@@ -63,6 +101,14 @@ tags: [api, events, cli, hooks, reference]
 | `web_call` | 14 | Budget-Hook (PostToolUse) | Web-Aufruf |
 | `governance_signal` | 35 | Hooks (normalisiert) | Governance-Anomalie-Signal |
 | `governance_adjudication` | 35 | Governance-Beobachtung | LLM-Klassifikation eines Incidents |
+| `governance_incident_opened` | 35 | Governance-Beobachtung | Incident-Kandidat eröffnet |
+| `governance_measure_applied` | 35 | Governance-Beobachtung | Pause oder Eskalation deterministisch gesetzt |
+| `run_paused` | 35 | Eskalationslogik / CLI | Story-Run auf `PAUSED` gesetzt |
+| `run_escalated` | 35 | Eskalationslogik / CLI | Story-Run auf `ESCALATED` gesetzt |
+| `run_resumed` | 35 | CLI | Pausierter Run desselben `run_id` fortgesetzt |
+| `run_reopened` | 35 | CLI | Eskalierter Fall über neuen `run_id` wieder geöffnet |
+| `run_redirected` | 35 | CLI | Eskalierter oder pausierter Fall in offiziellen Folgeprozess umgeleitet |
+| `integrity_gate_started` | 35 | Phase Runner (Closure) | Integrity-Gate gestartet |
 | `integrity_gate_result` | 35 | Phase Runner (Closure) | Integrity-Gate PASS/FAIL |
 | `integrity_override` | 35 | CLI (Mensch) | Manueller Override |
 | `story_reset_requested` | 53 | CLI / StoryResetService | Menschlicher Reset-Vorgang angefordert |
@@ -73,6 +119,16 @@ tags: [api, events, cli, hooks, reference]
 | `story_split_started` | 54 | StorySplitService | Story gefenced, Split-Plan-Ausführung begonnen |
 | `story_split_completed` | 54 | StorySplitService | Ausgangs-Story beendet, Nachfolger-Stories angelegt |
 | `story_split_failed` | 54 | StorySplitService | Split unvollständig gescheitert, Story bleibt administrativ blockiert |
+| `dependency_rebinding_started` | 54 | StorySplitService / DependencyRebinding | Rebinding der expliziten Story-Abhaengigkeiten begonnen |
+| `dependency_rebinding_completed` | 54 | StorySplitService / DependencyRebinding | Alle expliziten Dependency-Kanten gemaess Split-Plan umgebogen |
+| `dependency_rebinding_rejected` | 54 | StorySplitService / DependencyRebinding | Rebinding wegen unvollständigem Mapping oder Graph-Verletzung abgelehnt |
+| `preflight_passed` | 22 | Setup / Preflight | Alle Preflight-Checks bestanden |
+| `preflight_failed` | 22 | Setup / Preflight | Mindestens ein Preflight-Check gescheitert |
+| `setup_completed` | 22 | Setup / Preflight | Setup abgeschlossen, Mode und Spawn-Vertrag gesetzt |
+| `verify_started` | 27 | Verify | QA-Zyklus gestartet |
+| `verify_passed` | 27 | Verify | Vollständige 4-Schichten-QA erfolgreich abgeschlossen |
+| `verify_failed` | 27 | Verify | QA-Befunde erfordern Remediation |
+| `verify_escalated` | 27 | Verify | Verify wegen harter Verletzung oder Impact-Violation eskaliert |
 | `preflight_request` | 14 | Hook (PreToolUse Pool-Send) | Preflight-Prompt an LLM-Pool gesendet (Preflight-Sentinel) |
 | `preflight_response` | 14 | Hook (PostToolUse Pool-Send) | Preflight-Antwort vom LLM empfangen |
 | `preflight_compliant` | 14 | Review-Guard (PostToolUse) | Preflight verwendete genehmigtes Template (Preflight-Sentinel) |

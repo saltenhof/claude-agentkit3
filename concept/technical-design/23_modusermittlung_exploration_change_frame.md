@@ -26,6 +26,13 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [exploration, change-frame, drift-detection, mode-routing, document-fidelity]
+formal_refs:
+  - formal.exploration.entities
+  - formal.exploration.state-machine
+  - formal.exploration.commands
+  - formal.exploration.events
+  - formal.exploration.invariants
+  - formal.exploration.scenarios
 ---
 
 # 23 — Modusermittlung, Exploration und Change-Frame

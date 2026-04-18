@@ -36,6 +36,7 @@ venv/
 var/
 .tmp/
 .pytest-temp*/
+/tmp*/
 
 # OS
 Thumbs.db

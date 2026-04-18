@@ -11,6 +11,9 @@ defers_to: []
 supersedes: []
 superseded_by:
 tags: [governance, guards, fail-closed, integrity-gate, document-fidelity]
+formal_refs:
+  - formal.exploration.invariants
+  - formal.exploration.scenarios
 ---
 
 # 03 — Fail-Closed Governance

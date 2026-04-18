@@ -19,6 +19,8 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [telemetrie, eventing, metriken, state-backend, review-guard]
+formal_refs:
+  - formal.story-workflow.events
 ---
 
 # 14 — Telemetrie, Eventing und Workflow-Metriken

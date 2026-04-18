@@ -20,6 +20,10 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [are-integration, requirements, completeness, evidence, mcp]
+formal_refs:
+  - formal.deterministic-checks.entities
+  - formal.deterministic-checks.invariants
+  - formal.deterministic-checks.scenarios
 ---
 
 # 40 — ARE-Integration und Anforderungsvollständigkeit

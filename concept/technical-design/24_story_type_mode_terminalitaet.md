@@ -18,6 +18,9 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [story-types, terminality, delivery-contract, exploration-guard, fail-closed]
+formal_refs:
+  - formal.story-workflow.state-machine
+  - formal.story-workflow.scenarios
 ---
 
 # 24 — Story Type, Mode und Terminalitaet

@@ -16,6 +16,12 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [postgres, schema-design, relational, table-families, ownership]
+formal_refs:
+  - formal.story-creation.entities
+  - formal.dependency-rebinding.entities
+  - formal.story-closure.entities
+  - formal.story-split.entities
+  - formal.story-reset.entities
 ---
 
 # 18 — Relationales Abbildungsmodell fuer PostgreSQL
