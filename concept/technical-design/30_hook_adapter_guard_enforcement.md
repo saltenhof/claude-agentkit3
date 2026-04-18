@@ -280,7 +280,9 @@ normalen Story-Runs.
 3. Der Hook-Kontext fuer `agentkit reset-story ...` oder aequivalente
    offizielle Reset-Kommandos gilt als administrativer Kontrollpfad,
    nicht als freier Agent-Eingriff.
-4. Ein Agent darf diesen Pfad nicht selbststaendig waehlen; zulaessig
+4. Dasselbe gilt fuer `agentkit split-story ...` und den offiziellen
+   `StorySplitService`-Pfad.
+5. Ein Agent darf diese Pfade nicht selbststaendig waehlen; zulaessig
    ist nur die ausdrueckliche menschliche CLI-Ausfuehrung.
 
 ### 30.3.3 Hook-Reihenfolge

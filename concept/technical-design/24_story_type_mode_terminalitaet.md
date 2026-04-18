@@ -268,6 +268,21 @@ Wenn `story_type in {implementation, bugfix}` und keine Umsetzungsevidence vorli
 - kein Issue schliessen
 - keinen Project-Status auf `Done` setzen
 
+### 24.8.3 Administrativer Alternativ-Endzustand
+
+Neben dem erfolgreichen Liefer-Endzustand `Done` gibt es fuer
+implementierende Stories einen separaten **administrativen**
+Endzustand `Cancelled`. Dieser darf nicht durch Closure entstehen,
+sondern nur durch einen offiziellen administrativen Pfad wie den
+Story-Split bei `Scope-Explosion` (FK-54).
+
+`Cancelled` bedeutet:
+
+- keine erfolgreiche Lieferung
+- kein Merge
+- keine Closure-Semantik
+- Story-Vertrag beendet, Scope lebt in Nachfolger-Stories weiter
+
 ---
 
 ## 24.9 Sichtbares Exploration-Ergebnis

@@ -62,13 +62,16 @@ stateDiagram-v2
     Backlog --> Freigegeben : Mensch gibt frei
     Freigegeben --> InProgress : Pipeline startet
     InProgress --> Done : Closure PASS
+    InProgress --> Cancelled : offizieller Story-Split
     InProgress --> Backlog : Ablehnung / Rework
     Done --> [*]
+    Cancelled --> [*]
 ```
 
 **Technische Umsetzung:** Das `Status`-Feld ist ein Single-Select
 Custom Field im GitHub Project V2. Werte: `Backlog`, `Freigegeben`,
-`In Progress`, `Done`. Änderungen erfolgen via GraphQL-Mutation:
+`In Progress`, `Done`, `Cancelled`. Änderungen erfolgen via
+GraphQL-Mutation:
 
 ```graphql
 mutation {
@@ -84,8 +87,9 @@ mutation {
 ### 2.2.2 Interne Pipeline-Zustände
 
 Interne Zustände ändern den GitHub-Status NICHT. Die Story bleibt
-"In Progress". Interne Zustände leben im zentralen State-Backend
-und in der Telemetrie.
+"In Progress", solange kein offizieller administrativer Pfad
+(`StorySplitService`, `StoryResetService`) ausgefuehrt wird. Interne
+Zustände leben im zentralen State-Backend und in der Telemetrie.
 
 ```mermaid
 stateDiagram-v2

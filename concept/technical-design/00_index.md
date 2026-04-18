@@ -89,6 +89,7 @@ Anforderungen.
 | `51_upgrade_migration_customization_preservation.md` | Upgrade-Strategie, Anpassungsschutz, Schema-Migration |
 | `52_betrieb_monitoring_audit_runbooks.md` | Monitoring, Audit-Logs, Runbooks, SLOs |
 | `53_story_reset_service_recovery_flow.md` | Vollstaendiger Story-Reset, Purge-Reihenfolge, Worktree-/Branch-Behandlung, Endzustand |
+| `54_story_split_service_scope_explosion.md` | Scope-Explosion, Story-Split, Cancelled-Pfad, Nachfolger-Stories, Dependency-Rebinding |
 
 ## 7. Referenzanhänge
 

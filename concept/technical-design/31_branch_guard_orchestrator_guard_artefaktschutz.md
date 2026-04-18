@@ -63,6 +63,7 @@ die die Historie beschädigen oder den zugewiesenen Scope verlassen.
 | Offizieller Closure-Push auf Story-Branch | `agentkit run-phase closure ...` → interner `git push origin story/{story_id}` | Vorgeschriebener Closure-Substep vor dem Merge |
 | Offizieller Closure-Merge mit `--no-ff` | `agentkit run-phase closure --story ODIN-042 --no-ff` | Offizieller Pipeline-Fallback, kein Guard-Bypass |
 | Offizieller Story-Reset | `agentkit reset-story --story ODIN-042 --reason "..."` | Administrativer Recovery-Pfad, kein freier Git-Eingriff |
+| Offizieller Story-Split | `agentkit split-story --story ODIN-042 --plan split-plan.json --reason "scope explosion"` | Administrativer Split-Pfad, darf trotz aktivem Story-Lock die noetigen GitHub- und Cleanup-Operationen ausfuehren |
 | `git checkout -- datei` (File-Restore) | `git checkout -- src/main.py` | Datei wiederherstellen, kein Branch-Wechsel |
 
 **Normative Klarstellung:** Der Branch-Guard unterscheidet zwischen
@@ -383,7 +384,8 @@ def check(command: str) -> bool:
 
 Pipeline-Skripte (Zone 2) dürfen `gh issue create` direkt
 aufrufen — z.B. für automatisch erzeugte Failure-Corpus-Check-
-Implementierungs-Stories (Kap. 41). Die Erkennung erfolgt über
+Implementierungs-Stories (Kap. 41) oder für Nachfolger-Stories im
+offiziellen Story-Split-Pfad (Kap. 54). Die Erkennung erfolgt über
 den Hook-Kontext: Pipeline-Skripte laufen nicht als Claude-Code-
 Agent, sondern als direkte Python-Prozesse.
 

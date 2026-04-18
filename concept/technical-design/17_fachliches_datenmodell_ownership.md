@@ -858,6 +858,28 @@ verbliebenes Artefakt, Event oder Guard-Ergebnis die erneute Aufnahme
 der Story verhindern. Ein neuer Run muss gegen einen sauberen
 Runtime-Zustand starten.
 
+## 17.7b Story-Split bei Scope-Explosion
+
+Ein Story-Split ist fachlich **kein** Reset der Story, sondern eine
+kontrollierte Beendigung einer falsch geschnittenen Story mit
+Nachfolgerbildung.
+
+Dabei gilt:
+
+- die Ausgangs-`Story` bleibt als fachliche und auditive Einheit
+  erhalten
+- ihr sichtbarer Terminalzustand wechselt auf `Cancelled`
+- die Nachfolger sind neue `Story`-Entitäten mit eigener Identität
+- operative Runtime-Projektionen, Locks, Branch-/Worktree-Bindungen
+  und offene Ausführungszustände der Ausgangs-Story werden entfernt
+- `ExecutionEvent` der Ausgangs-Story bleiben als Audit gültig, dürfen
+  aber keine Nachfolger blockieren
+
+Für den Split-Vorgang existiert ein eigenes administratives Auditobjekt
+`StorySplitRecord`. Story-Beziehungen zwischen Ausgangs-Story und
+Nachfolgern werden als Story-Lineage (`split_from`,
+`split_successors`) modelliert.
+
 ## 17.8 Vorläufige Value Objects
 
 Die folgenden fachlichen Begriffe sind im Regelfall als Value Objects zu

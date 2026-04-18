@@ -42,6 +42,7 @@ stimmt und Probleme erkannt werden?
 | Locks | Keine stale Locks | `agentkit query-state --locks` |
 | Audit-Export | Exportziel erreichbar | `agentkit export-telemetry --dry-run` |
 | Reset-Faehigkeit | Offizieller Reset-Pfad verfuegbar | `agentkit reset-story --help` |
+| Split-Faehigkeit | Offizieller Story-Split-Pfad verfuegbar | `agentkit split-story --help` |
 
 ### 52.2.2 Status-Befehl
 
@@ -203,6 +204,24 @@ Lösung:
    Eskalation bestehen lassen und menschliche Entscheidung treffen
 4. Nur wenn die Umsetzung als korrupt oder unbrauchbar gilt:
    `agentkit reset-story --story {story_id} --reason "..."`
+```
+
+### 52.5.6 Scope-Explosion / Story-Split
+
+```text
+Symptom: Exploration PAUSED mit scope_explosion
+Ursache: Story-Scope war zu klein deklariert, Umsetzung muss neu geschnitten werden
+
+Loesung:
+1. Gegenueberstellung erwartet vs. festgestellt pruefen
+2. Mensch entscheidet ueber Split-Plan und Nachfolger
+3. Offiziellen Split ausloesen:
+   agentkit split-story --story {story_id} --plan split-plan.json --reason "scope explosion"
+4. Ergebnis pruefen:
+   - Ausgangs-Story Status = Cancelled
+   - Issue geschlossen mit not planned
+   - Nachfolger-Stories im Backlog
+   - keine aktiven Locks / Worktrees der Ausgangs-Story
 ```
 
 ### 52.5.6 Vollstaendiger Story-Reset

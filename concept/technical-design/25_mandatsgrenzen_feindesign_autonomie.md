@@ -207,7 +207,10 @@ Indikatoren mit Gewicht "Hoch" lösen Klasse 3 aus.
 
 **Reaktion:** `status: PAUSED`, `escalation_class: "scope_explosion"`.
 Dem Menschen wird die Gegenüberstellung (erwartet vs. festgestellt)
-vorgelegt.
+vorgelegt. Der normative Standardpfad ist anschliessend **nicht**
+freies Weiterschreiben an derselben Story, sondern ein offizieller
+Story-Split ueber `StorySplitService` (FK-54): Ausgangs-Story wird
+kontrolliert beendet, Nachfolger-Stories werden neu angelegt.
 
 ### Klasse 4 — Tragweiten-Überschreitung
 

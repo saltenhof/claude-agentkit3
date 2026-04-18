@@ -603,20 +603,36 @@ Pflichtumfang des Reset:
 diesen Tabellen den neuen Story-Start blockieren oder Guards/Detectoren
 indirekt beeinflussen.
 
-### 18.16.2 Story-Löschung
+### 18.16.2 Story-Split
+
+Ein Story-Split loescht die Ausgangs-Story **nicht**. Die relationale
+Abbildung muss stattdessen unterstuetzen:
+
+- sichtbaren Story-Status `Cancelled`
+- ein eigenes `story_split_records`-Auditmodell
+- Story-Lineage zwischen `source_story_id` und Nachfolgern
+- Rebinding expliziter Dependency-Beziehungen
+- Purge der operativen Runtime-Projektionen, Locks und Worktree-/Branch-
+  Bindungen der Ausgangs-Story
+
+`execution_events` der Ausgangs-Story bleiben beim Split erhalten,
+werden aber fachlich nicht mehr als offene Delivery interpretiert und
+duerfen keine Nachfolger-Starts blockieren.
+
+### 18.16.3 Story-Löschung
 
 Bei fachlicher Story-Löschung dürfen auch die dazugehörigen Runtime- und
 Beobachtungsdaten vollständig entfernt werden. Eine etwaige historische
 Aufbewahrung ist kein Teil des operativen Schemas, sondern ein
 separater Export-/Archivpfad.
 
-### 18.16.3 Projektionen
+### 18.16.4 Projektionen
 
 `phase_state_projection` und `kpi_projections` dürfen jederzeit aus den
 kanonischen Daten neu aufgebaut werden. `phase_state_projection` wird
 beim vollständigen Story-Reset immer mit entfernt.
 
-### 18.16.4 Retention
+### 18.16.5 Retention
 
 Retention betrifft:
 

@@ -27,6 +27,7 @@ venv/
 .vscode/
 *.swp
 *.swo
+.claude/
 
 # Environment
 .env
@@ -39,3 +40,6 @@ var/
 # OS
 Thumbs.db
 .DS_Store
+
+# Local launcher helpers
+start-claude-*.cmd

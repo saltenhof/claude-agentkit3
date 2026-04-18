@@ -519,6 +519,10 @@ Verhalten:
 6. Erst nach menschlicher Intervention kann die Story wieder
    in die Pipeline eingespeist werden
 
+Bei `scope_explosion` ist die Standard-Intervention nicht bloß
+`resume`, sondern die Entscheidung ueber einen offiziellen Story-Split
+gemäß FK-54.
+
 > **[Entscheidung 2026-04-08]** Element 17 — Alle 11 Eskalations-Trigger werden beibehalten. FK-20 §20.6.1 und FK-35 §35.4.2 normativ. Kein Trigger ist redundant.
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 17.
 
@@ -529,6 +533,7 @@ Verhalten:
 | Preflight FAIL | setup | FAILED | `agentkit cleanup` + neuer Run |
 | Dokumententreue Ebene 2 FAIL | exploration | ESCALATED | `agentkit reset-escalation` → neuer Run |
 | Offene Punkte brauchen Freigabe | exploration | PAUSED | `agentkit resume` nach Freigabe |
+| Scope-Explosion (Klasse 3) | exploration | PAUSED | Mensch entscheidet ueber offiziellen Story-Split (`agentkit split-story`) oder anderes weiteres Vorgehen |
 | Max Feedback-Runden erschöpft | verify | ESCALATED | Story anpassen, dann neuer Run |
 | Impact-Violation (Execution Mode) | verify | ESCALATED | Issue-Metadaten korrigieren |
 | Integrity-Gate FAIL | closure | ESCALATED | Audit-Log prüfen, Ursache beheben |
@@ -557,6 +562,9 @@ agentkit resume --story ODIN-042
 
 # Eskalation zurücksetzen (neuer Run möglich)
 agentkit reset-escalation --story ODIN-042
+
+# Scope-Explosion kontrolliert in Nachfolger-Stories überführen
+agentkit split-story --story ODIN-042 --plan split-plan.json --reason "scope explosion"
 
 # Integrity-Gate bewusst overriden (mit Begründung)
 agentkit override-integrity --story ODIN-042 --reason "VNC login expired, gemini pool unavailable"

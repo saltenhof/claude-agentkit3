@@ -38,6 +38,9 @@ Detaillierte Felddefinitionen stehen im jeweiligen Owning-Chapter.
 | Bugfix-Reproducer | `bugfix_reproducer.schema.json` | 24 | Bugfix-Reproducer |
 | Guardrail | `guardrail.schema.json` | 33 | Guardrail-Prüfung |
 | ARE-Evidence | `are_evidence.schema.json` | 40 | ARE-Evidence-Einreichung |
+| Story-Reset-Record | `story_reset_record.schema.json` | 53 | Auditierbarer Reset-Vorgang |
+| Story-Split-Plan | `story_split_plan.schema.json` | 54 | Menschlich freigegebener Plan fuer Nachfolger, Rebinding und Cancel-Pfad |
+| Story-Split-Record | `story_split_record.schema.json` | 54 | Auditierbarer Split-Vorgang |
 | ARE-Gate-Result | `are_gate_result.schema.json` | 40 | ARE-Gate-Prüfergebnis |
 | Concept-Feedback | `concept_feedback.schema.json` | 24 | Konzept-Feedback-Loop-Ergebnis |
 | Incident | `incident.schema.json` | 41 | Failure-Corpus-Incident |

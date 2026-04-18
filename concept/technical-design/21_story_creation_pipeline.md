@@ -39,6 +39,12 @@ die Bearbeitungs-Pipeline (Kap. 20, 22-25). Die Erstellung ist
 ein eigenständiger Ablauf, der unabhängig von der Bearbeitung
 funktioniert.
 
+**Abgrenzung zum Story-Split:** Wenn eine laufende Story wegen
+`Scope-Explosion` neu geschnitten wird, erzeugt `StorySplitService`
+die Nachfolger-Stories zwar ueber denselben fachlichen Vertrag wie
+dieses Kapitel, aber als administrative Systemoperation statt als
+freies Agentenhandeln.
+
 **Technische Umsetzung:** Die Story-Erstellung ist primär
 skill-gesteuert (`create-userstory`), nicht pipeline-gesteuert.
 Der Skill führt den Agent durch die Schritte. Deterministische
@@ -807,7 +813,8 @@ Erstellung mit VektorDB-Abgleich und Zieltreue-Prüfung durchsetzt.
 
 **Ausnahme:** Pipeline-Skripte (Zone 2) dürfen `gh issue create`
 direkt aufrufen — z.B. für automatisch erzeugte Failure-Corpus-
-Check-Implementierungs-Stories (Kap. 41).
+Check-Implementierungs-Stories (Kap. 41) oder für offizielle
+Nachfolger-Stories im Story-Split-Pfad (Kap. 54).
 
 ---
 

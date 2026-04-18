@@ -30,6 +30,7 @@ tags: [api, events, cli, hooks, reference]
 | `agentkit resume --story {story_id}` | 35 | Pausierte Story fortsetzen |
 | `agentkit reset-escalation --story {story_id}` | 35 | Eskalation zurücksetzen |
 | `agentkit reset-story --story {story_id}` | 53 | Vollständige korrupt gewordene Umsetzung administrativ zurücksetzen |
+| `agentkit split-story --story {story_id}` | 54 | Scope-Explosion kontrolliert in Nachfolger-Stories überführen |
 | `agentkit override-integrity --story {story_id}` | 35 | Integrity-Gate bewusst overriden |
 | `agentkit query-telemetry` | 52 | Telemetrie-Events abfragen |
 | `agentkit weekly-review` | 52 | Wöchentlichen Review-Slot anzeigen |
@@ -68,6 +69,10 @@ tags: [api, events, cli, hooks, reference]
 | `story_reset_started` | 53 | StoryResetService | Reset-Fencing und Purge begonnen |
 | `story_reset_completed` | 53 | StoryResetService | Reset vollständig abgeschlossen, Story in sauberem Neustartzustand |
 | `story_reset_failed` | 53 | StoryResetService | Reset unvollständig gescheitert, Story bleibt administrativ blockiert |
+| `story_split_requested` | 54 | CLI / StorySplitService | Menschlicher Story-Split angefordert |
+| `story_split_started` | 54 | StorySplitService | Story gefenced, Split-Plan-Ausführung begonnen |
+| `story_split_completed` | 54 | StorySplitService | Ausgangs-Story beendet, Nachfolger-Stories angelegt |
+| `story_split_failed` | 54 | StorySplitService | Split unvollständig gescheitert, Story bleibt administrativ blockiert |
 | `preflight_request` | 14 | Hook (PreToolUse Pool-Send) | Preflight-Prompt an LLM-Pool gesendet (Preflight-Sentinel) |
 | `preflight_response` | 14 | Hook (PostToolUse Pool-Send) | Preflight-Antwort vom LLM empfangen |
 | `preflight_compliant` | 14 | Review-Guard (PostToolUse) | Preflight verwendete genehmigtes Template (Preflight-Sentinel) |
@@ -143,3 +148,15 @@ administrativen Reset-Vorgang aus FK-53.
 | `RESETTING` | Story ist gefenced und der Purge-Flow läuft | 53.7 |
 | `COMPLETED` | Reset vollständig abgeschlossen | 53.9.3 |
 | `RESET_FAILED` | Reset unvollständig gescheitert; Story bleibt blockiert | 53.9.2 |
+
+## 91.7 Story-Split-Statuswerte
+
+Diese Werte gehoeren **nicht** zum normalen Phase-State, sondern zum
+administrativen Split-Vorgang aus FK-54.
+
+| Status | Bedeutung | Kapitel |
+|--------|----------|---------|
+| `STARTED` | Split-Vorgang angelegt | 54.8.1 |
+| `SPLITTING` | Story ist gefenced, Nachfolger und Rebindings werden aufgebaut | 54.8 |
+| `COMPLETED` | Split vollständig abgeschlossen | 54.5 |
+| `SPLIT_FAILED` | Split unvollständig gescheitert; Story bleibt administrativ blockiert | 54.8 |

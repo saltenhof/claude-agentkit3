@@ -53,6 +53,12 @@ Top-Level-Komponente `StoryResetService`, weil er keinen normalen
 Story-Run fortsetzt, sondern eine menschlich autorisierte
 Recovery-Operation ausserhalb des Pipeline-Kontrollflusses ist.
 
+Dasselbe gilt fuer `StorySplitService`: Auch ein Story-Split ist
+keine normale Phasenfortsetzung, sondern eine administrative
+Operation ausserhalb des Pipeline-Kontrollflusses. Er beendet bei
+Scope-Explosion die ueberdehnte Ausgangs-Story kontrolliert und legt
+deren Nachfolger an.
+
 ### 20.1.2 Einheitliche Prozess-DSL
 
 AK3 verwendet fuer die Ablaufmodellierung **eine einzige hierarchische
@@ -1175,6 +1181,7 @@ Die folgende Tabelle listet alle Auslöser, die die Pipeline stoppen. Spalte „
 | Max Feedback-Runden erschöpft | verify | ESCALATED (`escalation_reason: "max_rounds_exceeded"`) | Pipeline stoppt. Mensch muss entscheiden: Story anpassen, Anforderungen lockern, oder manuell fixen. |
 | Integrity-Gate FAIL | closure | ESCALATED (`escalation_reason: "integrity_fail"`) | Pipeline stoppt. Mensch prüft Audit-Log (`integrity-violations.log`). |
 | Merge-Konflikt | closure | ESCALATED (`escalation_reason: "merge_fail"`) | Pipeline stoppt. Worker muss rebasen oder Mensch löst Konflikt. |
+| Scope-Explosion (Klasse 3) | exploration | PAUSED (`pause_reason` durch H2-Routing) | Mensch prueft Split-Befund. Standardpfad: `agentkit split-story` statt Weiterarbeit im selben Story-Vertrag. |
 | Governance-Beobachtung: kritischer Incident | jede | **PAUSED** (`pause_reason: GOVERNANCE_INCIDENT`) | Pipeline pausiert sofort — kein ESCALATED. Mensch muss intervenieren, dann Resume via `agentkit resume`. Siehe §20.6.2a. |
 | Governance-Beobachtung: harter Verstoß (Secrets, Governance-Manipulation) | jede | ESCALATED (`escalation_reason: "governance_violation"`) | Sofortiger dauerhafter Stopp, kein LLM-Adjudication nötig. |
 

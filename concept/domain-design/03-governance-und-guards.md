@@ -615,7 +615,7 @@ verantwortet.
 |--------|-------------|----------|-----------------|
 | 1 | Fachliche Lücke oder Normativ-Konflikt | (a) Fehlende Fachkonzepte, fehlende Domänendaten — das benötigte Wissen existiert nicht im System. (b) Normative Quellen widersprechen sich untereinander und der Widerspruch ist innerhalb des Konzeptrahmens nicht auflösbar — menschliche Präzedenzentscheidung nötig. | Mensch |
 | 2 | Technische Feindesign-Entscheidung | Unaufgelöste technische Details innerhalb des normativen Rahmens: Schnittstellensemantik, Schema-Ausprägungen, Scope-Zuordnungen zwischen Stories. Das Wissen liegt in Konzepten, Code und Specs vor. | Agent (Multi-LLM-Beratung) |
-| 3 | Scope-Explosion | Der Implementierungsumfang wächst signifikant über den deklarierten Story-Scope hinaus (quantitative Schwellen: Klassen-Count, neue Schnittstellen, Komplexitätsindikatoren). Die Story muss neu geschnitten werden. | Mensch (Story-Split) |
+| 3 | Scope-Explosion | Der Implementierungsumfang wächst signifikant über den deklarierten Story-Scope hinaus (quantitative Schwellen: Klassen-Count, neue Schnittstellen, Komplexitätsindikatoren). Die Story muss neu geschnitten werden. Standardpfad: kontrollierter Story-Split mit `StorySplitService`. | Mensch (Story-Split) |
 | 4 | Breaking Change außerhalb der deklarierten Tragweite | Die notwendige Änderung überschreitet den deklarierten Wirksamkeitsgrad der Story (Komponente → Architektur, Architektur → Applikation). Bestehende Schnittstellen oder Implementierungen müssen angepasst werden, was über den Story-Scope hinausgeht. | Mensch |
 
 **Mandatsgrenze:** Die zentrale Unterscheidung ist, ob eine

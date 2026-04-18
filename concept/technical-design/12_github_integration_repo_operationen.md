@@ -48,7 +48,7 @@ werden nicht verändert oder überschrieben (Idempotenz).
 
 | Feld | Typ | Werte | Setzung | Gelesen von |
 |------|-----|-------|---------|-------------|
-| `Status` | Single Select | Backlog, Approved, In Progress, Done | Mensch (Freigabe), Pipeline (In Progress, Done) | Preflight, Closure |
+| `Status` | Single Select | Backlog, Approved, In Progress, Done, Cancelled | Mensch (Freigabe), Pipeline (In Progress, Done), administrative Services (Cancelled) | Preflight, Closure, Story-Split |
 | `Story ID` | Text | z.B. `ODIN-042` | Story-Erstellung | Alle Pipeline-Schritte |
 | `Story Type` | Single Select | implementation, bugfix, concept, research | Story-Erstellung | Mode-Router, Phase Runner, Structural Checks |
 | `Size` | Single Select | XS, S, M, L, XL, XXL | Story-Erstellung | Worker (Review-Häufigkeit) |
@@ -99,6 +99,10 @@ sequenceDiagram
     PL->>GH: updateProjectV2ItemFieldValue<br/>(Status → "Done", QA Rounds, Completed At)
     Note over PL: Bei Closure
 ```
+
+Administrative Services duerfen zusaetzlich `Status -> "Cancelled"`
+setzen, wenn eine Story ueber den offiziellen Story-Split-Pfad
+kontrolliert beendet wird.
 
 ### 12.2.3 GraphQL-Mutations
 
@@ -212,12 +216,17 @@ gh project item-list {project_number} --owner {owner} --format json \
 ### 12.3.4 Issue schließen (Closure)
 
 ```bash
+# Erfolgreiche Lieferung
 gh issue close {issue_nr} --repo {owner}/{repo} --reason completed
+
+# Kontrollierte Beendigung ohne Lieferung (Story-Split)
+gh issue close {issue_nr} --repo {owner}/{repo} --reason "not planned"
 ```
 
-Wird nur nach erfolgreichem Merge aufgerufen (Closure-Substates,
-Kap. 10). Wenn der Close scheitert, bleibt die Story "In Progress"
-und wird an den Menschen eskaliert.
+`completed` wird nur nach erfolgreichem Merge aufgerufen
+(Closure-Substates, Kap. 10). `not planned` ist fuer den offiziellen
+administrativen Story-Split-Pfad reserviert. Wenn der Close scheitert,
+bleibt die Story "In Progress" und wird an den Menschen eskaliert.
 
 ## 12.4 Branching-Protokoll
 
@@ -454,6 +463,7 @@ Die Closure-Substates tracken Push- und Merge-Status pro Repo.
 | **Closure** | Story-Branch auf Remote pushen | Repository Remote | Schreiben |
 | **Closure** | Issue schließen | Issues | Schreiben |
 | **Closure** | Status → "Done", QA Rounds, Completed At | Project V2 | Schreiben |
+| **Story-Split** | Ausgangs-Story → `Cancelled`, Issue-Close `not planned`, Nachfolger-Issues anlegen | Issues + Project V2 | Schreiben |
 | **Postflight** | Issue geschlossen? Metriken gesetzt? | Issues + Project V2 | Lesen |
 
 ### 12.7.2 Kein Webhook/Polling

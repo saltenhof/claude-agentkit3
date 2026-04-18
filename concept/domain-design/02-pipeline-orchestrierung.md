@@ -36,10 +36,11 @@ Execution-Policies, Overrides). Die Pipeline ist damit nur die oberste
 Ebene einer gemeinsamen hierarchischen Prozesssprache, nicht ein
 Sonderfall mit eigener Logik.
 
-Eine Story durchläuft vier Zustände im GitHub Project Board: Backlog,
-Freigegeben, In Progress und Done. Interne Zustände wie Verify-Fail,
-Eskalation oder Pause ändern den GitHub-Status nicht (die Story bleibt
-"In Progress") und leben nur in der AgentKit-Telemetrie. Wenn der
+Eine Story durchläuft fünf Zustände im GitHub Project Board: Backlog,
+Freigegeben, In Progress, Done und Cancelled. Interne Zustände wie
+Verify-Fail, Eskalation oder Pause ändern den GitHub-Status nicht (die
+Story bleibt "In Progress"), solange kein offizieller administrativer
+Pfad wie Story-Split oder Story-Reset ausgeführt wird. Wenn der
 Orchestrator einen internen Zustand nicht auflösen kann, wird an den
 Menschen eskaliert.
 
@@ -336,7 +337,9 @@ flowchart TD
 `PAUSED` ist kein terminaler Zustand: Nach menschlicher Klärung wird
 derselbe Run fortgesetzt. `ESCALATED` beendet dagegen nur den aktuellen
 Run; die Story bleibt offen und wird nach menschlicher Intervention per
-neuem Run oder bewusstem Override weiterbearbeitet.
+neuem Run oder bewusstem Override weiterbearbeitet. Eine bestaetigte
+Scope-Explosion kann ausserhalb der Pipeline ueber `StorySplitService`
+in den administrativen Endzustand `Cancelled` ueberfuehrt werden.
 
 ### Setup-Phase
 
