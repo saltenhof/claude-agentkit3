@@ -40,8 +40,10 @@ scenarios:
       status: deterministic-checks.status.requested
     trace:
       - command: deterministic-checks.command.materialize-stage-plan
+      - command: deterministic-checks.command.execute-deterministic-stages
+      - command: deterministic-checks.command.evaluate-policy
     expected_end:
-      status: deterministic-checks.status.plan_materialized
+      status: deterministic-checks.status.passed
     requires:
       - deterministic-checks.invariant.are-gate-required-only-when-enabled
   - id: deterministic-checks.scenario.failure-corpus-promotion-enters-via-registry
@@ -49,8 +51,10 @@ scenarios:
       status: deterministic-checks.status.requested
     trace:
       - command: deterministic-checks.command.materialize-stage-plan
+      - command: deterministic-checks.command.execute-deterministic-stages
+      - command: deterministic-checks.command.evaluate-policy
     expected_end:
-      status: deterministic-checks.status.plan_materialized
+      status: deterministic-checks.status.passed
     requires:
       - deterministic-checks.invariant.failure-corpus-promotions-go-through-registry
 ```

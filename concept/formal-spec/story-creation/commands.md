@@ -54,5 +54,12 @@ commands:
       - story-creation.invariant.approval_requires_human_decision
     emits:
       - story-creation.event.story.approved
+  - id: story-creation.command.illegal-export-before-issue
+    signature: export story.md before GitHub issue/backlog creation
+    allowed_statuses: []
+    requires:
+      - story-creation.invariant.story_md_export_after_issue_creation
+    emits:
+      - story-creation.event.creation.rejected
 ```
 <!-- FORMAL-SPEC:END -->

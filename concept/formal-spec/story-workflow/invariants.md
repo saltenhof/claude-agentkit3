@@ -45,6 +45,9 @@ invariants:
   - id: story-workflow.invariant.resume_preserves_run_and_phase
     scope: status-transition
     rule: resume continues the same run_id and the same current_phase that was active at pause time
+  - id: story-workflow.invariant.failed_reentry_returns_to_in_progress
+    scope: status-transition
+    rule: an official remediation re-entry from FAILED returns the workflow status to IN_PROGRESS before implementation continues
   - id: story-workflow.invariant.escalated_requires_new_run
     scope: status-transition
     rule: ESCALATED may not continue through resume; a new run_id is required before workflow execution continues

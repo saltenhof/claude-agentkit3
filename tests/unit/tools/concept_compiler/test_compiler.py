@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from agentkit.concept_compiler.compiler import FormalCompilationError, compile_formal_specs
+from concept_compiler.compiler import FormalCompilationError, compile_formal_specs
 
 FIXTURES = Path("tests/fixtures/concept_compiler")
 

@@ -27,6 +27,11 @@ commands:
     signature: agentkit split-story --story <story_id> --plan <plan_ref> --reason <reason>
     allowed_statuses:
       - story-split.status.requested
+      - story-split.status.fenced
+      - story-split.status.quiesced
+      - story-split.status.successors_created
+      - story-split.status.dependencies_rebound
+      - story-split.status.source_cancelled
     requires:
       - story-split.invariant.split_requires_official_preconditions
     emits:

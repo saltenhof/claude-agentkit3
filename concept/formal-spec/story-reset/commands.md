@@ -26,6 +26,11 @@ commands:
     signature: agentkit reset-story --story <story_id> --reason <reason>
     allowed_statuses:
       - story-reset.status.requested
+      - story-reset.status.fenced
+      - story-reset.status.quiesced
+      - story-reset.status.runtime_purged
+      - story-reset.status.read_models_purged
+      - story-reset.status.workspace_cleared
     requires:
       - story-reset.invariant.reset_requires_official_authorization
     emits:

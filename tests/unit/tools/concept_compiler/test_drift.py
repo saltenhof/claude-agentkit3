@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from agentkit.concept_compiler.compiler import compile_formal_specs
-from agentkit.concept_compiler.drift import FormalDriftError, audit_formal_prose_links
+from concept_compiler.compiler import compile_formal_specs
+from concept_compiler.drift import FormalDriftError, audit_formal_prose_links
 
 FIXTURES = Path("tests/fixtures/concept_compiler")
 

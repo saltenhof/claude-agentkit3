@@ -44,25 +44,5 @@ scenarios:
     requires:
       - exploration.invariant.class2_routes_to_feindesign_only
       - exploration.invariant.feindesign_returns_to_review
-  - id: exploration.scenario.scope-explosion-pauses
-    start:
-      status: exploration.status.draft_in_progress
-    trace:
-      - command: exploration.command.run-phase
-      - command: exploration.command.resume
-    expected_end:
-      status: exploration.status.paused_for_human
-    requires:
-      - exploration.invariant.class134_pause_same_phase
-      - exploration.invariant.paused_resume_same_run_same_phase
-  - id: exploration.scenario.remediation-loop
-    start:
-      status: exploration.status.draft_in_progress
-    trace:
-      - command: exploration.command.run-phase
-    expected_end:
-      status: exploration.status.draft_in_progress
-    requires:
-      - exploration.invariant.remediation_returns_to_editable_draft
 ```
 <!-- FORMAL-SPEC:END -->

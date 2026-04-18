@@ -73,19 +73,6 @@ scenarios:
     expected_end:
       phase: story-workflow.phase.closure
       status: story-workflow.status.completed
-  - id: story-workflow.scenario.scope-explosion-pauses-run
-    start:
-      phase: story-workflow.phase.exploration
-      status: story-workflow.status.in_progress
-    trace:
-      - command: story-workflow.command.run-phase
-        target_phase: story-workflow.phase.exploration
-    expected_end:
-      phase: story-workflow.phase.exploration
-      status: story-workflow.status.paused
-    notes:
-      - current run stops in PAUSED and awaits explicit human split decision
-      - story-split is out of scope for this context and handled by StorySplitService
   - id: story-workflow.scenario.merge-conflict-escalates-run
     start:
       phase: story-workflow.phase.closure
@@ -93,11 +80,11 @@ scenarios:
     trace:
       - command: story-workflow.command.run-phase
         target_phase: story-workflow.phase.closure
-      - command: story-workflow.command.reset-escalation
     expected_end:
-      status: story-workflow.status.in_progress
+      phase: story-workflow.phase.closure
+      status: story-workflow.status.escalated
     notes:
       - closure merge conflict ends the old run in ESCALATED
-      - reset-escalation starts a new run_id for further processing
+      - reset-escalation belongs to the dedicated escalation context
 ```
 <!-- FORMAL-SPEC:END -->

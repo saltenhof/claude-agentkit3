@@ -67,6 +67,7 @@ status_axis:
       initial: true
     - id: story-workflow.status.paused
     - id: story-workflow.status.escalated
+      terminal: true
     - id: story-workflow.status.failed
     - id: story-workflow.status.completed
       terminal: true
@@ -78,9 +79,17 @@ status_axis:
       from: story-workflow.status.paused
       to: story-workflow.status.in_progress
       guard: story-workflow.invariant.resume_preserves_run_and_phase
+    - id: story-workflow.transition.reenter_after_failure
+      from: story-workflow.status.failed
+      to: story-workflow.status.in_progress
+      guard: story-workflow.invariant.failed_reentry_returns_to_in_progress
     - id: story-workflow.transition.escalate
       from: story-workflow.status.in_progress
       to: story-workflow.status.escalated
+    - id: story-workflow.transition.restart_after_escalation
+      from: story-workflow.status.escalated
+      to: story-workflow.status.in_progress
+      guard: story-workflow.invariant.escalated_requires_new_run
     - id: story-workflow.transition.fail
       from: story-workflow.status.in_progress
       to: story-workflow.status.failed

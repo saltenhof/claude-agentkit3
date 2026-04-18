@@ -6,7 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from agentkit.concept_compiler.loader import FormalSpecDocument, discover_formal_spec_files, load_formal_spec
+from concept_compiler.loader import FormalSpecDocument, discover_formal_spec_files, load_formal_spec
+from concept_compiler.scenario_runner import ScenarioValidation, validate_scenarios
 from agentkit.exceptions import AgentKitError
 
 REFERENCE_KEYS = frozenset(
@@ -45,6 +46,7 @@ class CompiledFormalSpec:
     documents: tuple[FormalSpecDocument, ...]
     declared_ids: frozenset[str]
     references: tuple[FormalReference, ...]
+    validated_scenarios: tuple[ScenarioValidation, ...]
 
 
 def compile_formal_specs(root: Path) -> CompiledFormalSpec:
@@ -54,10 +56,12 @@ def compile_formal_specs(root: Path) -> CompiledFormalSpec:
     declared_ids = _collect_declared_ids(documents)
     references = _collect_references(documents)
     _validate_references(declared_ids, references)
+    validated_scenarios = validate_scenarios(documents)
     return CompiledFormalSpec(
         documents=documents,
         declared_ids=frozenset(declared_ids),
         references=references,
+        validated_scenarios=validated_scenarios,
     )
 
 

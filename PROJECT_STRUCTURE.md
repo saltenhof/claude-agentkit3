@@ -101,7 +101,6 @@ src/agentkit/
   prompt_composer/
   process/
     language/                  # Querschnittliche Prozesssprache fuer Pipeline und Komponenten
-  concept_compiler/            # Compiler/Linter fuer formale Konzept-Spezifikationen
   llm_evaluator/
   conformance_service/
   stage_registry/
@@ -145,7 +144,6 @@ src/agentkit/
 | `worktree_manager/` | Worktree-/Branch-Lifecycle | Wird von Setup/Closure genutzt |
 | `prompt_composer/` | Prompt-Assembling und Kontext-Selektion | Nutzt StoryContext, Resources |
 | `process/` | Querschnittliche Prozesssprache und Ablaufvertraege | Wird von PipelineEngine und anderen Komponenten genutzt |
-| `concept_compiler/` | Parse, Lint, Referenzauflösung und Drift-Audit der Formalspezifikation | Nutzt `concept/formal-spec/` als Quelle und schreibt nur Reports nach `var/` |
 | `llm_evaluator/` | Strukturierte LLM-Bewertungen | Nutzt Integrationen und Schemas |
 | `conformance_service/` | Dokumententreue-/Conformance-Kette | Nutzt LlmEvaluator |
 | `stage_registry/` | Autoritativer Staging-Katalog | Wird von Verify und FailureCorpus genutzt |
@@ -188,6 +186,21 @@ ist als **Migrationszustand** akzeptiert, aber nicht der Sollzustand.
 | `project/` | Gehoert fachlich zu Installer, StoryContext und WorktreeManager; kein dauerhafter Top-Level-Namespace |
 | `utils/` | `shared/` nur fuer wirklich fachneutrale Teile; sonst Rueckbau in fachliche Top-Level-Namespaces |
 | `schemas/` | bleibt als Ressourcen-/Vertragsnahes Paket nur wenn es keine Fachlogik enthaelt; ansonsten in `resources/internal/schemas/` oder komponentennah aufteilen |
+
+### tools/ — Architektur- und Build-Tooling
+
+```text
+tools/
+  concept_compiler/            # Compiler/Linter/Scenario-Runner fuer formale Konzept-Spezifikationen
+```
+
+**Regeln:**
+
+1. Tooling unter `tools/` ist **kein** Produktivcode und darf nicht
+   unter `src/agentkit/` liegen.
+2. Der `concept_compiler` liest aus `concept/formal-spec/` und
+   schreibt nur abgeleitete Artefakte nach `var/`.
+3. Tests fuer Tooling liegen unter `tests/`, nicht unter `tools/`.
 
 ### Installer-/Projektbindungskomponente
 
@@ -256,7 +269,7 @@ resources/
 
 ### Regeln
 
-1. **Unit-Tests spiegeln die src/-Struktur.** `src/agentkit/pipeline/` -> `tests/unit/pipeline/`.
+1. **Unit-Tests spiegeln die Code-Heimat.** `src/agentkit/pipeline/` -> `tests/unit/pipeline/`, `tools/concept_compiler/` -> `tests/unit/tools/concept_compiler/`.
    Im Sollzustand spiegeln sie die Komponentenstruktur:
    `src/agentkit/pipeline_engine/` ->
    `tests/unit/pipeline_engine/`.

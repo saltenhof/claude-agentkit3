@@ -58,8 +58,23 @@ transitions:
     from: story-split.status.source_cancelled
     to: story-split.status.completed
     guard: story-split.invariant.runtime_residues_cleared_before_completion
-  - id: story-split.transition.any_to_failed
+  - id: story-split.transition.requested_to_failed
     from: story-split.status.requested
+    to: story-split.status.failed
+  - id: story-split.transition.fenced_to_failed
+    from: story-split.status.fenced
+    to: story-split.status.failed
+  - id: story-split.transition.quiesced_to_failed
+    from: story-split.status.quiesced
+    to: story-split.status.failed
+  - id: story-split.transition.successors_created_to_failed
+    from: story-split.status.successors_created
+    to: story-split.status.failed
+  - id: story-split.transition.dependencies_rebound_to_failed
+    from: story-split.status.dependencies_rebound
+    to: story-split.status.failed
+  - id: story-split.transition.source_cancelled_to_failed
+    from: story-split.status.source_cancelled
     to: story-split.status.failed
 compound_rules:
   - id: story-split.rule.split_does_not_resume_source_run

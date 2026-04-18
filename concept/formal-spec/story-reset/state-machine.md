@@ -57,8 +57,27 @@ transitions:
     from: story-reset.status.workspace_cleared
     to: story-reset.status.completed
     guard: story-reset.invariant.completed_reset_leaves_no_resumable_run
-  - id: story-reset.transition.any_to_reset_failed
+  - id: story-reset.transition.reset_failed_to_requested
+    from: story-reset.status.reset_failed
+    to: story-reset.status.requested
+    guard: story-reset.invariant.reset_failed_needs_same_reset_id
+  - id: story-reset.transition.requested_to_reset_failed
     from: story-reset.status.requested
+    to: story-reset.status.reset_failed
+  - id: story-reset.transition.fenced_to_reset_failed
+    from: story-reset.status.fenced
+    to: story-reset.status.reset_failed
+  - id: story-reset.transition.quiesced_to_reset_failed
+    from: story-reset.status.quiesced
+    to: story-reset.status.reset_failed
+  - id: story-reset.transition.runtime_purged_to_reset_failed
+    from: story-reset.status.runtime_purged
+    to: story-reset.status.reset_failed
+  - id: story-reset.transition.read_models_purged_to_reset_failed
+    from: story-reset.status.read_models_purged
+    to: story-reset.status.reset_failed
+  - id: story-reset.transition.workspace_cleared_to_reset_failed
+    from: story-reset.status.workspace_cleared
     to: story-reset.status.reset_failed
 compound_rules:
   - id: story-reset.rule.reset_failed_is_not_runnable

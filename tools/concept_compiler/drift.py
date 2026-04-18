@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from agentkit.concept_compiler.compiler import CompiledFormalSpec
-from agentkit.concept_compiler.loader import try_load_frontmatter
+from concept_compiler.compiler import CompiledFormalSpec
+from concept_compiler.loader import try_load_frontmatter
 from agentkit.exceptions import AgentKitError
 
 

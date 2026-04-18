@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from agentkit.concept_compiler.loader import (
+from concept_compiler.loader import (
     FORMAL_SPEC_BEGIN,
     FORMAL_SPEC_END,
     FormalSpecError,

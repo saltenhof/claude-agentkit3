@@ -71,5 +71,12 @@ events:
       required:
         - story_id
         - project_status
+  - id: story-creation.event.creation.rejected
+    producer: story-creation
+    role: lifecycle
+    payload:
+      required:
+        - draft_id
+        - reason
 ```
 <!-- FORMAL-SPEC:END -->

@@ -37,6 +37,10 @@ Kontrollsprache liegt unter `agentkit/process/language/`. Sie gehoert
 keiner einzelnen Fachkomponente wie `pipeline_engine`, sondern wird von
 mehreren Komponenten konsumiert.
 
+**Sonderfall Architektur-Tooling:** Der Compiler fuer die formale
+Konzeptspezifikation ist kein Produktionscode und liegt deshalb nicht
+unter `src/agentkit/`, sondern unter `tools/concept_compiler/`.
+
 **Zielstruktur:**
 
 ```text
