@@ -45,6 +45,31 @@ Die Codebase ist in drei Ebenen entkoppelt:
 - Keine losen Python-Dateien im Root
 - Keine neuen Top-Level-Verzeichnisse ohne expliziten User-Consent
 
+### `concept/` - interne Struktur
+
+Unter `concept/` existieren drei autoritative Bereiche mit
+unterschiedlicher Aufgabe:
+
+```text
+concept/
+  domain-design/              # Fachliche Prosa-Konzepte
+  technical-design/           # Technische Feinkonzepte
+  formal-spec/                # Deterministisch pruefbare Formalspezifikation
+```
+
+**Regeln:**
+
+1. `domain-design/` und `technical-design/` bleiben menschenlesbare
+   Prosa-Konzepte.
+2. `formal-spec/` enthaelt nur die normative, maschinenpruefbare
+   Spezifikationsschicht.
+3. `formal-spec/` bleibt ebenfalls **Markdown-only**, aber in
+   strukturiertem, linterbarem Format gemaess
+   `concept/formal-spec/00_meta/meta-contract.md`.
+4. Generierte, abgeleitete oder kompilierte Artefakte aus der
+   Formalspezifikation gehoeren **nie** nach `concept/`, sondern nach
+   `var/`.
+
 ---
 
 ## src/agentkit/ — Package-Module
