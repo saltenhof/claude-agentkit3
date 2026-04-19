@@ -29,7 +29,7 @@ scenarios:
       status: prompt-runtime.status.instance_materialized
     requires:
       - prompt-runtime.invariant.active_run_uses_one_pinned_bundle
-      - prompt-runtime.invariant.project_prompt_binding_is_symlink_only
+      - prompt-runtime.invariant.project_prompt_binding_is_lock_authoritative
       - prompt-runtime.invariant.every_agent_prompt_consumption_uses_run_scoped_instance
   - id: prompt-runtime.scenario.dynamic_prompt_is_rendered_and_audited
     start:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -12,8 +14,17 @@ from agentkit.config.defaults import (
     DEFAULT_VERIFY_LAYERS,
 )
 from agentkit.exceptions import ProjectError
-from agentkit.installer.file_ops import atomic_write_yaml, create_or_replace_hardlink
-from agentkit.installer.paths import config_dir, project_config_path, static_prompts_dir
+from agentkit.installer.file_ops import (
+    atomic_write_text,
+    atomic_write_yaml,
+    create_or_replace_hardlink,
+)
+from agentkit.installer.paths import (
+    config_dir,
+    project_config_path,
+    prompt_bundle_lock_path,
+    static_prompts_dir,
+)
 
 
 def _resources_target_project_dir() -> Path:
@@ -45,6 +56,7 @@ class InstallConfig:
     repositories: list[dict[str, str]] | None = None
     github_owner: str | None = None
     github_repo: str | None = None
+    prompt_bundle_root: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -93,6 +105,26 @@ def _build_project_yaml(config: InstallConfig) -> dict[str, object]:
     return data
 
 
+def _resolve_prompt_source_dir(config: InstallConfig) -> Path:
+    prompt_source_dir = (
+        config.prompt_bundle_root
+        if config.prompt_bundle_root is not None
+        else _resources_internal_prompt_dir()
+    )
+    if not prompt_source_dir.is_dir():
+        raise ProjectError(
+            f"Prompt bundle root does not exist: {prompt_source_dir}",
+            detail={"prompt_bundle_root": str(prompt_source_dir)},
+        )
+    manifest_path = prompt_source_dir / "manifest.json"
+    if not manifest_path.is_file():
+        raise ProjectError(
+            f"Prompt bundle root is missing manifest.json: {prompt_source_dir}",
+            detail={"prompt_bundle_root": str(prompt_source_dir)},
+        )
+    return prompt_source_dir
+
+
 def _deploy_directory_structure(
     resources_dir: Path,
     target_root: Path,
@@ -112,9 +144,8 @@ def _deploy_directory_structure(
     return created
 
 
-def _deploy_prompt_bindings(target_root: Path) -> list[str]:
+def _deploy_prompt_bindings(target_root: Path, prompt_source_dir: Path) -> list[str]:
     created: list[str] = []
-    prompt_source_dir = _resources_internal_prompt_dir()
     prompt_target_dir = static_prompts_dir(target_root)
 
     for item in sorted(prompt_source_dir.iterdir()):
@@ -125,6 +156,30 @@ def _deploy_prompt_bindings(target_root: Path) -> list[str]:
         created.append(str(target.relative_to(target_root)))
 
     return created
+
+
+def _write_prompt_bundle_lock(target_root: Path, prompt_source_dir: Path) -> str:
+    manifest_path = prompt_source_dir / "manifest.json"
+    manifest_text = manifest_path.read_text(encoding="utf-8")
+    manifest = json.loads(manifest_text)
+    manifest_sha256 = hashlib.sha256(
+        manifest_text.encode("utf-8"),
+    ).hexdigest()
+    lock_data = {
+        "bundle_id": manifest["bundle_id"],
+        "bundle_version": manifest["bundle_version"],
+        "bundle_root": str(prompt_source_dir),
+        "binding_root": "prompts",
+        "manifest_file": "manifest.json",
+        "manifest_sha256": manifest_sha256,
+        "templates": manifest["templates"],
+    }
+    lock_path = prompt_bundle_lock_path(target_root)
+    atomic_write_text(
+        lock_path,
+        json.dumps(lock_data, indent=2, sort_keys=True) + "\n",
+    )
+    return str(lock_path.relative_to(target_root))
 
 
 def install_agentkit(config: InstallConfig) -> InstallResult:
@@ -145,12 +200,15 @@ def install_agentkit(config: InstallConfig) -> InstallResult:
         )
 
     resources_dir = _resources_target_project_dir()
+    prompt_source_dir = _resolve_prompt_source_dir(config)
     created = _deploy_directory_structure(resources_dir, root)
-    created.extend(_deploy_prompt_bindings(root))
+    created.extend(_deploy_prompt_bindings(root, prompt_source_dir))
 
     cfg_dir = config_dir(root)
     if not cfg_dir.exists():
         cfg_dir.mkdir(parents=True, exist_ok=True)
+
+    created.append(_write_prompt_bundle_lock(root, prompt_source_dir))
 
     yaml_path = project_config_path(root)
     yaml_data = _build_project_yaml(config)

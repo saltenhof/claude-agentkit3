@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import json
+from hashlib import sha256
 from typing import TYPE_CHECKING
 
 from agentkit.prompt_composer.resources import (
     MANIFEST_PATH,
+    PROJECT_LOCK_RELPATH,
     load_prompt_template,
     prompt_bundle_id,
     prompt_bundle_version,
+    prompt_manifest_sha256,
     prompt_template_path,
     prompt_template_relpath,
     prompt_template_sha256,
@@ -26,6 +29,7 @@ def test_prompt_manifest_exists() -> None:
 def test_prompt_manifest_exposes_bundle_identity() -> None:
     assert prompt_bundle_id() == "internal-bootstrap-prompts"
     assert prompt_bundle_version() == "1"
+    assert len(prompt_manifest_sha256()) == 64
 
 
 def test_prompt_template_path_points_to_resource_file() -> None:
@@ -51,18 +55,18 @@ def test_load_prompt_template_reads_utf8_content() -> None:
 
 
 def test_project_root_binding_is_preferred(tmp_path: Path) -> None:
-    prompts_dir = tmp_path / "prompts"
-    prompts_dir.mkdir()
+    bundle_dir = tmp_path / "bundle"
+    bundle_dir.mkdir()
     content = (
         "# Project Bound Prompt {story_id}\n"
         "[SENTINEL:worker-implementation-v1:{story_id}]\n"
     )
-    (prompts_dir / "worker-implementation.md").write_text(
+    (bundle_dir / "worker-implementation.md").write_text(
         content,
         encoding="utf-8",
     )
     digest = prompt_template_sha256("worker-implementation")
-    (prompts_dir / "manifest.json").write_text(
+    (bundle_dir / "manifest.json").write_text(
         json.dumps(
             {
                 "bundle_id": "project-bound",
@@ -77,10 +81,89 @@ def test_project_root_binding_is_preferred(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
+    lock_dir = tmp_path / PROJECT_LOCK_RELPATH.parent
+    lock_dir.mkdir(parents=True)
+    (tmp_path / PROJECT_LOCK_RELPATH).write_text(
+        json.dumps(
+            {
+                "bundle_id": "project-bound",
+                "bundle_version": "99",
+                "binding_root": "prompts",
+                "bundle_root": str(bundle_dir),
+                "manifest_file": "manifest.json",
+                "manifest_sha256": sha256(
+                    (bundle_dir / "manifest.json")
+                    .read_text(encoding="utf-8")
+                    .encode("utf-8"),
+                ).hexdigest(),
+                "templates": {
+                    "worker-implementation": {
+                        "relpath": "internal/prompts/worker-implementation.md",
+                        "sha256": digest,
+                    },
+                },
+            },
+        ),
+        encoding="utf-8",
+    )
 
     assert prompt_bundle_id(tmp_path) == "project-bound"
     assert prompt_bundle_version(tmp_path) == "99"
+    assert len(prompt_manifest_sha256(tmp_path)) == 64
     assert prompt_template_path(
         "worker-implementation",
         project_root=tmp_path,
-    ) == (prompts_dir / "worker-implementation.md")
+    ) == (bundle_dir / "worker-implementation.md")
+
+
+def test_project_binding_lock_detects_manifest_drift(tmp_path: Path) -> None:
+    bundle_dir = tmp_path / "bundle"
+    bundle_dir.mkdir()
+    (bundle_dir / "worker-implementation.md").write_text(
+        "# drifted\n[SENTINEL:worker-implementation-v1:{story_id}]\n",
+        encoding="utf-8",
+    )
+    (bundle_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "bundle_id": "project-bound",
+                "bundle_version": "99",
+                "templates": {
+                    "worker-implementation": {
+                        "relpath": "internal/prompts/worker-implementation.md",
+                        "sha256": "deadbeef",
+                    },
+                },
+            },
+        ),
+        encoding="utf-8",
+    )
+    lock_dir = tmp_path / PROJECT_LOCK_RELPATH.parent
+    lock_dir.mkdir(parents=True)
+    (tmp_path / PROJECT_LOCK_RELPATH).write_text(
+        json.dumps(
+            {
+                "bundle_id": "project-bound",
+                "bundle_version": "99",
+                "bundle_root": str(bundle_dir),
+                "manifest_file": "manifest.json",
+                "manifest_sha256": "deadbeef",
+                "templates": {
+                    "worker-implementation": {
+                        "relpath": "internal/prompts/worker-implementation.md",
+                        "sha256": "deadbeef",
+                    },
+                },
+            },
+        ),
+        encoding="utf-8",
+    )
+
+    from agentkit.exceptions import ProjectError
+
+    try:
+        prompt_bundle_id(tmp_path)
+    except ProjectError as exc:
+        assert "digest mismatch" in str(exc).lower()
+    else:  # pragma: no cover
+        raise AssertionError("Expected prompt bundle lock validation to fail")

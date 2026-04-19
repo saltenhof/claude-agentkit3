@@ -20,14 +20,14 @@ kind: command-set
 context: prompt-runtime
 commands:
   - id: prompt-runtime.command.resolve-project-prompt-binding
-    signature: internal resolve project prompt binding for future run selection
+    signature: internal resolve and validate project prompt binding lock for future run selection
     allowed_statuses:
       - prompt-runtime.status.binding_resolved
       - prompt-runtime.status.run_pinned
     emits:
       - prompt-runtime.event.binding.resolved
   - id: prompt-runtime.command.pin-run-prompt-bundle
-    signature: internal pin resolved prompt bundle version and manifest digest onto run
+    signature: internal pin resolved prompt bundle version and manifest digest onto run and persist a run-scoped pin record
     allowed_statuses:
       - prompt-runtime.status.binding_resolved
     requires:

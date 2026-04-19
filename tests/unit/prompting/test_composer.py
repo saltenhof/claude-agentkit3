@@ -85,6 +85,7 @@ class TestComposePrompt:
         assert result.content != ""
         assert result.prompt_bundle_id == "internal-bootstrap-prompts"
         assert result.prompt_bundle_version == "1"
+        assert len(result.prompt_manifest_sha256) == 64
         assert result.template_name == "worker-implementation"
         assert result.template_relpath == "internal/prompts/worker-implementation.md"
         assert len(result.template_sha256) == 64
@@ -258,6 +259,7 @@ class TestWritePrompt:
         assert manifest["invocation_id"] == "invoke-001"
         assert manifest["prompt_bundle_id"] == "internal-bootstrap-prompts"
         assert manifest["prompt_bundle_version"] == "1"
+        assert manifest["prompt_manifest_sha256"] == prompt.prompt_manifest_sha256
         assert manifest["template_name"] == "worker-implementation"
         assert (
             manifest["template_relpath"]
@@ -265,3 +267,11 @@ class TestWritePrompt:
         )
         assert manifest["template_sha256"] == prompt.template_sha256
         assert manifest["rendered_sha256"] == prompt.rendered_sha256
+        pin_path = (
+            tmp_path
+            / ".agentkit"
+            / "manifests"
+            / "prompt-pins"
+            / "run-123.json"
+        )
+        assert pin_path.is_file()

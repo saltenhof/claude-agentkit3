@@ -8,10 +8,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from agentkit.installer.paths import prompt_instance_dir
+from agentkit.prompt_composer.pins import ensure_prompt_run_pin
 from agentkit.prompt_composer.resources import (
     load_prompt_template,
     prompt_bundle_id,
     prompt_bundle_version,
+    prompt_manifest_sha256,
     prompt_template_relpath,
     prompt_template_sha256,
 )
@@ -31,6 +33,7 @@ class ComposedPrompt:
     content: str
     prompt_bundle_id: str
     prompt_bundle_version: str
+    prompt_manifest_sha256: str
     template_name: str
     template_relpath: str
     template_sha256: str
@@ -114,6 +117,7 @@ def compose_prompt(
         content=content,
         prompt_bundle_id=prompt_bundle_id(project_root),
         prompt_bundle_version=prompt_bundle_version(project_root),
+        prompt_manifest_sha256=prompt_manifest_sha256(project_root),
         template_name=template_name,
         template_relpath=prompt_template_relpath(
             template_name,
@@ -152,6 +156,13 @@ def write_prompt_instance(
     """Write the canonical run-scoped prompt artifact set."""
 
     output_dir = prompt_instance_dir(project_root, run_id, invocation_id)
+    ensure_prompt_run_pin(
+        project_root,
+        run_id=run_id,
+        prompt_bundle_id=prompt.prompt_bundle_id,
+        prompt_bundle_version=prompt.prompt_bundle_version,
+        prompt_manifest_sha256=prompt.prompt_manifest_sha256,
+    )
     prompt_path = output_dir / "prompt.md"
     manifest_path = output_dir / "manifest.json"
     atomic_write_text(prompt_path, prompt.content)
@@ -164,6 +175,7 @@ def write_prompt_instance(
                 "story_id": prompt.story_id,
                 "prompt_bundle_id": prompt.prompt_bundle_id,
                 "prompt_bundle_version": prompt.prompt_bundle_version,
+                "prompt_manifest_sha256": prompt.prompt_manifest_sha256,
                 "template_name": prompt.template_name,
                 "template_relpath": prompt.template_relpath,
                 "template_sha256": prompt.template_sha256,

@@ -49,8 +49,10 @@ offiziell installierten Bundle.
 Der tragende Schnitt ist:
 
 1. **kanonische Prompt-Bundles** systemweit und immutable
-2. **projektlokale Prompt-Bindungen** als Symlink-/Junction-Projektion
-   auf genau eine Bundle-Version
+2. **projektlokale Prompt-Bindung** ueber einen expliziten
+   `prompt-bundle.lock.json`-Datensatz
+3. **projektlokale Prompt-Exposition** nur als read-only Projektion auf
+   genau eine Bundle-Version
 3. **Run-gebundene Prompt-Instanzen** fuer die tatsaechliche Nutzung
 
 ## 44.2 Kanonische Quelle
@@ -70,9 +72,14 @@ Es gilt:
 
 Fuer **statische Prompt-Templates** wird projektlokal ein
 Claude-Code-kompatibler Bindungspunkt unter `prompts/` bereitgestellt.
-Dieser Bindungspunkt ist keine Kopie, sondern eine
-Symlink-/Junction-artige Projektion auf genau eine konkrete,
-immutable Bundle-Version.
+Autoritativ ist dabei nicht die Dateiansicht selbst, sondern der
+explizite Lock-Datensatz
+`.agentkit/config/prompt-bundle.lock.json`.
+
+Die Dateien unter `prompts/` sind nur eine read-only Projektion auf die
+gebundene Bundle-Version, derzeit z. B. ueber Hardlinks; spaeter sind
+auch Symlink-/Junction-Varianten zulaessig, solange der Lock-Datensatz
+die bindende Autoritaet bleibt.
 
 Fuer **run-scoped Prompt-Instanzen und gerenderte Ergebnisse** gibt es
 zusaetzlich einen Runtime-Artefaktbereich unter `.agentkit/prompts/`.
@@ -94,6 +101,8 @@ Bei `setup` bzw. Run-Erzeugung werden mindestens festgehalten:
 
 - `resolved_prompt_bundle_version`
 - `resolved_prompt_bundle_manifest_digest`
+- ein eigener Run-Pin unter
+  `.agentkit/manifests/prompt-pins/{run_id}.json`
 
 Ab diesem Moment gilt:
 
@@ -154,7 +163,9 @@ Prompt-Kopie ist als Produktionspfad verboten.
 
 Zulaessig sind nur:
 
-- projektlokale Symlink-/Junction-Bindungen auf konkrete Bundle-Versionen
+- projektlokale read-only Prompt-Projektionen auf konkrete
+  Bundle-Versionen
+- ein expliziter Lock-Datensatz als bindende Autoritaet
 - run-scoped Prompt-Instanzen
 - streng versions- und digestgebundene technische Optimierungen, die
   nicht zur neuen Autoritaetsquelle werden
@@ -221,7 +232,7 @@ Stattdessen gilt:
 Die Antwort auf die Praxisfrage lautet damit:
 
 - **ja**, statische Prompt-Templates werden projektlokal ueber
-  Symlink-/Junction-Bindungen auf zentrale Bundle-Dateien exponiert
+  read-only Bindungen auf zentrale Bundle-Dateien exponiert
 - **ja**, AgentKit legt fuer aktive Runs zusaetzlich run-scoped
   Prompt-Instanzen oder run-scoped Projektionen an
 - **nein**, diese lokalen Pfade sind nie die kanonische Quelle

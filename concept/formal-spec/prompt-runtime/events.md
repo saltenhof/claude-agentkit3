@@ -23,6 +23,7 @@ events:
     producer: prompt_runtime
     payload:
       - project_key
+      - binding_lock_path
       - prompt_bundle_version
       - binding_digest
     role: project binding for future runs resolved
@@ -30,6 +31,7 @@ events:
     producer: prompt_runtime
     payload:
       - run_id
+      - run_pin_path
       - resolved_prompt_bundle_version
       - resolved_prompt_bundle_manifest_digest
     role: active run pinned one immutable prompt bundle

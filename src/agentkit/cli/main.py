@@ -39,6 +39,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     install_parser.add_argument("--project-name", required=True)
     install_parser.add_argument("--project-root", required=True)
+    install_parser.add_argument(
+        "--prompt-bundle-root",
+        required=False,
+        help="Optional prompt bundle root to bind into the project",
+    )
 
     # run-story (minimal -- reads issue, runs pipeline)
     run_parser = subparsers.add_parser(
@@ -105,6 +110,11 @@ def _cmd_install(args: argparse.Namespace) -> int:
     config = InstallConfig(
         project_name=args.project_name,
         project_root=Path(args.project_root),
+        prompt_bundle_root=(
+            Path(args.prompt_bundle_root)
+            if args.prompt_bundle_root is not None
+            else None
+        ),
     )
     result = install_agentkit(config)
     if result.success:

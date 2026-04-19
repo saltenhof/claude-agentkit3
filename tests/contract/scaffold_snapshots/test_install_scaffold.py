@@ -51,6 +51,9 @@ class TestInstallScaffoldContract:
             assert (tmp_path / d).is_dir(), (
                 f"Missing expected directory: {d}"
             )
+        assert (
+            tmp_path / ".agentkit" / "config" / "prompt-bundle.lock.json"
+        ).is_file()
         assert (tmp_path / "prompts" / "manifest.json").is_file()
         assert (tmp_path / "prompts" / "worker-implementation.md").is_file()
 

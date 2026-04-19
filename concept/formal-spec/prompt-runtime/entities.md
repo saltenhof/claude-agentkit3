@@ -31,6 +31,9 @@ entities:
     identity_key: project_key
     attributes:
       - project_key
+      - binding_lock_path
+      - binding_root
+      - bundle_root
       - prompt_bundle_version
       - binding_digest
       - updated_at

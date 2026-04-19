@@ -10,10 +10,16 @@ from agentkit.prompt_composer.composer import (
     write_prompt,
     write_prompt_instance,
 )
+from agentkit.prompt_composer.pins import (
+    PromptRunPin,
+    ensure_prompt_run_pin,
+    load_prompt_run_pin,
+)
 from agentkit.prompt_composer.resources import (
     load_prompt_template,
     prompt_bundle_id,
     prompt_bundle_version,
+    prompt_manifest_sha256,
     prompt_template_path,
     prompt_template_relpath,
     prompt_template_sha256,
@@ -31,11 +37,15 @@ __all__ = [
     "ComposeConfig",
     "ComposedPrompt",
     "MaterializedPromptInstance",
+    "PromptRunPin",
     "compose_prompt",
+    "ensure_prompt_run_pin",
     "extract_sentinel",
     "load_prompt_template",
+    "load_prompt_run_pin",
     "make_sentinel",
     "prompt_bundle_id",
+    "prompt_manifest_sha256",
     "prompt_bundle_version",
     "prompt_template_path",
     "prompt_template_relpath",

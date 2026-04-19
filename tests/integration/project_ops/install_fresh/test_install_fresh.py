@@ -7,6 +7,7 @@ loadable by :func:`agentkit.config.load_project_config`.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -45,6 +46,7 @@ class TestInstallFresh:
         assert (root / "prompts").is_dir()
         assert (root / "prompts" / "manifest.json").is_file()
         assert (root / "prompts" / "worker-implementation.md").is_file()
+        assert (root / ".agentkit" / "config" / "prompt-bundle.lock.json").is_file()
         assert (root / ".agentkit" / "prompts").is_dir()
         assert (root / ".agentkit" / "hooks").is_dir()
         assert (root / "stories").is_dir()
@@ -69,6 +71,24 @@ class TestInstallFresh:
         assert installed.exists()
         assert bundled.exists()
         assert installed.samefile(bundled)
+
+    def test_install_writes_prompt_bundle_lock(self, tmp_path: object) -> None:
+        """Install persists a prompt-bundle lock for resolver preflight."""
+
+        root = _as_path(tmp_path)
+        install_agentkit(InstallConfig(
+            project_name="test-project",
+            project_root=root,
+        ))
+
+        lock_path = root / ".agentkit" / "config" / "prompt-bundle.lock.json"
+        lock = json.loads(lock_path.read_text(encoding="utf-8"))
+        assert lock["bundle_id"] == "internal-bootstrap-prompts"
+        assert lock["bundle_version"] == "1"
+        assert Path(lock["bundle_root"]).is_dir()
+        assert lock["binding_root"] == "prompts"
+        assert lock["manifest_file"] == "manifest.json"
+        assert "manifest_sha256" in lock
 
     def test_install_fails_if_already_installed(self, tmp_path: object) -> None:
         """Double install raises :class:`ProjectError`."""
@@ -157,6 +177,49 @@ class TestInstallFresh:
         project_config = load_project_config(root)
         assert project_config.github_owner == "myorg"
         assert project_config.github_repo == "myrepo"
+
+    def test_install_with_custom_prompt_bundle_root(self, tmp_path: object) -> None:
+        """Install can bind prompts from an explicit external bundle root."""
+
+        root = _as_path(tmp_path)
+        bundle_root = root / "bundle-root"
+        bundle_root.mkdir()
+        (bundle_root / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "bundle_id": "external-prompts",
+                    "bundle_version": "7",
+                    "templates": {
+                        "worker-implementation": {
+                            "relpath": "internal/prompts/worker-implementation.md",
+                            "sha256": (
+                                "c547072c5eb412c5efc3da135fd02bd9"
+                                "e3a0fcd3fef2df856653fbcb21f7ffdd"
+                            ),
+                        },
+                    },
+                },
+            ),
+            encoding="utf-8",
+        )
+        (bundle_root / "worker-implementation.md").write_text(
+            "# External Prompt {story_id}\n"
+            "[SENTINEL:worker-implementation-v1:{story_id}]\n",
+            encoding="utf-8",
+        )
+
+        config = InstallConfig(
+            project_name="test",
+            project_root=root,
+            prompt_bundle_root=bundle_root,
+        )
+        install_agentkit(config)
+
+        lock_path = root / ".agentkit" / "config" / "prompt-bundle.lock.json"
+        lock = json.loads(lock_path.read_text(encoding="utf-8"))
+        assert lock["bundle_id"] == "external-prompts"
+        assert lock["bundle_version"] == "7"
+        assert Path(lock["bundle_root"]) == bundle_root
 
 
 def _as_path(tmp_path: object) -> Path:
