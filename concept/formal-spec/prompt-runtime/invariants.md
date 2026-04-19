@@ -24,7 +24,7 @@ invariants:
     rule: productive prompt templates may exist canonically only in immutable systemwide prompt bundles
   - id: prompt-runtime.invariant.project_prompt_binding_is_lock_authoritative
     scope: binding
-    rule: project-local prompt binding is governed by one explicit binding lock and any filesystem projection under prompts/ is read-only exposure only and never the binding authority itself
+    rule: project-local prompt binding is governed by one explicit binding lock and any filesystem projection under prompts/ is read-only exposure only and never the binding authority itself and productive bundle resolution is derived from the installer-managed central bundle store rather than a free project-local path
   - id: prompt-runtime.invariant.project_local_prompt_copy_is_never_authoritative
     scope: project-runtime
     rule: project-local prompt files or caches may be used only as run-scoped instances and never as authoritative canonical source

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from agentkit.exceptions import ProjectError
+from agentkit.installer.paths import PROMPT_BUNDLE_STORE_ENV, prompt_bundle_store_dir
 from agentkit.prompt_composer.resources import (
     MANIFEST_PATH,
     PROJECT_LOCK_RELPATH,
@@ -23,7 +24,6 @@ from agentkit.prompt_composer.resources import (
 
 if TYPE_CHECKING:
     from pathlib import Path
-
 
 def test_prompt_manifest_exists() -> None:
     assert MANIFEST_PATH.is_file()
@@ -63,13 +63,17 @@ def test_project_root_requires_explicit_prompt_binding_lock(tmp_path: Path) -> N
 
 
 def test_project_root_binding_is_preferred(tmp_path: Path) -> None:
-    bundle_dir = tmp_path / "bundle"
-    bundle_dir.mkdir()
+    bundle_dir = prompt_bundle_store_dir(
+        "project-bound",
+        "99",
+        store_root=tmp_path / "prompt-bundles",
+    )
+    (bundle_dir / "internal" / "prompts").mkdir(parents=True)
     content = (
         "# Project Bound Prompt {story_id}\n"
         "[SENTINEL:worker-implementation-v1:{story_id}]\n"
     )
-    (bundle_dir / "worker-implementation.md").write_text(
+    (bundle_dir / "internal" / "prompts" / "worker-implementation.md").write_text(
         content,
         encoding="utf-8",
     )
@@ -97,7 +101,6 @@ def test_project_root_binding_is_preferred(tmp_path: Path) -> None:
                 "bundle_id": "project-bound",
                 "bundle_version": "99",
                 "binding_root": "prompts",
-                "bundle_root": str(bundle_dir),
                 "manifest_file": "manifest.json",
                 "manifest_sha256": sha256(
                     (bundle_dir / "manifest.json")
@@ -114,20 +117,29 @@ def test_project_root_binding_is_preferred(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setenv(PROMPT_BUNDLE_STORE_ENV, str(tmp_path / "prompt-bundles"))
 
-    assert prompt_bundle_id(tmp_path) == "project-bound"
-    assert prompt_bundle_version(tmp_path) == "99"
-    assert len(prompt_manifest_sha256(tmp_path)) == 64
-    assert prompt_template_path(
-        "worker-implementation",
-        project_root=tmp_path,
-    ) == (bundle_dir / "worker-implementation.md")
+    try:
+        assert prompt_bundle_id(tmp_path) == "project-bound"
+        assert prompt_bundle_version(tmp_path) == "99"
+        assert len(prompt_manifest_sha256(tmp_path)) == 64
+        assert prompt_template_path(
+            "worker-implementation",
+            project_root=tmp_path,
+        ) == (bundle_dir / "internal" / "prompts" / "worker-implementation.md")
+    finally:
+        monkeypatch.undo()
 
 
 def test_project_binding_lock_detects_manifest_drift(tmp_path: Path) -> None:
-    bundle_dir = tmp_path / "bundle"
-    bundle_dir.mkdir()
-    (bundle_dir / "worker-implementation.md").write_text(
+    bundle_dir = prompt_bundle_store_dir(
+        "project-bound",
+        "99",
+        store_root=tmp_path / "prompt-bundles",
+    )
+    (bundle_dir / "internal" / "prompts").mkdir(parents=True)
+    (bundle_dir / "internal" / "prompts" / "worker-implementation.md").write_text(
         "# drifted\n[SENTINEL:worker-implementation-v1:{story_id}]\n",
         encoding="utf-8",
     )
@@ -153,7 +165,6 @@ def test_project_binding_lock_detects_manifest_drift(tmp_path: Path) -> None:
             {
                 "bundle_id": "project-bound",
                 "bundle_version": "99",
-                "bundle_root": str(bundle_dir),
                 "manifest_file": "manifest.json",
                 "manifest_sha256": "deadbeef",
                 "templates": {
@@ -166,10 +177,15 @@ def test_project_binding_lock_detects_manifest_drift(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setenv(PROMPT_BUNDLE_STORE_ENV, str(tmp_path / "prompt-bundles"))
 
     try:
-        prompt_bundle_id(tmp_path)
-    except ProjectError as exc:
-        assert "digest mismatch" in str(exc).lower()
-    else:  # pragma: no cover
-        raise AssertionError("Expected prompt bundle lock validation to fail")
+        try:
+            prompt_bundle_id(tmp_path)
+        except ProjectError as exc:
+            assert "digest mismatch" in str(exc).lower()
+        else:  # pragma: no cover
+            raise AssertionError("Expected prompt bundle lock validation to fail")
+    finally:
+        monkeypatch.undo()

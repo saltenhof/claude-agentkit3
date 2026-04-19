@@ -76,6 +76,12 @@ Autoritativ ist dabei nicht die Dateiansicht selbst, sondern der
 explizite Lock-Datensatz
 `.agentkit/config/prompt-bundle.lock.json`.
 
+Der Lock enthaelt die gebundene Prompt-Identitaet
+(`bundle_id`, `bundle_version`) und den Manifest-Digest, aber **nicht**
+den produktiven Bundle-Quellpfad als frei vertrauenswuerdige
+Projektinformation. Die Runtime leitet den effektiven Bundle-Pfad aus
+dem installerverwalteten, zentralen Prompt-Bundle-Store ab.
+
 Die Dateien unter `prompts/` sind nur eine read-only Projektion auf die
 gebundene Bundle-Version, derzeit z. B. ueber Hardlinks; spaeter sind
 auch Symlink-/Junction-Varianten zulaessig, solange der Lock-Datensatz
@@ -103,6 +109,11 @@ Bei `setup` bzw. Run-Erzeugung werden mindestens festgehalten:
 - `resolved_prompt_bundle_manifest_digest`
 - ein eigener Run-Pin unter
   `.agentkit/manifests/prompt-pins/{run_id}.json`
+
+Die Aufloesung des Bundles fuer diesen Run erfolgt nicht ueber einen
+freien Pfad im Projekt, sondern ueber den installerverwalteten
+zentralen Prompt-Bundle-Store anhand der gebundenen
+`bundle_id`/`bundle_version`.
 
 Ab diesem Moment gilt:
 

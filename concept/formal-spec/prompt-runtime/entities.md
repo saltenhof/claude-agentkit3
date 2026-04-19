@@ -33,7 +33,7 @@ entities:
       - project_key
       - binding_lock_path
       - binding_root
-      - bundle_root
+      - bundle_id
       - prompt_bundle_version
       - binding_digest
       - updated_at

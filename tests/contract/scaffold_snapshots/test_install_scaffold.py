@@ -17,6 +17,7 @@ import pytest
 
 from agentkit.config.loader import load_project_config
 from agentkit.installer import InstallConfig, install_agentkit
+from agentkit.installer.paths import PROMPT_BUNDLE_STORE_ENV
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -30,9 +31,9 @@ class TestInstallScaffoldContract:
         self, tmp_path: Path,
     ) -> None:
         """Installed project has all expected directories."""
-        install_agentkit(InstallConfig(
+        install_agentkit(_make_install_config(
+            tmp_path,
             project_name="contract-test",
-            project_root=tmp_path,
         ))
 
         expected_dirs = [
@@ -59,9 +60,9 @@ class TestInstallScaffoldContract:
 
     def test_install_creates_project_yaml(self, tmp_path: Path) -> None:
         """Installed project has a valid, loadable project.yaml."""
-        install_agentkit(InstallConfig(
+        install_agentkit(_make_install_config(
+            tmp_path,
             project_name="contract-test",
-            project_root=tmp_path,
         ))
         config_file = tmp_path / ".agentkit" / "config" / "project.yaml"
         assert config_file.exists(), "project.yaml not created"
@@ -79,11 +80,13 @@ class TestInstallScaffoldContract:
         dir2 = tmp_path / "b"
         dir2.mkdir()
 
-        install_agentkit(InstallConfig(
-            project_name="stable", project_root=dir1,
+        install_agentkit(_make_install_config(
+            dir1,
+            project_name="stable",
         ))
-        install_agentkit(InstallConfig(
-            project_name="stable", project_root=dir2,
+        install_agentkit(_make_install_config(
+            dir2,
+            project_name="stable",
         ))
 
         # Same directory structure
@@ -120,9 +123,9 @@ class TestInstallScaffoldContract:
         self, tmp_path: Path,
     ) -> None:
         """project.yaml must contain all fields needed by the pipeline."""
-        install_agentkit(InstallConfig(
+        install_agentkit(_make_install_config(
+            tmp_path,
             project_name="contract-test",
-            project_root=tmp_path,
         ))
 
         config = load_project_config(tmp_path)
@@ -136,15 +139,15 @@ class TestInstallScaffoldContract:
         """Installing into an already-installed project raises ProjectError."""
         from agentkit.exceptions import ProjectError
 
-        install_agentkit(InstallConfig(
+        install_agentkit(_make_install_config(
+            tmp_path,
             project_name="first",
-            project_root=tmp_path,
         ))
 
         with pytest.raises(ProjectError, match="already installed"):
-            install_agentkit(InstallConfig(
+            install_agentkit(_make_install_config(
+                tmp_path,
                 project_name="second",
-                project_root=tmp_path,
             ))
 
     def test_scaffold_matches_resource_directories(
@@ -159,9 +162,9 @@ class TestInstallScaffoldContract:
             _resources_target_project_dir,
         )
 
-        install_agentkit(InstallConfig(
+        install_agentkit(_make_install_config(
+            tmp_path,
             project_name="contract-test",
-            project_root=tmp_path,
         ))
 
         resources_dir = _resources_target_project_dir()
@@ -177,3 +180,21 @@ class TestInstallScaffoldContract:
                 assert installed.is_dir(), (
                     f"Resource directory '{rel}' not deployed to install"
                 )
+
+
+def _make_install_config(project_root: Path, **kwargs: object) -> InstallConfig:
+    return InstallConfig(
+        project_root=project_root,
+        **kwargs,
+    )
+
+
+@pytest.fixture(autouse=True)
+def _set_prompt_bundle_store_env(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        PROMPT_BUNDLE_STORE_ENV,
+        str(tmp_path.parent / ".prompt-bundle-store"),
+    )

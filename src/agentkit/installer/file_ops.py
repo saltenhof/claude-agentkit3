@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from typing import TYPE_CHECKING
 
 from agentkit.exceptions import ProjectError
@@ -33,9 +34,29 @@ def create_or_replace_hardlink(source: Path, target: Path) -> None:
             detail={"source": str(source), "target": str(target), "error": str(exc)},
         ) from exc
 
+
+def copy_file(source: Path, target: Path) -> None:
+    """Copy a file, creating parent directories as needed."""
+
+    if not source.is_file():
+        raise ProjectError(
+            f"Copy source does not exist: {source}",
+            detail={"source": str(source), "target": str(target)},
+        )
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        shutil.copy2(source, target)
+    except OSError as exc:
+        raise ProjectError(
+            f"Failed to copy file from {source} to {target}: {exc}",
+            detail={"source": str(source), "target": str(target), "error": str(exc)},
+        ) from exc
+
 __all__ = [
     "atomic_write_text",
     "atomic_write_yaml",
+    "copy_file",
     "create_or_replace_hardlink",
     "ensure_dir",
 ]

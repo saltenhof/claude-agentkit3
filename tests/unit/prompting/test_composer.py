@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from agentkit.exceptions import ProjectError
+from agentkit.installer.paths import PROMPT_BUNDLE_STORE_ENV, prompt_bundle_store_dir
 from agentkit.prompt_composer.composer import (
     ComposeConfig,
     ComposedPrompt,
@@ -47,13 +48,17 @@ def _make_context(
 
 
 def _write_project_prompt_binding(project_root: Path) -> None:
-    bundle_dir = project_root / "bundle"
-    bundle_dir.mkdir(parents=True)
+    bundle_dir = prompt_bundle_store_dir(
+        "project-bound",
+        "99",
+        store_root=project_root / "prompt-bundles",
+    )
+    (bundle_dir / "internal" / "prompts").mkdir(parents=True)
     template_content = (
         "# Project Bound Prompt {story_id}\n"
         "[SENTINEL:worker-implementation-v1:{story_id}]\n"
     )
-    (bundle_dir / "worker-implementation.md").write_text(
+    (bundle_dir / "internal" / "prompts" / "worker-implementation.md").write_text(
         template_content,
         encoding="utf-8",
     )
@@ -80,7 +85,6 @@ def _write_project_prompt_binding(project_root: Path) -> None:
                 "bundle_id": "project-bound",
                 "bundle_version": "99",
                 "binding_root": "prompts",
-                "bundle_root": str(bundle_dir),
                 "manifest_file": "manifest.json",
                 "manifest_sha256": sha256(
                     manifest_text.encode("utf-8"),
@@ -155,17 +159,27 @@ class TestComposePrompt:
         assert result.story_id == "AG3-001"
         assert "SENTINEL" in result.sentinel
 
-    def test_project_bound_prompt_requires_run_pin(self, tmp_path: Path) -> None:
+    def test_project_bound_prompt_requires_run_pin(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         ctx = _make_context(project_root=tmp_path)
         _write_project_prompt_binding(tmp_path)
+        monkeypatch.setenv(PROMPT_BUNDLE_STORE_ENV, str(tmp_path / "prompt-bundles"))
         config = ComposeConfig(story_type=StoryType.IMPLEMENTATION)
 
         with pytest.raises(ProjectError, match="Prompt run pin is missing"):
             compose_prompt(ctx, config, run_id="run-123")
 
-    def test_project_bound_prompt_requires_run_id(self, tmp_path: Path) -> None:
+    def test_project_bound_prompt_requires_run_id(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         ctx = _make_context(project_root=tmp_path)
         _write_project_prompt_binding(tmp_path)
+        monkeypatch.setenv(PROMPT_BUNDLE_STORE_ENV, str(tmp_path / "prompt-bundles"))
         config = ComposeConfig(story_type=StoryType.IMPLEMENTATION)
 
         with pytest.raises(
@@ -177,9 +191,11 @@ class TestComposePrompt:
     def test_project_bound_prompt_uses_initialized_run_pin(
         self,
         tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         ctx = _make_context(project_root=tmp_path)
         _write_project_prompt_binding(tmp_path)
+        monkeypatch.setenv(PROMPT_BUNDLE_STORE_ENV, str(tmp_path / "prompt-bundles"))
         initialize_prompt_run_pin(tmp_path, run_id="run-123")
         config = ComposeConfig(story_type=StoryType.IMPLEMENTATION)
 
@@ -312,11 +328,13 @@ class TestWritePrompt:
     def test_write_prompt_instance_uses_run_scoped_contract_path(
         self,
         tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Run-scoped prompt artifacts use the canonical runtime path."""
 
         ctx = _make_context(project_root=tmp_path)
         _write_project_prompt_binding(tmp_path)
+        monkeypatch.setenv(PROMPT_BUNDLE_STORE_ENV, str(tmp_path / "prompt-bundles"))
         initialize_prompt_run_pin(tmp_path, run_id="run-123")
         config = ComposeConfig(story_type=StoryType.IMPLEMENTATION)
         prompt = compose_prompt(ctx, config, run_id="run-123")
@@ -377,9 +395,11 @@ class TestWritePrompt:
     def test_write_prompt_instance_rejects_prompt_pin_mismatch(
         self,
         tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         ctx = _make_context(project_root=tmp_path)
         _write_project_prompt_binding(tmp_path)
+        monkeypatch.setenv(PROMPT_BUNDLE_STORE_ENV, str(tmp_path / "prompt-bundles"))
         initialize_prompt_run_pin(tmp_path, run_id="run-123")
         config = ComposeConfig(story_type=StoryType.IMPLEMENTATION)
         prompt = compose_prompt(ctx, config, run_id="run-123")

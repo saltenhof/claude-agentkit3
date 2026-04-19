@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from agentkit.exceptions import ProjectError
+from agentkit.installer.paths import prompt_bundle_store_dir
 
 RESOURCE_DIR = (
     Path(__file__).resolve().parent.parent
@@ -82,18 +83,30 @@ def resolve_project_prompt_binding(project_root: Path) -> PromptBundleBinding:
 
     manifest_file = lock.get("manifest_file")
     manifest_sha256 = lock.get("manifest_sha256")
-    bundle_root = lock.get("bundle_root")
     if (
         not isinstance(manifest_file, str)
         or not isinstance(manifest_sha256, str)
-        or not isinstance(bundle_root, str)
     ):
         raise ProjectError(
             "Prompt bundle lock is malformed",
             detail={"path": str(project_root / PROJECT_LOCK_RELPATH)},
         )
 
-    manifest_path = Path(bundle_root) / Path(manifest_file)
+    bundle_id = lock.get("bundle_id")
+    bundle_version = lock.get("bundle_version")
+    if not isinstance(bundle_id, str) or not bundle_id:
+        raise ProjectError(
+            "Prompt bundle lock is missing bundle_id",
+            detail={"path": str(project_root / PROJECT_LOCK_RELPATH)},
+        )
+    if not isinstance(bundle_version, str) or not bundle_version:
+        raise ProjectError(
+            "Prompt bundle lock is missing bundle_version",
+            detail={"path": str(project_root / PROJECT_LOCK_RELPATH)},
+        )
+
+    bundle_root = prompt_bundle_store_dir(bundle_id, bundle_version)
+    manifest_path = bundle_root / Path(manifest_file)
     if not manifest_path.is_file():
         raise ProjectError(
             f"Prompt bundle lock points to missing manifest: {manifest_path}",
@@ -114,22 +127,10 @@ def resolve_project_prompt_binding(project_root: Path) -> PromptBundleBinding:
                 "actual_sha256": actual_sha256,
             },
         )
-    bundle_id = lock.get("bundle_id")
-    bundle_version = lock.get("bundle_version")
-    if not isinstance(bundle_id, str) or not bundle_id:
-        raise ProjectError(
-            "Prompt bundle lock is missing bundle_id",
-            detail={"path": str(project_root / PROJECT_LOCK_RELPATH)},
-        )
-    if not isinstance(bundle_version, str) or not bundle_version:
-        raise ProjectError(
-            "Prompt bundle lock is missing bundle_version",
-            detail={"path": str(project_root / PROJECT_LOCK_RELPATH)},
-        )
     return PromptBundleBinding(
         bundle_id=bundle_id,
         bundle_version=bundle_version,
-        bundle_root=Path(bundle_root),
+        bundle_root=bundle_root,
         manifest_path=manifest_path,
         manifest_sha256=actual_sha256,
     )
@@ -214,7 +215,7 @@ def prompt_template_path(
     relpath = _manifest_entry(name, project_root)["relpath"]
     binding = _resolve_binding(project_root)
     if project_root is not None:
-        path = binding.bundle_root / Path(relpath).name
+        path = binding.bundle_root / Path(relpath)
     else:
         path = RESOURCE_DIR.parent.parent / Path(relpath)
     if not path.is_file():

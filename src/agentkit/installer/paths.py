@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from pathlib import Path
+import os
+from pathlib import Path
 
 AGENTKIT_DIR: str = ".agentkit"
 CONFIG_DIR: str = f"{AGENTKIT_DIR}/config"
@@ -16,6 +14,7 @@ HOOKS_DIR: str = f"{AGENTKIT_DIR}/hooks"
 STORIES_DIR: str = "stories"
 PROJECT_CONFIG_FILE: str = "project.yaml"
 PROMPT_BUNDLE_LOCK_FILE: str = "prompt-bundle.lock.json"
+PROMPT_BUNDLE_STORE_ENV: str = "AGENTKIT_PROMPT_BUNDLE_STORE_ROOT"
 PIPELINE_CONFIG_FILE: str = "story-pipeline.yaml"
 PHASE_RUNS_DIR: str = "phase-runs"
 CONTEXT_FILE: str = "context.json"
@@ -36,6 +35,31 @@ def manifests_dir(project_root: Path) -> Path:
 
 def project_config_path(project_root: Path) -> Path:
     return project_root / CONFIG_DIR / PROJECT_CONFIG_FILE
+
+
+def default_prompt_bundle_store_root() -> Path:
+    override = os.environ.get(PROMPT_BUNDLE_STORE_ENV)
+    if override:
+        return Path(override)
+    if os.name == "nt":
+        program_data = Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData"))
+        return program_data / "AgentKit" / "prompt-bundles"
+    return Path("/var/lib/agentkit/prompt-bundles")
+
+
+def prompt_bundle_store_root(explicit_root: Path | None = None) -> Path:
+    if explicit_root is not None:
+        return explicit_root
+    return default_prompt_bundle_store_root()
+
+
+def prompt_bundle_store_dir(
+    bundle_id: str,
+    bundle_version: str,
+    *,
+    store_root: Path | None = None,
+) -> Path:
+    return prompt_bundle_store_root(store_root) / bundle_id / bundle_version
 
 
 def prompt_bundle_lock_path(project_root: Path) -> Path:
@@ -83,16 +107,20 @@ __all__ = [
     "PHASE_STATE_FILE",
     "PIPELINE_CONFIG_FILE",
     "PROMPT_BUNDLE_LOCK_FILE",
+    "PROMPT_BUNDLE_STORE_ENV",
     "PROJECT_CONFIG_FILE",
     "PROMPTS_DIR",
     "STATIC_PROMPTS_DIR",
     "STORIES_DIR",
     "agentkit_dir",
     "config_dir",
+    "default_prompt_bundle_store_root",
     "manifests_dir",
     "prompt_instance_dir",
     "prompt_pin_dir",
     "prompt_bundle_lock_path",
+    "prompt_bundle_store_dir",
+    "prompt_bundle_store_root",
     "prompt_run_pin_path",
     "project_config_path",
     "runtime_prompts_dir",

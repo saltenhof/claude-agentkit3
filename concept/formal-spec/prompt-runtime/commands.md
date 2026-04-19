@@ -20,7 +20,7 @@ kind: command-set
 context: prompt-runtime
 commands:
   - id: prompt-runtime.command.resolve-project-prompt-binding
-    signature: internal resolve and validate project prompt binding lock for future run selection
+    signature: internal resolve and validate project prompt binding lock and derive canonical bundle location from the installer-managed central bundle store for future run selection
     allowed_statuses:
       - prompt-runtime.status.binding_resolved
       - prompt-runtime.status.run_pinned

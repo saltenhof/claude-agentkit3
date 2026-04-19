@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from agentkit.exceptions import ProjectError
 from agentkit.installer.paths import prompt_run_pin_path
 from agentkit.prompt_composer.resources import (
+    PROJECT_LOCK_RELPATH,
     PromptBundleBinding,
     resolve_project_prompt_binding,
 )
@@ -124,6 +125,36 @@ def resolve_run_prompt_binding(project_root: Path, run_id: str) -> PromptBundleB
             "Prompt run pin is missing",
             detail={"path": str(prompt_run_pin_path(project_root, run_id))},
         )
+
+    lock_path = project_root / PROJECT_LOCK_RELPATH
+    if lock_path.is_file():
+        lock = json.loads(lock_path.read_text(encoding="utf-8"))
+        lock_bundle_id = lock.get("bundle_id")
+        lock_bundle_version = lock.get("bundle_version")
+        if (
+            isinstance(lock_bundle_id, str)
+            and isinstance(lock_bundle_version, str)
+            and (
+                lock_bundle_id != pin.prompt_bundle_id
+                or lock_bundle_version != pin.prompt_bundle_version
+            )
+        ):
+            raise ProjectError(
+                "Prompt run pin mismatch",
+                detail={
+                    "path": str(prompt_run_pin_path(project_root, run_id)),
+                    "run_id": run_id,
+                    "expected": {
+                        "prompt_bundle_id": pin.prompt_bundle_id,
+                        "prompt_bundle_version": pin.prompt_bundle_version,
+                        "prompt_manifest_sha256": pin.prompt_manifest_sha256,
+                    },
+                    "actual": {
+                        "prompt_bundle_id": lock_bundle_id,
+                        "prompt_bundle_version": lock_bundle_version,
+                    },
+                },
+            )
 
     binding = resolve_project_prompt_binding(project_root)
     if (

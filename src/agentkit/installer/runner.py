@@ -17,12 +17,14 @@ from agentkit.exceptions import ProjectError
 from agentkit.installer.file_ops import (
     atomic_write_text,
     atomic_write_yaml,
+    copy_file,
     create_or_replace_hardlink,
 )
 from agentkit.installer.paths import (
     config_dir,
     project_config_path,
     prompt_bundle_lock_path,
+    prompt_bundle_store_dir,
     static_prompts_dir,
 )
 
@@ -125,6 +127,87 @@ def _resolve_prompt_source_dir(config: InstallConfig) -> Path:
     return prompt_source_dir
 
 
+def _load_prompt_bundle_manifest(
+    prompt_source_dir: Path,
+) -> tuple[dict[str, object], str]:
+    manifest_path = prompt_source_dir / "manifest.json"
+    manifest_text = manifest_path.read_text(encoding="utf-8")
+    manifest = json.loads(manifest_text)
+    bundle_id = manifest.get("bundle_id")
+    bundle_version = manifest.get("bundle_version")
+    templates = manifest.get("templates")
+    if not isinstance(bundle_id, str) or not bundle_id:
+        raise ProjectError(
+            "Prompt bundle manifest is missing bundle_id",
+            detail={"path": str(manifest_path)},
+        )
+    if not isinstance(bundle_version, str) or not bundle_version:
+        raise ProjectError(
+            "Prompt bundle manifest is missing bundle_version",
+            detail={"path": str(manifest_path)},
+        )
+    if not isinstance(templates, dict):
+        raise ProjectError(
+            "Prompt bundle manifest is missing templates",
+            detail={"path": str(manifest_path)},
+        )
+    return manifest, manifest_text
+
+
+def _ensure_prompt_bundle_store_entry(
+    prompt_source_dir: Path,
+) -> tuple[Path, dict[str, object], str]:
+    manifest, manifest_text = _load_prompt_bundle_manifest(prompt_source_dir)
+    bundle_id = str(manifest["bundle_id"])
+    bundle_version = str(manifest["bundle_version"])
+    canonical_root = prompt_bundle_store_dir(
+        bundle_id,
+        bundle_version,
+    )
+    canonical_manifest_path = canonical_root / "manifest.json"
+    source_digest = hashlib.sha256(manifest_text.encode("utf-8")).hexdigest()
+
+    if canonical_manifest_path.is_file():
+        existing_text = canonical_manifest_path.read_text(encoding="utf-8")
+        existing_digest = hashlib.sha256(existing_text.encode("utf-8")).hexdigest()
+        if existing_digest != source_digest:
+            raise ProjectError(
+                "Canonical prompt bundle store collision",
+                detail={
+                    "bundle_id": bundle_id,
+                    "bundle_version": bundle_version,
+                    "canonical_root": str(canonical_root),
+                    "expected_manifest_sha256": source_digest,
+                    "actual_manifest_sha256": existing_digest,
+                },
+            )
+        return canonical_root, manifest, manifest_text
+
+    canonical_root.mkdir(parents=True, exist_ok=True)
+    templates = manifest["templates"]
+    if not isinstance(templates, dict):  # pragma: no cover
+        raise ProjectError(
+            "Prompt bundle manifest is missing templates",
+            detail={"path": str(prompt_source_dir / "manifest.json")},
+        )
+    for entry in templates.values():
+        if not isinstance(entry, dict):  # pragma: no cover
+            raise ProjectError(
+                "Prompt bundle manifest template entry is malformed",
+                detail={"path": str(prompt_source_dir / "manifest.json")},
+            )
+        relpath = entry.get("relpath")
+        if not isinstance(relpath, str):  # pragma: no cover
+            raise ProjectError(
+                "Prompt bundle manifest template entry is missing relpath",
+                detail={"path": str(prompt_source_dir / "manifest.json")},
+            )
+        source = prompt_source_dir / Path(relpath).name
+        copy_file(source, canonical_root / Path(relpath))
+    copy_file(prompt_source_dir / "manifest.json", canonical_manifest_path)
+    return canonical_root, manifest, manifest_text
+
+
 def _deploy_directory_structure(
     resources_dir: Path,
     target_root: Path,
@@ -147,28 +230,52 @@ def _deploy_directory_structure(
 def _deploy_prompt_bindings(target_root: Path, prompt_source_dir: Path) -> list[str]:
     created: list[str] = []
     prompt_target_dir = static_prompts_dir(target_root)
+    manifest_path = prompt_source_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    templates = manifest.get("templates")
+    if not isinstance(templates, dict):
+        raise ProjectError(
+            "Prompt bundle manifest is missing templates",
+            detail={"path": str(manifest_path)},
+        )
 
-    for item in sorted(prompt_source_dir.iterdir()):
-        if not item.is_file():
-            continue
-        target = prompt_target_dir / item.name
-        create_or_replace_hardlink(item, target)
+    manifest_target = prompt_target_dir / "manifest.json"
+    create_or_replace_hardlink(manifest_path, manifest_target)
+    created.append(str(manifest_target.relative_to(target_root)))
+
+    for entry in templates.values():
+        if not isinstance(entry, dict):
+            raise ProjectError(
+                "Prompt bundle manifest template entry is malformed",
+                detail={"path": str(manifest_path)},
+            )
+        relpath = entry.get("relpath")
+        if not isinstance(relpath, str):
+            raise ProjectError(
+                "Prompt bundle manifest template entry is missing relpath",
+                detail={"path": str(manifest_path)},
+            )
+        source = prompt_source_dir / Path(relpath)
+        target = prompt_target_dir / Path(relpath).name
+        create_or_replace_hardlink(source, target)
         created.append(str(target.relative_to(target_root)))
 
     return created
 
 
-def _write_prompt_bundle_lock(target_root: Path, prompt_source_dir: Path) -> str:
-    manifest_path = prompt_source_dir / "manifest.json"
-    manifest_text = manifest_path.read_text(encoding="utf-8")
-    manifest = json.loads(manifest_text)
+def _write_prompt_bundle_lock(
+    target_root: Path,
+    *,
+    canonical_bundle_root: Path,
+    manifest: dict[str, object],
+    manifest_text: str,
+) -> str:
     manifest_sha256 = hashlib.sha256(
         manifest_text.encode("utf-8"),
     ).hexdigest()
     lock_data = {
         "bundle_id": manifest["bundle_id"],
         "bundle_version": manifest["bundle_version"],
-        "bundle_root": str(prompt_source_dir),
         "binding_root": "prompts",
         "manifest_file": "manifest.json",
         "manifest_sha256": manifest_sha256,
@@ -201,14 +308,24 @@ def install_agentkit(config: InstallConfig) -> InstallResult:
 
     resources_dir = _resources_target_project_dir()
     prompt_source_dir = _resolve_prompt_source_dir(config)
+    canonical_prompt_bundle_root, manifest, manifest_text = (
+        _ensure_prompt_bundle_store_entry(prompt_source_dir)
+    )
     created = _deploy_directory_structure(resources_dir, root)
-    created.extend(_deploy_prompt_bindings(root, prompt_source_dir))
+    created.extend(_deploy_prompt_bindings(root, canonical_prompt_bundle_root))
 
     cfg_dir = config_dir(root)
     if not cfg_dir.exists():
         cfg_dir.mkdir(parents=True, exist_ok=True)
 
-    created.append(_write_prompt_bundle_lock(root, prompt_source_dir))
+    created.append(
+        _write_prompt_bundle_lock(
+            root,
+            canonical_bundle_root=canonical_prompt_bundle_root,
+            manifest=manifest,
+            manifest_text=manifest_text,
+        ),
+    )
 
     yaml_path = project_config_path(root)
     yaml_data = _build_project_yaml(config)

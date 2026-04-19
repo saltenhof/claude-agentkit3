@@ -15,6 +15,10 @@ import pytest
 from agentkit.config import load_project_config
 from agentkit.exceptions import ProjectError
 from agentkit.installer import InstallConfig, InstallResult, install_agentkit
+from agentkit.installer.paths import (
+    PROMPT_BUNDLE_STORE_ENV,
+    prompt_bundle_store_dir,
+)
 
 
 @pytest.mark.integration
@@ -24,7 +28,7 @@ class TestInstallFresh:
     def test_install_creates_agentkit_dir(self, tmp_path: object) -> None:
         """Install creates ``.agentkit/`` directory."""
         root = _as_path(tmp_path)
-        config = InstallConfig(project_name="test-project", project_root=root)
+        config = _make_install_config(root, project_name="test-project")
         result = install_agentkit(config)
         assert result.success
         assert (root / ".agentkit").is_dir()
@@ -32,7 +36,7 @@ class TestInstallFresh:
     def test_install_creates_project_yaml(self, tmp_path: object) -> None:
         """Install creates a ``project.yaml`` loadable by the config loader."""
         root = _as_path(tmp_path)
-        config = InstallConfig(project_name="test-project", project_root=root)
+        config = _make_install_config(root, project_name="test-project")
         install_agentkit(config)
         # Must be loadable by our config loader
         project_config = load_project_config(root)
@@ -41,7 +45,7 @@ class TestInstallFresh:
     def test_install_creates_directory_structure(self, tmp_path: object) -> None:
         """Install creates prompt/runtime/story directories."""
         root = _as_path(tmp_path)
-        config = InstallConfig(project_name="test-project", project_root=root)
+        config = _make_install_config(root, project_name="test-project")
         install_agentkit(config)
         assert (root / "prompts").is_dir()
         assert (root / "prompts" / "manifest.json").is_file()
@@ -55,15 +59,16 @@ class TestInstallFresh:
         """Install binds project prompt files to bundled prompt resources."""
 
         root = _as_path(tmp_path)
-        config = InstallConfig(project_name="test-project", project_root=root)
+        config = _make_install_config(root, project_name="test-project")
         install_agentkit(config)
 
         installed = root / "prompts" / "worker-implementation.md"
         bundled = (
-            Path(__file__).resolve().parents[4]
-            / "src"
-            / "agentkit"
-            / "resources"
+            prompt_bundle_store_dir(
+                "internal-bootstrap-prompts",
+                "1",
+                store_root=_prompt_bundle_store_root(root),
+            )
             / "internal"
             / "prompts"
             / "worker-implementation.md"
@@ -76,16 +81,12 @@ class TestInstallFresh:
         """Install persists a prompt-bundle lock for resolver preflight."""
 
         root = _as_path(tmp_path)
-        install_agentkit(InstallConfig(
-            project_name="test-project",
-            project_root=root,
-        ))
+        install_agentkit(_make_install_config(root, project_name="test-project"))
 
         lock_path = root / ".agentkit" / "config" / "prompt-bundle.lock.json"
         lock = json.loads(lock_path.read_text(encoding="utf-8"))
         assert lock["bundle_id"] == "internal-bootstrap-prompts"
         assert lock["bundle_version"] == "1"
-        assert Path(lock["bundle_root"]).is_dir()
         assert lock["binding_root"] == "prompts"
         assert lock["manifest_file"] == "manifest.json"
         assert "manifest_sha256" in lock
@@ -93,7 +94,7 @@ class TestInstallFresh:
     def test_install_fails_if_already_installed(self, tmp_path: object) -> None:
         """Double install raises :class:`ProjectError`."""
         root = _as_path(tmp_path)
-        config = InstallConfig(project_name="test", project_root=root)
+        config = _make_install_config(root, project_name="test")
         install_agentkit(config)
         with pytest.raises(ProjectError):
             install_agentkit(config)
@@ -114,9 +115,9 @@ class TestInstallFresh:
         repos = [
             {"name": "backend", "path": "src/backend", "language": "python"},
         ]
-        config = InstallConfig(
+        config = _make_install_config(
+            root,
             project_name="test",
-            project_root=root,
             repositories=repos,
         )
         install_agentkit(config)
@@ -127,7 +128,7 @@ class TestInstallFresh:
     def test_install_result_lists_created_files(self, tmp_path: object) -> None:
         """:class:`InstallResult` ``created_files`` lists all created entries."""
         root = _as_path(tmp_path)
-        config = InstallConfig(project_name="test", project_root=root)
+        config = _make_install_config(root, project_name="test")
         result = install_agentkit(config)
         assert isinstance(result, InstallResult)
         assert len(result.created_files) > 0
@@ -136,7 +137,7 @@ class TestInstallFresh:
     def test_install_default_repositories(self, tmp_path: object) -> None:
         """Install without repositories defaults to a single ``app`` repo at ``.``."""
         root = _as_path(tmp_path)
-        config = InstallConfig(project_name="test", project_root=root)
+        config = _make_install_config(root, project_name="test")
         install_agentkit(config)
         project_config = load_project_config(root)
         assert len(project_config.repositories) == 1
@@ -145,7 +146,7 @@ class TestInstallFresh:
     def test_install_default_story_types(self, tmp_path: object) -> None:
         """Install includes all four default story types."""
         root = _as_path(tmp_path)
-        config = InstallConfig(project_name="test", project_root=root)
+        config = _make_install_config(root, project_name="test")
         install_agentkit(config)
         project_config = load_project_config(root)
         assert "implementation" in project_config.story_types
@@ -156,7 +157,7 @@ class TestInstallFresh:
     def test_install_default_pipeline_config(self, tmp_path: object) -> None:
         """Install sets correct pipeline defaults."""
         root = _as_path(tmp_path)
-        config = InstallConfig(project_name="test", project_root=root)
+        config = _make_install_config(root, project_name="test")
         install_agentkit(config)
         project_config = load_project_config(root)
         assert project_config.pipeline.max_feedback_rounds == 3
@@ -167,9 +168,9 @@ class TestInstallFresh:
     def test_install_with_github_fields(self, tmp_path: object) -> None:
         """Install with GitHub owner/repo persists them in config."""
         root = _as_path(tmp_path)
-        config = InstallConfig(
+        config = _make_install_config(
+            root,
             project_name="test",
-            project_root=root,
             github_owner="myorg",
             github_repo="myrepo",
         )
@@ -182,7 +183,7 @@ class TestInstallFresh:
         """Install can bind prompts from an explicit external bundle root."""
 
         root = _as_path(tmp_path)
-        bundle_root = root / "bundle-root"
+        bundle_root = root / "bundle-source"
         bundle_root.mkdir()
         (bundle_root / "manifest.json").write_text(
             json.dumps(
@@ -208,9 +209,9 @@ class TestInstallFresh:
             encoding="utf-8",
         )
 
-        config = InstallConfig(
+        config = _make_install_config(
+            root,
             project_name="test",
-            project_root=root,
             prompt_bundle_root=bundle_root,
         )
         install_agentkit(config)
@@ -219,7 +220,15 @@ class TestInstallFresh:
         lock = json.loads(lock_path.read_text(encoding="utf-8"))
         assert lock["bundle_id"] == "external-prompts"
         assert lock["bundle_version"] == "7"
-        assert Path(lock["bundle_root"]) == bundle_root
+        canonical_root = prompt_bundle_store_dir(
+            "external-prompts",
+            "7",
+            store_root=_prompt_bundle_store_root(root),
+        )
+        assert (canonical_root / "manifest.json").is_file()
+        assert (root / "prompts" / "worker-implementation.md").samefile(
+            canonical_root / "internal" / "prompts" / "worker-implementation.md",
+        )
 
 
 def _as_path(tmp_path: object) -> Path:
@@ -228,3 +237,25 @@ def _as_path(tmp_path: object) -> Path:
         msg = f"Expected Path, got {type(tmp_path).__name__}"
         raise TypeError(msg)
     return tmp_path
+
+
+def _make_install_config(project_root: Path, **kwargs: object) -> InstallConfig:
+    return InstallConfig(
+        project_root=project_root,
+        **kwargs,
+    )
+
+
+def _prompt_bundle_store_root(project_root: Path) -> Path:
+    return project_root / ".prompt-bundle-store"
+
+
+@pytest.fixture(autouse=True)
+def _set_prompt_bundle_store_env(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        PROMPT_BUNDLE_STORE_ENV,
+        str(_prompt_bundle_store_root(tmp_path)),
+    )
