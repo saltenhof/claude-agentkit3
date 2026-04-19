@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from agentkit.prompt_composer.composer import (
     ComposeConfig,
     ComposedPrompt,
+    MaterializedPromptInstance,
     compose_prompt,
     write_prompt,
+    write_prompt_instance,
 )
 from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
@@ -74,13 +77,18 @@ class TestComposePrompt:
         assert len(result.sentinel) > 0
 
     def test_composed_prompt_has_all_fields(self) -> None:
-        """ComposedPrompt must populate all four fields."""
+        """ComposedPrompt must populate all contract fields."""
         ctx = _make_context()
         config = ComposeConfig(story_type=StoryType.IMPLEMENTATION)
         result = compose_prompt(ctx, config)
         assert isinstance(result, ComposedPrompt)
         assert result.content != ""
+        assert result.prompt_bundle_id == "internal-bootstrap-prompts"
+        assert result.prompt_bundle_version == "1"
         assert result.template_name == "worker-implementation"
+        assert result.template_relpath == "internal/prompts/worker-implementation.md"
+        assert len(result.template_sha256) == 64
+        assert len(result.rendered_sha256) == 64
         assert result.story_id == "AG3-001"
         assert "SENTINEL" in result.sentinel
 
@@ -118,6 +126,13 @@ class TestComposePrompt:
         result = compose_prompt(ctx, config)
         assert result.template_name == "worker-exploration"
         assert "Exploration" in result.content
+
+    def test_compose_config_exposes_execution_route_alias(self) -> None:
+        config = ComposeConfig(
+            story_type=StoryType.IMPLEMENTATION,
+            mode=StoryMode.EXPLORATION,
+        )
+        assert config.execution_route == StoryMode.EXPLORATION
 
     def test_concept_type(self) -> None:
         """Concept type must select the concept template."""
@@ -196,3 +211,57 @@ class TestWritePrompt:
 
         assert path.exists()
         assert path.parent == output_dir
+
+    def test_write_prompt_instance_uses_run_scoped_contract_path(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Run-scoped prompt artifacts use the canonical runtime path."""
+
+        ctx = _make_context(project_root=tmp_path)
+        config = ComposeConfig(story_type=StoryType.IMPLEMENTATION)
+        prompt = compose_prompt(ctx, config)
+
+        materialized = write_prompt_instance(
+            prompt,
+            tmp_path,
+            run_id="run-123",
+            invocation_id="invoke-001",
+        )
+
+        assert isinstance(materialized, MaterializedPromptInstance)
+        assert materialized.prompt_path == (
+            tmp_path
+            / ".agentkit"
+            / "prompts"
+            / "run-123"
+            / "invoke-001"
+            / "prompt.md"
+        )
+        assert materialized.prompt_path.exists()
+        assert (
+            materialized.prompt_path.read_text(encoding="utf-8")
+            == prompt.content
+        )
+        assert materialized.manifest_path == (
+            tmp_path
+            / ".agentkit"
+            / "prompts"
+            / "run-123"
+            / "invoke-001"
+            / "manifest.json"
+        )
+        manifest = json.loads(
+            materialized.manifest_path.read_text(encoding="utf-8"),
+        )
+        assert manifest["run_id"] == "run-123"
+        assert manifest["invocation_id"] == "invoke-001"
+        assert manifest["prompt_bundle_id"] == "internal-bootstrap-prompts"
+        assert manifest["prompt_bundle_version"] == "1"
+        assert manifest["template_name"] == "worker-implementation"
+        assert (
+            manifest["template_relpath"]
+            == "internal/prompts/worker-implementation.md"
+        )
+        assert manifest["template_sha256"] == prompt.template_sha256
+        assert manifest["rendered_sha256"] == prompt.rendered_sha256

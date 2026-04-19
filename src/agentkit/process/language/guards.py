@@ -208,23 +208,26 @@ def verify_needs_remediation(
 
 @guard(
     "mode_is_exploration",
-    description="Checks that the story mode is EXPLORATION.",
-    reads=frozenset({"mode"}),
+    description="Checks that the story execution route is EXPLORATION.",
+    reads=frozenset({"execution_route"}),
 )
 def mode_is_exploration(ctx: StoryContext, state: PhaseState) -> GuardResult:
-    """Check whether the story is running in exploration mode.
+    """Check whether the story is running on the exploration route.
 
     Args:
-        ctx: The story context to inspect for mode.
+        ctx: The story context to inspect for execution route.
         state: The current phase state (unused but required by signature).
 
     Returns:
-        ``GuardResult.PASS()`` if mode is EXPLORATION, ``FAIL`` otherwise.
+        ``GuardResult.PASS()`` if route is EXPLORATION, ``FAIL`` otherwise.
     """
     from agentkit.story_context_manager.types import StoryMode
 
-    if ctx.mode == StoryMode.EXPLORATION:
+    if ctx.execution_route == StoryMode.EXPLORATION:
         return GuardResult.PASS()
     return GuardResult.FAIL(
-        reason=f"Story mode is not EXPLORATION: mode={ctx.mode!r}",
+        reason=(
+            "Story execution route is not EXPLORATION: "
+            f"execution_route={ctx.execution_route!r}"
+        ),
     )

@@ -38,10 +38,11 @@ class TestInstallFresh:
         assert project_config.project_name == "test-project"
 
     def test_install_creates_directory_structure(self, tmp_path: object) -> None:
-        """Install creates ``prompts/``, ``hooks/``, ``stories/`` dirs."""
+        """Install creates prompt/runtime/story directories."""
         root = _as_path(tmp_path)
         config = InstallConfig(project_name="test-project", project_root=root)
         install_agentkit(config)
+        assert (root / "prompts").is_dir()
         assert (root / ".agentkit" / "prompts").is_dir()
         assert (root / ".agentkit" / "hooks").is_dir()
         assert (root / "stories").is_dir()

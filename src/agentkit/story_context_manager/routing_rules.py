@@ -14,7 +14,7 @@ def get_phases_for_story(context: StoryContext) -> list[str]:
     profile = get_profile(context.story_type)
     phases = list(profile.phases)
 
-    if context.mode == StoryMode.EXECUTION and "exploration" in phases:
+    if context.execution_route == StoryMode.EXECUTION and "exploration" in phases:
         phases.remove("exploration")
 
     return phases
@@ -22,7 +22,10 @@ def get_phases_for_story(context: StoryContext) -> list[str]:
 
 def should_run_exploration(context: StoryContext) -> bool:
     profile = get_profile(context.story_type)
-    return context.mode == StoryMode.EXPLORATION and "exploration" in profile.phases
+    return (
+        context.execution_route == StoryMode.EXPLORATION
+        and "exploration" in profile.phases
+    )
 
 
 def should_run_full_qa(context: StoryContext) -> bool:

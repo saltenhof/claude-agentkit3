@@ -233,7 +233,7 @@ class TestModeIsExploration:
 
     def test_has_guard_metadata(self) -> None:
         assert mode_is_exploration.guard_name == "mode_is_exploration"  # type: ignore[attr-defined]
-        assert mode_is_exploration.guard_reads == frozenset({"mode"})  # type: ignore[attr-defined]
+        assert mode_is_exploration.guard_reads == frozenset({"execution_route"})  # type: ignore[attr-defined]
 
 
 class TestGuardSideEffectFreedom:

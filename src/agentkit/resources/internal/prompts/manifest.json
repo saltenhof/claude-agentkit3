@@ -1,0 +1,30 @@
+{
+  "bundle_id": "internal-bootstrap-prompts",
+  "bundle_version": "1",
+  "templates": {
+    "worker-implementation": {
+      "relpath": "internal/prompts/worker-implementation.md",
+      "sha256": "c547072c5eb412c5efc3da135fd02bd9e3a0fcd3fef2df856653fbcb21f7ffdd"
+    },
+    "worker-bugfix": {
+      "relpath": "internal/prompts/worker-bugfix.md",
+      "sha256": "a4f15613a96ec2f4e79b8711ec09d3624f5e8babb92fb9031cf165530345dc22"
+    },
+    "worker-concept": {
+      "relpath": "internal/prompts/worker-concept.md",
+      "sha256": "c386f03de5073436adf10d96eec639edbf946f1d691764d5290db52a61882479"
+    },
+    "worker-research": {
+      "relpath": "internal/prompts/worker-research.md",
+      "sha256": "b26aba8ed83ca7cb1b7358a934de7810eac3fdae4fb4bc7c055a4945ea463ea1"
+    },
+    "worker-exploration": {
+      "relpath": "internal/prompts/worker-exploration.md",
+      "sha256": "91a967e498124d0028096743c053f0224dac8ab1261e884f2e1ac7b5bdfe37c9"
+    },
+    "worker-remediation": {
+      "relpath": "internal/prompts/worker-remediation.md",
+      "sha256": "c35efa3eeb99a7d08695f3d16b75e9a506ed91901a1c0b2a2df8cc06740aca54"
+    }
+  }
+}

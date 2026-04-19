@@ -44,6 +44,7 @@ class TestInstallScaffoldContract:
             ".claude",
             ".claude/context",
             ".claude/skills",
+            "prompts",
             "stories",
         ]
         for d in expected_dirs:

@@ -24,17 +24,20 @@ if TYPE_CHECKING:
 
 @guard(
     "mode_is_not_exploration",
-    description="Checks that the story mode is NOT EXPLORATION.",
-    reads=frozenset({"mode"}),
+    description="Checks that the story execution route is NOT EXPLORATION.",
+    reads=frozenset({"execution_route"}),
 )
 def _mode_is_not_exploration(
     ctx: StoryContext,
     state: PhaseState,
 ) -> GuardResult:
-    if ctx.mode != StoryMode.EXPLORATION:
+    if ctx.execution_route != StoryMode.EXPLORATION:
         return GuardResult.PASS()
     return GuardResult.FAIL(
-        reason=f"Story mode is EXPLORATION: mode={ctx.mode!r}",
+        reason=(
+            "Story execution route is EXPLORATION: "
+            f"execution_route={ctx.execution_route!r}"
+        ),
     )
 
 

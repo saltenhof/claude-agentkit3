@@ -33,7 +33,7 @@ class TestSelectTemplateName:
         """EXPLORATION mode selects worker-exploration."""
         result = select_template_name(
             StoryType.IMPLEMENTATION,
-            mode=StoryMode.EXPLORATION,
+            execution_route=StoryMode.EXPLORATION,
         )
         assert result == "worker-exploration"
 
@@ -49,7 +49,7 @@ class TestSelectTemplateName:
         """Remediation has priority over exploration mode."""
         result = select_template_name(
             StoryType.IMPLEMENTATION,
-            mode=StoryMode.EXPLORATION,
+            execution_route=StoryMode.EXPLORATION,
             spawn_reason="remediation",
         )
         assert result == "worker-remediation"
@@ -58,7 +58,7 @@ class TestSelectTemplateName:
         """EXECUTION mode falls through to type mapping."""
         result = select_template_name(
             StoryType.BUGFIX,
-            mode=StoryMode.EXECUTION,
+            execution_route=StoryMode.EXECUTION,
         )
         assert result == "worker-bugfix"
 
@@ -66,9 +66,17 @@ class TestSelectTemplateName:
         """None mode falls through to the standard type mapping."""
         result = select_template_name(
             StoryType.CONCEPT,
-            mode=None,
+            execution_route=None,
         )
         assert result == "worker-concept"
+
+    def test_legacy_mode_alias_still_works(self) -> None:
+        """The historic mode parameter remains a compatibility alias."""
+        result = select_template_name(
+            StoryType.IMPLEMENTATION,
+            mode=StoryMode.EXPLORATION,
+        )
+        assert result == "worker-exploration"
 
     def test_unknown_spawn_reason_uses_type_mapping(self) -> None:
         """Non-remediation spawn_reason uses the type mapping."""

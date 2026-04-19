@@ -81,6 +81,7 @@ Anforderungen.
 | `41_failure_corpus_pattern_promotion_check_factory.md` | Incident→Pattern→Check, 12 Kategorien, Wirksamkeit |
 | `42_ccag_tool_governance_permission_runtime.md` | Regelmodell, Persistenz, Auswertung, LLM-Generierung |
 | `43_skills_system_task_automation.md` | Skill-Format, Registry, Versionierung, Kontext-Übergabe |
+| `44_prompt_bundles_materialization_audit.md` | Kanonische Prompt-Bundles, Run-Pinning, Materialisierung, Audit und Drift-Schutz |
 
 ## 6. Installation, Upgrade und Betrieb
 

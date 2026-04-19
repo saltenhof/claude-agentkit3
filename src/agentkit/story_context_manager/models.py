@@ -8,7 +8,14 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from agentkit.story_context_manager.types import (
     ImplementationContract,
@@ -31,7 +38,10 @@ class PhaseStatus(StrEnum):
 class StoryContext(BaseModel):
     story_id: str
     story_type: StoryType
-    mode: StoryMode
+    execution_route: StoryMode = Field(
+        validation_alias=AliasChoices("execution_route", "mode"),
+        serialization_alias="mode",
+    )
     implementation_contract: ImplementationContract | None = None
     issue_nr: int | None = None
 
@@ -58,6 +68,18 @@ class StoryContext(BaseModel):
         if not isinstance(data, dict):
             return data
 
+        execution_route_raw = data.get("execution_route")
+        mode_raw = data.get("mode")
+        if (
+            execution_route_raw is not None
+            and mode_raw is not None
+            and execution_route_raw != mode_raw
+        ):
+            raise ValueError(
+                "execution_route and mode must not disagree: "
+                f"execution_route={execution_route_raw!r}, mode={mode_raw!r}",
+            )
+
         story_type_raw = data.get("story_type")
         if story_type_raw is None:
             return data
@@ -80,9 +102,11 @@ class StoryContext(BaseModel):
     def _validate_contract_shape(self) -> StoryContext:
         profile = get_profile(self.story_type)
 
-        if self.mode not in profile.allowed_modes:
+        if self.execution_route not in profile.allowed_modes:
             raise ValueError(
-                f"mode {self.mode!r} is not allowed for story_type {self.story_type!r}",
+                "execution_route "
+                f"{self.execution_route!r} is not allowed for story_type "
+                f"{self.story_type!r}",
             )
 
         if (
@@ -103,12 +127,16 @@ class StoryContext(BaseModel):
         return self
 
     @property
-    def execution_route(self) -> StoryMode:
-        """Semantic alias for the historic ``mode`` wire field."""
+    def mode(self) -> StoryMode:
+        """Compatibility alias for legacy runtime call sites."""
 
-        return self.mode
+        return self.execution_route
 
-    model_config = {"frozen": True}
+    model_config = ConfigDict(
+        frozen=True,
+        populate_by_name=True,
+        serialize_by_alias=True,
+    )
 
 
 class PhaseState(BaseModel):

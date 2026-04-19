@@ -115,7 +115,7 @@ class TestStoryContext:
             )
 
     def test_invalid_mode_for_concept_is_rejected(self) -> None:
-        with pytest.raises(ValidationError, match="mode"):
+        with pytest.raises(ValidationError, match="execution_route"):
             StoryContext(
                 story_id="AG3-054",
                 story_type=StoryType.CONCEPT,
@@ -129,6 +129,25 @@ class TestStoryContext:
             mode=StoryMode.EXPLORATION,
         )
         assert ctx.execution_route == StoryMode.EXPLORATION
+        assert ctx.mode == StoryMode.EXPLORATION
+
+    def test_creation_via_execution_route_field(self) -> None:
+        ctx = StoryContext(
+            story_id="AG3-056",
+            story_type=StoryType.IMPLEMENTATION,
+            execution_route=StoryMode.EXECUTION,
+        )
+        assert ctx.execution_route == StoryMode.EXECUTION
+        assert ctx.mode == StoryMode.EXECUTION
+
+    def test_conflicting_mode_and_execution_route_is_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="must not disagree"):
+            StoryContext(
+                story_id="AG3-057",
+                story_type=StoryType.IMPLEMENTATION,
+                mode=StoryMode.EXPLORATION,
+                execution_route=StoryMode.EXECUTION,
+            )
 
     def test_frozen_model(self) -> None:
         ctx = StoryContext(
@@ -171,10 +190,13 @@ class TestStoryContext:
             created_at=now,
         )
         data = ctx.model_dump(mode="json")
+        assert "mode" in data
+        assert "execution_route" not in data
         restored = StoryContext.model_validate(data)
         assert restored.story_id == ctx.story_id
         assert restored.story_type == ctx.story_type
         assert restored.mode == ctx.mode
+        assert restored.execution_route == ctx.execution_route
         assert restored.implementation_contract == ctx.implementation_contract
         assert restored.issue_nr == ctx.issue_nr
 
