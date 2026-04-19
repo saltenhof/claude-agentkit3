@@ -7,15 +7,17 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from agentkit.exceptions import ProjectError
 from agentkit.installer.paths import prompt_instance_dir
-from agentkit.prompt_composer.pins import ensure_prompt_run_pin
+from agentkit.prompt_composer.pins import (
+    initialize_prompt_run_pin,
+    resolve_run_prompt_binding,
+)
 from agentkit.prompt_composer.resources import (
     load_prompt_template,
-    prompt_bundle_id,
-    prompt_bundle_version,
-    prompt_manifest_sha256,
     prompt_template_relpath,
     prompt_template_sha256,
+    resolve_bootstrap_prompt_binding,
 )
 from agentkit.prompt_composer.selectors import select_template_name
 from agentkit.prompt_composer.sentinels import extract_sentinel
@@ -85,6 +87,8 @@ def _build_placeholder_map(
 def compose_prompt(
     ctx: StoryContext,
     config: ComposeConfig,
+    *,
+    run_id: str | None = None,
 ) -> ComposedPrompt:
     template_name = select_template_name(
         story_type=config.story_type,
@@ -92,7 +96,17 @@ def compose_prompt(
         spawn_reason=config.spawn_reason,
     )
     project_root = ctx.project_root
-    template = load_prompt_template(template_name, project_root=project_root)
+    if project_root is None:
+        binding = resolve_bootstrap_prompt_binding()
+        template = load_prompt_template(template_name)
+    else:
+        if run_id is None:
+            raise ProjectError(
+                "Prompt composition for a project-bound run requires run_id",
+                detail={"story_id": ctx.story_id},
+            )
+        binding = resolve_run_prompt_binding(project_root, run_id)
+        template = load_prompt_template(template_name, project_root=project_root)
     placeholders = _build_placeholder_map(ctx, config)
     content = template.format_map(placeholders)
 
@@ -115,9 +129,9 @@ def compose_prompt(
 
     return ComposedPrompt(
         content=content,
-        prompt_bundle_id=prompt_bundle_id(project_root),
-        prompt_bundle_version=prompt_bundle_version(project_root),
-        prompt_manifest_sha256=prompt_manifest_sha256(project_root),
+        prompt_bundle_id=binding.bundle_id,
+        prompt_bundle_version=binding.bundle_version,
+        prompt_manifest_sha256=binding.manifest_sha256,
         template_name=template_name,
         template_relpath=prompt_template_relpath(
             template_name,
@@ -156,13 +170,29 @@ def write_prompt_instance(
     """Write the canonical run-scoped prompt artifact set."""
 
     output_dir = prompt_instance_dir(project_root, run_id, invocation_id)
-    ensure_prompt_run_pin(
-        project_root,
-        run_id=run_id,
-        prompt_bundle_id=prompt.prompt_bundle_id,
-        prompt_bundle_version=prompt.prompt_bundle_version,
-        prompt_manifest_sha256=prompt.prompt_manifest_sha256,
-    )
+    initialize_prompt_run_pin(project_root, run_id=run_id)
+    binding = resolve_run_prompt_binding(project_root, run_id)
+    if (
+        prompt.prompt_bundle_id != binding.bundle_id
+        or prompt.prompt_bundle_version != binding.bundle_version
+        or prompt.prompt_manifest_sha256 != binding.manifest_sha256
+    ):
+        raise ProjectError(
+            "Prompt instance metadata does not match the active run pin",
+            detail={
+                "run_id": run_id,
+                "expected": {
+                    "prompt_bundle_id": binding.bundle_id,
+                    "prompt_bundle_version": binding.bundle_version,
+                    "prompt_manifest_sha256": binding.manifest_sha256,
+                },
+                "actual": {
+                    "prompt_bundle_id": prompt.prompt_bundle_id,
+                    "prompt_bundle_version": prompt.prompt_bundle_version,
+                    "prompt_manifest_sha256": prompt.prompt_manifest_sha256,
+                },
+            },
+        )
     prompt_path = output_dir / "prompt.md"
     manifest_path = output_dir / "manifest.json"
     atomic_write_text(prompt_path, prompt.content)

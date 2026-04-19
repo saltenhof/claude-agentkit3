@@ -8,6 +8,10 @@ from typing import TYPE_CHECKING
 
 from agentkit.exceptions import ProjectError
 from agentkit.installer.paths import prompt_run_pin_path
+from agentkit.prompt_composer.resources import (
+    PromptBundleBinding,
+    resolve_project_prompt_binding,
+)
 from agentkit.utils.io import atomic_write_text
 
 if TYPE_CHECKING:
@@ -20,6 +24,26 @@ class PromptRunPin:
     prompt_bundle_id: str
     prompt_bundle_version: str
     prompt_manifest_sha256: str
+
+
+def initialize_prompt_run_pin(project_root: Path, *, run_id: str) -> PromptRunPin:
+    """Resolve the current project binding and persist the canonical run pin."""
+
+    binding = resolve_project_prompt_binding(project_root)
+    ensure_prompt_run_pin(
+        project_root,
+        run_id=run_id,
+        prompt_bundle_id=binding.bundle_id,
+        prompt_bundle_version=binding.bundle_version,
+        prompt_manifest_sha256=binding.manifest_sha256,
+    )
+    pin = load_prompt_run_pin(project_root, run_id)
+    if pin is None:  # pragma: no cover
+        raise ProjectError(
+            "Prompt run pin could not be loaded after initialization",
+            detail={"run_id": run_id},
+        )
+    return pin
 
 
 def load_prompt_run_pin(project_root: Path, run_id: str) -> PromptRunPin | None:
@@ -91,8 +115,46 @@ def ensure_prompt_run_pin(
     return path
 
 
+def resolve_run_prompt_binding(project_root: Path, run_id: str) -> PromptBundleBinding:
+    """Resolve the active run's prompt binding via the persisted run pin."""
+
+    pin = load_prompt_run_pin(project_root, run_id)
+    if pin is None:
+        raise ProjectError(
+            "Prompt run pin is missing",
+            detail={"path": str(prompt_run_pin_path(project_root, run_id))},
+        )
+
+    binding = resolve_project_prompt_binding(project_root)
+    if (
+        binding.bundle_id != pin.prompt_bundle_id
+        or binding.bundle_version != pin.prompt_bundle_version
+        or binding.manifest_sha256 != pin.prompt_manifest_sha256
+    ):
+        raise ProjectError(
+            "Prompt run pin mismatch",
+            detail={
+                "path": str(prompt_run_pin_path(project_root, run_id)),
+                "run_id": run_id,
+                "expected": {
+                    "prompt_bundle_id": pin.prompt_bundle_id,
+                    "prompt_bundle_version": pin.prompt_bundle_version,
+                    "prompt_manifest_sha256": pin.prompt_manifest_sha256,
+                },
+                "actual": {
+                    "prompt_bundle_id": binding.bundle_id,
+                    "prompt_bundle_version": binding.bundle_version,
+                    "prompt_manifest_sha256": binding.manifest_sha256,
+                },
+            },
+        )
+    return binding
+
+
 __all__ = [
     "PromptRunPin",
     "ensure_prompt_run_pin",
+    "initialize_prompt_run_pin",
     "load_prompt_run_pin",
+    "resolve_run_prompt_binding",
 ]

@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from agentkit.prompt_composer import ComposeConfig, compose_prompt
 from agentkit.story_context_manager import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
@@ -12,7 +10,7 @@ def test_prompt_composer_namespace_exposes_composition_api() -> None:
         mode=StoryMode.EXECUTION,
         issue_nr=42,
         title="Add widget feature",
-        project_root=Path("/tmp/project"),
+        project_root=None,
     )
 
     prompt = compose_prompt(ctx, ComposeConfig(story_type=StoryType.IMPLEMENTATION))

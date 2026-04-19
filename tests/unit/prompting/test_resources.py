@@ -6,6 +6,9 @@ import json
 from hashlib import sha256
 from typing import TYPE_CHECKING
 
+import pytest
+
+from agentkit.exceptions import ProjectError
 from agentkit.prompt_composer.resources import (
     MANIFEST_PATH,
     PROJECT_LOCK_RELPATH,
@@ -52,6 +55,11 @@ def test_prompt_template_sha256_is_stable_hex_digest() -> None:
 def test_load_prompt_template_reads_utf8_content() -> None:
     content = load_prompt_template("worker-implementation")
     assert content.startswith("# Worker-Prompt: Implementation Story {story_id}")
+
+
+def test_project_root_requires_explicit_prompt_binding_lock(tmp_path: Path) -> None:
+    with pytest.raises(ProjectError, match="Prompt bundle lock is missing"):
+        prompt_bundle_id(tmp_path)
 
 
 def test_project_root_binding_is_preferred(tmp_path: Path) -> None:
@@ -158,8 +166,6 @@ def test_project_binding_lock_detects_manifest_drift(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
-
-    from agentkit.exceptions import ProjectError
 
     try:
         prompt_bundle_id(tmp_path)

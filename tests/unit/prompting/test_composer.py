@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from hashlib import sha256
+from typing import TYPE_CHECKING
 
+import pytest
+
+from agentkit.exceptions import ProjectError
 from agentkit.prompt_composer.composer import (
     ComposeConfig,
     ComposedPrompt,
@@ -13,8 +17,13 @@ from agentkit.prompt_composer.composer import (
     write_prompt,
     write_prompt_instance,
 )
+from agentkit.prompt_composer.pins import initialize_prompt_run_pin
+from agentkit.prompt_composer.resources import PROJECT_LOCK_RELPATH
 from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _make_context(
@@ -24,7 +33,7 @@ def _make_context(
     mode: StoryMode = StoryMode.EXECUTION,
     issue_nr: int = 42,
     title: str = "Add widget feature",
-    project_root: Path | None = Path("/tmp/project"),
+    project_root: Path | None = None,
 ) -> StoryContext:
     """Build a minimal StoryContext for testing."""
     return StoryContext(
@@ -34,6 +43,59 @@ def _make_context(
         issue_nr=issue_nr,
         title=title,
         project_root=project_root,
+    )
+
+
+def _write_project_prompt_binding(project_root: Path) -> None:
+    bundle_dir = project_root / "bundle"
+    bundle_dir.mkdir(parents=True)
+    template_content = (
+        "# Project Bound Prompt {story_id}\n"
+        "[SENTINEL:worker-implementation-v1:{story_id}]\n"
+    )
+    (bundle_dir / "worker-implementation.md").write_text(
+        template_content,
+        encoding="utf-8",
+    )
+    manifest_text = json.dumps(
+        {
+            "bundle_id": "project-bound",
+            "bundle_version": "99",
+            "templates": {
+                "worker-implementation": {
+                    "relpath": "internal/prompts/worker-implementation.md",
+                    "sha256": sha256(
+                        template_content.encode("utf-8"),
+                    ).hexdigest(),
+                },
+            },
+        },
+    )
+    (bundle_dir / "manifest.json").write_text(manifest_text, encoding="utf-8")
+    lock_dir = project_root / PROJECT_LOCK_RELPATH.parent
+    lock_dir.mkdir(parents=True)
+    (project_root / PROJECT_LOCK_RELPATH).write_text(
+        json.dumps(
+            {
+                "bundle_id": "project-bound",
+                "bundle_version": "99",
+                "binding_root": "prompts",
+                "bundle_root": str(bundle_dir),
+                "manifest_file": "manifest.json",
+                "manifest_sha256": sha256(
+                    manifest_text.encode("utf-8"),
+                ).hexdigest(),
+                "templates": {
+                    "worker-implementation": {
+                        "relpath": "internal/prompts/worker-implementation.md",
+                        "sha256": sha256(
+                            template_content.encode("utf-8"),
+                        ).hexdigest(),
+                    },
+                },
+            },
+        ),
+        encoding="utf-8",
     )
 
 
@@ -92,6 +154,40 @@ class TestComposePrompt:
         assert len(result.rendered_sha256) == 64
         assert result.story_id == "AG3-001"
         assert "SENTINEL" in result.sentinel
+
+    def test_project_bound_prompt_requires_run_pin(self, tmp_path: Path) -> None:
+        ctx = _make_context(project_root=tmp_path)
+        _write_project_prompt_binding(tmp_path)
+        config = ComposeConfig(story_type=StoryType.IMPLEMENTATION)
+
+        with pytest.raises(ProjectError, match="Prompt run pin is missing"):
+            compose_prompt(ctx, config, run_id="run-123")
+
+    def test_project_bound_prompt_requires_run_id(self, tmp_path: Path) -> None:
+        ctx = _make_context(project_root=tmp_path)
+        _write_project_prompt_binding(tmp_path)
+        config = ComposeConfig(story_type=StoryType.IMPLEMENTATION)
+
+        with pytest.raises(
+            ProjectError,
+            match="requires run_id",
+        ):
+            compose_prompt(ctx, config)
+
+    def test_project_bound_prompt_uses_initialized_run_pin(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        ctx = _make_context(project_root=tmp_path)
+        _write_project_prompt_binding(tmp_path)
+        initialize_prompt_run_pin(tmp_path, run_id="run-123")
+        config = ComposeConfig(story_type=StoryType.IMPLEMENTATION)
+
+        result = compose_prompt(ctx, config, run_id="run-123")
+
+        assert result.prompt_bundle_id == "project-bound"
+        assert result.prompt_bundle_version == "99"
+        assert "# Project Bound Prompt AG3-001" in result.content
 
     def test_remediation_injects_round_nr(self) -> None:
         """Remediation prompt must contain the round number."""
@@ -220,8 +316,10 @@ class TestWritePrompt:
         """Run-scoped prompt artifacts use the canonical runtime path."""
 
         ctx = _make_context(project_root=tmp_path)
+        _write_project_prompt_binding(tmp_path)
+        initialize_prompt_run_pin(tmp_path, run_id="run-123")
         config = ComposeConfig(story_type=StoryType.IMPLEMENTATION)
-        prompt = compose_prompt(ctx, config)
+        prompt = compose_prompt(ctx, config, run_id="run-123")
 
         materialized = write_prompt_instance(
             prompt,
@@ -257,8 +355,8 @@ class TestWritePrompt:
         )
         assert manifest["run_id"] == "run-123"
         assert manifest["invocation_id"] == "invoke-001"
-        assert manifest["prompt_bundle_id"] == "internal-bootstrap-prompts"
-        assert manifest["prompt_bundle_version"] == "1"
+        assert manifest["prompt_bundle_id"] == "project-bound"
+        assert manifest["prompt_bundle_version"] == "99"
         assert manifest["prompt_manifest_sha256"] == prompt.prompt_manifest_sha256
         assert manifest["template_name"] == "worker-implementation"
         assert (
@@ -275,3 +373,36 @@ class TestWritePrompt:
             / "run-123.json"
         )
         assert pin_path.is_file()
+
+    def test_write_prompt_instance_rejects_prompt_pin_mismatch(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        ctx = _make_context(project_root=tmp_path)
+        _write_project_prompt_binding(tmp_path)
+        initialize_prompt_run_pin(tmp_path, run_id="run-123")
+        config = ComposeConfig(story_type=StoryType.IMPLEMENTATION)
+        prompt = compose_prompt(ctx, config, run_id="run-123")
+        drifted_prompt = ComposedPrompt(
+            content=prompt.content,
+            prompt_bundle_id="other-bundle",
+            prompt_bundle_version=prompt.prompt_bundle_version,
+            prompt_manifest_sha256=prompt.prompt_manifest_sha256,
+            template_name=prompt.template_name,
+            template_relpath=prompt.template_relpath,
+            template_sha256=prompt.template_sha256,
+            rendered_sha256=prompt.rendered_sha256,
+            story_id=prompt.story_id,
+            sentinel=prompt.sentinel,
+        )
+
+        with pytest.raises(
+            ProjectError,
+            match="does not match the active run pin",
+        ):
+            write_prompt_instance(
+                drifted_prompt,
+                tmp_path,
+                run_id="run-123",
+                invocation_id="invoke-001",
+            )

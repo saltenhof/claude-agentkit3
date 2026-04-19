@@ -13,9 +13,12 @@ from agentkit.prompt_composer.composer import (
 from agentkit.prompt_composer.pins import (
     PromptRunPin,
     ensure_prompt_run_pin,
+    initialize_prompt_run_pin,
     load_prompt_run_pin,
+    resolve_run_prompt_binding,
 )
 from agentkit.prompt_composer.resources import (
+    PromptBundleBinding,
     load_prompt_template,
     prompt_bundle_id,
     prompt_bundle_version,
@@ -23,6 +26,8 @@ from agentkit.prompt_composer.resources import (
     prompt_template_path,
     prompt_template_relpath,
     prompt_template_sha256,
+    resolve_bootstrap_prompt_binding,
+    resolve_project_prompt_binding,
 )
 from agentkit.prompt_composer.selectors import select_template_name
 from agentkit.prompt_composer.sentinels import (
@@ -37,10 +42,12 @@ __all__ = [
     "ComposeConfig",
     "ComposedPrompt",
     "MaterializedPromptInstance",
+    "PromptBundleBinding",
     "PromptRunPin",
     "compose_prompt",
     "ensure_prompt_run_pin",
     "extract_sentinel",
+    "initialize_prompt_run_pin",
     "load_prompt_template",
     "load_prompt_run_pin",
     "make_sentinel",
@@ -50,6 +57,9 @@ __all__ = [
     "prompt_template_path",
     "prompt_template_relpath",
     "prompt_template_sha256",
+    "resolve_bootstrap_prompt_binding",
+    "resolve_project_prompt_binding",
+    "resolve_run_prompt_binding",
     "select_template_name",
     "validate_sentinel",
     "write_prompt",

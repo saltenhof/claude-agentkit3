@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 from agentkit.exceptions import ProjectError
@@ -16,6 +17,15 @@ RESOURCE_DIR = (
 )
 MANIFEST_PATH = RESOURCE_DIR / "manifest.json"
 PROJECT_LOCK_RELPATH = Path(".agentkit") / "config" / "prompt-bundle.lock.json"
+
+
+@dataclass(frozen=True)
+class PromptBundleBinding:
+    bundle_id: str
+    bundle_version: str
+    bundle_root: Path
+    manifest_path: Path
+    manifest_sha256: str
 
 
 def _sha256_text(text: str) -> str:
@@ -38,12 +48,37 @@ def _load_binding_lock(project_root: Path | None) -> dict[str, object] | None:
     return json.loads(lock_path.read_text(encoding="utf-8"))
 
 
-def _validated_binding_lock(
-    project_root: Path | None,
-) -> dict[str, object] | None:
+def _bootstrap_binding() -> PromptBundleBinding:
+    manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    bundle_id = manifest.get("bundle_id")
+    bundle_version = manifest.get("bundle_version")
+    if not isinstance(bundle_id, str) or not bundle_id:
+        raise ProjectError(
+            "Prompt manifest is missing bundle_id",
+            detail={"path": str(MANIFEST_PATH)},
+        )
+    if not isinstance(bundle_version, str) or not bundle_version:
+        raise ProjectError(
+            "Prompt manifest is missing bundle_version",
+            detail={"path": str(MANIFEST_PATH)},
+        )
+    return PromptBundleBinding(
+        bundle_id=bundle_id,
+        bundle_version=bundle_version,
+        bundle_root=RESOURCE_DIR,
+        manifest_path=MANIFEST_PATH,
+        manifest_sha256=_sha256_text(MANIFEST_PATH.read_text(encoding="utf-8")),
+    )
+
+def resolve_project_prompt_binding(project_root: Path) -> PromptBundleBinding:
+    """Resolve and validate the project-authoritative prompt bundle binding."""
+
     lock = _load_binding_lock(project_root)
-    if lock is None or project_root is None:
-        return None
+    if lock is None:
+        raise ProjectError(
+            "Prompt bundle lock is missing",
+            detail={"path": str(project_root / PROJECT_LOCK_RELPATH)},
+        )
 
     manifest_file = lock.get("manifest_file")
     manifest_sha256 = lock.get("manifest_sha256")
@@ -79,26 +114,47 @@ def _validated_binding_lock(
                 "actual_sha256": actual_sha256,
             },
         )
-    return lock
+    bundle_id = lock.get("bundle_id")
+    bundle_version = lock.get("bundle_version")
+    if not isinstance(bundle_id, str) or not bundle_id:
+        raise ProjectError(
+            "Prompt bundle lock is missing bundle_id",
+            detail={"path": str(project_root / PROJECT_LOCK_RELPATH)},
+        )
+    if not isinstance(bundle_version, str) or not bundle_version:
+        raise ProjectError(
+            "Prompt bundle lock is missing bundle_version",
+            detail={"path": str(project_root / PROJECT_LOCK_RELPATH)},
+        )
+    return PromptBundleBinding(
+        bundle_id=bundle_id,
+        bundle_version=bundle_version,
+        bundle_root=Path(bundle_root),
+        manifest_path=manifest_path,
+        manifest_sha256=actual_sha256,
+    )
+
+
+def resolve_bootstrap_prompt_binding() -> PromptBundleBinding:
+    """Resolve the internal bootstrap prompt bundle for non-project contexts."""
+
+    return _bootstrap_binding()
 
 
 def prompt_manifest_sha256(project_root: Path | None = None) -> str:
     """Return the digest of the resolved prompt manifest."""
 
-    manifest_path = _manifest_path(project_root)
-    return _sha256_text(manifest_path.read_text(encoding="utf-8"))
+    return _resolve_binding(project_root).manifest_sha256
 
 
 def _manifest_path(project_root: Path | None = None) -> Path:
-    lock = _validated_binding_lock(project_root)
-    if lock is not None:
-        bundle_root = lock.get("bundle_root")
-        manifest_file = lock.get("manifest_file")
-        if isinstance(bundle_root, str) and isinstance(manifest_file, str):
-            candidate = Path(bundle_root) / Path(manifest_file)
-            if candidate.is_file():
-                return candidate
-    return MANIFEST_PATH
+    return _resolve_binding(project_root).manifest_path
+
+
+def _resolve_binding(project_root: Path | None = None) -> PromptBundleBinding:
+    if project_root is None:
+        return _bootstrap_binding()
+    return resolve_project_prompt_binding(project_root)
 
 
 def _load_manifest(project_root: Path | None = None) -> dict[str, object]:
@@ -139,37 +195,13 @@ def _manifest_entry(name: str, project_root: Path | None = None) -> dict[str, st
 def prompt_bundle_id(project_root: Path | None = None) -> str:
     """Return the identifier of the currently resolved prompt bundle."""
 
-    lock = _validated_binding_lock(project_root)
-    manifest_path = _manifest_path(project_root)
-    bundle_id = (
-        lock.get("bundle_id")
-        if lock is not None
-        else _load_manifest(project_root).get("bundle_id")
-    )
-    if not isinstance(bundle_id, str) or not bundle_id:
-        raise ProjectError(
-            "Prompt manifest is missing bundle_id",
-            detail={"path": str(manifest_path)},
-        )
-    return bundle_id
+    return _resolve_binding(project_root).bundle_id
 
 
 def prompt_bundle_version(project_root: Path | None = None) -> str:
     """Return the version of the currently resolved prompt bundle."""
 
-    lock = _validated_binding_lock(project_root)
-    manifest_path = _manifest_path(project_root)
-    bundle_version = (
-        lock.get("bundle_version")
-        if lock is not None
-        else _load_manifest(project_root).get("bundle_version")
-    )
-    if not isinstance(bundle_version, str) or not bundle_version:
-        raise ProjectError(
-            "Prompt manifest is missing bundle_version",
-            detail={"path": str(manifest_path)},
-        )
-    return bundle_version
+    return _resolve_binding(project_root).bundle_version
 
 
 def prompt_template_path(
@@ -180,13 +212,9 @@ def prompt_template_path(
     """Return the absolute filesystem path of a bundled prompt template."""
 
     relpath = _manifest_entry(name, project_root)["relpath"]
-    lock = _validated_binding_lock(project_root)
-    if lock is not None:
-        bundle_root = lock.get("bundle_root")
-        if isinstance(bundle_root, str):
-            path = Path(bundle_root) / Path(relpath).name
-        else:
-            path = RESOURCE_DIR.parent.parent / Path(relpath)
+    binding = _resolve_binding(project_root)
+    if project_root is not None:
+        path = binding.bundle_root / Path(relpath).name
     else:
         path = RESOURCE_DIR.parent.parent / Path(relpath)
     if not path.is_file():
@@ -243,6 +271,7 @@ def prompt_template_sha256(
 
 __all__ = [
     "MANIFEST_PATH",
+    "PromptBundleBinding",
     "PROJECT_LOCK_RELPATH",
     "RESOURCE_DIR",
     "load_prompt_template",
@@ -252,4 +281,6 @@ __all__ = [
     "prompt_template_path",
     "prompt_template_relpath",
     "prompt_template_sha256",
+    "resolve_bootstrap_prompt_binding",
+    "resolve_project_prompt_binding",
 ]
