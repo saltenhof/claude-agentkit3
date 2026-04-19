@@ -35,6 +35,7 @@ venv/
 # Project-local work area
 var/
 .tmp/
+.tmp_pytest*/
 .pytest-temp*/
 /tmp*/
 

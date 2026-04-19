@@ -15,7 +15,22 @@ class StoryType(StrEnum):
     RESEARCH = "research"
 
 
+class ImplementationContract(StrEnum):
+    STANDARD = "standard"
+    INTEGRATION_STABILIZATION = "integration_stabilization"
+
+
 class StoryMode(StrEnum):
+    """Wire enum for the intra-run execution route.
+
+    The concept model now distinguishes:
+    - operating_mode: ai_augmented vs story_execution
+    - execution_route: execution vs exploration vs not_applicable
+
+    The runtime still persists the historic field name ``mode``. This enum
+    therefore models the execution route while keeping wire compatibility.
+    """
+
     EXECUTION = "execution"
     EXPLORATION = "exploration"
     NOT_APPLICABLE = "not_applicable"
@@ -29,6 +44,8 @@ class StoryTypeProfile:
     uses_merge: bool
     allowed_modes: tuple[StoryMode, ...]
     default_mode: StoryMode
+    allowed_implementation_contracts: tuple[ImplementationContract, ...]
+    default_implementation_contract: ImplementationContract | None
     phases: tuple[str, ...]
 
 
@@ -40,6 +57,11 @@ PROFILES: dict[StoryType, StoryTypeProfile] = {
         uses_merge=True,
         allowed_modes=(StoryMode.EXECUTION, StoryMode.EXPLORATION),
         default_mode=StoryMode.EXPLORATION,
+        allowed_implementation_contracts=(
+            ImplementationContract.STANDARD,
+            ImplementationContract.INTEGRATION_STABILIZATION,
+        ),
+        default_implementation_contract=ImplementationContract.STANDARD,
         phases=("setup", "exploration", "implementation", "verify", "closure"),
     ),
     StoryType.BUGFIX: StoryTypeProfile(
@@ -49,6 +71,8 @@ PROFILES: dict[StoryType, StoryTypeProfile] = {
         uses_merge=True,
         allowed_modes=(StoryMode.EXECUTION,),
         default_mode=StoryMode.EXECUTION,
+        allowed_implementation_contracts=(),
+        default_implementation_contract=None,
         phases=("setup", "implementation", "verify", "closure"),
     ),
     StoryType.CONCEPT: StoryTypeProfile(
@@ -58,6 +82,8 @@ PROFILES: dict[StoryType, StoryTypeProfile] = {
         uses_merge=False,
         allowed_modes=(StoryMode.NOT_APPLICABLE,),
         default_mode=StoryMode.NOT_APPLICABLE,
+        allowed_implementation_contracts=(),
+        default_implementation_contract=None,
         phases=("setup", "implementation", "verify", "closure"),
     ),
     StoryType.RESEARCH: StoryTypeProfile(
@@ -67,6 +93,8 @@ PROFILES: dict[StoryType, StoryTypeProfile] = {
         uses_merge=False,
         allowed_modes=(StoryMode.NOT_APPLICABLE,),
         default_mode=StoryMode.NOT_APPLICABLE,
+        allowed_implementation_contracts=(),
+        default_implementation_contract=None,
         phases=("setup", "implementation", "closure"),
     ),
 }
@@ -82,6 +110,7 @@ def get_profile(story_type: StoryType) -> StoryTypeProfile:
     return profile
 
 __all__ = [
+    "ImplementationContract",
     "StoryMode",
     "StoryType",
     "StoryTypeProfile",

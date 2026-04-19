@@ -14,7 +14,11 @@ from agentkit.story_context_manager.models import (
     PhaseStatus,
     StoryContext,
 )
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.story_context_manager.types import (
+    ImplementationContract,
+    StoryMode,
+    StoryType,
+)
 
 
 class TestPhaseStatus:
@@ -53,6 +57,7 @@ class TestStoryContext:
         assert ctx.story_id == "AG3-001"
         assert ctx.story_type == StoryType.IMPLEMENTATION
         assert ctx.mode == StoryMode.EXPLORATION
+        assert ctx.implementation_contract == ImplementationContract.STANDARD
         assert ctx.issue_nr is None
         assert ctx.title == ""
         assert ctx.project_root is None
@@ -67,6 +72,7 @@ class TestStoryContext:
             story_id="AG3-042",
             story_type=StoryType.BUGFIX,
             mode=StoryMode.EXECUTION,
+            implementation_contract=None,
             issue_nr=42,
             title="Fix null pointer in setup phase",
             project_root=Path("/tmp/project"),
@@ -82,6 +88,47 @@ class TestStoryContext:
         assert ctx.participating_repos == ["saltenhof/claude-agentkit3"]
         assert ctx.labels == ["bugfix", "size:small"]
         assert ctx.created_at == now
+
+    def test_implementation_defaults_standard_contract(self) -> None:
+        ctx = StoryContext(
+            story_id="AG3-051",
+            story_type=StoryType.IMPLEMENTATION,
+            mode=StoryMode.EXECUTION,
+        )
+        assert ctx.implementation_contract == ImplementationContract.STANDARD
+
+    def test_non_implementation_keeps_contract_none(self) -> None:
+        ctx = StoryContext(
+            story_id="AG3-052",
+            story_type=StoryType.CONCEPT,
+            mode=StoryMode.NOT_APPLICABLE,
+        )
+        assert ctx.implementation_contract is None
+
+    def test_invalid_contract_for_bugfix_is_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="implementation_contract"):
+            StoryContext(
+                story_id="AG3-053",
+                story_type=StoryType.BUGFIX,
+                mode=StoryMode.EXECUTION,
+                implementation_contract=ImplementationContract.INTEGRATION_STABILIZATION,
+            )
+
+    def test_invalid_mode_for_concept_is_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="mode"):
+            StoryContext(
+                story_id="AG3-054",
+                story_type=StoryType.CONCEPT,
+                mode=StoryMode.EXECUTION,
+            )
+
+    def test_execution_route_alias_matches_mode(self) -> None:
+        ctx = StoryContext(
+            story_id="AG3-055",
+            story_type=StoryType.IMPLEMENTATION,
+            mode=StoryMode.EXPLORATION,
+        )
+        assert ctx.execution_route == StoryMode.EXPLORATION
 
     def test_frozen_model(self) -> None:
         ctx = StoryContext(
@@ -128,6 +175,7 @@ class TestStoryContext:
         assert restored.story_id == ctx.story_id
         assert restored.story_type == ctx.story_type
         assert restored.mode == ctx.mode
+        assert restored.implementation_contract == ctx.implementation_contract
         assert restored.issue_nr == ctx.issue_nr
 
     def test_default_lists_are_independent(self) -> None:

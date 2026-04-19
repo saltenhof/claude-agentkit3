@@ -12,7 +12,11 @@ from agentkit.pipeline.phases.setup.context_builder import (
     _extract_story_type,
     build_story_context,
 )
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.story_context_manager.types import (
+    ImplementationContract,
+    StoryMode,
+    StoryType,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -87,6 +91,7 @@ class TestBuildStoryContext:
         )
         ctx = build_story_context("owner", "repo", 42, tmp_path)
         assert ctx.story_type == StoryType.BUGFIX
+        assert ctx.implementation_contract is None
 
     def test_concept_label_produces_concept_type(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
@@ -98,6 +103,7 @@ class TestBuildStoryContext:
         )
         ctx = build_story_context("owner", "repo", 42, tmp_path)
         assert ctx.story_type == StoryType.CONCEPT
+        assert ctx.implementation_contract is None
 
     def test_research_label_produces_research_type(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
@@ -109,6 +115,7 @@ class TestBuildStoryContext:
         )
         ctx = build_story_context("owner", "repo", 42, tmp_path)
         assert ctx.story_type == StoryType.RESEARCH
+        assert ctx.implementation_contract is None
 
     def test_no_label_defaults_to_implementation(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
@@ -120,6 +127,7 @@ class TestBuildStoryContext:
         )
         ctx = build_story_context("owner", "repo", 42, tmp_path)
         assert ctx.story_type == StoryType.IMPLEMENTATION
+        assert ctx.implementation_contract == ImplementationContract.STANDARD
 
     def test_story_id_generated_from_issue_nr(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,

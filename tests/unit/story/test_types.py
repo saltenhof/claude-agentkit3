@@ -6,6 +6,7 @@ import pytest
 
 from agentkit.story_context_manager.types import (
     PROFILES,
+    ImplementationContract,
     StoryMode,
     StoryType,
     StoryTypeProfile,
@@ -50,6 +51,23 @@ class TestStoryMode:
         assert StoryMode.NOT_APPLICABLE == "not_applicable"
 
 
+class TestImplementationContract:
+    """Tests for the ImplementationContract enum."""
+
+    def test_all_values(self) -> None:
+        assert set(ImplementationContract) == {
+            ImplementationContract.STANDARD,
+            ImplementationContract.INTEGRATION_STABILIZATION,
+        }
+
+    def test_string_values(self) -> None:
+        assert ImplementationContract.STANDARD == "standard"
+        assert (
+            ImplementationContract.INTEGRATION_STABILIZATION
+            == "integration_stabilization"
+        )
+
+
 class TestStoryTypeProfile:
     """Tests for the StoryTypeProfile dataclass."""
 
@@ -74,6 +92,11 @@ class TestProfiles:
         assert p.uses_merge is True
         assert p.allowed_modes == (StoryMode.EXECUTION, StoryMode.EXPLORATION)
         assert p.default_mode == StoryMode.EXPLORATION
+        assert p.allowed_implementation_contracts == (
+            ImplementationContract.STANDARD,
+            ImplementationContract.INTEGRATION_STABILIZATION,
+        )
+        assert p.default_implementation_contract == ImplementationContract.STANDARD
         assert p.phases == (
             "setup",
             "exploration",
@@ -90,6 +113,8 @@ class TestProfiles:
         assert p.uses_merge is True
         assert p.allowed_modes == (StoryMode.EXECUTION,)
         assert p.default_mode == StoryMode.EXECUTION
+        assert p.allowed_implementation_contracts == ()
+        assert p.default_implementation_contract is None
         assert p.phases == ("setup", "implementation", "verify", "closure")
 
     def test_concept_profile(self) -> None:
@@ -100,6 +125,8 @@ class TestProfiles:
         assert p.uses_merge is False
         assert p.allowed_modes == (StoryMode.NOT_APPLICABLE,)
         assert p.default_mode == StoryMode.NOT_APPLICABLE
+        assert p.allowed_implementation_contracts == ()
+        assert p.default_implementation_contract is None
         assert p.phases == ("setup", "implementation", "verify", "closure")
 
     def test_research_profile(self) -> None:
@@ -110,6 +137,8 @@ class TestProfiles:
         assert p.uses_merge is False
         assert p.allowed_modes == (StoryMode.NOT_APPLICABLE,)
         assert p.default_mode == StoryMode.NOT_APPLICABLE
+        assert p.allowed_implementation_contracts == ()
+        assert p.default_implementation_contract is None
         assert p.phases == ("setup", "implementation", "closure")
 
     def test_default_mode_is_in_allowed_modes(self) -> None:

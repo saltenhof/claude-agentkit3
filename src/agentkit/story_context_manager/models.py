@@ -8,9 +8,14 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.story_context_manager.types import (
+    ImplementationContract,
+    StoryMode,
+    StoryType,
+    get_profile,
+)
 
 
 class PhaseStatus(StrEnum):
@@ -27,6 +32,7 @@ class StoryContext(BaseModel):
     story_id: str
     story_type: StoryType
     mode: StoryMode
+    implementation_contract: ImplementationContract | None = None
     issue_nr: int | None = None
 
     @field_validator("story_id")
@@ -45,6 +51,62 @@ class StoryContext(BaseModel):
     participating_repos: list[str] = Field(default_factory=list)
     labels: list[str] = Field(default_factory=list)
     created_at: datetime | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_contract_defaults(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+
+        story_type_raw = data.get("story_type")
+        if story_type_raw is None:
+            return data
+
+        try:
+            story_type = StoryType(story_type_raw)
+        except ValueError:
+            return data
+
+        profile = get_profile(story_type)
+        if (
+            story_type is StoryType.IMPLEMENTATION
+            and data.get("implementation_contract") is None
+        ):
+            data = dict(data)
+            data["implementation_contract"] = profile.default_implementation_contract
+        return data
+
+    @model_validator(mode="after")
+    def _validate_contract_shape(self) -> StoryContext:
+        profile = get_profile(self.story_type)
+
+        if self.mode not in profile.allowed_modes:
+            raise ValueError(
+                f"mode {self.mode!r} is not allowed for story_type {self.story_type!r}",
+            )
+
+        if (
+            self.implementation_contract
+            not in profile.allowed_implementation_contracts
+        ):
+            if (
+                self.implementation_contract is None
+                and not profile.allowed_implementation_contracts
+            ):
+                return self
+            raise ValueError(
+                "implementation_contract "
+                f"{self.implementation_contract!r} is not allowed for story_type "
+                f"{self.story_type!r}",
+            )
+
+        return self
+
+    @property
+    def execution_route(self) -> StoryMode:
+        """Semantic alias for the historic ``mode`` wire field."""
+
+        return self.mode
 
     model_config = {"frozen": True}
 
