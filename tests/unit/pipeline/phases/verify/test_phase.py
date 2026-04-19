@@ -79,6 +79,11 @@ class TestVerifyPhaseHandler:
 
         result = handler.on_enter(ctx, state)
         assert result.status == PhaseStatus.COMPLETED
+        assert result.artifacts_produced == (
+            "semantic-review.json",
+            "adversarial.json",
+            "verify-decision.json",
+        )
 
     def test_missing_artifacts_returns_failed(self, tmp_path: Path) -> None:
         # Empty story dir -> structural checks fail
@@ -90,6 +95,11 @@ class TestVerifyPhaseHandler:
         result = handler.on_enter(ctx, state)
         assert result.status == PhaseStatus.FAILED
         assert len(result.errors) > 0
+        assert result.artifacts_produced == (
+            "semantic-review.json",
+            "adversarial.json",
+            "verify-decision.json",
+        )
 
     def test_on_resume_reruns_verify(self, tmp_path: Path) -> None:
         story_dir = _setup_complete_story_dir(tmp_path)
@@ -161,6 +171,10 @@ class TestVerifyPhaseHandler:
 
         decision_path = story_dir / "verify-decision.json"
         assert decision_path.exists(), "verify-decision.json must be written"
+        semantic_path = story_dir / "semantic-review.json"
+        adversarial_path = story_dir / "adversarial.json"
+        assert semantic_path.exists()
+        assert adversarial_path.exists()
         data = json.loads(decision_path.read_text(encoding="utf-8"))
         assert data["passed"] is True
         assert data["status"] == "PASS"
@@ -182,6 +196,20 @@ class TestVerifyPhaseHandler:
             "status": "skipped",
             "reason": "project_root_unavailable",
         }
+        semantic_data = json.loads(semantic_path.read_text(encoding="utf-8"))
+        adversarial_data = json.loads(adversarial_path.read_text(encoding="utf-8"))
+        assert semantic_data["layer"] == "semantic"
+        assert semantic_data["passed"] is True
+        assert semantic_data["metadata"]["prompt_audit"] == {
+            "status": "skipped",
+            "reason": "project_root_unavailable",
+        }
+        assert adversarial_data["layer"] == "adversarial"
+        assert adversarial_data["passed"] is True
+        assert adversarial_data["metadata"]["prompt_audit"] == {
+            "status": "skipped",
+            "reason": "project_root_unavailable",
+        }
 
     def test_verify_decision_json_written_on_fail(self, tmp_path: Path) -> None:
         config = VerifyConfig(story_dir=tmp_path)
@@ -196,6 +224,8 @@ class TestVerifyPhaseHandler:
         assert decision_path.exists(), (
             "verify-decision.json must be written even on FAIL"
         )
+        assert (tmp_path / "semantic-review.json").exists()
+        assert (tmp_path / "adversarial.json").exists()
         data = json.loads(decision_path.read_text(encoding="utf-8"))
         assert data["passed"] is False
         assert data["status"] == "FAIL"

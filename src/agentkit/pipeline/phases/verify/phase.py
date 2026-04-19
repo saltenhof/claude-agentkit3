@@ -102,9 +102,11 @@ class VerifyPhaseHandler:
         attempt_nr = state.review_round + 1
         cycle = VerifyCycle(layers=layers, policy_engine=engine)
         result = cycle.run(ctx, s_dir, attempt_nr=attempt_nr)
+        artifacts = self._write_layer_artifacts(s_dir, result)
 
         # Persist verify-decision.json for audit trail
         self._write_decision(s_dir, result)
+        artifacts = (*artifacts, "verify-decision.json")
 
         if result.decision.passed:
             logger.info(
@@ -113,7 +115,7 @@ class VerifyPhaseHandler:
             )
             return HandlerResult(
                 status=PhaseStatus.COMPLETED,
-                artifacts_produced=("verify-decision.json",),
+                artifacts_produced=artifacts,
             )
 
         # FAIL -- include feedback in errors
@@ -128,8 +130,51 @@ class VerifyPhaseHandler:
         return HandlerResult(
             status=PhaseStatus.FAILED,
             errors=tuple(error_msgs),
-            artifacts_produced=("verify-decision.json",),
+            artifacts_produced=artifacts,
         )
+
+    @staticmethod
+    def _write_layer_artifacts(
+        story_dir: Path,
+        cycle_result: VerifyCycleResult,
+    ) -> tuple[str, ...]:
+        """Persist QA-layer-specific audit artifacts for downstream consumers."""
+
+        artifact_names: list[str] = []
+        artifact_name_by_layer = {
+            "semantic": "semantic-review.json",
+            "adversarial": "adversarial.json",
+        }
+        for layer_result in cycle_result.decision.layer_results:
+            artifact_name = artifact_name_by_layer.get(layer_result.layer)
+            if artifact_name is None:
+                continue
+            artifact_path = story_dir / artifact_name
+            artifact_data: dict[str, object] = {
+                "layer": layer_result.layer,
+                "passed": layer_result.passed,
+                "attempt_nr": cycle_result.attempt_nr,
+                "findings": [
+                    {
+                        "layer": finding.layer,
+                        "check": finding.check,
+                        "severity": finding.severity.value,
+                        "message": finding.message,
+                        "trust_class": finding.trust_class.value,
+                        "file_path": finding.file_path,
+                        "line_number": finding.line_number,
+                        "suggestion": finding.suggestion,
+                    }
+                    for finding in layer_result.findings
+                ],
+                "metadata": layer_result.metadata,
+            }
+            atomic_write_text(
+                artifact_path,
+                json.dumps(artifact_data, indent=2, default=str),
+            )
+            artifact_names.append(artifact_name)
+        return tuple(artifact_names)
 
     @staticmethod
     def _write_decision(story_dir: Path, cycle_result: VerifyCycleResult) -> None:
