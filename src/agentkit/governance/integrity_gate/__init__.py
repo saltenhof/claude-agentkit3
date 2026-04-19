@@ -152,14 +152,16 @@ class IntegrityGate:
     @staticmethod
     def _check_verify_decision(story_dir: Path) -> IntegrityCheckResult:
         """Verify that the verify decision exists and is PASS."""
-        decision_path = story_dir / "decision.json"
+        canonical_path = story_dir / "verify-decision.json"
+        legacy_path = story_dir / "decision.json"
         dim_name = "verify_decision"
 
+        decision_path = canonical_path if canonical_path.exists() else legacy_path
         if not decision_path.exists():
             return IntegrityCheckResult(
                 dimension=dim_name,
                 passed=False,
-                message="Missing verify decision: decision.json",
+                message="Missing verify decision: verify-decision.json",
             )
 
         try:
@@ -169,7 +171,7 @@ class IntegrityGate:
             return IntegrityCheckResult(
                 dimension=dim_name,
                 passed=False,
-                message="Corrupt verify decision: decision.json",
+                message=f"Corrupt verify decision: {decision_path.name}",
             )
 
         if not isinstance(data, dict):
@@ -180,17 +182,29 @@ class IntegrityGate:
             )
 
         decision = data.get("decision")
-        if decision != "PASS":
+        status = data.get("status")
+        if status is not None:
+            passed = bool(data.get("passed")) and status in (
+                "PASS",
+                "PASS_WITH_WARNINGS",
+            )
+        else:
+            passed = decision in ("PASS", "PASS_WITH_WARNINGS")
+        decision_label = status if status is not None else decision
+        if not passed:
             return IntegrityCheckResult(
                 dimension=dim_name,
                 passed=False,
-                message=f"Verify decision is {decision!r}, expected 'PASS'",
+                message=(
+                    f"Verify decision is {decision_label!r}, "
+                    "expected PASS/PASS_WITH_WARNINGS"
+                ),
             )
 
         return IntegrityCheckResult(
             dimension=dim_name,
             passed=True,
-            message="Verify decision is PASS",
+            message=f"Verify decision OK via {decision_path.name}",
         )
 
     @staticmethod

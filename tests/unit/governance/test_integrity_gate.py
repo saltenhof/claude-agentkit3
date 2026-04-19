@@ -51,8 +51,22 @@ def _create_context(story_dir: Path) -> None:
 
 
 def _create_decision(story_dir: Path, decision: str = "PASS") -> None:
-    """Create a verify decision file."""
-    _write_json(story_dir / "decision.json", {"decision": decision})
+    """Create verify decision files in canonical and legacy shapes."""
+    passed = decision in ("PASS", "PASS_WITH_WARNINGS")
+    _write_json(
+        story_dir / "verify-decision.json",
+        {
+            "status": decision,
+            "passed": passed,
+        },
+    )
+    _write_json(
+        story_dir / "decision.json",
+        {
+            "decision": decision,
+            "passed": passed,
+        },
+    )
 
 
 def _populate_implementation_story(story_dir: Path) -> None:
@@ -126,11 +140,19 @@ class TestIntegrityGateCorruptData:
     def test_corrupt_verify_decision(self, tmp_path: Path) -> None:
         _populate_implementation_story(tmp_path)
         # Overwrite decision with invalid JSON.
-        (tmp_path / "decision.json").write_text("not json", encoding="utf-8")
+        (tmp_path / "verify-decision.json").write_text("not json", encoding="utf-8")
         result = IntegrityGate().evaluate(tmp_path, StoryType.IMPLEMENTATION)
         assert result.passed is False
         failed = result.failed_checks
         assert any(c.dimension == "verify_decision" for c in failed)
+
+    def test_legacy_decision_file_still_supported(self, tmp_path: Path) -> None:
+        _create_context(tmp_path)
+        for phase in ("setup", "implementation", "verify"):
+            _create_snapshot(tmp_path, phase)
+        _write_json(tmp_path / "decision.json", {"decision": "PASS", "passed": True})
+        result = IntegrityGate().evaluate(tmp_path, StoryType.IMPLEMENTATION)
+        assert result.passed is True
 
     def test_corrupt_phase_snapshot(self, tmp_path: Path) -> None:
         _populate_implementation_story(tmp_path)

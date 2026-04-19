@@ -83,6 +83,7 @@ class TestVerifyPhaseHandler:
             "semantic-review.json",
             "adversarial.json",
             "verify-decision.json",
+            "decision.json",
         )
 
     def test_missing_artifacts_returns_failed(self, tmp_path: Path) -> None:
@@ -99,6 +100,7 @@ class TestVerifyPhaseHandler:
             "semantic-review.json",
             "adversarial.json",
             "verify-decision.json",
+            "decision.json",
         )
 
     def test_on_resume_reruns_verify(self, tmp_path: Path) -> None:
@@ -170,18 +172,23 @@ class TestVerifyPhaseHandler:
         assert result.status == PhaseStatus.COMPLETED
 
         decision_path = story_dir / "verify-decision.json"
+        legacy_decision_path = story_dir / "decision.json"
         assert decision_path.exists(), "verify-decision.json must be written"
+        assert legacy_decision_path.exists(), "decision.json must be written"
         semantic_path = story_dir / "semantic-review.json"
         adversarial_path = story_dir / "adversarial.json"
         assert semantic_path.exists()
         assert adversarial_path.exists()
         data = json.loads(decision_path.read_text(encoding="utf-8"))
+        legacy = json.loads(legacy_decision_path.read_text(encoding="utf-8"))
         assert data["passed"] is True
         assert data["status"] == "PASS"
         assert "summary" in data
         assert isinstance(data["layers"], list)
         assert isinstance(data["blocking_findings"], list)
         assert isinstance(data["all_findings_count"], int)
+        assert legacy["decision"] == "PASS"
+        assert legacy["passed"] is True
         semantic = next(
             layer for layer in data["layers"] if layer["layer"] == "semantic"
         )
@@ -221,13 +228,20 @@ class TestVerifyPhaseHandler:
         assert result.status == PhaseStatus.FAILED
 
         decision_path = tmp_path / "verify-decision.json"
+        legacy_decision_path = tmp_path / "decision.json"
         assert decision_path.exists(), (
             "verify-decision.json must be written even on FAIL"
+        )
+        assert legacy_decision_path.exists(), (
+            "decision.json must be written even on FAIL"
         )
         assert (tmp_path / "semantic-review.json").exists()
         assert (tmp_path / "adversarial.json").exists()
         data = json.loads(decision_path.read_text(encoding="utf-8"))
+        legacy = json.loads(legacy_decision_path.read_text(encoding="utf-8"))
         assert data["passed"] is False
         assert data["status"] == "FAIL"
         assert isinstance(data["layers"], list)
         assert len(data["blocking_findings"]) > 0
+        assert legacy["decision"] == "FAIL"
+        assert legacy["passed"] is False

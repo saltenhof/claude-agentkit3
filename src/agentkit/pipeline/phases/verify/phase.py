@@ -106,7 +106,7 @@ class VerifyPhaseHandler:
 
         # Persist verify-decision.json for audit trail
         self._write_decision(s_dir, result)
-        artifacts = (*artifacts, "verify-decision.json")
+        artifacts = (*artifacts, "verify-decision.json", "decision.json")
 
         if result.decision.passed:
             logger.info(
@@ -218,6 +218,17 @@ class VerifyPhaseHandler:
         atomic_write_text(
             decision_path,
             json.dumps(decision_data, indent=2, default=str),
+        )
+        legacy_decision_path = story_dir / "decision.json"
+        legacy_decision_data = {
+            "decision": decision.status,
+            "passed": decision.passed,
+            "summary": decision.summary,
+            "attempt_nr": cycle_result.attempt_nr,
+        }
+        atomic_write_text(
+            legacy_decision_path,
+            json.dumps(legacy_decision_data, indent=2, default=str),
         )
 
     def on_exit(self, ctx: StoryContext, state: PhaseState) -> None:
