@@ -147,6 +147,15 @@ class VerifyPhaseHandler:
         decision_data: dict[str, object] = {
             "passed": decision.passed,
             "status": decision.status,
+            "layers": [
+                {
+                    "layer": layer_result.layer,
+                    "passed": layer_result.passed,
+                    "findings_count": len(layer_result.findings),
+                    "metadata": layer_result.metadata,
+                }
+                for layer_result in decision.layer_results
+            ],
             "blocking_findings": [
                 {
                     "layer": f.layer,

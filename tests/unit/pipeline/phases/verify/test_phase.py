@@ -165,8 +165,23 @@ class TestVerifyPhaseHandler:
         assert data["passed"] is True
         assert data["status"] == "PASS"
         assert "summary" in data
+        assert isinstance(data["layers"], list)
         assert isinstance(data["blocking_findings"], list)
         assert isinstance(data["all_findings_count"], int)
+        semantic = next(
+            layer for layer in data["layers"] if layer["layer"] == "semantic"
+        )
+        adversarial = next(
+            layer for layer in data["layers"] if layer["layer"] == "adversarial"
+        )
+        assert semantic["metadata"]["prompt_audit"] == {
+            "status": "skipped",
+            "reason": "project_root_unavailable",
+        }
+        assert adversarial["metadata"]["prompt_audit"] == {
+            "status": "skipped",
+            "reason": "project_root_unavailable",
+        }
 
     def test_verify_decision_json_written_on_fail(self, tmp_path: Path) -> None:
         config = VerifyConfig(story_dir=tmp_path)
@@ -184,4 +199,5 @@ class TestVerifyPhaseHandler:
         data = json.loads(decision_path.read_text(encoding="utf-8"))
         assert data["passed"] is False
         assert data["status"] == "FAIL"
+        assert isinstance(data["layers"], list)
         assert len(data["blocking_findings"]) > 0
