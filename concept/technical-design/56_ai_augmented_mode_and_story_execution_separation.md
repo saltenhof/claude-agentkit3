@@ -10,6 +10,9 @@ authority_over:
   - scope: run-binding
   - scope: baseline-vs-story-governance
 defers_to:
+  - target: FK-59
+    scope: story-contract-classification
+    reason: operating_mode wird dort explizit als abgeleitete Laufzeitachse eingeordnet
   - target: FK-30
     scope: hook-enforcement
     reason: Betriebsmodi werden technisch ueber Hooks und Run-Bindung wirksam
@@ -29,11 +32,12 @@ formal_refs:
   - formal.operating-modes.scenarios
   - formal.story-exit.state-machine
   - formal.story-exit.invariants
+  - formal.story-contracts.invariants
 ---
 
 # 56 — Betriebsmodi — AI-Augmented und Story-Execution sauber getrennt
 
-<!-- PROSE-FORMAL: formal.operating-modes.entities, formal.operating-modes.state-machine, formal.operating-modes.commands, formal.operating-modes.events, formal.operating-modes.invariants, formal.operating-modes.scenarios, formal.story-exit.state-machine, formal.story-exit.invariants -->
+<!-- PROSE-FORMAL: formal.operating-modes.entities, formal.operating-modes.state-machine, formal.operating-modes.commands, formal.operating-modes.events, formal.operating-modes.invariants, formal.operating-modes.scenarios, formal.story-exit.state-machine, formal.story-exit.invariants, formal.story-contracts.invariants -->
 
 ## 56.1 Zweck
 
@@ -49,6 +53,11 @@ AgentKit begleitet ein Projekt in zwei grundverschiedenen Betriebsarten:
 
 Dieses Kapitel zieht die Trennung normativ und technisch so scharf, dass
 freie Arbeit nicht versehentlich als Story-Ausfuehrung behandelt wird.
+
+**Grenze dieses Kapitels:** Der Modus `ai_augmented` wird hier nur als
+Abwesenheit von Story-Execution-Regime beschrieben. Die konkrete
+inhaltliche Arbeitsweise des Menschen in diesem freien Modus wird durch
+AgentKit nicht weiter fachlich ausmodelliert.
 
 ## 56.2 Grundregel
 
@@ -76,6 +85,19 @@ Es bleiben nur die immer-aktiven Basisschutzregeln und CCAG.
 **Klarstellung:** Systemische Integrations- und Stabilisierungslagen
 gemäss FK-57 erzeugen **keinen dritten Betriebsmodus**. Sie bleiben ein
 Spezialvertrag innerhalb von `story_execution`.
+
+### 56.3a `operating_mode` ist keine Story-Hauptklassifikation
+
+`operating_mode` wird nicht als kanonisches Story-Hauptfeld gefuehrt.
+
+Er ist:
+
+- session- und run-gebunden
+- aus Lock, Bindung und Worktree-Konsistenz abgeleitet
+- fachlich getrennt von `story_type` und `implementation_contract`
+
+Damit darf ein stale oder verloren gegangener Session-Zustand nicht als
+vermeintlich persistente Story-Semantik weiterleben.
 
 ## 56.4 Principals im Moduskontext
 

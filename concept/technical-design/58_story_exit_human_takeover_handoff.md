@@ -10,6 +10,9 @@ authority_over:
   - scope: human-takeover-handoff
   - scope: lightweight-exit-approval
 defers_to:
+  - target: FK-59
+    scope: story-contract-classification
+    reason: exit_class ist dort als untergeordnete Ergebnisachse unter Cancelled konsolidiert
   - target: FK-56
     scope: operating-modes
     reason: Der Exit fuehrt kontrolliert von story_execution nach ai_augmented
@@ -27,6 +30,8 @@ superseded_by:
 tags: [story-exit, human-takeover, ai-augmented, lightweight-approval, handoff]
 prose_anchor_policy: strict
 formal_refs:
+  - formal.story-contracts.state-machine
+  - formal.story-contracts.invariants
   - formal.story-exit.entities
   - formal.story-exit.state-machine
   - formal.story-exit.commands
@@ -37,7 +42,7 @@ formal_refs:
 
 # 58 — Story-Exit und Human-Takeover-Handoff
 
-<!-- PROSE-FORMAL: formal.story-exit.entities, formal.story-exit.state-machine, formal.story-exit.commands, formal.story-exit.events, formal.story-exit.invariants, formal.story-exit.scenarios -->
+<!-- PROSE-FORMAL: formal.story-contracts.state-machine, formal.story-contracts.invariants, formal.story-exit.entities, formal.story-exit.state-machine, formal.story-exit.commands, formal.story-exit.events, formal.story-exit.invariants, formal.story-exit.scenarios -->
 
 ## 58.1 Zweck
 
@@ -78,7 +83,7 @@ Er ist der kontrollierte Uebergang von:
 nach:
 
 - administrativ beendetem Story-Run
-- anschliessend freiem, menschlich gefuehrtem `ai_augmented`
+- anschliessend freiem `ai_augmented`
 
 ## 58.3 Wann der Exit zulaessig ist
 
@@ -143,6 +148,8 @@ Nach erfolgreichem Story-Exit gilt:
 1. der aktive Story-Run ist terminal und nicht resumable
 2. die Story wird administrativ `Cancelled`
 3. zusaetzlich wird ein `exit_class=viability_handoff` dokumentiert
+   - als Exit-Unterklasse unter `Cancelled`
+   - nicht als freie Story-Hauptklassifikation
 4. Story-Locks, Session-Bindung und storybezogene Guard-Regime werden
    geloest
 5. die Session faellt erst danach kontrolliert auf `ai_augmented`
@@ -191,11 +198,13 @@ Dann gilt:
 - kein Story-Execution-Regime mehr
 - kein Integrity-Gate fuer diesen beendeten Story-Run
 - keine Story-Closure-Pflichten
-- freie, menschlich gefuehrte Agent-Arbeit innerhalb der allgemeinen
-  Basisschutzregeln
+- der weitere Arbeitsmodus liegt nicht mehr im fachlich geregelten
+  Story-Vertrag von AgentKit
 
-Wenn der Mensch danach fallbezogene Mandate braucht, duerfen diese
-leichtgewichtig und ausserhalb des Story-Vertrags gegeben werden.
+**Explizite Grenze:** AK3 regelt an dieser Stelle nur den sauberen
+Exit aus `story_execution`. Wie der Mensch danach im freien
+`ai_augmented`-Modus mit Agents arbeitet, gehoert nicht mehr zu diesem
+Konzeptvertrag.
 
 ## 58.10 Exit-Gate statt Closure
 

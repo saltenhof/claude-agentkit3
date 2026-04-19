@@ -95,6 +95,7 @@ Anforderungen.
 | `56_ai_augmented_mode_and_story_execution_separation.md` | Betriebsmodi, explizite Run-Bindung, freier AI-Augmented-Modus vs. Story-Execution-Regime |
 | `57_integration_stabilization_contract.md` | Integrationsstabilisierung fuer breite E2E-/Systemstories, Manifest, Budget, Stability-Gate, kontrollierte Cross-Scope-Arbeit |
 | `58_story_exit_human_takeover_handoff.md` | Leichtgewichtiger offizieller Exit aus Story-Execution in menschlich gefuehrten AI-Augmented-Modus bei grossen Loesungsvorschlagsfaellen |
+| `59_story_contract_axes_and_combination_matrix.md` | Konsolidierte Vertragsachsen, gueltige/ungueltige Kombinationen, Trennung von Story-Vertrag, Laufzeitableitung und Ergebnisachsen |
 
 ## 7. Referenzanhänge
 

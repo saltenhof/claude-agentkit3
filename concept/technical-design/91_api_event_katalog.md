@@ -59,6 +59,7 @@ formal_refs:
   - formal.integration-stabilization.events
   - formal.story-exit.commands
   - formal.story-exit.events
+  - formal.story-contracts.events
 ---
 
 # 91 — API- und Event-Katalog
@@ -103,7 +104,7 @@ formal_refs:
 
 ## 91.2 Telemetrie-Event-Typen
 
-<!-- PROSE-FORMAL: formal.installer.events, formal.deterministic-checks.events, formal.guard-system.events, formal.conformance.events, formal.llm-evaluations.events, formal.integrity-gate.events, formal.governance-observation.events, formal.escalation.events, formal.setup-preflight.events, formal.verify.events, formal.exploration.events, formal.story-creation.events, formal.dependency-rebinding.events, formal.story-closure.events, formal.story-workflow.events, formal.story-split.events, formal.story-reset.state-machine, formal.story-reset.events, formal.principal-capabilities.events, formal.operating-modes.events, formal.state-storage.events, formal.telemetry-analytics.events, formal.integration-stabilization.events, formal.story-exit.events -->
+<!-- PROSE-FORMAL: formal.installer.events, formal.deterministic-checks.events, formal.guard-system.events, formal.conformance.events, formal.llm-evaluations.events, formal.integrity-gate.events, formal.governance-observation.events, formal.escalation.events, formal.setup-preflight.events, formal.verify.events, formal.exploration.events, formal.story-creation.events, formal.dependency-rebinding.events, formal.story-closure.events, formal.story-workflow.events, formal.story-split.events, formal.story-reset.state-machine, formal.story-reset.events, formal.principal-capabilities.events, formal.operating-modes.events, formal.state-storage.events, formal.telemetry-analytics.events, formal.integration-stabilization.events, formal.story-exit.events, formal.story-contracts.events -->
 
 | Event-Typ | Kapitel | Quelle | Beschreibung |
 |-----------|---------|--------|-------------|
@@ -176,7 +177,12 @@ formal_refs:
 | `session_run_binding_removed` | 56 | Closure / Cleanup / Reset / Split | Session-Bindung an einen Story-Run geloest |
 | `story_execution_regime_activated` | 56 | Setup / Runtime | Storygebundene Guards und Workflow-Pflichten sind aktiv |
 | `story_execution_regime_deactivated` | 56 | Closure / Cleanup / Reset / Split | Session faellt auf freien AI-Augmented-Modus zurueck |
-| `mode_fallback_triggered` | 56 | GuardSystem | Inkonsistenter Lock-/Bindungszustand wurde fail-closed auf `ai_augmented` zurueckgesetzt |
+| `binding_invalid_detected` | 56 | GuardSystem | Inkonsistenter Lock-/Bindungszustand wurde als blockierende inkonsistente Story-Bindung erkannt |
+| `story_contract_classified` | 59 | Setup / Story-Metadata | Persistenter Story-Vertrag aus `story_type` und optionalem `implementation_contract` wurde konsolidiert |
+| `runtime_classification_derived` | 59 | Setup / GuardSystem | Laufzeitklassifikation aus `operating_mode` und `execution_route` wurde abgeleitet |
+| `story_marked_done` | 59 | Closure | Story wurde erfolgreich geliefert und auf `Done` gesetzt |
+| `story_cancelled_administratively` | 59 | Admin-Pfad | Story wurde ueber Split, Exit oder Reset administrativ auf `Cancelled` gesetzt |
+| `invalid_contract_combination_detected` | 59 | Setup / GuardSystem | Ungueltige Vertragskombination oder verbotene Achsenmischung wurde fail-closed erkannt |
 | `integration_manifest_approved` | 57 | CLI / human_cli | Integrations-Scope-Manifest fuer eine systemische E2E-/Stabilisierungsstory freigegeben |
 | `stabilization_campaign_started` | 57 | Pipeline / Verify | Budgetierte Integrations-Stabilisierungsschleife gestartet |
 | `integration_verify_passed` | 57 | Verify / Stability Gate | Integrationszielmatrix und Stability-Gate erfolgreich passiert |

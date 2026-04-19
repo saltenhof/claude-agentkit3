@@ -9,6 +9,9 @@ authority_over:
   - scope: story-types
   - scope: terminality-contract
 defers_to:
+  - target: FK-59
+    scope: story-contract-classification
+    reason: Konsolidierte Vertragsachsen und Kombinationsregeln werden dort normiert
   - target: FK-23
     scope: mode-routing
     reason: Modusermittlung und Exploration-Phase in FK-23 beschrieben
@@ -20,6 +23,9 @@ superseded_by:
 tags: [story-types, terminality, delivery-contract, exploration-guard, fail-closed]
 prose_anchor_policy: strict
 formal_refs:
+  - formal.story-contracts.entities
+  - formal.story-contracts.invariants
+  - formal.story-contracts.scenarios
   - formal.story-workflow.state-machine
   - formal.story-workflow.scenarios
   - formal.integration-stabilization.entities
@@ -28,7 +34,7 @@ formal_refs:
 
 # 24 — Story Type, Mode und Terminalitaet
 
-<!-- PROSE-FORMAL: formal.story-workflow.state-machine, formal.story-workflow.scenarios, formal.integration-stabilization.entities, formal.integration-stabilization.invariants -->
+<!-- PROSE-FORMAL: formal.story-contracts.entities, formal.story-contracts.invariants, formal.story-contracts.scenarios, formal.story-workflow.state-machine, formal.story-workflow.scenarios, formal.integration-stabilization.entities, formal.integration-stabilization.invariants -->
 
 ## 24.1 Ziel
 
@@ -94,13 +100,23 @@ Die Pflichten sind:
 
 ### 24.3.2 `mode` ist kein fachlicher Ersatz fuer `story_type`
 
-`mode` beschreibt nur den Laufweg:
+Der historisch als `mode` bezeichnete Wert beschreibt nur den
+Intra-Run-Laufweg. Im konsolidierten Vertragsmodell aus FK-59 ist damit
+fachlich die Achse **`execution_route`** gemeint.
+
+Er beschreibt nur den Laufweg:
 
 - `execution`
 - `exploration`
 - `None` fuer nicht-implementierende Storys
 
-`mode` darf die fachliche Lieferpflicht des Story Types **nie** abschwaechen.
+Dieser Laufweg darf nie mit `operating_mode` aus FK-56 verwechselt
+werden. `operating_mode` trennt `ai_augmented` und `story_execution`,
+waehrend `mode`/`execution_route` nur den Pfad **innerhalb** eines
+gebundenen Story-Runs bezeichnet.
+
+`mode` bzw. `execution_route` darf die fachliche Lieferpflicht des Story
+Types **nie** abschwaechen.
 
 Insbesondere gilt:
 

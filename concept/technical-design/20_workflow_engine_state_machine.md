@@ -544,7 +544,7 @@ Uppercase (`POST_IMPLEMENTATION`, `POST_REMEDIATION`).
 | `run_id` | String (UUID) | Eindeutige ID des aktuellen Pipeline-Durchlaufs |
 | `phase` | Enum | Aktuelle Phase: setup, exploration, implementation, verify, closure |
 | `status` | Enum | IN_PROGRESS, COMPLETED, FAILED, ESCALATED, PAUSED |
-| `mode` | Enum | execution, exploration (nach Mode-Routing gesetzt). Für Concept/Research-Stories immer `"execution"` — diese Story-Typen unterstützen keinen Exploration Mode; der Phase Runner setzt `mode = "execution"` ohne Mode-Routing-Prüfung. |
+| `mode` | Enum | execution, exploration (nach Mode-Routing gesetzt). Fachlich ist dies die Achse `execution_route` gemaess FK-59, **nicht** `operating_mode`. Für Concept/Research-Stories immer `"execution"` — diese Story-Typen unterstützen keinen Exploration Mode; der Phase Runner setzt `mode = "execution"` ohne Mode-Routing-Prüfung. |
 | `story_type` | Enum | implementation, bugfix, concept, research |
 | `attempt` | Integer | Aktueller Durchlauf (beginnt bei 1) |
 | `started_at` | ISO-8601 | Zeitstempel des Pipeline-Starts |
@@ -556,7 +556,7 @@ Uppercase (`POST_IMPLEMENTATION`, `POST_REMEDIATION`).
 | `warnings` | Array | Warnungen des aktuellen Durchlaufs |
 | `producer` | Object | Identifikation des schreibenden Prozesses |
 
-> [Hinweis 2026-04-09: mode und story_type sind in StoryContext (context.json) die primäre Quelle (Element 16). PhaseStateCore enthält sie als denormalisierte Kopie — der Phase Runner liest sie aus phase-state.json ohne separaten context.json-Load. Keine inhaltliche Abweichung von Element 16.]
+> [Hinweis 2026-04-09, konsolidiert 2026-04-19: `mode` und `story_type` sind in StoryContext (context.json) die primäre Quelle (Element 16). `mode` ist dabei nur der Wire-Name fuer die fachliche Achse `execution_route` gemaess FK-59. PhaseStateCore enthält sie als denormalisierte Kopie — der Phase Runner liest sie aus phase-state.json ohne separaten context.json-Load. Keine inhaltliche Abweichung von Element 16.]
 
 > **[Entscheidung 2026-04-09]** Die Felder `feedback_rounds`, `max_feedback_rounds`, `exploration_gate_status`, `verify_context`, `verify_layer`, `closure_substates` aus der v2-Tabelle entfallen aus dem flachen `PhaseStateCore`. Sie werden in die neue Schichtstruktur überführt: `ExplorationPayload.gate_status`, `VerifyPayload.verify_context`, `ClosurePayload.progress` (PhasePayload) sowie `PhaseMemory.verify.feedback_rounds`, `PhaseMemory.exploration.review_rounds` (PhaseMemory). Siehe §20.3.3, §20.3.7. [Hinweis: §20.3.5 existiert nicht als separater Abschnitt — PhasePayload ist in §20.3.2 (Feldtabelle) und §20.3.3 (PhaseEnvelope/Python-Definitionen) dokumentiert.]
 

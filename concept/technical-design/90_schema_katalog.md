@@ -19,11 +19,13 @@ formal_refs:
   - formal.principal-capabilities.invariants
   - formal.integration-stabilization.entities
   - formal.story-exit.entities
+  - formal.story-contracts.entities
+  - formal.story-contracts.invariants
 ---
 
 # 90 — Schema-Katalog
 
-<!-- PROSE-FORMAL: formal.state-storage.entities, formal.state-storage.invariants, formal.principal-capabilities.entities, formal.principal-capabilities.invariants, formal.integration-stabilization.entities, formal.story-exit.entities -->
+<!-- PROSE-FORMAL: formal.state-storage.entities, formal.state-storage.invariants, formal.principal-capabilities.entities, formal.principal-capabilities.invariants, formal.integration-stabilization.entities, formal.story-exit.entities, formal.story-contracts.entities, formal.story-contracts.invariants -->
 
 ## 90.1 Übersicht
 
@@ -33,6 +35,14 @@ Detaillierte Felddefinitionen stehen im jeweiligen Owning-Chapter.
 Der relationale PostgreSQL-State gehoert bewusst nicht in diesen
 JSON-Schema-Katalog. Fuer den kanonischen Speicherschnitt sind FK-18
 und `formal.state-storage.*` maßgeblich.
+
+Konsolidierte Vertragsregel gemaess FK-59:
+
+- `story_type` und `implementation_contract` sind kanonische
+  Story-Vertragsfelder
+- `operating_mode` ist **kein** kanonisches Story-Hauptfeld
+- `exit_class` ist **kein** freies Story-Hauptfeld, sondern nur in
+  offiziellen Exit-/Split-/Reset-Records zulaessig
 
 | Schema | Datei | Owning Chapter | Beschreibung |
 |--------|-------|---------------|-------------|

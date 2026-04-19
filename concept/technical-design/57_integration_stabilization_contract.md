@@ -11,6 +11,9 @@ authority_over:
   - scope: stabilization-budget
   - scope: stability-gate
 defers_to:
+  - target: FK-59
+    scope: story-contract-classification
+    reason: implementation_contract wird dort als zweite persistente Vertragsachse konsolidiert
   - target: FK-24
     scope: story-type-contract
     reason: Story-Typ und Lieferpflicht bleiben dort kanonisch
@@ -37,11 +40,12 @@ formal_refs:
   - formal.integration-stabilization.events
   - formal.integration-stabilization.invariants
   - formal.integration-stabilization.scenarios
+  - formal.story-contracts.invariants
 ---
 
 # 57 — Integrationsstabilisierung und systemischer E2E-Vertrag
 
-<!-- PROSE-FORMAL: formal.integration-stabilization.entities, formal.integration-stabilization.state-machine, formal.integration-stabilization.commands, formal.integration-stabilization.events, formal.integration-stabilization.invariants, formal.integration-stabilization.scenarios -->
+<!-- PROSE-FORMAL: formal.integration-stabilization.entities, formal.integration-stabilization.state-machine, formal.integration-stabilization.commands, formal.integration-stabilization.events, formal.integration-stabilization.invariants, formal.integration-stabilization.scenarios, formal.story-contracts.invariants -->
 
 ## 57.1 Zweck
 
@@ -79,6 +83,11 @@ Stattdessen gilt:
 Der Story-Typ bleibt also der Liefervertragstyp.
 `implementation_contract` praezisiert den **Ausfuehrungsvertrag**
 innerhalb dieses Typs.
+
+Im konsolidierten Vertragsmodell gemaess FK-59 ist
+`implementation_contract` damit genau die zweite persistente
+Vertragsachse neben `story_type` und gerade **keine** freie
+Metadaten-Erweiterung.
 
 ## 57.3 Abgrenzung
 

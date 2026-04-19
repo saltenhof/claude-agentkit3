@@ -82,6 +82,16 @@ Pipeline mit allen Guards, QA-Stufen und Gates. Konzept- und
 Research-Stories produzieren Dokumente statt Code und durchlaufen einen
 deutlich leichtgewichtigeren Pfad, der die meisten Gates umgeht.
 
+Die konsolidierte Einordnung der Vertragsachsen liegt dabei nicht in
+diesem Kapitel, sondern in FK-59:
+
+- `story_type` und `implementation_contract` sind persistente
+  Vertragsachsen
+- `operating_mode` ist ein abgeleiteter Session-/Run-Zustand
+- `mode` im gebundenen Story-Lauf bezeichnet fachlich nur den
+  Intra-Run-Pfad (`execution_route`)
+- `exit_class` ist nur unter `Cancelled` zulaessig
+
 ### 2.1 Story-Erstellung
 
 Die Qualität der Umsetzung beginnt bei der Qualität der Story. Viele

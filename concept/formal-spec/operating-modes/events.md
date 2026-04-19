@@ -32,7 +32,7 @@ events:
     role: governance
   - id: operating-modes.event.story_execution_regime_deactivated
     role: governance
-  - id: operating-modes.event.mode_fallback_triggered
+  - id: operating-modes.event.binding_invalid_detected
     role: audit
 ```
 <!-- FORMAL-SPEC:END -->
