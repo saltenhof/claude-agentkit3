@@ -25,6 +25,14 @@
     "worker-remediation": {
       "relpath": "internal/prompts/worker-remediation.md",
       "sha256": "c35efa3eeb99a7d08695f3d16b75e9a506ed91901a1c0b2a2df8cc06740aca54"
+    },
+    "qa-semantic-review": {
+      "relpath": "internal/prompts/qa-semantic-review.md",
+      "sha256": "4ca3ec68b3d03adc836dd9bba69e496f23617cff07f0024cebfe7ee95c198c1f"
+    },
+    "qa-adversarial-review": {
+      "relpath": "internal/prompts/qa-adversarial-review.md",
+      "sha256": "99b5c524d4ce8bfed1cd48bd2aec810b1211e67a4537295c679b7c26073b2e58"
     }
   }
 }

@@ -6,9 +6,12 @@ from agentkit.prompt_composer.composer import (
     ComposeConfig,
     ComposedPrompt,
     MaterializedPromptInstance,
+    RenderedPromptArtifact,
+    compose_named_prompt,
     compose_prompt,
     write_prompt,
     write_prompt_instance,
+    write_rendered_prompt_artifact,
 )
 from agentkit.prompt_composer.pins import (
     PromptRunPin,
@@ -42,6 +45,8 @@ __all__ = [
     "ComposeConfig",
     "ComposedPrompt",
     "MaterializedPromptInstance",
+    "RenderedPromptArtifact",
+    "compose_named_prompt",
     "PromptBundleBinding",
     "PromptRunPin",
     "compose_prompt",
@@ -62,6 +67,7 @@ __all__ = [
     "resolve_run_prompt_binding",
     "select_template_name",
     "validate_sentinel",
+    "write_rendered_prompt_artifact",
     "write_prompt",
     "write_prompt_instance",
 ]

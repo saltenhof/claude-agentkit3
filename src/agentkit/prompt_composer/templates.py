@@ -13,6 +13,8 @@ def _build_templates() -> dict[str, str]:
         "worker-research",
         "worker-exploration",
         "worker-remediation",
+        "qa-semantic-review",
+        "qa-adversarial-review",
     )
     return {name: load_prompt_template(name) for name in names}
 

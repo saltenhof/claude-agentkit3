@@ -11,8 +11,8 @@ class TestTemplateRegistry:
     """Tests for the TEMPLATES registry."""
 
     def test_registry_has_at_least_six_entries(self) -> None:
-        """TEMPLATES dict must contain at least 6 templates."""
-        assert len(TEMPLATES) >= 6
+        """TEMPLATES dict must contain at least 8 templates."""
+        assert len(TEMPLATES) >= 8
 
     @pytest.mark.parametrize(
         "name",
@@ -23,6 +23,8 @@ class TestTemplateRegistry:
             "worker-research",
             "worker-exploration",
             "worker-remediation",
+            "qa-semantic-review",
+            "qa-adversarial-review",
         ],
     )
     def test_expected_template_exists(self, name: str) -> None:

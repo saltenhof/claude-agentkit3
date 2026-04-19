@@ -36,16 +36,31 @@ class ComposedPrompt:
     prompt_bundle_id: str
     prompt_bundle_version: str
     prompt_manifest_sha256: str
+    logical_prompt_id: str
     template_name: str
     template_relpath: str
+    render_mode: str
     template_sha256: str
-    rendered_sha256: str
+    render_input_digest: str
+    output_sha256: str
     story_id: str
     sentinel: str
+
+    @property
+    def rendered_sha256(self) -> str:
+        """Compatibility alias for the historic output digest field."""
+
+        return self.output_sha256
 
 
 @dataclass(frozen=True)
 class MaterializedPromptInstance:
+    prompt_path: Path
+    manifest_path: Path
+
+
+@dataclass(frozen=True)
+class RenderedPromptArtifact:
     prompt_path: Path
     manifest_path: Path
 
@@ -63,6 +78,16 @@ class ComposeConfig:
         """Semantic alias for the historic ``mode`` configuration field."""
 
         return self.mode
+
+
+@dataclass(frozen=True)
+class _ResolvedPromptSource:
+    binding_bundle_id: str
+    binding_bundle_version: str
+    binding_manifest_sha256: str
+    template_text: str
+    template_relpath: str
+    template_sha256: str
 
 
 def _build_placeholder_map(
@@ -84,18 +109,23 @@ def _build_placeholder_map(
     }
 
 
-def compose_prompt(
-    ctx: StoryContext,
-    config: ComposeConfig,
+def _logical_prompt_id(template_name: str) -> str:
+    return f"prompt.{template_name}"
+
+
+def _render_input_digest(placeholders: dict[str, str]) -> str:
+    return hashlib.sha256(
+        json.dumps(placeholders, sort_keys=True).encode("utf-8"),
+    ).hexdigest()
+
+
+def _resolve_prompt_source(
     *,
-    run_id: str | None = None,
-) -> ComposedPrompt:
-    template_name = select_template_name(
-        story_type=config.story_type,
-        execution_route=config.execution_route,
-        spawn_reason=config.spawn_reason,
-    )
-    project_root = ctx.project_root
+    template_name: str,
+    project_root: Path | None,
+    story_id: str,
+    run_id: str | None,
+) -> _ResolvedPromptSource:
     if project_root is None:
         binding = resolve_bootstrap_prompt_binding()
         template = load_prompt_template(template_name)
@@ -103,12 +133,44 @@ def compose_prompt(
         if run_id is None:
             raise ProjectError(
                 "Prompt composition for a project-bound run requires run_id",
-                detail={"story_id": ctx.story_id},
+                detail={"story_id": story_id},
             )
         binding = resolve_run_prompt_binding(project_root, run_id)
         template = load_prompt_template(template_name, project_root=project_root)
+
+    return _ResolvedPromptSource(
+        binding_bundle_id=binding.bundle_id,
+        binding_bundle_version=binding.bundle_version,
+        binding_manifest_sha256=binding.manifest_sha256,
+        template_text=template,
+        template_relpath=prompt_template_relpath(
+            template_name,
+            project_root=project_root,
+        ),
+        template_sha256=prompt_template_sha256(
+            template_name,
+            project_root=project_root,
+        ),
+    )
+
+
+def compose_named_prompt(
+    ctx: StoryContext,
+    template_name: str,
+    config: ComposeConfig,
+    *,
+    run_id: str | None = None,
+) -> ComposedPrompt:
+    project_root = ctx.project_root
+    source = _resolve_prompt_source(
+        template_name=template_name,
+        project_root=project_root,
+        story_id=ctx.story_id,
+        run_id=run_id,
+    )
     placeholders = _build_placeholder_map(ctx, config)
-    content = template.format_map(placeholders)
+    render_input_digest = _render_input_digest(placeholders)
+    content = source.template_text.format_map(placeholders)
 
     sentinel_data = extract_sentinel(content)
     if sentinel_data is None:
@@ -123,27 +185,43 @@ def compose_prompt(
         f"-v{sentinel_data['version']}"
         f":{sentinel_data['story_id']}]"
     )
-    rendered_sha256 = hashlib.sha256(
+    output_sha256 = hashlib.sha256(
         content.encode("utf-8"),
     ).hexdigest()
 
     return ComposedPrompt(
         content=content,
-        prompt_bundle_id=binding.bundle_id,
-        prompt_bundle_version=binding.bundle_version,
-        prompt_manifest_sha256=binding.manifest_sha256,
+        prompt_bundle_id=source.binding_bundle_id,
+        prompt_bundle_version=source.binding_bundle_version,
+        prompt_manifest_sha256=source.binding_manifest_sha256,
+        logical_prompt_id=_logical_prompt_id(template_name),
         template_name=template_name,
-        template_relpath=prompt_template_relpath(
-            template_name,
-            project_root=project_root,
-        ),
-        template_sha256=prompt_template_sha256(
-            template_name,
-            project_root=project_root,
-        ),
-        rendered_sha256=rendered_sha256,
+        template_relpath=source.template_relpath,
+        render_mode="rendered",
+        template_sha256=source.template_sha256,
+        render_input_digest=render_input_digest,
+        output_sha256=output_sha256,
         story_id=ctx.story_id,
         sentinel=sentinel,
+    )
+
+
+def compose_prompt(
+    ctx: StoryContext,
+    config: ComposeConfig,
+    *,
+    run_id: str | None = None,
+) -> ComposedPrompt:
+    template_name = select_template_name(
+        story_type=config.story_type,
+        execution_route=config.execution_route,
+        spawn_reason=config.spawn_reason,
+    )
+    return compose_named_prompt(
+        ctx,
+        template_name,
+        config,
+        run_id=run_id,
     )
 
 
@@ -206,10 +284,16 @@ def write_prompt_instance(
                 "prompt_bundle_id": prompt.prompt_bundle_id,
                 "prompt_bundle_version": prompt.prompt_bundle_version,
                 "prompt_manifest_sha256": prompt.prompt_manifest_sha256,
+                "prompt_instance_id": invocation_id,
+                "logical_prompt_id": prompt.logical_prompt_id,
                 "template_name": prompt.template_name,
                 "template_relpath": prompt.template_relpath,
+                "render_mode": prompt.render_mode,
                 "template_sha256": prompt.template_sha256,
-                "rendered_sha256": prompt.rendered_sha256,
+                "render_input_digest": prompt.render_input_digest,
+                "output_sha256": prompt.output_sha256,
+                "rendered_sha256": prompt.output_sha256,
+                "artifact_path": prompt_path.relative_to(project_root).as_posix(),
                 "prompt_file": "prompt.md",
             },
             indent=2,
@@ -222,11 +306,83 @@ def write_prompt_instance(
         manifest_path=manifest_path,
     )
 
+
+def write_rendered_prompt_artifact(
+    prompt: ComposedPrompt,
+    project_root: Path,
+    *,
+    run_id: str,
+    invocation_id: str,
+    artifact_name: str = "rendered-prompt.md",
+) -> RenderedPromptArtifact:
+    """Write a run-scoped rendered prompt artifact for non-agent consumers."""
+
+    output_dir = prompt_instance_dir(project_root, run_id, invocation_id)
+    initialize_prompt_run_pin(project_root, run_id=run_id)
+    binding = resolve_run_prompt_binding(project_root, run_id)
+    if (
+        prompt.prompt_bundle_id != binding.bundle_id
+        or prompt.prompt_bundle_version != binding.bundle_version
+        or prompt.prompt_manifest_sha256 != binding.manifest_sha256
+    ):
+        raise ProjectError(
+            "Rendered prompt metadata does not match the active run pin",
+            detail={
+                "run_id": run_id,
+                "expected": {
+                    "prompt_bundle_id": binding.bundle_id,
+                    "prompt_bundle_version": binding.bundle_version,
+                    "prompt_manifest_sha256": binding.manifest_sha256,
+                },
+                "actual": {
+                    "prompt_bundle_id": prompt.prompt_bundle_id,
+                    "prompt_bundle_version": prompt.prompt_bundle_version,
+                    "prompt_manifest_sha256": prompt.prompt_manifest_sha256,
+                },
+            },
+        )
+    prompt_path = output_dir / artifact_name
+    manifest_path = output_dir / "rendered-manifest.json"
+    atomic_write_text(prompt_path, prompt.content)
+    atomic_write_text(
+        manifest_path,
+        json.dumps(
+            {
+                "run_id": run_id,
+                "invocation_id": invocation_id,
+                "prompt_instance_id": invocation_id,
+                "story_id": prompt.story_id,
+                "artifact_kind": "rendered_prompt",
+                "prompt_bundle_id": prompt.prompt_bundle_id,
+                "prompt_bundle_version": prompt.prompt_bundle_version,
+                "prompt_manifest_sha256": prompt.prompt_manifest_sha256,
+                "logical_prompt_id": prompt.logical_prompt_id,
+                "template_name": prompt.template_name,
+                "template_relpath": prompt.template_relpath,
+                "render_mode": prompt.render_mode,
+                "template_sha256": prompt.template_sha256,
+                "render_input_digest": prompt.render_input_digest,
+                "output_sha256": prompt.output_sha256,
+                "artifact_path": prompt_path.relative_to(project_root).as_posix(),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+    )
+    return RenderedPromptArtifact(
+        prompt_path=prompt_path,
+        manifest_path=manifest_path,
+    )
+
 __all__ = [
     "ComposeConfig",
     "ComposedPrompt",
     "MaterializedPromptInstance",
+    "RenderedPromptArtifact",
+    "compose_named_prompt",
     "compose_prompt",
+    "write_rendered_prompt_artifact",
     "write_prompt",
     "write_prompt_instance",
 ]

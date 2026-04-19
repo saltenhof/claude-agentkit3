@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from agentkit.qa.prompt_audit import materialize_qa_prompt_audit
 from agentkit.qa.protocols import LayerResult
 
 if TYPE_CHECKING:
@@ -46,4 +47,15 @@ class SemanticReviewer:
         Returns:
             LayerResult with ``passed=True`` and no findings.
         """
-        return LayerResult(layer=self.name, passed=True)
+        return LayerResult(
+            layer=self.name,
+            passed=True,
+            metadata={
+                "prompt_audit": materialize_qa_prompt_audit(
+                    layer_name=self.name,
+                    template_name="qa-semantic-review",
+                    ctx=ctx,
+                    story_dir=story_dir,
+                ),
+            },
+        )

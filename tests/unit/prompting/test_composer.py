@@ -14,6 +14,7 @@ from agentkit.prompt_composer.composer import (
     ComposeConfig,
     ComposedPrompt,
     MaterializedPromptInstance,
+    compose_named_prompt,
     compose_prompt,
     write_prompt,
     write_prompt_instance,
@@ -54,25 +55,37 @@ def _write_project_prompt_binding(project_root: Path) -> None:
         store_root=project_root / "prompt-bundles",
     )
     (bundle_dir / "internal" / "prompts").mkdir(parents=True)
-    template_content = (
-        "# Project Bound Prompt {story_id}\n"
-        "[SENTINEL:worker-implementation-v1:{story_id}]\n"
-    )
-    (bundle_dir / "internal" / "prompts" / "worker-implementation.md").write_text(
-        template_content,
-        encoding="utf-8",
-    )
+    templates = {
+        "worker-implementation": (
+            "# Project Bound Prompt {story_id}\n"
+            "[SENTINEL:worker-implementation-v1:{story_id}]\n"
+        ),
+        "qa-semantic-review": (
+            "# Project Semantic Review {story_id}\n"
+            "[SENTINEL:qa-semantic-review-v1:{story_id}]\n"
+        ),
+        "qa-adversarial-review": (
+            "# Project Adversarial Review {story_id}\n"
+            "[SENTINEL:qa-adversarial-review-v1:{story_id}]\n"
+        ),
+    }
+    for name, template_content in templates.items():
+        (bundle_dir / "internal" / "prompts" / f"{name}.md").write_text(
+            template_content,
+            encoding="utf-8",
+        )
     manifest_text = json.dumps(
         {
             "bundle_id": "project-bound",
             "bundle_version": "99",
             "templates": {
-                "worker-implementation": {
-                    "relpath": "internal/prompts/worker-implementation.md",
+                name: {
+                    "relpath": f"internal/prompts/{name}.md",
                     "sha256": sha256(
                         template_content.encode("utf-8"),
                     ).hexdigest(),
-                },
+                }
+                for name, template_content in templates.items()
             },
         },
     )
@@ -90,12 +103,13 @@ def _write_project_prompt_binding(project_root: Path) -> None:
                     manifest_text.encode("utf-8"),
                 ).hexdigest(),
                 "templates": {
-                    "worker-implementation": {
-                        "relpath": "internal/prompts/worker-implementation.md",
+                    name: {
+                        "relpath": f"internal/prompts/{name}.md",
                         "sha256": sha256(
                             template_content.encode("utf-8"),
                         ).hexdigest(),
-                    },
+                    }
+                    for name, template_content in templates.items()
                 },
             },
         ),
@@ -152,10 +166,14 @@ class TestComposePrompt:
         assert result.prompt_bundle_id == "internal-bootstrap-prompts"
         assert result.prompt_bundle_version == "1"
         assert len(result.prompt_manifest_sha256) == 64
+        assert result.logical_prompt_id == "prompt.worker-implementation"
         assert result.template_name == "worker-implementation"
         assert result.template_relpath == "internal/prompts/worker-implementation.md"
+        assert result.render_mode == "rendered"
         assert len(result.template_sha256) == 64
-        assert len(result.rendered_sha256) == 64
+        assert len(result.render_input_digest) == 64
+        assert len(result.output_sha256) == 64
+        assert result.rendered_sha256 == result.output_sha256
         assert result.story_id == "AG3-001"
         assert "SENTINEL" in result.sentinel
 
@@ -269,6 +287,16 @@ class TestComposePrompt:
         assert result.template_name == "worker-research"
         assert "Recherchiere" in result.content
 
+    def test_compose_named_prompt_supports_review_templates(self) -> None:
+        ctx = _make_context()
+        config = ComposeConfig(story_type=StoryType.IMPLEMENTATION)
+
+        result = compose_named_prompt(ctx, "qa-semantic-review", config)
+
+        assert result.logical_prompt_id == "prompt.qa-semantic-review"
+        assert result.template_name == "qa-semantic-review"
+        assert "Semantic Review AG3-001" in result.content
+
 
 class TestWritePrompt:
     """Tests for write_prompt()."""
@@ -373,16 +401,24 @@ class TestWritePrompt:
         )
         assert manifest["run_id"] == "run-123"
         assert manifest["invocation_id"] == "invoke-001"
+        assert manifest["prompt_instance_id"] == "invoke-001"
         assert manifest["prompt_bundle_id"] == "project-bound"
         assert manifest["prompt_bundle_version"] == "99"
         assert manifest["prompt_manifest_sha256"] == prompt.prompt_manifest_sha256
+        assert manifest["logical_prompt_id"] == "prompt.worker-implementation"
         assert manifest["template_name"] == "worker-implementation"
         assert (
             manifest["template_relpath"]
             == "internal/prompts/worker-implementation.md"
         )
+        assert manifest["render_mode"] == "rendered"
         assert manifest["template_sha256"] == prompt.template_sha256
+        assert manifest["render_input_digest"] == prompt.render_input_digest
+        assert manifest["output_sha256"] == prompt.output_sha256
         assert manifest["rendered_sha256"] == prompt.rendered_sha256
+        assert manifest["artifact_path"] == (
+            ".agentkit/prompts/run-123/invoke-001/prompt.md"
+        )
         pin_path = (
             tmp_path
             / ".agentkit"
@@ -408,10 +444,13 @@ class TestWritePrompt:
             prompt_bundle_id="other-bundle",
             prompt_bundle_version=prompt.prompt_bundle_version,
             prompt_manifest_sha256=prompt.prompt_manifest_sha256,
+            logical_prompt_id=prompt.logical_prompt_id,
             template_name=prompt.template_name,
             template_relpath=prompt.template_relpath,
+            render_mode=prompt.render_mode,
             template_sha256=prompt.template_sha256,
-            rendered_sha256=prompt.rendered_sha256,
+            render_input_digest=prompt.render_input_digest,
+            output_sha256=prompt.output_sha256,
             story_id=prompt.story_id,
             sentinel=prompt.sentinel,
         )

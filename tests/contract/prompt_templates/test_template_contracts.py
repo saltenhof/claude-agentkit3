@@ -80,6 +80,8 @@ class TestTemplateContracts:
             "worker-research",
             "worker-exploration",
             "worker-remediation",
+            "qa-semantic-review",
+            "qa-adversarial-review",
         }
         actual = set(TEMPLATES.keys())
         missing = required - actual
