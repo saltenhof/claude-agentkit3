@@ -11,6 +11,7 @@ defers_to: []
 supersedes: []
 superseded_by:
 tags: [roles, llm-selection, context-management, multi-llm, orchestrator]
+formal_scope: prose-only
 ---
 
 # 01 — Spezialisierte Rollen und LLM-Einsatz

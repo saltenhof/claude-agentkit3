@@ -17,6 +17,7 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [branch-guard, orchestrator-guard, artifact-protection, qa-guard, adversarial-guard]
+prose_anchor_policy: strict
 formal_refs:
   - formal.guard-system.entities
   - formal.guard-system.state-machine
@@ -24,6 +25,12 @@ formal_refs:
   - formal.guard-system.events
   - formal.guard-system.invariants
   - formal.guard-system.scenarios
+  - formal.principal-capabilities.entities
+  - formal.principal-capabilities.state-machine
+  - formal.principal-capabilities.commands
+  - formal.principal-capabilities.events
+  - formal.principal-capabilities.invariants
+  - formal.principal-capabilities.scenarios
   - formal.story-closure.state-machine
   - formal.story-closure.commands
   - formal.story-closure.invariants
@@ -31,6 +38,8 @@ formal_refs:
 ---
 
 # 31 — Branch-Guard, Orchestrator-Guard und Artefaktschutz
+
+<!-- PROSE-FORMAL: formal.guard-system.entities, formal.guard-system.state-machine, formal.guard-system.commands, formal.guard-system.events, formal.guard-system.invariants, formal.guard-system.scenarios, formal.principal-capabilities.entities, formal.principal-capabilities.state-machine, formal.principal-capabilities.commands, formal.principal-capabilities.events, formal.principal-capabilities.invariants, formal.principal-capabilities.scenarios, formal.story-closure.state-machine, formal.story-closure.commands, formal.story-closure.invariants, formal.story-closure.scenarios -->
 
 ## 31.1 Branch-Guard
 
@@ -87,6 +96,25 @@ Ein offizieller `StoryResetService`-Aufruf ist ebenfalls erlaubt,
 weil er als administrativer AgentKit-Kontrollpfad und nicht als freier
 Git-Befehl gilt.
 
+### 31.1.3b Git-Internal-Pfadschutz
+
+Der Branch-Guard darf nicht nur auf Git-Subkommandos reagieren.
+Zusätzlich gilt ein harter Pfadschutz fuer Git-Interna:
+
+- `.git/**`
+- `.git/refs/**`
+- `.git/index`
+- `.git/worktrees/**`
+
+Mutationen an diesen Pfaden bleiben fuer alle nicht privilegierten
+Principals blockiert, auch wenn sie ueber generische Shell- oder
+Dateioperationen erfolgen.
+
+Ein Aufruf gilt dabei nur dann als privilegiert, wenn er mit einem
+Service-Attest aus `pipeline_deterministic`, `admin_service` oder
+`human_cli` kommt. Ein freier Bash-Call mit demselben Kommandostring
+ist weiterhin unprivilegiert.
+
 ### 31.1.4 Push-Remote-Erkennung
 
 Der Regex für Push auf Main matcht alle Remote-Namen (nicht nur
@@ -136,6 +164,11 @@ nur das strukturierte Steuerungssignal aus dem Phase-State (FK 4.5).
 **Reset-Grenze:** Der Orchestrator darf einen Story-Reset nur
 vorschlagen oder protokollieren. Er darf ihn nicht selbststaendig
 entscheiden oder ueber freie Tool-Operationen nachbauen.
+
+**Capability-Grenze:** Seit FK-55 ist der Orchestrator kein nur
+promptgesteuerter Agent mehr, sondern ein eigener Principal-Typ mit
+harter Capability-Matrix. Diese Begrenzung gilt auch dann, wenn der
+Agent versucht, seine Prompt-Regeln absichtlich zu verletzen.
 
 **Artefaktklassen:**
 
@@ -230,6 +263,11 @@ Der Guard prüft diese Tool-Typen:
 | `Bash` | `command` | Befehle die Dateien lesen könnten (`cat`, `head`, `less`, `vim`, Compiler-Aufrufe) |
 | `Write`, `Edit` | `file_path` | Pfad gegen Blockade-Regeln |
 
+Shell-Aufrufe werden zusaetzlich auf Pfad- und Operationsklassen
+normalisiert. Ein Bash-Befehl, der effektiv `content_plane`,
+`governance_plane` oder `git_internal` mutiert, bleibt blockiert, auch
+wenn kein explizites `git`-Subkommando im String vorkommt.
+
 ### 31.2.6 Principal-Erkennung
 
 Der Guard muss erkennen, ob der aktuelle Aufruf vom
@@ -255,6 +293,42 @@ def _is_orchestrator(data: dict[str, Any]) -> bool:
         return True  # fail-closed
     return not bool(is_subagent)
 ```
+
+### 31.2.7 Storybezogener Freeze-Overlay
+
+Bei `normative_conflict`, `authoritative_snapshot_divergence` oder
+vergleichbaren HARD-STOP-Faellen wird fuer die Story ein
+`conflict_freeze` aktiviert.
+
+Solange dieser Freeze aktiv ist:
+
+- darf `orchestrator` fuer diese Story keine `write`,
+  `git_mutation`, `curate` oder `admin_transition` ausfuehren
+- werden Cleanup, Status-Patching, ARE-Kuratierung und freie
+  Git-Eingriffe des Orchestrators hart blockiert
+- duerfen nur `human_cli`, `pipeline_deterministic` oder
+  `admin_service` ueber offiziell deklarierte Kontrollpfade mutieren
+
+Der Freeze ist damit eine technische Sperrschicht und keine
+freundliche Hinweislogik.
+
+Die Aktivierung des Freeze erfolgt atomar ueber:
+
+1. kanonischen Freeze-Record im State-Backend
+2. lokalen Hook-Export mit `freeze_version`
+
+Ohne beide Teile gilt der Aufruf fail-closed als blockiert.
+
+### 31.2.8 Principal-/Pfad-Kurzmatrix
+
+| Principal | `codebase_story_scope` | `qa_sandbox` | `content_plane` | `governance_plane` | `.git/**` |
+|-----------|------------------------|--------------|-----------------|--------------------|-----------|
+| `orchestrator` | read: nein, write: nein | nein | read: nein, write: nein | read: eingeschraenkt, write: nein | nein |
+| `worker` | read/write/execute im Story-Scope | nein | read: ja, write: nein | nein | nein |
+| `qa_reader` | read/execute | nein | read: nur noetige QA-Kontexte | nein | nein |
+| `adversarial_writer` | read | write/execute | nein | nein | nein |
+| `pipeline_deterministic` | nur offizielle Phasenpfade | ja, wenn normiert | ja, wenn normiert | ja | nur ueber deklarierte AgentKit-Pfade |
+| `human_cli` | ueber offizielle Kommandos | ueber offizielle Kommandos | ueber offizielle Kommandos | ueber offizielle Kommandos | nie frei, sondern nur ueber AgentKit-Kommandos |
 
 ### 31.2.7 Risikohinweis — Sub-Agent-Completion-Outputs
 

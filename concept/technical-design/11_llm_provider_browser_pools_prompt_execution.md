@@ -16,6 +16,7 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [llm, browser-pool, prompt, evaluator, mcp]
+formal_scope: prose-only
 ---
 
 # 11 — LLM-Provider, Browser-Pools und Prompt-Execution

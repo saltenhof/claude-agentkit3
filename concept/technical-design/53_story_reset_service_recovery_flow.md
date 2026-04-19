@@ -25,9 +25,13 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [story-reset, recovery, purge, operations, reset]
+prose_anchor_policy: strict
 formal_refs:
   - formal.story-reset.entities
   - formal.story-reset.state-machine
+  - formal.state-storage.state-machine
+  - formal.state-storage.invariants
+  - formal.state-storage.scenarios
   - formal.story-reset.commands
   - formal.story-reset.events
   - formal.story-reset.invariants
@@ -35,6 +39,8 @@ formal_refs:
 ---
 
 # 53 — StoryResetService und Recovery-Flow
+
+<!-- PROSE-FORMAL: formal.story-reset.entities, formal.story-reset.state-machine, formal.state-storage.state-machine, formal.state-storage.invariants, formal.state-storage.scenarios, formal.story-reset.commands, formal.story-reset.events, formal.story-reset.invariants, formal.story-reset.scenarios -->
 
 ## 53.1 Zweck
 

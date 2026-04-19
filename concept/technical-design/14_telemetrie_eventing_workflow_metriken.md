@@ -19,13 +19,23 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [telemetrie, eventing, metriken, state-backend, review-guard]
+prose_anchor_policy: strict
 formal_refs:
   - formal.story-workflow.events
+  - formal.state-storage.events
+  - formal.telemetry-analytics.entities
+  - formal.telemetry-analytics.state-machine
+  - formal.telemetry-analytics.commands
+  - formal.telemetry-analytics.events
+  - formal.telemetry-analytics.invariants
+  - formal.telemetry-analytics.scenarios
 ---
 
 # 14 — Telemetrie, Eventing und Workflow-Metriken
 
 ## 14.1 Zweck
+
+<!-- PROSE-FORMAL: formal.story-workflow.events, formal.telemetry-analytics.entities, formal.telemetry-analytics.invariants -->
 
 Die Telemetrie erfüllt zwei Aufgaben (FK 8):
 
@@ -48,6 +58,8 @@ LLM-Evaluator-Aufrufe) brauchen keine Telemetrie-Nachweise, weil
 ihr Ablauf durch den Code garantiert ist.
 
 ## 14.2 Event-Modell
+
+<!-- PROSE-FORMAL: formal.state-storage.events, formal.telemetry-analytics.commands, formal.telemetry-analytics.events, formal.telemetry-analytics.state-machine, formal.telemetry-analytics.scenarios -->
 
 ### 14.2.1 Speicherung: PostgreSQL
 

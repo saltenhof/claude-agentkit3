@@ -16,15 +16,24 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [postgres, schema-design, relational, table-families, ownership]
+prose_anchor_policy: strict
 formal_refs:
   - formal.story-creation.entities
   - formal.dependency-rebinding.entities
   - formal.story-closure.entities
   - formal.story-split.entities
   - formal.story-reset.entities
+  - formal.state-storage.entities
+  - formal.state-storage.state-machine
+  - formal.state-storage.commands
+  - formal.state-storage.events
+  - formal.state-storage.invariants
+  - formal.state-storage.scenarios
 ---
 
 # 18 — Relationales Abbildungsmodell fuer PostgreSQL
+
+<!-- PROSE-FORMAL: formal.story-creation.entities, formal.dependency-rebinding.entities, formal.story-closure.entities, formal.story-split.entities, formal.story-reset.entities, formal.state-storage.entities, formal.state-storage.state-machine, formal.state-storage.commands, formal.state-storage.events, formal.state-storage.invariants, formal.state-storage.scenarios -->
 
 ## 18.1 Zweck
 
@@ -48,6 +57,11 @@ Es definiert **noch kein finales SQL**.
 - Variable Payloads werden nicht voll normalisiert, sondern gezielt in
   `jsonb`-Feldern gehalten.
 - Projektionen sind rebuildbar und nie operative Hauptwahrheit.
+
+Die formale Gegenkopplung dieses Dokuments liegt in
+`formal.state-storage.*`. Dort werden die Table-Families nicht als
+SQL-Strukturen, sondern als fachliche Record-Families mit expliziten
+Reset-, Scope- und Kanonizitaetsregeln beschrieben.
 
 ## 18.3 Logische Table-Families
 

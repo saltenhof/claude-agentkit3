@@ -17,6 +17,7 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [hooks, guard-enforcement, pretooluse, posttooluse, fail-closed, worker-health-monitor]
+prose_anchor_policy: strict
 formal_refs:
   - formal.guard-system.entities
   - formal.guard-system.state-machine
@@ -24,9 +25,15 @@ formal_refs:
   - formal.guard-system.events
   - formal.guard-system.invariants
   - formal.guard-system.scenarios
+  - formal.principal-capabilities.entities
+  - formal.principal-capabilities.commands
+  - formal.principal-capabilities.invariants
+  - formal.principal-capabilities.scenarios
 ---
 
 # 30 — Hook-Adapter und Guard-Enforcement
+
+<!-- PROSE-FORMAL: formal.guard-system.entities, formal.guard-system.state-machine, formal.guard-system.commands, formal.guard-system.events, formal.guard-system.invariants, formal.guard-system.scenarios, formal.principal-capabilities.entities, formal.principal-capabilities.commands, formal.principal-capabilities.invariants, formal.principal-capabilities.scenarios -->
 
 ## 30.1 Zweck
 
@@ -129,6 +136,11 @@ Claude Code sendet dem Hook-Prozess ein JSON-Objekt über stdin:
 blockiert das Tool. Das ist Absicht — ein kaputtes Sicherheits-
 system soll nicht durchlassen.
 
+**Prompt-Regel fuer aktive Runs:** Im `story_execution`-Modus darf ein
+Hook niemals auf einen nativen Claude-Code-Permission-Dialog als
+Fortschrittsmechanismus setzen. Unbekannte Freigaben werden im Hook
+sofort blockiert und als Permission-Fall materialisiert.
+
 ### 30.2.5 GuardSystem als Komponenten-Flow
 
 Das `GuardSystem` ist nicht nur eine Sammlung lose nebeneinander
@@ -173,6 +185,32 @@ gedacht, nicht fuer Sicherheitsumgehung.
 Override-Variante des `GuardSystem`, sondern eine separate
 administrative Recovery-Operation. Guards duerfen den Reset nicht in
 einen normalen Story-Override umdeuten.
+
+### 30.2.6 Capability-Enforcement-Pipeline
+
+Seit FK-55 wird ein Hook-Aufruf nicht nur gegen einzelne Regex-Regeln
+geprueft, sondern gegen einen festen Capability-Entscheidungspfad:
+
+1. Principal-Typ aufloesen
+2. Tool-Aufruf auf `operation_class` normalisieren
+3. betroffene Pfade/Objekte auf `path_class` normalisieren
+4. storybezogenen Scope aufloesen
+5. harte Capability-Matrix auswerten
+6. aktives Freeze-Overlay anwenden
+7. nur danach offizielle Ausnahme-/Servicepfade pruefen
+8. Modusregel fuer unbekannte Freigaben anwenden
+9. erst ganz zuletzt darf CCAG auf verbleibende weiche Freigaben wirken
+
+**Wichtige Konsequenz:** CCAG ist kein zweites Sicherheitsmodell neben
+dem GuardSystem. Es kommt erst nach Principal-, Pfad- und
+Freeze-Entscheidung zum Zug und darf harte Denies nicht in Allow
+umwandeln.
+
+**Externe Permission-Systeme:** Native Claude-Code-Prompts,
+TTY-Interaktivitaet oder hostseitige Sonderfaelle fuer geschuetzte
+Verzeichnisse sind fuer AK3 kein autoritativer Bestandteil dieser
+Pipeline. Tritt so etwas im aktiven Story-Run trotzdem auf, gilt das als
+`external_permission_interference_detected`.
 
 ## 30.3 Hook-Registrierung
 
@@ -228,6 +266,10 @@ Hooks werden in `.claude/settings.json` registriert. Der Installer
       {
         "matcher": "Bash|Write|Edit|Read|Grep|Glob|Agent",
         "command": "python -m agentkit.governance.health_monitor pre"
+      },
+      {
+        "matcher": "Bash|Write|Edit|Read|Grep|Glob|Agent",
+        "command": "python -m agentkit.governance.ccag_gatekeeper"
       }
     ],
     "PostToolUse": [

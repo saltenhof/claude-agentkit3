@@ -17,6 +17,7 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [operations, monitoring, audit, runbooks, telemetry]
+prose_anchor_policy: strict
 formal_refs:
   - formal.story-closure.commands
   - formal.story-closure.events
@@ -29,6 +30,8 @@ formal_refs:
 ---
 
 # 52 — Betrieb, Monitoring, Audit und Runbooks
+
+<!-- PROSE-FORMAL: formal.story-closure.commands, formal.story-closure.events, formal.story-closure.invariants, formal.story-closure.scenarios, formal.story-reset.commands, formal.story-reset.events, formal.story-reset.invariants, formal.story-reset.scenarios -->
 
 ## 52.1 Zweck
 
@@ -52,6 +55,7 @@ stimmt und Probleme erkannt werden?
 | Audit-Export | Exportziel erreichbar | `agentkit export-telemetry --dry-run` |
 | Reset-Faehigkeit | Offizieller Reset-Pfad verfuegbar | `agentkit reset-story --help` |
 | Split-Faehigkeit | Offizieller Story-Split-Pfad verfuegbar | `agentkit split-story --help` |
+| Konfliktaufloesung | Offizieller Freeze-/Resolution-Pfad verfuegbar | `agentkit resolve-conflict --help` |
 
 ### 52.2.2 Status-Befehl
 
@@ -233,7 +237,29 @@ Loesung:
    - keine aktiven Locks / Worktrees der Ausgangs-Story
 ```
 
-### 52.5.6 Vollstaendiger Story-Reset
+### 52.5.7 Autoritativer Snapshot-/Normkonflikt
+
+```text
+Symptom: Worker oder Verify stoppt mit Widerspruch zwischen
+story.md / GitHub / ARE-Bundle / anderem autoritativen Snapshot
+
+Ursache: Der laufende Run basiert auf einer Autoritaetslage, die nicht
+mehr konsistent ist. Der Orchestrator darf diesen Konflikt nicht selbst
+reparieren.
+
+Loesung:
+1. Pruefen, dass fuer die Story ein `conflict_freeze` aktiv ist
+2. Keine freien Cleanup-, Git- oder ARE-Kuratierungsaktionen ausfuehren
+3. Mensch trifft die Aufloesungsentscheidung
+4. Offiziellen Pfad verwenden:
+   agentkit resolve-conflict --story {story_id} --decision {decision} --reason "..."
+5. Ergebnis pruefen:
+   - `conflict_freeze` aufgehoben oder in offiziellen Folgeservice ueberfuehrt
+   - kein freier Orchestrator-Write waehrend des Freeze
+   - neuer Snapshot / Redirect / Split / Cancel sauber auditiert
+```
+
+### 52.5.8 Vollstaendiger Story-Reset
 
 ```
 Symptom: Story ist ESCALATED und kann ueber Standardpfade nicht mehr
@@ -255,6 +281,32 @@ Lösung:
    - kein aktiver Runtime-State
    - keine FK-16/FK-60ff-Ableitungen der korrupten Umsetzung
 5. Story bei Bedarf neu starten
+```
+
+### 52.5.9 Permission-Block / externe Permission-Interferenz
+
+```text
+Symptom: `permission_request_opened` oder
+`external_permission_interference_detected` im aktiven Run
+Ursache: Unbekannte Freigabe oder hostseitiges Permission-/TTY-Verhalten;
+der Tool-Call darf nicht unendlich auf Mensch/UI warten
+
+Loesung:
+1. Offenen Permission-Request fuer `story_id` und `run_id` pruefen
+2. Entscheiden:
+   - Einzelfall freigeben:
+     agentkit approve-permission-request --request {request_id}
+   - Einzelfall ablehnen:
+     agentkit reject-permission-request --request {request_id}
+3. Nur bei bewusstem Mehrwert daraus spaeter eine Dauerregel machen
+4. Wenn ein Host-Prompt oder TTY-Effekt auftrat:
+   - als `external_permission_interference_detected` dokumentieren
+   - keinen haengenden Tool-Call weiterverwenden
+   - Story nur ueber offiziellen Resume-/Folgepfad fortsetzen
+5. Ergebnis pruefen:
+   - Request ist `approved`, `rejected` oder `expired`
+   - kein unendlicher Wait auf Host-UI
+   - derselbe Run wird nur mit expliziter Entscheidung fortgesetzt
 ```
 
 ## 52.6 Kapazitäts- und Kostensteuerung

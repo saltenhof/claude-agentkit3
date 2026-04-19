@@ -11,6 +11,7 @@ defers_to: []
 supersedes: []
 superseded_by:
 tags: [tools, skills, ccag, permissions, automation]
+formal_scope: prose-only
 ---
 
 # 09 — Umsetzungsautomatisierung und Werkzeuge
@@ -67,14 +68,17 @@ Projektverzeichnisses schreiben, während der Hauptagent das darf.
 Diese Unterscheidung wird über eine Hierarchie in der Regeldatenbank
 aufgelöst.
 
-**Sofortige Propagation.** Wenn ein Sub-Agent in einer tiefen
-Verschachtelung auf ein Permission-Problem stößt, sieht der Mensch das
-sofort in seiner Konsole, nicht erst wenn der Agent nach Minuten der
-Arbeit scheitert. Die Freigabe propagiert sofort an alle laufenden
-Agents.
+**Modus-scharfe Behandlung unbekannter Permissions.** In explizit
+interaktiven Sitzungen darf CCAG weiterhin einen nativen Host-Prompt
+nutzen. Im aktiven Story-Run dagegen nicht: Dort wird eine unbekannte
+Freigabe sofort blockiert und als auditierbarer Permission-Fall
+materialisiert. Die menschliche Entscheidung erfolgt spaeter per
+offiziellem AgentKit-Pfad statt im wartenden Tool-Call.
 
 Der Effekt für die Story-Umsetzung: Die Wahrscheinlichkeit, dass
-Agents an Permissions scheitern, sinkt drastisch. Die Guards ([03-governance-und-guards.md](03-governance-und-guards.md)) bleiben dabei intakt, denn CCAG ersetzt keine Governance-Regeln,
+Agents unkontrolliert an Permissions haengen, sinkt drastisch. Die
+Guards ([03-governance-und-guards.md](03-governance-und-guards.md))
+bleiben dabei intakt, denn CCAG ersetzt keine Governance-Regeln,
 sondern ergänzt sie um eine komfortable, lernfähige Permission-Schicht.
 
 ### 9.2 Spezialisierte Skills

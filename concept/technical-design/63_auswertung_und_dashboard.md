@@ -14,9 +14,18 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [dashboard, analytics, visualization, chart-js]
+prose_anchor_policy: strict
+formal_refs:
+  - formal.telemetry-analytics.state-machine
+  - formal.telemetry-analytics.commands
+  - formal.telemetry-analytics.events
+  - formal.telemetry-analytics.invariants
+  - formal.telemetry-analytics.scenarios
 ---
 
 # 63 — Auswertung und Dashboard
+
+<!-- PROSE-FORMAL: formal.telemetry-analytics.state-machine, formal.telemetry-analytics.commands, formal.telemetry-analytics.events, formal.telemetry-analytics.invariants, formal.telemetry-analytics.scenarios -->
 
 ## 63.1 Zweck
 

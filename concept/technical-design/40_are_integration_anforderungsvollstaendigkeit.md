@@ -20,6 +20,7 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [are-integration, requirements, completeness, evidence, mcp]
+prose_anchor_policy: strict
 formal_refs:
   - formal.deterministic-checks.entities
   - formal.deterministic-checks.invariants
@@ -27,6 +28,8 @@ formal_refs:
 ---
 
 # 40 — ARE-Integration und Anforderungsvollständigkeit
+
+<!-- PROSE-FORMAL: formal.deterministic-checks.entities, formal.deterministic-checks.invariants, formal.deterministic-checks.scenarios -->
 
 ## 40.1 Zweck
 

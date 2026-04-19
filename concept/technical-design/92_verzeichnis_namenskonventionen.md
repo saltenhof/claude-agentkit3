@@ -11,9 +11,14 @@ defers_to: []
 supersedes: []
 superseded_by:
 tags: [naming, conventions, directory-structure, reference]
+prose_anchor_policy: strict
+formal_refs:
+  - formal.skills-and-bundles.invariants
 ---
 
 # 92 — Verzeichnis- und Namenskonventionen
+
+<!-- PROSE-FORMAL: formal.skills-and-bundles.invariants -->
 
 ## 92.1 Projekt-Verzeichnisstruktur
 

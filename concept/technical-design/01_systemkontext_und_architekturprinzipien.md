@@ -13,6 +13,7 @@ defers_to: []
 supersedes: []
 superseded_by:
 tags: [architektur, systemkontext, fail-closed, trust-boundaries, multi-llm]
+formal_scope: prose-only
 ---
 
 # 01 — Systemkontext und Architekturprinzipien

@@ -33,6 +33,7 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [verify, closure, qa-cycle, adversarial-testing, policy-evaluation]
+prose_anchor_policy: strict
 formal_refs:
   - formal.deterministic-checks.entities
   - formal.deterministic-checks.state-machine
@@ -60,6 +61,8 @@ formal_refs:
 ---
 
 # 27 — Verify-Pipeline und Closure-Orchestration
+
+<!-- PROSE-FORMAL: formal.deterministic-checks.entities, formal.deterministic-checks.state-machine, formal.deterministic-checks.commands, formal.deterministic-checks.events, formal.deterministic-checks.invariants, formal.deterministic-checks.scenarios, formal.implementation.entities, formal.implementation.invariants, formal.verify.entities, formal.verify.state-machine, formal.verify.commands, formal.verify.events, formal.verify.invariants, formal.verify.scenarios, formal.story-closure.entities, formal.story-closure.state-machine, formal.story-closure.commands, formal.story-closure.events, formal.story-closure.invariants, formal.story-closure.scenarios, formal.story-workflow.state-machine, formal.story-workflow.invariants, formal.story-workflow.scenarios -->
 
 ## 27.1 Zweck
 

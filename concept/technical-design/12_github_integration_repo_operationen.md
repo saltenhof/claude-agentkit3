@@ -19,6 +19,7 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [github, branching, worktree, merge, custom-fields]
+prose_anchor_policy: strict
 formal_refs:
   - formal.story-creation.state-machine
   - formal.story-creation.commands
@@ -32,6 +33,8 @@ formal_refs:
 ---
 
 # 12 — GitHub-Integration und Repo-Operationen
+
+<!-- PROSE-FORMAL: formal.story-creation.state-machine, formal.story-creation.commands, formal.story-creation.invariants, formal.story-closure.state-machine, formal.story-closure.commands, formal.story-closure.invariants, formal.story-closure.scenarios, formal.story-split.commands, formal.story-split.invariants -->
 
 ## 12.1 GitHub als Backend
 

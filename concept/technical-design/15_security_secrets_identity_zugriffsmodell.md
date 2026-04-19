@@ -20,9 +20,14 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [security, secrets, identity, berechtigungen, governance-schutz]
+prose_anchor_policy: strict
+formal_refs:
+  - formal.state-storage.entities
 ---
 
 # 15 — Security, Secrets, Identity und Zugriffsmodell
+
+<!-- PROSE-FORMAL: formal.state-storage.entities -->
 
 ## 15.1 Bedrohungsmodell
 

@@ -14,9 +14,15 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [kpi, analytics, architecture, postgres, metrics]
+prose_anchor_policy: strict
+formal_refs:
+  - formal.telemetry-analytics.entities
+  - formal.telemetry-analytics.invariants
 ---
 
 # 60 — KPI-Katalog und Analytics-Architektur
+
+<!-- PROSE-FORMAL: formal.telemetry-analytics.entities, formal.telemetry-analytics.invariants -->
 
 ## 60.1 Zweck
 

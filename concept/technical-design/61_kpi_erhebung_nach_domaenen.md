@@ -14,9 +14,16 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [kpi, collection, events, hooks, telemetry]
+prose_anchor_policy: strict
+formal_refs:
+  - formal.telemetry-analytics.commands
+  - formal.telemetry-analytics.events
+  - formal.telemetry-analytics.invariants
 ---
 
 # 61 — KPI-Erhebung nach Domaenen
+
+<!-- PROSE-FORMAL: formal.telemetry-analytics.commands, formal.telemetry-analytics.events, formal.telemetry-analytics.invariants -->
 
 ## 61.1 Zweck
 

@@ -11,6 +11,7 @@ defers_to: []
 supersedes: []
 superseded_by:
 tags: [defaults, thresholds, timeouts, configuration, reference]
+formal_scope: prose-only
 ---
 
 # 93 — Standardwerte, Schwellwerte und Timeouts
@@ -54,6 +55,16 @@ tags: [defaults, thresholds, timeouts, configuration, reference]
 | Risikoscore-Schwelle | 30 | `governance.risk_threshold` | — | 35 |
 | Rolling-Window-Breite | 50 Events | `governance.window_size` | — | 35 |
 | Cooldown | 300 Sekunden | `governance.cooldown_s` | FK-06-128 | 35 |
+
+## 93.5a Permission-Runtime und Requests
+
+| Parameter | Default | Config-Pfad | FK | Kapitel |
+|-----------|---------|-------------|-----|---------|
+| Permission-Request-TTL | 1800s (30 Min) | `permissions.request_ttl_s` | — | 42 / 55 |
+| Permission-Pause-TTL | 3600s (60 Min) | `permissions.pause_ttl_s` | — | 42 / 55 |
+| Permission-Lease-TTL | `run_scoped` | `permissions.lease_ttl` | — | 55 |
+| External-Prompt-Grace in Story-Run | 0s | `permissions.story_execution_external_prompt_grace_s` | — | 42 / 55 |
+| Max offene Permission-Requests pro Run | 1 | `permissions.max_open_requests_per_run` | — | 55 |
 
 ## 93.6 Risikopunkte (Governance-Sensorik)
 

@@ -11,7 +11,7 @@ authority_over:
 defers_to:
   - target: FK-14
     scope: telemetry
-    reason: `execution_events` und Event-Semantik werden in FK-14 definiert
+    reason: "`execution_events` und Event-Semantik werden in FK-14 definiert"
   - target: FK-17
     scope: fachliches-datenmodell
     reason: Entitaeten, Ownership und Aggregate sind dort normiert
@@ -24,11 +24,26 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [qa, failure-corpus, read-models, postgres, projections]
+prose_anchor_policy: strict
+formal_refs:
+  - formal.state-storage.state-machine
+  - formal.state-storage.commands
+  - formal.state-storage.events
+  - formal.state-storage.invariants
+  - formal.state-storage.scenarios
+  - formal.telemetry-analytics.entities
+  - formal.telemetry-analytics.state-machine
+  - formal.telemetry-analytics.commands
+  - formal.telemetry-analytics.events
+  - formal.telemetry-analytics.invariants
+  - formal.telemetry-analytics.scenarios
 ---
 
 # 16 — QA- und Failure-Corpus-Read-Models
 
 ## 16.1 Zweck
+
+<!-- PROSE-FORMAL: formal.state-storage.state-machine, formal.state-storage.commands, formal.state-storage.events, formal.state-storage.invariants, formal.state-storage.scenarios, formal.telemetry-analytics.entities, formal.telemetry-analytics.state-machine, formal.telemetry-analytics.commands, formal.telemetry-analytics.events, formal.telemetry-analytics.invariants, formal.telemetry-analytics.scenarios -->
 
 FK-16 definiert die **operativen Read Models** fuer QA-Ergebnisse,
 Story-Metriken und Failure-Corpus-Daten auf dem zentralen

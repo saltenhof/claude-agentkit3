@@ -17,7 +17,7 @@ if str(TOOLS_ROOT) not in sys.path:
 
 from concept_compiler import audit_formal_prose_links, compile_formal_specs
 from concept_compiler.compiler import FormalCompilationError
-from concept_compiler.drift import FormalDriftError
+from concept_compiler.drift import FormalDriftError, audit_concept_doc_classification
 from concept_compiler.loader import FormalSpecError
 from concept_compiler.scenario_runner import FormalScenarioError
 
@@ -41,6 +41,7 @@ def main() -> int:
     try:
         result = compile_formal_specs(args.root)
         drift_links = audit_formal_prose_links(result, args.repo_root)
+        audit_concept_doc_classification(args.repo_root)
     except (FormalCompilationError, FormalDriftError, FormalScenarioError, FormalSpecError) as exc:
         print(f"[formal-spec] FAILED: {exc}", file=sys.stderr)
         return 1

@@ -23,9 +23,17 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [runtime, deployment, verzeichnisstruktur, persistenz, locking]
+prose_anchor_policy: strict
+formal_refs:
+  - formal.state-storage.entities
+  - formal.state-storage.invariants
+  - formal.skills-and-bundles.entities
+  - formal.skills-and-bundles.invariants
 ---
 
 # 10 — Runtime, Deployment und Speicher
+
+<!-- PROSE-FORMAL: formal.state-storage.entities, formal.state-storage.invariants, formal.skills-and-bundles.entities, formal.skills-and-bundles.invariants -->
 
 ## 10.1 Laufzeitkomponenten
 

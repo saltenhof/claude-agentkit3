@@ -26,6 +26,7 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [story-split, scope-explosion, cancellation, successor-stories, dependency-rebinding]
+prose_anchor_policy: strict
 formal_refs:
   - formal.story-creation.commands
   - formal.story-creation.invariants
@@ -46,6 +47,8 @@ formal_refs:
 ---
 
 # 54 — StorySplitService und Scope-Explosion-Flow
+
+<!-- PROSE-FORMAL: formal.story-creation.commands, formal.story-creation.invariants, formal.story-creation.scenarios, formal.story-workflow.scenarios, formal.dependency-rebinding.entities, formal.dependency-rebinding.state-machine, formal.dependency-rebinding.commands, formal.dependency-rebinding.events, formal.dependency-rebinding.invariants, formal.dependency-rebinding.scenarios, formal.story-split.entities, formal.story-split.state-machine, formal.story-split.commands, formal.story-split.events, formal.story-split.invariants, formal.story-split.scenarios -->
 
 ## 54.1 Zweck
 

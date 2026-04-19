@@ -16,6 +16,7 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [konfiguration, schema, versionierung, yaml, pydantic]
+formal_scope: prose-only
 ---
 
 # 03 — Konfigurationsmodell, Schemas und Versionierung

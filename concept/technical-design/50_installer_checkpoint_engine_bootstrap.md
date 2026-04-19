@@ -14,11 +14,27 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [installer, checkpoint, bootstrap, idempotency]
+prose_anchor_policy: strict
+formal_refs:
+  - formal.installer.entities
+  - formal.installer.state-machine
+  - formal.installer.commands
+  - formal.installer.events
+  - formal.installer.invariants
+  - formal.installer.scenarios
+  - formal.skills-and-bundles.entities
+  - formal.skills-and-bundles.state-machine
+  - formal.skills-and-bundles.commands
+  - formal.skills-and-bundles.events
+  - formal.skills-and-bundles.invariants
+  - formal.skills-and-bundles.scenarios
 ---
 
 # 50 — Installer, Checkpoint-Engine und Bootstrap
 
 ## 50.1 Zweck
+
+<!-- PROSE-FORMAL: formal.installer.entities, formal.installer.invariants, formal.skills-and-bundles.entities, formal.skills-and-bundles.invariants -->
 
 AgentKit wird systemweit installiert und registriert anschließend ein
 Zielprojekt über eine Folge idempotenter Checkpoints (FK 11). Das
@@ -32,6 +48,8 @@ sondern vorgelagerter Bootstrap- und Registrierungsmechanismus für
 Projekte, Hooks, Skill-Bindungen und Backend-Registrierung.
 
 ## 50.2 Aufruf
+
+<!-- PROSE-FORMAL: formal.installer.commands -->
 
 ```bash
 # Erstregistrierung
@@ -48,6 +66,8 @@ agentkit verify-project
 ```
 
 ## 50.3 Zwölf Checkpoints
+
+<!-- PROSE-FORMAL: formal.installer.state-machine, formal.installer.events, formal.installer.scenarios, formal.skills-and-bundles.state-machine, formal.skills-and-bundles.commands, formal.skills-and-bundles.events, formal.skills-and-bundles.scenarios -->
 
 ```mermaid
 flowchart TD

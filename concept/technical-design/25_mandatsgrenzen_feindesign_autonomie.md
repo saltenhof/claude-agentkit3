@@ -36,6 +36,7 @@ supersedes:
       Ein Draft einzufrieren und dann zu reviewen ist widersprüchlich.
 superseded_by:
 tags: [exploration, mandate, escalation, fine-design, scope-explosion, multi-llm, autonomy]
+prose_anchor_policy: strict
 formal_refs:
   - formal.exploration.entities
   - formal.exploration.state-machine
@@ -46,6 +47,8 @@ formal_refs:
 ---
 
 # 25 — Mandatsgrenzen, Eskalationsklassen und Feindesign-Autonomie
+
+<!-- PROSE-FORMAL: formal.exploration.entities, formal.exploration.state-machine, formal.exploration.commands, formal.exploration.events, formal.exploration.invariants, formal.exploration.scenarios -->
 
 ## 25.1 Zweck
 

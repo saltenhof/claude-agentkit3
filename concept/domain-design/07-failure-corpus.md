@@ -11,6 +11,7 @@ defers_to: []
 supersedes: []
 superseded_by:
 tags: [failure-corpus, incidents, patterns, learning-loop, deterministic-guards]
+formal_scope: prose-only
 ---
 
 # 07 — Failure Corpus als Lernschleife

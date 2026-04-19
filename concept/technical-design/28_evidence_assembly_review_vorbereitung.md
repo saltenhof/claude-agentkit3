@@ -26,6 +26,7 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [evidence-assembly, import-resolution, request-dsl, review-preparation, authority-classes]
+formal_scope: prose-only
 ---
 
 # 28 — Evidence Assembly und Review-Vorbereitung

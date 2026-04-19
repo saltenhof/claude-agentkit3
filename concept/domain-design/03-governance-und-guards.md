@@ -11,12 +11,15 @@ defers_to: []
 supersedes: []
 superseded_by:
 tags: [governance, guards, fail-closed, integrity-gate, document-fidelity]
+prose_anchor_policy: strict
 formal_refs:
   - formal.exploration.invariants
   - formal.exploration.scenarios
 ---
 
 # 03 — Fail-Closed Governance
+
+<!-- PROSE-FORMAL: formal.exploration.invariants, formal.exploration.scenarios -->
 
 **Quelle:** Konsolidiert aus agentkit-domain-concept.md, Kapitel 6
 **Datum:** 2026-04-02

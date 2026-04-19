@@ -11,6 +11,7 @@ defers_to: []
 supersedes: []
 superseded_by:
 tags: [feinkonzept, index, dokumentenstruktur, architekturrahmen]
+formal_scope: prose-only
 ---
 
 # AgentKit — Technisches Feinkonzept
@@ -90,6 +91,7 @@ Anforderungen.
 | `52_betrieb_monitoring_audit_runbooks.md` | Monitoring, Audit-Logs, Runbooks, SLOs |
 | `53_story_reset_service_recovery_flow.md` | Vollstaendiger Story-Reset, Purge-Reihenfolge, Worktree-/Branch-Behandlung, Endzustand |
 | `54_story_split_service_scope_explosion.md` | Scope-Explosion, Story-Split, Cancelled-Pfad, Nachfolger-Stories, Dependency-Rebinding |
+| `55_principal_capability_model_story_scope_enforcement.md` | Principals, Capability-Profile, storybezogene Pfad- und Operationsklassen, Freeze-Modell, offizielle Servicepfade |
 
 ## 7. Referenzanhänge
 

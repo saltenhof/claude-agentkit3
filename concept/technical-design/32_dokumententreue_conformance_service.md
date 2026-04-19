@@ -20,6 +20,7 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [conformance, document-fidelity, llm-evaluation, strategy-compliance, drift-detection]
+prose_anchor_policy: strict
 formal_refs:
   - formal.conformance.entities
   - formal.conformance.state-machine
@@ -30,6 +31,8 @@ formal_refs:
 ---
 
 # 32 — Dokumententreue und Conformance-Service
+
+<!-- PROSE-FORMAL: formal.conformance.entities, formal.conformance.state-machine, formal.conformance.commands, formal.conformance.events, formal.conformance.invariants, formal.conformance.scenarios -->
 
 ## 32.1 Zweck
 

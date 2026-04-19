@@ -14,9 +14,25 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [upgrade, migration, customization, idempotency]
+prose_anchor_policy: strict
+formal_refs:
+  - formal.installer.entities
+  - formal.installer.state-machine
+  - formal.installer.commands
+  - formal.installer.events
+  - formal.installer.invariants
+  - formal.installer.scenarios
+  - formal.skills-and-bundles.entities
+  - formal.skills-and-bundles.state-machine
+  - formal.skills-and-bundles.commands
+  - formal.skills-and-bundles.events
+  - formal.skills-and-bundles.invariants
+  - formal.skills-and-bundles.scenarios
 ---
 
 # 51 — Upgrade, Migration und Customization-Preservation
+
+<!-- PROSE-FORMAL: formal.installer.entities, formal.installer.state-machine, formal.installer.commands, formal.installer.events, formal.installer.invariants, formal.installer.scenarios, formal.skills-and-bundles.entities, formal.skills-and-bundles.state-machine, formal.skills-and-bundles.commands, formal.skills-and-bundles.events, formal.skills-and-bundles.invariants, formal.skills-and-bundles.scenarios -->
 
 ## 51.1 Zweck
 

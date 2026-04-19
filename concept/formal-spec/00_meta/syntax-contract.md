@@ -46,7 +46,17 @@ Optional zulaessig:
 - `depends_on`
 - `prose_refs`
 - `formal_refs`
+- `formal_scope`
+- `prose_anchor_policy`
 - `tags`
+
+Regel:
+
+- Prosa-Konzepte unter `concept/domain-design/` und
+  `concept/technical-design/` muessen genau eine der beiden Aussagen
+  treffen:
+  - `formal_refs: [...]`
+  - `formal_scope: prose-only`
 
 ## 4. Kanonische Spezifikationszone
 
@@ -140,3 +150,24 @@ lesen:
 - die eine kanonische Spezifikationszone
 
 Alles andere gilt als nicht normativer Kommentar.
+
+## 11. Prosa-Ankersyntax
+
+Normative Aussagen in Prosa-Konzepten duerfen zusaetzlich ueber
+explizite Prosa-Anker an Formal-IDs gekoppelt werden.
+
+Verbindliches Format:
+
+```md
+<!-- PROSE-FORMAL: formal.example.commands, formal.example.events -->
+```
+
+Regeln:
+
+1. Ein Prosa-Anker referenziert eine oder mehrere Formal-Dokument-IDs.
+2. IDs werden komma-getrennt angegeben.
+3. Der Compiler wertet nur exakt diese Kommentarform als Prosa-Anker.
+4. Wenn im Frontmatter `prose_anchor_policy: strict` gesetzt ist, muss
+   jede `formal_ref` des Dokuments mindestens einmal ueber einen solchen
+   Prosa-Anker im Dokument auftauchen.
+5. Prosa-Anker duerfen keine unbekannten Formal-IDs referenzieren.

@@ -22,6 +22,7 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [story-creation, vectordb-abgleich, zieltreue, classification, github-project]
+prose_anchor_policy: strict
 formal_refs:
   - formal.story-creation.entities
   - formal.story-creation.state-machine
@@ -32,6 +33,8 @@ formal_refs:
 ---
 
 # 21 — Story-Creation-Pipeline
+
+<!-- PROSE-FORMAL: formal.story-creation.entities, formal.story-creation.state-machine, formal.story-creation.commands, formal.story-creation.events, formal.story-creation.invariants, formal.story-creation.scenarios -->
 
 ## 21.1 Zweck und Abgrenzung
 

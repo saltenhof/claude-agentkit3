@@ -22,11 +22,17 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [integrity-gate, governance-observation, escalation, anomaly-detection, closure]
+prose_anchor_policy: strict
 formal_refs:
   - formal.deterministic-checks.invariants
   - formal.deterministic-checks.scenarios
   - formal.guard-system.invariants
   - formal.guard-system.scenarios
+  - formal.principal-capabilities.state-machine
+  - formal.principal-capabilities.commands
+  - formal.principal-capabilities.events
+  - formal.principal-capabilities.invariants
+  - formal.principal-capabilities.scenarios
   - formal.integrity-gate.entities
   - formal.integrity-gate.state-machine
   - formal.integrity-gate.commands
@@ -60,6 +66,8 @@ formal_refs:
 ---
 
 # 35 — Integrity-Gate, Governance-Beobachtung und Eskalation
+
+<!-- PROSE-FORMAL: formal.deterministic-checks.invariants, formal.deterministic-checks.scenarios, formal.guard-system.invariants, formal.guard-system.scenarios, formal.principal-capabilities.state-machine, formal.principal-capabilities.commands, formal.principal-capabilities.events, formal.principal-capabilities.invariants, formal.principal-capabilities.scenarios, formal.integrity-gate.entities, formal.integrity-gate.state-machine, formal.integrity-gate.commands, formal.integrity-gate.events, formal.integrity-gate.invariants, formal.integrity-gate.scenarios, formal.governance-observation.entities, formal.governance-observation.state-machine, formal.governance-observation.commands, formal.governance-observation.events, formal.governance-observation.invariants, formal.governance-observation.scenarios, formal.escalation.entities, formal.escalation.state-machine, formal.escalation.commands, formal.escalation.events, formal.escalation.invariants, formal.escalation.scenarios, formal.exploration.state-machine, formal.exploration.commands, formal.exploration.events, formal.exploration.invariants, formal.exploration.scenarios, formal.story-workflow.state-machine, formal.story-workflow.commands, formal.story-workflow.events, formal.story-workflow.invariants, formal.story-split.state-machine, formal.story-split.invariants, formal.story-split.scenarios -->
 
 ## 35.1 Zweck
 
@@ -210,6 +218,9 @@ Run beginnt mit neuem `run_id` und leerem Telemetrie-Nachweisraum.
 | Preflight-Compliance | `COUNT(preflight_compliant) >= COUNT(preflight_request)` | `PREFLIGHT_NOT_COMPLIANT` |
 | Verify-Flow abgeschlossen | `SELECT COUNT(*) FROM execution_events WHERE project_key=$1 AND story_id=$2 AND run_id=$3 AND event_type='flow_end' AND payload->>'flow_id'='verify' AND payload->>'status'='COMPLETED'` >= 1 | `NO_VERIFY_FLOW_END` |
 | Finding-Resolution vollstaendig (nur Runde 2+) | Kein Finding mit `partially_resolved` oder `not_resolved` im Layer-2-Output (`qa_review.json`, Checks mit `resolution`-Feld) | `OPEN_FINDINGS` |
+| Conflict-Freeze aufgeloest | Wenn `conflict_freeze_entered` fuer denselben `run_id` existiert, muss spaeter `conflict_resolution_applied`, offizieller Redirect oder administrativer Folgeservice nachweisbar sein | `UNRESOLVED_CONFLICT_FREEZE` |
+| Permission-Fall aufgeloest | Wenn `permission_request_opened` oder `external_permission_interference_detected` fuer denselben `run_id` existiert, muss spaeter `permission_request_approved`, `permission_request_rejected` oder `permission_request_expired` nachweisbar sein | `UNRESOLVED_PERMISSION_REQUEST` |
+| Keine erfolgreiche Capability-Umgehung | Kein `unauthorized_mutation_detected` fuer denselben Story-/Run-Kontext | `ORCHESTRATOR_CAPABILITY_BREACH` |
 
 **Hinweis zu `OPEN_FINDINGS` (FK-35-114):** Dieser Nachweis wird
 nur in Remediation-Runden (Runde 2+) ausgewertet. In Runde 1
@@ -235,6 +246,24 @@ Siehe Kap. 14.9.3.
 aus der Pipeline-Config und prüft ob für **jede konfigurierte
 Pflicht-Rolle** mindestens ein `llm_call`-Event mit dem
 zugeordneten `role`-Wert vorliegt. Es kennt keine Anbieternamen.
+
+**Hinweis zu Freeze-/Resolution-Nachweisen:** Ein Run, der jemals einen
+`conflict_freeze` betreten hat, ist nur dann closure-faehig, wenn ein
+offizieller Resolution-Nachweis fuer denselben Story-/Run-Kontext
+vorliegt. Ein Weiterlaufen nach HARD STOP ohne offiziellen Pfad ist
+damit am Gate technisch nicht akzeptabel.
+
+**Hinweis zu geblockten Versuchen:** Ein `capability_denied`-Event
+allein ist noch kein Integritaetsbruch. Es zeigt zunaechst, dass das
+Enforcement funktioniert hat. Ein echter Closure-Blocker liegt erst
+vor, wenn eine unzulaessige Mutation erfolgreich festgestellt oder ein
+aktiver Freeze ohne offiziellen Resolution-Pfad verlassen wurde.
+
+**Hinweis zu Permission-Faellen:** Ein geblockter, aber sauber
+abgeschlossener `permission_request` ist kein Breach. Kritisch wird der
+Fall erst, wenn ein offener Permission-Request oder eine externe
+Permission-Interferenz ohne formalen Abschluss im selben Run stehen
+bleibt.
 
 ### 35.2.6 Modus-abhängige Prüfung
 

@@ -11,7 +11,10 @@ defers_to: []
 supersedes: []
 superseded_by:
 tags: [api, events, cli, hooks, reference]
+prose_anchor_policy: strict
 formal_refs:
+  - formal.installer.commands
+  - formal.installer.events
   - formal.deterministic-checks.commands
   - formal.deterministic-checks.events
   - formal.guard-system.commands
@@ -44,16 +47,25 @@ formal_refs:
   - formal.story-reset.state-machine
   - formal.story-reset.commands
   - formal.story-reset.events
+  - formal.principal-capabilities.commands
+  - formal.principal-capabilities.events
+  - formal.state-storage.commands
+  - formal.state-storage.events
+  - formal.telemetry-analytics.commands
+  - formal.telemetry-analytics.events
 ---
 
 # 91 — API- und Event-Katalog
 
 ## 91.1 CLI-Befehle (agentkit)
 
+<!-- PROSE-FORMAL: formal.installer.commands, formal.deterministic-checks.commands, formal.guard-system.commands, formal.conformance.commands, formal.llm-evaluations.commands, formal.integrity-gate.commands, formal.governance-observation.commands, formal.escalation.commands, formal.setup-preflight.commands, formal.verify.commands, formal.exploration.commands, formal.story-creation.commands, formal.story-closure.commands, formal.story-workflow.commands, formal.story-split.commands, formal.story-reset.commands, formal.principal-capabilities.commands, formal.state-storage.commands, formal.telemetry-analytics.commands -->
+
 | Befehl | Kapitel | Beschreibung |
 |--------|---------|-------------|
-| `agentkit install` | 50 | Installation in Zielprojekt (13 Checkpoints) |
-| `agentkit verify` | 50 | Read-only Verifikation der Installation |
+| `agentkit register-project --gh-owner {owner} --gh-repo {repo}` | 50 | Projekt registrieren bzw. idempotent erneut registrieren |
+| `agentkit register-project --gh-owner {owner} --gh-repo {repo} --dry-run` | 50 | Checkpoint-Vorschau ohne Mutation |
+| `agentkit verify-project` | 50 | Read-only Verifikation des Registrierungszustands |
 | `agentkit run-phase {phase}` | 20 | Pipeline-Phase ausführen |
 | `agentkit structural` | 33 | Structural Checks ausführen |
 | `agentkit policy` | 33 | Policy-Evaluation ausführen |
@@ -64,8 +76,12 @@ formal_refs:
 | `agentkit reset-escalation --story {story_id}` | 35 | Eskalation zurücksetzen |
 | `agentkit reset-story --story {story_id}` | 53 | Vollständige korrupt gewordene Umsetzung administrativ zurücksetzen |
 | `agentkit split-story --story {story_id}` | 54 | Scope-Explosion kontrolliert in Nachfolger-Stories überführen |
+| `agentkit resolve-conflict --story {story_id} --decision {decision}` | 55 | Autoritativen Snapshot-/Normkonflikt offiziell auflösen |
+| `agentkit approve-permission-request --request {request_id}` | 55 | Offenen Permission-Einzelfall als Mensch freigeben, optional als Lease |
+| `agentkit reject-permission-request --request {request_id}` | 55 | Offenen Permission-Einzelfall als Mensch ablehnen |
 | `agentkit override-integrity --story {story_id}` | 35 | Integrity-Gate bewusst overriden |
 | `agentkit query-telemetry` | 52 | Telemetrie-Events abfragen |
+| `agentkit dashboard [--port {port}]` | 63 | Read-only Dashboard für Runtime- und Analytics-Daten starten |
 | `agentkit weekly-review` | 52 | Wöchentlichen Review-Slot anzeigen |
 | `agentkit failure-corpus suggest-patterns` | 41 | Pattern-Kandidaten vorschlagen |
 | `agentkit failure-corpus review-patterns` | 41 | Patterns reviewen |
@@ -77,8 +93,18 @@ formal_refs:
 
 ## 91.2 Telemetrie-Event-Typen
 
+<!-- PROSE-FORMAL: formal.installer.events, formal.deterministic-checks.events, formal.guard-system.events, formal.conformance.events, formal.llm-evaluations.events, formal.integrity-gate.events, formal.governance-observation.events, formal.escalation.events, formal.setup-preflight.events, formal.verify.events, formal.exploration.events, formal.story-creation.events, formal.dependency-rebinding.events, formal.story-closure.events, formal.story-workflow.events, formal.story-split.events, formal.story-reset.state-machine, formal.story-reset.events, formal.principal-capabilities.events, formal.state-storage.events, formal.telemetry-analytics.events -->
+
 | Event-Typ | Kapitel | Quelle | Beschreibung |
 |-----------|---------|--------|-------------|
+| `project_registration_requested` | 50 | CLI | Projektregistrierung explizit angefordert |
+| `project_registration_started` | 50 | Installer | Checkpoint-Engine für Registrierung gestartet |
+| `project_registration_completed` | 50 | Installer | Registrierung und Bundle-Bindung erfolgreich abgeschlossen |
+| `project_registration_verified` | 50 | Installer | Read-only Verifikation abgeschlossen |
+| `project_registration_dry_run_completed` | 50 | Installer | Dry-Run ohne Mutation abgeschlossen |
+| `bundle_binding_rebound` | 51 | Installer | Bundle-Bindung im Upgrade-/Rebind-Pfad neu gesetzt |
+| `project_customization_preserved` | 51 | Installer | Projektspezifische Anpassungen aktiv erhalten |
+| `project_registration_failed` | 50 | Installer | Registrierung oder Rebind abgebrochen/gescheitert |
 | `agent_start` | 14 | Hook (PostToolUse Agent) | Worker/Adversarial Agent gestartet |
 | `agent_end` | 14 | Hook (PostToolUse Agent) | Agent regulär beendet |
 | `increment_commit` | 14 | Hook (PreToolUse Bash) | Worker committet Inkrement |
@@ -119,9 +145,38 @@ formal_refs:
 | `story_split_started` | 54 | StorySplitService | Story gefenced, Split-Plan-Ausführung begonnen |
 | `story_split_completed` | 54 | StorySplitService | Ausgangs-Story beendet, Nachfolger-Stories angelegt |
 | `story_split_failed` | 54 | StorySplitService | Split unvollständig gescheitert, Story bleibt administrativ blockiert |
+| `capability_context_resolved` | 55 | GuardSystem / Capability Layer | Principal-, Pfad-, Operations- und Story-Scope-Kontext aufgeloest |
+| `capability_allowed` | 55 | GuardSystem / Capability Layer | Tool-Aufruf nach harter Capability-Prüfung erlaubt |
+| `capability_denied` | 55 | GuardSystem / Capability Layer | Tool-Aufruf nach harter Capability-Prüfung blockiert |
+| `unauthorized_mutation_detected` | 55 | GuardSystem / Integrity Layer | Erfolgreiche oder nachtraeglich festgestellte unzulaessige Mutation erkannt |
+| `conflict_freeze_entered` | 55 | GuardSystem / Eskalationslogik | Storybezogener Freeze fuer HARD-STOP-/Normkonflikt aktiviert |
+| `conflict_freeze_released` | 55 | offizieller Resolution-Pfad | Freeze offiziell aufgehoben |
+| `conflict_resolution_requested` | 55 | CLI / Admin-Service | Offizielle Konfliktaufloesung angefordert |
+| `conflict_resolution_applied` | 55 | CLI / Admin-Service | Konfliktaufloesung auditiert angewendet |
+| `conflict_resolution_rejected` | 55 | CLI / Admin-Service | Konfliktaufloesung abgelehnt oder unzulaessig |
+| `permission_request_opened` | 55 | GuardSystem / CCAG | Unbekannte Freigabe als auditierbarer Einzelfall geoeffnet |
+| `permission_request_approved` | 55 | CLI (Mensch) | Mensch hat einen Permission-Einzelfall freigegeben |
+| `permission_request_rejected` | 55 | CLI (Mensch) | Mensch hat einen Permission-Einzelfall abgelehnt |
+| `permission_request_expired` | 55 | GuardSystem / CLI | Offener Permission-Einzelfall ist lazy ohne Antwort in `DENIED` ausgelaufen |
+| `permission_lease_issued` | 55 | CLI (Mensch) | Befristete story-/run-scoped Permission-Lease wurde ausgestellt |
+| `external_permission_interference_detected` | 55 | Telemetrie / Supervisor / manueller Audit-Pfad | Hostseitiges Permission-/TTY-Verhalten stoert den deterministischen Story-Run |
 | `dependency_rebinding_started` | 54 | StorySplitService / DependencyRebinding | Rebinding der expliziten Story-Abhaengigkeiten begonnen |
 | `dependency_rebinding_completed` | 54 | StorySplitService / DependencyRebinding | Alle expliziten Dependency-Kanten gemaess Split-Plan umgebogen |
 | `dependency_rebinding_rejected` | 54 | StorySplitService / DependencyRebinding | Rebinding wegen unvollständigem Mapping oder Graph-Verletzung abgelehnt |
+| `canonical_state_persisted` | 18 | PipelineEngine / StoryContextManager | Kanonischer PostgreSQL-Zustand einer Story- oder Runtime-Identität persistiert |
+| `derived_storage_materialized` | 18 | PhaseStateStore / Analytics | Projektion oder Read-Model aus kanonischen Familien erzeugt |
+| `derived_storage_rebuilt` | 18 | PhaseStateStore / Analytics | Stale oder rebuild-pending Family neu aus kanonischer Quelle aufgebaut |
+| `derived_storage_stale` | 18 | PhaseStateStore / Analytics | Projektion oder Read-Model als stale markiert |
+| `derived_storage_invalidated` | 18 | StoryResetService | Nicht-kanonische Family durch Reset invalidiert oder gelöscht |
+| `telemetry_append_degraded` | 18 | TelemetryService | Telemetrie konnte nur degradiert verarbeitet werden, ohne den kanonischen Fortschritt zu blockieren |
+| `runtime_storage_purged` | 18 | StoryResetService | Runtime-, Telemetrie- und Projektionsfamilien einer Story bereinigt |
+| `storage_policy_violation` | 18 | GuardSystem / Runtime Check | Kanonizitäts-, Single-Writer- oder Scope-Verletzung am Speicherschnitt erkannt |
+| `telemetry_collection_completed` | 14 | TelemetryService / Analytics Intake | Gültige Runtime-Events für Weiterverarbeitung gesammelt |
+| `analytics_read_models_materialized` | 16 | QA-/Failure-Corpus-Projektion | Operative Read Models aus gültigen Quellen materialisiert |
+| `analytics_facts_refreshed` | 62 | Analytics Refresh Worker | Fact-Familien aus gültigen Quellen neu berechnet |
+| `analytics_data_invalidated` | 16 | StoryResetService / Analytics Worker | Telemetrie-/Analytics-Daten eines resetbetroffenen Runs invalidiert |
+| `dashboard_query_served` | 63 | Dashboard Service | Read-only Ergebnis aus Runtime-/Analytics-Daten ausgeliefert |
+| `analytics_policy_violation` | 63 | Dashboard Service / Guard | Ungültiger Auswertungspfad oder Serve-Versuch über invalidierte Daten erkannt |
 | `preflight_passed` | 22 | Setup / Preflight | Alle Preflight-Checks bestanden |
 | `preflight_failed` | 22 | Setup / Preflight | Mindestens ein Preflight-Check gescheitert |
 | `setup_completed` | 22 | Setup / Preflight | Setup abgeschlossen, Mode und Spawn-Vertrag gesetzt |

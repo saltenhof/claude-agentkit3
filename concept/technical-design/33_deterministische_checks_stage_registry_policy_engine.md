@@ -19,6 +19,7 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [deterministic-checks, stage-registry, policy-engine, verify-phase, trust-classes]
+prose_anchor_policy: strict
 formal_refs:
   - formal.deterministic-checks.entities
   - formal.deterministic-checks.state-machine
@@ -29,6 +30,8 @@ formal_refs:
 ---
 
 # 33 — Deterministische Checks, Stage-Registry und Policy-Engine
+
+<!-- PROSE-FORMAL: formal.deterministic-checks.entities, formal.deterministic-checks.state-machine, formal.deterministic-checks.commands, formal.deterministic-checks.events, formal.deterministic-checks.invariants, formal.deterministic-checks.scenarios -->
 
 ## 33.1 Zweck
 

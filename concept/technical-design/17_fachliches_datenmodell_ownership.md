@@ -16,15 +16,20 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [datenmodell, ownership, bounded-context, runtime-state, analytics]
+prose_anchor_policy: strict
 formal_refs:
   - formal.story-creation.entities
   - formal.dependency-rebinding.entities
   - formal.story-closure.entities
   - formal.story-split.entities
   - formal.story-reset.entities
+  - formal.state-storage.entities
+  - formal.state-storage.invariants
 ---
 
 # 17 — Fachliches Datenmodell und Ownership
+
+<!-- PROSE-FORMAL: formal.story-creation.entities, formal.dependency-rebinding.entities, formal.story-closure.entities, formal.story-split.entities, formal.story-reset.entities, formal.state-storage.entities, formal.state-storage.invariants -->
 
 ## 17.1 Zweck
 
@@ -840,6 +845,12 @@ Abbildung genau einem Persistenzmodell zugeordnet werden:
 - `ExecutionEvent`: `runtime_observation_append`
 - `PhaseState`: `runtime_projection`
 - `KpiProjection`: `analytics_projection`
+
+Der formale Speichervertrag fuer diese Persistenzmodell-Tags liegt in
+`formal.state-storage.entities` und
+`formal.state-storage.invariants`. Dort werden die fachlichen
+Record-Families, Kanonizitaet, Reset-Closure und der `project_key`-
+Scope deterministisch festgezogen.
 
 ## 17.7a Vollständiger Story-Reset
 

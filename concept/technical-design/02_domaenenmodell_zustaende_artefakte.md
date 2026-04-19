@@ -13,6 +13,7 @@ defers_to: []
 supersedes: []
 superseded_by:
 tags: [domaenenmodell, zustaende, artefakte, lock-record, stage-registry]
+formal_scope: prose-only
 ---
 
 # 02 — Domänenmodell, Zustände und Artefakte

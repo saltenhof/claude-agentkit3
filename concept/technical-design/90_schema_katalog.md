@@ -11,14 +11,26 @@ defers_to: []
 supersedes: []
 superseded_by:
 tags: [schema, json-schema, katalog, referenz]
+prose_anchor_policy: strict
+formal_refs:
+  - formal.state-storage.entities
+  - formal.state-storage.invariants
+  - formal.principal-capabilities.entities
+  - formal.principal-capabilities.invariants
 ---
 
 # 90 — Schema-Katalog
+
+<!-- PROSE-FORMAL: formal.state-storage.entities, formal.state-storage.invariants, formal.principal-capabilities.entities, formal.principal-capabilities.invariants -->
 
 ## 90.1 Übersicht
 
 Alle JSON Schemas mit Owning-Chapter und Kurzbeschreibung.
 Detaillierte Felddefinitionen stehen im jeweiligen Owning-Chapter.
+
+Der relationale PostgreSQL-State gehoert bewusst nicht in diesen
+JSON-Schema-Katalog. Fuer den kanonischen Speicherschnitt sind FK-18
+und `formal.state-storage.*` maßgeblich.
 
 | Schema | Datei | Owning Chapter | Beschreibung |
 |--------|-------|---------------|-------------|
@@ -41,6 +53,10 @@ Detaillierte Felddefinitionen stehen im jeweiligen Owning-Chapter.
 | Story-Reset-Record | `story_reset_record.schema.json` | 53 | Auditierbarer Reset-Vorgang |
 | Story-Split-Plan | `story_split_plan.schema.json` | 54 | Menschlich freigegebener Plan fuer Nachfolger, Rebinding und Cancel-Pfad |
 | Story-Split-Record | `story_split_record.schema.json` | 54 | Auditierbarer Split-Vorgang |
+| Capability-Freeze-Record | `capability_freeze_record.schema.json` | 55 | Storybezogener Freeze bei HARD-STOP-/Normkonflikten |
+| Conflict-Resolution-Record | `conflict_resolution_record.schema.json` | 55 | Auditierbare menschliche oder offizielle Konfliktaufloesung |
+| Permission-Request-Record | `permission_request_record.schema.json` | 55 | Auditierbarer Einzelfall fuer unbekannte Freigaben mit TTL und Resolution |
+| Permission-Lease-Record | `permission_lease_record.schema.json` | 55 | Befristete, story-/run-scoped Freigabe ausserhalb einer Dauerregel |
 | ARE-Gate-Result | `are_gate_result.schema.json` | 40 | ARE-Gate-Prüfergebnis |
 | Concept-Feedback | `concept_feedback.schema.json` | 24 | Konzept-Feedback-Loop-Ergebnis |
 | Incident | `incident.schema.json` | 41 | Failure-Corpus-Incident |

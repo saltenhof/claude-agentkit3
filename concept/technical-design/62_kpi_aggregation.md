@@ -17,9 +17,19 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [kpi, aggregation, fact-tables, refresh-worker, postgres]
+prose_anchor_policy: strict
+formal_refs:
+  - formal.telemetry-analytics.entities
+  - formal.telemetry-analytics.state-machine
+  - formal.telemetry-analytics.commands
+  - formal.telemetry-analytics.events
+  - formal.telemetry-analytics.invariants
+  - formal.telemetry-analytics.scenarios
 ---
 
 # 62 — KPI-Aggregation
+
+<!-- PROSE-FORMAL: formal.telemetry-analytics.entities, formal.telemetry-analytics.state-machine, formal.telemetry-analytics.commands, formal.telemetry-analytics.events, formal.telemetry-analytics.invariants, formal.telemetry-analytics.scenarios -->
 
 ## 62.1 Zweck
 

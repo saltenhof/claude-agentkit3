@@ -16,6 +16,7 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [vektordb, weaviate, retrieval, chunking, concept-graph]
+formal_scope: prose-only
 ---
 
 # 13 — Retrieval, VektorDB und Wissenszugriff

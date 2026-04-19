@@ -52,6 +52,16 @@ Die formale Schicht muss mindestens diese Objektarten abdecken:
 
 Diese Dinge werden formal, weil ich sie deterministisch pruefen kann.
 
+Jedes Konzeptdokument unter `concept/domain-design/` und
+`concept/technical-design/` muss ausserdem explizit klassifiziert sein:
+
+- entweder ueber `formal_refs`, wenn es normativ an die formale
+  Schicht gekoppelt ist
+- oder ueber `formal_scope: prose-only`, wenn es bewusst ausserhalb der
+  formal pruefbaren Semantik bleibt
+
+Ein nicht klassifiziertes Konzeptdokument ist ein Compile-Fehler.
+
 ## 4. Was bewusst in Prosa bleibt
 
 Nicht Teil des formalen Kerns sind:
@@ -164,12 +174,14 @@ Deshalb gelten diese Regeln:
 1. Formale Objekte erhalten stabile IDs.
 2. Prosa-Konzepte referenzieren diese IDs dort, wo sie normatives
    Verhalten beschreiben.
+   Dafür wird eine explizite Prosa-Ankersyntax verwendet.
 3. Vollstaendige Listen von Zustaenden, Events, Commands oder
    Transitionen duerfen nicht parallel als frei gepflegte Prosa-Kopie
    existieren.
 4. CI bzw. der Concept-Compiler prueft:
    - dangling references
    - fehlende Pflicht-Referenzen
+   - fehlende Prosa-Anker in streng markierten Dokumenten
    - normatives Verhalten in Prosa ohne Formal-Bezug, soweit dies
      regelbasiert erkennbar ist
 

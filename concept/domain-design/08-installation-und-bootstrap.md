@@ -11,9 +11,18 @@ defers_to: []
 supersedes: []
 superseded_by:
 tags: [installation, bootstrap, checkpoints, idempotent, upgrades]
+prose_anchor_policy: strict
+formal_refs:
+  - formal.installer.entities
+  - formal.installer.state-machine
+  - formal.installer.commands
+  - formal.installer.invariants
+  - formal.installer.scenarios
 ---
 
 # 08 — Projektregistrierung und Bootstrap
+
+<!-- PROSE-FORMAL: formal.installer.entities, formal.installer.state-machine, formal.installer.commands, formal.installer.invariants, formal.installer.scenarios -->
 
 **Quelle:** Konsolidiert aus agentkit-domain-concept.md, Kapitel 11
 **Datum:** 2026-04-02

@@ -26,6 +26,7 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [implementation, worker-loop, handover, incremental-development, review]
+formal_scope: prose-only
 ---
 
 # 26 — Implementation-Runtime und Worker-Loop

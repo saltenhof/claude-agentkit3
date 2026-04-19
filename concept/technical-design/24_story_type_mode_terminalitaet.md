@@ -18,12 +18,15 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [story-types, terminality, delivery-contract, exploration-guard, fail-closed]
+prose_anchor_policy: strict
 formal_refs:
   - formal.story-workflow.state-machine
   - formal.story-workflow.scenarios
 ---
 
 # 24 — Story Type, Mode und Terminalitaet
+
+<!-- PROSE-FORMAL: formal.story-workflow.state-machine, formal.story-workflow.scenarios -->
 
 ## 24.1 Ziel
 

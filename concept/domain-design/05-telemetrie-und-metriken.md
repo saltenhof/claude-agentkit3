@@ -11,6 +11,7 @@ defers_to: []
 supersedes: []
 superseded_by:
 tags: [telemetry, metrics, kpis, events, observability]
+formal_scope: prose-only
 ---
 
 # 05 — Telemetrie, Metriken und KPIs

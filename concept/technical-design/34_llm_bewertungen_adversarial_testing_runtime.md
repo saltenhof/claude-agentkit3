@@ -18,6 +18,7 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [llm-evaluation, adversarial-testing, qa-review, semantic-review, verify-phase]
+prose_anchor_policy: strict
 formal_refs:
   - formal.llm-evaluations.entities
   - formal.llm-evaluations.state-machine
@@ -28,6 +29,8 @@ formal_refs:
 ---
 
 # 34 — LLM-Bewertungen und Adversarial-Testing-Runtime
+
+<!-- PROSE-FORMAL: formal.llm-evaluations.entities, formal.llm-evaluations.state-machine, formal.llm-evaluations.commands, formal.llm-evaluations.events, formal.llm-evaluations.invariants, formal.llm-evaluations.scenarios -->
 
 ## 34.1 Zweck
 

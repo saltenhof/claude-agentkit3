@@ -11,6 +11,7 @@ defers_to: []
 supersedes: []
 superseded_by:
 tags: [domain-overview, navigation, agentkit, architecture]
+formal_scope: prose-only
 ---
 
 # AgentKit — Fachkonzept-Übersicht

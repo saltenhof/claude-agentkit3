@@ -11,6 +11,7 @@ defers_to: []
 supersedes: []
 superseded_by:
 tags: [are, requirements, scope-mapping, evidence, completeness]
+formal_scope: prose-only
 ---
 
 # 06 — Agent Requirements Engine (ARE)

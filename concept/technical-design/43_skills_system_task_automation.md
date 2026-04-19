@@ -14,11 +14,21 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [skills, automation, prompt-templates, symlink-binding, extensibility]
+prose_anchor_policy: strict
+formal_refs:
+  - formal.skills-and-bundles.entities
+  - formal.skills-and-bundles.state-machine
+  - formal.skills-and-bundles.commands
+  - formal.skills-and-bundles.events
+  - formal.skills-and-bundles.invariants
+  - formal.skills-and-bundles.scenarios
 ---
 
 # 43 — Skills-System und Task-Automation
 
 ## 43.1 Zweck
+
+<!-- PROSE-FORMAL: formal.skills-and-bundles.entities, formal.skills-and-bundles.invariants -->
 
 Skills sind vordefinierte Prompt-Anleitungen, die Agents methodisch
 durch komplexe Aufgaben führen. Sie standardisieren nicht nur den
@@ -27,6 +37,8 @@ bewährte Methodik einbetten, die ein Agent ohne Anleitung nicht
 konsistent anwenden würde (FK-12-019 bis FK-12-021).
 
 ## 43.2 Skill-Format und Ablage
+
+<!-- PROSE-FORMAL: formal.skills-and-bundles.state-machine, formal.skills-and-bundles.commands, formal.skills-and-bundles.events, formal.skills-and-bundles.scenarios -->
 
 ### 43.2.1 Dateistruktur
 

@@ -14,6 +14,7 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [compaction, context-recovery, resume-capsule, sub-agent, prompt-persistence]
+formal_scope: prose-only
 ---
 
 # FK-36: Compaction Resilience — Prompt-Persistenz fuer Sub-Agenten

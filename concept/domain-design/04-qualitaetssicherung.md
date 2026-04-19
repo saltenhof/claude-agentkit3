@@ -11,6 +11,7 @@ defers_to: []
 supersedes: []
 superseded_by:
 tags: [quality-assurance, verify, trust-classes, remediation, adversarial-testing]
+formal_scope: prose-only
 ---
 
 # 04 — Mehrstufige Qualitätssicherung

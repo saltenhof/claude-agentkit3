@@ -26,6 +26,7 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [exploration, change-frame, drift-detection, mode-routing, document-fidelity]
+prose_anchor_policy: strict
 formal_refs:
   - formal.exploration.entities
   - formal.exploration.state-machine
@@ -36,6 +37,8 @@ formal_refs:
 ---
 
 # 23 — Modusermittlung, Exploration und Change-Frame
+
+<!-- PROSE-FORMAL: formal.exploration.entities, formal.exploration.state-machine, formal.exploration.commands, formal.exploration.events, formal.exploration.invariants, formal.exploration.scenarios -->
 
 ## 23.1 Zweck
 

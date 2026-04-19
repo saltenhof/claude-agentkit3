@@ -14,9 +14,17 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [ccag, tool-governance, permissions, yaml-rules, session-persistence]
+prose_anchor_policy: strict
+formal_refs:
+  - formal.principal-capabilities.entities
+  - formal.principal-capabilities.commands
+  - formal.principal-capabilities.events
+  - formal.principal-capabilities.invariants
 ---
 
 # 42 — CCAG Tool-Governance und Permission-Runtime
+
+<!-- PROSE-FORMAL: formal.principal-capabilities.entities, formal.principal-capabilities.commands, formal.principal-capabilities.events, formal.principal-capabilities.invariants -->
 
 ## 42.1 Zweck und Abgrenzung
 
@@ -29,7 +37,7 @@ Guards (Kap. 30/31), ersetzt sie aber nicht (FK-12-018).
 | Zweck | Harte Sicherheitsregeln erzwingen | Komfortable Tool-Freigaben verwalten |
 | Regelquelle | Hook-Code + Lock-Records | YAML-Regeldateien (sessionübergreifend) |
 | Lernfähig | Nein (statisch) | Ja (wächst mit jeder Freigabe) |
-| Bei Verstoß | Opake Fehlermeldung | Mensch wird gefragt |
+| Bei Verstoß / unbekannter Freigabe | Opake Fehlermeldung | Im Story-Run: block + Permission-Case, sonst optional Mensch |
 | Implementierung | Dedizierte Python-Hooks | CCAG Gate-Keeper-Hook |
 
 **Architekturzuordnung:** `CcagPermissionRuntime` ist im
@@ -37,6 +45,18 @@ Komponentenmodell absichtlich eine **eigene** Top-Level-Komponente und
 nicht Teil des `GuardSystem`. Der Unterschied ist fachlich, nicht nur
 technisch: Guards erzwingen nicht verhandelbare Regeln; CCAG verwaltet
 persistente, vom Menschen gelernte Freigaben.
+
+**Capability-Grenze:** Seit FK-55 gilt explizit: CCAG ist kein
+Capability-Escalation-System. CCAG darf nur innerhalb eines bereits
+erlaubten Capability-Raums erleichtern. Ein harter Deny aus
+Principal-/Pfad-/Freeze-Modell bleibt unverhandelbar und wird durch
+CCAG weder in `allow` noch in `ask` umgewandelt.
+
+**Liveness-Grenze:** CCAG darf in aktiven Story-Runs keinen Fortschritt
+an Claude Codes nativen Permission-Dialog koppeln. Ein unbekannter
+Permission-Fall im `story_execution`-Modus fuehrt deshalb nicht zu einem
+wartenden Prompt, sondern zu einem sofortigen `block` plus
+auditierbarem Permission-Case.
 
 ## 42.2 Kernfunktionen
 
@@ -102,27 +122,58 @@ Sub-Agents erhalten engere Rechte als der Hauptagent:
 
 ```python
 def evaluate_ccag(tool_name: str, tool_input: dict,
-                  is_subagent: bool) -> str:
-    """Returns 'allow', 'block', or 'ask'."""
+                  is_subagent: bool,
+                  execution_mode: str) -> str:
+    """Returns 'allow', 'block_by_rule', 'unknown_permission', or 'ask_external'."""
     rules = load_rules(is_subagent)
 
     # 1. Block-Regeln zuerst (hohe Priorität)
     for rule in rules.blocks:
         if matches(rule, tool_name, tool_input):
-            return "block"
+            return "block_by_rule"
 
     # 2. Allow-Regeln
     for rule in rules.allows:
         if matches(rule, tool_name, tool_input):
             return "allow"
 
-    # 3. Keine passende Regel → Mensch fragen
-    return "ask"
+    # 3. Keine passende Regel
+    if execution_mode == "story_execution":
+        return "unknown_permission"
+    return "ask_external"
 ```
 
 **Reihenfolge:** Block-Regeln haben Vorrang vor Allow-Regeln.
-Keine passende Regel → Mensch wird gefragt (nicht blockiert,
-nicht erlaubt).
+Keine passende Regel fuehrt nur in explizit interaktiven Modi zu
+`ask_external`. Im `story_execution`-Modus wird sofort blockiert.
+
+**Zusatzregel seit FK-55:** `evaluate_ccag()` wird nur aufgerufen,
+nachdem das harte Capability-Modell und das storybezogene Freeze-Overlay
+bereits `nicht blocked` ergeben haben.
+
+CCAG arbeitet dabei nicht auf rohem Tool-Input allein, sondern auf
+einer bereits berechneten Capability-Huelle:
+
+- `principal_type`
+- `path_class`
+- `operation_class`
+- `hard_capability_verdict`
+- `freeze_verdict`
+
+Fehlt diese Huelle, ist der CCAG-Aufruf fail-closed unzulaessig.
+
+### 42.2.5 Modus-scharfe Entscheidungsarten
+
+CCAG kennt normativ zwei verschiedene Betriebsarten:
+
+| Modus | Unbekannte Freigabe | Grund |
+|------|----------------------|-------|
+| `story_execution` | `block` + `permission_request_opened` | aktiver Run darf nicht an Host-UI haengen |
+| `interactive_admin` / `ai_augmented` | `ask_external` zulaessig | explizit interaktive Mensch-Sitzung |
+
+**Normative Regel:** In `story_execution` existiert kein synchroner
+`ask`-Pfad. Der Hook wartet nie auf Mensch oder Host-UI, sondern
+blockiert sofort und erzeugt einen auswertbaren Permission-Fall.
 
 ## 42.3 LLM-gestützte Regelgenerierung (FK-12-009 bis FK-12-011)
 
@@ -144,6 +195,10 @@ Mensch sieht Vorschau: "Allow: git push auf alle Story-Branches"
     ├── Akzeptieren → Regel in approved.yaml gespeichert
     └── Anpassen → Mensch editiert Regex → gespeichert
 ```
+
+**Default-Schnitt:** Die erste positive Entscheidung zu einem offenen
+Permission-Case ist nur eine Einzelfallfreigabe bzw. Lease. Eine neue
+Dauerregel entsteht erst durch eine bewusste Zusatzentscheidung.
 
 ### 42.3.2 Generalisierungsregeln
 
@@ -169,29 +224,38 @@ Automatisch gelernte Regeln landen in `approved.yaml`:
   scope: main-agent
 ```
 
-## 42.4 Sofortige Propagation (FK-12-016/017)
+## 42.4 Out-of-Band-Propagation und Permission-Faelle (FK-12-016/017)
 
 ### 42.4.1 Problem
 
 Wenn ein Sub-Agent tief in einer verschachtelten Ausführung auf
-ein Permission-Problem stößt, sieht der Mensch das sofort in
-seiner Konsole — nicht erst wenn der Agent nach Minuten der
-Arbeit scheitert.
+ein Permission-Problem stoest, darf der Story-Run nicht an einem
+wartenden Prompt haengen bleiben.
 
 ### 42.4.2 Mechanismus
 
-CCAG läuft als PreToolUse-Hook. Wenn der Hook `"ask"` zurückgibt
-(keine passende Regel), blockiert Claude Code den Tool-Call und
-fragt den Menschen. Die Freigabe propagiert sofort:
+Im `story_execution`-Modus laeuft der Pfad so:
 
-1. Mensch gibt den Tool-Call frei
-2. Optional: LLM-Generalisierung → neue Regel in approved.yaml
-3. Die Regel ist sofort für **alle laufenden Sessions** verfügbar
-   (YAML-Datei wird bei jedem Hook-Aufruf neu gelesen)
+1. Hook erkennt fehlende Freigabe
+2. Hook emittiert `permission_request_opened`
+3. Hook blockiert den Tool-Call sofort
+4. Mensch entscheidet spaeter per `agentkit approve-permission-request`
+   oder `agentkit reject-permission-request`
+5. Der Run ist damit `PAUSED`; bei TTL-Ablauf ohne Entscheidung wird er
+   deterministisch `ESCALATED`
+6. Erst ein expliziter Resume-/Folgepfad setzt die Story fort
 
-**Keine IPC nötig:** Da CCAG die YAML-Dateien bei jedem Hook-Aufruf
-liest, ist eine neue Regel sofort wirksam — ohne Nachrichtenaustausch
-zwischen Prozessen.
+Eine positive Entscheidung erzeugt zunaechst nur eine Einzelfallfreigabe
+oder Lease. Sie startet den Run nicht implizit neu und erzeugt auch
+keine Dauerregel ohne separate Promote-Entscheidung.
+
+Im `interactive_admin`- oder `ai_augmented`-Modus darf CCAG dagegen
+weiterhin einen nativen Host-Prompt verwenden, allerdings nur als
+Komfortmechanismus einer bewusst interaktiven Sitzung.
+
+**Keine Liveness-Abhaengigkeit:** Ein aktiver Story-Run darf nie davon
+abhaengen, dass Claude Code, TTY oder Host-UI einen Prompt zeigt oder
+der Mensch ihn rechtzeitig beantwortet.
 
 ## 42.5 CCAG Gate-Keeper (Hook-Implementierung)
 
@@ -203,28 +267,33 @@ def main():
     tool_name = event["tool_name"]
     tool_input = event["tool_input"]
     is_subagent = event.get("is_subagent", False)
+    execution_mode = derive_execution_mode_from_local_locks(event)
 
     # Harte Guards haben Vorrang (eigene Hooks, nicht CCAG)
     # CCAG läuft NACH den Guard-Hooks in der Kette
 
-    decision = evaluate_ccag(tool_name, tool_input, is_subagent)
+    decision = evaluate_ccag(tool_name, tool_input, is_subagent, execution_mode)
 
     if decision == "allow":
         sys.exit(0)
-    elif decision == "block":
+    elif decision == "block_by_rule":
         print("Operation not permitted.", file=sys.stderr)
         sys.exit(2)
-    else:  # "ask"
-        # Claude Code fragt den Menschen
-        # (Hook gibt kein exit(2), sondern signalisiert "fragen")
-        sys.exit(0)  # Durchlassen — Claude Code's eigener
-                      # Permission-Dialog übernimmt
+    elif decision == "unknown_permission":
+        emit_permission_request(event)
+        print("Operation not permitted.", file=sys.stderr)
+        sys.exit(2)
+    else:  # "ask_external"
+        # Nur in explizit interaktiven Modi zulaessig
+        sys.exit(0)  # Claude Code / Host-UI uebernimmt
 ```
 
-**Hinweis:** CCAG ersetzt nicht Claude Codes eigenen Permission-
-Dialog. Es ergänzt ihn um persistente, parameterbasierte Regeln.
-Wenn CCAG keine passende Regel findet, greift Claude Codes
-Standard-Permission-System.
+**Hinweis:** CCAG ersetzt Claude Codes eigenen Permission-Dialog nicht
+vollstaendig. Aber fuer `story_execution` ist dieser Dialog kein
+autoritativer Fortschrittsmechanismus mehr. Tritt trotzdem ein nativer
+Prompt oder anderes Host-Permission-Verhalten auf, wird dies nur ueber
+einen separaten Telemetrie-/Supervisor-Pfad oder manuell dokumentiert,
+nicht als sichere PreToolUse-Erkenntnis behauptet.
 
 ### 42.5.2 Registrierung
 
@@ -249,7 +318,9 @@ flowchart TD
 
     CCAG -->|"allow (Regel matcht)"| PASS(["Erlaubt"])
     CCAG -->|"block (Block-Regel)"| BLOCKED
-    CCAG -->|"ask (keine Regel)"| CLAUDE["Claude Code<br/>Permission-Dialog"]
+    CCAG -->|"story_execution + unbekannt"| CASE["Permission-Case<br/>oeffnen + blockieren"]
+    CASE --> BLOCKED
+    CCAG -->|"interactive_admin + unbekannt"| CLAUDE["Claude Code<br/>Permission-Dialog"]
 
     CLAUDE -->|"Mensch erlaubt"| LEARN["Optional:<br/>LLM-Generalisierung<br/>→ neue Regel"]
     LEARN --> PASS
@@ -260,6 +331,10 @@ flowchart TD
 kommt CCAG nie zum Zug. CCAG regelt nur die "graue Zone" —
 Operationen, die nicht durch Guards hart blockiert oder erlaubt
 sind.
+
+**Zusatz fuer aktive Runs:** Diese "graue Zone" wird im
+`story_execution`-Modus nicht per Host-Prompt aufgeloest, sondern per
+`permission_request_*`-Folgeprozess ausserhalb des wartenden Tool-Calls.
 
 ## 42.7 Konfiguration
 
