@@ -49,17 +49,23 @@ formal_refs:
   - formal.story-reset.events
   - formal.principal-capabilities.commands
   - formal.principal-capabilities.events
+  - formal.operating-modes.commands
+  - formal.operating-modes.events
   - formal.state-storage.commands
   - formal.state-storage.events
   - formal.telemetry-analytics.commands
   - formal.telemetry-analytics.events
+  - formal.integration-stabilization.commands
+  - formal.integration-stabilization.events
+  - formal.story-exit.commands
+  - formal.story-exit.events
 ---
 
 # 91 — API- und Event-Katalog
 
 ## 91.1 CLI-Befehle (agentkit)
 
-<!-- PROSE-FORMAL: formal.installer.commands, formal.deterministic-checks.commands, formal.guard-system.commands, formal.conformance.commands, formal.llm-evaluations.commands, formal.integrity-gate.commands, formal.governance-observation.commands, formal.escalation.commands, formal.setup-preflight.commands, formal.verify.commands, formal.exploration.commands, formal.story-creation.commands, formal.story-closure.commands, formal.story-workflow.commands, formal.story-split.commands, formal.story-reset.commands, formal.principal-capabilities.commands, formal.state-storage.commands, formal.telemetry-analytics.commands -->
+<!-- PROSE-FORMAL: formal.installer.commands, formal.deterministic-checks.commands, formal.guard-system.commands, formal.conformance.commands, formal.llm-evaluations.commands, formal.integrity-gate.commands, formal.governance-observation.commands, formal.escalation.commands, formal.setup-preflight.commands, formal.verify.commands, formal.exploration.commands, formal.story-creation.commands, formal.story-closure.commands, formal.story-workflow.commands, formal.story-split.commands, formal.story-reset.commands, formal.principal-capabilities.commands, formal.operating-modes.commands, formal.state-storage.commands, formal.telemetry-analytics.commands, formal.integration-stabilization.commands, formal.story-exit.commands -->
 
 | Befehl | Kapitel | Beschreibung |
 |--------|---------|-------------|
@@ -77,8 +83,12 @@ formal_refs:
 | `agentkit reset-story --story {story_id}` | 53 | Vollständige korrupt gewordene Umsetzung administrativ zurücksetzen |
 | `agentkit split-story --story {story_id}` | 54 | Scope-Explosion kontrolliert in Nachfolger-Stories überführen |
 | `agentkit resolve-conflict --story {story_id} --decision {decision}` | 55 | Autoritativen Snapshot-/Normkonflikt offiziell auflösen |
+| `agentkit approve-integration-manifest --story {story_id} --manifest {path}` | 57 | Integrations-Scope-Manifest fuer systemische E2E-/Stabilisierungsstory offiziell freigeben |
+| `agentkit amend-integration-manifest --story {story_id} --manifest {path}` | 57 | Erweiterung oder Rekonfiguration eines laufenden Integrations-Manifests offiziell anfordern |
+| `agentkit exit-story --story {story_id} --reason {reason}` | 58 | Story-Execution offiziell beenden und in Human-Takeover uebergeben |
 | `agentkit approve-permission-request --request {request_id}` | 55 | Offenen Permission-Einzelfall als Mensch freigeben, optional als Lease |
 | `agentkit reject-permission-request --request {request_id}` | 55 | Offenen Permission-Einzelfall als Mensch ablehnen |
+| `agentkit guard-status` | 56 | Aktuellen Betriebsmodus, Run-Bindung und aktives Guard-Regime anzeigen |
 | `agentkit override-integrity --story {story_id}` | 35 | Integrity-Gate bewusst overriden |
 | `agentkit query-telemetry` | 52 | Telemetrie-Events abfragen |
 | `agentkit dashboard [--port {port}]` | 63 | Read-only Dashboard für Runtime- und Analytics-Daten starten |
@@ -93,7 +103,7 @@ formal_refs:
 
 ## 91.2 Telemetrie-Event-Typen
 
-<!-- PROSE-FORMAL: formal.installer.events, formal.deterministic-checks.events, formal.guard-system.events, formal.conformance.events, formal.llm-evaluations.events, formal.integrity-gate.events, formal.governance-observation.events, formal.escalation.events, formal.setup-preflight.events, formal.verify.events, formal.exploration.events, formal.story-creation.events, formal.dependency-rebinding.events, formal.story-closure.events, formal.story-workflow.events, formal.story-split.events, formal.story-reset.state-machine, formal.story-reset.events, formal.principal-capabilities.events, formal.state-storage.events, formal.telemetry-analytics.events -->
+<!-- PROSE-FORMAL: formal.installer.events, formal.deterministic-checks.events, formal.guard-system.events, formal.conformance.events, formal.llm-evaluations.events, formal.integrity-gate.events, formal.governance-observation.events, formal.escalation.events, formal.setup-preflight.events, formal.verify.events, formal.exploration.events, formal.story-creation.events, formal.dependency-rebinding.events, formal.story-closure.events, formal.story-workflow.events, formal.story-split.events, formal.story-reset.state-machine, formal.story-reset.events, formal.principal-capabilities.events, formal.operating-modes.events, formal.state-storage.events, formal.telemetry-analytics.events, formal.integration-stabilization.events, formal.story-exit.events -->
 
 | Event-Typ | Kapitel | Quelle | Beschreibung |
 |-----------|---------|--------|-------------|
@@ -160,6 +170,26 @@ formal_refs:
 | `permission_request_expired` | 55 | GuardSystem / CLI | Offener Permission-Einzelfall ist lazy ohne Antwort in `DENIED` ausgelaufen |
 | `permission_lease_issued` | 55 | CLI (Mensch) | Befristete story-/run-scoped Permission-Lease wurde ausgestellt |
 | `external_permission_interference_detected` | 55 | Telemetrie / Supervisor / manueller Audit-Pfad | Hostseitiges Permission-/TTY-Verhalten stoert den deterministischen Story-Run |
+| `operating_mode_resolved` | 56 | GuardSystem | Aktueller Betriebsmodus fuer die Session wurde bestimmt |
+| `interactive_mode_assumed` | 56 | GuardSystem | Session arbeitet frei ausserhalb eines Story-Runs |
+| `session_run_binding_created` | 56 | Setup / Runtime | Session wurde explizit an einen Story-Run gebunden |
+| `session_run_binding_removed` | 56 | Closure / Cleanup / Reset / Split | Session-Bindung an einen Story-Run geloest |
+| `story_execution_regime_activated` | 56 | Setup / Runtime | Storygebundene Guards und Workflow-Pflichten sind aktiv |
+| `story_execution_regime_deactivated` | 56 | Closure / Cleanup / Reset / Split | Session faellt auf freien AI-Augmented-Modus zurueck |
+| `mode_fallback_triggered` | 56 | GuardSystem | Inkonsistenter Lock-/Bindungszustand wurde fail-closed auf `ai_augmented` zurueckgesetzt |
+| `integration_manifest_approved` | 57 | CLI / human_cli | Integrations-Scope-Manifest fuer eine systemische E2E-/Stabilisierungsstory freigegeben |
+| `stabilization_campaign_started` | 57 | Pipeline / Verify | Budgetierte Integrations-Stabilisierungsschleife gestartet |
+| `integration_verify_passed` | 57 | Verify / Stability Gate | Integrationszielmatrix und Stability-Gate erfolgreich passiert |
+| `integration_verify_failed` | 57 | Verify / Stability Gate | Integrations-Verify gescheitert; weiterer Zyklus oder Replan noetig |
+| `undeclared_surface_detected` | 57 | GuardSystem | Produktiver Pfad ausserhalb des freigegebenen Integrations-Manifests beruehrt |
+| `stabilization_budget_exhausted` | 57 | GuardSystem / Verify | Freigegebenes Stabilisierungshaushalt erschopft; normaler Weiterlauf blockiert |
+| `manifest_amendment_requested` | 57 | CLI / human_cli | Erweiterung eines laufenden Integrations-Manifests offiziell beantragt |
+| `stability_gate_passed` | 57 | Verify / Closure Precondition | Zusätzliche Integrations-Stabilitätsbedingungen für Closure erfüllt |
+| `story_exit_requested` | 58 | CLI / human_cli | Offizieller Human-Takeover-Exit fuer eine Story angefordert |
+| `story_exit_gate_passed` | 58 | Admin-Service | Leichtgewichtiges Exit-Gate bestanden |
+| `story_exit_rejected` | 58 | Admin-Service | Exit-Voraussetzungen oder Exit-Grund waren unzulaessig |
+| `story_exit_binding_revoked` | 58 | Admin-Service | Story-Lock und Session-Bindung fuer den beendeten Run wurden geloest |
+| `story_exit_completed` | 58 | Admin-Service | Story ist administrativ beendet und Session wieder im freien Modus |
 | `dependency_rebinding_started` | 54 | StorySplitService / DependencyRebinding | Rebinding der expliziten Story-Abhaengigkeiten begonnen |
 | `dependency_rebinding_completed` | 54 | StorySplitService / DependencyRebinding | Alle expliziten Dependency-Kanten gemaess Split-Plan umgebogen |
 | `dependency_rebinding_rejected` | 54 | StorySplitService / DependencyRebinding | Rebinding wegen unvollständigem Mapping oder Graph-Verletzung abgelehnt |

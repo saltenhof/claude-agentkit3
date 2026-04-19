@@ -22,11 +22,13 @@ prose_anchor_policy: strict
 formal_refs:
   - formal.story-workflow.state-machine
   - formal.story-workflow.scenarios
+  - formal.integration-stabilization.entities
+  - formal.integration-stabilization.invariants
 ---
 
 # 24 — Story Type, Mode und Terminalitaet
 
-<!-- PROSE-FORMAL: formal.story-workflow.state-machine, formal.story-workflow.scenarios -->
+<!-- PROSE-FORMAL: formal.story-workflow.state-machine, formal.story-workflow.scenarios, formal.integration-stabilization.entities, formal.integration-stabilization.invariants -->
 
 ## 24.1 Ziel
 
@@ -106,6 +108,28 @@ Insbesondere gilt:
   Exploration ist ein Vorlauf, nicht das Endergebnis.
 - `story_type=bugfix` + `mode=exploration` bedeutet:
   Exploration ist ein Vorlauf, nicht das Endergebnis.
+
+## 24.3a `implementation_contract` fuer implementierende Storys
+
+Fuer `story_type=implementation` darf zusaetzlich ein
+`implementation_contract` gesetzt werden.
+
+Erlaubte Werte sind:
+
+- `standard`
+- `integration_stabilization`
+
+Regeln:
+
+- `implementation_contract` ist **kein** Ersatz fuer `story_type`
+- `integration_stabilization` erzeugt keinen neuen Betriebsmodus
+- `integration_stabilization` lockert keine Deliverable-Pflicht
+- `integration_stabilization` ist nur ein engerer Ausfuehrungsvertrag
+  fuer bewusst breite Integrations- und Stabilisierungslagen
+
+Fehlt das Feld, gilt fail-closed fuer `implementation`:
+
+- `implementation_contract = standard`
 
 ---
 

@@ -31,6 +31,9 @@ invariants:
   - id: principal-capabilities.invariant.story_scoped_writers_may_not_escape_story_scope
     scope: governance
     rule: worker write access is restricted to the active story scope and does not extend to out-of-scope productive paths
+  - id: principal-capabilities.invariant.integration_stabilization_overlay_is_manifest_scoped
+    scope: governance
+    rule: widened productive worker writes during integration stabilization are only valid inside the approved seam allowlist and allowed repos paths of the active manifest and never as a global guard relaxation
   - id: principal-capabilities.invariant.adversarial_writer_is_sandbox_only
     scope: governance
     rule: adversarial write access is restricted to registered sandbox paths and may not directly mutate productive repository files

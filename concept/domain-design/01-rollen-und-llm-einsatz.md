@@ -161,3 +161,9 @@ technisch erzwungene Invariante durchgesetzt: Der Orchestrator-Agent
 hat keinen Lesezugriff auf Inhaltsartefakte der Content-Plane. Er
 kann das Prinzip nicht aus Hilfsbereitschaft umgehen, weil der
 Zugriff auf Plattformebene blockiert wird.
+
+Diese Beschreibung gilt nur fuer den gebundenen Story-Workflow. Im
+freien `AI-Augmented`-Modus ist der Hauptagent kein `orchestrator`,
+sondern ein interaktiver, menschlich gefuehrter Agent ohne
+Story-Workflow-Pflichten. Die enge Orchestrator-Rolle entsteht erst mit
+der expliziten Bindung an einen Story-Run.

@@ -169,11 +169,16 @@ CCAG kennt normativ zwei verschiedene Betriebsarten:
 | Modus | Unbekannte Freigabe | Grund |
 |------|----------------------|-------|
 | `story_execution` | `block` + `permission_request_opened` | aktiver Run darf nicht an Host-UI haengen |
-| `interactive_admin` / `ai_augmented` | `ask_external` zulaessig | explizit interaktive Mensch-Sitzung |
+| `ai_augmented` mit `interactive_agent` | `ask_external` zulaessig | freies, interaktives Arbeiten ausserhalb des Story-Workflows |
 
 **Normative Regel:** In `story_execution` existiert kein synchroner
 `ask`-Pfad. Der Hook wartet nie auf Mensch oder Host-UI, sondern
 blockiert sofort und erzeugt einen auswertbaren Permission-Fall.
+
+Im `ai_augmented`-Modus dagegen ist genau diese Interaktivitaet
+zulaessig: Dort darf CCAG dem Menschen neue Tool-Pfade vorlegen, weil
+kein deterministischer Story-Workflow auf den Abschluss desselben
+Tool-Calls angewiesen ist.
 
 ## 42.3 LLM-gestützte Regelgenerierung (FK-12-009 bis FK-12-011)
 
@@ -249,7 +254,7 @@ Eine positive Entscheidung erzeugt zunaechst nur eine Einzelfallfreigabe
 oder Lease. Sie startet den Run nicht implizit neu und erzeugt auch
 keine Dauerregel ohne separate Promote-Entscheidung.
 
-Im `interactive_admin`- oder `ai_augmented`-Modus darf CCAG dagegen
+Im `ai_augmented`-Modus des `interactive_agent` darf CCAG dagegen
 weiterhin einen nativen Host-Prompt verwenden, allerdings nur als
 Komfortmechanismus einer bewusst interaktiven Sitzung.
 
@@ -320,7 +325,7 @@ flowchart TD
     CCAG -->|"block (Block-Regel)"| BLOCKED
     CCAG -->|"story_execution + unbekannt"| CASE["Permission-Case<br/>oeffnen + blockieren"]
     CASE --> BLOCKED
-    CCAG -->|"interactive_admin + unbekannt"| CLAUDE["Claude Code<br/>Permission-Dialog"]
+    CCAG -->|"ai_augmented + interactive_agent + unbekannt"| CLAUDE["Claude Code<br/>Permission-Dialog"]
 
     CLAUDE -->|"Mensch erlaubt"| LEARN["Optional:<br/>LLM-Generalisierung<br/>→ neue Regel"]
     LEARN --> PASS

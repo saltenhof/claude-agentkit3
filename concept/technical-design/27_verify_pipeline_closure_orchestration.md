@@ -58,16 +58,26 @@ formal_refs:
   - formal.story-workflow.state-machine
   - formal.story-workflow.invariants
   - formal.story-workflow.scenarios
+  - formal.integration-stabilization.state-machine
+  - formal.integration-stabilization.commands
+  - formal.integration-stabilization.events
+  - formal.integration-stabilization.invariants
+  - formal.integration-stabilization.scenarios
 ---
 
 # 27 — Verify-Pipeline und Closure-Orchestration
 
-<!-- PROSE-FORMAL: formal.deterministic-checks.entities, formal.deterministic-checks.state-machine, formal.deterministic-checks.commands, formal.deterministic-checks.events, formal.deterministic-checks.invariants, formal.deterministic-checks.scenarios, formal.implementation.entities, formal.implementation.invariants, formal.verify.entities, formal.verify.state-machine, formal.verify.commands, formal.verify.events, formal.verify.invariants, formal.verify.scenarios, formal.story-closure.entities, formal.story-closure.state-machine, formal.story-closure.commands, formal.story-closure.events, formal.story-closure.invariants, formal.story-closure.scenarios, formal.story-workflow.state-machine, formal.story-workflow.invariants, formal.story-workflow.scenarios -->
+<!-- PROSE-FORMAL: formal.deterministic-checks.entities, formal.deterministic-checks.state-machine, formal.deterministic-checks.commands, formal.deterministic-checks.events, formal.deterministic-checks.invariants, formal.deterministic-checks.scenarios, formal.implementation.entities, formal.implementation.invariants, formal.verify.entities, formal.verify.state-machine, formal.verify.commands, formal.verify.events, formal.verify.invariants, formal.verify.scenarios, formal.story-closure.entities, formal.story-closure.state-machine, formal.story-closure.commands, formal.story-closure.events, formal.story-closure.invariants, formal.story-closure.scenarios, formal.story-workflow.state-machine, formal.story-workflow.invariants, formal.story-workflow.scenarios, formal.integration-stabilization.state-machine, formal.integration-stabilization.commands, formal.integration-stabilization.events, formal.integration-stabilization.invariants, formal.integration-stabilization.scenarios -->
 
 ## 27.1 Zweck
 
 Die Verify-Phase ist die maschinelle Qualitätssicherung. Sie prüft
 die Implementierung in vier aufeinander aufbauenden Schichten.
+
+Fuer `implementation_contract=integration_stabilization` bleibt die
+Verify-Phase voll aktiv, erhaelt aber zusaetzlich ein dediziertes
+`stability_gate` ueber Manifest, Integrationszielmatrix und
+Stabilisierungsbudget.
 
 Dateisystem-Zugriff nach Layer:
 - **Schicht 1 (Skripte)**: Lese-Zugriff — Artefakt-Existenzprüfung, Build-Ergebnisse, JSON-Validierung (FK-05-128 bis FK-05-130).
@@ -307,6 +317,30 @@ Exploration-Phase selbst (§23.5). `STRUCTURAL_ONLY_PASS` entfällt ebenfalls.]
 |------------------|----------|----------|------------|
 | `VerifyContext.POST_IMPLEMENTATION` | Verify nach abgeschlossener Implementation-Phase | Volle 4-Schichten-QA (Structural, Semantisch, Adversarial, Policy). | Primärer QA-Durchlauf — unabhängig davon, ob `mode = "exploration"` oder `mode = "execution"`. |
 | `VerifyContext.POST_REMEDIATION` | Verify nach einer Remediation-Runde | Volle 4-Schichten-QA (Structural, Semantisch, Adversarial, Policy). | Erneuter vollständiger QA-Durchlauf nach Worker-Remediation — identische Prüftiefe wie nach Implementation. |
+
+### 27.3a.4 Vertragsprofil `integration_stabilization`
+
+Wenn `story_type=implementation` und
+`implementation_contract=integration_stabilization`, gelten zusaetzlich
+zu den normalen Verify-Schichten diese Pflichtpruefungen:
+
+- `integration_target_matrix_passed`
+- `declared_surfaces_only`
+- `stabilization_budget_not_exhausted`
+- `stability_gate`
+
+Ein PASS der normalen Verify-Schichten allein reicht in diesem
+Vertrag nicht fuer Closure.
+
+**Schichtzuordnung:**
+
+- `declared_surfaces_only` gehoert in die deterministische
+  Schicht-1-Pruefung
+- `stabilization_budget_not_exhausted` ist primaer ein
+  Hook-/Capability-Enforcement und wird in Verify nur noch auditierend
+  gegengeprueft
+- `integration_target_matrix_passed` und `stability_gate` sind
+  zusaetzliche Verify-/Closure-Preconditions
 
 ### 27.3a.3 Entscheidungsregel
 

@@ -11,9 +11,9 @@ defers_to:
   - target: FK-30
     scope: hook-infrastructure
     reason: All guards are implemented as hooks registered via FK-30 hook architecture
-  - target: FK-02
+  - target: FK-56
     scope: operating-modes
-    reason: Guard activation depends on lock records and operating modes defined in FK-02
+    reason: Guard activation depends on explicit run binding, valid lock and operating mode defined in FK-56
 supersedes: []
 superseded_by:
 tags: [branch-guard, orchestrator-guard, artifact-protection, qa-guard, adversarial-guard]
@@ -53,8 +53,8 @@ die die Historie beschädigen oder den zugewiesenen Scope verlassen.
 
 | Betriebsmodus | Status | Begründung |
 |--------------|--------|-----------|
-| AI-Augmented (kein aktiver Lock-Record) | **Teilweise aktiv** — nur immer-aktive Regeln | Mensch arbeitet interaktiv, Commits auf Main erlaubt |
-| Story-Execution (Lock-Record vorhanden) | **Voll aktiv** — alle Regeln | Isolation auf Story-Branch erzwungen |
+| AI-Augmented (keine aktive Run-Bindung) | **Teilweise aktiv** — nur immer-aktive Regeln | Mensch arbeitet interaktiv, Commits auf Main erlaubt |
+| Story-Execution (Run-Bindung + valider Lock + Worktree-Match) | **Voll aktiv** — alle Regeln | Isolation auf Story-Branch erzwungen |
 
 ### 31.1.3 Regelsatz
 
@@ -536,6 +536,11 @@ Template-Manipulation.
 Der Guard ist **permanent aktiv** — nicht nur während
 Story-Execution, sondern auch im AI-Augmented-Modus. Jeder
 Sub-Agent-Spawn durchläuft alle drei Prüfstufen.
+
+**Modusgrenze:** Permanent aktiv bedeutet nicht permanent gleich
+streng. Im `ai_augmented`-Modus bleiben Governance-Escape-Erkennung und
+ein leichtgewichtiges Freestyle-Spawn-Schema aktiv. Story-spezifische
+Template- und Skill-Proof-Pflichten gelten nur in `story_execution`.
 
 ### 31.7.2 Drei Prüfstufen
 

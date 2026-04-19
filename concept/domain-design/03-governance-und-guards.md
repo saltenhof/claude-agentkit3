@@ -48,6 +48,11 @@ Integrity-Gate (vor Closure), eine Governance-Beobachtung
 Phase-Transition-Enforcement (Laufzeit-Erzwingung des
 Phasenübergangsgraphen).
 
+Nicht alle Governance-Bausteine gelten in jedem Betriebsmodus.
+Permanente Basisschutzregeln bleiben immer aktiv. Story-spezifische
+Guards, Integrity-Gate und Workflow-Pflichten gelten dagegen nur,
+wenn ein explizit gebundener Story-Run aktiv ist.
+
 ### 3.1 Branch-Guard
 
 **Verantwortung:** Erzwingt, dass alle Änderungen einer Story isoliert

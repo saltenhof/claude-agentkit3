@@ -52,6 +52,14 @@ ihrer Bearbeitung. Beide folgen einer festen Phasenfolge mit definierten
 Ein- und Ausgaben. Kein Agent entscheidet über den Ablauf, der Ablauf
 entscheidet, wann welcher Agent arbeiten darf.
 
+Wichtig ist die Abgrenzung: Diese Pipeline beschreibt nur den
+gebundenen Story-Workflow. Sie ist **nicht** das allgemeine
+Betriebsmodell des registrierten Projekts. Außerhalb eines expliziten
+Story-Runs befindet sich das Projekt im freien `AI-Augmented`-Modus.
+Dann darf der Mensch direkt mit Claude-Code-Agents arbeiten, ohne dass
+Verify-, Closure- oder Integrity-Pflichten aus dem Story-Workflow
+anspringen.
+
 Die Ablaufsteuerung wird in AK3 nicht nur fuer die Gesamtpipeline,
 sondern einheitlich ueber alle Ebenen modelliert: Pipeline, Phase,
 Komponente und Subschritt verwenden dieselben Kontrollflussbausteine

@@ -34,11 +34,15 @@ formal_refs:
   - formal.principal-capabilities.events
   - formal.principal-capabilities.invariants
   - formal.principal-capabilities.scenarios
+  - formal.operating-modes.entities
+  - formal.operating-modes.invariants
+  - formal.integration-stabilization.invariants
+  - formal.story-exit.invariants
 ---
 
 # 55 — Principal- und Capability-Modell mit storybezogener Enforcement-Semantik
 
-<!-- PROSE-FORMAL: formal.principal-capabilities.entities, formal.principal-capabilities.state-machine, formal.principal-capabilities.commands, formal.principal-capabilities.events, formal.principal-capabilities.invariants, formal.principal-capabilities.scenarios -->
+<!-- PROSE-FORMAL: formal.principal-capabilities.entities, formal.principal-capabilities.state-machine, formal.principal-capabilities.commands, formal.principal-capabilities.events, formal.principal-capabilities.invariants, formal.principal-capabilities.scenarios, formal.operating-modes.entities, formal.operating-modes.invariants, formal.integration-stabilization.invariants, formal.story-exit.invariants -->
 
 ## 55.1 Zweck
 
@@ -80,6 +84,7 @@ AK3 verwendet normativ diese Principal-Typen:
 
 | Principal | Zweck | Typische Instanz |
 |-----------|------|------------------|
+| `interactive_agent` | freies, menschlich gefuehrtes Arbeiten ausserhalb eines Story-Runs | Hauptagent ohne aktive Run-Bindung |
 | `orchestrator` | reine Ablaufsteuerung, Agent-Spawn, Phasenrouting | Hauptagent |
 | `worker` | Story-Umsetzung in produktiven Repo-Pfaden | Implementation-Worker |
 | `qa_reader` | Review, Tests, Befundermittlung ohne Produktiv-Write | QA-/Review-Agent |
@@ -92,6 +97,10 @@ AK3 verwendet normativ diese Principal-Typen:
 **Normative Reduktion:** Weitere Principals duerfen nicht ad hoc aus
 Prompts entstehen. Neue Principal-Typen erfordern ein eigenes
 Feinkonzept oder eine Erweiterung dieses Kapitels.
+
+**Modusregel:** `interactive_agent` existiert nur ausserhalb einer
+aktiven Run-Bindung. Mit expliziter Story-Bindung wird der Hauptagent
+zum `orchestrator`.
 
 ## 55.3a Principal-Attestierung
 
@@ -206,6 +215,27 @@ Der aktive Story-Scope ergibt sich aus:
 - keine Mutation an `governance_plane`
 - keine ARE-Kuratierung
 - keine Repo-/Project-Admin-Operationen
+
+**Vertragsspezifische Erweiterung:** Wenn die aktive Story offiziell
+`implementation_contract=integration_stabilization` fuehrt, darf
+`worker` zusaetzlich auf deklarierte productive Cross-Scope-Pfade
+schreiben, aber nur:
+
+- innerhalb `allowed_repos_paths`
+- innerhalb der lokal materialisierten `seam_allowlist`
+- innerhalb des noch gueltigen `stabilization_budget`
+
+Das ist kein globales Guard-Relaxing, sondern ein manifest-scoped
+Capability-Overlay.
+
+Dieses Overlay ist nur gueltig, wenn gleichzeitig vorliegen:
+
+- attestierter `manifest_approval_record`
+- lokaler `seam_allowlist`-Export mit passender Manifest-Version
+- lokaler Budget-Export mit passender Run-/Manifest-Bindung
+
+Fehlt einer dieser Nachweise, faellt die Capability fail-closed auf den
+normalen Story-Scope zurueck.
 
 ### 55.7.3 QA Reader
 

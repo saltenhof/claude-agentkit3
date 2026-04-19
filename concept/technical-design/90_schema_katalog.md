@@ -17,11 +17,13 @@ formal_refs:
   - formal.state-storage.invariants
   - formal.principal-capabilities.entities
   - formal.principal-capabilities.invariants
+  - formal.integration-stabilization.entities
+  - formal.story-exit.entities
 ---
 
 # 90 — Schema-Katalog
 
-<!-- PROSE-FORMAL: formal.state-storage.entities, formal.state-storage.invariants, formal.principal-capabilities.entities, formal.principal-capabilities.invariants -->
+<!-- PROSE-FORMAL: formal.state-storage.entities, formal.state-storage.invariants, formal.principal-capabilities.entities, formal.principal-capabilities.invariants, formal.integration-stabilization.entities, formal.story-exit.entities -->
 
 ## 90.1 Übersicht
 
@@ -57,6 +59,11 @@ und `formal.state-storage.*` maßgeblich.
 | Conflict-Resolution-Record | `conflict_resolution_record.schema.json` | 55 | Auditierbare menschliche oder offizielle Konfliktaufloesung |
 | Permission-Request-Record | `permission_request_record.schema.json` | 55 | Auditierbarer Einzelfall fuer unbekannte Freigaben mit TTL und Resolution |
 | Permission-Lease-Record | `permission_lease_record.schema.json` | 55 | Befristete, story-/run-scoped Freigabe ausserhalb einer Dauerregel |
+| Integration-Scope-Manifest | `integration_scope_manifest.schema.json` | 57 | Freigegebener Integrationsraum fuer systemische E2E-/Stabilisierungsstories |
+| Manifest-Approval-Record | `manifest_approval_record.schema.json` | 57 | Attestierte menschliche oder administrative Freigabe eines Integrations-Manifests |
+| Stabilization-Budget | `stabilization_budget.schema.json` | 57 | Harte Schleifen-, Surface- und Regressionsgrenzen fuer Integrationsstabilisierung |
+| Story-Exit-Record | `story_exit_record.schema.json` | 58 | Audit-Record fuer administrativen Story-Exit in Human-Takeover |
+| Exit-Manifest-Snapshot | `exit_manifest_snapshot.schema.json` | 58 | Letzter gebundener Story-/Manifest-/Budget-Stand beim Exit |
 | ARE-Gate-Result | `are_gate_result.schema.json` | 40 | ARE-Gate-Prüfergebnis |
 | Concept-Feedback | `concept_feedback.schema.json` | 24 | Konzept-Feedback-Loop-Ergebnis |
 | Incident | `incident.schema.json` | 41 | Failure-Corpus-Incident |

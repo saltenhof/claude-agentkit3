@@ -74,6 +74,7 @@ Ausführungskontext ergeben:
 | Principal | Identifikation | Vertrauensstufe |
 |-----------|---------------|----------------|
 | **Mensch** | Direkte CLI-Interaktion, kein Agent-Spawn | Höchste — kann alles, wird nicht blockiert |
+| **Interactive Agent** | Hauptagent ohne aktive Run-Bindung | Zone 3 — frei im Projekt, aber nur unter Basisschutz |
 | **Orchestrator** (Hauptagent) | Claude-Code-Session, kein Parent-Agent | Zone 3 — darf steuern, nicht implementieren |
 | **Worker** (Sub-Agent) | Von Orchestrator gespawnt, `subagent_type: worker` | Zone 3 — darf implementieren, nicht QA manipulieren |
 | **QA-Agent** (Sub-Agent) | Von Orchestrator gespawnt, `subagent_type: qa` | Zone 3 — darf lesen und testen, nicht Produktivcode editieren |
@@ -119,6 +120,18 @@ explizite Admin-/Betriebs-Tools zulaessig.
 | LLM-Pool aufrufen | ✅ | ✅ | ✅ | ❌ | ✅ (Sparring) | ✅ (Evaluator) |
 | Agents spawnen | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Zentralen Workflow-State mutieren | ✅ (über Admin/CLI) | ❌ | ❌ | ❌ | ❌ | ✅ |
+
+**AI-Augmented-Ergaenzung:** Außerhalb einer aktiven Run-Bindung wird
+der Hauptagent als `Interactive Agent` behandelt. Für ihn gelten:
+
+| Aktion | Interactive Agent |
+|--------|-------------------|
+| Code lesen | ✅ |
+| Code schreiben | ✅ |
+| Tests ausführen | ✅ |
+| Agents spawnen | ✅ |
+| Story-Workflow-State mutieren | ❌ außer über offizielle CLI-Pfade |
+| Immer-aktive Basisschutzregeln umgehen | ❌ |
 
 *Guard = nur aktiv im Story-Execution-Modus (aktiver Lock-Record
 vorhanden,

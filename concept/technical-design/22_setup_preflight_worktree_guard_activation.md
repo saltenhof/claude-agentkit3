@@ -449,8 +449,10 @@ def setup_worktree(story_id: str, repo: RepoRef,
 
 ### 22.7.1 Lock-Record anlegen
 
-Das Setup-Skript (nicht der Agent) erstellt den Lock-Record, der
-alle zustandsabhängigen Guards aktiviert (Kap. 02.7):
+Das Setup-Skript (nicht der Agent) erstellt den Lock-Record als
+notwendige Bedingung fuer das Story-Regime. Er allein aktiviert die
+Guards noch nicht; massgeblich bleibt die spaetere
+Modus-Aufloesung aus Run-Bindung + Lock + Worktree-Match:
 
 ```python
 def activate_guards(project_key: str, story_id: str, run_id: str) -> None:
@@ -470,9 +472,11 @@ def activate_guards(project_key: str, story_id: str, run_id: str) -> None:
     qa_dir.mkdir(parents=True, exist_ok=True)
 ```
 
-### 22.7.2 Was der Lock-Record aktiviert
+### 22.7.2 Was der Lock-Record vorbereitet
 
-Der Lock-Record aktiviert die vier permanenten Guards (FK 6.0).
+Der Lock-Record ist notwendige Vorbedingung fuer die storygebundenen
+Guards (FK 6.0). Ob sie fuer den aktuellen Hook-Call wirklich gelten,
+entscheidet die Mode-Resolution.
 Das Integrity-Gate ist kein Guard, sondern ein einmaliger
 Prüfpunkt vor Closure — es wird nicht durch den Lock-Record
 aktiviert, sondern durch den Phase Runner in der Closure-Phase
@@ -489,7 +493,9 @@ aufgerufen.
 **Orchestrator-Guard:** Wird durch denselben Lock-Record gesteuert
 wie Branch-Guard und QA-Schutz. Er liest den aktiven Lock-Record
 read-only aus dem State-Backend. Lokale Marker-/Lock-Exporte sind
-nur Materialisierung, nicht kanonische Aktivierung.
+nur Materialisierung, nicht kanonische Aktivierung. Ein Lock allein ist
+auch hier nicht hinreichend; die Session muss zusaetzlich an denselben
+Run gebunden sein.
 
 ### 22.7.3 Wer kann Guards deaktivieren
 

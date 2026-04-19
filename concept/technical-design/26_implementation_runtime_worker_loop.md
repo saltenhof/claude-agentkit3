@@ -87,6 +87,19 @@ Der Worker erhält bei Start folgende Informationen:
 | Bugfix | `worker-bugfix.md` | Red-Green-Suite TDD-Workflow, Reproducer-Pflicht |
 | Remediation | `worker-remediation.md` | Arbeitet Mängelliste ab (Feedback-Loop) |
 
+### 26.2.4 Spezialfall `implementation_contract=integration_stabilization`
+
+Fuer diesen Vertrag gelten vor dem produktiven Worker-Start zusaetzlich:
+
+- Exploration ist bereits erfolgreich abgeschlossen
+- ein freigegebenes `integration_scope_manifest` liegt vor
+- der Guard-Export fuer `seam_allowlist` und `stabilization_budget`
+  ist materialisiert
+
+Der Worker arbeitet dann **nicht frei quer durch das Projekt**,
+sondern nur innerhalb der durch das Manifest freigegebenen
+Cross-Scope-Flaechen.
+
 ## 26.3 Inkrementelles Vorgehen
 
 ### 26.3.1 Vertikale Inkremente (FK-05-094 bis FK-05-104)
@@ -200,6 +213,38 @@ oder Impact-Überschreitung):
 
 Bei kleineren Abweichungen (anderes Pattern, Detailentscheidung)
 reicht die Dokumentation im Handover-Paket — kein Stopp nötig.
+
+**Vertragsspezifische Erweiterung fuer `integration_stabilization`:**
+
+Der Drift-Check prueft nicht nur gegen Story-Spec und Entwurfsartefakt,
+sondern gegen:
+
+- `story.md`
+- `integration_scope_manifest`
+- `allowed_repos_paths`
+- `allowed_contract_changes`
+
+Wird eine produktive Surface ausserhalb dieses Manifests beruehrt,
+ist das kein normaler Drift, sondern ein harter Befund
+`undeclared_surface` mit Reaktion:
+
+- `PAUSED.integration_replan_required`
+- oder Rueckfuehrung in `scope_explosion`
+
+je nach Mandatsklassifikation.
+
+### 26.3.7 Stabilisierungsschleife fuer systemische Integrationsstories
+
+Bei `implementation_contract=integration_stabilization` darf der Worker
+mehrere budgetierte Schleifen durchlaufen:
+
+1. Integrationsziel bzw. E2E-Fall ausfuehren
+2. Defekt innerhalb der genehmigten Seams beheben
+3. lokal klein pruefen
+4. erneuten Integrations-Verify anstossen
+
+Die Schleife ist kein freier Dauerlauf. Sie bleibt an das im Manifest
+freigegebene `stabilization_budget` gebunden.
 
 ### 26.3.6 Schritt 4: Committen
 

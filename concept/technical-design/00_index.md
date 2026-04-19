@@ -92,6 +92,9 @@ Anforderungen.
 | `53_story_reset_service_recovery_flow.md` | Vollstaendiger Story-Reset, Purge-Reihenfolge, Worktree-/Branch-Behandlung, Endzustand |
 | `54_story_split_service_scope_explosion.md` | Scope-Explosion, Story-Split, Cancelled-Pfad, Nachfolger-Stories, Dependency-Rebinding |
 | `55_principal_capability_model_story_scope_enforcement.md` | Principals, Capability-Profile, storybezogene Pfad- und Operationsklassen, Freeze-Modell, offizielle Servicepfade |
+| `56_ai_augmented_mode_and_story_execution_separation.md` | Betriebsmodi, explizite Run-Bindung, freier AI-Augmented-Modus vs. Story-Execution-Regime |
+| `57_integration_stabilization_contract.md` | Integrationsstabilisierung fuer breite E2E-/Systemstories, Manifest, Budget, Stability-Gate, kontrollierte Cross-Scope-Arbeit |
+| `58_story_exit_human_takeover_handoff.md` | Leichtgewichtiger offizieller Exit aus Story-Execution in menschlich gefuehrten AI-Augmented-Modus bei grossen Loesungsvorschlagsfaellen |
 
 ## 7. Referenzanhänge
 

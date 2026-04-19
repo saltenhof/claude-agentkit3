@@ -29,11 +29,13 @@ formal_refs:
   - formal.principal-capabilities.commands
   - formal.principal-capabilities.invariants
   - formal.principal-capabilities.scenarios
+  - formal.operating-modes.invariants
+  - formal.operating-modes.scenarios
 ---
 
 # 30 — Hook-Adapter und Guard-Enforcement
 
-<!-- PROSE-FORMAL: formal.guard-system.entities, formal.guard-system.state-machine, formal.guard-system.commands, formal.guard-system.events, formal.guard-system.invariants, formal.guard-system.scenarios, formal.principal-capabilities.entities, formal.principal-capabilities.commands, formal.principal-capabilities.invariants, formal.principal-capabilities.scenarios -->
+<!-- PROSE-FORMAL: formal.guard-system.entities, formal.guard-system.state-machine, formal.guard-system.commands, formal.guard-system.events, formal.guard-system.invariants, formal.guard-system.scenarios, formal.principal-capabilities.entities, formal.principal-capabilities.commands, formal.principal-capabilities.invariants, formal.principal-capabilities.scenarios, formal.operating-modes.invariants, formal.operating-modes.scenarios -->
 
 ## 30.1 Zweck
 
@@ -211,6 +213,23 @@ TTY-Interaktivitaet oder hostseitige Sonderfaelle fuer geschuetzte
 Verzeichnisse sind fuer AK3 kein autoritativer Bestandteil dieser
 Pipeline. Tritt so etwas im aktiven Story-Run trotzdem auf, gilt das als
 `external_permission_interference_detected`.
+
+### 30.2.7 Betriebsmodus-Aufloesung
+
+Vor storygebundenen Guard-Entscheidungen wird der aktuelle
+Betriebsmodus bestimmt:
+
+- `ai_augmented`
+- `story_execution`
+
+Diese Aufloesung erfolgt deterministisch aus:
+
+1. aktiver Session-/Run-Bindung
+2. gueltigem `story_execution`-Lock
+3. passendem Worktree
+
+Fehlt eines davon, gilt fail-closed fuer Story-Governance:
+`ai_augmented`.
 
 ## 30.3 Hook-Registrierung
 

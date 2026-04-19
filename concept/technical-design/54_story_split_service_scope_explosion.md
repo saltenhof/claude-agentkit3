@@ -78,6 +78,13 @@ Fuer AK3 gilt normativ:
    vollzogen; er benoetigt eine ausdrueckliche menschliche
    Entscheidung und den offiziellen CLI-Pfad.
 
+**Narrow exception:** FK-57 definiert einen engen offiziellen
+Reklassifikationspfad fuer legitime spaete
+Integrations-/Stabilisierungsstories. Diese Ausnahme hebt den
+Split-Standardpfad nicht auf, sondern ersetzt ihn nur, wenn der Mensch
+die Story bewusst auf `implementation_contract=integration_stabilization`
+umstellt und ein Integrations-Scope-Manifest freigibt.
+
 ## 54.3 Abgrenzung
 
 - `StorySplitService` ist **kein** normaler Pipeline-Schritt.

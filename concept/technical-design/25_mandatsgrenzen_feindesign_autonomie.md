@@ -44,11 +44,14 @@ formal_refs:
   - formal.exploration.events
   - formal.exploration.invariants
   - formal.exploration.scenarios
+  - formal.integration-stabilization.state-machine
+  - formal.integration-stabilization.invariants
+  - formal.integration-stabilization.scenarios
 ---
 
 # 25 — Mandatsgrenzen, Eskalationsklassen und Feindesign-Autonomie
 
-<!-- PROSE-FORMAL: formal.exploration.entities, formal.exploration.state-machine, formal.exploration.commands, formal.exploration.events, formal.exploration.invariants, formal.exploration.scenarios -->
+<!-- PROSE-FORMAL: formal.exploration.entities, formal.exploration.state-machine, formal.exploration.commands, formal.exploration.events, formal.exploration.invariants, formal.exploration.scenarios, formal.integration-stabilization.state-machine, formal.integration-stabilization.invariants, formal.integration-stabilization.scenarios -->
 
 ## 25.1 Zweck
 
@@ -221,6 +224,15 @@ vorgelegt. Der normative Standardpfad ist anschliessend **nicht**
 freies Weiterschreiben an derselben Story, sondern ein offizieller
 Story-Split ueber `StorySplitService` (FK-54): Ausgangs-Story wird
 kontrolliert beendet, Nachfolger-Stories werden neu angelegt.
+
+**Enger Ausnahmefall:** Wenn der Mensch feststellt, dass es sich
+fachlich nicht um eine falsch geschnittene Einzelstory, sondern um
+eine legitime systemische Integrations-/Stabilisierungslage handelt,
+ist statt `split-story` auch eine offizielle Reklassifikation nach
+`implementation_contract=integration_stabilization` (FK-57)
+zulaessig. Diese Weiterfuehrung braucht ein freigegebenes
+Integrations-Scope-Manifest; ein stilles Weiterschreiben bleibt
+verboten.
 
 ### Klasse 4 — Tragweiten-Überschreitung
 
