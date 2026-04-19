@@ -142,6 +142,7 @@ class VerifyPhaseHandler:
 
         artifact_names: list[str] = []
         artifact_name_by_layer = {
+            "structural": "structural.json",
             "semantic": "semantic-review.json",
             "adversarial": "adversarial.json",
         }

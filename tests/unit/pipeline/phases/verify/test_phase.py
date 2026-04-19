@@ -80,6 +80,7 @@ class TestVerifyPhaseHandler:
         result = handler.on_enter(ctx, state)
         assert result.status == PhaseStatus.COMPLETED
         assert result.artifacts_produced == (
+            "structural.json",
             "semantic-review.json",
             "adversarial.json",
             "verify-decision.json",
@@ -97,6 +98,7 @@ class TestVerifyPhaseHandler:
         assert result.status == PhaseStatus.FAILED
         assert len(result.errors) > 0
         assert result.artifacts_produced == (
+            "structural.json",
             "semantic-review.json",
             "adversarial.json",
             "verify-decision.json",
@@ -135,6 +137,11 @@ class TestVerifyPhaseHandler:
 
         result = handler.on_enter(ctx, state)
         assert result.status == PhaseStatus.COMPLETED
+        assert result.artifacts_produced == (
+            "structural.json",
+            "verify-decision.json",
+            "decision.json",
+        )
 
     def test_on_exit_is_noop(self, tmp_path: Path) -> None:
         config = VerifyConfig(story_dir=tmp_path)
@@ -177,10 +184,13 @@ class TestVerifyPhaseHandler:
         assert legacy_decision_path.exists(), "decision.json must be written"
         semantic_path = story_dir / "semantic-review.json"
         adversarial_path = story_dir / "adversarial.json"
+        structural_path = story_dir / "structural.json"
+        assert structural_path.exists()
         assert semantic_path.exists()
         assert adversarial_path.exists()
         data = json.loads(decision_path.read_text(encoding="utf-8"))
         legacy = json.loads(legacy_decision_path.read_text(encoding="utf-8"))
+        structural_data = json.loads(structural_path.read_text(encoding="utf-8"))
         assert data["passed"] is True
         assert data["status"] == "PASS"
         assert "summary" in data
@@ -189,6 +199,8 @@ class TestVerifyPhaseHandler:
         assert isinstance(data["all_findings_count"], int)
         assert legacy["decision"] == "PASS"
         assert legacy["passed"] is True
+        assert structural_data["layer"] == "structural"
+        assert structural_data["passed"] is True
         semantic = next(
             layer for layer in data["layers"] if layer["layer"] == "semantic"
         )
@@ -235,6 +247,7 @@ class TestVerifyPhaseHandler:
         assert legacy_decision_path.exists(), (
             "decision.json must be written even on FAIL"
         )
+        assert (tmp_path / "structural.json").exists()
         assert (tmp_path / "semantic-review.json").exists()
         assert (tmp_path / "adversarial.json").exists()
         data = json.loads(decision_path.read_text(encoding="utf-8"))
