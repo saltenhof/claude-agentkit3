@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import os
 import shutil
 from typing import TYPE_CHECKING
@@ -14,7 +15,7 @@ if TYPE_CHECKING:
 
 
 def create_or_replace_hardlink(source: Path, target: Path) -> None:
-    """Create a file hardlink, replacing an existing target if needed."""
+    """Create prompt projection via hardlink, symlink, or last-resort copy."""
 
     if not source.is_file():
         raise ProjectError(
@@ -29,10 +30,49 @@ def create_or_replace_hardlink(source: Path, target: Path) -> None:
     try:
         os.link(source, target)
     except OSError as exc:
+        if _can_fallback_to_symlink(exc):
+            try:
+                os.symlink(source, target)
+                return
+            except OSError as symlink_exc:
+                if _can_fallback_to_copy(symlink_exc):
+                    try:
+                        shutil.copy2(source, target)
+                        return
+                    except OSError as copy_exc:
+                        raise ProjectError(
+                            "Failed to create prompt projection "
+                            f"from {source} to {target}: {copy_exc}",
+                            detail={
+                                "source": str(source),
+                                "target": str(target),
+                                "error": str(copy_exc),
+                            },
+                        ) from copy_exc
+                raise ProjectError(
+                    "Failed to create prompt binding "
+                    f"from {source} to {target}: {symlink_exc}",
+                    detail={
+                        "source": str(source),
+                        "target": str(target),
+                        "error": str(symlink_exc),
+                    },
+                ) from symlink_exc
         raise ProjectError(
             f"Failed to create hardlink from {source} to {target}: {exc}",
             detail={"source": str(source), "target": str(target), "error": str(exc)},
         ) from exc
+
+
+def _can_fallback_to_symlink(exc: OSError) -> bool:
+    return (
+        exc.errno == errno.EXDEV
+        or getattr(exc, "winerror", None) == 17
+    )
+
+
+def _can_fallback_to_copy(exc: OSError) -> bool:
+    return getattr(exc, "winerror", None) == 1314
 
 
 def copy_file(source: Path, target: Path) -> None:

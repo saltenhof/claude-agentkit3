@@ -12,6 +12,14 @@ from agentkit.pipeline.lifecycle import NoOpHandler, PhaseHandlerRegistry
 if TYPE_CHECKING:
     from pathlib import Path
 
+pytest_plugins = ("tests.fixtures.postgres_backend",)
+
+
+def pytest_collection_modifyitems(config, items):  # type: ignore[no-untyped-def]
+    del config  # unused, explicit for hook signature parity
+    for item in items:
+        item.fixturenames.append("postgres_runtime_env")
+
 
 @pytest.fixture()
 def installed_project(tmp_path: Path) -> Path:

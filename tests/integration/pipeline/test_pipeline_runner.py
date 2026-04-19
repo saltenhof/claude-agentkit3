@@ -30,6 +30,8 @@ from agentkit.pipeline.lifecycle import (
 )
 from agentkit.pipeline.runner import PipelineRunResult, run_pipeline
 from agentkit.pipeline.state import (
+    load_attempts,
+    load_phase_snapshot,
     load_phase_state,
     load_story_context,
     save_story_context,
@@ -139,11 +141,14 @@ class TestSmokeImplementationStory:
             "closure",
         )
 
-        # 7. Verify artifacts
+        # 7. Verify canonical persisted records and optional projections
+        assert load_phase_state(s_dir) is not None
+        assert load_phase_snapshot(s_dir, "setup") is not None
+        assert load_phase_snapshot(s_dir, "closure") is not None
         assert (s_dir / "phase-state.json").exists()
         assert (s_dir / "context.json").exists()
-        assert (s_dir / "phase-runs" / "setup").exists()
-        assert (s_dir / "phase-runs" / "closure").exists()
+        assert len(load_attempts(s_dir, "setup")) >= 1
+        assert len(load_attempts(s_dir, "closure")) >= 1
 
     def test_execution_mode_skips_exploration(self, tmp_path: Path) -> None:
         """EXECUTION mode uses transition guard to skip exploration."""
@@ -207,8 +212,8 @@ class TestSmokeImplementationStory:
         assert result.phases_executed.count("verify") == 1
         assert result.phases_executed.count("implementation") == 1
 
-    def test_state_files_are_valid_json(self, tmp_path: Path) -> None:
-        """All state files produced by the pipeline are valid, loadable JSON."""
+    def test_projection_files_are_valid_json(self, tmp_path: Path) -> None:
+        """Projection files remain valid JSON alongside canonical DB records."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
         install_agentkit(
@@ -229,7 +234,12 @@ class TestSmokeImplementationStory:
         registry = _registry_for_workflow(workflow)
         run_pipeline(ctx, s_dir, registry, workflow)
 
-        # Verify all JSON files are parseable
+        assert load_phase_state(s_dir) is not None
+        assert load_phase_snapshot(s_dir, "setup") is not None
+        assert load_phase_snapshot(s_dir, "verify") is not None
+        assert load_phase_snapshot(s_dir, "closure") is not None
+
+        # Projections are not canonical, but they should still be parseable.
         json_files = list(s_dir.rglob("*.json"))
         assert len(json_files) > 0, "No JSON files produced"
 
@@ -239,7 +249,7 @@ class TestSmokeImplementationStory:
             assert isinstance(parsed, dict), f"{json_file.name} is not a JSON object"
 
     def test_attempt_records_created_per_phase(self, tmp_path: Path) -> None:
-        """Each phase creates an attempt record in phase-runs/."""
+        """Each phase creates canonical attempt records."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
         install_agentkit(
@@ -262,21 +272,13 @@ class TestSmokeImplementationStory:
 
         assert result.final_status == "completed"
 
-        # Every executed phase should have an attempt directory
+        # Every executed phase should have canonical attempt records.
         for phase_name in result.phases_executed:
-            attempt_dir = s_dir / "phase-runs" / phase_name
-            assert attempt_dir.exists(), (
-                f"No attempt directory for phase '{phase_name}'"
-            )
-            attempt_files = list(attempt_dir.glob("attempt-*.json"))
-            assert len(attempt_files) >= 1, f"No attempt files for phase '{phase_name}'"
-
-            # Each attempt file should be valid JSON with required fields
-            for af in attempt_files:
-                data = json.loads(af.read_text(encoding="utf-8"))
-                assert "attempt_id" in data
-                assert "phase" in data
-                assert data["phase"] == phase_name
+            attempts = load_attempts(s_dir, phase_name)
+            assert len(attempts) >= 1, f"No canonical attempts for phase '{phase_name}'"
+            for attempt in attempts:
+                assert attempt.attempt_id
+                assert attempt.phase == phase_name
 
 
 # ---------------------------------------------------------------------------
@@ -327,7 +329,7 @@ class TestSmokeExplorationMode:
         self,
         tmp_path: Path,
     ) -> None:
-        """EXPLORATION mode creates attempt records for the exploration phase."""
+        """EXPLORATION mode persists canonical exploration records."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
         install_agentkit(
@@ -349,13 +351,10 @@ class TestSmokeExplorationMode:
         result = run_pipeline(ctx, s_dir, registry, workflow)
 
         assert result.final_status == "completed"
-        # Exploration phase should have attempt records
-        exploration_dir = s_dir / "phase-runs" / "exploration"
-        assert exploration_dir.exists()
-        assert len(list(exploration_dir.glob("attempt-*.json"))) >= 1
-
-        # Exploration phase snapshot should exist
-        assert (s_dir / "phase-state-exploration.json").exists()
+        assert len(load_attempts(s_dir, "exploration")) >= 1
+        snapshot = load_phase_snapshot(s_dir, "exploration")
+        assert snapshot is not None
+        assert snapshot.phase == "exploration"
 
 
 # ---------------------------------------------------------------------------
@@ -718,13 +717,8 @@ class TestSmokePipelineRobustness:
         with pytest.raises(PipelineError, match="No handler registered"):
             run_pipeline(ctx, s_dir, registry, workflow)
 
-    def test_corrupt_state_file_during_run(self, tmp_path: Path) -> None:
-        """Pipeline fails closed on corrupt state file.
-
-        Corrupts the phase-state.json before pipeline start.
-        The runner must NOT silently restart -- it must fail with
-        a clear error message (fail-closed behavior).
-        """
+    def test_corrupt_projection_file_during_run(self, tmp_path: Path) -> None:
+        """Corrupt projection JSON does not override canonical backend truth."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
         install_agentkit(
@@ -748,12 +742,11 @@ class TestSmokePipelineRobustness:
         workflow = resolve_workflow(StoryType.RESEARCH)
         registry = _registry_for_workflow(workflow)
 
-        # Pipeline must fail-closed on corrupt state
         result = run_pipeline(ctx, s_dir, registry, workflow)
 
-        assert result.final_status == "failed"
-        assert result.phases_executed == ()
-        assert any("Corrupt" in e for e in result.errors)
+        assert result.final_status == "completed"
+        assert result.phases_executed == ("setup", "implementation", "closure")
+        assert load_phase_state(s_dir) is not None
 
     def test_pipeline_with_yielding_handler(self, tmp_path: Path) -> None:
         """Pipeline correctly yields when a handler returns PAUSED."""
@@ -832,7 +825,7 @@ class TestSmokePipelineRobustness:
         assert "closure" not in result.phases_executed
 
     def test_full_pipeline_creates_snapshots(self, tmp_path: Path) -> None:
-        """Completed phases produce phase-state-{phase}.json snapshots."""
+        """Completed phases produce canonical phase snapshots."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
         install_agentkit(
@@ -856,15 +849,14 @@ class TestSmokePipelineRobustness:
 
         assert result.final_status == "completed"
 
-        # Each completed phase should have a snapshot file
+        # Each completed phase should have a canonical snapshot record.
         for phase_name in result.phases_executed:
-            snapshot_file = s_dir / f"phase-state-{phase_name}.json"
-            assert snapshot_file.exists(), (
-                f"No snapshot for completed phase '{phase_name}'"
+            snapshot = load_phase_snapshot(s_dir, phase_name)
+            assert snapshot is not None, (
+                f"No canonical snapshot for completed phase '{phase_name}'"
             )
-            data = json.loads(snapshot_file.read_text(encoding="utf-8"))
-            assert data["phase"] == phase_name
-            assert data["status"] == "completed"
+            assert snapshot.phase == phase_name
+            assert snapshot.status == PhaseStatus.COMPLETED
 
     def test_handler_exception_produces_failed_result(
         self,

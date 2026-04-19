@@ -15,6 +15,8 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 if str(TOOLS_ROOT) not in sys.path:
     sys.path.insert(0, str(TOOLS_ROOT))
+os.environ.setdefault("AGENTKIT_STATE_BACKEND", "sqlite")
+os.environ.setdefault("AGENTKIT_ALLOW_SQLITE", "1")
 if os.name == "nt":
     PYTEST_TEMP_ROOT.mkdir(parents=True, exist_ok=True)
     os.environ.setdefault("PYTEST_DEBUG_TEMPROOT", str(PYTEST_TEMP_ROOT))
