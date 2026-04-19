@@ -88,7 +88,8 @@ def compose_prompt(
         execution_route=config.execution_route,
         spawn_reason=config.spawn_reason,
     )
-    template = load_prompt_template(template_name)
+    project_root = ctx.project_root
+    template = load_prompt_template(template_name, project_root=project_root)
     placeholders = _build_placeholder_map(ctx, config)
     content = template.format_map(placeholders)
 
@@ -111,11 +112,17 @@ def compose_prompt(
 
     return ComposedPrompt(
         content=content,
-        prompt_bundle_id=prompt_bundle_id(),
-        prompt_bundle_version=prompt_bundle_version(),
+        prompt_bundle_id=prompt_bundle_id(project_root),
+        prompt_bundle_version=prompt_bundle_version(project_root),
         template_name=template_name,
-        template_relpath=prompt_template_relpath(template_name),
-        template_sha256=prompt_template_sha256(template_name),
+        template_relpath=prompt_template_relpath(
+            template_name,
+            project_root=project_root,
+        ),
+        template_sha256=prompt_template_sha256(
+            template_name,
+            project_root=project_root,
+        ),
         rendered_sha256=rendered_sha256,
         story_id=ctx.story_id,
         sentinel=sentinel,

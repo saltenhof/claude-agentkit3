@@ -12,8 +12,8 @@ from agentkit.config.defaults import (
     DEFAULT_VERIFY_LAYERS,
 )
 from agentkit.exceptions import ProjectError
-from agentkit.installer.file_ops import atomic_write_yaml
-from agentkit.installer.paths import config_dir, project_config_path
+from agentkit.installer.file_ops import atomic_write_yaml, create_or_replace_hardlink
+from agentkit.installer.paths import config_dir, project_config_path, static_prompts_dir
 
 
 def _resources_target_project_dir() -> Path:
@@ -22,6 +22,17 @@ def _resources_target_project_dir() -> Path:
     if not resources_dir.is_dir():
         raise ProjectError(
             f"Resources directory not found: {resources_dir}",
+            detail={"resources_dir": str(resources_dir)},
+        )
+    return resources_dir
+
+
+def _resources_internal_prompt_dir() -> Path:
+    package_dir = Path(__file__).resolve().parent.parent
+    resources_dir = package_dir / "resources" / "internal" / "prompts"
+    if not resources_dir.is_dir():
+        raise ProjectError(
+            f"Internal prompt resources directory not found: {resources_dir}",
             detail={"resources_dir": str(resources_dir)},
         )
     return resources_dir
@@ -101,6 +112,21 @@ def _deploy_directory_structure(
     return created
 
 
+def _deploy_prompt_bindings(target_root: Path) -> list[str]:
+    created: list[str] = []
+    prompt_source_dir = _resources_internal_prompt_dir()
+    prompt_target_dir = static_prompts_dir(target_root)
+
+    for item in sorted(prompt_source_dir.iterdir()):
+        if not item.is_file():
+            continue
+        target = prompt_target_dir / item.name
+        create_or_replace_hardlink(item, target)
+        created.append(str(target.relative_to(target_root)))
+
+    return created
+
+
 def install_agentkit(config: InstallConfig) -> InstallResult:
     root = config.project_root
 
@@ -120,6 +146,7 @@ def install_agentkit(config: InstallConfig) -> InstallResult:
 
     resources_dir = _resources_target_project_dir()
     created = _deploy_directory_structure(resources_dir, root)
+    created.extend(_deploy_prompt_bindings(root))
 
     cfg_dir = config_dir(root)
     if not cfg_dir.exists():

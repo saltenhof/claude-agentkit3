@@ -43,9 +43,32 @@ class TestInstallFresh:
         config = InstallConfig(project_name="test-project", project_root=root)
         install_agentkit(config)
         assert (root / "prompts").is_dir()
+        assert (root / "prompts" / "manifest.json").is_file()
+        assert (root / "prompts" / "worker-implementation.md").is_file()
         assert (root / ".agentkit" / "prompts").is_dir()
         assert (root / ".agentkit" / "hooks").is_dir()
         assert (root / "stories").is_dir()
+
+    def test_install_creates_prompt_hardlink_binding(self, tmp_path: object) -> None:
+        """Install binds project prompt files to bundled prompt resources."""
+
+        root = _as_path(tmp_path)
+        config = InstallConfig(project_name="test-project", project_root=root)
+        install_agentkit(config)
+
+        installed = root / "prompts" / "worker-implementation.md"
+        bundled = (
+            Path(__file__).resolve().parents[4]
+            / "src"
+            / "agentkit"
+            / "resources"
+            / "internal"
+            / "prompts"
+            / "worker-implementation.md"
+        )
+        assert installed.exists()
+        assert bundled.exists()
+        assert installed.samefile(bundled)
 
     def test_install_fails_if_already_installed(self, tmp_path: object) -> None:
         """Double install raises :class:`ProjectError`."""
