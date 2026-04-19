@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 
 from agentkit.governance.protocols import GuardVerdict, ViolationType
-from agentkit.qa.artifacts import PROTECTED_QA_ARTIFACTS
+from agentkit.state_backend import PROTECTED_QA_ARTIFACTS
 
 
 class ArtifactGuard:

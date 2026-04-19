@@ -1,22 +1,23 @@
-"""Integrity gate -- multi-dimensional quality check before closure.
-
-The integrity gate verifies that all required QA evidence exists
-and is consistent before allowing a story to close.  It performs
-read-only file-system inspection -- no mutation.
-"""
+"""Integrity gate -- canonical pre-closure quality checks."""
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from agentkit.qa.artifacts import (
+from agentkit.exceptions import CorruptStateError
+from agentkit.state_backend import (
+    CONTEXT_EXPORT_FILE,
+    PHASE_STATE_EXPORT_FILE,
     VERIFY_DECISION_FILE,
-    load_json_object,
-    load_verify_decision_artifact,
-    verify_decision_passed,
+    backend_has_completed_snapshot,
+    backend_has_structural_artifact,
+    backend_has_valid_context,
+    backend_has_valid_phase_state,
+    load_latest_verify_decision,
+    read_phase_state_record,
 )
+from agentkit.state_backend.exports import verify_decision_passed
 from agentkit.story_context_manager.types import StoryType
 
 if TYPE_CHECKING:
@@ -25,13 +26,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class IntegrityCheckResult:
-    """Result of a single integrity dimension check.
-
-    Attributes:
-        dimension: Name of the dimension being checked.
-        passed: Whether this dimension's requirements are met.
-        message: Human-readable explanation.
-    """
+    """Result of one integrity dimension."""
 
     dimension: str
     passed: bool
@@ -40,23 +35,16 @@ class IntegrityCheckResult:
 
 @dataclass(frozen=True)
 class IntegrityGateResult:
-    """Aggregated result of all integrity checks.
-
-    Attributes:
-        passed: ``True`` only if every individual check passed.
-        checks: Tuple of all individual check results.
-    """
+    """Aggregated integrity outcome."""
 
     passed: bool
     checks: tuple[IntegrityCheckResult, ...]
 
     @property
     def failed_checks(self) -> tuple[IntegrityCheckResult, ...]:
-        """Return only the checks that did not pass."""
-        return tuple(c for c in self.checks if not c.passed)
+        return tuple(check for check in self.checks if not check.passed)
 
 
-# Phases required per story type for snapshot checks.
 _REQUIRED_PHASES: dict[StoryType, tuple[str, ...]] = {
     StoryType.IMPLEMENTATION: ("setup", "implementation", "verify"),
     StoryType.BUGFIX: ("setup", "implementation", "verify"),
@@ -66,208 +54,155 @@ _REQUIRED_PHASES: dict[StoryType, tuple[str, ...]] = {
 
 
 class IntegrityGate:
-    """Multi-dimensional integrity gate.
+    """Run canonical integrity checks before closure."""
 
-    Checks before closure:
-
-    1. All required phase snapshots exist and show COMPLETED status.
-    2. For code stories: verify decision exists and is PASS.
-    3. ``context.json`` exists and is valid JSON.
-    4. No corrupt state files (``phase-state.json`` readable if present).
-    """
-
-    def evaluate(
-        self, story_dir: Path, story_type: StoryType,
-    ) -> IntegrityGateResult:
-        """Run all integrity checks.
-
-        Args:
-            story_dir: Root directory containing story artifacts.
-            story_type: Determines which phases/checks are required.
-
-        Returns:
-            An ``IntegrityGateResult`` aggregating all dimension checks.
-        """
+    def evaluate(self, story_dir: Path, story_type: StoryType) -> IntegrityGateResult:
         checks: list[IntegrityCheckResult] = []
-
         checks.extend(self._check_phase_snapshots(story_dir, story_type))
 
         if story_type in (StoryType.IMPLEMENTATION, StoryType.BUGFIX):
+            checks.append(self._check_structural_artifact(story_dir))
             checks.append(self._check_verify_decision(story_dir))
 
-        checks.append(self._check_context_json(story_dir))
-        checks.append(self._check_state_file(story_dir))
-
-        passed = all(c.passed for c in checks)
-        return IntegrityGateResult(passed=passed, checks=tuple(checks))
-
-    # ------------------------------------------------------------------
-    # Private dimension checkers
-    # ------------------------------------------------------------------
+        checks.append(self._check_context_record(story_dir))
+        checks.append(self._check_phase_state_record(story_dir))
+        return IntegrityGateResult(
+            passed=all(check.passed for check in checks),
+            checks=tuple(checks),
+        )
 
     @staticmethod
     def _check_phase_snapshots(
-        story_dir: Path, story_type: StoryType,
+        story_dir: Path,
+        story_type: StoryType,
     ) -> list[IntegrityCheckResult]:
-        """Verify that all required phase snapshots exist and are COMPLETED."""
-        required = _REQUIRED_PHASES.get(story_type, ())
         results: list[IntegrityCheckResult] = []
-
-        for phase in required:
-            snapshot_path = story_dir / f"phase-state-{phase}.json"
+        for phase in _REQUIRED_PHASES.get(story_type, ()):
             dim_name = f"phase_snapshot_{phase}"
-
-            if not snapshot_path.exists():
-                results.append(IntegrityCheckResult(
-                    dimension=dim_name,
-                    passed=False,
-                    message=f"Missing phase snapshot: {snapshot_path.name}",
-                ))
-                continue
-
             try:
-                with snapshot_path.open("r", encoding="utf-8") as f:
-                    data = json.load(f)
-            except (json.JSONDecodeError, OSError):
-                results.append(IntegrityCheckResult(
-                    dimension=dim_name,
-                    passed=False,
-                    message=f"Corrupt phase snapshot: {snapshot_path.name}",
-                ))
+                completed = backend_has_completed_snapshot(story_dir, phase)
+            except CorruptStateError:
+                completed = False
+            if completed:
+                results.append(
+                    IntegrityCheckResult(
+                        dimension=dim_name,
+                        passed=True,
+                        message=f"Phase {phase!r} snapshot OK",
+                    )
+                )
                 continue
-
-            status = data.get("status") if isinstance(data, dict) else None
-            if status != "completed":
-                results.append(IntegrityCheckResult(
+            results.append(
+                IntegrityCheckResult(
                     dimension=dim_name,
                     passed=False,
                     message=(
-                        f"Phase {phase!r} status is {status!r}, "
-                        f"expected 'completed'"
+                        "Missing or invalid canonical snapshot "
+                        f"for phase {phase!r}"
                     ),
-                ))
-            else:
-                results.append(IntegrityCheckResult(
-                    dimension=dim_name,
-                    passed=True,
-                    message=f"Phase {phase!r} snapshot OK",
-                ))
-
+                )
+            )
         return results
 
     @staticmethod
+    def _check_structural_artifact(story_dir: Path) -> IntegrityCheckResult:
+        try:
+            present = backend_has_structural_artifact(story_dir)
+        except CorruptStateError:
+            present = False
+        if present:
+            return IntegrityCheckResult(
+                dimension="structural_artifact",
+                passed=True,
+                message="Canonical structural QA artifact exists",
+            )
+        return IntegrityCheckResult(
+            dimension="structural_artifact",
+            passed=False,
+            message="Missing canonical structural QA artifact record",
+        )
+
+    @staticmethod
     def _check_verify_decision(story_dir: Path) -> IntegrityCheckResult:
-        """Verify that the verify decision exists and is PASS."""
-        dim_name = "verify_decision"
-        canonical_data = load_json_object(story_dir / VERIFY_DECISION_FILE)
-        if (story_dir / VERIFY_DECISION_FILE).exists() and canonical_data is None:
+        try:
+            payload = load_latest_verify_decision(story_dir)
+        except CorruptStateError:
+            payload = None
+        if payload is None:
             return IntegrityCheckResult(
-                dimension=dim_name,
-                passed=False,
-                message=f"Corrupt verify decision: {VERIFY_DECISION_FILE}",
-            )
-
-        loaded = load_verify_decision_artifact(story_dir)
-        if loaded is None:
-            return IntegrityCheckResult(
-                dimension=dim_name,
-                passed=False,
-                message=f"Missing verify decision: {VERIFY_DECISION_FILE}",
-            )
-        decision_name, data = loaded
-        if load_json_object(story_dir / decision_name) is None:
-            return IntegrityCheckResult(
-                dimension=dim_name,
-                passed=False,
-                message=f"Corrupt verify decision: {decision_name}",
-            )
-
-        decision_label = data.get("status", data.get("decision"))
-        if not verify_decision_passed(data):
-            return IntegrityCheckResult(
-                dimension=dim_name,
+                dimension="verify_decision",
                 passed=False,
                 message=(
-                    f"Verify decision is {decision_label!r}, "
-                    "expected PASS/PASS_WITH_WARNINGS"
+                    "Missing canonical verify decision record "
+                    f"for {VERIFY_DECISION_FILE}"
                 ),
             )
-
+        if not verify_decision_passed(payload):
+            label = payload.get("status", payload.get("decision"))
+            return IntegrityCheckResult(
+                dimension="verify_decision",
+                passed=False,
+                message=(
+                    f"Verify decision is {label!r}, expected PASS/PASS_WITH_WARNINGS"
+                ),
+            )
         return IntegrityCheckResult(
-            dimension=dim_name,
+            dimension="verify_decision",
             passed=True,
-            message=f"Verify decision OK via {decision_name}",
+            message="Canonical verify decision record passed",
         )
 
     @staticmethod
-    def _check_context_json(story_dir: Path) -> IntegrityCheckResult:
-        """Verify that context.json exists and is valid JSON."""
-        context_path = story_dir / "context.json"
-        dim_name = "context_json"
-
-        if not context_path.exists():
-            return IntegrityCheckResult(
-                dimension=dim_name,
-                passed=False,
-                message="Missing context.json",
-            )
-
+    def _check_context_record(story_dir: Path) -> IntegrityCheckResult:
         try:
-            with context_path.open("r", encoding="utf-8") as f:
-                data = json.load(f)
-        except (json.JSONDecodeError, OSError):
+            valid = backend_has_valid_context(story_dir)
+        except CorruptStateError:
+            valid = False
+        if valid:
             return IntegrityCheckResult(
-                dimension=dim_name,
-                passed=False,
-                message="Corrupt context.json",
-            )
-
-        if not isinstance(data, dict):
-            return IntegrityCheckResult(
-                dimension=dim_name,
-                passed=False,
-                message="context.json is not a JSON object",
-            )
-
-        return IntegrityCheckResult(
-            dimension=dim_name,
-            passed=True,
-            message="context.json is valid",
-        )
-
-    @staticmethod
-    def _check_state_file(story_dir: Path) -> IntegrityCheckResult:
-        """Verify that phase-state.json is readable if present."""
-        state_path = story_dir / "phase-state.json"
-        dim_name = "state_file"
-
-        if not state_path.exists():
-            # Not present is fine -- might already be cleaned up.
-            return IntegrityCheckResult(
-                dimension=dim_name,
+                dimension="context_record",
                 passed=True,
-                message="phase-state.json not present (acceptable)",
+                message=(
+                    "Canonical story context exists; "
+                    f"{CONTEXT_EXPORT_FILE} is projection-only"
+                ),
             )
-
-        try:
-            with state_path.open("r", encoding="utf-8") as f:
-                data = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            return IntegrityCheckResult(
-                dimension=dim_name,
-                passed=False,
-                message="Corrupt phase-state.json",
-            )
-
-        if not isinstance(data, dict):
-            return IntegrityCheckResult(
-                dimension=dim_name,
-                passed=False,
-                message="phase-state.json is not a JSON object",
-            )
-
         return IntegrityCheckResult(
-            dimension=dim_name,
-            passed=True,
-            message="phase-state.json is valid",
+            dimension="context_record",
+            passed=False,
+            message="Missing or invalid canonical story context record",
+        )
+
+    @staticmethod
+    def _check_phase_state_record(story_dir: Path) -> IntegrityCheckResult:
+        try:
+            state = read_phase_state_record(story_dir)
+        except CorruptStateError:
+            return IntegrityCheckResult(
+                dimension="phase_state_record",
+                passed=False,
+                message="Canonical phase state record is corrupt or invalid",
+            )
+        if state is None:
+            return IntegrityCheckResult(
+                dimension="phase_state_record",
+                passed=True,
+                message=(
+                    "Canonical phase state record absent "
+                    "after cleanup (acceptable)"
+                ),
+            )
+        if backend_has_valid_phase_state(story_dir):
+            return IntegrityCheckResult(
+                dimension="phase_state_record",
+                passed=True,
+                message=(
+                    "Canonical phase state exists; "
+                    f"{PHASE_STATE_EXPORT_FILE} is projection-only"
+                ),
+            )
+        return IntegrityCheckResult(
+            dimension="phase_state_record",
+            passed=False,
+            message="Missing or invalid canonical phase state record",
         )

@@ -17,7 +17,7 @@ from agentkit.pipeline.phases.closure.execution_report import (
     _now_iso,
     write_execution_report,
 )
-from agentkit.pipeline.state import load_phase_snapshot
+from agentkit.state_backend import load_phase_snapshot, save_story_context
 from agentkit.story_context_manager.models import PhaseStatus
 from agentkit.story_context_manager.types import get_profile
 
@@ -96,6 +96,7 @@ class ClosurePhaseHandler:
                 status=PhaseStatus.FAILED,
                 errors=("story_dir is not configured in ClosureConfig",),
             )
+        save_story_context(s_dir, ctx)
 
         # 1. Determine required prior phases
         profile = get_profile(ctx.story_type)

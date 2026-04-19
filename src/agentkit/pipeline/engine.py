@@ -17,15 +17,16 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from agentkit.exceptions import PipelineError
-from agentkit.phase_state_store import load_node_execution_ledger
 from agentkit.pipeline.runtime_state import EngineRuntimeState
-from agentkit.pipeline.state import (
+from agentkit.process.language.model import ExecutionPolicy
+from agentkit.state_backend import (
     AttemptRecord,
+    load_node_execution_ledger,
     save_attempt,
     save_phase_snapshot,
     save_phase_state,
+    save_story_context,
 )
-from agentkit.process.language.model import ExecutionPolicy
 from agentkit.story_context_manager.models import (
     PhaseSnapshot,
     PhaseState,
@@ -220,6 +221,7 @@ class PipelineEngine:
                 or no handler is registered for it.
         """
         phase_name = state.phase
+        save_story_context(self._story_dir, ctx)
 
         # 1. Look up phase definition
         phase_def = self._workflow.get_phase(phase_name)
@@ -364,6 +366,7 @@ class PipelineEngine:
             trigger is not valid for the current yield point.
         """
         phase_name = state.phase
+        save_story_context(self._story_dir, ctx)
 
         # 1. Verify state is PAUSED
         if state.status != PhaseStatus.PAUSED:

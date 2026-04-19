@@ -13,13 +13,25 @@ from agentkit.pipeline.lifecycle import (
     PhaseHandlerRegistry,
 )
 from agentkit.pipeline.runner import PipelineRunResult, run_pipeline
-from agentkit.pipeline.state import (
+from agentkit.state_backend import (
     AttemptRecord,
-    load_phase_state,
-    load_story_context,
+    read_phase_state_record,
+    read_story_context_record,
     save_phase_state,
     save_story_context,
 )
+
+
+def load_phase_state(story_dir):
+    """Compatibility wrapper over the canonical phase-state reader."""
+
+    return read_phase_state_record(story_dir)
+
+
+def load_story_context(story_dir):
+    """Compatibility wrapper over the canonical story-context reader."""
+
+    return read_story_context_record(story_dir)
 
 __all__ = [
     "AttemptRecord",

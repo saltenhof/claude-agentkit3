@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING
 
 from agentkit.exceptions import CorruptStateError
 from agentkit.pipeline.engine import PipelineEngine
-from agentkit.pipeline.state import load_phase_state, save_phase_state
 from agentkit.process.language.definitions import resolve_workflow
+from agentkit.state_backend import read_phase_state_record, save_phase_state
 from agentkit.story_context_manager.models import PhaseState, PhaseStatus
 
 if TYPE_CHECKING:
@@ -85,7 +85,7 @@ def run_pipeline(
 
     # 3. Load or create initial state (fail-closed on corrupt state)
     try:
-        state = load_phase_state(story_dir)
+        state = read_phase_state_record(story_dir)
     except CorruptStateError:
         return PipelineRunResult(
             story_id=story_context.story_id,

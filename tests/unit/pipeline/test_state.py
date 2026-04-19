@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path  # noqa: TCH003 — used at runtime by tmp_path fixture type
 
@@ -39,6 +40,12 @@ def _make_ctx() -> StoryContext:
         mode=StoryMode.EXPLORATION,
         title="Test story",
     )
+
+
+def _bootstrap_context(tmp_path: Path) -> StoryContext:
+    ctx = _make_ctx()
+    save_story_context(tmp_path, ctx)
+    return ctx
 
 
 def _make_state() -> PhaseState:
@@ -162,6 +169,7 @@ class TestPhaseStatePersistence:
 
     def test_roundtrip(self, tmp_path: Path) -> None:
         state = _make_state()
+        _bootstrap_context(tmp_path)
         save_phase_state(tmp_path, state)
         loaded = load_phase_state(tmp_path)
 
@@ -171,6 +179,7 @@ class TestPhaseStatePersistence:
         assert loaded.status == state.status
 
     def test_writes_to_phase_state_json(self, tmp_path: Path) -> None:
+        _bootstrap_context(tmp_path)
         save_phase_state(tmp_path, _make_state())
         assert (tmp_path / "phase-state.json").exists()
 
@@ -179,19 +188,24 @@ class TestPhaseStatePersistence:
         assert result is None
 
     def test_load_corrupt_raises_error(self, tmp_path: Path) -> None:
-        (tmp_path / "phase-state.json").write_text(
-            "not json",
-            encoding="utf-8",
-        )
+        _bootstrap_context(tmp_path)
+        save_phase_state(tmp_path, _make_state())
+        with sqlite3.connect(tmp_path / ".agentkit" / "state.sqlite3") as conn:
+            conn.execute("UPDATE phase_states SET payload_json = 'not json'")
+            conn.commit()
         with pytest.raises(CorruptStateError, match="corrupt"):
             load_phase_state(tmp_path)
 
     def test_load_invalid_schema_raises_error(self, tmp_path: Path) -> None:
-        (tmp_path / "phase-state.json").write_text(
-            '{"wrong_field": "value"}',
-            encoding="utf-8",
-        )
-        with pytest.raises(CorruptStateError, match="validation failed"):
+        _bootstrap_context(tmp_path)
+        save_phase_state(tmp_path, _make_state())
+        with sqlite3.connect(tmp_path / ".agentkit" / "state.sqlite3") as conn:
+            conn.execute(
+                "UPDATE phase_states SET payload_json = ?",
+                ('{"wrong_field": "value"}',),
+            )
+            conn.commit()
+        with pytest.raises(CorruptStateError, match="payload is invalid"):
             load_phase_state(tmp_path)
 
 
@@ -217,12 +231,12 @@ class TestStoryContextPersistence:
         assert result is None
 
     def test_load_corrupt_returns_none(self, tmp_path: Path) -> None:
-        (tmp_path / "context.json").write_text(
-            "not json",
-            encoding="utf-8",
-        )
-        result = load_story_context(tmp_path)
-        assert result is None
+        save_story_context(tmp_path, _make_ctx())
+        with sqlite3.connect(tmp_path / ".agentkit" / "state.sqlite3") as conn:
+            conn.execute("UPDATE story_contexts SET payload_json = 'not json'")
+            conn.commit()
+        with pytest.raises(CorruptStateError, match="invalid"):
+            load_story_context(tmp_path)
 
 
 # --- save_attempt / load_attempts ---
@@ -232,6 +246,7 @@ class TestAttemptPersistence:
     """Tests for AttemptRecord roundtrip persistence."""
 
     def test_roundtrip_single(self, tmp_path: Path) -> None:
+        _bootstrap_context(tmp_path)
         attempt = _make_attempt()
         save_attempt(tmp_path, attempt)
         loaded = load_attempts(tmp_path, "exploration")
@@ -245,6 +260,7 @@ class TestAttemptPersistence:
         assert rec.artifacts_produced == ("design.md",)
 
     def test_roundtrip_multiple(self, tmp_path: Path) -> None:
+        _bootstrap_context(tmp_path)
         save_attempt(tmp_path, _make_attempt(attempt_id="exploration-001"))
         save_attempt(
             tmp_path,
@@ -276,14 +292,14 @@ class TestAttemptPersistence:
         assert result == []
 
     def test_attempt_numbering_increments(self, tmp_path: Path) -> None:
+        _bootstrap_context(tmp_path)
         save_attempt(tmp_path, _make_attempt(attempt_id="a1"))
         save_attempt(tmp_path, _make_attempt(attempt_id="a2"))
 
-        attempts_dir = tmp_path / "phase-runs" / "exploration"
-        files = sorted(attempts_dir.glob("attempt-*.json"))
-        assert len(files) == 2
-        assert files[0].name == "attempt-001.json"
-        assert files[1].name == "attempt-002.json"
+        attempts = load_attempts(tmp_path, "exploration")
+        assert len(attempts) == 2
+        assert attempts[0].attempt_id == "a1"
+        assert attempts[1].attempt_id == "a2"
 
 
 # --- save_phase_snapshot / load_phase_snapshot ---
@@ -293,6 +309,7 @@ class TestPhaseSnapshotPersistence:
     """Tests for PhaseSnapshot roundtrip persistence."""
 
     def test_roundtrip(self, tmp_path: Path) -> None:
+        _bootstrap_context(tmp_path)
         snapshot = _make_snapshot()
         save_phase_snapshot(tmp_path, snapshot)
         loaded = load_phase_snapshot(tmp_path, "setup")
@@ -309,8 +326,50 @@ class TestPhaseSnapshotPersistence:
         assert result is None
 
     def test_writes_to_correct_filename(self, tmp_path: Path) -> None:
+        _bootstrap_context(tmp_path)
         save_phase_snapshot(tmp_path, _make_snapshot())
         assert (tmp_path / "phase-state-setup.json").exists()
+
+    def test_snapshot_lookup_does_not_infer_story_id_from_orphaned_rows(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        db_dir = tmp_path / ".agentkit"
+        db_dir.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(db_dir / "state.sqlite3") as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS phase_snapshots (
+                    story_id TEXT NOT NULL,
+                    phase TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    completed_at TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    PRIMARY KEY (story_id, phase)
+                )
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO phase_snapshots (
+                    story_id, phase, status, completed_at, payload_json
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    "ORPHAN-001",
+                    "setup",
+                    "completed",
+                    datetime(2026, 1, 15, 10, 30, 0, tzinfo=UTC).isoformat(),
+                    json.dumps(
+                        _make_snapshot().model_dump(mode="json"),
+                        sort_keys=True,
+                        default=str,
+                    ),
+                ),
+            )
+            conn.commit()
+
+        assert load_phase_snapshot(tmp_path, "setup") is None
 
 
 # --- Pipeline robustness tests ---
@@ -325,10 +384,11 @@ class TestPipelineRobustness:
 
     def test_corrupt_phase_state_raises_error(self, tmp_path: Path) -> None:
         """phase-state.json exists but contains garbage -> CorruptStateError."""
-        (tmp_path / "phase-state.json").write_text(
-            "{invalid json!!!",
-            encoding="utf-8",
-        )
+        _bootstrap_context(tmp_path)
+        save_phase_state(tmp_path, _make_state())
+        with sqlite3.connect(tmp_path / ".agentkit" / "state.sqlite3") as conn:
+            conn.execute("UPDATE phase_states SET payload_json = '{invalid json!!!'")
+            conn.commit()
         with pytest.raises(CorruptStateError):
             load_phase_state(tmp_path)
 
@@ -338,15 +398,34 @@ class TestPipelineRobustness:
 
     def test_corrupt_attempt_is_skipped(self, tmp_path: Path) -> None:
         """One corrupt attempt file does not prevent loading others."""
+        _bootstrap_context(tmp_path)
         # Save a valid attempt
         save_attempt(tmp_path, _make_attempt(attempt_id="good"))
 
-        # Write a corrupt attempt file manually
-        corrupt_dir = tmp_path / "phase-runs" / "exploration"
-        corrupt_path = corrupt_dir / "attempt-002.json"
-        corrupt_path.write_text("not valid json", encoding="utf-8")
+        with sqlite3.connect(tmp_path / ".agentkit" / "state.sqlite3") as conn:
+            conn.execute(
+                "INSERT INTO attempt_records ("
+                "story_id, phase, seq, attempt_id, entered_at, exit_status, "
+                "outcome, yield_status, resume_trigger, "
+                "guard_evaluations_json, artifacts_json"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "TEST-001",
+                    "exploration",
+                    2,
+                    "corrupt",
+                    datetime.now(tz=UTC).isoformat(),
+                    "completed",
+                    "completed",
+                    None,
+                    None,
+                    "not json",
+                    '["design.md"]',
+                ),
+            )
+            conn.commit()
 
-        # Save another valid attempt (will be attempt-003 since 002 exists)
+        # Save another valid attempt (will be seq 3 since 2 exists)
         save_attempt(tmp_path, _make_attempt(attempt_id="also-good"))
 
         loaded = load_attempts(tmp_path, "exploration")
@@ -361,11 +440,15 @@ class TestPipelineRobustness:
         tmp_path: Path,
     ) -> None:
         """phase-state.json has valid JSON but wrong Pydantic schema."""
-        atomic_write_json(
-            tmp_path / "phase-state.json",
-            {"totally": "wrong", "fields": 123},
-        )
-        with pytest.raises(CorruptStateError, match="validation failed"):
+        _bootstrap_context(tmp_path)
+        save_phase_state(tmp_path, _make_state())
+        with sqlite3.connect(tmp_path / ".agentkit" / "state.sqlite3") as conn:
+            conn.execute(
+                "UPDATE phase_states SET payload_json = ?",
+                ('{"totally": "wrong", "fields": 123}',),
+            )
+            conn.commit()
+        with pytest.raises(CorruptStateError, match="payload is invalid"):
             load_phase_state(tmp_path)
 
     def test_snapshot_with_corrupt_json_returns_none(
@@ -385,9 +468,10 @@ class TestPipelineRobustness:
 
     def test_load_phase_state_non_dict_raises_error(self, tmp_path: Path) -> None:
         """Array instead of object in phase-state.json -> CorruptStateError."""
-        (tmp_path / "phase-state.json").write_text(
-            "[1, 2, 3]",
-            encoding="utf-8",
-        )
-        with pytest.raises(CorruptStateError, match="not a JSON object"):
+        _bootstrap_context(tmp_path)
+        save_phase_state(tmp_path, _make_state())
+        with sqlite3.connect(tmp_path / ".agentkit" / "state.sqlite3") as conn:
+            conn.execute("UPDATE phase_states SET payload_json = '[1, 2, 3]'")
+            conn.commit()
+        with pytest.raises(CorruptStateError, match="payload is invalid"):
             load_phase_state(tmp_path)

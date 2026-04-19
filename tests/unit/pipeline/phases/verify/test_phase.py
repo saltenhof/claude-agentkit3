@@ -1,18 +1,25 @@
-"""Tests for VerifyPhaseHandler -- phase handler for the verify phase."""
+"""Tests for VerifyPhaseHandler against canonical backend records."""
 
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from agentkit.pipeline.lifecycle import PhaseHandler
+from agentkit.pipeline.phases.verify.phase import VerifyConfig, VerifyPhaseHandler
+from agentkit.qa.structural.checker import StructuralChecker
+from agentkit.state_backend import save_phase_snapshot, save_story_context
+from agentkit.story_context_manager.models import (
+    PhaseSnapshot,
+    PhaseState,
+    PhaseStatus,
+    StoryContext,
+)
+from agentkit.story_context_manager.types import StoryMode, StoryType, get_profile
 
 if TYPE_CHECKING:
     from pathlib import Path
-from agentkit.pipeline.phases.verify.phase import VerifyConfig, VerifyPhaseHandler
-from agentkit.qa.structural.checker import StructuralChecker
-from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType, get_profile
 
 
 def _make_context(
@@ -43,25 +50,22 @@ def _setup_complete_story_dir(
     """Set up a story dir with all required artifacts for a given type."""
     story_dir = tmp_path
 
-    # context.json
-    ctx_data = {
-        "story_id": "TEST-001",
-        "story_type": story_type.value,
-        "mode": StoryMode.EXECUTION.value,
-    }
-    (story_dir / "context.json").write_text(json.dumps(ctx_data))
+    save_story_context(story_dir, _make_context(story_type))
 
-    # Phase snapshots for all phases before verify
     profile = get_profile(story_type)
     for phase in profile.phases:
         if phase == "verify":
             break
-        (story_dir / f"phase-state-{phase}.json").write_text(
-            json.dumps({
-                "story_id": "TEST-001",
-                "phase": phase,
-                "status": "completed",
-            }),
+        save_phase_snapshot(
+            story_dir,
+            PhaseSnapshot(
+                story_id="TEST-001",
+                phase=phase,
+                status=PhaseStatus.COMPLETED,
+                completed_at=datetime.now(tz=UTC),
+                artifacts=[],
+                evidence={},
+            ),
         )
 
     return story_dir

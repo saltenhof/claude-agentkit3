@@ -14,13 +14,14 @@ from typing import TYPE_CHECKING
 from agentkit.pipeline.lifecycle import HandlerResult
 from agentkit.pipeline.phases.verify.cycle import VerifyCycle
 from agentkit.qa.adversarial.challenger import AdversarialChallenger
-from agentkit.qa.artifacts import (
-    write_layer_artifacts,
-    write_verify_decision_artifacts,
-)
 from agentkit.qa.evaluators.reviewer import SemanticReviewer
 from agentkit.qa.policy_engine.engine import PolicyEngine
 from agentkit.qa.structural.checker import StructuralChecker
+from agentkit.state_backend import (
+    record_layer_artifacts,
+    record_verify_decision,
+    save_story_context,
+)
 from agentkit.story_context_manager.models import PhaseStatus
 
 if TYPE_CHECKING:
@@ -89,6 +90,7 @@ class VerifyPhaseHandler:
                 status=PhaseStatus.FAILED,
                 errors=("story_dir is not configured in VerifyConfig",),
             )
+        save_story_context(s_dir, ctx)
 
         # Build layers
         layers: list[QALayer] = list(self._config.layers) if self._config.layers else [
@@ -104,16 +106,16 @@ class VerifyPhaseHandler:
         attempt_nr = state.review_round + 1
         cycle = VerifyCycle(layers=layers, policy_engine=engine)
         result = cycle.run(ctx, s_dir, attempt_nr=attempt_nr)
-        artifacts = write_layer_artifacts(
+        artifacts = record_layer_artifacts(
             s_dir,
             layer_results=result.decision.layer_results,
             attempt_nr=result.attempt_nr,
         )
 
-        # Persist verify-decision.json for audit trail
+        # Persist canonical verify decision plus projection artifacts.
         artifacts = (
             *artifacts,
-            *write_verify_decision_artifacts(
+            *record_verify_decision(
                 s_dir,
                 decision=result.decision,
                 attempt_nr=result.attempt_nr,

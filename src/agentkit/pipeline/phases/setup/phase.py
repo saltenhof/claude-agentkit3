@@ -16,7 +16,7 @@ from agentkit.installer.paths import story_dir
 from agentkit.pipeline.lifecycle import HandlerResult
 from agentkit.pipeline.phases.setup.context_builder import build_story_context
 from agentkit.pipeline.phases.setup.preflight import run_preflight
-from agentkit.pipeline.state import save_story_context
+from agentkit.state_backend import CONTEXT_EXPORT_FILE, save_story_context
 from agentkit.story_context_manager.models import PhaseStatus
 from agentkit.story_context_manager.types import get_profile
 from agentkit.utils.git import create_worktree, remove_worktree
@@ -112,7 +112,7 @@ class SetupPhaseHandler:
         s_dir.mkdir(parents=True, exist_ok=True)
         save_story_context(s_dir, enriched)
 
-        artifacts: list[str] = [str(s_dir / "context.json")]
+        artifacts: list[str] = [str(s_dir / CONTEXT_EXPORT_FILE)]
 
         # 4. Create git worktree
         profile = get_profile(enriched.story_type)
