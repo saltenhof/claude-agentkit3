@@ -298,13 +298,13 @@ flowchart TD
 separaten Artefakt-Record in das State-Backend; daraus können bei
 Bedarf JSON-Exporte erzeugt werden:
 
-| Schicht | Artefakt | Producer |
-|---------|----------|----------|
-| 1 | `structural.json` | `qa-structural-check` |
-| 2 | `qa_review.json` | `qa-llm-review` |
-| 2 | `semantic_review.json` | `qa-semantic-review` |
-| 3 | `adversarial.json` | `qa-adversarial` |
-| 4 | `decision.json` | `qa-policy-engine` |
+| Schicht | Kanonischer Record | Optionale Materialisierung | Producer |
+|---------|--------------------|---------------------------|----------|
+| 1 | `ArtifactRecord(kind="structural")` | `structural.json` | `qa-structural-check` |
+| 2 | `ArtifactRecord(kind="qa_review")` | `qa_review.json` | `qa-llm-review` |
+| 2 | `ArtifactRecord(kind="semantic_review")` | `semantic_review.json` | `qa-semantic-review` |
+| 3 | `ArtifactRecord(kind="adversarial")` | `adversarial.json` | `qa-adversarial` |
+| 4 | Policy-/Verify-Decision-Record | `policy.json` / Legacy-Export `decision.json` | `qa-policy-engine` |
 
 ### 2.2.4 Abweichende Abläufe nach Story-Typ
 
@@ -462,8 +462,8 @@ einer Story.
 | Klasse | Erzeuger | Schutz | Beispiele |
 |--------|----------|--------|-----------|
 | **Worker-Artefakte** | Worker-Agent | Kein Schutz (Agent kann überschreiben) | `worker-manifest.json`, `protocol.md`, Quellcode |
-| **QA-Artefakte** | Pipeline-Skripte, QA-Agenten | Schreibschutz via Lock-Record + Hook (2.7) | `structural.json`, `decision.json`, `semantic.json`, `closure.json`, `context.json` |
-| **Pipeline-Artefakte** | Phase Runner, Preflight, Postflight | Implizit geschützt (nur Pipeline schreibt) | `phase_state_projection` / materialisierte Exporte wie `phase-state.json`, `preflight.json`, `postflight.json` |
+| **QA-Artefakte** | Pipeline-Skripte, QA-Agenten | Schreibschutz via Lock-Record + Hook (2.7) | kanonisch `artifact_records`; optionale Exporte wie `structural.json`, `policy.json`, `semantic_review.json` |
+| **Pipeline-Artefakte** | Phase Runner, Preflight, Postflight | Implizit geschützt (nur Pipeline schreibt) | kanonisch `story_contexts`, `flow_executions`, `phase_state_projection`; materialisierte Exporte wie `phase-state.json`, `context.json` sind nur Projektionen |
 | **Telemetrie** | `telemetry_service` | Zentrales State-Backend, optionaler Export bei Closure | `execution_events` (Laufzeit), Export-Bundle (Archiv) |
 | **Governance-Artefakte** | Guards, Integrity-Gate | Log-only | `integrity-violations.log` |
 | **Entwurfsartefakte** | Worker (Exploration) | Read-only nach Freeze | `entwurfsartefakt.json` |
@@ -472,8 +472,10 @@ einer Story.
 
 ### 2.4.2 Geschützte QA-Artefakte (vollständige Liste)
 
-Diese Dateinamen sind durch den Integrity-Hook gegen Schreibzugriff
-durch den Worker geschützt:
+Diese Export-Dateinamen sind durch den Integrity-Hook gegen
+Schreibzugriff durch den Worker geschützt. Der Schutz betrifft die
+Materialisierung, nicht die kanonische Wahrheit, die im State-Backend
+liegt:
 
 ```python
 PROTECTED_ARTIFACTS = [
@@ -546,12 +548,13 @@ pro Check einen von drei Werten: `PASS`, `PASS_WITH_CONCERNS`, `FAIL`
 `ERROR` ist kein LLM-Ergebnis, sondern ein Infrastruktur-Fehler
 (z.B. LLM nicht erreichbar, Schema-Parsing gescheitert nach Retry).
 
-**Producer-Registry** (welcher Producer darf welches Artefakt schreiben):
+**Producer-Registry** (welcher Producer darf welchen Export
+materialisieren):
 
-| Artefakt | Erlaubter Producer |
-|----------|-------------------|
+| Export-Artefakt | Erlaubter Producer |
+|-----------------|-------------------|
 | `structural.json` | `qa-structural-check` |
-| `decision.json` | `qa-policy-engine` |
+| `policy.json` / Legacy-Export `decision.json` | `qa-policy-engine` |
 | `phase-state.json` | `run-phase` (Export der `phase_state_projection`) |
 | `context.json` | `compute-story-context` (Export aus `StoryContext`) |
 | `qa_review.json` | `qa-llm-review` |
@@ -559,8 +562,10 @@ pro Check einen von drei Werten: `PASS`, `PASS_WITH_CONCERNS`, `FAIL`
 | `adversarial.json` | `qa-adversarial` |
 | `closure.json` | `story-closure` |
 
-Das Integrity-Gate prüft bei Closure, dass jedes Artefakt vom
-richtigen Producer erzeugt wurde (Dimensionen 3, 4, 6).
+Das Integrity-Gate prüft bei Closure kanonisch die Producer- und
+Provenienzfelder der zugrunde liegenden Records. Exportdateien werden
+höchstens konsistenzhalber oder für menschliche Audit-Pakete geprüft,
+nicht als operative Wahrheitsquelle.
 
 ## 2.6 Fachliche Invarianten (technisch durchgesetzt)
 

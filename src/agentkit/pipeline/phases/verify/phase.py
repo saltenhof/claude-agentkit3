@@ -7,19 +7,21 @@ engine decides whether to re-enter for remediation.
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from agentkit.pipeline.lifecycle import HandlerResult
-from agentkit.pipeline.phases.verify.cycle import VerifyCycle, VerifyCycleResult
+from agentkit.pipeline.phases.verify.cycle import VerifyCycle
 from agentkit.qa.adversarial.challenger import AdversarialChallenger
+from agentkit.qa.artifacts import (
+    write_layer_artifacts,
+    write_verify_decision_artifacts,
+)
 from agentkit.qa.evaluators.reviewer import SemanticReviewer
 from agentkit.qa.policy_engine.engine import PolicyEngine
 from agentkit.qa.structural.checker import StructuralChecker
 from agentkit.story_context_manager.models import PhaseStatus
-from agentkit.utils.io import atomic_write_text
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -102,11 +104,21 @@ class VerifyPhaseHandler:
         attempt_nr = state.review_round + 1
         cycle = VerifyCycle(layers=layers, policy_engine=engine)
         result = cycle.run(ctx, s_dir, attempt_nr=attempt_nr)
-        artifacts = self._write_layer_artifacts(s_dir, result)
+        artifacts = write_layer_artifacts(
+            s_dir,
+            layer_results=result.decision.layer_results,
+            attempt_nr=result.attempt_nr,
+        )
 
         # Persist verify-decision.json for audit trail
-        self._write_decision(s_dir, result)
-        artifacts = (*artifacts, "verify-decision.json", "decision.json")
+        artifacts = (
+            *artifacts,
+            *write_verify_decision_artifacts(
+                s_dir,
+                decision=result.decision,
+                attempt_nr=result.attempt_nr,
+            ),
+        )
 
         if result.decision.passed:
             logger.info(
@@ -131,105 +143,6 @@ class VerifyPhaseHandler:
             status=PhaseStatus.FAILED,
             errors=tuple(error_msgs),
             artifacts_produced=artifacts,
-        )
-
-    @staticmethod
-    def _write_layer_artifacts(
-        story_dir: Path,
-        cycle_result: VerifyCycleResult,
-    ) -> tuple[str, ...]:
-        """Persist QA-layer-specific audit artifacts for downstream consumers."""
-
-        artifact_names: list[str] = []
-        artifact_name_by_layer = {
-            "structural": "structural.json",
-            "semantic": "semantic-review.json",
-            "adversarial": "adversarial.json",
-        }
-        for layer_result in cycle_result.decision.layer_results:
-            artifact_name = artifact_name_by_layer.get(layer_result.layer)
-            if artifact_name is None:
-                continue
-            artifact_path = story_dir / artifact_name
-            artifact_data: dict[str, object] = {
-                "layer": layer_result.layer,
-                "passed": layer_result.passed,
-                "attempt_nr": cycle_result.attempt_nr,
-                "findings": [
-                    {
-                        "layer": finding.layer,
-                        "check": finding.check,
-                        "severity": finding.severity.value,
-                        "message": finding.message,
-                        "trust_class": finding.trust_class.value,
-                        "file_path": finding.file_path,
-                        "line_number": finding.line_number,
-                        "suggestion": finding.suggestion,
-                    }
-                    for finding in layer_result.findings
-                ],
-                "metadata": layer_result.metadata,
-            }
-            atomic_write_text(
-                artifact_path,
-                json.dumps(artifact_data, indent=2, default=str),
-            )
-            artifact_names.append(artifact_name)
-        return tuple(artifact_names)
-
-    @staticmethod
-    def _write_decision(story_dir: Path, cycle_result: VerifyCycleResult) -> None:
-        """Persist ``verify-decision.json`` for audit trail.
-
-        Writes the policy engine decision as a JSON file so that
-        downstream phases (closure) and external tooling can inspect
-        the verify outcome without re-running the QA cycle.
-
-        Args:
-            story_dir: Directory where story artifacts are stored.
-            cycle_result: The completed verify cycle result.
-        """
-        decision = cycle_result.decision
-        decision_data: dict[str, object] = {
-            "passed": decision.passed,
-            "status": decision.status,
-            "layers": [
-                {
-                    "layer": layer_result.layer,
-                    "passed": layer_result.passed,
-                    "findings_count": len(layer_result.findings),
-                    "metadata": layer_result.metadata,
-                }
-                for layer_result in decision.layer_results
-            ],
-            "blocking_findings": [
-                {
-                    "layer": f.layer,
-                    "check": f.check,
-                    "severity": f.severity.value,
-                    "message": f.message,
-                }
-                for f in decision.blocking_findings
-            ],
-            "all_findings_count": len(decision.all_findings),
-            "summary": decision.summary,
-            "attempt_nr": cycle_result.attempt_nr,
-        }
-        decision_path = story_dir / "verify-decision.json"
-        atomic_write_text(
-            decision_path,
-            json.dumps(decision_data, indent=2, default=str),
-        )
-        legacy_decision_path = story_dir / "decision.json"
-        legacy_decision_data = {
-            "decision": decision.status,
-            "passed": decision.passed,
-            "summary": decision.summary,
-            "attempt_nr": cycle_result.attempt_nr,
-        }
-        atomic_write_text(
-            legacy_decision_path,
-            json.dumps(legacy_decision_data, indent=2, default=str),
         )
 
     def on_exit(self, ctx: StoryContext, state: PhaseState) -> None:

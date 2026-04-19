@@ -118,10 +118,11 @@ Die Policy-Engine lädt Artefakte fachlich ueber `ArtifactRecord`
 wird, gilt `_temp/qa/{story_id}/{stage.id}.json` als Standardpfad —
 kein separates Mapping nötig.
 
-**Migration:** Die bisherigen Namen (`qa_review.json`,
-`semantic_review.json`, `decision.json`) werden auf die neuen
-Stage-ID-basierten Namen umgestellt. Das betrifft auch die
-Producer-Registry und das Integrity-Gate.
+**Migration:** Historische Namen wie `qa_review.json`,
+`semantic_review.json` oder `decision.json` koennen als Legacy-Exporte
+weiterexistieren, sind aber nie die kanonische Referenz. Die Pipeline
+arbeitet fachlich gegen `artifact_records(kind = stage.id)`; Exportnamen
+sind nur Materialisierungskonvention.
 
 ### 33.2.4 Projekt-Overrides
 
@@ -464,8 +465,12 @@ def evaluate_policy(story_id: str, story_type: str,
             # Diese Schicht wurde nie erreicht — nicht bewerten
             continue
 
-        artifact_path = f"_temp/qa/{story_id}/{stage.id}.json"
-        artifact = load_artifact(artifact_path)
+        artifact = artifact_client.get_artifact_record(
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            artifact_kind=stage.id,
+        )
 
         if artifact is None:
             # Fehlendes Artefakt in einer durchlaufenen Schicht = FAIL
@@ -526,16 +531,20 @@ def evaluate_policy(story_id: str, story_type: str,
 
 ### 33.7.4 Context-Sufficiency-Input (FK-33-110)
 
-Die Policy-Engine kennt `context_sufficiency.json` als optionalen
-Input. Da `context_sufficiency` in der Stage-Registry als
+Die Policy-Engine kennt den kanonischen
+`ArtifactRecord(kind="context_sufficiency")` als optionalen Input. Da
+`context_sufficiency` in der Stage-Registry als
 `blocking: false` (Warning) registriert ist, produziert ein
 `sufficiency != "sufficient"` kein FAIL. Stattdessen wird ein
 Warning in die Policy-Entscheidung aufgenommen:
 
 ```python
 # In evaluate_policy() — context_sufficiency ist fail-open:
-sufficiency_artifact = load_artifact(
-    f"_temp/qa/{story_id}/context_sufficiency.json"
+sufficiency_artifact = artifact_client.get_artifact_record(
+    project_key=project_key,
+    story_id=story_id,
+    run_id=run_id,
+    artifact_kind="context_sufficiency",
 )
 if sufficiency_artifact is not None:
     sufficiency_status = sufficiency_artifact.get("sufficiency", "unknown")
@@ -553,13 +562,15 @@ ein deterministischer Pre-Step von Schicht 2 (Kap. 34), kein
 eigenständiger Layer. Fehlende oder unvollständige Evidenz ist ein
 Hinweis, kein Blocker — die LLM-Bewertungen in Schicht 2 können
 trotzdem sinnvoll arbeiten, wenn auch mit eingeschränkter
-Kontextbasis. Die Warnings fließen in das `decision.json`-Artefakt
-ein und sind für den Remediation-Worker sichtbar.
+Kontextbasis. Die Warnings fließen in den kanonischen
+Policy-/Verify-Decision-Record ein; optionale Exporte wie
+`policy.json` oder `decision.json` bilden das nur materialisiert ab.
 
 ### 33.7.5 Ergebnis-Artefakt
 
-`_temp/qa/{story_id}/decision.json` (Envelope-Format, Producer:
-`qa-policy-engine`):
+Kanonischer Policy-/Verify-Decision-Record (optional materialisiert als
+`_temp/qa/{story_id}/policy.json`, Legacy-Export `decision.json`,
+Producer `qa-policy-engine`):
 
 ```json
 {

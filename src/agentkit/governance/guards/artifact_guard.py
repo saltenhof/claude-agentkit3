@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 
 from agentkit.governance.protocols import GuardVerdict, ViolationType
+from agentkit.qa.artifacts import PROTECTED_QA_ARTIFACTS
 
 
 class ArtifactGuard:
@@ -20,14 +21,7 @@ class ArtifactGuard:
     operation is blocked.
     """
 
-    PROTECTED_ARTIFACTS: tuple[str, ...] = (
-        "structural.json",
-        "semantic-review.json",
-        "guardrail.json",
-        "decision.json",
-        "verify-decision.json",
-        "adversarial.json",
-    )
+    PROTECTED_ARTIFACTS: tuple[str, ...] = PROTECTED_QA_ARTIFACTS
     """Filenames that must only be written by the QA system."""
 
     @property

@@ -206,7 +206,9 @@ bauen
 
 Liest das GitHub Issue, erhebt Kontext (Story-Typ, Größe, Scope),
 erstellt einen Git-Worktree für Code-Stories, komponiert den Worker-Prompt
-aus Templates und cached alles in `context.json`. Kein LLM beteiligt.
+aus Templates und persistiert den autoritativen `StoryContext` im
+State-Backend. Ein `context.json` kann daraus nur optional exportiert
+werden. Kein LLM beteiligt.
 
 ### Phase 2: Exploration (optional, agentengesteuert)
 
@@ -241,25 +243,33 @@ Prüfschichten:
 **Layer 1 — Strukturelle Checks (deterministisch)**
 Automatische Prüfungen ohne LLM: Existieren alle Artefakte? Baut der
 Code? Laufen die Tests? Sicherheits-Scan? Branch sauber? ARE-Gate bestanden?
-Ergebnis: `structural.json`.
+Kanonisches Ergebnis: `ArtifactRecord(kind="structural")` im
+State-Backend. Ein `structural.json` ist nur ein optionaler Export.
 
 **Layer 2 — Semantisches Review (LLM-Bewertungen via Skript, parallel)**
 Zwei LLM-Bewertungen laufen parallel, gesteuert durch deterministische
 Python-Skripte über konfigurierte LLM-Pools (nicht als eigenständige
 Agents): eine QA-Bewertung (Code-Qualität, Testabdeckung,
 Akzeptanzkriterien) und ein Semantic Review (Architektur-Compliance).
-Ergebnis: `semantic_review.json`, `guardrail.json`.
+Kanonisches Ergebnis: typisierte `ArtifactRecord`-Einträge für
+`qa_review`, `semantic_review` und Guardrail-/Conformance-Artefakte.
+Dateien wie `semantic_review.json` oder `guardrail.json` sind nur
+optionale Materialisierungen.
 
 **Layer 3 — Adversarial Testing (LLM-Agent)**
 Ein Agent schreibt gezielt Edge-Case-Tests, führt sie aus und führt
 ein Multi-LLM-Sparring (Debatte über Schwachstellen). Nur für
-Code-produzierende Stories. Ergebnis: `adversarial.json`.
+Code-produzierende Stories. Kanonisches Ergebnis:
+`ArtifactRecord(kind="adversarial")`; `adversarial.json` ist nur ein
+optionaler Export.
 
 **Layer 4 — Policy Engine (deterministisch)**
 Aggregiert die Ergebnisse aller Layer unter Berücksichtigung von
 Vertrauensklassen: System-Checks (Trust A) dürfen blockieren,
 Worker-Aussagen (Trust C) nicht. Entscheidet PASS oder FAIL.
-Ergebnis: `decision.json`.
+Kanonisches Ergebnis: ein Policy-/Verify-Decision-Record im
+State-Backend. `decision.json` oder `verify-decision.json` sind nur
+optionale Export- oder Kompatibilitätsartefakte.
 
 **Bei FAIL:** Die Mängel werden in `feedback.json` gesammelt, ein
 Remediation-Worker bekommt die Liste, korrigiert den Code, und Verify
@@ -305,7 +315,8 @@ LLM-Agenten werden nur dort eingesetzt, wo kreative Arbeit nötig ist.
 ### GitHub
 
 Single Source of Truth für Story-Metadaten. AgentKit liest Issues und
-Custom Fields (Typ, Größe, Scope) einmalig beim Setup, cached sie,
+Custom Fields (Typ, Größe, Scope) einmalig beim Setup, persistiert sie
+als `StoryContext`,
 aktualisiert den Status auf dem Project Board und schließt das Issue
 bei erfolgreichem Abschluss.
 
@@ -337,19 +348,25 @@ nutzt Multi-LLM-Debatten zur Schwachstellensuche.
 ## 9. Artefakte und Nachvollziehbarkeit
 
 Jede Phase hinterlässt Artefakte im zentralen State-Backend; bei
-Bedarf können daraus Exportdateien materialisiert werden:
+Bedarf können daraus Exportdateien materialisiert werden. Kanonische
+Wahrheit sind die Records im Backend, nicht die Dateien:
 
-- `phase-state.json` — Export der `phase_state_projection`
-- `context.json` — Export aus `StoryContext`
-- `structural.json` — Ergebnisse der strukturellen Checks
-- `semantic_review.json` — LLM-Review-Ergebnisse
-- `decision.json` — Policy-Engine-Verdikt
+- `phase_state_projection` — rebuildbares Read-Model des aktuellen
+  Laufzeitstatus; `phase-state.json` ist nur Export
+- `story_contexts` — kanonischer Story-Context; `context.json` ist nur
+  Export
+- `artifact_records(kind="structural")` — strukturelle Check-Ergebnisse;
+  `structural.json` ist nur Export
+- `artifact_records(kind="semantic_review")` — semantische
+  Review-Ergebnisse; `semantic_review.json` ist nur Export
+- Policy-/Verify-Decision-Record im State-Backend; `decision.json` ist
+  nur Export
 - `execution-report.md` — Konsolidierter Ausführungsbericht (Zusammenfassung,
   Fehler, Warnungen, Timing, Artifact Health)
 
-Jedes QA-Artefakt trägt einen `producer`-Stempel. Die Policy Engine
-prüft, dass der Produzent zum erwarteten Layer passt — Manipulation
-durch den Worker wird erkannt.
+Jedes QA-Artefakt trägt kanonisch Producer-/Provenienzfelder im
+jeweiligen Record. Exporte übernehmen diese Informationen nur
+abbildend; sie sind nie die operative Wahrheitsquelle.
 
 ## 10. Konfiguration
 

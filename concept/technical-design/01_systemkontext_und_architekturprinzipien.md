@@ -13,10 +13,15 @@ defers_to: []
 supersedes: []
 superseded_by:
 tags: [architektur, systemkontext, fail-closed, trust-boundaries, multi-llm]
-formal_scope: prose-only
+prose_anchor_policy: strict
+formal_refs:
+  - formal.state-storage.invariants
+  - formal.truth-boundary-checker.invariants
 ---
 
 # 01 — Systemkontext und Architekturprinzipien
+
+<!-- PROSE-FORMAL: formal.state-storage.invariants, formal.truth-boundary-checker.invariants -->
 
 ## 1.1 Zielbild
 

@@ -126,12 +126,12 @@ gestartet.
 
 | Pflicht-Artefakt | Bedeutung bei Fehlen | FAIL-Code |
 |------------------|---------------------|-----------|
-| `structural.json` | Structural Checks wurden nicht ausgefuehrt | `MISSING_STRUCTURAL` |
-| `decision.json` | Policy-Evaluation hat nicht stattgefunden | `MISSING_DECISION` |
-| `ArtifactRecord(context)` | Story-Context wurde nicht aufgebaut | `MISSING_CONTEXT` |
+| `ArtifactRecord(structural)` | Structural Checks wurden nicht ausgefuehrt | `MISSING_STRUCTURAL` |
+| Policy-/Verify-Decision-Record | Policy-Evaluation hat nicht stattgefunden | `MISSING_DECISION` |
+| `StoryContext` in `story_contexts` | Story-Context wurde nicht aufgebaut | `MISSING_CONTEXT` |
 
-**Empirischer Beleg (BB2-012):** `decision.json` fehlte, trotzdem
-lief Closure durch und das Issue wurde geschlossen. Das war ein
+**Empirischer Beleg (BB2-012):** Der kanonische Decision-Nachweis
+fehlte, trotzdem lief Closure durch und das Issue wurde geschlossen. Das war ein
 konkreter Defekt in der Gate-Logik. Die Pflicht-Artefakt-Pruefung
 als Vorstufe stellt sicher, dass dieser Fehler nicht mehr auftreten
 kann — die 8-Dimensionen-Pruefung wird bei fehlenden Artefakten
@@ -147,7 +147,7 @@ def check_mandatory_artifacts(project_key: str, story_id: str, run_id: str, clie
 
     mandatory = {
         "structural": "MISSING_STRUCTURAL",
-        "decision": "MISSING_DECISION",
+        "verify_decision": "MISSING_DECISION",
         "context": "MISSING_CONTEXT",
     }
 
@@ -191,17 +191,22 @@ Pruefung).
 | 1 | **QA-Artefaktbestand** | `NO_QA_ARTIFACTS` | Pflicht-`artifact_records` fuer die Story existieren |
 | 2 | **Context-Integrität** | `CONTEXT_INVALID` | `ArtifactRecord(context)` vorhanden, `status == PASS`, hat `story_id`, hat `run_id` |
 | 3 | **Structural-Check-Tiefe** | `STRUCTURAL_SHALLOW` | `ArtifactRecord(structural)` > 500 Bytes, >= 5 Checks, Producer = `qa-structural-check` |
-| 4 | **Policy-Decision** | `DECISION_INVALID` | `ArtifactRecord(decision)` > 200 Bytes, hat `major_threshold`, Producer = `qa-policy-engine` |
+| 4 | **Policy-Decision** | `DECISION_INVALID` | kanonischer Policy-/Verify-Decision-Record > 200 Bytes, hat `major_threshold`, Producer = `qa-policy-engine` |
 | 5 | **LLM-Bewertungen** | `NO_LLM_REVIEW` | Bei implementation/bugfix: `ArtifactRecord(llm_review)` + `ArtifactRecord(semantic_review)` existieren, Status != SKIPPED |
 | 6 | **Adversarial-Ergebnis** | `NO_ADVERSARIAL` | Bei implementation/bugfix: `ArtifactRecord(adversarial)` existiert, > 200 Bytes, Producer = `qa-adversarial` |
 | 7 | **Verify-Phase** | `NO_VERIFY` | `flow_end` fuer `flow_id=verify` bzw. den Verify-Phasen-Flow mit `status == COMPLETED`; optional zusaetzlich entsprechende `phase_state_projection` |
 | 8 | **Timestamp-Kausalität** | `TIMESTAMP_INVERSION` | `ArtifactRecord(context).finished_at` < `ArtifactRecord(decision).finished_at` |
 
-### 35.2.5 Telemetrie-Nachweise
+### 35.2.5 Telemetrie-Signale und Audit-Korrelation
 
-Zusätzlich zu den Artefakt-Dimensionen prüft das Gate konkrete
+Zusätzlich zu den Artefakt-Dimensionen kann das Gate konkrete
 Events im zentralen Telemetrie-Store des State-Backends
-(PostgreSQL):
+korrelieren. Diese Signale sind wertvoll für Audit, Forensik und
+Compliance, bilden aber **nicht** die operative Hauptwahrheit.
+Kanonische Closure-Entscheidungen müssen auf `story_contexts`,
+`artifact_records`, `flow_executions`, `guard_decisions` und anderen
+kanonischen Familien beruhen; `execution_events` bleiben
+Beobachtungsdaten.
 
 **Mandantenregel:** Die SQL-Beispiele sind verkürzt. Real werden sie
 immer mindestens unter `project_key` und `story_id` gescoped.
@@ -211,31 +216,23 @@ des aktuellen, gültigen `run_id` aus. Wird die Story-Umsetzung
 vollständig zurückgesetzt, werden diese Events verworfen; ein späterer
 Run beginnt mit neuem `run_id` und leerem Telemetrie-Nachweisraum.
 
-| Nachweis | SQL-Query | FAIL-Code |
-|----------|----------|-----------|
-| Worker gestartet | `SELECT COUNT(*) FROM execution_events WHERE project_key=$1 AND story_id=$2 AND run_id=$3 AND event_type='agent_start'` >= 1 | `NO_AGENT_START` |
-| Worker beendet | `SELECT COUNT(*) FROM execution_events WHERE project_key=$1 AND story_id=$2 AND run_id=$3 AND event_type='agent_end'` >= 1 | `NO_AGENT_END` |
-| Pflicht-Reviewer aufgerufen | Pro konfigurierter `llm_roles`-Rolle: `SELECT COUNT(*) FROM execution_events WHERE project_key=$1 AND story_id=$2 AND run_id=$3 AND event_type='llm_call' AND payload->>'role'=$4` >= 1 | `MISSING_LLM_{role}` |
-| Reviews über Templates | `COUNT(review_compliant) >= COUNT(review_request)` | `REVIEW_NOT_COMPLIANT` |
-| Keine Guard-Verletzungen | `SELECT COUNT(*) FROM execution_events WHERE project_key=$1 AND story_id=$2 AND run_id=$3 AND event_type='integrity_violation'` = 0 | `HAS_VIOLATIONS` |
-| Web-Call-Limit (nur Research) | `SELECT COUNT(*) FROM execution_events WHERE project_key=$1 AND story_id=$2 AND run_id=$3 AND event_type='web_call'` <= Config-Limit | `WEB_BUDGET_EXCEEDED` |
-| Adversarial Sparring (nur impl) | `SELECT COUNT(*) FROM execution_events WHERE project_key=$1 AND story_id=$2 AND run_id=$3 AND event_type='adversarial_sparring'` >= 1 | `NO_ADVERSARIAL_SPARRING` |
-| Adversarial Test ausgeführt (nur impl) | `SELECT COUNT(*) FROM execution_events WHERE project_key=$1 AND story_id=$2 AND run_id=$3 AND event_type='adversarial_test_executed'` >= 1 | `NO_ADVERSARIAL_TEST_EXECUTION` |
-| Preflight durchgeführt (Pflicht) | `COUNT(preflight_request) >= 1` | `PREFLIGHT_MISSING` |
-| Preflight-Compliance | `COUNT(preflight_compliant) >= COUNT(preflight_request)` | `PREFLIGHT_NOT_COMPLIANT` |
-| Verify-Flow abgeschlossen | `SELECT COUNT(*) FROM execution_events WHERE project_key=$1 AND story_id=$2 AND run_id=$3 AND event_type='flow_end' AND payload->>'flow_id'='verify' AND payload->>'status'='COMPLETED'` >= 1 | `NO_VERIFY_FLOW_END` |
-| Finding-Resolution vollstaendig (nur Runde 2+) | Kein Finding mit `partially_resolved` oder `not_resolved` im Layer-2-Output (`qa_review.json`, Checks mit `resolution`-Feld) | `OPEN_FINDINGS` |
-| Conflict-Freeze aufgeloest | Wenn `conflict_freeze_entered` fuer denselben `run_id` existiert, muss spaeter `conflict_resolution_applied`, offizieller Redirect oder administrativer Folgeservice nachweisbar sein | `UNRESOLVED_CONFLICT_FREEZE` |
-| Permission-Fall aufgeloest | Wenn `permission_request_opened` oder `external_permission_interference_detected` fuer denselben `run_id` existiert, muss spaeter `permission_request_approved`, `permission_request_rejected` oder `permission_request_expired` nachweisbar sein | `UNRESOLVED_PERMISSION_REQUEST` |
-| Keine erfolgreiche Capability-Umgehung | Kein `unauthorized_mutation_detected` fuer denselben Story-/Run-Kontext | `ORCHESTRATOR_CAPABILITY_BREACH` |
+| Signal | Beispielquery | Rolle im Gate |
+|--------|---------------|---------------|
+| Worker gestartet / beendet | `SELECT COUNT(*) FROM execution_events ... event_type IN ('agent_start','agent_end')` | Audit-Korrelation, kein alleiniger PASS-/FAIL-Treiber |
+| Pflicht-Reviewer aufgerufen | `SELECT COUNT(*) FROM execution_events ... event_type='llm_call' AND payload->>'role'=$4` | Compliance-Signal für Multi-LLM, nicht alleinige Wahrheitsquelle für das Review-Ergebnis |
+| Reviews über Templates | `COUNT(review_compliant) >= COUNT(review_request)` | Audit-Signal für Template-Nutzung |
+| Guard-Verletzungen | `SELECT COUNT(*) FROM execution_events ... event_type='integrity_violation'` | Forensische Ergänzung zu kanonischen Guard-/Override-Records |
+| Budget-/Web-Verhalten | `SELECT COUNT(*) FROM execution_events ... event_type='web_call'` | Beobachtung, keine operative Hauptwahrheit |
+| Adversarial Sparring / Test | `SELECT COUNT(*) FROM execution_events ...` | Audit-Signal zusätzlich zu kanonischen QA-/Verify-Records |
+| Preflight / Verify-Korrelation | `COUNT(preflight_request)`, `flow_end`-Events | Ergänzende Korrelation zu kanonischen `flow_executions` |
 
 **Hinweis zu `OPEN_FINDINGS` (FK-35-114):** Dieser Nachweis wird
 nur in Remediation-Runden (Runde 2+) ausgewertet. In Runde 1
 existieren keine Vorrunden-Findings und damit keine Resolution-
 Stati. Der Nachweis belegt, dass alle Review-Findings vollstaendig
-aufgeloest sind — Remediation hat kein Finding offen gelassen.
-Die Quelle ist der Layer-2-QA-Review-Output, nicht Worker-
-Zusammenfassungen (Trust C, nicht autoritativ).
+aufgeloest sind — Remediation hat kein Finding offen gelassen. Die
+Quelle ist der kanonische Layer-2-QA-Record im State-Backend, nicht
+Worker-Zusammenfassungen und nicht ein Dateiexport.
 
 **Provenienz:** Kap. 04, §4.6 (Finding-Resolution und Remediation-
 Haertung). Kap. 27, §27.10a (Finding-Resolution als Closure-Gate).

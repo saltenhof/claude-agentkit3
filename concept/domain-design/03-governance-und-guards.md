@@ -339,32 +339,34 @@ wird an den Menschen eskaliert, nicht an einen Agenten.
 | QA-Verzeichnis | Existiert das QA-Verzeichnis für diese Story? |
 | Context-Integrität | Ist der Story-Context vorhanden, konsistent und als PASS bewertet? |
 | Structural-Check-Tiefe | Wurden Structural Checks durchgeführt, und zwar in ausreichender Tiefe (nicht nur ein Stub)? Wurden sie vom richtigen Prozessschritt erzeugt? |
-| Policy-Decision | Existiert eine Policy-Entscheidung (`decision.json`), ist sie plausibel und wurde sie vom richtigen Prozessschritt erzeugt? **Fehlen ist ein harter Blocker** — `decision.json | MISSING` darf nie zu `Closure | DONE` fuehren. |
+| Policy-Decision | Existiert ein kanonischer Policy-/Verify-Decision-Record, ist er plausibel und wurde er vom richtigen Prozessschritt erzeugt? **Fehlen ist ein harter Blocker** — fehlender Decision-Record darf nie zu `Closure | DONE` fuehren. |
 | Semantic-Validierung | Wurde bei Implementierungs- und Bugfix-Stories ein Semantic Review durchgeführt (nicht übersprungen)? |
 | Verify-Phase | Hat mindestens ein Verify-Durchlauf stattgefunden? |
 | Timestamp-Kausalität | Liegen die Zeitstempel der Artefakte in der richtigen Reihenfolge? (Context vor Decision, nicht umgekehrt) |
 
-**Telemetrie-Nachweise:**
+**Telemetrie-Signale (nicht kanonisch):**
 
-Neben den sieben Artefakt-Dimensionen prüft das Integrity-Gate konkrete
-Einträge in `execution_events`. Diese Einträge werden während der
-Story-Bearbeitung automatisch durch die Hook-Schicht erfasst und müssen
-bei Closure vollständig vorliegen.
+`execution_events` und ähnliche Beobachtungsdaten dienen der
+Auditierbarkeit und Forensik. Sie dürfen das Integrity-Gate ergänzen,
+sind aber nicht die operative Hauptwahrheit und nie die alleinige
+Entscheidungsgrundlage für `PASS`/`FAIL`. Harte Closure-Entscheidungen
+stützen sich auf kanonische Records (`story_contexts`,
+`artifact_records`, `flow_executions`, `guard_decisions`).
 
-| Telemetrie-Nachweis | Was belegt wird | Fehlt wenn |
-|---------------------|-----------------|------------|
-| `agent_start` Event mit Story-ID | Worker-Agent wurde gestartet | Kein Worker-Agent lief für diese Story |
-| `agent_end` Event mit Story-ID | Worker-Agent hat regulär beendet | Agent ist abgestürzt oder wurde abgebrochen |
-| Mindestens ein `chatgpt_call` Event | ChatGPT wurde als Review-LLM einbezogen | Kein Multi-LLM-Review stattgefunden (ChatGPT-Seite) |
-| Mindestens ein `gemini_call` Event | Gemini wurde als Review-LLM einbezogen | Kein Multi-LLM-Review stattgefunden (Gemini-Seite) |
-| `review_compliant` Event mit gültigem Template-Sentinel | LLM-Review erfolgte über ein freigegebenes Review-Template | Agent hat freiformuliert statt über den vorgeschriebenen Review-Skill |
-| Kein `integrity_violation` Event | Kein Guard wurde während der Bearbeitung verletzt | Agent hat versucht, geschützte Artefakte zu manipulieren |
-| Web-Call-Count innerhalb Budget | Forschungs-/Webzugriffe blieben im definierten Budget | Agent hat exzessiv Web-Calls getätigt |
+| Telemetrie-Signal | Was es zusätzlich belegt |
+|-------------------|-------------------------|
+| `agent_start` / `agent_end` | Worker-Lebenszyklus nachvollziehbar |
+| `llm_call` / `review_compliant` | Multi-LLM-Review und Template-Compliance auditierbar |
+| `integrity_violation` | Guard-Verletzungen forensisch sichtbar |
+| Web-/Budget-Events | Budgetverhalten beobachtbar |
 
 Multi-LLM ist Pflicht: Neben Claude muss mindestens ein weiteres LLM
 konfiguriert sein, idealerweise zwei. Die Telemetrie muss nachweisen,
 dass alle konfigurierten Pflicht-Reviewer tatsächlich aufgerufen wurden.
 Welche LLMs das sind, ergibt sich aus der Pipeline-Konfiguration.
+Dieser Nachweis ist ein Audit- und Compliance-Signal; die kanonische
+Wahrheit über Review-Ergebnisse liegt trotzdem in den QA-/Policy-
+Records des State-Backends.
 
 **Pflicht-Artefakt-Pruefung:**
 
@@ -375,12 +377,12 @@ gestartet.
 
 | Pflicht-Artefakt | Bedeutung bei Fehlen |
 |------------------|---------------------|
-| `structural.json` | Structural Checks wurden nicht ausgefuehrt |
-| `decision.json` | Policy-Evaluation hat nicht stattgefunden |
-| `context.json` | Story-Context wurde nicht aufgebaut |
+| `ArtifactRecord(structural)` | Structural Checks wurden nicht ausgefuehrt |
+| Policy-/Verify-Decision-Record | Policy-Evaluation hat nicht stattgefunden |
+| `StoryContext` in `story_contexts` | Story-Context wurde nicht aufgebaut |
 
-**Empirischer Beleg (BB2-012):** `decision.json` fehlte, trotzdem
-lief Closure durch und das Issue wurde geschlossen. Das war ein
+**Empirischer Beleg (BB2-012):** Der kanonische Decision-Nachweis
+fehlte, trotzdem lief Closure durch und das Issue wurde geschlossen. Das war ein
 konkreter Defekt in der Gate-Logik.
 
 **Ergebnis bei Scheitern:** Die Story kann nicht geschlossen werden. Die
@@ -429,7 +431,9 @@ geprüft: Wenn `mode="exploration"` gesetzt ist, muss die
 Exploration-Phase mit `exploration_gate_status="approved_for_implementation"`
 abgeschlossen sein, bevor die Implementation-Phase starten darf. Die
 Closure-Phase erfordert eine abgeschlossene Verify-Phase
-(`phase-state-verify.json` mit `status=COMPLETED`).
+(`flow_executions` bzw. der Verify-Flow-Record mit
+`status=COMPLETED`; ein `phase-state-verify.json` ist hoechstens dessen
+Export).
 
 Dieses Enforcement ist eine zusätzliche Verteidigungslinie
 (Defense-in-Depth), die Orchestrator-Fehler sofort abfängt, statt sie

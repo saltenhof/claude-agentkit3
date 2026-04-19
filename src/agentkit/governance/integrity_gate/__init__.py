@@ -11,6 +11,12 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from agentkit.qa.artifacts import (
+    VERIFY_DECISION_FILE,
+    load_json_object,
+    load_verify_decision_artifact,
+    verify_decision_passed,
+)
 from agentkit.story_context_manager.types import StoryType
 
 if TYPE_CHECKING:
@@ -152,46 +158,32 @@ class IntegrityGate:
     @staticmethod
     def _check_verify_decision(story_dir: Path) -> IntegrityCheckResult:
         """Verify that the verify decision exists and is PASS."""
-        canonical_path = story_dir / "verify-decision.json"
-        legacy_path = story_dir / "decision.json"
         dim_name = "verify_decision"
-
-        decision_path = canonical_path if canonical_path.exists() else legacy_path
-        if not decision_path.exists():
+        canonical_data = load_json_object(story_dir / VERIFY_DECISION_FILE)
+        if (story_dir / VERIFY_DECISION_FILE).exists() and canonical_data is None:
             return IntegrityCheckResult(
                 dimension=dim_name,
                 passed=False,
-                message="Missing verify decision: verify-decision.json",
+                message=f"Corrupt verify decision: {VERIFY_DECISION_FILE}",
             )
 
-        try:
-            with decision_path.open("r", encoding="utf-8") as f:
-                data = json.load(f)
-        except (json.JSONDecodeError, OSError):
+        loaded = load_verify_decision_artifact(story_dir)
+        if loaded is None:
             return IntegrityCheckResult(
                 dimension=dim_name,
                 passed=False,
-                message=f"Corrupt verify decision: {decision_path.name}",
+                message=f"Missing verify decision: {VERIFY_DECISION_FILE}",
             )
-
-        if not isinstance(data, dict):
+        decision_name, data = loaded
+        if load_json_object(story_dir / decision_name) is None:
             return IntegrityCheckResult(
                 dimension=dim_name,
                 passed=False,
-                message="Verify decision is not a JSON object",
+                message=f"Corrupt verify decision: {decision_name}",
             )
 
-        decision = data.get("decision")
-        status = data.get("status")
-        if status is not None:
-            passed = bool(data.get("passed")) and status in (
-                "PASS",
-                "PASS_WITH_WARNINGS",
-            )
-        else:
-            passed = decision in ("PASS", "PASS_WITH_WARNINGS")
-        decision_label = status if status is not None else decision
-        if not passed:
+        decision_label = data.get("status", data.get("decision"))
+        if not verify_decision_passed(data):
             return IntegrityCheckResult(
                 dimension=dim_name,
                 passed=False,
@@ -204,7 +196,7 @@ class IntegrityGate:
         return IntegrityCheckResult(
             dimension=dim_name,
             passed=True,
-            message=f"Verify decision OK via {decision_path.name}",
+            message=f"Verify decision OK via {decision_name}",
         )
 
     @staticmethod

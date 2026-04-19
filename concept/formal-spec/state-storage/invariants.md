@@ -36,6 +36,9 @@ invariants:
   - id: state-storage.invariant.derived_families_never_become_source_of_truth
     scope: canonicality
     rule: derived, telemetry, analytics, and projection families may never act as source of truth for runtime or governance decisions
+  - id: state-storage.invariant.export_json_never_trusted_by_runtime
+    scope: canonicality
+    rule: filesystem json exports of canonical, derived, or projected families may act only as export, audit, debug, or compatibility material and must never be trusted as runtime or governance truth
   - id: state-storage.invariant.mutating_families_have_single_writer
     scope: ownership
     rule: each mutating record family must have exactly one owner context with mutation authority unless the family is explicitly append_only
