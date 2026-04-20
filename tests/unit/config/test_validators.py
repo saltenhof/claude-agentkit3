@@ -11,6 +11,7 @@ from agentkit.config.validators import validate_project_config
 def _minimal_config(**overrides: object) -> ProjectConfig:
     """Create a minimal ProjectConfig with optional overrides."""
     defaults: dict[str, object] = {
+        "project_key": "test-project",
         "project_name": "test",
         "repositories": [RepositoryConfig(name="r", path=Path("/tmp"))],
     }
@@ -23,6 +24,7 @@ class TestValidateProjectConfig:
 
     def test_no_warnings_when_fully_configured(self) -> None:
         cfg = ProjectConfig(
+            project_key="test-project",
             project_name="test",
             repositories=[
                 RepositoryConfig(

@@ -21,15 +21,7 @@ class ImplementationContract(StrEnum):
 
 
 class StoryMode(StrEnum):
-    """Wire enum for the intra-run execution route.
-
-    The concept model now distinguishes:
-    - operating_mode: ai_augmented vs story_execution
-    - execution_route: execution vs exploration vs not_applicable
-
-    The runtime still persists the historic field name ``mode``. This enum
-    therefore models the execution route while keeping wire compatibility.
-    """
+    """Execution route for one governed story run."""
 
     EXECUTION = "execution"
     EXPLORATION = "exploration"

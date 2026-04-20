@@ -52,14 +52,14 @@ class BranchGuard:
             ``ALLOW`` for safe operations, ``BLOCK`` for dangerous ones.
         """
         if operation != "bash_command":
-            return GuardVerdict.ALLOW(self.name)
+            return GuardVerdict.allow(self.name)
 
         command = str(context.get("command", ""))
 
         # Check for dangerous patterns
         for pattern in self.DANGEROUS_PATTERNS:
             if pattern in command:
-                return GuardVerdict.BLOCK(
+                return GuardVerdict.block(
                     self.name,
                     ViolationType.BRANCH_VIOLATION,
                     f"Dangerous git operation detected: {pattern!r}",
@@ -76,11 +76,11 @@ class BranchGuard:
                     or f"push origin/{branch}" in command
                     or command.rstrip().endswith(f" {branch}")
                 ):
-                    return GuardVerdict.BLOCK(
+                    return GuardVerdict.block(
                         self.name,
                         ViolationType.BRANCH_VIOLATION,
                         f"Direct push to protected branch {branch!r} is forbidden",
                         detail={"command": command, "branch": branch},
                     )
 
-        return GuardVerdict.ALLOW(self.name)
+        return GuardVerdict.allow(self.name)

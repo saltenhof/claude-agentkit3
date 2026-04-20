@@ -20,7 +20,6 @@ class TestArtifactGuardBlocked:
         "structural.json",
         "semantic-review.json",
         "guardrail.json",
-        "decision.json",
         "verify-decision.json",
         "adversarial.json",
     ])
@@ -32,7 +31,10 @@ class TestArtifactGuardBlocked:
         assert v.violation_type == ViolationType.ARTIFACT_TAMPERING
 
     def test_edit_to_protected_artifact(self, guard: ArtifactGuard) -> None:
-        v = guard.evaluate("file_edit", {"file_path": "/stories/AG3-001/decision.json"})
+        v = guard.evaluate(
+            "file_edit",
+            {"file_path": "/stories/AG3-001/verify-decision.json"},
+        )
         assert v.allowed is False
         assert v.violation_type == ViolationType.ARTIFACT_TAMPERING
 

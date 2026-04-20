@@ -118,6 +118,22 @@ Die technische Realisierung (serverseitige Query-Parameter vs.
 clientseitige Filterung, gespeicherte Views, Query-Builder)
 wird in einer spaeteren Iteration definiert.
 
+### 63.3.4 Evolution zum AK3 Story Cockpit
+
+Das aktuelle Dashboard ist read-only und analytisch. Das Zielbild der
+zentralen AgentKit-Control-Plane geht darueber hinaus:
+
+- Story-Liste und Board- oder Kanban-Ansicht liegen in einer
+  AK3-eigenen Web-Anwendung
+- Story-Detailseiten vereinen Status, Protokolle, Telemetrie,
+  QA-Artefakte und Closure-Metriken in derselben Anwendung
+- GitHub Projects ist dafuer hoechstens noch ein externer Adapter oder
+  Synchronisationsziel, nicht die fachlich bevorzugte UI
+
+Die AK3-Web-Anwendung bleibt dabei tenant-scoped pro `project_key` und
+liest oder mutiert nur ueber die offiziellen Runtime- und
+Control-Plane-Schnittstellen.
+
 ---
 
 ## 63.4 API-Erweiterungen (Entwurf)

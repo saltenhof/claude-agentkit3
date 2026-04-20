@@ -102,6 +102,37 @@ formal_refs:
 | `agentkit failure-corpus add-incident` | 41 | Incident manuell erfassen |
 | `agentkit evidence assemble` | 26 | Evidence-Bundle für Review assemblieren (3-Stufen: Git-Diff, Import-Resolver, Worker-Hints) |
 
+## 91.1a Service-API-Endpunkte (Control Plane)
+
+Diese Endpunkte beschreiben die **normative Zielgrenze** der zentralen
+AgentKit-Control-Plane. Die lokale CLI ist aktuell ein Adapterpfad und
+kann diese Operationen intern aufrufen; fachlich autoritativ ist der
+API-Vertrag.
+
+| Endpoint | Methode | Beschreibung |
+|----------|---------|--------------|
+| `/v1/story-runs/{run_id}/phases/{phase}/start` | `POST` | Offiziellen Start einer Phase anfordern |
+| `/v1/story-runs/{run_id}/phases/{phase}/complete` | `POST` | Erfolgreichen Phasenabschluss melden |
+| `/v1/story-runs/{run_id}/phases/{phase}/fail` | `POST` | Fehlerhaften Phasenabschluss melden |
+| `/v1/story-runs/{run_id}/closure/complete` | `POST` | Offiziellen Closure-Abschluss anfordern |
+| `/v1/telemetry/events` | `POST` | Kanonisches Telemetrie-Event ingestieren |
+| `/v1/stories` | `GET` | Projektgebundene Story-Liste für Web- und Agent-Clients |
+| `/v1/stories/{story_id}` | `GET` | Story-Detailansicht mit Status, Laufzeit- und Telemetriebezug |
+| `/v1/dashboard/board` | `GET` | Board- oder Listenansicht für die Story-Steuerung |
+| `/v1/dashboard/story-metrics` | `GET` | Read-only Story-Metriken aus Runtime- und Analytics-Sicht |
+
+**Normative Regeln:**
+
+1. Jeder mutierende Endpoint ist tenant-scoped und verlangt
+   `project_key` explizit oder implizit aus dem authentisierten
+   Projektkontext.
+2. Die Control Plane exponiert mutierende Endpunkte nur ueber HTTPS;
+   Plain-HTTP-Listener sind fachlich unzulaessig.
+3. Agents sollen offizielle Request-Templates verwenden statt frei
+   formulierte `curl`-Kommandos.
+4. Die API erzeugt keine zweite Befehls- oder Event-Semantik neben der
+   CLI; sie ist die Zielgrenze, die CLI ist nur ein aktueller Adapter.
+
 ## 91.2 Telemetrie-Event-Typen
 
 <!-- PROSE-FORMAL: formal.installer.events, formal.deterministic-checks.events, formal.guard-system.events, formal.conformance.events, formal.llm-evaluations.events, formal.integrity-gate.events, formal.governance-observation.events, formal.escalation.events, formal.setup-preflight.events, formal.verify.events, formal.exploration.events, formal.story-creation.events, formal.dependency-rebinding.events, formal.story-closure.events, formal.story-workflow.events, formal.story-split.events, formal.story-reset.state-machine, formal.story-reset.events, formal.principal-capabilities.events, formal.operating-modes.events, formal.state-storage.events, formal.telemetry-analytics.events, formal.integration-stabilization.events, formal.story-exit.events, formal.story-contracts.events -->
@@ -227,6 +258,11 @@ formal_refs:
 | `are_requirements_linked` | 40 | Pipeline-Skript | ARE: Anforderungen verlinkt |
 | `are_evidence_submitted` | 40 | Worker/QA-Prozess | ARE: Evidence eingereicht |
 | `are_gate_result` | 40 | Pipeline-Skript | ARE: Gate PASS/FAIL |
+
+**Control-Plane-Regel:** Alle Event-Typen bleiben plattformneutral.
+Hooks, CLI und kuenftige REST-Aufrufe sind nur Producer-Pfade auf
+diesen Katalog; sie duerfen keine abweichenden Event-Namen oder
+Payload-Formate einfuehren.
 
 ## 91.3 MCP-Tool-Katalog
 

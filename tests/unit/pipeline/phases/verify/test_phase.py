@@ -6,10 +6,19 @@ import json
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+import pytest
+
+from agentkit.phase_state_store.models import FlowExecution
 from agentkit.pipeline.lifecycle import PhaseHandler
 from agentkit.pipeline.phases.verify.phase import VerifyConfig, VerifyPhaseHandler
 from agentkit.qa.structural.checker import StructuralChecker
-from agentkit.state_backend import save_phase_snapshot, save_story_context
+from agentkit.state_backend import (
+    save_flow_execution,
+    save_phase_snapshot,
+    save_story_context,
+)
+from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.state_backend.store import reset_backend_cache_for_tests
 from agentkit.story_context_manager.models import (
     PhaseSnapshot,
     PhaseState,
@@ -22,14 +31,30 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+@pytest.fixture(autouse=True)
+def sqlite_backend_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
+    monkeypatch.setenv(ALLOW_SQLITE_ENV, "1")
+    reset_backend_cache_for_tests()
+    yield
+    reset_backend_cache_for_tests()
+
+
+def _story_dir(root: Path, story_id: str = "TEST-001") -> Path:
+    story_dir = root / "stories" / story_id
+    story_dir.mkdir(parents=True, exist_ok=True)
+    return story_dir
+
+
 def _make_context(
     story_type: StoryType = StoryType.BUGFIX,
 ) -> StoryContext:
     """Build a minimal StoryContext for testing."""
     return StoryContext(
+        project_key="test-project",
         story_id="TEST-001",
         story_type=story_type,
-        mode=StoryMode.EXECUTION,
+        execution_route=StoryMode.EXECUTION,
     )
 
 
@@ -48,9 +73,21 @@ def _setup_complete_story_dir(
     story_type: StoryType = StoryType.BUGFIX,
 ) -> Path:
     """Set up a story dir with all required artifacts for a given type."""
-    story_dir = tmp_path
+    story_dir = _story_dir(tmp_path)
 
     save_story_context(story_dir, _make_context(story_type))
+    save_flow_execution(
+        story_dir,
+        FlowExecution(
+            project_key="test-project",
+            story_id="TEST-001",
+            run_id="run-verify-001",
+            flow_id="implementation",
+            level="story",
+            owner="pipeline_engine",
+            status="IN_PROGRESS",
+        ),
+    )
 
     profile = get_profile(story_type)
     for phase in profile.phases:
@@ -88,12 +125,25 @@ class TestVerifyPhaseHandler:
             "semantic-review.json",
             "adversarial.json",
             "verify-decision.json",
-            "decision.json",
         )
 
     def test_missing_artifacts_returns_failed(self, tmp_path: Path) -> None:
         # Empty story dir -> structural checks fail
-        config = VerifyConfig(story_dir=tmp_path)
+        story_dir = _story_dir(tmp_path)
+        save_story_context(story_dir, _make_context())
+        save_flow_execution(
+            story_dir,
+            FlowExecution(
+                project_key="test-project",
+                story_id="TEST-001",
+                run_id="run-verify-001",
+                flow_id="implementation",
+                level="story",
+                owner="pipeline_engine",
+                status="IN_PROGRESS",
+            ),
+        )
+        config = VerifyConfig(story_dir=story_dir)
         handler = VerifyPhaseHandler(config)
         ctx = _make_context()
         state = _make_state()
@@ -106,7 +156,6 @@ class TestVerifyPhaseHandler:
             "semantic-review.json",
             "adversarial.json",
             "verify-decision.json",
-            "decision.json",
         )
 
     def test_on_resume_reruns_verify(self, tmp_path: Path) -> None:
@@ -144,11 +193,10 @@ class TestVerifyPhaseHandler:
         assert result.artifacts_produced == (
             "structural.json",
             "verify-decision.json",
-            "decision.json",
         )
 
     def test_on_exit_is_noop(self, tmp_path: Path) -> None:
-        config = VerifyConfig(story_dir=tmp_path)
+        config = VerifyConfig(story_dir=_story_dir(tmp_path))
         handler = VerifyPhaseHandler(config)
         ctx = _make_context()
         state = _make_state()
@@ -156,12 +204,26 @@ class TestVerifyPhaseHandler:
         handler.on_exit(ctx, state)
 
     def test_implements_phase_handler_protocol(self, tmp_path: Path) -> None:
-        config = VerifyConfig(story_dir=tmp_path)
+        config = VerifyConfig(story_dir=_story_dir(tmp_path))
         handler = VerifyPhaseHandler(config)
         assert isinstance(handler, PhaseHandler)
 
     def test_failed_result_contains_feedback_text(self, tmp_path: Path) -> None:
-        config = VerifyConfig(story_dir=tmp_path)
+        story_dir = _story_dir(tmp_path)
+        save_story_context(story_dir, _make_context())
+        save_flow_execution(
+            story_dir,
+            FlowExecution(
+                project_key="test-project",
+                story_id="TEST-001",
+                run_id="run-verify-001",
+                flow_id="implementation",
+                level="story",
+                owner="pipeline_engine",
+                status="IN_PROGRESS",
+            ),
+        )
+        config = VerifyConfig(story_dir=story_dir)
         handler = VerifyPhaseHandler(config)
         ctx = _make_context()
         state = _make_state()
@@ -183,9 +245,7 @@ class TestVerifyPhaseHandler:
         assert result.status == PhaseStatus.COMPLETED
 
         decision_path = story_dir / "verify-decision.json"
-        legacy_decision_path = story_dir / "decision.json"
         assert decision_path.exists(), "verify-decision.json must be written"
-        assert legacy_decision_path.exists(), "decision.json must be written"
         semantic_path = story_dir / "semantic-review.json"
         adversarial_path = story_dir / "adversarial.json"
         structural_path = story_dir / "structural.json"
@@ -193,7 +253,6 @@ class TestVerifyPhaseHandler:
         assert semantic_path.exists()
         assert adversarial_path.exists()
         data = json.loads(decision_path.read_text(encoding="utf-8"))
-        legacy = json.loads(legacy_decision_path.read_text(encoding="utf-8"))
         structural_data = json.loads(structural_path.read_text(encoding="utf-8"))
         assert data["passed"] is True
         assert data["status"] == "PASS"
@@ -201,8 +260,6 @@ class TestVerifyPhaseHandler:
         assert isinstance(data["layers"], list)
         assert isinstance(data["blocking_findings"], list)
         assert isinstance(data["all_findings_count"], int)
-        assert legacy["decision"] == "PASS"
-        assert legacy["passed"] is True
         assert structural_data["layer"] == "structural"
         assert structural_data["passed"] is True
         semantic = next(
@@ -235,7 +292,21 @@ class TestVerifyPhaseHandler:
         }
 
     def test_verify_decision_json_written_on_fail(self, tmp_path: Path) -> None:
-        config = VerifyConfig(story_dir=tmp_path)
+        story_dir = _story_dir(tmp_path)
+        save_story_context(story_dir, _make_context())
+        save_flow_execution(
+            story_dir,
+            FlowExecution(
+                project_key="test-project",
+                story_id="TEST-001",
+                run_id="run-verify-001",
+                flow_id="implementation",
+                level="story",
+                owner="pipeline_engine",
+                status="IN_PROGRESS",
+            ),
+        )
+        config = VerifyConfig(story_dir=story_dir)
         handler = VerifyPhaseHandler(config)
         ctx = _make_context()
         state = _make_state()
@@ -243,22 +314,15 @@ class TestVerifyPhaseHandler:
         result = handler.on_enter(ctx, state)
         assert result.status == PhaseStatus.FAILED
 
-        decision_path = tmp_path / "verify-decision.json"
-        legacy_decision_path = tmp_path / "decision.json"
+        decision_path = story_dir / "verify-decision.json"
         assert decision_path.exists(), (
             "verify-decision.json must be written even on FAIL"
         )
-        assert legacy_decision_path.exists(), (
-            "decision.json must be written even on FAIL"
-        )
-        assert (tmp_path / "structural.json").exists()
-        assert (tmp_path / "semantic-review.json").exists()
-        assert (tmp_path / "adversarial.json").exists()
+        assert (story_dir / "structural.json").exists()
+        assert (story_dir / "semantic-review.json").exists()
+        assert (story_dir / "adversarial.json").exists()
         data = json.loads(decision_path.read_text(encoding="utf-8"))
-        legacy = json.loads(legacy_decision_path.read_text(encoding="utf-8"))
         assert data["passed"] is False
         assert data["status"] == "FAIL"
         assert isinstance(data["layers"], list)
         assert len(data["blocking_findings"]) > 0
-        assert legacy["decision"] == "FAIL"
-        assert legacy["passed"] is False

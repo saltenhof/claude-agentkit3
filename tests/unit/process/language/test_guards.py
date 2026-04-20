@@ -206,7 +206,7 @@ class TestModeIsExploration:
         minimal_story_context: StoryContext,
         minimal_phase_state: PhaseState,
     ) -> None:
-        # minimal_story_context has mode=EXPLORATION
+        # minimal_story_context has execution_route=EXPLORATION
         result = mode_is_exploration(minimal_story_context, minimal_phase_state)
         assert result.passed is True
 
@@ -224,9 +224,10 @@ class TestModeIsExploration:
         self, minimal_phase_state: PhaseState,
     ) -> None:
         ctx = StoryContext(
+            project_key="test-project",
             story_id="TEST-003",
             story_type=StoryType.CONCEPT,
-            mode=StoryMode.NOT_APPLICABLE,
+            execution_route=StoryMode.NOT_APPLICABLE,
         )
         result = mode_is_exploration(ctx, minimal_phase_state)
         assert result.passed is False

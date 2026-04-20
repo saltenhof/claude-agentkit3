@@ -37,6 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     install_parser = subparsers.add_parser(
         "install", help="Install AgentKit into a target project",
     )
+    install_parser.add_argument("--project-key", required=True)
     install_parser.add_argument("--project-name", required=True)
     install_parser.add_argument("--project-root", required=True)
     install_parser.add_argument(
@@ -70,6 +71,14 @@ def main(argv: list[str] | None = None) -> int:
     subparsers.add_parser(
         "doctor", help="Check AgentKit installation health",
     )
+    control_plane_parser = subparsers.add_parser(
+        "serve-control-plane",
+        help="Run the AgentKit control-plane HTTP server",
+    )
+    control_plane_parser.add_argument("--host", default="127.0.0.1")
+    control_plane_parser.add_argument("--port", type=int, default=9080)
+    control_plane_parser.add_argument("--certfile", required=True)
+    control_plane_parser.add_argument("--keyfile")
 
     args = parser.parse_args(argv)
 
@@ -85,6 +94,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_run_story(args)
     if args.command == "doctor":
         return _cmd_doctor()
+    if args.command == "serve-control-plane":
+        return _cmd_serve_control_plane(args)
 
     parser.print_help()
     return 0
@@ -108,6 +119,7 @@ def _cmd_install(args: argparse.Namespace) -> int:
     from agentkit.installer import InstallConfig, install_agentkit
 
     config = InstallConfig(
+        project_key=args.project_key,
         project_name=args.project_name,
         project_root=Path(args.project_root),
         prompt_bundle_root=(
@@ -168,4 +180,20 @@ def _cmd_doctor() -> int:
     print(f"  gh CLI: {'found' if shutil.which('gh') else 'NOT FOUND'}")
     print(f"  git:    {'found' if shutil.which('git') else 'NOT FOUND'}")
     print(f"  version: {__version__}")
+    return 0
+
+
+def _cmd_serve_control_plane(args: argparse.Namespace) -> int:
+    """Handle ``agentkit serve-control-plane`` command."""
+
+    from pathlib import Path
+
+    from agentkit.control_plane import serve_control_plane
+
+    serve_control_plane(
+        host=args.host,
+        port=args.port,
+        certfile=Path(args.certfile),
+        keyfile=Path(args.keyfile) if args.keyfile is not None else None,
+    )
     return 0

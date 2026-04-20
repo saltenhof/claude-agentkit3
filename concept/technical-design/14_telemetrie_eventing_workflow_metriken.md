@@ -83,6 +83,27 @@ einer Story als JSONL oder Audit-Bundle exportiert werden. Diese
 Datei dient der menschlichen Lesbarkeit oder externen Ablage — sie
 ist nie Laufzeit-Speicher.
 
+### 14.2.1a Control-Plane-API als normative Schreibgrenze
+
+Die kanonische Telemetrie wird fachlich nicht ueber eine bestimmte
+Agent-Plattform, Hook-Implementierung oder CLI normiert, sondern ueber
+eine **offizielle Control-Plane-Schreibgrenze**:
+
+- interne Runtime-Komponenten schreiben ueber den `TelemetryService`
+- externe Steuerpfade schreiben ueber offizielle AgentKit-API-Operationen
+- projekt- oder plattformspezifische Adapter (CLI, Hooks, Skills,
+  Wrapper-Skripte) sind nur Aufrufer dieser Grenze
+
+**Normative Regel:** Claude-Code-Hooks, die lokale CLI und kuenftige
+REST-Endpunkte sind **keine** konkurrierenden Wahrheiten fuer
+Telemetrie, sondern nur Transport- oder Adapterpfade auf denselben
+kanonischen Event-Vertrag.
+
+**Zielbild fuer Agents:** Agents sollen offizielle API-Aufrufe nutzen,
+nicht frei formulierte Shell- oder HTTP-Sequenzen. Fuer wiederkehrende
+Operationen werden feste Request-Templates bereitgestellt, damit der
+Agent nur Parameter fuellt und die Plattform nicht improvisiert.
+
 **Gültigkeitsregel:** Audit-Bundles dürfen nur aus gültigen,
 nicht vollständig zurückgesetzten Runs erzeugt oder aufbewahrt werden.
 Ein vollständiger Story-Reset verwirft auch den zugehörigen
@@ -199,6 +220,12 @@ hält die Pool-Abstraktion intakt (Kap. 01 P8, Kap. 11).
 | `vectordb_search` | VektorDB-Abgleich bei Story-Erstellung | `total_hits`, `hits_above_threshold`, `hits_classified_conflict`, `threshold_value` | 1 pro Story-Erstellung | Story-Creation-Pipeline (FK-21). Konzeptmandatiert (Kap. 02 §2.1). Ergaenzt FK-61 §61.8.1. |
 | `compaction_event` | Context-Compaction im Sub-Agent | `story_id` (aus `.agentkit-story.json`) | 0..n pro Story | PostCompact-Hook (FK-36). Ergaenzt FK-61 §61.2.2. |
 
+**Normative Abstraktion der Quellen:** Der Event-Katalog ist
+**producer-neutral**. Ein Event-Typ wird fachlich ueber seine Semantik
+definiert, nicht ueber Claude-Code-Hooks, die lokale CLI oder einen
+REST-Client. Dieselben Event-Typen muessen spaeter unveraendert ueber
+die zentrale AgentKit-Control-Plane ingestierbar bleiben.
+
 ### 14.2.3 Beispiel-Events
 
 ```jsonl
@@ -212,9 +239,13 @@ hält die Pool-Abstraktion intakt (Kap. 01 P8, Kap. 11).
 
 ### 14.3.1 Hook-basierte Erfassung
 
-Die meisten Events werden von Hook-Prozessen geschrieben. Hooks
-sind die ideale Quelle, weil sie jede Agent-Aktion sehen, ohne
-dass der Agent davon weiß oder die Erfassung umgehen kann.
+Claude-Code-Hooks sind die **aktuelle Referenz-Implementierung** fuer
+mehrere beobachtende Telemetriequellen. Sie sind jedoch kein
+normativer Sonderstatus, sondern ein Adapterpfad fuer die
+Control-Plane-Telemetrie.
+
+Hooks sind dort eine gute Quelle, wo sie Agent-Aktionen ohne
+Mitwirkung des Agents beobachten koennen.
 
 | Hook | Typ | Erkennung | Events |
 |------|-----|-----------|--------|
@@ -232,6 +263,22 @@ dass der Agent davon weiß oder die Erfassung umgehen kann.
 Der LLM-Evaluator (Kap. 11) schreibt `llm_call`-Events direkt
 in das State-Backend, weil er ein deterministisches Skript ist und
 nicht über einen Hook läuft.
+
+### 14.3.2b API-basierte Erfassung
+
+Neben Hook- und Runtime-Erzeugern bleibt die offizielle
+Control-Plane-API ein zulaessiger Producer-Pfad fuer Telemetrie:
+
+- Phase- und Closure-Aufrufe koennen kuenftig ueber offizielle
+  AgentKit-REST-Operationen statt ueber die lokale CLI erfolgen
+- Agenten oder Adapter muessen dabei feste Request-Templates nutzen,
+  keine frei formulierten HTTP-Aufrufe
+- die API darf nur denselben kanonischen Event-Vertrag produzieren,
+  niemals eine zweite Telemetrie-Taxonomie
+
+**Normative Regel:** API-basierte Erfassung ersetzt keine fachlichen
+Events. Sie ist nur ein weiterer zulassiger Transportpfad auf den
+bereits definierten Event-Katalog.
 
 ### 14.3.2a Engine-basierte Erfassung
 
@@ -280,6 +327,11 @@ def insert_event(project_key: str, client, story_id: str, run_id: str, event_typ
 PostgreSQL. Agents erhalten keine direkten DB-
 Zugangsdaten; nur Hook-/Pipeline-Principals schreiben **über den
 telemetry_service bzw. dessen Insert-API**.
+
+**Ausblick Control Plane:** Dieselbe Insert-API bleibt spaeter auch die
+normative Rueckseite offizieller REST-Endpunkte. CLI-Skripte und
+Hook-Adapter bleiben dann nur noch Frontends derselben
+Control-Plane-Schnittstelle.
 
 **Korrelation fuer Prozess-DSL-Events:** Ablauf-Events tragen in ihrem
 Payload mindestens `flow_id`, `level`, `owner`, `attempt_no` und bei

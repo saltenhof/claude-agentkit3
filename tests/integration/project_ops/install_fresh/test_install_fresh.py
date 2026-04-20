@@ -41,6 +41,7 @@ class TestInstallFresh:
         # Must be loadable by our config loader
         project_config = load_project_config(root)
         assert project_config.project_name == "test-project"
+        assert project_config.project_key == "test-project"
 
     def test_install_creates_directory_structure(self, tmp_path: object) -> None:
         """Install creates prompt/runtime/story directories."""
@@ -104,6 +105,7 @@ class TestInstallFresh:
         root = _as_path(tmp_path)
         config = InstallConfig(
             project_name="test",
+            project_key="test",
             project_root=root / "nope",
         )
         with pytest.raises(ProjectError):
@@ -240,6 +242,7 @@ def _as_path(tmp_path: object) -> Path:
 
 
 def _make_install_config(project_root: Path, **kwargs: object) -> InstallConfig:
+    kwargs.setdefault("project_key", kwargs.get("project_name", "test-project"))
     return InstallConfig(
         project_root=project_root,
         **kwargs,

@@ -5,9 +5,10 @@ from agentkit.story_context_manager.types import StoryMode, StoryType
 
 def test_prompt_composer_namespace_exposes_composition_api() -> None:
     ctx = StoryContext(
+        project_key="test-project",
         story_id="AG3-001",
         story_type=StoryType.IMPLEMENTATION,
-        mode=StoryMode.EXECUTION,
+        execution_route=StoryMode.EXECUTION,
         issue_nr=42,
         title="Add widget feature",
         project_root=None,

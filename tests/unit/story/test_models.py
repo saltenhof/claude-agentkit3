@@ -14,6 +14,7 @@ from agentkit.story_context_manager.models import (
     PhaseStatus,
     StoryContext,
 )
+from agentkit.story_context_manager.sizing import StorySize
 from agentkit.story_context_manager.types import (
     ImplementationContract,
     StoryMode,
@@ -50,16 +51,18 @@ class TestStoryContext:
 
     def test_minimal_creation(self) -> None:
         ctx = StoryContext(
+            project_key="test-project",
             story_id="AG3-001",
             story_type=StoryType.IMPLEMENTATION,
-            mode=StoryMode.EXPLORATION,
+            execution_route=StoryMode.EXPLORATION,
         )
         assert ctx.story_id == "AG3-001"
         assert ctx.story_type == StoryType.IMPLEMENTATION
-        assert ctx.mode == StoryMode.EXPLORATION
+        assert ctx.execution_route == StoryMode.EXPLORATION
         assert ctx.implementation_contract == ImplementationContract.STANDARD
         assert ctx.issue_nr is None
         assert ctx.title == ""
+        assert ctx.story_size == StorySize.SMALL
         assert ctx.project_root is None
         assert ctx.worktree_path is None
         assert ctx.participating_repos == []
@@ -69,9 +72,10 @@ class TestStoryContext:
     def test_full_creation(self) -> None:
         now = datetime.now(tz=UTC)
         ctx = StoryContext(
+            project_key="test-project",
             story_id="AG3-042",
             story_type=StoryType.BUGFIX,
-            mode=StoryMode.EXECUTION,
+            execution_route=StoryMode.EXECUTION,
             implementation_contract=None,
             issue_nr=42,
             title="Fix null pointer in setup phase",
@@ -87,73 +91,81 @@ class TestStoryContext:
         assert ctx.worktree_path == Path("/tmp/worktrees/AG3-042")
         assert ctx.participating_repos == ["saltenhof/claude-agentkit3"]
         assert ctx.labels == ["bugfix", "size:small"]
+        assert ctx.story_size == StorySize.SMALL
         assert ctx.created_at == now
 
     def test_implementation_defaults_standard_contract(self) -> None:
         ctx = StoryContext(
+            project_key="test-project",
             story_id="AG3-051",
             story_type=StoryType.IMPLEMENTATION,
-            mode=StoryMode.EXECUTION,
+            execution_route=StoryMode.EXECUTION,
         )
         assert ctx.implementation_contract == ImplementationContract.STANDARD
 
     def test_non_implementation_keeps_contract_none(self) -> None:
         ctx = StoryContext(
+            project_key="test-project",
             story_id="AG3-052",
             story_type=StoryType.CONCEPT,
-            mode=StoryMode.NOT_APPLICABLE,
+            execution_route=StoryMode.NOT_APPLICABLE,
         )
         assert ctx.implementation_contract is None
 
     def test_invalid_contract_for_bugfix_is_rejected(self) -> None:
         with pytest.raises(ValidationError, match="implementation_contract"):
             StoryContext(
+                project_key="test-project",
                 story_id="AG3-053",
                 story_type=StoryType.BUGFIX,
-                mode=StoryMode.EXECUTION,
+                execution_route=StoryMode.EXECUTION,
                 implementation_contract=ImplementationContract.INTEGRATION_STABILIZATION,
             )
 
     def test_invalid_mode_for_concept_is_rejected(self) -> None:
         with pytest.raises(ValidationError, match="execution_route"):
             StoryContext(
+                project_key="test-project",
                 story_id="AG3-054",
                 story_type=StoryType.CONCEPT,
-                mode=StoryMode.EXECUTION,
+                execution_route=StoryMode.EXECUTION,
             )
 
     def test_execution_route_alias_matches_mode(self) -> None:
         ctx = StoryContext(
+            project_key="test-project",
             story_id="AG3-055",
             story_type=StoryType.IMPLEMENTATION,
-            mode=StoryMode.EXPLORATION,
+            execution_route=StoryMode.EXPLORATION,
         )
         assert ctx.execution_route == StoryMode.EXPLORATION
-        assert ctx.mode == StoryMode.EXPLORATION
+        assert ctx.execution_route == StoryMode.EXPLORATION
 
     def test_creation_via_execution_route_field(self) -> None:
         ctx = StoryContext(
+            project_key="test-project",
             story_id="AG3-056",
             story_type=StoryType.IMPLEMENTATION,
             execution_route=StoryMode.EXECUTION,
         )
         assert ctx.execution_route == StoryMode.EXECUTION
-        assert ctx.mode == StoryMode.EXECUTION
+        assert ctx.execution_route == StoryMode.EXECUTION
 
-    def test_conflicting_mode_and_execution_route_is_rejected(self) -> None:
-        with pytest.raises(ValidationError, match="must not disagree"):
+    def test_empty_project_key_is_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="project_key"):
             StoryContext(
+                project_key="",
                 story_id="AG3-057",
                 story_type=StoryType.IMPLEMENTATION,
-                mode=StoryMode.EXPLORATION,
                 execution_route=StoryMode.EXECUTION,
             )
 
     def test_frozen_model(self) -> None:
         ctx = StoryContext(
+            project_key="test-project",
             story_id="AG3-001",
             story_type=StoryType.IMPLEMENTATION,
-            mode=StoryMode.EXPLORATION,
+            execution_route=StoryMode.EXPLORATION,
         )
         with pytest.raises(ValidationError):
             ctx.story_id = "AG3-002"  # type: ignore[misc]
@@ -161,20 +173,23 @@ class TestStoryContext:
     def test_requires_story_id(self) -> None:
         with pytest.raises(ValidationError):
             StoryContext(
+                project_key="test-project",
                 story_type=StoryType.IMPLEMENTATION,  # type: ignore[call-arg]
-                mode=StoryMode.EXPLORATION,
+                execution_route=StoryMode.EXPLORATION,
             )
 
     def test_requires_story_type(self) -> None:
         with pytest.raises(ValidationError):
             StoryContext(
+                project_key="test-project",
                 story_id="AG3-001",  # type: ignore[call-arg]
-                mode=StoryMode.EXPLORATION,
+                execution_route=StoryMode.EXPLORATION,
             )
 
     def test_requires_mode(self) -> None:
         with pytest.raises(ValidationError):
             StoryContext(
+                project_key="test-project",
                 story_id="AG3-001",  # type: ignore[call-arg]
                 story_type=StoryType.IMPLEMENTATION,
             )
@@ -182,35 +197,49 @@ class TestStoryContext:
     def test_serialization_roundtrip(self) -> None:
         now = datetime.now(tz=UTC)
         ctx = StoryContext(
+            project_key="test-project",
             story_id="AG3-001",
             story_type=StoryType.IMPLEMENTATION,
-            mode=StoryMode.EXPLORATION,
+            execution_route=StoryMode.EXPLORATION,
             issue_nr=1,
             title="Test story",
             created_at=now,
         )
         data = ctx.model_dump(mode="json")
-        assert "mode" in data
-        assert "execution_route" not in data
+        assert data["execution_route"] == StoryMode.EXPLORATION.value
         restored = StoryContext.model_validate(data)
         assert restored.story_id == ctx.story_id
         assert restored.story_type == ctx.story_type
-        assert restored.mode == ctx.mode
+        assert restored.execution_route == ctx.execution_route
+        assert restored.story_size == ctx.story_size
         assert restored.execution_route == ctx.execution_route
         assert restored.implementation_contract == ctx.implementation_contract
         assert restored.issue_nr == ctx.issue_nr
 
+    def test_story_size_is_estimated_from_labels_when_missing(self) -> None:
+        ctx = StoryContext(
+            project_key="test-project",
+            story_id="AG3-058",
+            story_type=StoryType.IMPLEMENTATION,
+            execution_route=StoryMode.EXECUTION,
+            labels=["size:large"],
+            title="Implement closure metrics",
+        )
+        assert ctx.story_size == StorySize.LARGE
+
     def test_default_lists_are_independent(self) -> None:
         """Verify mutable default lists are not shared between instances."""
         ctx1 = StoryContext(
+            project_key="test-project",
             story_id="AG3-001",
             story_type=StoryType.CONCEPT,
-            mode=StoryMode.NOT_APPLICABLE,
+            execution_route=StoryMode.NOT_APPLICABLE,
         )
         ctx2 = StoryContext(
+            project_key="test-project",
             story_id="AG3-002",
             story_type=StoryType.CONCEPT,
-            mode=StoryMode.NOT_APPLICABLE,
+            execution_route=StoryMode.NOT_APPLICABLE,
         )
         assert ctx1.labels is not ctx2.labels
         assert ctx1.participating_repos is not ctx2.participating_repos

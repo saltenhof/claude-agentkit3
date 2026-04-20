@@ -68,13 +68,25 @@ def _setup_story(
     s_dir = story_dir(project_dir, story_id)
     s_dir.mkdir(parents=True, exist_ok=True)
     ctx = StoryContext(
+        project_key=project_dir.name,
         story_id=story_id,
         story_type=story_type,
-        mode=mode,
+        execution_route=mode,
         project_root=project_dir,
     )
     save_story_context(s_dir, ctx)
     return ctx, s_dir
+
+
+def _install_project(project_dir: Path) -> None:
+    install_result = install_agentkit(
+        InstallConfig(
+            project_key=project_dir.name,
+            project_name=project_dir.name,
+            project_root=project_dir,
+        )
+    )
+    assert install_result.success
 
 
 def _registry_for_workflow(
@@ -104,13 +116,7 @@ class TestSmokeImplementationStory:
         # 1. Install AgentKit
         project_dir = tmp_path / "my-project"
         project_dir.mkdir()
-        install_result = install_agentkit(
-            InstallConfig(
-                project_name="my-project",
-                project_root=project_dir,
-            )
-        )
-        assert install_result.success
+        _install_project(project_dir)
 
         # 2. Verify install created loadable config
         config = load_project_config(project_dir)
@@ -154,12 +160,7 @@ class TestSmokeImplementationStory:
         """EXECUTION mode uses transition guard to skip exploration."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(
-            InstallConfig(
-                project_name="proj",
-                project_root=project_dir,
-            )
-        )
+        _install_project(project_dir)
 
         ctx, s_dir = _setup_story(
             project_dir,
@@ -187,12 +188,7 @@ class TestSmokeImplementationStory:
         over the guardless remediation fallback."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(
-            InstallConfig(
-                project_name="proj",
-                project_root=project_dir,
-            )
-        )
+        _install_project(project_dir)
 
         ctx, s_dir = _setup_story(
             project_dir,
@@ -216,12 +212,7 @@ class TestSmokeImplementationStory:
         """Projection files remain valid JSON alongside canonical DB records."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(
-            InstallConfig(
-                project_name="proj",
-                project_root=project_dir,
-            )
-        )
+        _install_project(project_dir)
 
         ctx, s_dir = _setup_story(
             project_dir,
@@ -252,12 +243,7 @@ class TestSmokeImplementationStory:
         """Each phase creates canonical attempt records."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(
-            InstallConfig(
-                project_name="proj",
-                project_root=project_dir,
-            )
-        )
+        _install_project(project_dir)
 
         ctx, s_dir = _setup_story(
             project_dir,
@@ -297,12 +283,7 @@ class TestSmokeExplorationMode:
         """EXPLORATION mode runs all five phases in order."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(
-            InstallConfig(
-                project_name="proj",
-                project_root=project_dir,
-            )
-        )
+        _install_project(project_dir)
 
         ctx, s_dir = _setup_story(
             project_dir,
@@ -332,12 +313,7 @@ class TestSmokeExplorationMode:
         """EXPLORATION mode persists canonical exploration records."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(
-            InstallConfig(
-                project_name="proj",
-                project_root=project_dir,
-            )
-        )
+        _install_project(project_dir)
 
         ctx, s_dir = _setup_story(
             project_dir,
@@ -370,12 +346,7 @@ class TestSmokeBugfixStory:
         """Bugfix story runs setup -> implementation -> verify -> closure."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(
-            InstallConfig(
-                project_name="proj",
-                project_root=project_dir,
-            )
-        )
+        _install_project(project_dir)
 
         ctx, s_dir = _setup_story(
             project_dir,
@@ -402,12 +373,7 @@ class TestSmokeBugfixStory:
         """Bugfix workflow never touches exploration phase."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(
-            InstallConfig(
-                project_name="proj",
-                project_root=project_dir,
-            )
-        )
+        _install_project(project_dir)
 
         ctx, s_dir = _setup_story(
             project_dir,
@@ -445,12 +411,7 @@ class TestSmokeConceptStory:
         """Concept story runs setup -> implementation -> verify -> closure."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(
-            InstallConfig(
-                project_name="proj",
-                project_root=project_dir,
-            )
-        )
+        _install_project(project_dir)
 
         ctx, s_dir = _setup_story(
             project_dir,
@@ -477,12 +438,7 @@ class TestSmokeConceptStory:
         """Story context is loadable after pipeline completion."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(
-            InstallConfig(
-                project_name="proj",
-                project_root=project_dir,
-            )
-        )
+        _install_project(project_dir)
 
         ctx, s_dir = _setup_story(
             project_dir,
@@ -514,12 +470,7 @@ class TestSmokeResearchStory:
         """Research story runs setup -> implementation -> closure."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(
-            InstallConfig(
-                project_name="proj",
-                project_root=project_dir,
-            )
-        )
+        _install_project(project_dir)
 
         ctx, s_dir = _setup_story(
             project_dir,
@@ -545,12 +496,7 @@ class TestSmokeResearchStory:
         """Research workflow has no verify phase."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(
-            InstallConfig(
-                project_name="proj",
-                project_root=project_dir,
-            )
-        )
+        _install_project(project_dir)
 
         ctx, s_dir = _setup_story(
             project_dir,
@@ -692,12 +638,7 @@ class TestSmokePipelineRobustness:
         """Pipeline fails clearly when a phase has no registered handler."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(
-            InstallConfig(
-                project_name="proj",
-                project_root=project_dir,
-            )
-        )
+        _install_project(project_dir)
 
         ctx, s_dir = _setup_story(
             project_dir,
@@ -721,12 +662,7 @@ class TestSmokePipelineRobustness:
         """Corrupt projection JSON does not override canonical backend truth."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(
-            InstallConfig(
-                project_name="proj",
-                project_root=project_dir,
-            )
-        )
+        _install_project(project_dir)
 
         ctx, s_dir = _setup_story(
             project_dir,
@@ -752,12 +688,7 @@ class TestSmokePipelineRobustness:
         """Pipeline correctly yields when a handler returns PAUSED."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(
-            InstallConfig(
-                project_name="proj",
-                project_root=project_dir,
-            )
-        )
+        _install_project(project_dir)
 
         ctx, s_dir = _setup_story(
             project_dir,
@@ -791,12 +722,7 @@ class TestSmokePipelineRobustness:
         """Pipeline stops cleanly when a handler fails."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(
-            InstallConfig(
-                project_name="proj",
-                project_root=project_dir,
-            )
-        )
+        _install_project(project_dir)
 
         ctx, s_dir = _setup_story(
             project_dir,
@@ -828,12 +754,7 @@ class TestSmokePipelineRobustness:
         """Completed phases produce canonical phase snapshots."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(
-            InstallConfig(
-                project_name="proj",
-                project_root=project_dir,
-            )
-        )
+        _install_project(project_dir)
 
         ctx, s_dir = _setup_story(
             project_dir,
@@ -865,12 +786,7 @@ class TestSmokePipelineRobustness:
         """An unhandled exception in a handler produces a failed result."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(
-            InstallConfig(
-                project_name="proj",
-                project_root=project_dir,
-            )
-        )
+        _install_project(project_dir)
 
         ctx, s_dir = _setup_story(
             project_dir,
@@ -923,12 +839,7 @@ class TestSmokePipelineRobustness:
         """PipelineRunResult contains all expected fields after completion."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
-        install_agentkit(
-            InstallConfig(
-                project_name="proj",
-                project_root=project_dir,
-            )
-        )
+        _install_project(project_dir)
 
         ctx, s_dir = _setup_story(
             project_dir,

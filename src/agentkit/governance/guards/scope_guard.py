@@ -50,16 +50,16 @@ class ScopeGuard:
             ``BLOCK`` otherwise.
         """
         if operation not in ("file_write", "file_edit"):
-            return GuardVerdict.ALLOW(self.name)
+            return GuardVerdict.allow(self.name)
 
         file_path = os.path.normpath(str(context.get("file_path", "")))
 
         for allowed in self._allowed:
             # Use os.path for reliable prefix comparison.
             if file_path == allowed or file_path.startswith(allowed + os.sep):
-                return GuardVerdict.ALLOW(self.name)
+                return GuardVerdict.allow(self.name)
 
-        return GuardVerdict.BLOCK(
+        return GuardVerdict.block(
             self.name,
             ViolationType.SCOPE_VIOLATION,
             f"Write outside allowed scope: {file_path!r}",

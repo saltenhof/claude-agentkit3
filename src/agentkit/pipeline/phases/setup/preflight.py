@@ -148,5 +148,5 @@ def run_preflight(
     return PreflightResult(
         passed=all_passed,
         checks=tuple(checks),
-        issue_data=issue if all_passed else issue,
+        issue_data=issue,
     )

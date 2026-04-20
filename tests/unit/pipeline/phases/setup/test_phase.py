@@ -54,6 +54,7 @@ def _make_story_context(
     story_id: str = "AG3-001",
     story_type: StoryType = StoryType.IMPLEMENTATION,
     project_root: Path | None = None,
+    project_key: str = "test-project",
 ) -> StoryContext:
     """Build a minimal StoryContext for testing."""
     if story_type == StoryType.IMPLEMENTATION:
@@ -61,9 +62,10 @@ def _make_story_context(
     else:
         mode = StoryMode.NOT_APPLICABLE
     return StoryContext(
+        project_key=project_key,
         story_id=story_id,
         story_type=story_type,
-        mode=mode,
+        execution_route=mode,
         issue_nr=1,
         title="Test Story",
         project_root=project_root,

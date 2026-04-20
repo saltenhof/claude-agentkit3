@@ -8,12 +8,51 @@ repository state.
 from __future__ import annotations
 
 import subprocess
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 from agentkit.exceptions import WorktreeError
 
-if TYPE_CHECKING:
-    from pathlib import Path
+
+def _ensure_repo_root(repo_root: Path) -> None:
+    """Validate that ``repo_root`` is itself a Git repository root."""
+
+    result = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo_root),
+            "rev-parse",
+            "--show-toplevel",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise WorktreeError(
+            "git repository root validation failed",
+            detail={
+                "repo_root": str(repo_root),
+                "stderr": result.stderr,
+                "stdout": result.stdout,
+            },
+        )
+
+    top_level = result.stdout.strip()
+    if not top_level:
+        raise WorktreeError(
+            "git repository root validation returned an empty path",
+            detail={"repo_root": str(repo_root)},
+        )
+
+    if Path(top_level).resolve() != repo_root.resolve():
+        raise WorktreeError(
+            "repo_root must point at the repository root",
+            detail={
+                "repo_root": str(repo_root),
+                "resolved_repo_root": str(repo_root.resolve()),
+                "git_top_level": str(Path(top_level).resolve()),
+            },
+        )
 
 
 def create_worktree(repo_root: Path, worktree_path: Path, branch: str) -> None:
@@ -35,6 +74,7 @@ def create_worktree(repo_root: Path, worktree_path: Path, branch: str) -> None:
             f"Worktree path already exists: {worktree_path}",
             detail={"worktree_path": str(worktree_path)},
         )
+    _ensure_repo_root(repo_root)
 
     result = subprocess.run(
         [
@@ -82,6 +122,8 @@ def remove_worktree(repo_root: Path, worktree_path: Path) -> None:
     Raises:
         WorktreeError: If the ``git worktree remove`` command exits non-zero.
     """
+    _ensure_repo_root(repo_root)
+
     if worktree_path.exists():
         result = subprocess.run(
             [

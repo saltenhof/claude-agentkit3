@@ -43,17 +43,17 @@ class ArtifactGuard:
             ``ALLOW`` for non-protected files, ``BLOCK`` for QA artifacts.
         """
         if operation not in ("file_write", "file_edit"):
-            return GuardVerdict.ALLOW(self.name)
+            return GuardVerdict.allow(self.name)
 
         file_path = str(context.get("file_path", ""))
         basename = os.path.basename(file_path)
 
         if basename in self.PROTECTED_ARTIFACTS:
-            return GuardVerdict.BLOCK(
+            return GuardVerdict.block(
                 self.name,
                 ViolationType.ARTIFACT_TAMPERING,
                 f"Write to protected QA artifact {basename!r} is forbidden",
                 detail={"file_path": file_path, "artifact": basename},
             )
 
-        return GuardVerdict.ALLOW(self.name)
+        return GuardVerdict.allow(self.name)

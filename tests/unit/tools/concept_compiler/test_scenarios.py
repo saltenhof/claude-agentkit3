@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from concept_compiler.compiler import compile_formal_specs
 from concept_compiler.scenario_runner import FormalScenarioError
 

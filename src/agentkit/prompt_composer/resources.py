@@ -6,6 +6,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 from agentkit.exceptions import ProjectError
 from agentkit.installer.paths import prompt_bundle_store_dir
@@ -46,7 +47,13 @@ def _load_binding_lock(project_root: Path | None) -> dict[str, object] | None:
     lock_path = _binding_lock_path(project_root)
     if lock_path is None:
         return None
-    return json.loads(lock_path.read_text(encoding="utf-8"))
+    raw = json.loads(lock_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ProjectError(
+            "Prompt bundle lock must be a JSON object",
+            detail={"path": str(lock_path)},
+        )
+    return cast("dict[str, object]", raw)
 
 
 def _bootstrap_binding() -> PromptBundleBinding:
@@ -165,7 +172,13 @@ def _load_manifest(project_root: Path | None = None) -> dict[str, object]:
             f"Prompt manifest not found: {manifest_path}",
             detail={"path": str(manifest_path)},
         )
-    return json.loads(manifest_path.read_text(encoding="utf-8"))
+    raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ProjectError(
+            "Prompt manifest must be a JSON object",
+            detail={"path": str(manifest_path)},
+        )
+    return cast("dict[str, object]", raw)
 
 
 def _manifest_entry(name: str, project_root: Path | None = None) -> dict[str, str]:

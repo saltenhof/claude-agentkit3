@@ -74,7 +74,7 @@ class TestSelectTemplateName:
         """The historic mode parameter remains a compatibility alias."""
         result = select_template_name(
             StoryType.IMPLEMENTATION,
-            mode=StoryMode.EXPLORATION,
+            execution_route=StoryMode.EXPLORATION,
         )
         assert result == "worker-exploration"
 

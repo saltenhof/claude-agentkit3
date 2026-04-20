@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from agentkit.phase_state_store import load_flow_execution
 from agentkit.prompt_composer import (
     ComposeConfig,
     compose_named_prompt,
     write_rendered_prompt_artifact,
 )
+from agentkit.state_backend import resolve_runtime_scope
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -32,13 +32,13 @@ def materialize_qa_prompt_audit(
             "reason": "project_root_unavailable",
         }
 
-    flow = load_flow_execution(story_dir)
-    if flow is None:
+    runtime_scope = resolve_runtime_scope(story_dir)
+    if runtime_scope.run_id is None:
         return {
             "status": "skipped",
             "reason": "run_id_unavailable",
         }
-    if flow.story_id != ctx.story_id:
+    if runtime_scope.story_id != ctx.story_id:
         return {
             "status": "skipped",
             "reason": "story_identity_mismatch",
@@ -56,21 +56,22 @@ def materialize_qa_prompt_audit(
         template_name,
         ComposeConfig(
             story_type=ctx.story_type,
-            mode=ctx.execution_route,
+            execution_route=ctx.execution_route,
         ),
-        run_id=flow.run_id,
+        run_id=runtime_scope.run_id,
     )
-    invocation_id = f"verify-{layer_name}-attempt-{flow.attempt_no:03d}"
+    attempt_no = runtime_scope.attempt_no or 1
+    invocation_id = f"verify-{layer_name}-attempt-{attempt_no:03d}"
     artifact = write_rendered_prompt_artifact(
         prompt,
         ctx.project_root,
-        run_id=flow.run_id,
+        run_id=runtime_scope.run_id,
         invocation_id=invocation_id,
         artifact_name=f"{layer_name}-prompt.md",
     )
     return {
         "status": "materialized",
-        "run_id": flow.run_id,
+        "run_id": runtime_scope.run_id,
         "invocation_id": invocation_id,
         "logical_prompt_id": prompt.logical_prompt_id,
         "prompt_bundle_id": prompt.prompt_bundle_id,

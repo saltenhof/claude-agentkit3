@@ -14,14 +14,19 @@ from agentkit.exceptions import IntegrationError
 from agentkit.pipeline.lifecycle import HandlerResult
 from agentkit.pipeline.phases.closure.execution_report import (
     ExecutionReport,
-    _now_iso,
     write_execution_report,
 )
-from agentkit.state_backend import load_phase_snapshot, save_story_context
+from agentkit.pipeline.phases.closure.metrics import build_story_metrics_record
+from agentkit.state_backend import (
+    load_phase_snapshot,
+    save_story_context,
+    upsert_story_metrics,
+)
 from agentkit.story_context_manager.models import PhaseStatus
 from agentkit.story_context_manager.types import get_profile
 
 if TYPE_CHECKING:
+    from datetime import datetime
     from pathlib import Path
 
     from agentkit.story_context_manager.models import PhaseState, StoryContext
@@ -86,6 +91,7 @@ class ClosurePhaseHandler:
         Returns:
             A ``HandlerResult`` describing the outcome.
         """
+        _ = state
         cfg = self._config
         warnings: list[str] = []
 
@@ -142,28 +148,38 @@ class ClosurePhaseHandler:
                     cfg.owner, cfg.repo, cfg.issue_nr,
                 )
             except IntegrationError as exc:
-                warning_msg = (
-                    f"Failed to close GitHub issue "
-                    f"{cfg.owner}/{cfg.repo}#{cfg.issue_nr}: {exc}"
-                )
+                issue_ref = f"{cfg.owner}/{cfg.repo}#{cfg.issue_nr}"
+                warning_msg = f"Failed to close GitHub issue {issue_ref}: {exc}"
                 warnings.append(warning_msg)
                 logger.warning(warning_msg)
 
+        completed_at = _completed_at()
+        status = "completed_with_warnings" if warnings else "completed"
+        try:
+            metrics = build_story_metrics_record(
+                s_dir,
+                ctx,
+                completed_at=completed_at,
+                final_status=status,
+            )
+            upsert_story_metrics(s_dir, metrics)
+        except Exception as exc:  # noqa: BLE001
+            return HandlerResult(
+                status=PhaseStatus.FAILED,
+                errors=(f"Failed to materialize story metrics: {exc}",),
+            )
+
         # 4. Write execution report
-        status = (
-            "completed_with_warnings" if warnings else "completed"
-        )
         report = ExecutionReport(
             story_id=ctx.story_id,
             story_type=str(ctx.story_type.value),
             status=status,
             phases_executed=tuple(prior_phases) + ("closure",),
-            started_at=(
-                ctx.created_at.isoformat() if ctx.created_at else None
-            ),
-            completed_at=_now_iso(),
+            started_at=ctx.created_at.isoformat() if ctx.created_at else None,
+            completed_at=metrics.completed_at,
             issue_closed=issue_closed,
             warnings=tuple(warnings),
+            metrics=metrics.to_metrics_payload(),
         )
         report_path = write_execution_report(s_dir, report)
 
@@ -173,16 +189,17 @@ class ClosurePhaseHandler:
             artifacts_produced=(str(report_path),),
         )
 
-    def on_exit(self, ctx: StoryContext, state: PhaseState) -> None:
+    def on_exit(self, _ctx: StoryContext, _state: PhaseState) -> None:
         """No-op for closure phase.
 
         Args:
             ctx: The story context (unused).
             state: The current phase state (unused).
         """
+        _ = _ctx, _state
 
     def on_resume(
-        self, ctx: StoryContext, state: PhaseState, trigger: str,
+        self, _ctx: StoryContext, _state: PhaseState, _trigger: str,
     ) -> HandlerResult:
         """Closure phase does not support resume -- return FAILED.
 
@@ -194,7 +211,14 @@ class ClosurePhaseHandler:
         Returns:
             A ``HandlerResult`` with ``FAILED`` status.
         """
+        _ = _ctx, _state, _trigger
         return HandlerResult(
             status=PhaseStatus.FAILED,
             errors=("Closure phase does not support resume",),
         )
+
+
+def _completed_at() -> datetime:
+    from datetime import UTC, datetime
+
+    return datetime.now(tz=UTC)

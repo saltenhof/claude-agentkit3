@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from agentkit.integrations.github.issues import get_issue
 from agentkit.story_context_manager.models import StoryContext
+from agentkit.story_context_manager.sizing import estimate_size
 from agentkit.story_context_manager.types import StoryMode, StoryType, get_profile
 
 if TYPE_CHECKING:
@@ -41,6 +42,7 @@ def build_story_context(
     repo: str,
     issue_nr: int,
     project_root: Path,
+    project_key: str,
     story_id: str | None = None,
 ) -> StoryContext:
     """Build a ``StoryContext`` by reading a GitHub issue.
@@ -49,7 +51,7 @@ def build_story_context(
         1. Fetch the issue via :func:`~agentkit.integrations.github.issues.get_issue`.
         2. Extract ``story_type`` from labels.
         3. Determine execution mode from the story-type profile's default.
-        4. Estimate size from labels and title (informational, not stored).
+        4. Estimate size from labels and title.
         5. Generate ``story_id`` if not provided.
         6. Build and return the ``StoryContext``.
 
@@ -73,11 +75,13 @@ def build_story_context(
     resolved_story_id = story_id if story_id is not None else f"STORY-{issue_nr}"
 
     return StoryContext(
+        project_key=project_key,
         story_id=resolved_story_id,
         story_type=story_type,
-        mode=mode,
+        execution_route=mode,
         issue_nr=issue.number,
         title=issue.title,
+        story_size=estimate_size(list(issue.labels), issue.title),
         project_root=project_root,
         participating_repos=[f"{owner}/{repo}"],
         labels=list(issue.labels),

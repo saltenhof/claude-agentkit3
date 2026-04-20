@@ -23,9 +23,10 @@ def _make_context(
     if mode is None:
         mode = get_profile(story_type).default_mode
     return StoryContext(
+        project_key="test-project",
         story_id="TEST-001",
         story_type=story_type,
-        mode=mode,
+        execution_route=mode,
     )
 
 

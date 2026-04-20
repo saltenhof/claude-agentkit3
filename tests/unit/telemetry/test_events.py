@@ -12,20 +12,20 @@ from agentkit.telemetry.events import Event, EventType
 class TestEventType:
     """Tests for the EventType enum."""
 
-    def test_phase_started_value(self) -> None:
-        assert EventType.PHASE_STARTED == "phase_started"
+    def test_flow_start_value(self) -> None:
+        assert EventType.FLOW_START == "flow_start"
 
-    def test_phase_completed_value(self) -> None:
-        assert EventType.PHASE_COMPLETED == "phase_completed"
+    def test_flow_end_value(self) -> None:
+        assert EventType.FLOW_END == "flow_end"
 
-    def test_phase_failed_value(self) -> None:
-        assert EventType.PHASE_FAILED == "phase_failed"
+    def test_node_result_value(self) -> None:
+        assert EventType.NODE_RESULT == "node_result"
 
-    def test_qa_decision_value(self) -> None:
-        assert EventType.QA_DECISION == "qa_decision"
+    def test_override_applied_value(self) -> None:
+        assert EventType.OVERRIDE_APPLIED == "override_applied"
 
-    def test_worker_spawned_value(self) -> None:
-        assert EventType.WORKER_SPAWNED == "worker_spawned"
+    def test_review_request_value(self) -> None:
+        assert EventType.REVIEW_REQUEST == "review_request"
 
     def test_error_value(self) -> None:
         assert EventType.ERROR == "error"
@@ -33,28 +33,38 @@ class TestEventType:
     def test_warning_value(self) -> None:
         assert EventType.WARNING == "warning"
 
-    def test_issue_closed_value(self) -> None:
-        assert EventType.ISSUE_CLOSED == "issue_closed"
-
     def test_is_str_enum(self) -> None:
-        assert isinstance(EventType.PHASE_STARTED, str)
+        assert isinstance(EventType.FLOW_START, str)
 
     def test_all_expected_members(self) -> None:
         expected = {
-            "PHASE_STARTED",
-            "PHASE_COMPLETED",
-            "PHASE_FAILED",
-            "PHASE_YIELDED",
-            "PHASE_RESUMED",
-            "QA_LAYER_STARTED",
-            "QA_LAYER_COMPLETED",
-            "QA_DECISION",
-            "WORKER_SPAWNED",
-            "WORKER_COMPLETED",
-            "GUARD_EVALUATED",
-            "INTEGRITY_CHECK",
-            "ISSUE_CLOSED",
-            "ISSUE_CREATED",
+            "AGENT_START",
+            "AGENT_END",
+            "INCREMENT_COMMIT",
+            "DRIFT_CHECK",
+            "FLOW_START",
+            "FLOW_END",
+            "NODE_RESULT",
+            "OVERRIDE_APPLIED",
+            "REVIEW_REQUEST",
+            "REVIEW_RESPONSE",
+            "REVIEW_COMPLIANT",
+            "LLM_CALL",
+            "ADVERSARIAL_START",
+            "ADVERSARIAL_SPARRING",
+            "ADVERSARIAL_TEST_CREATED",
+            "ADVERSARIAL_TEST_EXECUTED",
+            "ADVERSARIAL_END",
+            "PREFLIGHT_REQUEST",
+            "PREFLIGHT_RESPONSE",
+            "PREFLIGHT_COMPLIANT",
+            "REVIEW_DIVERGENCE",
+            "INTEGRITY_VIOLATION",
+            "WEB_CALL",
+            "IMPACT_VIOLATION_CHECK",
+            "DOC_FIDELITY_CHECK",
+            "VECTORDB_SEARCH",
+            "COMPACTION_EVENT",
             "ERROR",
             "WARNING",
         }
@@ -66,31 +76,47 @@ class TestEvent:
     """Tests for the Event dataclass."""
 
     def test_construction_minimal(self) -> None:
-        evt = Event(story_id="AG3-001", event_type=EventType.PHASE_STARTED)
+        evt = Event(story_id="AG3-001", event_type=EventType.FLOW_START)
         assert evt.story_id == "AG3-001"
-        assert evt.event_type == EventType.PHASE_STARTED
+        assert evt.event_type == EventType.FLOW_START
 
     def test_frozen_enforcement(self) -> None:
-        evt = Event(story_id="AG3-001", event_type=EventType.PHASE_STARTED)
+        evt = Event(story_id="AG3-001", event_type=EventType.FLOW_START)
         with pytest.raises(AttributeError):
             evt.story_id = "AG3-002"  # type: ignore[misc]
 
     def test_default_timestamp_is_set(self) -> None:
         before = datetime.now(UTC)
-        evt = Event(story_id="AG3-001", event_type=EventType.PHASE_STARTED)
+        evt = Event(story_id="AG3-001", event_type=EventType.FLOW_START)
         after = datetime.now(UTC)
         assert before <= evt.timestamp <= after
 
     def test_default_payload_is_empty_dict(self) -> None:
-        evt = Event(story_id="AG3-001", event_type=EventType.PHASE_STARTED)
+        evt = Event(story_id="AG3-001", event_type=EventType.FLOW_START)
         assert evt.payload == {}
 
     def test_default_phase_is_none(self) -> None:
-        evt = Event(story_id="AG3-001", event_type=EventType.PHASE_STARTED)
+        evt = Event(story_id="AG3-001", event_type=EventType.FLOW_START)
         assert evt.phase is None
 
+    def test_default_project_key_is_none(self) -> None:
+        evt = Event(story_id="AG3-001", event_type=EventType.FLOW_START)
+        assert evt.project_key is None
+
+    def test_default_event_id_is_none(self) -> None:
+        evt = Event(story_id="AG3-001", event_type=EventType.FLOW_START)
+        assert evt.event_id is None
+
+    def test_default_source_component_is_telemetry_service(self) -> None:
+        evt = Event(story_id="AG3-001", event_type=EventType.FLOW_START)
+        assert evt.source_component == "telemetry_service"
+
+    def test_default_severity_is_info(self) -> None:
+        evt = Event(story_id="AG3-001", event_type=EventType.FLOW_START)
+        assert evt.severity == "info"
+
     def test_default_run_id_is_none(self) -> None:
-        evt = Event(story_id="AG3-001", event_type=EventType.PHASE_STARTED)
+        evt = Event(story_id="AG3-001", event_type=EventType.FLOW_START)
         assert evt.run_id is None
 
     def test_construction_full(self) -> None:
@@ -98,16 +124,28 @@ class TestEvent:
         payload = {"key": "value", "count": 42}
         evt = Event(
             story_id="AG3-042",
-            event_type=EventType.QA_DECISION,
+            event_type=EventType.NODE_RESULT,
             timestamp=ts,
+            project_key="demo-project",
+            event_id="evt-001",
+            source_component="pipeline_engine",
+            severity="warning",
             phase="verify",
+            flow_id="implementation",
+            node_id="verify",
             payload=payload,
             run_id="run-abc",
         )
         assert evt.story_id == "AG3-042"
-        assert evt.event_type == EventType.QA_DECISION
+        assert evt.event_type == EventType.NODE_RESULT
         assert evt.timestamp == ts
+        assert evt.project_key == "demo-project"
+        assert evt.event_id == "evt-001"
+        assert evt.source_component == "pipeline_engine"
+        assert evt.severity == "warning"
         assert evt.phase == "verify"
+        assert evt.flow_id == "implementation"
+        assert evt.node_id == "verify"
         assert evt.payload == payload
         assert evt.run_id == "run-abc"
 
@@ -116,13 +154,19 @@ class TestEventToDict:
     """Tests for Event.to_dict() serialisation."""
 
     def test_to_dict_keys(self) -> None:
-        evt = Event(story_id="AG3-001", event_type=EventType.PHASE_STARTED)
+        evt = Event(story_id="AG3-001", event_type=EventType.FLOW_START)
         d = evt.to_dict()
         assert set(d.keys()) == {
+            "project_key",
             "story_id",
+            "event_id",
             "event_type",
             "timestamp",
+            "source_component",
+            "severity",
             "phase",
+            "flow_id",
+            "node_id",
             "payload",
             "run_id",
         }
@@ -131,23 +175,39 @@ class TestEventToDict:
         ts = datetime(2026, 3, 1, 12, 0, 0, tzinfo=UTC)
         evt = Event(
             story_id="AG3-010",
-            event_type=EventType.WORKER_SPAWNED,
+            event_type=EventType.AGENT_START,
             timestamp=ts,
+            project_key="demo-project",
+            event_id="evt-xyz",
+            source_component="hook",
+            severity="info",
             phase="implementation",
+            flow_id="implementation",
+            node_id="worker",
             payload={"worker": "code"},
             run_id="run-xyz",
         )
         d = evt.to_dict()
+        assert d["project_key"] == "demo-project"
         assert d["story_id"] == "AG3-010"
-        assert d["event_type"] == "worker_spawned"
+        assert d["event_id"] == "evt-xyz"
+        assert d["event_type"] == "agent_start"
         assert d["timestamp"] == ts.isoformat()
+        assert d["source_component"] == "hook"
+        assert d["severity"] == "info"
         assert d["phase"] == "implementation"
+        assert d["flow_id"] == "implementation"
+        assert d["node_id"] == "worker"
         assert d["payload"] == {"worker": "code"}
         assert d["run_id"] == "run-xyz"
 
     def test_to_dict_none_fields(self) -> None:
         evt = Event(story_id="AG3-001", event_type=EventType.ERROR)
         d = evt.to_dict()
+        assert d["project_key"] is None
+        assert d["event_id"] is None
         assert d["phase"] is None
+        assert d["flow_id"] is None
+        assert d["node_id"] is None
         assert d["run_id"] is None
         assert d["payload"] == {}

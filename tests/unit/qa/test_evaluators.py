@@ -10,6 +10,7 @@ from agentkit.installer.paths import PROMPT_BUNDLE_STORE_ENV
 from agentkit.phase_state_store import FlowExecution, save_flow_execution
 from agentkit.prompt_composer.pins import initialize_prompt_run_pin
 from agentkit.qa.evaluators.reviewer import SemanticReviewer
+from agentkit.state_backend import save_story_context
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -26,9 +27,10 @@ class TestSemanticReviewer:
     def test_evaluate_returns_passed(self, tmp_path: Path) -> None:
         reviewer = SemanticReviewer()
         ctx = StoryContext(
+            project_key="test-project",
             story_id="TEST-001",
             story_type=StoryType.IMPLEMENTATION,
-            mode=StoryMode.EXECUTION,
+            execution_route=StoryMode.EXECUTION,
         )
         result = reviewer.evaluate(ctx, tmp_path)
         assert result.passed is True
@@ -52,12 +54,23 @@ class TestSemanticReviewer:
         )
         install_agentkit(
             InstallConfig(
+                project_key="test-project",
                 project_name="test-project",
                 project_root=project_root,
             ),
         )
         story_dir = project_root / "stories" / "TEST-001"
         story_dir.mkdir(parents=True)
+        save_story_context(
+            story_dir,
+            StoryContext(
+                project_key="test-project",
+                story_id="TEST-001",
+                story_type=StoryType.IMPLEMENTATION,
+                execution_route=StoryMode.EXECUTION,
+                project_root=project_root,
+            ),
+        )
         save_flow_execution(
             story_dir,
             FlowExecution(
@@ -74,9 +87,10 @@ class TestSemanticReviewer:
         initialize_prompt_run_pin(project_root, run_id="run-review-001")
         reviewer = SemanticReviewer()
         ctx = StoryContext(
+            project_key="test-project",
             story_id="TEST-001",
             story_type=StoryType.IMPLEMENTATION,
-            mode=StoryMode.EXECUTION,
+            execution_route=StoryMode.EXECUTION,
             project_root=project_root,
         )
 
@@ -114,12 +128,23 @@ class TestSemanticReviewer:
         )
         install_agentkit(
             InstallConfig(
+                project_key="test-project",
                 project_name="test-project",
                 project_root=project_root,
             ),
         )
-        story_dir = project_root / "stories" / "TEST-001"
+        story_dir = project_root / "stories" / "OTHER-999"
         story_dir.mkdir(parents=True)
+        save_story_context(
+            story_dir,
+            StoryContext(
+                project_key="test-project",
+                story_id="OTHER-999",
+                story_type=StoryType.IMPLEMENTATION,
+                execution_route=StoryMode.EXECUTION,
+                project_root=project_root,
+            ),
+        )
         save_flow_execution(
             story_dir,
             FlowExecution(
@@ -136,9 +161,10 @@ class TestSemanticReviewer:
         initialize_prompt_run_pin(project_root, run_id="run-review-001")
         reviewer = SemanticReviewer()
         ctx = StoryContext(
+            project_key="test-project",
             story_id="TEST-001",
             story_type=StoryType.IMPLEMENTATION,
-            mode=StoryMode.EXECUTION,
+            execution_route=StoryMode.EXECUTION,
             project_root=project_root,
         )
 

@@ -18,9 +18,10 @@ from agentkit.story_context_manager.types import StoryMode, StoryType
 def _make_ctx() -> StoryContext:
     """Create a minimal StoryContext for testing."""
     return StoryContext(
+        project_key="test-project",
         story_id="TEST-001",
         story_type=StoryType.IMPLEMENTATION,
-        mode=StoryMode.EXPLORATION,
+        execution_route=StoryMode.EXPLORATION,
     )
 
 

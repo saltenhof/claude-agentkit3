@@ -5,13 +5,14 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
+import pytest
+
+from agentkit.exceptions import CorruptStateError
 from agentkit.qa.artifacts import (
     GUARDRAIL_FILE,
     LAYER_ARTIFACT_FILES,
-    LEGACY_VERIFY_DECISION_FILE,
     PROTECTED_QA_ARTIFACTS,
     VERIFY_DECISION_FILE,
-    build_legacy_verify_decision_artifact,
     build_verify_decision_artifact,
     load_json_object,
     load_verify_decision_artifact,
@@ -23,9 +24,24 @@ from agentkit.qa.artifacts import (
 )
 from agentkit.qa.policy_engine.engine import VerifyDecision
 from agentkit.qa.protocols import Finding, LayerResult, Severity, TrustClass
+from agentkit.state_backend import record_verify_decision, save_story_context
+from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.state_backend.store import reset_backend_cache_for_tests
+from agentkit.story_context_manager.models import StoryContext
+from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+@pytest.fixture(autouse=True)
+def sqlite_backend_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
+    monkeypatch.setenv(ALLOW_SQLITE_ENV, "1")
+    monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
+    reset_backend_cache_for_tests()
+    yield
+    reset_backend_cache_for_tests()
 
 
 def _finding(
@@ -77,7 +93,6 @@ class TestArtifactConstants:
             "adversarial": "adversarial.json",
         }
         assert VERIFY_DECISION_FILE in PROTECTED_QA_ARTIFACTS
-        assert LEGACY_VERIFY_DECISION_FILE in PROTECTED_QA_ARTIFACTS
         assert GUARDRAIL_FILE in PROTECTED_QA_ARTIFACTS
 
 
@@ -117,19 +132,6 @@ class TestSerialization:
         assert artifact["all_findings_count"] == 1
         assert len(artifact["blocking_findings"]) == 1
 
-    def test_build_legacy_verify_decision_artifact(self) -> None:
-        artifact = build_legacy_verify_decision_artifact(
-            _decision(passed=True, status="PASS"),
-            attempt_nr=1,
-        )
-        assert artifact == {
-            "decision": "PASS",
-            "passed": True,
-            "summary": "Decision PASS",
-            "attempt_nr": 1,
-        }
-
-
 class TestPersistence:
     def test_write_layer_artifacts(self, tmp_path: Path) -> None:
         produced = write_layer_artifacts(
@@ -159,15 +161,10 @@ class TestPersistence:
             decision=_decision(passed=True, status="PASS_WITH_WARNINGS"),
             attempt_nr=5,
         )
-        assert produced == ("verify-decision.json", "decision.json")
+        assert produced == ("verify-decision.json",)
         canonical = json.loads((tmp_path / VERIFY_DECISION_FILE).read_text("utf-8"))
-        legacy = json.loads(
-            (tmp_path / LEGACY_VERIFY_DECISION_FILE).read_text("utf-8"),
-        )
         assert canonical["status"] == "PASS_WITH_WARNINGS"
         assert canonical["passed"] is True
-        assert legacy["decision"] == "PASS_WITH_WARNINGS"
-        assert legacy["passed"] is True
 
     def test_load_json_object_handles_invalid(self, tmp_path: Path) -> None:
         assert load_json_object(tmp_path / "missing.json") is None
@@ -182,25 +179,119 @@ class TestPersistence:
             json.dumps({"status": "PASS", "passed": True}),
             encoding="utf-8",
         )
-        (tmp_path / LEGACY_VERIFY_DECISION_FILE).write_text(
-            json.dumps({"decision": "FAIL", "passed": False}),
-            encoding="utf-8",
-        )
         name, data = load_verify_decision_artifact(tmp_path) or ("", {})
         assert name == VERIFY_DECISION_FILE
         assert data["status"] == "PASS"
 
-    def test_load_verify_decision_artifact_falls_back_to_legacy(
+    def test_load_verify_decision_artifact_prefers_canonical_state_record(
         self,
         tmp_path: Path,
     ) -> None:
-        (tmp_path / LEGACY_VERIFY_DECISION_FILE).write_text(
-            json.dumps({"decision": "PASS", "passed": True}),
+        save_story_context(
+            tmp_path,
+            StoryContext(
+                project_key="test-project",
+                story_id=tmp_path.name,
+                story_type=StoryType.IMPLEMENTATION,
+                execution_route=StoryMode.EXECUTION,
+                title="Canonical decision",
+            ),
+        )
+        record_verify_decision(
+            tmp_path,
+            decision=_decision(passed=True, status="PASS_WITH_WARNINGS"),
+            attempt_nr=2,
+        )
+        (tmp_path / VERIFY_DECISION_FILE).write_text(
+            json.dumps({"status": "FAIL", "passed": False}),
             encoding="utf-8",
         )
+
         name, data = load_verify_decision_artifact(tmp_path) or ("", {})
-        assert name == LEGACY_VERIFY_DECISION_FILE
-        assert data["decision"] == "PASS"
+
+        assert name == VERIFY_DECISION_FILE
+        assert data["status"] == "PASS_WITH_WARNINGS"
+
+    def test_load_verify_decision_artifact_falls_back_to_projection_on_corrupt_scope(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        monkeypatch.setattr(
+            "agentkit.qa.artifacts.resolve_runtime_scope",
+            lambda story_dir: (_ for _ in ()).throw(CorruptStateError("broken")),
+        )
+        monkeypatch.setattr(
+            "agentkit.qa.artifacts.load_latest_verify_decision",
+            lambda story_dir: None,
+        )
+        monkeypatch.setattr(
+            "agentkit.qa.artifacts.load_verify_decision_projection",
+            lambda story_dir: (VERIFY_DECISION_FILE, {"status": "PROJECTION"}),
+        )
+
+        assert load_verify_decision_artifact(tmp_path) == (
+            VERIFY_DECISION_FILE,
+            {"status": "PROJECTION"},
+        )
+
+    def test_write_layer_artifacts_falls_back_to_projection_when_scope_is_missing(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        monkeypatch.setattr(
+            "agentkit.qa.artifacts.record_layer_artifacts",
+            lambda *args, **kwargs: (_ for _ in ()).throw(CorruptStateError("broken")),
+        )
+
+        def fake_write_layer_projection(
+            story_dir: Path,
+            *,
+            layer_result: LayerResult,
+            attempt_nr: int,
+        ) -> str | None:
+            if layer_result.layer == "semantic":
+                return "semantic-review.json"
+            return None
+
+        monkeypatch.setattr(
+            "agentkit.qa.artifacts.write_layer_projection",
+            fake_write_layer_projection,
+        )
+
+        produced = write_layer_artifacts(
+            tmp_path,
+            layer_results=(
+                LayerResult(layer="semantic", passed=True),
+                LayerResult(layer="unknown", passed=True),
+            ),
+            attempt_nr=3,
+        )
+
+        assert produced == ("semantic-review.json",)
+
+    def test_write_verify_decision_artifacts_falls_back_to_projection(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        monkeypatch.setattr(
+            "agentkit.qa.artifacts.record_verify_decision",
+            lambda *args, **kwargs: (_ for _ in ()).throw(CorruptStateError("broken")),
+        )
+        monkeypatch.setattr(
+            "agentkit.qa.artifacts.write_verify_decision_projection",
+            lambda story_dir, *, decision, attempt_nr: ("verify-decision.json",),
+        )
+
+        produced = write_verify_decision_artifacts(
+            tmp_path,
+            decision=_decision(passed=True, status="PASS"),
+            attempt_nr=2,
+        )
+
+        assert produced == ("verify-decision.json",)
 
 
 class TestDecisionPassSemantics:
@@ -214,9 +305,6 @@ class TestDecisionPassSemantics:
 
     def test_verify_decision_passed_requires_true_passed_flag(self) -> None:
         assert verify_decision_passed({"status": "PASS", "passed": False}) is False
-
-    def test_verify_decision_passed_for_legacy(self) -> None:
-        assert verify_decision_passed({"decision": "PASS"}) is True
 
     def test_verify_decision_failed_for_unexpected_status(self) -> None:
         assert verify_decision_passed({"status": "FAIL", "passed": False}) is False

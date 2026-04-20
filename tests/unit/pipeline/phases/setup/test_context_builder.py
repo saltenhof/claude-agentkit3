@@ -89,7 +89,7 @@ class TestBuildStoryContext:
             "agentkit.pipeline.phases.setup.context_builder.get_issue",
             lambda owner, repo, nr: _make_issue(labels=("bug",)),
         )
-        ctx = build_story_context("owner", "repo", 42, tmp_path)
+        ctx = build_story_context("owner", "repo", 42, tmp_path, "test-project")
         assert ctx.story_type == StoryType.BUGFIX
         assert ctx.implementation_contract is None
 
@@ -101,7 +101,7 @@ class TestBuildStoryContext:
             "agentkit.pipeline.phases.setup.context_builder.get_issue",
             lambda owner, repo, nr: _make_issue(labels=("concept",)),
         )
-        ctx = build_story_context("owner", "repo", 42, tmp_path)
+        ctx = build_story_context("owner", "repo", 42, tmp_path, "test-project")
         assert ctx.story_type == StoryType.CONCEPT
         assert ctx.implementation_contract is None
 
@@ -113,7 +113,7 @@ class TestBuildStoryContext:
             "agentkit.pipeline.phases.setup.context_builder.get_issue",
             lambda owner, repo, nr: _make_issue(labels=("research",)),
         )
-        ctx = build_story_context("owner", "repo", 42, tmp_path)
+        ctx = build_story_context("owner", "repo", 42, tmp_path, "test-project")
         assert ctx.story_type == StoryType.RESEARCH
         assert ctx.implementation_contract is None
 
@@ -125,7 +125,7 @@ class TestBuildStoryContext:
             "agentkit.pipeline.phases.setup.context_builder.get_issue",
             lambda owner, repo, nr: _make_issue(labels=("enhancement",)),
         )
-        ctx = build_story_context("owner", "repo", 42, tmp_path)
+        ctx = build_story_context("owner", "repo", 42, tmp_path, "test-project")
         assert ctx.story_type == StoryType.IMPLEMENTATION
         assert ctx.implementation_contract == ImplementationContract.STANDARD
 
@@ -137,7 +137,7 @@ class TestBuildStoryContext:
             "agentkit.pipeline.phases.setup.context_builder.get_issue",
             lambda owner, repo, nr: _make_issue(number=42),
         )
-        ctx = build_story_context("owner", "repo", 42, tmp_path)
+        ctx = build_story_context("owner", "repo", 42, tmp_path, "test-project")
         assert ctx.story_id == "STORY-42"
 
     def test_explicit_story_id_is_used(
@@ -149,7 +149,7 @@ class TestBuildStoryContext:
             lambda owner, repo, nr: _make_issue(),
         )
         ctx = build_story_context(
-            "owner", "repo", 42, tmp_path, story_id="CUSTOM-99",
+            "owner", "repo", 42, tmp_path, "test-project", story_id="CUSTOM-99",
         )
         assert ctx.story_id == "CUSTOM-99"
 
@@ -166,7 +166,7 @@ class TestBuildStoryContext:
             "agentkit.pipeline.phases.setup.context_builder.get_issue",
             lambda owner, repo, nr: issue,
         )
-        ctx = build_story_context("owner", "repo", 42, tmp_path)
+        ctx = build_story_context("owner", "repo", 42, tmp_path, "test-project")
 
         assert ctx.issue_nr == 42
         assert ctx.title == "Add widget feature"
@@ -184,6 +184,6 @@ class TestBuildStoryContext:
             "agentkit.pipeline.phases.setup.context_builder.get_issue",
             lambda owner, repo, nr: _make_issue(labels=("concept",)),
         )
-        ctx = build_story_context("owner", "repo", 42, tmp_path)
+        ctx = build_story_context("owner", "repo", 42, tmp_path, "test-project")
         # Concept profile's default mode is NOT_APPLICABLE
-        assert ctx.mode == StoryMode.NOT_APPLICABLE
+        assert ctx.execution_route == StoryMode.NOT_APPLICABLE

@@ -46,10 +46,10 @@ class TestComputePipelineMetrics:
         t3 = t0 + timedelta(seconds=120)
 
         events = [
-            _make_event(EventType.PHASE_STARTED, phase="setup", ts=t0),
-            _make_event(EventType.PHASE_COMPLETED, phase="setup", ts=t1),
-            _make_event(EventType.PHASE_STARTED, phase="verify", ts=t2),
-            _make_event(EventType.PHASE_COMPLETED, phase="verify", ts=t3),
+            _make_event(EventType.FLOW_START, phase="setup", ts=t0),
+            _make_event(EventType.FLOW_END, phase="setup", ts=t1),
+            _make_event(EventType.FLOW_START, phase="verify", ts=t2),
+            _make_event(EventType.FLOW_END, phase="verify", ts=t3),
         ]
         result = compute_pipeline_metrics(events, "AG3-001")
         assert result.phase_durations["setup"] == 30.0
@@ -59,51 +59,49 @@ class TestComputePipelineMetrics:
         t0 = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
         t_end = t0 + timedelta(seconds=300)
         events = [
-            _make_event(EventType.PHASE_STARTED, phase="setup", ts=t0),
-            _make_event(EventType.PHASE_COMPLETED, phase="setup", ts=t_end),
+            _make_event(EventType.FLOW_START, phase="setup", ts=t0),
+            _make_event(EventType.FLOW_END, phase="setup", ts=t_end),
         ]
         result = compute_pipeline_metrics(events, "AG3-001")
         assert result.total_duration_seconds == 300.0
 
-    def test_qa_rounds_counts_qa_decision_events(self) -> None:
+    def test_qa_rounds_counts_verify_node_results(self) -> None:
         events = [
-            _make_event(EventType.QA_DECISION, phase="verify"),
-            _make_event(EventType.QA_DECISION, phase="verify"),
-            _make_event(EventType.QA_DECISION, phase="verify"),
+            _make_event(EventType.NODE_RESULT, phase="verify"),
+            _make_event(EventType.NODE_RESULT, phase="verify"),
+            _make_event(EventType.NODE_RESULT, phase="verify"),
         ]
         result = compute_pipeline_metrics(events, "AG3-001")
         assert result.qa_rounds == 3
 
-    def test_phases_executed_from_phase_started(self) -> None:
+    def test_phases_executed_from_node_results(self) -> None:
         t0 = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
         t1 = t0 + timedelta(seconds=10)
         t2 = t0 + timedelta(seconds=20)
         events = [
-            _make_event(EventType.PHASE_STARTED, phase="setup", ts=t0),
-            _make_event(
-                EventType.PHASE_STARTED, phase="implementation", ts=t1
-            ),
-            _make_event(EventType.PHASE_STARTED, phase="verify", ts=t2),
+            _make_event(EventType.NODE_RESULT, phase="setup", ts=t0),
+            _make_event(EventType.NODE_RESULT, phase="implementation", ts=t1),
+            _make_event(EventType.NODE_RESULT, phase="verify", ts=t2),
         ]
         result = compute_pipeline_metrics(events, "AG3-001")
         assert result.phases_executed == ("setup", "implementation", "verify")
 
     def test_events_count(self) -> None:
         events = [
-            _make_event(EventType.PHASE_STARTED, phase="setup"),
-            _make_event(EventType.PHASE_COMPLETED, phase="setup"),
+            _make_event(EventType.FLOW_START, phase="setup"),
+            _make_event(EventType.FLOW_END, phase="setup"),
             _make_event(EventType.ERROR),
         ]
         result = compute_pipeline_metrics(events, "AG3-001")
         assert result.events_count == 3
 
     def test_phases_executed_deduplicates(self) -> None:
-        """If a phase is started twice (e.g. retry), it appears once."""
+        """If a phase records multiple node results, it appears once."""
         t0 = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
         t1 = t0 + timedelta(seconds=60)
         events = [
-            _make_event(EventType.PHASE_STARTED, phase="verify", ts=t0),
-            _make_event(EventType.PHASE_STARTED, phase="verify", ts=t1),
+            _make_event(EventType.NODE_RESULT, phase="verify", ts=t0),
+            _make_event(EventType.NODE_RESULT, phase="verify", ts=t1),
         ]
         result = compute_pipeline_metrics(events, "AG3-001")
         assert result.phases_executed == ("verify",)
@@ -116,22 +114,22 @@ class TestComputePhaseDuration:
         t0 = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
         t1 = t0 + timedelta(seconds=45)
         events = [
-            _make_event(EventType.PHASE_STARTED, phase="setup", ts=t0),
-            _make_event(EventType.PHASE_COMPLETED, phase="setup", ts=t1),
+            _make_event(EventType.FLOW_START, phase="setup", ts=t0),
+            _make_event(EventType.FLOW_END, phase="setup", ts=t1),
         ]
         result = compute_phase_duration(events, "setup")
         assert result == 45.0
 
     def test_missing_end_returns_none(self) -> None:
         events = [
-            _make_event(EventType.PHASE_STARTED, phase="setup"),
+            _make_event(EventType.FLOW_START, phase="setup"),
         ]
         result = compute_phase_duration(events, "setup")
         assert result is None
 
     def test_missing_start_returns_none(self) -> None:
         events = [
-            _make_event(EventType.PHASE_COMPLETED, phase="setup"),
+            _make_event(EventType.FLOW_END, phase="setup"),
         ]
         result = compute_phase_duration(events, "setup")
         assert result is None
@@ -144,8 +142,8 @@ class TestComputePhaseDuration:
         t0 = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
         t1 = t0 + timedelta(seconds=10)
         events = [
-            _make_event(EventType.PHASE_STARTED, phase="setup", ts=t0),
-            _make_event(EventType.PHASE_COMPLETED, phase="setup", ts=t1),
+            _make_event(EventType.FLOW_START, phase="setup", ts=t0),
+            _make_event(EventType.FLOW_END, phase="setup", ts=t1),
         ]
         result = compute_phase_duration(events, "verify")
         assert result is None

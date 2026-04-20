@@ -99,9 +99,11 @@ class TestProjectConfig:
 
     def test_minimal(self) -> None:
         cfg = ProjectConfig(
+            project_key="test-project",
             project_name="test",
             repositories=[RepositoryConfig(name="r", path=Path("/tmp"))],
         )
+        assert cfg.project_key == "test-project"
         assert cfg.project_name == "test"
         assert len(cfg.repositories) == 1
         assert cfg.pipeline.max_feedback_rounds == 3
@@ -116,6 +118,7 @@ class TestProjectConfig:
 
     def test_all_fields(self) -> None:
         cfg = ProjectConfig(
+            project_key="full-project",
             project_name="full",
             repositories=[RepositoryConfig(name="r", path=Path("/tmp"))],
             pipeline=PipelineConfig(max_feedback_rounds=1),
@@ -131,21 +134,26 @@ class TestProjectConfig:
     def test_missing_project_name_raises(self) -> None:
         with pytest.raises(ValidationError):
             ProjectConfig(
+                project_key="test-project",
                 repositories=[RepositoryConfig(name="r", path=Path("/tmp"))]
             )  # type: ignore[call-arg]
 
     def test_missing_repositories_raises(self) -> None:
         with pytest.raises(ValidationError):
-            ProjectConfig(project_name="test")  # type: ignore[call-arg]
+            ProjectConfig(project_key="test-project", project_name="test")  # type: ignore[call-arg]
 
     def test_empty_repositories_accepted(self) -> None:
         """Empty list is structurally valid (semantic validator warns)."""
-        cfg = ProjectConfig(project_name="test", repositories=[])
+        cfg = ProjectConfig(
+            project_key="test-project",
+            project_name="test",
+            repositories=[],
+        )
         assert cfg.repositories == []
 
     def test_default_pipeline_is_independent_instance(self) -> None:
         """Each ProjectConfig gets its own PipelineConfig instance."""
-        cfg1 = ProjectConfig(project_name="a", repositories=[])
-        cfg2 = ProjectConfig(project_name="b", repositories=[])
+        cfg1 = ProjectConfig(project_key="a", project_name="a", repositories=[])
+        cfg2 = ProjectConfig(project_key="b", project_name="b", repositories=[])
         cfg1.pipeline.max_feedback_rounds = 99
         assert cfg2.pipeline.max_feedback_rounds == 3

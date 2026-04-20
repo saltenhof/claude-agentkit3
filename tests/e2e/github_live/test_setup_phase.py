@@ -35,6 +35,7 @@ class TestSetupPhaseE2E:
         # 1. Install AgentKit
         install_agentkit(
             InstallConfig(
+                project_key="test",
                 project_name="test",
                 project_root=tmp_path,
             )
@@ -52,9 +53,10 @@ class TestSetupPhaseE2E:
 
         # Minimal initial context
         ctx = StoryContext(
+            project_key="test",
             story_id="TEST-001",
             story_type=StoryType.IMPLEMENTATION,
-            mode=StoryMode.EXECUTION,
+            execution_route=StoryMode.EXECUTION,
         )
         state = PhaseState(
             story_id="TEST-001",
@@ -80,6 +82,7 @@ class TestSetupPhaseE2E:
         """Setup fails cleanly when issue doesn't exist."""
         install_agentkit(
             InstallConfig(
+                project_key="test",
                 project_name="test",
                 project_root=tmp_path,
             )
@@ -93,9 +96,10 @@ class TestSetupPhaseE2E:
         )
         handler = SetupPhaseHandler(config)
         ctx = StoryContext(
+            project_key="test",
             story_id="FAIL-001",
             story_type=StoryType.IMPLEMENTATION,
-            mode=StoryMode.EXECUTION,
+            execution_route=StoryMode.EXECUTION,
         )
         state = PhaseState(
             story_id="FAIL-001",

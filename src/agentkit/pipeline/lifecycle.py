@@ -47,7 +47,7 @@ class PhaseHandler(Protocol):
     execution logic -- the workflow DSL only defines topology.
     """
 
-    def on_enter(self, ctx: StoryContext, state: PhaseState) -> HandlerResult:
+    def on_enter(self, _ctx: StoryContext, _state: PhaseState) -> HandlerResult:
         """Called when entering a phase. Do the main work here.
 
         Args:
@@ -59,7 +59,7 @@ class PhaseHandler(Protocol):
         """
         ...
 
-    def on_exit(self, ctx: StoryContext, state: PhaseState) -> None:
+    def on_exit(self, _ctx: StoryContext, _state: PhaseState) -> None:
         """Called when leaving a phase. Write snapshots, validate artifacts.
 
         Args:
@@ -69,7 +69,7 @@ class PhaseHandler(Protocol):
         ...
 
     def on_resume(
-        self, ctx: StoryContext, state: PhaseState, trigger: str,
+        self, _ctx: StoryContext, _state: PhaseState, _trigger: str,
     ) -> HandlerResult:
         """Called when resuming a yielded phase after external input.
 
@@ -101,6 +101,7 @@ class NoOpHandler:
         Returns:
             A ``HandlerResult`` with ``COMPLETED`` status.
         """
+        _ = ctx, state
         return HandlerResult(status=PhaseStatus.COMPLETED)
 
     def on_exit(self, ctx: StoryContext, state: PhaseState) -> None:
@@ -110,6 +111,7 @@ class NoOpHandler:
             ctx: The story context (unused).
             state: The current phase state (unused).
         """
+        _ = ctx, state
 
     def on_resume(
         self, ctx: StoryContext, state: PhaseState, trigger: str,
@@ -124,6 +126,7 @@ class NoOpHandler:
         Returns:
             A ``HandlerResult`` with ``COMPLETED`` status.
         """
+        _ = ctx, state, trigger
         return HandlerResult(status=PhaseStatus.COMPLETED)
 
 

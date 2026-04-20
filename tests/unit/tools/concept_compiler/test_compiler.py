@@ -5,10 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
-from concept_compiler.compiler import FormalCompilationError, compile_formal_specs
+from concept_compiler.compiler import (
+    FormalCompilationError,
+    compile_formal_specs,
+)
 
 FIXTURES = Path("tests/fixtures/concept_compiler")
+
 
 def test_compile_formal_specs_collects_ids_and_resolves_refs() -> None:
     result = compile_formal_specs(FIXTURES / "compile_ok")
@@ -16,7 +19,10 @@ def test_compile_formal_specs_collects_ids_and_resolves_refs() -> None:
     assert len(result.documents) == 2
     assert "example.state.initial" in result.declared_ids
     assert "example.invariant.can_finish" in result.declared_ids
-    assert any(reference.target_id == "example.invariant.can_finish" for reference in result.references)
+    assert any(
+        reference.target_id == "example.invariant.can_finish"
+        for reference in result.references
+    )
 
 
 def test_compile_formal_specs_rejects_unresolved_refs() -> None:

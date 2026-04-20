@@ -26,12 +26,14 @@ from agentkit.integrations.github.issues import (
     get_issue,
     reopen_issue,
 )
+from agentkit.phase_state_store.models import FlowExecution
 from agentkit.pipeline.phases.closure.phase import (
     ClosureConfig,
     ClosurePhaseHandler,
 )
 from agentkit.pipeline.phases.setup.phase import SetupConfig, SetupPhaseHandler
 from agentkit.pipeline.state import save_phase_snapshot
+from agentkit.state_backend import save_flow_execution
 from agentkit.story_context_manager.models import (
     PhaseSnapshot,
     PhaseState,
@@ -64,6 +66,27 @@ def _save_snapshot(
     save_phase_snapshot(s_dir, snapshot)
 
 
+def _save_flow(
+    s_dir: Path,
+    *,
+    project_key: str,
+    story_id: str,
+) -> None:
+    save_flow_execution(
+        s_dir,
+        FlowExecution(
+            project_key=project_key,
+            story_id=story_id,
+            run_id=f"run-{story_id.lower()}",
+            flow_id="implementation",
+            level="story",
+            owner="pipeline_engine",
+            status="COMPLETED",
+            started_at=datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC),
+        ),
+    )
+
+
 @pytest.mark.integration
 @pytest.mark.requires_gh
 class TestClosurePhaseE2E:
@@ -92,6 +115,11 @@ class TestClosurePhaseE2E:
             s_dir.mkdir(parents=True)
             for phase in ("setup", "implementation", "verify"):
                 _save_snapshot(s_dir, phase)
+            _save_flow(
+                s_dir,
+                project_key="e2e-closure-test",
+                story_id="E2E-CLOSURE",
+            )
 
             # 3. Run closure handler
             config = ClosureConfig(
@@ -103,9 +131,10 @@ class TestClosurePhaseE2E:
             )
             handler = ClosurePhaseHandler(config)
             ctx = StoryContext(
+                project_key="e2e-closure-test",
                 story_id="E2E-CLOSURE",
                 story_type=StoryType.BUGFIX,
-                mode=StoryMode.EXECUTION,
+                execution_route=StoryMode.EXECUTION,
             )
             state = PhaseState(
                 story_id="E2E-CLOSURE",
@@ -136,6 +165,7 @@ class TestClosurePhaseE2E:
         # 1. Install AgentKit
         install_agentkit(
             InstallConfig(
+                project_key="e2e-closure-test",
                 project_name="e2e-closure-test",
                 project_root=tmp_path,
             )
@@ -163,9 +193,10 @@ class TestClosurePhaseE2E:
             setup_handler = SetupPhaseHandler(setup_config)
 
             ctx = StoryContext(
+                project_key="e2e-closure-test",
                 story_id="E2E-FULL",
                 story_type=StoryType.IMPLEMENTATION,
-                mode=StoryMode.EXECUTION,
+                execution_route=StoryMode.EXECUTION,
             )
             state = PhaseState(
                 story_id="E2E-FULL",
@@ -184,6 +215,11 @@ class TestClosurePhaseE2E:
             # Also save setup snapshot (setup handler produces context,
             # but the engine would normally save the snapshot)
             _save_snapshot(s_dir, "setup", story_id="E2E-FULL")
+            _save_flow(
+                s_dir,
+                project_key="e2e-closure-test",
+                story_id="E2E-FULL",
+            )
 
             # 5. Closure with close_issue=True
             closure_config = ClosureConfig(
@@ -196,9 +232,10 @@ class TestClosurePhaseE2E:
             closure_handler = ClosurePhaseHandler(closure_config)
 
             closure_ctx = StoryContext(
+                project_key="e2e-closure-test",
                 story_id="E2E-FULL",
                 story_type=StoryType.IMPLEMENTATION,
-                mode=StoryMode.EXECUTION,
+                execution_route=StoryMode.EXECUTION,
             )
             closure_state = PhaseState(
                 story_id="E2E-FULL",

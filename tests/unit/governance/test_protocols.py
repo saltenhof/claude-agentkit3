@@ -30,7 +30,7 @@ class TestGuardVerdict:
     """GuardVerdict construction and immutability."""
 
     def test_allow_verdict(self) -> None:
-        v = GuardVerdict.ALLOW("test_guard")
+        v = GuardVerdict.allow("test_guard")
         assert v.allowed is True
         assert v.guard_name == "test_guard"
         assert v.violation_type is None
@@ -38,7 +38,7 @@ class TestGuardVerdict:
         assert v.detail is None
 
     def test_block_verdict(self) -> None:
-        v = GuardVerdict.BLOCK(
+        v = GuardVerdict.block(
             "test_guard",
             ViolationType.BRANCH_VIOLATION,
             "You shall not pass",
@@ -51,17 +51,17 @@ class TestGuardVerdict:
         assert v.detail == {"key": "value"}
 
     def test_block_verdict_without_detail(self) -> None:
-        v = GuardVerdict.BLOCK(
+        v = GuardVerdict.block(
             "g", ViolationType.SCOPE_VIOLATION, "blocked",
         )
         assert v.detail is None
 
     def test_frozen_enforcement(self) -> None:
-        v = GuardVerdict.ALLOW("g")
+        v = GuardVerdict.allow("g")
         with pytest.raises(AttributeError):
             v.allowed = False  # type: ignore[misc]
 
     def test_frozen_guard_name(self) -> None:
-        v = GuardVerdict.ALLOW("g")
+        v = GuardVerdict.allow("g")
         with pytest.raises(AttributeError):
             v.guard_name = "other"  # type: ignore[misc]

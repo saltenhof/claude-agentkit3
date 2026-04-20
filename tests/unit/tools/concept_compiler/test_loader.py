@@ -5,10 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from concept_compiler.loader import (
-    FORMAL_SPEC_BEGIN,
-    FORMAL_SPEC_END,
     FormalSpecError,
     discover_formal_spec_files,
     load_formal_spec,
@@ -39,5 +36,8 @@ def test_load_formal_spec_parses_frontmatter_and_yaml() -> None:
 
 
 def test_load_formal_spec_rejects_id_mismatch() -> None:
-    with pytest.raises(FormalSpecError, match="Frontmatter id and FORMAL-SPEC object differ"):
+    with pytest.raises(
+        FormalSpecError,
+        match="Frontmatter id and FORMAL-SPEC object differ",
+    ):
         load_formal_spec(FIXTURES / "id_mismatch" / "events.md")

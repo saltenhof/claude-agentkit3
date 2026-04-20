@@ -15,7 +15,7 @@ class TestMemoryEmitter:
         emitter = MemoryEmitter()
         evt = Event(
             story_id="AG3-001",
-            event_type=EventType.PHASE_STARTED,
+            event_type=EventType.FLOW_START,
             phase="setup",
         )
         emitter.emit(evt)
@@ -25,18 +25,18 @@ class TestMemoryEmitter:
 
     def test_query_filters_by_event_type(self) -> None:
         emitter = MemoryEmitter()
-        evt1 = Event(story_id="AG3-001", event_type=EventType.PHASE_STARTED)
-        evt2 = Event(story_id="AG3-001", event_type=EventType.PHASE_COMPLETED)
+        evt1 = Event(story_id="AG3-001", event_type=EventType.FLOW_START)
+        evt2 = Event(story_id="AG3-001", event_type=EventType.FLOW_END)
         emitter.emit(evt1)
         emitter.emit(evt2)
-        results = emitter.query("AG3-001", event_type=EventType.PHASE_COMPLETED)
+        results = emitter.query("AG3-001", event_type=EventType.FLOW_END)
         assert len(results) == 1
         assert results[0] is evt2
 
     def test_query_filters_by_story_id(self) -> None:
         emitter = MemoryEmitter()
-        evt1 = Event(story_id="AG3-001", event_type=EventType.PHASE_STARTED)
-        evt2 = Event(story_id="AG3-002", event_type=EventType.PHASE_STARTED)
+        evt1 = Event(story_id="AG3-001", event_type=EventType.FLOW_START)
+        evt2 = Event(story_id="AG3-002", event_type=EventType.FLOW_START)
         emitter.emit(evt1)
         emitter.emit(evt2)
         results = emitter.query("AG3-001")
@@ -45,7 +45,7 @@ class TestMemoryEmitter:
 
     def test_clear_removes_all_events(self) -> None:
         emitter = MemoryEmitter()
-        emitter.emit(Event(story_id="AG3-001", event_type=EventType.PHASE_STARTED))
+        emitter.emit(Event(story_id="AG3-001", event_type=EventType.FLOW_START))
         emitter.emit(Event(story_id="AG3-002", event_type=EventType.ERROR))
         assert len(emitter.all_events) == 2
         emitter.clear()
@@ -53,7 +53,7 @@ class TestMemoryEmitter:
 
     def test_all_events_property(self) -> None:
         emitter = MemoryEmitter()
-        evt1 = Event(story_id="AG3-001", event_type=EventType.PHASE_STARTED)
+        evt1 = Event(story_id="AG3-001", event_type=EventType.FLOW_START)
         evt2 = Event(story_id="AG3-002", event_type=EventType.ERROR)
         emitter.emit(evt1)
         emitter.emit(evt2)
@@ -64,7 +64,7 @@ class TestMemoryEmitter:
 
     def test_all_events_returns_copy(self) -> None:
         emitter = MemoryEmitter()
-        emitter.emit(Event(story_id="AG3-001", event_type=EventType.PHASE_STARTED))
+        emitter.emit(Event(story_id="AG3-001", event_type=EventType.FLOW_START))
         copy1 = emitter.all_events
         copy1.clear()
         assert len(emitter.all_events) == 1
@@ -79,12 +79,12 @@ class TestNullEmitter:
 
     def test_emit_does_not_raise(self) -> None:
         emitter = NullEmitter()
-        evt = Event(story_id="AG3-001", event_type=EventType.PHASE_STARTED)
+        evt = Event(story_id="AG3-001", event_type=EventType.FLOW_START)
         emitter.emit(evt)  # Should not raise
 
     def test_query_returns_empty_list(self) -> None:
         emitter = NullEmitter()
-        emitter.emit(Event(story_id="AG3-001", event_type=EventType.PHASE_STARTED))
+        emitter.emit(Event(story_id="AG3-001", event_type=EventType.FLOW_START))
         results = emitter.query("AG3-001")
         assert results == []
 

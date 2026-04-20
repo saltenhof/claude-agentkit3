@@ -32,8 +32,12 @@ from agentkit.pipeline.state import load_attempts, load_phase_state
 from agentkit.process.language.builder import Workflow
 from agentkit.process.language.guards import GuardResult, guard
 from agentkit.process.language.model import ExecutionPolicy
+from agentkit.state_backend import load_execution_events
+from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.state_backend.store import reset_backend_cache_for_tests
 from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.telemetry.events import EventType
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -171,15 +175,32 @@ def _require_setup_done(
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def sqlite_backend_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
+    monkeypatch.setenv(ALLOW_SQLITE_ENV, "1")
+    reset_backend_cache_for_tests()
+    yield
+    reset_backend_cache_for_tests()
+
+
 @pytest.fixture()
 def story_ctx() -> StoryContext:
     """A minimal StoryContext for testing."""
     return StoryContext(
+        project_key="test-project",
         story_id="TEST-001",
         story_type=StoryType.IMPLEMENTATION,
-        mode=StoryMode.EXECUTION,
+        execution_route=StoryMode.EXECUTION,
         title="Test Story",
     )
+
+
+@pytest.fixture()
+def story_dir(tmp_path: Path, story_ctx: StoryContext) -> Path:
+    path = tmp_path / "stories" / story_ctx.story_id
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 @pytest.fixture()
@@ -213,13 +234,13 @@ class TestRunPhaseNormal:
 
     def test_noop_handler_completes(
         self,
-        tmp_path: Path,
+        story_dir: Path,
         story_ctx: StoryContext,
         simple_workflow: object,
         simple_registry: PhaseHandlerRegistry,
     ) -> None:
         """run_phase with NoOpHandler returns phase_completed."""
-        engine = PipelineEngine(simple_workflow, simple_registry, tmp_path)  # type: ignore[arg-type]
+        engine = PipelineEngine(simple_workflow, simple_registry, story_dir)  # type: ignore[arg-type]
         state = PhaseState(
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.PENDING,
@@ -231,51 +252,51 @@ class TestRunPhaseNormal:
 
     def test_attempt_record_created(
         self,
-        tmp_path: Path,
+        story_dir: Path,
         story_ctx: StoryContext,
         simple_workflow: object,
         simple_registry: PhaseHandlerRegistry,
     ) -> None:
         """run_phase creates an AttemptRecord in phase-runs/ directory."""
-        engine = PipelineEngine(simple_workflow, simple_registry, tmp_path)  # type: ignore[arg-type]
+        engine = PipelineEngine(simple_workflow, simple_registry, story_dir)  # type: ignore[arg-type]
         state = PhaseState(
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.PENDING,
         )
         engine.run_phase(story_ctx, state)
 
-        attempts = load_attempts(tmp_path, "setup")
+        attempts = load_attempts(story_dir, "setup")
         assert len(attempts) == 1
         assert attempts[0].phase == "setup"
         assert attempts[0].outcome == "phase_completed"
 
     def test_phase_state_persisted(
         self,
-        tmp_path: Path,
+        story_dir: Path,
         story_ctx: StoryContext,
         simple_workflow: object,
         simple_registry: PhaseHandlerRegistry,
     ) -> None:
         """run_phase saves PhaseState after execution."""
-        engine = PipelineEngine(simple_workflow, simple_registry, tmp_path)  # type: ignore[arg-type]
+        engine = PipelineEngine(simple_workflow, simple_registry, story_dir)  # type: ignore[arg-type]
         state = PhaseState(
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.PENDING,
         )
         engine.run_phase(story_ctx, state)
 
-        loaded = load_phase_state(tmp_path)
+        loaded = load_phase_state(story_dir)
         assert loaded is not None
         assert loaded.phase == "setup"
         assert loaded.status == PhaseStatus.COMPLETED
 
-        flow = load_flow_execution(tmp_path)
+        flow = load_flow_execution(story_dir)
         assert flow is not None
         assert flow.flow_id == "simple"
         assert flow.status == "COMPLETED"
         assert flow.current_node_id == "setup"
 
-        ledger = load_node_execution_ledger(tmp_path, "simple", "setup")
+        ledger = load_node_execution_ledger(story_dir, "simple", "setup")
         assert ledger is not None
         assert ledger.execution_count == 1
         assert ledger.success_count == 1
@@ -283,7 +304,7 @@ class TestRunPhaseNormal:
 
     def test_pausing_handler_yields(
         self,
-        tmp_path: Path,
+        story_dir: Path,
         story_ctx: StoryContext,
     ) -> None:
         """run_phase with handler returning PAUSED yields correctly."""
@@ -301,7 +322,7 @@ class TestRunPhaseNormal:
         registry.register(
             "exploration", PausingHandler("awaiting_review"),
         )
-        engine = PipelineEngine(workflow, registry, tmp_path)
+        engine = PipelineEngine(workflow, registry, story_dir)
         state = PhaseState(
             story_id="TEST-001", phase="exploration",
             status=PhaseStatus.PENDING,
@@ -312,19 +333,19 @@ class TestRunPhaseNormal:
         assert result.yield_status == "awaiting_review"
         assert result.phase == "exploration"
 
-        flow = load_flow_execution(tmp_path)
+        flow = load_flow_execution(story_dir)
         assert flow is not None
         assert flow.flow_id == "yield-test"
         assert flow.status == "YIELDED"
 
-        ledger = load_node_execution_ledger(tmp_path, "yield-test", "exploration")
+        ledger = load_node_execution_ledger(story_dir, "yield-test", "exploration")
         assert ledger is not None
         assert ledger.last_outcome == "YIELD"
         assert ledger.success_count == 0
 
     def test_resume_after_yield(
         self,
-        tmp_path: Path,
+        story_dir: Path,
         story_ctx: StoryContext,
     ) -> None:
         """resume_phase after yield calls handler.on_resume."""
@@ -370,7 +391,7 @@ class TestRunPhaseNormal:
         registry = PhaseHandlerRegistry()
         handler = PauseThenCompleteHandler(tracking)
         registry.register("exploration", handler)
-        engine = PipelineEngine(workflow, registry, tmp_path)
+        engine = PipelineEngine(workflow, registry, story_dir)
 
         # First: run phase to get PAUSED
         initial_state = PhaseState(
@@ -404,7 +425,7 @@ class TestGuardAndPrecondition:
 
     def test_precondition_satisfied_allows_entry(
         self,
-        tmp_path: Path,
+        story_dir: Path,
         story_ctx: StoryContext,
     ) -> None:
         """run_phase proceeds when precondition passes."""
@@ -419,7 +440,7 @@ class TestGuardAndPrecondition:
         registry = PhaseHandlerRegistry()
         registry.register("setup", NoOpHandler())
         registry.register("closure", NoOpHandler())
-        engine = PipelineEngine(workflow, registry, tmp_path)
+        engine = PipelineEngine(workflow, registry, story_dir)
 
         state = PhaseState(
             story_id="TEST-001", phase="closure",
@@ -430,7 +451,7 @@ class TestGuardAndPrecondition:
 
     def test_precondition_violated_blocks(
         self,
-        tmp_path: Path,
+        story_dir: Path,
         story_ctx: StoryContext,
     ) -> None:
         """run_phase with violated precondition returns blocked."""
@@ -445,7 +466,7 @@ class TestGuardAndPrecondition:
         registry = PhaseHandlerRegistry()
         registry.register("setup", NoOpHandler())
         registry.register("closure", NoOpHandler())
-        engine = PipelineEngine(workflow, registry, tmp_path)
+        engine = PipelineEngine(workflow, registry, story_dir)
 
         state = PhaseState(
             story_id="TEST-001", phase="closure",
@@ -460,7 +481,7 @@ class TestExecutionPoliciesAndOverrides:
 
     def test_once_per_run_skips_second_execution(
         self,
-        tmp_path: Path,
+        story_dir: Path,
         story_ctx: StoryContext,
     ) -> None:
         tracking = TrackingHandler()
@@ -472,7 +493,7 @@ class TestExecutionPoliciesAndOverrides:
         )
         registry = PhaseHandlerRegistry()
         registry.register("setup", tracking)
-        engine = PipelineEngine(workflow, registry, tmp_path)
+        engine = PipelineEngine(workflow, registry, story_dir)
 
         state = PhaseState(
             story_id="TEST-001",
@@ -487,13 +508,13 @@ class TestExecutionPoliciesAndOverrides:
         assert second.status == "phase_completed"
         assert len(tracking.on_enter_calls) == 1
 
-        attempts = load_attempts(tmp_path, "setup")
+        attempts = load_attempts(story_dir, "setup")
         assert len(attempts) == 2
         assert attempts[-1].outcome == "skipped"
 
     def test_failed_node_backtracks_via_retry_policy(
         self,
-        tmp_path: Path,
+        story_dir: Path,
         story_ctx: StoryContext,
     ) -> None:
         workflow = (
@@ -508,7 +529,7 @@ class TestExecutionPoliciesAndOverrides:
         registry = PhaseHandlerRegistry()
         registry.register("implementation", NoOpHandler())
         registry.register("verify", FailResultHandler(("qa failed",)))
-        engine = PipelineEngine(workflow, registry, tmp_path)
+        engine = PipelineEngine(workflow, registry, story_dir)
 
         state = PhaseState(
             story_id="TEST-001",
@@ -520,13 +541,13 @@ class TestExecutionPoliciesAndOverrides:
         assert result.status == "phase_completed"
         assert result.next_phase == "implementation"
 
-        attempts = load_attempts(tmp_path, "verify")
+        attempts = load_attempts(story_dir, "verify")
         assert len(attempts) == 1
         assert attempts[0].outcome == "backtrack"
 
     def test_skip_override_bypasses_handler(
         self,
-        tmp_path: Path,
+        story_dir: Path,
         story_ctx: StoryContext,
     ) -> None:
         tracking = TrackingHandler()
@@ -541,13 +562,13 @@ class TestExecutionPoliciesAndOverrides:
         registry = PhaseHandlerRegistry()
         registry.register("verify", tracking)
         registry.register("closure", NoOpHandler())
-        engine = PipelineEngine(workflow, registry, tmp_path)
+        engine = PipelineEngine(workflow, registry, story_dir)
 
         save_override_record(
-            tmp_path,
+            story_dir,
             OverrideRecord(
                 override_id="ovr-1",
-                project_key="default-project",
+                project_key=story_ctx.project_key,
                 story_id=story_ctx.story_id,
                 run_id=engine._runtime.resolve_run_id(story_ctx),  # type: ignore[attr-defined]
                 flow_id="override-skip",
@@ -573,7 +594,7 @@ class TestExecutionPoliciesAndOverrides:
 
     def test_jump_override_redirects_flow(
         self,
-        tmp_path: Path,
+        story_dir: Path,
         story_ctx: StoryContext,
     ) -> None:
         tracking = TrackingHandler()
@@ -588,13 +609,13 @@ class TestExecutionPoliciesAndOverrides:
         registry = PhaseHandlerRegistry()
         registry.register("verify", tracking)
         registry.register("closure", NoOpHandler())
-        engine = PipelineEngine(workflow, registry, tmp_path)
+        engine = PipelineEngine(workflow, registry, story_dir)
 
         save_override_record(
-            tmp_path,
+            story_dir,
             OverrideRecord(
                 override_id="ovr-2",
-                project_key="default-project",
+                project_key=story_ctx.project_key,
                 story_id=story_ctx.story_id,
                 run_id=engine._runtime.resolve_run_id(story_ctx),  # type: ignore[attr-defined]
                 flow_id="override-jump",
@@ -621,26 +642,27 @@ class TestExecutionPoliciesAndOverrides:
 
     def test_conditional_precondition_skipped_when_not_applicable(
         self,
-        tmp_path: Path,
+        story_dir: Path,
     ) -> None:
         """Precondition with when=... that does not match is skipped."""
         ctx = StoryContext(
+            project_key="test-project",
             story_id="TEST-001",
             story_type=StoryType.BUGFIX,
-            mode=StoryMode.EXECUTION,
+            execution_route=StoryMode.EXECUTION,
         )
         workflow = (
             Workflow("cond-precond")
             .phase("impl")
                 .precondition(
                     _always_fail,
-                    when=lambda c, s: c.mode == StoryMode.EXPLORATION,
+                    when=lambda c, s: c.execution_route == StoryMode.EXPLORATION,
                 )
             .build()
         )
         registry = PhaseHandlerRegistry()
         registry.register("impl", NoOpHandler())
-        engine = PipelineEngine(workflow, registry, tmp_path)
+        engine = PipelineEngine(workflow, registry, story_dir)
 
         state = PhaseState(
             story_id="TEST-001", phase="impl",
@@ -725,14 +747,14 @@ class TestPipelineRobustness:
 
     def test_phase_not_in_workflow_raises(
         self,
-        tmp_path: Path,
+        story_dir: Path,
         story_ctx: StoryContext,
     ) -> None:
         """run_phase on undefined phase raises PipelineError."""
         workflow = Workflow("minimal").phase("setup").build()
         registry = PhaseHandlerRegistry()
         registry.register("setup", NoOpHandler())
-        engine = PipelineEngine(workflow, registry, tmp_path)
+        engine = PipelineEngine(workflow, registry, story_dir)
 
         state = PhaseState(
             story_id="TEST-001", phase="nonexistent",
@@ -743,14 +765,14 @@ class TestPipelineRobustness:
 
     def test_no_handler_registered_raises(
         self,
-        tmp_path: Path,
+        story_dir: Path,
         story_ctx: StoryContext,
     ) -> None:
         """run_phase on phase without handler raises PipelineError."""
         workflow = Workflow("minimal").phase("setup").build()
         registry = PhaseHandlerRegistry()
         # Deliberately NOT registering a handler
-        engine = PipelineEngine(workflow, registry, tmp_path)
+        engine = PipelineEngine(workflow, registry, story_dir)
 
         state = PhaseState(
             story_id="TEST-001", phase="setup",
@@ -761,7 +783,7 @@ class TestPipelineRobustness:
 
     def test_resume_when_not_paused_fails(
         self,
-        tmp_path: Path,
+        story_dir: Path,
         story_ctx: StoryContext,
     ) -> None:
         """resume_phase when state is not PAUSED returns failed."""
@@ -776,7 +798,7 @@ class TestPipelineRobustness:
         )
         registry = PhaseHandlerRegistry()
         registry.register("setup", NoOpHandler())
-        engine = PipelineEngine(workflow, registry, tmp_path)
+        engine = PipelineEngine(workflow, registry, story_dir)
 
         state = PhaseState(
             story_id="TEST-001", phase="setup",
@@ -788,7 +810,7 @@ class TestPipelineRobustness:
 
     def test_resume_with_invalid_trigger_fails(
         self,
-        tmp_path: Path,
+        story_dir: Path,
         story_ctx: StoryContext,
     ) -> None:
         """resume_phase with trigger not in yield point returns failed."""
@@ -804,7 +826,7 @@ class TestPipelineRobustness:
         )
         registry = PhaseHandlerRegistry()
         registry.register("exploration", PausingHandler("awaiting_review"))
-        engine = PipelineEngine(workflow, registry, tmp_path)
+        engine = PipelineEngine(workflow, registry, story_dir)
 
         paused_state = PhaseState(
             story_id="TEST-001", phase="exploration",
@@ -819,14 +841,14 @@ class TestPipelineRobustness:
 
     def test_handler_exception_returns_failed(
         self,
-        tmp_path: Path,
+        story_dir: Path,
         story_ctx: StoryContext,
     ) -> None:
         """Handler raising exception returns failed with error details."""
         workflow = Workflow("exception").phase("setup").build()
         registry = PhaseHandlerRegistry()
         registry.register("setup", FailingHandler("Boom!"))
-        engine = PipelineEngine(workflow, registry, tmp_path)
+        engine = PipelineEngine(workflow, registry, story_dir)
 
         state = PhaseState(
             story_id="TEST-001", phase="setup",
@@ -837,26 +859,26 @@ class TestPipelineRobustness:
         assert len(result.errors) > 0
         assert "Boom!" in result.errors[0]
 
-        flow = load_flow_execution(tmp_path)
+        flow = load_flow_execution(story_dir)
         assert flow is not None
         assert flow.flow_id == "exception"
         assert flow.status == "FAILED"
 
-        ledger = load_node_execution_ledger(tmp_path, "exception", "setup")
+        ledger = load_node_execution_ledger(story_dir, "exception", "setup")
         assert ledger is not None
         assert ledger.last_outcome == "FAIL"
         assert ledger.execution_count == 1
 
     def test_handler_exception_preserves_story_id(
         self,
-        tmp_path: Path,
+        story_dir: Path,
         story_ctx: StoryContext,
     ) -> None:
         """When handler raises, persisted state has correct story_id, not 'unknown'."""
         workflow = Workflow("exc-id").phase("setup").build()
         registry = PhaseHandlerRegistry()
         registry.register("setup", FailingHandler("Kaboom!"))
-        engine = PipelineEngine(workflow, registry, tmp_path)
+        engine = PipelineEngine(workflow, registry, story_dir)
 
         state = PhaseState(
             story_id="TEST-001", phase="setup",
@@ -866,14 +888,14 @@ class TestPipelineRobustness:
         assert result.status == "failed"
 
         # Load persisted state and verify story_id is preserved
-        loaded = load_phase_state(tmp_path)
+        loaded = load_phase_state(story_dir)
         assert loaded is not None
         assert loaded.story_id == "TEST-001"
         assert loaded.story_id != "unknown"
 
     def test_handler_returning_failed_status(
         self,
-        tmp_path: Path,
+        story_dir: Path,
         story_ctx: StoryContext,
     ) -> None:
         """Handler returning FAILED status produces failed EngineResult."""
@@ -882,7 +904,7 @@ class TestPipelineRobustness:
         registry.register(
             "verify", FailResultHandler(("qa check failed",)),
         )
-        engine = PipelineEngine(workflow, registry, tmp_path)
+        engine = PipelineEngine(workflow, registry, story_dir)
 
         state = PhaseState(
             story_id="TEST-001", phase="verify",
@@ -949,13 +971,13 @@ class TestTransitionEvaluation:
 
     def test_valid_transition_sets_next_phase(
         self,
-        tmp_path: Path,
+        story_dir: Path,
         story_ctx: StoryContext,
         simple_workflow: object,
         simple_registry: PhaseHandlerRegistry,
     ) -> None:
         """Phase with valid transition sets next_phase in result."""
-        engine = PipelineEngine(simple_workflow, simple_registry, tmp_path)  # type: ignore[arg-type]
+        engine = PipelineEngine(simple_workflow, simple_registry, story_dir)  # type: ignore[arg-type]
         state = PhaseState(
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.PENDING,
@@ -966,13 +988,13 @@ class TestTransitionEvaluation:
 
     def test_terminal_phase_has_no_next_phase(
         self,
-        tmp_path: Path,
+        story_dir: Path,
         story_ctx: StoryContext,
         simple_workflow: object,
         simple_registry: PhaseHandlerRegistry,
     ) -> None:
         """Terminal phase (no outgoing transitions) has next_phase=None."""
-        engine = PipelineEngine(simple_workflow, simple_registry, tmp_path)  # type: ignore[arg-type]
+        engine = PipelineEngine(simple_workflow, simple_registry, story_dir)  # type: ignore[arg-type]
         state = PhaseState(
             story_id="TEST-001", phase="closure",
             status=PhaseStatus.PENDING,
@@ -1022,14 +1044,14 @@ class TestTransitionEvaluation:
 
     def test_phase_snapshot_created_on_completion(
         self,
-        tmp_path: Path,
+        story_dir: Path,
         story_ctx: StoryContext,
     ) -> None:
         """Completed phase creates a phase snapshot file."""
         workflow = Workflow("snapshot").phase("setup").build()
         registry = PhaseHandlerRegistry()
         registry.register("setup", NoOpHandler())
-        engine = PipelineEngine(workflow, registry, tmp_path)
+        engine = PipelineEngine(workflow, registry, story_dir)
 
         state = PhaseState(
             story_id="TEST-001", phase="setup",
@@ -1037,19 +1059,19 @@ class TestTransitionEvaluation:
         )
         engine.run_phase(story_ctx, state)
 
-        snapshot_file = tmp_path / "phase-state-setup.json"
+        snapshot_file = story_dir / "phase-state-setup.json"
         assert snapshot_file.exists()
 
     def test_multiple_attempts_increment_id(
         self,
-        tmp_path: Path,
+        story_dir: Path,
         story_ctx: StoryContext,
     ) -> None:
         """Running a phase multiple times increments attempt IDs."""
         workflow = Workflow("multi-attempt").phase("setup").build()
         registry = PhaseHandlerRegistry()
         registry.register("setup", NoOpHandler())
-        engine = PipelineEngine(workflow, registry, tmp_path)
+        engine = PipelineEngine(workflow, registry, story_dir)
 
         state = PhaseState(
             story_id="TEST-001", phase="setup",
@@ -1061,12 +1083,12 @@ class TestTransitionEvaluation:
         assert r1.attempt_id == "setup-001"
         assert r2.attempt_id == "setup-002"
 
-        attempts = load_attempts(tmp_path, "setup")
+        attempts = load_attempts(story_dir, "setup")
         assert len(attempts) == 2
 
     def test_guard_evaluations_recorded_in_attempt(
         self,
-        tmp_path: Path,
+        story_dir: Path,
         story_ctx: StoryContext,
     ) -> None:
         """Exit-guard evaluations are recorded in the attempt record."""
@@ -1078,7 +1100,7 @@ class TestTransitionEvaluation:
         )
         registry = PhaseHandlerRegistry()
         registry.register("setup", NoOpHandler())
-        engine = PipelineEngine(workflow, registry, tmp_path)
+        engine = PipelineEngine(workflow, registry, story_dir)
 
         state = PhaseState(
             story_id="TEST-001", phase="setup",
@@ -1087,13 +1109,13 @@ class TestTransitionEvaluation:
         result = engine.run_phase(story_ctx, state)
         assert result.status == "phase_completed"
 
-        attempts = load_attempts(tmp_path, "setup")
+        attempts = load_attempts(story_dir, "setup")
         assert len(attempts) == 1
         assert len(attempts[0].guard_evaluations) == 1
 
     def test_guard_failure_after_completion_blocks_transition(
         self,
-        tmp_path: Path,
+        story_dir: Path,
         story_ctx: StoryContext,
     ) -> None:
         """Handler completes but exit-guard FAIL -> EngineResult status='failed'."""
@@ -1108,7 +1130,7 @@ class TestTransitionEvaluation:
         registry = PhaseHandlerRegistry()
         registry.register("setup", NoOpHandler())
         registry.register("closure", NoOpHandler())
-        engine = PipelineEngine(workflow, registry, tmp_path)
+        engine = PipelineEngine(workflow, registry, story_dir)
 
         state = PhaseState(
             story_id="TEST-001", phase="setup",
@@ -1121,12 +1143,12 @@ class TestTransitionEvaluation:
         assert "Guard always fails" in result.errors[0]
 
         # Verify state persisted as FAILED
-        loaded = load_phase_state(tmp_path)
+        loaded = load_phase_state(story_dir)
         assert loaded is not None
         assert loaded.status == PhaseStatus.FAILED
 
         # Guard evaluation should be recorded in attempt
-        attempts = load_attempts(tmp_path, "setup")
+        attempts = load_attempts(story_dir, "setup")
         assert len(attempts) == 1
         assert len(attempts[0].guard_evaluations) == 1
         assert attempts[0].guard_evaluations[0]["passed"] is False
@@ -1150,3 +1172,169 @@ class TestTransitionEvaluation:
         )
         assert can_enter is True
         assert reasons == []
+
+
+class TestRuntimeTelemetry:
+    """Tests for canonical engine telemetry emission."""
+
+    def test_run_id_is_stable_per_engine_instance(
+        self,
+        story_dir: Path,
+        story_ctx: StoryContext,
+    ) -> None:
+        workflow = Workflow("run-id").phase("setup").build()
+        registry = PhaseHandlerRegistry()
+        registry.register("setup", NoOpHandler())
+
+        first_engine = PipelineEngine(workflow, registry, story_dir)
+        first_run_id = first_engine._runtime.resolve_run_id(story_ctx)  # type: ignore[attr-defined]
+        assert first_engine._runtime.resolve_run_id(story_ctx) == first_run_id  # type: ignore[attr-defined]
+
+        second_engine = PipelineEngine(workflow, registry, story_dir)
+        second_run_id = second_engine._runtime.resolve_run_id(story_ctx)  # type: ignore[attr-defined]
+        assert second_run_id != first_run_id
+
+    def test_terminal_phase_emits_flow_start_node_result_and_flow_end(
+        self,
+        story_dir: Path,
+        story_ctx: StoryContext,
+    ) -> None:
+        workflow = Workflow("telemetry-terminal").phase("setup").build()
+        registry = PhaseHandlerRegistry()
+        registry.register("setup", NoOpHandler())
+        engine = PipelineEngine(workflow, registry, story_dir)
+
+        state = PhaseState(
+            story_id="TEST-001",
+            phase="setup",
+            status=PhaseStatus.PENDING,
+        )
+        engine.run_phase(story_ctx, state)
+
+        flow = load_flow_execution(story_dir)
+        assert flow is not None
+        events = load_execution_events(
+            story_dir,
+            project_key=story_ctx.project_key,
+            story_id=story_ctx.story_id,
+            run_id=flow.run_id,
+        )
+
+        assert [event.event_type for event in events] == [
+            EventType.FLOW_START.value,
+            EventType.NODE_RESULT.value,
+            EventType.FLOW_END.value,
+        ]
+        assert all(event.project_key == story_ctx.project_key for event in events)
+        assert all(event.run_id == flow.run_id for event in events)
+        assert events[1].payload["outcome"] == "PASS"
+        assert events[2].payload["status"] == "COMPLETED"
+
+    def test_jump_override_emits_override_applied_once(
+        self,
+        story_dir: Path,
+        story_ctx: StoryContext,
+    ) -> None:
+        workflow = (
+            Workflow("telemetry-override")
+            .phase("verify")
+                .override_policy(allow_jump=True)
+            .phase("closure")
+            .transition("verify", "closure")
+            .build()
+        )
+        registry = PhaseHandlerRegistry()
+        registry.register("verify", NoOpHandler())
+        registry.register("closure", NoOpHandler())
+        engine = PipelineEngine(workflow, registry, story_dir)
+
+        save_override_record(
+            story_dir,
+            OverrideRecord(
+                override_id="ovr-telemetry",
+                project_key=story_ctx.project_key,
+                story_id=story_ctx.story_id,
+                run_id=engine._runtime.resolve_run_id(story_ctx),  # type: ignore[attr-defined]
+                flow_id="telemetry-override",
+                target_node_id="closure",
+                override_type="jump_to",
+                actor_type="human",
+                actor_id="tester",
+                reason="jump to closure",
+                created_at=datetime.now(tz=UTC),
+            ),
+        )
+
+        state = PhaseState(
+            story_id="TEST-001",
+            phase="verify",
+            status=PhaseStatus.PENDING,
+        )
+        engine.run_phase(story_ctx, state)
+
+        flow = load_flow_execution(story_dir)
+        assert flow is not None
+        events = load_execution_events(
+            story_dir,
+            project_key=story_ctx.project_key,
+            story_id=story_ctx.story_id,
+            run_id=flow.run_id,
+        )
+        override_events = [
+            event
+            for event in events
+            if event.event_type == EventType.OVERRIDE_APPLIED.value
+        ]
+        node_events = [
+            event for event in events if event.event_type == EventType.NODE_RESULT.value
+        ]
+
+        assert len(override_events) == 1
+        assert override_events[0].payload["override_type"] == "jump_to"
+        assert override_events[0].payload["override_id"] == "ovr-telemetry"
+        assert len(node_events) == 1
+        assert node_events[0].payload["target_node_id"] == "closure"
+
+    def test_retry_backtrack_emits_backtrack_node_result_without_flow_end(
+        self,
+        story_dir: Path,
+        story_ctx: StoryContext,
+    ) -> None:
+        workflow = (
+            Workflow("telemetry-backtrack")
+            .phase("implementation")
+            .phase("verify")
+                .retry_policy(max_attempts=3, backtrack_target="implementation")
+            .transition("implementation", "verify")
+            .transition("verify", "implementation")
+            .build()
+        )
+        registry = PhaseHandlerRegistry()
+        registry.register("implementation", NoOpHandler())
+        registry.register("verify", FailResultHandler(("qa failed",)))
+        engine = PipelineEngine(workflow, registry, story_dir)
+
+        state = PhaseState(
+            story_id="TEST-001",
+            phase="verify",
+            status=PhaseStatus.PENDING,
+        )
+        result = engine.run_phase(story_ctx, state)
+        assert result.status == "phase_completed"
+        assert result.next_phase == "implementation"
+
+        flow = load_flow_execution(story_dir)
+        assert flow is not None
+        events = load_execution_events(
+            story_dir,
+            project_key=story_ctx.project_key,
+            story_id=story_ctx.story_id,
+            run_id=flow.run_id,
+        )
+
+        assert [event.event_type for event in events] == [
+            EventType.FLOW_START.value,
+            EventType.NODE_RESULT.value,
+        ]
+        assert events[1].payload["outcome"] == "BACKTRACK"
+        assert events[1].payload["target_node_id"] == "implementation"

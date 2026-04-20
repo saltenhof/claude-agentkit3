@@ -2,10 +2,20 @@
 
 from __future__ import annotations
 
-import json
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+import pytest
+
+from agentkit.phase_state_store.models import FlowExecution
 from agentkit.pipeline.phases.verify.cycle import VerifyCycle
+from agentkit.state_backend import (
+    save_flow_execution,
+    save_phase_snapshot,
+    save_story_context,
+)
+from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.state_backend.store import reset_backend_cache_for_tests
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -13,8 +23,27 @@ from agentkit.qa.adversarial.challenger import AdversarialChallenger
 from agentkit.qa.evaluators.reviewer import SemanticReviewer
 from agentkit.qa.policy_engine.engine import PolicyEngine
 from agentkit.qa.structural.checker import StructuralChecker
-from agentkit.story_context_manager.models import StoryContext
+from agentkit.story_context_manager.models import (
+    PhaseSnapshot,
+    PhaseStatus,
+    StoryContext,
+)
 from agentkit.story_context_manager.types import StoryMode, StoryType, get_profile
+
+
+@pytest.fixture(autouse=True)
+def sqlite_backend_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
+    monkeypatch.setenv(ALLOW_SQLITE_ENV, "1")
+    reset_backend_cache_for_tests()
+    yield
+    reset_backend_cache_for_tests()
+
+
+def _story_dir(root: Path, story_id: str = "TEST-001") -> Path:
+    story_dir = root / "stories" / story_id
+    story_dir.mkdir(parents=True, exist_ok=True)
+    return story_dir
 
 
 def _make_context(
@@ -22,9 +51,10 @@ def _make_context(
 ) -> StoryContext:
     """Build a minimal StoryContext for testing."""
     return StoryContext(
+        project_key="test-project",
         story_id="TEST-001",
         story_type=story_type,
-        mode=StoryMode.EXECUTION,
+        execution_route=StoryMode.EXECUTION,
     )
 
 
@@ -32,28 +62,37 @@ def _setup_complete_story_dir(
     tmp_path: Path,
     story_type: StoryType = StoryType.BUGFIX,
 ) -> Path:
-    """Set up a story dir with all required artifacts for a given type."""
-    story_dir = tmp_path
+    """Set up a story dir with all required canonical records for a given type."""
+    story_dir = _story_dir(tmp_path)
 
-    # context.json
-    ctx_data = {
-        "story_id": "TEST-001",
-        "story_type": story_type.value,
-        "mode": StoryMode.EXECUTION.value,
-    }
-    (story_dir / "context.json").write_text(json.dumps(ctx_data))
+    save_story_context(story_dir, _make_context(story_type))
+    save_flow_execution(
+        story_dir,
+        FlowExecution(
+            project_key="test-project",
+            story_id="TEST-001",
+            run_id="run-verify-001",
+            flow_id="implementation",
+            level="story",
+            owner="pipeline_engine",
+            status="IN_PROGRESS",
+        ),
+    )
 
-    # Phase snapshots for all phases before verify
     profile = get_profile(story_type)
     for phase in profile.phases:
         if phase == "verify":
             break
-        (story_dir / f"phase-state-{phase}.json").write_text(
-            json.dumps({
-                "story_id": "TEST-001",
-                "phase": phase,
-                "status": "completed",
-            }),
+        save_phase_snapshot(
+            story_dir,
+            PhaseSnapshot(
+                story_id="TEST-001",
+                phase=phase,
+                status=PhaseStatus.COMPLETED,
+                completed_at=datetime.now(tz=UTC),
+                artifacts=[],
+                evidence={},
+            ),
         )
 
     return story_dir

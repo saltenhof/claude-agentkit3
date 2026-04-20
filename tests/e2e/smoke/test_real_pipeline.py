@@ -113,6 +113,7 @@ class TestRealPipelineE2E:
             project_dir.mkdir()
             install_agentkit(
                 InstallConfig(
+                    project_key="e2e-test",
                     project_name="e2e-test",
                     project_root=project_dir,
                 )
@@ -125,9 +126,10 @@ class TestRealPipelineE2E:
 
             # Minimal initial context -- Setup will ENRICH it from the issue
             initial_ctx = StoryContext(
+                project_key="e2e-test",
                 story_id=story_id,
                 story_type=StoryType.CONCEPT,
-                mode=StoryMode.NOT_APPLICABLE,
+                execution_route=StoryMode.NOT_APPLICABLE,
                 project_root=project_dir,
             )
             save_story_context(s_dir, initial_ctx)
@@ -215,6 +217,7 @@ class TestRealPipelineE2E:
             project_dir.mkdir()
             install_agentkit(
                 InstallConfig(
+                    project_key="e2e-test",
                     project_name="e2e-test",
                     project_root=project_dir,
                 )
@@ -225,9 +228,10 @@ class TestRealPipelineE2E:
             s_dir.mkdir(parents=True, exist_ok=True)
 
             initial_ctx = StoryContext(
+                project_key="e2e-test",
                 story_id=story_id,
                 story_type=StoryType.RESEARCH,
-                mode=StoryMode.NOT_APPLICABLE,
+                execution_route=StoryMode.NOT_APPLICABLE,
                 project_root=project_dir,
             )
             save_story_context(s_dir, initial_ctx)

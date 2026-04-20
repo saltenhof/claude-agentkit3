@@ -31,7 +31,7 @@ class GuardResult:
     reason: str | None = None
 
     @classmethod
-    def PASS(cls) -> GuardResult:  # noqa: N802
+    def pass_(cls) -> GuardResult:
         """Create a passing guard result.
 
         Returns:
@@ -40,7 +40,7 @@ class GuardResult:
         return cls(passed=True)
 
     @classmethod
-    def FAIL(cls, *, reason: str) -> GuardResult:  # noqa: N802
+    def fail(cls, *, reason: str) -> GuardResult:
         """Create a failing guard result with a reason.
 
         Args:
@@ -50,6 +50,9 @@ class GuardResult:
             A ``GuardResult`` with ``passed=False`` and the given reason.
         """
         return cls(passed=False, reason=reason)
+
+    PASS = pass_  # NOSONAR - public DSL compatibility alias
+    FAIL = fail  # NOSONAR - public DSL compatibility alias
 
 
 GuardFn = Callable[["StoryContext", "PhaseState"], GuardResult]

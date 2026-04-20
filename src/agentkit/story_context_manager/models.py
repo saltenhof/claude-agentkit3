@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import (
-    AliasChoices,
     BaseModel,
     ConfigDict,
     Field,
@@ -17,6 +16,7 @@ from pydantic import (
     model_validator,
 )
 
+from agentkit.story_context_manager.sizing import StorySize, estimate_size
 from agentkit.story_context_manager.types import (
     ImplementationContract,
     StoryMode,
@@ -36,14 +36,19 @@ class PhaseStatus(StrEnum):
 
 
 class StoryContext(BaseModel):
+    project_key: str
     story_id: str
     story_type: StoryType
-    execution_route: StoryMode = Field(
-        validation_alias=AliasChoices("execution_route", "mode"),
-        serialization_alias="mode",
-    )
+    execution_route: StoryMode
     implementation_contract: ImplementationContract | None = None
     issue_nr: int | None = None
+
+    @field_validator("project_key")
+    @classmethod
+    def _validate_project_key_non_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("project_key must not be empty")
+        return value
 
     @field_validator("story_id")
     @classmethod
@@ -56,6 +61,7 @@ class StoryContext(BaseModel):
         return v
 
     title: str = ""
+    story_size: StorySize = StorySize.SMALL
     project_root: Path | None = None
     worktree_path: Path | None = None
     participating_repos: list[str] = Field(default_factory=list)
@@ -67,18 +73,6 @@ class StoryContext(BaseModel):
     def _normalize_contract_defaults(cls, data: Any) -> Any:
         if not isinstance(data, dict):
             return data
-
-        execution_route_raw = data.get("execution_route")
-        mode_raw = data.get("mode")
-        if (
-            execution_route_raw is not None
-            and mode_raw is not None
-            and execution_route_raw != mode_raw
-        ):
-            raise ValueError(
-                "execution_route and mode must not disagree: "
-                f"execution_route={execution_route_raw!r}, mode={mode_raw!r}",
-            )
 
         story_type_raw = data.get("story_type")
         if story_type_raw is None:
@@ -96,6 +90,14 @@ class StoryContext(BaseModel):
         ):
             data = dict(data)
             data["implementation_contract"] = profile.default_implementation_contract
+        if data.get("story_size") is None:
+            data = dict(data)
+            labels = data.get("labels")
+            title = data.get("title")
+            data["story_size"] = estimate_size(
+                list(labels) if isinstance(labels, list) else [],
+                title if isinstance(title, str) else "",
+            )
         return data
 
     @model_validator(mode="after")
@@ -125,17 +127,9 @@ class StoryContext(BaseModel):
             )
 
         return self
-
-    @property
-    def mode(self) -> StoryMode:
-        """Compatibility alias for legacy runtime call sites."""
-
-        return self.execution_route
-
     model_config = ConfigDict(
         frozen=True,
         populate_by_name=True,
-        serialize_by_alias=True,
     )
 
 

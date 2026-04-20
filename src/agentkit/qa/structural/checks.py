@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from agentkit.exceptions import CorruptStateError
 from agentkit.qa.protocols import Finding, Severity, TrustClass
 from agentkit.state_backend import (
@@ -15,6 +17,9 @@ from agentkit.state_backend import (
 )
 from agentkit.state_backend.exports import LAYER_ARTIFACT_FILES
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 _ARTIFACT_NAME_TO_KIND: dict[str, str] = {
     artifact_name: layer
     for layer, artifact_name in LAYER_ARTIFACT_FILES.items()
@@ -22,7 +27,7 @@ _ARTIFACT_NAME_TO_KIND: dict[str, str] = {
 _ARTIFACT_NAME_TO_KIND[VERIFY_DECISION_FILE] = "verify_decision"
 
 
-def check_context_exists(story_dir) -> Finding | None:
+def check_context_exists(story_dir: Path) -> Finding | None:
     """Check that a canonical story context record exists."""
 
     try:
@@ -35,14 +40,12 @@ def check_context_exists(story_dir) -> Finding | None:
         check="context_exists",
         severity=Severity.CRITICAL,
         trust_class=TrustClass.SYSTEM,
-        message=(
-            "Canonical story context record missing; "
-            f"{CONTEXT_EXPORT_FILE} cannot act as truth"
-        ),
+        message="Canonical story context record missing; "
+        f"{CONTEXT_EXPORT_FILE} cannot act as truth",
     )
 
 
-def check_context_valid(story_dir) -> Finding | None:
+def check_context_valid(story_dir: Path) -> Finding | None:
     """Check that the canonical story context can be loaded."""
 
     try:
@@ -58,7 +61,10 @@ def check_context_valid(story_dir) -> Finding | None:
     return None
 
 
-def check_phase_snapshots(story_dir, required_phases: list[str]) -> list[Finding]:
+def check_phase_snapshots(
+    story_dir: Path,
+    required_phases: list[str],
+) -> list[Finding]:
     """Check that required canonical phase snapshots exist."""
 
     findings: list[Finding] = []
@@ -81,7 +87,10 @@ def check_phase_snapshots(story_dir, required_phases: list[str]) -> list[Finding
     return findings
 
 
-def check_artifacts_present(story_dir, required_artifacts: list[str]) -> list[Finding]:
+def check_artifacts_present(
+    story_dir: Path,
+    required_artifacts: list[str],
+) -> list[Finding]:
     """Check that required operational artifacts exist."""
 
     findings: list[Finding] = []
@@ -93,7 +102,7 @@ def check_artifacts_present(story_dir, required_artifacts: list[str]) -> list[Fi
                     continue
             except CorruptStateError:
                 pass
-        elif (story_dir / artifact).exists():
+        elif story_dir.joinpath(artifact).exists():
             continue
 
         artifact_path = story_dir / artifact
@@ -126,7 +135,7 @@ def check_artifacts_present(story_dir, required_artifacts: list[str]) -> list[Fi
     return findings
 
 
-def check_no_corrupt_state(story_dir) -> Finding | None:
+def check_no_corrupt_state(story_dir: Path) -> Finding | None:
     """Check that the canonical current phase-state record is valid if present."""
 
     try:
@@ -137,9 +146,7 @@ def check_no_corrupt_state(story_dir) -> Finding | None:
             check="no_corrupt_state",
             severity=Severity.HIGH,
             trust_class=TrustClass.SYSTEM,
-            message=(
-                "Canonical phase state record is corrupt or invalid; "
-                f"{PHASE_STATE_EXPORT_FILE} cannot act as truth"
-            ),
+            message="Canonical phase state record is corrupt or invalid; "
+            f"{PHASE_STATE_EXPORT_FILE} cannot act as truth",
         )
     return None

@@ -2,7 +2,7 @@
 
 Emitter is a Protocol (ARCH-06).  Concrete implementations:
 
-- ``SqliteEmitter``: persistent storage (see ``storage`` module)
+- ``StateBackendEmitter``: persistent storage in the canonical state backend
 - ``MemoryEmitter``: in-memory for testing
 - ``NullEmitter``: /dev/null for when telemetry is disabled
 """
@@ -32,7 +32,7 @@ class EventEmitter(Protocol):
         ...
 
     def query(
-        self, story_id: str, event_type: EventType | None = None
+        self, _story_id: str, _event_type: EventType | None = None
     ) -> list[Event]:
         """Query events for a story, optionally filtered by type.
 
@@ -105,6 +105,7 @@ class NullEmitter:
         Args:
             event: Ignored.
         """
+        _ = event
 
     def query(
         self, story_id: str, event_type: EventType | None = None
@@ -118,4 +119,5 @@ class NullEmitter:
         Returns:
             Empty list.
         """
+        _ = story_id, event_type
         return []

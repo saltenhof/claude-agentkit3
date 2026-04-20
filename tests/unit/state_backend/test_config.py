@@ -60,3 +60,12 @@ def test_postgres_accepts_database_url(
     assert config.database_url == (
         "postgresql://agentkit:agentkit@127.0.0.1:5432/agentkit_test"
     )
+
+
+def test_unsupported_backend_raises_runtime_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(STATE_BACKEND_ENV, "mysql")
+
+    with pytest.raises(RuntimeError, match="Unsupported AGENTKIT_STATE_BACKEND"):
+        load_state_backend_config()

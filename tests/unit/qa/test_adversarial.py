@@ -10,6 +10,7 @@ from agentkit.installer.paths import PROMPT_BUNDLE_STORE_ENV
 from agentkit.phase_state_store import FlowExecution, save_flow_execution
 from agentkit.prompt_composer.pins import initialize_prompt_run_pin
 from agentkit.qa.adversarial.challenger import AdversarialChallenger
+from agentkit.state_backend import save_story_context
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -26,9 +27,10 @@ class TestAdversarialChallenger:
     def test_evaluate_returns_passed(self, tmp_path: Path) -> None:
         challenger = AdversarialChallenger()
         ctx = StoryContext(
+            project_key="test-project",
             story_id="TEST-001",
             story_type=StoryType.BUGFIX,
-            mode=StoryMode.EXECUTION,
+            execution_route=StoryMode.EXECUTION,
         )
         result = challenger.evaluate(ctx, tmp_path)
         assert result.passed is True
@@ -52,12 +54,23 @@ class TestAdversarialChallenger:
         )
         install_agentkit(
             InstallConfig(
+                project_key="test-project",
                 project_name="test-project",
                 project_root=project_root,
             ),
         )
         story_dir = project_root / "stories" / "TEST-001"
         story_dir.mkdir(parents=True)
+        save_story_context(
+            story_dir,
+            StoryContext(
+                project_key="test-project",
+                story_id="TEST-001",
+                story_type=StoryType.BUGFIX,
+                execution_route=StoryMode.EXECUTION,
+                project_root=project_root,
+            ),
+        )
         save_flow_execution(
             story_dir,
             FlowExecution(
@@ -74,9 +87,10 @@ class TestAdversarialChallenger:
         initialize_prompt_run_pin(project_root, run_id="run-review-001")
         challenger = AdversarialChallenger()
         ctx = StoryContext(
+            project_key="test-project",
             story_id="TEST-001",
             story_type=StoryType.BUGFIX,
-            mode=StoryMode.EXECUTION,
+            execution_route=StoryMode.EXECUTION,
             project_root=project_root,
         )
 

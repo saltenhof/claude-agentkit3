@@ -70,6 +70,7 @@ class TestInstallScaffoldContract:
         # Must be loadable by the config loader
         config = load_project_config(tmp_path)
         assert config.project_name == "contract-test"
+        assert config.project_key == "contract-test"
 
     def test_install_scaffold_is_deterministic(
         self, tmp_path: Path,
@@ -132,6 +133,7 @@ class TestInstallScaffoldContract:
 
         # Required fields for pipeline operation
         assert config.project_name == "contract-test"
+        assert config.project_key == "contract-test"
         assert hasattr(config, "repositories")
         assert len(config.repositories) >= 1
 
@@ -183,6 +185,7 @@ class TestInstallScaffoldContract:
 
 
 def _make_install_config(project_root: Path, **kwargs: object) -> InstallConfig:
+    kwargs.setdefault("project_key", kwargs.get("project_name", "test-project"))
     return InstallConfig(
         project_root=project_root,
         **kwargs,

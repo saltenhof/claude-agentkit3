@@ -46,12 +46,6 @@ class ComposedPrompt:
     story_id: str
     sentinel: str
 
-    @property
-    def rendered_sha256(self) -> str:
-        """Compatibility alias for the historic output digest field."""
-
-        return self.output_sha256
-
 
 @dataclass(frozen=True)
 class MaterializedPromptInstance:
@@ -68,16 +62,10 @@ class RenderedPromptArtifact:
 @dataclass(frozen=True)
 class ComposeConfig:
     story_type: StoryType
-    mode: StoryMode | None = None
+    execution_route: StoryMode | None = None
     spawn_reason: str = "initial"
     round_nr: int = 1
     feedback: str = ""
-
-    @property
-    def execution_route(self) -> StoryMode | None:
-        """Semantic alias for the historic ``mode`` configuration field."""
-
-        return self.mode
 
 
 @dataclass(frozen=True)
@@ -292,7 +280,6 @@ def write_prompt_instance(
                 "template_sha256": prompt.template_sha256,
                 "render_input_digest": prompt.render_input_digest,
                 "output_sha256": prompt.output_sha256,
-                "rendered_sha256": prompt.output_sha256,
                 "artifact_path": prompt_path.relative_to(project_root).as_posix(),
                 "prompt_file": "prompt.md",
             },

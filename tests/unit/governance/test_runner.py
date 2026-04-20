@@ -17,7 +17,7 @@ class _AlwaysAllowGuard:
         return "always_allow"
 
     def evaluate(self, operation: str, context: dict[str, object]) -> GuardVerdict:
-        return GuardVerdict.ALLOW(self.name)
+        return GuardVerdict.allow(self.name)
 
 
 class _AlwaysBlockGuard:
@@ -28,7 +28,7 @@ class _AlwaysBlockGuard:
         return "always_block"
 
     def evaluate(self, operation: str, context: dict[str, object]) -> GuardVerdict:
-        return GuardVerdict.BLOCK(
+        return GuardVerdict.block(
             self.name, ViolationType.POLICY_VIOLATION, "blocked",
         )
 

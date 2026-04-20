@@ -1,164 +1,193 @@
-"""Unit tests for agentkit.telemetry.storage (SqliteEmitter)."""
+"""Unit tests for canonical telemetry storage."""
 
 from __future__ import annotations
 
-import os
-import stat
-import sys
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
 
+from agentkit.phase_state_store.models import FlowExecution
+from agentkit.state_backend import save_flow_execution, save_story_context
+from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.state_backend.store import reset_backend_cache_for_tests
+from agentkit.story_context_manager.models import StoryContext
+from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.telemetry.emitters import EventEmitter
+from agentkit.telemetry.events import Event, EventType
+from agentkit.telemetry.storage import StateBackendEmitter
+
 if TYPE_CHECKING:
     from pathlib import Path
 
-from agentkit.telemetry.emitters import EventEmitter
-from agentkit.telemetry.events import Event, EventType
-from agentkit.telemetry.storage import SqliteEmitter
+
+@pytest.fixture(autouse=True)
+def sqlite_backend_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
+    monkeypatch.setenv(ALLOW_SQLITE_ENV, "1")
+    reset_backend_cache_for_tests()
+    yield
+    reset_backend_cache_for_tests()
 
 
-class TestSqliteEmitterCreation:
-    """Tests for SqliteEmitter initialisation."""
-
-    def test_creates_db_file(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "telemetry.db"
-        SqliteEmitter(db_path)
-        assert db_path.exists()
-
-    def test_schema_idempotent(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "telemetry.db"
-        SqliteEmitter(db_path)
-        SqliteEmitter(db_path)  # Second init must not raise
-        assert db_path.exists()
-
-    def test_creates_parent_directories(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "sub" / "dir" / "telemetry.db"
-        SqliteEmitter(db_path)
-        assert db_path.exists()
+def _story_dir(tmp_path: Path, story_id: str = "AG3-001") -> Path:
+    story_dir = tmp_path / "stories" / story_id
+    story_dir.mkdir(parents=True, exist_ok=True)
+    return story_dir
 
 
-class TestSqliteEmitterEmitQuery:
-    """Tests for emit and query operations."""
-
+class TestStateBackendEmitter:
     def test_emit_and_query_roundtrip(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "telemetry.db"
-        emitter = SqliteEmitter(db_path)
+        story_dir = _story_dir(tmp_path)
+        emitter = StateBackendEmitter(
+            story_dir,
+            default_project_key="demo-project",
+            default_source_component="test-hook",
+        )
         ts = datetime(2026, 1, 15, 10, 30, 0, tzinfo=UTC)
-        evt = Event(
-            story_id="AG3-001",
-            event_type=EventType.PHASE_STARTED,
-            timestamp=ts,
-            phase="setup",
-            payload={"key": "value"},
-            run_id="run-1",
-        )
-        emitter.emit(evt)
-        results = emitter.query("AG3-001")
-        assert len(results) == 1
-        r = results[0]
-        assert r.story_id == "AG3-001"
-        assert r.event_type == EventType.PHASE_STARTED
-        assert r.phase == "setup"
-        assert r.payload == {"key": "value"}
-        assert r.run_id == "run-1"
 
-    def test_query_filters_by_event_type(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "telemetry.db"
-        emitter = SqliteEmitter(db_path)
-        emitter.emit(Event(story_id="AG3-001", event_type=EventType.PHASE_STARTED))
-        emitter.emit(Event(story_id="AG3-001", event_type=EventType.PHASE_COMPLETED))
-        emitter.emit(Event(story_id="AG3-001", event_type=EventType.ERROR))
-        results = emitter.query("AG3-001", event_type=EventType.PHASE_COMPLETED)
-        assert len(results) == 1
-        assert results[0].event_type == EventType.PHASE_COMPLETED
-
-    def test_query_filters_by_story_id(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "telemetry.db"
-        emitter = SqliteEmitter(db_path)
-        emitter.emit(Event(story_id="AG3-001", event_type=EventType.PHASE_STARTED))
-        emitter.emit(Event(story_id="AG3-002", event_type=EventType.PHASE_STARTED))
-        results = emitter.query("AG3-002")
-        assert len(results) == 1
-        assert results[0].story_id == "AG3-002"
-
-    def test_query_other_story_returns_empty(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "telemetry.db"
-        emitter = SqliteEmitter(db_path)
-        emitter.emit(Event(story_id="AG3-001", event_type=EventType.PHASE_STARTED))
-        results = emitter.query("AG3-999")
-        assert results == []
-
-    def test_multiple_events_for_same_story(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "telemetry.db"
-        emitter = SqliteEmitter(db_path)
-        event_types = (
-            EventType.PHASE_STARTED,
-            EventType.PHASE_COMPLETED,
-            EventType.QA_DECISION,
-        )
-        for et in event_types:
-            emitter.emit(Event(story_id="AG3-001", event_type=et))
-        results = emitter.query("AG3-001")
-        assert len(results) == 3
-
-    def test_payload_roundtrip_complex(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "telemetry.db"
-        emitter = SqliteEmitter(db_path)
-        payload: dict[str, object] = {
-            "nested": {"a": 1},
-            "list_val": [1, 2, 3],
-            "flag": True,
-        }
         emitter.emit(
             Event(
                 story_id="AG3-001",
-                event_type=EventType.WORKER_SPAWNED,
-                payload=payload,
+                event_type=EventType.FLOW_START,
+                timestamp=ts,
+                phase="setup",
+                flow_id="implementation",
+                node_id="setup",
+                payload={"key": "value"},
+                run_id="run-1",
             )
         )
+
         results = emitter.query("AG3-001")
-        assert results[0].payload == payload
+        assert len(results) == 1
+        event = results[0]
+        assert event.story_id == "AG3-001"
+        assert event.project_key == "demo-project"
+        assert event.event_type == EventType.FLOW_START
+        assert event.source_component == "test-hook"
+        assert event.phase == "setup"
+        assert event.flow_id == "implementation"
+        assert event.node_id == "setup"
+        assert event.payload == {"key": "value"}
+        assert event.run_id == "run-1"
+        assert event.event_id is not None
 
+    def test_query_filters_by_event_type(self, tmp_path: Path) -> None:
+        story_dir = _story_dir(tmp_path)
+        emitter = StateBackendEmitter(
+            story_dir,
+            default_project_key="demo-project",
+        )
+        emitter.emit(
+            Event(
+                story_id="AG3-001",
+                event_type=EventType.FLOW_START,
+                run_id="run-1",
+            )
+        )
+        emitter.emit(
+            Event(
+                story_id="AG3-001",
+                event_type=EventType.FLOW_END,
+                run_id="run-1",
+            )
+        )
 
-class TestSqliteEmitterErrorHandling:
-    """Tests for non-blocking error behaviour."""
+        results = emitter.query("AG3-001", event_type=EventType.FLOW_END)
+        assert len(results) == 1
+        assert results[0].event_type == EventType.FLOW_END
 
-    @pytest.mark.skipif(
-        sys.platform == "win32",
-        reason="Windows does not support read-only directories reliably for SQLite",
-    )
-    def test_emit_on_db_error_does_not_raise(self, tmp_path: Path) -> None:
-        # Create a read-only directory to force SQLite write failure
-        ro_dir = tmp_path / "readonly"
-        ro_dir.mkdir()
-        db_path = ro_dir / "telemetry.db"
-        # Create the DB first, then make the directory read-only
-        emitter = SqliteEmitter(db_path)
-        os.chmod(str(ro_dir), stat.S_IRUSR | stat.S_IXUSR)
-        try:
-            # This should log a warning but NOT raise
-            evt = Event(story_id="AG3-001", event_type=EventType.ERROR)
-            emitter.emit(evt)  # Must not raise
-        finally:
-            os.chmod(str(ro_dir), stat.S_IRWXU)
+    def test_query_filters_by_story_id(self, tmp_path: Path) -> None:
+        emitter_one = StateBackendEmitter(
+            _story_dir(tmp_path, "AG3-001"),
+            default_project_key="demo-project",
+        )
+        emitter_two = StateBackendEmitter(
+            _story_dir(tmp_path, "AG3-002"),
+            default_project_key="demo-project",
+        )
+        emitter_one.emit(
+            Event(
+                story_id="AG3-001",
+                event_type=EventType.FLOW_START,
+                run_id="run-1",
+            )
+        )
+        emitter_two.emit(
+            Event(
+                story_id="AG3-002",
+                event_type=EventType.FLOW_START,
+                run_id="run-2",
+            )
+        )
 
-    def test_emit_with_closed_connection_does_not_raise(self, tmp_path: Path) -> None:
-        """Emit to a corrupt/inaccessible DB path does not raise."""
-        # Point to a path where a directory exists with same name as the DB
-        blocker = tmp_path / "telemetry.db"
-        blocker.mkdir()  # Create a directory, not a file
-        # SqliteEmitter will fail to connect but should not raise
-        emitter = SqliteEmitter.__new__(SqliteEmitter)
-        emitter._db_path = blocker
-        evt = Event(story_id="AG3-001", event_type=EventType.ERROR)
-        emitter.emit(evt)  # Must not raise
+        results = emitter_one.query("AG3-001")
+        assert len(results) == 1
+        assert results[0].story_id == "AG3-001"
 
+    def test_emitter_derives_project_key_and_run_id_from_runtime_state(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        story_dir = _story_dir(tmp_path)
+        save_story_context(
+            story_dir,
+            StoryContext(
+                project_key="demo-project",
+                story_id="AG3-001",
+                story_type=StoryType.IMPLEMENTATION,
+                execution_route=StoryMode.EXECUTION,
+                title="Telemetry derivation",
+                project_root=tmp_path / "demo-project",
+            ),
+        )
+        save_flow_execution(
+            story_dir,
+            FlowExecution(
+                project_key="demo-project",
+                story_id="AG3-001",
+                run_id="run-derived-001",
+                flow_id="implementation",
+                level="story",
+                owner="pipeline_engine",
+                status="IN_PROGRESS",
+            ),
+        )
+        emitter = StateBackendEmitter(story_dir)
 
-class TestSqliteEmitterProtocol:
-    """Verify SqliteEmitter implements the EventEmitter protocol."""
+        emitter.emit(
+            Event(
+                story_id="AG3-001",
+                event_type=EventType.NODE_RESULT,
+                payload={"outcome": "PASS"},
+            )
+        )
+
+        results = emitter.query("AG3-001")
+        assert len(results) == 1
+        assert results[0].project_key == "demo-project"
+        assert results[0].run_id == "run-derived-001"
+
+    def test_missing_runtime_scope_degrades_without_raise(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        story_dir = _story_dir(tmp_path)
+        emitter = StateBackendEmitter(story_dir)
+
+        emitter.emit(
+            Event(
+                story_id="AG3-001",
+                event_type=EventType.ERROR,
+            )
+        )
+
+        assert emitter.query("AG3-001") == []
 
     def test_implements_event_emitter_protocol(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "telemetry.db"
-        emitter = SqliteEmitter(db_path)
+        emitter = StateBackendEmitter(
+            _story_dir(tmp_path),
+            default_project_key="demo-project",
+        )
         assert isinstance(emitter, EventEmitter)

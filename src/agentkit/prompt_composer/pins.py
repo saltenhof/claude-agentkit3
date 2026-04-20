@@ -18,6 +18,8 @@ from agentkit.utils.io import atomic_write_text
 if TYPE_CHECKING:
     from pathlib import Path
 
+PROMPT_RUN_PIN_MISMATCH = "Prompt run pin mismatch"
+
 
 @dataclass(frozen=True)
 class PromptRunPin:
@@ -80,22 +82,19 @@ def ensure_prompt_run_pin(
             or existing.prompt_bundle_version != prompt_bundle_version
             or existing.prompt_manifest_sha256 != prompt_manifest_sha256
         ):
-            raise ProjectError(
-                "Prompt run pin mismatch",
-                detail={
-                    "path": str(path),
-                    "run_id": run_id,
-                    "expected": {
-                        "prompt_bundle_id": existing.prompt_bundle_id,
-                        "prompt_bundle_version": existing.prompt_bundle_version,
-                        "prompt_manifest_sha256": existing.prompt_manifest_sha256,
-                    },
-                    "actual": {
-                        "prompt_bundle_id": prompt_bundle_id,
-                        "prompt_bundle_version": prompt_bundle_version,
-                        "prompt_manifest_sha256": prompt_manifest_sha256,
-                    },
-                },
+            _raise_prompt_run_pin_mismatch(
+                path=path,
+                run_id=run_id,
+                expected=_pin_detail(
+                    prompt_bundle_id=existing.prompt_bundle_id,
+                    prompt_bundle_version=existing.prompt_bundle_version,
+                    prompt_manifest_sha256=existing.prompt_manifest_sha256,
+                ),
+                actual=_pin_detail(
+                    prompt_bundle_id=prompt_bundle_id,
+                    prompt_bundle_version=prompt_bundle_version,
+                    prompt_manifest_sha256=prompt_manifest_sha256,
+                ),
             )
         return path
 
@@ -139,20 +138,17 @@ def resolve_run_prompt_binding(project_root: Path, run_id: str) -> PromptBundleB
                 or lock_bundle_version != pin.prompt_bundle_version
             )
         ):
-            raise ProjectError(
-                "Prompt run pin mismatch",
-                detail={
-                    "path": str(prompt_run_pin_path(project_root, run_id)),
-                    "run_id": run_id,
-                    "expected": {
-                        "prompt_bundle_id": pin.prompt_bundle_id,
-                        "prompt_bundle_version": pin.prompt_bundle_version,
-                        "prompt_manifest_sha256": pin.prompt_manifest_sha256,
-                    },
-                    "actual": {
-                        "prompt_bundle_id": lock_bundle_id,
-                        "prompt_bundle_version": lock_bundle_version,
-                    },
+            _raise_prompt_run_pin_mismatch(
+                path=prompt_run_pin_path(project_root, run_id),
+                run_id=run_id,
+                expected=_pin_detail(
+                    prompt_bundle_id=pin.prompt_bundle_id,
+                    prompt_bundle_version=pin.prompt_bundle_version,
+                    prompt_manifest_sha256=pin.prompt_manifest_sha256,
+                ),
+                actual={
+                    "prompt_bundle_id": lock_bundle_id,
+                    "prompt_bundle_version": lock_bundle_version,
                 },
             )
 
@@ -162,24 +158,52 @@ def resolve_run_prompt_binding(project_root: Path, run_id: str) -> PromptBundleB
         or binding.bundle_version != pin.prompt_bundle_version
         or binding.manifest_sha256 != pin.prompt_manifest_sha256
     ):
-        raise ProjectError(
-            "Prompt run pin mismatch",
-            detail={
-                "path": str(prompt_run_pin_path(project_root, run_id)),
-                "run_id": run_id,
-                "expected": {
-                    "prompt_bundle_id": pin.prompt_bundle_id,
-                    "prompt_bundle_version": pin.prompt_bundle_version,
-                    "prompt_manifest_sha256": pin.prompt_manifest_sha256,
-                },
-                "actual": {
-                    "prompt_bundle_id": binding.bundle_id,
-                    "prompt_bundle_version": binding.bundle_version,
-                    "prompt_manifest_sha256": binding.manifest_sha256,
-                },
-            },
+        _raise_prompt_run_pin_mismatch(
+            path=prompt_run_pin_path(project_root, run_id),
+            run_id=run_id,
+            expected=_pin_detail(
+                prompt_bundle_id=pin.prompt_bundle_id,
+                prompt_bundle_version=pin.prompt_bundle_version,
+                prompt_manifest_sha256=pin.prompt_manifest_sha256,
+            ),
+            actual=_pin_detail(
+                prompt_bundle_id=binding.bundle_id,
+                prompt_bundle_version=binding.bundle_version,
+                prompt_manifest_sha256=binding.manifest_sha256,
+            ),
         )
     return binding
+
+
+def _pin_detail(
+    *,
+    prompt_bundle_id: str,
+    prompt_bundle_version: str,
+    prompt_manifest_sha256: str,
+) -> dict[str, str]:
+    return {
+        "prompt_bundle_id": prompt_bundle_id,
+        "prompt_bundle_version": prompt_bundle_version,
+        "prompt_manifest_sha256": prompt_manifest_sha256,
+    }
+
+
+def _raise_prompt_run_pin_mismatch(
+    *,
+    path: Path,
+    run_id: str,
+    expected: dict[str, str],
+    actual: dict[str, str],
+) -> None:
+    raise ProjectError(
+        PROMPT_RUN_PIN_MISMATCH,
+        detail={
+            "path": str(path),
+            "run_id": run_id,
+            "expected": expected,
+            "actual": actual,
+        },
+    )
 
 
 __all__ = [

@@ -28,6 +28,13 @@ from agentkit.installer.paths import (
     static_prompts_dir,
 )
 
+PROMPT_MANIFEST_FILENAME = "manifest.json"
+MISSING_TEMPLATES_MESSAGE = "Prompt bundle manifest is missing templates"
+MALFORMED_TEMPLATE_ENTRY_MESSAGE = "Prompt bundle manifest template entry is malformed"
+MISSING_TEMPLATE_RELPATH_MESSAGE = (
+    "Prompt bundle manifest template entry is missing relpath"
+)
+
 
 def _resources_target_project_dir() -> Path:
     package_dir = Path(__file__).resolve().parent.parent
@@ -53,6 +60,7 @@ def _resources_internal_prompt_dir() -> Path:
 
 @dataclass
 class InstallConfig:
+    project_key: str
     project_name: str
     project_root: Path
     repositories: list[dict[str, str]] | None = None
@@ -88,6 +96,7 @@ def _build_project_yaml(config: InstallConfig) -> dict[str, object]:
         repos = [{"name": "app", "path": "."}]
 
     data: dict[str, object] = {
+        "project_key": config.project_key,
         "project_name": config.project_name,
         "repositories": repos,
         "story_types": list(DEFAULT_STORY_TYPES),
@@ -118,10 +127,11 @@ def _resolve_prompt_source_dir(config: InstallConfig) -> Path:
             f"Prompt bundle root does not exist: {prompt_source_dir}",
             detail={"prompt_bundle_root": str(prompt_source_dir)},
         )
-    manifest_path = prompt_source_dir / "manifest.json"
+    manifest_path = prompt_source_dir / PROMPT_MANIFEST_FILENAME
     if not manifest_path.is_file():
         raise ProjectError(
-            f"Prompt bundle root is missing manifest.json: {prompt_source_dir}",
+            "Prompt bundle root is missing "
+            f"{PROMPT_MANIFEST_FILENAME}: {prompt_source_dir}",
             detail={"prompt_bundle_root": str(prompt_source_dir)},
         )
     return prompt_source_dir
@@ -130,7 +140,7 @@ def _resolve_prompt_source_dir(config: InstallConfig) -> Path:
 def _load_prompt_bundle_manifest(
     prompt_source_dir: Path,
 ) -> tuple[dict[str, object], str]:
-    manifest_path = prompt_source_dir / "manifest.json"
+    manifest_path = prompt_source_dir / PROMPT_MANIFEST_FILENAME
     manifest_text = manifest_path.read_text(encoding="utf-8")
     manifest = json.loads(manifest_text)
     bundle_id = manifest.get("bundle_id")
@@ -148,7 +158,7 @@ def _load_prompt_bundle_manifest(
         )
     if not isinstance(templates, dict):
         raise ProjectError(
-            "Prompt bundle manifest is missing templates",
+            MISSING_TEMPLATES_MESSAGE,
             detail={"path": str(manifest_path)},
         )
     return manifest, manifest_text
@@ -164,7 +174,7 @@ def _ensure_prompt_bundle_store_entry(
         bundle_id,
         bundle_version,
     )
-    canonical_manifest_path = canonical_root / "manifest.json"
+    canonical_manifest_path = canonical_root / PROMPT_MANIFEST_FILENAME
     source_digest = hashlib.sha256(manifest_text.encode("utf-8")).hexdigest()
 
     if canonical_manifest_path.is_file():
@@ -187,24 +197,24 @@ def _ensure_prompt_bundle_store_entry(
     templates = manifest["templates"]
     if not isinstance(templates, dict):  # pragma: no cover
         raise ProjectError(
-            "Prompt bundle manifest is missing templates",
-            detail={"path": str(prompt_source_dir / "manifest.json")},
+            MISSING_TEMPLATES_MESSAGE,
+            detail={"path": str(prompt_source_dir / PROMPT_MANIFEST_FILENAME)},
         )
     for entry in templates.values():
         if not isinstance(entry, dict):  # pragma: no cover
             raise ProjectError(
-                "Prompt bundle manifest template entry is malformed",
-                detail={"path": str(prompt_source_dir / "manifest.json")},
+                MALFORMED_TEMPLATE_ENTRY_MESSAGE,
+                detail={"path": str(prompt_source_dir / PROMPT_MANIFEST_FILENAME)},
             )
         relpath = entry.get("relpath")
         if not isinstance(relpath, str):  # pragma: no cover
             raise ProjectError(
-                "Prompt bundle manifest template entry is missing relpath",
-                detail={"path": str(prompt_source_dir / "manifest.json")},
+                MISSING_TEMPLATE_RELPATH_MESSAGE,
+                detail={"path": str(prompt_source_dir / PROMPT_MANIFEST_FILENAME)},
             )
         source = prompt_source_dir / Path(relpath).name
         copy_file(source, canonical_root / Path(relpath))
-    copy_file(prompt_source_dir / "manifest.json", canonical_manifest_path)
+    copy_file(prompt_source_dir / PROMPT_MANIFEST_FILENAME, canonical_manifest_path)
     return canonical_root, manifest, manifest_text
 
 
@@ -230,29 +240,29 @@ def _deploy_directory_structure(
 def _deploy_prompt_bindings(target_root: Path, prompt_source_dir: Path) -> list[str]:
     created: list[str] = []
     prompt_target_dir = static_prompts_dir(target_root)
-    manifest_path = prompt_source_dir / "manifest.json"
+    manifest_path = prompt_source_dir / PROMPT_MANIFEST_FILENAME
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     templates = manifest.get("templates")
     if not isinstance(templates, dict):
         raise ProjectError(
-            "Prompt bundle manifest is missing templates",
+            MISSING_TEMPLATES_MESSAGE,
             detail={"path": str(manifest_path)},
         )
 
-    manifest_target = prompt_target_dir / "manifest.json"
+    manifest_target = prompt_target_dir / PROMPT_MANIFEST_FILENAME
     create_or_replace_hardlink(manifest_path, manifest_target)
     created.append(str(manifest_target.relative_to(target_root)))
 
     for entry in templates.values():
         if not isinstance(entry, dict):
             raise ProjectError(
-                "Prompt bundle manifest template entry is malformed",
+                MALFORMED_TEMPLATE_ENTRY_MESSAGE,
                 detail={"path": str(manifest_path)},
             )
         relpath = entry.get("relpath")
         if not isinstance(relpath, str):
             raise ProjectError(
-                "Prompt bundle manifest template entry is missing relpath",
+                MISSING_TEMPLATE_RELPATH_MESSAGE,
                 detail={"path": str(manifest_path)},
             )
         source = prompt_source_dir / Path(relpath)
@@ -266,7 +276,6 @@ def _deploy_prompt_bindings(target_root: Path, prompt_source_dir: Path) -> list[
 def _write_prompt_bundle_lock(
     target_root: Path,
     *,
-    canonical_bundle_root: Path,
     manifest: dict[str, object],
     manifest_text: str,
 ) -> str:
@@ -277,7 +286,7 @@ def _write_prompt_bundle_lock(
         "bundle_id": manifest["bundle_id"],
         "bundle_version": manifest["bundle_version"],
         "binding_root": "prompts",
-        "manifest_file": "manifest.json",
+        "manifest_file": PROMPT_MANIFEST_FILENAME,
         "manifest_sha256": manifest_sha256,
         "templates": manifest["templates"],
     }
@@ -321,7 +330,6 @@ def install_agentkit(config: InstallConfig) -> InstallResult:
     created.append(
         _write_prompt_bundle_lock(
             root,
-            canonical_bundle_root=canonical_prompt_bundle_root,
             manifest=manifest,
             manifest_text=manifest_text,
         ),

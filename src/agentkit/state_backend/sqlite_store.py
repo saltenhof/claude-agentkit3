@@ -27,7 +27,14 @@ from agentkit.state_backend.exports import (
     write_story_context_projection,
     write_verify_decision_projection,
 )
-from agentkit.state_backend.records import AttemptRecord, ExecutionReport
+from agentkit.state_backend.records import (
+    AttemptRecord,
+    ExecutionEventRecord,
+    ExecutionReport,
+    QAFindingRecord,
+    QAStageResultRecord,
+    StoryMetricsRecord,
+)
 from agentkit.story_context_manager.models import (
     PhaseSnapshot,
     PhaseState,
@@ -36,10 +43,12 @@ from agentkit.story_context_manager.models import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
 
     from agentkit.qa.policy_engine.engine import VerifyDecision
     from agentkit.qa.protocols import LayerResult
+    from agentkit.state_backend.scope import RuntimeStateScope
 
 
 def load_json_safe(path: Path) -> dict[str, object] | None:
@@ -58,8 +67,12 @@ def _load_json(data: str | None, default: Any) -> Any:
     return json.loads(data)
 
 
+def _cast_json_record(value: object) -> dict[str, object]:
+    return cast("dict[str, object]", value)
+
+
 @contextmanager
-def _connect(story_dir: Path) -> sqlite3.Connection:
+def _connect(story_dir: Path) -> Iterator[sqlite3.Connection]:
     db_path = state_db_path(story_dir)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
@@ -77,14 +90,16 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS story_contexts (
-            story_id TEXT PRIMARY KEY,
+            project_key TEXT NOT NULL,
+            story_id TEXT NOT NULL,
             story_type TEXT NOT NULL,
             execution_route TEXT NOT NULL,
             implementation_contract TEXT,
             issue_nr INTEGER,
             title TEXT NOT NULL,
             payload_json TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (project_key, story_id)
         );
 
         CREATE TABLE IF NOT EXISTS phase_states (
@@ -152,6 +167,44 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             PRIMARY KEY (story_id, flow_id, node_id)
         );
 
+        CREATE TABLE IF NOT EXISTS execution_events (
+            project_key TEXT NOT NULL,
+            story_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            event_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            occurred_at TEXT NOT NULL,
+            source_component TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            phase TEXT,
+            flow_id TEXT,
+            node_id TEXT,
+            payload_json TEXT NOT NULL,
+            PRIMARY KEY (project_key, run_id, event_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS story_metrics (
+            project_key TEXT NOT NULL,
+            story_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            story_type TEXT NOT NULL,
+            story_size TEXT NOT NULL,
+            mode TEXT NOT NULL,
+            processing_time_min REAL NOT NULL,
+            qa_rounds INTEGER NOT NULL,
+            increments INTEGER NOT NULL,
+            final_status TEXT NOT NULL,
+            completed_at TEXT NOT NULL,
+            adversarial_findings INTEGER,
+            adversarial_tests_created INTEGER,
+            files_changed INTEGER,
+            agentkit_version TEXT,
+            agentkit_commit TEXT,
+            config_version TEXT,
+            llm_roles_json TEXT NOT NULL,
+            PRIMARY KEY (project_key, run_id)
+        );
+
         CREATE TABLE IF NOT EXISTS override_records (
             override_id TEXT PRIMARY KEY,
             story_id TEXT NOT NULL,
@@ -195,13 +248,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
 
 
 def _story_id_for(story_dir: Path) -> str | None:
-    with _connect(story_dir) as conn:
-        row = conn.execute(
-            "SELECT story_id FROM story_contexts LIMIT 1",
-        ).fetchone()
-    if row is None:
-        return None
-    return str(row["story_id"])
+    return story_dir.name or None
 
 
 def save_story_context(story_dir: Path, ctx: StoryContext) -> None:
@@ -210,10 +257,17 @@ def save_story_context(story_dir: Path, ctx: StoryContext) -> None:
         conn.execute(
             """
             INSERT INTO story_contexts (
-                story_id, story_type, execution_route, implementation_contract,
-                issue_nr, title, payload_json, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(story_id) DO UPDATE SET
+                project_key,
+                story_id,
+                story_type,
+                execution_route,
+                implementation_contract,
+                issue_nr,
+                title,
+                payload_json,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(project_key, story_id) DO UPDATE SET
                 story_type=excluded.story_type,
                 execution_route=excluded.execution_route,
                 implementation_contract=excluded.implementation_contract,
@@ -223,6 +277,7 @@ def save_story_context(story_dir: Path, ctx: StoryContext) -> None:
                 updated_at=excluded.updated_at
             """,
             (
+                ctx.project_key,
                 ctx.story_id,
                 ctx.story_type.value,
                 ctx.execution_route.value,
@@ -245,17 +300,22 @@ def load_story_context(story_dir: Path) -> StoryContext | None:
     if story_id is None:
         return None
     with _connect(story_dir) as conn:
-        row = conn.execute(
+        rows = conn.execute(
             """
             SELECT payload_json FROM story_contexts
             WHERE story_id = ?
             """,
             (story_id,),
-        ).fetchone()
-    if row is None:
+        ).fetchall()
+    if not rows:
         return None
+    if len(rows) > 1:
+        raise CorruptStateError(
+            "story_contexts lookup is ambiguous without explicit project scope",
+            detail={"story_dir": str(story_dir), "story_id": story_id},
+        )
     try:
-        return StoryContext.model_validate(json.loads(str(row["payload_json"])))
+        return StoryContext.model_validate(json.loads(str(rows[0]["payload_json"])))
     except Exception as exc:  # noqa: BLE001
         raise CorruptStateError(
             f"story_contexts payload is invalid in {state_db_path(story_dir)}: {exc}",
@@ -519,6 +579,96 @@ def save_flow_execution(story_dir: Path, record: FlowExecution) -> None:
         )
 
 
+def append_execution_event(story_dir: Path, event: ExecutionEventRecord) -> None:
+    with _connect(story_dir) as conn:
+        conn.execute(
+            """
+            INSERT INTO execution_events (
+                project_key, story_id, run_id, event_id, event_type,
+                occurred_at, source_component, severity, phase, flow_id,
+                node_id, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event.project_key,
+                event.story_id,
+                event.run_id,
+                event.event_id,
+                event.event_type,
+                event.occurred_at.isoformat(),
+                event.source_component,
+                event.severity,
+                event.phase,
+                event.flow_id,
+                event.node_id,
+                _dump_json(event.payload),
+            ),
+        )
+
+
+def append_execution_event_global(event: ExecutionEventRecord) -> None:
+    del event
+    raise RuntimeError(
+        "Global execution-event append requires the postgres state backend",
+    )
+
+
+def load_execution_events(
+    story_dir: Path,
+    *,
+    project_key: str | None = None,
+    story_id: str | None = None,
+    run_id: str | None = None,
+    event_type: str | None = None,
+) -> list[ExecutionEventRecord]:
+    clauses: list[str] = []
+    params: list[object] = []
+    if project_key is not None:
+        clauses.append("project_key = ?")
+        params.append(project_key)
+    if story_id is not None:
+        clauses.append("story_id = ?")
+        params.append(story_id)
+    if run_id is not None:
+        clauses.append("run_id = ?")
+        params.append(run_id)
+    if event_type is not None:
+        clauses.append("event_type = ?")
+        params.append(event_type)
+    where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    with _connect(story_dir) as conn:
+        rows = conn.execute(
+            f"""
+            SELECT project_key, story_id, run_id, event_id, event_type,
+                   occurred_at, source_component, severity, phase, flow_id,
+                   node_id, payload_json
+            FROM execution_events
+            {where_clause}
+            ORDER BY occurred_at ASC, event_id ASC
+            """,
+            tuple(params),
+        ).fetchall()
+    events: list[ExecutionEventRecord] = []
+    for row in rows:
+        events.append(
+            ExecutionEventRecord(
+                project_key=str(row["project_key"]),
+                story_id=str(row["story_id"]),
+                run_id=str(row["run_id"]),
+                event_id=str(row["event_id"]),
+                event_type=str(row["event_type"]),
+                occurred_at=datetime.fromisoformat(str(row["occurred_at"])),
+                source_component=str(row["source_component"]),
+                severity=str(row["severity"]),
+                phase=str(row["phase"]) if row["phase"] is not None else None,
+                flow_id=str(row["flow_id"]) if row["flow_id"] is not None else None,
+                node_id=str(row["node_id"]) if row["node_id"] is not None else None,
+                payload=_cast_json_record(_load_json(str(row["payload_json"]), {})),
+            )
+        )
+    return events
+
+
 def load_flow_execution(story_dir: Path) -> FlowExecution | None:
     story_id = _story_id_for(story_dir)
     if story_id is None:
@@ -554,6 +704,165 @@ def load_flow_execution(story_dir: Path) -> FlowExecution | None:
             if row["finished_at"] is not None
             else None
         ),
+    )
+
+
+def upsert_story_metrics(story_dir: Path, metrics: StoryMetricsRecord) -> None:
+    with _connect(story_dir) as conn:
+        conn.execute(
+            """
+            INSERT INTO story_metrics (
+                project_key, story_id, run_id, story_type, story_size, mode,
+                processing_time_min, qa_rounds, increments, final_status,
+                completed_at, adversarial_findings, adversarial_tests_created,
+                files_changed, agentkit_version, agentkit_commit,
+                config_version, llm_roles_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(project_key, run_id) DO UPDATE SET
+                story_id=excluded.story_id,
+                story_type=excluded.story_type,
+                story_size=excluded.story_size,
+                mode=excluded.mode,
+                processing_time_min=excluded.processing_time_min,
+                qa_rounds=excluded.qa_rounds,
+                increments=excluded.increments,
+                final_status=excluded.final_status,
+                completed_at=excluded.completed_at,
+                adversarial_findings=excluded.adversarial_findings,
+                adversarial_tests_created=excluded.adversarial_tests_created,
+                files_changed=excluded.files_changed,
+                agentkit_version=excluded.agentkit_version,
+                agentkit_commit=excluded.agentkit_commit,
+                config_version=excluded.config_version,
+                llm_roles_json=excluded.llm_roles_json
+            """,
+            (
+                metrics.project_key,
+                metrics.story_id,
+                metrics.run_id,
+                metrics.story_type,
+                metrics.story_size,
+                metrics.mode,
+                metrics.processing_time_min,
+                metrics.qa_rounds,
+                metrics.increments,
+                metrics.final_status,
+                metrics.completed_at,
+                metrics.adversarial_findings,
+                metrics.adversarial_tests_created,
+                metrics.files_changed,
+                metrics.agentkit_version,
+                metrics.agentkit_commit,
+                metrics.config_version,
+                _dump_json(list(metrics.llm_roles)),
+            ),
+        )
+
+
+def load_story_metrics(
+    story_dir: Path,
+    *,
+    project_key: str | None = None,
+    story_id: str | None = None,
+    run_id: str | None = None,
+) -> list[StoryMetricsRecord]:
+    clauses: list[str] = []
+    params: list[object] = []
+    if project_key is not None:
+        clauses.append("project_key = ?")
+        params.append(project_key)
+    if story_id is not None:
+        clauses.append("story_id = ?")
+        params.append(story_id)
+    if run_id is not None:
+        clauses.append("run_id = ?")
+        params.append(run_id)
+    where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    with _connect(story_dir) as conn:
+        rows = conn.execute(
+            f"""
+            SELECT *
+            FROM story_metrics
+            {where_clause}
+            ORDER BY completed_at ASC, run_id ASC
+            """,
+            tuple(params),
+        ).fetchall()
+    return [_story_metrics_from_row(row) for row in rows]
+
+
+def load_story_metrics_for_scope(
+    scope: RuntimeStateScope,
+) -> list[StoryMetricsRecord]:
+    return load_story_metrics(
+        scope.story_dir,
+        project_key=scope.project_key,
+        story_id=scope.story_id,
+        run_id=scope.run_id,
+    )
+
+
+def load_qa_stage_results(
+    story_dir: Path,
+    *,
+    project_key: str | None = None,
+    story_id: str | None = None,
+    run_id: str | None = None,
+    attempt_no: int | None = None,
+    stage_id: str | None = None,
+) -> list[QAStageResultRecord]:
+    del story_dir, project_key, story_id, run_id, attempt_no, stage_id
+    raise RuntimeError(
+        "FK-16 QA read models are only materialized on the Postgres backend. "
+        "SQLite remains a narrow unit-test backend.",
+    )
+
+
+def load_qa_stage_results_for_scope(
+    scope: RuntimeStateScope,
+    *,
+    attempt_no: int | None = None,
+    stage_id: str | None = None,
+) -> list[QAStageResultRecord]:
+    return load_qa_stage_results(
+        scope.story_dir,
+        project_key=scope.project_key,
+        story_id=scope.story_id,
+        run_id=scope.run_id,
+        attempt_no=attempt_no,
+        stage_id=stage_id,
+    )
+
+
+def load_qa_findings(
+    story_dir: Path,
+    *,
+    project_key: str | None = None,
+    story_id: str | None = None,
+    run_id: str | None = None,
+    attempt_no: int | None = None,
+    stage_id: str | None = None,
+) -> list[QAFindingRecord]:
+    del story_dir, project_key, story_id, run_id, attempt_no, stage_id
+    raise RuntimeError(
+        "FK-16 QA read models are only materialized on the Postgres backend. "
+        "SQLite remains a narrow unit-test backend.",
+    )
+
+
+def load_qa_findings_for_scope(
+    scope: RuntimeStateScope,
+    *,
+    attempt_no: int | None = None,
+    stage_id: str | None = None,
+) -> list[QAFindingRecord]:
+    return load_qa_findings(
+        scope.story_dir,
+        project_key=scope.project_key,
+        story_id=scope.story_id,
+        run_id=scope.run_id,
+        attempt_no=attempt_no,
+        stage_id=stage_id,
     )
 
 
@@ -629,6 +938,54 @@ def load_node_execution_ledger(
             if row["last_executed_at"] is not None
             else None
         ),
+    )
+
+
+def _story_metrics_from_row(row: sqlite3.Row) -> StoryMetricsRecord:
+    llm_roles = _load_json(str(row["llm_roles_json"]), [])
+    return StoryMetricsRecord(
+        project_key=str(row["project_key"]),
+        story_id=str(row["story_id"]),
+        run_id=str(row["run_id"]),
+        story_type=str(row["story_type"]),
+        story_size=str(row["story_size"]),
+        mode=str(row["mode"]),
+        processing_time_min=float(row["processing_time_min"]),
+        qa_rounds=int(row["qa_rounds"]),
+        increments=int(row["increments"]),
+        final_status=str(row["final_status"]),
+        completed_at=str(row["completed_at"]),
+        adversarial_findings=(
+            int(row["adversarial_findings"])
+            if row["adversarial_findings"] is not None
+            else None
+        ),
+        adversarial_tests_created=(
+            int(row["adversarial_tests_created"])
+            if row["adversarial_tests_created"] is not None
+            else None
+        ),
+        files_changed=(
+            int(row["files_changed"])
+            if row["files_changed"] is not None
+            else None
+        ),
+        agentkit_version=(
+            str(row["agentkit_version"])
+            if row["agentkit_version"] is not None
+            else None
+        ),
+        agentkit_commit=(
+            str(row["agentkit_commit"])
+            if row["agentkit_commit"] is not None
+            else None
+        ),
+        config_version=(
+            str(row["config_version"])
+            if row["config_version"] is not None
+            else None
+        ),
+        llm_roles=tuple(str(role) for role in llm_roles if isinstance(role, str)),
     )
 
 
@@ -773,7 +1130,7 @@ def record_verify_decision(
     *,
     decision: VerifyDecision,
     attempt_nr: int,
-) -> tuple[str, str]:
+) -> tuple[str, ...]:
     story_id = _story_id_for(story_dir)
     if story_id is None:
         raise CorruptStateError(
@@ -858,11 +1215,17 @@ def load_latest_verify_decision(story_dir: Path) -> dict[str, object] | None:
     if row is None:
         return None
     try:
-        return cast("dict[str, object]", json.loads(str(row["payload_json"])))
+        return _cast_json_record(json.loads(str(row["payload_json"])))
     except json.JSONDecodeError as exc:
         raise CorruptStateError(
             f"decision_records payload is invalid in {state_db_path(story_dir)}: {exc}",
         ) from exc
+
+
+def load_latest_verify_decision_for_scope(
+    scope: RuntimeStateScope,
+) -> dict[str, object] | None:
+    return load_latest_verify_decision(scope.story_dir)
 
 
 def read_latest_verify_decision_record(story_dir: Path) -> dict[str, object] | None:
@@ -892,11 +1255,18 @@ def load_artifact_record(
     if row is None:
         return None
     try:
-        return cast("dict[str, object]", json.loads(str(row["payload_json"])))
+        return _cast_json_record(json.loads(str(row["payload_json"])))
     except json.JSONDecodeError as exc:
         raise CorruptStateError(
             f"artifact_records payload is invalid in {state_db_path(story_dir)}: {exc}",
         ) from exc
+
+
+def load_artifact_record_for_scope(
+    scope: RuntimeStateScope,
+    artifact_kind: str,
+) -> dict[str, object] | None:
+    return load_artifact_record(scope.story_dir, artifact_kind)
 
 
 def read_artifact_record(
@@ -958,6 +1328,10 @@ def backend_has_structural_artifact(story_dir: Path) -> bool:
     return record is not None
 
 
+def backend_has_structural_artifact_for_scope(scope: RuntimeStateScope) -> bool:
+    return backend_has_structural_artifact(scope.story_dir)
+
+
 def backend_verify_decision_passed(story_dir: Path) -> bool:
     payload = load_latest_verify_decision(story_dir)
     if payload is None:
@@ -968,3 +1342,7 @@ def backend_verify_decision_passed(story_dir: Path) -> bool:
         and bool(payload.get("passed"))
         and status in ("PASS", "PASS_WITH_WARNINGS")
     )
+
+
+def backend_verify_decision_passed_for_scope(scope: RuntimeStateScope) -> bool:
+    return backend_verify_decision_passed(scope.story_dir)

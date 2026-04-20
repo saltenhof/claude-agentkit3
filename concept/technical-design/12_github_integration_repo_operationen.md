@@ -50,6 +50,20 @@ AgentKit betreibt keinen eigenen GitHub-Adapter oder REST-Client.
 Alle GitHub-Interaktionen laufen über die `gh` CLI, die
 Authentifizierung, Token-Handling und Retry selbst übernimmt.
 
+### 12.1.1 Zielbild der Story-Autoritaet
+
+GitHub ist im aktuellen Stand das externe Backend fuer Story- und
+Board-Verwaltung. Das langfristige Zielbild von AK3 ist jedoch eine
+eigene zentrale Story-Control-Plane:
+
+- Story-Identitaet, Story-Status, Board-Sichten und Story-Detaildaten
+  liegen fachlich bevorzugt in der AK3-eigenen Datenbank und Web-UI
+- GitHub bleibt fuer Repo-Operationen und optionalen externen
+  Backlog- oder Synchronisationsbedarf relevant
+- die GitHub-Issue- und Project-Integration ist damit ein aktueller
+  Adapterpfad, nicht die einzig denkbare oder langfristig fachlich
+  bevorzugte Story-Wahrheit
+
 ## 12.2 GitHub Project V2: Custom Fields
 
 ### 12.2.1 Feldkatalog

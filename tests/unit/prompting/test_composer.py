@@ -30,18 +30,20 @@ if TYPE_CHECKING:
 
 def _make_context(
     *,
+    project_key: str = "test-project",
     story_id: str = "AG3-001",
     story_type: StoryType = StoryType.IMPLEMENTATION,
-    mode: StoryMode = StoryMode.EXECUTION,
+    execution_route: StoryMode = StoryMode.EXECUTION,
     issue_nr: int = 42,
     title: str = "Add widget feature",
     project_root: Path | None = None,
 ) -> StoryContext:
     """Build a minimal StoryContext for testing."""
     return StoryContext(
+        project_key=project_key,
         story_id=story_id,
         story_type=story_type,
-        mode=mode,
+        execution_route=execution_route,
         issue_nr=issue_nr,
         title=title,
         project_root=project_root,
@@ -173,7 +175,6 @@ class TestComposePrompt:
         assert len(result.template_sha256) == 64
         assert len(result.render_input_digest) == 64
         assert len(result.output_sha256) == 64
-        assert result.rendered_sha256 == result.output_sha256
         assert result.story_id == "AG3-001"
         assert "SENTINEL" in result.sentinel
 
@@ -249,10 +250,10 @@ class TestComposePrompt:
 
     def test_exploration_mode_selects_exploration_template(self) -> None:
         """Exploration mode must produce the exploration template."""
-        ctx = _make_context(mode=StoryMode.EXPLORATION)
+        ctx = _make_context(execution_route=StoryMode.EXPLORATION)
         config = ComposeConfig(
             story_type=StoryType.IMPLEMENTATION,
-            mode=StoryMode.EXPLORATION,
+            execution_route=StoryMode.EXPLORATION,
         )
         result = compose_prompt(ctx, config)
         assert result.template_name == "worker-exploration"
@@ -261,7 +262,7 @@ class TestComposePrompt:
     def test_compose_config_exposes_execution_route_alias(self) -> None:
         config = ComposeConfig(
             story_type=StoryType.IMPLEMENTATION,
-            mode=StoryMode.EXPLORATION,
+            execution_route=StoryMode.EXPLORATION,
         )
         assert config.execution_route == StoryMode.EXPLORATION
 
@@ -269,7 +270,7 @@ class TestComposePrompt:
         """Concept type must select the concept template."""
         ctx = _make_context(
             story_type=StoryType.CONCEPT,
-            mode=StoryMode.NOT_APPLICABLE,
+            execution_route=StoryMode.NOT_APPLICABLE,
         )
         config = ComposeConfig(story_type=StoryType.CONCEPT)
         result = compose_prompt(ctx, config)
@@ -280,7 +281,7 @@ class TestComposePrompt:
         """Research type must select the research template."""
         ctx = _make_context(
             story_type=StoryType.RESEARCH,
-            mode=StoryMode.NOT_APPLICABLE,
+            execution_route=StoryMode.NOT_APPLICABLE,
         )
         config = ComposeConfig(story_type=StoryType.RESEARCH)
         result = compose_prompt(ctx, config)
@@ -415,7 +416,6 @@ class TestWritePrompt:
         assert manifest["template_sha256"] == prompt.template_sha256
         assert manifest["render_input_digest"] == prompt.render_input_digest
         assert manifest["output_sha256"] == prompt.output_sha256
-        assert manifest["rendered_sha256"] == prompt.rendered_sha256
         assert manifest["artifact_path"] == (
             ".agentkit/prompts/run-123/invoke-001/prompt.md"
         )

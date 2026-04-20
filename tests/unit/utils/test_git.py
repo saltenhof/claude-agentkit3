@@ -82,6 +82,23 @@ class TestCreateWorktree:
         with pytest.raises(WorktreeError):
             create_worktree(not_a_repo, worktree_path, "story/AG3-004")
 
+    def test_nested_repo_path_is_rejected(self, git_repo: Path, tmp_path: Path) -> None:
+        """create_worktree requires the actual repo root, not a nested path."""
+        nested = git_repo / "nested"
+        nested.mkdir()
+
+        with pytest.raises(WorktreeError, match="repository root"):
+            create_worktree(nested, tmp_path / "wt-nested", "story/AG3-005")
+
+    def test_git_worktree_add_failure_is_wrapped(
+        self, git_repo: Path, tmp_path: Path
+    ) -> None:
+        """create_worktree wraps git failures after root validation succeeds."""
+        create_worktree(git_repo, tmp_path / "wt-existing-branch", "story/AG3-006")
+
+        with pytest.raises(WorktreeError, match="git worktree add failed"):
+            create_worktree(git_repo, tmp_path / "wt-duplicate-branch", "story/AG3-006")
+
 
 @pytest.mark.requires_git
 class TestRemoveWorktree:
@@ -127,3 +144,25 @@ class TestRemoveWorktree:
         # Verify metadata was pruned: the same path can now host a new worktree.
         create_worktree(git_repo, worktree_path, "story/AG3-011b")
         assert worktree_path.exists()
+
+    def test_remove_worktree_requires_repo_root(
+        self, git_repo: Path, tmp_path: Path
+    ) -> None:
+        """remove_worktree rejects nested repo paths the same way as create."""
+        worktree_path = tmp_path / "wt-remove-root-check"
+        create_worktree(git_repo, worktree_path, "story/AG3-012")
+        nested = git_repo / "nested-remove"
+        nested.mkdir()
+
+        with pytest.raises(WorktreeError, match="repository root"):
+            remove_worktree(nested, worktree_path)
+
+    def test_git_worktree_remove_failure_is_wrapped(
+        self, git_repo: Path, tmp_path: Path
+    ) -> None:
+        """remove_worktree wraps git failures for non-worktree directories."""
+        not_a_worktree = tmp_path / "not-a-worktree"
+        not_a_worktree.mkdir()
+
+        with pytest.raises(WorktreeError, match="git worktree remove failed"):
+            remove_worktree(git_repo, not_a_worktree)

@@ -31,9 +31,6 @@ class ViolationType(StrEnum):
 class GuardVerdict:
     """Result of a governance guard evaluation. Immutable (ARCH-29).
 
-    Produced via the ``ALLOW`` / ``BLOCK`` class methods rather than
-    direct construction, ensuring consistent invariants (ARCH-20).
-
     Attributes:
         allowed: Whether the evaluated operation is permitted.
         guard_name: Identifier of the guard that produced this verdict.
@@ -49,7 +46,7 @@ class GuardVerdict:
     detail: dict[str, object] | None = None
 
     @classmethod
-    def ALLOW(cls, guard_name: str) -> GuardVerdict:  # noqa: N802
+    def allow(cls, guard_name: str) -> GuardVerdict:
         """Create a verdict that permits the operation.
 
         Args:
@@ -61,7 +58,7 @@ class GuardVerdict:
         return cls(allowed=True, guard_name=guard_name)
 
     @classmethod
-    def BLOCK(  # noqa: N802
+    def block(
         cls,
         guard_name: str,
         violation_type: ViolationType,

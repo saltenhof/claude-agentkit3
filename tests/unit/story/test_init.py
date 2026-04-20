@@ -40,6 +40,7 @@ class TestPackageExports:
 
     def test_all_list_matches_exports(self) -> None:
         expected = {
+            "ImplementationContract",
             "PhaseSnapshot",
             "PhaseState",
             "PhaseStatus",

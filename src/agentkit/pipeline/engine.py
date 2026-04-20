@@ -156,6 +156,385 @@ def _evaluate_phase_guards(
     return evaluations
 
 
+def _completed_state_for(
+    state: PhaseState,
+    attempt_id: str,
+) -> PhaseState:
+    return PhaseState(
+        story_id=state.story_id,
+        phase=state.phase,
+        status=PhaseStatus.COMPLETED,
+        attempt_id=attempt_id,
+    )
+
+
+def _transition_target_for(
+    engine: PipelineEngine,
+    ctx: StoryContext,
+    completed_state: PhaseState,
+) -> str | None:
+    transition = _evaluate_transitions(
+        engine._workflow,
+        ctx,
+        completed_state,
+    )
+    return transition.target if transition else None
+
+
+def _handle_guard_failure_result(
+    engine: PipelineEngine,
+    ctx: StoryContext,
+    state: PhaseState,
+    phase_def: PhaseDefinition,
+    result: HandlerResult,
+    attempt_id: str,
+    guard_evals: list[dict[str, object]],
+    *,
+    resume_trigger: str | None,
+) -> EngineResult:
+    phase_name = state.phase
+    failure_reasons = [
+        str(guard_eval.get("reason", "Guard failed"))
+        for guard_eval in guard_evals
+        if not guard_eval.get("passed", False)
+    ]
+    retry_result = engine._apply_retry_policy(
+        ctx,
+        phase_def,
+        attempt_id,
+        failure_reasons=failure_reasons,
+        resume_trigger=resume_trigger,
+    )
+    if retry_result is not None:
+        return retry_result
+
+    finished_at = datetime.now(tz=UTC)
+    engine._runtime.record_flow_execution(
+        ctx,
+        phase_name,
+        attempt_id,
+        status="FAILED",
+        node_id=phase_name,
+        finished_at=finished_at,
+    )
+    save_phase_state(
+        engine._story_dir,
+        PhaseState(
+            story_id=state.story_id,
+            phase=phase_name,
+            status=PhaseStatus.FAILED,
+            errors=failure_reasons,
+            attempt_id=attempt_id,
+        ),
+    )
+    save_attempt(
+        engine._story_dir,
+        AttemptRecord(
+            attempt_id=attempt_id,
+            phase=phase_name,
+            entered_at=datetime.now(tz=UTC),
+            exit_status=PhaseStatus.FAILED,
+            guard_evaluations=tuple(guard_evals),
+            artifacts_produced=result.artifacts_produced,
+            outcome="failed",
+            resume_trigger=resume_trigger,
+        ),
+    )
+    engine._runtime.record_node_outcome(
+        ctx,
+        phase_name,
+        attempt_id,
+        outcome="FAIL",
+    )
+    engine._runtime.record_flow_end(
+        ctx,
+        phase_name,
+        attempt_id,
+        status="FAILED",
+        node_id=phase_name,
+    )
+    return EngineResult(
+        status="failed",
+        phase=phase_name,
+        errors=tuple(failure_reasons),
+        attempt_id=attempt_id,
+    )
+
+
+def _handle_completed_result(
+    engine: PipelineEngine,
+    ctx: StoryContext,
+    state: PhaseState,
+    phase_def: PhaseDefinition,
+    handler: PhaseHandler,
+    result: HandlerResult,
+    attempt_id: str,
+    *,
+    resume_trigger: str | None,
+) -> EngineResult:
+    phase_name = state.phase
+    try:
+        handler.on_exit(ctx, state)
+    except Exception as exc:
+        logger.warning(
+            "on_exit raised for phase '%s': %s",
+            phase_name,
+            exc,
+        )
+
+    completed_state = _completed_state_for(state, attempt_id)
+    guard_evals = _evaluate_phase_guards(
+        phase_def,
+        ctx,
+        completed_state,
+    )
+    if any(not guard_eval.get("passed", False) for guard_eval in guard_evals):
+        return _handle_guard_failure_result(
+            engine,
+            ctx,
+            state,
+            phase_def,
+            result,
+            attempt_id,
+            guard_evals,
+            resume_trigger=resume_trigger,
+        )
+
+    save_phase_snapshot(
+        engine._story_dir,
+        PhaseSnapshot(
+            story_id=state.story_id,
+            phase=phase_name,
+            status=PhaseStatus.COMPLETED,
+            completed_at=datetime.now(tz=UTC),
+            artifacts=list(result.artifacts_produced),
+        ),
+    )
+    save_phase_state(engine._story_dir, completed_state)
+    engine._runtime.record_flow_execution(
+        ctx,
+        phase_name,
+        attempt_id,
+        status="COMPLETED",
+        node_id=phase_name,
+        finished_at=datetime.now(tz=UTC),
+    )
+    save_attempt(
+        engine._story_dir,
+        AttemptRecord(
+            attempt_id=attempt_id,
+            phase=phase_name,
+            entered_at=datetime.now(tz=UTC),
+            exit_status=PhaseStatus.COMPLETED,
+            guard_evaluations=tuple(guard_evals),
+            artifacts_produced=result.artifacts_produced,
+            outcome="phase_completed",
+            resume_trigger=resume_trigger,
+        ),
+    )
+    engine._runtime.record_node_outcome(
+        ctx,
+        phase_name,
+        attempt_id,
+        outcome="PASS",
+    )
+    next_phase = _transition_target_for(engine, ctx, completed_state)
+    if next_phase is None:
+        engine._runtime.record_flow_end(
+            ctx,
+            phase_name,
+            attempt_id,
+            status="COMPLETED",
+            node_id=phase_name,
+        )
+    return EngineResult(
+        status="phase_completed",
+        phase=phase_name,
+        next_phase=next_phase,
+        attempt_id=attempt_id,
+    )
+
+
+def _handle_paused_result(
+    engine: PipelineEngine,
+    ctx: StoryContext,
+    state: PhaseState,
+    result: HandlerResult,
+    attempt_id: str,
+    *,
+    resume_trigger: str | None,
+) -> EngineResult:
+    phase_name = state.phase
+    save_phase_state(
+        engine._story_dir,
+        PhaseState(
+            story_id=state.story_id,
+            phase=phase_name,
+            status=PhaseStatus.PAUSED,
+            paused_reason=result.yield_status,
+            attempt_id=attempt_id,
+        ),
+    )
+    engine._runtime.record_flow_execution(
+        ctx,
+        phase_name,
+        attempt_id,
+        status="YIELDED",
+        node_id=phase_name,
+    )
+    save_attempt(
+        engine._story_dir,
+        AttemptRecord(
+            attempt_id=attempt_id,
+            phase=phase_name,
+            entered_at=datetime.now(tz=UTC),
+            exit_status=PhaseStatus.PAUSED,
+            artifacts_produced=result.artifacts_produced,
+            outcome="yielded",
+            yield_status=result.yield_status,
+            resume_trigger=resume_trigger,
+        ),
+    )
+    engine._runtime.record_node_outcome(
+        ctx,
+        phase_name,
+        attempt_id,
+        outcome="YIELD",
+    )
+    return EngineResult(
+        status="yielded",
+        phase=phase_name,
+        yield_status=result.yield_status,
+        attempt_id=attempt_id,
+    )
+
+
+def _engine_status_for(result_status: PhaseStatus) -> str:
+    status_map = {
+        PhaseStatus.FAILED: "failed",
+        PhaseStatus.ESCALATED: "escalated",
+        PhaseStatus.BLOCKED: "blocked",
+    }
+    return status_map.get(result_status, "failed")
+
+
+def _handle_terminal_result(
+    engine: PipelineEngine,
+    ctx: StoryContext,
+    state: PhaseState,
+    phase_def: PhaseDefinition,
+    result: HandlerResult,
+    attempt_id: str,
+    *,
+    resume_trigger: str | None,
+) -> EngineResult:
+    phase_name = state.phase
+    engine_status = _engine_status_for(result.status)
+    if result.status == PhaseStatus.FAILED:
+        retry_result = engine._apply_retry_policy(
+            ctx,
+            phase_def,
+            attempt_id,
+            failure_reasons=result.errors,
+            artifacts=result.artifacts_produced,
+            resume_trigger=resume_trigger,
+        )
+        if retry_result is not None:
+            return retry_result
+
+    save_phase_state(
+        engine._story_dir,
+        PhaseState(
+            story_id=state.story_id,
+            phase=phase_name,
+            status=result.status,
+            errors=list(result.errors),
+            attempt_id=attempt_id,
+        ),
+    )
+    engine._runtime.record_flow_execution(
+        ctx,
+        phase_name,
+        attempt_id,
+        status=result.status.value.upper(),
+        node_id=phase_name,
+        finished_at=datetime.now(tz=UTC),
+    )
+    save_attempt(
+        engine._story_dir,
+        AttemptRecord(
+            attempt_id=attempt_id,
+            phase=phase_name,
+            entered_at=datetime.now(tz=UTC),
+            exit_status=result.status,
+            artifacts_produced=result.artifacts_produced,
+            outcome=engine_status,
+            resume_trigger=resume_trigger,
+        ),
+    )
+    engine._runtime.record_node_outcome(
+        ctx,
+        phase_name,
+        attempt_id,
+        outcome="FAIL",
+    )
+    engine._runtime.record_flow_end(
+        ctx,
+        phase_name,
+        attempt_id,
+        status=result.status.value.upper(),
+        node_id=phase_name,
+    )
+    return EngineResult(
+        status=engine_status,
+        phase=phase_name,
+        errors=result.errors,
+        attempt_id=attempt_id,
+    )
+
+
+def _process_handler_result_impl(
+    engine: PipelineEngine,
+    ctx: StoryContext,
+    state: PhaseState,
+    phase_def: PhaseDefinition,
+    handler: PhaseHandler,
+    result: HandlerResult,
+    attempt_id: str,
+    *,
+    resume_trigger: str | None,
+) -> EngineResult:
+    if result.status == PhaseStatus.COMPLETED:
+        return _handle_completed_result(
+            engine,
+            ctx,
+            state,
+            phase_def,
+            handler,
+            result,
+            attempt_id,
+            resume_trigger=resume_trigger,
+        )
+    if result.status == PhaseStatus.PAUSED:
+        return _handle_paused_result(
+            engine,
+            ctx,
+            state,
+            result,
+            attempt_id,
+            resume_trigger=resume_trigger,
+        )
+    return _handle_terminal_result(
+        engine,
+        ctx,
+        state,
+        phase_def,
+        result,
+        attempt_id,
+        resume_trigger=resume_trigger,
+    )
+
+
 class PipelineEngine:
     """Interprets a WorkflowDefinition by coordinating handlers and state.
 
@@ -271,12 +650,14 @@ class PipelineEngine:
             state,
         )
         if not can_enter:
+            finished_at = datetime.now(tz=UTC)
             self._runtime.record_flow_execution(
                 ctx,
                 phase_name,
                 attempt_id,
                 status="BLOCKED",
                 node_id=phase_name,
+                finished_at=finished_at,
             )
             blocked_state = PhaseState(
                 story_id=state.story_id,
@@ -299,6 +680,13 @@ class PipelineEngine:
                 phase_name,
                 attempt_id,
                 outcome="FAIL",
+            )
+            self._runtime.record_flow_end(
+                ctx,
+                phase_name,
+                attempt_id,
+                status="BLOCKED",
+                node_id=phase_name,
             )
             return EngineResult(
                 status="blocked",
@@ -464,248 +852,15 @@ class PipelineEngine:
         Returns:
             An ``EngineResult`` for the orchestrator.
         """
-        phase_name = state.phase
-
-        if result.status == PhaseStatus.COMPLETED:
-            # Call on_exit
-            try:
-                handler.on_exit(ctx, state)
-            except Exception as exc:
-                logger.warning(
-                    "on_exit raised for phase '%s': %s",
-                    phase_name,
-                    exc,
-                )
-
-            # Evaluate exit-guards AFTER handler completion
-            completed_state = PhaseState(
-                story_id=state.story_id,
-                phase=phase_name,
-                status=PhaseStatus.COMPLETED,
-                attempt_id=attempt_id,
-            )
-            guard_evals = _evaluate_phase_guards(
-                phase_def,
-                ctx,
-                completed_state,
-            )
-
-            # If any exit-guard fails, block the transition
-            guard_failures = [g for g in guard_evals if not g.get("passed", False)]
-            if guard_failures:
-                failure_reasons = [
-                    str(g.get("reason", "Guard failed")) for g in guard_failures
-                ]
-                retry_result = self._apply_retry_policy(
-                    ctx,
-                    phase_def,
-                    attempt_id,
-                    failure_reasons=failure_reasons,
-                    resume_trigger=resume_trigger,
-                )
-                if retry_result is not None:
-                    return retry_result
-                self._runtime.record_flow_execution(
-                    ctx,
-                    phase_name,
-                    attempt_id,
-                    status="FAILED",
-                    node_id=phase_name,
-                    finished_at=datetime.now(tz=UTC),
-                )
-                failed_state = PhaseState(
-                    story_id=state.story_id,
-                    phase=phase_name,
-                    status=PhaseStatus.FAILED,
-                    errors=failure_reasons,
-                    attempt_id=attempt_id,
-                )
-                save_phase_state(self._story_dir, failed_state)
-
-                attempt = AttemptRecord(
-                    attempt_id=attempt_id,
-                    phase=phase_name,
-                    entered_at=datetime.now(tz=UTC),
-                    exit_status=PhaseStatus.FAILED,
-                    guard_evaluations=tuple(guard_evals),
-                    artifacts_produced=result.artifacts_produced,
-                    outcome="failed",
-                    resume_trigger=resume_trigger,
-                )
-                save_attempt(self._story_dir, attempt)
-                self._runtime.record_node_outcome(
-                    ctx,
-                    phase_name,
-                    attempt_id,
-                    outcome="FAIL",
-                )
-
-                return EngineResult(
-                    status="failed",
-                    phase=phase_name,
-                    errors=tuple(failure_reasons),
-                    attempt_id=attempt_id,
-                )
-
-            # Save phase snapshot
-            snapshot = PhaseSnapshot(
-                story_id=state.story_id,
-                phase=phase_name,
-                status=PhaseStatus.COMPLETED,
-                completed_at=datetime.now(tz=UTC),
-                artifacts=list(result.artifacts_produced),
-            )
-            save_phase_snapshot(self._story_dir, snapshot)
-
-            # Persist phase state
-            save_phase_state(self._story_dir, completed_state)
-            self._runtime.record_flow_execution(
-                ctx,
-                phase_name,
-                attempt_id,
-                status="COMPLETED",
-                node_id=phase_name,
-                finished_at=datetime.now(tz=UTC),
-            )
-
-            # Save attempt record
-            attempt = AttemptRecord(
-                attempt_id=attempt_id,
-                phase=phase_name,
-                entered_at=datetime.now(tz=UTC),
-                exit_status=PhaseStatus.COMPLETED,
-                guard_evaluations=tuple(guard_evals),
-                artifacts_produced=result.artifacts_produced,
-                outcome="phase_completed",
-                resume_trigger=resume_trigger,
-            )
-            save_attempt(self._story_dir, attempt)
-            self._runtime.record_node_outcome(
-                ctx,
-                phase_name,
-                attempt_id,
-                outcome="PASS",
-            )
-
-            # Evaluate transitions for next phase
-            transition = _evaluate_transitions(
-                self._workflow,
-                ctx,
-                completed_state,
-            )
-            next_phase = transition.target if transition else None
-
-            return EngineResult(
-                status="phase_completed",
-                phase=phase_name,
-                next_phase=next_phase,
-                attempt_id=attempt_id,
-            )
-
-        if result.status == PhaseStatus.PAUSED:
-            # Save paused state
-            paused_state = PhaseState(
-                story_id=state.story_id,
-                phase=phase_name,
-                status=PhaseStatus.PAUSED,
-                paused_reason=result.yield_status,
-                attempt_id=attempt_id,
-            )
-            save_phase_state(self._story_dir, paused_state)
-            self._runtime.record_flow_execution(
-                ctx,
-                phase_name,
-                attempt_id,
-                status="YIELDED",
-                node_id=phase_name,
-            )
-
-            # Save attempt record (no guard evals -- guards are exit-only)
-            attempt = AttemptRecord(
-                attempt_id=attempt_id,
-                phase=phase_name,
-                entered_at=datetime.now(tz=UTC),
-                exit_status=PhaseStatus.PAUSED,
-                artifacts_produced=result.artifacts_produced,
-                outcome="yielded",
-                yield_status=result.yield_status,
-                resume_trigger=resume_trigger,
-            )
-            save_attempt(self._story_dir, attempt)
-            self._runtime.record_node_outcome(
-                ctx,
-                phase_name,
-                attempt_id,
-                outcome="YIELD",
-            )
-
-            return EngineResult(
-                status="yielded",
-                phase=phase_name,
-                yield_status=result.yield_status,
-                attempt_id=attempt_id,
-            )
-
-        # FAILED, ESCALATED, BLOCKED
-        status_map = {
-            PhaseStatus.FAILED: "failed",
-            PhaseStatus.ESCALATED: "escalated",
-            PhaseStatus.BLOCKED: "blocked",
-        }
-        engine_status = status_map.get(result.status, "failed")
-
-        if result.status == PhaseStatus.FAILED:
-            retry_result = self._apply_retry_policy(
-                ctx,
-                phase_def,
-                attempt_id,
-                failure_reasons=result.errors,
-                artifacts=result.artifacts_produced,
-                resume_trigger=resume_trigger,
-            )
-            if retry_result is not None:
-                return retry_result
-
-        error_state = PhaseState(
-            story_id=state.story_id,
-            phase=phase_name,
-            status=result.status,
-            errors=list(result.errors),
-            attempt_id=attempt_id,
-        )
-        save_phase_state(self._story_dir, error_state)
-        self._runtime.record_flow_execution(
+        return _process_handler_result_impl(
+            self,
             ctx,
-            phase_name,
+            state,
+            phase_def,
+            handler,
+            result,
             attempt_id,
-            status=result.status.value.upper(),
-            node_id=phase_name,
-            finished_at=datetime.now(tz=UTC),
-        )
-
-        # No guard evals -- guards are exit-only, handler didn't complete
-        attempt = AttemptRecord(
-            attempt_id=attempt_id,
-            phase=phase_name,
-            entered_at=datetime.now(tz=UTC),
-            exit_status=result.status,
-            artifacts_produced=result.artifacts_produced,
-            outcome=engine_status,
             resume_trigger=resume_trigger,
-        )
-        save_attempt(self._story_dir, attempt)
-        self._runtime.record_node_outcome(
-            ctx,
-            phase_name,
-            attempt_id,
-            outcome="FAIL",
-        )
-
-        return EngineResult(
-            status=engine_status,
-            phase=phase_name,
-            errors=result.errors,
-            attempt_id=attempt_id,
         )
 
     def _handle_handler_exception(
@@ -755,13 +910,14 @@ class PipelineEngine:
             attempt_id=attempt_id,
         )
         save_phase_state(self._story_dir, failed_state)
+        finished_at = datetime.now(tz=UTC)
         self._runtime.record_flow_execution(
             ctx,
             phase_name,
             attempt_id,
             status="FAILED",
             node_id=phase_name,
-            finished_at=datetime.now(tz=UTC),
+            finished_at=finished_at,
         )
 
         attempt = AttemptRecord(
@@ -778,6 +934,13 @@ class PipelineEngine:
             phase_name,
             attempt_id,
             outcome="FAIL",
+        )
+        self._runtime.record_flow_end(
+            ctx,
+            phase_name,
+            attempt_id,
+            status="FAILED",
+            node_id=phase_name,
         )
 
         return EngineResult(
@@ -860,13 +1023,14 @@ class PipelineEngine:
             attempt_id=attempt_id,
         )
         save_phase_state(self._story_dir, completed_state)
+        finished_at = datetime.now(tz=UTC)
         self._runtime.record_flow_execution(
             ctx,
             phase_name,
             attempt_id,
             status=flow_status,
             node_id=phase_name,
-            finished_at=datetime.now(tz=UTC),
+            finished_at=finished_at,
         )
         attempt = AttemptRecord(
             attempt_id=attempt_id,
@@ -882,6 +1046,7 @@ class PipelineEngine:
             phase_name,
             attempt_id,
             outcome=node_outcome,
+            target_node_id=next_phase_override,
         )
         next_phase: str | None
         if next_phase_override is not None:
@@ -893,6 +1058,14 @@ class PipelineEngine:
                 completed_state,
             )
             next_phase = transition.target if transition else None
+        if next_phase is None:
+            self._runtime.record_flow_end(
+                ctx,
+                phase_name,
+                attempt_id,
+                status=flow_status,
+                node_id=phase_name,
+            )
         return EngineResult(
             status="phase_completed",
             phase=phase_name,
@@ -916,7 +1089,7 @@ class PipelineEngine:
                 and phase_def.override_policy.allow_skip
                 and record.target_node_id in (None, state.phase)
             ):
-                self._runtime.consume_override(record)
+                self._runtime.consume_override(ctx, record)
                 return self._complete_without_handler(
                     ctx,
                     state,
@@ -934,7 +1107,7 @@ class PipelineEngine:
             ):
                 destination: str | None = record.target_node_id
                 if destination and self._workflow.get_node(destination) is not None:
-                    self._runtime.consume_override(record)
+                    self._runtime.consume_override(ctx, record)
                     return self._complete_without_handler(
                         ctx,
                         state,
@@ -964,7 +1137,7 @@ class PipelineEngine:
                 None,
                 phase_name,
             ):
-                self._runtime.consume_override(record)
+                self._runtime.consume_override(ctx, record)
                 return True
         return False
 
@@ -1002,13 +1175,14 @@ class PipelineEngine:
             attempt_id=attempt_id,
         )
         save_phase_state(self._story_dir, failed_state)
+        finished_at = datetime.now(tz=UTC)
         self._runtime.record_flow_execution(
             ctx,
             phase_name,
             attempt_id,
             status="BACKTRACK",
             node_id=retry_policy.backtrack_target,
-            finished_at=datetime.now(tz=UTC),
+            finished_at=finished_at,
         )
         attempt = AttemptRecord(
             attempt_id=attempt_id,
@@ -1024,7 +1198,8 @@ class PipelineEngine:
             ctx,
             phase_name,
             attempt_id,
-            outcome="FAIL",
+            outcome="BACKTRACK",
+            target_node_id=retry_policy.backtrack_target,
         )
         return EngineResult(
             status="phase_completed",

@@ -19,9 +19,10 @@ class TestStoryContextContracts:
 
     def test_implementation_defaults_to_standard_contract(self) -> None:
         ctx = StoryContext(
+            project_key="test-project",
             story_id="AG3-201",
             story_type=StoryType.IMPLEMENTATION,
-            mode=StoryMode.EXPLORATION,
+            execution_route=StoryMode.EXPLORATION,
         )
 
         assert ctx.implementation_contract == ImplementationContract.STANDARD
@@ -40,9 +41,10 @@ class TestStoryContextContracts:
         mode: StoryMode,
     ) -> None:
         ctx = StoryContext(
+            project_key="test-project",
             story_id="AG3-202",
             story_type=story_type,
-            mode=mode,
+            execution_route=mode,
         )
 
         assert ctx.implementation_contract is None
@@ -62,18 +64,19 @@ class TestStoryContextContracts:
     ) -> None:
         with pytest.raises(ValidationError, match="implementation_contract"):
             StoryContext(
+                project_key="test-project",
                 story_id="AG3-203",
                 story_type=story_type,
-                mode=mode,
+                execution_route=mode,
                 implementation_contract=ImplementationContract.INTEGRATION_STABILIZATION,
             )
 
     def test_execution_route_alias_tracks_mode(self) -> None:
         ctx = StoryContext(
+            project_key="test-project",
             story_id="AG3-204",
             story_type=StoryType.IMPLEMENTATION,
-            mode=StoryMode.EXECUTION,
+            execution_route=StoryMode.EXECUTION,
         )
 
         assert ctx.execution_route == StoryMode.EXECUTION
-

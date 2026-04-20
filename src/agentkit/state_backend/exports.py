@@ -26,13 +26,11 @@ LAYER_ARTIFACT_FILES: dict[str, str] = {
     "adversarial": "adversarial.json",
 }
 VERIFY_DECISION_FILE = "verify-decision.json"
-LEGACY_VERIFY_DECISION_FILE = "decision.json"
 GUARDRAIL_FILE = "guardrail.json"
 PROTECTED_QA_ARTIFACTS: tuple[str, ...] = (
     *LAYER_ARTIFACT_FILES.values(),
     GUARDRAIL_FILE,
     VERIFY_DECISION_FILE,
-    LEGACY_VERIFY_DECISION_FILE,
 )
 
 
@@ -70,7 +68,7 @@ def load_json_object(path: Path) -> dict[str, object] | None:
 
 
 def read_projection_json_object(path: Path) -> dict[str, object] | None:
-    """Compatibility alias for projection reads outside truth paths."""
+    """Read a projection JSON object outside runtime truth paths."""
 
     return load_json_object(path)
 
@@ -84,7 +82,7 @@ def write_story_context_projection(
     story_dir: Path,
     payload: dict[str, object],
 ) -> str:
-    """Project the canonical story context into the legacy JSON export."""
+    """Project the canonical story context into the JSON export."""
 
     _write_projection(story_dir / CONTEXT_EXPORT_FILE, payload)
     return CONTEXT_EXPORT_FILE
@@ -94,7 +92,7 @@ def write_phase_state_projection(
     story_dir: Path,
     payload: dict[str, object],
 ) -> str:
-    """Project the canonical current phase state into the legacy JSON export."""
+    """Project the canonical current phase state into the JSON export."""
 
     _write_projection(story_dir / PHASE_STATE_EXPORT_FILE, payload)
     return PHASE_STATE_EXPORT_FILE
@@ -105,7 +103,7 @@ def write_phase_snapshot_projection(
     phase: str,
     payload: dict[str, object],
 ) -> str:
-    """Project a phase snapshot into the legacy per-phase export."""
+    """Project a phase snapshot into the per-phase export."""
 
     filename = f"phase-state-{phase}.json"
     _write_projection(story_dir / filename, payload)
@@ -180,21 +178,6 @@ def build_verify_decision_artifact(
     }
 
 
-def build_legacy_verify_decision_artifact(
-    decision: VerifyDecision,
-    *,
-    attempt_nr: int,
-) -> dict[str, object]:
-    """Build the legacy decision.json compatibility payload."""
-
-    return {
-        "decision": decision.status,
-        "passed": decision.passed,
-        "summary": decision.summary,
-        "attempt_nr": attempt_nr,
-    }
-
-
 def write_layer_projection(
     story_dir: Path,
     *,
@@ -216,20 +199,15 @@ def write_verify_decision_projection(
     *,
     decision: VerifyDecision,
     attempt_nr: int,
-) -> tuple[str, str]:
-    """Write canonical and legacy verify decision projections."""
+) -> tuple[str]:
+    """Write the canonical verify decision projection."""
 
     canonical_payload = build_verify_decision_artifact(
         decision,
         attempt_nr=attempt_nr,
     )
-    legacy_payload = build_legacy_verify_decision_artifact(
-        decision,
-        attempt_nr=attempt_nr,
-    )
     _write_projection(story_dir / VERIFY_DECISION_FILE, canonical_payload)
-    _write_projection(story_dir / LEGACY_VERIFY_DECISION_FILE, legacy_payload)
-    return VERIFY_DECISION_FILE, LEGACY_VERIFY_DECISION_FILE
+    return (VERIFY_DECISION_FILE,)
 
 
 def write_execution_report_projection(
@@ -247,25 +225,21 @@ def verify_decision_passed(data: dict[str, object]) -> bool:
     """Evaluate PASS/PASS_WITH_WARNINGS semantics for decision envelopes."""
 
     status = data.get("status")
-    if isinstance(status, str):
-        return bool(data.get("passed")) and status in ("PASS", "PASS_WITH_WARNINGS")
-
-    decision = data.get("decision")
-    return isinstance(decision, str) and decision in ("PASS", "PASS_WITH_WARNINGS")
+    return (
+        isinstance(status, str)
+        and bool(data.get("passed"))
+        and status in ("PASS", "PASS_WITH_WARNINGS")
+    )
 
 
 def load_verify_decision_projection(
     story_dir: Path,
 ) -> tuple[str, dict[str, object]] | None:
-    """Load the canonical verify decision or legacy fallback projection."""
+    """Load the canonical verify decision projection."""
 
     canonical = load_json_object(story_dir / VERIFY_DECISION_FILE)
     if canonical is not None:
         return VERIFY_DECISION_FILE, canonical
-
-    legacy = load_json_object(story_dir / LEGACY_VERIFY_DECISION_FILE)
-    if legacy is not None:
-        return LEGACY_VERIFY_DECISION_FILE, legacy
     return None
 
 

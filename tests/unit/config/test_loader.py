@@ -67,6 +67,7 @@ class TestLoadProjectConfig:
 
     def test_loads_valid_config(self, tmp_path: Path) -> None:
         data = {
+            "project_key": "test-project",
             "project_name": "test-project",
             "repositories": [
                 {"name": "backend", "path": "/opt/backend"},
@@ -75,12 +76,14 @@ class TestLoadProjectConfig:
         self._write_config(tmp_path, data)
         config = load_project_config(tmp_path)
         assert isinstance(config, ProjectConfig)
+        assert config.project_key == "test-project"
         assert config.project_name == "test-project"
         assert len(config.repositories) == 1
         assert config.repositories[0].name == "backend"
 
     def test_loads_full_config(self, tmp_path: Path) -> None:
         data = {
+            "project_key": "full",
             "project_name": "full",
             "repositories": [
                 {
@@ -103,6 +106,7 @@ class TestLoadProjectConfig:
         }
         self._write_config(tmp_path, data)
         config = load_project_config(tmp_path)
+        assert config.project_key == "full"
         assert config.pipeline.max_feedback_rounds == 5
         assert config.github_owner == "acme"
         assert config.story_types == ["bugfix"]

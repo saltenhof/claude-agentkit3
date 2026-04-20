@@ -58,14 +58,14 @@ def compute_pipeline_metrics(
     total_seconds = (last_ts - first_ts).total_seconds()
     total_duration = total_seconds if total_seconds > 0 else None
 
-    # Phase durations from PHASE_STARTED -> PHASE_COMPLETED pairs
+    # Phase durations from FLOW_START -> FLOW_END pairs
     phase_durations: dict[str, float] = {}
     phase_starts: dict[str, Event] = {}
     for evt in sorted_events:
-        if evt.event_type == EventType.PHASE_STARTED and evt.phase is not None:
+        if evt.event_type == EventType.FLOW_START and evt.phase is not None:
             phase_starts[evt.phase] = evt
         elif (
-            evt.event_type == EventType.PHASE_COMPLETED
+            evt.event_type == EventType.FLOW_END
             and evt.phase is not None
             and evt.phase in phase_starts
         ):
@@ -75,17 +75,19 @@ def compute_pipeline_metrics(
             if duration is not None:
                 phase_durations[evt.phase] = duration
 
-    # QA rounds: count QA_DECISION events
+    # QA rounds: count verify node results.
     qa_rounds = sum(
-        1 for e in events if e.event_type == EventType.QA_DECISION
+        1
+        for e in events
+        if e.event_type == EventType.NODE_RESULT and e.phase == "verify"
     )
 
-    # Phases executed: unique phase names from PHASE_STARTED events
+    # Phases executed: unique phase names from node results.
     phases_executed = tuple(
         dict.fromkeys(
             e.phase
             for e in sorted_events
-            if e.event_type == EventType.PHASE_STARTED and e.phase is not None
+            if e.event_type == EventType.NODE_RESULT and e.phase is not None
         )
     )
 
@@ -102,7 +104,7 @@ def compute_pipeline_metrics(
 def compute_phase_duration(events: list[Event], phase: str) -> float | None:
     """Compute duration of a single phase in seconds.
 
-    Looks for a ``PHASE_STARTED`` and ``PHASE_COMPLETED`` event pair
+    Looks for a ``FLOW_START`` and ``FLOW_END`` event pair
     matching the given *phase* name.
 
     Args:
@@ -117,13 +119,13 @@ def compute_phase_duration(events: list[Event], phase: str) -> float | None:
 
     for evt in events:
         if (
-            evt.event_type == EventType.PHASE_STARTED
+            evt.event_type == EventType.FLOW_START
             and evt.phase == phase
             and start_event is None
         ):
             start_event = evt
         elif (
-            evt.event_type == EventType.PHASE_COMPLETED
+            evt.event_type == EventType.FLOW_END
             and evt.phase == phase
             and end_event is None
         ):

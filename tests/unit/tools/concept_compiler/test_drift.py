@@ -5,9 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from concept_compiler.compiler import compile_formal_specs
-from concept_compiler.drift import FormalDriftError, audit_concept_doc_classification, audit_formal_prose_links
+from concept_compiler.drift import (
+    FormalDriftError,
+    audit_concept_doc_classification,
+    audit_formal_prose_links,
+)
 
 FIXTURES = Path("tests/fixtures/concept_compiler")
 
@@ -49,5 +52,8 @@ def test_audit_concept_doc_classification_accepts_prose_only_concepts() -> None:
 
 
 def test_audit_concept_doc_classification_rejects_unclassified_concepts() -> None:
-    with pytest.raises(FormalDriftError, match="must declare formal_refs or formal_scope=prose-only"):
+    with pytest.raises(
+        FormalDriftError,
+        match="must declare formal_refs or formal_scope=prose-only",
+    ):
         audit_concept_doc_classification(FIXTURES / "concept_classification_missing")

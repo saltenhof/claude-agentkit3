@@ -1,4 +1,4 @@
-"""Compatibility re-export for canonical flow/runtime state APIs."""
+"""Flow-oriented runtime state APIs."""
 
 from __future__ import annotations
 

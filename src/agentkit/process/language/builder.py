@@ -483,7 +483,7 @@ class _PhaseAccumulator:
         )
 
 
-def Workflow(name: str) -> WorkflowBuilder:  # noqa: N802
+def workflow(name: str) -> WorkflowBuilder:
     """Factory function that creates a new ``WorkflowBuilder``.
 
     This is a convenience alias for ``WorkflowBuilder(name)`` that
@@ -496,3 +496,6 @@ def Workflow(name: str) -> WorkflowBuilder:  # noqa: N802
         A new ``WorkflowBuilder`` instance.
     """
     return WorkflowBuilder(name)
+
+
+Workflow = workflow

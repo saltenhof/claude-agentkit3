@@ -78,6 +78,7 @@ class ProjectConfig(BaseModel):
     ``.agentkit/config/project.yaml``.
 
     Attributes:
+        project_key: Stable technical key of the target project.
         project_name: Display name of the target project.
         repositories: List of repositories managed by this project.
         pipeline: Pipeline behaviour configuration.
@@ -88,6 +89,7 @@ class ProjectConfig(BaseModel):
 
     model_config = ConfigDict(strict=True)
 
+    project_key: str
     project_name: str
     repositories: list[RepositoryConfig]
     pipeline: PipelineConfig = PipelineConfig()

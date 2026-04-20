@@ -18,29 +18,44 @@ class EventType(StrEnum):
     in the pipeline.  Never used as a command -- events record history.
     """
 
-    # Pipeline lifecycle
-    PHASE_STARTED = "phase_started"
-    PHASE_COMPLETED = "phase_completed"
-    PHASE_FAILED = "phase_failed"
-    PHASE_YIELDED = "phase_yielded"
-    PHASE_RESUMED = "phase_resumed"
+    # Worker lifecycle
+    AGENT_START = "agent_start"
+    AGENT_END = "agent_end"
+    INCREMENT_COMMIT = "increment_commit"
+    DRIFT_CHECK = "drift_check"
 
-    # QA
-    QA_LAYER_STARTED = "qa_layer_started"
-    QA_LAYER_COMPLETED = "qa_layer_completed"
-    QA_DECISION = "qa_decision"
+    # Flow runtime
+    FLOW_START = "flow_start"
+    FLOW_END = "flow_end"
+    NODE_RESULT = "node_result"
+    OVERRIDE_APPLIED = "override_applied"
 
-    # Worker
-    WORKER_SPAWNED = "worker_spawned"
-    WORKER_COMPLETED = "worker_completed"
+    # Review / LLM
+    REVIEW_REQUEST = "review_request"
+    REVIEW_RESPONSE = "review_response"
+    REVIEW_COMPLIANT = "review_compliant"
+    LLM_CALL = "llm_call"
 
-    # Guard / Governance
-    GUARD_EVALUATED = "guard_evaluated"
-    INTEGRITY_CHECK = "integrity_check"
+    # Adversarial
+    ADVERSARIAL_START = "adversarial_start"
+    ADVERSARIAL_SPARRING = "adversarial_sparring"
+    ADVERSARIAL_TEST_CREATED = "adversarial_test_created"
+    ADVERSARIAL_TEST_EXECUTED = "adversarial_test_executed"
+    ADVERSARIAL_END = "adversarial_end"
 
-    # GitHub
-    ISSUE_CLOSED = "issue_closed"
-    ISSUE_CREATED = "issue_created"
+    # Preflight / divergence
+    PREFLIGHT_REQUEST = "preflight_request"
+    PREFLIGHT_RESPONSE = "preflight_response"
+    PREFLIGHT_COMPLIANT = "preflight_compliant"
+    REVIEW_DIVERGENCE = "review_divergence"
+
+    # Governance / analytics
+    INTEGRITY_VIOLATION = "integrity_violation"
+    WEB_CALL = "web_call"
+    IMPACT_VIOLATION_CHECK = "impact_violation_check"
+    DOC_FIDELITY_CHECK = "doc_fidelity_check"
+    VECTORDB_SEARCH = "vectordb_search"
+    COMPACTION_EVENT = "compaction_event"
 
     # General
     ERROR = "error"
@@ -67,7 +82,13 @@ class Event:
     story_id: str
     event_type: EventType
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+    project_key: str | None = None
+    event_id: str | None = None
+    source_component: str = "telemetry_service"
+    severity: str = "info"
     phase: str | None = None
+    flow_id: str | None = None
+    node_id: str | None = None
     payload: dict[str, object] = field(default_factory=dict)
     run_id: str | None = None
 
@@ -78,10 +99,16 @@ class Event:
             Dictionary with all fields serialised to JSON-safe types.
         """
         return {
+            "project_key": self.project_key,
             "story_id": self.story_id,
+            "event_id": self.event_id,
             "event_type": self.event_type.value,
             "timestamp": self.timestamp.isoformat(),
+            "source_component": self.source_component,
+            "severity": self.severity,
             "phase": self.phase,
+            "flow_id": self.flow_id,
+            "node_id": self.node_id,
             "payload": self.payload,
             "run_id": self.run_id,
         }

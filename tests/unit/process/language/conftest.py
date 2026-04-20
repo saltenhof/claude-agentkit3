@@ -24,9 +24,10 @@ if False:  # TYPE_CHECKING — avoid import for type checkers only
 def minimal_story_context() -> StoryContext:
     """A minimal StoryContext for use in guard tests."""
     return StoryContext(
+        project_key="test-project",
         story_id="TEST-001",
         story_type=StoryType.IMPLEMENTATION,
-        mode=StoryMode.EXPLORATION,
+        execution_route=StoryMode.EXPLORATION,
     )
 
 
@@ -34,9 +35,10 @@ def minimal_story_context() -> StoryContext:
 def execution_story_context() -> StoryContext:
     """A StoryContext with EXECUTION mode."""
     return StoryContext(
+        project_key="test-project",
         story_id="TEST-002",
         story_type=StoryType.BUGFIX,
-        mode=StoryMode.EXECUTION,
+        execution_route=StoryMode.EXECUTION,
     )
 
 

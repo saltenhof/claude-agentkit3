@@ -87,6 +87,7 @@ class SetupPhaseHandler:
         Returns:
             A ``HandlerResult`` describing the outcome.
         """
+        _ = state
         cfg = self._config
 
         # 1. Preflight
@@ -104,6 +105,7 @@ class SetupPhaseHandler:
             repo=cfg.repo,
             issue_nr=cfg.issue_nr,
             project_root=cfg.project_root,
+            project_key=ctx.project_key,
             story_id=cfg.story_id or ctx.story_id,
         )
 
@@ -159,19 +161,20 @@ class SetupPhaseHandler:
             artifacts_produced=tuple(artifacts),
         )
 
-    def on_exit(self, ctx: StoryContext, state: PhaseState) -> None:
+    def on_exit(self, _ctx: StoryContext, _state: PhaseState) -> None:
         """No-op for setup phase.
 
         Args:
             ctx: The story context (unused).
             state: The current phase state (unused).
         """
+        _ = _ctx, _state
 
     def on_resume(
         self,
-        ctx: StoryContext,
-        state: PhaseState,
-        trigger: str,
+        _ctx: StoryContext,
+        _state: PhaseState,
+        _trigger: str,
     ) -> HandlerResult:
         """Setup phase does not support resume -- return FAILED.
 
@@ -183,6 +186,7 @@ class SetupPhaseHandler:
         Returns:
             A ``HandlerResult`` with ``FAILED`` status.
         """
+        _ = _ctx, _state, _trigger
         return HandlerResult(
             status=PhaseStatus.FAILED,
             errors=("Setup phase does not support resume",),
