@@ -14,6 +14,9 @@ from agentkit.control_plane.models import (
     StoryExecutionLockView,
     TelemetryEventAccepted,
 )
+from agentkit.story.models import StoryDetail, StoryListResponse, StorySummary
+from agentkit.story_context_manager.sizing import StorySize
+from agentkit.story_context_manager.types import StoryMode, StoryType
 
 
 def _runtime_result() -> ControlPlaneMutationResult:
@@ -144,11 +147,59 @@ class _FakeRuntimeService:
         return _runtime_result().model_copy(update={"status": "replayed"})
 
 
+class _FakeStoryService:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str | None]] = []
+        self.error: Exception | None = None
+
+    def list_stories(self, project_key: str) -> StoryListResponse:
+        if self.error is not None:
+            raise self.error
+        self.calls.append((project_key, None))
+        return StoryListResponse(
+            project_key=project_key,
+            stories=[
+                StorySummary(
+                    project_key=project_key,
+                    story_id="AG3-100",
+                    title="Implement control plane",
+                    story_type=StoryType.IMPLEMENTATION,
+                    execution_route=StoryMode.EXECUTION,
+                    story_size=StorySize.MEDIUM,
+                    lifecycle_status="active",
+                    active_phase="implementation",
+                    phase_status="in_progress",
+                ),
+            ],
+        )
+
+    def get_story(self, project_key: str, story_id: str) -> StoryDetail | None:
+        if self.error is not None:
+            raise self.error
+        if story_id == "missing":
+            return None
+        self.calls.append((project_key, story_id))
+        return StoryDetail(
+            project_key=project_key,
+            story_id=story_id,
+            title="Implement control plane",
+            story_type=StoryType.IMPLEMENTATION,
+            execution_route=StoryMode.EXECUTION,
+            story_size=StorySize.MEDIUM,
+            lifecycle_status="active",
+            active_phase="implementation",
+            phase_status="in_progress",
+            labels=["size:medium"],
+            participating_repos=["app"],
+        )
+
+
 def test_post_telemetry_event_returns_created() -> None:
     service = _FakeTelemetryService()
     app = ControlPlaneApplication(
         telemetry_service=service,
         runtime_service=_FakeRuntimeService(),
+        story_service=_FakeStoryService(),
     )
 
     response = app.handle_request(
@@ -179,6 +230,7 @@ def test_post_phase_start_returns_created() -> None:
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),
         runtime_service=runtime,
+        story_service=_FakeStoryService(),
     )
 
     response = app.handle_request(
@@ -206,6 +258,7 @@ def test_post_project_edge_sync_returns_ok() -> None:
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),
         runtime_service=runtime,
+        story_service=_FakeStoryService(),
     )
 
     response = app.handle_request(
@@ -229,6 +282,7 @@ def test_post_phase_complete_and_fail_route_to_runtime() -> None:
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),
         runtime_service=runtime,
+        story_service=_FakeStoryService(),
     )
     payload = json.dumps(
         {
@@ -264,6 +318,7 @@ def test_post_closure_complete_returns_created() -> None:
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),
         runtime_service=runtime,
+        story_service=_FakeStoryService(),
     )
 
     response = app.handle_request(
@@ -288,6 +343,7 @@ def test_get_operation_returns_ok() -> None:
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),
         runtime_service=runtime,
+        story_service=_FakeStoryService(),
     )
 
     response = app.handle_request(
@@ -305,6 +361,7 @@ def test_get_missing_operation_returns_not_found() -> None:
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
+        story_service=_FakeStoryService(),
     )
 
     response = app.handle_request(
@@ -321,6 +378,7 @@ def test_healthz_returns_ok() -> None:
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
+        story_service=_FakeStoryService(),
     )
 
     response = app.handle_request(method="GET", path="/healthz", body=b"")
@@ -333,6 +391,7 @@ def test_healthz_wrong_method_returns_allow_header() -> None:
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
+        story_service=_FakeStoryService(),
     )
 
     response = app.handle_request(method="POST", path="/healthz", body=b"")
@@ -345,6 +404,7 @@ def test_unknown_path_returns_not_found() -> None:
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
+        story_service=_FakeStoryService(),
     )
 
     response = app.handle_request(method="GET", path="/missing", body=b"")
@@ -357,6 +417,7 @@ def test_invalid_json_returns_bad_request() -> None:
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
+        story_service=_FakeStoryService(),
     )
 
     response = app.handle_request(
@@ -369,6 +430,84 @@ def test_invalid_json_returns_bad_request() -> None:
     assert json.loads(response.body) == {
         "error": "Request body must be valid JSON",
     }
+
+
+def test_get_stories_returns_project_scoped_list() -> None:
+    story_service = _FakeStoryService()
+    app = ControlPlaneApplication(
+        telemetry_service=_FakeTelemetryService(),
+        runtime_service=_FakeRuntimeService(),
+        story_service=story_service,
+    )
+
+    response = app.handle_request(
+        method="GET",
+        path="/v1/stories?project_key=tenant-a",
+        body=b"",
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    body = json.loads(response.body)
+    assert body["project_key"] == "tenant-a"
+    assert body["stories"][0]["story_id"] == "AG3-100"
+    assert story_service.calls == [("tenant-a", None)]
+
+
+def test_get_story_returns_detail() -> None:
+    story_service = _FakeStoryService()
+    app = ControlPlaneApplication(
+        telemetry_service=_FakeTelemetryService(),
+        runtime_service=_FakeRuntimeService(),
+        story_service=story_service,
+    )
+
+    response = app.handle_request(
+        method="GET",
+        path="/v1/stories/AG3-100?project_key=tenant-a",
+        body=b"",
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    body = json.loads(response.body)
+    assert body["story_id"] == "AG3-100"
+    assert body["labels"] == ["size:medium"]
+    assert story_service.calls == [("tenant-a", "AG3-100")]
+
+
+def test_get_story_requires_project_key() -> None:
+    app = ControlPlaneApplication(
+        telemetry_service=_FakeTelemetryService(),
+        runtime_service=_FakeRuntimeService(),
+        story_service=_FakeStoryService(),
+    )
+
+    response = app.handle_request(
+        method="GET",
+        path="/v1/stories/AG3-100",
+        body=b"",
+    )
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert json.loads(response.body) == {
+        "error": "Missing required query parameter: project_key",
+    }
+
+
+def test_get_missing_story_returns_not_found() -> None:
+    app = ControlPlaneApplication(
+        telemetry_service=_FakeTelemetryService(),
+        runtime_service=_FakeRuntimeService(),
+        story_service=_FakeStoryService(),
+    )
+
+    response = app.handle_request(
+        method="GET",
+        path="/v1/stories/missing?project_key=tenant-a",
+        body=b"",
+    )
+
+    assert response.status_code == HTTPStatus.NOT_FOUND
+    assert json.loads(response.body) == {"error": "Story not found"}
 
 
 def test_invalid_payload_returns_bad_request() -> None:

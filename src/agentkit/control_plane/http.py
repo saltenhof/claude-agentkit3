@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPSServer
 from typing import TYPE_CHECKING
+from urllib.parse import parse_qs, urlsplit
 
 from pydantic import ValidationError
 
@@ -20,6 +21,7 @@ from agentkit.control_plane.models import (
 )
 from agentkit.control_plane.runtime import ControlPlaneRuntimeService
 from agentkit.control_plane.telemetry import ControlPlaneTelemetryService
+from agentkit.story.service import StoryService
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -35,6 +37,9 @@ _CLOSURE_PATH_PATTERN = re.compile(
 )
 _OPERATION_PATH_PATTERN = re.compile(
     r"^/v1/project-edge/operations/(?P<op_id>[^/]+)$",
+)
+_STORY_PATH_PATTERN = re.compile(
+    r"^/v1/stories/(?P<story_id>[^/]+)$",
 )
 
 
@@ -55,9 +60,11 @@ class ControlPlaneApplication:
         *,
         telemetry_service: ControlPlaneTelemetryService | None = None,
         runtime_service: ControlPlaneRuntimeService | None = None,
+        story_service: StoryService | None = None,
     ) -> None:
         self._telemetry_service = telemetry_service or ControlPlaneTelemetryService()
         self._runtime_service = runtime_service or ControlPlaneRuntimeService()
+        self._story_service = story_service or StoryService()
 
     def handle_request(
         self,
@@ -67,8 +74,11 @@ class ControlPlaneApplication:
         body: bytes,
     ) -> HttpResponse:
         """Dispatch one HTTP request."""
+        split = urlsplit(path)
+        route_path = split.path
+        query = parse_qs(split.query)
 
-        if path == "/healthz":
+        if route_path == "/healthz":
             if method != "GET":
                 return _json_response(
                     HTTPStatus.METHOD_NOT_ALLOWED,
@@ -78,7 +88,14 @@ class ControlPlaneApplication:
             return _json_response(HTTPStatus.OK, {"status": "ok"})
 
         if method == "GET":
-            operation_match = _OPERATION_PATH_PATTERN.match(path)
+            if route_path == "/v1/stories":
+                return self._handle_get_stories(query)
+
+            story_match = _STORY_PATH_PATTERN.match(route_path)
+            if story_match is not None:
+                return self._handle_get_story(story_match.group("story_id"), query)
+
+            operation_match = _OPERATION_PATH_PATTERN.match(route_path)
             if operation_match is not None:
                 return self._handle_get_operation(operation_match.group("op_id"))
             return _json_response(HTTPStatus.NOT_FOUND, {"error": "Not found"})
@@ -91,13 +108,13 @@ class ControlPlaneApplication:
                 {"error": "Request body must be valid JSON"},
             )
 
-        if path == "/v1/telemetry/events":
+        if route_path == "/v1/telemetry/events":
             return self._handle_post_telemetry(payload)
 
-        if path == "/v1/project-edge/sync":
+        if route_path == "/v1/project-edge/sync":
             return self._handle_post_project_edge_sync(payload)
 
-        phase_match = _PHASE_PATH_PATTERN.match(path)
+        phase_match = _PHASE_PATH_PATTERN.match(route_path)
         if phase_match is not None:
             return self._handle_post_phase_mutation(
                 payload=payload,
@@ -106,7 +123,7 @@ class ControlPlaneApplication:
                 action=phase_match.group("action"),
             )
 
-        closure_match = _CLOSURE_PATH_PATTERN.match(path)
+        closure_match = _CLOSURE_PATH_PATTERN.match(route_path)
         if closure_match is not None:
             return self._handle_post_closure_complete(
                 payload=payload,
@@ -216,6 +233,43 @@ class ControlPlaneApplication:
             )
         return _json_response(HTTPStatus.OK, result.model_dump(mode="json"))
 
+    def _handle_get_stories(
+        self,
+        query: dict[str, list[str]],
+    ) -> HttpResponse:
+        project_key = _single_query_value(query, "project_key")
+        if project_key is None:
+            return _json_response(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Missing required query parameter: project_key"},
+            )
+        try:
+            result = self._story_service.list_stories(project_key)
+        except RuntimeError as exc:
+            logger.warning("Story list unavailable: %s", exc)
+            return _json_response(HTTPStatus.SERVICE_UNAVAILABLE, {"error": str(exc)})
+        return _json_response(HTTPStatus.OK, result.model_dump(mode="json"))
+
+    def _handle_get_story(
+        self,
+        story_id: str,
+        query: dict[str, list[str]],
+    ) -> HttpResponse:
+        project_key = _single_query_value(query, "project_key")
+        if project_key is None:
+            return _json_response(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Missing required query parameter: project_key"},
+            )
+        try:
+            result = self._story_service.get_story(project_key, story_id)
+        except RuntimeError as exc:
+            logger.warning("Story detail unavailable: %s", exc)
+            return _json_response(HTTPStatus.SERVICE_UNAVAILABLE, {"error": str(exc)})
+        if result is None:
+            return _json_response(HTTPStatus.NOT_FOUND, {"error": "Story not found"})
+        return _json_response(HTTPStatus.OK, result.model_dump(mode="json"))
+
 
 def serve_control_plane(
     *,
@@ -287,3 +341,14 @@ def _json_response(
         body=json.dumps(payload, sort_keys=True, default=str).encode("utf-8"),
         headers=tuple(headers),
     )
+
+
+def _single_query_value(
+    query: dict[str, list[str]],
+    key: str,
+) -> str | None:
+    values = query.get(key)
+    if not values:
+        return None
+    value = values[0].strip()
+    return value or None

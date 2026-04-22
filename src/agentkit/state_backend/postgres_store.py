@@ -694,6 +694,49 @@ def read_story_context_record(story_dir: Path) -> StoryContext | None:
     return load_story_context(story_dir)
 
 
+def load_story_context_global(
+    project_key: str,
+    story_id: str,
+) -> StoryContext | None:
+    with _connect_global() as conn:
+        row = conn.execute(
+            """
+            SELECT payload_json FROM story_contexts
+            WHERE project_key = ? AND story_id = ?
+            """,
+            (project_key, story_id),
+        ).fetchone()
+    if row is None:
+        return None
+    try:
+        return StoryContext.model_validate(json.loads(str(row["payload_json"])))
+    except Exception as exc:  # noqa: BLE001
+        raise CorruptStateError(
+            f"story_contexts payload is invalid in {_database_label()}: {exc}",
+        ) from exc
+
+
+def load_story_contexts_global(project_key: str) -> list[StoryContext]:
+    with _connect_global() as conn:
+        rows = conn.execute(
+            """
+            SELECT payload_json FROM story_contexts
+            WHERE project_key = ?
+            ORDER BY story_id ASC
+            """,
+            (project_key,),
+        ).fetchall()
+    try:
+        return [
+            StoryContext.model_validate(json.loads(str(row["payload_json"])))
+            for row in rows
+        ]
+    except Exception as exc:  # noqa: BLE001
+        raise CorruptStateError(
+            f"story_contexts payload is invalid in {_database_label()}: {exc}",
+        ) from exc
+
+
 def save_phase_state(story_dir: Path, state: PhaseState) -> None:
     payload = state.model_dump(mode="json")
     with _connect(story_dir) as conn:
@@ -754,6 +797,25 @@ def read_phase_state_record(story_dir: Path) -> PhaseState | None:
     """Canonical reader name for protected runtime modules."""
 
     return load_phase_state(story_dir)
+
+
+def load_phase_state_global(story_id: str) -> PhaseState | None:
+    with _connect_global() as conn:
+        row = conn.execute(
+            """
+            SELECT payload_json FROM phase_states
+            WHERE story_id = ?
+            """,
+            (story_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    try:
+        return PhaseState.model_validate(json.loads(str(row["payload_json"])))
+    except Exception as exc:  # noqa: BLE001
+        raise CorruptStateError(
+            f"phase_states payload is invalid in {_database_label()}: {exc}",
+        ) from exc
 
 
 def save_phase_snapshot(story_dir: Path, snapshot: PhaseSnapshot) -> None:
@@ -1251,6 +1313,40 @@ def load_flow_execution(story_dir: Path) -> FlowExecution | None:
     )
 
 
+def load_flow_execution_global(
+    project_key: str,
+    story_id: str,
+) -> FlowExecution | None:
+    with _connect_global() as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM flow_executions
+            WHERE project_key = ? AND story_id = ?
+            """,
+            (project_key, story_id),
+        ).fetchone()
+    if row is None:
+        return None
+    return FlowExecution(
+        project_key=str(row["project_key"]),
+        story_id=str(row["story_id"]),
+        run_id=str(row["run_id"]),
+        flow_id=str(row["flow_id"]),
+        level=str(row["level"]),
+        owner=str(row["owner"]),
+        parent_flow_id=_cast_optional_str(row["parent_flow_id"]),
+        status=str(row["status"]),
+        current_node_id=_cast_optional_str(row["current_node_id"]),
+        attempt_no=int(row["attempt_no"]),
+        started_at=datetime.fromisoformat(str(row["started_at"])),
+        finished_at=(
+            datetime.fromisoformat(str(row["finished_at"]))
+            if row["finished_at"] is not None
+            else None
+        ),
+    )
+
+
 def upsert_story_metrics(story_dir: Path, metrics: StoryMetricsRecord) -> None:
     with _connect(story_dir) as conn:
         conn.execute(
@@ -1333,6 +1429,26 @@ def load_story_metrics(
             tuple(params),
         ).fetchall()
     return [_story_metrics_from_row(row) for row in rows]
+
+
+def load_latest_story_metrics_global(
+    project_key: str,
+    story_id: str,
+) -> StoryMetricsRecord | None:
+    with _connect_global() as conn:
+        row = conn.execute(
+            """
+            SELECT *
+            FROM story_metrics
+            WHERE project_key = ? AND story_id = ?
+            ORDER BY completed_at DESC, run_id DESC
+            LIMIT 1
+            """,
+            (project_key, story_id),
+        ).fetchone()
+    if row is None:
+        return None
+    return _story_metrics_from_row(row)
 
 
 def load_story_metrics_for_scope(

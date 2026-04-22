@@ -16,13 +16,18 @@ from agentkit.state_backend import (
     load_artifact_record_for_scope,
     load_execution_events,
     load_flow_execution,
+    load_flow_execution_global,
+    load_latest_story_metrics_global,
     load_latest_verify_decision,
     load_latest_verify_decision_for_scope,
     load_phase_snapshot,
     load_phase_state,
+    load_phase_state_global,
     load_qa_findings,
     load_qa_stage_results,
     load_story_context,
+    load_story_context_global,
+    load_story_contexts_global,
     load_story_metrics,
     record_layer_artifacts,
     record_verify_decision,
@@ -67,6 +72,8 @@ def test_public_state_backend_contract_works_on_postgres(
     loaded_ctx = load_story_context(story_dir)
     assert loaded_ctx is not None
     assert loaded_ctx.story_id == "AG3-901"
+    assert load_story_context_global("demo-project", "AG3-901") is not None
+    assert load_story_contexts_global("demo-project")[0].story_id == "AG3-901"
 
     state = PhaseState(
         story_id="AG3-901",
@@ -77,6 +84,7 @@ def test_public_state_backend_contract_works_on_postgres(
     loaded_state = load_phase_state(story_dir)
     assert loaded_state is not None
     assert loaded_state.phase == "verify"
+    assert load_phase_state_global("AG3-901") is not None
 
     snapshot = PhaseSnapshot(
         story_id="AG3-901",
@@ -106,6 +114,7 @@ def test_public_state_backend_contract_works_on_postgres(
     loaded_flow = load_flow_execution(story_dir)
     assert loaded_flow is not None
     assert loaded_flow.run_id == "run-contract-001"
+    assert load_flow_execution_global("demo-project", "AG3-901") is not None
     run1_scope = resolve_runtime_scope(story_dir)
     assert run1_scope.run_id == "run-contract-001"
 
@@ -411,3 +420,6 @@ def test_public_state_backend_contract_works_on_postgres(
     assert len(metrics) == 1
     assert metrics[0].qa_rounds == 2
     assert metrics[0].increments == 3
+    latest_metrics = load_latest_story_metrics_global("demo-project", "AG3-901")
+    assert latest_metrics is not None
+    assert latest_metrics.run_id == "run-contract-001"

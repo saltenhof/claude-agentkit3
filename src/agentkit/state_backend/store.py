@@ -121,6 +121,33 @@ def load_story_context(story_dir: Path) -> StoryContext | None:
     return cast("StoryContext | None", _backend_module().load_story_context(story_dir))
 
 
+def load_story_context_global(
+    project_key: str,
+    story_id: str,
+) -> StoryContext | None:
+    backend = _backend_module()
+    if not hasattr(backend, "load_story_context_global"):
+        raise RuntimeError(
+            "Global story-context reads are unsupported by the active backend",
+        )
+    return cast(
+        "StoryContext | None",
+        backend.load_story_context_global(project_key, story_id),
+    )
+
+
+def load_story_contexts_global(project_key: str) -> list[StoryContext]:
+    backend = _backend_module()
+    if not hasattr(backend, "load_story_contexts_global"):
+        raise RuntimeError(
+            "Global story-context reads are unsupported by the active backend",
+        )
+    return cast(
+        "list[StoryContext]",
+        backend.load_story_contexts_global(project_key),
+    )
+
+
 def read_story_context_record(story_dir: Path) -> StoryContext | None:
     return cast(
         "StoryContext | None",
@@ -134,6 +161,18 @@ def save_phase_state(story_dir: Path, state: PhaseState) -> None:
 
 def load_phase_state(story_dir: Path) -> PhaseState | None:
     return cast("PhaseState | None", _backend_module().load_phase_state(story_dir))
+
+
+def load_phase_state_global(story_id: str) -> PhaseState | None:
+    backend = _backend_module()
+    if not hasattr(backend, "load_phase_state_global"):
+        raise RuntimeError(
+            "Global phase-state reads are unsupported by the active backend",
+        )
+    return cast(
+        "PhaseState | None",
+        backend.load_phase_state_global(story_id),
+    )
 
 
 def read_phase_state_record(story_dir: Path) -> PhaseState | None:
@@ -301,6 +340,21 @@ def load_flow_execution(story_dir: Path) -> FlowExecution | None:
     )
 
 
+def load_flow_execution_global(
+    project_key: str,
+    story_id: str,
+) -> FlowExecution | None:
+    backend = _backend_module()
+    if not hasattr(backend, "load_flow_execution_global"):
+        raise RuntimeError(
+            "Global flow-execution reads are unsupported by the active backend",
+        )
+    return cast(
+        "FlowExecution | None",
+        backend.load_flow_execution_global(project_key, story_id),
+    )
+
+
 def save_node_execution_ledger(story_dir: Path, record: NodeExecutionLedger) -> None:
     _backend_module().save_node_execution_ledger(story_dir, record)
 
@@ -460,6 +514,21 @@ def load_story_metrics_for_scope(
     return cast(
         "list[StoryMetricsRecord]",
         _backend_module().load_story_metrics_for_scope(scope),
+    )
+
+
+def load_latest_story_metrics_global(
+    project_key: str,
+    story_id: str,
+) -> StoryMetricsRecord | None:
+    backend = _backend_module()
+    if not hasattr(backend, "load_latest_story_metrics_global"):
+        raise RuntimeError(
+            "Global story-metrics reads are unsupported by the active backend",
+        )
+    return cast(
+        "StoryMetricsRecord | None",
+        backend.load_latest_story_metrics_global(project_key, story_id),
     )
 
 
