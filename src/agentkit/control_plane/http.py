@@ -8,7 +8,7 @@ import re
 from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPSServer
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from urllib.parse import parse_qs, urlsplit
 
 from pydantic import ValidationError
@@ -42,6 +42,7 @@ _OPERATION_PATH_PATTERN = re.compile(
 _STORY_PATH_PATTERN = re.compile(
     r"^/v1/stories/(?P<story_id>[^/]+)$",
 )
+_MISSING_PROJECT_KEY_ERROR = "Missing required query parameter: project_key"
 
 
 @dataclass(frozen=True)
@@ -84,42 +85,53 @@ class ControlPlaneApplication:
         query = parse_qs(split.query)
 
         if route_path == "/healthz":
-            if method != "GET":
-                return _json_response(
-                    HTTPStatus.METHOD_NOT_ALLOWED,
-                    {"error": "Method not allowed"},
-                    headers=(("Allow", "GET"),),
-                )
-            return _json_response(HTTPStatus.OK, {"status": "ok"})
+            return self._handle_healthz(method)
 
         if method == "GET":
-            if route_path == "/v1/stories":
-                return self._handle_get_stories(query)
-            if route_path == "/v1/dashboard/board":
-                return self._handle_get_dashboard_board(query)
-            if route_path == "/v1/dashboard/story-metrics":
-                return self._handle_get_dashboard_story_metrics(query)
+            return self._handle_get_request(route_path, query)
 
-            story_match = _STORY_PATH_PATTERN.match(route_path)
-            if story_match is not None:
-                return self._handle_get_story(story_match.group("story_id"), query)
+        payload = _decode_json_body(body)
+        if isinstance(payload, HttpResponse):
+            return payload
+        return self._handle_post_request(route_path, payload)
 
-            operation_match = _OPERATION_PATH_PATTERN.match(route_path)
-            if operation_match is not None:
-                return self._handle_get_operation(operation_match.group("op_id"))
-            return _json_response(HTTPStatus.NOT_FOUND, {"error": "Not found"})
-
-        try:
-            payload = json.loads(body.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
+    def _handle_healthz(self, method: str) -> HttpResponse:
+        if method != "GET":
             return _json_response(
-                HTTPStatus.BAD_REQUEST,
-                {"error": "Request body must be valid JSON"},
+                HTTPStatus.METHOD_NOT_ALLOWED,
+                {"error": "Method not allowed"},
+                headers=(("Allow", "GET"),),
             )
+        return _json_response(HTTPStatus.OK, {"status": "ok"})
 
+    def _handle_get_request(
+        self,
+        route_path: str,
+        query: dict[str, list[str]],
+    ) -> HttpResponse:
+        if route_path == "/v1/stories":
+            return self._handle_get_stories(query)
+        if route_path == "/v1/dashboard/board":
+            return self._handle_get_dashboard_board(query)
+        if route_path == "/v1/dashboard/story-metrics":
+            return self._handle_get_dashboard_story_metrics(query)
+
+        story_match = _STORY_PATH_PATTERN.match(route_path)
+        if story_match is not None:
+            return self._handle_get_story(story_match.group("story_id"), query)
+
+        operation_match = _OPERATION_PATH_PATTERN.match(route_path)
+        if operation_match is not None:
+            return self._handle_get_operation(operation_match.group("op_id"))
+        return _json_response(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+
+    def _handle_post_request(
+        self,
+        route_path: str,
+        payload: object,
+    ) -> HttpResponse:
         if route_path == "/v1/telemetry/events":
             return self._handle_post_telemetry(payload)
-
         if route_path == "/v1/project-edge/sync":
             return self._handle_post_project_edge_sync(payload)
 
@@ -138,7 +150,6 @@ class ControlPlaneApplication:
                 payload=payload,
                 run_id=closure_match.group("run_id"),
             )
-
         return _json_response(HTTPStatus.NOT_FOUND, {"error": "Not found"})
 
     def _handle_post_telemetry(self, payload: object) -> HttpResponse:
@@ -248,10 +259,7 @@ class ControlPlaneApplication:
     ) -> HttpResponse:
         project_key = _single_query_value(query, "project_key")
         if project_key is None:
-            return _json_response(
-                HTTPStatus.BAD_REQUEST,
-                {"error": "Missing required query parameter: project_key"},
-            )
+            return _missing_project_key_response()
         try:
             result = self._story_service.list_stories(project_key)
         except RuntimeError as exc:
@@ -266,10 +274,7 @@ class ControlPlaneApplication:
     ) -> HttpResponse:
         project_key = _single_query_value(query, "project_key")
         if project_key is None:
-            return _json_response(
-                HTTPStatus.BAD_REQUEST,
-                {"error": "Missing required query parameter: project_key"},
-            )
+            return _missing_project_key_response()
         try:
             result = self._story_service.get_story(project_key, story_id)
         except RuntimeError as exc:
@@ -285,10 +290,7 @@ class ControlPlaneApplication:
     ) -> HttpResponse:
         project_key = _single_query_value(query, "project_key")
         if project_key is None:
-            return _json_response(
-                HTTPStatus.BAD_REQUEST,
-                {"error": "Missing required query parameter: project_key"},
-            )
+            return _missing_project_key_response()
         try:
             result = self._dashboard_service.get_board(project_key)
         except RuntimeError as exc:
@@ -302,10 +304,7 @@ class ControlPlaneApplication:
     ) -> HttpResponse:
         project_key = _single_query_value(query, "project_key")
         if project_key is None:
-            return _json_response(
-                HTTPStatus.BAD_REQUEST,
-                {"error": "Missing required query parameter: project_key"},
-            )
+            return _missing_project_key_response()
         try:
             result = self._dashboard_service.get_story_metrics(project_key)
         except RuntimeError as exc:
@@ -386,6 +385,16 @@ def _json_response(
     )
 
 
+def _decode_json_body(body: bytes) -> object | HttpResponse:
+    try:
+        return cast("object", json.loads(body.decode("utf-8")))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return _json_response(
+            HTTPStatus.BAD_REQUEST,
+            {"error": "Request body must be valid JSON"},
+        )
+
+
 def _single_query_value(
     query: dict[str, list[str]],
     key: str,
@@ -395,3 +404,10 @@ def _single_query_value(
         return None
     value = values[0].strip()
     return value or None
+
+
+def _missing_project_key_response() -> HttpResponse:
+    return _json_response(
+        HTTPStatus.BAD_REQUEST,
+        {"error": _MISSING_PROJECT_KEY_ERROR},
+    )
