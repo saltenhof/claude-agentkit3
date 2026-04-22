@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from contextlib import contextmanager
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, TypeAlias, cast
 
 import psycopg
 from psycopg.rows import dict_row
@@ -67,6 +67,7 @@ if TYPE_CHECKING:
 _PROJECT_KEY_FILTER = "project_key = ?"
 _STORY_ID_FILTER = "story_id = ?"
 _RUN_ID_FILTER = "run_id = ?"
+OptionalStr: TypeAlias = str | None
 
 
 def _database_url() -> str:
@@ -121,6 +122,10 @@ def _load_json(data: str | None, default: Any) -> Any:
 
 def _cast_json_record(value: object) -> dict[str, object]:
     return cast("dict[str, object]", value)
+
+
+def _cast_optional_str(value: object) -> OptionalStr:
+    return cast("str | None", value)
 
 
 @contextmanager
@@ -1124,10 +1129,10 @@ def load_control_plane_operation_global(
         op_id=str(row["op_id"]),
         project_key=str(row["project_key"]),
         story_id=str(row["story_id"]),
-        run_id=cast("str | None", row["run_id"]),
-        session_id=cast("str | None", row["session_id"]),
+        run_id=_cast_optional_str(row["run_id"]),
+        session_id=_cast_optional_str(row["session_id"]),
         operation_kind=str(row["operation_kind"]),
-        phase=cast("str | None", row["phase"]),
+        phase=_cast_optional_str(row["phase"]),
         status=str(row["status"]),
         response_payload=_cast_json_record(_load_json(row["response_json"], {})),
         created_at=datetime.fromisoformat(str(row["created_at"])),

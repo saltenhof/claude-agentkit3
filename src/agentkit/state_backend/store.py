@@ -45,6 +45,9 @@ if TYPE_CHECKING:
     )
 
 JsonRecord = dict[str, object]
+_SESSION_BINDING_UNSUPPORTED = (
+    "Global session binding storage is unsupported by the active backend"
+)
 
 
 @lru_cache(maxsize=1)
@@ -188,9 +191,7 @@ def append_execution_event_global(event: ExecutionEventRecord) -> None:
 def save_session_run_binding_global(record: SessionRunBindingRecord) -> None:
     backend = _backend_module()
     if not hasattr(backend, "save_session_run_binding_global"):
-        raise RuntimeError(
-            "Global session binding storage is unsupported by the active backend",
-        )
+        raise RuntimeError(_SESSION_BINDING_UNSUPPORTED)
     backend.save_session_run_binding_global(record)
 
 
@@ -199,9 +200,7 @@ def load_session_run_binding_global(
 ) -> SessionRunBindingRecord | None:
     backend = _backend_module()
     if not hasattr(backend, "load_session_run_binding_global"):
-        raise RuntimeError(
-            "Global session binding storage is unsupported by the active backend",
-        )
+        raise RuntimeError(_SESSION_BINDING_UNSUPPORTED)
     return cast(
         "SessionRunBindingRecord | None",
         backend.load_session_run_binding_global(session_id),
@@ -211,9 +210,7 @@ def load_session_run_binding_global(
 def delete_session_run_binding_global(session_id: str) -> None:
     backend = _backend_module()
     if not hasattr(backend, "delete_session_run_binding_global"):
-        raise RuntimeError(
-            "Global session binding storage is unsupported by the active backend",
-        )
+        raise RuntimeError(_SESSION_BINDING_UNSUPPORTED)
     backend.delete_session_run_binding_global(session_id)
 
 

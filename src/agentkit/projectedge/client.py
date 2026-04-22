@@ -21,6 +21,8 @@ if TYPE_CHECKING:
     import ssl
     from collections.abc import Mapping
 
+_LOCK_EXPORT_FILE = "lock.json"
+
 
 class ControlPlaneTransport(Protocol):
     """Send one control-plane request and return the decoded JSON object."""
@@ -92,7 +94,10 @@ class LocalEdgePublisher:
         bundle_root = self._project_root / bundle.current.bundle_dir
         bundle_root.mkdir(parents=True, exist_ok=True)
         _write_json(bundle_root / "session.json", _session_payload(bundle))
-        _write_json(bundle_root / "lock.json", bundle.lock.model_dump(mode="json"))
+        _write_json(
+            bundle_root / _LOCK_EXPORT_FILE,
+            bundle.lock.model_dump(mode="json"),
+        )
         _write_json(
             self._project_root / "_temp" / "governance" / "current.json",
             bundle.current.model_dump(mode="json"),
@@ -104,11 +109,11 @@ class LocalEdgePublisher:
         ):
             for root in bundle.session.worktree_roots:
                 _write_json(
-                    Path(root) / ".agent-guard" / "lock.json",
+                    Path(root) / ".agent-guard" / _LOCK_EXPORT_FILE,
                     bundle.lock.model_dump(mode="json"),
                 )
         for root in bundle.tombstone_worktree_roots:
-            lock_path = Path(root) / ".agent-guard" / "lock.json"
+            lock_path = Path(root) / ".agent-guard" / _LOCK_EXPORT_FILE
             if lock_path.exists():
                 lock_path.unlink()
 
