@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from contextlib import contextmanager
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, TypeAlias, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import psycopg
 from psycopg.rows import dict_row
@@ -67,7 +67,6 @@ if TYPE_CHECKING:
 _PROJECT_KEY_FILTER = "project_key = ?"
 _STORY_ID_FILTER = "story_id = ?"
 _RUN_ID_FILTER = "run_id = ?"
-OptionalStr: TypeAlias = str | None
 
 
 def _database_url() -> str:
@@ -124,7 +123,7 @@ def _cast_json_record(value: object) -> dict[str, object]:
     return cast("dict[str, object]", value)
 
 
-def _cast_optional_str(value: object) -> OptionalStr:
+def _cast_optional_str(value: object) -> str | None:
     return cast("str | None", value)
 
 
