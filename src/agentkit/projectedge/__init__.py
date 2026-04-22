@@ -7,9 +7,17 @@ from agentkit.projectedge.client import (
     LocalEdgePublisher,
     ProjectEdgeClient,
 )
+from agentkit.projectedge.runtime import (
+    ProjectEdgeResolver,
+    ResolvedEdgeState,
+    build_project_edge_client,
+)
 
 __all__ = [
     "HttpsJsonTransport",
     "LocalEdgePublisher",
+    "ProjectEdgeResolver",
     "ProjectEdgeClient",
+    "ResolvedEdgeState",
+    "build_project_edge_client",
 ]

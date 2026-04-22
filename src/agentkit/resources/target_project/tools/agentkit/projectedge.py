@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import ssl
 from pathlib import Path
 
 from agentkit.control_plane import (
@@ -13,9 +12,8 @@ from agentkit.control_plane import (
     ProjectEdgeSyncRequest,
 )
 from agentkit.projectedge import (
-    HttpsJsonTransport,
-    LocalEdgePublisher,
     ProjectEdgeClient,
+    build_project_edge_client,
 )
 
 
@@ -119,20 +117,7 @@ def _phase_request(args: argparse.Namespace) -> PhaseMutationRequest:
 
 
 def _build_client(project_root: Path) -> ProjectEdgeClient:
-    config = json.loads(
-        (project_root / ".agentkit" / "config" / "control-plane.json").read_text(
-            encoding="utf-8",
-        ),
-    )
-    cafile = config.get("ca_file")
-    ssl_context = ssl.create_default_context(cafile=cafile) if cafile else None
-    return ProjectEdgeClient(
-        transport=HttpsJsonTransport(
-            base_url=str(config["base_url"]),
-            ssl_context=ssl_context,
-        ),
-        publisher=LocalEdgePublisher(project_root=project_root),
-    )
+    return build_project_edge_client(project_root)
 
 
 if __name__ == "__main__":  # pragma: no cover

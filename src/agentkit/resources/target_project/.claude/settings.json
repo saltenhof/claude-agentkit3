@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Write|Edit|Read|Grep|Glob",
+        "command": "python .agentkit/hooks/pre_tool_use.py"
+      }
+    ]
+  }
+}

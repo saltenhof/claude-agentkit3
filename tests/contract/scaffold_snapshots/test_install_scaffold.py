@@ -60,6 +60,8 @@ class TestInstallScaffoldContract:
         assert (
             tmp_path / ".agentkit" / "config" / "control-plane.json"
         ).is_file()
+        assert (tmp_path / ".agentkit" / "hooks" / "pre_tool_use.py").is_file()
+        assert (tmp_path / ".claude" / "settings.json").is_file()
         assert (tmp_path / "prompts" / "manifest.json").is_file()
         assert (tmp_path / "prompts" / "worker-implementation.md").is_file()
         assert (tmp_path / "tools" / "agentkit" / "projectedge.py").is_file()
