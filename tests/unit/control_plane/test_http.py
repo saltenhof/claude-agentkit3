@@ -14,6 +14,12 @@ from agentkit.control_plane.models import (
     StoryExecutionLockView,
     TelemetryEventAccepted,
 )
+from agentkit.dashboard.models import (
+    BoardColumn,
+    DashboardBoardResponse,
+    DashboardStoryMetricsItem,
+    DashboardStoryMetricsResponse,
+)
 from agentkit.story.models import StoryDetail, StoryListResponse, StorySummary
 from agentkit.story_context_manager.sizing import StorySize
 from agentkit.story_context_manager.types import StoryMode, StoryType
@@ -191,6 +197,59 @@ class _FakeStoryService:
             phase_status="in_progress",
             labels=["size:medium"],
             participating_repos=["app"],
+        )
+
+
+class _FakeDashboardService:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+        self.error: Exception | None = None
+
+    def get_board(self, project_key: str) -> DashboardBoardResponse:
+        if self.error is not None:
+            raise self.error
+        self.calls.append(("board", project_key))
+        return DashboardBoardResponse(
+            project_key=project_key,
+            columns=[
+                BoardColumn(
+                    status="active",
+                    stories=[
+                        StorySummary(
+                            project_key=project_key,
+                            story_id="AG3-100",
+                            title="Implement control plane",
+                            story_type=StoryType.IMPLEMENTATION,
+                            execution_route=StoryMode.EXECUTION,
+                            story_size=StorySize.MEDIUM,
+                            lifecycle_status="active",
+                            active_phase="implementation",
+                            phase_status="in_progress",
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+    def get_story_metrics(self, project_key: str) -> DashboardStoryMetricsResponse:
+        if self.error is not None:
+            raise self.error
+        self.calls.append(("metrics", project_key))
+        return DashboardStoryMetricsResponse(
+            project_key=project_key,
+            stories=[
+                DashboardStoryMetricsItem(
+                    story_id="AG3-101",
+                    title="Stabilize telemetry",
+                    story_type=StoryType.IMPLEMENTATION,
+                    story_size=StorySize.SMALL,
+                    final_status="DONE",
+                    processing_time_min=12.5,
+                    qa_rounds=2,
+                    increments=1,
+                    completed_at=datetime(2026, 4, 22, 11, 0, tzinfo=UTC),
+                ),
+            ],
         )
 
 
@@ -508,6 +567,50 @@ def test_get_missing_story_returns_not_found() -> None:
 
     assert response.status_code == HTTPStatus.NOT_FOUND
     assert json.loads(response.body) == {"error": "Story not found"}
+
+
+def test_get_dashboard_board_returns_project_scoped_columns() -> None:
+    dashboard_service = _FakeDashboardService()
+    app = ControlPlaneApplication(
+        telemetry_service=_FakeTelemetryService(),
+        runtime_service=_FakeRuntimeService(),
+        story_service=_FakeStoryService(),
+        dashboard_service=dashboard_service,
+    )
+
+    response = app.handle_request(
+        method="GET",
+        path="/v1/dashboard/board?project_key=tenant-a",
+        body=b"",
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    body = json.loads(response.body)
+    assert body["project_key"] == "tenant-a"
+    assert body["columns"][0]["status"] == "active"
+    assert dashboard_service.calls == [("board", "tenant-a")]
+
+
+def test_get_dashboard_story_metrics_returns_project_scoped_metrics() -> None:
+    dashboard_service = _FakeDashboardService()
+    app = ControlPlaneApplication(
+        telemetry_service=_FakeTelemetryService(),
+        runtime_service=_FakeRuntimeService(),
+        story_service=_FakeStoryService(),
+        dashboard_service=dashboard_service,
+    )
+
+    response = app.handle_request(
+        method="GET",
+        path="/v1/dashboard/story-metrics?project_key=tenant-a",
+        body=b"",
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    body = json.loads(response.body)
+    assert body["project_key"] == "tenant-a"
+    assert body["stories"][0]["story_id"] == "AG3-101"
+    assert dashboard_service.calls == [("metrics", "tenant-a")]
 
 
 def test_invalid_payload_returns_bad_request() -> None:

@@ -21,6 +21,7 @@ from agentkit.control_plane.models import (
 )
 from agentkit.control_plane.runtime import ControlPlaneRuntimeService
 from agentkit.control_plane.telemetry import ControlPlaneTelemetryService
+from agentkit.dashboard import DashboardService
 from agentkit.story.service import StoryService
 
 if TYPE_CHECKING:
@@ -61,10 +62,14 @@ class ControlPlaneApplication:
         telemetry_service: ControlPlaneTelemetryService | None = None,
         runtime_service: ControlPlaneRuntimeService | None = None,
         story_service: StoryService | None = None,
+        dashboard_service: DashboardService | None = None,
     ) -> None:
         self._telemetry_service = telemetry_service or ControlPlaneTelemetryService()
         self._runtime_service = runtime_service or ControlPlaneRuntimeService()
         self._story_service = story_service or StoryService()
+        self._dashboard_service = dashboard_service or DashboardService(
+            story_service=self._story_service,
+        )
 
     def handle_request(
         self,
@@ -90,6 +95,10 @@ class ControlPlaneApplication:
         if method == "GET":
             if route_path == "/v1/stories":
                 return self._handle_get_stories(query)
+            if route_path == "/v1/dashboard/board":
+                return self._handle_get_dashboard_board(query)
+            if route_path == "/v1/dashboard/story-metrics":
+                return self._handle_get_dashboard_story_metrics(query)
 
             story_match = _STORY_PATH_PATTERN.match(route_path)
             if story_match is not None:
@@ -268,6 +277,40 @@ class ControlPlaneApplication:
             return _json_response(HTTPStatus.SERVICE_UNAVAILABLE, {"error": str(exc)})
         if result is None:
             return _json_response(HTTPStatus.NOT_FOUND, {"error": "Story not found"})
+        return _json_response(HTTPStatus.OK, result.model_dump(mode="json"))
+
+    def _handle_get_dashboard_board(
+        self,
+        query: dict[str, list[str]],
+    ) -> HttpResponse:
+        project_key = _single_query_value(query, "project_key")
+        if project_key is None:
+            return _json_response(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Missing required query parameter: project_key"},
+            )
+        try:
+            result = self._dashboard_service.get_board(project_key)
+        except RuntimeError as exc:
+            logger.warning("Dashboard board unavailable: %s", exc)
+            return _json_response(HTTPStatus.SERVICE_UNAVAILABLE, {"error": str(exc)})
+        return _json_response(HTTPStatus.OK, result.model_dump(mode="json"))
+
+    def _handle_get_dashboard_story_metrics(
+        self,
+        query: dict[str, list[str]],
+    ) -> HttpResponse:
+        project_key = _single_query_value(query, "project_key")
+        if project_key is None:
+            return _json_response(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Missing required query parameter: project_key"},
+            )
+        try:
+            result = self._dashboard_service.get_story_metrics(project_key)
+        except RuntimeError as exc:
+            logger.warning("Dashboard metrics unavailable: %s", exc)
+            return _json_response(HTTPStatus.SERVICE_UNAVAILABLE, {"error": str(exc)})
         return _json_response(HTTPStatus.OK, result.model_dump(mode="json"))
 
 

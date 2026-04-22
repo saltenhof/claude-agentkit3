@@ -73,6 +73,14 @@ def _cast_json_record(value: object) -> JsonRecord | None:
     return cast("JsonRecord | None", value)
 
 
+def _cast_story_context_optional(value: object) -> StoryContext | None:
+    return cast("StoryContext | None", value)
+
+
+def _cast_phase_state_optional(value: object) -> PhaseState | None:
+    return cast("PhaseState | None", value)
+
+
 def load_json_safe(path: Path) -> JsonRecord | None:
     return _cast_json_record(_backend_module().load_json_safe(path))
 
@@ -118,7 +126,7 @@ def save_story_context(story_dir: Path, ctx: StoryContext) -> None:
 
 
 def load_story_context(story_dir: Path) -> StoryContext | None:
-    return cast("StoryContext | None", _backend_module().load_story_context(story_dir))
+    return _cast_story_context_optional(_backend_module().load_story_context(story_dir))
 
 
 def load_story_context_global(
@@ -130,8 +138,7 @@ def load_story_context_global(
         raise RuntimeError(
             "Global story-context reads are unsupported by the active backend",
         )
-    return cast(
-        "StoryContext | None",
+    return _cast_story_context_optional(
         backend.load_story_context_global(project_key, story_id),
     )
 
@@ -149,8 +156,7 @@ def load_story_contexts_global(project_key: str) -> list[StoryContext]:
 
 
 def read_story_context_record(story_dir: Path) -> StoryContext | None:
-    return cast(
-        "StoryContext | None",
+    return _cast_story_context_optional(
         _backend_module().read_story_context_record(story_dir),
     )
 
@@ -160,7 +166,7 @@ def save_phase_state(story_dir: Path, state: PhaseState) -> None:
 
 
 def load_phase_state(story_dir: Path) -> PhaseState | None:
-    return cast("PhaseState | None", _backend_module().load_phase_state(story_dir))
+    return _cast_phase_state_optional(_backend_module().load_phase_state(story_dir))
 
 
 def load_phase_state_global(story_id: str) -> PhaseState | None:
@@ -169,15 +175,13 @@ def load_phase_state_global(story_id: str) -> PhaseState | None:
         raise RuntimeError(
             "Global phase-state reads are unsupported by the active backend",
         )
-    return cast(
-        "PhaseState | None",
+    return _cast_phase_state_optional(
         backend.load_phase_state_global(story_id),
     )
 
 
 def read_phase_state_record(story_dir: Path) -> PhaseState | None:
-    return cast(
-        "PhaseState | None",
+    return _cast_phase_state_optional(
         _backend_module().read_phase_state_record(story_dir),
     )
 
