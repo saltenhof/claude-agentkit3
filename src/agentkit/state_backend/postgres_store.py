@@ -39,10 +39,13 @@ from agentkit.state_backend.qa_read_models import (
 )
 from agentkit.state_backend.records import (
     AttemptRecord,
+    ControlPlaneOperationRecord,
     ExecutionEventRecord,
     ExecutionReport,
     QAFindingRecord,
     QAStageResultRecord,
+    SessionRunBindingRecord,
+    StoryExecutionLockRecord,
     StoryMetricsRecord,
 )
 from agentkit.story_context_manager.models import (
@@ -266,6 +269,45 @@ def _ensure_schema(conn: _CompatConnection) -> None:
             node_id TEXT,
             payload_json TEXT NOT NULL,
             PRIMARY KEY (project_key, run_id, event_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS session_run_bindings (
+            session_id TEXT PRIMARY KEY,
+            project_key TEXT NOT NULL,
+            story_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            principal_type TEXT NOT NULL,
+            worktree_roots_json TEXT NOT NULL,
+            binding_version TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS story_execution_locks (
+            project_key TEXT NOT NULL,
+            story_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            lock_type TEXT NOT NULL,
+            status TEXT NOT NULL,
+            worktree_roots_json TEXT NOT NULL,
+            binding_version TEXT NOT NULL,
+            activated_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            deactivated_at TEXT,
+            PRIMARY KEY (project_key, run_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS control_plane_operations (
+            op_id TEXT PRIMARY KEY,
+            project_key TEXT NOT NULL,
+            story_id TEXT NOT NULL,
+            run_id TEXT,
+            session_id TEXT,
+            operation_kind TEXT NOT NULL,
+            phase TEXT,
+            status TEXT NOT NULL,
+            response_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS story_metrics (
@@ -889,6 +931,208 @@ def append_execution_event(story_dir: Path, event: ExecutionEventRecord) -> None
 def append_execution_event_global(event: ExecutionEventRecord) -> None:
     with _connect_global() as conn:
         _insert_execution_event(conn, event)
+
+
+def save_session_run_binding_global(record: SessionRunBindingRecord) -> None:
+    with _connect_global() as conn:
+        conn.execute(
+            """
+            INSERT INTO session_run_bindings (
+                session_id, project_key, story_id, run_id, principal_type,
+                worktree_roots_json, binding_version, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (session_id) DO UPDATE SET
+                project_key = EXCLUDED.project_key,
+                story_id = EXCLUDED.story_id,
+                run_id = EXCLUDED.run_id,
+                principal_type = EXCLUDED.principal_type,
+                worktree_roots_json = EXCLUDED.worktree_roots_json,
+                binding_version = EXCLUDED.binding_version,
+                updated_at = EXCLUDED.updated_at
+            """,
+            (
+                record.session_id,
+                record.project_key,
+                record.story_id,
+                record.run_id,
+                record.principal_type,
+                _dump_json(list(record.worktree_roots)),
+                record.binding_version,
+                record.updated_at.isoformat(),
+            ),
+        )
+
+
+def load_session_run_binding_global(
+    session_id: str,
+) -> SessionRunBindingRecord | None:
+    with _connect_global() as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM session_run_bindings
+            WHERE session_id = ?
+            """,
+            (session_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return SessionRunBindingRecord(
+        session_id=str(row["session_id"]),
+        project_key=str(row["project_key"]),
+        story_id=str(row["story_id"]),
+        run_id=str(row["run_id"]),
+        principal_type=str(row["principal_type"]),
+        worktree_roots=tuple(_load_json(row["worktree_roots_json"], [])),
+        binding_version=str(row["binding_version"]),
+        updated_at=datetime.fromisoformat(str(row["updated_at"])),
+    )
+
+
+def delete_session_run_binding_global(session_id: str) -> None:
+    with _connect_global() as conn:
+        conn.execute(
+            """
+            DELETE FROM session_run_bindings
+            WHERE session_id = ?
+            """,
+            (session_id,),
+        )
+
+
+def save_story_execution_lock_global(record: StoryExecutionLockRecord) -> None:
+    with _connect_global() as conn:
+        conn.execute(
+            """
+            INSERT INTO story_execution_locks (
+                project_key, story_id, run_id, lock_type, status,
+                worktree_roots_json, binding_version, activated_at,
+                updated_at, deactivated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (project_key, run_id) DO UPDATE SET
+                story_id = EXCLUDED.story_id,
+                lock_type = EXCLUDED.lock_type,
+                status = EXCLUDED.status,
+                worktree_roots_json = EXCLUDED.worktree_roots_json,
+                binding_version = EXCLUDED.binding_version,
+                activated_at = EXCLUDED.activated_at,
+                updated_at = EXCLUDED.updated_at,
+                deactivated_at = EXCLUDED.deactivated_at
+            """,
+            (
+                record.project_key,
+                record.story_id,
+                record.run_id,
+                record.lock_type,
+                record.status,
+                _dump_json(list(record.worktree_roots)),
+                record.binding_version,
+                record.activated_at.isoformat(),
+                record.updated_at.isoformat(),
+                (
+                    record.deactivated_at.isoformat()
+                    if record.deactivated_at is not None
+                    else None
+                ),
+            ),
+        )
+
+
+def load_story_execution_lock_global(
+    project_key: str,
+    story_id: str,
+    run_id: str,
+) -> StoryExecutionLockRecord | None:
+    with _connect_global() as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM story_execution_locks
+            WHERE project_key = ? AND story_id = ? AND run_id = ?
+            """,
+            (project_key, story_id, run_id),
+        ).fetchone()
+    if row is None:
+        return None
+    deactivated_at_raw = row["deactivated_at"]
+    return StoryExecutionLockRecord(
+        project_key=str(row["project_key"]),
+        story_id=str(row["story_id"]),
+        run_id=str(row["run_id"]),
+        lock_type=str(row["lock_type"]),
+        status=str(row["status"]),
+        worktree_roots=tuple(_load_json(row["worktree_roots_json"], [])),
+        binding_version=str(row["binding_version"]),
+        activated_at=datetime.fromisoformat(str(row["activated_at"])),
+        updated_at=datetime.fromisoformat(str(row["updated_at"])),
+        deactivated_at=(
+            datetime.fromisoformat(str(deactivated_at_raw))
+            if deactivated_at_raw is not None
+            else None
+        ),
+    )
+
+
+def save_control_plane_operation_global(record: ControlPlaneOperationRecord) -> None:
+    with _connect_global() as conn:
+        conn.execute(
+            """
+            INSERT INTO control_plane_operations (
+                op_id, project_key, story_id, run_id, session_id,
+                operation_kind, phase, status, response_json,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (op_id) DO UPDATE SET
+                project_key = EXCLUDED.project_key,
+                story_id = EXCLUDED.story_id,
+                run_id = EXCLUDED.run_id,
+                session_id = EXCLUDED.session_id,
+                operation_kind = EXCLUDED.operation_kind,
+                phase = EXCLUDED.phase,
+                status = EXCLUDED.status,
+                response_json = EXCLUDED.response_json,
+                updated_at = EXCLUDED.updated_at
+            """,
+            (
+                record.op_id,
+                record.project_key,
+                record.story_id,
+                record.run_id,
+                record.session_id,
+                record.operation_kind,
+                record.phase,
+                record.status,
+                _dump_json(record.response_payload),
+                record.created_at.isoformat(),
+                record.updated_at.isoformat(),
+            ),
+        )
+
+
+def load_control_plane_operation_global(
+    op_id: str,
+) -> ControlPlaneOperationRecord | None:
+    with _connect_global() as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM control_plane_operations
+            WHERE op_id = ?
+            """,
+            (op_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return ControlPlaneOperationRecord(
+        op_id=str(row["op_id"]),
+        project_key=str(row["project_key"]),
+        story_id=str(row["story_id"]),
+        run_id=cast("str | None", row["run_id"]),
+        session_id=cast("str | None", row["session_id"]),
+        operation_kind=str(row["operation_kind"]),
+        phase=cast("str | None", row["phase"]),
+        status=str(row["status"]),
+        response_payload=_cast_json_record(_load_json(row["response_json"], {})),
+        created_at=datetime.fromisoformat(str(row["created_at"])),
+        updated_at=datetime.fromisoformat(str(row["updated_at"])),
+    )
 
 
 def load_execution_events(

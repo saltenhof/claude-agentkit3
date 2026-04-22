@@ -47,6 +47,8 @@ class TestInstallScaffoldContract:
             ".claude/skills",
             "prompts",
             "stories",
+            "tools",
+            "tools/agentkit",
         ]
         for d in expected_dirs:
             assert (tmp_path / d).is_dir(), (
@@ -55,8 +57,12 @@ class TestInstallScaffoldContract:
         assert (
             tmp_path / ".agentkit" / "config" / "prompt-bundle.lock.json"
         ).is_file()
+        assert (
+            tmp_path / ".agentkit" / "config" / "control-plane.json"
+        ).is_file()
         assert (tmp_path / "prompts" / "manifest.json").is_file()
         assert (tmp_path / "prompts" / "worker-implementation.md").is_file()
+        assert (tmp_path / "tools" / "agentkit" / "projectedge.py").is_file()
 
     def test_install_creates_project_yaml(self, tmp_path: Path) -> None:
         """Installed project has a valid, loadable project.yaml."""

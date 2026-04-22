@@ -143,6 +143,7 @@ sequenceDiagram
     INS->>STATE: Projekt registrieren / Konfiguration validieren
     INS->>PROJ: .story-pipeline.yaml + .claude/settings.json aktualisieren
     INS->>PROJ: .claude/skills/ Symlinks auf Bundle-Version erzeugen
+    INS->>PROJ: tools/agentkit/ Wrapper fuer Project-Edge-Aufrufe binden
     Note over PROJ: Nur lokale Konfiguration und Skill-Bindungen<br/>keine kopierten Skills/Prompts/DB-Dateien
 ```
 
@@ -183,6 +184,7 @@ zugeordneten Pool in der Telemetrie vorliegt.
 
 AgentKit hat keine projektlokale Runtime. Alles Projektseitige läuft als:
 - Kurzlebige CLI-Aufrufe (Pipeline-Skripte)
+- Kurzlebige offizielle Project-Edge-Client-Aufrufe
 - Kurzlebige Hook-Prozesse (PreToolUse/PostToolUse)
 - Zugriff auf Projektcode und Projektkonfiguration
 

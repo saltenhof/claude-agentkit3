@@ -281,7 +281,7 @@ Governance selbst zu manipulieren:
 | Agent ändert `.claude/settings.json` (Hook-Registrierung) | Hook-Signal: Governance-Datei verändert | Sofortiger Stopp |
 | Agent ändert `.claude/ccag/rules/*.yaml` | Hook-Signal: Governance-Datei verändert | Sofortiger Stopp |
 | Agent ändert `.story-pipeline.yaml` | Hook-Signal: Governance-Datei verändert | Sofortiger Stopp |
-| Agent versucht Lock-Mechanismus lokal zu umgehen | Hook-Signal: Governance-Datei verändert oder fehlender Backend-Write-Pfad | Sofortiger Stopp |
+| Agent versucht Edge-Bundle- oder Lock-Mechanismus lokal zu umgehen | Hook-Signal: Governance-Datei verändert oder fehlender offizieller Project-Edge-Write-Pfad | Sofortiger Stopp |
 | Agent ändert `.claude/skills/` Bindungen | Hook-Signal: Governance-Datei verändert | Sofortiger Stopp |
 | Agent versucht State-Backend-Zugangsdaten zu lesen/ändern | Guard + Secret-Schutz | Sofortiger Stopp |
 
@@ -292,6 +292,8 @@ Governance selbst zu manipulieren:
 .claude/ccag/rules/
 .story-pipeline.yaml
 .claude/skills/
+_temp/governance/
+.agent-guard/
 ```
 
 ### 15.7.2 Hook-Integrität

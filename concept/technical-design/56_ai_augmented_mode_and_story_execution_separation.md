@@ -155,6 +155,14 @@ Es braucht **beides**:
 Die Session-Bindung enthaelt in Multi-Repo-Faellen keine einzelne
 `worktree_root`, sondern die Menge der erlaubten `worktree_roots`.
 
+Hooks und Guards lesen diese Lage im Normalfall nicht per
+State-Backend-Roundtrip, sondern aus einer lokal publizierten,
+abgeleiteten Projektion:
+
+- `_temp/governance/current.json`
+- `_temp/governance/bundles/{export_version}/session.json`
+- `_temp/governance/bundles/{export_version}/lock.json`
+
 Fehlt beides, gilt:
 
 - `ai_augmented`
@@ -190,11 +198,13 @@ Die aktive Session-Bindung enthaelt mindestens:
 - `story_id`
 - `run_id`
 - `principal_type`
-- `worktree_root`
+- `worktree_roots`
 - `binding_version`
 
 Lokale Exporte sind nur Materialisierung. Kanonisch bleibt der
-State-Backend-Eintrag.
+State-Backend-Eintrag. Fuer Hook-Entscheidungen ist `current.json`
+der einzige lokale Einstieg; einzelne Exportdateien oder
+Worktree-Projektionen sind fuer sich allein nie ausreichend.
 
 ## 56.9 Mode-Resolution
 
@@ -203,22 +213,36 @@ ihn deterministisch ab:
 
 ```python
 def resolve_operating_mode(event: HookEvent) -> str:
-    binding = load_active_session_run_binding(event.session_id)
-    if binding is None:
+    current = load_current_edge_pointer()
+    if current is None:
         return "ai_augmented"
 
-    if not state_backend.has_active_story_lock(
-        binding.project_key,
-        binding.story_id,
-        binding.run_id,
-    ):
+    bundle = load_edge_bundle(current)
+    if bundle.session.session_id != event.session_id:
         return "binding_invalid"
 
-    if not worktree_matches_binding(event.cwd, binding.worktree_root):
+    if bundle.lock.status != "ACTIVE":
+        return "binding_invalid"
+
+    if not worktree_matches_binding(event.cwd, bundle.session.worktree_roots):
         return "binding_invalid"
 
     return "story_execution"
 ```
+
+### 56.9a Bounded Re-Sync statt DB-Roundtrip pro Hook
+
+Hooks fuehren keine zentrale Abfrage pro Tool-Call aus. Stattdessen
+gilt:
+
+- offizielle Zustandswechsel materialisieren lokal ein komplettes
+  Edge-Bundle
+- `current.json` zeigt atomar auf genau ein vollstaendiges Bundle
+- jedes Bundle traegt ein `sync_after`
+- nur der erste Hook nach Ablauf von `sync_after` darf einen bounded
+  Re-Sync gegen AK3 ausloesen
+- mutierende Story-Entscheidungen blockieren fail-closed, wenn der
+  Bundle-Stand zu alt oder inkonsistent ist
 
 ## 56.10 Integrity-Gate-Abgrenzung
 
@@ -250,7 +274,8 @@ Ein Story-Run endet technisch erst, wenn:
 
 1. der Lock-/Run-Record beendet ist
 2. die Session-Bindung geloest ist
-3. lokale Exporte entfernt oder entwertet sind
+3. das lokale Edge-Bundle auf den deaktivierten Zustand
+   umgeschaltet wurde und Tombstones alte Exporte entfernt haben
 
 Erst danach faellt die Session wieder auf `ai_augmented` zurueck.
 

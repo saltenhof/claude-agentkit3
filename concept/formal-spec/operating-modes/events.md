@@ -34,5 +34,9 @@ events:
     role: governance
   - id: operating-modes.event.binding_invalid_detected
     role: audit
+  - id: operating-modes.event.local_edge_bundle_materialized
+    role: governance
+  - id: operating-modes.event.edge_operation_reconciled
+    role: audit
 ```
 <!-- FORMAL-SPEC:END -->

@@ -52,9 +52,11 @@ class TestInstallFresh:
         assert (root / "prompts" / "manifest.json").is_file()
         assert (root / "prompts" / "worker-implementation.md").is_file()
         assert (root / ".agentkit" / "config" / "prompt-bundle.lock.json").is_file()
+        assert (root / ".agentkit" / "config" / "control-plane.json").is_file()
         assert (root / ".agentkit" / "prompts").is_dir()
         assert (root / ".agentkit" / "hooks").is_dir()
         assert (root / "stories").is_dir()
+        assert (root / "tools" / "agentkit" / "projectedge.py").is_file()
 
     def test_install_creates_prompt_hardlink_binding(self, tmp_path: object) -> None:
         """Install binds project prompt files to bundled prompt resources."""

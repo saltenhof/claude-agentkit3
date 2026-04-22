@@ -123,17 +123,22 @@ Der Regex für Push auf Main matcht alle Remote-Namen (nicht nur
 ### 31.1.5 Erkennung des aktiven Worktrees
 
 Der Branch-Guard prüft den aktiven Story-Execution-Kontext
-kanonisch über den Lock-Record im State-Backend. Ein optionaler
-`.agent-guard/lock.json`-Export im Worktree dient nur als
-lokale Materialisierung (Kap. 12.5.1):
+kanonisch über die vom offiziellen lokalen `Project Edge Client`
+publizierte Materialisierung. Autoritativ für Hooks ist:
+
+- `_temp/governance/current.json`
+- das dort referenzierte Bundle unter
+  `_temp/governance/bundles/{export_version}/...`
+
+Ein optionaler `.agent-guard/lock.json`-Export im Worktree dient nur
+als sekundaere lokale Materialisierung:
 
 ```python
-def has_active_story_lock(project_key: str, story_id: str) -> bool:
-    return state_backend.has_active_lock_record(
-        project_key=project_key,
-        story_id=story_id,
-        lock_type="story_execution",
-    )
+def load_active_story_binding() -> EdgeBundle | None:
+    current = Path("_temp/governance/current.json")
+    if not current.exists():
+        return None
+    return load_current_edge_bundle(current)
 
 def get_story_branch() -> str | None:
     export = Path(".agent-guard/lock.json")
@@ -174,7 +179,7 @@ Agent versucht, seine Prompt-Regeln absichtlich zu verletzen.
 
 | Klasse | Beispiele | Orchestrator-Zugriff |
 |--------|-----------|----------------------|
-| Control-Plane | `phase-state.json`, Lock-Export, Marker | Erlaubt (lesend) |
+| Control-Plane | `phase-state.json`, `current.json`, Edge-Bundles, Lock-Export | Erlaubt (lesend) |
 | Content-Plane | `context.json`, `are_bundle.json` | Blockiert |
 | Codebase | Quellcode, Build-Dateien, Konfigurationen des Zielsystems | Blockiert |
 
@@ -243,7 +248,9 @@ immer erlaubt:
 |------|--------|-----------|
 | `prompts/`, `templates/`, `skills/` | Control-Plane | Orchestrator braucht Prompt-Zugriff |
 | `_temp/qa/{story_id}/phase-state.json` | Control-Plane | Materialisierter Export der `phase_state_projection` |
-| `_temp/governance/` | Control-Plane | Materialisierte Lock-/Marker-Exporte lesen |
+| `_temp/governance/current.json` | Control-Plane | Atomar publizierter Einstieg in den aktuellen Bundle-Stand |
+| `_temp/governance/bundles/` | Control-Plane | Vollstaendige lokale Edge-Bundles lesen |
+| `_temp/governance/` | Control-Plane | Materialisierte Lock- und Sync-Projektionen lesen |
 | `_guardrails/` | Control-Plane | Guardrail-Dokumente |
 | `concepts/`, `stories/` | Control-Plane | Konzepte und Story-Dokumentation |
 | `CLAUDE.md`, `README.md` | Control-Plane | Projektdokumentation |
@@ -547,7 +554,7 @@ Template- und Skill-Proof-Pflichten gelten nur in `story_execution`.
 | Stufe | Prüfgegenstand | Methode |
 |-------|---------------|---------|
 | 1: Governance-Escape-Erkennung | Prompt wird nach adversarialen Mustern gescannt ("ignore all previous instructions", "bypass governance", "you are now free" u.ä.) | Regex-basiert, kein LLM |
-| 2: Spawn-Schema-Validierung | Jeder Sub-Agent muss einen strukturierten Header in `description` tragen: `AGENTKIT-SUBAGENT-V1 mode=X role=Y story_id=Z skill_proof=W`. Im Freestyle-Modus: nur `role=general` mit `skill_proof=null`. Im Story-Execution-Modus: gültiges `skill_proof`-Token aus installiertem Manifest, aktive Story-Marker-Datei, autorisierte `prompt_file` aus Phase-State-Contract | Schema-Validierung |
+| 2: Spawn-Schema-Validierung | Jeder Sub-Agent muss einen strukturierten Header in `description` tragen: `AGENTKIT-SUBAGENT-V1 mode=X role=Y story_id=Z skill_proof=W`. Im Freestyle-Modus: nur `role=general` mit `skill_proof=null`. Im Story-Execution-Modus: gültiges `skill_proof`-Token aus installiertem Manifest, aktuelles lokales Edge-Bundle (`current.json` + Session-/Lock-Export), autorisierte `prompt_file` aus Phase-State-Contract | Schema-Validierung |
 | 3: Template-Integritätsprüfung | Nur während Story-Execution. Tatsächlicher Prompt-Text wird (whitespace-normalisiert) gegen installiertes statisches Template verglichen, wobei `<STORY-ID>` und `<ROUND>` substituiert werden. QA-Agents sind ausgenommen (dynamische Prompts). | String-Vergleich |
 
 ### 31.7.3 Opake Fehlermeldungen

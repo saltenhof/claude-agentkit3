@@ -29,6 +29,16 @@ entities:
       - principal_type
       - worktree_roots
       - binding_version
+  - id: operating-modes.entity.local-edge-bundle
+    identity: project_key + export_version
+    attributes:
+      - session_id
+      - story_id
+      - run_id
+      - operating_mode
+      - worktree_roots
+      - export_version
+      - sync_after
   - id: operating-modes.entity.mode-resolution
     identity: session_id + resolved_at
     attributes:
@@ -37,5 +47,6 @@ entities:
       - basis
       - story_lock_ref
       - binding_ref
+      - local_edge_bundle_ref
 ```
 <!-- FORMAL-SPEC:END -->

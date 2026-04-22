@@ -415,18 +415,6 @@ def setup_worktree(story_id: str, repo: RepoRef,
     git_worktree_add(worktree_path, f"story/{story_id}", base_ref,
                      cwd=repo.path)
 
-    # 5. Optionalen Lock-Export im Worktree schreiben
-    agent_guard = worktree_path / ".agent-guard" / "lock.json"
-    agent_guard.parent.mkdir(parents=True, exist_ok=True)
-    agent_guard.write_text(json.dumps({
-        "project_key": context.project_key,
-        "story_id": story_id,
-        "repo": repo.name,
-        "run_id": context.run_id,
-        "branch": f"story/{story_id}",
-        "created_at": now_iso(),
-    }))
-
     return WorktreeResult(
         success=True,
         worktree_path=worktree_path,
@@ -442,7 +430,7 @@ def setup_worktree(story_id: str, repo: RepoRef,
 | Pfad | `{repo.path}/worktrees/{story_id}` (pro teilnehmendem Repo) |
 | Branch | `story/{story_id}` (identisch in allen teilnehmenden Repos) |
 | Base | `main` (oder konfigurierbar) |
-| `.agent-guard/lock.json` | Optionaler Worktree-Export des Lock-Records, enthält `repo`-Feld |
+| `.agent-guard/lock.json` | Optionaler Worktree-Export des lokal publizierten Edge-Bundles; wird nicht ad hoc im Worktree erfunden |
 | Nicht-teilnehmende Repos | Kein Worktree, kein Feature-Branch — Worker arbeitet auf `main` |
 
 ## 22.7 Guard-Aktivierung
@@ -452,7 +440,18 @@ def setup_worktree(story_id: str, repo: RepoRef,
 Das Setup-Skript (nicht der Agent) erstellt den Lock-Record als
 notwendige Bedingung fuer das Story-Regime. Er allein aktiviert die
 Guards noch nicht; massgeblich bleibt die spaetere
-Modus-Aufloesung aus Run-Bindung + Lock + Worktree-Match:
+Modus-Aufloesung aus Run-Bindung + Lock + Worktree-Match.
+
+Zusätzlich gilt ab AK3:
+
+- der lokale Projektzustand wird nicht mehr markerbasiert frei
+  fortgeschrieben
+- der offizielle lokale `Project Edge Client` publiziert nach dem
+  zentralen Zustandswechsel ein komplettes Edge-Bundle unter
+  `_temp/governance/current.json` und
+  `_temp/governance/bundles/{export_version}/...`
+- optionale Worktree-Exporte wie `.agent-guard/lock.json` sind nur
+  sekundaere Projektionen dieses Bundles
 
 ```python
 def activate_guards(project_key: str, story_id: str, run_id: str) -> None:
@@ -464,8 +463,10 @@ def activate_guards(project_key: str, story_id: str, run_id: str) -> None:
         lock_type="story_execution",
     )
 
-    # 2. Optionalen Lock-Export fuer lokale Tooling-Pfade materialisieren
-    export_lock_json(project_key=project_key, story_id=story_id, run_id=run_id)
+    # 2. Lokales Edge-Bundle ueber den offiziellen Projektpfad publizieren
+    project_edge_client.materialize_runtime_bundle(
+        project_key=project_key, story_id=story_id, run_id=run_id
+    )
 
     # 3. QA-Verzeichnis erstellen
     qa_dir = Path(f"_temp/qa/{story_id}")
@@ -491,8 +492,9 @@ aufgerufen.
 | Immer-aktive Regeln | Aktiv (Force-Push, Hard-Reset, Secrets) | Aktiv |
 
 **Orchestrator-Guard:** Wird durch denselben Lock-Record gesteuert
-wie Branch-Guard und QA-Schutz. Er liest den aktiven Lock-Record
-read-only aus dem State-Backend. Lokale Marker-/Lock-Exporte sind
+wie Branch-Guard und QA-Schutz. Kanonisch bleibt der Lock-Record im
+State-Backend. Lokal lesen Hooks und Guards das aktuelle
+Edge-Bundle ueber `_temp/governance/current.json`; lokale Exporte sind
 nur Materialisierung, nicht kanonische Aktivierung. Ein Lock allein ist
 auch hier nicht hinreichend; die Session muss zusaetzlich an denselben
 Run gebunden sein.
@@ -634,13 +636,16 @@ Sie erzeugt folgende Artefakte:
 | Story-Context | `_temp/qa/{story_id}/context.json` | `compute-story-context` | Content-Plane-Export |
 | ARE-Bundle | `_temp/qa/{story_id}/are_bundle.json` | `load-are-bundle` | Content-Plane |
 | Phase-State | `_temp/qa/{story_id}/phase-state.json` | `run-phase` | Control-Plane-Export |
-| Lock-Export | `_temp/governance/locks/{story_id}/qa-lock.json` | `run-phase` | Control-Plane-Export |
+| Edge-Bundle-Pointer | `_temp/governance/current.json` | offizieller lokaler Project Edge Client | Control-Plane-Export |
+| Edge-Bundle | `_temp/governance/bundles/{export_version}/...` | offizieller lokaler Project Edge Client | Control-Plane-Export |
+| Worktree-Lock-Export | `worktrees/{story_id}/.agent-guard/lock.json` | offizieller lokaler Project Edge Client | Sekundaere Projektion |
 | State-Backend | zentrale PostgreSQL-Instanz | Migration/Bootstrap | Kanonische Runtime-Persistenz |
 
 Content-Plane-Artefakte (`context.json`-Export, `are_bundle.json`) sind für den
 Orchestrator-Agenten durch den Orchestrator-Guard blockiert (Kap. 31.2).
 Der Orchestrator liest ausschließlich die `phase_state_projection`
-bzw. deren `phase-state.json`-Export.
+bzw. deren `phase-state.json`-Export sowie die publizierten
+Control-Plane-Exporte unter `_temp/governance/`.
 
 ## 22.10 Fehlerbehandlung
 

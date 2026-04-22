@@ -25,10 +25,13 @@ from agentkit.state_backend.exports import (
 )
 from agentkit.state_backend.records import (
     AttemptRecord,
+    ControlPlaneOperationRecord,
     ExecutionEventRecord,
     ExecutionReport,
     QAFindingRecord,
     QAStageResultRecord,
+    SessionRunBindingRecord,
+    StoryExecutionLockRecord,
     StoryMetricsRecord,
 )
 from agentkit.state_backend.scope import RuntimeStateScope, StateScope
@@ -41,9 +44,11 @@ from agentkit.state_backend.store import (
     backend_has_valid_context,
     backend_has_valid_phase_state,
     backend_verify_decision_passed_for_scope,
+    delete_session_run_binding_global,
     load_artifact_record,
     load_artifact_record_for_scope,
     load_attempts,
+    load_control_plane_operation_global,
     load_execution_events,
     load_flow_execution,
     load_latest_verify_decision,
@@ -56,7 +61,9 @@ from agentkit.state_backend.store import (
     load_qa_findings_for_scope,
     load_qa_stage_results,
     load_qa_stage_results_for_scope,
+    load_session_run_binding_global,
     load_story_context,
+    load_story_execution_lock_global,
     load_story_metrics,
     load_story_metrics_for_scope,
     read_artifact_record,
@@ -69,12 +76,15 @@ from agentkit.state_backend.store import (
     record_verify_decision,
     resolve_runtime_scope,
     save_attempt,
+    save_control_plane_operation_global,
     save_flow_execution,
     save_node_execution_ledger,
     save_override_record,
     save_phase_snapshot,
     save_phase_state,
+    save_session_run_binding_global,
     save_story_context,
+    save_story_execution_lock_global,
     upsert_story_metrics,
 )
 

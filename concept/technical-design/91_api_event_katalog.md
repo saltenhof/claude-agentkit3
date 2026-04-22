@@ -115,6 +115,8 @@ API-Vertrag.
 | `/v1/story-runs/{run_id}/phases/{phase}/complete` | `POST` | Erfolgreichen Phasenabschluss melden |
 | `/v1/story-runs/{run_id}/phases/{phase}/fail` | `POST` | Fehlerhaften Phasenabschluss melden |
 | `/v1/story-runs/{run_id}/closure/complete` | `POST` | Offiziellen Closure-Abschluss anfordern |
+| `/v1/project-edge/sync` | `POST` | Lokalen Edge-Bundle-Stand fuer einen Projekt-Client bounded neu abgleichen |
+| `/v1/project-edge/operations/{op_id}` | `GET` | Unklare Remote-Lage eines mutierenden Requests ueber `op_id` reconciliieren |
 | `/v1/telemetry/events` | `POST` | Kanonisches Telemetrie-Event ingestieren |
 | `/v1/stories` | `GET` | Projektgebundene Story-Liste für Web- und Agent-Clients |
 | `/v1/stories/{story_id}` | `GET` | Story-Detailansicht mit Status, Laufzeit- und Telemetriebezug |
@@ -128,9 +130,16 @@ API-Vertrag.
    Projektkontext.
 2. Die Control Plane exponiert mutierende Endpunkte nur ueber HTTPS;
    Plain-HTTP-Listener sind fachlich unzulaessig.
-3. Agents sollen offizielle Request-Templates verwenden statt frei
-   formulierte `curl`-Kommandos.
-4. Die API erzeugt keine zweite Befehls- oder Event-Semantik neben der
+3. Agents sollen offizielle lokale Wrapper bzw. den offiziellen
+   `Project Edge Client` verwenden statt frei formulierte
+   `curl`-Kommandos.
+4. Jeder mutierende Endpoint muss neben dem zentralen Commit-Resultat
+   ein lokales Materialisierungs-Bundle fuer den `Project Edge Client`
+   bereitstellen.
+5. Jeder mutierende Endpoint muss `op_id` als Idempotenzschluessel
+   akzeptieren; Wiederholungen mit derselben `op_id` duerfen keine
+   zweite Mutation erzeugen.
+6. Die API erzeugt keine zweite Befehls- oder Event-Semantik neben der
    CLI; sie ist die Zielgrenze, die CLI ist nur ein aktueller Adapter.
 
 ## 91.2 Telemetrie-Event-Typen
@@ -209,6 +218,8 @@ API-Vertrag.
 | `story_execution_regime_activated` | 56 | Setup / Runtime | Storygebundene Guards und Workflow-Pflichten sind aktiv |
 | `story_execution_regime_deactivated` | 56 | Closure / Cleanup / Reset / Split | Session faellt auf freien AI-Augmented-Modus zurueck |
 | `binding_invalid_detected` | 56 | GuardSystem | Inkonsistenter Lock-/Bindungszustand wurde als blockierende inkonsistente Story-Bindung erkannt |
+| `local_edge_bundle_materialized` | 56 | offizieller lokaler Project Edge Client | Lokales Edge-Bundle fuer Hooks und Guards atomar publiziert |
+| `edge_operation_reconciled` | 56 | offizieller lokaler Project Edge Client / Control Plane | Unklare Remote-Lage einer Mutation ueber `op_id` reconciliiert |
 | `story_contract_classified` | 59 | Setup / Story-Metadata | Persistenter Story-Vertrag aus `story_type` und optionalem `implementation_contract` wurde konsolidiert |
 | `runtime_classification_derived` | 59 | Setup / GuardSystem | Laufzeitklassifikation aus `operating_mode` und `execution_route` wurde abgeleitet |
 | `story_marked_done` | 59 | Closure | Story wurde erfolgreich geliefert und auf `Done` gesetzt |

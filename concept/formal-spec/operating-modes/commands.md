@@ -21,7 +21,7 @@ kind: command-set
 context: operating-modes
 commands:
   - id: operating-modes.command.resolve-operating-mode
-    signature: internal resolve session mode from run binding story lock and worktree
+    signature: internal resolve session mode from local edge bundle session binding story lock and worktree
     allowed_statuses:
       - operating-modes.status.unresolved
       - operating-modes.status.ai_augmented
@@ -29,6 +29,14 @@ commands:
       - operating-modes.status.binding_invalid
     emits:
       - operating-modes.event.operating_mode_resolved
+  - id: operating-modes.command.materialize-local-edge-bundle
+    signature: internal publish locally readable operating mode bundle after a committed central state transition
+    allowed_statuses:
+      - operating-modes.status.ai_augmented
+      - operating-modes.status.story_execution
+      - operating-modes.status.binding_invalid
+    emits:
+      - operating-modes.event.local_edge_bundle_materialized
   - id: operating-modes.command.bind-session-to-run
     signature: internal bind current session to explicit story run
     allowed_statuses:
@@ -53,5 +61,13 @@ commands:
       - operating-modes.invariant.story_execution_requires_lock_binding_and_worktree_match
     emits:
       - operating-modes.event.story_execution_regime_activated
+  - id: operating-modes.command.reconcile-edge-operation
+    signature: internal reconcile uncertain mutation result by op_id before further local materialization
+    allowed_statuses:
+      - operating-modes.status.ai_augmented
+      - operating-modes.status.story_execution
+      - operating-modes.status.binding_invalid
+    emits:
+      - operating-modes.event.edge_operation_reconciled
 ```
 <!-- FORMAL-SPEC:END -->

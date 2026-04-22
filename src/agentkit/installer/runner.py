@@ -22,6 +22,7 @@ from agentkit.installer.file_ops import (
 )
 from agentkit.installer.paths import (
     config_dir,
+    control_plane_config_path,
     project_config_path,
     prompt_bundle_lock_path,
     prompt_bundle_store_dir,
@@ -237,6 +238,24 @@ def _deploy_directory_structure(
     return created
 
 
+def _deploy_static_resource_files(
+    resources_dir: Path,
+    target_root: Path,
+) -> list[str]:
+    created: list[str] = []
+
+    for item in sorted(resources_dir.rglob("*")):
+        rel = item.relative_to(resources_dir)
+        if rel.parts[0] == "templates" or item.is_dir():
+            continue
+
+        target = target_root / rel
+        copy_file(item, target)
+        created.append(str(rel))
+
+    return created
+
+
 def _deploy_prompt_bindings(target_root: Path, prompt_source_dir: Path) -> list[str]:
     created: list[str] = []
     prompt_target_dir = static_prompts_dir(target_root)
@@ -298,6 +317,23 @@ def _write_prompt_bundle_lock(
     return str(lock_path.relative_to(target_root))
 
 
+def _write_control_plane_config(target_root: Path) -> str:
+    config_path = control_plane_config_path(target_root)
+    atomic_write_text(
+        config_path,
+        json.dumps(
+            {
+                "base_url": "https://127.0.0.1:9080",
+                "ca_file": None,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+    )
+    return str(config_path.relative_to(target_root))
+
+
 def install_agentkit(config: InstallConfig) -> InstallResult:
     root = config.project_root
 
@@ -321,6 +357,7 @@ def install_agentkit(config: InstallConfig) -> InstallResult:
         _ensure_prompt_bundle_store_entry(prompt_source_dir)
     )
     created = _deploy_directory_structure(resources_dir, root)
+    created.extend(_deploy_static_resource_files(resources_dir, root))
     created.extend(_deploy_prompt_bindings(root, canonical_prompt_bundle_root))
 
     cfg_dir = config_dir(root)
@@ -334,6 +371,7 @@ def install_agentkit(config: InstallConfig) -> InstallResult:
             manifest_text=manifest_text,
         ),
     )
+    created.append(_write_control_plane_config(root))
 
     yaml_path = project_config_path(root)
     yaml_data = _build_project_yaml(config)

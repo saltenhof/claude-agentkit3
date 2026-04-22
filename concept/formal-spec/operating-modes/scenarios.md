@@ -34,10 +34,12 @@ scenarios:
     trace:
       - command: operating-modes.command.bind-session-to-run
       - command: operating-modes.command.activate-story-execution-regime
+      - command: operating-modes.command.materialize-local-edge-bundle
     expected_end:
       status: operating-modes.status.resolved_story_execution
     requires:
       - operating-modes.invariant.story_execution_requires_lock_binding_and_worktree_match
+      - operating-modes.invariant.local_edge_bundle_is_derived_not_authoritative
   - id: operating-modes.scenario.lock-loss-enters-binding-invalid
     start:
       status: operating-modes.status.story_execution
@@ -47,5 +49,16 @@ scenarios:
       status: operating-modes.status.resolved_binding_invalid
     requires:
       - operating-modes.invariant.invalid_bound_session_must_not_fall_back_to_free_mode
+  - id: operating-modes.scenario.uncertain-mutation-result-is-reconciled-before-local-publish
+    start:
+      status: operating-modes.status.story_execution
+    trace:
+      - command: operating-modes.command.reconcile-edge-operation
+      - command: operating-modes.command.materialize-local-edge-bundle
+    expected_end:
+      status: operating-modes.status.resolved_story_execution
+    requires:
+      - operating-modes.invariant.uncertain_remote_mutation_must_be_reconciled_by_op_id
+      - operating-modes.invariant.story_mutations_require_fresh_or_resynced_bundle
 ```
 <!-- FORMAL-SPEC:END -->

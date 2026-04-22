@@ -51,6 +51,13 @@ class EventType(StrEnum):
 
     # Governance / analytics
     INTEGRITY_VIOLATION = "integrity_violation"
+    SESSION_RUN_BINDING_CREATED = "session_run_binding_created"
+    SESSION_RUN_BINDING_REMOVED = "session_run_binding_removed"
+    STORY_EXECUTION_REGIME_ACTIVATED = "story_execution_regime_activated"
+    STORY_EXECUTION_REGIME_DEACTIVATED = "story_execution_regime_deactivated"
+    BINDING_INVALID_DETECTED = "binding_invalid_detected"
+    LOCAL_EDGE_BUNDLE_MATERIALIZED = "local_edge_bundle_materialized"
+    EDGE_OPERATION_RECONCILED = "edge_operation_reconciled"
     WEB_CALL = "web_call"
     IMPACT_VIOLATION_CHECK = "impact_violation_check"
     DOC_FIDELITY_CHECK = "doc_fidelity_check"

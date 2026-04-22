@@ -243,6 +243,10 @@ AgentKit-Hooks werden hinzugefügt.
 
 **Idempotenz:** Prüft ob jeder Hook bereits registriert ist.
 
+Zusätzlich bindet der Installer die offiziellen lokalen
+`Project Edge Client`-Wrapper unter `tools/agentkit/`, damit Agents
+keine freien REST-Aufrufe formulieren muessen.
+
 ### CP 10: MCP-Server
 
 Nur wenn `features.vectordb: true`. Registriert den
@@ -340,6 +344,7 @@ Read-only Validierung aller vorherigen Checkpoints:
 - Projekt im State-Backend registriert?
 - Alle erwarteten Skill-Symlinks vorhanden und korrekt?
 - Alle Hooks registriert?
+- Alle erwarteten `tools/agentkit/`-Wrapper vorhanden?
 - GitHub-Fields vorhanden?
 - ARE-Scope-Zuordnung vollständig? (alle Code-Repos haben `are_scope`, alle Modul-Werte gemappt — nur wenn `features.are: true`)
 

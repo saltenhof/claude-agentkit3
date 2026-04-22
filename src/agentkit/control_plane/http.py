@@ -1,9 +1,10 @@
-"""Minimal HTTP transport for the AgentKit control plane."""
+"""HTTPS transport and routing for the AgentKit control plane."""
 
 from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPSServer
@@ -11,7 +12,13 @@ from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 
-from agentkit.control_plane.models import TelemetryEventIngestRequest
+from agentkit.control_plane.models import (
+    ClosureCompleteRequest,
+    PhaseMutationRequest,
+    ProjectEdgeSyncRequest,
+    TelemetryEventIngestRequest,
+)
+from agentkit.control_plane.runtime import ControlPlaneRuntimeService
 from agentkit.control_plane.telemetry import ControlPlaneTelemetryService
 
 if TYPE_CHECKING:
@@ -19,6 +26,16 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+_PHASE_PATH_PATTERN = re.compile(
+    r"^/v1/story-runs/(?P<run_id>[^/]+)/phases/(?P<phase>[^/]+)/(?P<action>start|complete|fail)$",
+)
+_CLOSURE_PATH_PATTERN = re.compile(
+    r"^/v1/story-runs/(?P<run_id>[^/]+)/closure/complete$",
+)
+_OPERATION_PATH_PATTERN = re.compile(
+    r"^/v1/project-edge/operations/(?P<op_id>[^/]+)$",
+)
 
 
 @dataclass(frozen=True)
@@ -37,8 +54,10 @@ class ControlPlaneApplication:
         self,
         *,
         telemetry_service: ControlPlaneTelemetryService | None = None,
+        runtime_service: ControlPlaneRuntimeService | None = None,
     ) -> None:
         self._telemetry_service = telemetry_service or ControlPlaneTelemetryService()
+        self._runtime_service = runtime_service or ControlPlaneRuntimeService()
 
     def handle_request(
         self,
@@ -58,17 +77,11 @@ class ControlPlaneApplication:
                 )
             return _json_response(HTTPStatus.OK, {"status": "ok"})
 
-        if path != "/v1/telemetry/events":
-            return _json_response(
-                HTTPStatus.NOT_FOUND,
-                {"error": "Not found"},
-            )
-        if method != "POST":
-            return _json_response(
-                HTTPStatus.METHOD_NOT_ALLOWED,
-                {"error": "Method not allowed"},
-                headers=(("Allow", "POST"),),
-            )
+        if method == "GET":
+            operation_match = _OPERATION_PATH_PATTERN.match(path)
+            if operation_match is not None:
+                return self._handle_get_operation(operation_match.group("op_id"))
+            return _json_response(HTTPStatus.NOT_FOUND, {"error": "Not found"})
 
         try:
             payload = json.loads(body.decode("utf-8"))
@@ -78,6 +91,31 @@ class ControlPlaneApplication:
                 {"error": "Request body must be valid JSON"},
             )
 
+        if path == "/v1/telemetry/events":
+            return self._handle_post_telemetry(payload)
+
+        if path == "/v1/project-edge/sync":
+            return self._handle_post_project_edge_sync(payload)
+
+        phase_match = _PHASE_PATH_PATTERN.match(path)
+        if phase_match is not None:
+            return self._handle_post_phase_mutation(
+                payload=payload,
+                run_id=phase_match.group("run_id"),
+                phase=phase_match.group("phase"),
+                action=phase_match.group("action"),
+            )
+
+        closure_match = _CLOSURE_PATH_PATTERN.match(path)
+        if closure_match is not None:
+            return self._handle_post_closure_complete(
+                payload=payload,
+                run_id=closure_match.group("run_id"),
+            )
+
+        return _json_response(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+
+    def _handle_post_telemetry(self, payload: object) -> HttpResponse:
         try:
             request = TelemetryEventIngestRequest.model_validate(payload)
             accepted = self._telemetry_service.ingest_event(request)
@@ -88,15 +126,95 @@ class ControlPlaneApplication:
             )
         except RuntimeError as exc:
             logger.warning("Control-plane telemetry ingest unavailable: %s", exc)
-            return _json_response(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                {"error": str(exc)},
-            )
+            return _json_response(HTTPStatus.SERVICE_UNAVAILABLE, {"error": str(exc)})
+        return _json_response(HTTPStatus.CREATED, accepted.model_dump(mode="json"))
 
-        return _json_response(
-            HTTPStatus.CREATED,
-            accepted.model_dump(mode="json"),
-        )
+    def _handle_post_phase_mutation(
+        self,
+        *,
+        payload: object,
+        run_id: str,
+        phase: str,
+        action: str,
+    ) -> HttpResponse:
+        try:
+            request = PhaseMutationRequest.model_validate(payload)
+            if action == "start":
+                result = self._runtime_service.start_phase(
+                    run_id=run_id,
+                    phase=phase,
+                    request=request,
+                )
+            elif action == "complete":
+                result = self._runtime_service.complete_phase(
+                    run_id=run_id,
+                    phase=phase,
+                    request=request,
+                )
+            else:
+                result = self._runtime_service.fail_phase(
+                    run_id=run_id,
+                    phase=phase,
+                    request=request,
+                )
+        except ValidationError as exc:
+            return _json_response(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Invalid phase mutation payload", "detail": exc.errors()},
+            )
+        except RuntimeError as exc:
+            logger.warning("Control-plane phase mutation unavailable: %s", exc)
+            return _json_response(HTTPStatus.SERVICE_UNAVAILABLE, {"error": str(exc)})
+        return _json_response(HTTPStatus.CREATED, result.model_dump(mode="json"))
+
+    def _handle_post_closure_complete(
+        self,
+        *,
+        payload: object,
+        run_id: str,
+    ) -> HttpResponse:
+        try:
+            request = ClosureCompleteRequest.model_validate(payload)
+            result = self._runtime_service.complete_closure(
+                run_id=run_id,
+                request=request,
+            )
+        except ValidationError as exc:
+            return _json_response(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Invalid closure payload", "detail": exc.errors()},
+            )
+        except RuntimeError as exc:
+            logger.warning("Control-plane closure unavailable: %s", exc)
+            return _json_response(HTTPStatus.SERVICE_UNAVAILABLE, {"error": str(exc)})
+        return _json_response(HTTPStatus.CREATED, result.model_dump(mode="json"))
+
+    def _handle_post_project_edge_sync(self, payload: object) -> HttpResponse:
+        try:
+            request = ProjectEdgeSyncRequest.model_validate(payload)
+            result = self._runtime_service.sync_project_edge(request)
+        except ValidationError as exc:
+            return _json_response(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Invalid project-edge sync payload", "detail": exc.errors()},
+            )
+        except RuntimeError as exc:
+            logger.warning("Project-edge sync unavailable: %s", exc)
+            return _json_response(HTTPStatus.SERVICE_UNAVAILABLE, {"error": str(exc)})
+        return _json_response(HTTPStatus.OK, result.model_dump(mode="json"))
+
+    def _handle_get_operation(self, op_id: str) -> HttpResponse:
+        try:
+            result = self._runtime_service.get_operation(op_id)
+        except RuntimeError as exc:
+            logger.warning("Project-edge reconcile unavailable: %s", exc)
+            return _json_response(HTTPStatus.SERVICE_UNAVAILABLE, {"error": str(exc)})
+        if result is None:
+            return _json_response(
+                HTTPStatus.NOT_FOUND,
+                {"error": "Operation not found"},
+            )
+        return _json_response(HTTPStatus.OK, result.model_dump(mode="json"))
 
 
 def serve_control_plane(
@@ -107,7 +225,7 @@ def serve_control_plane(
     keyfile: Path | None = None,
     app: ControlPlaneApplication | None = None,
 ) -> None:
-    """Run the control-plane HTTP server until interrupted."""
+    """Run the control-plane HTTPS server until interrupted."""
 
     application = app or ControlPlaneApplication()
     server = ThreadingHTTPSServer(
@@ -128,9 +246,7 @@ def serve_control_plane(
         server.server_close()
 
 
-def _build_handler(
-    app: ControlPlaneApplication,
-) -> type[BaseHTTPRequestHandler]:
+def _build_handler(app: ControlPlaneApplication) -> type[BaseHTTPRequestHandler]:
     class ControlPlaneHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802
             self._handle()

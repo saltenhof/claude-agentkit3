@@ -29,10 +29,13 @@ if TYPE_CHECKING:
     from agentkit.qa.protocols import LayerResult
     from agentkit.state_backend.records import (
         AttemptRecord,
+        ControlPlaneOperationRecord,
         ExecutionEventRecord,
         ExecutionReport,
         QAFindingRecord,
         QAStageResultRecord,
+        SessionRunBindingRecord,
+        StoryExecutionLockRecord,
         StoryMetricsRecord,
     )
     from agentkit.story_context_manager.models import (
@@ -180,6 +183,88 @@ def append_execution_event_global(event: ExecutionEventRecord) -> None:
             "Global execution-event append is unsupported by the active backend",
         )
     backend.append_execution_event_global(event)
+
+
+def save_session_run_binding_global(record: SessionRunBindingRecord) -> None:
+    backend = _backend_module()
+    if not hasattr(backend, "save_session_run_binding_global"):
+        raise RuntimeError(
+            "Global session binding storage is unsupported by the active backend",
+        )
+    backend.save_session_run_binding_global(record)
+
+
+def load_session_run_binding_global(
+    session_id: str,
+) -> SessionRunBindingRecord | None:
+    backend = _backend_module()
+    if not hasattr(backend, "load_session_run_binding_global"):
+        raise RuntimeError(
+            "Global session binding storage is unsupported by the active backend",
+        )
+    return cast(
+        "SessionRunBindingRecord | None",
+        backend.load_session_run_binding_global(session_id),
+    )
+
+
+def delete_session_run_binding_global(session_id: str) -> None:
+    backend = _backend_module()
+    if not hasattr(backend, "delete_session_run_binding_global"):
+        raise RuntimeError(
+            "Global session binding storage is unsupported by the active backend",
+        )
+    backend.delete_session_run_binding_global(session_id)
+
+
+def save_story_execution_lock_global(record: StoryExecutionLockRecord) -> None:
+    backend = _backend_module()
+    if not hasattr(backend, "save_story_execution_lock_global"):
+        raise RuntimeError(
+            "Global story-execution locks are unsupported by the active backend",
+        )
+    backend.save_story_execution_lock_global(record)
+
+
+def load_story_execution_lock_global(
+    project_key: str,
+    story_id: str,
+    run_id: str,
+) -> StoryExecutionLockRecord | None:
+    backend = _backend_module()
+    if not hasattr(backend, "load_story_execution_lock_global"):
+        raise RuntimeError(
+            "Global story-execution locks are unsupported by the active backend",
+        )
+    return cast(
+        "StoryExecutionLockRecord | None",
+        backend.load_story_execution_lock_global(project_key, story_id, run_id),
+    )
+
+
+def save_control_plane_operation_global(
+    record: ControlPlaneOperationRecord,
+) -> None:
+    backend = _backend_module()
+    if not hasattr(backend, "save_control_plane_operation_global"):
+        raise RuntimeError(
+            "Global control-plane operations are unsupported by the active backend",
+        )
+    backend.save_control_plane_operation_global(record)
+
+
+def load_control_plane_operation_global(
+    op_id: str,
+) -> ControlPlaneOperationRecord | None:
+    backend = _backend_module()
+    if not hasattr(backend, "load_control_plane_operation_global"):
+        raise RuntimeError(
+            "Global control-plane operations are unsupported by the active backend",
+        )
+    return cast(
+        "ControlPlaneOperationRecord | None",
+        backend.load_control_plane_operation_global(op_id),
+    )
 
 
 def load_execution_events(

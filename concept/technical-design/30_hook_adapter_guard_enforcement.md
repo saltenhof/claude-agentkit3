@@ -228,8 +228,17 @@ Diese Aufloesung erfolgt deterministisch aus:
 2. gueltigem `story_execution`-Lock
 3. passendem Worktree
 
+Hooks lesen diese Entscheidungsgrundlage im Normalfall nicht pro
+Tool-Call direkt aus dem State-Backend, sondern aus dem aktuell
+publizierten lokalen Edge-Bundle:
+
+- `_temp/governance/current.json`
+- `_temp/governance/bundles/{export_version}/session.json`
+- `_temp/governance/bundles/{export_version}/lock.json`
+
 Fehlt eines davon, gilt fail-closed fuer Story-Governance:
-`ai_augmented`.
+`ai_augmented` nur dann, wenn keinerlei Bindungs- oder Pending-Reste
+vorliegen; andernfalls `binding_invalid` bzw. Blockade.
 
 ## 30.3 Hook-Registrierung
 
@@ -385,17 +394,19 @@ Story-Umsetzung ausgeführt. Deshalb gilt:
 **Erlaubte Operationen** (billig, lokal, deterministisch):
 
 - stdin lesen + JSON parsen
-- Dateisystem-Read (Lock-Export, Config, `.agent-guard/lock.json`)
-- Write/Read auf `execution_events` und zentrale Lock-/State-Records
+- Dateisystem-Read (`current.json`, Bundle-Dateien, Config,
+  `.agent-guard/lock.json`)
+- nicht-blockierender Read/Write auf `sync.lock` und `sync.state.json`
 - Regex-Match auf Tool-Parameter
 - Einfache Pfad-Vergleiche
+- seltener bounded Re-Sync ueber den offiziellen `Project Edge Client`
 
 **Verbotene Operationen** (teuer, nicht-deterministisch, langsam):
 
 | Verboten | Begründung |
 |----------|-----------|
 | LLM-Aufrufe | Governance-Adjudication ist ein separater Mechanismus (Kap. 35), kein Hook |
-| HTTP-Requests | Netzwerk-Latenz, Verfügbarkeitsrisiko |
+| Freie HTTP-Requests | Netzwerk-Latenz, Verfügbarkeitsrisiko; Hooks duerfen nur den offiziellen bounded Re-Sync-Pfad nutzen |
 | GitHub-API-Calls | Netzwerk + Rate Limiting |
 | Scannen ganzer Verzeichnisbäume | I/O-Last, unpredictable Dauer |
 | Aufwändige Diff-Analyse | Der Drift-Evaluator bei `increment_commit` ist ein asynchron getriggertes Skript, kein Teil des Hook-Prozesses selbst |
@@ -514,8 +525,9 @@ selbst (Kap. 15.7):
 | `.claude/ccag/rules/` | Sofortiger Stopp |
 | `.story-pipeline.yaml` | Sofortiger Stopp |
 | `.installed-manifest.json` | Sofortiger Stopp |
-| `_temp/governance/locks/` | Sofortiger Stopp |
-| Aktive Lock-Records / deren Exporte | Sofortiger Stopp |
+| `_temp/governance/` | Sofortiger Stopp |
+| `.agent-guard/` | Sofortiger Stopp |
+| Aktive Lock-Records / Edge-Bundles / deren Exporte | Sofortiger Stopp |
 
 Dieser Hook ist **immer aktiv** — unabhängig vom Betriebsmodus
 (AI-Augmented oder Story-Execution). Ein Agent darf nie
@@ -526,23 +538,30 @@ Governance-Dateien manipulieren.
 ### 30.6.1 Zustandsabhängige Guards
 
 Die meisten Guards sind nur aktiv, wenn eine Story-Execution
-läuft (Lock-Record vorhanden, Kap. 02.7, 12.4.1). Der
-Hook prüft bei jedem Aufruf:
+läuft (Run-Bindung + Lock + Worktree-Match). Der Hook prüft bei jedem
+Aufruf den lokal publizierten Bundle-Stand:
 
 ```python
 def is_story_execution_active() -> bool:
-    """Prüft ob ein Story-Execution-Marker existiert."""
-    active_dir = Path("_temp/governance/active")
-    if not active_dir.exists():
+    """Prueft das aktuell publizierte lokale Edge-Bundle."""
+    current = Path("_temp/governance/current.json")
+    if not current.exists():
         return False
-    return any(active_dir.glob("*.active"))
+    bundle = load_current_edge_bundle(current)
+    return (
+        bundle.session.operating_mode == "story_execution"
+        and bundle.lock.status == "ACTIVE"
+    )
 
 def get_active_stories() -> list[str]:
-    """Liefert Story-IDs aller aktiven Story-Executions."""
-    active_dir = Path("_temp/governance/active")
-    if not active_dir.exists():
+    """Liefert Story-IDs der aktuell publizierten Story-Execution."""
+    current = Path("_temp/governance/current.json")
+    if not current.exists():
         return []
-    return [f.stem for f in active_dir.glob("*.active")]
+    bundle = load_current_edge_bundle(current)
+    if bundle.session.operating_mode != "story_execution":
+        return []
+    return [bundle.session.story_id]
 ```
 
 ### 30.6.2 Hook-Entscheidungslogik (allgemein)

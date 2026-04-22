@@ -39,5 +39,17 @@ invariants:
   - id: operating-modes.invariant.invalid_bound_session_must_not_fall_back_to_free_mode
     scope: governance
     rule: if a session is already bound to a story run and lock or worktree consistency is lost the session enters binding_invalid instead of silently degrading to ai_augmented
+  - id: operating-modes.invariant.local_edge_bundle_is_derived_not_authoritative
+    scope: governance
+    rule: local edge bundles are derived projections for hook decisions and must never replace the central session binding or central story lock as canonical truth
+  - id: operating-modes.invariant.hooks_read_only_current_pointer_to_complete_bundle
+    scope: governance
+    rule: hook mode resolution reads only the current bundle pointer and the referenced complete bundle and must not derive operating mode from individual marker files or partial exports
+  - id: operating-modes.invariant.story_mutations_require_fresh_or_resynced_bundle
+    scope: governance
+    rule: story scoped mutating allow decisions require a fresh or successfully resynchronized local edge bundle and must fail closed on stale or inconsistent local materialization
+  - id: operating-modes.invariant.uncertain_remote_mutation_must_be_reconciled_by_op_id
+    scope: governance
+    rule: if the remote result of a mutating operation is unknown the local system must reconcile the operation by op_id before further local materialization or free-mode fallback
 ```
 <!-- FORMAL-SPEC:END -->

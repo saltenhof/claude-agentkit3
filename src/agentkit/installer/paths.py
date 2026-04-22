@@ -10,9 +10,12 @@ CONFIG_DIR: str = f"{AGENTKIT_DIR}/config"
 MANIFESTS_DIR: str = f"{AGENTKIT_DIR}/manifests"
 PROMPTS_DIR: str = f"{AGENTKIT_DIR}/prompts"
 STATIC_PROMPTS_DIR: str = "prompts"
+TOOLS_DIR: str = "tools"
+AGENTKIT_TOOLS_DIR: str = f"{TOOLS_DIR}/agentkit"
 HOOKS_DIR: str = f"{AGENTKIT_DIR}/hooks"
 STORIES_DIR: str = "stories"
 PROJECT_CONFIG_FILE: str = "project.yaml"
+CONTROL_PLANE_CONFIG_FILE: str = "control-plane.json"
 PROMPT_BUNDLE_LOCK_FILE: str = "prompt-bundle.lock.json"
 PROMPT_BUNDLE_STORE_ENV: str = "AGENTKIT_PROMPT_BUNDLE_STORE_ROOT"
 PIPELINE_CONFIG_FILE: str = "story-pipeline.yaml"
@@ -35,6 +38,10 @@ def manifests_dir(project_root: Path) -> Path:
 
 def project_config_path(project_root: Path) -> Path:
     return project_root / CONFIG_DIR / PROJECT_CONFIG_FILE
+
+
+def control_plane_config_path(project_root: Path) -> Path:
+    return project_root / CONFIG_DIR / CONTROL_PLANE_CONFIG_FILE
 
 
 def default_prompt_bundle_store_root() -> Path:
@@ -101,6 +108,7 @@ __all__ = [
     "AGENTKIT_DIR",
     "CONFIG_DIR",
     "CONTEXT_FILE",
+    "CONTROL_PLANE_CONFIG_FILE",
     "HOOKS_DIR",
     "MANIFESTS_DIR",
     "PHASE_RUNS_DIR",
@@ -112,8 +120,11 @@ __all__ = [
     "PROMPTS_DIR",
     "STATIC_PROMPTS_DIR",
     "STORIES_DIR",
+    "TOOLS_DIR",
+    "AGENTKIT_TOOLS_DIR",
     "agentkit_dir",
     "config_dir",
+    "control_plane_config_path",
     "default_prompt_bundle_store_root",
     "manifests_dir",
     "prompt_instance_dir",
