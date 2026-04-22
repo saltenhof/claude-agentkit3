@@ -135,7 +135,10 @@ API-Vertrag.
    `curl`-Kommandos.
 4. Jeder mutierende Endpoint muss neben dem zentralen Commit-Resultat
    ein lokales Materialisierungs-Bundle fuer den `Project Edge Client`
-   bereitstellen.
+   bereitstellen. Dieses Bundle umfasst mindestens `current.json`,
+   `session.json`, den `story_execution`-Lock und alle fuer lokale
+   Guard-Entscheidungen erforderlichen Zusatzlocks wie
+   `qa_artifact_write`.
 5. Jeder mutierende Endpoint muss `op_id` als Idempotenzschluessel
    akzeptieren; Wiederholungen mit derselben `op_id` duerfen keine
    zweite Mutation erzeugen.

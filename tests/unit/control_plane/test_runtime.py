@@ -23,7 +23,7 @@ class _RepoState:
     def __init__(self) -> None:
         self.operations: dict[str, ControlPlaneOperationRecord] = {}
         self.bindings: dict[str, SessionRunBindingRecord] = {}
-        self.locks: dict[tuple[str, str, str], StoryExecutionLockRecord] = {}
+        self.locks: dict[tuple[str, str, str, str], StoryExecutionLockRecord] = {}
         self.events: list[ExecutionEventRecord] = []
 
 
@@ -40,11 +40,16 @@ def _repository(state: _RepoState) -> ControlPlaneRuntimeRepository:
             record,
         ),
         delete_binding=lambda session_id: state.bindings.pop(session_id, None),
-        load_lock=lambda project_key, story_id, run_id: state.locks.get(
-            (project_key, story_id, run_id),
+        load_lock=lambda project_key, story_id, run_id, lock_type: state.locks.get(
+            (project_key, story_id, run_id, lock_type),
         ),
         save_lock=lambda record: state.locks.__setitem__(
-            (record.project_key, record.story_id, record.run_id),
+            (
+                record.project_key,
+                record.story_id,
+                record.run_id,
+                record.lock_type,
+            ),
             record,
         ),
         append_event=state.events.append,
@@ -69,8 +74,11 @@ def test_start_phase_persists_binding_lock_and_operation() -> None:
 
     assert result.operation_kind == "phase_start"
     assert result.edge_bundle.current.operating_mode == "story_execution"
+    assert result.edge_bundle.qa_lock is not None
+    assert result.edge_bundle.qa_lock.status == "ACTIVE"
     assert "sess-001" in state.bindings
-    assert ("tenant-a", "AG3-100", "run-100") in state.locks
+    assert ("tenant-a", "AG3-100", "run-100", "story_execution") in state.locks
+    assert ("tenant-a", "AG3-100", "run-100", "qa_artifact_write") in state.locks
     assert "op-" in result.op_id
     assert result.op_id in state.operations
     assert [event.event_type for event in state.events] == [
@@ -126,6 +134,8 @@ def test_complete_closure_unbinds_and_returns_tombstone_roots() -> None:
 
     assert result.edge_bundle.current.operating_mode == "ai_augmented"
     assert result.edge_bundle.tombstone_worktree_roots == ["T:/worktrees/ag3-100"]
+    assert result.edge_bundle.qa_lock is not None
+    assert result.edge_bundle.qa_lock.status == "INACTIVE"
     assert "sess-001" not in state.bindings
     assert [event.event_type for event in state.events] == [
         "session_run_binding_removed",

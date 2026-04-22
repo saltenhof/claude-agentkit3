@@ -235,6 +235,7 @@ publizierten lokalen Edge-Bundle:
 - `_temp/governance/current.json`
 - `_temp/governance/bundles/{export_version}/session.json`
 - `_temp/governance/bundles/{export_version}/lock.json`
+- `_temp/governance/bundles/{export_version}/qa-lock.json`
 
 Fehlt eines davon, gilt fail-closed fuer Story-Governance:
 `ai_augmented` nur dann, wenn keinerlei Bindungs- oder Pending-Reste
@@ -394,8 +395,8 @@ Story-Umsetzung ausgeführt. Deshalb gilt:
 **Erlaubte Operationen** (billig, lokal, deterministisch):
 
 - stdin lesen + JSON parsen
-- Dateisystem-Read (`current.json`, Bundle-Dateien, Config,
-  `.agent-guard/lock.json`)
+- Dateisystem-Read (`current.json`, Bundle-Dateien inkl. `qa-lock.json`,
+  Config, `.agent-guard/lock.json`)
 - nicht-blockierender Read/Write auf `sync.lock` und `sync.state.json`
 - Regex-Match auf Tool-Parameter
 - Einfache Pfad-Vergleiche

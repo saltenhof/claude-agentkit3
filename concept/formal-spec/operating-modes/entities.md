@@ -37,6 +37,8 @@ entities:
       - run_id
       - operating_mode
       - worktree_roots
+      - story_lock_ref
+      - qa_lock_ref
       - export_version
       - sync_after
   - id: operating-modes.entity.mode-resolution

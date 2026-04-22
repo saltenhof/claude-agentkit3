@@ -30,7 +30,7 @@ commands:
     emits:
       - operating-modes.event.operating_mode_resolved
   - id: operating-modes.command.materialize-local-edge-bundle
-    signature: internal publish locally readable operating mode bundle after a committed central state transition
+    signature: internal publish locally readable operating mode bundle after a committed central state transition including required auxiliary lock signals for local guard decisions
     allowed_statuses:
       - operating-modes.status.ai_augmented
       - operating-modes.status.story_execution

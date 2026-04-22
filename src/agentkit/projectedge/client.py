@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
 _LOCK_EXPORT_FILE = "lock.json"
+_QA_LOCK_EXPORT_FILE = "qa-lock.json"
 
 
 class ControlPlaneTransport(Protocol):
@@ -98,6 +99,11 @@ class LocalEdgePublisher:
             bundle_root / _LOCK_EXPORT_FILE,
             bundle.lock.model_dump(mode="json"),
         )
+        if bundle.qa_lock is not None:
+            _write_json(
+                bundle_root / _QA_LOCK_EXPORT_FILE,
+                bundle.qa_lock.model_dump(mode="json"),
+            )
         _write_json(
             self._project_root / "_temp" / "governance" / "current.json",
             bundle.current.model_dump(mode="json"),

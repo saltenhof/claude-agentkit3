@@ -63,7 +63,7 @@ class ControlPlaneRuntimeRepository:
         save_session_run_binding_global
     )
     delete_binding: Callable[[str], None] = delete_session_run_binding_global
-    load_lock: Callable[[str, str, str], StoryExecutionLockRecord | None] = (
+    load_lock: Callable[[str, str, str, str], StoryExecutionLockRecord | None] = (
         load_story_execution_lock_global
     )
     save_lock: Callable[[StoryExecutionLockRecord], None] = (
@@ -152,11 +152,25 @@ class ControlPlaneRuntimeService:
             updated_at=now,
             deactivated_at=now,
         )
+        qa_lock = StoryExecutionLockRecord(
+            project_key=request.project_key,
+            story_id=request.story_id,
+            run_id=run_id,
+            lock_type="qa_artifact_write",
+            status="INACTIVE",
+            worktree_roots=tuple(worktree_roots),
+            binding_version=binding_version,
+            activated_at=now,
+            updated_at=now,
+            deactivated_at=now,
+        )
         self._repo.save_lock(lock)
+        self._repo.save_lock(qa_lock)
         self._repo.delete_binding(request.session_id)
         bundle = _build_edge_bundle(
             binding=None,
             lock=lock,
+            qa_lock=qa_lock,
             sync_class="mutation",
             now=now,
             tombstone_worktree_roots=tuple(worktree_roots),
@@ -236,6 +250,13 @@ class ControlPlaneRuntimeService:
             binding.project_key,
             binding.story_id,
             binding.run_id,
+            "story_execution",
+        )
+        qa_lock_record = self._repo.load_lock(
+            binding.project_key,
+            binding.story_id,
+            binding.run_id,
+            "qa_artifact_write",
         )
         if lock_record is None:
             lock = StoryExecutionLockRecord(
@@ -254,6 +275,7 @@ class ControlPlaneRuntimeService:
         bundle = _build_edge_bundle(
             binding=binding,
             lock=lock,
+            qa_lock=qa_lock_record,
             sync_class=request.freshness_class,
             now=now,
         )
@@ -307,11 +329,24 @@ class ControlPlaneRuntimeService:
             activated_at=now,
             updated_at=now,
         )
+        qa_lock = StoryExecutionLockRecord(
+            project_key=request.project_key,
+            story_id=request.story_id,
+            run_id=run_id,
+            lock_type="qa_artifact_write",
+            status="ACTIVE",
+            worktree_roots=tuple(request.worktree_roots),
+            binding_version=binding_version,
+            activated_at=now,
+            updated_at=now,
+        )
         self._repo.save_binding(binding)
         self._repo.save_lock(lock)
+        self._repo.save_lock(qa_lock)
         bundle = _build_edge_bundle(
             binding=binding,
             lock=lock,
+            qa_lock=qa_lock,
             sync_class="mutation",
             now=now,
         )
@@ -431,6 +466,7 @@ def _build_edge_bundle(
     *,
     binding: SessionRunBindingRecord | None,
     lock: StoryExecutionLockRecord,
+    qa_lock: StoryExecutionLockRecord | None = None,
     sync_class: FreshnessClass,
     now: datetime,
     tombstone_worktree_roots: tuple[str, ...] = (),
@@ -472,10 +508,27 @@ def _build_edge_bundle(
         updated_at=lock.updated_at,
         deactivated_at=lock.deactivated_at,
     )
+    qa_lock_view = (
+        StoryExecutionLockView(
+            project_key=qa_lock.project_key,
+            story_id=qa_lock.story_id,
+            run_id=qa_lock.run_id,
+            lock_type=qa_lock.lock_type,
+            status=cast("Literal['ACTIVE', 'INACTIVE', 'INVALID']", qa_lock.status),
+            worktree_roots=list(qa_lock.worktree_roots),
+            binding_version=qa_lock.binding_version,
+            activated_at=qa_lock.activated_at,
+            updated_at=qa_lock.updated_at,
+            deactivated_at=qa_lock.deactivated_at,
+        )
+        if qa_lock is not None
+        else None
+    )
     return EdgeBundle(
         current=pointer,
         session=binding_view,
         lock=lock_view,
+        qa_lock=qa_lock_view,
         tombstone_worktree_roots=list(tombstone_worktree_roots),
     )
 

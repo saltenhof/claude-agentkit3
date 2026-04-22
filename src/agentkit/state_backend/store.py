@@ -227,6 +227,7 @@ def load_story_execution_lock_global(
     project_key: str,
     story_id: str,
     run_id: str,
+    lock_type: str = "story_execution",
 ) -> StoryExecutionLockRecord | None:
     backend = _backend_module()
     if not hasattr(backend, "load_story_execution_lock_global"):
@@ -235,7 +236,12 @@ def load_story_execution_lock_global(
         )
     return cast(
         "StoryExecutionLockRecord | None",
-        backend.load_story_execution_lock_global(project_key, story_id, run_id),
+        backend.load_story_execution_lock_global(
+            project_key,
+            story_id,
+            run_id,
+            lock_type,
+        ),
     )
 
 

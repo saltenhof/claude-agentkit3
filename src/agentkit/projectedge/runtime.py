@@ -138,17 +138,22 @@ class ProjectEdgeResolver:
         bundle_root = self._project_root / pointer.bundle_dir
         session_path = bundle_root / "session.json"
         lock_path = bundle_root / "lock.json"
+        qa_lock_path = bundle_root / "qa-lock.json"
         if not lock_path.is_file():
             return None
         session_payload = _load_json(session_path) if session_path.is_file() else None
         if session_payload is not None and "session_id" not in session_payload:
             session_payload = None
         lock_payload = _load_json(lock_path)
+        qa_lock_payload = (
+            _load_json(qa_lock_path) if qa_lock_path.is_file() else None
+        )
         return EdgeBundle.model_validate(
             {
                 "current": pointer.model_dump(mode="json"),
                 "session": session_payload,
                 "lock": lock_payload,
+                "qa_lock": qa_lock_payload,
                 "tombstone_worktree_roots": [],
             },
         )

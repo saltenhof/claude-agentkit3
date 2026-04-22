@@ -61,6 +61,17 @@ def _mutation_result(worktree_root: str) -> ControlPlaneMutationResult:
                 activated_at=now,
                 updated_at=now,
             ),
+            qa_lock=StoryExecutionLockView(
+                project_key="tenant-a",
+                story_id="AG3-100",
+                run_id="run-100",
+                lock_type="qa_artifact_write",
+                status="ACTIVE",
+                worktree_roots=[worktree_root],
+                binding_version="bind-001",
+                activated_at=now,
+                updated_at=now,
+            ),
         ),
     )
 
@@ -101,9 +112,20 @@ def test_local_edge_publisher_writes_current_bundle_and_worktree_export(
     current = json.loads(
         (tmp_path / "_temp" / "governance" / "current.json").read_text(),
     )
+    qa_lock = json.loads(
+        (
+            tmp_path
+            / "_temp"
+            / "governance"
+            / "bundles"
+            / "edge-001"
+            / "qa-lock.json"
+        ).read_text(),
+    )
     lock_export = json.loads((worktree / ".agent-guard" / "lock.json").read_text())
 
     assert current["export_version"] == "edge-001"
+    assert qa_lock["lock_type"] == "qa_artifact_write"
     assert lock_export["status"] == "ACTIVE"
 
 

@@ -162,6 +162,7 @@ abgeleiteten Projektion:
 - `_temp/governance/current.json`
 - `_temp/governance/bundles/{export_version}/session.json`
 - `_temp/governance/bundles/{export_version}/lock.json`
+- `_temp/governance/bundles/{export_version}/qa-lock.json`
 
 Fehlt beides, gilt:
 
@@ -205,6 +206,9 @@ Lokale Exporte sind nur Materialisierung. Kanonisch bleibt der
 State-Backend-Eintrag. Fuer Hook-Entscheidungen ist `current.json`
 der einzige lokale Einstieg; einzelne Exportdateien oder
 Worktree-Projektionen sind fuer sich allein nie ausreichend.
+Story-spezifische Zusatzsignale wie der QA-Artefakt-Schutz werden aus
+dem vollstaendigen Bundle gelesen; auch `qa-lock.json` ist fuer sich
+allein nie autoritativ.
 
 ## 56.9 Mode-Resolution
 
@@ -236,13 +240,16 @@ Hooks fuehren keine zentrale Abfrage pro Tool-Call aus. Stattdessen
 gilt:
 
 - offizielle Zustandswechsel materialisieren lokal ein komplettes
-  Edge-Bundle
+  Edge-Bundle inklusive story-spezifischer Zusatzlocks wie
+  `qa-lock.json`
 - `current.json` zeigt atomar auf genau ein vollstaendiges Bundle
 - jedes Bundle traegt ein `sync_after`
 - nur der erste Hook nach Ablauf von `sync_after` darf einen bounded
   Re-Sync gegen AK3 ausloesen
 - mutierende Story-Entscheidungen blockieren fail-closed, wenn der
   Bundle-Stand zu alt oder inkonsistent ist
+- story-spezifische Guard-Entscheidungen duerfen fehlende lokale
+  Zusatzsignale nicht stillschweigend ignorieren
 
 ## 56.10 Integrity-Gate-Abgrenzung
 

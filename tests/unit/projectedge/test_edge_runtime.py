@@ -21,6 +21,7 @@ def _bundle(
     operating_mode: str = "story_execution",
     sync_after: datetime | None = None,
     lock_status: str = "ACTIVE",
+    qa_lock_status: str = "ACTIVE",
 ) -> EdgeBundle:
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     return EdgeBundle(
@@ -54,6 +55,17 @@ def _bundle(
             activated_at=now,
             updated_at=now,
         ),
+        qa_lock=StoryExecutionLockView(
+            project_key="tenant-a",
+            story_id="AG3-100",
+            run_id="run-100",
+            lock_type="qa_artifact_write",
+            status=qa_lock_status,
+            worktree_roots=[worktree_root],
+            binding_version="bind-001",
+            activated_at=now,
+            updated_at=now,
+        ),
     )
 
 
@@ -79,6 +91,9 @@ def test_resolver_returns_story_execution_for_matching_bundle(tmp_path) -> None:
 
     assert resolved.operating_mode == "story_execution"
     assert resolved.block_reason is None
+    assert resolved.bundle is not None
+    assert resolved.bundle.qa_lock is not None
+    assert resolved.bundle.qa_lock.lock_type == "qa_artifact_write"
 
 
 def test_resolver_returns_binding_invalid_for_session_mismatch(tmp_path) -> None:

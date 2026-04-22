@@ -130,6 +130,7 @@ class EdgeBundle(BaseModel):
     current: EdgePointer
     session: SessionRunBindingView | None = None
     lock: StoryExecutionLockView
+    qa_lock: StoryExecutionLockView | None = None
     tombstone_worktree_roots: list[str] = Field(default_factory=list)
 
 

@@ -72,13 +72,29 @@ class TestArtifactGuardAllowed:
         )
         assert v.allowed is True
 
-    def test_missing_qa_lock_allows(self, guard: ArtifactGuard) -> None:
+    def test_missing_qa_lock_blocks_fail_closed(self, guard: ArtifactGuard) -> None:
         v = guard.evaluate(
             "file_write",
             {
                 "file_path": "/repo/_temp/qa/AG3-001/structural.json",
                 "operating_mode": "story_execution",
                 "qa_artifact_lock_active": False,
+                "qa_artifact_lock_known": False,
+                "is_subagent": True,
+                "active_story_id": "AG3-001",
+            },
+        )
+        assert v.allowed is False
+        assert v.violation_type == ViolationType.ARTIFACT_TAMPERING
+
+    def test_inactive_known_qa_lock_allows(self, guard: ArtifactGuard) -> None:
+        v = guard.evaluate(
+            "file_write",
+            {
+                "file_path": "/repo/_temp/qa/AG3-001/structural.json",
+                "operating_mode": "story_execution",
+                "qa_artifact_lock_active": False,
+                "qa_artifact_lock_known": True,
                 "is_subagent": True,
                 "active_story_id": "AG3-001",
             },

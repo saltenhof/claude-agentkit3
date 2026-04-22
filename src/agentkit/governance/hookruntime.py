@@ -173,15 +173,21 @@ def _guard_context(
     story_id = ""
     principal_type = ""
     qa_lock_active = False
+    qa_lock_known = False
     if resolved.bundle is not None and resolved.bundle.session is not None:
         story_id = resolved.bundle.session.story_id
         principal_type = resolved.bundle.session.principal_type
-        qa_lock_active = resolved.operating_mode == "story_execution"
+        qa_lock_known = resolved.bundle.qa_lock is not None
+        qa_lock_active = (
+            resolved.bundle.qa_lock is not None
+            and resolved.bundle.qa_lock.status == "ACTIVE"
+        )
     return {
         "operating_mode": resolved.operating_mode,
         "is_subagent": event.is_subagent,
         "active_story_id": story_id,
         "principal_type": principal_type,
+        "qa_artifact_lock_known": qa_lock_known,
         "qa_artifact_lock_active": qa_lock_active,
     }
 

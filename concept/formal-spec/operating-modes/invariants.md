@@ -48,6 +48,9 @@ invariants:
   - id: operating-modes.invariant.story_mutations_require_fresh_or_resynced_bundle
     scope: governance
     rule: story scoped mutating allow decisions require a fresh or successfully resynchronized local edge bundle and must fail closed on stale or inconsistent local materialization
+  - id: operating-modes.invariant.story_scoped_guard_decisions_require_explicit_local_lock_signals
+    scope: governance
+    rule: story scoped guard decisions that depend on auxiliary locks such as qa_artifact_write must read those signals from the complete local edge bundle and must fail closed when the required local lock materialization is missing
   - id: operating-modes.invariant.uncertain_remote_mutation_must_be_reconciled_by_op_id
     scope: governance
     rule: if the remote result of a mutating operation is unknown the local system must reconcile the operation by op_id before further local materialization or free-mode fallback

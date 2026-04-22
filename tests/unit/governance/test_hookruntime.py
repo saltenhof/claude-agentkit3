@@ -26,6 +26,7 @@ def _bundle(
     worktree_root: str,
     operating_mode: str = "story_execution",
     lock_status: str = "ACTIVE",
+    qa_lock_status: str | None = "ACTIVE",
 ) -> EdgeBundle:
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     return EdgeBundle(
@@ -58,6 +59,21 @@ def _bundle(
             binding_version="bind-001",
             activated_at=now,
             updated_at=now,
+        ),
+        qa_lock=(
+            StoryExecutionLockView(
+                project_key="tenant-a",
+                story_id="AG3-100",
+                run_id="run-100",
+                lock_type="qa_artifact_write",
+                status=qa_lock_status,
+                worktree_roots=[worktree_root],
+                binding_version="bind-001",
+                activated_at=now,
+                updated_at=now,
+            )
+            if qa_lock_status is not None
+            else None
         ),
     )
 
@@ -138,6 +154,31 @@ def test_hookruntime_allows_main_agent_write_to_qa_directory(tmp_path) -> None:
     )
 
     assert verdict.allowed is True
+
+
+def test_hookruntime_blocks_subagent_write_when_qa_lock_missing(tmp_path) -> None:
+    worktree = tmp_path / "worktree"
+    LocalEdgePublisher(project_root=tmp_path).publish(
+        _bundle(worktree_root=str(worktree), qa_lock_status=None),
+    )
+
+    verdict = evaluate_pre_tool_use(
+        HookEvent(
+            tool_name="Write",
+            tool_input={
+                "file_path": str(
+                    tmp_path / "_temp" / "qa" / "AG3-100" / "structural.json",
+                ),
+            },
+            cwd=str(worktree),
+            session_id="sess-001",
+            is_subagent=True,
+        ),
+        project_root=tmp_path,
+    )
+
+    assert verdict.allowed is False
+    assert verdict.guard_name == "artifact_guard"
 
 
 def test_hookruntime_blocks_mutation_for_binding_invalid(tmp_path) -> None:

@@ -297,7 +297,7 @@ def _ensure_schema(conn: _CompatConnection) -> None:
             activated_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             deactivated_at TEXT,
-            PRIMARY KEY (project_key, run_id)
+            PRIMARY KEY (project_key, run_id, lock_type)
         );
 
         CREATE TABLE IF NOT EXISTS control_plane_operations (
@@ -438,6 +438,15 @@ def _ensure_schema(conn: _CompatConnection) -> None:
         """
     )
     for statement in (
+        (
+            "ALTER TABLE story_execution_locks "
+            "DROP CONSTRAINT IF EXISTS story_execution_locks_pkey"
+        ),
+        (
+            "ALTER TABLE story_execution_locks "
+            "ADD CONSTRAINT story_execution_locks_pkey "
+            "PRIMARY KEY (project_key, run_id, lock_type)"
+        ),
         "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS project_key TEXT",
         "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS run_id TEXT",
         "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS artifact_id TEXT",
@@ -1012,9 +1021,8 @@ def save_story_execution_lock_global(record: StoryExecutionLockRecord) -> None:
                 worktree_roots_json, binding_version, activated_at,
                 updated_at, deactivated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT (project_key, run_id) DO UPDATE SET
+            ON CONFLICT (project_key, run_id, lock_type) DO UPDATE SET
                 story_id = EXCLUDED.story_id,
-                lock_type = EXCLUDED.lock_type,
                 status = EXCLUDED.status,
                 worktree_roots_json = EXCLUDED.worktree_roots_json,
                 binding_version = EXCLUDED.binding_version,
@@ -1045,14 +1053,15 @@ def load_story_execution_lock_global(
     project_key: str,
     story_id: str,
     run_id: str,
+    lock_type: str = "story_execution",
 ) -> StoryExecutionLockRecord | None:
     with _connect_global() as conn:
         row = conn.execute(
             """
             SELECT * FROM story_execution_locks
-            WHERE project_key = ? AND story_id = ? AND run_id = ?
+            WHERE project_key = ? AND story_id = ? AND run_id = ? AND lock_type = ?
             """,
-            (project_key, story_id, run_id),
+            (project_key, story_id, run_id, lock_type),
         ).fetchone()
     if row is None:
         return None

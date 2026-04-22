@@ -129,6 +129,9 @@ publizierte Materialisierung. Autoritativ für Hooks ist:
 - `_temp/governance/current.json`
 - das dort referenzierte Bundle unter
   `_temp/governance/bundles/{export_version}/...`
+- für QA-Schreibschutz zusätzlich das im Bundle enthaltene
+  `qa-lock.json` als Materialisierung des story-spezifischen
+  `qa_artifact_write`-Lock-Records
 
 Ein optionaler `.agent-guard/lock.json`-Export im Worktree dient nur
 als sekundaere lokale Materialisierung:
@@ -392,7 +395,9 @@ def is_qa_path(path: str, active_stories: list[str]) -> bool:
 
 **Erkennung:** Der Guard nutzt das `is_subagent` Flag aus dem
 Hook-Kontext. Nur wenn `is_subagent == true` und ein aktiver
-Lock-Record existiert, blockiert er.
+Lock-Record existiert, blockiert er. Fehlt die lokale
+Materialisierung des `qa_artifact_write`-Locks im Edge-Bundle,
+arbeitet der Guard fail-closed und blockiert ebenfalls.
 
 ### 31.3.5 CCAG-Regel
 
