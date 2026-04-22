@@ -178,7 +178,8 @@ def _insert_execution_event(
     )
 
 
-_SCHEMA_CREATE_SCRIPT = """
+def _schema_create_script() -> str:
+    return """
         CREATE TABLE IF NOT EXISTS story_contexts (
             project_key TEXT NOT NULL,
             story_id TEXT NOT NULL,
@@ -435,41 +436,42 @@ _SCHEMA_CREATE_SCRIPT = """
         );
 """
 
-_SCHEMA_ALTER_STATEMENTS = (
-    (
-        "ALTER TABLE story_execution_locks "
-        "DROP CONSTRAINT IF EXISTS story_execution_locks_pkey"
-    ),
-    (
-        "ALTER TABLE story_execution_locks "
-        "ADD CONSTRAINT story_execution_locks_pkey "
-        "PRIMARY KEY (project_key, run_id, lock_type)"
-    ),
-    "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS project_key TEXT",
-    "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS run_id TEXT",
-    "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS artifact_id TEXT",
-    "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS artifact_class TEXT",
-    "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS artifact_format TEXT",
-    "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS artifact_status TEXT",
-    "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS produced_in_phase TEXT",
-    "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS producer_component TEXT",
-    "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS producer_trust TEXT",
-    "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS protection_level TEXT",
-    "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS frozen INTEGER",
-    (
-        "ALTER TABLE artifact_records "
-        "ADD COLUMN IF NOT EXISTS integrity_verified INTEGER"
-    ),
-    "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS attempt_no INTEGER",
-    "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS qa_cycle_id TEXT",
-    "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS qa_cycle_round INTEGER",
-    "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS evidence_epoch INTEGER",
-    "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS finished_at TEXT",
-    "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS storage_ref TEXT",
-    "ALTER TABLE decision_records ADD COLUMN IF NOT EXISTS project_key TEXT",
-    "ALTER TABLE decision_records ADD COLUMN IF NOT EXISTS run_id TEXT",
-    "ALTER TABLE decision_records ADD COLUMN IF NOT EXISTS flow_id TEXT",
-)
+def _schema_alter_statements() -> tuple[str, ...]:
+    return (
+        (
+            "ALTER TABLE story_execution_locks "
+            "DROP CONSTRAINT IF EXISTS story_execution_locks_pkey"
+        ),
+        (
+            "ALTER TABLE story_execution_locks "
+            "ADD CONSTRAINT story_execution_locks_pkey "
+            "PRIMARY KEY (project_key, run_id, lock_type)"
+        ),
+        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS project_key TEXT",
+        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS run_id TEXT",
+        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS artifact_id TEXT",
+        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS artifact_class TEXT",
+        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS artifact_format TEXT",
+        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS artifact_status TEXT",
+        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS produced_in_phase TEXT",
+        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS producer_component TEXT",
+        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS producer_trust TEXT",
+        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS protection_level TEXT",
+        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS frozen INTEGER",
+        (
+            "ALTER TABLE artifact_records "
+            "ADD COLUMN IF NOT EXISTS integrity_verified INTEGER"
+        ),
+        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS attempt_no INTEGER",
+        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS qa_cycle_id TEXT",
+        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS qa_cycle_round INTEGER",
+        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS evidence_epoch INTEGER",
+        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS finished_at TEXT",
+        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS storage_ref TEXT",
+        "ALTER TABLE decision_records ADD COLUMN IF NOT EXISTS project_key TEXT",
+        "ALTER TABLE decision_records ADD COLUMN IF NOT EXISTS run_id TEXT",
+        "ALTER TABLE decision_records ADD COLUMN IF NOT EXISTS flow_id TEXT",
+    )
 
 
 def _ensure_reporting_indexes(conn: _CompatConnection) -> None:
@@ -491,8 +493,8 @@ def _ensure_reporting_indexes(conn: _CompatConnection) -> None:
 
 
 def _ensure_schema(conn: _CompatConnection) -> None:
-    conn.executescript(_SCHEMA_CREATE_SCRIPT)
-    for statement in _SCHEMA_ALTER_STATEMENTS:
+    conn.executescript(_schema_create_script())
+    for statement in _schema_alter_statements():
         conn.execute(statement)
     _ensure_reporting_indexes(conn)
 
