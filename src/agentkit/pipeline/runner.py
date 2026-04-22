@@ -113,6 +113,8 @@ def run_pipeline(
     for _ in range(max_iterations):
         result = engine.run_phase(story_context, state)
         phases_executed.append(result.phase)
+        if result.updated_context is not None:
+            story_context = result.updated_context
 
         if result.status == "yielded":
             return PipelineRunResult(

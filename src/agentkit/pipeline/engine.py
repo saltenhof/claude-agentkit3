@@ -76,6 +76,7 @@ class EngineResult:
     next_phase: str | None = None
     errors: tuple[str, ...] = ()
     attempt_id: str | None = None
+    updated_context: StoryContext | None = None
 
 
 def _evaluate_transitions(
@@ -258,6 +259,7 @@ def _handle_guard_failure_result(
         phase=phase_name,
         errors=tuple(failure_reasons),
         attempt_id=attempt_id,
+        updated_context=result.updated_context,
     )
 
 
@@ -352,6 +354,7 @@ def _handle_completed_result(
         phase=phase_name,
         next_phase=next_phase,
         attempt_id=attempt_id,
+        updated_context=result.updated_context or ctx,
     )
 
 
@@ -406,6 +409,7 @@ def _handle_paused_result(
         phase=phase_name,
         yield_status=result.yield_status,
         attempt_id=attempt_id,
+        updated_context=result.updated_context or ctx,
     )
 
 
@@ -490,6 +494,7 @@ def _handle_terminal_result(
         phase=phase_name,
         errors=result.errors,
         attempt_id=attempt_id,
+        updated_context=result.updated_context,
     )
 
 
@@ -693,6 +698,7 @@ class PipelineEngine:
                 phase=phase_name,
                 errors=tuple(failure_reasons),
                 attempt_id=attempt_id,
+                updated_context=ctx,
             )
 
         # 3. Get handler (raises PipelineError if not registered)
@@ -948,6 +954,7 @@ class PipelineEngine:
             phase=phase_name,
             errors=(error_msg,),
             attempt_id=attempt_id,
+            updated_context=ctx,
         )
 
     def _should_skip_for_execution_policy(
@@ -1072,6 +1079,7 @@ class PipelineEngine:
             next_phase=next_phase,
             errors=errors,
             attempt_id=attempt_id,
+            updated_context=ctx,
         )
 
     def _apply_pre_execution_override(

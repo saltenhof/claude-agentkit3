@@ -11,6 +11,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from agentkit.installer.paths import resolve_qa_story_dir
 from agentkit.pipeline.lifecycle import HandlerResult
 from agentkit.pipeline.phases.verify.cycle import VerifyCycle
 from agentkit.qa.adversarial.challenger import AdversarialChallenger
@@ -106,10 +107,16 @@ class VerifyPhaseHandler:
         attempt_nr = state.review_round + 1
         cycle = VerifyCycle(layers=layers, policy_engine=engine)
         result = cycle.run(ctx, s_dir, attempt_nr=attempt_nr)
+        projection_dir = resolve_qa_story_dir(
+            s_dir,
+            story_id=ctx.story_id,
+            project_root=ctx.project_root,
+        )
         artifacts = record_layer_artifacts(
             s_dir,
             layer_results=result.decision.layer_results,
             attempt_nr=result.attempt_nr,
+            projection_dir=projection_dir,
         )
 
         # Persist canonical verify decision plus projection artifacts.
@@ -119,6 +126,7 @@ class VerifyPhaseHandler:
                 s_dir,
                 decision=result.decision,
                 attempt_nr=result.attempt_nr,
+                projection_dir=projection_dir,
             ),
         )
 

@@ -36,6 +36,7 @@ class HandlerResult:
     yield_status: str | None = None
     artifacts_produced: tuple[str, ...] = ()
     errors: tuple[str, ...] = ()
+    updated_context: StoryContext | None = None
 
 
 @runtime_checkable

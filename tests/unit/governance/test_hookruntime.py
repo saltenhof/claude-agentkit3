@@ -102,15 +102,42 @@ def test_hookruntime_blocks_qa_artifact_tampering_in_story_execution(tmp_path) -
     verdict = evaluate_pre_tool_use(
         HookEvent(
             tool_name="Write",
-            tool_input={"file_path": str(worktree / "verify-decision.json")},
+            tool_input={
+                "file_path": str(
+                    tmp_path / "_temp" / "qa" / "AG3-100" / "verify-decision.json",
+                ),
+            },
             cwd=str(worktree),
             session_id="sess-001",
+            is_subagent=True,
         ),
         project_root=tmp_path,
     )
 
     assert verdict.allowed is False
     assert verdict.guard_name == "artifact_guard"
+
+
+def test_hookruntime_allows_main_agent_write_to_qa_directory(tmp_path) -> None:
+    worktree = tmp_path / "worktree"
+    LocalEdgePublisher(project_root=tmp_path).publish(_bundle(worktree_root=str(worktree)))
+
+    verdict = evaluate_pre_tool_use(
+        HookEvent(
+            tool_name="Write",
+            tool_input={
+                "file_path": str(
+                    tmp_path / "_temp" / "qa" / "AG3-100" / "structural.json",
+                ),
+            },
+            cwd=str(worktree),
+            session_id="sess-001",
+            is_subagent=False,
+        ),
+        project_root=tmp_path,
+    )
+
+    assert verdict.allowed is True
 
 
 def test_hookruntime_blocks_mutation_for_binding_invalid(tmp_path) -> None:
@@ -131,6 +158,39 @@ def test_hookruntime_blocks_mutation_for_binding_invalid(tmp_path) -> None:
 
     assert verdict.allowed is False
     assert verdict.guard_name == "operating_mode_guard"
+
+
+def test_hookruntime_blocks_non_story_branch_push_in_story_execution(tmp_path) -> None:
+    worktree = tmp_path / "worktree"
+    LocalEdgePublisher(project_root=tmp_path).publish(_bundle(worktree_root=str(worktree)))
+
+    verdict = evaluate_pre_tool_use(
+        HookEvent(
+            tool_name="Bash",
+            tool_input={"command": "git push origin feature/AG3-100"},
+            cwd=str(worktree),
+            session_id="sess-001",
+        ),
+        project_root=tmp_path,
+    )
+
+    assert verdict.allowed is False
+    assert verdict.guard_name == "branch_guard"
+
+
+def test_hookruntime_blocks_bash_git_internal_mutation(tmp_path) -> None:
+    verdict = evaluate_pre_tool_use(
+        HookEvent(
+            tool_name="Bash",
+            tool_input={"command": "Remove-Item .git/refs/heads/main"},
+            cwd=str(tmp_path),
+            session_id=None,
+        ),
+        project_root=tmp_path,
+    )
+
+    assert verdict.allowed is False
+    assert verdict.guard_name == "branch_guard"
 
 
 def test_parse_hook_event_defaults_cwd_and_discards_invalid_session(

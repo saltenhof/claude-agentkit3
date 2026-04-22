@@ -330,6 +330,7 @@ def record_layer_artifacts(
     *,
     layer_results: tuple[LayerResult, ...],
     attempt_nr: int,
+    projection_dir: Path | None = None,
 ) -> tuple[str, ...]:
     return cast(
         "tuple[str, ...]",
@@ -337,6 +338,7 @@ def record_layer_artifacts(
             story_dir,
             layer_results=layer_results,
             attempt_nr=attempt_nr,
+            projection_dir=projection_dir,
         ),
     )
 
@@ -346,6 +348,7 @@ def record_verify_decision(
     *,
     decision: VerifyDecision,
     attempt_nr: int,
+    projection_dir: Path | None = None,
 ) -> tuple[str, ...]:
     return cast(
         "tuple[str, ...]",
@@ -353,6 +356,7 @@ def record_verify_decision(
             story_dir,
             decision=decision,
             attempt_nr=attempt_nr,
+            projection_dir=projection_dir,
         ),
     )
 
@@ -406,8 +410,20 @@ def read_artifact_record(
     )
 
 
-def record_closure_report(story_dir: Path, report: ExecutionReport) -> Path:
-    return cast("Path", _backend_module().record_closure_report(story_dir, report))
+def record_closure_report(
+    story_dir: Path,
+    report: ExecutionReport,
+    *,
+    projection_dir: Path | None = None,
+) -> Path:
+    return cast(
+        "Path",
+        _backend_module().record_closure_report(
+            story_dir,
+            report,
+            projection_dir=projection_dir,
+        ),
+    )
 
 
 def upsert_story_metrics(story_dir: Path, metrics: StoryMetricsRecord) -> None:

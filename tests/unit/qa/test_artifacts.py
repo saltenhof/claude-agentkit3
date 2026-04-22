@@ -250,7 +250,9 @@ class TestPersistence:
             *,
             layer_result: LayerResult,
             attempt_nr: int,
+            projection_dir: Path | None = None,
         ) -> str | None:
+            del story_dir, attempt_nr, projection_dir
             if layer_result.layer == "semantic":
                 return "semantic-review.json"
             return None
@@ -282,7 +284,9 @@ class TestPersistence:
         )
         monkeypatch.setattr(
             "agentkit.qa.artifacts.write_verify_decision_projection",
-            lambda story_dir, *, decision, attempt_nr: ("verify-decision.json",),
+            lambda story_dir, *, decision, attempt_nr, projection_dir=None: (
+                "verify-decision.json",
+            ),
         )
 
         produced = write_verify_decision_artifacts(

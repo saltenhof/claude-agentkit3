@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 from agentkit.prompt_composer import (
     ComposeConfig,
     compose_named_prompt,
+    initialize_prompt_run_pin,
     write_rendered_prompt_artifact,
 )
 from agentkit.state_backend import resolve_runtime_scope
@@ -50,6 +51,8 @@ def materialize_qa_prompt_audit(
             "status": "skipped",
             "reason": "story_dir_outside_project_root",
         }
+
+    initialize_prompt_run_pin(ctx.project_root, run_id=runtime_scope.run_id)
 
     prompt = compose_named_prompt(
         ctx,

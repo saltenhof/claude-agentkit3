@@ -1221,14 +1221,15 @@ class TestRuntimeTelemetry:
         )
 
         assert [event.event_type for event in events] == [
+            EventType.AGENT_START.value,
             EventType.FLOW_START.value,
             EventType.NODE_RESULT.value,
             EventType.FLOW_END.value,
         ]
         assert all(event.project_key == story_ctx.project_key for event in events)
         assert all(event.run_id == flow.run_id for event in events)
-        assert events[1].payload["outcome"] == "PASS"
-        assert events[2].payload["status"] == "COMPLETED"
+        assert events[2].payload["outcome"] == "PASS"
+        assert events[3].payload["status"] == "COMPLETED"
 
     def test_jump_override_emits_override_applied_once(
         self,
@@ -1333,8 +1334,9 @@ class TestRuntimeTelemetry:
         )
 
         assert [event.event_type for event in events] == [
+            EventType.AGENT_START.value,
             EventType.FLOW_START.value,
             EventType.NODE_RESULT.value,
         ]
-        assert events[1].payload["outcome"] == "BACKTRACK"
-        assert events[1].payload["target_node_id"] == "implementation"
+        assert events[2].payload["outcome"] == "BACKTRACK"
+        assert events[2].payload["target_node_id"] == "implementation"

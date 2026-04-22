@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from agentkit.installer import InstallConfig, install_agentkit
-from agentkit.installer.paths import story_dir
+from agentkit.installer.paths import qa_story_dir, story_dir
 from agentkit.integrations.github.issues import (
     create_issue,
     get_issue,
@@ -33,7 +33,11 @@ from agentkit.pipeline.phases.closure.phase import (
 )
 from agentkit.pipeline.phases.setup.phase import SetupConfig, SetupPhaseHandler
 from agentkit.pipeline.state import save_phase_snapshot
-from agentkit.state_backend import save_flow_execution
+from agentkit.state_backend import (
+    ExecutionEventRecord,
+    append_execution_event,
+    save_flow_execution,
+)
 from agentkit.story_context_manager.models import (
     PhaseSnapshot,
     PhaseState,
@@ -41,6 +45,7 @@ from agentkit.story_context_manager.models import (
     StoryContext,
 )
 from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.telemetry.events import EventType
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -87,6 +92,28 @@ def _save_flow(
     )
 
 
+def _append_agent_start(
+    s_dir: Path,
+    *,
+    project_key: str,
+    story_id: str,
+) -> None:
+    append_execution_event(
+        s_dir,
+        ExecutionEventRecord(
+            project_key=project_key,
+            story_id=story_id,
+            run_id=f"run-{story_id.lower()}",
+            event_id=f"evt-agent-start-{story_id.lower()}",
+            event_type=EventType.AGENT_START.value,
+            occurred_at=datetime(2026, 1, 1, 9, 45, 0, tzinfo=UTC),
+            source_component="telemetry-test",
+            severity="info",
+            payload={"agent_type": "pipeline_engine"},
+        ),
+    )
+
+
 @pytest.mark.integration
 @pytest.mark.requires_gh
 class TestClosurePhaseE2E:
@@ -116,6 +143,11 @@ class TestClosurePhaseE2E:
             for phase in ("setup", "implementation", "verify"):
                 _save_snapshot(s_dir, phase)
             _save_flow(
+                s_dir,
+                project_key="e2e-closure-test",
+                story_id="E2E-CLOSURE",
+            )
+            _append_agent_start(
                 s_dir,
                 project_key="e2e-closure-test",
                 story_id="E2E-CLOSURE",
@@ -150,7 +182,7 @@ class TestClosurePhaseE2E:
             assert closed_issue.state == "CLOSED"
 
             # Verify closure.json exists
-            assert (s_dir / "closure.json").exists()
+            assert (qa_story_dir(tmp_path, "E2E-CLOSURE") / "closure.json").exists()
 
         finally:
             # 5. Cleanup: reopen the issue
@@ -220,6 +252,11 @@ class TestClosurePhaseE2E:
                 project_key="e2e-closure-test",
                 story_id="E2E-FULL",
             )
+            _append_agent_start(
+                s_dir,
+                project_key="e2e-closure-test",
+                story_id="E2E-FULL",
+            )
 
             # 5. Closure with close_issue=True
             closure_config = ClosureConfig(
@@ -250,7 +287,7 @@ class TestClosurePhaseE2E:
 
             # 6. Verify
             assert closure_result.status == PhaseStatus.COMPLETED
-            assert (s_dir / "closure.json").exists()
+            assert (qa_story_dir(tmp_path, "E2E-FULL") / "closure.json").exists()
 
             closed_issue = get_issue(OWNER, REPO, issue_nr)
             assert closed_issue.state == "CLOSED"

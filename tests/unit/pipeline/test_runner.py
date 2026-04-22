@@ -233,6 +233,56 @@ def test_run_pipeline_advances_and_saves_next_phase(
     assert saved[0].status is PhaseStatus.PENDING
 
 
+def test_run_pipeline_reloads_persisted_context_between_phases(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    ctx = _story_context()
+    enriched = ctx.model_copy(update={"title": "Enriched", "issue_nr": 42})
+    state = PhaseState(
+        story_id=ctx.story_id,
+        phase="setup",
+        status=PhaseStatus.PENDING,
+    )
+    engine_factory = _EngineFactory(
+        [
+            EngineResult(
+                status="phase_completed",
+                phase="setup",
+                next_phase="verify",
+                updated_context=enriched,
+            ),
+            EngineResult(
+                status="phase_completed",
+                phase="verify",
+                next_phase=None,
+            ),
+        ],
+    )
+
+    monkeypatch.setattr(
+        "agentkit.pipeline.runner.read_phase_state_record",
+        lambda story_dir: state,
+    )
+    monkeypatch.setattr(
+        "agentkit.pipeline.runner.save_phase_state",
+        lambda story_dir, phase_state: None,
+    )
+    monkeypatch.setattr("agentkit.pipeline.runner.PipelineEngine", engine_factory)
+
+    result = run_pipeline(
+        ctx,
+        tmp_path,
+        object(),
+        workflow=_workflow("setup", "verify"),
+    )
+
+    assert result.final_status == "completed"
+    assert len(engine_factory.run_calls) == 2
+    assert engine_factory.run_calls[0][0] == ctx
+    assert engine_factory.run_calls[1][0] == enriched
+
+
 def test_run_pipeline_fails_when_iteration_limit_is_reached(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

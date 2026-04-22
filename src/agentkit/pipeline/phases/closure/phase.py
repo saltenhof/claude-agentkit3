@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from agentkit.exceptions import IntegrationError
+from agentkit.installer.paths import resolve_qa_story_dir
 from agentkit.pipeline.lifecycle import HandlerResult
 from agentkit.pipeline.phases.closure.execution_report import (
     ExecutionReport,
@@ -181,7 +182,15 @@ class ClosurePhaseHandler:
             warnings=tuple(warnings),
             metrics=metrics.to_metrics_payload(),
         )
-        report_path = write_execution_report(s_dir, report)
+        report_path = write_execution_report(
+            s_dir,
+            report,
+            projection_dir=resolve_qa_story_dir(
+                s_dir,
+                story_id=ctx.story_id,
+                project_root=ctx.project_root,
+            ),
+        )
 
         # 5. Return COMPLETED
         return HandlerResult(

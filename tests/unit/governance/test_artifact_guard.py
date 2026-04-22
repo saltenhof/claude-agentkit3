@@ -1,4 +1,4 @@
-"""Tests for ArtifactGuard -- QA artifact tampering prevention."""
+"""Tests for ArtifactGuard -- QA directory tampering prevention."""
 
 from __future__ import annotations
 
@@ -14,33 +14,42 @@ def guard() -> ArtifactGuard:
 
 
 class TestArtifactGuardBlocked:
-    """Writes to protected QA artifacts must be blocked."""
+    """Sub-agent writes into the active QA directory must be blocked."""
 
-    @pytest.mark.parametrize("artifact", [
-        "structural.json",
-        "semantic-review.json",
-        "guardrail.json",
-        "verify-decision.json",
-        "adversarial.json",
-    ])
-    def test_write_to_protected_artifact(
-        self, guard: ArtifactGuard, artifact: str,
+    def test_subagent_write_to_active_story_qa_path(
+        self,
+        guard: ArtifactGuard,
     ) -> None:
-        v = guard.evaluate("file_write", {"file_path": f"/stories/AG3-001/{artifact}"})
+        v = guard.evaluate(
+            "file_write",
+            {
+                "file_path": "/repo/_temp/qa/AG3-001/structural.json",
+                "operating_mode": "story_execution",
+                "qa_artifact_lock_active": True,
+                "is_subagent": True,
+                "active_story_id": "AG3-001",
+            },
+        )
         assert v.allowed is False
         assert v.violation_type == ViolationType.ARTIFACT_TAMPERING
 
-    def test_edit_to_protected_artifact(self, guard: ArtifactGuard) -> None:
+    def test_subagent_edit_to_active_story_qa_path(self, guard: ArtifactGuard) -> None:
         v = guard.evaluate(
             "file_edit",
-            {"file_path": "/stories/AG3-001/verify-decision.json"},
+            {
+                "file_path": "/repo/_temp/qa/AG3-001/verify-decision.json",
+                "operating_mode": "story_execution",
+                "qa_artifact_lock_active": True,
+                "is_subagent": True,
+                "active_story_id": "AG3-001",
+            },
         )
         assert v.allowed is False
         assert v.violation_type == ViolationType.ARTIFACT_TAMPERING
 
 
 class TestArtifactGuardAllowed:
-    """Writes to non-protected files must be allowed."""
+    """Non-scoped or non-subagent writes must be allowed."""
 
     def test_write_normal_code(self, guard: ArtifactGuard) -> None:
         v = guard.evaluate("file_write", {"file_path": "/src/agentkit/main.py"})
@@ -50,12 +59,51 @@ class TestArtifactGuardAllowed:
         v = guard.evaluate("file_write", {"file_path": "/stories/AG3-001/protocol.md"})
         assert v.allowed is True
 
+    def test_main_agent_may_write_qa_path(self, guard: ArtifactGuard) -> None:
+        v = guard.evaluate(
+            "file_write",
+            {
+                "file_path": "/repo/_temp/qa/AG3-001/structural.json",
+                "operating_mode": "story_execution",
+                "qa_artifact_lock_active": True,
+                "is_subagent": False,
+                "active_story_id": "AG3-001",
+            },
+        )
+        assert v.allowed is True
+
+    def test_missing_qa_lock_allows(self, guard: ArtifactGuard) -> None:
+        v = guard.evaluate(
+            "file_write",
+            {
+                "file_path": "/repo/_temp/qa/AG3-001/structural.json",
+                "operating_mode": "story_execution",
+                "qa_artifact_lock_active": False,
+                "is_subagent": True,
+                "active_story_id": "AG3-001",
+            },
+        )
+        assert v.allowed is True
+
+    def test_other_story_qa_path_allows(self, guard: ArtifactGuard) -> None:
+        v = guard.evaluate(
+            "file_write",
+            {
+                "file_path": "/repo/_temp/qa/AG3-002/structural.json",
+                "operating_mode": "story_execution",
+                "qa_artifact_lock_active": True,
+                "is_subagent": True,
+                "active_story_id": "AG3-001",
+            },
+        )
+        assert v.allowed is True
+
     def test_non_write_operation(self, guard: ArtifactGuard) -> None:
         v = guard.evaluate("bash_command", {"command": "cat decision.json"})
         assert v.allowed is True
 
     def test_file_read_operation(self, guard: ArtifactGuard) -> None:
-        ctx = {"file_path": "/stories/AG3-001/structural.json"}
+        ctx = {"file_path": "/repo/_temp/qa/AG3-001/structural.json"}
         v = guard.evaluate("file_read", ctx)
         assert v.allowed is True
 

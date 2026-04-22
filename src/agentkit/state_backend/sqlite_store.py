@@ -1076,6 +1076,7 @@ def record_layer_artifacts(
     *,
     layer_results: tuple[LayerResult, ...],
     attempt_nr: int,
+    projection_dir: Path | None = None,
 ) -> tuple[str, ...]:
     story_id = _story_id_for(story_dir)
     if story_id is None:
@@ -1094,6 +1095,7 @@ def record_layer_artifacts(
                 story_dir,
                 layer_result=layer_result,
                 attempt_nr=attempt_nr,
+                projection_dir=projection_dir,
             )
             if artifact_name is None:
                 continue
@@ -1130,6 +1132,7 @@ def record_verify_decision(
     *,
     decision: VerifyDecision,
     attempt_nr: int,
+    projection_dir: Path | None = None,
 ) -> tuple[str, ...]:
     story_id = _story_id_for(story_dir)
     if story_id is None:
@@ -1144,6 +1147,7 @@ def record_verify_decision(
         story_dir,
         decision=decision,
         attempt_nr=attempt_nr,
+        projection_dir=projection_dir,
     )
     with _connect(story_dir) as conn:
         conn.execute(
@@ -1278,9 +1282,18 @@ def read_artifact_record(
     return load_artifact_record(story_dir, artifact_kind)
 
 
-def record_closure_report(story_dir: Path, report: ExecutionReport) -> Path:
+def record_closure_report(
+    story_dir: Path,
+    report: ExecutionReport,
+    *,
+    projection_dir: Path | None = None,
+) -> Path:
     story_id = _story_id_for(story_dir) or report.story_id
-    path = write_execution_report_projection(story_dir, report)
+    path = write_execution_report_projection(
+        story_dir,
+        report,
+        projection_dir=projection_dir,
+    )
     payload = report.to_dict()
     with _connect(story_dir) as conn:
         conn.execute(

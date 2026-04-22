@@ -14,6 +14,8 @@ TOOLS_DIR: str = "tools"
 AGENTKIT_TOOLS_DIR: str = f"{TOOLS_DIR}/agentkit"
 HOOKS_DIR: str = f"{AGENTKIT_DIR}/hooks"
 STORIES_DIR: str = "stories"
+TEMP_DIR: str = "_temp"
+QA_DIR: str = f"{TEMP_DIR}/qa"
 PROJECT_CONFIG_FILE: str = "project.yaml"
 CONTROL_PLANE_CONFIG_FILE: str = "control-plane.json"
 PROMPT_BUNDLE_LOCK_FILE: str = "prompt-bundle.lock.json"
@@ -104,6 +106,36 @@ def stories_dir(project_root: Path) -> Path:
 def story_dir(project_root: Path, story_id: str) -> Path:
     return project_root / STORIES_DIR / story_id
 
+
+def temp_dir(project_root: Path) -> Path:
+    return project_root / TEMP_DIR
+
+
+def qa_dir(project_root: Path) -> Path:
+    return project_root / QA_DIR
+
+
+def qa_story_dir(project_root: Path, story_id: str) -> Path:
+    return qa_dir(project_root) / story_id
+
+
+def project_root_for_story_dir(story_dir: Path) -> Path | None:
+    if story_dir.parent.name != STORIES_DIR:
+        return None
+    return story_dir.parent.parent
+
+
+def resolve_qa_story_dir(
+    story_dir: Path,
+    *,
+    story_id: str,
+    project_root: Path | None = None,
+) -> Path:
+    resolved_root = project_root or project_root_for_story_dir(story_dir)
+    if resolved_root is None:
+        return story_dir
+    return qa_story_dir(resolved_root, story_id)
+
 __all__ = [
     "AGENTKIT_DIR",
     "CONFIG_DIR",
@@ -118,8 +150,10 @@ __all__ = [
     "PROMPT_BUNDLE_STORE_ENV",
     "PROJECT_CONFIG_FILE",
     "PROMPTS_DIR",
+    "QA_DIR",
     "STATIC_PROMPTS_DIR",
     "STORIES_DIR",
+    "TEMP_DIR",
     "TOOLS_DIR",
     "AGENTKIT_TOOLS_DIR",
     "agentkit_dir",
@@ -133,9 +167,14 @@ __all__ = [
     "prompt_bundle_store_dir",
     "prompt_bundle_store_root",
     "prompt_run_pin_path",
+    "project_root_for_story_dir",
     "project_config_path",
+    "qa_dir",
+    "qa_story_dir",
+    "resolve_qa_story_dir",
     "runtime_prompts_dir",
     "static_prompts_dir",
     "stories_dir",
     "story_dir",
+    "temp_dir",
 ]

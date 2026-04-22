@@ -183,6 +183,7 @@ def write_layer_projection(
     *,
     layer_result: LayerResult,
     attempt_nr: int,
+    projection_dir: Path | None = None,
 ) -> str | None:
     """Write one QA layer projection."""
 
@@ -190,7 +191,8 @@ def write_layer_projection(
     if artifact_name is None:
         return None
     payload = serialize_layer_result(layer_result, attempt_nr=attempt_nr)
-    _write_projection(story_dir / artifact_name, payload)
+    target_dir = projection_dir or story_dir
+    _write_projection(target_dir / artifact_name, payload)
     return artifact_name
 
 
@@ -199,6 +201,7 @@ def write_verify_decision_projection(
     *,
     decision: VerifyDecision,
     attempt_nr: int,
+    projection_dir: Path | None = None,
 ) -> tuple[str]:
     """Write the canonical verify decision projection."""
 
@@ -206,17 +209,21 @@ def write_verify_decision_projection(
         decision,
         attempt_nr=attempt_nr,
     )
-    _write_projection(story_dir / VERIFY_DECISION_FILE, canonical_payload)
+    target_dir = projection_dir or story_dir
+    _write_projection(target_dir / VERIFY_DECISION_FILE, canonical_payload)
     return (VERIFY_DECISION_FILE,)
 
 
 def write_execution_report_projection(
     story_dir: Path,
     report: ExecutionReport,
+    *,
+    projection_dir: Path | None = None,
 ) -> Path:
     """Write the closure execution report projection."""
 
-    path = story_dir / CLOSURE_REPORT_FILE
+    target_dir = projection_dir or story_dir
+    path = target_dir / CLOSURE_REPORT_FILE
     _write_projection(path, report.to_dict())
     return path
 

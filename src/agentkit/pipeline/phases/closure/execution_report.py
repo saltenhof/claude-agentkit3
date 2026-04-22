@@ -14,10 +14,16 @@ if TYPE_CHECKING:
 def write_execution_report(
     story_dir: Path,
     report: ExecutionReport,
+    *,
+    projection_dir: Path | None = None,
 ) -> Path:
     """Persist the canonical closure report and export projection."""
 
-    return record_closure_report(story_dir, report)
+    return record_closure_report(
+        story_dir,
+        report,
+        projection_dir=projection_dir,
+    )
 
 
 def _now_iso() -> str:

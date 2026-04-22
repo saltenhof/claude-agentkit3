@@ -159,6 +159,7 @@ class SetupPhaseHandler:
         return HandlerResult(
             status=PhaseStatus.COMPLETED,
             artifacts_produced=tuple(artifacts),
+            updated_context=enriched,
         )
 
     def on_exit(self, _ctx: StoryContext, _state: PhaseState) -> None:

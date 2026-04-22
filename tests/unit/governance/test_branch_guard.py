@@ -45,20 +45,75 @@ class TestBranchGuardDangerousPatterns:
 
 
 class TestBranchGuardProtectedBranches:
-    """Direct pushes to protected branch names must be blocked."""
+    """Protected branch operations are blocked in story execution."""
 
     def test_push_to_main(self, guard: BranchGuard) -> None:
-        v = guard.evaluate("bash_command", {"command": "git push origin main"})
+        v = guard.evaluate(
+            "bash_command",
+            {"command": "git push origin main", "operating_mode": "story_execution"},
+        )
         assert v.allowed is False
         assert v.violation_type == ViolationType.BRANCH_VIOLATION
 
     def test_push_to_master(self, guard: BranchGuard) -> None:
-        v = guard.evaluate("bash_command", {"command": "git push origin master"})
+        v = guard.evaluate(
+            "bash_command",
+            {"command": "git push origin master", "operating_mode": "story_execution"},
+        )
         assert v.allowed is False
         assert v.violation_type == ViolationType.BRANCH_VIOLATION
 
-    def test_push_to_develop(self, guard: BranchGuard) -> None:
-        v = guard.evaluate("bash_command", {"command": "git push origin develop"})
+    def test_checkout_to_main(self, guard: BranchGuard) -> None:
+        v = guard.evaluate(
+            "bash_command",
+            {
+                "command": "git checkout main",
+                "operating_mode": "story_execution",
+                "active_story_id": "AG3-001",
+            },
+        )
+        assert v.allowed is False
+        assert v.violation_type == ViolationType.BRANCH_VIOLATION
+
+    def test_rebase_on_origin_main(self, guard: BranchGuard) -> None:
+        v = guard.evaluate(
+            "bash_command",
+            {
+                "command": "git rebase origin/main",
+                "operating_mode": "story_execution",
+                "active_story_id": "AG3-001",
+            },
+        )
+        assert v.allowed is False
+        assert v.violation_type == ViolationType.BRANCH_VIOLATION
+
+    def test_push_to_non_story_branch_is_blocked_in_story_execution(
+        self,
+        guard: BranchGuard,
+    ) -> None:
+        v = guard.evaluate(
+            "bash_command",
+            {
+                "command": "git push origin feature/AG3-001",
+                "operating_mode": "story_execution",
+                "active_story_id": "AG3-001",
+            },
+        )
+        assert v.allowed is False
+        assert v.violation_type == ViolationType.BRANCH_VIOLATION
+
+    def test_switch_to_non_story_branch_is_blocked_in_story_execution(
+        self,
+        guard: BranchGuard,
+    ) -> None:
+        v = guard.evaluate(
+            "bash_command",
+            {
+                "command": "git switch feature/AG3-001",
+                "operating_mode": "story_execution",
+                "active_story_id": "AG3-001",
+            },
+        )
         assert v.allowed is False
         assert v.violation_type == ViolationType.BRANCH_VIOLATION
 
@@ -82,6 +137,63 @@ class TestBranchGuardAllowed:
         ctx = {"command": "git push origin feature/AG3-001"}
         v = guard.evaluate("bash_command", ctx)
         assert v.allowed is True
+
+    def test_push_to_story_branch_allowed_in_story_execution(
+        self,
+        guard: BranchGuard,
+    ) -> None:
+        v = guard.evaluate(
+            "bash_command",
+            {
+                "command": "git push origin story/AG3-001",
+                "operating_mode": "story_execution",
+                "active_story_id": "AG3-001",
+            },
+        )
+        assert v.allowed is True
+
+    def test_push_to_main_allowed_outside_story_execution(
+        self,
+        guard: BranchGuard,
+    ) -> None:
+        v = guard.evaluate(
+            "bash_command",
+            {"command": "git push origin main", "operating_mode": "ai_augmented"},
+        )
+        assert v.allowed is True
+
+    def test_official_control_plane_command_allowed(self, guard: BranchGuard) -> None:
+        v = guard.evaluate(
+            "bash_command",
+            {
+                "command": "agentkit run-phase closure --story AG3-001 --no-ff",
+                "operating_mode": "story_execution",
+            },
+        )
+        assert v.allowed is True
+
+    def test_git_internal_file_mutation_is_blocked(self, guard: BranchGuard) -> None:
+        v = guard.evaluate("file_write", {"file_path": "/repo/.git/index"})
+        assert v.allowed is False
+        assert v.violation_type == ViolationType.BRANCH_VIOLATION
+
+    def test_git_checkout_file_restore_is_allowed(self, guard: BranchGuard) -> None:
+        v = guard.evaluate(
+            "bash_command",
+            {
+                "command": "git checkout -- src/main.py",
+                "operating_mode": "story_execution",
+            },
+        )
+        assert v.allowed is True
+
+    def test_bash_git_internal_mutation_is_blocked(self, guard: BranchGuard) -> None:
+        v = guard.evaluate(
+            "bash_command",
+            {"command": "Remove-Item .git/refs/heads/main"},
+        )
+        assert v.allowed is False
+        assert v.violation_type == ViolationType.BRANCH_VIOLATION
 
     def test_guard_name(self, guard: BranchGuard) -> None:
         assert guard.name == "branch_guard"

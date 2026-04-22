@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from agentkit.installer import InstallConfig, install_agentkit
-from agentkit.installer.paths import story_dir
+from agentkit.installer.paths import qa_story_dir, story_dir
 from agentkit.integrations.github.client import run_gh, run_gh_json
 from agentkit.integrations.github.issues import (
     create_issue,
@@ -185,7 +185,7 @@ class TestRealPipelineE2E:
             assert closed_issue.state == "CLOSED"
 
             # Closure report exists
-            assert (s_dir / "closure.json").exists()
+            assert (qa_story_dir(project_dir, story_id) / "closure.json").exists()
 
         finally:
             # Cleanup: reopen issue so test is repeatable

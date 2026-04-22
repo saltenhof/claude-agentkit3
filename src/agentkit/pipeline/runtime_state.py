@@ -124,6 +124,19 @@ class EngineRuntimeState:
         if is_new_flow:
             self._emit_event(
                 ctx,
+                EventType.AGENT_START,
+                phase=phase_name,
+                node_id=node_id or phase_name,
+                payload={
+                    "flow_id": self._workflow.flow_id,
+                    "level": self._workflow.level.value,
+                    "owner": self._workflow.owner,
+                    "attempt_no": attempt_no,
+                    "agent_type": "pipeline_engine",
+                },
+            )
+            self._emit_event(
+                ctx,
                 EventType.FLOW_START,
                 phase=phase_name,
                 node_id=node_id or phase_name,

@@ -23,6 +23,7 @@ from agentkit.governance.protocols import (
     ViolationType,
 )
 from agentkit.governance.runner import GuardRunner
+from agentkit.installer.paths import qa_story_dir
 from agentkit.projectedge.runtime import (
     FreshnessClass,
     ProjectEdgeResolver,
@@ -42,6 +43,7 @@ class HookEvent(BaseModel):
     tool_input: dict[str, object] = {}
     cwd: str = ""
     session_id: str | None = None
+    is_subagent: bool = False
 
     @model_validator(mode="before")
     @classmethod
@@ -99,6 +101,7 @@ def evaluate_pre_tool_use(event: HookEvent, *, project_root: Path) -> GuardVerdi
         cwd=event.cwd,
         freshness_class=freshness_class,
     )
+    context.update(_guard_context(event, resolved))
 
     if (
         resolved.operating_mode == "binding_invalid"
@@ -111,7 +114,7 @@ def evaluate_pre_tool_use(event: HookEvent, *, project_root: Path) -> GuardVerdi
             detail={"reason": resolved.block_reason},
         )
 
-    runner = GuardRunner(guards=_guards_for_state(resolved))
+    runner = GuardRunner(guards=_guards_for_state(resolved, project_root=project_root))
     allowed, verdicts = runner.is_allowed(operation, context)
     if allowed:
         return GuardVerdict.allow("hook_runtime")
@@ -163,15 +166,43 @@ def _normalize_event(
     return ("unknown_tool", {}, "guarded_read")
 
 
-def _guards_for_state(resolved: ResolvedEdgeState) -> list[GovernanceGuard]:
+def _guard_context(
+    event: HookEvent,
+    resolved: ResolvedEdgeState,
+) -> dict[str, object]:
+    story_id = ""
+    principal_type = ""
+    qa_lock_active = False
+    if resolved.bundle is not None and resolved.bundle.session is not None:
+        story_id = resolved.bundle.session.story_id
+        principal_type = resolved.bundle.session.principal_type
+        qa_lock_active = resolved.operating_mode == "story_execution"
+    return {
+        "operating_mode": resolved.operating_mode,
+        "is_subagent": event.is_subagent,
+        "active_story_id": story_id,
+        "principal_type": principal_type,
+        "qa_artifact_lock_active": qa_lock_active,
+    }
+
+
+def _guards_for_state(
+    resolved: ResolvedEdgeState,
+    *,
+    project_root: Path,
+) -> list[GovernanceGuard]:
     guards: list[GovernanceGuard] = [BranchGuard()]
     if (
         resolved.operating_mode == "story_execution"
         and resolved.bundle is not None
         and resolved.bundle.session is not None
     ):
+        allowed_paths = list(resolved.bundle.session.worktree_roots)
+        allowed_paths.append(
+            str(qa_story_dir(project_root, resolved.bundle.session.story_id)),
+        )
         guards.append(
-            ScopeGuard(allowed_paths=list(resolved.bundle.session.worktree_roots)),
+            ScopeGuard(allowed_paths=allowed_paths),
         )
         guards.append(ArtifactGuard())
     return guards

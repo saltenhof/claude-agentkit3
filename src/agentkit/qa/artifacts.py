@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from agentkit.exceptions import CorruptStateError
+from agentkit.installer.paths import resolve_qa_story_dir
 from agentkit.state_backend import (
     GUARDRAIL_FILE,
     LAYER_ARTIFACT_FILES,
@@ -52,7 +53,7 @@ def load_verify_decision_artifact(
     if payload is not None:
         return VERIFY_DECISION_FILE, payload
 
-    return load_verify_decision_projection(story_dir)
+    return load_verify_decision_projection(_qa_projection_dir(story_dir))
 
 
 def write_layer_artifacts(
@@ -69,6 +70,7 @@ def write_layer_artifacts(
             story_dir,
             layer_results=normalized,
             attempt_nr=attempt_nr,
+            projection_dir=_qa_projection_dir(story_dir),
         )
     except CorruptStateError:
         # Legacy callers may use the facade outside a bound story run.
@@ -78,6 +80,7 @@ def write_layer_artifacts(
                 story_dir,
                 layer_result=layer_result,
                 attempt_nr=attempt_nr,
+                projection_dir=_qa_projection_dir(story_dir),
             )
             if artifact_name is not None:
                 produced.append(artifact_name)
@@ -97,6 +100,7 @@ def write_verify_decision_artifacts(
             story_dir,
             decision=decision,
             attempt_nr=attempt_nr,
+            projection_dir=_qa_projection_dir(story_dir),
         )
     except CorruptStateError:
         # Legacy callers may use the facade outside a bound story run.
@@ -104,7 +108,12 @@ def write_verify_decision_artifacts(
             story_dir,
             decision=decision,
             attempt_nr=attempt_nr,
+            projection_dir=_qa_projection_dir(story_dir),
         )
+
+
+def _qa_projection_dir(story_dir: Path) -> Path:
+    return resolve_qa_story_dir(story_dir, story_id=story_dir.name)
 
 
 __all__ = [

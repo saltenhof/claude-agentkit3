@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from agentkit.installer.paths import qa_story_dir
 from agentkit.phase_state_store.models import FlowExecution
 from agentkit.pipeline.lifecycle import PhaseHandler
 from agentkit.pipeline.phases.verify.phase import VerifyConfig, VerifyPhaseHandler
@@ -48,6 +49,8 @@ def _story_dir(root: Path, story_id: str = "TEST-001") -> Path:
 
 def _make_context(
     story_type: StoryType = StoryType.BUGFIX,
+    *,
+    project_root: Path | None = None,
 ) -> StoryContext:
     """Build a minimal StoryContext for testing."""
     return StoryContext(
@@ -55,6 +58,7 @@ def _make_context(
         story_id="TEST-001",
         story_type=story_type,
         execution_route=StoryMode.EXECUTION,
+        project_root=project_root,
     )
 
 
@@ -198,7 +202,7 @@ class TestVerifyPhaseHandler:
     def test_on_exit_is_noop(self, tmp_path: Path) -> None:
         config = VerifyConfig(story_dir=_story_dir(tmp_path))
         handler = VerifyPhaseHandler(config)
-        ctx = _make_context()
+        ctx = _make_context(project_root=tmp_path)
         state = _make_state()
         # on_exit should not raise
         handler.on_exit(ctx, state)
@@ -244,11 +248,12 @@ class TestVerifyPhaseHandler:
         result = handler.on_enter(ctx, state)
         assert result.status == PhaseStatus.COMPLETED
 
-        decision_path = story_dir / "verify-decision.json"
+        qa_dir = qa_story_dir(tmp_path, "TEST-001")
+        decision_path = qa_dir / "verify-decision.json"
         assert decision_path.exists(), "verify-decision.json must be written"
-        semantic_path = story_dir / "semantic-review.json"
-        adversarial_path = story_dir / "adversarial.json"
-        structural_path = story_dir / "structural.json"
+        semantic_path = qa_dir / "semantic-review.json"
+        adversarial_path = qa_dir / "adversarial.json"
+        structural_path = qa_dir / "structural.json"
         assert structural_path.exists()
         assert semantic_path.exists()
         assert adversarial_path.exists()
@@ -314,13 +319,14 @@ class TestVerifyPhaseHandler:
         result = handler.on_enter(ctx, state)
         assert result.status == PhaseStatus.FAILED
 
-        decision_path = story_dir / "verify-decision.json"
+        qa_dir = qa_story_dir(tmp_path, "TEST-001")
+        decision_path = qa_dir / "verify-decision.json"
         assert decision_path.exists(), (
             "verify-decision.json must be written even on FAIL"
         )
-        assert (story_dir / "structural.json").exists()
-        assert (story_dir / "semantic-review.json").exists()
-        assert (story_dir / "adversarial.json").exists()
+        assert (qa_dir / "structural.json").exists()
+        assert (qa_dir / "semantic-review.json").exists()
+        assert (qa_dir / "adversarial.json").exists()
         data = json.loads(decision_path.read_text(encoding="utf-8"))
         assert data["passed"] is False
         assert data["status"] == "FAIL"

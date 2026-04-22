@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from agentkit.exceptions import IntegrationError
+from agentkit.installer.paths import qa_story_dir
 from agentkit.phase_state_store.models import FlowExecution
 from agentkit.pipeline.phases.closure.execution_report import (
     ExecutionReport,
@@ -69,6 +70,7 @@ def _make_ctx(
     story_id: str = "TEST-001",
     story_type: StoryType = StoryType.IMPLEMENTATION,
     execution_route: StoryMode = StoryMode.EXECUTION,
+    project_root: Path | None = None,
 ) -> StoryContext:
     """Create a minimal ``StoryContext`` for testing."""
     return StoryContext(
@@ -76,6 +78,7 @@ def _make_ctx(
         story_id=story_id,
         story_type=story_type,
         execution_route=execution_route,
+        project_root=project_root,
     )
 
 
@@ -201,7 +204,7 @@ class TestClosurePhaseHandler:
 
         config = ClosureConfig(story_dir=s_dir, close_issue=False)
         handler = ClosurePhaseHandler(config)
-        ctx = _make_ctx()
+        ctx = _make_ctx(project_root=tmp_path)
         state = _make_state()
 
         result = handler.on_enter(ctx, state)
@@ -222,7 +225,7 @@ class TestClosurePhaseHandler:
 
         config = ClosureConfig(story_dir=s_dir, close_issue=False)
         handler = ClosurePhaseHandler(config)
-        ctx = _make_ctx()
+        ctx = _make_ctx(project_root=tmp_path)
         state = _make_state()
 
         result = handler.on_enter(ctx, state)
@@ -245,12 +248,12 @@ class TestClosurePhaseHandler:
 
         config = ClosureConfig(story_dir=s_dir, close_issue=False)
         handler = ClosurePhaseHandler(config)
-        ctx = _make_ctx()
+        ctx = _make_ctx(project_root=tmp_path)
         state = _make_state()
 
         handler.on_enter(ctx, state)
 
-        report_path = s_dir / "closure.json"
+        report_path = qa_story_dir(tmp_path, "TEST-001") / "closure.json"
         assert report_path.exists()
 
         with report_path.open("r", encoding="utf-8") as f:
@@ -279,14 +282,17 @@ class TestClosurePhaseHandler:
         # No owner/repo/issue_nr
         config = ClosureConfig(story_dir=s_dir)
         handler = ClosurePhaseHandler(config)
-        ctx = _make_ctx()
+        ctx = _make_ctx(project_root=tmp_path)
         state = _make_state()
 
         result = handler.on_enter(ctx, state)
 
         assert result.status == PhaseStatus.COMPLETED
 
-        with (s_dir / "closure.json").open("r", encoding="utf-8") as f:
+        with (qa_story_dir(tmp_path, "TEST-001") / "closure.json").open(
+            "r",
+            encoding="utf-8",
+        ) as f:
             data = json.load(f)
         assert data["issue_closed"] is False
 
@@ -325,7 +331,7 @@ class TestClosurePhaseHandler:
         )
 
         handler = ClosurePhaseHandler(config)
-        ctx = _make_ctx()
+        ctx = _make_ctx(project_root=tmp_path)
         state = _make_state()
 
         result = handler.on_enter(ctx, state)
@@ -333,7 +339,10 @@ class TestClosurePhaseHandler:
         assert result.status == PhaseStatus.COMPLETED
         assert len(result.errors) == 0
 
-        with (s_dir / "closure.json").open("r", encoding="utf-8") as f:
+        with (qa_story_dir(tmp_path, "TEST-001") / "closure.json").open(
+            "r",
+            encoding="utf-8",
+        ) as f:
             data = json.load(f)
         assert data["status"] == "completed_with_warnings"
         assert data["issue_closed"] is False
@@ -372,6 +381,7 @@ class TestClosurePhaseHandler:
             story_id="TEST-R01",
             story_type=StoryType.RESEARCH,
             execution_route=StoryMode.NOT_APPLICABLE,
+            project_root=tmp_path,
         )
         state = _make_state(story_id="TEST-R01")
 
@@ -423,7 +433,7 @@ class TestClosurePhaseHandler:
 
         config = ClosureConfig(story_dir=s_dir, close_issue=False)
         handler = ClosurePhaseHandler(config)
-        ctx = _make_ctx(story_id="TEST-FAIL")
+        ctx = _make_ctx(story_id="TEST-FAIL", project_root=tmp_path)
         state = _make_state(story_id="TEST-FAIL")
 
         result = handler.on_enter(ctx, state)
@@ -463,7 +473,7 @@ class TestClosurePhaseHandler:
 
         config = ClosureConfig(story_dir=s_dir, close_issue=False)
         handler = ClosurePhaseHandler(config)
-        ctx = _make_ctx(story_id="TEST-ESC")
+        ctx = _make_ctx(story_id="TEST-ESC", project_root=tmp_path)
         state = _make_state(story_id="TEST-ESC")
 
         result = handler.on_enter(ctx, state)
@@ -481,7 +491,7 @@ class TestClosurePhaseHandler:
             _save_snapshot(s_dir, phase, story_id="TEST-QA")
         _save_flow(s_dir, story_id="TEST-QA")
         _append_agent_start_event(s_dir, story_id="TEST-QA")
-        ctx = _make_ctx(story_id="TEST-QA")
+        ctx = _make_ctx(story_id="TEST-QA", project_root=tmp_path)
         state = _make_state(story_id="TEST-QA")
         handler = ClosurePhaseHandler(ClosureConfig(story_dir=s_dir, close_issue=False))
         save_story_context(s_dir, ctx)
@@ -534,7 +544,7 @@ class TestClosurePhaseHandler:
             _save_snapshot(s_dir, phase, story_id="TEST-NORUN")
 
         handler = ClosurePhaseHandler(ClosureConfig(story_dir=s_dir, close_issue=False))
-        ctx = _make_ctx(story_id="TEST-NORUN")
+        ctx = _make_ctx(story_id="TEST-NORUN", project_root=tmp_path)
         state = _make_state(story_id="TEST-NORUN")
 
         result = handler.on_enter(ctx, state)
@@ -566,7 +576,7 @@ class TestClosurePhaseHandler:
         )
 
         handler = ClosurePhaseHandler(ClosureConfig(story_dir=s_dir, close_issue=False))
-        ctx = _make_ctx(story_id="TEST-TIME")
+        ctx = _make_ctx(story_id="TEST-TIME", project_root=tmp_path)
         state = _make_state(story_id="TEST-TIME")
 
         result = handler.on_enter(ctx, state)
@@ -584,7 +594,7 @@ class TestClosurePhaseHandler:
         _save_flow(s_dir, story_id="TEST-NOSTART")
 
         handler = ClosurePhaseHandler(ClosureConfig(story_dir=s_dir, close_issue=False))
-        ctx = _make_ctx(story_id="TEST-NOSTART")
+        ctx = _make_ctx(story_id="TEST-NOSTART", project_root=tmp_path)
         state = _make_state(story_id="TEST-NOSTART")
 
         result = handler.on_enter(ctx, state)
