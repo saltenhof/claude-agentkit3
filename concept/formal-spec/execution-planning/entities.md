@@ -39,6 +39,14 @@ entities:
       - source_revision
       - evidence_refs
       - proposal_status(submitted|validated|rejected|applied)
+  - id: execution-planning.entity.human-review-request
+    identity_key: review_request_id
+    attributes:
+      - project_key
+      - story_id
+      - requested_purpose(quality-improvement|validation)
+      - requested_by
+      - review_status(open|answered|dismissed)
   - id: execution-planning.entity.dependency-edge
     identity_key: edge_id
     attributes:
@@ -55,6 +63,7 @@ entities:
       - story_id
       - blocking_kind
       - source_kind
+      - blocking_class(blocking-gate)
       - human_gate_required
       - external_reference
       - active

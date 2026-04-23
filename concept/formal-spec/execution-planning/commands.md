@@ -46,6 +46,18 @@ commands:
       - execution-planning.event.planning_proposal_submitted
       - execution-planning.event.planning_proposal_rejected
       - execution-planning.event.planning_proposal_applied
+  - id: execution-planning.command.request-human-review
+    signature: non-blocking request for human quality review or validation of planning artifacts
+    allowed_statuses:
+      - execution-planning.status.unstarted
+      - execution-planning.status.ready
+      - execution-planning.status.blocked_capacity
+      - execution-planning.status.done
+    requires:
+      - execution-planning.invariant.optional_human_review_does_not_block_readiness
+    emits:
+      - execution-planning.event.human_review_requested
+      - execution-planning.event.human_review_recorded
   - id: execution-planning.command.declare-dependency
     signature: internal or official administrative declaration of a dependency edge
     allowed_statuses:

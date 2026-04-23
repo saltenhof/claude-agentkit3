@@ -161,6 +161,14 @@ Mindestens relevante Blockerklassen sind:
 Freitext allein ist nicht ausreichend. Blocker muessen als
 erstklassige Objekte modelliert und auswertbar sein.
 
+Nicht jede menschliche Mitwirkung ist ein Blocker. AK3 trennt deshalb
+sauber zwischen:
+
+- **optionaler Human-Review oder Human-Mitarbeit** zur
+  Qualitaetsverbesserung
+- **blockierendem Human-Gate**, wenn Rechte, Mandat, Fachwissen oder
+  externe Entscheidungshoheit fehlen
+
 ### 66.4.4 Feasibility vs. Scheduling
 
 AK3 trennt zwei Ebenen:
@@ -222,6 +230,39 @@ Solche Voraussetzungen duerfen nicht nur als Kommentar in einer Story
 stehen. Sie muessen den Readiness- und Scheduling-Zustand direkt
 beeinflussen.
 
+### 66.5.4 Zwei Arten menschlicher Mitwirkung
+
+AK3 unterscheidet normativ zwei Kategorien:
+
+**1. Optionale Human-Review**
+
+Ein Agent oder das System kann einen Menschen hinzuziehen, um
+Ergebnisqualitaet zu verbessern, Plausibilitaet zu validieren oder
+einen Plan zu schärfen.
+
+Beispiele:
+
+- "Bitte reviewe diese Abhaengigkeiten"
+- "Bitte validiere diesen Wellenplan"
+- "Bitte schaue, ob die Reihenfolge fachlich sinnvoll ist"
+
+Diese Kategorie ist **nicht blockierend**. Sie darf `READY`,
+`recommended_batch` oder `ExecutionPlan` informativ anreichern, aber
+nicht allein verhindern, dass AK3 mit einem gueltigen Plan arbeitet.
+
+**2. Blockierendes Human-Gate**
+
+Ein Human-Gate liegt nur dann vor, wenn ein Agent die Blockade selbst
+nicht aufloesen kann, weil mindestens eines davon fehlt:
+
+- Rechte
+- Mandat
+- erforderliches Fachwissen
+- offizielle externe Entscheidung oder Freigabe
+
+Nur diese Kategorie darf den Status `BLOCKED_HUMAN` erzeugen und
+damit Ausfuehrung oder Weiterplanung fail-closed stoppen.
+
 ## 66.6 Planungsregeln
 
 ### 66.6.1 Readiness
@@ -234,6 +275,9 @@ Eine Story ist nur `READY`, wenn mindestens gilt:
 4. kein offener `ExternalGate` oder `HumanGate` fuer diese Story besteht
 5. kein expliziter Konfliktzustand an einer geschuetzten
    Vertrags- oder Konfliktflaeche vorliegt
+
+Eine offene optionale Human-Review zaehlt hierbei ausdruecklich nicht
+als Blocker.
 
 ### 66.6.2 Scheduling
 
@@ -487,6 +531,10 @@ zurueck, insbesondere:
 - Wave ist abgeschlossen oder kollabiert
 - Re-Plan wurde wegen Laufzeitkonflikt notwendig
 
+Optionale Human-Review darf der Orchestrator anfordern oder sichtbar
+machen. Sie ist aber kein implizites Stoppsignal. Ein echter Stopp
+entsteht nur ueber ein typisiertes `HumanGate`.
+
 ## 66.9 UI- und API-Folgen
 
 Die Webanwendung braucht spaeter mindestens diese Pflichtsichten auf
@@ -568,6 +616,8 @@ Normativ gelten mindestens diese Regeln:
 9. Erkanntes Zyklen- oder Deadlock-Verhalten quarantainiert den
    betroffenen Teilgraphen und eskaliert fail-closed, statt das
    gesamte Backlog still weiterlaufen zu lassen.
+10. Optionale Human-Review verbessert oder validiert Qualitaet, darf
+    aber nie still wie ein blockierendes Human-Gate behandelt werden.
 
 ## 66.12 Offene Konsequenzen fuer Folgekapitel
 

@@ -28,6 +28,10 @@ events:
     role: governance
   - id: execution-planning.event.planning_proposal_applied
     role: audit
+  - id: execution-planning.event.human_review_requested
+    role: audit
+  - id: execution-planning.event.human_review_recorded
+    role: audit
   - id: execution-planning.event.dependency_declared
     role: lifecycle
   - id: execution-planning.event.planning_rulebook_compiled

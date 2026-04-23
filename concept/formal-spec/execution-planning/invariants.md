@@ -31,6 +31,12 @@ invariants:
   - id: execution-planning.invariant.canonical_execution_plan_is_derived_not_blindly_imported
     scope: adapters
     rule: the canonical execution plan is derived and validated by AK3 from accepted planning state and may never be treated as a blind passthrough of an agent proposal
+  - id: execution-planning.invariant.optional_human_review_does_not_block_readiness
+    scope: human-interaction
+    rule: optional human review for quality improvement or validation may enrich planning quality but may never by itself prevent READY, wave computation, or plan activation
+  - id: execution-planning.invariant.blocking_human_gate_requires_missing_rights_mandate_or_expertise
+    scope: human-interaction
+    rule: a blocking human gate exists only when the agent cannot resolve the blockage because rights, mandate, required expertise, or official external decision authority are missing
   - id: execution-planning.invariant.no_story_may_enter_flight_with_unresolved_hard_predecessor
     scope: readiness
     rule: a story may never enter FLIGHT while any hard predecessor or hard gate remains unresolved

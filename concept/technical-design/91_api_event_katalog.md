@@ -261,6 +261,8 @@ API-Vertrag.
 | `planning_proposal_submitted` | 66 | Agent / Planning Service | Strukturierter Planvorschlag wurde offiziell an AK3 uebergeben |
 | `planning_proposal_rejected` | 66 | Planning Service | Proposal wurde wegen Struktur-, Konflikt- oder Governance-Verletzung verworfen |
 | `planning_proposal_applied` | 66 | Planning Service | Proposal wurde in kanonische Planungsdaten ueberfuehrt |
+| `human_review_requested` | 66 | Agent / Planning Service | Nicht-blockierende menschliche Review zur Qualitaetsverbesserung oder Validierung wurde angefragt |
+| `human_review_recorded` | 66 | Mensch / Planning Service | Ergebnis einer nicht-blockierenden menschlichen Review wurde erfasst |
 | `dependency_declared` | 66 | Planning Service / Admin-Pfad | Abhaengigkeitskante oder Konfliktregel offiziell erfasst oder geaendert |
 | `planning_rulebook_compiled` | 66 | Planning Service / Admin-Pfad | Projektspezifisches Rulebook wurde in kanonische Planungsdaten uebersetzt |
 | `blocker_recorded` | 66 | Planning Service / Admin-Pfad | Externer, menschlicher, kapazitiver oder Konflikt-Blocker wurde typisiert erfasst |
