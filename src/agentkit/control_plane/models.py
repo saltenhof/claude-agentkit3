@@ -39,6 +39,17 @@ class TelemetryEventAccepted(BaseModel):
     event_id: str
 
 
+class ApiErrorResponse(BaseModel):
+    """Stable error contract for control-plane HTTP responses."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    error_code: str = Field(min_length=1)
+    error: str = Field(min_length=1)
+    correlation_id: str = Field(min_length=1)
+    detail: object | None = None
+
+
 class _ControlPlaneRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 

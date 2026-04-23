@@ -144,6 +144,13 @@ API-Vertrag.
    zweite Mutation erzeugen.
 6. Die API erzeugt keine zweite Befehls- oder Event-Semantik neben der
    CLI; sie ist die Zielgrenze, die CLI ist nur ein aktueller Adapter.
+7. Jede HTTP-Antwort der Control Plane traegt eine stabile
+   `correlation_id`; bei HTTP-Transport wird sie ueber
+   `X-Correlation-Id` propagiert oder, falls nicht vorhanden, von der
+   Control Plane erzeugt.
+8. Fehlerantworten folgen einem stabilen Vertrag mit mindestens
+   `error_code`, `error` und `correlation_id`; optionale strukturierte
+   `detail`-Daten duerfen diesen Vertrag nur erweitern, nicht ersetzen.
 
 ## 91.2 Telemetrie-Event-Typen
 

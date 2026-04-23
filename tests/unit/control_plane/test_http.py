@@ -5,7 +5,11 @@ from datetime import UTC, datetime
 from http import HTTPStatus
 from pathlib import Path, PurePath
 
-from agentkit.control_plane.http import ControlPlaneApplication, serve_control_plane
+from agentkit.control_plane.http import (
+    ControlPlaneApplication,
+    HttpResponse,
+    serve_control_plane,
+)
 from agentkit.control_plane.models import (
     ControlPlaneMutationResult,
     EdgeBundle,
@@ -277,10 +281,11 @@ def test_post_telemetry_event_returns_created() -> None:
     )
 
     assert response.status_code == HTTPStatus.CREATED
-    assert json.loads(response.body) == {
+    assert _json_body(response) == {
         "event_id": "evt-http-001",
         "status": "accepted",
     }
+    assert _response_header(response, "X-Correlation-Id").startswith("req-")
     assert len(service.requests) == 1
 
 
@@ -430,7 +435,11 @@ def test_get_missing_operation_returns_not_found() -> None:
     )
 
     assert response.status_code == HTTPStatus.NOT_FOUND
-    assert json.loads(response.body) == {"error": "Operation not found"}
+    _assert_error(
+        response,
+        error_code="operation_not_found",
+        message="Operation not found",
+    )
 
 
 def test_healthz_returns_ok() -> None:
@@ -443,7 +452,8 @@ def test_healthz_returns_ok() -> None:
     response = app.handle_request(method="GET", path="/healthz", body=b"")
 
     assert response.status_code == HTTPStatus.OK
-    assert json.loads(response.body) == {"status": "ok"}
+    assert _json_body(response) == {"status": "ok"}
+    assert _response_header(response, "X-Correlation-Id").startswith("req-")
 
 
 def test_healthz_wrong_method_returns_allow_header() -> None:
@@ -456,7 +466,12 @@ def test_healthz_wrong_method_returns_allow_header() -> None:
     response = app.handle_request(method="POST", path="/healthz", body=b"")
 
     assert response.status_code == HTTPStatus.METHOD_NOT_ALLOWED
-    assert response.headers == (("Allow", "GET"),)
+    assert ("Allow", "GET") in response.headers
+    _assert_error(
+        response,
+        error_code="method_not_allowed",
+        message="Method not allowed",
+    )
 
 
 def test_unknown_path_returns_not_found() -> None:
@@ -469,7 +484,7 @@ def test_unknown_path_returns_not_found() -> None:
     response = app.handle_request(method="GET", path="/missing", body=b"")
 
     assert response.status_code == HTTPStatus.NOT_FOUND
-    assert json.loads(response.body) == {"error": "Not found"}
+    _assert_error(response, error_code="not_found", message="Not found")
 
 
 def test_invalid_json_returns_bad_request() -> None:
@@ -486,9 +501,11 @@ def test_invalid_json_returns_bad_request() -> None:
     )
 
     assert response.status_code == HTTPStatus.BAD_REQUEST
-    assert json.loads(response.body) == {
-        "error": "Request body must be valid JSON",
-    }
+    _assert_error(
+        response,
+        error_code="invalid_json",
+        message="Request body must be valid JSON",
+    )
 
 
 def test_get_stories_returns_project_scoped_list() -> None:
@@ -547,9 +564,11 @@ def test_get_story_requires_project_key() -> None:
     )
 
     assert response.status_code == HTTPStatus.BAD_REQUEST
-    assert json.loads(response.body) == {
-        "error": "Missing required query parameter: project_key",
-    }
+    _assert_error(
+        response,
+        error_code="missing_project_key",
+        message="Missing required query parameter: project_key",
+    )
 
 
 def test_get_missing_story_returns_not_found() -> None:
@@ -566,7 +585,7 @@ def test_get_missing_story_returns_not_found() -> None:
     )
 
     assert response.status_code == HTTPStatus.NOT_FOUND
-    assert json.loads(response.body) == {"error": "Story not found"}
+    _assert_error(response, error_code="story_not_found", message="Story not found")
 
 
 def test_get_dashboard_board_returns_project_scoped_columns() -> None:
@@ -626,8 +645,11 @@ def test_invalid_payload_returns_bad_request() -> None:
     )
 
     assert response.status_code == HTTPStatus.BAD_REQUEST
-    body = json.loads(response.body)
-    assert body["error"] == "Invalid telemetry event payload"
+    body = _assert_error(
+        response,
+        error_code="invalid_telemetry_event_payload",
+        message="Invalid telemetry event payload",
+    )
     assert isinstance(body["detail"], list)
 
 
@@ -644,7 +666,11 @@ def test_invalid_phase_payload_returns_bad_request() -> None:
     )
 
     assert response.status_code == HTTPStatus.BAD_REQUEST
-    assert json.loads(response.body)["error"] == "Invalid phase mutation payload"
+    _assert_error(
+        response,
+        error_code="invalid_phase_mutation_payload",
+        message="Invalid phase mutation payload",
+    )
 
 
 def test_invalid_closure_payload_returns_bad_request() -> None:
@@ -660,7 +686,11 @@ def test_invalid_closure_payload_returns_bad_request() -> None:
     )
 
     assert response.status_code == HTTPStatus.BAD_REQUEST
-    assert json.loads(response.body)["error"] == "Invalid closure payload"
+    _assert_error(
+        response,
+        error_code="invalid_closure_payload",
+        message="Invalid closure payload",
+    )
 
 
 def test_invalid_project_edge_sync_payload_returns_bad_request() -> None:
@@ -676,7 +706,11 @@ def test_invalid_project_edge_sync_payload_returns_bad_request() -> None:
     )
 
     assert response.status_code == HTTPStatus.BAD_REQUEST
-    assert json.loads(response.body)["error"] == "Invalid project-edge sync payload"
+    _assert_error(
+        response,
+        error_code="invalid_project_edge_sync_payload",
+        message="Invalid project-edge sync payload",
+    )
 
 
 def test_runtime_unavailable_returns_service_unavailable() -> None:
@@ -699,7 +733,11 @@ def test_runtime_unavailable_returns_service_unavailable() -> None:
     )
 
     assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE
-    assert json.loads(response.body) == {"error": "postgres unavailable"}
+    _assert_error(
+        response,
+        error_code="project_edge_sync_unavailable",
+        message="postgres unavailable",
+    )
 
 
 def test_phase_runtime_unavailable_returns_service_unavailable() -> None:
@@ -725,7 +763,29 @@ def test_phase_runtime_unavailable_returns_service_unavailable() -> None:
     )
 
     assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE
-    assert json.loads(response.body) == {"error": "phase backend unavailable"}
+    _assert_error(
+        response,
+        error_code="phase_mutation_unavailable",
+        message="phase backend unavailable",
+    )
+
+
+def test_incoming_correlation_id_is_propagated() -> None:
+    app = ControlPlaneApplication(
+        telemetry_service=_FakeTelemetryService(),
+        runtime_service=_FakeRuntimeService(),
+        story_service=_FakeStoryService(),
+    )
+
+    response = app.handle_request(
+        method="GET",
+        path="/healthz",
+        body=b"",
+        request_headers={"X-Correlation-Id": "corr-fixed-001"},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    assert _response_header(response, "X-Correlation-Id") == "corr-fixed-001"
 
 
 def test_serve_control_plane_runs_and_closes_server(monkeypatch) -> None:
@@ -770,3 +830,29 @@ def test_serve_control_plane_runs_and_closes_server(monkeypatch) -> None:
     assert captured["keyfile"] == str(PurePath("tls/control-plane.key"))
     assert captured["served"] is True
     assert captured["closed"] is True
+
+
+def _json_body(response: HttpResponse) -> dict[str, object]:
+    return json.loads(response.body)
+
+
+def _response_header(response: HttpResponse, name: str) -> str:
+    for key, value in response.headers:
+        if key == name:
+            return value
+    raise AssertionError(f"Missing response header: {name}")
+
+
+def _assert_error(
+    response: HttpResponse,
+    *,
+    error_code: str,
+    message: str,
+) -> dict[str, object]:
+    body = _json_body(response)
+    assert body["error_code"] == error_code
+    assert body["error"] == message
+    assert isinstance(body["correlation_id"], str)
+    assert body["correlation_id"] != ""
+    assert _response_header(response, "X-Correlation-Id") == body["correlation_id"]
+    return body

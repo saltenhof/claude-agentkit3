@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from agentkit.control_plane.http import serve_control_plane
 from agentkit.control_plane.models import (
+    ApiErrorResponse,
     ClosureCompleteRequest,
     ControlPlaneMutationResult,
     EdgeBundle,
@@ -20,6 +21,7 @@ from agentkit.control_plane.runtime import ControlPlaneRuntimeService
 from agentkit.control_plane.telemetry import ControlPlaneTelemetryService
 
 __all__ = [
+    "ApiErrorResponse",
     "ClosureCompleteRequest",
     "ControlPlaneMutationResult",
     "ControlPlaneRuntimeRepository",
