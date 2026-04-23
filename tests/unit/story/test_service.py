@@ -4,7 +4,8 @@ from datetime import UTC, datetime
 
 from agentkit.phase_state_store.models import FlowExecution
 from agentkit.state_backend.records import StoryMetricsRecord
-from agentkit.story.service import StoryRepository, StoryService
+from agentkit.story.repository import StoryRepository
+from agentkit.story.service import StoryService
 from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
 from agentkit.story_context_manager.types import (
     ImplementationContract,

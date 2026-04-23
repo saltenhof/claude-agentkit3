@@ -9,7 +9,8 @@ from agentkit.story.models import (
     StoryRunView,
     StorySummary,
 )
-from agentkit.story.service import StoryRepository, StoryService
+from agentkit.story.repository import StoryRepository
+from agentkit.story.service import StoryService
 from agentkit.story_context_manager.types import (
     ImplementationContract,
     StoryMode,

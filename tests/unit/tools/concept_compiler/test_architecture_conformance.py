@@ -20,6 +20,7 @@ INVARIANT_ID = (
     "story_dashboard_transport_boundary"
 )
 MUTATION_RULE_ID = "architecture-conformance.rule.story_context_write_surface"
+READ_RULE_ID = "architecture-conformance.rule.story_read_surface"
 
 
 def test_architecture_conformance_loads_formal_policy(tmp_path: Path) -> None:
@@ -100,6 +101,39 @@ def test_architecture_conformance_rejects_unauthorized_writer_surface_import(
     assert any(violation.rule_id == MUTATION_RULE_ID for violation in violations)
 
 
+def test_architecture_conformance_rejects_unauthorized_read_surface_import(
+    tmp_path: Path,
+) -> None:
+    root = _write_fixture(
+        tmp_path,
+        module_name="agentkit.dashboard.service",
+        source="""
+            from agentkit.state_backend import load_story_contexts_global
+
+            def expose() -> object:
+                return load_story_contexts_global
+        """,
+        read_surface_rules=f"""
+            read_surface_rules:
+              - id: {READ_RULE_ID}
+                reader_symbols:
+                  - load_story_contexts_global
+                allowed_module_prefixes:
+                  - agentkit.state_backend
+                  - agentkit.story.repository
+                message: >
+                  story read loaders may only be imported from the
+                  explicit story repository surface
+        """,
+    )
+
+    compiled = compile_formal_specs(root / "concept" / "formal-spec")
+    violations = audit_architecture_conformance(compiled, root / "src")
+
+    assert any(violation.code == "AC004" for violation in violations)
+    assert any(violation.rule_id == READ_RULE_ID for violation in violations)
+
+
 def test_architecture_conformance_accepts_current_repo() -> None:
     compiled = compile_formal_specs(Path("concept/formal-spec"))
 
@@ -114,6 +148,7 @@ def _write_fixture(
     module_name: str | None = None,
     source: str | None = None,
     files: dict[str, str] | None = None,
+    read_surface_rules: str = "",
 ) -> Path:
     root = tmp_path / "repo"
     formal_root = root / "concept" / "formal-spec" / "architecture-conformance"
@@ -223,6 +258,7 @@ def _write_fixture(
                 message: >
                   story context mutation may only be imported from
                   pipeline surfaces
+            {read_surface_rules}
             invariants:
               - id: {INVARIANT_ID}
                 scope: static-analysis

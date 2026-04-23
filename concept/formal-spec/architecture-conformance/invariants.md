@@ -120,6 +120,18 @@ mutation_surface_rules:
       - agentkit.pipeline.phases.closure
       - agentkit.pipeline_engine.closure_phase
     message: closure projections may only be imported from closure surfaces
+read_surface_rules:
+  - id: architecture-conformance.rule.story_read_surface
+    reader_symbols:
+      - load_story_contexts_global
+      - load_story_context_global
+      - load_phase_state_global
+      - load_flow_execution_global
+      - load_latest_story_metrics_global
+    allowed_module_prefixes:
+      - agentkit.state_backend
+      - agentkit.story.repository
+    message: story read loaders may only be imported from the explicit story repository surface
 invariants:
   - id: architecture-conformance.invariant.story_dashboard_transport_boundary
     scope: static-analysis
@@ -133,5 +145,8 @@ invariants:
   - id: architecture-conformance.invariant.canonical_write_surface_is_bounded
     scope: static-analysis
     rule: imports of canonical write symbols must stay within explicitly approved mutation surfaces
+  - id: architecture-conformance.invariant.story_read_surface_is_bounded
+    scope: static-analysis
+    rule: imports of global story read loaders must stay within the explicit story repository surface
 ```
 <!-- FORMAL-SPEC:END -->

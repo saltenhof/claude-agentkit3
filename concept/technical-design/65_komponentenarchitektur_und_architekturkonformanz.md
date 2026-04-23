@@ -198,6 +198,31 @@ Noch nicht voll deterministisch geprueft werden:
 Diese Regeln bleiben normativ, werden aber erst nach weiterem
 Komponentenschnitt voll maschinell erzwungen.
 
+### 65.7.5 Was V3 zusaetzlich deterministisch prueft
+
+Die dritte Architektur-Konformanzschicht friert ausgewaehlte
+komponentenspezifische Read-Surfaces ein.
+
+Sie prueft importbasiert:
+
+- dass globale Story-Read-Loader nicht mehr frei aus
+  `agentkit.state_backend` in beliebige A-Komponenten gezogen werden
+- dass diese Loader nur noch innerhalb von `agentkit.state_backend`
+  selbst und auf der expliziten Surface `agentkit.story.repository`
+  importiert werden
+- dass `StoryService` und spaetere Dashboard-Read-Modelle dadurch an
+  einer fachlich benannten Repository-Kante statt an der technischen
+  Mega-Fassade haengen
+
+Diese Schicht ist ebenfalls ein pragmatischer Zwischenschritt:
+
+- sie erzwingt noch nicht die vollstaendige Read-Konformanz aller
+  A-Komponenten
+- sie verhindert aber neue Direktimporte der globalen Story-Loader
+  sofort fail-closed
+- sie macht den Rueckbau der `state_backend`-Mega-Fassade auf der
+  Leseseite inkrementell und deterministisch pruefbar
+
 ## 65.8 V1-Importgrenzen
 
 Die erste formale Checker-Schicht zieht mindestens diese Grenzen:
@@ -214,6 +239,9 @@ Die erste formale Checker-Schicht zieht mindestens diese Grenzen:
 5. Kanonische Write-Surfaces gegen `state_backend` und kompatible
    Legacy-Reexporte duerfen nur aus explizit zugelassenen
    Komponentenoberflaechen importiert werden.
+6. Globale Story-Read-Loader duerfen nur aus
+   `agentkit.story.repository` oder innerhalb von `agentkit.state_backend`
+   selbst importiert werden.
 
 ## 65.9 Messbare Architektur-Invarianten
 
@@ -238,6 +266,9 @@ Invarianten:
    `execution_events`, Session-/Lock-/Operationstabellen sowie
    Closure-Metriken duerfen nur aus den dafuer freigegebenen
    Moduloberflaechen importiert werden.
+8. Globale Story-Read-Loader duerfen nur auf der expliziten
+   Read-Surface `agentkit.story.repository` importiert werden; direkte
+   Kopplung anderer A-Komponenten an diese Loader ist verboten.
 
 ## 65.10 Beziehung zu anderen Konzepten
 

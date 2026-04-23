@@ -59,6 +59,16 @@ class MutationSurfaceRule:
 
 
 @dataclass(frozen=True)
+class ReadSurfaceRule:
+    """One bounded read-surface rule over imported reader symbols."""
+
+    rule_id: str
+    reader_symbols: tuple[str, ...]
+    allowed_module_prefixes: tuple[str, ...]
+    message: str
+
+
+@dataclass(frozen=True)
 class ArchitectureConformanceConfig:
     """Normalized architecture checker policy."""
 
@@ -66,6 +76,7 @@ class ArchitectureConformanceConfig:
     dependency_rules: tuple[DependencyRule, ...]
     acyclic_group_sets: tuple[AcyclicGroupSet, ...]
     mutation_surface_rules: tuple[MutationSurfaceRule, ...]
+    read_surface_rules: tuple[ReadSurfaceRule, ...]
 
 
 @dataclass(frozen=True)
@@ -150,11 +161,33 @@ def load_architecture_conformance_config(
             invariants.path,
         )
     )
+    read_surface_rules = tuple(
+        ReadSurfaceRule(
+            rule_id=_require_string(entry, "id", invariants.path),
+            reader_symbols=_require_string_tuple(
+                entry,
+                "reader_symbols",
+                invariants.path,
+            ),
+            allowed_module_prefixes=_require_string_tuple(
+                entry,
+                "allowed_module_prefixes",
+                invariants.path,
+            ),
+            message=_require_string(entry, "message", invariants.path),
+        )
+        for entry in _optional_mapping_list(
+            invariants.spec,
+            "read_surface_rules",
+            invariants.path,
+        )
+    )
     return ArchitectureConformanceConfig(
         component_groups=component_groups,
         dependency_rules=dependency_rules,
         acyclic_group_sets=acyclic_group_sets,
         mutation_surface_rules=mutation_surface_rules,
+        read_surface_rules=read_surface_rules,
     )
 
 
@@ -171,9 +204,18 @@ def audit_architecture_conformance(
         import_graph,
         config.mutation_surface_rules,
     )
+    read_surface_violations = _check_read_surface_rules(
+        import_graph,
+        config.read_surface_rules,
+    )
     return tuple(
         sorted(
-            violations + cycle_violations + mutation_surface_violations,
+            (
+                violations
+                + cycle_violations
+                + mutation_surface_violations
+                + read_surface_violations
+            ),
             key=lambda item: (
                 "" if item.path is None else str(item.path),
                 item.module,
@@ -261,6 +303,33 @@ def _check_mutation_surface_rules(
                 violations.append(
                     ArchitectureViolation(
                         code="AC003",
+                        path=record.path,
+                        module=module,
+                        line=line,
+                        column=column,
+                        message=f"{rule.message}: imports '{imported_module}'",
+                        rule_id=rule.rule_id,
+                    )
+                )
+    return violations
+
+
+def _check_read_surface_rules(
+    import_graph: dict[str, _ModuleImports],
+    rules: tuple[ReadSurfaceRule, ...],
+) -> list[ArchitectureViolation]:
+    violations: list[ArchitectureViolation] = []
+    for module, record in import_graph.items():
+        for imported_module, line, column in record.imports:
+            symbol_name = imported_module.rsplit(".", maxsplit=1)[-1]
+            for rule in rules:
+                if symbol_name not in rule.reader_symbols:
+                    continue
+                if _matches_prefix(module, rule.allowed_module_prefixes):
+                    continue
+                violations.append(
+                    ArchitectureViolation(
+                        code="AC004",
                         path=record.path,
                         module=module,
                         line=line,
