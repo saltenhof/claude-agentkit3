@@ -125,6 +125,9 @@ zentralen AgentKit-Control-Plane geht darueber hinaus:
 
 - Story-Liste und Board- oder Kanban-Ansicht liegen in einer
   AK3-eigenen Web-Anwendung
+- Planungsansichten fuer `Dependency-Graph`, `Ready Queue`,
+  typisierte Blocker, `critical path` und `execution waves` sind
+  Pflichtsichten der spaeteren Control-Plane und lesen aus FK-66
 - Story-Detailseiten vereinen Status, Protokolle, Telemetrie,
   QA-Artefakte und Closure-Metriken in derselben Anwendung
 - GitHub Projects ist dafuer hoechstens noch ein externer Adapter oder

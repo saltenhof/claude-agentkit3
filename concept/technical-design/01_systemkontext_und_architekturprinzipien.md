@@ -146,7 +146,7 @@ Dieses Kapitel enthaelt nur die uebergeordneten Prinzipien:
 
 | Familie | Leitende Komponenten |
 |---------|----------------------|
-| Story- und Ausfuehrungskern | `StoryContextManager`, `PipelineEngine`, `StoryExecutionLifecycleService`, `WorktreeManager` |
+| Story-, Planungs- und Ausfuehrungskern | `StoryContextManager`, `ExecutionPlanningService`, `PipelineEngine`, `StoryExecutionLifecycleService`, `WorktreeManager` |
 | Governance- und QA-Kern | `GuardSystem`, `CcagPermissionRuntime`, `ConformanceService`, `StageRegistry`, `GovernanceObserver`, `FailureCorpus` |
 | Inhalts- und Runtime-Services | `ArtifactManager`, `PromptComposer`, `LlmEvaluator`, `TelemetryService`, `PhaseStateStore` |
 | Analytics- und Produktoberflaeche | `KpiAnalyticsEngine`, `DashboardApplication` |
@@ -157,6 +157,7 @@ Dieses Kapitel enthaelt nur die uebergeordneten Prinzipien:
 | Abgrenzung | AK3-Regel |
 |------------|-----------|
 | `PipelineEngine` vs. Phasen | Die Engine ist Top-Level; die Phasen sind ihre Subkomponenten. `PreflightChecker`, `ModeResolver`, `StructuralChecker`, `PolicyEngine` und `IntegrityGate` sind wiederum phasennahe Subkomponenten |
+| `ExecutionPlanningService` vs. `PipelineEngine` | Planung bestimmt `READY`, `blocked`, Wellen und Parallelisierungsbudgets; die `PipelineEngine` fuehrt nur bereits zugelassene Story-Runs aus |
 | `StageRegistry` | Bleibt Top-Level, weil sie sowohl von `VerifyPhase` als auch vom `FailureCorpus` genutzt wird; sie darf nicht in `VerifyPhase` aufgehen |
 | `GuardSystem` vs. `CcagPermissionRuntime` | CCAG ist **nicht** Teil des GuardSystems. Guards erzwingen harte Regeln; CCAG verwaltet lernfaehige, vom Menschen freigegebene Permission-Pfade |
 | `PromptComposer` vs. Prompt-Integritaet | Der Composer assembliert Prompts. Sentinel-/Spawn-Integritaet und Governance-Escape-Erkennung gehoeren zum Guard-/Hook-System, nicht zum Composer |

@@ -74,6 +74,7 @@ Anforderungen.
 | `35_integrity_gate_governance_beobachtung_eskalation.md` | 7 Dimensionen, Anomalie-Sensorik, Incident-Kandidaten, Maßnahmen |
 | `64_truth_boundary_and_concept_code_contract_checker.md` | Harte Wahrheitsgrenze DB vs. Exportdatei und Concept-to-Code-Contract-Checker |
 | `65_komponentenarchitektur_und_architekturkonformanz.md` | Normativer Komponentenschnitt, Blutgruppen, Importgrenzen und deterministische Architektur-Konformanz |
+| `66_story_planung_abhaengigkeiten_ausfuehrungsplanung.md` | Planungsdomäne für Abhängigkeiten, Readiness, Scheduling-Policy, kritischen Pfad und Ausführungswellen |
 
 ## 5. Querschnittskomponenten und Lernschleifen
 

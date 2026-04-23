@@ -55,6 +55,12 @@ die Nachfolger-Stories zwar ueber denselben fachlichen Vertrag wie
 dieses Kapitel, aber als administrative Systemoperation statt als
 freies Agentenhandeln.
 
+**Abgrenzung zur Planungsdomäne:** Story-Erstellung beantwortet nicht,
+welche Story als naechstes ausgefuehrt werden soll. Sie liefert aber
+die fruehen Planungsmetadaten fuer FK-66, damit spaeter
+Abhaengigkeiten, Gates, Readiness und Scheduling belastbar berechnet
+werden koennen.
+
 **Technische Umsetzung:** Die Story-Erstellung ist primär
 skill-gesteuert (`create-userstory`), nicht pipeline-gesteuert.
 Der Skill führt den Agent durch die Schritte. Deterministische
@@ -137,9 +143,16 @@ Der Skill leitet den Agent an, folgende Bestandteile zu erarbeiten:
 | Akzeptanzkriterien | Ja | Wann gilt die Story als erledigt? Prüfbare Aussagen. |
 | Betroffene Module | Ja | Welche Teile des Systems sind betroffen? |
 | Abhängigkeiten | Nein | Welche anderen Stories müssen vorher abgeschlossen sein? (Format: `#NNN`) |
+| Planungsmetadaten | Ja, soweit bereits bekannt | Repos, externe Voraussetzungen, menschliche Gates, Sammel- oder Endgate-Rolle, Parallelisierungs- und Konflikthinweise fuer FK-66 |
 | Konzeptquellen | Story-Typ-abhängig (s. 21.3.3) | Pfade zu Konzeptdokumenten im `concept/`-Verzeichnis des Zielprojekts |
 | Externe autoritäre Quellen | Nein | Referenzen auf externe Systeme (URLs, Jira-Artikel, OpenAPI-Specs etc.) |
 | Guardrail-Referenzen | Nein | Pfade zu relevanten Guardrail-Dokumenten |
+
+**Normative Regel:** Story-Erstellung darf Planungsmetadaten spaeter
+verfeinern, aber nicht ignorieren. Wenn Abhaengigkeiten, Human-Gates
+oder externe Voraussetzungen bei Erstellung bereits bekannt sind,
+muessen sie in die Planungsdomäne von FK-66 eingespeist werden statt
+nur in Freitextfeldern zu verbleiben.
 
 ### 21.3.2 Konzept-Stories als Vorstufe
 

@@ -72,6 +72,7 @@ aber nicht in eine technische Mega-Fassade hineinmodelliert werden.
 | Komponente | Blutgruppe | Fachliche Verantwortung | Provided Contracts |
 | --- | --- | --- | --- |
 | `StoryContextManager` | A | owns `Story`, `StoryContext` und Story-Custom-Fields; liefert Story-nahe Read-Modelle und Story-Lifecycle ausserhalb der Flow-Orchestrierung | `StoryReadPort`, `StoryLifecyclePort`, `StoryContextPort` |
+| `ExecutionPlanningService` | A | owns Backlog-Readiness, Abhaengigkeitsgraph, Blocker, kritischen Pfad, Ausfuehrungswellen und Scheduling-Policy zwischen Backlog und Orchestrator | `DependencyGraphPort`, `ReadinessAssessmentPort`, `ExecutionPlanPort`, `SchedulingPolicyPort` |
 | `PipelineEngine` | A | owns `FlowExecution`, `NodeExecution`, `AttemptRecord` und den 5-Phasen-Kontrollfluss | `StoryExecutionPort`, `RunTransitionPort` |
 | `StoryExecutionLifecycleService` | A | owns Session-/Run-Binding, Story-Execution-Lock, Edge-Bundle-Metadaten und idempotente Lifecycle-Mutationen | `SessionBindingPort`, `StoryExecutionLockPort`, `EdgeBundlePort`, `ExecutionLifecycleMutationPort` |
 | `WorktreeManager` | A | owns Worktree- und Branch-Lifecycle fuer Story-Ausfuehrungen und administrative Story-Eingriffe | `WorktreePort` |

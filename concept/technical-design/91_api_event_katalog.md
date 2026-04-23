@@ -51,6 +51,9 @@ formal_refs:
   - formal.principal-capabilities.events
   - formal.operating-modes.commands
   - formal.operating-modes.events
+  - formal.execution-planning.state-machine
+  - formal.execution-planning.commands
+  - formal.execution-planning.events
   - formal.state-storage.commands
   - formal.state-storage.events
   - formal.telemetry-analytics.commands
@@ -66,7 +69,7 @@ formal_refs:
 
 ## 91.1 CLI-Befehle (agentkit)
 
-<!-- PROSE-FORMAL: formal.installer.commands, formal.deterministic-checks.commands, formal.guard-system.commands, formal.conformance.commands, formal.llm-evaluations.commands, formal.integrity-gate.commands, formal.governance-observation.commands, formal.escalation.commands, formal.setup-preflight.commands, formal.verify.commands, formal.exploration.commands, formal.story-creation.commands, formal.story-closure.commands, formal.story-workflow.commands, formal.story-split.commands, formal.story-reset.commands, formal.principal-capabilities.commands, formal.operating-modes.commands, formal.state-storage.commands, formal.telemetry-analytics.commands, formal.integration-stabilization.commands, formal.story-exit.commands -->
+<!-- PROSE-FORMAL: formal.installer.commands, formal.deterministic-checks.commands, formal.guard-system.commands, formal.conformance.commands, formal.llm-evaluations.commands, formal.integrity-gate.commands, formal.governance-observation.commands, formal.escalation.commands, formal.setup-preflight.commands, formal.verify.commands, formal.exploration.commands, formal.story-creation.commands, formal.story-closure.commands, formal.story-workflow.commands, formal.story-split.commands, formal.story-reset.commands, formal.principal-capabilities.commands, formal.operating-modes.commands, formal.execution-planning.state-machine, formal.execution-planning.commands, formal.state-storage.commands, formal.telemetry-analytics.commands, formal.integration-stabilization.commands, formal.story-exit.commands -->
 
 | Befehl | Kapitel | Beschreibung |
 |--------|---------|-------------|
@@ -118,6 +121,10 @@ API-Vertrag.
 | `/v1/project-edge/sync` | `POST` | Lokalen Edge-Bundle-Stand fuer einen Projekt-Client bounded neu abgleichen |
 | `/v1/project-edge/operations/{op_id}` | `GET` | Unklare Remote-Lage eines mutierenden Requests ueber `op_id` reconciliieren |
 | `/v1/telemetry/events` | `POST` | Kanonisches Telemetrie-Event ingestieren |
+| `/v1/planning/graph` | `GET` | Projektgebundenen Abhaengigkeits- und Konfliktgraph lesen |
+| `/v1/planning/ready-set` | `GET` | Aktuell `READY`, blockierte und konfliktierte Stories mit Gruenden lesen |
+| `/v1/planning/execution-plan` | `GET` | Kritischen Pfad, Waves, empfohlenen Batch und maximale Parallelisierung lesen |
+| `/v1/planning/recompute` | `POST` | Offizielle Neuplanung nach Aenderung an Graph, Gates oder Story-Zustaenden ausloesen |
 | `/v1/stories` | `GET` | Projektgebundene Story-Liste für Web- und Agent-Clients |
 | `/v1/stories/{story_id}` | `GET` | Story-Detailansicht mit Status, Laufzeit- und Telemetriebezug |
 | `/v1/dashboard/board` | `GET` | Board- oder Listenansicht für die Story-Steuerung |
@@ -154,7 +161,7 @@ API-Vertrag.
 
 ## 91.2 Telemetrie-Event-Typen
 
-<!-- PROSE-FORMAL: formal.installer.events, formal.deterministic-checks.events, formal.guard-system.events, formal.conformance.events, formal.llm-evaluations.events, formal.integrity-gate.events, formal.governance-observation.events, formal.escalation.events, formal.setup-preflight.events, formal.verify.events, formal.exploration.events, formal.story-creation.events, formal.dependency-rebinding.events, formal.story-closure.events, formal.story-workflow.events, formal.story-split.events, formal.story-reset.state-machine, formal.story-reset.events, formal.principal-capabilities.events, formal.operating-modes.events, formal.state-storage.events, formal.telemetry-analytics.events, formal.integration-stabilization.events, formal.story-exit.events, formal.story-contracts.events -->
+<!-- PROSE-FORMAL: formal.installer.events, formal.deterministic-checks.events, formal.guard-system.events, formal.conformance.events, formal.llm-evaluations.events, formal.integrity-gate.events, formal.governance-observation.events, formal.escalation.events, formal.setup-preflight.events, formal.verify.events, formal.exploration.events, formal.story-creation.events, formal.dependency-rebinding.events, formal.story-closure.events, formal.story-workflow.events, formal.story-split.events, formal.story-reset.state-machine, formal.story-reset.events, formal.principal-capabilities.events, formal.operating-modes.events, formal.execution-planning.events, formal.state-storage.events, formal.telemetry-analytics.events, formal.integration-stabilization.events, formal.story-exit.events, formal.story-contracts.events -->
 
 | Event-Typ | Kapitel | Quelle | Beschreibung |
 |-----------|---------|--------|-------------|
@@ -248,6 +255,23 @@ API-Vertrag.
 | `story_exit_rejected` | 58 | Admin-Service | Exit-Voraussetzungen oder Exit-Grund waren unzulaessig |
 | `story_exit_binding_revoked` | 58 | Admin-Service | Story-Lock und Session-Bindung fuer den beendeten Run wurden geloest |
 | `story_exit_completed` | 58 | Admin-Service | Story ist administrativ beendet und Session wieder im freien Modus |
+| `planning_metadata_captured` | 66 | Story-Erstellung / Planning Service | Planungsmetadaten fuer eine Story wurden initial oder verfeinert erfasst |
+| `dependency_declared` | 66 | Planning Service / Admin-Pfad | Abhaengigkeitskante oder Konfliktregel offiziell erfasst oder geaendert |
+| `planning_rulebook_compiled` | 66 | Planning Service / Admin-Pfad | Projektspezifisches Rulebook wurde in kanonische Planungsdaten uebersetzt |
+| `blocker_recorded` | 66 | Planning Service / Admin-Pfad | Externer, menschlicher, kapazitiver oder Konflikt-Blocker wurde typisiert erfasst |
+| `story_became_ready` | 66 | Planning Service | Regelbasierte Readiness-Bewertung hat eine Story auf `READY` gehoben |
+| `story_became_blocked` | 66 | Planning Service | Readiness- oder Scheduling-Auswertung hat eine Story auf blockiert gesetzt |
+| `execution_plan_created` | 66 | Planning Service | Kritischer Pfad, Waves und Batch-Vorschlag wurden neu berechnet |
+| `execution_plan_replanned` | 66 | Planning Service | Eine bestehende Ausfuehrungsplanung wurde aufgrund von Zustandsaenderungen neu geschnitten |
+| `scheduling_decision_issued` | 66 | Planning Service | Empfohlener und maximal erlaubter Batch fuer den Orchestrator wurde ausgegeben |
+| `external_gate_cleared` | 66 | Planning Service / Admin-Pfad | Ein externer Blocker wurde offiziell als erledigt markiert |
+| `human_gate_satisfied` | 66 | Planning Service / Admin-Pfad | Ein menschlicher Gate wurde offiziell als erfuellt markiert |
+| `capacity_window_opened` | 66 | Planning Service | Frei gewordenes Scheduling-Budget erlaubt erneute Batch-Bewertung |
+| `capacity_consumed` | 66 | Planning Service / Orchestrator | Start eines Batches oder einer Wave hat Scheduling-Budget belegt |
+| `wave_collapsed` | 66 | Planning Service | Teilfehlschlag oder Konflikt hat eine aktive Wave invalidiert |
+| `planning_state_sync_conflict` | 66 | Planning Service | konkurrierende Revisionen oder Adapterkonflikte haben eine manuelle Klaerung erzwungen |
+| `deadlock_detected` | 66 | Planning Service | Planungsgraph oder Worklist fuehrt in einen Deadlock und erfordert Eskalation |
+| `dependency_cycle_detected` | 66 | Planning Service | Zyklische Abhaengigkeit wurde erkannt und fail-closed eskaliert |
 | `dependency_rebinding_started` | 54 | StorySplitService / DependencyRebinding | Rebinding der expliziten Story-Abhaengigkeiten begonnen |
 | `dependency_rebinding_completed` | 54 | StorySplitService / DependencyRebinding | Alle expliziten Dependency-Kanten gemaess Split-Plan umgebogen |
 | `dependency_rebinding_rejected` | 54 | StorySplitService / DependencyRebinding | Rebinding wegen unvollständigem Mapping oder Graph-Verletzung abgelehnt |
