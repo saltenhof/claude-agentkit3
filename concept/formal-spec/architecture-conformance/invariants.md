@@ -132,6 +132,15 @@ read_surface_rules:
       - agentkit.state_backend
       - agentkit.story.repository
     message: story read loaders may only be imported from the explicit story repository surface
+  - id: architecture-conformance.rule.control_plane_runtime_read_surface
+    reader_symbols:
+      - load_control_plane_operation_global
+      - load_session_run_binding_global
+      - load_story_execution_lock_global
+    allowed_module_prefixes:
+      - agentkit.state_backend
+      - agentkit.control_plane.repository
+    message: control-plane runtime read loaders may only be imported from the explicit control-plane repository surface
 invariants:
   - id: architecture-conformance.invariant.story_dashboard_transport_boundary
     scope: static-analysis
@@ -148,5 +157,8 @@ invariants:
   - id: architecture-conformance.invariant.story_read_surface_is_bounded
     scope: static-analysis
     rule: imports of global story read loaders must stay within the explicit story repository surface
+  - id: architecture-conformance.invariant.control_plane_runtime_read_surface_is_bounded
+    scope: static-analysis
+    rule: imports of global control-plane runtime read loaders must stay within the explicit control-plane repository surface
 ```
 <!-- FORMAL-SPEC:END -->

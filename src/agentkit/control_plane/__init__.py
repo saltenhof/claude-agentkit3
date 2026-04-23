@@ -15,10 +15,8 @@ from agentkit.control_plane.models import (
     TelemetryEventAccepted,
     TelemetryEventIngestRequest,
 )
-from agentkit.control_plane.runtime import (
-    ControlPlaneRuntimeRepository,
-    ControlPlaneRuntimeService,
-)
+from agentkit.control_plane.repository import ControlPlaneRuntimeRepository
+from agentkit.control_plane.runtime import ControlPlaneRuntimeService
 from agentkit.control_plane.telemetry import ControlPlaneTelemetryService
 
 __all__ = [

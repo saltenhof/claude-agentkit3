@@ -207,8 +207,13 @@ Sie prueft importbasiert:
 
 - dass globale Story-Read-Loader nicht mehr frei aus
   `agentkit.state_backend` in beliebige A-Komponenten gezogen werden
+- dass globale Lifecycle-Read-Loader der Control Plane nicht mehr frei
+  aus `agentkit.state_backend` in `runtime.py` oder andere A-Komponenten
+  gezogen werden
 - dass diese Loader nur noch innerhalb von `agentkit.state_backend`
-  selbst und auf der expliziten Surface `agentkit.story.repository`
+  selbst und auf expliziten Surfaces wie
+  `agentkit.story.repository` oder
+  `agentkit.control_plane.repository`
   importiert werden
 - dass `StoryService` und spaetere Dashboard-Read-Modelle dadurch an
   einer fachlich benannten Repository-Kante statt an der technischen
@@ -242,6 +247,9 @@ Die erste formale Checker-Schicht zieht mindestens diese Grenzen:
 6. Globale Story-Read-Loader duerfen nur aus
    `agentkit.story.repository` oder innerhalb von `agentkit.state_backend`
    selbst importiert werden.
+7. Globale Control-Plane-Lifecycle-Reads duerfen nur aus
+   `agentkit.control_plane.repository` oder innerhalb von
+   `agentkit.state_backend` selbst importiert werden.
 
 ## 65.9 Messbare Architektur-Invarianten
 
@@ -269,6 +277,10 @@ Invarianten:
 8. Globale Story-Read-Loader duerfen nur auf der expliziten
    Read-Surface `agentkit.story.repository` importiert werden; direkte
    Kopplung anderer A-Komponenten an diese Loader ist verboten.
+9. Globale Control-Plane-Lifecycle-Reads duerfen nur auf der
+   expliziten Read-Surface `agentkit.control_plane.repository`
+   importiert werden; direkte Kopplung anderer A-Komponenten an diese
+   Loader ist verboten.
 
 ## 65.10 Beziehung zu anderen Konzepten
 

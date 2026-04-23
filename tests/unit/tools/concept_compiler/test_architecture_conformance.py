@@ -20,7 +20,10 @@ INVARIANT_ID = (
     "story_dashboard_transport_boundary"
 )
 MUTATION_RULE_ID = "architecture-conformance.rule.story_context_write_surface"
-READ_RULE_ID = "architecture-conformance.rule.story_read_surface"
+STORY_READ_RULE_ID = "architecture-conformance.rule.story_read_surface"
+CONTROL_PLANE_READ_RULE_ID = (
+    "architecture-conformance.rule.control_plane_runtime_read_surface"
+)
 
 
 def test_architecture_conformance_loads_formal_policy(tmp_path: Path) -> None:
@@ -115,7 +118,7 @@ def test_architecture_conformance_rejects_unauthorized_read_surface_import(
         """,
         read_surface_rules=f"""
             read_surface_rules:
-              - id: {READ_RULE_ID}
+              - id: {STORY_READ_RULE_ID}
                 reader_symbols:
                   - load_story_contexts_global
                 allowed_module_prefixes:
@@ -131,7 +134,43 @@ def test_architecture_conformance_rejects_unauthorized_read_surface_import(
     violations = audit_architecture_conformance(compiled, root / "src")
 
     assert any(violation.code == "AC004" for violation in violations)
-    assert any(violation.rule_id == READ_RULE_ID for violation in violations)
+    assert any(violation.rule_id == STORY_READ_RULE_ID for violation in violations)
+
+
+def test_architecture_conformance_rejects_unauthorized_control_plane_read_import(
+    tmp_path: Path,
+) -> None:
+    root = _write_fixture(
+        tmp_path,
+        module_name="agentkit.control_plane.runtime",
+        source="""
+            from agentkit.state_backend import load_session_run_binding_global
+
+            def expose() -> object:
+                return load_session_run_binding_global
+        """,
+        read_surface_rules=f"""
+            read_surface_rules:
+              - id: {CONTROL_PLANE_READ_RULE_ID}
+                reader_symbols:
+                  - load_session_run_binding_global
+                allowed_module_prefixes:
+                  - agentkit.state_backend
+                  - agentkit.control_plane.repository
+                message: >
+                  control-plane runtime read loaders may only be imported
+                  from the explicit control-plane repository surface
+        """,
+    )
+
+    compiled = compile_formal_specs(root / "concept" / "formal-spec")
+    violations = audit_architecture_conformance(compiled, root / "src")
+
+    assert any(violation.code == "AC004" for violation in violations)
+    assert any(
+        violation.rule_id == CONTROL_PLANE_READ_RULE_ID
+        for violation in violations
+    )
 
 
 def test_architecture_conformance_accepts_current_repo() -> None:
