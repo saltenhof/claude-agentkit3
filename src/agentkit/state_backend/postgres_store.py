@@ -1254,25 +1254,63 @@ def load_execution_events(
             """,
             tuple(params),
         ).fetchall()
-    events: list[ExecutionEventRecord] = []
-    for row in rows:
-        events.append(
-            ExecutionEventRecord(
-                project_key=str(row["project_key"]),
-                story_id=str(row["story_id"]),
-                run_id=str(row["run_id"]),
-                event_id=str(row["event_id"]),
-                event_type=str(row["event_type"]),
-                occurred_at=datetime.fromisoformat(str(row["occurred_at"])),
-                source_component=str(row["source_component"]),
-                severity=str(row["severity"]),
-                phase=str(row["phase"]) if row["phase"] is not None else None,
-                flow_id=str(row["flow_id"]) if row["flow_id"] is not None else None,
-                node_id=str(row["node_id"]) if row["node_id"] is not None else None,
-                payload=_cast_json_record(_load_json(str(row["payload_json"]), {})),
-            )
-        )
-    return events
+    return [_execution_event_from_row(row) for row in rows]
+
+
+def load_execution_events_global(
+    project_key: str,
+    story_id: str,
+    *,
+    run_id: str | None = None,
+    event_type: str | None = None,
+    limit: int | None = None,
+) -> list[ExecutionEventRecord]:
+    if limit is not None and limit <= 0:
+        return []
+    clauses = [_PROJECT_KEY_FILTER, _STORY_ID_FILTER]
+    params: list[object] = [project_key, story_id]
+    if run_id is not None:
+        clauses.append(_RUN_ID_FILTER)
+        params.append(run_id)
+    if event_type is not None:
+        clauses.append("event_type = ?")
+        params.append(event_type)
+    limit_clause = ""
+    if limit is not None:
+        limit_clause = "LIMIT ?"
+        params.append(limit)
+    where_clause = f"WHERE {' AND '.join(clauses)}"
+    with _connect_global() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT project_key, story_id, run_id, event_id, event_type,
+                   occurred_at, source_component, severity, phase, flow_id,
+                   node_id, payload_json
+            FROM execution_events
+            {where_clause}
+            ORDER BY occurred_at DESC, event_id DESC
+            {limit_clause}
+            """,
+            tuple(params),
+        ).fetchall()
+    return [_execution_event_from_row(row) for row in reversed(rows)]
+
+
+def _execution_event_from_row(row: dict[str, object]) -> ExecutionEventRecord:
+    return ExecutionEventRecord(
+        project_key=str(row["project_key"]),
+        story_id=str(row["story_id"]),
+        run_id=str(row["run_id"]),
+        event_id=str(row["event_id"]),
+        event_type=str(row["event_type"]),
+        occurred_at=datetime.fromisoformat(str(row["occurred_at"])),
+        source_component=str(row["source_component"]),
+        severity=str(row["severity"]),
+        phase=str(row["phase"]) if row["phase"] is not None else None,
+        flow_id=str(row["flow_id"]) if row["flow_id"] is not None else None,
+        node_id=str(row["node_id"]) if row["node_id"] is not None else None,
+        payload=_cast_json_record(_load_json(str(row["payload_json"]), {})),
+    )
 
 
 def load_flow_execution(story_dir: Path) -> FlowExecution | None:

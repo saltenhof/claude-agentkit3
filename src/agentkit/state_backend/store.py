@@ -333,6 +333,31 @@ def load_execution_events(
     )
 
 
+def load_execution_events_global(
+    project_key: str,
+    story_id: str,
+    *,
+    run_id: str | None = None,
+    event_type: str | None = None,
+    limit: int | None = None,
+) -> list[ExecutionEventRecord]:
+    backend = _backend_module()
+    if not hasattr(backend, "load_execution_events_global"):
+        raise RuntimeError(
+            "Global execution-event reads are unsupported by the active backend",
+        )
+    return cast(
+        "list[ExecutionEventRecord]",
+        backend.load_execution_events_global(
+            project_key,
+            story_id,
+            run_id=run_id,
+            event_type=event_type,
+            limit=limit,
+        ),
+    )
+
+
 def save_flow_execution(story_dir: Path, record: FlowExecution) -> None:
     _backend_module().save_flow_execution(story_dir, record)
 

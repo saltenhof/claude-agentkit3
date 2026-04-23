@@ -111,16 +111,16 @@ def test_architecture_conformance_rejects_unauthorized_read_surface_import(
         tmp_path,
         module_name="agentkit.dashboard.service",
         source="""
-            from agentkit.state_backend import load_story_contexts_global
+            from agentkit.state_backend import load_execution_events_global
 
             def expose() -> object:
-                return load_story_contexts_global
+                return load_execution_events_global
         """,
         read_surface_rules=f"""
             read_surface_rules:
               - id: {STORY_READ_RULE_ID}
                 reader_symbols:
-                  - load_story_contexts_global
+                  - load_execution_events_global
                 allowed_module_prefixes:
                   - agentkit.state_backend
                   - agentkit.story.repository

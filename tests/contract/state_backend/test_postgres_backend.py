@@ -15,6 +15,7 @@ from agentkit.state_backend import (
     load_artifact_record,
     load_artifact_record_for_scope,
     load_execution_events,
+    load_execution_events_global,
     load_flow_execution,
     load_flow_execution_global,
     load_latest_story_metrics_global,
@@ -394,6 +395,15 @@ def test_public_state_backend_contract_works_on_postgres(
     assert len(global_events) == 1
     assert global_events[0].event_id == "evt-contract-002"
     assert global_events[0].source_component == "control-plane"
+    global_story_events = load_execution_events_global(
+        "demo-project",
+        "AG3-901",
+        run_id="run-contract-001",
+        event_type="agent_start",
+        limit=10,
+    )
+    assert len(global_story_events) == 1
+    assert global_story_events[0].event_id == "evt-contract-002"
 
     upsert_story_metrics(
         story_dir,

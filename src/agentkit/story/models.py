@@ -40,6 +40,23 @@ class StoryMetricsView(BaseModel):
     completed_at: datetime
 
 
+class StoryEventView(BaseModel):
+    """Read-only telemetry event shown on the central story detail page."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    event_id: str
+    run_id: str
+    event_type: str
+    occurred_at: datetime
+    source_component: str
+    severity: str
+    phase: str | None = None
+    flow_id: str | None = None
+    node_id: str | None = None
+    payload: dict[str, object] = Field(default_factory=dict)
+
+
 class StorySummary(BaseModel):
     """List-view summary for one AK3 story."""
 
@@ -66,6 +83,7 @@ class StoryDetail(StorySummary):
     labels: list[str] = Field(default_factory=list)
     participating_repos: list[str] = Field(default_factory=list)
     created_at: datetime | None = None
+    recent_events: list[StoryEventView] = Field(default_factory=list)
 
 
 class StoryListResponse(BaseModel):
@@ -75,4 +93,3 @@ class StoryListResponse(BaseModel):
 
     project_key: str
     stories: list[StorySummary]
-

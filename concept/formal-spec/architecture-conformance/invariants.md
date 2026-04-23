@@ -128,6 +128,7 @@ read_surface_rules:
       - load_phase_state_global
       - load_flow_execution_global
       - load_latest_story_metrics_global
+      - load_execution_events_global
     allowed_module_prefixes:
       - agentkit.state_backend
       - agentkit.story.repository

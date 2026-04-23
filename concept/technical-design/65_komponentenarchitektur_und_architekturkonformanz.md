@@ -207,6 +207,8 @@ Sie prueft importbasiert:
 
 - dass globale Story-Read-Loader nicht mehr frei aus
   `agentkit.state_backend` in beliebige A-Komponenten gezogen werden
+- dass dazu neben Story-Kontext, Phase-State, FlowExecution und
+  Closure-Metriken auch globale `execution_events` gehoeren
 - dass globale Lifecycle-Read-Loader der Control Plane nicht mehr frei
   aus `agentkit.state_backend` in `runtime.py` oder andere A-Komponenten
   gezogen werden
@@ -247,6 +249,8 @@ Die erste formale Checker-Schicht zieht mindestens diese Grenzen:
 6. Globale Story-Read-Loader duerfen nur aus
    `agentkit.story.repository` oder innerhalb von `agentkit.state_backend`
    selbst importiert werden.
+   Dazu gehoeren mindestens Story-Kontext-, Phase-State-, FlowExecution-,
+   Story-Metrics- und `execution_events`-Reads.
 7. Globale Control-Plane-Lifecycle-Reads duerfen nur aus
    `agentkit.control_plane.repository` oder innerhalb von
    `agentkit.state_backend` selbst importiert werden.

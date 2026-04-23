@@ -40,6 +40,7 @@ PUBLIC_API_NAMES = (
     "load_attempts",
     "load_control_plane_operation_global",
     "load_execution_events",
+    "load_execution_events_global",
     "load_flow_execution",
     "load_flow_execution_global",
     "load_latest_story_metrics_global",

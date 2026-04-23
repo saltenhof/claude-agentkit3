@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from datetime import UTC, datetime
 
 from agentkit.phase_state_store.models import FlowExecution
-from agentkit.state_backend import postgres_store
+from agentkit.state_backend import ExecutionEventRecord, postgres_store
 from agentkit.state_backend.records import StoryMetricsRecord
 from agentkit.story_context_manager.models import PhaseState, StoryContext
 
@@ -172,3 +173,53 @@ def test_load_latest_story_metrics_global_reads_row(monkeypatch) -> None:
 
     assert isinstance(record, StoryMetricsRecord)
     assert record.final_status == "DONE"
+
+
+def test_load_execution_events_global_reads_latest_subset(monkeypatch) -> None:
+    monkeypatch.setattr(
+        postgres_store,
+        "_connect_global",
+        lambda: _fake_global(
+            [
+                {
+                    "project_key": "tenant-a",
+                    "story_id": "AG3-100",
+                    "run_id": "run-100",
+                    "event_id": "evt-002",
+                    "event_type": "node_result",
+                    "occurred_at": "2026-04-22T10:05:00+00:00",
+                    "source_component": "pipeline-engine",
+                    "severity": "info",
+                    "phase": "implementation",
+                    "flow_id": "implementation",
+                    "node_id": "node-2",
+                    "payload_json": "{\"order\":2}",
+                },
+                {
+                    "project_key": "tenant-a",
+                    "story_id": "AG3-100",
+                    "run_id": "run-100",
+                    "event_id": "evt-001",
+                    "event_type": "agent_start",
+                    "occurred_at": "2026-04-22T10:00:00+00:00",
+                    "source_component": "control-plane",
+                    "severity": "info",
+                    "phase": "implementation",
+                    "flow_id": "implementation",
+                    "node_id": "node-1",
+                    "payload_json": "{\"order\":1}",
+                },
+            ],
+        ),
+    )
+
+    records = postgres_store.load_execution_events_global(
+        "tenant-a",
+        "AG3-100",
+        run_id="run-100",
+        limit=2,
+    )
+
+    assert all(isinstance(record, ExecutionEventRecord) for record in records)
+    assert [record.event_id for record in records] == ["evt-001", "evt-002"]
+    assert records[0].occurred_at == datetime(2026, 4, 22, 10, 0, tzinfo=UTC)

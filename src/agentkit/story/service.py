@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from agentkit.story.models import (
     StoryDetail,
+    StoryEventView,
     StoryListResponse,
     StoryMetricsView,
     StoryRunView,
@@ -16,8 +17,10 @@ from agentkit.story.repository import StoryRepository
 
 if TYPE_CHECKING:
     from agentkit.phase_state_store.models import FlowExecution
-    from agentkit.state_backend import StoryMetricsRecord
+    from agentkit.state_backend import ExecutionEventRecord, StoryMetricsRecord
     from agentkit.story_context_manager.models import PhaseState, StoryContext
+
+_RECENT_EVENT_LIMIT = 25
 
 
 class StoryService:
@@ -37,11 +40,22 @@ class StoryService:
             return None
 
         summary = self._build_summary(context)
+        detail_run_id = _detail_run_id(
+            current_run=summary.current_run,
+            latest_metrics=summary.latest_metrics,
+        )
         return StoryDetail(
             **summary.model_dump(mode="python"),
             labels=list(context.labels),
             participating_repos=list(context.participating_repos),
             created_at=context.created_at,
+            recent_events=_story_event_views(
+                self._load_recent_events(
+                    project_key=context.project_key,
+                    story_id=context.story_id,
+                    run_id=detail_run_id,
+                ),
+            ),
         )
 
     def _build_summary(self, context: StoryContext) -> StorySummary:
@@ -77,6 +91,22 @@ class StoryService:
             latest_metrics=latest_metrics,
         )
 
+    def _load_recent_events(
+        self,
+        *,
+        project_key: str,
+        story_id: str,
+        run_id: str | None,
+    ) -> list[ExecutionEventRecord]:
+        if run_id is None:
+            return []
+        return self._repo.load_recent_execution_events(
+            project_key,
+            story_id,
+            run_id,
+            _RECENT_EVENT_LIMIT,
+        )
+
 
 def _story_run_view(flow: FlowExecution | None) -> StoryRunView | None:
     if flow is None:
@@ -102,6 +132,38 @@ def _story_metrics_view(metrics: StoryMetricsRecord | None) -> StoryMetricsView 
         increments=metrics.increments,
         completed_at=datetime.fromisoformat(metrics.completed_at),
     )
+
+
+def _detail_run_id(
+    *,
+    current_run: StoryRunView | None,
+    latest_metrics: StoryMetricsView | None,
+) -> str | None:
+    if current_run is not None:
+        return current_run.run_id
+    if latest_metrics is not None:
+        return latest_metrics.run_id
+    return None
+
+
+def _story_event_views(
+    events: list[ExecutionEventRecord],
+) -> list[StoryEventView]:
+    return [
+        StoryEventView(
+            event_id=event.event_id,
+            run_id=event.run_id,
+            event_type=event.event_type,
+            occurred_at=event.occurred_at,
+            source_component=event.source_component,
+            severity=event.severity,
+            phase=event.phase,
+            flow_id=event.flow_id,
+            node_id=event.node_id,
+            payload=dict(event.payload),
+        )
+        for event in reversed(events)
+    ]
 
 
 def _derive_lifecycle_status(
