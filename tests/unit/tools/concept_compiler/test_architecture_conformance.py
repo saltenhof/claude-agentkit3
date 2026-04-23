@@ -19,6 +19,7 @@ INVARIANT_ID = (
     "architecture-conformance.invariant."
     "story_dashboard_transport_boundary"
 )
+MUTATION_RULE_ID = "architecture-conformance.rule.story_context_write_surface"
 
 
 def test_architecture_conformance_loads_formal_policy(tmp_path: Path) -> None:
@@ -76,6 +77,27 @@ def test_architecture_conformance_rejects_component_cycle(tmp_path: Path) -> Non
     violations = audit_architecture_conformance(compiled, root / "src")
 
     assert any(violation.code == "AC002" for violation in violations)
+
+
+def test_architecture_conformance_rejects_unauthorized_writer_surface_import(
+    tmp_path: Path,
+) -> None:
+    root = _write_fixture(
+        tmp_path,
+        module_name="agentkit.story.service",
+        source="""
+            from agentkit.state_backend import save_story_context
+
+            def expose() -> object:
+                return save_story_context
+        """,
+    )
+
+    compiled = compile_formal_specs(root / "concept" / "formal-spec")
+    violations = audit_architecture_conformance(compiled, root / "src")
+
+    assert any(violation.code == "AC003" for violation in violations)
+    assert any(violation.rule_id == MUTATION_RULE_ID for violation in violations)
 
 
 def test_architecture_conformance_accepts_current_repo() -> None:
@@ -192,6 +214,15 @@ def _write_fixture(
                 group_ids:
                   - architecture-conformance.group.story
                   - architecture-conformance.group.dashboard
+            mutation_surface_rules:
+              - id: {MUTATION_RULE_ID}
+                writer_symbols:
+                  - save_story_context
+                allowed_module_prefixes:
+                  - agentkit.pipeline
+                message: >
+                  story context mutation may only be imported from
+                  pipeline surfaces
             invariants:
               - id: {INVARIANT_ID}
                 scope: static-analysis

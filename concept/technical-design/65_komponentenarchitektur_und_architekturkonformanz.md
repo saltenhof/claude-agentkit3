@@ -160,12 +160,36 @@ Die erste Architektur-Konformanzschicht prueft:
 - verbotene direkte Kopplung von A-Code an Hook-/Transport-Adapter
 - ausgewaehlte Azyklizitaetsregeln zwischen stabilen Komponenten
 
-### 65.7.3 Was bewusst noch nicht V1 ist
+### 65.7.3 Was V2 zusaetzlich deterministisch prueft
+
+Die zweite Architektur-Konformanzschicht friert den aktuell
+zugelassenen Mutationsradius gegen kanonische Record-Familien ein.
+
+Sie prueft importbasiert:
+
+- welche Module Story-Kontext mutieren duerfen
+- welche Module Flow-, Node-, Attempt- und Override-Ledger mutieren
+  duerfen
+- welche Module `execution_events` appenden duerfen
+- welche Module Session-/Lock-/Operationstabellen der Control Plane
+  mutieren duerfen
+- welche Module Closure-Metriken und Closure-Reports materialisieren
+  duerfen
+
+Diese Schicht ist bewusst ein pragmatischer Zwischenschritt:
+
+- sie verhindert neue Architekturdrift sofort fail-closed
+- sie fixiert die heutige erlaubte Write-Surface deterministisch
+- sie ersetzt noch nicht die spaetere vollstaendige
+  Repository-Konformanz je A-Komponente
+
+### 65.7.4 Was bewusst noch nicht voll maschinell erzwungen ist
 
 Noch nicht voll deterministisch geprueft werden:
 
 - Single-Writer-Ownership einzelner Tabellen-/Record-Familien auf AST-
-  oder SQL-Ebene
+  oder SQL-Ebene jenseits des zugelassenen Import- und
+  Mutationsradius
 - vollstaendige Repository-Konformanz fuer alle A-Komponenten
 - `op_id`-/`correlation_id`-Pflicht fuer jede einzelne externe
   Kontaktflaeche
@@ -187,6 +211,9 @@ Die erste formale Checker-Schicht zieht mindestens diese Grenzen:
    existiert.
 4. Die stabilen Komponenten `story`, `dashboard`, `control_plane` und
    `projectedge` duerfen keine Rueckkopplungszyklen bilden.
+5. Kanonische Write-Surfaces gegen `state_backend` und kompatible
+   Legacy-Reexporte duerfen nur aus explizit zugelassenen
+   Komponentenoberflaechen importiert werden.
 
 ## 65.9 Messbare Architektur-Invarianten
 
@@ -206,6 +233,11 @@ Invarianten:
    `agentkit.control_plane.http`.
 6. Zwischen den stabilen Komponenten `story`, `dashboard`,
    `control_plane` und `projectedge` existiert kein Zyklus.
+7. Writer-Symbole fuer `story_contexts`, `flow_executions`,
+   `node_executions`, `attempt_records`, `override_records`,
+   `execution_events`, Session-/Lock-/Operationstabellen sowie
+   Closure-Metriken duerfen nur aus den dafuer freigegebenen
+   Moduloberflaechen importiert werden.
 
 ## 65.10 Beziehung zu anderen Konzepten
 

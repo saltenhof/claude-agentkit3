@@ -54,6 +54,72 @@ acyclic_group_sets:
       - architecture-conformance.group.dashboard
       - architecture-conformance.group.control_plane
       - architecture-conformance.group.projectedge
+mutation_surface_rules:
+  - id: architecture-conformance.rule.story_context_write_surface
+    writer_symbols:
+      - save_story_context
+    allowed_module_prefixes:
+      - agentkit.state_backend
+      - agentkit.pipeline
+      - agentkit.pipeline_engine
+    message: story context mutation may only be imported from pipeline surfaces
+  - id: architecture-conformance.rule.phase_state_projection_write_surface
+    writer_symbols:
+      - save_phase_state
+      - save_phase_snapshot
+    allowed_module_prefixes:
+      - agentkit.state_backend
+      - agentkit.pipeline
+      - agentkit.pipeline_engine
+    message: phase-state projection mutation may only be imported from pipeline surfaces
+  - id: architecture-conformance.rule.execution_runtime_write_surface
+    writer_symbols:
+      - save_flow_execution
+      - save_node_execution_ledger
+      - save_override_record
+    allowed_module_prefixes:
+      - agentkit.state_backend
+      - agentkit.pipeline
+      - agentkit.pipeline_engine
+      - agentkit.phase_state_store
+    message: execution ledger mutation may only be imported from pipeline or phase-state-store surfaces
+  - id: architecture-conformance.rule.attempt_write_surface
+    writer_symbols:
+      - save_attempt
+    allowed_module_prefixes:
+      - agentkit.state_backend
+      - agentkit.pipeline
+      - agentkit.pipeline_engine
+    message: attempt mutation may only be imported from pipeline surfaces
+  - id: architecture-conformance.rule.telemetry_event_write_surface
+    writer_symbols:
+      - append_execution_event
+      - append_execution_event_global
+    allowed_module_prefixes:
+      - agentkit.state_backend
+      - agentkit.telemetry
+      - agentkit.telemetry_service
+      - agentkit.control_plane
+    message: execution event append may only be imported from telemetry or control-plane surfaces
+  - id: architecture-conformance.rule.control_plane_binding_write_surface
+    writer_symbols:
+      - save_session_run_binding_global
+      - delete_session_run_binding_global
+      - save_story_execution_lock_global
+      - save_control_plane_operation_global
+    allowed_module_prefixes:
+      - agentkit.state_backend
+      - agentkit.control_plane
+    message: session, lock, and control-plane operation mutation may only be imported from control-plane surfaces
+  - id: architecture-conformance.rule.closure_projection_write_surface
+    writer_symbols:
+      - upsert_story_metrics
+      - record_closure_report
+    allowed_module_prefixes:
+      - agentkit.state_backend
+      - agentkit.pipeline.phases.closure
+      - agentkit.pipeline_engine.closure_phase
+    message: closure projections may only be imported from closure surfaces
 invariants:
   - id: architecture-conformance.invariant.story_dashboard_transport_boundary
     scope: static-analysis
@@ -64,5 +130,8 @@ invariants:
   - id: architecture-conformance.invariant.application_surface_is_acyclic
     scope: static-analysis
     rule: story, dashboard, control_plane and projectedge must not form dependency cycles
+  - id: architecture-conformance.invariant.canonical_write_surface_is_bounded
+    scope: static-analysis
+    rule: imports of canonical write symbols must stay within explicitly approved mutation surfaces
 ```
 <!-- FORMAL-SPEC:END -->

@@ -49,12 +49,23 @@ class AcyclicGroupSet:
 
 
 @dataclass(frozen=True)
+class MutationSurfaceRule:
+    """One bounded write-surface rule over imported writer symbols."""
+
+    rule_id: str
+    writer_symbols: tuple[str, ...]
+    allowed_module_prefixes: tuple[str, ...]
+    message: str
+
+
+@dataclass(frozen=True)
 class ArchitectureConformanceConfig:
     """Normalized architecture checker policy."""
 
     component_groups: tuple[ComponentGroup, ...]
     dependency_rules: tuple[DependencyRule, ...]
     acyclic_group_sets: tuple[AcyclicGroupSet, ...]
+    mutation_surface_rules: tuple[MutationSurfaceRule, ...]
 
 
 @dataclass(frozen=True)
@@ -118,10 +129,32 @@ def load_architecture_conformance_config(
             invariants.path,
         )
     )
+    mutation_surface_rules = tuple(
+        MutationSurfaceRule(
+            rule_id=_require_string(entry, "id", invariants.path),
+            writer_symbols=_require_string_tuple(
+                entry,
+                "writer_symbols",
+                invariants.path,
+            ),
+            allowed_module_prefixes=_require_string_tuple(
+                entry,
+                "allowed_module_prefixes",
+                invariants.path,
+            ),
+            message=_require_string(entry, "message", invariants.path),
+        )
+        for entry in _optional_mapping_list(
+            invariants.spec,
+            "mutation_surface_rules",
+            invariants.path,
+        )
+    )
     return ArchitectureConformanceConfig(
         component_groups=component_groups,
         dependency_rules=dependency_rules,
         acyclic_group_sets=acyclic_group_sets,
+        mutation_surface_rules=mutation_surface_rules,
     )
 
 
@@ -134,9 +167,13 @@ def audit_architecture_conformance(
     import_graph = _build_import_graph(code_root)
     violations = _check_dependency_rules(import_graph, config.dependency_rules)
     cycle_violations = _check_acyclic_sets(import_graph, config)
+    mutation_surface_violations = _check_mutation_surface_rules(
+        import_graph,
+        config.mutation_surface_rules,
+    )
     return tuple(
         sorted(
-            violations + cycle_violations,
+            violations + cycle_violations + mutation_surface_violations,
             key=lambda item: (
                 "" if item.path is None else str(item.path),
                 item.module,
@@ -205,6 +242,33 @@ def _check_dependency_rules(
                             rule_id=rule.rule_id,
                         )
                     )
+    return violations
+
+
+def _check_mutation_surface_rules(
+    import_graph: dict[str, _ModuleImports],
+    rules: tuple[MutationSurfaceRule, ...],
+) -> list[ArchitectureViolation]:
+    violations: list[ArchitectureViolation] = []
+    for module, record in import_graph.items():
+        for imported_module, line, column in record.imports:
+            symbol_name = imported_module.rsplit(".", maxsplit=1)[-1]
+            for rule in rules:
+                if symbol_name not in rule.writer_symbols:
+                    continue
+                if _matches_prefix(module, rule.allowed_module_prefixes):
+                    continue
+                violations.append(
+                    ArchitectureViolation(
+                        code="AC003",
+                        path=record.path,
+                        module=module,
+                        line=line,
+                        column=column,
+                        message=f"{rule.message}: imports '{imported_module}'",
+                        rule_id=rule.rule_id,
+                    )
+                )
     return violations
 
 
@@ -419,6 +483,22 @@ def _require_mapping_list(
     path: Path,
 ) -> list[dict[str, Any]]:
     value = spec.get(key)
+    if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
+        raise ArchitectureConformanceError(
+            f"Architecture-conformance spec field '{key}' in {path} must be a list of mappings",
+            detail={"path": str(path), "field": key, "value": value},
+        )
+    return value
+
+
+def _optional_mapping_list(
+    spec: dict[str, Any],
+    key: str,
+    path: Path,
+) -> list[dict[str, Any]]:
+    value = spec.get(key, [])
+    if value == []:
+        return []
     if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
         raise ArchitectureConformanceError(
             f"Architecture-conformance spec field '{key}' in {path} must be a list of mappings",
