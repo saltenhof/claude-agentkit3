@@ -73,6 +73,7 @@ Anforderungen.
 | `34_llm_bewertungen_adversarial_testing_runtime.md` | LLM-Evaluator, 12 QA-Checks, Adversarial-Sandbox, Sparring |
 | `35_integrity_gate_governance_beobachtung_eskalation.md` | 7 Dimensionen, Anomalie-Sensorik, Incident-Kandidaten, Maßnahmen |
 | `64_truth_boundary_and_concept_code_contract_checker.md` | Harte Wahrheitsgrenze DB vs. Exportdatei und Concept-to-Code-Contract-Checker |
+| `65_komponentenarchitektur_und_architekturkonformanz.md` | Normativer Komponentenschnitt, Blutgruppen, Importgrenzen und deterministische Architektur-Konformanz |
 
 ## 5. Querschnittskomponenten und Lernschleifen
 

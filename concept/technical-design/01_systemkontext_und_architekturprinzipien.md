@@ -15,13 +15,15 @@ superseded_by:
 tags: [architektur, systemkontext, fail-closed, trust-boundaries, multi-llm]
 prose_anchor_policy: strict
 formal_refs:
+  - formal.architecture-conformance.entities
+  - formal.architecture-conformance.invariants
   - formal.state-storage.invariants
   - formal.truth-boundary-checker.invariants
 ---
 
 # 01 — Systemkontext und Architekturprinzipien
 
-<!-- PROSE-FORMAL: formal.state-storage.invariants, formal.truth-boundary-checker.invariants -->
+<!-- PROSE-FORMAL: formal.architecture-conformance.entities, formal.architecture-conformance.invariants, formal.state-storage.invariants, formal.truth-boundary-checker.invariants -->
 
 ## 1.1 Zielbild
 
@@ -129,36 +131,26 @@ abgegrenztes Verantwortungsbuendel mit klarer Schnittstelle. Eine
 Komponente ist **nicht** automatisch eine Python-Klasse, ein Modul
 oder ein Prozess.
 
-**Bildungsregeln:**
+Der normative Komponentenschnitt von AK3 wird in FK-65 festgezogen.
+Dieses Kapitel enthaelt nur die uebergeordneten Prinzipien:
 
 | Regel | Bedeutung |
 |-------|-----------|
 | Verantwortung vor Technik | Komponenten werden nach fachlicher Aufgabe benannt, nicht nach Datei, Klasse oder Pipeline-Schritt |
 | Ein Aufrufer, gekapselte Innenlogik | Wird ein Baustein ausschliesslich von genau einer Komponente genutzt und ist Teil ihres inneren Ablaufwissens, ist er Subkomponente |
 | Mehrere Aufrufer, eigener Vertrag | Wird ein Baustein von mehreren Komponenten genutzt, ist er Top-Level-Komponente mit eigenem Vertrag |
-| Architekturbuendel sind erlaubt | `IntegrationHub` oder `ArtifactManager` duerfen als Architekturbuendel beschrieben werden, auch wenn die Implementierung aus mehreren Modulen statt aus einem "God Object" besteht |
+| Adapter sind keine Fachkomponenten | HTTP, Hook-, MCP- und Projekt-Edge-Bausteine sind R-Code und nicht Teil des fachlichen Kerns |
+| Persistenztreiber sind keine Fachkomponenten | `state_backend` ist technische Infrastruktur und keine fachliche Mitte |
 
-**Top-Level-Komponenten von AK3:**
+**Leitende Top-Level-Familien von AK3:**
 
-| Komponente | Typische Subkomponenten | Fachliche Verantwortung | Autoritative FK-Schwerpunkte |
-|------------|-------------------------|-------------------------|------------------------------|
-| `PipelineEngine` | `SetupPhase`, `ExplorationPhase`, `ImplementationPhase`, `VerifyPhase`, `ClosurePhase` | Steuert die 5-Phasen-State-Machine, Transitions, Feedback-Loops und Eskalationen | FK-20, FK-22 bis FK-28 |
-| `GuardSystem` | `BranchGuard`, `OrchestratorGuard`, `QaArtifactGuard`, `QaAgentGuard`, `AdversarialGuard`, `PromptIntegrityGuard`, `SelfProtectionHook`, `StoryCreationGuard`, `BudgetGuard`, `WorkerHealthMonitor` | Plattform-Enforcement ueber Hooks mit statisch codierten oder deterministisch berechneten Regeln | FK-30, FK-31, FK-35 |
-| `ArtifactManager` | `EnvelopeValidator`, `ProducerRegistry` | Typisierter Artefakt-Lifecycle, Envelope-/Producer-Validierung und Artefaktvertrag | FK-02, FK-33, FK-90 |
-| `IntegrationHub` | `GitHubAdapter`, `LlmPoolAdapter`, `AreAdapter`, `KnowledgeBaseAdapter` | Logisches Buendel aller externen Integrationen hinter klaren Adaptervertraegen | FK-11, FK-12, FK-13, FK-40 |
-| `StoryContextManager` | — | Ableitung und Verwaltung des autoritativen Story-Kontexts nach Setup | FK-21, FK-22 |
-| `WorktreeManager` | — | Git-Worktree- und Branch-Lifecycle fuer Story-Runs | FK-22, FK-27 |
-| `PromptComposer` | — | Prompt-Assembling aus Story-Kontext, Template-Auswahl und Kontext-Selektion | FK-01 P6, FK-43 |
-| `LlmEvaluator` | — | Strukturierte, schema-validierte LLM-Bewertungen ohne Dateisystemzugriff | FK-11 |
-| `ConformanceService` | — | Gestufte Dokumententreue-/Conformance-Pruefungen ueber mehrere Pipeline-Zeitpunkte | FK-32 |
-| `StageRegistry` | — | Autoritativer Katalog aller Verify-/QA-Stages und ihrer Producer-/Trust-Vertraege | FK-33 |
-| `TelemetryService` | — | Append-only Eventing, Telemetrieabfragen und Prozessnachweise | FK-14 |
-| `PhaseStateStore` | — | Persistenz und Laden von `PhaseState`-Strukturen als laufzeitrelevanter Story-Status | FK-20 |
-| `GovernanceObserver` | — | Erkennung, Verdichtung und Klassifikation von Governance-Anomalien | FK-35 |
-| `FailureCorpus` | — | Dauerhafte Sammlung, Clustering und Promotion wiederkehrender Fehlmuster | FK-41 |
-| `CcagPermissionRuntime` | — | Lernfaehige, sessionpersistente Tool-Permission-Schicht ausserhalb der harten Guards | FK-42 |
-| `KpiAnalyticsEngine` | — | KPI-Aggregation, Rollups und Dashboard-Datenmodell | FK-60 bis FK-63 |
-| `Installer` | — | Projektregistrierung, Bootstrap, Hook-/Skill-Bindung und Verifikation | FK-50, FK-51 |
+| Familie | Leitende Komponenten |
+|---------|----------------------|
+| Story- und Ausfuehrungskern | `StoryContextManager`, `PipelineEngine`, `StoryExecutionLifecycleService`, `WorktreeManager` |
+| Governance- und QA-Kern | `GuardSystem`, `CcagPermissionRuntime`, `ConformanceService`, `StageRegistry`, `GovernanceObserver`, `FailureCorpus` |
+| Inhalts- und Runtime-Services | `ArtifactManager`, `PromptComposer`, `LlmEvaluator`, `TelemetryService`, `PhaseStateStore` |
+| Analytics- und Produktoberflaeche | `KpiAnalyticsEngine`, `DashboardApplication` |
+| Bootstrap und Projektbindung | `Installer` |
 
 **Wichtige Abgrenzungen:**
 
@@ -168,7 +160,7 @@ oder ein Prozess.
 | `StageRegistry` | Bleibt Top-Level, weil sie sowohl von `VerifyPhase` als auch vom `FailureCorpus` genutzt wird; sie darf nicht in `VerifyPhase` aufgehen |
 | `GuardSystem` vs. `CcagPermissionRuntime` | CCAG ist **nicht** Teil des GuardSystems. Guards erzwingen harte Regeln; CCAG verwaltet lernfaehige, vom Menschen freigegebene Permission-Pfade |
 | `PromptComposer` vs. Prompt-Integritaet | Der Composer assembliert Prompts. Sentinel-/Spawn-Integritaet und Governance-Escape-Erkennung gehoeren zum Guard-/Hook-System, nicht zum Composer |
-| `IntegrationHub` | Ist ein Architekturbuendel, kein Zwang zu einer zentralen Runtime-Klasse. Die Adapter bleiben fachlich getrennt |
+| Externe Integrationen | GitHub, LLM-Pools, ARE und VectorDB bleiben getrennte Adapter; `IntegrationHub` ist kein normativer Top-Level-Baustein |
 
 **Prozessvertrag pro Komponente:**
 

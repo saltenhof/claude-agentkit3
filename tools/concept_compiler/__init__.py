@@ -7,6 +7,14 @@ from concept_compiler.compiler import (
     FormalReference,
     compile_formal_specs,
 )
+from concept_compiler.architecture_conformance import (
+    ArchitectureConformanceConfig,
+    ArchitectureConformanceError,
+    ArchitectureViolation,
+    audit_architecture_conformance,
+    load_architecture_conformance_config,
+    raise_on_architecture_violations,
+)
 from concept_compiler.drift import DriftLink, audit_formal_prose_links
 from concept_compiler.loader import (
     FormalSpecDocument,
@@ -28,6 +36,9 @@ from concept_compiler.truth_boundary import (
 )
 
 __all__ = [
+    "ArchitectureConformanceConfig",
+    "ArchitectureConformanceError",
+    "ArchitectureViolation",
     "CompiledFormalSpec",
     "DriftLink",
     "FormalReference",
@@ -37,12 +48,15 @@ __all__ = [
     "ContractViolation",
     "TruthBoundaryConfig",
     "TruthBoundaryError",
+    "audit_architecture_conformance",
     "audit_formal_prose_links",
     "audit_truth_boundary",
     "compile_formal_specs",
     "discover_formal_spec_files",
+    "load_architecture_conformance_config",
     "load_truth_boundary_config",
     "load_formal_spec",
+    "raise_on_architecture_violations",
     "raise_on_truth_boundary_violations",
     "validate_scenarios",
 ]

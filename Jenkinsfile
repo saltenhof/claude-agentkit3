@@ -200,6 +200,18 @@ PY
             }
         }
 
+        stage('Concept Contract Checks') {
+            steps {
+                dir('agentkit-src') {
+                    sh '''
+                        . .venv/bin/activate
+                        PYTHONPATH=src python scripts/ci/check_concept_code_contracts.py
+                        PYTHONPATH=src python scripts/ci/check_architecture_conformance.py
+                    '''
+                }
+            }
+        }
+
         stage('LOC Analysis') {
             steps {
                 dir('agentkit-src') {
