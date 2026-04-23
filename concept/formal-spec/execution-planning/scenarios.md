@@ -19,6 +19,16 @@ schema_version: 1
 kind: scenario-set
 context: execution-planning
 scenarios:
+  - id: execution-planning.scenario.structured-proposal-becomes-canonical-ready-state
+    start:
+      status: execution-planning.status.unstarted
+    trace:
+      - command: execution-planning.command.submit-planning-proposal
+    expected_end:
+      status: execution-planning.status.ready
+    requires:
+      - execution-planning.invariant.agent_handoff_uses_structured_planning_proposals
+      - execution-planning.invariant.canonical_execution_plan_is_derived_not_blindly_imported
   - id: execution-planning.scenario.completed-predecessor-unblocks-successor
     start:
       status: execution-planning.status.unstarted

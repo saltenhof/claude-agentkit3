@@ -22,6 +22,12 @@ context: execution-planning
 events:
   - id: execution-planning.event.planning_metadata_captured
     role: lifecycle
+  - id: execution-planning.event.planning_proposal_submitted
+    role: audit
+  - id: execution-planning.event.planning_proposal_rejected
+    role: governance
+  - id: execution-planning.event.planning_proposal_applied
+    role: audit
   - id: execution-planning.event.dependency_declared
     role: lifecycle
   - id: execution-planning.event.planning_rulebook_compiled

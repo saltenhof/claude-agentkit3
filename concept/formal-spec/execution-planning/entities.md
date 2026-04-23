@@ -29,6 +29,16 @@ entities:
       - primary_repo
       - participating_repos
       - planning_status
+  - id: execution-planning.entity.planning-proposal
+    identity_key: proposal_id
+    attributes:
+      - project_key
+      - producer_principal
+      - source_kind(canonical-structured|rulebook-dsl)
+      - proposal_revision
+      - source_revision
+      - evidence_refs
+      - proposal_status(submitted|validated|rejected|applied)
   - id: execution-planning.entity.dependency-edge
     identity_key: edge_id
     attributes:

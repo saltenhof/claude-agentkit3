@@ -341,7 +341,98 @@ fertig sein. Aber AK3 muss den Prozess normativ vorsehen, wie aus dem
 initialen Story-Funken ueber Analyse und Review ein belastbarer
 Planungsgraph aufgebaut wird.
 
-## 66.7a Projektspezifische Regelwerke
+## 66.7a Planning-Metadata-Vertrag
+
+Bevor AK3 einen belastbaren Ausfuehrungsplan ableiten kann, braucht
+es einen expliziten Planungsmetadaten-Vertrag pro Story.
+
+Dieser Vertrag ist nicht identisch mit der Story-Beschreibung. Er
+enthaelt mindestens:
+
+- **Strukturmetadaten**: `primary_repo`, `participating_repos`,
+  relevante Scope-Surfaces, technische Konfliktflaechen
+- **Abhaengigkeiten**: harte und weiche Story-Beziehungen,
+  Sammel- oder Endgate-Rollen
+- **Gate-Metadaten**: externe Voraussetzungen, Human-Gates,
+  benoetigte Freigaben, UAT- oder Umgebungsbedingungen
+- **Planungshinweise**: moegliche Parallelisierung, Serialisierungs-
+  hinweise, Mutex- oder Konfliktindikatoren
+- **Provenienz**: wer eine Aussage geliefert hat, auf welcher
+  Evidenzbasis und mit welchem Verlaesslichkeitsgrad
+
+Normativ gilt:
+
+1. Planungsmetadaten duerfen aus Story-Erstellung, Agentenanalyse,
+   administrativen Pfaden oder externen Systemen stammen.
+2. Sie muessen aber in einem einheitlichen kanonischen Vertrag
+   landen, bevor AK3 daraus `READY`, Blocker oder Waves ableitet.
+3. Aussagen ohne Provenienz oder Evidenz duerfen als Hinweis
+   gespeichert werden, aber nicht still zur harten Wahrheit werden.
+
+## 66.7b Agent-zu-AK3-Handover-Vertrag
+
+Agenten duerfen Abhaengigkeiten, Gates, Konfliktflaechen und
+Ausfuehrungswellen analysieren. Die offizielle Uebergabe an AK3
+erfolgt jedoch nicht als freie Prosa, sondern ueber einen
+strukturierten, versionierten `PlanningProposal`.
+
+Ein `PlanningProposal` enthaelt mindestens:
+
+- betrachtete Story-Menge und `project_key`
+- vorgeschlagene `DependencyEdge`s
+- vorgeschlagene `BlockingCondition`s und Gates
+- Konflikt- und Scope-Surfaces
+- optional vorgeschlagene Waves oder Batch-Gruppierungen
+- Evidenzreferenzen und Provenienz
+- `proposal_revision` und `source_revision`
+
+Wesentliche Regel:
+
+- Der Agent uebergibt eine **formale Analyse**
+- AK3 erzeugt daraus die **kanonische Planung**
+
+Das heisst:
+
+1. ein Agent darf einen Plan vorschlagen
+2. AK3 validiert, normalisiert und persistiert diesen Vorschlag
+3. der kanonische `ExecutionPlan` bleibt eine AK3-eigene Ableitung und
+   ist nie bloss die ungepruefte Agentenantwort
+
+## 66.7c Braucht AK3 dafuer eine DSL?
+
+**Normative Entscheidung:** Nein, nicht als verpflichtende
+Primärschnittstelle.
+
+Fuer den offiziellen Handover von Agenten an AK3 ist ein
+strukturierter Proposal-Vertrag in kanonischer Form die bessere
+Standardschnittstelle als eine freie DSL.
+
+Gruende:
+
+1. AK3 braucht eine stabile API- und Validierungsgrenze.
+2. Die Planung muss tenant-scoped, revisionsgebunden und auditierbar
+   persistiert werden.
+3. Eine freie DSL ist gut fuer kompakte agentenseitige Modellierung,
+   aber schlechter als offizielle Runtime-Grenze.
+4. Ein strukturierter Proposal-Vertrag laesst sich einfacher gegen
+   JSON-Schema, Formal-Spec und Control-Plane-Endpunkte pruefen.
+
+Eine DSL kann **optional** sinnvoll sein, wenn:
+
+- ein Agent komplexe Abhängigkeits- oder Regelmuster kompakt ausdrücken
+  will
+- projektspezifische Kurzformen fuer Konflikt- oder
+  Parallelisierungsregeln nuetzlich sind
+- ein Mensch oder Agent ein kompaktes Rulebook als Arbeitsartefakt
+  pflegen will
+
+Dann gilt aber:
+
+- die DSL ist ein **Eingabeformat**
+- der Proposal-Vertrag ist die **offizielle Uebergabe**
+- der kanonische AK3-Planungszustand ist die **einzige Wahrheit**
+
+## 66.7d Projektspezifische Regelwerke
 
 Projektspezifische Artefakte wie ein `orchestrator-rulebook.dsl`
 koennen als Analyse- und Importquelle fuer den `ExecutionPlanningService`

@@ -28,6 +28,24 @@ commands:
       - execution-planning.invariant.story_creation_feeds_planning_metadata
     emits:
       - execution-planning.event.planning_metadata_captured
+  - id: execution-planning.command.submit-planning-proposal
+    signature: official submit of a structured planning proposal from agent analysis or another intake path
+    allowed_statuses:
+      - execution-planning.status.unstarted
+      - execution-planning.status.ready
+      - execution-planning.status.blocked_external
+      - execution-planning.status.blocked_human
+      - execution-planning.status.blocked_capacity
+      - execution-planning.status.blocked_conflict
+      - execution-planning.status.done
+    requires:
+      - execution-planning.invariant.agent_handoff_uses_structured_planning_proposals
+      - execution-planning.invariant.imported_planning_assertions_carry_provenance
+      - execution-planning.invariant.canonical_execution_plan_is_derived_not_blindly_imported
+    emits:
+      - execution-planning.event.planning_proposal_submitted
+      - execution-planning.event.planning_proposal_rejected
+      - execution-planning.event.planning_proposal_applied
   - id: execution-planning.command.declare-dependency
     signature: internal or official administrative declaration of a dependency edge
     allowed_statuses:

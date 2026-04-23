@@ -22,6 +22,15 @@ invariants:
   - id: execution-planning.invariant.story_creation_feeds_planning_metadata
     scope: creation
     rule: story creation and later refinement must feed planning metadata such as dependencies, repos, human touchpoints, and external prerequisites into the planning domain
+  - id: execution-planning.invariant.agent_handoff_uses_structured_planning_proposals
+    scope: adapters
+    rule: agent-side planning handoff into AK3 uses a structured versioned planning proposal contract; free prose or DSL alone is not the official runtime boundary
+  - id: execution-planning.invariant.imported_planning_assertions_carry_provenance
+    scope: audit
+    rule: imported planning assertions carry producer, evidence, and revision provenance so proposed dependencies, blockers, or waves do not become unauditable hard truth
+  - id: execution-planning.invariant.canonical_execution_plan_is_derived_not_blindly_imported
+    scope: adapters
+    rule: the canonical execution plan is derived and validated by AK3 from accepted planning state and may never be treated as a blind passthrough of an agent proposal
   - id: execution-planning.invariant.no_story_may_enter_flight_with_unresolved_hard_predecessor
     scope: readiness
     rule: a story may never enter FLIGHT while any hard predecessor or hard gate remains unresolved

@@ -124,6 +124,8 @@ API-Vertrag.
 | `/v1/planning/graph` | `GET` | Projektgebundenen Abhaengigkeits- und Konfliktgraph lesen |
 | `/v1/planning/ready-set` | `GET` | Aktuell `READY`, blockierte und konfliktierte Stories mit Gruenden lesen |
 | `/v1/planning/execution-plan` | `GET` | Kritischen Pfad, Waves, empfohlenen Batch und maximale Parallelisierung lesen |
+| `/v1/planning/proposals` | `POST` | Strukturierte Agenten- oder Analyse-Proposals fuer Abhaengigkeiten, Gates und Waves offiziell einreichen |
+| `/v1/planning/proposals/{proposal_id}` | `GET` | Persistiertes Planning-Proposal mit Validierungs- und Anwendungsstatus lesen |
 | `/v1/planning/recompute` | `POST` | Offizielle Neuplanung nach Aenderung an Graph, Gates oder Story-Zustaenden ausloesen |
 | `/v1/stories` | `GET` | Projektgebundene Story-Liste für Web- und Agent-Clients |
 | `/v1/stories/{story_id}` | `GET` | Story-Detailansicht mit Status, Laufzeit- und Telemetriebezug |
@@ -256,6 +258,9 @@ API-Vertrag.
 | `story_exit_binding_revoked` | 58 | Admin-Service | Story-Lock und Session-Bindung fuer den beendeten Run wurden geloest |
 | `story_exit_completed` | 58 | Admin-Service | Story ist administrativ beendet und Session wieder im freien Modus |
 | `planning_metadata_captured` | 66 | Story-Erstellung / Planning Service | Planungsmetadaten fuer eine Story wurden initial oder verfeinert erfasst |
+| `planning_proposal_submitted` | 66 | Agent / Planning Service | Strukturierter Planvorschlag wurde offiziell an AK3 uebergeben |
+| `planning_proposal_rejected` | 66 | Planning Service | Proposal wurde wegen Struktur-, Konflikt- oder Governance-Verletzung verworfen |
+| `planning_proposal_applied` | 66 | Planning Service | Proposal wurde in kanonische Planungsdaten ueberfuehrt |
 | `dependency_declared` | 66 | Planning Service / Admin-Pfad | Abhaengigkeitskante oder Konfliktregel offiziell erfasst oder geaendert |
 | `planning_rulebook_compiled` | 66 | Planning Service / Admin-Pfad | Projektspezifisches Rulebook wurde in kanonische Planungsdaten uebersetzt |
 | `blocker_recorded` | 66 | Planning Service / Admin-Pfad | Externer, menschlicher, kapazitiver oder Konflikt-Blocker wurde typisiert erfasst |
