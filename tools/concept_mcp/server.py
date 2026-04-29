@@ -14,7 +14,12 @@ from tools.concept_ingester.ingester import (
     open_client,
     run_ingest,
 )
-from tools.concept_ingester.schema import COLLECTION_NAME, ensure_collection
+from tools.concept_ingester.schema import (
+    CHUNK_COLLECTION_NAME,
+    GLOSSARY_COLLECTION_NAME,
+    SCHEMA_PROJECTION_VERSION,
+    ensure_all_collections,
+)
 from tools.concept_mcp.filters import FilterSyntaxError, build_filter
 
 SERVER_INSTRUCTIONS = """\
@@ -23,63 +28,63 @@ AgentKit 3 concept knowledge base.
 WHAT THIS SERVER IS
 -------------------
 A semantic + lexical (hybrid) index over the entire AgentKit 3 concept
-corpus under `concept/`. The corpus is ~1000 chunked sections across
-three coordinated layers:
+corpus under `concept/`. Two collections are indexed:
 
-  - "domain"     -> concept/domain-design/   (DK-XX, fachliche Sicht,
-                    Rollen, Pipeline-Domaene, Governance-Idee, KPIs)
-  - "technical"  -> concept/technical-design/ (FK-XX, Feinkonzept:
-                    Architektur, Pipeline-Engine, Verify, State-Backend,
-                    Komponentenschnitt, Schemas, Defaults)
-  - "formal"     -> concept/formal-spec/     (formal.<context>.<x>,
-                    maschinell pruefbare YAML-Specs zu Architektur,
-                    Truth-Boundary, Stage-Registry, Konformitaet)
+  - Ak3ConceptChunk   -> H2-section level chunks of every concept doc.
+  - Ak3GlossaryTerm   -> exported and internal glossary terms of every
+                          contract doc; vectorised so semantic search
+                          lands on the canonical definition.
 
-A single chunk corresponds to one H2-section of a concept document.
-It carries the original frontmatter (concept_id, module, tags, status,
-spec_kind, ...) so that filtering by layer, module, tag or doc_id is
-cheap and exact.
+Three concept layers feed the chunk collection:
+
+  - "domain"     -> concept/domain-design/   (DK-XX, fachliche Sicht)
+  - "technical"  -> concept/technical-design/ (FK-XX, Feinkonzept)
+  - "formal"     -> concept/formal-spec/      (formal.<context>.<x>)
+
+Bounded-Context-Schnitt aus dem aktuellen Refactor:
+  - `domain` (BC-id) und `surface` ("contract" | "internal") sind
+    aus `_meta/domain-registry.yaml` projiziert.
+  - `cross_cutting=true` markiert Foundation-/Adapter-/Reference-Docs
+    ohne BC-Owner (siehe 00_index.md §9.13).
+  - `applies_policies`, `defers_to_ids`, `defers_to_edges`,
+    `formal_ref_ids`, `supersedes_ids`, `superseded_by_id`,
+    `authority_scopes` sind ebenfalls top-level filterbar.
 
 WHEN TO USE THIS SERVER (instead of grep / Read on concept/*.md)
 ----------------------------------------------------------------
-Always prefer `concept_search` over grep / file walks for any of:
+Always prefer `concept_search` / `concept_glossary_search` over grep
+or file walks for any of:
 
   * "Wo steht etwas zu <Begriff/Funktion/Komponente>?"
   * "Was sagt das Konzept zu <Pipeline-Phase / Guard / Artefakt>?"
   * "Welche Invarianten / Trust-Klassen gelten fuer X?"
   * "Welche FK-Dokumente / formal-Specs sind fuer Aufgabe Y relevant?"
+  * "Wie ist Begriff X im BC <verify-system> definiert?"
+    -> concept_glossary_search
   * Disambiguierung zwischen Domain-Idee (DK), Feinkonzept (FK) und
     formaler Spec (formal.*) — der Layer-Filter loest das in einem Call.
-
-Reasons to prefer search over grep:
-  * Hybrid-Score (BM25 + multilinguale Embeddings) findet semantische
-    Treffer ueber Synonyme und deutsche/englische Varianten.
-  * Treffer kommen mit Layer-, Modul- und Tag-Metadaten — der Agent
-    weiss sofort, welcher Konzept-Layer geantwortet hat.
-  * Eine ungefilterte Anfrage liefert eine *gemischte* Top-N-Liste
-    aus allen drei Ebenen, sortiert nach Relevanz. Damit wird die
-    natuerliche Schichtung Domain -> Technical -> Formal in der
-    Antwort sichtbar, ohne dass der Agent dreimal sucht.
-  * `concept_get` liefert *alle Sections eines Dokuments in
-    Originalreihenfolge* — schneller und billiger als das Markdown
-    selbst zu lesen.
+  * Eingrenzung auf einen Bounded Context — `domain="verify-system"`
+    plus `surface="contract"` liefert die Vertrags-Sicht des BC.
 
 DEFAULT STRATEGY FOR AGENTS
 ---------------------------
-1. Start mit `concept_search(query=..., limit=8)` ohne Layer-Filter.
-2. Wenn die Top-Treffer aus dem falschen Layer kommen oder zu breit
-   sind, eingrenzen via `layer="technical"` oder via `where`-DSL.
+1. Start mit `concept_search(query=..., limit=8)` ohne Filter.
+2. Wenn die Top-Treffer aus dem falschen Layer/BC kommen oder zu
+   breit sind, eingrenzen via `layer="technical"`, `domain="..."`,
+   `surface="contract"` oder via `where`-DSL.
 3. Fuer einen vollstaendigen Dokumentinhalt:
    `concept_get(doc_id="FK-27")` oder `concept_get(rel_path="...")`.
-4. Nur in den seltenen Faellen, in denen der Index veraltet sein
+4. Fuer Begriffsdefinitionen:
+   `concept_glossary_search(query="Stage-Registry")`.
+5. Nur in den seltenen Faellen, in denen der Index veraltet sein
    koennte, `concept_ingest(strategy="delta")` aufrufen — Ingest
    ist Tooling, nicht Default-Suche.
 
 FILTER DSL
 ----------
 `where` ist rekursiv (and / or / equal / not_equal / contains_any /
-contains_all / like). Filterbare Properties: layer, doc_id, module,
-tags, rel_path, section_anchor. Siehe `concept_filter_help()`.
+contains_all / like). Filterbare Top-Level-Properties siehe
+`concept_filter_help()`.
 """
 
 mcp = FastMCP("agentkit3-concepts", instructions=SERVER_INSTRUCTIONS)
@@ -98,17 +103,56 @@ def _combine(*parts: Filter | None) -> Filter | None:
     return Filter.all_of(active)
 
 
-def _layer_filter(layer: str | list[str] | None) -> Filter | None:
-    if layer is None:
+def _equal_filter(prop: str, value: str | list[str] | None) -> Filter | None:
+    if value is None:
         return None
-    if isinstance(layer, str):
-        return Filter.by_property("layer").equal(layer)
-    if isinstance(layer, list) and layer:
-        return Filter.by_property("layer").contains_any(layer)
+    if isinstance(value, str):
+        if not value:
+            return None
+        return Filter.by_property(prop).equal(value)
+    if isinstance(value, list) and value:
+        return Filter.by_property(prop).contains_any(value)
     return None
 
 
-def _serialize_object(obj: Any) -> dict[str, Any]:
+def _bool_filter(prop: str, value: bool | None) -> Filter | None:
+    if value is None:
+        return None
+    return Filter.by_property(prop).equal(value)
+
+
+_CHUNK_RETURN_PROPERTIES: tuple[str, ...] = (
+    "layer",
+    "doc_id",
+    "title",
+    "module",
+    "tags",
+    "rel_path",
+    "section_anchor",
+    "heading",
+    "ordering",
+    "content",
+    "domain",
+    "cross_cutting",
+    "surface",
+    "domain_display_name",
+    "contract_state",
+    "applies_policies",
+    "defers_to_ids",
+    "defers_to_edges",
+    "formal_ref_ids",
+    "supersedes_ids",
+    "superseded_by_id",
+    "authority_scopes",
+    "has_glossary",
+    "exported_term_ids",
+    "schema_projection_version",
+    "domain_registry_hash",
+    "metadata",
+)
+
+
+def _serialize_chunk(obj: Any) -> dict[str, Any]:
     props = dict(obj.properties or {})
     metadata = getattr(obj, "metadata", None)
     score = getattr(metadata, "score", None) if metadata is not None else None
@@ -127,7 +171,46 @@ def _serialize_object(obj: Any) -> dict[str, Any]:
         "heading": props.get("heading"),
         "ordering": props.get("ordering"),
         "content": props.get("content"),
-        "extra": props.get("extra") or {},
+        "domain": props.get("domain") or "",
+        "cross_cutting": bool(props.get("cross_cutting")),
+        "surface": props.get("surface") or "",
+        "domain_display_name": props.get("domain_display_name") or "",
+        "contract_state": props.get("contract_state") or "",
+        "applies_policies": props.get("applies_policies") or [],
+        "defers_to_ids": props.get("defers_to_ids") or [],
+        "defers_to_edges": props.get("defers_to_edges") or [],
+        "formal_ref_ids": props.get("formal_ref_ids") or [],
+        "supersedes_ids": props.get("supersedes_ids") or [],
+        "superseded_by_id": props.get("superseded_by_id") or "",
+        "authority_scopes": props.get("authority_scopes") or [],
+        "has_glossary": bool(props.get("has_glossary")),
+        "exported_term_ids": props.get("exported_term_ids") or [],
+        "frontmatter_metadata": props.get("metadata") or {},
+    }
+
+
+def _serialize_glossary_term(obj: Any) -> dict[str, Any]:
+    props = dict(obj.properties or {})
+    metadata = getattr(obj, "metadata", None)
+    score = getattr(metadata, "score", None) if metadata is not None else None
+    distance = getattr(metadata, "distance", None) if metadata is not None else None
+    return {
+        "term_uuid": str(obj.uuid),
+        "score": score,
+        "distance": distance,
+        "term_id": props.get("term_id"),
+        "term": props.get("term"),
+        "normalized_term": props.get("normalized_term"),
+        "definition": props.get("definition"),
+        "term_kind": props.get("term_kind"),
+        "domain": props.get("domain") or "",
+        "domain_display_name": props.get("domain_display_name") or "",
+        "source_doc_id": props.get("source_doc_id"),
+        "source_section_anchor": props.get("source_section_anchor") or "",
+        "see_also_terms": props.get("see_also_terms") or [],
+        "contract_state": props.get("contract_state") or "",
+        "values": props.get("values") or [],
+        "reason": props.get("reason") or "",
     }
 
 
@@ -135,6 +218,9 @@ def _serialize_object(obj: Any) -> dict[str, Any]:
 def concept_search(
     query: str,
     layer: str | list[str] | None = None,
+    domain: str | list[str] | None = None,
+    surface: str | None = None,
+    cross_cutting: bool | None = None,
     where: dict[str, Any] | None = None,
     limit: int = 10,
     hybrid_alpha: float = 0.5,
@@ -142,47 +228,43 @@ def concept_search(
 ) -> str:
     """Primary entry point for ANY question about the AgentKit 3 concept corpus.
 
-    Prefer this over grep / Read on concept/*.md. The index covers all
-    ~1000 sections across the three concept layers (domain, technical,
+    Prefer this over grep / Read on concept/*.md. The chunk index covers
+    all H2 sections across the three concept layers (domain, technical,
     formal) and ranks them via a hybrid of BM25 and multilingual vector
-    similarity. Without a filter, results are mixed across layers and
-    sorted by relevance.
+    similarity. Without filters, results are mixed across layers and
+    bounded contexts and sorted by relevance.
 
     When to use:
         * Looking up where a term, rule, invariant, component or KPI is
           described, regardless of which document or layer it lives in.
         * Comparing how the same topic is treated on the domain
           (DK-XX), technical (FK-XX) and formal (formal.*) level.
-        * Pre-flight before editing code: find the concept that owns a
-          contract before changing the implementation.
+        * Scoping to a single Bounded Context with `domain="..."` (and
+          optionally `surface="contract"` for the contract-only view).
 
     Args:
-        query: Natural language query in German or English. Examples:
-            "Verify-Phase 4 Schichten", "integrity gate dimensions",
-            "wer darf QA-Artefakte schreiben".
+        query: Natural language query in German or English.
         layer: Optional layer constraint. One of "domain", "technical",
-            "formal", or a list of those values. Omit to mix all three
-            layers in the result, which is usually preferred for
-            exploratory queries.
-        where: Optional recursive filter DSL on top of layer. Useful
-            for: tag-based scoping ("governance"), module scoping
-            ("verify"), wildcard doc_id matching ("FK-2*"). See
-            `concept_filter_help()` for shape and examples.
-        limit: Max number of chunks (default 10). Increase to ~25 for
-            broad surveys, lower to 3-5 for "find the canonical
-            section" lookups.
-        hybrid_alpha: 0.0 = pure BM25 (lexical), 1.0 = pure vector
-            (semantic), 0.5 = balanced default. Lower alpha when the
-            query contains specific identifiers (FK-numbers, function
-            names). Higher alpha for fuzzy / paraphrased questions.
+            "formal", or a list. Omit to mix all three layers.
+        domain: Optional Bounded-Context id (e.g. "verify-system",
+            "story-lifecycle", "governance-and-guards") or list of ids.
+            Use `concept_filter_help()` for the BC catalogue.
+        surface: Optional surface filter inside the chosen BC.
+            "contract" -> only the BC's contract docs (export surface).
+            "internal" -> only the BC's internal/member docs.
+            Omit to include both.
+        cross_cutting: Optional flag. True -> only foundation/adapter/
+            reference docs (no BC owner). False -> exclude them.
+        where: Optional recursive filter DSL on top of the structured
+            filters. See `concept_filter_help()` for shape and the full
+            list of filterable top-level properties.
+        limit: Max number of chunks (default 10).
+        hybrid_alpha: 0.0 = pure BM25, 1.0 = pure vector, 0.5 = balanced.
         include_content: If False, omit the chunk body and return only
-            metadata + heading. Useful when surveying many docs.
+            metadata + heading.
 
     Returns:
         JSON object: {"hits": [...], "count": N}.
-        Each hit carries chunk_id, score, layer, doc_id, title, module,
-        tags, rel_path, section_anchor, heading, ordering, content
-        (when include_content), extra (frontmatter spillover).
     """
     cfg = _config()
     try:
@@ -190,10 +272,16 @@ def concept_search(
     except FilterSyntaxError as exc:
         return json.dumps({"error": f"invalid where filter: {exc}"})
 
-    combined = _combine(_layer_filter(layer), custom_filter)
+    combined = _combine(
+        _equal_filter("layer", layer),
+        _equal_filter("domain", domain),
+        _equal_filter("surface", surface),
+        _bool_filter("cross_cutting", cross_cutting),
+        custom_filter,
+    )
     with open_client(cfg) as client:
-        ensure_collection(client, cfg.collection_name)
-        collection = client.collections.get(cfg.collection_name)
+        ensure_all_collections(client)
+        collection = client.collections.get(CHUNK_COLLECTION_NAME)
         result = collection.query.hybrid(
             query=query,
             alpha=hybrid_alpha,
@@ -201,10 +289,61 @@ def concept_search(
             limit=limit,
             return_metadata=MetadataQuery(score=True, distance=True),
         )
-    payload = [_serialize_object(o) for o in result.objects]
+    payload = [_serialize_chunk(o) for o in result.objects]
     if not include_content:
         for entry in payload:
             entry.pop("content", None)
+    return json.dumps({"hits": payload, "count": len(payload)}, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+def concept_glossary_search(
+    query: str,
+    domain: str | list[str] | None = None,
+    term_kind: str | None = None,
+    limit: int = 10,
+    hybrid_alpha: float = 0.5,
+) -> str:
+    """Search the glossary collection (term + definition pairs).
+
+    Glossary terms live in their own collection because the canonical
+    answer to "what does <term> mean inside BC X?" is a single
+    sentence, not a body chunk. Vector + BM25 land directly on the
+    definition.
+
+    Args:
+        query: Term or paraphrase. Examples: "Stage-Registry",
+            "integrity gate", "trust class".
+        domain: Optional BC id (or list) to scope to one bounded
+            context. A term may be exported by multiple BCs; without
+            this filter, all BC-specific definitions are returned.
+        term_kind: "exported" | "internal". Default: both. Exported
+            terms are part of the BC's published vocabulary; internal
+            terms describe BC-private concepts.
+        limit: Max number of terms (default 10).
+        hybrid_alpha: Same semantics as `concept_search.hybrid_alpha`.
+
+    Returns:
+        JSON: {"hits": [...], "count": N}. Each hit carries term,
+        definition, domain, source_doc_id, source_section_anchor, and
+        see_also_terms.
+    """
+    cfg = _config()
+    combined = _combine(
+        _equal_filter("domain", domain),
+        _equal_filter("term_kind", term_kind),
+    )
+    with open_client(cfg) as client:
+        ensure_all_collections(client)
+        collection = client.collections.get(GLOSSARY_COLLECTION_NAME)
+        result = collection.query.hybrid(
+            query=query,
+            alpha=hybrid_alpha,
+            filters=combined,
+            limit=limit,
+            return_metadata=MetadataQuery(score=True, distance=True),
+        )
+    payload = [_serialize_glossary_term(o) for o in result.objects]
     return json.dumps({"hits": payload, "count": len(payload)}, ensure_ascii=False, indent=2)
 
 
@@ -222,24 +361,11 @@ def concept_get(
     returns every chunk of the document in original section order — no
     embedding, no ranking, just the document.
 
-    When to use:
-        * "Lies mir FK-27 komplett" -> concept_get(doc_id="FK-27").
-        * "Zeig mir die formale Spec zu architecture-conformance" ->
-          concept_get(rel_path="formal-spec/architecture-conformance/entities.md").
-        * Picking up where a search left off: pass the rel_path of the
-          top hit to retrieve neighbouring sections.
-
-    Provide exactly one anchor:
-        doc_id: Concept identifier from frontmatter (DK-XX, FK-XX,
-            formal.<context>.<x>). Most ergonomic.
-        rel_path: Path under concept/ (use forward slashes).
-        chunk_id: UUID of a single chunk, e.g. from a prior search hit.
-
     Args:
         doc_id: Concept ID such as "FK-27" or "formal.architecture-conformance.entities".
         rel_path: e.g. "technical-design/27_verify_pipeline_closure_orchestration.md".
         chunk_id: UUID of one chunk (returns just that chunk).
-        limit: Cap on chunks returned (default 50, enough for any single doc).
+        limit: Cap on chunks returned (default 50).
 
     Returns:
         JSON: {"hits": [...sorted by ordering...], "count": N}.
@@ -249,13 +375,17 @@ def concept_get(
         return json.dumps({"error": "provide doc_id, rel_path or chunk_id"})
 
     with open_client(cfg) as client:
-        ensure_collection(client, cfg.collection_name)
-        collection = client.collections.get(cfg.collection_name)
+        ensure_all_collections(client)
+        collection = client.collections.get(CHUNK_COLLECTION_NAME)
         if chunk_id is not None:
             obj = collection.query.fetch_object_by_id(chunk_id)
             if obj is None:
                 return json.dumps({"hits": [], "count": 0})
-            return json.dumps({"hits": [_serialize_object(obj)], "count": 1}, ensure_ascii=False, indent=2)
+            return json.dumps(
+                {"hits": [_serialize_chunk(obj)], "count": 1},
+                ensure_ascii=False,
+                indent=2,
+            )
         criteria: Filter | None
         if doc_id is not None and rel_path is not None:
             criteria = Filter.all_of(
@@ -272,7 +402,7 @@ def concept_get(
         ordered = sorted(
             result.objects, key=lambda o: int((o.properties or {}).get("ordering", 0) or 0)
         )
-        payload = [_serialize_object(o) for o in ordered]
+        payload = [_serialize_chunk(o) for o in ordered]
     return json.dumps({"hits": payload, "count": len(payload)}, ensure_ascii=False, indent=2)
 
 
@@ -281,24 +411,24 @@ def concept_ingest(strategy: str = "delta") -> str:
     """Re-index the concept corpus into Weaviate. Tooling, not search.
 
     This is *not* the way to query concepts — use `concept_search` /
-    `concept_get` for that. Run an ingest only when:
+    `concept_glossary_search` / `concept_get` for that. Run an ingest
+    only when:
 
         * concept/*.md files have been edited and you need fresh
           search results in the same session.
-        * The collection is empty (`concept_status()` shows zero
-          remote chunks) — usually after a Weaviate reset.
+        * The collections are empty (`concept_status()` shows zero
+          remote objects).
 
     Args:
         strategy:
-            "delta" (default): Diff local chunks vs. remote by content
+            "delta" (default): Diff local objects vs. remote by content
                 hash; insert/update/delete only the changed ones.
-                Idempotent and cheap (seconds for ~1000 chunks).
-            "full": Drop and recreate the collection, then ingest
+                Idempotent. Runs over both collections.
+            "full": Drop and recreate both collections, then ingest
                 everything from scratch. Use after schema changes.
 
     Returns:
-        JSON ingest report: discovered, inserted, updated, deleted,
-        skipped, errors.
+        JSON ingest report: per-collection counts plus aggregated totals.
     """
     try:
         chosen = IngestStrategy(strategy)
@@ -310,47 +440,73 @@ def concept_ingest(strategy: str = "delta") -> str:
 
 @mcp.tool()
 def concept_status() -> str:
-    """Diagnostics: local vs. remote chunk counts, broken down by layer.
+    """Diagnostics: local vs. remote counts for both collections.
 
     Use this to verify that the index is populated and roughly in sync
-    with the on-disk corpus before running heavy searches. A large
-    delta between local and remote means the index is stale and a
-    `concept_ingest(strategy="delta")` is in order.
+    with the on-disk corpus before running heavy searches.
 
     Returns:
-        JSON with:
-            collection: Weaviate collection name.
-            concept_root: Absolute path of the concept/ directory.
-            discovered: {total, by_layer} from disk.
-            remote: {total, by_layer} from Weaviate (or {error: "..."}
-                when the server is unreachable).
+        JSON with per-collection local discovery (chunks broken down by
+        layer / domain / cross_cutting; glossary terms broken down by
+        kind / domain) and remote total counts.
     """
     cfg = _config()
-    from tools.concept_ingester.discovery import discover_chunks
+    from tools.concept_ingester.discovery import discover
 
-    chunks = discover_chunks(cfg.concept_root, max_chars=cfg.chunk_max_chars)
+    result = discover(cfg.concept_root, max_chars=cfg.chunk_max_chars)
+
     by_layer_local: dict[str, int] = {}
-    for chunk in chunks:
+    by_domain_local: dict[str, int] = {}
+    cross_cutting_chunks = 0
+    for chunk in result.chunks:
         by_layer_local[chunk.layer] = by_layer_local.get(chunk.layer, 0) + 1
+        if chunk.cross_cutting:
+            cross_cutting_chunks += 1
+        elif chunk.domain:
+            by_domain_local[chunk.domain] = by_domain_local.get(chunk.domain, 0) + 1
+
+    glossary_by_kind: dict[str, int] = {}
+    glossary_by_domain: dict[str, int] = {}
+    for term in result.glossary_terms:
+        glossary_by_kind[term.term_kind] = glossary_by_kind.get(term.term_kind, 0) + 1
+        if term.domain:
+            glossary_by_domain[term.domain] = glossary_by_domain.get(term.domain, 0) + 1
 
     payload: dict[str, Any] = {
-        "collection": cfg.collection_name,
         "concept_root": str(cfg.concept_root),
-        "discovered": {"total": len(chunks), "by_layer": by_layer_local},
+        "schema_projection_version": SCHEMA_PROJECTION_VERSION,
+        "domain_registry_hash": result.domain_registry_hash,
+        "discovered": {
+            "chunks": {
+                "total": len(result.chunks),
+                "by_layer": by_layer_local,
+                "by_domain": by_domain_local,
+                "cross_cutting": cross_cutting_chunks,
+            },
+            "glossary_terms": {
+                "total": len(result.glossary_terms),
+                "by_kind": glossary_by_kind,
+                "by_domain": glossary_by_domain,
+            },
+        },
     }
     try:
         with open_client(cfg) as client:
-            ensure_collection(client, cfg.collection_name)
-            collection = client.collections.get(cfg.collection_name)
-            total = collection.aggregate.over_all(total_count=True).total_count
-            by_layer_remote: dict[str, int] = {}
-            for layer in ("domain", "formal", "technical"):
-                agg = collection.aggregate.over_all(
-                    filters=Filter.by_property("layer").equal(layer),
-                    total_count=True,
-                )
-                by_layer_remote[layer] = agg.total_count
-            payload["remote"] = {"total": total, "by_layer": by_layer_remote}
+            ensure_all_collections(client)
+            chunk_total = (
+                client.collections.get(CHUNK_COLLECTION_NAME)
+                .aggregate.over_all(total_count=True)
+                .total_count
+            )
+            glossary_total = (
+                client.collections.get(GLOSSARY_COLLECTION_NAME)
+                .aggregate.over_all(total_count=True)
+                .total_count
+            )
+            payload["remote"] = {
+                CHUNK_COLLECTION_NAME: {"total": chunk_total},
+                GLOSSARY_COLLECTION_NAME: {"total": glossary_total},
+            }
     except Exception as exc:  # noqa: BLE001 - status is read-only
         payload["remote"] = {"error": str(exc)}
     return json.dumps(payload, ensure_ascii=False, indent=2)
@@ -358,12 +514,13 @@ def concept_status() -> str:
 
 @mcp.tool()
 def concept_filter_help() -> str:
-    """Reference for the recursive `where` filter DSL used by concept_search.
+    """Reference for the recursive `where` filter DSL and the BC catalogue.
 
-    Returns the supported operators, the filterable properties, the
-    layer taxonomy, and worked examples. Call this once before issuing
-    your first non-trivial filtered search if you are unsure about
-    the syntax.
+    Returns the supported operators, the filterable top-level properties
+    of the chunk and glossary collections, the layer taxonomy, and
+    worked examples. Call this once before issuing your first non-
+    trivial filtered search if you are unsure about the syntax or BC
+    ids.
     """
     return json.dumps(
         {
@@ -371,13 +528,43 @@ def concept_filter_help() -> str:
             "group_ops": ["and", "or"],
             "leaf_shape": {"op": "<leaf_op>", "property": "<name>", "value": "<value>"},
             "group_shape": {"op": "and|or", "operands": ["<filter>", "<filter>"]},
-            "filterable_properties": {
+            "chunk_filterable_properties": {
                 "layer": "domain | technical | formal",
                 "doc_id": "DK-XX, FK-XX, formal.<context>.<name>",
                 "module": "frontmatter module / context label",
                 "tags": "string array; use contains_any / contains_all",
                 "rel_path": "path under concept/ (forward slashes)",
                 "section_anchor": "stable per-section slug",
+                "domain": (
+                    "Bounded-Context id from the registry "
+                    "(e.g. verify-system, story-lifecycle). "
+                    "Empty string for cross-cutting docs."
+                ),
+                "cross_cutting": "bool; true for foundation/adapter docs.",
+                "surface": "contract | internal | '' (cross-cutting).",
+                "contract_state": "active | compatible | deprecating | breaking | ''",
+                "applies_policies": "string array; contains_any / contains_all.",
+                "defers_to_ids": "string array (target ids only).",
+                "defers_to_edges": (
+                    "string array of '<target>|<scope>' composite edges "
+                    "for scope-precise filtering."
+                ),
+                "formal_ref_ids": "string array.",
+                "supersedes_ids": "string array.",
+                "superseded_by_id": "single id or ''.",
+                "authority_scopes": "string array of authority_over scopes.",
+                "has_glossary": "bool; doc carries a glossary block.",
+                "exported_term_ids": "string array of exported term slugs.",
+            },
+            "glossary_filterable_properties": {
+                "term_id": "stable slug of the term within its source doc",
+                "normalized_term": "lower-cased term for exact lookup",
+                "term_kind": "exported | internal",
+                "domain": "BC id of the source doc",
+                "source_doc_id": "concept id of the source doc",
+                "see_also_terms": "string array of '<domain>|<term_id>' edges",
+                "contract_state": "inherited from source doc",
+                "values": "string array; optional enum values",
             },
             "layers": {
                 "domain": (
@@ -391,18 +578,35 @@ def concept_filter_help() -> str:
                 ),
                 "formal": (
                     "formal.<context>.<x> in concept/formal-spec/. "
-                    "Maschinenpruefbare YAML-Specs (Architecture-"
-                    "Conformance, Truth-Boundary, Stage-Registry, ...)."
+                    "Maschinenpruefbare YAML-Specs."
                 ),
             },
+            "bounded_contexts": [
+                "pipeline-framework",
+                "exploration-and-design",
+                "implementation-phase",
+                "verify-system",
+                "story-closure",
+                "story-lifecycle",
+                "execution-planning",
+                "governance-and-guards",
+                "artifacts",
+                "telemetry-and-events",
+                "requirements-and-scope-coverage",
+                "prompt-runtime",
+                "agent-skills",
+                "kpi-and-dashboard",
+                "failure-corpus",
+                "installation-and-bootstrap",
+            ],
             "examples": [
                 {
-                    "intent": "technical only, governance-tagged",
+                    "intent": "verify-system contract docs only",
                     "filter": {
                         "op": "and",
                         "operands": [
-                            {"op": "equal", "property": "layer", "value": "technical"},
-                            {"op": "contains_any", "property": "tags", "value": ["governance"]},
+                            {"op": "equal", "property": "domain", "value": "verify-system"},
+                            {"op": "equal", "property": "surface", "value": "contract"},
                         ],
                     },
                 },
@@ -411,13 +615,27 @@ def concept_filter_help() -> str:
                     "filter": {"op": "like", "property": "doc_id", "value": "FK-2*"},
                 },
                 {
-                    "intent": "domain or formal, but not technical",
+                    "intent": "docs that apply policy P-INTEGRITY-V1",
                     "filter": {
-                        "op": "or",
-                        "operands": [
-                            {"op": "equal", "property": "layer", "value": "domain"},
-                            {"op": "equal", "property": "layer", "value": "formal"},
-                        ],
+                        "op": "contains_any",
+                        "property": "applies_policies",
+                        "value": ["P-INTEGRITY-V1"],
+                    },
+                },
+                {
+                    "intent": "docs that defer to FK-20 with scope runtime-profile",
+                    "filter": {
+                        "op": "contains_any",
+                        "property": "defers_to_edges",
+                        "value": ["FK-20|runtime-profile"],
+                    },
+                },
+                {
+                    "intent": "exclude cross-cutting foundation docs",
+                    "filter": {
+                        "op": "equal",
+                        "property": "cross_cutting",
+                        "value": False,
                     },
                 },
             ],

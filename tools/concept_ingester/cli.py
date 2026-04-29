@@ -8,16 +8,18 @@ import sys
 from collections.abc import Sequence
 
 from tools.concept_ingester.config import IngesterConfig
-from tools.concept_ingester.discovery import discover_chunks
+from tools.concept_ingester.discovery import discover
 from tools.concept_ingester.ingester import (
     IngestStrategy,
     open_client,
     run_ingest,
 )
 from tools.concept_ingester.schema import (
-    COLLECTION_NAME,
-    drop_collection,
-    ensure_collection,
+    CHUNK_COLLECTION_NAME,
+    GLOSSARY_COLLECTION_NAME,
+    SCHEMA_PROJECTION_VERSION,
+    drop_all_collections,
+    ensure_all_collections,
 )
 
 
@@ -25,11 +27,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="concept-ingester", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("full", help="Drop and re-create the collection, then ingest everything.")
-    sub.add_parser("delta", help="Ingest only changed/new chunks; delete chunks no longer present.")
-    sub.add_parser("status", help="Show local discovery and remote chunk counts.")
-    sub.add_parser("ensure-schema", help="Create the collection if it does not exist.")
-    drop = sub.add_parser("drop", help="Drop the collection. Destructive.")
+    sub.add_parser("full", help="Drop and re-create both collections, then ingest everything.")
+    sub.add_parser("delta", help="Ingest only changed/new objects; delete objects no longer present.")
+    sub.add_parser("status", help="Show local discovery and remote object counts.")
+    sub.add_parser("ensure-schema", help="Create both collections if they do not exist.")
+    drop = sub.add_parser("drop", help="Drop both collections. Destructive.")
     drop.add_argument("--yes", action="store_true", help="Confirm destructive operation.")
 
     args = parser.parse_args(argv)
@@ -47,40 +49,84 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _status(cfg)
     if args.command == "ensure-schema":
         with open_client(cfg) as client:
-            ensure_collection(client, cfg.collection_name)
-        _print_json({"collection": cfg.collection_name, "ensured": True})
+            ensure_all_collections(client)
+        _print_json(
+            {
+                "ensured": True,
+                "collections": [CHUNK_COLLECTION_NAME, GLOSSARY_COLLECTION_NAME],
+                "schema_projection_version": SCHEMA_PROJECTION_VERSION,
+            }
+        )
         return 0
     if args.command == "drop":
         if not args.yes:
             print("refusing to drop without --yes", file=sys.stderr)
             return 2
         with open_client(cfg) as client:
-            existed = drop_collection(client, cfg.collection_name)
-        _print_json({"collection": cfg.collection_name, "dropped": existed})
+            existed = drop_all_collections(client)
+        _print_json({"dropped": existed})
         return 0
     parser.error(f"unknown command: {args.command}")
     return 2
 
 
 def _status(cfg: IngesterConfig) -> int:
-    chunks = discover_chunks(cfg.concept_root, max_chars=cfg.chunk_max_chars)
+    result = discover(cfg.concept_root, max_chars=cfg.chunk_max_chars)
+
     by_layer: dict[str, int] = {}
-    for chunk in chunks:
+    by_domain: dict[str, int] = {}
+    cross_cutting_chunks = 0
+    for chunk in result.chunks:
         by_layer[chunk.layer] = by_layer.get(chunk.layer, 0) + 1
+        if chunk.cross_cutting:
+            cross_cutting_chunks += 1
+        elif chunk.domain:
+            by_domain[chunk.domain] = by_domain.get(chunk.domain, 0) + 1
+
+    glossary_by_kind: dict[str, int] = {}
+    glossary_by_domain: dict[str, int] = {}
+    for term in result.glossary_terms:
+        glossary_by_kind[term.term_kind] = glossary_by_kind.get(term.term_kind, 0) + 1
+        if term.domain:
+            glossary_by_domain[term.domain] = glossary_by_domain.get(term.domain, 0) + 1
+
     payload: dict[str, object] = {
         "concept_root": str(cfg.concept_root),
-        "collection": cfg.collection_name,
+        "schema_projection_version": result.schema_projection_version,
+        "domain_registry_hash": result.domain_registry_hash,
         "discovered": {
-            "total": len(chunks),
-            "by_layer": by_layer,
+            "chunks": {
+                "total": len(result.chunks),
+                "by_layer": by_layer,
+                "by_domain": by_domain,
+                "cross_cutting": cross_cutting_chunks,
+            },
+            "glossary_terms": {
+                "total": len(result.glossary_terms),
+                "by_kind": glossary_by_kind,
+                "by_domain": glossary_by_domain,
+            },
         },
     }
     try:
         with open_client(cfg) as client:
-            ensure_collection(client, cfg.collection_name)
-            collection = client.collections.get(cfg.collection_name)
-            count = collection.aggregate.over_all(total_count=True).total_count
-            payload["remote"] = {"collection_exists": True, "total_count": count}
+            ensure_all_collections(client)
+            chunk_count = (
+                client.collections.get(CHUNK_COLLECTION_NAME)
+                .aggregate.over_all(total_count=True)
+                .total_count
+            )
+            glossary_count = (
+                client.collections.get(GLOSSARY_COLLECTION_NAME)
+                .aggregate.over_all(total_count=True)
+                .total_count
+            )
+            payload["remote"] = {
+                "collections": {
+                    CHUNK_COLLECTION_NAME: {"exists": True, "total_count": chunk_count},
+                    GLOSSARY_COLLECTION_NAME: {"exists": True, "total_count": glossary_count},
+                }
+            }
     except Exception as exc:  # noqa: BLE001 - status is read-only diagnostic
         payload["remote"] = {"error": str(exc)}
     _print_json(payload)
@@ -95,4 +141,4 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 
-__all__ = ["COLLECTION_NAME", "main"]
+__all__ = ["CHUNK_COLLECTION_NAME", "GLOSSARY_COLLECTION_NAME", "main"]
