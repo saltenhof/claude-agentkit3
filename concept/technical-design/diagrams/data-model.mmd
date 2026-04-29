@@ -1,0 +1,219 @@
+erDiagram
+
+    %% AK3 - Fachliches Datenmodell (FK-17, generiert)
+    %% Owner-Schichten:
+    %%   analytics               : KpiProjection
+    %%   artifact_manager        : ArtifactRecord
+    %%   guard_system            : OverrideRecord, GuardDecision
+    %%   installer               : ProjectSpace
+    %%   phase_state_store       : PhaseState
+    %%   pipeline_engine         : FlowExecution, NodeExecution, AttemptRecord
+    %%   story_context_manager   : Story, StoryContext, StoryCustomFieldDefinition, StoryCustomFieldValue
+    %%   telemetry_service       : ExecutionEvent
+
+    ProjectSpace                   ||--o{ Story                          : "owns"
+    ProjectSpace                   ||--o{ StoryCustomFieldDefinition     : "scopes"
+    ProjectSpace                   ||--o{ KpiProjection                  : "aggregates"
+    Story                          ||--|| StoryContext                   : "snapshot"
+    Story                          ||--o{ StoryCustomFieldValue          : "has-values"
+    StoryCustomFieldDefinition     ||--o{ StoryCustomFieldValue          : "defines"
+    Story                          ||--o{ Story                          : "split-lineage"
+    Story                          ||--o{ FlowExecution                  : "executes-as"
+    Story                          ||--o{ PhaseState                     : "per-run-projection"
+    FlowExecution                  ||--o{ NodeExecution                  : "node-ledger"
+    FlowExecution                  ||--o{ AttemptRecord                  : "phase-audit"
+    FlowExecution                  ||--o{ OverrideRecord                 : "received"
+    FlowExecution                  ||--o{ GuardDecision                  : "yielded"
+    FlowExecution                  ||--o{ ArtifactRecord                 : "produced"
+    FlowExecution                  ||--o{ ExecutionEvent                 : "emitted"
+    ExecutionEvent                 }o--o{ KpiProjection                  : "feeds"
+
+    ProjectSpace {
+        ProjectKey                       project_key PK
+        Text                             display_name
+        PathRef                          project_root
+        Enum<RuntimeProfile>             runtime_profile
+        Enum<RegistrationStatus>         registration_status
+        Text                             skill_bundle_version
+        Text                             prompt_bundle_version
+    }
+
+    Story {
+        ProjectKey                       project_key PK
+        StoryId                          story_id PK
+        UriRef                           external_item_ref
+        Text                             title
+        Enum<StoryType>                  story_type
+        Enum<StoryMode>                  mode
+        StringSet                        labels
+        Text                             size
+        Enum<StoryStatus>                status
+    }
+
+    StoryContext {
+        ProjectKey                       project_key PK
+        StoryId                          story_id PK
+        Enum<StoryType>                  story_type
+        Enum<StoryMode>                  mode
+        Text_or_JsonValue                scope
+        StringSet                        scope_keys
+        JsonObject                       repo_bindings
+        StringList                       concept_refs
+        StringList                       guardrail_refs
+        StringList                       external_sources
+        StringSet                        related_story_ids
+        JsonObject                       story_semantics
+        JsonObject                       tracker_binding
+        Instant                          created_at
+        Instant                          last_refreshed_at
+    }
+
+    StoryCustomFieldDefinition {
+        ProjectKey                       project_key PK
+        FieldKey                         field_key PK
+        Text                             display_name
+        Text                             field_type
+        Text                             provider
+        UriRef_or_Text                   provider_field_ref
+        Boolean                          is_required
+        Boolean                          is_writable_by_agentkit
+        StringList                       allowed_values
+    }
+
+    StoryCustomFieldValue {
+        ProjectKey                       project_key PK
+        StoryId                          story_id PK
+        FieldKey                         field_key PK
+        JsonValue                        value
+        Text                             value_status
+        Text                             source
+        Instant                          last_synced_at
+        Text                             last_written_by
+        Enum<ProviderSyncStatus>         provider_sync_status
+        Boolean                          conflict_detected
+        Instant                          last_sync_attempt_at
+    }
+
+    FlowExecution {
+        ProjectKey                       project_key PK
+        StoryId                          story_id FK
+        RunId                            run_id PK
+        FlowId                           flow_id PK
+        Enum<FlowLevel>                  flow_level
+        Text                             owner_component
+        Enum<FlowStatus>                 status
+        NodeId                           current_node_id
+        Integer                          attempt_no
+        Instant                          started_at
+        Instant                          finished_at
+    }
+
+    NodeExecution {
+        ProjectKey                       project_key PK
+        StoryId                          story_id FK
+        RunId                            run_id FK
+        FlowId                           flow_id FK
+        NodeId                           node_id PK
+        Integer                          attempt_no PK
+        Enum<NodeOutcome>                outcome
+        Instant                          started_at
+        Instant                          finished_at
+        Text                             resume_trigger
+        NodeId                           backtrack_target
+    }
+
+    AttemptRecord {
+        ProjectKey                       project_key PK
+        StoryId                          story_id FK
+        RunId                            run_id FK
+        Text                             phase PK
+        Integer                          attempt_no PK
+        Enum<AttemptOutcome>             outcome
+        Text_or_JsonValue                failure_cause
+        Instant                          started_at
+        Instant                          ended_at
+    }
+
+    PhaseState {
+        ProjectKey                       project_key PK
+        StoryId                          story_id PK
+        RunId                            run_id PK
+        Text                             phase
+        Enum<FlowStatus>                 status
+        JsonObject                       payload
+        Instant                          updated_at
+    }
+
+    OverrideRecord {
+        ProjectKey                       project_key PK
+        StoryId                          story_id FK
+        RunId                            run_id FK
+        FlowId                           flow_id FK
+        NodeId                           target_node_id
+        Enum<OverrideType>               override_type
+        Enum<ActorType>                  actor_type
+        Text                             actor_id
+        Text                             reason
+        Instant                          created_at
+        Instant                          consumed_at
+    }
+
+    GuardDecision {
+        ProjectKey                       project_key PK
+        StoryId                          story_id FK
+        RunId                            run_id FK
+        FlowId                           flow_id FK
+        NodeId                           node_id
+        Text                             guard_key PK
+        Enum<GuardOutcome>               outcome
+        Text                             reason
+        UriRef_or_PathRef                evidence_ref
+        Instant                          decided_at
+    }
+
+    ArtifactRecord {
+        ProjectKey                       project_key PK
+        StoryId                          story_id FK
+        RunId                            run_id FK
+        ArtifactId                       artifact_id PK
+        Text                             artifact_class
+        Text                             artifact_kind
+        Text                             artifact_format
+        Enum<ArtifactStatus>             artifact_status
+        Text                             produced_in_phase
+        Text                             producer_component
+        Text                             producer_trust
+        Integer                          attempt_no
+        Text                             qa_cycle_id
+        Integer                          qa_cycle_round
+        Integer                          evidence_epoch
+        Enum<ProtectionLevel>            protection_level
+        Boolean                          frozen
+        Boolean                          integrity_verified
+        Instant                          created_at
+        Instant                          finished_at
+        PathRef_or_UriRef                storage_ref
+    }
+
+    ExecutionEvent {
+        ProjectKey                       project_key PK
+        StoryId                          story_id FK
+        RunId                            run_id FK
+        Text                             event_type
+        Instant                          occurred_at
+        Text                             source_component
+        FlowId                           flow_id
+        NodeId                           node_id
+        Enum<EventSeverity>              severity
+        UriRef_or_JsonValue              event_payload_ref
+    }
+
+    KpiProjection {
+        ProjectKey                       project_key PK
+        Text                             projection_key PK
+        Text                             metric_name
+        JsonValue                        metric_value
+        Instant                          window_start
+        Instant                          window_end
+        Instant                          computed_at
+    }

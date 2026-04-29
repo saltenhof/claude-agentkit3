@@ -1,0 +1,365 @@
+# AgentKit 3 — Bounded-Context-Landschaft
+# Stand: 2026-04-29, nach mehrrundiger Konvergenzdiskussion (Claude + ChatGPT)
+#
+# Methodische Praemissen:
+#   - BC = Sprachgrenze + Ownership + Public Surface (nicht Code-Komponente)
+#   - Pipeline ist Framework (kein Inhaltswissen ueber Phasen)
+#   - Verify ist Capability, kein Geschwister von Pipeline
+#   - BCs sind keine Silos; Querreferenzen sind erlaubt, Internals-Zugriff verboten
+#   - Storage-Backends sind Implementierung, nicht oeffentlicher Vertrag
+#
+# Diese Datei ist die SEMANTISCHE Quelle (Verantwortung, owns, excluded,
+# Drift-Risiken, Splits). Die maschinell gepruefte Sicht
+# (id -> contract_docs / member_docs) liegt in domain-registry.yaml und
+# wird aus dieser Datei abgeleitet.
+
+bounded_contexts:
+
+  - id: pipeline-framework
+    responsibility: >
+      Knotenkomposition und Kontrollfluss zwischen Phasen ohne
+      Inhaltswissen ueber einzelne Phasen.
+    owns:
+      - FlowExecution
+      - NodeExecution
+      - AttemptRecord
+      - PhaseTransition
+      - RetryPolicy
+      - OperatingMode (technische Anwendung)
+      - Compaction-Resilience-Mechanik
+    excluded:
+      - Phasen-Inhalt
+      - Prompt-Materialisierung
+      - Audit-Hash-Format
+
+  - id: exploration-and-design
+    responsibility: >
+      Konzeptarbeit fuer Stories ohne belastbaren Loesungsrahmen
+      inkl. eigenem Check/Remediation-Subgraph.
+    owns:
+      - ChangeFrame
+      - FineDesign
+      - ExplorationVerdict
+      - MandateClass (fachliche Erkennung)
+      - ScopeExplosionFinding
+      - DesignFreeze
+    excluded:
+      - Eskalations-Mechanik (geht zu governance-and-guards)
+
+  - id: implementation-phase
+    responsibility: >
+      Worker-Loop, Inkrement, Handover, Worker-Health.
+    owns:
+      - WorkerSession
+      - Handover-Schnittstelle
+      - Increment
+      - WorkerHealth-Signal
+
+  - id: verify-system
+    responsibility: >
+      Multi-Layer-QA-Capability mit Stage-Registry, Policy-Engine,
+      Trust-Klassen, deterministischen Checks, LLM-Bewertung,
+      Adversarial-Testing, Conformance-Service, Evidence-Assembly.
+      Wird von Exploration UND Implementation aufgerufen.
+    owns:
+      - VerifyStage
+      - TrustClass
+      - PolicyVerdict
+      - EvidenceAssembly
+      - ConformanceVerdict
+      - RemediationLoop
+      - StageRegistry
+
+  - id: story-closure
+    responsibility: >
+      Closure-Sequence mit irreversiblen Seiteneffekten:
+      Finding-Resolution, Branch-Push, Merge, Worktree-Cleanup,
+      Issue-Close, Postflight, VektorDB-Sync.
+    owns:
+      - ClosurePayload
+      - ClosureProgress
+      - ClosureVerdict
+      - ClosureSequence
+    excluded:
+      - IntegrityGate (gehoert zu governance-and-guards)
+
+  - id: story-lifecycle
+    responsibility: >
+      Story-Identitaet, Status, Custom-Fields, Lebenszyklus
+      (Creation/Reset/Split/Exit), Vertragsachsen,
+      Story-Type/Mode/Terminalitaet, Mode-Routing-Entscheidung,
+      Storage-Geheimnis (GitHub vs. interne DB).
+    owns:
+      - StoryId
+      - StoryStatus
+      - StoryType
+      - StoryMode
+      - ExecutionRoute
+      - Terminality
+      - CustomField-Surface
+      - VertragsachsenMatrix (FK-59 als alleiniger Owner)
+    internal:
+      - Konkrete Storage-Backends
+      - Sync-Strategie GitHub <-> AK3-State
+      - Issue-Mapping
+
+  - id: execution-planning
+    responsibility: >
+      Backlog-Readiness, Abhaengigkeitsgraph, Wellen, Plan-Proposal,
+      Scheduling- und Parallelisierungspolicy. Entscheidet vor dem
+      Run ueber Reihenfolge.
+    owns:
+      - ReadinessAssessment
+      - DependencyEdge
+      - Wave
+      - ExecutionPlan
+      - SchedulingPolicy
+      - ParallelizationPolicy
+
+  - id: governance-and-guards
+    responsibility: >
+      Hooks, Branch-/Artefakt-Schutz, Principal/Capability,
+      CCAG-Tool-Governance, Mandatsgrenzen-Eskalation,
+      Security/Identity, Rollen, Integrity-Gate,
+      Eskalationsmechanik.
+    owns:
+      - GuardDecision
+      - CapabilityToken
+      - Principal
+      - MandateEnforcement (Mechanik)
+      - PermissionVerdict
+      - IntegrityGate
+      - EscalationMechanism
+    excluded:
+      - Prompt-Audit-Hash-Format (prompt-runtime)
+      - Mandats-Erkennung (exploration-and-design)
+
+  - id: artifacts
+    responsibility: >
+      Artefakt-Referenzen, Envelope-Format, Producer-Registry,
+      Artefakt-Klassen — generische Artefakt-Infrastruktur.
+    owns:
+      - ArtifactReference
+      - Envelope
+      - ProducerId
+      - ArtifactClass
+    excluded:
+      - Prompt-Bundle-Komposition (prompt-runtime)
+
+  - id: telemetry-and-events
+    responsibility: >
+      ExecutionEvent-Stream, Event-Schemata,
+      Phase-State-Projektionen, QA-Read-Models.
+    owns:
+      - ExecutionEvent
+      - EventTypeId
+      - PhaseStateProjection
+      - QaReadModel
+
+  - id: requirements-and-scope-coverage
+    responsibility: >
+      must_cover-Pflichtanforderungen, Evidence-Einreichung,
+      Scope-Mapping, ARE-Dock-Points, Coverage-Verdict.
+      Vollstaendigkeit, NICHT Qualitaet.
+    owns:
+      - MustCoverObligation
+      - EvidenceReference
+      - ScopeMapping
+      - AreDockPoint
+      - CoverageVerdict
+    excluded:
+      - Stage-Registry (verify-system)
+      - Policy-Engine (verify-system)
+      - Blocking-Semantik (verify-system)
+
+  - id: prompt-runtime
+    responsibility: >
+      Prompt-Bundle-Komposition, Materialisierung, Audit-Hash,
+      Template-Mechanik. Drift-Vermeidung und Context-Schonung
+      des Orchestrators als Ausfuehrungs-Pattern.
+    owns:
+      - PromptBundle
+      - BundleMaterialization
+      - PromptAuditHash
+      - PromptTemplate
+      - BundleVersion
+    excluded:
+      - Skill-Inhalt (agent-skills)
+      - Was im Prompt steht (anfragende BC)
+
+  - id: agent-skills
+    responsibility: >
+      Welche Capabilities brauchen Agents jenseits ihrer
+      Werkseinstellungen, Skill-Definition, Skill-Variants
+      (z. B. core/ARE), Skill-Profile, Skill-Lifecycle,
+      Skill-Qualitaetssicherung.
+    owns:
+      - SkillId
+      - SkillVariant
+      - CapabilityProfile
+      - SkillLifecycle
+      - SkillQualityMetric
+    excluded:
+      - Bundle-Mechanik (prompt-runtime)
+      - Story-Ausfuehrungssemantik (pipeline-framework)
+
+  - id: kpi-and-dashboard
+    responsibility: >
+      KPI-Katalog, Erhebung, Aggregation/Rollups, Fact-Tabellen,
+      Dashboard-Sichten.
+    owns:
+      - KpiDefinition
+      - FactSchema
+      - Rollup
+      - DashboardView
+
+  - id: failure-corpus
+    responsibility: >
+      Fehlmuster-Sammlung, Pattern-Promotion, Check-Factory,
+      Lernschleife in deterministische Guards.
+    owns:
+      - FailurePattern
+      - PromotionStatus
+      - GeneratedCheckProposal
+      - IncidentCandidate
+
+  - id: installation-and-bootstrap
+    responsibility: >
+      Projektregistrierung, Installer-Checkpoints,
+      Hook/Wrapper-Bindung, Upgrade/Migration,
+      Customization-Preservation.
+    owns:
+      - BootstrapStatus
+      - InstallerCheckpoint
+      - ManifestContract
+
+
+# ----------------------------------------------------------------------
+# Querschnittliche Ebenen — keine BCs
+
+shared_kernel:
+  scope: cross-BC Value Objects ohne Fachsemantik
+  owns:
+    - ProjectKey
+    - StoryId (technische ID, nicht Lifecycle)
+    - RunId
+    - Instant
+    - Hash-/ID-/Zeit-Wertobjekte
+  rules:
+    - kein BC-Vokabular
+    - keine Geschaeftsregeln
+
+foundation_principles:
+  scope: normative Cross-BC-Regeln, Adapter, Referenzkataloge
+  may:
+    - Architekturprinzipien definieren (FK-01, FK-64, FK-65)
+    - Konfigurations-/Defaults-Rahmen definieren (FK-03, FK-93)
+    - Runtime-Rahmen beschreiben (FK-10)
+    - LLM-Integrationspattern dokumentieren (FK-11)
+    - Adapter-Vertraege beschreiben (FK-12 GitHub, FK-13 VektorDB)
+    - Operations/Runbooks halten (FK-52, FK-57)
+    - Referenzkataloge (FK-90, FK-91, FK-92) fuehren
+  may_not:
+    - BC-Fachvokabular definieren
+    - mit BC-Aussagen kollidieren
+
+
+# ----------------------------------------------------------------------
+# Drift-Risiken — verbindliche Aufgaben fuer das Frontmatter-Refactoring
+
+drift_risks:
+
+  - id: vertragsachsen-streuung
+    description: >
+      Vertragsachsen (mode, operating_mode, execution_route,
+      implementation_contract, exit_class) sind ueber FK-23, FK-24,
+      FK-56, FK-57, FK-58, FK-59 verteilt.
+    canonical_owner: FK-59 (Story-Vertragsachsen und Kombinationsmatrix)
+    rule: andere Dokumente duerfen nur spezialisieren, nicht definieren
+
+  - id: exploration-vs-governance
+    description: >
+      Mandats- und Scope-Explosion-Erkennung (FK-25) vs.
+      Eskalations- und Integrity-Mechanik (FK-35).
+    rule: >
+      Exploration erkennt fachlich „Mandat ueberschritten";
+      Governance entscheidet und materialisiert „welcher
+      Guard/Eskalationsmechanismus greift".
+
+  - id: verify-requirements-telemetry-dreieck
+    description: >
+      ARE-Gate als Stage in FK-33, Dock Points ueber FK-20,
+      Integrity-Validierung ueber FK-35; gleichzeitig owns FK-40
+      die fachliche Coverage-Semantik.
+    rule: >
+      FK-40 liefert Verdict, FK-33 klassifiziert Stage/Blocking,
+      FK-14 beobachtet, FK-35 erzwingt Closure-Integritaet.
+      Pro Begriff genau ein Definitions-Owner.
+
+  - id: artifacts-vs-prompt-runtime
+    description: >
+      Prompt-Bundles sind Artefakte — aber nicht jedes Artefakt
+      ist ein Prompt.
+    rule: >
+      ArtifactRecord beim BC artifacts; Bundle-Komposition,
+      Audit-Hash und Skill-Binding bei prompt-runtime.
+      Sonst wird artifacts zur generischen Muellhalde.
+
+
+# ----------------------------------------------------------------------
+# Bekannte erforderliche Doc-Splits
+# WICHTIG: Diese Liste ist NICHT autoritativ. Sie zeigt nur die in der
+# bisherigen Diskussion EXPLIZIT identifizierten Splits — kein Anspruch
+# auf Vollstaendigkeit. Eine vollstaendige Migration erfordert
+# systematische Frontmatter-Auswertung aller 65 Dokumente.
+
+known_required_doc_splits:
+
+  caveat: |
+    Stand der bisherigen Analyse — kein Anspruch auf Vollstaendigkeit.
+    Weitere Splits werden bei der praktischen Migration sehr
+    wahrscheinlich auftauchen, insbesondere wenn die Drift-Risiken
+    konkret aufgeloest werden. Quelle der Liste: Frontmatter-Analyse
+    plus Diskussion mit ChatGPT, nicht systematischer Audit.
+
+  splits:
+
+    - doc: FK-02
+      reason: mischt Story-Status, Artefakte, Stage-Registry-Spuren
+      target_bcs:
+        - story-lifecycle (Status-Teil)
+        - artifacts (Artefakt-Klassen + Envelope)
+        - verify-system (Stage-Registry-Spuren)
+
+    - doc: FK-17
+      reason: definiert BC-Vokabular, kann nicht in Foundation bleiben
+      target:
+        - shared-kernel (Value Objects)
+        - per-BC (kanonische Entities zu deren Owner-BC)
+        - separates Ownership-Register (reines Mapping ohne Fachsemantik)
+
+    - doc: FK-27
+      reason: mischt Verify-Pipeline und Closure-Orchestration
+      target_bcs:
+        - verify-system (qa-cycle, policy-evaluation, adversarial-orchestration)
+        - story-closure (closure-sequence, ClosurePayload)
+        - governance-and-guards (integrity-gate)
+        - kpi-and-dashboard (metrics_written als Konsument)
+
+    - doc: DK-02
+      reason: mischt Story-Lifecycle und Pipeline-Engine
+      target_bcs:
+        - story-lifecycle (Lifecycle-Teil)
+        - pipeline-framework (Engine-Teil)
+
+    - doc: DK-05
+      reason: mischt Telemetrie-Events und KPIs
+      target_bcs:
+        - telemetry-and-events (Event-Teil)
+        - kpi-and-dashboard (KPI-Teil)
+
+    - doc: DK-09
+      reason: mischt Tools/CCAG/Permissions und Skills
+      target_bcs:
+        - governance-and-guards (CCAG/Tools/Permissions)
+        - agent-skills (Skills/Variants)

@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" modified="2026-04-28T00:00:00.000Z" agent="ak3-diagram-export" version="22.1.16" type="device">
+  <diagram id="ak3-data-model" name="AK3 Fachliches Datenmodell">
+    <mxGraphModel dx="1820" dy="1520" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1820" pageHeight="1520" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="ent-ProjectSpace" value="ProjectSpace&#10;------------&#10;owner: installer&#10;role : root&#10;store: canonical_runtime_snapshot&#10;&#10;PK project_key : ProjectKey&#10;   display_name : Text&#10;   project_root : PathRef&#10;   runtime_profile : Enum&lt;RuntimeProfile&gt;&#10;   registration_status : Enum&lt;RegistrationStatus&gt;&#10;   skill_bundle_version : Text&#10;   prompt_bundle_version : Text" style="rounded=0;whiteSpace=wrap;html=0;align=left;verticalAlign=top;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;fontFamily=Courier New;spacingLeft=8;spacingRight=8;spacingTop=6;spacingBottom=6;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="300" height="224" as="geometry"/>
+        </mxCell>
+        <mxCell id="ent-Story" value="Story&#10;-----&#10;owner: story_context_manager&#10;role : root&#10;store: canonical_runtime_snapshot&#10;&#10;PK project_key : ProjectKey&#10;PK story_id : StoryId&#10;   external_item_ref : UriRef&#10;   title : Text&#10;   story_type : Enum&lt;StoryType&gt;&#10;   mode : Enum&lt;StoryMode&gt;&#10;   labels : StringSet  (opt)&#10;   size : Text  (opt)&#10;   status : Enum&lt;StoryStatus&gt;" style="rounded=0;whiteSpace=wrap;html=0;align=left;verticalAlign=top;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;fontFamily=Courier New;spacingLeft=8;spacingRight=8;spacingTop=6;spacingBottom=6;" vertex="1" parent="1">
+          <mxGeometry x="40" y="304" width="300" height="256" as="geometry"/>
+        </mxCell>
+        <mxCell id="ent-StoryContext" value="StoryContext&#10;------------&#10;owner: story_context_manager&#10;role : root&#10;store: canonical_runtime_snapshot&#10;&#10;PK project_key : ProjectKey&#10;PK story_id : StoryId&#10;   story_type : Enum&lt;StoryType&gt;&#10;   mode : Enum&lt;StoryMode&gt;&#10;   scope : Text|JsonValue&#10;   scope_keys : StringSet  (opt)&#10;   repo_bindings : JsonObject&#10;   concept_refs : StringList  (opt)&#10;   guardrail_refs : StringList  (opt)&#10;   external_sources : StringList  (opt)&#10;   related_story_ids : StringSet  (opt)&#10;   story_semantics : JsonObject  (opt)&#10;   tracker_binding : JsonObject&#10;   created_at : Instant&#10;   last_refreshed_at : Instant" style="rounded=0;whiteSpace=wrap;html=0;align=left;verticalAlign=top;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;fontFamily=Courier New;spacingLeft=8;spacingRight=8;spacingTop=6;spacingBottom=6;" vertex="1" parent="1">
+          <mxGeometry x="40" y="600" width="300" height="352" as="geometry"/>
+        </mxCell>
+        <mxCell id="ent-StoryCustomFieldDefinition" value="StoryCustomFieldDefinition&#10;--------------------------&#10;owner: story_context_manager&#10;role : root&#10;store: canonical_runtime_snapshot&#10;&#10;PK project_key : ProjectKey&#10;PK field_key : FieldKey&#10;   display_name : Text&#10;   field_type : Text&#10;   provider : Text&#10;   provider_field_ref : UriRef|Text&#10;   is_required : Boolean&#10;   is_writable_by_agentkit : Boolean&#10;   allowed_values : StringList  (opt)" style="rounded=0;whiteSpace=wrap;html=0;align=left;verticalAlign=top;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;fontFamily=Courier New;spacingLeft=8;spacingRight=8;spacingTop=6;spacingBottom=6;" vertex="1" parent="1">
+          <mxGeometry x="360" y="40" width="300" height="256" as="geometry"/>
+        </mxCell>
+        <mxCell id="ent-StoryCustomFieldValue" value="StoryCustomFieldValue&#10;---------------------&#10;owner: story_context_manager&#10;role : internal&#10;store: canonical_runtime_snapshot&#10;&#10;PK project_key : ProjectKey&#10;PK story_id : StoryId&#10;PK field_key : FieldKey&#10;   value : JsonValue  (opt)&#10;   value_status : Text  (opt)&#10;   source : Text&#10;   last_synced_at : Instant  (opt)&#10;   last_written_by : Text  (opt)&#10;   provider_sync_status : Enum&lt;ProviderSyncStatus&gt;&#10;   conflict_detected : Boolean&#10;   last_sync_attempt_at : Instant  (opt)" style="rounded=0;whiteSpace=wrap;html=0;align=left;verticalAlign=top;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;fontFamily=Courier New;spacingLeft=8;spacingRight=8;spacingTop=6;spacingBottom=6;" vertex="1" parent="1">
+          <mxGeometry x="360" y="336" width="300" height="288" as="geometry"/>
+        </mxCell>
+        <mxCell id="ent-FlowExecution" value="FlowExecution&#10;-------------&#10;owner: pipeline_engine&#10;role : root&#10;store: canonical_runtime_ledger&#10;&#10;PK project_key : ProjectKey&#10;FK story_id : StoryId&#10;PK run_id : RunId&#10;PK flow_id : FlowId&#10;   flow_level : Enum&lt;FlowLevel&gt;&#10;   owner_component : Text&#10;   status : Enum&lt;FlowStatus&gt;&#10;   current_node_id : NodeId  (opt)&#10;   attempt_no : Integer&#10;   started_at : Instant&#10;   finished_at : Instant  (opt)" style="rounded=0;whiteSpace=wrap;html=0;align=left;verticalAlign=top;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;fontFamily=Courier New;spacingLeft=8;spacingRight=8;spacingTop=6;spacingBottom=6;" vertex="1" parent="1">
+          <mxGeometry x="720" y="40" width="300" height="288" as="geometry"/>
+        </mxCell>
+        <mxCell id="ent-NodeExecution" value="NodeExecution&#10;-------------&#10;owner: pipeline_engine&#10;role : internal&#10;store: canonical_runtime_ledger&#10;&#10;PK project_key : ProjectKey&#10;FK story_id : StoryId&#10;FK run_id : RunId&#10;FK flow_id : FlowId&#10;PK node_id : NodeId&#10;PK attempt_no : Integer&#10;   outcome : Enum&lt;NodeOutcome&gt;&#10;   started_at : Instant&#10;   finished_at : Instant  (opt)&#10;   resume_trigger : Text  (opt)&#10;   backtrack_target : NodeId  (opt)" style="rounded=0;whiteSpace=wrap;html=0;align=left;verticalAlign=top;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;fontFamily=Courier New;spacingLeft=8;spacingRight=8;spacingTop=6;spacingBottom=6;" vertex="1" parent="1">
+          <mxGeometry x="720" y="368" width="300" height="288" as="geometry"/>
+        </mxCell>
+        <mxCell id="ent-AttemptRecord" value="AttemptRecord&#10;-------------&#10;owner: pipeline_engine&#10;role : internal&#10;store: canonical_audit_append&#10;&#10;PK project_key : ProjectKey&#10;FK story_id : StoryId&#10;FK run_id : RunId&#10;PK phase : Text&#10;PK attempt_no : Integer&#10;   outcome : Enum&lt;AttemptOutcome&gt;&#10;   failure_cause : Text|JsonValue  (opt)&#10;   started_at : Instant&#10;   ended_at : Instant" style="rounded=0;whiteSpace=wrap;html=0;align=left;verticalAlign=top;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;fontFamily=Courier New;spacingLeft=8;spacingRight=8;spacingTop=6;spacingBottom=6;" vertex="1" parent="1">
+          <mxGeometry x="720" y="696" width="300" height="256" as="geometry"/>
+        </mxCell>
+        <mxCell id="ent-PhaseState" value="PhaseState&#10;----------&#10;owner: phase_state_store&#10;role : projection&#10;store: runtime_projection&#10;&#10;PK project_key : ProjectKey&#10;PK story_id : StoryId&#10;PK run_id : RunId&#10;   phase : Text&#10;   status : Enum&lt;FlowStatus&gt;&#10;   payload : JsonObject  (opt)&#10;   updated_at : Instant" style="rounded=0;whiteSpace=wrap;html=0;align=left;verticalAlign=top;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;fontFamily=Courier New;spacingLeft=8;spacingRight=8;spacingTop=6;spacingBottom=6;" vertex="1" parent="1">
+          <mxGeometry x="720" y="992" width="300" height="224" as="geometry"/>
+        </mxCell>
+        <mxCell id="ent-OverrideRecord" value="OverrideRecord&#10;--------------&#10;owner: guard_system&#10;role : root&#10;store: canonical_audit_append&#10;&#10;PK project_key : ProjectKey&#10;FK story_id : StoryId&#10;FK run_id : RunId&#10;FK flow_id : FlowId&#10;   target_node_id : NodeId  (opt)&#10;   override_type : Enum&lt;OverrideType&gt;&#10;   actor_type : Enum&lt;ActorType&gt;&#10;   actor_id : Text&#10;   reason : Text&#10;   created_at : Instant&#10;   consumed_at : Instant  (opt)" style="rounded=0;whiteSpace=wrap;html=0;align=left;verticalAlign=top;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;fontFamily=Courier New;spacingLeft=8;spacingRight=8;spacingTop=6;spacingBottom=6;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="40" width="300" height="288" as="geometry"/>
+        </mxCell>
+        <mxCell id="ent-GuardDecision" value="GuardDecision&#10;-------------&#10;owner: guard_system&#10;role : root&#10;store: canonical_audit_append&#10;&#10;PK project_key : ProjectKey&#10;FK story_id : StoryId&#10;FK run_id : RunId&#10;FK flow_id : FlowId&#10;   node_id : NodeId  (opt)&#10;PK guard_key : Text&#10;   outcome : Enum&lt;GuardOutcome&gt;&#10;   reason : Text  (opt)&#10;   evidence_ref : UriRef|PathRef  (opt)&#10;   decided_at : Instant" style="rounded=0;whiteSpace=wrap;html=0;align=left;verticalAlign=top;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;fontFamily=Courier New;spacingLeft=8;spacingRight=8;spacingTop=6;spacingBottom=6;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="368" width="300" height="272" as="geometry"/>
+        </mxCell>
+        <mxCell id="ent-ArtifactRecord" value="ArtifactRecord&#10;--------------&#10;owner: artifact_manager&#10;role : root&#10;store: canonical_runtime_ledger&#10;&#10;PK project_key : ProjectKey&#10;FK story_id : StoryId&#10;FK run_id : RunId&#10;PK artifact_id : ArtifactId&#10;   artifact_class : Text&#10;   artifact_kind : Text&#10;   artifact_format : Text&#10;   artifact_status : Enum&lt;ArtifactStatus&gt;&#10;   produced_in_phase : Text&#10;   producer_component : Text&#10;   producer_trust : Text&#10;   attempt_no : Integer  (opt)&#10;   qa_cycle_id : Text  (opt)&#10;   qa_cycle_round : Integer  (opt)&#10;   evidence_epoch : Integer  (opt)&#10;   protection_level : Enum&lt;ProtectionLevel&gt;&#10;   frozen : Boolean&#10;   integrity_verified : Boolean&#10;   created_at : Instant&#10;   finished_at : Instant  (opt)&#10;   storage_ref : PathRef|UriRef" style="rounded=0;whiteSpace=wrap;html=0;align=left;verticalAlign=top;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;fontFamily=Courier New;spacingLeft=8;spacingRight=8;spacingTop=6;spacingBottom=6;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="680" width="300" height="448" as="geometry"/>
+        </mxCell>
+        <mxCell id="ent-ExecutionEvent" value="ExecutionEvent&#10;--------------&#10;owner: telemetry_service&#10;role : root&#10;store: runtime_observation_append&#10;&#10;PK project_key : ProjectKey&#10;FK story_id : StoryId&#10;FK run_id : RunId&#10;   event_type : Text&#10;   occurred_at : Instant&#10;   source_component : Text&#10;   flow_id : FlowId  (opt)&#10;   node_id : NodeId  (opt)&#10;   severity : Enum&lt;EventSeverity&gt;&#10;   event_payload_ref : UriRef|JsonValue  (opt)" style="rounded=0;whiteSpace=wrap;html=0;align=left;verticalAlign=top;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;fontFamily=Courier New;spacingLeft=8;spacingRight=8;spacingTop=6;spacingBottom=6;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="1168" width="300" height="272" as="geometry"/>
+        </mxCell>
+        <mxCell id="ent-KpiProjection" value="KpiProjection&#10;-------------&#10;owner: analytics&#10;role : projection&#10;store: analytics_projection&#10;&#10;PK project_key : ProjectKey&#10;PK projection_key : Text&#10;   metric_name : Text&#10;   metric_value : JsonValue&#10;   window_start : Instant  (opt)&#10;   window_end : Instant  (opt)&#10;   computed_at : Instant" style="rounded=0;whiteSpace=wrap;html=0;align=left;verticalAlign=top;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;fontFamily=Courier New;spacingLeft=8;spacingRight=8;spacingTop=6;spacingBottom=6;" vertex="1" parent="1">
+          <mxGeometry x="1440" y="40" width="300" height="224" as="geometry"/>
+        </mxCell>
+        <mxCell id="edge-1" value="owns" style="endArrow=ERmany;startArrow=ERone;html=0;rounded=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#444444;" edge="1" parent="1" source="ent-ProjectSpace" target="ent-Story">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="edge-2" value="scopes" style="endArrow=ERmany;startArrow=ERone;html=0;rounded=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#444444;" edge="1" parent="1" source="ent-ProjectSpace" target="ent-StoryCustomFieldDefinition">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="edge-3" value="aggregates" style="endArrow=ERmany;startArrow=ERone;html=0;rounded=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#444444;" edge="1" parent="1" source="ent-ProjectSpace" target="ent-KpiProjection">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="edge-4" value="snapshot" style="endArrow=ERone;startArrow=ERone;html=0;rounded=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#444444;" edge="1" parent="1" source="ent-Story" target="ent-StoryContext">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="edge-5" value="has-values" style="endArrow=ERmany;startArrow=ERone;html=0;rounded=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#444444;" edge="1" parent="1" source="ent-Story" target="ent-StoryCustomFieldValue">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="edge-6" value="defines" style="endArrow=ERmany;startArrow=ERone;html=0;rounded=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#444444;" edge="1" parent="1" source="ent-StoryCustomFieldDefinition" target="ent-StoryCustomFieldValue">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="edge-7" value="split-lineage" style="endArrow=ERmany;startArrow=ERone;html=0;rounded=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#444444;" edge="1" parent="1" source="ent-Story" target="ent-Story">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="edge-8" value="executes-as" style="endArrow=ERmany;startArrow=ERone;html=0;rounded=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#444444;" edge="1" parent="1" source="ent-Story" target="ent-FlowExecution">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="edge-9" value="per-run-projection" style="endArrow=ERmany;startArrow=ERone;html=0;rounded=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#444444;" edge="1" parent="1" source="ent-Story" target="ent-PhaseState">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="edge-10" value="node-ledger" style="endArrow=ERmany;startArrow=ERone;html=0;rounded=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#444444;" edge="1" parent="1" source="ent-FlowExecution" target="ent-NodeExecution">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="edge-11" value="phase-audit" style="endArrow=ERmany;startArrow=ERone;html=0;rounded=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#444444;" edge="1" parent="1" source="ent-FlowExecution" target="ent-AttemptRecord">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="edge-12" value="received" style="endArrow=ERmany;startArrow=ERone;html=0;rounded=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#444444;" edge="1" parent="1" source="ent-FlowExecution" target="ent-OverrideRecord">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="edge-13" value="yielded" style="endArrow=ERmany;startArrow=ERone;html=0;rounded=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#444444;" edge="1" parent="1" source="ent-FlowExecution" target="ent-GuardDecision">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="edge-14" value="produced" style="endArrow=ERmany;startArrow=ERone;html=0;rounded=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#444444;" edge="1" parent="1" source="ent-FlowExecution" target="ent-ArtifactRecord">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="edge-15" value="emitted" style="endArrow=ERmany;startArrow=ERone;html=0;rounded=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#444444;" edge="1" parent="1" source="ent-FlowExecution" target="ent-ExecutionEvent">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="edge-16" value="feeds" style="endArrow=ERmany;startArrow=ERmany;html=0;rounded=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#444444;" edge="1" parent="1" source="ent-ExecutionEvent" target="ent-KpiProjection">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

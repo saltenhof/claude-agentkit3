@@ -1,0 +1,79 @@
+# Policy-Registry — querschnittliche Constraints, die nicht als Domaene
+# modelliert werden (siehe 00_index.md §9.9).
+#
+# Schema pro Eintrag:
+#   id:          stabile policy-id, kebab-case mit "policy."-prefix
+#   title:       menschenlesbarer Name
+#   source_doc:  FK- oder DK-ID (oder Repo-Pfad), wo die Policy normativ
+#                definiert ist
+#   summary:     1-2 Saetze, was ein Doc unterschreibt, wenn es die Policy
+#                in `applies_policies` referenziert
+#
+# Konzepte verweisen via `applies_policies: [policy.x, policy.y]` im
+# Frontmatter. Lint pruft, dass jeder Eintrag in dieser Registry steht.
+
+policies:
+
+  - id: policy.severity-semantics
+    title: Severity-Semantik (PASS / WARNING / ERROR)
+    source_doc: CLAUDE.md#severity-semantik
+    summary: >
+      PASS = fehlerfrei. WARNING = Handlungsauftrag mit aufschiebender
+      Wirkung; muss aktiv an den Auftraggeber gespiegelt werden, niemals
+      ignoriert. ERROR = sofort beheben, kein Bypass. Validatoren in
+      AK3 nutzen ueberwiegend nur PASS und ERROR; Warnings nur dort, wo
+      aufschiebbares Handeln strukturell verankert ist.
+
+  - id: policy.fail-closed
+    title: Fail-Closed bei unbekanntem Zustand
+    source_doc: FK-01
+    summary: >
+      Jeder unbekannte Zustand ist ein Fehler. Defaults zugunsten des
+      restriktiveren Pfads. Fehlende Konfigurationsfelder, ungueltige
+      Artefakte oder unzustellbare externe Systeme fuehren zu Abbruch
+      mit Fehlercode, nicht zu stillem Fortfahren.
+
+  - id: policy.trust-boundaries
+    title: Trust-Boundary-Modell (Zonen 1-4)
+    source_doc: FK-01
+    summary: >
+      Vier Vertrauenszonen: Plattform/Hooks, Pipeline-Code,
+      Agent-Ausfuehrung, externe LLMs. Zone 3 darf Zone 1/2 weder
+      umgehen noch direkt mutieren. Zone 4 entscheidet nicht; ihre
+      Antworten werden geparst und validiert.
+
+  - id: policy.truth-boundary
+    title: Truth-Boundary-Vertrag (DB als Wahrheit, nicht Datei)
+    source_doc: FK-64
+    summary: >
+      Kanonische Runtime-Wahrheit liegt in PostgreSQL. JSON-Exporte sind
+      Materialisierungen, niemals Wahrheitsquelle. Loader-Symbole und
+      Modul-Importe werden statisch gegen die Truth-Boundary-Spec
+      geprueft.
+
+  - id: policy.zero-debt
+    title: Zero-Debt-Rule
+    source_doc: CLAUDE.md#zero-debt-rule
+    summary: >
+      Jede Aenderung muss fachlich vollstaendig im vereinbarten Scope
+      sein. Keine stillen Restluecken, keine TODO-Verschiebungen, keine
+      "spaeter sauber machen"-Strategie. Was nicht loesbar ist, wird
+      explizit gemeldet, nicht stumm liegen gelassen.
+
+  - id: policy.single-source-of-truth
+    title: Single Source of Truth ist Pflicht
+    source_doc: CLAUDE.md#single-source-of-truth-ist-pflicht
+    summary: >
+      Deployte Zielprojekt-Dateien existieren genau einmal. Produktions-
+      code lebt nur unter `src/agentkit/`. `var/` ist ephemer und
+      niemals fachliche Wahrheit. Externe Systeme liefern Eingabe, nicht
+      operative Wahrheit waehrend eines Runs.
+
+  - id: policy.no-error-bypassing
+    title: No Error Bypassing
+    source_doc: CLAUDE.md#no-error-bypassing
+    summary: >
+      Bei Test-, Build-, Lint-, Typ- oder Guard-Fehlern wird die Ursache
+      behoben. Keine Umgehungspfade, die Validierung, Guards oder
+      Stage-Pruefungen aushebeln. Keine heimlichen Fallbacks auf
+      schlechtere Datenqualitaet.

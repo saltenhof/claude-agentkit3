@@ -189,6 +189,17 @@ PY
             }
         }
 
+        stage('Concept Frontmatter Lint') {
+            steps {
+                dir('agentkit-src') {
+                    sh '''
+                        . .venv/bin/activate
+                        PYTHONPATH=src python scripts/ci/check_concept_frontmatter.py
+                    '''
+                }
+            }
+        }
+
         stage('Formal Spec Compile') {
             steps {
                 dir('agentkit-src') {

@@ -1,0 +1,149 @@
+# Domain-Registry — Bounded-Context-Schnitt von AK3 (siehe 00_index.md §9.10).
+#
+# Schema pro Eintrag:
+#   id:            kebab-case, eindeutig
+#   display_name:  menschenlesbar
+#   contract_docs: [FK-NN, ...]   # Docs mit Vertragscharakter (surface=contract abgeleitet)
+#   member_docs:   [FK-NN, ...]   # Innenleben der Domaene (surface=internal)
+#
+# Pflege:
+# - Ein FK-Doc darf in genau einer Domaene Mitglied sein (Bounded Context
+#   ist disjunkt).
+# - Ein FK-Doc, das in `contract_docs` steht, darf nicht zusaetzlich in
+#   `member_docs` derselben Domaene auftauchen.
+# - Glossar-Inhalte leben im Contract-Doc selbst (siehe 00_index.md §9.11).
+#
+# Initiale Befuellung 2026-04-29 nach BC-Vorgabe (concept/technical-design/_meta/bounded-contexts.yaml).
+#
+# Foundation/Adapter/Querschnittskataloge sind hier KEINE Domaene
+# (siehe bounded-contexts.yaml §foundation_principles). Solche Docs
+# tragen stattdessen `cross_cutting: true` im Frontmatter und sind
+# damit fail-closed-konform aus L17/L18 ausgenommen — siehe
+# 00_index.md §9.13.
+
+domains:
+
+  - id: pipeline-framework
+    display_name: Pipeline-Framework (Knotenkomposition + Kontrollfluss)
+    contract_docs:
+      - DK-02
+      - FK-20
+      - FK-36
+      - FK-39
+      - FK-45
+
+  - id: exploration-and-design
+    display_name: Exploration und Design
+    contract_docs:
+      - FK-23
+      - FK-25
+
+  - id: implementation-phase
+    display_name: Implementation-Phase
+    contract_docs:
+      - FK-26
+    member_docs:
+      - FK-49
+
+  - id: verify-system
+    display_name: Verify-System (Multi-Layer-QA-Capability)
+    contract_docs:
+      - DK-04
+      - DK-11
+      - FK-27
+      - FK-28
+      - FK-32
+      - FK-33
+      - FK-34
+      - FK-37
+      - FK-38
+    member_docs:
+      - FK-46
+      - FK-47
+      - FK-48
+
+  - id: story-closure
+    display_name: Story-Closure
+    contract_docs:
+      - FK-29
+
+  - id: story-lifecycle
+    display_name: Story-Lifecycle
+    contract_docs:
+      - DK-10
+      - FK-21
+      - FK-24
+      - FK-53
+      - FK-54
+      - FK-56
+      - FK-58
+
+  - id: execution-planning
+    display_name: Execution-Planning
+    contract_docs:
+      - FK-66
+
+  - id: governance-and-guards
+    display_name: Governance und Guards
+    contract_docs:
+      - DK-03
+      - DK-09
+      - FK-22
+      - FK-30
+      - FK-31
+      - FK-35
+      - FK-42
+      - FK-55
+
+  - id: artifacts
+    display_name: Artefakte (Envelope, Producer-Registry, Klassen)
+    contract_docs:
+      - FK-67
+
+  - id: telemetry-and-events
+    display_name: Telemetrie und Events
+    contract_docs:
+      - DK-05
+      - FK-14
+      - FK-16
+
+  - id: requirements-and-scope-coverage
+    display_name: Requirements und Scope-Coverage (ARE)
+    contract_docs:
+      - DK-06
+      - FK-40
+
+  - id: prompt-runtime
+    display_name: Prompt-Runtime
+    contract_docs:
+      - FK-44
+
+  - id: agent-skills
+    display_name: Agent-Skills
+    contract_docs:
+      - DK-01
+      - DK-12
+      - FK-43
+
+  - id: kpi-and-dashboard
+    display_name: KPI und Dashboard
+    contract_docs:
+      - DK-13
+      - FK-60
+      - FK-61
+      - FK-62
+      - FK-63
+
+  - id: failure-corpus
+    display_name: Failure-Corpus
+    contract_docs:
+      - DK-07
+      - FK-41
+
+  - id: installation-and-bootstrap
+    display_name: Installation und Bootstrap
+    contract_docs:
+      - DK-08
+      - FK-50
+      - FK-51
+

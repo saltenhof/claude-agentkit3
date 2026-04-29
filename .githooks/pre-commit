@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# AK3 pre-commit hook: runs concept validators only when concept files
+# (or the validators themselves, or the meta files they consume) change.
+#
+# Activate once per clone:
+#   git config core.hookspath .githooks
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+# Files staged for commit (added, copied, modified, renamed).
+mapfile -t CHANGED < <(git diff --cached --name-only --diff-filter=ACMR)
+
+if [ ${#CHANGED[@]} -eq 0 ]; then
+    exit 0
+fi
+
+needs_concept_validation=0
+for f in "${CHANGED[@]}"; do
+    case "$f" in
+        concept/*) needs_concept_validation=1 ;;
+        scripts/ci/check_concept_frontmatter.py) needs_concept_validation=1 ;;
+        scripts/ci/compile_formal_specs.py) needs_concept_validation=1 ;;
+        tools/concept_compiler/*) needs_concept_validation=1 ;;
+    esac
+done
+
+if [ "$needs_concept_validation" -eq 0 ]; then
+    exit 0
+fi
+
+echo "[pre-commit] Concept changes detected; running validators..."
+
+PYTHON="${PYTHON:-python}"
+
+set +e
+"$PYTHON" scripts/ci/check_concept_frontmatter.py
+fm_rc=$?
+"$PYTHON" scripts/ci/compile_formal_specs.py
+cs_rc=$?
+set -e
+
+if [ "$fm_rc" -ne 0 ] || [ "$cs_rc" -ne 0 ]; then
+    echo
+    echo "[pre-commit] FAILED — fix the errors above before committing."
+    echo "             To temporarily bypass (only with explicit reason):"
+    echo "                 git commit --no-verify"
+    exit 1
+fi
+
+echo "[pre-commit] OK"
+exit 0

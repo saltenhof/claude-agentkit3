@@ -85,6 +85,25 @@ Unklare oder unvollstaendige Zustaende werden nicht grosszuegig toleriert.
 - Fehlende externe Systeme, kaputte Konfiguration oder verletzte Vorbedingungen werden nicht wegerklaert.
 - Warnungen sind keine Dekoration. Root Cause analysieren und beheben.
 
+### SEVERITY-SEMANTIK
+
+Drei Stufen, klar abgegrenzt:
+
+- **PASS** — fehlerfrei, kein Handlungsauftrag.
+- **WARNING** — Handlungsauftrag mit aufschiebender Wirkung. Etwas muss
+  gemacht werden, aber nicht sofort. Ein Warning darf **nicht** ignoriert
+  oder weggeklickt werden. Wer einen Warning erzeugt oder erbt, hat die
+  Pflicht, ihn aktiv an den Auftraggeber zu spiegeln mit der Frage „wie
+  wollen wir hier vorgehen". Stilles Liegenlassen ist Verstoss gegen
+  ZERO DEBT.
+- **ERROR** — Handlungsauftrag ohne aufschiebende Wirkung. Sofort
+  beheben. Keine Bypässe, keine Workarounds.
+
+Nicht jeder Befund braucht einen Warning-Pfad. Wo aufschiebbares Handeln
+in der Praxis nicht passiert (Erfahrung: Warnings gehen unter), ist
+ERROR die richtige Wahl. Ein Befund, fuer den niemand spaeter Zeit
+bekommt, ist im Effekt ein ignorierter Befund.
+
 ### NO ERROR BYPASSING
 
 - Bei Test-, Build-, Lint-, Typ- oder Guard-Fehlern wird die Ursache behoben.
