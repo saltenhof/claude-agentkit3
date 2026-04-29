@@ -35,6 +35,9 @@ defers_to:
   - target: FK-30
     scope: review-templates
     reason: Review-Template-Sentinel und hook.py-Regex liegen in FK-30
+  - target: FK-67
+    scope: artefakt-envelope
+    reason: Bundle-Manifest und Evidenz-Container folgen dem Envelope-Schema und der Producer-Registry (FK-67)
 supersedes: []
 superseded_by:
 tags: [evidence-assembly, authority-classes, review-preparation, bundles]

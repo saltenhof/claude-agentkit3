@@ -24,6 +24,9 @@ defers_to:
   - target: FK-30
     scope: worker-health-monitor
     reason: Scoring-Modell, Eskalationsleiter und Sidecar-Architektur in Kap. 30 definiert
+  - target: FK-44
+    scope: prompt-bundles
+    reason: Worker-Prompts werden aus dem run-gebundenen Prompt-Bundle materialisiert (FK-44)
 supersedes: []
 superseded_by:
 tags: [implementation, worker-loop, handover, incremental-development, review]

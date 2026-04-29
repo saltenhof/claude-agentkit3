@@ -2,7 +2,7 @@
 concept_id: FK-59
 title: Story-Vertragsachsen und Kombinationsmatrix
 module: story-contracts
-cross_cutting: true
+domain: story-lifecycle
 status: active
 doc_kind: core
 parent_concept_id:

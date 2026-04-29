@@ -18,6 +18,12 @@ defers_to:
   - target: FK-48
     scope: adversarial-testing
     reason: Schicht 3 (Adversarial Testing Runtime) und Mandatory Adversarial Targets liegen in FK-48
+  - target: FK-44
+    scope: prompt-bundles
+    reason: QA-, Semantic- und Umsetzungstreue-Prompts werden aus dem gebundenen Prompt-Bundle materialisiert (FK-44)
+  - target: FK-67
+    scope: artefakt-envelope
+    reason: LLM-Bewertungsergebnisse (qa_review.json, semantic_review.json) folgen dem Envelope-Schema und der Producer-Registry (FK-67)
 supersedes: []
 superseded_by:
 tags: [llm-evaluation, qa-review, semantic-review, verify-phase]

@@ -18,6 +18,9 @@ defers_to:
   - target: FK-35
     scope: integrity-gate
     reason: Integrity-Gate verifies that doc-fidelity events exist in telemetry at closure
+  - target: FK-67
+    scope: artefakt-envelope
+    reason: Conformance-Artefakte folgen dem Envelope-Schema und der Producer-Registry (FK-67)
 supersedes: []
 superseded_by:
 tags: [conformance, document-fidelity, llm-evaluation, strategy-compliance, drift-detection]

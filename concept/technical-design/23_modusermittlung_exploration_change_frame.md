@@ -24,6 +24,9 @@ defers_to:
   - target: FK-25
     scope: exploration-mandate
     reason: Mandatsklassifikation, Feindesign-Subprozess und Eskalationsklassen fuer Review-Findings sind in Kap. 25 definiert
+  - target: FK-44
+    scope: prompt-bundles
+    reason: Exploration konsumiert Prompt-Templates aus dem gebundenen Prompt-Bundle (FK-44)
 supersedes: []
 superseded_by:
 tags: [exploration, change-frame, drift-detection, mode-routing, document-fidelity]

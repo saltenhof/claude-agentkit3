@@ -43,6 +43,12 @@ defers_to:
   - target: FK-38
     scope: feedback-und-doctreue
     reason: Feedback-Mechanismus, Umsetzungstreue (Ebene 3) und Rückkopplungstreue (Ebene 4) in FK-38
+  - target: FK-44
+    scope: prompt-bundles
+    reason: LLM-Evaluator-Prompts werden aus dem gebundenen Prompt-Bundle materialisiert (FK-44)
+  - target: FK-67
+    scope: artefakt-envelope
+    reason: QA-Artefakte (qa_review.json, semantic_review.json, decision.json, structural.json) folgen dem Envelope-Schema und der Producer-Registry (FK-67)
 supersedes: []
 superseded_by:
 tags: [verify, qa-cycle, adversarial-testing, policy-evaluation, layered-checks]

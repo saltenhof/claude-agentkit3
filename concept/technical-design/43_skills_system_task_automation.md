@@ -12,6 +12,9 @@ defers_to:
   - target: FK-20
     scope: workflow-engine
     reason: Execute-userstory skill orchestrates pipeline phases managed by the workflow engine
+  - target: FK-44
+    scope: prompt-bundles
+    reason: Skill-Templates werden ueber die Prompt-Bundle-Materialisierung gebunden (FK-44)
 supersedes: []
 superseded_by:
 tags: [skills, automation, prompt-templates, symlink-binding, extensibility]

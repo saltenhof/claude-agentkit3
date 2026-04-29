@@ -44,6 +44,9 @@ defers_to:
   - target: FK-41
     scope: incident-candidate
     reason: Postflight- und Doc-Fidelity-FAIL erzeugen Incident-Kandidaten
+  - target: FK-67
+    scope: artefakt-envelope
+    reason: closure.json folgt dem Envelope-Schema und ist in der Producer-Registry verzeichnet (FK-67)
 supersedes: []
 superseded_by:
 tags: [closure, integrity-gate, finding-resolution, postflight, execution-report, guard-deactivation]
