@@ -21,9 +21,9 @@ defers_to:
   - target: FK-10
     scope: state-backend
     reason: agent-health.json ist ein Export einer State-Backend-Persistenz; siehe FK-10 §10.5
-  - target: FK-14
+  - target: FK-68
     scope: telemetry
-    reason: Telemetrie-Events bei Soft-Intervention und Hard Stop folgen FK-14
+    reason: Telemetrie-Events bei Soft-Intervention und Hard Stop folgen FK-68
 supersedes: []
 superseded_by:
 tags: [hooks, worker-health-monitor, pretooluse, posttooluse]

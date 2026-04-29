@@ -224,7 +224,7 @@ Zusätzlich scannt der Check Diff-Inhalte auf Patterns wie
 
 ### 15.5.3 Governance-Beobachtung: Secret-Zugriff
 
-Die Governance-Beobachtung (Kap. 14.8, FK 6.6) erkennt
+Die Governance-Beobachtung (Kap. 68.8, FK 6.6) erkennt
 Zugriffe auf Secrets als Hook-Signal:
 
 | Signal | Reaktion |

@@ -38,9 +38,9 @@ defers_to:
   - target: FK-02
     scope: domain-model
     reason: Story-Lifecycle-Zustände und kanonische Enums liegen im Domänenmodell
-  - target: FK-67
+  - target: FK-71
     scope: artefakt-envelope
-    reason: phase-state.json wird als Pipeline-Artefakt mit Envelope-Schema materialisiert (FK-67)
+    reason: phase-state.json wird als Pipeline-Artefakt mit Envelope-Schema materialisiert (FK-71)
 supersedes: []
 superseded_by:
 tags: [state-machine, phase-runner, persistenz, runtime-state, state-backend]

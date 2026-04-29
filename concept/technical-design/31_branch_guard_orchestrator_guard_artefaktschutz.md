@@ -423,7 +423,7 @@ Zusätzlich zum Hook eine CCAG-Regel als zweite Absicherungsschicht:
 ### 31.3.6 Audit-Trail
 
 Jeder Blockade-Versuch wird als `integrity_violation`-Event in
-`execution_events` geschrieben (Kap. 14). Das Integrity-Gate
+`execution_events` geschrieben (Kap. 68). Das Integrity-Gate
 prüft bei Closure, dass keine Violations vorliegen (FK-06-088).
 
 ## 31.4 QA-Agent-Guard

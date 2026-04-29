@@ -9,7 +9,7 @@ version: 1
 prose_refs:
   - concept/technical-design/17_fachliches_datenmodell_ownership.md
   - concept/technical-design/18_relationales_abbildungsmodell_postgres.md
-  - concept/technical-design/16_qa_telemetrie_aggregation_dashboard.md
+  - concept/technical-design/69_qa_telemetrie_aggregation_dashboard.md
   - concept/technical-design/53_story_reset_service_recovery_flow.md
 ---
 

@@ -7,7 +7,7 @@ context: integration-stabilization
 spec_kind: entity-set
 version: 1
 prose_refs:
-  - concept/technical-design/57_integration_stabilization_contract.md
+  - concept/technical-design/05_integration_stabilization_contract.md
 ---
 
 # Integration Stabilization Entities

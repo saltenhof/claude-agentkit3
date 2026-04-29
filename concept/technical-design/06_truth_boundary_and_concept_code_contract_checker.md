@@ -1,5 +1,5 @@
 ---
-concept_id: FK-64
+concept_id: FK-06
 title: "Truth Boundary und Concept-to-Code-Contract-Checker"
 module: truth-boundary-checker
 cross_cutting: true
@@ -24,11 +24,11 @@ formal_refs:
   - formal.truth-boundary-checker.invariants
 ---
 
-# 64 — Truth Boundary und Concept-to-Code-Contract-Checker
+# 6 — Truth Boundary und Concept-to-Code-Contract-Checker
 
 <!-- PROSE-FORMAL: formal.state-storage.invariants, formal.truth-boundary-checker.invariants -->
 
-## 64.1 Zweck
+## 6.1 Zweck
 
 Dieses Kapitel zieht die Wahrheitsgrenze von AK3 technisch scharf:
 
@@ -43,9 +43,9 @@ Zusätzlich definiert dieses Kapitel einen deterministischen
 Concept-to-Code-Contract-Checker, der genau diese Grenze gegen den
 Python-Code durchsetzt.
 
-## 64.2 Normative Zielarchitektur
+## 6.2 Normative Zielarchitektur
 
-### 64.2.1 Kanonische Wahrheit
+### 6.2.1 Kanonische Wahrheit
 
 Die operative Wahrheit für Story-Ausführung, Verify und Governance liegt
 in den kanonischen Tabellen-/Record-Familien des State-Backends,
@@ -59,7 +59,7 @@ insbesondere:
 - `guard_decisions`
 - `override_records`
 
-### 64.2.2 Nicht-kanonische Materialisierungen
+### 6.2.2 Nicht-kanonische Materialisierungen
 
 Dateien wie:
 
@@ -85,7 +85,7 @@ sind nur:
 Sie dürfen nie die einzige Wahrheitsquelle für Runtime- oder
 Governance-Entscheidungen sein.
 
-## 64.3 Harte Leseregel
+## 6.3 Harte Leseregel
 
 Für folgende Codezonen gilt ein hartes Leserverbot gegen nicht-
 kanonische Story-Exports:
@@ -108,7 +108,7 @@ Erlaubt bleiben:
 - Migrationen mit expliziter Sonderkennzeichnung
 - Tests und Fixtures
 
-## 64.4 Checker-Vertrag
+## 6.4 Checker-Vertrag
 
 Der Contract-Checker muss mindestens folgende Verstöße fail-closed
 erkennen:
@@ -123,7 +123,7 @@ erkennen:
    beobachtende Datenfamilien als operative Hauptwahrheit zu, wenn
    dafür kein expliziter Ausnahmepfad definiert ist
 
-## 64.5 Schärfegrad
+## 6.5 Schärfegrad
 
 Der Checker ist bewusst nicht „warnend“, sondern giftig:
 
@@ -132,7 +132,7 @@ Der Checker ist bewusst nicht „warnend“, sondern giftig:
   werden
 - neue Verstöße dürfen niemals still akzeptiert werden
 
-## 64.6 Migrationsprinzip
+## 6.6 Migrationsprinzip
 
 Solange Legacy-Dateiexporte im Repo noch existieren, gilt:
 

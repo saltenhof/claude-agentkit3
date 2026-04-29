@@ -27,7 +27,7 @@ def build_story_metrics_record(
     completed_at: datetime,
     final_status: str,
 ) -> StoryMetricsRecord:
-    """Build the required FK-16 story metrics from canonical runtime sources."""
+    """Build the required FK-69 story metrics from canonical runtime sources."""
 
     scope = resolve_runtime_scope(story_dir)
     if scope.story_id != ctx.story_id:

@@ -14,9 +14,9 @@ defers_to:
   - target: FK-20
     scope: workflow-engine
     reason: Hierarchische Prozess-DSL und Phasenuebergaenge sind in FK-20 modelliert
-  - target: FK-65
+  - target: FK-07
     scope: component-architecture
-    reason: Normativer Komponentenschnitt und Importgrenzen sind in FK-65 verankert
+    reason: Normativer Komponentenschnitt und Importgrenzen sind in FK-07 verankert
 supersedes: []
 superseded_by:
 tags: [architektur, systemkontext, fail-closed, trust-boundaries, multi-llm]
@@ -138,7 +138,7 @@ abgegrenztes Verantwortungsbuendel mit klarer Schnittstelle. Eine
 Komponente ist **nicht** automatisch eine Python-Klasse, ein Modul
 oder ein Prozess.
 
-Der normative Komponentenschnitt von AK3 wird in FK-65 festgezogen.
+Der normative Komponentenschnitt von AK3 wird in FK-07 festgezogen.
 Dieses Kapitel enthaelt nur die uebergeordneten Prinzipien:
 
 | Regel | Bedeutung |

@@ -18,7 +18,7 @@ defers_to:
   - target: FK-56
     scope: operating-mode-resolution
     reason: operating_mode bleibt ein abgeleiteter Session-/Run-Zustand
-  - target: FK-57
+  - target: FK-05
     scope: implementation-contract
     reason: integration_stabilization bleibt dort fachlich ausgearbeitet
   - target: FK-58

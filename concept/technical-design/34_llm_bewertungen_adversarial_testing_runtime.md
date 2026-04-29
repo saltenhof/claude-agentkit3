@@ -21,9 +21,9 @@ defers_to:
   - target: FK-44
     scope: prompt-bundles
     reason: QA-, Semantic- und Umsetzungstreue-Prompts werden aus dem gebundenen Prompt-Bundle materialisiert (FK-44)
-  - target: FK-67
+  - target: FK-71
     scope: artefakt-envelope
-    reason: LLM-Bewertungsergebnisse (qa_review.json, semantic_review.json) folgen dem Envelope-Schema und der Producer-Registry (FK-67)
+    reason: LLM-Bewertungsergebnisse (qa_review.json, semantic_review.json) folgen dem Envelope-Schema und der Producer-Registry (FK-71)
 supersedes: []
 superseded_by:
 tags: [llm-evaluation, qa-review, semantic-review, verify-phase]
@@ -522,7 +522,7 @@ QA-Agenten.
 ### 34.8.4 Telemetrie-Integration
 
 Die Divergenz-Prüfung schreibt ein `review_divergence`-Event
-(Kap. 14) mit folgenden Feldern:
+(Kap. 68) mit folgenden Feldern:
 
 | Feld | Typ | Beschreibung |
 |------|-----|-------------|

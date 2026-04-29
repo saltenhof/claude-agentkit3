@@ -47,7 +47,7 @@ Nicht Teil dieses Kontexts sind:
 - [FK-12](/T:/codebase/claude-agentkit3/concept/technical-design/12_github_integration_repo_operationen.md)
 - [FK-27](/T:/codebase/claude-agentkit3/concept/technical-design/27_verify_pipeline_closure_orchestration.md)
 - [FK-31](/T:/codebase/claude-agentkit3/concept/technical-design/31_branch_guard_orchestrator_guard_artefaktschutz.md)
-- [FK-52](/T:/codebase/claude-agentkit3/concept/technical-design/52_betrieb_monitoring_audit_runbooks.md)
+- [FK-04](/T:/codebase/claude-agentkit3/concept/technical-design/04_betrieb_monitoring_audit_runbooks.md)
 - [FK-91](/T:/codebase/claude-agentkit3/concept/technical-design/91_api_event_katalog.md)
 - [FK-17](/T:/codebase/claude-agentkit3/concept/technical-design/17_fachliches_datenmodell_ownership.md)
 - [FK-18](/T:/codebase/claude-agentkit3/concept/technical-design/18_relationales_abbildungsmodell_postgres.md)

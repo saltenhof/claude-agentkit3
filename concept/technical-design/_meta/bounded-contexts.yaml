@@ -252,12 +252,12 @@ shared_kernel:
 foundation_principles:
   scope: normative Cross-BC-Regeln, Adapter, Referenzkataloge
   may:
-    - Architekturprinzipien definieren (FK-01, FK-64, FK-65)
+    - Architekturprinzipien definieren (FK-01, FK-06, FK-07)
     - Konfigurations-/Defaults-Rahmen definieren (FK-03, FK-93)
     - Runtime-Rahmen beschreiben (FK-10)
     - LLM-Integrationspattern dokumentieren (FK-11)
     - Adapter-Vertraege beschreiben (FK-12 GitHub, FK-13 VektorDB)
-    - Operations/Runbooks halten (FK-52, FK-57)
+    - Operations/Runbooks halten (FK-04, FK-05)
     - Referenzkataloge (FK-90, FK-91, FK-92) fuehren
   may_not:
     - BC-Fachvokabular definieren
@@ -273,7 +273,7 @@ drift_risks:
     description: >
       Vertragsachsen (mode, operating_mode, execution_route,
       implementation_contract, exit_class) sind ueber FK-23, FK-24,
-      FK-56, FK-57, FK-58, FK-59 verteilt.
+      FK-56, FK-05, FK-58, FK-59 verteilt.
     canonical_owner: FK-59 (Story-Vertragsachsen und Kombinationsmatrix)
     rule: andere Dokumente duerfen nur spezialisieren, nicht definieren
 
@@ -293,7 +293,7 @@ drift_risks:
       die fachliche Coverage-Semantik.
     rule: >
       FK-40 liefert Verdict, FK-33 klassifiziert Stage/Blocking,
-      FK-14 beobachtet, FK-35 erzwingt Closure-Integritaet.
+      FK-68 beobachtet, FK-35 erzwingt Closure-Integritaet.
       Pro Begriff genau ein Definitions-Owner.
 
   - id: artifacts-vs-prompt-runtime

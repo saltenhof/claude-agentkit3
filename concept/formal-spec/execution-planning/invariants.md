@@ -7,7 +7,7 @@ context: execution-planning
 spec_kind: invariant-set
 version: 1
 prose_refs:
-  - concept/technical-design/66_story_planung_abhaengigkeiten_ausfuehrungsplanung.md
+  - concept/technical-design/70_story_planung_abhaengigkeiten_ausfuehrungsplanung.md
 ---
 
 # Execution Planning Invariants

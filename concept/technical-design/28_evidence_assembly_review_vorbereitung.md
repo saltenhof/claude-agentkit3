@@ -35,9 +35,9 @@ defers_to:
   - target: FK-30
     scope: review-templates
     reason: Review-Template-Sentinel und hook.py-Regex liegen in FK-30
-  - target: FK-67
+  - target: FK-71
     scope: artefakt-envelope
-    reason: Bundle-Manifest und Evidenz-Container folgen dem Envelope-Schema und der Producer-Registry (FK-67)
+    reason: Bundle-Manifest und Evidenz-Container folgen dem Envelope-Schema und der Producer-Registry (FK-71)
 supersedes: []
 superseded_by:
 tags: [evidence-assembly, authority-classes, review-preparation, bundles]
@@ -740,7 +740,7 @@ Evidenz-Identität, bestehend aus:
 
 Diese Werte werden in das Manifest-Artefakt geschrieben und in
 Preflight-Response, Review-Response und Divergenz-Telemetrie
-(FK-14) referenziert. So ist nachvollziehbar, auf welcher
+(FK-68) referenziert. So ist nachvollziehbar, auf welcher
 Evidenzbasis jeder Reviewer gearbeitet hat.
 
 **Hash-Berechnung:**

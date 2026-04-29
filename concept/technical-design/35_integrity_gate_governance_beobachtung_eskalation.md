@@ -248,7 +248,7 @@ Haertung). FK-29 §29.2 (Finding-Resolution als Closure-Gate).
 - `PREFLIGHT_NOT_COMPLIANT`: `preflight_request_count > 0`,
   aber `preflight_compliant_count < preflight_request_count` —
   Preflight inkonsistent. Harter Blocker.
-Siehe Kap. 14.9.3.
+Siehe Kap. 68.9.3.
 
 **Prüfung gegen Konfiguration:** Das Gate liest `llm_roles`
 aus der Pipeline-Config und prüft ob für **jede konfigurierte

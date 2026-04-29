@@ -24,7 +24,7 @@ defers_to:
   - target: FK-12
     scope: github-state
     reason: GitHub-Issue- und Project-Status werden dort technisch konkretisiert
-  - target: FK-57
+  - target: FK-05
     scope: integration-stabilization-exception
     reason: Enge Reklassifikation auf integration_stabilization ersetzt den Split-Standardpfad und wird dort normiert
 supersedes: []
@@ -82,7 +82,7 @@ Fuer AK3 gilt normativ:
    vollzogen; er benoetigt eine ausdrueckliche menschliche
    Entscheidung und den offiziellen CLI-Pfad.
 
-**Narrow exception:** FK-57 definiert einen engen offiziellen
+**Narrow exception:** FK-05 definiert einen engen offiziellen
 Reklassifikationspfad fuer legitime spaete
 Integrations-/Stabilisierungsstories. Diese Ausnahme hebt den
 Split-Standardpfad nicht auf, sondern ersetzt ihn nur, wenn der Mensch

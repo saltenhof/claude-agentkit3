@@ -1,5 +1,5 @@
 ---
-concept_id: FK-67
+concept_id: FK-71
 title: Artefakt-Klassen, Envelope, Lock-Record und Stage-Registry
 module: artifact-envelope
 domain: artifacts
@@ -29,7 +29,7 @@ tags: [artefakte, lock-record, stage-registry, ownership]
 formal_scope: prose-only
 ---
 
-# 67 — Artefakt-Klassen, Envelope, Lock-Record und Stage-Registry
+# 71 — Artefakt-Klassen, Envelope, Lock-Record und Stage-Registry
 
 Dieses Kapitel beschreibt die Datenmodelle für Story-Artefakte:
 Klassifikation, Envelope-Schema, QA-Artefakt-Schutz via Lock-Record
@@ -37,9 +37,9 @@ und die typisierte Stage-Registry. Das übergreifende Domänenmodell
 (Begriffe, Story-Status-Modell, Identifikatoren, Invarianten) liegt
 in **FK-02**.
 
-## 67.1 Artefaktklassen und Ownership
+## 71.1 Artefaktklassen und Ownership
 
-### 67.1.1 Artefaktklassen
+### 71.1.1 Artefaktklassen
 
 | Klasse | Erzeuger | Schutz | Beispiele |
 |--------|----------|--------|-----------|
@@ -52,7 +52,7 @@ in **FK-02**.
 | **Handover-Artefakte** | Worker (Implementation) | Kein Schutz | `handover.json` |
 | **Adversarial-Test-Sandbox** | Adversarial Agent | Ephemer, nur in Sandbox-Pfad | `_temp/adversarial/{story_id}/` — Tests werden hier geschrieben und ausgeführt. Promotion ins Repo nur durch Pipeline-Skript (schema-valide, ausführbar, dedupliziert). |
 
-### 67.1.2 Geschützte QA-Artefakte (vollständige Liste)
+### 71.1.2 Geschützte QA-Artefakte (vollständige Liste)
 
 Diese Export-Dateinamen sind durch den Integrity-Hook gegen
 Schreibzugriff durch den Worker geschützt. Der Schutz betrifft die
@@ -76,7 +76,7 @@ PROTECTED_ARTIFACTS = [
 ]
 ```
 
-## 67.2 Artefakt-Envelope-Schema
+## 71.2 Artefakt-Envelope-Schema
 
 Alle QA-Artefakte nutzen ein gemeinsames Envelope-Schema. Das
 Envelope trägt Metadaten, die das Integrity-Gate validiert.
@@ -149,9 +149,9 @@ Provenienzfelder der zugrunde liegenden Records. Exportdateien werden
 höchstens konsistenzhalber oder für menschliche Audit-Pakete geprüft,
 nicht als operative Wahrheitsquelle.
 
-## 67.3 Lock-Mechanismus für QA-Artefaktschutz
+## 71.3 Lock-Mechanismus für QA-Artefaktschutz
 
-### 67.3.1 Prinzip: Hook + Lock-Record als Zusammenspiel
+### 71.3.1 Prinzip: Hook + Lock-Record als Zusammenspiel
 
 Lock-Records ersetzen keine Hooks — sie erweitern sie. Der Hook
 (CCAG oder dedizierter PreToolUse-Hook) ist der Enforcement-Mechanismus.
@@ -165,7 +165,7 @@ Tool-Aufrufe** zu verbieten — die agentische Pipeline wird hart
 angehalten. Derselbe Mechanismus wird für den QA-Artefakt-Schutz
 angewendet.
 
-### 67.3.2 Anwendung: QA-Artefakt-Schutz via zentralem Lock-Record
+### 71.3.2 Anwendung: QA-Artefakt-Schutz via zentralem Lock-Record
 
 Das Tooling (Execute-User-Story-Skill bzw. Pipeline-Skripte) legt
 bei Story-Start automatisch einen **zentralen Lock-Record** im
@@ -215,7 +215,7 @@ flowchart LR
    - **TTL (Fallback):** Falls die PID-Prüfung nicht greift, wird
      der Lock nach `ttl_s` Sekunden als stale behandelt.
 
-### 67.3.3 Scoping: Nur Sub-Agents gesperrt
+### 71.3.3 Scoping: Nur Sub-Agents gesperrt
 
 Die Sperre gilt **nur für Sub-Agents** (Worker, QA, Adversarial),
 nicht für den Hauptagenten oder Pipeline-Skripte:
@@ -227,7 +227,7 @@ nicht für den Hauptagenten oder Pipeline-Skripte:
 | Sub-Agent (Worker) | **Blockiert** | Darf eigene QA-Ergebnisse nicht manipulieren |
 | Sub-Agent (QA/Adversarial) | **Blockiert** | Dürfen nur über Pipeline-Skripte schreiben, nicht direkt |
 
-### 67.3.4 CCAG-Regel
+### 71.3.4 CCAG-Regel
 
 ```yaml
 # In .claude/ccag/rules/subagents.yaml
@@ -242,7 +242,7 @@ nicht für den Hauptagenten oder Pipeline-Skripte:
   message: "Operation not permitted."
 ```
 
-### 67.3.5 Zusammenspiel Hook + Lock-Record
+### 71.3.5 Zusammenspiel Hook + Lock-Record
 
 | Aspekt | Ohne Lock-Record | Mit Lock-Record |
 |--------|----------------|---------------|
@@ -261,7 +261,7 @@ Setup schreibt bei Story-Start → `qa_artifact_write_lock`-Record → Hook bloc
 Sub-Agent-Zugriff auf QA-Pfade → nur Pipeline-Skripte können
 QA-Artefakte schreiben.
 
-## 67.4 Typisierte Stage-Registry
+## 71.4 Typisierte Stage-Registry
 
 Die Verify-Pipeline arbeitet fachlich in vier Schichten (FK 5.2).
 Die Stage-Registry bildet diese Struktur typisiert ab statt als

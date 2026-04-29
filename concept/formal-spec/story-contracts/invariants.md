@@ -10,7 +10,7 @@ prose_refs:
   - concept/technical-design/59_story_contract_axes_and_combination_matrix.md
   - concept/technical-design/24_story_type_mode_terminalitaet.md
   - concept/technical-design/56_ai_augmented_mode_and_story_execution_separation.md
-  - concept/technical-design/57_integration_stabilization_contract.md
+  - concept/technical-design/05_integration_stabilization_contract.md
   - concept/technical-design/58_story_exit_human_takeover_handoff.md
 ---
 

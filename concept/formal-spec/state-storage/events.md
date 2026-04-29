@@ -7,8 +7,8 @@ context: state-storage
 spec_kind: event-set
 version: 1
 prose_refs:
-  - concept/technical-design/14_telemetrie_eventing_workflow_metriken.md
-  - concept/technical-design/16_qa_telemetrie_aggregation_dashboard.md
+  - concept/technical-design/68_telemetrie_eventing_workflow_metriken.md
+  - concept/technical-design/69_qa_telemetrie_aggregation_dashboard.md
   - concept/technical-design/91_api_event_katalog.md
 ---
 

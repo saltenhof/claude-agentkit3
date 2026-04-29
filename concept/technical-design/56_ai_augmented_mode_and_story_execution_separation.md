@@ -20,7 +20,7 @@ defers_to:
   - target: FK-55
     scope: principal-capabilities
     reason: Principals und Capabilities muessen mode-scharf interpretiert werden
-  - target: FK-57
+  - target: FK-05
     scope: integration-stabilization
     reason: Stabilisierungs-Stories erzeugen keinen dritten Modus, sondern bleiben unter story_execution
   - target: FK-58
@@ -90,7 +90,7 @@ Es bleiben nur die immer-aktiven Basisschutzregeln und CCAG.
 | `story_execution` | gueltiger `story_execution`-Lock plus aktive Session-/Run-Bindung | deterministischer Story-Workflow |
 
 **Klarstellung:** Systemische Integrations- und Stabilisierungslagen
-gemäss FK-57 erzeugen **keinen dritten Betriebsmodus**. Sie bleiben ein
+gemäss FK-05 erzeugen **keinen dritten Betriebsmodus**. Sie bleiben ein
 Spezialvertrag innerhalb von `story_execution`.
 
 ### 56.3a `operating_mode` ist keine Story-Hauptklassifikation

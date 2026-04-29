@@ -1,4 +1,4 @@
-"""FK-16 QA read-model materialization helpers for the canonical backend."""
+"""FK-69 QA read-model materialization helpers for the canonical backend."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ def build_qa_stage_result(
     artifact_id: str,
     recorded_at: datetime,
 ) -> QAStageResultRecord:
-    """Project one layer result into the FK-16 stage-result read model."""
+    """Project one layer result into the FK-69 stage-result read model."""
 
     total_checks = _count_from_metadata(
         layer_result.metadata,
@@ -81,7 +81,7 @@ def build_qa_findings(
     artifact_id: str,
     recorded_at: datetime,
 ) -> list[QAFindingRecord]:
-    """Project one layer result into FK-16 finding records."""
+    """Project one layer result into FK-69 finding records."""
 
     producer_component = producer_component_for_layer(layer_result.layer)
     records: list[QAFindingRecord] = []

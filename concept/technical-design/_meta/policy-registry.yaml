@@ -44,7 +44,7 @@ policies:
 
   - id: policy.truth-boundary
     title: Truth-Boundary-Vertrag (DB als Wahrheit, nicht Datei)
-    source_doc: FK-64
+    source_doc: FK-06
     summary: >
       Kanonische Runtime-Wahrheit liegt in PostgreSQL. JSON-Exporte sind
       Materialisierungen, niemals Wahrheitsquelle. Loader-Symbole und

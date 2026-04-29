@@ -82,7 +82,7 @@ domains:
   - id: execution-planning
     display_name: Execution-Planning
     contract_docs:
-      - FK-66
+      - FK-70
 
   - id: governance-and-guards
     display_name: Governance und Guards
@@ -99,14 +99,14 @@ domains:
   - id: artifacts
     display_name: Artefakte (Envelope, Producer-Registry, Klassen)
     contract_docs:
-      - FK-67
+      - FK-71
 
   - id: telemetry-and-events
     display_name: Telemetrie und Events
     contract_docs:
       - DK-05
-      - FK-14
-      - FK-16
+      - FK-68
+      - FK-69
 
   - id: requirements-and-scope-coverage
     display_name: Requirements und Scope-Coverage (ARE)

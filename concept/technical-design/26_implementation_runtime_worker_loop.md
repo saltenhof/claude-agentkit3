@@ -337,7 +337,7 @@ sequenceDiagram
 
 **Template-Sentinel:** Der Worker muss das Review über ein
 freigegebenes Template senden (nicht freiformulieren). Der
-Review-Guard (Kap. 14.5) erkennt den Sentinel und erzeugt ein
+Review-Guard (Kap. 68.5) erkennt den Sentinel und erzeugt ein
 `review_compliant`-Event. Das Integrity-Gate prüft bei Closure,
 ob alle Review-Requests ein zugehöriges `review_compliant` haben.
 

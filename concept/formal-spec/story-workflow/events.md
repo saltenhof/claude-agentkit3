@@ -8,7 +8,7 @@ spec_kind: event-set
 version: 1
 prose_refs:
   - concept/technical-design/20_workflow_engine_state_machine.md
-  - concept/technical-design/14_telemetrie_eventing_workflow_metriken.md
+  - concept/technical-design/68_telemetrie_eventing_workflow_metriken.md
   - concept/technical-design/35_integrity_gate_governance_beobachtung_eskalation.md
 ---
 

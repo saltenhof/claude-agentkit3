@@ -1,5 +1,5 @@
 ---
-concept_id: FK-66
+concept_id: FK-70
 title: Story-Planung, Abhaengigkeitsgraph und Ausfuehrungsplanung
 module: execution-planning
 domain: execution-planning
@@ -19,7 +19,7 @@ defers_to:
   - target: FK-21
     scope: story-creation
     reason: Story-Erstellung liefert die ersten Planungsmetadaten fuer neue Stories
-  - target: FK-65
+  - target: FK-07
     scope: component-architecture
     reason: Komponentenschnitt und Ports der Planungsdomäne werden dort verankert
   - target: FK-91
@@ -41,11 +41,11 @@ formal_refs:
   - formal.execution-planning.scenarios
 ---
 
-# 66 — Story-Planung, Abhaengigkeitsgraph und Ausfuehrungsplanung
+# 70 — Story-Planung, Abhaengigkeitsgraph und Ausfuehrungsplanung
 
 <!-- PROSE-FORMAL: formal.execution-planning.entities, formal.execution-planning.state-machine, formal.execution-planning.commands, formal.execution-planning.events, formal.execution-planning.invariants, formal.execution-planning.scenarios -->
 
-## 66.1 Zweck
+## 70.1 Zweck
 
 AgentKit beantwortet nicht nur die Frage, wie eine freigegebene Story
 korrekt umgesetzt wird, sondern auch, welche Story wann warum als
@@ -64,7 +64,7 @@ Normativ gilt:
 4. Theoretisch moegliche Parallelisierung und operativ zulaessige
    Parallelisierung sind strikt getrennte Ebenen.
 
-## 66.2 Kernentscheidung
+## 70.2 Kernentscheidung
 
 AK3 fuehrt eine eigene fachliche Komponente `ExecutionPlanningService`
 ein.
@@ -81,9 +81,9 @@ Sie beantwortet vier getrennte Fragen:
 4. Welche naechste Welle, welcher kritische Pfad und welcher
    empfohlene Batch daraus fuer den Orchestrator folgen?
 
-## 66.3 Abgrenzung
+## 70.3 Abgrenzung
 
-### 66.3.1 Gegen `PipelineEngine`
+### 70.3.1 Gegen `PipelineEngine`
 
 `PipelineEngine` fuehrt eine einzelne Story oder einen einzelnen
 Story-Run korrekt aus.
@@ -93,14 +93,14 @@ den Status `READY` kommen, in welcher Reihenfolge sie gestartet werden
 duerfen und wie starke Parallelisierung aktuell fachlich und operativ
 zulaessig ist.
 
-### 66.3.2 Gegen `DashboardApplication`
+### 70.3.2 Gegen `DashboardApplication`
 
 `DashboardApplication` praesentiert Planungs- und Laufzeitdaten.
 
 Die Planung selbst ist keine Praesentationslogik. Graph, Blocker, Wave
 und Ready-Queue sind nur Sichten auf die Planungsdomäne.
 
-### 66.3.3 Gegen GitHub Projects
+### 70.3.3 Gegen GitHub Projects
 
 GitHub ist aktuell der externe Story- und Board-Adapter. Die
 fachlich bevorzugte Planungswahrheit liegt jedoch in AK3.
@@ -109,9 +109,9 @@ GitHub darf Planungsinformation spiegeln oder beherbergen, aber die
 Ableitung von `READY`, `BLOCKED`, `execution wave`, `critical path`
 oder `recommended batch` ist eine AK3-eigene Fachentscheidung.
 
-## 66.4 Fachliche Begriffe
+## 70.4 Fachliche Begriffe
 
-### 66.4.1 Planbare Story
+### 70.4.1 Planbare Story
 
 Eine `PlannedStory` ist eine Story im Backlog oder in Ausfuehrung, fuer
 die AK3 neben Story-Inhalt auch Planungsmetadaten kennt.
@@ -128,7 +128,7 @@ Mindestens relevant sind:
 - `external_prerequisites`
 - `planning_status`
 
-### 66.4.2 Abhaengigkeitskante
+### 70.4.2 Abhaengigkeitskante
 
 Eine `DependencyEdge` beschreibt eine explizite Voraussetzung oder
 Einschraenkung zwischen zwei Stories oder zwischen Story und Gate.
@@ -148,7 +148,7 @@ Mindestens zu unterscheiden sind:
 beeinflusst Priorisierung oder Scheduling, darf aber eine Story nicht
 eigenstaendig von `READY` auf nicht-ausfuehrbar setzen.
 
-### 66.4.3 Blocker
+### 70.4.3 Blocker
 
 Ein `BlockingCondition` ist ein expliziter, typisierter Grund, warum
 eine Story nicht in `FLIGHT` uebergehen darf.
@@ -173,7 +173,7 @@ sauber zwischen:
 - **blockierendem Human-Gate**, wenn Rechte, Mandat, Fachwissen oder
   externe Entscheidungshoheit fehlen
 
-### 66.4.4 Feasibility vs. Scheduling
+### 70.4.4 Feasibility vs. Scheduling
 
 AK3 trennt zwei Ebenen:
 
@@ -195,9 +195,9 @@ zusammenfallen.
 **Normative Kurzform:** AK3 unterscheidet strikt zwischen
 `can_parallelize` und `may_parallelize_now`.
 
-## 66.5 Planungszustand
+## 70.5 Planungszustand
 
-### 66.5.1 Planungsstatus einer Story
+### 70.5.1 Planungsstatus einer Story
 
 Fuer die Planung gilt mindestens dieses Zustandsmodell:
 
@@ -212,13 +212,13 @@ Fuer die Planung gilt mindestens dieses Zustandsmodell:
 | `BLOCKED_CAPACITY` | Story waere theoretisch moeglich, ist aber aktuell aus Kapazitaets- oder Risiko-Gruenden nicht schedulbar |
 | `BLOCKED_CONFLICT` | Bekannte Konflikt- oder Mutex-Regel verhindert den Start |
 
-### 66.5.2 Wichtige Folgerung
+### 70.5.2 Wichtige Folgerung
 
 `READY` ist kein manuell gesetztes Board-Label, sondern das Ergebnis
 einer regelbasierten Auswertung ueber Abhaengigkeiten, Gates und
 Policies.
 
-### 66.5.3 Human- und External-Gates
+### 70.5.3 Human- und External-Gates
 
 AK3 fuehrt `HumanGate` und `ExternalGate` als erstklassige
 Planungsobjekte.
@@ -234,7 +234,7 @@ Solche Voraussetzungen duerfen nicht nur als Kommentar in einer Story
 stehen. Sie muessen den Readiness- und Scheduling-Zustand direkt
 beeinflussen.
 
-### 66.5.4 Zwei Arten menschlicher Mitwirkung
+### 70.5.4 Zwei Arten menschlicher Mitwirkung
 
 AK3 unterscheidet normativ zwei Kategorien:
 
@@ -267,9 +267,9 @@ nicht aufloesen kann, weil mindestens eines davon fehlt:
 Nur diese Kategorie darf den Status `BLOCKED_HUMAN` erzeugen und
 damit Ausfuehrung oder Weiterplanung fail-closed stoppen.
 
-## 66.6 Planungsregeln
+## 70.6 Planungsregeln
 
-### 66.6.1 Readiness
+### 70.6.1 Readiness
 
 Eine Story ist nur `READY`, wenn mindestens gilt:
 
@@ -283,7 +283,7 @@ Eine Story ist nur `READY`, wenn mindestens gilt:
 Eine offene optionale Human-Review zaehlt hierbei ausdruecklich nicht
 als Blocker.
 
-### 66.6.2 Scheduling
+### 70.6.2 Scheduling
 
 Auch wenn eine Story `READY` ist, darf sie dennoch durch Scheduling
 Policy zurueckgestellt werden.
@@ -316,7 +316,7 @@ Damit gilt strikt:
 - projektlokale Rulebooks duerfen nur weiter einschränken, nicht
   freigeben was zuvor verboten war
 
-### 66.6.2a Re-Plan-Trigger
+### 70.6.2a Re-Plan-Trigger
 
 Readiness und Scheduling werden nicht nur manuell, sondern
 ereignisgetrieben neu bewertet.
@@ -333,7 +333,7 @@ Re-Planning darf dabei nicht in ungebremstes Thrashing kippen.
 AK3 fuehrt deshalb einen debounced, revisionsbasierten Re-Plan-Pfad
 statt freier Polling-Heuristik.
 
-### 66.6.3 Trade-off-Regel
+### 70.6.3 Trade-off-Regel
 
 Hohe theoretische Parallelisierbarkeit begruendet keine Pflicht zur
 maximalen Parallelisierung.
@@ -346,7 +346,7 @@ Nutzen uebersteigen.
 Der Orchestrator darf daraus nie implizit ableiten, dass maximale
 theoretische Parallelitaet auch operativ gewollt ist.
 
-### 66.6.4 Kritischer Pfad und Wellen
+### 70.6.4 Kritischer Pfad und Wellen
 
 Der `ExecutionPlanningService` leitet aus dem Graphen mindestens ab:
 
@@ -371,7 +371,7 @@ Teilweises Scheitern innerhalb einer Wave fuehrt nicht zu stiller
 Inkonsistenz. AK3 markiert die betroffene Wave als `collapsed` oder
 schneidet sie ueber einen auditierten Re-Plan neu.
 
-## 66.7 Story-Erstellung als Planning-Einstieg
+## 70.7 Story-Erstellung als Planning-Einstieg
 
 Die Planungsdomäne beginnt nicht erst mit der Orchestrierung.
 
@@ -389,7 +389,7 @@ fertig sein. Aber AK3 muss den Prozess normativ vorsehen, wie aus dem
 initialen Story-Funken ueber Analyse und Review ein belastbarer
 Planungsgraph aufgebaut wird.
 
-## 66.7a Planning-Metadata-Vertrag
+## 70.7a Planning-Metadata-Vertrag
 
 Bevor AK3 einen belastbaren Ausfuehrungsplan ableiten kann, braucht
 es einen expliziten Planungsmetadaten-Vertrag pro Story.
@@ -417,7 +417,7 @@ Normativ gilt:
 3. Aussagen ohne Provenienz oder Evidenz duerfen als Hinweis
    gespeichert werden, aber nicht still zur harten Wahrheit werden.
 
-## 66.7b Agent-zu-AK3-Handover-Vertrag
+## 70.7b Agent-zu-AK3-Handover-Vertrag
 
 Agenten duerfen Abhaengigkeiten, Gates, Konfliktflaechen und
 Ausfuehrungswellen analysieren. Die offizielle Uebergabe an AK3
@@ -446,7 +446,7 @@ Das heisst:
 3. der kanonische `ExecutionPlan` bleibt eine AK3-eigene Ableitung und
    ist nie bloss die ungepruefte Agentenantwort
 
-## 66.7c Braucht AK3 dafuer eine DSL?
+## 70.7c Braucht AK3 dafuer eine DSL?
 
 **Normative Entscheidung:** Nein, nicht als verpflichtende
 Primärschnittstelle.
@@ -480,7 +480,7 @@ Dann gilt aber:
 - der Proposal-Vertrag ist die **offizielle Uebergabe**
 - der kanonische AK3-Planungszustand ist die **einzige Wahrheit**
 
-## 66.7d Projektspezifische Regelwerke
+## 70.7d Projektspezifische Regelwerke
 
 Projektspezifische Artefakte wie ein `orchestrator-rulebook.dsl`
 koennen als Analyse- und Importquelle fuer den `ExecutionPlanningService`
@@ -494,7 +494,7 @@ Dabei gilt:
    Planungsmodell mit typisierten Entities, Commands, Events und
    Invarianten.
 3. Projekt- oder Agentensyntax darf deshalb nicht die kanonischen
-   Grundbegriffe von FK-66 ersetzen, sondern nur auf sie abgebildet
+   Grundbegriffe von FK-70 ersetzen, sondern nur auf sie abgebildet
    werden.
 4. Jedes Rulebook wird ueber einen offiziellen Compile-Schritt in das
    kanonische Modell uebersetzt; die Rohsyntax selbst ist nie direkte
@@ -506,7 +506,7 @@ Dabei gilt:
    Control-Plane-Pfade aktualisiert werden, nicht durch freie
    Agentenmutation im Projekt.
 
-## 66.8 Orchestrator-Vertrag
+## 70.8 Orchestrator-Vertrag
 
 Der Orchestrator ist Konsument der Planungsdomäne, nicht ihr
 beliebiger Autor.
@@ -539,7 +539,7 @@ Optionale Human-Review darf der Orchestrator anfordern oder sichtbar
 machen. Sie ist aber kein implizites Stoppsignal. Ein echter Stopp
 entsteht nur ueber ein typisiertes `HumanGate`.
 
-## 66.9 UI- und API-Folgen
+## 70.9 UI- und API-Folgen
 
 Die Webanwendung braucht spaeter mindestens diese Pflichtsichten auf
 die Planungsdomäne:
@@ -556,9 +556,9 @@ Diese Pflichtsichten definieren noch nicht das konkrete UI-Design.
 Sie definieren aber, welche planungsbezogenen Informationen AK3
 normativ bereitstellen muss.
 
-## 66.10 Komponenten- und Datenfolgen
+## 70.10 Komponenten- und Datenfolgen
 
-### 66.10.1 Neue Top-Level-Komponente
+### 70.10.1 Neue Top-Level-Komponente
 
 AK3 fuehrt `ExecutionPlanningService` als eigene A-Komponente.
 
@@ -569,7 +569,7 @@ Typische Provided Contracts:
 - `ExecutionPlanPort`
 - `SchedulingPolicyPort`
 
-### 66.10.2 Persistenz
+### 70.10.2 Persistenz
 
 Die kanonische Planungssicht gehoert in die zentrale AK3-Datenbank.
 
@@ -582,7 +582,7 @@ Mindestens relevante Familien sind:
 - Rulebook-Revisionen und Compile-Ergebnisse
 - berechnete Planungs-Snapshots und Wellen
 
-### 66.10.3 Audit
+### 70.10.3 Audit
 
 Wichtige Planungsentscheidungen sind auditable Events:
 
@@ -595,7 +595,7 @@ Wichtige Planungsentscheidungen sind auditable Events:
 - Rulebook kompiliert oder verworfen
 - Wave kollabiert oder neu geschnitten
 
-## 66.11 Invarianten
+## 70.11 Invarianten
 
 Normativ gelten mindestens diese Regeln:
 
@@ -623,7 +623,7 @@ Normativ gelten mindestens diese Regeln:
 10. Optionale Human-Review verbessert oder validiert Qualitaet, darf
     aber nie still wie ein blockierendes Human-Gate behandelt werden.
 
-## 66.12 Offene Konsequenzen fuer Folgekapitel
+## 70.12 Offene Konsequenzen fuer Folgekapitel
 
 Dieses Kapitel zieht die Planungsdomäne normativ ein. Folgekapitel
 muessen darauf abgestimmt werden:
@@ -631,5 +631,5 @@ muessen darauf abgestimmt werden:
 - FK-21 fuer planungsrelevante Story-Erzeugungsmetadaten
 - FK-12 fuer den aktuellen GitHub-Adapterpfad
 - FK-63 fuer spaetere Pflichtsichten im Story-Cockpit
-- FK-65 fuer die explizite Komponentenverankerung
+- FK-07 fuer die explizite Komponentenverankerung
 - FK-91 fuer Control-Plane-Endpunkte und Planungs-Events

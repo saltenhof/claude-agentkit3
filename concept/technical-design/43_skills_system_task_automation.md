@@ -252,7 +252,7 @@ eigene Methodik zu erfinden. Deshalb:
   Menschen
 - Skill-Änderungen können über den Failure Corpus evaluiert
   werden: Wenn nach einer Skill-Änderung die QA-Runden steigen,
-  ist das ein messbares Signal (Experiment-Tags, Kap. 14.7.2)
+  ist das ein messbares Signal (Experiment-Tags, Kap. 68.7.2)
 
 **F-43-030 — Normative Skill-Nutzung (FK-12-030):** Agents **müssen** mitgelieferte Skills für standardisierte Aufgaben verwenden, anstatt ad-hoc-Methodik einzusetzen. Für Aufgaben, zu denen ein passender Skill existiert, ist dessen Nutzung normativ vorgeschrieben — nicht optional. Ein Agent, der eine Story erstellt ohne den `create-userstory`-Skill zu verwenden, oder der ein semantisches Review ohne den `semantic-review`-Skill durchführt, verhält sich nicht regelkonform. Dieses Prinzip gilt gleichermassen für Pflicht- und optionale Skills, sofern deren Voraussetzung erfüllt ist.
 

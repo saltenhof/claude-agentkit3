@@ -22,9 +22,9 @@ defers_to:
   - target: FK-30
     scope: hook-infrastructure
     reason: Sentinel-Isolation und Review-Guard-Regex liegen in FK-30
-  - target: FK-14
+  - target: FK-68
     scope: review-invariants
-    reason: Review-Invarianten und Telemetrie der Review-Bindung liegen in FK-14
+    reason: Review-Invarianten und Telemetrie der Review-Bindung liegen in FK-68
   - target: FK-12
     scope: git-operations
     reason: Diff-Expansion nutzt GitOperations.diff_full()
@@ -395,4 +395,4 @@ Der bestehende `_REVIEW_SENTINEL`-Regex in `hook.py` und
 `review_guard.py` (FK-30) matcht `[TEMPLATE:...]`. Der
 Preflight-Sentinel mit `[PREFLIGHT:...]` wird bewusst NICHT von
 diesem Regex erfasst. Damit stört der Preflight-Turn nicht die
-bestehenden Review-Invarianten (FK-14, FK-35).
+bestehenden Review-Invarianten (FK-68, FK-35).

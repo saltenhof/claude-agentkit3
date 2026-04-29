@@ -9,21 +9,21 @@ parent_concept_id:
 authority_over:
   - scope: kpi-catalog
 defers_to:
-  - target: FK-14
+  - target: FK-68
     scope: event-infrastructure
-    reason: Event model, event catalog, and PostgreSQL schema defined in FK-14; FK-60 consumes events as raw data source
-  - target: FK-16
+    reason: Event model, event catalog, and PostgreSQL schema defined in FK-68; FK-60 consumes events as raw data source
+  - target: FK-69
     scope: qa-telemetry-store
-    reason: Querybare QA-/FC-Raw-/Mirror-Tabellen aus FK-16 sind Eingabe der Analytics-Schicht
+    reason: Querybare QA-/FC-Raw-/Mirror-Tabellen aus FK-69 sind Eingabe der Analytics-Schicht
   - target: FK-30
     scope: hook-infrastructure
     reason: KPI-relevante Events werden ueber den FK-30 Hook-Mechanismus transportiert
   - target: FK-41
     scope: failure-corpus
     reason: Analytics aggregiert ueber FC-Entitaeten (Incidents, Patterns, Checks), deren Lifecycle FK-41 normiert
-  - target: FK-52
+  - target: FK-04
     scope: operational-monitoring
-    reason: FK-52 bleibt fuer operatives Monitoring zustaendig; FK-60 grenzt analytische von operativer Sicht ab
+    reason: FK-04 bleibt fuer operatives Monitoring zustaendig; FK-60 grenzt analytische von operativer Sicht ab
 supersedes: []
 superseded_by:
 tags: [kpi, analytics, architecture, postgres, metrics]
@@ -74,11 +74,11 @@ Es ist das Meta-Dokument des Analytics-Blocks (Nummernkreis 60-69):
 
 | Konzept | Autoritaet fuer | Beziehung zu FK-60ff |
 |---------|-----------------|----------------------|
-| FK-14 (Event-Infrastruktur) | Event-Modell, Event-Katalog, PostgreSQL-Schema (`execution_events`), Hook-Mechanik | FK-60ff konsumiert Events als Rohdatenquelle. FK-14 definiert WAS ein Event ist. FK-60ff definiert WAS eine KPI ist. |
-| FK-16 (QA-/FC-Raw-Store) | Querybare Raw-/Mirror-Tabellen im zentralen PostgreSQL-Store | FK-62 baut die Analytics-Schicht auf diesen Raw-Tabellen auf. Dashboard-Autoritaet wandert von FK-16 nach FK-63. |
+| FK-68 (Event-Infrastruktur) | Event-Modell, Event-Katalog, PostgreSQL-Schema (`execution_events`), Hook-Mechanik | FK-60ff konsumiert Events als Rohdatenquelle. FK-68 definiert WAS ein Event ist. FK-60ff definiert WAS eine KPI ist. |
+| FK-69 (QA-/FC-Raw-Store) | Querybare Raw-/Mirror-Tabellen im zentralen PostgreSQL-Store | FK-62 baut die Analytics-Schicht auf diesen Raw-Tabellen auf. Dashboard-Autoritaet wandert von FK-69 nach FK-63. |
 | FK-41 (Failure Corpus) | Incident-Lifecycle, Pattern-Promotion, Check-Ableitung, Taxonomie | FK-60ff aggregiert UEBER FC-Entitaeten (Incidents, Patterns, Checks), definiert aber nicht deren Semantik oder Lifecycle. Analytics misst — Failure Corpus lernt. |
 | FK-30 (Hook-Adapter) | Hook-Architektur, Registration, Matcher | FK-61 definiert neue Events/Erhebungspunkte. FK-30 definiert den Hook-Mechanismus ueber den sie transportiert werden. |
-| FK-52 (Betrieb, Monitoring) | Operatives Monitoring (Pool-Health, Disk, Locks), CLI-Queries | FK-60ff ist analytisch (Trends, Optimierung). FK-52 ist operativ (Ist der Service gesund?). |
+| FK-04 (Betrieb, Monitoring) | Operatives Monitoring (Pool-Health, Disk, Locks), CLI-Queries | FK-60ff ist analytisch (Trends, Optimierung). FK-04 ist operativ (Ist der Service gesund?). |
 
 ### 60.1.3 Authority-Split-Regel
 
@@ -297,7 +297,7 @@ Dashboard-Filter oder periodische Aggregation kompensiert werden.
 Stattdessen gilt:
 
 1. runtime-nahe Daten des betroffenen `run_id` werden entfernt
-2. FK-16-Read-Models des betroffenen `run_id` werden entfernt
+2. FK-69-Read-Models des betroffenen `run_id` werden entfernt
 3. betroffene Analytics-Facts werden aktiv geloescht oder aus den
    verbleibenden gueltigen Quellen neu berechnet
 

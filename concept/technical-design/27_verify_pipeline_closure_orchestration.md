@@ -46,9 +46,9 @@ defers_to:
   - target: FK-44
     scope: prompt-bundles
     reason: LLM-Evaluator-Prompts werden aus dem gebundenen Prompt-Bundle materialisiert (FK-44)
-  - target: FK-67
+  - target: FK-71
     scope: artefakt-envelope
-    reason: QA-Artefakte (qa_review.json, semantic_review.json, decision.json, structural.json) folgen dem Envelope-Schema und der Producer-Registry (FK-67)
+    reason: QA-Artefakte (qa_review.json, semantic_review.json, decision.json, structural.json) folgen dem Envelope-Schema und der Producer-Registry (FK-71)
 supersedes: []
 superseded_by:
 tags: [verify, qa-cycle, adversarial-testing, policy-evaluation, layered-checks]

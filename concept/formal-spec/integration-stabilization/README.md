@@ -21,7 +21,7 @@ Enthalten sind:
 
 Relevante Prosa-Konzepte:
 
-- [57_integration_stabilization_contract.md](/T:/codebase/claude-agentkit3/concept/technical-design/57_integration_stabilization_contract.md)
+- [05_integration_stabilization_contract.md](/T:/codebase/claude-agentkit3/concept/technical-design/05_integration_stabilization_contract.md)
 - [24_story_type_mode_terminalitaet.md](/T:/codebase/claude-agentkit3/concept/technical-design/24_story_type_mode_terminalitaet.md)
 - [25_mandatsgrenzen_feindesign_autonomie.md](/T:/codebase/claude-agentkit3/concept/technical-design/25_mandatsgrenzen_feindesign_autonomie.md)
 - [26_implementation_runtime_worker_loop.md](/T:/codebase/claude-agentkit3/concept/technical-design/26_implementation_runtime_worker_loop.md)

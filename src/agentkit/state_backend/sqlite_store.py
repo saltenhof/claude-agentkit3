@@ -813,7 +813,7 @@ def load_qa_stage_results(
 ) -> list[QAStageResultRecord]:
     del story_dir, project_key, story_id, run_id, attempt_no, stage_id
     raise RuntimeError(
-        "FK-16 QA read models are only materialized on the Postgres backend. "
+        "FK-69 QA read models are only materialized on the Postgres backend. "
         "SQLite remains a narrow unit-test backend.",
     )
 
@@ -845,7 +845,7 @@ def load_qa_findings(
 ) -> list[QAFindingRecord]:
     del story_dir, project_key, story_id, run_id, attempt_no, stage_id
     raise RuntimeError(
-        "FK-16 QA read models are only materialized on the Postgres backend. "
+        "FK-69 QA read models are only materialized on the Postgres backend. "
         "SQLite remains a narrow unit-test backend.",
     )
 

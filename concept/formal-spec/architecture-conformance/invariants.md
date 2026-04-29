@@ -8,7 +8,7 @@ spec_kind: invariant-set
 version: 1
 prose_refs:
   - concept/technical-design/01_systemkontext_und_architekturprinzipien.md
-  - concept/technical-design/65_komponentenarchitektur_und_architekturkonformanz.md
+  - concept/technical-design/07_komponentenarchitektur_und_architekturkonformanz.md
 ---
 
 # Architecture Conformance Invariants

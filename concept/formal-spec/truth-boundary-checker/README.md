@@ -30,4 +30,4 @@ sowie den deterministischen Concept-to-Code-Contract-Checker.
 - [FK-18](/T:/codebase/claude-agentkit3/concept/technical-design/18_relationales_abbildungsmodell_postgres.md)
 - [FK-33](/T:/codebase/claude-agentkit3/concept/technical-design/33_deterministische_checks_stage_registry_policy_engine.md)
 - [FK-35](/T:/codebase/claude-agentkit3/concept/technical-design/35_integrity_gate_governance_beobachtung_eskalation.md)
-- [FK-64](/T:/codebase/claude-agentkit3/concept/technical-design/64_truth_boundary_and_concept_code_contract_checker.md)
+- [FK-06](/T:/codebase/claude-agentkit3/concept/technical-design/06_truth_boundary_and_concept_code_contract_checker.md)

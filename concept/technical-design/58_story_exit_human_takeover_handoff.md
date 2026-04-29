@@ -20,7 +20,7 @@ defers_to:
   - target: FK-55
     scope: principal-capabilities
     reason: Bindung, Cleanup und Capability-Wechsel muessen dort technisch konsistent bleiben
-  - target: FK-57
+  - target: FK-05
     scope: integration-stabilization
     reason: Der Exit ist vor allem fuer ausgedehnte Integrations-/Stabilisierungsfaelle gedacht
   - target: FK-54

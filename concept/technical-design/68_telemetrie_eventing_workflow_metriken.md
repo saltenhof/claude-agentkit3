@@ -1,5 +1,5 @@
 ---
-concept_id: FK-14
+concept_id: FK-68
 title: Telemetrie, Eventing und Workflow-Metriken
 module: telemetry
 domain: telemetry-and-events
@@ -53,9 +53,9 @@ formal_refs:
   - formal.telemetry-analytics.scenarios
 ---
 
-# 14 — Telemetrie, Eventing und Workflow-Metriken
+# 68 — Telemetrie, Eventing und Workflow-Metriken
 
-## 14.1 Zweck
+## 68.1 Zweck
 
 <!-- PROSE-FORMAL: formal.story-workflow.events, formal.telemetry-analytics.entities, formal.telemetry-analytics.invariants -->
 
@@ -79,11 +79,11 @@ Deterministische Pipeline-Schritte (Structural Checks,
 LLM-Evaluator-Aufrufe) brauchen keine Telemetrie-Nachweise, weil
 ihr Ablauf durch den Code garantiert ist.
 
-## 14.2 Event-Modell
+## 68.2 Event-Modell
 
 <!-- PROSE-FORMAL: formal.state-storage.events, formal.telemetry-analytics.commands, formal.telemetry-analytics.events, formal.telemetry-analytics.state-machine, formal.telemetry-analytics.scenarios -->
 
-### 14.2.1 Speicherung: PostgreSQL
+### 68.2.1 Speicherung: PostgreSQL
 
 Events werden in einer zentralen PostgreSQL-Datenbank des
 State-Backends gespeichert. Diese DB ist projektunabhängig,
@@ -97,7 +97,7 @@ langlebig und Principal-geschützt.
 
 **Logisches Zielmodell:** Die kanonische Telemetrietabelle heißt
 `execution_events`. Ihre relationale Abbildung ist in FK-18
-autorisiert. FK-14 definiert das Eventmodell und die fachlichen Felder,
+autorisiert. FK-68 definiert das Eventmodell und die fachlichen Felder,
 nicht die finale SQL-DDL.
 
 **JSONL als Export-/Audit-Format:** Bei Closure kann die Telemetrie
@@ -105,7 +105,7 @@ einer Story als JSONL oder Audit-Bundle exportiert werden. Diese
 Datei dient der menschlichen Lesbarkeit oder externen Ablage — sie
 ist nie Laufzeit-Speicher.
 
-### 14.2.1a Control-Plane-API als normative Schreibgrenze
+### 68.2.1a Control-Plane-API als normative Schreibgrenze
 
 Die kanonische Telemetrie wird fachlich nicht ueber eine bestimmte
 Agent-Plattform, Hook-Implementierung oder CLI normiert, sondern ueber
@@ -153,7 +153,7 @@ fachlichen Eventmodells, sondern event-spezifische Felder.
 `project_key` als führenden Scope-Schlüssel. `story_id` ist nur
 innerhalb eines Projekts eindeutig.
 
-### 14.2.2 Event-Katalog
+### 68.2.2 Event-Katalog
 
 #### Worker-Lifecycle
 
@@ -248,7 +248,7 @@ definiert, nicht ueber Claude-Code-Hooks, die lokale CLI oder einen
 REST-Client. Dieselben Event-Typen muessen spaeter unveraendert ueber
 die zentrale AgentKit-Control-Plane ingestierbar bleiben.
 
-### 14.2.3 Beispiel-Events
+### 68.2.3 Beispiel-Events
 
 ```jsonl
 {"project_key":"odin-trading","story_id":"ODIN-042","run_id":"a1b2...","event_id":"evt-001","event_type":"agent_start","occurred_at":"2026-03-17T10:00:01+01:00","source_component":"telemetry_hook","severity":"info","payload":{"subagent_type":"worker"}}
@@ -257,9 +257,9 @@ die zentrale AgentKit-Control-Plane ingestierbar bleiben.
 {"project_key":"odin-trading","story_id":"ODIN-042","run_id":"a1b2...","event_id":"evt-004","event_type":"llm_call","occurred_at":"2026-03-17T11:00:00+01:00","source_component":"llm_evaluator","severity":"info","payload":{"pool":"chatgpt","role":"qa_review","retry":false,"status":"PASS"}}
 ```
 
-## 14.3 Event-Quellen
+## 68.3 Event-Quellen
 
-### 14.3.1 Hook-basierte Erfassung
+### 68.3.1 Hook-basierte Erfassung
 
 Claude-Code-Hooks sind die **aktuelle Referenz-Implementierung** fuer
 mehrere beobachtende Telemetriequellen. Sie sind jedoch kein
@@ -280,13 +280,13 @@ Mitwirkung des Agents beobachten koennen.
 | `telemetry/budget.py` | PostToolUse (WebSearch/WebFetch) | Tool-Name | `web_call` |
 | Guard-Hooks | PreToolUse | Blockade (exit 2) | `integrity_violation` |
 
-### 14.3.2 Skript-basierte Erfassung
+### 68.3.2 Skript-basierte Erfassung
 
 Der LLM-Evaluator (Kap. 11) schreibt `llm_call`-Events direkt
 in das State-Backend, weil er ein deterministisches Skript ist und
 nicht über einen Hook läuft.
 
-### 14.3.2b API-basierte Erfassung
+### 68.3.2b API-basierte Erfassung
 
 Neben Hook- und Runtime-Erzeugern bleibt die offizielle
 Control-Plane-API ein zulaessiger Producer-Pfad fuer Telemetrie:
@@ -302,7 +302,7 @@ Control-Plane-API ein zulaessiger Producer-Pfad fuer Telemetrie:
 Events. Sie ist nur ein weiterer zulassiger Transportpfad auf den
 bereits definierten Event-Katalog.
 
-### 14.3.2a Engine-basierte Erfassung
+### 68.3.2a Engine-basierte Erfassung
 
 Die Ablauf-Events `flow_start`, `flow_end`, `node_result` und
 `override_applied` werden von der Runtime geschrieben, die die
@@ -316,7 +316,7 @@ Hooks sind dafuer ungeeignet, weil sie nur Tool-Aufrufe sehen, nicht
 aber semantische Entscheidungen wie `SKIP_AFTER_SUCCESS`,
 Rueckspruenge oder Override-Konsum.
 
-### 14.3.3 Story-ID-Ermittlung
+### 68.3.3 Story-ID-Ermittlung
 
 Hooks müssen die aktive Story-ID kennen, um Events zuzuordnen.
 Zwei Mechanismen:
@@ -327,7 +327,7 @@ Zwei Mechanismen:
 2. **Prompt-Analyse:** Bei `agent_start` Events wird die Story-ID
    aus dem Agent-Prompt extrahiert (Regex auf Story-ID-Pattern).
 
-### 14.3.4 Schreib-Mechanismus
+### 68.3.4 Schreib-Mechanismus
 
 ```python
 def insert_event(project_key: str, client, story_id: str, run_id: str, event_type: str,
@@ -361,7 +361,7 @@ Knotenereignissen `node_id`. Nur so kann spaeter nachvollzogen werden,
 warum ein Schritt gelaufen, uebersprungen, wiederholt oder per
 Override veraendert wurde.
 
-### 14.3.5 Query-Mechanismus
+### 68.3.5 Query-Mechanismus
 
 Pipeline-Skripte und das Integrity-Gate fragen Telemetrie über
 SQL ab — kein JSONL-Parsing durch Agents:
@@ -381,7 +381,7 @@ def events_for_run(project_key: str, client, run_id: str) -> list[dict]:
     return client.events_for_run(project_key=project_key, run_id=run_id)
 ```
 
-### 14.3.6 JSONL-Export bei Closure
+### 68.3.6 JSONL-Export bei Closure
 
 Bei Closure kann die Telemetrie einer Story als JSONL exportiert werden:
 
@@ -396,7 +396,7 @@ def export_jsonl(story_id: str, output_path: str) -> None:
 Die JSONL-Datei dient der langfristigen Archivierung und
 menschlichen Lesbarkeit, ist aber kein kanonischer Datenspeicher.
 
-## 14.4 Telemetrie-Nachweise im Integrity-Gate
+## 68.4 Telemetrie-Nachweise im Integrity-Gate
 
 Das Integrity-Gate (Kap. 02, FK 6.5) prüft bei Closure diese
 Telemetrie-Nachweise:
@@ -418,7 +418,7 @@ mit dem zugeordneten `pool`-Wert in der Telemetrie vorliegt. Es
 kennt keine Anbieternamen (kein `chatgpt`, `gemini`, `grok` im
 Gate-Code).
 
-### 14.4.1 Größenabhängige Prüfung
+### 68.4.1 Größenabhängige Prüfung
 
 Für `review_request`-Events wird die Erwartung basierend auf der
 Story-Größe aus `StoryContext` bzw. dessen `context.json`-Export
@@ -429,9 +429,9 @@ geprüft:
 | `review_request` | Mindestens 1 pro Story |
 | `drift_check` | Mindestens 1 pro Story |
 
-## 14.5 Review-Guard
+## 68.5 Review-Guard
 
-### 14.5.1 Template-Sentinel-Prüfung
+### 68.5.1 Template-Sentinel-Prüfung
 
 Der Review-Guard (`telemetry/review_guard.py`) prüft, ob LLM-Reviews
 über freigegebene Templates ausgeführt wurden. Er sucht nach
@@ -451,7 +451,7 @@ einem Sentinel-Pattern in der Pool-Send-Nachricht:
 | `review-synthesis` | Review-Synthese |
 | `mediation-round` | Mediation zwischen LLMs |
 
-### 14.5.2 Verhalten
+### 68.5.2 Verhalten
 
 Der Review-Guard **blockiert nie** (immer exit 0). Er ist rein
 observational:
@@ -461,9 +461,9 @@ observational:
 - **Sentinel nicht gefunden:** Kein Event (Abwesenheit wird vom
   Integrity-Gate als Befund gewertet)
 
-## 14.6 Budget-Tracking
+## 68.6 Budget-Tracking
 
-### 14.6.1 Web-Call-Budget
+### 68.6.1 Web-Call-Budget
 
 Der Budget-Hook (`telemetry/budget.py`) trackt Web-Aufrufe
 (WebSearch, WebFetch) **nur für Research-Stories**.
@@ -490,14 +490,14 @@ willkürlich.
 Bei allen anderen Story-Typen: `web_call`-Event wird geschrieben
 (Telemetrie), aber keine Begrenzung. Falls exzessive Web-Nutzung
 bei Nicht-Research-Stories auftritt, erkennt das die Governance-
-Beobachtung (Kap. 14.8) als Anomalie über den Risikoscore.
+Beobachtung (Kap. 68.8) als Anomalie über den Risikoscore.
 
 **Counter-Persistenz:** zentraler Counter-Record pro Run/Story im
 State-Backend. Wird bei jedem WebSearch/WebFetch-Call inkrementiert.
 
-## 14.7 Workflow-Metriken
+## 68.7 Workflow-Metriken
 
-### 14.7.1 Metriken-Katalog
+### 68.7.1 Metriken-Katalog
 
 Am Ende einer gültigen, nicht zurückgesetzten Story (in der
 Closure-Phase) werden Metriken aus der
@@ -512,11 +512,11 @@ Telemetrie aggregiert:
 | `files_changed` | `git diff --stat` Zeilenzahl | Git |
 | `increments` | Anzahl `increment_commit`-Events | Telemetrie |
 
-### 14.7.2 Experiment-Tags
+### 68.7.2 Experiment-Tags
 
 Workflow-Metriken müssen Experiment-Tags unterstützen, die den
 quantitativen Vergleich von Stories über verschiedene
-Pipeline-Konfigurationen hinweg ermöglichen (FK-14-058). Ohne
+Pipeline-Konfigurationen hinweg ermöglichen (FK-68-058). Ohne
 diese Tags sind Trendaussagen wie "Hat Prompt-Änderung X die
 QA-Runden erhöht?" nicht valide, da der Konfigurationsstand
 fehlt. Jeder Metriken-Datensatz wird daher mit Experiment-Tags
@@ -533,7 +533,7 @@ ermöglichen (FK-08-032):
 | `story_size` | `StoryContext` bzw. dessen `context.json`-Export | Größenvergleich |
 | `mode` | `phase_state_projection` bzw. deren `phase-state.json`-Export | Execution vs. Exploration |
 
-### 14.7.3 Metriken-Persistenz
+### 68.7.3 Metriken-Persistenz
 
 Metriken werden an zwei Stellen geschrieben:
 
@@ -542,7 +542,7 @@ Metriken werden an zwei Stellen geschrieben:
 2. **GitHub Project Fields:** `QA Rounds` und `Completed At` werden
    als Custom Fields gesetzt (Kap. 12)
 
-### 14.7.4 Nutzung der Metriken
+### 68.7.4 Nutzung der Metriken
 
 | Nutzer | Zweck |
 |--------|-------|
@@ -551,13 +551,13 @@ Metriken werden an zwei Stellen geschrieben:
 | Governance-Beobachtung | Anomalie-Erkennung (ungewöhnlich hohe Werte) |
 | Postflight | Plausibilitätsprüfung (Metriken gesetzt?) |
 
-## 14.8 Telemetrie für Governance-Beobachtung
+## 68.8 Telemetrie für Governance-Beobachtung
 
 Die Governance-Beobachtung (FK 6.6, Kap. 35) nutzt die Telemetrie
 als Signalquelle. Die Hooks produzieren nicht nur Events, sondern
 normalisieren sie auch zu kompakten Records für das Rolling Window.
 
-### 14.8.1 Normalisiertes Event-Format (für Rolling Window)
+### 68.8.1 Normalisiertes Event-Format (für Rolling Window)
 
 ```json
 {
@@ -578,7 +578,7 @@ normalisieren sie auch zu kompakten Records für das Rolling Window.
 | `tool_class` | `bash`, `write`, `edit`, `read`, `agent`, `pool_send`, `web` |
 | `risk_flags` | `code_write`, `outside_scope`, `governance_file`, `secret_access`, `main_branch`, `force_push` |
 
-### 14.8.2 Akkumulation
+### 68.8.2 Akkumulation
 
 Normalisierte Events werden in einem Rolling Window im
 State-Backend akkumuliert. Das Window hat
@@ -599,9 +599,9 @@ Risikopunkte pro Signal:
 **Schwellenüberschreitung** (Default: Score > 30 im Window) →
 Incident-Kandidat → LLM-Adjudication (Kap. 35).
 
-## 14.9 Preflight-Telemetrie-Stream
+## 68.9 Preflight-Telemetrie-Stream
 
-### 14.9.1 Eigenständiger Stream
+### 68.9.1 Eigenständiger Stream
 
 Preflight ist ein eigenständiger Telemetrie-Stream, der parallel
 zum Review-Stream existiert und diesen nicht stört. Die
@@ -621,7 +621,7 @@ Preflight-Sentinel mit `[PREFLIGHT:...]` wird bewusst NICHT
 von diesem Regex erfasst, sondern von einem eigenen
 `_PREFLIGHT_SENTINEL`-Regex verarbeitet.
 
-### 14.9.2 Invarianten
+### 68.9.2 Invarianten
 
 Preflight-Events stören NICHT die bestehenden Review-Invarianten:
 
@@ -632,7 +632,7 @@ Preflight-Events stören NICHT die bestehenden Review-Invarianten:
 - Die Review-Mindestfrequenz (`ReviewFrequencyRule`) wird nur
   gegen Review-Events geprüft, nie gegen Preflight-Events
 
-### 14.9.3 Fail-open / Fail-closed
+### 68.9.3 Fail-open / Fail-closed
 
 - **Fail-closed:** Fehlender Preflight ist ein Fehler. Preflight ist
   Pflicht — jede Story muss mindestens ein `preflight_request`-Event
@@ -644,7 +644,7 @@ Preflight-Events stören NICHT die bestehenden Review-Invarianten:
   `preflight_compliant == preflight_request` gelten. Verletzung
   führt zum Failure-Code `PREFLIGHT_NOT_COMPLIANT` (Kap. 35).
 
-### 14.9.4 Lifecycle-Abgrenzung
+### 68.9.4 Lifecycle-Abgrenzung
 
 ```
 [agent_start]
@@ -672,7 +672,7 @@ Die Trennung der Streams ist **logisch**, nicht **zeitlich**:
   unabhängig aus: Review-Compliance und Preflight-Compliance
   sind getrennte Prüfungen
 
-### 14.9.5 Beispiel-Events (Preflight-Stream)
+### 68.9.5 Beispiel-Events (Preflight-Stream)
 
 ```jsonl
 {"occurred_at":"2026-03-17T09:55:00+01:00","story_id":"ODIN-042","run_id":"a1b2...","event_type":"preflight_request","pool":"chatgpt"}
@@ -680,9 +680,9 @@ Die Trennung der Streams ist **logisch**, nicht **zeitlich**:
 {"occurred_at":"2026-03-17T09:56:30+01:00","story_id":"ODIN-042","run_id":"a1b2...","event_type":"preflight_compliant","pool":"chatgpt","template_name":"review-preflight"}
 ```
 
-## 14.10 Telemetrie-Contract-Erweiterung
+## 68.10 Telemetrie-Contract-Erweiterung
 
-### 14.10.1 Abgrenzung zum Worker-Contract
+### 68.10.1 Abgrenzung zum Worker-Contract
 
 Preflight-Events werden NICHT in die Worker-Contract-Rules
 (`review_min_count`, `ReviewFrequencyRule`) aufgenommen.
@@ -695,7 +695,7 @@ Die bestehenden Contract-Rules bleiben unverändert:
 | `review_min_count` (Story-Größe) | `review_request` | `preflight_request` |
 | `review_compliant == review_request` | Review-Stream | Preflight-Stream |
 
-### 14.10.2 Eigene Preflight-Validierungsregel
+### 68.10.2 Eigene Preflight-Validierungsregel
 
 Statt Preflight in die Worker-Contract-Rules einzubauen, gilt
 eine eigene Validierungsregel:
@@ -728,5 +728,5 @@ Erwartungswerte, Workflow-Metriken, Experiment-Tags),
 FK-06-082 bis FK-06-091 (Integrity-Gate Telemetrie-Nachweise),
 FK-06-097 bis FK-06-111 (Governance-Beobachtung Sensorik),
 FK-05-119 bis FK-05-121 (Review-Häufigkeit nach Story-Größe),
-FK-14-100 bis FK-14-109 (Preflight-Telemetrie-Stream,
+FK-68-100 bis FK-68-109 (Preflight-Telemetrie-Stream,
 Sentinel-Isolation, Fail-open/Fail-closed, Contract-Erweiterung)*

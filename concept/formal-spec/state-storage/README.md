@@ -45,8 +45,8 @@ Nicht Teil dieses Kontexts sind:
 
 - [FK-17](/T:/codebase/claude-agentkit3/concept/technical-design/17_fachliches_datenmodell_ownership.md)
 - [FK-18](/T:/codebase/claude-agentkit3/concept/technical-design/18_relationales_abbildungsmodell_postgres.md)
-- [FK-14](/T:/codebase/claude-agentkit3/concept/technical-design/14_telemetrie_eventing_workflow_metriken.md)
+- [FK-68](/T:/codebase/claude-agentkit3/concept/technical-design/68_telemetrie_eventing_workflow_metriken.md)
 - [FK-15](/T:/codebase/claude-agentkit3/concept/technical-design/15_security_secrets_identity_zugriffsmodell.md)
-- [FK-16](/T:/codebase/claude-agentkit3/concept/technical-design/16_qa_telemetrie_aggregation_dashboard.md)
+- [FK-69](/T:/codebase/claude-agentkit3/concept/technical-design/69_qa_telemetrie_aggregation_dashboard.md)
 - [FK-53](/T:/codebase/claude-agentkit3/concept/technical-design/53_story_reset_service_recovery_flow.md)
 - [FK-91](/T:/codebase/claude-agentkit3/concept/technical-design/91_api_event_katalog.md)

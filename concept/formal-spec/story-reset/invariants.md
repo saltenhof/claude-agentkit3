@@ -9,7 +9,7 @@ version: 1
 prose_refs:
   - concept/technical-design/53_story_reset_service_recovery_flow.md
   - concept/technical-design/20_workflow_engine_state_machine.md
-  - concept/technical-design/52_betrieb_monitoring_audit_runbooks.md
+  - concept/technical-design/04_betrieb_monitoring_audit_runbooks.md
 ---
 
 # Story Reset Invariants

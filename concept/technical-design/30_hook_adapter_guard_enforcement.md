@@ -436,7 +436,7 @@ Immer PreToolUse. Exit 0 oder 2.
 | `adversarial_guard` | Adversarial schreibt außerhalb Sandbox (Story-Execution) | Kap. 31.6 |
 | `self_protection` | Governance-Dateien manipuliert (immer aktiv) | Kap. 30.5.3 |
 | `story_creation_guard` | Direktes `gh issue create` ohne Skill | Kap. 31.5 |
-| `budget` | Web-Calls über Limit (nur Research) | Kap. 14.6 |
+| `budget` | Web-Calls über Limit (nur Research) | Kap. 68.6 |
 | `health_monitor pre` | Worker-Stagnation/Loop erkannt (Score-basiert) | §30.10.2 |
 
 ### 30.5.2 Telemetrie-Hooks (observational)

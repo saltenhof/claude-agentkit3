@@ -20,12 +20,12 @@ defers_to:
   - target: FK-20
     scope: workflow-engine-abgrenzung
     reason: Story-Reset ist explizit kein Teil der PipelineEngine
-  - target: FK-52
+  - target: FK-04
     scope: runbooks
     reason: Operative Bedienung und Runbooks werden dort beschrieben
-  - target: FK-16
+  - target: FK-69
     scope: qa-telemetry-read-models
-    reason: Reset-Purge muss FK-16-Read-Models des betroffenen run_id konsistent entfernen
+    reason: Reset-Purge muss FK-69-Read-Models des betroffenen run_id konsistent entfernen
 supersedes: []
 superseded_by:
 tags: [story-reset, recovery, purge, operations, reset]
@@ -143,7 +143,7 @@ Minimaler Reset-Record:
 - `PhaseState`
 - umsetzungsgebundene `ArtifactRecord`
 - `ExecutionEvent`
-- FK-16-Read-Models
+- FK-69-Read-Models
 - FK-60ff-Analytics-Ableitungen der korrupten Umsetzung
 - story-bezogene Locks, Leases, Queue-/Retry-Zustaende
 - ephemere Arbeitsartefakte, Worktree-Bindungen und tainted
@@ -221,7 +221,7 @@ spaeteren Neustart, Resume oder Guard-Entscheid beeinflussen.
 Nach dem Runtime-Purge entfernt der Service alle daraus abgeleiteten
 Sichten:
 
-- FK-16-Read-Models
+- FK-69-Read-Models
 - `fact_story`
 - periodische Facts und Aggregationen, soweit der korrupte Run dort
   eingeflossen ist

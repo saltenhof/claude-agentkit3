@@ -1,5 +1,5 @@
 ---
-concept_id: FK-65
+concept_id: FK-07
 title: "Komponentenarchitektur und Architektur-Konformanz"
 module: architecture-conformance
 cross_cutting: true
@@ -30,7 +30,7 @@ formal_refs:
 
 <!-- PROSE-FORMAL: formal.architecture-conformance.entities, formal.architecture-conformance.invariants -->
 
-## 65.1 Zweck
+## 7.1 Zweck
 
 Dieses Kapitel zieht den normativen Komponentenschnitt von AK3 scharf
 und definiert die erste deterministische Architektur-Pruefschicht gegen
@@ -44,7 +44,7 @@ sie aber fuer den Komponentenschnitt maschinell pruefbar:
 - welche Abhaengigkeiten architektonisch erlaubt oder verboten sind
 - welche Regeln CI-fail-closed gegen den Code pruefen muss
 
-## 65.2 Grundregeln
+## 7.2 Grundregeln
 
 1. Komponenten werden entlang fachlicher Domaenengrenzen geschnitten,
    nicht entlang technischer Schichten oder Pipeline-Positionen.
@@ -55,7 +55,7 @@ sie aber fuer den Komponentenschnitt maschinell pruefbar:
    API-Versionierung und Fehlervertraege werden komponentenuebergreifend
    behandelt und nicht in einzelne HTTP-Dateien ausgelagert.
 
-## 65.3 Blutgruppen
+## 7.3 Blutgruppen
 
 Im Sinne der Architektur-Guardrails gilt fuer AK3:
 
@@ -67,9 +67,9 @@ Im Sinne der Architektur-Guardrails gilt fuer AK3:
 AT-Mischzonen sind zu vermeiden. Fachcode darf Infrastruktur benutzen,
 aber nicht in eine technische Mega-Fassade hineinmodelliert werden.
 
-## 65.4 Normativer Top-Level-Schnitt
+## 7.4 Normativer Top-Level-Schnitt
 
-### 65.4.1 Story- und Ausfuehrungskern
+### 7.4.1 Story- und Ausfuehrungskern
 
 | Komponente | Blutgruppe | Fachliche Verantwortung | Provided Contracts |
 | --- | --- | --- | --- |
@@ -79,7 +79,7 @@ aber nicht in eine technische Mega-Fassade hineinmodelliert werden.
 | `StoryExecutionLifecycleService` | A | owns Session-/Run-Binding, Story-Execution-Lock, Edge-Bundle-Metadaten und idempotente Lifecycle-Mutationen | `SessionBindingPort`, `StoryExecutionLockPort`, `EdgeBundlePort`, `ExecutionLifecycleMutationPort` |
 | `WorktreeManager` | A | owns Worktree- und Branch-Lifecycle fuer Story-Ausfuehrungen und administrative Story-Eingriffe | `WorktreePort` |
 
-### 65.4.2 Governance- und QA-Kern
+### 7.4.2 Governance- und QA-Kern
 
 | Komponente | Blutgruppe | Fachliche Verantwortung | Provided Contracts |
 | --- | --- | --- | --- |
@@ -90,7 +90,7 @@ aber nicht in eine technische Mega-Fassade hineinmodelliert werden.
 | `GovernanceObserver` | A | verdichtet Governance-Signale zu Incidents und Mustern | `GovernanceObservationPort` |
 | `FailureCorpus` | A | sammelt Fehlmuster und bereitet Promotions vor | `FailureCorpusPort` |
 
-### 65.4.3 Inhalts- und Runtime-Services
+### 7.4.3 Inhalts- und Runtime-Services
 
 | Komponente | Blutgruppe | Fachliche Verantwortung | Provided Contracts |
 | --- | --- | --- | --- |
@@ -100,20 +100,20 @@ aber nicht in eine technische Mega-Fassade hineinmodelliert werden.
 | `TelemetryService` | A | owns `ExecutionEvent` und alle fachlichen Event-Abfragen | `TelemetryEventWritePort`, `TelemetryQueryPort` |
 | `PhaseStateStore` | A | owns ausschliesslich `phase_state_projection` und nie `FlowExecution` oder `NodeExecution` | `PhaseStateProjectionPort`, `PhaseStateProjectionQueryPort` |
 
-### 65.4.4 Analytics- und Produktoberflaeche
+### 7.4.4 Analytics- und Produktoberflaeche
 
 | Komponente | Blutgruppe | Fachliche Verantwortung | Provided Contracts |
 | --- | --- | --- | --- |
 | `KpiAnalyticsEngine` | A | owns KPI-Semantik, Rollups und Fact-Tabellen gemaess FK-60 bis FK-62 | `KpiQueryPort`, `AnalyticsSyncPort` |
 | `DashboardApplication` | A | liefert Story-Liste, Board, Story-Detail und Live-Sichten; besitzt keine KPI-Semantik | `DashboardQueryPort` |
 
-### 65.4.5 Bootstrap und Projektbindung
+### 7.4.5 Bootstrap und Projektbindung
 
 | Komponente | Blutgruppe | Fachliche Verantwortung | Provided Contracts |
 | --- | --- | --- | --- |
 | `Installer` | A | Projektregistrierung, Bootstrap, Hook- und Wrapper-Bindung, Scaffold-Verifikation | `ProjectBootstrapPort` |
 
-## 65.5 Adapter und technische Infrastruktur
+## 7.5 Adapter und technische Infrastruktur
 
 Diese Bausteine sind notwendig, aber keine Fachkomponenten:
 
@@ -133,7 +133,7 @@ zulaessiger Top-Level-Baustein. GitHub, LLM-Pools, ARE und VectorDB
 bleiben getrennte Adapter und duerfen nicht durch ein Kategorielabel zu
 einer scheinfachlichen Komponente zusammengefasst werden.
 
-## 65.6 Repository-Regel
+## 7.6 Repository-Regel
 
 Fachkomponenten haengen nicht an `agentkit.state_backend.store` als
 generischer Mega-Fassade. Die Zielarchitektur verlangt
@@ -146,15 +146,15 @@ maschinell erzwungen. Die maschinell erzwungenen Invarianten in diesem
 Kapitel konzentrieren sich deshalb zuerst auf robuste Import- und
 Adaptergrenzen.
 
-## 65.7 Deterministische Architektur-Pruefung
+## 7.7 Deterministische Architektur-Pruefung
 
-### 65.7.1 Warum deterministisch
+### 7.7.1 Warum deterministisch
 
 Architekturtreue darf nicht nur als Review-Meinung existieren. Ein Teil
 des Sollbilds ist maschinell pruefbar und muss deshalb CI-fail-closed
 werden.
 
-### 65.7.2 Was V1 deterministisch prueft
+### 7.7.2 Was V1 deterministisch prueft
 
 Die erste Architektur-Konformanzschicht prueft:
 
@@ -163,7 +163,7 @@ Die erste Architektur-Konformanzschicht prueft:
 - verbotene direkte Kopplung von A-Code an Hook-/Transport-Adapter
 - ausgewaehlte Azyklizitaetsregeln zwischen stabilen Komponenten
 
-### 65.7.3 Was V2 zusaetzlich deterministisch prueft
+### 7.7.3 Was V2 zusaetzlich deterministisch prueft
 
 Die zweite Architektur-Konformanzschicht friert den aktuell
 zugelassenen Mutationsradius gegen kanonische Record-Familien ein.
@@ -186,7 +186,7 @@ Diese Schicht ist bewusst ein pragmatischer Zwischenschritt:
 - sie ersetzt noch nicht die spaetere vollstaendige
   Repository-Konformanz je A-Komponente
 
-### 65.7.4 Was bewusst noch nicht voll maschinell erzwungen ist
+### 7.7.4 Was bewusst noch nicht voll maschinell erzwungen ist
 
 Noch nicht voll deterministisch geprueft werden:
 
@@ -201,7 +201,7 @@ Noch nicht voll deterministisch geprueft werden:
 Diese Regeln bleiben normativ, werden aber erst nach weiterem
 Komponentenschnitt voll maschinell erzwungen.
 
-### 65.7.5 Was V3 zusaetzlich deterministisch prueft
+### 7.7.5 Was V3 zusaetzlich deterministisch prueft
 
 Die dritte Architektur-Konformanzschicht friert ausgewaehlte
 komponentenspezifische Read-Surfaces ein.
@@ -233,7 +233,7 @@ Diese Schicht ist ebenfalls ein pragmatischer Zwischenschritt:
 - sie macht den Rueckbau der `state_backend`-Mega-Fassade auf der
   Leseseite inkrementell und deterministisch pruefbar
 
-## 65.8 V1-Importgrenzen
+## 7.8 V1-Importgrenzen
 
 Die erste formale Checker-Schicht zieht mindestens diese Grenzen:
 
@@ -258,7 +258,7 @@ Die erste formale Checker-Schicht zieht mindestens diese Grenzen:
    `agentkit.control_plane.repository` oder innerhalb von
    `agentkit.state_backend` selbst importiert werden.
 
-## 65.9 Messbare Architektur-Invarianten
+## 7.9 Messbare Architektur-Invarianten
 
 Die formale V1-Schicht codiert folgende deterministisch pruefbare
 Invarianten:
@@ -289,7 +289,7 @@ Invarianten:
    importiert werden; direkte Kopplung anderer A-Komponenten an diese
    Loader ist verboten.
 
-## 65.10 Beziehung zu anderen Konzepten
+## 7.10 Beziehung zu anderen Konzepten
 
 - FK-01 beschreibt den Systemkontext und die Prinzipien.
 - FK-17/FK-18 definieren fachliche Ownership und kanonische Daten.

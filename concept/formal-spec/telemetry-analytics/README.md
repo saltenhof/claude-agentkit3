@@ -43,8 +43,8 @@ Nicht Teil dieses Kontexts sind:
 
 ## Prosa-Quellen
 
-- [FK-14](/T:/codebase/claude-agentkit3/concept/technical-design/14_telemetrie_eventing_workflow_metriken.md)
-- [FK-16](/T:/codebase/claude-agentkit3/concept/technical-design/16_qa_telemetrie_aggregation_dashboard.md)
+- [FK-68](/T:/codebase/claude-agentkit3/concept/technical-design/68_telemetrie_eventing_workflow_metriken.md)
+- [FK-69](/T:/codebase/claude-agentkit3/concept/technical-design/69_qa_telemetrie_aggregation_dashboard.md)
 - [FK-60](/T:/codebase/claude-agentkit3/concept/technical-design/60_kpi_katalog_und_architektur.md)
 - [FK-61](/T:/codebase/claude-agentkit3/concept/technical-design/61_kpi_erhebung_nach_domaenen.md)
 - [FK-62](/T:/codebase/claude-agentkit3/concept/technical-design/62_kpi_aggregation.md)

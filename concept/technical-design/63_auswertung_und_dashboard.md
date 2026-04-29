@@ -18,12 +18,12 @@ defers_to:
   - target: FK-61
     scope: kpi-collection
     reason: Erst nach Implementierung der Erhebung in FK-61 sind Dashboard-Sichten valide
-  - target: FK-52
+  - target: FK-04
     scope: operational-monitoring
-    reason: FK-52 grenzt operative von analytischer Sichtbarkeit ab; Dashboard ist analytisch
-  - target: FK-66
+    reason: FK-04 grenzt operative von analytischer Sichtbarkeit ab; Dashboard ist analytisch
+  - target: FK-70
     scope: execution-planning
-    reason: Pflichtsichten der Control-Plane lesen Planungsdaten aus FK-66
+    reason: Pflichtsichten der Control-Plane lesen Planungsdaten aus FK-70
 supersedes: []
 superseded_by:
 tags: [dashboard, analytics, visualization, chart-js]
@@ -140,7 +140,7 @@ zentralen AgentKit-Control-Plane geht darueber hinaus:
   AK3-eigenen Web-Anwendung
 - Planungsansichten fuer `Dependency-Graph`, `Ready Queue`,
   typisierte Blocker, `critical path` und `execution waves` sind
-  Pflichtsichten der spaeteren Control-Plane und lesen aus FK-66
+  Pflichtsichten der spaeteren Control-Plane und lesen aus FK-70
 - Story-Detailseiten vereinen Status, Protokolle, Telemetrie,
   QA-Artefakte und Closure-Metriken in derselben Anwendung
 - GitHub Projects ist dafuer hoechstens noch ein externer Adapter oder
@@ -199,7 +199,7 @@ Iterationen.
 - **FK-62** definiert WAS im Analytics-Schema steht (Schema,
   Refresh-Logik, Berechnung). FK-63 definiert WIE es dem
   Nutzer praesentiert wird.
-- **FK-52** (Betrieb, Monitoring) definiert operative Sichten
+- **FK-04** (Betrieb, Monitoring) definiert operative Sichten
   (Pool-Health, Disk-Space, Locks). FK-63 definiert analytische
   Sichten (Trends, Raten, Vergleiche).
 - Das Dashboard ist **Consumer** des Analytics-Modells, nicht

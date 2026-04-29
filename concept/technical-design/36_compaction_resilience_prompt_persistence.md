@@ -15,9 +15,9 @@ defers_to:
   - target: FK-22
     scope: setup-preflight
     reason: Resume-Kapsel und Spawn-Spec werden im Setup/Worktree-Setup von FK-22 erzeugt
-  - target: FK-14
+  - target: FK-68
     scope: telemetry
-    reason: Recovery-Injector emittiert Telemetrie-Events ueber den Vertrag aus FK-14
+    reason: Recovery-Injector emittiert Telemetrie-Events ueber den Vertrag aus FK-68
 supersedes: []
 superseded_by:
 tags: [compaction, context-recovery, resume-capsule, sub-agent, prompt-persistence]
@@ -427,7 +427,7 @@ SubagentStop:
 
 - **prompt_integrity_guard** (FK-30): Laeuft auf PreToolUse/Agent. Kein Konflikt
   mit `recovery_injector` — verschiedene Matcher (Agent vs. alle Tools).
-- **Telemetrie** (FK-14): Laeuft auf PreToolUse. `recovery_injector` ist
+- **Telemetrie** (FK-68): Laeuft auf PreToolUse. `recovery_injector` ist
   reihenfolge-unabhaengig zur Telemetrie — beide lesen, keiner blockiert.
 - **branch_guard, orchestrator_guard, integrity**: Laufen auf anderen Matchern
   (Bash, Write, Edit). Kein Konflikt.

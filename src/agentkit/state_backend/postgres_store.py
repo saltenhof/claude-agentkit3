@@ -1869,7 +1869,7 @@ def record_layer_artifacts(
     flow = load_flow_execution(story_dir)
     if flow is None:
         raise CorruptStateError(
-            "Cannot materialize FK-16 QA read models without flow execution "
+            "Cannot materialize FK-69 QA read models without flow execution "
             "scope in canonical Postgres backend",
         )
     produced: list[str] = []

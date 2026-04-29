@@ -1,5 +1,5 @@
 ---
-concept_id: FK-57
+concept_id: FK-05
 title: Integrationsstabilisierung und systemischer E2E-Vertrag
 module: integration-stabilization
 cross_cutting: true
@@ -47,11 +47,11 @@ formal_refs:
   - formal.story-contracts.invariants
 ---
 
-# 57 — Integrationsstabilisierung und systemischer E2E-Vertrag
+# 5 — Integrationsstabilisierung und systemischer E2E-Vertrag
 
 <!-- PROSE-FORMAL: formal.integration-stabilization.entities, formal.integration-stabilization.state-machine, formal.integration-stabilization.commands, formal.integration-stabilization.events, formal.integration-stabilization.invariants, formal.integration-stabilization.scenarios, formal.story-contracts.invariants -->
 
-## 57.1 Zweck
+## 5.1 Zweck
 
 Es gibt spaete User Stories, deren fachlicher Zweck **nicht** ein
 einzelnes Feature oder ein lokaler Bugfix ist, sondern die kontrollierte
@@ -68,7 +68,7 @@ Diese Stories duerfen in AK3 **nicht** als stiller Freibrief fuer
 beliebige Cross-Scope-Arbeit behandelt werden. Sie brauchen einen
 eigenen, explizit deklarierten Liefervertrag.
 
-## 57.2 Grundentscheidung
+## 5.2 Grundentscheidung
 
 AK3 fuehrt dafuer **keinen neuen Betriebsmodus** ein.
 
@@ -93,7 +93,7 @@ Im konsolidierten Vertragsmodell gemaess FK-59 ist
 Vertragsachse neben `story_type` und gerade **keine** freie
 Metadaten-Erweiterung.
 
-## 57.3 Abgrenzung
+## 5.3 Abgrenzung
 
 `integration_stabilization` ist:
 
@@ -107,7 +107,7 @@ Metadaten-Erweiterung.
 Story-Vertrag fuer bewusst breite, aber kontrollierte
 Integrationsarbeit.
 
-## 57.4 Wann dieser Vertrag zulaessig ist
+## 5.4 Wann dieser Vertrag zulaessig ist
 
 Der Vertrag ist nur zulaessig, wenn die Story fachlich tatsaechlich
 darauf zielt,
@@ -124,9 +124,9 @@ Nicht zulaessig ist der Vertrag fuer:
 - opportunistisches Cross-Scope-Refactoring
 - nachtraegliches Legitimieren bereits ausgebrochener Arbeit
 
-## 57.5 Integrations-Scope-Manifest
+## 5.5 Integrations-Scope-Manifest
 
-### 57.5.1 Pflichtartefakt
+### 5.5.1 Pflichtartefakt
 
 Vor produktiver Integrationsarbeit muss ein
 `integration_scope_manifest` vorliegen und offiziell freigegeben sein.
@@ -137,7 +137,7 @@ Ohne dieses Manifest gilt:
 - kein Worker-Spawn fuer `integration_stabilization`
 - keine Aktivierung des erweiterten Cross-Scope-Profils
 
-### 57.5.2 Mindestinhalt
+### 5.5.2 Mindestinhalt
 
 Das Manifest beschreibt mindestens:
 
@@ -151,7 +151,7 @@ Das Manifest beschreibt mindestens:
 - `stabilization_budget`
 - `out_of_contract_examples`
 
-### 57.5.3 Ziel des Manifests
+### 5.5.3 Ziel des Manifests
 
 Das Manifest macht aus “breiter Integrationsarbeit” einen **explizit
 deklarierten, begrenzten Arbeitsraum**.
@@ -165,7 +165,7 @@ sondern:
 > Ist genau diese Beruehrungsflaeche, in genau diesem Umfang, fuer diese
 > Story genehmigt?
 
-### 57.5.4 Genehmigung ist attestiert, nicht nur dateibasiert
+### 5.5.4 Genehmigung ist attestiert, nicht nur dateibasiert
 
 Ein lokales `integration_scope_manifest.json` ist fuer AK3 alleine
 **kein** Genehmigungsnachweis.
@@ -180,7 +180,7 @@ attestierter `manifest_approval_record` existiert:
 Fehlt dieser Approval-Record, bleibt jeder Verweis auf ein lokales
 Manifest fail-closed blockiert.
 
-### 57.5.5 Repo-Set-Grenze
+### 5.5.5 Repo-Set-Grenze
 
 Das Manifest darf keine neuen produktiven Repositories einfuehren, die
 nicht bereits Teil des aktiven Story-Runs sind.
@@ -191,7 +191,7 @@ Participating Repos autorisieren.
 Neue Repositories oder neue Worktrees sind kein Manifest-Detail,
 sondern ein separater Replan-/Setup-Fall.
 
-## 57.6 Exploration- und Setup-Regel
+## 5.6 Exploration- und Setup-Regel
 
 Fuer `implementation_contract=integration_stabilization` gilt:
 
@@ -215,9 +215,9 @@ in:
 
 Ein abgelehnter Entwurf wird nie still als Arbeitsgrundlage verwendet.
 
-## 57.7 Scope-Explosion bleibt erhalten
+## 5.7 Scope-Explosion bleibt erhalten
 
-### 57.7.1 Neue Bezugsbasis
+### 5.7.1 Neue Bezugsbasis
 
 Fuer `integration_stabilization` wird Scope-Explosion **nicht**
 abgeschaltet, sondern gegen eine andere Bezugsbasis bewertet:
@@ -225,7 +225,7 @@ abgeschaltet, sondern gegen eine andere Bezugsbasis bewertet:
 - `story.md`
 - plus `integration_scope_manifest`
 
-### 57.7.2 Regel
+### 5.7.2 Regel
 
 Innerhalb des genehmigten Manifests ist breite Integrationsarbeit
 zulaessig.
@@ -244,7 +244,7 @@ Insbesondere gilt:
 
 ist **kein** normaler Stabilisierungsfund, sondern ein Eskalationsfall.
 
-### 57.7.3 Keine Rueckwaerts-Legalisierung
+### 5.7.3 Keine Rueckwaerts-Legalisierung
 
 Wird eine zuvor als `standard` laufende Story offiziell in
 `integration_stabilization` reklassifiziert, duerfen bereits
@@ -260,7 +260,7 @@ Pflichtregel:
 - dies materialisiert sich mindestens in neuer `evidence_epoch` und
   neuem manifestgebundenen Capability-Overlay
 
-## 57.8 Stabilisierungsschleife
+## 5.8 Stabilisierungsschleife
 
 Die Story darf im aktiven Vertrag zyklisch arbeiten:
 
@@ -271,7 +271,7 @@ Die Story darf im aktiven Vertrag zyklisch arbeiten:
 
 Diese Schleife ist aber strikt budgetiert.
 
-## 57.9 Stabilization Budget
+## 5.9 Stabilization Budget
 
 Das Budget ist kein Reporting-Wert, sondern ein hartes Steuerungsobjekt.
 
@@ -293,7 +293,7 @@ im Hook-/Capability-Layer live blockieren, sobald der naechste
 produktive Stabilisierungsschritt ausserhalb des Restbudgets liegen
 wuerde.
 
-## 57.10 Verify-Profil
+## 5.10 Verify-Profil
 
 Der Vertrag verwendet **keine weichere** Verify-Pipeline, sondern ein
 spezialisiertes Profil innerhalb des bestehenden Verify-Rahmens.
@@ -320,7 +320,7 @@ Dieses Gate prueft mindestens:
 deterministischer Schicht-1-/Guard-Check gegen Diff, Manifest,
 Seam-Allowlist und aktives Repo-Set.
 
-## 57.11 Closure-Regel
+## 5.11 Closure-Regel
 
 Closure darf fuer `integration_stabilization` nur laufen, wenn:
 
@@ -332,7 +332,7 @@ Closure darf fuer `integration_stabilization` nur laufen, wenn:
 Damit bleibt Closure hart. Der Vertrag erweitert die
 Eingangsvoraussetzungen, waechst sie aber nicht weich.
 
-## 57.12 Capability- und Guard-Schnitt
+## 5.12 Capability- und Guard-Schnitt
 
 `integration_stabilization` lockert keine Plattformgrenzen global.
 
@@ -345,7 +345,7 @@ Stattdessen aktivieren die Guards ein **engeres Overlay**:
 - freies Weiterschreiben ausserhalb der deklarierten Integrationsflaeche
   bleibt technisch blockiert
 
-## 57.13 Replan, Split oder Weiterfuehrung
+## 5.13 Replan, Split oder Weiterfuehrung
 
 Wenn eine als `standard` gestartete Implementation-Story in der Praxis
 ein legitimer Integrations-/Stabilisierungsfall ist, gilt:
@@ -367,7 +367,7 @@ API-Mandat die Kernfrage ist, sondern die Tragfaehigkeit des gesamten
 Loesungsvorschlags, ist statt weiterer Story-Dehnung auch der
 offizielle Story-Exit gemaess FK-58 zulaessig.
 
-## 57.14 Technische Materialisierung
+## 5.14 Technische Materialisierung
 
 Damit der Vertrag nicht in Prosa stecken bleibt, braucht AK3:
 
@@ -382,7 +382,7 @@ Damit der Vertrag nicht in Prosa stecken bleibt, braucht AK3:
 6. eigene Telemetrie fuer Manifest-Freigabe, Undeclared-Surface und
    Budget-Erschoepfung
 
-## 57.15 Normative Zusammenfassung
+## 5.15 Normative Zusammenfassung
 
 Der Vertrag erlaubt **breite Integrationsarbeit ohne manuelles
 Guard-Bypassen**, aber nur unter drei harten Bedingungen:

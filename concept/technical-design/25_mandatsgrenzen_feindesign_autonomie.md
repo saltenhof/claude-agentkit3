@@ -32,9 +32,9 @@ defers_to:
   - target: FK-54
     scope: story-split
     reason: Scope-Explosion fuehrt ueber FK-54 zur kontrollierten Story-Beendigung mit Nachfolgern
-  - target: FK-57
+  - target: FK-05
     scope: implementation-contract
-    reason: "`implementation_contract=integration_stabilization` ist in FK-57 normiert"
+    reason: "`implementation_contract=integration_stabilization` ist in FK-05 normiert"
 supersedes:
   - target: FK-23
     scope: freeze-position
@@ -236,7 +236,7 @@ kontrolliert beendet, Nachfolger-Stories werden neu angelegt.
 fachlich nicht um eine falsch geschnittene Einzelstory, sondern um
 eine legitime systemische Integrations-/Stabilisierungslage handelt,
 ist statt `split-story` auch eine offizielle Reklassifikation nach
-`implementation_contract=integration_stabilization` (FK-57)
+`implementation_contract=integration_stabilization` (FK-05)
 zulaessig. Diese Weiterfuehrung braucht ein freigegebenes
 Integrations-Scope-Manifest; ein stilles Weiterschreiben bleibt
 verboten.

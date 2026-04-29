@@ -28,4 +28,4 @@ AK3-Komponentenarchitektur.
 - [FK-01](/T:/codebase/claude-agentkit3/concept/technical-design/01_systemkontext_und_architekturprinzipien.md)
 - [FK-17](/T:/codebase/claude-agentkit3/concept/technical-design/17_fachliches_datenmodell_ownership.md)
 - [FK-18](/T:/codebase/claude-agentkit3/concept/technical-design/18_relationales_abbildungsmodell_postgres.md)
-- [FK-65](/T:/codebase/claude-agentkit3/concept/technical-design/65_komponentenarchitektur_und_architekturkonformanz.md)
+- [FK-07](/T:/codebase/claude-agentkit3/concept/technical-design/07_komponentenarchitektur_und_architekturkonformanz.md)

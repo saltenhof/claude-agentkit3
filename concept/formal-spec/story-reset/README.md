@@ -46,4 +46,4 @@ Nicht Teil dieses Kontexts sind:
 - [FK-17](/T:/codebase/claude-agentkit3/concept/technical-design/17_fachliches_datenmodell_ownership.md)
 - [FK-18](/T:/codebase/claude-agentkit3/concept/technical-design/18_relationales_abbildungsmodell_postgres.md)
 - [FK-20](/T:/codebase/claude-agentkit3/concept/technical-design/20_workflow_engine_state_machine.md)
-- [FK-52](/T:/codebase/claude-agentkit3/concept/technical-design/52_betrieb_monitoring_audit_runbooks.md)
+- [FK-04](/T:/codebase/claude-agentkit3/concept/technical-design/04_betrieb_monitoring_audit_runbooks.md)

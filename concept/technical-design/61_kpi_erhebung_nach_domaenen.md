@@ -12,9 +12,9 @@ defers_to:
   - target: FK-60
     scope: kpi-definitions
     reason: KPI names, formulas, granularity, and decision questions defined exclusively in FK-60
-  - target: FK-14
+  - target: FK-68
     scope: event-infrastructure
-    reason: Erhebungspunkte und neue Events bauen auf dem Event-Modell aus FK-14 auf
+    reason: Erhebungspunkte und neue Events bauen auf dem Event-Modell aus FK-68 auf
   - target: FK-21
     scope: story-creation
     reason: Story-Creation-Pipeline emittiert Erhebungs-Events fuer KPI-Domaenen wie VektorDB-Kalibrierung
@@ -126,7 +126,7 @@ einfließen.
 |-----|----------------------|----------------|-----------|
 | `llm_verdict_adoption_rate` | Neues Feld in `review_response` Payload: `verdict` (PASS/PASS_WITH_CONCERNS/REWORK/FAIL). Neues Feld in Policy-Decision: `adopted_verdicts[]` mit Pool-Zuordnung. | `review_guard.py` extrahiert Verdict aus LLM-Antwort. Policy-Engine dokumentiert welche Verdicts uebernommen wurden. | → `fact_pool_period.verdict_adopted_count`, `fact_pool_period.verdict_total_count` |
 | `llm_finding_precision` | Korrelation: Finding aus `qa_findings` (source_agent = Pool-Name) gegen Finding-Status in naechster Runde (resolved/survived). | Refresh-Worker korreliert Findings ueber Runden hinweg | → `fact_pool_period.finding_true_positive_count`, `fact_pool_period.finding_false_positive_count` |
-| `quorum_trigger_rate` | Neues Event `review_divergence` existiert bereits (FK-14). Payload hat `quorum_triggered` Flag. | `divergence.py` emittiert bereits. Refresh-Worker aggregiert | → `fact_pool_period.quorum_triggered_count` |
+| `quorum_trigger_rate` | Neues Event `review_divergence` existiert bereits (FK-68). Payload hat `quorum_triggered` Flag. | `divergence.py` emittiert bereits. Refresh-Worker aggregiert | → `fact_pool_period.quorum_triggered_count` |
 
 ---
 

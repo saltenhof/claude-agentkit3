@@ -1,5 +1,5 @@
 ---
-concept_id: FK-16
+concept_id: FK-69
 title: QA- und Failure-Corpus-Read-Models
 module: qa-telemetry
 domain: telemetry-and-events
@@ -10,9 +10,9 @@ authority_over:
   - scope: qa-read-models
   - scope: failure-corpus-read-models
 defers_to:
-  - target: FK-14
+  - target: FK-68
     scope: telemetry
-    reason: "`execution_events` und Event-Semantik werden in FK-14 definiert"
+    reason: "`execution_events` und Event-Semantik werden in FK-68 definiert"
   - target: FK-17
     scope: fachliches-datenmodell
     reason: Entitaeten, Ownership und Aggregate sind dort normiert
@@ -21,7 +21,7 @@ defers_to:
     reason: Tabellenfamilien, Schluessel und Constraints sind dort normiert
   - target: FK-60
     scope: kpi-architektur
-    reason: KPI-Facts und Analytics-Rollups gehoeren nicht zu FK-16
+    reason: KPI-Facts und Analytics-Rollups gehoeren nicht zu FK-69
 supersedes: []
 superseded_by:
 tags: [qa, failure-corpus, read-models, postgres, projections]
@@ -40,13 +40,13 @@ formal_refs:
   - formal.telemetry-analytics.scenarios
 ---
 
-# 16 — QA- und Failure-Corpus-Read-Models
+# 69 — QA- und Failure-Corpus-Read-Models
 
-## 16.1 Zweck
+## 69.1 Zweck
 
 <!-- PROSE-FORMAL: formal.state-storage.state-machine, formal.state-storage.commands, formal.state-storage.events, formal.state-storage.invariants, formal.state-storage.scenarios, formal.telemetry-analytics.entities, formal.telemetry-analytics.state-machine, formal.telemetry-analytics.commands, formal.telemetry-analytics.events, formal.telemetry-analytics.invariants, formal.telemetry-analytics.scenarios -->
 
-FK-16 definiert die **operativen Read Models** fuer QA-Ergebnisse,
+FK-69 definiert die **operativen Read Models** fuer QA-Ergebnisse,
 Story-Metriken und Failure-Corpus-Daten auf dem zentralen
 PostgreSQL-State-Backend.
 
@@ -56,14 +56,14 @@ Diese Modelle dienen:
 - operativen Dashboards und Drill-Downs
 - Failure-Corpus-Pflege und Check-Wirksamkeitsbeobachtung
 
-FK-16 definiert **nicht**:
+FK-69 definiert **nicht**:
 
-- den kanonischen Event-Vertrag (`execution_events`) → FK-14
+- den kanonischen Event-Vertrag (`execution_events`) → FK-68
 - das fachliche Datenmodell und Ownership → FK-17
 - die relationale Normstruktur, Schluessel und Constraints → FK-18
 - KPI-Facts, periodische Aggregation und Dashboard-Semantik → FK-60 bis FK-63
 
-## 16.2 Grundregeln
+## 69.2 Grundregeln
 
 1. **Kanonischer Laufzeitstate liegt nie in Projektdateien.**
    `_temp/qa/...`, `closure.json`, `incidents.jsonl` und aehnliche
@@ -81,12 +81,12 @@ FK-16 definiert **nicht**:
    Read Model auf `artifact_records`, nicht umgekehrt.
 6. **Vollstaendiger Story-Reset purgt alle abgeleiteten Read Models der
    korrupten Umsetzung.**
-   FK-16-Tabellen duerfen keinen Zustand einer vollstaendig
+   FK-69-Tabellen duerfen keinen Zustand einer vollstaendig
    zurueckgesetzten Story-Umsetzung behalten.
 
-## 16.3 Tabellenumfang
+## 69.3 Tabellenumfang
 
-FK-16 autorisiert diese Tabellen:
+FK-69 autorisiert diese Tabellen:
 
 - `qa_stage_results`
 - `qa_findings`
@@ -95,7 +95,7 @@ FK-16 autorisiert diese Tabellen:
 - `fc_patterns`
 - `fc_check_proposals`
 
-## 16.4 Schreib-Ownership
+## 69.4 Schreib-Ownership
 
 | Tabelle | Owner / Writer | Fachliche Rolle |
 |---------|----------------|-----------------|
@@ -106,37 +106,37 @@ FK-16 autorisiert diese Tabellen:
 | `fc_patterns` | `failure_corpus` | Pattern-Lifecycle |
 | `fc_check_proposals` | `failure_corpus` | Check-Vorschlaege und Wirksamkeit |
 
-## 16.5 Abgrenzung zu anderen Schichten
+## 69.5 Abgrenzung zu anderen Schichten
 
-### 16.5.1 Gegenueber `execution_events`
+### 69.5.1 Gegenueber `execution_events`
 
 `execution_events` bleiben der Audit- und Beobachtungsstrom
-**gueltiger** Story-Umsetzungen. FK-16 verdichtet diesen Strom nicht zu
+**gueltiger** Story-Umsetzungen. FK-69 verdichtet diesen Strom nicht zu
 KPI-Facts, sondern zu operativ nutzbaren Story-/Stage-Sichten. Wird
 eine Story-Umsetzung vollstaendig zurueckgesetzt, werden ihre
-`execution_events` und alle daraus abgeleiteten FK-16-Read-Models
+`execution_events` und alle daraus abgeleiteten FK-69-Read-Models
 mitentfernt.
 
-### 16.5.2 Gegenueber `artifact_records`
+### 69.5.2 Gegenueber `artifact_records`
 
 `artifact_records` verwalten Artefakte generisch mit Status,
-Provenienz und Speicherreferenz. FK-16 verwaltet daraus abgeleitete,
+Provenienz und Speicherreferenz. FK-69 verwaltet daraus abgeleitete,
 fachlich querybare Sichten wie Findings, Stage-Ergebnisse oder
 Check-Wirksamkeit.
 
-### 16.5.3 Gegenueber FK-60 bis FK-63
+### 69.5.3 Gegenueber FK-60 bis FK-63
 
-FK-16 endet vor periodischen Rollups, Perzentilen und Trend-KPIs.
+FK-69 endet vor periodischen Rollups, Perzentilen und Trend-KPIs.
 Diese gehoeren in die Analytics-Schicht.
 
-## 16.6 Tabelle `qa_stage_results`
+## 69.6 Tabelle `qa_stage_results`
 
-### 16.6.1 Zweck
+### 69.6.1 Zweck
 
 `qa_stage_results` speichert das Ergebnis einer einzelnen Verify-Stage
 fuer genau einen Attempt einer Story.
 
-### 16.6.2 Pflichtattribute
+### 69.6.2 Pflichtattribute
 
 - `project_key`
 - `story_id`
@@ -153,7 +153,7 @@ fuer genau einen Attempt einer Story.
 - `artifact_id`
 - `recorded_at`
 
-### 16.6.3 Fachregeln
+### 69.6.3 Fachregeln
 
 - Pro `(project_key, run_id, attempt_no, stage_id)` gibt es genau ein
   aktuelles Stage-Ergebnis.
@@ -164,14 +164,14 @@ fuer genau einen Attempt einer Story.
 - Ein vollstaendiger Story-Reset loescht alle `qa_stage_results` des
   betroffenen `run_id`.
 
-## 16.7 Tabelle `qa_findings`
+## 69.7 Tabelle `qa_findings`
 
-### 16.7.1 Zweck
+### 69.7.1 Zweck
 
 `qa_findings` macht einzelne Check-Befunde querybar, ohne das jeweilige
 JSON-Artefakt parsen zu muessen.
 
-### 16.7.2 Pflichtattribute
+### 69.7.2 Pflichtattribute
 
 - `project_key`
 - `story_id`
@@ -187,7 +187,7 @@ JSON-Artefakt parsen zu muessen.
 - `artifact_id`
 - `occurred_at`
 
-### 16.7.3 Optionale Attribute
+### 69.7.3 Optionale Attribute
 
 - `category`
 - `reason`
@@ -195,7 +195,7 @@ JSON-Artefakt parsen zu muessen.
 - `detail`
 - `metadata`
 
-### 16.7.4 Fachregeln
+### 69.7.4 Fachregeln
 
 - Findings sind **nicht** die kanonische Wahrheit der Stage, sondern
   eine querybare Projektion aus dem Stage-Artefakt.
@@ -206,15 +206,15 @@ JSON-Artefakt parsen zu muessen.
 - Ein vollstaendiger Story-Reset loescht alle `qa_findings` des
   betroffenen `run_id`.
 
-## 16.8 Tabelle `story_metrics`
+## 69.8 Tabelle `story_metrics`
 
-### 16.8.1 Zweck
+### 69.8.1 Zweck
 
 `story_metrics` haelt operative Abschlussmetriken pro Story-Run, die
 fuer Story-Detailansichten und einfache Projektsteuerung benoetigt
 werden, aber noch keine periodische KPI-Aggregation sind.
 
-### 16.8.2 Pflichtattribute
+### 69.8.2 Pflichtattribute
 
 - `project_key`
 - `story_id`
@@ -228,7 +228,7 @@ werden, aber noch keine periodische KPI-Aggregation sind.
 - `final_status`
 - `completed_at`
 
-### 16.8.3 Optionale Attribute
+### 69.8.3 Optionale Attribute
 
 - `adversarial_findings`
 - `adversarial_tests_created`
@@ -238,7 +238,7 @@ werden, aber noch keine periodische KPI-Aggregation sind.
 - `config_version`
 - `llm_roles`
 
-### 16.8.4 Fachregeln
+### 69.8.4 Fachregeln
 
 - `story_metrics` ist pro `(project_key, run_id)` eindeutig.
 - Die Tabelle wird erst bei Story-Abschluss final.
@@ -247,9 +247,9 @@ werden, aber noch keine periodische KPI-Aggregation sind.
 - Ein vollstaendiger Story-Reset loescht den `story_metrics`-Satz der
   korrupten Umsetzung.
 
-## 16.9 Failure Corpus
+## 69.9 Failure Corpus
 
-### 16.9.1 Tabelle `fc_incidents`
+### 69.9.1 Tabelle `fc_incidents`
 
 Reprasentiert einzelne Failure-Corpus-Incidents.
 
@@ -272,7 +272,7 @@ vollstaendig zurueckgesetzt, werden die zugehoerigen
 erfolgen ueber neue Lifecycle-Felder oder Nachfolgerecords, nicht ueber
 stilles Umschreiben der Evidenz.
 
-### 16.9.2 Tabelle `fc_patterns`
+### 69.9.2 Tabelle `fc_patterns`
 
 Reprasentiert verdichtete Pattern-Kandidaten und bestaetigte Pattern.
 
@@ -292,7 +292,7 @@ vollstaendigen Story-Reset muessen betroffene Pattern-Projektionen neu
 berechnet oder gezielt korrigiert werden; ein zurueckgesetzter Run darf
 nicht weiter in `incident_count` oder `status` hineinwirken.
 
-### 16.9.3 Tabelle `fc_check_proposals`
+### 69.9.3 Tabelle `fc_check_proposals`
 
 Reprasentiert deterministische Check-Vorschlaege und deren
 Wirksamkeitsbeobachtung.
@@ -314,11 +314,11 @@ Wirksamkeitsbeobachtung.
 **Fachregel:** Wirksamkeitszaehler gehoeren zu diesem Proposal und
 werden nicht als separates Faktenschema modelliert.
 
-## 16.10 Quellen und Materialisierung
+## 69.10 Quellen und Materialisierung
 
-### 16.10.1 Eingangsquellen
+### 69.10.1 Eingangsquellen
 
-FK-16 darf Daten aus diesen Quellen materialisieren:
+FK-69 darf Daten aus diesen Quellen materialisieren:
 
 - `execution_events`
 - `phase_state_projection`
@@ -328,11 +328,11 @@ FK-16 darf Daten aus diesen Quellen materialisieren:
 - Legacy-Dateien nur in expliziten Import-/Backfill-Pfaden
 
 **Reset-Regel:** Wird ein `run_id` vollstaendig zurueckgesetzt, muessen
-alle FK-16-Projektionen dieses `run_id` aktiv entfernt oder aus den
+alle FK-69-Projektionen dieses `run_id` aktiv entfernt oder aus den
 verbleibenden gueltigen Quellen neu aufgebaut werden. Spaeteres
 Herausfiltern in Queries ist unzulaessig.
 
-### 16.10.2 Exportdateien
+### 69.10.2 Exportdateien
 
 Die bekannten Dateien bleiben als Arbeits- oder Exportformate
 erlaubt, z. B.:
@@ -345,7 +345,7 @@ erlaubt, z. B.:
 
 Diese Dateien sind jedoch nie die alleinige operative Wahrheit.
 
-## 16.11 Konsistenzregeln
+## 69.11 Konsistenzregeln
 
 1. Jedes `qa_stage_result` mit `artifact_id` muss auf einen
    existierenden `artifact_record` zeigen.
@@ -356,21 +356,21 @@ Diese Dateien sind jedoch nie die alleinige operative Wahrheit.
    reproduzierbar sein.
 4. Failure-Corpus-Read-Models muessen rebuildbar bleiben; Dateiexporte
    sind keine exklusive Wahrheit.
-5. Ein vollstaendiger Story-Reset darf keine FK-16-Zeile der
+5. Ein vollstaendiger Story-Reset darf keine FK-69-Zeile der
    korrupten Umsetzung zuruecklassen.
 
-## 16.12 Backfill und Migration
+## 69.12 Backfill und Migration
 
 Backfill aus Legacy-Artefakten bleibt erlaubt, aber nur als
 Migrationspfad:
 
-- JSON/JSONL-Dateien koennen in die FK-16-Tabellen importiert werden
+- JSON/JSONL-Dateien koennen in die FK-69-Tabellen importiert werden
 - der Import muss `project_key` explizit setzen
 - nach erfolgreichem Import bleibt PostgreSQL die operative Wahrheit
 
-## 16.13 Zusammenfassung
+## 69.13 Zusammenfassung
 
-FK-16 definiert die operative Mittelschicht zwischen:
+FK-69 definiert die operative Mittelschicht zwischen:
 
 - kanonischem Laufzeitstate (`StoryContext`, `phase_state_projection`,
   `execution_events`, `artifact_records`)

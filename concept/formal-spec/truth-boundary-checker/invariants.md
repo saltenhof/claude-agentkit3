@@ -7,7 +7,7 @@ context: truth-boundary-checker
 spec_kind: invariant-set
 version: 1
 prose_refs:
-  - concept/technical-design/64_truth_boundary_and_concept_code_contract_checker.md
+  - concept/technical-design/06_truth_boundary_and_concept_code_contract_checker.md
 ---
 
 # Truth Boundary Checker Invariants

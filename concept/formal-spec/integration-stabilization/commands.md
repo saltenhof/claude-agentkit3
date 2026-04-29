@@ -7,7 +7,7 @@ context: integration-stabilization
 spec_kind: command-set
 version: 1
 prose_refs:
-  - concept/technical-design/57_integration_stabilization_contract.md
+  - concept/technical-design/05_integration_stabilization_contract.md
   - concept/technical-design/37_verify_context_und_qa_bundle.md
   - concept/technical-design/91_api_event_katalog.md
 ---

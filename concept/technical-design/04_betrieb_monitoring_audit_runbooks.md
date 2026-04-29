@@ -1,5 +1,5 @@
 ---
-concept_id: FK-52
+concept_id: FK-04
 title: Betrieb, Monitoring, Audit und Runbooks
 module: operations
 cross_cutting: true
@@ -9,15 +9,15 @@ parent_concept_id:
 authority_over:
   - scope: operations
 defers_to:
-  - target: FK-14
+  - target: FK-68
     scope: event-infrastructure
-    reason: Event model and telemetry infrastructure defined in FK-14
+    reason: Event model and telemetry infrastructure defined in FK-68
   - target: FK-50
     scope: installer-infrastructure
     reason: Installation and verification checkpoints defined in FK-50
-  - target: FK-16
+  - target: FK-69
     scope: qa-telemetry-store
-    reason: Operative Runbook-Schritte verweisen auf FK-16-Read-Models und Raw-/Mirror-Tabellen als nicht zu loeschende Recovery-Quelle
+    reason: Operative Runbook-Schritte verweisen auf FK-69-Read-Models und Raw-/Mirror-Tabellen als nicht zu loeschende Recovery-Quelle
 supersedes: []
 superseded_by:
 tags: [operations, monitoring, audit, runbooks, telemetry]
@@ -33,20 +33,20 @@ formal_refs:
   - formal.story-reset.scenarios
 ---
 
-# 52 — Betrieb, Monitoring, Audit und Runbooks
+# 4 — Betrieb, Monitoring, Audit und Runbooks
 
 <!-- PROSE-FORMAL: formal.story-closure.commands, formal.story-closure.events, formal.story-closure.invariants, formal.story-closure.scenarios, formal.story-reset.commands, formal.story-reset.events, formal.story-reset.invariants, formal.story-reset.scenarios -->
 
-## 52.1 Zweck
+## 4.1 Zweck
 
 AgentKit hat keinen projektlokalen Server und keinen Betriebsprozess
 im klassischen Sinne. "Betrieb" bedeutet hier: Wie stellt der
 Mensch sicher, dass die zentrale Infrastruktur läuft, die Qualität
 stimmt und Probleme erkannt werden?
 
-## 52.2 Operatives Monitoring
+## 4.2 Operatives Monitoring
 
-### 52.2.1 Was überwacht werden muss
+### 4.2.1 Was überwacht werden muss
 
 | Komponente | Prüfung | Wie |
 |------------|--------|-----|
@@ -61,7 +61,7 @@ stimmt und Probleme erkannt werden?
 | Split-Faehigkeit | Offizieller Story-Split-Pfad verfuegbar | `agentkit split-story --help` |
 | Konfliktaufloesung | Offizieller Freeze-/Resolution-Pfad verfuegbar | `agentkit resolve-conflict --help` |
 
-### 52.2.2 Status-Befehl
+### 4.2.2 Status-Befehl
 
 ```bash
 agentkit status
@@ -87,9 +87,9 @@ agentkit status
 # Backend: PostgreSQL OK
 ```
 
-## 52.3 Audit-Logs
+## 4.3 Audit-Logs
 
-### 52.3.1 Was geloggt wird
+### 4.3.1 Was geloggt wird
 
 | Log | Speicherort | Inhalt |
 |-----|------------|--------|
@@ -101,7 +101,7 @@ agentkit status
 | QA-Artefakte | PostgreSQL | Structural, LLM-Review, Adversarial, Policy |
 | Failure Corpus | PostgreSQL / Artefaktspeicher | Incidents, Patterns, Checks |
 
-### 52.3.2 Abfragen
+### 4.3.2 Abfragen
 
 ```bash
 # Telemetrie einer Story
@@ -117,9 +117,9 @@ agentkit query-telemetry --run a1b2c3d4-...
 agentkit query-telemetry --event governance_adjudication --since 7d
 ```
 
-## 52.4 Wöchentlicher Review-Slot
+## 4.4 Wöchentlicher Review-Slot
 
-### 52.4.1 Zweck
+### 4.4.1 Zweck
 
 Das FK sieht einen wöchentlichen 15-Minuten-Review-Slot vor
 (FK-10-058). Hier prüft der Mensch:
@@ -133,7 +133,7 @@ Das FK sieht einen wöchentlichen 15-Minuten-Review-Slot vor
 4. **Schwellenwert-Tuning:** VektorDB-Similarity-Schwellenwert
    basierend auf protokollierten FP/FN-Raten anpassen
 
-### 52.4.2 Kein automatischer Trigger
+### 4.4.2 Kein automatischer Trigger
 
 Es gibt keinen Kalendereintrag oder Wecker. Die Reports
 erscheinen automatisch bei jedem `agentkit status` oder
@@ -154,9 +154,9 @@ agentkit weekly-review
 # Recommendation: threshold OK
 ```
 
-## 52.5 Runbooks
+## 4.5 Runbooks
 
-### 52.5.1 LLM-Pool nicht erreichbar
+### 4.5.1 LLM-Pool nicht erreichbar
 
 ```
 Symptom: agentkit status zeigt Pool als ERROR
@@ -168,7 +168,7 @@ Lösung:
 3. Verifizieren: {pool}_health → "ok"
 ```
 
-### 52.5.2 Stale Lock
+### 4.5.2 Stale Lock
 
 ```
 Symptom: Story kann nicht gestartet werden (Preflight FAIL: stale lock)
@@ -180,7 +180,7 @@ Lösung:
 3. Wenn Prozess aktiv: Warten oder Prozess manuell beenden
 ```
 
-### 52.5.3 Integrity-Gate FAIL
+### 4.5.3 Integrity-Gate FAIL
 
 ```
 Symptom: Story kann nicht geschlossen werden
@@ -194,7 +194,7 @@ Lösung:
    agentkit override-integrity --story {story_id} --reason "..."
 ```
 
-### 52.5.4 Stagnation (Story ohne Fortschritt)
+### 4.5.4 Stagnation (Story ohne Fortschritt)
 
 ```
 Symptom: Story seit > 4 Stunden in derselben Phase
@@ -208,7 +208,7 @@ Lösung:
 5. Story-Anforderungen vereinfachen oder Mensch greift ein
 ```
 
-### 52.5.5 Merge-Konflikt
+### 4.5.5 Merge-Konflikt
 
 ```
 Symptom: Closure ESCALATED mit Merge-Konflikt
@@ -223,7 +223,7 @@ Lösung:
    `agentkit reset-story --story {story_id} --reason "..."`
 ```
 
-### 52.5.6 Scope-Explosion / Story-Split
+### 4.5.6 Scope-Explosion / Story-Split
 
 ```text
 Symptom: Exploration PAUSED mit scope_explosion
@@ -241,7 +241,7 @@ Loesung:
    - keine aktiven Locks / Worktrees der Ausgangs-Story
 ```
 
-### 52.5.7 Autoritativer Snapshot-/Normkonflikt
+### 4.5.7 Autoritativer Snapshot-/Normkonflikt
 
 ```text
 Symptom: Worker oder Verify stoppt mit Widerspruch zwischen
@@ -263,7 +263,7 @@ Loesung:
    - neuer Snapshot / Redirect / Split / Cancel sauber auditiert
 ```
 
-### 52.5.8 Vollstaendiger Story-Reset
+### 4.5.8 Vollstaendiger Story-Reset
 
 ```
 Symptom: Story ist ESCALATED und kann ueber Standardpfade nicht mehr
@@ -283,11 +283,11 @@ Lösung:
 4. Ergebnis pruefen:
    - keine aktiven Locks
    - kein aktiver Runtime-State
-   - keine FK-16/FK-60ff-Ableitungen der korrupten Umsetzung
+   - keine FK-69/FK-60ff-Ableitungen der korrupten Umsetzung
 5. Story bei Bedarf neu starten
 ```
 
-### 52.5.9 Permission-Block / externe Permission-Interferenz
+### 4.5.9 Permission-Block / externe Permission-Interferenz
 
 ```text
 Symptom: `permission_request_opened` oder
@@ -313,9 +313,9 @@ Loesung:
    - derselbe Run wird nur mit expliziter Entscheidung fortgesetzt
 ```
 
-## 52.6 Kapazitäts- und Kostensteuerung
+## 4.6 Kapazitäts- und Kostensteuerung
 
-### 52.6.1 Kosten
+### 4.6.1 Kosten
 
 | Ressource | Kosten | Steuerung |
 |-----------|--------|----------|
@@ -325,7 +325,7 @@ Loesung:
 | GitHub API | Kostenlos (im Rahmen der Rate Limits) | Wenige Aufrufe pro Story |
 | Disk | Lokaler Speicher | Archivierung alter QA-Artefakte |
 
-### 52.6.2 Parallelitäts-Limits
+### 4.6.2 Parallelitäts-Limits
 
 Die Parallelität ist durch die Pool-Sizes begrenzt (Kap. 10):
 - ChatGPT: 4 Slots (Default)
@@ -336,9 +336,9 @@ Wenn alle Slots belegt sind, warten nachfolgende Aufrufe in der
 Queue. Das ist eine natürliche Begrenzung der Parallelität —
 kein zusätzliches Limit nötig.
 
-## 52.7 Backup und Retention
+## 4.7 Backup und Retention
 
-### 52.7.1 Was gesichert werden sollte
+### 4.7.1 Was gesichert werden sollte
 
 | Daten | Wichtigkeit | Backup-Methode |
 |-------|-----------|---------------|
@@ -347,7 +347,7 @@ kein zusätzliches Limit nötig.
 | PostgreSQL | Hoch | Zentrales DB-Backup / PITR |
 | Audit-Exports | Mittel | Objektspeicher / Archiv-Backup |
 
-### 52.7.2 Retention
+### 4.7.2 Retention
 
 | Daten | Retention | Begründung |
 |-------|----------|-----------|

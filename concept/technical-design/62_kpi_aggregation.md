@@ -15,9 +15,9 @@ defers_to:
   - target: FK-61
     scope: kpi-collection
     reason: Data collection points and event sources defined in FK-61
-  - target: FK-16
+  - target: FK-69
     scope: qa-telemetry-store
-    reason: Aggregation greift auf FK-16-Read-Models und Mirror-Tabellen als Rohbasis zu
+    reason: Aggregation greift auf FK-69-Read-Models und Mirror-Tabellen als Rohbasis zu
   - target: FK-41
     scope: failure-corpus
     reason: Aggregation ueber Incidents, Patterns und Checks setzt das FK-41 Lifecycle-Modell voraus
@@ -306,7 +306,7 @@ Ein vollstaendiger Story-Reset invalidiert die korrupten
 Analytics-Ableitungen aktiv. Es gilt:
 
 - `fact_story`-Zeilen der betroffenen Story werden geloescht
-- run-gebundene Read Models aus FK-16 werden geloescht
+- run-gebundene Read Models aus FK-69 werden geloescht
 - periodische Facts (`fact_guard_period`, `fact_pool_period`,
   `fact_pipeline_period`, `fact_corpus_period`) werden fuer die
   betroffenen Perioden neu berechnet oder gezielt korrigiert
@@ -572,9 +572,9 @@ fehlende Schritte aus.
 
 ---
 
-## 62.5 Abgrenzung zu FK-16
+## 62.5 Abgrenzung zu FK-69
 
-FK-16 definiert die Raw-Spiegel-Tabellen (`qa_findings`,
+FK-69 definiert die Raw-Spiegel-Tabellen (`qa_findings`,
 `qa_stage_results`, `story_metrics`, `fc_*`) im Runtime-Schema.
 Diese Tabellen sind **Eingabedaten** fuer den Refresh-Worker.
 
