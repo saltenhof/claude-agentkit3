@@ -147,6 +147,158 @@ class _DomainProjection:
         return cls(by_doc={}, registry_hash="")
 
 
+def _prose_ref_to_concept_id(rel: str) -> str | None:
+    """Map a prose-ref path to its FK/DK concept id."""
+    rel = rel.replace("\\", "/").strip()
+    if not rel:
+        return None
+    parts = rel.split("/")
+    if len(parts) < 3:
+        return None
+    layer_dir = parts[-2]
+    filename = parts[-1]
+    if layer_dir == "technical-design":
+        num = filename.split("_", 1)[0]
+        return f"FK-{num}" if num.isdigit() else None
+    if layer_dir == "domain-design":
+        num = filename.split("-", 1)[0]
+        return f"DK-{num}" if num.isdigit() else None
+    return None
+
+
+def _formal_folder_of(rel_path: str) -> str | None:
+    """Return the formal-spec folder of a formal doc, e.g. 'deterministic-checks'."""
+    parts = rel_path.replace("\\", "/").split("/")
+    if len(parts) < 3 or parts[0] != "formal-spec":
+        return None
+    folder = parts[1]
+    # Skip meta and toplevel READMEs.
+    if folder.startswith("00_") or folder.endswith(".md"):
+        return None
+    return folder
+
+
+@dataclass(frozen=True)
+class _FormalFolderProjection:
+    """BC ownership of each formal-spec folder."""
+
+    by_folder: dict[str, tuple[str, bool, str, str]]  # folder -> (domain, cross_cutting, surface, display)
+
+
+def _build_formal_folder_projection(
+    frames: list[_DocumentFrame], projection: _DomainProjection
+) -> _FormalFolderProjection:
+    """Aggregate prose_refs across all formal docs of each folder.
+
+    A folder gets a single BC ownership decision so all six per-folder
+    spec files (entities/invariants/commands/events/state-machine/scenarios)
+    share the same BC even when individual files are imported by other BCs.
+
+    Decision rule:
+
+    * majority BC across all referenced FK/DK docs in the folder wins
+    * tied majority -> cross_cutting=True
+    * all references foundation/cross-cutting -> cross_cutting=True
+    * no references at all -> empty (formal doc remains unassigned)
+    """
+    contributions: dict[str, list[tuple[str, bool, str, str]]] = {}
+    for frame in frames:
+        if frame.layer != LAYER_FORMAL:
+            continue
+        folder = _formal_folder_of(frame.rel_path)
+        if folder is None:
+            continue
+        bucket = contributions.setdefault(folder, [])
+        prose_refs = frame.frontmatter.get("prose_refs")
+        if not isinstance(prose_refs, list):
+            continue
+        for raw in prose_refs:
+            cid = _prose_ref_to_concept_id(str(raw))
+            if cid is None:
+                continue
+            entry = projection.by_doc.get(cid)
+            if entry is None:
+                bucket.append(("", True, "", ""))
+            else:
+                domain, surface, display = entry
+                bucket.append((domain, False, surface, display))
+
+    by_folder: dict[str, tuple[str, bool, str, str]] = {}
+    for folder, contribs in contributions.items():
+        if not contribs:
+            continue
+        bc_contribs = [(d, surf, disp) for (d, cc, surf, disp) in contribs if not cc and d]
+        if not bc_contribs:
+            by_folder[folder] = ("", True, "", "")
+            continue
+        from collections import Counter
+
+        counts = Counter(d for (d, _, _) in bc_contribs)
+        top_count = max(counts.values())
+        top_bcs = [d for d, c in counts.items() if c == top_count]
+        if len(top_bcs) > 1:
+            # Tie between BCs -> cross-cutting.
+            by_folder[folder] = ("", True, "", "")
+            continue
+        primary = top_bcs[0]
+        primary_contribs = [(d, s, disp) for (d, s, disp) in bc_contribs if d == primary]
+        surfaces = {s for (_, s, _) in primary_contribs}
+        display = primary_contribs[0][2]
+        surface = "contract" if "contract" in surfaces else next(iter(surfaces))
+        by_folder[folder] = (primary, False, surface, display)
+    return _FormalFolderProjection(by_folder=by_folder)
+
+
+def _formal_owner_from_prose_refs(
+    prose_refs: Any,
+    projection: _DomainProjection,
+    folder_projection: _FormalFolderProjection | None = None,
+    rel_path: str | None = None,
+) -> tuple[str, bool, str, str]:
+    """Look up a formal spec's BC ownership.
+
+    When ``folder_projection`` is provided we use the per-folder decision so
+    every spec in a folder shares the same BC. Otherwise we fall back to the
+    per-doc rule (single BC across all prose_refs, else cross_cutting).
+
+    Returns ``(domain, cross_cutting, surface, domain_display_name)``.
+    """
+    if folder_projection is not None and rel_path is not None:
+        folder = _formal_folder_of(rel_path)
+        if folder is not None:
+            entry = folder_projection.by_folder.get(folder)
+            if entry is not None:
+                return entry
+
+    if not isinstance(prose_refs, list):
+        return ("", False, "", "")
+
+    contributions: list[tuple[str, bool, str, str]] = []
+    for raw in prose_refs:
+        cid = _prose_ref_to_concept_id(str(raw))
+        if cid is None:
+            continue
+        entry = projection.by_doc.get(cid)
+        if entry is None:
+            contributions.append(("", True, "", ""))
+        else:
+            domain, surface, display = entry
+            contributions.append((domain, False, surface, display))
+
+    if not contributions:
+        return ("", False, "", "")
+    bc_owners = {(d, surf, disp) for (d, cc, surf, disp) in contributions if not cc and d}
+    if not bc_owners:
+        return ("", True, "", "")
+    distinct_bcs = {(d, disp) for (d, _, disp) in bc_owners}
+    if len(distinct_bcs) == 1:
+        domain, display = next(iter(distinct_bcs))
+        surfaces = {s for (_, s, _) in bc_owners}
+        surface = "contract" if "contract" in surfaces else next(iter(surfaces))
+        return (domain, False, surface, display)
+    return ("", True, "", "")
+
+
 def _load_domain_projection(repo_root: Path) -> _DomainProjection:
     path = repo_root / "concept" / "technical-design" / "_meta" / "domain-registry.yaml"
     if not path.is_file():
@@ -204,10 +356,13 @@ def discover(concept_root: Path, max_chars: int) -> DiscoveryResult:
     repo_root = concept_root.parent
     projection = _load_domain_projection(repo_root)
 
+    frames = list(_iter_documents(concept_root))
+    folder_projection = _build_formal_folder_projection(frames, projection)
+
     chunks: list[ConceptChunk] = []
     glossary_terms: list[GlossaryTerm] = []
-    for frame in _iter_documents(concept_root):
-        doc_view = _build_doc_view(frame, projection)
+    for frame in frames:
+        doc_view = _build_doc_view(frame, projection, folder_projection)
         chunks.extend(_chunk_document(frame, doc_view, max_chars=max_chars))
         glossary_terms.extend(_extract_glossary_terms(frame, doc_view))
     return DiscoveryResult(
@@ -296,7 +451,11 @@ class _DocView:
     metadata: dict[str, Any]
 
 
-def _build_doc_view(frame: _DocumentFrame, projection: _DomainProjection) -> _DocView:
+def _build_doc_view(
+    frame: _DocumentFrame,
+    projection: _DomainProjection,
+    folder_projection: _FormalFolderProjection | None = None,
+) -> _DocView:
     fm = frame.frontmatter
     doc_id = _doc_id(fm, frame.rel_path)
     title = _string(fm.get("title")) or _fallback_title(frame.rel_path)
@@ -307,7 +466,21 @@ def _build_doc_view(frame: _DocumentFrame, projection: _DomainProjection) -> _Do
     cross_cutting = bool(fm.get("cross_cutting") is True)
     registry_entry = projection.by_doc.get(doc_id)
 
-    if cross_cutting:
+    if frame.layer == LAYER_FORMAL:
+        # Formal specs inherit BC from their folder: all six per-folder spec
+        # files share one decision (entities/invariants/commands/events/
+        # state-machine/scenarios), based on the majority BC across all
+        # prose_refs of the whole folder. Falls back to per-doc if the
+        # folder is unknown (e.g. meta READMEs).
+        domain, cross_cutting, surface, domain_display_name = (
+            _formal_owner_from_prose_refs(
+                fm.get("prose_refs"),
+                projection,
+                folder_projection=folder_projection,
+                rel_path=frame.rel_path,
+            )
+        )
+    elif cross_cutting:
         domain = ""
         surface = ""
         domain_display_name = ""
