@@ -54,6 +54,21 @@ acyclic_group_sets:
       - architecture-conformance.group.dashboard
       - architecture-conformance.group.control_plane
       - architecture-conformance.group.projectedge
+  - id: architecture-conformance.acyclic.runtime_core
+    group_ids:
+      - architecture-conformance.group.pipeline_engine
+      - architecture-conformance.group.story_context_manager
+      - architecture-conformance.group.phase_state_store
+      - architecture-conformance.group.telemetry_service
+      - architecture-conformance.group.prompt_composer
+      - architecture-conformance.group.llm_evaluator
+  - id: architecture-conformance.acyclic.governance_core
+    group_ids:
+      - architecture-conformance.group.guard_system
+      - architecture-conformance.group.governance_observer
+      - architecture-conformance.group.conformance_service
+      - architecture-conformance.group.stage_registry
+      - architecture-conformance.group.failure_corpus
 mutation_surface_rules:
   - id: architecture-conformance.rule.story_context_write_surface
     writer_symbols:
@@ -152,6 +167,12 @@ invariants:
   - id: architecture-conformance.invariant.application_surface_is_acyclic
     scope: static-analysis
     rule: story, dashboard, control_plane and projectedge must not form dependency cycles
+  - id: architecture-conformance.invariant.runtime_core_is_acyclic
+    scope: static-analysis
+    rule: pipeline_engine, story_context_manager, phase_state_store, telemetry_service, prompt_composer and llm_evaluator must not form dependency cycles
+  - id: architecture-conformance.invariant.governance_core_is_acyclic
+    scope: static-analysis
+    rule: guard_system, governance_observer, conformance_service, stage_registry and failure_corpus must not form dependency cycles
   - id: architecture-conformance.invariant.canonical_write_surface_is_bounded
     scope: static-analysis
     rule: imports of canonical write symbols must stay within explicitly approved mutation surfaces
