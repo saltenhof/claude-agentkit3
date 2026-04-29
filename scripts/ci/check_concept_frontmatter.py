@@ -19,6 +19,7 @@ Lints implemented (see concept/technical-design/00_index.md §9.4):
     L14  All stem fields present.
     L15  formal_refs <-> body PROSE-FORMAL anchors (local, fast-fail).
     L16  Authority type compatibility (no defers_to to index/appendix).
+    L21  Top heading "# {N} — {title}" with em-dash and number matching filename.
 """
 
 from __future__ import annotations
@@ -699,6 +700,66 @@ def lint_l20_implicit_leakage(
                         break  # one finding per (doc, foreign_domain, term) is enough
 
 
+EM_DASH = "—"
+TOP_HEADING_RE = re.compile(r"^#\s+(.+)$", re.MULTILINE)
+NUMBERED_HEADING_RE = re.compile(r"^(\d+)\s+(\S)\s+(.+)$")
+
+
+def lint_l21_top_heading(docs: list[Doc], report: LintReport) -> None:
+    """Top heading must be `# {N} — {title}` with em-dash and N matching filename.
+
+    Documents whose filename starts with ``00`` (overview/index) are exempt:
+    their heading is the project title rather than a numbered chapter.
+    """
+    for doc in docs:
+        name = doc.path.name
+        prefix_match = re.match(r"^(\d{2})[_-]", name)
+        if prefix_match is None:
+            continue
+        prefix_int = int(prefix_match.group(1))
+        if prefix_int == 0:
+            continue
+        body = doc.path.read_text(encoding="utf-8")
+        fm_match = re.match(r"^---\n.*?\n---\n", body, re.S)
+        body_after = body[fm_match.end():] if fm_match else body
+        heading_match = TOP_HEADING_RE.search(body_after)
+        if heading_match is None:
+            report.err(
+                "L21",
+                f"{doc.path}: no top-level '# ...' heading found after frontmatter",
+            )
+            continue
+        heading_text = heading_match.group(1).strip()
+        parts_match = NUMBERED_HEADING_RE.match(heading_text)
+        if parts_match is None:
+            report.err(
+                "L21",
+                (
+                    f"{doc.path}: top heading '# {heading_text}' must follow "
+                    f"'# {prefix_int} {EM_DASH} <title>'"
+                ),
+            )
+            continue
+        actual_num = int(parts_match.group(1))
+        actual_dash = parts_match.group(2)
+        if actual_num != prefix_int:
+            report.err(
+                "L21",
+                (
+                    f"{doc.path}: top heading number {actual_num} does not match "
+                    f"filename prefix {prefix_int:02d}"
+                ),
+            )
+        if actual_dash != EM_DASH:
+            report.err(
+                "L21",
+                (
+                    f"{doc.path}: top heading uses {actual_dash!r} between number and "
+                    f"title; em-dash ({EM_DASH}) required"
+                ),
+            )
+
+
 def lint_l15_prose_anchors(docs: list[Doc], report: LintReport) -> None:
     for doc in docs:
         if doc.fm.get("prose_anchor_policy") != "strict":
@@ -745,6 +806,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     lint_l11_module_registry(docs, report)
     lint_l7_body_refs(docs, by_id, report)
     lint_l15_prose_anchors(docs, report)
+    lint_l21_top_heading(docs, report)
     # Bounded-Context layer (no-op while domain-registry is empty):
     lint_l17_domain_and_policies(docs, domains, policies, report)
     lint_l18_cross_domain_refs(docs, by_id, domains, report)

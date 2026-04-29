@@ -26,7 +26,7 @@ formal_refs:
   - formal.architecture-conformance.invariants
 ---
 
-# 65 - Komponentenarchitektur und Architektur-Konformanz
+# 7 — Komponentenarchitektur und Architektur-Konformanz
 
 <!-- PROSE-FORMAL: formal.architecture-conformance.entities, formal.architecture-conformance.invariants -->
 

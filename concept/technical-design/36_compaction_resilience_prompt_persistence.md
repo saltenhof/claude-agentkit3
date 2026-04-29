@@ -24,7 +24,7 @@ tags: [compaction, context-recovery, resume-capsule, sub-agent, prompt-persisten
 formal_scope: prose-only
 ---
 
-# FK-36: Compaction Resilience — Prompt-Persistenz fuer Sub-Agenten
+# 36 — Compaction Resilience und Prompt-Persistenz fuer Sub-Agenten
 
 ## 36.1 Problemstellung
 
