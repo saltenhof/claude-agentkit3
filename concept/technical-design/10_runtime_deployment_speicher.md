@@ -2,6 +2,7 @@
 concept_id: FK-10
 title: Runtime, Deployment und Speicher
 module: runtime
+cross_cutting: true
 status: active
 doc_kind: core
 parent_concept_id:
@@ -20,6 +21,15 @@ defers_to:
   - target: FK-18
     scope: relational-schema
     reason: Die logische PostgreSQL-Abbildung des State-Backends ist in FK-18 definiert
+  - target: FK-13
+    scope: vectordb
+    reason: Weaviate als Pflicht-Datendienst ist in FK-13 verankert
+  - target: FK-33
+    scope: stage-registry
+    reason: Externe Stage-Registry-Dienste (Jenkins, SonarQube) werden ueber FK-33 angebunden
+  - target: FK-40
+    scope: are-integration
+    reason: ARE-MCP-Server als optionale Integration wird in FK-40 spezifiziert
 supersedes: []
 superseded_by:
 tags: [runtime, deployment, verzeichnisstruktur, persistenz, locking]

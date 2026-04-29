@@ -2,6 +2,7 @@
 concept_id: FK-56
 title: Betriebsmodi — AI-Augmented und Story-Execution sauber getrennt
 module: operating-modes
+domain: story-lifecycle
 status: active
 doc_kind: core
 parent_concept_id:
@@ -19,6 +20,12 @@ defers_to:
   - target: FK-55
     scope: principal-capabilities
     reason: Principals und Capabilities muessen mode-scharf interpretiert werden
+  - target: FK-57
+    scope: integration-stabilization
+    reason: Stabilisierungs-Stories erzeugen keinen dritten Modus, sondern bleiben unter story_execution
+  - target: FK-58
+    scope: story-exit
+    reason: Offizieller Exit aus story_execution nach ai_augmented wird dort normiert
 supersedes: []
 superseded_by:
 tags: [operating-modes, ai-augmented, story-execution, run-binding, integrity]

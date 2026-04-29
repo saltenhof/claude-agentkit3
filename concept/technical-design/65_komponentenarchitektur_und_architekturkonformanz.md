@@ -2,6 +2,7 @@
 concept_id: FK-65
 title: "Komponentenarchitektur und Architektur-Konformanz"
 module: architecture-conformance
+cross_cutting: true
 status: active
 doc_kind: detail
 parent_concept_id: FK-01
@@ -14,6 +15,7 @@ defers_to:
   - FK-17
   - FK-18
   - FK-60
+  - FK-62
   - FK-63
 supersedes: []
 superseded_by:

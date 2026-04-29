@@ -2,6 +2,7 @@
 concept_id: FK-36
 title: Compaction Resilience — Prompt-Persistenz fuer Sub-Agenten
 module: compaction
+domain: pipeline-framework
 status: active
 doc_kind: core
 parent_concept_id:
@@ -11,6 +12,12 @@ defers_to:
   - target: FK-30
     scope: hook-infrastructure
     reason: Recovery injector runs as PreToolUse hook within the hook infrastructure
+  - target: FK-22
+    scope: setup-preflight
+    reason: Resume-Kapsel und Spawn-Spec werden im Setup/Worktree-Setup von FK-22 erzeugt
+  - target: FK-14
+    scope: telemetry
+    reason: Recovery-Injector emittiert Telemetrie-Events ueber den Vertrag aus FK-14
 supersedes: []
 superseded_by:
 tags: [compaction, context-recovery, resume-capsule, sub-agent, prompt-persistence]

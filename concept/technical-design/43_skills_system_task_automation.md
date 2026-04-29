@@ -2,6 +2,7 @@
 concept_id: FK-43
 title: Skills-System und Aufgabenautomatisierung
 module: skills
+domain: agent-skills
 status: active
 doc_kind: core
 parent_concept_id:

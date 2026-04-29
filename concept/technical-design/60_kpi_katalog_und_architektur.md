@@ -2,6 +2,7 @@
 concept_id: FK-60
 title: KPI-Katalog und Analytics-Architektur
 module: kpi-catalog
+domain: kpi-and-dashboard
 status: active
 doc_kind: core
 parent_concept_id:
@@ -11,6 +12,18 @@ defers_to:
   - target: FK-14
     scope: event-infrastructure
     reason: Event model, event catalog, and PostgreSQL schema defined in FK-14; FK-60 consumes events as raw data source
+  - target: FK-16
+    scope: qa-telemetry-store
+    reason: Querybare QA-/FC-Raw-/Mirror-Tabellen aus FK-16 sind Eingabe der Analytics-Schicht
+  - target: FK-30
+    scope: hook-infrastructure
+    reason: KPI-relevante Events werden ueber den FK-30 Hook-Mechanismus transportiert
+  - target: FK-41
+    scope: failure-corpus
+    reason: Analytics aggregiert ueber FC-Entitaeten (Incidents, Patterns, Checks), deren Lifecycle FK-41 normiert
+  - target: FK-52
+    scope: operational-monitoring
+    reason: FK-52 bleibt fuer operatives Monitoring zustaendig; FK-60 grenzt analytische von operativer Sicht ab
 supersedes: []
 superseded_by:
 tags: [kpi, analytics, architecture, postgres, metrics]

@@ -2,9 +2,10 @@
 concept_id: FK-64
 title: "Truth Boundary und Concept-to-Code-Contract-Checker"
 module: truth-boundary-checker
+cross_cutting: true
 status: active
 doc_kind: detail
-parent_concept_id:
+parent_concept_id: FK-01
 authority_over:
   - scope: truth-boundary
   - scope: concept-to-code-contract-checker

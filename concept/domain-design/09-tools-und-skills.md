@@ -1,23 +1,26 @@
 ---
 concept_id: DK-09
-title: Umsetzungsautomatisierung und Werkzeuge
-module: tools-and-skills
+title: Tool-Governance (CCAG)
+module: ccag-domain
+domain: governance-and-guards
 status: active
 doc_kind: core
 parent_concept_id:
 authority_over:
-  - scope: tools-and-skills
-defers_to: []
+  - scope: tool-governance
+defers_to:
+  - DK-12
+  - FK-42
 supersedes: []
 superseded_by:
-tags: [tools, skills, ccag, permissions, automation]
+tags: [tools, ccag, permissions, automation]
 formal_scope: prose-only
 ---
 
-# 09 — Umsetzungsautomatisierung und Werkzeuge
+# 09 — Tool-Governance (CCAG)
 
 **Quelle:** Konsolidiert aus agentkit-domain-concept.md, Kapitel 12
-**Datum:** 2026-04-02
+**Datum:** 2026-04-02 (Skill-Teil ausgegliedert nach DK-12, 2026-04-29)
 **Übersicht:** [00-uebersicht.md](00-uebersicht.md)
 
 ---
@@ -25,7 +28,8 @@ formal_scope: prose-only
 Neben Governance und Qualitätssicherung bringt AgentKit Infrastruktur
 mit, die den Entwicklungsprozess selbst produktiver und zuverlässiger
 macht. Zwei Komponenten sind dabei zentral: die parameterbasierte
-Tool-Governance (CCAG) und das spezialisierte Skill-System.
+Tool-Governance (CCAG, hier) und das spezialisierte Skill-System
+([12-skills-und-skill-system.md](12-skills-und-skill-system.md)).
 
 ### 9.1 Parameterbasierte Tool-Governance (CCAG)
 
@@ -83,26 +87,7 @@ sondern ergänzt sie um eine komfortable, lernfähige Permission-Schicht.
 
 ### 9.2 Spezialisierte Skills
 
-AgentKit bringt für verschiedene Aufgabenstellungen spezialisierte
-Skills mit. Ein Skill ist eine vordefinierte Prompt-Anleitung, die
-einen Agenten methodisch durch eine komplexe Aufgabe führt. Skills
-standardisieren nicht nur den Ablauf, sondern heben die Qualität des
-Ergebnisses, indem sie bewährte Methodik einbetten, die ein Agent ohne
-Anleitung nicht konsistent anwenden würde.
-
-**Beispiele für mitgelieferte Skills:**
-
-| Skill | Aufgabe | Was er standardisiert |
-|-------|---------|---------------------|
-| User Story Creation | Neue Stories erstellen | VektorDB-Abgleich, Anforderungsstruktur, Akzeptanzkriterien, Größenschätzung |
-| LLM Discussion | Multi-LLM-Sparring zu einer Fragestellung | Rollenverteilung, Rundenstruktur, unabhängige Positionsbildung, Konvergenzprüfung |
-| Semantic Review | LLM-basierte Code-Bewertung | Strukturiertes Scoring-Schema, Fokus auf die 12 definierten Checks |
-| Research | Strukturierte Internetrecherche | Systematische Suche, Quellenvielfalt, Bewertungskriterien, Ergebnisablage |
-
-Skills werden bei der Projektregistrierung ([08-installation-und-bootstrap.md](08-installation-und-bootstrap.md)) nicht inhaltlich ins Zielprojekt kopiert. Stattdessen
-liegen sie systemweit in versionierten Bundles und werden projektlokal
-über `.claude/skills/` per Symlink gebunden. Neue Skills können
-hinzugefügt werden, ohne den Kern von AgentKit zu ändern. Die Qualität
-der Story-Umsetzung hängt wesentlich davon ab, dass Agents nicht bei
-jeder Aufgabe ihre eigene Methodik erfinden, sondern auf erprobte
-Abläufe zurückgreifen.
+> Skills (User Story Creation, LLM Discussion, Semantic Review,
+> Research) und das Skill-System (versionierte Bundles, Symlink-
+> Bindung) sind in **DK-12 (Spezialisierte Skills und Skill-System)**
+> normiert.

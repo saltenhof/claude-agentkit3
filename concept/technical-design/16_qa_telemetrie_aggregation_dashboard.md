@@ -2,6 +2,7 @@
 concept_id: FK-16
 title: QA- und Failure-Corpus-Read-Models
 module: qa-telemetry
+domain: telemetry-and-events
 status: active
 doc_kind: core
 parent_concept_id:

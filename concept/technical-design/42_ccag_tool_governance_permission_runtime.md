@@ -2,6 +2,7 @@
 concept_id: FK-42
 title: CCAG Tool-Governance und Permission-Runtime
 module: ccag-tools
+domain: governance-and-guards
 status: active
 doc_kind: core
 parent_concept_id:
@@ -11,6 +12,9 @@ defers_to:
   - target: FK-30
     scope: hook-infrastructure
     reason: CCAG runs as the last PreToolUse hook in the hook chain after all guard hooks
+  - target: FK-55
+    scope: principal-capability-model
+    reason: Capability-Grenzen und harte Denies aus FK-55 sind durch CCAG nicht verhandelbar
 supersedes: []
 superseded_by:
 tags: [ccag, tool-governance, permissions, yaml-rules, session-persistence]

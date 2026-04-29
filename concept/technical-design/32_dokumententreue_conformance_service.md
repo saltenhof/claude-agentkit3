@@ -2,6 +2,7 @@
 concept_id: FK-32
 title: Dokumententreue und Conformance-Service
 module: conformance
+domain: verify-system
 status: active
 doc_kind: core
 parent_concept_id:
@@ -296,10 +297,10 @@ Die korrekte Strategie bei zu großen Payloads ist Tier 2 (Upload)
 oder Tier 3 (Blockade mit klarer Fehlermeldung), nie stilles
 Abschneiden.
 
-**Abgrenzung zum Verify-Layer-2-Bundle (Kap. 27.5b):** Das
+**Abgrenzung zum Verify-Layer-2-Bundle (FK-37 §37.3):** Das
 Context-Bundle der Layer-2-Evaluatoren (Umsetzungstreue, Adversarial)
 nutzt ein separates Packing-Verfahren mit `BUNDLE_TOKEN_LIMIT`
-(Kap. 27.5b.2). Dieses ist symbol-aware und verlustbehaftet — dort
+(FK-37 §37.3.2). Dieses ist symbol-aware und verlustbehaftet — dort
 ist kontrollierte Kompression akzeptabel, weil der Layer-2-Evaluator
 eine andere Prüffrage stellt (Code-Qualität, nicht Dokumententreue).
 Für die Dokumententreue-Spezifische Prüfung gilt die 3-Tier-Regel
@@ -375,7 +376,7 @@ der Nachklassifikation entscheidet:
 ### 32.7.1 Trigger
 
 Läuft als Teil der Verify-Phase (Schicht 2), parallel zu
-QA-Bewertung und Semantic Review (Kap. 27.4).
+QA-Bewertung und Semantic Review (FK-27 §27.5).
 
 ### 32.7.2 Input
 
@@ -416,7 +417,7 @@ Umsetzungstreue ist semantisch (passt die Lösung zum Konzept).
 ### 32.8.1 Trigger
 
 Aufgerufen in der Closure-Phase, nach dem Merge, vor den
-Postflight-Gates (Kap. 27.12).
+Postflight-Gates (FK-29 §29.3).
 
 ### 32.8.2 Input
 

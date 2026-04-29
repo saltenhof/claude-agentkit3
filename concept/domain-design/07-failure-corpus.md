@@ -2,6 +2,7 @@
 concept_id: DK-07
 title: Failure Corpus als Lernschleife
 module: failure-corpus
+domain: failure-corpus
 status: active
 doc_kind: core
 parent_concept_id:

@@ -2,6 +2,7 @@
 concept_id: FK-44
 title: Prompt-Bundles, Materialisierung und Audit
 module: prompt-runtime
+domain: prompt-runtime
 status: active
 doc_kind: core
 parent_concept_id:

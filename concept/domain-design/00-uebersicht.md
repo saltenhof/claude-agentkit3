@@ -2,6 +2,7 @@
 concept_id: DK-00
 title: Fachkonzept-Übersicht
 module: meta
+cross_cutting: true
 status: active
 doc_kind: core
 parent_concept_id:
@@ -31,7 +32,11 @@ formal_scope: prose-only
 | 06 | [06-are-integration.md](06-are-integration.md) | Agent Requirements Engine |
 | 07 | [07-failure-corpus.md](07-failure-corpus.md) | Failure Corpus als Lernschleife |
 | 08 | [08-installation-und-bootstrap.md](08-installation-und-bootstrap.md) | Projektregistrierung und Bootstrap |
-| 09 | [09-tools-und-skills.md](09-tools-und-skills.md) | Umsetzungsautomatisierung und Werkzeuge |
+| 09 | [09-tools-und-skills.md](09-tools-und-skills.md) | Tool-Governance (CCAG) |
+| 10 | [10-story-lifecycle-und-erstellung.md](10-story-lifecycle-und-erstellung.md) | Story-Lifecycle und Story-Erstellung |
+| 11 | [11-review-qualitaetsverbesserung.md](11-review-qualitaetsverbesserung.md) | Review-Qualitätsverbesserung |
+| 12 | [12-skills-und-skill-system.md](12-skills-und-skill-system.md) | Spezialisierte Skills und Skill-System |
+| 13 | [13-kpis-und-optimierung.md](13-kpis-und-optimierung.md) | KPIs und nachgelagerte Optimierung |
 
 ---
 

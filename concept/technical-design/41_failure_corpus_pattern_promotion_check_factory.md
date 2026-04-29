@@ -2,6 +2,7 @@
 concept_id: FK-41
 title: Failure Corpus, Pattern-Promotion und Check-Factory
 module: failure-corpus
+domain: failure-corpus
 status: active
 doc_kind: core
 parent_concept_id:

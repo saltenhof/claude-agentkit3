@@ -2,6 +2,7 @@
 concept_id: FK-62
 title: KPI-Aggregation
 module: kpi-aggregation
+domain: kpi-and-dashboard
 status: active
 doc_kind: core
 parent_concept_id:
@@ -14,6 +15,12 @@ defers_to:
   - target: FK-61
     scope: kpi-collection
     reason: Data collection points and event sources defined in FK-61
+  - target: FK-16
+    scope: qa-telemetry-store
+    reason: Aggregation greift auf FK-16-Read-Models und Mirror-Tabellen als Rohbasis zu
+  - target: FK-41
+    scope: failure-corpus
+    reason: Aggregation ueber Incidents, Patterns und Checks setzt das FK-41 Lifecycle-Modell voraus
 supersedes: []
 superseded_by:
 tags: [kpi, aggregation, fact-tables, refresh-worker, postgres]

@@ -2,6 +2,7 @@
 concept_id: FK-11
 title: LLM-Provider, Browser-Pools und Prompt-Execution
 module: llm-provider
+cross_cutting: true
 status: active
 doc_kind: core
 parent_concept_id:
@@ -13,6 +14,9 @@ defers_to:
   - target: FK-03
     scope: configuration
     reason: LLM-Rollenzuordnung ist in .story-pipeline.yaml konfiguriert
+  - target: DK-01
+    scope: roles-and-llm
+    reason: Fachliches LLM-Role-Routing und Spawn-Contract liegt in DK-01
 supersedes: []
 superseded_by:
 tags: [llm, browser-pool, prompt, evaluator, mcp]

@@ -2,6 +2,7 @@
 concept_id: FK-50
 title: Installer, Checkpoint-Engine und Bootstrap
 module: installer
+domain: installation-and-bootstrap
 status: active
 doc_kind: core
 parent_concept_id:

@@ -2,6 +2,7 @@
 concept_id: FK-31
 title: Branch-Guard, Orchestrator-Guard und Artefaktschutz
 module: branch-guard
+domain: governance-and-guards
 status: active
 doc_kind: core
 parent_concept_id:
@@ -14,6 +15,9 @@ defers_to:
   - target: FK-56
     scope: operating-modes
     reason: Guard activation depends on explicit run binding, valid lock and operating mode defined in FK-56
+  - target: FK-55
+    scope: principal-capability-model
+    reason: Capability-Grenzen, Principals und Pfadklassen sind in FK-55 normiert
 supersedes: []
 superseded_by:
 tags: [branch-guard, orchestrator-guard, artifact-protection, qa-guard, adversarial-guard]

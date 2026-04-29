@@ -2,6 +2,7 @@
 concept_id: FK-40
 title: ARE-Integration und Anforderungsvollständigkeit
 module: are-integration
+domain: requirements-and-scope-coverage
 status: active
 doc_kind: core
 parent_concept_id:

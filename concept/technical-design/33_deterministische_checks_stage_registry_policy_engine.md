@@ -2,6 +2,7 @@
 concept_id: FK-33
 title: Deterministische Checks, Stage-Registry und Policy-Engine
 module: deterministic-checks
+domain: verify-system
 status: active
 doc_kind: core
 parent_concept_id:

@@ -9,7 +9,7 @@ version: 1
 prose_refs:
   - concept/technical-design/20_workflow_engine_state_machine.md
   - concept/domain-design/02-pipeline-orchestrierung.md
-  - concept/technical-design/27_verify_pipeline_closure_orchestration.md
+  - concept/technical-design/29_closure_sequence.md
 ---
 
 # Story Workflow State Machine

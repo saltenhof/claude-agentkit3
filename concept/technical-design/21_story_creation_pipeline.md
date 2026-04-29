@@ -2,6 +2,7 @@
 concept_id: FK-21
 title: Story-Creation-Pipeline
 module: story-creation
+domain: story-lifecycle
 status: active
 doc_kind: core
 parent_concept_id:
@@ -19,6 +20,9 @@ defers_to:
   - target: FK-11
     scope: structured-evaluator
     reason: Zieltreue-Pruefung ueber StructuredEvaluator (Kap. 11)
+  - target: FK-40
+    scope: are-integration
+    reason: ARE-Andock-Punkt 1 und Scope-Aufloesung sind in FK-40 normiert
 supersedes: []
 superseded_by:
 tags: [story-creation, vectordb-abgleich, zieltreue, classification, github-project]

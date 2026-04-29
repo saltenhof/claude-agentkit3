@@ -9,7 +9,7 @@ version: 1
 prose_refs:
   - concept/technical-design/57_integration_stabilization_contract.md
   - concept/technical-design/25_mandatsgrenzen_feindesign_autonomie.md
-  - concept/technical-design/27_verify_pipeline_closure_orchestration.md
+  - concept/technical-design/37_verify_context_und_qa_bundle.md
 ---
 
 # Integration Stabilization State Machine

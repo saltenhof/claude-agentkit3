@@ -2,6 +2,7 @@
 concept_id: FK-22
 title: Setup, Preflight, Worktree und Guard-Aktivierung
 module: setup-preflight
+domain: governance-and-guards
 status: active
 doc_kind: core
 parent_concept_id:
@@ -17,6 +18,9 @@ defers_to:
   - target: FK-21
     scope: story-context
     reason: Story-Context-Felder und Custom Fields stammen aus der Story-Creation-Pipeline
+  - target: FK-31
+    scope: branch-guard
+    reason: Guard-Definitionen und Orchestrator-Guard-Regeln liegen in FK-31; Setup aktiviert sie nur
 supersedes: []
 superseded_by:
 tags: [setup, preflight, worktree, guards, mode-routing]

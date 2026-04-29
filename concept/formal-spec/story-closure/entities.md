@@ -9,7 +9,7 @@ version: 1
 prose_refs:
   - concept/technical-design/17_fachliches_datenmodell_ownership.md
   - concept/technical-design/18_relationales_abbildungsmodell_postgres.md
-  - concept/technical-design/27_verify_pipeline_closure_orchestration.md
+  - concept/technical-design/29_closure_sequence.md
 ---
 
 # Story Closure Entities

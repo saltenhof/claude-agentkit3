@@ -2,12 +2,16 @@
 concept_id: DK-03
 title: Fail-Closed Governance
 module: governance
+domain: governance-and-guards
 status: active
 doc_kind: core
 parent_concept_id:
 authority_over:
   - scope: governance
-defers_to: []
+defers_to:
+  - DK-02
+  - FK-25
+  - FK-35
 supersedes: []
 superseded_by:
 tags: [governance, guards, fail-closed, integrity-gate, document-fidelity]
@@ -540,74 +544,19 @@ auf beobachtbaren Signalen aus der Hook-Schicht.
 **Wann aktiv:** Während der gesamten Implementation-Phase, ab
 Worker-Spawn bis Worker-Termination.
 
-**Auslöser:** Jeder Tool-Call des Workers. Der PostToolUse-Hook
-berechnet nach jedem Tool-Call den Score und persistiert ihn. Der
-PreToolUse-Hook liest den Score vor dem nächsten Tool-Call und
-entscheidet über Intervention.
-
-**Scoring-Modell (0-100 Punkte):** Ein gewichtetes Scoring-Modell
-bewertet den Zustand eines laufenden Workers anhand mehrerer
-Heuristiken mit unterschiedlicher Aussagekraft:
-
-| Heuristik | Max Punkte | Stärke | Erkennt |
-|-----------|------------|--------|---------|
-| Laufzeit vs. Erwartung | 30 | Stark | Überschreitung der nach Story-Typ und Größe normalisierten Laufzeit (P50/P75/P95) |
-| Repetitions-Muster | 25 | Stark | Wiederholte grep/edit-Zyklen auf dieselbe Datei ohne Fortschritt (Sliding Window) |
-| Hook/Commit-Konflikte | 25 | Sehr stark | Wiederholtes Scheitern an Pre-Commit-Hooks mit identischem Reason |
-| Fortschritts-Stagnation | 20 | Stark | Kein Commit, kein Manifest, kein Handover trotz grüner Tests |
-| Tool-Call-Anzahl | 10 | Schwach | Überschreitung der Soft/Hard-Limits (nur als Verstärker, nicht eigenständig) |
-| LLM-Assessment | -10 bis +10 | Korrekturfaktor | Asynchrone Einschätzung eines externen LLMs zur Loop-Wahrscheinlichkeit |
-
-Der Gesamtscore ergibt sich aus der Summe aller Komponenten. In der
-Praxis liegt er zwischen 0 und 100, da nicht alle Heuristiken
-gleichzeitig ihr Maximum erreichen. Die Score-Berechnung ist
-vollständig deterministisch; das LLM-Assessment ist ein Pflicht-
-Korrekturfaktor, der den Score in beide Richtungen verschieben kann.
-Deterministische Eingriffe (Hard Stop) bleiben auch ohne LLM-Antwort
-möglich (Timeout-Sicherheit), aber der Sidecar wird immer gestartet.
-
-> **[Entscheidung 2026-04-08]** Element 23 — LLM-Assessment-Sidecar ist Pflicht. Kein Feature-Flag. Der Sidecar-Prozess ist keine optionale Erweiterung, sondern integraler Bestandteil der Produktionsarchitektur.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 23.
-
-**Eskalationsleiter:**
+**Eskalationsleiter (Domain-Sicht):**
 
 | Score | Stufe | Reaktion |
 |-------|-------|----------|
 | < 50 | Normalbetrieb | Kein Eingriff. Kein LLM-Assessment. |
-| 50-69 | Warnung | LLM-Assessment anfordern (asynchron über Sidecar-Prozess). Einmalige Warnung an den Worker. |
-| 70-84 | Soft-Intervention | Strukturierte Selbstdiagnose-Aufforderung via PreToolUse-Hook (Tool-Call wird blockiert, Agent erhält Nachricht). Der Worker muss seinen Status deklarieren: PROGRESSING, BLOCKED oder SPARRING_NEEDED. Danach 4-5 Tool-Calls Beobachtung. |
-| >= 85 | Hard Stop | Worker wird deterministisch beendet. Finale Nachricht instruiert den Worker, ein worker-manifest mit `status: BLOCKED` zu schreiben. Ein letzter Tool-Call wird zugelassen, danach permanente Blockade. |
-
-Pro Scoring-Fenster gibt es maximal eine Soft-Intervention und einen
-Hard Stop. Der Monitor wiederholt keine Interventionen. Wenn nach der
-Soft-Intervention der Score weiter steigt, geht es direkt zum Hard
-Stop.
+| 50-69 | Warnung | LLM-Assessment anfordern. Einmalige Warnung an den Worker. |
+| 70-84 | Soft-Intervention | Strukturierte Selbstdiagnose-Aufforderung. Worker muss Status deklarieren: PROGRESSING, BLOCKED oder SPARRING_NEEDED. |
+| >= 85 | Hard Stop | Worker wird deterministisch beendet. Finale Nachricht instruiert das Schreiben eines `worker-manifest` mit `status: BLOCKED`. |
 
 **Designprinzip:** Determinismus zuerst — der Hard Stop muss auch
-ohne LLM-Antwort möglich sein. Der Sidecar-Prozess wird immer
-gestartet und ist kein optionaler Baustein. Wenn der Sidecar ausfällt
-oder der MCP-Pool nicht erreichbar ist, funktioniert die
-deterministische Score-Berechnung unverändert weiter — der
-LLM-Anteil fällt auf 0 zurück. Das LLM-Assessment ist damit kein
-Voraussetzung für deterministische Interventionen, aber der Sidecar
-selbst ist Pflicht.
-
-**LLM-Assessment-Sidecar:** Der Sidecar-Prozess läuft nicht im Hook
-(das würde den Worker blockieren), sondern parallel zum Worker und
-pollt kontinuierlich. Der Sidecar startet mit dem Worker-Spawn und
-läuft bis zu dessen Terminierung. LLM-Abfragen werden bei Score >= 50
-ausgelöst: ein externes LLM (rotierend über konfigurierte Pools) wird befragt,
-ob das beobachtete Tool-Call-Muster auf einen Loop hindeutet. Das
-Ergebnis fließt als Korrekturfaktor in die nächste Score-Berechnung
-ein. Debounce-Regeln verhindern übermäßige LLM-Aufrufe: maximal ein
-pending Assessment, Mindestabstand 10 Minuten, neues Assessment nur
-bei Score-Anstieg >= 10 Punkte.
-
-**Persistenz:** Der Score, die Einzelkomponenten, das Tool-Call-Log
-und der Interventions-Verlauf werden zentral im State-Backend
-persistiert; ein `agent-health.json`-Export ist optional. Damit ist der
-Zustand auch über Context-Compaction-Zyklen hinweg verfügbar und für
-Post-mortem-Analysen nutzbar.
+ohne LLM-Antwort möglich sein. Der LLM-Assessment-Sidecar wird immer
+gestartet und ist Pflicht; wenn er ausfällt, funktioniert die
+deterministische Score-Berechnung unverändert weiter.
 
 **Zusammenspiel mit bestehenden Mechanismen:** Der Worker-Health-
 Monitor ergänzt die bestehenden Budgets (Web-Call-Budget, Feedback-
@@ -616,8 +565,15 @@ limitiert externe Zugriffe, der Deadlock-Guard greift nach Worker-
 Completion (Evidence-Fingerprint), der Health-Monitor greift
 präventiv während der Worker-Laufzeit. Alle drei sind orthogonal.
 
-> **[Entscheidung 2026-04-08]** Element 19 — Evidence-Fingerprint wird verbessert: SHA256-Hash statt Dateigroessen. Trivial, robust.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 19.
+> Scoring-Heuristiken (0-100 Punkte mit gewichteten Komponenten),
+> PostToolUse/PreToolUse-Hook-Mechanik, LLM-Assessment-Sidecar mit
+> Debounce-Regeln, Hook-Commit-Failure-Klassifikation und
+> Persistenz-Artefakte sind in **FK-49 (Worker-Health-Monitor)**
+> normiert. Die Hook-Architektur darunter liegt in **FK-30**.
+
+> **[Entscheidung 2026-04-08]** Element 23 — LLM-Assessment-Sidecar ist Pflicht. Kein Feature-Flag.
+> Element 19 — Evidence-Fingerprint wird verbessert: SHA256-Hash statt Dateigroessen.
+> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Elemente 19, 23.
 
 ### 3.9 Eskalationsklassen und Mandatsgrenzen
 

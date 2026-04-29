@@ -2,6 +2,7 @@
 concept_id: FK-93
 title: Standardwerte, Schwellwerte und Timeouts
 module: defaults
+cross_cutting: true
 status: active
 doc_kind: core
 parent_concept_id:

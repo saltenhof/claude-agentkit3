@@ -2,6 +2,7 @@
 concept_id: FK-58
 title: Story-Exit und Human-Takeover-Handoff
 module: story-exit
+domain: story-lifecycle
 status: active
 doc_kind: core
 parent_concept_id:

@@ -2,12 +2,15 @@
 concept_id: FK-91
 title: API- und Event-Katalog
 module: api-catalog
+cross_cutting: true
 status: active
 doc_kind: core
 parent_concept_id:
 authority_over:
   - scope: api-catalog
-defers_to: []
+defers_to:
+  - FK-53
+  - FK-54
 supersedes: []
 superseded_by:
 tags: [api, events, cli, hooks, reference]
@@ -69,6 +72,13 @@ formal_refs:
 
 ## 91.1 CLI-Befehle (agentkit)
 
+**Akteur:** Die CLI ist ausschliesslich ein menschlicher und
+administrativer Adapterpfad auf die Control-Plane-API (siehe §91.1a).
+Agents duerfen die CLI niemals direkt aufrufen; ihr Zugriff laeuft
+ueber den `Project Edge Client` gegen die REST-API. Die folgenden
+Befehle sind damit fachlich gleichbedeutend mit dem zugehoerigen
+API-Aufruf und erzeugen dieselbe Befehls- und Event-Semantik.
+
 <!-- PROSE-FORMAL: formal.installer.commands, formal.deterministic-checks.commands, formal.guard-system.commands, formal.conformance.commands, formal.llm-evaluations.commands, formal.integrity-gate.commands, formal.governance-observation.commands, formal.escalation.commands, formal.setup-preflight.commands, formal.verify.commands, formal.exploration.commands, formal.story-creation.commands, formal.story-closure.commands, formal.story-workflow.commands, formal.story-split.commands, formal.story-reset.commands, formal.principal-capabilities.commands, formal.operating-modes.commands, formal.execution-planning.state-machine, formal.execution-planning.commands, formal.state-storage.commands, formal.telemetry-analytics.commands, formal.integration-stabilization.commands, formal.story-exit.commands -->
 
 | Befehl | Kapitel | Beschreibung |
@@ -127,8 +137,15 @@ API-Vertrag.
 | `/v1/planning/proposals` | `POST` | Strukturierte Agenten- oder Analyse-Proposals fuer Abhaengigkeiten, Gates und Waves offiziell einreichen |
 | `/v1/planning/proposals/{proposal_id}` | `GET` | Persistiertes Planning-Proposal mit Validierungs- und Anwendungsstatus lesen |
 | `/v1/planning/recompute` | `POST` | Offizielle Neuplanung nach Aenderung an Graph, Gates oder Story-Zustaenden ausloesen |
+| `/v1/stories` | `POST` | Neue Story in der Control-Plane anlegen (kanonische Story-Wahrheit) |
 | `/v1/stories` | `GET` | Projektgebundene Story-Liste für Web- und Agent-Clients |
 | `/v1/stories/{story_id}` | `GET` | Story-Detailansicht mit Status, Laufzeit- und Telemetriebezug |
+| `/v1/stories/{story_id}` | `PATCH` | Stammdaten einer Story aktualisieren (z. B. `title`, `labels`, `size`) |
+| `/v1/stories/{story_id}/approve` | `POST` | Status-Transition `backlog` → `approved` (menschliche Freigabe) |
+| `/v1/stories/{story_id}/reject` | `POST` | Status-Transition zurueck nach `backlog` (Nacharbeit) |
+| `/v1/stories/{story_id}/cancel` | `POST` | Story administrativ abbrechen (`Cancelled`) |
+| `/v1/stories/{story_id}/fields` | `GET` | Custom-Field-Werte einer Story lesen |
+| `/v1/stories/{story_id}/fields/{field_key}` | `PUT` | Einzelnen Custom-Field-Wert setzen |
 | `/v1/dashboard/board` | `GET` | Board- oder Listenansicht für die Story-Steuerung |
 | `/v1/dashboard/story-metrics` | `GET` | Read-only Story-Metriken aus Runtime- und Analytics-Sicht |
 
@@ -139,9 +156,11 @@ API-Vertrag.
    Projektkontext.
 2. Die Control Plane exponiert mutierende Endpunkte nur ueber HTTPS;
    Plain-HTTP-Listener sind fachlich unzulaessig.
-3. Agents sollen offizielle lokale Wrapper bzw. den offiziellen
-   `Project Edge Client` verwenden statt frei formulierte
-   `curl`-Kommandos.
+3. Agents muessen ausschliesslich den offiziellen
+   `Project Edge Client` gegen die Control-Plane-API verwenden.
+   Direkte CLI-Aufrufe durch Agents sind unzulaessig; freie
+   `curl`-Kommandos ebenfalls. Die CLI (§91.1) ist menschlicher
+   und administrativer Adapterpfad und kein Agent-Eingangstor.
 4. Jeder mutierende Endpoint muss neben dem zentralen Commit-Resultat
    ein lokales Materialisierungs-Bundle fuer den `Project Edge Client`
    bereitstellen. Dieses Bundle umfasst mindestens `current.json`,
@@ -151,8 +170,10 @@ API-Vertrag.
 5. Jeder mutierende Endpoint muss `op_id` als Idempotenzschluessel
    akzeptieren; Wiederholungen mit derselben `op_id` duerfen keine
    zweite Mutation erzeugen.
-6. Die API erzeugt keine zweite Befehls- oder Event-Semantik neben der
-   CLI; sie ist die Zielgrenze, die CLI ist nur ein aktueller Adapter.
+6. Die API ist die fachlich autoritative Zielgrenze. CLI und
+   `Project Edge Client` erzeugen keine zweite Befehls- oder
+   Event-Semantik neben der API; sie sind ausschliesslich
+   Adapter auf den API-Vertrag.
 7. Jede HTTP-Antwort der Control Plane traegt eine stabile
    `correlation_id`; bei HTTP-Transport wird sie ueber
    `X-Correlation-Id` propagiert oder, falls nicht vorhanden, von der
@@ -160,6 +181,17 @@ API-Vertrag.
 8. Fehlerantworten folgen einem stabilen Vertrag mit mindestens
    `error_code`, `error` und `correlation_id`; optionale strukturierte
    `detail`-Daten duerfen diesen Vertrag nur erweitern, nicht ersetzen.
+9. Stories werden ausschliesslich ueber die Control-Plane-API
+   angelegt und mutiert. Externe Issue-Tracker (z. B. GitHub, Jira)
+   sind niemals Wahrheitsquelle fuer Story-Identitaet, -Status oder
+   -Custom-Fields. Sie duerfen optional als read-only Anzeige
+   gespiegelt werden, treiben aber keinen Story-Lifecycle.
+10. Jeder CLI-Befehl in §91.1 ist Adapter auf einen
+    Control-Plane-Endpoint. Wo der Endpoint hier noch nicht
+    aufgefuehrt ist (z. B. `reset-story`, `split-story`, `exit-story`,
+    `resolve-conflict`, `approve-permission-request`), gilt das als
+    offene Konzept-Schuld; eigenstaendige CLI-Implementierungen ohne
+    API-Vertrag sind unzulaessig.
 
 ## 91.2 Telemetrie-Event-Typen
 

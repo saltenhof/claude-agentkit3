@@ -2,6 +2,7 @@
 concept_id: FK-55
 title: Principal- und Capability-Modell mit storybezogener Enforcement-Semantik
 module: principal-capabilities
+domain: governance-and-guards
 status: active
 doc_kind: core
 parent_concept_id:
@@ -23,6 +24,12 @@ defers_to:
   - target: FK-42
     scope: ccag
     reason: CCAG darf harte Capabilities nicht aufweichen
+  - target: DK-01
+    scope: rollen-und-llm-einsatz
+    reason: Fachliche Trennung von Rolle, Verantwortung und Zugriff stammt aus DK-01 und wird hier technisch verankert
+  - target: DK-06
+    scope: are-integration
+    reason: ARE-Bezug der Capability- und Scope-Bindung referenziert die ARE-Andockpunkte aus DK-06
 supersedes: []
 superseded_by:
 tags: [principal, capability, story-scope, freeze, guard-enforcement, permissions]

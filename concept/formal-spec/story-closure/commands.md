@@ -8,7 +8,7 @@ spec_kind: command-set
 version: 1
 prose_refs:
   - concept/technical-design/12_github_integration_repo_operationen.md
-  - concept/technical-design/27_verify_pipeline_closure_orchestration.md
+  - concept/technical-design/29_closure_sequence.md
   - concept/technical-design/31_branch_guard_orchestrator_guard_artefaktschutz.md
   - concept/technical-design/52_betrieb_monitoring_audit_runbooks.md
   - concept/technical-design/91_api_event_katalog.md

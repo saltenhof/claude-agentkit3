@@ -2,6 +2,7 @@
 concept_id: FK-03
 title: Konfigurationsmodell, Schemas und Versionierung
 module: configuration
+cross_cutting: true
 status: active
 doc_kind: core
 parent_concept_id:

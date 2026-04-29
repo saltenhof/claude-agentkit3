@@ -8,6 +8,7 @@ spec_kind: command-set
 version: 1
 prose_refs:
   - concept/technical-design/27_verify_pipeline_closure_orchestration.md
+  - concept/technical-design/38_verify_feedback_und_doctreue_schleife.md
   - concept/technical-design/91_api_event_katalog.md
 ---
 

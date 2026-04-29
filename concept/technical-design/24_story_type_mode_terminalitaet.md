@@ -2,6 +2,7 @@
 concept_id: FK-24
 title: Story Type, Mode und Terminalitaet
 module: story-types
+domain: story-lifecycle
 status: active
 doc_kind: core
 parent_concept_id:
@@ -18,6 +19,12 @@ defers_to:
   - target: FK-20
     scope: phase-model
     reason: Phasenmodell und Story-Typ-Routing in FK-20 definiert
+  - target: FK-54
+    scope: story-split
+    reason: Cancelled-Endzustand bei Scope-Explosion und Nachfolger-Bildung sind in FK-54 normiert
+  - target: FK-56
+    scope: operating-modes
+    reason: "`operating_mode` (ai_augmented vs. story_execution) ist in FK-56 normiert und nicht mit `mode`/`execution_route` zu verwechseln"
 supersedes: []
 superseded_by:
 tags: [story-types, terminality, delivery-contract, exploration-guard, fail-closed]

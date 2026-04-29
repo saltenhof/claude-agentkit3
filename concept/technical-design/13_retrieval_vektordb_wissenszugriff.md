@@ -2,6 +2,7 @@
 concept_id: FK-13
 title: Retrieval, VektorDB und Wissenszugriff
 module: vectordb
+cross_cutting: true
 status: active
 doc_kind: core
 parent_concept_id:

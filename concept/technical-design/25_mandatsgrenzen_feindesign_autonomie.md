@@ -2,6 +2,7 @@
 concept_id: FK-25
 title: Mandatsgrenzen, Eskalationsklassen und Feindesign-Autonomie
 module: exploration-mandate
+domain: exploration-and-design
 status: active
 doc_kind: core
 parent_concept_id:
@@ -28,6 +29,12 @@ defers_to:
   - target: FK-02
     scope: domain-model
     reason: Story-Typen, Wirksamkeitsgrade und Phase-Enums in FK-02
+  - target: FK-54
+    scope: story-split
+    reason: Scope-Explosion fuehrt ueber FK-54 zur kontrollierten Story-Beendigung mit Nachfolgern
+  - target: FK-57
+    scope: implementation-contract
+    reason: "`implementation_contract=integration_stabilization` ist in FK-57 normiert"
 supersedes:
   - target: FK-23
     scope: freeze-position
@@ -582,7 +589,7 @@ neuen Abschnitt `feindesign_entscheidungen` dokumentiert:
       "kontext": "BB2-119 (Producer) definiert validate_and_inject_config(), BB2-121 (Consumer) ruft es auf.",
       "entscheidung": "Rückgabe-Dict enthält immer 'run_status'-Key. Bei terminal_fail ist run_status der einzige Key (keine partiellen State-Deltas).",
       "begruendung": "Konsistent mit bestehendem State-Management-Pattern in pipeline/graph.py. Minimale Schnittstelle, Consumer muss nur einen Key prüfen.",
-      "normative_basis": ["FK-20 §20.3 (State-Management)", "FK-26 §26.2 (Worker-Runtime)"],
+      "normative_basis": ["FK-39 (Phase-State-Persistenz)", "FK-26 §26.2 (Worker-Runtime)"],
       "diskussion": {
         "runden": 3,
         "konsens_erreicht": true,
@@ -788,7 +795,7 @@ akzeptiert beides.
 FK-35 §35.4 (Eskalationsinfrastruktur),
 FK-11 (StructuredEvaluator, LLM-Beratung),
 FK-02 (Domänenmodell, Story-Typen),
-FK-20 §20.3 (State-Management, Phase-Transitions),
+FK-39 (Phase-State-Persistenz), FK-45 (Phase-Transitions),
 FK-21 (Story-Creation, Wirksamkeitsgrad),
 DK-02 (Mandatsprinzip, Issue-Schema mit kanonischer Change-Impact-Enum),
 DK-03 §3.9 (Eskalationsklassen).

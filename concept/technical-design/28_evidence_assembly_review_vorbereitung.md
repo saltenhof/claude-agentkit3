@@ -2,30 +2,42 @@
 concept_id: FK-28
 title: Evidence Assembly und Review-Vorbereitung
 module: evidence-assembly
+domain: verify-system
 status: active
 doc_kind: core
 parent_concept_id:
 authority_over:
   - scope: evidence-assembly
-  - scope: import-resolution
-  - scope: request-dsl
   - scope: bundle-manifest
+  - scope: authority-classes
 defers_to:
   - target: FK-27
     scope: verify-phase
-    reason: Evidence Assembly dient der Vorbereitung fuer Verify Schicht 2 (Kap. 27)
+    reason: Evidence Assembly dient der Vorbereitung fuer Verify Schicht 2 (FK-27)
   - target: FK-34
     scope: llm-evaluations
-    reason: LLM-basierte Reviews in der Verify-Phase in Kap. 34 beschrieben
+    reason: LLM-basierte Reviews in der Verify-Phase in FK-34 beschrieben
   - target: FK-12
     scope: git-operations
-    reason: GitOperations ist Single-Repo by design (Kap. 12)
+    reason: GitOperations ist Single-Repo by design (FK-12)
   - target: FK-13
     scope: vectordb
-    reason: Story Knowledge Base und VektorDB-Abgleich in Kap. 13
+    reason: Story Knowledge Base und VektorDB-Abgleich in FK-13
+  - target: FK-46
+    scope: import-resolution
+    reason: Stufe 2 (Import-Auflösung, Confidence-Labels) liegt in FK-46
+  - target: FK-47
+    scope: request-dsl
+    reason: Request-DSL und Preflight-Turn liegen in FK-47
+  - target: FK-43
+    scope: agentkit-cli
+    reason: CLI-Subparser-Wiring liegt in FK-43
+  - target: FK-30
+    scope: review-templates
+    reason: Review-Template-Sentinel und hook.py-Regex liegen in FK-30
 supersedes: []
 superseded_by:
-tags: [evidence-assembly, import-resolution, request-dsl, review-preparation, authority-classes]
+tags: [evidence-assembly, authority-classes, review-preparation, bundles]
 formal_scope: prose-only
 ---
 
@@ -35,7 +47,7 @@ formal_scope: prose-only
 
 Die Evidence Assembly ist der deterministische Vorbereitungsschritt
 für alle LLM-basierten Reviews in der Verify-Phase (Schicht 2,
-Kap. 34). Sie ersetzt die bisher vom Worker selbst kuratierte
+FK-34). Sie ersetzt die bisher vom Worker selbst kuratierte
 `merge_paths`-Liste durch einen maschinell assemblierten,
 klassifizierten und auditierbaren Evidenz-Körper.
 
@@ -60,10 +72,10 @@ Die Evidence Assembly löst beide Probleme durch drei Mechanismen:
 - **Preflight-Turn** (Request-DSL): Der Reviewer kann vor dem
   eigentlichen Review strukturiert fehlende Informationen anfordern.
 
-Dieses Kapitel beschreibt die Package-Struktur, alle Klassen und
-Signaturen, die Import-Resolution, die Request-DSL, die
-CLI-Registrierung und die Integration in den bestehenden
-Review-Flow.
+Dieses Kapitel beschreibt die Package-Struktur, den Evidence Assembler,
+die Autoritätsklassen, die CLI-Registrierung und die Integration in
+den bestehenden Review-Flow. **Stufe 2 (Import-Auflösung) ist in FK-46
+ausgelagert; Request-DSL und Preflight-Turn liegen in FK-47.**
 
 ## 28.2 Package-Struktur (`agentkit/evidence/`)
 
@@ -77,20 +89,20 @@ Dependency).
 agentkit/evidence/
 ├── __init__.py
 ├── assembler.py          # Evidence Assembler (Stufe 1 + 3)
-├── import_resolver.py    # Sprachspezifische Import-Extraktion (Stufe 2)
+├── import_resolver.py    # Sprachspezifische Import-Extraktion (Stufe 2, FK-46)
 ├── authority.py          # Autoritätsklassen + BundleEntry-Modell
-├── request_resolver.py   # DSL-Request-Auflösung (7 Typen)
-├── request_types.py      # Pydantic-Modelle für Request-DSL
+├── request_resolver.py   # DSL-Request-Auflösung (7 Typen, FK-47)
+├── request_types.py      # Pydantic-Modelle für Request-DSL (FK-47)
 └── bundle_manifest.py    # BundleManifest (Zusammenfassung des assemblierten Bundles)
 ```
 
 | Modul | Verantwortung | Abhängigkeiten |
 |-------|---------------|----------------|
 | `assembler.py` | Orchestriert die 3-Stufen-Assembly | `authority.py`, `import_resolver.py`, `bundle_manifest.py`, `core/git.py` |
-| `import_resolver.py` | Regex-basierte Import-Extraktion (Python, TS, Java) | Nur stdlib (`re`, `pathlib`, `json`) |
+| `import_resolver.py` | Regex-basierte Import-Extraktion (Python, TS, Java) — siehe FK-46 | Nur stdlib (`re`, `pathlib`, `json`) |
 | `authority.py` | `AuthorityClass` (IntEnum), `BundleEntry` (Dataclass) | `import_resolver.py` (für `ConfidenceLabel`) |
-| `request_types.py` | Pydantic-Modelle: `RequestType`, `ReviewerRequest`, `RequestResult` | `pydantic` |
-| `request_resolver.py` | Deterministische Auflösung der 7 Request-Typen | `request_types.py`, `core/git.py` |
+| `request_types.py` | Pydantic-Modelle: `RequestType`, `ReviewerRequest`, `RequestResult` — siehe FK-47 | `pydantic` |
+| `request_resolver.py` | Deterministische Auflösung der 7 Request-Typen — siehe FK-47 | `request_types.py`, `core/git.py` |
 | `bundle_manifest.py` | `BundleManifest` mit Prompt-Header-Rendering | `authority.py` |
 
 ## 28.3 Evidence Assembler
@@ -118,7 +130,7 @@ flowchart TD
 | Stufe | Quelle | Autoritätsklasse | Unsicherheit |
 |-------|--------|-----------------|--------------|
 | 1 — Deterministischer Kern | Git-Diff, Nachbardateien, Story-Spec, Concepts, Guardrails, YAML/JSON-Configs | `PRIMARY_IMPLEMENTATION` / `PRIMARY_NORMATIVE` | Keine — alles deterministisch aus Git und Filesystem |
-| 2 — Import-Extraktion | Regex-basierte Import-Auflösung für Python, TypeScript, Java | `SECONDARY_CONTEXT` | Gering — Regex kann False Positives erzeugen, Confidence Labels quantifizieren das |
+| 2 — Import-Extraktion | Regex-basierte Import-Auflösung für Python, TypeScript, Java (FK-46) | `SECONDARY_CONTEXT` | Gering — Regex kann False Positives erzeugen, Confidence Labels quantifizieren das |
 | 3 — Worker-Hints | `handover.json` und `worker-manifest.json` | `WORKER_ASSERTION` | Hoch — Worker-Claims sind ungeprüft, niedrigste Beweiskraft |
 
 > **[Entscheidung 2026-04-08]** Element 15 — Multi-Repo Worktree Logic ist Produktionsanforderung. `worktree_paths` (Dict: repo-id → Pfad) + `primary_repo_id` im Spawn-Vertrag. Runtime-Anforderung fuer Multi-Repo-Zielprojekte.
@@ -162,7 +174,7 @@ class RepoContext:
 
 **Design-Begründung:**
 
-1. `GitOperations` ist absichtlich Single-Repo (Kap. 12). Ein
+1. `GitOperations` ist absichtlich Single-Repo (FK-12). Ein
    `_git()`-Call ist auf ein Repo gescoped. Multi-Repo-Koordination
    gehört in die Orchestrierungsschicht — nicht in `git.py`.
 
@@ -256,9 +268,10 @@ def _collect_module_neighbors(
 
 ### 28.3.4 Stufe 2: Sprachspezifische Import-Extraktion
 
-Stufe 2 delegiert an den `ImportResolver` (Sektion 26.4). Pro Repo
-wird eine Instanz erzeugt, die alle Imports der geänderten Dateien
-auflöst.
+Stufe 2 delegiert an den `ImportResolver` (siehe **FK-46** für die
+sprachspezifischen Patterns, Confidence-Labels und das
+Klassen-Design). Pro Repo wird eine Instanz erzeugt, die alle
+Imports der geänderten Dateien auflöst.
 
 ```python
 def _stage2_imports(self) -> list[BundleEntry]:
@@ -395,7 +408,7 @@ class EvidenceAssembler:
 
     Drei Stufen:
       1. Deterministischer Kern (Git-Diff + Nachbardateien + Story/Concept/Guardrails)
-      2. Sprachspezifische Import-Extraktion (delegiert an ImportResolver)
+      2. Sprachspezifische Import-Extraktion (delegiert an ImportResolver, FK-46)
       3. Worker-Hinweise aus handover.json/worker-manifest.json (nur additiv)
 
     Args:
@@ -465,7 +478,7 @@ context_json: Geladener `context.json`-Export eines `StoryContext`.
     # --- Stufe 2: Import-Extraktion ---
 
     def _stage2_imports(self) -> list[BundleEntry]:
-        """Delegiert an ImportResolver für Python/TS/Java, pro Repo."""
+        """Delegiert an ImportResolver für Python/TS/Java, pro Repo (FK-46)."""
         ...
 
     # --- Stufe 3: Worker-Hints ---
@@ -519,394 +532,17 @@ def diff_full(self, base: str = "main", paths: list[str] | None = None) -> str:
     return result.stdout
 ```
 
-**Hinweis:** `checks_impact.py` (Kap. 33) nutzt bereits
+**Hinweis:** `checks_impact.py` (FK-33) nutzt bereits
 `git diff --name-only` via subprocess-Direktaufruf. Nach
 Implementierung der neuen Methoden wird `checks_impact.py` auf
 `GitOperations.diff_name_only()` umgestellt.
 
 ## 28.4 Import-Resolver
 
-Der Import-Resolver ist das zentrale Modul für Stufe 2 der
-Evidence Assembly. Er arbeitet ausschließlich mit Regex und
-Dateisystem-Operationen — kein AST-Framework, keine externen
-Abhängigkeiten.
-
-### 28.4.1 Python-Resolver
-
-**Regex-Pattern:**
-
-```python
-PY_IMPORT = re.compile(
-    r'^(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))',
-    re.MULTILINE,
-)
-```
-
-**Auflösungsstrategie:**
-
-1. Extrahiere alle `from X import Y` und `import X` Statements.
-2. Konvertiere Dotted-Path zu Dateipfad relativ zum Repo-Root
-   (z.B. `agentkit.core.git` → `agentkit/core/git.py`).
-3. Prüfe: Existiert die Zieldatei?
-   - Ja → `RESOLVED_IMPORT`
-   - Nein, aber Package-`__init__.py` existiert → `RESOLVED_IMPORT`
-     (auf das Package)
-   - Nein → Verwerfen (wahrscheinlich stdlib oder Third-Party)
-
-```python
-def _resolve_python(self, source: Path) -> list[ResolvedImport]:
-    """from X import Y / import X → Dateipfade.
-
-    Sucht zuerst im Source-Repo, dann cross-repo.
-    Stdlib- und Third-Party-Imports werden verworfen
-    (keine Datei im Repo-Set → kein Treffer).
-    """
-    content = source.read_text(encoding="utf-8", errors="replace")
-    results: list[ResolvedImport] = []
-    for match in PY_IMPORT.finditer(content):
-        module_path = match.group(1) or match.group(2)
-        if not module_path:
-            continue
-        # Dotted-Path → Dateipfad
-        parts = module_path.split(".")
-        for repo_id, repo_path in self._repos.items():
-            # Versuch 1: als Modul-Datei
-            candidate = repo_path / Path(*parts).with_suffix(".py")
-            if candidate.exists():
-                results.append(ResolvedImport(
-                    source_file=source,
-                    target_file=candidate,
-                    import_statement=match.group(0),
-                    confidence=ConfidenceLabel.RESOLVED_IMPORT,
-                ))
-                break
-            # Versuch 2: als Package (__init__.py)
-            candidate_pkg = repo_path / Path(*parts) / "__init__.py"
-            if candidate_pkg.exists():
-                results.append(ResolvedImport(
-                    source_file=source,
-                    target_file=candidate_pkg,
-                    import_statement=match.group(0),
-                    confidence=ConfidenceLabel.RESOLVED_IMPORT,
-                ))
-                break
-    return results
-```
-
-### 28.4.2 TypeScript-Resolver (inkl. JS/JSX/TSX)
-
-**6 Pattern-Klassen:**
-
-```python
-# Static Import: import { X } from 'path' / import X from 'path'
-TS_STATIC_IMPORT = re.compile(
-    r'''import\s+(?:type\s+)?'''
-    r'''(?:\{[^}]*\}|[\w*]+(?:\s*,\s*\{[^}]*\})?)\s+from\s+['"]([^'"]+)['"]''',
-    re.MULTILINE,
-)
-
-# Side-Effect Import: import 'path'
-TS_SIDE_EFFECT = re.compile(
-    r'''import\s+['"]([^'"]+)['"]''',
-    re.MULTILINE,
-)
-
-# Re-Export: export * from 'path' / export { X } from 'path'
-TS_REEXPORT = re.compile(
-    r'''export\s+(?:\*|\{[^}]*\})\s+from\s+['"]([^'"]+)['"]''',
-    re.MULTILINE,
-)
-
-# CommonJS Require: require('path') / import X = require('path')
-TS_REQUIRE = re.compile(
-    r'''(?:import\s+\w+\s*=\s*)?require\s*\(\s*['"]([^'"]+)['"]\s*\)''',
-    re.MULTILINE,
-)
-
-# Dynamic Import: import('path')
-TS_DYNAMIC = re.compile(
-    r'''import\s*\(\s*['"]([^'"]+)['"]\s*\)''',
-    re.MULTILINE,
-)
-```
-
-**Auflösungsstrategie:**
-
-```python
-def _resolve_typescript(self, source: Path) -> list[ResolvedImport]:
-    """6 Pattern-Klassen für TS/JS/TSX/JSX."""
-    content = source.read_text(encoding="utf-8", errors="replace")
-    results: list[ResolvedImport] = []
-
-    patterns = [
-        (TS_STATIC_IMPORT, ConfidenceLabel.RESOLVED_IMPORT),
-        (TS_SIDE_EFFECT, ConfidenceLabel.RESOLVED_IMPORT),
-        (TS_REEXPORT, ConfidenceLabel.RESOLVED_IMPORT),
-        (TS_REQUIRE, ConfidenceLabel.RESOLVED_IMPORT),
-        (TS_DYNAMIC, ConfidenceLabel.UNRESOLVED_DYNAMIC),
-    ]
-    for pattern, default_confidence in patterns:
-        for match in pattern.finditer(content):
-            specifier = match.group(1)
-            resolved = self._resolve_ts_specifier(specifier, source)
-            if resolved:
-                confidence = default_confidence
-                # Alias-Auflösung hat eigenes Label
-                if self._is_alias(specifier, source):
-                    confidence = ConfidenceLabel.RESOLVED_ALIAS
-                results.append(ResolvedImport(
-                    source_file=source,
-                    target_file=resolved,
-                    import_statement=match.group(0),
-                    confidence=confidence,
-                ))
-    return results
-```
-
-**Specifier-Auflösung:**
-
-```python
-def _resolve_ts_specifier(self, specifier: str, source: Path) -> Path | None:
-    """Alias-Auflösung → Kandidatenliste → erste existierende Datei.
-
-    Auflösungsreihenfolge:
-    1. Prüfe ob relativer Pfad (./ oder ../)
-    2. Prüfe tsconfig/jsconfig paths (Alias-Match)
-    3. Kandidaten: .ts, .tsx, .js, .jsx, .d.ts, /index.ts, /index.tsx
-    4. Prüfe ob Barrel (index.ts) → eine Ebene tief folgen
-    """
-    ...
-
-def _load_tsconfig(self, source: Path) -> dict | None:
-    """Nächstes tsconfig.json/jsconfig.json aufwärts suchen, cached."""
-    ...
-
-def _resolve_barrel(
-    self, barrel_file: Path, named_import: str | None,
-) -> list[ResolvedImport]:
-    """export * from / export {...} from → eine Ebene tief."""
-    ...
-```
-
-**Barrel-Auflösung:** Wenn ein Specifier auf eine `index.ts`
-(Barrel) zeigt, wird das Barrel **eine Ebene tief** gefolgt, um
-die eigentlichen Quelldateien zu finden. Re-Exports in der Barrel
-erhalten `ConfidenceLabel.BARREL_CONTEXT`.
-
-### 28.4.3 Java-Resolver (inkl. Spring-Heuristiken)
-
-**Regex-Patterns:**
-
-```python
-# Standard-Import
-JAVA_IMPORT = re.compile(
-    r'^import\s+(?:static\s+)?([\w.]+(?:\.\*)?)\s*;',
-    re.MULTILINE,
-)
-
-# Package-Deklaration
-JAVA_PACKAGE = re.compile(
-    r'^package\s+([\w.]+)\s*;',
-    re.MULTILINE,
-)
-
-# Spring-Annotations mit Scan-Konfiguration
-SPRING_SCAN = re.compile(
-    r'@(?:SpringBootApplication|ComponentScan|Import|EntityScan|EnableJpaRepositories)'
-    r'\s*\(([^)]*)\)',
-    re.MULTILINE | re.DOTALL,
-)
-```
-
-**4 Import-Formen:**
-
-| Form | Beispiel | Auflösung |
-|------|---------|-----------|
-| Expliziter Import | `import com.acme.Foo;` | `com/acme/Foo.java` (Maven/Gradle-Konvention) |
-| Star-Import | `import com.acme.*;` | Alle `.java`-Dateien im Package |
-| Static Import | `import static com.acme.Foo.BAR;` | `com/acme/Foo.java` |
-| Same-Package-Referenz | `extends BaseService` | Package-Index-Lookup |
-
-**Package-Index:**
-
-Der Java-Resolver baut einmal pro Assembly einen repoweiten
-Package-Index auf (gecached):
-
-```python
-def _build_java_package_index(self) -> dict[str, list[Path]]:
-    """Repoweiter package → Dateien-Index. Einmal pro Assembly gecached.
-
-    Scannt alle .java-Dateien, extrahiert das package-Statement,
-    und baut einen Index auf: package_name → [datei1.java, datei2.java]
-    """
-    index: dict[str, list[Path]] = {}
-    for repo_path in self._repos.values():
-        for java_file in repo_path.rglob("*.java"):
-            content = java_file.read_text(encoding="utf-8", errors="replace")
-            match = JAVA_PACKAGE.search(content)
-            if match:
-                package = match.group(1)
-                index.setdefault(package, []).append(java_file)
-    return index
-```
-
-**Spring-Heuristiken:**
-
-```python
-def _resolve_spring_annotations(self, source: Path) -> list[ResolvedImport]:
-    """Erkennt @SpringBootApplication, @ComponentScan, @Import,
-    @EntityScan, @EnableJpaRepositories.
-
-    Auflösung:
-    - Ohne scanBasePackages: Base-Package der annotierten Klasse
-    - Mit scanBasePackages: Die angegebenen Packages
-    - Alle Dateien in den Scan-Packages → SPRING_SCAN_HEURISTIC
-    """
-    ...
-```
-
-**Same-Package-Heuristik:**
-
-```python
-def _resolve_same_package(
-    self, source: Path, package: str,
-) -> list[ResolvedImport]:
-    """Typnamen in extends/implements/Felder gegen Package-Index matchen.
-
-    Erkennt Referenzen auf Klassen im selben Package, die ohne
-    expliziten Import nutzbar sind (Java-Spezifikation).
-    Confidence: SAME_PACKAGE_HEURISTIC.
-    """
-    ...
-```
-
-### 28.4.4 Confidence Labels (FK-28-004)
-
-Jeder aufgelöste Import erhält ein Confidence Label, das die
-Zuverlässigkeit der Auflösung quantifiziert:
-
-```python
-class ConfidenceLabel(StrEnum):
-    """Zuverlässigkeit der Auflösung — bestimmt die Priorisierung
-    bei Bundle-Größen-Überschreitung."""
-    RESOLVED_IMPORT = "RESOLVED_IMPORT"             # Direkter Import, Datei existiert
-    RESOLVED_ALIAS = "RESOLVED_ALIAS"               # Über tsconfig-Alias aufgelöst
-    BARREL_CONTEXT = "BARREL_CONTEXT"                # Über Barrel/Index-Datei aufgelöst
-    SAME_PACKAGE_HEURISTIC = "SAME_PACKAGE_HEURISTIC"  # Java Same-Package-Referenz
-    SPRING_SCAN_HEURISTIC = "SPRING_SCAN_HEURISTIC"    # Spring Component Scan
-    UNRESOLVED_DYNAMIC = "UNRESOLVED_DYNAMIC"          # Dynamic Import — nicht auflösbar
-```
-
-**Priorisierungstabelle:**
-
-| Label | Priorität | Beschreibung |
-|-------|-----------|--------------|
-| `RESOLVED_IMPORT` | 5 (höchste) | Expliziter Import, Zieldatei existiert |
-| `RESOLVED_ALIAS` | 4 | Über Alias aufgelöst (tsconfig paths) |
-| `BARREL_CONTEXT` | 3 | Über Barrel/Index eine Ebene tief gefolgt |
-| `SAME_PACKAGE_HEURISTIC` | 2 | Java-Referenz im selben Package |
-| `SPRING_SCAN_HEURISTIC` | 1 | Spring Component Scan (breiteste Heuristik) |
-| `UNRESOLVED_DYNAMIC` | 0 (niedrigste) | Dynamic Import — wird gesammelt, aber niedrig priorisiert |
-
-```python
-CONFIDENCE_PRIORITY: dict[ConfidenceLabel, int] = {
-    ConfidenceLabel.RESOLVED_IMPORT: 5,
-    ConfidenceLabel.RESOLVED_ALIAS: 4,
-    ConfidenceLabel.BARREL_CONTEXT: 3,
-    ConfidenceLabel.SAME_PACKAGE_HEURISTIC: 2,
-    ConfidenceLabel.SPRING_SCAN_HEURISTIC: 1,
-    ConfidenceLabel.UNRESOLVED_DYNAMIC: 0,
-}
-```
-
-**Vollständiges Klassen-Design:**
-
-```python
-# agentkit/evidence/import_resolver.py
-from __future__ import annotations
-
-import json
-import re
-from dataclasses import dataclass
-from enum import StrEnum
-from pathlib import Path
-
-
-class ConfidenceLabel(StrEnum):
-    """Zuverlässigkeit der Auflösung."""
-    RESOLVED_IMPORT = "RESOLVED_IMPORT"
-    RESOLVED_ALIAS = "RESOLVED_ALIAS"
-    BARREL_CONTEXT = "BARREL_CONTEXT"
-    SAME_PACKAGE_HEURISTIC = "SAME_PACKAGE_HEURISTIC"
-    SPRING_SCAN_HEURISTIC = "SPRING_SCAN_HEURISTIC"
-    UNRESOLVED_DYNAMIC = "UNRESOLVED_DYNAMIC"
-
-
-@dataclass(frozen=True)
-class ResolvedImport:
-    """Ein aufgelöster Import mit Confidence-Label."""
-    source_file: Path       # Datei die den Import enthält
-    target_file: Path       # Aufgelöste Zieldatei
-    import_statement: str   # Originaler Import-String
-    confidence: ConfidenceLabel
-
-
-class ImportResolver:
-    """Sprachspezifische Import-Extraktion.
-
-    Erkennt die Sprache anhand der Dateiendung und delegiert
-    an den passenden Resolver. Multi-Repo: sucht zuerst im
-    Source-Repo, dann cross-repo.
-
-    Args:
-        repos: Mapping repo_id → repo_path.
-            Import-Auflösung braucht nur Dateisystem-Zugriff,
-            kein Git, kein Branch, keine Rolle.
-    """
-
-    LANGUAGE_MAP: dict[str, str] = {
-        ".py": "_resolve_python",
-        ".ts": "_resolve_typescript",
-        ".tsx": "_resolve_typescript",
-        ".js": "_resolve_typescript",
-        ".jsx": "_resolve_typescript",
-        ".java": "_resolve_java",
-    }
-
-    def __init__(self, repos: dict[str, Path]) -> None:
-        self._repos = repos
-        self._tsconfig_cache: dict[Path, dict] = {}
-        self._java_package_index: dict[str, list[Path]] | None = None
-
-    def resolve(self, source_file: Path) -> list[ResolvedImport]:
-        """Löst alle Imports einer Datei auf."""
-        suffix = source_file.suffix
-        handler_name = self.LANGUAGE_MAP.get(suffix)
-        if handler_name is None:
-            return []
-        handler = getattr(self, handler_name)
-        return handler(source_file)
-
-    # --- Python ---
-    def _resolve_python(self, source: Path) -> list[ResolvedImport]: ...
-
-    # --- TypeScript (+ JS/JSX/TSX) ---
-    def _resolve_typescript(self, source: Path) -> list[ResolvedImport]: ...
-    def _load_tsconfig(self, source: Path) -> dict | None: ...
-    def _resolve_ts_specifier(self, specifier: str, source: Path) -> Path | None: ...
-    def _resolve_barrel(
-        self, barrel_file: Path, named_import: str | None,
-    ) -> list[ResolvedImport]: ...
-
-    # --- Java ---
-    def _resolve_java(self, source: Path) -> list[ResolvedImport]: ...
-    def _build_java_package_index(self) -> dict[str, list[Path]]: ...
-    def _resolve_java_import(self, import_stmt: str) -> Path | None: ...
-    def _resolve_same_package(
-        self, source: Path, package: str,
-    ) -> list[ResolvedImport]: ...
-    def _resolve_spring_annotations(self, source: Path) -> list[ResolvedImport]: ...
-```
+> Stufe 2 (Sprachspezifische Import-Extraktion mit Python-,
+> TypeScript- und Java-Patterns, Confidence-Labels und Vollständigkeit
+> des `ImportResolver`-Klassen-Designs) ist normativ in **FK-46
+> (Import-Resolver für Evidence Assembly)** beschrieben.
 
 ## 28.5 Autoritätsklassen und BundleEntry
 
@@ -1101,7 +737,7 @@ Evidenz-Identität, bestehend aus:
 
 Diese Werte werden in das Manifest-Artefakt geschrieben und in
 Preflight-Response, Review-Response und Divergenz-Telemetrie
-(Kap. 14) referenziert. So ist nachvollziehbar, auf welcher
+(FK-14) referenziert. So ist nachvollziehbar, auf welcher
 Evidenzbasis jeder Reviewer gearbeitet hat.
 
 **Hash-Berechnung:**
@@ -1120,356 +756,10 @@ Reihenfolge der Assembly-Stufen.
 
 ## 28.6 Request-DSL und Preflight-Turn
 
-### 28.6.1 7 Request-Typen (FK-28-009)
-
-Die Request-DSL definiert 7 strukturierte Typen, mit denen ein
-Reviewer fehlende Informationen anfordern kann:
-
-```python
-# agentkit/evidence/request_types.py
-from __future__ import annotations
-
-from enum import StrEnum
-from pydantic import BaseModel, Field
-
-
-class RequestType(StrEnum):
-    NEED_FILE = "NEED_FILE"
-    NEED_SCHEMA = "NEED_SCHEMA"
-    NEED_CALLSITE = "NEED_CALLSITE"
-    NEED_RUNTIME_BINDING = "NEED_RUNTIME_BINDING"
-    NEED_TEST_EVIDENCE = "NEED_TEST_EVIDENCE"
-    NEED_CONCEPT_SOURCE = "NEED_CONCEPT_SOURCE"
-    NEED_DIFF_EXPANSION = "NEED_DIFF_EXPANSION"
-
-
-class ReviewerRequest(BaseModel):
-    """Ein einzelner strukturierter Request vom Reviewer."""
-    type: RequestType
-    target: str = Field(description="Pfad, Symbol, Pattern oder Command")
-    region: str | None = Field(
-        default=None,
-        description="Nur für NEED_DIFF_EXPANSION: Methode oder Codebereich",
-    )
-    reason: str = Field(description="Warum der Reviewer diese Information braucht")
-
-
-class RequestResult(BaseModel):
-    """Ergebnis der deterministischen Auflösung eines Requests."""
-    request: ReviewerRequest
-    status: str = Field(description="RESOLVED | UNRESOLVED | TIMEOUT | ERROR")
-    content: str | None = Field(default=None, description="Aufgelöster Inhalt")
-    file_path: str | None = Field(default=None, description="Pfad der gefundenen Datei")
-    duration_ms: int = 0
-```
-
-**Request-Typ-Dokumentation:**
-
-| Typ | Target | Auflösung | Timeout |
-|-----|--------|-----------|---------|
-| `NEED_FILE` | Pfad oder Glob-Pattern | Exakter Match, dann Glob, dann `rg --files` | — |
-| `NEED_SCHEMA` | Symbol-Name (Klasse, Interface, Type) | `rg 'class {symbol}\|interface {symbol}\|type {symbol}'` | — |
-| `NEED_CALLSITE` | Funktions-/Methodenname | `rg '{symbol}\('` | — |
-| `NEED_RUNTIME_BINDING` | Config-Key | `rg '{target}' -g '*.yaml' -g '*.yml' -g '*.json' -g '*.env'` | — |
-| `NEED_TEST_EVIDENCE` | Test-Command (z.B. `pytest pfad/`) | `subprocess.run` mit cwd=repo_root | 30s |
-| `NEED_CONCEPT_SOURCE` | Dokument-Abschnitt | Heading-Match in `_concept/` und `stories/` | — |
-| `NEED_DIFF_EXPANSION` | Datei + Region | `git diff` mit erweitertem Kontext für spezifische Region | — |
-
-### 28.6.2 RequestResolver (Multi-Repo) (FK-28-010)
-
-Der `RequestResolver` bekommt den vollen `RepoContext`, weil
-verschiedene Request-Typen unterschiedliche Context-Felder
-benötigen:
-
-| Request-Typ | Benötigte RepoContext-Felder |
-|-------------|------------------------------|
-| `NEED_DIFF_EXPANSION` | `git` (für `diff_full()`), `git_base_branch` |
-| `NEED_FILE` / `NEED_SCHEMA` / `NEED_CALLSITE` | `repo_path`, Priorisierung über `primary_repo_id` |
-| `NEED_RUNTIME_BINDING` | `repo_path`, `affected` (nur affected Repos durchsuchen) |
-| `NEED_TEST_EVIDENCE` | `repo_path` (als cwd für subprocess) |
-| `NEED_CONCEPT_SOURCE` | Nur `story_dir` (repo-unabhängig) |
-
-```python
-# agentkit/evidence/request_resolver.py
-from __future__ import annotations
-
-import json
-import logging
-import subprocess
-from pathlib import Path
-
-from agentkit.evidence.assembler import RepoContext
-from agentkit.evidence.request_types import (
-    RequestResult, RequestType, ReviewerRequest,
-)
-
-logger = logging.getLogger(__name__)
-
-REQUEST_TIMEOUT_S = 30  # Timeout pro Request
-MAX_REQUESTS = 8        # Max 8 Requests pro Reviewer
-
-
-def parse_preflight_response(raw_response: str) -> list[ReviewerRequest]:
-    """Parst die Preflight-Antwort des Reviewers (JSON mit requests-Array).
-
-    Bei Parse-Fehler: leere Liste + WARNING. Der Review läuft dann
-    ohne Preflight-Ergänzung weiter.
-    """
-    try:
-        data = json.loads(raw_response)
-        raw_requests = data.get("requests", [])
-        return [ReviewerRequest(**r) for r in raw_requests[:MAX_REQUESTS]]
-    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
-        logger.warning("Preflight-Response konnte nicht geparst werden: %s", exc)
-        return []
-
-
-class RequestResolver:
-    """Löst Review-DSL-Requests deterministisch auf.
-
-    Jeder Request-Typ hat eine eigene Auflösungsstrategie.
-    Multi-Repo: sucht über alle Repos, Primary-Repo hat Vorrang
-    bei Mehrdeutigkeit.
-
-    Args:
-        repos: Repo-Set mit vollem RepoContext (Git, Branch, Role, Affected).
-        primary_repo_id: ID des primären Repos (Vorrang bei Mehrdeutigkeit).
-    """
-
-    def __init__(
-        self,
-        repos: dict[str, RepoContext],
-        primary_repo_id: str,
-    ) -> None:
-        self._repos = repos
-        self._primary_repo_id = primary_repo_id
-
-    def resolve_all(self, requests: list[ReviewerRequest]) -> list[RequestResult]:
-        """Löst bis zu MAX_REQUESTS Requests auf."""
-        results: list[RequestResult] = []
-        for req in requests[:MAX_REQUESTS]:
-            result = self._resolve_single(req)
-            results.append(result)
-        return results
-
-    def _resolve_single(self, req: ReviewerRequest) -> RequestResult:
-        """Dispatch auf den passenden Handler."""
-        handlers: dict[RequestType, ...] = {
-            RequestType.NEED_FILE: self._resolve_file,
-            RequestType.NEED_SCHEMA: self._resolve_schema,
-            RequestType.NEED_CALLSITE: self._resolve_callsite,
-            RequestType.NEED_RUNTIME_BINDING: self._resolve_runtime_binding,
-            RequestType.NEED_TEST_EVIDENCE: self._resolve_test_evidence,
-            RequestType.NEED_CONCEPT_SOURCE: self._resolve_concept_source,
-            RequestType.NEED_DIFF_EXPANSION: self._resolve_diff_expansion,
-        }
-        handler = handlers.get(req.type)
-        if handler is None:
-            return RequestResult(
-                request=req,
-                status="ERROR",
-                content=f"Unknown type: {req.type}",
-            )
-        return handler(req)
-
-    def _resolve_file(self, req: ReviewerRequest) -> RequestResult:
-        """Exakter Pfad oder Glob-Pattern → Dateiinhalt.
-
-        Auflösungsreihenfolge:
-        1. Exakter Match: repo_root / target (Primary-Repo zuerst)
-        2. Glob: repo_root.glob(target)
-        3. Fallback: rg --files | grep target
-        """
-        ...
-
-    def _resolve_schema(self, req: ReviewerRequest) -> RequestResult:
-        """Symbol-Name → class/interface/type Definition finden.
-
-        Sucht: rg 'class {symbol}|interface {symbol}|type {symbol}'
-        über alle Repos (Primary zuerst).
-        """
-        ...
-
-    def _resolve_callsite(self, req: ReviewerRequest) -> RequestResult:
-        """Symbol-Name → Aufrufer finden.
-
-        Sucht: rg '{symbol}\\(' über alle Repos.
-        """
-        ...
-
-    def _resolve_runtime_binding(self, req: ReviewerRequest) -> RequestResult:
-        """Config-Key → Bindung in YAML/JSON/.env suchen.
-
-        Sucht: rg '{target}' -g '*.yaml' -g '*.yml' -g '*.json' -g '*.env'
-        Priorisiert affected=True Repos.
-        """
-        ...
-
-    def _resolve_test_evidence(self, req: ReviewerRequest) -> RequestResult:
-        """Test-Command ausführen und Ergebnis zurückgeben.
-
-        subprocess.run mit timeout=REQUEST_TIMEOUT_S, cwd=repo_root.
-        """
-        ...
-
-    def _resolve_concept_source(self, req: ReviewerRequest) -> RequestResult:
-        """Konzeptdokument-Abschnitt suchen.
-
-        Heading-Match in _concept/ und stories/ per Regex.
-        """
-        ...
-
-    def _resolve_diff_expansion(self, req: ReviewerRequest) -> RequestResult:
-        """Erweiterten Diff-Kontext für eine bestimmte Region.
-
-        Nutzt git.diff_full() mit Kontextzeilen für
-        spezifische Datei/Region.
-        """
-        ...
-```
-
-### 28.6.3 Mehrdeutigkeitsregel (D3) (FK-28-011)
-
-Strikte Auflösungspolitik für alle 7 Request-Typen — kein stilles
-Heuristik-Picking bei Mehrdeutigkeit:
-
-| Treffer | Verhalten | Begründung |
-|---------|-----------|------------|
-| 1 Treffer | `RESOLVED` — Inhalt wird aufgenommen | Eindeutig |
-| Mehrere Treffer | `UNRESOLVED` mit Kandidatenliste — Reviewer sieht die Kandidaten, muss selbst entscheiden | Determinismus: der Resolver wählt bei Mehrdeutigkeit NICHT eigenständig aus |
-| 0 Treffer | `UNRESOLVED` — kein Inhalt | Datei existiert nicht oder Pattern hat kein Match |
-
-Diese Regel gilt auch für den Import-Resolver (Stufe 2): Bei
-mehreren Kandidaten für denselben Import-Specifier wird der Import
-als `UNRESOLVED_DYNAMIC` markiert.
-
-### 28.6.4 Preflight-Turn-Architektur (FK-28-012)
-
-Der Preflight-Turn ist ein eigenständiger Kommunikationsschritt
-zwischen dem Orchestrator und einem LLM-Reviewer **vor** dem
-eigentlichen Review. Er läuft NICHT über den bestehenden
-`LlmEvaluator`/`StructuredEvaluator` (Kap. 11), sondern als
-direkter MCP-Pool-Call.
-
-```mermaid
-sequenceDiagram
-    participant O as Orchestrator
-    participant A as EvidenceAssembler
-    participant R as MCP Pool (Reviewer)
-    participant RR as RequestResolver
-
-    O->>A: assemble()
-    A-->>O: AssemblyResult (manifest + entries)
-
-    O->>R: chatgpt_send(preflight_prompt, merge_paths)
-    Note over R: Reviewer prüft Bundle,<br/>formuliert Requests
-    R-->>O: JSON { "requests": [...] }
-
-    O->>O: parse_preflight_response()
-    alt requests vorhanden
-        O->>RR: resolve_all(requests)
-        RR-->>O: RequestResult[] (RESOLVED/UNRESOLVED)
-        O->>O: merge_paths erweitern
-    end
-
-    O->>R: chatgpt_send(review_prompt + BUNDLE_HEADER, extended_paths)
-    Note over R: Eigentlicher Review<br/>mit erweitertem Kontext
-    R-->>O: Review-Ergebnis
-```
-
-**Ablauf im Detail:**
-
-```
-1. evidence = EvidenceAssembler(repos, primary_repo_id, ...).assemble()
-2. manifest = evidence.manifest
-3. preflight_prompt = render_preflight_prompt(manifest)
-4. raw_response = chatgpt_send(preflight_prompt, merge_paths=manifest.file_paths)
-5. requests = parse_preflight_response(raw_response)
-   # Bei Parse-Fehler: requests=[] + WARNING, Review läuft trotzdem weiter
-6. IF requests:
-     results = RequestResolver(repos, primary_repo_id).resolve_all(requests)
-     extended_paths = manifest.file_paths + [
-         Path(r.file_path) for r in results if r.status == "RESOLVED"
-     ]
-7. review_prompt = render_review_prompt(manifest, resolved_requests=results)
-8. chatgpt_send(review_prompt, merge_paths=extended_paths)
-9. → Reviewer führt Review durch
-```
-
-**Fehlertoleranz:**
-
-- Parse-Fehler in der Preflight-Response → `requests=[]` + WARNING.
-  Der Review läuft ohne Preflight-Ergänzung weiter.
-- Alle Requests UNRESOLVED → Review läuft mit Original-Bundle weiter.
-  Der Reviewer wird über die unauflösbaren Requests informiert.
-- Timeout bei `NEED_TEST_EVIDENCE` → `status="TIMEOUT"`, andere
-  Requests werden trotzdem aufgelöst.
-
-### 28.6.5 Prompt-Template: `review-preflight.md` (FK-28-013)
-
-Neues Template unter `userstory/prompts/sparring/review-preflight.md`:
-
-```markdown
-# Review Preflight — Context Sufficiency Check
-
-Du erhältst ein Review-Bundle mit klassifiziertem Kontext.
-Bevor du den eigentlichen Review durchführst, prüfe ob dir
-Informationen fehlen, um die Änderungen korrekt bewerten zu können.
-
-{{BUNDLE_MANIFEST_HEADER}}
-
-## Dein Auftrag
-
-Prüfe die angehängten Dateien und beantworte:
-
-1. Hast du genug Kontext, um die Änderungen gegen die Story-Spezifikation
-   und die Architektur-Referenzen zu verifizieren?
-
-2. Falls nicht: Formuliere **max 8 strukturierte Requests** im folgenden
-   JSON-Format:
-
-```json
-{
-  "requests": [
-    {"type": "NEED_FILE", "target": "pfad/oder/pattern", "reason": "Warum"},
-    {"type": "NEED_SCHEMA", "target": "SymbolName", "reason": "Warum"},
-    {"type": "NEED_CALLSITE", "target": "funktionsname", "reason": "Warum"},
-    {"type": "NEED_RUNTIME_BINDING", "target": "config_key", "reason": "Warum"},
-    {"type": "NEED_TEST_EVIDENCE", "target": "pytest pfad/", "reason": "Warum"},
-    {"type": "NEED_CONCEPT_SOURCE", "target": "Dok-Abschnitt", "reason": "Warum"},
-    {"type": "NEED_DIFF_EXPANSION", "target": "datei.py", "region": "methode", "reason": "Warum"}
-  ]
-}
-```
-
-3. Falls du genug Kontext hast, antworte mit:
-
-```json
-{"requests": []}
-```
-
-**Wichtig:**
-- Fordere nur Informationen an, die du NICHT aus den angehängten Dateien
-  ableiten kannst.
-- Achte auf die Autoritätsklassen: PRIMARY_NORMATIVE-Quellen sind
-  die autoritativen Referenzen, WORKER_ASSERTION hat die niedrigste
-  Beweiskraft.
-```
-
-**Sentinel-Isolation:**
-
-Das Preflight-Template erhält einen **eigenen Sentinel** mit anderem
-Präfix als die Review-Templates:
-
-```
-[PREFLIGHT:review-preflight-v1:{story_id}]
-```
-
-Der bestehende `_REVIEW_SENTINEL`-Regex in `hook.py` und
-`review_guard.py` (Kap. 30) matcht `[TEMPLATE:...]`. Der
-Preflight-Sentinel mit `[PREFLIGHT:...]` wird bewusst NICHT von
-diesem Regex erfasst. Damit stört der Preflight-Turn nicht die
-bestehenden Review-Invarianten (Kap. 14, Kap. 35).
+> Die 7 Request-Typen, der `RequestResolver` (Multi-Repo), die
+> Mehrdeutigkeitsregel D3, die Preflight-Turn-Architektur und das
+> Prompt-Template `review-preflight.md` sind normativ in **FK-47
+> (Request-DSL und Preflight-Turn)** beschrieben.
 
 ## 28.7 CLI-Surface
 
@@ -1477,7 +767,7 @@ bestehenden Review-Invarianten (Kap. 14, Kap. 35).
 
 Worker-Templates referenzieren `agentkit evidence assemble` als
 CLI-Command. AgentKit CLI nutzt manuelles argparse-Subparser-Wiring
-(Kap. 43). Der neue Command wird als Subparser registriert.
+(FK-43). Der neue Command wird als Subparser registriert.
 
 **Command-Signatur:**
 
@@ -1547,26 +837,26 @@ Der vollständige Review-Flow mit Evidence Assembly:
 
 ```mermaid
 flowchart TD
-    START["Story in Verify-Phase"] --> L1["Schicht 1: Deterministische Checks<br/>(Kap. 33)"]
+    START["Story in Verify-Phase"] --> L1["Schicht 1: Deterministische Checks<br/>(FK-33)"]
     L1 -->|PASS| ASSEMBLE["EvidenceAssembler.assemble()"]
     L1 -->|FAIL| FAIL_L1["→ Feedback + Remediation"]
 
     ASSEMBLE --> MANIFEST["BundleManifest erstellt<br/>evidence_epoch + manifest_hash"]
 
-    MANIFEST --> PREFLIGHT["Preflight-Turn<br/>(MCP Pool Send)"]
-    PREFLIGHT --> PARSE["parse_preflight_response()"]
+    MANIFEST --> PREFLIGHT["Preflight-Turn<br/>(MCP Pool Send) — FK-47"]
+    PREFLIGHT --> PARSE["parse_preflight_response() — FK-47"]
 
-    PARSE -->|Requests vorhanden| RESOLVE["RequestResolver.resolve_all()"]
+    PARSE -->|Requests vorhanden| RESOLVE["RequestResolver.resolve_all() — FK-47"]
     PARSE -->|Keine Requests| REVIEW
 
     RESOLVE --> EXTEND["merge_paths erweitern<br/>+ BUNDLE_HEADER aktualisieren"]
     EXTEND --> REVIEW
 
     REVIEW["Review-Turn<br/>(MCP Pool Send mit erweitertem Bundle)"]
-    REVIEW --> L2["Schicht 2: LLM-Bewertungen<br/>(Kap. 34)"]
-    L2 -->|PASS| L3["Schicht 3: Adversarial<br/>(Kap. 34)"]
+    REVIEW --> L2["Schicht 2: LLM-Bewertungen<br/>(FK-34)"]
+    L2 -->|PASS| L3["Schicht 3: Adversarial<br/>(FK-34)"]
     L2 -->|FAIL| FAIL_L2["→ Feedback + Remediation"]
-    L3 --> L4["Schicht 4: Policy-Engine<br/>(Kap. 33)"]
+    L3 --> L4["Schicht 4: Policy-Engine<br/>(FK-33)"]
 ```
 
 **Zeitliche Einordnung:**
@@ -1574,27 +864,21 @@ flowchart TD
 Die Evidence Assembly läuft **nach** Schicht 1 (deterministische
 Checks) und **vor** Schicht 2 (LLM-Bewertungen). Sie ist selbst
 ein deterministischer Schritt — kein LLM beteiligt. Der
-Preflight-Turn ist der erste LLM-Kontakt im Review-Flow.
+Preflight-Turn (FK-47) ist der erste LLM-Kontakt im Review-Flow.
 
 ### 28.8.2 Worker-Template-Aenderungen (FK-28-016)
 
 `worker-implementation.md` und `worker-bugfix.md` erhalten in
-der DoD-Review-Sektion:
+der DoD-Review-Sektion eine Anweisung, den Evidence Assembler
+(`agentkit evidence assemble`) statt eigener `merge_paths`-Kuration
+zu verwenden. Der Assembler:
 
-```markdown
-## Review-Versand
-
-Verwende den Evidence Assembler (`agentkit evidence assemble`) um das
-Review-Bundle zu erstellen. Verwende NICHT eigene merge_paths-Kuration.
-
-Der Assembler:
 1. Ermittelt geänderte Dateien aus Git-Diff
 2. Sammelt normative Quellen (Story-Spec, Concepts, Guardrails)
-3. Löst Imports auf und fügt Nachbar-Dateien hinzu
-4. Integriert deine Hinweise aus handover.json (additiv)
+3. Löst Imports auf und fügt Nachbar-Dateien hinzu (FK-46)
+4. Integriert Worker-Hinweise aus handover.json (additiv)
 5. Klassifiziert alles nach Autoritätsklasse
 6. Kürzt bei >350 KB nach Priorität
-```
 
 ### 28.8.3 Bestehende Review-Template-Erweiterungen (FK-28-017)
 
@@ -1615,7 +899,7 @@ Einleitung.
 
 **Prompt-Header nach Preflight erweitern (D5, FK-28-018):**
 
-Nach dem Preflight-Turn und der Request-Auflösung wird der
+Nach dem Preflight-Turn (FK-47) und der Request-Auflösung wird der
 Prompt-Header für den eigentlichen Review um einen neuen
 Abschnitt erweitert:
 
@@ -1640,12 +924,12 @@ als "nicht auflösbar" mitgeteilt.
 
 | Modul | Testart | Schwerpunkt | Fixture |
 |-------|---------|-------------|---------|
-| `import_resolver.py` | Unit-Tests mit echten Dateistrukturen | Regex-Patterns für alle 3 Sprachen, Alias-Auflösung, Barrel-Folgen, Spring-Heuristiken | `tmp_path`-Fixtures mit Dateistrukturen pro Sprache |
+| `import_resolver.py` (FK-46) | Unit-Tests mit echten Dateistrukturen | Regex-Patterns für alle 3 Sprachen, Alias-Auflösung, Barrel-Folgen, Spring-Heuristiken | `tmp_path`-Fixtures mit Dateistrukturen pro Sprache |
 | `assembler.py` | Integrationstests mit Git-Repo-Fixture | Stufe 1 Vollständigkeit, 350 KB Limit, Priorisierung, Worker-Hint-Warnung, **Multi-Repo-Fixture** | `@pytest.mark.requires_git`, echtes Git-Repo mit Commits |
 | `authority.py` | Unit-Tests | Sortierung (explizite CONFIDENCE_PRIORITY-Tabelle), `BundleEntry.sort_key` | Keine externen Fixtures |
 | `bundle_manifest.py` | Unit-Tests | `file_paths`-Property, `render_prompt_header()`, `evidence_epoch`/`manifest_hash`-Berechnung | Keine externen Fixtures |
-| `request_resolver.py` | Unit + Integration | Alle 7 Request-Typen, Timeout-Handling, UNRESOLVED-Verhalten, Mehrdeutigkeitsregel (D3) | `tmp_path`, `@pytest.mark.requires_git` |
-| `request_resolver.py` (`parse_preflight_response`) | Unit-Tests | Valides JSON, invalides JSON → leere Liste + WARNING, Randfälle (leerer String, None, kein `requests`-Key) | Keine externen Fixtures |
+| `request_resolver.py` (FK-47) | Unit + Integration | Alle 7 Request-Typen, Timeout-Handling, UNRESOLVED-Verhalten, Mehrdeutigkeitsregel (D3) | `tmp_path`, `@pytest.mark.requires_git` |
+| `request_resolver.py` (`parse_preflight_response`, FK-47) | Unit-Tests | Valides JSON, invalides JSON → leere Liste + WARNING, Randfälle (leerer String, None, kein `requests`-Key) | Keine externen Fixtures |
 | `git.py` (Erweiterung) | Unit-Tests | `diff_name_only`, `diff_stat`, `diff_full` | `@pytest.mark.requires_git` |
 
 **Multi-Repo-Test-Fixture:**
@@ -1699,7 +983,7 @@ wären nicht unterscheidbar.
 
 **Entscheidung:** Bei mehreren Treffern für einen Request wird
 `UNRESOLVED` mit Kandidatenliste zurückgegeben. Der Resolver wählt
-bei Mehrdeutigkeit NICHT eigenständig aus.
+bei Mehrdeutigkeit NICHT eigenständig aus. Detail in FK-47 §47.4.
 
 **Begründung:**
 
@@ -1737,10 +1021,10 @@ für Release-Branches und Multi-Branch-Workflows.
 
 ### 28.10.4 D5: Prompt-Header nach Preflight erweitern (FK-28-023)
 
-**Entscheidung:** Nach dem Preflight-Turn wird der Review-Prompt
-um einen Abschnitt "Nachgereichte Reviewer-Requests" erweitert.
-Aufgelöste Dateien erhalten `SECONDARY_CONTEXT` — keine neue
-Autoritätsklasse.
+**Entscheidung:** Nach dem Preflight-Turn (FK-47) wird der
+Review-Prompt um einen Abschnitt "Nachgereichte Reviewer-Requests"
+erweitert. Aufgelöste Dateien erhalten `SECONDARY_CONTEXT` — keine
+neue Autoritätsklasse.
 
 **Begründung:**
 

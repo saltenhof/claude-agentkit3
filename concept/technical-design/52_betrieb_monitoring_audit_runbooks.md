@@ -2,6 +2,7 @@
 concept_id: FK-52
 title: Betrieb, Monitoring, Audit und Runbooks
 module: operations
+cross_cutting: true
 status: active
 doc_kind: core
 parent_concept_id:
@@ -14,6 +15,9 @@ defers_to:
   - target: FK-50
     scope: installer-infrastructure
     reason: Installation and verification checkpoints defined in FK-50
+  - target: FK-16
+    scope: qa-telemetry-store
+    reason: Operative Runbook-Schritte verweisen auf FK-16-Read-Models und Raw-/Mirror-Tabellen als nicht zu loeschende Recovery-Quelle
 supersedes: []
 superseded_by:
 tags: [operations, monitoring, audit, runbooks, telemetry]

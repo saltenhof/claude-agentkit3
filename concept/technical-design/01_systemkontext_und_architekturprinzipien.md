@@ -2,6 +2,7 @@
 concept_id: FK-01
 title: Systemkontext und Architekturprinzipien
 module: system-architecture
+cross_cutting: true
 status: active
 doc_kind: core
 parent_concept_id:
@@ -9,7 +10,13 @@ authority_over:
   - scope: system-architecture
   - scope: trust-boundaries
   - scope: architecture-principles
-defers_to: []
+defers_to:
+  - target: FK-20
+    scope: workflow-engine
+    reason: Hierarchische Prozess-DSL und Phasenuebergaenge sind in FK-20 modelliert
+  - target: FK-65
+    scope: component-architecture
+    reason: Normativer Komponentenschnitt und Importgrenzen sind in FK-65 verankert
 supersedes: []
 superseded_by:
 tags: [architektur, systemkontext, fail-closed, trust-boundaries, multi-llm]

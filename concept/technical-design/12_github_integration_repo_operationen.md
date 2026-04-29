@@ -2,6 +2,7 @@
 concept_id: FK-12
 title: GitHub-Integration und Repo-Operationen
 module: github-integration
+cross_cutting: true
 status: active
 doc_kind: core
 parent_concept_id:

@@ -8,7 +8,7 @@ spec_kind: scenario-set
 version: 1
 prose_refs:
   - concept/technical-design/27_verify_pipeline_closure_orchestration.md
-  - concept/technical-design/20_workflow_engine_state_machine.md
+  - concept/technical-design/45_phase_runner_cli.md
 ---
 
 # Verify Scenarios

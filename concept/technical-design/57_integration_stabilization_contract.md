@@ -2,6 +2,7 @@
 concept_id: FK-57
 title: Integrationsstabilisierung und systemischer E2E-Vertrag
 module: integration-stabilization
+cross_cutting: true
 status: active
 doc_kind: core
 parent_concept_id:
@@ -29,6 +30,9 @@ defers_to:
   - target: FK-55
     scope: principal-capabilities
     reason: Storybezogene Schreibrechte muessen capability-scharf bleiben
+  - target: FK-58
+    scope: story-exit
+    reason: Offizieller Exit aus Stabilisierungs-Stories nach ai_augmented bleibt dort normiert
 supersedes: []
 superseded_by:
 tags: [integration, e2e, stabilization, implementation-contract, manifest, stability-gate]

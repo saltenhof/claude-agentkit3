@@ -9,7 +9,7 @@ version: 1
 prose_refs:
   - concept/domain-design/02-pipeline-orchestrierung.md
   - concept/technical-design/20_workflow_engine_state_machine.md
-  - concept/technical-design/27_verify_pipeline_closure_orchestration.md
+  - concept/technical-design/29_closure_sequence.md
   - concept/technical-design/54_story_split_service_scope_explosion.md
 ---
 

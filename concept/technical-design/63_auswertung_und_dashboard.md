@@ -2,6 +2,7 @@
 concept_id: FK-63
 title: Auswertung und Dashboard
 module: dashboard
+domain: kpi-and-dashboard
 status: active
 doc_kind: core
 parent_concept_id:
@@ -11,6 +12,18 @@ defers_to:
   - target: FK-62
     scope: analytics-data-model
     reason: Fact-table schemas and refresh logic defined in FK-62; dashboard consumes these
+  - target: FK-60
+    scope: kpi-catalog
+    reason: KPI-Semantik und Definitionen bleiben ausschliesslich in FK-60
+  - target: FK-61
+    scope: kpi-collection
+    reason: Erst nach Implementierung der Erhebung in FK-61 sind Dashboard-Sichten valide
+  - target: FK-52
+    scope: operational-monitoring
+    reason: FK-52 grenzt operative von analytischer Sichtbarkeit ab; Dashboard ist analytisch
+  - target: FK-66
+    scope: execution-planning
+    reason: Pflichtsichten der Control-Plane lesen Planungsdaten aus FK-66
 supersedes: []
 superseded_by:
 tags: [dashboard, analytics, visualization, chart-js]

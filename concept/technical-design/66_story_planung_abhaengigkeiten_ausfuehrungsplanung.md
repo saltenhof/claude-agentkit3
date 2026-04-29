@@ -2,6 +2,7 @@
 concept_id: FK-66
 title: Story-Planung, Abhaengigkeitsgraph und Ausfuehrungsplanung
 module: execution-planning
+domain: execution-planning
 status: active
 doc_kind: core
 parent_concept_id:
@@ -24,6 +25,9 @@ defers_to:
   - target: FK-91
     scope: api-catalog
     reason: Offizielle Control-Plane-Endpunkte und Events fuer Planung werden dort katalogisiert
+  - target: FK-63
+    scope: dashboard
+    reason: Pflichtsichten im Story-Cockpit konsumieren Planungsdaten ueber die Auswertungsschicht
 supersedes: []
 superseded_by:
 tags: [planning, dependencies, scheduling, readiness, parallelization, orchestration]

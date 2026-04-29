@@ -2,6 +2,7 @@
 concept_id: FK-53
 title: StoryResetService und Recovery-Flow
 module: story-reset
+domain: story-lifecycle
 status: active
 doc_kind: core
 parent_concept_id:
@@ -22,6 +23,9 @@ defers_to:
   - target: FK-52
     scope: runbooks
     reason: Operative Bedienung und Runbooks werden dort beschrieben
+  - target: FK-16
+    scope: qa-telemetry-read-models
+    reason: Reset-Purge muss FK-16-Read-Models des betroffenen run_id konsistent entfernen
 supersedes: []
 superseded_by:
 tags: [story-reset, recovery, purge, operations, reset]

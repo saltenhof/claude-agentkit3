@@ -2,6 +2,7 @@
 concept_id: DK-01
 title: Spezialisierte Rollen und LLM-Einsatz
 module: roles-and-llm
+domain: agent-skills
 status: active
 doc_kind: core
 parent_concept_id:

@@ -8,7 +8,7 @@ spec_kind: entity-set
 version: 1
 prose_refs:
   - concept/technical-design/22_setup_preflight_worktree_guard_activation.md
-  - concept/technical-design/20_workflow_engine_state_machine.md
+  - concept/technical-design/45_phase_runner_cli.md
 ---
 
 # Setup Preflight Entities

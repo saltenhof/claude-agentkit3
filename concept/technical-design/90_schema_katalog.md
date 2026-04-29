@@ -2,12 +2,15 @@
 concept_id: FK-90
 title: Schema-Katalog
 module: schema-catalog
+cross_cutting: true
 status: active
 doc_kind: core
 parent_concept_id:
 authority_over:
   - scope: schema-catalog
-defers_to: []
+defers_to:
+  - FK-18
+  - FK-59
 supersedes: []
 superseded_by:
 tags: [schema, json-schema, katalog, referenz]

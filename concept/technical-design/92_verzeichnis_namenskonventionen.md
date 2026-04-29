@@ -2,6 +2,7 @@
 concept_id: FK-92
 title: Verzeichnis- und Namenskonventionen
 module: naming-conventions
+cross_cutting: true
 status: active
 doc_kind: core
 parent_concept_id:

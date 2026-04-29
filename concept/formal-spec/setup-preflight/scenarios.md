@@ -8,6 +8,7 @@ spec_kind: scenario-set
 version: 1
 prose_refs:
   - concept/technical-design/22_setup_preflight_worktree_guard_activation.md
+  - concept/technical-design/45_phase_runner_cli.md
   - concept/domain-design/02-pipeline-orchestrierung.md
 ---
 

@@ -2,6 +2,7 @@
 concept_id: FK-18
 title: "Relationales Abbildungsmodell fuer PostgreSQL"
 module: relational-schema
+cross_cutting: true
 status: draft
 doc_kind: detail
 parent_concept_id: FK-17

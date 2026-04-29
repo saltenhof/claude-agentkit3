@@ -7,7 +7,7 @@ context: llm-evaluations
 spec_kind: scenario-set
 version: 1
 prose_refs:
-  - concept/technical-design/34_llm_bewertungen_adversarial_testing_runtime.md
+  - concept/technical-design/48_adversarial_testing_runtime.md
 ---
 
 # LLM Evaluations Scenarios

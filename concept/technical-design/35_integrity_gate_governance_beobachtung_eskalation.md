@@ -2,6 +2,7 @@
 concept_id: FK-35
 title: Integrity-Gate, Governance-Beobachtung und Eskalation
 module: integrity-gate
+domain: governance-and-guards
 status: active
 doc_kind: core
 parent_concept_id:
@@ -19,6 +20,9 @@ defers_to:
   - target: FK-34
     scope: llm-evaluation
     reason: Integrity-Gate validates that LLM evaluation artifacts exist
+  - target: FK-54
+    scope: story-split
+    reason: Scope-Explosion-Eskalationen werden ueber FK-54 in den Split-Pfad uebergeben
 supersedes: []
 superseded_by:
 tags: [integrity-gate, governance-observation, escalation, anomaly-detection, closure]
@@ -234,8 +238,8 @@ aufgeloest sind — Remediation hat kein Finding offen gelassen. Die
 Quelle ist der kanonische Layer-2-QA-Record im State-Backend, nicht
 Worker-Zusammenfassungen und nicht ein Dateiexport.
 
-**Provenienz:** Kap. 04, §4.6 (Finding-Resolution und Remediation-
-Haertung). Kap. 27, §27.10a (Finding-Resolution als Closure-Gate).
+**Provenienz:** DK-04 §4.6 (Finding-Resolution und Remediation-
+Haertung). FK-29 §29.2 (Finding-Resolution als Closure-Gate).
 
 **Hinweis zu Preflight-Nachweisen:** Preflight ist Pflicht
 (fail-closed). Zwei Failure-Codes stellen dies sicher:

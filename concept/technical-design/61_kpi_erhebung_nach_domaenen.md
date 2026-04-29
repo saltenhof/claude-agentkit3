@@ -2,6 +2,7 @@
 concept_id: FK-61
 title: KPI-Erhebung nach Domaenen
 module: kpi-collection
+domain: kpi-and-dashboard
 status: active
 doc_kind: core
 parent_concept_id:
@@ -11,6 +12,27 @@ defers_to:
   - target: FK-60
     scope: kpi-definitions
     reason: KPI names, formulas, granularity, and decision questions defined exclusively in FK-60
+  - target: FK-14
+    scope: event-infrastructure
+    reason: Erhebungspunkte und neue Events bauen auf dem Event-Modell aus FK-14 auf
+  - target: FK-21
+    scope: story-creation
+    reason: Story-Creation-Pipeline emittiert Erhebungs-Events fuer KPI-Domaenen wie VektorDB-Kalibrierung
+  - target: FK-27
+    scope: verify-and-closure
+    reason: Verify-/Closure-Strecke ist eine zentrale Erhebungsdomaene fuer KPI-Events
+  - target: FK-30
+    scope: hook-infrastructure
+    reason: Die Erhebung nutzt den FK-30 Hook-Mechanismus als Transport
+  - target: FK-32
+    scope: dokumententreue
+    reason: Doc-Fidelity-Events stammen aus dem FK-32 Conformance-Service
+  - target: FK-33
+    scope: stage-registry
+    reason: Required-Stage- und Impact-Violation-Erhebung referenziert die FK-33 Policy-Engine
+  - target: FK-34
+    scope: llm-evaluations
+    reason: Finding-Resolution-Events werden vom StructuredEvaluator (FK-34) emittiert
 supersedes: []
 superseded_by:
 tags: [kpi, collection, events, hooks, telemetry]

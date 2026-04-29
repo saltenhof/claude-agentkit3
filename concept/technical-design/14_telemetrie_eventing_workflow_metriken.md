@@ -2,6 +2,7 @@
 concept_id: FK-14
 title: Telemetrie, Eventing und Workflow-Metriken
 module: telemetry
+domain: telemetry-and-events
 status: active
 doc_kind: core
 parent_concept_id:
@@ -16,6 +17,27 @@ defers_to:
   - target: FK-02
     scope: domain-model
     reason: Project-Key, Story-ID und Run-ID als Korrelationsschlüssel aus FK-02
+  - target: FK-18
+    scope: relational-schema
+    reason: Relationale Abbildung der Event-Tabellen liegt in FK-18
+  - target: FK-20
+    scope: workflow-engine
+    reason: Einheits-DSL der Workflow-Engine bestimmt die zu auditierenden Phasenuebergaenge
+  - target: FK-21
+    scope: story-creation
+    reason: Story-Creation-Events (z. B. vectordb_search) werden im Vorfeld der Pipeline durch FK-21 erzeugt
+  - target: FK-32
+    scope: conformance
+    reason: Dokumententreue-Events stammen aus dem Conformance-Service in FK-32
+  - target: FK-33
+    scope: deterministic-checks
+    reason: Structural-Check-Events (Impact-Violation, Stage-Outcomes) werden durch FK-33 emittiert
+  - target: FK-36
+    scope: compaction
+    reason: Compaction-Events kommen aus dem PostCompact-Hook nach FK-36
+  - target: FK-61
+    scope: kpi-collection
+    reason: KPI-Erhebung und Counter-Aggregation liegen domaenenseitig in FK-61
 supersedes: []
 superseded_by:
 tags: [telemetrie, eventing, metriken, state-backend, review-guard]

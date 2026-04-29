@@ -2,6 +2,7 @@
 concept_id: DK-08
 title: Projektregistrierung und Bootstrap
 module: installation
+domain: installation-and-bootstrap
 status: active
 doc_kind: core
 parent_concept_id:

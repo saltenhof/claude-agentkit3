@@ -2,6 +2,7 @@
 concept_id: FK-17
 title: "Fachliches Datenmodell und Ownership"
 module: data-model
+cross_cutting: true
 status: draft
 doc_kind: detail
 parent_concept_id: FK-02

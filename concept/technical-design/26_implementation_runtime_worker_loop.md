@@ -2,6 +2,7 @@
 concept_id: FK-26
 title: Implementation-Runtime und Worker-Loop
 module: implementation
+domain: implementation-phase
 status: active
 doc_kind: core
 parent_concept_id:
@@ -355,179 +356,21 @@ Die Templates liegen in `prompts/sparring/`:
 
 ## 26.5a Review-Versand über Evidence Assembly
 
-### 26.5a.1 Ablösung der manuellen merge_paths-Kuration (FK-26-200)
-
-Zusätzlich zum bisherigen Review-Ablauf (§26.5.3) wird der
-Kontext-Zusammenstellungsschritt ab Version 3.0 durch die
-deterministische Evidence Assembly (Kap. 28) ersetzt. Der Worker
-verwendet NICHT mehr selbst-kuratierte `merge_paths`, sondern ruft
-den Evidence Assembler über die CLI auf:
-
-```bash
-agentkit evidence assemble \
-  --story-id ODIN-042 \
-  --story-dir ./stories/ODIN-042 \
-  --output-dir ./stories/ODIN-042/qa \
-  [--config .story-pipeline.yaml]
-```
-
-**Ablauf:**
-
-```mermaid
-sequenceDiagram
-    participant W as Worker
-    participant CLI as agentkit CLI
-    participant EA as EvidenceAssembler
-    participant P as LLM-Pool (Review)
-
-    W->>CLI: agentkit evidence assemble<br/>--story-id ... --story-dir ...
-    CLI->>EA: assemble()
-    Note over EA: Stufe 1: Git-Diff + Nachbardateien<br/>+ Story/Concept/Guardrails
-    Note over EA: Stufe 2: Import-Extraktion<br/>(Python/TS/Java)
-    Note over EA: Stufe 3: Worker-Hints aus<br/>handover.json (additiv)
-    EA-->>CLI: AssemblyResult + BundleManifest
-    CLI-->>W: bundle_manifest.json<br/>+ assemblierte Dateien
-    Note over W: merge_paths = manifest.file_paths
-    W->>P: Pool-Send mit Review-Template<br/>merge_paths aus BundleManifest
-```
-
-Das CLI assembliert das Bundle deterministisch (Kap. 28):
-1. **Stufe 1** (deterministisch): Git-Diff gegen Base-Branch, geänderte
-   Dateien + Nachbardateien, Story-Spec, Konzept-Dokumente, Guardrails
-2. **Stufe 2** (deterministisch): Sprachspezifische Import-Extraktion
-   (Python, TypeScript, Java) mittels Regex
-3. **Stufe 3** (Worker-Hints): Aus `handover.json` und
-   `worker-manifest.json` — nur additiv, Authority-Klasse
-   `WORKER_ASSERTION`
-
-Der Worker nutzt das `BundleManifest` aus dem Ergebnis als
-`merge_paths` für den Review-Versand. Die bisherige manuelle
-Kuration der `merge_paths` entfällt.
-
-### 26.5a.2 Änderung in den Worker-Templates
-
-Die DoD-Review-Sektion in `worker-implementation.md` und
-`worker-bugfix.md` wird aktualisiert:
-
-```markdown
-## Review-Versand
-
-Verwende den Evidence Assembler (`agentkit evidence assemble`) um das
-Review-Bundle zu erstellen. Verwende NICHT eigene merge_paths-Kuration.
-
-Der Assembler:
-1. Ermittelt geänderte Dateien aus Git-Diff
-2. Sammelt normative Quellen (Story-Spec, Concepts, Guardrails)
-3. Löst Imports auf und fügt Nachbar-Dateien hinzu
-4. Integriert deine Hinweise aus handover.json (additiv)
-5. Klassifiziert alles nach Autoritätsklasse
-6. Kürzt bei >350 KB nach Priorität
-```
+> Ab Version 3.0 wird der Review-Versand des Workers über den
+> Evidence Assembler abgewickelt (CLI: `agentkit evidence assemble`).
+> Der Worker kuratiert keine `merge_paths` mehr selbst; das
+> deterministisch assemblierte BundleManifest liefert die
+> `merge_paths` für den Review-Versand. Details: **FK-28**.
 
 ## 26.5b Preflight-Turn im Review-Flow
 
-> **[Entscheidung 2026-04-08]** Element 24 — Preflight-Turn / Request-DSL ist Pflicht. FK-26 §26.5b, 7 Request-Typen.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 24.
-
-### 26.5b.1 Pflicht-Preflight vor dem Review (FK-26-210)
-
-Zwischen Evidence Assembly (§26.5a) und dem eigentlichen Review
-liegt ein Pflicht-Preflight-Turn. Der Preflight gibt dem
-Review-LLM die Möglichkeit, fehlenden Kontext nachzufordern,
-bevor der eigentliche Review startet.
-
-**Ablauf:**
-
-```mermaid
-sequenceDiagram
-    participant W as Worker
-    participant EA as EvidenceAssembler
-    participant RR as RequestResolver
-    participant P as LLM-Pool
-
-    W->>EA: agentkit evidence assemble
-    EA-->>W: BundleManifest + merge_paths
-
-    W->>P: Preflight-Prompt senden<br/>[PREFLIGHT:review-preflight-v1:{story_id}]<br/>merge_paths aus BundleManifest
-    P-->>W: Preflight-Response<br/>(JSON mit max 8 Requests)
-
-    alt Requests vorhanden
-        W->>RR: RequestResolver.resolve_all(requests)
-        RR-->>W: RequestResult[] (RESOLVED / UNRESOLVED)
-        Note over W: merge_paths erweitern<br/>um aufgelöste Dateien
-    end
-
-    W->>P: Review-Prompt senden<br/>[TEMPLATE:review-consolidated-v1:{story_id}]<br/>merge_paths (erweitert)
-    P-->>W: Review-Feedback
-```
-
-**Schritte im Detail:**
-
-1. Worker assembliert das Evidence Bundle (§26.5a)
-2. Worker sendet den Preflight-Prompt an das Review-LLM.
-   Der Preflight verwendet einen eigenen Sentinel:
-   `[PREFLIGHT:review-preflight-v1:{story_id}]`
-3. Das LLM antwortet mit bis zu **8 strukturierten Requests**
-   gemäß der Request-DSL (Kap. 28, 7 Request-Typen:
-   `NEED_FILE`, `NEED_SCHEMA`, `NEED_CALLSITE`,
-   `NEED_RUNTIME_BINDING`, `NEED_TEST_EVIDENCE`,
-   `NEED_CONCEPT_SOURCE`, `NEED_DIFF_EXPANSION`)
-4. AgentKit löst die Requests deterministisch auf
-   (`RequestResolver`, Kap. 28)
-5. Aufgelöste Dateien werden dem Bundle hinzugefügt
-   (Authority-Klasse `SECONDARY_CONTEXT`)
-6. Das erweiterte Bundle geht an den eigentlichen Review
-
-### 26.5b.2 Preflight-Sonderregeln
-
-**Design-Entscheidung D1: Preflight ist kein Review.**
-
-- Der Preflight-Turn ist Pflicht, zählt aber NICHT zur Review-Mindestfrequenz
-  (§26.5.2). Er erzeugt KEIN `review_compliant`-Event.
-- Preflight hat einen eigenen Telemetrie-Stream:
-  `preflight_request` / `preflight_response` (Design-Entscheidung
-  D8, Kap. 28)
-- Der Preflight-Sentinel `[PREFLIGHT:...]` wird bewusst NICHT
-  vom bestehenden Review-Sentinel-Regex `[TEMPLATE:...]` erfasst
-- Bei Parse-Fehler der Preflight-Response: `requests = []` +
-  WARNING, der Review läuft trotzdem ohne Preflight-Ergänzung
-
-**Telemetrie-Events (Preflight):**
-
-| Event | Wann | Erwartungswert |
-|-------|------|---------------|
-| `preflight_request` | Preflight-Prompt gesendet | 1 pro Review-Punkt |
-| `preflight_response` | Preflight-Antwort empfangen | = `preflight_request` |
-| `preflight_compliant` | Preflight-Sentinel erkannt | = `preflight_request` |
-
-### 26.5b.3 Erweiterter Review-Ablauf (Gesamtsequenz)
-
-Der vollständige Review-Ablauf ab Evidence Assembly:
-
-```python
-# Sequenz im Worker-Prompt:
-
-# 1. Evidence Assembly (deterministisch, Kap. 28)
-# agentkit evidence assemble --story-id ... --story-dir ... --output-dir ...
-# → BundleManifest mit merge_paths
-
-# 2. Preflight-Turn (Pflicht, LLM)
-# preflight_prompt = render_preflight_prompt(manifest)
-# raw_response = chatgpt_send(preflight_prompt, merge_paths=manifest.file_paths)
-# requests = parse_preflight_response(raw_response)
-
-# 3. Request-Auflösung (deterministisch, Kap. 28)
-# resolver = RequestResolver(repos=repo_contexts, primary_repo_id=primary_id)
-# results = resolver.resolve_all(requests)
-# extended_paths = manifest.file_paths + [resolved files]
-
-# 4. Eigentlicher Review (LLM)
-# review_prompt = render_review_prompt(manifest, resolved_requests=results)
-# chatgpt_send(review_prompt, merge_paths=extended_paths)
-```
-
-> **[Entscheidung 2026-04-08]** Element 6 — FinalBuildStep Dataclasses entfallen in v3. Die hier beschriebene Anforderung (finaler Build + Gesamttest) bleibt im Prompt bestehen, wird aber NICHT als Runtime-Dataclass modelliert. Reines Doku-Artefakt ohne Runtime-Logik.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 6.
+> Vor dem eigentlichen Review läuft ein Pflicht-Preflight-Turn,
+> in dem das Review-LLM über die Request-DSL fehlenden Kontext
+> nachfordern darf (max 8 strukturierte Requests). Der
+> Preflight-Sentinel `[PREFLIGHT:review-preflight-v1:{story_id}]`
+> ist bewusst vom Review-Sentinel `[TEMPLATE:...]` getrennt.
+> Telemetrie-Events: `preflight_request`, `preflight_response`,
+> `preflight_compliant`. Details: **FK-47**.
 
 ## 26.6 Finaler Build und Gesamttest
 
@@ -895,47 +738,11 @@ Constraint dies verhindert.
 
 ## 26.12 Worker-Health-Monitor (REF-042)
 
-Während der Implementation überwacht ein Worker-Health-Monitor
-den laufenden Worker auf Anzeichen von Stagnation,
-Endlosschleifen oder Constraint-Konflikten. Der Monitor
-basiert auf einem Hook-basierten Scoring-Modell (0–100 Punkte)
-und einer mehrstufigen Eskalationsleiter.
-
-**Architektur:** Der Monitor besteht aus drei Schichten:
-
-1. **Scoring-Engine (PostToolUse-Hook):** Berechnet nach jedem
-   Tool-Call einen deterministischen Score aus gewichteten
-   Heuristiken (Laufzeit, Repetitions-Muster,
-   Hook/Commit-Konflikte, Fortschritts-Stagnation,
-   Tool-Call-Anzahl). Persistiert den Score in
-   `_temp/qa/<STORY-ID>/agent-health.json`.
-
-2. **Interventions-Gate (PreToolUse-Hook):** Liest den Score
-   und reagiert gemäss Eskalationsleiter:
-   - Score 50–69: Warnung an den Worker
-   - Score 70–84: Soft-Intervention mit strukturierter
-     Selbstdiagnose-Aufforderung (PROGRESSING / BLOCKED /
-     SPARRING_NEEDED)
-   - Score ≥ 85: Hard Stop — Worker wird deterministisch
-     gestoppt
-
-3. **LLM-Assessment (Sidecar-Prozess):** Asynchroner Prozess,
-   der bei Score ≥ 50 ein externes LLM konsultiert. Das
-   Ergebnis fliesst als Korrekturfaktor (−10 bis +10 Punkte)
-   in die nächste Score-Berechnung ein. Der Sidecar ist
-   Pflichtbestandteil — der deterministische Score funktioniert
-   auch ohne LLM-Antwort (Timeout-Sicherheit), aber der Sidecar
-   wird immer gestartet.
-
-**Designprinzip:** Ein Hard Stop ist auch ohne LLM-Assessment
-zulässig. Das LLM darf nie Voraussetzung für einen Kill sein.
-Alle harten Entscheidungen laufen deterministisch. Deterministische
-Eingriffe bleiben auch bei Sidecar-Timeout möglich.
-
-Details zum Scoring-Modell, zu den Score-Komponenten und
-Schwellwerten, zur Sidecar-Architektur, zur
-Hook-Commit-Failure-Klassifikation und zur Konfiguration in
-`.story-pipeline.yaml` siehe FK-30.
+> Der Worker-Health-Monitor (Scoring-Engine im PostToolUse-Hook,
+> Interventions-Gate im PreToolUse-Hook, LLM-Assessment-Sidecar,
+> Hook-Commit-Failure-Klassifikation, Persistenz-Artefakte und
+> Konfiguration) ist normativ in **FK-49 (Worker-Health-Monitor)**
+> beschrieben.
 
 ---
 

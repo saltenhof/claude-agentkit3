@@ -2,6 +2,7 @@
 concept_id: FK-23
 title: Modusermittlung, Exploration und Change-Frame
 module: mode-routing
+domain: exploration-and-design
 status: active
 doc_kind: core
 parent_concept_id:
@@ -281,11 +282,11 @@ Dateiberechtigungen.
 
 ## 23.5 Exploration Exit-Gate: Drei-Stufen-Modell (REF-034)
 
-> **[Entscheidung 2026-04-09]** Das Feld `gate_status` (Typ: `ExplorationGateStatus`) auf `ExplorationPayload` (diskriminierte Union, §20.3) ersetzt den v2-String `exploration_gate_status`. `ExplorationGateStatus` ist ein StrEnum: `PENDING | APPROVED | REJECTED`. Hat Transition-Relevanz: Guards prüfen `gate_status == APPROVED` für den Eintritt in die Implementation-Phase. `design_artifact_path` kommt nicht in ExplorationPayload (ableitbar aus Story-Verzeichniskonvention). Verweis auf Designwizard R1+R2 vom 2026-04-09.
+> **[Entscheidung 2026-04-09]** Das Feld `gate_status` (Typ: `ExplorationGateStatus`) auf `ExplorationPayload` (diskriminierte Union, FK-39 §39.2.3) ersetzt den v2-String `exploration_gate_status`. `ExplorationGateStatus` ist ein StrEnum: `PENDING | APPROVED | REJECTED`. Hat Transition-Relevanz: Guards prüfen `gate_status == APPROVED` für den Eintritt in die Implementation-Phase. `design_artifact_path` kommt nicht in ExplorationPayload (ableitbar aus Story-Verzeichniskonvention). Verweis auf Designwizard R1+R2 vom 2026-04-09.
 
 ### 23.5.0 ExplorationPayload — durable Contract Fields
 
-`ExplorationPayload` ist die phasenspezifische Payload für die Exploration-Phase (diskriminierte Union, §20.3):
+`ExplorationPayload` ist die phasenspezifische Payload für die Exploration-Phase (diskriminierte Union, FK-39 §39.2.3):
 
 ```python
 class ExplorationGateStatus(StrEnum):
@@ -298,7 +299,7 @@ class ExplorationPayload(BaseModel):
     gate_status: ExplorationGateStatus = ExplorationGateStatus.PENDING
 ```
 
-`gate_status` hat Transition-Relevanz: `can_enter_phase("implementation")` prüft `gate_status == APPROVED`. Ohne `APPROVED` wird die Implementation-Phase nicht betreten (Defense-in-Depth, §20.4.2a).
+`gate_status` hat Transition-Relevanz: `can_enter_phase("implementation")` prüft `gate_status == APPROVED`. Ohne `APPROVED` wird die Implementation-Phase nicht betreten (Defense-in-Depth, FK-45 §45.2).
 
 **Nicht in ExplorationPayload:** `design_artifact_path` — ableitbar aus der Story-Verzeichniskonvention (`_temp/qa/{story_id}/entwurfsartefakt.json`), kein orchestrierungsvertragliches Feld.
 
@@ -327,7 +328,7 @@ Die Anzahl gelaufener Design-Review-Remediation-Runden wird in
 verfolgt — nicht mehr im Phase-State selbst.
 Maximum: 3 Runden, dann Eskalation an Mensch.
 
-> **[Entscheidung 2026-04-09]** `exploration_review_round` aus v2 ist kein Artefakt, sondern wird als `PhaseMemory.exploration.review_rounds` in die neue PhaseMemory-Schicht überführt (max 3 Remediation-Runden). Die Engine verwaltet diesen Zähler als Carry-Forward analog zu `phase_memory.verify.feedback_rounds`. Siehe FK-20 §20.3.7.
+> **[Entscheidung 2026-04-09]** `exploration_review_round` aus v2 ist kein Artefakt, sondern wird als `PhaseMemory.exploration.review_rounds` in die neue PhaseMemory-Schicht überführt (max 3 Remediation-Runden). Die Engine verwaltet diesen Zähler als Carry-Forward analog zu `phase_memory.verify.feedback_rounds`. Siehe FK-39 §39.5.
 
 ### Trennung Dokumententreue vs. Design-Review
 

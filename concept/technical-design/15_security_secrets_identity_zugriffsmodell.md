@@ -2,6 +2,7 @@
 concept_id: FK-15
 title: Security, Secrets, Identity und Zugriffsmodell
 module: security
+cross_cutting: true
 status: active
 doc_kind: core
 parent_concept_id:

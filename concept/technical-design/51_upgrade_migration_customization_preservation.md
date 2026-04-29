@@ -2,6 +2,7 @@
 concept_id: FK-51
 title: Upgrade, Migration und Customization-Preservation
 module: upgrade
+domain: installation-and-bootstrap
 status: active
 doc_kind: core
 parent_concept_id:

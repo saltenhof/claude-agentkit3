@@ -2,6 +2,7 @@
 concept_id: FK-54
 title: StorySplitService und Scope-Explosion-Flow
 module: story-split
+domain: story-lifecycle
 status: active
 doc_kind: core
 parent_concept_id:
@@ -23,6 +24,9 @@ defers_to:
   - target: FK-12
     scope: github-state
     reason: GitHub-Issue- und Project-Status werden dort technisch konkretisiert
+  - target: FK-57
+    scope: integration-stabilization-exception
+    reason: Enge Reklassifikation auf integration_stabilization ersetzt den Split-Standardpfad und wird dort normiert
 supersedes: []
 superseded_by:
 tags: [story-split, scope-explosion, cancellation, successor-stories, dependency-rebinding]
