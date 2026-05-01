@@ -114,7 +114,49 @@ durchlaufen alle 5 Phasen mit Worktree und Merge; `concept` und
 - Layer 4 — Policy Engine: deterministische Aggregation entlang
   Trust-Klassen und Stage-Registry, entscheidet PASS oder FAIL.
 
-### 1.6 Zustandsmodell
+### 1.6 Saeulen aus dem Domain-Design
+
+Die fachliche Prosa-Sicht ist in 13 Saeulen geschnitten, jede in
+einem eigenen `DK-NN` unter `concept/domain-design/`. Das ist das
+"Was ist AK3 fachlich?"-Niveau — bevor irgendein Feinkonzept
+einsteigt.
+
+| DK | Domaene | Kerngedanke |
+|---|---|---|
+| **DK-01** | Spezialisierte Rollen und LLM-Einsatz | Systemqualitaet aus Rollentrennung. LLMs nicht nur als Agents, sondern auch als deterministisch aufgerufene Bewertungsfunktion. |
+| **DK-02** | Deterministische Pipeline-Orchestrierung | Story-Typ bestimmt Prozessschwere. Ablauf entscheidet, wann welcher Agent arbeiten darf — nicht umgekehrt. Phasenuebergaenge fail-closed erzwungen. |
+| **DK-03** | Fail-Closed Governance | Jede Unklarheit ist Fehler. Guards, Schreibschutz, Prompt-Integrity-Guard, Integrity-Gate, Worker-Health-Monitor, BLOCKED-Eskalation. |
+| **DK-04** | Mehrstufige Qualitaetssicherung | 4-Layer-Verify in atomaren QA-Zyklen mit eigener Identitaet und Evidenz-Epoche. Artefakte aus alten Zyklen werden invalidiert. |
+| **DK-05** | Telemetrie, Metriken und KPIs | Protokollierung dort, wo Agents autonom handeln. Telemetrie ist Pruefgegenstand des Integrity-Gates. |
+| **DK-06** | Agent Requirements Engine (ARE) | Optionale Saeule. Typisierte Pflichtanforderungen. Erzwingt Vollstaendigkeit, nicht Qualitaet. |
+| **DK-07** | Failure Corpus als Lernschleife | Beobachtetes Fehlverhalten als Artefakt. Wiederkehrende Muster werden in deterministische Checks ueberfuehrt. |
+| **DK-08** | Projektregistrierung und Bootstrap | AK3 systemweit, Projekte ueber idempotente Checkpoints registriert. Im Projekt liegen nur Konfig + Skill-Bindungen. |
+| **DK-09** | Tool-Governance (CCAG) | Parameterbasierte Tool-Permissions mit sessionuebergreifender Persistenz und LLM-gestuetzter Regelgenerierung. |
+| **DK-10** | Story-Lifecycle und Story-Erstellung | Kanonische Story-Identitaet, Status-Modell, Mode-Routing zwischen Execution und Exploration, GitHub-Issue-Schema. |
+| **DK-11** | Review-Qualitaetsverbesserung | Review-Schaerfe als Disziplin: strukturierte Bewertungen, Feedback-Schleifen, Multi-Perspektiven. |
+| **DK-12** | Spezialisierte Skills und Skill-System | Standardisierte Prompt-Anleitungen mit eingebetteter Methodik. Hebung der Ergebnisqualitaet ueber Skill-Variants. |
+| **DK-13** | KPIs und nachgelagerte Optimierung | KPIs leiten aus Events und Metriken Trend-Analysen ab; informiert LLM-Auswahl und Prozess-Optimierung. |
+
+**Wann DK lesen vs. FK?**
+
+- **DK** zuerst, wenn du fachlich verstehen willst: **was** AK3
+  loest, **welche** Verantwortungen gibt es, **wie** wirken die
+  Saeulen zusammen. DKs sind kompakte Prosa, ohne State-Modelle,
+  ohne Schnittstellen.
+- **FK** lesen, wenn du **wie wird das technisch umgesetzt**
+  brauchst: konkrete Modelle, Schemas, Phasen-Substates, API-
+  Endpoints, Hook-Mechanik, Trust-Klassen, Stage-Registry.
+- **formal-spec** lesen, wenn du **maschinenpruefbare Vertraege**
+  brauchst: Entities, State-Machines, Commands, Events, Invariants,
+  Scenarios.
+
+In der MCP-Suche sind die drei Layer als `layer="domain"`,
+`layer="technical"`, `layer="formal"` filterbar. Ohne Filter mischt
+sich alles und ranked nach Relevanz — das ist meistens das, was du
+willst, weil `concept_search` dir den jeweils passendsten Treffer
+ueber alle Layer hinweg liefert.
+
+### 1.7 Zustandsmodell
 
 v3 trennt:
 
@@ -1301,7 +1343,10 @@ Konkret:
 1. **CLAUDE.md vollstaendig lesen** (Pflicht).
 2. **PROJECT_STRUCTURE.md vollstaendig lesen** (Pflicht).
 3. Den eigenen Auftrag mit den Guardrails (`guardrails/`) abgleichen.
-4. Bei BC-bezogener Arbeit: in `concept/technical-design/_meta/
+4. Wenn die Aufgabe fachlich-domaenig ist (Was-soll-AK3-tun?):
+   `concept/domain-design/00-uebersicht.md` plus den passenden
+   `DK-NN` lesen. Erst dann zu `FK-NN` greifen.
+5. Bei BC-bezogener Arbeit: in `concept/technical-design/_meta/
    bounded-contexts.yaml` und `domain-registry.yaml` die eigene `bc_id`
    suchen. `responsibility`, `owns` und `excluded` lesen.
 5. Bei Konzept-Suche: `concept_search` als Default-Werkzeug.
