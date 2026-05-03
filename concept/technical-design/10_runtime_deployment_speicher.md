@@ -370,7 +370,9 @@ Portbereich-Schema:
 | 9200 | Gemini Pool | LLM-Pool | MCP (HTTP+SSE) | Optional | Windows Startup `.pyw` |
 | 9300 | Qwen Pool | LLM-Pool | MCP (HTTP+SSE) | Optional | Windows Startup `.pyw` |
 | 9400 | Grok Pool | LLM-Pool | MCP (HTTP+SSE) | Optional | Windows Startup `.pyw` |
-| 9700 | AgentKit KPI Dashboard | AgentKit | HTTP (Chart.js SPA) | Optional | `agentkit dashboard` |
+| 9700 | AgentKit UI | AgentKit | HTTP (SPA) | Optional | `agentkit ui` |
+| 9701 | AgentKit UI-BFF (REST) | AgentKit | HTTP/JSON | Optional (Pflicht wenn UI laeuft) | `agentkit serve --ui-bff` |
+| 9702 | AgentKit Project-API (REST) | AgentKit | HTTP/JSON | Optional (Pflicht wenn Thin-Client im Zielprojekt verwendet wird) | `agentkit serve --project-api` |
 | 9800 | ARE Server | Fachliche Integration | MCP | Optional (FK-40) | Manuell |
 | 9900 | Jenkins (Web-UI) | CI/CD | HTTP | Optional (externe Stage-Registry, FK-33) | Docker Compose |
 | 9901 | SonarQube | Code-Qualitaet | HTTP | Optional (externe Stage-Registry, FK-33) | Systemdienst |
@@ -381,8 +383,13 @@ Portbereich-Schema:
 
 - **LLM-Pools**: 9100-9400 (ein Port pro Pool, aufsteigend).
   Neue Pools erhalten den naechsten freien Port in diesem Bereich.
-- **AgentKit-Services**: 9700-9799. Aktuell nur Dashboard.
-  Kuenftige AgentKit-eigene Services (z.B. Analytics-API) hier.
+- **AgentKit-Services**: 9700-9799. Aktuell UI (9700), UI-BFF (9701)
+  und Project-API (9702). UI und UI-BFF bilden das Control-Plane-Frontend
+  (interaktive User-Session); die Project-API ist die getrennte
+  Maschinen-Schnittstelle fuer den Thin-Client im Zielprojekt
+  (eigener Trust-Kontext, eigener Versionsvertrag). Kuenftige
+  AgentKit-eigene Services nehmen den naechsten freien Port in
+  diesem Bereich.
 - **Fachliche Integrationen**: 9800-9899. ARE und kuenftige
   externe Fachservices.
 - **DevOps/Infra**: 9900-9999. Jenkins, SonarQube, Weaviate
@@ -398,7 +405,9 @@ Die Ports sind konfigurierbar:
 | Service | Konfigurationsort | Default |
 |---------|-------------------|---------|
 | LLM-Pools | MCP-Server-Konfiguration in `.claude/settings.json` + Pool-Startup-Skripte | 9100/9200/9300/9400 |
-| Dashboard | `agentkit dashboard --port N` | 9700 |
+| UI | `agentkit ui --port N` | 9700 |
+| UI-BFF | `agentkit serve --ui-bff --port N` | 9701 |
+| Project-API | `agentkit serve --project-api --port N` | 9702 |
 | ARE | `.story-pipeline.yaml` → `are.base_url` | 9800 |
 | Weaviate | `.story-pipeline.yaml` → `vectordb.url` | 9903 |
 | Jenkins/SonarQube | `.story-pipeline.yaml` → Stage-Registry `external_tools` | 9900/9901 (Jenkins Agent: 9902) |

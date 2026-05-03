@@ -12,10 +12,14 @@ AK3-Komponentenarchitektur.
 ## Scope
 
 - Komponentenklassifikation ueber Namespace-Prefixe
-- Blutgruppen A/R/T fuer die initial stabilen Komponenten
+- Blutgruppen A/R/T/0 (siehe `concept/methodology/software-blutgruppen.md`
+  fuer die Volldefinition)
 - deterministische Importgrenzen zwischen Fachkomponenten, Adaptern und
   Treibern
 - ausgewaehlte Azyklizitaetsregeln fuer stabile Komponenten
+- Auffaelligkeits-Pruefungen (severity warning) fuer Konstellationen,
+  die eine Abwaegung erfordern, aber kein hartes Verbot sind (z. B.
+  AC012: A-Modul importiert direkt T-Modul → AT-Mediation pruefen)
 
 ## Out of Scope
 

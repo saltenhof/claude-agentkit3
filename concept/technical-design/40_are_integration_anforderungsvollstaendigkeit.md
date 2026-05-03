@@ -450,6 +450,25 @@ Das Integrity-Gate prueft bei ARE-aktivierten Stories, dass
 blocking. Man kann ARE nicht "halb" aktivieren — entweder die
 Vollständigkeitsgarantie gilt, oder ARE ist aus.
 
+## 40.10 Lese-API fuer das AK3-Frontend (ARE-Bezug)
+
+Neben dem ARE-Adapter (40.4) und den Andock-Punkten (40.5) stellt
+`requirements_coverage` zwei **AK3-eigene Lese-Endpunkte** bereit,
+ueber die das Frontend pro Story die ARE-Bezuege konsumiert. Sie
+liefern die Frontend-Sicht auf die Story↔ARE-Verknuepfung
+(Datenmodell-Anker `StoryAreLink`, FK-02 §2.11.4) — getrennt nach
+**Soll** (im Inspector-Spezifikations-Tab) und **Ist** (im
+Inspector-Ergebnis-Tab).
+
+| REST-Methode | Pfad | Tab | Inhalt |
+|--------------|------|-----|--------|
+| `GET` | `/v1/projects/{project_key}/coverage/stories/{story_id}/acceptance` | Spezifikation (Soll) | Akzeptanzkriterien und ARE-Anforderungs-Verknuepfungen, die diese Story adressiert |
+| `GET` | `/v1/projects/{project_key}/coverage/stories/{story_id}/are-evidence` | Ergebnis (Ist) | ARE-Evidenz pro Story: verlinkte Anforderungen, Coverage-Status, Evidenz-Pfade |
+
+Beide Endpunkte sind read-only und mutieren nichts. Schreibwege auf
+ARE-Evidenz laufen ueber Andock-Punkt 3 (40.5.3), nicht ueber diese
+Endpunkte. Der offizielle Eintrag im API-Katalog liegt in **FK-91**.
+
 ---
 
 *FK-Referenzen: FK-09-001 bis FK-09-022 (ARE komplett)*

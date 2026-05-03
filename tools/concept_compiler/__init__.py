@@ -16,6 +16,7 @@ from .architecture_conformance import (
     load_architecture_conformance_config,
     raise_on_architecture_violations,
     render_component_tree,
+    split_violations_by_severity,
 )
 from .compiler import (
     CompiledFormalSpec,
@@ -72,5 +73,6 @@ __all__ = [
     "raise_on_architecture_violations",
     "raise_on_truth_boundary_violations",
     "render_component_tree",
+    "split_violations_by_severity",
     "validate_scenarios",
 ]

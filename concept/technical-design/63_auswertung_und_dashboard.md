@@ -157,24 +157,32 @@ Die technische Realisierung (serverseitige Query-Parameter vs.
 clientseitige Filterung, gespeicherte Views, Query-Builder)
 wird in einer spaeteren Iteration definiert.
 
-### 63.3.4 Evolution zum AK3 Story Cockpit
+### 63.3.4 Verortung im Frontend-Schnitt
 
-Das aktuelle Dashboard ist read-only und analytisch. Das Zielbild der
-zentralen AgentKit-Control-Plane geht darueber hinaus:
+Das in FK-63 beschriebene Dashboard ist die **Analytics-Sicht** im
+AK3-Frontend (FK-72 §72.5 Sicht 4). Die uebergreifende
+Frontend-Architektur — App-Shell als R-Klammer, BC-aligned Slices,
+Composer-Sichten wie Story-Inspector, Story-Board, Story-Sheet,
+Dependency-Graph, Wave/Readiness-Sicht, Concept-Browser und
+Hub-Cockpit — wird **nicht** in FK-63 normiert, sondern in **FK-72**
+(Frontend-Architektur).
 
-- Story-Liste und Board- oder Kanban-Ansicht liegen in einer
-  AK3-eigenen Web-Anwendung
-- Planungsansichten fuer `Dependency-Graph`, typisierte Blocker,
-  `critical path` und `execution waves` sind
-  Pflichtsichten der spaeteren Control-Plane und lesen aus FK-70
-- Story-Detailseiten vereinen Status, Protokolle, Telemetrie,
-  QA-Artefakte und Closure-Metriken in derselben Anwendung
-- GitHub Projects ist dafuer hoechstens noch ein externer Adapter oder
-  Synchronisationsziel, nicht die fachlich bevorzugte UI
+FK-63 fokussiert sich auf:
 
-Die AK3-Web-Anwendung bleibt dabei tenant-scoped pro `project_key` und
-liest oder mutiert nur ueber die offiziellen Runtime- und
-Control-Plane-Schnittstellen.
+- KPI-Auswertung und -Visualisierung
+- API-Endpunkte fuer KPI-Lese-Queries (siehe 63.4)
+- Reset-Regel und Konsistenz mit gueltigen Runs
+- Filter-/Sort-Verhalten innerhalb der Analytics-Sicht
+
+Story-Cockpit-Funktionen (Inspector-Tabs, Kanban, Sheet,
+Dependency-Graph, Wave/Readiness) sowie deren BC-Mapping liegen in
+FK-72. KPI-Dashboards bleiben Single-BC-Sichten in `kpi_analytics`,
+das KPI-Tab im Inspector wird ebenfalls von `kpi_analytics`
+gespeist.
+
+Die AK3-Web-Anwendung bleibt tenant-scoped pro `project_key` und
+liest oder mutiert nur ueber die offiziellen Control-Plane- und
+Runtime-Schnittstellen.
 
 ---
 

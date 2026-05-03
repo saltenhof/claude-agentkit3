@@ -5,11 +5,16 @@ from __future__ import annotations
 from pathlib import Path
 from textwrap import dedent
 
+import pytest
 from concept_compiler import (
+    ArchitectureViolation,
     audit_architecture_conformance,
     compile_formal_specs,
     load_architecture_conformance_config,
+    raise_on_architecture_violations,
+    split_violations_by_severity,
 )
+from concept_compiler.architecture_conformance import ArchitectureConformanceError
 
 RULE_ID = (
     "architecture-conformance.rule."
@@ -338,3 +343,162 @@ def _write_fixture(
             encoding="utf-8",
         )
     return root
+
+
+# ---------------------------------------------------------------------------
+# Severity-Mechanismus
+# ---------------------------------------------------------------------------
+
+
+def _make_violation(
+    code: str, severity: str = "error"
+) -> ArchitectureViolation:
+    return ArchitectureViolation(
+        code=code,
+        path=None,
+        module="test.module",
+        line=1,
+        column=0,
+        message=f"synthetic {code}",
+        rule_id=f"test.{code}",
+        severity=severity,  # type: ignore[arg-type]
+    )
+
+
+def test_violation_default_severity_is_error() -> None:
+    """Backward-compat: severity defaultet auf error."""
+    v = ArchitectureViolation(
+        code="ACX",
+        path=None,
+        module="m",
+        line=1,
+        column=0,
+        message="x",
+        rule_id="r",
+    )
+    assert v.severity == "error"
+
+
+def test_split_violations_by_severity_separates_correctly() -> None:
+    """split_violations_by_severity trennt errors und warnings sauber."""
+    err1 = _make_violation("AC001", severity="error")
+    warn1 = _make_violation("AC012", severity="warning")
+    err2 = _make_violation("AC002", severity="error")
+    warn2 = _make_violation("AC012", severity="warning")
+
+    errors, warnings = split_violations_by_severity((err1, warn1, err2, warn2))
+
+    assert errors == (err1, err2)
+    assert warnings == (warn1, warn2)
+
+
+def test_raise_on_architecture_violations_ignores_warnings() -> None:
+    """Bei nur Warnings darf raise_on_architecture_violations nicht raisen."""
+    warn = _make_violation("AC012", severity="warning")
+
+    raise_on_architecture_violations((warn,))
+
+
+def test_raise_on_architecture_violations_raises_on_errors() -> None:
+    """Bei mindestens einem Error muss raise_on_architecture_violations raisen."""
+    err = _make_violation("AC001", severity="error")
+    warn = _make_violation("AC012", severity="warning")
+
+    with pytest.raises(ArchitectureConformanceError):
+        raise_on_architecture_violations((err, warn))
+
+
+def test_raise_on_architecture_violations_passes_on_empty() -> None:
+    """Leere Liste raised nicht."""
+    raise_on_architecture_violations(())
+
+
+# ---------------------------------------------------------------------------
+# Bluttyp 0
+# ---------------------------------------------------------------------------
+
+
+def test_bloodgroup_zero_accepted_in_entities(tmp_path: Path) -> None:
+    """Bluttyp 0 (Null-Software) wird in entities.md als component_groups-Wert akzeptiert."""
+    root = tmp_path / "repo"
+    formal_root = root / "concept" / "formal-spec" / "architecture-conformance"
+    formal_root.mkdir(parents=True)
+    (root / "src").mkdir()
+
+    (formal_root / "entities.md").write_text(
+        dedent(
+            """
+            ---
+            id: formal.architecture-conformance.entities
+            title: Architecture Conformance Entities
+            status: active
+            doc_kind: spec
+            context: architecture-conformance
+            spec_kind: entity-set
+            version: 1
+            prose_refs: []
+            ---
+
+            # Test Entities
+
+            <!-- FORMAL-SPEC:BEGIN -->
+            ```yaml
+            object: formal.architecture-conformance.entities
+            schema_version: 1
+            kind: entity-set
+            context: architecture-conformance
+            component_groups:
+              - id: architecture-conformance.group.shared_utils
+                name: SharedUtils
+                bloodgroup: "0"
+                module_prefixes:
+                  - agentkit.shared
+            ```
+            <!-- FORMAL-SPEC:END -->
+            """,
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    (formal_root / "invariants.md").write_text(
+        dedent(
+            """
+            ---
+            id: formal.architecture-conformance.invariants
+            title: Architecture Conformance Invariants
+            status: active
+            doc_kind: spec
+            context: architecture-conformance
+            spec_kind: invariant-set
+            version: 1
+            prose_refs: []
+            ---
+
+            # Test Invariants
+
+            <!-- FORMAL-SPEC:BEGIN -->
+            ```yaml
+            object: formal.architecture-conformance.invariants
+            schema_version: 1
+            kind: invariant-set
+            context: architecture-conformance
+            dependency_rules: []
+            acyclic_group_sets: []
+            mutation_surface_rules: []
+            invariants: []
+            ```
+            <!-- FORMAL-SPEC:END -->
+            """,
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    compiled = compile_formal_specs(formal_root.parent)
+    config = load_architecture_conformance_config(compiled)
+
+    shared = next(
+        group for group in config.component_groups if group.name == "SharedUtils"
+    )
+    assert shared.bloodgroup == "0"

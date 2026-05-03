@@ -26,7 +26,7 @@ class TestArtifactGuardBlocked:
                 "file_path": "/repo/_temp/qa/AG3-001/structural.json",
                 "operating_mode": "story_execution",
                 "qa_artifact_lock_active": True,
-                "is_subagent": True,
+                "principal_kind": "subagent",
                 "active_story_id": "AG3-001",
             },
         )
@@ -40,7 +40,7 @@ class TestArtifactGuardBlocked:
                 "file_path": "/repo/_temp/qa/AG3-001/verify-decision.json",
                 "operating_mode": "story_execution",
                 "qa_artifact_lock_active": True,
-                "is_subagent": True,
+                "principal_kind": "subagent",
                 "active_story_id": "AG3-001",
             },
         )
@@ -66,7 +66,7 @@ class TestArtifactGuardAllowed:
                 "file_path": "/repo/_temp/qa/AG3-001/structural.json",
                 "operating_mode": "story_execution",
                 "qa_artifact_lock_active": True,
-                "is_subagent": False,
+                "principal_kind": "main",
                 "active_story_id": "AG3-001",
             },
         )
@@ -80,7 +80,7 @@ class TestArtifactGuardAllowed:
                 "operating_mode": "story_execution",
                 "qa_artifact_lock_active": False,
                 "qa_artifact_lock_known": False,
-                "is_subagent": True,
+                "principal_kind": "subagent",
                 "active_story_id": "AG3-001",
             },
         )
@@ -95,7 +95,7 @@ class TestArtifactGuardAllowed:
                 "operating_mode": "story_execution",
                 "qa_artifact_lock_active": False,
                 "qa_artifact_lock_known": True,
-                "is_subagent": True,
+                "principal_kind": "subagent",
                 "active_story_id": "AG3-001",
             },
         )
@@ -108,7 +108,7 @@ class TestArtifactGuardAllowed:
                 "file_path": "/repo/_temp/qa/AG3-002/structural.json",
                 "operating_mode": "story_execution",
                 "qa_artifact_lock_active": True,
-                "is_subagent": True,
+                "principal_kind": "subagent",
                 "active_story_id": "AG3-001",
             },
         )

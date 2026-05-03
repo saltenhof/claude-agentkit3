@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import io
-import json
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Literal
 
@@ -11,26 +9,25 @@ from agentkit.control_plane.models import (
     SessionRunBindingView,
     StoryExecutionLockView,
 )
-from agentkit.governance.hookruntime import (
+from agentkit.governance.guard_evaluation import (
     HookEvent,
     _normalize_event,
-    _parse_hook_event,
     evaluate_pre_tool_use,
-    main,
 )
-from agentkit.governance.protocols import GuardVerdict, ViolationType
 from agentkit.projectedge.client import LocalEdgePublisher
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    import pytest
-
 
 def _bundle(
     *,
     worktree_root: str,
-    operating_mode: Literal["ai_augmented", "story_execution", "binding_invalid"] = "story_execution",
+    operating_mode: Literal[
+        "ai_augmented",
+        "story_execution",
+        "binding_invalid",
+    ] = "story_execution",
     lock_status: Literal["ACTIVE", "INACTIVE", "INVALID"] = "ACTIVE",
     qa_lock_status: Literal["ACTIVE", "INACTIVE", "INVALID"] | None = "ACTIVE",
 ) -> EdgeBundle:
@@ -84,11 +81,14 @@ def _bundle(
     )
 
 
-def test_hookruntime_blocks_force_push_even_without_story_execution(tmp_path: Path) -> None:
+def test_guard_evaluation_blocks_force_push_without_story_execution(
+    tmp_path: Path,
+) -> None:
     verdict = evaluate_pre_tool_use(
         HookEvent(
-            tool_name="Bash",
-            tool_input={"command": "git push --force origin feature"},
+            operation="bash_command",
+            operation_args={"command": "git push --force origin feature"},
+            freshness_class="mutation",
             cwd=str(tmp_path),
             session_id=None,
         ),
@@ -99,14 +99,17 @@ def test_hookruntime_blocks_force_push_even_without_story_execution(tmp_path: Pa
     assert verdict.guard_name == "branch_guard"
 
 
-def test_hookruntime_blocks_write_outside_story_worktree(tmp_path: Path) -> None:
+def test_guard_evaluation_blocks_write_outside_story_worktree(
+    tmp_path: Path,
+) -> None:
     worktree = tmp_path / "worktree"
     LocalEdgePublisher(project_root=tmp_path).publish(_bundle(worktree_root=str(worktree)))
 
     verdict = evaluate_pre_tool_use(
         HookEvent(
-            tool_name="Write",
-            tool_input={"file_path": str(tmp_path / "outside.py")},
+            operation="file_write",
+            operation_args={"file_path": str(tmp_path / "outside.py")},
+            freshness_class="mutation",
             cwd=str(worktree),
             session_id="sess-001",
         ),
@@ -117,21 +120,24 @@ def test_hookruntime_blocks_write_outside_story_worktree(tmp_path: Path) -> None
     assert verdict.guard_name == "scope_guard"
 
 
-def test_hookruntime_blocks_qa_artifact_tampering_in_story_execution(tmp_path: Path) -> None:
+def test_guard_evaluation_blocks_qa_artifact_tampering_in_story_execution(
+    tmp_path: Path,
+) -> None:
     worktree = tmp_path / "worktree"
     LocalEdgePublisher(project_root=tmp_path).publish(_bundle(worktree_root=str(worktree)))
 
     verdict = evaluate_pre_tool_use(
         HookEvent(
-            tool_name="Write",
-            tool_input={
+            operation="file_write",
+            operation_args={
                 "file_path": str(
                     tmp_path / "_temp" / "qa" / "AG3-100" / "verify-decision.json",
                 ),
             },
+            freshness_class="mutation",
             cwd=str(worktree),
             session_id="sess-001",
-            is_subagent=True,
+            principal_kind="subagent",
         ),
         project_root=tmp_path,
     )
@@ -140,21 +146,24 @@ def test_hookruntime_blocks_qa_artifact_tampering_in_story_execution(tmp_path: P
     assert verdict.guard_name == "artifact_guard"
 
 
-def test_hookruntime_allows_main_agent_write_to_qa_directory(tmp_path: Path) -> None:
+def test_guard_evaluation_allows_main_agent_write_to_qa_directory(
+    tmp_path: Path,
+) -> None:
     worktree = tmp_path / "worktree"
     LocalEdgePublisher(project_root=tmp_path).publish(_bundle(worktree_root=str(worktree)))
 
     verdict = evaluate_pre_tool_use(
         HookEvent(
-            tool_name="Write",
-            tool_input={
+            operation="file_write",
+            operation_args={
                 "file_path": str(
                     tmp_path / "_temp" / "qa" / "AG3-100" / "structural.json",
                 ),
             },
+            freshness_class="mutation",
             cwd=str(worktree),
             session_id="sess-001",
-            is_subagent=False,
+            principal_kind="main",
         ),
         project_root=tmp_path,
     )
@@ -162,7 +171,9 @@ def test_hookruntime_allows_main_agent_write_to_qa_directory(tmp_path: Path) -> 
     assert verdict.allowed is True
 
 
-def test_hookruntime_blocks_subagent_write_when_qa_lock_missing(tmp_path: Path) -> None:
+def test_guard_evaluation_blocks_subagent_write_when_qa_lock_missing(
+    tmp_path: Path,
+) -> None:
     worktree = tmp_path / "worktree"
     LocalEdgePublisher(project_root=tmp_path).publish(
         _bundle(worktree_root=str(worktree), qa_lock_status=None),
@@ -170,15 +181,16 @@ def test_hookruntime_blocks_subagent_write_when_qa_lock_missing(tmp_path: Path) 
 
     verdict = evaluate_pre_tool_use(
         HookEvent(
-            tool_name="Write",
-            tool_input={
+            operation="file_write",
+            operation_args={
                 "file_path": str(
                     tmp_path / "_temp" / "qa" / "AG3-100" / "structural.json",
                 ),
             },
+            freshness_class="mutation",
             cwd=str(worktree),
             session_id="sess-001",
-            is_subagent=True,
+            principal_kind="subagent",
         ),
         project_root=tmp_path,
     )
@@ -187,7 +199,9 @@ def test_hookruntime_blocks_subagent_write_when_qa_lock_missing(tmp_path: Path) 
     assert verdict.guard_name == "artifact_guard"
 
 
-def test_hookruntime_blocks_mutation_for_binding_invalid(tmp_path: Path) -> None:
+def test_guard_evaluation_blocks_mutation_for_binding_invalid(
+    tmp_path: Path,
+) -> None:
     worktree = tmp_path / "worktree"
     LocalEdgePublisher(project_root=tmp_path).publish(
         _bundle(worktree_root=str(worktree), lock_status="INVALID"),
@@ -195,8 +209,9 @@ def test_hookruntime_blocks_mutation_for_binding_invalid(tmp_path: Path) -> None
 
     verdict = evaluate_pre_tool_use(
         HookEvent(
-            tool_name="Write",
-            tool_input={"file_path": str(worktree / "src" / "main.py")},
+            operation="file_write",
+            operation_args={"file_path": str(worktree / "src" / "main.py")},
+            freshness_class="mutation",
             cwd=str(worktree),
             session_id="sess-001",
         ),
@@ -207,14 +222,17 @@ def test_hookruntime_blocks_mutation_for_binding_invalid(tmp_path: Path) -> None
     assert verdict.guard_name == "operating_mode_guard"
 
 
-def test_hookruntime_blocks_non_story_branch_push_in_story_execution(tmp_path: Path) -> None:
+def test_guard_evaluation_blocks_non_story_branch_push_in_story_execution(
+    tmp_path: Path,
+) -> None:
     worktree = tmp_path / "worktree"
     LocalEdgePublisher(project_root=tmp_path).publish(_bundle(worktree_root=str(worktree)))
 
     verdict = evaluate_pre_tool_use(
         HookEvent(
-            tool_name="Bash",
-            tool_input={"command": "git push origin feature/AG3-100"},
+            operation="bash_command",
+            operation_args={"command": "git push origin feature/AG3-100"},
+            freshness_class="mutation",
             cwd=str(worktree),
             session_id="sess-001",
         ),
@@ -225,11 +243,12 @@ def test_hookruntime_blocks_non_story_branch_push_in_story_execution(tmp_path: P
     assert verdict.guard_name == "branch_guard"
 
 
-def test_hookruntime_blocks_bash_git_internal_mutation(tmp_path: Path) -> None:
+def test_guard_evaluation_blocks_bash_git_internal_mutation(tmp_path: Path) -> None:
     verdict = evaluate_pre_tool_use(
         HookEvent(
-            tool_name="Bash",
-            tool_input={"command": "Remove-Item .git/refs/heads/main"},
+            operation="bash_command",
+            operation_args={"command": "Remove-Item .git/refs/heads/main"},
+            freshness_class="mutation",
             cwd=str(tmp_path),
             session_id=None,
         ),
@@ -240,85 +259,31 @@ def test_hookruntime_blocks_bash_git_internal_mutation(tmp_path: Path) -> None:
     assert verdict.guard_name == "branch_guard"
 
 
-def test_parse_hook_event_defaults_cwd_and_discards_invalid_session(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.chdir(tmp_path)
-
-    event = _parse_hook_event(
-        json.dumps(
-            {
-                "tool_name": "Write",
-                "tool_input": {"file_path": "x.py"},
-                "session_id": 123,
-            },
-        ),
-    )
-
-    assert event.cwd == str(tmp_path)
-    assert event.session_id is None
-
-
-def test_parse_hook_event_rejects_invalid_payload_shapes() -> None:
-    try:
-        _parse_hook_event("[]")
-    except RuntimeError as exc:
-        assert "JSON object" in str(exc)
-    else:  # pragma: no cover
-        raise AssertionError("Expected RuntimeError")
-
-    try:
-        _parse_hook_event(json.dumps({"tool_name": "Write", "tool_input": []}))
-    except RuntimeError as exc:
-        assert "tool_input" in str(exc)
-    else:  # pragma: no cover
-        raise AssertionError("Expected RuntimeError")
-
-
-def test_normalize_event_covers_edit_read_and_unknown_tool() -> None:
+def test_normalize_event_uses_neutral_operation_contract() -> None:
     assert _normalize_event(
         HookEvent(
-            tool_name="Edit",
-            tool_input={"file_path": "a.py"},
+            operation="file_edit",
+            operation_args={"file_path": "a.py"},
+            freshness_class="mutation",
             cwd=".",
             session_id=None,
         ),
     ) == ("file_edit", {"file_path": "a.py"}, "mutation")
     assert _normalize_event(
         HookEvent(
-            tool_name="Read",
-            tool_input={"file_path": "a.py"},
+            operation="file_read",
+            operation_args={"file_path": "a.py"},
+            freshness_class="baseline_read",
             cwd=".",
             session_id=None,
         ),
     ) == ("file_read", {"file_path": "a.py"}, "baseline_read")
     assert _normalize_event(
-        HookEvent(tool_name="Task", tool_input={}, cwd=".", session_id=None),
-    ) == ("unknown_tool", {}, "guarded_read")
-
-
-def test_main_returns_allow_and_block_exit_codes(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    allow_event = json.dumps({"tool_name": "Task", "tool_input": {}, "cwd": "."})
-    monkeypatch.setattr("sys.stdin", io.StringIO(allow_event))
-    monkeypatch.setattr(
-        "agentkit.governance.hookruntime.evaluate_pre_tool_use",
-        lambda event, project_root: GuardVerdict.allow("hook_runtime"),
-    )
-    assert main() == 0
-
-    block_event = json.dumps({"tool_name": "Task", "tool_input": {}, "cwd": "."})
-    monkeypatch.setattr("sys.stdin", io.StringIO(block_event))
-    monkeypatch.setattr(
-        "agentkit.governance.hookruntime.evaluate_pre_tool_use",
-        lambda event, project_root: GuardVerdict.block(
-            "branch_guard",
-            ViolationType.BRANCH_VIOLATION,
-            "blocked",
-            detail={"command": "git push --force"},
+        HookEvent(
+            operation="unknown_tool",
+            operation_args={},
+            freshness_class="guarded_read",
+            cwd=".",
+            session_id=None,
         ),
-    )
-
-    assert main() == 2
-    out = capsys.readouterr().out
-    assert "\"decision\": \"block\"" in out
+    ) == ("unknown_tool", {}, "guarded_read")

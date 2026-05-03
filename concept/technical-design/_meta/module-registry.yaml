@@ -9,6 +9,7 @@ modules:
 - ccag-tools
 - closure-sequence
 - compaction
+- concept-catalog
 - configuration
 - conformance
 - control-plane-design-system
@@ -20,6 +21,7 @@ modules:
 - evidence-assembly
 - execution-planning
 - exploration-mandate
+- frontend
 - import-resolver
 - failure-corpus
 - github-integration
@@ -38,6 +40,7 @@ modules:
 - llm-provider
 - meta
 - mode-routing
+- multi-llm-hub
 - naming-conventions
 - operating-modes
 - operations
@@ -45,6 +48,7 @@ modules:
 - phase-state-persistence
 - pipeline
 - principal-capabilities
+- project-management
 - prompt-runtime
 - qa-telemetry
 - quality-assurance

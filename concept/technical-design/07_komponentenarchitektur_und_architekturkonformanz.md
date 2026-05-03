@@ -57,15 +57,26 @@ sie aber fuer den Komponentenschnitt maschinell pruefbar:
 
 ## 7.3 Blutgruppen
 
-Im Sinne der Architektur-Guardrails gilt fuer AK3:
+Im Sinne der Architektur-Guardrails (ARCH-22) gilt fuer AK3:
 
-- `A-Code`: fachliche Komponenten mit Geschaeftsregeln
-- `R-Code`: Adapter an Systemgrenzen
-- `T-Code`: Persistenz- und Infrastrukturtreiber
-- `Null-Code`: generische Utilities ohne Fachsemantik
+- `A-Code`: fachliche Komponenten mit Geschaeftsregeln, technologie-frei,
+  ohne Infra-Setup testbar
+- `R-Code`: Repraesentations-Ueberfuehrung zwischen Domaene und Aussen
+  (Anti-Korruptions-Schicht ist eine Rolle, nicht der Kern)
+- `T-Code`: Bindung an konkrete technische Laufzeit-Umgebung ausserhalb
+  der Kernfachlichkeit
+- `0` / `Null-Code`: domaenen- und projektunabhaengig wiederverwendbar;
+  darf generische technische Anteile haben (z. B. Logging-Framework)
 
-AT-Mischzonen sind zu vermeiden. Fachcode darf Infrastruktur benutzen,
-aber nicht in eine technische Mega-Fassade hineinmodelliert werden.
+AT-Mischungen sind kein generelles Antipattern, sondern an dafuer
+vorgesehenen Mediation-Schichten konstitutiv (typisch:
+Datenbank-Zugriffsschicht, UI-Anwendungsrahmen). Die Norm ist nicht
+„AT vermeiden", sondern **AT lokalisieren** — die AT-Inseln klein,
+fachlich benannt, klar abgegrenzt halten, damit der A-Kern AT-frei
+und unabhaengig testbar bleibt.
+
+Volldefinition mit Heuristiken, Erkennungstests und Beispielen:
+**`concept/methodology/software-blutgruppen.md`**.
 
 ## 7.4 Normativer Top-Level-Schnitt
 
@@ -83,7 +94,7 @@ aber nicht in eine technische Mega-Fassade hineinmodelliert werden.
 
 | Komponente | Blutgruppe | Fachliche Verantwortung | Provided Contracts |
 | --- | --- | --- | --- |
-| `GuardSystem` | A | harte Guard- und Capability-Enforcement-Regeln fuer Hook-Entscheidungen | `GuardDecisionPort` |
+| `GuardSystem` | A | harte Guard- und Capability-Enforcement-Regeln fuer Hook-Entscheidungen; intern aufgeteilt in `GuardEvaluation` (harness-neutraler A-Kern) und `HarnessAdapters.{Harness}` (pro Harness eine bewusst lokalisierte AT-Mediation-Insel, aktuell `claude_code`) | `GuardDecisionPort` |
 | `CcagPermissionRuntime` | A | lernfaehige, sessionpersistente Permission-Pfade ausserhalb der harten Guards | `PermissionDecisionPort` |
 | `ConformanceService` | A | gestufte Dokument- und Konzepttreuepruefung an definierten Prozesszeitpunkten | `ConformancePort` |
 | `StageRegistry` | A | autoritativer Stage-Katalog mit Producer-, Trust- und Blocking-Vertraegen | `StageRegistryPort` |
@@ -105,13 +116,27 @@ aber nicht in eine technische Mega-Fassade hineinmodelliert werden.
 | Komponente | Blutgruppe | Fachliche Verantwortung | Provided Contracts |
 | --- | --- | --- | --- |
 | `KpiAnalyticsEngine` | A | owns KPI-Semantik, Rollups und Fact-Tabellen gemaess FK-60 bis FK-62 | `KpiQueryPort`, `AnalyticsSyncPort` |
-| `DashboardApplication` | A | liefert Story-Liste, Board, Story-Detail und Live-Sichten; besitzt keine KPI-Semantik | `DashboardQueryPort` |
+
+Die Frontend-Klammer (App-Shell, Composer-Sichten wie Story-Inspector,
+Story-Board, Story-Sheet, Dependency-Graph) ist **kein** A-BC und
+**keine** Top-Level-Fachkomponente. Sie ist als R-Klammer in
+**FK-72** verortet; die KPI-Sicht selbst bleibt Single-BC-Sicht von
+`KpiAnalyticsEngine`. Es gibt bewusst **keine**
+`DashboardApplication`-A-Komponente, die Story-Liste, Board oder
+Story-Detail aggregiert — das waere der vom User abgelehnte
+Cockpit-A-BC.
 
 ### 7.4.5 Bootstrap und Projektbindung
 
 | Komponente | Blutgruppe | Fachliche Verantwortung | Provided Contracts |
 | --- | --- | --- | --- |
 | `Installer` | A | Projektregistrierung, Bootstrap, Hook- und Wrapper-Bindung, Scaffold-Verifikation | `ProjectBootstrapPort` |
+
+### 7.4.6 Projektverwaltung
+
+| Komponente | Blutgruppe | Fachliche Verantwortung | Provided Contracts |
+| --- | --- | --- | --- |
+| `ProjectManagement` | A | owns `Project`-Entitaet, Story-ID-Praefix-Schema und projektbezogene Konfiguration; ist Quelle des Projekt-Kontextes fuer alle anderen BCs (Cross-Cutting `project_key`) | `ProjectDirectoryPort`, `ProjectConfigurationPort`, `ProjectLifecyclePort` |
 
 ## 7.5 Adapter und technische Infrastruktur
 
@@ -121,17 +146,34 @@ Diese Bausteine sind notwendig, aber keine Fachkomponenten:
 | --- | --- | --- |
 | `ControlPlaneHttp` | R | HTTPS-Adapter fuer externe API-Aufrufe |
 | `ProjectEdgeClient` | R | lokaler Projekt-Adapter fuer Sync und Bundle-Publish |
-| `HookRuntime` | R | Claude-Code-Adapter fuer Guard- und Permission-Ketten |
 | `GitHubAdapter` | R | Tracker- und Repo-Integration |
 | `LlmPoolAdapter` | R | LLM-Pool-Transport |
+| `MultiLlmHubClient` | R | Foundation-Adapter zum externen Multi-LLM-Hub (FK-75) |
 | `AreAdapter` | R | ARE-Integration |
 | `VectorDbAdapter` | R | semantische Retrieval-Integration |
+| `ConceptCatalog` | R | Foundation-Adapter zum Markdown-Konzept-Korpus, FK-Doc-Resolver (FK-74) |
 | `StateBackendDriver` | T | physischer Postgres-/SQLite-Treiber, Transaktionen, SQL und Serialisierung |
+
+`HookRuntime` taucht hier **nicht** mehr auf, weil die Hook-Auswertung
+seit `entities.md` Version 19 in zwei Subs von `GuardSystem` lebt:
+`GuardEvaluation` (A-Kern, harness-neutral) und
+`HarnessAdapters.{Harness}` (pro Harness eine lokalisierte AT-Mediation
+— aktuell `claude_code`, kuenftig z.B. `codex` oder `qwen_code`).
+`agentkit.governance.hookruntime` ist Backward-Compat-Pfad fuer den
+Claude-Code-Adapter und gehoert zur AT-Insel.
 
 **Explizite Nicht-Komponente:** `IntegrationHub` ist kein normativ
 zulaessiger Top-Level-Baustein. GitHub, LLM-Pools, ARE und VectorDB
 bleiben getrennte Adapter und duerfen nicht durch ein Kategorielabel zu
 einer scheinfachlichen Komponente zusammengefasst werden.
+
+**Geparkt:** Vollstaendige Bluttypen-Klassifikation der bestehenden
+`boundary_modules` (`shared`, `config`, `filesystem`,
+`state_persistence_scope`) wurde noch nicht im Detail durchgezogen.
+`shared` ist seit dieser Iteration als Bluttyp `0` (Null-Software)
+modelliert (`entities.md` `boundary.shared`); die anderen werden bei
+Bedarf nachgezogen, sobald ihre fachneutralen Anteile sauber von ihren
+Konventions-Anteilen trennbar sind.
 
 ## 7.6 Repository-Regel
 

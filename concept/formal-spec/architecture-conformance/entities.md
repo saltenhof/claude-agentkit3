@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: architecture-conformance
 spec_kind: entity-set
-version: 17
+version: 19
 prose_refs:
   - concept/technical-design/01_systemkontext_und_architekturprinzipien.md
   - concept/technical-design/07_komponentenarchitektur_und_architekturkonformanz.md
@@ -42,6 +42,15 @@ boundary_modules `cli`, `config`, `integrations`, `shared`,
 Version 17 schliesst Phase E (Mapper-Layer): state_backend_drivers
 `may_import_component_groups` von `any` (transitorisch) auf `[]`
 gesetzt — Driver importieren keine BC-Records mehr direkt.
+Version 18 fuegt BC 17 (project-management) als A-Komponente hinzu —
+Owner der Project-Entitaet, des Story-ID-Praefix-Schemas und der
+Projekt-Konfiguration. Plus zwei neue Foundation-Boundaries als
+adapter_boundary: `concept_catalog` (FK-Doc-Verlinkung,
+conceptRefs-Resolver) und `multi_llm_hub` (Adapter zum externen
+Multi-LLM-Hub).
+Version 19 schneidet die Governance-Hook-Auswertung in einen
+harness-neutralen A-Kern (`guard_evaluation`) und eine lokalisierte
+Claude-Code-Adapter-Insel (`harness_adapters.claude_code`).
 
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
@@ -55,17 +64,20 @@ bloodgroups:
     meaning: fachliche Komponenten mit Geschaeftsregeln
   - id: architecture-conformance.bloodgroup.r_code
     code: R
-    meaning: Adapter an Systemgrenzen
+    meaning: Repraesentations-Ueberfuehrung zwischen Domaene und Aussen
   - id: architecture-conformance.bloodgroup.t_code
     code: T
-    meaning: Persistenz- und Infrastrukturtreiber
+    meaning: Bindung an konkrete technische Laufzeit-Umgebung ausserhalb der Kernfachlichkeit
+  - id: architecture-conformance.bloodgroup.null_code
+    code: "0"
+    meaning: Null-Software, domaenen- und projektunabhaengig wiederverwendbar (Volldefinition concept/methodology/software-blutgruppen.md)
 boundary_module_kinds:
   - id: architecture-conformance.boundary_kind.entry_boundary
     code: entry_boundary
     meaning: Eingangs-Boundary (CLI, HTTP-Server, Event-Listener) — ruft fachliche Komponenten auf, hat keine Geschaeftslogik. Nichts importiert ein entry_boundary von innen.
   - id: architecture-conformance.boundary_kind.adapter_boundary
     code: adapter_boundary
-    meaning: Adapter zu externen Systemen (GitHub, ARE, LLM-Pools, VectorDB, MCP) — duenne Wrapper ueber externe APIs. Wird von fachlichen BCs genutzt; importiert keine BCs selbst.
+    meaning: Adapter zu externen Systemen oder Datenquellen (GitHub, ARE, LLM-Pools, VectorDB, MCP, Filesystem-basierte Konzept-Korpora) — uebersetzt zwischen externer Repraesentation und Domaene. Wird von fachlichen BCs genutzt; importiert keine BCs selbst.
   - id: architecture-conformance.boundary_kind.config_foundation
     code: config_foundation
     meaning: Konfigurations-Loader, Schema-Validierung, Defaults. Wird von fachlichen Komponenten gelesen, nie geschrieben. Keine Domain-Logik.
@@ -363,6 +375,7 @@ component_groups:
       - architecture-conformance.group.escalation_mechanism
       - architecture-conformance.group.guard_system
       - architecture-conformance.group.hook_runtime
+      - architecture-conformance.group.harness_adapters_claude_code
       - architecture-conformance.group.ccag_permission_runtime
       - architecture-conformance.group.integrity_gate
       - architecture-conformance.group.governance_observer
@@ -378,15 +391,28 @@ component_groups:
     component_kind: domain
 
   - id: architecture-conformance.group.hook_runtime
-    name: HookRuntime
+    name: GuardEvaluation
     bloodgroup: A
     module_prefixes:
-      - agentkit.governance.hookruntime
+      - agentkit.governance.guard_evaluation
     parent_group_id: architecture-conformance.group.governance
     exposure: sub_exposed
     component_kind: domain
-    # Hook-Laufzeit-Komponente fuer GuardSystem. Pfad bleibt
-    # `agentkit.governance.hookruntime` (etablierter Code-Pfad).
+    # Harness-neutraler A-Kern fuer GuardSystem. Die historische
+    # HookRuntime-ID bleibt stabil, der Python-Kompatibilitaetspfad
+    # `agentkit.governance.hookruntime` gehoert zur Adapter-Insel.
+
+  - id: architecture-conformance.group.harness_adapters_claude_code
+    name: HarnessAdaptersClaudeCode
+    bloodgroup: A
+    module_prefixes:
+      - agentkit.governance.harness_adapters.claude_code
+      - agentkit.governance.hookruntime
+    parent_group_id: architecture-conformance.group.governance
+    exposure: internal
+    component_kind: domain
+    # Lokalisierte Claude-Code-Mediation: Tool-Namen, Hook-Payload und
+    # Exit-Code-Vertrag bleiben hier und werden auf HookEvent gemappt.
 
   - id: architecture-conformance.group.ccag_permission_runtime
     name: CcagPermissionRuntime
@@ -1043,6 +1069,26 @@ component_groups:
     component_kind: domain
 
   # -----------------------------------------------------------------------
+  # BC 17: project-management
+  # -----------------------------------------------------------------------
+
+  - id: architecture-conformance.group.project_management
+    name: ProjectManagement
+    bloodgroup: A
+    module_prefixes:
+      - agentkit.project_management
+    parent_group_id: null
+    exposure: top
+    top_surface_modules: []
+    component_kind: domain
+    # Owner der Project-Entitaet, des Story-ID-Praefix-Schemas und der
+    # projektbezogenen Konfiguration. Wird von allen anderen BCs als
+    # Quelle des Projekt-Kontextes konsumiert (project_key bleibt
+    # Cross-Cutting-Filter im control_plane_http; project_management
+    # besitzt das Konzept). Story-Counter pro Projekt liegt nicht hier,
+    # sondern im story_context_manager.
+
+  # -----------------------------------------------------------------------
   # Shared: WorktreeManager (owner: story-lifecycle, cross-BC)
   # -----------------------------------------------------------------------
 
@@ -1176,6 +1222,44 @@ boundary_modules:
       - architecture-conformance.boundary.shared
       - architecture-conformance.boundary.control_plane_records
 
+  - id: architecture-conformance.boundary.concept_catalog
+    name: ConceptCatalog
+    bloodgroup: R
+    boundary_kind: adapter_boundary
+    module_prefixes:
+      - agentkit.concept_catalog
+    importable_by: any
+    may_import_component_groups: []
+    may_import_boundary_modules:
+      - architecture-conformance.boundary.config
+      - architecture-conformance.boundary.shared
+      - architecture-conformance.boundary.filesystem
+    # Foundation-Bereich parallel zu BCs. Adaptiert das Filesystem
+    # (concept/-Markdown-Korpus) zu fachlichen Lese-Repraesentationen:
+    # ConceptRef-Resolver, Markdown-Index, Cross-Reference-Graph,
+    # Backlinks. Wird von governance, requirements_coverage,
+    # story_context_manager und vom Frontend (Concept-Browser)
+    # konsumiert. Kein A-BC, weil keine fachlichen Invarianten -
+    # reine Resolver-/Index-Logik.
+
+  - id: architecture-conformance.boundary.multi_llm_hub
+    name: MultiLlmHub
+    bloodgroup: R
+    boundary_kind: adapter_boundary
+    module_prefixes:
+      - agentkit.multi_llm_hub
+    importable_by: any
+    may_import_component_groups: []
+    may_import_boundary_modules:
+      - architecture-conformance.boundary.config
+      - architecture-conformance.boundary.shared
+      - architecture-conformance.boundary.integrations
+    # Adapter zum externen Multi-LLM-Hub (Pflicht-Dependency, nicht
+    # AK3-Code). Liefert Sessions, Backend-Metriken und proxy-iert
+    # Send-Operationen ans Hub-Frontend. Kein A-BC, weil AK3 das
+    # Hub-Konzept nicht fachlich besitzt - Routing-Policies, falls
+    # noetig, leben in prompt_runtime, nicht hier.
+
   - id: architecture-conformance.boundary.state_backend_repository
     name: StateBackendRepository
     bloodgroup: R
@@ -1235,7 +1319,7 @@ boundary_modules:
 
   - id: architecture-conformance.boundary.shared
     name: Shared
-    bloodgroup: A
+    bloodgroup: "0"
     boundary_kind: shared_foundation
     module_prefixes:
       - agentkit.shared
@@ -1243,6 +1327,10 @@ boundary_modules:
     importable_by: any
     may_import_component_groups: []
     may_import_boundary_modules: []
+    # Bluttyp 0 (Null-Software): fachneutrale Basistypen, Exceptions,
+    # stateless Helfer. Importiert nichts AK3-Spezifisches; kann in
+    # jedes andere Python-Projekt kopiert werden, ohne Domaenenwissen
+    # mitzunehmen. Volldefinition concept/methodology/software-blutgruppen.md.
 
   # -----------------------------------------------------------------------
   # Infrastructure-IO (infrastructure_io): Filesystem-Writer und

@@ -30,14 +30,16 @@ if TYPE_CHECKING:
 
     from agentkit.state_backend.scope import RuntimeStateScope
 
+_JsonRecord = dict[str, object]
 
-def load_json_safe(path: Path) -> dict[str, object] | None:
+
+def load_json_safe(path: Path) -> _JsonRecord | None:
     """Compatibility helper for non-canonical export reads."""
 
     return load_json_object(path)
 
 
-def _write_projection(path: Path, payload: dict[str, object]) -> None:
+def _write_projection(path: Path, payload: _JsonRecord) -> None:
     """Atomically write a JSON projection file, creating parent dirs as needed."""
 
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -54,8 +56,8 @@ def _load_json(data: str | None, default: Any) -> Any:
     return json.loads(data)
 
 
-def _cast_json_record(value: object) -> dict[str, object]:
-    return cast("dict[str, object]", value)
+def _cast_json_record(value: object) -> _JsonRecord:
+    return cast("_JsonRecord", value)
 
 
 @contextmanager
@@ -894,6 +896,7 @@ def persist_layer_artifact_rows(
     ``flow_row`` and FK-69 fields (``stage_row``, ``finding_rows``) are
     ignored on SQLite (FK-69 read models are Postgres-only).
     """
+    del flow_row
     story_id = _story_id_for(story_dir)
     if story_id is None:
         raise CorruptStateError(
@@ -905,7 +908,7 @@ def persist_layer_artifact_rows(
         for item in layer_payload_rows:
             layer = str(item["layer"])
             artifact_name = str(item["artifact_name"])
-            payload = cast("dict[str, object]", item["payload"])
+            payload = cast("_JsonRecord", item["payload"])
             passed = bool(item["passed"])
             target_dir = projection_dir or story_dir
             _write_projection(target_dir / artifact_name, payload)
@@ -948,6 +951,7 @@ def persist_verify_decision_row(
 ) -> tuple[str, ...]:
     """Persist a verify-decision row and write the projection file."""
 
+    del flow_row
     story_id = _story_id_for(story_dir)
     if story_id is None:
         raise CorruptStateError(
@@ -1093,10 +1097,11 @@ def persist_closure_report_row(
 ) -> Path:
     """Persist a closure-report and write the projection file."""
 
+    del flow_row
     story_id = _story_id_for(story_dir) or str(report_row["story_id"])
     target_dir = projection_dir or story_dir
     path = target_dir / CLOSURE_REPORT_FILE
-    payload = cast("dict[str, object]", report_row["payload"])
+    payload = cast("_JsonRecord", report_row["payload"])
     _write_projection(path, payload)
     with _connect(story_dir) as conn:
         conn.execute(

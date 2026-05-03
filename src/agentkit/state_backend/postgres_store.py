@@ -40,6 +40,8 @@ if TYPE_CHECKING:
 _PROJECT_KEY_FILTER = "project_key = ?"
 _STORY_ID_FILTER = "story_id = ?"
 _RUN_ID_FILTER = "run_id = ?"
+_JsonRecord = dict[str, object]
+_OptionalString = str | None
 
 
 def _database_url() -> str:
@@ -76,13 +78,13 @@ class _CompatConnection:
             self._conn.execute(statement)
 
 
-def load_json_safe(path: Path) -> dict[str, object] | None:
+def load_json_safe(path: Path) -> _JsonRecord | None:
     """Compatibility helper for non-canonical export reads."""
 
     return load_json_object(path)
 
 
-def _write_projection(path: Path, payload: dict[str, object]) -> None:
+def _write_projection(path: Path, payload: _JsonRecord) -> None:
     """Atomically write a JSON projection file, creating parent dirs as needed."""
 
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -99,12 +101,12 @@ def _load_json(data: str | None, default: Any) -> Any:
     return json.loads(data)
 
 
-def _cast_json_record(value: object) -> dict[str, object]:
-    return cast("dict[str, object]", value)
+def _cast_json_record(value: object) -> _JsonRecord:
+    return cast("_JsonRecord", value)
 
 
-def _cast_optional_str(value: object) -> str | None:
-    return cast("str | None", value)
+def _cast_optional_str(value: object) -> _OptionalString:
+    return cast("_OptionalString", value)
 
 
 @contextmanager
@@ -1564,7 +1566,7 @@ def persist_layer_artifact_rows(
             layer = str(item["layer"])
             artifact_name = str(item["artifact_name"])
             producer_component = str(item["producer_component"])
-            payload = cast("dict[str, object]", item["payload"])
+            payload = cast("_JsonRecord", item["payload"])
             passed = bool(item["passed"])
             recorded_at = datetime.fromisoformat(str(item["recorded_at"]))
             target_dir = projection_dir or story_dir
@@ -1935,7 +1937,7 @@ def persist_closure_report_row(
         )
     target_dir = projection_dir or story_dir
     path = target_dir / CLOSURE_REPORT_FILE
-    payload = cast("dict[str, object]", report_row["payload"])
+    payload = cast("_JsonRecord", report_row["payload"])
     _write_projection(path, payload)
     with _connect(story_dir) as conn:
         _upsert_artifact_record(

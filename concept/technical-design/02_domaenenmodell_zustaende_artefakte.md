@@ -422,7 +422,7 @@ stateDiagram-v2
 
 | Entität | Format | Beispiel | Erzeugung |
 |---------|--------|----------|-----------|
-| Story-ID | `{PREFIX}-{NNN}` | `ODIN-042` | GitHub Issue Nummer + Projektprefix |
+| Story-ID | `{PREFIX}-{NNN}` | `ODIN-042` | Praefix aus `project_management.Project.story_id_prefix`; Nummer pro Projekt aus `story_context_manager`-Counter (siehe §2.11) |
 | Run-ID | UUID v4 | `a1b2c3d4-e5f6-...` | Phase Runner beim Setup |
 | Issue-Nummer | Integer | `42` | GitHub (auto-increment) |
 | Branch-Name | `story/{story_id}` | `story/ODIN-042` | Worktree-Setup |
@@ -592,6 +592,78 @@ zurückgebaut:
 vereinfacht. `e2e_assertions` Feature-Flag bleibt, steuert aber
 nur noch die allgemeinen System-Assertions, nicht ein eigenständiges
 Subsystem.
+
+## 2.11 Datenmodell-Anker — typisierte Entitaeten und Beziehungen
+
+Folgende Entitaeten und Beziehungen sind im Datenmodell als typisierte
+Strukturen abzubilden, **nicht** als Strings oder freie JSON-Felder.
+
+### 2.11.1 `Project` (Owner: `project_management`)
+
+| Feld | Typ | Bemerkung |
+|------|-----|-----------|
+| `key` | String | eindeutiger interner Schluessel (z.B. `claude-agentkit3`, `brainbox-2`) |
+| `name` | String | menschenlesbarer Name (Anzeige) |
+| `story_id_prefix` | String | projekt-spezifisches Praefix der Story-Anzeige-IDs (`AK3`, `BB2`, `ODIN`) |
+| `configuration` | strukturiert | projekt-bezogene Konfiguration (Repo-URL, Default-Branch, ARE-URL, externe Tools, Default-Worker-Anzahl, …) |
+
+Eindeutigkeit auf `key`. Wird von allen anderen BCs als Quelle des
+Projekt-Kontextes konsumiert.
+
+### 2.11.2 `Story` — Identitaet (Owner: `story_context_manager`)
+
+| Feld | Typ | Rolle |
+|------|-----|-------|
+| `story_uuid` | UUID | technischer Primaerschluessel |
+| `project_key` | String | FK auf `Project.key` |
+| `story_number` | Integer | projekt-lokale, monoton wachsende Nummer |
+| (fachliche Stammdaten) | strukturiert | Title, Type, Size, Status, Owner, Epic, Module, Labels, … |
+
+Eindeutigkeitsbedingungen:
+
+- **fachlich:** `(project_key, story_number)` — eindeutig pro Projekt
+- **technisch:** `story_uuid` — global eindeutig
+
+Die Anzeige-ID `BB2-118` ist eine **abgeleitete** Repraesentation aus
+`Project.story_id_prefix + story_number` und wird **nicht** persistiert.
+
+Der Story-Counter pro Projekt ist Zustand in `story_context_manager`.
+Bei Story-Anlage ruft `story_context_manager` `project_management` auf,
+um das Praefix zu lesen, und allokiert die naechste Nummer atomar.
+
+### 2.11.3 `StoryDependency` (Owner: `execution_planning`)
+
+Edge-Tabelle, gerichteter DAG zwischen Stories.
+
+| Feld | Typ | Rolle |
+|------|-----|-------|
+| `story_id` | FK | abhaengige Story |
+| `depends_on_story_id` | FK | Vorgaenger-Story |
+| `kind` | Enum | typisierte Beziehung (`blocks`, `derives_from`, `branches_off`, …) |
+
+Graph-Abfragen (transitive Vorgaenger/Nachfolger, topologische
+Sortierung, Wave-Berechnung, „naechste Stories") laufen ueber Recursive
+CTE in Postgres. Eindeutigkeit auf `(story_id, depends_on_story_id, kind)`.
+
+### 2.11.4 `StoryAreLink` (Owner: `requirements_coverage`)
+
+Edge-Tabelle, Verknuepfung von Stories mit ARE-Items.
+
+| Feld | Typ | Rolle |
+|------|-----|-------|
+| `story_id` | FK | Story |
+| `are_item_id` | String | externe ARE-Item-Referenz |
+| `kind` | Enum | typisierte Beziehung (`addresses`, `partial`, `derives_from`, …) |
+
+Liefert die Grundlage fuer ARE-Evidence im Inspector-Ergebnis-Tab und
+fuer Coverage-Analyse.
+
+### 2.11.5 Persistenz
+
+Alle vier Anker liegen in Postgres als single source of truth.
+Story-/Dependency-Graph-Abfragen ueber Recursive CTE; eine Graph-DB
+ist explizit nicht vorgesehen. Materialized Views fuer transitive
+Huellen sind moeglich, falls die Read-Last es verlangt.
 
 ---
 

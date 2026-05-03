@@ -45,6 +45,9 @@ if TYPE_CHECKING:
         QAStageResultRecord,
     )
 
+_JsonRecord = dict[str, object]
+_OptionalString = str | None
+
 # ---------------------------------------------------------------------------
 # JSON helpers
 # ---------------------------------------------------------------------------
@@ -64,12 +67,12 @@ def load_json(data: str | None, default: Any) -> Any:
     return json.loads(data)
 
 
-def cast_json_record(value: object) -> dict[str, object]:
+def cast_json_record(value: object) -> _JsonRecord:
     """Cast an opaque value to ``dict[str, object]`` without allocation."""
 
     from typing import cast
 
-    return cast("dict[str, object]", value)
+    return cast("_JsonRecord", value)
 
 
 # ---------------------------------------------------------------------------
@@ -681,10 +684,10 @@ def control_plane_op_row_to_record(
         op_id=str(row["op_id"]),
         project_key=str(row["project_key"]),
         story_id=str(row["story_id"]),
-        run_id=cast("str | None", row["run_id"]),
-        session_id=cast("str | None", row["session_id"]),
+        run_id=cast("_OptionalString", row["run_id"]),
+        session_id=cast("_OptionalString", row["session_id"]),
         operation_kind=str(row["operation_kind"]),
-        phase=cast("str | None", row["phase"]),
+        phase=cast("_OptionalString", row["phase"]),
         status=str(row["status"]),
         response_payload=cast_json_record(load_json(row["response_json"], {})),
         created_at=datetime.fromisoformat(str(row["created_at"])),

@@ -59,7 +59,7 @@ Referenzanhaenge folgen am Ende.
 
 Ab `concept/formal-spec/architecture-conformance/entities.md` schema_version 2
 sind nicht-fachliche Module als `boundary_modules` neben den `component_groups`
-modelliert. Es gibt 12 Boundary-Module in 6 Arten
+modelliert. Es gibt 14 Boundary-Module in 6 Arten
 (`boundary_module_kinds`): `entry_boundary`, `adapter_boundary`,
 `config_foundation`, `shared_foundation`, `infrastructure_io`,
 `infrastructure_driver`. Die normative Quelle ist die Formalspezifikation;
@@ -192,7 +192,21 @@ FK-07 beschreibt die Importregeln und Blutgruppen-Semantik.
 | `63_auswertung_und_dashboard.md` | kpi-and-dashboard | Read-only Auswertung, Dashboard-Schnittstellen, Berechtigungsgrenzen |
 | `64_control_plane_design_system.md` | kpi-and-dashboard | Normatives Design System fuer Story Cockpit, Dashboard, Sheet, Kanban, Dependency-Graph und Story Inspector |
 
-## 18. Referenzanhaenge
+## 18. BC: project-management
+
+| Dokument | BC/Domain | Inhalt |
+|----------|-----------|--------|
+| `73_project_management.md` | project-management | Project-Datenmodell, Lifecycle-Uebergaenge, API, Storage; Owner des Story-ID-Praefix-Schemas und der Projekt-Konfiguration |
+
+## 19. Frontend-Architektur und Foundation-Adapter (cross_cutting)
+
+| Dokument | BC/Domain | Inhalt |
+|----------|-----------|--------|
+| `72_frontend_architektur.md` | cross_cutting | BC-aligned vertikaler Frontend-Schnitt, App-Shell als R-Klammer, Composer-Sichten, BFF-Topologie, Sichten-Inventar |
+| `74_concept_catalog.md` | cross_cutting | Foundation-Adapter zum Markdown-Konzept-Korpus: ConceptRef-Resolver, Cross-Reference-Graph, Backlinks, API fuer Concept-Browser |
+| `75_multi_llm_hub.md` | cross_cutting | Foundation-Adapter zum externen Multi-LLM-Hub: Sessions, Backend-Status, Send-Operationen, Hub-Cockpit-Read-Models |
+
+## 20. Referenzanhaenge
 
 | Dokument | BC/Domain | Inhalt |
 |----------|-----------|--------|
@@ -201,7 +215,7 @@ FK-07 beschreibt die Importregeln und Blutgruppen-Semantik.
 | `92_verzeichnis_namenskonventionen.md` | cross_cutting | Repo-Struktur, Run-Verzeichnisse, Naming-Schemata |
 | `93_standardwerte_schwellwerte_timeouts.md` | cross_cutting | Defaults, Budgets, Timeouts, Retry-Limits, Cooldowns |
 
-## 19. Frontmatter-Vertrag
+## 21. Frontmatter-Vertrag
 
 Dieses Kapitel ist **normativ** fuer jedes Dokument unter
 `concept/technical-design/`. Es ergaenzt FK-00 um den

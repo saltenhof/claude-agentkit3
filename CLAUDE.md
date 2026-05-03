@@ -11,9 +11,17 @@ Key references:
 - `concept/domain-design/00-uebersicht.md` — fachliche Gesamtuebersicht
 - `concept/technical-design/01_systemkontext_und_architekturprinzipien.md` — Architekturprinzipien und Trust Boundaries
 - `concept/technical-design/02_domaenenmodell_zustaende_artefakte.md` — Zustaende, Artefakt-Ownership, Invarianten
+- `concept/methodology/software-blutgruppen.md` — Klassifikation von Code nach A/R/T/0
+- `concept/technical-design/72_frontend_architektur.md` — BC-aligned Frontend-Schnitt, App-Shell, BFF-Topologie
 - `guardrails/architecture-guardrails.md` — architektonische Leitplanken
 - `guardrails/testing-guardrails.md` — Pipeline- und Negativpfad-Testpflichten
 - `pyproject.toml` — Paket-Metadaten sowie pytest/mypy/ruff/Coverage-Konfiguration
+
+### Kernauftrag
+
+AK3 gewährleistet ein hochqualitatives E2E-Ergebnis in der autonomen, agentischen AI-Software-Entwicklung und ermöglicht so eine stärkere Skalierbarkeit agentischer Entwicklungsprozesse. Seine Aufgabe erfüllt AK3, indem es autonome AI-Agents mit Methoden, Prozessen und Werkzeugen unterstützt, Aktivitäten überwacht und dabei Fehlverhalten aktiv unterbindet, eigenständig Qualitätssicherung betreibt. AK3 konzentriert sich auf die Phase der Implementierung und verbindet das mit Lösungen für vor- und nachgelagerte Phasen, um einen holistischen Gesamtansatz zu ermöglichen.
+
+Dieser Kernauftrag ist die normative Grundlage. Alle Architekturentscheidungen, Komponentenschnitte und Werkzeugwahl müssen sich an ihm messen lassen. Story, Phase, Pipeline, Stage, Worker, Worktree und Verify-Layer sind die *Methoden*, mit denen AK3 diesen Kernauftrag operationalisiert — nicht der Auftrag selbst. Bei Konflikten zwischen Operationalisierung und Kernauftrag gilt der Kernauftrag.
 
 ### Was ist AgentKit 3?
 

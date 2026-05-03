@@ -23,6 +23,7 @@ def main() -> int:
         load_architecture_conformance_config,
         raise_on_architecture_violations,
         render_component_tree,
+        split_violations_by_severity,
     )
     from concept_compiler.architecture_conformance import ArchitectureConformanceError
     from concept_compiler.compiler import FormalCompilationError
@@ -62,6 +63,13 @@ def main() -> int:
             return 0
 
         violations = audit_architecture_conformance(compiled, args.code_root)
+        _errors, warnings = split_violations_by_severity(violations)
+        for warning in warnings:
+            print(
+                f"[architecture-conformance] WARNING: {warning.code}"
+                f" {warning.module}:{warning.line}:{warning.column}"
+                f" {warning.message}"
+            )
         raise_on_architecture_violations(violations)
     except (
         ArchitectureConformanceError,
@@ -73,7 +81,13 @@ def main() -> int:
         print(f"[architecture-conformance] FAILED: {exc}", file=sys.stderr)
         return 1
 
-    print("[architecture-conformance] OK: no architecture contract violations")
+    if warnings:
+        print(
+            f"[architecture-conformance] OK with {len(warnings)} warning(s):"
+            f" no errors, but auffaellige Stellen markiert"
+        )
+    else:
+        print("[architecture-conformance] OK: no architecture contract violations")
     return 0
 
 

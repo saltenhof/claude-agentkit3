@@ -20,6 +20,24 @@ formal_scope: prose-only
 **Status:** Konsolidiert aus agentkit-domain-concept.md + agentkit-overview.md
 **Datum:** 2026-04-02
 
+## Kernauftrag
+
+AK3 gewährleistet ein hochqualitatives E2E-Ergebnis in der autonomen,
+agentischen AI-Software-Entwicklung und ermöglicht so eine stärkere
+Skalierbarkeit agentischer Entwicklungsprozesse. Seine Aufgabe erfüllt
+AK3, indem es autonome AI-Agents mit Methoden, Prozessen und Werkzeugen
+unterstützt, Aktivitäten überwacht und dabei Fehlverhalten aktiv
+unterbindet, eigenständig Qualitätssicherung betreibt. AK3 konzentriert
+sich auf die Phase der Implementierung und verbindet das mit Lösungen
+für vor- und nachgelagerte Phasen, um einen holistischen Gesamtansatz
+zu ermöglichen.
+
+Dieser Kernauftrag ist die normative Grundlage. Alle Architekturentscheidungen,
+Komponentenschnitte und Werkzeugwahl müssen sich an ihm messen lassen. Story,
+Phase, Pipeline, Stage, Worker, Worktree und Verify-Layer sind die *Methoden*,
+mit denen AK3 diesen Kernauftrag operationalisiert — nicht der Auftrag selbst.
+Bei Konflikten zwischen Operationalisierung und Kernauftrag gilt der Kernauftrag.
+
 ## Teilkonzepte
 
 | Nr. | Dokument | Domäne |
@@ -37,6 +55,7 @@ formal_scope: prose-only
 | 11 | [11-review-qualitaetsverbesserung.md](11-review-qualitaetsverbesserung.md) | Review-Qualitätsverbesserung |
 | 12 | [12-skills-und-skill-system.md](12-skills-und-skill-system.md) | Spezialisierte Skills und Skill-System |
 | 13 | [13-kpis-und-optimierung.md](13-kpis-und-optimierung.md) | KPIs und nachgelagerte Optimierung |
+| 14 | [14-project-management.md](14-project-management.md) | Project-Management (Project-Entitaet, ID-Praefix-Schema, Konfiguration) |
 
 ---
 

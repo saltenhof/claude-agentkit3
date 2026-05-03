@@ -149,3 +149,9 @@ domains:
       - FK-50
       - FK-51
 
+  - id: project-management
+    display_name: Project-Management (Project-Entitaet, ID-Praefix-Schema, Konfiguration)
+    contract_docs:
+      - DK-14
+      - FK-73
+

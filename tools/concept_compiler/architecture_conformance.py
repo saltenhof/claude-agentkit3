@@ -16,7 +16,8 @@ if TYPE_CHECKING:
 ENTITIES_DOC_ID = "formal.architecture-conformance.entities"
 INVARIANTS_DOC_ID = "formal.architecture-conformance.invariants"
 
-_VALID_BLOODGROUPS = frozenset({"A", "R", "T"})
+_VALID_BLOODGROUPS = frozenset({"A", "R", "T", "0"})
+_VALID_SEVERITIES = frozenset({"error", "warning"})
 _VALID_EXPOSURE = frozenset({"top", "sub_exposed", "internal"})
 _VALID_COMPONENT_KINDS = frozenset({"domain", "shared"})
 
@@ -285,7 +286,15 @@ class ArchitectureConformanceConfig:
 
 @dataclass(frozen=True)
 class ArchitectureViolation:
-    """Eine deterministische Architektur-Grenzverletzung im Code."""
+    """Eine deterministische Architektur-Auffaelligkeit im Code.
+
+    Severities:
+        error: Verletzung einer normativ verankerten Architektur-Regel.
+            Der Lauf muss fehlschlagen.
+        warning: Auffaelligkeit, die auf eine bewusste Abwaegung hinweist.
+            Der Lauf bleibt erfolgreich, der Befund wird aber sichtbar
+            gemacht. Warnings entscheiden nicht, sie machen aufmerksam.
+    """
 
     code: str
     path: Path | None
@@ -294,6 +303,7 @@ class ArchitectureViolation:
     column: int
     message: str
     rule_id: str
+    severity: Literal["error", "warning"] = "error"
 
 
 def load_architecture_conformance_config(
@@ -546,18 +556,41 @@ def audit_architecture_conformance(
     )
 
 
+def split_violations_by_severity(
+    violations: tuple[ArchitectureViolation, ...],
+) -> tuple[tuple[ArchitectureViolation, ...], tuple[ArchitectureViolation, ...]]:
+    """Trennt Befunde in (errors, warnings).
+
+    Args:
+        violations: Gefundene Befunde.
+
+    Returns:
+        Tupel (errors, warnings). Errors muessen den Lauf abbrechen,
+        Warnings sind Auffaelligkeiten ohne Abbruch.
+    """
+    errors = tuple(v for v in violations if v.severity == "error")
+    warnings = tuple(v for v in violations if v.severity == "warning")
+    return errors, warnings
+
+
 def raise_on_architecture_violations(
     violations: tuple[ArchitectureViolation, ...],
 ) -> None:
-    """Wirft einen aggregierten Fehler wenn Architektur-Verletzungen vorliegen.
+    """Wirft einen aggregierten Fehler wenn Architektur-Errors vorliegen.
+
+    Warnings (severity == "warning") sind Auffaelligkeiten und werfen
+    nicht. Sie werden ueber ``split_violations_by_severity`` herausgezogen
+    und vom Aufrufer separat gemeldet.
 
     Args:
-        violations: Gefundene Verletzungen.
+        violations: Gefundene Befunde.
 
     Raises:
-        ArchitectureConformanceError: Wenn mindestens eine Verletzung vorliegt.
+        ArchitectureConformanceError: Wenn mindestens ein Befund mit
+            severity == "error" vorliegt.
     """
-    if not violations:
+    errors, _warnings = split_violations_by_severity(violations)
+    if not errors:
         return
 
     formatted = "; ".join(
@@ -565,7 +598,7 @@ def raise_on_architecture_violations(
             f"{violation.code} {violation.module}:{violation.line}:"
             f"{violation.column} {violation.message}"
         )
-        for violation in violations
+        for violation in errors
     )
     raise ArchitectureConformanceError(
         f"Architecture-conformance violations detected: {formatted}",
@@ -579,8 +612,9 @@ def raise_on_architecture_violations(
                     "column": violation.column,
                     "message": violation.message,
                     "rule_id": violation.rule_id,
+                    "severity": violation.severity,
                 }
-                for violation in violations
+                for violation in errors
             ]
         },
     )
@@ -985,10 +1019,17 @@ def _check_boundary_bloodtype_rules(
     component_groups: tuple[ComponentGroup, ...],
     boundary_modules: tuple[BoundaryModule, ...],
 ) -> list[ArchitectureViolation]:
-    """AC012 — Bluttyp-Import-Regeln fuer Boundary-Module.
+    """AC012 — Bluttyp-Auffaelligkeit: A importiert direkt T.
 
-    A-Komponenten und A-Boundary-Module duerfen T-Boundary-Module
-    nicht direkt importieren. Sie muessen ueber R-Boundary-Module gehen.
+    Ein A-Modul, das ein T-Boundary-Modul direkt importiert, ist eine
+    Auffaelligkeit. Das ist kein Verbot — AT-Mischung kann an dafuer
+    vorgesehenen Mediation-Schichten konstitutiv sein (siehe
+    ``concept/methodology/software-blutgruppen.md`` Abschnitt 4.2).
+    Der Linter macht aufmerksam; die fachliche Abwaegung, ob die Stelle
+    legitime AT-Mediation oder diffuse AT-Mischung ist, trifft der
+    Mensch.
+
+    Severity: warning.
 
     Args:
         import_graph: Importgraph des gescannten Codes.
@@ -996,7 +1037,7 @@ def _check_boundary_bloodtype_rules(
         boundary_modules: Bekannte Boundary-Module.
 
     Returns:
-        Liste der AC012-Verletzungen.
+        Liste der AC012-Auffaelligkeiten (severity warning).
     """
     violations: list[ArchitectureViolation] = []
 
@@ -1029,14 +1070,19 @@ def _check_boundary_bloodtype_rules(
                     column=column,
                     message=(
                         f"A-type module '{module}' directly imports"
-                        f" T-type boundary-module '{target_boundary.name}';"
-                        f" A must go through an R-type boundary-module:"
-                        f" imports '{imported_module}'"
+                        f" T-type boundary-module '{target_boundary.name}'"
+                        f" ('{imported_module}'). This is an AT-touch."
+                        f" Verify whether this is a deliberate AT-mediation"
+                        f" layer (legitimate; see"
+                        f" concept/methodology/software-blutgruppen.md"
+                        f" section 4.2) or a diffuse AT-mixture (anti-pattern"
+                        f" — refactor by going through an R-boundary)."
                     ),
                     rule_id=(
                         f"architecture-conformance.check"
                         f".boundary_bloodtype.{target_boundary.boundary_id}"
                     ),
+                    severity="warning",
                 )
             )
 

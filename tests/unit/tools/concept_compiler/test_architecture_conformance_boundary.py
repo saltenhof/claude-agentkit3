@@ -566,8 +566,13 @@ def test_ac011_restricted_boundary_correct_importer_no_violation(tmp_path: Path)
 # ---------------------------------------------------------------------------
 
 
-def test_ac012_a_component_imports_t_boundary_violation(tmp_path: Path) -> None:
-    """AC012: A-Komponente darf T-Boundary-Modul nicht direkt importieren."""
+def test_ac012_a_component_imports_t_boundary_warning(tmp_path: Path) -> None:
+    """AC012: A-Komponente importiert T-Boundary direkt -> Warning (Auffaelligkeit).
+
+    Kein Verbot: AT-Mischung kann an Mediation-Schichten konstitutiv sein
+    (siehe concept/methodology/software-blutgruppen.md Abschnitt 4.2).
+    Der Linter macht aufmerksam, entscheidet aber nicht.
+    """
     root = _write_boundary_spec(
         tmp_path,
         files={
@@ -580,12 +585,15 @@ def test_ac012_a_component_imports_t_boundary_violation(tmp_path: Path) -> None:
     violations = audit_architecture_conformance(compiled, root / "src")
 
     ac012 = [v for v in violations if v.code == "AC012"]
-    assert ac012, "Expected AC012 violation for A importing T directly"
+    assert ac012, "Expected AC012 finding for A importing T directly"
     assert any("domain_a" in v.module for v in ac012)
+    assert all(v.severity == "warning" for v in ac012), (
+        "AC012 must be a warning, not an error"
+    )
 
 
-def test_ac012_r_boundary_imports_t_boundary_no_violation(tmp_path: Path) -> None:
-    """AC012: R-Boundary-Modul darf T-Boundary-Modul importieren."""
+def test_ac012_r_boundary_imports_t_boundary_no_finding(tmp_path: Path) -> None:
+    """AC012: R-Boundary-Modul importiert T-Boundary -> kein Befund."""
     root = _write_boundary_spec(
         tmp_path,
         files={
@@ -598,11 +606,11 @@ def test_ac012_r_boundary_imports_t_boundary_no_violation(tmp_path: Path) -> Non
     violations = audit_architecture_conformance(compiled, root / "src")
 
     ac012 = [v for v in violations if v.code == "AC012"]
-    assert not ac012, f"Unexpected AC012 violations: {ac012}"
+    assert not ac012, f"Unexpected AC012 findings: {ac012}"
 
 
-def test_ac012_a_boundary_imports_t_boundary_violation(tmp_path: Path) -> None:
-    """AC012: A-Boundary-Modul (shared) darf kein T-Boundary-Modul importieren."""
+def test_ac012_a_boundary_imports_t_boundary_warning(tmp_path: Path) -> None:
+    """AC012: A-Boundary-Modul (shared) importiert T-Boundary direkt -> Warning."""
     root = _write_boundary_spec(
         tmp_path,
         files={
@@ -615,7 +623,8 @@ def test_ac012_a_boundary_imports_t_boundary_violation(tmp_path: Path) -> None:
     violations = audit_architecture_conformance(compiled, root / "src")
 
     ac012 = [v for v in violations if v.code == "AC012"]
-    assert ac012, "Expected AC012 violation for A-boundary importing T directly"
+    assert ac012, "Expected AC012 finding for A-boundary importing T directly"
+    assert all(v.severity == "warning" for v in ac012)
 
 
 # ---------------------------------------------------------------------------
@@ -628,8 +637,8 @@ def test_real_entities_md_loads_boundary_modules() -> None:
     compiled = compile_formal_specs(Path("concept/formal-spec"))
     config = load_architecture_conformance_config(compiled)
 
-    assert len(config.boundary_modules) == 12, (
-        f"Expected 12 boundary_modules, got {len(config.boundary_modules)}: "
+    assert len(config.boundary_modules) == 14, (
+        f"Expected 14 boundary_modules, got {len(config.boundary_modules)}: "
         f"{[bm.boundary_id for bm in config.boundary_modules]}"
     )
     assert len(config.boundary_module_kinds) == 6, (

@@ -47,7 +47,15 @@ ARCH-21 Technische Exceptions an Systemgrenzen in fachliche Fehlercodes transfor
 ARCH-54 Fehler-Grenzen architektonisch definieren (Quasar-Konzept: Sicherheitsfassade an der Grenze der Risikogemeinschaft).
 
 Abhaengigkeiten und Kopplung
-ARCH-22 Code-Blutgruppen: A-Code (Fachlogik), T-Code (Infrastruktur), R-Code (Adapter), Null-Code (Utilities). AT-Code minimieren.
+ARCH-22 Code-Blutgruppen — Klassifikation nach Verantwortung und Testbarkeit:
+A (Fachlogik, Domaenenkern, technologie-frei, ohne Infra-Setup testbar),
+R (Repraesentations-Ueberfuehrung zwischen Domaene und Aussen; Anti-Korruptions-Schicht ist eine Rolle, nicht der Kern),
+T (Bindung an konkrete technische Laufzeit-Umgebung ausserhalb der Kernfachlichkeit),
+0 / Null-Code (domaenen- und projektunabhaengig wiederverwendbar; darf generische technische Anteile haben, z.B. Logging-Framework).
+A/T ist kontextabhaengig — die Kernfachlichkeit des konkreten Systems entscheidet.
+AT-Mischungen sind an dafuer vorgesehenen Mediation-Schichten legitim
+(z.B. Datenbank-Zugriff, UI-Anwendungsrahmen) und auf diese zu lokalisieren;
+der A-Kern bleibt AT-frei. Volldefinition: concept/methodology/software-blutgruppen.md.
 
 ARCH-23 Strategische Dependencies (z.B. Spring) duerfen sichtbar sein. Austauschbare Libraries hinter Abstraktion wrappen.
 

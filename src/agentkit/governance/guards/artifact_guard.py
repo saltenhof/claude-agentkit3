@@ -22,7 +22,7 @@ class ArtifactGuard:
 
         if str(context.get("operating_mode", "")) != "story_execution":
             return GuardVerdict.allow(self.name)
-        if context.get("is_subagent") is not True:
+        if context.get("principal_kind") != "subagent":
             return GuardVerdict.allow(self.name)
 
         file_path = str(context.get("file_path", ""))
