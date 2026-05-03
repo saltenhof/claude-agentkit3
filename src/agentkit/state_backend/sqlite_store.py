@@ -91,6 +91,17 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             PRIMARY KEY (project_key, story_id)
         );
 
+        CREATE TABLE IF NOT EXISTS projects (
+            key TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            story_id_prefix TEXT NOT NULL UNIQUE,
+            configuration_json TEXT NOT NULL,
+            archived_at TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS projects_archived_at_idx
+            ON projects (archived_at);
+
         CREATE TABLE IF NOT EXISTS phase_states (
             story_id TEXT PRIMARY KEY,
             phase TEXT NOT NULL,
@@ -315,6 +326,126 @@ def read_story_context_row(story_dir: Path) -> dict[str, Any] | None:
     """Canonical reader name for protected runtime modules."""
 
     return load_story_context_row(story_dir)
+
+
+# ---------------------------------------------------------------------------
+# Project rows
+# ---------------------------------------------------------------------------
+
+
+def _project_store_dir(store_dir: Path | None) -> Path:
+    if store_dir is None:
+        from pathlib import Path as _Path
+
+        return _Path.cwd()
+    return store_dir
+
+
+def save_project_row(store_dir: Path | None, row: dict[str, Any]) -> None:
+    """Persist a project row."""
+
+    with _connect(_project_store_dir(store_dir)) as conn:
+        conn.execute(
+            """
+            INSERT INTO projects (
+                key,
+                name,
+                story_id_prefix,
+                configuration_json,
+                archived_at
+            )
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                name = excluded.name,
+                configuration_json = excluded.configuration_json,
+                archived_at = excluded.archived_at
+            """,
+            (
+                row["key"],
+                row["name"],
+                row["story_id_prefix"],
+                row["configuration_json"],
+                row["archived_at"],
+            ),
+        )
+
+
+def load_project_row(store_dir: Path | None, key: str) -> dict[str, Any] | None:
+    """Load one project row by key."""
+
+    with _connect(_project_store_dir(store_dir)) as conn:
+        found = conn.execute(
+            """
+            SELECT
+                key,
+                name,
+                story_id_prefix,
+                configuration_json,
+                archived_at
+            FROM projects
+            WHERE key = ?
+            """,
+            (key,),
+        ).fetchone()
+    return dict(found) if found is not None else None
+
+
+def load_project_row_by_story_id_prefix(
+    store_dir: Path | None,
+    story_id_prefix: str,
+) -> dict[str, Any] | None:
+    """Load one project row by story-id prefix."""
+
+    with _connect(_project_store_dir(store_dir)) as conn:
+        found = conn.execute(
+            """
+            SELECT
+                key,
+                name,
+                story_id_prefix,
+                configuration_json,
+                archived_at
+            FROM projects
+            WHERE story_id_prefix = ?
+            """,
+            (story_id_prefix,),
+        ).fetchone()
+    return dict(found) if found is not None else None
+
+
+def load_project_rows(
+    store_dir: Path | None,
+    *,
+    include_archived: bool = False,
+) -> list[dict[str, Any]]:
+    """Load project rows."""
+
+    query = """
+        SELECT
+            key,
+            name,
+            story_id_prefix,
+            configuration_json,
+            archived_at
+        FROM projects
+        ORDER BY key
+        """
+    params: tuple[object, ...] = ()
+    if not include_archived:
+        query = """
+            SELECT
+                key,
+                name,
+                story_id_prefix,
+                configuration_json,
+                archived_at
+            FROM projects
+            WHERE archived_at IS NULL
+            ORDER BY key
+            """
+    with _connect(_project_store_dir(store_dir)) as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [dict(row) for row in rows]
 
 
 # ---------------------------------------------------------------------------

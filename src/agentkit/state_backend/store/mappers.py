@@ -13,13 +13,12 @@ do not need to import BC-A modules directly.
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from agentkit.exceptions import CorruptStateError
 
 if TYPE_CHECKING:
-    from datetime import datetime
-
     from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
     from agentkit.control_plane.records import (
         ControlPlaneOperationRecord,
@@ -32,6 +31,7 @@ if TYPE_CHECKING:
         OverrideRecord,
     )
     from agentkit.pipeline_engine.phase_executor.records import AttemptRecord
+    from agentkit.project_management.entities import Project
     from agentkit.qa.policy_engine.engine import VerifyDecision
     from agentkit.qa.protocols import LayerResult
     from agentkit.story_context_manager.models import (
@@ -73,6 +73,58 @@ def cast_json_record(value: object) -> _JsonRecord:
     from typing import cast
 
     return cast("_JsonRecord", value)
+
+
+# ---------------------------------------------------------------------------
+# Project
+# ---------------------------------------------------------------------------
+
+
+def project_to_row(project: Project) -> dict[str, Any]:
+    """Convert a project entity to a DB-insertable row dict."""
+
+    return {
+        "key": project.key,
+        "name": project.name,
+        "story_id_prefix": project.story_id_prefix,
+        "configuration_json": dump_json(project.configuration.model_dump(mode="json")),
+        "archived_at": (
+            project.archived_at.isoformat() if project.archived_at is not None else None
+        ),
+    }
+
+
+def project_row_to_entity(row: dict[str, Any]) -> Project:
+    """Convert a project DB row dict to a project entity."""
+
+    from agentkit.project_management.entities import (
+        Project as _Project,
+    )
+    from agentkit.project_management.entities import (
+        ProjectConfiguration as _ProjectConfiguration,
+    )
+
+    configuration_raw = row.get("configuration_json", row.get("configuration"))
+    configuration_payload = (
+        json.loads(configuration_raw)
+        if isinstance(configuration_raw, str)
+        else configuration_raw
+    )
+
+    archived_at_raw = row.get("archived_at")
+    archived_at = (
+        datetime.fromisoformat(archived_at_raw)
+        if isinstance(archived_at_raw, str)
+        else archived_at_raw
+    )
+
+    return _Project(
+        key=str(row["key"]),
+        name=str(row["name"]),
+        story_id_prefix=str(row["story_id_prefix"]),
+        configuration=_ProjectConfiguration.model_validate(configuration_payload),
+        archived_at=archived_at,
+    )
 
 
 # ---------------------------------------------------------------------------

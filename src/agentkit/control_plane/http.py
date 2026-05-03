@@ -30,6 +30,11 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from pathlib import Path
 
+    from agentkit.project_management.http.routes import (
+        ProjectManagementRoutes,
+        ProjectRouteResponse,
+    )
+
 logger = logging.getLogger(__name__)
 
 _PHASE_PATH_PATTERN = re.compile(
@@ -67,6 +72,7 @@ class ControlPlaneApplication:
         runtime_service: ControlPlaneRuntimeService | None = None,
         story_service: StoryService | None = None,
         dashboard_service: DashboardService | None = None,
+        project_routes: ProjectManagementRoutes | None = None,
     ) -> None:
         self._telemetry_service = telemetry_service or ControlPlaneTelemetryService()
         self._runtime_service = runtime_service or ControlPlaneRuntimeService()
@@ -74,6 +80,11 @@ class ControlPlaneApplication:
         self._dashboard_service = dashboard_service or DashboardService(
             story_service=self._story_service,
         )
+        if project_routes is None:
+            from agentkit.project_management.http.routes import ProjectManagementRoutes
+
+            project_routes = ProjectManagementRoutes()
+        self._project_routes = project_routes
 
     def handle_request(
         self,
@@ -98,6 +109,8 @@ class ControlPlaneApplication:
         payload = _decode_json_body(body, correlation_id)
         if isinstance(payload, HttpResponse):
             return payload
+        if method == "PATCH":
+            return self._handle_patch_request(route_path, payload, correlation_id)
         return self._handle_post_request(route_path, payload, correlation_id)
 
     def _handle_healthz(self, method: str, correlation_id: str) -> HttpResponse:
@@ -121,6 +134,14 @@ class ControlPlaneApplication:
         query: dict[str, list[str]],
         correlation_id: str,
     ) -> HttpResponse:
+        project_response = self._project_routes.handle_get(
+            route_path,
+            query,
+            correlation_id,
+        )
+        if project_response is not None:
+            return _project_response_to_http_response(project_response)
+
         if route_path == "/v1/stories":
             return self._handle_get_stories(query, correlation_id)
         if route_path == "/v1/dashboard/board":
@@ -155,6 +176,14 @@ class ControlPlaneApplication:
         payload: object,
         correlation_id: str,
     ) -> HttpResponse:
+        project_response = self._project_routes.handle_post(
+            route_path,
+            payload,
+            correlation_id,
+        )
+        if project_response is not None:
+            return _project_response_to_http_response(project_response)
+
         if route_path == "/v1/telemetry/events":
             return self._handle_post_telemetry(payload, correlation_id)
         if route_path == "/v1/project-edge/sync":
@@ -177,6 +206,26 @@ class ControlPlaneApplication:
                 run_id=closure_match.group("run_id"),
                 correlation_id=correlation_id,
             )
+        return _error_response(
+            HTTPStatus.NOT_FOUND,
+            error_code="not_found",
+            message="Not found",
+            correlation_id=correlation_id,
+        )
+
+    def _handle_patch_request(
+        self,
+        route_path: str,
+        payload: object,
+        correlation_id: str,
+    ) -> HttpResponse:
+        project_response = self._project_routes.handle_patch(
+            route_path,
+            payload,
+            correlation_id,
+        )
+        if project_response is not None:
+            return _project_response_to_http_response(project_response)
         return _error_response(
             HTTPStatus.NOT_FOUND,
             error_code="not_found",
@@ -500,6 +549,9 @@ def _build_handler(app: ControlPlaneApplication) -> type[BaseHTTPRequestHandler]
         def do_POST(self) -> None:  # noqa: N802
             self._handle()
 
+        def do_PATCH(self) -> None:  # noqa: N802
+            self._handle()
+
         def _handle(self) -> None:
             content_length = int(self.headers.get("Content-Length", "0"))
             body = self.rfile.read(content_length) if content_length > 0 else b""
@@ -534,6 +586,14 @@ def _json_response(
         status_code=int(status),
         body=json.dumps(payload, sort_keys=True, default=str).encode("utf-8"),
         headers=((_CORRELATION_HEADER, correlation_id),) + tuple(headers),
+    )
+
+
+def _project_response_to_http_response(response: ProjectRouteResponse) -> HttpResponse:
+    return HttpResponse(
+        status_code=response.status_code,
+        body=response.body,
+        headers=response.headers,
     )
 
 

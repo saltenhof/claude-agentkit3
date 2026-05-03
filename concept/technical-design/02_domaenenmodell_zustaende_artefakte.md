@@ -624,12 +624,33 @@ Eindeutigkeitsbedingungen:
 - **fachlich:** `(project_key, story_number)` — eindeutig pro Projekt
 - **technisch:** `story_uuid` — global eindeutig
 
-Die Anzeige-ID `BB2-118` ist eine **abgeleitete** Repraesentation aus
-`Project.story_id_prefix + story_number` und wird **nicht** persistiert.
+Die Anzeige-ID `BB2-118` ist **nicht** die fachliche Identitaet der
+Story — diese ist `(project_key, story_number)` bzw. technisch
+`story_uuid`. Die Anzeige-ID ist eine **abgeleitete
+Anzeige-Repraesentation** aus `Project.story_id_prefix + story_number`,
+die bei Story-Anlage **einmal materialisiert** und im Story-Record
+persistiert wird. Sie wird aus zwei Pragmatik-Gruenden mitgefuehrt:
+
+1. Cross-BC-Konsumenten (Telemetrie, Pipeline, Verify, Closure, ...)
+   nutzen sie als Korrelations-String, ohne pro Lookup einen
+   `Project`-Repository-Call ausfuehren zu muessen.
+2. `Project.story_id_prefix` ist **immutable** nach Projektanlage
+   (FK-73 §73.1), daher kann die materialisierte Anzeige-ID nie
+   veralten — sie ist deterministisch durch
+   `(project_key, story_number)` bestimmt und reproduzierbar.
+
+Die Allokation passiert im Application-Service `story_context_manager`
+bei `create_story`: dort wird `Project.story_id_prefix` aus
+`ProjectRepository` gelesen, mit der allokierten `story_number`
+kombiniert und in den persistierten Record geschrieben.
+Pydantic-Modelle berechnen die Anzeige-ID **nicht** selbst — sie
+tragen sie als gewoehnliches String-Feld. Damit bleibt der A-Kern
+ohne Repository-Aufrufe in Property-Gettern und damit ohne I/O.
 
 Der Story-Counter pro Projekt ist Zustand in `story_context_manager`.
 Bei Story-Anlage ruft `story_context_manager` `project_management` auf,
-um das Praefix zu lesen, und allokiert die naechste Nummer atomar.
+um das Praefix zu lesen, allokiert die naechste Nummer atomar und
+schreibt die zusammengesetzte Anzeige-ID in den Record.
 
 ### 2.11.3 `StoryDependency` (Owner: `execution_planning`)
 

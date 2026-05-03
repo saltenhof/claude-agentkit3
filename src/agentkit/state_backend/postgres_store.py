@@ -146,6 +146,17 @@ def _schema_create_script() -> str:
             PRIMARY KEY (project_key, story_id)
         );
 
+        CREATE TABLE IF NOT EXISTS projects (
+            key TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            story_id_prefix TEXT NOT NULL UNIQUE,
+            configuration JSONB NOT NULL,
+            archived_at TIMESTAMPTZ NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS projects_archived_at_idx
+            ON projects (archived_at);
+
         CREATE TABLE IF NOT EXISTS phase_states (
             story_id TEXT PRIMARY KEY,
             phase TEXT NOT NULL,
@@ -683,6 +694,121 @@ def load_story_context_rows_global(project_key: str) -> list[dict[str, Any]]:
             (project_key,),
         ).fetchall()
     return [{"payload_json": str(row["payload_json"])} for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# Project rows
+# ---------------------------------------------------------------------------
+
+
+def save_project_row(store_dir: Path | None, row: dict[str, Any]) -> None:
+    """Persist a project row."""
+
+    del store_dir
+    with _connect_global() as conn:
+        conn.execute(
+            """
+            INSERT INTO projects (
+                key,
+                name,
+                story_id_prefix,
+                configuration,
+                archived_at
+            )
+            VALUES (?, ?, ?, ?::jsonb, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                name = excluded.name,
+                configuration = excluded.configuration,
+                archived_at = excluded.archived_at
+            """,
+            (
+                row["key"],
+                row["name"],
+                row["story_id_prefix"],
+                row["configuration_json"],
+                row["archived_at"],
+            ),
+        )
+
+
+def load_project_row(store_dir: Path | None, key: str) -> dict[str, Any] | None:
+    """Load one project row by key."""
+
+    del store_dir
+    with _connect_global() as conn:
+        row = conn.execute(
+            """
+            SELECT
+                key,
+                name,
+                story_id_prefix,
+                configuration AS configuration_json,
+                archived_at
+            FROM projects
+            WHERE key = ?
+            """,
+            (key,),
+        ).fetchone()
+    return row
+
+
+def load_project_row_by_story_id_prefix(
+    store_dir: Path | None,
+    story_id_prefix: str,
+) -> dict[str, Any] | None:
+    """Load one project row by story-id prefix."""
+
+    del store_dir
+    with _connect_global() as conn:
+        row = conn.execute(
+            """
+            SELECT
+                key,
+                name,
+                story_id_prefix,
+                configuration AS configuration_json,
+                archived_at
+            FROM projects
+            WHERE story_id_prefix = ?
+            """,
+            (story_id_prefix,),
+        ).fetchone()
+    return row
+
+
+def load_project_rows(
+    store_dir: Path | None,
+    *,
+    include_archived: bool = False,
+) -> list[dict[str, Any]]:
+    """Load project rows."""
+
+    del store_dir
+    query = """
+        SELECT
+            key,
+            name,
+            story_id_prefix,
+            configuration AS configuration_json,
+            archived_at
+        FROM projects
+        ORDER BY key
+        """
+    if not include_archived:
+        query = """
+            SELECT
+                key,
+                name,
+                story_id_prefix,
+                configuration AS configuration_json,
+                archived_at
+            FROM projects
+            WHERE archived_at IS NULL
+            ORDER BY key
+            """
+    with _connect_global() as conn:
+        rows = conn.execute(query).fetchall()
+    return rows
 
 
 # ---------------------------------------------------------------------------

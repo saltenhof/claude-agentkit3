@@ -39,6 +39,7 @@ if TYPE_CHECKING:
         OverrideRecord,
     )
     from agentkit.pipeline_engine.phase_executor.records import AttemptRecord
+    from agentkit.project_management.entities import Project
     from agentkit.qa.policy_engine.engine import VerifyDecision
     from agentkit.qa.protocols import LayerResult
     from agentkit.story_context_manager.models import (
@@ -179,6 +180,48 @@ def load_story_contexts_global(project_key: str) -> list[StoryContext]:
 
 def read_story_context_record(story_dir: Path) -> StoryContext | None:
     return load_story_context(story_dir)
+
+
+# ---------------------------------------------------------------------------
+# Project
+# ---------------------------------------------------------------------------
+
+
+def save_project(project: Project, store_dir: Path | None = None) -> None:
+    row = mappers.project_to_row(project)
+    _backend_module().save_project_row(store_dir, row)
+
+
+def load_project(key: str, store_dir: Path | None = None) -> Project | None:
+    row = _backend_module().load_project_row(store_dir, key)
+    if row is None:
+        return None
+    return mappers.project_row_to_entity(row)
+
+
+def load_projects(
+    store_dir: Path | None = None,
+    *,
+    include_archived: bool = False,
+) -> list[Project]:
+    rows = _backend_module().load_project_rows(
+        store_dir,
+        include_archived=include_archived,
+    )
+    return [mappers.project_row_to_entity(row) for row in rows]
+
+
+def load_project_by_story_id_prefix(
+    story_id_prefix: str,
+    store_dir: Path | None = None,
+) -> Project | None:
+    row = _backend_module().load_project_row_by_story_id_prefix(
+        store_dir,
+        story_id_prefix,
+    )
+    if row is None:
+        return None
+    return mappers.project_row_to_entity(row)
 
 
 # ---------------------------------------------------------------------------
