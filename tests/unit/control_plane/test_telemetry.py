@@ -8,7 +8,7 @@ from agentkit.control_plane.telemetry import ControlPlaneTelemetryService
 from agentkit.telemetry.events import EventType
 
 if TYPE_CHECKING:
-    from agentkit.state_backend import ExecutionEventRecord
+    from agentkit.telemetry.contract.records import ExecutionEventRecord
 
 
 def test_ingest_event_persists_canonical_execution_record() -> None:

@@ -15,6 +15,9 @@ defers_to:
   - target: FK-35
     scope: integrity-gate
     reason: Integrity-Gate aggregates hook violation events at closure
+  - target: FK-68
+    scope: telemetry-hook-event-mapping
+    reason: FK-68 §68.3.1 ist Owner fuer EventTypeId-Mapping und Hook-Pfad-zu-Event-Zuordnung (welcher Hook welches Telemetrie-Event emittiert); FK-30 bleibt Owner fuer Hook-Definitionen, Registrierung und Enforcement-Verhalten
 supersedes: []
 superseded_by:
 tags: [hooks, guard-enforcement, pretooluse, posttooluse, fail-closed, worker-health-monitor]
@@ -32,6 +35,61 @@ formal_refs:
   - formal.principal-capabilities.scenarios
   - formal.operating-modes.invariants
   - formal.operating-modes.scenarios
+glossary:
+  exported_terms:
+    - id: capability-enforcement-pipeline
+      definition: >
+        Geordnete Auswertungsreihenfolge im PreToolUse-Hook: Principal-Typ
+        aufloesen, Tool-Aufruf auf operation_class normalisieren, Ziele auf
+        path_class normalisieren, harte Capability-Matrix pruefen,
+        Freeze-Overlay anwenden, offizielle Servicepfade pruefen,
+        Modusregel fuer unbekannte Freigaben anwenden, erst danach CCAG.
+        Reihenfolge ist normativ und nicht variierbar.
+      see_also:
+        - term: guard-system
+          domain: governance-and-guards
+        - term: principal
+          domain: governance-and-guards
+        - term: ccag-permission-runtime
+          domain: governance-and-guards
+    - id: guard-system
+      definition: >
+        Top-Level-Komponente des AgentKit-Governance-Modells, die alle
+        blockierenden oder hart eingreifenden Hook-Bausteine buendelt:
+        Branch-Guard, Orchestrator-Guard, QA-Artefakt-Schutz,
+        QA-Agent-Guard, Adversarial-Guard, Self-Protection-Guard,
+        Story-Creation-Guard, Budget-Guard und Worker-Health-Monitor.
+        Jeder Guard ist als PreToolUse-Hook implementiert; CCAG ist
+        ausdruecklich nicht Teil des GuardSystem.
+      see_also:
+        - term: guard-decision
+          domain: governance-and-guards
+        - term: branch-guard
+          domain: governance-and-guards
+        - term: integrity-gate
+          domain: governance-and-guards
+    - id: hook-enforcement
+      definition: >
+        Plattformseitiger Mechanismus (Claude Code PreToolUse/PostToolUse),
+        der jeden Tool-Call eines Agenten abfaengt. Exit 0 erlaubt, Exit 2
+        blockiert, jeder Crash ist fail-closed blockiert. Hooks sind Teil der
+        Plattform-Infrastruktur — Agenten koennen sie nicht umgehen.
+      see_also:
+        - term: guard-system
+          domain: governance-and-guards
+        - term: guard-decision
+          domain: governance-and-guards
+  internal_terms:
+    - id: preflight-sentinel
+      reason: >
+        Internes Telemetrie-Erkennungsmuster ([PREFLIGHT:...-v1:{story_id}])
+        fuer Pool-Send-Hooks. Implementierungsdetail der Hook-Telemetrie,
+        kein exportierter Vertragstyp.
+    - id: review-sentinel
+      reason: >
+        Internes Telemetrie-Erkennungsmuster ([TEMPLATE:...-v1:{story_id}])
+        fuer Pool-Send-Hooks. Implementierungsdetail der Hook-Telemetrie,
+        kein exportierter Vertragstyp.
 ---
 
 # 30 — Hook-Adapter und Guard-Enforcement
@@ -244,10 +302,32 @@ vorliegen; andernfalls `binding_invalid` bzw. Blockade.
 
 ## 30.3 Hook-Registrierung
 
-### 30.3.1 Settings-Datei
+### 30.3.1 Settings-Datei und Top-Surface `Governance.register_hooks`
+
+**Top-Surface: `Governance.register_hooks(hook_definitions)`**
+
+| Attribut | Wert |
+|----------|------|
+| Aufrufer | Installer (BC 12, FK-50 CP 9) |
+| Eingabe | `hook_definitions: list[HookDefinition]` |
+| Effekt | Schreibt `.claude/settings.json` — Owner: `agentkit.governance.guard_system` |
+| Idempotenz | Ja — bestehende identische Hook-Eintraege werden nicht doppelt eingetragen; veraltete oder abweichende Eintraege werden ueberschrieben |
+| Fehlerverhalten | Fail-closed: kaputtes JSON in `.claude/settings.json` fuehrt zu Exception, kein stilles Weiterlaufen |
+
+`HookDefinition` ist ein typisiertes Pydantic-Modell mit den Feldern
+`hook_event_name` (`"PreToolUse"` | `"PostToolUse"`), `matcher` (str)
+und `command` (str).
+
+Die interne JSON-Manipulation liegt ausschliesslich bei
+`agentkit.governance.guard_system`. Der Installer haelt keinen
+eigenen `.claude/settings.json`-Schreibpfad — er delegiert vollstaendig.
 
 Hooks werden in `.claude/settings.json` registriert. Der Installer
-(Checkpoint 8) schreibt diese Einträge:
+(Checkpoint 8 / FK-50 CP 9) ruft dazu `Governance.register_hooks(hook_definitions)` auf
+(Top-Surface von BC `governance-and-guards`). Die JSON-Manipulation an
+`.claude/settings.json` gehoert zu `agentkit.governance.guard_system`.
+
+Beispiel der eingetragenen Eintraege:
 
 ```json
 {
@@ -421,6 +501,14 @@ Sekunden warten muss, wird unbrauchbar langsam.
 
 ## 30.5 Hook-Kategorien
 
+> **Owner-Hinweis:** FK-30 (governance.guard_system) ist Owner fuer: Hook-Definitionen,
+> Registrierung (`Governance.register_hooks`), Enforcement-Verhalten (Block/Warn/Pass)
+> und `.claude/settings.json`-Schema. Die Zuordnung von Hooks zu Telemetrie-Events
+> (EventTypeId-Mapping, Hook-Pfad-zu-Event-Tabelle) ist Verantwortung von
+> FK-68 §68.3.1 (telemetry-and-events). Aenderungen an Event-Emission-Semantik
+> werden in FK-68 autorisiert; Aenderungen an Enforcement-Entscheidungen werden
+> hier in FK-30 autorisiert.
+
 ### 30.5.1 Guard-Hooks (blockierend)
 
 Entscheiden ob eine Aktion erlaubt oder blockiert wird.
@@ -436,8 +524,29 @@ Immer PreToolUse. Exit 0 oder 2.
 | `adversarial_guard` | Adversarial schreibt außerhalb Sandbox (Story-Execution) | Kap. 31.6 |
 | `self_protection` | Governance-Dateien manipuliert (immer aktiv) | Kap. 30.5.3 |
 | `story_creation_guard` | Direktes `gh issue create` ohne Skill | Kap. 31.5 |
-| `budget` | Web-Calls über Limit (nur Research) | Kap. 68.6 |
+| `budget` | Web-Calls über Limit (nur Research) — Event-Emission: `agentkit.telemetry.hooks`; blockierender Anteil: `agentkit.governance.guard_system.WebCallBudgetGuard` | Kap. 68.6 |
+| `skill_usage_check` | Agent ruft Tool-Methode ad-hoc auf, obwohl ein passender Skill existiert und dessen Voraussetzung erfuellt ist — blockiert Tool-Call, fordert Skill-Aufruf. Sub: `agentkit.governance.guard_system`. Normative Erkennungsregeln (F-43-030): FK-43 §43.6.2. | FK-43 §43.6.2 |
 | `health_monitor pre` | Worker-Stagnation/Loop erkannt (Score-basiert) | §30.10.2 |
+
+### 30.5.1a Klasse `WebCallBudgetGuard` (governance.guard_system)
+
+**Klasse: `agentkit.governance.guard_system.WebCallBudgetGuard`**
+
+| Attribut | Wert |
+|----------|------|
+| Klassenpfad | `agentkit.governance.guard_system.WebCallBudgetGuard` |
+| Verantwortung | Schwellenwert-Pruefung des Web-Call-Counters gegen das konfigurierte Budget-Limit; Block-Aktion (exit 2) bei Ueberschreitung des Hard-Limits fuer Research-Stories |
+| Eingangs-Signal | `web_call`-Event, emittiert von `agentkit.telemetry.hooks.BudgetEventEmitter` (PostToolUse fuer WebSearch/WebFetch) |
+| Konfiguration | Hard-Limit pro Pool/Story: `telemetry.web_call_limit` (Default: 200); Warnschwelle: `telemetry.web_call_warning` (Default: 180) |
+| Scope | Nur Research-Stories (`story_type == "research"`); bei allen anderen Story-Typen: kein Blockieren |
+| Entscheidungslogik | Counter-Lesen aus State-Backend; Count < Warnschwelle → exit 0; Count >= Warnschwelle → exit 0 + Warnung; Count >= Hard-Limit → exit 2 (Blockade) |
+| Trennung | Kein Event-Schreiben — das ist Aufgabe von `BudgetEventEmitter`. `WebCallBudgetGuard` ist ausschliesslich fuer die Blocking-Entscheidung zustaendig |
+
+**Begruendung der Trennung (FK-68 §68.6.0):** Telemetrie-Hooks sind
+rein observational; Blocking-Entscheidungen sind Governance-Verantwortung.
+`BudgetEventEmitter` in `agentkit.telemetry.hooks.budget` schreibt das
+`web_call`-Event ohne Blockieren. `WebCallBudgetGuard` in
+`agentkit.governance.guard_system` liest den Counter und entscheidet.
 
 ### 30.5.2 Telemetrie-Hooks (observational)
 
@@ -536,6 +645,24 @@ Dieser Hook ist **immer aktiv** — unabhängig vom Betriebsmodus
 Governance-Dateien manipulieren.
 
 ## 30.6 Lock-Record-Integration
+
+### 30.6.0 Top-Surface `Governance.deactivate_locks`
+
+**Top-Surface: `Governance.deactivate_locks(story_id)`**
+
+| Attribut | Wert |
+|----------|------|
+| Aufrufer | ClosureSequence (BC 7 / FK-29 §29.5) |
+| Eingabe | `story_id: StoryId` |
+| Effekt | Setzt alle Lock-Records fuer die Story auf inaktiv; entfernt optionale Lock-Exporte (`_temp/governance/locks/{story_id}/qa-lock.json`, `.agent-guard/lock.json` in betroffenen Worktrees); schaltet den Betriebsmodus zurueck auf `ai_augmented` |
+| Owner | `agentkit.governance.guard_system` (Lock-Record-Verwaltung als Sub von guard_system) |
+| Idempotenz | Ja — mehrfaches Aufrufen fuer dieselbe Story-ID hat denselben Effekt wie einmaliges Aufrufen |
+| Fehlerverhalten | Fail-closed bei unbekannter Story-ID: Exception, kein stilles Ignorieren; Closure-Phase darf den Lock nicht "leise vergessen" |
+
+Nach erfolgreichem Postflight ruft ClosureSequence diese Funktion auf.
+Closure selbst haelt keine Lock-Logik — der Aufruf ist ein einzelner
+Delegationsschritt. Ab diesem Punkt sind Branch-Guard, Orchestrator-Guard
+und QA-Schutz inaktiv.
 
 ### 30.6.1 Zustandsabhängige Guards
 

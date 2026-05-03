@@ -31,6 +31,101 @@ supersedes: []
 superseded_by:
 tags: [implementation, worker-loop, handover, incremental-development, review]
 formal_scope: prose-only
+glossary:
+  exported_terms:
+    - id: blocking-category
+      definition: >
+        StrEnum mit vier Werten, der die Ursachenkategorie eines BLOCKED-Worker-Exits
+        klassifiziert: POLICY_CONFLICT (unaufloesbarer Widerspruch zwischen Policies),
+        ENVIRONMENTAL (fehlende externe Voraussetzung), FIXABLE_LOCAL (lokaler Fehler
+        ausserhalb des Worker-Scopes), FIXABLE_CODE (Code-Fehler ausserhalb des
+        Worker-Scopes). Pflichtfeld im worker-manifest bei status BLOCKED.
+      values:
+        - POLICY_CONFLICT
+        - ENVIRONMENTAL
+        - FIXABLE_LOCAL
+        - FIXABLE_CODE
+      see_also:
+        - term: worker-manifest
+          domain: implementation-phase
+    - id: handover-paket
+      definition: >
+        Strukturierte fachliche Uebergabe vom Worker an die Verify-Phase in Form
+        der Datei handover.json. Enthaelt changes_summary, vertikale Inkremente
+        mit Commit-SHAs, Annahmen, vorhandene Tests, QA-Risiken, Drift-Log und
+        AC-Status. Gibt dem QA-Agenten gezielte Ansatzpunkte statt blinder Suche.
+        Pflichtartefakt am Ende jeder Implementation-Phase.
+      see_also:
+        - term: worker-manifest
+          domain: implementation-phase
+        - term: increment
+          domain: implementation-phase
+    - id: increment
+      definition: >
+        Vertikaler Slice der Story-Implementierung, der einen fachlich lauffaehigen
+        Teilstand erzeugt. Jedes Inkrement durchlaeuft den Vier-Schritt-Zyklus
+        (Implementieren, Lokal verifizieren, Drift pruefen, Committen) und wird
+        mit einem Commit-SHA im Handover-Paket festgehalten. Inkremente werden
+        entlang fachlicher Grenzen geschnitten, nicht entlang technischer Schichten.
+    - id: spawn-reason
+      definition: >
+        StrEnum mit drei Werten, der den Grund des Worker-Starts beschreibt:
+        INITIAL (erster Start der Implementation), PAUSED_RETRY (Wiederaufnahme
+        nach PAUSED-Zustand), REMEDIATION (Worker arbeitet Maengelliste aus
+        vorherigem QA-Feedback ab). Wird in core/types.py konsolidiert und
+        steuert, welches Worker-Prompt-Template verwendet wird.
+      values:
+        - INITIAL
+        - PAUSED_RETRY
+        - REMEDIATION
+    - id: worker-health-signal
+      definition: >
+        Das vom Worker-Health-Monitor (FK-49) berechnete und persistierte
+        Gesundheitssignal eines laufenden Worker-Agents. Besteht aus einem
+        deterministischen Score (0-100) auf Basis gewichteter Heuristiken pro
+        Tool-Call sowie dem daraus abgeleiteten Interventionsentscheid
+        (Soft-Intervention oder Hard Stop). Der Score ueberlebt die einzelne
+        Tool-Call-Grenze als persistiertes Artefakt (agent-health.json).
+    - id: worker-manifest
+      definition: >
+        Maschinenlesbares technisches Deklarationsartefakt (worker-manifest.json),
+        das der Worker am Ende der Implementation-Phase erzeugt. Traegt einen
+        von drei Status: COMPLETED (alle ACs adressiert, Build gruen),
+        COMPLETED_WITH_ISSUES (ACs adressiert, bekannte Einschraenkungen),
+        BLOCKED (unaufloesbarer externer Constraint). Bei BLOCKED sind
+        blocking_issue, blocking_category, attempted_remediations und
+        recommended_next_action Pflichtfelder. Wird von Schicht 1 (Structural
+        Check) validiert.
+      values:
+        - COMPLETED
+        - COMPLETED_WITH_ISSUES
+        - BLOCKED
+      see_also:
+        - term: handover-paket
+          domain: implementation-phase
+        - term: blocking-category
+          domain: implementation-phase
+    - id: worker-session
+      definition: >
+        Eine einzelne Claude-Code-Sub-Agent-Ausfuehrungseinheit fuer die
+        Implementation-Phase. Beginnt mit dem Spawn-Protokoll (spawn-reason),
+        erhaelt Worker-Kontext (Story, Guardrails, Entwurfsartefakt, ggf.
+        Maengelliste) und endet entweder mit COMPLETED/BLOCKED-Status im
+        worker-manifest oder durch unerwarteten Abbruch (agent_end fehlt
+        in Telemetrie). Jede Session hat genau ein agent_start- und ein
+        agent_end-Telemetrie-Event.
+      see_also:
+        - term: spawn-reason
+          domain: implementation-phase
+        - term: worker-manifest
+          domain: implementation-phase
+  internal_terms:
+    - id: increment-cycle
+      reason: >
+        Der Vier-Schritt-Zyklus (Implementieren, Lokal verifizieren, Drift
+        pruefen, Committen) ist Implementierungsdetail des Worker-Ablaufs
+        und kein eigenstaendiger Vertragsbestandteil nach aussen. Der
+        exportierte Begriff ist 'increment'.
 ---
 
 # 26 — Implementation-Runtime und Worker-Loop
@@ -357,23 +452,26 @@ Die Templates liegen in `prompts/sparring/`:
 | `review-test-sparring.md` | Test-Sparring (Edge Cases) |
 | `review-synthesis.md` | Synthese über alle bisherigen Reviews |
 
-## 26.5a Review-Versand über Evidence Assembly
+## 26.5a Review-Versand ueber Evidence Assembly
 
-> Ab Version 3.0 wird der Review-Versand des Workers über den
-> Evidence Assembler abgewickelt (CLI: `agentkit evidence assemble`).
+> Ab Version 3.0 wird der Review-Versand des Workers ueber die
+> Komponente `EvidenceAssembler` (`agentkit.verify_system.evidence_assembler`)
+> abgewickelt (CLI: `agentkit evidence assemble`).
 > Der Worker kuratiert keine `merge_paths` mehr selbst; das
 > deterministisch assemblierte BundleManifest liefert die
-> `merge_paths` für den Review-Versand. Details: **FK-28**.
+> `merge_paths` fuer den Review-Versand. Details: **FK-28**.
 
 ## 26.5b Preflight-Turn im Review-Flow
 
-> Vor dem eigentlichen Review läuft ein Pflicht-Preflight-Turn,
-> in dem das Review-LLM über die Request-DSL fehlenden Kontext
+> Vor dem eigentlichen Review laeuft ein Pflicht-Preflight-Turn,
+> in dem das Review-LLM ueber die Request-DSL fehlenden Kontext
 > nachfordern darf (max 8 strukturierte Requests). Der
 > Preflight-Sentinel `[PREFLIGHT:review-preflight-v1:{story_id}]`
 > ist bewusst vom Review-Sentinel `[TEMPLATE:...]` getrennt.
 > Telemetrie-Events: `preflight_request`, `preflight_response`,
-> `preflight_compliant`. Details: **FK-47**.
+> `preflight_compliant`. Die `EvidenceAssembler`-Schnittstelle
+> (`agentkit.verify_system.evidence_assembler`) ist normativ in
+> **FK-28** beschrieben. Details: **FK-47**.
 
 ## 26.6 Finaler Build und Gesamttest
 
@@ -631,6 +729,11 @@ Structural Checks validieren: Red Phase (exit != 0), Green Phase
 
 ## 26.10 Telemetrie der Implementation-Phase
 
+Die folgenden Events werden von der Implementation-Phase ausgeloest.
+Schema-Owner und EventTypeId-Registrierung liegen in BC 9
+(telemetry-and-events); kein Prefix-Konflikt mit implementation-phase.
+Die Tabelle dokumentiert die fachlichen Erwartungswerte pro Story-Lauf.
+
 | Event | Wann | Erwartungswert |
 |-------|------|---------------|
 | `agent_start` (subagent_type: worker) | Worker-Start | Genau 1 |
@@ -638,9 +741,9 @@ Structural Checks validieren: Red Phase (exit != 0), Green Phase
 | `drift_check` | Pro Inkrement | >= 1 |
 | `review_request` | Bei Review-Punkt | Mindestens 1 pro Story |
 | `review_response` | Nach Review | = Anzahl review_request |
-| `review_compliant` | Review über Template | = Anzahl review_request |
+| `review_compliant` | Review ueber Template | = Anzahl review_request |
 | `llm_call` (role: Worker-Review) | Bei Pool-Send | = Anzahl review_request |
-| `worker_health_score` | Bei Score-Berechnung (PostToolUse) | >= 0 (nur bei aktivem Health-Monitor) |
+| `worker_health_score` | Bei Score-Berechnung (PostToolUse) | >= 0 |
 | `worker_health_intervention` | Bei Soft-Intervention oder Hard Stop | 0 oder 1 |
 | `agent_end` (subagent_type: worker) | Worker beendet | Genau 1 |
 
@@ -659,30 +762,40 @@ Wenn der Worker abstürzt oder die Claude-Code-Session beendet wird:
 
 ### 26.11.2 Worker meldet BLOCKED (REF-042)
 
-Wenn der Worker auf eine unlösbare Constraint-Kollision stösst
+Wenn der Worker auf eine unloesbare Constraint-Kollision stoesst
 (z.B. Hook-Barriere, fehlende Dependency, Policy-Widerspruch),
-kann er über den Status `BLOCKED` im `worker-manifest.json`
+kann er ueber den Status `BLOCKED` im `worker-manifest.json`
 sauber eskalieren:
 
 1. Worker erkennt, dass die Aufgabe unter den aktuellen
-   Constraints nicht erfüllbar ist
+   Constraints nicht erfuellbar ist
 2. Worker schreibt `worker-manifest.json` mit
    `status: "BLOCKED"` und allen Pflichtfeldern (§26.8.2)
-3. Phase Runner erkennt `status: BLOCKED` und setzt
-   `PhaseStatus.ESCALATED` mit
-   `escalation_reason: "worker_blocked"`
-4. Blocker-Details (`blocking_issue`, `blocking_category`,
-   `recommended_next_action`) werden in den Phase-State
-   kopiert
-5. Der Orchestrator kann gezielt reagieren — z.B. den Hook
+3. `ImplementationHandler` (`agentkit.implementation`) liest
+   `worker-manifest.json`, erkennt `status: BLOCKED` und gibt
+   `HandlerResult.ESCALATED` zurueck
+4. `PhaseExecutor` (`agentkit.pipeline_engine.phase_executor`)
+   empfaengt `HandlerResult.ESCALATED` und setzt den
+   Phase-State auf `PhaseStatus.ESCALATED` mit
+   `escalation_reason: "worker_blocked"` — generisch,
+   ohne implementation-phase-spezifische Logik
+5. Blocker-Details (`blocking_issue`, `blocking_category`,
+   `recommended_next_action`) liegen im `HandlerResult`
+   und werden vom `PhaseExecutor` in den Phase-State
+   uebernommen
+6. Der Orchestrator kann gezielt reagieren — z.B. den Hook
    anpassen, eine Ausnahme konfigurieren oder einen
    spezialisierten Fix-Worker spawnen
 
-**Phase-Runner-Verhalten:** `_phase_implementation()` prüft
-nach Worker-Completion das `worker-manifest.json`. Bei
-`status: BLOCKED` wird der Phase-Status auf
-`PhaseStatus.ESCALATED` gesetzt, nicht auf FAILED. Die
-`suggested_reaction` enthält die Blocker-Details:
+**Grenze BC 6 / BC 1:** `ImplementationHandler` erkennt den
+fachlichen BLOCKED-Zustand und signalisiert ihn als
+`HandlerResult.ESCALATED`. Den Re-Run-Mechanismus und die
+generische Phase-Zustandssteuerung verantwortet ausschliesslich
+`PhaseExecutor` (BC 1 — pipeline-framework). Implementation-phase
+modelliert keinen Re-Run-Mechanismus.
+
+**HandlerResult-Payload:** Die `suggested_reaction` enthaelt
+die Blocker-Details:
 
 ```json
 {

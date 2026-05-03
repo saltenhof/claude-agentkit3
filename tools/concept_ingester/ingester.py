@@ -12,17 +12,14 @@ by ``content_hash`` (chunks) / per-term hash (glossary terms).
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Iterator
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 import weaviate
-
 from tools.concept_ingester.config import IngesterConfig
 from tools.concept_ingester.discovery import (
     ConceptChunk,
-    DiscoveryResult,
     GlossaryTerm,
     discover,
 )
@@ -34,11 +31,13 @@ from tools.concept_ingester.schema import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from weaviate import WeaviateClient
     from weaviate.collections.collection import Collection
 
 
-class IngestStrategy(str, Enum):
+class IngestStrategy(StrEnum):
     FULL = "full"
     DELTA = "delta"
 

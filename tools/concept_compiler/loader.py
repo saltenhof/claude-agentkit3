@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
 from agentkit.exceptions import AgentKitError
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 FORMAL_SPEC_BEGIN = "<!-- FORMAL-SPEC:BEGIN -->"
 FORMAL_SPEC_END = "<!-- FORMAL-SPEC:END -->"

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from agentkit.state_backend import (
+from agentkit.state_backend.store import (
     load_execution_events_global,
     load_flow_execution_global,
     load_latest_story_metrics_global,
@@ -17,9 +17,10 @@ from agentkit.state_backend import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
     from agentkit.phase_state_store.models import FlowExecution
-    from agentkit.state_backend import ExecutionEventRecord, StoryMetricsRecord
     from agentkit.story_context_manager.models import PhaseState, StoryContext
+    from agentkit.telemetry.contract.records import ExecutionEventRecord
 
 
 def _load_recent_execution_events(

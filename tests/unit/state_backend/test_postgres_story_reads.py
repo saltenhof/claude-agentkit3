@@ -1,39 +1,61 @@
+"""Unit tests for postgres global-read functions via the store facade.
+
+Tests monkeypatch ``postgres_store._connect_global`` to inject fake row data
+and then verify the full mapping chain (driver row → mapper → BC-Record) by
+calling the public facade functions.
+"""
+
 from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
+import pytest
+
+from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
 from agentkit.phase_state_store.models import FlowExecution
-from agentkit.state_backend import ExecutionEventRecord, postgres_store
-from agentkit.state_backend.records import StoryMetricsRecord
+from agentkit.state_backend import postgres_store
+from agentkit.state_backend.store import facade
 from agentkit.story_context_manager.models import PhaseState, StoryContext
+from agentkit.telemetry.contract.records import ExecutionEventRecord
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 
 class _FakeResult:
-    def __init__(self, rows):
+    def __init__(self, rows: list[Any]) -> None:
         self._rows = rows
 
-    def fetchone(self):
+    def fetchone(self) -> Any:
         return self._rows[0] if self._rows else None
 
-    def fetchall(self):
+    def fetchall(self) -> list[Any]:
         return self._rows
 
 
 class _FakeConnection:
-    def __init__(self, rows):
+    def __init__(self, rows: list[Any]) -> None:
         self.rows = rows
 
-    def execute(self, query: str, params=()):
+    def execute(self, query: str, params: object = ()) -> _FakeResult:
         return _FakeResult(self.rows)
 
 
 @contextmanager
-def _fake_global(rows):
+def _fake_global(rows: list[Any]) -> Generator[_FakeConnection, None, None]:
     yield _FakeConnection(rows)
 
 
-def test_load_story_context_global_reads_single_payload(monkeypatch) -> None:
+@pytest.fixture(autouse=True)
+def _use_postgres_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Force postgres backend and clear the facade LRU cache for every test."""
+    monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "postgres")
+    facade.reset_backend_cache_for_tests()
+
+
+def test_load_story_context_global_reads_single_payload(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         postgres_store,
         "_connect_global",
@@ -50,14 +72,14 @@ def test_load_story_context_global_reads_single_payload(monkeypatch) -> None:
         ),
     )
 
-    record = postgres_store.load_story_context_global("tenant-a", "AG3-100")
+    record = facade.load_story_context_global("tenant-a", "AG3-100")
 
     assert isinstance(record, StoryContext)
     assert record.story_id == "AG3-100"
     assert record.title == "Story 100"
 
 
-def test_load_story_contexts_global_reads_multiple_payloads(monkeypatch) -> None:
+def test_load_story_contexts_global_reads_multiple_payloads(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         postgres_store,
         "_connect_global",
@@ -81,12 +103,12 @@ def test_load_story_contexts_global_reads_multiple_payloads(monkeypatch) -> None
         ),
     )
 
-    records = postgres_store.load_story_contexts_global("tenant-a")
+    records = facade.load_story_contexts_global("tenant-a")
 
     assert [record.story_id for record in records] == ["AG3-100", "AG3-101"]
 
 
-def test_load_phase_state_global_reads_payload(monkeypatch) -> None:
+def test_load_phase_state_global_reads_payload(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         postgres_store,
         "_connect_global",
@@ -102,13 +124,13 @@ def test_load_phase_state_global_reads_payload(monkeypatch) -> None:
         ),
     )
 
-    record = postgres_store.load_phase_state_global("AG3-100")
+    record = facade.load_phase_state_global("AG3-100")
 
     assert isinstance(record, PhaseState)
     assert record.phase == "implementation"
 
 
-def test_load_flow_execution_global_reads_row(monkeypatch) -> None:
+def test_load_flow_execution_global_reads_row(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         postgres_store,
         "_connect_global",
@@ -132,14 +154,14 @@ def test_load_flow_execution_global_reads_row(monkeypatch) -> None:
         ),
     )
 
-    record = postgres_store.load_flow_execution_global("tenant-a", "AG3-100")
+    record = facade.load_flow_execution_global("tenant-a", "AG3-100")
 
     assert isinstance(record, FlowExecution)
     assert record.run_id == "run-100"
     assert record.status == "RUNNING"
 
 
-def test_load_latest_story_metrics_global_reads_row(monkeypatch) -> None:
+def test_load_latest_story_metrics_global_reads_row(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         postgres_store,
         "_connect_global",
@@ -169,13 +191,13 @@ def test_load_latest_story_metrics_global_reads_row(monkeypatch) -> None:
         ),
     )
 
-    record = postgres_store.load_latest_story_metrics_global("tenant-a", "AG3-100")
+    record = facade.load_latest_story_metrics_global("tenant-a", "AG3-100")
 
     assert isinstance(record, StoryMetricsRecord)
     assert record.final_status == "DONE"
 
 
-def test_load_execution_events_global_reads_latest_subset(monkeypatch) -> None:
+def test_load_execution_events_global_reads_latest_subset(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         postgres_store,
         "_connect_global",
@@ -213,7 +235,7 @@ def test_load_execution_events_global_reads_latest_subset(monkeypatch) -> None:
         ),
     )
 
-    records = postgres_store.load_execution_events_global(
+    records = facade.load_execution_events_global(
         "tenant-a",
         "AG3-100",
         run_id="run-100",

@@ -28,6 +28,38 @@ supersedes: []
 superseded_by:
 tags: [story-contracts, classification, combinations, terminality, fail-closed]
 prose_anchor_policy: strict
+glossary:
+  exported_terms:
+    - id: terminal-state
+      definition: >
+        Konsolidierte Ergebnisachse einer Story: Open (nicht terminal),
+        Done (erfolgreich geliefert) oder Cancelled (nicht geliefert,
+        administrativ beendet). Cancelled darf nicht durch normale
+        Closure entstehen, sondern nur durch Split, Reset oder Exit.
+      values: [Open, Done, Cancelled]
+      see_also:
+        - term: exit-class
+          domain: story-lifecycle
+        - term: terminality
+          domain: story-lifecycle
+    - id: vertragsachsen-matrix
+      definition: >
+        Konsolidierter Schnitt zwischen persistenten Vertragsachsen
+        (story_type, implementation_contract), abgeleiteten
+        Laufzeitachsen (operating_mode, execution_route) und
+        Ergebnisachsen (terminal_state, exit_class). Normiert gueltigen
+        und ungueltigen Achsenkombinationen; alleiniger Owner FK-59.
+      see_also:
+        - term: story-type
+          domain: story-lifecycle
+        - term: implementation-contract
+          domain: story-lifecycle
+        - term: operating-mode
+          domain: story-lifecycle
+        - term: execution-route
+          domain: story-lifecycle
+        - term: terminal-state
+          domain: story-lifecycle
 formal_refs:
   - formal.story-contracts.entities
   - formal.story-contracts.state-machine

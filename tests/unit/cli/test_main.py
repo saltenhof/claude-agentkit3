@@ -156,7 +156,7 @@ class TestCLIMain:
             captured["keyfile"] = str(keyfile) if keyfile is not None else None
 
         monkeypatch.setattr(
-            "agentkit.control_plane.serve_control_plane",
+            "agentkit.control_plane.http.serve_control_plane",
             fake_serve_control_plane,
         )
 

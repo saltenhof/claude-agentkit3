@@ -6,10 +6,13 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from agentkit.exceptions import CorruptStateError
-from agentkit.state_backend import (
+from agentkit.qa.policy_engine.projections import verify_decision_passed
+from agentkit.state_backend.paths import (
     CONTEXT_EXPORT_FILE,
     PHASE_STATE_EXPORT_FILE,
     VERIFY_DECISION_FILE,
+)
+from agentkit.state_backend.store import (
     backend_has_completed_snapshot,
     backend_has_structural_artifact,
     backend_has_structural_artifact_for_scope,
@@ -20,7 +23,6 @@ from agentkit.state_backend import (
     read_phase_state_record,
     resolve_runtime_scope,
 )
-from agentkit.state_backend.exports import verify_decision_passed
 from agentkit.story_context_manager.types import StoryType
 
 if TYPE_CHECKING:

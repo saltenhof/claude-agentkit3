@@ -55,6 +55,48 @@ formal_refs:
   - formal.story-workflow.invariants
   - formal.story-workflow.scenarios
   - formal.story-reset.invariants
+glossary:
+  exported_terms:
+    - id: edge-rule
+      definition: >
+        Gerichtete Kante zwischen zwei Knoten in einer FlowDefinition.
+        Definiert Quelle, Ziel, optionale Guard-Bedingung und Prioritaet.
+        Nur die erste passende Kante nach Prioritaet wird bei einer
+        Fallunterscheidung ausgefuehrt.
+    - id: execution-policy
+      definition: >
+        Wiederholungs- und Skip-Semantik eines Knotens in der
+        Prozess-DSL. Erlaubte Werte: ALWAYS, ONCE_PER_RUN,
+        ONCE_PER_STORY, UNTIL_SUCCESS, SKIP_AFTER_SUCCESS. Steuert
+        zusammen mit dem persistierten Execution-Ledger, ob ein Knoten
+        bei erneutem Durchlauf erneut ausgefuehrt wird.
+      values: [ALWAYS, ONCE_PER_RUN, ONCE_PER_STORY, UNTIL_SUCCESS, SKIP_AFTER_SUCCESS]
+    - id: flow-definition
+      definition: >
+        Vollstaendiger Ablaufvertrag einer Pipeline, Phase oder
+        Komponente in der hierarchischen Prozess-DSL. Enthaelt
+        flow_id, level (pipeline | phase | component), owner,
+        Knoten (NodeDefinition), Kanten (EdgeRule) und Hooks.
+        Modelliert Kontrollfluss ohne Fachinhalt.
+    - id: node-definition
+      definition: >
+        Knoten im Ablaufgraph einer FlowDefinition. Traegt node_id,
+        kind (step | gate | yield | branch | subflow), handler_ref,
+        ExecutionPolicy und OverridePolicy. Atomare Ausfuehrungseinheit
+        der hierarchischen Prozess-DSL.
+    - id: phase-transition
+      definition: >
+        Gesteuerter Wechsel von einer Pipeline-Phase in eine andere.
+        Wird ausschliesslich von der Engine nach Graphen- und
+        Status-Validierung sowie semantischen Preconditions ausgefuehrt
+        (Phase-Transition-Enforcement, FK-45). Unerlaubte Uebergaenge
+        fuehren unmittelbar zu ESCALATED.
+    - id: retry-policy
+      definition: >
+        Begrenzung und Ziel von Wiederholungen fuer einen Knoten oder
+        eine Rueckkante. Enthaelt max_attempts, backtrack_target und
+        cooldown_policy. Wird zusammen mit dem persistierten Zaehler im
+        Phase-State ausgewertet; nie ad hoc im Handler.
 ---
 
 # 20 — Workflow-Engine und State Machine
@@ -86,7 +128,7 @@ deterministische Laufzeitimplementierung.
 | `SetupPhase`, `ExplorationPhase`, `ImplementationPhase`, `VerifyPhase`, `ClosurePhase` | Subkomponenten der `PipelineEngine` | Innere Fachlogik je Phase |
 | `PreflightChecker`, `ModeResolver` | Subkomponenten von `SetupPhase` | Vorbedingungen und Modusermittlung |
 | `StructuralChecker`, `PolicyEngine` | Subkomponenten von `VerifyPhase` | Layer-1-Pruefung und finale Aggregation |
-| `IntegrityGate` | Subkomponente von `ClosurePhase` | Vorbedingung fuer Merge/Abschluss |
+| `IntegrityGate` | Sub von `agentkit.governance.integrity_gate` (BC governance-and-guards); wird von `ClosurePhase` aufgerufen | Vorbedingung fuer Merge/Abschluss |
 
 **Abgrenzung:** Der vollstaendige Story-Reset ist **keine**
 Subkomponente der `PipelineEngine`. Er ist eine separate
@@ -214,7 +256,7 @@ administrativ und schafft einen neuen sauberen Startzustand.
 ### 20.1.6 Evolution der bestehenden Workflow-DSL
 
 Die bereits implementierte Workflow-DSL unter
-`agentkit.process.language` ist die **erste Auspraegung** der
+`agentkit.pipeline_engine.flow_orchestrator` ist die **erste Auspraegung** der
 hierarchischen Prozess-DSL und wird nicht verworfen, sondern
 verallgemeinert.
 
@@ -645,7 +687,22 @@ Project Board liest und eine freigegebene Story auswählt. Das ist
 eine Agent-Entscheidung, die im Orchestrator-Prompt beschrieben
 wird, kein deterministischer Mechanismus.
 
-### 20.8.2 Parallelisierung
+### 20.8.2 Orchestrator-Vertrag: ExecutionPlanning vor Story-Start
+
+**Normative Regel (FK-70 §70.8):** `PipelineEngine` MUSS
+`ExecutionPlanning.evaluate_scheduling` vor jedem Story-Start aufrufen.
+`PipelineEngine` greift nicht selbststaendig in den Backlog; sie konsumiert
+ausschliesslich die Top-Surface von `ExecutionPlanning` und ist
+transport-agnostisch gegenueber der Scheduling-Logik.
+
+`ExecutionPlanning.evaluate_scheduling` prueft Abhaengigkeiten,
+Bereitschaftsstatus und Scheduling-Policy und liefert das Ergebnis zurueck
+(bereit / blockiert / defer). Erst bei `READY` startet `PipelineEngine`
+den Setup-Lauf fuer die Story.
+
+Querverweise: FK-70 §70.8 (ExecutionPlanning-Top-Surface).
+
+### 20.8.3 Parallelisierung
 
 Mehrere Stories können parallel bearbeitet werden (FK-10 §10.5.1):
 - Jede Implementation/Bugfix-Story hat eigenen Worktree, eigene Telemetrie, eigene Locks. Concept/Research-Stories arbeiten direkt auf main (kein Worktree/Branch, §20.2.3).

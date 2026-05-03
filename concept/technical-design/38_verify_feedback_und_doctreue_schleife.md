@@ -40,6 +40,38 @@ supersedes: []
 superseded_by:
 tags: [verify, feedback-loop, doc-fidelity, fidelity-impl, fidelity-feedback, remediation]
 prose_anchor_policy: strict
+glossary:
+  exported_terms:
+    - id: finding
+      definition: >
+        Konkreter Mängelbefund aus einem Verify-Schicht-Ergebnis. Trägt source
+        (structural | qa_review | semantic_review | doc_fidelity | adversarial |
+        adversarial_mandatory_target), check_id, status, detail/reason/description.
+        Wird in feedback.json gesammelt und dem Remediation-Worker als Input übergeben.
+      see_also:
+        - term: remediation-loop
+          domain: verify-system
+        - term: finding-resolution
+          domain: verify-system
+    - id: remediation-loop
+      definition: >
+        Konfigurierter Zyklus (max_feedback_rounds, Default: 3) von
+        Verify-FAIL → Worker-Remediation → erneutem Verify. Bei Erschöpfung
+        der Runden eskaliert die Pipeline (ESCALATED). Der Zähler
+        (feedback_rounds) lebt in PhaseMemory.verify.feedback_rounds und wird
+        ausschliesslich von der Engine beim Phasenwechsel verify → implementation
+        inkrementiert.
+      see_also:
+        - term: qa-cycle
+          domain: verify-system
+        - term: finding
+          domain: verify-system
+  internal_terms:
+    - id: feedback-json
+      reason: >
+        Laufzeit-Artefakt (_temp/qa/{story_id}/feedback.json) mit der
+        Mängelliste für den Remediation-Worker; kein exportierter Vertragstyp,
+        sondern Input-Konvention für FK-26.
 formal_refs:
   - formal.verify.commands
   - formal.verify.events

@@ -212,6 +212,7 @@ bounded_contexts:
       - FactSchema
       - Rollup
       - DashboardView
+      - ControlPlaneDesignSystem
 
   - id: failure-corpus
     responsibility: >

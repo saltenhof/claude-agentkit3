@@ -25,6 +25,37 @@ supersedes: []
 superseded_by:
 tags: [conformance, document-fidelity, llm-evaluation, strategy-compliance, drift-detection]
 prose_anchor_policy: strict
+glossary:
+  exported_terms:
+    - id: conformance-verdict
+      definition: >
+        Ergebnis einer Dokumententreue-Prüfung durch den ConformanceService.
+        Mögliche Ausprägungen: PASS, PASS_WITH_CONCERNS, FAIL. Produziert via
+        StructuredEvaluator (LLM-basiert). Tier-3-Blockade (Payload >= 500 KB)
+        liefert sofortiges FAIL ohne LLM-Aufruf.
+      values: [PASS, PASS_WITH_CONCERNS, FAIL]
+      see_also:
+        - term: fidelity-level
+          domain: verify-system
+    - id: fidelity-level
+      definition: >
+        Eine der vier Konformitaetsprüfungsebenen des ConformanceService.
+        Zieltreue (Story-Erstellung), Entwurfstreue (nach Exploration),
+        Umsetzungstreue (Verify Schicht 2), Rückkopplungstreue (nach Merge).
+        Jede Ebene hat eigenen Trigger, eigenen Input und eigenes Blocking-Verhalten.
+      values: [goal, design, impl, feedback]
+      see_also:
+        - term: conformance-verdict
+          domain: verify-system
+  internal_terms:
+    - id: manifest-indexer
+      reason: >
+        Infrastruktur-Komponente zur Identifikation von Referenzdokumenten;
+        kein exportierter Vertragstyp, nur kuratierte Datei im Zielprojekt.
+    - id: prompt-groessenkontrolle-drei-tier
+      reason: >
+        Implementierungsdetail des ConformanceService (Inline < 50 KB,
+        Datei-Upload 50-500 KB, Blockade >= 500 KB); kein exportierter Vertragstyp.
 formal_refs:
   - formal.conformance.entities
   - formal.conformance.state-machine
@@ -53,9 +84,9 @@ läuft sie über den StructuredEvaluator (Kap. 11) — ein
 deterministisches Python-Skript ruft ein LLM über den Browser-Pool
 auf und validiert die Antwort.
 
-**Architekturzuordnung:** Der `ConformanceService` ist im
-Komponentenmodell eine eigenstaendige Top-Level-Komponente. Er ist
-bewusst keiner einzelnen Phase untergeordnet, weil seine vier
+**Architekturzuordnung:** Der `ConformanceService` ist eine
+Subkomponente von `VerifySystem` (`agentkit.verify_system.conformance_service`).
+Er ist bewusst keiner einzelnen Phase untergeordnet, weil seine vier
 Conformance-Ebenen von Story-Erstellung, Exploration, Verify und
 Closure genutzt werden.
 

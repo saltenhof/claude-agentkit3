@@ -6,13 +6,14 @@ import json
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path  # noqa: TCH003 — used at runtime by tmp_path fixture type
+from typing import TYPE_CHECKING
 
 import pytest
 
+from agentkit.boundary.filesystem import atomic_write_json
 from agentkit.exceptions import CorruptStateError
 from agentkit.pipeline.state import (
     AttemptRecord,
-    atomic_write_json,
     load_attempts,
     load_json_safe,
     load_phase_snapshot,
@@ -33,9 +34,12 @@ from agentkit.story_context_manager.models import (
 )
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
+if TYPE_CHECKING:
+    from collections.abc import Generator
+
 
 @pytest.fixture(autouse=True)
-def sqlite_backend_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def sqlite_backend_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
     monkeypatch.setenv(ALLOW_SQLITE_ENV, "1")
     reset_backend_cache_for_tests()

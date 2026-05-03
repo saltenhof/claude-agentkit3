@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import UTC, datetime
+from pathlib import Path
 
 from agentkit.qa.protocols import LayerResult, Severity, TrustClass
 from agentkit.qa.structural.checks import (
@@ -13,12 +14,12 @@ from agentkit.qa.structural.checks import (
     check_no_corrupt_state,
     check_phase_snapshots,
 )
-from agentkit.state_backend import (
+from agentkit.state_backend.paths import state_db_path
+from agentkit.state_backend.store import (
     record_layer_artifacts,
     save_phase_snapshot,
     save_phase_state,
     save_story_context,
-    state_db_path,
 )
 from agentkit.story_context_manager.models import (
     PhaseSnapshot,
@@ -29,15 +30,13 @@ from agentkit.story_context_manager.models import (
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 
-def _story_dir(root: object, story_id: str = "TEST-001"):
-    from pathlib import Path
-
+def _story_dir(root: object, story_id: str = "TEST-001") -> Path:
     story_dir = Path(str(root)) / "stories" / story_id
     story_dir.mkdir(parents=True, exist_ok=True)
     return story_dir
 
 
-def _save_context(story_dir) -> None:
+def _save_context(story_dir: Path) -> None:
     save_story_context(
         story_dir,
         StoryContext(
@@ -50,7 +49,7 @@ def _save_context(story_dir) -> None:
     )
 
 
-def _save_snapshot(story_dir, phase: str) -> None:
+def _save_snapshot(story_dir: Path, phase: str) -> None:
     save_phase_snapshot(
         story_dir,
         PhaseSnapshot(
@@ -65,12 +64,12 @@ def _save_snapshot(story_dir, phase: str) -> None:
 
 
 class TestCheckContextExists:
-    def test_context_present_returns_none(self, tmp_path: object) -> None:
+    def test_context_present_returns_none(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         _save_context(story_dir)
         assert check_context_exists(story_dir) is None
 
-    def test_context_missing_returns_critical_finding(self, tmp_path: object) -> None:
+    def test_context_missing_returns_critical_finding(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         finding = check_context_exists(story_dir)
         assert finding is not None
@@ -80,12 +79,12 @@ class TestCheckContextExists:
 
 
 class TestCheckContextValid:
-    def test_valid_context_returns_none(self, tmp_path: object) -> None:
+    def test_valid_context_returns_none(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         _save_context(story_dir)
         assert check_context_valid(story_dir) is None
 
-    def test_corrupt_context_returns_finding(self, tmp_path: object) -> None:
+    def test_corrupt_context_returns_finding(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         _save_context(story_dir)
         with sqlite3.connect(state_db_path(story_dir)) as conn:
@@ -96,13 +95,13 @@ class TestCheckContextValid:
         assert finding.severity == Severity.CRITICAL
         assert finding.check == "context_valid"
 
-    def test_missing_context_returns_none(self, tmp_path: object) -> None:
+    def test_missing_context_returns_none(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         assert check_context_valid(story_dir) is None
 
 
 class TestCheckPhaseSnapshots:
-    def test_all_present_returns_empty(self, tmp_path: object) -> None:
+    def test_all_present_returns_empty(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         _save_context(story_dir)
         for phase in ["setup", "implementation"]:
@@ -110,7 +109,7 @@ class TestCheckPhaseSnapshots:
         result = check_phase_snapshots(story_dir, ["setup", "implementation"])
         assert result == []
 
-    def test_one_missing_returns_one_finding(self, tmp_path: object) -> None:
+    def test_one_missing_returns_one_finding(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         _save_context(story_dir)
         _save_snapshot(story_dir, "setup")
@@ -119,7 +118,7 @@ class TestCheckPhaseSnapshots:
         assert result[0].severity == Severity.HIGH
         assert "implementation" in result[0].message
 
-    def test_all_missing_returns_finding_per_phase(self, tmp_path: object) -> None:
+    def test_all_missing_returns_finding_per_phase(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         _save_context(story_dir)
         result = check_phase_snapshots(
@@ -130,7 +129,7 @@ class TestCheckPhaseSnapshots:
 
 
 class TestCheckArtifactsPresent:
-    def test_all_present_returns_empty(self, tmp_path: object) -> None:
+    def test_all_present_returns_empty(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         (story_dir / "protocol.md").write_text("protocol")
         (story_dir / "manifest.json").write_text("{}")
@@ -139,7 +138,7 @@ class TestCheckArtifactsPresent:
 
     def test_canonical_runtime_artifact_uses_record_presence(
         self,
-        tmp_path: object,
+        tmp_path: Path,
     ) -> None:
         story_dir = _story_dir(tmp_path)
         _save_context(story_dir)
@@ -153,7 +152,7 @@ class TestCheckArtifactsPresent:
         result = check_artifacts_present(story_dir, ["structural.json"])
         assert result == []
 
-    def test_missing_artifact_returns_finding(self, tmp_path: object) -> None:
+    def test_missing_artifact_returns_finding(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         result = check_artifacts_present(story_dir, ["protocol.md"])
         assert len(result) == 1
@@ -162,11 +161,11 @@ class TestCheckArtifactsPresent:
 
 
 class TestCheckNoCorruptState:
-    def test_no_state_file_returns_none(self, tmp_path: object) -> None:
+    def test_no_state_file_returns_none(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         assert check_no_corrupt_state(story_dir) is None
 
-    def test_valid_state_returns_none(self, tmp_path: object) -> None:
+    def test_valid_state_returns_none(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         _save_context(story_dir)
         save_phase_state(
@@ -179,7 +178,7 @@ class TestCheckNoCorruptState:
         )
         assert check_no_corrupt_state(story_dir) is None
 
-    def test_corrupt_state_returns_finding(self, tmp_path: object) -> None:
+    def test_corrupt_state_returns_finding(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         _save_context(story_dir)
         save_phase_state(

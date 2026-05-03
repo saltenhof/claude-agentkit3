@@ -18,7 +18,7 @@ from agentkit.pipeline.phases.closure.execution_report import (
     write_execution_report,
 )
 from agentkit.pipeline.phases.closure.metrics import build_story_metrics_record
-from agentkit.state_backend import (
+from agentkit.state_backend.store import (
     load_phase_snapshot,
     save_story_context,
     upsert_story_metrics,

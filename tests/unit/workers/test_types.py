@@ -16,9 +16,9 @@ class TestSpawnReason:
         }
 
     def test_string_values(self) -> None:
-        assert SpawnReason.INITIAL == "initial"
-        assert SpawnReason.PAUSED_RETRY == "paused_retry"
-        assert SpawnReason.REMEDIATION == "remediation"
+        assert SpawnReason.INITIAL.value == "initial"
+        assert SpawnReason.PAUSED_RETRY.value == "paused_retry"
+        assert SpawnReason.REMEDIATION.value == "remediation"
 
     def test_is_str_subclass(self) -> None:
         assert isinstance(SpawnReason.INITIAL, str)

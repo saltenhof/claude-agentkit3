@@ -9,20 +9,17 @@ import pytest
 
 from agentkit.phase_state_store.models import FlowExecution
 from agentkit.pipeline.phases.verify.cycle import VerifyCycle
-from agentkit.state_backend import (
-    save_flow_execution,
-    save_phase_snapshot,
-    save_story_context,
-)
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import reset_backend_cache_for_tests
-
-if TYPE_CHECKING:
-    from pathlib import Path
 from agentkit.qa.adversarial.challenger import AdversarialChallenger
 from agentkit.qa.evaluators.reviewer import SemanticReviewer
 from agentkit.qa.policy_engine.engine import PolicyEngine
 from agentkit.qa.structural.checker import StructuralChecker
+from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.state_backend.store import (
+    reset_backend_cache_for_tests,
+    save_flow_execution,
+    save_phase_snapshot,
+    save_story_context,
+)
 from agentkit.story_context_manager.models import (
     PhaseSnapshot,
     PhaseStatus,
@@ -30,9 +27,15 @@ from agentkit.story_context_manager.models import (
 )
 from agentkit.story_context_manager.types import StoryMode, StoryType, get_profile
 
+if TYPE_CHECKING:
+    from collections.abc import Generator
+    from pathlib import Path
+
+    from agentkit.qa.protocols import QALayer
+
 
 @pytest.fixture(autouse=True)
-def sqlite_backend_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def sqlite_backend_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
     monkeypatch.setenv(ALLOW_SQLITE_ENV, "1")
     reset_backend_cache_for_tests()
@@ -104,7 +107,7 @@ class TestVerifyCycle:
     def test_all_layers_pass_returns_pass(self, tmp_path: Path) -> None:
         story_dir = _setup_complete_story_dir(tmp_path)
         ctx = _make_context()
-        layers = [StructuralChecker(), SemanticReviewer(), AdversarialChallenger()]
+        layers: list[QALayer] = [StructuralChecker(), SemanticReviewer(), AdversarialChallenger()]
         engine = PolicyEngine()
         cycle = VerifyCycle(layers=layers, policy_engine=engine)
 
@@ -116,7 +119,7 @@ class TestVerifyCycle:
     def test_structural_fail_returns_fail_with_feedback(self, tmp_path: Path) -> None:
         # No artifacts at all -> structural fails
         ctx = _make_context()
-        layers = [StructuralChecker(), SemanticReviewer(), AdversarialChallenger()]
+        layers: list[QALayer] = [StructuralChecker(), SemanticReviewer(), AdversarialChallenger()]
         engine = PolicyEngine()
         cycle = VerifyCycle(layers=layers, policy_engine=engine)
 
@@ -129,7 +132,7 @@ class TestVerifyCycle:
         """When structural fails but semantic and adversarial pass,
         the overall result is FAIL because structural produces blockers."""
         ctx = _make_context()
-        layers = [StructuralChecker(), SemanticReviewer(), AdversarialChallenger()]
+        layers: list[QALayer] = [StructuralChecker(), SemanticReviewer(), AdversarialChallenger()]
         engine = PolicyEngine()
         cycle = VerifyCycle(layers=layers, policy_engine=engine)
 
@@ -145,7 +148,7 @@ class TestVerifyCycle:
 
     def test_feedback_prompt_text_contains_details(self, tmp_path: Path) -> None:
         ctx = _make_context()
-        layers = [StructuralChecker()]
+        layers: list[QALayer] = [StructuralChecker()]
         engine = PolicyEngine()
         cycle = VerifyCycle(layers=layers, policy_engine=engine)
 
@@ -158,7 +161,7 @@ class TestVerifyCycle:
     def test_attempt_nr_propagated(self, tmp_path: Path) -> None:
         story_dir = _setup_complete_story_dir(tmp_path)
         ctx = _make_context()
-        layers = [StructuralChecker()]
+        layers: list[QALayer] = [StructuralChecker()]
         engine = PolicyEngine()
         cycle = VerifyCycle(layers=layers, policy_engine=engine)
 

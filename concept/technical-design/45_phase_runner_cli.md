@@ -53,6 +53,23 @@ formal_refs:
   - formal.verify.events
   - formal.verify.scenarios
   - formal.story-workflow.commands
+glossary:
+  exported_terms:
+    - id: node-execution
+      definition: >
+        Einzelner deterministischer Ausfuehrungsschritt eines Knotens
+        (NodeDefinition) innerhalb einer FlowDefinition. Der Phase
+        Runner dispatcht den passenden StepHandler, empfaengt ein
+        StepResult und wendet den Zustandsuebergang an. NodeExecution
+        ist immer durch ExecutionPolicy, RetryPolicy und OverridePolicy
+        begrenzt.
+  internal_terms:
+    - id: phase-transition-enforcement
+      reason: >
+        Interner Validierungsschritt in run_phase(), der Graphen-
+        und Status-Validierung sowie semantische Preconditions vor dem
+        Phase-Dispatch prueft. Implementierungsdetail des Phase Runners;
+        der exportierte Begriff ist phase-transition (FK-20).
 ---
 
 # 45 — Phase Runner CLI und Phase-Transition-Enforcement

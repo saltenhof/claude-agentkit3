@@ -1,23 +1,28 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 import pytest
 
 from agentkit.phase_state_store.models import FlowExecution
-from agentkit.state_backend import (
+from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.state_backend.store import (
+    reset_backend_cache_for_tests,
     resolve_runtime_scope,
     save_flow_execution,
     save_story_context,
 )
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import reset_backend_cache_for_tests
 from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
+if TYPE_CHECKING:
+    from collections.abc import Generator
+    from pathlib import Path
+
 
 @pytest.fixture(autouse=True)
-def sqlite_backend_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def sqlite_backend_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
     monkeypatch.setenv(ALLOW_SQLITE_ENV, "1")
     monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
@@ -27,7 +32,7 @@ def sqlite_backend_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_resolve_runtime_scope_uses_story_context_when_run_unavailable(
-    tmp_path,
+    tmp_path: Path,
 ) -> None:
     project_root = tmp_path / "demo-project"
     story_dir = project_root / "stories" / "AG3-111"
@@ -54,7 +59,7 @@ def test_resolve_runtime_scope_uses_story_context_when_run_unavailable(
     assert scope.attempt_no is None
 
 
-def test_resolve_runtime_scope_prefers_explicit_flow_scope(tmp_path) -> None:
+def test_resolve_runtime_scope_prefers_explicit_flow_scope(tmp_path: Path) -> None:
     story_dir = tmp_path / "AG3-222"
     story_dir.mkdir(parents=True, exist_ok=True)
     save_flow_execution(

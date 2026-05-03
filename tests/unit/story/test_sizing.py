@@ -17,10 +17,10 @@ class TestStorySize:
         }
 
     def test_string_values(self) -> None:
-        assert StorySize.SMALL == "small"
-        assert StorySize.MEDIUM == "medium"
-        assert StorySize.LARGE == "large"
-        assert StorySize.EPIC == "epic"
+        assert StorySize.SMALL.value == "small"
+        assert StorySize.MEDIUM.value == "medium"
+        assert StorySize.LARGE.value == "large"
+        assert StorySize.EPIC.value == "epic"
 
 
 class TestEstimateSize:

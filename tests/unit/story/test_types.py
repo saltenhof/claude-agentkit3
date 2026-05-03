@@ -26,10 +26,10 @@ class TestStoryType:
         }
 
     def test_string_values(self) -> None:
-        assert StoryType.IMPLEMENTATION == "implementation"
-        assert StoryType.BUGFIX == "bugfix"
-        assert StoryType.CONCEPT == "concept"
-        assert StoryType.RESEARCH == "research"
+        assert StoryType.IMPLEMENTATION.value == "implementation"
+        assert StoryType.BUGFIX.value == "bugfix"
+        assert StoryType.CONCEPT.value == "concept"
+        assert StoryType.RESEARCH.value == "research"
 
     def test_is_str_subclass(self) -> None:
         assert isinstance(StoryType.IMPLEMENTATION, str)
@@ -46,9 +46,9 @@ class TestStoryMode:
         }
 
     def test_string_values(self) -> None:
-        assert StoryMode.EXECUTION == "execution"
-        assert StoryMode.EXPLORATION == "exploration"
-        assert StoryMode.NOT_APPLICABLE == "not_applicable"
+        assert StoryMode.EXECUTION.value == "execution"
+        assert StoryMode.EXPLORATION.value == "exploration"
+        assert StoryMode.NOT_APPLICABLE.value == "not_applicable"
 
 
 class TestImplementationContract:
@@ -61,9 +61,9 @@ class TestImplementationContract:
         }
 
     def test_string_values(self) -> None:
-        assert ImplementationContract.STANDARD == "standard"
+        assert ImplementationContract.STANDARD.value == "standard"
         assert (
-            ImplementationContract.INTEGRATION_STABILIZATION
+            ImplementationContract.INTEGRATION_STABILIZATION.value
             == "integration_stabilization"
         )
 

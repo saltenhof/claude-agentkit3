@@ -12,9 +12,7 @@ When FK-17 changes, update ENTITIES / RELATIONSHIPS here and re-run
 
 from __future__ import annotations
 
-import html
-import textwrap
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from xml.sax.saxutils import escape as xml_escape
 
 

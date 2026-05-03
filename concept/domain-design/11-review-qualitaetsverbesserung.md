@@ -18,6 +18,49 @@ supersedes: []
 superseded_by:
 tags: [quality-assurance, review-preparation, evidence-assembly, request-dsl]
 formal_scope: prose-only
+glossary:
+  exported_terms:
+    - id: authority-class
+      definition: >
+        Vierstufige Klassifikation jeder Datei im Review-Bundle nach ihrer Beweiskraft.
+        Reihenfolge absteigend: PRIMARY_NORMATIVE (Story-Spec, Konzeptdoks, Guardrails),
+        PRIMARY_IMPLEMENTATION (geaenderte Dateien), SECONDARY_CONTEXT (Nachbardateien,
+        Import-Ziele), WORKER_ASSERTION (Worker-Hinweise aus handover.json).
+        Bestimmt Priorisierung bei Groessenlimit-Überschreitung (350 KB).
+      values: [PRIMARY_NORMATIVE, PRIMARY_IMPLEMENTATION, SECONDARY_CONTEXT, WORKER_ASSERTION]
+      see_also:
+        - term: bundle-entry
+          domain: verify-system
+    - id: divergenz-quorum
+      definition: >
+        Mechanismus zur Auflösung von Reviewer-Divergenzen: Wenn Reviewer A und
+        Reviewer B unterschiedliche normalisierte Verdikte liefern, zieht der
+        QA-Agent einen dritten Reviewer (Tiebreaker) hinzu. Mehrheitsentscheidung
+        2 gegen 1 ergibt das finale Verdikt. Das Quorum produziert kein FAIL in
+        der Policy-Engine, sondern liefert das finale normalisierte Verdikt.
+      see_also:
+        - term: trust-class
+          domain: verify-system
+    - id: request-dsl
+      definition: >
+        Strukturiertes Nachforderungsprotokoll für Sparring-Reviewer (Track A).
+        Sieben maschinenauflösbare Request-Typen (NEED_FILE, NEED_SCHEMA,
+        NEED_CALLSITE, NEED_RUNTIME_BINDING, NEED_TEST_EVIDENCE, NEED_CONCEPT_SOURCE,
+        NEED_DIFF_EXPANSION). Garantiert nur evidence_sufficiency, nicht
+        review_completeness. Max 8 Requests pro Reviewer.
+      values: [NEED_FILE, NEED_SCHEMA, NEED_CALLSITE, NEED_RUNTIME_BINDING, NEED_TEST_EVIDENCE, NEED_CONCEPT_SOURCE, NEED_DIFF_EXPANSION]
+      see_also:
+        - term: evidence-assembler
+          domain: verify-system
+  internal_terms:
+    - id: track-a-sparring
+      reason: >
+        Implementierungsdetail der Review-Architektur (dialogischer Worker-Flow
+        mit externen LLMs via MCP-Pool); kein exportierter Vertragstyp.
+    - id: track-b-structured-evaluator
+      reason: >
+        Implementierungsdetail der Review-Architektur (deterministisch gesteuerter
+        Evaluator-Flow); kein exportierter Vertragstyp.
 ---
 
 # 11 — Review-Qualitätsverbesserung

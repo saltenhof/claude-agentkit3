@@ -21,7 +21,7 @@ defers_to:
     reason: Story-Erstellung liefert die ersten Planungsmetadaten fuer neue Stories
   - target: FK-07
     scope: component-architecture
-    reason: Komponentenschnitt und Ports der Planungsdomäne werden dort verankert
+    reason: Komponentenschnitt und Top-Surface-Verankerung der Planungsdomaene werden dort normiert
   - target: FK-91
     scope: api-catalog
     reason: Offizielle Control-Plane-Endpunkte und Events fuer Planung werden dort katalogisiert
@@ -39,6 +39,86 @@ formal_refs:
   - formal.execution-planning.events
   - formal.execution-planning.invariants
   - formal.execution-planning.scenarios
+glossary:
+  exported_terms:
+    - id: blocking-condition
+      definition: >
+        Ein typisierter, erstklassiger Grund, warum eine Story nicht in den
+        Status FLIGHT uebergehen darf. Klassen umfassen blocked_internal_dependency,
+        blocked_external, blocked_human, blocked_capacity, blocked_conflict und
+        blocked_contract. Freitext allein genuegt nicht; Blocker muessen als
+        auswertbare Objekte modelliert sein.
+    - id: dependency-edge
+      definition: >
+        Eine explizite Voraussetzungs- oder Einschraenkungsbeziehung zwischen zwei
+        Stories oder zwischen einer Story und einem Gate. Unterscheidet mindestens
+        hard_story_dependency, soft_story_dependency, serial_execution_constraint,
+        mutex_constraint, shared_contract_dependency, shared_file_conflict,
+        external_dependency und human_gate_dependency.
+    - id: execution-feasibility
+      definition: >
+        Die objektive Bewertung, ob eine Story unter reiner Betrachtung von
+        Abhaengigkeiten, Konflikten, Gates und Invarianten gleichzeitig ausfuehrbar
+        waere. Strikt getrennt von ExecutionSchedulingPolicy; darf nie zu einem
+        einzigen booleschen Feld kollabieren.
+    - id: execution-plan
+      definition: >
+        Der von AK3 kanonisch abgeleitete und validierte Planungszustand fuer einen
+        project_key, bestehend aus critical_path, recommended_batch,
+        max_allowed_batch und zugehoerigen ExecutionWaves. Wird nie als
+        ungepruefte Agentanantwort behandelt, sondern stets durch den
+        ExecutionPlanningService erzeugt und revisionsgebunden persistiert.
+    - id: execution-wave
+      definition: >
+        Eine explizite Gruppe gleichzeitig freigegebener Stories innerhalb eines
+        ExecutionPlan. Besitzt einen eigenen Lifecycle (planned, active, completed,
+        collapsed) und ist project-scoped. Teilweises Scheitern markiert die Wave
+        als collapsed oder loest einen auditierten Re-Plan aus.
+    - id: parallelization-policy
+      definition: >
+        Die Menge der operativen Regeln, die bestimmen, ob und wie stark der
+        Orchestrator Stories parallel starten darf. Wirkt nach ExecutionFeasibility
+        und ExecutionSchedulingPolicy: hohe theoretische Parallelisierbarkeit
+        begruendet keine Pflicht zur maximalen Parallelisierung.
+    - id: planned-story
+      definition: >
+        Eine Story im Backlog oder in Ausfuehrung, fuer die AK3 neben dem
+        Story-Inhalt auch Planungsmetadaten kennt (u. a. story_type, story_size,
+        primary_repo, participating_repos, planning_status).
+    - id: planning-proposal
+      definition: >
+        Strukturierter, versionierter Uebergabevertrag von einem Agenten an den
+        ExecutionPlanningService. Enthaelt vorgeschlagene DependencyEdges,
+        BlockingConditions, Gates, Evidenzreferenzen und Provenienz. AK3 validiert
+        und normalisiert den Vorschlag; der kanonische ExecutionPlan ist stets eine
+        eigene AK3-Ableitung, kein blindes Passthrough.
+    - id: readiness-assessment
+      definition: >
+        Die regelbasierte Auswertung, ob eine Story den Status READY erreicht.
+        READY ist kein manuell gesetztes Label, sondern das Ergebnis der Pruefung
+        aller hard_story_dependency-Vorgaenger auf DONE, aller offenen Gates und
+        aller aktiven Konflikte. Optionale Human-Reviews zaehlen nicht als Blocker.
+    - id: scheduling-policy
+      definition: >
+        Die operative Entscheidungsebene nach ExecutionFeasibility: Darf der
+        Orchestrator eine READY Story jetzt tatsaechlich starten, bezogen auf
+        Kapazitaets- und Risikobudgets (repo_parallel_cap, merge_risk_cap,
+        api_rate_limit_cap, llm_pool_cap u. a.)? Rangfolge: harte
+        Graph-Constraints schlagen Budget-Caps, Budget-Caps schlagen
+        projektspezifische Rulebook-Hints.
+  internal_terms:
+    - id: parallelism-budget
+      reason: >
+        Interne Konfigurationsstruktur mit den konkreten Cap-Werten
+        (repo_parallel_cap, merge_risk_cap usw.) fuer einen project_key oder
+        tenant. Nicht Teil des oeffentlichen Vertrags; der oeffentliche Begriff
+        ist scheduling-policy.
+    - id: planning-status
+      reason: >
+        Das interne Zustandsfeld einer PlannedStory (UNSTARTED, READY, FLIGHT,
+        DONE, BLOCKED_*). Implementierungsdetail des State-Machine-Laufs;
+        nach aussen relevant als Ergebnis von ReadinessAssessment und
+        SchedulingPolicy, nicht als eigenstaendiger exportierter Begriff.
 ---
 
 # 70 — Story-Planung, Abhaengigkeitsgraph und Ausfuehrungsplanung
@@ -217,6 +297,17 @@ Fuer die Planung gilt mindestens dieses Zustandsmodell:
 `READY` ist kein manuell gesetztes Board-Label, sondern das Ergebnis
 einer regelbasierten Auswertung ueber Abhaengigkeiten, Gates und
 Policies.
+
+**Konsistenz mit BC 3 (StoryIdentity / story-lifecycle):** BC 3
+fuehrt den Basis-`StoryStatus` als primaere Zustandsachse der Story
+(z.B. Backlog, Approved, InFlight, Done). Der `PlanningStatus` in
+diesem BC ist eine abgeleitete, planungsspezifische Zustandsebene,
+die `ExecutionPlanning` eigenstaendig fuehrt. `PlanningStatus`
+und `StoryStatus` sind orthogonale Achsen; `PlanningStatus=READY`
+ist eine Ableitung aus Abhaengigkeitsgraph und Policies, kein Spiegel
+des GitHub-Board-Status. FK-21 und FK-24 beschreiben die Erstellungs-
+und Vertragsebene; `PlanningStatus` wird davon erst nach Freigabe
+(StoryStatus=Approved) abgeleitet.
 
 ### 70.5.3 Human- und External-Gates
 
@@ -486,10 +577,20 @@ Projektspezifische Artefakte wie ein `orchestrator-rulebook.dsl`
 koennen als Analyse- und Importquelle fuer den `ExecutionPlanningService`
 dienen.
 
-Dabei gilt:
+**Abgrenzung zur FlowDefinition-DSL (FK-20):** Die Rulebook-DSL von
+execution-planning ist NICHT identisch mit der `FlowDefinition`-DSL
+aus FK-20 (pipeline-framework). FK-20 beschreibt die
+Checkpoint-Engine-Schrittfolge und den Phase-Lifecycle der
+PipelineEngine. Die Rulebook-DSL hier beschreibt
+Scheduling-Hints, Parallelisierungsregeln, Prioritaetsreihenfolgen
+und Konfliktindikatoren fuer den ExecutionPlanningService. Beide DSLs
+bestehen parallel; keine ersetzt die andere. Verwechslung fuehrt zu
+falschen BC-Grenzen.
+
+Dabei gilt fuer Rulebooks in execution-planning:
 
 1. Solche Rulebooks sind zulaessige Input-Artefakte fuer die
-   Planungsdomäne.
+   Planungsdomaene.
 2. Die kanonische Wahrheit bleibt dennoch das zentrale AK3-
    Planungsmodell mit typisierten Entities, Commands, Events und
    Invarianten.
@@ -508,8 +609,16 @@ Dabei gilt:
 
 ## 70.8 Orchestrator-Vertrag
 
-Der Orchestrator ist Konsument der Planungsdomäne, nicht ihr
+Der Orchestrator ist Konsument der Planungsdomaene, nicht ihr
 beliebiger Autor.
+
+**Normative Pflicht (PipelineEngine-Vertrag):** `PipelineEngine` MUSS
+`ExecutionPlanning.evaluate_scheduling` vor jedem Story-Start
+aufrufen. Sie darf nicht eigenstaendig in den Backlog greifen oder
+eine Story starten, ohne das Ergebnis dieser Top-Surface-Auswertung
+abzuwarten. Dieser Vertrag ist in FK-20 §20.8.2 normiert;
+execution-planning behaelt hier die fachliche Autoritaet ueber die
+Scheduling-Logik.
 
 Er darf nicht direkt entscheiden:
 
@@ -539,14 +648,16 @@ Optionale Human-Review darf der Orchestrator anfordern oder sichtbar
 machen. Sie ist aber kein implizites Stoppsignal. Ein echter Stopp
 entsteht nur ueber ein typisiertes `HumanGate`.
 
+Querverweis: FK-20 §20.8.2 (PipelineEngine-Pflicht).
+
 ## 70.9 UI- und API-Folgen
 
 Die Webanwendung braucht spaeter mindestens diese Pflichtsichten auf
 die Planungsdomäne:
 
 - Dependency-Graph
-- Ready Queue
-- Blocked View mit typisierten Gruenden
+- typisierte Blocker-Sicht als Ableitung aus Story-Status,
+  Abhaengigkeiten und Blocker-Kontext
 - Execution-Plan bzw. Wellenplan
 - Critical-Path-Sicht
 - Parallelisierung nach Repo oder Scope
@@ -560,40 +671,65 @@ normativ bereitstellen muss.
 
 ### 70.10.1 Neue Top-Level-Komponente
 
-AK3 fuehrt `ExecutionPlanningService` als eigene A-Komponente.
+AK3 fuehrt `ExecutionPlanningService` als eigene A-Komponente (BC 14,
+`execution_planning`-Top).
 
-Typische Provided Contracts:
+Die Komponente stellt folgende fachliche Top-Surfaces bereit:
 
-- `DependencyGraphPort`
-- `ReadinessAssessmentPort`
-- `ExecutionPlanPort`
-- `SchedulingPolicyPort`
+- `DependencyGraph` — Schnittstelle fuer Graphaufbau und
+  Abhaengigkeitsabfragen
+- `ReadinessAssessment` — Schnittstelle fuer regelbasierte
+  Readiness-Auswertung
+- `PlanDerivation` — Schnittstelle fuer die Ableitung von
+  ExecutionPlan, critical_path und ExecutionWave
+- `SchedulingPolicy` — Schnittstelle fuer Kapazitaets- und
+  Risikobudget-Auswertung
+
+Vokabular-Regel: Diese Surfaces sind Komponenten-Schnittstellen im
+fachlichen Sinne, keine Port/Adapter-Abstraktionen. Das Vokabular
+"Port", "Adapter-als-Pattern", "Hexagonal" oder "Onion" wird in
+diesem BC nicht verwendet.
 
 ### 70.10.2 Persistenz
 
 Die kanonische Planungssicht gehoert in die zentrale AK3-Datenbank.
+Der Schreibpfad laeuft ausschliesslich ueber `Telemetry.write_projection`
+(BC 9, konsistent mit dem BC-9-Pattern aller anderen fachlichen
+Projektions-Schreiber). Schema-Owner der Planungstabellen ist BC 14
+(`execution-planning`).
 
-Mindestens relevante Familien sind:
+Mindestens relevante Schema-Familien unter execution-planning-Owner:
 
-- geplante Stories und ihre Planungsmetadaten
-- Abhaengigkeitskanten
-- Blocker und Gates
-- Scheduling-Budgets und Policies
-- Rulebook-Revisionen und Compile-Ergebnisse
-- berechnete Planungs-Snapshots und Wellen
+- `planned_story` — geplante Stories und ihre Planungsmetadaten
+- `dependency_edge` — Abhaengigkeitskanten
+- `blocking_condition`, `gate` — Blocker und Gates
+- `scheduling_budget`, `scheduling_policy` — Kapazitaets- und
+  Risikobudgets
+- `rulebook_revision`, `rulebook_compile_result` — Rulebook-
+  Revisionen und Compile-Ergebnisse
+- `execution_plan`, `execution_wave` — berechnete Planungs-Snapshots
+  und Wellen
 
 ### 70.10.3 Audit
 
-Wichtige Planungsentscheidungen sind auditable Events:
+Wichtige Planungsentscheidungen sind auditable Events. Die
+zugehoerigen `EventTypeId`-Werte sind in FK-68 (BC 9,
+`TelemetryContract`) normiert. Nachstehende EventTypeIds gehoeren
+zum execution-planning-BC:
 
-- Abhaengigkeit erfasst oder geaendert
-- Story wurde `READY`
-- Story wurde blockiert
-- Execution Plan erzeugt oder revidiert
-- Scheduling-Entscheidung getroffen
-- Human- oder External-Gate aufgeloest
-- Rulebook kompiliert oder verworfen
-- Wave kollabiert oder neu geschnitten
+| EventTypeId | Bedeutung |
+|-------------|-----------|
+| `dependency_recorded` | Story-Abhaengigkeit in den Dependency-Graph eingetragen |
+| `story_ready` | Story wechselt auf READY |
+| `story_blocked` | Story wechselt auf BLOCKED |
+| `plan_revised` | Execution-Plan erzeugt oder revidiert |
+| `scheduling_decided` | Scheduling-Entscheidung getroffen |
+| `gate_resolved` | Human- oder External-Gate aufgeloest |
+| `rulebook_compiled` | Rulebook kompiliert oder verworfen |
+| `wave_collapsed` | Wave kollabiert oder neu geschnitten |
+
+Definitive Werte- und Schema-Liste: FK-68 §68.3 (EventTypeId-Enum).
+Execution-planning-Sicht: FK-68 §68.x (Execution-Planning-Events).
 
 ## 70.11 Invarianten
 

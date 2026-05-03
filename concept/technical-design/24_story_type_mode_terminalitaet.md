@@ -29,6 +29,54 @@ supersedes: []
 superseded_by:
 tags: [story-types, terminality, delivery-contract, exploration-guard, fail-closed]
 prose_anchor_policy: strict
+glossary:
+  exported_terms:
+    - id: execution-route
+      definition: >
+        Abgeleitete Laufzeitachse innerhalb eines story_execution-Runs.
+        Gibt an, ob eine Story unmittelbar in die Umsetzung geht
+        (execution) oder zuerst Exploration durchlaeuft (exploration).
+        Historisch als mode bezeichnet. Darf die Lieferpflicht des
+        story_type niemals abschwaechen.
+      values: [execution, exploration]
+      see_also:
+        - term: operating-mode
+          domain: story-lifecycle
+        - term: story-type
+          domain: story-lifecycle
+    - id: implementation-contract
+      definition: >
+        Zweite persistente Vertragsachse, nur zulaessig bei
+        story_type=implementation. Werte standard und
+        integration_stabilization. Erzeugt keinen neuen Betriebsmodus,
+        sondern einen engeren Ausfuehrungsvertrag fuer bewusst breite
+        Integrations- und Stabilisierungslagen.
+      values: [standard, integration_stabilization]
+      see_also:
+        - term: story-type
+          domain: story-lifecycle
+    - id: story-type
+      definition: >
+        Primaere persistente Liefervertragsachse einer Story mit genau
+        vier gueltigen Werten: implementation, bugfix, concept, research.
+        Bestimmt Lieferpflicht, Guard-Verhalten, Verify- und
+        Closure-Zulaessigkeit sowie administrativen Endpfad. Ungueltige
+        oder leere Werte sind fail-closed und duerfen nicht auf
+        implementation defaulten.
+      values: [implementation, bugfix, concept, research]
+      see_also:
+        - term: implementation-contract
+          domain: story-lifecycle
+        - term: terminal-state
+          domain: story-lifecycle
+    - id: terminality
+      definition: >
+        Fachlicher Abschlussstatus einer Story: eine
+        implementation- oder bugfix-Story gilt nur dann als
+        abgeschlossen, wenn Implementierungsartefakte, Verify-Evidence
+        und worker-manifest.json vorliegen. Reine Exploration-Artefakte
+        ermoeglichen keine Terminality. Concept- und Research-Stories
+        koennen nach erfolgreichem Exploration-QA terminal sein.
 formal_refs:
   - formal.story-contracts.entities
   - formal.story-contracts.invariants

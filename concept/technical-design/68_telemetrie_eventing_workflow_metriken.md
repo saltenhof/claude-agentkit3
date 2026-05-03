@@ -10,6 +10,7 @@ authority_over:
   - scope: telemetry
   - scope: eventing
   - scope: workflow-metriken
+  - scope: telemetry-hooks
 defers_to:
   - target: FK-01
     scope: trust-boundaries
@@ -51,6 +52,135 @@ formal_refs:
   - formal.telemetry-analytics.events
   - formal.telemetry-analytics.invariants
   - formal.telemetry-analytics.scenarios
+glossary:
+  exported_terms:
+    - id: audit-bundle
+      definition: >
+        JSONL-Export aller execution_events eines gueltigen Story-Runs,
+        erzeugt bei Closure. Dient der menschlichen Lesbarkeit und externen
+        Archivierung. Ist kein kanonischer Laufzeitspeicher; operative Wahrheit
+        liegt in PostgreSQL. Darf nur aus gueltigen, nicht vollstaendig
+        zurueckgesetzten Runs erzeugt werden.
+      see_also:
+        - term: execution-event
+          domain: telemetry-and-events
+    - id: event-type-id
+      definition: >
+        Kanonischer String-Bezeichner eines Telemetrie-Event-Typs aus dem
+        Event-Katalog in FK-68 §68.2.2, z. B. agent_start, increment_commit,
+        review_request. Jeder Event-Typ ist producer-neutral definiert und
+        darf keine anbieterspezifische Variante erhalten.
+      values:
+        - agent_start
+        - agent_end
+        - increment_commit
+        - drift_check
+        - flow_start
+        - flow_end
+        - node_result
+        - override_applied
+        - review_request
+        - review_response
+        - review_compliant
+        - review_divergence
+        - llm_call
+        - adversarial_start
+        - adversarial_sparring
+        - adversarial_test_created
+        - adversarial_test_executed
+        - adversarial_end
+        - preflight_request
+        - preflight_response
+        - preflight_compliant
+        - integrity_violation
+        - web_call
+        - impact_violation_check
+        - doc_fidelity_check
+        - vectordb_search
+        - compaction_event
+        - dependency_recorded
+        - story_ready
+        - story_blocked
+        - plan_revised
+        - scheduling_decided
+        - gate_resolved
+        - rulebook_compiled
+        - wave_collapsed
+        - are_requirements_linked
+        - are_evidence_submitted
+        - are_gate_result
+    - id: execution-event
+      definition: >
+        Einzelner, unveraenderbarer Datensatz in der Tabelle execution_events
+        des State-Backends. Pflichtfelder: project_key, story_id, run_id,
+        event_id, event_type, occurred_at, source_component, severity.
+        Wird ausschliesslich ueber den TelemetryService oder offizielle
+        Control-Plane-API-Operationen geschrieben, nie direkt durch Agents.
+        Bildet Nachvollziehbarkeits- und Pruefbarkeitsbasis fuer das
+        Integrity-Gate.
+      see_also:
+        - term: event-type-id
+          domain: telemetry-and-events
+        - term: telemetry-event
+          domain: telemetry-and-events
+    - id: governance-risk-window
+      definition: >
+        Gleitendes Fenster normalisierter Events im State-Backend (Default:
+        50 Events), das fuer die Governance-Beobachtung kontinuierlich einen
+        Risikoscore akkumuliert. Uebersteigt der Score den konfigurierten
+        Schwellenwert (Default 30), wird ein Incident-Kandidat erzeugt und
+        LLM-Adjudikation ausgeloest.
+      see_also:
+        - term: execution-event
+          domain: telemetry-and-events
+    - id: review-guard
+      definition: >
+        Observational-Hook (telemetry/review_guard.py), der nach jedem
+        Pool-Send prueft, ob der Review ueber ein genehmigtes Template-Sentinel
+        ([TEMPLATE:{name}-v1:{story_id}]) lief. Bei Treffer schreibt er ein
+        review_compliant-Event. Blockiert nie (exit 0). Abwesenheit des Events
+        wird vom Integrity-Gate als Befund gewertet.
+      see_also:
+        - term: execution-event
+          domain: telemetry-and-events
+        - term: telemetry-contract
+          domain: telemetry-and-events
+    - id: telemetry-contract
+      definition: >
+        Menge der Mindestanforderungen an Telemetrie-Events, die ein gueltiger
+        Story-Run erfuellen muss. Enthaelt Regeln fuer agent_start/agent_end-
+        Paarung, review_compliant-Deckung, Preflight-Compliance und
+        llm_call-Pflicht-Rollen. Wird in telemetry_contract.py implementiert
+        und vom Integrity-Gate bei Closure erzwungen.
+      see_also:
+        - term: execution-event
+          domain: telemetry-and-events
+        - term: event-type-id
+          domain: telemetry-and-events
+    - id: workflow-metric
+      definition: >
+        Strukturierte Abschlussgroesse eines Story-Runs, berechnet aus
+        Telemetrie-Events: processing_time_min, qa_rounds, increments,
+        adversarial_findings, adversarial_tests_created, files_changed.
+        Jeder Datensatz wird mit Experiment-Tags (agentkit_version,
+        llm_roles, story_type, story_size, mode) versehen, um
+        Konfigurationsvergleiche zu ermoeglichen.
+      see_also:
+        - term: execution-event
+          domain: telemetry-and-events
+        - term: story-metric
+          domain: telemetry-and-events
+  internal_terms:
+    - id: telemetry-hook
+      reason: >
+        Konkrete Claude-Code-Hook-Implementierung (telemetry/hook.py) als
+        aktueller Referenz-Adapterpfad. Implementierungsdetail; der normative
+        Begriff ist execution-event und dessen Control-Plane-Schreibgrenze.
+    - id: review-sentinel
+      reason: >
+        Internes Erkennungsmuster ([TEMPLATE:{name}-v1:{story_id}]) fuer den
+        Review-Guard-Hook. Implementierungsdetail der Hook-Erkennung, kein
+        exportierter Vertragstyp.
 ---
 
 # 68 — Telemetrie, Eventing und Workflow-Metriken
@@ -228,19 +358,44 @@ hält die Pool-Abstraktion intakt (Kap. 01 P8, Kap. 11).
 
 | Event | Wann | Zusatzfelder | Erwartungswert | Quelle |
 |-------|------|-------------|----------------|--------|
-| `review_divergence` | Divergenz zwischen zwei Reviewern gemessen. Emittiert nach jedem Review-Paar durch den Divergenz-Score-Rechner (Kap. 28). | `reviewer_a`, `reviewer_b`, `score` (LOW/MEDIUM/HIGH), `routing` | 0..n pro Story | `telemetry/divergence.py` |
+| `review_divergence` | Divergenz zwischen zwei Reviewern gemessen. Emittiert nach jedem Review-Paar durch den Divergenz-Score-Rechner (Kap. 28). | `reviewer_a`, `reviewer_b`, `score` (LOW/MEDIUM/HIGH), `routing` | 0..n pro Story | `agentkit.telemetry.hooks.divergence` |
 
 #### Governance
 
 | Event | Wann | Zusatzfelder | Erwartungswert | Quelle |
 |-------|------|-------------|----------------|--------|
 | `integrity_violation` | Ein Guard wurde verletzt | `guard`, `detail`, `stage` (bei prompt_integrity_guard: escape_detection/schema_validation/template_integrity) | Erwartet: 0 (jeder Eintrag ist ein Befund) | Guard-Hooks bei Blockade |
-| `web_call` | Agent führt Web-Suche/-Abruf durch | — | <= konfiguriertes Budget (Default: 200) | Budget-Hook (PostToolUse für WebSearch/WebFetch) |
+| `web_call` | Agent fuehrt Web-Suche/-Abruf durch | — | <= konfiguriertes Budget (Default: 200) | `agentkit.telemetry.hooks.budget` (BudgetEventEmitter, PostToolUse fuer WebSearch/WebFetch) |
 | ~~`guard_invocation`~~ | Guard-Invokationen werden NICHT als Event erfasst (Volumen: 2500-10000/Story). Stattdessen Scratchpad-Counter `runtime.guard_invocation_counters` im State-Backend. Siehe FK-61 §61.4.3. | — | — | — |
 | `impact_violation_check` | Impact-Violation wird geprueft | `declared_impact`, `actual_impact`, `result` (pass/violation) | 1 pro implementierender Story | Structural Check in Verify-Phase (FK-33). Ergaenzt FK-61 §61.4.2. |
 | `doc_fidelity_check` | Dokumententreue wird geprueft | `level` (goal/design/implementation/feedback_fidelity), `result` (pass/conflict/skipped) | 1-4 pro Story (je nach Typ und Modus) | Dokumententreue-Service (FK-32). Ergaenzt FK-61 §61.5.1. |
 | `vectordb_search` | VektorDB-Abgleich bei Story-Erstellung | `total_hits`, `hits_above_threshold`, `hits_classified_conflict`, `threshold_value` | 1 pro Story-Erstellung | Story-Creation-Pipeline (FK-21). Konzeptmandatiert (Kap. 02 §2.1). Ergaenzt FK-61 §61.8.1. |
 | `compaction_event` | Context-Compaction im Sub-Agent | `story_id` (aus `.agentkit-story.json`) | 0..n pro Story | PostCompact-Hook (FK-36). Ergaenzt FK-61 §61.2.2. |
+
+#### Execution-Planning (BC 14)
+
+Events aus dem Execution-Planning-BC (FK-70). Schema-Owner: execution-planning.
+
+| Event | Wann | Zusatzfelder | Erwartungswert | Quelle |
+|-------|------|-------------|----------------|--------|
+| `dependency_recorded` | Story-Abhaengigkeit wurde in den Dependency-Graph eingetragen | `story_id`, `depends_on_id` | 0..n pro Planungslauf | `execution_planning.DependencyGraph` |
+| `story_ready` | Story-Readiness-Status wechselt auf READY | `story_id` | 0..n pro Planungslauf | `execution_planning.ReadinessAssessment` |
+| `story_blocked` | Story-Status wechselt auf BLOCKED | `story_id`, `reason` | 0..n pro Planungslauf | `execution_planning.ReadinessAssessment` |
+| `plan_revised` | Execution-Plan wurde revidiert | `plan_id`, `trigger` | 0..n pro Planungslauf | `execution_planning.ExecutionPlanner` |
+| `scheduling_decided` | Scheduling-Entscheidung getroffen | `story_id`, `wave_id`, `decision` | 0..n pro Planungslauf | `execution_planning.SchedulingPolicy` |
+| `gate_resolved` | Gate wurde aufgeloest (Pass/Fail) | `gate_id`, `result` | 0..n pro Planungslauf | `execution_planning.GateResolver` |
+| `rulebook_compiled` | Rulebook wurde kompiliert | `rulebook_id` | 0..n pro Planungslauf | `execution_planning.RulebookCompiler` |
+| `wave_collapsed` | Eine Wave wurde abgeschlossen | `wave_id`, `story_count` | 0..n pro Planungslauf | `execution_planning.WaveOrchestrator` |
+
+#### Requirements-and-Scope-Coverage (BC 15)
+
+Events aus dem ARE-BC (FK-40). Schema-Owner: requirements-and-scope-coverage.
+
+| Event | Wann | Zusatzfelder | Erwartungswert | Quelle |
+|-------|------|-------------|----------------|--------|
+| `are_requirements_linked` | Anforderungen wurden mit Story verknuepft | `story_id`, `requirement_count` | 0..1 pro Story mit ARE-Feature | `requirements_coverage.AreClient` |
+| `are_evidence_submitted` | Evidence-Paket wurde an ARE uebermittelt | `story_id`, `evidence_type` | 0..n pro Story mit ARE-Feature | `requirements_coverage.AreClient` |
+| `are_gate_result` | ARE-Gate hat Ergebnis geliefert | `story_id`, `result` (pass/fail) | 0..1 pro Story mit ARE-Feature | `requirements_coverage.AreGate` |
 
 **Normative Abstraktion der Quellen:** Der Event-Katalog ist
 **producer-neutral**. Ein Event-Typ wird fachlich ueber seine Semantik
@@ -261,6 +416,13 @@ die zentrale AgentKit-Control-Plane ingestierbar bleiben.
 
 ### 68.3.1 Hook-basierte Erfassung
 
+> **Owner der Hook-Definitionen, Registrierung (`Governance.register_hooks`),
+> Enforcement-Verhalten (Block/Warn/Pass) und `.claude/settings.json`-Schema ist
+> FK-30 (governance.guard_system). Diese Tabelle nennt ausschliesslich die
+> Event-Emission-Anteile der jeweiligen Hooks — welcher Hook welches Telemetrie-Event
+> emittiert, unter welchem Modul-Pfad er registriert ist und welche EventTypeId er
+> produziert. Normative Hook-Definitionen: FK-30 §30.5.**
+
 Claude-Code-Hooks sind die **aktuelle Referenz-Implementierung** fuer
 mehrere beobachtende Telemetriequellen. Sie sind jedoch kein
 normativer Sonderstatus, sondern ein Adapterpfad fuer die
@@ -269,16 +431,16 @@ Control-Plane-Telemetrie.
 Hooks sind dort eine gute Quelle, wo sie Agent-Aktionen ohne
 Mitwirkung des Agents beobachten koennen.
 
-| Hook | Typ | Erkennung | Events |
-|------|-----|-----------|--------|
-| `telemetry/hook.py` | PostToolUse (Agent) | Tool = `Agent`, `subagent_type` aus Prompt | `agent_start`, `agent_end`, `adversarial_start`, `adversarial_end` |
-| `telemetry/hook.py` | PostToolUse (Pool-Send) | Tool enthält `_send`, Story aus aktivem Run im State-Backend | `llm_call` |
-| `telemetry/hook.py` | PreToolUse (Bash) | `git commit` im Worktree | `increment_commit` |
-| `telemetry/hook.py` | PreToolUse (Bash) | Marker-Befehl `DRIFT_CHECK:` | `drift_check` |
-| `telemetry/hook.py` | PostToolUse (Pool-Send) | Review-Template-Sentinel erkannt | `review_request`, `review_response` |
-| `telemetry/review_guard.py` | PostToolUse (Pool-Send) | Template-Sentinel-Pattern | `review_compliant` |
-| `telemetry/budget.py` | PostToolUse (WebSearch/WebFetch) | Tool-Name | `web_call` |
-| Guard-Hooks | PreToolUse | Blockade (exit 2) | `integrity_violation` |
+| Hook | Modul | Typ | Erkennung | Events |
+|------|-------|-----|-----------|--------|
+| AgentLifecycleHook | `agentkit.telemetry.hooks.agent_lifecycle` | PostToolUse (Agent) | Tool = `Agent`, `subagent_type` aus Prompt | `agent_start`, `agent_end`, `adversarial_start`, `adversarial_end` |
+| LlmCallHook | `agentkit.telemetry.hooks.llm_call` | PostToolUse (Pool-Send) | Tool enthaelt `_send`, Story aus aktivem Run im State-Backend | `llm_call` |
+| CommitHook | `agentkit.telemetry.hooks.commit` | PreToolUse (Bash) | `git commit` im Worktree | `increment_commit` |
+| DriftCheckHook | `agentkit.telemetry.hooks.drift_check` | PreToolUse (Bash) | Marker-Befehl `DRIFT_CHECK:` | `drift_check` |
+| ReviewSentinelHook | `agentkit.telemetry.hooks.review_sentinel` | PostToolUse (Pool-Send) | Review-Template-Sentinel erkannt | `review_request`, `review_response` |
+| ReviewGuard | `agentkit.telemetry.hooks.review_guard` | PostToolUse (Pool-Send) | Template-Sentinel-Pattern | `review_compliant` |
+| BudgetEventEmitter | `agentkit.telemetry.hooks.budget` | PostToolUse (WebSearch/WebFetch) | Tool-Name | `web_call` |
+| Guard-Hooks (inkl. SkillUsageCheck) | `agentkit.governance.guard_system` | PreToolUse | Blockade (exit 2) | `integrity_violation` |
 
 ### 68.3.2 Skript-basierte Erfassung
 
@@ -463,9 +625,23 @@ observational:
 
 ## 68.6 Budget-Tracking
 
+### 68.6.0 Verantwortungsschnitt
+
+Das Budget-Tracking ist ein Hybrid aus zwei Verantwortlichkeiten:
+
+- **Event-Emission (telemetry-and-events):** `telemetry.hooks.BudgetEventEmitter`
+  (`agentkit.telemetry.hooks.budget`) schreibt bei jedem WebSearch/WebFetch-Aufruf
+  ein `web_call`-Event. Kein Blockieren, nur Beobachtung.
+- **Blocking (governance-and-guards):** `governance.guard_system.WebCallBudgetGuard`
+  (`agentkit.governance.guard_system`) liest den Counter aus dem State-Backend
+  und blockiert (exit 2) bei Ueberschreitung des Hard-Limits fuer Research-Stories.
+
+Diese Trennung folgt dem Prinzip: Telemetrie-Hooks sind rein observational;
+Blocking-Entscheidungen sind Governance-Verantwortung.
+
 ### 68.6.1 Web-Call-Budget
 
-Der Budget-Hook (`telemetry/budget.py`) trackt Web-Aufrufe
+`BudgetEventEmitter` (`agentkit.telemetry.hooks.budget`) trackt Web-Aufrufe
 (WebSearch, WebFetch) **nur für Research-Stories**.
 
 **Begründung:** Der Research-Prompt animiert den Agent explizit zur
@@ -551,13 +727,30 @@ Metriken werden an zwei Stellen geschrieben:
 | Governance-Beobachtung | Anomalie-Erkennung (ungewöhnlich hohe Werte) |
 | Postflight | Plausibilitätsprüfung (Metriken gesetzt?) |
 
-## 68.8 Telemetrie für Governance-Beobachtung
+## 68.8 Telemetrie fuer Governance-Beobachtung
+
+### 68.8.0 Verantwortungsschnitt
+
+Das Governance-Risk-Window spannt sich ueber zwei BCs:
+
+- **Sensor-Schicht (telemetry-and-events):** `telemetry.hooks.TelemetryHooks`
+  normalisiert eingehende Events zu kompakten `NormalizedEvent`-Records und
+  schreibt sie via `ProjectionAccessor` ins Rolling Window des State-Backends.
+  `NormalizedEvent` ist ein Read-Model-Schema, dessen Schema-Owner
+  telemetry-and-events ist.
+- **Score-Akkumulation und Adjudikation (governance-and-guards):**
+  `governance.GovernanceObserver` liest das Rolling Window, akkumuliert
+  den Risikoscore und loest bei Schwellenuebersteigung LLM-Adjudikation
+  (Kap. 35) aus. Scoring-Logik und Incident-Erzeugung sind ausschliesslich
+  Governance-Verantwortung.
+
+Die Hooks in telemetry-and-events **beobachten und normalisieren nur**.
+Sie treffen keine Governance-Entscheidungen.
 
 Die Governance-Beobachtung (FK 6.6, Kap. 35) nutzt die Telemetrie
-als Signalquelle. Die Hooks produzieren nicht nur Events, sondern
-normalisieren sie auch zu kompakten Records für das Rolling Window.
+als Signalquelle.
 
-### 68.8.1 Normalisiertes Event-Format (für Rolling Window)
+### 68.8.1 Normalisiertes Event-Format (fuer Rolling Window)
 
 ```json
 {

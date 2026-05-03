@@ -58,11 +58,12 @@ show_missing = true
 [tool.mypy]
 strict = true
 packages = ["agentkit"]
-mypy_path = "src"
+mypy_path = ["src", "tools"]
 
 [tool.ruff]
 src = ["src", "tests"]
 target-version = "py311"
+line-length = 130
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM", "TCH"]

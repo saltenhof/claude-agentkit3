@@ -13,6 +13,32 @@ supersedes: []
 superseded_by:
 tags: [roles, llm-selection, context-management, multi-llm, orchestrator]
 formal_scope: prose-only
+glossary:
+  exported_terms:
+    - id: capability-profile
+      definition: >
+        Die projektspezifische Zusammenstellung erlaubter Rollen, LLM-Pools
+        und Zugriffsrechte, die vor jedem Story-Run aktiviert wird. Sie legt
+        fest, welche Agents gespawnt werden duerfen und welche LLMs welche
+        Rollen uebernehmen.
+      see_also:
+        - term: skill-variant
+          domain: agent-skills
+    - id: llm-role
+      definition: >
+        Benannte Funktion eines LLM-Einsatzes innerhalb der Pipeline, z.B.
+        qa_review oder semantic_review. Jede Rolle wird entweder als Agent
+        (mit Dateisystem-Zugriff) oder als Bewertungsfunktion (API-Only,
+        deterministisch gesteuert) realisiert. Die Zuordnung Rolle -> Pool
+        ist in der Pipeline-Konfiguration festgelegt.
+      values: [worker, adversarial-agent, qa-review, semantic-review,
+               governance-adjudication, design-review, design-challenge]
+    - id: spawn-contract
+      definition: >
+        Architektonische Regel, die bestimmt, ob eine LLM-Rolle als
+        autonomer Claude-Agent gespawnt oder direkt als Bewertungsfunktion
+        ueber den MCP-Pool aufgerufen wird. Rollen ohne Dateisystem-Zugriff
+        werden niemals als Agent realisiert.
 ---
 
 # 01 — Spezialisierte Rollen und LLM-Einsatz

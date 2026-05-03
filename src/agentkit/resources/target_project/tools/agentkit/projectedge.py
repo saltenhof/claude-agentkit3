@@ -6,7 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
-from agentkit.control_plane import (
+from agentkit.control_plane.models import (
     ClosureCompleteRequest,
     PhaseMutationRequest,
     ProjectEdgeSyncRequest,

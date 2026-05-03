@@ -13,25 +13,25 @@ class TestEventType:
     """Tests for the EventType enum."""
 
     def test_flow_start_value(self) -> None:
-        assert EventType.FLOW_START == "flow_start"
+        assert EventType.FLOW_START.value == "flow_start"
 
     def test_flow_end_value(self) -> None:
-        assert EventType.FLOW_END == "flow_end"
+        assert EventType.FLOW_END.value == "flow_end"
 
     def test_node_result_value(self) -> None:
-        assert EventType.NODE_RESULT == "node_result"
+        assert EventType.NODE_RESULT.value == "node_result"
 
     def test_override_applied_value(self) -> None:
-        assert EventType.OVERRIDE_APPLIED == "override_applied"
+        assert EventType.OVERRIDE_APPLIED.value == "override_applied"
 
     def test_review_request_value(self) -> None:
-        assert EventType.REVIEW_REQUEST == "review_request"
+        assert EventType.REVIEW_REQUEST.value == "review_request"
 
     def test_error_value(self) -> None:
-        assert EventType.ERROR == "error"
+        assert EventType.ERROR.value == "error"
 
     def test_warning_value(self) -> None:
-        assert EventType.WARNING == "warning"
+        assert EventType.WARNING.value == "warning"
 
     def test_is_str_enum(self) -> None:
         assert isinstance(EventType.FLOW_START, str)

@@ -30,6 +30,24 @@ supersedes: []
 superseded_by:
 tags: [story-reset, recovery, purge, operations, reset]
 prose_anchor_policy: strict
+glossary:
+  exported_terms:
+    - id: story-reset
+      definition: >
+        Administrative Recovery-Operation fuer eine Story, deren
+        Umsetzungs-Epoche nicht mehr reparierbar ist. Kein automatischer
+        Pipeline-Schritt; nur ueber expliziten menschlichen CLI-Befehl
+        (agentkit reset-story). Kappt die korrupte Epoche vollstaendig
+        und hinterlaesst eine saubere Startbasis fuer einen neuen Run.
+      see_also:
+        - term: story-split
+          domain: story-lifecycle
+  internal_terms:
+    - id: reset-id
+      reason: >
+        Interner Audit- und Idempotenz-Anker fuer einen einzelnen
+        Reset-Vorgang. Verlaesst den StoryResetService nicht als
+        oeffentliches Konzept.
 formal_refs:
   - formal.story-reset.entities
   - formal.story-reset.state-machine

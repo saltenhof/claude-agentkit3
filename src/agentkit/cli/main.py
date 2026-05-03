@@ -188,7 +188,7 @@ def _cmd_serve_control_plane(args: argparse.Namespace) -> int:
 
     from pathlib import Path
 
-    from agentkit.control_plane import serve_control_plane
+    from agentkit.control_plane.http import serve_control_plane
 
     serve_control_plane(
         host=args.host,

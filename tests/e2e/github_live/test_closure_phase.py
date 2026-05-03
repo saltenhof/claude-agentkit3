@@ -33,8 +33,7 @@ from agentkit.pipeline.phases.closure.phase import (
 )
 from agentkit.pipeline.phases.setup.phase import SetupConfig, SetupPhaseHandler
 from agentkit.pipeline.state import save_phase_snapshot
-from agentkit.state_backend import (
-    ExecutionEventRecord,
+from agentkit.state_backend.store import (
     append_execution_event,
     save_flow_execution,
 )
@@ -45,6 +44,7 @@ from agentkit.story_context_manager.models import (
     StoryContext,
 )
 from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.telemetry.contract.records import ExecutionEventRecord
 from agentkit.telemetry.events import EventType
 
 if TYPE_CHECKING:

@@ -24,6 +24,54 @@ formal_refs:
   - formal.principal-capabilities.commands
   - formal.principal-capabilities.events
   - formal.principal-capabilities.invariants
+glossary:
+  exported_terms:
+    - id: ccag-permission-runtime
+      definition: >
+        Top-Level-Komponente CcagPermissionRuntime, die YAML-basierte,
+        sessionuebergreifend persistierte Tool-Freigabe-Regeln verwaltet.
+        Laeuft als letzter PreToolUse-Hook nach allen Guard-Hooks und
+        kommt nur zum Zug, wenn das harte Capability-Modell und das
+        Freeze-Overlay kein BLOCK ergeben haben. Im story_execution-Modus
+        darf CCAG keine unbekannten Freigaben per Host-Prompt aufloesen.
+      see_also:
+        - term: ccag
+          domain: governance-and-guards
+        - term: permission-request
+          domain: governance-and-guards
+        - term: guard-system
+          domain: governance-and-guards
+    - id: permission-lease
+      definition: >
+        Explizit erteilte, befristete Einzelfall-Ausnahme fuer genau einen
+        normalisierten Request-Fingerprint (project_key, story_id, run_id,
+        principal_type, tool_name, operation_class, path_class). Enger
+        geschnitten als eine Dauerregel; optional als max_uses=1
+        (consume-once). Entsteht nicht automatisch aus einer positiven
+        permission_request-Entscheidung.
+      see_also:
+        - term: permission-request
+          domain: governance-and-guards
+        - term: permission-verdict
+          domain: governance-and-guards
+    - id: permission-request
+      definition: >
+        Offener, auditierbarer Einzelfall einer unbekannten Tool-Freigabe
+        im story_execution-Modus. Setzt den aktiven Run auf PAUSED und
+        blockiert den Tool-Call sofort. Laedt den Menschen ein, spaeter per
+        offiziellen AgentKit-Pfad zu entscheiden. Laeuft nach TTL-Ablauf
+        ohne Entscheidung deterministisch als DENIED ab.
+      see_also:
+        - term: permission-lease
+          domain: governance-and-guards
+        - term: permission-verdict
+          domain: governance-and-guards
+  internal_terms:
+    - id: approved-yaml
+      reason: >
+        approved.yaml ist eine konkrete CCAG-Regeldatei fuer automatisch
+        gelernte Freigaben. Implementierungsdetail der CCAG-Persistenz;
+        kein eigenstaendiger exportierter Vertragstyp.
 ---
 
 # 42 — CCAG Tool-Governance und Permission-Runtime

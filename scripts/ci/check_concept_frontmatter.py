@@ -26,12 +26,14 @@ from __future__ import annotations
 
 import re
 import sys
-from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONCEPT_ROOT = REPO_ROOT / "concept"
@@ -201,7 +203,7 @@ def is_contract_doc(doc_cid: str, domains: dict[str, DomainEntry]) -> bool:
     return any(doc_cid in entry.contract_docs for entry in domains.values())
 
 
-def extract_glossary(doc: "Doc") -> dict[str, Any] | None:
+def extract_glossary(doc: Doc) -> dict[str, Any] | None:
     """Read a `glossary` block from frontmatter (or a parsed `## Glossar` section)."""
     glossary = doc.fm.get("glossary")
     if isinstance(glossary, dict):
@@ -361,10 +363,7 @@ def _connected_by_full_supersession(owners: list[Doc], by_id: dict[str, Doc]) ->
 
 
 def _full_supersedes(doc: Doc, target: str) -> bool:
-    for entry in doc.fm.get("supersedes") or []:
-        if deref(entry) == target and not has_scope(entry):
-            return True
-    return False
+    return any(deref(entry) == target and not has_scope(entry) for entry in doc.fm.get("supersedes") or [])
 
 
 def lint_l9_authority_graph_acyclic(docs: list[Doc], by_id: dict[str, Doc], report: LintReport) -> None:
@@ -405,9 +404,8 @@ def lint_l9_authority_graph_acyclic(docs: list[Doc], by_id: dict[str, Doc], repo
 def lint_l16_authority_typechecks(docs: list[Doc], by_id: dict[str, Doc], report: LintReport) -> None:
     for doc in docs:
         parent = doc.fm.get("parent_concept_id")
-        if isinstance(parent, str) and parent in by_id:
-            if parent in INDEX_OR_APPENDIX_IDS:
-                report.err("L16", f"{doc.path}: parent_concept_id points to index/appendix {parent!r}")
+        if isinstance(parent, str) and parent in by_id and parent in INDEX_OR_APPENDIX_IDS:
+            report.err("L16", f"{doc.path}: parent_concept_id points to index/appendix {parent!r}")
         for entry in doc.fm.get("defers_to") or []:
             target = deref(entry)
             if target in INDEX_OR_APPENDIX_IDS:
@@ -486,7 +484,7 @@ def lint_l7_body_refs(docs: list[Doc], by_id: dict[str, Doc], report: LintReport
                 report.err("L7", f"{doc.path}: body references unknown concept {ref!r}")
 
 
-def is_cross_cutting(doc: "Doc") -> bool:
+def is_cross_cutting(doc: Doc) -> bool:
     """Return True if a doc is marked as cross-cutting (Foundation/Adapter/Reference).
 
     Cross-cutting docs are exempt from L17 domain-required and L18 cross-domain
@@ -611,7 +609,7 @@ def lint_l19_glossary_integrity(
             report.err("L19", f"term {key[1]!r} in domain {key[0]!r} is both exported and internal")
 
     # only contract docs may carry a glossary
-    for domain_id, owners in glossary_owners.items():
+    for _domain_id, owners in glossary_owners.items():
         for doc in owners:
             if not is_contract_doc(doc.cid, domains):
                 report.err(

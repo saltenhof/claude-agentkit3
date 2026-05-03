@@ -23,7 +23,7 @@ class TestViolationType:
 
     def test_is_str_enum(self) -> None:
         assert isinstance(ViolationType.BRANCH_VIOLATION, str)
-        assert ViolationType.BRANCH_VIOLATION == "branch_violation"
+        assert ViolationType.BRANCH_VIOLATION.value == "branch_violation"
 
 
 class TestGuardVerdict:

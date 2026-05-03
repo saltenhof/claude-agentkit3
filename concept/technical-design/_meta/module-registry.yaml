@@ -11,6 +11,7 @@ modules:
 - compaction
 - configuration
 - conformance
+- control-plane-design-system
 - dashboard
 - data-model
 - defaults

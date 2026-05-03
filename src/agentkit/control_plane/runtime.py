@@ -16,13 +16,13 @@ from agentkit.control_plane.models import (
     SessionRunBindingView,
     StoryExecutionLockView,
 )
-from agentkit.control_plane.repository import ControlPlaneRuntimeRepository
-from agentkit.state_backend import (
+from agentkit.control_plane.records import (
     ControlPlaneOperationRecord,
-    ExecutionEventRecord,
     SessionRunBindingRecord,
-    StoryExecutionLockRecord,
 )
+from agentkit.control_plane.repository import ControlPlaneRuntimeRepository
+from agentkit.governance.guard_system.records import StoryExecutionLockRecord
+from agentkit.telemetry.contract.records import ExecutionEventRecord
 from agentkit.telemetry.events import EventType
 
 OperatingMode = Literal["ai_augmented", "story_execution", "binding_invalid"]

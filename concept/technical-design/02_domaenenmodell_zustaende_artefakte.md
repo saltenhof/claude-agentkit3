@@ -57,22 +57,24 @@ verwendet werden. Jeder Begriff hat eine exakte technische Bedeutung.
 
 ### 2.2.1 Story-Zustände (GitHub Project Board)
 
-Vier Zustände im GitHub Project Board. Nur diese sind extern sichtbar.
+Fuenf Zustände im GitHub Project Board. Nur diese sind extern sichtbar.
 
 ```mermaid
 stateDiagram-v2
     [*] --> Backlog : Issue erstellt
-    Backlog --> Freigegeben : Mensch gibt frei
-    Freigegeben --> InProgress : Pipeline startet
+    Backlog --> Approved : Mensch gibt frei
+    Backlog --> Cancelled : administrativ verworfen
+    Approved --> InProgress : Pipeline startet
+    Approved --> Cancelled : administrativ verworfen
     InProgress --> Done : Closure PASS
-    InProgress --> Cancelled : offizieller Story-Split
+    InProgress --> Cancelled : administrativ abgebrochen
     InProgress --> Backlog : Ablehnung / Rework
     Done --> [*]
     Cancelled --> [*]
 ```
 
 **Technische Umsetzung:** Das `Status`-Feld ist ein Single-Select
-Custom Field im GitHub Project V2. Werte: `Backlog`, `Freigegeben`,
+Custom Field im GitHub Project V2. Werte: `Backlog`, `Approved`,
 `In Progress`, `Done`, `Cancelled`. Änderungen erfolgen via
 GraphQL-Mutation:
 

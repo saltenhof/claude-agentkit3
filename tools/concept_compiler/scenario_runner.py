@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from concept_compiler.loader import FormalSpecDocument
 from agentkit.exceptions import AgentKitError
+
+if TYPE_CHECKING:
+    from .loader import FormalSpecDocument
 
 
 class FormalScenarioError(AgentKitError):
@@ -166,10 +168,7 @@ def _validate_status_trace(
             current_status,
             allow_self=_command_may_keep_state(step["command"]),
         )
-        for candidate in candidates:
-            if solve(step_index + 1, candidate):
-                return True
-        return False
+        return any(solve(step_index + 1, candidate) for candidate in candidates)
 
     if not solve(0, start_status):
         raise FormalScenarioError(

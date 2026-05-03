@@ -6,8 +6,6 @@ import json
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
-from weaviate.classes.query import Filter, MetadataQuery
-
 from tools.concept_ingester.config import IngesterConfig
 from tools.concept_ingester.ingester import (
     IngestStrategy,
@@ -21,6 +19,7 @@ from tools.concept_ingester.schema import (
     ensure_all_collections,
 )
 from tools.concept_mcp.filters import FilterSyntaxError, build_filter
+from weaviate.classes.query import Filter, MetadataQuery
 
 SERVER_INSTRUCTIONS = """\
 AgentKit 3 concept knowledge base.

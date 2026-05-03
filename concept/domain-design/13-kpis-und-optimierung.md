@@ -18,6 +18,23 @@ supersedes: []
 superseded_by:
 tags: [kpi, dashboard, telemetrie]
 formal_scope: prose-only
+glossary:
+  exported_terms:
+    - id: kpi-definition
+      definition: >
+        Eine benannte, typisierte Kennzahl mit genau einer zugehoerigen
+        Entscheidungsfrage, einer Formel, einer primaeren Koernung
+        (pro Story / pro Entitaet+Periode / pro Periode) und einer
+        zugeordneten Handlung. Ohne Entscheidungsfrage wird eine
+        Kennzahl nicht als KPI erhoben.
+    - id: kpi-domain
+      definition: >
+        Thematische Gruppierung von KPIs nach dem Entscheidungsbereich,
+        den sie informieren. Der Analytics-Block definiert zehn
+        KPI-Domaenen: Story-Dimensionierung, LLM-Selektion,
+        Governance-Gesundheit, Dokumententreue, QA-Effektivitaet,
+        Review-Qualitaet, VektorDB, ARE-Integration, Failure-Corpus
+        und Prozess-Effizienz.
 ---
 
 # 13 — KPIs und nachgelagerte Optimierung

@@ -41,6 +41,25 @@ formal_refs:
   - formal.telemetry-analytics.commands
   - formal.telemetry-analytics.events
   - formal.telemetry-analytics.invariants
+glossary:
+  exported_terms:
+    - id: kpi-collection-point
+      definition: >
+        Deklarative Zuordnungsaussage, die fuer eine KPI benennt:
+        welches Event oder welcher Payload-Anreicherungspunkt die
+        Erhebung ausloest, wo im Pipeline-Ablauf dies geschieht und
+        welche Ziel-Fact-Tabelle befuellt wird. Ein Collection-Point
+        ist keine eigene Hook-Logik; die Hook-Mechanik selbst liegt
+        in telemetry-and-events.TelemetryHooks (FK-30/FK-68). FK-61
+        buendelt ausschliesslich die Erhebungszuordnungen zentral.
+  internal_terms:
+    - id: guard-invocation-counter
+      reason: >
+        Scratchpad-Tabelle runtime.guard_invocation_counters fuer
+        leichtgewichtige Guard-Aufrufzaehlung ohne
+        High-Volume-Event-Erzeugung. Internes Implementierungsdetail
+        des Hot-Path-Designs; exportierter Vertragsbegriff waere
+        fact_guard_period (guard-period-fact in FK-62).
 ---
 
 # 61 — KPI-Erhebung nach Domaenen
@@ -71,6 +90,13 @@ KPI-Definition (Name, Formel, Koernung, Entscheidungsfrage) steht
 ausschliesslich in FK-60. Domain-FKs (FK-27, FK-30, FK-34, etc.)
 beschreiben das Laufzeitverhalten, aus dem Events entstehen — sie
 werden hier referenziert, nicht dupliziert.
+
+**Hook-Ownership:** FK-61 enthaelt ausschliesslich deklarative
+Erhebungszuordnungen (Collection-Points). Die Hook-Registrierung,
+Hook-Mechanik und Event-Emission liegen bei
+`telemetry-and-events.TelemetryHooks` (FK-30/FK-68). FK-61
+beschreibt WAS erhoben wird und WO im Ablauf — nicht WIE der Hook
+technisch ausgefuehrt wird.
 
 **Projekt-Scope-Regel:** Alle Erhebungspunkte schreiben oder lesen
 kanonische Daten immer unter `project_key`. KPI-Formeln koennen

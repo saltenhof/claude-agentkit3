@@ -13,6 +13,84 @@ authority_over:
   - scope: postflight-gates
   - scope: execution-report
   - scope: guard-deactivation
+  - scope: story-metric-schema
+  - scope: workflow-metric-schema
+glossary:
+  exported_terms:
+    - id: closure-payload
+      definition: >
+        Phasenspezifische Payload fuer die Closure-Phase als diskriminierte Union
+        im PhaseState (payload.type == "closure"). Enthaelt ausschliesslich ein
+        ClosureProgress-Objekt als durable Contract Field. Eigentuemerschaft liegt
+        beim story-closure BC; Mechanik der diskriminierten Union bei pipeline-framework.
+      see_also:
+        - term: phase-payload
+          domain: pipeline-framework
+    - id: closure-progress
+      definition: >
+        Typisiertes Objekt mit sechs granularen Booleans innerhalb von ClosurePayload,
+        das den Fortschritt der Closure-Substates checkpoint-sicher abbildet:
+        integrity_passed, story_branch_pushed, merge_done, issue_closed,
+        metrics_written, postflight_done. Jedes Boolean markiert einen irreversiblen
+        Abschluss-Checkpoint; bei Crash-Recovery werden abgeschlossene Schritte
+        uebersprungen.
+    - id: closure-sequence
+      definition: >
+        Die normativ festgelegte, geordnete Abfolge von elf Closure-Schritten
+        mit irreversiblen Seiteneffekten: Finding-Resolution-Gate,
+        Integrity-Gate, Story-Branch-Push, Merge, Worktree-Teardown,
+        Issue-Close, Metriken, Rueckkopplungstreue, Postflight-Gates,
+        VektorDB-Sync, Guard-Deaktivierung. Reihenfolge ist Pflicht (FK-05-226);
+        kein Schritt darf vorgezogen oder uebersprungen werden.
+    - id: closure-verdict
+      definition: >
+        Ergebnis der vollstaendigen Closure-Sequence fuer eine Story. Moegliche
+        Werte: COMPLETED (alle Substates erfolgreich abgeschlossen) oder
+        ESCALATED (mindestens ein harter Blocker — Finding-Resolution-FAIL,
+        Integrity-Gate-FAIL, Push-Fehler oder Merge-Fehler). Es gibt keinen
+        degradierten Abschluss-Modus.
+      values:
+        - COMPLETED
+        - ESCALATED
+    - id: execution-report
+      definition: >
+        Konsolidierter Markdown-Report, der am Ende jeder Story-Bearbeitung
+        unabhaengig vom Ergebnis erzeugt wird (_temp/qa/{story_id}/execution-report.md).
+        Enthaelt Summary Table, Failure Diagnosis, Artifact Health, Errors and Warnings,
+        Structural Check Results, Policy Engine Verdict, Closure Sub-Step Status,
+        Telemetry Event Counts und Integrity Violations Log. Graceful Degradation:
+        fehlende Artefakte werden als MISSING dokumentiert, der Report wird nicht
+        abgebrochen.
+    - id: finding-resolution-gate
+      definition: >
+        Eigenstaendiger Closure-Gate-Check vor dem Integrity-Gate, der alle drei
+        Layer-2-QA-Artefakte (qa_review.json, semantic_review.json, doc_fidelity.json)
+        auf vollstaendige Finding-Resolution prueft. Closure blockiert fail-closed,
+        wenn mindestens ein Finding den Status partially_resolved oder not_resolved
+        hat. Entfaellt vollstaendig fuer Concept- und Research-Stories.
+    - id: guard-deactivation
+      definition: >
+        Letzter Schritt der Closure-Sequence nach erfolgreichem Postflight: Beenden
+        des Lock-Records im State-Backend und Entfernen optionaler Lock-Exporte
+        (_temp/governance/locks/{story_id}/qa-lock.json und .agent-guard/lock.json).
+        Ab diesem Zeitpunkt ist der AI-Augmented-Modus wieder aktiv (Branch-Guard,
+        Orchestrator-Guard und QA-Schutz inaktiv).
+    - id: merge-policy
+      definition: >
+        Offiziell zulaessige Merge-Strategie in der Closure-Sequence. Default ist
+        ff_only (Merge ohne Merge-Commit). Einziger offizieller Fallback ist no_ff
+        (Merge mit explizitem Merge-Commit) fuer dokumentierte Closure-Retries.
+        Manuelle Rebases und Force-Pushes sind kein zulaessiger Closure-Fix.
+      values:
+        - ff_only
+        - no_ff
+    - id: postflight-gates
+      definition: >
+        Fuenf deterministische Konsistenzpruefungen nach erfolgreichem Merge und
+        Issue-Close: story_dir_exists, issue_closed, metrics_set,
+        telemetry_complete, artifacts_complete. Ein Postflight-FAIL ist
+        nicht-blockierend (Code ist bereits auf Main); der Mensch entscheidet
+        ueber Nacharbeit. Kein automatischer Rollback.
 defers_to:
   - target: FK-27
     scope: verify-pipeline
@@ -126,7 +204,7 @@ flowchart TD
     FR -->|"FAIL: Ungelöste Findings"| ESC_FR(["ESCALATED:<br/>Offene Findings."])
     FR -->|PASS| INTEGRITY
 
-    INTEGRITY["Integrity-Gate<br/>(FK-35 §35.2: Pflicht-Artefakt-Vorstufe +<br/>8 Dimensionen +<br/>Telemetrie-Korrelation)"]
+    INTEGRITY["Integrity-Gate<br/>(agentkit.governance.integrity_gate;<br/>FK-35 §35.2: Pflicht-Artefakt-Vorstufe +<br/>8 Dimensionen +<br/>Telemetrie-Korrelation)"]
     INTEGRITY -->|FAIL| ESC_I(["ESCALATED:<br/>Opake Meldung.<br/>Details in Audit-Log."])
     INTEGRITY -->|PASS| SUB1["Substate:<br/>integrity_passed = true"]
 
@@ -145,7 +223,7 @@ flowchart TD
     SUB3 --> STATUS["Projektstatus: Done<br/>+ QA Rounds, Completed At"]
     STATUS --> SUB4["Substate:<br/>metrics_written = true"]
 
-    SUB4 --> DOCTREUE4["Dokumententreue Ebene 4:<br/>Rückkopplungstreue<br/>(StructuredEvaluator)"]
+    SUB4 --> DOCTREUE4["Dokumententreue Ebene 4:<br/>Rückkopplungstreue<br/>(agentkit.verify_system.llm_evaluator;<br/>StructuredEvaluator, FK-34)"]
     DOCTREUE4 -->|"FAIL (non-blocking)"| WARN_DT(["Warnung an Mensch<br/>(FK-38 §38.3.1)"])
     DOCTREUE4 -->|"PASS"| POSTFLIGHT["Postflight-Gates"]
     WARN_DT --> POSTFLIGHT
@@ -154,7 +232,7 @@ flowchart TD
     WARN_PF --> SUB5
 
     SUB5 --> VDBSYNC["VektorDB-Sync<br/>(async, Fire-and-Forget)"]
-VDBSYNC --> GUARDS_OFF["Guards deaktivieren:<br/>Lock-Record beenden"]
+    VDBSYNC --> GUARDS_OFF["Guards deaktivieren:<br/>Governance.deactivate_locks(story_id)<br/>(agentkit.governance)"]
     GUARDS_OFF --> DONE(["Story abgeschlossen"])
 ```
 
@@ -270,11 +348,12 @@ Vollbehebung, weil keine andere Instanz den Finding-Status setzte.
 ### 29.2.2 Quelle des Resolution-Status (FK-27-222)
 
 Der Resolution-Status kommt ausschliesslich aus den Layer-2-QA-
-Review-Checks (StructuredEvaluator im Remediation-Modus, FK-34).
+Review-Checks (`agentkit.verify_system.llm_evaluator`,
+`StructuredEvaluator` im Remediation-Modus, FK-34).
 Es gibt keine eigene Quelle und kein separates Artefakt:
 
-- **Kanonisch:** Layer-2-Evaluator bewertet pro Finding:
-  `fully_resolved`, `partially_resolved`, `not_resolved`
+- **Kanonisch:** Layer-2-Evaluator (`agentkit.verify_system.llm_evaluator`)
+  bewertet pro Finding: `fully_resolved`, `partially_resolved`, `not_resolved`
 - **Nicht kanonisch:** Worker-Artefakte (`protocol.md`,
   `handover.json`) — diese haben Trust C und duerfen den Status
   eines Findings nicht autoritativ setzen (DK-04 §4.2)
@@ -391,6 +470,18 @@ ESCALATED, FAILED) — wird ein konsolidierter Markdown-Report erzeugt:
 (Oversight/Audit); bei erfolgreich abgeschlossenen Stories ist keine
 aktive Intervention erforderlich.
 
+**Aufrufpfad bei FAILED in fruehen Phasen (Entscheidung):**
+Wenn eine Story in einer fruehen Phase (z.B. Setup oder Implementation)
+mit FAILED endet ohne Closure regulaer zu erreichen, ruft
+`pipeline-framework.PipelineEngine` die ClosureSequence-Top dennoch
+auf — im Skip-Modus: `ClosureProgress`-Felder bleiben auf `false`, der
+`ExecutionReport` wird trotzdem erzeugt (Graceful Degradation, §29.4.3).
+Modul: `agentkit.closure.execution_report` (`ExecutionReport`, intern in
+BC 7). Begruendung: Single-Owner fuer alle Closure-Anteile;
+pipeline-framework bleibt orchestrierend statt fachlich.
+`ExecutionReport` ist deshalb NICHT `sub_exposed` und wird nicht von
+`agentkit.pipeline_engine` direkt aufgerufen.
+
 ### 29.4.2 Report-Sektionen
 
 | Sektion | Inhalt |
@@ -419,10 +510,38 @@ Domänenkonzept 5.2 Closure-Phase "Execution Report".
 
 ## 29.5 Guard-Deaktivierung
 
-Nach erfolgreichem Postflight:
+Nach erfolgreichem Postflight ruft Closure `Governance.deactivate_locks(story_id)`
+(`agentkit.governance`, Top-Surface). Die Lock-Record-Verwaltung gehoert
+ausschliesslich zum Governance-BC; Closure haelt keinen eigenen Lock-Sub.
+
+`Governance.deactivate_locks` fuehrt intern aus:
 
 1. Lock-Record im State-Backend beenden und optionale Lock-Exporte entfernen:
    `_temp/governance/locks/{story_id}/qa-lock.json`
    sowie `.agent-guard/lock.json` in betroffenen Worktrees
 2. Ab hier: AI-Augmented-Modus wieder aktiv (Branch-Guard inaktiv,
    Orchestrator-Guard inaktiv, QA-Schutz inaktiv)
+
+Closure selbst enthaelt keine Lock-Logik — der Aufruf ist ein einzelner
+Delegationsschritt an `agentkit.governance.integrity_gate` (IntegrityGate-Aufruf
+in §29.1.2) und `agentkit.governance` (Guard-Deaktivierung hier).
+
+## 29.6 Schema-Owner-Cut: StoryMetric und WorkflowMetric
+
+**Owner: story-closure BC (agentkit.closure.post_merge_finalization)**
+
+Analog zum Schema-Owner-Cut in FK-69 §69.6-69.8 fuer telemetry-and-events gilt:
+
+| Schema | Owner | Modul | Schreibzeitpunkt |
+|--------|-------|-------|-----------------|
+| `StoryMetric` | story-closure | `agentkit.closure.post_merge_finalization` | Ende der Closure-Phase (Substate `metrics_written = true`) |
+| `WorkflowMetric` | story-closure | `agentkit.closure.post_merge_finalization` | Ende der Closure-Phase (Substate `metrics_written = true`) |
+
+`PostMergeFinalization` definiert die Schema-Struktur und schreibt die Werte
+via `Telemetry.write_projection` (Top-Surface von `agentkit.telemetry`).
+Die Persistenz-Schicht (Projektionstabellen) liegt bei telemetry-and-events —
+Schema-Ownership und Schreibverantwortung liegen bei story-closure.
+
+Lesezugriff auf `StoryMetric`/`WorkflowMetric` erfolgt ausschliesslich
+ueber `Telemetry.read_projection` (sub_exposed, `agentkit.telemetry.projection_accessor`).
+Direktes Lesen der Projektionstabellen durch andere BCs ist nicht zulaessig.

@@ -1,0 +1,1 @@
+"""Telemetry contract boundary module."""

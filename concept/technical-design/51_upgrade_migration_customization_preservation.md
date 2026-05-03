@@ -29,6 +29,26 @@ formal_refs:
   - formal.skills-and-bundles.events
   - formal.skills-and-bundles.invariants
   - formal.skills-and-bundles.scenarios
+glossary:
+  exported_terms:
+    - id: config-migration
+      definition: >
+        Schrittweiser Konvertierungsprozess einer .story-pipeline.yaml von
+        einer aelteren config_version auf die aktuelle Zielversion. Laeuft
+        innerhalb von CP 5 des Installers; erstellt vor jeder Aenderung ein
+        .bak-Backup. Bei Scheitern: FAILED, keine Teilmigration.
+      see_also:
+        - term: installer-checkpoint
+          domain: installation-and-bootstrap
+    - id: customization-footprint
+      definition: >
+        Erfasstes Profil projektspezifischer Anpassungen an AgentKit-verwalteten
+        Dateien, insbesondere geaenderte Schwellenwerte in der Pipeline-Config,
+        projektspezifische CCAG-Regeln und bewusst gesetzte Bundle-Bindungen.
+        Erkannte Anpassungen werden niemals stillschweigend ueberschrieben.
+      see_also:
+        - term: manifest-contract
+          domain: installation-and-bootstrap
 ---
 
 # 51 — Upgrade, Migration und Customization-Preservation
@@ -46,17 +66,12 @@ Projekt werden nur Konfiguration und Symlink-Bindungen aktualisiert.
 
 ## 51.2 Upgrade-Trigger
 
-```bash
-# AgentKit-Paket aktualisieren
-pip install --upgrade agentkit
-
-# Installer erneut laufen (erkennt Upgrade automatisch)
-agentkit register-project --gh-owner acme-corp --gh-repo trading-platform
-```
+Der Installer ist transport-agnostisch. CLI-Aufrufe sind Boundary-Controls
+des aufrufenden BC. Aufruf erfolgt ueber das aufrufende BC (Boundary-Control).
 
 Der Installer erkennt anhand der installierten Paketversion, der
 registrierten Bundle-Version und des Konfigurations-Digests, ob ein
-Upgrade oder eine Re-Bindung nötig ist.
+Upgrade oder eine Re-Bindung noetig ist.
 
 ## 51.3 Drei Upgrade-Szenarien
 
@@ -132,15 +147,19 @@ unverändert. Neue Runs schreiben die aktuelle Schema-Version.
 
 ## 51.6 Hook-Migration
 
-Bei Upgrades können sich Hook-Registrierungen ändern (neue Hooks,
-geänderte Matcher, entfernte Hooks). Der Installer:
+Bei Upgrades koennen sich Hook-Registrierungen aendern (neue Hooks,
+geaenderte Matcher, entfernte Hooks). Der Installer delegiert die
+Hook-Verwaltung an die Top-Surface `Governance.register_hooks`
+(BC `governance-and-guards`, FK-30). Die JSON-Manipulation an
+`.claude/settings.json` liegt in `agentkit.governance.guard_system`.
 
-1. Liest bestehende `.claude/settings.json`
-2. Erkennt AgentKit-Hooks anhand des Command-Patterns
-   (`python -m agentkit.`)
-3. Entfernt veraltete AgentKit-Hooks
-4. Fügt neue/geänderte AgentKit-Hooks hinzu
-5. Lässt nicht-AgentKit-Hooks unberührt
+Der Installer:
+
+1. Ermittelt die neuen/geaenderten Hook-Definitionen fuer die aktuelle Version
+2. Ruft `Governance.register_hooks(hook_definitions)` auf
+3. `governance.guard_system` erkennt AgentKit-Hooks anhand des Command-Patterns
+   (`python -m agentkit.`), entfernt veraltete und fuegt neue hinzu
+4. Nicht-AgentKit-Hooks bleiben unveraendert
 
 ### 51.6.1 Git-Hook-Migration (Pre-Commit Dispatching)
 
@@ -161,16 +180,34 @@ Bei Upgrades von einer Version ohne Dispatching-Logik:
 
 ## 51.7 Cleanup alter Dateien
 
-Der Installer kann mit `--cleanup` veraltete lokale Bindungen oder
-obsolet gewordene Projektkonfiguration entfernen:
-
-```bash
-agentkit register-project --gh-owner acme-corp --gh-repo trading-platform --cleanup
-```
+Der Installer unterstuetzt einen Cleanup-Modus fuer veraltete lokale
+Bindungen oder obsolet gewordene Projektkonfiguration. Aufruf erfolgt
+ueber das aufrufende BC (Boundary-Control).
 
 Cleanup entfernt nur obsolete Symlink-Bindungen und lokale
 AgentKit-Konfigurationsreste, nicht aber Projektcode oder zentrale
 Laufzeitdaten.
+
+## 51.8 Customization-Erkennung
+
+Der `CustomizationFootprint` kombiniert Informationen aus drei
+Quellen — jeweils ueber die kanonischen Lese-Schnittstellen der
+Owner-BCs:
+
+| Quelle | Owner-BC | Lese-Schnittstelle |
+|--------|----------|-------------------|
+| Pipeline-Config-Schwellenwerte | `pipeline-framework` (FK-03) | `PipelineConfig`-Schema lesen (lokale Datei; Digest-Vergleich) |
+| CCAG-Regeln (projektspezifisch) | `governance-and-guards` | Top-Surface lesen; CCAG-Regeln sind Teil des Governance-Vertrags |
+| Bundle-Bindings (Prompt) | `prompt-runtime` | `PromptRuntime.update_binding`-Pendant; aktuellen Bundle-Pin lesen |
+| Bundle-Bindings (Skills) | `agent-skills` | `Skills.resolve_binding(skill_id, project_root)` (Top-Surface FK-43) |
+
+Der `CustomizationFootprint` ist ein Lese-Aggregat in BC
+`installation-and-bootstrap`. Er schreibt keine Daten in andere BCs.
+Alle Lese-Pfade gehen ueber die jeweiligen Top-Surfaces, nie direkt
+ueber Filesystem-Zugriff auf fremde BC-interne Strukturen.
+
+**Invariante:** Erkannte Anpassungen werden niemals stillschweigend
+ueberschrieben (F-51-023).
 
 ---
 

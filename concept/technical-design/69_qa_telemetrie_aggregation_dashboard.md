@@ -8,7 +8,7 @@ doc_kind: core
 parent_concept_id:
 authority_over:
   - scope: qa-read-models
-  - scope: failure-corpus-read-models
+  - scope: read-model-projections
 defers_to:
   - target: FK-68
     scope: telemetry
@@ -38,6 +38,67 @@ formal_refs:
   - formal.telemetry-analytics.events
   - formal.telemetry-analytics.invariants
   - formal.telemetry-analytics.scenarios
+glossary:
+  exported_terms:
+    - id: failure-corpus-read-model
+      definition: >
+        Querybare Projektions-Schicht der Failure-Corpus-Daten im
+        State-Backend (fc_incidents, fc_patterns, fc_check_proposals).
+        Schema-Owner und fachliche Definition liegen in BC failure-corpus
+        (FK-41). telemetry-and-events.ProjectionAccessor stellt nur die
+        DB-Zugriffsschicht bereit; Schreib-Owner ist failure-corpus.
+        Operativ append-only fuer gueltige Runs; wird bei vollstaendigem
+        Story-Reset der korrupten Umsetzung mitentfernt.
+      see_also:
+        - term: qa-read-model
+          domain: telemetry-and-events
+    - id: phase-state-projection
+      definition: >
+        Querybare Read-Model-Sicht auf den aktuellen Phasenzustand einer
+        Story-Umsetzung im State-Backend. Liefert attempt_no, phase, status
+        und mode fuer Story-Abfragen und Metrikbildung (qa_rounds). Ist
+        eine abgeleitete Projektion aus dem kanonischen PhaseState der
+        Pipeline-Engine; nie direkt von Agents beschreibbar.
+      see_also:
+        - term: phase-state-core
+          domain: pipeline-framework
+        - term: qa-read-model
+          domain: telemetry-and-events
+    - id: qa-read-model
+      definition: >
+        Querybare Projektions-Schicht operativer QA-Ergebnisse im
+        State-Backend: qa_stage_results, qa_findings und story_metrics.
+        Verdichtet execution_events zu Story- und Stage-Sichten fuer
+        Laufzeit-Dashboards und Drill-Downs, ohne in die periodische
+        KPI-Analytics-Schicht (FK-60 bis FK-63) einzugreifen. Jede
+        Tabelle hat genau einen definierten Writer; bei vollstaendigem
+        Story-Reset werden alle Zeilen des betroffenen run_id entfernt.
+      see_also:
+        - term: execution-event
+          domain: telemetry-and-events
+    - id: story-metric
+      definition: >
+        Operativer Abschlussmetriken-Datensatz pro Story-Run in der
+        Tabelle story_metrics. Pflichtfelder: project_key, story_id, run_id,
+        story_type, story_size, mode, processing_time_min, qa_rounds,
+        increments, final_status, completed_at. Wird erst bei Story-Abschluss
+        final; Quellen sind execution_events, phase_state_projection,
+        StoryContext und Closure-Artefakte.
+      see_also:
+        - term: workflow-metric
+          domain: telemetry-and-events
+        - term: qa-read-model
+          domain: telemetry-and-events
+  internal_terms:
+    - id: qa-stage-result-record
+      reason: >
+        Konkretes Tabellen-Tupel in qa_stage_results. Implementierungsdetail
+        der FK-69-Persistenzschicht; der exportierte Begriff ist qa-read-model.
+    - id: reset-purge-job
+      reason: >
+        Interner Bereinigungsprozess, der bei vollstaendigem Story-Reset alle
+        FK-69-Zeilen des betroffenen run_id loescht. Implementierungsdetail
+        ohne eigene Vertragsflaeche.
 ---
 
 # 69 — QA- und Failure-Corpus-Read-Models
@@ -86,25 +147,45 @@ FK-69 definiert **nicht**:
 
 ## 69.3 Tabellenumfang
 
-FK-69 autorisiert diese Tabellen:
+FK-69 autorisiert folgende Tabellen (DB-Zugriffsschicht via
+`agentkit.telemetry.read_models`):
 
-- `qa_stage_results`
-- `qa_findings`
-- `story_metrics`
-- `fc_incidents`
-- `fc_patterns`
-- `fc_check_proposals`
+**QA-Read-Models (Schema-Owner: verify-system):**
+
+- `qa_stage_results` — `agentkit.telemetry.read_models.qa_stage_results`
+- `qa_findings` — `agentkit.telemetry.read_models.qa_findings`
+
+**Story-Metriken (Schema-Owner: story-closure):**
+
+- `story_metrics` — `agentkit.telemetry.read_models.story_metrics`
+
+**Failure-Corpus-Read-Models (Schema-Owner: failure-corpus, FK-41):**
+
+- `fc_incidents` — `agentkit.telemetry.read_models.fc_incidents`
+- `fc_patterns` — `agentkit.telemetry.read_models.fc_patterns`
+- `fc_check_proposals` — `agentkit.telemetry.read_models.fc_check_proposals`
+
+`phase_state_projection` — `agentkit.telemetry.read_models.phase_state_projection`
+(Schema-Owner: pipeline-framework)
+
+**Hinweis:** telemetry-and-events ist fuer alle Tabellen der **DB-Owner**
+(Zugriffsschicht via ProjectionAccessor). Schema-Definitions-Verantwortung
+liegt bei den jeweiligen Owner-BCs wie oben angegeben.
 
 ## 69.4 Schreib-Ownership
 
-| Tabelle | Owner / Writer | Fachliche Rolle |
-|---------|----------------|-----------------|
-| `qa_stage_results` | `stage_registry` / Verify-Runner | Ergebnis je Stage und Attempt |
-| `qa_findings` | `stage_registry` / jeweiliger Stage-Adapter | Atomare Findings je Check |
-| `story_metrics` | Closure-Projektion | Story-nahe Abschlussmetriken |
-| `fc_incidents` | `failure_corpus` | Laufende Incident-Erfassung |
-| `fc_patterns` | `failure_corpus` | Pattern-Lifecycle |
-| `fc_check_proposals` | `failure_corpus` | Check-Vorschlaege und Wirksamkeit |
+| Tabelle | Schema-Owner BC | Writer-Komponente | Fachliche Rolle |
+|---------|----------------|-------------------|-----------------|
+| `qa_stage_results` | verify-system | `verify_system.StageRegistry` / Verify-Runner | Ergebnis je Stage und Attempt |
+| `qa_findings` | verify-system | `verify_system.StageRegistry` / jeweiliger Stage-Adapter | Atomare Findings je Check |
+| `story_metrics` | story-closure | `story_closure.PostMergeFinalization` | Story-nahe Abschlussmetriken |
+| `phase_state_projection` | pipeline-framework | `pipeline_engine.PhaseExecutor` | Laufzeitphasenstatus und Attempt-Zaehler |
+| `fc_incidents` | failure-corpus | `failure_corpus.FailureCorpus` | Laufende Incident-Erfassung |
+| `fc_patterns` | failure-corpus | `failure_corpus.FailureCorpus` | Pattern-Lifecycle |
+| `fc_check_proposals` | failure-corpus | `failure_corpus.FailureCorpus` | Check-Vorschlaege und Wirksamkeit |
+
+**DB-Owner fuer alle Tabellen:** telemetry-and-events (`agentkit.telemetry.projection_accessor`).
+Schema-Owner ist das jeweilige BC; FK-69 definiert nur die Zugriffsschicht und Konsistenzregeln.
 
 ## 69.5 Abgrenzung zu anderen Schichten
 
@@ -131,10 +212,15 @@ Diese gehoeren in die Analytics-Schicht.
 
 ## 69.6 Tabelle `qa_stage_results`
 
+**Modul:** `agentkit.telemetry.read_models.qa_stage_results`
+**Schema-Owner:** verify-system
+
 ### 69.6.1 Zweck
 
 `qa_stage_results` speichert das Ergebnis einer einzelnen Verify-Stage
-fuer genau einen Attempt einer Story.
+fuer genau einen Attempt einer Story. Die Pflichtattribute sind hier als
+Read-Model-Kontrakt definiert; die fachliche Schema-Verantwortung liegt
+bei verify-system (FK-33).
 
 ### 69.6.2 Pflichtattribute
 
@@ -166,10 +252,14 @@ fuer genau einen Attempt einer Story.
 
 ## 69.7 Tabelle `qa_findings`
 
+**Modul:** `agentkit.telemetry.read_models.qa_findings`
+**Schema-Owner:** verify-system
+
 ### 69.7.1 Zweck
 
 `qa_findings` macht einzelne Check-Befunde querybar, ohne das jeweilige
-JSON-Artefakt parsen zu muessen.
+JSON-Artefakt parsen zu muessen. Schema-Verantwortung liegt bei verify-system
+(FK-33); FK-69 definiert die Zugriffsschicht.
 
 ### 69.7.2 Pflichtattribute
 
@@ -208,11 +298,16 @@ JSON-Artefakt parsen zu muessen.
 
 ## 69.8 Tabelle `story_metrics`
 
+**Modul:** `agentkit.telemetry.read_models.story_metrics`
+**Schema-Owner:** story-closure
+
 ### 69.8.1 Zweck
 
 `story_metrics` haelt operative Abschlussmetriken pro Story-Run, die
 fuer Story-Detailansichten und einfache Projektsteuerung benoetigt
 werden, aber noch keine periodische KPI-Aggregation sind.
+Schema-Verantwortung liegt bei story-closure (FK-29); FK-69 definiert
+die Zugriffsschicht.
 
 ### 69.8.2 Pflichtattribute
 
@@ -247,72 +342,30 @@ werden, aber noch keine periodische KPI-Aggregation sind.
 - Ein vollstaendiger Story-Reset loescht den `story_metrics`-Satz der
   korrupten Umsetzung.
 
-## 69.9 Failure Corpus
+## 69.9 Failure-Corpus-Read-Models
 
-### 69.9.1 Tabelle `fc_incidents`
+**Schema-Owner:** failure-corpus (FK-41)
+**Modul (DB-Zugriffsschicht):** `agentkit.telemetry.read_models.fc_*`
 
-Reprasentiert einzelne Failure-Corpus-Incidents.
+Die Tabellen `fc_incidents`, `fc_patterns` und `fc_check_proposals`
+gehoeren **fachlich zu BC failure-corpus** (FK-41). Ihre inhaltliche
+Definition — Pflichtattribute, Fachregeln, Lifecycle — ist
+ausschliesslich in **FK-41 §41.3** normiert.
 
-**Pflichtattribute:**
+telemetry-and-events.ProjectionAccessor ist der **DB-Owner**: er stellt
+die Zugriffsschicht (Lesen und Schreiben via `Telemetry.write_projection`
+bzw. `Telemetry.read_projection`) bereit, trifft aber keine
+fachlichen Schema-Entscheidungen.
 
-- `project_key`
-- `incident_id`
-- `story_id`
-- `run_id`
-- `category`
-- `phase`
-- `title`
-- `status`
-- `recorded_at`
+Fuer Attribute, Fachregeln und Reset-Semantik der drei Tabellen:
 
-**Fachregel:** Incidents sind operativ append-only, solange die
-zugrunde liegende Story-Umsetzung gueltig bleibt. Wird diese
-vollstaendig zurueckgesetzt, werden die zugehoerigen
-`fc_incidents` entfernt. Statusaenderungen einer gueltigen Umsetzung
-erfolgen ueber neue Lifecycle-Felder oder Nachfolgerecords, nicht ueber
-stilles Umschreiben der Evidenz.
+> Siehe **FK-41 §41.3** (Failure Corpus, Pattern-Promotion und
+> Check-Factory — Speicherung und Datenmodell).
 
-### 69.9.2 Tabelle `fc_patterns`
-
-Reprasentiert verdichtete Pattern-Kandidaten und bestaetigte Pattern.
-
-**Pflichtattribute:**
-
-- `project_key`
-- `pattern_id`
-- `category`
-- `invariant`
-- `status`
-- `incident_count`
-- `updated_at`
-
-**Fachregel:** `incident_count` ist eine bewusst denormalisierte,
-rebuildbare Projektion aus Incident-Zuordnungen. Nach einem
-vollstaendigen Story-Reset muessen betroffene Pattern-Projektionen neu
-berechnet oder gezielt korrigiert werden; ein zurueckgesetzter Run darf
-nicht weiter in `incident_count` oder `status` hineinwirken.
-
-### 69.9.3 Tabelle `fc_check_proposals`
-
-Reprasentiert deterministische Check-Vorschlaege und deren
-Wirksamkeitsbeobachtung.
-
-**Pflichtattribute:**
-
-- `project_key`
-- `check_id`
-- `pattern_ref`
-- `status`
-- `check_type`
-- `pipeline_stage`
-- `pipeline_layer`
-- `true_positives`
-- `false_positives`
-- `no_findings`
-- `updated_at`
-
-**Fachregel:** Wirksamkeitszaehler gehoeren zu diesem Proposal und
-werden nicht als separates Faktenschema modelliert.
+**Reset-Regel (analog §69.10.1):** Wird ein `run_id` vollstaendig
+zurueckgesetzt, muessen alle `fc_incidents`-Zeilen dieses `run_id`
+entfernt werden. Betroffene `fc_patterns`-Projektionen (incident_count)
+muessen neu berechnet oder korrigiert werden.
 
 ## 69.10 Quellen und Materialisierung
 
@@ -378,3 +431,32 @@ FK-69 definiert die operative Mittelschicht zwischen:
 
 Damit bleiben QA-, Story- und Failure-Corpus-Daten querybar, ohne
 erneut in ein dateibasiertes Parallelmodell wie in AK2 zurueckzufallen.
+
+## 69.14 Beziehung zu kpi-and-dashboard (FK-63)
+
+`telemetry-and-events.ProjectionAccessor` und `kpi-and-dashboard.Dashboard`
+(FK-63) erfullen **komplementaere, nicht konkurrierende Rollen**:
+
+| Schicht | Verantwortliche Komponente | Zweck |
+|---------|---------------------------|-------|
+| DB-Zugriffsschicht | `telemetry-and-events.ProjectionAccessor` (`agentkit.telemetry.projection_accessor`) | Lesen und Schreiben operativer Read-Models; keine Sicht-Semantik |
+| Sicht-Schicht | `kpi-and-dashboard.Dashboard` (`agentkit.kpi_analytics`, FK-63) | Visualisierung periodischer KPI-Rollups; liest aus analytics-Facts |
+
+`ProjectionAccessor` ist kein Dashboard. `Dashboard` greift nicht direkt
+auf operative Read-Models zu, sondern konsumiert periodisch aggregierte
+Fact-Tabellen aus `kpi-and-dashboard.FactStore`.
+
+**Datenfluss:**
+
+```
+execution_events
+    -> ProjectionAccessor (write_projection)
+       -> qa_stage_results, story_metrics, fc_*, phase_state_projection
+          -> KpiAnalytics.RefreshWorker (read_projection)
+             -> FactStore (analytics-Tabellen)
+                -> Dashboard (Sicht)
+```
+
+Dieser Fluss stellt sicher, dass telemetry-and-events nie direkt
+in Dashboard-Logik eingreift und kpi-and-dashboard nie operative
+Read-Models umgeht.

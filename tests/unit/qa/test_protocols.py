@@ -11,11 +11,11 @@ class TestSeverity:
     """Severity enum values."""
 
     def test_severity_values(self) -> None:
-        assert Severity.CRITICAL == "critical"
-        assert Severity.HIGH == "high"
-        assert Severity.MEDIUM == "medium"
-        assert Severity.LOW == "low"
-        assert Severity.INFO == "info"
+        assert Severity.CRITICAL.value == "critical"
+        assert Severity.HIGH.value == "high"
+        assert Severity.MEDIUM.value == "medium"
+        assert Severity.LOW.value == "low"
+        assert Severity.INFO.value == "info"
 
     def test_severity_has_five_members(self) -> None:
         assert len(Severity) == 5
@@ -25,9 +25,9 @@ class TestTrustClass:
     """TrustClass enum values."""
 
     def test_trust_class_values(self) -> None:
-        assert TrustClass.SYSTEM == "A"
-        assert TrustClass.VERIFIED_LLM == "B"
-        assert TrustClass.WORKER_ASSERTION == "C"
+        assert TrustClass.SYSTEM.value == "A"
+        assert TrustClass.VERIFIED_LLM.value == "B"
+        assert TrustClass.WORKER_ASSERTION.value == "C"
 
     def test_trust_class_has_three_members(self) -> None:
         assert len(TrustClass) == 3

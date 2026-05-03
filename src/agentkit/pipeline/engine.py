@@ -18,9 +18,9 @@ from typing import TYPE_CHECKING
 
 from agentkit.exceptions import PipelineError
 from agentkit.pipeline.runtime_state import EngineRuntimeState
+from agentkit.pipeline_engine.phase_executor.records import AttemptRecord
 from agentkit.process.language.model import ExecutionPolicy
-from agentkit.state_backend import (
-    AttemptRecord,
+from agentkit.state_backend.store import (
     load_node_execution_ledger,
     save_attempt,
     save_phase_snapshot,

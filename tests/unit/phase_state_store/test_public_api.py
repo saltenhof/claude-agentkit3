@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import agentkit.phase_state_store as phase_state_store_api
-import agentkit.state_backend as state_backend
+import agentkit.state_backend.store as state_backend_store
 from agentkit.phase_state_store import (
     FlowExecution,
     NodeExecutionLedger,
@@ -39,12 +39,12 @@ def test_load_override_records_delegates_to_state_backend(tmp_path: Path) -> Non
         seen.append(story_dir)
         return expected
 
-    original = state_backend.load_override_records
-    state_backend.load_override_records = fake_loader
+    original = state_backend_store.load_override_records
+    state_backend_store.load_override_records = fake_loader
     try:
         assert phase_state_store_api.load_override_records(tmp_path) == expected
     finally:
-        state_backend.load_override_records = original
+        state_backend_store.load_override_records = original
 
     assert seen == [tmp_path]
 
@@ -63,15 +63,15 @@ def test_save_node_execution_ledger_delegates_to_state_backend(tmp_path: Path) -
     )
     seen: list[tuple[Path, NodeExecutionLedger]] = []
 
-    def fake_saver(story_dir: Path, ledger: NodeExecutionLedger) -> None:
-        seen.append((story_dir, ledger))
+    def fake_saver(story_dir: Path, record: NodeExecutionLedger) -> None:
+        seen.append((story_dir, record))
 
-    original = state_backend.save_node_execution_ledger
-    state_backend.save_node_execution_ledger = fake_saver
+    original = state_backend_store.save_node_execution_ledger
+    state_backend_store.save_node_execution_ledger = fake_saver
     try:
         phase_state_store_api.save_node_execution_ledger(tmp_path, record)
     finally:
-        state_backend.save_node_execution_ledger = original
+        state_backend_store.save_node_execution_ledger = original
 
     assert seen == [(tmp_path, record)]
 
@@ -91,12 +91,12 @@ def test_load_flow_execution_delegates_to_state_backend(tmp_path: Path) -> None:
         seen.append(story_dir)
         return expected
 
-    original = state_backend.load_flow_execution
-    state_backend.load_flow_execution = fake_loader
+    original = state_backend_store.load_flow_execution
+    state_backend_store.load_flow_execution = fake_loader
     try:
         assert phase_state_store_api.load_flow_execution(tmp_path) == expected
     finally:
-        state_backend.load_flow_execution = original
+        state_backend_store.load_flow_execution = original
 
     assert seen == [tmp_path]
 
@@ -117,14 +117,14 @@ def test_save_override_record_delegates_to_state_backend(tmp_path: Path) -> None
     )
     seen: list[tuple[Path, OverrideRecord]] = []
 
-    def fake_saver(story_dir: Path, override: OverrideRecord) -> None:
-        seen.append((story_dir, override))
+    def fake_saver(story_dir: Path, record: OverrideRecord) -> None:
+        seen.append((story_dir, record))
 
-    original = state_backend.save_override_record
-    state_backend.save_override_record = fake_saver
+    original = state_backend_store.save_override_record
+    state_backend_store.save_override_record = fake_saver
     try:
         phase_state_store_api.save_override_record(tmp_path, record)
     finally:
-        state_backend.save_override_record = original
+        state_backend_store.save_override_record = original
 
     assert seen == [(tmp_path, record)]

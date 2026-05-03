@@ -16,6 +16,32 @@ supersedes: []
 superseded_by:
 tags: [skills, automation]
 formal_scope: prose-only
+glossary:
+  exported_terms:
+    - id: skill
+      definition: >
+        Eine vordefinierte Prompt-Anleitung, die einen Agenten methodisch
+        durch eine komplexe Aufgabe fuehrt. Skills standardisieren Ablauf
+        und Qualitaet, indem sie bewaehrte Methodik einbetten. Ein Skill
+        ist kein Tool-Berechtigungsset — Berechtigungen werden separat
+        ueber CCAG vergeben.
+      see_also:
+        - term: skill-variant
+          domain: agent-skills
+        - term: skill-id
+          domain: agent-skills
+    - id: skill-variant
+      definition: >
+        Profilspezifische Auspraegung eines Skills, z.B. core oder are.
+        Varianten werden als getrennte Skill-Verzeichnisse modelliert, nicht
+        als Laufzeit-Fallunterscheidung innerhalb eines Skills. Die
+        Projektbindung waehlt genau eine Variante aus.
+      values: [core, are]
+      see_also:
+        - term: skill
+          domain: agent-skills
+        - term: capability-profile
+          domain: agent-skills
 ---
 
 # 12 — Spezialisierte Skills und Skill-System

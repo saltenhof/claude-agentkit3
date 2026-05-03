@@ -39,6 +39,55 @@ formal_refs:
   - formal.story-closure.commands
   - formal.story-closure.invariants
   - formal.story-closure.scenarios
+glossary:
+  exported_terms:
+    - id: branch-guard
+      definition: >
+        PreToolUse-Hook, der sicherstellt, dass alle Story-Aenderungen
+        ausschliesslich auf dem zugewiesenen Story-Branch stattfinden.
+        Blockiert destruktive Git-Operationen (Force-Push, Hard-Reset,
+        Force-Delete, Checkout/Push/Rebase auf main/master) permanent oder
+        story-scope-gebunden. Erlaubt offizielle Pipeline-Pfade
+        (Closure-Push, Story-Reset via Admin-Service).
+      see_also:
+        - term: guard-system
+          domain: governance-and-guards
+        - term: lock-record
+          domain: governance-and-guards
+    - id: orchestrator-guard
+      definition: >
+        PreToolUse-Hook, der den Orchestrator-Agenten vor Kontext-
+        Verschmutzung schuetzt. Blockiert lesenden Zugriff auf Codebase
+        (Schutzzone 1) und Content-Plane-Artefakte wie context.json und
+        are_bundle.json (Schutzzone 2). Seit FK-55 ist der Orchestrator
+        ein eigener Principal-Typ mit harter Capability-Matrix.
+      see_also:
+        - term: guard-system
+          domain: governance-and-guards
+        - term: principal
+          domain: governance-and-guards
+    - id: qa-artifact-protection
+      definition: >
+        PreToolUse-Hook, der Sub-Agents daran hindert, in das QA-Verzeichnis
+        der aktiven Story zu schreiben. Verhindert, dass ein Worker seine
+        eigenen QA-Ergebnisse ueberschreibt. Gesteuert ueber einen
+        story-spezifischen qa_artifact_write-Lock-Record.
+      see_also:
+        - term: guard-system
+          domain: governance-and-guards
+        - term: lock-record
+          domain: governance-and-guards
+  internal_terms:
+    - id: conflict-freeze-overlay
+      reason: >
+        Das storybezogene Freeze-Overlay ist Implementierungsdetail des
+        Orchestrator-Guards (Kap. 31.2.7); der exportierte Vertragstyp ist
+        conflict-freeze in FK-55, wo das Freeze-Modell normativ definiert ist.
+    - id: prompt-integrity-guard-impl
+      reason: >
+        Dreistufiger Guard fuer Agent-Spawns (Governance-Escape, Spawn-Schema,
+        Template-Integritaet). Implementierungsdetail von FK-31; der
+        Guard-Kontext gehoert konzeptuell zu FK-55 (Principal-Attestierung).
 ---
 
 # 31 — Branch-Guard, Orchestrator-Guard und Artefaktschutz

@@ -15,11 +15,11 @@ if str(SRC_ROOT) not in sys.path:
 if str(TOOLS_ROOT) not in sys.path:
     sys.path.insert(0, str(TOOLS_ROOT))
 
-from concept_compiler import audit_formal_prose_links, compile_formal_specs
-from concept_compiler.compiler import FormalCompilationError
-from concept_compiler.drift import FormalDriftError, audit_concept_doc_classification
-from concept_compiler.loader import FormalSpecError
-from concept_compiler.scenario_runner import FormalScenarioError
+from concept_compiler import audit_formal_prose_links, compile_formal_specs  # noqa: E402
+from concept_compiler.compiler import FormalCompilationError  # noqa: E402
+from concept_compiler.drift import FormalDriftError, audit_concept_doc_classification  # noqa: E402
+from concept_compiler.loader import FormalSpecError  # noqa: E402
+from concept_compiler.scenario_runner import FormalScenarioError  # noqa: E402
 
 
 def main() -> int:

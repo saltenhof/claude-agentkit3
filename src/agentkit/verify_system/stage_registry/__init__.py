@@ -1,0 +1,1 @@
+"""Stage-registry boundary module."""

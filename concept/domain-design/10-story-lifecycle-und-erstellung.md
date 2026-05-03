@@ -18,6 +18,30 @@ supersedes: []
 superseded_by:
 tags: [pipeline, story-lifecycle, story-creation, story-routing, story-types, github]
 formal_scope: prose-only
+glossary:
+  exported_terms:
+    - id: story-lifecycle
+      definition: >
+        Der gesamte fachliche Lebenszyklus einer Story von der Erstellung
+        bis zum terminalen Endzustand (Done oder Cancelled). Umfasst die
+        Phasen Erstellung, Freigabe, Umsetzung und Abschluss sowie alle
+        administrativen Pfade (Reset, Split, Exit).
+    - id: story-size
+      definition: >
+        Klassifikation einer Story nach Aufwand und Scope entlang fuenf
+        Stufen: XS, S, M, L, XL. Bestimmt Review-Haeufigkeit,
+        Telemetrie-Erwartungswerte und Timeout-Budgets. Wird bei
+        Erstellung geschaetzt und nach Abschluss als tatsaechliche
+        Groesse festgehalten.
+      values: [XS, S, M, L, XL]
+    - id: story-status
+      definition: >
+        Offizieller Sichtbarkeitszustand einer Story im GitHub Project
+        Board mit den Werten Backlog, Approved, In Progress, Done und
+        Cancelled. Interne Zwischenzustaende wie Verify-Fail oder Pause
+        aendern den GitHub-Status nicht; nur offizielle administrative
+        Pfade (Split, Reset) fuehren zu Statuswechseln.
+      values: [Backlog, Approved, In Progress, Done, Cancelled]
 ---
 
 # 10 — Story-Lifecycle und Story-Erstellung
@@ -31,7 +55,7 @@ formal_scope: prose-only
 ## 10.1 Story-Lifecycle im GitHub Project Board
 
 Eine Story durchläuft fünf Zustände im GitHub Project Board: Backlog,
-Freigegeben, In Progress, Done und Cancelled. Interne Zustände wie
+Approved, In Progress, Done und Cancelled. Interne Zustände wie
 Verify-Fail, Eskalation oder Pause ändern den GitHub-Status nicht (die
 Story bleibt "In Progress"), solange kein offizieller administrativer
 Pfad wie Story-Split oder Story-Reset ausgeführt wird. Wenn der
@@ -89,7 +113,7 @@ flowchart TD
         PROJECT --> FREIGABE{"Freigabe<br/>durch Mensch"}
         FREIGABE -->|abgelehnt| REWORK["Nacharbeit<br/>an Story-Definition"]
         REWORK --> KONZEPT
-        FREIGABE -->|erteilt| APPROVED["Status: Freigegeben"]
+        FREIGABE -->|erteilt| APPROVED["Status: Approved"]
     end
 
     APPROVED --> READY([Bereit für Umsetzung])

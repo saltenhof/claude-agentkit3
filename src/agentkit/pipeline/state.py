@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agentkit.state_backend import (
-    AttemptRecord,
-    atomic_write_json,
+from agentkit.boundary.filesystem import read_projection_json_object
+from agentkit.pipeline_engine.phase_executor.records import AttemptRecord
+from agentkit.state_backend.store import (
     load_attempts,
     read_phase_snapshot_record,
     read_phase_state_record,
@@ -20,7 +20,6 @@ from agentkit.state_backend import (
     save_phase_state,
     save_story_context,
 )
-from agentkit.state_backend.exports import read_projection_json_object
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -57,7 +56,6 @@ def load_json_safe(path: Path) -> dict[str, object] | None:
 
 __all__ = [
     "AttemptRecord",
-    "atomic_write_json",
     "load_attempts",
     "load_phase_snapshot",
     "load_phase_state",

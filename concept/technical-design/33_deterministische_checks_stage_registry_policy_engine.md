@@ -21,6 +21,57 @@ supersedes: []
 superseded_by:
 tags: [deterministic-checks, stage-registry, policy-engine, verify-phase, trust-classes]
 prose_anchor_policy: strict
+glossary:
+  exported_terms:
+    - id: policy-engine
+      definition: >
+        Deterministische Aggregationskomponente (Verify Schicht 4), die Ergebnisse
+        aller Verify-Schichten zu einem Gesamtverdikt zusammenführt. Wertet nur
+        Stages aus, deren Schicht tatsächlich durchlaufen wurde. Falscher Producer
+        ist immer blocking; fehlendes Artefakt in durchlaufener Schicht ist FAIL
+        (fail-closed).
+      see_also:
+        - term: policy-verdict
+          domain: verify-system
+        - term: stage-registry
+          domain: verify-system
+    - id: policy-verdict
+      definition: >
+        Finales Ergebnis der Policy-Engine-Evaluation: PASS oder FAIL.
+        FAIL tritt auf bei mindestens 1 blocking FAIL, oder wenn
+        major_failures > policy.major_threshold (Default: 3), oder bei fehlendem
+        Artefakt einer durchlaufenen Schicht.
+      values: [PASS, FAIL]
+      see_also:
+        - term: policy-engine
+          domain: verify-system
+    - id: stage-definition
+      definition: >
+        Typisiertes Profil einer Verify-Stage in der StageRegistry. Enthält:
+        id, layer (1-4), kind (deterministic | llm_evaluation | agent | policy),
+        applies_to (Story-Typen), blocking, trust_class (A/B/C/None), producer
+        und execution_policy. Nicht überschreibbar ausser blocking.
+      see_also:
+        - term: stage-registry
+          domain: verify-system
+        - term: trust-class
+          domain: verify-system
+    - id: stage-registry
+      definition: >
+        Eigenstaendige Top-Level-Komponente, die alle Verify-Stages typisiert
+        verwaltet und einen StageExecutionPlan für einen konkreten Gate-Aufruf
+        materialisiert. Ziel der Pattern-/Check-Promotion aus dem FailureCorpus.
+        Die Registry plant, der GateRunner führt aus, die PolicyEngine aggregiert.
+      see_also:
+        - term: stage-definition
+          domain: verify-system
+        - term: policy-engine
+          domain: verify-system
+  internal_terms:
+    - id: stage-execution-plan
+      reason: >
+        Laufzeit-Datenstruktur (gate_id, flow_id, invocations) zur Übergabe
+        vom StageRegistry an den GateRunner; kein exportierter Vertragstyp.
 formal_refs:
   - formal.deterministic-checks.entities
   - formal.deterministic-checks.state-machine
@@ -46,11 +97,21 @@ Die Stage-Registry typisiert die Prüfschritte aller Schichten.
 Die Policy-Engine aggregiert die Ergebnisse und entscheidet über
 PASS oder FAIL der gesamten Verify-Phase.
 
-**Architekturzuordnung:** `StructuralChecker` und `PolicyEngine` sind
-fachlich Subkomponenten der `VerifyPhase`. Die `StageRegistry` ist
-dagegen eine eigenstaendige Top-Level-Komponente, weil sie nicht nur
-von der Verify-Phase konsumiert wird, sondern auch Ziel der
-Pattern-/Check-Promotion aus dem `FailureCorpus` ist.
+**Architekturzuordnung:** `StructuralChecker`, `PolicyEngine` und
+`StageRegistry` sind Subkomponenten von `VerifySystem`:
+
+- `StageRegistry` → `agentkit.verify_system.stage_registry`
+- `PolicyEngine` → `agentkit.verify_system.policy_engine`
+
+Die `StageRegistry` wird nicht nur von der Verify-Phase konsumiert,
+sondern ist auch Ziel der Pattern-/Check-Promotion aus dem `FailureCorpus`.
+
+**Schema-Owner (verify-system):** Die Pydantic-Schemas `QaStageResult`,
+`QaFinding` und `StageDefinition` liegen in
+`agentkit.verify_system.stage_registry`. Sie sind kein Teil von
+`telemetry-and-events` — der `ProjectionAccessor` (BC 9) schreibt
+Instanzen dieser Schemas via `Telemetry.write_projection`, ownt aber
+nicht die Schema-Definition.
 
 ## 33.2 Stage-Registry
 

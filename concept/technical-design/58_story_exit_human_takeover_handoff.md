@@ -30,6 +30,38 @@ supersedes: []
 superseded_by:
 tags: [story-exit, human-takeover, ai-augmented, lightweight-approval, handoff]
 prose_anchor_policy: strict
+glossary:
+  exported_terms:
+    - id: exit-class
+      definition: >
+        Ergebnisachse, die nur unter terminal_state=Cancelled zulaessig
+        ist und den Grund des administrativen Abbruchs dokumentiert.
+        Beispiele: scope_split, viability_handoff. Keine freie
+        Story-Hauptklassifikation; nur in offiziellen Exit-,
+        Split- oder Reset-Records.
+      see_also:
+        - term: terminal-state
+          domain: story-lifecycle
+        - term: story-exit
+          domain: story-lifecycle
+    - id: story-exit
+      definition: >
+        Offizieller administrativer Pfad zum kontrollierten Uebergang
+        von story_execution nach ai_augmented, wenn der Story-Vertrag
+        nicht mehr passend ist. Nur per explizitem menschlichem
+        CLI-Befehl (agentkit exit-story). Kein normaler Phase-Schritt
+        und kein Ersatz fuer Story-Split.
+      see_also:
+        - term: operating-mode
+          domain: story-lifecycle
+        - term: exit-class
+          domain: story-lifecycle
+  internal_terms:
+    - id: viability-dossier
+      reason: >
+        Automatisch durch AgentKit vorbereitetes Exit-Artefakt
+        (viability_dossier.md). BC-internes Implementierungsdetail
+        des Story-Exit-Flows; kein oeffentlicher Vertragsbegriff.
 formal_refs:
   - formal.story-contracts.state-machine
   - formal.story-contracts.invariants

@@ -1,20 +1,23 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from agentkit.control_plane.models import (
     ClosureCompleteRequest,
     PhaseMutationRequest,
     ProjectEdgeSyncRequest,
 )
+from agentkit.control_plane.records import (
+    ControlPlaneOperationRecord,
+    SessionRunBindingRecord,
+)
 from agentkit.control_plane.repository import ControlPlaneRuntimeRepository
 from agentkit.control_plane.runtime import ControlPlaneRuntimeService
-from agentkit.state_backend import (
-    ControlPlaneOperationRecord,
-    ExecutionEventRecord,
-    SessionRunBindingRecord,
-    StoryExecutionLockRecord,
-)
+
+if TYPE_CHECKING:
+    from agentkit.governance.guard_system.records import StoryExecutionLockRecord
+    from agentkit.telemetry.contract.records import ExecutionEventRecord
 
 
 class _RepoState:
@@ -26,6 +29,9 @@ class _RepoState:
 
 
 def _repository(state: _RepoState) -> ControlPlaneRuntimeRepository:
+    def _delete_binding(session_id: str) -> None:
+        state.bindings.pop(session_id, None)
+
     return ControlPlaneRuntimeRepository(
         load_operation=state.operations.get,
         save_operation=lambda record: state.operations.__setitem__(
@@ -37,7 +43,7 @@ def _repository(state: _RepoState) -> ControlPlaneRuntimeRepository:
             record.session_id,
             record,
         ),
-        delete_binding=lambda session_id: state.bindings.pop(session_id, None),
+        delete_binding=_delete_binding,
         load_lock=lambda project_key, story_id, run_id, lock_type: state.locks.get(
             (project_key, story_id, run_id, lock_type),
         ),

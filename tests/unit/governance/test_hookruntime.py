@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Literal
 
 from agentkit.control_plane.models import (
     EdgeBundle,
@@ -20,13 +21,18 @@ from agentkit.governance.hookruntime import (
 from agentkit.governance.protocols import GuardVerdict, ViolationType
 from agentkit.projectedge.client import LocalEdgePublisher
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import pytest
+
 
 def _bundle(
     *,
     worktree_root: str,
-    operating_mode: str = "story_execution",
-    lock_status: str = "ACTIVE",
-    qa_lock_status: str | None = "ACTIVE",
+    operating_mode: Literal["ai_augmented", "story_execution", "binding_invalid"] = "story_execution",
+    lock_status: Literal["ACTIVE", "INACTIVE", "INVALID"] = "ACTIVE",
+    qa_lock_status: Literal["ACTIVE", "INACTIVE", "INVALID"] | None = "ACTIVE",
 ) -> EdgeBundle:
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     return EdgeBundle(
@@ -78,7 +84,7 @@ def _bundle(
     )
 
 
-def test_hookruntime_blocks_force_push_even_without_story_execution(tmp_path) -> None:
+def test_hookruntime_blocks_force_push_even_without_story_execution(tmp_path: Path) -> None:
     verdict = evaluate_pre_tool_use(
         HookEvent(
             tool_name="Bash",
@@ -93,7 +99,7 @@ def test_hookruntime_blocks_force_push_even_without_story_execution(tmp_path) ->
     assert verdict.guard_name == "branch_guard"
 
 
-def test_hookruntime_blocks_write_outside_story_worktree(tmp_path) -> None:
+def test_hookruntime_blocks_write_outside_story_worktree(tmp_path: Path) -> None:
     worktree = tmp_path / "worktree"
     LocalEdgePublisher(project_root=tmp_path).publish(_bundle(worktree_root=str(worktree)))
 
@@ -111,7 +117,7 @@ def test_hookruntime_blocks_write_outside_story_worktree(tmp_path) -> None:
     assert verdict.guard_name == "scope_guard"
 
 
-def test_hookruntime_blocks_qa_artifact_tampering_in_story_execution(tmp_path) -> None:
+def test_hookruntime_blocks_qa_artifact_tampering_in_story_execution(tmp_path: Path) -> None:
     worktree = tmp_path / "worktree"
     LocalEdgePublisher(project_root=tmp_path).publish(_bundle(worktree_root=str(worktree)))
 
@@ -134,7 +140,7 @@ def test_hookruntime_blocks_qa_artifact_tampering_in_story_execution(tmp_path) -
     assert verdict.guard_name == "artifact_guard"
 
 
-def test_hookruntime_allows_main_agent_write_to_qa_directory(tmp_path) -> None:
+def test_hookruntime_allows_main_agent_write_to_qa_directory(tmp_path: Path) -> None:
     worktree = tmp_path / "worktree"
     LocalEdgePublisher(project_root=tmp_path).publish(_bundle(worktree_root=str(worktree)))
 
@@ -156,7 +162,7 @@ def test_hookruntime_allows_main_agent_write_to_qa_directory(tmp_path) -> None:
     assert verdict.allowed is True
 
 
-def test_hookruntime_blocks_subagent_write_when_qa_lock_missing(tmp_path) -> None:
+def test_hookruntime_blocks_subagent_write_when_qa_lock_missing(tmp_path: Path) -> None:
     worktree = tmp_path / "worktree"
     LocalEdgePublisher(project_root=tmp_path).publish(
         _bundle(worktree_root=str(worktree), qa_lock_status=None),
@@ -181,7 +187,7 @@ def test_hookruntime_blocks_subagent_write_when_qa_lock_missing(tmp_path) -> Non
     assert verdict.guard_name == "artifact_guard"
 
 
-def test_hookruntime_blocks_mutation_for_binding_invalid(tmp_path) -> None:
+def test_hookruntime_blocks_mutation_for_binding_invalid(tmp_path: Path) -> None:
     worktree = tmp_path / "worktree"
     LocalEdgePublisher(project_root=tmp_path).publish(
         _bundle(worktree_root=str(worktree), lock_status="INVALID"),
@@ -201,7 +207,7 @@ def test_hookruntime_blocks_mutation_for_binding_invalid(tmp_path) -> None:
     assert verdict.guard_name == "operating_mode_guard"
 
 
-def test_hookruntime_blocks_non_story_branch_push_in_story_execution(tmp_path) -> None:
+def test_hookruntime_blocks_non_story_branch_push_in_story_execution(tmp_path: Path) -> None:
     worktree = tmp_path / "worktree"
     LocalEdgePublisher(project_root=tmp_path).publish(_bundle(worktree_root=str(worktree)))
 
@@ -219,7 +225,7 @@ def test_hookruntime_blocks_non_story_branch_push_in_story_execution(tmp_path) -
     assert verdict.guard_name == "branch_guard"
 
 
-def test_hookruntime_blocks_bash_git_internal_mutation(tmp_path) -> None:
+def test_hookruntime_blocks_bash_git_internal_mutation(tmp_path: Path) -> None:
     verdict = evaluate_pre_tool_use(
         HookEvent(
             tool_name="Bash",
@@ -235,8 +241,8 @@ def test_hookruntime_blocks_bash_git_internal_mutation(tmp_path) -> None:
 
 
 def test_parse_hook_event_defaults_cwd_and_discards_invalid_session(
-    monkeypatch,
-    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
@@ -292,7 +298,7 @@ def test_normalize_event_covers_edit_read_and_unknown_tool() -> None:
     ) == ("unknown_tool", {}, "guarded_read")
 
 
-def test_main_returns_allow_and_block_exit_codes(monkeypatch, capsys) -> None:
+def test_main_returns_allow_and_block_exit_codes(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     allow_event = json.dumps({"tool_name": "Task", "tool_input": {}, "cwd": "."})
     monkeypatch.setattr("sys.stdin", io.StringIO(allow_event))
     monkeypatch.setattr(

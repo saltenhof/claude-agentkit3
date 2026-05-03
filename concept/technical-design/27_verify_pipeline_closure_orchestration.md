@@ -53,6 +53,43 @@ supersedes: []
 superseded_by:
 tags: [verify, qa-cycle, adversarial-testing, policy-evaluation, layered-checks]
 prose_anchor_policy: strict
+glossary:
+  exported_terms:
+    - id: evidence-fingerprint
+      definition: >
+        SHA256-Hash über die relevanten Artefakte eines QA-Zyklus. Separates Feld
+        neben evidence_epoch; dient der inhaltlichen Integritätsprüfung. Mismatch
+        beim Artefakt-Zugriff führt zu fail-closed Ablehnung des Artefakts.
+      see_also:
+        - term: qa-cycle
+          domain: verify-system
+    - id: qa-cycle
+      definition: >
+        Atomarer Verify-Remediation-Durchlauf, identifiziert durch qa_cycle_id
+        (12-Zeichen UUID-Fragment) und qa_cycle_round (monotoner Zähler ab 1).
+        Setzt evidence_epoch (ISO-8601 Timestamp) und evidence_fingerprint
+        (SHA256-Hash) kanonisch. Alle zyklusgebundenen Artefakte werden bei
+        advance_qa_cycle() invalidiert.
+      see_also:
+        - term: stage-registry
+          domain: verify-system
+        - term: verify-context
+          domain: verify-system
+    - id: qa-cycle-status
+      definition: >
+        Zustand eines laufenden QA-Zyklus. Moegliche Werte: idle, awaiting_qa,
+        awaiting_policy, pass, awaiting_remediation, escalated.
+        escalated ist ein direkter Übergang bei impact.violation (vor Policy-Evaluation)
+        oder bei max_rounds_exceeded (aus awaiting_remediation).
+      values: [idle, awaiting_qa, awaiting_policy, pass, awaiting_remediation, escalated]
+      see_also:
+        - term: policy-verdict
+          domain: verify-system
+  internal_terms:
+    - id: artefakt-invalidierung
+      reason: >
+        Technischer Mechanismus (11 Dateien werden bei advance_qa_cycle() gelöscht
+        oder nach stale/ verschoben); kein exportierter Vertragstyp.
 formal_refs:
   - formal.deterministic-checks.entities
   - formal.deterministic-checks.state-machine
@@ -250,7 +287,7 @@ flowchart TD
     FB --> WORKER["→ Zurück zu Implementation<br/>(Feedback-Loop, FK-20 §20.5)"]
 ```
 
-[Hinweis: Für concept/research-Stories: `integrity_passed` und `merge_done` werden direkt auf `true` gesetzt (kein Worktree, kein Branch-Merge). Finding-Resolution-Gate und Integrity-Gate entfallen vollständig. Der Closure-Ablauf geht direkt von `issue_closed` weiter (FK-29 §29.2.1).]
+[Hinweis: Für concept/research-Stories entfallen Finding-Resolution-Gate und Integrity-Gate vollstaendig. Closure-Substates und Ablauf: siehe FK-29 §29.1.1 und §29.2.1.]
 
 [Hinweis: Das Flowchart zeigt den **logischen** Ablauf. Schicht 3 (Adversarial) ist kein synchroner Inline-Schritt — der Phase Runner setzt `agents_to_spawn` und der Orchestrator spawnt den Adversarial-Agenten extern (§27.6.1). Der Gesamtfluss (S2G → Schicht 3 → S4) beschreibt die fachliche Reihenfolge, nicht den mechanischen Ablauf.]
 

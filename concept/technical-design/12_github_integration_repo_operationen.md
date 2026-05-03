@@ -485,7 +485,7 @@ Die Closure-Substates tracken Push- und Merge-Status pro Repo.
 | Phase | Operation | GitHub-Feature | Richtung |
 |-------|----------|---------------|---------|
 | **Story-Erstellung** | Issue erstellen + Fields setzen | Issues + Project V2 | Schreiben |
-| **Preflight** | Issue existiert? Status = Freigegeben? Dependencies geschlossen? | Issues + Project V2 | Lesen |
+| **Preflight** | Issue existiert? Status = Approved? Dependencies geschlossen? | Issues + Project V2 | Lesen |
 | **Setup** | Custom Fields lesen → `StoryContext` / optional `context.json`-Export | Project V2 | Lesen |
 | **Setup** | Status → "In Progress" | Project V2 | Schreiben |
 | **Closure** | Story-Branch auf Remote pushen | Repository Remote | Schreiben |
@@ -507,9 +507,9 @@ Das ist eine Agent-Entscheidung, kein automatisierter Trigger.
 
 ---
 
-*FK-Referenzen: FK-05-003 (4 GitHub-Zustände),
-FK-05-031/032 (Backlog→Freigegeben),
-FK-05-059/060 (Preflight: Issue existiert, Status Freigegeben),
+*FK-Referenzen: FK-05-003 (5 GitHub-Zustände),
+FK-05-031/032 (Backlog→Approved),
+FK-05-059/060 (Preflight: Issue existiert, Status Approved),
 FK-05-067 (Worktree mit eigenem Branch),
 FK-05-223/224 (Merge vor Close),
 FK-06-010 bis FK-06-016 (Branch-Guard-Regeln),

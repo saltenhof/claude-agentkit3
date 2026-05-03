@@ -40,6 +40,42 @@ supersedes: []
 superseded_by:
 tags: [verify, verify-context, context-bundle, context-sufficiency, bundle-packing, integration-stabilization]
 prose_anchor_policy: strict
+glossary:
+  exported_terms:
+    - id: context-bundle
+      definition: >
+        Sechs-Feld-Domänenabstraktion für den Layer-2-Kontext: story_spec,
+        diff_summary, concept_excerpt, handover, arch_references, evidence_manifest.
+        Wird vom ContextSufficiencyBuilder geprüft und angereichert, dann von
+        _run_layer2_parallel() per-Feld gepackt und als dict[str, str] an den
+        ParallelEvalRunner übergeben.
+      see_also:
+        - term: sufficiency-level
+          domain: verify-system
+        - term: evidence-assembler
+          domain: verify-system
+    - id: sufficiency-level
+      definition: >
+        Klassifikation der Vollständigkeit eines ContextBundle vor Layer-2-Start.
+        sufficient: alle Pflichtfelder vorhanden. reviewable_with_gaps: Felder
+        vorhanden, aber Lücken (Trunkierung, nur Summary). partially_reviewable:
+        wesentliche Pflichtfelder fehlen. Alle Stufen lassen Layer 2 laufen
+        (fail-open für Sufficiency); nur Warning in policy.json bei nicht-sufficient.
+      values: [sufficient, reviewable_with_gaps, partially_reviewable]
+      see_also:
+        - term: context-bundle
+          domain: verify-system
+        - term: policy-engine
+          domain: verify-system
+  internal_terms:
+    - id: bundle-token-limit
+      reason: >
+        Konfigurierbare Zeichengrenze pro Bundle-Feld nach Packing (Default: 32.000);
+        Implementierungsdetail von _run_layer2_parallel().
+    - id: pack-and-convert
+      reason: >
+        Interne Funktion, die ContextBundle per-Feld packt (pack_markdown/pack_code)
+        und zu dict[str, str] konvertiert; kein exportierter Vertragstyp.
 formal_refs:
   - formal.verify.state-machine
   - formal.verify.invariants

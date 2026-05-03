@@ -227,10 +227,7 @@ def prompt_template_path(
 
     relpath = _manifest_entry(name, project_root)["relpath"]
     binding = _resolve_binding(project_root)
-    if project_root is not None:
-        path = binding.bundle_root / Path(relpath)
-    else:
-        path = RESOURCE_DIR.parent.parent / Path(relpath)
+    path = binding.bundle_root / Path(relpath) if project_root is not None else RESOURCE_DIR.parent.parent / Path(relpath)
     if not path.is_file():
         raise ProjectError(
             f"Prompt template resource not found: {path}",

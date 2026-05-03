@@ -4,6 +4,7 @@ import json
 from datetime import UTC, datetime
 from http import HTTPStatus
 from pathlib import Path, PurePath
+from typing import TYPE_CHECKING, cast
 
 from agentkit.control_plane.http import (
     ControlPlaneApplication,
@@ -18,15 +19,22 @@ from agentkit.control_plane.models import (
     StoryExecutionLockView,
     TelemetryEventAccepted,
 )
+from agentkit.control_plane.runtime import ControlPlaneRuntimeService
+from agentkit.control_plane.telemetry import ControlPlaneTelemetryService
 from agentkit.dashboard.models import (
     BoardColumn,
     DashboardBoardResponse,
     DashboardStoryMetricsItem,
     DashboardStoryMetricsResponse,
 )
+from agentkit.dashboard.service import DashboardService
 from agentkit.story.models import StoryDetail, StoryListResponse, StorySummary
+from agentkit.story.service import StoryService
 from agentkit.story_context_manager.sizing import StorySize
 from agentkit.story_context_manager.types import StoryMode, StoryType
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def _runtime_result() -> ControlPlaneMutationResult:
@@ -72,8 +80,9 @@ def _runtime_result() -> ControlPlaneMutationResult:
     )
 
 
-class _FakeTelemetryService:
+class _FakeTelemetryService(ControlPlaneTelemetryService):
     def __init__(self) -> None:
+        super().__init__()
         self.requests: list[object] = []
         self.error: Exception | None = None
 
@@ -84,8 +93,9 @@ class _FakeTelemetryService:
         return TelemetryEventAccepted(event_id="evt-http-001")
 
 
-class _FakeRuntimeService:
+class _FakeRuntimeService(ControlPlaneRuntimeService):
     def __init__(self) -> None:
+        super().__init__()
         self.calls: list[tuple[str, str | None]] = []
         self.error: Exception | None = None
 
@@ -157,8 +167,9 @@ class _FakeRuntimeService:
         return _runtime_result().model_copy(update={"status": "replayed"})
 
 
-class _FakeStoryService:
+class _FakeStoryService(StoryService):
     def __init__(self) -> None:
+        super().__init__()
         self.calls: list[tuple[str, str | None]] = []
         self.error: Exception | None = None
 
@@ -204,8 +215,9 @@ class _FakeStoryService:
         )
 
 
-class _FakeDashboardService:
+class _FakeDashboardService(DashboardService):
     def __init__(self) -> None:
+        super().__init__()
         self.calls: list[tuple[str, str]] = []
         self.error: Exception | None = None
 
@@ -788,7 +800,7 @@ def test_incoming_correlation_id_is_propagated() -> None:
     assert _response_header(response, "X-Correlation-Id") == "corr-fixed-001"
 
 
-def test_serve_control_plane_runs_and_closes_server(monkeypatch) -> None:
+def test_serve_control_plane_runs_and_closes_server(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
     class _FakeServer:
@@ -833,7 +845,7 @@ def test_serve_control_plane_runs_and_closes_server(monkeypatch) -> None:
 
 
 def _json_body(response: HttpResponse) -> dict[str, object]:
-    return json.loads(response.body)
+    return cast("dict[str, object]", json.loads(response.body))
 
 
 def _response_header(response: HttpResponse, name: str) -> str:

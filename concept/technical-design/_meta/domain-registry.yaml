@@ -1,4 +1,4 @@
-# Domain-Registry — Bounded-Context-Schnitt von AK3 (siehe 00_index.md §9.10).
+# Domain-Registry — Bounded-Context-Schnitt von AK3 (siehe 00_index.md §19.10).
 #
 # Schema pro Eintrag:
 #   id:            kebab-case, eindeutig
@@ -11,7 +11,7 @@
 #   ist disjunkt).
 # - Ein FK-Doc, das in `contract_docs` steht, darf nicht zusaetzlich in
 #   `member_docs` derselben Domaene auftauchen.
-# - Glossar-Inhalte leben im Contract-Doc selbst (siehe 00_index.md §9.11).
+# - Glossar-Inhalte leben im Contract-Doc selbst (siehe 00_index.md §19.11).
 #
 # Initiale Befuellung 2026-04-29 nach BC-Vorgabe (concept/technical-design/_meta/bounded-contexts.yaml).
 #
@@ -19,7 +19,7 @@
 # (siehe bounded-contexts.yaml §foundation_principles). Solche Docs
 # tragen stattdessen `cross_cutting: true` im Frontmatter und sind
 # damit fail-closed-konform aus L17/L18 ausgenommen — siehe
-# 00_index.md §9.13.
+# 00_index.md §19.13.
 
 domains:
 
@@ -134,6 +134,7 @@ domains:
       - FK-61
       - FK-62
       - FK-63
+      - FK-64
 
   - id: failure-corpus
     display_name: Failure-Corpus

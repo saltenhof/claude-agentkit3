@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 import pytest
 
+from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
 from agentkit.phase_state_store.models import FlowExecution
 from agentkit.qa.policy_engine.engine import VerifyDecision
 from agentkit.qa.protocols import Finding, LayerResult, Severity, TrustClass
-from agentkit.state_backend import (
-    ExecutionEventRecord,
-    StoryMetricsRecord,
+from agentkit.state_backend.store import (
     append_execution_event,
     append_execution_event_global,
     load_artifact_record,
@@ -46,14 +46,18 @@ from agentkit.story_context_manager.models import (
     StoryContext,
 )
 from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.telemetry.contract.records import ExecutionEventRecord
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 pytest_plugins = ("tests.fixtures.postgres_backend",)
 
 
 @pytest.mark.contract
 def test_public_state_backend_contract_works_on_postgres(
-    tmp_path,
-    postgres_backend_env,
+    tmp_path: Path,
+    postgres_backend_env: object,
 ) -> None:
     project_root = tmp_path / "demo-project"
     story_dir = project_root / "stories" / "AG3-901"

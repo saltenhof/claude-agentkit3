@@ -25,9 +25,8 @@ from agentkit.pipeline.phases.closure.phase import (
     ClosurePhaseHandler,
 )
 from agentkit.pipeline.state import save_phase_snapshot
-from agentkit.state_backend import (
-    AttemptRecord,
-    ExecutionEventRecord,
+from agentkit.pipeline_engine.phase_executor.records import AttemptRecord
+from agentkit.state_backend.store import (
     append_execution_event,
     load_story_metrics,
     save_attempt,
@@ -41,9 +40,11 @@ from agentkit.story_context_manager.models import (
     StoryContext,
 )
 from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.telemetry.contract.records import ExecutionEventRecord
 from agentkit.telemetry.events import EventType
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
     from pathlib import Path
 
 
@@ -53,7 +54,7 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture(autouse=True)
-def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     from agentkit.state_backend.store import reset_backend_cache_for_tests
 
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")

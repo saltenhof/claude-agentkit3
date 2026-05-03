@@ -12,7 +12,7 @@ from agentkit.exceptions import AgentKitError
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from concept_compiler.compiler import CompiledFormalSpec
+    from .compiler import CompiledFormalSpec
 
 TRUTH_BOUNDARY_DOC_ID = "formal.truth-boundary-checker.invariants"
 PATH_METHODS = frozenset({"open", "read_text", "read_bytes", "exists"})

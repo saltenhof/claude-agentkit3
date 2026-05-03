@@ -15,6 +15,19 @@ Drei Stufen, klar abgegrenzt:
 Nicht jeder Befund braucht einen Warning-Pfad. Wo aufschiebbares Handeln
 erfahrungsgemaess nicht passiert, ist ERROR die richtige Wahl.
 
+## LLM-Hub-Sparring
+
+`llm_hub` ist kein Standard-Review-Schritt. Nutze Multi-LLM-Sparring nur,
+wenn der konkrete Auftrag davon fachlich profitiert, z. B. bei
+architektonisch folgenreichen Entscheidungen, Review von belastbaren
+Konzept-/Code-Aenderungen, unklaren Trade-offs oder explizitem Wunsch des
+Auftraggebers.
+
+Nicht nutzen fuer normale UI-Prototyping-Schleifen, gemeinsame
+Oberflaechenfindung, kleine Implementierungsarbeiten oder pauschales
+"nochmal gegenlesen lassen". In diesen Faellen direkt mit dem
+Auftraggeber iterieren.
+
 ## Pflicht-Gates vor "fertig"
 
 - Jenkins gruen: `http://localhost:9900/job/claude-agentkit3/`

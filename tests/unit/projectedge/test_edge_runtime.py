@@ -2,26 +2,36 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Literal
 
 from agentkit.control_plane.models import (
     ControlPlaneMutationResult,
     EdgeBundle,
     EdgePointer,
+    ProjectEdgeSyncRequest,
     SessionRunBindingView,
     StoryExecutionLockView,
 )
 from agentkit.projectedge import ProjectEdgeResolver, build_project_edge_client
-from agentkit.projectedge.client import LocalEdgePublisher
+from agentkit.projectedge.client import (
+    HttpsJsonTransport,
+    LocalEdgePublisher,
+)
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import pytest
 
 
 def _bundle(
     *,
     worktree_root: str,
     session_id: str = "sess-001",
-    operating_mode: str = "story_execution",
+    operating_mode: Literal["ai_augmented", "story_execution", "binding_invalid"] = "story_execution",
     sync_after: datetime | None = None,
-    lock_status: str = "ACTIVE",
-    qa_lock_status: str = "ACTIVE",
+    lock_status: Literal["ACTIVE", "INACTIVE", "INVALID"] = "ACTIVE",
+    qa_lock_status: Literal["ACTIVE", "INACTIVE", "INVALID"] = "ACTIVE",
 ) -> EdgeBundle:
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     return EdgeBundle(
@@ -74,12 +84,12 @@ class _FakeClient:
         self.calls: list[tuple[str, str]] = []
         self._result = result
 
-    def sync(self, request) -> ControlPlaneMutationResult:  # noqa: ANN001
+    def sync(self, request: ProjectEdgeSyncRequest) -> ControlPlaneMutationResult:
         self.calls.append((request.project_key, request.session_id))
         return self._result
 
 
-def test_resolver_returns_story_execution_for_matching_bundle(tmp_path) -> None:
+def test_resolver_returns_story_execution_for_matching_bundle(tmp_path: Path) -> None:
     worktree = tmp_path / "worktree"
     LocalEdgePublisher(project_root=tmp_path).publish(_bundle(worktree_root=str(worktree)))
 
@@ -96,7 +106,7 @@ def test_resolver_returns_story_execution_for_matching_bundle(tmp_path) -> None:
     assert resolved.bundle.qa_lock.lock_type == "qa_artifact_write"
 
 
-def test_resolver_returns_binding_invalid_for_session_mismatch(tmp_path) -> None:
+def test_resolver_returns_binding_invalid_for_session_mismatch(tmp_path: Path) -> None:
     worktree = tmp_path / "worktree"
     LocalEdgePublisher(project_root=tmp_path).publish(_bundle(worktree_root=str(worktree)))
 
@@ -110,7 +120,7 @@ def test_resolver_returns_binding_invalid_for_session_mismatch(tmp_path) -> None
     assert resolved.block_reason == "session_binding_mismatch"
 
 
-def test_resolver_performs_bounded_sync_for_stale_bundle(tmp_path, monkeypatch) -> None:
+def test_resolver_performs_bounded_sync_for_stale_bundle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     worktree = tmp_path / "worktree"
     stale_bundle = _bundle(
         worktree_root=str(worktree),
@@ -143,10 +153,13 @@ def test_resolver_performs_bounded_sync_for_stale_bundle(tmp_path, monkeypatch) 
             sync_after=datetime(2026, 4, 22, 13, 0, tzinfo=UTC),
         ),
     )
+    from typing import cast as _cast
+
+    from agentkit.projectedge.client import ProjectEdgeClient as _ProjectEdgeClient
     fake_client = _FakeClient(fresh_result)
     resolver = ProjectEdgeResolver(
         project_root=tmp_path,
-        client_factory=lambda project_root: fake_client,
+        client_factory=lambda project_root: _cast("_ProjectEdgeClient", fake_client),  # test double
         now_provider=lambda: datetime(2026, 4, 22, 12, 0, tzinfo=UTC),
     )
 
@@ -161,7 +174,7 @@ def test_resolver_performs_bounded_sync_for_stale_bundle(tmp_path, monkeypatch) 
     assert fake_client.calls == [("tenant-a", "sess-001")]
 
 
-def test_resolver_returns_ai_augmented_for_minimal_free_bundle(tmp_path) -> None:
+def test_resolver_returns_ai_augmented_for_minimal_free_bundle(tmp_path: Path) -> None:
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     bundle = EdgeBundle(
         current=EdgePointer(
@@ -200,7 +213,7 @@ def test_resolver_returns_ai_augmented_for_minimal_free_bundle(tmp_path) -> None
     assert resolved.bundle.session is None
 
 
-def test_resolver_returns_binding_invalid_for_worktree_mismatch(tmp_path) -> None:
+def test_resolver_returns_binding_invalid_for_worktree_mismatch(tmp_path: Path) -> None:
     worktree = tmp_path / "worktree"
     LocalEdgePublisher(project_root=tmp_path).publish(_bundle(worktree_root=str(worktree)))
 
@@ -214,7 +227,7 @@ def test_resolver_returns_binding_invalid_for_worktree_mismatch(tmp_path) -> Non
     assert resolved.block_reason == "worktree_root_mismatch"
 
 
-def test_resolver_baseline_read_does_not_trigger_sync_without_bundle(tmp_path) -> None:
+def test_resolver_baseline_read_does_not_trigger_sync_without_bundle(tmp_path: Path) -> None:
     resolver = ProjectEdgeResolver(project_root=tmp_path)
 
     resolved = resolver.resolve(
@@ -228,8 +241,8 @@ def test_resolver_baseline_read_does_not_trigger_sync_without_bundle(tmp_path) -
 
 
 def test_build_project_edge_client_uses_local_control_plane_config(
-    tmp_path,
-    monkeypatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config_dir = tmp_path / ".agentkit" / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -240,7 +253,9 @@ def test_build_project_edge_client_uses_local_control_plane_config(
 
     client = build_project_edge_client(tmp_path)
 
-    transport = client._transport  # type: ignore[attr-defined]
-    publisher = client._publisher  # type: ignore[attr-defined]
-    assert transport._base_url == "https://127.0.0.1:9443"  # type: ignore[attr-defined]
-    assert publisher._project_root == tmp_path  # type: ignore[attr-defined]
+    # Cast private attrs to their concrete types to verify internal wiring.
+    from typing import cast
+    transport = cast("HttpsJsonTransport", client._transport)
+    publisher = client._publisher
+    assert transport._base_url == "https://127.0.0.1:9443"
+    assert publisher._project_root == tmp_path

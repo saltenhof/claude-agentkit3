@@ -34,6 +34,25 @@ formal_refs:
   - formal.telemetry-analytics.events
   - formal.telemetry-analytics.invariants
   - formal.telemetry-analytics.scenarios
+glossary:
+  exported_terms:
+    - id: dashboard-view
+      definition: >
+        Vordefinierte tabellarische oder grafische Sicht im AgentKit-
+        Dashboard, die vorberechnete KPI-Werte aus den Fact-Tabellen
+        des analytics-Schemas darstellt. Jede View ist auf genau
+        einen project_key scopiert und zeigt nur Daten gueltiger,
+        nicht vollstaendig zurueckgesetzter Story-Umsetzungen.
+        Geplante Views: Story-KPI-Tab, Guard-Health-Tab,
+        LLM-Performance-Tab, Pipeline-Trends-Tab,
+        Failure-Corpus-Tab, Live-Sicht.
+  internal_terms:
+    - id: live-view
+      reason: >
+        Ergaenzende Echtzeitsicht fuer laufende Stories direkt aus
+        dem Runtime-Schema (nicht aus den Fact-Tabellen). Internes
+        Implementierungsdetail der Dashboard-Applikation; der
+        exportierte Begriff ist dashboard-view.
 ---
 
 # 63 — Auswertung und Dashboard
@@ -71,6 +90,13 @@ Das AgentKit QA Dashboard ist eine Single-Page-Applikation:
 - **11 API-Endpoints** mit vorgefertigten SQL-Queries
 - **KPI-Summary**: Stories completed, QA pass rate, avg QA rounds,
   blocking findings, open incidents
+
+**Transport-Abgrenzung:** Die HTTP-Server-Boundary-Control (Port-Bindung,
+Request-Routing, HTTP-Handler) liegt beim aufrufenden Frontend-BC
+(`control_plane`). Die Top-Surface von `kpi-and-dashboard.KpiAnalytics`
+ist transport-agnostisch: Sie stellt Daten bereit und definiert keine
+HTTP-Endpoints selbst. Die `control_plane`-Komponente bindet
+`KpiAnalytics` als Datenquelle ein und verantwortet das HTTP-Serving.
 
 ### 63.2.2 Einschraenkungen des Ist-Zustands
 
@@ -138,8 +164,8 @@ zentralen AgentKit-Control-Plane geht darueber hinaus:
 
 - Story-Liste und Board- oder Kanban-Ansicht liegen in einer
   AK3-eigenen Web-Anwendung
-- Planungsansichten fuer `Dependency-Graph`, `Ready Queue`,
-  typisierte Blocker, `critical path` und `execution waves` sind
+- Planungsansichten fuer `Dependency-Graph`, typisierte Blocker,
+  `critical path` und `execution waves` sind
   Pflichtsichten der spaeteren Control-Plane und lesen aus FK-70
 - Story-Detailseiten vereinen Status, Protokolle, Telemetrie,
   QA-Artefakte und Closure-Metriken in derselben Anwendung
@@ -208,6 +234,13 @@ Iterationen.
 - Das Dashboard ist **kein** Aufbewahrungsort fuer korrupt verwarfene
   Story-Runs. Vollstaendige Story-Resets muessen vor dem Serving bereits
   aus Runtime-, Read-Model- und Analytics-Sichten entfernt sein.
+- **ProjectionAccessor vs. Dashboard:** `telemetry-and-events.ProjectionAccessor`
+  (FK-69) ist Owner des DB-Zugriffs auf das Runtime-Schema (Lese-Adapter).
+  `kpi-and-dashboard.Dashboard` ist Owner der Sicht-Schicht (Darstellung,
+  View-Queries, Endpoint-Logik). Die beiden BCs ueberschneiden sich nicht:
+  Dashboard ruft `ProjectionAccessor` fuer Runtime-Schema-Daten auf;
+  fuer Analytics-Schema-Daten liest Dashboard direkt ueber `FactStore`
+  (da Analytics-Schema Eigenbesitz von `kpi-and-dashboard` ist).
 
 ---
 

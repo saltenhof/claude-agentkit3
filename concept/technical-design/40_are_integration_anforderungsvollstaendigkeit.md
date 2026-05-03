@@ -11,7 +11,7 @@ authority_over:
 defers_to:
   - target: FK-33
     scope: stage-registry
-    reason: ARE gate is registered as a deterministic stage in the stage registry
+    reason: verify-system registers the ARE gate stage; requirements-and-scope-coverage provides only check_gate logic
   - target: FK-20
     scope: workflow-engine
     reason: ARE dock points are triggered at specific pipeline phases managed by the workflow engine
@@ -20,12 +20,64 @@ defers_to:
     reason: Integrity-Gate validates ARE gate result in telemetry at closure
 supersedes: []
 superseded_by:
-tags: [are-integration, requirements, completeness, evidence, mcp]
+tags: [are-integration, requirements, completeness, evidence, rest-client]
 prose_anchor_policy: strict
 formal_refs:
   - formal.deterministic-checks.entities
   - formal.deterministic-checks.invariants
   - formal.deterministic-checks.scenarios
+glossary:
+  exported_terms:
+    - id: are-dock-point
+      definition: >
+        Einer der vier definierten Integrationspunkte zwischen AgentKit und der
+        Agent Requirements Engine (ARE): Anforderungen verlinken (Story-Erstellung),
+        Anforderungskontext laden (Setup-Phase), Evidence einreichen (Implementation/Verify),
+        ARE-Gate prüfen (Verify Layer 1). Jeder Dock-Point ist nur aktiv wenn
+        features.are aktiviert ist.
+    - id: are-gate
+      definition: >
+        Deterministischer Stage in Verify Layer 1, der prüft ob alle
+        must_cover-Anforderungen einer Story Evidence besitzen. Liefert PASS oder
+        FAIL mit Liste unbelegter Anforderungen. Blocking wenn ARE aktiviert ist;
+        entfällt vollständig wenn features.are deaktiviert ist.
+    - id: coverage-verdict
+      definition: >
+        Ergebnis des ARE-Gates: PASS wenn alle must_cover-Anforderungen der Story
+        mit Evidence belegt sind, FAIL andernfalls mit Liste der unbelegten
+        Anforderungen. Ist Vollständigkeitsurteil, kein Qualitätsurteil.
+    - id: evidence-reference
+      definition: >
+        Verweis auf einen konkreten Nachweis für eine must_cover-Anforderung,
+        eingereicht via are_submit_evidence. Besteht aus evidence_type und
+        evidence_ref (z.B. Test-Locator, Commit-SHA, Artefaktpfad oder Freitext).
+    - id: evidence-type
+      definition: >
+        Klassifikation eines eingereichten Nachweises für eine Anforderung.
+      values: [test_report, commit_ref, artifact_ref, manual_note]
+    - id: must-cover-obligation
+      definition: >
+        Eine mit must_cover=true markierte Anforderung, die einer Story zugeordnet
+        ist und für die vor Story-Closure ein Nachweis (EvidenceReference)
+        eingereicht worden sein muss. Vollständigkeit wird durch das ARE-Gate
+        maschinell erzwungen.
+    - id: scope-mapping
+      definition: >
+        Konfigurationszeit-Zuordnung zwischen AgentKit-Einheiten (Code-Repository
+        oder GitHub-Projekt-Modul-Feldwert) und ARE-Scope-Strings. Wird bei
+        Installation/Update gepflegt und zur Laufzeit für automatische
+        Anforderungssuche verwendet. Zwei Tabellen: repo→scope und modul→scope.
+  internal_terms:
+    - id: are-bundle
+      reason: >
+        Content-Plane-Artefakt (are_bundle.json), das vom Setup-Skript deterministisch
+        erzeugt wird und die must_cover-Anforderungen für Worker und QA-Agent
+        bereithält. Implementierungsdetail der Setup-Phase; verlässt den BC nicht.
+    - id: scope-key
+      reason: >
+        Intermediärer Schlüsselwert, der durch Auflösung der ScopeMapping-Tabellen
+        zur Laufzeit entsteht und als Parameter für die ARE-Anforderungssuche
+        (search_requirements) verwendet wird. Internes Ableitungsdetail.
 ---
 
 # 40 — ARE-Integration und Anforderungsvollständigkeit
@@ -40,8 +92,11 @@ erzwingt Vollständigkeit: Jede als `must_cover` verlinkte
 Anforderung muss Evidence haben, bevor eine Story geschlossen
 werden kann (FK 9).
 
-ARE ist kein Teil von AgentKit. AgentKit greift ausschließlich
-über MCP auf ARE zu — kein direkter Datenbank-Zugriff (Kap. 01).
+ARE ist kein Teil von AgentKit. AgentKit-Code greift ueber den
+`AreClient`-Sub (REST-Client) auf die ARE-REST-API zu — kein
+direkter Datenbank-Zugriff (Kap. 01). Claude-Code-Agents koennen
+ARE darueber hinaus ueber MCP ansprechen (Boundary-Control); das
+ist ein getrennter Aufruf-Pfad ausserhalb von AgentKit-Code.
 
 **Was ARE erzwingt:** Vollständigkeit, nicht Qualität. Ein Agent
 kann Evidence fälschen, aber er kann keine Anforderung ignorieren.
@@ -69,12 +124,12 @@ features:
   are: false              # Default: deaktiviert
 
 are:
-  mcp_server: "are-server"  # MCP-Server-Name (registriert in .mcp.json)
+  rest_base_url: "https://are.example.com"  # ARE-REST-API-Basis-URL
 ```
 
-Wenn `features.are: false`: Alle vier Andock-Punkte entfallen
-komplett. Kein Fehler, kein Fallback-Code — die Pipeline-Schritte
-existieren einfach nicht (FK-09-014).
+Wenn `features.are: false`: Die gesamte Top-Surface von
+`RequirementsCoverage` ist no-op. Aufrufer-BCs brauchen keinen
+Fallback-Code (FK-09-014).
 
 ## 40.3 Scope-Zuordnung
 
@@ -89,11 +144,17 @@ existieren einfach nicht (FK-09-014).
 
 ### 40.3.2 Konfiguration bei Installation
 
+**Ownership:** Schreib-Owner der Scope-Mapping-Tabellen ist BC
+`installation-and-bootstrap` (FK-50, CP 5 / CP 10c). BC
+`requirements-and-scope-coverage` ist Lese-Owner: die
+`ScopeMapping`-Sub liest die Tabellen zur Laufzeit, schreibt sie
+aber nie selbst.
+
 - Installer-Checkpoint (FK 50) validiert: alle Repos haben `are_scope`, alle Modul-Werte haben Mapping
 - Delta-Erkennung: nur neue/unmapped Items werden abgefragt
-- Interaktiv: nummerierte Auswahl aus verfügbaren ARE-Scopes (Quelle: ARE-Dimension `scope` via REST oder Fallback auf bereits konfigurierte Scopes)
-- Agentisch (non-interactive): Checkpoint gibt `PENDING_SELECTION` zurück mit strukturierten Metadaten (repos_needing_scopes, modules_needing_mappings, available_scopes). Orchestrierender Agent muss `resolve_pending_scope_mapping(repo_scopes={}, module_scopes={})` aufrufen
-- Bereits zugeordnete Einträge werden bei Updates NICHT erneut abgefragt
+- Interaktiv: nummerierte Auswahl aus verfuegbaren ARE-Scopes (Quelle: ARE-Dimension `scope` via REST oder Fallback auf bereits konfigurierte Scopes)
+- Agentisch (non-interactive): Checkpoint gibt `PENDING_SELECTION` zurueck mit strukturierten Metadaten (repos_needing_scopes, modules_needing_mappings, available_scopes). Orchestrierender Agent muss `resolve_pending_scope_mapping(repo_scopes={}, module_scopes={})` aufrufen
+- Bereits zugeordnete Eintraege werden bei Updates NICHT erneut abgefragt
 
 ### 40.3.3 Scope-Ableitung bei Story-Erstellung
 
@@ -114,21 +175,27 @@ existieren einfach nicht (FK-09-014).
 
 FK-Referenz: Domain-Konzept 9.2 "Scope-Zuordnung"
 
-## 40.4 MCP-Schnittstellenvertrag
+## 40.4 ARE-Schnittstellenvertrag
 
-ARE wird über MCP angebunden. Falls ARE nativ nur REST/FastAPI
-spricht, wird ein MCP-Wrapper als Adapter implementiert — analog
-zum Weaviate-Wrapper (Kap. 13).
+AgentKit-Code kommuniziert mit ARE ausschliesslich ueber den
+`AreClient`-Sub (`agentkit.requirements_coverage.are_client`),
+der die ARE-REST-API direkt aufruft — analog zum GitHub-REST-Adapter
+(FK-12). Es gibt keinen MCP-Wrapper fuer AgentKit-Code.
 
-### 40.4.1 MCP-Tools
+MCP ist Boundary-Control fuer Claude-Code-Agents, die ARE direkt
+ansprechen (z.B. um manuell Anforderungen zu verlinken). Dieser
+Pfad ist unabhaengig von AgentKit-Code und wird hier nicht weiter
+spezifiziert.
 
-| Tool | Parameter | Rückgabe | Andock-Punkt |
-|------|----------|---------|-------------|
-| `are_list_requirements` | `story_id`, `scope` | Liste von Anforderungen mit ID, Typ, `must_cover`-Flag, Beschreibung | 1 (Verlinken) |
-| `are_get_recurring` | `scope`, `story_type` | Wiederkehrende Pflichtanforderungen für diesen Scope/Typ | 1 (Verlinken) |
-| `are_load_context` | `story_id` | `must_cover`-Anforderungen mit Details für Worker-Kontext | 2 (Kontext laden) |
-| `are_submit_evidence` | `story_id`, `requirement_id`, `evidence_type`, `evidence_ref` | Bestätigung | 3 (Evidence einreichen) |
-| `are_check_gate` | `story_id` | PASS/FAIL + Liste unbelegter Anforderungen | 4 (Gate prüfen) |
+### 40.4.1 REST-Endpunkte (AreClient)
+
+| REST-Methode | Parameter | Rueckgabe | Andock-Punkt |
+|--------------|-----------|-----------|-------------|
+| `list_requirements(story_id, scope)` | story_id, scope | Liste von Anforderungen mit ID, Typ, `must_cover`-Flag, Beschreibung | 1 (Verlinken) |
+| `get_recurring(scope, story_type)` | scope, story_type | Wiederkehrende Pflichtanforderungen fuer diesen Scope/Typ | 1 (Verlinken) |
+| `load_context(story_id)` | story_id | `must_cover`-Anforderungen mit Details fuer Worker-Kontext | 2 (Kontext laden) |
+| `submit_evidence(story_id, requirement_id, evidence_type, evidence_ref)` | s.o. | Bestaetigung | 3 (Evidence einreichen) |
+| `check_gate(story_id)` | story_id | PASS/FAIL + Liste unbelegter Anforderungen | 4 (Gate pruefen) |
 
 ### 40.4.2 Anforderungs-Typen (FK-09-002)
 
@@ -141,6 +208,13 @@ zum Weaviate-Wrapper (Kap. 13).
 | `quality` | Qualitätsanforderungen |
 
 ## 40.5 Vier Andock-Punkte
+
+Die vier Andock-Punkte sind Top-Surface-Methoden in
+`RequirementsCoverage` (`agentkit.requirements_coverage`), keine
+eigenstaendigen Komponenten. Aufrufer-BCs rufen diese Methoden ueber
+die Top-Surface auf; die interne Delegation an `AreClient`,
+`ScopeMapping` und `AreIntegration` ist ein Implementierungsdetail
+des BC.
 
 ### 40.5.1 Andock-Punkt 1: Anforderungen verlinken (FK-09-015)
 
@@ -180,31 +254,32 @@ selbst ansprechen. Der Orchestrator-Agent wird nicht einbezogen.
 
 ```python
 def load_are_bundle(story_id: str, config: PipelineConfig) -> AreBundleResult:
-    """Lädt ARE-Bundle und persistiert ihn als Content-Plane-Artefakt.
+    """Laedt ARE-Bundle und persistiert ihn als Content-Plane-Artefakt.
 
     Wird durch das Setup-Skript aufgerufen, nicht durch den Orchestrator-Agent.
     Bei Fehler: Setup schreibt status=FAILED in den Phase-State und bricht ab.
-    Der Orchestrator-Agent beobachtet nur diesen Zustand — er lädt nicht nach.
+    Der Orchestrator-Agent beobachtet nur diesen Zustand -- er laedt nicht nach.
     """
     if not config.features.are:
         return AreBundleResult(status="SKIPPED", requirement_count=0)
 
     try:
-        requirements = are_mcp.call("are_load_context", story_id=story_id)
-    except AreMcpError as exc:
+        requirements = are_client.load_context(story_id=story_id)
+    except AreClientError as exc:
         return AreBundleResult(status="FAILED", error=str(exc))
 
-    bundle_path = Path(f"_temp/qa/{story_id}/are_bundle.json")
-    bundle_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        bundle_path.write_text(json.dumps({
+    artifact_manager.persist(
+        artifact_class=ArtifactClass.QA,
+        producer="qa-are-context-loader",
+        story_id=story_id,
+        filename="are_bundle.json",
+        content={
             "schema_version": "1.0",
             "story_id": story_id,
             "fetched_at": now_iso(),
             "must_cover": requirements,
-        }, ensure_ascii=False, indent=2))
-    except OSError as exc:
-        return AreBundleResult(status="FAILED", error=str(exc))
+        },
+    )
 
     return AreBundleResult(status="LOADED", requirement_count=len(requirements))
 ```
@@ -233,10 +308,12 @@ Lock-Record und Marker-Exporte (vgl. FK 31.2):
 ```
 
 **Artefakt-Klasse:**
-`are_bundle.json` ist ein Content-Plane-Artefakt (Kap. 31.2). Es ist
-für Worker und QA-Agent lesbar, für den Orchestrator-Agenten blockiert.
-Der Worker weiß dadurch, welche Anforderungen er adressieren und mit
-Evidence belegen muss.
+`are_bundle.json` ist ein Content-Plane-Artefakt (Kap. 31.2) mit
+`ArtifactClass.QA`. Es wird ueber `artifacts.ArtifactManager` (FK-71)
+persistiert; Producer: `qa-are-context-loader` (in der Producer-Registry
+von BC 8 registriert). Es ist fuer Worker und QA-Agent lesbar, fuer den
+Orchestrator-Agenten blockiert. Der Worker weiss dadurch, welche
+Anforderungen er adressieren und mit Evidence belegen muss.
 
 ### 40.5.3 Andock-Punkt 3: Evidence einreichen (FK-09-017)
 
@@ -250,7 +327,7 @@ Der Worker reicht während der Implementierung Evidence pro
 Anforderung ein:
 
 ```python
-are_mcp.call("are_submit_evidence",
+are_client.submit_evidence(
     story_id=story_id,
     requirement_id="REQ-042",
     evidence_type="test_report",
@@ -279,19 +356,19 @@ Adversarial Testing).
 **Was passiert:**
 
 ```python
-def check_are_gate(story_id: str) -> StageResult:
-    result = are_mcp.call("are_check_gate", story_id=story_id)
+def check_gate(story_id: str) -> StageResult:
+    result = are_client.check_gate(story_id=story_id)
 
-    if result["status"] == "PASS":
+    if result.status == "PASS":
         return StageResult(stage_id="are_gate", status="PASS", ...)
 
-    uncovered = result["uncovered_requirements"]
+    uncovered = result.uncovered_requirements
     return StageResult(
         stage_id="are_gate",
         status="FAIL",
         blocking=True,
         detail=f"{len(uncovered)} requirements without evidence: "
-               + ", ".join(r["id"] for r in uncovered),
+               + ", ".join(r.id for r in uncovered),
     )
 ```
 
@@ -302,7 +379,13 @@ haben. FAIL mit Liste der unbelegten Anforderungen wenn nicht.
 
 ## 40.6 Fallback ohne ARE (FK-09-019 bis FK-09-022)
 
-Ohne ARE gibt es keinen maschinellen Vollständigkeits-Check auf
+Wenn `features.are: false`, ist die gesamte Top-Surface von
+`RequirementsCoverage` no-op. Alle vier Andock-Punkte entfallen
+vollstaendig — Aufrufer-BCs brauchen keinen Fallback-Code, weil
+die Top-Surface-Methoden bei deaktiviertem ARE selbst SKIPPED
+zurueckgeben und nichts ausfuehren.
+
+Ohne ARE gibt es keinen maschinellen Vollstaendigkeits-Check auf
 Anforderungsebene. Stattdessen:
 
 | Mechanismus | Beschreibung |
@@ -319,7 +402,13 @@ Checkliste im Issue-Template dient als menschenlesbare Orientierung.
 
 ## 40.7 ARE in der Stage-Registry
 
+Die ARE-Stage wird von BC `verify-system` in der `StageRegistry`
+registriert (FK-33). BC `requirements-and-scope-coverage` stellt
+ausschliesslich die Gate-Logik bereit (`check_gate` als Top-Surface-Methode);
+die Registrierung der `StageDefinition` ist Aufgabe von `verify-system`.
+
 ```python
+# In verify-system.StageRegistry registriert:
 StageDefinition(
     id="are_gate",
     layer=1,
@@ -336,7 +425,9 @@ Bei `false` wird sie nicht geladen und nicht evaluiert.
 
 ## 40.8 Telemetrie
 
-ARE-Interaktionen werden in `execution_events` geloggt:
+ARE-Interaktionen werden in `execution_events` geloggt. Die
+`EventTypeId`-Werte sind in FK-68 (BC `telemetry-and-events`) als
+kanonische Quelle definiert und in der `TelemetryContract` registriert:
 
 | Event | Wann |
 |-------|------|
@@ -344,15 +435,15 @@ ARE-Interaktionen werden in `execution_events` geloggt:
 | `are_evidence_submitted` | Andock-Punkt 3: Evidence eingereicht |
 | `are_gate_result` | Andock-Punkt 4: Gate-Ergebnis (PASS/FAIL) |
 
-Das Integrity-Gate prüft bei ARE-aktivierten Stories, dass
+Das Integrity-Gate prueft bei ARE-aktivierten Stories, dass
 `are_gate_result` mit `status: PASS` in der Telemetrie vorliegt.
 
 ## 40.9 Fehlerbehandlung
 
 | Fehler | Reaktion |
 |--------|---------|
-| ARE-MCP-Server nicht erreichbar bei Story-Erstellung | Warnung. Story wird ohne Anforderungsverknüpfung erstellt. |
-| ARE-MCP-Server nicht erreichbar bei Verify (Gate-Check) | ARE-Gate = FAIL (fail-closed). Story kann nicht ohne ARE-Nachweis geschlossen werden, wenn ARE aktiviert ist. |
+| ARE-REST-API nicht erreichbar bei Story-Erstellung | Warnung. Story wird ohne Anforderungsverknuepfung erstellt. |
+| ARE-REST-API nicht erreichbar bei Verify (Gate-Check) | ARE-Gate = FAIL (fail-closed). Story kann nicht ohne ARE-Nachweis geschlossen werden, wenn ARE aktiviert ist. |
 | Evidence-Einreichung scheitert | Warnung an Worker. Worker muss erneut versuchen. |
 
 **Wichtig:** ARE ist optional, aber wenn aktiviert, ist das Gate

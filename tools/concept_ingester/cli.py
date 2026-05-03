@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 from tools.concept_ingester.config import IngesterConfig
 from tools.concept_ingester.discovery import discover
@@ -21,6 +21,9 @@ from tools.concept_ingester.schema import (
     drop_all_collections,
     ensure_all_collections,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 def main(argv: Sequence[str] | None = None) -> int:

@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from agentkit.installer import InstallConfig, install_agentkit
 from agentkit.installer.paths import PROMPT_BUNDLE_STORE_ENV
 from agentkit.phase_state_store import FlowExecution, save_flow_execution
 from agentkit.prompt_composer.pins import initialize_prompt_run_pin
 from agentkit.qa.adversarial.challenger import AdversarialChallenger
-from agentkit.state_backend import save_story_context
+from agentkit.state_backend.store import save_story_context
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -96,7 +96,7 @@ class TestAdversarialChallenger:
 
         result = challenger.evaluate(ctx, story_dir)
 
-        audit = result.metadata["prompt_audit"]
+        audit = cast("dict[str, object]", result.metadata["prompt_audit"])
         assert audit["status"] == "materialized"
         assert audit["run_id"] == "run-review-001"
         assert audit["logical_prompt_id"] == "prompt.qa-adversarial-review"
@@ -109,10 +109,10 @@ class TestAdversarialChallenger:
             "verify-adversarial-attempt-001/rendered-manifest.json"
         )
         assert (
-            project_root / audit["artifact_path"]
+            project_root / cast("str", audit["artifact_path"])
         ).is_file()
         assert (
-            project_root / audit["manifest_path"]
+            project_root / cast("str", audit["manifest_path"])
         ).is_file()
 
     def test_implements_qa_layer_protocol(self) -> None:

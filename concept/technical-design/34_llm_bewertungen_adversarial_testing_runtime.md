@@ -20,7 +20,7 @@ defers_to:
     reason: Schicht 3 (Adversarial Testing Runtime) und Mandatory Adversarial Targets liegen in FK-48
   - target: FK-44
     scope: prompt-bundles
-    reason: QA-, Semantic- und Umsetzungstreue-Prompts werden aus dem gebundenen Prompt-Bundle materialisiert (FK-44)
+    reason: LlmEvaluator loest alle Templates via PromptRuntime.materialize_prompt auf (FK-44); kein direkter Bundle-Dateizugriff durch LlmEvaluator
   - target: FK-71
     scope: artefakt-envelope
     reason: LLM-Bewertungsergebnisse (qa_review.json, semantic_review.json) folgen dem Envelope-Schema und der Producer-Registry (FK-71)
@@ -28,6 +28,42 @@ supersedes: []
 superseded_by:
 tags: [llm-evaluation, qa-review, semantic-review, verify-phase]
 prose_anchor_policy: strict
+glossary:
+  exported_terms:
+    - id: remediation-round
+      definition: >
+        Zählstand der Verify-Remediation-Iterationen für eine Story.
+        Wird als PhaseMemory.verify.feedback_rounds von der Engine beim
+        Phasenwechsel verify → implementation inkrementiert.
+        Ab Runde 2 erhält der QA-Review-Prompt die Vorrunden-Findings
+        aus qa_review.json direkt (nicht aus Worker-Zusammenfassungen).
+        Bei feedback_rounds >= max_feedback_rounds (Default: 3) eskaliert die Pipeline.
+      see_also:
+        - term: remediation-loop
+          domain: verify-system
+        - term: qa-cycle
+          domain: verify-system
+    - id: structured-evaluator
+      definition: >
+        Deterministisch gesteuertes LLM-Bewertungsmuster: ein Python-Skript
+        ruft ein LLM mit festem Prompt-Template auf, validiert die Antwort gegen
+        ein JSON-Schema und liefert typisierte CheckResult-Objekte. Kein
+        Dateisystem-Zugriff durch das LLM. fail-closed: unbekannte Check-IDs
+        werden verworfen, invalides JSON löst Retry aus.
+      see_also:
+        - term: policy-engine
+          domain: verify-system
+  internal_terms:
+    - id: parallel-eval-runner
+      reason: >
+        Laufzeit-Executor für parallele StructuredEvaluator-Aufrufe
+        (ThreadPoolExecutor, context: dict[str, str]); Implementierungsdetail
+        des Layer-2-Ablaufs.
+    - id: verdikt-normalisierung
+      reason: >
+        Mapping Track-A/Track-B-Verdikte auf gemeinsames Schema vor
+        Divergenz-Prüfung (PASS_WITH_CONCERNS → CONCERN, REWORK → FAIL);
+        internes Implementierungsdetail der Divergenz-Logik.
 formal_refs:
   - formal.llm-evaluations.entities
   - formal.llm-evaluations.state-machine
@@ -48,6 +84,13 @@ Prompt-Inhalte und die Ergebnis-Verarbeitung im Verify-Kontext.
 
 **Schicht 3 (Adversarial Testing) und Mandatory Adversarial Targets
 sind in FK-48 (Adversarial-Testing-Runtime) ausgegliedert.**
+
+**Architekturzuordnung:** `LlmEvaluator` ist eine Subkomponente von
+`VerifySystem` (`agentkit.verify_system.llm_evaluator`). Alle
+Prompt-Templates werden via `PromptRuntime.materialize_prompt` (BC 10,
+FK-44) aufgeloest — `LlmEvaluator` hat keinen direkten Dateizugriff auf
+Bundle-Inhalte, sondern ruft ausschliesslich die `materialize_prompt`-
+Schnittstelle auf.
 
 ## 34.2 Schicht 2: LLM-Bewertungen
 

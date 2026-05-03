@@ -403,7 +403,7 @@ und Telemetrie-Hooks:
 | Guard-Hooks (branch, orchestrator, integrity, etc.) | Laufen vor dem Health-Monitor (FK-30 §30.3.3). Wenn ein Guard blockiert, erreicht der Call den Health-Monitor nicht. Der PostToolUse-Hook des Health-Monitors sieht aber das Ergebnis des fehlgeschlagenen Tool-Calls und kann Hook-Failures klassifizieren. |
 | `telemetry.hook` | Emittiert Events in `execution_events`. Der Health-Monitor nutzt eigene State-Backend-Persistenz; `agent-health.json` ist nur Export. |
 | `budget` (Web-Call-Budget) | Referenz-Implementation für Hook-basierte Budgets. Der Health-Monitor folgt demselben Muster (PostToolUse zählt, PreToolUse erzwingt), arbeitet aber mit einem gewichteten Score statt einem einfachen Zähler. |
-| `review_guard` | Keine Interaktion. Der Review-Guard prüft Pool-Send-Compliance, der Health-Monitor prüft Worker-Gesundheit. |
+| `review_guard` (`agentkit.governance.guard_system`) | Keine Interaktion. Der Review-Guard prueft Pool-Send-Compliance, der Health-Monitor prueft Worker-Gesundheit. |
 
 **Abgrenzung zur Performance-Designregel (FK-30 §30.4.1):** Die Regel
 verbietet LLM-Aufrufe in Hooks. Der Health-Monitor hält diese
@@ -414,8 +414,12 @@ und setzt lediglich einen Status-Flag (`llm_assessment.status =
 
 ### 49.1.7 Konfiguration
 
-Alle Schwellwerte, Gewichte und Sidecar-Parameter werden in
-`.story-pipeline.yaml` unter `worker_health` konfiguriert:
+Alle Schwellwerte, Gewichte und Sidecar-Parameter des
+Worker-Health-Monitors werden in `.story-pipeline.yaml` unter
+dem Schluessel `worker_health` konfiguriert. Schema-Owner
+und kanonische Defaults sind in **FK-49 (implementation-phase)**
+definiert. FK-93 (Standardwerte, Schwellwerte und Timeouts)
+referenziert diese Werte nur — keine Definition dort.
 
 ```yaml
 worker_health:

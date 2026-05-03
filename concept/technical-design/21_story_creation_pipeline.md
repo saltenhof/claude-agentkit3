@@ -27,6 +27,43 @@ supersedes: []
 superseded_by:
 tags: [story-creation, vectordb-abgleich, zieltreue, classification, github-project]
 prose_anchor_policy: strict
+glossary:
+  exported_terms:
+    - id: concept-quality
+      definition: >
+        Pflichtfeld an jeder Implementation- oder Bugfix-Story mit den
+        Werten High, Medium und Low. Gibt an, ob gueltige Konzeptquellen
+        fuer den Story-Scope vorliegen. Low loest automatisch
+        Exploration-Mode aus (Trigger 4 des 4-Trigger-Modells).
+      values: [High, Medium, Low]
+    - id: repo-affinity
+      definition: >
+        Automatisch ermittelte Zuordnung einer Story zu Repositories
+        ueber Longest-Prefix-Match der betroffenen Dateipfade. Ergebnis
+        sind PRIMARY_REPO (meiste Aenderungen) und PARTICIPATING_REPOS
+        (alle beteiligten Repos). Steuert Worktree-Anlage, ARE-Scopes
+        und Branch-Guard.
+    - id: story-creation-pipeline
+      definition: >
+        Deterministischer Erstellungsablauf einer Story, der Konzeption,
+        VektorDB-Abgleich, Zieltreue-Pruefung, Feldbelegung,
+        GitHub-Issue-Erstellung und story.md-Export umfasst. Endet mit
+        menschlicher Freigabe (Status Approved). Kein Agent darf
+        diesen Pfad durch direktes gh issue create umgehen.
+    - id: story-md-export
+      definition: >
+        Deterministisch aus dem GitHub Issue erzeugtes Artefakt
+        (story.md) im Story-Verzeichnis. Kein LLM-Produkt; erzeugt
+        durch agentkit export-story-md. Dient als Weaviate-Index-Quelle
+        und Git-Archiv. Weaviate-Indizierungsfehler beim Export sind
+        harte Blocker.
+    - id: vectordb-abgleich
+      definition: >
+        Zweistufiger Pflichtcheck bei der Story-Erstellung: Similarity-
+        Suche in der Story-KB (Schwellenwert 0.7) gefolgt von LLM-
+        Konfliktbewertung der Top-5-Treffer. Erkennt Duplikate und
+        Ueberschneidungen. Ein erkannter und geloester Konflikt erzwingt
+        Exploration-Mode.
 formal_refs:
   - formal.story-creation.entities
   - formal.story-creation.state-machine
@@ -131,7 +168,7 @@ flowchart TD
     EXPORT --> FREIGABE{"Mensch gibt frei?"}
     FREIGABE -->|Nein| REWORK["Nacharbeit an<br/>Story-Definition"]
     REWORK --> KONZEPT
-    FREIGABE -->|Ja| APPROVED(["Status: Freigegeben<br/>→ bereit für Umsetzung"])
+    FREIGABE -->|Ja| APPROVED(["Status: Approved<br/>→ bereit für Umsetzung"])
 ```
 
 ## 21.3 Konzeption

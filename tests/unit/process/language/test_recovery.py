@@ -18,10 +18,10 @@ class TestFieldSource:
     """Tests for FieldSource enum."""
 
     def test_values(self) -> None:
-        assert FieldSource.EXPLICIT_PARAM == "explicit_param"
-        assert FieldSource.CONTEXT_JSON == "context_json"
-        assert FieldSource.LAST_SNAPSHOT == "last_snapshot"
-        assert FieldSource.DEFAULT == "default"
+        assert FieldSource.EXPLICIT_PARAM.value == "explicit_param"
+        assert FieldSource.CONTEXT_JSON.value == "context_json"
+        assert FieldSource.LAST_SNAPSHOT.value == "last_snapshot"
+        assert FieldSource.DEFAULT.value == "default"
 
     def test_is_str(self) -> None:
         assert isinstance(FieldSource.EXPLICIT_PARAM, str)

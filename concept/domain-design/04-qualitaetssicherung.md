@@ -14,6 +14,56 @@ supersedes: []
 superseded_by:
 tags: [quality-assurance, verify, trust-classes, remediation, adversarial-testing]
 formal_scope: prose-only
+glossary:
+  exported_terms:
+    - id: finding-resolution
+      definition: >
+        Bewertung eines konkreten Verify-Findings durch den Layer-2-StructuredEvaluator
+        im Remediation-Modus. Moegliche Auspraegungen: fully_resolved, partially_resolved,
+        not_resolved. Worker-Selbstauskunft (Trust C) ist keine gueltiger Nachweis;
+        nur Trust-B-Quellen (LLM-Evaluator) setzen den kanonischen Resolution-Status.
+      values: [fully_resolved, partially_resolved, not_resolved]
+      see_also:
+        - term: remediation-loop
+          domain: verify-system
+        - term: trust-class
+          domain: verify-system
+    - id: mandatory-adversarial-target
+      definition: >
+        Finding-abgeleitetes Prüfziel, das Layer 2 aus einem assertion_weakness-Finding
+        extrahiert und strukturiert an den Adversarial Agent übergibt. Der Agent muss
+        pro Target entweder einen deckenden Test schreiben oder explizit UNRESOLVABLE
+        melden. Nicht erfüllte Targets fliessen deterministisch als FAIL-Finding in
+        die naechste Remediation-Runde zurück.
+      see_also:
+        - term: qa-cycle
+          domain: verify-system
+    - id: trust-class
+      definition: >
+        Klassifikation einer Evidenzquelle nach ihrer Sperrwirkung (blocking) im
+        Verify-Prozess. Klasse A (autoritative Systeme) und B (systemseitig emittiert)
+        dürfen blocking sein. Klasse C (vom Worker selbst erzeugt) darf niemals
+        blocking sein, da der Agent sonst seine eigene Prüfung bestehen kann.
+      values: [A, B, C]
+      see_also:
+        - term: stage-definition
+          domain: verify-system
+    - id: verify-context
+      definition: >
+        Typisiertes StrEnum-Feld auf VerifyPayload, das den Auslöser des aktuellen
+        Verify-Durchlaufs identifiziert. Steuert normativ die QA-Tiefe; None ist
+        fail-closed (sofortige Eskalation). Beide Werte lösen immer die volle
+        4-Schichten-QA aus, unabhängig von mode.
+      values: [post_implementation, post_remediation]
+      see_also:
+        - term: context-bundle
+          domain: verify-system
+  internal_terms:
+    - id: verify-vier-schichten
+      reason: >
+        Strukturierungsprinzip der Verify-Phase (Structural, LLM-Bewertungen,
+        Adversarial, Policy); kein exportierter Vertragstyp, sondern
+        Architekturprinzip, das in FK-27 normiert ist.
 ---
 
 # 04 — Mehrstufige Qualitätssicherung

@@ -1,97 +1,13 @@
-# ruff: noqa: F401
-"""Canonical state-backend API for runtime and governance code."""
+"""Driver-Schicht der State-Persistenz.
+
+Module:
+    store   -- Compatibility-Facade waehlt Driver via Config
+    paths   -- Filesystem-Pfad-Konstanten
+    scope   -- Persistenz-Identitaet (StateScope/RuntimeStateScope)
+    config  -- StateBackendKind, load_state_backend_config
+    postgres_store, sqlite_store -- konkrete Driver
+
+Importiere direkt aus dem passenden Submodul, nicht aus diesem Paket.
+"""
 
 from __future__ import annotations
-
-from agentkit.phase_state_store.models import (
-    FlowExecution,
-    NodeExecutionLedger,
-    OverrideRecord,
-)
-from agentkit.state_backend._public_names import PUBLIC_API_NAMES
-from agentkit.state_backend.exports import (
-    CLOSURE_REPORT_FILE,
-    CONTEXT_EXPORT_FILE,
-    GUARDRAIL_FILE,
-    LAYER_ARTIFACT_FILES,
-    PHASE_STATE_EXPORT_FILE,
-    PROTECTED_QA_ARTIFACTS,
-    STATE_DB_DIR,
-    STATE_DB_FILE,
-    VERIFY_DECISION_FILE,
-    atomic_write_json,
-    state_backend_dir,
-    state_db_path,
-)
-from agentkit.state_backend.records import (
-    AttemptRecord,
-    ControlPlaneOperationRecord,
-    ExecutionEventRecord,
-    ExecutionReport,
-    QAFindingRecord,
-    QAStageResultRecord,
-    SessionRunBindingRecord,
-    StoryExecutionLockRecord,
-    StoryMetricsRecord,
-)
-from agentkit.state_backend.scope import RuntimeStateScope, StateScope
-from agentkit.state_backend.store import (
-    append_execution_event,
-    append_execution_event_global,
-    backend_has_completed_snapshot,
-    backend_has_structural_artifact,
-    backend_has_structural_artifact_for_scope,
-    backend_has_valid_context,
-    backend_has_valid_phase_state,
-    backend_verify_decision_passed_for_scope,
-    delete_session_run_binding_global,
-    load_artifact_record,
-    load_artifact_record_for_scope,
-    load_attempts,
-    load_control_plane_operation_global,
-    load_execution_events,
-    load_execution_events_global,
-    load_flow_execution,
-    load_flow_execution_global,
-    load_latest_story_metrics_global,
-    load_latest_verify_decision,
-    load_latest_verify_decision_for_scope,
-    load_node_execution_ledger,
-    load_override_records,
-    load_phase_snapshot,
-    load_phase_state,
-    load_phase_state_global,
-    load_qa_findings,
-    load_qa_findings_for_scope,
-    load_qa_stage_results,
-    load_qa_stage_results_for_scope,
-    load_session_run_binding_global,
-    load_story_context,
-    load_story_context_global,
-    load_story_contexts_global,
-    load_story_execution_lock_global,
-    load_story_metrics,
-    load_story_metrics_for_scope,
-    read_artifact_record,
-    read_latest_verify_decision_record,
-    read_phase_snapshot_record,
-    read_phase_state_record,
-    read_story_context_record,
-    record_closure_report,
-    record_layer_artifacts,
-    record_verify_decision,
-    resolve_runtime_scope,
-    save_attempt,
-    save_control_plane_operation_global,
-    save_flow_execution,
-    save_node_execution_ledger,
-    save_override_record,
-    save_phase_snapshot,
-    save_phase_state,
-    save_session_run_binding_global,
-    save_story_context,
-    save_story_execution_lock_global,
-    upsert_story_metrics,
-)
-
-__all__ = PUBLIC_API_NAMES

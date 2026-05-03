@@ -10,7 +10,7 @@ from agentkit.prompt_composer import (
     initialize_prompt_run_pin,
     write_rendered_prompt_artifact,
 )
-from agentkit.state_backend import resolve_runtime_scope
+from agentkit.state_backend.store import resolve_runtime_scope
 
 if TYPE_CHECKING:
     from pathlib import Path

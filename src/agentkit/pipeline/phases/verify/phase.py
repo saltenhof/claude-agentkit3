@@ -18,7 +18,7 @@ from agentkit.qa.adversarial.challenger import AdversarialChallenger
 from agentkit.qa.evaluators.reviewer import SemanticReviewer
 from agentkit.qa.policy_engine.engine import PolicyEngine
 from agentkit.qa.structural.checker import StructuralChecker
-from agentkit.state_backend import (
+from agentkit.state_backend.store import (
     record_layer_artifacts,
     record_verify_decision,
     save_story_context,

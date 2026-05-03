@@ -32,6 +32,64 @@ formal_refs:
   - formal.setup-preflight.events
   - formal.setup-preflight.invariants
   - formal.setup-preflight.scenarios
+glossary:
+  exported_terms:
+    - id: guard-activation
+      definition: >
+        Deterministischer Setup-Schritt, der nach Worktree-Erstellung den
+        kanonischen Lock-Record im State-Backend anlegt und das lokale
+        Edge-Bundle ueber den offiziellen Project Edge Client publiziert.
+        Erst nach Guard-Aktivierung sind story-gebundene Guards (Branch-Guard,
+        QA-Schutz, Orchestrator-Guard) durchsetzbar.
+      see_also:
+        - term: lock-record
+          domain: governance-and-guards
+        - term: guard-system
+          domain: governance-and-guards
+    - id: lock-record
+      definition: >
+        Kanonischer State-Backend-Eintrag, der einen aktiven Story-Execution-
+        Run identifiziert und story-gebundene Guards aktiviert. Besteht aus
+        (project_key, story_id, run_id, lock_type). Wird vom Setup-Skript
+        angelegt und ausschliesslich vom Closure-Skript beendet. Hooks lesen
+        den aktuellen Lock-Stand ueber das lokal publizierte Edge-Bundle.
+      see_also:
+        - term: guard-activation
+          domain: governance-and-guards
+        - term: guard-system
+          domain: governance-and-guards
+    - id: mode-routing
+      definition: >
+        Deterministischer Entscheid am Ende der Setup-Phase, ob eine
+        implementierende Story in den Execution Mode oder den Exploration Mode
+        geht. Basiert auf vier unabhaengigen Triggern aus StoryContext
+        (Trigger 1: fehlende Konzept-Referenzen, Trigger 2: Architecture
+        Impact, Trigger 3: neue Strukturen, Trigger 4: Concept Quality Low).
+        Jeder einzelne Trigger erzwingt Exploration Mode.
+      values:
+        - execution
+        - exploration
+    - id: preflight-gate
+      definition: >
+        Einer der neun deterministischen Checks in der Setup-Phase, die
+        fail-closed geprueft werden, bevor eine Story gestartet wird. Alle
+        neun Checks werden ausgefuehrt; ein einzelner FAIL stoppt den Start.
+        Prueft u.a. Issue-Existenz, Story-Status, offene Abhaengigkeiten,
+        fehlende Laufzeit-Reste und Scope-Overlap mit parallelen Stories.
+      see_also:
+        - term: guard-activation
+          domain: governance-and-guards
+  internal_terms:
+    - id: edge-bundle
+      reason: >
+        Lokaler, materialiserter Hook-Hilfszustand (unter
+        _temp/governance/current.json und bundles/). Kein exportierter
+        Vertragstyp; kanonisch bleibt das State-Backend. Implementierungsdetail
+        des Project Edge Client, genutzt von FK-30 und FK-31.
+    - id: scope-overlap-check
+      reason: >
+        Einer der neun Preflight-Checks (Check 9). Implementierungsdetail der
+        Preflight-Suite; der exportierte Begriff ist preflight-gate.
 ---
 
 # 22 — Setup, Preflight, Worktree und Guard-Aktivierung
@@ -58,7 +116,7 @@ flowchart TD
     subgraph PREFLIGHT_PHASE ["Preflight-Gates (9 Checks)"]
         PREFLIGHT["1. Issue existiert?"]
         PREFLIGHT --> P2["2. Story-ID im Project?"]
-        P2 --> P3["3. Status == Freigegeben?"]
+        P2 --> P3["3. Status == Approved?"]
         P3 --> P4["4. Abhängigkeiten geschlossen?"]
         P4 --> P5["5. Keine Ausführungsartefakte?"]
         P5 --> P6["6. Kein aktiver Runtime-Rest?"]
@@ -108,7 +166,7 @@ flowchart TD
 |---|-------|-----------------|-----|-----------|
 | 1 | `issue_exists` | GitHub Issue existiert und ist abrufbar | `gh issue view {issue_nr} --json number,state` | Issue nicht gefunden (gelöscht? falsche Nummer?) |
 | 2 | `story_in_project` | Story-ID existiert als Item im GitHub Project | `gh project item-list` + Filter auf Story-ID | Issue nicht im Project eingestellt |
-| 3 | `status_freigegeben` | Project-Item-Status ist "Approved" | GraphQL-Query auf Status-Feld | Status ist Backlog, In Progress oder Done |
+| 3 | `status_approved` | Project-Item-Status ist "Approved" | GraphQL-Query auf Status-Feld | Status ist Backlog, In Progress, Done oder Cancelled |
 | 4 | `dependencies_closed` | Alle referenzierten Dependency-Issues sind geschlossen | Issue-Body parsen (`## Dependencies`), jede `#NNN`-Referenz via `gh issue view` prüfen | Mindestens eine Dependency ist noch offen |
 | 5 | `no_execution_artifacts` | Keine Reste aus vorherigen Läufen **oder** vorheriger Run sauber abgeschlossen | Prüfe `artifact_records` und `phase_state_projection` fuer die Story. Bei unabgeschlossenem Run: FAIL. Bei sauber abgeschlossenem Run: Exporte archiviertbar, kein Blocker. | Artefakte eines unabgeschlossenen vorherigen Laufs gefunden |
 | 6 | `no_active_runtime_residue` | Keine aktiven Runtime-Reste eines vorherigen Runs | Prüfe kanonische Runtime-Zustände (`flow_executions`, aktive Lock-Records, `phase_state_projection`) für die Story. Telemetrie in `execution_events` ist **kein** Start-Gate; sie darf nur diagnostisch herangezogen werden. Bei aktivem oder inkonsistentem Runtime-Zustand: FAIL. | Aktiver oder inkonsistenter Runtime-Zustand eines vorherigen Runs vorhanden |

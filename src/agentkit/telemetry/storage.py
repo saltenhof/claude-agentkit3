@@ -6,12 +6,12 @@ import logging
 import uuid
 from typing import TYPE_CHECKING
 
-from agentkit.state_backend import (
-    ExecutionEventRecord,
+from agentkit.state_backend.store import (
     append_execution_event,
     load_execution_events,
     resolve_runtime_scope,
 )
+from agentkit.telemetry.contract.records import ExecutionEventRecord
 from agentkit.telemetry.events import Event, EventType
 
 if TYPE_CHECKING:

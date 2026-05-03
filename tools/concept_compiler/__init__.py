@@ -2,31 +2,38 @@
 
 from __future__ import annotations
 
-from concept_compiler.compiler import (
+from .architecture_conformance import (
+    ArchitectureConformanceConfig,
+    ArchitectureConformanceError,
+    ArchitectureViolation,
+    BloodtypeDependencyRule,
+    BoundaryModule,
+    BoundaryModuleKind,
+    ComponentGroup,
+    EffectSurface,
+    TypeTaintRule,
+    audit_architecture_conformance,
+    load_architecture_conformance_config,
+    raise_on_architecture_violations,
+    render_component_tree,
+)
+from .compiler import (
     CompiledFormalSpec,
     FormalReference,
     compile_formal_specs,
 )
-from concept_compiler.architecture_conformance import (
-    ArchitectureConformanceConfig,
-    ArchitectureConformanceError,
-    ArchitectureViolation,
-    audit_architecture_conformance,
-    load_architecture_conformance_config,
-    raise_on_architecture_violations,
-)
-from concept_compiler.drift import DriftLink, audit_formal_prose_links
-from concept_compiler.loader import (
+from .drift import DriftLink, audit_formal_prose_links
+from .loader import (
     FormalSpecDocument,
     discover_formal_spec_files,
     load_formal_spec,
 )
-from concept_compiler.scenario_runner import (
+from .scenario_runner import (
     FormalScenarioError,
     ScenarioValidation,
     validate_scenarios,
 )
-from concept_compiler.truth_boundary import (
+from .truth_boundary import (
     ContractViolation,
     TruthBoundaryConfig,
     TruthBoundaryError,
@@ -39,8 +46,13 @@ __all__ = [
     "ArchitectureConformanceConfig",
     "ArchitectureConformanceError",
     "ArchitectureViolation",
+    "BloodtypeDependencyRule",
+    "BoundaryModule",
+    "BoundaryModuleKind",
+    "ComponentGroup",
     "CompiledFormalSpec",
     "DriftLink",
+    "EffectSurface",
     "FormalReference",
     "FormalScenarioError",
     "FormalSpecDocument",
@@ -48,6 +60,7 @@ __all__ = [
     "ContractViolation",
     "TruthBoundaryConfig",
     "TruthBoundaryError",
+    "TypeTaintRule",
     "audit_architecture_conformance",
     "audit_formal_prose_links",
     "audit_truth_boundary",
@@ -58,5 +71,6 @@ __all__ = [
     "load_formal_spec",
     "raise_on_architecture_violations",
     "raise_on_truth_boundary_violations",
+    "render_component_tree",
     "validate_scenarios",
 ]

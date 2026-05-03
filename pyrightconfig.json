@@ -1,0 +1,11 @@
+{
+  "pythonVersion": "3.11",
+  "extraPaths": ["tools", "src"],
+  "typeCheckingMode": "standard",
+  "reportMissingModuleSource": "none",
+  "ignore": [
+    "tools/concept_ingester",
+    "tools/concept_mcp",
+    "tools/diagram_export"
+  ]
+}

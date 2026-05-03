@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from agentkit.state_backend import (
+from agentkit.state_backend.store import (
     append_execution_event_global,
     delete_session_run_binding_global,
     load_control_plane_operation_global,
@@ -19,12 +19,12 @@ from agentkit.state_backend import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from agentkit.state_backend import (
+    from agentkit.control_plane.records import (
         ControlPlaneOperationRecord,
-        ExecutionEventRecord,
         SessionRunBindingRecord,
-        StoryExecutionLockRecord,
     )
+    from agentkit.governance.guard_system.records import StoryExecutionLockRecord
+    from agentkit.telemetry.contract.records import ExecutionEventRecord
 
 
 @dataclass(frozen=True)

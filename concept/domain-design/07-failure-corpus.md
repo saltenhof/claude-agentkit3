@@ -13,6 +13,42 @@ supersedes: []
 superseded_by:
 tags: [failure-corpus, incidents, patterns, learning-loop, deterministic-guards]
 formal_scope: prose-only
+glossary:
+  exported_terms:
+    - id: failure-corpus
+      definition: >
+        Methodisches System zur Überführung stochastischen
+        LLM-Fehlverhaltens in deterministische Pipeline-Guards.
+        Besteht aus drei strikt getrennten Ebenen: Incident
+        (Einzelbeobachtung), Pattern (normalisierte Invariante) und
+        Check (deterministischer Guard). Wert entsteht ausschließlich,
+        wenn diese drei Ebenen sauber getrennt bleiben.
+      see_also:
+        - term: failure-pattern
+          domain: failure-corpus
+        - term: generated-check-proposal
+          domain: failure-corpus
+    - id: incident-record
+      definition: >
+        Strukturierte Einzelbeobachtung eines Agentenfehlers mit
+        Pflichtfeldern zu Identifikation, Agenten-Kontext, Symptom,
+        Detektion, Klassifikation, Impact, Evidenz, Normalisierung
+        und Auflösung. Eindeutige ID im Schema FC-YYYY-NNNN.
+        Incidents werden niemals hart gelöscht, nur archiviert.
+  internal_terms:
+    - id: pattern-promotion-threshold
+      reason: >
+        Betriebsparameter für die drei Promotion-Regeln
+        (Wiederholung: 3 Incidents in 30 Tagen, Hohe Schwere: 1
+        kritischer Incident, Checkbarkeit: 2 Incidents mit
+        niedrigem FP-Risiko). Intern, da der Schwellwert
+        kalibrierbar ist und keinen Außenvertrag trägt.
+    - id: check-sunset-policy
+      reason: >
+        Betriebsregel für die Auto-Deaktivierung von Checks (90
+        Tage kein Fund, mehr als 3 False Positives). Internes
+        Steuerungsdetail des Corpus-Betriebs ohne exportierten
+        Vertragscharakter gegenüber anderen BCs.
 ---
 
 # 07 — Failure Corpus als Lernschleife

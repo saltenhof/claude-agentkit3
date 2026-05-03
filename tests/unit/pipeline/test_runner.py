@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -17,6 +17,7 @@ from agentkit.story_context_manager.types import StoryMode, StoryType
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from agentkit.pipeline.lifecycle import PhaseHandlerRegistry
     from agentkit.process.language.model import WorkflowDefinition
 
 
@@ -84,7 +85,7 @@ def test_run_pipeline_resolves_workflow_and_initializes_phase_state(
     )
     monkeypatch.setattr("agentkit.pipeline.runner.PipelineEngine", engine_factory)
 
-    result = run_pipeline(ctx, tmp_path, object())
+    result = run_pipeline(ctx, tmp_path, cast("PhaseHandlerRegistry", object()))
 
     assert result.final_status == "completed"
     assert result.phases_executed == ("setup",)
@@ -107,7 +108,7 @@ def test_run_pipeline_fails_closed_on_corrupt_phase_state(
         lambda story_dir: (_ for _ in ()).throw(CorruptStateError("broken")),
     )
 
-    result = run_pipeline(ctx, tmp_path, object(), workflow=_workflow("setup"))
+    result = run_pipeline(ctx, tmp_path, cast("PhaseHandlerRegistry", object()), workflow=_workflow("setup"))
 
     assert result.final_status == "failed"
     assert result.final_phase == ""
@@ -141,7 +142,7 @@ def test_run_pipeline_returns_yielded_result(
     )
     monkeypatch.setattr("agentkit.pipeline.runner.PipelineEngine", engine_factory)
 
-    result = run_pipeline(ctx, tmp_path, object(), workflow=_workflow("setup"))
+    result = run_pipeline(ctx, tmp_path, cast("PhaseHandlerRegistry", object()), workflow=_workflow("setup"))
 
     assert result.final_status == "yielded"
     assert result.yielded is True
@@ -177,7 +178,7 @@ def test_run_pipeline_returns_terminal_engine_statuses(
     )
     monkeypatch.setattr("agentkit.pipeline.runner.PipelineEngine", engine_factory)
 
-    result = run_pipeline(ctx, tmp_path, object(), workflow=_workflow("verify"))
+    result = run_pipeline(ctx, tmp_path, cast("PhaseHandlerRegistry", object()), workflow=_workflow("verify"))
 
     assert result.final_status == status
     assert result.final_phase == "verify"
@@ -223,7 +224,7 @@ def test_run_pipeline_advances_and_saves_next_phase(
     result = run_pipeline(
         ctx,
         tmp_path,
-        object(),
+        cast("PhaseHandlerRegistry", object()),
         workflow=_workflow("setup", "verify"),
     )
 
@@ -273,7 +274,7 @@ def test_run_pipeline_reloads_persisted_context_between_phases(
     result = run_pipeline(
         ctx,
         tmp_path,
-        object(),
+        cast("PhaseHandlerRegistry", object()),
         workflow=_workflow("setup", "verify"),
     )
 
@@ -314,7 +315,7 @@ def test_run_pipeline_fails_when_iteration_limit_is_reached(
     )
     monkeypatch.setattr("agentkit.pipeline.runner.PipelineEngine", engine_factory)
 
-    result = run_pipeline(ctx, tmp_path, object(), workflow=_workflow("loop"))
+    result = run_pipeline(ctx, tmp_path, cast("PhaseHandlerRegistry", object()), workflow=_workflow("loop"))
 
     assert result.final_status == "failed"
     assert result.final_phase == "loop"

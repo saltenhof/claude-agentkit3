@@ -32,14 +32,14 @@ from agentkit.pipeline.state import load_attempts, load_phase_state
 from agentkit.process.language.builder import Workflow
 from agentkit.process.language.guards import GuardResult, guard
 from agentkit.process.language.model import ExecutionPolicy
-from agentkit.state_backend import load_execution_events
 from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import reset_backend_cache_for_tests
+from agentkit.state_backend.store import load_execution_events, reset_backend_cache_for_tests
 from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 from agentkit.telemetry.events import EventType
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
     from pathlib import Path
 
 
@@ -176,7 +176,7 @@ def _require_setup_done(
 
 
 @pytest.fixture(autouse=True)
-def sqlite_backend_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def sqlite_backend_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
     monkeypatch.setenv(ALLOW_SQLITE_ENV, "1")
     reset_backend_cache_for_tests()
@@ -570,7 +570,7 @@ class TestExecutionPoliciesAndOverrides:
                 override_id="ovr-1",
                 project_key=story_ctx.project_key,
                 story_id=story_ctx.story_id,
-                run_id=engine._runtime.resolve_run_id(story_ctx),  # type: ignore[attr-defined]
+                run_id=engine._runtime.resolve_run_id(story_ctx),
                 flow_id="override-skip",
                 target_node_id="verify",
                 override_type="skip_node",
@@ -617,7 +617,7 @@ class TestExecutionPoliciesAndOverrides:
                 override_id="ovr-2",
                 project_key=story_ctx.project_key,
                 story_id=story_ctx.story_id,
-                run_id=engine._runtime.resolve_run_id(story_ctx),  # type: ignore[attr-defined]
+                run_id=engine._runtime.resolve_run_id(story_ctx),
                 flow_id="override-jump",
                 target_node_id="closure",
                 override_type="jump_to",
@@ -1187,11 +1187,11 @@ class TestRuntimeTelemetry:
         registry.register("setup", NoOpHandler())
 
         first_engine = PipelineEngine(workflow, registry, story_dir)
-        first_run_id = first_engine._runtime.resolve_run_id(story_ctx)  # type: ignore[attr-defined]
-        assert first_engine._runtime.resolve_run_id(story_ctx) == first_run_id  # type: ignore[attr-defined]
+        first_run_id = first_engine._runtime.resolve_run_id(story_ctx)
+        assert first_engine._runtime.resolve_run_id(story_ctx) == first_run_id
 
         second_engine = PipelineEngine(workflow, registry, story_dir)
-        second_run_id = second_engine._runtime.resolve_run_id(story_ctx)  # type: ignore[attr-defined]
+        second_run_id = second_engine._runtime.resolve_run_id(story_ctx)
         assert second_run_id != first_run_id
 
     def test_terminal_phase_emits_flow_start_node_result_and_flow_end(
@@ -1255,7 +1255,7 @@ class TestRuntimeTelemetry:
                 override_id="ovr-telemetry",
                 project_key=story_ctx.project_key,
                 story_id=story_ctx.story_id,
-                run_id=engine._runtime.resolve_run_id(story_ctx),  # type: ignore[attr-defined]
+                run_id=engine._runtime.resolve_run_id(story_ctx),
                 flow_id="telemetry-override",
                 target_node_id="closure",
                 override_type="jump_to",

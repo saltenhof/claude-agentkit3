@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from email.message import Message
 from io import BytesIO
+from typing import TYPE_CHECKING, Any
 from urllib.error import HTTPError
 
 from agentkit.control_plane.models import (
@@ -20,6 +22,11 @@ from agentkit.projectedge import (
     LocalEdgePublisher,
     ProjectEdgeClient,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import pytest
 
 
 def _mutation_result(worktree_root: str) -> ControlPlaneMutationResult:
@@ -81,7 +88,7 @@ class _FakeTransport:
         self.calls: list[tuple[str, str]] = []
         self._result = result
 
-    def send(self, *, method: str, path: str, payload=None) -> dict[str, object]:
+    def send(self, *, method: str, path: str, payload: object = None) -> dict[str, object]:
         self.calls.append((method, path))
         return self._result.model_dump(mode="json")
 
@@ -93,7 +100,7 @@ class _FakeResponse:
     def __enter__(self) -> _FakeResponse:
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
         return None
 
     def read(self) -> bytes:
@@ -101,7 +108,7 @@ class _FakeResponse:
 
 
 def test_local_edge_publisher_writes_current_bundle_and_worktree_export(
-    tmp_path,
+    tmp_path: Path,
 ) -> None:
     worktree = tmp_path / "worktree"
     bundle = _mutation_result(str(worktree)).edge_bundle
@@ -129,7 +136,7 @@ def test_local_edge_publisher_writes_current_bundle_and_worktree_export(
     assert lock_export["status"] == "ACTIVE"
 
 
-def test_project_edge_client_posts_and_publishes(tmp_path) -> None:
+def test_project_edge_client_posts_and_publishes(tmp_path: Path) -> None:
     worktree = tmp_path / "worktree"
     result = _mutation_result(str(worktree))
     transport = _FakeTransport(result)
@@ -155,7 +162,7 @@ def test_project_edge_client_posts_and_publishes(tmp_path) -> None:
     assert (tmp_path / "_temp" / "governance" / "current.json").exists()
 
 
-def test_project_edge_client_supports_all_mutation_paths(tmp_path) -> None:
+def test_project_edge_client_supports_all_mutation_paths(tmp_path: Path) -> None:
     result = _mutation_result(str(tmp_path / "worktree"))
     transport = _FakeTransport(result)
     client = ProjectEdgeClient(
@@ -192,7 +199,7 @@ def test_project_edge_client_supports_all_mutation_paths(tmp_path) -> None:
     ]
 
 
-def test_local_edge_publisher_removes_tombstoned_lock_export(tmp_path) -> None:
+def test_local_edge_publisher_removes_tombstoned_lock_export(tmp_path: Path) -> None:
     worktree = tmp_path / "worktree"
     lock_path = worktree / ".agent-guard" / "lock.json"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -240,8 +247,8 @@ def test_local_edge_publisher_removes_tombstoned_lock_export(tmp_path) -> None:
     assert not lock_path.exists()
 
 
-def test_https_json_transport_returns_object(monkeypatch) -> None:
-    def fake_urlopen(request, context=None):  # noqa: ANN001
+def test_https_json_transport_returns_object(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_urlopen(request: Any, context: Any = None) -> _FakeResponse:
         del request, context
         return _FakeResponse(b'{\"status\": \"ok\"}')
 
@@ -252,14 +259,14 @@ def test_https_json_transport_returns_object(monkeypatch) -> None:
     assert transport.send(method="GET", path="/healthz") == {"status": "ok"}
 
 
-def test_https_json_transport_raises_runtime_error_for_http_error(monkeypatch) -> None:
-    def fake_urlopen(request, context=None):  # noqa: ANN001
+def test_https_json_transport_raises_runtime_error_for_http_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_urlopen(request: Any, context: Any = None) -> _FakeResponse:
         del request, context
         raise HTTPError(
             url="https://127.0.0.1:9080/v1/project-edge/sync",
             code=503,
             msg="Service Unavailable",
-            hdrs=None,
+            hdrs=Message(),
             fp=BytesIO(b"{\"error\": \"down\"}"),
         )
 
@@ -275,8 +282,8 @@ def test_https_json_transport_raises_runtime_error_for_http_error(monkeypatch) -
         raise AssertionError("Expected RuntimeError")
 
 
-def test_https_json_transport_rejects_non_object_response(monkeypatch) -> None:
-    def fake_urlopen(request, context=None):  # noqa: ANN001
+def test_https_json_transport_rejects_non_object_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_urlopen(request: Any, context: Any = None) -> _FakeResponse:
         del request, context
         return _FakeResponse(b"[]")
 

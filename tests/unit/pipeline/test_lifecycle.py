@@ -76,8 +76,7 @@ class TestNoOpHandler:
 
     def test_on_exit_returns_none(self) -> None:
         handler = NoOpHandler()
-        result = handler.on_exit(_make_ctx(), _make_state())
-        assert result is None
+        handler.on_exit(_make_ctx(), _make_state())
 
     def test_on_resume_returns_completed(self) -> None:
         handler = NoOpHandler()

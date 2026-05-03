@@ -102,7 +102,7 @@ class TestEventEmitterProtocol:
     """Verify the EventEmitter Protocol is runtime-checkable."""
 
     def test_protocol_is_runtime_checkable(self) -> None:
-        assert runtime_checkable(EventEmitter)
+        assert runtime_checkable(EventEmitter) is not None
 
     def test_memory_emitter_satisfies_protocol(self) -> None:
         assert isinstance(MemoryEmitter(), EventEmitter)

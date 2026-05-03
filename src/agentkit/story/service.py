@@ -16,9 +16,10 @@ from agentkit.story.models import (
 from agentkit.story.repository import StoryRepository
 
 if TYPE_CHECKING:
+    from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
     from agentkit.phase_state_store.models import FlowExecution
-    from agentkit.state_backend import ExecutionEventRecord, StoryMetricsRecord
     from agentkit.story_context_manager.models import PhaseState, StoryContext
+    from agentkit.telemetry.contract.records import ExecutionEventRecord
 
 _RECENT_EVENT_LIMIT = 25
 

@@ -32,6 +32,47 @@ formal_refs:
   - formal.telemetry-analytics.events
   - formal.telemetry-analytics.invariants
   - formal.telemetry-analytics.scenarios
+glossary:
+  exported_terms:
+    - id: dirty-set
+      definition: >
+        Menge der bei einem Sync-Lauf zu aktualisierenden Aggregations-
+        Slices, abgeleitet aus Delta-Events und dem optionalen
+        hint_story_id. Fuer jeden Dirty-Set-Typ (dirty_story_ids,
+        dirty_guard_weeks, dirty_pool_weeks, dirty_pipeline_weeks,
+        dirty_corpus_months) wird der betroffene Slice komplett aus
+        dem Runtime-Schema neu berechnet, nicht inkrementell
+        hochgezaehlt.
+    - id: refresh-worker
+      definition: >
+        Idempotenter Repair-Worker (sync_analytics), der Delta-Events
+        aus dem Runtime-Schema liest, Dirty Sets ableitet und die
+        betroffenen Fact-Tabellen-Slices in einer atomaren Transaktion
+        auf dem Analytics-Schema neu schreibt. Wird event-getrieben
+        ausgeloest: bei Story-Closure (primaer) und bei Dashboard-Start
+        (Catch-up). Kein Daemon, kein Cron.
+    - id: rollup
+      definition: >
+        Vorberechneter Aggregationswert in einer Fact-Tabelle, der aus
+        Raw-Events oder Story-Metriken durch den Refresh-Worker
+        berechnet wird. Rollups sind aus den Rohdaten jederzeit neu
+        berechenbar und enthalten ausschliesslich Daten gueltiger,
+        nicht vollstaendig zurueckgesetzter Story-Umsetzungen.
+  internal_terms:
+    - id: dirty-corpus-month-sonderfall
+      reason: >
+        Internes Designdetail: Failure-Corpus-Perioden werden bei
+        jedem Sync-Lauf fuer den aktuellen Monat komplett neu
+        berechnet, weil FC-Tabellen keinen Event-Cursor besitzen.
+        Kein exportierter Begriff; der oeffentliche Vertrag ist
+        rollup und fact-schema.
+    - id: survivorship-bias-handling
+      reason: >
+        Internes Konzept: eskalierte/pausierte Stories werden im
+        Dashboard-Catch-up-Sync materialisiert mit final_status
+        ESCALATED/PAUSED, damit Trend-KPIs nicht nur
+        Erfolgs-Stories messen. Implementierungsdetail des
+        Refresh-Workers ohne eigenstaendigen Vertragsbegriff.
 ---
 
 # 62 — KPI-Aggregation
@@ -581,3 +622,41 @@ Diese Tabellen sind **Eingabedaten** fuer den Refresh-Worker.
 FK-62 definiert die **Ausgabedaten** (Fact-Tabellen im
 Analytics-Schema). Es gibt keine Ueberschneidung:
 das Runtime-Schema wird gelesen, das Analytics-Schema geschrieben.
+
+---
+
+## 62.6 Komponenten-Ownership und Top-Surface-Nutzung
+
+### 62.6.1 Lese-Seite: telemetry-and-events.ProjectionAccessor
+
+Der Refresh-Worker liest aus dem Runtime-Schema ausschliesslich ueber
+die Top-Surface `Telemetry.read_projection` des Bounded Context
+`telemetry-and-events` (Sub-Komponente: `ProjectionAccessor`,
+FK-69). Das schliesst ein:
+
+- `execution_events` (Event-Cursor, Delta-Events)
+- `story_metrics`, `qa_findings`, `qa_stage_results` (Read-Models)
+- `fc_incidents`, `fc_patterns`, `fc_checks` (FC-Mirror-Tabellen,
+  Owner: `failure-corpus`, aber ueber denselben Read-Accessor
+  erreichbar)
+- `phase_state_projection`, `artifact_records`, `story_contexts`
+
+**Harte Regel:** FK-62 importiert keine direkte DB-Verbindung auf
+das Runtime-Schema. Der Zugriff laeuft ausschliesslich ueber
+`ProjectionAccessor`. Direktzugriffe auf `runtime.*` sind im
+`kpi-and-dashboard`-Modul verboten.
+
+### 62.6.2 Schreib-Seite: kpi-and-dashboard.FactStore
+
+Die Aggregationslogik schreibt Fact-Tabellen im Analytics-Schema
+ausschliesslich ueber `kpi-and-dashboard.FactStore` (Sub-Komponente
+laut `entities.md`). Der Schreib-Adapter ist ein T-Driver
+(Bloodgroup T: Persistenz- und Infrastrukturtreiber), der direkt
+auf das `analytics`-Schema schreibt — analog zum BC-9-Pattern
+(telemetry-and-events verwendet denselben T-Driver-Schnitt fuer
+seine Persistenz).
+
+**Harte Regel:** Ausschliesslich `FactStore` schreibt in
+`analytics.*`-Tabellen. Die Aggregationslogik in `kpi_analytics.aggregation`
+ruft `FactStore` auf; sie besitzt keine eigene DB-Verbindung fuer
+Schreiboperationen.

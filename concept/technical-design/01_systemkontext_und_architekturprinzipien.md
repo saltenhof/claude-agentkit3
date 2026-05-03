@@ -437,7 +437,7 @@ flowchart TD
     classDef lightweight fill:#d4edda,stroke:#28a745,color:#333
     classDef fail fill:#f8d7da,stroke:#dc3545,color:#333
 
-    START(["Mensch setzt Issue<br/>auf 'Freigegeben'"]) --> ORCH
+    START(["Mensch setzt Issue<br/>auf 'Approved'"]) --> ORCH
     ORCH["Orchestrator-Agent<br/>startet Pipeline"] --> SETUP
 
     subgraph SETUP_PHASE ["agentkit run-phase setup"]
@@ -506,7 +506,7 @@ flowchart TD
     GITHUB["GitHub Issue erstellen<br/>mit Custom Fields"] --> BACKLOG
     BACKLOG["Status: Backlog"] --> FREIGABE
     FREIGABE{"Mensch gibt frei?"}
-    FREIGABE -->|ja| FREI["Status: Freigegeben"]
+    FREIGABE -->|ja| FREI["Status: Approved"]
     FREIGABE -->|nein| REWORK["Nacharbeit"] --> KONZEPT
 ```
 

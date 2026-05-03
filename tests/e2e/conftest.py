@@ -32,6 +32,7 @@ def installed_project(tmp_path: Path) -> Path:
     project_dir.mkdir()
     install_agentkit(
         InstallConfig(
+            project_key="test-project",
             project_name="test-project",
             project_root=project_dir,
         )

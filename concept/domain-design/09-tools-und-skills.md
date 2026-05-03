@@ -15,6 +15,28 @@ supersedes: []
 superseded_by:
 tags: [tools, ccag, permissions, automation]
 formal_scope: prose-only
+glossary:
+  exported_terms:
+    - id: ccag
+      definition: >
+        Claude Code Agent Governance. Lernfaehige, sessionuebergreifende
+        Permission-Schicht fuer Tool-Aufrufe, die harte Guards ergaenzt aber
+        nicht ersetzt. Regeln werden als YAML gespeichert und koennen per
+        LLM-Generalisierung verallgemeinert werden. Im story_execution-Modus
+        blockiert CCAG unbekannte Freigaben sofort statt auf einen
+        Permission-Dialog zu warten.
+      see_also:
+        - term: ccag-permission-runtime
+          domain: governance-and-guards
+        - term: guard-system
+          domain: governance-and-guards
+  internal_terms:
+    - id: llm-rule-generation
+      reason: >
+        Technisches Detailmerkmal der CCAG-Implementierung (automatische
+        Regex-Generalisierung durch LLM bei neuen Freigaben). Kein
+        eigenstaendiger exportierter Vertragstyp; gehoert zur
+        Implementierungsbeschreibung von FK-42.
 ---
 
 # 09 — Tool-Governance (CCAG)

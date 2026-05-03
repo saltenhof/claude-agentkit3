@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from concept_compiler.loader import FormalSpecDocument, discover_formal_spec_files, load_formal_spec
-from concept_compiler.scenario_runner import ScenarioValidation, validate_scenarios
 from agentkit.exceptions import AgentKitError
+
+from .loader import FormalSpecDocument, discover_formal_spec_files, load_formal_spec
+from .scenario_runner import ScenarioValidation, validate_scenarios
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 REFERENCE_KEYS = frozenset(
     {

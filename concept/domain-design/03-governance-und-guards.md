@@ -19,6 +19,81 @@ prose_anchor_policy: strict
 formal_refs:
   - formal.exploration.invariants
   - formal.exploration.scenarios
+glossary:
+  exported_terms:
+    - id: escalation-class
+      definition: >
+        Klassifikation einer Pipeline-Unterbrechung nach Entscheidungshoheit.
+        Klasse 1 (fachliche Luecke/Normativ-Konflikt) und Klassen 3–4
+        (Scope-Explosion, Breaking Change) erfordern menschliche Entscheidung;
+        Klasse 2 (technische Feindesign-Entscheidung) bleibt innerhalb des
+        KI-Mandats und wird mit Multi-LLM-Beratung aufgeloest.
+      values:
+        - class-1-knowledge-gap
+        - class-2-technical-design
+        - class-3-scope-explosion
+        - class-4-breaking-change
+      see_also:
+        - term: integrity-gate
+          domain: governance-and-guards
+        - term: escalation-mechanism
+          domain: governance-and-guards
+    - id: escalation-mechanism
+      definition: >
+        Einheitlicher Stopp-und-Eskalations-Pfad fuer alle Pipeline-Stopps,
+        die menschliche Intervention erfordern. Setzt Phase-State auf ESCALATED
+        oder PAUSED, stoppt den Orchestrator und verhindert weitere
+        Agentenaktionen fuer die betroffene Story bis zur expliziten
+        menschlichen Freigabe.
+      see_also:
+        - term: escalation-class
+          domain: governance-and-guards
+        - term: integrity-gate
+          domain: governance-and-guards
+        - term: phase-transition
+          domain: pipeline-framework
+    - id: fail-closed-governance
+      definition: >
+        Architekturprinzip, nach dem jede Unklarheit, jeder fehlende
+        Pruefobjekt und jeder unbekannte Zustand als Fehler gewertet wird.
+        Kein Guard scheitert still, kein Pruefobjekt wird als "nicht relevant"
+        eingestuft. Das Gegenteil von fail-open.
+    - id: governance-observation
+      definition: >
+        Kontinuierliche, eingebettete Anomalie-Erkennung waehrend der
+        Story-Bearbeitung. Kein eigenstaendiger Agent, sondern eine
+        dreischichtige Laufzeitschicht: Sensorik (Hook- und Phasen-Signale),
+        Incident-Kandidat-Erzeugung bei Schwellenüberschreitung,
+        deterministischer Massnnahmenentscheid nach LLM-Adjudication.
+      see_also:
+        - term: incident-candidate
+          domain: governance-and-guards
+        - term: guard-decision
+          domain: governance-and-guards
+    - id: guard-decision
+      definition: >
+        Autoritatives Ergebnis eines Hook-basierten Guard-Checks fuer einen
+        einzelnen Tool-Call. Entweder ALLOW (exit 0) oder BLOCK (exit 2).
+        Opak gegenueber dem Agenten — er erhaelt keine Begruendung. Guard-
+        Decisions werden als integrity_violation-Event in execution_events
+        protokolliert.
+      see_also:
+        - term: guard-system
+          domain: governance-and-guards
+        - term: integrity-gate
+          domain: governance-and-guards
+  internal_terms:
+    - id: blocked-worker-exit
+      reason: >
+        Implementierungsdetail des Worker-Lifecycle: BLOCKED ist ein valider
+        exit-Status neben COMPLETED, kein exportierter Vertragsbegriff.
+        Fachlich in FK-22 und FK-35 als Eskalationspunkt normiert.
+    - id: document-fidelity-level
+      reason: >
+        Vier-Ebenen-Modell der Dokumententreue (Zieltreue, Entwurfstreue,
+        Umsetzungstreue, Rueckkopplungstreue) ist Detailkonzept des
+        ConformanceService (verify-system); DK-03 beschreibt nur das
+        Governance-Prinzip, nicht die QA-Fachlogik.
 ---
 
 # 03 — Fail-Closed Governance

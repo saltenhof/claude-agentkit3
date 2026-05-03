@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
 from agentkit.phase_state_store.models import FlowExecution
-from agentkit.state_backend.records import ExecutionEventRecord, StoryMetricsRecord
 from agentkit.story.repository import StoryRepository
 from agentkit.story.service import StoryService
 from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
@@ -12,6 +12,7 @@ from agentkit.story_context_manager.types import (
     StoryMode,
     StoryType,
 )
+from agentkit.telemetry.contract.records import ExecutionEventRecord
 
 
 def _context(story_id: str) -> StoryContext:
@@ -165,6 +166,11 @@ def test_get_story_uses_metrics_run_when_no_current_run_exists() -> None:
         completed_at="2026-04-22T09:30:00+00:00",
     )
     seen: list[tuple[str, str, str, int]] = []
+
+    def _record_events(project_key: str, story_id: str, run_id: str, limit: int) -> list[ExecutionEventRecord]:
+        seen.append((project_key, story_id, run_id, limit))
+        return []
+
     service = StoryService(
         repository=StoryRepository(
             list_story_contexts=lambda project_key: [context],
@@ -172,9 +178,7 @@ def test_get_story_uses_metrics_run_when_no_current_run_exists() -> None:
             load_phase_state=lambda story_id: None,
             load_flow_execution=lambda project_key, story_id: None,
             load_latest_story_metrics=lambda project_key, story_id: metrics,
-            load_recent_execution_events=lambda project_key, story_id, run_id, limit: (
-                seen.append((project_key, story_id, run_id, limit)) or []
-            ),
+            load_recent_execution_events=_record_events,
         ),
     )
 

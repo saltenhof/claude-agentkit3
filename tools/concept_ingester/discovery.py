@@ -17,15 +17,16 @@ import hashlib
 import json
 import re
 import uuid
-from collections.abc import Iterator
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
 import yaml
-
 from tools.concept_ingester.schema import SCHEMA_PROJECTION_VERSION
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+    from pathlib import Path
 
 LAYER_DOMAIN = "domain"
 LAYER_FORMAL = "formal"
@@ -382,7 +383,7 @@ def _iter_documents(concept_root: Path) -> Iterator[_DocumentFrame]:
         text = path.read_text(encoding="utf-8")
         frontmatter, body = _split_frontmatter(text)
         mtime = (
-            datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+            datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
             .isoformat()
             .replace("+00:00", "Z")
         )

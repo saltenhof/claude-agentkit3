@@ -12,25 +12,30 @@ from agentkit.exceptions import CorruptStateError
 from agentkit.governance.integrity_gate import IntegrityGate
 from agentkit.qa.policy_engine.engine import VerifyDecision
 from agentkit.qa.protocols import LayerResult
-from agentkit.state_backend import (
+from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.state_backend.paths import state_db_path
+from agentkit.state_backend.scope import RuntimeStateScope
+from agentkit.state_backend.store import (
     record_layer_artifacts,
     record_verify_decision,
+    reset_backend_cache_for_tests,
     save_phase_snapshot,
     save_story_context,
-    state_db_path,
 )
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.scope import RuntimeStateScope
-from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.story_context_manager.models import PhaseSnapshot, StoryContext
+from agentkit.story_context_manager.models import (
+    PhaseSnapshot,
+    PhaseStatus,
+    StoryContext,
+)
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
     from pathlib import Path
 
 
 @pytest.fixture(autouse=True)
-def sqlite_backend_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def sqlite_backend_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
     monkeypatch.setenv(ALLOW_SQLITE_ENV, "1")
     monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
@@ -66,7 +71,7 @@ def _create_context(
     )
 
 
-def _create_snapshot(story_dir: Path, phase: str, status: str = "completed") -> None:
+def _create_snapshot(story_dir: Path, phase: str, status: PhaseStatus = PhaseStatus.COMPLETED) -> None:
     save_phase_snapshot(
         story_dir,
         PhaseSnapshot(
@@ -289,9 +294,13 @@ class TestIntegrityGateStaticBranches:
         )
         seen: list[RuntimeStateScope] = []
 
+        def _record_scope_and_allow(runtime_scope: RuntimeStateScope) -> bool:
+            seen.append(runtime_scope)
+            return True
+
         monkeypatch.setattr(
             "agentkit.governance.integrity_gate.backend_has_structural_artifact_for_scope",
-            lambda runtime_scope: seen.append(runtime_scope) or True,
+            _record_scope_and_allow,
         )
         monkeypatch.setattr(
             "agentkit.governance.integrity_gate.backend_has_structural_artifact",

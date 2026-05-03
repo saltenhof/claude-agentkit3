@@ -13,6 +13,29 @@ supersedes: []
 superseded_by:
 tags: [telemetry, metrics, kpis, events, observability]
 formal_scope: prose-only
+glossary:
+  exported_terms:
+    - id: telemetry-event
+      definition: >
+        Atomarer, unveraenderbarer Eintrag im ExecutionEvent-Stream, der eine
+        einzelne beobachtbare Aktion eines Agents oder einer Pipeline-Komponente
+        dokumentiert. Jedes Event traegt project_key, story_id, run_id,
+        event_type, occurred_at, source_component und severity als
+        Pflichtfelder. Bildet die Grundlage fuer Nachvollziehbarkeit,
+        Pruefbarkeit und Metrikbildung.
+      see_also:
+        - term: execution-event
+          domain: telemetry-and-events
+    - id: workflow-metric-aggregate
+      definition: >
+        Verdichtete Story-Abschlussgroesse, die aus Telemetrie-Events und
+        Phasenzustand berechnet wird, z. B. Durchlaufzeit, QA-Runden,
+        Inkremente oder Adversarial-Befunde. Dient dem Trendvergleich
+        ueber Stories hinweg, ist aber keine periodisch aggregierte
+        KPI-Fact.
+      see_also:
+        - term: workflow-metric
+          domain: telemetry-and-events
 ---
 
 # 05 — Telemetrie, Metriken und KPIs

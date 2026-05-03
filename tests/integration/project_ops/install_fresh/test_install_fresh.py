@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -245,7 +246,7 @@ def _as_path(tmp_path: object) -> Path:
     return tmp_path
 
 
-def _make_install_config(project_root: Path, **kwargs: object) -> InstallConfig:
+def _make_install_config(project_root: Path, **kwargs: Any) -> InstallConfig:
     kwargs.setdefault("project_key", kwargs.get("project_name", "test-project"))
     return InstallConfig(
         project_root=project_root,

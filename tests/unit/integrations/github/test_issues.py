@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
 from agentkit.exceptions import IntegrationError
@@ -16,6 +18,9 @@ from agentkit.integrations.github.issues import (
     remove_labels,
     reopen_issue,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 def test_parse_issue_handles_optional_fields() -> None:
@@ -162,7 +167,7 @@ def test_create_issue_with_labels_passes_label_flag(
 )
 def test_issue_operations_delegate_to_gh(
     monkeypatch: pytest.MonkeyPatch,
-    operation,
+    operation: Callable[[], None],
     expected_args: tuple[str, ...],
 ) -> None:
     seen: list[tuple[tuple[str, ...], dict[str, object]]] = []

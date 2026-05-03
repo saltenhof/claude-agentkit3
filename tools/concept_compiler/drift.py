@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
 import re
-from typing import Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
-from concept_compiler.compiler import CompiledFormalSpec
-from concept_compiler.loader import try_load_frontmatter
 from agentkit.exceptions import AgentKitError
+
+from .loader import try_load_frontmatter
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from .compiler import CompiledFormalSpec
 
 
 class FormalDriftError(AgentKitError):
@@ -133,7 +137,7 @@ def audit_concept_doc_classification(repo_root: Path) -> None:
                 detail={"path": str(path), "concept_id": concept_id},
             )
 
-        if has_formal_refs:
+        if isinstance(formal_refs, list) and formal_refs:
             if not all(isinstance(item, str) and item != "" for item in formal_refs):
                 raise FormalDriftError(
                     f"Concept document formal_refs must be a list of non-empty strings in {path}",

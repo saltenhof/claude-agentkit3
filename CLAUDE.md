@@ -233,15 +233,19 @@ Ratespiel ist hier kein akzeptabler Modus.
 
 ### Standard nach Codeaenderungen
 
-- `pip install -e ".[dev]"`
-- `pytest`
+**WICHTIG: Alle Python-Befehle ausschliesslich ueber das Projekt-venv ausfuehren.**
+AK3 und AK2 teilen denselben Package-Namen `agentkit`. Globale Installs ueberschreiben
+AK2 und zerstoeren dessen Claude-Code-Hooks. Niemals `pip install` ohne venv-Prefix.
+
+- `.venv\Scripts\python -m pip install -e ".[dev]"`
+- `.venv\Scripts\python -m pytest`
 
 Wenn oeffentliche Schnittstellen, Kernzustandsmodelle oder breit wirksame Pipeline-Logik geaendert wurden, ist nicht nur ein schmaler Ausschnitt zu pruefen.
 
 ### Weitere Qualitaetschecks
 
-- `ruff check src tests`
-- `mypy src`
+- `.venv\Scripts\python -m ruff check src tests`
+- `.venv\Scripts\python -m mypy src`
 
 ### Temp- und Laufzeitdaten
 

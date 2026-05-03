@@ -82,7 +82,7 @@ services:
 | `content` | TEXT | Ja | Chunk-Text (der suchbare Inhalt) |
 | `story_id` | TEXT | Nein | Story-Identifikator |
 | `title` | TEXT | Ja | Story- oder Dokumenttitel |
-| `status` | TEXT | Nein | Backlog / Freigegeben / In Progress / Done |
+| `status` | TEXT | Nein | Backlog / Approved / In Progress / Done / Cancelled |
 | `story_type` | TEXT | Nein | implementation / bugfix / concept / research |
 | `module` | TEXT | Nein | Betroffenes Modul |
 | `epic` | TEXT | Nein | Zugehöriges Epic |

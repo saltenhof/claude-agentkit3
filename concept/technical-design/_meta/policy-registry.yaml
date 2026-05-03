@@ -1,5 +1,5 @@
 # Policy-Registry — querschnittliche Constraints, die nicht als Domaene
-# modelliert werden (siehe 00_index.md §9.9).
+# modelliert werden (siehe 00_index.md §19.9).
 #
 # Schema pro Eintrag:
 #   id:          stabile policy-id, kebab-case mit "policy."-prefix

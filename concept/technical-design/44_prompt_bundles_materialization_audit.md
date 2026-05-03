@@ -19,7 +19,10 @@ defers_to:
     reason: Pool-Aufrufe und Prompt-Execution-Schnitt liegen dort
   - target: FK-50
     scope: installer
-    reason: Projektregistrierung und Bundle-Bindung werden dort ausgefuehrt
+    reason: Projektregistrierung und Bundle-Pin-Aktualisierung werden dort ausgefuehrt; FK-50 ruft PromptRuntime.update_binding auf
+  - target: FK-71
+    scope: artifact-persistence
+    reason: AuditRecords werden via artifacts.ArtifactManager persistiert; Artefakt-ID-Vergabe liegt bei artifacts
 supersedes: []
 superseded_by:
 tags: [prompts, bundles, materialization, audit, central-installation]
@@ -31,6 +34,72 @@ formal_refs:
   - formal.prompt-runtime.events
   - formal.prompt-runtime.invariants
   - formal.prompt-runtime.scenarios
+glossary:
+  exported_terms:
+    - id: bundle-materialization
+      definition: >
+        Der Vorgang, bei dem ein run-scoped Prompt-Instanzpfad oder eine
+        aequivalente run-scoped Projektion aus dem gepinnten PromptBundle
+        erzeugt wird. Jeder Agent-Prompt-Aufruf setzt eine abgeschlossene
+        Materialisierung voraus.
+    - id: bundle-version
+      definition: >
+        Die gebundene, unveraenderliche Versionskennung eines PromptBundle,
+        bestehend aus bundle_id und bundle_version. Sie ist Bestandteil des
+        Lock-Datensatzes und jedes Run-Prompt-Pins und darf waehrend eines
+        aktiven Runs nicht geaendert werden.
+    - id: project-prompt-pin
+      definition: >
+        Die projektspezifische Zuordnung eines PromptBundle zu einem Projekt,
+        autoritativ verwaltet durch den Lock-Datensatz
+        .agentkit/config/prompt-bundle.lock.json. Die read-only Dateien
+        unter prompts/ sind nur eine Projektion dieses Pins, nicht die
+        Pin-Autoritaet selbst. Klasse: ProjectPromptPin
+        (agentkit.prompt_runtime.bundle_pinning).
+    - id: prompt-audit-hash
+      definition: >
+        Der kryptografische Nachweis einer Prompt-Nutzung, bestehend aus
+        template_sha256, render_input_digest (bei dynamischen Prompts) und
+        output_sha256. Ermoeglicht die lueckenlose Rekonstruktion, welcher
+        Prompt in welchen Bytes fuer welchen Agenten oder Evaluator genutzt
+        wurde.
+    - id: prompt-bundle
+      definition: >
+        Eine systemweit installierte, versionierte und unveraenderliche
+        Sammlung von Prompt-Templates. Kanonische Quelle aller produktiven
+        Prompts; wird durch den Installer verwaltet und ist nie
+        projektlokal editierbar.
+    - id: prompt-template
+      definition: >
+        Eine einzelne, adressierbare Vorlage innerhalb eines PromptBundle,
+        identifiziert durch logical_prompt_id und template_relpath. Kann
+        statisch (wird unveraendert verwendet) oder dynamisch (wird zur
+        Laufzeit gerendert) sein.
+    - id: run-prompt-pin
+      definition: >
+        Der bei Run-Start eingefrorene Snapshot der aufgeloesten Bundle-Bindung
+        fuer genau einen Run, persistiert unter
+        .agentkit/manifests/prompt-pins/{run_id}.json. Spaetere
+        Rebind-Aktionen veraendern den Pin eines laufenden Runs nicht.
+  internal_terms:
+    - id: bundle-manifest-digest
+      reason: >
+        Implementierungsdetail der Integritaetspruefung innerhalb des
+        PromptBundle-Stores; wird nicht als eigenstaendiger Vertragsbegriff
+        nach aussen getragen, sondern ist Bestandteil von PromptAuditHash
+        und RunPromptPin.
+    - id: render-mode
+      reason: >
+        Internes Enum (static | rendered) der Materialisierungslogik;
+        beschreibt, wie ein PromptTemplate in eine Instanz ueberfuehrt wird.
+        Kein exportierter Vertragsbegriff, weil andere BCs nur das Ergebnis
+        (prompt-instance-path), nicht die interne Render-Strategie kennen.
+    - id: run-scoped-prompt-instance
+      reason: >
+        Interner Hilfsbegriff fuer den materialisierten Prompt-Dateipfad
+        unter .agentkit/prompts/{run_id}/{invocation_id}/prompt.md; das
+        Konzept selbst ist nach aussen durch bundle-materialization und
+        prompt-audit-hash repraesentiert.
 ---
 
 # 44 — Prompt-Bundles, Materialisierung und Audit
@@ -124,6 +193,11 @@ Ab diesem Moment gilt:
 - der projektlokale Bindungspunkt `prompts/` darf fuer einen bereits
   gepinnten Run nicht mehr die konsumierte Autoritaetsoberflaeche sein
 
+Die Schnittstelle `PromptRuntime.update_binding(bundle_id, version)` ist
+die Top-Surface dieses BC fuer projektweite Pin-Aktualisierungen.
+Aufrufer ist ausschliesslich `installation-and-bootstrap` (FK-50).
+Andere BCs rufen diese Schnittstelle nicht direkt auf.
+
 ## 44.4 Materialisierung
 
 <!-- PROSE-FORMAL: formal.prompt-runtime.commands, formal.prompt-runtime.invariants, formal.prompt-runtime.scenarios -->
@@ -166,12 +240,24 @@ Sie muessen ihre Templates ebenfalls immer aus dem **gepinnten Bundle**
 aufloesen. Eine zusaetzliche Dateimaterialisierung ist fuer sie
 optional, die Auditierbarkeit des finalen Prompt-Inhalts aber nicht.
 
+`verify_system.LlmEvaluator` muss alle Templates ausschliesslich ueber
+`PromptRuntime.materialize_prompt` aufloesen. Ein direkter Zugriff auf
+lokale Prompt-Dateien oder den Bundle-Store ist dem Evaluator verboten.
+`PromptRuntime.materialize_prompt` ist die einzige zulaessige
+Aufloesungsschnittstelle fuer Evaluator-Prompts.
+
 ## 44.5 Keine langlebige lokale Prompt-Cache-Autoritaet
 
 <!-- PROSE-FORMAL: formal.prompt-runtime.invariants -->
 
 Ein langlebiger, projektlokaler Prompt-Cache oder eine lokale
 Prompt-Kopie ist als Produktionspfad verboten.
+
+Das Schema fuer den projektspezifischen Pin (`ProjectPromptPin`) liegt
+im Sub `agentkit.prompt_runtime.bundle_pinning`. Der Lock-Datensatz
+`.agentkit/config/prompt-bundle.lock.json` ist die laufzeitautorative
+Projektion dieses Schemas; das Schema selbst ist nicht projektlokal.
+Run-Pins werden als `RunPromptPin`-Instanzen materialisiert.
 
 Zulaessig sind nur:
 
@@ -211,12 +297,31 @@ Minimaler Nachweis pro Prompt-Nutzung:
 - `output_sha256`
 - `artifact_path` oder aequivalente Artefakt-ID
 
+Das Pydantic-Schema `PromptAuditHash` (Felder: `template_sha256`,
+`render_input_digest`, `output_sha256`) wird vom Sub
+`agentkit.prompt_runtime.materialization` definiert und ist Bestandteil
+jedes vollstaendigen Audit-Records.
+
+Audit-Records werden als typisierte Artefakte ueber
+`artifacts.ArtifactManager` persistiert (Beziehung PR -> A). Der
+`ArtifactManager` (BC artifacts) ist die einzige zulaessige
+Persistenzschicht fuer Audit-Records; direktes Schreiben in
+Telemetrie-Tabellen oder lose JSON-Dateien ist unzulaessig.
+
+Der `ArtifactManager` vergibt die autoritative Artefakt-ID; diese ID
+fliesst als `artifact_path`-Referenz in den Audit-Record zurueck.
+
 Praktische Regel:
 
 - fuer Agent-Prompts wird die final genutzte Datei als Artefakt
   festgehalten
 - fuer Evaluator-Prompts muss mindestens der finale gerenderte Inhalt
   oder ein aequivalenter reproduzierbarer Artefaktnachweis vorliegen
+
+Telemetrie-Ereignis: Das Event `prompt_used` ist in diesem BC nicht
+eingefuehrt. Falls es in einem kuenftigen Inkrement eingefuehrt wird,
+muss die EventTypeId in der BC 9 TelemetryContract-Liste registriert
+werden, bevor das Event emittiert werden darf.
 
 ## 44.7 Geringe Menschenlast
 

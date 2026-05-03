@@ -31,6 +31,52 @@ prose_anchor_policy: strict
 formal_refs:
   - formal.telemetry-analytics.entities
   - formal.telemetry-analytics.invariants
+glossary:
+  exported_terms:
+    - id: fact-schema
+      definition: >
+        Typisiertes, breites Tabellenschema im analytics-Schema von
+        PostgreSQL. Jede Fact-Tabelle hat genau eine Koernung und
+        speichert vorberechnete KPI-Spalten statt einer generischen
+        EAV-Struktur. Definierte Fact-Tabellen: fact_story,
+        fact_guard_period, fact_pool_period, fact_pipeline_period,
+        fact_corpus_period.
+    - id: kpi-analytics
+      definition: >
+        Das fachliche Buendel aus Datenerhebung (FK-61), Aggregation
+        (FK-62) und Dashboard-Serving (FK-63). Kein einzelnes
+        Runtime-Objekt, sondern die Top-Level-Komponente des
+        Analytics-Blocks (FK-60 bis FK-63). Einziger Besitzer der
+        KPI-Definitionen, Formeln und Aggregationslogik.
+    - id: kpi-catalog
+      definition: >
+        Vollstaendiger, versionierter Katalog aller KPIs des Systems.
+        Enthaelt fuer jede Kennzahl: Name, Koernung, Formel,
+        Entscheidungsfrage, Status (AKTIV oder INVENTAR) und
+        Datenquellenklassifikation ([R] vorhanden / [N] neu). Der
+        Katalog ist ausschliesslich in FK-60 autoritativ.
+    - id: kpi-granularity
+      definition: >
+        Primaere Aggregationsebene einer KPI. Drei zulassige Werte:
+        "pro Story" (eine Zeile pro abgeschlossener Story),
+        "pro Entitaet+Periode" (eine Zeile pro benannter Entitaet
+        wie Guard oder Pool pro Woche), "pro Periode" (eine Zeile
+        pro Woche oder Monat global). Jede KPI hat genau eine
+        primaere Koernung.
+    - id: sync-state
+      definition: >
+        Persistent gespeicherter Sync-Cursor im analytics-Schema.
+        Enthaelt last_event_id (monotoner Cursor ueber
+        execution_events) und last_synced_at (ISO 8601), beide
+        projektgebunden unter project_key. Ermoeglicht idempotente
+        Delta-Verarbeitung durch den Refresh-Worker.
+  internal_terms:
+    - id: authority-split-regel
+      reason: >
+        Internes Designprinzip: KPI-Definitionen stehen
+        ausschliesslich im Analytics-Block; Domain-FKs beschreiben
+        nur den Producer-Vertrag. Kein exportierter Begriff, da es
+        eine Architektur-Governance-Regel ist, keine Fachentitaet.
 ---
 
 # 60 — KPI-Katalog und Analytics-Architektur
@@ -44,7 +90,7 @@ AgentKit, die Infrastruktur-Architektur fuer deren Speicherung und
 die Designprinzipien fuer Erhebung, Aggregation und Auswertung.
 
 **Architekturzuordnung:** Der Analytics-Block FK-60 bis FK-63 bildet
-zusammen die Top-Level-Komponente `KpiAnalyticsEngine`. Das ist kein
+zusammen die Top-Level-Komponente `KpiAnalytics`. Das ist kein
 einzelnes Runtime-Objekt, sondern das fachliche Buendel aus
 Datenerhebung, Aggregation und Dashboard-Serving.
 

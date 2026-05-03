@@ -13,13 +13,13 @@ from agentkit.phase_state_store.models import FlowExecution
 from agentkit.pipeline.lifecycle import PhaseHandler
 from agentkit.pipeline.phases.verify.phase import VerifyConfig, VerifyPhaseHandler
 from agentkit.qa.structural.checker import StructuralChecker
-from agentkit.state_backend import (
+from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.state_backend.store import (
+    reset_backend_cache_for_tests,
     save_flow_execution,
     save_phase_snapshot,
     save_story_context,
 )
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import reset_backend_cache_for_tests
 from agentkit.story_context_manager.models import (
     PhaseSnapshot,
     PhaseState,
@@ -29,11 +29,12 @@ from agentkit.story_context_manager.models import (
 from agentkit.story_context_manager.types import StoryMode, StoryType, get_profile
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
     from pathlib import Path
 
 
 @pytest.fixture(autouse=True)
-def sqlite_backend_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def sqlite_backend_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
     monkeypatch.setenv(ALLOW_SQLITE_ENV, "1")
     reset_backend_cache_for_tests()

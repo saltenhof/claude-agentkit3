@@ -54,6 +54,78 @@ formal_refs:
   - formal.integration-stabilization.state-machine
   - formal.integration-stabilization.invariants
   - formal.integration-stabilization.scenarios
+glossary:
+  exported_terms:
+    - id: escalation-class
+      definition: >
+        Klassifikation einer unaufgeloesten Designentscheidung in der
+        Exploration-Phase nach vier Klassen: 1 (domain_gap oder
+        normative_conflict — Mensch), 2 (Feindesign-Subprozess — Agent),
+        3 (scope_explosion — Mensch), 4 (impact_exceeded — Mensch).
+        Pruefreihenfolge ist 1→3→4→2 (fail-closed, restriktivste Klasse zuerst).
+      values:
+        - "1: domain_gap"
+        - "1: normative_conflict"
+        - "2: fine-design"
+        - "3: scope_explosion"
+        - "4: impact_exceeded"
+    - id: exploration-verdict
+      definition: >
+        Das terminale Ergebnis des Exploration-Exit-Gates aus Sicht der
+        Mandatsklassifikation. Abgebildet auf ExplorationGateStatus.APPROVED
+        (alle Mandatsgrenzen eingehalten, Gate bestanden) oder
+        ExplorationGateStatus.REJECTED (Mandatsgrenze verletzt oder Gate
+        endgueltig abgelehnt).
+      see_also:
+        - term: exploration-gate-status
+          domain: exploration-and-design
+        - term: escalation-class
+          domain: exploration-and-design
+    - id: fine-design
+      definition: >
+        Feindesign-Subprozess (Schritt J) fuer Klasse-2-Findings aus der
+        Nachklassifikation. Der Exploration-Worker fuehrt eine Multi-LLM-Diskussion
+        (ChatGPT Pflicht, Qwen bevorzugt) zur Ausdetaillierung technischer
+        Designentscheidungen innerhalb des normativen Rahmens. Ergebnis: aktualisierte
+        Artefakt-Bestandteile und dokumentiertes Entscheidungsprotokoll
+        (feindesign_entscheidungen). Laeuft im Worker-Kontext, kein PAUSED.
+      see_also:
+        - term: mandate-class
+          domain: exploration-and-design
+    - id: mandate-class
+      definition: >
+        Fachliche Einordnung einer Designentscheidung in der Exploration-Phase
+        bezueglich ihrer Autonomiegrenze. Vier Klassen bestimmen den
+        Entscheidungstraeger: Klasse 1 (fehlende Fachgrundlage oder normativer
+        Konflikt), Klasse 2 (loesbar durch Feindesign im Agent), Klasse 3
+        (Scope-Sprengung), Klasse 4 (Tragweiten-Ueberschreitung). Pruefung
+        fail-closed in Reihenfolge 1→3→4→2.
+      see_also:
+        - term: escalation-class
+          domain: exploration-and-design
+        - term: fine-design
+          domain: exploration-and-design
+        - term: scope-explosion-finding
+          domain: exploration-and-design
+    - id: scope-explosion-finding
+      definition: >
+        Ergebnis der Scope-Explosion-Pruefung in der Nachklassifikation (H2),
+        wenn zwei oder mehr quantitative Indikatoren mit Gewicht Hoch
+        ausgeloest wurden (z.B. mehr als 50 Prozent zusaetzliche Module,
+        mehr als zwei ungeplante Schnittstellen). Loest Klasse-3-Eskalation
+        an den Menschen aus. Status: PAUSED, escalation_class: scope_explosion.
+      see_also:
+        - term: mandate-class
+          domain: exploration-and-design
+        - term: escalation-class
+          domain: exploration-and-design
+  internal_terms:
+    - id: h2-nachklassifikation
+      reason: >
+        Implementierungsdetail des Exploration-Ablaufs (Schritt H2): der
+        LLM-gestuetzte Schritt, der das Mandatsregelwerk auf konkrete Review-Findings
+        anwendet. Verarbeitungslogik innerhalb der Exploration-Phase, kein
+        eigenstaendiger Vertragsbestandteil nach aussen.
 ---
 
 # 25 — Mandatsgrenzen, Eskalationsklassen und Feindesign-Autonomie
@@ -157,10 +229,11 @@ Präzedenzentscheidung zwischen widersprüchlichen normativen Quellen
 
 **Reaktion:** `status: PAUSED`, `escalation_class: "domain_gap"`
 (Variante a) oder `escalation_class: "normative_conflict"` (Variante b).
-PAUSED statt ESCALATED, weil die Pipeline nach menschlicher Klärung
-fortsetzbar ist. Story bleibt in Exploration. Mensch klärt die
-fachliche Frage bzw. entscheidet die Präzedenz, passt ggf. das
-Fachkonzept an. Resume startet Exploration erneut.
+PAUSED statt ESCALATED, weil die Pipeline nach menschlicher Klaerung
+fortsetzbar ist. Story bleibt in Exploration. Mensch klaert die
+fachliche Frage bzw. entscheidet die Praezedenz, passt ggf. das
+Fachkonzept an. Die Fortsetzung erfolgt ueber das aufrufende BC
+(Boundary-Control); die Resume-Mechanik ist in FK-35 definiert.
 
 **Beispiel:** "Konkrete Kernpositionen für ausgleichsruecklage —
 die tatsächlichen Positionsbezeichnungen sind fachbereichsseitig zu

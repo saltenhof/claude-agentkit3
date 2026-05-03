@@ -20,7 +20,9 @@ def main() -> int:
     from concept_compiler import (
         audit_architecture_conformance,
         compile_formal_specs,
+        load_architecture_conformance_config,
         raise_on_architecture_violations,
+        render_component_tree,
     )
     from concept_compiler.architecture_conformance import ArchitectureConformanceError
     from concept_compiler.compiler import FormalCompilationError
@@ -43,10 +45,22 @@ def main() -> int:
         default=Path("src"),
         help="Python source root to scan.",
     )
+    parser.add_argument(
+        "--tree",
+        action="store_true",
+        default=False,
+        help="Print a textual component tree and exit (mutually exclusive with check mode).",
+    )
     args = parser.parse_args()
 
     try:
         compiled = compile_formal_specs(args.formal_root)
+
+        if args.tree:
+            config = load_architecture_conformance_config(compiled)
+            print(render_component_tree(config))
+            return 0
+
         violations = audit_architecture_conformance(compiled, args.code_root)
         raise_on_architecture_violations(violations)
     except (

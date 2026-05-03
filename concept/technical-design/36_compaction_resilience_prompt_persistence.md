@@ -22,6 +22,31 @@ supersedes: []
 superseded_by:
 tags: [compaction, context-recovery, resume-capsule, sub-agent, prompt-persistence]
 formal_scope: prose-only
+glossary:
+  exported_terms:
+    - id: compaction-resilience
+      definition: >
+        Mechanismus zur deterministischen Wiederherstellung des
+        Sub-Agenten-Kontexts nach einer Claude-Code-Context-Compaction.
+        Besteht aus Resume-Kapsel, Spawn-Spec und PreToolUse-Recovery-
+        Injector. Stellt sicher, dass Guardrails, Story-Scope und
+        Auftragsbeschreibung nach Compaction erhalten bleiben.
+    - id: resume-capsule
+      definition: >
+        Kompaktes Artefakt (max 8000 Zeichen), das bei Compose-Time
+        parallel zum prompt_file erzeugt wird und die fuer einen
+        Sub-Agenten unbedingt notwendigen Informationen zur
+        Auftragsfortsetzung nach Compaction enthaelt: Story-ID, Scope,
+        Akzeptanzkriterien und kuratierte Guardrail-Invarianten. Pfad:
+        _temp/qa/{story_id}/resume-capsule--{spawn_key}.md.
+    - id: spawn-spec
+      definition: >
+        Maschinenlesbares JSON-Artefakt (spawn-spec--{spawn_key}.json),
+        das bei Compose-Time erzeugt wird und alle Metadaten fuer die
+        SubagentStart-Hook-Bindung enthaelt: story_id, spawn_key,
+        agent_type_base, prompt_file, resume_capsule_file, Hashes und
+        guardrail_version. Kanonischer Bindungspunkt zwischen
+        Compose-Time und Runtime.
 ---
 
 # 36 — Compaction Resilience und Prompt-Persistenz fuer Sub-Agenten
@@ -286,7 +311,7 @@ relevanten Teile mechanisch extrahieren.
 
 - **Trigger**: `SubagentStart`-Hook (Parent-Kontext, feuert nach Agent-ID-Erzeugung,
   vor Agent-Start)
-- **Hook-Script**: `python -m agentkit.compaction.manifest_writer`
+- **Hook-Script**: `python -m agentkit.pipeline_engine.compaction_resilience.manifest_writer`
 - **Verfuegbare Daten im Hook-Input**:
   - `agent_id` (Required, Kind-Agent-ID)
   - `agent_type` (Required, = spawn_key, z.B. `qa-semantic--story=BB2-056--r2`)
@@ -322,7 +347,7 @@ relevanten Teile mechanisch extrahieren.
 ### 36.7.3 Schritt 2: Autoritative Recovery bei PreToolUse
 
 - **Trigger**: `PreToolUse`-Hook (beliebiges Tool, Sub-Agent-Kontext)
-- **Hook-Script**: `python -m agentkit.compaction.recovery_injector`
+- **Hook-Script**: `python -m agentkit.pipeline_engine.compaction_resilience.recovery_injector`
 - **Verfuegbare Daten im Hook-Input**:
   - `agent_id` (aus `toolUseContext`, nur im Sub-Agent)
   - `tool_name`, `tool_input`
@@ -368,7 +393,7 @@ relevanten Teile mechanisch extrahieren.
 ### 36.7.4 Schritt 3: Story-Scoped Compaction-Epoch (PostCompact)
 
 - **Trigger**: `PostCompact`-Hook (read-only, kein Decision Control)
-- **Hook-Script**: `python -m agentkit.compaction.epoch_writer`
+- **Hook-Script**: `python -m agentkit.pipeline_engine.compaction_resilience.epoch_writer`
 - **Verfuegbare Daten**: `trigger` (manual/auto), `compact_summary`, `session_id`,
   `cwd` — **kein `agent_id`**, **kein `agent_type`**
 - **Ablauf**:
@@ -390,7 +415,7 @@ relevanten Teile mechanisch extrahieren.
 ### 36.7.5 Schritt 4: Cleanup
 
 - **Trigger**: `SubagentStop`-Hook (Parent-Kontext)
-- **Hook-Script**: `python -m agentkit.compaction.cleanup`
+- **Hook-Script**: `python -m agentkit.pipeline_engine.compaction_resilience.cleanup`
 - **Verfuegbare Daten**: `agent_id` (Required), `agent_type`
 - **Ablauf**:
   1. Lese `agent_id` aus Hook-Input
@@ -408,19 +433,19 @@ relevanten Teile mechanisch extrahieren.
 ```python
 # Schritt 1: Ein-Phasen-Manifest bei Agent-Spawn
 SubagentStart:
-  python -m agentkit.compaction.manifest_writer
+  python -m agentkit.pipeline_engine.compaction_resilience.manifest_writer
 
 # Schritt 2: Autoritative Recovery (jeder Tool-Call im Sub-Agent)
 PreToolUse:
-  python -m agentkit.compaction.recovery_injector
+  python -m agentkit.pipeline_engine.compaction_resilience.recovery_injector
 
 # Schritt 3: Compaction-Epoch-Signal (agent-unabhaengig)
 PostCompact:
-  python -m agentkit.compaction.epoch_writer
+  python -m agentkit.pipeline_engine.compaction_resilience.epoch_writer
 
 # Schritt 4: Cleanup nach Agent-Ende
 SubagentStop:
-  python -m agentkit.compaction.cleanup
+  python -m agentkit.pipeline_engine.compaction_resilience.cleanup
 ```
 
 ### 36.8.2 Interaktion mit bestehenden Hooks

@@ -34,6 +34,121 @@ supersedes: []
 superseded_by:
 tags: [principal, capability, story-scope, freeze, guard-enforcement, permissions]
 prose_anchor_policy: strict
+glossary:
+  exported_terms:
+    - id: capability-token
+      definition: >
+        Attestierter, principal-gebundener Berechtigungsnachweis, der einem
+        Principal den Zugriff auf eine definierte operation_class x path_class-
+        Kombination erlaubt. Entsteht nicht aus Prompt-Inhalt, sondern aus dem
+        Hook-Kontext (is_subagent), aktivem Lock-/Run-Kontext oder explizitem
+        Service-Attest. Fehlt der Nachweis, gilt fail-closed die restriktivste
+        Bewertung.
+      see_also:
+        - term: principal
+          domain: governance-and-guards
+        - term: permission-verdict
+          domain: governance-and-guards
+    - id: conflict-freeze
+      definition: >
+        Storybezogene technische Sperrschicht, die bei normative_conflict,
+        authoritative_snapshot_divergence oder vergleichbaren HARD-STOP-
+        Signalen aktiviert wird. Entzieht dem Orchestrator alle
+        Mutationsrechte und erlaubt nur human_cli, pipeline_deterministic
+        oder admin_service ueber offizielle Pfade. Doppelt materialisiert:
+        kanonisch im State-Backend und lokal als Hook-Export mit
+        freeze_version.
+      see_also:
+        - term: principal
+          domain: governance-and-guards
+        - term: integrity-gate
+          domain: governance-and-guards
+        - term: capability-token
+          domain: governance-and-guards
+    - id: operation-class
+      definition: >
+        Normalisierte Kategorie eines Tool-Aufrufs fuer die
+        Capability-Entscheidung. Moegliche Werte: read, write, execute,
+        git_mutation, curate, admin_transition. Jeder Tool-Call wird vor
+        der Entscheidung auf genau eine Operationsklasse normalisiert.
+      values:
+        - read
+        - write
+        - execute
+        - git_mutation
+        - curate
+        - admin_transition
+    - id: path-class
+      definition: >
+        Normalisierte Kategorie des Zielpfads oder -objekts eines Tool-Aufrufs
+        fuer die Capability-Entscheidung. Beispiele: codebase_story_scope,
+        codebase_out_of_scope, qa_sandbox, control_plane, content_plane,
+        governance_plane, git_internal, repo_admin_surface.
+        Pfadklassen-Klassifikation erfolgt billig ueber Story-Scope-Exports,
+        nicht per semantischer Shell-Interpretation.
+      values:
+        - codebase_story_scope
+        - codebase_out_of_scope
+        - qa_sandbox
+        - control_plane
+        - content_plane
+        - governance_plane
+        - git_internal
+        - repo_admin_surface
+    - id: permission-verdict
+      definition: >
+        Deterministisches Ergebnis der Capability-Entscheidung fuer einen
+        Hook-Call. Moegliche Werte: ALLOW, BLOCK, ALLOW_VIA_OFFICIAL_SERVICE_PATH.
+        Ergibt sich aus dem Tupel (principal_type, project_key, story_id,
+        run_id, active_story_scope, active_freeze, tool_name, operation_class,
+        path_class). CCAG darf nur bei potentiellem ALLOW oder ASK innerhalb
+        des erlaubten Capability-Raums wirken.
+      values:
+        - ALLOW
+        - BLOCK
+        - ALLOW_VIA_OFFICIAL_SERVICE_PATH
+      see_also:
+        - term: principal
+          domain: governance-and-guards
+        - term: capability-token
+          domain: governance-and-guards
+        - term: guard-decision
+          domain: governance-and-guards
+    - id: principal
+      definition: >
+        Technische Ausfuehrungsidentitaet mit definiertem Capability-Profil.
+        AK3 normiert neun Principal-Typen: interactive_agent, orchestrator,
+        worker, qa_reader, adversarial_writer, llm_evaluator,
+        pipeline_deterministic, human_cli, admin_service. Neue Typen
+        erfordern ein eigenes Feinkonzept. Principal-Typ wird aus dem
+        Hook-Kontext, aktivem Lock oder Service-Attest abgeleitet —
+        nie aus Prompt-Inhalt.
+      values:
+        - interactive_agent
+        - orchestrator
+        - worker
+        - qa_reader
+        - adversarial_writer
+        - llm_evaluator
+        - pipeline_deterministic
+        - human_cli
+        - admin_service
+      see_also:
+        - term: capability-token
+          domain: governance-and-guards
+        - term: permission-verdict
+          domain: governance-and-guards
+  internal_terms:
+    - id: permission-state-export
+      reason: >
+        Lokaler .agent-guard/permission_state.json-Export fuer Hook-Hilfsstatus
+        (offene Requests, aktive Leases). Implementierungsdetail; kein
+        exportierter Vertragstyp.
+    - id: story-scope-export
+      reason: >
+        Lokaler .agent-guard/scope.json-Export fuer schnellen Hook-Zugriff
+        auf Story-Scope-Daten. Implementierungsdetail; kein exportierter
+        Vertragstyp. Kanonisch bleibt das State-Backend.
 formal_refs:
   - formal.principal-capabilities.entities
   - formal.principal-capabilities.state-machine

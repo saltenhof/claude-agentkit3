@@ -38,6 +38,76 @@ formal_refs:
   - formal.exploration.events
   - formal.exploration.invariants
   - formal.exploration.scenarios
+glossary:
+  exported_terms:
+    - id: change-frame
+      definition: >
+        Das Entwurfsartefakt der Exploration-Phase. Ein strukturiertes JSON-Dokument
+        mit sieben Pflichtbestandteilen (Ziel/Scope, betroffene Bausteine,
+        Loesungsrichtung, Vertragsaenderungen, Konformitaetsaussage,
+        Verifikationsskizze, offene Punkte), das den geplanten Loesungsweg einer
+        Story beschreibt und nach bestandenem Exit-Gate eingefroren wird.
+      see_also:
+        - term: design-freeze
+          domain: exploration-and-design
+        - term: exploration-gate-status
+          domain: exploration-and-design
+    - id: design-freeze
+      definition: >
+        Der Vorgang, bei dem das Change-Frame-Artefakt nach bestandenem
+        Exploration-Exit-Gate unveraenderlich markiert wird (frozen: true). Der
+        Freeze findet erst nach APPROVED-Urteil aller Gate-Stufen statt, nie
+        vorher. Ab diesem Zeitpunkt darf der Worker das Artefakt nicht mehr
+        aendern; der QA-Artefakt-Schutz erzwingt dies ueber den Hook-Mechanismus.
+      see_also:
+        - term: exploration-gate-status
+          domain: exploration-and-design
+    - id: exploration-gate-status
+      definition: >
+        StrEnum mit drei Werten (PENDING, APPROVED, REJECTED), der den
+        Fortschritt des Exploration-Exit-Gates im persistierten Phase-State
+        abbildet. APPROVED ist die einzige Vorbedingung fuer den Eintritt in die
+        Implementation-Phase. REJECTED tritt bei Architekturkonflikt,
+        non-remediable Review-Finding, ueberschrittenem Rundenlimit oder
+        menschlicher Ablehnung ein.
+      values: [PENDING, APPROVED, REJECTED]
+      see_also:
+        - term: exploration-verdict
+          domain: exploration-and-design
+    - id: exploration-mode
+      definition: >
+        Ausfuehrungsmodus einer implementierenden Story, bei dem mindestens ein
+        Exploration-Trigger greift oder ein Pflichtfeld fehlt oder ein
+        VektorDB-Konflikt vorliegt. Die Story durchlaeuft zuerst die
+        Exploration-Phase und erzeugt ein Change-Frame-Artefakt, bevor die
+        Implementation beginnt. Default-Modus (fail-closed).
+      see_also:
+        - term: execution-mode
+          domain: exploration-and-design
+    - id: execution-mode
+      definition: >
+        Ausfuehrungsmodus einer implementierenden Story, bei dem kein
+        Exploration-Trigger greift und kein VektorDB-Konflikt vorliegt. Die
+        Story startet direkt in der Implementation-Phase ohne vorherige
+        Exploration. Nicht der Default.
+      see_also:
+        - term: exploration-mode
+          domain: exploration-and-design
+    - id: exploration-payload
+      definition: >
+        Phasenspezifische Payload fuer die Exploration-Phase (diskriminierte
+        Union in FK-39). Traegt gate_status als einziges orchestrierungsvertragliches
+        Feld. Der Wert von gate_status steuert, ob die Implementation-Phase
+        betreten werden darf.
+      see_also:
+        - term: exploration-gate-status
+          domain: exploration-and-design
+  internal_terms:
+    - id: exploration-phase-memory
+      reason: >
+        Interner Laufzeitzaehler (review_rounds) fuer Remediation-Runden innerhalb
+        der Exploration-Phase. Implementierungsdetail des Phase Handlers, kein
+        persistierter Vertragsbestandteil.
 ---
 
 # 23 — Modusermittlung, Exploration und Change-Frame
@@ -122,14 +192,14 @@ flowchart TD
     H2 -->|Klasse 1/3/4| HUMAN_PAUSE["PAUSED:<br/>Menschliche Klärung / Resume"]
     H2 -->|Klasse 2| FEINDESIGN["J: Feindesign-Subprozess<br/>(Multi-LLM-Diskussion)"]
     H2 -->|Review-Findings remediable| REMED["IN_PROGRESS: Remediation<br/>review_rounds += 1"]
-    H2 -->|PASS ohne Findings| FREEZE["Entwurf einfrieren<br/>(read-only markieren)"]
+    H2 -->|PASS ohne Findings| GATE_PASS["gate_status = APPROVED"]
 
     FEINDESIGN --> REVIEW
     REMED --> WORKER
     HUMAN_PAUSE --> REVIEW
 
-    FREEZE --> GATE_PASS["gate_status = APPROVED<br/>→ spawn implementation worker"]
-    GATE_PASS --> DONE(["Phase: exploration COMPLETED"])
+    GATE_PASS --> FREEZE["Entwurf einfrieren<br/>(read-only markieren)"]
+    FREEZE --> DONE(["Phase: exploration COMPLETED"])
 ```
 
 **Korrektur gegenüber früherem Stand:** Der Draft wird nicht mehr vor
@@ -492,20 +562,16 @@ weder durch den Worker noch durch den Orchestrator.
    eine konforme Implementierung ist unmöglich
 2. Worker meldet `status: BLOCKED` mit Begründung in
    `worker-manifest.json`
-3. Der Phase Runner (`_phase_implementation()`) erkennt das
-   BLOCKED-Signal im Worker-Output (`worker-manifest.json`) und
-   setzt selbst `status: ESCALATED` mit
-   `escalation_reason: "worker_blocked"` im Phase-State.
-   Der Orchestrator triggert lediglich `run-phase implementation` —
-   die State-Mutation erfolgt ausschließlich durch den Phase Runner
-   (FK-20). [Korrektur 2026-04-09]
-4. Mensch entscheidet über nächste Schritte (z.B. neues
-   Explorationsmandat, Konzeptanpassung, Story-Verwurf)
+3. Der ImplementationHandler signalisiert ESCALATED via HandlerResult;
+   PhaseExecutor reagiert generisch (FK-20). Die Eskalations-Infrastruktur
+   (PAUSED/ESCALATED, Resume-Ablauf) ist in FK-35 definiert.
+4. Mensch entscheidet ueber naechste Schritte (z.B. neues
+   Explorationsmandat, Konzeptanpassung, Story-Verwurf).
 
-**Verboten:** `agentkit run-phase exploration` aus der
-Implementierung heraus aufrufen. Eine Abweichung von Exploration-
+**Hinweis:** Der Aufruf zur erneuten Exploration-Phase erfolgt ueber
+das aufrufende BC (Boundary-Control). Eine Abweichung von Exploration-
 Design oder Konzepten ist ein Implementierungsversagen, kein Grund
-für erneute Exploration.
+fuer erneute Exploration.
 
 Jede Drift-Prüfung erzeugt weiterhin ein Telemetrie-Event (§23.7.2).
 

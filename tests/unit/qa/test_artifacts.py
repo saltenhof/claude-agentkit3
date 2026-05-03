@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -24,18 +24,18 @@ from agentkit.qa.artifacts import (
 )
 from agentkit.qa.policy_engine.engine import VerifyDecision
 from agentkit.qa.protocols import Finding, LayerResult, Severity, TrustClass
-from agentkit.state_backend import record_verify_decision, save_story_context
 from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import reset_backend_cache_for_tests
+from agentkit.state_backend.store import record_verify_decision, reset_backend_cache_for_tests, save_story_context
 from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
     from pathlib import Path
 
 
 @pytest.fixture(autouse=True)
-def sqlite_backend_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def sqlite_backend_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
     monkeypatch.setenv(ALLOW_SQLITE_ENV, "1")
     monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
@@ -117,8 +117,10 @@ class TestSerialization:
         assert data["layer"] == "semantic"
         assert data["passed"] is True
         assert data["attempt_nr"] == 3
-        assert len(data["findings"]) == 1
-        assert data["metadata"]["prompt_audit"]["status"] == "materialized"
+        assert len(cast("list[object]", data["findings"])) == 1
+        assert cast("dict[str, object]", data["metadata"])["prompt_audit"] == {
+            "status": "materialized"
+        }
 
     def test_build_verify_decision_artifact(self) -> None:
         artifact = build_verify_decision_artifact(
@@ -128,9 +130,9 @@ class TestSerialization:
         assert artifact["passed"] is False
         assert artifact["status"] == "FAIL"
         assert artifact["attempt_nr"] == 2
-        assert len(artifact["layers"]) == 2
+        assert len(cast("list[object]", artifact["layers"])) == 2
         assert artifact["all_findings_count"] == 1
-        assert len(artifact["blocking_findings"]) == 1
+        assert len(cast("list[object]", artifact["blocking_findings"])) == 1
 
 class TestPersistence:
     def test_write_layer_artifacts(self, tmp_path: Path) -> None:
@@ -226,7 +228,7 @@ class TestPersistence:
             lambda story_dir: None,
         )
         monkeypatch.setattr(
-            "agentkit.qa.artifacts.load_verify_decision_projection",
+            "agentkit.qa.artifacts._load_verify_decision_projection",
             lambda story_dir: (VERIFY_DECISION_FILE, {"status": "PROJECTION"}),
         )
 
@@ -245,21 +247,16 @@ class TestPersistence:
             lambda *args, **kwargs: (_ for _ in ()).throw(CorruptStateError("broken")),
         )
 
-        def fake_write_layer_projection(
-            story_dir: Path,
-            *,
-            layer_result: LayerResult,
-            attempt_nr: int,
-            projection_dir: Path | None = None,
-        ) -> str | None:
-            del story_dir, attempt_nr, projection_dir
-            if layer_result.layer == "semantic":
-                return "semantic-review.json"
-            return None
+        # Fallback writes directly via _write_projection; patch atomic_write_json to
+        # avoid actual filesystem I/O and verify files that would have been written.
+        written_paths: list[str] = []
+
+        def fake_write_projection(path: Path, payload: object) -> None:
+            written_paths.append(path.name)
 
         monkeypatch.setattr(
-            "agentkit.qa.artifacts.write_layer_projection",
-            fake_write_layer_projection,
+            "agentkit.qa.artifacts._write_projection",
+            fake_write_projection,
         )
 
         produced = write_layer_artifacts(
@@ -272,6 +269,7 @@ class TestPersistence:
         )
 
         assert produced == ("semantic-review.json",)
+        assert "semantic-review.json" in written_paths
 
     def test_write_verify_decision_artifacts_falls_back_to_projection(
         self,
@@ -282,11 +280,15 @@ class TestPersistence:
             "agentkit.qa.artifacts.record_verify_decision",
             lambda *args, **kwargs: (_ for _ in ()).throw(CorruptStateError("broken")),
         )
+
+        written_paths: list[str] = []
+
+        def fake_write_projection(path: Path, payload: object) -> None:
+            written_paths.append(path.name)
+
         monkeypatch.setattr(
-            "agentkit.qa.artifacts.write_verify_decision_projection",
-            lambda story_dir, *, decision, attempt_nr, projection_dir=None: (
-                "verify-decision.json",
-            ),
+            "agentkit.qa.artifacts._write_projection",
+            fake_write_projection,
         )
 
         produced = write_verify_decision_artifacts(
@@ -296,6 +298,7 @@ class TestPersistence:
         )
 
         assert produced == ("verify-decision.json",)
+        assert "verify-decision.json" in written_paths
 
 
 class TestDecisionPassSemantics:

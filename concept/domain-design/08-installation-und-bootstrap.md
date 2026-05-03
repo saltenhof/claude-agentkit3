@@ -19,6 +19,26 @@ formal_refs:
   - formal.installer.commands
   - formal.installer.invariants
   - formal.installer.scenarios
+glossary:
+  exported_terms:
+    - id: bootstrap-status
+      definition: >
+        Aktueller Registrierungszustand eines Projekts gegenueber AgentKit.
+        Gibt an, ob alle Installer-Checkpoints erfolgreich abgeschlossen wurden
+        und das Projekt vollstaendig im zentralen State-Backend registriert ist.
+    - id: installer-checkpoint
+      definition: >
+        Atomare, idempotente Einheit des Bootstrap-Ablaufs. Jeder Checkpoint
+        hat einen eindeutigen Bezeichner, prueft seinen Zielzustand und
+        erzeugt genau einen CheckpointResult. Die Reihenfolge ist durch den
+        Installer-Flow vorgegeben; bereits erfuelLte Checkpoints werden bei
+        erneutem Lauf uebersprungen.
+    - id: manifest-contract
+      definition: >
+        Maschinenlesbarer Vertrag zwischen dem Installer und dem Zielprojekt,
+        der die gebundenen Bundle-Versionen, das Projektprofil und die
+        registrierten Hooks deklariert. Kanonische Quelle fuer
+        Upgrade-Entscheide und Verifikationslaeufe.
 ---
 
 # 08 — Projektregistrierung und Bootstrap

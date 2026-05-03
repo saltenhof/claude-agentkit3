@@ -24,6 +24,76 @@ prose_anchor_policy: strict
 formal_refs:
   - formal.deterministic-checks.invariants
   - formal.deterministic-checks.scenarios
+glossary:
+  exported_terms:
+    - id: failure-pattern
+      definition: >
+        Normalisierte Invariante, die aus mindestens zwei bis drei
+        gleichartigen Incidents destilliert wurde. Besteht aus einer
+        präzisen Regelaussage, den zugehörigen Incident-Referenzen,
+        einer Risikostufe (kritisch | hoch | mittel) und einer
+        Promotion-Regel (wiederholung | hohe-schwere | checkbarkeit).
+        Kein Pattern wird ohne menschliche Bestätigung aktiviert.
+      see_also:
+        - term: incident-candidate
+          domain: governance-and-guards
+        - term: stage-registry
+          domain: verify-system
+    - id: generated-check-proposal
+      definition: >
+        Von einem StructuredEvaluator (LLM als Bewertungsfunktion)
+        erzeugter Entwurf eines deterministischen Guards, abgeleitet
+        aus einem bestätigten FailurePattern. Enthält invariant,
+        check_type, pipeline_stage, pipeline_layer, owner,
+        false_positive_risk sowie positive und negative Testfixtures.
+        Status durchläuft draft → approved | rejected → active.
+    - id: promotion-status
+      definition: >
+        Lebenszykluszustand eines Failure-Corpus-Artefakts.
+        Für Incidents: observed | triaged | clustered | promoted |
+        closed_one_off | archived. Für Patterns: candidate | accepted |
+        check_proposed | check_active | monitoring | retired.
+        Für Checks: draft | approved | active | tuned | retired |
+        rejected. Jeder Übergang ist ausschließlich vorwärtsgerichtet,
+        ausser der menschliche Rückruf einer Auto-Deaktivierung.
+      values:
+        - observed
+        - triaged
+        - clustered
+        - promoted
+        - closed_one_off
+        - archived
+        - candidate
+        - accepted
+        - check_proposed
+        - check_active
+        - monitoring
+        - draft
+        - approved
+        - active
+        - tuned
+        - retired
+        - rejected
+  internal_terms:
+    - id: failure-category
+      reason: >
+        Technisches Enum (FailureCategory) mit zwölf festen
+        Top-Level-Werten (scope_drift, architecture_violation,
+        evidence_fabrication, hallucination, test_omission,
+        assertion_weakness, unsafe_refactor, policy_violation,
+        tool_misuse, state_desync, requirements_miss,
+        review_evasion). Internes Klassifikationsdetail des
+        Incident-Schemas; kein eigenständiger exportierter
+        Vertragstyp gegenüber anderen BCs.
+    - id: incident-candidate-input
+      reason: >
+        Die Schnittstelle, über die Governance-Observation
+        (governance-and-guards) einen verdichteten
+        Incident-Kandidaten an den Failure Corpus übergibt.
+        Kein eigenständiger Vertragstyp dieses BC —
+        kanonische Definition liegt bei governance-and-guards
+        (FK-35, term: incident-candidate). Hier nur als
+        Empfänger-Kontext dokumentiert.
 ---
 
 # 41 — Failure Corpus, Pattern-Promotion und Check-Factory
@@ -55,23 +125,152 @@ flowchart LR
 **Nicht aus jedem Incident wird ein Pattern, nicht aus jedem
 Pattern wird ein Check.** Das ist gewollt (FK-10-006).
 
-## 41.3 Speicherung
+## 41.3 Speicherung und Tabellen-Schemas
 
-Failure-Corpus-Daten sind **permanent**, nicht temporär.
-Speicherort: `.agentkit/failure-corpus/` (Kap. 10.3.1).
+Failure-Corpus-Daten sind **permanent**, nicht temporaer.
+**Kanonische Wahrheit:** Postgres-Tabellen `fc_incidents`, `fc_patterns`,
+`fc_check_proposals` im zentralen State-Backend.
+**DB-Owner:** `telemetry-and-events.ProjectionAccessor`
+(`agentkit.telemetry.read_models.fc_*`); Schema-Owner ist `failure-corpus`
+(dieses Dokument).
+**Schreib-Komponente:** `failure_corpus.FailureCorpus` via
+`Telemetry.write_projection`.
+**Lese-Schnittstelle:** `Telemetry.read_projection` (sub_exposed).
 
-**F-41-071 — Konzeptdokument als dauerhaftes Design-Artefakt (FK-10-071):** Das Failure-Corpus-Konzeptdokument muss unter `_concept/failure-corpus-konzept.md` als persistentes Design-Artefakt gepflegt werden. Es beschreibt Zweck, Datenmodell und Betriebsgrundsätze des Corpus und ist verbindliche Grundlage für alle Implementierungs- und Weiterentwicklungsentscheidungen.
+JSONL-Dateien unter `.agentkit/failure-corpus/` sind Legacy-Exporte
+und Backfill-Quellen, nicht operative Hauptwahrheit. Regelmaessige
+Operationen richten sich ausschliesslich nach den Postgres-Tabellen.
+
+**F-41-071 — Konzeptdokument als dauerhaftes Design-Artefakt (FK-10-071):** Das
+Failure-Corpus-Konzeptdokument muss unter `_concept/failure-corpus-konzept.md`
+als persistentes Design-Artefakt gepflegt werden. Es beschreibt Zweck,
+Datenmodell und Betriebsgrundsaetze des Corpus und ist verbindliche Grundlage
+fuer alle Implementierungs- und Weiterentwicklungsentscheidungen.
+
+### 41.3.1 Tabelle `fc_incidents`
+
+**Modul:** `agentkit.telemetry.read_models.fc_incidents`
+**Schema-Owner:** failure-corpus
+**Writer-Komponente:** `failure_corpus.FailureCorpus`
+
+Pflichtattribute:
+
+- `project_key`
+- `incident_id` — Format `FC-YYYY-NNNN`
+- `run_id`
+- `story_id`
+- `category` — Enum-Wert aus `FailureCategory` (§41.4.1)
+- `severity` — `niedrig | mittel | hoch | kritisch`
+- `phase` — betroffene Pipeline-Phase
+- `role` — ausfuehrender Akteur (`worker | qa | governance`)
+- `model` — verwendetes LLM-Modell
+- `symptom` — Freitextbeschreibung des Fehlerbildes
+- `evidence` — Liste von Evidenz-Strings
+- `recorded_at`
+
+Optionale Attribute:
+
+- `tags`
+- `impact`
+- `pattern_ref` — Verweis auf `fc_patterns.pattern_id` nach Clustering
+
+Fachregeln:
+
+- Pro `incident_id` gibt es genau einen Datensatz (append-only).
+- `project_key` ist Pflicht; Abfragen sind stets projektgebunden.
+- Vollstaendiger Story-Reset loescht alle `fc_incidents`-Zeilen des
+  betroffenen `run_id`.
+
+### 41.3.2 Tabelle `fc_patterns`
+
+**Modul:** `agentkit.telemetry.read_models.fc_patterns`
+**Schema-Owner:** failure-corpus
+**Writer-Komponente:** `failure_corpus.PatternPromotion`
+
+Pflichtattribute:
+
+- `project_key`
+- `pattern_id` — Format `FP-NNNN`
+- `status` — Enum aus `promotion-status` (§glossary): `candidate |
+  accepted | check_proposed | check_active | monitoring | retired`
+- `category` — Enum-Wert aus `FailureCategory`
+- `invariant` — praezise, deterministische Regelaussage
+- `incident_refs` — JSON-Array der zugehoerigen `incident_id`-Werte
+- `promotion_rule` — `wiederholung | hohe_schwere | checkbarkeit`
+- `risk_level` — `mittel | hoch | kritisch`
+- `incident_count` — denormalisierter Zaehler; rebuildbar aus `incident_refs`
+- `confirmed_at` — Zeitstempel der menschlichen Bestaetigung
+- `confirmed_by` — `human` (kein automatischer Eintrag)
+
+Optionale Attribute:
+
+- `owner`
+- `check_ref` — Verweis auf `fc_check_proposals.check_id` nach Ableitung
+- `retired_at`
+
+Fachregeln:
+
+- Kein Pattern wechselt in Status `accepted` ohne `confirmed_by = human`.
+- `incident_count` muss nach vollstaendigem Story-Reset neu berechnet
+  werden, wenn betroffene Incidents entfernt wurden.
+
+### 41.3.3 Tabelle `fc_check_proposals`
+
+**Modul:** `agentkit.telemetry.read_models.fc_check_proposals`
+**Schema-Owner:** failure-corpus
+**Writer-Komponente:** `failure_corpus.CheckFactory`
+
+Pflichtattribute:
+
+- `project_key`
+- `check_id` — Format `CHK-NNNN`
+- `status` — Enum aus `promotion-status`: `draft | approved | rejected |
+  active | tuned | retired`
+- `pattern_ref` — Verweis auf `fc_patterns.pattern_id`
+- `invariant` — deterministische Regelaussage (abgeleitet aus Pattern)
+- `check_type` — Enum: `Changed-File-Policy | Artifact-Completeness |
+  Test-Obligation | Sensitive-Path-Guard | Forbidden-Dependency |
+  Fixture-Replay`
+- `pipeline_stage` — Ziel-Stage in der Verify-Pipeline
+- `pipeline_layer` — Ziel-Layer (1 = Structural, 2 = LLM-Eval, …)
+- `owner` — Team-Identifier
+- `false_positive_risk` — `niedrig | mittel | hoch`
+- `positive_fixtures` — JSON-Array mit `{description, expected}`
+- `negative_fixtures` — JSON-Array mit `{description, expected}`
+- `created_at`
+
+Optionale Attribute:
+
+- `approved_at`
+- `approved_by`
+- `rejected_reason`
+- `effectiveness_last_checked_at`
+- `true_positives_90d`
+- `false_positives_90d`
+
+Fachregeln:
+
+- Status-Uebergaenge sind ausschliesslich vorwaertsgerichtet, ausser
+  manuellem Rueckruf einer Auto-Deaktivierung (§41.6.7).
+- `approved_by` muss `human` sein; automatische Freigaben sind unzulaessig.
+- Ein vollstaendiger Story-Reset beruehrt `fc_check_proposals` nicht;
+  Check-Lifecycle ist story-unabhaengig.
+
+### 41.3.4 Legacy-Export-Struktur
+
+Die folgende Dateistruktur dient als Export- und Backfill-Quelle.
+Operative Abfragen laufen immer ueber die Postgres-Tabellen (§41.3.1–3).
 
 ```
 .agentkit/
 └── failure-corpus/
-    ├── incidents.jsonl       # Alle Incidents (append-only)
-    ├── patterns.jsonl        # Bestätigte Patterns
+    ├── incidents.jsonl       # Export aus fc_incidents (append-only)
+    ├── patterns.jsonl        # Export aus fc_patterns
     └── checks/
         └── CHK-{NNNN}/
-            ├── proposal.json # Check-Proposal (Status: draft/approved/rejected)
+            ├── proposal.json # Export aus fc_check_proposals
             ├── fixtures/     # Positive + Negative Test-Fixtures
-            └── metrics.json  # Wirksamkeits-Tracking
+            └── metrics.json  # Wirksamkeits-Tracking (read: Telemetry.read_projection)
 ```
 
 ## 41.4 Incident-Erfassung
@@ -114,16 +313,24 @@ class FailureCategory(Enum):
 
 ### 41.4.2 Erfassungsmechanismen (FK-10-007 bis FK-10-014)
 
-| Akteur | Trigger | Schwerpunkt |
-|--------|---------|-------------|
-| **Governance-Beobachtung** (Kap. 35.3) | Schwellenüberschreitung, LLM-klassifiziert | Anomalien im Agent-Verhalten, Prozessverletzungen |
-| **Pipeline** (automatisch) | QA-Gate FAIL, Verify-Failure, Impact-Violation | Harte Trigger, erzeugt Roh-Incident |
-| **QA Evaluation** (Kap. 41.4.2a) | Neuartiges Fehlerbild im QA-Check erkannt | Normalisierung und Übergabe als Incident-Kandidat |
-| **Adversarial Agent** | Gezielte Provokation | Systemische Schwächen |
-| **Rückkopplungstreue FAIL** | Dokumententreue Ebene 4 | Veraltete Dokumentation |
-| **Mensch** | Manuelle Eskalation | Produktionsrelevante Vorfälle, neue Fehlertypen |
+| Akteur | Trigger | Schwerpunkt | Aufruf-Schnittstelle |
+|--------|---------|-------------|---------------------|
+| **Governance-Beobachtung** (`agentkit.governance.governance_observer`, Kap. 35.3) | Schwellenuberschreitung, LLM-klassifiziert | Anomalien im Agent-Verhalten, Prozessverletzungen | `FailureCorpus.record_incident` (Top-Surface) |
+| **Pipeline** (automatisch) | QA-Gate FAIL, Verify-Failure, Impact-Violation | Harte Trigger, erzeugt Roh-Incident | `FailureCorpus.record_incident` (Top-Surface) |
+| **QA Evaluation** (`verify-system.LlmEvaluator`) | Neuartiges Fehlerbild im QA-Check erkannt | Normalisierung und Uebergabe als Incident-Kandidat | `FailureCorpus.record_incident` (direkt, siehe F-41-069) |
+| **Adversarial Agent** | Gezielte Provokation | Systemische Schwaehen | `FailureCorpus.record_incident` (Top-Surface) |
+| **Rueckkopplungstreue FAIL** | Dokumententreue Ebene 4 | Veraltete Dokumentation | `FailureCorpus.record_incident` (Top-Surface) |
+| **Mensch** | Manuelle Eskalation | Produktionsrelevante Vorfaelle, neue Fehlertypen | CLI-Boundary-Control (§41.9) |
 
-**F-41-069 — QA Evaluation als Erfassungsakteur (FK-10-069):** Die QA-Evaluation agiert als Capture-Akteur für den Failure Corpus. Erkennt ein QA-Check ein neuartiges Fehlermuster, das bisher nicht im Corpus vertreten ist, normalisiert er den Befund in das Incident-Kandidaten-Format und gibt ihn zur Aufnahme in den Failure Corpus weiter. Damit schliesst die QA-Schicht den Rückkopplungskreis zwischen laufender Qualitätssicherung und der Corpus-Pflege.
+**F-41-069 — QA Evaluation als Erfassungsakteur (FK-10-069):** Die QA-Evaluation
+(`verify-system.LlmEvaluator`) agiert als Capture-Akteur fuer den Failure Corpus.
+Erkennt ein QA-Check ein neuartiges Fehlermuster, das bisher nicht im Corpus
+vertreten ist, normalisiert er den Befund in das Incident-Kandidaten-Format und
+ruft `FailureCorpus.record_incident` direkt auf. Der Aufruf erfolgt ohne
+Umweg ueber eine Ereignis-Queue — `verify-system` ist dabei aufrufer, nicht
+Eigentuemerder Corpus-Logik. Damit schliesst die QA-Schicht den
+Rueckkopplungskreis zwischen laufender Qualitaetssicherung und der
+Corpus-Pflege.
 
 ### 41.4.3 Aufnahmekriterien (FK-10-015 bis FK-10-017)
 
@@ -211,21 +418,35 @@ flowchart TD
     S5 --> S6["Schritt 6:<br/>Wirksamkeitsprüfung<br/>(automatisch)"]
 ```
 
-### 41.6.2 Schritt 1: Invariante schärfen (FK-10-040 bis FK-10-042)
+### 41.6.2 Schritt 1: Invariante schaerfen (FK-10-040 bis FK-10-042)
 
-**Wer:** StructuredEvaluator (LLM als Bewertungsfunktion)
+**Wer:** `verify-system.LlmEvaluator`
+(`agentkit.verify_system.llm_evaluator.LlmEvaluator`, LLM als Bewertungsfunktion)
 
-**Input:** Bestätigtes Pattern mit Incident-Referenzen und
+**Prompt-Materialisierung:** Das Prompt-Template wird via
+`prompt-runtime.PromptRuntime.materialize_prompt`
+(`agentkit.prompt_runtime.materialization`) aufgeloest; kein hartkodierter
+Prompt-String in `LlmEvaluator`.
+
+**Input:** Bestaetiges Pattern mit Incident-Referenzen und
 Invariant-Kandidaten
 
-**Output:** Präzise, deterministische Regel als strukturierter Text
+**Output:** Praezise, deterministische Regel als strukturierter Text
 
-**Beispiel:** Aus "Agent ändert Security-Dateien ohne Security-Story"
-wird: "Wenn das Issue-Feld 'Module' nicht 'security' enthält,
-dürfen keine Dateien in den Pfaden security/, auth/ oder Dateien
-mit 'Permission' oder 'Policy' im Namen verändert werden."
+**Beispiel:** Aus "Agent aendert Security-Dateien ohne Security-Story"
+wird: "Wenn das Issue-Feld 'Module' nicht 'security' enthaelt,
+duerfen keine Dateien in den Pfaden security/, auth/ oder Dateien
+mit 'Permission' oder 'Policy' im Namen veraendert werden."
 
-**F-41-070 — Ausgearbeitetes Beispiel: Invariante schärfen (FK-10-070):** Der Schärfungsprozess muss anhand eines konkreten Durchlaufs dokumentiert sein. Ausgangspunkt ist ein vager Pattern-Kandidat wie "Agent überspringt E2E-Tests"; das Ergebnis ist eine deterministische Invariante wie "E2E-Evidenz muss Test-Runner-Exit-Code und Zeitstempel enthalten, andernfalls gilt der E2E-Nachweis als fehlend". Dieser Übergang — von einer Beobachtung zu einer maschinell prüfbaren Bedingung — ist das Kernmuster der Check-Ableitung und muss als Referenzbeispiel in der Dokumentation dauerhaft erhalten bleiben.
+**F-41-070 — Ausgearbeitetes Beispiel: Invariante schaerfen (FK-10-070):**
+Der Schaerfungsprozess muss anhand eines konkreten Durchlaufs dokumentiert
+sein. Ausgangspunkt ist ein vager Pattern-Kandidat wie "Agent ueberspringt
+E2E-Tests"; das Ergebnis ist eine deterministische Invariante wie
+"E2E-Evidenz muss Test-Runner-Exit-Code und Zeitstempel enthalten, andernfalls
+gilt der E2E-Nachweis als fehlend". Dieser Uebergang — von einer Beobachtung
+zu einer maschinell pruefbaren Bedingung — ist das Kernmuster der
+Check-Ableitung und muss als Referenzbeispiel in der Dokumentation dauerhaft
+erhalten bleiben.
 
 ### 41.6.3 Schritt 2: Check-Typ zuordnen (FK-10-043 bis FK-10-052)
 
@@ -245,9 +466,14 @@ Bei Mehrdeutigkeit: einfachster Typ (FK-10-051).
 
 ### 41.6.4 Schritt 3: Check-Proposal erstellen (FK-10-053 bis FK-10-057)
 
-**Wer:** StructuredEvaluator (LLM als Bewertungsfunktion)
+**Wer:** `verify-system.LlmEvaluator`
+(`agentkit.verify_system.llm_evaluator.LlmEvaluator`, LLM als Bewertungsfunktion)
 
-**Output:** `checks/CHK-{NNNN}/proposal.json`
+**Prompt-Materialisierung:** Analog §41.6.2 via
+`prompt-runtime.PromptRuntime.materialize_prompt`.
+
+**Output:** Persistiert als `fc_check_proposals`-Eintrag (§41.3.3) via
+`Telemetry.write_projection`; Export unter `checks/CHK-{NNNN}/proposal.json`.
 
 ```json
 {
@@ -287,8 +513,22 @@ Check-Ableitung aktiv wird** (FK-10-059).
 
 ### 41.6.6 Schritt 5: Implementieren (FK-10-061 bis FK-10-071)
 
-Für jeden freigegebenen Proposal wird **automatisch eine Story
-vom Typ Implementation** erzeugt:
+Fuer jeden freigegebenen Proposal wird **automatisch eine Story vom Typ
+Implementation** erzeugt.
+
+**Akteur:** `failure_corpus.CheckFactory`
+(`agentkit.failure_corpus.check_factory.CheckFactory`)
+
+**Story-Erzeugung:** `CheckFactory` ruft den `Integrations.github`-Adapter
+(`agentkit.integrations.github`) auf, um das GitHub-Issue anzulegen.
+`CheckFactory` ist transport-agnostisch; der Adapter abstrahiert den
+REST-Aufruf.
+
+**Cross-BC-Beziehung:** Die erzeugte Story wird von `pipeline-framework`
+(BC 1, `agentkit.pipeline_engine`) als regulaere Implementation-Story
+aufgenommen und durchlaeuft die vollstaendige 5-Phasen-Pipeline. `failure-corpus`
+hat nach der Story-Erzeugung keine weitere Steuerungsverantwortung;
+Pipeline-Framework und verify-system uebernehmen ab diesem Punkt.
 
 ```python
 def create_check_implementation_story(proposal: dict) -> str:
@@ -298,21 +538,21 @@ def create_check_implementation_story(proposal: dict) -> str:
 Failure Corpus Pattern {proposal['pattern_ref']} hat einen
 deterministischen Check identifiziert.
 
-## Lösungsansatz
+## Loesungsansatz
 Check implementieren als Python-Skript, gegen Fixtures testen,
 in Stage-Registry registrieren.
 
 ## Akzeptanzkriterien
 - [ ] Check implementiert als deterministisches Skript
-- [ ] Positive Fixtures lösen FAIL aus
+- [ ] Positive Fixtures loesen FAIL aus
 - [ ] Negative Fixtures passieren (PASS)
 - [ ] Check in Stage-Registry registriert (Layer {proposal['pipeline_layer']})
 """
-    return gh_issue_create(title, body, labels=["story"])
+    return integrations_github.create_issue(title, body, labels=["story"])
 ```
 
-Die Story durchläuft die reguläre AgentKit-Pipeline (Worker
-implementiert, Verify prüft, Closure mergt).
+Die Story durchlaeuft die regulaere AgentKit-Pipeline (Worker
+implementiert, Verify prueft, Closure mergt).
 
 **Pipeline-Stufe nach Check-Typ:**
 
@@ -327,38 +567,52 @@ implementiert, Verify prüft, Closure mergt).
 
 Status wechselt auf `active`.
 
-### 41.6.7 Schritt 6: Wirksamkeitsprüfung (FK-10-072 bis FK-10-085)
+### 41.6.7 Schritt 6: Wirksamkeitspruefung (FK-10-072 bis FK-10-085)
 
-Ein periodisches Skript zählt pro aktivem Check:
+**Wer:** `failure_corpus.CheckFactory`
+(`agentkit.failure_corpus.check_factory.CheckFactory`)
+
+**Datenquelle:** Workflow-Metric-Daten (Tabelle `story_metrics`, Schema-Owner:
+`story-closure.PostMergeFinalization`). Lesezugriff ausschliesslich via
+`Telemetry.read_projection` (`agentkit.telemetry.projection_accessor`,
+sub_exposed). `CheckFactory` schreibt nie direkt in `story_metrics`.
+
+Ein periodisches Skript zaehlt pro aktivem Check:
 
 ```python
 def check_effectiveness(check_id: str, days: int = 90) -> dict:
+    metrics = telemetry.read_projection(
+        table="story_metrics",
+        filters={"check_ref": check_id},
+        since_days=days,
+    )
     return {
         "check_id": check_id,
         "period_days": days,
-        "true_positives": count_triggers(check_id, days),
-        "false_positives": count_overrides(check_id, days),
-        "no_findings": count_clean_runs(check_id, days),
+        "true_positives": count_triggers(metrics),
+        "false_positives": count_overrides(metrics),
+        "no_findings": count_clean_runs(metrics),
     }
 ```
 
 **Wirksamkeits-Report:** Wird nach 30 Tagen automatisch erzeugt
-und im wöchentlichen Review-Slot angezeigt (FK-10-077 bis FK-10-079).
+und im woechentlichen Review-Slot angezeigt (FK-10-077 bis FK-10-079).
 
-```bash
-agentkit failure-corpus effectiveness-report
-```
+Die Effectiveness-Felder (`true_positives_90d`, `false_positives_90d`,
+`effectiveness_last_checked_at`) werden via `Telemetry.write_projection`
+in `fc_check_proposals` zurueckgeschrieben (§41.3.3).
 
 **Auto-Deaktivierung (FK-10-080 bis FK-10-084):**
 
 | Bedingung | Reaktion |
 |-----------|---------|
 | 90 Tage kein realer Fund UND > 3 False Positives | Automatisch deaktiviert. Mensch wird informiert. |
-| Mensch macht Deaktivierung rückgängig | Check wird reaktiviert |
+| Mensch macht Deaktivierung rueckgaengig | Check wird reaktiviert |
 | Pattern-Schweregrad "kritisch" oder "sicherheitskritisch" | **Ausgenommen** von Auto-Deaktivierung. Nur manuell durch Mensch. |
 
-Status wechselt auf `tuned` (angepasst) oder `retired`
-(deaktiviert).
+Status wechselt auf `tuned` (angepasst) oder `retired` (deaktiviert).
+Rueckruf durch Mensch ist der einzige rueckwaertsgerichtete
+Status-Uebergang (vgl. §41.3.3 Fachregeln).
 
 ## 41.7 Grundprinzip: Kein LLM-Judging als Check
 
@@ -381,7 +635,17 @@ LLMs werden nur in Schritt 1 und 3 der Check-Ableitung eingesetzt
 | Kein Sunset-Mechanismus | Nutzen-Review nach 30 Tagen, dann alle 90 Tage |
 | Failure Corpus als Compliance-Theater | Wöchentlicher 15-Minuten-Review-Slot |
 
-## 41.9 CLI-Befehle
+## 41.9 CLI-Boundary-Control
+
+Die `failure-corpus`-CLI-Befehle sind **Boundary-Controls des aufrufenden
+BC** (typischerweise `pipeline-framework` oder ein menschlicher Operator).
+`FailureCorpus`, `PatternPromotion` und `CheckFactory` sind
+transport-agnostisch; sie kennen keine CLI-Schnittstellen und werden von
+einer CLI-Adapter-Schicht (`agentkit.failure_corpus.cli`) aufgerufen, die
+lediglich Argumente entgegennimmt und an die Top-Surface delegiert.
+
+**Beispielaufrufe (zur Illustration — normative Schnittstellen sind die
+Komponenten-Top-Surfaces in §41.3–41.6):**
 
 ```bash
 # Incident manuell erfassen
@@ -390,7 +654,7 @@ agentkit failure-corpus add-incident --story ODIN-042 --category scope_drift --s
 # Pattern-Kandidaten anzeigen
 agentkit failure-corpus suggest-patterns
 
-# Patterns reviewen (menschliche Bestätigung)
+# Patterns reviewen (menschliche Bestaetigung)
 agentkit failure-corpus review-patterns
 
 # Check-Proposals reviewen (menschliche Freigabe)

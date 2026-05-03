@@ -1,0 +1,1 @@
+"""Guard-system boundary module."""

@@ -31,6 +31,37 @@ supersedes: []
 superseded_by:
 tags: [story-split, scope-explosion, cancellation, successor-stories, dependency-rebinding]
 prose_anchor_policy: strict
+glossary:
+  exported_terms:
+    - id: scope-explosion
+      definition: >
+        Befund, dass eine laufende Story fachlich oder technisch deutlich
+        groesser ist als ihr deklarierter Scope und im bestehenden
+        Story-Vertrag nicht sinnvoll abschliessbar ist. Loest den
+        offiziellen Split-Pfad aus: Ausgangs-Story wird Cancelled,
+        Scope wird in Nachfolger-Stories neu geschnitten.
+      see_also:
+        - term: story-split
+          domain: story-lifecycle
+    - id: split-plan
+      definition: >
+        Menschenfreigegebenes Artefakt, das Ausgangs-Story, Split-Grund,
+        Nachfolger-Stories, Ziel-Scope je Nachfolger,
+        Akzeptanzkriterien-Zuordnung und Dependency-Rebinding
+        beschreibt. Pflichtinput fuer agentkit split-story. Kein
+        optionaler Input, sondern vertraglicher Kern der Operation.
+    - id: story-split
+      definition: >
+        Administrative Service-Operation (StorySplitService), die eine
+        bestaetigte Scope-Explosion kontrolliert beendet: Ausgangs-Story
+        geht auf Cancelled, Nachfolger-Stories werden neu erstellt,
+        Abhaengigkeiten werden umgebogen. Benoetigt ausdrueckliche
+        menschliche Freigabe und einen gueltigen Split-Plan.
+      see_also:
+        - term: scope-explosion
+          domain: story-lifecycle
+        - term: story-reset
+          domain: story-lifecycle
 formal_refs:
   - formal.story-creation.commands
   - formal.story-creation.invariants

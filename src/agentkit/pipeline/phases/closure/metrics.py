@@ -5,9 +5,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
 from agentkit.exceptions import CorruptStateError
-from agentkit.state_backend import (
-    StoryMetricsRecord,
+from agentkit.state_backend.store import (
     load_attempts,
     load_execution_events,
     resolve_runtime_scope,

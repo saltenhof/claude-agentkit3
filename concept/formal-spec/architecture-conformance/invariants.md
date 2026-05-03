@@ -50,17 +50,17 @@ dependency_rules:
 acyclic_group_sets:
   - id: architecture-conformance.acyclic.application_surface
     group_ids:
-      - architecture-conformance.group.story
-      - architecture-conformance.group.dashboard
-      - architecture-conformance.group.control_plane
-      - architecture-conformance.group.projectedge
+      - architecture-conformance.group.story_types
+      - architecture-conformance.group.kpi_analytics_dashboard
+      - architecture-conformance.group.story_context_manager
+      - architecture-conformance.group.kpi_analytics
   - id: architecture-conformance.acyclic.runtime_core
     group_ids:
       - architecture-conformance.group.pipeline_engine
       - architecture-conformance.group.story_context_manager
       - architecture-conformance.group.phase_state_store
-      - architecture-conformance.group.telemetry_service
-      - architecture-conformance.group.prompt_composer
+      - architecture-conformance.group.telemetry
+      - architecture-conformance.group.prompt_runtime
       - architecture-conformance.group.llm_evaluator
   - id: architecture-conformance.acyclic.governance_core
     group_ids:
@@ -166,10 +166,10 @@ invariants:
     rule: stable application-surface modules may not import raw state backend drivers directly
   - id: architecture-conformance.invariant.application_surface_is_acyclic
     scope: static-analysis
-    rule: story, dashboard, control_plane and projectedge must not form dependency cycles
+    rule: story-types, kpi-analytics dashboard, story-context-manager and kpi-analytics must not form dependency cycles. control_plane and projectedge cyclicity is enforced separately via boundary_module dependency rules.
   - id: architecture-conformance.invariant.runtime_core_is_acyclic
     scope: static-analysis
-    rule: pipeline_engine, story_context_manager, phase_state_store, telemetry_service, prompt_composer and llm_evaluator must not form dependency cycles
+    rule: pipeline_engine, story_context_manager, phase_state_store, telemetry, prompt_runtime and llm_evaluator must not form dependency cycles
   - id: architecture-conformance.invariant.governance_core_is_acyclic
     scope: static-analysis
     rule: guard_system, governance_observer, conformance_service, stage_registry and failure_corpus must not form dependency cycles

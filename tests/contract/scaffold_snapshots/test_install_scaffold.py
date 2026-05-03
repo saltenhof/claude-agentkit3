@@ -11,7 +11,7 @@ plus the generated ``project.yaml``.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -192,7 +192,7 @@ class TestInstallScaffoldContract:
                 )
 
 
-def _make_install_config(project_root: Path, **kwargs: object) -> InstallConfig:
+def _make_install_config(project_root: Path, **kwargs: Any) -> InstallConfig:
     kwargs.setdefault("project_key", kwargs.get("project_name", "test-project"))
     return InstallConfig(
         project_root=project_root,

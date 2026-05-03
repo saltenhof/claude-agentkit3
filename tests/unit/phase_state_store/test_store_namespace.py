@@ -1,7 +1,7 @@
 """Unit tests for flow-state store facade exports."""
 
 from agentkit.phase_state_store import store as store_module
-from agentkit.state_backend import (
+from agentkit.state_backend.store import (
     load_flow_execution,
     load_node_execution_ledger,
     load_override_records,

@@ -14,7 +14,12 @@ defers_to:
     reason: Execute-userstory skill orchestrates pipeline phases managed by the workflow engine
   - target: FK-44
     scope: prompt-bundles
-    reason: Skill-Templates werden ueber die Prompt-Bundle-Materialisierung gebunden (FK-44)
+    reason: >
+      agent-skills verwaltet Skill-Bundles eigenstaendig ueber Symlink-Bindungen
+      (.claude/skills/). FK-44 (prompt-runtime) wird nur dann aufgerufen, wenn
+      Skill-Inhalte zur Laufzeit eines Runs durch PromptRuntime.materialize_prompt
+      aufgeloest werden muessen. Die Skill-Bundle-Mechanik (Versionierung,
+      Symlink-Erzeugung, Projektbindung) bleibt vollstaendig in agent-skills.
 supersedes: []
 superseded_by:
 tags: [skills, automation, prompt-templates, symlink-binding, extensibility]
@@ -26,6 +31,62 @@ formal_refs:
   - formal.skills-and-bundles.events
   - formal.skills-and-bundles.invariants
   - formal.skills-and-bundles.scenarios
+glossary:
+  exported_terms:
+    - id: skill-binding
+      definition: >
+        Projektlokal erzeugte Verknuepfung (Symlink) von einem
+        Claude-Code-Bindungspunkt im Projekt (.claude/skills/<name>)
+        auf ein systemweites Bundle-Verzeichnis. Projektrepos duerfen
+        ausschliesslich Symlinks enthalten, niemals die kanonische
+        Skill-Quelle selbst.
+      see_also:
+        - term: skill-bundle
+          domain: agent-skills
+        - term: skill-id
+          domain: agent-skills
+    - id: skill-bundle
+      definition: >
+        Versioniertes, unveraenderliches Verzeichnis mit einer oder
+        mehreren Skill-Varianten, das systemweit installiert wird.
+        Jede Projektbindung zeigt auf genau eine konkrete
+        Bundle-Version. Aliase wie latest sind als Produktionsziel
+        verboten.
+      see_also:
+        - term: skill-variant
+          domain: agent-skills
+        - term: skill-binding
+          domain: agent-skills
+    - id: skill-id
+      definition: >
+        Eindeutiger Bezeichner eines Skills innerhalb eines Bundles,
+        z.B. create-userstory-core. Bildet zusammen mit der
+        Bundle-Version den stabilen Schluessel fuer Symlink-Bindungen
+        und Upgrade-Tracking.
+    - id: skill-lifecycle
+      definition: >
+        Zustandsfolge einer Skill-Bundlebindung vom initialen
+        Requested-Zustand ueber Profile-Resolved, Bundle-Selected und
+        Bound bis zu Verified oder Rejected. Jeder Zustandsuebergang
+        prueft definierte Invarianten (vgl. formal.skills-and-bundles.state-machine).
+      see_also:
+        - term: skill-binding
+          domain: agent-skills
+    - id: skill-quality-metric
+      definition: >
+        Messbares Signal zur Bewertung der Effektivitaet eines Skills,
+        z.B. Anzahl QA-Runden oder Failure-Corpus-Befunde nach einer
+        Skill-Aenderung. Skill-Qualitaet ist nicht statisch, sondern
+        wird ueber Experiment-Tags im Telemetriesystem beobachtet.
+      see_also:
+        - term: skill-id
+          domain: agent-skills
+  internal_terms:
+    - id: placeholder-substitution
+      reason: >
+        Implementierungsdetail der Bundle-Materialisierung; kein
+        exportierter Vertragsbegriff. Betrifft nur den Installer-Pfad
+        und ist nicht Teil der oeffentlichen Skill-Schnittstelle.
 ---
 
 # 43 — Skills-System und Task-Automation
@@ -165,7 +226,7 @@ Der Installer kopiert Skills nicht inhaltlich ins Zielprojekt.
 Stattdessen:
 
 1. installiert er versionierte AgentKit-Skill-Bundles systemweit
-2. wählt projektweise das passende Profil (`core`, `are`, ...)
+2. waehlt projektweise das passende Profil (`core`, `are`, ...)
 3. erzeugt unter `.claude/skills/` Symlinks auf genau diese
    systemweiten Bundle-Verzeichnisse
 
@@ -176,29 +237,54 @@ C:\ProgramData\AgentKit\bundles\4.0.0\core\skills\execute-userstory\
 T:\repo\.claude\skills\execute-userstory  ->  C:\ProgramData\AgentKit\bundles\4.0.0\core\skills\execute-userstory
 ```
 
+**Top-Surface `Skills.bind_skill`:**
+
+`Skills.bind_skill` ist die kanonische Schnittstelle der Komponente
+`Skills` (BC agent-skills) fuer die Installer-Interaktion. Der Installer
+(BC installation-and-bootstrap, FK-50) ruft diese Methode auf — er
+erzeugt Symlinks nicht direkt. Analogie zu `PromptRuntime.update_binding`
+(BC prompt-runtime, FK-44).
+
 ```python
-def bind_skill(skill_name: str, bundle_root: Path, project_root: Path) -> None:
-    source = bundle_root / "skills" / skill_name
-    target = project_root / ".claude" / "skills" / skill_name
-    create_symlink(source, target)
+# Top-Surface: aufgerufen vom Installer (FK-50)
+Skills.bind_skill(skill_name: str, bundle_root: Path, project_root: Path) -> None
 ```
+
+**Hinweis fuer FK-50:** Die vollstaendige Dokumentation dieser
+Installer-Schnittstelle erfolgt in FK-50 (installation-and-bootstrap).
 
 ### 43.4.2 Platzhalter-Substitution und Bundle-Parameter
 
 Nur in `.md`-Dateien. Einfaches String-Replace, keine
-Template-Engine:
+Template-Engine.
+
+**Klasse `PlaceholderSubstitutor` (in `SkillBinding`):**
+
+`PlaceholderSubstitutor` substituiert Werte aus `PipelineConfig`
+(BC foundation, FK-03). Die Schnittstelle zu `PipelineConfig` ist
+**read-only**: keine Schreibzugriffe, keine Zustandsmutation.
+Die substituierten Felder stammen ausschliesslich aus FK-03:
+
+| Platzhalter | Quelle in PipelineConfig (FK-03) |
+|---|---|
+| `{{gh_owner}}` | `config.github.owner` |
+| `{{gh_repo}}` | `config.github.repo_primary` |
+| `{{project_prefix}}` | `config.project_prefix` |
+| `{{project_number}}` | `config.github.project_number` |
 
 ```python
-def substitute_placeholders(content: str, config: PipelineConfig) -> str:
-    replacements = {
-        "{{gh_owner}}": config.github.owner,
-        "{{gh_repo}}": config.github.repo_primary,
-        "{{project_prefix}}": config.project_prefix,
-        "{{project_number}}": str(config.github.project_number),
-    }
-    for placeholder, value in replacements.items():
-        content = content.replace(placeholder, value)
-    return content
+# Schnittstelle: read-only auf PipelineConfig (FK-03)
+class PlaceholderSubstitutor:
+    def substitute(self, content: str, config: PipelineConfig) -> str:
+        replacements = {
+            "{{gh_owner}}": config.github.owner,
+            "{{gh_repo}}": config.github.repo_primary,
+            "{{project_prefix}}": config.project_prefix,
+            "{{project_number}}": str(config.github.project_number),
+        }
+        for placeholder, value in replacements.items():
+            content = content.replace(placeholder, value)
+        return content
 ```
 
 ## 43.5 Skill-Versionierung
@@ -215,12 +301,30 @@ Die Projektbindung trackt, auf welche Bundle-Version ein Projekt zeigt:
 }
 ```
 
-### 43.5.2 Upgrade-Verhalten
+### 43.5.2 Upgrade-Verhalten und Skill-Pin-Mechanik
 
 Bei AgentKit-Upgrade werden bestehende Projekte nicht automatisch auf
-`latest` umgehängt. Der Installer zeigt auf eine konkrete Bundle-Version.
-Ein Projekt erhält eine neue Skill-Version erst, wenn seine
+`latest` umgehaengt. Der Installer zeigt auf eine konkrete Bundle-Version.
+Ein Projekt erhaelt eine neue Skill-Version erst, wenn seine
 Symlink-Bindungen bewusst auf die neue Bundle-Version umgestellt werden.
+
+**Eigenstaendiger Skill-Pin:**
+
+agent-skills verwaltet seinen Bundle-Version-Pin eigenstaendig — er ist
+**nicht** mit `prompt-runtime.BundlePinning` (FK-44) geteilt. Begruendung:
+
+- Skill-Bundles sind Verzeichnis-Symlinks (`.claude/skills/<name>/`)
+  mit einem separaten Lifecycle (Requested → ProfileResolved →
+  BundleSelected → Bound → Verified/Rejected).
+- Prompt-Bundles sind Datei-Materialisierungen
+  (`.agentkit/manifests/prompt-pins/{run_id}.json`) mit
+  Run-Scope-Pinning.
+- Strukturell aehnlich, mechanisch verschieden: kein gemeinsamer
+  Pin-Mechanismus, keine gemeinsame Lock-Datei.
+
+Der Skill-Versionierungs-Record wird in `SkillBundleStore` gefuehrt
+(BC agent-skills); `prompt-runtime.BundlePinning` bleibt fuer
+Prompt-Bundle-Pins zustaendig.
 
 ## 43.6 Erweiterbarkeit (FK-12-027)
 
@@ -241,20 +345,59 @@ C:\ProgramData\AgentKit\bundles\4.0.0\custom\
 Claude Code erkennt den Skill automatisch über den projektlokalen
 Symlink unter `.claude/skills/`.
 
-### 43.6.2 Skill-Qualität
+### 43.6.2 Skill-Qualitaet
 
-Die Qualität der Story-Umsetzung hängt wesentlich davon ab, dass
-Agents auf erprobte Abläufe zurückgreifen statt bei jeder Aufgabe
+Die Qualitaet der Story-Umsetzung haengt wesentlich davon ab, dass
+Agents auf erprobte Ablaeufe zurueckgreifen statt bei jeder Aufgabe
 eigene Methodik zu erfinden. Deshalb:
 
 - Mitgelieferte Skills werden mit AgentKit getestet
 - Projektspezifische Skills liegen in der Verantwortung des
   Menschen
-- Skill-Änderungen können über den Failure Corpus evaluiert
-  werden: Wenn nach einer Skill-Änderung die QA-Runden steigen,
-  ist das ein messbares Signal (Experiment-Tags, Kap. 68.7.2)
 
-**F-43-030 — Normative Skill-Nutzung (FK-12-030):** Agents **müssen** mitgelieferte Skills für standardisierte Aufgaben verwenden, anstatt ad-hoc-Methodik einzusetzen. Für Aufgaben, zu denen ein passender Skill existiert, ist dessen Nutzung normativ vorgeschrieben — nicht optional. Ein Agent, der eine Story erstellt ohne den `create-userstory`-Skill zu verwenden, oder der ein semantisches Review ohne den `semantic-review`-Skill durchführt, verhält sich nicht regelkonform. Dieses Prinzip gilt gleichermassen für Pflicht- und optionale Skills, sofern deren Voraussetzung erfüllt ist.
+**Lese-Schnittstellen fuer SkillQualityMetric:**
+
+`SkillQualityMetric` (BC agent-skills, Sub `agentkit.skills.quality_metric`)
+aggregiert Qualitaets-Signale aus zwei Quellen:
+
+1. **Telemetrie-Projektionen** — Lese-Zugriff via
+   `Telemetry.ProjectionAccessor` (BC telemetry-and-events,
+   Sub `agentkit.telemetry.projection_accessor`, exposure: sub_exposed).
+   Gelesen werden WorkflowMetric-Daten, deren Owner
+   `story-closure.PostMergeFinalization` (BC story-closure,
+   `agentkit.closure.post_merge_finalization`) ist.
+   Typische Signale: QA-Rundenanzahl, Remediation-Counts pro Skill-ID.
+
+2. **Failure-Corpus-Befunde** — Lese-Zugriff auf `failure_corpus`
+   Top-Komponente (BC failure-corpus, `agentkit.failure_corpus`).
+   Skill-Experiment-Tags (`experiment_tag`) verknuepfen
+   Failure-Corpus-Eintraege mit konkreten Skill-Versionen.
+
+Skill-Aenderungen koennen so quantitativ evaluiert werden: Steigen
+QA-Runden oder Failure-Corpus-Treffer nach einer Skill-Aenderung,
+ist das ein messbares Signal (Experiment-Tags, Kap. 68.7.2).
+
+**F-43-030 — Normative Skill-Nutzung (FK-12-030):** Agents **muessen** mitgelieferte Skills fuer standardisierte Aufgaben verwenden, anstatt ad-hoc-Methodik einzusetzen. Fuer Aufgaben, zu denen ein passender Skill existiert, ist dessen Nutzung normativ vorgeschrieben — nicht optional. Ein Agent, der eine Story erstellt ohne den `create-userstory`-Skill zu verwenden, oder der ein semantisches Review ohne den `semantic-review`-Skill durchfuehrt, verhaelt sich nicht regelkonform. Dieses Prinzip gilt gleichermassen fuer Pflicht- und optionale Skills, sofern deren Voraussetzung erfuellt ist.
+
+**Enforcement-Owner: governance.guard_system (BC governance-and-guards)**
+
+F-43-030 definiert die Norm. Der Enforcement-Mechanismus liegt bei
+`governance.guard_system` (BC governance-and-guards), nicht bei
+`verify-system.PolicyEngine`. Begruendung: Erkennung und Blockade
+erfolgen zur Laufzeit vor dem Tool-Call (fail-fast), nicht erst nach
+Abschluss einer Phase im Verify-Block.
+
+Der Hook `skill_usage_check` (Sub `agentkit.governance.guard_system`)
+erkennt an Tool-Aufruf-Patterns zur Laufzeit, ob ein Agent
+ad-hoc-Methodik einsetzt, obwohl ein passender Skill existiert und
+dessen Voraussetzung erfuellt ist. Bei Erkennung blockiert er den
+Tool-Call und fordert den Skill-Aufruf.
+
+Cross-BC-Beziehung: Norm-Owner ist BC agent-skills (FK-43, dieses
+Kapitel); Enforcement-Owner ist BC governance-and-guards (FK-30 §30.5.1).
+`verify-system.PolicyEngine` ist kein Enforcement-Owner fuer F-43-030.
+
+Details zum Hook und Registrierung: FK-30 §30.5.1.
 
 ---
 

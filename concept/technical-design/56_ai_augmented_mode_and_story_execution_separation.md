@@ -30,6 +30,39 @@ supersedes: []
 superseded_by:
 tags: [operating-modes, ai-augmented, story-execution, run-binding, integrity]
 prose_anchor_policy: strict
+glossary:
+  exported_terms:
+    - id: operating-mode
+      definition: >
+        Abgeleitete Laufzeitachse der aktiven Session: ai_augmented
+        (freies Arbeiten, kein Story-Regime) oder story_execution
+        (explizit gebundener Story-Run mit vollem Guard-, QA- und
+        Integrity-Regime). Wird deterministisch aus Run-Bindung, Lock
+        und Worktree-Konsistenz abgeleitet, nicht persistent als
+        Story-Feld gefuehrt.
+      values: [ai_augmented, story_execution]
+      see_also:
+        - term: run-binding
+          domain: story-lifecycle
+        - term: execution-route
+          domain: story-lifecycle
+    - id: run-binding
+      definition: >
+        Aktive Session-Bindung an genau einen Story-Run, bestehend aus
+        project_key, story_id, run_id, principal_type und
+        worktree_roots. Voraussetzung fuer den Betriebsmodus
+        story_execution. Fehlt die Bindung oder ist sie inkonsistent,
+        gilt der Fehlerzustand binding_invalid, kein stiller Rueckfall
+        auf ai_augmented.
+      see_also:
+        - term: operating-mode
+          domain: story-lifecycle
+  internal_terms:
+    - id: binding-invalid
+      reason: >
+        Blockierender Fehlerzustand bei gebrochener Story-Bindung (stale
+        Lock, Worktree-Mismatch). Kein eigenstaendiger Betriebsmodus;
+        nur BC-intern relevant fuer die Mode-Resolution-Logik.
 formal_refs:
   - formal.operating-modes.entities
   - formal.operating-modes.state-machine

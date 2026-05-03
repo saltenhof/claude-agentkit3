@@ -42,6 +42,45 @@ supersedes: []
 superseded_by:
 tags: [evidence-assembly, authority-classes, review-preparation, bundles]
 formal_scope: prose-only
+glossary:
+  exported_terms:
+    - id: bundle-entry
+      definition: >
+        Einzelner Eintrag im assemblierten Review-Bundle. Trägt repo_id, path,
+        authority (AuthorityClass), confidence (ConfidenceLabel aus Import-Auflösung,
+        None für Stufe 1+3), reason, size und content. Unveränderlich (frozen dataclass).
+        Determiniert Priorisierung bei Groessenlimit über sort_key.
+      see_also:
+        - term: authority-class
+          domain: verify-system
+        - term: bundle-manifest
+          domain: verify-system
+    - id: bundle-manifest
+      definition: >
+        Zusammenfassung eines assemblierten Review-Bundles mit evidence_epoch
+        (ISO-8601 Timestamp), manifest_hash (SHA256 über sortierte Pfade + Größen),
+        total_size, truncated-Flag und Warnungen. Wird als JSON-Artefakt geschrieben
+        und als strukturierter Header in den Review-Prompt eingefügt.
+      see_also:
+        - term: evidence-assembler
+          domain: verify-system
+        - term: evidence-fingerprint
+          domain: verify-system
+    - id: evidence-assembler
+      definition: >
+        Deterministischer Vorbereitungsschritt für LLM-Reviews (Schicht 2).
+        Assembliert Review-Bundles in drei Stufen: (1) deterministischer Kern
+        aus Git-Diff + normative Quellen, (2) sprachspezifische Import-Extraktion,
+        (3) additive Worker-Hinweise. Ersetzt worker-kuratierte merge_paths-Liste.
+        Hardgrenze: 350 KB; Priorisierung nach AuthorityClass.
+      see_also:
+        - term: authority-class
+          domain: verify-system
+  internal_terms:
+    - id: repo-context
+      reason: >
+        Laufzeit-Datenklasse für Multi-Repo-Assembly (repo_id, repo_path, git,
+        git_base_branch, role, affected); Implementierungsdetail des Assemblers.
 ---
 
 # 28 — Evidence Assembly und Review-Vorbereitung

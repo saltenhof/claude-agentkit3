@@ -15,8 +15,8 @@ from agentkit.pipeline.lifecycle import (
     PhaseHandlerRegistry,
 )
 from agentkit.pipeline.runner import PipelineRunResult, run_pipeline
-from agentkit.state_backend import (
-    AttemptRecord,
+from agentkit.pipeline_engine.phase_executor.records import AttemptRecord
+from agentkit.state_backend.store import (
     read_phase_state_record,
     read_story_context_record,
     save_phase_state,

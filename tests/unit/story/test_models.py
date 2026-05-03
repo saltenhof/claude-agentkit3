@@ -37,13 +37,13 @@ class TestPhaseStatus:
         }
 
     def test_string_values(self) -> None:
-        assert PhaseStatus.PENDING == "pending"
-        assert PhaseStatus.IN_PROGRESS == "in_progress"
-        assert PhaseStatus.PAUSED == "paused"
-        assert PhaseStatus.COMPLETED == "completed"
-        assert PhaseStatus.FAILED == "failed"
-        assert PhaseStatus.ESCALATED == "escalated"
-        assert PhaseStatus.BLOCKED == "blocked"
+        assert PhaseStatus.PENDING.value == "pending"
+        assert PhaseStatus.IN_PROGRESS.value == "in_progress"
+        assert PhaseStatus.PAUSED.value == "paused"
+        assert PhaseStatus.COMPLETED.value == "completed"
+        assert PhaseStatus.FAILED.value == "failed"
+        assert PhaseStatus.ESCALATED.value == "escalated"
+        assert PhaseStatus.BLOCKED.value == "blocked"
 
 
 class TestStoryContext:
@@ -168,7 +168,7 @@ class TestStoryContext:
             execution_route=StoryMode.EXPLORATION,
         )
         with pytest.raises(ValidationError):
-            ctx.story_id = "AG3-002"  # type: ignore[misc]
+            ctx.story_id = "AG3-002"
 
     def test_requires_story_id(self) -> None:
         with pytest.raises(ValidationError):
@@ -337,7 +337,7 @@ class TestPhaseSnapshot:
             completed_at=now,
         )
         with pytest.raises(ValidationError):
-            snap.status = PhaseStatus.FAILED  # type: ignore[misc]
+            snap.status = PhaseStatus.FAILED
 
     def test_defaults(self) -> None:
         now = datetime.now(tz=UTC)

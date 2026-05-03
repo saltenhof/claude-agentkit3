@@ -9,7 +9,10 @@ import sys
 import tokenize
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Sequence
 
 DEFAULT_EXCLUDE_DIRS = {
     ".git",
@@ -149,7 +152,7 @@ def iter_python_files(paths: Sequence[str], excluded_dirs: set[str]) -> Iterable
 def attach_parents(tree: ast.AST) -> None:
     for parent in ast.walk(tree):
         for child in ast.iter_child_nodes(parent):
-            setattr(child, "parent", parent)
+            child.parent = parent
 
 
 def build_executable_line_index(source: str) -> set[int]:

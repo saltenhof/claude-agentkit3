@@ -27,6 +27,59 @@ supersedes: []
 superseded_by:
 tags: [integrity-gate, governance-observation, escalation, anomaly-detection, closure]
 prose_anchor_policy: strict
+glossary:
+  exported_terms:
+    - id: incident-candidate
+      definition: >
+        Verdichtete Episode aus korrelierten Governance-Signalereignissen,
+        die bei Schwellenwertüberschreitung des Rolling-Window-Risikoscores
+        erzeugt wird. Nur der Incident-Kandidat — nicht der rohe Eventstrom —
+        geht an das LLM zur Adjudication. Enthaelt risk_score, event_count,
+        dominant_signals, evidence_summary und time_span_s.
+      see_also:
+        - term: governance-observation
+          domain: governance-and-guards
+        - term: risk-score
+          domain: governance-and-guards
+    - id: integrity-gate
+      definition: >
+        Deterministischer Prozess-Integritaets-Check unmittelbar vor dem
+        Story-Merge. Prueft nicht die fachliche Qualitaet, sondern ob der
+        definierte Prozess vollstaendig durchlaufen wurde: Pflicht-Artefakte
+        vorhanden, alle acht Dimensionen erfuellt, Timestamp-Kausalitaet
+        korrekt. Bei FAIL: Phase-State ESCALATED, kein Merge.
+        Fehlermeldung gegenueber dem Agent ist opak.
+      see_also:
+        - term: guard-decision
+          domain: governance-and-guards
+        - term: escalation-mechanism
+          domain: governance-and-guards
+        - term: policy-verdict
+          domain: verify-system
+    - id: risk-score
+      definition: >
+        Akkumulierter Governance-Score aus Anomalie-Ereignissen im Rolling
+        Window (Default: 50 Events). Jedes Governance-Signal traegt
+        gewichtete Risikopunkte bei. Bei Ueberschreiten des Schwellenwerts
+        (Default: 30) wird ein Incident-Kandidat erzeugt. Die Berechnung
+        erfolgt als PostgreSQL-Query ohne separaten In-Memory-State.
+      see_also:
+        - term: incident-candidate
+          domain: governance-and-guards
+        - term: governance-observation
+          domain: governance-and-guards
+  internal_terms:
+    - id: preflight-compliance-guard
+      reason: >
+        check_guard_preflight_compliance() ist ein interner Recurring-Guard
+        zur Frueherkennung fehlender Preflight-Compliance. Implementierungsdetail
+        von TelemetrySnapshot + recurring_guards.py; kein eigenstaendiger
+        exportierter Vertragstyp.
+    - id: rolling-window
+      reason: >
+        Technisches Detailkonzept der Risikoscore-Berechnung (window_size,
+        cooldown_s, SQL-Query auf execution_events). Implementierungsdetail
+        der Governance-Beobachtung; kein exportierter Vertragsbegriff.
 formal_refs:
   - formal.deterministic-checks.invariants
   - formal.deterministic-checks.scenarios
@@ -336,6 +389,11 @@ prüfen und entscheiden:
 
 ### 35.3.1 Architektur (FK 6.6)
 
+**Komponentenzuordnung:** Die Governance-Beobachtung ist in
+`agentkit.governance.governance_observer` implementiert. Die
+Risikoscore-Akkumulation (Rolling-Window) liegt ebenfalls dort
+(Owner: `governance.GovernanceObserver`).
+
 Die Governance-Beobachtung ist **kein eigenständiger Agent**,
 sondern eine in die bestehende Infrastruktur eingebettete
 Governance-Schicht aus drei Komponenten:
@@ -359,6 +417,40 @@ flowchart TD
 
     ADJUD --> MASSNAHME["Deterministische<br/>Maßnahme"]
 ```
+
+### 35.3.1a GovernanceObserver: Score-Akkumulation (normative Verantwortung)
+
+**Klasse: `agentkit.governance.governance_observer.GovernanceObserver`**
+
+Diese Sektion ist die normative Quelle fuer Scoring-Algorithmus,
+Gewichtungen und Trigger-Bedingungen der Risikoscore-Akkumulation.
+FK-68 §68.8 beschreibt ausschliesslich die Sensor-Schicht
+(`NormalizedEvent`-Format und Mapping in telemetry-and-events);
+alle Scoring-Entscheidungen sind hier autorisiert.
+
+**Algorithmus (Schritt fuer Schritt):**
+
+1. `GovernanceObserver` liest die juengsten `window_size` Events des Typs
+   `governance_signal` fuer den aktuellen (`project_key`, `story_id`, `run_id`)
+   aus `execution_events` (Rolling-Window-Query; kein In-Memory-State).
+2. Fuer jedes Event wird `payload.risk_points` summiert. Das Ergebnis ist
+   der aktuelle Risikoscore fuer dieses Window.
+3. Liegt der Score unter dem Schwellenwert: nur zaehlen, keine weitere Aktion.
+4. Liegt der Score >= Schwellenwert UND ist der Cooldown abgelaufen:
+   Incident-Kandidat erzeugen (§35.3.6) und LLM-Adjudication ausloesen (§35.3.7).
+5. Deterministische Massnahme gemaess §35.3.8 ausfuehren.
+
+**Schwellenwerte und Trigger-Bedingungen:**
+
+| Parameter | Default | Config-Pfad | Bedeutung |
+|-----------|---------|-------------|-----------|
+| Window-Breite | 50 Events | `governance.window_size` | Anzahl juengster `governance_signal`-Events im Fenster |
+| Risikoscore-Schwelle | 30 | `governance.risk_threshold` | Summe der `risk_points` im Window, ab der Adjudication ausgeloest wird |
+| Cooldown | 300 Sekunden | `governance.cooldown_s` | Mindestabstand zwischen zwei Adjudication-Aufrufen fuer denselben Signal-Typ |
+
+**Sofortiger Stopp ohne Score-Akkumulation:** Governance-Dateien-Manipulation
+und Secret-Zugriff loesen direkt einen harten Stopp aus — sie gehen nicht
+in den Score ein und warten nicht auf den Schwellenwert (FK-06-102/103).
 
 ### 35.3.2 Sensorik: Hook-basierte Anomalie-Signale
 
@@ -397,7 +489,7 @@ INSERT INTO execution_events (
     project_key, story_id, run_id, event_id, event_type, occurred_at,
     source_component, severity, payload
 )
-VALUES ($1, $2, $3, $4, 'governance_signal', NOW(), 'guard_system', 'warning', $5);
+VALUES ($1, $2, $3, $4, 'governance_signal', NOW(), 'agentkit.governance.guard_system', 'warning', $5);
 ```
 
 Payload:
@@ -435,13 +527,7 @@ def current_risk_score(project_key: str, story_id: str, run_id: str, client, win
     )
 ```
 
-**Konfiguration:**
-
-| Parameter | Default | Config-Pfad |
-|-----------|---------|-------------|
-| Window-Breite | 50 Events | `governance.window_size` |
-| Risikoscore-Schwelle | 30 | `governance.risk_threshold` |
-| Cooldown | 300 Sekunden | `governance.cooldown_s` |
+Normative Konfigurationswerte und Schwellenwerte: §35.3.1a.
 
 ### 35.3.6 Incident-Kandidat
 

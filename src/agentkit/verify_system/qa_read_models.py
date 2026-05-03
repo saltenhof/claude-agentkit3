@@ -7,7 +7,7 @@ from hashlib import sha1
 from typing import TYPE_CHECKING
 
 from agentkit.qa.protocols import Severity
-from agentkit.state_backend.records import QAFindingRecord, QAStageResultRecord
+from agentkit.verify_system.stage_registry.records import QAFindingRecord, QAStageResultRecord
 
 if TYPE_CHECKING:
     from datetime import datetime

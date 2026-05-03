@@ -50,6 +50,57 @@ formal_refs:
   - formal.implementation.invariants
   - formal.verify.entities
   - formal.story-workflow.invariants
+glossary:
+  exported_terms:
+    - id: attempt-record
+      definition: >
+        Durables Fehlerartefakt, das durable Fehlerinformationen eines
+        einzelnen Phase-Ausfuehrungsversuchs erfasst. Ueberlebt Crashes
+        und Phase-Transitionen. Wird vom Phase Runner erzeugt und ist
+        die kanonische Quelle fuer Retry-Entscheidungen und
+        Post-Mortem-Analyse.
+    - id: pause-reason
+      definition: >
+        StrEnum mit drei Werten, das den Grund eines PAUSED-Zustands
+        beschreibt. AWAITING_DESIGN_REVIEW: Entwurfsartefakt wartet auf
+        Design-Review. AWAITING_DESIGN_CHALLENGE: Design-Challenge-
+        Prozess laeuft. GOVERNANCE_INCIDENT: Governance-Observer hat
+        kritischen Incident erkannt. Jeder andere Wert ist ungueltig.
+      values: [AWAITING_DESIGN_REVIEW, AWAITING_DESIGN_CHALLENGE, GOVERNANCE_INCIDENT]
+    - id: phase-envelope
+      definition: >
+        Frozen Dataclass als Laufzeit-Container fuer eine Phase-
+        Ausfuehrung. Enthaelt state (PhaseState, wird persistiert) und
+        runtime (RuntimeMetadata, ephemer). Wird nie als Ganzes
+        persistiert; nur der state-Teil wird als phase_state_projection
+        geschrieben.
+    - id: phase-memory
+      definition: >
+        Phasenuebergreifende Zaehler, die per Carry-Forward ueber
+        Phase-Transitionen mitgefuehrt werden. Enthaelt
+        exploration.review_rounds und verify.feedback_rounds. Wird
+        ausschliesslich von der Engine inkrementiert, nie von
+        Phase-Handlern.
+    - id: phase-payload
+      definition: >
+        Discriminated union im PhaseState, gesteuert ueber payload.type.
+        Enthaelt phase-spezifische Durable Contract Fields. Typen:
+        ExplorationPayload (gate_status), VerifyPayload (verify_context),
+        ClosurePayload (progress). Setup und Implementation haben kein
+        Payload (null).
+    - id: phase-state-core
+      definition: >
+        Pflicht-Kernteil des persistierten PhaseState. Enthaelt
+        story_id, run_id, phase, status, mode, story_type, attempt,
+        Zeitstempel, pause_reason, escalation_reason, agents_to_spawn,
+        errors, warnings und producer. Wird als phase_state_projection
+        im State-Backend persistiert.
+  internal_terms:
+    - id: runtime-metadata
+      reason: >
+        Ephemore Laufzeitdaten (nur PhaseOrigin: NEW | LOADED), die
+        ausschliesslich in-memory existieren und nie auf Platte
+        geschrieben werden. Kein Vertragsinhalt fuer andere BCs.
 ---
 
 # 39 — Phase-State-Persistenz und Phase-Envelope-Modell
@@ -445,3 +496,19 @@ class PhaseMemory(BaseModel):
 
 **Nur der Phase Runner schreibt.** Der Orchestrator liest und
 reagiert, manipuliert aber nie direkt den Phase-State.
+
+## 39.7 Schema-Ownership PhaseStateProjection
+
+**Normative Festlegung (BC-Schnitt, Row 33):** Das Schema der
+`phase_state_projection` (alle Felder in `PhaseStateCore`, `PhasePayload`
+und `PhaseMemory`) ist **Eigentuemer-BC pipeline-framework** (dieses Dokument).
+
+`telemetry-and-events.ProjectionAccessor` ownt ausschliesslich die
+DB-Zugriffsschicht (Lesen/Schreiben via `Telemetry.write_projection` und
+`Telemetry.read_projection`). Das Schema selbst — d.h. die Pydantic-Modelle
+fuer `PhaseStateCore`, `PhasePayload`, `PhaseMemory`, `AttemptRecord` — bleibt
+in `agentkit.pipeline_engine.phase_executor` (PhaseExecutor-Sub).
+
+Querverweise: BC-Schnitt-Entscheidung Row 33; FK-10 §10.5 (State-Backend);
+`concept/formal-spec/architecture-conformance/entities.md`
+(architecture-conformance.group.phase_executor).

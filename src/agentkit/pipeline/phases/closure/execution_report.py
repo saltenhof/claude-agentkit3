@@ -5,7 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from agentkit.state_backend import ExecutionReport, record_closure_report
+from agentkit.closure.execution_report.records import ExecutionReport
+from agentkit.state_backend.store import record_closure_report
 
 if TYPE_CHECKING:
     from pathlib import Path

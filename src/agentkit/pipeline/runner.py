@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 from agentkit.exceptions import CorruptStateError
 from agentkit.pipeline.engine import PipelineEngine
 from agentkit.process.language.definitions import resolve_workflow
-from agentkit.state_backend import read_phase_state_record, save_phase_state
+from agentkit.state_backend.store import read_phase_state_record, save_phase_state
 from agentkit.story_context_manager.models import PhaseState, PhaseStatus
 
 if TYPE_CHECKING:

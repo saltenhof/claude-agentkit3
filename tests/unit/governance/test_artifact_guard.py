@@ -119,7 +119,7 @@ class TestArtifactGuardAllowed:
         assert v.allowed is True
 
     def test_file_read_operation(self, guard: ArtifactGuard) -> None:
-        ctx = {"file_path": "/repo/_temp/qa/AG3-001/structural.json"}
+        ctx: dict[str, object] = {"file_path": "/repo/_temp/qa/AG3-001/structural.json"}
         v = guard.evaluate("file_read", ctx)
         assert v.allowed is True
 

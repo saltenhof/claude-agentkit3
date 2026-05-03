@@ -50,9 +50,11 @@ context-management
 context-recovery
 context-sufficiency
 contract-checker
+control-plane
 conventions
 custom-fields
 customization
+dark-theme
 dashboard
 datenmodell
 defaults
@@ -60,6 +62,7 @@ delivery-contract
 dependencies
 dependency-rebinding
 deployment
+design-system
 determinism
 deterministic-checks
 deterministic-guard
@@ -72,6 +75,7 @@ domaenenmodell
 domain-overview
 drift-detection
 e2e
+envelope
 escalation
 evaluator
 eventing
@@ -89,8 +93,8 @@ feedback-loop
 feinkonzept
 fidelity-feedback
 fidelity-impl
-fine-design
 finding-resolution
+fine-design
 freeze
 github
 github-project
@@ -123,11 +127,11 @@ integrity
 integrity-gate
 json-schema
 katalog
-layered-checks
 komponentenarchitektur
 konfiguration
 kpi
 kpis
+layered-checks
 learning-loop
 lightweight-approval
 llm
@@ -172,6 +176,7 @@ posttooluse
 preflight
 pretooluse
 principal
+producer-registry
 projections
 prompt
 prompt-persistence
@@ -195,6 +200,7 @@ remediation
 request-dsl
 requirements
 reset
+rest-client
 resume-capsule
 retrieval
 review
@@ -244,11 +250,14 @@ telemetry
 terminality
 thresholds
 timeouts
+tokens
 tool-governance
 tools
 trust-boundaries
 trust-classes
 truth-boundary
+typography
+ui
 upgrade
 upgrades
 vectordb-abgleich

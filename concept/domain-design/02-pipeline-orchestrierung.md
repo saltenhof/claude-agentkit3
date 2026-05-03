@@ -37,6 +37,22 @@ formal_refs:
   - formal.story-workflow.events
   - formal.story-workflow.invariants
   - formal.story-workflow.scenarios
+glossary:
+  exported_terms:
+    - id: flow-execution
+      definition: >
+        Ein einzelner deterministischer Ausfuehrungsdurchlauf einer
+        FlowDefinition. Umfasst den vollstaendigen Story-Lifecycle von
+        Setup bis Closure und wird durch eine run_id eindeutig
+        identifiziert. Kein Agent entscheidet ueber den Ablauf; die
+        Engine steuert alle Phasenuebergaenge.
+    - id: operating-mode
+      definition: >
+        Technische Anwendung des Betriebs-Kontexts einer Story-Ausfuehrung.
+        Unterscheidet den gebundenen Story-Workflow (Pipeline-Lauf mit
+        Guardrails, QA und Closure) vom freien AI-Augmented-Modus
+        (direkter Mensch-Claude-Betrieb ohne Pipeline-Pflichten). Nicht zu
+        verwechseln mit der Vertragsachse execution_route (FK-59).
 ---
 
 # 02 — Deterministische Pipeline-Orchestrierung
@@ -73,7 +89,7 @@ Ebene einer gemeinsamen hierarchischen Prozesssprache, nicht ein
 Sonderfall mit eigener Logik.
 
 Eine Story durchläuft fünf Zustände im GitHub Project Board: Backlog,
-Freigegeben, In Progress, Done und Cancelled. Interne Zustände wie
+Approved, In Progress, Done und Cancelled. Interne Zustände wie
 Verify-Fail, Eskalation oder Pause ändern den GitHub-Status nicht (die
 Story bleibt "In Progress"), solange kein offizieller administrativer
 Pfad wie Story-Split oder Story-Reset ausgeführt wird. Wenn der

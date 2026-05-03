@@ -17,7 +17,7 @@ class TestBranchGuardDangerousPatterns:
     """Every DANGEROUS_PATTERNS entry must produce a BLOCK."""
 
     def test_force_push_long(self, guard: BranchGuard) -> None:
-        ctx = {"command": "git push --force origin feature"}
+        ctx: dict[str, object] = {"command": "git push --force origin feature"}
         v = guard.evaluate("bash_command", ctx)
         assert v.allowed is False
         assert v.violation_type == ViolationType.BRANCH_VIOLATION
@@ -38,7 +38,7 @@ class TestBranchGuardDangerousPatterns:
         assert v.violation_type == ViolationType.BRANCH_VIOLATION
 
     def test_force_delete_branch_long(self, guard: BranchGuard) -> None:
-        ctx = {"command": "git branch --delete --force feature"}
+        ctx: dict[str, object] = {"command": "git branch --delete --force feature"}
         v = guard.evaluate("bash_command", ctx)
         assert v.allowed is False
         assert v.violation_type == ViolationType.BRANCH_VIOLATION
@@ -134,7 +134,7 @@ class TestBranchGuardAllowed:
         assert v.allowed is True
 
     def test_push_to_feature_branch(self, guard: BranchGuard) -> None:
-        ctx = {"command": "git push origin feature/AG3-001"}
+        ctx: dict[str, object] = {"command": "git push origin feature/AG3-001"}
         v = guard.evaluate("bash_command", ctx)
         assert v.allowed is True
 

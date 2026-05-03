@@ -29,6 +29,63 @@ formal_refs:
   - formal.skills-and-bundles.events
   - formal.skills-and-bundles.invariants
   - formal.skills-and-bundles.scenarios
+glossary:
+  exported_terms:
+    - id: bundle-binding
+      definition: >
+        Projektlokale Symlink-Verknuepfung auf ein systemweit installiertes,
+        versioniertes Skill- oder Prompt-Bundle. Zeigt stets auf eine konkrete
+        unveraenderliche Bundle-Version, nie auf einen Live-Checkout oder
+        latest-Alias. Wird durch den Installer angelegt und durch Upgrade
+        gezielt ersetzt.
+    - id: checkpoint-result
+      definition: >
+        Rueckgabewert eines einzelnen Installer-Checkpoints mit den Feldern
+        checkpoint (Bezeichner), status, detail und duration_ms.
+      values:
+        - PASS
+        - CREATED
+        - UPDATED
+        - SKIPPED
+        - FAILED
+      see_also:
+        - term: installer-checkpoint
+          domain: installation-and-bootstrap
+    - id: checkpoint-run
+      definition: >
+        Eine vollstaendige Ausfuehrung der Installer-Checkpoint-Folge fuer
+        ein Projekt. Identifiziert durch checkpoint_run_id; traegt
+        Startzeit, Endzeit, aktuellen Checkpoint und Gesamtergebnis.
+      see_also:
+        - term: installer-checkpoint
+          domain: installation-and-bootstrap
+    - id: project-registration
+      definition: >
+        Eintrag eines Projekts im zentralen State-Backend nach erfolgreichem
+        Installer-Lauf. Enthaelt Projektkennung, GitHub-Owner/Repo/Project-ID,
+        Konfigurations-Digest, Projektprofil und zulassige Bundle-Version.
+        Grundlage fuer alle nachfolgenden Upgrade- und Verifikationsentscheide.
+      see_also:
+        - term: bootstrap-status
+          domain: installation-and-bootstrap
+  internal_terms:
+    - id: config-digest
+      reason: >
+        SHA-Hash der aktuellen .story-pipeline.yaml; internes
+        Implementierungsdetail fuer Upgrade-Delta-Erkennung. Kein
+        exportierter Vertragstyp.
+    - id: dry-run
+      reason: >
+        Ausfuehrungsmodus des Installers, der Checkpoint-Aktionen nur
+        vorschaut ohne Dateien, Backend-State oder Bindungen zu veraendern.
+        Interner Ausfuehrungspfad; der exportierte Begriff ist
+        checkpoint-run mit execution_mode=dry_run.
+    - id: runtime-profile
+      reason: >
+        Projektprofil-Bezeichner (core | are), der bei der Registrierung
+        ermittelt wird und die Auswahl der zu bindenden Skill-Varianten steuert.
+        Attribut von project-registration; kein eigenstaendiger exportierter
+        Vertragstyp.
 ---
 
 # 50 — Installer, Checkpoint-Engine und Bootstrap
@@ -52,19 +109,17 @@ Projekte, Hooks, Skill-Bindungen und Backend-Registrierung.
 
 <!-- PROSE-FORMAL: formal.installer.commands -->
 
-```bash
-# Erstregistrierung
-agentkit register-project --gh-owner acme-corp --gh-repo trading-platform
+Der Installer ist transport-agnostisch. CLI-Aufrufe (`agentkit register-project`,
+`agentkit verify-project`) sind Boundary-Controls des aufrufenden BC und
+werden dort dokumentiert. Beispiel-Aufrufe gehoeren nicht zum Installer-Vertrag.
 
-# Erneut laufen (idempotent)
-agentkit register-project --gh-owner acme-corp --gh-repo trading-platform
+**Unterstuetzte Ausfuehrungsmodi:**
 
-# Dry-Run (zeigt was passieren würde)
-agentkit register-project --gh-owner acme-corp --gh-repo trading-platform --dry-run
-
-# Verifikation (read-only Prüfung)
-agentkit verify-project
-```
+- Erstregistrierung: Checkpoint-Folge vollstaendig durchlaufen.
+- Idempotenter Re-Lauf: Bereits erfuellte Checkpoints werden uebersprungen (SKIPPED).
+- Dry-Run (`execution_mode=dry_run`): Checkpoint-Aktionen werden vorgeschaut, aber keine
+  Dateien, Backend-State oder Bindungen werden veraendert.
+- Verifikation (`execution_mode=verify`): Read-only Pruefung aller Checkpoints.
 
 ## 50.3 Zwölf Checkpoints
 
@@ -88,10 +143,15 @@ flowchart TD
 
 ### 50.3.1 Checkpoint-Engine als Komponenten-Flow
 
-Die Checkpoint-Engine des `Installer` wird ebenfalls ueber die
-Einheits-DSL modelliert. Jeder Checkpoint ist ein expliziter
-`step`-Knoten innerhalb eines
-`FlowDefinition(level="component", owner="Installer")`.
+Die Checkpoint-Engine des `Installer` wird ueber die Einheits-DSL
+modelliert. Jeder Checkpoint ist ein expliziter `step`-Knoten innerhalb
+eines `FlowDefinition(level="component", owner="Installer")`.
+
+**Cross-BC-Beziehung:** `FlowDefinition` ist eine DSL-Klasse aus BC
+`pipeline-framework` (`agentkit.pipeline_engine.flow_orchestrator`, FK-20).
+`installation-and-bootstrap` konsumiert diese Klasse als strukturelle
+Wiederverwendung der Einheits-DSL; die Checkpoint-Engine ist kein Teil von
+`PipelineEngine` und teilt keinen Laufzeit-State mit ihr.
 
 **Wichtige Konsequenz:**
 
@@ -184,10 +244,16 @@ Requires Exploration entfernt; Concept Quality hinzugefügt.
 ### CP 5: Pipeline-Config
 
 Erzeugt `.story-pipeline.yaml` wenn nicht vorhanden. Bei
-bestehender Datei: prüft `config_version`, migriert bei Bedarf
+bestehender Datei: prueft `config_version`, migriert bei Bedarf
 (Kap. 51).
 
-**Idempotenz:** Überschreibt nie bestehende Config.
+**ARE-Scope-Mapping:** `installation-and-bootstrap` ist Schreib-Owner
+des ARE-Scope-Mappings (`are.module_scope_map` in der Pipeline-Config).
+CP 5 initialisiert die Mapping-Struktur; CP 10c ergaenzt fehlende
+Eintraege interaktiv. Lese-Zugriff liegt bei BC `requirements-and-scope-coverage`
+(FK-40 §40.3.2).
+
+**Idempotenz:** Ueberschreibt nie bestehende Config.
 
 ### CP 6: Projektprofil ermitteln
 
@@ -212,16 +278,39 @@ hinterlegt:
 - GitHub-Owner/Repo/Project-ID
 - Konfigurations-Digest
 - Projektprofil
-- zulässige Bundle-Version
+- zulaessige Bundle-Version
+
+**Ownership:** BC `installation-and-bootstrap` ist Schema-Owner der
+`project_registry`-Tabelle. Der Schreib-Adapter ist ein T-Driver
+(Persistenz-Infrastruktur); die fachliche Datenstruktur
+(`ProjectRegistration`) bleibt in diesem BC definiert. Konsistent mit
+dem BC-9-Pattern (telemetry-and-events ownt nur DB-Zugriff, nicht die
+fachlichen Schemas der anderen BCs).
 
 **Idempotenz:** Upsert auf Projektkennung; nur Deltas werden geschrieben.
 
 ### CP 8: Skill-Symlinks binden
 
-Erzeugt unter `.claude/skills/` die projektlokalen Symlinks auf die
+Bindet die projektlokalen Skill-Verzeichnisse unter `.claude/skills/` an die
 systemweit installierten, versionierten Bundle-Verzeichnisse.
 
-Beispiel:
+Der Installer erzeugt Symlinks **nicht direkt**. Er ruft fuer jeden zu
+bindenden Skill die Top-Surface des BC `agent-skills` auf:
+
+```python
+# Top-Surface BC agent-skills (FK-43)
+Skills.bind_skill(skill_name, bundle_root, project_root)
+```
+
+Fuer die Prompt-Bundle-Bindung wird die Top-Surface des BC `prompt-runtime`
+aufgerufen:
+
+```python
+# Top-Surface BC prompt-runtime (FK-44)
+PromptRuntime.update_binding(bundle_id, version)
+```
+
+Beispiel (konzeptuelle Darstellung):
 
 ```text
 C:\ProgramData\AgentKit\bundles\4.0.0\are\skills\execute-userstory
@@ -233,18 +322,27 @@ T:\repo\.claude\skills\execute-userstory  ->  C:\ProgramData\AgentKit\bundles\4.
 - Pro Projekt wird nur die profilpassende Skill-Variante gebunden.
 - Der Symlink ist Bindungspunkt, nicht Source of Truth.
 
-**Idempotenz:** Bestehende korrekte Symlinks bleiben unverändert;
+**Idempotenz:** Bestehende korrekte Symlinks bleiben unveraendert;
 falsche oder veraltete Bindungen werden gezielt ersetzt.
 
 ### CP 9: Hooks registrieren
 
-Schreibt Hook-Einträge in `.claude/settings.json` (Kap. 30.3.1).
-Merge-Modus: bestehende Hooks bleiben erhalten, nur fehlende
-AgentKit-Hooks werden hinzugefügt.
+Registriert AgentKit-Hooks fuer das Projekt. Der Installer ruft dazu
+die Top-Surface des BC `governance-and-guards` auf:
 
-**Idempotenz:** Prüft ob jeder Hook bereits registriert ist.
+```python
+# Top-Surface BC governance-and-guards (FK-30/FK-31)
+Governance.register_hooks(hook_definitions)
+```
 
-Zusätzlich bindet der Installer die offiziellen lokalen
+Die JSON-Manipulation an `.claude/settings.json` liegt in
+`agentkit.governance.guard_system` (BC 4). Merge-Modus: bestehende
+Hooks bleiben erhalten, nur fehlende AgentKit-Hooks werden hinzugefuegt.
+
+**Idempotenz:** `Governance.register_hooks` prueft ob jeder Hook bereits
+registriert ist.
+
+Zusaetzlich bindet der Installer die offiziellen lokalen
 `Project Edge Client`-Wrapper unter `tools/agentkit/`, damit Agents
 keine freien REST-Aufrufe formulieren muessen.
 
@@ -372,22 +470,30 @@ class CheckpointResult:
 
 ## 50.5 Symlink-Bindung
 
-Der Installer erzeugt projektlokale Symlinks auf systemweite
-Bundle-Verzeichnisse:
+Der Installer bindet projektlokale Skills ueber die Top-Surface des BC
+`agent-skills`. Fuer jeden zu bindenden Skill wird aufgerufen:
 
 ```python
-def bind_project_skills(project_root: Path, bundle_root: Path, skills: list[str]) -> None:
-    skills_dir = project_root / ".claude" / "skills"
-    skills_dir.mkdir(parents=True, exist_ok=True)
-    for skill_name in skills:
-        source = bundle_root / "skills" / skill_name
-        target = skills_dir / skill_name
-        create_or_update_symlink(source, target)
+# Top-Surface BC agent-skills (agentkit.installer ruft agentkit.skills.Skills auf)
+Skills.bind_skill(skill_name, bundle_root, project_root)
 ```
 
-**Fail-closed:** Kann ein erwarteter Symlink nicht angelegt werden,
+`Skills.bind_skill` (BC 11, FK-43) ist verantwortlich fuer die
+Symlink-Anlage unter `.claude/skills/`. Der Installer erzeugt Symlinks
+nicht direkt; er delegiert an die kanonische Schnittstelle des Owner-BC.
+
+Analog dazu wird die Prompt-Bundle-Bindung ueber:
+
+```python
+# Top-Surface BC prompt-runtime (agentkit.installer ruft agentkit.prompt_runtime.PromptRuntime auf)
+PromptRuntime.update_binding(bundle_id, version)
+```
+
+aktualisiert (BC 10, FK-44).
+
+**Fail-closed:** Kann eine erwartete Bindung nicht hergestellt werden,
 scheitert die Projektregistrierung. Ein partiell gebundenes Profil ist
-nicht zulässig.
+nicht zulaessig.
 
 ## 50.6 Fehlerbehandlung
 

@@ -4,11 +4,12 @@ from datetime import UTC, datetime
 
 from agentkit.dashboard.service import DashboardService
 from agentkit.story.models import StoryListResponse, StoryMetricsView, StorySummary
+from agentkit.story.service import StoryService
 from agentkit.story_context_manager.sizing import StorySize
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 
-class _FakeStoryService:
+class _FakeStoryService(StoryService):
     def list_stories(self, project_key: str) -> StoryListResponse:
         return StoryListResponse(
             project_key=project_key,
