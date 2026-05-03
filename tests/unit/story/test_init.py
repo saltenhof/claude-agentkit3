@@ -38,6 +38,9 @@ class TestPackageExports:
     def test_get_phases_for_story_exported(self) -> None:
         assert hasattr(story_pkg, "get_phases_for_story")
 
+    def test_create_story_exported(self) -> None:
+        assert hasattr(story_pkg, "create_story")
+
     def test_all_list_matches_exports(self) -> None:
         expected = {
             "ImplementationContract",
@@ -49,6 +52,7 @@ class TestPackageExports:
             "StorySize",
             "StoryType",
             "StoryTypeProfile",
+            "create_story",
             "get_phases_for_story",
             "get_profile",
         }

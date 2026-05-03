@@ -193,7 +193,8 @@ class TestPersistence:
             tmp_path,
             StoryContext(
                 project_key="test-project",
-                story_id=tmp_path.name,
+                story_number=201,
+                story_id="TEST-201",
                 story_type=StoryType.IMPLEMENTATION,
                 execution_route=StoryMode.EXECUTION,
                 title="Canonical decision",

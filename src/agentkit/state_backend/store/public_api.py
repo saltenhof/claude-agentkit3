@@ -5,6 +5,7 @@ from __future__ import annotations
 PUBLIC_API = (
     "append_execution_event",
     "append_execution_event_global",
+    "allocate_next_story_number_global",
     "backend_has_completed_snapshot",
     "backend_has_structural_artifact",
     "backend_has_structural_artifact_for_scope",
@@ -39,6 +40,8 @@ PUBLIC_API = (
     "load_qa_stage_results_for_scope",
     "load_session_run_binding_global",
     "load_story_context",
+    "load_story_context_by_story_number_global",
+    "load_story_context_by_uuid_global",
     "load_story_context_global",
     "load_story_contexts_global",
     "load_story_execution_lock_global",
@@ -64,6 +67,7 @@ PUBLIC_API = (
     "save_project",
     "save_session_run_binding_global",
     "save_story_context",
+    "save_story_context_global",
     "save_story_execution_lock_global",
     "upsert_story_metrics",
 )

@@ -133,8 +133,12 @@ def _connect(story_dir: Path) -> Iterator[_CompatConnection]:
 
 def _schema_create_script() -> str:
     return """
+        CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
         CREATE TABLE IF NOT EXISTS story_contexts (
+            story_uuid UUID NOT NULL DEFAULT gen_random_uuid(),
             project_key TEXT NOT NULL,
+            story_number INTEGER NOT NULL,
             story_id TEXT NOT NULL,
             story_type TEXT NOT NULL,
             execution_route TEXT NOT NULL,
@@ -156,6 +160,12 @@ def _schema_create_script() -> str:
 
         CREATE INDEX IF NOT EXISTS projects_archived_at_idx
             ON projects (archived_at);
+
+        CREATE TABLE IF NOT EXISTS story_number_counters (
+            project_key TEXT PRIMARY KEY,
+            next_story_number INTEGER NOT NULL,
+            FOREIGN KEY (project_key) REFERENCES projects(key)
+        );
 
         CREATE TABLE IF NOT EXISTS phase_states (
             story_id TEXT PRIMARY KEY,
@@ -403,6 +413,55 @@ def _schema_create_script() -> str:
 
 def _schema_alter_statements() -> tuple[str, ...]:
     return (
+        "CREATE EXTENSION IF NOT EXISTS pgcrypto",
+        "ALTER TABLE story_contexts ADD COLUMN IF NOT EXISTS story_uuid UUID",
+        "ALTER TABLE story_contexts ADD COLUMN IF NOT EXISTS story_number INTEGER",
+        (
+            "UPDATE story_contexts SET story_uuid = gen_random_uuid() "
+            "WHERE story_uuid IS NULL"
+        ),
+        (
+            "UPDATE story_contexts SET story_number = "
+            "substring(story_id from '-([0-9]+)$')::INTEGER "
+            "WHERE story_number IS NULL AND story_id ~ '-[0-9]+$'"
+        ),
+        (
+            "INSERT INTO projects (key, name, story_id_prefix, configuration, "
+            "archived_at) "
+            "SELECT DISTINCT sc.project_key, sc.project_key, "
+            "CASE WHEN EXISTS ("
+            "SELECT 1 FROM projects p2 "
+            "WHERE p2.story_id_prefix = split_part(sc.story_id, '-', 1) "
+            "AND p2.key <> sc.project_key"
+            ") THEN left(split_part(sc.story_id, '-', 1), 4) || "
+            "upper(substr(md5(sc.project_key), 1, 6)) "
+            "ELSE split_part(sc.story_id, '-', 1) END, "
+            "'{\"repo_url\":\"\",\"default_branch\":\"main\",\"are_url\":null,"
+            "\"default_worker_count\":1}'::jsonb, NULL::TIMESTAMPTZ "
+            "FROM story_contexts sc "
+            "LEFT JOIN projects p ON p.key = sc.project_key "
+            "WHERE p.key IS NULL "
+            "ON CONFLICT(key) DO NOTHING"
+        ),
+        "ALTER TABLE story_contexts ALTER COLUMN story_uuid SET DEFAULT gen_random_uuid()",
+        "ALTER TABLE story_contexts ALTER COLUMN story_uuid SET NOT NULL",
+        "ALTER TABLE story_contexts ALTER COLUMN story_number SET NOT NULL",
+        (
+            "CREATE UNIQUE INDEX IF NOT EXISTS story_contexts_story_uuid_idx "
+            "ON story_contexts (story_uuid)"
+        ),
+        (
+            "CREATE UNIQUE INDEX IF NOT EXISTS story_contexts_project_story_number_idx "
+            "ON story_contexts (project_key, story_number)"
+        ),
+        (
+            "INSERT INTO story_number_counters (project_key, next_story_number) "
+            "SELECT project_key, COALESCE(MAX(story_number), 0) + 1 "
+            "FROM story_contexts GROUP BY project_key "
+            "ON CONFLICT(project_key) DO UPDATE SET next_story_number = "
+            "GREATEST(story_number_counters.next_story_number, "
+            "excluded.next_story_number)"
+        ),
         (
             "ALTER TABLE story_execution_locks "
             "DROP CONSTRAINT IF EXISTS story_execution_locks_pkey"
@@ -457,16 +516,95 @@ def _ensure_reporting_indexes(conn: _CompatConnection) -> None:
     )
 
 
+def _ensure_story_identity_constraints(conn: _CompatConnection) -> None:
+    """Apply idempotent story-identity constraints.
+
+    Rollback plan: drop ``story_contexts_project_key_fkey``,
+    ``story_contexts_story_uuid_idx``,
+    ``story_contexts_project_story_number_idx`` and
+    ``story_number_counters``. The migration leaves legacy ``story_id`` columns
+    untouched and backfills ``story_number`` from their numeric suffix.
+    """
+
+    conn.execute(
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1
+                FROM pg_constraint
+                WHERE conname = 'story_contexts_project_key_fkey'
+            ) THEN
+                ALTER TABLE story_contexts
+                ADD CONSTRAINT story_contexts_project_key_fkey
+                FOREIGN KEY (project_key) REFERENCES projects(key);
+            END IF;
+        END
+        $$;
+        """,
+    )
+
+
 def _ensure_schema(conn: _CompatConnection) -> None:
     conn.executescript(_schema_create_script())
     for statement in _schema_alter_statements():
         conn.execute(statement)
     _ensure_reporting_indexes(conn)
+    _ensure_story_identity_constraints(conn)
 
 
 def _story_id_for(story_dir: Path) -> str | None:
     story_id = story_dir.name
     return story_id or None
+
+
+def _ensure_project_for_story_row(
+    conn: _CompatConnection,
+    row: dict[str, Any],
+) -> None:
+    story_id = str(row["story_id"])
+    prefix = story_id.split("-", maxsplit=1)[0]
+    project_key = str(row["project_key"])
+    existing_project = conn.execute(
+        "SELECT 1 FROM projects WHERE key = ?",
+        (project_key,),
+    ).fetchone()
+    if existing_project is not None:
+        return
+    prefix_owner = conn.execute(
+        "SELECT key FROM projects WHERE story_id_prefix = ?",
+        (prefix,),
+    ).fetchone()
+    if prefix_owner is not None:
+        prefix = _disambiguated_story_prefix(prefix, project_key)
+    conn.execute(
+        """
+        INSERT INTO projects (
+            key,
+            name,
+            story_id_prefix,
+            configuration,
+            archived_at
+        )
+        VALUES (
+            ?,
+            ?,
+            ?,
+            '{"repo_url":"","default_branch":"main","are_url":null,
+              "default_worker_count":1}'::jsonb,
+            NULL::TIMESTAMPTZ
+        )
+        ON CONFLICT(key) DO NOTHING
+        """,
+        (project_key, project_key, prefix),
+    )
+
+
+def _disambiguated_story_prefix(prefix: str, project_key: str) -> str:
+    import hashlib
+
+    suffix = hashlib.md5(project_key.encode("utf-8"), usedforsecurity=False).hexdigest()
+    return f"{prefix[:4]}{suffix[:6]}".upper()
 
 
 def _artifact_id_for(artifact_kind: str, attempt_no: int | None = None) -> str:
@@ -595,10 +733,13 @@ def save_story_context_row(story_dir: Path, row: dict[str, Any]) -> None:
 
     payload_dict = json.loads(str(row["payload_json"]))
     with _connect(story_dir) as conn:
+        _ensure_project_for_story_row(conn, row)
         conn.execute(
             """
             INSERT INTO story_contexts (
+                story_uuid,
                 project_key,
+                story_number,
                 story_id,
                 story_type,
                 execution_route,
@@ -607,8 +748,10 @@ def save_story_context_row(story_dir: Path, row: dict[str, Any]) -> None:
                 title,
                 payload_json,
                 updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(project_key, story_id) DO UPDATE SET
+                story_uuid=excluded.story_uuid,
+                story_number=excluded.story_number,
                 story_type=excluded.story_type,
                 execution_route=excluded.execution_route,
                 implementation_contract=excluded.implementation_contract,
@@ -618,7 +761,9 @@ def save_story_context_row(story_dir: Path, row: dict[str, Any]) -> None:
                 updated_at=excluded.updated_at
             """,
             (
+                row["story_uuid"],
                 row["project_key"],
+                row["story_number"],
                 row["story_id"],
                 row["story_type"],
                 row["execution_route"],
@@ -662,6 +807,57 @@ def read_story_context_row(story_dir: Path) -> dict[str, Any] | None:
     return load_story_context_row(story_dir)
 
 
+def save_story_context_global_row(
+    store_dir: Path | None,
+    row: dict[str, Any],
+) -> None:
+    """Persist a story-context row without requiring a story directory."""
+
+    del store_dir
+    with _connect_global() as conn:
+        _ensure_project_for_story_row(conn, row)
+        conn.execute(
+            """
+            INSERT INTO story_contexts (
+                story_uuid,
+                project_key,
+                story_number,
+                story_id,
+                story_type,
+                execution_route,
+                implementation_contract,
+                issue_nr,
+                title,
+                payload_json,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(project_key, story_id) DO UPDATE SET
+                story_uuid=excluded.story_uuid,
+                story_number=excluded.story_number,
+                story_type=excluded.story_type,
+                execution_route=excluded.execution_route,
+                implementation_contract=excluded.implementation_contract,
+                issue_nr=excluded.issue_nr,
+                title=excluded.title,
+                payload_json=excluded.payload_json,
+                updated_at=excluded.updated_at
+            """,
+            (
+                row["story_uuid"],
+                row["project_key"],
+                row["story_number"],
+                row["story_id"],
+                row["story_type"],
+                row["execution_route"],
+                row["implementation_contract"],
+                row["issue_nr"],
+                row["title"],
+                row["payload_json"],
+                now_iso(),
+            ),
+        )
+
+
 def load_story_context_global_row(
     project_key: str,
     story_id: str,
@@ -679,6 +875,67 @@ def load_story_context_global_row(
     if row is None:
         return None
     return {"payload_json": str(row["payload_json"])}
+
+
+def load_story_context_by_story_number_row(
+    store_dir: Path | None,
+    project_key: str,
+    story_number: int,
+) -> dict[str, Any] | None:
+    """Return one story-context row by fachliche identity."""
+
+    del store_dir
+    with _connect_global() as conn:
+        row = conn.execute(
+            """
+            SELECT payload_json FROM story_contexts
+            WHERE project_key = ? AND story_number = ?
+            """,
+            (project_key, story_number),
+        ).fetchone()
+    if row is None:
+        return None
+    return {"payload_json": str(row["payload_json"])}
+
+
+def load_story_context_by_uuid_row(
+    store_dir: Path | None,
+    story_uuid: str,
+) -> dict[str, Any] | None:
+    """Return one story-context row by technical identity."""
+
+    del store_dir
+    with _connect_global() as conn:
+        row = conn.execute(
+            """
+            SELECT payload_json FROM story_contexts
+            WHERE story_uuid = ?::uuid
+            """,
+            (story_uuid,),
+        ).fetchone()
+    if row is None:
+        return None
+    return {"payload_json": str(row["payload_json"])}
+
+
+def allocate_next_story_number_row(store_dir: Path | None, project_key: str) -> int:
+    """Atomically reserve the next story number for one project."""
+
+    del store_dir
+    with _connect_global() as conn:
+        row = conn.execute(
+            """
+            INSERT INTO story_number_counters (project_key, next_story_number)
+            VALUES (?, 2)
+            ON CONFLICT(project_key) DO UPDATE SET
+                next_story_number = story_number_counters.next_story_number + 1
+            RETURNING next_story_number - 1 AS allocated_story_number
+            """,
+            (project_key,),
+        ).fetchone()
+    if row is None:
+        raise RuntimeError("Story-number allocation failed")
+    return int(row["allocated_story_number"])
 
 
 def load_story_context_rows_global(project_key: str) -> list[dict[str, Any]]:

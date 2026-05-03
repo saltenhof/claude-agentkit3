@@ -11,7 +11,9 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
+from uuid import uuid4
 
 from agentkit.boundary.filesystem import atomic_write_json, load_json_object
 from agentkit.boundary.shared.time import now_iso
@@ -26,7 +28,6 @@ from agentkit.state_backend.paths import (
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
-    from pathlib import Path
 
     from agentkit.state_backend.scope import RuntimeStateScope
 
@@ -79,7 +80,9 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS story_contexts (
+            story_uuid TEXT NOT NULL,
             project_key TEXT NOT NULL,
+            story_number INTEGER NOT NULL,
             story_id TEXT NOT NULL,
             story_type TEXT NOT NULL,
             execution_route TEXT NOT NULL,
@@ -88,7 +91,8 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             title TEXT NOT NULL,
             payload_json TEXT NOT NULL,
             updated_at TEXT NOT NULL,
-            PRIMARY KEY (project_key, story_id)
+            PRIMARY KEY (project_key, story_id),
+            FOREIGN KEY (project_key) REFERENCES projects(key)
         );
 
         CREATE TABLE IF NOT EXISTS projects (
@@ -101,6 +105,12 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS projects_archived_at_idx
             ON projects (archived_at);
+
+        CREATE TABLE IF NOT EXISTS story_number_counters (
+            project_key TEXT PRIMARY KEY,
+            next_story_number INTEGER NOT NULL,
+            FOREIGN KEY (project_key) REFERENCES projects(key)
+        );
 
         CREATE TABLE IF NOT EXISTS phase_states (
             story_id TEXT PRIMARY KEY,
@@ -245,6 +255,182 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         );
         """
     )
+    _ensure_story_identity_migration(conn)
+
+
+def _ensure_story_identity_migration(conn: sqlite3.Connection) -> None:
+    """Apply idempotent story-identity schema migration.
+
+    Rollback plan: drop ``story_contexts_story_uuid_idx``,
+    ``story_contexts_project_story_number_idx`` and
+    ``story_number_counters``; keep ``story_id`` and ``payload_json`` as the
+    legacy source of truth. The migration only adds columns/indexes and
+    backfills values from materialized ``story_id``.
+    """
+
+    columns = {
+        str(row["name"])
+        for row in conn.execute("PRAGMA table_info(story_contexts)").fetchall()
+    }
+    if "story_uuid" not in columns:
+        conn.execute("ALTER TABLE story_contexts ADD COLUMN story_uuid TEXT")
+    if "story_number" not in columns:
+        conn.execute("ALTER TABLE story_contexts ADD COLUMN story_number INTEGER")
+
+    for row in conn.execute(
+        "SELECT project_key, story_id FROM story_contexts WHERE story_uuid IS NULL",
+    ).fetchall():
+        conn.execute(
+            """
+            UPDATE story_contexts
+            SET story_uuid = ?
+            WHERE project_key = ? AND story_id = ?
+            """,
+            (str(uuid4()), row["project_key"], row["story_id"]),
+        )
+
+    for row in conn.execute(
+        "SELECT project_key, story_id FROM story_contexts WHERE story_number IS NULL",
+    ).fetchall():
+        story_number = _story_number_from_id(str(row["story_id"]))
+        if story_number is None:
+            continue
+        conn.execute(
+            """
+            UPDATE story_contexts
+            SET story_number = ?
+            WHERE project_key = ? AND story_id = ?
+            """,
+            (story_number, row["project_key"], row["story_id"]),
+        )
+
+    _ensure_default_projects_for_story_contexts(conn)
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS story_contexts_story_uuid_idx
+            ON story_contexts (story_uuid)
+        """,
+    )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS story_contexts_project_story_number_idx
+            ON story_contexts (project_key, story_number)
+        """,
+    )
+    conn.execute(
+        """
+        INSERT INTO story_number_counters (project_key, next_story_number)
+        SELECT project_key, COALESCE(MAX(story_number), 0) + 1
+        FROM story_contexts
+        WHERE story_number IS NOT NULL
+        GROUP BY project_key
+        ON CONFLICT(project_key) DO UPDATE SET
+            next_story_number = MAX(
+                story_number_counters.next_story_number,
+                excluded.next_story_number
+            )
+        """,
+    )
+
+
+def _ensure_default_projects_for_story_contexts(conn: sqlite3.Connection) -> None:
+    default_configuration = _dump_json(
+        {
+            "repo_url": "",
+            "default_branch": "main",
+            "are_url": None,
+            "default_worker_count": 1,
+        },
+    )
+    rows = conn.execute(
+        """
+        SELECT DISTINCT sc.project_key, sc.story_id
+        FROM story_contexts sc
+        LEFT JOIN projects p ON p.key = sc.project_key
+        WHERE p.key IS NULL
+        """,
+    ).fetchall()
+    for row in rows:
+        prefix = str(row["story_id"]).split("-", maxsplit=1)[0]
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO projects (
+                key,
+                name,
+                story_id_prefix,
+                configuration_json,
+                archived_at
+            )
+            VALUES (?, ?, ?, ?, NULL)
+            """,
+            (
+                row["project_key"],
+                row["project_key"],
+                prefix,
+                default_configuration,
+            ),
+        )
+
+
+def _ensure_project_for_story_row(
+    conn: sqlite3.Connection,
+    row: dict[str, Any],
+) -> None:
+    default_configuration = _dump_json(
+        {
+            "repo_url": "",
+            "default_branch": "main",
+            "are_url": None,
+            "default_worker_count": 1,
+        },
+    )
+    story_id = str(row["story_id"])
+    prefix = story_id.split("-", maxsplit=1)[0]
+    project_key = str(row["project_key"])
+    existing_project = conn.execute(
+        "SELECT 1 FROM projects WHERE key = ?",
+        (project_key,),
+    ).fetchone()
+    if existing_project is not None:
+        return
+    prefix_owner = conn.execute(
+        "SELECT key FROM projects WHERE story_id_prefix = ?",
+        (prefix,),
+    ).fetchone()
+    if prefix_owner is not None:
+        prefix = _disambiguated_story_prefix(prefix, project_key)
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO projects (
+            key,
+            name,
+            story_id_prefix,
+            configuration_json,
+            archived_at
+        )
+        VALUES (?, ?, ?, ?, NULL)
+        """,
+        (
+            project_key,
+            project_key,
+            prefix,
+            default_configuration,
+        ),
+    )
+
+
+def _disambiguated_story_prefix(prefix: str, project_key: str) -> str:
+    suffix = "".join(ch for ch in project_key.upper() if ch.isalnum())[:6]
+    if not suffix:
+        suffix = "X"
+    return f"{prefix[: max(1, 10 - len(suffix))]}{suffix}"[:10]
+
+
+def _story_number_from_id(story_id: str) -> int | None:
+    suffix = story_id.rsplit("-", maxsplit=1)[-1]
+    if not suffix.isdigit():
+        return None
+    return int(suffix)
 
 
 def _story_id_for(story_dir: Path) -> str | None:
@@ -261,10 +447,13 @@ def save_story_context_row(story_dir: Path, row: dict[str, Any]) -> None:
 
     payload_dict = json.loads(str(row["payload_json"]))
     with _connect(story_dir) as conn:
+        _ensure_project_for_story_row(conn, row)
         conn.execute(
             """
             INSERT INTO story_contexts (
+                story_uuid,
                 project_key,
+                story_number,
                 story_id,
                 story_type,
                 execution_route,
@@ -273,8 +462,10 @@ def save_story_context_row(story_dir: Path, row: dict[str, Any]) -> None:
                 title,
                 payload_json,
                 updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(project_key, story_id) DO UPDATE SET
+                story_uuid=excluded.story_uuid,
+                story_number=excluded.story_number,
                 story_type=excluded.story_type,
                 execution_route=excluded.execution_route,
                 implementation_contract=excluded.implementation_contract,
@@ -284,7 +475,9 @@ def save_story_context_row(story_dir: Path, row: dict[str, Any]) -> None:
                 updated_at=excluded.updated_at
             """,
             (
+                row["story_uuid"],
                 row["project_key"],
+                row["story_number"],
                 row["story_id"],
                 row["story_type"],
                 row["execution_route"],
@@ -326,6 +519,159 @@ def read_story_context_row(story_dir: Path) -> dict[str, Any] | None:
     """Canonical reader name for protected runtime modules."""
 
     return load_story_context_row(story_dir)
+
+
+def save_story_context_global_row(
+    store_dir: Path | None,
+    row: dict[str, Any],
+) -> None:
+    """Persist a story-context row without requiring a story directory."""
+
+    with _connect(_project_store_dir(store_dir)) as conn:
+        _ensure_project_for_story_row(conn, row)
+        conn.execute(
+            """
+            INSERT INTO story_contexts (
+                story_uuid,
+                project_key,
+                story_number,
+                story_id,
+                story_type,
+                execution_route,
+                implementation_contract,
+                issue_nr,
+                title,
+                payload_json,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(project_key, story_id) DO UPDATE SET
+                story_uuid=excluded.story_uuid,
+                story_number=excluded.story_number,
+                story_type=excluded.story_type,
+                execution_route=excluded.execution_route,
+                implementation_contract=excluded.implementation_contract,
+                issue_nr=excluded.issue_nr,
+                title=excluded.title,
+                payload_json=excluded.payload_json,
+                updated_at=excluded.updated_at
+            """,
+            (
+                row["story_uuid"],
+                row["project_key"],
+                row["story_number"],
+                row["story_id"],
+                row["story_type"],
+                row["execution_route"],
+                row["implementation_contract"],
+                row["issue_nr"],
+                row["title"],
+                row["payload_json"],
+                now_iso(),
+            ),
+        )
+
+
+def load_story_context_global_row(
+    project_key: str,
+    story_id: str,
+) -> dict[str, Any] | None:
+    """Return the raw payload row for a global story context, or None."""
+
+    with _connect(Path.cwd()) as conn:
+        row = conn.execute(
+            """
+            SELECT payload_json FROM story_contexts
+            WHERE project_key = ? AND story_id = ?
+            """,
+            (project_key, story_id),
+        ).fetchone()
+    if row is None:
+        return None
+    return {"payload_json": str(row["payload_json"])}
+
+
+def load_story_context_by_story_number_row(
+    store_dir: Path | None,
+    project_key: str,
+    story_number: int,
+) -> dict[str, Any] | None:
+    """Return one story-context row by fachliche identity."""
+
+    with _connect(_project_store_dir(store_dir)) as conn:
+        row = conn.execute(
+            """
+            SELECT payload_json FROM story_contexts
+            WHERE project_key = ? AND story_number = ?
+            """,
+            (project_key, story_number),
+        ).fetchone()
+    if row is None:
+        return None
+    return {"payload_json": str(row["payload_json"])}
+
+
+def load_story_context_by_uuid_row(
+    store_dir: Path | None,
+    story_uuid: str,
+) -> dict[str, Any] | None:
+    """Return one story-context row by technical identity."""
+
+    with _connect(_project_store_dir(store_dir)) as conn:
+        row = conn.execute(
+            """
+            SELECT payload_json FROM story_contexts
+            WHERE story_uuid = ?
+            """,
+            (story_uuid,),
+        ).fetchone()
+    if row is None:
+        return None
+    return {"payload_json": str(row["payload_json"])}
+
+
+def allocate_next_story_number_row(store_dir: Path | None, project_key: str) -> int:
+    """Atomically reserve the next story number for one project."""
+
+    with _connect(_project_store_dir(store_dir)) as conn:
+        conn.commit()
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            """
+            SELECT next_story_number
+            FROM story_number_counters
+            WHERE project_key = ?
+            """,
+            (project_key,),
+        ).fetchone()
+        if row is None:
+            max_row = conn.execute(
+                """
+                SELECT COALESCE(MAX(story_number), 0) + 1 AS next_story_number
+                FROM story_contexts
+                WHERE project_key = ?
+                """,
+                (project_key,),
+            ).fetchone()
+            next_story_number = int(max_row["next_story_number"])
+            conn.execute(
+                """
+                INSERT INTO story_number_counters (project_key, next_story_number)
+                VALUES (?, ?)
+                """,
+                (project_key, next_story_number + 1),
+            )
+            return next_story_number
+
+        next_story_number = int(row["next_story_number"])
+        conn.execute(
+            """
+            UPDATE story_number_counters
+            SET next_story_number = ?
+            WHERE project_key = ?
+            """,
+            (next_story_number + 1, project_key),
+        )
+        return next_story_number
 
 
 # ---------------------------------------------------------------------------

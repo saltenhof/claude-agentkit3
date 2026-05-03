@@ -1,4 +1,7 @@
 from agentkit.state_backend.store.facade import (
+    allocate_next_story_number_global as allocate_next_story_number_global,
+)
+from agentkit.state_backend.store.facade import (
     append_execution_event as append_execution_event,
 )
 from agentkit.state_backend.store.facade import (
@@ -107,6 +110,12 @@ from agentkit.state_backend.store.facade import (
     load_story_context as load_story_context,
 )
 from agentkit.state_backend.store.facade import (
+    load_story_context_by_story_number_global as load_story_context_by_story_number_global,
+)
+from agentkit.state_backend.store.facade import (
+    load_story_context_by_uuid_global as load_story_context_by_uuid_global,
+)
+from agentkit.state_backend.store.facade import (
     load_story_context_global as load_story_context_global,
 )
 from agentkit.state_backend.store.facade import (
@@ -180,6 +189,9 @@ from agentkit.state_backend.store.facade import (
 )
 from agentkit.state_backend.store.facade import (
     save_story_context as save_story_context,
+)
+from agentkit.state_backend.store.facade import (
+    save_story_context_global as save_story_context_global,
 )
 from agentkit.state_backend.store.facade import (
     save_story_execution_lock_global as save_story_execution_lock_global,

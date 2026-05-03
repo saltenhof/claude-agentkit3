@@ -136,7 +136,9 @@ def story_context_to_row(ctx: StoryContext) -> dict[str, Any]:
     """Convert a ``StoryContext`` to a DB-insertable row dict."""
 
     return {
+        "story_uuid": str(ctx.story_uuid),
         "project_key": ctx.project_key,
+        "story_number": ctx.story_number,
         "story_id": ctx.story_id,
         "story_type": ctx.story_type.value,
         "execution_route": ctx.execution_route.value,

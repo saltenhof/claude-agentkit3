@@ -34,6 +34,10 @@ if TYPE_CHECKING:
         ProjectManagementRoutes,
         ProjectRouteResponse,
     )
+    from agentkit.story_context_manager.http.routes import (
+        StoryContextRoutes,
+        StoryRouteResponse,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +54,7 @@ _STORY_PATH_PATTERN = re.compile(
     r"^/v1/stories/(?P<story_id>[^/]+)$",
 )
 _MISSING_PROJECT_KEY_ERROR = "Missing required query parameter: project_key"
+_NOT_FOUND_MESSAGE = "Not found"
 _CORRELATION_HEADER = "X-Correlation-Id"
 
 
@@ -73,6 +78,7 @@ class ControlPlaneApplication:
         story_service: StoryService | None = None,
         dashboard_service: DashboardService | None = None,
         project_routes: ProjectManagementRoutes | None = None,
+        story_routes: StoryContextRoutes | None = None,
     ) -> None:
         self._telemetry_service = telemetry_service or ControlPlaneTelemetryService()
         self._runtime_service = runtime_service or ControlPlaneRuntimeService()
@@ -85,6 +91,11 @@ class ControlPlaneApplication:
 
             project_routes = ProjectManagementRoutes()
         self._project_routes = project_routes
+        if story_routes is None:
+            from agentkit.story_context_manager.http.routes import StoryContextRoutes
+
+            story_routes = StoryContextRoutes(story_service=self._story_service)
+        self._story_routes = story_routes
 
     def handle_request(
         self,
@@ -142,6 +153,10 @@ class ControlPlaneApplication:
         if project_response is not None:
             return _project_response_to_http_response(project_response)
 
+        story_response = self._story_routes.handle_get(route_path, correlation_id)
+        if story_response is not None:
+            return _story_response_to_http_response(story_response)
+
         if route_path == "/v1/stories":
             return self._handle_get_stories(query, correlation_id)
         if route_path == "/v1/dashboard/board":
@@ -166,7 +181,7 @@ class ControlPlaneApplication:
         return _error_response(
             HTTPStatus.NOT_FOUND,
             error_code="not_found",
-            message="Not found",
+            message=_NOT_FOUND_MESSAGE,
             correlation_id=correlation_id,
         )
 
@@ -183,6 +198,14 @@ class ControlPlaneApplication:
         )
         if project_response is not None:
             return _project_response_to_http_response(project_response)
+
+        story_response = self._story_routes.handle_post(
+            route_path,
+            payload,
+            correlation_id,
+        )
+        if story_response is not None:
+            return _story_response_to_http_response(story_response)
 
         if route_path == "/v1/telemetry/events":
             return self._handle_post_telemetry(payload, correlation_id)
@@ -209,7 +232,7 @@ class ControlPlaneApplication:
         return _error_response(
             HTTPStatus.NOT_FOUND,
             error_code="not_found",
-            message="Not found",
+            message=_NOT_FOUND_MESSAGE,
             correlation_id=correlation_id,
         )
 
@@ -229,7 +252,7 @@ class ControlPlaneApplication:
         return _error_response(
             HTTPStatus.NOT_FOUND,
             error_code="not_found",
-            message="Not found",
+            message=_NOT_FOUND_MESSAGE,
             correlation_id=correlation_id,
         )
 
@@ -590,6 +613,14 @@ def _json_response(
 
 
 def _project_response_to_http_response(response: ProjectRouteResponse) -> HttpResponse:
+    return HttpResponse(
+        status_code=response.status_code,
+        body=response.body,
+        headers=response.headers,
+    )
+
+
+def _story_response_to_http_response(response: StoryRouteResponse) -> HttpResponse:
     return HttpResponse(
         status_code=response.status_code,
         body=response.body,

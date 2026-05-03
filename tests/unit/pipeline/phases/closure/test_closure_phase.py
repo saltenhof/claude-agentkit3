@@ -369,22 +369,22 @@ class TestClosurePhaseHandler:
 
         Research profile phases: setup, implementation, closure.
         """
-        s_dir = tmp_path / "stories" / "TEST-R01"
+        s_dir = tmp_path / "stories" / "TEST-101"
         s_dir.mkdir(parents=True)
-        _save_snapshot(s_dir, "setup", story_id="TEST-R01")
-        _save_snapshot(s_dir, "implementation", story_id="TEST-R01")
-        _save_flow(s_dir, story_id="TEST-R01")
-        _append_agent_start_event(s_dir, story_id="TEST-R01")
+        _save_snapshot(s_dir, "setup", story_id="TEST-101")
+        _save_snapshot(s_dir, "implementation", story_id="TEST-101")
+        _save_flow(s_dir, story_id="TEST-101")
+        _append_agent_start_event(s_dir, story_id="TEST-101")
 
         config = ClosureConfig(story_dir=s_dir, close_issue=False)
         handler = ClosurePhaseHandler(config)
         ctx = _make_ctx(
-            story_id="TEST-R01",
+            story_id="TEST-101",
             story_type=StoryType.RESEARCH,
             execution_route=StoryMode.NOT_APPLICABLE,
             project_root=tmp_path,
         )
-        state = _make_state(story_id="TEST-R01")
+        state = _make_state(story_id="TEST-101")
 
         result = handler.on_enter(ctx, state)
 
@@ -411,16 +411,16 @@ class TestClosurePhaseHandler:
         A snapshot that exists but has status != COMPLETED must be
         rejected -- presence alone is not sufficient.
         """
-        s_dir = tmp_path / "stories" / "TEST-FAIL"
+        s_dir = tmp_path / "stories" / "TEST-102"
         s_dir.mkdir(parents=True)
 
         # Save completed snapshots for setup and exploration
-        _save_snapshot(s_dir, "setup", story_id="TEST-FAIL")
-        _save_snapshot(s_dir, "exploration", story_id="TEST-FAIL")
+        _save_snapshot(s_dir, "setup", story_id="TEST-102")
+        _save_snapshot(s_dir, "exploration", story_id="TEST-102")
 
         # Save a FAILED snapshot for implementation
         failed_snapshot = PhaseSnapshot(
-            story_id="TEST-FAIL",
+            story_id="TEST-102",
             phase="implementation",
             status=PhaseStatus.FAILED,
             completed_at=datetime.now(tz=UTC),
@@ -430,12 +430,12 @@ class TestClosurePhaseHandler:
         save_phase_snapshot(s_dir, failed_snapshot)
 
         # Save completed verify
-        _save_snapshot(s_dir, "verify", story_id="TEST-FAIL")
+        _save_snapshot(s_dir, "verify", story_id="TEST-102")
 
         config = ClosureConfig(story_dir=s_dir, close_issue=False)
         handler = ClosurePhaseHandler(config)
-        ctx = _make_ctx(story_id="TEST-FAIL", project_root=tmp_path)
-        state = _make_state(story_id="TEST-FAIL")
+        ctx = _make_ctx(story_id="TEST-102", project_root=tmp_path)
+        state = _make_state(story_id="TEST-102")
 
         result = handler.on_enter(ctx, state)
 
@@ -454,16 +454,16 @@ class TestClosurePhaseHandler:
         ESCALATED means the phase exceeded retry limits -- closure
         must not proceed.
         """
-        s_dir = tmp_path / "stories" / "TEST-ESC"
+        s_dir = tmp_path / "stories" / "TEST-103"
         s_dir.mkdir(parents=True)
 
         # Save completed snapshots for setup, exploration, implementation
         for phase in ("setup", "exploration", "implementation"):
-            _save_snapshot(s_dir, phase, story_id="TEST-ESC")
+            _save_snapshot(s_dir, phase, story_id="TEST-103")
 
         # Save an ESCALATED snapshot for verify
         escalated_snapshot = PhaseSnapshot(
-            story_id="TEST-ESC",
+            story_id="TEST-103",
             phase="verify",
             status=PhaseStatus.ESCALATED,
             completed_at=datetime.now(tz=UTC),
@@ -474,8 +474,8 @@ class TestClosurePhaseHandler:
 
         config = ClosureConfig(story_dir=s_dir, close_issue=False)
         handler = ClosurePhaseHandler(config)
-        ctx = _make_ctx(story_id="TEST-ESC", project_root=tmp_path)
-        state = _make_state(story_id="TEST-ESC")
+        ctx = _make_ctx(story_id="TEST-103", project_root=tmp_path)
+        state = _make_state(story_id="TEST-103")
 
         result = handler.on_enter(ctx, state)
 
@@ -486,14 +486,14 @@ class TestClosurePhaseHandler:
         assert "escalated" in error_text
 
     def test_closure_uses_verify_attempts_for_qa_rounds(self, tmp_path: Path) -> None:
-        s_dir = tmp_path / "stories" / "TEST-QA"
+        s_dir = tmp_path / "stories" / "TEST-104"
         s_dir.mkdir(parents=True)
         for phase in ("setup", "exploration", "implementation", "verify"):
-            _save_snapshot(s_dir, phase, story_id="TEST-QA")
-        _save_flow(s_dir, story_id="TEST-QA")
-        _append_agent_start_event(s_dir, story_id="TEST-QA")
-        ctx = _make_ctx(story_id="TEST-QA", project_root=tmp_path)
-        state = _make_state(story_id="TEST-QA")
+            _save_snapshot(s_dir, phase, story_id="TEST-104")
+        _save_flow(s_dir, story_id="TEST-104")
+        _append_agent_start_event(s_dir, story_id="TEST-104")
+        ctx = _make_ctx(story_id="TEST-104", project_root=tmp_path)
+        state = _make_state(story_id="TEST-104")
         handler = ClosurePhaseHandler(ClosureConfig(story_dir=s_dir, close_issue=False))
         save_story_context(s_dir, ctx)
 
@@ -501,8 +501,8 @@ class TestClosurePhaseHandler:
             s_dir,
             ExecutionEventRecord(
                 project_key=s_dir.parent.parent.name,
-                story_id="TEST-QA",
-                run_id=_run_id_for("TEST-QA"),
+                story_id="TEST-104",
+                run_id=_run_id_for("TEST-104"),
                 event_id="evt-noise-001",
                 event_type=EventType.WARNING.value,
                 occurred_at=datetime(2026, 1, 1, 10, 6, 0, tzinfo=UTC),
@@ -539,14 +539,14 @@ class TestClosurePhaseHandler:
         assert metrics[0].qa_rounds == 2
 
     def test_closure_fails_without_canonical_run_id(self, tmp_path: Path) -> None:
-        s_dir = tmp_path / "stories" / "TEST-NORUN"
+        s_dir = tmp_path / "stories" / "TEST-105"
         s_dir.mkdir(parents=True)
         for phase in ("setup", "exploration", "implementation", "verify"):
-            _save_snapshot(s_dir, phase, story_id="TEST-NORUN")
+            _save_snapshot(s_dir, phase, story_id="TEST-105")
 
         handler = ClosurePhaseHandler(ClosureConfig(story_dir=s_dir, close_issue=False))
-        ctx = _make_ctx(story_id="TEST-NORUN", project_root=tmp_path)
-        state = _make_state(story_id="TEST-NORUN")
+        ctx = _make_ctx(story_id="TEST-105", project_root=tmp_path)
+        state = _make_state(story_id="TEST-105")
 
         result = handler.on_enter(ctx, state)
 
@@ -560,25 +560,25 @@ class TestClosurePhaseHandler:
         self,
         tmp_path: Path,
     ) -> None:
-        s_dir = tmp_path / "stories" / "TEST-TIME"
+        s_dir = tmp_path / "stories" / "TEST-106"
         s_dir.mkdir(parents=True)
         for phase in ("setup", "exploration", "implementation", "verify"):
-            _save_snapshot(s_dir, phase, story_id="TEST-TIME")
-        _save_flow(s_dir, story_id="TEST-TIME")
+            _save_snapshot(s_dir, phase, story_id="TEST-106")
+        _save_flow(s_dir, story_id="TEST-106")
         _append_agent_start_event(
             s_dir,
-            story_id="TEST-TIME",
+            story_id="TEST-106",
             occurred_at=datetime(2026, 1, 1, 9, 30, 0, tzinfo=UTC),
         )
         _append_agent_start_event(
             s_dir,
-            story_id="TEST-TIME",
+            story_id="TEST-106",
             occurred_at=datetime(2026, 1, 1, 9, 45, 0, tzinfo=UTC),
         )
 
         handler = ClosurePhaseHandler(ClosureConfig(story_dir=s_dir, close_issue=False))
-        ctx = _make_ctx(story_id="TEST-TIME", project_root=tmp_path)
-        state = _make_state(story_id="TEST-TIME")
+        ctx = _make_ctx(story_id="TEST-106", project_root=tmp_path)
+        state = _make_state(story_id="TEST-106")
 
         result = handler.on_enter(ctx, state)
 
@@ -588,15 +588,15 @@ class TestClosurePhaseHandler:
         assert metrics[0].processing_time_min >= 30.0
 
     def test_closure_fails_without_agent_start_event(self, tmp_path: Path) -> None:
-        s_dir = tmp_path / "stories" / "TEST-NOSTART"
+        s_dir = tmp_path / "stories" / "TEST-107"
         s_dir.mkdir(parents=True)
         for phase in ("setup", "exploration", "implementation", "verify"):
-            _save_snapshot(s_dir, phase, story_id="TEST-NOSTART")
-        _save_flow(s_dir, story_id="TEST-NOSTART")
+            _save_snapshot(s_dir, phase, story_id="TEST-107")
+        _save_flow(s_dir, story_id="TEST-107")
 
         handler = ClosurePhaseHandler(ClosureConfig(story_dir=s_dir, close_issue=False))
-        ctx = _make_ctx(story_id="TEST-NOSTART", project_root=tmp_path)
-        state = _make_state(story_id="TEST-NOSTART")
+        ctx = _make_ctx(story_id="TEST-107", project_root=tmp_path)
+        state = _make_state(story_id="TEST-107")
 
         result = handler.on_enter(ctx, state)
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from agentkit.story_context_manager.lifecycle import create_story
 from agentkit.story_context_manager.models import (
     PhaseSnapshot,
     PhaseState,
@@ -28,6 +29,7 @@ __all__ = [
     "StorySize",
     "StoryType",
     "StoryTypeProfile",
+    "create_story",
     "get_phases_for_story",
     "get_profile",
 ]

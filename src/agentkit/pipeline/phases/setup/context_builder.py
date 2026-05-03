@@ -73,9 +73,11 @@ def build_story_context(
     mode: StoryMode = profile.default_mode
 
     resolved_story_id = story_id if story_id is not None else f"STORY-{issue_nr}"
+    story_number = _story_number_from_id(resolved_story_id) or issue.number
 
     return StoryContext(
         project_key=project_key,
+        story_number=story_number,
         story_id=resolved_story_id,
         story_type=story_type,
         execution_route=mode,
@@ -87,3 +89,10 @@ def build_story_context(
         labels=list(issue.labels),
         created_at=datetime.now(tz=UTC),
     )
+
+
+def _story_number_from_id(story_id: str) -> int | None:
+    suffix = story_id.rsplit("-", maxsplit=1)[-1]
+    if not suffix.isdigit():
+        return None
+    return int(suffix)

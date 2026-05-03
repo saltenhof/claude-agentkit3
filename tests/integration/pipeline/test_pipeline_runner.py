@@ -68,7 +68,7 @@ def _setup_story(
     s_dir = story_dir(project_dir, story_id)
     s_dir.mkdir(parents=True, exist_ok=True)
     ctx = StoryContext(
-        project_key=project_dir.name,
+        project_key=project_dir.parent.name,
         story_id=story_id,
         story_type=story_type,
         execution_route=mode,

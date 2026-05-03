@@ -25,6 +25,7 @@ from agentkit.state_backend.store import mappers
 if TYPE_CHECKING:
     from pathlib import Path
     from types import ModuleType
+    from uuid import UUID
 
     from agentkit.closure.execution_report.records import ExecutionReport
     from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
@@ -132,6 +133,11 @@ def save_story_context(story_dir: Path, ctx: StoryContext) -> None:
     _backend_module().save_story_context_row(story_dir, row)
 
 
+def save_story_context_global(store_dir: Path | None, ctx: StoryContext) -> None:
+    row = mappers.story_context_to_row(ctx)
+    _backend_module().save_story_context_global_row(store_dir, row)
+
+
 def load_story_context(story_dir: Path) -> StoryContext | None:
     row = _backend_module().load_story_context_row(story_dir)
     if row is None:
@@ -158,6 +164,47 @@ def load_story_context_global(
         str(row["payload_json"]),
         db_label="postgres",
     )
+
+
+def load_story_context_by_story_number_global(
+    store_dir: Path | None,
+    project_key: str,
+    story_number: int,
+) -> StoryContext | None:
+    row = _backend_module().load_story_context_by_story_number_row(
+        store_dir,
+        project_key,
+        story_number,
+    )
+    if row is None:
+        return None
+    return mappers.story_context_payload_to_record(
+        str(row["payload_json"]),
+        db_label="story_contexts",
+    )
+
+
+def load_story_context_by_uuid_global(
+    store_dir: Path | None,
+    story_uuid: UUID,
+) -> StoryContext | None:
+    row = _backend_module().load_story_context_by_uuid_row(
+        store_dir,
+        str(story_uuid),
+    )
+    if row is None:
+        return None
+    return mappers.story_context_payload_to_record(
+        str(row["payload_json"]),
+        db_label="story_contexts",
+    )
+
+
+def allocate_next_story_number_global(
+    store_dir: Path | None,
+    project_key: str,
+) -> int:
+    return int(_backend_module().allocate_next_story_number_row(store_dir, project_key))
 
 
 def load_story_contexts_global(project_key: str) -> list[StoryContext]:

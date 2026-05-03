@@ -7,6 +7,7 @@ from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
+from uuid import UUID, uuid4
 
 from pydantic import (
     BaseModel,
@@ -24,6 +25,8 @@ from agentkit.story_context_manager.types import (
     get_profile,
 )
 
+_STORY_ID_PATTERN = re.compile(r"^[A-Z][A-Z0-9]{1,9}-\d+$")
+
 
 class PhaseStatus(StrEnum):
     PENDING = "pending"
@@ -36,7 +39,9 @@ class PhaseStatus(StrEnum):
 
 
 class StoryContext(BaseModel):
+    story_uuid: UUID = Field(default_factory=uuid4)
     project_key: str
+    story_number: int = Field(ge=1)
     story_id: str
     story_type: StoryType
     execution_route: StoryMode
@@ -53,10 +58,10 @@ class StoryContext(BaseModel):
     @field_validator("story_id")
     @classmethod
     def _validate_story_id_branch_safe(cls, v: str) -> str:
-        if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$", v):
+        if _STORY_ID_PATTERN.fullmatch(v) is None:
             raise ValueError(
-                f"story_id {v!r} must start with an alphanumeric character and "
-                "contain only alphanumeric characters, dots, hyphens, or underscores"
+                f"story_id {v!r} must match "
+                r"^[A-Z][A-Z0-9]{1,9}-\d+$"
             )
         return v
 
@@ -74,6 +79,10 @@ class StoryContext(BaseModel):
         if not isinstance(data, dict):
             return data
 
+        data = dict(data)
+        if data.get("story_number") is None and isinstance(data.get("story_id"), str):
+            data["story_number"] = _story_number_from_id(data["story_id"])
+
         story_type_raw = data.get("story_type")
         if story_type_raw is None:
             return data
@@ -88,10 +97,8 @@ class StoryContext(BaseModel):
             story_type is StoryType.IMPLEMENTATION
             and data.get("implementation_contract") is None
         ):
-            data = dict(data)
             data["implementation_contract"] = profile.default_implementation_contract
         if data.get("story_size") is None:
-            data = dict(data)
             labels = data.get("labels")
             title = data.get("title")
             data["story_size"] = estimate_size(
@@ -128,6 +135,7 @@ class StoryContext(BaseModel):
 
         return self
     model_config = ConfigDict(
+        extra="forbid",
         frozen=True,
         populate_by_name=True,
     )
@@ -159,3 +167,10 @@ __all__ = [
     "PhaseStatus",
     "StoryContext",
 ]
+
+
+def _story_number_from_id(story_id: str) -> int | None:
+    suffix = story_id.rsplit("-", maxsplit=1)[-1]
+    if not suffix.isdigit():
+        return None
+    return int(suffix)
