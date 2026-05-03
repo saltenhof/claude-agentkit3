@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: architecture-conformance
 spec_kind: entity-set
-version: 19
+version: 21
 prose_refs:
   - concept/technical-design/01_systemkontext_und_architekturprinzipien.md
   - concept/technical-design/07_komponentenarchitektur_und_architekturkonformanz.md
@@ -51,6 +51,10 @@ Multi-LLM-Hub).
 Version 19 schneidet die Governance-Hook-Auswertung in einen
 harness-neutralen A-Kern (`guard_evaluation`) und eine lokalisierte
 Claude-Code-Adapter-Insel (`harness_adapters.claude_code`).
+Version 20 erlaubt der Control-Plane-HTTP-Registry, den projektneutralen
+Concept-Catalog-Adapter (`/v1/concepts`) zu registrieren.
+Version 21 erlaubt der Control-Plane-HTTP-Registry, den projektneutralen
+Multi-LLM-Hub-Adapter (`/v1/hub`) zu registrieren.
 
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
@@ -1152,6 +1156,8 @@ boundary_modules:
       - architecture-conformance.boundary.control_plane_runtime
       - architecture-conformance.boundary.state_backend_repository
       - architecture-conformance.boundary.filesystem
+      - architecture-conformance.boundary.concept_catalog
+      - architecture-conformance.boundary.multi_llm_hub
     # HTTP-Transport-Schicht. Nimmt Requests entgegen, ruft fachliche
     # Komponenten und Runtime-Service. Boot-Punkt durch CLI.
 

@@ -30,6 +30,14 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from pathlib import Path
 
+    from agentkit.concept_catalog.http.routes import (
+        ConceptCatalogRoutes,
+        ConceptRouteResponse,
+    )
+    from agentkit.multi_llm_hub.http.routes import (
+        MultiLlmHubRouteResponse,
+        MultiLlmHubRoutes,
+    )
     from agentkit.project_management.http.routes import (
         ProjectManagementRoutes,
         ProjectRouteResponse,
@@ -79,6 +87,8 @@ class ControlPlaneApplication:
         dashboard_service: DashboardService | None = None,
         project_routes: ProjectManagementRoutes | None = None,
         story_routes: StoryContextRoutes | None = None,
+        concept_routes: ConceptCatalogRoutes | None = None,
+        hub_routes: MultiLlmHubRoutes | None = None,
     ) -> None:
         self._telemetry_service = telemetry_service or ControlPlaneTelemetryService()
         self._runtime_service = runtime_service or ControlPlaneRuntimeService()
@@ -96,6 +106,16 @@ class ControlPlaneApplication:
 
             story_routes = StoryContextRoutes(story_service=self._story_service)
         self._story_routes = story_routes
+        if concept_routes is None:
+            from agentkit.concept_catalog.http.routes import ConceptCatalogRoutes
+
+            concept_routes = ConceptCatalogRoutes()
+        self._concept_routes = concept_routes
+        if hub_routes is None:
+            from agentkit.multi_llm_hub.http.routes import MultiLlmHubRoutes
+
+            hub_routes = MultiLlmHubRoutes()
+        self._hub_routes = hub_routes
 
     def handle_request(
         self,
@@ -145,6 +165,18 @@ class ControlPlaneApplication:
         query: dict[str, list[str]],
         correlation_id: str,
     ) -> HttpResponse:
+        concept_response = self._concept_routes.handle_get(
+            route_path,
+            query,
+            correlation_id,
+        )
+        if concept_response is not None:
+            return _concept_response_to_http_response(concept_response)
+
+        hub_response = self._hub_routes.handle_get(route_path, correlation_id)
+        if hub_response is not None:
+            return _hub_response_to_http_response(hub_response)
+
         project_response = self._project_routes.handle_get(
             route_path,
             query,
@@ -206,6 +238,14 @@ class ControlPlaneApplication:
         )
         if story_response is not None:
             return _story_response_to_http_response(story_response)
+
+        hub_response = self._hub_routes.handle_post(
+            route_path,
+            payload,
+            correlation_id,
+        )
+        if hub_response is not None:
+            return _hub_response_to_http_response(hub_response)
 
         if route_path == "/v1/telemetry/events":
             return self._handle_post_telemetry(payload, correlation_id)
@@ -587,7 +627,8 @@ def _build_handler(app: ControlPlaneApplication) -> type[BaseHTTPRequestHandler]
             self.send_response(response.status_code)
             for key, value in response.headers:
                 self.send_header(key, value)
-            self.send_header("Content-Type", "application/json")
+            if not _has_header(response.headers, "Content-Type"):
+                self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(response.body)))
             self.end_headers()
             self.wfile.write(response.body)
@@ -613,6 +654,22 @@ def _json_response(
 
 
 def _project_response_to_http_response(response: ProjectRouteResponse) -> HttpResponse:
+    return HttpResponse(
+        status_code=response.status_code,
+        body=response.body,
+        headers=response.headers,
+    )
+
+
+def _concept_response_to_http_response(response: ConceptRouteResponse) -> HttpResponse:
+    return HttpResponse(
+        status_code=response.status_code,
+        body=response.body,
+        headers=response.headers,
+    )
+
+
+def _hub_response_to_http_response(response: MultiLlmHubRouteResponse) -> HttpResponse:
     return HttpResponse(
         status_code=response.status_code,
         body=response.body,
@@ -691,3 +748,8 @@ def _resolve_correlation_id(request_headers: Mapping[str, str] | None) -> str:
             if value:
                 return value
     return f"req-{uuid.uuid4().hex}"
+
+
+def _has_header(headers: Sequence[tuple[str, str]], name: str) -> bool:
+    normalized = name.lower()
+    return any(key.lower() == normalized for key, _value in headers)
