@@ -377,6 +377,77 @@ haben. FAIL mit Liste der unbelegten Anforderungen wenn nicht.
 
 **Ergebnis-Artefakt:** `_temp/qa/{story_id}/are_gate.json`
 
+## 40.5b Persistenz: `StoryAreLink`-Edge-Tabelle
+
+[Entscheidung 2026-05-04 — Persistenz der Story↔ARE-Verknuepfung]
+Die Story-seitige Spiegelung der ARE-Anforderungs-Verknuepfung wird
+in der Edge-Tabelle `StoryAreLink` gefuehrt (Anker FK-02 §2.11.4).
+Die Tabelle gehoert dem BC `requirements-and-scope-coverage`. ARE
+selbst bleibt die Quelle der Wahrheit fuer Anforderungs-Inhalt und
+Evidence-Status; AK3 spiegelt nur die Verknuepfung.
+
+### 40.5b.1 Schema (Querverweis)
+
+Die kanonische Modell-Definition liegt in FK-02 §2.11.4:
+
+| Feld | Typ | Rolle |
+|------|-----|-------|
+| `story_id` | FK | Story (AK3-interne Story-ID, NICHT GitHub-Issue) |
+| `are_item_id` | String | externe ARE-Item-Referenz, opak; kein FK-Constraint |
+| `kind` | Enum | typisierte Beziehung (`addresses`, `partial`, `derives_from`, `recurring`) |
+
+Eindeutigkeit auf `(story_id, are_item_id, kind)`. Mehrfach-Eintraege
+mit unterschiedlichem `kind` fuer dasselbe Story-Item-Paar sind
+zulaessig (z. B. `addresses` plus `derives_from`).
+
+### 40.5b.2 Lifecycle
+
+| Phase | Operation | Auslöser |
+|-------|-----------|----------|
+| **Anlage** | INSERT | Andock-Punkt 1 (§40.5.1, Story-Erstellung): wiederkehrende Pflichtanforderungen werden mit `kind=recurring` verlinkt; story-spezifische Anforderungen mit `kind=addresses` oder `partial`. |
+| **Mutation** | UPDATE | nur `kind`-Wechsel (z. B. `addresses` -> `partial`, wenn nachtraeglich erkannt wird, dass die Story die Anforderung nur teilweise abdeckt). `story_id` und `are_item_id` sind immutable. |
+| **Loeschung** | DELETE | nur ueber Story-Reset (FK-53) oder Story-Split-Verschiebung (FK-54). Kein automatischer Cleanup beim Story-Abschluss. |
+| **Snapshot** | read-only-Projektion | Closure-Phase friert keinen `StoryAreLink`-Snapshot ein — der Eintrag bleibt im aktiven Modell. Audit-Bedarf ist ueber Telemetrie-Events abgedeckt (§40.8). |
+
+### 40.5b.3 Schreibwege (welcher Andock-Punkt schreibt was)
+
+| Andock-Punkt | Liest `StoryAreLink` | Schreibt `StoryAreLink` |
+|--------------|----------------------|-------------------------|
+| 1 — Anforderungen verlinken (§40.5.1) | nein | **ja** (initiale Anlage; INSERT) |
+| 2 — Kontext laden (§40.5.2) | ja (zur Bundle-Komposition) | nein |
+| 3 — Evidence einreichen (§40.5.3) | ja (Validierung: Evidence nur fuer verknuepfte ARE-Items zulaessig) | optional `kind`-UPDATE (`addresses` -> `partial`), wenn die Evidence-Einreichung nur Teilabdeckung dokumentiert |
+| 4 — ARE-Gate pruefen (§40.5.4) | ja (Soll-Ist-Abgleich: alle verknuepften `must_cover`-Items mit Evidence?) | nein |
+
+`StoryAreLink` ist die **Soll-Sicht** ("welche ARE-Items adressiert
+diese Story?"). Die **Ist-Sicht** ("hat jedes davon Evidence?") liegt
+in ARE selbst und wird ueber `are_client.check_gate` abgefragt.
+
+### 40.5b.4 Story-Reset und Story-Split
+
+- **Story-Reset (FK-53):** `StoryAreLink`-Eintraege werden NICHT
+  geloescht. Beim Re-Run nach Reset bleibt die Anforderungs-Verknuepfung
+  bestehen — sie ist Teil des Story-Vertrags, nicht des Run-State.
+- **Story-Split (FK-54):** Eintraege koennen zwischen Ausgangs-Story
+  und Split-Stories umgehaengt werden. Die Verschiebung erfolgt
+  deterministisch ueber den Story-Split-Service; manuelles
+  Editieren der Tabelle ist verboten.
+
+### 40.5b.5 Stale-`are_item_id`-Behandlung
+
+Wenn ARE ein Item loescht oder umbenennt, kann ein `StoryAreLink`-
+Eintrag stale werden (der `are_item_id`-Verweis zeigt ins Leere). Es
+gibt keinen referenziellen Constraint zu ARE. Stale-Eintraege werden
+beim Andock-Punkt 4 (Gate-Pruefung) sichtbar — `are_client.check_gate`
+meldet das Item als unbekannt; das Gate setzt FAIL mit explizitem
+Stale-Hinweis. Der Mensch entscheidet, ob er die Story ent-verlinkt
+oder den ARE-Stand korrigiert.
+
+### 40.5b.6 Lese-API-Anker
+
+Die Frontend-Endpunkte `/v1/projects/{project_key}/coverage/stories/{story_id}/acceptance`
+und `.../are-evidence` (§40.10) konsumieren ausschliesslich
+`StoryAreLink` plus ARE-Live-Status. Sie mutieren die Tabelle nicht.
+
 ## 40.6 Fallback ohne ARE (FK-09-019 bis FK-09-022)
 
 Wenn `features.are: false`, ist die gesamte Top-Surface von
@@ -390,15 +461,15 @@ Anforderungsebene. Stattdessen:
 
 | Mechanismus | Beschreibung |
 |-------------|-------------|
-| Statische DoD-Checkliste | Im Issue-Body unter `## Definition of Done` (Kap. 21.10.1) |
+| Statische DoD-Checkliste | Im Story-Attribut `definition_of_done` (FK-21 §21.10) |
 | Semantic Review | QA-Bewertung Check `ac_fulfilled` prüft Akzeptanzkriterien |
-| Mensch | Bewertet manuell bei GitHub-Review |
+| Mensch | Bewertet manuell beim Review der Story-Closure |
 
 **AgentKit läuft vollständig ohne ARE** (FK-09-022). Die
 Anforderungsvollständigkeit ist ohne ARE weniger robust, aber
 funktional: Die QA-Subflow innerhalb der Implementation-Phase prüft Akzeptanzkriterien über den
 LLM-Review (Kap. 34.2.2, Check `ac_fulfilled`), und die statische
-Checkliste im Issue-Template dient als menschenlesbare Orientierung.
+Checkliste im Story-Attribut dient als menschenlesbare Orientierung.
 
 ## 40.7 ARE in der Stage-Registry
 
