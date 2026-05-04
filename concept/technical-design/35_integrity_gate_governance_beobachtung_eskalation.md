@@ -670,7 +670,7 @@ def should_adjudicate(project_key: str, story_id: str, run_id: str,
 Bei jeder Eskalation — egal welcher Auslöser — gilt dasselbe
 Verhalten:
 
-1. Story bleibt im GitHub-Status "In Progress"
+1. Story bleibt im AK3-Story-Status "In Progress"
 2. Phase-State wird auf `status: ESCALATED` (oder `PAUSED`) gesetzt
 3. Orchestrator stoppt die Bearbeitung dieser Story
 4. Orchestrator nimmt **keine** weiteren Aktionen für diese Story vor

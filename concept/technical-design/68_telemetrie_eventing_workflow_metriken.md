@@ -686,7 +686,7 @@ Telemetrie aggregiert:
 | Metrik | Berechnung | Quelle |
 |--------|-----------|--------|
 | `processing_time_min` | Differenz erstes `agent_start` bis Closure | Telemetrie-Timestamps |
-| `qa_rounds` | Anzahl verify→implementation-Übergänge | `phase_state_projection.attempt_no` bzw. deren `phase-state.json`-Export |
+| `qa_rounds` | Anzahl der Remediation-Iterationen im QA-Subflow innerhalb der Implementation-Phase (qa_cycle_round) | `phase_state_projection.attempt_no` bzw. deren `phase-state.json`-Export |
 | `adversarial_findings` | `findings_count` aus `adversarial_end`-Event | Telemetrie |
 | `adversarial_tests_created` | Anzahl `adversarial_test_created`-Events | Telemetrie |
 | `files_changed` | `git diff --stat` Zeilenzahl | Git |

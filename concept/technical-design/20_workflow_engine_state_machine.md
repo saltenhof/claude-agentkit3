@@ -412,7 +412,9 @@ stateDiagram-v2
         integrity_gate --> ESKALATION_INT : FAIL
         integrity_gate --> merge
         merge --> ESKALATION_MERGE : Merge-Konflikt
-        merge --> story_close
+        merge --> push_main
+        push_main --> ESKALATION_PUSH : Push-Fehler
+        push_main --> story_close
         story_close --> metrics
         metrics --> postflight
         postflight --> [*]
@@ -643,7 +645,7 @@ Die folgende Tabelle listet alle Auslöser, die die Pipeline stoppen. Spalte „
 
 Bei jeder **ESCALATED**-Eskalation (nicht PAUSED — `GOVERNANCE_INCIDENT` führt zu PAUSED, siehe FK-39 §39.2.2) gilt dasselbe Verhalten (FK-05-218 bis FK-05-222):
 
-1. Story bleibt im GitHub-Status "In Progress"
+1. Story bleibt im AK3-Story-Status "In Progress"
 2. Phase-State wird auf `status: ESCALATED` gesetzt
 3. Orchestrator stoppt die Bearbeitung dieser Story
 4. Orchestrator nimmt keine weiteren Aktionen für diese Story vor
@@ -750,9 +752,9 @@ auto-resume.
 ### 20.8.1 Kein automatisches Scheduling
 
 AgentKit hat keinen Scheduler. Der Orchestrator-Agent entscheidet,
-welche Story als nächstes bearbeitet wird, indem er das GitHub
-Project Board liest und eine freigegebene Story auswählt. Das ist
-eine Agent-Entscheidung, die im Orchestrator-Prompt beschrieben
+welche Story als nächstes bearbeitet wird, indem er ueber den
+AK3-Story-Service freigegebene Stories abfragt und eine auswählt. Das
+ist eine Agent-Entscheidung, die im Orchestrator-Prompt beschrieben
 wird, kein deterministischer Mechanismus.
 
 ### 20.8.2 Orchestrator-Vertrag: ExecutionPlanning vor Story-Start

@@ -80,7 +80,7 @@ ausgefuehrt; Worker, Hooks oder Agents schreiben den Status nie direkt.
 
 ### 2.2.2 Interne Pipeline-Zustände
 
-Interne Zustände ändern den GitHub-Status NICHT. Die Story bleibt
+Interne Zustände ändern den AK3-Story-Status NICHT. Die Story bleibt
 "In Progress", solange kein offizieller administrativer Pfad
 (`StorySplitService`, `StoryResetService`) ausgefuehrt wird. Interne
 Zustände leben im zentralen State-Backend und in der Telemetrie.

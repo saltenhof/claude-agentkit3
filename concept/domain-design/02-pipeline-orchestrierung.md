@@ -637,7 +637,7 @@ in sieben Dimensionen, dass der Prozess vollständig durchlaufen wurde.
 Dieses Gate ist die letzte Verteidigungslinie gegen Prozessabkürzungen.
 Scheitert es, wird an den Menschen eskaliert, nicht an einen Agenten.
 
-Eskalation bedeutet konkret: Die Story bleibt im GitHub-Status
+Eskalation bedeutet konkret: Die Story bleibt im AK3-Story-Status
 "In Progress", der Orchestrator stoppt die Bearbeitung dieser Story
 und nimmt keine weiteren Aktionen vor. Der Mensch muss aktiv
 intervenieren (Ursache klären, Story anpassen oder bewusst overriden).
