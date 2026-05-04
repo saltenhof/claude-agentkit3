@@ -45,6 +45,6 @@ def state_backend_dir(story_dir: Path) -> Path:
 
 
 def state_db_path(story_dir: Path) -> Path:
-    """Return the canonical SQLite file for a story."""
+    """Return the legacy unversioned SQLite file for a story."""
 
     return state_backend_dir(story_dir) / STATE_DB_FILE

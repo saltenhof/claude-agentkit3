@@ -13,8 +13,8 @@ from agentkit.governance.integrity_gate import IntegrityGate
 from agentkit.qa.policy_engine.engine import VerifyDecision
 from agentkit.qa.protocols import LayerResult
 from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.paths import state_db_path
 from agentkit.state_backend.scope import RuntimeStateScope
+from agentkit.state_backend.sqlite_store import state_db_path_for
 from agentkit.state_backend.store import (
     record_layer_artifacts,
     record_verify_decision,
@@ -115,7 +115,7 @@ def _populate_implementation_story(story_dir: Path) -> None:
 
 
 def _corrupt_table_payload(story_dir: Path, table: str) -> None:
-    with sqlite3.connect(state_db_path(story_dir)) as conn:
+    with sqlite3.connect(state_db_path_for(story_dir)) as conn:
         if table == "decision_records":
             conn.execute("UPDATE decision_records SET payload_json = 'not json'")
         elif table == "artifact_records":
@@ -126,7 +126,7 @@ def _corrupt_table_payload(story_dir: Path, table: str) -> None:
 
 
 def _delete_from_table(story_dir: Path, table: str) -> None:
-    with sqlite3.connect(state_db_path(story_dir)) as conn:
+    with sqlite3.connect(state_db_path_for(story_dir)) as conn:
         conn.execute(f"DELETE FROM {table}")
         conn.commit()
 
@@ -214,7 +214,7 @@ class TestIntegrityGateCorruptData:
     def test_corrupt_phase_snapshot(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         _populate_implementation_story(story_dir)
-        with sqlite3.connect(state_db_path(story_dir)) as conn:
+        with sqlite3.connect(state_db_path_for(story_dir)) as conn:
             conn.execute(
                 "UPDATE phase_snapshots "
                 "SET payload_json = 'not json' "

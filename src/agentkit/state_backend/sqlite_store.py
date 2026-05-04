@@ -17,12 +17,13 @@ from uuid import uuid4
 from agentkit.boundary.filesystem import atomic_write_json, load_json_object
 from agentkit.boundary.shared.time import now_iso
 from agentkit.exceptions import CorruptStateError
+from agentkit.state_backend.config import versioned_sqlite_db_file
 from agentkit.state_backend.paths import (
     CLOSURE_REPORT_FILE,
     CONTEXT_EXPORT_FILE,
     PHASE_STATE_EXPORT_FILE,
     VERIFY_DECISION_FILE,
-    state_db_path,
+    state_backend_dir,
 )
 
 if TYPE_CHECKING:
@@ -32,6 +33,18 @@ if TYPE_CHECKING:
     from agentkit.state_backend.scope import RuntimeStateScope
 
 _JsonRecord = dict[str, object]
+
+
+def current_db_file_name() -> str:
+    """Return the versioned SQLite database filename used by this driver."""
+
+    return versioned_sqlite_db_file()
+
+
+def state_db_path_for(story_dir: Path) -> Path:
+    """Return the versioned SQLite database path used by this driver."""
+
+    return state_backend_dir(story_dir) / current_db_file_name()
 
 
 def load_json_safe(path: Path) -> _JsonRecord | None:
@@ -63,7 +76,7 @@ def _cast_json_record(value: object) -> _JsonRecord:
 
 @contextmanager
 def _connect(story_dir: Path) -> Iterator[sqlite3.Connection]:
-    db_path = state_db_path(story_dir)
+    db_path = state_db_path_for(story_dir)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
@@ -1942,7 +1955,7 @@ def load_latest_verify_decision_payload(
         return _cast_json_record(json.loads(str(row["payload_json"])))
     except json.JSONDecodeError as exc:
         raise CorruptStateError(
-            f"decision_records payload is invalid in {state_db_path(story_dir)}: {exc}",
+            f"decision_records payload is invalid in {state_db_path_for(story_dir)}: {exc}",
         ) from exc
 
 
@@ -1980,7 +1993,7 @@ def load_artifact_record_payload(
         return _cast_json_record(json.loads(str(row["payload_json"])))
     except json.JSONDecodeError as exc:
         raise CorruptStateError(
-            f"artifact_records payload is invalid in {state_db_path(story_dir)}: {exc}",
+            f"artifact_records payload is invalid in {state_db_path_for(story_dir)}: {exc}",
         ) from exc
 
 

@@ -14,7 +14,7 @@ from agentkit.qa.structural.checks import (
     check_no_corrupt_state,
     check_phase_snapshots,
 )
-from agentkit.state_backend.paths import state_db_path
+from agentkit.state_backend.sqlite_store import state_db_path_for
 from agentkit.state_backend.store import (
     record_layer_artifacts,
     save_phase_snapshot,
@@ -87,7 +87,7 @@ class TestCheckContextValid:
     def test_corrupt_context_returns_finding(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         _save_context(story_dir)
-        with sqlite3.connect(state_db_path(story_dir)) as conn:
+        with sqlite3.connect(state_db_path_for(story_dir)) as conn:
             conn.execute("UPDATE story_contexts SET payload_json = 'not json'")
             conn.commit()
         finding = check_context_valid(story_dir)
@@ -189,7 +189,7 @@ class TestCheckNoCorruptState:
                 status=PhaseStatus.IN_PROGRESS,
             ),
         )
-        with sqlite3.connect(state_db_path(story_dir)) as conn:
+        with sqlite3.connect(state_db_path_for(story_dir)) as conn:
             conn.execute("UPDATE phase_states SET payload_json = 'not json'")
             conn.commit()
         finding = check_no_corrupt_state(story_dir)

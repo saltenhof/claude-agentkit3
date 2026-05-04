@@ -23,6 +23,7 @@ from agentkit.exceptions import CorruptStateError
 from agentkit.state_backend.config import (
     STATE_DATABASE_URL_ENV,
     load_state_backend_config,
+    versioned_postgres_schema_name,
 )
 from agentkit.state_backend.paths import (
     CLOSURE_REPORT_FILE,
@@ -56,6 +57,12 @@ def _database_url() -> str:
 
 def _database_label() -> str:
     return STATE_DATABASE_URL_ENV
+
+
+def current_schema_name() -> str:
+    """Return the versioned PostgreSQL schema used by this driver."""
+
+    return versioned_postgres_schema_name()
 
 
 class _CompatConnection:
@@ -116,6 +123,7 @@ def _connect_global() -> Iterator[_CompatConnection]:
         row_factory=dict_row,
     )
     compat = _CompatConnection(conn)
+    _ensure_versioned_schema(compat)
     _ensure_schema(compat)
     try:
         yield compat
@@ -134,6 +142,12 @@ def _connect(story_dir: Path) -> Iterator[_CompatConnection]:
 def _schema_create_script() -> str:
     schema_path = Path(__file__).with_name("postgres_schema.sql")
     return schema_path.read_text(encoding="utf-8")
+
+
+def _ensure_versioned_schema(conn: _CompatConnection) -> None:
+    schema_name = current_schema_name()
+    conn.execute(f"CREATE SCHEMA IF NOT EXISTS {schema_name}")
+    conn.execute(f"SET search_path TO {schema_name}, public")
 
 
 def _schema_alter_statements() -> tuple[str, ...]:
