@@ -172,10 +172,10 @@ werden (Kap. 50):
 
 | Platzhalter | Ersetzt durch |
 |-------------|--------------|
-| `{{gh_owner}}` | GitHub-Owner aus Config |
-| `{{gh_repo}}` | GitHub-Repo aus Config |
-| `{{project_prefix}}` | Story-ID-Prefix |
-| `{{project_number}}` | Projekt-Identifier (Story-Backend bzw. Code-Repo-Bezug) |
+| `{{gh_owner}}` | GitHub-Owner aus Config (Code-Backend) |
+| `{{gh_repo}}` | GitHub-Repo aus Config (Code-Backend; bei Multi-Repo: erstes Repo aus `participating_repos` falls Skill-Kontext eine Story hat, sonst `repositories[0].name`) |
+| `{{project_key}}` | AK3-Project-Schluessel aus `project.yaml` (Story-Backend-Identifier) |
+| `{{project_prefix}}` | Story-ID-Prefix aus `project.yaml` |
 
 ## 43.3 Mitgelieferte Skills
 
@@ -297,22 +297,22 @@ Template-Engine.
 **read-only**: keine Schreibzugriffe, keine Zustandsmutation.
 Die substituierten Felder stammen ausschliesslich aus FK-03:
 
-| Platzhalter | Quelle in PipelineConfig (FK-03) |
+| Platzhalter | Quelle in `project.yaml` (FK-03) |
 |---|---|
-| `{{gh_owner}}` | `config.github.owner` |
-| `{{gh_repo}}` | `config.github.repo_primary` |
+| `{{gh_owner}}` | `config.github_owner` |
+| `{{gh_repo}}` | `config.repositories[0].name` (bei Single-Repo: das einzige Repo; bei Multi-Repo: deterministisches erstes Repo der Liste) |
 | `{{project_prefix}}` | `config.project_prefix` |
-| `{{project_number}}` | `config.github.project_number` |
+| `{{project_key}}` | `config.project_key` |
 
 ```python
 # Schnittstelle: read-only auf PipelineConfig (FK-03)
 class PlaceholderSubstitutor:
     def substitute(self, content: str, config: PipelineConfig) -> str:
         replacements = {
-            "{{gh_owner}}": config.github.owner,
-            "{{gh_repo}}": config.github.repo_primary,
+            "{{gh_owner}}": config.github_owner,
+            "{{gh_repo}}": config.repositories[0].name,
             "{{project_prefix}}": config.project_prefix,
-            "{{project_number}}": str(config.github.project_number),
+            "{{project_key}}": config.project_key,
         }
         for placeholder, value in replacements.items():
             content = content.replace(placeholder, value)

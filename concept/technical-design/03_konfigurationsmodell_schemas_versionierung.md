@@ -84,15 +84,17 @@ Wird vom Installer erzeugt (Checkpoint 5) und vom Nutzer angepasst.
 ```yaml
 config_version: "3.0"
 
-github:
-  owner: "acme-corp"
-  repo_primary: "trading-platform"
-  project_number: 7
+project_key: "acme-trading"
+project_prefix: "ACME"
 
-repos:
-  - id: backend
+github_owner: "acme-corp"   # GitHub-Owner als Code-Backend (Repos, Branches, PRs)
+
+repositories:
+  - name: backend
     path: "."
-    type: backend
+    language: python
+    test_command: "pytest"
+    build_command: "ruff check"
 
 wiki_stories_dir: stories
 guardrails_dir: _guardrails

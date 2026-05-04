@@ -1023,7 +1023,7 @@ Enthaelt direkt (~5 Klassen): `SkillManager`, `Skill`, `SkillId`,
 | Sub | Bluttyp | Exposure | Verantwortung |
 |---|---|---|---|
 | `SkillBundleStore` | A | internal | Kanonischer system-weiter Skill-Bundle-Store. SkillBundle-Schema, Versionierung, Manifest-Digest, Bundle-Pfad-Resolver (analog zu `prompt-runtime.BundleStore`, aber fuer Skill-Verzeichnisse). |
-| `SkillBinding` | A, mix_allowed:[T] | internal | Symlink-basierte Projekt-Bindung (FK-43 §43.4.1) UND Skill-Lifecycle-State-Machine (Requested -> ProfileResolved -> BundleSelected -> Bound -> Verified/Rejected). PlaceholderSubstitutor fuer Bind-Zeit-Werte (gh_owner, gh_repo, project_prefix, project_number aus PipelineConfig). |
+| `SkillBinding` | A, mix_allowed:[T] | internal | Symlink-basierte Projekt-Bindung (FK-43 §43.4.1) UND Skill-Lifecycle-State-Machine (Requested -> ProfileResolved -> BundleSelected -> Bound -> Verified/Rejected). PlaceholderSubstitutor fuer Bind-Zeit-Werte (gh_owner, gh_repo, project_prefix, project_key aus PipelineConfig). |
 | `SkillQualityMetric` | A | internal | Beobachtungs-Signale fuer Skill-Wirksamkeit (FK-43 §43.6.2). Aggregation aus Workflow-Metric-Daten (telemetry-and-events) und Failure-Corpus-Befunden mit Skill-Experiment-Tags. |
 
 Modul-Prefixes:
@@ -1058,7 +1058,7 @@ Layer 3: SkillQualityMetric (Beobachtung post-binding)
 | `story-context-manager` | SCM -> AS | StoryContext fuehrt aktives `CapabilityProfile` als Read-Field |
 | `telemetry-and-events` | AS -> T | `Telemetry.write_event` fuer skill_used (falls eingefuehrt); `QualityMetricCollector` liest execution_events + StoryMetric via `Telemetry.read_projection` |
 | `failure-corpus` | AS -> FC | `QualityMetricCollector` liest fc_incidents fuer Skill-Wirksamkeits-Beobachtung |
-| Configuration (FK-03 Foundation) | AS -> C | `PlaceholderSubstitutor` liest gh_owner/gh_repo/project_prefix/project_number aus PipelineConfig |
+| Configuration (FK-03 Foundation) | AS -> C | `PlaceholderSubstitutor` liest gh_owner/gh_repo/project_prefix/project_key aus PipelineConfig |
 | Filesystem-Driver | SB -> FS | T-Adapter fuer Symlink-Erzeugung (SkillBinding) |
 | `governance-and-guards` | GG -> AS | (Enforcement F-43-030 Normative Skill-Nutzung) — siehe Drift-Punkt |
 
@@ -1913,7 +1913,7 @@ koennen bei der Implementierungsphase auftauchen.
 | 37 | prompt-runtime | FK-44 §44.5 Modul-Pfade in Code-Beispielen: Filesystem-Konvention; Schema lebt in `BundlePinning`-Sub (`agentkit.prompt_runtime.bundle_pinning`). Pfade in FK-44 aktualisieren. Vokabular: `project-prompt-binding`-Glossarbegriff in FK-44 entweder beibehalten als fachlicher Begriff oder auf `project-prompt-pin` vereinheitlichen (Klassen heissen `ProjectPromptPin`). |
 | 38 | prompt-runtime | FK-44 §44.6 Audit-Hash-Felder (`template_sha256`, `render_input_digest`, `output_sha256`): PromptAuditHash-Pydantic-Schema Owner ist Materialization-Sub. FK-44 Schema-Owner-Cut explizit machen. |
 | 39 | prompt-runtime / telemetry-and-events | `prompt_used`-Event-Frage offen: falls eingefuehrt, in EventTypeId-Liste (BC 9 TelemetryContract) ergaenzen und in FK-44 dokumentieren. |
-| 40 | agent-skills | FK-43 §43.4.2 `PlaceholderSubstitutor`: Konfigurations-Schnittstelle (read-only auf PipelineConfig) dokumentieren; substituiert gh_owner/gh_repo/project_prefix/project_number aus FK-03 Foundation. |
+| 40 | agent-skills | FK-43 §43.4.2 `PlaceholderSubstitutor`: Konfigurations-Schnittstelle (read-only auf PipelineConfig) dokumentieren; substituiert gh_owner/gh_repo/project_prefix/project_key aus FK-03 Foundation. |
 | 41 | agent-skills | FK-43 §43.5.2 Upgrade-Verhalten: Bundle-Version-Pin-Mechanik klaeren — eigenstaendiger Skill-Pin (Skills haben anderen Lifecycle als Prompt-Bundles); Verhaeltnis zu `prompt-runtime.BundlePinning` explizit machen. |
 | 42 | agent-skills | FK-43 §43.6.2 Skill-Quality: Lese-Schnittstellen via `Telemetry.read_projection` (sub_exposed) und failure-corpus-Top dokumentieren; WorkflowMetric-Daten-Owner (story-closure.PostMergeFinalization) referenzieren. |
 | 43 | agent-skills / installation-and-bootstrap | FK-43 §43.4.1 Installer-Aufruf: `Skills.bind_skill` als Top-Surface (analog zu `PromptRuntime.update_binding`); FK-50 muss diese Schnittstelle dokumentieren. |
