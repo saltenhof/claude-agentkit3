@@ -138,7 +138,7 @@ Die Pipeline ist also kein Sonderfall, sondern die oberste
   "closure_substates": {
     "integrity_gate_passed": false,
     "merge_completed": false,
-    "issue_closed": false,
+    "story_closed": false,
     "metrics_written": false,
     "postflight_passed": false
   },

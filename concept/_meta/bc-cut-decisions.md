@@ -542,7 +542,7 @@ Layer 3: WorkerLoop (orchestriert Inkremente, schreibt Handover)
 **Quellen:** FK-29 (contract). Sekundaer betroffen: FK-27
 (Splits-Liste — Closure-Anteile gehoeren hierher).
 **BC-Verantwortung:** Closure-Sequence mit irreversiblen Seiteneffekten
-— Finding-Resolution, Branch-Push, Merge, Worktree-Cleanup, Issue-Close,
+— Finding-Resolution, Branch-Push, Merge, Worktree-Cleanup, Story-Close,
 Postflight, VektorDB-Sync, Guard-Deaktivierung. Owns: ClosurePayload,
 ClosureProgress, ClosureVerdict, ClosureSequence. Excluded: IntegrityGate
 (gehoert zu governance-and-guards, BC 4).
@@ -574,7 +574,7 @@ von BC 6 begruendet: dort hatte das Datenmodell eigene Validator-Logik
 | Sub | Bluttyp | Exposure | Verantwortung |
 |---|---|---|---|
 | `ClosureGates` | A | internal | Pre-Merge-Pruefungen. Finding-Resolution-Gate (FK-29 §29.2 — eigene Pruefung gegen Layer-2-Artefakte qa_review/semantic_review/doc_fidelity). Integrity-Gate-Aufruf an `governance-and-guards.IntegrityGate`. |
-| `MergeSequence` | A | internal | Schritte 3-6 — irreversible Effects. Branch-Push, Merge (ff_only/no_ff), Worktree-Teardown, Issue-Close. Recovery-Idempotenz pro Substate. |
+| `MergeSequence` | A | internal | Schritte 3-6 — irreversible Effects. Branch-Push, Merge (ff_only/no_ff), Worktree-Teardown, Story-Close. Recovery-Idempotenz pro Substate. |
 | `PostMergeFinalization` | A | internal | Schritte 7-11 — Nach-Merge-Validierung + Cleanup. Metriken, Rueckkopplungstreue (FK-38 Doctreue Ebene 4), Postflight-Gates (5 Checks), VektorDB-Sync, Guard-Deaktivierung. Alle non-blocking. |
 | `ExecutionReport` | A | internal | Markdown-Bilanz fuer den Menschen (FK-29 §29.4). Wird fuer JEDE Story-Bearbeitung erzeugt — auch bei FAILED/ESCALATED. Graceful Degradation bei fehlenden Quellen. |
 
@@ -598,7 +598,7 @@ Modul-Prefixes:
 - `PostMergeFinalization` (ca. 7): `PostMergeFinalization`
   (Coordinator), `MetricsRecorder`, `FeedbackFidelityCheck`,
   `PostflightGate`, `PostflightCheck` (StrEnum: story_dir_exists,
-  issue_closed, metrics_set, telemetry_complete, artifacts_complete),
+  story_closed, metrics_set, telemetry_complete, artifacts_complete),
   `VectorDbSyncTrigger`, `GuardDeactivator`, `WorkflowMetricCalculator`, `StoryMetric`, `ExperimentTags` (Pydantic-Schemas + Aggregations-Logik gehoeren hierher; FK-69 §69.4 Owner-Cut)
 - `ExecutionReport` (ca. 3): `ExecutionReport`, `ExecutionReportSection`,
   `ReportRenderer`
@@ -628,7 +628,7 @@ Layer 4: ExecutionReport (am Ende — auch bei FAIL/ESCALATED)
 | `kpi-and-dashboard` | C -> K | Metriken (QA Rounds, Completed At, Phase-Durations) |
 | `failure-corpus` | C -> FC | Postflight-FAIL und Doctreue-FAIL erzeugen Incident-Kandidaten (FK-41) |
 | `implementation-phase` | C <- I | Worker-Manifest-Stand wird konsumiert (FK-26 §26.7-26.8) |
-| `Integrations.github` | C -> R | Branch-Push, Merge, Issue-Close (FK-12) |
+| `Integrations.github` | C -> R | Branch-Push, Merge, Story-Close (FK-12) |
 | `Integrations.vector_db` | C -> R | VektorDB-Sync (async fire-and-forget, FK-13) |
 
 **Konzept-Refactor-Liste:**

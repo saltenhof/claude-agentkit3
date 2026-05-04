@@ -311,7 +311,7 @@ Alle Pipeline-Skripte müssen idempotent sein:
 | Setup (Worktree) | Prüft ob Worktree existiert, erstellt nur wenn nicht vorhanden. |
 | Structural Checks | Liest nur, schreibt Ergebnis. Wiederholbar (überschreibt vorheriges Ergebnis). |
 | LLM-Evaluator | Sendet an Pool, schreibt Ergebnis. Wiederholbar (überschreibt). |
-| Closure | Nicht pauschal idempotent — Closure hat sequentielle Seiteneffekte über verschiedene Systeme (Merge, Issue-Close, Metriken, Postflight). Wird über persistierte Substates abgesichert: `integrity_passed`, `merge_done`, `issue_closed`, `metrics_written`, `postflight_done`. Bei Crash: Recovery setzt beim letzten bestätigten Substate wieder an. |
+| Closure | Nicht pauschal idempotent — Closure hat sequentielle Seiteneffekte über verschiedene Systeme (Merge, Story-Close, Metriken, Postflight). Wird über persistierte Substates abgesichert: `integrity_passed`, `merge_done`, `story_closed`, `metrics_written`, `postflight_done`. Bei Crash: Recovery setzt beim letzten bestätigten Substate wieder an. |
 | Postflight | Prüft nur, ändert nichts. Wiederholbar. |
 
 ## 10.6 Fehlerbehandlung und Recovery

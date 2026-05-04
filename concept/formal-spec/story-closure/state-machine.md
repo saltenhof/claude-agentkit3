@@ -29,7 +29,7 @@ states:
   - id: story-closure.status.policy_checked
   - id: story-closure.status.story_branch_pushed
   - id: story-closure.status.merged_to_main
-  - id: story-closure.status.issue_closed
+  - id: story-closure.status.story_closed
   - id: story-closure.status.completed
     terminal: true
   - id: story-closure.status.escalated
@@ -47,13 +47,13 @@ transitions:
     from: story-closure.status.story_branch_pushed
     to: story-closure.status.merged_to_main
     guard: story-closure.invariant.merge_requires_pushed_story_branch
-  - id: story-closure.transition.merged_to_main_to_issue_closed
+  - id: story-closure.transition.merged_to_main_to_story_closed
     from: story-closure.status.merged_to_main
-    to: story-closure.status.issue_closed
-  - id: story-closure.transition.issue_closed_to_completed
-    from: story-closure.status.issue_closed
+    to: story-closure.status.story_closed
+  - id: story-closure.transition.story_closed_to_completed
+    from: story-closure.status.story_closed
     to: story-closure.status.completed
-    guard: story-closure.invariant.completed_requires_merge_and_issue_close
+    guard: story-closure.invariant.completed_requires_merge_and_story_close
   - id: story-closure.transition.policy_checked_to_escalated
     from: story-closure.status.policy_checked
     to: story-closure.status.escalated

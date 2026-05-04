@@ -35,7 +35,7 @@ scenarios:
     requires:
       - story-closure.invariant.ff_only_is_default_policy
       - story-closure.invariant.push_precedes_merge
-      - story-closure.invariant.completed_requires_merge_and_issue_close
+      - story-closure.invariant.completed_requires_merge_and_story_close
   - id: story-closure.scenario.ff-only-rejected-then-no-ff-fallback
     start:
       status: story-closure.status.requested
@@ -66,7 +66,7 @@ scenarios:
       status: story-closure.status.completed
     requires:
       - story-closure.invariant.merge_requires_pushed_story_branch
-      - story-closure.invariant.completed_requires_merge_and_issue_close
+      - story-closure.invariant.completed_requires_merge_and_story_close
   - id: story-closure.scenario.merge-rejected-after-push
     start:
       status: story-closure.status.story_branch_pushed

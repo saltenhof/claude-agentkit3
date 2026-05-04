@@ -46,9 +46,9 @@ invariants:
   - id: story-closure.invariant.branch_guard_allows_official_closure
     scope: governance
     rule: the branch guard must allow the official closure push and official no_ff fallback path while still rejecting manual history-rewrite operations
-  - id: story-closure.invariant.completed_requires_merge_and_issue_close
+  - id: story-closure.invariant.completed_requires_merge_and_story_close
     scope: outcome
-    rule: closure is completed only after merge into main and issue closing have both succeeded for the same closure attempt
+    rule: closure is completed only after merge into main and story status set to Done have both succeeded for the same closure attempt
   - id: story-closure.invariant.merge_rejection_never_completes_closure
     scope: outcome
     rule: if merge is rejected after the story branch has been pushed the story must not complete and the closure path must remain resumable or escalate explicitly

@@ -323,7 +323,7 @@ Kontrolllogik in frei formulierten Python-Dateien zu verstecken.
 | `setup` | Deterministisch | Preflight, Worktree, Context, Guards, Mode-Routing | Pipeline-Skript |
 | `exploration` | Agent-gesteuert | Entwurfsartefakt erzeugen, Dokumententreue pruefen; Exit-Gate ruft Capability `VerifySystem` (FK-23 §23.5) | Worker-Agent + LLM-Evaluator |
 | `implementation` | Agent-gesteuert + Subflow | Code/Konzept/Research umsetzen; vor Phasenabschluss laeuft der QA-Subflow gegen die Capability `VerifySystem` (4-Schichten-QA, FK-27) inklusive Remediation-Loop | Worker-Agent + Pipeline-Skripte + LLM-Evaluator + Adversarial Agent |
-| `closure` | Deterministisch | Integrity-Gate, Merge, Issue-Close, Metriken, Postflight | Pipeline-Skript |
+| `closure` | Deterministisch | Integrity-Gate, Merge, Story-Close, Metriken, Postflight | Pipeline-Skript |
 
 > **[Entscheidung 2026-05-01]** Die vormalige Top-Phase `verify` entfaellt. Output-QA ist kein eigenstaendiger Phasenknoten mehr, sondern interner Subflow innerhalb `implementation` (analog zum Exit-Gate der `exploration`). Die Faehigkeit `VerifySystem` bleibt als Bounded-Context-Capability bestehen und wird sowohl von `ExplorationPhase` als auch von `ImplementationPhase` aufgerufen. Siehe `concept/_meta/bc-cut-decisions.md` "Verify als Capability (Variante Y)".
 
@@ -412,8 +412,8 @@ stateDiagram-v2
         integrity_gate --> ESKALATION_INT : FAIL
         integrity_gate --> merge
         merge --> ESKALATION_MERGE : Merge-Konflikt
-        merge --> issue_close
-        issue_close --> metrics
+        merge --> story_close
+        story_close --> metrics
         metrics --> postflight
         postflight --> [*]
         note right of postflight : VektorDB-Sync async (Fire-and-Forget)
@@ -679,7 +679,7 @@ verhindert, dass der Orchestrator die nächste Phase aufruft.
 |----------|------------|---------|
 | Agent-Session crashed mitten in Implementation | `phase: implementation, status: IN_PROGRESS` | Neuer Run mit neuer `run_id`. Worktree existiert noch, Commits sind da. Orchestrator spawnt neuen Worker, der die Arbeit fortsetzt. |
 | Phase Runner crashed mitten im QA-Subflow | `phase: implementation, status: IN_PROGRESS, payload.qa_cycle_status: awaiting_qa` | `run-phase implementation` erneut aufrufen — Engine setzt den QA-Subflow am letzten persistierten `qa_cycle_status` fort. Schicht 1 hat bereits `structural.json` geschrieben (idempotent). Fortschritt wird aus vorhandenen Artefakten rekonstruiert. [Entscheidung 2026-04-09: `verify_layer` entfernt — ephemerer Fortschritt, nicht durable.] [Entscheidung 2026-05-01: Phase ist `implementation` — QA-Subflow.] |
-| Closure crashed nach Merge aber vor Issue-Close | `payload.progress: {merge_done: true, issue_closed: false}` | `run-phase closure` erneut aufrufen. Merge wird übersprungen (bereits gemergt). Issue-Close wird ausgeführt. [Entscheidung 2026-04-09: `closure_substates` → `payload.progress` (ClosurePayload).] |
+| Closure crashed nach Merge aber vor Story-Close | `payload.progress: {merge_done: true, story_closed: false}` | `run-phase closure` erneut aufrufen. Merge wird übersprungen (bereits gemergt). Story-Close (AK3-Story-Service setzt Status Done) wird ausgeführt. [Entscheidung 2026-04-09: `closure_substates` → `payload.progress` (ClosurePayload).] |
 | Mensch will eskalierten Run fortsetzen | `status: ESCALATED` | Mensch setzt Phase-State zurück: `agentkit reset-escalation --story {story_id}`. Dann neuer Run. |
 
 ### 20.7.2 Run-ID und Retry
@@ -710,7 +710,7 @@ hier entscheidet der Stratege manuell ueber den Worker-Halbstand.
 | **Exploration-Subflow (Stufen 1, 2a, 2b, Mandatsklassifikation, Feindesign)** | Auto-Resume **pro Stufe**. Jede Stufe persistiert ihren Abschluss in `ExplorationPayload.gate_status` plus Stage-Artefakte. Mid-Stufe-Crash → die laufende Stufe wird beim Resume neu gestartet, abgeschlossene Stufen werden uebersprungen. Wiederhol-Kost: ein bis wenige LLM-Calls pro Stufe. |
 | **Implementation Worker-Loop** | **Manueller Strategen-Eingriff.** Der Worker schreibt Code in den Worktree; ein mid-Worker-Loop-Crash hinterlaesst Code-Halbstand, der nicht trivial wiederholbar ist. Der Stratege entscheidet, ob er den Halbstand uebernehmen (Worker setzt fort, neuer `run_id`) oder verwerfen (Worktree zurueckgesetzt, Implementation-Phase beginnt im neuen Run von vorn) will. Dafuer steht `agentkit recover-story --story {story_id}` mit Auswahl-Modus zur Verfuegung. |
 | **Implementation QA-Subflow (Layer 1-4, Remediation-Loop)** | Auto-Resume **pro Schicht**. Layer 1 schreibt `structural.json`; Layer 2 schreibt `qa_review.json`/`semantic_review.json`/`doc_fidelity.json`; Layer 3 schreibt `adversarial.json`; Layer 4 schreibt `policy.json`. Mid-Schicht-Crash → die laufende Schicht wird beim Resume neu gestartet, abgeschlossene Schichten werden aus den vorhandenen Artefakten uebernommen. Der Subflow-interne Remediation-Loop (FK-38) ist ueber `qa_feedback_rounds` in `PhaseMemory.implementation` carry-forward. |
-| **Closure** | Auto-Resume. Granularitaet ist `ClosurePayload.progress` (siehe §20.7.1 Tabelle): Merge-Status, Issue-Close-Status, Postflight-Status werden einzeln persistiert; bereits abgeschlossene Schritte werden beim Resume uebersprungen. |
+| **Closure** | Auto-Resume. Granularitaet ist `ClosurePayload.progress` (siehe §20.7.1 Tabelle): Merge-Status, Story-Close-Status, Postflight-Status werden einzeln persistiert; bereits abgeschlossene Schritte werden beim Resume uebersprungen. |
 
 **Atomare Persistenz-Boundaries:** Subflow-Stufen und QA-Schichten
 sind die kleinsten Einheiten, die mit einem Schreibzugriff in den

@@ -144,7 +144,7 @@ Dateisystem-Zugriff nach Layer:
 - **Schicht 3 (Adversarial Agent)**: Lese-Zugriff auf alles + Schreib-Zugriff auf Sandbox-Pfad (`_temp/adversarial/{story_id}/`).
 
 Closure ist nicht mehr Teil dieses Dokuments. Closure-Sequenz, Integrity-Gate-Aufruf,
-Merge, Issue-Close, Postflight, Execution Report und Guard-Deaktivierung sind
+Merge, Story-Close, Postflight, Execution Report und Guard-Deaktivierung sind
 in FK-29 normiert. Verify-Context-Steuerung, Context-Bundle-Vorbereitung und
 Section-aware Packing liegen in FK-37. Feedback-Mechanik, Umsetzungstreue und
 Rückkopplungstreue liegen in FK-38.

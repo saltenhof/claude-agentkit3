@@ -74,7 +74,7 @@ bounded_contexts:
     responsibility: >
       Closure-Sequence mit irreversiblen Seiteneffekten:
       Finding-Resolution, Branch-Push, Merge, Worktree-Cleanup,
-      Issue-Close, Postflight, VektorDB-Sync.
+      Story-Close, Postflight, VektorDB-Sync.
     owns:
       - ClosurePayload
       - ClosureProgress
