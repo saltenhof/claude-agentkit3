@@ -25,7 +25,7 @@ class StateBackendStoryContextRepository(StoryContextRepository):
         return facade.allocate_next_story_number_global(self._store_dir, project_key)
 
     def get(self, project_key: str, story_id: str) -> StoryContext | None:
-        return facade.load_story_context_global(project_key, story_id)
+        return facade.load_story_context_global(project_key, story_id, self._store_dir)
 
     def get_by_story_number(
         self,

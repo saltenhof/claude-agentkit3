@@ -33,6 +33,11 @@ if TYPE_CHECKING:
         ControlPlaneOperationRecord,
         SessionRunBindingRecord,
     )
+    from agentkit.execution_planning.entities import (
+        ParallelizationConfig,
+        StoryDependency,
+        StoryDependencyKind,
+    )
     from agentkit.governance.guard_system.records import StoryExecutionLockRecord
     from agentkit.phase_state_store.models import (
         FlowExecution,
@@ -151,13 +156,14 @@ def load_story_context(story_dir: Path) -> StoryContext | None:
 def load_story_context_global(
     project_key: str,
     story_id: str,
+    store_dir: Path | None = None,
 ) -> StoryContext | None:
     backend = _backend_module()
     if not hasattr(backend, "load_story_context_global_row"):
         raise RuntimeError(
             "Global story-context reads are unsupported by the active backend",
         )
-    row = backend.load_story_context_global_row(project_key, story_id)
+    row = backend.load_story_context_global_row(store_dir, project_key, story_id)
     if row is None:
         return None
     return mappers.story_context_payload_to_record(
@@ -207,13 +213,16 @@ def allocate_next_story_number_global(
     return int(_backend_module().allocate_next_story_number_row(store_dir, project_key))
 
 
-def load_story_contexts_global(project_key: str) -> list[StoryContext]:
+def load_story_contexts_global(
+    project_key: str,
+    store_dir: Path | None = None,
+) -> list[StoryContext]:
     backend = _backend_module()
     if not hasattr(backend, "load_story_context_rows_global"):
         raise RuntimeError(
             "Global story-context reads are unsupported by the active backend",
         )
-    rows = backend.load_story_context_rows_global(project_key)
+    rows = backend.load_story_context_rows_global(store_dir, project_key)
     result: list[StoryContext] = []
     for row in rows:
         result.append(
@@ -272,6 +281,70 @@ def load_project_by_story_id_prefix(
 
 
 # ---------------------------------------------------------------------------
+# Execution planning
+# ---------------------------------------------------------------------------
+
+
+def save_story_dependency(
+    project_key: str,
+    edge: StoryDependency,
+    store_dir: Path | None = None,
+) -> None:
+    row = mappers.story_dependency_to_row(edge, project_key=project_key)
+    _backend_module().save_story_dependency_row(store_dir, row)
+
+
+def load_story_dependencies(
+    project_key: str,
+    store_dir: Path | None = None,
+) -> list[StoryDependency]:
+    rows = _backend_module().load_story_dependency_rows(store_dir, project_key)
+    return [mappers.story_dependency_row_to_entity(row) for row in rows]
+
+
+def load_story_dependency_rows_for_story(
+    story_id: str,
+    store_dir: Path | None = None,
+) -> list[StoryDependency]:
+    rows = _backend_module().load_story_dependency_rows_for_story(store_dir, story_id)
+    return [mappers.story_dependency_row_to_entity(row) for row in rows]
+
+
+def delete_story_dependency(
+    story_id: str,
+    depends_on_story_id: str,
+    kind: StoryDependencyKind,
+    store_dir: Path | None = None,
+) -> int:
+    return int(
+        _backend_module().delete_story_dependency_row(
+            store_dir,
+            story_id,
+            depends_on_story_id,
+            kind.value,
+        ),
+    )
+
+
+def load_parallelization_config(
+    project_key: str,
+    store_dir: Path | None = None,
+) -> ParallelizationConfig | None:
+    row = _backend_module().load_parallelization_config_row(store_dir, project_key)
+    if row is None:
+        return None
+    return mappers.parallelization_config_row_to_entity(row)
+
+
+def save_parallelization_config(
+    config: ParallelizationConfig,
+    store_dir: Path | None = None,
+) -> None:
+    row = mappers.parallelization_config_to_row(config)
+    _backend_module().save_parallelization_config_row(store_dir, row)
+
+
+# ---------------------------------------------------------------------------
 # PhaseState
 # ---------------------------------------------------------------------------
 
@@ -291,13 +364,16 @@ def load_phase_state(story_dir: Path) -> PhaseState | None:
     )
 
 
-def load_phase_state_global(story_id: str) -> PhaseState | None:
+def load_phase_state_global(
+    story_id: str,
+    store_dir: Path | None = None,
+) -> PhaseState | None:
     backend = _backend_module()
     if not hasattr(backend, "load_phase_state_global_row"):
         raise RuntimeError(
             "Global phase-state reads are unsupported by the active backend",
         )
-    row = backend.load_phase_state_global_row(story_id)
+    row = backend.load_phase_state_global_row(store_dir, story_id)
     if row is None:
         return None
     return mappers.phase_state_payload_to_record(
@@ -628,13 +704,14 @@ def load_story_metrics_for_scope(
 def load_latest_story_metrics_global(
     project_key: str,
     story_id: str,
+    store_dir: Path | None = None,
 ) -> StoryMetricsRecord | None:
     backend = _backend_module()
     if not hasattr(backend, "load_latest_story_metrics_global_row"):
         raise RuntimeError(
             "Global story-metrics reads are unsupported by the active backend",
         )
-    row = backend.load_latest_story_metrics_global_row(project_key, story_id)
+    row = backend.load_latest_story_metrics_global_row(store_dir, project_key, story_id)
     if row is None:
         return None
     return mappers.story_metrics_row_to_record(row)

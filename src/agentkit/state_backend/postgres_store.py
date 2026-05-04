@@ -167,6 +167,35 @@ def _schema_create_script() -> str:
             FOREIGN KEY (project_key) REFERENCES projects(key)
         );
 
+        CREATE TABLE IF NOT EXISTS story_dependencies (
+            project_key TEXT NOT NULL,
+            story_id TEXT NOT NULL,
+            depends_on_story_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            PRIMARY KEY (project_key, story_id, depends_on_story_id, kind),
+            FOREIGN KEY (project_key) REFERENCES projects(key),
+            FOREIGN KEY (project_key, story_id)
+                REFERENCES story_contexts(project_key, story_id),
+            FOREIGN KEY (project_key, depends_on_story_id)
+                REFERENCES story_contexts(project_key, story_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS story_dependencies_project_story_idx
+            ON story_dependencies (project_key, story_id);
+
+        CREATE INDEX IF NOT EXISTS story_dependencies_project_depends_idx
+            ON story_dependencies (project_key, depends_on_story_id);
+
+        CREATE TABLE IF NOT EXISTS parallelization_configs (
+            project_key TEXT PRIMARY KEY,
+            max_parallel_stories INTEGER NOT NULL,
+            max_parallel_stories_per_repo INTEGER NULL,
+            extra_config JSONB NULL,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            FOREIGN KEY (project_key) REFERENCES projects(key)
+        );
+
         CREATE TABLE IF NOT EXISTS phase_states (
             story_id TEXT PRIMARY KEY,
             phase TEXT NOT NULL,
@@ -859,11 +888,13 @@ def save_story_context_global_row(
 
 
 def load_story_context_global_row(
+    store_dir: Path | None,
     project_key: str,
     story_id: str,
 ) -> dict[str, Any] | None:
     """Return the raw payload row for a global story context, or None."""
 
+    del store_dir
     with _connect_global() as conn:
         row = conn.execute(
             """
@@ -938,9 +969,13 @@ def allocate_next_story_number_row(store_dir: Path | None, project_key: str) -> 
     return int(row["allocated_story_number"])
 
 
-def load_story_context_rows_global(project_key: str) -> list[dict[str, Any]]:
+def load_story_context_rows_global(
+    store_dir: Path | None,
+    project_key: str,
+) -> list[dict[str, Any]]:
     """Return all raw payload rows for a project's story contexts."""
 
+    del store_dir
     with _connect_global() as conn:
         rows = conn.execute(
             """
@@ -951,6 +986,161 @@ def load_story_context_rows_global(project_key: str) -> list[dict[str, Any]]:
             (project_key,),
         ).fetchall()
     return [{"payload_json": str(row["payload_json"])} for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# Execution planning rows
+# ---------------------------------------------------------------------------
+
+
+def save_story_dependency_row(
+    store_dir: Path | None,
+    row: dict[str, Any],
+) -> None:
+    """Persist one story dependency row.
+
+    Migration note: ``story_dependencies`` is created idempotently by
+    ``_schema_create_script``. Rollback is ``DROP TABLE story_dependencies``
+    after dropping dependent indexes; no existing story-context data is
+    modified.
+    """
+
+    del store_dir
+    with _connect_global() as conn:
+        conn.execute(
+            """
+            INSERT INTO story_dependencies (
+                project_key,
+                story_id,
+                depends_on_story_id,
+                kind,
+                created_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                row["project_key"],
+                row["story_id"],
+                row["depends_on_story_id"],
+                row["kind"],
+                row["created_at"],
+            ),
+        )
+
+
+def load_story_dependency_rows(
+    store_dir: Path | None,
+    project_key: str,
+) -> list[dict[str, Any]]:
+    """Load all dependency rows for one project."""
+
+    del store_dir
+    with _connect_global() as conn:
+        rows = conn.execute(
+            """
+            SELECT project_key, story_id, depends_on_story_id, kind, created_at
+            FROM story_dependencies
+            WHERE project_key = ?
+            ORDER BY story_id, depends_on_story_id, kind
+            """,
+            (project_key,),
+        ).fetchall()
+    return rows
+
+
+def load_story_dependency_rows_for_story(
+    store_dir: Path | None,
+    story_id: str,
+) -> list[dict[str, Any]]:
+    """Load direct predecessor dependency rows for one story."""
+
+    del store_dir
+    with _connect_global() as conn:
+        rows = conn.execute(
+            """
+            SELECT project_key, story_id, depends_on_story_id, kind, created_at
+            FROM story_dependencies
+            WHERE story_id = ?
+            ORDER BY project_key, depends_on_story_id, kind
+            """,
+            (story_id,),
+        ).fetchall()
+    return rows
+
+
+def delete_story_dependency_row(
+    store_dir: Path | None,
+    story_id: str,
+    depends_on_story_id: str,
+    kind: str,
+) -> int:
+    """Delete one dependency row and return affected row count."""
+
+    del store_dir
+    with _connect_global() as conn:
+        cursor = conn.execute(
+            """
+            DELETE FROM story_dependencies
+            WHERE story_id = ? AND depends_on_story_id = ? AND kind = ?
+            """,
+            (story_id, depends_on_story_id, kind),
+        )
+        return int(cursor.rowcount)
+
+
+def save_parallelization_config_row(
+    store_dir: Path | None,
+    row: dict[str, Any],
+) -> None:
+    """Persist one parallelization config row."""
+
+    del store_dir
+    with _connect_global() as conn:
+        conn.execute(
+            """
+            INSERT INTO parallelization_configs (
+                project_key,
+                max_parallel_stories,
+                max_parallel_stories_per_repo,
+                extra_config,
+                updated_at
+            ) VALUES (?, ?, ?, ?::jsonb, now())
+            ON CONFLICT(project_key) DO UPDATE SET
+                max_parallel_stories = excluded.max_parallel_stories,
+                max_parallel_stories_per_repo =
+                    excluded.max_parallel_stories_per_repo,
+                extra_config = excluded.extra_config,
+                updated_at = excluded.updated_at
+            """,
+            (
+                row["project_key"],
+                row["max_parallel_stories"],
+                row["max_parallel_stories_per_repo"],
+                row["extra_config_json"],
+            ),
+        )
+
+
+def load_parallelization_config_row(
+    store_dir: Path | None,
+    project_key: str,
+) -> dict[str, Any] | None:
+    """Load one parallelization config row."""
+
+    del store_dir
+    with _connect_global() as conn:
+        row = conn.execute(
+            """
+            SELECT
+                project_key,
+                max_parallel_stories,
+                max_parallel_stories_per_repo,
+                extra_config AS extra_config_json
+            FROM parallelization_configs
+            WHERE project_key = ?
+            """,
+            (project_key,),
+        ).fetchone()
+    return row
 
 
 # ---------------------------------------------------------------------------
@@ -1134,9 +1324,13 @@ def read_phase_state_row(story_dir: Path) -> dict[str, Any] | None:
     return load_phase_state_row(story_dir)
 
 
-def load_phase_state_global_row(story_id: str) -> dict[str, Any] | None:
+def load_phase_state_global_row(
+    store_dir: Path | None,
+    story_id: str,
+) -> dict[str, Any] | None:
     """Return the raw payload row for a global phase state, or None."""
 
+    del store_dir
     with _connect_global() as conn:
         row = conn.execute(
             """
@@ -1769,11 +1963,13 @@ def load_story_metrics_rows(
 
 
 def load_latest_story_metrics_global_row(
+    store_dir: Path | None,
     project_key: str,
     story_id: str,
 ) -> dict[str, Any] | None:
     """Return the latest raw story-metrics row for a global lookup, or None."""
 
+    del store_dir
     with _connect_global() as conn:
         row = conn.execute(
             """

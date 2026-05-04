@@ -1,0 +1,113 @@
+"""Pure dependency-graph algorithms for execution planning."""
+
+from __future__ import annotations
+
+from collections import defaultdict, deque
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from agentkit.execution_planning.entities import StoryDependency
+
+
+class DependencyGraph:
+    """Directed story dependency graph with deterministic DAG algorithms."""
+
+    def __init__(self, edges: Sequence[StoryDependency]) -> None:
+        self._nodes: set[str] = set()
+        self._successors: dict[str, set[str]] = defaultdict(set)
+        self._predecessors: dict[str, set[str]] = defaultdict(set)
+        for edge in edges:
+            self._nodes.add(edge.story_id)
+            self._nodes.add(edge.depends_on_story_id)
+            self._successors[edge.depends_on_story_id].add(edge.story_id)
+            self._predecessors[edge.story_id].add(edge.depends_on_story_id)
+
+    @property
+    def nodes(self) -> set[str]:
+        """Return all story ids known to the graph."""
+
+        return set(self._nodes)
+
+    def direct_predecessors(self, story_id: str) -> set[str]:
+        """Return direct predecessor story ids for one story."""
+
+        return set(self._predecessors.get(story_id, set()))
+
+    def transitive_predecessors(self, story_id: str) -> set[str]:
+        """Return all predecessor story ids reachable against edge direction."""
+
+        return self._walk(story_id, self._predecessors)
+
+    def transitive_successors(self, story_id: str) -> set[str]:
+        """Return all successor story ids reachable along edge direction."""
+
+        return self._walk(story_id, self._successors)
+
+    def has_cycle(self) -> tuple[bool, list[str]]:
+        """Return whether the graph has a cycle and a deterministic path."""
+
+        state: dict[str, str] = {}
+        stack: list[str] = []
+
+        def visit(node: str) -> list[str] | None:
+            state[node] = "visiting"
+            stack.append(node)
+            for successor in sorted(self._successors.get(node, set())):
+                successor_state = state.get(successor)
+                if successor_state == "visiting":
+                    start = stack.index(successor)
+                    return [*stack[start:], successor]
+                if successor_state is None:
+                    cycle = visit(successor)
+                    if cycle is not None:
+                        return cycle
+            stack.pop()
+            state[node] = "visited"
+            return None
+
+        for node in sorted(self._nodes):
+            if state.get(node) is None:
+                cycle = visit(node)
+                if cycle is not None:
+                    return True, cycle
+        return False, []
+
+    def topological_layers(self) -> list[list[str]]:
+        """Return deterministic Kahn layers for a DAG.
+
+        Cyclic graphs return the acyclic prefix only; callers that require a
+        full ordering should call :meth:`has_cycle` first.
+        """
+
+        indegree = {
+            node: len(self._predecessors.get(node, set()))
+            for node in self._nodes
+        }
+        ready = deque(sorted(node for node, degree in indegree.items() if degree == 0))
+        layers: list[list[str]] = []
+        while ready:
+            layer = list(ready)
+            ready.clear()
+            layers.append(layer)
+            next_ready: list[str] = []
+            for node in layer:
+                for successor in sorted(self._successors.get(node, set())):
+                    indegree[successor] -= 1
+                    if indegree[successor] == 0:
+                        next_ready.append(successor)
+            ready.extend(sorted(next_ready))
+        return layers
+
+    @staticmethod
+    def _walk(start: str, adjacency: dict[str, set[str]]) -> set[str]:
+        seen: set[str] = set()
+        stack = sorted(adjacency.get(start, set()), reverse=True)
+        while stack:
+            node = stack.pop()
+            if node in seen:
+                continue
+            seen.add(node)
+            stack.extend(sorted(adjacency.get(node, set()), reverse=True))
+        return seen

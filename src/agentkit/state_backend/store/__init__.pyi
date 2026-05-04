@@ -32,6 +32,9 @@ from agentkit.state_backend.store.facade import (
     delete_session_run_binding_global as delete_session_run_binding_global,
 )
 from agentkit.state_backend.store.facade import (
+    delete_story_dependency as delete_story_dependency,
+)
+from agentkit.state_backend.store.facade import (
     load_artifact_record as load_artifact_record,
 )
 from agentkit.state_backend.store.facade import (
@@ -72,6 +75,9 @@ from agentkit.state_backend.store.facade import (
 )
 from agentkit.state_backend.store.facade import (
     load_override_records as load_override_records,
+)
+from agentkit.state_backend.store.facade import (
+    load_parallelization_config as load_parallelization_config,
 )
 from agentkit.state_backend.store.facade import (
     load_phase_snapshot as load_phase_snapshot,
@@ -120,6 +126,12 @@ from agentkit.state_backend.store.facade import (
 )
 from agentkit.state_backend.store.facade import (
     load_story_contexts_global as load_story_contexts_global,
+)
+from agentkit.state_backend.store.facade import (
+    load_story_dependencies as load_story_dependencies,
+)
+from agentkit.state_backend.store.facade import (
+    load_story_dependency_rows_for_story as load_story_dependency_rows_for_story,
 )
 from agentkit.state_backend.store.facade import (
     load_story_execution_lock_global as load_story_execution_lock_global,
@@ -176,6 +188,9 @@ from agentkit.state_backend.store.facade import (
     save_override_record as save_override_record,
 )
 from agentkit.state_backend.store.facade import (
+    save_parallelization_config as save_parallelization_config,
+)
+from agentkit.state_backend.store.facade import (
     save_phase_snapshot as save_phase_snapshot,
 )
 from agentkit.state_backend.store.facade import (
@@ -192,6 +207,9 @@ from agentkit.state_backend.store.facade import (
 )
 from agentkit.state_backend.store.facade import (
     save_story_context_global as save_story_context_global,
+)
+from agentkit.state_backend.store.facade import (
+    save_story_dependency as save_story_dependency,
 )
 from agentkit.state_backend.store.facade import (
     save_story_execution_lock_global as save_story_execution_lock_global,

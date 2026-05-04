@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
@@ -28,6 +27,7 @@ from agentkit.state_backend.paths import (
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from pathlib import Path
 
     from agentkit.state_backend.scope import RuntimeStateScope
 
@@ -109,6 +109,35 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS story_number_counters (
             project_key TEXT PRIMARY KEY,
             next_story_number INTEGER NOT NULL,
+            FOREIGN KEY (project_key) REFERENCES projects(key)
+        );
+
+        CREATE TABLE IF NOT EXISTS story_dependencies (
+            project_key TEXT NOT NULL,
+            story_id TEXT NOT NULL,
+            depends_on_story_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (project_key, story_id, depends_on_story_id, kind),
+            FOREIGN KEY (project_key) REFERENCES projects(key),
+            FOREIGN KEY (project_key, story_id)
+                REFERENCES story_contexts(project_key, story_id),
+            FOREIGN KEY (project_key, depends_on_story_id)
+                REFERENCES story_contexts(project_key, story_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS story_dependencies_project_story_idx
+            ON story_dependencies (project_key, story_id);
+
+        CREATE INDEX IF NOT EXISTS story_dependencies_project_depends_idx
+            ON story_dependencies (project_key, depends_on_story_id);
+
+        CREATE TABLE IF NOT EXISTS parallelization_configs (
+            project_key TEXT PRIMARY KEY,
+            max_parallel_stories INTEGER NOT NULL,
+            max_parallel_stories_per_repo INTEGER,
+            extra_config_json TEXT,
+            updated_at TEXT NOT NULL,
             FOREIGN KEY (project_key) REFERENCES projects(key)
         );
 
@@ -572,12 +601,13 @@ def save_story_context_global_row(
 
 
 def load_story_context_global_row(
+    store_dir: Path | None,
     project_key: str,
     story_id: str,
 ) -> dict[str, Any] | None:
     """Return the raw payload row for a global story context, or None."""
 
-    with _connect(Path.cwd()) as conn:
+    with _connect(_project_store_dir(store_dir)) as conn:
         row = conn.execute(
             """
             SELECT payload_json FROM story_contexts
@@ -588,6 +618,24 @@ def load_story_context_global_row(
     if row is None:
         return None
     return {"payload_json": str(row["payload_json"])}
+
+
+def load_story_context_rows_global(
+    store_dir: Path | None,
+    project_key: str,
+) -> list[dict[str, Any]]:
+    """Return all raw payload rows for a project's story contexts."""
+
+    with _connect(_project_store_dir(store_dir)) as conn:
+        rows = conn.execute(
+            """
+            SELECT payload_json FROM story_contexts
+            WHERE project_key = ?
+            ORDER BY story_number ASC, story_id ASC
+            """,
+            (project_key,),
+        ).fetchall()
+    return [{"payload_json": str(row["payload_json"])} for row in rows]
 
 
 def load_story_context_by_story_number_row(
@@ -672,6 +720,155 @@ def allocate_next_story_number_row(store_dir: Path | None, project_key: str) -> 
             (next_story_number + 1, project_key),
         )
         return next_story_number
+
+
+# ---------------------------------------------------------------------------
+# Execution planning rows
+# ---------------------------------------------------------------------------
+
+
+def save_story_dependency_row(
+    store_dir: Path | None,
+    row: dict[str, Any],
+) -> None:
+    """Persist one story dependency row.
+
+    Migration note: ``story_dependencies`` is created idempotently by
+    ``_ensure_schema``. Rollback is ``DROP TABLE story_dependencies`` plus its
+    two indexes; no existing story-context data is mutated.
+    """
+
+    with _connect(_project_store_dir(store_dir)) as conn:
+        conn.execute(
+            """
+            INSERT INTO story_dependencies (
+                project_key,
+                story_id,
+                depends_on_story_id,
+                kind,
+                created_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                row["project_key"],
+                row["story_id"],
+                row["depends_on_story_id"],
+                row["kind"],
+                row["created_at"],
+            ),
+        )
+
+
+def load_story_dependency_rows(
+    store_dir: Path | None,
+    project_key: str,
+) -> list[dict[str, Any]]:
+    """Load all dependency rows for one project."""
+
+    with _connect(_project_store_dir(store_dir)) as conn:
+        rows = conn.execute(
+            """
+            SELECT project_key, story_id, depends_on_story_id, kind, created_at
+            FROM story_dependencies
+            WHERE project_key = ?
+            ORDER BY story_id, depends_on_story_id, kind
+            """,
+            (project_key,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def load_story_dependency_rows_for_story(
+    store_dir: Path | None,
+    story_id: str,
+) -> list[dict[str, Any]]:
+    """Load direct predecessor dependency rows for one story."""
+
+    with _connect(_project_store_dir(store_dir)) as conn:
+        rows = conn.execute(
+            """
+            SELECT project_key, story_id, depends_on_story_id, kind, created_at
+            FROM story_dependencies
+            WHERE story_id = ?
+            ORDER BY project_key, depends_on_story_id, kind
+            """,
+            (story_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def delete_story_dependency_row(
+    store_dir: Path | None,
+    story_id: str,
+    depends_on_story_id: str,
+    kind: str,
+) -> int:
+    """Delete one dependency row and return affected row count."""
+
+    with _connect(_project_store_dir(store_dir)) as conn:
+        cursor = conn.execute(
+            """
+            DELETE FROM story_dependencies
+            WHERE story_id = ? AND depends_on_story_id = ? AND kind = ?
+            """,
+            (story_id, depends_on_story_id, kind),
+        )
+        return cursor.rowcount
+
+
+def save_parallelization_config_row(
+    store_dir: Path | None,
+    row: dict[str, Any],
+) -> None:
+    """Persist one parallelization config row."""
+
+    with _connect(_project_store_dir(store_dir)) as conn:
+        conn.execute(
+            """
+            INSERT INTO parallelization_configs (
+                project_key,
+                max_parallel_stories,
+                max_parallel_stories_per_repo,
+                extra_config_json,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(project_key) DO UPDATE SET
+                max_parallel_stories = excluded.max_parallel_stories,
+                max_parallel_stories_per_repo =
+                    excluded.max_parallel_stories_per_repo,
+                extra_config_json = excluded.extra_config_json,
+                updated_at = excluded.updated_at
+            """,
+            (
+                row["project_key"],
+                row["max_parallel_stories"],
+                row["max_parallel_stories_per_repo"],
+                row["extra_config_json"],
+                now_iso(),
+            ),
+        )
+
+
+def load_parallelization_config_row(
+    store_dir: Path | None,
+    project_key: str,
+) -> dict[str, Any] | None:
+    """Load one parallelization config row."""
+
+    with _connect(_project_store_dir(store_dir)) as conn:
+        row = conn.execute(
+            """
+            SELECT
+                project_key,
+                max_parallel_stories,
+                max_parallel_stories_per_repo,
+                extra_config_json
+            FROM parallelization_configs
+            WHERE project_key = ?
+            """,
+            (project_key,),
+        ).fetchone()
+    return dict(row) if row is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -858,6 +1055,25 @@ def read_phase_state_row(story_dir: Path) -> dict[str, Any] | None:
     """Canonical reader name for protected runtime modules."""
 
     return load_phase_state_row(story_dir)
+
+
+def load_phase_state_global_row(
+    store_dir: Path | None,
+    story_id: str,
+) -> dict[str, Any] | None:
+    """Return the raw payload row for a global phase state, or None."""
+
+    with _connect(_project_store_dir(store_dir)) as conn:
+        row = conn.execute(
+            """
+            SELECT payload_json FROM phase_states
+            WHERE story_id = ?
+            """,
+            (story_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return {"payload_json": str(row["payload_json"])}
 
 
 # ---------------------------------------------------------------------------
@@ -1221,6 +1437,27 @@ def load_story_metrics_rows(
             tuple(params),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def load_latest_story_metrics_global_row(
+    store_dir: Path | None,
+    project_key: str,
+    story_id: str,
+) -> dict[str, Any] | None:
+    """Return the latest raw story-metrics row for a global lookup, or None."""
+
+    with _connect(_project_store_dir(store_dir)) as conn:
+        row = conn.execute(
+            """
+            SELECT *
+            FROM story_metrics
+            WHERE project_key = ? AND story_id = ?
+            ORDER BY completed_at DESC, run_id DESC
+            LIMIT 1
+            """,
+            (project_key, story_id),
+        ).fetchone()
+    return dict(row) if row is not None else None
 
 
 # ---------------------------------------------------------------------------

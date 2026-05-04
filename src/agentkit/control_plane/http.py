@@ -34,6 +34,10 @@ if TYPE_CHECKING:
         ConceptCatalogRoutes,
         ConceptRouteResponse,
     )
+    from agentkit.execution_planning.http.routes import (
+        ExecutionPlanningRouteResponse,
+        ExecutionPlanningRoutes,
+    )
     from agentkit.multi_llm_hub.http.routes import (
         MultiLlmHubRouteResponse,
         MultiLlmHubRoutes,
@@ -89,6 +93,7 @@ class ControlPlaneApplication:
         story_routes: StoryContextRoutes | None = None,
         concept_routes: ConceptCatalogRoutes | None = None,
         hub_routes: MultiLlmHubRoutes | None = None,
+        planning_routes: ExecutionPlanningRoutes | None = None,
     ) -> None:
         self._telemetry_service = telemetry_service or ControlPlaneTelemetryService()
         self._runtime_service = runtime_service or ControlPlaneRuntimeService()
@@ -116,6 +121,11 @@ class ControlPlaneApplication:
 
             hub_routes = MultiLlmHubRoutes()
         self._hub_routes = hub_routes
+        if planning_routes is None:
+            from agentkit.execution_planning.http.routes import ExecutionPlanningRoutes
+
+            planning_routes = ExecutionPlanningRoutes()
+        self._planning_routes = planning_routes
 
     def handle_request(
         self,
@@ -137,9 +147,14 @@ class ControlPlaneApplication:
         if method == "GET":
             return self._handle_get_request(route_path, query, correlation_id)
 
+        if method == "DELETE":
+            return self._handle_delete_request(route_path, correlation_id)
+
         payload = _decode_json_body(body, correlation_id)
         if isinstance(payload, HttpResponse):
             return payload
+        if method == "PUT":
+            return self._handle_put_request(route_path, payload, correlation_id)
         if method == "PATCH":
             return self._handle_patch_request(route_path, payload, correlation_id)
         return self._handle_post_request(route_path, payload, correlation_id)
@@ -176,6 +191,13 @@ class ControlPlaneApplication:
         hub_response = self._hub_routes.handle_get(route_path, correlation_id)
         if hub_response is not None:
             return _hub_response_to_http_response(hub_response)
+
+        planning_response = self._planning_routes.handle_get(
+            route_path,
+            correlation_id,
+        )
+        if planning_response is not None:
+            return _planning_response_to_http_response(planning_response)
 
         project_response = self._project_routes.handle_get(
             route_path,
@@ -247,6 +269,14 @@ class ControlPlaneApplication:
         if hub_response is not None:
             return _hub_response_to_http_response(hub_response)
 
+        planning_response = self._planning_routes.handle_post(
+            route_path,
+            payload,
+            correlation_id,
+        )
+        if planning_response is not None:
+            return _planning_response_to_http_response(planning_response)
+
         if route_path == "/v1/telemetry/events":
             return self._handle_post_telemetry(payload, correlation_id)
         if route_path == "/v1/project-edge/sync":
@@ -269,6 +299,44 @@ class ControlPlaneApplication:
                 run_id=closure_match.group("run_id"),
                 correlation_id=correlation_id,
             )
+        return _error_response(
+            HTTPStatus.NOT_FOUND,
+            error_code="not_found",
+            message=_NOT_FOUND_MESSAGE,
+            correlation_id=correlation_id,
+        )
+
+    def _handle_put_request(
+        self,
+        route_path: str,
+        payload: object,
+        correlation_id: str,
+    ) -> HttpResponse:
+        planning_response = self._planning_routes.handle_put(
+            route_path,
+            payload,
+            correlation_id,
+        )
+        if planning_response is not None:
+            return _planning_response_to_http_response(planning_response)
+        return _error_response(
+            HTTPStatus.NOT_FOUND,
+            error_code="not_found",
+            message=_NOT_FOUND_MESSAGE,
+            correlation_id=correlation_id,
+        )
+
+    def _handle_delete_request(
+        self,
+        route_path: str,
+        correlation_id: str,
+    ) -> HttpResponse:
+        planning_response = self._planning_routes.handle_delete(
+            route_path,
+            correlation_id,
+        )
+        if planning_response is not None:
+            return _planning_response_to_http_response(planning_response)
         return _error_response(
             HTTPStatus.NOT_FOUND,
             error_code="not_found",
@@ -615,6 +683,12 @@ def _build_handler(app: ControlPlaneApplication) -> type[BaseHTTPRequestHandler]
         def do_PATCH(self) -> None:  # noqa: N802
             self._handle()
 
+        def do_PUT(self) -> None:  # noqa: N802
+            self._handle()
+
+        def do_DELETE(self) -> None:  # noqa: N802
+            self._handle()
+
         def _handle(self) -> None:
             content_length = int(self.headers.get("Content-Length", "0"))
             body = self.rfile.read(content_length) if content_length > 0 else b""
@@ -670,6 +744,16 @@ def _concept_response_to_http_response(response: ConceptRouteResponse) -> HttpRe
 
 
 def _hub_response_to_http_response(response: MultiLlmHubRouteResponse) -> HttpResponse:
+    return HttpResponse(
+        status_code=response.status_code,
+        body=response.body,
+        headers=response.headers,
+    )
+
+
+def _planning_response_to_http_response(
+    response: ExecutionPlanningRouteResponse,
+) -> HttpResponse:
     return HttpResponse(
         status_code=response.status_code,
         body=response.body,
