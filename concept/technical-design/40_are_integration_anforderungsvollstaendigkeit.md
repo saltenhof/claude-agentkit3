@@ -32,15 +32,17 @@ glossary:
       definition: >
         Einer der vier definierten Integrationspunkte zwischen AgentKit und der
         Agent Requirements Engine (ARE): Anforderungen verlinken (Story-Erstellung),
-        Anforderungskontext laden (Setup-Phase), Evidence einreichen (Implementation/Verify),
-        ARE-Gate prüfen (Verify Layer 1). Jeder Dock-Point ist nur aktiv wenn
-        features.are aktiviert ist.
+        Anforderungskontext laden (Setup-Phase), Evidence einreichen (Implementation
+        + QA-Subflow), ARE-Gate prüfen (QA-Subflow Layer 1 innerhalb der
+        Implementation-Phase). Jeder Dock-Point ist nur aktiv wenn features.are
+        aktiviert ist.
     - id: are-gate
       definition: >
-        Deterministischer Stage in Verify Layer 1, der prüft ob alle
-        must_cover-Anforderungen einer Story Evidence besitzen. Liefert PASS oder
-        FAIL mit Liste unbelegter Anforderungen. Blocking wenn ARE aktiviert ist;
-        entfällt vollständig wenn features.are deaktiviert ist.
+        Deterministischer Stage in QA-Subflow Layer 1 innerhalb der Implementation-
+        Phase, der prüft ob alle must_cover-Anforderungen einer Story Evidence
+        besitzen. Liefert PASS oder FAIL mit Liste unbelegter Anforderungen.
+        Blocking wenn ARE aktiviert ist; entfällt vollständig wenn features.are
+        deaktiviert ist.
     - id: coverage-verdict
       definition: >
         Ergebnis des ARE-Gates: PASS wenn alle must_cover-Anforderungen der Story
@@ -64,9 +66,9 @@ glossary:
     - id: scope-mapping
       definition: >
         Konfigurationszeit-Zuordnung zwischen AgentKit-Einheiten (Code-Repository
-        oder GitHub-Projekt-Modul-Feldwert) und ARE-Scope-Strings. Wird bei
-        Installation/Update gepflegt und zur Laufzeit für automatische
-        Anforderungssuche verwendet. Zwei Tabellen: repo→scope und modul→scope.
+        oder Story-Modul-Wert) und ARE-Scope-Strings. Wird bei Installation/Update
+        gepflegt und zur Laufzeit für automatische Anforderungssuche verwendet.
+        Zwei Tabellen: repo→scope und modul→scope.
   internal_terms:
     - id: are-bundle
       reason: >
@@ -469,7 +471,7 @@ Anforderungsebene. Stattdessen:
 **AgentKit läuft vollständig ohne ARE** (FK-09-022). Die
 Anforderungsvollständigkeit ist ohne ARE weniger robust, aber
 funktional: Die QA-Subflow innerhalb der Implementation-Phase prüft Akzeptanzkriterien über den
-LLM-Review (Kap. 34.2.2, Check `ac_fulfilled`), und die statische
+LLM-Review (FK-34 §34.2.2, Check `ac_fulfilled`), und die statische
 Checkliste im Story-Attribut dient als menschenlesbare Orientierung.
 
 ## 40.7 ARE in der Stage-Registry

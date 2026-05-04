@@ -148,6 +148,8 @@ API-Vertrag.
 | `/v1/stories/{story_id}/fields/{field_key}` | `PUT` | Einzelnen Story-Attribut-Wert setzen |
 | `/v1/dashboard/board` | `GET` | Board- oder Listenansicht für die Story-Steuerung |
 | `/v1/dashboard/story-metrics` | `GET` | Read-only Story-Metriken aus Runtime- und Analytics-Sicht |
+| `/v1/projects/{project_key}/coverage/stories/{story_id}/acceptance` | `GET` | Soll-Sicht: Akzeptanzkriterien und ARE-Anforderungs-Verknuepfungen, die diese Story adressiert (Inspector-Spezifikations-Tab; FK-40 §40.10) |
+| `/v1/projects/{project_key}/coverage/stories/{story_id}/are-evidence` | `GET` | Ist-Sicht: ARE-Evidenz pro Story — verlinkte Anforderungen, Coverage-Status, Evidenz-Pfade (Inspector-Ergebnis-Tab; FK-40 §40.10) |
 
 **Normative Regeln:**
 
