@@ -866,7 +866,7 @@ def _handle_evidence_assemble(args) -> int:
     """Handler für 'agentkit evidence assemble'.
 
 1. Lädt `context.json`-Export aus `--story-dir` oder nutzt direkt `StoryContext`
-2. Baut RepoContext-Set aus `repos[]` + `worktree_paths`
+2. Baut RepoContext-Set aus `repositories[]` + `worktree_paths`
     3. Instanziiert EvidenceAssembler mit Multi-Repo-API
     4. Ruft assemble() auf
     5. Schreibt bundle_manifest.json in --output-dir

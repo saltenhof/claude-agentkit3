@@ -1510,7 +1510,7 @@ Total: ~24 Klassen.
 | `artifacts` | RC -> A | `are_bundle.json` (ArtifactClass.QA) und `are_gate.json` via ArtifactManager |
 | `telemetry-and-events` | RC -> T | `Telemetry.write_event` fuer are_requirements_linked, are_evidence_submitted, are_gate_result |
 | `governance-and-guards` | GG -> RC | IntegrityGate prueft bei Closure dass `are_gate_result` mit `status: PASS` in Telemetrie vorliegt (FK-40 §40.8) |
-| Configuration (FK-03) | RC -> C | `features.are`, `are.mcp_server`, `are.module_scope_map`, `repos[].are_scope` |
+| Configuration (FK-03) | RC -> C | `features.are`, `are.mcp_server`, `are.module_scope_map`, `repositories[].are_scope` |
 
 **Konzept-Refactor-Liste:**
 

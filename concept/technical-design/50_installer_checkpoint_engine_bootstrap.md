@@ -392,7 +392,7 @@ enthalten ist.
 
 Nur wenn `features.are: true`.
 
-- Prüft: Alle Code-Repos in `repos[]` haben `are_scope` gesetzt. Alle Modul-Werte aus dem AK3-Story-Backend haben Eintrag in `are.module_scope_map`
+- Prüft: Alle Code-Repos in `repositories[]` haben `are_scope` gesetzt. Alle Modul-Werte aus dem AK3-Story-Backend haben Eintrag in `are.module_scope_map`
 - Erkennt Deltas automatisch: nur neue/unmapped Items lösen Abfrage aus
 - Interaktiver Modus: nummerierte Auswahl aus ARE-Scopes (Quelle: ARE-API `/dimensions/scope` oder Fallback auf bereits konfigurierte Scopes)
 - Agentischer Modus: gibt `PENDING_SELECTION` zurück mit Metadaten, orchestrierender Agent muss `resolve_pending_scope_mapping()` aufrufen

@@ -194,6 +194,10 @@ def setup_worktree(story_id: str, base_ref: str = "main") -> WorktreeResult:
     """
 ```
 
+Bei Multi-Repo-Stories wird `setup_worktree` pro teilnehmendem Repo
+aufgerufen (FK-22 §22.6.2 `setup_worktrees`). Branch-Name
+`story/{story_id}` ist identisch in allen teilnehmenden Repos.
+
 **Worktree-Pfad:** `worktrees/{story_id}` (relativ zum Projekt-Root)
 
 **`.agent-guard/lock.json`** im Worktree:
@@ -228,6 +232,11 @@ def merge_worktree(story_id: str, *, merge_policy: str = "ff_only") -> MergeResu
     """
 ```
 
+Bei Multi-Repo-Stories wird die Merge-Mechanik nicht pro Repo
+einzeln durchlaufen, sondern als 5-stufige atomare Saga ueber alle
+teilnehmenden Repos (FK-29 §29.1.6 mit `pre_merge_sha`-Rollback).
+Die obige Single-Repo-Sequenz beschreibt nur den Single-Repo-Fall.
+
 **Vorgeschriebene Merge-Policy:**
 
 - Standard: `ff_only`
@@ -256,44 +265,55 @@ def teardown_worktree(story_id: str) -> None:
 ```
 
 Wird nur nach erfolgreichem Merge aufgerufen (Closure-Substates).
+Bei Multi-Repo-Stories wird `teardown_worktree` pro teilnehmendem
+Repo aufgerufen; idempotent.
 
 ## 12.6 Multi-Repo-Unterstützung
 
 ### 12.6.1 Konfiguration
 
-In `.story-pipeline.yaml` können mehrere Repos konfiguriert werden:
+In `project.yaml` werden teilnehmende Repos unter `repositories[]`
+konfiguriert (siehe FK-10 `project.yaml`-Schema):
 
 ```yaml
-features:
-  multi_repo: true
-
-repos:
-  - id: backend
+repositories:
+  - name: backend
     path: "."
-    type: backend
-  - id: frontend
+    language: python
+    test_command: "pytest"
+    build_command: "ruff check"
+  - name: frontend
     path: "../trading-ui"
-    type: frontend
-  - id: wiki
+    language: typescript
+    test_command: "npm test"
+    build_command: "npm run build"
+  - name: wiki
     path: "../trading-wiki"
-    type: wiki
+    language: markdown
 ```
+
+[Entscheidung 2026-05-04 — Repo-Identifikation] Identifikator ist
+der Repo-`name` (String). Es gibt keinen separaten Repo-Schluessel.
+`participating_repos` einer Story (FK-22 §22.6.1) referenziert die
+Namen aus dieser Liste.
 
 ### 12.6.2 Auswirkungen auf Pipeline
 
 | Aspekt | Single-Repo | Multi-Repo |
 |--------|------------|-----------|
-| Worktree | 1 Worktree | 1 Worktree pro betroffenes Repo |
+| Worktree | 1 Worktree | 1 Worktree pro teilnehmendem Repo |
 | Branch | 1 Branch `story/{story_id}` | 1 Branch pro Repo, gleicher Name |
 | Structural Checks | 1 Durchlauf | 1 Durchlauf pro Repo |
 | Merge | 1 Push + 1 Merge | N Pushes + N Merges (alle oder keiner) |
-| Scope-Erkennung | Aus Diff | Aus Diff pro Repo + Repo-Typ |
+| Scope-Erkennung | Aus Diff | Aus Diff pro Repo |
 
-**Atomarer Multi-Repo-Closure:** Alle beteiligten Repos werden zuerst
-auf ihren Story-Branch-Remote gepusht und danach mit derselben
-Merge-Policy (`ff_only` oder `no_ff`) integriert. Bei Push- oder
-Merge-Fehler in einem Repo: Eskalation, kein partieller Abschluss.
-Die Closure-Substates tracken Push- und Merge-Status pro Repo.
+**Atomarer Multi-Repo-Closure:** Alle teilnehmenden Repos werden in
+Stufen behandelt: Pre-Merge-Check, Push-Stage, lokal-atomarer
+FF-Merge mit `pre_merge_sha`-Rollback, Push-zu-main-Stage, Teardown
+(FK-29 §29.1.6). Bei Push- oder Merge-Fehler in einem Repo:
+Eskalation, kein partieller Abschluss. Closure-Substates tracken
+Push- und Merge-Status pro Repo ueber `ClosurePayload.multi_repo`
+(FK-39 §39.x). Worker-Modell und Spawn-Worktree siehe FK-22 §22.6.4.
 
 ## 12.7 GitHub-Operationen in der Pipeline
 
