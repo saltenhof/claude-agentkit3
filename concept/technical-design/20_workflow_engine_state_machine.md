@@ -695,6 +695,53 @@ ist immer eine bewusste Entscheidung — entweder des Orchestrators
 (bei QA-Subflow-Failure -> Subflow-internem Feedback-Loop, §20.5)
 oder des Menschen (bei Eskalation).
 
+### 20.7.3 Recovery-Vertrag pro Phase (Subflow-Atomicitaet)
+
+[Entscheidung 2026-05-04] Granularitaet des Recovery-Vertrags ist
+**Subflow-Atomicitaet**: nicht ganze Phasen, sondern die einzelnen
+Subflow-Stufen bzw. -Schichten sind atomare Persistenz-Boundaries.
+Die einzige Stelle, an der die Maschine bei einem Crash **nicht**
+selbst weitermacht, ist der **Worker-Loop** der Implementation —
+hier entscheidet der Stratege manuell ueber den Worker-Halbstand.
+
+| Phase / Subflow-Stelle | Recovery-Verhalten |
+|---|---|
+| **Setup** | Auto-Resume. Phasen-atomicitaet — die Phase ist kurz und deterministisch, Wiederholung kostet nichts. |
+| **Exploration-Subflow (Stufen 1, 2a, 2b, Mandatsklassifikation, Feindesign)** | Auto-Resume **pro Stufe**. Jede Stufe persistiert ihren Abschluss in `ExplorationPayload.gate_status` plus Stage-Artefakte. Mid-Stufe-Crash → die laufende Stufe wird beim Resume neu gestartet, abgeschlossene Stufen werden uebersprungen. Wiederhol-Kost: ein bis wenige LLM-Calls pro Stufe. |
+| **Implementation Worker-Loop** | **Manueller Strategen-Eingriff.** Der Worker schreibt Code in den Worktree; ein mid-Worker-Loop-Crash hinterlaesst Code-Halbstand, der nicht trivial wiederholbar ist. Der Stratege entscheidet, ob er den Halbstand uebernehmen (Worker setzt fort, neuer `run_id`) oder verwerfen (Worktree zurueckgesetzt, Implementation-Phase beginnt im neuen Run von vorn) will. Dafuer steht `agentkit recover-story --story {story_id}` mit Auswahl-Modus zur Verfuegung. |
+| **Implementation QA-Subflow (Layer 1-4, Remediation-Loop)** | Auto-Resume **pro Schicht**. Layer 1 schreibt `structural.json`; Layer 2 schreibt `qa_review.json`/`semantic_review.json`/`doc_fidelity.json`; Layer 3 schreibt `adversarial.json`; Layer 4 schreibt `policy.json`. Mid-Schicht-Crash → die laufende Schicht wird beim Resume neu gestartet, abgeschlossene Schichten werden aus den vorhandenen Artefakten uebernommen. Der Subflow-interne Remediation-Loop (FK-38) ist ueber `qa_feedback_rounds` in `PhaseMemory.implementation` carry-forward. |
+| **Closure** | Auto-Resume. Granularitaet ist `ClosurePayload.progress` (siehe §20.7.1 Tabelle): Merge-Status, Issue-Close-Status, Postflight-Status werden einzeln persistiert; bereits abgeschlossene Schritte werden beim Resume uebersprungen. |
+
+**Atomare Persistenz-Boundaries:** Subflow-Stufen und QA-Schichten
+sind die kleinsten Einheiten, die mit einem Schreibzugriff in den
+Phase-State-Store atomar abgeschlossen werden. Innerhalb einer Stufe
+oder Schicht gibt es **keine** Sub-Idempotenz und **kein** Resume —
+ein Crash innerhalb einer laufenden Stufe fuehrt zum Wiederholen
+dieser Stufe.
+
+**LLM-Calls werden nicht gecacht.** Eine wiederholte Schicht oder
+Stufe macht ihre LLM-Calls neu. Das ist die bewusste Entscheidung —
+ein vollstaendiges Idempotenz-Cache-Modell waere Over-Engineering
+fuer ein lokales Stratege-Tool. Token-Kosten der Wiederholung sind
+beschraenkt, weil die Stufen-/Schicht-Granularitaet fein genug ist.
+
+**Worker-Loop-Recovery (Sonderfall):** Der Worker schreibt waehrend
+des Loops Inkremente in den Worktree (Code, Tests, Handover). Ein
+mid-Loop-Crash hinterlaesst genau **diesen Worktree-Stand** plus den
+zugehoerigen `worker-manifest.json`-Stand. Der Stratege entscheidet
+zwischen zwei Pfaden:
+
+- **Uebernahme**: neuer Run, Worker startet mit dem vorhandenen
+  Worktree-Stand und setzt fort. `worker-manifest.json` wird vom
+  Worker entsprechend aktualisiert.
+- **Verwerfen**: neuer Run, Worktree wird zurueckgesetzt
+  (`git reset --hard HEAD`, ggf. unstaged dropped), Implementation-
+  Phase startet von vorn.
+
+Worker-Loop-Recovery ist die einzige Stelle, an der der Recovery-
+Vertrag **menschlich entschieden** wird. Alle anderen Stellen sind
+auto-resume.
+
 > **[Entscheidung 2026-04-08]** Element 8 — Scheduling Policies (3 Klassen) entfallen als Runtime-Datenstrukturen in v3. Die Scheduling-Informationen bleiben in der Konzeptdokumentation (hier §20.8). Reines Doku-Artefakt ohne Verhalten.
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 8.
 

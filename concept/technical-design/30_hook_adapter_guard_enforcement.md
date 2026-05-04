@@ -875,6 +875,152 @@ akzeptiert), aber die `EventType`-Validierung und der
 
 > Der Worker-Health-Monitor (Scoring-Engine im PostToolUse-Hook, Interventions-Gate im PreToolUse-Hook, LLM-Assessment-Sidecar, Hook-Commit-Failure-Klassifikation, Persistenz-Artefakte und Konfiguration) ist normativ in **FK-49 (Worker-Health-Monitor)** beschrieben.
 
+## 30.11 Multi-Harness — zwei Adapter ab Tag 1
+
+[Entscheidung 2026-05-04] AK3 unterstuetzt **ab Tag 1 zwei Agent-
+Harnesses parallel**: **Claude Code** und **Codex**. Beide Adapter
+sind gleichberechtigt; der Stratege waehlt pro Session, welchen
+Harness er startet.
+
+### 30.11.1 Treiber
+
+Multi-Harness ist nicht hypothetisch, sondern oekonomische und
+funktionale Realitaet:
+
+- **Provider-Kostenpolitik**: Anthropic-Preis fuer das Top-Modell
+  ist deutlich gestiegen, OpenAI subventioniert Codex aktuell
+  massiv. Dieselbe Workload laesst sich je nach Harness zu sehr
+  unterschiedlichen Kosten umsetzen.
+- **Modell-Vielfalt**: Claude Code ist an Anthropic-Modelle
+  gebunden, Codex an OpenAI-Modelle. Bei vergleichbarer Qualitaet
+  ist die Wahl ein Stratege-Hebel — nicht eine
+  Engine-Entscheidung.
+- **Hybrid-Form**: Claude Code kann Codex als Sub-Agent spawnen.
+  Der Sub-Agent laeuft dann durch die Hooks des aeusseren Harness
+  (siehe 30.11.4).
+
+Ohne Multi-Harness von Anfang an wird AK3 an einen Anbieter
+gebunden — was dem Kernauftrag „skalierbare agentische
+Software-Entwicklung" widerspricht. Skalierbarkeit ist auch
+oekonomisch zu lesen, nicht nur technisch.
+
+### 30.11.2 Adapter-Architektur
+
+Hook-Auswertung ist seit `entities.md` Version 19 in zwei
+Subkomponenten gespalten:
+
+- **`governance.guard_evaluation`** — A-Kern, harness-neutral. Nimmt
+  eine generische `HookEvent`-Struktur (mit fachlichen Feldern wie
+  `operation`, `operation_args`, `principal_kind`,
+  `freshness_class`), ruft die Guards, gibt Decision zurueck.
+- **`governance.harness_adapters.{harness}`** — AT-Insel pro
+  Harness. Mappt harness-spezifische Mechanik auf die generische
+  `HookEvent`-Struktur und liefert die harness-spezifische
+  Decision-Repraesentation zurueck.
+
+Aktuelle Adapter:
+
+| Adapter | Status | Modul-Pfad |
+|---|---|---|
+| `harness_adapters.claude_code` | **implementiert** (Backward-Compat-Pfad `governance.hookruntime`) | `agentkit.governance.harness_adapters.claude_code` |
+| `harness_adapters.codex` | **zu bauen** (Pflicht ab Tag 1) | `agentkit.governance.harness_adapters.codex` |
+
+Weitere Harnesses (Qwen Code, Gemini-Code-Cli, AK3-eigener Harness,
+…) folgen demselben Pattern. Es gibt **keine Plugin-Registry** und
+**keine Capability-Selection-Policy** — jeder Adapter ist ein
+fest verdrahtetes Sub-Modul.
+
+### 30.11.3 Adapter-Vertrag
+
+Ein Harness-Adapter erfuellt drei Pflichten:
+
+1. **Eingangs-Mapping**: harness-spezifischer Hook-Event → generische
+   `HookEvent`. Tool-Namen, Tool-Argumente, Principal-Identifikation,
+   Operation-Klasse (mutating/read/unknown) werden auf die
+   harness-neutralen Felder abgebildet.
+2. **Ausgangs-Mapping**: generische Decision (`allow` /
+   `block` mit Begruendung) → harness-spezifischer Output. Bei
+   Claude Code: JSON-Decision auf stdout, Exit-Code 2 = block, 0 =
+   allow. Bei Codex: das harness-eigene Aequivalent.
+3. **Sub-Agent-Lifecycle**: wenn der Harness Sub-Agent-Spawn
+   unterstuetzt, mappt der Adapter die Sub-Agent-Identifikation
+   (`is_subagent`-Aequivalent), damit `guard_evaluation` zwischen
+   Haupt-Agent und Sub-Agent unterscheiden kann.
+
+Der Adapter ist **AT** im Sinne der Bluttypen-Methodik (siehe
+`concept/methodology/software-blutgruppen.md` §4.2): Mediation
+zwischen fachlicher Domaene (`guard_evaluation`) und
+harness-spezifischer Mechanik (Tool-Namen, stdin/stdout-Konvention,
+Exit-Code-Konvention). AT-Mischung ist hier **konstitutiv**, nicht
+zu vermeiden.
+
+**Vertrag-Pruefung**: bei Hinzukommen eines neuen Harness ist die
+bestehende `claude_code`-Implementierung die Referenz. Diskrepanzen
+werden gefunden, der Vertrag wird ggf. konzeptionell nachgeschaerft.
+Heute ist der Vertrag **implizit** — er liegt in der Struktur des
+`HookEvent`-Modells und in den drei Pflichten oben. Wenn der Codex-
+Adapter und ein dritter Adapter zusammen tragfaehig sind, kann der
+Vertrag bei Bedarf in eine eigene Konzept-Sektion gehoben werden.
+
+### 30.11.4 Hybrid-Form: Sub-Agent ueber zweiten Harness
+
+Ein Harness-Adapter kann einen **anderen Harness** als Sub-Agent
+spawnen. Beispielsweise spawnt Claude Code einen Codex-Sub-Agent.
+Wichtige Disziplin:
+
+- Der Sub-Agent **laeuft durch die Hooks des aeusseren Harness** —
+  d. h. die Sub-Agent-Aufrufe werden durch den Adapter des
+  Outer-Harness vermittelt, nicht durch einen eigenen Inner-
+  Harness-Adapter.
+- Der Sub-Agent erscheint in den Outer-Hooks als regulaerer
+  Sub-Agent (mit `is_subagent`-Flag), nicht als „fremder Harness".
+- Damit gilt das gesamte Guard-Regelwerk des aeusseren Harness
+  auch fuer den Sub-Agent — inklusive QA-Artefaktschutz, Branch-
+  Guard, Worker-Health-Monitor.
+
+Diese Hybrid-Form ist die **Standard-Empfehlung** fuer
+„harness-uebergreifend arbeiten" — statt zwei eigenstaendige
+Harnesses parallel laufen zu lassen, lebt ein Outer-Harness mit
+Codex-Sub-Agents oder analoge Konstellationen.
+
+### 30.11.5 Installation: parallele Registrierung
+
+Die Installation von AK3 in ein Zielprojekt registriert **beide
+Harnesses parallel**:
+
+- Settings-Dateien fuer Claude Code (`.claude/...`) werden
+  geschrieben.
+- Settings-Dateien fuer Codex werden geschrieben (Pfad-Konvention
+  per Codex-Standard).
+- Hooks beider Harnesses werden registriert.
+- Wrapper unter `tools/agentkit/` sind harness-neutral; sie rufen
+  die fachlichen Komponenten direkt, ohne harness-spezifischen
+  Pfad.
+
+Es gibt **keine** „aktiver Harness"-Konfiguration im Projekt. Die
+Wahl passiert beim Sessions-Start: der Stratege startet entweder
+`claude` oder `codex` im Projektverzeichnis, AK3-Hooks und
+Wrapper sind fuer beide vorhanden.
+
+Die Bootstrap- und Hook-Registrierungs-Mechanik fuer beide
+Harnesses ist in **FK-50 (Installer)** und **FK-51 (Upgrade)**
+beschrieben.
+
+### 30.11.6 Was bewusst NICHT Teil ist
+
+- Keine Plugin-Registry mit dynamischer Harness-Erkennung.
+- Keine Capability-Matching-Logik (welcher Harness fuer welche
+  Story?).
+- Keine Harness-Selection-Policy. Die Wahl ist strategen-getrieben
+  pro Session.
+- Keine Multi-Harness-Worker-Health-Aggregation. Worker-Health
+  laeuft pro Session und pro Harness; aggregierte Sichten kommen
+  bei Bedarf in einer spaeteren Welle.
+
+Diese Themen sind nicht ausgeschlossen, aber kommen erst, wenn der
+zweite Harness (Codex) real ist und konkrete Anforderungen sich
+zeigen.
+
 ---
 
 *FK-Referenzen: FK-06-001 bis FK-06-006 (Fail-Closed, Hook-basiert),

@@ -425,6 +425,83 @@ Unzulaessig ist:
 - eine physische Zusammenlegung, die den Single-Writer fachlich
   aufweicht oder Projektionen mit kanonischer Wahrheit vermischt
 
+## 18.9a Schema-Versionierung und Side-by-Side-Datenbanken
+
+[Entscheidung 2026-05-04] AK3 fuehrt eine **explizite
+Schema-Version** als Code-Konstante. Bei einer Versionsaenderung
+wird **automatisch eine neue Datenbank daneben** angelegt — die alte
+DB bleibt unangetastet.
+
+### 18.9a.1 Schema-Version als Konstante
+
+Eine Code-Konstante (z. B. `agentkit.state_backend.config.SCHEMA_VERSION`)
+haelt die aktuelle Schema-Version im SemVer-Stil — z. B. `"3.0.0"`.
+Diese Version wird bei AK3-Builds mitgepflegt; Schema-Aenderungen
+fuehren zu einer Versions-Erhoehung.
+
+**Innerhalb einer Major-Version (z. B. 3.0.0 → 3.0.1, 3.1.0 etc.)
+sind Schema-Aenderungen tabu.** Eine Schema-Aenderung **ist** ein
+Versions-Bump.
+
+Vor dem ersten produktiven Release (Pre-1.0-Phase) sind
+Schema-Wechsel **destructive resets**: die DB wird neu angelegt,
+keine Daten-Uebertragung. Es gibt vor Release noch keine
+schuetzenswerten Bestandsdaten.
+
+### 18.9a.2 DB-Bezeichnung mit Versions-Kennung
+
+Die DB-Bezeichnung enthaelt die Schema-Version. Zwei zulaessige
+Realisierungs-Wege:
+
+| Treiber | Konvention |
+|---|---|
+| **Postgres** | Eigenes Schema pro Version: `ak3_v3_0_0`, `ak3_v3_1_0`. Tabellen liegen unter dem versionierten Schema. |
+| **SQLite** | Eigene Datei pro Version: `agentkit_3_0_0.sqlite`, `agentkit_3_1_0.sqlite`. |
+
+Welche Realisierung zum Einsatz kommt, ist Driver-Detail. Der A-Kern
+kennt die Schema-Version nur als Konstante; die Mapping-Disziplin
+liegt im Driver.
+
+### 18.9a.3 Bootstrap-Verhalten
+
+Beim AK3-Start prueft der Driver, ob fuer die aktuelle
+`SCHEMA_VERSION` bereits eine DB existiert:
+
+- **Existiert**: AK3 startet auf der vorhandenen DB.
+- **Existiert nicht**: AK3 legt **automatisch eine neue, leere DB
+  unter der aktuellen Versions-Kennung an** und startet darauf.
+- **Aeltere DB unter alter Version vorhanden**: bleibt
+  **unangetastet**. Sie ist fuer Forensik, Rollback und optionale
+  Daten-Uebertragung erreichbar.
+
+Es gibt **kein Auto-Upgrade-Verhalten** — die alte DB wird nicht
+ueberbuegelt, nicht migriert, nicht angetastet.
+
+### 18.9a.4 Optionale Daten-Uebertragung zwischen Versionen
+
+Wenn ein Stratege Daten von einer alten in eine neue Version
+uebernehmen will, ist das eine **separate, gezielt gestartete
+Aktion** — nicht Auto-Boot-Verhalten. Der Mechanismus dafuer ist
+nicht-kriegsentscheidend; ein einfacher Migrations-Befehl wie
+`agentkit migrate --from=3.0.0 --to=3.1.0` reicht. Die Mechanik
+wird zum Zeitpunkt der ersten realen Migrations-Anforderung
+spezifiziert — heute ist das Side-by-Side-Verhalten und das
+Bootstrap-Auto-Anlage-Verhalten das Wesentliche.
+
+Bis zur ersten realen Daten-Uebertragung gilt: **leere neue DB
+neben der alten leben lassen.**
+
+### 18.9a.5 Was bewusst NICHT Teil ist
+
+- Kein Migrations-Framework (Alembic etc.).
+- Kein automatisches Daten-Upgrade-Verhalten.
+- Kein Down-Mechanismus (Rollback geschieht durch Wechsel auf die
+  alte Version, die ihre eigene DB hat).
+- Keine Schema-Diff-Tools.
+
+Bootstrap-Mechanik fuer die Auto-Anlage ist in **FK-50 (Installer)**
+und **FK-51 (Upgrade)** beschrieben.
+
 ## 18.10 Erste Zielgröße
 
 Die kleinste sinnvolle relationale Zielstruktur fuer AK3 besteht aus
