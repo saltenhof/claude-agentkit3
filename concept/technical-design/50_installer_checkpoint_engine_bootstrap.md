@@ -387,7 +387,7 @@ bereits indizierte Konzepte (Hash-basiert).
 
 Registriert den konzeptspezifischen Pre-Commit-Hook (Kap. 13.9.9)
 in `tools/hooks/pre-commit`. Der Hook führt bei Änderungen unter
-`_concept/` die Validierungs-Suite `concept_validate --staged` aus.
+`concept/` die Validierungs-Suite `concept_validate --staged` aus.
 
 Die bestehende Secret-Detection (Kap. 15.5.2) bleibt global aktiv
 und wird durch die pfadbasierte Dispatching-Logik nicht berührt.

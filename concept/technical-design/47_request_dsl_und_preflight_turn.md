@@ -98,7 +98,7 @@ class RequestResult(BaseModel):
 | `NEED_CALLSITE` | Funktions-/Methodenname | `rg '{symbol}\('` | — |
 | `NEED_RUNTIME_BINDING` | Config-Key | `rg '{target}' -g '*.yaml' -g '*.yml' -g '*.json' -g '*.env'` | — |
 | `NEED_TEST_EVIDENCE` | Test-Command (z.B. `pytest pfad/`) | `subprocess.run` mit cwd=repo_root | 30s |
-| `NEED_CONCEPT_SOURCE` | Dokument-Abschnitt | Heading-Match in `_concept/` und `stories/` | — |
+| `NEED_CONCEPT_SOURCE` | Dokument-Abschnitt | Heading-Match in `concept/` und `stories/` | — |
 | `NEED_DIFF_EXPANSION` | Datei + Region | `git diff` mit erweitertem Kontext für spezifische Region | — |
 
 ## 47.3 RequestResolver (Multi-Repo) (FK-28-010)
@@ -244,7 +244,7 @@ class RequestResolver:
     def _resolve_concept_source(self, req: ReviewerRequest) -> RequestResult:
         """Konzeptdokument-Abschnitt suchen.
 
-        Heading-Match in _concept/ und stories/ per Regex.
+        Heading-Match in concept/ und stories/ per Regex.
         """
         ...
 

@@ -516,13 +516,13 @@ concepts:
     module: error-routing
     status: active
     doc_kind: core
-    file: _concept/technical-design/07_error_routing.md
+    file: concept/technical-design/07_error_routing.md
     sections:
       - number: "1"
         heading: "Zweck und Einsatzstellen"
     appendices:
       - concept_id: TK-07-A
-        file: _concept/technical-design/07a_appendix.md
+        file: concept/technical-design/07a_appendix.md
     authority_over:
       - scope: error-routing
     defers_to:
@@ -595,7 +595,7 @@ kein Prozessschritt würde sie nutzen.
 
 | Artefakt / Aktion | Verantwortlicher | Trigger | Befähigung |
 |--------------------|-----------------|---------|------------|
-| INDEX.yaml + concept_graph.json | **Post-Commit-Hook** (§30.5.4a) | Automatisch nach jedem Commit mit `_concept/`-Änderungen | Pfadbasiertes Dispatching erkennt `_concept/`; `concept build` ist deterministisch, kein LLM, ~1s Laufzeit |
+| INDEX.yaml + concept_graph.json | **Post-Commit-Hook** (§30.5.4a) | Automatisch nach jedem Commit mit `concept/`-Änderungen | Pfadbasiertes Dispatching erkennt `concept/`; `concept build` ist deterministisch, kein LLM, ~1s Laufzeit |
 | VectorDB-Sync (Erstindizierung) | **Installer** (CP 9a) | Einmalig bei Installation/Upgrade | Checkpoint-Engine (VektorDB ist Pflicht) |
 | VectorDB-Sync (laufend) | **Post-Commit-Hook** (§30.5.4a) | Nach `concept build` | `concept build --sync`; bei VectorDB-Ausfall: Fehler protokolliert |
 | VectorDB-Sync (manuell) | **Operator / Agent** | CLI `concept sync` oder MCP-Tool | Expliziter Aufruf |
@@ -636,7 +636,7 @@ system-Timestamps sind bei Git-Operationen unzuverlässig).
 Archivierte Konzepte bleiben im Index (historische Referenzierbar-
 keit). `concept_search` filtert standardmäßig auf `active`.
 
-Pfad `_concept/archiv/` → automatisch `concept_status=archived`.
+Pfad `concept/archiv/` → automatisch `concept_status=archived`.
 Ergänzende Frontmatter-Felder: `superseded_by`, `supersedes`.
 
 ### 13.9.11 Authority-Auflösung (Ranking-Policy)

@@ -595,14 +595,14 @@ oder PostToolUse sein.
 ### 30.5.3 Concept-Validation-Hook (Git Pre-Commit)
 
 Ein Git-Pre-Commit-Hook (`tools/hooks/pre-commit`) validiert den
-Concept-Corpus bei Änderungen unter `_concept/`. Der Hook ist
+Concept-Corpus bei Änderungen unter `concept/`. Der Hook ist
 unabhängig von den harness-Hooks in §30.3 (Claude Code, Codex; siehe
 §30.11) — er wird über `git config core.hooksPath` registriert
 (CP 11, Kap. 50.3).
 
 | Trigger | Prüfung | Härte |
 |---------|---------|-------|
-| Staged files unter `_concept/` | `concept_validate --staged` | Blockierend (exit 1) |
+| Staged files unter `concept/` | `concept_validate --staged` | Blockierend (exit 1) |
 | Keine Konzeptänderungen | Überspringt Concept-Validation | — |
 
 Der Hook teilt sich den `pre-commit`-Einstiegspunkt mit der
@@ -610,7 +610,7 @@ Secret-Detection (Kap. 15.5.2) über pfadbasiertes Dispatching:
 
 - Secret-Detection: Global aktiv (immer, alle Pfade)
 - Versionsbump: Nur bei Code-Änderungen (`agentkit/`, `pyproject.toml`)
-- Concept-Validation: Nur bei Konzeptänderungen (`_concept/`)
+- Concept-Validation: Nur bei Konzeptänderungen (`concept/`)
 
 Details zur Validierungs-Suite: Kap. 13.9.7.
 Details zur Hook-Migration bei Upgrades: Kap. 51.6.1.
@@ -625,7 +625,7 @@ für die Artefakt-Aktualität (Kap. 13.9.9, Tabelle
 
 | Trigger | Aktion | Härte |
 |---------|--------|-------|
-| Commit enthielt `_concept/`-Änderungen | `concept build` (INDEX.yaml + concept_graph.json) | Non-blocking (Post-Commit kann nicht abbrechen) |
+| Commit enthielt `concept/`-Änderungen | `concept build` (INDEX.yaml + concept_graph.json) | Non-blocking (Post-Commit kann nicht abbrechen) |
 | `--sync` Flag oder Konfiguration | `concept sync` (VectorDB, Pflicht) | Bei VectorDB-Ausfall: Fehler protokolliert |
 | Keine Konzeptänderungen im Commit | Überspringt Concept-Build | — |
 
@@ -641,7 +641,7 @@ für die Artefakt-Aktualität (Kap. 13.9.9, Tabelle
 
 **Erkennung der Konzeptänderungen:** Der Post-Commit-Hook nutzt
 `git diff --name-only HEAD~1 HEAD` um zu prüfen ob Dateien unter
-`_concept/` im soeben abgeschlossenen Commit geändert wurden.
+`concept/` im soeben abgeschlossenen Commit geändert wurden.
 
 **Laufzeit:** `concept build` ist deterministisch (Parse + Write),
 keine Netzwerk-Aufrufe, ~1s für typische Corpus-Größen (~50

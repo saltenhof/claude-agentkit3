@@ -172,7 +172,7 @@ Dispatching-Logik:
 
 - Secret-Detection: Global (immer aktiv, Kap. 15.5.2)
 - Versionsbump: Nur bei Code-Änderungen (`agentkit/`, `pyproject.toml`)
-- Concept-Validation: Nur bei Konzeptänderungen (`_concept/`)
+- Concept-Validation: Nur bei Konzeptänderungen (`concept/`)
 
 Bei Upgrades von einer Version ohne Dispatching-Logik:
 
