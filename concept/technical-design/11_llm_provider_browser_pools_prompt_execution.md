@@ -13,7 +13,7 @@ authority_over:
 defers_to:
   - target: FK-03
     scope: configuration
-    reason: LLM-Rollenzuordnung ist in .story-pipeline.yaml konfiguriert
+    reason: LLM-Rollenzuordnung ist in project.yaml konfiguriert
   - target: DK-01
     scope: roles-and-llm
     reason: Fachliches LLM-Role-Routing und Spawn-Contract liegt in DK-01
@@ -137,7 +137,7 @@ MCP erfüllt, ist als Pool einsetzbar.
 | `{pool}_shutdown` | Graceful Shutdown |
 
 `{pool}` ist der konfigurierte Pool-Name (z.B. `chatgpt`, `gemini`,
-`grok`). Der Name wird in `.story-pipeline.yaml` unter `llm_roles`
+`grok`). Der Name wird in `project.yaml` unter `llm_roles`
 referenziert.
 
 **Browser-Pool vs. API:** Das FK erlaubt LLM-Aufrufe "über API oder
@@ -195,7 +195,7 @@ sequenceDiagram
 
 ### 11.3.1 Konfiguration
 
-In `.story-pipeline.yaml` (Kap. 03):
+In `project.yaml` (Kap. 03):
 
 ```yaml
 llm_roles:

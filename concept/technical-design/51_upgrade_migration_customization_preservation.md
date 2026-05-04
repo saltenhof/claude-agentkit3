@@ -33,7 +33,7 @@ glossary:
   exported_terms:
     - id: config-migration
       definition: >
-        Schrittweiser Konvertierungsprozess einer .story-pipeline.yaml von
+        Schrittweiser Konvertierungsprozess einer project.yaml von
         einer aelteren config_version auf die aktuelle Zielversion. Laeuft
         innerhalb von CP 5 des Installers; erstellt vor jeder Aenderung ein
         .bak-Backup. Bei Scheitern: FAILED, keine Teilmigration.
@@ -105,7 +105,7 @@ umgestellt wird.
 
 ### 51.4.1 Wann
 
-Wenn sich `config_version` in `.story-pipeline.yaml` ändert
+Wenn sich `config_version` in `project.yaml` ändert
 (Major-Sprung, z.B. 3.0 → 4.0).
 
 ### 51.4.2 Ablauf
@@ -137,7 +137,7 @@ def migrate_3_to_4(config: dict) -> dict:
 
 ### 51.4.3 Backup
 
-Vor jeder Migration wird `.story-pipeline.yaml.bak` geschrieben.
+Vor jeder Migration wird `project.yaml.bak` geschrieben.
 
 ## 51.5 Schema-Migration
 

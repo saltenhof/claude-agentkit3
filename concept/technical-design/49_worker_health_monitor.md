@@ -431,7 +431,7 @@ und setzt lediglich einen Status-Flag (`llm_assessment.status =
 ### 49.1.7 Konfiguration
 
 Alle Schwellwerte, Gewichte und Sidecar-Parameter des
-Worker-Health-Monitors werden in `.story-pipeline.yaml` unter
+Worker-Health-Monitors werden in `project.yaml` unter
 dem Schluessel `worker_health` konfiguriert. Schema-Owner
 und kanonische Defaults sind in **FK-49 (implementation-phase)**
 definiert. FK-93 (Standardwerte, Schwellwerte und Timeouts)

@@ -151,7 +151,7 @@ sequenceDiagram
     Note over PIP: Python-Paket global/venv verfügbar
     M->>INS: agentkit register-project --gh-owner acme --gh-repo platform
     INS->>STATE: Projekt registrieren / Konfiguration validieren
-    INS->>PROJ: .story-pipeline.yaml + harness-spezifische Settings aktualisieren (z. B. .claude/settings.json fuer Claude Code; harness-eigenes Aequivalent fuer Codex; FK-30 §30.11)
+    INS->>PROJ: .agentkit/config/project.yaml + harness-spezifische Settings aktualisieren (z. B. .claude/settings.json fuer Claude Code; harness-eigenes Aequivalent fuer Codex; FK-30 §30.11)
     INS->>PROJ: harness-spezifische Skill-Symlinks auf Bundle-Version erzeugen (z. B. .claude/skills/ fuer Claude Code)
     INS->>PROJ: tools/agentkit/ Wrapper fuer Project-Edge-Aufrufe binden
     Note over PROJ: Nur lokale Konfiguration und Skill-Bindungen<br/>keine kopierten Skills/Prompts/DB-Dateien
@@ -185,7 +185,7 @@ zwei (FK-06-090). Jeder Pool ist optional, aber die Summe muss die
 | Claude + 2 Pools (z.B. ChatGPT + Gemini) | 2 | Minimum — qa_review und semantic_review auf verschiedenen Pools |
 | Claude + 3 Pools (ChatGPT + Gemini + Grok) | 3 | Empfohlen — maximale Diversität |
 
-Die `llm_roles`-Konfiguration in `.story-pipeline.yaml` ordnet Rollen
+Die `llm_roles`-Konfiguration in `project.yaml` ordnet Rollen
 konkreten Pools zu. Das Integrity-Gate prüft bei Closure, dass für
 jede konfigurierte Rolle mindestens ein `llm_call`-Event mit dem
 zugeordneten Pool in der Telemetrie vorliegt.
@@ -209,8 +209,9 @@ Orchestrator und Worker.
 
 ```
 {projekt-root}/
-├── .story-pipeline.yaml            # Projektspezifische AgentKit-Konfiguration
 ├── .agentkit/                      # Harness-neutraler AK3-Konfigurationspfad
+│   ├── config/
+│   │   └── project.yaml            # Projektspezifische AgentKit-Konfiguration
 │   └── ccag/
 │       └── rules/                  # Projektbezogene Permission-/Policy-Konfiguration (kanonisch)
 ├── .claude/                        # Beispiel: Claude-Code-Adapter (FK-30 §30.11)
@@ -248,7 +249,7 @@ Adapter beschrieben.
 | State-Backend: Failure Corpus | Governance-Beobachtung, Pipeline | Failure-Corpus-Engine | Append-only, permanent |
 | Systemweite Skill-/Prompt-Bundles | AgentKit-Installer | Agents (read-only via Projekt-Symlink) | Versioniert, immutable pro Bundle-Version |
 | harness-spezifische Skill-Symlinks (z. B. `.claude/skills/` fuer Claude Code; FK-30 §30.11) | Installer | Harness / Agents | Nur Symlink-Bindung, kein kanonischer Inhalt |
-| `.story-pipeline.yaml` | Mensch, Installer | Alle Pipeline-Komponenten | Menschlich editierbar |
+| `.agentkit/config/project.yaml` | Mensch, Installer | Alle Pipeline-Komponenten | Menschlich editierbar |
 
 ## 10.4 Persistenz und Datenflüsse
 
@@ -256,7 +257,7 @@ Adapter beschrieben.
 
 | Daten | Speicher | Format | Lebensdauer |
 |-------|---------|--------|-------------|
-| Pipeline-Konfiguration | `.story-pipeline.yaml` | YAML | Permanent (projektweite Config) |
+| Pipeline-Konfiguration | `.agentkit/config/project.yaml` | YAML | Permanent (projektweite Config) |
 | Story-Zustände (extern sichtbar) | AK3-Story-Backend | Story-Attribute | Permanent |
 | Story-Zustände (intern) | State-Backend | Strukturierte Records | Permanent mit Run-Historie |
 | Story-Context (Snapshot) | State-Backend | Strukturierte Records | Permanent / versioniert |
@@ -415,9 +416,9 @@ Die Ports sind konfigurierbar:
 | UI | `agentkit ui --port N` | 9700 |
 | UI-BFF | `agentkit serve --ui-bff --port N` | 9701 |
 | Project-API | `agentkit serve --project-api --port N` | 9702 |
-| ARE | `.story-pipeline.yaml` → `are.base_url` | 9800 |
-| Weaviate | `.story-pipeline.yaml` → `vectordb.url` | 9903 |
-| Jenkins/SonarQube | `.story-pipeline.yaml` → Stage-Registry `external_tools` | 9900/9901 (Jenkins Agent: 9902) |
+| ARE | `project.yaml` → `are.base_url` | 9800 |
+| Weaviate | `project.yaml` → `vectordb.url` | 9903 |
+| Jenkins/SonarQube | `project.yaml` → Stage-Registry `external_tools` | 9900/9901 (Jenkins Agent: 9902) |
 | PostgreSQL | Umgebungsvariable oder Connection-String (spaeter) | 5432 |
 
 ---

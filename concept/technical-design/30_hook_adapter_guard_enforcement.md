@@ -662,7 +662,7 @@ selbst (Kap. 15.7):
 |-----------------|---------|
 | Harness-spezifische Hook-Settings (Beispiel Claude Code: `.claude/settings.json`; Codex: harness-eigenes Aequivalent — siehe §30.11) | Sofortiger Stopp |
 | Harness-spezifische CCAG-Symlinks (Beispiel Claude Code: `.claude/ccag/rules/`; kanonisch `.agentkit/ccag/rules/`) | Sofortiger Stopp |
-| `.story-pipeline.yaml` | Sofortiger Stopp |
+| `.agentkit/config/project.yaml` | Sofortiger Stopp |
 | `.installed-manifest.json` | Sofortiger Stopp |
 | `_temp/governance/` | Sofortiger Stopp |
 | `.agent-guard/` | Sofortiger Stopp |

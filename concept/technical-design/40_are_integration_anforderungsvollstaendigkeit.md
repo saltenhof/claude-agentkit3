@@ -120,7 +120,7 @@ nicht die fachliche Korrektheit des Ergebnisses.
 ## 40.2 Aktivierung
 
 ```yaml
-# .story-pipeline.yaml
+# project.yaml
 features:
   are: false              # Default: deaktiviert
 
@@ -136,7 +136,7 @@ Fallback-Code (FK-09-014).
 
 ### 40.3.1 Zwei Zuordnungstabellen
 
-- Pipeline-Konfiguration (`.story-pipeline.yaml`) pflegt zwei getrennte Mapping-Tabellen:
+- Pipeline-Konfiguration (`project.yaml`) pflegt zwei getrennte Mapping-Tabellen:
   - `repositories[].are_scope`: Jedes Code-Repository → genau ein ARE-Scope-String (z.B. `backend`, `frontend`, `agentframework`)
   - `are.module_scope_map`: Jeder Wert des Story-Attributs "Modul" → genau ein ARE-Scope-String
 - Root-Repos und reine Dokumentations-Repos ausgenommen — nur Code-Repos brauchen Zuordnung

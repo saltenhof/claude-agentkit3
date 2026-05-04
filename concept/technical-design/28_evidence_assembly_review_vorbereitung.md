@@ -255,7 +255,7 @@ Dateisystem und Git ableitbar ist.
 |-----------|---------|-----------|--------------|
 | Geänderte Dateien | `_collect_changed_files()` | `PRIMARY_IMPLEMENTATION` | `git diff --name-only {base} HEAD` |
 | Modul-Nachbarn | `_collect_module_neighbors()` | `SECONDARY_CONTEXT` | `__init__.py`, `schemas.py`, `protocols.py`, `config.py`, `types.py` im selben und übergeordneten Verzeichnis |
-| Normative Quellen | `_collect_normative_sources()` | `PRIMARY_NORMATIVE` | Story-Spec, Concept-Docs, Guardrails aus `StoryContext` / `.story-pipeline.yaml` |
+| Normative Quellen | `_collect_normative_sources()` | `PRIMARY_NORMATIVE` | Story-Spec, Concept-Docs, Guardrails aus `StoryContext` / `project.yaml` |
 | YAML/JSON-Configs | `_collect_yaml_json_configs()` | `SECONDARY_CONTEXT` | Konfigurationsdateien im selben Modul wie geänderte Dateien |
 
 **Diff-Basis-Ermittlung (D4, FK-28-002):**
@@ -469,7 +469,7 @@ class EvidenceAssembler:
             herangezogen — keine fachliche Sonderrolle.
         story_dir: Verzeichnis der Story-Artefakte.
         context_json: Geladener `context.json`-Export eines `StoryContext`.
-        pipeline_config: Geladene .story-pipeline.yaml.
+        pipeline_config: Geladene project.yaml.
     """
 
     def __init__(
@@ -829,7 +829,7 @@ agentkit evidence assemble \
   --story-id ODIN-042 \
   --story-dir ./stories/ODIN-042 \
   --output-dir ./stories/ODIN-042/qa \
-  [--config .story-pipeline.yaml]
+  [--config .agentkit/config/project.yaml]
 ```
 
 **Parameter:**
@@ -839,7 +839,7 @@ agentkit evidence assemble \
 | `--story-id` | Ja | Story-ID für Telemetrie und Artefakt-Benennung |
 | `--story-dir` | Ja | Verzeichnis der Story-Artefakt-Exporte (enthaelt optional `context.json`) |
 | `--output-dir` | Ja | Zielverzeichnis für `bundle_manifest.json` und assemblierte Dateien |
-| `--config` | Nein | Pfad zur `.story-pipeline.yaml` (Default: `.story-pipeline.yaml` im Repo-Root) |
+| `--config` | Nein | Pfad zur `project.yaml` (Default: `.agentkit/config/project.yaml` im Repo-Root) |
 
 **Handler-Logik:**
 

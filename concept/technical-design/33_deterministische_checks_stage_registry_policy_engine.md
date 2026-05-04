@@ -189,7 +189,7 @@ sind nur Materialisierungskonvention.
 
 ### 33.2.4 Projekt-Overrides
 
-Projekte können über `.story-pipeline.yaml` einzelne Stages
+Projekte können über `project.yaml` einzelne Stages
 überschreiben (Kap. 03):
 
 ```yaml
@@ -369,7 +369,7 @@ class StructuralCheck:
 ### 33.3.3 Build-/Test-Befehle
 
 Die Befehle für `build.compile` und `build.test_execution`
-kommen aus `.story-pipeline.yaml` oder aus projekt-spezifischen
+kommen aus `project.yaml` oder aus projekt-spezifischen
 Konventionen:
 
 ```yaml
@@ -482,7 +482,7 @@ Die Stage-Registry kann um externe Checks erweitert werden
 die konfigurierbare Stage-Registry"):
 
 ```yaml
-# In .story-pipeline.yaml
+# In project.yaml
 policy:
   additional_stages:
     - id: sonarqube
@@ -721,19 +721,19 @@ eigene leichtgewichtige Checks:
 ### 33.10.1 Structural Checks ausführen
 
 ```bash
-agentkit structural --story ODIN-042 --config .story-pipeline.yaml
+agentkit structural --story ODIN-042 --config .agentkit/config/project.yaml
 ```
 
 ### 33.10.2 Policy-Evaluation ausführen
 
 ```bash
-agentkit policy --story ODIN-042 --config .story-pipeline.yaml
+agentkit policy --story ODIN-042 --config .agentkit/config/project.yaml
 ```
 
 ### 33.10.3 Stage-Registry anzeigen
 
 ```bash
-agentkit stages --story-type implementation --config .story-pipeline.yaml
+agentkit stages --story-type implementation --config .agentkit/config/project.yaml
 ```
 
 Zeigt alle für diesen Story-Typ geltenden Stages mit Layer,

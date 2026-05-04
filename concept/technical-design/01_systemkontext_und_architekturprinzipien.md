@@ -309,7 +309,7 @@ technische Mechanismen erzwungen:
 Verschiedene Rollen werden von verschiedenen LLM-Familien bedient.
 Das ist konfigurierte Pflicht, nicht optionale Ergänzung.
 
-**Konfiguration** in `.story-pipeline.yaml`:
+**Konfiguration** in `project.yaml`:
 
 ```yaml
 multi_llm: true  # Pflicht, Default true

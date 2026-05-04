@@ -68,7 +68,7 @@ agentkit status
 
 # Output:
 # AgentKit v1.0.0
-# Config: .story-pipeline.yaml (v3.0)
+# Config: .agentkit/config/project.yaml (v3.0)
 # GitHub: acme-corp/trading-platform (Project #7)
 #
 # LLM Pools:
@@ -342,7 +342,7 @@ kein zusätzliches Limit nötig.
 
 | Daten | Wichtigkeit | Backup-Methode |
 |-------|-----------|---------------|
-| `.story-pipeline.yaml` | Hoch | Teil des Git-Repos |
+| `.agentkit/config/project.yaml` | Hoch | Teil des Git-Repos |
 | `.agentkit/ccag/rules/` (kanonisch; harness-spezifische Symlinks via Adapter, FK-30 §30.11) | Hoch | Teil des Git-Repos |
 | PostgreSQL | Hoch | Zentrales DB-Backup / PITR |
 | Audit-Exports | Mittel | Objektspeicher / Archiv-Backup |

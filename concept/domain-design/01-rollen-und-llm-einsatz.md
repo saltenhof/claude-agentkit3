@@ -93,7 +93,7 @@ Pipeline-Konfiguration als `llm_roles`-Mapping definiert (Rolle →
 Pool). Die Laufzeit-Auflösung erfolgt über eine feste Kette:
 
 1. Rolle bestimmen (z.B. `qa_review`, `semantic_review`)
-2. Pool-Name aus `llm_roles` in `.story-pipeline.yaml` lesen
+2. Pool-Name aus `llm_roles` in `project.yaml` lesen
    (z.B. `chatgpt`, `gemini`)
 3. MCP-Tool-Prefix ableiten (`chatgpt_acquire`, `chatgpt_send`, ...)
 4. Acquire/Send/Release über den MCP-Pool ausführen

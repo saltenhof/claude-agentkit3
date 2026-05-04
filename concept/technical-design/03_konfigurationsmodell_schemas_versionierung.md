@@ -45,7 +45,7 @@ Ebene 4: CLI-Argumente            (höchste Priorität, Startup)
     ▼
 Ebene 3: Story-Attribute          (AK3-Story-Backend, nur bei Setup einmalig gelesen)
     ▼
-Ebene 2: Projektkonfiguration     (.story-pipeline.yaml, bei Start geladen)
+Ebene 2: Projektkonfiguration     (.agentkit/config/project.yaml, bei Start geladen)
     ▼
 Ebene 1: AgentKit-Defaults        (im Python-Code, Pydantic-Defaults)
     ▼
@@ -76,9 +76,9 @@ class PolicyConfig(BaseModel, frozen=True):
     ]
 ```
 
-### Ebene 2: Projektkonfiguration (`.story-pipeline.yaml`)
+### Ebene 2: Projektkonfiguration (`project.yaml`)
 
-Zentrale Konfigurationsdatei im Wurzelverzeichnis des Zielprojekts.
+Zentrale Konfigurationsdatei unter `.agentkit/config/project.yaml`.
 Wird vom Installer erzeugt (Checkpoint 5) und vom Nutzer angepasst.
 
 ```yaml
@@ -199,7 +199,7 @@ bzw. dessen `context.json`-Export.
 Überschreiben alle anderen Ebenen für einen einzelnen Aufruf:
 
 ```bash
-agentkit run-phase verify --story ODIN-042 --config .story-pipeline.yaml
+agentkit run-phase verify --story ODIN-042 --config .agentkit/config/project.yaml
 agentkit structural --story ODIN-042 --repo-id backend --base-ref main
 agentkit install --gh-owner acme-corp --gh-repo trading-platform --dry-run
 ```
@@ -284,7 +284,7 @@ liegen im Zielprojekt unter `tools/qa/schemas/` (deployt vom Installer).
 
 | Schema | Datei | Owning Chapter |
 |--------|-------|---------------|
-| Pipeline-Config | `.story-pipeline.yaml` → `PipelineConfig` (Pydantic) | 03 |
+| Pipeline-Config | `project.yaml` → `PipelineConfig` (Pydantic) | 03 |
 | CCAG-Regeln | `.agentkit/ccag/rules/*.yaml` (kanonisch; harness-spezifische Symlinks via Adapter — z. B. `.claude/ccag/rules/` fuer Claude Code; FK-30 §30.11) → eigenes Schema | 42 |
 | Installer-Manifest | `.installed-manifest.json` → eigenes Schema | 50 |
 
@@ -307,7 +307,7 @@ Strategie:
 
 | Bereich | Feld | Aktuell | Migrationsstrategie |
 |---------|------|---------|-------------------|
-| **Pipeline-Config** (`.story-pipeline.yaml`) | `config_version` | `"3.0"` | SemVer (Major/Minor), automatische Migration durch Installer (siehe 3.5) |
+| **Pipeline-Config** (`project.yaml`) | `config_version` | `"3.0"` | SemVer (Major/Minor), automatische Migration durch Installer (siehe 3.5) |
 | **QA-Artefakte** (alle JSON-Envelopes) | `schema_version` | `"3.0"` | Nur Major-Sprünge. Alte Artefakte werden nicht migriert — sie gehören zu abgeschlossenen Stories und bleiben unverändert. Neue Stories erzeugen Artefakte mit der aktuellen Version. |
 
 Config-Version und Schema-Version können unterschiedliche Werte haben
@@ -365,7 +365,7 @@ Fehlende Konfigurationsfelder werden fail-closed behandelt:
 
 ### 3.5.1 Versionierungsstrategie
 
-`config_version` in `.story-pipeline.yaml` folgt Semantic Versioning
+`config_version` in `project.yaml` folgt Semantic Versioning
 auf Major.Minor-Ebene:
 
 | Änderung | Versionssprung | Migrationsbedarf |
@@ -380,10 +380,10 @@ auf Major.Minor-Ebene:
 Der Installer (Kapitel 50/51) erkennt die bestehende `config_version`
 und führt bei Major-Sprüngen eine automatische Migration durch:
 
-1. Bestehende `.story-pipeline.yaml` lesen
+1. Bestehende `project.yaml` lesen
 2. Felder gemäß Migrationstabelle umbenennen/konvertieren
 3. Neue Pflichtfelder mit dokumentierten Defaults befüllen
-4. `.story-pipeline.yaml.bak` als Backup schreiben
+4. `project.yaml.bak` als Backup schreiben
 5. Neue Version schreiben
 
 Nutzerseitige Anpassungen (Werte, die vom Default abweichen) werden

@@ -412,7 +412,7 @@ abbildend; sie sind nie die operative Wahrheitsquelle.
 
 ## 10. Konfiguration
 
-Zentrale Konfiguration über `.story-pipeline.yaml` im Projekt-Root:
+Zentrale Konfiguration über `project.yaml` (Pfad: `.agentkit/config/project.yaml`):
 
 - GitHub-Anbindung (Owner, Repo, Project-Nummer)
 - Feature-Flags (VectorDB, ARE, Multi-LLM-Pools, Telemetrie)

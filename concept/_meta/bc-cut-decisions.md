@@ -1149,7 +1149,7 @@ Layer 4: Upgrade (orthogonal, nutzt Engine fuer Re-Run)
 | `pipeline-framework` | INST -> PF | nutzt FlowDefinition-DSL (Einheits-DSL FK-20) fuer CheckpointFlow |
 | `Integrations.github` | INST -> R | CP 2 (Repo) |
 | `Integrations.vector_db` | INST -> R | CP 10/10a (MCP-Server-Registration, Erstindizierung) |
-| Filesystem-Driver | INST -> T | Harness-spezifische Skill-Symlinks und Hook-Settings (Claude Code: `.claude/skills/`, `.claude/settings.json`; Codex: harness-eigene Aequivalente — siehe FK-30 §30.11), `.story-pipeline.yaml`, `.bak`-Backup |
+| Filesystem-Driver | INST -> T | Harness-spezifische Skill-Symlinks und Hook-Settings (Claude Code: `.claude/skills/`, `.claude/settings.json`; Codex: harness-eigene Aequivalente — siehe FK-30 §30.11), `.agentkit/config/project.yaml`, `.bak`-Backup |
 | State-Backend-Drivers | INST -> SBD | T-Adapter fuer ProjectRegistration-Upsert |
 
 **Konzept-Refactor-Liste:**

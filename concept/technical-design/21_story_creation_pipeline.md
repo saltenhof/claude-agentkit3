@@ -411,7 +411,7 @@ hängt vom Projekt ab. Zwei Quellen:
 1. **Manifest-Index** (Kap. 01 P6): Getaggte Dokumente mit
    `@agentkit:scope=strategy` oder `@agentkit:scope=architecture`
 2. **Konfiguration:** `guardrails_dir` und `guardrails_pattern` in
-   `.story-pipeline.yaml` definieren den Suchpfad
+   `project.yaml` definieren den Suchpfad
 
 ### 21.5.3 Bei FAIL
 
@@ -543,7 +543,7 @@ berücksichtigt (Strong Evidence Only).
 ### 21.9.2 Longest-Prefix-Match
 
 Jeder gelistete Pfad wird per Longest-Prefix-Match gegen die in
-`.story-pipeline.yaml` konfigurierten Repo-Pfade abgeglichen.
+`project.yaml` konfigurierten Repo-Pfade abgeglichen.
 
 **Ergebnis:**
 - **PARTICIPATING_REPOS:** Alle Repos mit mindestens einer

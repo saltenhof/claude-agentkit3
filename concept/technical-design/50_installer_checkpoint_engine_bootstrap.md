@@ -71,7 +71,7 @@ glossary:
   internal_terms:
     - id: config-digest
       reason: >
-        SHA-Hash der aktuellen .story-pipeline.yaml; internes
+        SHA-Hash der aktuellen project.yaml; internes
         Implementierungsdetail fuer Upgrade-Delta-Erkennung. Kein
         exportierter Vertragstyp.
     - id: dry-run
@@ -131,7 +131,7 @@ flowchart TD
     CP2["CP 2: GitHub-Repo<br/>existiert?"] --> CP3
     CP3["CP 3: (entfaellt)"] --> CP4
     CP4["CP 4: (entfaellt)"] --> CP5
-    CP5["CP 5: Pipeline-Config<br/>.story-pipeline.yaml"] --> CP6
+    CP5["CP 5: Pipeline-Config<br/>.agentkit/config/project.yaml"] --> CP6
     CP6["CP 6: Projektprofil<br/>ermitteln"] --> CP7
     CP7["CP 7: Projekt im<br/>State-Backend registrieren"] --> CP8
     CP8["CP 8: Skill-Symlinks<br/>binden"] --> CP9
@@ -229,7 +229,7 @@ Platzhalter erhalten.
 
 ### CP 5: Pipeline-Config
 
-Erzeugt `.story-pipeline.yaml` wenn nicht vorhanden. Bei
+Erzeugt `.agentkit/config/project.yaml` wenn nicht vorhanden. Bei
 bestehender Datei: prueft `config_version`, migriert bei Bedarf
 (Kap. 51).
 

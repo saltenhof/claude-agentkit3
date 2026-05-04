@@ -256,7 +256,7 @@ braucht vollen Zugriff.
 
 ### 31.2.3 Regelsatz: Schutzzone 1 (konfigurierbar)
 
-Codebase-Regeln werden aus `.story-pipeline.yaml` gelesen (Kap. 03):
+Codebase-Regeln werden aus `project.yaml` gelesen (Kap. 03):
 
 ```yaml
 orchestrator_guard:
@@ -319,7 +319,7 @@ immer erlaubt:
 | `_guardrails/` | Control-Plane | Guardrail-Dokumente |
 | `concepts/`, `stories/` | Control-Plane | Konzepte und Story-Dokumentation |
 | `CLAUDE.md`, `README.md` | Control-Plane | Projektdokumentation |
-| `.story-pipeline.yaml` | Control-Plane | Konfiguration lesen (nicht schreiben) |
+| `.agentkit/config/project.yaml` | Control-Plane | Konfiguration lesen (nicht schreiben) |
 | `_temp/qa/{story_id}/context.json` | Content-Plane | **Blockiert** |
 | `_temp/qa/{story_id}/are_bundle.json` | Content-Plane | **Blockiert** |
 

@@ -282,7 +282,7 @@ Governance selbst zu manipulieren:
 |---------------------|-----------|---------|
 | Agent ändert harness-spezifische Hook-Settings (z. B. `.claude/settings.json` fuer Claude Code; harness-eigenes Aequivalent fuer Codex; FK-30 §30.11) | Hook-Signal: Governance-Datei verändert | Sofortiger Stopp |
 | Agent ändert CCAG-Regeln (kanonisch `.agentkit/ccag/rules/*.yaml`; harness-spezifische Symlinks z. B. `.claude/ccag/rules/`) | Hook-Signal: Governance-Datei verändert | Sofortiger Stopp |
-| Agent ändert `.story-pipeline.yaml` | Hook-Signal: Governance-Datei verändert | Sofortiger Stopp |
+| Agent ändert `.agentkit/config/project.yaml` | Hook-Signal: Governance-Datei verändert | Sofortiger Stopp |
 | Agent versucht Edge-Bundle- oder Lock-Mechanismus lokal zu umgehen | Hook-Signal: Governance-Datei verändert oder fehlender offizieller Project-Edge-Write-Pfad | Sofortiger Stopp |
 | Agent ändert harness-spezifische Skill-Symlinks (z. B. `.claude/skills/` fuer Claude Code; FK-30 §30.11) | Hook-Signal: Governance-Datei verändert | Sofortiger Stopp |
 | Agent versucht State-Backend-Zugangsdaten zu lesen/ändern | Guard + Secret-Schutz | Sofortiger Stopp |
@@ -291,7 +291,7 @@ Governance selbst zu manipulieren:
 
 ```
 .agentkit/ccag/rules/                  # kanonischer CCAG-Regelpfad
-.story-pipeline.yaml
+.agentkit/config/project.yaml
 .claude/settings.json                  # Beispiel: Claude-Code-Adapter
 .claude/ccag/rules/                    # Beispiel: Symlink fuer Claude Code
 .claude/skills/                        # Beispiel: Symlink fuer Claude Code
