@@ -31,7 +31,7 @@ invariants:
     rule: story type, size, affected modules, acceptance criteria, and mode-related fields must be set before GitHub issue creation
   - id: story-creation.invariant.github_issue_precedes_backlog_status
     scope: process
-    rule: a story reaches Backlog only after GitHub issue creation, custom field population, and project item insertion have succeeded
+    rule: a story reaches Backlog only after GitHub issue creation and AK3 story-backend registration with story attributes have succeeded
   - id: story-creation.invariant.story_md_export_after_issue_creation
     scope: process
     rule: story.md export is legal only after the story exists in GitHub and the project status is Backlog

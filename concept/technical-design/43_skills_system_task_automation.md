@@ -168,7 +168,7 @@ werden (Kap. 50):
 | `{{gh_owner}}` | GitHub-Owner aus Config |
 | `{{gh_repo}}` | GitHub-Repo aus Config |
 | `{{project_prefix}}` | Story-ID-Prefix |
-| `{{project_number}}` | GitHub-Project-Nummer |
+| `{{project_number}}` | Projekt-Identifier (Story-Backend bzw. Code-Repo-Bezug) |
 
 ## 43.3 Mitgelieferte Skills
 
@@ -180,7 +180,7 @@ werden (Kap. 50):
 | **User Story Creation (ARE)** | `create-userstory-are/` | Neue Stories mit ARE erstellen | Wie oben plus ARE-spezifische Pflichtschritte |
 | **Execute User Story (core)** | `execute-userstory-core/` | Story-Umsetzung orchestrieren | 4-Phasen-Pipeline (Setup, Exploration, Implementation inkl. QA-Subflow, Closure) ohne ARE-Annahmen |
 | **Execute User Story (ARE)** | `execute-userstory-are/` | Story-Umsetzung mit ARE orchestrieren | 4-Phasen-Pipeline (Setup, Exploration, Implementation inkl. QA-Subflow, Closure) mit ARE-Pfaden |
-| **Lookup User Story** | `lookup-userstory/` | Stories suchen und anzeigen | VektorDB-Suche, GitHub-Issue-Abfrage |
+| **Lookup User Story** | `lookup-userstory/` | Stories suchen und anzeigen | VektorDB-Suche, AK3-Story-Backend-Abfrage, GitHub-Issue-Abfrage |
 | **LLM Discussion** | `llm-discussion/` | Multi-LLM-Sparring | Rollenverteilung, Rundenstruktur, Konvergenzprüfung |
 
 ### 43.3.2 Optionale Skills
@@ -204,7 +204,7 @@ erfolgt bei der Registrierung/Bundlung, nicht während der Skill-Laufzeit.
 Der wichtigste Skill. Er orchestriert die gesamte Story-
 Bearbeitungs-Pipeline:
 
-1. Liest freigegebene Story aus GitHub Project
+1. Liest freigegebene Story aus dem AK3-Story-Backend
 2. Ruft `agentkit run-phase setup` auf
 3. Liest Phase-State -> spawnt Worker (oder Exploration-Worker)
 4. Wartet auf Worker-Ende

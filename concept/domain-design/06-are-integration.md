@@ -77,7 +77,7 @@ Pipeline-Konfiguration:
 | Tabelle | Was zugeordnet wird | Wann relevant |
 |---------|---------------------|---------------|
 | Repo → Scope | Jedes Code-Repository wird genau einem ARE-Scope zugeordnet (z.B. Backend-Repo → Scope "backend") | Bei Stories mit identifizierten Participating Repos |
-| Modul → Scope | Jeder Wert des GitHub-Project-Feldes "Modul" (eine fachliche Klassifikation) wird genau einem ARE-Scope zugeordnet | Fallback, wenn keine Participating Repos identifiziert wurden |
+| Modul → Scope | Jeder Wert des Story-Attributs "Modul" (eine fachliche Klassifikation) wird genau einem ARE-Scope zugeordnet | Fallback, wenn keine Participating Repos identifiziert wurden |
 
 Root-Repos und reine Dokumentations-Repos werden von der
 Repo-Scope-Zuordnung ausgenommen — nur Code-Repositories brauchen
@@ -87,7 +87,7 @@ eine Zuordnung.
 
 Die Zuordnung wird während der AgentKit-Installation (oder beim
 Update) festgelegt. Der Installer erkennt automatisch alle
-Code-Repositories und alle Modul-Werte aus dem GitHub Project und
+Code-Repositories und alle Modul-Werte aus dem AK3-Story-Backend und
 prüft, ob bereits eine Scope-Zuordnung existiert.
 
 Bei fehlenden Zuordnungen fragt der Installer den Menschen:

@@ -144,8 +144,8 @@ API-Vertrag.
 | `/v1/stories/{story_id}/approve` | `POST` | Status-Transition `backlog` → `approved` (menschliche Freigabe) |
 | `/v1/stories/{story_id}/reject` | `POST` | Status-Transition zurueck nach `backlog` (Nacharbeit) |
 | `/v1/stories/{story_id}/cancel` | `POST` | Story administrativ abbrechen (`Cancelled`) |
-| `/v1/stories/{story_id}/fields` | `GET` | Custom-Field-Werte einer Story lesen |
-| `/v1/stories/{story_id}/fields/{field_key}` | `PUT` | Einzelnen Custom-Field-Wert setzen |
+| `/v1/stories/{story_id}/fields` | `GET` | Story-Attribut-Werte einer Story lesen |
+| `/v1/stories/{story_id}/fields/{field_key}` | `PUT` | Einzelnen Story-Attribut-Wert setzen |
 | `/v1/dashboard/board` | `GET` | Board- oder Listenansicht für die Story-Steuerung |
 | `/v1/dashboard/story-metrics` | `GET` | Read-only Story-Metriken aus Runtime- und Analytics-Sicht |
 
@@ -184,7 +184,7 @@ API-Vertrag.
 9. Stories werden ausschliesslich ueber die Control-Plane-API
    angelegt und mutiert. Externe Issue-Tracker (z. B. GitHub, Jira)
    sind niemals Wahrheitsquelle fuer Story-Identitaet, -Status oder
-   -Custom-Fields. Sie duerfen optional als read-only Anzeige
+   -Story-Attribute. Sie duerfen optional als read-only Anzeige
    gespiegelt werden, treiben aber keinen Story-Lifecycle.
 10. Jeder CLI-Befehl in §91.1 ist Adapter auf einen
     Control-Plane-Endpoint. Wo der Endpoint hier noch nicht

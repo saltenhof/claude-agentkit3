@@ -250,7 +250,7 @@ Orchestrator und Worker.
 | Daten | Speicher | Format | Lebensdauer |
 |-------|---------|--------|-------------|
 | Pipeline-Konfiguration | `.story-pipeline.yaml` | YAML | Permanent (projektweite Config) |
-| Story-Zustände (extern) | GitHub Project Board | Custom Fields | Permanent |
+| Story-Zustände (extern sichtbar) | AK3-Story-Backend | Story-Attribute | Permanent |
 | Story-Zustände (intern) | State-Backend | Strukturierte Records | Permanent mit Run-Historie |
 | Story-Context (Snapshot) | State-Backend | Strukturierte Records | Permanent / versioniert |
 | QA-Ergebnisse | State-Backend | Strukturierte Artefakt-Records | Permanent mit Retention-Regeln |

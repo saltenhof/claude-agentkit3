@@ -52,7 +52,6 @@ context-sufficiency
 contract-checker
 control-plane
 conventions
-custom-fields
 customization
 dark-theme
 dashboard
@@ -97,7 +96,6 @@ finding-resolution
 fine-design
 freeze
 github
-github-project
 governance
 governance-observation
 governance-schutz
@@ -230,6 +228,7 @@ stage-registry
 state-backend
 state-machine
 static-analysis
+story-attributes
 story-contracts
 story-creation
 story-execution

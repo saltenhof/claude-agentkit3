@@ -189,7 +189,7 @@ Trend-Analyse, LLM-Auswahl und Prozess-Optimierung informieren.
 Optionale externe Säule. Typisierte Anforderungsobjekte mit automatischer
 Injektion wiederkehrender Pflichten. Erzwingt Vollständigkeit, nicht
 Qualität. Die Zuordnung von Anforderungen zu Stories erfolgt über eine
-Scope-Zuordnung: Repositories und GitHub-Project-Module werden bei der
+Scope-Zuordnung: Repositories und Story-Module werden bei der
 Installation auf ARE-Scopes abgebildet. Bei der Story-Erstellung leiten
 die betroffenen Repos automatisch die passenden Scopes ab.
 
@@ -354,11 +354,12 @@ LLM-Agenten werden nur dort eingesetzt, wo kreative Arbeit nötig ist.
 
 ### GitHub
 
-Single Source of Truth für Story-Metadaten. AgentKit liest Issues und
-Custom Fields (Typ, Größe, Scope) einmalig beim Setup, persistiert sie
-als `StoryContext`,
-aktualisiert den Status auf dem Project Board und schließt das Issue
-bei erfolgreichem Abschluss.
+GitHub bleibt das Code-Backend für Issues, Branches, Worktrees, PRs und
+Merges. Story-Metadaten kommen jedoch aus dem AK3-Story-Backend: AgentKit
+liest die Story-Attribute (Typ, Größe, Scope) einmalig beim Setup,
+persistiert sie als `StoryContext`, aktualisiert den Story-Status im
+AK3-Story-Backend und schließt das GitHub-Issue bei erfolgreichem
+Abschluss.
 
 ### Agent Requirements Engine (ARE) — optional
 
@@ -369,7 +370,7 @@ Pflicht-Requirements abgedeckt sind. Fail-closed: ohne ARE-Bestätigung
 kein Merge.
 
 Die Zuordnung von Anforderungen zu Stories erfolgt über eine
-Scope-Zuordnung: Repositories und GitHub-Project-Module werden bei der
+Scope-Zuordnung: Repositories und Story-Module werden bei der
 Installation auf ARE-Scopes abgebildet. Bei der Story-Erstellung leiten
 die betroffenen Repos automatisch die passenden Scopes ab.
 

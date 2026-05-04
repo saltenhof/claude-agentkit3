@@ -88,9 +88,9 @@ Execution-Policies, Overrides). Die Pipeline ist damit nur die oberste
 Ebene einer gemeinsamen hierarchischen Prozesssprache, nicht ein
 Sonderfall mit eigener Logik.
 
-Eine Story durchlaeuft fuenf Zustaende im GitHub Project Board: Backlog,
+Eine Story durchlaeuft fuenf Zustaende im AK3-Story-Backend: Backlog,
 Approved, In Progress, Done und Cancelled. Interne Zustaende wie
-QA-Subflow-Fail, Eskalation oder Pause aendern den GitHub-Status nicht
+QA-Subflow-Fail, Eskalation oder Pause aendern den Story-Status nicht
 (die Story bleibt "In Progress"), solange kein offizieller
 administrativer Pfad wie Story-Split oder Story-Reset ausgefuehrt wird.
 Wenn der Orchestrator einen internen Zustand nicht aufloesen kann,
@@ -686,7 +686,7 @@ Agent gestartet wird. Scheitert ein Check, wird die Story nicht gestartet
 | Check-ID | Was geprüft wird | PASS-Kriterium | FAIL-Kriterium |
 |----------|-------------------|----------------|----------------|
 | PRE-01 | Issue existiert | `gh issue view` liefert gültigen Response mit Status 200 | Issue nicht gefunden, API-Fehler oder ungültige Issue-Nummer |
-| PRE-02 | Story-ID im Projekt | Das Issue ist einem GitHub Project zugeordnet und hat eine gültige Projekt-Item-ID | Issue ist keinem Projekt zugeordnet oder die Zuordnung ist inkonsistent |
+| PRE-02 | Story im AK3-Story-Backend | Die Story-ID existiert im AK3-Story-Backend und ist mit dem GitHub-Issue verknüpft | Story nicht im AK3-Story-Backend angelegt oder die Issue-Verknüpfung ist inkonsistent |
 | PRE-03 | Status = "Approved" | Das Projektfeld "Status" hat den Wert "Approved" | Status ist "Backlog", "In Progress", "Done" oder ein anderer Wert |
 | PRE-04 | Abhängigkeiten geschlossen | Alle im Issue referenzierten Abhängigkeiten (verlinkte Issues mit Dependency-Markierung) haben den Status "Done" oder "Closed" | Mindestens eine Abhängigkeit ist offen oder in Bearbeitung |
 | PRE-05 | Keine Ausführungsartefakte | Im Story-Verzeichnis existieren weder `worker-manifest.json` noch `protocol.md` | Mindestens eines der Artefakte existiert bereits (Hinweis auf einen vorherigen, nicht aufgeräumten Lauf) |

@@ -27,7 +27,7 @@ verwendet werden. Jeder Begriff hat eine exakte technische Bedeutung.
 
 | Begriff | Definition | Technische Repräsentation |
 |---------|-----------|--------------------------|
-| **Story** | Kleinste planbare Arbeitseinheit. Entspricht einem GitHub Issue mit AgentKit Custom Fields. | GitHub Issue + Project Item |
+| **Story** | Kleinste planbare Arbeitseinheit. Wird im AK3-Story-Backend gefuehrt; ein zugehoeriges GitHub-Issue dient als Code-Ankerpunkt fuer Branches und PRs. | AK3-Story-Backend-Eintrag + GitHub-Issue |
 | **Projekt** | Ein registriertes Zielprojekt, gegen das eine zentrale AgentKit-Installation arbeitet. | Projektregistrierung + lokale Projektkonfiguration |
 | **Project-Key** | Mandanten-Schlüssel eines registrierten Projekts. Alle kanonischen Runtime- und Analytics-Records sind daran gebunden. | String, systemweit eindeutig |
 | **Story-ID** | Eindeutiger Identifikator einer Story. Format: `{PREFIX}-{NNN}`, z.B. `ODIN-042`. | String, Regex: `[A-Z][A-Z0-9]+(?:-[A-Z][A-Z0-9]+)*-\d+` |
@@ -55,9 +55,9 @@ verwendet werden. Jeder Begriff hat eine exakte technische Bedeutung.
 
 ## 2.2 Zustandsmodelle
 
-### 2.2.1 Story-Zustände (GitHub Project Board)
+### 2.2.1 Story-Zustände (AK3-Story-Backend)
 
-Fuenf Zustände im GitHub Project Board. Nur diese sind extern sichtbar.
+Fuenf Zustände im AK3-Story-Backend. Nur diese sind extern sichtbar.
 
 ```mermaid
 stateDiagram-v2
@@ -73,21 +73,10 @@ stateDiagram-v2
     Cancelled --> [*]
 ```
 
-**Technische Umsetzung:** Das `Status`-Feld ist ein Single-Select
-Custom Field im GitHub Project V2. Werte: `Backlog`, `Approved`,
-`In Progress`, `Done`, `Cancelled`. Änderungen erfolgen via
-GraphQL-Mutation:
-
-```graphql
-mutation {
-  updateProjectV2ItemFieldValue(input: {
-    projectId: $projectId
-    itemId: $itemId
-    fieldId: $statusFieldId
-    value: { singleSelectOptionId: $optionId }
-  }) { projectV2Item { id } }
-}
-```
+**Technische Umsetzung:** Das `Status`-Feld ist ein Story-Attribut im
+AK3-Story-Backend. Werte: `Backlog`, `Approved`, `In Progress`, `Done`,
+`Cancelled`. Statuswechsel werden ausschliesslich vom AK3-Story-Service
+ausgefuehrt; Worker, Hooks oder Agents schreiben den Status nie direkt.
 
 ### 2.2.2 Interne Pipeline-Zustände
 

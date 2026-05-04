@@ -62,7 +62,7 @@ glossary:
     - id: project-registration
       definition: >
         Eintrag eines Projekts im zentralen State-Backend nach erfolgreichem
-        Installer-Lauf. Enthaelt Projektkennung, GitHub-Owner/Repo/Project-ID,
+        Installer-Lauf. Enthaelt Projektkennung, GitHub-Owner/Repo,
         Konfigurations-Digest, Projektprofil und zulassige Bundle-Version.
         Grundlage fuer alle nachfolgenden Upgrade- und Verifikationsentscheide.
       see_also:
@@ -129,8 +129,8 @@ werden dort dokumentiert. Beispiel-Aufrufe gehoeren nicht zum Installer-Vertrag.
 flowchart TD
     CP1["CP 1: Python-Paket<br/>agentkit installiert?"] --> CP2
     CP2["CP 2: GitHub-Repo<br/>existiert?"] --> CP3
-    CP3["CP 3: GitHub Project<br/>erstellen/finden"] --> CP4
-    CP4["CP 4: Custom Fields<br/>(13 Felder)"] --> CP5
+    CP3["CP 3: (entfaellt)"] --> CP4
+    CP4["CP 4: (entfaellt)"] --> CP5
     CP5["CP 5: Pipeline-Config<br/>.story-pipeline.yaml"] --> CP6
     CP6["CP 6: Projektprofil<br/>ermitteln"] --> CP7
     CP7["CP 7: Projekt im<br/>State-Backend registrieren"] --> CP8
@@ -167,8 +167,8 @@ Minimaler Installer-Flow:
 ```text
 cp_01_package_check
   -> cp_02_repo_check
-  -> cp_03_project_lookup
-  -> cp_04_custom_fields
+  -> cp_03_reserved
+  -> cp_04_reserved
   -> cp_05_pipeline_config
   -> cp_06_profile_resolution
   -> cp_07_backend_registration
@@ -213,33 +213,19 @@ gh repo view {owner}/{repo} --json name
 
 **Idempotenz:** Nur Prüfung.
 
-### CP 3: GitHub Project
+### CP 3: (entfaellt)
 
-Sucht ein bestehendes GitHub Project V2 oder erstellt ein neues:
+Frueher: externer Board-Lookup/Create. Mit dem Wechsel auf das
+AK3-Story-Backend nicht mehr Bestandteil des Installers. Die
+Checkpoint-Nummer bleibt als Platzhalter erhalten, damit nachfolgende
+Nummerierungen stabil bleiben.
 
-```bash
-gh project list --owner {owner} --format json
-# Wenn nicht gefunden:
-gh project create --owner {owner} --title "AgentKit - {repo}"
-```
+### CP 4: (entfaellt)
 
-**Idempotenz:** Erstellt nur wenn nicht vorhanden.
-
-### CP 4: Custom Fields
-
-Stellt sicher, dass alle 13 Custom Fields existieren (Kap. 12.2.1).
-Prüft den bestehenden Zustand und erstellt nur fehlende Fields.
-Vorhandene Fields werden nicht verändert.
-
-**13 Felder:** Status, Story ID, Story Type, Size, Change Impact,
-New Structures, Concept Quality (Pflicht, High/Medium/Low),
-QA Rounds, Completed At, Module, Epic, Primary Repo,
-Participating Repos.
-
-REF-032 + Remediation: Maturity, External Integrations und
-Requires Exploration entfernt; Concept Quality hinzugefügt.
-
-**Idempotenz:** Nur fehlende Fields erstellen.
+Frueher: externes Story-Attribut-Setup beim Tracker. Story-Attribute werden im
+AK3-Story-Backend gefuehrt; ein dedizierter Installer-Checkpoint dafuer
+ist nicht mehr erforderlich. Die Checkpoint-Nummer bleibt als
+Platzhalter erhalten.
 
 ### CP 5: Pipeline-Config
 
@@ -275,7 +261,7 @@ Legt einen Projekt-Record im zentralen State-Backend an und
 hinterlegt:
 
 - Projektkennung
-- GitHub-Owner/Repo/Project-ID
+- GitHub-Owner/Repo
 - Konfigurations-Digest
 - Projektprofil
 - zulaessige Bundle-Version
@@ -406,13 +392,13 @@ enthalten ist.
 
 Nur wenn `features.are: true`.
 
-- Prüft: Alle Code-Repos in `repos[]` haben `are_scope` gesetzt. Alle Modul-Werte aus dem GitHub Project haben Eintrag in `are.module_scope_map`
+- Prüft: Alle Code-Repos in `repos[]` haben `are_scope` gesetzt. Alle Modul-Werte aus dem AK3-Story-Backend haben Eintrag in `are.module_scope_map`
 - Erkennt Deltas automatisch: nur neue/unmapped Items lösen Abfrage aus
 - Interaktiver Modus: nummerierte Auswahl aus ARE-Scopes (Quelle: ARE-API `/dimensions/scope` oder Fallback auf bereits konfigurierte Scopes)
 - Agentischer Modus: gibt `PENDING_SELECTION` zurück mit Metadaten, orchestrierender Agent muss `resolve_pending_scope_mapping()` aufrufen
 - Idempotenz: bereits zugeordnete Items werden nicht erneut abgefragt
 
-**Abhängigkeiten:** CP 5 (Pipeline-Config), CP 4 (Custom Fields), CP 10 (ARE MCP-Server)
+**Abhängigkeiten:** CP 5 (Pipeline-Config), CP 10 (ARE MCP-Server)
 
 **Idempotenz:** Nur fehlende/unmapped Einträge werden abgefragt.
 
@@ -444,7 +430,6 @@ Read-only Validierung aller vorherigen Checkpoints:
 - Alle erwarteten Skill-Symlinks vorhanden und korrekt?
 - Alle Hooks registriert?
 - Alle erwarteten `tools/agentkit/`-Wrapper vorhanden?
-- GitHub-Fields vorhanden?
 - ARE-Scope-Zuordnung vollständig? (alle Code-Repos haben `are_scope`, alle Modul-Werte gemappt — nur wenn `features.are: true`)
 
 **Ergebnis:** PASS oder Liste von Problemen.
@@ -502,7 +487,7 @@ nicht zulaessig.
 | `gh` nicht installiert | CP 2 | FAILED, Installation abbrechen |
 | `gh` nicht authentifiziert | CP 2 | FAILED, Hinweis auf `gh auth login` |
 | Repo nicht gefunden | CP 2 | FAILED |
-| GitHub API Rate Limit | CP 3/4 | Retry mit Backoff, dann FAILED |
+| GitHub API Rate Limit | CP 2 | Retry mit Backoff, dann FAILED |
 | Keine Schreibrechte im Projekt | CP 8/9/11 | FAILED |
 | State-Backend nicht erreichbar | CP 7 | FAILED |
 | Symlink kann nicht angelegt oder aktualisiert werden | CP 8 | FAILED |

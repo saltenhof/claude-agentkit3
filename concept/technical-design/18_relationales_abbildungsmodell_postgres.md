@@ -183,7 +183,7 @@ Zeitachsen oder harte Filter-/Join-Felder.
 kanonische Payloads wie:
 
 - Kontext-/Scope-Strukturen
-- flexible Custom-Field-Werte
+- flexible Story-Attribut-Werte
 - Artefakt-Metadaten
 - Event-Details
 

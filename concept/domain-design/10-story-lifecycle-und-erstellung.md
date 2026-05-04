@@ -36,10 +36,10 @@ glossary:
       values: [XS, S, M, L, XL]
     - id: story-status
       definition: >
-        Offizieller Sichtbarkeitszustand einer Story im GitHub Project
-        Board mit den Werten Backlog, Approved, In Progress, Done und
+        Offizieller Sichtbarkeitszustand einer Story im AK3-Story-Backend
+        mit den Werten Backlog, Approved, In Progress, Done und
         Cancelled. Interne Zwischenzustaende wie Verify-Fail oder Pause
-        aendern den GitHub-Status nicht; nur offizielle administrative
+        aendern den Story-Status nicht; nur offizielle administrative
         Pfade (Split, Reset) fuehren zu Statuswechseln.
       values: [Backlog, Approved, In Progress, Done, Cancelled]
 ---
@@ -52,11 +52,11 @@ glossary:
 
 ---
 
-## 10.1 Story-Lifecycle im GitHub Project Board
+## 10.1 Story-Lifecycle im AK3-Story-Backend
 
-Eine Story durchläuft fünf Zustände im GitHub Project Board: Backlog,
+Eine Story durchläuft fünf Zustände im AK3-Story-Backend: Backlog,
 Approved, In Progress, Done und Cancelled. Interne Zustände wie
-Verify-Fail, Eskalation oder Pause ändern den GitHub-Status nicht (die
+Verify-Fail, Eskalation oder Pause ändern den Story-Status nicht (die
 Story bleibt "In Progress"), solange kein offizieller administrativer
 Pfad wie Story-Split oder Story-Reset ausgeführt wird. Wenn der
 Orchestrator einen internen Zustand nicht auflösen kann, wird an den
@@ -107,9 +107,9 @@ flowchart TD
 
     REPO_AFF --> GITHUB
 
-    subgraph EINSTELLUNG [Einstellung ins Projekt]
-        GITHUB["GitHub Issue erstellen<br/>Typ, Größe, Modul, Epic"]
-        GITHUB --> PROJECT["GitHub Project Board<br/>Status: Backlog"]
+    subgraph EINSTELLUNG [Einstellung ins AK3-Story-Backend]
+        GITHUB["GitHub Issue erstellen<br/>(Code-Backend)"]
+        GITHUB --> PROJECT["AK3-Story-Backend<br/>Status: Backlog<br/>Story-Attribute: Typ, Größe, Modul, Epic"]
         PROJECT --> FREIGABE{"Freigabe<br/>durch Mensch"}
         FREIGABE -->|abgelehnt| REWORK["Nacharbeit<br/>an Story-Definition"]
         REWORK --> KONZEPT
@@ -177,16 +177,16 @@ betroffenen Datei). Die Zuordnung erfolgt über Longest-Prefix-Match
 der Dateipfade gegen die konfigurierten Repo-Pfade. Nur explizit
 aufgeführte Dateien zählen als Evidenz, keine Erwähnungen in
 Referenzen oder Logs. Beide Felder werden vollautomatisch durch den
-Create-User-Story-Skill bestimmt und direkt als GitHub Project Fields
-gesetzt — keine manuelle Prüfung oder Korrektur vorgesehen. Bei
+Create-User-Story-Skill bestimmt und direkt als Story-Attribute im
+AK3-Story-Backend gesetzt — keine manuelle Prüfung oder Korrektur vorgesehen. Bei
 Single-Repo-Projekten ist PRIMARY_REPO trivialerweise das einzige
 Repo. Die Participating Repos steuern drei Aspekte der nachfolgenden
 Pipeline: welche Repos einen Feature-Branch und Worktree erhalten,
 welche ARE-Scopes für die Anforderungsverknüpfung gelten und wie der
 Branch-Guard den Arbeitsbereich einschränkt.
 
-**Freigabe durch den Menschen:** Die Story wird ins GitHub Project
-eingestellt und erhält den Status "Backlog". Erst durch eine explizite
+**Freigabe durch den Menschen:** Die Story wird im AK3-Story-Backend
+angelegt und erhält den Status "Backlog". Erst durch eine explizite
 Freigabe durch den Menschen wechselt der Status auf "Approved". Die
 Preflight-Gates der Umsetzungs-Pipeline prüfen diesen Status und lassen
 nur freigegebene Stories durch. Kein Agent kann eigenständig entscheiden,
@@ -217,8 +217,8 @@ in den Exploration Mode. Der Default ist Exploration.
 
 ### 10.3.2 Projektfelder
 
-Die folgenden Felder sind organisatorische Metadaten am GitHub-Issue und
-Project-Item. Sie steuern nicht den Modus, sondern die Prozessschwere,
+Die folgenden Felder sind organisatorische Metadaten als Story-Attribute
+im AK3-Story-Backend. Sie steuern nicht den Modus, sondern die Prozessschwere,
 das Routing und die Zuordnung.
 
 | Feld | Typ | Erlaubte Werte | Default bei fehlendem Wert | Validierungsregel |

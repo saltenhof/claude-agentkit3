@@ -13,13 +13,13 @@ authority_over:
 defers_to:
   - target: FK-03
     scope: configuration
-    reason: GitHub-Config und Custom Fields in FK-03 definiert
+    reason: GitHub-Config in FK-03 definiert
   - target: FK-02
     scope: lock-mechanismus
     reason: Branch-Guard nutzt Lock-Mechanismus aus FK-02
 supersedes: []
 superseded_by:
-tags: [github, branching, worktree, merge, custom-fields]
+tags: [github, branching, worktree, merge]
 prose_anchor_policy: strict
 formal_refs:
   - formal.story-creation.state-machine
@@ -37,160 +37,40 @@ formal_refs:
 
 <!-- PROSE-FORMAL: formal.story-creation.state-machine, formal.story-creation.commands, formal.story-creation.invariants, formal.story-closure.state-machine, formal.story-closure.commands, formal.story-closure.invariants, formal.story-closure.scenarios, formal.story-split.commands, formal.story-split.invariants -->
 
-## 12.1 GitHub als Backend
+## 12.1 GitHub als Code-Backend
 
-GitHub dient AgentKit als externes Backend für drei Zwecke:
+GitHub dient AgentKit als externes Code-Backend:
 
 | Zweck | GitHub-Feature | Zugriff |
 |-------|---------------|--------|
-| Story-Verwaltung | Issues | `gh issue` CLI |
-| Projekt-Steuerung | Projects V2 (Custom Fields) | GraphQL API via `gh api graphql` |
+| Issue-Anker (Code-Bezug zur Story) | Issues | `gh issue` CLI |
 | Code-Verwaltung | Repositories | `git` CLI (lokal) + `gh` CLI (remote) |
 
 AgentKit betreibt keinen eigenen GitHub-Adapter oder REST-Client.
 Alle GitHub-Interaktionen laufen über die `gh` CLI, die
 Authentifizierung, Token-Handling und Retry selbst übernimmt.
 
-### 12.1.1 Zielbild der Story-Autoritaet
+### 12.1.1 Abgrenzung zur Story-Autoritaet
 
-GitHub ist im aktuellen Stand das externe Backend fuer Story- und
-Board-Verwaltung. Das langfristige Zielbild von AK3 ist jedoch eine
-eigene zentrale Story-Control-Plane:
+Story-Identitaet, Story-Status, Board-Sichten und Story-Detaildaten
+liegen im **AK3-Story-Backend** (siehe FK-17 / FK-18 fuer Datenmodell
+und Persistenz, FK-91 fuer die Control-Plane-API). GitHub ist nicht die
+Wahrheitsquelle fuer Story-Lifecycle, sondern bleibt ausschliesslich:
 
-- Story-Identitaet, Story-Status, Board-Sichten und Story-Detaildaten
-  liegen fachlich bevorzugt in der AK3-eigenen Datenbank und Web-UI
-- GitHub bleibt fuer Repo-Operationen und optionalen externen
-  Backlog- oder Synchronisationsbedarf relevant
-- die GitHub-Issue- und Project-Integration ist damit ein aktueller
-  Adapterpfad, nicht die einzig denkbare oder langfristig fachlich
-  bevorzugte Story-Wahrheit
+- Issue-Anker fuer Branches und PRs
+- Repository-Backend fuer Code-Operationen
+- optional als read-only Spiegel fuer externe Sichtbarkeit
 
-## 12.2 GitHub Project V2: Custom Fields
+Statuswechsel, Story-Attribute, Closure-Metriken und administrative
+Operationen werden ueber den AK3-Story-Service ausgefuehrt, nicht ueber
+GitHub-Mechanik.
 
-### 12.2.1 Feldkatalog
-
-Der Installer (Checkpoint 4) stellt sicher, dass diese Custom Fields
-im GitHub Project V2 existieren. Er prüft den bestehenden Zustand
-und erstellt nur fehlende Fields/Options. Bereits vorhandene Fields
-werden nicht verändert oder überschrieben (Idempotenz).
-
-| Feld | Typ | Werte | Setzung | Gelesen von |
-|------|-----|-------|---------|-------------|
-| `Status` | Single Select | Backlog, Approved, In Progress, Done, Cancelled | Mensch (Freigabe), Pipeline (In Progress, Done), administrative Services (Cancelled) | Preflight, Closure, Story-Split |
-| `Story ID` | Text | z.B. `ODIN-042` | Story-Erstellung | Alle Pipeline-Schritte |
-| `Story Type` | Single Select | implementation, bugfix, concept, research | Story-Erstellung | Mode-Router, Phase Runner, Structural Checks |
-| `Size` | Single Select | XS, S, M, L, XL, XXL | Story-Erstellung | Worker (Review-Häufigkeit) |
-| `Change Impact` | Single Select | Local, Component, Cross-Component, Architecture Impact | Story-Erstellung | Mode-Router (Trigger 2), Impact-Violation-Check |
-| `New Structures` | Single Select | true, false | Story-Erstellung | Mode-Router (Trigger 3) |
-| `Concept Quality` | Single Select | High, Medium, Low | Story-Erstellung | Mode-Router (Trigger 4) — Pflichtfeld, Default: High |
-| `QA Rounds` | Number | 0-N | Closure | Postflight, Metriken |
-| `Completed At` | Text | YYYY-MM-DD | Closure | Postflight, Metriken |
-| `Module` | Text | Modulname(n) | Story-Erstellung | Kontext-Selektion |
-| `Epic` | Text | Epic-Name | Story-Erstellung | VektorDB-Filter, Gruppierung |
-
-REF-032 + Remediation: `Maturity`, `External Integrations` und `Requires Exploration`
-wurden entfernt. `Concept Quality` ersetzt alle drei als neues Pflichtfeld (Default: High).
-
-### 12.2.2 Feld-Zugriff: Nur einmalig bei Setup
-
-GitHub Custom Fields werden **ausschließlich einmalig** während der
-Setup-Phase gelesen und als `StoryContext` im State-Backend
-persistiert (siehe Kap. 03, Konfigurationshierarchie). Optional
-kann daraus ein `context.json` exportiert werden. Ab da liest die
-Pipeline nur noch den Snapshot, nie mehr GitHub.
-
-**Lese-Ablauf:**
-
-```mermaid
-sequenceDiagram
-    participant PR as Phase Runner (Setup)
-    participant GH as GitHub GraphQL
-    participant CTX as StoryContext
-
-    PR->>GH: gh api graphql (Project Item Fields)
-    GH-->>PR: Story Type, Size, Maturity, Change Impact, ...
-    PR->>PR: Enums validieren, Referenzen auflösen
-    PR->>CTX: Normalisierten Snapshot persistieren
-    Note over CTX: Optionaler context.json-Export, aber StoryContext bleibt kanonisch
-```
-
-**Schreib-Ablauf** (nur bei Statuswechseln und Metriken):
-
-```mermaid
-sequenceDiagram
-    participant PL as Pipeline-Skript
-    participant GH as GitHub GraphQL
-
-    PL->>GH: updateProjectV2ItemFieldValue<br/>(Status → "In Progress")
-    Note over PL: Bei Story-Start
-
-    PL->>GH: updateProjectV2ItemFieldValue<br/>(Status → "Done", QA Rounds, Completed At)
-    Note over PL: Bei Closure
-```
-
-Administrative Services duerfen zusaetzlich `Status -> "Cancelled"`
-setzen, wenn eine Story ueber den offiziellen Story-Split-Pfad
-kontrolliert beendet wird.
-
-### 12.2.3 GraphQL-Mutations
-
-**Status setzen:**
-
-```graphql
-mutation UpdateStatus($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
-  updateProjectV2ItemFieldValue(input: {
-    projectId: $projectId
-    itemId: $itemId
-    fieldId: $fieldId
-    value: { singleSelectOptionId: $optionId }
-  }) {
-    projectV2Item { id }
-  }
-}
-```
-
-**Metriken setzen (Number-Feld):**
-
-```graphql
-mutation UpdateMetric($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: Float!) {
-  updateProjectV2ItemFieldValue(input: {
-    projectId: $projectId
-    itemId: $itemId
-    fieldId: $fieldId
-    value: { number: $value }
-  }) {
-    projectV2Item { id }
-  }
-}
-```
-
-**Metriken setzen (Text-Feld):**
-
-```graphql
-mutation UpdateText($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: String!) {
-  updateProjectV2ItemFieldValue(input: {
-    projectId: $projectId
-    itemId: $itemId
-    fieldId: $fieldId
-    value: { text: $value }
-  }) {
-    projectV2Item { id }
-  }
-}
-```
-
-Die `fieldId` und `optionId` Werte stammen aus dem Installations-
-Manifest (`.installed-manifest.json`), das beim Installer-Checkpoint 4
-die IDs der erzeugten Fields und Options speichert.
-
-### 12.2.4 Fehlerbehandlung bei GitHub-Ausfällen
+### 12.1.2 Fehlerbehandlung bei GitHub-Ausfällen
 
 | Situation | Betrifft | Reaktion |
 |-----------|---------|---------|
 | GitHub nicht erreichbar bei Preflight | `gh issue view` scheitert | Preflight FAIL → Story startet nicht |
-| GitHub nicht erreichbar bei Setup (Fields lesen) | GraphQL-Query scheitert | Setup FAIL → Story startet nicht |
-| GitHub nicht erreichbar bei Closure (Status setzen) | GraphQL-Mutation scheitert | Closure FAIL → Eskalation an Mensch. Issue wird nicht geschlossen. |
-| GitHub nicht erreichbar bei Issue-Close | `gh issue close` scheitert | Closure FAIL → Eskalation. Merge war ggf. schon erfolgreich (Closure-Substates). |
+| GitHub nicht erreichbar bei Issue-Close (Closure) | `gh issue close` scheitert | Closure FAIL → Eskalation. Merge war ggf. schon erfolgreich (Closure-Substates). |
 | Rate Limiting (403) | Alle API-Calls | Retry mit Backoff (1s, 2s, 4s). Max 3 Retries. Danach FAIL. |
 | Token abgelaufen | Alle API-Calls | `gh auth status` prüfen. Mensch muss `gh auth login` ausführen. |
 
@@ -208,9 +88,9 @@ gh issue create \
   --label "{story_type}"
 ```
 
-Nach Erstellung wird das Issue dem GitHub Project hinzugefügt und
-die Custom Fields gesetzt (Status: Backlog, Story ID, Story Type,
-Size, etc.).
+Nach Erstellung wird die Story im AK3-Story-Backend mit ihren
+Story-Attributen (Status: Backlog, Story ID, Story Type, Size, etc.)
+angelegt; das GitHub-Issue dient nur als Code-Anker.
 
 ### 12.3.2 Issue-Body-Konventionen
 
@@ -235,11 +115,10 @@ geparst werden:
 ```bash
 # Issue-Details
 gh issue view {issue_nr} --repo {owner}/{repo} --json number,title,state,labels,body
-
-# Project-Item mit Custom Fields
-gh project item-list {project_number} --owner {owner} --format json \
-  | jq '.items[] | select(.content.number == {issue_nr})'
 ```
+
+Story-Attribute (Status, Type, Size, etc.) werden nicht aus GitHub
+gelesen, sondern aus dem AK3-Story-Backend.
 
 ### 12.3.4 Issue schließen (Closure)
 
@@ -484,15 +363,15 @@ Die Closure-Substates tracken Push- und Merge-Status pro Repo.
 
 | Phase | Operation | GitHub-Feature | Richtung |
 |-------|----------|---------------|---------|
-| **Story-Erstellung** | Issue erstellen + Fields setzen | Issues + Project V2 | Schreiben |
-| **Preflight** | Issue existiert? Status = Approved? Dependencies geschlossen? | Issues + Project V2 | Lesen |
-| **Setup** | Custom Fields lesen → `StoryContext` / optional `context.json`-Export | Project V2 | Lesen |
-| **Setup** | Status → "In Progress" | Project V2 | Schreiben |
+| **Story-Erstellung** | Issue als Code-Anker erstellen | Issues | Schreiben |
+| **Preflight** | Issue existiert? | Issues | Lesen |
 | **Closure** | Story-Branch auf Remote pushen | Repository Remote | Schreiben |
 | **Closure** | Issue schließen | Issues | Schreiben |
-| **Closure** | Status → "Done", QA Rounds, Completed At | Project V2 | Schreiben |
-| **Story-Split** | Ausgangs-Story → `Cancelled`, Issue-Close `not planned`, Nachfolger-Issues anlegen | Issues + Project V2 | Schreiben |
-| **Postflight** | Issue geschlossen? Metriken gesetzt? | Issues + Project V2 | Lesen |
+| **Story-Split** | Issue-Close `not planned`, Nachfolger-Issues anlegen | Issues | Schreiben |
+| **Postflight** | Issue geschlossen? | Issues | Lesen |
+
+Story-Status, Story-Attribute und Closure-Metriken laufen ueber das
+AK3-Story-Backend (FK-17/FK-18/FK-91), nicht ueber GitHub.
 
 ### 12.7.2 Kein Webhook/Polling
 
@@ -501,16 +380,15 @@ Event-System von GitHub. Alle Interaktionen sind synchrone
 Request/Response-Aufrufe, ausgelöst durch Pipeline-Schritte.
 
 Der Orchestrator-Agent entscheidet, welche Story als nächstes
-bearbeitet wird, indem er das Project Board liest
-(`gh project item-list`) und eine freigegebene Story auswählt.
-Das ist eine Agent-Entscheidung, kein automatisierter Trigger.
+bearbeitet wird, indem er das AK3-Story-Backend nach freigegebenen
+(`Approved`) Stories abfragt. Das ist eine Agent-Entscheidung, kein
+automatisierter Trigger.
 
 ---
 
-*FK-Referenzen: FK-05-003 (5 GitHub-Zustände),
+*FK-Referenzen: FK-05-003 (5 Story-Zustände),
 FK-05-031/032 (Backlog→Approved),
 FK-05-059/060 (Preflight: Issue existiert, Status Approved),
 FK-05-067 (Worktree mit eigenem Branch),
 FK-05-223/224 (Merge vor Close),
-FK-06-010 bis FK-06-016 (Branch-Guard-Regeln),
-FK-11-002 (GitHub-Projekt-Setup mit Custom Fields)*
+FK-06-010 bis FK-06-016 (Branch-Guard-Regeln)*

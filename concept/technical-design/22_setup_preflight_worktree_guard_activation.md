@@ -17,7 +17,7 @@ defers_to:
     reason: Setup ist eine Phase im Phasenmodell von FK-20
   - target: FK-21
     scope: story-context
-    reason: Story-Context-Felder und Custom Fields stammen aus der Story-Creation-Pipeline
+    reason: Story-Context-Felder und Story-Attribute stammen aus der Story-Creation-Pipeline
   - target: FK-31
     scope: branch-guard
     reason: Guard-Definitionen und Orchestrator-Guard-Regeln liegen in FK-31; Setup aktiviert sie nur
@@ -165,8 +165,8 @@ flowchart TD
 | # | Check | Was geprüft wird | Wie | FAIL-Grund |
 |---|-------|-----------------|-----|-----------|
 | 1 | `issue_exists` | GitHub Issue existiert und ist abrufbar | `gh issue view {issue_nr} --json number,state` | Issue nicht gefunden (gelöscht? falsche Nummer?) |
-| 2 | `story_in_project` | Story-ID existiert als Item im GitHub Project | `gh project item-list` + Filter auf Story-ID | Issue nicht im Project eingestellt |
-| 3 | `status_approved` | Project-Item-Status ist "Approved" | GraphQL-Query auf Status-Feld | Status ist Backlog, In Progress, Done oder Cancelled |
+| 2 | `story_in_backend` | Story-ID existiert im AK3-Story-Backend und ist mit dem GitHub-Issue verknüpft | AK3-Story-Service abfragen | Story nicht im AK3-Story-Backend angelegt oder Issue-Verknüpfung inkonsistent |
+| 3 | `status_approved` | Story-Status im AK3-Story-Backend ist "Approved" | AK3-Story-Service abfragen | Status ist Backlog, In Progress, Done oder Cancelled |
 | 4 | `dependencies_closed` | Alle referenzierten Dependency-Issues sind geschlossen | Issue-Body parsen (`## Dependencies`), jede `#NNN`-Referenz via `gh issue view` prüfen | Mindestens eine Dependency ist noch offen |
 | 5 | `no_execution_artifacts` | Keine Reste aus vorherigen Läufen **oder** vorheriger Run sauber abgeschlossen | Prüfe `artifact_records` und `phase_state_projection` fuer die Story. Bei unabgeschlossenem Run: FAIL. Bei sauber abgeschlossenem Run: Exporte archiviertbar, kein Blocker. | Artefakte eines unabgeschlossenen vorherigen Laufs gefunden |
 | 6 | `no_active_runtime_residue` | Keine aktiven Runtime-Reste eines vorherigen Runs | Prüfe kanonische Runtime-Zustände (`flow_executions`, aktive Lock-Records, `phase_state_projection`) für die Story. Telemetrie in `execution_events` ist **kein** Start-Gate; sie darf nur diagnostisch herangezogen werden. Bei aktivem oder inkonsistentem Runtime-Zustand: FAIL. | Aktiver oder inkonsistenter Runtime-Zustand eines vorherigen Runs vorhanden |
@@ -215,20 +215,21 @@ lesen.
 
 ### 22.4.1 Ablauf
 
-Nach bestandenem Preflight wird der Story-Context aus GitHub
-gelesen und als autoritativer Snapshot persistiert (Kap. 03,
+Nach bestandenem Preflight wird der Story-Context aus dem
+AK3-Story-Backend (Story-Attribute) und dem GitHub-Issue (Body-
+Sektionen) gelesen und als autoritativer Snapshot persistiert (Kap. 03,
 Konfigurationshierarchie):
 
 ```python
 def compute_story_context(story_id: str, config: PipelineConfig) -> StoryContext:
-    # 1. Issue-Daten holen
+    # 1. Issue-Daten holen (Code-Anker, Body-Sektionen)
     issue = gh_issue_view(story_id, config)
 
-    # 2. Project-Item-Daten holen (Custom Fields)
-    item = gh_project_item(story_id, config)
+    # 2. Story-Attribute aus AK3-Story-Backend holen
+    attrs = ak3_story_service.get_attributes(story_id)
 
     # 3. Story-Typ ermitteln
-    story_type = item.get("Story Type") or derive_from_labels(issue.labels)
+    story_type = attrs.get("Story Type") or derive_from_labels(issue.labels)
 
     # 4. Issue-Body parsen
     concept_paths = parse_section(issue.body, "Konzept-Referenzen")
@@ -247,17 +248,16 @@ def compute_story_context(story_id: str, config: PipelineConfig) -> StoryContext
         issue_nr=issue.number,
         story_dir=Path(story_dir),
         story_type=story_type,
-        size=item.get("Size", "M"),
+        size=attrs.get("Size", "M"),
         scope=detect_scope(issue),
-        maturity=item.get("Maturity", ""),
-        change_impact=item.get("Change Impact", ""),
-        new_structures=item.get("New Structures", "false") == "true",
-        concept_quality=item.get("Concept Quality", ""),
+        maturity=attrs.get("Maturity", ""),
+        change_impact=attrs.get("Change Impact", ""),
+        new_structures=attrs.get("New Structures", "false") == "true",
+        concept_quality=attrs.get("Concept Quality", ""),
         concept_paths=concept_paths,
         external_sources=external_sources,
         guardrail_paths=guardrail_paths,
-        project_item_id=item.id,
-        vectordb_conflict=has_label(issue, "vectordb-conflict-resolved"),
+        vectordb_conflict=attrs.get("vectordb_conflict_resolved", False),
     )
 ```
 
@@ -299,17 +299,13 @@ persistiert. Optional kann ein JSON-Export in
 ```
 
 **Ab hier ist `StoryContext` die einzige Wahrheit.** Keine
-nachfolgende Phase liest GitHub-Custom-Fields erneut; `context.json`
+nachfolgende Phase liest die Story-Attribute erneut; `context.json`
 ist nur der Export dieses Snapshots.
 
-### 22.4.3 GitHub-Status auf "In Progress" setzen
+### 22.4.3 Story-Status auf "In Progress" setzen
 
-Nach erfolgreicher Context-Berechnung wird der Project-Status
-auf "In Progress" gesetzt:
-
-```bash
-gh api graphql -f query='mutation { updateProjectV2ItemFieldValue(...) }'
-```
+Nach erfolgreicher Context-Berechnung setzt der AK3-Story-Service den
+Story-Status auf "In Progress".
 
 ## 22.4b ARE-Bundle-Laden
 
@@ -433,7 +429,7 @@ mit Worktree-Erstellung, Guard-Aktivierung und Modus-Ermittlung.
 Nach bestandenem Preflight werden Worktrees für **alle
 teilnehmenden Repos** erstellt — nicht nur für ein einzelnes
 Repository. Die Liste der teilnehmenden Repos stammt aus dem
-GitHub-Project-Custom-Field `Participating Repos`, das bei der
+Story-Attribut `Participating Repos` im AK3-Story-Backend, das bei der
 Story-Erstellung gesetzt wird (FK 21). Jedes teilnehmende Repo
 erhält einen eigenen Feature-Branch (`story/{story_id}`).
 

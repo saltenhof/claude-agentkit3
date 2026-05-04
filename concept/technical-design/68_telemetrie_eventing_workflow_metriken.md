@@ -711,12 +711,15 @@ ermöglichen (FK-08-032):
 
 ### 68.7.3 Metriken-Persistenz
 
-Metriken werden an zwei Stellen geschrieben:
+Metriken werden geschrieben in:
 
 1. **`closure.json`** (QA-Artefakt): Enthält `metrics`-Objekt mit
    allen Metriken + Experiment-Tags
-2. **GitHub Project Fields:** `QA Rounds` und `Completed At` werden
-   als Custom Fields gesetzt (Kap. 12)
+2. **Telemetrie-DB:** `QA Rounds`, `Completed At` und weitere
+   Closure-Metriken werden als Telemetrie-Events bzw.
+   Telemetrie-Aggregate persistiert. Sie sind keine Story-Attribute,
+   sondern werden bei Bedarf ueber Join gegen den AK3-Story-Backend-
+   Eintrag der Story ausgewertet.
 
 ### 68.7.4 Nutzung der Metriken
 

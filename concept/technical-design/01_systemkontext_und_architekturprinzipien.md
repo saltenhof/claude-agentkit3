@@ -206,8 +206,9 @@ Fachlogik bleibt lokal in der Komponente.
   Gemini und Grok als externe Dienste.
 - Kein Testframework — es orchestriert Tests, schreibt aber selbst
   keine fachlichen Tests.
-- Kein Projektmanagement-Tool — es nutzt GitHub Projects als Backend,
-  ersetzt es aber nicht.
+- Kein eigenstaendiges Projektmanagement-Tool im Sinne klassischer
+  Boards — Story-Verwaltung laeuft ueber das AK3-Story-Backend, nicht
+  ueber externe Project-Boards.
 
 ## 1.3 Architekturprinzipien
 
@@ -503,7 +504,7 @@ flowchart TD
     VEKTORDB["VektorDB-Abgleich<br/>Similarity + LLM-Bewertung"] --> ZIELTREUE
     ZIELTREUE["Dokumententreue Ebene 1:<br/>Zieltreue (LLM via Pool)"] --> ARE
     ARE["ARE: Anforderungen<br/>verlinken"]:::optional --> GITHUB
-    GITHUB["GitHub Issue erstellen<br/>mit Custom Fields"] --> BACKLOG
+    GITHUB["GitHub Issue erstellen<br/>+ Story-Attribute im AK3-Story-Backend"] --> BACKLOG
     BACKLOG["Status: Backlog"] --> FREIGABE
     FREIGABE{"Mensch gibt frei?"}
     FREIGABE -->|ja| FREI["Status: Approved"]

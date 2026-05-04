@@ -437,7 +437,7 @@ Die Wertemenge der Story Types muss in allen normativen und ausfuehrbaren Stelle
 
 - Domain-Modelle
 - CLI-Choices
-- GitHub-Custom-Field-Setup
+- Story-Attribut-Setup im AK3-Story-Backend
 - Installer
 - Context-Ableitung
 - Worker-Routing

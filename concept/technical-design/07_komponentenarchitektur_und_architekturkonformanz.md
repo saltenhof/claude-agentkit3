@@ -84,7 +84,7 @@ Volldefinition mit Heuristiken, Erkennungstests und Beispielen:
 
 | Komponente | Blutgruppe | Fachliche Verantwortung | Provided Contracts |
 | --- | --- | --- | --- |
-| `StoryContextManager` | A | owns `Story`, `StoryContext` und Story-Custom-Fields; liefert Story-nahe Read-Modelle und Story-Lifecycle ausserhalb der Flow-Orchestrierung | `StoryReadPort`, `StoryLifecyclePort`, `StoryContextPort` |
+| `StoryContextManager` | A | owns `Story`, `StoryContext` und Story-Attribute; liefert Story-nahe Read-Modelle und Story-Lifecycle ausserhalb der Flow-Orchestrierung | `StoryReadPort`, `StoryLifecyclePort`, `StoryContextPort` |
 | `ExecutionPlanningService` | A | owns Backlog-Readiness, Abhaengigkeitsgraph, Blocker, kritischen Pfad, Ausfuehrungswellen, Planning-Proposals und Scheduling-Policy zwischen Backlog und Orchestrator | `DependencyGraphPort`, `ReadinessAssessmentPort`, `ExecutionPlanPort`, `SchedulingPolicyPort`, `PlanningProposalPort` |
 | `PipelineEngine` | A | owns `FlowExecution`, `NodeExecution`, `AttemptRecord` und den 4-Phasen-Kontrollfluss (Setup, Exploration, Implementation inkl. QA-Subflow, Closure) | `StoryExecutionPort`, `RunTransitionPort` |
 | `StoryExecutionLifecycleService` | A | owns Session-/Run-Binding, Story-Execution-Lock, Edge-Bundle-Metadaten und idempotente Lifecycle-Mutationen | `SessionBindingPort`, `StoryExecutionLockPort`, `EdgeBundlePort`, `ExecutionLifecycleMutationPort` |

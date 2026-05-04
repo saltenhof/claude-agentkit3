@@ -32,17 +32,18 @@ späteren Kapiteln entstehen, werden hier nachgetragen.
 ## 3.1 Konfigurationshierarchie
 
 AgentKit verwendet vier Konfigurationsebenen. Höhere Ebenen
-überschreiben niedrigere. **Wichtig:** Ebene 3 (GitHub Custom Fields)
-wird ausschließlich einmalig während der Setup-Phase gelesen und als
-`StoryContext` im State-Backend persistiert. Ein `context.json` ist nur
-ein materialisierter Export dieses Snapshots. Ab da liest die Pipeline
-nur noch den Snapshot, nie mehr GitHub. Die Hierarchie beschreibt die
-**Startup-Auflösung**, nicht ein Laufzeit-Merge.
+überschreiben niedrigere. **Wichtig:** Ebene 3 (Story-Attribute aus dem
+AK3-Story-Backend) wird ausschließlich einmalig während der Setup-Phase
+gelesen und als `StoryContext` im State-Backend persistiert. Ein
+`context.json` ist nur ein materialisierter Export dieses Snapshots. Ab
+da liest die Pipeline nur noch den Snapshot, nie mehr das Story-Backend.
+Die Hierarchie beschreibt die **Startup-Auflösung**, nicht ein
+Laufzeit-Merge.
 
 ```
 Ebene 4: CLI-Argumente            (höchste Priorität, Startup)
     ▼
-Ebene 3: Story-spezifische Felder (GitHub Custom Fields, nur bei Setup einmalig gelesen)
+Ebene 3: Story-Attribute          (AK3-Story-Backend, nur bei Setup einmalig gelesen)
     ▼
 Ebene 2: Projektkonfiguration     (.story-pipeline.yaml, bei Start geladen)
     ▼
@@ -167,12 +168,12 @@ governance:
   cooldown_s: 300             # Cooldown zwischen LLM-Adjudications gleichen Typs
 ```
 
-### Ebene 3: Story-spezifische Felder (GitHub Custom Fields)
+### Ebene 3: Story-spezifische Felder (Story-Attribute im AK3-Story-Backend)
 
-Diese Felder werden pro Story am GitHub Issue gesetzt und beeinflussen
-Pipeline-Verhalten für genau diese Story:
+Diese Story-Attribute werden pro Story im AK3-Story-Backend gepflegt und
+beeinflussen Pipeline-Verhalten für genau diese Story:
 
-| Custom Field | Typ | Werte | Verwendung |
+| Story-Attribut | Typ | Werte | Verwendung |
 |-------------|-----|-------|-----------|
 | `Status` | Single Select | Backlog, Approved, In Progress, Done | Pipeline-Steuerung |
 | `Story ID` | Text | z.B. `ODIN-042` | Korrelation |
@@ -181,9 +182,11 @@ Pipeline-Verhalten für genau diese Story:
 | `Change Impact` | Single Select | Local, Component, Cross-Component, Architecture Impact | Modus-Ermittlung (Trigger 2), Impact-Violation-Check |
 | `New Structures` | Single Select | true, false | Modus-Ermittlung (Trigger 3) |
 | `Concept Quality` | Single Select | High, Medium, Low | Modus-Ermittlung (Trigger 4) — Pflichtfeld, Default: High |
-| `QA Rounds` | Number | 0-N | Metrik bei Closure |
-| `Completed At` | Text | YYYY-MM-DD | Metrik bei Closure |
 | `Module` | Text | Modulname | Kontext-Selektion |
+
+`QA Rounds` und `Completed At` sind keine Story-Attribute, sondern
+Telemetrie-Werte; sie werden nicht hier gepflegt, sondern in der
+Telemetrie-DB ausgewertet (FK-68).
 
 **Modus-Ermittlung** (REF-032 + Remediation: 4-Trigger-Modell) liest die Felder
 `Story Type`, `Change Impact`, `New Structures` und `Concept Quality` sowie
@@ -241,10 +244,9 @@ sondern erzeugen einen Fehler (`model_config = ConfigDict(extra="forbid")`).
 
 ### 3.2.2 Validierung bei Installation
 
-Der Installer (Checkpoint 13: Verify) prüft die erzeugte Konfiguration
-gegen die tatsächliche GitHub-Projekt-Struktur:
-- Alle referenzierten Custom Fields existieren
-- Alle Single-Select-Felder haben die erwarteten Options
+Der Installer (Checkpoint 13: Verify) prüft die erzeugte Konfiguration:
+- Alle referenzierten Story-Attribute sind im AK3-Story-Backend definiert
+- Alle Enum-Story-Attribute haben die erwarteten Wertebereiche
 - Alle referenzierten Repos existieren lokal
 
 ## 3.3 Schema-Katalog
@@ -323,7 +325,7 @@ Fehlende Konfigurationsfelder werden fail-closed behandelt:
 |---------|------------------|
 | Feature-Flags | `false` (Feature deaktiviert) |
 | Multi-LLM | `true` (Pflicht) |
-| Modus-Ermittlung Custom Fields | Exploration Mode (restriktiver Pfad) |
+| Modus-Ermittlung Story-Attribute | Exploration Mode (restriktiver Pfad) |
 | Schwellenwerte | Pydantic-Default (dokumentiert) |
 | required_stages | Mindestens `structural` (blocking) |
 | llm_roles | Fehler bei `multi_llm: true` — kein Default für Rollenzuordnung |

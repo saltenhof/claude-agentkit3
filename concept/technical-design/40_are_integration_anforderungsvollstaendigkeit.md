@@ -137,7 +137,7 @@ Fallback-Code (FK-09-014).
 
 - Pipeline-Konfiguration (`.story-pipeline.yaml`) pflegt zwei getrennte Mapping-Tabellen:
   - `repos[].are_scope`: Jedes Code-Repository → genau ein ARE-Scope-String (z.B. `backend`, `frontend`, `agentframework`)
-  - `are.module_scope_map`: Jeder GitHub-Project-"Modul"-Feldwert → genau ein ARE-Scope-String
+  - `are.module_scope_map`: Jeder Wert des Story-Attributs "Modul" → genau ein ARE-Scope-String
 - Root-Repos und reine Dokumentations-Repos ausgenommen — nur Code-Repos brauchen Zuordnung
 - Kommaseparierte Multi-Values im Modul-Feld werden in einzelne Tokens aufgeteilt
 - Die Tabellen sind Konfigurationszeit-Artefakte (bei Installation/Update gepflegt), keine Laufzeitentscheidungen

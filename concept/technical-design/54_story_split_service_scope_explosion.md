@@ -107,7 +107,7 @@ Fuer AK3 gilt normativ:
    weitertreiben", sondern:
    - laufende Story wird kontrolliert beendet
    - der Restumfang wird in Nachfolger-Stories neu geschnitten
-3. Die Ausgangs-Story geht in den GitHub-Project-Status
+3. Die Ausgangs-Story geht im AK3-Story-Backend in den Status
    `Cancelled`.
 4. Der Split wird **nie automatisch** durch Agent oder Pipeline
    vollzogen; er benoetigt eine ausdrueckliche menschliche
@@ -147,7 +147,7 @@ Ein Story-Split ist nur zulaessig, wenn:
 
 Nach erfolgreichem Split gilt:
 
-1. die Ausgangs-Story ist im Project-Status `Cancelled`
+1. die Ausgangs-Story ist im AK3-Story-Backend im Status `Cancelled`
 2. das GitHub-Issue der Ausgangs-Story ist mit `not planned`
    geschlossen
 3. neue Nachfolger-Stories existieren im Status `Backlog`
@@ -257,9 +257,9 @@ Nachfolger nicht mehr blockieren.
 Die Nachfolger werden ueber denselben fachlichen Story-Creation-Vertrag
 erzeugt wie normale Stories:
 
-- GitHub Issue anlegen
-- Project-Item anlegen
-- Story-Custom-Fields setzen
+- GitHub-Issue als Code-Anker anlegen
+- Story im AK3-Story-Backend anlegen
+- Story-Attribute setzen
 - `story.md` exportieren
 
 Abweichung: Der aufrufende Actor ist hier `StorySplitService` und nicht
@@ -297,7 +297,7 @@ Die Ausgangs-Story wird im Index nicht geloescht, sondern als
 
 Die Ausgangs-Story wird **nicht** ueber Closure beendet. Stattdessen:
 
-1. GitHub Project `Status -> Cancelled`
+1. AK3-Story-Backend: `Status -> Cancelled`
 2. GitHub Issue `close --reason "not planned"`
 3. Split-Artefakt und Auditspur verlinken
 
@@ -353,7 +353,7 @@ Mutationen absichtlich. Fuer den offiziellen Split-Pfad gilt deshalb:
 
 Der Service muss mindestens diese Integrationsfolgen durchziehen:
 
-- GitHub Project-Status der Ausgangs-Story
+- AK3-Story-Backend-Status der Ausgangs-Story
 - GitHub-Issue-Close der Ausgangs-Story
 - Erzeugung der Nachfolger-Issues
 - Rebinding expliziter Dependencies

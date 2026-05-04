@@ -52,8 +52,8 @@ glossary:
 ---
 
 AgentKit wird systemweit installiert und registriert anschließend ein
-Zielprojekt über eine Folge idempotenter Checkpoints: GitHub-Projekt-
-Setup mit Custom Fields, projektlokale Pipeline-Konfiguration,
+Zielprojekt über eine Folge idempotenter Checkpoints: GitHub-Repo-Bindung
+für Code-Operationen, projektlokale Pipeline-Konfiguration,
 Hook-Registration und projektlokale Symlink-Bindung auf systemweite,
 versionierte Skill-Bundles. Laufzeitdaten und kanonische Zustände
 liegen nicht im Projekt, sondern zentral. Eine nachgelagerte

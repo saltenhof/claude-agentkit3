@@ -180,12 +180,11 @@ zulaessig ist.
 Die Planung selbst ist keine Praesentationslogik. Graph, Blocker, Wave
 und Ready-Queue sind nur Sichten auf die Planungsdomäne.
 
-### 70.3.3 Gegen GitHub Projects
+### 70.3.3 Gegen externe Story-/Board-Adapter
 
-GitHub ist aktuell der externe Story- und Board-Adapter. Die
-fachlich bevorzugte Planungswahrheit liegt jedoch in AK3.
-
-GitHub darf Planungsinformation spiegeln oder beherbergen, aber die
+Story-Identitaet, -Status und -Attribute liegen im AK3-Story-Backend.
+Externe Tracker (z. B. GitHub-Issues als Code-Anker oder optionale
+Spiegelungen) duerfen Planungsinformation read-only abbilden, aber die
 Ableitung von `READY`, `BLOCKED`, `execution wave`, `critical path`
 oder `recommended batch` ist eine AK3-eigene Fachentscheidung.
 

@@ -25,7 +25,7 @@ defers_to:
     reason: ARE-Andock-Punkt 1 und Scope-Aufloesung sind in FK-40 normiert
 supersedes: []
 superseded_by:
-tags: [story-creation, vectordb-abgleich, zieltreue, classification, github-project]
+tags: [story-creation, vectordb-abgleich, zieltreue, classification, story-attributes]
 prose_anchor_policy: strict
 glossary:
   exported_terms:
@@ -85,7 +85,7 @@ ad hoc erzeugt werden, sondern strukturiert, gegen den
 Wissensbestand geprüft und vom Menschen freigegeben.
 
 **Abgrenzung zur Story-Bearbeitung:** Die Story-Erstellung endet
-mit dem Status "Approved" im GitHub Project. Ab da übernimmt
+mit dem Status "Approved" im AK3-Story-Backend. Ab da übernimmt
 die Bearbeitungs-Pipeline (Kap. 20, 22-25). Die Erstellung ist
 ein eigenständiger Ablauf, der unabhängig von der Bearbeitung
 funktioniert.
@@ -158,9 +158,9 @@ flowchart TD
         REPO_AFF --> GITHUB
     end
 
-    subgraph EINSTELLUNG ["GitHub-Einstellung"]
-        GITHUB["GitHub Issue erstellen<br/>mit Custom Fields"]
-        GITHUB --> PROJECT["Ins GitHub Project<br/>einstellen"]
+    subgraph EINSTELLUNG ["AK3-Story-Backend-Einstellung"]
+        GITHUB["GitHub Issue erstellen<br/>(Code-Anker)"]
+        GITHUB --> PROJECT["Story im AK3-Story-Backend<br/>anlegen + Story-Attribute setzen"]
         PROJECT --> BACKLOG["Status: Backlog"]
     end
 
@@ -420,7 +420,7 @@ oder Scope an, bis die Zieltreue PASS ergibt.
 
 ### 21.6.1 Story-Metadaten
 
-Der Skill ermittelt die Custom Fields für das GitHub Issue:
+Der Skill ermittelt die Story-Attribute fuer die Story:
 
 | Feld | Ermittlung |
 |------|-----------|
@@ -553,7 +553,7 @@ Jeder gelistete Pfad wird per Longest-Prefix-Match gegen die in
 - **PARTICIPATING_REPOS:** Alle Repos mit mindestens einer
   betroffenen Datei
 
-Beide Werte werden als Custom Fields im GitHub Project gespeichert.
+Beide Werte werden als Story-Attribute im AK3-Story-Backend gespeichert.
 Der Mensch kann die vorgeschlagene Affinität überprüfen und
 korrigieren.
 
@@ -637,19 +637,22 @@ maschinenprüfbaren `must_cover`-Anforderungen ergänzt oder ersetzt.
 Ohne ARE dient die statische Checkliste als Fallback für den
 Semantic Review und den Menschen (FK-09-020/021).
 
-### 21.10.2 Issue-Erstellung und Project-Einstellung
+### 21.10.2 Issue-Erstellung und Story-Backend-Einstellung
 
 ```bash
-# Issue erstellen
+# Issue als Code-Anker erstellen
 gh issue create \
   --repo "{owner}/{repo}" \
   --title "[{story_type}] {story_title}" \
   --body "{issue_body}" \
   --label "{story_type}"
-
-# Ins Project einstellen + Custom Fields setzen
-# (GraphQL-Mutations, siehe Kap. 12.2.3)
 ```
+
+Anschliessend legt der Skill die Story im AK3-Story-Backend an und
+setzt die ermittelten Story-Attribute (Story Type, Size, Module,
+Change Impact, New Structures, Concept Quality, Module, Epic,
+PRIMARY_REPO, PARTICIPATING_REPOS) ueber den AK3-Story-Service
+(siehe FK-91).
 
 ### 21.10.3 Status: Backlog
 
@@ -825,7 +828,7 @@ agentkit repair-story-md
 
 1. Scannt alle `stories/{prefix}-*/story.md`-Verzeichnisse
 2. Ermittelt Story-ID aus Verzeichnisname
-3. Ermittelt Issue-Nummer aus GitHub Project (Story-ID-Feld-Abgleich)
+3. Ermittelt Issue-Nummer aus dem AK3-Story-Backend (Story-ID-Abgleich)
 4. Validiert bestehende `story.md`
 5. Bei Fehler: Führt `export_story_md()` aus
 6. Report: N geprüft, M repariert, K Fehler
@@ -833,7 +836,7 @@ agentkit repair-story-md
 ### 21.11.7 Integration in den Story-Erstellungs-Skill
 
 Der `create-userstory`-Skill ruft nach der Issue-Erstellung und
-Project-Feldbelegung den Export als CLI-Befehl auf:
+Story-Backend-Einstellung den Export als CLI-Befehl auf:
 
 ```
 agentkit export-story-md --story-id "$STORY_ID" --issue-nr $ISSUE_NR --story-dir "$STORY_DIR"
@@ -857,8 +860,8 @@ sicher, dass die Story vor der Implementierung einen expliziten
 Entwurf durchläuft, der die Abgrenzung zu den bestehenden
 Stories/Konzepten dokumentiert.
 
-**Technisch:** Ein zusätzliches Label oder Custom Field
-`vectordb_conflict_resolved: true` am Issue. Die Modus-Ermittlung
+**Technisch:** Ein zusätzliches Story-Attribut
+`vectordb_conflict_resolved: true` im AK3-Story-Backend. Die Modus-Ermittlung
 (Kap. 23) prüft dieses Flag.
 
 ## 21.13 Story-Erstellungs-Guard

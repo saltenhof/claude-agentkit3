@@ -147,7 +147,7 @@ Minimaler Reset-Record:
 - `Story`
 - `StoryContext`, soweit er die fachliche Arbeitseinheit und ihre
   externen Referenzen beschreibt
-- Story-Custom-Field-Werte, soweit sie Stammdaten oder Tracker-Status
+- Story-Attribut-Werte, soweit sie Stammdaten oder Lifecycle-Status
   sind und nicht nur die korrupt gewordene Umsetzung spiegeln
 - Reset-/Audit-Nachweis des Eingriffs
 

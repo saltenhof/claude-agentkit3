@@ -76,7 +76,7 @@ PostgreSQL-Notation.
 | `RunId` | Laufkennung | innerhalb eines `ProjectKey` eindeutig |
 | `FlowId` | Kennung eines Flows | innerhalb eines `RunId` eindeutig |
 | `NodeId` | Kennung eines Nodes | innerhalb eines `FlowId` eindeutig |
-| `FieldKey` | Kennung eines Custom Fields | innerhalb eines `ProjectKey` eindeutig |
+| `FieldKey` | Kennung eines Story-Attributs | innerhalb eines `ProjectKey` eindeutig |
 | `ArtifactId` | Kennung eines Artefakts | innerhalb eines `RunId` eindeutig |
 | `Enum<T>` | geschlossener Wertebereich | nur definierte Werte zulässig |
 | `Text` | freier Text | Unicode, kann leer oder nicht leer eingeschränkt werden |
@@ -190,9 +190,8 @@ muss.
 
 **Owner:** `story_context_manager`
 
-Beschreibt ein fachliches oder trackerbezogenes Custom Field, das an
-einer Story existieren kann und von AgentKit gelesen oder geschrieben
-wird.
+Beschreibt ein fachliches Story-Attribut, das an einer Story existieren
+kann und von AgentKit im AK3-Story-Backend gelesen oder geschrieben wird.
 
 **Eigenschaften:**
 
@@ -210,7 +209,7 @@ wird.
 
 **Owner:** `story_context_manager`
 
-Repräsentiert den konkreten Wert eines Custom Fields an einer Story.
+Repräsentiert den konkreten Wert eines Story-Attributs an einer Story.
 
 **Eigenschaften:**
 
@@ -226,8 +225,8 @@ Repräsentiert den konkreten Wert eines Custom Fields an einer Story.
 - `conflict_detected`
 - `last_sync_attempt_at`
 
-**Normative Auslegung:** Custom Fields sind kein loses Zusatzobjekt,
-sondern Teil des kanonischen Story-Kontexts. AgentKit darf nur Felder
+**Normative Auslegung:** Story-Attribute sind kein loses Zusatzobjekt,
+sondern Teil des kanonischen Story-Kontexts. AgentKit darf nur Attribute
 beschreiben, deren Definition `is_writable_by_agentkit = true` erlaubt.
 
 ### 17.3.6 FlowExecution
@@ -784,7 +783,7 @@ rekonstruierbare Laufzeitprojektion ist.
 ## 17.5 Ownership-Regeln
 
 - `story_context_manager` owns Story-Stammdaten, `StoryContext` und
-  Story-Custom-Fields.
+  Story-Attribute.
 - `pipeline_engine` owns Flow- und Node-Ausführung.
 - `pipeline_engine` owns zusätzlich `AttemptRecord` als
   phasenbezogenen Audit-Fakt.

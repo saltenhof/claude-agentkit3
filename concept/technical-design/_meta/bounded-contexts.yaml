@@ -85,10 +85,10 @@ bounded_contexts:
 
   - id: story-lifecycle
     responsibility: >
-      Story-Identitaet, Status, Custom-Fields, Lebenszyklus
+      Story-Identitaet, Status, Story-Attribute, Lebenszyklus
       (Creation/Reset/Split/Exit), Vertragsachsen,
       Story-Type/Mode/Terminalitaet, Mode-Routing-Entscheidung,
-      Storage-Geheimnis (GitHub vs. interne DB).
+      Storage-Geheimnis (internes Story-Backend).
     owns:
       - StoryId
       - StoryStatus
@@ -96,11 +96,10 @@ bounded_contexts:
       - StoryMode
       - ExecutionRoute
       - Terminality
-      - CustomField-Surface
+      - Story-Attribut-Surface
       - VertragsachsenMatrix (FK-59 als alleiniger Owner)
     internal:
       - Konkrete Storage-Backends
-      - Sync-Strategie GitHub <-> AK3-State
       - Issue-Mapping
 
   - id: execution-planning

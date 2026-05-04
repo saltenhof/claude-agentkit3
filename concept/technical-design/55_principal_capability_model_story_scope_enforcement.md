@@ -255,7 +255,7 @@ Pfad-/Objektklassen aufgeloest.
 | `content_plane` | `context.json`, `are_bundle.json`, handover- oder bundleartige Inhaltsartefakte | fuer Orchestrator gesperrt |
 | `governance_plane` | `_temp/governance/**`, Lock-Exporte, Guardrail-Zustaende | nur offizielle Servicepfade |
 | `git_internal` | `.git/**`, Refs, Index, Worktree-Interna | nie frei manipulierbar |
-| `repo_admin_surface` | GitHub-Issue-/Project-Status, Story-Custom-Fields, Split-/Reset-Aktionen | nur offizielle AgentKit-Kommandos |
+| `repo_admin_surface` | GitHub-Issue-Status, Story-Attribute im AK3-Story-Backend, Split-/Reset-Aktionen | nur offizielle AgentKit-Kommandos |
 
 ## 55.5 Operationsklassen
 
