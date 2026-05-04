@@ -24,7 +24,7 @@ Im Scope sind:
 Nicht Teil dieses Kontexts sind:
 
 - Setup-/Preflight-Regeln vor Exploration
-- Implementation und Verify nach erfolgreicher Exploration
+- Implementation (inkl. Implementation-QA-Subflow gegen die Capability `verify-system`) nach erfolgreicher Exploration
 - Story-Split- und Story-Reset-Ausfuehrung selbst
 - konkrete Prompt-Texte der Worker
 

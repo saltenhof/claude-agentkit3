@@ -35,7 +35,7 @@ commands:
       - story-workflow.status.failed
     restrictions:
       - target phase must be legal under the phase transition rules
-      - failed is only legal for verify to implementation remediation
+      - failed is only legal as part of an official remediation re-entry that returns the workflow status to in_progress before phase work continues
       - setup is the only legal entry phase for a fresh run
     emits:
       - story-workflow.event.phase.started

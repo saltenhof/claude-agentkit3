@@ -22,6 +22,15 @@ Dieser Kontext trennt bewusst zwei Achsen:
 `PAUSED` und `ESCALATED` ersetzen keine Phase, sondern suspendieren oder
 beenden den aktuellen Run relativ zu einer konkreten Phase.
 
+Die Phase-Achse ist linear vorwaerts: `setup -> exploration |
+implementation`, `exploration -> implementation`, `implementation ->
+closure`. Output-QA ist kein eigener Phasenknoten, sondern interner
+Subflow innerhalb der Implementation-Phase (analog zum Exit-Gate der
+Exploration). Die Capability `verify-system` wird sowohl vom
+Exploration-Exit-Gate als auch vom Implementation-QA-Subflow gegen
+denselben fachlichen Vertrag aufgerufen; sie ist Capability-BC, kein
+Phase-Owner.
+
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
 object: formal.story-workflow.state-machine
@@ -34,7 +43,6 @@ phase_axis:
       initial: true
     - id: story-workflow.phase.exploration
     - id: story-workflow.phase.implementation
-    - id: story-workflow.phase.verify
     - id: story-workflow.phase.closure
   transitions:
     - id: story-workflow.transition.setup_to_exploration
@@ -49,18 +57,10 @@ phase_axis:
       from: story-workflow.phase.exploration
       to: story-workflow.phase.implementation
       guard: story-workflow.invariant.exploration_gate_required
-    - id: story-workflow.transition.implementation_to_verify
+    - id: story-workflow.transition.implementation_to_closure
       from: story-workflow.phase.implementation
-      to: story-workflow.phase.verify
-      guard: story-workflow.invariant.forward_only_except_verify_feedback
-    - id: story-workflow.transition.verify_to_implementation
-      from: story-workflow.phase.verify
-      to: story-workflow.phase.implementation
-      guard: story-workflow.invariant.verify_feedback_requires_failed
-    - id: story-workflow.transition.verify_to_closure
-      from: story-workflow.phase.verify
       to: story-workflow.phase.closure
-      guard: story-workflow.invariant.closure_requires_verify_completed
+      guard: story-workflow.invariant.closure_requires_implementation_completed
 status_axis:
   states:
     - id: story-workflow.status.in_progress
@@ -102,7 +102,7 @@ compound_rules:
     description: Pausing and resuming do not advance or rewind current_phase.
   - id: story-workflow.rule.escalated_ends_current_run
     description: ESCALATED ends the current run and requires an external reset-escalation path before a new run may start.
-  - id: story-workflow.rule.verify_feedback_is_explicit_exception
-    description: The only backward phase transition in the normal workflow is verify to implementation.
+  - id: story-workflow.rule.qa_subflow_is_implementation_internal
+    description: The output-QA cycle runs as a subflow inside the implementation phase against the verify-system capability; subflow iterations are not phase transitions and never appear on the phase axis.
 ```
 <!-- FORMAL-SPEC:END -->

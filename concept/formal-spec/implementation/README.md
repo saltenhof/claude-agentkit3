@@ -16,7 +16,9 @@ Im Scope sind:
 - Worker-Spawn und Worker-Lauf
 - Arbeitsartefakte fuer die Phase
 - `BLOCKED`- und Eskalationspfad
-- Handover-/Manifest-Bereitstellung fuer Verify
+- Handover-/Manifest-Bereitstellung als QA-Eingabe
+- Aufruf der Capability `verify-system` als phaseninterner QA-Subflow
+  inkl. Subflow-internem Remediation-Loop
 
 ## Out of Scope
 
@@ -24,7 +26,9 @@ Nicht Teil dieses Kontexts sind:
 
 - Setup-/Preflight-Startfaehigkeit
 - Exploration und H2-Mandatsrouting
-- Verify-Urteile und Closure-Entscheidungen
+- die internen Schichten der Capability `verify-system` (siehe
+  `formal.verify` — Capability-Vertrag)
+- Closure-Entscheidungen
 - Story-Split, Reset oder manuelle Recovery
 
 ## Dateien

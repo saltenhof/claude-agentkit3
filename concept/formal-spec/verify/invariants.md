@@ -26,7 +26,7 @@ context: verify
 invariants:
   - id: verify.invariant.verify_context_required
     scope: process
-    rule: verify may not start without a typed verify_context on the verify payload
+    rule: a QA-subflow run of the verify-system capability may not start without a typed verify_context supplied by the calling phase
   - id: verify.invariant.full_qa_required_for_both_contexts
     scope: process
     rule: both POST_IMPLEMENTATION and POST_REMEDIATION run the full four-layer QA path
@@ -38,6 +38,6 @@ invariants:
     rule: verify may pass only after policy evaluation with no blocking findings from any mandatory layer
   - id: verify.invariant.verify-does-not-close-story
     scope: boundary
-    rule: verify produces a QA decision but does not merge, close the issue, or finalize the story
+    rule: the verify-system capability produces a QA decision but does not merge, close the issue, finalize the story, or alter the story-workflow phase axis
 ```
 <!-- FORMAL-SPEC:END -->

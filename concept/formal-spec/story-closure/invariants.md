@@ -27,7 +27,7 @@ context: story-closure
 invariants:
   - id: story-closure.invariant.verify_completed_before_closure
     scope: process
-    rule: closure may start only after verify has completed successfully for implementing stories or after the direct closure shortcut for non-implementing stories has been selected
+    rule: closure may start only after the implementation phase has completed successfully (which implies the implementation-internal QA-subflow against the verify-system capability reached a passing verdict) for implementing stories, or after the direct closure shortcut for non-implementing stories has been selected
   - id: story-closure.invariant.push_precedes_merge
     scope: process
     rule: the final story branch state must be pushed to the remote before any merge into the target branch is attempted

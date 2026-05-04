@@ -35,12 +35,12 @@ scenarios:
       - command: story-workflow.command.run-phase
         target_phase: story-workflow.phase.implementation
       - command: story-workflow.command.run-phase
-        target_phase: story-workflow.phase.verify
-      - command: story-workflow.command.run-phase
         target_phase: story-workflow.phase.closure
     expected_end:
       phase: story-workflow.phase.closure
       status: story-workflow.status.completed
+    notes:
+      - implementation completes only after the internal QA-subflow against the verify-system capability reaches a passing verdict
   - id: story-workflow.scenario.exploration-happy-path
     start:
       phase: story-workflow.phase.setup
@@ -53,26 +53,12 @@ scenarios:
       - command: story-workflow.command.run-phase
         target_phase: story-workflow.phase.implementation
       - command: story-workflow.command.run-phase
-        target_phase: story-workflow.phase.verify
-      - command: story-workflow.command.run-phase
         target_phase: story-workflow.phase.closure
     expected_end:
       phase: story-workflow.phase.closure
       status: story-workflow.status.completed
-  - id: story-workflow.scenario.verify-feedback-loop
-    start:
-      phase: story-workflow.phase.verify
-      status: story-workflow.status.failed
-    trace:
-      - command: story-workflow.command.run-phase
-        target_phase: story-workflow.phase.implementation
-      - command: story-workflow.command.run-phase
-        target_phase: story-workflow.phase.verify
-      - command: story-workflow.command.run-phase
-        target_phase: story-workflow.phase.closure
-    expected_end:
-      phase: story-workflow.phase.closure
-      status: story-workflow.status.completed
+    notes:
+      - exploration exit-gate and implementation QA-subflow both invoke the verify-system capability; neither is a phase transition
   - id: story-workflow.scenario.merge-conflict-escalates-run
     start:
       phase: story-workflow.phase.closure

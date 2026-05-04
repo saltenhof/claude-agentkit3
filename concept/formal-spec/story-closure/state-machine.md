@@ -66,6 +66,6 @@ compound_rules:
   - id: story-closure.rule.ff-only-is-default-policy
     description: The default closure path selects ff_only unless the official no_ff flag is explicitly chosen.
   - id: story-closure.rule.story-branch-pushed-is-resumable
-    description: A closure resumed from story_branch_pushed continues with merge and must not require a new semantic re-entry into verify.
+    description: A closure resumed from story_branch_pushed continues with merge and must not require a new semantic re-entry into the implementation QA-subflow against the verify-system capability.
 ```
 <!-- FORMAL-SPEC:END -->

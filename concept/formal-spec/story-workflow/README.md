@@ -13,7 +13,9 @@ Story-Bearbeitung in AK3.
 
 Im Scope sind:
 
-- Phasenfolge `setup -> exploration|implementation -> verify -> closure`
+- Phasenfolge `setup -> exploration|implementation -> closure` (linear,
+  vier Top-Phasen; Output-QA ist Subflow innerhalb der
+  Implementation-Phase, kein eigener Phasenknoten)
 - Run-Kontrollstatus `IN_PROGRESS`, `PAUSED`, `ESCALATED`,
   `COMPLETED`, `FAILED`
 - offizielle Workflow-Kommandos fuer diesen Ablauf

@@ -6,37 +6,48 @@ doc_kind: context
 
 # Verify
 
-Dieser Kontext formalisiert die Verify-Phase als vierstufigen
-Qualitaets- und Evidenzprozess vor Closure.
+Dieser Kontext formalisiert die Capability `verify-system` als
+vierstufigen Qualitaets- und Evidenzprozess.
+
+`verify` ist **keine** eigenstaendige Top-Phase im Story-Workflow.
+Verify ist eine Bounded-Context-Capability, die vom Exit-Gate der
+Exploration und vom QA-Subflow der Implementation gleichberechtigt
+gegen denselben Vertrag (`run_qa_subflow`, vgl. `_meta/bc-cut-decisions.md`
+"Verify als Capability (Variante Y)") aufgerufen wird. Die hier
+formalisierte State-Machine modelliert die internen Subflow-Stufen
+(Layer 1 Structural -> Layer 2 LLM -> Layer 3 Adversarial -> Layer 4
+Policy -> passed | failed | escalated) — kein Phasenstatus, sondern
+interner Subflow-Zustand der aufrufenden Phase.
 
 ## Scope
 
 Im Scope sind:
 
-- `verify_context` und fail-closed Eintrittsregeln
-- die vier Verify-Schichten
+- `verify_context` und fail-closed Eintrittsregeln des QA-Subflows
+- die vier QA-Schichten der Capability
 - QA-Zyklus bis `passed`, `failed` oder `escalated`
-- Policy-Evaluation als Abschluss der Verify-Phase
+- Policy-Evaluation als Abschluss eines Subflow-Laufs
 
 ## Out of Scope
 
 Nicht Teil dieses Kontexts sind:
 
 - Closure und Merge
-- Story-Creation, Setup oder Exploration
-- eigentliche Code-Remediation in der Implementation-Phase
+- Story-Creation, Setup oder Exploration als Phasen
+- eigentliche Code-Remediation in der aufrufenden Phase
 - administrative Reset- oder Split-Pfade
+- die Phase-Achse des Story-Workflows (siehe `formal.story-workflow`)
 
 ## Dateien
 
 | Datei | Inhalt |
 |---|---|
-| `entities.md` | Verify-nahe Kernentitaeten |
-| `state-machine.md` | Prozesszustand von Layer 1 bis Policy |
-| `commands.md` | Offizielle Verify-Kommandos |
-| `events.md` | Verify-spezifische Events |
+| `entities.md` | Capability-nahe Kernentitaeten |
+| `state-machine.md` | Subflow-interner Prozesszustand von Layer 1 bis Policy |
+| `commands.md` | Offizielle Capability-Aufrufe |
+| `events.md` | Capability-spezifische Events |
 | `invariants.md` | Harte Regeln fuer verify_context, Layer und Outcome |
-| `scenarios.md` | Deklarierte Verify-Traces |
+| `scenarios.md` | Deklarierte Capability-Traces |
 
 ## Prosa-Quellen
 

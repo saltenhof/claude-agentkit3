@@ -31,15 +31,12 @@ invariants:
   - id: story-workflow.invariant.exploration_gate_required
     scope: phase-transition
     rule: the first transition from exploration to implementation is legal only if ExplorationGateStatus is APPROVED
-  - id: story-workflow.invariant.forward_only_except_verify_feedback
+  - id: story-workflow.invariant.forward_only
     scope: phase-transition
-    rule: phase progression is strictly forward except for the explicit verify to implementation remediation path
-  - id: story-workflow.invariant.verify_feedback_requires_failed
+    rule: phase progression is strictly forward; remediation loops within a phase (e.g. exploration exit-gate iterations, implementation QA-subflow iterations) are subflow-internal and do not constitute phase transitions
+  - id: story-workflow.invariant.closure_requires_implementation_completed
     scope: phase-transition
-    rule: verify may transition back to implementation only when verify ended with status FAILED and the feedback-round guard permits another remediation loop
-  - id: story-workflow.invariant.closure_requires_verify_completed
-    scope: phase-transition
-    rule: closure is legal only after verify has completed successfully
+    rule: closure is legal only after implementation has completed successfully, which implies the implementation-internal QA-subflow reached a passing verdict from the verify-system capability
   - id: story-workflow.invariant.completion_only_after_closure
     scope: status-transition
     rule: status COMPLETED is legal only when current_phase is closure and closure progress reached its completion state

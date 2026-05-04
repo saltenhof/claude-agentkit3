@@ -13,7 +13,8 @@ prose_refs:
 
 # Verify Scenarios
 
-Diese Traces pruefen die drei Pflichtausgaenge von Verify.
+Diese Traces pruefen die drei Pflichtausgaenge eines QA-Subflow-Laufs
+der Capability `verify-system` (passed, failed, escalated).
 
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
@@ -26,7 +27,7 @@ scenarios:
     start:
       status: verify.status.pending
     trace:
-      - command: verify.command.run-phase
+      - command: verify.command.run-qa-subflow
     expected_end:
       status: verify.status.passed
     requires:
@@ -36,7 +37,7 @@ scenarios:
     start:
       status: verify.status.pending
     trace:
-      - command: verify.command.run-phase
+      - command: verify.command.run-qa-subflow
     expected_end:
       status: verify.status.failed
     requires:
@@ -45,7 +46,7 @@ scenarios:
     start:
       status: verify.status.pending
     trace:
-      - command: verify.command.run-phase
+      - command: verify.command.run-qa-subflow
     expected_end:
       status: verify.status.escalated
     requires:

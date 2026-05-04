@@ -13,8 +13,14 @@ prose_refs:
 
 # Implementation State Machine
 
-Implementation ist der Herstellungsprozess bis zum verify-faehigen
-Handover oder zur Eskalation.
+Implementation ist der Herstellungsprozess bis zum vollstaendigen
+Handover oder zur Eskalation. Der QA-Subflow gegen die Capability
+`verify-system` (4-Schichten-QA inkl. Subflow-internem Remediation-Loop)
+laeuft innerhalb der Implementation-Phase und ist Voraussetzung fuer den
+Uebergang in die Implementation-Endzustaende `handover_ready` und
+`completed`. Ein gescheiterter QA-Subflow loest keinen Phasenwechsel
+aus, sondern eine Subflow-interne Remediation-Iteration in derselben
+Phase.
 
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
@@ -52,7 +58,7 @@ transitions:
     to: implementation.status.escalated
     guard: implementation.invariant.worker_blocked_escalates
 compound_rules:
-  - id: implementation.rule.verify-failure-may-reenter-implementation
-    description: A failed verify may re-enter implementation through the same official run-phase implementation path with a new remediation worker spawn.
+  - id: implementation.rule.qa-subflow-failure-loops-internally
+    description: A failed QA-subflow run against the verify-system capability triggers a subflow-internal remediation iteration within the same implementation phase (qa_feedback_rounds++); it never causes a phase transition or a re-entry into a separate verify phase.
 ```
 <!-- FORMAL-SPEC:END -->

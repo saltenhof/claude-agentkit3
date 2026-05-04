@@ -15,7 +15,12 @@ prose_refs:
 
 # Verify State Machine
 
-Verify ist ein vierstufiger QA-Prozess bis Policy-Entscheidung.
+Diese State-Machine modelliert den Subflow-internen Verlauf eines
+einzelnen Aufrufs der Capability `verify-system`: die vier
+QA-Schichten und die Policy-Entscheidung. Sie beschreibt **keinen**
+Story-Workflow-Phasenstatus — Verify ist Capability, kein Phase-Owner.
+Der Subflow laeuft innerhalb der aufrufenden Phase (Exploration-Exit-Gate
+oder Implementation-QA-Subflow).
 
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
@@ -64,7 +69,7 @@ transitions:
     to: verify.status.escalated
     guard: verify.invariant.impact_violation_escalates_immediately
 compound_rules:
-  - id: verify.rule.failed-reenters-implementation
-    description: A failed verify does not close the story; the official next step is re-entry into implementation through the story-workflow remediaton path.
+  - id: verify.rule.failed-triggers-subflow-internal-remediation
+    description: A failed QA-subflow run does not close the story and does not cause a phase transition; it triggers the subflow-internal remediation loop within the same calling phase (e.g. implementation qa_feedback_rounds++).
 ```
 <!-- FORMAL-SPEC:END -->

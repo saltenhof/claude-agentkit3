@@ -24,7 +24,7 @@ Im Scope sind:
 Nicht Teil dieses Kontexts sind:
 
 - Story-Creation vor `Approved`
-- Exploration, Implementation oder Verify selbst
+- Exploration oder Implementation (inkl. QA-Subflow gegen die Capability `verify-system`) selbst
 - administrative Recovery-Pfade wie Reset oder Split
 - freie manuelle Cleanup- oder Git-Operationen
 

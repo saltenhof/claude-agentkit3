@@ -28,7 +28,7 @@ Nicht Teil dieses Kontexts sind:
 - allgemeine Git-Governance ausserhalb des Closure-Pfads
 - PR-Review- oder Freigabeprozesse
 - manuelle Konfliktbehebung per Rebase oder Force-Push
-- Build-/Testausfuehrung innerhalb von Verify
+- Build-/Testausfuehrung innerhalb des Implementation-QA-Subflows gegen die Capability `verify-system`
 - vollstaendige Datenhaltung von Telemetrie und KPIs
 
 ## Dateien

@@ -14,7 +14,10 @@ prose_refs:
 
 # Verify Commands
 
-Verify laeuft ueber den offiziellen Phase-Runner-Pfad.
+Verify ist eine Capability und keine Top-Phase. Es gibt keinen
+`agentkit run-phase verify`-Aufruf. Der QA-Subflow wird intern aus
+der aufrufenden Phase (Exploration-Exit-Gate, Implementation-QA-Subflow)
+ueber den Capability-Vertrag `run_qa_subflow` ausgeloest.
 
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
@@ -23,8 +26,8 @@ schema_version: 1
 kind: command-set
 context: verify
 commands:
-  - id: verify.command.run-phase
-    signature: agentkit run-phase verify --story <story_id>
+  - id: verify.command.run-qa-subflow
+    signature: VerifySystem.run_qa_subflow(story_id, qa_context, target) -> PolicyVerdict
     allowed_statuses:
       - verify.status.pending
     requires:
