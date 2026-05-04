@@ -336,7 +336,7 @@ sequenceDiagram
 
 ## 47.6 Prompt-Template: `review-preflight.md` (FK-28-013)
 
-Neues Template unter `userstory/prompts/sparring/review-preflight.md`:
+Neues Template im Prompt-Bundle unter `prompts/sparring/review-preflight.md`:
 
 ```markdown
 # Review Preflight — Context Sufficiency Check

@@ -935,7 +935,7 @@ zu verwenden. Der Assembler:
 
 ### 28.8.3 Bestehende Review-Template-Erweiterungen (FK-28-017)
 
-Alle Review-Templates in `userstory/prompts/sparring/` erhalten
+Alle Review-Templates im Prompt-Bundle unter `prompts/sparring/` erhalten
 den `{{BUNDLE_MANIFEST_HEADER}}`-Platzhalter, der vom Evidence
 Assembler befüllt wird. Das ersetzt die bisherige unstrukturierte
 Einleitung.

@@ -51,7 +51,7 @@ Konzepten.
 | MCP-Wrapper | Python, FastMCP | stdio-Transport, registriert in `.mcp.json` |
 | Client-Library | weaviate-client 4.9-5.0 | Python, Pflicht-Dependency |
 
-**Docker-Compose** (in `userstory/vectordb/docker-compose.yaml`):
+**Docker-Compose** (in `vectordb/docker-compose.yaml`):
 
 ```yaml
 services:
@@ -176,7 +176,7 @@ Der MCP-Server wird bei Installation (Checkpoint 9) in
     "story-knowledge-base": {
       "type": "stdio",
       "command": "python",
-      "args": ["{agentkit_path}/userstory/vectordb/mcp_server.py"],
+      "args": ["{agentkit_path}/vectordb/mcp_server.py"],
       "env": {
         "PROJECT_ID": "{project_prefix}",
         "WEAVIATE_HOST": "localhost",

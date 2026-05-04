@@ -352,7 +352,7 @@ Story-Knowledge-Base MCP-Server in `.mcp.json`:
     "story-knowledge-base": {
       "type": "stdio",
       "command": "python",
-      "args": ["{agentkit_path}/userstory/vectordb/mcp_server.py"],
+      "args": ["{agentkit_path}/vectordb/mcp_server.py"],
       "env": { ... }
     }
   }
