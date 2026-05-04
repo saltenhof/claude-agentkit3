@@ -141,10 +141,26 @@ Es gilt:
   Hinweis auf eine frei editierbare lokale Dateiablage
 
 Fuer **statische Prompt-Templates** wird projektlokal ein
-Claude-Code-kompatibler Bindungspunkt unter `prompts/` bereitgestellt.
+harness-neutraler Bindungspunkt unter `prompts/` bereitgestellt.
 Autoritativ ist dabei nicht die Dateiansicht selbst, sondern der
 explizite Lock-Datensatz
 `.agentkit/config/prompt-bundle.lock.json`.
+
+[Entscheidung 2026-05-04 — Multi-Harness] Der projektlokale `prompts/`-Pfad
+ist eine reine Konvention zur menschenlesbaren Orientierung, kein
+Mechanikbezug zu einem bestimmten Harness. Weder Claude Code noch Codex
+benoetigen einen projektlokal vorgeschriebenen Prompt-Pfad: Worker
+erhalten den tatsaechlich konsumierten Prompt-Pfad (run-scoped, siehe
+§44.4.1) ueber Variable-Substitution. Codex' Custom-Prompts sind
+user-home-scoped (`~/.codex/prompts/`) und fuer AK3-Produktivpfade
+bewusst nicht relevant; der projektweite Skill-Auslieferungspfad fuer
+beide Harnesses ist in FK-43 §43.4.1 normiert.
+
+Prompt-**Inhalte** sind ebenfalls harness-neutral. Verweise auf
+`CLAUDE.md` im Projektroot gelten fuer beide Harnesses; Codex liest die
+Datei ohne Substitution. AK3 pflegt die Basisinstruktionen einheitlich
+in `CLAUDE.md`; eine eigenstaendige `AGENTS.md`-Quelle ist im AK3-Setup
+nicht vorgesehen.
 
 Der Lock enthaelt die gebundene Prompt-Identitaet
 (`bundle_id`, `bundle_version`) und den Manifest-Digest, aber **nicht**
