@@ -436,8 +436,11 @@ Read-only Validierung aller vorherigen Checkpoints:
 - Config lesbar und Schema-valide?
 - Projektprofil bestimmt?
 - Projekt im State-Backend registriert?
-- Alle erwarteten Skill-Symlinks vorhanden und korrekt?
-- Alle Hooks registriert?
+- Alle erwarteten Skill-Symlinks vorhanden und korrekt — **pro
+  unterstuetztem Harness** (Claude Code: `.claude/skills/`, Codex:
+  harness-eigenes Aequivalent; FK-30 §30.11)?
+- Alle Hooks registriert — **pro unterstuetztem Harness**
+  (`.claude/settings.json`, `.codex/config.toml` o.ae.)?
 - Alle erwarteten `tools/agentkit/`-Wrapper vorhanden?
 - ARE-Scope-Zuordnung vollständig? (alle Code-Repos haben `are_scope`, alle Modul-Werte gemappt — nur wenn `features.are: true`)
 
@@ -448,7 +451,7 @@ Read-only Validierung aller vorherigen Checkpoints:
 ```python
 @dataclass
 class CheckpointResult:
-    checkpoint: str     # z.B. "cp_04_github_fields"
+    checkpoint: str     # z.B. "cp_07_state_backend_registration"
     status: str         # PASS, CREATED, UPDATED, SKIPPED, FAILED
     detail: str         # Menschenlesbare Beschreibung
     duration_ms: int    # Ausführungsdauer
