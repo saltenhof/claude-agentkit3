@@ -52,5 +52,11 @@ invariants:
   - id: story-closure.invariant.merge_rejection_never_completes_closure
     scope: outcome
     rule: if merge is rejected after the story branch has been pushed the story must not complete and the closure path must remain resumable or escalate explicitly
+  - id: story-closure.invariant.multi_repo_atomicity
+    scope: outcome
+    rule: in multi-repo stories with two or more participating repos, merge_done becomes true only when all participating repos have been merged into main and pushed; a partial-merged or partial-pushed state is a defective end state and must escalate
+  - id: story-closure.invariant.multi_repo_local_rollback_on_merge_failure
+    scope: process
+    rule: in multi-repo stories, if local fast-forward-merge fails for any participating repo, all repos that were already merged in the same closure attempt must be reset to their pre-merge SHA before escalation
 ```
 <!-- FORMAL-SPEC:END -->

@@ -250,7 +250,9 @@ flowchart TD
 
     SUB_PUSH --> MERGE["Branch mergen<br/>(Default: git merge --ff-only)<br/>Fallback: git merge --no-ff"]
     MERGE -->|Merge-Fehler| ESC_M(["ESCALATED:<br/>Merge fehlgeschlagen.<br/>Closure-Retry mit offizieller Merge-Policy prüfen."])
-    MERGE -->|Erfolg| SUB2["Substate:<br/>merge_done = true"]
+    MERGE -->|Erfolg| PUSH_MAIN["Main pushen<br/>(git push origin main)"]
+    PUSH_MAIN -->|Push-Fehler| ESC_PM(["ESCALATED:<br/>Main-Push fehlgeschlagen.<br/>Lokaler Merge wird zurueckgesetzt."])
+    PUSH_MAIN -->|Erfolg| SUB2["Substate:<br/>merge_done = true"]
 
     SUB2 --> TEARDOWN["Worktree aufräumen<br/>Branch löschen"]
     TEARDOWN --> CLOSE["Story-Status: Done<br/>(AK3-Story-Service)"]
@@ -331,8 +333,8 @@ Teardown (Worktree aufräumen, Branch löschen) ist idempotent — er wird bei j
 
 ### 29.1.4 Reihenfolge ist Pflicht (FK-05-226)
 
-Die Reihenfolge stellt sicher, dass ein Issue nie geschlossen wird,
-wenn der Merge scheitert:
+Die Reihenfolge stellt sicher, dass eine Story nie auf Done gesetzt
+wird, wenn der Merge scheitert:
 
 1. Erst Finding-Resolution-Gate (§29.2) → sicherstellt: alle Findings vollständig aufgelöst
 2. Erst Integrity-Gate (FK-35 §35.2) → sicherstellt: Prozess wurde durchlaufen
@@ -372,34 +374,42 @@ ein **defekter Endzustand** und nicht zulaessig.
 
 #### 29.1.6.1 Sequenz
 
-Die Reihenfolge aus §29.1.4 gilt unveraendert; Schritte 3 (Push) und
-4 (Merge) werden bei Multi-Repo zu **Stufen ueber alle Repos**:
+Die Reihenfolge aus §29.1.4 gilt unveraendert; Schritte 3 (Push), 4
+(Merge) und 5 (Teardown) werden bei Multi-Repo zu **Stufen ueber alle
+Repos** ausgepraegt. Die nachfolgenden Stufen 1-5 sind die Multi-Repo-
+Auspraegung dieser drei Schritte aus der Single-Repo-Sequenz; alles
+nach Teardown (Story-Closed, Metriken, Postflight, VektorDB-Sync,
+Guards-Off; §29.1.4 Schritte 6-11) laeuft pro-Story und ist nicht
+multi-repo-aufgespalten.
 
-1. **Pre-Merge-Check (Stufe 0):** fuer jedes teilnehmende Repo wird
-   gepruef, ob `story/{story_id}` ff-mergebar gegen den aktuellen
-   `origin/main` ist. Auch ein einziger nicht-ff-faehiger Repo
-   blockiert die gesamte Closure (ESCALATED, kein Push, kein Merge).
-2. **Push-Stufe (Stufe 1):** alle Story-Branches werden gepusht. Bei
+1. **Stufe 1 — Pre-Merge-Check (vor Push):** fuer jedes teilnehmende
+   Repo wird geprueft, ob `story/{story_id}` ff-mergebar gegen den
+   aktuellen `origin/main` ist. Auch ein einziger nicht-ff-faehiger
+   Repo blockiert die gesamte Closure (ESCALATED, kein Push, kein
+   Merge).
+2. **Stufe 2 — Push der Story-Branches:** alle Story-Branches werden
+   gepusht. Erst nach Erfolg in **allen** teilnehmenden Repos wird
+   `payload.progress.story_branch_pushed = true` gesetzt. Bei
    Push-Fehler in Repo k werden bereits gepushte Branches nicht
    ausgerollt (Push ist remote-irreversibel ohne force-push), die
    Closure escaliert mit Hinweis auf den partial-push-Zustand.
-3. **Merge-Stufe (Stufe 2 — lokal atomar):** alle teilnehmenden
+3. **Stufe 3 — lokal-atomarer FF-Merge:** alle teilnehmenden
    Worktrees fuehren `git merge --ff-only` lokal aus. Vor jedem Merge
    wird der `pre_merge_sha` des Ziel-Branches festgehalten. Wenn
    Merge in Repo k fehlschlaegt, werden alle bereits lokal gemergten
    Repos via `git reset --hard <pre_merge_sha>` zurueckgesetzt
    (lokale Atomicity-Garantie). Closure escaliert.
-4. **Push-zu-main-Stufe (Stufe 3):** alle gemergten Hauptbranches
-   werden gepusht. Bei Push-Fehler in Repo k bleiben Repos 1..k-1
-   permanent auf den Remotes; Repos k..N werden lokal zurueckgesetzt;
-   Closure escaliert mit explizitem **Partial-Push-State** (siehe
-   §29.1.6.3).
-5. **Teardown-Stufe (Stufe 4):** Worktrees aller teilnehmenden Repos
-   werden aufgeraeumt, Story-Branches lokal geloescht. Idempotent.
+4. **Stufe 4 — Push-zu-main:** alle gemergten Hauptbranches werden
+   gepusht. Bei Push-Fehler in Repo k bleiben Repos 1..k-1 permanent
+   auf den Remotes; Repos k..N werden lokal zurueckgesetzt; Closure
+   escaliert mit explizitem **Partial-Push-State** (siehe §29.1.6.3).
+5. **Stufe 5 — Teardown:** Worktrees aller teilnehmenden Repos werden
+   aufgeraeumt, Story-Branches lokal geloescht. Idempotent.
 
-`merge_done = true` wird erst gesetzt, wenn Stufe 4 erfolgreich
-abgeschlossen ist UND Stufe 3 fuer alle Repos PASS gemeldet hat. Ein
-einzelner Repo-Push-Fehler verhindert das Setzen von `merge_done`.
+`payload.progress.merge_done = true` wird erst gesetzt, wenn Stufe 5
+erfolgreich abgeschlossen ist UND Stufe 4 fuer alle Repos PASS
+gemeldet hat. Ein einzelner Repo-Push-Fehler in Stufe 4 verhindert
+das Setzen von `merge_done`.
 
 #### 29.1.6.2 ClosureProgress bei Multi-Repo
 
@@ -422,9 +432,9 @@ Single-Repo-Stories bleibt das Feld leer und wird ignoriert.
 #### 29.1.6.3 Partial-Push-State (Stufe 3 Failure)
 
 Cross-Remote-Atomicity ueber mehrere Git-Hosts ist nicht erreichbar.
-Wenn in Stufe 3 Repo k push-failed, nachdem Repos 1..k-1 bereits auf
-`origin/main` gepusht wurden, ist der Zustand nicht mehr automatisch
-rueckgaengig zu machen. Closure setzt:
+Wenn in Stufe 4 (Push-zu-main) Repo k push-failed, nachdem Repos
+1..k-1 bereits auf `origin/main` gepusht wurden, ist der Zustand
+nicht mehr automatisch rueckgaengig zu machen. Closure setzt:
 
 - `closure_verdict = ESCALATED`
 - `multi_repo.pushed_repos = [r1, ..., r_{k-1}]`
