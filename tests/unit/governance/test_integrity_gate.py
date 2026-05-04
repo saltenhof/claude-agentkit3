@@ -109,7 +109,7 @@ def _create_decision(story_dir: Path, decision: str = "PASS") -> None:
 
 def _populate_implementation_story(story_dir: Path) -> None:
     _create_context(story_dir)
-    for phase in ("setup", "implementation", "verify"):
+    for phase in ("setup", "implementation"):
         _create_snapshot(story_dir, phase)
     _create_decision(story_dir)
 
@@ -142,7 +142,7 @@ class TestIntegrityGateAllPassing:
     def test_bugfix_all_pass(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         _create_context(story_dir, StoryType.BUGFIX)
-        for phase in ("setup", "implementation", "verify"):
+        for phase in ("setup", "implementation"):
             _create_snapshot(story_dir, phase)
         _create_decision(story_dir)
         result = IntegrityGate().evaluate(story_dir, StoryType.BUGFIX)
@@ -170,21 +170,22 @@ class TestIntegrityGateMissingSnapshot:
         story_dir = _story_dir(tmp_path)
         _create_context(story_dir)
         _create_snapshot(story_dir, "implementation")
-        _create_snapshot(story_dir, "verify")
         _create_decision(story_dir)
         result = IntegrityGate().evaluate(story_dir, StoryType.IMPLEMENTATION)
         assert result.passed is False
         assert any("setup" in check.dimension for check in result.failed_checks)
 
-    def test_missing_verify_snapshot(self, tmp_path: Path) -> None:
+    def test_missing_implementation_snapshot(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         _create_context(story_dir)
         _create_snapshot(story_dir, "setup")
-        _create_snapshot(story_dir, "implementation")
         _create_decision(story_dir)
         result = IntegrityGate().evaluate(story_dir, StoryType.IMPLEMENTATION)
         assert result.passed is False
-        assert any("verify" in check.dimension for check in result.failed_checks)
+        assert any(
+            "implementation" in check.dimension
+            for check in result.failed_checks
+        )
 
 
 class TestIntegrityGateCorruptData:
@@ -238,7 +239,7 @@ class TestIntegrityGateCorruptData:
     def test_verify_decision_fail(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         _create_context(story_dir)
-        for phase in ("setup", "implementation", "verify"):
+        for phase in ("setup", "implementation"):
             _create_snapshot(story_dir, phase)
         _create_decision(story_dir, decision="FAIL")
         result = IntegrityGate().evaluate(story_dir, StoryType.IMPLEMENTATION)

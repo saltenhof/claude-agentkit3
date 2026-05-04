@@ -1,4 +1,4 @@
-"""4-Layer QA system for the AgentKit verify phase.
+"""4-Layer QA system for the AgentKit implementation QA-subflow.
 
 Re-exports the central types that consumers need.
 """

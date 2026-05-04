@@ -101,7 +101,6 @@ class TestProfiles:
             "setup",
             "exploration",
             "implementation",
-            "verify",
             "closure",
         )
 
@@ -115,7 +114,7 @@ class TestProfiles:
         assert p.default_mode == StoryMode.EXECUTION
         assert p.allowed_implementation_contracts == ()
         assert p.default_implementation_contract is None
-        assert p.phases == ("setup", "implementation", "verify", "closure")
+        assert p.phases == ("setup", "implementation", "closure")
 
     def test_concept_profile(self) -> None:
         p = PROFILES[StoryType.CONCEPT]
@@ -127,7 +126,7 @@ class TestProfiles:
         assert p.default_mode == StoryMode.NOT_APPLICABLE
         assert p.allowed_implementation_contracts == ()
         assert p.default_implementation_contract is None
-        assert p.phases == ("setup", "implementation", "verify", "closure")
+        assert p.phases == ("setup", "implementation", "closure")
 
     def test_research_profile(self) -> None:
         p = PROFILES[StoryType.RESEARCH]

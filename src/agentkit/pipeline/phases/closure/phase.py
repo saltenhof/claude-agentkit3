@@ -23,7 +23,7 @@ from agentkit.state_backend.store import (
     save_story_context,
     upsert_story_metrics,
 )
-from agentkit.story_context_manager.models import PhaseStatus
+from agentkit.story_context_manager.models import PhaseStatus, QaCycleStatus
 from agentkit.story_context_manager.types import get_profile
 
 if TYPE_CHECKING:
@@ -121,6 +121,18 @@ class ClosurePhaseHandler:
                 missing.append(
                     f"Phase '{phase}': status is "
                     f"'{snapshot.status}', expected 'completed'",
+                )
+            elif (
+                phase == "implementation"
+                and snapshot.evidence.get("qa_cycle_status") not in (
+                    None,
+                    QaCycleStatus.PASS.value,
+                )
+            ):
+                missing.append(
+                    "Phase 'implementation': qa_cycle_status is "
+                    f"'{snapshot.evidence.get('qa_cycle_status')}', "
+                    "expected 'pass'",
                 )
 
         if missing:

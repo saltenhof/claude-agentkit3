@@ -18,10 +18,10 @@ DEFAULT_STORY_TYPES: tuple[str, ...] = (
     "concept",
     "research",
 )
-"""Supported story types in the 5-phase pipeline."""
+"""Supported story types in the 4-phase pipeline."""
 
 DEFAULT_MAX_FEEDBACK_ROUNDS: int = 3
-"""Maximum number of feedback rounds before escalation in the Verify phase."""
+"""Maximum number of QA feedback rounds before escalation."""
 
 DEFAULT_MAX_REMEDIATION_ROUNDS: int = 2
 """Maximum number of remediation attempts per feedback round."""
@@ -32,4 +32,4 @@ DEFAULT_VERIFY_LAYERS: tuple[str, ...] = (
     "adversarial",
     "policy",
 )
-"""The four QA layers executed during the Verify phase."""
+"""The four QA layers executed during the implementation QA-subflow."""

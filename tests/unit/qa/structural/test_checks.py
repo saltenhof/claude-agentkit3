@@ -172,7 +172,7 @@ class TestCheckNoCorruptState:
             story_dir,
             PhaseState(
                 story_id="TEST-001",
-                phase="verify",
+                phase="implementation",
                 status=PhaseStatus.IN_PROGRESS,
             ),
         )
@@ -185,7 +185,7 @@ class TestCheckNoCorruptState:
             story_dir,
             PhaseState(
                 story_id="TEST-001",
-                phase="verify",
+                phase="implementation",
                 status=PhaseStatus.IN_PROGRESS,
             ),
         )

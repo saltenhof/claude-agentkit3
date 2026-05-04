@@ -6,13 +6,15 @@ import re
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    Tag,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -36,6 +38,100 @@ class PhaseStatus(StrEnum):
     FAILED = "failed"
     ESCALATED = "escalated"
     BLOCKED = "blocked"
+
+
+class PhaseName(StrEnum):
+    SETUP = "setup"
+    EXPLORATION = "exploration"
+    IMPLEMENTATION = "implementation"
+    CLOSURE = "closure"
+
+
+class VerifyContext(StrEnum):
+    POST_IMPLEMENTATION = "POST_IMPLEMENTATION"
+    POST_REMEDIATION = "POST_REMEDIATION"
+
+
+class QaCycleStatus(StrEnum):
+    IDLE = "idle"
+    AWAITING_QA = "awaiting_qa"
+    AWAITING_POLICY = "awaiting_policy"
+    AWAITING_REMEDIATION = "awaiting_remediation"
+    PASS = "pass"
+    ESCALATED = "escalated"
+
+
+class SetupPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    phase_type: Literal["setup"] = "setup"
+
+
+class ExplorationPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    phase_type: Literal["exploration"] = "exploration"
+    gate_status: str | None = None
+
+
+class ImplementationPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    phase_type: Literal["implementation"] = "implementation"
+    qa_cycle_status: QaCycleStatus = QaCycleStatus.IDLE
+    verify_context: VerifyContext | None = None
+    qa_cycle_round: int = Field(default=0, ge=0)
+    qa_cycle_id: str | None = None
+    evidence_epoch: str | None = None
+    evidence_fingerprint: str | None = None
+
+
+class ClosureProgress(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    integrity_passed: bool = False
+    merge_done: bool = False
+    issue_closed: bool = False
+    metrics_written: bool = False
+    postflight_done: bool = False
+
+
+class ClosurePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    phase_type: Literal["closure"] = "closure"
+    progress: ClosureProgress = Field(default_factory=ClosureProgress)
+
+
+PhasePayload = (
+    Annotated[SetupPayload, Tag("setup")]
+    | Annotated[ExplorationPayload, Tag("exploration")]
+    | Annotated[ImplementationPayload, Tag("implementation")]
+    | Annotated[ClosurePayload, Tag("closure")]
+)
+
+
+class ExplorationPhaseMemory(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    review_rounds: int = Field(default=0, ge=0)
+
+
+class ImplementationPhaseMemory(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    qa_feedback_rounds: int = Field(default=0, ge=0)
+
+
+class PhaseMemory(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    exploration: ExplorationPhaseMemory = Field(
+        default_factory=ExplorationPhaseMemory,
+    )
+    implementation: ImplementationPhaseMemory = Field(
+        default_factory=ImplementationPhaseMemory,
+    )
 
 
 class StoryContext(BaseModel):
@@ -145,10 +241,39 @@ class PhaseState(BaseModel):
     story_id: str
     phase: str
     status: PhaseStatus
+    payload: PhasePayload | None = None
+    memory: PhaseMemory = Field(default_factory=PhaseMemory)
     paused_reason: str | None = None
     review_round: int = 0
     errors: list[str] = Field(default_factory=list)
     attempt_id: str | None = None
+
+    @field_validator("phase")
+    @classmethod
+    def _validate_phase_name(cls, value: str) -> str:
+        if value == "verify":
+            raise ValueError("verify is not a top-level phase")
+        try:
+            PhaseName(value)
+        except ValueError as exc:
+            raise ValueError(
+                "phase must be one of setup, exploration, implementation, closure",
+            ) from exc
+        return value
+
+    @field_validator("payload")
+    @classmethod
+    def _validate_payload_matches_phase(
+        cls,
+        value: PhasePayload | None,
+        info: ValidationInfo,
+    ) -> PhasePayload | None:
+        phase = info.data.get("phase")
+        if value is not None and phase is not None and value.phase_type != phase:
+            raise ValueError("payload.phase_type must match phase")
+        return value
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class PhaseSnapshot(BaseModel):
@@ -159,13 +284,38 @@ class PhaseSnapshot(BaseModel):
     artifacts: list[str] = Field(default_factory=list)
     evidence: dict[str, Any] = Field(default_factory=dict)
 
-    model_config = {"frozen": True}
+    @field_validator("phase")
+    @classmethod
+    def _validate_phase_name(cls, value: str) -> str:
+        if value == "verify":
+            raise ValueError("verify is not a top-level phase")
+        try:
+            PhaseName(value)
+        except ValueError as exc:
+            raise ValueError(
+                "phase must be one of setup, exploration, implementation, closure",
+            ) from exc
+        return value
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
 __all__ = [
+    "ClosurePayload",
+    "ClosureProgress",
+    "ExplorationPayload",
+    "ExplorationPhaseMemory",
+    "ImplementationPayload",
+    "ImplementationPhaseMemory",
+    "PhaseMemory",
+    "PhaseName",
+    "PhasePayload",
     "PhaseSnapshot",
     "PhaseState",
     "PhaseStatus",
+    "QaCycleStatus",
+    "SetupPayload",
     "StoryContext",
+    "VerifyContext",
 ]
 
 

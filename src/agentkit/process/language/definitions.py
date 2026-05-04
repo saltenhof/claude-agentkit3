@@ -10,10 +10,9 @@ from agentkit.process.language.guards import (
     GuardResult,
     exploration_gate_approved,
     guard,
+    implementation_completed,
     mode_is_exploration,
     preflight_passed,
-    verify_completed,
-    verify_needs_remediation,
 )
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
@@ -59,21 +58,13 @@ def _build_implementation_workflow() -> WorkflowDefinition:
             resume_triggers=["challenge_resolved"],
         )
         .phase("implementation")
-        .phase("verify")
         .max_remediation_rounds(3)
         .phase("closure")
         .substates(["merging", "cleanup", "reporting"])
         .transition("setup", "exploration", guard=mode_is_exploration)
         .transition("setup", "implementation", guard=_mode_is_not_exploration)
         .transition("exploration", "implementation", guard=exploration_gate_approved)
-        .transition("implementation", "verify")
-        .transition("verify", "closure", guard=verify_completed)
-        .transition(
-            "verify",
-            "implementation",
-            guard=verify_needs_remediation,
-            resume_policy="remediation",
-        )
+        .transition("implementation", "closure", guard=implementation_completed)
         .hooks(
             pre_transition=["log_transition"],
             post_transition=["emit_telemetry"],
@@ -90,19 +81,11 @@ def _build_bugfix_workflow() -> WorkflowDefinition:
         .phase("setup")
         .guard(preflight_passed)
         .phase("implementation")
-        .phase("verify")
         .max_remediation_rounds(3)
         .phase("closure")
         .substates(["merging", "cleanup", "reporting"])
         .transition("setup", "implementation")
-        .transition("implementation", "verify")
-        .transition("verify", "closure", guard=verify_completed)
-        .transition(
-            "verify",
-            "implementation",
-            guard=verify_needs_remediation,
-            resume_policy="remediation",
-        )
+        .transition("implementation", "closure", guard=implementation_completed)
         .hooks(
             pre_transition=["log_transition"],
             post_transition=["emit_telemetry"],
@@ -118,11 +101,9 @@ def _build_concept_workflow() -> WorkflowDefinition:
         .phase("setup")
         .guard(preflight_passed)
         .phase("implementation")
-        .phase("verify")
         .phase("closure")
         .transition("setup", "implementation")
-        .transition("implementation", "verify")
-        .transition("verify", "closure")
+        .transition("implementation", "closure")
         .hooks(
             pre_transition=["log_transition"],
             post_transition=["emit_telemetry"],

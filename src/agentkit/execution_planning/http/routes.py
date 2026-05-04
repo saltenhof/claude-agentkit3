@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from agentkit.project_management.repository import ProjectRepository
 
 _CORRELATION_HEADER = "X-Correlation-Id"
+_PROJECT_ARCHIVED_MESSAGE = "Project is archived"
 _DEPENDENCY_GRAPH_PATH = re.compile(
     r"^/v1/projects/(?P<project_key>[^/]+)/planning/dependency-graph$",
 )
@@ -202,7 +203,7 @@ class ExecutionPlanningRoutes:
         if project.archived_at is not None:
             return _conflict_response(
                 "project_archived",
-                "Project is archived",
+                _PROJECT_ARCHIVED_MESSAGE,
                 correlation_id,
             )
         try:
@@ -249,7 +250,11 @@ class ExecutionPlanningRoutes:
         if project is None:
             return _not_found_response(correlation_id)
         if project.archived_at is not None:
-            return _conflict_response("project_archived", "Project is archived", correlation_id)
+            return _conflict_response(
+                "project_archived",
+                _PROJECT_ARCHIVED_MESSAGE,
+                correlation_id,
+            )
         try:
             edge = add_dependency(
                 story_id=request.story_id,
@@ -338,7 +343,11 @@ class ExecutionPlanningRoutes:
         if project is None:
             return _not_found_response(correlation_id)
         if project.archived_at is not None:
-            return _conflict_response("project_archived", "Project is archived", correlation_id)
+            return _conflict_response(
+                "project_archived",
+                _PROJECT_ARCHIVED_MESSAGE,
+                correlation_id,
+            )
         config = ParallelizationConfig(
             project_key=project_key,
             max_parallel_stories=request.max_parallel_stories,

@@ -160,13 +160,24 @@ def _evaluate_phase_guards(
 def _completed_state_for(
     state: PhaseState,
     attempt_id: str,
+    result: HandlerResult,
 ) -> PhaseState:
+    source_state = result.updated_state or state
     return PhaseState(
         story_id=state.story_id,
         phase=state.phase,
         status=PhaseStatus.COMPLETED,
+        payload=source_state.payload,
+        memory=source_state.memory,
+        errors=list(result.errors),
         attempt_id=attempt_id,
     )
+
+
+def _snapshot_evidence(state: PhaseState) -> dict[str, object]:
+    if state.payload is None:
+        return {}
+    return state.payload.model_dump(mode="json")
 
 
 def _transition_target_for(
@@ -284,7 +295,7 @@ def _handle_completed_result(
             exc,
         )
 
-    completed_state = _completed_state_for(state, attempt_id)
+    completed_state = _completed_state_for(state, attempt_id, result)
     guard_evals = _evaluate_phase_guards(
         phase_def,
         ctx,
@@ -310,6 +321,7 @@ def _handle_completed_result(
             status=PhaseStatus.COMPLETED,
             completed_at=datetime.now(tz=UTC),
             artifacts=list(result.artifacts_produced),
+            evidence=_snapshot_evidence(completed_state),
         ),
     )
     save_phase_state(engine._story_dir, completed_state)
@@ -374,6 +386,8 @@ def _handle_paused_result(
             story_id=state.story_id,
             phase=phase_name,
             status=PhaseStatus.PAUSED,
+            payload=(result.updated_state or state).payload,
+            memory=(result.updated_state or state).memory,
             paused_reason=result.yield_status,
             attempt_id=attempt_id,
         ),
@@ -452,6 +466,8 @@ def _handle_terminal_result(
             story_id=state.story_id,
             phase=phase_name,
             status=result.status,
+            payload=(result.updated_state or state).payload,
+            memory=(result.updated_state or state).memory,
             errors=list(result.errors),
             attempt_id=attempt_id,
         ),

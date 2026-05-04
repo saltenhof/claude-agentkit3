@@ -53,8 +53,8 @@ class IntegrityGateResult:
 
 
 _REQUIRED_PHASES: dict[StoryType, tuple[str, ...]] = {
-    StoryType.IMPLEMENTATION: ("setup", "implementation", "verify"),
-    StoryType.BUGFIX: ("setup", "implementation", "verify"),
+    StoryType.IMPLEMENTATION: ("setup", "implementation"),
+    StoryType.BUGFIX: ("setup", "implementation"),
     StoryType.CONCEPT: ("setup", "implementation"),
     StoryType.RESEARCH: ("setup", "implementation"),
 }

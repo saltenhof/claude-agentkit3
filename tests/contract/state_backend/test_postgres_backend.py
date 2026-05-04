@@ -82,13 +82,13 @@ def test_public_state_backend_contract_works_on_postgres(
 
     state = PhaseState(
         story_id="AG3-901",
-        phase="verify",
+        phase="implementation",
         status=PhaseStatus.IN_PROGRESS,
     )
     save_phase_state(story_dir, state)
     loaded_state = load_phase_state(story_dir)
     assert loaded_state is not None
-    assert loaded_state.phase == "verify"
+    assert loaded_state.phase == "implementation"
     assert load_phase_state_global("AG3-901") is not None
 
     snapshot = PhaseSnapshot(

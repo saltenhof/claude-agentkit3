@@ -195,10 +195,10 @@ class TestClosurePhaseHandler:
         tmp_path: Path,
     ) -> None:
         """Closure succeeds when all prior phase snapshots exist."""
-        # Implementation profile: setup, exploration, implementation, verify, closure
+        # Implementation profile: setup, exploration, implementation, closure
         s_dir = tmp_path / "stories" / "TEST-001"
         s_dir.mkdir(parents=True)
-        for phase in ("setup", "exploration", "implementation", "verify"):
+        for phase in ("setup", "exploration", "implementation"):
             _save_snapshot(s_dir, phase)
         _save_flow(s_dir)
         _append_agent_start_event(s_dir)
@@ -220,7 +220,7 @@ class TestClosurePhaseHandler:
         """Closure fails when a required prior phase snapshot is missing."""
         s_dir = tmp_path / "stories" / "TEST-001"
         s_dir.mkdir(parents=True)
-        # Save setup and implementation but NOT exploration and verify
+        # Save setup and implementation but NOT exploration
         _save_snapshot(s_dir, "setup")
         _save_snapshot(s_dir, "implementation")
 
@@ -235,13 +235,12 @@ class TestClosurePhaseHandler:
         assert len(result.errors) >= 1
         error_text = " ".join(result.errors)
         assert "exploration" in error_text
-        assert "verify" in error_text
 
     def test_closure_writes_execution_report(self, tmp_path: Path) -> None:
         """Closure writes ``closure.json`` with execution summary."""
         s_dir = tmp_path / "stories" / "TEST-001"
         s_dir.mkdir(parents=True)
-        for phase in ("setup", "exploration", "implementation", "verify"):
+        for phase in ("setup", "exploration", "implementation"):
             _save_snapshot(s_dir, phase)
         _save_flow(s_dir)
         _append_agent_start_event(s_dir)
@@ -275,7 +274,7 @@ class TestClosurePhaseHandler:
         """Closure works without GitHub configuration (no issue close)."""
         s_dir = tmp_path / "stories" / "TEST-001"
         s_dir.mkdir(parents=True)
-        for phase in ("setup", "exploration", "implementation", "verify"):
+        for phase in ("setup", "exploration", "implementation"):
             _save_snapshot(s_dir, phase)
         _save_flow(s_dir)
         _append_agent_start_event(s_dir)
@@ -305,7 +304,7 @@ class TestClosurePhaseHandler:
         """GitHub issue close failure produces warning, not FAILED status."""
         s_dir = tmp_path / "stories" / "TEST-001"
         s_dir.mkdir(parents=True)
-        for phase in ("setup", "exploration", "implementation", "verify"):
+        for phase in ("setup", "exploration", "implementation"):
             _save_snapshot(s_dir, phase)
         _save_flow(s_dir)
         _append_agent_start_event(s_dir)
@@ -429,9 +428,6 @@ class TestClosurePhaseHandler:
         )
         save_phase_snapshot(s_dir, failed_snapshot)
 
-        # Save completed verify
-        _save_snapshot(s_dir, "verify", story_id="TEST-102")
-
         config = ClosureConfig(story_dir=s_dir, close_issue=False)
         handler = ClosurePhaseHandler(config)
         ctx = _make_ctx(story_id="TEST-102", project_root=tmp_path)
@@ -457,14 +453,14 @@ class TestClosurePhaseHandler:
         s_dir = tmp_path / "stories" / "TEST-103"
         s_dir.mkdir(parents=True)
 
-        # Save completed snapshots for setup, exploration, implementation
-        for phase in ("setup", "exploration", "implementation"):
+        # Save completed snapshots before implementation.
+        for phase in ("setup", "exploration"):
             _save_snapshot(s_dir, phase, story_id="TEST-103")
 
-        # Save an ESCALATED snapshot for verify
+        # Save an ESCALATED snapshot for implementation.
         escalated_snapshot = PhaseSnapshot(
             story_id="TEST-103",
-            phase="verify",
+            phase="implementation",
             status=PhaseStatus.ESCALATED,
             completed_at=datetime.now(tz=UTC),
             artifacts=[],
@@ -482,13 +478,13 @@ class TestClosurePhaseHandler:
         assert result.status == PhaseStatus.FAILED
         assert len(result.errors) >= 1
         error_text = " ".join(result.errors)
-        assert "verify" in error_text
+        assert "implementation" in error_text
         assert "escalated" in error_text
 
-    def test_closure_uses_verify_attempts_for_qa_rounds(self, tmp_path: Path) -> None:
+    def test_closure_uses_implementation_attempts_for_qa_rounds(self, tmp_path: Path) -> None:
         s_dir = tmp_path / "stories" / "TEST-104"
         s_dir.mkdir(parents=True)
-        for phase in ("setup", "exploration", "implementation", "verify"):
+        for phase in ("setup", "exploration", "implementation"):
             _save_snapshot(s_dir, phase, story_id="TEST-104")
         _save_flow(s_dir, story_id="TEST-104")
         _append_agent_start_event(s_dir, story_id="TEST-104")
@@ -515,8 +511,8 @@ class TestClosurePhaseHandler:
         save_attempt(
             s_dir,
             AttemptRecord(
-                attempt_id="verify-001",
-                phase="verify",
+                attempt_id="implementation-001",
+                phase="implementation",
                 entered_at=datetime(2026, 1, 1, 10, 1, 0, tzinfo=UTC),
                 exit_status=PhaseStatus.FAILED,
             ),
@@ -524,8 +520,8 @@ class TestClosurePhaseHandler:
         save_attempt(
             s_dir,
             AttemptRecord(
-                attempt_id="verify-002",
-                phase="verify",
+                attempt_id="implementation-002",
+                phase="implementation",
                 entered_at=datetime(2026, 1, 1, 10, 2, 0, tzinfo=UTC),
                 exit_status=PhaseStatus.COMPLETED,
             ),
@@ -541,7 +537,7 @@ class TestClosurePhaseHandler:
     def test_closure_fails_without_canonical_run_id(self, tmp_path: Path) -> None:
         s_dir = tmp_path / "stories" / "TEST-105"
         s_dir.mkdir(parents=True)
-        for phase in ("setup", "exploration", "implementation", "verify"):
+        for phase in ("setup", "exploration", "implementation"):
             _save_snapshot(s_dir, phase, story_id="TEST-105")
 
         handler = ClosurePhaseHandler(ClosureConfig(story_dir=s_dir, close_issue=False))
@@ -562,7 +558,7 @@ class TestClosurePhaseHandler:
     ) -> None:
         s_dir = tmp_path / "stories" / "TEST-106"
         s_dir.mkdir(parents=True)
-        for phase in ("setup", "exploration", "implementation", "verify"):
+        for phase in ("setup", "exploration", "implementation"):
             _save_snapshot(s_dir, phase, story_id="TEST-106")
         _save_flow(s_dir, story_id="TEST-106")
         _append_agent_start_event(
@@ -590,7 +586,7 @@ class TestClosurePhaseHandler:
     def test_closure_fails_without_agent_start_event(self, tmp_path: Path) -> None:
         s_dir = tmp_path / "stories" / "TEST-107"
         s_dir.mkdir(parents=True)
-        for phase in ("setup", "exploration", "implementation", "verify"):
+        for phase in ("setup", "exploration", "implementation"):
             _save_snapshot(s_dir, phase, story_id="TEST-107")
         _save_flow(s_dir, story_id="TEST-107")
 
@@ -628,7 +624,6 @@ class TestExecutionReport:
                 "setup",
                 "exploration",
                 "implementation",
-                "verify",
                 "closure",
             ),
             started_at="2026-01-01T00:00:00+00:00",
@@ -643,7 +638,7 @@ class TestExecutionReport:
         assert data["story_type"] == "implementation"
         assert data["status"] == "completed"
         assert isinstance(data["phases_executed"], list)
-        assert len(data["phases_executed"]) == 5
+        assert len(data["phases_executed"]) == 4
         assert data["started_at"] == "2026-01-01T00:00:00+00:00"
         assert data["completed_at"] == "2026-01-01T01:00:00+00:00"
         assert data["issue_closed"] is True
@@ -658,7 +653,7 @@ class TestExecutionReport:
             story_id="TEST-002",
             story_type="bugfix",
             status="completed",
-            phases_executed=("setup", "implementation", "verify", "closure"),
+            phases_executed=("setup", "implementation", "closure"),
         )
 
         path = write_execution_report(tmp_path, report)
@@ -678,7 +673,7 @@ class TestExecutionReport:
             story_id="TEST-003",
             story_type="implementation",
             status="completed_with_warnings",
-            phases_executed=("setup", "implementation", "verify", "closure"),
+            phases_executed=("setup", "implementation", "closure"),
             warnings=("Could not close issue",),
         )
 

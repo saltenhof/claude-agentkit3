@@ -62,34 +62,34 @@ class TestWorkflowsPassValidation:
 class TestWorkflowPhases:
     """Tests for correct phase composition of each workflow."""
 
-    def test_implementation_has_five_phases(self) -> None:
-        """Implementation workflow has exactly 5 phases."""
+    def test_implementation_has_four_phases(self) -> None:
+        """Implementation workflow has exactly 4 top-level phases."""
         assert IMPLEMENTATION_WORKFLOW.phase_names == (
             "setup",
             "exploration",
             "implementation",
-            "verify",
             "closure",
         )
+        assert "verify" not in IMPLEMENTATION_WORKFLOW.phase_names
 
-    def test_bugfix_has_four_phases_no_exploration(self) -> None:
-        """Bugfix workflow has 4 phases without exploration."""
+    def test_bugfix_has_three_phases_no_exploration(self) -> None:
+        """Bugfix workflow has 3 phases without exploration."""
         assert BUGFIX_WORKFLOW.phase_names == (
             "setup",
             "implementation",
-            "verify",
             "closure",
         )
         assert "exploration" not in BUGFIX_WORKFLOW.phase_names
+        assert "verify" not in BUGFIX_WORKFLOW.phase_names
 
-    def test_concept_has_four_phases(self) -> None:
-        """Concept workflow has 4 phases."""
+    def test_concept_has_three_phases(self) -> None:
+        """Concept workflow has 3 phases."""
         assert CONCEPT_WORKFLOW.phase_names == (
             "setup",
             "implementation",
-            "verify",
             "closure",
         )
+        assert "verify" not in CONCEPT_WORKFLOW.phase_names
 
     def test_research_has_three_phases_no_verify(self) -> None:
         """Research workflow has 3 phases without verify."""
@@ -151,11 +151,11 @@ class TestImplementationWorkflowDetails:
         assert "awaiting_design_review" in statuses
         assert "awaiting_design_challenge" in statuses
 
-    def test_verify_has_max_remediation_rounds(self) -> None:
-        """Verify phase has max_remediation_rounds set."""
-        verify = IMPLEMENTATION_WORKFLOW.get_phase("verify")
-        assert verify is not None
-        assert verify.max_remediation_rounds == 3
+    def test_implementation_has_max_remediation_rounds(self) -> None:
+        """Implementation phase owns QA-subflow remediation rounds."""
+        implementation = IMPLEMENTATION_WORKFLOW.get_phase("implementation")
+        assert implementation is not None
+        assert implementation.max_remediation_rounds == 3
 
     def test_closure_has_substates(self) -> None:
         """Closure phase has substates defined."""

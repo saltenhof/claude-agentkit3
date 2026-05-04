@@ -332,34 +332,34 @@ class TestWorkflowBuilderMethods:
         """retry_policy() sets backtrack semantics on the current node."""
         wf = (
             Workflow("retry")
-            .phase("verify")
+            .phase("closure")
             .retry_policy(max_attempts=3, backtrack_target="implementation")
             .phase("implementation")
-            .transition("verify", "implementation")
+            .transition("closure", "implementation")
             .build()
         )
 
-        verify = wf.get_phase("verify")
-        assert verify is not None
-        assert verify.retry_policy is not None
-        assert verify.retry_policy.max_attempts == 3
-        assert verify.retry_policy.backtrack_target == "implementation"
+        closure = wf.get_phase("closure")
+        assert closure is not None
+        assert closure.retry_policy is not None
+        assert closure.retry_policy.max_attempts == 3
+        assert closure.retry_policy.backtrack_target == "implementation"
 
     def test_override_policy_on_phase(self) -> None:
         """override_policy() sets allowed manual interventions."""
         wf = (
             Workflow("override")
-            .phase("verify")
+            .phase("implementation")
             .override_policy(allow_skip=True, allow_jump=True)
             .phase("closure")
-            .transition("verify", "closure")
+            .transition("implementation", "closure")
             .build()
         )
 
-        verify = wf.get_phase("verify")
-        assert verify is not None
-        assert verify.override_policy.allow_skip is True
-        assert verify.override_policy.allow_jump is True
+        implementation = wf.get_phase("implementation")
+        assert implementation is not None
+        assert implementation.override_policy.allow_skip is True
+        assert implementation.override_policy.allow_jump is True
 
     def test_generic_node_construction(self) -> None:
         """node() can define a non-subflow node kind."""

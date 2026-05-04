@@ -118,9 +118,9 @@ class TestTransitionRule:
     """Tests for TransitionRule frozen dataclass."""
 
     def test_minimal(self) -> None:
-        tr = TransitionRule(source="setup", target="verify")
+        tr = TransitionRule(source="setup", target="implementation")
         assert tr.source == "setup"
-        assert tr.target == "verify"
+        assert tr.target == "implementation"
         assert tr.guard is None
         assert tr.resume_policy is None
 
@@ -130,7 +130,7 @@ class TestTransitionRule:
 
         tr = TransitionRule(
             source="setup",
-            target="verify",
+            target="implementation",
             guard=g,
             resume_policy="last_checkpoint",
         )
@@ -169,7 +169,7 @@ class TestPhaseDefinition:
         pc = Precondition(guard=g)
 
         pd = PhaseDefinition(
-            name="verify",
+            name="implementation",
             guards=(g,),
             gates=(gate,),
             yield_points=(yp,),
@@ -177,7 +177,7 @@ class TestPhaseDefinition:
             max_remediation_rounds=3,
             substates=("structural", "semantic"),
         )
-        assert pd.name == "verify"
+        assert pd.name == "implementation"
         assert len(pd.guards) == 1
         assert len(pd.gates) == 1
         assert len(pd.yield_points) == 1

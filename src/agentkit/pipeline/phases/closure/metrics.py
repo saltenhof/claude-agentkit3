@@ -64,7 +64,7 @@ def build_story_metrics_record(
     )
     processing_time_min = round(duration_seconds / 60.0, 2)
 
-    qa_rounds = len(load_attempts(story_dir, "verify"))
+    qa_rounds = len(load_attempts(story_dir, "implementation"))
     increments = len(
         load_execution_events(
             story_dir,

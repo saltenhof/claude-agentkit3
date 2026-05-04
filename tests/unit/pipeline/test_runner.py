@@ -159,14 +159,14 @@ def test_run_pipeline_returns_terminal_engine_statuses(
     ctx = _story_context()
     state = PhaseState(
         story_id=ctx.story_id,
-        phase="verify",
+        phase="implementation",
         status=PhaseStatus.PENDING,
     )
     engine_factory = _EngineFactory(
         [
             EngineResult(
                 status=status,
-                phase="verify",
+                phase="implementation",
                 errors=("terminal error",),
             )
         ],
@@ -178,10 +178,10 @@ def test_run_pipeline_returns_terminal_engine_statuses(
     )
     monkeypatch.setattr("agentkit.pipeline.runner.PipelineEngine", engine_factory)
 
-    result = run_pipeline(ctx, tmp_path, cast("PhaseHandlerRegistry", object()), workflow=_workflow("verify"))
+    result = run_pipeline(ctx, tmp_path, cast("PhaseHandlerRegistry", object()), workflow=_workflow("implementation"))
 
     assert result.final_status == status
-    assert result.final_phase == "verify"
+    assert result.final_phase == "implementation"
     assert result.errors == ("terminal error",)
 
 
@@ -201,11 +201,11 @@ def test_run_pipeline_advances_and_saves_next_phase(
             EngineResult(
                 status="phase_completed",
                 phase="setup",
-                next_phase="verify",
+                next_phase="implementation",
             ),
             EngineResult(
                 status="phase_completed",
-                phase="verify",
+                phase="implementation",
                 next_phase=None,
             ),
         ],
@@ -225,12 +225,12 @@ def test_run_pipeline_advances_and_saves_next_phase(
         ctx,
         tmp_path,
         cast("PhaseHandlerRegistry", object()),
-        workflow=_workflow("setup", "verify"),
+        workflow=_workflow("setup", "implementation"),
     )
 
     assert result.final_status == "completed"
-    assert result.phases_executed == ("setup", "verify")
-    assert [phase_state.phase for phase_state in saved] == ["verify"]
+    assert result.phases_executed == ("setup", "implementation")
+    assert [phase_state.phase for phase_state in saved] == ["implementation"]
     assert saved[0].status is PhaseStatus.PENDING
 
 
@@ -250,12 +250,12 @@ def test_run_pipeline_reloads_persisted_context_between_phases(
             EngineResult(
                 status="phase_completed",
                 phase="setup",
-                next_phase="verify",
+                next_phase="implementation",
                 updated_context=enriched,
             ),
             EngineResult(
                 status="phase_completed",
-                phase="verify",
+                phase="implementation",
                 next_phase=None,
             ),
         ],
@@ -275,7 +275,7 @@ def test_run_pipeline_reloads_persisted_context_between_phases(
         ctx,
         tmp_path,
         cast("PhaseHandlerRegistry", object()),
-        workflow=_workflow("setup", "verify"),
+        workflow=_workflow("setup", "implementation"),
     )
 
     assert result.final_status == "completed"
@@ -291,15 +291,15 @@ def test_run_pipeline_fails_when_iteration_limit_is_reached(
     ctx = _story_context()
     state = PhaseState(
         story_id=ctx.story_id,
-        phase="loop",
+        phase="implementation",
         status=PhaseStatus.PENDING,
     )
     engine_factory = _EngineFactory(
         [
             EngineResult(
                 status="phase_completed",
-                phase="loop",
-                next_phase="loop",
+                phase="implementation",
+                next_phase="implementation",
             )
             for _ in range(20)
         ],
@@ -315,9 +315,14 @@ def test_run_pipeline_fails_when_iteration_limit_is_reached(
     )
     monkeypatch.setattr("agentkit.pipeline.runner.PipelineEngine", engine_factory)
 
-    result = run_pipeline(ctx, tmp_path, cast("PhaseHandlerRegistry", object()), workflow=_workflow("loop"))
+    result = run_pipeline(
+        ctx,
+        tmp_path,
+        cast("PhaseHandlerRegistry", object()),
+        workflow=_workflow("implementation"),
+    )
 
     assert result.final_status == "failed"
-    assert result.final_phase == "loop"
+    assert result.final_phase == "implementation"
     assert result.errors == ("Max iteration limit reached",)
     assert len(engine_factory.run_calls) == 20

@@ -70,9 +70,9 @@ class StructuralChecker:
 
         # 3. Phase snapshots -- derived from story type profile
         profile = get_profile(ctx.story_type)
-        # All phases before verify must have snapshots
-        verify_index = _phase_index(profile.phases, "verify")
-        required_prior = list(profile.phases[:verify_index])
+        # QA-subflow runs inside implementation; all prior phases need snapshots.
+        implementation_index = _phase_index(profile.phases, "implementation")
+        required_prior = list(profile.phases[:implementation_index])
         phase_findings = check_phase_snapshots(story_dir, required_prior)
         findings.extend(phase_findings)
 

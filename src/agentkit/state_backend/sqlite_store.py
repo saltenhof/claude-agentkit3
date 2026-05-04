@@ -285,6 +285,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         """
     )
     _ensure_story_identity_migration(conn)
+    _ensure_four_phase_migration(conn)
 
 
 def _ensure_story_identity_migration(conn: sqlite3.Connection) -> None:
@@ -358,6 +359,88 @@ def _ensure_story_identity_migration(conn: sqlite3.Connection) -> None:
                 story_number_counters.next_story_number,
                 excluded.next_story_number
             )
+        """,
+    )
+
+
+def _ensure_four_phase_migration(conn: sqlite3.Connection) -> None:
+    """Map legacy top-level verify phase records into implementation.
+
+    Idempotent migration for the four-phase model. Existing implementation
+    records win on key collisions; duplicate legacy verify records are removed
+    after the safe update path. Rollback plan: restore from backup or rename
+    affected implementation rows back to verify before starting a four-phase
+    runtime.
+    """
+
+    conn.execute(
+        """
+        UPDATE phase_states
+        SET phase = 'implementation'
+        WHERE phase = 'verify'
+        """,
+    )
+    conn.execute(
+        """
+        UPDATE flow_executions
+        SET current_node_id = 'implementation'
+        WHERE current_node_id = 'verify'
+        """,
+    )
+    conn.execute(
+        """
+        UPDATE node_execution_ledgers
+        SET node_id = 'implementation'
+        WHERE node_id = 'verify'
+          AND NOT EXISTS (
+              SELECT 1 FROM node_execution_ledgers existing
+              WHERE existing.story_id = node_execution_ledgers.story_id
+                AND existing.flow_id = node_execution_ledgers.flow_id
+                AND existing.node_id = 'implementation'
+          )
+        """,
+    )
+    conn.execute(
+        """
+        DELETE FROM node_execution_ledgers
+        WHERE node_id = 'verify'
+        """,
+    )
+    conn.execute(
+        """
+        UPDATE phase_snapshots
+        SET phase = 'implementation'
+        WHERE phase = 'verify'
+          AND NOT EXISTS (
+              SELECT 1 FROM phase_snapshots existing
+              WHERE existing.story_id = phase_snapshots.story_id
+                AND existing.phase = 'implementation'
+          )
+        """,
+    )
+    conn.execute(
+        """
+        DELETE FROM phase_snapshots
+        WHERE phase = 'verify'
+        """,
+    )
+    conn.execute(
+        """
+        UPDATE attempt_records
+        SET phase = 'implementation'
+        WHERE phase = 'verify'
+          AND NOT EXISTS (
+              SELECT 1 FROM attempt_records existing
+              WHERE existing.story_id = attempt_records.story_id
+                AND existing.phase = 'implementation'
+                AND existing.seq = attempt_records.seq
+          )
+        """,
+    )
+    conn.execute(
+        """
+        DELETE FROM attempt_records
+        WHERE phase = 'verify'
         """,
     )
 
@@ -1584,7 +1667,7 @@ def load_override_record_rows(story_dir: Path) -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# QA layer artifacts + verify decision
+# QA layer artifacts + QA decision
 # ---------------------------------------------------------------------------
 
 _ARTIFACT_PRODUCERS: dict[str, str] = {

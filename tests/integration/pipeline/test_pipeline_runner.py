@@ -143,7 +143,6 @@ class TestSmokeImplementationStory:
         assert result.phases_executed == (
             "setup",
             "implementation",
-            "verify",
             "closure",
         )
 
@@ -177,15 +176,13 @@ class TestSmokeImplementationStory:
         assert "exploration" not in result.phases_executed
         assert "setup" in result.phases_executed
         assert "implementation" in result.phases_executed
-        assert "verify" in result.phases_executed
         assert "closure" in result.phases_executed
 
-    def test_verify_routes_to_closure_not_remediation(
+    def test_implementation_routes_to_closure_without_remediation(
         self,
         tmp_path: Path,
     ) -> None:
-        """When verify completes, the guarded closure transition wins
-        over the guardless remediation fallback."""
+        """When implementation completes, the guarded closure transition wins."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
         _install_project(project_dir)
@@ -201,11 +198,8 @@ class TestSmokeImplementationStory:
         registry = _registry_for_workflow(workflow)
         result = run_pipeline(ctx, s_dir, registry, workflow)
 
-        # Verify completes → verify_completed guard passes → closure
-        # The remediation transition (verify→implementation) is NOT taken
         assert result.final_status == "completed"
         # Each phase appears exactly once — no remediation loop
-        assert result.phases_executed.count("verify") == 1
         assert result.phases_executed.count("implementation") == 1
 
     def test_projection_files_are_valid_json(self, tmp_path: Path) -> None:
@@ -227,7 +221,7 @@ class TestSmokeImplementationStory:
 
         assert load_phase_state(s_dir) is not None
         assert load_phase_snapshot(s_dir, "setup") is not None
-        assert load_phase_snapshot(s_dir, "verify") is not None
+        assert load_phase_snapshot(s_dir, "implementation") is not None
         assert load_phase_snapshot(s_dir, "closure") is not None
 
         # Projections are not canonical, but they should still be parseable.
@@ -276,11 +270,11 @@ class TestSmokeImplementationStory:
 class TestSmokeExplorationMode:
     """Smoke test: Implementation story with EXPLORATION mode."""
 
-    def test_exploration_mode_runs_all_five_phases(
+    def test_exploration_mode_runs_all_four_phases(
         self,
         tmp_path: Path,
     ) -> None:
-        """EXPLORATION mode runs all five phases in order."""
+        """EXPLORATION mode runs all four phases in order."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
         _install_project(project_dir)
@@ -302,7 +296,6 @@ class TestSmokeExplorationMode:
             "setup",
             "exploration",
             "implementation",
-            "verify",
             "closure",
         )
 
@@ -343,7 +336,7 @@ class TestSmokeBugfixStory:
     """Smoke test: Bugfix story (no exploration, no mode routing)."""
 
     def test_full_pipeline_completes(self, tmp_path: Path) -> None:
-        """Bugfix story runs setup -> implementation -> verify -> closure."""
+        """Bugfix story runs setup -> implementation -> closure."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
         _install_project(project_dir)
@@ -365,7 +358,6 @@ class TestSmokeBugfixStory:
         assert result.phases_executed == (
             "setup",
             "implementation",
-            "verify",
             "closure",
         )
 
@@ -408,7 +400,7 @@ class TestSmokeConceptStory:
     """Smoke test: Concept story (no worktree, no full QA)."""
 
     def test_full_pipeline_completes(self, tmp_path: Path) -> None:
-        """Concept story runs setup -> implementation -> verify -> closure."""
+        """Concept story runs setup -> implementation -> closure."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
         _install_project(project_dir)
@@ -430,7 +422,6 @@ class TestSmokeConceptStory:
         assert result.phases_executed == (
             "setup",
             "implementation",
-            "verify",
             "closure",
         )
 

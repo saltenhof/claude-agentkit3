@@ -40,25 +40,24 @@ class TestGetPhasesForStory:
             "setup",
             "exploration",
             "implementation",
-            "verify",
             "closure",
         ]
 
     def test_implementation_execution_mode_skips_exploration(self) -> None:
         ctx = _make_context(StoryType.IMPLEMENTATION, StoryMode.EXECUTION)
         phases = get_phases_for_story(ctx)
-        assert phases == ["setup", "implementation", "verify", "closure"]
+        assert phases == ["setup", "implementation", "closure"]
         assert "exploration" not in phases
 
     def test_bugfix(self) -> None:
         ctx = _make_context(StoryType.BUGFIX)
         phases = get_phases_for_story(ctx)
-        assert phases == ["setup", "implementation", "verify", "closure"]
+        assert phases == ["setup", "implementation", "closure"]
 
     def test_concept(self) -> None:
         ctx = _make_context(StoryType.CONCEPT)
         phases = get_phases_for_story(ctx)
-        assert phases == ["setup", "implementation", "verify", "closure"]
+        assert phases == ["setup", "implementation", "closure"]
 
     def test_research(self) -> None:
         ctx = _make_context(StoryType.RESEARCH)

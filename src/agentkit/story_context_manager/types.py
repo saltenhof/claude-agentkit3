@@ -54,7 +54,7 @@ PROFILES: dict[StoryType, StoryTypeProfile] = {
             ImplementationContract.INTEGRATION_STABILIZATION,
         ),
         default_implementation_contract=ImplementationContract.STANDARD,
-        phases=("setup", "exploration", "implementation", "verify", "closure"),
+        phases=("setup", "exploration", "implementation", "closure"),
     ),
     StoryType.BUGFIX: StoryTypeProfile(
         story_type=StoryType.BUGFIX,
@@ -65,7 +65,7 @@ PROFILES: dict[StoryType, StoryTypeProfile] = {
         default_mode=StoryMode.EXECUTION,
         allowed_implementation_contracts=(),
         default_implementation_contract=None,
-        phases=("setup", "implementation", "verify", "closure"),
+        phases=("setup", "implementation", "closure"),
     ),
     StoryType.CONCEPT: StoryTypeProfile(
         story_type=StoryType.CONCEPT,
@@ -76,7 +76,7 @@ PROFILES: dict[StoryType, StoryTypeProfile] = {
         default_mode=StoryMode.NOT_APPLICABLE,
         allowed_implementation_contracts=(),
         default_implementation_contract=None,
-        phases=("setup", "implementation", "verify", "closure"),
+        phases=("setup", "implementation", "closure"),
     ),
     StoryType.RESEARCH: StoryTypeProfile(
         story_type=StoryType.RESEARCH,

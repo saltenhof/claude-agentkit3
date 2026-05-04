@@ -8,9 +8,9 @@ from agentkit.process.language.guards import (
     GuardResult,
     exploration_gate_approved,
     guard,
+    implementation_completed,
     mode_is_exploration,
     preflight_passed,
-    verify_completed,
 )
 from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
@@ -115,9 +115,9 @@ class TestPreflightPassed:
     def test_fails_when_different_phase_completed(
         self,
         minimal_story_context: StoryContext,
-        completed_verify_state: PhaseState,
+        completed_implementation_state: PhaseState,
     ) -> None:
-        result = preflight_passed(minimal_story_context, completed_verify_state)
+        result = preflight_passed(minimal_story_context, completed_implementation_state)
         assert result.passed is False
 
     def test_has_guard_metadata(self) -> None:
@@ -164,26 +164,26 @@ class TestExplorationGateApproved:
         assert exploration_gate_approved.guard_name == "exploration_gate_approved"  # type: ignore[attr-defined]
 
 
-class TestVerifyCompleted:
-    """Tests for the verify_completed guard."""
+class TestImplementationCompleted:
+    """Tests for the implementation_completed guard."""
 
-    def test_passes_when_verify_completed(
+    def test_passes_when_implementation_completed(
         self,
         minimal_story_context: StoryContext,
-        completed_verify_state: PhaseState,
+        completed_implementation_state: PhaseState,
     ) -> None:
-        result = verify_completed(minimal_story_context, completed_verify_state)
+        result = implementation_completed(minimal_story_context, completed_implementation_state)
         assert result.passed is True
 
-    def test_fails_when_verify_in_progress(
+    def test_fails_when_implementation_in_progress(
         self, minimal_story_context: StoryContext,
     ) -> None:
         state = PhaseState(
             story_id="TEST-001",
-            phase="verify",
+            phase="implementation",
             status=PhaseStatus.IN_PROGRESS,
         )
-        result = verify_completed(minimal_story_context, state)
+        result = implementation_completed(minimal_story_context, state)
         assert result.passed is False
 
     def test_fails_when_different_phase(
@@ -191,11 +191,11 @@ class TestVerifyCompleted:
         minimal_story_context: StoryContext,
         completed_setup_state: PhaseState,
     ) -> None:
-        result = verify_completed(minimal_story_context, completed_setup_state)
+        result = implementation_completed(minimal_story_context, completed_setup_state)
         assert result.passed is False
 
     def test_has_guard_metadata(self) -> None:
-        assert verify_completed.guard_name == "verify_completed"  # type: ignore[attr-defined]
+        assert implementation_completed.guard_name == "implementation_completed"  # type: ignore[attr-defined]
 
 
 class TestModeIsExploration:
@@ -262,16 +262,16 @@ class TestGuardSideEffectFreedom:
         assert minimal_story_context.model_dump() == ctx_before
         assert minimal_phase_state.model_dump() == state_before
 
-    def test_verify_completed_no_side_effects(
+    def test_implementation_completed_no_side_effects(
         self,
         minimal_story_context: StoryContext,
-        completed_verify_state: PhaseState,
+        completed_implementation_state: PhaseState,
     ) -> None:
         ctx_before = minimal_story_context.model_dump()
-        state_before = completed_verify_state.model_dump()
-        verify_completed(minimal_story_context, completed_verify_state)
+        state_before = completed_implementation_state.model_dump()
+        implementation_completed(minimal_story_context, completed_implementation_state)
         assert minimal_story_context.model_dump() == ctx_before
-        assert completed_verify_state.model_dump() == state_before
+        assert completed_implementation_state.model_dump() == state_before
 
     def test_exploration_gate_approved_no_side_effects(
         self,

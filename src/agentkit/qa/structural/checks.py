@@ -83,7 +83,9 @@ def check_phase_snapshots(
                     severity=Severity.HIGH,
                     trust_class=TrustClass.SYSTEM,
                     message=f"Canonical phase snapshot missing for phase '{phase}'",
-                    suggestion=f"Ensure phase '{phase}' completed before verify.",
+                    suggestion=(
+                        f"Ensure phase '{phase}' completed before implementation QA."
+                    ),
                 )
             )
     return findings

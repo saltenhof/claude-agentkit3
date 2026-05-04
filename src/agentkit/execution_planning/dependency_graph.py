@@ -51,25 +51,9 @@ class DependencyGraph:
         state: dict[str, str] = {}
         stack: list[str] = []
 
-        def visit(node: str) -> list[str] | None:
-            state[node] = "visiting"
-            stack.append(node)
-            for successor in sorted(self._successors.get(node, set())):
-                successor_state = state.get(successor)
-                if successor_state == "visiting":
-                    start = stack.index(successor)
-                    return [*stack[start:], successor]
-                if successor_state is None:
-                    cycle = visit(successor)
-                    if cycle is not None:
-                        return cycle
-            stack.pop()
-            state[node] = "visited"
-            return None
-
         for node in sorted(self._nodes):
             if state.get(node) is None:
-                cycle = visit(node)
+                cycle = self._visit_cycle(node, state, stack)
                 if cycle is not None:
                     return True, cycle
         return False, []
@@ -111,3 +95,33 @@ class DependencyGraph:
             seen.add(node)
             stack.extend(sorted(adjacency.get(node, set()), reverse=True))
         return seen
+
+    def _visit_cycle(
+        self,
+        node: str,
+        state: dict[str, str],
+        stack: list[str],
+    ) -> list[str] | None:
+        state[node] = "visiting"
+        stack.append(node)
+        for successor in sorted(self._successors.get(node, set())):
+            cycle = self._cycle_from_successor(successor, state, stack)
+            if cycle is not None:
+                return cycle
+        stack.pop()
+        state[node] = "visited"
+        return None
+
+    def _cycle_from_successor(
+        self,
+        successor: str,
+        state: dict[str, str],
+        stack: list[str],
+    ) -> list[str] | None:
+        successor_state = state.get(successor)
+        if successor_state == "visiting":
+            start = stack.index(successor)
+            return [*stack[start:], successor]
+        if successor_state is None:
+            return self._visit_cycle(successor, state, stack)
+        return None

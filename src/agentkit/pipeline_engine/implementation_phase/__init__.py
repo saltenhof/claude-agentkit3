@@ -1,9 +1,13 @@
-"""Implementation phase component namespace.
-
-Implementation modules are introduced incrementally while the legacy
-``agentkit.pipeline.phases.implementation`` package is still in place.
-"""
+"""Implementation phase component namespace."""
 
 from __future__ import annotations
 
-__all__: list[str] = []
+from agentkit.pipeline_engine.implementation_phase.phase import (
+    ImplementationConfig,
+    ImplementationPhaseHandler,
+)
+
+__all__ = [
+    "ImplementationConfig",
+    "ImplementationPhaseHandler",
+]

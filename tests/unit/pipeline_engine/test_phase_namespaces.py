@@ -15,6 +15,12 @@ from agentkit.pipeline.phases.closure.phase import (
 from agentkit.pipeline.phases.closure.phase import (
     ClosurePhaseHandler as CanonicalClosurePhaseHandler,
 )
+from agentkit.pipeline.phases.implementation.phase import (
+    ImplementationConfig as CanonicalImplementationConfig,
+)
+from agentkit.pipeline.phases.implementation.phase import (
+    ImplementationPhaseHandler as CanonicalImplementationPhaseHandler,
+)
 
 
 def test_closure_phase_namespace_reexports_canonical_symbols() -> None:
@@ -26,4 +32,11 @@ def test_closure_phase_namespace_reexports_canonical_symbols() -> None:
 
 def test_empty_phase_namespaces_are_explicitly_empty() -> None:
     assert exploration_phase.__all__ == []
-    assert implementation_phase.__all__ == []
+
+
+def test_implementation_phase_namespace_reexports_canonical_symbols() -> None:
+    assert implementation_phase.ImplementationConfig is CanonicalImplementationConfig
+    assert (
+        implementation_phase.ImplementationPhaseHandler
+        is CanonicalImplementationPhaseHandler
+    )

@@ -73,11 +73,11 @@ def completed_exploration_state() -> PhaseState:
 
 
 @pytest.fixture()
-def completed_verify_state() -> PhaseState:
-    """A PhaseState where verify is COMPLETED."""
+def completed_implementation_state() -> PhaseState:
+    """A PhaseState where implementation is COMPLETED."""
     return PhaseState(
         story_id="TEST-001",
-        phase="verify",
+        phase="implementation",
         status=PhaseStatus.COMPLETED,
     )
 

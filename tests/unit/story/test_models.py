@@ -9,6 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from agentkit.story_context_manager.models import (
+    PhaseName,
     PhaseSnapshot,
     PhaseState,
     PhaseStatus,
@@ -44,6 +45,26 @@ class TestPhaseStatus:
         assert PhaseStatus.FAILED.value == "failed"
         assert PhaseStatus.ESCALATED.value == "escalated"
         assert PhaseStatus.BLOCKED.value == "blocked"
+
+
+class TestPhaseName:
+    """Tests for the canonical top-level phase enum."""
+
+    def test_has_exactly_four_values(self) -> None:
+        assert tuple(phase.value for phase in PhaseName) == (
+            "setup",
+            "exploration",
+            "implementation",
+            "closure",
+        )
+
+    def test_verify_is_not_valid_phase_state(self) -> None:
+        with pytest.raises(ValidationError):
+            PhaseState(
+                story_id="AG3-001",
+                phase="verify",
+                status=PhaseStatus.PENDING,
+            )
 
 
 class TestStoryContext:
@@ -265,7 +286,7 @@ class TestPhaseState:
     def test_full_creation(self) -> None:
         state = PhaseState(
             story_id="AG3-001",
-            phase="verify",
+            phase="implementation",
             status=PhaseStatus.PAUSED,
             paused_reason="Awaiting manual review",
             review_round=2,
@@ -290,7 +311,7 @@ class TestPhaseState:
     def test_serialization_roundtrip(self) -> None:
         state = PhaseState(
             story_id="AG3-001",
-            phase="verify",
+            phase="implementation",
             status=PhaseStatus.FAILED,
             errors=["Build failed"],
             review_round=1,
@@ -303,8 +324,8 @@ class TestPhaseState:
         assert restored.errors == state.errors
 
     def test_default_errors_are_independent(self) -> None:
-        s1 = PhaseState(story_id="A", phase="x", status=PhaseStatus.PENDING)
-        s2 = PhaseState(story_id="B", phase="y", status=PhaseStatus.PENDING)
+        s1 = PhaseState(story_id="A", phase="setup", status=PhaseStatus.PENDING)
+        s2 = PhaseState(story_id="B", phase="closure", status=PhaseStatus.PENDING)
         assert s1.errors is not s2.errors
 
 
@@ -354,7 +375,7 @@ class TestPhaseSnapshot:
         now = datetime.now(tz=UTC)
         snap = PhaseSnapshot(
             story_id="AG3-001",
-            phase="verify",
+            phase="implementation",
             status=PhaseStatus.COMPLETED,
             completed_at=now,
             artifacts=["semantic-review.json", "guardrail.json"],

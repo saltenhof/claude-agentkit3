@@ -520,20 +520,20 @@ class TestExecutionPoliciesAndOverrides:
         workflow = (
             Workflow("retry")
             .phase("implementation")
-            .phase("verify")
+            .phase("closure")
                 .retry_policy(max_attempts=3, backtrack_target="implementation")
-            .transition("implementation", "verify")
-            .transition("verify", "implementation")
+            .transition("implementation", "closure")
+            .transition("closure", "implementation")
             .build()
         )
         registry = PhaseHandlerRegistry()
         registry.register("implementation", NoOpHandler())
-        registry.register("verify", FailResultHandler(("qa failed",)))
+        registry.register("closure", FailResultHandler(("qa failed",)))
         engine = PipelineEngine(workflow, registry, story_dir)
 
         state = PhaseState(
             story_id="TEST-001",
-            phase="verify",
+            phase="closure",
             status=PhaseStatus.PENDING,
         )
         result = engine.run_phase(story_ctx, state)
@@ -541,7 +541,7 @@ class TestExecutionPoliciesAndOverrides:
         assert result.status == "phase_completed"
         assert result.next_phase == "implementation"
 
-        attempts = load_attempts(story_dir, "verify")
+        attempts = load_attempts(story_dir, "closure")
         assert len(attempts) == 1
         assert attempts[0].outcome == "backtrack"
 
@@ -553,14 +553,14 @@ class TestExecutionPoliciesAndOverrides:
         tracking = TrackingHandler()
         workflow = (
             Workflow("override-skip")
-            .phase("verify")
+            .phase("implementation")
                 .override_policy(allow_skip=True)
             .phase("closure")
-            .transition("verify", "closure")
+            .transition("implementation", "closure")
             .build()
         )
         registry = PhaseHandlerRegistry()
-        registry.register("verify", tracking)
+        registry.register("implementation", tracking)
         registry.register("closure", NoOpHandler())
         engine = PipelineEngine(workflow, registry, story_dir)
 
@@ -572,7 +572,7 @@ class TestExecutionPoliciesAndOverrides:
                 story_id=story_ctx.story_id,
                 run_id=engine._runtime.resolve_run_id(story_ctx),
                 flow_id="override-skip",
-                target_node_id="verify",
+                target_node_id="implementation",
                 override_type="skip_node",
                 actor_type="human",
                 actor_id="tester",
@@ -583,7 +583,7 @@ class TestExecutionPoliciesAndOverrides:
 
         state = PhaseState(
             story_id="TEST-001",
-            phase="verify",
+            phase="implementation",
             status=PhaseStatus.PENDING,
         )
         result = engine.run_phase(story_ctx, state)
@@ -600,14 +600,14 @@ class TestExecutionPoliciesAndOverrides:
         tracking = TrackingHandler()
         workflow = (
             Workflow("override-jump")
-            .phase("verify")
+            .phase("implementation")
                 .override_policy(allow_jump=True)
             .phase("closure")
-            .transition("verify", "closure")
+            .transition("implementation", "closure")
             .build()
         )
         registry = PhaseHandlerRegistry()
-        registry.register("verify", tracking)
+        registry.register("implementation", tracking)
         registry.register("closure", NoOpHandler())
         engine = PipelineEngine(workflow, registry, story_dir)
 
@@ -630,7 +630,7 @@ class TestExecutionPoliciesAndOverrides:
 
         state = PhaseState(
             story_id="TEST-001",
-            phase="verify",
+            phase="implementation",
             status=PhaseStatus.PENDING,
         )
         result = engine.run_phase(story_ctx, state)
@@ -653,7 +653,7 @@ class TestExecutionPoliciesAndOverrides:
         )
         workflow = (
             Workflow("cond-precond")
-            .phase("impl")
+            .phase("implementation")
                 .precondition(
                     _always_fail,
                     when=lambda c, s: c.execution_route == StoryMode.EXPLORATION,
@@ -661,11 +661,11 @@ class TestExecutionPoliciesAndOverrides:
             .build()
         )
         registry = PhaseHandlerRegistry()
-        registry.register("impl", NoOpHandler())
+        registry.register("implementation", NoOpHandler())
         engine = PipelineEngine(workflow, registry, story_dir)
 
         state = PhaseState(
-            story_id="TEST-001", phase="impl",
+            story_id="TEST-001", phase="implementation",
             status=PhaseStatus.PENDING,
         )
         # Should NOT be blocked since mode is EXECUTION, not EXPLORATION
@@ -757,7 +757,7 @@ class TestPipelineRobustness:
         engine = PipelineEngine(workflow, registry, story_dir)
 
         state = PhaseState(
-            story_id="TEST-001", phase="nonexistent",
+            story_id="TEST-001", phase="closure",
             status=PhaseStatus.PENDING,
         )
         with pytest.raises(PipelineError, match="not defined in workflow"):
@@ -899,15 +899,15 @@ class TestPipelineRobustness:
         story_ctx: StoryContext,
     ) -> None:
         """Handler returning FAILED status produces failed EngineResult."""
-        workflow = Workflow("fail-status").phase("verify").build()
+        workflow = Workflow("fail-status").phase("implementation").build()
         registry = PhaseHandlerRegistry()
         registry.register(
-            "verify", FailResultHandler(("qa check failed",)),
+            "implementation", FailResultHandler(("qa check failed",)),
         )
         engine = PipelineEngine(workflow, registry, story_dir)
 
         state = PhaseState(
-            story_id="TEST-001", phase="verify",
+            story_id="TEST-001", phase="implementation",
             status=PhaseStatus.PENDING,
         )
         result = engine.run_phase(story_ctx, state)
@@ -1011,18 +1011,18 @@ class TestTransitionEvaluation:
         """A transition without a guard always passes."""
         workflow = (
             Workflow("no-guard")
-            .phase("a")
-            .phase("b")
-            .transition("a", "b")
+            .phase("setup")
+            .phase("implementation")
+            .transition("setup", "implementation")
             .build()
         )
         state = PhaseState(
-            story_id="TEST-001", phase="a",
+            story_id="TEST-001", phase="setup",
             status=PhaseStatus.COMPLETED,
         )
         transition = _evaluate_transitions(workflow, story_ctx, state)
         assert transition is not None
-        assert transition.target == "b"
+        assert transition.target == "implementation"
 
     def test_no_transitions_returns_none(
         self,
@@ -1032,11 +1032,11 @@ class TestTransitionEvaluation:
         """Phase with no outgoing transitions evaluates to None."""
         workflow = (
             Workflow("terminal")
-            .phase("end")
+            .phase("closure")
             .build()
         )
         state = PhaseState(
-            story_id="TEST-001", phase="end",
+            story_id="TEST-001", phase="closure",
             status=PhaseStatus.COMPLETED,
         )
         transition = _evaluate_transitions(workflow, story_ctx, state)
@@ -1142,7 +1142,7 @@ class TestTransitionEvaluation:
         assert result.phase == "setup"
         assert "Guard always fails" in result.errors[0]
 
-        # Verify state persisted as FAILED
+        # Failed state persisted as FAILED
         loaded = load_phase_state(story_dir)
         assert loaded is not None
         assert loaded.status == PhaseStatus.FAILED
@@ -1238,14 +1238,14 @@ class TestRuntimeTelemetry:
     ) -> None:
         workflow = (
             Workflow("telemetry-override")
-            .phase("verify")
+            .phase("implementation")
                 .override_policy(allow_jump=True)
             .phase("closure")
-            .transition("verify", "closure")
+            .transition("implementation", "closure")
             .build()
         )
         registry = PhaseHandlerRegistry()
-        registry.register("verify", NoOpHandler())
+        registry.register("implementation", NoOpHandler())
         registry.register("closure", NoOpHandler())
         engine = PipelineEngine(workflow, registry, story_dir)
 
@@ -1268,7 +1268,7 @@ class TestRuntimeTelemetry:
 
         state = PhaseState(
             story_id="TEST-001",
-            phase="verify",
+            phase="implementation",
             status=PhaseStatus.PENDING,
         )
         engine.run_phase(story_ctx, state)
@@ -1304,20 +1304,20 @@ class TestRuntimeTelemetry:
         workflow = (
             Workflow("telemetry-backtrack")
             .phase("implementation")
-            .phase("verify")
+            .phase("closure")
                 .retry_policy(max_attempts=3, backtrack_target="implementation")
-            .transition("implementation", "verify")
-            .transition("verify", "implementation")
+            .transition("implementation", "closure")
+            .transition("closure", "implementation")
             .build()
         )
         registry = PhaseHandlerRegistry()
         registry.register("implementation", NoOpHandler())
-        registry.register("verify", FailResultHandler(("qa failed",)))
+        registry.register("closure", FailResultHandler(("qa failed",)))
         engine = PipelineEngine(workflow, registry, story_dir)
 
         state = PhaseState(
             story_id="TEST-001",
-            phase="verify",
+            phase="closure",
             status=PhaseStatus.PENDING,
         )
         result = engine.run_phase(story_ctx, state)

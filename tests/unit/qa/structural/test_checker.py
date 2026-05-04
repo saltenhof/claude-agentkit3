@@ -53,7 +53,7 @@ def _setup_complete_story_dir(
     save_story_context(story_dir, _make_context(story_type))
     profile = get_profile(story_type)
     for phase in profile.phases:
-        if phase == "verify":
+        if phase == "implementation":
             break
         _save_snapshot(story_dir, phase)
     return story_dir
@@ -114,4 +114,4 @@ class TestStructuralChecker:
             for finding in result.findings
             if finding.check == "phase_snapshots"
         ]
-        assert len(snapshot_findings) >= 2
+        assert len(snapshot_findings) >= 1

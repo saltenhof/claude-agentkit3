@@ -47,9 +47,7 @@ class TestImplementationTransitions:
             ("setup", "exploration"),
             ("setup", "implementation"),
             ("exploration", "implementation"),
-            ("implementation", "verify"),
-            ("verify", "implementation"),
-            ("verify", "closure"),
+            ("implementation", "closure"),
         ],
     )
     def test_valid_transition_exists(
@@ -71,10 +69,12 @@ class TestImplementationTransitions:
             ("setup", "verify"),
             ("exploration", "closure"),
             ("exploration", "verify"),
-            ("implementation", "closure"),
+            ("implementation", "verify"),
             ("implementation", "exploration"),
             ("implementation", "setup"),
             ("verify", "setup"),
+            ("verify", "implementation"),
+            ("verify", "closure"),
             ("verify", "exploration"),
             ("closure", "setup"),
             ("closure", "implementation"),
@@ -93,18 +93,16 @@ class TestImplementationTransitions:
             f"Unexpected transition {source} -> {target} found in workflow"
         )
 
-    def test_verify_to_implementation_has_remediation_policy(self) -> None:
-        """The verify->implementation transition has resume_policy='remediation'."""
-        transitions = IMPLEMENTATION_WORKFLOW.get_transitions_from("verify")
-        remediation = [
-            t for t in transitions
-            if t.target == "implementation" and t.resume_policy == "remediation"
-        ]
-        assert len(remediation) == 1
+    def test_no_verify_transitions(self) -> None:
+        """Implementation workflow has no verify top-level transitions."""
+        all_pairs = _get_all_transition_pairs(IMPLEMENTATION_WORKFLOW)
+        for source, target in all_pairs:
+            assert source != "verify"
+            assert target != "verify"
 
-    def test_verify_to_closure_has_guard(self) -> None:
-        """The verify->closure transition has a guard function."""
-        transitions = IMPLEMENTATION_WORKFLOW.get_transitions_from("verify")
+    def test_implementation_to_closure_has_guard(self) -> None:
+        """The implementation->closure transition has a guard function."""
+        transitions = IMPLEMENTATION_WORKFLOW.get_transitions_from("implementation")
         to_closure = [t for t in transitions if t.target == "closure"]
         assert len(to_closure) == 1
         assert to_closure[0].guard is not None
@@ -126,8 +124,8 @@ class TestImplementationTransitions:
         assert guard_name == "mode_is_not_exploration"
 
     def test_total_transition_count(self) -> None:
-        """Implementation workflow has exactly 6 transitions."""
-        assert len(IMPLEMENTATION_WORKFLOW.transitions) == 6
+        """Implementation workflow has exactly 4 transitions."""
+        assert len(IMPLEMENTATION_WORKFLOW.transitions) == 4
 
 
 # ---------------------------------------------------------------------------
@@ -142,9 +140,7 @@ class TestBugfixTransitions:
         ("source", "target"),
         [
             ("setup", "implementation"),
-            ("implementation", "verify"),
-            ("verify", "implementation"),
-            ("verify", "closure"),
+            ("implementation", "closure"),
         ],
     )
     def test_valid_transition_exists(
@@ -161,9 +157,11 @@ class TestBugfixTransitions:
         [
             ("setup", "closure"),
             ("setup", "verify"),
-            ("implementation", "closure"),
+            ("implementation", "verify"),
             ("implementation", "setup"),
             ("verify", "setup"),
+            ("verify", "implementation"),
+            ("verify", "closure"),
             ("closure", "setup"),
             ("closure", "implementation"),
             ("closure", "verify"),
@@ -186,8 +184,8 @@ class TestBugfixTransitions:
             assert target != "exploration"
 
     def test_total_transition_count(self) -> None:
-        """Bugfix workflow has exactly 4 transitions."""
-        assert len(BUGFIX_WORKFLOW.transitions) == 4
+        """Bugfix workflow has exactly 2 transitions."""
+        assert len(BUGFIX_WORKFLOW.transitions) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -202,8 +200,7 @@ class TestConceptTransitions:
         ("source", "target"),
         [
             ("setup", "implementation"),
-            ("implementation", "verify"),
-            ("verify", "closure"),
+            ("implementation", "closure"),
         ],
     )
     def test_valid_transition_exists(
@@ -220,10 +217,11 @@ class TestConceptTransitions:
         [
             ("setup", "closure"),
             ("setup", "verify"),
-            ("implementation", "closure"),
+            ("implementation", "verify"),
             ("implementation", "setup"),
             ("verify", "setup"),
             ("verify", "implementation"),
+            ("verify", "closure"),
             ("closure", "setup"),
             ("closure", "implementation"),
             ("closure", "verify"),
@@ -244,8 +242,8 @@ class TestConceptTransitions:
         assert "implementation" not in targets
 
     def test_total_transition_count(self) -> None:
-        """Concept workflow has exactly 3 transitions."""
-        assert len(CONCEPT_WORKFLOW.transitions) == 3
+        """Concept workflow has exactly 2 transitions."""
+        assert len(CONCEPT_WORKFLOW.transitions) == 2
 
 
 # ---------------------------------------------------------------------------

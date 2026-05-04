@@ -24,7 +24,7 @@ class TestPublicAPI:
             "guard",
             "preflight_passed",
             "exploration_gate_approved",
-            "verify_completed",
+            "implementation_completed",
             "mode_is_exploration",
             # gates
             "Gate",
@@ -72,7 +72,7 @@ class TestPublicAPI:
             "guard",
             "preflight_passed",
             "exploration_gate_approved",
-            "verify_completed",
+            "implementation_completed",
             "mode_is_exploration",
             "Gate",
             "GateStage",

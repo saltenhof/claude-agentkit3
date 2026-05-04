@@ -20,17 +20,17 @@ from agentkit.config.defaults import (
 
 
 class PipelineConfig(BaseModel):
-    """Configuration for the 5-phase pipeline.
+    """Configuration for the 4-phase pipeline.
 
     Attributes:
-        max_feedback_rounds: Maximum verify-feedback cycles before
+        max_feedback_rounds: Maximum QA feedback cycles before
             escalation.
         max_remediation_rounds: Maximum remediation attempts per
             feedback round.
         exploration_mode: Whether the optional Exploration phase
             (Phase 2) is enabled for implementation stories.
         verify_layers: Ordered list of QA layers to execute during
-            the Verify phase.
+            the implementation QA-subflow.
     """
 
     model_config = ConfigDict(strict=True)

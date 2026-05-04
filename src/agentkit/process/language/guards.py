@@ -154,41 +154,41 @@ def exploration_gate_approved(
 
 
 @guard(
-    "verify_completed",
-    description="Checks that the verify phase has completed successfully.",
+    "implementation_completed",
+    description="Checks that implementation completed including QA-subflow.",
     reads=frozenset({"phase", "status"}),
 )
-def verify_completed(ctx: StoryContext, state: PhaseState) -> GuardResult:
-    """Check whether the verify phase completed successfully.
+def implementation_completed(ctx: StoryContext, state: PhaseState) -> GuardResult:
+    """Check whether implementation completed successfully.
 
     Args:
         ctx: The story context (unused but required by signature).
         state: The current phase state to inspect.
 
     Returns:
-        ``GuardResult.PASS()`` if verify is completed, ``FAIL`` otherwise.
+        ``GuardResult.PASS()`` if implementation is completed, ``FAIL`` otherwise.
     """
     from agentkit.story_context_manager.models import PhaseStatus
 
-    if state.phase == "verify" and state.status == PhaseStatus.COMPLETED:
+    if state.phase == "implementation" and state.status == PhaseStatus.COMPLETED:
         return GuardResult.PASS()
     return GuardResult.FAIL(
-        reason=f"Verify phase not completed: phase={state.phase!r}, "
+        reason=f"Implementation phase not completed: phase={state.phase!r}, "
         f"status={state.status!r}",
     )
 
 
 @guard(
-    "verify_needs_remediation",
-    description="Checks that verify phase did NOT complete successfully.",
+    "implementation_qa_needs_remediation",
+    description="Checks that implementation QA-subflow needs remediation.",
     reads=frozenset({"phase", "status"}),
 )
-def verify_needs_remediation(
+def implementation_qa_needs_remediation(
     ctx: StoryContext, state: PhaseState,
 ) -> GuardResult:
-    """Check whether the verify phase needs remediation.
+    """Check whether the implementation QA-subflow needs remediation.
 
-    This guard passes when the verify phase did NOT complete successfully,
+    This guard passes when implementation did NOT complete successfully,
     indicating that remediation is needed. It prevents the remediation
     transition from firing when verify actually passed.
 
@@ -197,15 +197,15 @@ def verify_needs_remediation(
         state: The current phase state to inspect.
 
     Returns:
-        ``GuardResult.PASS()`` if verify is not completed (remediation needed),
-        ``GuardResult.FAIL`` if verify completed successfully.
+        ``GuardResult.PASS()`` if implementation needs remediation,
+        ``GuardResult.FAIL`` if implementation completed successfully.
     """
     from agentkit.story_context_manager.models import PhaseStatus
 
-    if state.phase == "verify" and state.status != PhaseStatus.COMPLETED:
+    if state.phase == "implementation" and state.status != PhaseStatus.COMPLETED:
         return GuardResult.PASS()
     return GuardResult.FAIL(
-        reason="Verify phase completed successfully, no remediation needed",
+        reason="Implementation phase completed successfully, no remediation needed",
     )
 
 

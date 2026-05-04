@@ -137,9 +137,9 @@ class TestEvent:
             event_id="evt-001",
             source_component="pipeline_engine",
             severity="warning",
-            phase="verify",
+            phase="implementation",
             flow_id="implementation",
-            node_id="verify",
+            node_id="implementation",
             payload=payload,
             run_id="run-abc",
         )
@@ -150,9 +150,9 @@ class TestEvent:
         assert evt.event_id == "evt-001"
         assert evt.source_component == "pipeline_engine"
         assert evt.severity == "warning"
-        assert evt.phase == "verify"
+        assert evt.phase == "implementation"
         assert evt.flow_id == "implementation"
-        assert evt.node_id == "verify"
+        assert evt.node_id == "implementation"
         assert evt.payload == payload
         assert evt.run_id == "run-abc"
 

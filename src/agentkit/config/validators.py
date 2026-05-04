@@ -65,7 +65,8 @@ def validate_project_config(config: ProjectConfig) -> list[str]:
 
     if not config.pipeline.verify_layers:
         warnings.append(
-            "No verify_layers configured. The Verify phase will be a no-op."
+            "No verify_layers configured. The implementation QA-subflow "
+            "will be a no-op."
         )
 
     unknown_layers = set(config.pipeline.verify_layers) - set(DEFAULT_VERIFY_LAYERS)

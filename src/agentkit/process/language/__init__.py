@@ -16,10 +16,10 @@ from agentkit.process.language.guards import (
     GuardResult,
     exploration_gate_approved,
     guard,
+    implementation_completed,
+    implementation_qa_needs_remediation,
     mode_is_exploration,
     preflight_passed,
-    verify_completed,
-    verify_needs_remediation,
 )
 from agentkit.process.language.model import (
     EdgeRule,
@@ -71,8 +71,8 @@ __all__ = [
     "guard",
     "preflight_passed",
     "exploration_gate_approved",
-    "verify_completed",
-    "verify_needs_remediation",
+    "implementation_completed",
+    "implementation_qa_needs_remediation",
     "mode_is_exploration",
     # gates
     "Gate",

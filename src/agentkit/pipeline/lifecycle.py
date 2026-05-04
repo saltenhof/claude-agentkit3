@@ -37,13 +37,14 @@ class HandlerResult:
     artifacts_produced: tuple[str, ...] = ()
     errors: tuple[str, ...] = ()
     updated_context: StoryContext | None = None
+    updated_state: PhaseState | None = None
 
 
 @runtime_checkable
 class PhaseHandler(Protocol):
     """Protocol for phase handler implementations.
 
-    Each pipeline phase (setup, exploration, implementation, verify, closure)
+    Each pipeline phase (setup, exploration, implementation, closure)
     has a handler that implements this protocol. The handler contains the
     execution logic -- the workflow DSL only defines topology.
     """

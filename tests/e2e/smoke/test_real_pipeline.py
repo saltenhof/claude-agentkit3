@@ -4,7 +4,7 @@ These tests exercise the actual product path:
 1. Install AgentKit into a target project (real install)
 2. Setup phase reads a real GitHub issue (real setup handler)
 3. Middle phases use NoOpHandler (acceptable -- LLM phases are stubs)
-4. Verify phase runs real structural checks
+4. Implementation runs as the canonical middle phase
 5. Closure phase closes a real GitHub issue
 
 State arises from actual pipeline execution, not manual construction.
@@ -31,7 +31,6 @@ from agentkit.pipeline.phases.closure.phase import (
     ClosurePhaseHandler,
 )
 from agentkit.pipeline.phases.setup.phase import SetupConfig, SetupPhaseHandler
-from agentkit.pipeline.phases.verify.phase import VerifyConfig, VerifyPhaseHandler
 from agentkit.pipeline.runner import run_pipeline
 from agentkit.pipeline.state import load_story_context, save_story_context
 from agentkit.process.language.definitions import resolve_workflow
@@ -81,15 +80,15 @@ class TestRealPipelineE2E:
     """Real E2E tests that exercise actual production handlers.
 
     These tests create real GitHub issues, run real handlers (setup,
-    verify, closure), and validate real outcomes. Only LLM-dependent
-    phases (implementation, exploration) use NoOpHandler -- that is
+    closure), and validate real outcomes. Only LLM-dependent
+    middle phases use NoOpHandler -- that is
     acceptable because those phases require an actual LLM agent.
     """
 
     def test_concept_story_full_pipeline(self, tmp_path: Path) -> None:
         """Concept story through real pipeline handlers.
 
-        Real setup -> NoOp impl -> real verify -> real closure.
+        Real setup -> NoOp implementation -> real closure.
         This is the simplest story type that exercises real handlers.
         """
         _ensure_label(
@@ -149,10 +148,6 @@ class TestRealPipelineE2E:
             registry.register("setup", SetupPhaseHandler(setup_config))
             registry.register("implementation", NoOpHandler())  # OK: LLM phase
             registry.register(
-                "verify",
-                VerifyPhaseHandler(VerifyConfig(story_dir=s_dir)),
-            )
-            registry.register(
                 "closure",
                 ClosurePhaseHandler(
                     ClosureConfig(
@@ -195,7 +190,7 @@ class TestRealPipelineE2E:
     def test_research_story_full_pipeline(self, tmp_path: Path) -> None:
         """Research story: install -> real setup -> NoOp impl -> real closure.
 
-        Research stories skip verify entirely -- tests the simplest
+        Research stories use the simplest
         full pipeline path with real GitHub integration.
         """
         _ensure_label(

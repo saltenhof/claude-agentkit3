@@ -75,11 +75,11 @@ def compute_pipeline_metrics(
             if duration is not None:
                 phase_durations[evt.phase] = duration
 
-    # QA rounds: count verify node results.
+    # QA rounds: count implementation node results; QA is a subflow there.
     qa_rounds = sum(
         1
         for e in events
-        if e.event_type == EventType.NODE_RESULT and e.phase == "verify"
+        if e.event_type == EventType.NODE_RESULT and e.phase == "implementation"
     )
 
     # Phases executed: unique phase names from node results.
