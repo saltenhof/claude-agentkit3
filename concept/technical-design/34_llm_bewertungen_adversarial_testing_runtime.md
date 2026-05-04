@@ -26,18 +26,19 @@ defers_to:
     reason: LLM-Bewertungsergebnisse (qa_review.json, semantic_review.json) folgen dem Envelope-Schema und der Producer-Registry (FK-71)
 supersedes: []
 superseded_by:
-tags: [llm-evaluation, qa-review, semantic-review, verify-phase]
+tags: [llm-evaluation, qa-review, semantic-review, qa-subflow]
 prose_anchor_policy: strict
 glossary:
   exported_terms:
     - id: remediation-round
       definition: >
-        Zählstand der Verify-Remediation-Iterationen für eine Story.
-        Wird als PhaseMemory.verify.feedback_rounds von der Engine beim
-        Phasenwechsel verify → implementation inkrementiert.
-        Ab Runde 2 erhält der QA-Review-Prompt die Vorrunden-Findings
+        Zaehlstand der QA-Subflow-Remediation-Iterationen fuer eine Story.
+        Wird als PhaseMemory.implementation.qa_feedback_rounds von der Engine
+        zu Beginn einer neuen Subflow-Iteration innerhalb der Implementation-Phase
+        inkrementiert (Subflow-intern, kein Phasenwechsel).
+        Ab Runde 2 erhaelt der QA-Review-Prompt die Vorrunden-Findings
         aus qa_review.json direkt (nicht aus Worker-Zusammenfassungen).
-        Bei feedback_rounds >= max_feedback_rounds (Default: 3) eskaliert die Pipeline.
+        Bei qa_feedback_rounds >= max_feedback_rounds (Default: 3) eskaliert die Pipeline.
       see_also:
         - term: remediation-loop
           domain: verify-system
@@ -76,8 +77,9 @@ formal_refs:
 
 ## 34.1 Zweck
 
-Dieses Kapitel beschreibt die Laufzeitarchitektur der Verify-Phase
-**Schicht 2 (LLM-Bewertungen)**. Die grundlegenden Patterns
+Dieses Kapitel beschreibt die Laufzeitarchitektur des QA-Subflows
+(innerhalb der Implementation-Phase) **Schicht 2 (LLM-Bewertungen)**.
+Die grundlegenden Patterns
 (StructuredEvaluator, DialogueRunner, Pool-Protokoll) sind in
 FK-11 definiert. Hier geht es um die konkrete Orchestrierung, die
 Prompt-Inhalte und die Ergebnis-Verarbeitung im Verify-Kontext.
@@ -831,7 +833,7 @@ direkt aus `qa_review.json` (Runde 1). Der Evaluator prueft
 
 ---
 
-*FK-Referenzen: FK-05-128 bis FK-05-130 (Verify-Phase Struktur),
+*FK-Referenzen: FK-05-128 bis FK-05-130 (QA-Subflow Struktur),
 FK-05-153 bis FK-05-183 (Schicht 2 komplett),
 FK-05-184 bis FK-05-207 (Schicht 3 komplett),
 FK-07-015 bis FK-07-021 (Zirkularitätsbruch),

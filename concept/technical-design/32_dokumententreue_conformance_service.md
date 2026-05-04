@@ -105,7 +105,7 @@ flowchart LR
 
     E1 -.- T1["Story-Erstellung"]
     E2 -.- T2["Nach Exploration,<br/>vor Implementation"]
-    E3 -.- T3["Verify-Phase<br/>(Schicht 2)"]
+    E3 -.- T3["QA-Subflow innerhalb<br/>Implementation-Phase<br/>(Schicht 2)"]
     E4 -.- T4["Closure-Phase<br/>(nach Merge)"]
 ```
 
@@ -113,7 +113,7 @@ flowchart LR
 |-------|-----------|-----------------|-------|-----|
 | 1. Zieltreue | Story-Erstellung | Passt die Absicht zur Strategie? Kollidiert das Vorhaben mit bestehenden Leitplanken? | Story-Beschreibung, Strategie-/Architekturdokumente | FK-06-056 |
 | 2. Entwurfstreue | Nach Exploration, vor Implementation (nur Exploration Mode) | Ist der geplante Lösungsweg mit Architektur und Konzepten vereinbar? | Entwurfsartefakt, Referenzdokumente | FK-06-057 |
-| 3. Umsetzungstreue | Nach Implementation, in Verify-Phase | Hat der Worker gebaut, was konzeptionell vorgesehen war? Gibt es undokumentierten Drift? | Code-Diff, Entwurf/Konzept, Handover, Referenzdokumente | FK-06-058 |
+| 3. Umsetzungstreue | Im QA-Subflow innerhalb der Implementation-Phase (nach Worker-Run) | Hat der Worker gebaut, was konzeptionell vorgesehen war? Gibt es undokumentierten Drift? | Code-Diff, Entwurf/Konzept, Handover, Referenzdokumente | FK-06-058 |
 | 4. Rückkopplungstreue | Bei Closure (nach Merge) | Müssen bestehende Dokumente aktualisiert werden, damit künftige Prüfungen gegen eine korrekte Wahrheit laufen? | Finaler Change, bestehende Dokumentation | FK-06-059 |
 
 ## 32.3 Gemeinsames technisches Pattern
@@ -409,8 +409,8 @@ der Nachklassifikation entscheidet:
 
 ### 32.7.1 Trigger
 
-Läuft als Teil der Verify-Phase (Schicht 2), parallel zu
-QA-Bewertung und Semantic Review (FK-27 §27.5).
+Laeuft als Teil des QA-Subflows innerhalb der Implementation-Phase
+(Schicht 2), parallel zu QA-Bewertung und Semantic Review (FK-27 §27.5).
 
 ### 32.7.2 Input
 
@@ -510,8 +510,8 @@ Drift.
 ### 32.9.3 Zusätzliche Hook-basierte Erkennung
 
 Die Drift-Erkennung per `increment_commit`-Hook (Kap. 26.3.5)
-fängt signifikanten Drift bereits während der Implementation
-ab — bevor er in der Verify-Phase erkannt wird. Damit wird
+faengt signifikanten Drift bereits waehrend der Worker-Run-Phase
+ab — bevor er im QA-Subflow erkannt wird. Damit wird
 das Problem früher sichtbar und der Worker kann korrigieren,
 bevor er das gesamte Handover fertigstellt.
 

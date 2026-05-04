@@ -427,3 +427,66 @@ administrativen Split-Vorgang aus FK-54.
 | `SPLITTING` | Story ist gefenced, Nachfolger und Rebindings werden aufgebaut | 54.8 |
 | `COMPLETED` | Split vollständig abgeschlossen | 54.5 |
 | `SPLIT_FAILED` | Split unvollständig gescheitert; Story bleibt administrativ blockiert | 54.8 |
+
+## 91.8 Live-Event-Streams (SSE)
+
+Frontend und BFF kommunizieren Live-Updates ueber Server-Sent Events
+(SSE), siehe FK-72 §72.12. Dieser Abschnitt katalogisiert die
+verfuegbaren SSE-Endpunkte und Event-Topics. Das Schema der einzelnen
+Events ist in FK-90 (Schema-Katalog) bzw. in den jeweiligen
+BC-Konzepten verankert.
+
+### 91.8.1 SSE-Endpunkte
+
+| Endpoint | Skoping | Producer | Auth |
+|---|---|---|---|
+| `GET /v1/projects/{key}/events` | projekt-skopiert | `telemetry` (Single-Producer) | Strategen-Cookie (UI-BFF) bzw. Thin-Client-Token (Project-API), siehe FK-15 §15.10 |
+| `GET /v1/events/hub` | projektneutral | `multi_llm_hub`-Adapter (Ausnahme) | Strategen-Cookie |
+
+Beide Endpunkte unterstuetzen den Query-Parameter `?topics=` (Komma-
+getrennte Liste), der die zu liefernden Topics einschraenkt. Ohne
+Filter werden alle Topics geliefert. Server filtert serverseitig.
+
+### 91.8.2 Lossy-Vertrag
+
+SSE ist **lossy**: bei Backpressure droppt der Server Events. Der
+Konsument muss bei jedem Connection-Aufbau einen frischen Initial-GET
+auf den fachlichen REST-Endpoint machen, um den vollstaendigen Stand
+zu holen. Es gibt keinen Sequence-Cursor, kein Acknowledge-Protokoll.
+
+### 91.8.3 Event-Topics (projekt-skopierter Stream)
+
+Der Katalog der unter `/v1/projects/{key}/events` gestreamten Topics
+entwickelt sich mit dem Implementierungsstand. Die folgenden Topics
+sind als verbindliche Bereiche festgelegt; konkrete Event-Typen pro
+Topic werden waehrend der Implementierung hier nachgetragen.
+
+| Topic | Inhalt | Owner-BC |
+|---|---|---|
+| `stories` | Story-Lifecycle: angelegt, geaendert, archiviert | `story_context_manager` |
+| `phases` | Phasen-Uebergaenge: started, completed, failed, escalated, paused | `pipeline_engine` |
+| `gates` | QA-Gate-Ergebnisse: pass, fail, warning, mit Findings | `verify_system` |
+| `governance` | Guard-Verletzungen, Integrity-Gate-Resultate | `governance` |
+| `closure` | Closure-Sequenz: started, merged, completed, escalated | `closure` |
+| `artifacts` | Artefakt-Erzeugungen mit Envelope-Metadaten | `artifacts` |
+| `telemetry` | rohe Execution-Events (granular, optional verbose) | `telemetry` |
+| `kpi` | KPI-Aenderungen, neue Aggregate | `kpi_analytics` |
+| `planning` | Wave-/Readiness-Aenderungen, Konfigurations-Updates | `execution_planning` |
+| `failure_corpus` | Pattern-Promotions, neue Incidents | `failure_corpus` |
+| `coverage` | ARE-Verknuepfungen, Coverage-Status-Updates | `requirements_coverage` |
+
+### 91.8.4 Event-Topics (Hub-Stream)
+
+Topics unter `/v1/events/hub`:
+
+| Topic | Inhalt |
+|---|---|
+| `backend_status` | Backend-Health, Slot-Belegung |
+| `sessions` | Session-Lifecycle (acquire, release, expire) |
+| `session_messages` | Eingehende Antworten in laufenden Sessions |
+
+### 91.8.5 Pflicht zum Nachtrag
+
+Pro neuem Event-Typ in einem Topic ist dieser Abschnitt zu erweitern,
+damit der Frontend-Konsument einen vollstaendigen Katalog hat. Schemas
+der Events werden in FK-90 (Schema-Katalog) gepflegt.

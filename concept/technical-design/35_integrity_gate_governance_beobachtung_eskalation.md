@@ -168,8 +168,9 @@ ausgewertet.
 
 ### 35.2.2 Was es NICHT prüft
 
-Das Integrity-Gate prüft nicht die fachliche Qualität der
-Implementierung — das ist Aufgabe der Verify-Phase. Es prüft
+Das Integrity-Gate prueft nicht die fachliche Qualitaet der
+Implementierung — das ist Aufgabe des QA-Subflows innerhalb der
+Implementation-Phase. Es prueft
 nur die **Prozess-Integrität**: Wurden alle Schritte durchlaufen?
 Existieren alle Artefakte? Wurden sie von den richtigen
 Prozessschritten erzeugt?
@@ -251,7 +252,7 @@ Pruefung).
 | 4 | **Policy-Decision** | `DECISION_INVALID` | kanonischer Policy-/Verify-Decision-Record > 200 Bytes, hat `major_threshold`, Producer = `qa-policy-engine` |
 | 5 | **LLM-Bewertungen** | `NO_LLM_REVIEW` | Bei implementation/bugfix: `ArtifactRecord(llm_review)` + `ArtifactRecord(semantic_review)` existieren, Status != SKIPPED |
 | 6 | **Adversarial-Ergebnis** | `NO_ADVERSARIAL` | Bei implementation/bugfix: `ArtifactRecord(adversarial)` existiert, > 200 Bytes, Producer = `qa-adversarial` |
-| 7 | **Verify-Phase** | `NO_VERIFY` | `flow_end` fuer `flow_id=verify` bzw. den Verify-Phasen-Flow mit `status == COMPLETED`; optional zusaetzlich entsprechende `phase_state_projection` |
+| 7 | **QA-Subflow innerhalb Implementation** | `NO_VERIFY` | `flow_end` fuer den QA-Subflow-Flow innerhalb der Implementation-Phase mit `status == COMPLETED` (`qa_cycle_status == pass`); optional zusaetzlich entsprechende `phase_state_projection`. [Entscheidung 2026-05-01: Top-Phase `verify` entfaellt — Output-QA ist Subflow-intern in `implementation`.] |
 | 8 | **Timestamp-Kausalität** | `TIMESTAMP_INVERSION` | `ArtifactRecord(context).finished_at` < `ArtifactRecord(decision).finished_at` |
 
 ### 35.2.5 Telemetrie-Signale und Audit-Korrelation

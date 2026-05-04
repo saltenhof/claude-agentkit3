@@ -14,8 +14,8 @@ defers_to:
     scope: llm-evaluation
     reason: Schicht-2-Findings, concerns-Liste und Aggregation liegen in FK-34
   - target: FK-27
-    scope: verify-pipeline
-    reason: Layer-3-Aufruf erfolgt aus dem Verify-Workflow (FK-27 §27.6)
+    scope: qa-subflow
+    reason: Layer-3-Aufruf erfolgt aus dem QA-Subflow innerhalb der Implementation-Phase (FK-27 §27.6)
   - target: FK-31
     scope: artifact-protection
     reason: Sandbox-Hooking und QA-Artefakt-Schutz liegen in FK-31
@@ -30,7 +30,7 @@ defers_to:
     reason: Adversarial-Stage ist in der Stage-Registry registriert
 supersedes: []
 superseded_by:
-tags: [llm-evaluation, adversarial-testing, verify-phase]
+tags: [llm-evaluation, adversarial-testing, qa-subflow]
 prose_anchor_policy: strict
 formal_refs:
   - formal.llm-evaluations.commands

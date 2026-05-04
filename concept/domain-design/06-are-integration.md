@@ -40,7 +40,7 @@ Pflichtanforderung ohne Evidence ist. Diese Vollständigkeitsgarantie
 wirkt auf den implementierenden Worker ebenso wie auf den QA-Agenten.
 
 Ob die eingereichte Evidenz den Anspruch der Anforderung tatsächlich
-erfüllt, bleibt Aufgabe der Verify-Phase ([04-qualitaetssicherung.md](04-qualitaetssicherung.md)) und des
+erfüllt, bleibt Aufgabe der QA-Subflow innerhalb der Implementation-Phase ([04-qualitaetssicherung.md](04-qualitaetssicherung.md)) und des
 menschlichen Reviewers.
 
 > **[Entscheidung 2026-04-08]** Element 21 — ARE-Integration: Beide Modi sind Produktionspfade. ARE deaktiviert: Pipeline laeuft ohne ARE-Gate. ARE aktiviert: ARE-Gate ist Pflicht, ohne ARE-Bestaetigung kein Merge. Installer entscheidet Modus. Kein Fallback, kein Graceful-Degradation.
@@ -58,8 +58,8 @@ Ablauf keinen Fehler aus, sie entfallen einfach.
 |--------------|--------------|-------------|------------------|
 | Anforderungen verlinken | Story-Erstellung ([02-pipeline-orchestrierung.md](02-pipeline-orchestrierung.md) Abschnitt 2.1) | Wiederkehrende Pflichtanforderungen werden automatisch mit der Story verknüpft. Story-spezifische Anforderungen werden explizit zugeordnet. | Pipeline-Skript im Erstellungsprozess |
 | Anforderungskontext laden | Setup-Phase (vor Worker-Start) | Das Pipeline-Skript der Setup-Phase ruft ARE ab, bereitet den Bundle auf und legt ihn als Teil des strukturierten Story-Kontexts ab. Der Worker findet die Anforderungsliste beim Start vor — er muss sie nicht selbst holen. Der Orchestrator-Agent erhält kein Bundle, sondern nur ein Statussignal, ob der Schritt erfolgreich war. | Deterministisches Pipeline-Skript (Setup-Phase) |
-| Evidence einreichen | Worker-Implementierung und Verify-Phase | Der Worker reicht während der Implementierung Evidence pro Anforderung ein (z.B. Testreport, Commit-Referenz). Der QA-Agent kann ebenfalls Evidence einreichen. | Worker-Agent und QA-Prozess |
-| ARE-Gate prüfen | Verify-Phase, Schicht 1 (deterministische Checks) | Deterministisches Skript fragt ARE ab: Haben alle must_cover-Anforderungen dieser Story Evidence? Ergebnis: PASS oder FAIL mit Liste der unbelegten Anforderungen. | Deterministisches Pipeline-Skript |
+| Evidence einreichen | Worker-Implementierung und QA-Subflow innerhalb der Implementation-Phase | Der Worker reicht während der Implementierung Evidence pro Anforderung ein (z.B. Testreport, Commit-Referenz). Der QA-Agent kann ebenfalls Evidence einreichen. | Worker-Agent und QA-Prozess |
+| ARE-Gate prüfen | QA-Subflow innerhalb der Implementation-Phase, Schicht 1 (deterministische Checks) | Deterministisches Skript fragt ARE ab: Haben alle must_cover-Anforderungen dieser Story Evidence? Ergebnis: PASS oder FAIL mit Liste der unbelegten Anforderungen. | Deterministisches Pipeline-Skript |
 
 ### 6.2 Scope-Zuordnung
 

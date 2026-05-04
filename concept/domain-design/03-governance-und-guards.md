@@ -365,22 +365,24 @@ alle sechs Kriterien auf Execution stehen.
 |-------|-----------|------------------|-------|
 | Zieltreue | Story-Erstellung | Passt die Absicht zur Strategie? Kollidiert das Vorhaben mit bestehenden Leitplanken? | Story-Beschreibung, Strategie-/Architekturdokumente |
 | Entwurfstreue | Nach Konzeptionsphase, vor Implementierung (nur Exploration Mode) | Ist der geplante Lösungsweg mit Architektur und Konzepten vereinbar? | Entwurfsartefakt des Workers, Referenzdokumente |
-| Umsetzungstreue | Nach Implementierung, in der Verify-Phase | Hat der Worker gebaut, was konzeptionell vorgesehen war? Gibt es undokumentierten Drift? | Code-Diff, freigegebener Entwurf oder Konzept, Referenzdokumente |
+| Umsetzungstreue | Im QA-Subflow innerhalb der Implementation-Phase (nach Worker-Run) | Hat der Worker gebaut, was konzeptionell vorgesehen war? Gibt es undokumentierten Drift? | Code-Diff, freigegebener Entwurf oder Konzept, Referenzdokumente |
 | Rückkopplungstreue | Bei Closure | Müssen bestehende Dokumente aktualisiert werden, damit künftige Prüfungen gegen eine korrekte Wahrheit laufen? | Finaler Change, bestehende Dokumentation |
 
-Die Zieltreue-Prüfung findet bereits während der Story-Erstellung statt
-([02-pipeline-orchestrierung.md](02-pipeline-orchestrierung.md) Abschnitt 2.1). Die Entwurfstreue-Prüfung findet nur im Exploration Mode
+Die Zieltreue-Pruefung findet bereits waehrend der Story-Erstellung statt
+([02-pipeline-orchestrierung.md](02-pipeline-orchestrierung.md) Abschnitt 2.1). Die Entwurfstreue-Pruefung findet nur im Exploration Mode
 statt und ist das Gate zwischen Konzeption und Implementierung. Die
-Umsetzungstreue-Prüfung findet bei allen Stories statt und ist Teil der
-Verify-Phase. Die Rückkopplungstreue-Prüfung bei Closure stellt sicher,
-dass die Dokumentation nicht veraltet, denn eine veraltete Dokumentation
-macht alle zukünftigen Prüfungen unzuverlässig.
+Umsetzungstreue-Pruefung findet bei allen Stories statt und ist Teil des
+QA-Subflows innerhalb der Implementation-Phase. Die
+Rueckkopplungstreue-Pruefung bei Closure stellt sicher, dass die
+Dokumentation nicht veraltet, denn eine veraltete Dokumentation macht
+alle zukuenftigen Pruefungen unzuverlaessig.
 
 #### Impact-Violation-Check
 
 Die Kriterien am Issue deklarieren den erwarteten Impact (lokal,
-komponentenübergreifend, architekturwirksam). In der Verify-Phase
-prüft ein zusätzlicher Structural Check, ob die tatsächliche
+komponentenuebergreifend, architekturwirksam). Im QA-Subflow
+innerhalb der Implementation-Phase prueft ein zusaetzlicher
+Structural Check, ob die tatsaechliche
 Implementierung den deklarierten Impact überschritten hat. Wenn ein
 Bugfix mit deklariertem Impact "Local" tatsächlich Datenmodelle ändert
 oder neue Schnittstellen einführt, wird das als Verletzung gewertet.
@@ -395,10 +397,11 @@ Issue-Metadaten falsch deklariert waren.
 
 Wenn ein Worker im Execution Mode von einem mitgelieferten Konzept
 abweichen will oder muss, muss er die Abweichung explizit markieren,
-eine Begründung liefern und eine erneute Dokumententreue-Prüfung
-auslösen. Stillschweigendes Überschreiben eines freigegebenen Konzepts
-durch die Implementierung wird durch den Umsetzungstreue-Check in der
-Verify-Phase erkannt.
+eine Begruendung liefern und eine erneute Dokumententreue-Pruefung
+ausloesen. Stillschweigendes Ueberschreiben eines freigegebenen
+Konzepts durch die Implementierung wird durch den
+Umsetzungstreue-Check im QA-Subflow innerhalb der
+Implementation-Phase erkannt.
 
 ### 3.6 Integrity-Gate
 
@@ -420,7 +423,7 @@ wird an den Menschen eskaliert, nicht an einen Agenten.
 | Structural-Check-Tiefe | Wurden Structural Checks durchgeführt, und zwar in ausreichender Tiefe (nicht nur ein Stub)? Wurden sie vom richtigen Prozessschritt erzeugt? |
 | Policy-Decision | Existiert ein kanonischer Policy-/Verify-Decision-Record, ist er plausibel und wurde er vom richtigen Prozessschritt erzeugt? **Fehlen ist ein harter Blocker** — fehlender Decision-Record darf nie zu `Closure | DONE` fuehren. |
 | Semantic-Validierung | Wurde bei Implementierungs- und Bugfix-Stories ein Semantic Review durchgeführt (nicht übersprungen)? |
-| Verify-Phase | Hat mindestens ein Verify-Durchlauf stattgefunden? |
+| QA-Subflow innerhalb Implementation | Hat mindestens ein QA-Subflow-Durchlauf stattgefunden? |
 | Timestamp-Kausalität | Liegen die Zeitstempel der Artefakte in der richtigen Reihenfolge? (Context vor Decision, nicht umgekehrt) |
 
 **Telemetrie-Signale (nicht kanonisch):**
@@ -505,21 +508,24 @@ aktuellen Phase im Graphen erlaubt ist. Ungültige Übergänge werden
 fail-closed blockiert — die Phase wird nicht betreten, der Status wird
 auf ESCALATED gesetzt.
 
-Zusätzlich zum Graphen-Enforcement werden semantische Vorbedingungen
-geprüft: Wenn `mode="exploration"` gesetzt ist, muss die
-Exploration-Phase mit `exploration_gate_status="approved_for_implementation"`
-abgeschlossen sein, bevor die Implementation-Phase starten darf. Die
-Closure-Phase erfordert eine abgeschlossene Verify-Phase
-(`flow_executions` bzw. der Verify-Flow-Record mit
-`status=COMPLETED`; ein `phase-state-verify.json` ist hoechstens dessen
-Export).
+Zusaetzlich zum Graphen-Enforcement werden semantische Vorbedingungen
+geprueft: Wenn `mode="exploration"` gesetzt ist, muss die
+Exploration-Phase mit `gate_status=APPROVED` (in
+`ExplorationPayload`) abgeschlossen sein, bevor die
+Implementation-Phase starten darf. Die Closure-Phase erfordert eine
+abgeschlossene Implementation-Phase (`flow_executions` mit
+`status=COMPLETED`); Implementation kann nur dann COMPLETED
+erreichen, wenn der QA-Subflow innerhalb der Implementation-Phase
+mit `qa_cycle_status = pass` abgeschlossen wurde. [Entscheidung
+2026-05-01: Top-Phase `verify` entfaellt — Output-QA ist
+Subflow-intern in `implementation`.]
 
-Dieses Enforcement ist eine zusätzliche Verteidigungslinie
-(Defense-in-Depth), die Orchestrator-Fehler sofort abfängt, statt sie
-erst in späteren Phasen zu erkennen. Empirischer Anlass: Ein
+Dieses Enforcement ist eine zusaetzliche Verteidigungslinie
+(Defense-in-Depth), die Orchestrator-Fehler sofort abfaengt, statt
+sie erst in spaeteren Phasen zu erkennen. Empirischer Anlass: Ein
 Orchestrator rief `run_phase("implementation")` auf, ohne vorher die
-Exploration-Phase durchzulaufen. Der Fehler wurde erst in der
-Verify-Phase erkannt — eine Phase zu spät.
+Exploration-Phase durchzulaufen. Der Fehler wurde erst im QA-Subflow
+erkannt — eine Phase zu spaet.
 
 ### 3.7 Governance-Beobachtung
 

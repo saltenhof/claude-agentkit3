@@ -32,19 +32,20 @@ AgentKit 3 ist die Neuausrichtung nach den Strukturproblemen von v2. Das System 
 
 AgentKit 3 ist kein Agent selbst. Es ist die Maschine, die Story-Ausfuehrung, Guardrails, QA, Telemetrie und Closure deterministisch orchestriert und nur dort LLMs einsetzt, wo kreative oder bewertende Arbeit wirklich noetig ist.
 
-#### Die 5-Phasen-Pipeline
+#### Die 4-Phasen-Pipeline
 
 Jede Story durchlaeuft einen festen, fachlich definierten Ablauf:
 
 | Phase | Typ | Zweck |
 |---|---|---|
 | **1 — Setup** | deterministisch | Kontext ableiten, Worktree vorbereiten, Guards aktivieren, Prompt-/Runtime-Kontext vorbereiten |
-| **2 — Exploration** | LLM (optional) | Entwurfsartefakt fuer explorative Implementierungsstories |
-| **3 — Implementation** | LLM | Worker setzt Story um und liefert Handover-Artefakte |
-| **4 — Verify** | deterministisch + LLM | Mehrschichtige QA mit klaren Stage-Definitionen |
-| **5 — Closure** | deterministisch | Integrity-Gate, Merge/Cleanup, Abschluss, Telemetrie/KPIs |
+| **2 — Exploration** | LLM (optional) | Entwurfsartefakt fuer explorative Implementierungsstories; Exit-Gate ruft Capability `VerifySystem` |
+| **3 — Implementation** | LLM + deterministischer QA-Subflow | Worker setzt Story um und liefert Handover-Artefakte. Enthaelt einen QA-Subflow analog zum Exit-Gate der Exploration: ruft die Capability `VerifySystem` (4-Schichten-QA, FK-27) inklusive Subflow-internem Remediation-Loop |
+| **4 — Closure** | deterministisch | Integrity-Gate, Merge/Cleanup, Abschluss, Telemetrie/KPIs |
 
-#### Verify — Schichten statt Ad-hoc-Pruefungen
+`verify-system` ist ein Capability-Bounded-Context, kein Phase-Owner. Eine eigenstaendige Top-Phase `verify` existiert nicht; Output-QA ist interner Subflow innerhalb der Implementation-Phase. Siehe `concept/_meta/bc-cut-decisions.md` "Verify als Capability (Variante Y)".
+
+#### QA-Subflow — Schichten statt Ad-hoc-Pruefungen
 
 - **Layer 1 — Structural**: deterministische Checks, Artefakt- und Build-/Test-Pruefung
 - **Layer 2 — LLM-Evaluations**: QA-Review und Semantic/Guardrail-Review als Bewertungsfunktionen, nicht als frei handelnde Agents

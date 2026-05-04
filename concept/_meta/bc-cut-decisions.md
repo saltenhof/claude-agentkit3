@@ -62,6 +62,11 @@ explizitem User-Trigger im Product-Owner-Modus.
 
 ### Verify als Capability (Variante Y)
 
+Status: **eingearbeitet** (2026-05-03) -- Konzeptebene umgesetzt
+in FK-20, FK-27, FK-29, FK-37, FK-38, FK-39, FK-45, DK-00, DK-02,
+DK-04 sowie CLAUDE.md. Formal-Spec-Anpassungen (formal.story-workflow,
+formal.verify) bleiben offen.
+
 - Phase `verify` als eigenstaendige Top-Phase entfaellt
 - 4 Top-Phasen: Setup, Exploration, Implementation, Closure
 - Output-QA wird interner Subflow innerhalb produktiver Phasen (Exploration

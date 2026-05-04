@@ -401,7 +401,7 @@ Die Anzahl gelaufener Design-Review-Remediation-Runden wird in
 verfolgt — nicht mehr im Phase-State selbst.
 Maximum: 3 Runden, dann Eskalation an Mensch.
 
-> **[Entscheidung 2026-04-09]** `exploration_review_round` aus v2 ist kein Artefakt, sondern wird als `PhaseMemory.exploration.review_rounds` in die neue PhaseMemory-Schicht überführt (max 3 Remediation-Runden). Die Engine verwaltet diesen Zähler als Carry-Forward analog zu `phase_memory.verify.feedback_rounds`. Siehe FK-39 §39.5.
+> **[Entscheidung 2026-04-09, aktualisiert 2026-05-01]** `exploration_review_round` aus v2 ist kein Artefakt, sondern wird als `PhaseMemory.exploration.review_rounds` in die neue PhaseMemory-Schicht ueberfuehrt (max 3 Remediation-Runden). Die Engine verwaltet diesen Zaehler als Carry-Forward analog zu `phase_memory.implementation.qa_feedback_rounds`. Siehe FK-39 §39.5. [Entscheidung 2026-05-01: vormals `phase_memory.verify.feedback_rounds`; mit Cut der Top-Phase `verify` heisst der QA-Subflow-Loop-Zaehler jetzt `qa_feedback_rounds` und liegt im `ImplementationPhaseMemory`.]
 
 ### Trennung Dokumententreue vs. Design-Review
 
@@ -511,8 +511,8 @@ statt (siehe §23.7.3). [Korrektur 2026-04-09]
 
 Keine Exploration-Phase. Der Worker startet direkt mit
 `worker-implementation.md`. Die Dokumententreue wird als
-Umsetzungstreue (Ebene 3) nach der Implementierung in der
-Verify-Phase geprüft (FK-06-058).
+Umsetzungstreue (Ebene 3) nach dem Worker-Run im QA-Subflow
+innerhalb der Implementation-Phase geprueft (FK-06-058).
 
 ## 23.7 Drift-Erkennung während Implementation
 
@@ -575,12 +575,13 @@ fuer erneute Exploration.
 
 Jede Drift-Prüfung erzeugt weiterhin ein Telemetrie-Event (§23.7.2).
 
-## 23.8 Impact-Violation-Check in der Verify-Phase
+## 23.8 Impact-Violation-Check im QA-Subflow
 
 ### 23.8.1 Mechanismus (FK-06-064 bis FK-06-068)
 
-In der Verify-Phase (Schicht 1, als Structural Check) wird der
-tatsächliche Impact gegen den deklarierten Impact verglichen:
+Im QA-Subflow innerhalb der Implementation-Phase (Schicht 1, als
+Structural Check) wird der tatsaechliche Impact gegen den deklarierten
+Impact verglichen:
 
 ```python
 def check_impact_violation(context: StoryContext, git: GitOperations) -> StructuralCheck:

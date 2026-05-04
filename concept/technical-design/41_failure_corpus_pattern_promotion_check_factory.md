@@ -386,6 +386,27 @@ agentkit failure-corpus review-patterns
 Zeigt offene Kandidaten. Mensch entscheidet: bestätigen oder
 verwerfen.
 
+### 41.5.5 Wirkung von Pattern ohne Check
+
+Ein bestaetigtes Pattern (`status: confirmed`, §41.5.4) ist ein
+**reines Lese-Artefakt**: es wirkt **nicht** in der laufenden
+Pipeline. Pipeline-Wirkung — also das Blockieren von Stories,
+Mutationen oder Closure-Schritten — entsteht **erst durch einen
+freigegebenen Check** (siehe §41.6 Check-Ableitung, §41.6.5
+menschliche Freigabe).
+
+Das ist die deterministische Leitplanke: ein Pattern dokumentiert,
+dass etwas wiederholt schief gegangen ist. Erst wenn der Stratege
+einen daraus abgeleiteten Check explizit freigibt, wird die
+Pipeline darauf reagieren. Damit bleibt der A-Kern AT-frei und
+der Determinismus gewahrt — keine automatisch generierten
+Pipeline-Wirkungen ohne menschliche Freigabe.
+
+Optional (zukuenftiger Schritt, nicht v1): bestaetigte Pattern
+koennten als kontextueller Hinweis an LLM-Reviewer (Verify-Subflow
+Layer 2) gegeben werden — als nicht-blockierende Information, nicht
+als deterministischer Check. Heute ist dieser Pfad nicht aktiv.
+
 ### 41.5.4 Pattern-Schema
 
 ```json
@@ -526,7 +547,7 @@ REST-Aufruf.
 
 **Cross-BC-Beziehung:** Die erzeugte Story wird von `pipeline-framework`
 (BC 1, `agentkit.pipeline_engine`) als regulaere Implementation-Story
-aufgenommen und durchlaeuft die vollstaendige 5-Phasen-Pipeline. `failure-corpus`
+aufgenommen und durchlaeuft die vollstaendige 4-Phasen-Pipeline (mit QA-Subflow innerhalb Implementation). `failure-corpus`
 hat nach der Story-Erzeugung keine weitere Steuerungsverantwortung;
 Pipeline-Framework und verify-system uebernehmen ab diesem Punkt.
 

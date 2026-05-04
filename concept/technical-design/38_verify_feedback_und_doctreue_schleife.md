@@ -1,6 +1,6 @@
 ---
 concept_id: FK-38
-title: Verify-Feedback und Dokumententreue-Schleife
+title: QA-Subflow-Feedback und Dokumententreue-Schleife
 module: verify-feedback
 domain: verify-system
 status: active
@@ -17,7 +17,7 @@ defers_to:
     reason: Quelle der LLM-Review-Findings; gemeinsamer QA-Zyklus (FK-27 §27.5)
   - target: FK-29
     scope: closure-substates
-    reason: Rückkopplungstreue Ebene 4 läuft im Closure-Ablauf nach Merge
+    reason: Rueckkopplungstreue Ebene 4 laeuft im Closure-Ablauf nach Merge
   - target: FK-37
     scope: context-bundle
     reason: doc_fidelity-Kontextfelder werden vom Context Sufficiency Builder geladen
@@ -26,16 +26,16 @@ defers_to:
     reason: Dokumententreue-Mechanik und Conformance-Service liegen bei FK-32
   - target: FK-34
     scope: structured-evaluator
-    reason: Layer-2-Bewertung erfolgt über StructuredEvaluator (Remediation-Modus)
+    reason: Layer-2-Bewertung erfolgt ueber StructuredEvaluator (Remediation-Modus)
   - target: FK-26
     scope: remediation-worker
     reason: Konsumiert feedback.json als Remediation-Input
   - target: FK-20
     scope: feedback-loop
-    reason: Engine-Feedback-Loop, Phase-Transition und max-Runden-Eskalation liegen in FK-20 §20.5
+    reason: Engine-Feedback-Loop, Subflow-interner Remediation-Loop und max-Runden-Eskalation liegen in FK-20 §20.5
   - target: FK-39
     scope: feedback-rounds-counter
-    reason: PhaseMemory.verify.feedback_rounds Carry-Forward-Logik in FK-39 §39.5
+    reason: PhaseMemory.implementation.qa_feedback_rounds Carry-Forward-Logik in FK-39 §39.5
 supersedes: []
 superseded_by:
 tags: [verify, feedback-loop, doc-fidelity, fidelity-impl, fidelity-feedback, remediation]
@@ -44,10 +44,10 @@ glossary:
   exported_terms:
     - id: finding
       definition: >
-        Konkreter Mängelbefund aus einem Verify-Schicht-Ergebnis. Trägt source
+        Konkreter Maengelbefund aus einem QA-Subflow-Schicht-Ergebnis. Traegt source
         (structural | qa_review | semantic_review | doc_fidelity | adversarial |
         adversarial_mandatory_target), check_id, status, detail/reason/description.
-        Wird in feedback.json gesammelt und dem Remediation-Worker als Input übergeben.
+        Wird in feedback.json gesammelt und dem Remediation-Worker als Input uebergeben.
       see_also:
         - term: remediation-loop
           domain: verify-system
@@ -55,12 +55,12 @@ glossary:
           domain: verify-system
     - id: remediation-loop
       definition: >
-        Konfigurierter Zyklus (max_feedback_rounds, Default: 3) von
-        Verify-FAIL → Worker-Remediation → erneutem Verify. Bei Erschöpfung
-        der Runden eskaliert die Pipeline (ESCALATED). Der Zähler
-        (feedback_rounds) lebt in PhaseMemory.verify.feedback_rounds und wird
-        ausschliesslich von der Engine beim Phasenwechsel verify → implementation
-        inkrementiert.
+        Konfigurierter Subflow-interner Zyklus (max_feedback_rounds, Default: 3) von
+        QA-Subflow-FAIL -> Worker-Remediation -> erneutem QA-Subflow innerhalb
+        derselben Implementation-Phase. Bei Erschoepfung der Runden eskaliert die
+        Pipeline (ESCALATED). Der Zaehler (qa_feedback_rounds) lebt in
+        PhaseMemory.implementation.qa_feedback_rounds und wird ausschliesslich von
+        der Engine zu Beginn einer neuen Subflow-Iteration inkrementiert.
       see_also:
         - term: qa-cycle
           domain: verify-system
@@ -70,24 +70,37 @@ glossary:
     - id: feedback-json
       reason: >
         Laufzeit-Artefakt (_temp/qa/{story_id}/feedback.json) mit der
-        Mängelliste für den Remediation-Worker; kein exportierter Vertragstyp,
-        sondern Input-Konvention für FK-26.
+        Maengelliste fuer den Remediation-Worker; kein exportierter Vertragstyp,
+        sondern Input-Konvention fuer FK-26.
 formal_refs:
   - formal.verify.commands
   - formal.verify.events
   - formal.verify.invariants
 ---
 
-# 38 — Verify-Feedback und Dokumententreue-Schleife
+# 38 — QA-Subflow-Feedback und Dokumententreue-Schleife
 
 <!-- PROSE-FORMAL: formal.verify.commands, formal.verify.events, formal.verify.invariants -->
 
+> **[Entscheidung 2026-05-01]** Die ehemalige Top-Phase `verify` ist
+> entfallen; Output-QA ist jetzt interner Subflow innerhalb der
+> Implementation-Phase. Der hier beschriebene Feedback- und
+> Remediation-Loop ist Subflow-intern: ein QA-Subflow-FAIL fuehrt
+> nicht mehr zu einem Phase-Wechsel `verify -> implementation`,
+> sondern zu einer Subflow-internen Iteration innerhalb derselben
+> Implementation-Phase (analog zum Exit-Gate der Exploration-Phase,
+> FK-23 §23.5). Der Zaehler heisst jetzt
+> `PhaseMemory.implementation.qa_feedback_rounds` (vormals
+> `PhaseMemory.verify.feedback_rounds`). Siehe
+> `concept/_meta/bc-cut-decisions.md` "Verify als Capability
+> (Variante Y)".
+
 ## 38.1 Feedback-Mechanismus
 
-### 38.1.1 Mängelliste erzeugen
+### 38.1.1 Maengelliste erzeugen
 
-Bei Verify-FAIL wird aus den Ergebnissen aller Schichten eine
-strukturierte Mängelliste erzeugt:
+Bei QA-Subflow-FAIL wird aus den Ergebnissen aller Schichten eine
+strukturierte Maengelliste erzeugt:
 
 ```python
 def build_feedback(story_id: str) -> list[Finding]:
@@ -160,34 +173,45 @@ Der Remediation-Worker (FK-26 §26.2.3) erhält diese Datei als Input.
 
 ### 38.1.3 Remediation-Loop und Max-Rounds-Eskalation
 
-> **[Entscheidung 2026-04-09]** `feedback_rounds` wird nicht mehr im Verify-Handler inkrementiert. In v3 verwaltet die Engine `phase_memory.verify.feedback_rounds` als Carry-Forward-Akkumulator: Inkrementierung erfolgt beim Phasenwechsel verify→implementation (Remediation-Pfad), VOR Erzeugung des neuen Implementation-States. Der Verify-Handler selbst liest `verify_context: VerifyContext` aus dem VerifyPayload, schreibt aber keine Zähler. Siehe FK-39 §39.5.
+> **[Entscheidung 2026-04-09, aktualisiert 2026-05-01]** `qa_feedback_rounds` wird nicht im QA-Subflow-Handler inkrementiert. Die Engine verwaltet `phase_memory.implementation.qa_feedback_rounds` als Carry-Forward-Akkumulator: Inkrementierung erfolgt zu Beginn einer neuen Subflow-Iteration innerhalb der Implementation-Phase (nach Worker-Spawn-Anforderung, VOR der erneuten QA-Subflow-Ausfuehrung). Der QA-Subflow-Handler liest `verify_context: VerifyContext` aus dem `ImplementationPayload`, schreibt aber keine Zaehler. Siehe FK-39 §39.5. [Entscheidung 2026-05-01: vormals `phase_memory.verify.feedback_rounds`, Inkrement am Phasenwechsel `verify -> implementation`. Mit Cut der Top-Phase `verify` ist der Loop Subflow-intern; Inkrement an der Subflow-Iteration, kein Phasenwechsel.]
 
-Der Verify-Remediation-Zyklus ist auf eine konfigurierbare Anzahl
+Der QA-Subflow-Remediation-Zyklus ist auf eine konfigurierbare Anzahl
 von Runden begrenzt:
 
 - `max_feedback_rounds` in der Pipeline-Config (Default: 3)
-- `feedback_rounds` liegt in `PhaseMemory.verify.feedback_rounds`
-  (carry-forward über Phase-Transitionen) und wird ausschließlich
-  von der **Engine (Phase Runner)** inkrementiert — beim
-  Phase-Übergang `verify → implementation` (Remediation), NACH dem
-  Guard-Check und VOR der Transition. [Entscheidung 2026-04-09]
-- Bei jedem Verify-FAIL mit verbleibenden Runden:
-  `_handle_verify_failure` inkrementiert `feedback_rounds` NICHT
-  selbst — er liefert nur das FAILED-Ergebnis zurück, setzt
+- `qa_feedback_rounds` liegt in
+  `PhaseMemory.implementation.qa_feedback_rounds` (carry-forward
+  ueber Phasenwechsel und Subflow-Iterationen) und wird
+  ausschliesslich von der **Engine (Phase Runner)** inkrementiert —
+  zu Beginn einer neuen Subflow-Iteration innerhalb der
+  Implementation-Phase, NACH dem Guard-Check und VOR Spawn des
+  Remediation-Workers. [Entscheidung 2026-04-09, aktualisiert 2026-05-01]
+- Bei jedem QA-Subflow-FAIL mit verbleibenden Runden:
+  `_handle_verify_failure` inkrementiert `qa_feedback_rounds` NICHT
+  selbst — er liefert nur das FAILED-Ergebnis zurueck, setzt
   `qa_cycle_status = "awaiting_remediation"` und assembliert den
-  Remediation-Worker-Spawn-Contract mit der `feedback.json`-Mängelliste.
-  Die eigentliche Inkrementierung erfolgt durch die Engine beim
-  Phase-Übergang. [Entscheidung 2026-04-09]
-- Wenn `feedback_rounds >= max_feedback_rounds` (nach Inkrementierung
-  durch die Engine): Status wird `ESCALATED`,
-  `qa_cycle_status` wird `"escalated"`. Die Story ist permanent
-  blockiert bis ein Mensch interveniert.
+  Remediation-Worker-Spawn-Contract mit der `feedback.json`-Maengelliste.
+  Die eigentliche Inkrementierung erfolgt durch die Engine zu Beginn
+  der naechsten Subflow-Iteration. [Entscheidung 2026-04-09, aktualisiert 2026-05-01]
+- Wenn `qa_feedback_rounds >= max_feedback_rounds` (nach Inkrementierung
+  durch die Engine): Status wird `ESCALATED`, `qa_cycle_status` wird
+  `"escalated"`. Die Story ist permanent blockiert bis ein Mensch
+  interveniert.
 - Menschliche Intervention: `agentkit reset-escalation` CLI-Kommando
-  setzt `feedback_rounds` zurück und erlaubt erneute Bearbeitung.
-- Wenn Verify nach Remediation erneut betreten wird (Status
+  setzt `qa_feedback_rounds` zurueck und erlaubt erneute Bearbeitung.
+- Wenn der QA-Subflow nach Remediation erneut durchlaufen wird (Status
   `awaiting_remediation`): `advance_qa_cycle()` feuert und
   invalidiert alle zyklusgebundenen Artefakte (siehe FK-27 §27.2).
-  Danach laufen alle vier Verify-Schichten vollständig von vorne.
+  Danach laufen alle vier QA-Subflow-Schichten vollstaendig von vorne.
+
+> **[Entscheidung 2026-05-01]** Es gibt keinen Phasen-Wechsel
+> `verify -> implementation` mehr. Der Remediation-Loop ist eine
+> Subflow-interne Iteration innerhalb derselben
+> Implementation-Phase: Worker-Run -> QA-Subflow FAIL ->
+> Subflow-internes `awaiting_remediation` -> Remediation-Worker-Spawn
+> -> erneuter QA-Subflow. Implementation verlaesst den Phase-Knoten
+> erst, wenn der Subflow `qa_cycle_status = pass` erreicht oder
+> eskaliert. FK-20 §20.5 dokumentiert den Engine-Flow.
 
 ### 38.1.4 Mandatory-Target-Rueckkopplung im Remediation-Loop (FK-27-220)
 
@@ -237,10 +261,11 @@ gefunden.
 
 ## 38.2 Dokumententreue Ebene 3: Umsetzungstreue
 
-### 38.2.1 Integration in Verify
+### 38.2.1 Integration in den QA-Subflow
 
-Die Umsetzungstreue (FK-06-058) läuft als Teil der Schicht 2, über
-den StructuredEvaluator:
+Die Umsetzungstreue (FK-06-058) laeuft als Teil der Schicht 2 des
+QA-Subflows innerhalb der Implementation-Phase, ueber den
+StructuredEvaluator:
 
 Adapter-Vertrag (Bundle → doc_fidelity context):
 

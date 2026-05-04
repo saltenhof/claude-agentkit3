@@ -19,7 +19,7 @@ defers_to:
     reason: Story types and states used for stage applicability come from the domain model
 supersedes: []
 superseded_by:
-tags: [deterministic-checks, stage-registry, policy-engine, verify-phase, trust-classes]
+tags: [deterministic-checks, stage-registry, policy-engine, qa-subflow, trust-classes]
 prose_anchor_policy: strict
 glossary:
   exported_terms:
@@ -87,15 +87,16 @@ formal_refs:
 
 ## 33.1 Zweck
 
-Deterministische Checks sind die erste Verteidigungslinie der
-Verify-Phase (Schicht 1). Sie laufen als Python-Skripte ohne
+Deterministische Checks sind die erste Verteidigungslinie des
+QA-Subflows innerhalb der Implementation-Phase (Schicht 1). Sie
+laufen als Python-Skripte ohne
 LLM-Beteiligung, sind reproduzierbar und kostenlos. Scheitern sie,
 werden die nachfolgenden Schichten (LLM-Bewertungen, Adversarial
 Testing) gar nicht erst gestartet (FK-07-003).
 
-Die Stage-Registry typisiert die Prüfschritte aller Schichten.
-Die Policy-Engine aggregiert die Ergebnisse und entscheidet über
-PASS oder FAIL der gesamten Verify-Phase.
+Die Stage-Registry typisiert die Pruefschritte aller Schichten.
+Die Policy-Engine aggregiert die Ergebnisse und entscheidet ueber
+PASS oder FAIL des gesamten QA-Subflows.
 
 **Architekturzuordnung:** `StructuralChecker`, `PolicyEngine` und
 `StageRegistry` sind Subkomponenten von `VerifySystem`:
@@ -103,7 +104,7 @@ PASS oder FAIL der gesamten Verify-Phase.
 - `StageRegistry` → `agentkit.verify_system.stage_registry`
 - `PolicyEngine` → `agentkit.verify_system.policy_engine`
 
-Die `StageRegistry` wird nicht nur von der Verify-Phase konsumiert,
+Die `StageRegistry` wird nicht nur vom QA-Subflow konsumiert,
 sondern ist auch Ziel der Pattern-/Check-Promotion aus dem `FailureCorpus`.
 
 **Schema-Owner (verify-system):** Die Pydantic-Schemas `QaStageResult`,
@@ -278,7 +279,7 @@ class GateRunner(Protocol):
    der Engine vor der Invocation ausgewertet, nicht im Producer.
 3. Promotion aus dem `FailureCorpus` erweitert die `StageRegistry`;
    sie umgeht nicht den Registry-Flow durch direkte Hardcodierung in
-   `VerifyPhase`.
+   der Capability `VerifySystem`.
 
 ## 33.3 Deterministische Checks (Schicht 1)
 

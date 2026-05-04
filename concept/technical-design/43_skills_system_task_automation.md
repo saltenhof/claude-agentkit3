@@ -178,8 +178,8 @@ werden (Kap. 50):
 |-------|-----------|---------|---------------------|
 | **User Story Creation (core)** | `create-userstory-core/` | Neue Stories erstellen | VektorDB-Abgleich, Anforderungsstruktur, ACs, Feldbelegung, Größenschätzung |
 | **User Story Creation (ARE)** | `create-userstory-are/` | Neue Stories mit ARE erstellen | Wie oben plus ARE-spezifische Pflichtschritte |
-| **Execute User Story (core)** | `execute-userstory-core/` | Story-Umsetzung orchestrieren | 5-Phasen-Pipeline ohne ARE-Annahmen |
-| **Execute User Story (ARE)** | `execute-userstory-are/` | Story-Umsetzung mit ARE orchestrieren | 5-Phasen-Pipeline mit ARE-Pfaden |
+| **Execute User Story (core)** | `execute-userstory-core/` | Story-Umsetzung orchestrieren | 4-Phasen-Pipeline (Setup, Exploration, Implementation inkl. QA-Subflow, Closure) ohne ARE-Annahmen |
+| **Execute User Story (ARE)** | `execute-userstory-are/` | Story-Umsetzung mit ARE orchestrieren | 4-Phasen-Pipeline (Setup, Exploration, Implementation inkl. QA-Subflow, Closure) mit ARE-Pfaden |
 | **Lookup User Story** | `lookup-userstory/` | Stories suchen und anzeigen | VektorDB-Suche, GitHub-Issue-Abfrage |
 | **LLM Discussion** | `llm-discussion/` | Multi-LLM-Sparring | Rollenverteilung, Rundenstruktur, Konvergenzprüfung |
 
@@ -197,7 +197,7 @@ als große Fallunterscheidung innerhalb eines Skills modelliert, sondern
 über getrennte Varianten. Die Projektauswahl der passenden Variante
 erfolgt bei der Registrierung/Bundlung, nicht während der Skill-Laufzeit.
 
-**F-43-029 — Semantic Review Skill (FK-12-029):** Ein dedizierter Semantic-Review-Skill muss mitgeliefert werden. Er bewertet Code-Beiträge anhand eines strukturierten Scoring-Schemas mit mindestens 12 definierten Prüfdimensionen, darunter Benennung, Fehlerbehandlung, zyklomatische Komplexität, Testabdeckung, Kopplung, Kohäsion, Dokumentation, Sicherheitsaspekte, Rückwärtskompatibilität, Performance-Implikationen, Konsistenz mit dem Projektstandard und Anforderungstreue. Für jede Dimension wird ein normierter Score und eine Begründung ausgegeben; das Gesamtergebnis fliesst als strukturiertes Artefakt in die Verify-Phase ein.
+**F-43-029 — Semantic Review Skill (FK-12-029):** Ein dedizierter Semantic-Review-Skill muss mitgeliefert werden. Er bewertet Code-Beitraege anhand eines strukturierten Scoring-Schemas mit mindestens 12 definierten Pruefdimensionen, darunter Benennung, Fehlerbehandlung, zyklomatische Komplexitaet, Testabdeckung, Kopplung, Kohaesion, Dokumentation, Sicherheitsaspekte, Rueckwaertskompatibilitaet, Performance-Implikationen, Konsistenz mit dem Projektstandard und Anforderungstreue. Fuer jede Dimension wird ein normierter Score und eine Begruendung ausgegeben; das Gesamtergebnis fliesst als strukturiertes Artefakt in den QA-Subflow innerhalb der Implementation-Phase ein.
 
 ### 43.3.3 Execute User Story Skill
 
@@ -206,11 +206,16 @@ Bearbeitungs-Pipeline:
 
 1. Liest freigegebene Story aus GitHub Project
 2. Ruft `agentkit run-phase setup` auf
-3. Liest Phase-State → spawnt Worker (oder Exploration-Worker)
+3. Liest Phase-State -> spawnt Worker (oder Exploration-Worker)
 4. Wartet auf Worker-Ende
-5. Ruft `agentkit run-phase verify` auf
-6. Liest Phase-State → bei FAIL: spawnt Remediation-Worker
-7. Bei PASS: ruft `agentkit run-phase closure` auf
+5. Ruft `agentkit run-phase implementation` auf — der QA-Subflow
+   laeuft Subflow-intern in der Implementation-Phase und ruft die
+   Capability `VerifySystem` (FK-27)
+6. Liest Phase-State -> bei `qa_cycle_status: awaiting_remediation`:
+   spawnt Remediation-Worker und ruft `agentkit run-phase implementation`
+   erneut auf (Subflow-Loop, kein Phasenwechsel)
+7. Bei `qa_cycle_status: pass` (Implementation COMPLETED): ruft
+   `agentkit run-phase closure` auf
 8. Bei Eskalation: stoppt und informiert Mensch
 
 **Der Skill ist der Orchestrator.** Er enthält die Logik, die

@@ -448,7 +448,7 @@ wurden entfernt. `Concept Quality` (High/Medium/Low) ist das neue Pflichtfeld.
 **Qualität dieser Felder:** Die Modus-Ermittlung ist fail-closed
 (Kap. 22/23). Wenn der Agent ein Feld falsch einschätzt (z.B. Impact
 "Local" obwohl komponentenübergreifend), wird das spätestens im
-Impact-Violation-Check in der Verify-Phase erkannt. Falsche
+Impact-Violation-Check im QA-Subflow innerhalb der Implementation-Phase erkannt. Falsche
 Einschätzung in Richtung "zu niedrig" führt dann zu Eskalation.
 
 ## 21.7 ARE-Integration

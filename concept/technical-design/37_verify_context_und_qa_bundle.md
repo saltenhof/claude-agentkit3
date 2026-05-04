@@ -13,14 +13,14 @@ authority_over:
   - scope: bundle-packing
 defers_to:
   - target: FK-27
-    scope: verify-pipeline
+    scope: qa-subflow
     reason: QA-Schichten und QA-Zyklus sind in FK-27 definiert; FK-37 liefert nur die Bundle-Vorbereitung VOR Layer 2
   - target: FK-20
     scope: workflow-engine
     reason: Workflow-Engine-Mechanik und Phasenmodell liegen in FK-20
   - target: FK-39
-    scope: verify-payload
-    reason: VerifyPayload und PhaseMemory.verify.feedback_rounds sind in FK-39 normiert
+    scope: implementation-payload
+    reason: ImplementationPayload (verify_context, qa_cycle_status) und PhaseMemory.implementation.qa_feedback_rounds sind in FK-39 normiert
   - target: FK-26
     scope: handover-paket
     reason: Bundle-Felder werden u.a. aus dem Worker-Handover geladen
@@ -90,83 +90,108 @@ formal_refs:
 
 <!-- PROSE-FORMAL: formal.verify.state-machine, formal.verify.invariants, formal.integration-stabilization.state-machine, formal.integration-stabilization.commands, formal.integration-stabilization.events, formal.integration-stabilization.invariants, formal.integration-stabilization.scenarios -->
 
-## 37.1 Verify-Kontext: QA-Tiefe über `verify_context` (FK-27-250)
+## 37.1 Verify-Kontext: QA-Tiefe ueber `verify_context` (FK-27-250)
 
-> **[Entscheidung 2026-04-09]** `verify_context` wird als typisiertes `VerifyContext`-Feld auf `VerifyPayload` (diskriminierte Union, FK-39 §39.2.3) geführt statt als freier String auf dem flachen PhaseState. `VerifyContext` ist ein StrEnum: `POST_IMPLEMENTATION | POST_REMEDIATION`. Steuert die QA-Tiefe normativ. Verweis auf Designwizard R1+R2 vom 2026-04-09.
+> **[Entscheidung 2026-04-09]** `verify_context` wird als typisiertes `VerifyContext`-Feld gefuehrt statt als freier String auf dem flachen PhaseState. `VerifyContext` ist ein StrEnum: `POST_IMPLEMENTATION | POST_REMEDIATION`. Steuert die QA-Tiefe normativ. Verweis auf Designwizard R1+R2 vom 2026-04-09.
 
-### 37.1.0 VerifyPayload — durable Contract Fields
+> **[Entscheidung 2026-05-01]** `verify_context` ist Subflow-internes
+> Diskriminator-Feld innerhalb der Implementation-Phase, kein
+> eigenstaendiger Phase-Payload-Typ mehr. Die ehemalige Top-Phase
+> `verify` und der Payload-Typ `VerifyPayload` sind entfallen
+> (Capability-Cut, siehe `concept/_meta/bc-cut-decisions.md` "Verify
+> als Capability (Variante Y)"). Das Feld lebt jetzt auf
+> `ImplementationPayload` (FK-39 §39.2.3); der Subflow-Loop-Zaehler
+> liegt in `PhaseMemory.implementation.qa_feedback_rounds` (FK-39
+> §39.5). Die fachlichen Werte `POST_IMPLEMENTATION` und
+> `POST_REMEDIATION` bleiben unveraendert, sind aber jetzt
+> Subflow-interne Stati statt Phase-Payload-Werte.
 
-`VerifyPayload` ist die phasenspezifische Payload für den Verify-Eintritt (diskriminierte Union, FK-39 §39.2.3):
+### 37.1.0 verify_context — Subflow-internes Diskriminator-Feld
+
+`verify_context` ist ein Subflow-internes Diskriminator-Feld auf
+`ImplementationPayload` (diskriminierte Union, FK-39 §39.2.3). Es
+steuert die QA-Tiefe des QA-Subflows (FK-27) innerhalb der
+Implementation-Phase:
 
 ```python
 class VerifyContext(StrEnum):
     POST_IMPLEMENTATION = "post_implementation"
     POST_REMEDIATION = "post_remediation"
 
-class VerifyPayload(BaseModel):
-    phase_type: Literal["verify"]
+class ImplementationPayload(BaseModel):
+    phase_type: Literal["implementation"]
+    qa_cycle_status: QaCycleStatus = QaCycleStatus.IDLE
     verify_context: VerifyContext | None = None
 ```
 
-`verify_context` hat Transition-Relevanz: Der Phase Runner wertet es aus, um die QA-Tiefe zu bestimmen. Es wird beim Verify-Eintritt vom Phase Runner gesetzt, basierend auf der letzten abgeschlossenen Phase. **`None` ist fail-closed**: wenn `verify_context` beim Verify-Eintritt `None` ist, eskaliert der Phase Runner sofort (ESCALATED) — kein Verify-Lauf ohne bekannten Kontext.
+`verify_context` hat Subflow-Transition-Relevanz: Der Phase Runner
+wertet es aus, um die QA-Tiefe des Subflows zu bestimmen. Es wird
+beim Eintritt in den QA-Subflow vom Phase Runner gesetzt, basierend
+auf dem letzten abgeschlossenen Subflow-Schritt. **`None` ist
+fail-closed**: wenn `verify_context` beim Subflow-Eintritt `None` ist,
+eskaliert der Phase Runner sofort (ESCALATED) — kein QA-Subflow ohne
+bekannten Kontext.
 
-| Letzter abgeschlossener Schritt | `verify_context` |
-|---------------------------------|-----------------|
-| Implementation-Phase abgeschlossen | `post_implementation` |
-| Remediation abgeschlossen (Verify-Failure-Loop) | `post_remediation` |
+| Letzter abgeschlossener Subflow-Schritt | `verify_context` |
+|-----------------------------------------|------------------|
+| Worker-Run innerhalb der Implementation-Phase abgeschlossen | `post_implementation` |
+| Subflow-interne Remediation-Iteration abgeschlossen | `post_remediation` |
 
-[Korrektur 2026-04-09: "Exploration-Phase abgeschlossen" als Trigger entfernt — Verify wird nie direkt nach Exploration aufgerufen (§37.1.1, FK-29 §29.1.1).]
+[Korrektur 2026-04-09: "Exploration-Phase abgeschlossen" als Trigger entfernt — der QA-Subflow innerhalb der Implementation-Phase wird nie direkt nach Exploration aufgerufen (§37.1.1, FK-29 §29.1.1).] [Entscheidung 2026-05-01: Trigger sind jetzt Subflow-interne Schritte innerhalb der Implementation-Phase, keine Top-Phase-Wechsel mehr.]
 
-**Nicht in VerifyPayload:** `feedback_rounds` — dieser Zähler lebt in `PhaseMemory.verify.feedback_rounds` (FK-39 §39.5, carry-forward über Phasenwechsel).
+**Nicht in ImplementationPayload:** `qa_feedback_rounds` — dieser Zaehler lebt in `PhaseMemory.implementation.qa_feedback_rounds` (FK-39 §39.5, carry-forward ueber Phasenwechsel und Subflow-Iterationen). [Entscheidung 2026-05-01: vormals `PhaseMemory.verify.feedback_rounds`.]
 
 ### 37.1.1 Problem: `mode` ist kein hinreichender Diskriminator
 
-Das Feld `mode` wird in der Setup-Phase gesetzt und bleibt über den
-gesamten Story-Lifecycle konstant. Verify läuft ausschließlich nach
-der Implementation-Phase (volle 4-Schichten-QA) oder nach einer
-Remediation-Runde (erneut volle 4-Schichten-QA). Wenn die Pipeline
-nur `mode` auswertet, werden Layer 2–4 für ALLE Verify-Durchläufe
-übersprungen — ein kritischer Governance-Fehler.
-[Korrektur 2026-04-09: post_exploration entfernt — Dokumententreue-Prüfung
-nach Exploration ist Teil der Exploration-Phase selbst (FK-23 §23.5), nicht via Verify.]
+Das Feld `mode` wird in der Setup-Phase gesetzt und bleibt ueber den
+gesamten Story-Lifecycle konstant. Der QA-Subflow laeuft innerhalb
+der Implementation-Phase nach jedem Worker-Run (volle 4-Schichten-QA)
+oder nach einer Subflow-internen Remediation-Iteration (erneut volle
+4-Schichten-QA). Wenn die Pipeline nur `mode` auswertet, werden
+Layer 2-4 fuer ALLE QA-Subflow-Durchlaeufe uebersprungen — ein
+kritischer Governance-Fehler.
+[Korrektur 2026-04-09: post_exploration entfernt — Dokumententreue-Pruefung
+nach Exploration ist Teil der Exploration-Phase selbst (FK-23 §23.5), nicht via QA-Subflow.]
 
 **Empirischer Anlass (BB2-057):** Eine Implementation-Story im
 Exploration Mode wurde nach der Implementation ohne ein einziges
 LLM-Review durchgewunken. Ursache: Der Phase Runner verwendete
-`mode == "exploration"` als Trigger für den Structural-Only-Pfad —
-unabhängig davon, welche Phase gerade verifiziert wurde. Der
+`mode == "exploration"` als Trigger fuer den Structural-Only-Pfad —
+unabhaengig davon, in welchem QA-Kontext gerade geprueft wurde. Der
 Orchestrator handelte korrekt nach Phase-State-Vertrag: COMPLETED +
-leere `agents_to_spawn` → Closure. Der Bug lag zu 100% im
+leere `agents_to_spawn` -> Closure. Der Bug lag zu 100% im
 deterministischen Code (Phase Runner), nicht im nicht-deterministischen
 Orchestrator.
 
-### 37.1.2 Lösung: `verify_context`-Feld im Phase-State
+### 37.1.2 Loesung: `verify_context`-Feld im Subflow-State
 
-Ein dediziertes Feld `verify_context` im Phase-State identifiziert,
-in welchem Kontext der aktuelle Verify-Durchlauf stattfindet. Der
-Phase Runner setzt `verify_context` basierend auf dem Auslöser:
+Ein dediziertes Feld `verify_context` auf `ImplementationPayload`
+identifiziert, in welchem Subflow-Kontext der aktuelle QA-Durchlauf
+stattfindet. Der Phase Runner setzt `verify_context` basierend auf
+dem Subflow-Ausloeser:
 
 [Entscheidung 2026-04-09: VerifyContext ist jetzt ein StrEnum mit genau zwei Werten.
-`post_exploration` entfällt — Dokumententreue nach Exploration läuft in der
-Exploration-Phase selbst (FK-23 §23.5). `STRUCTURAL_ONLY_PASS` entfällt ebenfalls.]
+`post_exploration` entfaellt — Dokumententreue nach Exploration laeuft in der
+Exploration-Phase selbst (FK-23 §23.5). `STRUCTURAL_ONLY_PASS` entfaellt ebenfalls.]
+[Entscheidung 2026-05-01: `verify_context` ist Subflow-internes Diskriminator-Feld auf `ImplementationPayload`, nicht mehr Phase-Payload-Feld auf `VerifyPayload`.]
 
-| `verify_context` | Auslöser | QA-Tiefe | Begründung |
-|------------------|----------|----------|------------|
-| `VerifyContext.POST_IMPLEMENTATION` | Verify nach abgeschlossener Implementation-Phase | Volle 4-Schichten-QA (Structural, Semantisch, Adversarial, Policy). | Primärer QA-Durchlauf — unabhängig davon, ob `mode = "exploration"` oder `mode = "execution"`. |
-| `VerifyContext.POST_REMEDIATION` | Verify nach einer Remediation-Runde | Volle 4-Schichten-QA (Structural, Semantisch, Adversarial, Policy). | Erneuter vollständiger QA-Durchlauf nach Worker-Remediation — identische Prüftiefe wie nach Implementation. |
+| `verify_context` | Ausloeser | QA-Tiefe | Begruendung |
+|------------------|-----------|----------|-------------|
+| `VerifyContext.POST_IMPLEMENTATION` | QA-Subflow nach Worker-Run innerhalb der Implementation-Phase | Volle 4-Schichten-QA (Structural, Semantisch, Adversarial, Policy). | Primaerer QA-Durchlauf — unabhaengig davon, ob `mode = "exploration"` oder `mode = "execution"`. |
+| `VerifyContext.POST_REMEDIATION` | QA-Subflow nach einer Subflow-internen Remediation-Iteration | Volle 4-Schichten-QA (Structural, Semantisch, Adversarial, Policy). | Erneuter vollstaendiger QA-Durchlauf nach Worker-Remediation — identische Prueftiefe wie nach Worker-Initial-Run. |
 
 ### 37.1.3 Vertragsprofil `integration_stabilization`
 
 Wenn `story_type=implementation` und
 `implementation_contract=integration_stabilization`, gelten zusaetzlich
-zu den normalen Verify-Schichten diese Pflichtpruefungen:
+zu den normalen QA-Subflow-Schichten diese Pflichtpruefungen:
 
 - `integration_target_matrix_passed`
 - `declared_surfaces_only`
 - `stabilization_budget_not_exhausted`
 - `stability_gate`
 
-Ein PASS der normalen Verify-Schichten allein reicht in diesem
+Ein PASS der normalen QA-Subflow-Schichten allein reicht in diesem
 Vertrag nicht fuer Closure.
 
 **Schichtzuordnung:**
@@ -174,10 +199,10 @@ Vertrag nicht fuer Closure.
 - `declared_surfaces_only` gehoert in die deterministische
   Schicht-1-Pruefung
 - `stabilization_budget_not_exhausted` ist primaer ein
-  Hook-/Capability-Enforcement und wird in Verify nur noch auditierend
-  gegengeprueft
+  Hook-/Capability-Enforcement und wird im QA-Subflow nur noch
+  auditierend gegengeprueft
 - `integration_target_matrix_passed` und `stability_gate` sind
-  zusaetzliche Verify-/Closure-Preconditions
+  zusaetzliche QA-Subflow-/Closure-Preconditions
 
 ### 37.1.4 Entscheidungsregel
 
@@ -189,13 +214,15 @@ Layer 2 laeuft vollstaendig intern im Phase Runner (ThreadPoolExecutor),
 kein Orchestrator-Roundtrip, kein PAUSED-Zustand in Verify.]
 
 ```python
-# Im Phase Runner — Verify-Einstieg:
+# Im Phase Runner — QA-Subflow-Einstieg innerhalb Implementation-Phase:
 # [Entscheidung 2026-04-09] VerifyContext ist ein StrEnum, kein String-Literal.
 # [Korrektur 2026-04-09] Layer 2 laeuft intern im Phase Runner (ThreadPoolExecutor),
 # kein Orchestrator-Roundtrip. Layer 3 (Adversarial) spawnt externen Agenten (§37.1.5).
+# [Entscheidung 2026-05-01] state.verify_context lebt jetzt auf ImplementationPayload,
+# nicht mehr auf einer eigenen VerifyPayload-Top-Phase.
 
 if state.verify_context is None:
-    # fail-closed (§37.1.0): kein Verify-Lauf ohne bekannten Kontext
+    # fail-closed (§37.1.0): kein QA-Subflow-Lauf ohne bekannten Kontext
     return PhaseResult(status="ESCALATED", reason="Missing verify_context — Phase Runner Defekt")
 
 if state.verify_context in (
@@ -237,38 +264,39 @@ if state.verify_context in (
 ```
 
 **Invariante:** Beide `VerifyContext`-Werte (`POST_IMPLEMENTATION`,
-`POST_REMEDIATION`) lösen IMMER die volle 4-Schichten-QA aus,
-unabhängig von `mode`. Es gibt keinen Structural-only-Verify-Pfad.
+`POST_REMEDIATION`) loesen IMMER den vollen 4-Schichten-QA-Subflow
+aus, unabhaengig von `mode`. Es gibt keinen Structural-only-QA-Pfad.
 
-### 37.1.5 Invariante: Verify läuft immer mit voller 4-Schichten-Pipeline
+### 37.1.5 Invariante: QA-Subflow laeuft immer mit voller 4-Schichten-Pipeline
 
 [Entscheidung 2026-04-09: `STRUCTURAL_ONLY_PASS` existiert nicht mehr.
 Die gesamte alte Invariante (STRUCTURAL_ONLY_PASS nach Implementation verboten)
-entfällt, da es keinen Structural-only-Verify-Pfad mehr gibt.]
+entfaellt, da es keinen Structural-only-QA-Pfad mehr gibt.]
 
-[Korrektur 2026-04-09: Falsche Invariante entfernt — Verify verwendet
+[Korrektur 2026-04-09: Falsche Invariante entfernt — der QA-Subflow verwendet
 keinen PAUSED-Zustand, kein agents_to_spawn und kein RUN_SEMANTIC fuer
 Layer 2. Layer 2 laeuft intern im Phase Runner.]
 
-Verify wird ausschließlich für Implementation- und Bugfix-Stories
-aufgerufen (Concept- und Research-Stories durchlaufen keine
-Verify-Phase). In jedem Fall — ob `POST_IMPLEMENTATION` oder
-`POST_REMEDIATION` — läuft die volle 4-Schichten-Pipeline:
+Der QA-Subflow wird ausschliesslich fuer Implementation- und
+Bugfix-Stories aufgerufen (Concept- und Research-Stories durchlaufen
+keinen QA-Subflow). In jedem Fall — ob `POST_IMPLEMENTATION` oder
+`POST_REMEDIATION` — laeuft die volle 4-Schichten-Pipeline:
 
 1. Schicht 1: Deterministische Checks (Structural, Recurring Guards, ARE, Impact)
 2. Schicht 2: LLM-Bewertungen (QA, Semantic, Umsetzungstreue) — intern, kein Orchestrator-Roundtrip
 3. Schicht 3: Adversarial Testing — extern, via `agents_to_spawn` (FK-27 §27.6.1)
 4. Schicht 4: Policy-Evaluation
 
-[Korrektur 2026-04-09: "Verify ist atomar" bezieht sich nur auf Layer 2 — Layer 3 (Adversarial) spawnt weiterhin einen externen Agenten via Orchestrator (FK-27 §27.6.1), da Dateisystem-Zugriff und Subprocess-Ausführung erforderlich sind.]
+[Korrektur 2026-04-09: "Der QA-Subflow ist atomar" bezieht sich nur auf Layer 2 — Layer 3 (Adversarial) spawnt weiterhin einen externen Agenten via Orchestrator (FK-27 §27.6.1), da Dateisystem-Zugriff und Subprocess-Ausfuehrung erforderlich sind.]
 
-Layer 2 (LLM-Bewertungen) läuft vollständig intern im Phase Runner
+Layer 2 (LLM-Bewertungen) laeuft vollstaendig intern im Phase Runner
 via `ThreadPoolExecutor` — kein Orchestrator-Roundtrip, kein
 PAUSED-Zustand. Layer 3 (Adversarial) hingegen spawnt einen externen
-Agenten über `agents_to_spawn` (FK-27 §27.6.1), da dieser Dateisystem-Zugriff
-und Subprocess-Ausführung benötigt — beides liegt außerhalb der
-Fähigkeiten eines einfachen LLM-Aufrufs. Verify ist damit für Layer 2
-nicht-unterbrechend, für Layer 3 jedoch Orchestrator-vermittelt.
+Agenten ueber `agents_to_spawn` (FK-27 §27.6.1), da dieser
+Dateisystem-Zugriff und Subprocess-Ausfuehrung benoetigt — beides
+liegt ausserhalb der Faehigkeiten eines einfachen LLM-Aufrufs. Der
+QA-Subflow ist damit fuer Layer 2 nicht-unterbrechend, fuer Layer 3
+jedoch Orchestrator-vermittelt.
 
 Die LLM-Ergebnisse (Layer 2) werden als parsebares JSON persistiert
 (`qa_review.json`, `semantic_review.json`, `doc_fidelity.json`). Es gibt keinen

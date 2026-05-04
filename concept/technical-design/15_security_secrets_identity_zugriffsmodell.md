@@ -202,10 +202,11 @@ landen Secrets nie in der Git-Historie — der Agent müsste sonst
 die Historie umschreiben, was durch den Branch-Guard (kein
 Hard-Reset) verboten ist.
 
-**Stufe 2: Structural Check (Absicherung in der Verify-Phase)**
+**Stufe 2: Structural Check (Absicherung im QA-Subflow)**
 
-Der Structural Check `security.secrets` (Schicht 1 der Verify-Phase)
-prüft den vollständigen Git-Diff nochmals als Absicherung — falls
+Der Structural Check `security.secrets` (Schicht 1 des QA-Subflows
+innerhalb der Implementation-Phase) prueft den vollstaendigen
+Git-Diff nochmals als Absicherung — falls
 der Pre-Commit-Hook umgangen wurde (z.B. `--no-verify`, was aber
 durch CCAG blockierbar ist).
 
@@ -353,10 +354,10 @@ austauschbar — AgentKit kennt nur Pool-Namen, nicht Anbieter-URLs.
 
 | Daten | Wann | Enthält |
 |-------|------|---------|
-| QA-Bewertung (Schicht 2) | Verify-Phase | Code-Diff, Story-Beschreibung, Konzept-Auszüge |
-| Semantic Review | Verify-Phase | Aggregierte Befunde + Diff |
-| Dokumententreue-Prüfung | Exploration/Verify/Closure | Entwurf + Referenzdokumente |
-| Adversarial-Sparring | Verify-Phase | Implementierungsbeschreibung |
+| QA-Bewertung (Schicht 2) | QA-Subflow innerhalb Implementation | Code-Diff, Story-Beschreibung, Konzept-Auszuege |
+| Semantic Review | QA-Subflow innerhalb Implementation | Aggregierte Befunde + Diff |
+| Dokumententreue-Pruefung | Exploration/Implementation (QA-Subflow)/Closure | Entwurf + Referenzdokumente |
+| Adversarial-Sparring | QA-Subflow innerhalb Implementation | Implementierungsbeschreibung |
 | Konzept-Feedback | Konzept-Stories | Konzeptdokument |
 | Governance-Adjudication | Bei Anomalie | Verdichtete Event-Episode |
 | VektorDB-Konfliktbewertung | Story-Erstellung | Story-Beschreibung + Top-5-Treffer |
@@ -376,6 +377,116 @@ Der Secret-Detection-Check (15.5.2) wirkt präventiv auf Code-Ebene.
 | Failure Corpus | State-Backend / Artefaktspeicher | Nie (nur aggregierte Patterns ggf. in Check-Proposals) |
 | Git-Historie | `.git/` | Nie direkt (nur Diffs) |
 | Skill-Bindungen | `.claude/skills/` | Nie |
+
+## 15.10 API-Authentifizierung (UI-BFF und Project-API)
+
+### 15.10.1 Geltungsbereich
+
+Mit der Einfuehrung der Control-Plane-HTTP-Schicht und der dort
+erreichbaren Endpunkte (UI-BFF auf 9701, Project-API auf 9702, vgl.
+FK-10 §10.7) wird API-Authentifizierung erforderlich. AK3 wird primaer
+**lokal** auf einem Strategen-Laptop betrieben, der gelegentlich in
+fremden Netzwerken haengt — minimaler Schutz gegen netzwerkseitigen
+Drittzugriff ist Pflicht.
+
+Berechtigungsmodell ist explizit **single-user, single-tenant**: ein
+einzelner Stratege bedient die UI, ein oder mehrere Thin-Clients in
+Zielprojekten bedienen die Project-API. Es gibt **keine** Rollen,
+**keine** Multi-User-Kapazitaet und **keine** feinkoernigen Rechte.
+Sobald ein authentifizierter Aufrufer durch ist, sieht und kann er im
+Rahmen seines Endpunkt-Surfaces alles, was die Endpunkte fachlich
+zulassen.
+
+Das interne Principal-Modell (15.3, 15.4) bleibt davon unberuehrt —
+es regelt agentenseitige Berechtigungen *innerhalb* von AK3. Die
+API-Auth ist die *aeussere* Schicht zwischen Aufrufer und Control-Plane.
+
+### 15.10.2 Identitaetsklassen
+
+Drei klar abgegrenzte Aufrufer-Klassen:
+
+| Klasse | Aufrufer | Auth-Mechanismus | Zugriffsumfang |
+|---|---|---|---|
+| **Stratege** | Mensch im Browser | Cookie-basierte Session nach Login mit lokalem Passwort | UI-BFF (9701), alle UI-Sichten |
+| **Thin-Client** | Maschinen-Prozess im Zielprojekt | Bearer-Token im `Authorization`-Header | Project-API (9702), alle projektbezogenen Mutations- und Lesepfade |
+| **Worker-Agent** | AK3-internes Subprocess | kein API-Auth (selbe Prozesssphaere, Trusted-Path) | nur ueber AK3-Domain-Schichten, nicht ueber HTTP |
+
+Ein Worker-Agent geht nicht ueber HTTP an die Control-Plane — er
+laeuft in derselben Prozesssphaere wie AK3 und nutzt die fachlichen
+Komponenten direkt. Er braucht damit keinen API-Auth.
+
+### 15.10.3 Strategen-Login (UI-BFF)
+
+- **Lokal hinterlegtes Passwort**: ein einziger Strategen-Account.
+  Passwort-Hash liegt in einer dafuer vorgesehenen Konfigurationsdatei
+  ausserhalb des Repositories (typisch `~/.config/agentkit/auth.json`
+  oder OS-Keychain-Eintrag). Nicht im Code, nicht in `concept/`, nicht
+  in `var/`.
+- **Login-Endpoint** auf dem UI-BFF: nimmt Username (Pflicht-Feld,
+  aber faktisch nur einen erlaubten Namen) und Passwort entgegen,
+  prueft gegen den Hash, setzt bei Erfolg ein Session-Cookie.
+- **Session-Cookie** ist HttpOnly, Secure (sobald TLS aktiv), SameSite
+  strict. Inhalt: opake Session-ID, server-seitig in einer
+  In-Memory- oder File-basierten Session-Tabelle gehalten. Lebensdauer
+  z. B. 24 Stunden, automatische Verlaengerung bei Aktivitaet.
+- **Logout** invalidiert die Session-ID server-seitig.
+- **CSRF-Schutz**: SameSite-strict deckt den Hauptfall ab. Zusaetzlich
+  wird ein CSRF-Token pro Session ausgegeben und bei jeder
+  mutierenden Anfrage erwartet.
+
+Detail-Mechanik (Session-Speicher, Hash-Verfahren etc.) ist
+Implementierungsdetail; das Konzept legt nur fest, **dass** Cookie-Session
+mit lokalem Passwort der Mechanismus ist.
+
+### 15.10.4 Thin-Client-Token (Project-API)
+
+- **Bearer-Token** im HTTP-Header `Authorization: Bearer <token>`.
+- **Tokens werden pro Thin-Client-Registrierung ausgestellt** —
+  ein Projekt kann mehrere Tokens haben (z. B. ein Token pro
+  registriertem Zielprojekt-Workspace).
+- **Speicherung serverseitig**: Tokens werden gehasht in einer
+  dedizierten Tabelle gehalten (Projekt-FK, Token-Label,
+  Erstellungsdatum, ggf. Ablaufdatum). Klartext-Token wird **einmal
+  bei Erstellung** angezeigt, danach nie wieder.
+- **Speicherung clientseitig**: das Zielprojekt haelt das Token in
+  einer projekt-lokalen Konfigurationsdatei (typisch
+  `.agentkit/credentials` mit eingeschraenkten Dateirechten,
+  ausserhalb der Versionsverwaltung).
+- **Revocation**: ein Token kann ueber die Project-Management-API
+  oder die UI explizit widerrufen werden. Nach Revocation werden
+  Anfragen mit diesem Token mit 401 abgelehnt.
+
+Tokens sind **projektgebunden**. Ein Token, das fuer Projekt A
+ausgestellt wurde, darf nicht auf Projekt B operieren. Das wird
+serverseitig in der Auth-Middleware geprueft, bevor der jeweilige
+BC-Router uebernimmt.
+
+### 15.10.5 Verhalten bei fehlender oder ungueltiger Auth
+
+- **Fehlender Cookie/Token** auf einem geschuetzten Endpoint → `401
+  Unauthorized`, opake Fehlermeldung.
+- **Ungueltiger Cookie/Token** (abgelaufen, widerrufen, falsch) → `401
+  Unauthorized`, opake Fehlermeldung.
+- **Token gehoert nicht zum angefragten Projekt** → `403 Forbidden`,
+  opake Fehlermeldung.
+- **Login-Endpoint, Health-Check und ggf. SSE-Heartbeat** sind die
+  einzigen Endpoints ohne Auth-Pflicht.
+
+### 15.10.6 Erweiterbarkeit (out of scope fuer v1)
+
+Das Auth-Konzept ist bewusst minimal. Folgende Erweiterungen sind
+nicht in v1 enthalten, aber strukturell **nicht ausgeschlossen**:
+
+- Mehrere Strategen-Konten mit jeweils eigenem Passwort
+- OIDC-/SSO-Anbindung
+- Rollen- und Berechtigungsmodell pro Projekt (Owner, Operator,
+  Viewer)
+- Token-Scopes (read-only vs. read-write)
+- mTLS fuer Maschinen-Clients
+
+Wenn eine dieser Erweiterungen relevant wird, ist die Auth-Schicht
+als R-Boundary ausgelegt, in dem die zusaetzlichen Mechanismen
+nachgezogen werden koennen, ohne die fachlichen BCs anzufassen.
 
 ---
 

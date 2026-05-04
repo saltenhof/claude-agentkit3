@@ -221,3 +221,125 @@ eigenstaendige Hauptsicht:
 Wenn fuer einen dieser Bereiche eine eigene Hauptansicht entstehen
 soll, kann sie nachgeschoben werden — der Schnitt erlaubt das ohne
 Aenderung der Klammer.
+
+## 72.12 Live-Updates: SSE als einheitlicher Mechanismus
+
+Frontend und BFF kommunizieren Live-Updates ueber **Server-Sent
+Events (SSE)** — ein einheitlicher Mechanismus fuer alle Sichten,
+kein Polling.
+
+### 72.12.1 Pattern: Initial-GET plus SSE-Subscribe
+
+Jede Sicht macht beim Oeffnen genau zwei Dinge:
+
+1. **Initial-GET** auf den fachlichen REST-Endpoint (z. B.
+   `GET /v1/projects/{key}/stories`) holt den aktuellen Snapshot.
+2. **SSE-Subscribe** auf einen Event-Stream mit Topics-Filter
+   (z. B. `GET /v1/projects/{key}/events?topics=stories,phases`)
+   empfaengt Updates.
+
+Bei einem relevanten Event entweder lokal patchen oder gezielt
+re-fetchen. Ein Polling-Loop existiert nicht.
+
+### 72.12.2 Endpoint-Form
+
+| Endpoint | Skoping | Inhalt |
+|---|---|---|
+| `GET /v1/projects/{key}/events` | projekt-skopiert | alle projektbezogenen Events: Story-Lifecycle, Phasen, QA-Pruefungen, Telemetrie, Closure |
+| `GET /v1/events/hub` | projektneutral | Hub-spezifische Events (Backend-Status, Slot-Belegung, Session-Antworten) |
+
+`?topics=`-Filter ist eine Komma-getrennte Liste der Event-Topics, die
+die Sicht braucht. Server filtert serverseitig, Frontend bekommt nur,
+was es bestellt hat.
+
+### 72.12.3 Producer
+
+Der Single-Producer fuer projektbezogene Events ist
+**`telemetry`**: andere BCs schreiben Events in `telemetry`, der
+SSE-Endpoint liest aus `telemetry` und serialisiert. Damit gibt es
+genau eine Quelle und genau eine Reihenfolge fuer projektbezogene
+Live-Daten.
+
+Der Hub-Stream (`/v1/events/hub`) ist die Ausnahme: er wird vom
+`multi_llm_hub`-Adapter bedient, weil die Daten im externen Hub
+entstehen und nicht ueber `telemetry` laufen.
+
+### 72.12.4 Lossy mit Re-Sync
+
+SSE ist **lossy**: bei Backpressure droppt der Server Events. Das
+Frontend muss bei jedem Connection-Aufbau (initial oder Reconnect)
+einen frischen Initial-GET machen, um den vollstaendigen Stand zu
+holen. Reconnect-Logik ist im Browser-EventSource-Standard
+enthalten und funktioniert automatisch.
+
+Kein Sequence-ID-/Cursor-Mechanismus, kein Acknowledge-Protokoll. Der
+Re-Sync ueber Initial-GET reicht fuer einen lokalen Stratege-Tool.
+
+### 72.12.5 Auth fuer SSE
+
+Der SSE-Endpoint folgt der Auth-Regel der jeweiligen Schicht (siehe
+FK-15 §15.10): UI-BFF-SSE-Streams nutzen das Strategen-Cookie,
+Project-API-SSE-Streams (sofern noetig) nutzen das Thin-Client-Token.
+
+### 72.12.6 Event-Catalog
+
+Der vollstaendige Katalog der ueber SSE gestreamten Event-Topics und
+Event-Schemas ist Teil von **FK-91 (API- und Event-Katalog)**.
+FK-72 legt nur den Mechanismus fest, nicht das Ereignisinventar.
+
+## 72.13 Prototyp als normative Quelle fuer UI-Verhalten
+
+Frontend-UI-Verhalten — Funktionen, Layout, UX-Bedienung, visuelle
+Konventionen — wird **nicht im Konzept-Korpus auf Markdown-Ebene
+spezifiziert**. Stattdessen ist der **versionierte UI-Prototyp**
+unter `frontend/prototype/` die normative Quelle.
+
+### 72.13.1 Begruendung
+
+UI-Verhalten ist auf Papier nur eingeschraenkt definierbar. Aufwand
+und Genauigkeit eines Prototyps in Code sind in Summe niedriger als
+ein vollstaendiges schriftliches Pflichtenheft jeder Sicht. Der
+Prototyp ist gleichzeitig:
+
+- Funktionsumfang (welche Sichten, welche Aktionen)
+- Layout-Definition (welche Komposition)
+- UX-Vertrag (welche Tastatur, welcher Drag&Drop, welche Resize-,
+  Filter- und Group-by-Verhalten)
+- visuelle Sprache (Farben, Abstaende, Typografie — soweit nicht
+  durch FK-64 Design System abgedeckt)
+
+### 72.13.2 Verortung im Repository
+
+- Pfad: **`frontend/prototype/`** (versioniert, im Hauptzweig).
+- Stack: TypeScript + React + Vite (analog zum bisherigen
+  Prototyp). Die Stack-Wahl ist Implementierungsdetail; ein
+  spaeterer Engineering-Refactor kann den Stack revidieren, ohne
+  die normative Funktion des Prototyps zu beruehren.
+- Daten: aktuell Mocks. Mit fortschreitendem Backend-Bau wandert
+  der Prototyp Schritt fuer Schritt auf echte BFF-Endpunkte
+  (siehe 72.13.4).
+
+Bisheriger Stand unter `var/ui-prototype/` ist ephemer und wird
+durch den versionierten Pfad ersetzt.
+
+### 72.13.3 Iterationsmodus
+
+Der Prototyp wird **iterativ und gemeinsam mit dem Stratege**
+weiterentwickelt: ein Agent fuehrt UI-Aenderungen durch, der
+Stratege gibt Feedback im Browser, der Prototyp wird angepasst.
+Die jeweils committete Form ist normativ.
+
+### 72.13.4 Engineering-Refactor (spaetere Welle)
+
+Sobald der Prototyp funktional und in der UX stabil ist, folgt eine
+**eigene Welle Engineering-Refactor**:
+
+- Komponentenarchitektur sauber ziehen (BC-aligned Slices, Shell,
+  Foundation-Bereiche gemaess 72.3)
+- Mocks durch echte BFF-Aufrufe ersetzen
+- State-Management strukturieren
+- Tests, Performance, Accessibility nachziehen
+
+Bis dahin gilt: was im Prototyp lebt, ist Soll. Konzept-Aussagen in
+diesem Dokument oder anderen FKs duerfen ihm **nicht** widersprechen
+— bei Konflikt wird hier nachgezogen, nicht der Prototyp angepasst.

@@ -83,7 +83,7 @@ StructuredEvaluator). Die technischen Spezifikationen liegen in
 >
 > **Provenienz:** Konsolidiert aus Sparring Claude + ChatGPT
 >
-> **Bezug:** Verify-Phase, Review-System, LLM-Bewertungen
+> **Bezug:** QA-Subflow innerhalb Implementation-Phase, Review-System, LLM-Bewertungen
 
 ### 4.5.1 Problemstellung
 

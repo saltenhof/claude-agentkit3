@@ -76,18 +76,20 @@ FK-07 beschreibt die Importregeln und Blutgruppen-Semantik.
 
 ## 3. BC: verify-system
 
+`verify-system` ist ein **Capability-Bounded-Context**, kein Phase-Owner. Die Capability `VerifySystem` wird sowohl von `ExplorationPhase` (Exit-Gate, FK-23 §23.5) als auch von `ImplementationPhase` (QA-Subflow, FK-27) aufgerufen. Eine eigenstaendige Top-Phase `verify` existiert nicht — Output-QA ist interner Subflow innerhalb der Implementation-Phase. Siehe `concept/_meta/bc-cut-decisions.md` "Verify als Capability (Variante Y)".
+
 | Dokument | BC/Domain | Inhalt |
 |----------|-----------|--------|
-| `27_verify_pipeline_closure_orchestration.md` | verify-system | Atomarer QA-Zyklus, 4-Schichten-Verify (Layer 1 Deterministisch, Layer 2 LLM, Layer 3 Adversarial, Layer 4 Policy), Artefakt-Invalidierung |
+| `27_verify_pipeline_closure_orchestration.md` | verify-system | QA-Subflow innerhalb Implementation-Phase: atomarer QA-Zyklus, 4-Schichten-QA (Layer 1 Deterministisch, Layer 2 LLM, Layer 3 Adversarial, Layer 4 Policy), Artefakt-Invalidierung. Capability-Charakter: aus `ExplorationPhase` und `ImplementationPhase` aufgerufen |
 | `28_evidence_assembly_review_vorbereitung.md` | verify-system | Evidence Assembly, Import-Resolver, Autoritaetsklassen, Request-DSL, Preflight-Turn, BundleManifest |
 | `32_dokumententreue_conformance_service.md` | verify-system | 4 Pruefebenen, Referenzdokumente, JSON-Schema, Trigger |
 | `33_deterministische_checks_stage_registry_policy_engine.md` | verify-system | Stage-Registry, Check-Typen, Trust-Klassen, Aggregation |
 | `34_llm_bewertungen_adversarial_testing_runtime.md` | verify-system | LLM-Evaluator, 12 QA-Checks, Adversarial-Sandbox, Sparring |
-| `37_verify_context_und_qa_bundle.md` | verify-system | VerifyContext (POST_IMPLEMENTATION/POST_REMEDIATION), Context Sufficiency Builder, Section-aware Bundle-Packing, Vertragsprofil integration_stabilization, HARD-BLOCKER fuer fehlende LLM-Reviews |
-| `38_verify_feedback_und_doctreue_schleife.md` | verify-system | Feedback-Mechanismus, Maengelliste, Remediation-Loop / Max-Rounds-Eskalation, Mandatory-Target-Rueckkopplung, Umsetzungstreue (Ebene 3), Rueckkopplungstreue (Ebene 4) |
+| `37_verify_context_und_qa_bundle.md` | verify-system | VerifyContext (POST_IMPLEMENTATION/POST_REMEDIATION) als Subflow-internes Diskriminator-Feld auf `ImplementationPayload`, Context Sufficiency Builder, Section-aware Bundle-Packing, Vertragsprofil integration_stabilization, HARD-BLOCKER fuer fehlende LLM-Reviews |
+| `38_verify_feedback_und_doctreue_schleife.md` | verify-system | QA-Subflow-Feedback-Mechanismus, Maengelliste, Subflow-interner Remediation-Loop / Max-Rounds-Eskalation, Mandatory-Target-Rueckkopplung, Umsetzungstreue (Ebene 3), Rueckkopplungstreue (Ebene 4) |
 | `46_import_resolver.md` | verify-system | Sprachspezifische Import-Extraktion (Python, TypeScript, Java) fuer Stufe 2 der Evidence Assembly, Confidence-Labels, Spring-Heuristiken, Barrel-Aufloesung |
 | `47_request_dsl_und_preflight_turn.md` | verify-system | 7 Request-Typen (NEED_FILE, NEED_SCHEMA, ...), RequestResolver, Mehrdeutigkeitsregel, Preflight-Turn-Architektur, `review-preflight.md`-Template |
-| `48_adversarial_testing_runtime.md` | verify-system | Adversarial Agent (Schicht 3 der Verify-Pipeline) mit Sandbox, Sparring-Protokoll, Test-Promotion + Mandatory Adversarial Targets (Motivation, Datenmodell, Gate-Rueckkopplung) |
+| `48_adversarial_testing_runtime.md` | verify-system | Adversarial Agent (Schicht 3 des QA-Subflows) mit Sandbox, Sparring-Protokoll, Test-Promotion + Mandatory Adversarial Targets (Motivation, Datenmodell, Gate-Rueckkopplung) |
 
 ## 4. BC: story-lifecycle
 

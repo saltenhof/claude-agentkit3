@@ -101,14 +101,14 @@ ist ein getrennter Aufruf-Pfad ausserhalb von AgentKit-Code.
 **Was ARE erzwingt:** Vollständigkeit, nicht Qualität. Ein Agent
 kann Evidence fälschen, aber er kann keine Anforderung ignorieren.
 Ob die Evidence den Anspruch tatsächlich erfüllt, bewerten die
-Verify-Phase und der Mensch (FK-09-005 bis FK-09-010).
+QA-Subflow innerhalb der Implementation-Phase und der Mensch (FK-09-005 bis FK-09-010).
 
 **Abgrenzung Vollständigkeit vs. Qualität (FK-40-037):** ARE prüft
 ausschließlich das Vorhandensein von Evidence — d.h. ob für jede
 `must_cover`-Anforderung ein Nachweis eingereicht wurde. Die
 Bewertung, ob dieser Nachweis die Anforderung tatsächlich erfüllt
 (inhaltliche Qualität), ist explizit nicht Aufgabe von ARE. Diese
-Bewertung verbleibt in der Verify-Phase (QA-Bewertung, Semantic
+Bewertung verbleibt in der QA-Subflow innerhalb der Implementation-Phase (QA-Bewertung, Semantic
 Review) und beim Menschen im GitHub-Review. Diese Trennung ist
 beabsichtigt: ARE garantiert Lückenlosigkeit des Prozesses,
 nicht die fachliche Korrektheit des Ergebnisses.
@@ -317,7 +317,7 @@ Anforderungen er adressieren und mit Evidence belegen muss.
 
 ### 40.5.3 Andock-Punkt 3: Evidence einreichen (FK-09-017)
 
-**Wo:** Während Implementation + Verify-Phase
+**Wo:** Während Implementation + QA-Subflow innerhalb der Implementation-Phase
 
 **Wer ruft auf:** Worker-Agent und QA-Prozess
 
@@ -349,7 +349,7 @@ Adversarial Testing).
 
 ### 40.5.4 Andock-Punkt 4: ARE-Gate prüfen (FK-09-018)
 
-**Wo:** Verify-Phase, Schicht 1 (deterministische Checks)
+**Wo:** QA-Subflow innerhalb der Implementation-Phase, Schicht 1 (deterministische Checks)
 
 **Wer ruft auf:** Deterministisches Pipeline-Skript
 
@@ -396,7 +396,7 @@ Anforderungsebene. Stattdessen:
 
 **AgentKit läuft vollständig ohne ARE** (FK-09-022). Die
 Anforderungsvollständigkeit ist ohne ARE weniger robust, aber
-funktional: Die Verify-Phase prüft Akzeptanzkriterien über den
+funktional: Die QA-Subflow innerhalb der Implementation-Phase prüft Akzeptanzkriterien über den
 LLM-Review (Kap. 34.2.2, Check `ac_fulfilled`), und die statische
 Checkliste im Issue-Template dient als menschenlesbare Orientierung.
 

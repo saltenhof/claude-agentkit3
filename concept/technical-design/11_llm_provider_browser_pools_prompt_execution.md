@@ -575,7 +575,7 @@ sind, wartet der Evaluator in der Acquire-Queue.
 
 ## 11.7 Parallele LLM-Bewertungen
 
-Schicht 2 der Verify-Phase fordert zwei parallele LLM-Bewertungen
+Schicht 2 des QA-Subflows (innerhalb der Implementation-Phase) fordert zwei parallele LLM-Bewertungen
 (FK-05-153): QA-Bewertung (LLM A) und Semantic Review (LLM B).
 
 Gemäß dem Spawn-Contract (§11.1.1) laufen diese Reviews **synchron

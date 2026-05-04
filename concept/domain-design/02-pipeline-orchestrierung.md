@@ -74,10 +74,10 @@ entscheidet, wann welcher Agent arbeiten darf.
 
 Wichtig ist die Abgrenzung: Diese Pipeline beschreibt nur den
 gebundenen Story-Workflow. Sie ist **nicht** das allgemeine
-Betriebsmodell des registrierten Projekts. Außerhalb eines expliziten
+Betriebsmodell des registrierten Projekts. Ausserhalb eines expliziten
 Story-Runs befindet sich das Projekt im freien `AI-Augmented`-Modus.
 Dann darf der Mensch direkt mit Claude-Code-Agents arbeiten, ohne dass
-Verify-, Closure- oder Integrity-Pflichten aus dem Story-Workflow
+QA-Subflow-, Closure- oder Integrity-Pflichten aus dem Story-Workflow
 anspringen.
 
 Die Ablaufsteuerung wird in AK3 nicht nur fuer die Gesamtpipeline,
@@ -88,13 +88,13 @@ Execution-Policies, Overrides). Die Pipeline ist damit nur die oberste
 Ebene einer gemeinsamen hierarchischen Prozesssprache, nicht ein
 Sonderfall mit eigener Logik.
 
-Eine Story durchläuft fünf Zustände im GitHub Project Board: Backlog,
-Approved, In Progress, Done und Cancelled. Interne Zustände wie
-Verify-Fail, Eskalation oder Pause ändern den GitHub-Status nicht (die
-Story bleibt "In Progress"), solange kein offizieller administrativer
-Pfad wie Story-Split oder Story-Reset ausgeführt wird. Wenn der
-Orchestrator einen internen Zustand nicht auflösen kann, wird an den
-Menschen eskaliert.
+Eine Story durchlaeuft fuenf Zustaende im GitHub Project Board: Backlog,
+Approved, In Progress, Done und Cancelled. Interne Zustaende wie
+QA-Subflow-Fail, Eskalation oder Pause aendern den GitHub-Status nicht
+(die Story bleibt "In Progress"), solange kein offizieller
+administrativer Pfad wie Story-Split oder Story-Reset ausgefuehrt wird.
+Wenn der Orchestrator einen internen Zustand nicht aufloesen kann,
+wird an den Menschen eskaliert.
 
 Die Schwere des Prozesses hängt vom Story-Typ ab. Implementierende
 Stories (Implementation, Bugfix) durchlaufen die vollständige
@@ -135,12 +135,12 @@ entscheidet zusätzlich, ob die Story direkt implementiert wird
 
 **Konzept-Stories** produzieren Dokumente, keinen Code. Sie durchlaufen
 einen leichtgewichtigen Pfad: Der Worker erstellt das Konzeptdokument,
-prüft gegen die VektorDB auf Überschneidungen mit bestehenden Konzepten,
-und das Ergebnis wird im definierten Ablageort gespeichert. Die
-vollständige Verify-Pipeline (Structural Checks, E2E-Assertions,
-Semantic Review) entfällt, ebenso die Modus-Ermittlung und das
+prueft gegen die VektorDB auf Ueberschneidungen mit bestehenden Konzepten,
+und das Ergebnis wird im definierten Ablageort gespeichert. Der
+vollstaendige QA-Subflow (Structural Checks, E2E-Assertions,
+Semantic Review) entfaellt, ebenso die Modus-Ermittlung und das
 Integrity-Gate. Konzept-Stories haben eigene, leichtgewichtige
-Qualitätskriterien (Struktur, Vollständigkeit der Abschnitte,
+Qualitaetskriterien (Struktur, Vollstaendigkeit der Abschnitte,
 Sparring-Nachweis).
 
 **Research-Stories** sind reine Informationsbeschaffung. AgentKit
@@ -202,12 +202,12 @@ flowchart TD
         CLASSIFY -->|FAIL non-remediable| ESCALATE_DR["ESCALATED:<br/>Mensch entscheidet<br/>→ neuer Run"]
     end
 
-    subgraph IMPL_PHASE [Implementierung]
+    subgraph IMPL_PHASE ["Implementation-Phase (inkl. QA-Subflow als Exit-Gate)"]
         PLAN["Story in vertikale<br/>Inkremente schneiden"]
         PLAN --> IMPL_LOOP
 
-        IMPL_LOOP["Pro Inkrement:<br/>Implementieren,<br/>lokal verifizieren,<br/>Drift prüfen, committen"]
-        IMPL_LOOP --> REVIEW_CHECK{"Review<br/>fällig?"}
+        IMPL_LOOP["Pro Inkrement:<br/>Implementieren,<br/>lokal verifizieren,<br/>Drift pruefen, committen"]
+        IMPL_LOOP --> REVIEW_CHECK{"Review<br/>faellig?"}
         REVIEW_CHECK -->|ja| LLM_REVIEW["Review durch<br/>Pflicht-Reviewer (LLM)"]
         LLM_REVIEW --> NEXT_INC
         REVIEW_CHECK -->|nein| NEXT_INC
@@ -217,58 +217,60 @@ flowchart TD
 
         HEALTH_MON["Worker-Health-Monitor<br/>(Scoring + Intervention)"] -.->|ueberwacht<br/>kontinuierlich| IMPL_LOOP
         IMPL_LOOP -->|BLOCKED| BLOCKED_EXIT(["Worker meldet BLOCKED"])
+
+        HANDOVER --> QA_SUBFLOW_ENTRY
+
+        subgraph QA_SUBFLOW ["QA-Subflow (Capability VerifySystem; Umfang abhaengig von verify_context)"]
+            QA_SUBFLOW_ENTRY["QA-Subflow-Eintritt<br/>(verify_context gesetzt)"]
+            QA_SUBFLOW_ENTRY --> SCHICHT_1_ENTRY
+
+            subgraph SCHICHT_1 [Schicht 1: Deterministische Checks]
+                SCHICHT_1_ENTRY["Artefakt-Pruefung"]
+                SCHICHT_1_ENTRY -->|PASS| DET_PAR{Parallel}
+                SCHICHT_1_ENTRY -->|FAIL| FEEDBACK
+                DET_PAR --> STRUCTURAL["Structural Checks"]
+                DET_PAR --> RECURRING["Recurring Guards<br/>(Telemetrie)"]
+                DET_PAR --> ARE_GATE["ARE-Gate"]:::optional
+                STRUCTURAL --> DET_JOIN{Gate}
+                RECURRING --> DET_JOIN
+                ARE_GATE --> DET_JOIN
+            end
+
+            DET_JOIN -->|FAIL| FEEDBACK
+            DET_JOIN -->|PASS| LLM_PAR
+
+            subgraph SCHICHT_2 ["Schicht 2: LLM-Bewertungen (Skript, kein Agent)"]
+                LLM_PAR{Parallel} --> QA_REVIEW["QA-Bewertung<br/>12 Checks<br/>(LLM A via Skript)"]
+                LLM_PAR --> SEM_REVIEW["Semantic Review<br/>(LLM B via Skript)"]
+                QA_REVIEW --> LLM_JOIN{Gate}
+                SEM_REVIEW --> LLM_JOIN
+            end
+
+            LLM_JOIN -->|FAIL| FEEDBACK
+            LLM_JOIN -->|PASS| ADV_START
+
+            subgraph SCHICHT_3 ["Schicht 3: Adversarial Testing (Agent)"]
+                ADV_START["Adversarial Agent<br/>holt Sparring-LLM<br/>fuer Edge-Case-Ideen"]
+                ADV_START --> ADV_TEST["Tests schreiben<br/>und ausfuehren"]
+                ADV_TEST --> ADV_RESULT{Befunde?}
+            end
+
+            ADV_RESULT -->|Fehler gefunden| FEEDBACK
+            ADV_RESULT -->|kein Fehler| POLICY
+
+            POLICY["Schicht 4:<br/>Policy-Evaluation"]
+            POLICY -->|PASS| QA_SUBFLOW_PASS
+            POLICY -->|FAIL| FEEDBACK
+
+            FEEDBACK["Feedback an Worker:<br/>konkrete Maengelliste"] --> ROUND_CHECK{"Runde<br/>< max?"}
+            ROUND_CHECK -->|ja| REMEDIATION["Remediation-Worker<br/>(Subflow-intern)<br/>Artefakte invalidiert,<br/>neuer QA-Zyklus"]
+            REMEDIATION --> SCHICHT_1_ENTRY
+            ROUND_CHECK -->|nein| ESCALATE_QA["ESCALATED:<br/>Mensch entscheidet<br/>-> neuer Run"]
+            QA_SUBFLOW_PASS[QA-Subflow bestanden]
+        end
     end
 
-    HANDOVER --> VERIFY
-
-    subgraph VERIFY_PHASE ["Verify-Phase (Umfang abhängig von verify_context)"]
-
-        subgraph SCHICHT_1 [Schicht 1: Deterministische Checks]
-            VERIFY["Artefakt-Prüfung"]
-            VERIFY -->|PASS| DET_PAR{Parallel}
-            VERIFY -->|FAIL| FEEDBACK
-            DET_PAR --> STRUCTURAL["Structural Checks"]
-            DET_PAR --> RECURRING["Recurring Guards<br/>(Telemetrie)"]
-            DET_PAR --> ARE_GATE["ARE-Gate"]:::optional
-            STRUCTURAL --> DET_JOIN{Gate}
-            RECURRING --> DET_JOIN
-            ARE_GATE --> DET_JOIN
-        end
-
-        DET_JOIN -->|FAIL| FEEDBACK
-        DET_JOIN -->|PASS| LLM_PAR
-
-        subgraph SCHICHT_2 ["Schicht 2: LLM-Bewertungen (Skript, kein Agent)"]
-            LLM_PAR{Parallel} --> QA_REVIEW["QA-Bewertung<br/>12 Checks<br/>(LLM A via Skript)"]
-            LLM_PAR --> SEM_REVIEW["Semantic Review<br/>(LLM B via Skript)"]
-            QA_REVIEW --> LLM_JOIN{Gate}
-            SEM_REVIEW --> LLM_JOIN
-        end
-
-        LLM_JOIN -->|FAIL| FEEDBACK
-        LLM_JOIN -->|PASS| ADV_START
-
-        subgraph SCHICHT_3 ["Schicht 3: Adversarial Testing (Agent)"]
-            ADV_START["Adversarial Agent<br/>holt Sparring-LLM<br/>für Edge-Case-Ideen"]
-            ADV_START --> ADV_TEST["Tests schreiben<br/>und ausführen"]
-            ADV_TEST --> ADV_RESULT{Befunde?}
-        end
-
-        ADV_RESULT -->|Fehler gefunden| FEEDBACK
-        ADV_RESULT -->|kein Fehler| POLICY
-
-        POLICY["Policy-Evaluation"]
-        POLICY -->|PASS| EXIT_VERIFY
-        POLICY -->|FAIL| FEEDBACK
-
-        FEEDBACK["Feedback an Worker:<br/>konkrete Mängelliste"] --> ROUND_CHECK{"Runde<br/>< max?"}
-        ROUND_CHECK -->|ja| REMEDIATION["Remediation Worker<br/>Artefakte invalidiert,<br/>neuer QA-Zyklus"]
-        REMEDIATION --> VERIFY
-        ROUND_CHECK -->|nein| ESCALATE_QA["ESCALATED:<br/>Mensch entscheidet<br/>→ neuer Run"]
-        EXIT_VERIFY[Verify bestanden]
-    end
-
-    EXIT_VERIFY --> CLOSURE
+    QA_SUBFLOW_PASS --> CLOSURE
 
     subgraph CLOSURE_PHASE [Closure-Phase]
         CLOSURE["Integrity-Gate<br/>7 Dimensionen"]
@@ -337,37 +339,51 @@ persistierten `phase_state_projection` gelesen. Ein eventueller
 `phase-state.json`-Export ist nur eine Materialisierung derselben
 Projektion.
 
-**Graphen-Enforcement:** Der Phasenübergangsgraph definiert die
-erlaubten Übergänge:
+**Graphen-Enforcement:** Der Phasenuebergangsgraph definiert die
+erlaubten Uebergaenge zwischen den vier Top-Phasen:
 
 | Von | Erlaubte Ziele |
 |-----|----------------|
 | setup | exploration, implementation |
 | exploration | implementation |
-| implementation | verify |
-| verify | implementation, closure, exploration |
+| implementation | closure |
 | closure | (Terminal — kein Folgezustand) |
 
-Jeder Übergang, der nicht im Graphen steht, wird abgelehnt. Ohne
-vorherige `phase_state_projection` darf ausschließlich die Setup-Phase
-aufgerufen werden. Das Resume derselben Phase (z.B. Exploration
-nach PAUSED) ist kein Phasenübergang und wird nicht blockiert.
+Jeder Uebergang, der nicht im Graphen steht, wird abgelehnt. Ohne
+vorherige `phase_state_projection` darf ausschliesslich die Setup-Phase
+aufgerufen werden. Das Resume derselben Phase (z.B. Exploration nach
+PAUSED, oder Implementation mit aktivem QA-Subflow) ist kein
+Phasenuebergang und wird nicht blockiert.
 
-**Status-Prüfung der Vorphase:** Die letzte Phase muss den
-Status COMPLETED haben, bevor die nächste Phase starten darf.
-Ausnahme: Der Remediation-Pfad von `verify` zurück zu
-`implementation` oder `exploration` ist auch bei Status PAUSED
-erlaubt, da Verify-FAIL den Rückweg in die Remediation öffnet.
-Von `verify` zu `closure` ist nur bei COMPLETED zulässig.
+> **[Entscheidung 2026-05-01]** Die Top-Phase `verify` ist entfallen.
+> Output-QA ist interner Subflow innerhalb der Implementation-Phase
+> (analog zum Exit-Gate der Exploration-Phase). Die Capability
+> `VerifySystem` (BC verify-system) bleibt bestehen und wird sowohl
+> aus `ExplorationPhase` (Exit-Gate, FK-23 §23.5) als auch aus
+> `ImplementationPhase` (QA-Subflow, FK-27) aufgerufen. Es gibt
+> keinen Phasen-Wechsel `verify -> implementation` und kein
+> `verify -> closure` mehr. Siehe
+> `concept/_meta/bc-cut-decisions.md` "Verify als Capability
+> (Variante Y)".
 
-**Semantische Vorbedingungen:** Zusätzlich zum Graphen werden
-modusabhängige Bedingungen geprüft. Im Exploration Mode muss das
+**Status-Pruefung der Vorphase:** Die letzte Phase muss den
+Status COMPLETED haben, bevor die naechste Phase starten darf. Der
+QA-Subflow-Remediation-Loop ist Subflow-intern: Implementation
+verlaesst den Phase-Knoten erst, wenn der QA-Subflow
+`qa_cycle_status = pass` erreicht oder eskaliert — ein Subflow-FAIL
+fuehrt also zu keinem Phasen-Wechsel, sondern zu einer
+Subflow-Iteration innerhalb derselben Implementation-Phase.
+
+**Semantische Vorbedingungen:** Zusaetzlich zum Graphen werden
+modusabhaengige Bedingungen geprueft. Im Exploration Mode muss das
 Exploration-Gate bestanden sein
 (`payload.gate_status == ExplorationGateStatus.APPROVED`), bevor die
-Implementation-Phase betreten werden darf. Die Closure-Phase erfordert
-eine abgeschlossene Verify-Phase. Defense-in-Depth: Sowohl beim
-Phaseneintritt in `run_phase()` als auch in der Verify-Phase wird der
-Gate-Status unabhängig voneinander geprüft.
+Implementation-Phase betreten werden darf. Die Closure-Phase
+erfordert eine abgeschlossene Implementation-Phase
+(Implementation COMPLETED), was insbesondere den Subflow-internen
+PASS des QA-Subflows einschliesst. Defense-in-Depth: Sowohl beim
+Phaseneintritt in `run_phase()` als auch beim Subflow-Eintritt wird
+der Gate-Status unabhaengig voneinander geprueft.
 
 **Fehlermeldungen:** Jede Ablehnung enthält diagnostisch
 nützliche Informationen: Ausgangsphase, Zielphase, Status der
@@ -518,8 +534,8 @@ Die Häufigkeit orientiert sich an der Story-Größe:
 | M | Ein Review nach dem ersten Inkrement, ein Review vor Handover |
 | L, XL | Review nach jedem zweiten bis dritten Inkrement, plus Review vor Handover |
 
-Die Reviews ersetzen nicht die Verify-Phase. Sie machen den Worker
-produktiver, indem Probleme früh sichtbar werden statt erst beim
+Die Reviews ersetzen nicht den QA-Subflow. Sie machen den Worker
+produktiver, indem Probleme frueh sichtbar werden statt erst beim
 finalen QA-Durchlauf.
 
 #### Handover
@@ -527,7 +543,7 @@ finalen QA-Durchlauf.
 Am Ende der Implementierung erzeugt der Worker ein Handover-Paket:
 Was wurde geändert, welche Annahmen gelten, welche Tests existieren
 bereits, welche Risiken sollte der QA-Agent gezielt prüfen. Dieses
-Paket ist der Input für die Verify-Phase und gibt dem QA-Agenten
+Paket ist der Input fuer den QA-Subflow und gibt dem QA-Agenten
 gezielte Ansatzpunkte statt einer blinden Suche.
 
 #### Worker-Runaway-Prevention
@@ -588,22 +604,30 @@ Details zum Scoring-Modell, zur Sidecar-Architektur und zur
 Hook-Commit-Failure-Klassifikation siehe
 [03-governance-und-guards.md](03-governance-und-guards.md).
 
-### Verify-Phase
+### QA-Subflow innerhalb der Implementation-Phase
 
-Nach der Implementierung durchläuft die Story die Verify-Phase. Sie
-besteht aus vier Schichten, die aufeinander aufbauen. Nur ein einziger
-Agent (der Adversarial Testing Agent) hat Dateisystem-Zugriff. Die
-LLM-basierten Bewertungen laufen als deterministische Pipeline-Schritte,
-die LLMs über API/Pool als Bewertungsfunktion aufrufen, nicht als
-eigenständige Agents.
+Vor Phasenabschluss durchlaeuft die Story einen QA-Subflow innerhalb
+der Implementation-Phase (analog zum Exit-Gate der Exploration-Phase,
+FK-23 §23.5). Der Subflow ruft die Capability `VerifySystem` (BC
+verify-system) auf und besteht aus vier Schichten, die aufeinander
+aufbauen. Nur ein einziger Agent (der Adversarial Testing Agent) hat
+Dateisystem-Zugriff. Die LLM-basierten Bewertungen laufen als
+deterministische Pipeline-Schritte, die LLMs ueber API/Pool als
+Bewertungsfunktion aufrufen, nicht als eigenstaendige Agents.
 
-**Verify-Kontext, atomarer QA-Zyklus, vier Verify-Schichten
+`verify-system` ist ein Capability-Bounded-Context, kein Phase-Owner.
+Er wird sowohl von `ExplorationPhase` (Exit-Gate) als auch von
+`ImplementationPhase` (QA-Subflow nach Worker-Run) aufgerufen.
+
+**Verify-Kontext, atomarer QA-Zyklus, vier QA-Subflow-Schichten
 (Deterministische Checks, LLM-Bewertungen, Adversarial Testing,
 Policy-Evaluation), Remediation-Schleife und Finding-Resolution sind
 in [04-qualitaetssicherung.md](04-qualitaetssicherung.md) auf
-Domain-Ebene normiert. Die technische Spezifikation liegt in FK-27,
-FK-37 (Verify-Context), FK-38 (Feedback und Remediation) und FK-34
-(LLM-Evaluator und Adversarial-Runtime).**
+Domain-Ebene normiert. Die technische Spezifikation liegt in FK-27
+(QA-Subflow innerhalb Implementation: Schichten und QA-Zyklus),
+FK-37 (Verify-Context als Subflow-internes Diskriminator-Feld),
+FK-38 (Feedback und Remediation) und FK-34 (LLM-Evaluator und
+Adversarial-Runtime).**
 
 ### Closure-Phase
 
@@ -632,7 +656,7 @@ Nach den Metriken wird ein Execution Report erzeugt: ein
 konsolidierter Abschlussbericht, der den gesamten Story-Durchlauf
 für den Menschen zusammenfasst. Der Bericht enthält eine
 Zusammenfassungstabelle (Story-ID, Typ, Modus, Status, Dauer,
-QA-Runden, Feedback-Runden, durchlaufene Verify-Schichten), bei
+QA-Runden, Feedback-Runden, durchlaufene QA-Subflow-Schichten), bei
 Scheitern eine Fehlerdiagnose (gescheiterte Phase, Hauptfehler,
 Auslöser), den Gesundheitszustand aller Artefakte (welche
 Datenquellen verfügbar vs. fehlend/ungültig), Structural-Check-
@@ -699,7 +723,7 @@ macht die nachfolgenden Checks hinfällig.
 Jede Story-Bearbeitung erzeugt Pflichtartefakte. Die folgenden
 Definitionen beschreiben Speicherort, Pflichtfelder und
 Validierungsregeln pro Artefakt. Referenz: Abschnitt 2.2
-(Handover, Verify-Phase).
+(Handover, QA-Subflow innerhalb Implementation-Phase).
 
 ### D.1 protocol.md (Implementierungsprotokoll)
 
@@ -741,7 +765,7 @@ Validierungsregeln pro Artefakt. Referenz: Abschnitt 2.2
 | Eigenschaft | Wert |
 |-------------|------|
 | Speicherort | Story-Verzeichnis (`.agentkit/stories/<story-id>/handover.md`) |
-| Erzeuger | Worker-Agent, am Ende der Implementierung vor Übergabe an die Verify-Phase |
+| Erzeuger | Worker-Agent, am Ende des Worker-Runs vor Eintritt in den QA-Subflow innerhalb der Implementation-Phase |
 | Format | Markdown |
 
 **Pflichtabschnitte:**

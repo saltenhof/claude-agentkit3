@@ -24,8 +24,8 @@ defers_to:
     scope: exploration-payload
     reason: ExplorationPayload und ExplorationPhaseMemory werden in FK-23 fachlich verfeinert
   - target: FK-37
-    scope: verify-payload
-    reason: VerifyPayload und verify_context-Semantik liegen in FK-37
+    scope: verify-context
+    reason: verify_context-Semantik (Subflow-internes Diskriminator-Feld der Implementation-Phase) liegt in FK-37
   - target: FK-29
     scope: closure-payload
     reason: ClosurePayload und ClosureProgress liegen in FK-29
@@ -77,17 +77,17 @@ glossary:
     - id: phase-memory
       definition: >
         Phasenuebergreifende Zaehler, die per Carry-Forward ueber
-        Phase-Transitionen mitgefuehrt werden. Enthaelt
-        exploration.review_rounds und verify.feedback_rounds. Wird
-        ausschliesslich von der Engine inkrementiert, nie von
-        Phase-Handlern.
+        Phase-Transitionen und Subflow-Iterationen mitgefuehrt werden.
+        Enthaelt exploration.review_rounds und
+        implementation.qa_feedback_rounds. Wird ausschliesslich von der
+        Engine inkrementiert, nie von Phase-Handlern.
     - id: phase-payload
       definition: >
         Discriminated union im PhaseState, gesteuert ueber payload.type.
         Enthaelt phase-spezifische Durable Contract Fields. Typen:
-        ExplorationPayload (gate_status), VerifyPayload (verify_context),
-        ClosurePayload (progress). Setup und Implementation haben kein
-        Payload (null).
+        ExplorationPayload (gate_status), ImplementationPayload
+        (qa_cycle_status, verify_context, qa_feedback_rounds),
+        ClosurePayload (progress). Setup hat kein Payload (null).
     - id: phase-state-core
       definition: >
         Pflicht-Kernteil des persistierten PhaseState. Enthaelt
@@ -155,7 +155,7 @@ auf `phase-state.json` meinen den Export der kanonischen
   "schema_version": "4.0",
   "story_id": "ODIN-042",
   "run_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-  "phase": "verify",
+  "phase": "implementation",
   "status": "IN_PROGRESS",
   "mode": "exploration",
   "story_type": "implementation",
@@ -176,7 +176,8 @@ auf `phase-state.json` meinen den Export der kanonischen
   "producer": { "type": "script", "name": "run-phase" },
 
   "payload": {
-    "type": "verify",
+    "type": "implementation",
+    "qa_cycle_status": "awaiting_qa",
     "verify_context": "POST_IMPLEMENTATION"
   },
 
@@ -184,28 +185,41 @@ auf `phase-state.json` meinen den Export der kanonischen
     "exploration": {
       "review_rounds": 0
     },
-    "verify": {
-      "feedback_rounds": 1
+    "implementation": {
+      "qa_feedback_rounds": 1
     }
   }
 }
 ```
 
-[Entscheidung 2026-04-09] Gegenüber dem früheren flachen v2-Modell
+[Entscheidung 2026-04-09] Gegenueber dem frueheren flachen v2-Modell
 (schema_version 3.0) wurden folgende Felder in die richtige Schicht
-überführt:
-- `verify_context` → `payload.verify_context` (VerifyPayload)
-- `feedback_rounds` → `memory.verify.feedback_rounds` (PhaseMemory)
-- `verify_layer` → entfernt (ephemerer Fortschritt, nicht durable;
+ueberfuehrt:
+- `verify_context` -> `payload.verify_context` (jetzt Teil des
+  `ImplementationPayload`, vormals `VerifyPayload` der entfallenen
+  Top-Phase `verify`)
+- `feedback_rounds` -> `memory.implementation.qa_feedback_rounds`
+  (PhaseMemory; vormals `memory.verify.feedback_rounds`)
+- `verify_layer` -> entfernt (ephemerer Fortschritt, nicht durable;
   wird bei Resume aus den vorhandenen Artefakten rekonstruiert)
-- `closure_substates` → `payload.progress` (ClosurePayload)
-- `exploration_gate_status` → `payload.gate_status` (ExplorationPayload)
-- `exploration_review_round` → `memory.exploration.review_rounds` (PhaseMemory)
+- `closure_substates` -> `payload.progress` (ClosurePayload)
+- `exploration_gate_status` -> `payload.gate_status` (ExplorationPayload)
+- `exploration_review_round` -> `memory.exploration.review_rounds` (PhaseMemory)
 
 [Korrektur 2026-04-09] Im JSON-Beispiel oben wurde `"verify_context":
 "post_implementation"` (lowercase v2-String) auf `"POST_IMPLEMENTATION"`
 korrigiert. Korrekte Serialisierung des `VerifyContext`-StrEnum ist
 Uppercase (`POST_IMPLEMENTATION`, `POST_REMEDIATION`).
+
+> **[Entscheidung 2026-05-01]** Die Top-Phase `verify` und der Payload-
+> Typ `VerifyPayload` entfallen. Output-QA ist ein interner Subflow
+> innerhalb der `implementation`-Phase (analog zum Exit-Gate der
+> `exploration`-Phase, FK-23 §23.5). Die ehemaligen `VerifyPayload`-
+> Felder (`verify_context`) und der ehemalige Verify-Remediation-
+> Zaehler (`memory.verify.feedback_rounds`) werden in
+> `ImplementationPayload` bzw. `memory.implementation.qa_feedback_rounds`
+> gefuehrt. Siehe `concept/_meta/bc-cut-decisions.md` "Verify als
+> Capability (Variante Y)".
 
 ## 39.2 Schlüsselfelder nach Schicht [Entscheidung 2026-04-09]
 
@@ -218,7 +232,7 @@ Uppercase (`POST_IMPLEMENTATION`, `POST_REMEDIATION`).
 | `schema_version` | String | Versionsnummer des State-Schemas (aktuell `"4.0"`) |
 | `story_id` | String | Eindeutige Story-ID (z.B. `"ODIN-042"`) |
 | `run_id` | String (UUID) | Eindeutige ID des aktuellen Pipeline-Durchlaufs |
-| `phase` | Enum | Aktuelle Phase: setup, exploration, implementation, verify, closure |
+| `phase` | Enum | Aktuelle Phase: setup, exploration, implementation, closure. [Entscheidung 2026-05-01: `verify` entfaellt als Top-Phase — QA-Subflow laeuft intern in `implementation`.] |
 | `status` | Enum | IN_PROGRESS, COMPLETED, FAILED, ESCALATED, PAUSED |
 | `mode` | Enum | execution, exploration (nach Mode-Routing gesetzt). Fachlich ist dies die Achse `execution_route` gemaess FK-59, **nicht** `operating_mode`. Für Concept/Research-Stories immer `"execution"` — diese Story-Typen unterstützen keinen Exploration Mode; der Phase Runner setzt `mode = "execution"` ohne Mode-Routing-Prüfung. |
 | `story_type` | Enum | implementation, bugfix, concept, research |
@@ -234,9 +248,9 @@ Uppercase (`POST_IMPLEMENTATION`, `POST_REMEDIATION`).
 
 > [Hinweis 2026-04-09, konsolidiert 2026-04-19: `mode` und `story_type` sind in StoryContext (context.json) die primäre Quelle (Element 16). `mode` ist dabei nur der Wire-Name fuer die fachliche Achse `execution_route` gemaess FK-59. PhaseStateCore enthält sie als denormalisierte Kopie — der Phase Runner liest sie aus phase-state.json ohne separaten context.json-Load. Keine inhaltliche Abweichung von Element 16.]
 
-> **[Entscheidung 2026-04-09]** Die Felder `feedback_rounds`, `max_feedback_rounds`, `exploration_gate_status`, `verify_context`, `verify_layer`, `closure_substates` aus der v2-Tabelle entfallen aus dem flachen `PhaseStateCore`. Sie werden in die neue Schichtstruktur überführt: `ExplorationPayload.gate_status`, `VerifyPayload.verify_context`, `ClosurePayload.progress` (PhasePayload) sowie `PhaseMemory.verify.feedback_rounds`, `PhaseMemory.exploration.review_rounds` (PhaseMemory). Siehe §39.3, §39.5. [Hinweis: PhasePayload ist in §39.2 (Feldtabelle) und §39.3 (PhaseEnvelope/Python-Definitionen) dokumentiert.]
+> **[Entscheidung 2026-04-09]** Die Felder `feedback_rounds`, `max_feedback_rounds`, `exploration_gate_status`, `verify_context`, `verify_layer`, `closure_substates` aus der v2-Tabelle entfallen aus dem flachen `PhaseStateCore`. Sie werden in die neue Schichtstruktur ueberfuehrt: `ExplorationPayload.gate_status`, `ImplementationPayload.verify_context` und `ImplementationPayload.qa_cycle_status`, `ClosurePayload.progress` (PhasePayload) sowie `PhaseMemory.implementation.qa_feedback_rounds`, `PhaseMemory.exploration.review_rounds` (PhaseMemory). Siehe §39.3, §39.5. [Entscheidung 2026-05-01: VerifyPayload und `memory.verify.feedback_rounds` entfallen; Felder leben jetzt in `ImplementationPayload` und `memory.implementation.qa_feedback_rounds`.]
 
-> **[Entscheidung 2026-04-09]** Zwei getrennte Zählerfelder entfallen aus dem flachen `PhaseStateCore` und werden in `PhaseMemory` überführt: (1) `exploration_review_round` (Exploration-Remediation-Zähler) → `memory.exploration.review_rounds` (`ExplorationPhaseMemory`); (2) `feedback_rounds` (Verify-Remediation-Zähler) → `memory.verify.feedback_rounds` (`VerifyPhaseMemory`). Beide Zähler werden per Carry-Forward über Phasenwechsel mitgeführt. Kein Zusammenhang zwischen den beiden Zählern — `exploration_review_round` betrifft Design-Review-Runden, `feedback_rounds` betrifft Verify→Implementation-Zyklen. Verweis auf Designwizard R1+R2 vom 2026-04-09. Siehe §39.5.
+> **[Entscheidung 2026-04-09, aktualisiert 2026-05-01]** Zwei getrennte Zaehlerfelder entfallen aus dem flachen `PhaseStateCore` und werden in `PhaseMemory` ueberfuehrt: (1) `exploration_review_round` (Exploration-Remediation-Zaehler) -> `memory.exploration.review_rounds` (`ExplorationPhaseMemory`); (2) `feedback_rounds` (QA-Subflow-Remediation-Zaehler) -> `memory.implementation.qa_feedback_rounds` (`ImplementationPhaseMemory`). Beide Zaehler werden per Carry-Forward ueber Phasenwechsel und Subflow-Iterationen mitgefuehrt. Kein Zusammenhang zwischen den beiden Zaehlern — `exploration_review_round` betrifft Design-Review-Runden, `qa_feedback_rounds` betrifft den Subflow-internen QA-Remediation-Loop. Verweis auf Designwizard R1+R2 vom 2026-04-09. Siehe §39.5.
 
 ### 39.2.2 PauseReason (StrEnum) [Entscheidung 2026-04-09]
 
@@ -272,9 +286,9 @@ Durable Contract Fields:
 | Phase | Payload-Typ | Felder | Beschreibung |
 |-------|-------------|--------|-------------|
 | exploration | `ExplorationPayload` | `gate_status: ExplorationGateStatus` | Fortschritt durch das Exit-Gate. Werte: `PENDING`, `APPROVED`, `REJECTED` |
-| verify | `VerifyPayload` | `verify_context: VerifyContext` | QA-Tiefe: `POST_IMPLEMENTATION` (volle 4-Schichten-QA) oder `POST_REMEDIATION` (Nachprüfung nach Remediation). Wird vom Phase Runner vor dem Verify gesetzt. Siehe DK-02 §Verify-Kontext. |
-| closure | `ClosurePayload` | `progress: ClosureProgress` | Fortschritt der Closure-Substates: `integrity_passed`, `merge_done`, `issue_closed`, `metrics_written`, `postflight_done` (je `bool`). [Hinweis: Für Concept/Research-Stories ohne Worktree/Branch werden `integrity_passed` und `merge_done` vom Phase Handler direkt auf `true` gesetzt (kein Branch vorhanden = nichts zu prüfen/mergen). Detaillierte Closure-Logik in FK-29 §29.1.] |
-| setup, implementation | — | — | Kein Payload erforderlich (`payload: null`) |
+| implementation | `ImplementationPayload` | `qa_cycle_status: QaCycleStatus`, `verify_context: VerifyContext \| None` | QA-Subflow-Status (FK-27 §27.2.2: `idle`, `awaiting_qa`, `awaiting_policy`, `pass`, `awaiting_remediation`, `escalated`) und QA-Tiefe (`POST_IMPLEMENTATION` initial / `POST_REMEDIATION` nach Worker-Remediation). Wird vom Phase Runner beim Eintritt in den QA-Subflow gesetzt. Siehe FK-37 §37.1. [Entscheidung 2026-05-01: ImplementationPayload neu — vormals VerifyPayload der entfallenen Top-Phase `verify`.] |
+| closure | `ClosurePayload` | `progress: ClosureProgress` | Fortschritt der Closure-Substates: `integrity_passed`, `merge_done`, `issue_closed`, `metrics_written`, `postflight_done` (je `bool`). [Hinweis: Fuer Concept/Research-Stories ohne Worktree/Branch werden `integrity_passed` und `merge_done` vom Phase Handler direkt auf `true` gesetzt (kein Branch vorhanden = nichts zu pruefen/mergen). Detaillierte Closure-Logik in FK-29 §29.1.] |
+| setup | — | — | Kein Payload erforderlich (`payload: null`) |
 
 ### 39.2.4 PhaseMemory (phasenübergreifend, carry-forward)
 
@@ -284,15 +298,15 @@ mitgeführt werden. Sie werden von der Engine inkrementiert,
 
 | Pfad | Typ | Beschreibung |
 |------|-----|-------------|
-| `memory.exploration.review_rounds` | Integer | Zähler für Design-Review-Remediation-Runden (max 3). Wird von der Engine inkrementiert, NICHT vom Handler. |
-| `memory.verify.feedback_rounds` | Integer | Anzahl Verify→Implementation-Zyklen (max 3). Wird von der Engine inkrementiert, NICHT vom Handler. |
+| `memory.exploration.review_rounds` | Integer | Zaehler fuer Design-Review-Remediation-Runden (max 3). Wird von der Engine inkrementiert, NICHT vom Handler. |
+| `memory.implementation.qa_feedback_rounds` | Integer | Anzahl QA-Subflow-Remediation-Iterationen innerhalb der Implementation-Phase (max 3). Wird von der Engine inkrementiert, NICHT vom Handler. [Entscheidung 2026-05-01: vormals `memory.verify.feedback_rounds`; nach Cut der Top-Phase `verify` ist der Zaehler im `ImplementationPhaseMemory` gefuehrt.] |
 
-> [Hinweis 2026-04-09] **Typnamen vs. Feldpfade:** Die Memory-Felder
-> werden in FK-39 über ihren Feldpfad referenziert (z.B.
+> [Hinweis 2026-04-09, aktualisiert 2026-05-01] **Typnamen vs. Feldpfade:** Die Memory-Felder
+> werden in FK-39 ueber ihren Feldpfad referenziert (z.B.
 > `memory.exploration.review_rounds`). FK-23 verwendet stattdessen den
 > Typnamen `ExplorationPhaseMemory.review_rounds`. Das ist kein
 > Widerspruch: `memory.exploration` ist vom Typ `ExplorationPhaseMemory`,
-> `memory.verify` ist vom Typ `VerifyPhaseMemory`. Die Kurzform
+> `memory.implementation` ist vom Typ `ImplementationPhaseMemory`. Die Kurzform
 > `ExplorationPhaseMemory.review_rounds` in FK-23 referenziert denselben
 > Feldpfad wie `memory.exploration.review_rounds` in FK-39.
 
@@ -441,33 +455,36 @@ Wenn ein Guard den Phaseneintritt **deliberat ablehnt** (Guard-Funktion gibt `Fa
 
 ## 39.5 PhaseMemory — phasenübergreifende Laufzeitzähler
 
-> **[Entscheidung 2026-04-09]** `PhaseMemory` wird als vierte Schicht in `PhaseState` eingeführt. `exploration_review_round` entfällt von `PhaseStateCore` und wird in `memory.exploration.review_rounds` (`ExplorationPhaseMemory`) überführt. `feedback_rounds` ist ein separates Feld in `memory.verify.feedback_rounds` (`VerifyPhaseMemory`) und betrifft Verify-Remediation-Runden — kein Zusammenhang mit `exploration_review_round`. Carry-Forward bei jedem Phasenwechsel. Verweis auf Designwizard R1+R2 vom 2026-04-09.
+> **[Entscheidung 2026-04-09, aktualisiert 2026-05-01]** `PhaseMemory` wird als vierte Schicht in `PhaseState` eingefuehrt. `exploration_review_round` entfaellt von `PhaseStateCore` und wird in `memory.exploration.review_rounds` (`ExplorationPhaseMemory`) ueberfuehrt. Der QA-Remediation-Zaehler liegt in `memory.implementation.qa_feedback_rounds` (`ImplementationPhaseMemory`) und betrifft Subflow-interne QA-Iterationen — kein Zusammenhang mit `exploration_review_round`. Carry-Forward bei jedem Phasenwechsel und ueber Subflow-Iterationen. Verweis auf Designwizard R1+R2 vom 2026-04-09. [Entscheidung 2026-05-01: vormals `memory.verify.feedback_rounds` / `VerifyPhaseMemory` — mit Cut der Top-Phase `verify` jetzt im `ImplementationPhaseMemory`.]
 >
-> [Korrektur 2026-04-09: review_round → memory.exploration.review_rounds (nicht feedback_rounds). feedback_rounds = Verify-Remediation-Zähler in memory.verify.feedback_rounds.]
+> [Korrektur 2026-04-09: review_round -> memory.exploration.review_rounds (nicht feedback_rounds). qa_feedback_rounds = QA-Subflow-Remediation-Zaehler in memory.implementation.qa_feedback_rounds.]
 
-`PhaseMemory` ist eine persistierte Schicht in `PhaseState` für phasenspezifische Zähler und Akkumulatoren, die über Phasenwechsel hinweg erhalten bleiben:
+`PhaseMemory` ist eine persistierte Schicht in `PhaseState` fuer phasenspezifische Zaehler und Akkumulatoren, die ueber Phasenwechsel hinweg erhalten bleiben:
 
 ```python
-class VerifyPhaseMemory(BaseModel):
-    feedback_rounds: int = 0  # Anzahl Verify→Remediation→Implementation→Verify-Zyklen
+class ImplementationPhaseMemory(BaseModel):
+    qa_feedback_rounds: int = 0  # Anzahl QA-Subflow-Remediation-Iterationen
+                                 # (Worker-run -> qa-subflow FAIL -> remediation
+                                 # -> qa-subflow re-run) innerhalb derselben
+                                 # implementation-Phase
 
 class ExplorationPhaseMemory(BaseModel):
     review_rounds: int = 0  # Exploration-Remediation-Zyklen (max 3)
 
 class PhaseMemory(BaseModel):
-    verify: VerifyPhaseMemory = Field(default_factory=VerifyPhaseMemory)
+    implementation: ImplementationPhaseMemory = Field(default_factory=ImplementationPhaseMemory)
     exploration: ExplorationPhaseMemory = Field(default_factory=ExplorationPhaseMemory)
 ```
 
-**Exploration-Remediation-Zähler:** Die Exploration-Phase erlaubt maximal 3 Remediation-Runden — gleiches Prinzip wie Verify. Die Engine inkrementiert `phase_memory.exploration.review_rounds` beim Wiedereintritt in die Exploration-Phase für eine neue Remediation-Runde (PAUSED → exploration re-entry), NICHT beim Übergang exploration→implementation. `exploration_review_round` aus v2 war kein Artefakt, sondern wird als `ExplorationPhaseMemory.review_rounds` in die neue PhaseMemory-Schicht überführt.
+**Exploration-Remediation-Zaehler:** Die Exploration-Phase erlaubt maximal 3 Remediation-Runden — gleiches Prinzip wie der QA-Subflow. Die Engine inkrementiert `phase_memory.exploration.review_rounds` beim Wiedereintritt in die Exploration-Phase fuer eine neue Remediation-Runde (PAUSED -> exploration re-entry), NICHT beim Uebergang exploration->implementation. `exploration_review_round` aus v2 war kein Artefakt, sondern wird als `ExplorationPhaseMemory.review_rounds` in die neue PhaseMemory-Schicht ueberfuehrt.
 
-> [Korrektur 2026-04-09: Inkrementzeitpunkt review_rounds korrigiert — increment bei Wiedereintritt in Exploration (nach PAUSED), nicht bei exploration→implementation.]
+> [Korrektur 2026-04-09: Inkrementzeitpunkt review_rounds korrigiert — increment bei Wiedereintritt in Exploration (nach PAUSED), nicht bei exploration->implementation.]
 
-**Semantik:** `PhaseMemory` zählt kumulativ über den gesamten Story-Lifecycle. Wenn Verify nach einer Remediation erneut betreten wird, ist `payload` (VerifyPayload) frisch — aber `phase_memory.verify.feedback_rounds` enthält den kumulierten Zähler aller bisherigen Remediation-Zyklen.
+**Semantik:** `PhaseMemory` zaehlt kumulativ ueber den gesamten Story-Lifecycle. Wenn der QA-Subflow nach einer Remediation erneut durchlaufen wird, ist `payload` (ImplementationPayload) frisch — aber `phase_memory.implementation.qa_feedback_rounds` enthaelt den kumulierten Zaehler aller bisherigen Subflow-Iterationen.
 
-**Carry-Forward-Mechanismus:** Die Engine trägt `PhaseMemory` bei JEDEM Phasenwechsel mit. Neue Phase-States erben die `PhaseMemory` aus dem vorigen State unverändert.
+**Carry-Forward-Mechanismus:** Die Engine traegt `PhaseMemory` bei JEDEM Phasenwechsel und bei jeder Subflow-Iteration mit. Neue Phase-States erben die `PhaseMemory` aus dem vorigen State unveraendert.
 
-**Inkrementierungszeitpunkt:** Die Engine inkrementiert `phase_memory.verify.feedback_rounds` beim Übergang `verify → implementation` (Remediation-Pfad), **bevor** der neue Implementation-State erzeugt wird.
+**Inkrementierungszeitpunkt:** Die Engine inkrementiert `phase_memory.implementation.qa_feedback_rounds` zu Beginn einer neuen QA-Subflow-Remediation-Iteration (nach Worker-Spawn-Anforderung, VOR der erneuten QA-Subflow-Ausfuehrung), nicht beim Phasenwechsel.
 
 **Abgrenzung zu anderen Schichten:**
 
@@ -490,8 +507,8 @@ class PhaseMemory(BaseModel):
 | Wer schreibt | Wann | Was |
 |-------------|------|-----|
 | Phase Runner | Bei jedem Phasenwechsel | `PhaseStateCore`: phase, status, timestamps |
-| Phase Runner | Bei Payload-Wechsel | `payload`: z.B. `verify_context` beim Verify-Eintritt, `progress` bei Closure-Substates |
-| Phase Runner (Engine) | Bei Feedback-Loop / Review-Loop | `memory.verify.feedback_rounds++` bzw. `memory.exploration.review_rounds++` — Inkrement erfolgt NACH bestandenem Guard-Check, VOR der Transition (siehe FK-45 §45.2). [Entscheidung 2026-04-09] |
+| Phase Runner | Bei Payload-Wechsel | `payload`: z.B. `qa_cycle_status`/`verify_context` beim QA-Subflow-Eintritt (ImplementationPayload), `progress` bei Closure-Substates |
+| Phase Runner (Engine) | Bei QA-Subflow-Iteration / Review-Loop | `memory.implementation.qa_feedback_rounds++` bzw. `memory.exploration.review_rounds++` — Inkrement erfolgt NACH bestandenem Guard-Check, VOR der Subflow-Iteration (siehe FK-45 §45.2). [Entscheidung 2026-04-09, aktualisiert 2026-05-01: vormals `memory.verify.feedback_rounds++` an der Top-Phase-Transition `verify -> implementation`; jetzt Subflow-intern in `implementation`.] |
 | AttemptRecord-Writer | Vor jedem **phasenabschließenden** `save_phase_state` (COMPLETED/FAILED/ESCALATED/PAUSED) — nicht vor Intermediate Saves (z.B. feedback_rounds-Inkrement, FK-45 §45.2) | AttemptRecord in History-Datei (siehe §39.4) |
 
 **Nur der Phase Runner schreibt.** Der Orchestrator liest und

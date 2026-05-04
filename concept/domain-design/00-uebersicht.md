@@ -143,13 +143,13 @@ unterschiedliche LLMs und unterschiedliche Zugriffsrechte durchgesetzt.
 
 **4.2 Deterministische Pipeline-Orchestrierung** (→ [02-pipeline-orchestrierung.md](02-pipeline-orchestrierung.md)).
 Der Story-Lifecycle folgt einer festen Phasenfolge. Kein Agent entscheidet
-über den Ablauf, der Ablauf entscheidet, wann welcher Agent arbeiten darf.
+ueber den Ablauf, der Ablauf entscheidet, wann welcher Agent arbeiten darf.
 Story-Typ bestimmt die Prozessschwere. Ein deterministischer Kriterienkatalog
 entscheidet zwischen Execution Mode und Exploration Mode. Der
-Phasenübergangsgraph wird zur Laufzeit erzwungen — ungültige Übergänge
-werden fail-closed blockiert. Die Verify-Phase unterscheidet zwischen
-Post-Exploration (leichtgewichtig) und Post-Implementation (volle
-4-Schichten-QA).
+Phasenuebergangsgraph wird zur Laufzeit erzwungen — ungueltige Uebergaenge
+werden fail-closed blockiert. Der QA-Subflow innerhalb der Implementation-Phase
+unterscheidet ueber `verify_context` zwischen Post-Implementation und
+Post-Remediation (beide mit voller 4-Schichten-QA).
 
 **4.3 Fail-Closed Governance** (→ [03-governance-und-guards.md](03-governance-und-guards.md)).
 Jede Unklarheit ist ein Fehler. Guards verhindern destruktive Operationen,
@@ -165,15 +165,18 @@ Endlosschleifen über ein gewichtetes Scoring-Modell und interveniert
 gestuft (Warnung → Selbstdiagnose → Hard Stop). Workers können über
 den BLOCKED-Status unlösbare Constraint-Konflikte sauber eskalieren.
 
-**4.4 Mehrstufige Qualitätssicherung** (→ [04-qualitaetssicherung.md](04-qualitaetssicherung.md)).
-Vier Schichten in der Verify-Phase: deterministische Checks, parallele
-LLM-Bewertungen (via Skript), Adversarial Testing Agent (baut aktiv neue
-Tests) und Policy-Evaluation. Jede Verify-Remediation-Iteration bildet
-einen atomaren QA-Zyklus mit eigener Identität und Evidenz-Epoche.
-Artefakte aus vorherigen Zyklen werden invalidiert, damit keine veraltete
-Evidenz in die nächste Bewertung einfließt. Die Remediation-Schleife ist
-auf eine konfigurierbare Maximalzahl begrenzt, danach wird an den Menschen
-eskaliert.
+**4.4 Mehrstufige Qualitaetssicherung** (→ [04-qualitaetssicherung.md](04-qualitaetssicherung.md)).
+Vier Schichten im QA-Subflow innerhalb der Implementation-Phase:
+deterministische Checks, parallele LLM-Bewertungen (via Skript),
+Adversarial Testing Agent (baut aktiv neue Tests) und Policy-Evaluation.
+`verify-system` ist Capability-BC, kein Phase-Owner — die Capability wird
+sowohl von Exploration (Exit-Gate) als auch von Implementation
+(QA-Subflow) aufgerufen. Jede Subflow-interne Remediation-Iteration
+bildet einen atomaren QA-Zyklus mit eigener Identitaet und
+Evidenz-Epoche. Artefakte aus vorherigen Zyklen werden invalidiert,
+damit keine veraltete Evidenz in die naechste Bewertung einfliesst. Die
+Remediation-Schleife ist auf eine konfigurierbare Maximalzahl begrenzt,
+danach wird an den Menschen eskaliert.
 
 **4.5 Telemetrie, Metriken und KPIs** (→ [05-telemetrie-und-metriken.md](05-telemetrie-und-metriken.md)).
 Protokollierung dort, wo Agents autonom handeln. Die Telemetrie ist
@@ -209,22 +212,31 @@ Ergebnisqualität.
 
 Jede Säule wird in den Teilkonzepten 01 bis 09 im Detail beschrieben.
 
-## 5. Die 5-Phasen-Pipeline
+## 5. Die 4-Phasen-Pipeline mit QA-Subflow innerhalb Implementation
 
-Jede Story durchläuft bis zu fünf Phasen in fester Reihenfolge.
+Jede Story durchlaeuft bis zu vier Phasen in fester Reihenfolge.
 Jede Phase produziert Artefakte und endet mit einem klaren Status
-(COMPLETED, FAILED, ESCALATED).
+(COMPLETED, FAILED, ESCALATED). Der QA-Subflow laeuft als Exit-Gate
+innerhalb der Implementation-Phase (analog zum Exit-Gate der
+Exploration-Phase) und ruft die Capability `VerifySystem` (BC
+verify-system).
 
 ```
-Setup  -->  Exploration  -->  Implementation  -->  Verify  -->  Closure
-  |          (optional)           |                  |            |
-  |                               |                  |            |
-  v                               v                  v            v
-Kontext          Design-       Worker           4 QA-Layer    Merge,
-erheben,         Artefakt      schreibt         prüfen        Issue
-Prompt           erstellen     Code/Docs        Ergebnis      schließen
+Setup  -->  Exploration  -->  Implementation (inkl. QA-Subflow)  -->  Closure
+  |          (optional;          |                                       |
+  |          Exit-Gate ruft      |  4-Layer QA-Subflow als               |
+  |          VerifySystem)       |  Exit-Gate (ruft VerifySystem)        |
+  v                              v                                       v
+Kontext          Design-       Worker schreibt Code/Docs;            Merge,
+erheben,         Artefakt      QA-Subflow prueft Ergebnis,           Issue
+Prompt           erstellen     Subflow-interner Remediation-Loop     schliessen
 bauen
 ```
+
+> **[Entscheidung 2026-05-01]** Eine eigenstaendige Top-Phase `verify`
+> existiert nicht mehr. Output-QA ist interner Subflow innerhalb der
+> Implementation-Phase. Siehe `concept/_meta/bc-cut-decisions.md`
+> "Verify als Capability (Variante Y)".
 
 ### Phase 1: Setup (deterministisch)
 
@@ -259,10 +271,12 @@ Je nach Story-Typ arbeitet ein anderer Worker-Typ:
 Der Worker liefert am Ende: geänderte Dateien, ein Protokoll (`protocol.md`),
 ein Manifest (`worker-manifest.json`) und eine Übergabe an QA (`handover.json`).
 
-### Phase 4: Verify (deterministisch + LLM, 4 Layer)
+### QA-Subflow innerhalb Phase 3: Implementation (deterministisch + LLM, 4 Layer)
 
-Das Herzstück der Qualitätssicherung. Vier aufeinander aufbauende
-Prüfschichten:
+Vor Phasenabschluss durchlaeuft die Story einen QA-Subflow innerhalb
+der Implementation-Phase (analog zum Exit-Gate der Exploration). Der
+Subflow ruft die Capability `VerifySystem` (BC verify-system, kein
+Phase-Owner). Vier aufeinander aufbauende Pruefschichten:
 
 **Layer 1 — Strukturelle Checks (deterministisch)**
 Automatische Prüfungen ohne LLM: Existieren alle Artefakte? Baut der
@@ -295,11 +309,13 @@ Kanonisches Ergebnis: ein Policy-/Verify-Decision-Record im
 State-Backend. `decision.json` oder `verify-decision.json` sind nur
 optionale Export- oder Kompatibilitätsartefakte.
 
-**Bei FAIL:** Die Mängel werden in `feedback.json` gesammelt, ein
-Remediation-Worker bekommt die Liste, korrigiert den Code, und Verify
-läuft erneut. Maximal 3 Runden, dann Eskalation an einen Menschen.
+**Bei FAIL:** Die Maengel werden in `feedback.json` gesammelt, ein
+Remediation-Worker bekommt die Liste, korrigiert den Code, und der
+QA-Subflow laeuft erneut — Subflow-intern innerhalb derselben
+Implementation-Phase. Maximal 3 Runden, dann Eskalation an einen
+Menschen.
 
-### Phase 5: Closure (deterministisch)
+### Phase 4: Closure (deterministisch)
 
 Merge nach `main` (fast-forward-only), Worktree aufräumen, GitHub Issue
 schließen, Metriken schreiben, VectorDB aktualisieren (Story für
@@ -324,12 +340,12 @@ noch Merge noch das volle QA-Programm.
 AgentKit trennt strikt zwischen deterministischen und nicht-deterministischen
 Schritten:
 
-| Deterministisch (kein LLM)            | Deterministisch mit LLM (Skript)      | Agentengesteuert (LLM)               |
-|---------------------------------------|---------------------------------------|---------------------------------------|
-| Setup (Kontext, Prompt, Worktree)     | Verify Layer 2 (LLM-Bewertungen via Skript) | Implementation (Worker)          |
-| Verify Layer 1 (strukturelle Checks)  |                                       | Verify Layer 3 (Adversarial Agent)   |
-| Verify Layer 4 (Policy Engine)        |                                       | Exploration (Worker)                 |
-| Closure (Merge, Issue-Close, Metriken)|                                       |                                       |
+| Deterministisch (kein LLM)              | Deterministisch mit LLM (Skript)        | Agentengesteuert (LLM)                  |
+|-----------------------------------------|-----------------------------------------|-----------------------------------------|
+| Setup (Kontext, Prompt, Worktree)       | QA-Subflow Layer 2 (LLM-Bewertungen via Skript) | Implementation Worker-Run     |
+| QA-Subflow Layer 1 (strukturelle Checks)|                                         | QA-Subflow Layer 3 (Adversarial Agent)  |
+| QA-Subflow Layer 4 (Policy Engine)      |                                         | Exploration (Worker)                    |
+| Closure (Merge, Issue-Close, Metriken)  |                                         |                                         |
 
 Alles, was deterministisch laufen kann, läuft deterministisch.
 LLM-Agenten werden nur dort eingesetzt, wo kreative Arbeit nötig ist.

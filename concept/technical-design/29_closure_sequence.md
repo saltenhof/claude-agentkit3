@@ -93,8 +93,8 @@ glossary:
         ueber Nacharbeit. Kein automatischer Rollback.
 defers_to:
   - target: FK-27
-    scope: verify-pipeline
-    reason: Closure läuft erst nach Verify PASS; konsumiert Layer-2-Artefakte (FK-27 §27.5.5)
+    scope: qa-subflow
+    reason: Closure laeuft erst nach abgeschlossener Implementation-Phase (inkl. QA-Subflow PASS); konsumiert Layer-2-Artefakte (FK-27 §27.5.5)
   - target: FK-35
     scope: integrity-gate
     reason: Integrity-Gate-Definition, 8 Dimensionen, Pflicht-Artefakt-Vorstufe und Audit-Log liegen normativ in FK-35 §35.2
@@ -173,18 +173,54 @@ class ClosurePayload(BaseModel):
 
 ### 29.1.1 Voraussetzung
 
-Closure wird nur aufgerufen wenn Verify PASS. **Ausnahme: Concept- und Research-Stories** durchlaufen keine Verify-Phase — für diese Story-Typen wird Closure direkt nach der Implementation-Phase aufgerufen. `integrity_passed` und `merge_done` werden für Concept/Research direkt auf `true` gesetzt (kein Worktree, kein Branch-Merge, FK-20 §20.8.2).
+Closure wird nur aufgerufen, wenn die Implementation-Phase mit
+COMPLETED endet. Das schliesst den intern in der Implementation-Phase
+durchlaufenen QA-Subflow (FK-27, ehemals "Verify-Phase") ein:
+Implementation kann nur dann mit COMPLETED enden, wenn der QA-Subflow
+mit `qa_cycle_status = pass` abgeschlossen wurde. **Ausnahme: Concept-
+und Research-Stories** durchlaufen keinen QA-Subflow — fuer diese
+Story-Typen wird Closure direkt nach der Implementation-Phase
+aufgerufen. `integrity_passed` und `merge_done` werden fuer
+Concept/Research direkt auf `true` gesetzt (kein Worktree, kein
+Branch-Merge, FK-20 §20.8.2).
 
-**REF-034:** Für Exploration-Mode-Stories gilt: Verify läuft erst NACH der vollständigen Exploration-Phase (einschließlich Design-Review-Gate). Das Design-Review-Gate (`ExplorationGateStatus.APPROVED`) wird durch den Phase-Runner-Guard am Übergang `exploration → implementation` erzwungen (FK-20 §20.4.2a). Wenn Verify erreicht wird, ist `APPROVED` durch die State-Machine-Invariante garantiert — kein erneuter Payload-Zugriff aus der Verify-Phase nötig. [Korrektur 2026-04-09: Direkte Referenz auf `ExplorationPayload.gate_status` aus der Verify-Phase entfernt — ExplorationPayload ist nicht der aktive Payload in der Verify-Phase (aktiv: VerifyPayload). Die Garantie stammt aus dem Transition-Guard, nicht aus einem Laufzeit-Check in Verify.]
+> **[Entscheidung 2026-05-01]** Closure-Precondition lautet jetzt
+> "Implementation COMPLETED" statt "Verify COMPLETED". Die Top-Phase
+> `verify` ist entfallen; Output-QA ist interner Subflow innerhalb
+> der Implementation-Phase (analog zum Exit-Gate der
+> Exploration-Phase, FK-23 §23.5). Die Capability `VerifySystem`
+> bleibt als Bounded-Context-Capability bestehen und wird sowohl von
+> `ExplorationPhase` als auch von `ImplementationPhase` aufgerufen.
+> Siehe `concept/_meta/bc-cut-decisions.md` "Verify als Capability
+> (Variante Y)".
 
-**REF-036 / FK-37 §37.1:** Die QA-Tiefe wird über `verify_context` gesteuert,
-nicht über `mode`. Nach der Implementation-Phase gilt
-`verify_context = VerifyContext.POST_IMPLEMENTATION`, nach einer
-Remediation-Runde `verify_context = VerifyContext.POST_REMEDIATION` —
-beide lösen die volle 4-Schichten-Verify aus, unabhängig davon ob
-die Story im Exploration- oder Execution-Modus gestartet wurde.
-[Korrektur 2026-04-09: `STRUCTURAL_ONLY_PASS` und `post_exploration`
-entfernt — Verify läuft immer mit voller Pipeline (FK-37 §37.1.5).]
+**REF-034:** Fuer Exploration-Mode-Stories gilt: Der QA-Subflow laeuft
+innerhalb der Implementation-Phase, also NACH der vollstaendigen
+Exploration-Phase (einschliesslich Design-Review-Gate). Das
+Design-Review-Gate (`ExplorationGateStatus.APPROVED`) wird durch den
+Phase-Runner-Guard am Uebergang `exploration -> implementation`
+erzwungen (FK-20 §20.4.2a). Wenn Closure erreicht wird, ist `APPROVED`
+durch die State-Machine-Invariante garantiert — kein erneuter
+Payload-Zugriff noetig. [Korrektur 2026-04-09: Direkte Referenz auf
+`ExplorationPayload.gate_status` aus dem QA-Subflow entfernt —
+ExplorationPayload ist nicht der aktive Payload in der
+Implementation-Phase (aktiv: ImplementationPayload). Die Garantie
+stammt aus dem Transition-Guard, nicht aus einem Laufzeit-Check im
+QA-Subflow.] [Entscheidung 2026-05-01: ehemals "Verify-Phase" / "VerifyPayload" — jetzt QA-Subflow innerhalb Implementation / ImplementationPayload.]
+
+**REF-036 / FK-37 §37.1:** Die QA-Tiefe wird ueber `verify_context`
+gesteuert, nicht ueber `mode`. Nach Worker-Run innerhalb der
+Implementation-Phase gilt `verify_context = VerifyContext.POST_IMPLEMENTATION`,
+nach einer Subflow-internen Remediation-Iteration
+`verify_context = VerifyContext.POST_REMEDIATION` — beide loesen den
+vollen 4-Schichten-QA-Subflow aus, unabhaengig davon, ob die Story im
+Exploration- oder Execution-Modus gestartet wurde. `verify_context`
+ist Subflow-internes Diskriminator-Feld auf `ImplementationPayload`
+(FK-39 §39.2.3). [Korrektur 2026-04-09: `STRUCTURAL_ONLY_PASS` und
+`post_exploration` entfernt — der QA-Subflow laeuft immer mit voller
+Pipeline (FK-37 §37.1.5).] [Entscheidung 2026-05-01: `verify_context`
+liegt jetzt auf `ImplementationPayload`, nicht mehr auf
+`VerifyPayload`.]
 
 > **[Entscheidung 2026-04-08]** Element 17 — Alle 11 Eskalations-Trigger werden beibehalten. FK-20 §20.6.1 und FK-35 §35.4.2 normativ. Kein Trigger ist redundant.
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 17.
@@ -196,7 +232,7 @@ flowchart TD
     START(["agentkit run-phase closure<br/>--story ODIN-042"]) --> STYPE{Story-Typ?}
 
     STYPE -->|"impl / bugfix"| FR
-    STYPE -->|"concept / research<br/>(kein Verify, kein Merge)"| CR_SUB1["Substate:<br/>integrity_passed = true<br/>story_branch_pushed = true<br/>merge_done = true<br/>(direkt gesetzt, §29.1.1)"]
+    STYPE -->|"concept / research<br/>(kein QA-Subflow, kein Merge)"| CR_SUB1["Substate:<br/>integrity_passed = true<br/>story_branch_pushed = true<br/>merge_done = true<br/>(direkt gesetzt, §29.1.1)"]
     CR_SUB1 --> CLOSE_CR["Issue schließen<br/>(gh issue close)"]
     CLOSE_CR --> SUB3
 
@@ -334,11 +370,12 @@ den Resolution-Status `partially_resolved` oder `not_resolved` hat.
 Es gibt keinen degradierten Modus — ein offenes Finding ist ein
 harter Blocker.
 
-**Ausnahme Concept/Research:** Für Concept- und Research-Stories
-entfallen Finding-Resolution-Gate UND Integrity-Gate vollständig (kein
-Layer-2-QA, kein Verify, kein Merge). `integrity_passed` und `merge_done`
-werden direkt auf `true` gesetzt; der Closure-Ablauf startet effektiv
-bei `issue_closed` (§29.1.2 Concept/Research-Pfad im Flowchart).
+**Ausnahme Concept/Research:** Fuer Concept- und Research-Stories
+entfallen Finding-Resolution-Gate UND Integrity-Gate vollstaendig (kein
+Layer-2-QA, kein QA-Subflow, kein Merge). `integrity_passed` und
+`merge_done` werden direkt auf `true` gesetzt; der Closure-Ablauf
+startet effektiv bei `issue_closed` (§29.1.2 Concept/Research-Pfad im
+Flowchart).
 
 **Provenienz:** DK-04 §4.6. Empirischer Beleg BB2-012: Worker
 markierte ein Finding als `ADDRESSED`, obwohl nur ein Teilfall
@@ -451,7 +488,7 @@ Nach erfolgreichem Merge und Issue-Close (für Concept/Research: nach
 | `issue_closed` | Issue-State == CLOSED | Issue noch offen |
 | `metrics_set` | QA Rounds und Completed At gesetzt | Felder leer |
 | `telemetry_complete` | `agent_start` und `agent_end` Events vorhanden | Events fehlen |
-| `artifacts_complete` | Bei impl/bugfix: `structural.json`, `decision.json`, `context.json` vorhanden. Bei concept/research: nur `context.json` Pflicht (`structural.json` und `decision.json` entfallen — kein Verify). | Pflicht-Artefakte fehlen |
+| `artifacts_complete` | Bei impl/bugfix: `structural.json`, `decision.json`, `context.json` vorhanden. Bei concept/research: nur `context.json` Pflicht (`structural.json` und `decision.json` entfallen — kein QA-Subflow). | Pflicht-Artefakte fehlen |
 
 ### 29.3.2 Postflight-FAIL
 
@@ -486,7 +523,7 @@ pipeline-framework bleibt orchestrierend statt fachlich.
 
 | Sektion | Inhalt |
 |---------|--------|
-| **Summary Table** | Story-ID, Typ, Modus, Status, Dauer, QA Rounds, Feedback Rounds, durchlaufene Verify-Schichten |
+| **Summary Table** | Story-ID, Typ, Modus, Status, Dauer, QA Rounds, Feedback Rounds, durchlaufene QA-Subflow-Schichten |
 | **Failure Diagnosis** | Fehlgeschlagene Phase, primärer Fehler, Trigger — nur bei FAILED/ESCALATED |
 | **Artifact Health** | Verfügbare vs. fehlende/invalide Datenquellen; Ladestatus pro Quelle |
 | **Errors and Warnings** | Aggregierte Fehler und Warnungen aus allen Phasen |

@@ -172,7 +172,7 @@ einfließen.
 | `prompt_integrity_violation_by_stage` | Angereichertes Payload im `integrity_violation` Event: neues Feld `stage` (escape_detection / schema_validation / template_integrity). | `prompt_integrity_guard.py` setzt das `stage`-Feld je nachdem welche Pruefstufe den Block ausgeloest hat | → `fact_guard_period.violation_stage_escape_count`, `...schema_count`, `...template_count` |
 | `governance_escape_detection_count` | Teilmenge von `prompt_integrity_violation_by_stage` WHERE `stage = 'escape_detection'` | Keine separate Erhebung — wird aus dem angereicherten Payload abgeleitet | → `fact_guard_period.escape_detection_count` (Subset) |
 | `orchestrator_governance_violation_count` | Teilmenge von `guard_violation_count_by_type` WHERE `guard = 'orchestrator_guard'` | Keine separate Erhebung — wird aus bestehenden Events gefiltert | → `fact_guard_period.violation_count` WHERE `guard_key = 'orchestrator_guard'` |
-| `impact_violation_rate` | **Neues Event**: `impact_violation_check` mit Feldern `declared_impact`, `actual_impact`, `result` (pass/violation). | Structural Check in Verify-Phase (FK-33). Der Impact-Violation-Check vergleicht deklarierte und tatsaechliche Impact-Stufe. | → `fact_pipeline_period.impact_violation_count`, `fact_pipeline_period.impact_check_count` |
+| `impact_violation_rate` | **Neues Event**: `impact_violation_check` mit Feldern `declared_impact`, `actual_impact`, `result` (pass/violation). | Structural Check im QA-Subflow innerhalb Implementation (FK-33). Der Impact-Violation-Check vergleicht deklarierte und tatsaechliche Impact-Stufe. | → `fact_pipeline_period.impact_violation_count`, `fact_pipeline_period.impact_check_count` |
 | `integrity_gate_block_rate` | **Neues Event**: `integrity_gate_result` existiert bereits. Angereichertes Payload: `blocked_dimensions[]` (Liste der fehlgeschlagenen Dimensionen). | `integrity.py` bei Gate-Evaluation. Das Event existiert, aber das Payload braucht die Dimensionen-Aufschluesselung. | → `fact_pipeline_period.integrity_gate_block_count`, `fact_pipeline_period.integrity_gate_total_count` |
 
 ### 61.4.3 Guard-Invocation-Counter (Scratchpad-Architektur)
@@ -350,8 +350,8 @@ basieren.
 
 | Event-Typ | Emittent | Hook/Prozess |
 |-----------|----------|-------------|
-| `impact_violation_check` | Structural Check | Verify-Phase Layer 1 |
-| `doc_fidelity_check` | Dokumententreue-Service | Exploration/Verify-Phase |
+| `impact_violation_check` | Structural Check | QA-Subflow innerhalb Implementation, Layer 1 |
+| `doc_fidelity_check` | Dokumententreue-Service | Exploration / QA-Subflow innerhalb Implementation |
 | `vectordb_search` | Story-Creation-Pipeline | Story-Erstellung |
 | `compaction_event` | PostCompact-Hook | PostCompact |
 

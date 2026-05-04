@@ -47,10 +47,10 @@ verwendet werden. Jeder Begriff hat eine exakte technische Bedeutung.
 | **Pattern** | Wiederkehrendes Muster über mehrere Incidents. | JSONL-Eintrag in Failure Corpus |
 | **Check** | Deterministischer Guard, abgeleitet aus einem Pattern. | Python-Skript, registriert in Stage-Registry |
 | **Entwurfsartefakt** | Kompakter Change-Frame mit 7 Bestandteilen. Entsteht in der Exploration-Phase. | JSON-Datei, validiert gegen Schema |
-| **Handover-Paket** | Strukturierte Übergabe vom Worker an die Verify-Phase. | JSON-Datei, validiert gegen Schema |
+| **Handover-Paket** | Strukturierte Uebergabe vom Worker an den QA-Subflow innerhalb der Implementation-Phase. | JSON-Datei, validiert gegen Schema |
 | **Worker-Manifest** | Technische Deklaration der Worker-Ergebnisse. | JSON-Datei (`worker-manifest.json`) |
 | **Protocol** | Menschenlesbares Protokoll der Story-Bearbeitung. | Markdown-Datei (`protocol.md`) |
-| **Mängelliste** | Strukturierte Liste von Befunden aus der Verify-Phase. | JSON-Array mit Check-Ergebnissen |
+| **Maengelliste** | Strukturierte Liste von Befunden aus dem QA-Subflow. | JSON-Array mit Check-Ergebnissen |
 | **Eskalation** | Pipeline-Stopp mit menschlicher Intervention. Story bleibt "In Progress". | Kein technisches Objekt; Pipeline-Halt + opake Meldung |
 
 ## 2.2 Zustandsmodelle
@@ -269,11 +269,13 @@ class OverrideRecord:
 5. `story_id` allein reicht auch fuer diese Records nicht; der Scope
    ist immer mindestens `(project_key, story_id, run_id, flow_id)`.
 
-### 2.2.3 Verify-Schicht-Zustände (implementierende Stories)
+### 2.2.3 QA-Subflow-Schicht-Zustaende (implementierende Stories)
 
-Die vollständige Verify-Pipeline mit vier Schichten gilt **nur für
-implementierende Story-Typen** (Implementation, Bugfix). Jede
-Schicht kann PASS oder FAIL ergeben.
+Der vollstaendige QA-Subflow innerhalb der Implementation-Phase mit
+vier Schichten gilt **nur fuer implementierende Story-Typen**
+(Implementation, Bugfix). Jede Schicht kann PASS oder FAIL ergeben.
+Der Subflow ruft die Capability `VerifySystem` (BC verify-system,
+kein Phase-Owner).
 
 ```mermaid
 flowchart TD
@@ -291,7 +293,7 @@ flowchart TD
     S3["Schicht 3:<br/>Adversarial Testing"] -->|keine Befunde| S4
     S3 -->|Befunde| FB
 
-    S4["Schicht 4:<br/>Policy-Evaluation"] -->|PASS| DONE["Verify bestanden"]
+    S4["Schicht 4:<br/>Policy-Evaluation"] -->|PASS| DONE["QA-Subflow bestanden"]
     S4 -->|FAIL| FB
 
     style FB fill:#f8d7da,stroke:#dc3545
@@ -312,8 +314,8 @@ Bedarf JSON-Exporte erzeugt werden:
 
 ### 2.2.4 Abweichende Abläufe nach Story-Typ
 
-Nicht alle Story-Typen durchlaufen die vollständige Pipeline.
-Die vier Schichten der Verify-Phase (2.2.3) sind der Ablauf für
+Nicht alle Story-Typen durchlaufen die vollstaendige Pipeline.
+Die vier Schichten des QA-Subflows (2.2.3) sind der Ablauf fuer
 implementierende Stories. Research- und Konzept-Stories nehmen
 grundlegend andere Wege.
 
@@ -323,7 +325,7 @@ keinen Code. Sie durchlaufen:
 - Skill-gesteuerte Recherche (kein Worktree, kein Branch)
 - Leichtgewichtige Qualitätsprüfung (Struktur, Quellenvielfalt,
   Bewertungskriterien)
-- Kein Exploration/Execution-Routing, keine Verify-Pipeline,
+- Kein Exploration/Execution-Routing, kein QA-Subflow,
   kein Integrity-Gate
 
 **Konzept-Stories** produzieren ein Konzeptdokument, keinen Code.
@@ -334,7 +336,7 @@ Sie durchlaufen:
 - **Pflicht-Feedback-Loop mit zwei LLMs** (siehe unten)
 - Leichtgewichtige Qualitätsprüfung (Struktur, Vollständigkeit,
   Feedback-Einarbeitung)
-- Kein Exploration/Execution-Routing, keine vollständige Verify-Pipeline,
+- Kein Exploration/Execution-Routing, kein vollstaendiger QA-Subflow,
   kein Integrity-Gate
 
 #### Konzept-Story: Pflicht-Feedback-Loop
@@ -373,8 +375,8 @@ flowchart TD
 | QA-Prüfung | Ein QA-Agent (oder LLM-Bewertungsfunktion) prüft, ob zu jedem Feedback-Punkt eine Einarbeitung oder eine nachvollziehbare Begründung der Ablehnung vorliegt |
 | Telemetrie-Nachweis | Die Telemetrie muss die Feedback-Calls vollständig protokollieren. Der Nachweis wird von der leichtgewichtigen QA-Prüfung (nicht vom Integrity-Gate, das Konzept-Stories nicht durchlaufen) ausgewertet. |
 
-**Abgrenzung zum Verify-Prozess:** Dieser Feedback-Loop ist bewusst
-leichtgewichtig. Er ersetzt nicht die 4-Schichten-Verify-Pipeline
+**Abgrenzung zum QA-Subflow:** Dieser Feedback-Loop ist bewusst
+leichtgewichtig. Er ersetzt nicht den 4-Schichten-QA-Subflow
 der implementierenden Stories, sondern stellt sicher, dass Konzepte
 mit Architektenbrille (bestehende Architektur, Systembestand) und
 Business-Stakeholder-Brille (fachliche Korrektheit) gegengeprüft
@@ -574,8 +576,8 @@ Assertions?" nicht beantwortet:
 zurückgebaut:
 
 1. **Trust-Klassen (FK 7.2) bleiben.** Das Konzept A/B/C ist
-   fachlich fundiert und wird in der Verify-Pipeline (Schicht 1)
-   bei der Bewertung von Evidence angewendet.
+   fachlich fundiert und wird im QA-Subflow (Schicht 1) bei der
+   Bewertung von Evidence angewendet.
 2. **Allgemeine System-Assertions bleiben.** Systemstart, Health-
    Check, Smoketest — diese können vorab definiert werden.
 3. **Die Checker-Registry und das Plugin-System werden vereinfacht.**
@@ -584,8 +586,8 @@ zurückgebaut:
    prüfen die allgemeinen Assertions als Teil des regulären
    Check-Katalogs.
 4. **Story-spezifische fachliche Assertions** werden nicht vorab
-   definiert, sondern entstehen als Teil der Verify-Phase
-   (Schicht 2: LLM-Bewertung prüft Akzeptanzkriterien,
+   definiert, sondern entstehen als Teil des QA-Subflows
+   (Schicht 2: LLM-Bewertung prueft Akzeptanzkriterien,
    Schicht 3: Adversarial Agent schreibt gezielte Tests).
 
 **Konsequenz:** `assertion_governance` Config-Sektion wird

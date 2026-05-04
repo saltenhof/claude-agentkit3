@@ -31,7 +31,7 @@ defers_to:
     reason: CLI-Aufruf, Phasen-Dispatch und Phase-Transition-Enforcement liegen in FK-45
   - target: FK-38
     scope: feedback-mechanism
-    reason: Mängelliste-Format und Verify-Feedback-Mechanik liegen in FK-38
+    reason: Maengelliste-Format und QA-Subflow-Feedback-Mechanik liegen in FK-38
   - target: FK-35
     scope: governance-observation
     reason: Governance-Beobachtung und Eskalationsmechanik liegen in FK-35
@@ -125,9 +125,9 @@ deterministische Laufzeitimplementierung.
 | Ebene | Zugehoerigkeit | Verantwortung |
 |-------|----------------|---------------|
 | `PipelineEngine` | Top-Level-Komponente | State Machine, Transition-Guards, Feedback-/Review-Loops, Eskalation |
-| `SetupPhase`, `ExplorationPhase`, `ImplementationPhase`, `VerifyPhase`, `ClosurePhase` | Subkomponenten der `PipelineEngine` | Innere Fachlogik je Phase |
+| `SetupPhase`, `ExplorationPhase`, `ImplementationPhase`, `ClosurePhase` | Subkomponenten der `PipelineEngine` | Innere Fachlogik je Phase. Output-QA wird intern aus `ExplorationPhase` (Exit-Gate, FK-23 §23.5) und `ImplementationPhase` (QA-Subflow, FK-27) gegen die Capability `VerifySystem` aufgerufen — kein eigenstaendiger `VerifyPhase`-Top-Knoten. |
 | `PreflightChecker`, `ModeResolver` | Subkomponenten von `SetupPhase` | Vorbedingungen und Modusermittlung |
-| `StructuralChecker`, `PolicyEngine` | Subkomponenten von `VerifyPhase` | Layer-1-Pruefung und finale Aggregation |
+| `StructuralChecker`, `PolicyEngine` | Subkomponenten der Capability `VerifySystem` (BC verify-system) | Layer-1-Pruefung und finale Aggregation des QA-Subflows |
 | `IntegrityGate` | Sub von `agentkit.governance.integrity_gate` (BC governance-and-guards); wird von `ClosurePhase` aufgerufen | Vorbedingung fuer Merge/Abschluss |
 
 **Abgrenzung:** Der vollstaendige Story-Reset ist **keine**
@@ -157,8 +157,8 @@ Teil der hier beschriebenen Kontrollfluss-DSL.
 | Ebene | DSL-Sicht | Typischer Owner | Zweck |
 |-------|-----------|-----------------|-------|
 | Pipeline | `FlowDefinition(level="pipeline")` | `PipelineEngine` | Gesamtablauf einer Story |
-| Phase | `FlowDefinition(level="phase")` | `SetupPhase`, `VerifyPhase`, ... | Ablauf innerhalb einer Phase |
-| Komponente | `FlowDefinition(level="component")` | `StageRegistry`, `Installer`, `GuardSystem`, ... | Innere Kontrolllogik einer Komponente |
+| Phase | `FlowDefinition(level="phase")` | `SetupPhase`, `ImplementationPhase`, ... | Ablauf innerhalb einer Phase |
+| Komponente | `FlowDefinition(level="component")` | `StageRegistry`, `Installer`, `GuardSystem`, ... | Innere Kontrolllogik einer Komponente (auch `VerifySystem`-QA-Subflow) |
 | Subschritt | `NodeDefinition(kind="step")` oder `subflow` | jeweilige Komponente | Atomarer oder zusammengesetzter Ausfuehrungsschritt |
 
 Die DSL modelliert **Kontrollfluss**, nicht Fachinhalt. Fachlogik,
@@ -316,15 +316,16 @@ Kontrolllogik in frei formulierten Python-Dateien zu verstecken.
 
 ## 20.2 Phasenmodell
 
-### 20.2.1 Fünf Phasen
+### 20.2.1 Vier Phasen mit QA-Subflow
 
 | Phase | Typ | Zweck | Akteur |
 |-------|-----|-------|--------|
 | `setup` | Deterministisch | Preflight, Worktree, Context, Guards, Mode-Routing | Pipeline-Skript |
-| `exploration` | Agent-gesteuert | Entwurfsartefakt erzeugen, Dokumententreue prüfen | Worker-Agent + LLM-Evaluator |
-| `implementation` | Agent-gesteuert | Code/Konzept/Research umsetzen | Worker-Agent |
-| `verify` | Deterministisch + LLM | 4-Schichten-QA | Pipeline-Skripte + LLM-Evaluator + Adversarial Agent |
+| `exploration` | Agent-gesteuert | Entwurfsartefakt erzeugen, Dokumententreue pruefen; Exit-Gate ruft Capability `VerifySystem` (FK-23 §23.5) | Worker-Agent + LLM-Evaluator |
+| `implementation` | Agent-gesteuert + Subflow | Code/Konzept/Research umsetzen; vor Phasenabschluss laeuft der QA-Subflow gegen die Capability `VerifySystem` (4-Schichten-QA, FK-27) inklusive Remediation-Loop | Worker-Agent + Pipeline-Skripte + LLM-Evaluator + Adversarial Agent |
 | `closure` | Deterministisch | Integrity-Gate, Merge, Issue-Close, Metriken, Postflight | Pipeline-Skript |
+
+> **[Entscheidung 2026-05-01]** Die vormalige Top-Phase `verify` entfaellt. Output-QA ist kein eigenstaendiger Phasenknoten mehr, sondern interner Subflow innerhalb `implementation` (analog zum Exit-Gate der `exploration`). Die Faehigkeit `VerifySystem` bleibt als Bounded-Context-Capability bestehen und wird sowohl von `ExplorationPhase` als auch von `ImplementationPhase` aufgerufen. Siehe `concept/_meta/bc-cut-decisions.md` "Verify als Capability (Variante Y)".
 
 ### 20.2.1a StoryResetService
 
@@ -380,30 +381,31 @@ stateDiagram-v2
 
     state implementation {
         [*] --> worker_running
-        worker_running --> [*] : Handover erzeugt
+        worker_running --> qa_subflow : Handover erzeugt
         worker_running --> BLOCKED_EXIT : Worker meldet BLOCKED
+
+        state qa_subflow {
+            [*] --> schicht_1 : Deterministische Checks (Skripte)
+            schicht_1 --> schicht_2 : PASS
+            schicht_1 --> FEEDBACK_INT : FAIL
+            schicht_2 --> schicht_3 : PASS (LLM-Bewertungen via Skript, kein Dateisystem)
+            schicht_2 --> FEEDBACK_INT : FAIL
+            schicht_3 --> schicht_4 : keine Befunde (Adversarial Agent, mit Dateisystem)
+            schicht_3 --> FEEDBACK_INT : Befunde
+            schicht_4 --> qa_pass : PASS (Policy-Evaluation)
+            schicht_4 --> FEEDBACK_INT : FAIL
+            FEEDBACK_INT --> remediation : feedback_rounds < max
+            remediation --> worker_running
+            FEEDBACK_INT --> ESC_MAX : feedback_rounds >= max
+            qa_pass --> [*]
+        }
     }
 
-    implementation --> verify
-    implementation --> ESKALATION_BLOCKED : Worker BLOCKED (unlösbarer Constraint)
-
-    state verify {
-        [*] --> schicht_1 : Deterministische Checks (Skripte)
-        schicht_1 --> schicht_2 : PASS
-        schicht_1 --> FEEDBACK : FAIL
-        schicht_2 --> schicht_3 : PASS (LLM-Bewertungen via Skript, kein Dateisystem)
-        schicht_2 --> FEEDBACK : FAIL
-        schicht_3 --> schicht_4 : keine Befunde (Adversarial Agent, mit Dateisystem)
-        schicht_3 --> FEEDBACK : Befunde
-        schicht_4 --> [*] : PASS (Policy-Evaluation)
-        schicht_4 --> FEEDBACK : FAIL
-    }
-
-    verify --> implementation : FEEDBACK (max N Runden)
-    verify --> [*] : ESCALATED (Impact-Violation)
-    verify --> [*] : ESCALATED (Dokumententreue Ebene 3 FAIL)
-    verify --> ESKALATION_MAX : Max Runden erschöpft
-    verify --> closure : Verify PASS
+    implementation --> closure : QA-Subflow PASS
+    implementation --> ESKALATION_BLOCKED : Worker BLOCKED (unloesbarer Constraint)
+    implementation --> ESKALATION_MAX : Max Runden erschoepft (QA-Subflow)
+    implementation --> [*] : ESCALATED (Impact-Violation)
+    implementation --> [*] : ESCALATED (Dokumententreue Ebene 3 FAIL)
 
     state closure {
         [*] --> integrity_gate
@@ -422,14 +424,26 @@ stateDiagram-v2
 
 > [Terminologie-Hinweis 2026-04-09] **ABBRUCH in Diagrammen = `status: ESCALATED` im State-Modell:** Die Mermaid-Diagramme verwenden `ABBRUCH` und `ABORT` als Beschriftung für den Preflight-FAIL-Terminalknoten. Im v3-Zustandsmodell entspricht dies `status: ESCALATED` mit `escalation_reason: "preflight_fail"`. Es gibt keinen separaten Status `ABBRUCH` — der Begriff ist ausschließlich eine Darstellungshilfe in den Diagrammen.
 
-> [Korrektur 2026-04-09] **Kein Rücksprung verify → exploration:**
-> Die ursprüngliche Transition `verify --> exploration : Impact-Violation
-> (Exploration Mode)` wurde entfernt. Impact-Violation in Verify bedeutet
-> Implementierungsversagen und führt zu `status: ESCALATED`. Es gibt
-> keinen automatischen Rücksprung von Verify oder Implementation in die
-> Exploration-Phase. Der Mensch entscheidet nach Eskalation über nächste
-> Schritte (ggf. neue Exploration mit neuem Mandat als neuer Pipeline-Lauf).
-> Exploration-interne Remediation (max 3 Runden) bleibt davon unberührt.
+> [Korrektur 2026-04-09] **Kein Phasen-Ruecksprung in die Exploration:**
+> Die ursprueengliche Transition `verify --> exploration : Impact-Violation
+> (Exploration Mode)` wurde entfernt. Impact-Violation im QA-Subflow
+> bedeutet Implementierungsversagen und fuehrt zu `status: ESCALATED`.
+> Es gibt keinen automatischen Ruecksprung von Implementation oder
+> ihrem QA-Subflow in die Exploration-Phase. Der Mensch entscheidet
+> nach Eskalation ueber naechste Schritte (ggf. neue Exploration mit
+> neuem Mandat als neuer Pipeline-Lauf). Exploration-interne
+> Remediation (max 3 Runden) bleibt davon unberuehrt.
+
+> [Entscheidung 2026-05-01] **`verify` als Top-Phase entfaellt:**
+> Die ehemaligen Phasen-Transitionen `implementation -> verify` und
+> `verify -> closure` existieren nicht mehr. Implementation enthaelt
+> intern den vollstaendigen QA-Subflow (Schicht 1-4 plus
+> Remediation-Loop) gegen die Capability `VerifySystem`. Der Uebergang
+> `implementation -> closure` erfolgt erst, wenn Implementation den
+> QA-Subflow mit `qa_cycle_status = pass` abgeschlossen hat. Der
+> ehemalige Remediation-Phasenwechsel `verify -> implementation` ist
+> jetzt ein Subflow-interner Loop und triggert keinen Top-Phase-Wechsel
+> mehr.
 
 > [Korrektur 2026-04-09] **Exploration-Exit-Gate:** Die Transition
 > `exploration --> implementation` erfordert den vollständigen Ablauf
@@ -452,7 +466,7 @@ flowchart TD
     PREFLIGHT -->|FAIL| ABORT(["Abbruch"])
     PREFLIGHT -->|PASS| TYP{"Story-Typ?"}
 
-    TYP -->|"Implementation / Bugfix"| FULL["Volle Pipeline<br/>(Setup → Exploration? →<br/>Implementation → Verify →<br/>Closure)"]
+    TYP -->|"Implementation / Bugfix"| FULL["Volle Pipeline<br/>(Setup → Exploration? →<br/>Implementation inkl. QA-Subflow →<br/>Closure)"]
 
     TYP -->|"Concept"| CONCEPT["Konzept-Pfad:<br/>Worker erstellt Dokument<br/>→ VektorDB-Abgleich<br/>→ Pflicht-Feedback (2 LLMs)<br/>→ QA prüft Einarbeitung<br/>→ Leichtgewichtige Checks<br/>→ Closure (ohne Integrity-Gate)"]
 
@@ -466,7 +480,7 @@ flowchart TD
 **Was Konzept- und Research-Stories NICHT durchlaufen:**
 - Keine Modus-Ermittlung (Execution/Exploration)
 - Kein Worktree/Branch (arbeiten direkt auf Main — AI-Augmented-Modus)
-- Keine 4-Schichten-Verify-Pipeline
+- Kein 4-Schichten-QA-Subflow innerhalb Implementation
 - Kein Integrity-Gate
 - Kein Adversarial Testing
 
@@ -500,69 +514,76 @@ flowchart TD
 
 ### 20.5.1 Mechanismus
 
-Wenn die Verify-Phase scheitert, transitiert die Engine zurück
-in die Implementation-Phase (echter Phase-Wechsel
-`verify (FAILED) → implementation (IN_PROGRESS)`). Der
-Remediation-Worker läuft innerhalb der Implementation-Phase
-und erhält eine strukturierte Mängelliste als Input.
+Wenn der QA-Subflow innerhalb der Implementation-Phase scheitert,
+loopt die Engine intern: der Remediation-Worker laeuft als
+naechster Subflow-Schritt **innerhalb derselben Implementation-Phase**
+und erhaelt eine strukturierte Maengelliste als Input. Es gibt
+keinen Phasen-Wechsel mehr — Remediation ist eine interne
+Subflow-Iteration, keine Top-Phase-Transition.
+
+> [Entscheidung 2026-05-01] Die fruehere Phasen-Wechsel-Logik
+> `verify (FAILED) -> implementation (IN_PROGRESS)` mit Inkrement von
+> `memory.verify.feedback_rounds` beim Phasenuebergang entfaellt. Der
+> Inkrement-Schritt bleibt erhalten, ist aber jetzt eine interne
+> Subflow-Iteration in `implementation`. Die Implementation-Phase
+> verlaesst den Worker-Run-Knoten erst, wenn der QA-Subflow
+> `qa_cycle_status = pass` erreicht oder eskaliert.
 
 ```mermaid
 sequenceDiagram
     participant O as Orchestrator
-    participant PR as Phase Runner
+    participant PR as Phase Runner (Implementation)
+    participant V as VerifySystem (Capability)
     participant W as Worker (Remediation)
 
-    O->>PR: run-phase verify --story ODIN-042
-    PR-->>O: phase-state: FAILED, memory.verify.feedback_rounds=0 (aktueller Wert, noch nicht inkrementiert)
+    O->>PR: run-phase implementation --story ODIN-042 (qa_subflow active)
+    PR->>V: run_qa_subflow(qa_context=IMPLEMENTATION_INITIAL)
+    V-->>PR: PolicyVerdict: FAILED (findings)
 
-    O->>PR: run-phase implementation --story ODIN-042
-    Note over PR: Transition-Enforcement (FK-45 §45.2) [Korrektur 2026-04-09]
-    Note over PR: 1. Prüft Guard: memory.verify.feedback_rounds < max (VOR Inkrement)
+    Note over PR: QA-Subflow-Loop (intern, kein Phase-Wechsel) [Entscheidung 2026-05-01]
+    Note over PR: 1. Prueft Guard: memory.implementation.qa_feedback_rounds < max (VOR Inkrement)
     alt Guard bestanden (aktueller Wert < max)
-        Note over PR: 2. Inkrementiert memory.verify.feedback_rounds (0→1, 1→2, 2→3)
-        Note over PR: 3. save_phase_state() — persistiert Inkrement VOR Dispatch
-        Note over PR: 4. Dispatch: Transition verify→implementation (FAILED erlaubt, Remediation-Pfad)
+        Note over PR: 2. Inkrementiert memory.implementation.qa_feedback_rounds (0->1, 1->2, 2->3)
+        Note over PR: 3. save_phase_state() — persistiert Inkrement VOR Worker-Spawn
         PR-->>O: phase-state: phase=implementation, status=IN_PROGRESS, agents_to_spawn=[remediation_worker]
-        O->>W: Spawnt Remediation-Worker mit Mängelliste
+        O->>W: Spawnt Remediation-Worker mit Maengelliste
         W-->>O: Fixes committed
-        O->>PR: run-phase verify --story ODIN-042
-        Note over PR: Transition implementation→verify (normaler Vorwärts-Übergang)
-        PR-->>O: phase-state: COMPLETED oder erneut FAILED
+        O->>PR: run-phase implementation --story ODIN-042 (resume qa_subflow)
+        PR->>V: run_qa_subflow(qa_context=IMPLEMENTATION_REMEDIATION)
+        V-->>PR: PolicyVerdict: PASS oder erneut FAILED
+        PR-->>O: phase-state: COMPLETED (PASS) oder erneut Loop
     else Guard abgelehnt (aktueller Wert >= max)
-        Note over PR: Guard FAIL → ESCALATED (max_rounds_exceeded)
-        PR-->>O: phase-state: ESCALATED, escalation_reason=max_rounds_exceeded [Korrektur 2026-04-09]
+        Note over PR: Guard FAIL -> ESCALATED (max_rounds_exceeded)
+        PR-->>O: phase-state: ESCALATED, escalation_reason=max_rounds_exceeded
     end
 ```
 
-> [Korrektur 2026-04-09] **Sequenzdiagramm korrigiert:** Die
-> ursprüngliche Version zeigte den Remediation-Pfad ohne
-> Phase-Wechsel: Orchestrator spawnte Remediation-Worker direkt
-> und rief danach `run-phase verify` auf, ohne dazwischen
-> `run-phase implementation` auszuführen. Das korrekte Modell
-> (konsistent mit der State Machine §20.2.2 und der
-> Transition-Enforcement FK-45 §45.2) ist:
-> 1. Verify gibt FAILED zurück (mit aktuellem, nicht-inkrementiertem
->    `memory.verify.feedback_rounds`-Wert)
-> 2. Engine prüft Guard: `memory.verify.feedback_rounds <
->    policy.max_feedback_rounds` (Pre-Check VOR Inkrement)
->    [Entscheidung 2026-04-09]
-> 3. Guard bestanden → Engine inkrementiert
->    `memory.verify.feedback_rounds` (NACH Guard-Check,
->    carry-forward über Phase-Transitionen) und persistiert
->    via `save_phase_state()` VOR der Transition
->    [Korrektur 2026-04-09]
-> 4. Orchestrator ruft `run-phase implementation` auf — echter
->    Phase-Wechsel `verify (FAILED) → implementation (IN_PROGRESS)`
-> 5. Implementation-Phase läuft mit Remediation-Worker
->    (Remediation-Prompt, nicht Original-Worker-Prompt)
-> 6. Implementation abgeschlossen → Orchestrator ruft
->    `run-phase verify` auf (normaler Vorwärts-Übergang
->    `implementation → verify`)
-> 7. Verify läuft erneut
+> [Entscheidung 2026-05-01] **Sequenzdiagramm aktualisiert:**
+> Die fruehere Phasen-Wechsel-Logik (`verify (FAILED) ->
+> implementation (IN_PROGRESS) -> verify`) entfaellt mit dem Cut
+> der Top-Phase `verify`. Das jetzt geltende Modell ist
+> Subflow-intern in der Implementation-Phase:
+> 1. QA-Subflow liefert FAILED (mit aktuellem, nicht-inkrementiertem
+>    `memory.implementation.qa_feedback_rounds`-Wert)
+> 2. Engine prueft Guard: `memory.implementation.qa_feedback_rounds
+>    < policy.max_feedback_rounds` (Pre-Check VOR Inkrement)
+> 3. Guard bestanden -> Engine inkrementiert
+>    `memory.implementation.qa_feedback_rounds` (NACH Guard-Check)
+>    und persistiert via `save_phase_state()` VOR Spawn des
+>    Remediation-Workers
+> 4. Orchestrator setzt den `agents_to_spawn`-Auftrag um —
+>    Implementation bleibt aktive Phase, kein Phasen-Wechsel
+> 5. Remediation-Worker laeuft mit Remediation-Prompt
+> 6. Engine ruft `VerifySystem.run_qa_subflow` erneut auf
+>    (qa_context = IMPLEMENTATION_REMEDIATION)
+> 7. Implementation-Phase beendet erst nach `qa_cycle_status = pass`
+>    oder Eskalation
 >
-> `VerifyPhaseMemory.feedback_rounds` überlebt die Phase-Wechsel
-> via carry-forward in PhaseMemory — das ist der Zweck der
-> PhaseMemory-Schicht (FK-39 §39.5).
+> Der Zaehler `memory.implementation.qa_feedback_rounds`
+> (vormals `memory.verify.feedback_rounds`) wird per Carry-Forward
+> in `PhaseMemory` mitgefuehrt, weil mehrere Subflow-Iterationen
+> ueber Crash-Recovery hinweg konsistent sein muessen
+> (FK-39 §39.5).
 
 > [Korrektur 2026-04-09] **Ownership-Klarstellung Guard-Check
 > und Inkrement:** Guard-Prüfung (`feedback_rounds < max`),
@@ -607,11 +628,11 @@ Die folgende Tabelle listet alle Auslöser, die die Pipeline stoppen. Spalte „
 | Preflight FAIL | setup | ESCALATED (`escalation_reason: "preflight_fail"`) | Story startet nicht. Kein automatischer Remediation-Pfad. Mensch muss Voraussetzungen klären. |
 | Dokumententreue Ebene 2 FAIL (Entwurfstreue) | exploration | ESCALATED (`escalation_reason: "doc_fidelity_fail"`) | Pipeline wird eskaliert. Mensch muss Konflikt mit Architektur klären. [Korrektur 2026-04-09: War fälschlich als PAUSED dokumentiert.] |
 | Design-Review-Gate FAIL non-remediable oder Rundenlimit überschritten | exploration | ESCALATED (`escalation_reason: "design_review_rejected"`) | `gate_status: REJECTED` → Pipeline eskaliert. Mensch muss Entwurf klären oder Story neu aufsetzen. [Entscheidung 2026-04-09: Terminalpfad gemäß FK-23 §23.5 Stufe 2c.] |
-| Dokumententreue Ebene 3 FAIL (Umsetzungstreue) | verify | ESCALATED (`escalation_reason: "doc_fidelity_fail"`) | Pipeline wird eskaliert. Worker hat vom Konzept abgewichen, Mensch entscheidet. [Korrektur 2026-04-09: War fälschlich als PAUSED dokumentiert.] |
-| Impact-Violation (Execution Mode) | verify | ESCALATED (`escalation_reason: "impact_violation"`) | Issue-Metadaten waren falsch deklariert. Mensch entscheidet über nächste Schritte. |
-| Impact-Violation (Exploration Mode) | verify | ESCALATED (`escalation_reason: "impact_violation"`) | Kein automatischer Rücksprung in Exploration. Mensch entscheidet (ggf. neue Exploration mit neuem Mandat). [Korrektur 2026-04-09: War fälschlich als Rücksprung dokumentiert.] |
-| Worker BLOCKED (unlösbarer Constraint) | implementation | ESCALATED (`escalation_reason: "worker_blocked"`) | Worker hat über `worker-manifest.json` unlösbaren Constraint gemeldet (z.B. Hook-Barriere, fehlende Dependency). Mensch löst externen Constraint. |
-| Max Feedback-Runden erschöpft | verify | ESCALATED (`escalation_reason: "max_rounds_exceeded"`) | Pipeline stoppt. Mensch muss entscheiden: Story anpassen, Anforderungen lockern, oder manuell fixen. |
+| Dokumententreue Ebene 3 FAIL (Umsetzungstreue) | implementation (QA-Subflow) | ESCALATED (`escalation_reason: "doc_fidelity_fail"`) | Pipeline wird eskaliert. Worker hat vom Konzept abgewichen, Mensch entscheidet. [Korrektur 2026-04-09: War faelschlich als PAUSED dokumentiert.] [Entscheidung 2026-05-01: Phase ist `implementation` — QA-Subflow statt eigene Verify-Phase.] |
+| Impact-Violation (Execution Mode) | implementation (QA-Subflow) | ESCALATED (`escalation_reason: "impact_violation"`) | Issue-Metadaten waren falsch deklariert. Mensch entscheidet ueber naechste Schritte. [Entscheidung 2026-05-01: Phase ist `implementation` — QA-Subflow.] |
+| Impact-Violation (Exploration Mode) | implementation (QA-Subflow) | ESCALATED (`escalation_reason: "impact_violation"`) | Kein automatischer Ruecksprung in Exploration. Mensch entscheidet (ggf. neue Exploration mit neuem Mandat). [Korrektur 2026-04-09: War faelschlich als Ruecksprung dokumentiert.] [Entscheidung 2026-05-01: Phase ist `implementation` — QA-Subflow.] |
+| Worker BLOCKED (unloesbarer Constraint) | implementation | ESCALATED (`escalation_reason: "worker_blocked"`) | Worker hat ueber `worker-manifest.json` unloesbaren Constraint gemeldet (z.B. Hook-Barriere, fehlende Dependency). Mensch loest externen Constraint. |
+| Max Feedback-Runden erschoepft (QA-Subflow) | implementation | ESCALATED (`escalation_reason: "max_rounds_exceeded"`) | Pipeline stoppt. Mensch muss entscheiden: Story anpassen, Anforderungen lockern, oder manuell fixen. [Entscheidung 2026-05-01: Phase ist `implementation` — Feedback-Runden zaehlen den QA-Subflow-Loop.] |
 | Integrity-Gate FAIL | closure | ESCALATED (`escalation_reason: "integrity_fail"`) | Pipeline stoppt. Mensch prüft Audit-Log (`integrity-violations.log`). |
 | Merge-Konflikt | closure | ESCALATED (`escalation_reason: "merge_fail"`) | Pipeline stoppt. Worker muss rebasen oder Mensch löst Konflikt. |
 | Scope-Explosion (Klasse 3) | exploration | PAUSED (`pause_reason` durch H2-Routing) | Mensch prueft Split-Befund. Standardpfad: `agentkit split-story` statt Weiterarbeit im selben Story-Vertrag. |
@@ -637,12 +658,12 @@ Iteration — Ursache muss behoben werden, bevor ein neuer Run
 gestartet wird. Definition der drei PauseReason-Werte und
 der Resume-Trigger in **FK-39 §39.2.2**.
 
-| Status | PauseReason / Auslöser | Phase | Bedeutung | Resume |
+| Status | PauseReason / Ausloeser | Phase | Bedeutung | Resume |
 |--------|----------------------|-------|-----------|--------|
 | `PAUSED` | `AWAITING_DESIGN_REVIEW` | exploration | Entwurfsartefakt wartet auf Design-Review. Pipeline pausiert, bis Review-Ergebnis vorliegt. | `agentkit resume --story {id}` (nach Review-Abschluss) |
-| `PAUSED` | `AWAITING_DESIGN_CHALLENGE` | exploration | Design-Review hat Einwände erhoben. Pipeline pausiert, bis Challenge-Prozess abgeschlossen. | `agentkit resume --story {id}` (nach Challenge-Klärung) |
-| `PAUSED` | `GOVERNANCE_INCIDENT` | jede | Governance-Observer hat kritischen Incident erkannt. Pipeline pausiert sofort, Mensch muss intervenieren. | `agentkit resume --story {id}` (nach Incident-Klärung) |
-| `ESCALATED` | Preflight FAIL, Worker BLOCKED, Integrity-Gate FAIL, Max Runden, Merge-Konflikt, Gate-FAIL nach max Runden | setup, impl., verify, closure | Pipeline ist dauerhaft gestoppt für diese Iteration. Mensch muss Ursache klären und ggf. neuen Run starten. | `agentkit reset-escalation --story {id}` → neuer Run |
+| `PAUSED` | `AWAITING_DESIGN_CHALLENGE` | exploration | Design-Review hat Einwaende erhoben. Pipeline pausiert, bis Challenge-Prozess abgeschlossen. | `agentkit resume --story {id}` (nach Challenge-Klaerung) |
+| `PAUSED` | `GOVERNANCE_INCIDENT` | jede | Governance-Observer hat kritischen Incident erkannt. Pipeline pausiert sofort, Mensch muss intervenieren. | `agentkit resume --story {id}` (nach Incident-Klaerung) |
+| `ESCALATED` | Preflight FAIL, Worker BLOCKED, Integrity-Gate FAIL, Max Runden im QA-Subflow, Merge-Konflikt, Gate-FAIL nach max Runden | setup, implementation, closure | Pipeline ist dauerhaft gestoppt fuer diese Iteration. Mensch muss Ursache klaeren und ggf. neuen Run starten. | `agentkit reset-escalation --story {id}` -> neuer Run |
 
 **Technisch:** Der Phase-State mit `status: ESCALATED` oder `PAUSED`
 verhindert, dass der Orchestrator die nächste Phase aufruft.
@@ -657,7 +678,7 @@ verhindert, dass der Orchestrator die nächste Phase aufruft.
 | Szenario | Phase-State | Recovery |
 |----------|------------|---------|
 | Agent-Session crashed mitten in Implementation | `phase: implementation, status: IN_PROGRESS` | Neuer Run mit neuer `run_id`. Worktree existiert noch, Commits sind da. Orchestrator spawnt neuen Worker, der die Arbeit fortsetzt. |
-| Phase Runner crashed mitten in Verify | `phase: verify, status: IN_PROGRESS` | `run-phase verify` erneut aufrufen. Schicht 1 hat bereits `structural.json` geschrieben (idempotent). Fortschritt wird aus vorhandenen Artefakten rekonstruiert. [Entscheidung 2026-04-09: `verify_layer` entfernt — ephemerer Fortschritt, nicht durable.] |
+| Phase Runner crashed mitten im QA-Subflow | `phase: implementation, status: IN_PROGRESS, payload.qa_cycle_status: awaiting_qa` | `run-phase implementation` erneut aufrufen — Engine setzt den QA-Subflow am letzten persistierten `qa_cycle_status` fort. Schicht 1 hat bereits `structural.json` geschrieben (idempotent). Fortschritt wird aus vorhandenen Artefakten rekonstruiert. [Entscheidung 2026-04-09: `verify_layer` entfernt — ephemerer Fortschritt, nicht durable.] [Entscheidung 2026-05-01: Phase ist `implementation` — QA-Subflow.] |
 | Closure crashed nach Merge aber vor Issue-Close | `payload.progress: {merge_done: true, issue_closed: false}` | `run-phase closure` erneut aufrufen. Merge wird übersprungen (bereits gemergt). Issue-Close wird ausgeführt. [Entscheidung 2026-04-09: `closure_substates` → `payload.progress` (ClosurePayload).] |
 | Mensch will eskalierten Run fortsetzen | `status: ESCALATED` | Mensch setzt Phase-State zurück: `agentkit reset-escalation --story {story_id}`. Dann neuer Run. |
 
@@ -669,10 +690,10 @@ erzeugt. Die alte `run_id` bleibt in der Telemetrie erhalten
 für Forensik.
 
 **Kein automatischer Retry.** Der Phase Runner versucht nicht
-selbstständig, eine gescheiterte Phase zu wiederholen. Recovery
+selbststaendig, eine gescheiterte Phase zu wiederholen. Recovery
 ist immer eine bewusste Entscheidung — entweder des Orchestrators
-(bei Verify-Failure → Feedback-Loop) oder des Menschen (bei
-Eskalation).
+(bei QA-Subflow-Failure -> Subflow-internem Feedback-Loop, §20.5)
+oder des Menschen (bei Eskalation).
 
 > **[Entscheidung 2026-04-08]** Element 8 — Scheduling Policies (3 Klassen) entfallen als Runtime-Datenstrukturen in v3. Die Scheduling-Informationen bleiben in der Konzeptdokumentation (hier §20.8). Reines Doku-Artefakt ohne Verhalten.
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 8.
@@ -728,10 +749,10 @@ FK-06-040 bis FK-06-055 (Execution/Exploration Mode)*
 **Querverweise:**
 - FK-39 — Phase-State-Persistenz: PhaseEnvelope, PhasePayload (discriminated union), PhaseMemory (carry-forward), AttemptRecord, PauseReason-Enum, Lese-/Schreibprotokoll
 - FK-45 — Phase Runner CLI: `agentkit run-phase`, Phasen-Dispatch, Phase-Transition-Enforcement, Orchestrator-Reaktionstabelle
-- FK-38 — Verify-Feedback und Dokumententreue-Schleife: Mängelliste-Format, Mandatory-Target-Rückkopplung, Ebene 3 und 4
+- FK-38 — QA-Subflow-Feedback und Dokumententreue-Schleife: Maengelliste-Format, Mandatory-Target-Rueckkopplung, Ebene 3 und 4
 - FK-35 — Integrity-Gate, Governance-Beobachtung und Eskalation
 - FK-23 — Modusermittlung und Exploration: ExplorationPayload, gate_status, Design-Review-Gate
-- FK-37 — Verify-Context: VerifyPayload, verify_context, integration_stabilization-Vertragsprofil
+- FK-37 — QA-Subflow-Context: verify_context als Subflow-internes Diskriminator-Feld, integration_stabilization-Vertragsprofil
 - FK-29 — Closure-Sequence: ClosurePayload, ClosureProgress, Substate-Recovery
 - FK-53 — StoryResetService: Vollständiger Story-Reset-Pfad
 - FK-54 — StorySplitService: Scope-Explosion und Successor-Stories

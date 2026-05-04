@@ -18,12 +18,18 @@ defers_to:
   - target: FK-20
     scope: phase-model
     reason: Implementation als Phase im Phasenmodell von FK-20
+  - target: FK-27
+    scope: qa-subflow
+    reason: QA-Subflow innerhalb der Implementation-Phase (4-Schichten-QA, Capability VerifySystem) in FK-27 definiert
   - target: FK-28
     scope: evidence-assembly
     reason: Evidence Assembly fuer Review-Vorbereitung in Kap. 28 beschrieben
   - target: FK-30
     scope: worker-health-monitor
     reason: Scoring-Modell, Eskalationsleiter und Sidecar-Architektur in Kap. 30 definiert
+  - target: FK-39
+    scope: implementation-payload
+    reason: ImplementationPayload (qa_cycle_status, verify_context) und PhaseMemory.implementation.qa_feedback_rounds in FK-39
   - target: FK-44
     scope: prompt-bundles
     reason: Worker-Prompts werden aus dem run-gebundenen Prompt-Bundle materialisiert (FK-44)
@@ -50,11 +56,12 @@ glossary:
           domain: implementation-phase
     - id: handover-paket
       definition: >
-        Strukturierte fachliche Uebergabe vom Worker an die Verify-Phase in Form
-        der Datei handover.json. Enthaelt changes_summary, vertikale Inkremente
-        mit Commit-SHAs, Annahmen, vorhandene Tests, QA-Risiken, Drift-Log und
-        AC-Status. Gibt dem QA-Agenten gezielte Ansatzpunkte statt blinder Suche.
-        Pflichtartefakt am Ende jeder Implementation-Phase.
+        Strukturierte fachliche Uebergabe vom Worker an den QA-Subflow innerhalb
+        der Implementation-Phase in Form der Datei handover.json. Enthaelt
+        changes_summary, vertikale Inkremente mit Commit-SHAs, Annahmen, vorhandene
+        Tests, QA-Risiken, Drift-Log und AC-Status. Gibt dem QA-Agenten gezielte
+        Ansatzpunkte statt blinder Suche. Pflichtartefakt am Ende jedes Worker-Runs
+        innerhalb der Implementation-Phase.
       see_also:
         - term: worker-manifest
           domain: implementation-phase
@@ -399,9 +406,9 @@ Der Worker holt sich während der Implementierung Reviews von
 anderen LLMs. Die Reviewer sind in `llm_roles` konfiguriert,
 nicht frei wählbar.
 
-**Zweck:** Präventiv — Architektur-Drift früh erkennen, blinde
+**Zweck:** Praeventiv — Architektur-Drift frueh erkennen, blinde
 Flecken aufdecken, Seiteneffekte identifizieren. Reviews ersetzen
-nicht die Verify-Phase.
+nicht den QA-Subflow.
 
 ### 26.5.2 Review-Mindestfrequenz
 
@@ -490,9 +497,10 @@ Erst wenn Build und Tests grün sind, geht der Worker zum Handover.
 
 ### 26.7.1 Zweck (FK-05-123 bis FK-05-126)
 
-Das Handover-Paket ist die strukturierte Übergabe vom Worker an
-die Verify-Phase. Es gibt dem QA-Agenten (Schicht 2+3) gezielte
-Ansatzpunkte statt einer blinden Suche.
+Das Handover-Paket ist die strukturierte Uebergabe vom Worker an
+den QA-Subflow innerhalb der Implementation-Phase. Es gibt dem
+QA-Agenten (Schicht 2+3) gezielte Ansatzpunkte statt einer blinden
+Suche.
 
 ### 26.7.2 Schema: `handover.json`
 
@@ -570,10 +578,10 @@ Ansatzpunkte statt einer blinden Suche.
 | `drift_log` | Ja | Dokumentierte Abweichungen vom Entwurf (dürfen leer sein) |
 | `acceptance_criteria_status` | Ja | Status pro AC: ADDRESSED, NOT_APPLICABLE, BLOCKED |
 
-### 26.7.4 Nutzung in der Verify-Phase
+### 26.7.4 Nutzung im QA-Subflow
 
-| Verify-Schicht | Nutzt aus Handover |
-|---------------|-------------------|
+| QA-Subflow-Schicht | Nutzt aus Handover |
+|--------------------|--------------------|
 | Schicht 1 (Structural) | `increments` (Commit-SHAs), `existing_tests` |
 | Schicht 2 (LLM-Review) | `changes_summary`, `assumptions`, `drift_log`, `acceptance_criteria_status` |
 | Schicht 3 (Adversarial) | `risks_for_qa` (gezielte Ansatzpunkte), `existing_tests` (was schon getestet ist) |
@@ -837,8 +845,8 @@ Wenn der Worker die Akzeptanzkriterien nicht umsetzen kann:
 1. Worker dokumentiert Blocker im Handover-Paket
    (`acceptance_criteria_status: BLOCKED`)
 2. Worker erzeugt Handover + Manifest trotzdem
-3. Verify-Phase erkennt BLOCKED-ACs und erzeugt FAIL
-4. Feedback-Loop: Remediation-Worker erhält Mängelliste
+3. QA-Subflow erkennt BLOCKED-ACs und erzeugt FAIL
+4. Subflow-interner Feedback-Loop: Remediation-Worker erhaelt Maengelliste
 5. Nach max N Runden: Eskalation an Mensch
 
 **Abgrenzung:** Fachliches Scheitern (§26.11.3) ist nicht

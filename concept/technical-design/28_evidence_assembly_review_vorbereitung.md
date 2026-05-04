@@ -12,11 +12,11 @@ authority_over:
   - scope: authority-classes
 defers_to:
   - target: FK-27
-    scope: verify-phase
-    reason: Evidence Assembly dient der Vorbereitung fuer Verify Schicht 2 (FK-27)
+    scope: qa-subflow
+    reason: Evidence Assembly dient der Vorbereitung fuer Schicht 2 des QA-Subflows (FK-27)
   - target: FK-34
     scope: llm-evaluations
-    reason: LLM-basierte Reviews in der Verify-Phase in FK-34 beschrieben
+    reason: LLM-basierte Reviews im QA-Subflow in FK-34 beschrieben
   - target: FK-12
     scope: git-operations
     reason: GitOperations ist Single-Repo by design (FK-12)
@@ -88,8 +88,9 @@ glossary:
 ## 28.1 Zweck
 
 Die Evidence Assembly ist der deterministische Vorbereitungsschritt
-für alle LLM-basierten Reviews in der Verify-Phase (Schicht 2,
-FK-34). Sie ersetzt die bisher vom Worker selbst kuratierte
+fuer alle LLM-basierten Reviews im QA-Subflow innerhalb der
+Implementation-Phase (Schicht 2, FK-34). Sie ersetzt die bisher vom
+Worker selbst kuratierte
 `merge_paths`-Liste durch einen maschinell assemblierten,
 klassifizierten und auditierbaren Evidenz-Körper.
 
@@ -879,7 +880,7 @@ Der vollständige Review-Flow mit Evidence Assembly:
 
 ```mermaid
 flowchart TD
-    START["Story in Verify-Phase"] --> L1["Schicht 1: Deterministische Checks<br/>(FK-33)"]
+    START["Story im QA-Subflow<br/>(innerhalb Implementation-Phase)"] --> L1["Schicht 1: Deterministische Checks<br/>(FK-33)"]
     L1 -->|PASS| ASSEMBLE["EvidenceAssembler.assemble()"]
     L1 -->|FAIL| FAIL_L1["→ Feedback + Remediation"]
 
@@ -1011,7 +1012,7 @@ Evidenz-Identität (`evidence_epoch` + `manifest_hash`).
   Evidenzbasis gebunden. Wenn sich das Bundle zwischen Preflight
   und Review ändert (z.B. durch parallele Commits), ist das
   erkennbar.
-- Audit-Compliance: Die Verify-Phase muss nachweisen können, auf
+- Audit-Compliance: Der QA-Subflow muss nachweisen koennen, auf
   welcher Basis ein PASS/FAIL entstanden ist.
 - Divergenz-Analyse: Wenn zwei Reviewer auf demselben
   `manifest_hash` unterschiedliche Ergebnisse liefern, ist die

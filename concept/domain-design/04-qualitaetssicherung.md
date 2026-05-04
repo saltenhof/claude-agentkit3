@@ -18,10 +18,11 @@ glossary:
   exported_terms:
     - id: finding-resolution
       definition: >
-        Bewertung eines konkreten Verify-Findings durch den Layer-2-StructuredEvaluator
-        im Remediation-Modus. Moegliche Auspraegungen: fully_resolved, partially_resolved,
-        not_resolved. Worker-Selbstauskunft (Trust C) ist keine gueltiger Nachweis;
-        nur Trust-B-Quellen (LLM-Evaluator) setzen den kanonischen Resolution-Status.
+        Bewertung eines konkreten QA-Subflow-Findings durch den
+        Layer-2-StructuredEvaluator im Remediation-Modus. Moegliche Auspraegungen:
+        fully_resolved, partially_resolved, not_resolved. Worker-Selbstauskunft
+        (Trust C) ist kein gueltiger Nachweis; nur Trust-B-Quellen (LLM-Evaluator)
+        setzen den kanonischen Resolution-Status.
       values: [fully_resolved, partially_resolved, not_resolved]
       see_also:
         - term: remediation-loop
@@ -41,7 +42,7 @@ glossary:
     - id: trust-class
       definition: >
         Klassifikation einer Evidenzquelle nach ihrer Sperrwirkung (blocking) im
-        Verify-Prozess. Klasse A (autoritative Systeme) und B (systemseitig emittiert)
+        QA-Subflow. Klasse A (autoritative Systeme) und B (systemseitig emittiert)
         dürfen blocking sein. Klasse C (vom Worker selbst erzeugt) darf niemals
         blocking sein, da der Agent sonst seine eigene Prüfung bestehen kann.
       values: [A, B, C]
@@ -50,10 +51,13 @@ glossary:
           domain: verify-system
     - id: verify-context
       definition: >
-        Typisiertes StrEnum-Feld auf VerifyPayload, das den Auslöser des aktuellen
-        Verify-Durchlaufs identifiziert. Steuert normativ die QA-Tiefe; None ist
-        fail-closed (sofortige Eskalation). Beide Werte lösen immer die volle
-        4-Schichten-QA aus, unabhängig von mode.
+        Typisiertes StrEnum-Feld auf ImplementationPayload, das den Ausloeser des
+        aktuellen QA-Subflow-Durchlaufs innerhalb der Implementation-Phase
+        identifiziert. Steuert normativ die QA-Tiefe; None ist fail-closed (sofortige
+        Eskalation). Beide Werte loesen immer den vollen 4-Schichten-QA-Subflow aus,
+        unabhaengig von mode. Subflow-internes Diskriminator-Feld, kein
+        eigenstaendiger Phase-Payload-Typ mehr (vormals VerifyPayload, Cut der
+        Top-Phase verify per Variante Y).
       values: [post_implementation, post_remediation]
       see_also:
         - term: context-bundle
@@ -61,9 +65,9 @@ glossary:
   internal_terms:
     - id: verify-vier-schichten
       reason: >
-        Strukturierungsprinzip der Verify-Phase (Structural, LLM-Bewertungen,
-        Adversarial, Policy); kein exportierter Vertragstyp, sondern
-        Architekturprinzip, das in FK-27 normiert ist.
+        Strukturierungsprinzip des QA-Subflows innerhalb der Implementation-Phase
+        (Structural, LLM-Bewertungen, Adversarial, Policy); kein exportierter
+        Vertragstyp, sondern Architekturprinzip, das in FK-27 normiert ist.
 ---
 
 # 04 — Mehrstufige Qualitätssicherung
@@ -75,8 +79,17 @@ glossary:
 ---
 
 Dieses Kapitel beschreibt die fachlichen Prinzipien der
-Qualitätssicherung. Die konkrete Verortung in der Pipeline (vier
-Schichten der Verify-Phase) ist in [02-pipeline-orchestrierung.md](02-pipeline-orchestrierung.md), Abschnitt 2.2 definiert.
+Qualitaetssicherung. Die konkrete Verortung in der Pipeline (vier
+Schichten des QA-Subflows innerhalb der Implementation-Phase) ist in
+[02-pipeline-orchestrierung.md](02-pipeline-orchestrierung.md), Abschnitt 2.2 definiert.
+
+> **`verify-system` als Capability-BC.** `verify-system` ist ein
+> Capability-Bounded-Context, kein Phase-Owner. Die Capability
+> `VerifySystem` wird sowohl von `ExplorationPhase` (Exit-Gate, FK-23
+> §23.5) als auch von `ImplementationPhase` (QA-Subflow, FK-27)
+> aufgerufen. Eine eigenstaendige Top-Phase `verify` existiert nicht.
+> Siehe `concept/_meta/bc-cut-decisions.md` "Verify als Capability
+> (Variante Y)".
 
 ## 4.1 Deterministische vs. LLM-basierte Prüfung
 
@@ -137,21 +150,20 @@ Wissen existiert zum Zeitpunkt der Story-Erstellung nicht. Die
 Prüfung kann erst nach der Implementierung stattfinden und ist damit
 nachträgliche Verifikation, kein TDD.
 
-## 4.4 Zirkularitätsbruch durch Rollentrennung
+## 4.4 Zirkularitaetsbruch durch Rollentrennung
 
-Die fachliche Prüfung der Implementierung erfolgt nicht durch
-denselben Agenten, der implementiert hat. In der Verify-Phase werden
-zwei Mechanismen eingesetzt, die beide auf anderen LLMs basieren als
-der Worker:
+Die fachliche Pruefung der Implementierung erfolgt nicht durch
+denselben Agenten, der implementiert hat. Im QA-Subflow innerhalb der
+Implementation-Phase werden zwei Mechanismen eingesetzt, die beide
+auf anderen LLMs basieren als der Worker:
 
-**LLM-Bewertungen** (Schicht 2 der Verify-Phase) laufen als
+**LLM-Bewertungen** (Schicht 2 des QA-Subflows) laufen als
 Skript-Aufrufe ohne Dateisystem-Zugriff. Sie bewerten die
 Implementierung semantisch gegen Anforderungen und Konzept.
 
-**Adversarial Testing** (Schicht 3 der Verify-Phase) ist der einzige
-Agent mit Dateisystem-Zugriff in der Verify-Phase. Er baut aktiv
-neue Tests, die der Worker nicht geschrieben hat, mit dem Ziel,
-Fehler zu finden.
+**Adversarial Testing** (Schicht 3 des QA-Subflows) ist der einzige
+Agent mit Dateisystem-Zugriff im QA-Subflow. Er baut aktiv neue Tests,
+die der Worker nicht geschrieben hat, mit dem Ziel, Fehler zu finden.
 
 Wenn derselbe Agent seine eigene Arbeit prüft, ist die Validierung
 zirkulär. Die Kombination aus anderem Modell und anderem Auftrag
@@ -160,42 +172,55 @@ Rollen ([01-rollen-und-llm-einsatz.md](01-rollen-und-llm-einsatz.md)) ist hier V
 
 ## 4.4a Verify-Kontext-Differenzierung
 
-### Problem: `mode` ist kein hinreichender Diskriminator fuer die Verify-Tiefe
+### Problem: `mode` ist kein hinreichender Diskriminator fuer die QA-Tiefe
 
 Das Feld `mode` wird in der Setup-Phase gesetzt und bleibt ueber
 den gesamten Story-Lifecycle konstant. Wenn die Pipeline nur `mode`
-auswertet, werden bei Exploration-Mode-Stories spaetere Verify-
-Durchlaeufe faelschlich als "leichtgewichtig" behandelt. Das ist ein
-kritischer Governance-Fehler: Nach der Implementation wuerden Layer
-2-4 uebersprungen, obwohl bereits Code existiert und volle QA noetig
-ist.
+auswertet, werden bei Exploration-Mode-Stories spaetere
+QA-Subflow-Durchlaeufe faelschlich als "leichtgewichtig" behandelt.
+Das ist ein kritischer Governance-Fehler: Nach dem Worker-Run
+wuerden Layer 2-4 uebersprungen, obwohl bereits Code existiert und
+volle QA noetig ist.
 
-### Loesung: Separates `verify_context`-Feld
+### Loesung: Subflow-internes `verify_context`-Feld
 
 Ein dediziertes `verify_context`-Feld identifiziert, in welchem
-Kontext der aktuelle Verify-Durchlauf stattfindet:
+Subflow-Kontext der aktuelle QA-Durchlauf stattfindet. Es lebt als
+Subflow-internes Diskriminator-Feld auf dem Implementation-Phase-State
+(typisiert auf `ImplementationPayload`, FK-37 §37.1, FK-39 §39.2.3),
+nicht als eigenstaendiger Phase-Payload-Wert.
 
 | `verify_context` | Ausloeser | QA-Tiefe | Begruendung |
 |------------------|-----------|----------|-------------|
-| `post_implementation` | Verify nach abgeschlossener Implementation-Phase | Volle 4-Schichten-QA (Structural, Semantisch, Adversarial, Policy). | Dies ist der primaere QA-Durchlauf — unabhaengig davon, ob `mode = "exploration"` oder `mode = "execution"`. |
-| `post_remediation` | Verify nach einer Remediation-Runde | Volle 4-Schichten-QA (Structural, Semantisch, Adversarial, Policy). | Nach einer Nachbesserung muss erneut die komplette QA laufen; ein Teilpfad waere ein Governance-Leck. |
+| `post_implementation` | QA-Subflow nach Worker-Run innerhalb der Implementation-Phase | Volle 4-Schichten-QA (Structural, Semantisch, Adversarial, Policy). | Dies ist der primaere QA-Durchlauf — unabhaengig davon, ob `mode = "exploration"` oder `mode = "execution"`. |
+| `post_remediation` | QA-Subflow nach einer Subflow-internen Remediation-Iteration | Volle 4-Schichten-QA (Structural, Semantisch, Adversarial, Policy). | Nach einer Nachbesserung muss erneut die komplette QA laufen; ein Teilpfad waere ein Governance-Leck. |
 
-### Invariante: Kein Structural-only-Verify fuer Code-Stories
+> **[Entscheidung 2026-05-01]** Aussagen der Form "Verify nach
+> Implementation laeuft als eigene Phase" gelten nicht mehr.
+> `verify-system` ist Capability-BC, der QA-Lauf ist
+> Subflow-intern in der Implementation-Phase. Der Loop
+> `Worker-Run -> QA-Subflow FAIL -> Remediation -> erneuter
+> QA-Subflow` ist Subflow-intern; es gibt keinen Phasen-Wechsel
+> `verify -> implementation` mehr. Siehe
+> `concept/_meta/bc-cut-decisions.md` "Verify als Capability
+> (Variante Y)".
 
-Es gibt keinen gueltigen Structural-only-Verify-Pfad fuer
+### Invariante: Kein Structural-only-QA-Subflow fuer Code-Stories
+
+Es gibt keinen gueltigen Structural-only-QA-Subflow-Pfad fuer
 Implementation- und Bugfix-Stories. Sobald Code implementiert oder
 nachgebessert wurde, sind Layer 2-4 Pflicht. Fehlende LLM-Reviews
 bei Code-Stories sind ein HARD BLOCKER, kein Warning.
 
 ### Empirischer Anlass (BB2-057)
 
-Eine Implementation-Story im Exploration Mode wurde nach der
-Implementation ohne ein einziges LLM-Review durchgewunken. Die
+Eine Implementation-Story im Exploration Mode wurde nach dem
+Worker-Run ohne ein einziges LLM-Review durchgewunken. Die
 Ursache: Der Phase Runner verwendete `mode == "exploration"` als
-Trigger fuer einen Structural-Only-Pfad — unabhaengig davon, welche
-Phase gerade verifiziert wurde. Der Orchestrator handelte korrekt
-nach Phase-State-Vertrag: COMPLETED + leere `agents_to_spawn` →
-Closure. Der Bug lag zu 100% im deterministischen Code (Phase
+Trigger fuer einen Structural-Only-Pfad — unabhaengig davon, in
+welchem QA-Subflow-Kontext gerade geprueft wurde. Der Orchestrator
+handelte korrekt nach Phase-State-Vertrag: COMPLETED + leere
+`agents_to_spawn` -> Closure. Der Bug lag zu 100% im deterministischen Code (Phase
 Runner), nicht im nicht-deterministischen Orchestrator.
 
 Die Konsequenz: Die Story passierte ohne QA-Review, ohne Semantic

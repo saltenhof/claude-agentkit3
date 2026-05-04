@@ -1,13 +1,13 @@
 ---
 concept_id: FK-27
-title: "Verify-Pipeline: Schichten und QA-Zyklus"
+title: "QA-Subflow innerhalb Implementation: Schichten und QA-Zyklus"
 module: verify-layered-checks
 domain: verify-system
 status: active
 doc_kind: core
 parent_concept_id:
 authority_over:
-  - scope: verify-pipeline
+  - scope: qa-subflow
   - scope: qa-cycle
   - scope: layered-checks
   - scope: adversarial-orchestration
@@ -36,7 +36,7 @@ defers_to:
     reason: Integrity-Gate-Definition, 8 Dimensionen und Eskalation in FK-35 §35.2 normiert
   - target: FK-37
     scope: verify-context
-    reason: VerifyContext, Context-Bundle-Vorbereitung und Section-aware Packing in FK-37
+    reason: VerifyContext (Subflow-internes Diskriminator-Feld), Context-Bundle-Vorbereitung und Section-aware Packing in FK-37
   - target: FK-29
     scope: closure-sequence
     reason: Closure-Phase, Finding-Resolution-Gate, Postflight, Execution Report und Guard-Deaktivierung in FK-29
@@ -107,17 +107,33 @@ formal_refs:
   - formal.verify.scenarios
 ---
 
-# 27 — Verify-Pipeline: Schichten und QA-Zyklus
+# 27 — QA-Subflow innerhalb Implementation: Schichten und QA-Zyklus
 
 <!-- PROSE-FORMAL: formal.deterministic-checks.entities, formal.deterministic-checks.state-machine, formal.deterministic-checks.commands, formal.deterministic-checks.events, formal.deterministic-checks.invariants, formal.deterministic-checks.scenarios, formal.implementation.entities, formal.implementation.invariants, formal.verify.entities, formal.verify.state-machine, formal.verify.commands, formal.verify.events, formal.verify.invariants, formal.verify.scenarios -->
 
+> **[Entscheidung 2026-05-01]** Die ehemalige Top-Phase `verify` ist
+> entfallen. Output-QA ist jetzt ein interner Subflow innerhalb der
+> Implementation-Phase (analog zum Exit-Gate der Exploration-Phase,
+> FK-23 §23.5). Die in diesem Dokument beschriebenen 4 Schichten
+> (Layer 1 Structural, Layer 2 LLM, Layer 3 Adversarial, Layer 4
+> Policy), der QA-Zyklus, die Artefakt-Invalidierung und der
+> Remediation-Loop sind die fachliche Mechanik dieses Subflows. Die
+> Capability `VerifySystem` (BC verify-system) liefert
+> `run_qa_subflow(...) -> PolicyVerdict` und wird sowohl von
+> `ExplorationPhase` (Exit-Gate) als auch von `ImplementationPhase`
+> (Output-QA) aufgerufen. Siehe `concept/_meta/bc-cut-decisions.md`
+> "Verify als Capability (Variante Y)".
+
 ## 27.1 Zweck
 
-Die Verify-Phase ist die maschinelle Qualitätssicherung. Sie prüft
-die Implementierung in vier aufeinander aufbauenden Schichten.
+Der QA-Subflow ist die maschinelle Qualitaetssicherung der
+Implementation-Phase. Er prueft die Implementierung in vier
+aufeinander aufbauenden Schichten und laeuft als interner Subflow
+innerhalb der `implementation`-Top-Phase, nicht als eigene
+Phasenstufe.
 
-Fuer `implementation_contract=integration_stabilization` bleibt die
-Verify-Phase voll aktiv, erhaelt aber zusaetzlich ein dediziertes
+Fuer `implementation_contract=integration_stabilization` bleibt der
+QA-Subflow voll aktiv, erhaelt aber zusaetzlich ein dediziertes
 `stability_gate` ueber Manifest, Integrationszielmatrix und
 Stabilisierungsbudget.
 
@@ -225,13 +241,13 @@ Sachverhalt nicht mehr sauber beherrschen.
    durch einen menschlichen CLI-Befehl gegen den `StoryResetService`.
 4. Vor einem Reset muss die bisherige Umsetzung als korrupt oder
    fachlich unbrauchbar bewertet sein; ein Reset ist kein Routinepfad
-   fuer gewoehnliche Verify-Fails.
+   fuer gewoehnliche QA-Subflow-Fails.
 
-## 27.3 Verify-Phase: Gesamtablauf
+## 27.3 QA-Subflow innerhalb Implementation-Phase: Gesamtablauf
 
 ```mermaid
 flowchart TD
-    START(["agentkit run-phase verify<br/>--story ODIN-042"]) --> S1
+    START(["QA-Subflow-Eintritt<br/>(innerhalb Implementation-Phase)<br/>--story ODIN-042"]) --> S1
 
     subgraph SCHICHT_1 ["Schicht 1: Deterministische Checks (Skripte, kein LLM)"]
         S1["Artefakt-Prüfung:<br/>Protocol, Manifest,<br/>deklarierte Dateien"]
@@ -649,7 +665,7 @@ def evaluate_policy(story_id: str, story_type: str, config: PipelineConfig) -> P
 
 ---
 
-*FK-Referenzen: FK-05-128 bis FK-05-214 (Verify-Phase komplett),
+*FK-Referenzen: FK-05-128 bis FK-05-214 (QA-Subflow komplett),
 FK-06-057 bis FK-06-058 (Dokumententreue Ebene 3 — Detail in FK-38),
 FK-07-001 bis FK-07-021 (QA-Prinzipien),
 FK-27-051 (Konsolidierungsverbot Test-Suite)*
