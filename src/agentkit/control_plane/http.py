@@ -28,7 +28,7 @@ from agentkit.dashboard import DashboardService
 from agentkit.story.service import StoryService
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Iterable, Mapping, Sequence
     from pathlib import Path
 
     from agentkit.auth.http.routes import AuthRouteResponse, AuthRoutes
@@ -53,6 +53,7 @@ if TYPE_CHECKING:
         StoryContextRoutes,
         StoryRouteResponse,
     )
+    from agentkit.telemetry.http.routes import TelemetryRouteResponse, TelemetryRoutes
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,7 @@ class HttpResponse:
     status_code: int
     body: bytes
     headers: tuple[tuple[str, str], ...] = ()
+    stream: Iterable[bytes] | None = None
 
 
 class ControlPlaneApplication:
@@ -97,6 +99,7 @@ class ControlPlaneApplication:
         concept_routes: ConceptCatalogRoutes | None = None,
         hub_routes: MultiLlmHubRoutes | None = None,
         planning_routes: ExecutionPlanningRoutes | None = None,
+        telemetry_routes: TelemetryRoutes | None = None,
         auth_routes: AuthRoutes | None = None,
         auth_middleware: AuthMiddleware | None = None,
     ) -> None:
@@ -131,6 +134,11 @@ class ControlPlaneApplication:
 
             planning_routes = ExecutionPlanningRoutes()
         self._planning_routes = planning_routes
+        if telemetry_routes is None:
+            from agentkit.telemetry.http.routes import TelemetryRoutes
+
+            telemetry_routes = TelemetryRoutes()
+        self._telemetry_routes = telemetry_routes
         if auth_routes is None and auth_middleware is not None:
             from agentkit.auth.http.routes import AuthRoutes
 
@@ -225,7 +233,15 @@ class ControlPlaneApplication:
         if concept_response is not None:
             return _concept_response_to_http_response(concept_response)
 
-        hub_response = self._hub_routes.handle_get(route_path, correlation_id)
+        telemetry_response = self._telemetry_routes.handle_get(
+            route_path,
+            query,
+            correlation_id,
+        )
+        if telemetry_response is not None:
+            return _telemetry_response_to_http_response(telemetry_response)
+
+        hub_response = self._hub_routes.handle_get(route_path, query, correlation_id)
         if hub_response is not None:
             return _hub_response_to_http_response(hub_response)
 
@@ -763,9 +779,15 @@ def _build_handler(app: ControlPlaneApplication) -> type[BaseHTTPRequestHandler]
                 self.send_header(key, value)
             if not _has_header(response.headers, "Content-Type"):
                 self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(response.body)))
+            if response.stream is None:
+                self.send_header("Content-Length", str(len(response.body)))
+                self.end_headers()
+                self.wfile.write(response.body)
+                return
             self.end_headers()
-            self.wfile.write(response.body)
+            for chunk in response.stream:
+                self.wfile.write(chunk)
+                self.wfile.flush()
 
         def log_message(self, message_format: str, *args: object) -> None:
             logger.info("control-plane %s", message_format % args)
@@ -826,6 +848,7 @@ def _hub_response_to_http_response(response: MultiLlmHubRouteResponse) -> HttpRe
         status_code=response.status_code,
         body=response.body,
         headers=response.headers,
+        stream=response.stream,
     )
 
 
@@ -844,6 +867,17 @@ def _story_response_to_http_response(response: StoryRouteResponse) -> HttpRespon
         status_code=response.status_code,
         body=response.body,
         headers=response.headers,
+    )
+
+
+def _telemetry_response_to_http_response(
+    response: TelemetryRouteResponse,
+) -> HttpResponse:
+    return HttpResponse(
+        status_code=response.status_code,
+        body=response.body,
+        headers=response.headers,
+        stream=response.stream,
     )
 
 

@@ -1550,6 +1550,19 @@ def load_execution_event_rows(
     return [dict(row) for row in rows]
 
 
+def load_execution_event_rows_for_project_global(
+    project_key: str,
+    *,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    """Global project execution-event reads are unsupported on SQLite."""
+
+    del project_key, limit
+    raise RuntimeError(
+        "Global project execution-event reads require the postgres state backend",
+    )
+
+
 # ---------------------------------------------------------------------------
 # StoryMetricsRecord rows
 # ---------------------------------------------------------------------------

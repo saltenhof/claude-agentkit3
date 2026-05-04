@@ -226,3 +226,18 @@ def test_hub_unavailable_returns_503() -> None:
     )
 
     assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE
+
+
+def test_get_hub_events_returns_sse_stream() -> None:
+    response = _app(_FakeHubClient()).handle_request(
+        method="GET",
+        path="/v1/events/hub?topics=backend_status",
+        body=b"",
+        request_headers={"X-Correlation-Id": "req-hub-events"},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    assert response.stream is not None
+    payload = next(iter(response.stream)).decode("utf-8")
+    assert "event: backend_status" in payload
+    assert "event: sessions" not in payload

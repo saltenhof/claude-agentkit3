@@ -1518,6 +1518,36 @@ def load_execution_event_rows_global(
     return [dict(row) for row in reversed(rows)]
 
 
+def load_execution_event_rows_for_project_global(
+    project_key: str,
+    *,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    """Return recent execution-event rows for one project."""
+
+    if limit is not None and limit <= 0:
+        return []
+    params: list[object] = [project_key]
+    limit_clause = ""
+    if limit is not None:
+        limit_clause = "LIMIT ?"
+        params.append(limit)
+    with _connect_global() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT project_key, story_id, run_id, event_id, event_type,
+                   occurred_at, source_component, severity, phase, flow_id,
+                   node_id, payload_json
+            FROM execution_events
+            WHERE project_key = ?
+            ORDER BY occurred_at DESC, event_id DESC
+            {limit_clause}
+            """,
+            tuple(params),
+        ).fetchall()
+    return [dict(row) for row in reversed(rows)]
+
+
 # ---------------------------------------------------------------------------
 # SessionRunBindingRecord rows
 # ---------------------------------------------------------------------------

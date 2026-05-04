@@ -541,6 +541,23 @@ def load_execution_events_global(
     return [mappers.execution_event_row_to_record(row) for row in rows]
 
 
+def load_execution_events_for_project_global(
+    project_key: str,
+    *,
+    limit: int | None = None,
+) -> list[ExecutionEventRecord]:
+    backend = _backend_module()
+    if not hasattr(backend, "load_execution_event_rows_for_project_global"):
+        raise RuntimeError(
+            "Global project execution-event reads are unsupported by the active backend",
+        )
+    rows = backend.load_execution_event_rows_for_project_global(
+        project_key,
+        limit=limit,
+    )
+    return [mappers.execution_event_row_to_record(row) for row in rows]
+
+
 # ---------------------------------------------------------------------------
 # SessionRunBindingRecord
 # ---------------------------------------------------------------------------

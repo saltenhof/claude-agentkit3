@@ -19,9 +19,13 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from agentkit.multi_llm_hub.config import load_multi_llm_hub_config
 from agentkit.multi_llm_hub.entities import HubBackendName
 from agentkit.multi_llm_hub.errors import HubSessionNotFoundError, HubUnavailableError, MultiLlmHubError
+from agentkit.multi_llm_hub.sse_stream import iter_hub_sse_stream, parse_hub_topics
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from agentkit.multi_llm_hub.client import HubClient
+    from agentkit.multi_llm_hub.entities import HubBackendMetric, HubHealth, HubSession
 
 _CORRELATION_HEADER = "X-Correlation-Id"
 _HUB_MESSAGES_PATH = re.compile(r"^/v1/hub/sessions/(?P<session_id>[^/]+)/messages$")
@@ -35,6 +39,7 @@ class MultiLlmHubRouteResponse:
     status_code: int
     body: bytes
     headers: tuple[tuple[str, str], ...] = ()
+    stream: Iterable[bytes] | None = None
 
 
 class AcquireHubSessionRequest(BaseModel):
@@ -83,6 +88,7 @@ class MultiLlmHubRoutes:
     def handle_get(
         self,
         route_path: str,
+        query: dict[str, list[str]],
         correlation_id: str,
     ) -> MultiLlmHubRouteResponse | None:
         """Handle Hub GET routes or return None."""
@@ -91,6 +97,8 @@ class MultiLlmHubRoutes:
             return self._handle_status(correlation_id)
         if route_path == "/v1/hub/sessions":
             return self._handle_sessions(correlation_id)
+        if route_path == "/v1/events/hub":
+            return self._handle_hub_events(query, correlation_id)
         return None
 
     def handle_post(
@@ -137,6 +145,33 @@ class MultiLlmHubRoutes:
             HTTPStatus.OK,
             {"sessions": [session.model_dump(mode="json") for session in sessions]},
             correlation_id=correlation_id,
+        )
+
+    def _handle_hub_events(
+        self,
+        query: dict[str, list[str]],
+        correlation_id: str,
+    ) -> MultiLlmHubRouteResponse:
+        try:
+            topics = parse_hub_topics(_single_query_value(query, "topics"))
+        except ValueError as exc:
+            return _error_response(
+                HTTPStatus.BAD_REQUEST,
+                error_code="invalid_sse_topics",
+                message=str(exc),
+                correlation_id=correlation_id,
+            )
+        source = _HubClientSseSnapshotSource(self._client)
+        return MultiLlmHubRouteResponse(
+            status_code=int(HTTPStatus.OK),
+            body=b"",
+            headers=(
+                (_CORRELATION_HEADER, correlation_id),
+                ("Content-Type", "text/event-stream; charset=utf-8"),
+                ("Cache-Control", "no-cache"),
+                ("Connection", "keep-alive"),
+            ),
+            stream=iter_hub_sse_stream(source=source, topics=topics),
         )
 
     def _handle_acquire(
@@ -243,6 +278,25 @@ def _mutation_response(
         },
         correlation_id=correlation_id,
     )
+
+
+class _HubClientSseSnapshotSource:
+    def __init__(self, client: HubClient) -> None:
+        self._client = client
+
+    def backend_status(self) -> tuple[HubHealth, list[HubBackendMetric]]:
+        return self._client.health(), self._client.pool_status()
+
+    def sessions(self) -> list[HubSession]:
+        return self._client.list_sessions(include_inactive=True)
+
+
+def _single_query_value(query: dict[str, list[str]], key: str) -> str | None:
+    values = query.get(key)
+    if not values:
+        return None
+    value = values[0].strip()
+    return value or None
 
 
 def _json_response(

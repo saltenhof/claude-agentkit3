@@ -1,0 +1,11 @@
+story_id: AG3-003
+title: "SSE-Streaming fuer Live-Updates (Frontend-Backend-Echtzeit)"
+type: implementation
+status: completed
+completed_at: "2026-05-04T15:23:28.4908827+02:00"
+phase: setup
+created: "2026-05-04"
+size: M
+depends_on:
+  - AG3-002
+unblocks: []
