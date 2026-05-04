@@ -345,25 +345,33 @@ def main():
         sys.exit(0)  # Claude Code / Host-UI uebernimmt
 ```
 
-**Hinweis:** CCAG ersetzt Claude Codes eigenen Permission-Dialog nicht
-vollstaendig. Aber fuer `story_execution` ist dieser Dialog kein
-autoritativer Fortschrittsmechanismus mehr. Tritt trotzdem ein nativer
-Prompt oder anderes Host-Permission-Verhalten auf, wird dies nur ueber
-einen separaten Telemetrie-/Supervisor-Pfad oder manuell dokumentiert,
-nicht als sichere PreToolUse-Erkenntnis behauptet.
+**Hinweis:** CCAG ersetzt den harness-eigenen Permission-Dialog
+(Claude Code, Codex) nicht vollstaendig. Aber fuer `story_execution`
+ist dieser Dialog kein autoritativer Fortschrittsmechanismus mehr.
+Tritt trotzdem ein nativer Prompt oder anderes Host-Permission-Verhalten
+auf, wird dies nur ueber einen separaten Telemetrie-/Supervisor-Pfad
+oder manuell dokumentiert, nicht als sichere PreToolUse-Erkenntnis
+behauptet.
 
 ### 42.5.2 Registrierung
 
-```json
-{
-  "matcher": "Bash|Write|Edit|Read|Grep|Glob|Agent",
-  "command": "python -m agentkit.governance.ccag_gatekeeper"
-}
-```
+CCAG laeuft als **letzter** PreToolUse-Hook in der Kette — nach allen
+Guard-Hooks. Guards haben absolute Prioritaet, CCAG ist die
+komfortable Ergaenzung.
 
-CCAG läuft als **letzter** PreToolUse-Hook in der Kette — nach
-allen Guard-Hooks. Guards haben absolute Priorität, CCAG ist
-die komfortable Ergänzung.
+Die Hook-Registrierung erfolgt harness-spezifisch ueber den jeweiligen
+Adapter (FK-30 §30.11 Multi-Harness): unter Claude Code via
+`.claude/settings.json`-Hook-Eintrag, unter Codex via
+`.codex/config.toml`-Hook-Eintrag. Der Tool-Matcher wird vom
+Adapter normalisiert; CCAG selbst arbeitet auf den
+harness-neutralen `HookEvent`-Feldern (`operation`, `operation_args`,
+`principal_kind`).
+
+[Implementierungsanker 2026-05-04] Die AK3-CCAG-Implementierung steht
+aus. Fachliche Vorlage in AK2: `agentkit/governance/ccag_gatekeeper.py`
+und das Regelbundle unter `ccag/bundle/`. AK3 setzt das im BC
+`governance-and-guards` als eigenstaendigen Sub um (kein Teil von
+`GuardSystem`, siehe §42.1).
 
 ## 42.6 Zusammenspiel CCAG und Guards
 
@@ -377,11 +385,11 @@ flowchart TD
     CCAG -->|"block (Block-Regel)"| BLOCKED
     CCAG -->|"story_execution + unbekannt"| CASE["Permission-Case<br/>oeffnen + blockieren"]
     CASE --> BLOCKED
-    CCAG -->|"ai_augmented + interactive_agent + unbekannt"| CLAUDE["Claude Code<br/>Permission-Dialog"]
+    CCAG -->|"ai_augmented + interactive_agent + unbekannt"| HOST["Harness-Permission-Dialog<br/>(Claude Code / Codex)"]
 
-    CLAUDE -->|"Mensch erlaubt"| LEARN["Optional:<br/>LLM-Generalisierung<br/>→ neue Regel"]
+    HOST -->|"Mensch erlaubt"| LEARN["Optional:<br/>LLM-Generalisierung<br/>→ neue Regel"]
     LEARN --> PASS
-    CLAUDE -->|"Mensch verweigert"| BLOCKED
+    HOST -->|"Mensch verweigert"| BLOCKED
 ```
 
 **Guards sind nicht verhandelbar.** Wenn ein Guard blockiert,
@@ -395,14 +403,18 @@ sind.
 
 ## 42.7 Konfiguration
 
-In `.story-pipeline.yaml` gibt es keine CCAG-spezifische
-Konfiguration. CCAG wird über die YAML-Regeldateien in
-`.claude/ccag/rules/` konfiguriert.
+In `project.yaml` gibt es keine CCAG-spezifische Konfiguration. CCAG
+wird ueber YAML-Regeldateien konfiguriert, die unter dem
+projektlokalen AK3-Konfigurationspfad liegen
+(`.agentkit/ccag/rules/`); pro Harness wird der Adapter (FK-30 §30.11)
+ggf. zusaetzlich Symlinks unter dem harness-eigenen Bindungspunkt
+anlegen, damit der harness-spezifische Hook-Aufruf die Regeln findet.
 
-Der Installer (Checkpoint 7) deployt initiale Regeldateien
-mit projektspezifischen Defaults. Diese können vom Menschen
-angepasst werden — Upgrades erkennen nutzerseitige Anpassungen
-und erhalten sie (Kap. 51).
+Der Installer deployt im CCAG-Setup-Schritt initiale Regeldateien
+mit projektspezifischen Defaults (CP-Nummer siehe FK-50 §50.3 — der
+Schritt ist Teil der Hook-Registrierung). Diese koennen vom Menschen
+angepasst werden — Upgrades erkennen nutzerseitige Anpassungen und
+erhalten sie (Kap. 51).
 
 ---
 
