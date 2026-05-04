@@ -361,6 +361,94 @@ Guard-Umgehungen sind kein zulässiger Closure-Fix.
 **Zulässige Recovery:** Ein dokumentierter Closure-Retry mit der
 offiziellen Merge-Policy `no_ff`.
 
+### 29.1.6 Multi-Repo-Closure (Atomicity)
+
+[Entscheidung 2026-05-04 — Multi-Repo-Closure ist atomar] Bei Stories
+mit mehreren teilnehmenden Repos (`participating_repos` mit |N| >= 2,
+FK-22 §22.6) ist die Closure **atomar ueber alle teilnehmenden Repos**:
+entweder werden alle N Repos gemerged und gepusht, oder kein einziger
+Merge wird auf `main` sichtbar gelassen. Eine partial-merged Story ist
+ein **defekter Endzustand** und nicht zulaessig.
+
+#### 29.1.6.1 Sequenz
+
+Die Reihenfolge aus §29.1.4 gilt unveraendert; Schritte 3 (Push) und
+4 (Merge) werden bei Multi-Repo zu **Stufen ueber alle Repos**:
+
+1. **Pre-Merge-Check (Stufe 0):** fuer jedes teilnehmende Repo wird
+   gepruef, ob `story/{story_id}` ff-mergebar gegen den aktuellen
+   `origin/main` ist. Auch ein einziger nicht-ff-faehiger Repo
+   blockiert die gesamte Closure (ESCALATED, kein Push, kein Merge).
+2. **Push-Stufe (Stufe 1):** alle Story-Branches werden gepusht. Bei
+   Push-Fehler in Repo k werden bereits gepushte Branches nicht
+   ausgerollt (Push ist remote-irreversibel ohne force-push), die
+   Closure escaliert mit Hinweis auf den partial-push-Zustand.
+3. **Merge-Stufe (Stufe 2 — lokal atomar):** alle teilnehmenden
+   Worktrees fuehren `git merge --ff-only` lokal aus. Vor jedem Merge
+   wird der `pre_merge_sha` des Ziel-Branches festgehalten. Wenn
+   Merge in Repo k fehlschlaegt, werden alle bereits lokal gemergten
+   Repos via `git reset --hard <pre_merge_sha>` zurueckgesetzt
+   (lokale Atomicity-Garantie). Closure escaliert.
+4. **Push-zu-main-Stufe (Stufe 3):** alle gemergten Hauptbranches
+   werden gepusht. Bei Push-Fehler in Repo k bleiben Repos 1..k-1
+   permanent auf den Remotes; Repos k..N werden lokal zurueckgesetzt;
+   Closure escaliert mit explizitem **Partial-Push-State** (siehe
+   §29.1.6.3).
+5. **Teardown-Stufe (Stufe 4):** Worktrees aller teilnehmenden Repos
+   werden aufgeraeumt, Story-Branches lokal geloescht. Idempotent.
+
+`merge_done = true` wird erst gesetzt, wenn Stufe 4 erfolgreich
+abgeschlossen ist UND Stufe 3 fuer alle Repos PASS gemeldet hat. Ein
+einzelner Repo-Push-Fehler verhindert das Setzen von `merge_done`.
+
+#### 29.1.6.2 ClosureProgress bei Multi-Repo
+
+Die sechs `ClosureProgress`-Booleans (§29.1.0) bleiben pro-Story, nicht
+pro-Repo. Recovery-Granularitaet auf Repo-Ebene wird ueber separate
+Substate-Felder im `ClosurePayload.multi_repo`-Block dokumentiert:
+
+```python
+class MultiRepoClosureState(BaseModel):
+    pre_merge_check_passed: list[str] = Field(default_factory=list)
+    pushed_repos: list[str] = Field(default_factory=list)
+    merged_repos: list[str] = Field(default_factory=list)
+    rolled_back_repos: list[str] = Field(default_factory=list)
+    failed_repo: str | None = None
+```
+
+Diese Liste wird NUR fuer Multi-Repo-Stories gefuehrt; bei
+Single-Repo-Stories bleibt das Feld leer und wird ignoriert.
+
+#### 29.1.6.3 Partial-Push-State (Stufe 3 Failure)
+
+Cross-Remote-Atomicity ueber mehrere Git-Hosts ist nicht erreichbar.
+Wenn in Stufe 3 Repo k push-failed, nachdem Repos 1..k-1 bereits auf
+`origin/main` gepusht wurden, ist der Zustand nicht mehr automatisch
+rueckgaengig zu machen. Closure setzt:
+
+- `closure_verdict = ESCALATED`
+- `multi_repo.pushed_repos = [r1, ..., r_{k-1}]`
+- `multi_repo.failed_repo = r_k`
+- Repos `r_{k+1}..r_N` werden lokal via `git reset --hard <pre_merge_sha>`
+  zurueckgesetzt (nicht gepusht, nicht gemerged auf Remote)
+
+Der Mensch entscheidet:
+
+a) **Force-revert** der bereits gepushten Repos via dokumentiertem
+   `git revert <merge_sha>` + Push (kein force-push), oder
+b) **Closure-Retry** der verbleibenden Repos, sobald die Ursache
+   behoben ist (typischerweise temporaerer Remote-Fehler).
+
+Beide Pfade sind dokumentierte Recovery-Operationen und keine
+Guard-Umgehung.
+
+#### 29.1.6.4 Implementations-Anker
+
+Die AK2-Implementierung (`agentkit.worktree.merge.merge_story_multi_repo`
+mit `pre_merge_sha`-Rollback) ist die fachliche Vorlage. Die AK3-
+Umsetzung lebt im BC `story-closure` und respektiert die
+ClosureProgress-Granularitaet aus §29.1.0.
+
 ## 29.2 Finding-Resolution als Closure-Gate (FK-27-221 bis FK-27-225)
 
 ### 29.2.1 Prinzip

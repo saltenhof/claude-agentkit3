@@ -432,33 +432,46 @@ erhält einen eigenen Feature-Branch (`story/{story_id}`).
 **Nicht-teilnehmende Repos** erhalten keinen Feature-Branch. Der
 Worker operiert dort auf `main` (lesend, ohne Commits).
 
-Wenn keine teilnehmenden Repos gesetzt sind (Konzept-/Research-
-Stories ohne Code-Änderungen), wird ein einzelner Worktree für
-das primäre Codebase-Repo erstellt.
+Implementation- und Bugfix-Stories haben mindestens einen
+teilnehmenden Repo. Concept- und Research-Stories durchlaufen
+diese Phase nicht (§22.5.1) und erhalten keinen Worktree.
+
+[Entscheidung 2026-05-04 — Multi-Repo Schnitt] Alle teilnehmenden
+Repos sind **gleichberechtigt**. Es gibt **kein ausgezeichnetes
+Primary-Repo**. Identifiziert wird ein Repo ausschliesslich ueber
+seinen Repo-Namen aus `project.repositories[].name` (FK-10
+§project.yaml); ein eigener Repo-Schluessel oder eine Repo-ID wird
+nicht eingefuehrt. `participating_repos` ist eine flache Liste von
+Repo-Namen.
 
 ### 22.6.2 Ablauf
 
 ```python
 def setup_worktrees(story_id: str, context: StoryContext,
+                    project: Project,
                     base_ref: str = "main") -> list[WorktreeResult]:
-    """Erstellt Worktrees für alle teilnehmenden Repos."""
+    """Erstellt Worktrees fuer alle teilnehmenden Repos.
+
+    Alle teilnehmenden Repos sind gleichberechtigt — keine Primary-Rolle.
+    Repo-Namen werden gegen project.repositories aufgeloest.
+    """
     results: list[WorktreeResult] = []
+    repo_lookup = {r.name: r for r in project.repositories}
 
-    repos = context.participating_repos or [context.primary_repo]
-
-    for repo in repos:
+    for repo_name in context.participating_repos:
+        repo = repo_lookup[repo_name]  # KeyError -> Setup FAIL
         result = setup_worktree(story_id, repo, base_ref)
         results.append(result)
 
     return results
 
 
-def setup_worktree(story_id: str, repo: RepoRef,
+def setup_worktree(story_id: str, repo: RepoEntry,
                    base_ref: str = "main") -> WorktreeResult:
     # 1. Remote aktualisieren (non-fatal)
     git_fetch_origin(repo.path)
 
-    # 2. Guard: Branch darf nicht existieren (bereits in Preflight geprüft)
+    # 2. Guard: Branch darf nicht existieren (bereits in Preflight geprueft)
     assert not git_has_branch(f"story/{story_id}", repo.path)
 
     # 3. Guard: Worktree-Pfad darf nicht existieren
@@ -472,7 +485,7 @@ def setup_worktree(story_id: str, repo: RepoRef,
     return WorktreeResult(
         success=True,
         worktree_path=worktree_path,
-        repo=repo.name,
+        repo_name=repo.name,
         branch=f"story/{story_id}",
     )
 ```
@@ -486,6 +499,35 @@ def setup_worktree(story_id: str, repo: RepoRef,
 | Base | `main` (oder konfigurierbar) |
 | `.agent-guard/lock.json` | Optionaler Worktree-Export des lokal publizierten Edge-Bundles; wird nicht ad hoc im Worktree erfunden |
 | Nicht-teilnehmende Repos | Kein Worktree, kein Feature-Branch — Worker arbeitet auf `main` |
+
+### 22.6.4 Worker-Modell bei Multi-Repo
+
+[Entscheidung 2026-05-04 — Worker-Modell bei Multi-Repo] Ein einziger
+Worker pro Story, auch bei N teilnehmenden Repos. Der Worker erhaelt
+beim Spawn eine **Worktree-Map** als Kontext (Repo-Name -> Worktree-Pfad)
+und wechselt CWD pro Tool-Call zwischen Worktrees, soweit fachlich noetig.
+
+**Spawn-Worktree:** Der erste Eintrag in `participating_repos` dient als
+deterministischer Start-CWD. Er hat keine fachliche Sonderrolle — kein
+Primary-Repo, keine asymmetrische Berechtigung gegenueber den anderen
+Worktrees. Nur ein technischer Einstiegspunkt fuer den Worker-Spawn.
+
+Begruendung (Multi-Worker abgewaehlt):
+- **Cognitive Load:** ein Worker hat den vollstaendigen Story-Kontext.
+  Interface-Aenderung in Repo A und Aufrufer-Anpassung in Repo B koennen
+  konsistent im selben mentalen Modell gehalten werden. N Worker
+  brauechten ein explizites Coordination-Protokoll, das es nicht gibt.
+- **Atomicity der Aenderungen:** CWD-Wechsel per Tool-Call ist kein
+  Atomicity-Problem auf Aenderungsebene. Atomicity entsteht erst bei
+  Commit/Closure und ist dort als Multi-Repo-Saga geregelt (FK-29 §29.5).
+- **Handover-Konsistenz:** ein Worker-Manifest ueber alle Repos ist
+  einfacher zu validieren als N Manifests, die spaeter aggregiert werden
+  muessten.
+- **Recovery:** ein Checkpoint-Schema, ein Resume-Pfad. Bei Worker-Crash
+  reicht der per-Worktree-Checkpoint-State.
+
+Nicht-teilnehmende Repos sind dem Worker bekannt (lesender Zugriff auf
+`main` zulaessig), erscheinen aber nicht in der Worktree-Map.
 
 ## 22.7 Guard-Aktivierung
 
