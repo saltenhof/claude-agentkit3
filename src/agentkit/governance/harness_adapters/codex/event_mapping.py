@@ -67,6 +67,13 @@ _TOOL_CLASSIFICATIONS = (
         ("file_path", "path", "filename"),
     ),
 )
+_ALIASES: dict[str, tuple[str, ...]] = {
+    "tool_name": ("tool", "toolName", "name"),
+    "tool_input": ("arguments", "input", "toolInput"),
+    "cwd": ("current_working_directory", "working_dir"),
+    "session_id": ("sessionId", "conversation_id", "conversationId"),
+    "is_subagent": ("subagent", "isSubagent", "is_subagent_session"),
+}
 
 
 class CodexHookEvent(BaseModel):
@@ -87,31 +94,8 @@ class CodexHookEvent(BaseModel):
         if not isinstance(value, dict):
             return value
         updated = dict(value)
-        if "tool_name" not in updated:
-            for key in ("tool", "toolName", "name"):
-                if key in updated:
-                    updated["tool_name"] = updated.pop(key)
-                    break
-        if "tool_input" not in updated:
-            for key in ("arguments", "input", "toolInput"):
-                if key in updated:
-                    updated["tool_input"] = updated.pop(key)
-                    break
-        if "cwd" not in updated:
-            for key in ("current_working_directory", "working_dir"):
-                if key in updated:
-                    updated["cwd"] = updated.pop(key)
-                    break
-        if "session_id" not in updated:
-            for key in ("sessionId", "conversation_id", "conversationId"):
-                if key in updated:
-                    updated["session_id"] = updated.pop(key)
-                    break
-        if "is_subagent" not in updated:
-            for key in ("subagent", "isSubagent", "is_subagent_session"):
-                if key in updated:
-                    updated["is_subagent"] = updated.pop(key)
-                    break
+        for canonical, aliases in _ALIASES.items():
+            _copy_first_alias(updated, canonical, aliases)
         updated.setdefault("cwd", str(Path.cwd()))
         return updated
 
@@ -179,6 +163,18 @@ def _normalize_tool_name(tool_name: str) -> str:
     normalized_tool = tool_name.strip().replace("-", "_")
     normalized_tool = normalized_tool.removeprefix("functions.")
     return normalized_tool.lower()
+
+
+def _copy_first_alias(
+    value: dict[str, object],
+    canonical: str,
+    aliases: tuple[str, ...],
+) -> None:
+    if canonical in value:
+        return
+    alias = next((candidate for candidate in aliases if candidate in value), None)
+    if alias is not None:
+        value[canonical] = value.pop(alias)
 
 
 def _principal_kind(codex_event: CodexHookEvent) -> PrincipalKind:
