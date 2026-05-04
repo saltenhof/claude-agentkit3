@@ -77,7 +77,7 @@ spezifiziert; er ergibt sich aus der konkreten Adapter-Praxis.
 | Laufzeit vs. Erwartung | 30 | Stark | Normalisiert nach Story-Typ/-Größe (P50/P75/P95 aus Konfiguration) |
 | Repetitions-Muster | 25 | Stark | Sliding Window über `tool-call-log.jsonl` — wiederholte grep/edit-Zyklen auf dieselbe Datei |
 | Hook/Commit-Konflikte | 25 | Sehr stark | Klassifikation fehlgeschlagener `git commit`-Aufrufe (§49.1.4) |
-| Fortschritts-Stagnation | 20 | Stark | `git status`/`git log` im Worktree — kein Commit trotz grüner Tests |
+| Fortschritts-Stagnation | 20 | Stark | `git status`/`git log` ueber alle teilnehmenden Worktrees — kein Commit trotz grüner Tests in irgendeinem Worktree (Multi-Repo: Aggregation ueber `participating_repos`) |
 | Tool-Call-Anzahl | 10 | Schwach | Gesamtzähler — nur Verstärker, nicht eigenständig aussagekräftig |
 | LLM-Assessment | -10 bis +10 | Korrekturfaktor | Asynchrones Ergebnis aus Sidecar-Prozess (§49.1.3) |
 

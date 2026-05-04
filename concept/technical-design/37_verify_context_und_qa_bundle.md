@@ -432,10 +432,13 @@ Concept-Pfade in `context.json` können nackte Dateinamen enthalten
 (z.B. `02-komponentenstruktur.md` statt
 `_concept/technical-design/02-komponentenstruktur.md`). Der Builder
 MUSS einen Fallback implementieren: Wenn der direkte Pfad
-(`{repo_root}/{dateiname}`) nicht existiert, wird in den
+(`{worktree_root}/{dateiname}`) nicht existiert, wird in den
 `_concept/`-Unterverzeichnissen (`domain-design/`, `technical-design/`)
 gesucht. Nur wenn auch der Fallback fehlschlägt, wird das Feld
-als `missing` klassifiziert.
+als `missing` klassifiziert. Bei Multi-Repo-Stories iteriert der
+Builder ueber die teilnehmenden Worktrees in der Reihenfolge von
+`participating_repos`; der erste Treffer gewinnt (Spawn-Worktree
+als deterministischer Ankerpunkt, FK-22 §22.6.4).
 
 **Kanonische Feldnamen aus `story_sections.py` (REF-035):**
 Der Builder MUSS die kanonischen Feldnamen aus `story_sections.py`

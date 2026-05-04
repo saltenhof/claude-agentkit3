@@ -204,6 +204,14 @@ def get_story_branch() -> str | None:
     return None
 ```
 
+[Multi-Repo-Klarstellung 2026-05-04] Bei Multi-Repo-Stories existiert
+`.agent-guard/lock.json` pro teilnehmendem Worktree, identischer
+Inhalt (gleicher Story-Branch, gleiche Run-Bindung). Der Branch-Guard
+laeuft pro Tool-Call mit dem CWD des aufrufenden Worktrees und
+liest den dortigen Export. Kanonisch bleibt das Edge-Bundle aus
+`_temp/governance/current.json`; Worktree-Exporte sind nur
+projektionen.
+
 ## 31.2 Orchestrator-Guard
 
 ### 31.2.1 Verantwortung (FK 6.2)
