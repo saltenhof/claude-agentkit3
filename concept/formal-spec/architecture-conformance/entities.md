@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: architecture-conformance
 spec_kind: entity-set
-version: 22
+version: 23
 prose_refs:
   - concept/technical-design/01_systemkontext_und_architekturprinzipien.md
   - concept/technical-design/07_komponentenarchitektur_und_architekturkonformanz.md
@@ -57,6 +57,8 @@ Version 21 erlaubt der Control-Plane-HTTP-Registry, den projektneutralen
 Multi-LLM-Hub-Adapter (`/v1/hub`) zu registrieren.
 Version 22 fuegt `boundary.auth` als R-Adapter-Boundary fuer Strategen-
 Sessions und projektgebundene Project-API-Tokens hinzu.
+Version 23 fuegt die Codex-Harness-Adapter-Insel
+`harness_adapters.codex` als internes Governance-Submodul hinzu.
 
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
@@ -382,6 +384,7 @@ component_groups:
       - architecture-conformance.group.guard_system
       - architecture-conformance.group.hook_runtime
       - architecture-conformance.group.harness_adapters_claude_code
+      - architecture-conformance.group.harness_adapters_codex
       - architecture-conformance.group.ccag_permission_runtime
       - architecture-conformance.group.integrity_gate
       - architecture-conformance.group.governance_observer
@@ -418,6 +421,17 @@ component_groups:
     exposure: internal
     component_kind: domain
     # Lokalisierte Claude-Code-Mediation: Tool-Namen, Hook-Payload und
+    # Exit-Code-Vertrag bleiben hier und werden auf HookEvent gemappt.
+
+  - id: architecture-conformance.group.harness_adapters_codex
+    name: HarnessAdaptersCodex
+    bloodgroup: A
+    module_prefixes:
+      - agentkit.governance.harness_adapters.codex
+    parent_group_id: architecture-conformance.group.governance
+    exposure: internal
+    component_kind: domain
+    # Lokalisierte Codex-Mediation: Tool-Namen, Hook-Payload und
     # Exit-Code-Vertrag bleiben hier und werden auf HookEvent gemappt.
 
   - id: architecture-conformance.group.ccag_permission_runtime

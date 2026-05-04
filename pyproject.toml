@@ -33,6 +33,7 @@ dev = [
 
 [project.scripts]
 agentkit = "agentkit.cli.main:main"
+agentkit-hook-codex = "agentkit.governance.harness_adapters.codex.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agentkit"]

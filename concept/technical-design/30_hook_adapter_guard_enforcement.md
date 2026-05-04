@@ -923,7 +923,7 @@ Aktuelle Adapter:
 | Adapter | Status | Modul-Pfad |
 |---|---|---|
 | `harness_adapters.claude_code` | **implementiert** (Backward-Compat-Pfad `governance.hookruntime`) | `agentkit.governance.harness_adapters.claude_code` |
-| `harness_adapters.codex` | **zu bauen** (Pflicht ab Tag 1) | `agentkit.governance.harness_adapters.codex` |
+| `harness_adapters.codex` | **implementiert** (CLI-Pfad `agentkit-hook-codex`) | `agentkit.governance.harness_adapters.codex` |
 
 Weitere Harnesses (Qwen Code, Gemini-Code-Cli, AK3-eigener Harness,
 …) folgen demselben Pattern. Es gibt **keine Plugin-Registry** und
@@ -961,6 +961,34 @@ Heute ist der Vertrag **implizit** — er liegt in der Struktur des
 `HookEvent`-Modells und in den drei Pflichten oben. Wenn der Codex-
 Adapter und ein dritter Adapter zusammen tragfaehig sind, kann der
 Vertrag bei Bedarf in eine eigene Konzept-Sektion gehoben werden.
+
+**Cookbook fuer einen weiteren Harness:**
+
+1. Lege ein neues Submodul unter
+   `agentkit.governance.harness_adapters.<harness>` an. Die Codex-
+   Struktur ist die Referenz: `event_mapping.py` fuer Eingangs-Mapping,
+   `decision_mapping.py` fuer Ausgangs-Mapping, `cli.py` fuer stdin/
+   stdout und Exit-Code.
+2. Definiere ein harness-spezifisches Pydantic-Eventmodell, das die
+   dokumentierte Hook-Payload des Harness exakt beschreibt. Tool-Namen
+   und Hook-Felder bleiben in diesem Modul; der neutrale
+   `HookEvent`-Kern darf sie nicht importieren.
+3. Mappe Tool-Aufrufe auf die fachlichen Operationen
+   `bash_command`, `file_write`, `file_edit`, `file_read` oder
+   `unknown_tool`. Mutierende Operationen erhalten
+   `freshness_class = mutation`, reine Leseoperationen
+   `baseline_read`, unbekannte Tools `guarded_read`.
+4. Mappe die Principal-Information auf `principal_kind = main` oder
+   `subagent`. Wenn der Harness keinen Sub-Agent-Indikator liefert,
+   ist `main` der Default.
+5. Rufe ausschliesslich `evaluate_pre_tool_use()` aus
+   `governance.guard_evaluation` auf und mappe danach
+   `GuardVerdict` auf die native Hook-Decision des Harness. Der
+   Adapter enthaelt keine eigenen Guard-Regeln.
+6. Registriere den Entry-Point in `pyproject.toml` und ergaenze
+   `entities.md` um ein internes Governance-Submodul fuer den neuen
+   Adapter. Tests muessen Event-Mapping, Decision-Mapping und CLI-
+   Roundtrip abdecken.
 
 ### 30.11.4 Hybrid-Form: Sub-Agent ueber zweiten Harness
 
