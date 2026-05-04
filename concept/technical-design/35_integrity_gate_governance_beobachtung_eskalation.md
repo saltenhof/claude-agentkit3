@@ -156,9 +156,9 @@ Der Phase Runner ruft das Integrity-Gate **als Python-Funktion**
 auf — nicht als Hook. Das Gate muss vor dem Merge greifen, damit
 kein invalidierter Run Code auf Main bringt.
 
-**Nicht als Hook auf `gh issue close`:** Das wäre zu spät — der
-Merge wäre zu dem Zeitpunkt bereits passiert. Das Gate ist ein
-deterministisches Skript, aufgerufen vom Phase Runner
+**Nicht als Hook auf den Story-Status-Wechsel auf Done:** Das waere zu
+spaet — der Merge waere zu dem Zeitpunkt bereits passiert. Das Gate
+ist ein deterministisches Skript, aufgerufen vom Phase Runner
 (`_phase_closure()` → `check_integrity()` → bei PASS: Merge).
 
 **Explizite Abgrenzung:** Das Integrity-Gate ist kein allgemeiner

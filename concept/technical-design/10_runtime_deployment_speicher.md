@@ -299,7 +299,7 @@ Audit- und QA-Daten leben zentral; lokale Exporte sind nur Kopien.
 | Story-Locks | Falsche Zuordnung | Story-spezifische Lease-/Lock-Records |
 | QA-Artefakte | Überschreiben durch falschen Prozess | Nur Pipeline-/Service-Principals dürfen mutieren |
 | Git-Worktree | Branch-Konflikte | Jede Story hat eigenen Branch (`story/{story_id}`) |
-| GitHub-Issue-Status | Race Condition bei parallelen Status-Updates | Pipeline aktualisiert Status nur bei Phasenwechsel (sequentiell pro Story) |
+| AK3-Story-Status | Race Condition bei parallelen Status-Updates | Pipeline aktualisiert Status nur bei Phasenwechsel (sequentiell pro Story) |
 
 ### 10.5.3 Idempotenz
 

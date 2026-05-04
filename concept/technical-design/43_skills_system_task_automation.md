@@ -180,7 +180,7 @@ werden (Kap. 50):
 | **User Story Creation (ARE)** | `create-userstory-are/` | Neue Stories mit ARE erstellen | Wie oben plus ARE-spezifische Pflichtschritte |
 | **Execute User Story (core)** | `execute-userstory-core/` | Story-Umsetzung orchestrieren | 4-Phasen-Pipeline (Setup, Exploration, Implementation inkl. QA-Subflow, Closure) ohne ARE-Annahmen |
 | **Execute User Story (ARE)** | `execute-userstory-are/` | Story-Umsetzung mit ARE orchestrieren | 4-Phasen-Pipeline (Setup, Exploration, Implementation inkl. QA-Subflow, Closure) mit ARE-Pfaden |
-| **Lookup User Story** | `lookup-userstory/` | Stories suchen und anzeigen | VektorDB-Suche, AK3-Story-Backend-Abfrage, GitHub-Issue-Abfrage |
+| **Lookup User Story** | `lookup-userstory/` | Stories suchen und anzeigen | VektorDB-Suche, AK3-Story-Backend-Abfrage |
 | **LLM Discussion** | `llm-discussion/` | Multi-LLM-Sparring | Rollenverteilung, Rundenstruktur, Konvergenzprüfung |
 
 ### 43.3.2 Optionale Skills

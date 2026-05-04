@@ -15,7 +15,7 @@ Im Scope sind:
 
 - der offizielle Story-Creation-Pfad
 - Konzeption, Pflichtpruefungen und Feldbelegung
-- GitHub-Issue- und Project-Anlage
+- AK3-Story-Backend-Anlage und Story-Attribut-Setzung
 - deterministischer `story.md`-Export
 - Freigabelogik `Backlog -> Approved`
 

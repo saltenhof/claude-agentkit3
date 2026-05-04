@@ -540,10 +540,9 @@ Implementation** erzeugt.
 **Akteur:** `failure_corpus.CheckFactory`
 (`agentkit.failure_corpus.check_factory.CheckFactory`)
 
-**Story-Erzeugung:** `CheckFactory` ruft den `Integrations.github`-Adapter
-(`agentkit.integrations.github`) auf, um das GitHub-Issue anzulegen.
-`CheckFactory` ist transport-agnostisch; der Adapter abstrahiert den
-REST-Aufruf.
+**Story-Erzeugung:** `CheckFactory` ruft den AK3-Story-Service auf,
+um die Story im AK3-Story-Backend anzulegen. `CheckFactory` ist
+transport-agnostisch; der Service-Aufruf abstrahiert die Persistenz.
 
 **Cross-BC-Beziehung:** Die erzeugte Story wird von `pipeline-framework`
 (BC 1, `agentkit.pipeline_engine`) als regulaere Implementation-Story
@@ -554,22 +553,25 @@ Pipeline-Framework und verify-system uebernehmen ab diesem Punkt.
 ```python
 def create_check_implementation_story(proposal: dict) -> str:
     title = f"[implementation] Implement Failure Corpus Check {proposal['id']}"
-    body = f"""
-## Problemstellung
-Failure Corpus Pattern {proposal['pattern_ref']} hat einen
-deterministischen Check identifiziert.
-
-## Loesungsansatz
-Check implementieren als Python-Skript, gegen Fixtures testen,
-in Stage-Registry registrieren.
-
-## Akzeptanzkriterien
-- [ ] Check implementiert als deterministisches Skript
-- [ ] Positive Fixtures loesen FAIL aus
-- [ ] Negative Fixtures passieren (PASS)
-- [ ] Check in Stage-Registry registriert (Layer {proposal['pipeline_layer']})
-"""
-    return integrations_github.create_issue(title, body, labels=["story"])
+    return ak3_story_service.create_story(
+        title=title,
+        story_type="implementation",
+        problem_statement=(
+            f"Failure Corpus Pattern {proposal['pattern_ref']} hat einen "
+            "deterministischen Check identifiziert."
+        ),
+        solution_approach=(
+            "Check implementieren als Python-Skript, gegen Fixtures testen, "
+            "in Stage-Registry registrieren."
+        ),
+        acceptance_criteria=[
+            "Check implementiert als deterministisches Skript",
+            "Positive Fixtures loesen FAIL aus",
+            "Negative Fixtures passieren (PASS)",
+            f"Check in Stage-Registry registriert (Layer {proposal['pipeline_layer']})",
+        ],
+        labels=["story"],
+    )
 ```
 
 Die Story durchlaeuft die regulaere AgentKit-Pipeline (Worker

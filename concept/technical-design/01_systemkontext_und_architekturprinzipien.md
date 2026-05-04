@@ -76,7 +76,7 @@ graph TB
     end
 
     subgraph EXTERN_OTHER["Externe Systeme (andere Protokolle)"]
-        GITHUB["GitHub<br/>REST + GraphQL API<br/>(via gh CLI)"]
+        GITHUB["GitHub<br/>Code-Backend (Repos, Branches, PRs)<br/>(via gh CLI)"]
         LLM_WEB["LLM-Web-Interfaces<br/>(ChatGPT, Gemini, Grok)"]
     end
 
@@ -104,7 +104,7 @@ graph TB
 |------------|-----|-----------|
 | Claude Code | Agent-Plattform | CLI + Hook-API (PreToolUse/PostToolUse) |
 | Git | Versionskontrolle | CLI (`git`) |
-| GitHub | Issue-/Projekt-Backend | REST + GraphQL via CLI (`gh`) |
+| GitHub | Code-Backend (Repos, Branches, PRs) | CLI (`gh`) |
 
 **Externe Dienste** (via MCP, austauschbar):
 
@@ -504,7 +504,7 @@ flowchart TD
     VEKTORDB["VektorDB-Abgleich<br/>Similarity + LLM-Bewertung"] --> ZIELTREUE
     ZIELTREUE["Dokumententreue Ebene 1:<br/>Zieltreue (LLM via Pool)"] --> ARE
     ARE["ARE: Anforderungen<br/>verlinken"]:::optional --> GITHUB
-    GITHUB["GitHub Issue erstellen<br/>+ Story-Attribute im AK3-Story-Backend"] --> BACKLOG
+    GITHUB["Story im AK3-Story-Backend anlegen<br/>+ Story-Attribute setzen"] --> BACKLOG
     BACKLOG["Status: Backlog"] --> FREIGABE
     FREIGABE{"Mensch gibt frei?"}
     FREIGABE -->|ja| FREI["Status: Approved"]
@@ -522,7 +522,7 @@ flowchart TD
 | Telemetrie | JSONL | — | Dateisystem (append) |
 | QA-Artefakte | JSON | — | Dateisystem + JSON Schema |
 | VCS | Git | 2.30+ | CLI (`git`) |
-| GitHub | GitHub API | REST v3 + GraphQL v4 | CLI (`gh`) |
+| GitHub | GitHub API | REST v3 | CLI (`gh`) |
 | VektorDB | Weaviate | 1.25+ | gRPC + HTTP REST |
 | Embedding | text2vec-transformers | — | Docker Sidecar |
 | VektorDB-MCP | FastMCP | 1.2+ | stdio-Transport |

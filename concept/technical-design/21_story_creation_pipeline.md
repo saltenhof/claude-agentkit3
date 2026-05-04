@@ -47,12 +47,13 @@ glossary:
       definition: >
         Deterministischer Erstellungsablauf einer Story, der Konzeption,
         VektorDB-Abgleich, Zieltreue-Pruefung, Feldbelegung,
-        GitHub-Issue-Erstellung und story.md-Export umfasst. Endet mit
-        menschlicher Freigabe (Status Approved). Kein Agent darf
-        diesen Pfad durch direktes gh issue create umgehen.
+        Story-Anlage im AK3-Story-Backend und story.md-Export umfasst.
+        Endet mit menschlicher Freigabe (Status Approved). Kein Agent
+        darf diesen Pfad umgehen und Stories direkt am AK3-Story-Service
+        vorbei anlegen.
     - id: story-md-export
       definition: >
-        Deterministisch aus dem GitHub Issue erzeugtes Artefakt
+        Deterministisch aus den AK3-Story-Attributen erzeugtes Artefakt
         (story.md) im Story-Verzeichnis. Kein LLM-Produkt; erzeugt
         durch agentkit export-story-md. Dient als Weaviate-Index-Quelle
         und Git-Archiv. Weaviate-Indizierungsfehler beim Export sind
@@ -155,14 +156,13 @@ flowchart TD
     subgraph KLASSIFIKATION ["Klassifikation"]
         LABELS["Fachliche Labels<br/>zuweisen (aus Katalog)"]
         LABELS --> REPO_AFF["Repo-Affinität<br/>ermitteln (Longest-<br/>Prefix-Match)"]
-        REPO_AFF --> GITHUB
     end
 
     subgraph EINSTELLUNG ["AK3-Story-Backend-Einstellung"]
-        GITHUB["GitHub Issue erstellen<br/>(Code-Anker)"]
-        GITHUB --> PROJECT["Story im AK3-Story-Backend<br/>anlegen + Story-Attribute setzen"]
+        PROJECT["Story im AK3-Story-Backend<br/>anlegen + Story-Attribute setzen"]
         PROJECT --> BACKLOG["Status: Backlog"]
     end
+    REPO_AFF --> PROJECT
 
     BACKLOG --> EXPORT["Deterministischer<br/>story.md-Export<br/>(agentkit export-story-md)"]
     EXPORT --> FREIGABE{"Mensch gibt frei?"}
@@ -183,7 +183,7 @@ Der Skill leitet den Agent an, folgende Bestandteile zu erarbeiten:
 | Lösungsansatz | Ja | Wie soll das Problem gelöst werden? (Grob, nicht Implementierungsdetail) |
 | Akzeptanzkriterien | Ja | Wann gilt die Story als erledigt? Prüfbare Aussagen. |
 | Betroffene Module | Ja | Welche Teile des Systems sind betroffen? |
-| Abhängigkeiten | Nein | Welche anderen Stories müssen vorher abgeschlossen sein? (Format: `#NNN`) |
+| Abhängigkeiten | Nein | Welche anderen Stories müssen vorher abgeschlossen sein? (Story-IDs, ueber AK3-Story-Service-Dependencies abgebildet) |
 | Planungsmetadaten | Ja, soweit bereits bekannt | Repos, externe Voraussetzungen, menschliche Gates, Sammel- oder Endgate-Rolle, Parallelisierungs- und Konflikthinweise fuer FK-70 |
 | Konzeptquellen | Story-Typ-abhängig (s. 21.3.3) | Pfade zu Konzeptdokumenten im `concept/`-Verzeichnis des Zielprojekts |
 | Externe autoritäre Quellen | Nein | Referenzen auf externe Systeme (URLs, Jira-Artikel, OpenAPI-Specs etc.) |
@@ -520,16 +520,10 @@ ausschließlich lesend.
 
 ### 21.8.3 Technische Umsetzung
 
-Die ausgewählten Labels werden als GitHub Issue Labels gesetzt.
-Der Agent übergibt sie im `gh issue create`-Aufruf via `--label`:
-
-```bash
-gh issue create \
-  --label "{story_type}" \
-  --label "{fachliches_label_1}" \
-  --label "{fachliches_label_2}" \
-  ...
-```
+Die ausgewählten Labels werden als Story-Attribut im AK3-Story-Backend
+gesetzt. Der Skill ruft den AK3-Story-Service auf und uebergibt
+`story_type` und die fachlichen Labels als strukturierte Felder der
+Story (kein freies Body-Parsing).
 
 *FK-Referenz: Domänenkonzept 5.1 "Fachliche Labels zuweisen"*
 
@@ -593,66 +587,41 @@ def resolve_repo_affinity(
 *FK-Referenzen: Domänenkonzept 5.1 "Repo-Affinität ermitteln";
 FK 22 (Worktrees); FK 40 (ARE-Scopes)*
 
-## 21.10 GitHub-Issue-Erstellung
+## 21.10 Story-Anlage im AK3-Story-Backend
 
-### 21.10.1 Issue-Body-Aufbau
+### 21.10.1 Story-Felder
 
-```markdown
-## Problemstellung
-{problem_beschreibung}
+Die Story wird als typisierte Entity im AK3-Story-Backend angelegt.
+Die fachlichen Bestandteile (siehe 21.3.1) werden als strukturierte
+Story-Attribute gesetzt — kein Free-Text-Body, kein Body-Parsing
+nachgelagerter Stages:
 
-## Lösungsansatz
-{loesungsansatz}
+| Feldgruppe | Inhalt |
+|------------|--------|
+| Problemstellung | strukturiertes Story-Attribut |
+| Lösungsansatz | strukturiertes Story-Attribut |
+| Akzeptanzkriterien | Liste typisierter AC-Eintraege |
+| Abhaengigkeiten | Liste von Story-IDs ueber StoryDependency-Repository |
+| Konzeptquellen | Liste von Pfaden, deterministisch validiert (21.3.3) |
+| Externe Quellen | Liste von URLs/Identifiern |
+| Guardrail-Referenzen | Liste von Pfaden |
+| Definition of Done | strukturierte Liste; bei aktivem ARE durch `must_cover` ergaenzt/ersetzt |
 
-## Akzeptanzkriterien
-- [ ] AC-1: {kriterium_1}
-- [ ] AC-2: {kriterium_2}
-- [ ] AC-3: {kriterium_3}
-
-## Abhängigkeiten
-- #{dependency_issue_1}
-- #{dependency_issue_2}
-
-## Konzept-Referenzen
-- {pfad_zu_konzept_1}
-
-## Externe Quellen
-- {url_oder_referenz_1}
-
-## Guardrail-Referenzen
-- {pfad_zu_guardrail_1}
-
-## Definition of Done
-- [ ] Build kompiliert erfolgreich
-- [ ] Alle Tests grün
-- [ ] Keine Secrets im Diff
-- [ ] Code-Review durch mindestens ein weiteres LLM
-- [ ] Akzeptanzkriterien nachweislich erfüllt
-{weitere_projektspezifische_kriterien}
-```
-
-**DoD-Sektion:** Wird immer generiert, unabhängig von ARE. Bei
+**DoD-Eintraege:** Werden immer gesetzt, unabhängig von ARE. Bei
 aktivem ARE werden die statischen Checklisten-Punkte durch die
 maschinenprüfbaren `must_cover`-Anforderungen ergänzt oder ersetzt.
 Ohne ARE dient die statische Checkliste als Fallback für den
 Semantic Review und den Menschen (FK-09-020/021).
 
-### 21.10.2 Issue-Erstellung und Story-Backend-Einstellung
+### 21.10.2 Story-Backend-Einstellung
 
-```bash
-# Issue als Code-Anker erstellen
-gh issue create \
-  --repo "{owner}/{repo}" \
-  --title "[{story_type}] {story_title}" \
-  --body "{issue_body}" \
-  --label "{story_type}"
-```
-
-Anschliessend legt der Skill die Story im AK3-Story-Backend an und
-setzt die ermittelten Story-Attribute (Story Type, Size, Module,
-Change Impact, New Structures, Concept Quality, Module, Epic,
-PRIMARY_REPO, PARTICIPATING_REPOS) ueber den AK3-Story-Service
-(siehe FK-91).
+Der Skill ruft den AK3-Story-Service auf und legt die Story mit
+allen ermittelten Attributen an: Story Type, Size, Module, Change
+Impact, New Structures, Concept Quality, Epic, PRIMARY_REPO,
+PARTICIPATING_REPOS, Labels, Akzeptanzkriterien, Konzeptquellen,
+externe Quellen, Guardrail-Referenzen, Dependencies (siehe FK-91).
+Dependencies werden ueber das StoryDependency-Repository registriert,
+nicht ueber Free-Text-Referenzen.
 
 ### 21.10.3 Status: Backlog
 
@@ -665,9 +634,10 @@ Story aufgreifen kann (FK-05-032 bis FK-05-034).
 
 ### 21.11.1 Zweck und Prinzip
 
-Nach der GitHub-Issue-Erstellung wird eine lokale `story.md` im
-Story-Verzeichnis (`stories/{story_id}_{slug}/story.md`) abgelegt.
-Diese Datei dient zwei Zwecken:
+Nach der Story-Anlage im AK3-Story-Backend wird eine lokale
+`story.md` im Story-Verzeichnis
+(`stories/{story_id}_{slug}/story.md`) abgelegt. Diese Datei dient
+zwei Zwecken:
 
 1. **VektorDB-Indizierung:** Die Story Knowledge Base (Kap. 13)
    indiziert `story.md`-Dateien für die semantische Suche
@@ -676,10 +646,11 @@ Diese Datei dient zwei Zwecken:
    nachvollziehbar über Git-History.
 
 **Kernprinzip: story.md ist kein LLM-Produkt.** Die Datei wird
-deterministisch aus dem GitHub Issue exportiert — per Python-Modul,
-nicht per Agent-Kreativität. Damit ist garantiert, dass `story.md`
-exakt den Issue-Body widerspiegelt, unabhängig davon, welcher Agent
-die Story erstellt hat.
+deterministisch aus den Story-Attributen im AK3-Story-Backend
+exportiert — per Python-Modul, nicht per Agent-Kreativität. Damit
+ist garantiert, dass `story.md` exakt die im Backend hinterlegten
+Attribute widerspiegelt, unabhängig davon, welcher Agent die Story
+erstellt hat.
 
 ### 21.11.2 Mechanismus
 
@@ -688,18 +659,19 @@ Der Export ist ein CLI-Befehl des AgentKit-Python-Pakets:
 ```bash
 agentkit export-story-md \
   --story-id "{story_id}" \
-  --issue-nr {issue_nr} \
   --story-dir "{story_verzeichnis}"
 ```
 
 **Interner Ablauf:**
 
-1. `gh issue view {issue_nr} --repo {owner}/{repo} --json title,body,labels,state`
+1. Story-Attribute ueber den AK3-Story-Service laden (Story-ID)
 2. YAML-Frontmatter erzeugen (Metadaten)
-3. Issue-Title als H1-Heading
-4. Issue-Body unverändert anfügen
+3. Story-Title als H1-Heading
+4. Strukturierte Story-Attribute (Problemstellung, Loesungsansatz,
+   AC, Dependencies, Konzeptquellen, externe Quellen,
+   Guardrail-Referenzen, DoD) deterministisch in Markdown rendern
 5. Als `story.md` schreiben
-6. Validierung: Datei > 1 KB, Frontmatter vorhanden
+6. Validierung: Datei > 500 Bytes, Frontmatter vorhanden
 
 **Python-Modul:** `agentkit.story_creation.story_md_export`
 
@@ -713,15 +685,11 @@ class StoryMdExportResult:
 
 def export_story_md(
     story_id: str,
-    issue_nr: int,
     story_dir: Path,
-    *,
-    owner: str,
-    repo: str,
 ) -> StoryMdExportResult:
-    """Deterministischer Export eines GitHub Issues als story.md.
+    """Deterministischer Export einer AK3-Story als story.md.
 
-    1. Issue-Daten per gh issue view laden
+    1. Story-Attribute ueber AK3-Story-Service laden
     2. YAML-Frontmatter erzeugen
     3. story.md schreiben
     4. Validierung
@@ -733,8 +701,6 @@ def export_story_md(
 ```yaml
 ---
 story_id: BB2-005
-github_issue: 5
-github_repo: stefan-altenhof/ruv-brainbox2
 labels:
   - story
 exported_at: "2026-03-23T14:30:00+01:00"
@@ -746,9 +712,7 @@ Felder:
 | Feld | Quelle | Pflicht |
 |------|--------|---------|
 | `story_id` | Parameter | Ja |
-| `github_issue` | Parameter | Ja |
-| `github_repo` | Config (`github.owner/github.repo_primary`) | Ja |
-| `labels` | Issue-Daten (`labels[].name`) | Ja |
+| `labels` | Story-Attribute (Labels-Liste) | Ja |
 | `exported_at` | `datetime.now(timezone.utc).isoformat()` | Ja |
 
 ### 21.11.4 VectorDB-Indizierung und Concept-Corpus-Prüfung
@@ -785,8 +749,9 @@ und unabhängig von der VektorDB — er muss immer verfügbar sein.
 führt nach dem story.md-Schreiben automatisch eine inkrementelle
 Weaviate-Synchronisierung durch (`build_closure_sync_fn` /
 `build_closure_sync_request` aus Kap. 13). Dabei werden
-Issue-Body, Titel und Metadaten (Story-Type, Module, Epic) als
-Chunks in die `StoryContext`-Collection geschrieben.
+Story-Title, Problemstellung, Loesungsansatz und Metadaten
+(Story-Type, Module, Epic) als Chunks in die
+`StoryContext`-Collection geschrieben.
 
 **Bei Fehler der Indizierung:** VectorDB-Indizierungsfehler sind
 ein harter Blocker (fail-closed). Der Export schlägt fehl und
@@ -796,9 +761,9 @@ nicht als Warning toleriert oder als Nachholpfad aufgeschoben
 werden.
 
 **Bei Fehler des Exports selbst** (story.md nicht geschrieben):
-Der Export-Befehl gibt FAIL zurück. Die Story existiert dann als
-GitHub Issue (Steps 1-6 waren erfolgreich), aber die lokale
-`story.md` ist unvollständig.
+Der Export-Befehl gibt FAIL zurück. Die Story existiert dann
+bereits im AK3-Story-Backend (Steps 1-6 waren erfolgreich), aber
+die lokale `story.md` ist unvollständig.
 Der Agent muss den Fehler melden und darf nicht fortfahren.
 
 ### 21.11.5 Validierung
@@ -808,11 +773,11 @@ Nach dem Schreiben wird die Datei validiert:
 | Prüfung | Schwelle | Reaktion bei Fehler |
 |---------|---------|-------------------|
 | Datei existiert | — | FAIL |
-| Dateigröße | > 500 Bytes | FAIL (Issue-Body zu kurz → Warnung) |
-| YAML-Frontmatter | `story_id`, `github_issue`, `exported_at` vorhanden | FAIL |
+| Dateigröße | > 500 Bytes | FAIL (Story-Inhalt zu kurz → Warnung) |
+| YAML-Frontmatter | `story_id`, `exported_at` vorhanden | FAIL |
 
 Die Validierung ist bewusst minimal gehalten — sie prüft das
-Export-Artefakt, nicht den fachlichen Inhalt des Issues (das ist
+Export-Artefakt, nicht den fachlichen Inhalt der Story (das ist
 Aufgabe des Story-Erstellungsprozesses in den Schritten davor).
 
 ### 21.11.6 Repair-Funktion
@@ -828,18 +793,17 @@ agentkit repair-story-md
 
 1. Scannt alle `stories/{prefix}-*/story.md`-Verzeichnisse
 2. Ermittelt Story-ID aus Verzeichnisname
-3. Ermittelt Issue-Nummer aus dem AK3-Story-Backend (Story-ID-Abgleich)
-4. Validiert bestehende `story.md`
-5. Bei Fehler: Führt `export_story_md()` aus
-6. Report: N geprüft, M repariert, K Fehler
+3. Validiert bestehende `story.md`
+4. Bei Fehler: Führt `export_story_md()` aus
+5. Report: N geprüft, M repariert, K Fehler
 
 ### 21.11.7 Integration in den Story-Erstellungs-Skill
 
-Der `create-userstory`-Skill ruft nach der Issue-Erstellung und
-Story-Backend-Einstellung den Export als CLI-Befehl auf:
+Der `create-userstory`-Skill ruft nach der Story-Backend-Einstellung
+den Export als CLI-Befehl auf:
 
 ```
-agentkit export-story-md --story-id "$STORY_ID" --issue-nr $ISSUE_NR --story-dir "$STORY_DIR"
+agentkit export-story-md --story-id "$STORY_ID" --story-dir "$STORY_DIR"
 ```
 
 Der Agent schreibt story.md **nicht** selbst per Write-Tool. Der
@@ -851,8 +815,8 @@ verankert.
 
 Wenn der VektorDB-Abgleich einen Konflikt erkannt hat, der
 geklärt wurde (Story wurde angepasst, nicht verworfen), wird ein
-Flag im Issue gesetzt, das die spätere Modus-Ermittlung beeinflusst
-(FK-06-055):
+Flag an der Story gesetzt, das die spätere Modus-Ermittlung
+beeinflusst (FK-06-055):
 
 **Ein erkannter VektorDB-Konflikt erzwingt den Exploration Mode**,
 auch wenn alle sechs Kriterien auf Execution stehen. Das stellt
@@ -868,20 +832,21 @@ Stories/Konzepten dokumentiert.
 
 ### 21.13.1 Zweck
 
-Ein PreToolUse-Hook verhindert, dass Agents direkt `gh issue create`
-aufrufen, ohne den Story-Erstellungs-Skill zu verwenden (FK-05-011).
+Ein PreToolUse-Hook verhindert, dass Agents Stories direkt am
+AK3-Story-Service vorbei anlegen, ohne den Story-Erstellungs-Skill
+zu verwenden (FK-05-011).
 
 ### 21.13.2 Mechanismus
 
-Der Hook erkennt `gh issue create` in Bash-Befehlen und blockiert
-den Aufruf mit opaker Fehlermeldung. Der Agent muss stattdessen
+Der Hook erkennt direkte Story-Backend-Mutations-Aufrufe und
+blockiert sie mit opaker Fehlermeldung. Der Agent muss stattdessen
 den Skill `create-userstory` verwenden, der die strukturierte
 Erstellung mit VektorDB-Abgleich und Zieltreue-Prüfung durchsetzt.
 
-**Ausnahme:** Pipeline-Skripte (Zone 2) dürfen `gh issue create`
-direkt aufrufen — z.B. für automatisch erzeugte Failure-Corpus-
-Check-Implementierungs-Stories (Kap. 41) oder für offizielle
-Nachfolger-Stories im Story-Split-Pfad (Kap. 54).
+**Ausnahme:** Pipeline-Skripte (Zone 2) dürfen den AK3-Story-Service
+direkt zur Story-Anlage aufrufen — z.B. für automatisch erzeugte
+Failure-Corpus-Check-Implementierungs-Stories (Kap. 41) oder für
+offizielle Nachfolger-Stories im Story-Split-Pfad (Kap. 54).
 
 ---
 

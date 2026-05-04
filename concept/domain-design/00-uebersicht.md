@@ -76,9 +76,9 @@ Infrastruktur, die dieses Betriebsmodell tragfähig macht: deterministische
 Prozesse, maschinelle Qualitätssicherung und lückenlose Nachvollziehbarkeit
 in einem Maßstab, in dem menschliches Review nicht mehr skaliert.
 
-AgentKit nimmt ein GitHub Issue entgegen und führt es durch eine definierte
+AgentKit nimmt eine AK3-Story entgegen und führt sie durch eine definierte
 Pipeline: von der Kontexterhebung über die Code-Implementierung,
-automatisierte Qualitätssicherung bis hin zum Merge und Issue-Abschluss.
+automatisierte Qualitätssicherung bis hin zum Merge und Story-Abschluss.
 
 Der Kern-Gedanke: **Kreative Arbeit (Code schreiben, Reviews) machen
 LLM-Agenten. Alles andere — Ablaufsteuerung, Qualitäts-Gates, Merge,
@@ -240,7 +240,7 @@ bauen
 
 ### Phase 1: Setup (deterministisch)
 
-Liest das GitHub Issue, erhebt Kontext (Story-Typ, Größe, Scope),
+Liest die AK3-Story aus dem AK3-Story-Backend, erhebt Kontext (Story-Typ, Größe, Scope),
 erstellt einen Git-Worktree für Code-Stories, komponiert den Worker-Prompt
 aus Templates und persistiert den autoritativen `StoryContext` im
 State-Backend. Ein `context.json` kann daraus nur optional exportiert
@@ -317,9 +317,9 @@ Menschen.
 
 ### Phase 4: Closure (deterministisch)
 
-Merge nach `main` (fast-forward-only), Worktree aufräumen, GitHub Issue
-schließen, Metriken schreiben, VectorDB aktualisieren (Story für
-zukünftige Suchen indexieren), Postflight-Checks.
+Merge nach `main` (fast-forward-only), Worktree aufräumen, AK3-Story
+auf Status `Done` setzen, Metriken schreiben, VectorDB aktualisieren
+(Story für zukünftige Suchen indexieren), Postflight-Checks.
 
 ## 6. Story-Typ-Routing
 
@@ -345,7 +345,7 @@ Schritten:
 | Setup (Kontext, Prompt, Worktree)       | QA-Subflow Layer 2 (LLM-Bewertungen via Skript) | Implementation Worker-Run     |
 | QA-Subflow Layer 1 (strukturelle Checks)|                                         | QA-Subflow Layer 3 (Adversarial Agent)  |
 | QA-Subflow Layer 4 (Policy Engine)      |                                         | Exploration (Worker)                    |
-| Closure (Merge, Issue-Close, Metriken)  |                                         |                                         |
+| Closure (Merge, Story-Close, Metriken)  |                                         |                                         |
 
 Alles, was deterministisch laufen kann, läuft deterministisch.
 LLM-Agenten werden nur dort eingesetzt, wo kreative Arbeit nötig ist.
@@ -354,12 +354,11 @@ LLM-Agenten werden nur dort eingesetzt, wo kreative Arbeit nötig ist.
 
 ### GitHub
 
-GitHub bleibt das Code-Backend für Issues, Branches, Worktrees, PRs und
-Merges. Story-Metadaten kommen jedoch aus dem AK3-Story-Backend: AgentKit
-liest die Story-Attribute (Typ, Größe, Scope) einmalig beim Setup,
-persistiert sie als `StoryContext`, aktualisiert den Story-Status im
-AK3-Story-Backend und schließt das GitHub-Issue bei erfolgreichem
-Abschluss.
+GitHub bleibt das Code-Backend für Repositories, Branches, Worktrees,
+PRs und Merges. Story-Metadaten und Story-Lifecycle kommen aus dem
+AK3-Story-Backend: AgentKit liest die Story-Attribute (Typ, Größe,
+Scope) einmalig beim Setup, persistiert sie als `StoryContext` und
+setzt am Closure-Ende den Story-Status im AK3-Story-Backend auf `Done`.
 
 ### Agent Requirements Engine (ARE) — optional
 
@@ -421,7 +420,7 @@ Zentrale Konfiguration über `.story-pipeline.yaml` im Projekt-Root:
 
 ## 11. Zusammenfassung
 
-AgentKit nimmt ein GitHub Issue, lässt einen KI-Agenten die Arbeit
+AgentKit nimmt eine AK3-Story, lässt einen KI-Agenten die Arbeit
 machen, prüft das Ergebnis in vier unabhängigen Qualitätsschichten,
 und merged erst, wenn alles besteht — deterministisch gesteuert,
 vollständig nachvollziehbar, ohne manuelle Intervention im Normalfall.

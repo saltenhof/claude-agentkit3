@@ -86,8 +86,8 @@ services:
 | `story_type` | TEXT | Nein | implementation / bugfix / concept / research |
 | `module` | TEXT | Nein | Betroffenes Modul |
 | `epic` | TEXT | Nein | Zugehöriges Epic |
-| `source_type` | TEXT | Nein | issue / concept / research |
-| `source_file` | TEXT | Nein | Dateipfad oder `github:#42` |
+| `source_type` | TEXT | Nein | story / concept / research |
+| `source_file` | TEXT | Nein | Dateipfad (z.B. `stories/ODIN-042/story.md`) |
 | `section_heading` | TEXT | Ja | Abschnitts-Überschrift |
 | `content_hash` | TEXT | Nein | SHA-256 für Change-Detection |
 | `project_id` | TEXT | Nein | Projekt-Identifikator (Multi-Projekt) |
@@ -96,7 +96,7 @@ services:
 
 | Quelle | Source-Type | Ingestion-Trigger |
 |--------|-----------|-------------------|
-| GitHub Issues (Body) | `issue` | `story_sync` MCP-Tool (manuell oder periodisch) |
+| Story-Artefakte (`stories/*/story.md`) | `story` | `story_sync` MCP-Tool (manuell oder periodisch) |
 | Konzept-Dokumente (`concepts/`) | `concept` | `story_sync` MCP-Tool |
 | Research-Ergebnisse (`stories/*/`) | `research` | `story_sync` MCP-Tool |
 | Architektur-Dokumente | `concept` | `story_sync` MCP-Tool |
@@ -150,8 +150,10 @@ Liefert Übersicht über indizierte Source-Types und Projekte.
 | `project_id` | String | Ja | Projekt-Identifikator |
 | `full_reindex` | Boolean | Nein | Kompletter Neuaufbau (Default: false) |
 
-Liest GitHub Issues (via `gh`) und lokale Markdown-Dateien,
-chunked sie, vergleicht Hashes, indiziert neue/geänderte Chunks.
+Liest die exportierten `story.md`-Dateien aus dem Story-Verzeichnis
+und weitere lokale Markdown-Dateien (Konzepte, Architektur,
+Research), chunked sie, vergleicht Hashes, indiziert neue/geänderte
+Chunks.
 
 ### 13.4.2 Suchmodi
 
@@ -282,8 +284,8 @@ Die VektorDB ist Pflichtbestandteil der Infrastruktur.
 
 Bei `full_reindex=true`:
 1. Alle bestehenden Chunks des Projekts in Weaviate löschen
-2. GitHub Issues neu abrufen (via `gh`)
-3. Lokale Markdown-Dateien neu scannen
+2. Story-Artefakte (`stories/*/story.md`) neu scannen
+3. Lokale Markdown-Dateien (Konzepte, Architektur, Research) neu scannen
 4. Alles chunken und indizieren
 
 **Dauer:** Abhängig von Projektgröße. Typisch 2-10 Minuten für

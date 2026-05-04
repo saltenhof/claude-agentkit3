@@ -28,18 +28,18 @@ invariants:
     rule: story creation may proceed to classified only after vectordb conflict checking and goal-fidelity validation have completed successfully
   - id: story-creation.invariant.classification_requires_required_fields
     scope: process
-    rule: story type, size, affected modules, acceptance criteria, and mode-related fields must be set before GitHub issue creation
-  - id: story-creation.invariant.github_issue_precedes_backlog_status
+    rule: story type, size, affected modules, acceptance criteria, and mode-related fields must be set before AK3 story-backend registration
+  - id: story-creation.invariant.story_backend_registration_precedes_backlog_status
     scope: process
-    rule: a story reaches Backlog only after GitHub issue creation and AK3 story-backend registration with story attributes have succeeded
-  - id: story-creation.invariant.story_md_export_after_issue_creation
+    rule: a story reaches Backlog only after AK3 story-backend registration with all required story attributes has succeeded
+  - id: story-creation.invariant.story_md_export_after_backend_registration
     scope: process
-    rule: story.md export is legal only after the story exists in GitHub and the project status is Backlog
+    rule: story.md export is legal only after the story exists in the AK3 story backend and its status is Backlog
   - id: story-creation.invariant.approval_requires_human_decision
     scope: governance
     rule: promotion from Backlog or Exported to Approved requires an explicit human approval and may not be performed autonomously by AgentKit
-  - id: story-creation.invariant.no_direct_agent_gh_issue_create
+  - id: story-creation.invariant.no_direct_agent_story_creation
     scope: governance
-    rule: agents may not directly create GitHub issues outside the official story creation path
+    rule: agents may not directly create stories in the AK3 story backend outside the official story creation path
 ```
 <!-- FORMAL-SPEC:END -->

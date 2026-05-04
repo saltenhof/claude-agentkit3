@@ -8,7 +8,6 @@ spec_kind: command-set
 version: 1
 prose_refs:
   - concept/technical-design/21_story_creation_pipeline.md
-  - concept/technical-design/12_github_integration_repo_operationen.md
   - concept/technical-design/91_api_event_katalog.md
   - concept/technical-design/54_story_split_service_scope_explosion.md
 ---
@@ -16,7 +15,7 @@ prose_refs:
 # Story Creation Commands
 
 Story-Creation ist ein offizieller Skill- und Pipeline-Pfad, kein
-freies `gh issue create` durch Agents.
+freier Story-Backend-Mutationspfad fuer Agents.
 
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
@@ -38,27 +37,27 @@ commands:
       - story-creation.event.story.classified
       - story-creation.event.story.backlog_created
   - id: story-creation.command.export-story-md
-    signature: agentkit export-story-md --story-id <story_id> --issue-nr <issue_nr> --story-dir <story_dir>
+    signature: agentkit export-story-md --story-id <story_id> --story-dir <story_dir>
     allowed_statuses:
       - story-creation.status.backlog
     requires:
-      - story-creation.invariant.story_md_export_after_issue_creation
+      - story-creation.invariant.story_md_export_after_backend_registration
     emits:
       - story-creation.event.story_md.exported
       - story-creation.event.story_md.indexed
   - id: story-creation.command.approve
-    signature: human project status change to Approved
+    signature: human story status change to Approved
     allowed_statuses:
       - story-creation.status.exported
     requires:
       - story-creation.invariant.approval_requires_human_decision
     emits:
       - story-creation.event.story.approved
-  - id: story-creation.command.illegal-export-before-issue
-    signature: export story.md before GitHub issue/backlog creation
+  - id: story-creation.command.illegal-export-before-backend-registration
+    signature: export story.md before AK3 story-backend registration
     allowed_statuses: []
     requires:
-      - story-creation.invariant.story_md_export_after_issue_creation
+      - story-creation.invariant.story_md_export_after_backend_registration
     emits:
       - story-creation.event.creation.rejected
 ```

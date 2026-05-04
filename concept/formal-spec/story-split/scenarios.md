@@ -32,7 +32,6 @@ scenarios:
       status: story-split.status.completed
     requires:
       - story-split.invariant.source_story_ends_cancelled
-      - story-split.invariant.source_issue_closes_not_planned
       - story-split.invariant.successors_start_in_backlog
   - id: story-split.scenario.reject-without-scope-explosion-preconditions
     start:

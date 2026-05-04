@@ -242,8 +242,7 @@ Exploration darf in diesen Story-Typen **nicht**:
 - den Story-Abschluss ermoeglichen
 - Closure freigeben
 - Merge freigeben
-- GitHub-Issue schliessen
-- Project-Status `Done` setzen
+- AK3-Story-Status `Done` setzen
 
 ### 24.5.2 Verpflichtender Folge-Zustand
 

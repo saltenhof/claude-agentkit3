@@ -8,7 +8,6 @@ spec_kind: invariant-set
 version: 1
 prose_refs:
   - concept/technical-design/54_story_split_service_scope_explosion.md
-  - concept/technical-design/12_github_integration_repo_operationen.md
   - concept/technical-design/35_integrity_gate_governance_beobachtung_eskalation.md
 ---
 
@@ -35,10 +34,7 @@ invariants:
     rule: once the source story is fenced, normal workflow commands such as resume or reset-escalation must not continue that source story run
   - id: story-split.invariant.source_story_ends_cancelled
     scope: outcome
-    rule: successful split must set the source story project status to Cancelled
-  - id: story-split.invariant.source_issue_closes_not_planned
-    scope: external-status-coupling
-    rule: successful split must close the source GitHub issue with reason not planned
+    rule: successful split must set the source story status in the AK3 story backend to Cancelled
   - id: story-split.invariant.successors_start_in_backlog
     scope: outcome
     rule: all successor stories created by split start in Backlog, never in Done or In Progress

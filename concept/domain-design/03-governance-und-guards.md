@@ -331,7 +331,7 @@ Prüfung beginnt die eigentliche Implementierung.
 
 Die Entscheidung zwischen Execution und Exploration ist keine
 LLM-Tagesentscheidung, sondern erfolgt deterministisch anhand von
-sechs Kriterien, die als strukturierte Felder am GitHub-Issue hängen.
+sechs Kriterien, die als strukturierte Story-Attribute im AK3-Story-Backend liegen.
 Fehlende Felder werden fail-closed behandelt: Ein fehlendes Feld zählt
 immer zugunsten von Exploration.
 

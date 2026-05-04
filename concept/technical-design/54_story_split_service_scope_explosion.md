@@ -23,7 +23,7 @@ defers_to:
     reason: PAUSED/ESCALATED und CLI-Resume-Mechanik werden dort normiert
   - target: FK-12
     scope: github-state
-    reason: GitHub-Issue- und Project-Status werden dort technisch konkretisiert
+    reason: AK3-Story-Status und Code-Repo-Mechanik werden dort technisch konkretisiert
   - target: FK-05
     scope: integration-stabilization-exception
     reason: Enge Reklassifikation auf integration_stabilization ersetzt den Split-Standardpfad und wird dort normiert
@@ -148,14 +148,12 @@ Ein Story-Split ist nur zulaessig, wenn:
 Nach erfolgreichem Split gilt:
 
 1. die Ausgangs-Story ist im AK3-Story-Backend im Status `Cancelled`
-2. das GitHub-Issue der Ausgangs-Story ist mit `not planned`
-   geschlossen
-3. neue Nachfolger-Stories existieren im Status `Backlog`
-4. Abhaengigkeiten und Story-Beziehungen sind auf die Nachfolger
+2. neue Nachfolger-Stories existieren im Status `Backlog`
+3. Abhaengigkeiten und Story-Beziehungen sind auf die Nachfolger
    umgebogen
-5. steuernde Runtime-Reste, Locks, Worktrees und Branches der
+4. steuernde Runtime-Reste, Locks, Worktrees und Branches der
    Ausgangs-Story sind entfernt
-6. Audit- und Split-Nachweis bleiben erhalten
+5. Audit- und Split-Nachweis bleiben erhalten
 
 ## 54.6 CLI-Schnittstelle
 
@@ -257,7 +255,6 @@ Nachfolger nicht mehr blockieren.
 Die Nachfolger werden ueber denselben fachlichen Story-Creation-Vertrag
 erzeugt wie normale Stories:
 
-- GitHub-Issue als Code-Anker anlegen
 - Story im AK3-Story-Backend anlegen
 - Story-Attribute setzen
 - `story.md` exportieren
@@ -275,7 +272,7 @@ Split-Plan:
 - ausgehende Dependencies der Ausgangs-Story
 - `split_from` / `split_successors`-Beziehungen
 
-**Normative Regel:** Kein abhängiges Issue darf still auf eine
+**Normative Regel:** Keine abhängige Story darf still auf eine
 `Cancelled`-Story zeigen, wenn laut Split-Plan bereits Nachfolger
 existieren.
 
@@ -298,8 +295,7 @@ Die Ausgangs-Story wird im Index nicht geloescht, sondern als
 Die Ausgangs-Story wird **nicht** ueber Closure beendet. Stattdessen:
 
 1. AK3-Story-Backend: `Status -> Cancelled`
-2. GitHub Issue `close --reason "not planned"`
-3. Split-Artefakt und Auditspur verlinken
+2. Split-Artefakt und Auditspur verlinken
 
 Damit ist sichtbar, dass die Story nicht erfolgreich geliefert wurde,
 aber auch nicht einfach "haengen blieb".
@@ -344,8 +340,8 @@ Mutationen absichtlich. Fuer den offiziellen Split-Pfad gilt deshalb:
 
 1. Nur `agentkit split-story ...` darf trotz aktivem Story-Lock die
    administrative Split-Operation ausfuehren.
-2. Freie Git-, Issue- oder Project-Manipulationen bleiben weiter
-   blockiert.
+2. Freie Git-Manipulationen oder direkte Story-Backend-Mutationen am
+   Service vorbei bleiben weiter blockiert.
 3. Der Branch-Guard und der Story-Creation-Guard muessen den
    offiziellen Split-Service-Pfad explizit zulassen.
 
@@ -354,8 +350,7 @@ Mutationen absichtlich. Fuer den offiziellen Split-Pfad gilt deshalb:
 Der Service muss mindestens diese Integrationsfolgen durchziehen:
 
 - AK3-Story-Backend-Status der Ausgangs-Story
-- GitHub-Issue-Close der Ausgangs-Story
-- Erzeugung der Nachfolger-Issues
+- Erzeugung der Nachfolger-Stories im AK3-Story-Backend
 - Rebinding expliziter Dependencies
 - Reindexierung der Story-KB / Weaviate
 - Neuanlage fachlicher Nachfolger-Artefakte (`story.md`)

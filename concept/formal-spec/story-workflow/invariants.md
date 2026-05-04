@@ -49,8 +49,8 @@ invariants:
   - id: story-workflow.invariant.escalated_requires_new_run
     scope: status-transition
     rule: ESCALATED may not continue through resume; a new run_id is required before workflow execution continues
-  - id: story-workflow.invariant.internal_pause_or_escalation_does_not_close_issue
-    scope: external-status-coupling
-    rule: paused, failed, or escalated workflow states do not by themselves set the GitHub issue to Done or Closed
+  - id: story-workflow.invariant.internal_pause_or_escalation_does_not_close_story
+    scope: status-coupling
+    rule: paused, failed, or escalated workflow states do not by themselves set the AK3 story status to Done or Cancelled
 ```
 <!-- FORMAL-SPEC:END -->

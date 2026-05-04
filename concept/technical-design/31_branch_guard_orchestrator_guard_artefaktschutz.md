@@ -510,9 +510,9 @@ QA-Agent:
 
 ### 31.5.1 Verantwortung (FK-05-011)
 
-Verhindert, dass Agents direkt `gh issue create` aufrufen, ohne
-den Story-Erstellungs-Skill zu verwenden. Der Skill stellt
-VektorDB-Abgleich, Zieltreue-Prüfung und strukturierte
+Verhindert, dass Agents Stories direkt am AK3-Story-Service vorbei
+anlegen, ohne den Story-Erstellungs-Skill zu verwenden. Der Skill
+stellt VektorDB-Abgleich, Zieltreue-Prüfung und strukturierte
 Feldbelegung sicher.
 
 ### 31.5.2 Aktivierung
@@ -522,22 +522,19 @@ immer über den Skill erstellt werden, auch im AI-Augmented-Modus.
 
 ### 31.5.3 Regelsatz
 
-```python
-BLOCKED_PATTERN = re.compile(r"\bgh\s+issue\s+create\b")
-
-def check(command: str) -> bool:
-    """Returns True if command should be blocked."""
-    return bool(BLOCKED_PATTERN.search(command))
-```
+Der Guard erkennt direkte Mutations-Aufrufe gegen den
+AK3-Story-Service (Story-Anlage), die nicht aus dem Skill
+`create-userstory` oder einem Pipeline-Skript stammen, und blockiert
+sie mit opaker Fehlermeldung.
 
 ### 31.5.4 Ausnahmen
 
-Pipeline-Skripte (Zone 2) dürfen `gh issue create` direkt
-aufrufen — z.B. für automatisch erzeugte Failure-Corpus-Check-
-Implementierungs-Stories (Kap. 41) oder für Nachfolger-Stories im
-offiziellen Story-Split-Pfad (Kap. 54). Die Erkennung erfolgt über
-den Hook-Kontext: Pipeline-Skripte laufen nicht als Claude-Code-
-Agent, sondern als direkte Python-Prozesse.
+Pipeline-Skripte (Zone 2) dürfen den AK3-Story-Service direkt zur
+Story-Anlage aufrufen — z.B. für automatisch erzeugte
+Failure-Corpus-Check-Implementierungs-Stories (Kap. 41) oder für
+Nachfolger-Stories im offiziellen Story-Split-Pfad (Kap. 54). Die
+Erkennung erfolgt über den Hook-Kontext: Pipeline-Skripte laufen
+nicht als Claude-Code-Agent, sondern als direkte Python-Prozesse.
 
 ## 31.6 Adversarial-Guard (Sandbox-Scoping)
 
@@ -654,7 +651,7 @@ flowchart TD
     ALWAYS -->|"Nein"| SPERR{"Lock-Record<br/>vorhanden?"}
 
     SPERR -->|"Nein"| STORY_CREATE{"Story-Create<br/>Guard?"}
-    STORY_CREATE -->|"gh issue create"| BLOCK
+    STORY_CREATE -->|"Direkter Story-Backend-Aufruf"| BLOCK
     STORY_CREATE -->|"Nein"| PASS(["Erlaubt<br/>(exit 0)"])
 
     SPERR -->|"Ja"| BRANCH{"Branch-Guard"}
@@ -687,7 +684,7 @@ Die Guards haben nicht-überlappende Verantwortungsbereiche:
 | QA-Artefakt-Schutz | Dateipfade (QA-Verzeichnis) | Nur Sub-Agents |
 | QA-Agent-Guard | Dateipfade (Source-Code) | Nur QA-Sub-Agent |
 | Adversarial-Guard | Dateipfade (außerhalb Sandbox) | Nur Adversarial-Sub-Agent |
-| Story-Create-Guard | Bash-Befehl (`gh issue create`) | Alle Agents |
+| Story-Create-Guard | Direkter AK3-Story-Service-Aufruf am Skill vorbei | Alle Agents |
 
 Es gibt keine Situation, in der zwei Guards sich widersprechen
 (einer erlaubt, der andere blockiert denselben Aspekt). Sie

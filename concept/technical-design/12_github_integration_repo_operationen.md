@@ -39,101 +39,39 @@ formal_refs:
 
 ## 12.1 GitHub als Code-Backend
 
-GitHub dient AgentKit als externes Code-Backend:
+GitHub dient AgentKit als externes Code-Backend fuer Repositories,
+Branches, Pull Requests und Merge:
 
 | Zweck | GitHub-Feature | Zugriff |
 |-------|---------------|--------|
-| Issue-Anker (Code-Bezug zur Story) | Issues | `gh issue` CLI |
 | Code-Verwaltung | Repositories | `git` CLI (lokal) + `gh` CLI (remote) |
 
 AgentKit betreibt keinen eigenen GitHub-Adapter oder REST-Client.
-Alle GitHub-Interaktionen laufen über die `gh` CLI, die
+Alle GitHub-Interaktionen laufen über die `gh`/`git` CLI, die
 Authentifizierung, Token-Handling und Retry selbst übernimmt.
 
 ### 12.1.1 Abgrenzung zur Story-Autoritaet
 
 Story-Identitaet, Story-Status, Board-Sichten und Story-Detaildaten
-liegen im **AK3-Story-Backend** (siehe FK-17 / FK-18 fuer Datenmodell
-und Persistenz, FK-91 fuer die Control-Plane-API). GitHub ist nicht die
-Wahrheitsquelle fuer Story-Lifecycle, sondern bleibt ausschliesslich:
+liegen ausschliesslich im **AK3-Story-Backend** (siehe FK-17 / FK-18
+fuer Datenmodell und Persistenz, FK-91 fuer die Control-Plane-API).
+GitHub ist nicht die Wahrheitsquelle fuer Story-Lifecycle und enthaelt
+kein Story-Tracking. GitHub bleibt ausschliesslich:
 
-- Issue-Anker fuer Branches und PRs
 - Repository-Backend fuer Code-Operationen
-- optional als read-only Spiegel fuer externe Sichtbarkeit
+- Branch-/PR-Mechanik fuer Story-Branches `story/{story_id}`
 
-Statuswechsel, Story-Attribute, Closure-Metriken und administrative
-Operationen werden ueber den AK3-Story-Service ausgefuehrt, nicht ueber
-GitHub-Mechanik.
+Statuswechsel, Story-Attribute, Closure-Metriken, Dependencies und
+administrative Operationen werden ueber den AK3-Story-Service
+ausgefuehrt, nicht ueber GitHub-Mechanik.
 
 ### 12.1.2 Fehlerbehandlung bei GitHub-Ausfällen
 
 | Situation | Betrifft | Reaktion |
 |-----------|---------|---------|
-| GitHub nicht erreichbar bei Preflight | `gh issue view` scheitert | Preflight FAIL → Story startet nicht |
-| GitHub nicht erreichbar bei Issue-Close (Closure) | `gh issue close` scheitert | Closure FAIL → Eskalation. Merge war ggf. schon erfolgreich (Closure-Substates). |
+| GitHub nicht erreichbar bei Push (Closure) | `git push origin story/{story_id}` scheitert | Closure FAIL → Eskalation. Merge wurde nicht gestartet (Closure-Substates). |
 | Rate Limiting (403) | Alle API-Calls | Retry mit Backoff (1s, 2s, 4s). Max 3 Retries. Danach FAIL. |
 | Token abgelaufen | Alle API-Calls | `gh auth status` prüfen. Mensch muss `gh auth login` ausführen. |
-
-## 12.3 Issue-Management
-
-### 12.3.1 Issue-Erstellung (Story-Erstellung)
-
-Issues werden vom Story-Erstellungs-Skill erstellt:
-
-```bash
-gh issue create \
-  --repo "{owner}/{repo}" \
-  --title "{story_title}" \
-  --body "{story_body}" \
-  --label "{story_type}"
-```
-
-Nach Erstellung wird die Story im AK3-Story-Backend mit ihren
-Story-Attributen (Status: Backlog, Story ID, Story Type, Size, etc.)
-angelegt; das GitHub-Issue dient nur als Code-Anker.
-
-### 12.3.2 Issue-Body-Konventionen
-
-Der Issue-Body enthält strukturierte Sektionen, die von der Pipeline
-geparst werden:
-
-| Sektion | Heading | Geparst von | Zweck |
-|---------|---------|-------------|-------|
-| Abhängigkeiten | `## Abhängigkeiten` | Preflight | `#NNN`-Referenzen auf Dependency-Issues |
-| Konzept-Referenzen | `## Konzept-Referenzen` | Context-Berechnung | Pfade zu Konzept-Dokumenten |
-| Guardrail-Referenzen | `## Guardrail-Referenzen` | Context-Berechnung | Pfade zu Guardrail-Dokumenten |
-| Akzeptanzkriterien | `## Akzeptanzkriterien` | Worker, QA-Bewertung | Fachliche Anforderungen |
-
-**Parsing-Regeln:**
-- Sektionen werden über Regex `##\s*{heading}` identifiziert
-- Dependency-Referenzen: `#(\d+)` im Sektionstext
-- Pfad-Referenzen: Zeilen mit relativen Pfaden
-- Fehlendes Heading → leere Liste (kein Fehler)
-
-### 12.3.3 Issue-Status-Abfrage
-
-```bash
-# Issue-Details
-gh issue view {issue_nr} --repo {owner}/{repo} --json number,title,state,labels,body
-```
-
-Story-Attribute (Status, Type, Size, etc.) werden nicht aus GitHub
-gelesen, sondern aus dem AK3-Story-Backend.
-
-### 12.3.4 Issue schließen (Closure)
-
-```bash
-# Erfolgreiche Lieferung
-gh issue close {issue_nr} --repo {owner}/{repo} --reason completed
-
-# Kontrollierte Beendigung ohne Lieferung (Story-Split)
-gh issue close {issue_nr} --repo {owner}/{repo} --reason "not planned"
-```
-
-`completed` wird nur nach erfolgreichem Merge aufgerufen
-(Closure-Substates, Kap. 10). `not planned` ist fuer den offiziellen
-administrativen Story-Split-Pfad reserviert. Wenn der Close scheitert,
-bleibt die Story "In Progress" und wird an den Menschen eskaliert.
 
 ## 12.4 Branching-Protokoll
 
@@ -363,15 +301,13 @@ Die Closure-Substates tracken Push- und Merge-Status pro Repo.
 
 | Phase | Operation | GitHub-Feature | Richtung |
 |-------|----------|---------------|---------|
-| **Story-Erstellung** | Issue als Code-Anker erstellen | Issues | Schreiben |
-| **Preflight** | Issue existiert? | Issues | Lesen |
-| **Closure** | Story-Branch auf Remote pushen | Repository Remote | Schreiben |
-| **Closure** | Issue schließen | Issues | Schreiben |
-| **Story-Split** | Issue-Close `not planned`, Nachfolger-Issues anlegen | Issues | Schreiben |
-| **Postflight** | Issue geschlossen? | Issues | Lesen |
+| **Setup** | Story-Branch `story/{story_id}` anlegen, Worktree mounten | Repository | Schreiben (lokal) |
+| **Worker** | Commits, ggf. Push auf Story-Branch | Repository Remote | Schreiben |
+| **Closure** | Story-Branch auf Remote pushen, Merge nach `main` | Repository Remote | Schreiben |
 
-Story-Status, Story-Attribute und Closure-Metriken laufen ueber das
-AK3-Story-Backend (FK-17/FK-18/FK-91), nicht ueber GitHub.
+Story-Status, Story-Attribute, Story-Erstellung, Story-Closure-Status
+und Closure-Metriken laufen ueber das AK3-Story-Backend
+(FK-17/FK-18/FK-91), nicht ueber GitHub.
 
 ### 12.7.2 Kein Webhook/Polling
 
@@ -388,7 +324,7 @@ automatisierter Trigger.
 
 *FK-Referenzen: FK-05-003 (5 Story-Zustände),
 FK-05-031/032 (Backlog→Approved),
-FK-05-059/060 (Preflight: Issue existiert, Status Approved),
+FK-05-059/060 (Preflight: Story existiert, Status Approved),
 FK-05-067 (Worktree mit eigenem Branch),
-FK-05-223/224 (Merge vor Close),
+FK-05-223/224 (Merge vor Closure-Status Done),
 FK-06-010 bis FK-06-016 (Branch-Guard-Regeln)*

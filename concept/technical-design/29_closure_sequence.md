@@ -30,7 +30,7 @@ glossary:
       definition: >
         Typisiertes Objekt mit sechs granularen Booleans innerhalb von ClosurePayload,
         das den Fortschritt der Closure-Substates checkpoint-sicher abbildet:
-        integrity_passed, story_branch_pushed, merge_done, issue_closed,
+        integrity_passed, story_branch_pushed, merge_done, story_closed,
         metrics_written, postflight_done. Jedes Boolean markiert einen irreversiblen
         Abschluss-Checkpoint; bei Crash-Recovery werden abgeschlossene Schritte
         uebersprungen.
@@ -39,7 +39,7 @@ glossary:
         Die normativ festgelegte, geordnete Abfolge von elf Closure-Schritten
         mit irreversiblen Seiteneffekten: Finding-Resolution-Gate,
         Integrity-Gate, Story-Branch-Push, Merge, Worktree-Teardown,
-        Issue-Close, Metriken, Rueckkopplungstreue, Postflight-Gates,
+        Story-Closed (AK3-Story-Status Done), Metriken, Rueckkopplungstreue, Postflight-Gates,
         VektorDB-Sync, Guard-Deaktivierung. Reihenfolge ist Pflicht (FK-05-226);
         kein Schritt darf vorgezogen oder uebersprungen werden.
     - id: closure-verdict
@@ -87,7 +87,7 @@ glossary:
     - id: postflight-gates
       definition: >
         Fuenf deterministische Konsistenzpruefungen nach erfolgreichem Merge und
-        Issue-Close: story_dir_exists, issue_closed, metrics_set,
+        Story-Closed: story_dir_exists, story_closed, metrics_set,
         telemetry_complete, artifacts_complete. Ein Postflight-FAIL ist
         nicht-blockierend (Code ist bereits auf Main); der Mensch entscheidet
         ueber Nacharbeit. Kein automatischer Rollback.
@@ -115,7 +115,7 @@ defers_to:
     reason: Closure konsumiert Worker-Manifest-Stand
   - target: FK-12
     scope: github-merge
-    reason: Branch-Push, Merge-Policy, Issue-Close-Mechanik
+    reason: Branch-Push, Merge-Policy, Code-Repo-Mechanik
   - target: FK-13
     scope: vector-db-sync
     reason: VektorDB-Sync nach erfolgreichem Closure
@@ -149,7 +149,7 @@ formal_refs:
 
 ### 29.1.0 ClosurePayload — durable Contract Fields
 
-> **[Entscheidung 2026-04-09]** `ClosurePayload` führt `ClosureProgress` als typisiertes Objekt mit granularen Booleans. Granularität ist notwendig, weil "nach Merge vor Issue-Close" als Recovery-Zustand eindeutig identifizierbar sein muss. Ein grobes `current_substate`-Enum würde diese Eindeutigkeit nicht liefern. Verweis auf Designwizard R1+R2 vom 2026-04-09.
+> **[Entscheidung 2026-04-09]** `ClosurePayload` führt `ClosureProgress` als typisiertes Objekt mit granularen Booleans. Granularität ist notwendig, weil "nach Merge vor Story-Closed" als Recovery-Zustand eindeutig identifizierbar sein muss. Ein grobes `current_substate`-Enum würde diese Eindeutigkeit nicht liefern. Verweis auf Designwizard R1+R2 vom 2026-04-09.
 
 `ClosurePayload` ist die phasenspezifische Payload für die Closure-Phase (diskriminierte Union, FK-39 §39.2.3):
 
@@ -158,7 +158,7 @@ class ClosureProgress(BaseModel):
     integrity_passed: bool = False
     story_branch_pushed: bool = False
     merge_done: bool = False
-    issue_closed: bool = False
+    story_closed: bool = False
     metrics_written: bool = False
     postflight_done: bool = False
 
@@ -169,7 +169,7 @@ class ClosurePayload(BaseModel):
 
 `ClosureProgress` hat Recovery-Relevanz: Jedes Boolean entspricht einem abgeschlossenen Closure-Substate. Bei Crash und Wiederaufnahme (§29.1.3) überspringt der Phase Runner alle Schritte, deren Boolean bereits `true` ist.
 
-**Granularität:** Die Einzelbooleans sind notwendig, weil Closure-Substates nicht zurückgerollt werden können (Merge ist irreversibel, Issue-Close ist ein GitHub-Seiteneffekt). Ein einziges `current_substate`-Enum würde den Zustand "nach Merge, vor Issue-Close" nicht eindeutig von "vor Merge" unterscheiden.
+**Granularität:** Die Einzelbooleans sind notwendig, weil Closure-Substates nicht zurückgerollt werden können (Merge ist irreversibel, der Story-Status-Wechsel auf Done ist ein authoritativer Backend-Seiteneffekt). Ein einziges `current_substate`-Enum würde den Zustand "nach Merge, vor Story-Closed" nicht eindeutig von "vor Merge" unterscheiden.
 
 ### 29.1.1 Voraussetzung
 
@@ -233,7 +233,7 @@ flowchart TD
 
     STYPE -->|"impl / bugfix"| FR
     STYPE -->|"concept / research<br/>(kein QA-Subflow, kein Merge)"| CR_SUB1["Substate:<br/>integrity_passed = true<br/>story_branch_pushed = true<br/>merge_done = true<br/>(direkt gesetzt, §29.1.1)"]
-    CR_SUB1 --> CLOSE_CR["Issue schließen<br/>(gh issue close)"]
+    CR_SUB1 --> CLOSE_CR["Story-Status: Done<br/>(AK3-Story-Service)"]
     CLOSE_CR --> SUB3
 
     FR["Finding-Resolution-Gate<br/>(§29.2)"]
@@ -253,8 +253,8 @@ flowchart TD
     MERGE -->|Erfolg| SUB2["Substate:<br/>merge_done = true"]
 
     SUB2 --> TEARDOWN["Worktree aufräumen<br/>Branch löschen"]
-    TEARDOWN --> CLOSE["Issue schließen<br/>(gh issue close)"]
-    CLOSE --> SUB3["Substate:<br/>issue_closed = true"]
+    TEARDOWN --> CLOSE["Story-Status: Done<br/>(AK3-Story-Service)"]
+    CLOSE --> SUB3["Substate:<br/>story_closed = true"]
 
     SUB3 --> STATUS["Projektstatus: Done<br/>+ QA Rounds, Completed At"]
     STATUS --> SUB4["Substate:<br/>metrics_written = true"]
@@ -291,7 +291,7 @@ class ClosureProgress(BaseModel):
     integrity_passed: bool = False
     story_branch_pushed: bool = False
     merge_done: bool = False
-    issue_closed: bool = False
+    story_closed: bool = False
     metrics_written: bool = False
     postflight_done: bool = False
 
@@ -307,7 +307,7 @@ Im Phase-State (`phase-state.json`):
     "integrity_passed": true,
     "story_branch_pushed": true,
     "merge_done": true,
-    "issue_closed": false,
+    "story_closed": false,
     "metrics_written": false,
     "postflight_done": false
   }
@@ -324,10 +324,10 @@ Bei erneutem Aufruf von `agentkit run-phase closure`:
   `payload.progress.story_branch_pushed == true`
 - Merge wird übersprungen, wenn
   `payload.progress.merge_done == true`
-- Issue-Close wird ausgeführt, wenn
-  `payload.progress.issue_closed == false`
+- Story-Status-Wechsel auf Done wird ausgeführt, wenn
+  `payload.progress.story_closed == false`
 
-Teardown (Worktree aufräumen, Branch löschen) ist idempotent — er wird bei jedem Recovery-Lauf mit `merge_done == true && issue_closed == false` erneut ausgeführt. Ein eigenes `teardown_done`-Feld ist nicht erforderlich, da ein fehlgeschlagener oder bereits erledigter Teardown keinen Datenverlust verursacht.
+Teardown (Worktree aufräumen, Branch löschen) ist idempotent — er wird bei jedem Recovery-Lauf mit `merge_done == true && story_closed == false` erneut ausgeführt. Ein eigenes `teardown_done`-Feld ist nicht erforderlich, da ein fehlgeschlagener oder bereits erledigter Teardown keinen Datenverlust verursacht.
 
 ### 29.1.4 Reihenfolge ist Pflicht (FK-05-226)
 
@@ -339,7 +339,7 @@ wenn der Merge scheitert:
 3. Erst Story-Branch pushen → Remote enthält den finalen Integrationsstand
 4. Erst mergen → Code ist auf Main
 5. Erst Worktree aufräumen → kein staler Worktree
-6. Dann Issue schließen → fachlich abgeschlossen
+6. Dann Story-Status auf Done setzen (AK3-Story-Service) → fachlich abgeschlossen
 7. Dann Metriken → Nachvollziehbarkeit
 8. Dann Rückkopplungstreue (FK-38 §38.3) → Doku aktuell?
 9. Dann Postflight → Konsistenzprüfung
@@ -374,7 +374,7 @@ harter Blocker.
 entfallen Finding-Resolution-Gate UND Integrity-Gate vollstaendig (kein
 Layer-2-QA, kein QA-Subflow, kein Merge). `integrity_passed` und
 `merge_done` werden direkt auf `true` gesetzt; der Closure-Ablauf
-startet effektiv bei `issue_closed` (§29.1.2 Concept/Research-Pfad im
+startet effektiv bei `story_closed` (§29.1.2 Concept/Research-Pfad im
 Flowchart).
 
 **Provenienz:** DK-04 §4.6. Empirischer Beleg BB2-012: Worker
@@ -479,13 +479,14 @@ StructuredEvaluator um den Remediation-Modus.
 
 ### 29.3.1 Checks (FK-05-227 bis FK-05-231)
 
-Nach erfolgreichem Merge und Issue-Close (für Concept/Research: nach
-`merge_done = true` und `issue_closed = true`, §29.1.1):
+Nach erfolgreichem Merge und Story-Status-Wechsel auf Done (für
+Concept/Research: nach `merge_done = true` und `story_closed = true`,
+§29.1.1):
 
 | Check | Was | FAIL wenn |
 |-------|-----|----------|
 | `story_dir_exists` | Story-Verzeichnis existiert mit `protocol.md` | Verzeichnis oder Protokoll fehlt |
-| `issue_closed` | Issue-State == CLOSED | Issue noch offen |
+| `story_closed` | AK3-Story-Status == Done | Story noch nicht geschlossen |
 | `metrics_set` | QA Rounds und Completed At gesetzt | Felder leer |
 | `telemetry_complete` | `agent_start` und `agent_end` Events vorhanden | Events fehlen |
 | `artifacts_complete` | Bei impl/bugfix: `structural.json`, `decision.json`, `context.json` vorhanden. Bei concept/research: nur `context.json` Pflicht (`structural.json` und `decision.json` entfallen — kein QA-Subflow). | Pflicht-Artefakte fehlen |
@@ -529,7 +530,7 @@ pipeline-framework bleibt orchestrierend statt fachlich.
 | **Errors and Warnings** | Aggregierte Fehler und Warnungen aus allen Phasen |
 | **Structural Check Results** | Ergebnisse der deterministischen Checks (Schicht 1) |
 | **Policy Engine Verdict** | Aggregiertes Policy-Ergebnis mit Blocking/Major/Minor Counts |
-| **Closure Sub-Step Status** | Status jedes `ClosureProgress`-Feldes (`payload.progress.integrity_passed`, `payload.progress.story_branch_pushed`, `payload.progress.merge_done`, `payload.progress.issue_closed`, `payload.progress.metrics_written`, `payload.progress.postflight_done`) [Entscheidung 2026-04-09] |
+| **Closure Sub-Step Status** | Status jedes `ClosureProgress`-Feldes (`payload.progress.integrity_passed`, `payload.progress.story_branch_pushed`, `payload.progress.merge_done`, `payload.progress.story_closed`, `payload.progress.metrics_written`, `payload.progress.postflight_done`) [Entscheidung 2026-04-09] |
 | **Telemetry Event Counts** | Zähler aller relevanten Telemetrie-Events |
 | **Integrity Violations Log** | Vollständiger Integrity-Violations-Auszug (falls vorhanden) |
 

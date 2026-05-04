@@ -8,7 +8,6 @@ spec_kind: state-machine
 version: 1
 prose_refs:
   - concept/technical-design/21_story_creation_pipeline.md
-  - concept/technical-design/12_github_integration_repo_operationen.md
 ---
 
 # Story Creation State Machine
@@ -49,11 +48,11 @@ transitions:
   - id: story-creation.transition.classified_to_backlog
     from: story-creation.status.classified
     to: story-creation.status.backlog
-    guard: story-creation.invariant.github_issue_precedes_backlog_status
+    guard: story-creation.invariant.story_backend_registration_precedes_backlog_status
   - id: story-creation.transition.backlog_to_exported
     from: story-creation.status.backlog
     to: story-creation.status.exported
-    guard: story-creation.invariant.story_md_export_after_issue_creation
+    guard: story-creation.invariant.story_md_export_after_backend_registration
   - id: story-creation.transition.exported_to_approved
     from: story-creation.status.exported
     to: story-creation.status.approved

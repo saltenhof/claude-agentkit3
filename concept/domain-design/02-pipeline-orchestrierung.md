@@ -116,7 +116,7 @@ diesem Kapitel, sondern in FK-59:
 
 Story-Lifecycle, Story-Erstellung (Konzeption, VektorDB-Abgleich,
 Anforderungsverknüpfung, Repo-Affinität, Freigabe-Prozess),
-GitHub-Issue-Feldschema (Modus-Ermittlung, Projektfelder) und
+Story-Feldschema (Modus-Ermittlung, Story-Attribute) und
 Story-Größen-Definition sind in **DK-10 (Story-Lifecycle und
 Story-Erstellung)** normiert.
 
@@ -685,10 +685,10 @@ Agent gestartet wird. Scheitert ein Check, wird die Story nicht gestartet
 
 | Check-ID | Was geprüft wird | PASS-Kriterium | FAIL-Kriterium |
 |----------|-------------------|----------------|----------------|
-| PRE-01 | Issue existiert | `gh issue view` liefert gültigen Response mit Status 200 | Issue nicht gefunden, API-Fehler oder ungültige Issue-Nummer |
-| PRE-02 | Story im AK3-Story-Backend | Die Story-ID existiert im AK3-Story-Backend und ist mit dem GitHub-Issue verknüpft | Story nicht im AK3-Story-Backend angelegt oder die Issue-Verknüpfung ist inkonsistent |
-| PRE-03 | Status = "Approved" | Das Projektfeld "Status" hat den Wert "Approved" | Status ist "Backlog", "In Progress", "Done" oder ein anderer Wert |
-| PRE-04 | Abhängigkeiten geschlossen | Alle im Issue referenzierten Abhängigkeiten (verlinkte Issues mit Dependency-Markierung) haben den Status "Done" oder "Closed" | Mindestens eine Abhängigkeit ist offen oder in Bearbeitung |
+| PRE-01 | Story existiert | AK3-Story-Service liefert die Story zur angefragten Story-ID zurueck | Story nicht gefunden, Service-Fehler oder ungültige Story-ID |
+| PRE-02 | Story-Attribute konsistent | Die Story-Attribute (Story Type, Size, Module, etc.) sind im AK3-Story-Backend vorhanden und konsistent | Story-Attribute fehlen oder sind inkonsistent |
+| PRE-03 | Status = "Approved" | Das Story-Statusfeld im AK3-Story-Backend hat den Wert "Approved" | Status ist "Backlog", "In Progress", "Done", "Cancelled" oder ein anderer Wert |
+| PRE-04 | Abhängigkeiten in Status Done | Alle ueber den AK3-Story-Service registrierten Story-Dependencies (StoryDependency) haben den Status "Done" | Mindestens eine Dependency-Story ist noch nicht in Status Done |
 | PRE-05 | Keine Ausführungsartefakte | Im Story-Verzeichnis existieren weder `worker-manifest.json` noch `protocol.md` | Mindestens eines der Artefakte existiert bereits (Hinweis auf einen vorherigen, nicht aufgeräumten Lauf) |
 | PRE-06 | Saubere Telemetrie | Kein offener Lauf oder inkonsistentes `agent_start`/fehlendes terminales Telemetrie-Paar in `execution_events` bzw. `flow_executions` fuer `(project_key, story_id)` | Vorheriger Lauf fuer dieselbe Story ist telemetrisch oder runtime-seitig unvollstaendig |
 | PRE-07 | Kein Story-Branch | Kein Branch mit dem Story-Branch-Namensschema für diese Story-ID existiert lokal oder remote | Branch existiert bereits (Hinweis auf einen vorherigen, nicht aufgeräumten Lauf) |
@@ -702,12 +702,12 @@ macht die nachfolgenden Checks hinfällig.
 
 ---
 
-## Anhang B — GitHub-Issue-Feldschema
+## Anhang B — Story-Feldschema
 
-> Felder für die Modus-Ermittlung (Story-Typ, Konzept-Referenzen,
-> Reifegrad, Change-Impact, Neue Strukturen, Externe Integrationen)
-> und Projektfelder (Story-Groesse, Modul, Epic) sind in **DK-10
-> §10.3** normiert.
+> Story-Attribute fuer die Modus-Ermittlung (Story-Typ,
+> Konzept-Referenzen, Reifegrad, Change-Impact, Neue Strukturen,
+> Externe Integrationen) und Story-Felder (Story-Groesse, Modul, Epic)
+> sind in **DK-10 §10.3** normiert.
 
 ---
 
@@ -755,7 +755,7 @@ Validierungsregeln pro Artefakt. Referenz: Abschnitt 2.2
 
 | Feld | Typ | Inhalt | Validierungsregel |
 |------|-----|--------|-------------------|
-| story_id | String | GitHub-Issue-Nummer oder -Referenz | Muss mit der Story-ID des aktuellen Laufs übereinstimmen |
+| story_id | String | AK3-Story-ID | Muss mit der Story-ID des aktuellen Laufs übereinstimmen |
 | changed_files | Array von Strings | Relative Pfade aller geänderten Dateien | Nicht leer, jeder Pfad muss einer tatsächlich geänderten Datei im Diff entsprechen |
 | assumptions | Array von Strings | Annahmen, die der Worker während der Implementierung getroffen hat | Array muss existieren, darf leer sein |
 | created_at | String (ISO 8601) | Zeitpunkt der Manifest-Erstellung | Gültiges ISO-8601-Datum, muss nach dem `agent_start`-Event liegen |
@@ -810,9 +810,9 @@ Closure-Phase.
 
 | Check-ID | Was geprüft wird | PASS-Kriterium | FAIL-Kriterium |
 |----------|-------------------|----------------|----------------|
-| POST-01 | Issue geschlossen | `gh issue view` zeigt den Status "Closed" | Issue ist noch offen oder hat einen anderen Status |
-| POST-02 | Projektstatus = Done | Das Projektfeld "Status" hat den Wert "Done" | Status hat einen anderen Wert als "Done" |
-| POST-03 | Metriken gesetzt | Die Projektfelder "QA-Runden" und "Completed At" sind befüllt und enthalten gültige Werte | Mindestens eines der Felder ist leer oder enthält einen ungültigen Wert |
+| POST-01 | Story-Status = Done | Der AK3-Story-Service liefert fuer die Story-ID den Status "Done" | Story-Status hat einen anderen Wert |
+| POST-02 | Story-Lifecycle abgeschlossen | Die Story besitzt im AK3-Story-Backend ein gesetztes Closure-Timestamp (`completed_at`) | Story besitzt kein gesetztes Closure-Timestamp |
+| POST-03 | Metriken gesetzt | Die Story-Metrikfelder "QA-Runden" und "Completed At" sind befüllt und enthalten gültige Werte | Mindestens eines der Felder ist leer oder enthält einen ungültigen Wert |
 | POST-04 | Telemetrie vollständig | `execution_events` enthalten fuer `(project_key, story_id, run_id)` sowohl ein `agent_start`-Event als auch ein `agent_end`-Event | Eines oder beide Events fehlen, oder der Scope ist inkonsistent |
 | POST-05 | Commit vorhanden | Mindestens ein Commit mit der Story-ID existiert im Main-Branch (nach dem Merge) | Kein Commit mit der Story-ID im Main-Branch gefunden |
 | POST-06 | Story-Verzeichnis vollständig | Das Story-Verzeichnis enthält `protocol.md` und mindestens einen QA-Report (Datei mit Präfix `qa-` oder im Unterverzeichnis `qa/`) | `protocol.md` fehlt oder kein QA-Report vorhanden |

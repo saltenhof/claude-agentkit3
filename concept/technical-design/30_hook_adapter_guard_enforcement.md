@@ -453,7 +453,7 @@ nachfolgende Hooks laufen nicht mehr.
 **Reihenfolge bei PreToolUse für Bash:**
 1. `branch_guard` — destruktive Git-Ops blockieren
 2. `orchestrator_guard` — Codebase-Zugriff blockieren
-3. `story_creation_guard` — direktes `gh issue create` blockieren
+3. `story_creation_guard` — direkte Story-Backend-Mutationen am Skill vorbei blockieren
 4. `integrity` — QA-Artefakt-Schreibschutz
 5. `telemetry.hook` — Event loggen (increment_commit, drift_check)
 6. `health_monitor pre` — Interventions-Gate (Score-basiert, §30.10)
@@ -523,7 +523,7 @@ Immer PreToolUse. Exit 0 oder 2.
 | `qa_agent_guard` | QA-Agent-Code-Edit (Story-Execution) | Kap. 31.4 |
 | `adversarial_guard` | Adversarial schreibt außerhalb Sandbox (Story-Execution) | Kap. 31.6 |
 | `self_protection` | Governance-Dateien manipuliert (immer aktiv) | Kap. 30.5.3 |
-| `story_creation_guard` | Direktes `gh issue create` ohne Skill | Kap. 31.5 |
+| `story_creation_guard` | Direkte Story-Backend-Mutationen am Skill vorbei | Kap. 31.5 |
 | `budget` | Web-Calls über Limit (nur Research) — Event-Emission: `agentkit.telemetry.hooks`; blockierender Anteil: `agentkit.governance.guard_system.WebCallBudgetGuard` | Kap. 68.6 |
 | `skill_usage_check` | Agent ruft Tool-Methode ad-hoc auf, obwohl ein passender Skill existiert und dessen Voraussetzung erfuellt ist — blockiert Tool-Call, fordert Skill-Aufruf. Sub: `agentkit.governance.guard_system`. Normative Erkennungsregeln (F-43-030): FK-43 §43.6.2. | FK-43 §43.6.2 |
 | `health_monitor pre` | Worker-Stagnation/Loop erkannt (Score-basiert) | §30.10.2 |

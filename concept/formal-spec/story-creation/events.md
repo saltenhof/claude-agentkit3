@@ -49,8 +49,7 @@ events:
     payload:
       required:
         - story_id
-        - issue_number
-        - project_status
+        - story_status
   - id: story-creation.event.story_md.exported
     producer: story-creation
     role: lifecycle
@@ -70,7 +69,7 @@ events:
     payload:
       required:
         - story_id
-        - project_status
+        - story_status
   - id: story-creation.event.creation.rejected
     producer: story-creation
     role: lifecycle

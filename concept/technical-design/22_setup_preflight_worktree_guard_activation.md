@@ -164,10 +164,10 @@ flowchart TD
 
 | # | Check | Was geprüft wird | Wie | FAIL-Grund |
 |---|-------|-----------------|-----|-----------|
-| 1 | `issue_exists` | GitHub Issue existiert und ist abrufbar | `gh issue view {issue_nr} --json number,state` | Issue nicht gefunden (gelöscht? falsche Nummer?) |
-| 2 | `story_in_backend` | Story-ID existiert im AK3-Story-Backend und ist mit dem GitHub-Issue verknüpft | AK3-Story-Service abfragen | Story nicht im AK3-Story-Backend angelegt oder Issue-Verknüpfung inkonsistent |
+| 1 | `story_exists` | Story-ID existiert im AK3-Story-Backend und ist abrufbar | AK3-Story-Service abfragen | Story nicht gefunden (gelöscht? falsche Story-ID?) |
+| 2 | `story_attributes_consistent` | Story-Attribute (Story Type, Size, Module, etc.) sind vorhanden und konsistent | AK3-Story-Service abfragen | Story-Attribute fehlen oder sind inkonsistent |
 | 3 | `status_approved` | Story-Status im AK3-Story-Backend ist "Approved" | AK3-Story-Service abfragen | Status ist Backlog, In Progress, Done oder Cancelled |
-| 4 | `dependencies_closed` | Alle referenzierten Dependency-Issues sind geschlossen | Issue-Body parsen (`## Dependencies`), jede `#NNN`-Referenz via `gh issue view` prüfen | Mindestens eine Dependency ist noch offen |
+| 4 | `dependencies_done` | Alle Dependencies (`StoryDependency`) der Story haben Status Done | AK3-Story-Service-Dependency-Liste lesen, fuer jede referenzierte Story den Status pruefen | Mindestens eine Dependency-Story ist noch nicht in Status Done |
 | 5 | `no_execution_artifacts` | Keine Reste aus vorherigen Läufen **oder** vorheriger Run sauber abgeschlossen | Prüfe `artifact_records` und `phase_state_projection` fuer die Story. Bei unabgeschlossenem Run: FAIL. Bei sauber abgeschlossenem Run: Exporte archiviertbar, kein Blocker. | Artefakte eines unabgeschlossenen vorherigen Laufs gefunden |
 | 6 | `no_active_runtime_residue` | Keine aktiven Runtime-Reste eines vorherigen Runs | Prüfe kanonische Runtime-Zustände (`flow_executions`, aktive Lock-Records, `phase_state_projection`) für die Story. Telemetrie in `execution_events` ist **kein** Start-Gate; sie darf nur diagnostisch herangezogen werden. Bei aktivem oder inkonsistentem Runtime-Zustand: FAIL. | Aktiver oder inkonsistenter Runtime-Zustand eines vorherigen Runs vorhanden |
 | 7 | `no_story_branch` | Kein Branch `story/{story_id}` existiert **oder** Branch gehört zu abgeschlossenem Run | `git rev-parse --verify story/{story_id}`. Bei Existenz: prüfe ob zugehöriger Run abgeschlossen. Bei abgestürztem Run: FAIL (Mensch muss entscheiden: Cleanup oder Recovery). | Branch eines unaufgeräumten Runs vorhanden |
@@ -216,48 +216,44 @@ lesen.
 ### 22.4.1 Ablauf
 
 Nach bestandenem Preflight wird der Story-Context aus dem
-AK3-Story-Backend (Story-Attribute) und dem GitHub-Issue (Body-
-Sektionen) gelesen und als autoritativer Snapshot persistiert (Kap. 03,
-Konfigurationshierarchie):
+AK3-Story-Backend (Story-Attribute, Konzept-/Guardrail-Referenzen,
+externe Quellen, Dependencies) gelesen und als autoritativer
+Snapshot persistiert (Kap. 03, Konfigurationshierarchie):
 
 ```python
 def compute_story_context(story_id: str, config: PipelineConfig) -> StoryContext:
-    # 1. Issue-Daten holen (Code-Anker, Body-Sektionen)
-    issue = gh_issue_view(story_id, config)
+    # 1. Story-Attribute aus AK3-Story-Backend holen
+    story = ak3_story_service.get(story_id)
 
-    # 2. Story-Attribute aus AK3-Story-Backend holen
-    attrs = ak3_story_service.get_attributes(story_id)
+    # 2. Story-Typ ermitteln
+    story_type = story.story_type
 
-    # 3. Story-Typ ermitteln
-    story_type = attrs.get("Story Type") or derive_from_labels(issue.labels)
+    # 3. Native Story-Attribute lesen (kein Body-Parsing)
+    concept_paths = story.concept_sources
+    external_sources = story.external_sources
+    guardrail_paths = story.guardrail_paths
+    dependencies = ak3_story_service.list_dependencies(story_id)
 
-    # 4. Issue-Body parsen
-    concept_paths = parse_section(issue.body, "Konzept-Referenzen")
-    external_sources = parse_section(issue.body, "Externe Quellen")
-    guardrail_paths = parse_section(issue.body, "Guardrail-Referenzen")
-    dependencies = parse_section(issue.body, "Abhängigkeiten")
-
-    # 5. Story-Verzeichnis ableiten
-    slug = slugify(issue.title)
+    # 4. Story-Verzeichnis ableiten
+    slug = slugify(story.title)
     story_dir = f"{config.wiki_stories_dir}/{story_id}_{slug}"
 
-    # 6. Context-Objekt zusammenbauen
+    # 5. Context-Objekt zusammenbauen
     return StoryContext(
         story_id=story_id,
         run_id=generate_uuid(),
-        issue_nr=issue.number,
         story_dir=Path(story_dir),
         story_type=story_type,
-        size=attrs.get("Size", "M"),
-        scope=detect_scope(issue),
-        maturity=attrs.get("Maturity", ""),
-        change_impact=attrs.get("Change Impact", ""),
-        new_structures=attrs.get("New Structures", "false") == "true",
-        concept_quality=attrs.get("Concept Quality", ""),
+        size=story.size or "M",
+        scope=detect_scope(story),
+        maturity=story.maturity or "",
+        change_impact=story.change_impact or "",
+        new_structures=bool(story.new_structures),
+        concept_quality=story.concept_quality or "",
         concept_paths=concept_paths,
         external_sources=external_sources,
         guardrail_paths=guardrail_paths,
-        vectordb_conflict=attrs.get("vectordb_conflict_resolved", False),
+        vectordb_conflict=bool(story.vectordb_conflict_resolved),
     )
 ```
 

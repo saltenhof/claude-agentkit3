@@ -27,7 +27,7 @@ verwendet werden. Jeder Begriff hat eine exakte technische Bedeutung.
 
 | Begriff | Definition | Technische Repräsentation |
 |---------|-----------|--------------------------|
-| **Story** | Kleinste planbare Arbeitseinheit. Wird im AK3-Story-Backend gefuehrt; ein zugehoeriges GitHub-Issue dient als Code-Ankerpunkt fuer Branches und PRs. | AK3-Story-Backend-Eintrag + GitHub-Issue |
+| **Story** | Kleinste planbare Arbeitseinheit. Wird ausschliesslich im AK3-Story-Backend gefuehrt; Story-IDs sind die einzigen Story-Anker und werden ueber den Story-Branch `story/{story_id}` an die Code-Repo-Mechanik gekoppelt. | AK3-Story-Backend-Eintrag |
 | **Projekt** | Ein registriertes Zielprojekt, gegen das eine zentrale AgentKit-Installation arbeitet. | Projektregistrierung + lokale Projektkonfiguration |
 | **Project-Key** | Mandanten-Schlüssel eines registrierten Projekts. Alle kanonischen Runtime- und Analytics-Records sind daran gebunden. | String, systemweit eindeutig |
 | **Story-ID** | Eindeutiger Identifikator einer Story. Format: `{PREFIX}-{NNN}`, z.B. `ODIN-042`. | String, Regex: `[A-Z][A-Z0-9]+(?:-[A-Z][A-Z0-9]+)*-\d+` |
@@ -472,8 +472,8 @@ einer Story.
 | Orchestrator implementiert nicht | Orchestrator-Guard blockiert Codebase-Zugriff | `orchestrator_guard.py` Hook |
 | Worker kann QA nicht manipulieren | Lock-Record-Mechanismus + CCAG blockiert Sub-Agents (siehe 2.7) | Lock-Record + CCAG-Regeln |
 | LLM bewertet, Pipeline entscheidet | LLM-Antwort wird geparst; Pipeline wertet Status-Feld aus | `llm_evaluator.py` |
-| Kein Issue-Close ohne Merge | Closure führt Merge vor Close durch | `closure.py` |
-| Kein Issue-Close ohne Integrity-Gate | Integrity-Hook fängt `gh issue close` ab | `integrity.py` Hook |
+| Kein Story-Close ohne Merge | Closure fuehrt Merge vor Story-Status-Wechsel auf Done durch | `closure.py` |
+| Kein Story-Close ohne Integrity-Gate | Integrity-Gate ist Voraussetzung fuer den Story-Status-Wechsel auf Done (Closure-Sequence FK-29) | `integrity.py` Gate |
 | Multi-LLM ist Pflicht | Integrity-Gate prüft Telemetrie-Nachweise für alle Pflicht-Reviewer | `integrity.py` |
 | Fehlende Felder → Exploration Mode | Mode-Router behandelt fehlendes Feld als Exploration-Kriterium | `mode_router.py` |
 | GitHub-Felder sind Eingabe, nicht operative Wahrheit | Nach Setup wird `StoryContext` als autoritativer Snapshot im State-Backend persistiert. Optional kann daraus ein `context.json` exportiert werden. Ab da liest die Pipeline den Snapshot, nicht mehr GitHub. Enums validiert, Referenzen aufgelöst, abgeleitete Flags berechnet. | `context.py` → `story_contexts` / optional `context.json` |

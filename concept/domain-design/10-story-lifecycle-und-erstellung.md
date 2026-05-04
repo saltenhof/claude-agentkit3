@@ -8,7 +8,7 @@ doc_kind: core
 parent_concept_id:
 authority_over:
   - scope: story-lifecycle
-  - scope: github-issue-schema
+  - scope: story-feldschema
 defers_to:
   - DK-02
   - FK-21
@@ -105,11 +105,10 @@ flowchart TD
         LABELS --> REPO_AFF["Repo-Affinität<br/>PRIMARY_REPO +<br/>PARTICIPATING_REPOS"]
     end
 
-    REPO_AFF --> GITHUB
+    REPO_AFF --> PROJECT
 
     subgraph EINSTELLUNG [Einstellung ins AK3-Story-Backend]
-        GITHUB["GitHub Issue erstellen<br/>(Code-Backend)"]
-        GITHUB --> PROJECT["AK3-Story-Backend<br/>Status: Backlog<br/>Story-Attribute: Typ, Größe, Modul, Epic"]
+        PROJECT["AK3-Story-Backend<br/>Status: Backlog<br/>Story-Attribute: Typ, Größe, Modul, Epic"]
         PROJECT --> FREIGABE{"Freigabe<br/>durch Mensch"}
         FREIGABE -->|abgelehnt| REWORK["Nacharbeit<br/>an Story-Definition"]
         REWORK --> KONZEPT
@@ -192,18 +191,18 @@ Preflight-Gates der Umsetzungs-Pipeline prüfen diesen Status und lassen
 nur freigegebene Stories durch. Kein Agent kann eigenständig entscheiden,
 was implementiert wird.
 
-## 10.3 GitHub-Issue-Feldschema
+## 10.3 Story-Feldschema
 
 ### 10.3.1 Felder für die Modus-Ermittlung
 
-Die folgenden sechs Felder am GitHub-Issue bestimmen deterministisch,
+Die folgenden sechs Story-Attribute im AK3-Story-Backend bestimmen deterministisch,
 ob eine implementierende Story im Execution Mode oder im Exploration
 Mode bearbeitet wird. Referenz: Abschnitt 3.5 in [03-governance-und-guards.md](03-governance-und-guards.md).
 
 | Feld | Typ | Erlaubte Werte | Default bei fehlendem Wert | Validierungsregel |
 |------|-----|----------------|----------------------------|-------------------|
 | Story-Typ | Enum | Implementation, Bugfix, Konzept, Research | Kein Default. Pflichtfeld, fehlendes Feld blockiert die Story-Erstellung. | Muss ein gültiger Enum-Wert sein. Konzept und Research durchlaufen eigene Pfade ohne Modus-Ermittlung. |
-| `concept_paths` (aus Issue-Body `## Konzept-Referenzen`) | Pfadliste | Relative Pfade auf Konzeptdokumente im `concept/`-Verzeichnis | Leere Liste (keine Konzepte vorhanden). **Story-Typ-sensitiv:** Bei Implementation zählt eine leere Liste als Exploration. Bei Bugfix ist dieses Kriterium nicht execution-sperrend (FK 21.3.3, FK 22.8.1). | Wenn gesetzt: Mindestens ein referenziertes Dokument muss existieren und abrufbar sein. |
+| `concept_paths` (Story-Attribut Konzept-Referenzen) | Pfadliste | Relative Pfade auf Konzeptdokumente im `concept/`-Verzeichnis | Leere Liste (keine Konzepte vorhanden). **Story-Typ-sensitiv:** Bei Implementation zählt eine leere Liste als Exploration. Bei Bugfix ist dieses Kriterium nicht execution-sperrend (FK 21.3.3, FK 22.8.1). | Wenn gesetzt: Mindestens ein referenziertes Dokument muss existieren und abrufbar sein. |
 | Reifegrad | Enum | Goal Only, Solution Approach, Architecture Concept | Goal Only (fail-closed: fehlendes Feld zählt als niedrigster Reifegrad, also Exploration) | Muss ein gültiger Enum-Wert sein. "Solution Approach" oder "Architecture Concept" sind Execution-tauglich. "Goal Only" erzwingt Exploration. |
 | Change-Impact | Enum | Local, Component, Cross-Component, Architecture Impact | Architecture Impact (fail-closed: fehlendes Feld zählt als höchster Impact, also Exploration) | Muss ein gültiger Enum-Wert sein. "Local" oder "Component" sind Execution-tauglich. "Cross-Component" oder "Architecture Impact" erzwingen Exploration. |
 | Neue Strukturen | Boolean | true, false | true (fail-closed: fehlendes Feld bedeutet "neue Strukturen werden angenommen", also Exploration) | Bezieht sich auf neue APIs, Datenmodelle, Events oder Schnittstellen, die durch die Story eingeführt werden. |

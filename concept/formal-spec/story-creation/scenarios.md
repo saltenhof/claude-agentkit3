@@ -34,9 +34,9 @@ scenarios:
       status: story-creation.status.approved
     requires:
       - story-creation.invariant.validation_requires_vectordb_and_goal_fidelity
-      - story-creation.invariant.github_issue_precedes_backlog_status
+      - story-creation.invariant.story_backend_registration_precedes_backlog_status
       - story-creation.invariant.approval_requires_human_decision
-  - id: story-creation.scenario.validation-fails-before-github
+  - id: story-creation.scenario.validation-fails-before-backend-registration
     start:
       status: story-creation.status.draft
     trace:
@@ -45,15 +45,15 @@ scenarios:
       status: story-creation.status.rejected
     requires:
       - story-creation.invariant.validation_requires_vectordb_and_goal_fidelity
-  - id: story-creation.scenario.export-before-issue-forbidden
+  - id: story-creation.scenario.export-before-backend-registration-forbidden
     start:
       status: story-creation.status.validated
     trace:
-      - command: story-creation.command.illegal-export-before-issue
+      - command: story-creation.command.illegal-export-before-backend-registration
     expected_end:
       status: story-creation.status.rejected
     requires:
-      - story-creation.invariant.story_md_export_after_issue_creation
+      - story-creation.invariant.story_md_export_after_backend_registration
   - id: story-creation.scenario.split-reuses-creation-contract
     start:
       status: story-creation.status.draft
@@ -64,7 +64,7 @@ scenarios:
     expected_end:
       status: story-creation.status.approved
     requires:
-      - story-creation.invariant.github_issue_precedes_backlog_status
-      - story-creation.invariant.story_md_export_after_issue_creation
+      - story-creation.invariant.story_backend_registration_precedes_backlog_status
+      - story-creation.invariant.story_md_export_after_backend_registration
 ```
 <!-- FORMAL-SPEC:END -->

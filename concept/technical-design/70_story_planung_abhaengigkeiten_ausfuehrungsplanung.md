@@ -182,11 +182,11 @@ und Ready-Queue sind nur Sichten auf die Planungsdomäne.
 
 ### 70.3.3 Gegen externe Story-/Board-Adapter
 
-Story-Identitaet, -Status und -Attribute liegen im AK3-Story-Backend.
-Externe Tracker (z. B. GitHub-Issues als Code-Anker oder optionale
-Spiegelungen) duerfen Planungsinformation read-only abbilden, aber die
-Ableitung von `READY`, `BLOCKED`, `execution wave`, `critical path`
-oder `recommended batch` ist eine AK3-eigene Fachentscheidung.
+Story-Identitaet, -Status und -Attribute liegen ausschliesslich im
+AK3-Story-Backend. Optionale externe Spiegelungen duerfen
+Planungsinformation read-only abbilden, aber die Ableitung von
+`READY`, `BLOCKED`, `execution wave`, `critical path` oder
+`recommended batch` ist eine AK3-eigene Fachentscheidung.
 
 ## 70.4 Fachliche Begriffe
 

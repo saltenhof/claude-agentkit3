@@ -38,6 +38,6 @@ invariants:
     rule: manual rebase, reset and force-push on active story scope remain blocked even when official closure or split paths exist
   - id: guard-system.invariant.story-creation-must-use-official-path
     scope: governance
-    rule: direct gh issue creation by agents remains blocked outside the official story-creation or split service path
+    rule: direct AK3-story-backend mutations by agents remain blocked outside the official story-creation or split service path
 ```
 <!-- FORMAL-SPEC:END -->

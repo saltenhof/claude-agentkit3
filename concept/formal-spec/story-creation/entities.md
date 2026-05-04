@@ -42,8 +42,7 @@ entities:
     attributes:
       - story_id
       - project_key
-      - issue_number
-      - project_status
+      - story_status
       - labels
       - custom_fields
       - repo_affinity

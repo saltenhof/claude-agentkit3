@@ -116,7 +116,7 @@ explizite Admin-/Betriebs-Tools zulaessig.
 | Commit auf Main | ✅ | ❌ (Guard*) | ❌ (Guard*) | ❌ (Guard*) | ❌ (Guard*) | ✅ |
 | Commit auf Story-Branch | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ |
 | Force-Push | ✅ | ❌ (Guard*) | ❌ (Guard*) | ❌ (Guard*) | ❌ (Guard*) | ❌ |
-| GitHub Issue ändern | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ |
+| AK3-Story-Status ändern (Backend) | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ |
 | Lock-Record erstellen/beenden | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | LLM-Pool aufrufen | ✅ | ✅ | ✅ | ❌ | ✅ (Sparring) | ✅ (Evaluator) |
 | Agents spawnen | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
@@ -264,7 +264,7 @@ Violation-Record in das State-Backend:
 {
   "ts": "2026-03-17T11:30:00+01:00",
   "failure_codes": ["NO_SEMANTIC_REVIEW", "NO_GEMINI_EVIDENCE"],
-  "command_prefix": "gh issue close 42 ..."
+  "command_prefix": "story_service.close_story story_id=ODIN-042 ..."
 }
 ```
 
