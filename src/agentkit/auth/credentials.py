@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
 _AUTH_CONFIG_ENV = "AGENTKIT_AUTH_CONFIG"
 _DEFAULT_USERNAME = "strategist"
+_AUTH_FAILED_MESSAGE = "Authentication failed"
 
 
 @dataclass(frozen=True)
@@ -70,16 +71,16 @@ class StrategistCredentialStore:
         payload = self._load_payload()
         username = str(payload.get("username", _DEFAULT_USERNAME))
         if credentials.username != username:
-            raise AuthFailedError("Authentication failed")
+            raise AuthFailedError(_AUTH_FAILED_MESSAGE)
         password_hash = payload.get("password_hash")
         if not isinstance(password_hash, str) or not password_hash:
-            raise AuthFailedError("Authentication failed")
+            raise AuthFailedError(_AUTH_FAILED_MESSAGE)
         try:
             verified = self._password_hasher.verify(password_hash, credentials.password)
         except VerifyMismatchError as exc:
-            raise AuthFailedError("Authentication failed") from exc
+            raise AuthFailedError(_AUTH_FAILED_MESSAGE) from exc
         if not verified:
-            raise AuthFailedError("Authentication failed")
+            raise AuthFailedError(_AUTH_FAILED_MESSAGE)
         return CredentialVerification(
             username=username,
             needs_rehash=self._password_hasher.check_needs_rehash(password_hash),
@@ -87,13 +88,13 @@ class StrategistCredentialStore:
 
     def _load_payload(self) -> dict[str, Any]:
         if not self._path.exists():
-            raise AuthFailedError("Authentication failed")
+            raise AuthFailedError(_AUTH_FAILED_MESSAGE)
         try:
             payload = json.loads(self._path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
-            raise AuthFailedError("Authentication failed") from exc
+            raise AuthFailedError(_AUTH_FAILED_MESSAGE) from exc
         if not isinstance(payload, dict):
-            raise AuthFailedError("Authentication failed")
+            raise AuthFailedError(_AUTH_FAILED_MESSAGE)
         return cast("dict[str, Any]", payload)
 
 

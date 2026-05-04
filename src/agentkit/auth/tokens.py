@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from agentkit.auth.repository import ProjectApiTokenRepository
 
 _TOKEN_PREFIX = "ak3"
+_AUTH_FAILED_MESSAGE = "Authentication failed"
 
 
 @dataclass(frozen=True)
@@ -68,11 +69,11 @@ def validate_project_api_token(
     token_hash = hash_project_api_token(plaintext_token)
     record = repository.get_by_hash(token_hash)
     if record is None or record.revoked_at is not None:
-        raise AuthFailedError("Authentication failed")
+        raise AuthFailedError(_AUTH_FAILED_MESSAGE)
     if record.project_key != project_key:
-        raise ProjectMismatchError("Authentication failed")
+        raise ProjectMismatchError(_AUTH_FAILED_MESSAGE)
     updated = record.model_copy(update={"last_used_at": now or datetime.now(UTC)})
     repository.save(updated)
     if not hmac.compare_digest(updated.token_hash, token_hash):
-        raise AuthFailedError("Authentication failed")
+        raise AuthFailedError(_AUTH_FAILED_MESSAGE)
     return updated

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
@@ -42,6 +42,30 @@ _FILE_READ_TOOLS = frozenset(
         "glob",
         "rg",
     },
+)
+_TOOL_CLASSIFICATIONS = (
+    (_BASH_TOOLS, "bash_command", "mutation", "command", ("command", "cmd", "script")),
+    (
+        _FILE_WRITE_TOOLS,
+        "file_write",
+        "mutation",
+        "file_path",
+        ("file_path", "path", "filename"),
+    ),
+    (
+        _FILE_EDIT_TOOLS,
+        "file_edit",
+        "mutation",
+        "file_path",
+        ("file_path", "path", "filename"),
+    ),
+    (
+        _FILE_READ_TOOLS,
+        "file_read",
+        "baseline_read",
+        "file_path",
+        ("file_path", "path", "filename"),
+    ),
 )
 
 
@@ -140,18 +164,21 @@ def _classify_tool(
     tool_name: str,
     tool_input: dict[str, object],
 ) -> tuple[Operation, FreshnessClass, dict[str, object]]:
+    normalized_tool = _normalize_tool_name(tool_name)
+    for tools, operation, freshness_class, arg_name, arg_keys in _TOOL_CLASSIFICATIONS:
+        if normalized_tool in tools:
+            return (
+                cast("Operation", operation),
+                cast("FreshnessClass", freshness_class),
+                {arg_name: _string_arg(tool_input, *arg_keys)},
+            )
+    return "unknown_tool", "guarded_read", {}
+
+
+def _normalize_tool_name(tool_name: str) -> str:
     normalized_tool = tool_name.strip().replace("-", "_")
     normalized_tool = normalized_tool.removeprefix("functions.")
-    normalized_tool = normalized_tool.lower()
-    if normalized_tool in _BASH_TOOLS:
-        return "bash_command", "mutation", {"command": _string_arg(tool_input, "command", "cmd", "script")}
-    if normalized_tool in _FILE_WRITE_TOOLS:
-        return "file_write", "mutation", {"file_path": _string_arg(tool_input, "file_path", "path", "filename")}
-    if normalized_tool in _FILE_EDIT_TOOLS:
-        return "file_edit", "mutation", {"file_path": _string_arg(tool_input, "file_path", "path", "filename")}
-    if normalized_tool in _FILE_READ_TOOLS:
-        return "file_read", "baseline_read", {"file_path": _string_arg(tool_input, "file_path", "path", "filename")}
-    return "unknown_tool", "guarded_read", {}
+    return normalized_tool.lower()
 
 
 def _principal_kind(codex_event: CodexHookEvent) -> PrincipalKind:
