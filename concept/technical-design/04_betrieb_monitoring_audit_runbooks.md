@@ -198,7 +198,7 @@ Lösung:
 
 ```
 Symptom: Story seit > 4 Stunden in derselben Phase
-Ursache: Agent hängt, Claude-Code-Session abgelaufen, oder Loop
+Ursache: Agent hängt, Harness-Session (Claude Code / Codex; FK-30 §30.11) abgelaufen, oder Loop
 
 Lösung:
 1. agentkit status --story {story_id}
@@ -343,7 +343,7 @@ kein zusätzliches Limit nötig.
 | Daten | Wichtigkeit | Backup-Methode |
 |-------|-----------|---------------|
 | `.story-pipeline.yaml` | Hoch | Teil des Git-Repos |
-| `.claude/ccag/rules/` | Hoch | Teil des Git-Repos |
+| `.agentkit/ccag/rules/` (kanonisch; harness-spezifische Symlinks via Adapter, FK-30 §30.11) | Hoch | Teil des Git-Repos |
 | PostgreSQL | Hoch | Zentrales DB-Backup / PITR |
 | Audit-Exports | Mittel | Objektspeicher / Archiv-Backup |
 

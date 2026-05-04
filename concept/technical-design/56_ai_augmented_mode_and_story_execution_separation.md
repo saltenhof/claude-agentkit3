@@ -84,7 +84,8 @@ formal_refs:
 AgentKit begleitet ein Projekt in zwei grundverschiedenen Betriebsarten:
 
 1. `ai_augmented`
-   - freies, menschlich gefuehrtes Arbeiten mit Claude-Code-Agents
+   - freies, menschlich gefuehrtes Arbeiten mit Harness-Agents
+     (Claude Code oder Codex; FK-30 §30.11)
    - keine aktive Story-Ausfuehrung
    - keine Workflow- oder Integrity-Pflichten
 2. `story_execution`

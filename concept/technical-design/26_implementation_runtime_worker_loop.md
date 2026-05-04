@@ -114,7 +114,8 @@ glossary:
           domain: implementation-phase
     - id: worker-session
       definition: >
-        Eine einzelne Claude-Code-Sub-Agent-Ausfuehrungseinheit fuer die
+        Eine einzelne Harness-Sub-Agent-Ausfuehrungseinheit (Claude Code
+        oder Codex via Harness-Adapter, siehe FK-30 §30.11) fuer die
         Implementation-Phase. Beginnt mit dem Spawn-Protokoll (spawn-reason),
         erhaelt Worker-Kontext (Story, Guardrails, Entwurfsartefakt, ggf.
         Maengelliste) und endet entweder mit COMPLETED/BLOCKED-Status im
@@ -140,8 +141,9 @@ glossary:
 ## 26.1 Zweck
 
 Die Implementation-Phase ist der einzige nicht-deterministische
-Schritt in der Pipeline (FK-05-093). Der Worker-Agent (Claude Code
-Sub-Agent) schreibt Code, erstellt Tests und erzeugt Artefakte.
+Schritt in der Pipeline (FK-05-093). Der Worker-Agent (Harness-Sub-Agent;
+Claude Code oder Codex, siehe FK-30 §30.11) schreibt Code, erstellt
+Tests und erzeugt Artefakte.
 AgentKit steuert nicht, was der Worker implementiert — das bestimmt
 der Worker selbst basierend auf Story, Konzept und Prompt. AgentKit
 steuert den **Rahmen**: Worktree-Isolation, Guards, Review-Pflicht,
@@ -792,7 +794,7 @@ Die Tabelle dokumentiert die fachlichen Erwartungswerte pro Story-Lauf.
 
 ### 26.11.1 Worker bricht ab
 
-Wenn der Worker abstürzt oder die Claude-Code-Session beendet wird:
+Wenn der Worker abstürzt oder die Harness-Session (Claude Code / Codex; FK-30 §30.11) beendet wird:
 
 1. `agent_end` Event fehlt in der Telemetrie
 2. Commits sind auf dem Story-Branch (sofern committed)

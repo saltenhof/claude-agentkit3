@@ -108,7 +108,7 @@ FK-07 beschreibt die Importregeln und Blutgruppen-Semantik.
 | Dokument | BC/Domain | Inhalt |
 |----------|-----------|--------|
 | `22_setup_preflight_worktree_guard_activation.md` | governance-and-guards | Preflight-Gates, Multi-Repo-Worktrees (Participating Repos), Context, Guard-Aktivierung (4 Guards) |
-| `30_hook_adapter_guard_enforcement.md` | governance-and-guards | Claude-Code-Hooks, Registrierung, Event-Normalisierung |
+| `30_hook_adapter_guard_enforcement.md` | governance-and-guards | Harness-Hooks (Claude Code, Codex; harness-spezifisch via Adapter, FK-30 §30.11), Registrierung, Event-Normalisierung |
 | `31_branch_guard_orchestrator_guard_artefaktschutz.md` | governance-and-guards | Regelssaetze, Pfadklassifikation, opake Fehlercodes, Prompt-Integrity-Guard |
 | `35_integrity_gate_governance_beobachtung_eskalation.md` | governance-and-guards | 8 Dimensionen, Anomalie-Sensorik, Incident-Kandidaten, Massnahmen |
 | `42_ccag_tool_governance_permission_runtime.md` | governance-and-guards | Regelmodell, Persistenz, Auswertung, LLM-Generierung |

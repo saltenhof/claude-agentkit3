@@ -37,7 +37,8 @@ formal_refs:
 AgentKit ist ein systemweit installiertes Python-Paket (`agentkit`),
 das gegen Zielprojekte betrieben wird, ohne seine Laufzeitartefakte in
 deren Repository zu deployen. Im Projekt liegen nur die
-projektspezifische Konfiguration und die Anbindung an Claude Code; der
+projektspezifische Konfiguration und die harness-spezifische Anbindung
+(Claude Code, Codex; siehe FK-30 §30.11); der
 kanonische Laufzeit- und Zustandsraum liegt außerhalb des Projekts in
 einem zentralen State-Backend.
 
@@ -54,11 +55,11 @@ Stratege und Controller, kein klassischer Entwickler.
 graph TB
     subgraph DEV["Entwicklermaschine"]
 
-        subgraph CC["Claude Code Session"]
+        subgraph CC["Harness-Session (Claude Code oder Codex; FK-30 §30.11)"]
             AGENT["Agent<br/>(Orchestrator / Worker /<br/>QA / Adversarial)"]
-            HOOKS["Hook-Schicht<br/>PreToolUse / PostToolUse<br/>(agentkit Python-Hooks)"]
-            TOOLS["Tool-Ausführung<br/>Bash, Read, Write, Edit,<br/>Glob, Grep, Agent"]
-            SETTINGS[".claude/settings.json"]
+            HOOKS["Hook-Schicht<br/>PreToolUse / PostToolUse<br/>(agentkit Python-Hooks via Harness-Adapter)"]
+            TOOLS["Tool-Ausführung<br/>(harness-spezifische Tool-Namen,<br/>z. B. Bash/Read/Write/Edit/Glob/Grep/Agent)"]
+            SETTINGS["Harness-Settings<br/>(z. B. .claude/settings.json fuer Claude Code,<br/>harness-eigenes Aequivalent fuer Codex)"]
 
             AGENT -->|"Tool-Aufruf"| HOOKS
             HOOKS -->|"exit 0: erlaubt<br/>exit 2: blockiert"| TOOLS
@@ -102,7 +103,7 @@ graph TB
 
 | Komponente | Typ | Protokoll |
 |------------|-----|-----------|
-| Claude Code | Agent-Plattform | CLI + Hook-API (PreToolUse/PostToolUse) |
+| Agent-Harness (Claude Code, Codex; FK-30 §30.11) | Agent-Plattform | CLI + Hook-API (PreToolUse/PostToolUse), harness-spezifisch via Adapter normalisiert |
 | Git | Versionskontrolle | CLI (`git`) |
 | GitHub | Code-Backend (Repos, Branches, PRs) | CLI (`gh`) |
 
@@ -202,8 +203,9 @@ Fachlogik bleibt lokal in der Komponente.
 - Kein projektlokaler AgentKit-Server — Zielprojekte enthalten keine
   eigene AgentKit-Runtime. Das State-Backend ist zentral und vom
   Projekt entkoppelt.
-- Kein LLM-Anbieter — es nutzt Claude (via Claude Code), ChatGPT,
-  Gemini und Grok als externe Dienste.
+- Kein LLM-Anbieter — es nutzt LLMs ueber Harness-Sessions (Claude
+  Code mit Anthropic-Modellen, Codex mit OpenAI-Modellen; FK-30 §30.11)
+  sowie ChatGPT, Gemini und Grok als externe Dienste.
 - Kein Testframework — es orchestriert Tests, schreibt aber selbst
   keine fachlichen Tests.
 - Kein eigenstaendiges Projektmanagement-Tool im Sinne klassischer
@@ -227,22 +229,25 @@ Jeder unbekannte Zustand ist ein Fehler. Konkret:
 
 ### P2: Plattform-Enforcement
 
-Guards und Governance werden über die Hook-Schicht von Claude Code
-durchgesetzt. Ein Agent kann seine eigenen Hooks nicht deaktivieren,
-weil Hooks Teil der Plattforminfrastruktur sind, nicht Teil des
-Agent-Codes.
+Guards und Governance werden über die Hook-Schicht des jeweiligen
+Agent-Harness (Claude Code, Codex; FK-30 §30.11) durchgesetzt. Ein Agent
+kann seine eigenen Hooks nicht deaktivieren, weil Hooks Teil der
+Plattforminfrastruktur des Harness sind, nicht Teil des Agent-Codes.
 
-**Technisch:** Hooks werden in `.claude/settings.json` registriert.
-Claude Code ruft sie als externe Prozesse auf (`PreToolUse`,
-`PostToolUse`). Der Hook-Prozess ist ein Python-Skript aus dem
-`agentkit`-Paket, das über `sys.stdin` den Tool-Call empfängt und
-über `sys.exit(0)` (erlauben) oder `sys.exit(2)` (blockieren)
-antwortet.
+**Technisch:** Hooks werden harness-spezifisch ueber den jeweiligen
+Harness-Adapter registriert (Claude Code: `.claude/settings.json`;
+Codex: harness-eigenes Aequivalent). Der Harness ruft sie als externe
+Prozesse auf (`PreToolUse`, `PostToolUse`). Der Hook-Prozess ist ein
+Python-Skript aus dem `agentkit`-Paket, das über `sys.stdin` den
+Tool-Call empfängt und über `sys.exit(0)` (erlauben) oder
+`sys.exit(2)` (blockieren) antwortet. Der Adapter normalisiert
+harness-spezifische Tool-Namen und Hook-Events auf das harness-neutrale
+`HookEvent`-Schema (FK-30 §30.11.2).
 
 ```mermaid
 sequenceDiagram
     participant A as Agent
-    participant CC as Claude Code
+    participant CC as Harness (Claude Code / Codex)
     participant H as Hook-Skript (Python)
     participant T as Tool-Ausführung
 
@@ -276,8 +281,9 @@ sequenceDiagram
 | Dokumententreue-Prüfung | LLM als Bewertungsfunktion (kein Dateisystem) |
 | Governance-Adjudication | LLM als Bewertungsfunktion (kein Dateisystem) |
 
-**LLM als Agent:** Claude-Code-Session mit Dateisystem-Zugriff.
-Wird für Worker und Adversarial Agent eingesetzt.
+**LLM als Agent:** Harness-Session (Claude Code oder Codex; FK-30 §30.11)
+mit Dateisystem-Zugriff. Wird für Worker und Adversarial Agent
+eingesetzt.
 
 **LLM als Bewertungsfunktion:** Deterministisches Python-Skript ruft
 ein LLM über Browser-Pool (MCP) auf. Der Pool-Call (`chatgpt_send`,
@@ -309,7 +315,7 @@ Das ist konfigurierte Pflicht, nicht optionale Ergänzung.
 multi_llm: true  # Pflicht, Default true
 
 llm_roles:
-  worker: "claude"                # Claude Code Session (immer Claude)
+  worker: "claude"                # Harness-Session (Claude Code oder Codex; FK-30 §30.11). Wert ist die LLM-Familie, nicht der Harness-Eigenname.
   qa_review: "chatgpt"            # Schicht 2: QA-Bewertung (12 Checks)
   semantic_review: "gemini"        # Schicht 2: Semantic Review
   adversarial_sparring: "grok"     # Schicht 3: Edge-Case-Ideen
@@ -398,7 +404,7 @@ nur eine Konfigurationsänderung, keine Code-Änderung.
 ### 1.4.1 Boundary-Modell
 
 ```
-    ┌─── Zone 1: Plattform (Claude Code + Hooks) ──────────────────────────┐
+    ┌─── Zone 1: Plattform (Harness — Claude Code / Codex; FK-30 §30.11 — + Hooks) ─────────┐
     │   Nicht vom Agent kontrollierbar. Hook-Enforcement.                   │
     │                                                                      │
     │   ┌─── Zone 2: Pipeline-Orchestrierung ──────────────────────────┐   │
@@ -515,7 +521,7 @@ flowchart TD
 
 | Schicht | Technologie | Version | Protokoll |
 |---------|-------------|---------|-----------|
-| Agent-Plattform | Claude Code | aktuell | CLI + Hook-API |
+| Agent-Plattform | Agent-Harness (Claude Code, Codex; FK-30 §30.11) | aktuell | CLI + Hook-API, harness-spezifisch via Adapter |
 | Hook-Sprache | Python | 3.14 | stdin/stdout, exit codes |
 | Konfiguration | YAML | — | Dateisystem |
 | Datenmodelle | Pydantic | 2.7+ | Python-Klassen |

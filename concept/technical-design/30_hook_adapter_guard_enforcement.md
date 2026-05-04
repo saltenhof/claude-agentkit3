@@ -101,8 +101,8 @@ glossary:
 Hooks sind der technische Enforcement-Mechanismus für alle
 Governance-Regeln in AgentKit. Sie sind der Grund, warum Agents
 ihre eigenen Einschränkungen nicht umgehen können: Hooks sind
-Teil der Plattform (Claude Code), nicht Teil des Agent-Codes
-(Kap. 01 P2).
+Teil der Plattform (Agent-Harness — Claude Code, Codex; siehe
+§30.11), nicht Teil des Agent-Codes (Kap. 01 P2).
 
 Dieses Kapitel beschreibt die Hook-Infrastruktur als Ganzes:
 Wie Hooks registriert werden, wie sie aufgerufen werden, welche
@@ -118,11 +118,22 @@ Budget-Guard und Worker-Health-Monitor. CCAG gehoert ausdruecklich
 nicht zu diesem System, sondern ist eine separate Permission-Runtime
 (FK-42).
 
-## 30.2 Hook-Architektur in Claude Code
+## 30.2 Hook-Architektur (harness-bezogen, Beispiele anhand Claude Code)
+
+> Die in §30.2 gezeigten konkreten Mechaniken (PreToolUse/PostToolUse,
+> stdin-/Exit-Code-Vertrag, JSON-Payloads) beschreiben das Claude-Code-
+> Hook-Schema als konkretes Beispiel. Codex hat ein eigenes, harness-
+> spezifisches Aequivalent. Beide werden im jeweiligen Harness-Adapter
+> (siehe §30.11) auf das harness-neutrale `HookEvent`-Schema
+> normalisiert; der A-Kern `guard_evaluation` arbeitet ausschliesslich
+> auf dieser neutralen Repraesentation.
 
 ### 30.2.1 Hook-Typen
 
-Claude Code bietet zwei Hook-Zeitpunkte:
+Beide unterstuetzten Harnesses bieten zwei Hook-Zeitpunkte. Die
+folgende Tabelle benutzt die Claude-Code-Bezeichner als Beispiel; das
+Codex-Aequivalent wird im Codex-Adapter auf dieselben fachlichen
+Zeitpunkte abgebildet:
 
 | Typ | Wann | Zweck in AgentKit |
 |-----|------|------------------|
@@ -134,7 +145,7 @@ Claude Code bietet zwei Hook-Zeitpunkte:
 ```mermaid
 sequenceDiagram
     participant A as Agent
-    participant CC as Claude Code
+    participant CC as Harness (Claude Code / Codex; FK-30 §30.11)
     participant PRE as PreToolUse-Hook (Python)
     participant TOOL as Tool-Ausführung
     participant POST as PostToolUse-Hook (Python)
@@ -160,7 +171,9 @@ sequenceDiagram
 
 ### 30.2.3 Hook-Input (stdin)
 
-Claude Code sendet dem Hook-Prozess ein JSON-Objekt über stdin:
+Beispiel anhand Claude Code (Codex hat ein harness-eigenes Aequivalent,
+das vom Codex-Adapter auf dieselbe `HookEvent`-Struktur gemappt wird;
+siehe §30.11): Claude Code sendet dem Hook-Prozess ein JSON-Objekt über stdin:
 
 **PreToolUse:**
 ```json
@@ -198,8 +211,8 @@ blockiert das Tool. Das ist Absicht — ein kaputtes Sicherheits-
 system soll nicht durchlassen.
 
 **Prompt-Regel fuer aktive Runs:** Im `story_execution`-Modus darf ein
-Hook niemals auf einen nativen Claude-Code-Permission-Dialog als
-Fortschrittsmechanismus setzen. Unbekannte Freigaben werden im Hook
+Hook niemals auf einen harness-nativen Permission-Dialog (Claude Code
+oder Codex; siehe §30.11) als Fortschrittsmechanismus setzen. Unbekannte Freigaben werden im Hook
 sofort blockiert und als Permission-Fall materialisiert.
 
 ### 30.2.5 GuardSystem als Komponenten-Flow
@@ -267,8 +280,9 @@ dem GuardSystem. Es kommt erst nach Principal-, Pfad- und
 Freeze-Entscheidung zum Zug und darf harte Denies nicht in Allow
 umwandeln.
 
-**Externe Permission-Systeme:** Native Claude-Code-Prompts,
-TTY-Interaktivitaet oder hostseitige Sonderfaelle fuer geschuetzte
+**Externe Permission-Systeme:** Harness-native Permission-Prompts
+(Claude Code, Codex; siehe §30.11), TTY-Interaktivitaet oder
+hostseitige Sonderfaelle fuer geschuetzte
 Verzeichnisse sind fuer AK3 kein autoritativer Bestandteil dieser
 Pipeline. Tritt so etwas im aktiven Story-Run trotzdem auf, gilt das als
 `external_permission_interference_detected`.
@@ -302,6 +316,14 @@ vorliegen; andernfalls `binding_invalid` bzw. Blockade.
 
 ## 30.3 Hook-Registrierung
 
+> Hook-Registrierung erfolgt **harness-spezifisch** ueber den jeweiligen
+> Adapter (siehe §30.11). Das folgende Beispiel zeigt die
+> Claude-Code-Materialisierung (`.claude/settings.json`); fuer Codex
+> materialisiert der Codex-Adapter das harness-eigene Aequivalent (z. B.
+> `.codex/config.toml`). Die `Governance.register_hooks(...)`-Top-Surface
+> ist harness-neutral; die konkrete Settings-Datei wird vom Adapter
+> geschrieben.
+
 ### 30.3.1 Settings-Datei und Top-Surface `Governance.register_hooks`
 
 **Top-Surface: `Governance.register_hooks(hook_definitions)`**
@@ -310,24 +332,29 @@ vorliegen; andernfalls `binding_invalid` bzw. Blockade.
 |----------|------|
 | Aufrufer | Installer (BC 12, FK-50 CP 9) |
 | Eingabe | `hook_definitions: list[HookDefinition]` |
-| Effekt | Schreibt `.claude/settings.json` — Owner: `agentkit.governance.guard_system` |
+| Effekt | Schreibt die harness-spezifische Settings-Datei (Beispiel Claude Code: `.claude/settings.json`; Codex: harness-eigenes Aequivalent) ueber den Harness-Adapter — Owner: `agentkit.governance.guard_system` plus zugehoeriger Adapter |
 | Idempotenz | Ja — bestehende identische Hook-Eintraege werden nicht doppelt eingetragen; veraltete oder abweichende Eintraege werden ueberschrieben |
-| Fehlerverhalten | Fail-closed: kaputtes JSON in `.claude/settings.json` fuehrt zu Exception, kein stilles Weiterlaufen |
+| Fehlerverhalten | Fail-closed: kaputte Settings-Datei (z. B. ungueltiges JSON in `.claude/settings.json`) fuehrt zu Exception, kein stilles Weiterlaufen |
 
 `HookDefinition` ist ein typisiertes Pydantic-Modell mit den Feldern
 `hook_event_name` (`"PreToolUse"` | `"PostToolUse"`), `matcher` (str)
 und `command` (str).
 
-Die interne JSON-Manipulation liegt ausschliesslich bei
-`agentkit.governance.guard_system`. Der Installer haelt keinen
-eigenen `.claude/settings.json`-Schreibpfad — er delegiert vollstaendig.
+Die interne Settings-Manipulation liegt ausschliesslich bei
+`agentkit.governance.guard_system` und dem zugehoerigen Harness-Adapter.
+Der Installer haelt keinen eigenen Schreibpfad fuer harness-spezifische
+Settings — er delegiert vollstaendig.
 
-Hooks werden in `.claude/settings.json` registriert. Der Installer
-(Checkpoint 8 / FK-50 CP 9) ruft dazu `Governance.register_hooks(hook_definitions)` auf
-(Top-Surface von BC `governance-and-guards`). Die JSON-Manipulation an
-`.claude/settings.json` gehoert zu `agentkit.governance.guard_system`.
+Hooks werden in der harness-spezifischen Settings-Datei (Claude Code:
+`.claude/settings.json`; Codex: harness-eigenes Aequivalent) registriert.
+Der Installer (Checkpoint 8 / FK-50 CP 9) ruft dazu
+`Governance.register_hooks(hook_definitions)` auf (Top-Surface von BC
+`governance-and-guards`). Die JSON-/TOML-Manipulation gehoert zu
+`agentkit.governance.guard_system` plus dem Harness-Adapter.
 
-Beispiel der eingetragenen Eintraege:
+Beispiel der eingetragenen Eintraege (Claude-Code-Materialisierung;
+Tool-Matcher sind dabei Claude-Code-Tool-Namen — der Codex-Adapter
+mappt analog gegen seine harness-eigenen Tool-Bezeichner):
 
 ```json
 {
@@ -503,7 +530,7 @@ Sekunden warten muss, wird unbrauchbar langsam.
 
 > **Owner-Hinweis:** FK-30 (governance.guard_system) ist Owner fuer: Hook-Definitionen,
 > Registrierung (`Governance.register_hooks`), Enforcement-Verhalten (Block/Warn/Pass)
-> und `.claude/settings.json`-Schema. Die Zuordnung von Hooks zu Telemetrie-Events
+> und harness-spezifische Settings-Schemas (Beispiel Claude Code: `.claude/settings.json`; Codex: harness-eigenes Aequivalent — siehe §30.11). Die Zuordnung von Hooks zu Telemetrie-Events
 > (EventTypeId-Mapping, Hook-Pfad-zu-Event-Tabelle) ist Verantwortung von
 > FK-68 §68.3.1 (telemetry-and-events). Aenderungen an Event-Emission-Semantik
 > werden in FK-68 autorisiert; Aenderungen an Enforcement-Entscheidungen werden
@@ -569,8 +596,9 @@ oder PostToolUse sein.
 
 Ein Git-Pre-Commit-Hook (`tools/hooks/pre-commit`) validiert den
 Concept-Corpus bei Änderungen unter `_concept/`. Der Hook ist
-unabhängig von den Claude-Code-Hooks in §30.3 — er wird über
-`git config core.hooksPath` registriert (CP 11, Kap. 50.3).
+unabhängig von den harness-Hooks in §30.3 (Claude Code, Codex; siehe
+§30.11) — er wird über `git config core.hooksPath` registriert
+(CP 11, Kap. 50.3).
 
 | Trigger | Prüfung | Härte |
 |---------|---------|-------|
@@ -632,8 +660,8 @@ selbst (Kap. 15.7):
 
 | Geschützte Pfade | Reaktion |
 |-----------------|---------|
-| `.claude/settings.json` | Sofortiger Stopp |
-| `.claude/ccag/rules/` | Sofortiger Stopp |
+| Harness-spezifische Hook-Settings (Beispiel Claude Code: `.claude/settings.json`; Codex: harness-eigenes Aequivalent — siehe §30.11) | Sofortiger Stopp |
+| Harness-spezifische CCAG-Symlinks (Beispiel Claude Code: `.claude/ccag/rules/`; kanonisch `.agentkit/ccag/rules/`) | Sofortiger Stopp |
 | `.story-pipeline.yaml` | Sofortiger Stopp |
 | `.installed-manifest.json` | Sofortiger Stopp |
 | `_temp/governance/` | Sofortiger Stopp |

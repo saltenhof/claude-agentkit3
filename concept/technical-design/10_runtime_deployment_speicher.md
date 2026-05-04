@@ -56,9 +56,9 @@ Zustandsdateien.
 
 ```mermaid
 graph TB
-    subgraph SESSION["Claude Code Session (Hauptprozess)"]
-        ORCH["Orchestrator-Agent<br/>(Claude LLM)"]
-        HOOKS["Hook-Prozesse<br/>(Python, kurzlebig)"]
+    subgraph SESSION["Harness-Session (Claude Code / Codex; FK-30 §30.11)"]
+        ORCH["Orchestrator-Agent<br/>(LLM)"]
+        HOOKS["Hook-Prozesse<br/>(Python, kurzlebig, via Harness-Adapter)"]
         SUBAGENTS["Sub-Agents<br/>(Worker, Adversarial)"]
 
         ORCH -->|"spawnt"| SUBAGENTS
@@ -98,8 +98,8 @@ graph TB
 
 | Typ | Lebensdauer | Gestartet von | Beispiele |
 |-----|-------------|---------------|-----------|
-| **Claude-Code-Session** | Minuten bis Stunden | Mensch (CLI `claude`) | Orchestrator, Worker, Adversarial |
-| **Hook-Prozess** | Millisekunden | Claude Code (pro Tool-Call) | `branch_guard.py`, `integrity.py`, `hook.py` |
+| **Harness-Session** (Claude Code / Codex; FK-30 §30.11) | Minuten bis Stunden | Mensch (CLI `claude` oder `codex`) | Orchestrator, Worker, Adversarial |
+| **Hook-Prozess** | Millisekunden | Harness (pro Tool-Call, vermittelt durch Harness-Adapter) | `branch_guard.py`, `integrity.py`, `hook.py` |
 | **Pipeline-Skript** | Sekunden bis Minuten | Agent via Bash-Tool | `agentkit run-phase`, `agentkit structural` |
 | **State-Backend** | Dauerhaft | Zentrale Infrastruktur | Workflow-State, Telemetrie, Artefakt-Metadaten |
 | **MCP-Server** | Dauerhaft | Mensch oder Autostart | LLM-Pools (optional, mind. 1), Story-Knowledge-Base (Pflicht), ARE (optional) |
@@ -113,7 +113,7 @@ schnell entscheiden.
 
 **Lebenszyklus eines Hook-Aufrufs:**
 
-1. Claude Code forkt einen Python-Prozess
+1. Der Harness (Claude Code / Codex; FK-30 §30.11) forkt einen Python-Prozess
 2. Hook liest Tool-Call-Daten von `sys.stdin` (JSON)
 3. Hook prüft Regeln (lokale Config + State-Backend-Lookups)
 4. Hook schreibt optional Telemetrie (State-Backend)
@@ -125,10 +125,10 @@ Operationen (z.B. Event-Write, Run-Lookup, Lock-Check). Keine
 LLM-Aufrufe, keine freien Netzwerk-Calls, keine aufwändigen
 Dateisystem-Scans. Details in Kap. 30.4.
 
-**Parallelität:** Claude Code ruft Hooks sequentiell auf (ein Hook
-pro Tool-Call). Mehrere Sub-Agent-Sessions können aber parallel
-laufen, was bedeutet: Mehrere Hook-Prozesse können gleichzeitig in
-das State-Backend schreiben. Konsistenz und Serialisierung sind
+**Parallelität:** Der Harness (Claude Code / Codex; FK-30 §30.11) ruft
+Hooks sequentiell auf (ein Hook pro Tool-Call). Mehrere
+Sub-Agent-Sessions können aber parallel laufen, was bedeutet: Mehrere
+Hook-Prozesse können gleichzeitig in das State-Backend schreiben. Konsistenz und Serialisierung sind
 Aufgabe des Backends, nicht des Projekt-Dateisystems.
 
 ## 10.2 Deployment-Modell
@@ -151,8 +151,8 @@ sequenceDiagram
     Note over PIP: Python-Paket global/venv verfügbar
     M->>INS: agentkit register-project --gh-owner acme --gh-repo platform
     INS->>STATE: Projekt registrieren / Konfiguration validieren
-    INS->>PROJ: .story-pipeline.yaml + .claude/settings.json aktualisieren
-    INS->>PROJ: .claude/skills/ Symlinks auf Bundle-Version erzeugen
+    INS->>PROJ: .story-pipeline.yaml + harness-spezifische Settings aktualisieren (z. B. .claude/settings.json fuer Claude Code; harness-eigenes Aequivalent fuer Codex; FK-30 §30.11)
+    INS->>PROJ: harness-spezifische Skill-Symlinks auf Bundle-Version erzeugen (z. B. .claude/skills/ fuer Claude Code)
     INS->>PROJ: tools/agentkit/ Wrapper fuer Project-Edge-Aufrufe binden
     Note over PROJ: Nur lokale Konfiguration und Skill-Bindungen<br/>keine kopierten Skills/Prompts/DB-Dateien
 ```
@@ -167,7 +167,7 @@ Pflicht-Infrastrukturdienste benötigt (Weaviate).
 | Python 3.14 | Pflicht | Installer Checkpoint 1 |
 | Git ≥ 2.30 | Pflicht | Installer Checkpoint 2 |
 | `gh` CLI | Pflicht | Installer Checkpoint 2 |
-| Claude Code | Pflicht | Voraussetzung (nicht geprüft) |
+| Agent-Harness (Claude Code oder Codex; FK-30 §30.11) | Pflicht (mindestens einer) | Voraussetzung (nicht geprüft) |
 | LLM-Pools (MCP) | Pflicht: mind. 2 verschiedene Pools zusätzlich zu Claude (Schicht 2 fordert verschiedene LLMs für QA-Review und Semantic Review) | Integrity-Gate bei Closure prüft konfigurierte `llm_roles` gegen Telemetrie |
 | Weaviate + MCP-Wrapper | Pflicht | Installer Checkpoint 9 |
 | ARE (MCP) | Optional (`are: true`) | Installer prüft Erreichbarkeit des MCP-Servers |
@@ -210,11 +210,14 @@ Orchestrator und Worker.
 ```
 {projekt-root}/
 ├── .story-pipeline.yaml            # Projektspezifische AgentKit-Konfiguration
-├── .claude/
-│   ├── settings.json               # Hook-Registrierung
-│   ├── skills/                     # Projektlokale Symlink-Bindungen auf systemweite Skill-Bundles
+├── .agentkit/                      # Harness-neutraler AK3-Konfigurationspfad
 │   └── ccag/
-│       └── rules/                  # Projektbezogene Permission-/Policy-Konfiguration
+│       └── rules/                  # Projektbezogene Permission-/Policy-Konfiguration (kanonisch)
+├── .claude/                        # Beispiel: Claude-Code-Adapter (FK-30 §30.11)
+│   ├── settings.json               # Hook-Registrierung (Claude Code)
+│   └── skills/                     # Symlinks auf systemweite Skill-Bundles (Claude Code)
+├── .codex/                         # Beispiel: Codex-Adapter (FK-30 §30.11)
+│   └── config.toml                 # Hook-Registrierung (Codex)
 │
 ├── stories/                        # Projektdokumentation / Story-Arbeitsraum
 ├── concepts/                       # Projektspezifische Konzepte
@@ -222,8 +225,12 @@ Orchestrator und Worker.
 └── <Projektdateien>                # Quellcode, Tests, Build-Dateien
 ```
 
+Der Installer registriert beide Harnesses parallel (FK-30 §30.11.5).
+Die jeweils harness-spezifischen Verzeichnisse werden vom zugehoerigen
+Adapter beschrieben.
+
 **Projektlokal weiterhin vorgesehen, aber nicht kanonisch:**
-- `.claude/skills/` als Symlink-Bindung auf systemweite, versionierte Bundles
+- harness-spezifische Skill-Symlinks (z. B. `.claude/skills/` fuer Claude Code) als Symlink-Bindung auf systemweite, versionierte Bundles
 
 **Nicht mehr im Projekt vorgesehen:**
 - keine projektlokalen Telemetrie-DBs
@@ -240,7 +247,7 @@ Orchestrator und Worker.
 | State-Backend: Governance/Locks | Pipeline-Skripte | Hooks | Nur deterministische Komponenten schreiben |
 | State-Backend: Failure Corpus | Governance-Beobachtung, Pipeline | Failure-Corpus-Engine | Append-only, permanent |
 | Systemweite Skill-/Prompt-Bundles | AgentKit-Installer | Agents (read-only via Projekt-Symlink) | Versioniert, immutable pro Bundle-Version |
-| `.claude/skills/` | Installer | Claude Code / Agents | Nur Symlink-Bindung, kein kanonischer Inhalt |
+| harness-spezifische Skill-Symlinks (z. B. `.claude/skills/` fuer Claude Code; FK-30 §30.11) | Installer | Harness / Agents | Nur Symlink-Bindung, kein kanonischer Inhalt |
 | `.story-pipeline.yaml` | Mensch, Installer | Alle Pipeline-Komponenten | Menschlich editierbar |
 
 ## 10.4 Persistenz und Datenflüsse
@@ -287,7 +294,7 @@ Audit- und QA-Daten leben zentral; lokale Exporte sind nur Kopien.
 | Szenario | Möglich? | Mechanismus |
 |----------|----------|-------------|
 | Mehrere Stories parallel | Ja | Jede Story hat eigenen Worktree, eigene zentrale Locks und eigene Run-Records |
-| Mehrere Sub-Agents parallel | Ja (innerhalb einer Story) | Claude Code spawnt Sub-Agents als parallele Sessions |
+| Mehrere Sub-Agents parallel | Ja (innerhalb einer Story) | Der Harness (Claude Code / Codex; FK-30 §30.11) spawnt Sub-Agents als parallele Sessions |
 | Mehrere Pipeline-Skripte parallel | Nein | Phase Runner steuert sequentiell |
 | Mehrere Hook-Prozesse parallel | Ja | Verschiedene Sub-Agent-Sessions lösen gleichzeitig Hooks aus |
 
@@ -320,9 +327,9 @@ Alle Pipeline-Skripte müssen idempotent sein:
 
 | Szenario | Zustand nach Absturz | Recovery |
 |----------|---------------------|---------|
-| Claude-Code-Session crashed | Worktree existiert, Lock aktiv, Telemetrie unvollständig | PID-basierte Lock-Erkennung (Kap. 02.7). Neuer Run mit neuer `run_id`, bestehender Worktree wird wiederverwendet. |
+| Harness-Session (Claude Code / Codex; FK-30 §30.11) crashed | Worktree existiert, Lock aktiv, Telemetrie unvollständig | PID-basierte Lock-Erkennung (Kap. 02.7). Neuer Run mit neuer `run_id`, bestehender Worktree wird wiederverwendet. |
 | Pipeline-Skript crashed | QA-Artefakt möglicherweise unvollständig | Phase Runner kann Phase wiederholen. Idempotente Skripte. |
-| Hook-Prozess crashed | Tool-Call wird blockiert (fail-closed: kein exit(0) = blockiert) | Claude Code behandelt Hook-Fehler als Blockade. Agent erhält Fehlermeldung. |
+| Hook-Prozess crashed | Tool-Call wird blockiert (fail-closed: kein exit(0) = blockiert) | Der Harness (Claude Code / Codex; FK-30 §30.11) behandelt Hook-Fehler als Blockade. Agent erhält Fehlermeldung. |
 | LLM-Pool nicht erreichbar | Pool-Call schlägt fehl | Retry-Logik im LLM-Evaluator (1 Retry). Bei Scheitern: Check = FAIL (fail-closed). |
 | Weaviate nicht erreichbar | VektorDB-Suche schlägt fehl | Story-Erstellung schlägt fehl (fail-closed). VektorDB ist Pflichtbestandteil der Infrastruktur. |
 | GitHub nicht erreichbar | API-Calls schlagen fehl | Preflight scheitert → Story startet nicht. Closure scheitert → Eskalation an Mensch. |
@@ -404,7 +411,7 @@ Die Ports sind konfigurierbar:
 
 | Service | Konfigurationsort | Default |
 |---------|-------------------|---------|
-| LLM-Pools | MCP-Server-Konfiguration in `.claude/settings.json` + Pool-Startup-Skripte | 9100/9200/9300/9400 |
+| LLM-Pools | MCP-Server-Konfiguration in harness-spezifischer Settings-Datei (z. B. `.claude/settings.json` fuer Claude Code, harness-eigenes Aequivalent fuer Codex; FK-30 §30.11) + Pool-Startup-Skripte | 9100/9200/9300/9400 |
 | UI | `agentkit ui --port N` | 9700 |
 | UI-BFF | `agentkit serve --ui-bff --port N` | 9701 |
 | Project-API | `agentkit serve --project-api --port N` | 9702 |

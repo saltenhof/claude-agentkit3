@@ -105,8 +105,9 @@ Principal-/Pfad-/Freeze-Modell bleibt unverhandelbar und wird durch
 CCAG weder in `allow` noch in `ask` umgewandelt.
 
 **Liveness-Grenze:** CCAG darf in aktiven Story-Runs keinen Fortschritt
-an Claude Codes nativen Permission-Dialog koppeln. Ein unbekannter
-Permission-Fall im `story_execution`-Modus fuehrt deshalb nicht zu einem
+an einen harness-nativen Permission-Dialog koppeln (Claude Code,
+Codex; FK-30 §30.11). Ein unbekannter Permission-Fall im
+`story_execution`-Modus fuehrt deshalb nicht zu einem
 wartenden Prompt, sondern zu einem sofortigen `block` plus
 auditierbarem Permission-Case.
 
@@ -119,10 +120,10 @@ Die Regeln stehen in allen zukünftigen Sessions sofort zur
 Verfügung. Über Wochen und Monate wächst ein projektspezifischer
 Regelsatz, der häufige Operationen automatisch freigibt.
 
-**Regeldateien:**
+**Regeldateien** (kanonischer Pfad: `.agentkit/ccag/rules/`; harness-spezifische Symlinks pro Adapter, z. B. `.claude/ccag/rules/` fuer Claude Code; siehe FK-42 §42.7 und FK-30 §30.11):
 
 ```
-.claude/ccag/rules/
+.agentkit/ccag/rules/
 ├── global.yaml          # Für alle Agents (Haupt + Sub)
 ├── main-agent.yaml      # Nur für den Hauptagenten
 ├── subagents.yaml       # Nur für Sub-Agents (engere Rechte)
@@ -311,8 +312,9 @@ weiterhin einen nativen Host-Prompt verwenden, allerdings nur als
 Komfortmechanismus einer bewusst interaktiven Sitzung.
 
 **Keine Liveness-Abhaengigkeit:** Ein aktiver Story-Run darf nie davon
-abhaengen, dass Claude Code, TTY oder Host-UI einen Prompt zeigt oder
-der Mensch ihn rechtzeitig beantwortet.
+abhaengen, dass ein Harness (Claude Code, Codex; FK-30 §30.11), TTY
+oder Host-UI einen Prompt zeigt oder der Mensch ihn rechtzeitig
+beantwortet.
 
 ## 42.5 CCAG Gate-Keeper (Hook-Implementierung)
 
@@ -342,7 +344,7 @@ def main():
         sys.exit(2)
     else:  # "ask_external"
         # Nur in explizit interaktiven Modi zulaessig
-        sys.exit(0)  # Claude Code / Host-UI uebernimmt
+        sys.exit(0)  # Harness (Claude Code / Codex) / Host-UI uebernimmt
 ```
 
 **Hinweis:** CCAG ersetzt den harness-eigenen Permission-Dialog

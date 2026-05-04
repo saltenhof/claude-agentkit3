@@ -108,8 +108,10 @@ konsistent anwenden würde (FK-12-019 bis FK-12-021).
 ### 43.2.1 Dateistruktur
 
 Ein Skill ist ein Verzeichnis mit einer `SKILL.md` (oder `skill.md`)
-Datei. Claude Code erwartet Skills an normierten Orten; AgentKit
-weicht davon nicht ab.
+Datei. Beide unterstuetzten Harnesses (Claude Code, Codex; FK-30
+§30.11) erwarten Skills an harness-normierten Orten; AgentKit weicht
+davon nicht ab und materialisiert pro Harness die jeweiligen
+Symlink-Bindungspunkte.
 
 ```
 <skill-root>/
@@ -117,24 +119,29 @@ weicht davon nicht ab.
     └── SKILL.md
 ```
 
-Die `SKILL.md` ist ein Markdown-Dokument, das Claude Code als
-Skill erkennt und bei Aufruf (z.B. `/create-userstory`) als
-Prompt lädt.
+Die `SKILL.md` ist ein Markdown-Dokument, das der Harness
+(Claude Code / Codex) als Skill erkennt und bei Aufruf (z.B.
+`/create-userstory`) als Prompt lädt.
 
-**Normierte Skill-Orte:**
+**Normierte Skill-Orte (Beispiel anhand Claude Code; FK-30 §30.11):**
 
 | Ort | Zweck |
 |-----|------|
-| `~/.claude/skills/` | User-/systemweite Skills |
-| `{projekt-root}/.claude/skills/` | Projektspezifische Skill-Bindung |
+| `~/.claude/skills/` | User-/systemweite Skills (Claude Code) |
+| `{projekt-root}/.claude/skills/` | Projektspezifische Skill-Bindung (Claude Code) |
+
+Codex hat ein harness-eigenes Aequivalent (Pfad-Konvention nach
+Codex-Standard); der Codex-Adapter (FK-30 §30.11) materialisiert die
+Symlinks am dortigen Bindungspunkt.
 
 **Architekturentscheidung für AgentKit 3/4:**
 - Der kanonische Skill-Inhalt liegt systemweit in versionierten
   AgentKit-Bundles.
-- Im Projekt liegen unter `.claude/skills/` nur Symlinks auf die
+- Im Projekt liegen unter dem harness-spezifischen Bindungspunkt
+  (z. B. `.claude/skills/` fuer Claude Code) nur Symlinks auf die
   ausgewählten Bundle-Verzeichnisse.
-- Das Projekt enthält damit einen Claude-Code-kompatiblen Bindungspunkt,
-  aber nicht die Skill-Quelle selbst.
+- Das Projekt enthält damit pro Harness einen kompatiblen
+  Bindungspunkt, aber nicht die Skill-Quelle selbst.
 
 ### 43.2.2 Skill-Aufbau
 
@@ -338,7 +345,9 @@ Symlink-Bindungen bewusst auf die neue Bundle-Version umgestellt werden.
 agent-skills verwaltet seinen Bundle-Version-Pin eigenstaendig — er ist
 **nicht** mit `prompt-runtime.BundlePinning` (FK-44) geteilt. Begruendung:
 
-- Skill-Bundles sind Verzeichnis-Symlinks (`.claude/skills/<name>/`)
+- Skill-Bundles sind Verzeichnis-Symlinks (harness-spezifisch — z. B.
+  `.claude/skills/<name>/` fuer Claude Code, harness-eigenes
+  Aequivalent fuer Codex; FK-30 §30.11)
   mit einem separaten Lifecycle (Requested → ProfileResolved →
   BundleSelected → Bound → Verified/Rejected).
 - Prompt-Bundles sind Datei-Materialisierungen
@@ -367,8 +376,9 @@ C:\ProgramData\AgentKit\bundles\4.0.0\custom\
     └── SKILL.md
 ```
 
-Claude Code erkennt den Skill automatisch über den projektlokalen
-Symlink unter `.claude/skills/`.
+Der Harness (Claude Code / Codex; FK-30 §30.11) erkennt den Skill
+automatisch über den projektlokalen Symlink am harness-spezifischen
+Bindungspunkt (z. B. `.claude/skills/` fuer Claude Code).
 
 ### 43.6.2 Skill-Qualitaet
 

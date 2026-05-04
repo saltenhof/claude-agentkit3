@@ -72,7 +72,9 @@ Skills werden bei der Projektregistrierung
 ([08-installation-und-bootstrap.md](08-installation-und-bootstrap.md))
 nicht inhaltlich ins Zielprojekt kopiert. Stattdessen liegen sie
 systemweit in versionierten Bundles und werden projektlokal über
-`.claude/skills/` per Symlink gebunden. Neue Skills können hinzugefügt
+harness-spezifische Symlink-Bindungspunkte (z. B. `.claude/skills/`
+fuer Claude Code; Codex hat ein harness-eigenes Aequivalent — siehe
+FK-30 §30.11 und FK-43 §43.4.1) gebunden. Neue Skills können hinzugefügt
 werden, ohne den Kern von AgentKit zu ändern. Die Qualität der
 Story-Umsetzung hängt wesentlich davon ab, dass Agents nicht bei jeder
 Aufgabe ihre eigene Methodik erfinden, sondern auf erprobte Abläufe

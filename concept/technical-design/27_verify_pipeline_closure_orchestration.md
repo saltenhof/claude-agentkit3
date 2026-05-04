@@ -499,8 +499,8 @@ Der Phase Runner setzt `agents_to_spawn` im Phase-State:
 }
 ```
 
-Der Orchestrator spawnt den Adversarial Agent als Claude-Code-
-Sub-Agent. Der Agent hat:
+Der Orchestrator spawnt den Adversarial Agent als Harness-Sub-Agent
+(Claude Code oder Codex; FK-30 §30.11). Der Agent hat:
 - Dateisystem-Zugriff (Read auf alles, Write nur in Sandbox)
 - Zugriff auf Handover-Paket (`inputs.handover`, `risks_for_qa` als Ansatzpunkte)
 - Zugriff auf Concerns aus Schicht 2 (`inputs.layer2_concerns`, PASS_WITH_CONCERNS als Ansatzpunkte)

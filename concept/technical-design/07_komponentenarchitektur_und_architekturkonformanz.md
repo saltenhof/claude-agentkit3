@@ -94,7 +94,7 @@ Volldefinition mit Heuristiken, Erkennungstests und Beispielen:
 
 | Komponente | Blutgruppe | Fachliche Verantwortung | Provided Contracts |
 | --- | --- | --- | --- |
-| `GuardSystem` | A | harte Guard- und Capability-Enforcement-Regeln fuer Hook-Entscheidungen; intern aufgeteilt in `GuardEvaluation` (harness-neutraler A-Kern) und `HarnessAdapters.{Harness}` (pro Harness eine bewusst lokalisierte AT-Mediation-Insel, aktuell `claude_code`) | `GuardDecisionPort` |
+| `GuardSystem` | A | harte Guard- und Capability-Enforcement-Regeln fuer Hook-Entscheidungen; intern aufgeteilt in `GuardEvaluation` (harness-neutraler A-Kern) und `HarnessAdapters.{Harness}` (pro Harness eine bewusst lokalisierte AT-Mediation-Insel, aktuell `claude_code` und `codex`; FK-30 §30.11) | `GuardDecisionPort` |
 | `CcagPermissionRuntime` | A | lernfaehige, sessionpersistente Permission-Pfade ausserhalb der harten Guards | `PermissionDecisionPort` |
 | `ConformanceService` | A | gestufte Dokument- und Konzepttreuepruefung an definierten Prozesszeitpunkten | `ConformancePort` |
 | `StageRegistry` | A | autoritativer Stage-Katalog mit Producer-, Trust- und Blocking-Vertraegen | `StageRegistryPort` |
@@ -158,7 +158,8 @@ Diese Bausteine sind notwendig, aber keine Fachkomponenten:
 seit `entities.md` Version 19 in zwei Subs von `GuardSystem` lebt:
 `GuardEvaluation` (A-Kern, harness-neutral) und
 `HarnessAdapters.{Harness}` (pro Harness eine lokalisierte AT-Mediation
-— aktuell `claude_code`, kuenftig z.B. `codex` oder `qwen_code`).
+— aktuell `claude_code` und `codex` (FK-30 §30.11), kuenftig z.B.
+`qwen_code` oder `gemini_code`).
 `agentkit.governance.hookruntime` ist Backward-Compat-Pfad fuer den
 Claude-Code-Adapter und gehoert zur AT-Insel.
 

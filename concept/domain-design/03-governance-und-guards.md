@@ -111,10 +111,12 @@ ungültige Formate, unbekannte Zustände, nicht erreichbare Systeme: alles,
 was nicht explizit PASS ist, ist FAIL. Kein Guard scheitert still. Kein
 fehlender Prüfgegenstand wird als "nicht relevant" gewertet.
 
-Alle Guards nutzen dasselbe Funktionsprinzip: Die Agent-Plattform
-(Claude Code) bietet eine Hook-Schicht, die jede Aktion eines Agenten
-abfängt, bevor sie ausgeführt wird. AgentKit klinkt sich in diese
-Schicht ein. Damit ist die Durchsetzung plattformseitig garantiert.
+Alle Guards nutzen dasselbe Funktionsprinzip: Die jeweilige
+Agent-Plattform (Harness, z. B. Claude Code oder Codex; siehe
+FK-30 §30.11) bietet eine Hook-Schicht, die jede Aktion eines Agenten
+abfängt, bevor sie ausgeführt wird. AgentKit klinkt sich harness-spezifisch
+über den Harness-Adapter in diese Schicht ein. Damit ist die Durchsetzung
+plattformseitig garantiert.
 Ein Agent kann die Hooks nicht umgehen, weil sie Teil der Infrastruktur
 sind, in der er operiert, nicht Teil seines eigenen Codes.
 

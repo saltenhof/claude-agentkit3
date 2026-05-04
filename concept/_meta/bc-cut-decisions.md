@@ -1052,7 +1052,7 @@ Layer 3: SkillQualityMetric (Beobachtung post-binding)
 
 | Andere BC | Richtung | Was |
 |---|---|---|
-| `pipeline-framework` | PF -> AS | (indirekt) Worker findet Skill via Symlink in `.claude/skills/` |
+| `pipeline-framework` | PF -> AS | (indirekt) Worker findet Skill via harness-spezifischen Symlink-Pfad (Claude Code: `.claude/skills/`; Codex: harness-eigenes Aequivalent — siehe FK-43 §43.4.1 und FK-30 §30.11) |
 | `installation-and-bootstrap` | INST -> AS | `Skills.bind_skill` bei Projektregistrierung; Profile-Auswahl (core/are) |
 | `prompt-runtime` | AS -> PR | Skill-Templates koennen optional via `PromptRuntime.materialize_prompt` aufgeloest werden (FK-43 frontmatter `defers_to: FK-44`) |
 | `story-context-manager` | SCM -> AS | StoryContext fuehrt aktives `CapabilityProfile` als Read-Field |
@@ -1149,14 +1149,14 @@ Layer 4: Upgrade (orthogonal, nutzt Engine fuer Re-Run)
 | `pipeline-framework` | INST -> PF | nutzt FlowDefinition-DSL (Einheits-DSL FK-20) fuer CheckpointFlow |
 | `Integrations.github` | INST -> R | CP 2 (Repo) |
 | `Integrations.vector_db` | INST -> R | CP 10/10a (MCP-Server-Registration, Erstindizierung) |
-| Filesystem-Driver | INST -> T | `.claude/skills/` Symlinks via Skills, `.claude/settings.json`, `.story-pipeline.yaml`, `.bak`-Backup |
+| Filesystem-Driver | INST -> T | Harness-spezifische Skill-Symlinks und Hook-Settings (Claude Code: `.claude/skills/`, `.claude/settings.json`; Codex: harness-eigene Aequivalente — siehe FK-30 §30.11), `.story-pipeline.yaml`, `.bak`-Backup |
 | State-Backend-Drivers | INST -> SBD | T-Adapter fuer ProjectRegistration-Upsert |
 
 **Konzept-Refactor-Liste:**
 
 1. FK-50 §50.3.1 Checkpoint-Engine als Komponenten-Flow: nutzt FlowDefinition aus pipeline-framework (Einheits-DSL FK-20). Cross-BC-Beziehung dokumentieren.
 2. FK-50 CP 8 Skill-Symlinks: Installer ruft `Skills.bind_skill` (BC 11) und `PromptRuntime.update_binding` (BC 10), erzeugt Symlinks NICHT direkt. Wording in FK-50 praezisieren — Code-Beispiel mit `create_symlink(...)` ist irrefuehrend.
-3. FK-50 CP 9 Hook-Registration: Installer schreibt direkt `.claude/settings.json`. Konsistente Trennung waere: Installer ruft `Governance.register_hooks(hook_definitions)` (BC 4 Top-Surface). JSON-Manipulation gehoert zu governance.guard_system.
+3. FK-50 CP 9 Hook-Registration: Installer schreibt direkt harness-spezifische Settings (Claude Code: `.claude/settings.json`; Codex: harness-eigenes Aequivalent). Konsistente Trennung waere: Installer ruft `Governance.register_hooks(hook_definitions)` (BC 4 Top-Surface), und der Harness-Adapter (FK-30 §30.11) materialisiert die harness-spezifische Settings-Datei. JSON-/TOML-Manipulation gehoert zu governance.guard_system bzw. dem jeweiligen Harness-Adapter.
 4. FK-50 CP 7 BackendRegistration: Owner ist installation-and-bootstrap (eigene `project_registry`-Tabelle). Schema lebt hier; Schreib-Adapter via T-Driver. Konsistenz mit BC 9 (telemetry ownt DB-Zugriff, nicht Schemas pro Tabelle).
 5. FK-51 Customization-Erkennung: CustomizationFootprint kombiniert PipelineConfig (FK-03), CCAG-Regeln (governance) und Bundle-Bindings (prompt-runtime + agent-skills). Lese-Schnittstellen via Top-Surfaces.
 6. FK-50 §50.2 CLI-Aufrufe (`agentkit register-project`): CLI ist Boundary-Control des aufrufenden BC. Installer ist transport-agnostisch.
@@ -1464,7 +1464,7 @@ test_report, commit_ref, artifact_ref, manual_note).
 
 | Sub | Bluttyp | Exposure | Verantwortung |
 |---|---|---|---|
-| `AreClient` | R | internal | REST-Client zur externen ARE-API (FK-40 §40.4). HTTP-Aufrufe der ARE-Endpunkte (list_requirements, get_recurring, load_context, submit_evidence, check_gate). Konsistent mit GitHub-REST-Adapter (FK-12). MCP ist NICHT der AgentKit-interne Aufruf-Pfad — MCP ist Boundary-Control fuer Claude-Code-Agents (Worker/QA), die direkt mit ARE reden; AgentKit-Code selbst nutzt REST. |
+| `AreClient` | R | internal | REST-Client zur externen ARE-API (FK-40 §40.4). HTTP-Aufrufe der ARE-Endpunkte (list_requirements, get_recurring, load_context, submit_evidence, check_gate). Konsistent mit GitHub-REST-Adapter (FK-12). MCP ist NICHT der AgentKit-interne Aufruf-Pfad — MCP ist Boundary-Control fuer Harness-Agents (Worker/QA, harness-neutral via Adapter aus FK-30 §30.11), die direkt mit ARE reden; AgentKit-Code selbst nutzt REST. |
 | `ScopeMapping` | A | internal | Konfigurationszeit-Tabellen (FK-40 §40.3): Repo->Scope und Modul->Scope. Scope-Ableitung bei Story-Erstellung mit Zwei-Tier-Prioritaet (Participating Repos primaer, Modul-Feld als Fallback). Lese-Zugriff auf PipelineConfig — geschrieben durch installation-and-bootstrap. |
 | `AreIntegration` | A | internal | Implementierungen der vier Andock-Punkte: RequirementLinker (Story-Erstellung), ContextLoader (Setup, schreibt are_bundle.json), EvidenceSubmitter (Implementation/Verify), AreGateChecker (Verify Layer 1). Ruft `AreClient` intern. Vollstaendigkeitspruefung selbst macht ARE — `AreGateChecker` interpretiert Response, erzeugt CoverageVerdict + UncoveredRequirement-Liste, fail-closed bei ARE-Unerreichbarkeit (FK-40 §40.9). |
 
@@ -1516,10 +1516,11 @@ Total: ~24 Klassen.
 
 1. FK-40 §40.4 MCP-Wrapper-Wording ist konzeptionell falsch fuer den
    AgentKit-internen Aufruf-Pfad: `AreClient` ist REST-Client (nicht
-   MCP-Wrapper). MCP ist Boundary-Control fuer Claude-Code-Agents (Worker/QA),
+   MCP-Wrapper). MCP ist Boundary-Control fuer Harness-Agents (Worker/QA,
+   harness-neutral via Adapter aus FK-30 §30.11),
    die direkt mit ARE reden; AgentKit-Code selbst nutzt REST. FK-40 §40.4 muss
    umformuliert werden — getrennte Aufruf-Pfade fuer "AgentKit-Code (REST)" vs.
-   "Claude-Code-Agents (MCP)" dokumentieren. Modul-Pfad
+   "Harness-Agents (MCP)" dokumentieren. Modul-Pfad
    `agentkit.requirements_coverage.are_client`. Konsistent mit GitHub-REST-Adapter
    (FK-12).
 2. FK-40 §40.5 Vier Andock-Punkte sind Top-Surface-Methoden in
@@ -1819,7 +1820,7 @@ Total: ~35 Klassen.
 
 - Beide BCs haben eigenstaendige Bundle-Konzepte (Skill-Bundle, Prompt-Bundle) mit
   Versionierung und Pin-aehnlicher Mechanik.
-- Skills sind Verzeichnis-Symlinks (`.claude/skills/`); Prompts sind Datei-Materialisierungen
+- Skills sind Verzeichnis-Symlinks (harness-spezifischer Pfad: Claude Code `.claude/skills/`, Codex harness-eigenes Aequivalent — siehe FK-43 §43.4.1 und FK-30 §30.11); Prompts sind Datei-Materialisierungen
   (`.agentkit/prompts/{run_id}/...`).
 - Strukturell aehnlich, mechanisch unterschiedlich.
 - FK-43 frontmatter `defers_to: FK-44` ist mehrdeutig: Skill-Template-Inhalt kann optional
@@ -1829,9 +1830,9 @@ Total: ~35 Klassen.
 
 ### Hook-Registration Owner (installation-and-bootstrap vs. governance-and-guards)
 
-- FK-50 CP 9: Installer schreibt direkt `.claude/settings.json` mit Hook-Eintraegen.
+- FK-50 CP 9: Installer schreibt direkt harness-spezifische Settings-Dateien (Claude Code: `.claude/settings.json`; Codex: harness-eigenes Aequivalent — siehe FK-30 §30.11) mit Hook-Eintraegen.
 - Konsistente Trennung waere: Installer ruft `Governance.register_hooks(hook_definitions)`
-  (BC 4 Top-Surface). JSON-Manipulation gehoert zu governance.guard_system / HookRuntime.
+  (BC 4 Top-Surface), und der Harness-Adapter materialisiert die harness-spezifische Settings-Datei. JSON-/TOML-Manipulation gehoert zu governance.guard_system / HookRuntime bzw. dem jeweiligen Harness-Adapter.
 - Aufloesungs-Vorschlag: BC 4 (governance-and-guards) erhaelt Top-Surface-Methode
   `register_hooks`; Installer ruft diese statt direkter JSON-Manipulation.
 - FK-50 §50.3 CP 9 entsprechend nachziehen.
@@ -1937,7 +1938,7 @@ koennen bei der Implementierungsphase auftauchen.
 | 62 | execution-planning | FK-70 §70.7d Rulebook-DSL: NICHT die FlowDefinition-DSL aus FK-20. Verhaeltnis explizit in FK-70 dokumentieren — execution-planning hat eigene Rulebook-DSL fuer Scheduling-Hints. |
 | 63 | execution-planning | FK-70 §70.5.2 READY regelbasiert: Konsistenz mit BC 3 (StoryIdentity hat basis-StoryStatus; ExecutionPlanning leitet PlanningStatus ab). Wording in FK-21/FK-24 nachziehen. |
 | 64 | execution-planning / pipeline-framework | FK-70 §70.8 Orchestrator-Vertrag: PipelineEngine MUSS `ExecutionPlanning.evaluate_scheduling` vor jedem Story-Start aufrufen. FK-20 ergaenzen. |
-| 65 | requirements-and-scope-coverage | FK-40 §40.4: `AreClient` ist REST-Client zur ARE-REST-API (NICHT MCP-Wrapper). MCP ist Boundary-Control fuer Claude-Code-Agents, die direkt mit ARE reden; AgentKit-Code nutzt REST. FK-40 §40.4 wording umformulieren — getrennte Aufruf-Pfade fuer AgentKit-Code (REST) vs. Claude-Code-Agents (MCP). Konsistent mit GitHub-REST-Adapter (FK-12). |
+| 65 | requirements-and-scope-coverage | FK-40 §40.4: `AreClient` ist REST-Client zur ARE-REST-API (NICHT MCP-Wrapper). MCP ist Boundary-Control fuer Harness-Agents (harness-neutral via Adapter aus FK-30 §30.11), die direkt mit ARE reden; AgentKit-Code nutzt REST. FK-40 §40.4 wording umformulieren — getrennte Aufruf-Pfade fuer AgentKit-Code (REST) vs. Harness-Agents (MCP). Konsistent mit GitHub-REST-Adapter (FK-12). |
 | 66 | requirements-and-scope-coverage | FK-40 §40.5 Vier Andock-Punkte sind Top-Surface-Methoden in RequirementsCoverage, NICHT eigenstaendige Komponenten. Wording in FK-40 praezisieren. |
 | 67 | requirements-and-scope-coverage / verify-system | FK-40 §40.7 ARE-Stage in StageRegistry: BC verify-system registriert die Stage; BC requirements-and-scope-coverage stellt nur die Gate-Logik bereit (`check_gate`). Verhaeltnis dokumentieren. |
 | 68 | requirements-and-scope-coverage | FK-40 §40.6 Fallback ohne ARE: wenn `features.are: false`, ist die gesamte Top-Surface no-op. Aufrufer-BCs brauchen keinen Fallback-Code. |

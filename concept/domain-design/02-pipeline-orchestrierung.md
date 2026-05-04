@@ -76,7 +76,8 @@ Wichtig ist die Abgrenzung: Diese Pipeline beschreibt nur den
 gebundenen Story-Workflow. Sie ist **nicht** das allgemeine
 Betriebsmodell des registrierten Projekts. Ausserhalb eines expliziten
 Story-Runs befindet sich das Projekt im freien `AI-Augmented`-Modus.
-Dann darf der Mensch direkt mit Claude-Code-Agents arbeiten, ohne dass
+Dann darf der Mensch direkt mit Harness-Agents (Claude Code oder Codex
+via Adapter, siehe FK-30 §30.11) arbeiten, ohne dass
 QA-Subflow-, Closure- oder Integrity-Pflichten aus dem Story-Workflow
 anspringen.
 

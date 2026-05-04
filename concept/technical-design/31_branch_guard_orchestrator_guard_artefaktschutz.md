@@ -251,7 +251,8 @@ Agent versucht, seine Prompt-Regeln absichtlich zu verletzen.
 
 Nur im Story-Execution-Modus (Lock-Record vorhanden). Im
 AI-Augmented-Modus ist der Guard inaktiv — der Mensch arbeitet
-direkt mit Claude Code und braucht vollen Zugriff.
+direkt mit dem Harness (Claude Code / Codex; FK-30 §30.11) und
+braucht vollen Zugriff.
 
 ### 31.2.3 Regelsatz: Schutzzone 1 (konfigurierbar)
 
@@ -344,7 +345,7 @@ wenn kein explizites `git`-Subkommando im String vorkommt.
 Der Guard muss erkennen, ob der aktuelle Aufruf vom
 Orchestrator (Hauptagent) kommt. Zwei Mechanismen:
 
-1. **Claude Code Hook-Kontext:** `is_subagent` Flag — wenn false,
+1. **Harness-Hook-Kontext (Claude Code / Codex; FK-30 §30.11):** `is_subagent`-Aequivalent (vom Harness-Adapter auf das harness-neutrale `principal_kind`-Feld normalisiert) — wenn `main`,
    ist es der Hauptagent (Orchestrator)
 2. **Fallback (fail-closed):** Wenn das Flag nicht verfügbar ist,
    behandelt der Guard den Aufruf als Orchestrator-Aufruf und
@@ -465,7 +466,8 @@ arbeitet der Guard fail-closed und blockiert ebenfalls.
 Zusätzlich zum Hook eine CCAG-Regel als zweite Absicherungsschicht:
 
 ```yaml
-# .claude/ccag/rules/subagents.yaml
+# Kanonisch unter .agentkit/ccag/rules/subagents.yaml
+# (harness-spezifischer Symlink z. B. .claude/ccag/rules/subagents.yaml fuer Claude Code; FK-30 §30.11, FK-42 §42.7)
 - id: qa-artifact-lock
   description: "Blockiert Sub-Agent-Zugriff auf QA-Verzeichnisse"
   scope: subagent
@@ -542,7 +544,8 @@ Story-Anlage aufrufen — z.B. für automatisch erzeugte
 Failure-Corpus-Check-Implementierungs-Stories (Kap. 41) oder für
 Nachfolger-Stories im offiziellen Story-Split-Pfad (Kap. 54). Die
 Erkennung erfolgt über den Hook-Kontext: Pipeline-Skripte laufen
-nicht als Claude-Code-Agent, sondern als direkte Python-Prozesse.
+nicht als Harness-Agent (Claude Code / Codex; FK-30 §30.11), sondern
+als direkte Python-Prozesse.
 
 ## 31.6 Adversarial-Guard (Sandbox-Scoping)
 
@@ -579,7 +582,9 @@ def check(tool_name: str, tool_input: dict, is_subagent: bool,
     return 2  # Alles andere blockiert
 ```
 
-**Registrierung in `.claude/settings.json`:**
+**Registrierung** erfolgt harness-spezifisch ueber den Adapter
+(FK-30 §30.11). Beispiel anhand Claude Code (`.claude/settings.json`;
+Codex-Adapter materialisiert das Aequivalent):
 ```json
 {
   "matcher": "Write|Edit",

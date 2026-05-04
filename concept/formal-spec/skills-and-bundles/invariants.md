@@ -33,7 +33,7 @@ invariants:
     rule: every production skill or prompt binding must target one concrete immutable bundle version and never latest or another moving alias
   - id: skills-and-bundles.invariant.project_binding_is_symlink_only
     scope: binding
-    rule: project-local Claude Code skill exposure is implemented only through symlink-style bindings to system bundles and not by copying canonical skill sources
+    rule: project-local harness-specific skill exposure (Claude Code, Codex; FK-30 §30.11) is implemented only through symlink-style bindings to system bundles and not by copying canonical skill sources
   - id: skills-and-bundles.invariant.project_local_repo_never_contains_canonical_skill_source
     scope: repository
     rule: the project repository may contain configuration and binding points but must not contain the canonical bundled skill or prompt source

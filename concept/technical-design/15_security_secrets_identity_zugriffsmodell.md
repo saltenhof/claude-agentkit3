@@ -55,7 +55,7 @@ Vertrauen in Prompt-Disziplin.
 ## 15.2 Trust Boundaries (Wiederholung aus Kap. 01)
 
 ```
-Zone 1: Plattform (Claude Code + Hooks)     — Agent kann nicht umgehen
+Zone 1: Plattform (Harness — Claude Code / Codex; FK-30 §30.11 — + Hooks)  — Agent kann nicht umgehen
 Zone 2: Pipeline (deterministischer Code)    — Entscheidet, nicht der Agent
 Zone 3: Agent-Ausführung (LLM-gesteuert)     — Nicht vertrauenswürdig
 Zone 4: Externe LLMs (Pools)                 — Antworten nicht vertrauenswürdig
@@ -76,12 +76,12 @@ Ausführungskontext ergeben:
 |-----------|---------------|----------------|
 | **Mensch** | Direkte CLI-Interaktion, kein Agent-Spawn | Höchste — kann alles, wird nicht blockiert |
 | **Interactive Agent** | Hauptagent ohne aktive Run-Bindung | Zone 3 — frei im Projekt, aber nur unter Basisschutz |
-| **Orchestrator** (Hauptagent) | Claude-Code-Session, kein Parent-Agent | Zone 3 — darf steuern, nicht implementieren |
+| **Orchestrator** (Hauptagent) | Harness-Session (Claude Code / Codex; FK-30 §30.11), kein Parent-Agent | Zone 3 — darf steuern, nicht implementieren |
 | **Worker** (Sub-Agent) | Von Orchestrator gespawnt, `subagent_type: worker` | Zone 3 — darf implementieren, nicht QA manipulieren |
 | **QA-Agent** (Sub-Agent) | Von Orchestrator gespawnt, `subagent_type: qa` | Zone 3 — darf lesen und testen, nicht Produktivcode editieren |
 | **Adversarial** (Sub-Agent) | Von Orchestrator gespawnt, `subagent_type: adversarial` | Zone 3 — darf nur in Sandbox schreiben |
 | **Pipeline-Skript** | Python-Prozess, aufgerufen via Bash-Tool | Zone 2 — deterministisch, vertrauenswürdig |
-| **Hook-Prozess** | Python-Prozess, aufgerufen von Claude Code | Zone 1 — Plattform-Enforcement |
+| **Hook-Prozess** | Python-Prozess, aufgerufen vom Harness (Claude Code / Codex; FK-30 §30.11) | Zone 1 — Plattform-Enforcement |
 | **LLM-Pool** (extern) | MCP-Server, Antwort auf `{pool}_send` | Zone 4 — Antworten werden validiert, nie blind vertraut |
 
 ### 15.3.2 Principal-Erkennung
@@ -91,9 +91,9 @@ um rollenspezifische Regeln anzuwenden:
 
 | Erkennungsmerkmal | Wie | Zuverlässigkeit |
 |-------------------|-----|----------------|
-| Hauptagent vs. Sub-Agent | Claude Code setzt Hook-Kontext (`is_subagent` Flag) | Plattform-garantiert |
+| Hauptagent vs. Sub-Agent | Der Harness (Claude Code / Codex; FK-30 §30.11) setzt Hook-Kontext (`is_subagent`-Aequivalent); der Harness-Adapter normalisiert auf `principal_kind` (`main` / `subagent`) | Plattform-garantiert |
 | Sub-Agent-Typ | `subagent_type` im Agent-Spawn-Prompt | Prompt-basiert — kann der Orchestrator setzen, aber der Hook validiert gegen erwartete Typen |
-| Pipeline-Skript | Kein Claude-Code-Kontext, direkter Python-Aufruf | Eindeutig — Skript wird nicht über Hook-Schicht aufgerufen |
+| Pipeline-Skript | Kein Harness-Kontext, direkter Python-Aufruf | Eindeutig — Skript wird nicht über Hook-Schicht aufgerufen |
 | Story-Execution aktiv | Aktiver Run-/Lock-Record im State-Backend existiert | Service-seitig — vom Pipeline-Tooling gesteuert, nicht vom Agent |
 
 **Projekt-Scope:** Backend-Principals agieren nie global, sondern
@@ -280,20 +280,22 @@ Governance selbst zu manipulieren:
 
 | Manipulationsversuch | Erkennung | Reaktion |
 |---------------------|-----------|---------|
-| Agent ändert `.claude/settings.json` (Hook-Registrierung) | Hook-Signal: Governance-Datei verändert | Sofortiger Stopp |
-| Agent ändert `.claude/ccag/rules/*.yaml` | Hook-Signal: Governance-Datei verändert | Sofortiger Stopp |
+| Agent ändert harness-spezifische Hook-Settings (z. B. `.claude/settings.json` fuer Claude Code; harness-eigenes Aequivalent fuer Codex; FK-30 §30.11) | Hook-Signal: Governance-Datei verändert | Sofortiger Stopp |
+| Agent ändert CCAG-Regeln (kanonisch `.agentkit/ccag/rules/*.yaml`; harness-spezifische Symlinks z. B. `.claude/ccag/rules/`) | Hook-Signal: Governance-Datei verändert | Sofortiger Stopp |
 | Agent ändert `.story-pipeline.yaml` | Hook-Signal: Governance-Datei verändert | Sofortiger Stopp |
 | Agent versucht Edge-Bundle- oder Lock-Mechanismus lokal zu umgehen | Hook-Signal: Governance-Datei verändert oder fehlender offizieller Project-Edge-Write-Pfad | Sofortiger Stopp |
-| Agent ändert `.claude/skills/` Bindungen | Hook-Signal: Governance-Datei verändert | Sofortiger Stopp |
+| Agent ändert harness-spezifische Skill-Symlinks (z. B. `.claude/skills/` fuer Claude Code; FK-30 §30.11) | Hook-Signal: Governance-Datei verändert | Sofortiger Stopp |
 | Agent versucht State-Backend-Zugangsdaten zu lesen/ändern | Guard + Secret-Schutz | Sofortiger Stopp |
 
-**Geschützte Pfade** (immer, unabhängig vom Betriebsmodus):
+**Geschützte Pfade** (immer, unabhängig vom Betriebsmodus; harness-spezifische Pfade sind Beispiele und werden vom jeweiligen Adapter eingebracht — siehe FK-30 §30.11):
 
 ```
-.claude/settings.json
-.claude/ccag/rules/
+.agentkit/ccag/rules/                  # kanonischer CCAG-Regelpfad
 .story-pipeline.yaml
-.claude/skills/
+.claude/settings.json                  # Beispiel: Claude-Code-Adapter
+.claude/ccag/rules/                    # Beispiel: Symlink fuer Claude Code
+.claude/skills/                        # Beispiel: Symlink fuer Claude Code
+.codex/config.toml                     # Beispiel: Codex-Adapter
 _temp/governance/
 .agent-guard/
 ```
@@ -302,11 +304,11 @@ _temp/governance/
 
 Hooks können vom Agent nicht deaktiviert werden, weil:
 
-1. Hook-Registrierung liegt in `.claude/settings.json` (geschützt)
+1. Hook-Registrierung liegt in der harness-spezifischen Settings-Datei (z. B. `.claude/settings.json` fuer Claude Code; harness-eigenes Aequivalent fuer Codex; FK-30 §30.11) und ist geschützt
 2. Hook-Skripte liegen im `agentkit`-Paket (nicht im Zielprojekt)
-3. Claude Code ruft Hooks als externen Prozess auf — der Agent
+3. Der Harness ruft Hooks als externen Prozess auf — der Agent
    hat keinen Einfluss auf den Aufrufmechanismus
-4. Ein Agent, der `.claude/settings.json` editieren will, wird
+4. Ein Agent, der die harness-spezifische Settings-Datei editieren will, wird
    vom Governance-Selbstschutz-Hook blockiert
 
 ### 15.7.3 Lock-Integrität
@@ -376,7 +378,7 @@ Der Secret-Detection-Check (15.5.2) wirkt präventiv auf Code-Ebene.
 | Locks | State-Backend | Nie |
 | Failure Corpus | State-Backend / Artefaktspeicher | Nie (nur aggregierte Patterns ggf. in Check-Proposals) |
 | Git-Historie | `.git/` | Nie direkt (nur Diffs) |
-| Skill-Bindungen | `.claude/skills/` | Nie |
+| Skill-Bindungen | harness-spezifische Skill-Symlinks (z. B. `.claude/skills/` fuer Claude Code; FK-30 §30.11) | Nie |
 
 ## 15.10 API-Authentifizierung (UI-BFF und Project-API)
 

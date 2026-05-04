@@ -41,7 +41,7 @@ commands:
     emits:
       - skills-and-bundles.event.bundle.selected
   - id: skills-and-bundles.command.bind-project-skills
-    signature: internal create project-local Claude-Code-compatible symlink bindings to selected bundles
+    signature: internal create project-local harness-specific symlink bindings (Claude Code, Codex; FK-30 §30.11) to selected bundles
     allowed_statuses:
       - skills-and-bundles.status.bundle_selected
     requires:

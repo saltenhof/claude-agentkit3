@@ -464,10 +464,11 @@ expliziter Resume-Pfad notwendig.
 
 ### 55.9a.1 Externe Permission-Substrate
 
-Claude Codes native Permission-Dialoge, TTY-Interaktivitaet und
-hostseitige Sonderfaelle fuer `.git`, `.claude`, `.vscode`, `.idea`
-oder `.husky` sind fuer AK3 kein autoritatives Sicherheitsmodell,
-sondern ein `external_permission_substrate`.
+Native Permission-Dialoge des Agent-Harness (Claude Code, Codex;
+FK-30 §30.11), TTY-Interaktivitaet und hostseitige Sonderfaelle fuer
+`.git`, `.claude`, `.codex`, `.vscode`, `.idea` oder `.husky` sind
+fuer AK3 kein autoritatives Sicherheitsmodell, sondern ein
+`external_permission_substrate`.
 
 Dieses Substrat kann Verhalten ausloesen, das AK3 nicht vollstaendig
 kontrolliert. Deshalb gilt:

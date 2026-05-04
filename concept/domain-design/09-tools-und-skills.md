@@ -55,7 +55,8 @@ Tool-Governance (CCAG, hier) und das spezialisierte Skill-System
 
 ### 9.1 Parameterbasierte Tool-Governance (CCAG)
 
-Claude Code bietet standardmäßig ein einfaches Permission-System: Der
+Agent-Harnesses (Claude Code, Codex; siehe FK-30 §30.11) bieten
+standardmäßig ein einfaches Permission-System: Der
 Mensch wird gefragt, ob ein Tool ausgeführt werden darf, und seine
 Antwort gilt nur für die aktuelle Session. Bei hochautomatisierten
 Abläufen mit vielen Sub-Agents führt das zu zwei Problemen: Erstens

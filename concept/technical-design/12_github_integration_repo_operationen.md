@@ -78,13 +78,14 @@ ausgefuehrt, nicht ueber GitHub-Mechanik.
 ### 12.4.1 Zwei Betriebsmodi
 
 AgentKit unterscheidet zwei grundlegend verschiedene Arbeitsweisen
-mit Claude Code. Der Branch-Guard muss beide unterstützen.
+mit dem Agent-Harness (Claude Code, Codex; FK-30 §30.11). Der
+Branch-Guard muss beide unterstützen.
 
 **AI-Augmented-Modus (kein Story-Lauf aktiv):**
 
-Der Mensch arbeitet interaktiv mit Claude Code — kleinere Änderungen,
+Der Mensch arbeitet interaktiv mit dem Harness — kleinere Änderungen,
 Konzeptanpassungen, explorative Aufgaben. Kein Orchestrator, keine
-Pipeline, keine Guards. Claude Code committet direkt auf `main`.
+Pipeline, keine Guards. Der Harness committet direkt auf `main`.
 Das ist der normale Arbeitsalltag.
 
 **Story-Execution-Modus (Pipeline aktiv):**

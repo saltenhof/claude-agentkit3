@@ -94,9 +94,10 @@ werden kann (FK 9).
 
 ARE ist kein Teil von AgentKit. AgentKit-Code greift ueber den
 `AreClient`-Sub (REST-Client) auf die ARE-REST-API zu — kein
-direkter Datenbank-Zugriff (Kap. 01). Claude-Code-Agents koennen
-ARE darueber hinaus ueber MCP ansprechen (Boundary-Control); das
-ist ein getrennter Aufruf-Pfad ausserhalb von AgentKit-Code.
+direkter Datenbank-Zugriff (Kap. 01). Harness-Agents (Claude Code
+oder Codex; FK-30 §30.11) koennen ARE darueber hinaus ueber MCP
+ansprechen (Boundary-Control); das ist ein getrennter Aufruf-Pfad
+ausserhalb von AgentKit-Code.
 
 **Was ARE erzwingt:** Vollständigkeit, nicht Qualität. Ein Agent
 kann Evidence fälschen, aber er kann keine Anforderung ignorieren.
@@ -182,10 +183,10 @@ AgentKit-Code kommuniziert mit ARE ausschliesslich ueber den
 der die ARE-REST-API direkt aufruft — analog zum GitHub-REST-Adapter
 (FK-12). Es gibt keinen MCP-Wrapper fuer AgentKit-Code.
 
-MCP ist Boundary-Control fuer Claude-Code-Agents, die ARE direkt
-ansprechen (z.B. um manuell Anforderungen zu verlinken). Dieser
-Pfad ist unabhaengig von AgentKit-Code und wird hier nicht weiter
-spezifiziert.
+MCP ist Boundary-Control fuer Harness-Agents (Claude Code oder
+Codex; FK-30 §30.11), die ARE direkt ansprechen (z.B. um manuell
+Anforderungen zu verlinken). Dieser Pfad ist unabhaengig von
+AgentKit-Code und wird hier nicht weiter spezifiziert.
 
 ### 40.4.1 REST-Endpunkte (AreClient)
 

@@ -51,7 +51,18 @@ glossary:
 
 # 36 — Compaction Resilience und Prompt-Persistenz fuer Sub-Agenten
 
-## 36.1 Problemstellung
+> **Harness-Bezug:** Die in diesem Kapitel beschriebene Compaction-
+> Mechanik ist eine Eigenschaft des Claude-Code-Harness. Codex hat
+> ein eigenes Kontext-Management — siehe FK-30 §30.11. Wenn ein
+> Codex-Aequivalent zu "Compaction" relevant wird, ist es ein
+> separater Folge-Punkt (kein impliziter Mit-Scope). Die hier
+> entworfene Resume-Kapsel-Architektur (§36.4 ff.) ist von der
+> Compaction-Mechanik konzeptuell entkoppelt und kann fuer andere
+> Harnesses analog herangezogen werden — die konkreten
+> Validierungsergebnisse in §36.3 gelten ausschliesslich fuer
+> Claude Code.
+
+## 36.1 Problemstellung (Claude Code)
 
 Claude Code komprimiert den Konversationskontext automatisch, sobald das Token-Limit
 eines Agenten erreicht wird (Context Compaction). Das dabei erzeugte Summary ist
