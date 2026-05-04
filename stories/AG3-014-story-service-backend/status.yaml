@@ -1,0 +1,11 @@
+story_id: AG3-014
+title: "AK3 Story-Service Backend (Anlage, Status, Dependencies, Attribute)"
+type: implementation
+status: ready
+phase: setup
+created: "2026-05-04"
+size: L
+depends_on: []
+unblocks:
+  - AG3-007
+  - AG3-010

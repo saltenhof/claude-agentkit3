@@ -1,0 +1,10 @@
+story_id: AG3-010
+title: "setup_worktrees() pro teilnehmendem Repo (Multi-Repo)"
+type: implementation
+status: ready
+phase: setup
+created: "2026-05-04"
+size: S
+depends_on: []
+unblocks:
+  - AG3-011

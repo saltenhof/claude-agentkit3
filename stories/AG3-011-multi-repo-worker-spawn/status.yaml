@@ -1,0 +1,10 @@
+story_id: AG3-011
+title: "Worker-Spawn mit Worktree-Map (Multi-Repo)"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-05-04"
+size: S
+depends_on:
+  - AG3-010
+unblocks: []

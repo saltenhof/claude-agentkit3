@@ -1,0 +1,11 @@
+story_id: AG3-007
+title: "ClosureProgress-Schema: story_branch_pushed + story_closed"
+type: implementation
+status: ready
+phase: setup
+created: "2026-05-04"
+size: S
+depends_on: []
+unblocks:
+  - AG3-008
+  - AG3-009

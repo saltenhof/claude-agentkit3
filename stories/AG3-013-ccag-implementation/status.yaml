@@ -1,0 +1,9 @@
+story_id: AG3-013
+title: "CCAG Permission-Runtime und Gate-Keeper-Hook (AK3)"
+type: implementation
+status: ready
+phase: setup
+created: "2026-05-04"
+size: L
+depends_on: []
+unblocks: []
