@@ -1,0 +1,11 @@
+story_id: AG3-002
+title: "Auth-Modul fuer Control-Plane (UI-BFF + Project-API)"
+type: implementation
+status: completed
+phase: setup
+created: "2026-05-04"
+completed_at: "2026-05-04T14:10:11.1287826+02:00"
+size: L
+depends_on: []
+unblocks:
+  - AG3-003

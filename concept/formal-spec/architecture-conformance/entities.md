@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: architecture-conformance
 spec_kind: entity-set
-version: 21
+version: 22
 prose_refs:
   - concept/technical-design/01_systemkontext_und_architekturprinzipien.md
   - concept/technical-design/07_komponentenarchitektur_und_architekturkonformanz.md
@@ -55,6 +55,8 @@ Version 20 erlaubt der Control-Plane-HTTP-Registry, den projektneutralen
 Concept-Catalog-Adapter (`/v1/concepts`) zu registrieren.
 Version 21 erlaubt der Control-Plane-HTTP-Registry, den projektneutralen
 Multi-LLM-Hub-Adapter (`/v1/hub`) zu registrieren.
+Version 22 fuegt `boundary.auth` als R-Adapter-Boundary fuer Strategen-
+Sessions und projektgebundene Project-API-Tokens hinzu.
 
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
@@ -1158,6 +1160,7 @@ boundary_modules:
       - architecture-conformance.boundary.filesystem
       - architecture-conformance.boundary.concept_catalog
       - architecture-conformance.boundary.multi_llm_hub
+      - architecture-conformance.boundary.auth
     # HTTP-Transport-Schicht. Nimmt Requests entgegen, ruft fachliche
     # Komponenten und Runtime-Service. Boot-Punkt durch CLI.
 
@@ -1266,6 +1269,21 @@ boundary_modules:
     # Hub-Konzept nicht fachlich besitzt - Routing-Policies, falls
     # noetig, leben in prompt_runtime, nicht hier.
 
+  - id: architecture-conformance.boundary.auth
+    name: Auth
+    bloodgroup: R
+    boundary_kind: adapter_boundary
+    module_prefixes:
+      - agentkit.auth
+    importable_by: any
+    may_import_component_groups: []
+    may_import_boundary_modules:
+      - architecture-conformance.boundary.shared
+      - architecture-conformance.boundary.state_backend_repository
+    # Aeussere API-Auth-Schicht fuer UI-BFF und Project-API:
+    # Strategen-Cookie-Sessions, CSRF und projektgebundene Thin-Client-
+    # Tokens. Kein A-BC, keine Rollen-/Quota- oder fachliche Policy-Logik.
+
   - id: architecture-conformance.boundary.state_backend_repository
     name: StateBackendRepository
     bloodgroup: R
@@ -1280,6 +1298,7 @@ boundary_modules:
       - architecture-conformance.boundary.shared
       - architecture-conformance.boundary.control_plane_records
       - architecture-conformance.boundary.filesystem
+      - architecture-conformance.boundary.auth
     # Anti-Korruptions-Schicht zwischen BCs und Drivers. Implementiert
     # die fachlichen Repository-Schnittstellen, die in den jeweiligen
     # BCs definiert sind. Darf BC-Records lesen, um sie auf Driver-DTOs

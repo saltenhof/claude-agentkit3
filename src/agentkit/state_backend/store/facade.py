@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from types import ModuleType
     from uuid import UUID
 
+    from agentkit.auth.entities import ProjectApiToken
     from agentkit.closure.execution_report.records import ExecutionReport
     from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
     from agentkit.control_plane.records import (
@@ -278,6 +279,50 @@ def load_project_by_story_id_prefix(
     if row is None:
         return None
     return mappers.project_row_to_entity(row)
+
+
+# ---------------------------------------------------------------------------
+# Project API tokens
+# ---------------------------------------------------------------------------
+
+
+def save_project_api_token(
+    token: ProjectApiToken,
+    store_dir: Path | None = None,
+) -> None:
+    row = mappers.project_api_token_to_row(token)
+    _backend_module().save_project_api_token_row(store_dir, row)
+
+
+def load_project_api_token(
+    token_id: str,
+    store_dir: Path | None = None,
+) -> ProjectApiToken | None:
+    row = _backend_module().load_project_api_token_row(store_dir, token_id)
+    if row is None:
+        return None
+    return mappers.project_api_token_row_to_entity(row)
+
+
+def load_project_api_token_by_hash(
+    token_hash: str,
+    store_dir: Path | None = None,
+) -> ProjectApiToken | None:
+    row = _backend_module().load_project_api_token_row_by_hash(store_dir, token_hash)
+    if row is None:
+        return None
+    return mappers.project_api_token_row_to_entity(row)
+
+
+def load_project_api_tokens_for_project(
+    project_key: str,
+    store_dir: Path | None = None,
+) -> list[ProjectApiToken]:
+    rows = _backend_module().load_project_api_token_rows_for_project(
+        store_dir,
+        project_key,
+    )
+    return [mappers.project_api_token_row_to_entity(row) for row in rows]
 
 
 # ---------------------------------------------------------------------------

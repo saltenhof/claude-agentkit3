@@ -14,6 +14,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from pydantic import ValidationError
 
+from agentkit.auth.middleware import AuthMiddlewareResponse
 from agentkit.control_plane.models import (
     ApiErrorResponse,
     ClosureCompleteRequest,
@@ -30,6 +31,8 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from pathlib import Path
 
+    from agentkit.auth.http.routes import AuthRouteResponse, AuthRoutes
+    from agentkit.auth.middleware import AuthMiddleware
     from agentkit.concept_catalog.http.routes import (
         ConceptCatalogRoutes,
         ConceptRouteResponse,
@@ -94,6 +97,8 @@ class ControlPlaneApplication:
         concept_routes: ConceptCatalogRoutes | None = None,
         hub_routes: MultiLlmHubRoutes | None = None,
         planning_routes: ExecutionPlanningRoutes | None = None,
+        auth_routes: AuthRoutes | None = None,
+        auth_middleware: AuthMiddleware | None = None,
     ) -> None:
         self._telemetry_service = telemetry_service or ControlPlaneTelemetryService()
         self._runtime_service = runtime_service or ControlPlaneRuntimeService()
@@ -126,6 +131,19 @@ class ControlPlaneApplication:
 
             planning_routes = ExecutionPlanningRoutes()
         self._planning_routes = planning_routes
+        if auth_routes is None and auth_middleware is not None:
+            from agentkit.auth.http.routes import AuthRoutes
+
+            auth_routes = AuthRoutes(
+                session_store=auth_middleware.session_store,
+                token_repository=auth_middleware.token_repository,
+            )
+        elif auth_routes is None:
+            from agentkit.auth.http.routes import AuthRoutes
+
+            auth_routes = AuthRoutes()
+        self._auth_routes = auth_routes
+        self._auth_middleware = auth_middleware
 
     def handle_request(
         self,
@@ -144,6 +162,16 @@ class ControlPlaneApplication:
         if route_path == "/healthz":
             return self._handle_healthz(method, correlation_id)
 
+        if self._auth_middleware is not None:
+            auth_result = self._auth_middleware.authorize(
+                method=method,
+                route_path=route_path,
+                request_headers=request_headers,
+                correlation_id=correlation_id,
+            )
+            if isinstance(auth_result, AuthMiddlewareResponse):
+                return _auth_middleware_response_to_http_response(auth_result)
+
         if method == "GET":
             return self._handle_get_request(route_path, query, correlation_id)
 
@@ -157,7 +185,12 @@ class ControlPlaneApplication:
             return self._handle_put_request(route_path, payload, correlation_id)
         if method == "PATCH":
             return self._handle_patch_request(route_path, payload, correlation_id)
-        return self._handle_post_request(route_path, payload, correlation_id)
+        return self._handle_post_request(
+            route_path,
+            payload,
+            correlation_id,
+            request_headers,
+        )
 
     def _handle_healthz(self, method: str, correlation_id: str) -> HttpResponse:
         if method != "GET":
@@ -180,6 +213,10 @@ class ControlPlaneApplication:
         query: dict[str, list[str]],
         correlation_id: str,
     ) -> HttpResponse:
+        auth_response = self._auth_routes.handle_get(route_path, correlation_id)
+        if auth_response is not None:
+            return _auth_response_to_http_response(auth_response)
+
         concept_response = self._concept_routes.handle_get(
             route_path,
             query,
@@ -244,7 +281,17 @@ class ControlPlaneApplication:
         route_path: str,
         payload: object,
         correlation_id: str,
+        request_headers: Mapping[str, str] | None,
     ) -> HttpResponse:
+        auth_response = self._auth_routes.handle_post(
+            route_path,
+            payload,
+            correlation_id,
+            request_headers,
+        )
+        if auth_response is not None:
+            return _auth_response_to_http_response(auth_response)
+
         project_response = self._project_routes.handle_post(
             route_path,
             payload,
@@ -331,6 +378,14 @@ class ControlPlaneApplication:
         route_path: str,
         correlation_id: str,
     ) -> HttpResponse:
+        auth_response = self._auth_routes.handle_delete(
+            route_path,
+            {},
+            correlation_id,
+        )
+        if auth_response is not None:
+            return _auth_response_to_http_response(auth_response)
+
         planning_response = self._planning_routes.handle_delete(
             route_path,
             correlation_id,
@@ -653,7 +708,12 @@ def serve_control_plane(
 ) -> None:
     """Run the control-plane HTTPS server until interrupted."""
 
-    application = app or ControlPlaneApplication()
+    if app is None:
+        from agentkit.auth.middleware import AuthMiddleware
+
+        application = ControlPlaneApplication(auth_middleware=AuthMiddleware())
+    else:
+        application = app
     server = ThreadingHTTPSServer(
         (host, port),
         _build_handler(application),
@@ -728,6 +788,24 @@ def _json_response(
 
 
 def _project_response_to_http_response(response: ProjectRouteResponse) -> HttpResponse:
+    return HttpResponse(
+        status_code=response.status_code,
+        body=response.body,
+        headers=response.headers,
+    )
+
+
+def _auth_response_to_http_response(response: AuthRouteResponse) -> HttpResponse:
+    return HttpResponse(
+        status_code=response.status_code,
+        body=response.body,
+        headers=response.headers,
+    )
+
+
+def _auth_middleware_response_to_http_response(
+    response: AuthMiddlewareResponse,
+) -> HttpResponse:
     return HttpResponse(
         status_code=response.status_code,
         body=response.body,

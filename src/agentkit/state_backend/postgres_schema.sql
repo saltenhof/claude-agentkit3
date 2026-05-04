@@ -62,6 +62,20 @@
             FOREIGN KEY (project_key) REFERENCES projects(key)
         );
 
+        CREATE TABLE IF NOT EXISTS project_api_tokens (
+            token_id TEXT PRIMARY KEY,
+            project_key TEXT NOT NULL,
+            label TEXT NOT NULL,
+            token_hash TEXT NOT NULL UNIQUE,
+            created_at TIMESTAMPTZ NOT NULL,
+            revoked_at TIMESTAMPTZ NULL,
+            last_used_at TIMESTAMPTZ NULL,
+            FOREIGN KEY (project_key) REFERENCES projects(key)
+        );
+
+        CREATE INDEX IF NOT EXISTS project_api_tokens_project_idx
+            ON project_api_tokens (project_key);
+
         CREATE TABLE IF NOT EXISTS phase_states (
             story_id TEXT PRIMARY KEY,
             phase TEXT NOT NULL,

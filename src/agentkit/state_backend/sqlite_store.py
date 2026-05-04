@@ -141,6 +141,20 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             FOREIGN KEY (project_key) REFERENCES projects(key)
         );
 
+        CREATE TABLE IF NOT EXISTS project_api_tokens (
+            token_id TEXT PRIMARY KEY,
+            project_key TEXT NOT NULL,
+            label TEXT NOT NULL,
+            token_hash TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL,
+            revoked_at TEXT,
+            last_used_at TEXT,
+            FOREIGN KEY (project_key) REFERENCES projects(key)
+        );
+
+        CREATE INDEX IF NOT EXISTS project_api_tokens_project_idx
+            ON project_api_tokens (project_key);
+
         CREATE TABLE IF NOT EXISTS phase_states (
             story_id TEXT PRIMARY KEY,
             phase TEXT NOT NULL,
@@ -1071,6 +1085,100 @@ def load_project_rows(
             """
     with _connect(_project_store_dir(store_dir)) as conn:
         rows = conn.execute(query, params).fetchall()
+    return [dict(row) for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# Project API token rows
+# ---------------------------------------------------------------------------
+
+
+def save_project_api_token_row(store_dir: Path | None, row: dict[str, Any]) -> None:
+    """Persist a project API token row."""
+
+    with _connect(_project_store_dir(store_dir)) as conn:
+        conn.execute(
+            """
+            INSERT INTO project_api_tokens (
+                token_id,
+                project_key,
+                label,
+                token_hash,
+                created_at,
+                revoked_at,
+                last_used_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(token_id) DO UPDATE SET
+                label = excluded.label,
+                token_hash = excluded.token_hash,
+                revoked_at = excluded.revoked_at,
+                last_used_at = excluded.last_used_at
+            """,
+            (
+                row["token_id"],
+                row["project_key"],
+                row["label"],
+                row["token_hash"],
+                row["created_at"],
+                row["revoked_at"],
+                row["last_used_at"],
+            ),
+        )
+
+
+def load_project_api_token_row(
+    store_dir: Path | None,
+    token_id: str,
+) -> dict[str, Any] | None:
+    """Load one project API token by id."""
+
+    with _connect(_project_store_dir(store_dir)) as conn:
+        row = conn.execute(
+            """
+            SELECT *
+            FROM project_api_tokens
+            WHERE token_id = ?
+            """,
+            (token_id,),
+        ).fetchone()
+    return dict(row) if row is not None else None
+
+
+def load_project_api_token_row_by_hash(
+    store_dir: Path | None,
+    token_hash: str,
+) -> dict[str, Any] | None:
+    """Load one project API token by hash."""
+
+    with _connect(_project_store_dir(store_dir)) as conn:
+        row = conn.execute(
+            """
+            SELECT *
+            FROM project_api_tokens
+            WHERE token_hash = ?
+            """,
+            (token_hash,),
+        ).fetchone()
+    return dict(row) if row is not None else None
+
+
+def load_project_api_token_rows_for_project(
+    store_dir: Path | None,
+    project_key: str,
+) -> list[dict[str, Any]]:
+    """Load project API tokens for one project."""
+
+    with _connect(_project_store_dir(store_dir)) as conn:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM project_api_tokens
+            WHERE project_key = ?
+            ORDER BY created_at ASC, token_id ASC
+            """,
+            (project_key,),
+        ).fetchall()
     return [dict(row) for row in rows]
 
 

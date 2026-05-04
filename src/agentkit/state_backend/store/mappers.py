@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 from agentkit.exceptions import CorruptStateError
 
 if TYPE_CHECKING:
+    from agentkit.auth.entities import ProjectApiToken
     from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
     from agentkit.control_plane.records import (
         ControlPlaneOperationRecord,
@@ -128,6 +129,56 @@ def project_row_to_entity(row: dict[str, Any]) -> Project:
         story_id_prefix=str(row["story_id_prefix"]),
         configuration=_ProjectConfiguration.model_validate(configuration_payload),
         archived_at=archived_at,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Project API tokens
+# ---------------------------------------------------------------------------
+
+
+def project_api_token_to_row(token: ProjectApiToken) -> dict[str, Any]:
+    """Convert a project API token to a DB row."""
+
+    return {
+        "token_id": token.token_id,
+        "project_key": token.project_key,
+        "label": token.label,
+        "token_hash": token.token_hash,
+        "created_at": token.created_at.isoformat(),
+        "revoked_at": (
+            token.revoked_at.isoformat() if token.revoked_at is not None else None
+        ),
+        "last_used_at": (
+            token.last_used_at.isoformat() if token.last_used_at is not None else None
+        ),
+    }
+
+
+def project_api_token_row_to_entity(row: dict[str, Any]) -> ProjectApiToken:
+    """Convert a DB row to a project API token."""
+
+    from agentkit.auth.entities import ProjectApiToken as _ProjectApiToken
+
+    def _datetime_from_row(key: str) -> datetime | None:
+        value = row.get(key)
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value
+        return datetime.fromisoformat(str(value))
+
+    created_at = _datetime_from_row("created_at")
+    if created_at is None:
+        raise CorruptStateError("project_api_tokens.created_at is required")
+    return _ProjectApiToken(
+        token_id=str(row["token_id"]),
+        project_key=str(row["project_key"]),
+        label=str(row["label"]),
+        token_hash=str(row["token_hash"]),
+        created_at=created_at,
+        revoked_at=_datetime_from_row("revoked_at"),
+        last_used_at=_datetime_from_row("last_used_at"),
     )
 
 

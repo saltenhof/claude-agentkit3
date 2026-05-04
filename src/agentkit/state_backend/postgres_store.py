@@ -986,6 +986,104 @@ def load_project_rows(
 
 
 # ---------------------------------------------------------------------------
+# Project API token rows
+# ---------------------------------------------------------------------------
+
+
+def save_project_api_token_row(store_dir: Path | None, row: dict[str, Any]) -> None:
+    """Persist a project API token row."""
+
+    del store_dir
+    with _connect_global() as conn:
+        conn.execute(
+            """
+            INSERT INTO project_api_tokens (
+                token_id,
+                project_key,
+                label,
+                token_hash,
+                created_at,
+                revoked_at,
+                last_used_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(token_id) DO UPDATE SET
+                label = excluded.label,
+                token_hash = excluded.token_hash,
+                revoked_at = excluded.revoked_at,
+                last_used_at = excluded.last_used_at
+            """,
+            (
+                row["token_id"],
+                row["project_key"],
+                row["label"],
+                row["token_hash"],
+                row["created_at"],
+                row["revoked_at"],
+                row["last_used_at"],
+            ),
+        )
+
+
+def load_project_api_token_row(
+    store_dir: Path | None,
+    token_id: str,
+) -> dict[str, Any] | None:
+    """Load one project API token by id."""
+
+    del store_dir
+    with _connect_global() as conn:
+        row = conn.execute(
+            """
+            SELECT *
+            FROM project_api_tokens
+            WHERE token_id = ?
+            """,
+            (token_id,),
+        ).fetchone()
+    return row
+
+
+def load_project_api_token_row_by_hash(
+    store_dir: Path | None,
+    token_hash: str,
+) -> dict[str, Any] | None:
+    """Load one project API token by hash."""
+
+    del store_dir
+    with _connect_global() as conn:
+        row = conn.execute(
+            """
+            SELECT *
+            FROM project_api_tokens
+            WHERE token_hash = ?
+            """,
+            (token_hash,),
+        ).fetchone()
+    return row
+
+
+def load_project_api_token_rows_for_project(
+    store_dir: Path | None,
+    project_key: str,
+) -> list[dict[str, Any]]:
+    """Load project API tokens for one project."""
+
+    del store_dir
+    with _connect_global() as conn:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM project_api_tokens
+            WHERE project_key = ?
+            ORDER BY created_at ASC, token_id ASC
+            """,
+            (project_key,),
+        ).fetchall()
+    return rows
+
+
+# ---------------------------------------------------------------------------
 # PhaseState rows
 # ---------------------------------------------------------------------------
 
