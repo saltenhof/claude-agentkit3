@@ -1378,7 +1378,7 @@ Total: ~32 Klassen.
 | Andere BC | Richtung | Was |
 |---|---|---|
 | `pipeline-framework` | PF -> EP | `assess_readiness`, `evaluate_scheduling`, `get_plan` (Orchestrator vor Story-Start, FK-70 §70.8) |
-| `story-context-manager` | EP -> SCM | liest StoryStatus zur DONE-Pruefung; PlannedStory-Metadaten (story_type, story_size, primary_repo) aus StoryContext |
+| `story-context-manager` | EP -> SCM | liest StoryStatus zur DONE-Pruefung; PlannedStory-Metadaten (story_type, story_size, participating_repos) aus StoryContext |
 | `governance-and-guards` | GG -> EP | Mandate-Eskalation als BlockingCondition (Klasse blocked_human/blocked_contract) |
 | `telemetry-and-events` | EP -> T | `Telemetry.write_event` fuer Plan-Events; `Telemetry.write_projection` fuer ExecutionPlan/PlannedStory-Tabellen |
 | `artifacts` | EP -> A | ExecutionPlan optional als Artefakt-Snapshot |

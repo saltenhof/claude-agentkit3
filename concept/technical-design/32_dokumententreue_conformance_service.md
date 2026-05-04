@@ -351,7 +351,7 @@ VektorDB-Abgleich.
 
 | Input | Quelle |
 |-------|--------|
-| Story-Beschreibung | Issue-Body (Problemstellung, Lösungsansatz, ACs) |
+| Story-Beschreibung | Story-Attribute (`description`, `solution_approach`, `acceptance_criteria`) |
 | Strategie-Dokumente | Manifest-Index gefiltert auf `scope: strategy` |
 | Architektur-Dokumente | Manifest-Index gefiltert auf `scope: architecture` |
 

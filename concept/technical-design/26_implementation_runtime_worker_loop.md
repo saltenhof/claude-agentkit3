@@ -154,19 +154,27 @@ Inkrement-Disziplin, Handover-Paket.
 
 ### 26.2.1 Startprotokoll
 
-Der Orchestrator spawnt den Worker als Claude-Code-Sub-Agent:
+Der Orchestrator spawnt den Worker als Sub-Agent ueber den
+konfigurierten Harness (Claude Code oder Codex; siehe FK-30 §30.11
+Multi-Harness):
 
 ```mermaid
 sequenceDiagram
     participant O as Orchestrator
-    participant CC as Claude Code
+    participant H as Harness
     participant W as Worker-Agent
 
-    O->>CC: Agent-Tool: spawn worker<br/>prompt_file=worker-implementation.md
-    Note over CC: Hook: agent_start Event<br/>(Telemetrie)
-    CC->>W: Neue Session mit Prompt
-    Note over W: Worker hat Zugriff auf:<br/>- Worktree (story/{story_id})<br/>- Prompts, Skills<br/>- LLM-Pools (für Reviews)<br/>- NICHT: QA-Artefakte (gesperrt)
+    O->>H: Spawn worker<br/>prompt_file=worker-implementation.md
+    Note over H: Hook: agent_start Event<br/>(Telemetrie)
+    H->>W: Neue Session mit Prompt
+    Note over W: Worker hat Zugriff auf:<br/>- Worktree-Map (Repo-Name -> Worktree-Pfad,<br/>  einer pro teilnehmendem Repo;<br/>  FK-22 §22.6.4)<br/>- Prompts, Skills<br/>- LLM-Pools (für Reviews)<br/>- NICHT: QA-Artefakte (gesperrt)
 ```
+
+Bei Multi-Repo-Stories (`participating_repos` mit |N| >= 2) erhaelt
+der Worker eine Worktree-Map als Spawn-Vertrag; der erste Eintrag
+in `participating_repos` ist der deterministische Spawn-CWD ohne
+fachliche Sonderrolle. Schreiben in nicht-teilnehmende Repos ist
+verboten (FK-22 §22.6.1).
 
 > **[Entscheidung 2026-04-08]** Element 9 — WorkerContextItem / WORKER_CONTEXT_SPEC wird als Runtime-Gate in `prompting/workers` uebernommen. `WorkerContextItemKey` als StrEnum. Registry mit `key`, `source`, `required_when`, `applies_to`. Aufrufkette: `resolve_worker_context()` → `validate_worker_context()` → `compose_worker_prompt()`. Getrennt von Workflow-DSL (Phasenlogik ≠ Spawn-Vertrag).
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 9.
@@ -178,12 +186,13 @@ Der Worker erhält bei Start folgende Informationen:
 | Kontext | Quelle | Wie |
 |---------|--------|-----|
 | Story-Beschreibung | `context.json` | Im Prompt eingebettet |
-| Akzeptanzkriterien | Issue-Body (aus `context.json`) | Im Prompt eingebettet |
+| Akzeptanzkriterien | Story-Attribut `acceptance_criteria` (aus `context.json`) | Im Prompt eingebettet |
 | Konzept/Entwurf (wenn vorhanden) | `entwurfsartefakt.json` oder Konzeptquellen (aus `concept_paths`) | Als Datei-Referenz im Prompt |
 | Guardrails | `_guardrails/` Dateien (aus `context.json`) | Als Datei-Referenzen im Prompt |
 | Mängelliste (bei Remediation) | `_temp/qa/{story_id}/feedback.json` | Als Datei-Referenz im Prompt |
 | Story-Typ und Größe | `context.json` | Im Prompt (bestimmt Review-Häufigkeit) |
 | ARE must_cover (wenn aktiviert) | Über MCP von ARE | Im Prompt eingebettet |
+| Worktree-Map (bei Multi-Repo) | `participating_repos` aus `context.json` plus aufgeloeste Worktree-Pfade | Tabelle im Prompt; erster Eintrag ist Spawn-CWD |
 
 ### 26.2.3 Worker-Varianten
 
@@ -213,6 +222,16 @@ Cross-Scope-Flaechen.
 Der Worker schneidet die Story in **vertikale Inkremente**, nicht
 nach technischen Schichten. Jedes Inkrement ist ein fachlich
 lauffähiger Teilstand.
+
+[Klarstellung 2026-05-04 — Inkremente bei Multi-Repo] Inkremente
+sind Worker-internes Strukturierungs-Pattern, kein fachlicher
+Vertrag. Bei Multi-Repo-Stories darf ein vertikales Inkrement
+mehrere teilnehmende Repos beruehren (z. B. API-Aenderung in einem
+Repo plus Aufrufer-Anpassung im anderen) und entsprechend N Commits
+in N Worktrees enthalten. Die fachliche Atomicity-Garantie
+entsteht aus der Closure-Atomar-Eigenschaft (FK-29 §29.1.6) und der
+QA-Bewertung der Story als Ganzes — nicht aus dem einzelnen
+Inkrement.
 
 **Falsch (technische Schichten):**
 ```
@@ -259,9 +278,16 @@ Kleinster verlässlicher Check — **nicht** Full-Build:
 
 | Was | Wie |
 |-----|-----|
-| Compile/Lint | Build-Befehl aus Config (z.B. `mvn compile`, `ruff check`) |
-| Betroffene Tests | Nur Tests für den geänderten Bereich (z.B. `pytest test_broker.py`) |
+| Compile/Lint | `build_command` der vom Inkrement berührten Repos aus `project.repositories[]` (z. B. `mvn compile`, `ruff check`) |
+| Betroffene Tests | Nur Tests für den geänderten Bereich, mit `test_command` der berührten Repos (z. B. `pytest test_broker.py`) |
 | Nicht: Full-Build | Der vollständige Build bleibt dem finalen Check vor Handover vorbehalten |
+
+[Klarstellung 2026-05-04 — Multi-Repo lokal verifizieren] Bei
+Multi-Repo-Inkrementen werden `build_command` und `test_command` nur
+fuer die im Inkrement **berührten** Repos durchlaufen, nicht fuer
+alle teilnehmenden Repos. Cross-Repo-Brueche, die ein Inkrement nicht
+offensichtlich trifft, werden beim finalen Gesamttest vor Handover
+(§26.6) erkannt — der laeuft ueber **alle teilnehmenden Repos**.
 
 ### 26.3.5 Schritt 3: Drift prüfen
 
@@ -485,13 +511,20 @@ Die Templates liegen in `prompts/sparring/`:
 Nachdem alle Inkremente fertig und commited sind:
 
 1. **Vollständiger Build:** Gesamtes Projekt kompilieren
-   (nicht nur betroffene Module)
+   (nicht nur betroffene Module). Bei Multi-Repo: `build_command`
+   **aller teilnehmenden Repos** aus `project.repositories[]`
+   durchlaufen.
 2. **Gesamte Test-Suite:** Alle Tests ausführen (nicht nur
-   betroffene Tests) — Regression erkennen
-3. **Push:** Branch auf Remote pushen
-   (`git push -u origin story/{story_id}`)
+   betroffene Tests) — Regression erkennen. Bei Multi-Repo:
+   `test_command` **aller teilnehmenden Repos** durchlaufen. Diese
+   Stufe ist die Sicherheits-Klammer fuer Cross-Repo-Brueche, die
+   waehrend der Inkrement-Pruefung (§26.3.4) nicht erfasst wurden.
+3. **Push:** Story-Branch auf Remote pushen. Bei Multi-Repo: pro
+   teilnehmendem Repo (`git push -u origin story/{story_id}` in
+   jedem Worktree).
 
-Erst wenn Build und Tests grün sind, geht der Worker zum Handover.
+Erst wenn Build und Tests in **allen** teilnehmenden Repos grün
+sind, geht der Worker zum Handover.
 
 ## 26.7 Handover-Paket
 

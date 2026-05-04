@@ -26,7 +26,6 @@ entities:
       - story_id
       - story_type
       - story_size
-      - primary_repo
       - participating_repos
       - planning_status
   - id: execution-planning.entity.planning-proposal

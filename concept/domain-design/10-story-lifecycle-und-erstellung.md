@@ -102,7 +102,7 @@ flowchart TD
         ANFORDERUNGEN["Anforderungen verlinken<br/>ARE: must_cover + context"]:::optional
         ANFORDERUNGEN --> DOD["Definition of Done<br/>Recurring Requirements<br/>automatisch injiziert"]:::optional
         DOD --> LABELS["Fachliche Labels<br/>aus kuratiertem Katalog<br/>(1–3 pro Story)"]
-        LABELS --> REPO_AFF["Repo-Affinität<br/>PRIMARY_REPO +<br/>PARTICIPATING_REPOS"]
+        LABELS --> REPO_AFF["Repo-Affinität<br/>PARTICIPATING_REPOS<br/>(gleichberechtigt)"]
     end
 
     REPO_AFF --> PROJECT
@@ -169,17 +169,22 @@ Scope.
 
 **Repo-Affinität ermitteln:** Bei Stories, die Code produzieren,
 identifiziert der Agent anhand der betroffenen Dateipfade automatisch,
-welche Repositories tangiert sind. Das Ergebnis sind zwei Felder:
-PRIMARY_REPO (das Repository mit den meisten/wichtigsten Änderungen)
-und PARTICIPATING_REPOS (alle Repositories mit mindestens einer
-betroffenen Datei). Die Zuordnung erfolgt über Longest-Prefix-Match
-der Dateipfade gegen die konfigurierten Repo-Pfade. Nur explizit
-aufgeführte Dateien zählen als Evidenz, keine Erwähnungen in
-Referenzen oder Logs. Beide Felder werden vollautomatisch durch den
-Create-User-Story-Skill bestimmt und direkt als Story-Attribute im
-AK3-Story-Backend gesetzt — keine manuelle Prüfung oder Korrektur vorgesehen. Bei
-Single-Repo-Projekten ist PRIMARY_REPO trivialerweise das einzige
-Repo. Die Participating Repos steuern drei Aspekte der nachfolgenden
+welche Repositories tangiert sind. Ergebnis ist das Feld
+PARTICIPATING_REPOS — alle Repositories mit mindestens einer
+betroffenen Datei. Es gibt keine fachliche Sonderrolle eines einzelnen
+Repos; alle teilnehmenden Repos sind gleichberechtigt. Die Zuordnung
+erfolgt über Longest-Prefix-Match der Dateipfade gegen die
+konfigurierten Repo-Pfade. Nur explizit aufgeführte Dateien zählen
+als Evidenz, keine Erwähnungen in Referenzen oder Logs. Das Feld
+wird vollautomatisch durch den Create-User-Story-Skill bestimmt und
+direkt als Story-Attribut im AK3-Story-Backend gesetzt — keine
+manuelle Prüfung oder Korrektur vorgesehen. Die deterministische
+Reihenfolge der Liste (z. B. nach Heatmap der Aenderungen sortiert)
+legt zugleich den Spawn-Worktree fest: Der erste Eintrag ist der
+Spawn-CWD-Anker des Workers (`participating_repos[0]`, FK-22 §22.6.4)
+und traegt damit keine fachliche Sonderrolle, sondern nur eine
+Spawn-Konvention. Bei Single-Repo-Projekten ist die Liste einelementig.
+Die Participating Repos steuern drei Aspekte der nachfolgenden
 Pipeline: welche Repos einen Feature-Branch und Worktree erhalten,
 welche ARE-Scopes für die Anforderungsverknüpfung gelten und wie der
 Branch-Guard den Arbeitsbereich einschränkt.

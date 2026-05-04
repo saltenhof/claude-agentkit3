@@ -154,7 +154,7 @@ flowchart TD
     MODE --> DONE_FULL(["Setup abgeschlossen<br/>mode: execution|exploration<br/>agents_to_spawn gesetzt"])
 ```
 
-> **[Entscheidung 2026-04-08]** Element 15 — Multi-Repo Worktree Logic ist Produktionsanforderung. `worktree_paths` (Dict: repo-id → Pfad) + `primary_repo_id` im Spawn-Vertrag. Runtime-Anforderung fuer Multi-Repo-Zielprojekte.
+> **[Entscheidung 2026-04-08]** Element 15 — Multi-Repo Worktree Logic ist Produktionsanforderung. `worktree_paths` (Dict: repo-name → Pfad) im Spawn-Vertrag. Runtime-Anforderung fuer Multi-Repo-Zielprojekte. Eine ausgezeichnete Repo-Sonderrolle gibt es seit der Entscheidung 2026-05-04 nicht mehr (siehe §22.6.1, gleichberechtigte Teilnehmer); der Spawn-CWD-Anker ergibt sich deterministisch als `participating_repos[0]` (siehe §22.6.4).
 > Element 29 — Scope-Overlap-Check (Preflight-Check 9) ist Pflicht. Parallele Story-Ausfuehrung ist Produktionsszenario.
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Elemente 15, 29.
 
@@ -437,12 +437,12 @@ teilnehmenden Repo. Concept- und Research-Stories durchlaufen
 diese Phase nicht (§22.5.1) und erhalten keinen Worktree.
 
 [Entscheidung 2026-05-04 — Multi-Repo Schnitt] Alle teilnehmenden
-Repos sind **gleichberechtigt**. Es gibt **kein ausgezeichnetes
-Primary-Repo**. Identifiziert wird ein Repo ausschliesslich ueber
-seinen Repo-Namen aus `project.repositories[].name` (FK-10
-§project.yaml); ein eigener Repo-Schluessel oder eine Repo-ID wird
-nicht eingefuehrt. `participating_repos` ist eine flache Liste von
-Repo-Namen.
+Repos sind **gleichberechtigt**. Es gibt **keine ausgezeichnete
+Sonderrolle** eines einzelnen Repos. Identifiziert wird ein Repo
+ausschliesslich ueber seinen Repo-Namen aus
+`project.repositories[].name` (FK-10 §project.yaml); ein eigener
+Repo-Schluessel oder eine Repo-ID wird nicht eingefuehrt.
+`participating_repos` ist eine flache Liste von Repo-Namen.
 
 ### 22.6.2 Ablauf
 
@@ -508,9 +508,10 @@ beim Spawn eine **Worktree-Map** als Kontext (Repo-Name -> Worktree-Pfad)
 und wechselt CWD pro Tool-Call zwischen Worktrees, soweit fachlich noetig.
 
 **Spawn-Worktree:** Der erste Eintrag in `participating_repos` dient als
-deterministischer Start-CWD. Er hat keine fachliche Sonderrolle — kein
-Primary-Repo, keine asymmetrische Berechtigung gegenueber den anderen
-Worktrees. Nur ein technischer Einstiegspunkt fuer den Worker-Spawn.
+deterministischer Start-CWD. Er hat keine fachliche Sonderrolle — keine
+ausgezeichnete Repo-Rolle, keine asymmetrische Berechtigung gegenueber
+den anderen Worktrees. Nur ein technischer Einstiegspunkt fuer den
+Worker-Spawn.
 
 Begruendung (Multi-Worker abgewaehlt):
 - **Cognitive Load:** ein Worker hat den vollstaendigen Story-Kontext.

@@ -343,7 +343,7 @@ Exploration/Execution-Unterscheidung.
 | Kriterium | Feld-Typ | Execution | Exploration |
 |-----------|----------|-----------|-------------|
 | Story-Typ | Enum | Bugfix, Implementation | (kein Story-Typ erzwingt allein Exploration) |
-| `concept_paths` (aus Issue-Body) | Pfadliste | Mindestens ein gültiger Pfad (nur bei Implementation execution-sperrend; bei Bugfix nicht, s. FK 22.8.1) | Leere Liste oder keine gültige Referenz |
+| `concept_paths` (Story-Attribut) | Pfadliste | Mindestens ein gültiger Pfad (nur bei Implementation execution-sperrend; bei Bugfix nicht, s. FK 22.8.1) | Leere Liste oder keine gültige Referenz |
 | Reifegrad | Enum | "Solution Approach" oder "Architecture Concept" | "Goal Only" oder leer |
 | Change-Impact | Enum | Local, Component | Cross-Component, Architecture Impact |
 | Neue Strukturen (APIs, Datenmodelle) | Boolean | false | true |

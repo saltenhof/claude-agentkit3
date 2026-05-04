@@ -40,9 +40,12 @@ glossary:
       definition: >
         Automatisch ermittelte Zuordnung einer Story zu Repositories
         ueber Longest-Prefix-Match der betroffenen Dateipfade. Ergebnis
-        sind PRIMARY_REPO (meiste Aenderungen) und PARTICIPATING_REPOS
-        (alle beteiligten Repos). Steuert Worktree-Anlage, ARE-Scopes
-        und Branch-Guard.
+        ist PARTICIPATING_REPOS (alle beteiligten Repos, gleichberechtigt
+        ohne Sonderrolle). Steuert Worktree-Anlage, ARE-Scopes und
+        Branch-Guard. Die deterministische Reihenfolge der Liste legt
+        zugleich den Spawn-Worktree fest (erster Eintrag = Spawn-CWD,
+        FK-22 §22.6.4); diese Position traegt nur die Spawn-Konvention,
+        keine fachliche Sonderrolle.
     - id: story-creation-pipeline
       definition: >
         Deterministischer Erstellungsablauf einer Story, der Konzeption,
@@ -543,11 +546,14 @@ Jeder gelistete Pfad wird per Longest-Prefix-Match gegen die in
 `.story-pipeline.yaml` konfigurierten Repo-Pfade abgeglichen.
 
 **Ergebnis:**
-- **PRIMARY_REPO:** Das Repo mit den meisten betroffenen Dateien
 - **PARTICIPATING_REPOS:** Alle Repos mit mindestens einer
-  betroffenen Datei
+  betroffenen Datei. Die Liste ist deterministisch sortiert
+  (z. B. nach Treffer-Heatmap absteigend, dann lexikographisch);
+  alle Repos sind fachlich gleichberechtigt. Der erste Eintrag
+  dient ausschliesslich als Spawn-CWD-Anker (FK-22 §22.6.4) und
+  traegt keine fachliche Sonderrolle.
 
-Beide Werte werden als Story-Attribute im AK3-Story-Backend gespeichert.
+Der Wert wird als Story-Attribut im AK3-Story-Backend gespeichert.
 Der Mensch kann die vorgeschlagene Affinität überprüfen und
 korrigieren.
 
@@ -563,7 +569,7 @@ Die Repo-Affinität beeinflusst nachgelagerte Pipeline-Phasen:
 
 | Effekt | Beschreibung | FK-Referenz |
 |--------|-------------|-------------|
-| Feature-Branches/Worktrees | PRIMARY_REPO und PARTICIPATING_REPOS bestimmen, für welche Repos Feature-Branches angelegt und Worktrees vorbereitet werden | FK 22 |
+| Feature-Branches/Worktrees | PARTICIPATING_REPOS bestimmt, für welche Repos Feature-Branches angelegt und Worktrees vorbereitet werden | FK 22 |
 | ARE-Scope-Ableitung | Participating Repos werden über die Repo→Scope-Tabelle in ARE-Scopes übersetzt (primäre Quelle für Scope-Ermittlung in 21.7.2) | FK 40 |
 | Branch Guard | Workspace-Einschränkung auf die beteiligten Repos | — |
 
@@ -574,13 +580,15 @@ def resolve_repo_affinity(
     story_body: str,
     pipeline_config: PipelineConfig,
 ) -> RepoAffinityResult:
-    """Ermittelt PRIMARY_REPO und PARTICIPATING_REPOS aus Story-Body.
+    """Ermittelt PARTICIPATING_REPOS aus Story-Body.
 
     1. Extrahiert Dateipfade aus ## Betroffene Dateien
     2. Longest-Prefix-Match gegen pipeline_config.repos
     3. Zählt Treffer pro Repo
-    4. PRIMARY_REPO = Repo mit max. Treffern
-    5. PARTICIPATING_REPOS = alle Repos mit >= 1 Treffer
+    4. PARTICIPATING_REPOS = alle Repos mit >= 1 Treffer,
+       deterministisch sortiert (Treffer absteigend, dann
+       lexikographisch). Erster Eintrag = Spawn-CWD-Anker
+       (FK-22 §22.6.4), keine fachliche Sonderrolle.
     """
 ```
 
@@ -617,9 +625,9 @@ Semantic Review und den Menschen (FK-09-020/021).
 
 Der Skill ruft den AK3-Story-Service auf und legt die Story mit
 allen ermittelten Attributen an: Story Type, Size, Module, Change
-Impact, New Structures, Concept Quality, Epic, PRIMARY_REPO,
-PARTICIPATING_REPOS, Labels, Akzeptanzkriterien, Konzeptquellen,
-externe Quellen, Guardrail-Referenzen, Dependencies (siehe FK-91).
+Impact, New Structures, Concept Quality, Epic, PARTICIPATING_REPOS,
+Labels, Akzeptanzkriterien, Konzeptquellen, externe Quellen,
+Guardrail-Referenzen, Dependencies (siehe FK-91).
 Dependencies werden ueber das StoryDependency-Repository registriert,
 nicht ueber Free-Text-Referenzen.
 

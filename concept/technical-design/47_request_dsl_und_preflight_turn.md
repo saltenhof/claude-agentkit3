@@ -110,7 +110,7 @@ benötigen:
 | Request-Typ | Benötigte RepoContext-Felder |
 |-------------|------------------------------|
 | `NEED_DIFF_EXPANSION` | `git` (für `diff_full()`), `git_base_branch` |
-| `NEED_FILE` / `NEED_SCHEMA` / `NEED_CALLSITE` | `repo_path`, Priorisierung über `primary_repo_id` |
+| `NEED_FILE` / `NEED_SCHEMA` / `NEED_CALLSITE` | `repo_path`, Priorisierung über Spawn-Worktree-Repo (`participating_repos[0]`, FK-22 §22.6.4) |
 | `NEED_RUNTIME_BINDING` | `repo_path`, `affected` (nur affected Repos durchsuchen) |
 | `NEED_TEST_EVIDENCE` | `repo_path` (als cwd für subprocess) |
 | `NEED_CONCEPT_SOURCE` | Nur `story_dir` (repo-unabhängig) |
@@ -154,21 +154,24 @@ class RequestResolver:
     """Löst Review-DSL-Requests deterministisch auf.
 
     Jeder Request-Typ hat eine eigene Auflösungsstrategie.
-    Multi-Repo: sucht über alle Repos, Primary-Repo hat Vorrang
-    bei Mehrdeutigkeit.
+    Multi-Repo: sucht über alle Repos; das Spawn-Worktree-Repo
+    (`participating_repos[0]`, FK-22 §22.6.4) hat Vorrang bei
+    Mehrdeutigkeit. Das ist eine deterministische
+    Disambiguierungsregel, keine fachliche Sonderrolle.
 
     Args:
         repos: Repo-Set mit vollem RepoContext (Git, Branch, Role, Affected).
-        primary_repo_id: ID des primären Repos (Vorrang bei Mehrdeutigkeit).
+        spawn_worktree_repo: Name des Spawn-Worktree-Repos
+            (= `participating_repos[0]`); Vorrang bei Mehrdeutigkeit.
     """
 
     def __init__(
         self,
         repos: dict[str, RepoContext],
-        primary_repo_id: str,
+        spawn_worktree_repo: str,
     ) -> None:
         self._repos = repos
-        self._primary_repo_id = primary_repo_id
+        self._spawn_worktree_repo = spawn_worktree_repo
 
     def resolve_all(self, requests: list[ReviewerRequest]) -> list[RequestResult]:
         """Löst bis zu MAX_REQUESTS Requests auf."""
@@ -202,7 +205,7 @@ class RequestResolver:
         """Exakter Pfad oder Glob-Pattern → Dateiinhalt.
 
         Auflösungsreihenfolge:
-        1. Exakter Match: repo_root / target (Primary-Repo zuerst)
+        1. Exakter Match: repo_root / target (Spawn-Worktree-Repo zuerst)
         2. Glob: repo_root.glob(target)
         3. Fallback: rg --files | grep target
         """
@@ -212,7 +215,7 @@ class RequestResolver:
         """Symbol-Name → class/interface/type Definition finden.
 
         Sucht: rg 'class {symbol}|interface {symbol}|type {symbol}'
-        über alle Repos (Primary zuerst).
+        über alle Repos (Spawn-Worktree-Repo zuerst).
         """
         ...
 
@@ -306,14 +309,14 @@ sequenceDiagram
 **Ablauf im Detail:**
 
 ```
-1. evidence = EvidenceAssembler(repos, primary_repo_id, ...).assemble()
+1. evidence = EvidenceAssembler(repos, spawn_worktree_repo, ...).assemble()
 2. manifest = evidence.manifest
 3. preflight_prompt = render_preflight_prompt(manifest)
 4. raw_response = chatgpt_send(preflight_prompt, merge_paths=manifest.file_paths)
 5. requests = parse_preflight_response(raw_response)
    # Bei Parse-Fehler: requests=[] + WARNING, Review läuft trotzdem weiter
 6. IF requests:
-     results = RequestResolver(repos, primary_repo_id).resolve_all(requests)
+     results = RequestResolver(repos, spawn_worktree_repo).resolve_all(requests)
      extended_paths = manifest.file_paths + [
          Path(r.file_path) for r in results if r.status == "RESOLVED"
      ]

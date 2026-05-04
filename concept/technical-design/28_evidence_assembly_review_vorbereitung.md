@@ -176,7 +176,7 @@ flowchart TD
 | 2 — Import-Extraktion | Regex-basierte Import-Auflösung für Python, TypeScript, Java (FK-46) | `SECONDARY_CONTEXT` | Gering — Regex kann False Positives erzeugen, Confidence Labels quantifizieren das |
 | 3 — Worker-Hints | `handover.json` und `worker-manifest.json` | `WORKER_ASSERTION` | Hoch — Worker-Claims sind ungeprüft, niedrigste Beweiskraft |
 
-> **[Entscheidung 2026-04-08]** Element 15 — Multi-Repo Worktree Logic ist Produktionsanforderung. `worktree_paths` (Dict: repo-id → Pfad) + `primary_repo_id` im Spawn-Vertrag. Runtime-Anforderung fuer Multi-Repo-Zielprojekte.
+> **[Entscheidung 2026-04-08]** Element 15 — Multi-Repo Worktree Logic ist Produktionsanforderung. `worktree_paths` (Dict: repo-name → Pfad) im Spawn-Vertrag. Runtime-Anforderung fuer Multi-Repo-Zielprojekte. Die urspruenglich vorgesehene Repo-Sonderrolle entfaellt mit Entscheidung 2026-05-04 (FK-22 §22.6.1, gleichberechtigte Teilnehmer); der Spawn-Worktree-Anker fuer deterministische Disambiguierung ist `participating_repos[0]` (FK-22 §22.6.4) ohne fachliche Sonderrolle.
 > Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 15.
 
 ### 28.3.2 Multi-Repo-Contract (`RepoContext`) (FK-28-001)
@@ -230,8 +230,13 @@ class RepoContext:
      die gegen das Repo-Set aufgelöst werden.
 
 3. **Priorisierung bei Multi-Repo:**
-   - Primary-Repo-Dateien haben höhere Priorität als
-     Secondary-Repo-Dateien bei gleicher `AuthorityClass`.
+   - Bei gleicher `AuthorityClass` haben Dateien aus dem
+     Spawn-Worktree-Repo (= `participating_repos[0]`,
+     FK-22 §22.6.4) Vorrang vor Dateien aus den uebrigen
+     teilnehmenden Repos. Das ist eine deterministische
+     Disambiguierungsregel ohne fachliche Sonderrolle —
+     der Spawn-Worktree ist der CWD-Anker des Workers,
+     nicht ein semantisch ausgezeichnetes Repo.
    - Repos mit `affected=false` werden nur für Import-Auflösung
      herangezogen, nicht für Diff-Collection.
 
@@ -400,7 +405,9 @@ def _enforce_size_limit(
 
     Innerhalb einer Klasse:
     - Geänderte Dateien > direkte Imports > Heuristik-Treffer
-    - Primary-Repo > Secondary-Repo (bei Multi-Repo)
+    - Spawn-Worktree-Repo (`participating_repos[0]`) > uebrige
+      teilnehmende Repos (deterministische Disambiguierung,
+      keine fachliche Sonderrolle, FK-22 §22.6.4)
     """
     sorted_entries = sorted(entries, key=lambda e: e.sort_key)
     included: list[BundleEntry] = []
@@ -456,16 +463,19 @@ class EvidenceAssembler:
 
     Args:
         repos: Repo-Set mit RepoContext pro Repository.
-        primary_repo_id: ID des primären Repos (höhere Priorität).
+        spawn_worktree_repo: Name des Spawn-Worktree-Repos
+            (= `participating_repos[0]`, FK-22 §22.6.4). Wird zur
+            deterministischen Disambiguierung gleichrangiger Treffer
+            herangezogen — keine fachliche Sonderrolle.
         story_dir: Verzeichnis der Story-Artefakte.
-context_json: Geladener `context.json`-Export eines `StoryContext`.
+        context_json: Geladener `context.json`-Export eines `StoryContext`.
         pipeline_config: Geladene .story-pipeline.yaml.
     """
 
     def __init__(
         self,
         repos: dict[str, RepoContext],
-        primary_repo_id: str,
+        spawn_worktree_repo: str,
         story_dir: Path,
         context_json: dict,
         pipeline_config: dict,

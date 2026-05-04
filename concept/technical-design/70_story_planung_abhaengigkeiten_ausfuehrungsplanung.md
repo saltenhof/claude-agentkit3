@@ -84,7 +84,7 @@ glossary:
       definition: >
         Eine Story im Backlog oder in Ausfuehrung, fuer die AK3 neben dem
         Story-Inhalt auch Planungsmetadaten kennt (u. a. story_type, story_size,
-        primary_repo, participating_repos, planning_status).
+        participating_repos, planning_status).
     - id: planning-proposal
       definition: >
         Strukturierter, versionierter Uebergabevertrag von einem Agenten an den
@@ -201,7 +201,6 @@ Mindestens relevant sind:
 - `story_id`
 - `story_type`
 - `story_size`
-- `primary_repo`
 - `participating_repos`
 - `human_touchpoints`
 - `external_prerequisites`
@@ -487,7 +486,8 @@ es einen expliziten Planungsmetadaten-Vertrag pro Story.
 Dieser Vertrag ist nicht identisch mit der Story-Beschreibung. Er
 enthaelt mindestens:
 
-- **Strukturmetadaten**: `primary_repo`, `participating_repos`,
+- **Strukturmetadaten**: `participating_repos` (gleichberechtigte
+  Liste, keine fachliche Sonderrolle eines Repos),
   relevante Scope-Surfaces, technische Konfliktflaechen
 - **Abhaengigkeiten**: harte und weiche Story-Beziehungen,
   Sammel- oder Endgate-Rollen

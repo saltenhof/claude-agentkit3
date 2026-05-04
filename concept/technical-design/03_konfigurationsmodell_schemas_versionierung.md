@@ -190,7 +190,7 @@ Telemetrie-DB ausgewertet (FK-68).
 
 **Modus-Ermittlung** (REF-032 + Remediation: 4-Trigger-Modell) liest die Felder
 `Story Type`, `Change Impact`, `New Structures` und `Concept Quality` sowie
-Konzeptpfade (`concept_paths`, aus dem Issue-Body geparst) über `StoryContext`
+Konzeptpfade (`concept_paths` als Story-Attribut aus dem AK3-Story-Backend) über `StoryContext`
 bzw. dessen `context.json`-Export.
 `Maturity`, `External Integrations` und `Requires Exploration` wurden entfernt.
 
