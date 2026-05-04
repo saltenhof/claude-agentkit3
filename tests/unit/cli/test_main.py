@@ -118,6 +118,26 @@ class TestCLIMain:
         assert "version:" in captured.out
         assert "git:" in captured.out
 
+    def test_uninstall_command(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """``uninstall`` removes AgentKit harness settings."""
+        install_code = main([
+            "install",
+            "--project-key", "test-cli-project",
+            "--project-name", "test-cli-project",
+            "--project-root", str(tmp_path),
+        ])
+
+        exit_code = main(["uninstall", "--project-root", str(tmp_path)])
+
+        assert install_code == 0
+        assert exit_code == 0
+        assert not (tmp_path / ".claude" / "settings.json").exists()
+        assert not (tmp_path / ".codex" / "config.toml").exists()
+        captured = capsys.readouterr()
+        assert "uninstalled" in captured.out.lower()
+
     def test_run_story_command(
         self, capsys: pytest.CaptureFixture[str],
     ) -> None:

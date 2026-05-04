@@ -45,6 +45,7 @@ class TestInstallScaffoldContract:
             ".claude",
             ".claude/context",
             ".claude/skills",
+            ".codex",
             "prompts",
             "stories",
             "tools",
@@ -62,6 +63,7 @@ class TestInstallScaffoldContract:
         ).is_file()
         assert (tmp_path / ".agentkit" / "hooks" / "pre_tool_use.py").is_file()
         assert (tmp_path / ".claude" / "settings.json").is_file()
+        assert (tmp_path / ".codex" / "config.toml").is_file()
         assert (tmp_path / "prompts" / "manifest.json").is_file()
         assert (tmp_path / "prompts" / "worker-implementation.md").is_file()
         assert (tmp_path / "tools" / "agentkit" / "projectedge.py").is_file()
@@ -145,20 +147,19 @@ class TestInstallScaffoldContract:
         assert hasattr(config, "repositories")
         assert len(config.repositories) >= 1
 
-    def test_double_install_is_rejected(self, tmp_path: Path) -> None:
-        """Installing into an already-installed project raises ProjectError."""
-        from agentkit.exceptions import ProjectError
-
+    def test_double_install_is_idempotent(self, tmp_path: Path) -> None:
+        """Installing into an already-installed project is a no-op."""
         install_agentkit(_make_install_config(
             tmp_path,
-            project_name="first",
+            project_name="contract-test",
         ))
 
-        with pytest.raises(ProjectError, match="already installed"):
-            install_agentkit(_make_install_config(
-                tmp_path,
-                project_name="second",
-            ))
+        result = install_agentkit(_make_install_config(
+            tmp_path,
+            project_name="contract-test",
+        ))
+
+        assert result.created_files == ()
 
     def test_scaffold_matches_resource_directories(
         self, tmp_path: Path,

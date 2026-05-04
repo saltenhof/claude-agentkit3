@@ -58,6 +58,7 @@ class TestInstallFresh:
         assert (root / ".agentkit" / "prompts").is_dir()
         assert (root / ".agentkit" / "hooks").is_dir()
         assert (root / ".claude" / "settings.json").is_file()
+        assert (root / ".codex" / "config.toml").is_file()
         assert (root / "stories").is_dir()
         assert (root / "tools" / "agentkit" / "projectedge.py").is_file()
 
@@ -97,13 +98,13 @@ class TestInstallFresh:
         assert lock["manifest_file"] == "manifest.json"
         assert "manifest_sha256" in lock
 
-    def test_install_fails_if_already_installed(self, tmp_path: object) -> None:
-        """Double install raises :class:`ProjectError`."""
+    def test_install_is_idempotent(self, tmp_path: object) -> None:
+        """Double install is a no-op when inputs are unchanged."""
         root = _as_path(tmp_path)
         config = _make_install_config(root, project_name="test")
         install_agentkit(config)
-        with pytest.raises(ProjectError):
-            install_agentkit(config)
+        result = install_agentkit(config)
+        assert result.created_files == ()
 
     def test_install_fails_if_root_missing(self, tmp_path: object) -> None:
         """Install into non-existent directory raises :class:`ProjectError`."""

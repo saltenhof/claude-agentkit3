@@ -45,6 +45,10 @@ def main(argv: list[str] | None = None) -> int:
         required=False,
         help="Optional prompt bundle root to bind into the project",
     )
+    uninstall_parser = subparsers.add_parser(
+        "uninstall", help="Remove AgentKit from a target project",
+    )
+    uninstall_parser.add_argument("--project-root", required=True)
 
     # run-story (minimal -- reads issue, runs pipeline)
     run_parser = subparsers.add_parser(
@@ -90,6 +94,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "install":
         return _cmd_install(args)
+    if args.command == "uninstall":
+        return _cmd_uninstall(args)
     if args.command == "run-story":
         return _cmd_run_story(args)
     if args.command == "doctor":
@@ -136,6 +142,24 @@ def _cmd_install(args: argparse.Namespace) -> int:
         return 0
 
     print(f"Install failed: {'; '.join(result.errors)}", file=sys.stderr)
+    return 1
+
+
+def _cmd_uninstall(args: argparse.Namespace) -> int:
+    """Handle ``agentkit uninstall`` command."""
+
+    from pathlib import Path
+
+    from agentkit.installer import uninstall_agentkit
+
+    result = uninstall_agentkit(Path(args.project_root))
+    if result.success:
+        print(f"AgentKit uninstalled from {args.project_root}")
+        for removed in result.removed_files:
+            print(f"  - {removed}")
+        return 0
+
+    print(f"Uninstall failed: {'; '.join(result.errors)}", file=sys.stderr)
     return 1
 
 

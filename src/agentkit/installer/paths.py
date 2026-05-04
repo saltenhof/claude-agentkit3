@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 
 AGENTKIT_DIR: str = ".agentkit"
+CLAUDE_DIR: str = ".claude"
+CODEX_DIR: str = ".codex"
 CONFIG_DIR: str = f"{AGENTKIT_DIR}/config"
 MANIFESTS_DIR: str = f"{AGENTKIT_DIR}/manifests"
 PROMPTS_DIR: str = f"{AGENTKIT_DIR}/prompts"
@@ -18,6 +20,8 @@ TEMP_DIR: str = "_temp"
 QA_DIR: str = f"{TEMP_DIR}/qa"
 PROJECT_CONFIG_FILE: str = "project.yaml"
 CONTROL_PLANE_CONFIG_FILE: str = "control-plane.json"
+CLAUDE_SETTINGS_FILE: str = "settings.json"
+CODEX_CONFIG_FILE: str = "config.toml"
 PROMPT_BUNDLE_LOCK_FILE: str = "prompt-bundle.lock.json"
 PROMPT_BUNDLE_STORE_ENV: str = "AGENTKIT_PROMPT_BUNDLE_STORE_ROOT"
 PIPELINE_CONFIG_FILE: str = "story-pipeline.yaml"
@@ -28,6 +32,14 @@ PHASE_STATE_FILE: str = "phase-state.json"
 
 def agentkit_dir(project_root: Path) -> Path:
     return project_root / AGENTKIT_DIR
+
+
+def claude_settings_path(project_root: Path) -> Path:
+    return project_root / CLAUDE_DIR / CLAUDE_SETTINGS_FILE
+
+
+def codex_config_path(project_root: Path) -> Path:
+    return project_root / CODEX_DIR / CODEX_CONFIG_FILE
 
 
 def config_dir(project_root: Path) -> Path:
@@ -140,6 +152,10 @@ __all__ = [
     "AGENTKIT_DIR",
     "CONFIG_DIR",
     "CONTEXT_FILE",
+    "CLAUDE_DIR",
+    "CLAUDE_SETTINGS_FILE",
+    "CODEX_CONFIG_FILE",
+    "CODEX_DIR",
     "CONTROL_PLANE_CONFIG_FILE",
     "HOOKS_DIR",
     "MANIFESTS_DIR",
@@ -157,6 +173,8 @@ __all__ = [
     "TOOLS_DIR",
     "AGENTKIT_TOOLS_DIR",
     "agentkit_dir",
+    "claude_settings_path",
+    "codex_config_path",
     "config_dir",
     "control_plane_config_path",
     "default_prompt_bundle_store_root",

@@ -1,0 +1,11 @@
+story_id: AG3-006
+title: "Multi-Harness Installer-Mechanik"
+type: implementation
+status: completed
+phase: setup
+created: "2026-05-04"
+completed_at: "2026-05-04T15:48:25.3273794+02:00"
+size: S
+depends_on:
+  - AG3-004
+unblocks: []

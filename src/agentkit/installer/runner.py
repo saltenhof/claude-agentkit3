@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
+
+import yaml
 
 from agentkit.config.defaults import (
     DEFAULT_MAX_FEEDBACK_ROUNDS,
@@ -14,6 +17,7 @@ from agentkit.config.defaults import (
     DEFAULT_VERIFY_LAYERS,
 )
 from agentkit.exceptions import ProjectError
+from agentkit.installer.codex_settings import write_codex_settings
 from agentkit.installer.file_ops import (
     atomic_write_text,
     atomic_write_yaml,
@@ -21,6 +25,14 @@ from agentkit.installer.file_ops import (
     create_or_replace_hardlink,
 )
 from agentkit.installer.paths import (
+    AGENTKIT_DIR,
+    AGENTKIT_TOOLS_DIR,
+    CLAUDE_DIR,
+    CODEX_DIR,
+    STATIC_PROMPTS_DIR,
+    STORIES_DIR,
+    claude_settings_path,
+    codex_config_path,
     config_dir,
     control_plane_config_path,
     project_config_path,
@@ -75,6 +87,14 @@ class InstallResult:
     success: bool
     project_root: Path
     created_files: tuple[str, ...] = ()
+    errors: tuple[str, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
+class UninstallResult:
+    success: bool
+    project_root: Path
+    removed_files: tuple[str, ...] = ()
     errors: tuple[str, ...] = field(default_factory=tuple)
 
 
@@ -250,8 +270,8 @@ def _deploy_static_resource_files(
             continue
 
         target = target_root / rel
-        copy_file(item, target)
-        created.append(str(rel))
+        if _copy_file_if_changed(item, target):
+            created.append(str(rel))
 
     return created
 
@@ -269,8 +289,9 @@ def _deploy_prompt_bindings(target_root: Path, prompt_source_dir: Path) -> list[
         )
 
     manifest_target = prompt_target_dir / PROMPT_MANIFEST_FILENAME
-    create_or_replace_hardlink(manifest_path, manifest_target)
-    created.append(str(manifest_target.relative_to(target_root)))
+    if not _file_contents_match(manifest_path, manifest_target):
+        create_or_replace_hardlink(manifest_path, manifest_target)
+        created.append(str(manifest_target.relative_to(target_root)))
 
     for entry in templates.values():
         if not isinstance(entry, dict):
@@ -286,8 +307,9 @@ def _deploy_prompt_bindings(target_root: Path, prompt_source_dir: Path) -> list[
             )
         source = prompt_source_dir / Path(relpath)
         target = prompt_target_dir / Path(relpath).name
-        create_or_replace_hardlink(source, target)
-        created.append(str(target.relative_to(target_root)))
+        if not _file_contents_match(source, target):
+            create_or_replace_hardlink(source, target)
+            created.append(str(target.relative_to(target_root)))
 
     return created
 
@@ -297,7 +319,7 @@ def _write_prompt_bundle_lock(
     *,
     manifest: dict[str, object],
     manifest_text: str,
-) -> str:
+) -> str | None:
     manifest_sha256 = hashlib.sha256(
         manifest_text.encode("utf-8"),
     ).hexdigest()
@@ -310,17 +332,18 @@ def _write_prompt_bundle_lock(
         "templates": manifest["templates"],
     }
     lock_path = prompt_bundle_lock_path(target_root)
-    atomic_write_text(
+    content = json.dumps(lock_data, indent=2, sort_keys=True) + "\n"
+    if not _write_text_if_changed(
         lock_path,
-        json.dumps(lock_data, indent=2, sort_keys=True) + "\n",
-    )
+        content,
+    ):
+        return None
     return str(lock_path.relative_to(target_root))
 
 
-def _write_control_plane_config(target_root: Path) -> str:
+def _write_control_plane_config(target_root: Path) -> str | None:
     config_path = control_plane_config_path(target_root)
-    atomic_write_text(
-        config_path,
+    content = (
         json.dumps(
             {
                 "base_url": "https://127.0.0.1:9080",
@@ -329,9 +352,43 @@ def _write_control_plane_config(target_root: Path) -> str:
             indent=2,
             sort_keys=True,
         )
-        + "\n",
+        + "\n"
     )
+    if not _write_text_if_changed(
+        config_path,
+        content,
+    ):
+        return None
     return str(config_path.relative_to(target_root))
+
+
+def _file_contents_match(source: Path, target: Path) -> bool:
+    if not target.is_file():
+        return False
+    return source.read_bytes() == target.read_bytes()
+
+
+def _copy_file_if_changed(source: Path, target: Path) -> bool:
+    if _file_contents_match(source, target):
+        return False
+    copy_file(source, target)
+    return True
+
+
+def _write_text_if_changed(path: Path, content: str) -> bool:
+    if path.is_file() and path.read_text(encoding="utf-8") == content:
+        return False
+    atomic_write_text(path, content)
+    return True
+
+
+def _write_yaml_if_changed(path: Path, data: dict[str, object]) -> bool:
+    if path.is_file():
+        existing = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if existing == data:
+            return False
+    atomic_write_yaml(path, data)
+    return True
 
 
 def install_agentkit(config: InstallConfig) -> InstallResult:
@@ -341,14 +398,6 @@ def install_agentkit(config: InstallConfig) -> InstallResult:
         raise ProjectError(
             f"Project root does not exist: {root}",
             detail={"project_root": str(root)},
-        )
-
-    ak_dir = root / ".agentkit"
-    if ak_dir.exists():
-        raise ProjectError(
-            f"AgentKit is already installed in {root} "
-            f"(.agentkit/ directory exists)",
-            detail={"project_root": str(root), "agentkit_dir": str(ak_dir)},
         )
 
     resources_dir = _resources_target_project_dir()
@@ -364,19 +413,24 @@ def install_agentkit(config: InstallConfig) -> InstallResult:
     if not cfg_dir.exists():
         cfg_dir.mkdir(parents=True, exist_ok=True)
 
-    created.append(
-        _write_prompt_bundle_lock(
-            root,
-            manifest=manifest,
-            manifest_text=manifest_text,
-        ),
+    prompt_lock = _write_prompt_bundle_lock(
+        root,
+        manifest=manifest,
+        manifest_text=manifest_text,
     )
-    created.append(_write_control_plane_config(root))
+    if prompt_lock is not None:
+        created.append(prompt_lock)
+    control_plane_config = _write_control_plane_config(root)
+    if control_plane_config is not None:
+        created.append(control_plane_config)
+    codex_settings = write_codex_settings(root)
+    if codex_settings is not None and codex_settings not in created:
+        created.append(codex_settings)
 
     yaml_path = project_config_path(root)
     yaml_data = _build_project_yaml(config)
-    atomic_write_yaml(yaml_path, yaml_data)
-    created.append(str(yaml_path.relative_to(root)))
+    if _write_yaml_if_changed(yaml_path, yaml_data):
+        created.append(str(yaml_path.relative_to(root)))
 
     return InstallResult(
         success=True,
@@ -384,8 +438,61 @@ def install_agentkit(config: InstallConfig) -> InstallResult:
         created_files=tuple(created),
     )
 
+
+def _remove_file(path: Path, project_root: Path) -> list[str]:
+    if not path.exists():
+        return []
+    path.unlink()
+    return [str(path.relative_to(project_root))]
+
+
+def _remove_tree(path: Path, project_root: Path) -> list[str]:
+    if not path.exists():
+        return []
+    shutil.rmtree(path)
+    return [str(path.relative_to(project_root))]
+
+
+def _remove_empty_dir(path: Path, project_root: Path) -> list[str]:
+    if not path.is_dir() or any(path.iterdir()):
+        return []
+    path.rmdir()
+    return [str(path.relative_to(project_root))]
+
+
+def uninstall_agentkit(project_root: Path) -> UninstallResult:
+    """Remove AgentKit-managed install artifacts from a target project."""
+
+    if not project_root.is_dir():
+        raise ProjectError(
+            f"Project root does not exist: {project_root}",
+            detail={"project_root": str(project_root)},
+        )
+
+    removed: list[str] = []
+    removed.extend(_remove_file(codex_config_path(project_root), project_root))
+    removed.extend(_remove_empty_dir(project_root / CODEX_DIR, project_root))
+    removed.extend(_remove_file(claude_settings_path(project_root), project_root))
+    removed.extend(_remove_empty_dir(project_root / CLAUDE_DIR / "context", project_root))
+    removed.extend(_remove_empty_dir(project_root / CLAUDE_DIR / "skills", project_root))
+    removed.extend(_remove_empty_dir(project_root / CLAUDE_DIR, project_root))
+    removed.extend(_remove_tree(project_root / AGENTKIT_DIR, project_root))
+    removed.extend(_remove_tree(project_root / AGENTKIT_TOOLS_DIR, project_root))
+    removed.extend(_remove_empty_dir(project_root / "tools", project_root))
+    removed.extend(_remove_tree(project_root / STATIC_PROMPTS_DIR, project_root))
+    removed.extend(_remove_empty_dir(project_root / STORIES_DIR, project_root))
+
+    return UninstallResult(
+        success=True,
+        project_root=project_root,
+        removed_files=tuple(removed),
+    )
+
+
 __all__ = [
     "InstallConfig",
     "InstallResult",
+    "UninstallResult",
     "install_agentkit",
+    "uninstall_agentkit",
 ]
