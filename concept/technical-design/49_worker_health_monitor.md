@@ -51,8 +51,24 @@ Workers durchlaufen wird.
 
 Nach jedem Tool-Call berechnet der PostToolUse-Hook einen
 deterministischen Score (0-100) aus gewichteten Heuristiken.
-Der Hook wird über den Matcher `Bash|Write|Edit|Read|Grep|Glob|Agent`
-auf alle relevanten Tool-Typen registriert (FK-30 §30.3.1).
+
+[Entscheidung 2026-05-04 — Multi-Harness] Die Scoring-Engine
+operiert **harness-neutral** auf `HookEvent`-Feldern (`operation`,
+`operation_args`, `principal_kind`, `cwd`, `session_id`), nicht auf
+harness-spezifischen Tool-Namen-Strings. Der harness-spezifische
+Adapter (FK-30 §30.11.3) ruft die Scoring-Engine, nachdem er das
+`HookEvent` erstellt hat. Die heutigen Tool-Name-Beispiele
+(`Bash`/`Write`/`Edit`/`Read`/`Grep`/`Glob`/`Agent`) entsprechen
+dem Claude-Code-Adapter; der Codex-Adapter mappt seine Tool-Namen
+analog auf dieselben generischen Operationen
+(`bash_command`, `file_write`, `file_edit`, `file_read`,
+`unknown_tool`).
+
+Sonder-Heuristiken pro Harness sind moeglich, aber kein Default:
+ein Adapter darf zusaetzliche, harness-spezifische Detail-Signale
+beisteuern, sofern die Default-Heuristiken weiterhin generisch
+arbeiten. Der Erweiterungspunkt ist nicht jetzt im Detail
+spezifiziert; er ergibt sich aus der konkreten Adapter-Praxis.
 
 **Heuristiken:**
 

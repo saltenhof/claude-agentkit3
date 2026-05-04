@@ -232,15 +232,35 @@ Stattdessen:
 
 1. installiert er versionierte AgentKit-Skill-Bundles systemweit
 2. waehlt projektweise das passende Profil (`core`, `are`, ...)
-3. erzeugt unter `.claude/skills/` Symlinks auf genau diese
-   systemweiten Bundle-Verzeichnisse
+3. erzeugt **pro unterstuetzem Harness** Symlinks auf genau diese
+   systemweiten Bundle-Verzeichnisse — fuer Claude Code unter
+   `.claude/skills/`, fuer Codex unter dem Codex-Skill-Verzeichnis
+   (Pfad-Konvention nach Codex-Standard)
 
-Beispiel:
+Beispiel (Multi-Harness):
 
 ```text
 C:\ProgramData\AgentKit\bundles\4.0.0\core\skills\execute-userstory\
-T:\repo\.claude\skills\execute-userstory  ->  C:\ProgramData\AgentKit\bundles\4.0.0\core\skills\execute-userstory
+
+T:\repo\.claude\skills\execute-userstory   ->  C:\ProgramData\AgentKit\bundles\4.0.0\core\skills\execute-userstory
+T:\repo\.codex\skills\execute-userstory    ->  C:\ProgramData\AgentKit\bundles\4.0.0\core\skills\execute-userstory
 ```
+
+[Entscheidung 2026-05-04 — Multi-Harness] AK3 unterstuetzt ab Tag 1
+zwei Harnesses parallel (Claude Code, Codex; siehe FK-30 §30.11).
+Beide haben kompatible `SKILL.md`-Skill-Formate. Der Installer
+pflanzt deshalb pro Skill **zwei Symlinks** — einen pro Harness.
+Der **Skill-Inhalt ist Single-Source** im systemweiten Bundle; die
+Symlinks zeigen beide auf dieselbe Datei.
+
+Falls einzelne Harnesses harness-spezifische Frontmatter- oder
+Format-Konventionen erzwingen, die das gemeinsame Bundle nicht
+erfuellt, erzeugt der Installer **substituierte Varianten** im
+AK3-Installationsverzeichnis und linkt diese in den jeweiligen
+Harness-Skill-Pfad. Substitution arbeitet auf einer **neutralen
+Skill-Repraesentation** im Bundle und produziert harness-spezifische
+Auslieferungen — ohne dass der inhaltliche Skill (Trigger, Vorgehen,
+Schritte) doppelt gepflegt werden muss.
 
 **Top-Surface `Skills.bind_skill`:**
 
