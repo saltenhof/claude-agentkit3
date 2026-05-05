@@ -331,14 +331,16 @@ Checks in Kap. 33.8.
 
 Nach Layer 1 PASS und vor Layer 2 START findet die
 Kontext-Aufbereitung statt. Der Context Sufficiency Builder
-(Kap. 33, Stage `context_sufficiency`) prüft und reichert das
-ContextBundle an. Anschließend konvertiert der Layer-2-Caller
-das Bundle in das Transport-Format für den Runner.
+(FK-37 §37.2, Stage `context_sufficiency`) prüft und reichert
+das ContextBundle an. Die Konvertierung in das Transport-Format
+findet innerhalb von `_run_layer2_parallel()` des Phase Runners
+statt — keine separate Caller-Komponente (siehe FK-37 §37.3.1
+Korrektur 2026-04-09).
 
 ```mermaid
 flowchart TD
     L1["Layer 1 PASS"] --> CSB["ContextSufficiencyBuilder.build(bundle)<br/>→ enriched_bundle: ContextBundle"]
-    CSB --> PACK["Per-Feld Packing im Layer-2-Caller"]
+    CSB --> PACK["Per-Feld Packing in _run_layer2_parallel()"]
     PACK --> CONV["enriched_bundle._asdict()<br/>→ dict[str, str]"]
     CONV --> RUN["ParallelEvalRunner.run(context=dict)"]
     RUN --> L2["Layer 2 START"]
@@ -348,8 +350,8 @@ flowchart TD
 
 1. `ContextSufficiencyBuilder.build(bundle)` → `SufficiencyResult`
    mit `enriched_bundle: ContextBundle`
-2. **Layer-2-Caller** (einzige Stelle, die beide Abstraktionen
-   kennt):
+2. **Innerhalb `_run_layer2_parallel()` des Phase Runners**
+   (einzige Stelle, die beide Abstraktionen kennt):
    - Per-Feld Packing: `pack_markdown()` für `story_spec`,
      `concept_excerpt`, `arch_references`
    - Per-Feld Packing: `pack_code()` für `diff_summary`,
@@ -369,9 +371,10 @@ Der `ParallelEvalRunner.run()` behält seine Signatur
 Der Runner ist ein reiner Executor für Placeholder-Rendering —
 er braucht keine Bundle-Semantik.
 
-Die Konvertierung findet exakt einmal im Layer-2-Caller statt
-(`enriched_bundle._asdict()` → `dict[str, str]`). Der Caller ist
-die einzige Stelle, die beide Abstraktionen kennt. Weder der
+Die Konvertierung findet exakt einmal innerhalb von
+`_run_layer2_parallel()` statt
+(`enriched_bundle._asdict()` → `dict[str, str]`). Diese Funktion
+ist die einzige Stelle, die beide Abstraktionen kennt. Weder der
 Sufficiency Builder noch der Runner/Evaluator werden mit der
 jeweils anderen Abstraktion belastet.
 

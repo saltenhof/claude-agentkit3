@@ -448,10 +448,10 @@ flowchart TD
     ORCH["Orchestrator-Agent<br/>startet Pipeline"] --> SETUP
 
     subgraph SETUP_PHASE ["agentkit run-phase setup"]
-        SETUP["Preflight (8 Gates)"] --> WT["Worktree erstellen"]
+        SETUP["Preflight (9 Gates,<br/>FK-22 §22.3.1)"] --> WT["Worktree erstellen<br/>(pro teilnehmendem Repo)"]
         WT --> CTX["Story-Context<br/>berechnen"]
-        CTX --> GUARDS["Guards aktivieren<br/>(Marker-Datei)"]
-        GUARDS --> MODE{"Mode-Routing<br/>(6 Kriterien)"}
+        CTX --> GUARDS["Guards aktivieren<br/>(Lock-Record im<br/>State-Backend)"]
+        GUARDS --> MODE{"Mode-Routing<br/>(4 Trigger,<br/>FK-22 §22.8)"}
     end
 
     MODE -->|Exploration| EXPLORE
@@ -464,24 +464,23 @@ flowchart TD
         DOCTREUE -->|PASS| IMPL
     end
 
-    subgraph IMPL_PHASE ["Implementation (Worker-Agent)"]
-        IMPL["Vertikale Inkremente:<br/>Code → Check → Drift → Commit"]
+    subgraph IMPL_PHASE ["agentkit run-phase implementation"]
+        IMPL["Worker-Loop:<br/>Vertikale Inkremente<br/>Code → Check → Drift → Commit"]
         IMPL --> REVIEW["Reviews durch<br/>konfigurierte LLMs"]
         REVIEW --> HANDOVER["Handover-Paket<br/>erzeugen"]
-    end
+        HANDOVER --> VERIFY
 
-    HANDOVER --> VERIFY
-
-    subgraph VERIFY_PHASE ["agentkit run-phase verify"]
-        VERIFY["Schicht 1:<br/>Deterministische Checks"]
-        VERIFY -->|PASS| LLM_EVAL["Schicht 2:<br/>LLM-Bewertungen<br/>(QA 12 Checks + Semantic)"]
-        LLM_EVAL -->|PASS| ADV["Schicht 3:<br/>Adversarial Testing"]
-        ADV -->|keine Befunde| POLICY["Schicht 4:<br/>Policy-Evaluation"]
-        VERIFY -->|FAIL| FEEDBACK
-        LLM_EVAL -->|FAIL| FEEDBACK
-        ADV -->|Befunde| FEEDBACK
-        POLICY -->|FAIL| FEEDBACK
-        FEEDBACK["Mängelliste<br/>an Worker"]:::fail --> IMPL
+        subgraph QA_SUBFLOW ["QA-Subflow (intern, FK-27)"]
+            VERIFY["Schicht 1:<br/>Deterministische Checks"]
+            VERIFY -->|PASS| LLM_EVAL["Schicht 2:<br/>LLM-Bewertungen<br/>(QA 12 Checks + Semantic)"]
+            LLM_EVAL -->|PASS| ADV["Schicht 3:<br/>Adversarial Testing"]
+            ADV -->|keine Befunde| POLICY["Schicht 4:<br/>Policy-Evaluation"]
+            VERIFY -->|FAIL| FEEDBACK
+            LLM_EVAL -->|FAIL| FEEDBACK
+            ADV -->|Befunde| FEEDBACK
+            POLICY -->|FAIL| FEEDBACK
+            FEEDBACK["Mängelliste<br/>an Worker"]:::fail --> IMPL
+        end
     end
 
     POLICY -->|PASS| CLOSURE

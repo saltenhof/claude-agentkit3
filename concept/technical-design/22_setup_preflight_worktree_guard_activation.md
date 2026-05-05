@@ -686,8 +686,8 @@ Die folgenden Felder und Kriterien wurden in REF-032 entfernt:
 | Entfernt | Grund |
 |----------|-------|
 | `Requires Exploration` (GitHub Boolean) | Ersetzt durch `Concept Quality = Low` |
-| `External Integrations` (GitHub Boolean) | Redundant zu Trigger 2 (Change Impact) und Trigger 3 (New Structures) |
-| Maturity-Kriterium in `_determine_mode` | Redundant zu `Concept Quality`; das Feld `Maturity` bleibt in GitHub für andere Zwecke bestehen |
+| `External Integrations` (Boolean) | Redundant zu Trigger 2 (Change Impact) und Trigger 3 (New Structures) |
+| Maturity-Kriterium in `_determine_mode` | Redundant zu `Concept Quality`; das Story-Attribut `Maturity` bleibt im AK3-Story-Backend für andere Zwecke bestehen |
 
 ### 22.8.3 Ergebnis im Phase-State
 

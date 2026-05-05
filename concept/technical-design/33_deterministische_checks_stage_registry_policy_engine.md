@@ -25,11 +25,11 @@ glossary:
   exported_terms:
     - id: policy-engine
       definition: >
-        Deterministische Aggregationskomponente (Verify Schicht 4), die Ergebnisse
-        aller Verify-Schichten zu einem Gesamtverdikt zusammenführt. Wertet nur
-        Stages aus, deren Schicht tatsächlich durchlaufen wurde. Falscher Producer
-        ist immer blocking; fehlendes Artefakt in durchlaufener Schicht ist FAIL
-        (fail-closed).
+        Deterministische Aggregationskomponente (QA-Subflow Schicht 4 innerhalb
+        der Implementation-Phase), die Ergebnisse aller QA-Subflow-Schichten zu
+        einem Gesamtverdikt zusammenführt. Wertet nur Stages aus, deren Schicht
+        tatsächlich durchlaufen wurde. Falscher Producer ist immer blocking;
+        fehlendes Artefakt in durchlaufener Schicht ist FAIL (fail-closed).
       see_also:
         - term: policy-verdict
           domain: verify-system
@@ -47,7 +47,7 @@ glossary:
           domain: verify-system
     - id: stage-definition
       definition: >
-        Typisiertes Profil einer Verify-Stage in der StageRegistry. Enthält:
+        Typisiertes Profil einer QA-Subflow-Stage in der StageRegistry. Enthält:
         id, layer (1-4), kind (deterministic | llm_evaluation | agent | policy),
         applies_to (Story-Typen), blocking, trust_class (A/B/C/None), producer
         und execution_policy. Nicht überschreibbar ausser blocking.
@@ -58,7 +58,7 @@ glossary:
           domain: verify-system
     - id: stage-registry
       definition: >
-        Eigenstaendige Top-Level-Komponente, die alle Verify-Stages typisiert
+        Eigenstaendige Top-Level-Komponente, die alle QA-Subflow-Stages typisiert
         verwaltet und einen StageExecutionPlan für einen konkreten Gate-Aufruf
         materialisiert. Ziel der Pattern-/Check-Promotion aus dem FailureCorpus.
         Die Registry plant, der GateRunner führt aus, die PolicyEngine aggregiert.

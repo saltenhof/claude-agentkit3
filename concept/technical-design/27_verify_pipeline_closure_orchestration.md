@@ -159,8 +159,8 @@ einen `StoryResetService` ausloesen.
 
 ### 27.2.1 Identitätsfelder
 
-Jede Verify-Remediation-Iteration bildet einen atomaren QA-Zyklus
-mit drei Identitätsfeldern:
+Jede QA-Subflow-Remediation-Iteration bildet einen atomaren QA-Zyklus
+mit vier Identitätsfeldern:
 
 | Feld | Typ | Semantik |
 |------|-----|----------|
@@ -186,17 +186,17 @@ idle → awaiting_qa → awaiting_policy → pass
 ```
 
 - `idle`: Kein aktiver QA-Zyklus
-- `awaiting_qa`: Verify-Schichten laufen (Schicht 1–3)
+- `awaiting_qa`: QA-Subflow-Schichten laufen (Schicht 1–3)
 - `awaiting_policy`: Policy-Evaluation (Schicht 4) ausstehend
-- `pass`: Policy-Evaluation bestanden → Verify COMPLETED (kein Umweg über `awaiting_remediation`)
-- `awaiting_remediation`: Verify gescheitert, Worker-Remediation erwartet
+- `pass`: Policy-Evaluation bestanden → QA-Subflow PASS (Implementation-Phase kann COMPLETED erreichen; kein Umweg über `awaiting_remediation`)
+- `awaiting_remediation`: QA-Subflow gescheitert, Worker-Remediation erwartet
 - `escalated`: Direkter Übergang aus `awaiting_qa` bei `impact.violation` (vor Policy-Evaluation); oder aus `awaiting_remediation` bei `max_rounds_exceeded`
 
 ### 27.2.3 Artefakt-Invalidierung
 
 **Zweck:** Verhindert, dass veraltete Artefakte aus einer früheren
-Verify-Runde nach einer Remediation in späteren Runden konsumiert
-werden.
+QA-Subflow-Runde nach einer Remediation in späteren Runden
+konsumiert werden.
 
 Wenn ein neuer Zyklus beginnt (`advance_qa_cycle()`), werden alle
 zyklusgebundenen Artefaktdateien gelöscht oder nach `stale/`

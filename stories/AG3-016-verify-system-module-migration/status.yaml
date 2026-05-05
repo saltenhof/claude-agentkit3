@@ -1,0 +1,9 @@
+story_id: AG3-016
+title: "Verify-System: agentkit.qa.* -> agentkit.verify_system.* migrieren"
+type: implementation
+status: ready
+phase: setup
+created: "2026-05-05"
+size: M
+depends_on: []
+unblocks: []

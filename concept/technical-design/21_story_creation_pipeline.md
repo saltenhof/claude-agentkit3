@@ -147,7 +147,7 @@ flowchart TD
 
     subgraph FIELDS_PHASE ["Feldbelegung"]
         FIELDS["Story-Typ, Größe,<br/>Modul, Akzeptanzkriterien<br/>bestimmen"]
-        FIELDS --> MODE_FIELDS["Modus-Felder setzen:<br/>Maturity, Change Impact,<br/>New Structures,<br/>External Integrations"]
+        FIELDS --> MODE_FIELDS["Modus-Felder setzen<br/>(REF-032, 4-Trigger):<br/>Change Impact,<br/>New Structures,<br/>Concept Quality"]
         MODE_FIELDS --> CONCEPT_REF["Konzeptquellen +<br/>externe Quellen<br/>referenzieren (s. 21.3.3)"]
         CONCEPT_REF --> ARE_CHECK{"ARE<br/>aktiviert?"}
 
@@ -543,7 +543,7 @@ berücksichtigt (Strong Evidence Only).
 ### 21.9.2 Longest-Prefix-Match
 
 Jeder gelistete Pfad wird per Longest-Prefix-Match gegen die in
-`project.yaml` konfigurierten Repo-Pfade abgeglichen.
+`project.yaml` konfigurierten `repositories[]`-Eintraege abgeglichen.
 
 **Ergebnis:**
 - **PARTICIPATING_REPOS:** Alle Repos mit mindestens einer
@@ -583,7 +583,7 @@ def resolve_repo_affinity(
     """Ermittelt PARTICIPATING_REPOS aus Story-Body.
 
     1. Extrahiert Dateipfade aus ## Betroffene Dateien
-    2. Longest-Prefix-Match gegen pipeline_config.repos
+    2. Longest-Prefix-Match gegen pipeline_config.repositories
     3. Zählt Treffer pro Repo
     4. PARTICIPATING_REPOS = alle Repos mit >= 1 Treffer,
        deterministisch sortiert (Treffer absteigend, dann

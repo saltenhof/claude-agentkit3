@@ -33,9 +33,9 @@ defers_to:
   - target: FK-21
     scope: external-sources
     reason: Externe Quellen-Auflösung in FK-21 §21.3.3
-  - target: FK-23
+  - target: FK-05
     scope: integration-stabilization
-    reason: Vertragsprofil integration_stabilization wird in FK-23 fachlich beschrieben
+    reason: Vertragsprofil integration_stabilization wird in FK-05 fachlich normiert
 supersedes: []
 superseded_by:
 tags: [verify, verify-context, context-bundle, context-sufficiency, bundle-packing, integration-stabilization]

@@ -107,7 +107,7 @@ def build_feedback(story_id: str) -> list[Finding]:
     findings = []
 
     # Schicht 1: Structural Failures
-    # Fail-safe: structural.json kann fehlen wenn Verify in der Artefakt-Prüfung
+    # Fail-safe: structural.json kann fehlen wenn der QA-Subflow in der Artefakt-Prüfung
     # gescheitert ist (bevor structural.json erzeugt wurde).
     structural = load_artifact(story_id, "structural")
     for check in (structural.checks if structural else []):

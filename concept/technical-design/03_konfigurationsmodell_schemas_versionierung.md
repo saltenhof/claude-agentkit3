@@ -201,7 +201,7 @@ bzw. dessen `context.json`-Export.
 Überschreiben alle anderen Ebenen für einen einzelnen Aufruf:
 
 ```bash
-agentkit run-phase verify --story ODIN-042 --config .agentkit/config/project.yaml
+agentkit run-phase implementation --story ODIN-042 --config .agentkit/config/project.yaml
 agentkit structural --story ODIN-042 --repo-id backend --base-ref main
 agentkit install --gh-owner acme-corp --gh-repo trading-platform --dry-run
 ```
