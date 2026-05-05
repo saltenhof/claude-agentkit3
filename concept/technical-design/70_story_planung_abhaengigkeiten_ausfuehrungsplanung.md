@@ -13,9 +13,6 @@ authority_over:
   - scope: backlog-readiness
   - scope: parallelization-policy
 defers_to:
-  - target: FK-12
-    scope: github-integration
-    reason: GitHub bleibt aktueller Adapterpfad fuer Story- und Board-Metadaten
   - target: FK-21
     scope: story-creation
     reason: Story-Erstellung liefert die ersten Planungsmetadaten fuer neue Stories

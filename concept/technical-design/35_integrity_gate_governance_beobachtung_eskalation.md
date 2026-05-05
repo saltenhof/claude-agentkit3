@@ -687,18 +687,24 @@ gemäß FK-54.
 
 ### 35.4.2 Eskalationspunkte (vollständig)
 
+Vollstaendige Liste in FK-20 §20.6.1 (12 Trigger; normative Quelle).
+Hier zur Querreferenz die Phase- und Status-Zuordnung:
+
 | Auslöser | Phase | Phase-State | Resume |
 |----------|-------|------------|--------|
-| Preflight FAIL | setup | FAILED | `agentkit cleanup` + neuer Run |
-| Dokumententreue Ebene 2 FAIL | exploration | ESCALATED | `agentkit reset-escalation` → neuer Run |
-| Offene Punkte brauchen Freigabe | exploration | PAUSED | `agentkit resume` nach Freigabe |
-| Scope-Explosion (Klasse 3) | exploration | PAUSED | Mensch entscheidet ueber offiziellen Story-Split (`agentkit split-story`) oder anderes weiteres Vorgehen |
-| Max Feedback-Runden erschöpft | verify | ESCALATED | Story anpassen, dann neuer Run |
-| Impact-Violation (Execution Mode) | verify | ESCALATED | Issue-Metadaten korrigieren |
-| Integrity-Gate FAIL | closure | ESCALATED | Audit-Log prüfen, Ursache beheben |
-| Merge-Konflikt | closure | ESCALATED | Mensch löst Konflikt manuell |
-| Governance: kritischer Incident | jede | PAUSED | `agentkit resume` nach Prüfung |
-| Governance: harter Verstoß (Secrets, Manipulation) | jede | ESCALATED | Sicherheits-Review, dann neuer Run |
+| Preflight FAIL | setup | ESCALATED (`escalation_reason: "preflight_fail"`) | `agentkit reset-escalation` + neuer Run |
+| Dokumententreue Ebene 2 FAIL | exploration | ESCALATED (`escalation_reason: "doc_fidelity_fail"`) | `agentkit reset-escalation` → neuer Run |
+| Design-Review-Gate FAIL non-remediable | exploration | ESCALATED (`escalation_reason: "design_review_rejected"`) | `agentkit reset-escalation` → neuer Run |
+| Offene Punkte brauchen Freigabe | exploration | PAUSED (`AWAITING_DESIGN_REVIEW` o.ae.) | `agentkit resume` nach Freigabe |
+| Scope-Explosion (Klasse 3) | exploration | PAUSED | Mensch entscheidet ueber offiziellen Story-Split (`agentkit split-story`) |
+| Worker BLOCKED (unloesbarer Constraint) | implementation | ESCALATED (`escalation_reason: "worker_blocked"`) | Externen Constraint loesen, dann neuer Run |
+| Dokumententreue Ebene 3 FAIL (Umsetzungstreue) | implementation (QA-Subflow) | ESCALATED (`escalation_reason: "doc_fidelity_fail"`) | `agentkit reset-escalation` → neuer Run |
+| Max Feedback-Runden erschöpft | implementation (QA-Subflow) | ESCALATED (`escalation_reason: "max_rounds_exceeded"`) | Story anpassen, dann neuer Run |
+| Impact-Violation (Execution oder Exploration Mode) | implementation (QA-Subflow) | ESCALATED (`escalation_reason: "impact_violation"`) | Story-Attribute korrigieren oder neue Exploration |
+| Integrity-Gate FAIL | closure | ESCALATED (`escalation_reason: "integrity_fail"`) | Audit-Log prüfen, Ursache beheben |
+| Merge-Konflikt | closure | ESCALATED (`escalation_reason: "merge_fail"`) | Mensch löst Konflikt manuell |
+| Governance: kritischer Incident | jede | PAUSED (`pause_reason: GOVERNANCE_INCIDENT`) | `agentkit resume` nach Prüfung |
+| Governance: harter Verstoß (Secrets, Manipulation) | jede | ESCALATED (`escalation_reason: "governance_violation"`) | Sicherheits-Review, dann neuer Run |
 
 ### 35.4.3 PAUSED vs. ESCALATED
 

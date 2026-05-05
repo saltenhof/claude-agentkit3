@@ -70,10 +70,12 @@ glossary:
           domain: governance-and-guards
     - id: hook-enforcement
       definition: >
-        Plattformseitiger Mechanismus (Claude Code PreToolUse/PostToolUse),
-        der jeden Tool-Call eines Agenten abfaengt. Exit 0 erlaubt, Exit 2
-        blockiert, jeder Crash ist fail-closed blockiert. Hooks sind Teil der
-        Plattform-Infrastruktur — Agenten koennen sie nicht umgehen.
+        Plattformseitiger Mechanismus, der jeden Tool-Call eines Agenten
+        abfaengt. Konkret: PreToolUse/PostToolUse-aequivalente Hooks pro
+        unterstuetztem Harness (Claude Code, Codex; siehe §30.11). Exit 0
+        erlaubt, Exit 2 blockiert, jeder Crash ist fail-closed blockiert.
+        Hooks sind Teil der Plattform-Infrastruktur — Agenten koennen sie
+        nicht umgehen.
       see_also:
         - term: guard-system
           domain: governance-and-guards
@@ -354,7 +356,11 @@ Der Installer (Checkpoint 8 / FK-50 CP 9) ruft dazu
 
 Beispiel der eingetragenen Eintraege (Claude-Code-Materialisierung;
 Tool-Matcher sind dabei Claude-Code-Tool-Namen — der Codex-Adapter
-mappt analog gegen seine harness-eigenen Tool-Bezeichner):
+mappt analog gegen seine harness-eigenen Tool-Bezeichner). Die
+konkreten Modul-Pfade werden vom Harness-Adapter aufgeloest;
+Aufrufe gehen ueber den `agentkit-hook-{harness}`-Wrapper, der
+dann die harness-neutrale `Governance.run_hook(...)`-Top-Surface
+trifft:
 
 ```json
 {
@@ -362,82 +368,74 @@ mappt analog gegen seine harness-eigenen Tool-Bezeichner):
     "PreToolUse": [
       {
         "matcher": "Bash",
-        "command": "python -m agentkit.governance.branch_guard"
+        "command": "agentkit-hook-claude pre branch_guard"
+      },
+      {
+        "matcher": "Read|Grep|Glob|Bash",
+        "command": "agentkit-hook-claude pre orchestrator_guard"
       },
       {
         "matcher": "Bash",
-        "command": "python -m agentkit.governance.orchestrator_guard"
-      },
-      {
-        "matcher": "Read|Grep|Glob",
-        "command": "python -m agentkit.governance.orchestrator_guard"
-      },
-      {
-        "matcher": "Bash",
-        "command": "python -m agentkit.governance.story_creation_guard"
-      },
-      {
-        "matcher": "Write|Edit",
-        "command": "python -m agentkit.governance.integrity"
-      },
-      {
-        "matcher": "Bash",
-        "command": "python -m agentkit.governance.integrity"
-      },
-      {
-        "matcher": "Bash",
-        "command": "python -m agentkit.telemetry.hook"
-      },
-      {
-        "matcher": "Write|Edit",
-        "command": "python -m agentkit.governance.qa_agent_guard"
-      },
-      {
-        "matcher": "Write|Edit",
-        "command": "python -m agentkit.governance.adversarial_guard"
+        "command": "agentkit-hook-claude pre story_creation_guard"
       },
       {
         "matcher": "Write|Edit|Bash",
-        "command": "python -m agentkit.governance.self_protection"
+        "command": "agentkit-hook-claude pre integrity_guard"
+      },
+      {
+        "matcher": "Write|Edit",
+        "command": "agentkit-hook-claude pre qa_agent_guard"
+      },
+      {
+        "matcher": "Write|Edit",
+        "command": "agentkit-hook-claude pre adversarial_guard"
+      },
+      {
+        "matcher": "Write|Edit|Bash",
+        "command": "agentkit-hook-claude pre self_protection_guard"
       },
       {
         "matcher": "Bash|Write|Edit|Read|Grep|Glob|Agent",
-        "command": "python -m agentkit.governance.health_monitor pre"
+        "command": "agentkit-hook-claude pre health_monitor"
       },
       {
         "matcher": "Bash|Write|Edit|Read|Grep|Glob|Agent",
-        "command": "python -m agentkit.governance.ccag_gatekeeper"
+        "command": "agentkit-hook-claude pre ccag_gatekeeper"
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "Agent",
-        "command": "python -m agentkit.telemetry.hook"
-      },
-      {
-        "matcher": "Bash",
-        "command": "python -m agentkit.telemetry.hook"
+        "matcher": "Agent|Bash|*_send",
+        "command": "agentkit-hook-claude post telemetry"
       },
       {
         "matcher": "*_send",
-        "command": "python -m agentkit.telemetry.hook"
-      },
-      {
-        "matcher": "*_send",
-        "command": "python -m agentkit.telemetry.review_guard"
+        "command": "agentkit-hook-claude post review_guard"
       },
       {
         "matcher": "WebSearch|WebFetch",
-        "command": "python -m agentkit.telemetry.budget"
+        "command": "agentkit-hook-claude post budget"
       },
       {
         "matcher": "Bash|Write|Edit|Read|Grep|Glob|Agent",
-        "command": "python -m agentkit.governance.health_monitor post"
+        "command": "agentkit-hook-claude post health_monitor"
       }
     ]
   }
 }
 ```
+
+[Klarstellung 2026-05-05] Die obigen Hook-Befehle sind logische
+Hook-Identifikatoren, kein direkter `python -m`-Modulpfad. Der
+harness-spezifische Wrapper (`agentkit-hook-claude`,
+`agentkit-hook-codex`) liest stdin im jeweiligen Harness-Format,
+ruft den Codex-/Claude-Adapter zur Normalisierung auf das
+`HookEvent`-Schema und trifft dann die harness-neutrale
+`Governance`-Top-Surface mit dem benannten Hook-Identifikator.
+Die konkreten Implementierungs-Module liegen unter
+`agentkit.governance.guards.{branch,orchestrator,...}` bzw.
+`agentkit.governance.guard_system.*` und sind nicht direkt vom
+Harness aus aufrufbar.
 
 ### 30.3.2 Matcher-Syntax
 

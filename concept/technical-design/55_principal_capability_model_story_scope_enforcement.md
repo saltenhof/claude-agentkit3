@@ -212,7 +212,7 @@ AK3 verwendet normativ diese Principal-Typen:
 | `qa_reader` | Review, Tests, Befundermittlung ohne Produktiv-Write | QA-/Review-Agent |
 | `adversarial_writer` | Schreiben und Ausfuehren adversarialer Tests in Sandbox | Adversarial-Agent |
 | `llm_evaluator` | strukturierte Bewertung ohne lokale Toolrechte | QA-/Semantic-/Conformance-Evaluator |
-| `pipeline_deterministic` | deterministische AgentKit-Skripte mit offizieller Mutationshoheit | Setup, Verify, Closure |
+| `pipeline_deterministic` | deterministische AgentKit-Skripte mit offizieller Mutationshoheit | Setup, deterministische Anteile innerhalb Implementation (QA-Subflow), Closure |
 | `human_cli` | menschlich ausgeloeste administrative Entscheidungen | `agentkit ...` durch Menschen |
 | `admin_service` | offizieller administrativer Servicepfad innerhalb AgentKit | `StoryResetService`, `StorySplitService`, spaeter Konfliktauflosung |
 
