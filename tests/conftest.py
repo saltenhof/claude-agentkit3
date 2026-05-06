@@ -6,10 +6,13 @@ import sys
 import uuid
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
 TOOLS_ROOT = REPO_ROOT / "tools"
 PYTEST_TEMP_ROOT = REPO_ROOT / "tmp" / "pytest-temproot"
+PROMPT_BUNDLE_STORE_ENV = "AGENTKIT_PROMPT_BUNDLE_STORE_ROOT"
 
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
@@ -20,6 +23,14 @@ os.environ.setdefault("AGENTKIT_ALLOW_SQLITE", "1")
 if os.name == "nt":
     PYTEST_TEMP_ROOT.mkdir(parents=True, exist_ok=True)
     os.environ.setdefault("PYTEST_DEBUG_TEMPROOT", str(PYTEST_TEMP_ROOT))
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolate_prompt_bundle_store(tmp_path_factory: pytest.TempPathFactory) -> None:
+    os.environ.setdefault(
+        PROMPT_BUNDLE_STORE_ENV,
+        str(tmp_path_factory.mktemp("prompt-bundle-store")),
+    )
 
 
 def _needs_windows_mkdir_compat() -> bool:
