@@ -18,6 +18,11 @@ build/
 dist/
 *.egg-info/
 
+# Frontend (UI-Prototyp und spaetere Frontend-Module)
+node_modules/
+.vite/
+frontend/**/dist/
+
 # Virtual env
 .venv/
 venv/

@@ -319,8 +319,9 @@ Prototyp ist gleichzeitig:
   der Prototyp Schritt fuer Schritt auf echte BFF-Endpunkte
   (siehe 72.13.4).
 
-Bisheriger Stand unter `var/ui-prototype/` ist ephemer und wird
-durch den versionierten Pfad ersetzt.
+Der Prototyp ist seit dem Umzug aus `var/ui-prototype/` unter
+`frontend/prototype/` versioniert. `node_modules/` und der
+Vite-Build-Output sind gitignored.
 
 ### 72.13.3 Iterationsmodus
 

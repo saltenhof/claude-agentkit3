@@ -1,0 +1,283 @@
+@import url('https://fonts.googleapis.com/css2?family=League+Spartan:wght@500;600&family=Open+Sans:wght@400;500;600;700&display=swap');
+
+:root {
+  color: var(--ak-text);
+  background: var(--ak-bg-deep);
+  font-family: var(--font-body);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+
+  --ak-bg: #111214;
+  --ak-bg-deep: #090a0b;
+  --ak-bg-canvas: #0c0d0f;
+  --ak-bg-canvas-top: #101114;
+  --ak-bg-raised: #18191c;
+  --ak-bg-raised-top: #202126;
+  --ak-bg-raised-alt: #1a1c20;
+  --ak-bg-raised-warm: #1e2024;
+  --ak-bg-rail-bottom: #141518;
+  --ak-bg-metrics-top: #111316;
+  --ak-bg-sheet-group: #191b1f;
+  --ak-bg-epic-from: #24262b;
+  --ak-bg-tab-top: #25282e;
+  --ak-bg-tab-mid: #1b1e23;
+  --ak-bg-tab-bottom: #121418;
+  --ak-surface: #1e2023;
+  --ak-surface-2: #26282c;
+  --ak-surface-3: #303237;
+  --ak-surface-table-head: #202226;
+  --ak-surface-tab-active-top: #1c3844;
+  --ak-surface-tab-active-bottom: #122830;
+  --ak-border: #34373d;
+  --ak-border-strong: #464a52;
+  --ak-border-header: #2e3339;
+  --ak-border-tab: #3a4049;
+  --ak-border-tab-hover: #4a535f;
+  --ak-border-tab-shell: #353a41;
+  --ak-line-graph: #65717d;
+
+  --ak-text: #f0f0f0;
+  --ak-text-grid: #d8dde3;
+  --ak-text-inverse: #ffffff;
+  --ak-text-on-warm: #130f08;
+  --ak-text-soft: #d3d5d8;
+  --ak-text-muted: #9a9fa8;
+  --ak-text-faint: #6f747c;
+  --ak-text-tab-muted: #878c96;
+
+  --ak-accent: #0797b8;
+  --ak-accent-strong: #0cb2d8;
+  --ak-accent-text: #48e7ff;
+  --ak-accent-text-soft: #9ff5ff;
+  --ak-accent-button: #067f9d;
+  --ak-accent-button-hover: #0995b8;
+  --ak-accent-warm: #ffb32c;
+  --ak-accent-warm-strong: #ffd35e;
+  --ak-success: #74d17f;
+  --ak-warn: #ffb32c;
+  --ak-danger: #ff5b57;
+  --ak-info: #7ea7ff;
+  --ak-violet: #b38cff;
+  --ak-done: #82c4ff;
+  --ak-status-backlog: #a371f7;
+  --ak-status-approved: #2f81f7;
+  --ak-status-progress: #d29922;
+  --ak-status-done: #3fb950;
+  --ak-status-cancelled: #8b949e;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-pill: 100rem;
+  --border-hairline: 0.0625rem;
+  --graph-edge-width: 0.3125rem;
+  --graph-edge-width-strong: 0.5rem;
+  --graph-edge-dash: 0.5rem 0.4375rem;
+
+  --overlay-white-0: rgb(255 255 255 / 0%);
+  --overlay-white-3: rgb(255 255 255 / 3%);
+  --overlay-white-035: rgb(255 255 255 / 3.5%);
+  --overlay-white-5: rgb(255 255 255 / 5%);
+  --overlay-white-7: rgb(255 255 255 / 7%);
+  --overlay-black-22: rgb(0 0 0 / 22%);
+  --overlay-black-32: rgb(0 0 0 / 32%);
+  --overlay-black-54: rgb(0 0 0 / 54%);
+  --overlay-accent-12: rgb(0 229 216 / 12%);
+
+  --font-body: "Open Sans", "Aptos", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "League Spartan", "Open Sans", sans-serif;
+
+  --text-xs: 0.75em;
+  --text-sm: 0.875em;
+  --text-md: 0.9375em;
+  --text-base: 1em;
+  --text-lg: 1.125em;
+  --text-xl: 1.375em;
+  --text-2xl: 1.625em;
+  --text-3xl: 2em;
+
+  --font-xs: var(--text-xs);
+  --font-sm: var(--text-sm);
+  --font-md: var(--text-md);
+  --font-lg: var(--text-lg);
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --weight-black: 800;
+
+  --leading-tight: 1.25;
+  --leading-title: 1.35;
+  --leading-body: 1.5;
+
+  --type-label-size: var(--text-xs);
+  --type-label-weight: var(--weight-semibold);
+  --type-body-size: var(--text-sm);
+  --type-body-weight: var(--weight-regular);
+  --type-ui-size: var(--text-sm);
+  --type-ui-weight: var(--weight-medium);
+  --type-title-size: var(--text-md);
+  --type-title-weight: var(--weight-semibold);
+  --type-panel-title-size: var(--text-lg);
+  --type-page-title-size: var(--text-2xl);
+  --type-kpi-size: var(--text-2xl);
+  --type-kpi-weight: var(--weight-black);
+
+  --control-height-sm: 1.875rem;
+  --control-height-md: 2.375rem;
+  --control-padding-sm: 0.3125rem 0.625rem;
+  --control-padding-md: 0.5rem 0.8125rem;
+  --control-font-size: var(--type-ui-size);
+  --control-font-weight: var(--type-ui-weight);
+
+  --rail-width: 4rem;
+  --shadow-md: 0 0.625rem 1.625rem var(--overlay-black-32);
+  --shadow-glow: 0 0 0 var(--border-hairline) color-mix(in srgb, var(--ak-accent), transparent 28%),
+    0 0.875rem 2.125rem var(--overlay-accent-12);
+}
+
+.ak-panel {
+  background:
+    linear-gradient(180deg, var(--overlay-white-035), var(--overlay-white-0) 46%),
+    var(--ak-surface);
+  border: var(--border-hairline) solid var(--ak-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 var(--border-hairline) 0 var(--overlay-white-3) inset;
+}
+
+.ak-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: var(--control-height-md);
+  padding: var(--control-padding-md);
+  color: var(--ak-text);
+  background: var(--ak-surface-2);
+  border: var(--border-hairline) solid var(--ak-border-strong);
+  border-radius: var(--radius-md);
+  font-size: var(--control-font-size);
+  font-weight: var(--control-font-weight);
+  line-height: var(--leading-tight);
+}
+
+.ak-button:hover {
+  background: var(--ak-surface-3);
+}
+
+.ak-button--compact {
+  min-height: var(--control-height-sm);
+  padding: var(--control-padding-sm);
+}
+
+.ak-button--primary {
+  color: var(--ak-text-inverse);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ak-accent-button-hover), white 4%), var(--ak-accent-button));
+  border-color: color-mix(in srgb, var(--ak-accent-button), white 18%);
+  font-weight: var(--weight-medium);
+}
+
+.ak-button--primary:hover {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ak-accent-button-hover), white 9%), color-mix(in srgb, var(--ak-accent-button), black 4%));
+}
+
+.ak-input {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-height-md);
+  padding: var(--control-padding-md);
+  color: var(--ak-text-muted);
+  background: var(--ak-surface);
+  border: var(--border-hairline) solid var(--ak-border-strong);
+  border-radius: var(--radius-md);
+  font-size: var(--control-font-size);
+}
+
+.ak-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 1.375rem;
+  padding: 0.1875rem 0.5rem;
+  border: var(--border-hairline) solid transparent;
+  border-radius: var(--radius-pill);
+  font-size: var(--type-label-size);
+  font-weight: var(--weight-bold);
+  line-height: 1;
+}
+
+.tone-neutral {
+  color: var(--ak-text-muted);
+  background: color-mix(in srgb, var(--ak-text-muted), transparent 84%);
+  border-color: color-mix(in srgb, var(--ak-text-muted), transparent 62%);
+}
+
+.tone-accent {
+  color: var(--ak-accent-text);
+  background: color-mix(in srgb, var(--ak-accent), transparent 86%);
+  border-color: color-mix(in srgb, var(--ak-accent), transparent 48%);
+}
+
+.tone-success {
+  color: var(--ak-success);
+  background: color-mix(in srgb, var(--ak-success), transparent 86%);
+  border-color: color-mix(in srgb, var(--ak-success), transparent 54%);
+}
+
+.tone-warning {
+  color: var(--ak-warn);
+  background: color-mix(in srgb, var(--ak-warn), transparent 86%);
+  border-color: color-mix(in srgb, var(--ak-warn), transparent 54%);
+}
+
+.tone-danger {
+  color: var(--ak-danger);
+  background: color-mix(in srgb, var(--ak-danger), transparent 87%);
+  border-color: color-mix(in srgb, var(--ak-danger), transparent 50%);
+}
+
+.tone-info {
+  color: var(--ak-info);
+  background: color-mix(in srgb, var(--ak-info), transparent 86%);
+  border-color: color-mix(in srgb, var(--ak-info), transparent 54%);
+}
+
+.tone-done {
+  color: var(--ak-done);
+  background: color-mix(in srgb, var(--ak-done), transparent 86%);
+  border-color: color-mix(in srgb, var(--ak-done), transparent 54%);
+}
+
+.tone-cancelled {
+  color: var(--ak-status-cancelled);
+  background: color-mix(in srgb, var(--ak-status-cancelled), transparent 86%);
+  border-color: color-mix(in srgb, var(--ak-status-cancelled), transparent 42%);
+}
+
+.tone-status-backlog {
+  color: var(--ak-status-backlog);
+  background: color-mix(in srgb, var(--ak-status-backlog), transparent 86%);
+  border-color: color-mix(in srgb, var(--ak-status-backlog), transparent 42%);
+}
+
+.tone-status-approved {
+  color: var(--ak-status-approved);
+  background: color-mix(in srgb, var(--ak-status-approved), transparent 86%);
+  border-color: color-mix(in srgb, var(--ak-status-approved), transparent 42%);
+}
+
+.tone-status-progress {
+  color: var(--ak-status-progress);
+  background: color-mix(in srgb, var(--ak-status-progress), transparent 86%);
+  border-color: color-mix(in srgb, var(--ak-status-progress), transparent 42%);
+}

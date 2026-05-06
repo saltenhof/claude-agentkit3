@@ -37,6 +37,7 @@ Die Codebase ist in drei Ebenen entkoppelt:
 | `docs/` | Publizierte Entwicklerdoku | Architecture, API, Guides, ADRs. |
 | `examples/` | Demo-Zielprojekte | Lauffaehige Beispiele wie ein installiertes Zielprojekt aussieht. |
 | `scripts/` | Dev/CI/Release-Hilfsskripte | Unterteilt in `dev/`, `ci/`, `release/`. |
+| `frontend/` | Frontend-Module | Aktuell nur `frontend/prototype/` (UI-Prototyp, normative Quelle fuer UI-Verhalten gemaess FK-72 §72.13). `node_modules/` und Build-Output gitignored. |
 | `var/` | Lokale ephemere Daten | **Gitignored.** Temp-Files, Logs, Sandboxes. Nie Source of Truth. |
 
 ### VERBOTEN auf Root-Ebene
