@@ -1,9 +1,10 @@
 story_id: AG3-011
 title: "Worker-Spawn mit Worktree-Map (Multi-Repo)"
 type: implementation
-status: in_progress
+status: completed
 phase: setup
 created: "2026-05-04"
+completed_at: "2026-05-06T10:24:58.7102866+02:00"
 size: S
 depends_on:
   - AG3-010
