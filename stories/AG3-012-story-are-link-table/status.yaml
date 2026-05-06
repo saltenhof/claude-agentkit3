@@ -1,9 +1,10 @@
 story_id: AG3-012
 title: "StoryAreLink Edge-Tabelle"
 type: implementation
-status: in_progress
+status: completed
 phase: setup
 created: "2026-05-04"
 size: S
 depends_on: []
 unblocks: []
+completed_at: "2026-05-06T10:59:26.6644890+02:00"
