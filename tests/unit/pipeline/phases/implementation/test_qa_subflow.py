@@ -9,10 +9,6 @@ import pytest
 
 from agentkit.phase_state_store.models import FlowExecution
 from agentkit.pipeline.phases.implementation.qa_subflow import QaSubflowCycle
-from agentkit.qa.adversarial.challenger import AdversarialChallenger
-from agentkit.qa.evaluators.reviewer import SemanticReviewer
-from agentkit.qa.policy_engine.engine import PolicyEngine
-from agentkit.qa.structural.checker import StructuralChecker
 from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.state_backend.store import (
     reset_backend_cache_for_tests,
@@ -26,12 +22,16 @@ from agentkit.story_context_manager.models import (
     StoryContext,
 )
 from agentkit.story_context_manager.types import StoryMode, StoryType, get_profile
+from agentkit.verify_system.adversarial_orchestrator.challenger import AdversarialChallenger
+from agentkit.verify_system.llm_evaluator.reviewer import SemanticReviewer
+from agentkit.verify_system.policy_engine.engine import PolicyEngine
+from agentkit.verify_system.structural.checker import StructuralChecker
 
 if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
-    from agentkit.qa.protocols import QALayer
+    from agentkit.verify_system.protocols import QALayer
 
 
 @pytest.fixture(autouse=True)

@@ -6,14 +6,14 @@ from collections import defaultdict
 from hashlib import sha1
 from typing import TYPE_CHECKING
 
-from agentkit.qa.protocols import Severity
+from agentkit.verify_system.protocols import Severity
 from agentkit.verify_system.stage_registry.records import QAFindingRecord, QAStageResultRecord
 
 if TYPE_CHECKING:
     from datetime import datetime
 
     from agentkit.phase_state_store.models import FlowExecution
-    from agentkit.qa.protocols import Finding, LayerResult
+    from agentkit.verify_system.protocols import Finding, LayerResult
 
 
 def producer_component_for_layer(layer: str) -> str:

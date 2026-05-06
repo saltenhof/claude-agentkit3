@@ -10,8 +10,6 @@ import pytest
 
 from agentkit.exceptions import CorruptStateError
 from agentkit.governance.integrity_gate import IntegrityGate
-from agentkit.qa.policy_engine.engine import VerifyDecision
-from agentkit.qa.protocols import LayerResult
 from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.state_backend.scope import RuntimeStateScope
 from agentkit.state_backend.sqlite_store import state_db_path_for
@@ -28,6 +26,8 @@ from agentkit.story_context_manager.models import (
     StoryContext,
 )
 from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.verify_system.policy_engine.engine import VerifyDecision
+from agentkit.verify_system.protocols import LayerResult
 
 if TYPE_CHECKING:
     from collections.abc import Generator

@@ -47,8 +47,6 @@ if TYPE_CHECKING:
     )
     from agentkit.pipeline_engine.phase_executor.records import AttemptRecord
     from agentkit.project_management.entities import Project
-    from agentkit.qa.policy_engine.engine import VerifyDecision
-    from agentkit.qa.protocols import LayerResult
     from agentkit.requirements_coverage.models import (
         StoryAreLink,
         StoryAreLinkKind,
@@ -59,6 +57,8 @@ if TYPE_CHECKING:
         StoryContext,
     )
     from agentkit.telemetry.contract.records import ExecutionEventRecord
+    from agentkit.verify_system.policy_engine.engine import VerifyDecision
+    from agentkit.verify_system.protocols import LayerResult
     from agentkit.verify_system.stage_registry.records import (
         QAFindingRecord,
         QAStageResultRecord,

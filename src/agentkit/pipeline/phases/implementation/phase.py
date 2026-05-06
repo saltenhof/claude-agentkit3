@@ -12,10 +12,6 @@ from agentkit.pipeline.phases.implementation.qa_subflow import (
     QaSubflowCycle,
     QaSubflowCycleResult,
 )
-from agentkit.qa.adversarial.challenger import AdversarialChallenger
-from agentkit.qa.evaluators.reviewer import SemanticReviewer
-from agentkit.qa.policy_engine.engine import PolicyEngine
-from agentkit.qa.structural.checker import StructuralChecker
 from agentkit.state_backend.store import (
     record_layer_artifacts,
     record_verify_decision,
@@ -30,12 +26,16 @@ from agentkit.story_context_manager.models import (
     QaCycleStatus,
     VerifyContext,
 )
+from agentkit.verify_system.adversarial_orchestrator.challenger import AdversarialChallenger
+from agentkit.verify_system.llm_evaluator.reviewer import SemanticReviewer
+from agentkit.verify_system.policy_engine.engine import PolicyEngine
+from agentkit.verify_system.structural.checker import StructuralChecker
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.qa.protocols import QALayer
     from agentkit.story_context_manager.models import StoryContext
+    from agentkit.verify_system.protocols import QALayer
 
 logger = logging.getLogger(__name__)
 

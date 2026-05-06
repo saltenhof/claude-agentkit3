@@ -5,15 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from agentkit.qa.remediation.feedback import build_feedback
+from agentkit.verify_system.remediation.feedback import build_feedback
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.qa.policy_engine.engine import PolicyEngine, VerifyDecision
-    from agentkit.qa.protocols import QALayer
-    from agentkit.qa.remediation.feedback import RemediationFeedback
     from agentkit.story_context_manager.models import StoryContext
+    from agentkit.verify_system.policy_engine.engine import PolicyEngine, VerifyDecision
+    from agentkit.verify_system.protocols import QALayer
+    from agentkit.verify_system.remediation.feedback import RemediationFeedback
 
 
 @dataclass(frozen=True)

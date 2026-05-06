@@ -15,7 +15,6 @@ from agentkit.pipeline.phases.implementation.phase import (
     ImplementationConfig,
     ImplementationPhaseHandler,
 )
-from agentkit.qa.structural.checker import StructuralChecker
 from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.state_backend.store import (
     reset_backend_cache_for_tests,
@@ -30,6 +29,7 @@ from agentkit.story_context_manager.models import (
     StoryContext,
 )
 from agentkit.story_context_manager.types import StoryMode, StoryType, get_profile
+from agentkit.verify_system.structural.checker import StructuralChecker
 
 if TYPE_CHECKING:
     from collections.abc import Generator

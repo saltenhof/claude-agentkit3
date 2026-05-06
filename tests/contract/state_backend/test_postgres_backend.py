@@ -7,8 +7,6 @@ import pytest
 
 from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
 from agentkit.phase_state_store.models import FlowExecution
-from agentkit.qa.policy_engine.engine import VerifyDecision
-from agentkit.qa.protocols import Finding, LayerResult, Severity, TrustClass
 from agentkit.state_backend.store import (
     append_execution_event,
     append_execution_event_global,
@@ -47,6 +45,8 @@ from agentkit.story_context_manager.models import (
 )
 from agentkit.story_context_manager.types import StoryMode, StoryType
 from agentkit.telemetry.contract.records import ExecutionEventRecord
+from agentkit.verify_system.policy_engine.engine import VerifyDecision
+from agentkit.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
 
 if TYPE_CHECKING:
     from pathlib import Path

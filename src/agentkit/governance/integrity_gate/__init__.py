@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from agentkit.exceptions import CorruptStateError
-from agentkit.qa.policy_engine.projections import verify_decision_passed
 from agentkit.state_backend.paths import (
     CONTEXT_EXPORT_FILE,
     PHASE_STATE_EXPORT_FILE,
@@ -24,6 +23,7 @@ from agentkit.state_backend.store import (
     resolve_runtime_scope,
 )
 from agentkit.story_context_manager.types import StoryType
+from agentkit.verify_system import verify_decision_passed
 
 if TYPE_CHECKING:
     from pathlib import Path

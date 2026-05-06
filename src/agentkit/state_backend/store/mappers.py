@@ -37,8 +37,6 @@ if TYPE_CHECKING:
     )
     from agentkit.pipeline_engine.phase_executor.records import AttemptRecord
     from agentkit.project_management.entities import Project
-    from agentkit.qa.policy_engine.engine import VerifyDecision
-    from agentkit.qa.protocols import LayerResult
     from agentkit.requirements_coverage.models import StoryAreLink
     from agentkit.story_context_manager.models import (
         PhaseSnapshot,
@@ -46,6 +44,8 @@ if TYPE_CHECKING:
         StoryContext,
     )
     from agentkit.telemetry.contract.records import ExecutionEventRecord
+    from agentkit.verify_system.policy_engine.engine import VerifyDecision
+    from agentkit.verify_system.protocols import LayerResult
     from agentkit.verify_system.stage_registry.records import (
         QAFindingRecord,
         QAStageResultRecord,
@@ -997,7 +997,7 @@ def serialize_layer_result_to_dict(
 ) -> dict[str, object]:
     """Serialize a ``LayerResult`` to the canonical artifact payload dict."""
 
-    from agentkit.qa.policy_engine.projections import (
+    from agentkit.verify_system.policy_engine.projections import (
         serialize_layer_result as _serialize_layer_result,
     )
 
@@ -1011,7 +1011,7 @@ def build_verify_decision_dict(
 ) -> dict[str, object]:
     """Build the canonical verify-decision artifact dict."""
 
-    from agentkit.qa.policy_engine.projections import (
+    from agentkit.verify_system.policy_engine.projections import (
         build_verify_decision_artifact as _build_verify_decision_artifact,
     )
 

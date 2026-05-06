@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from agentkit.phase_state_store.models import FlowExecution
-from agentkit.qa.protocols import Finding, LayerResult, Severity, TrustClass
+from agentkit.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
 from agentkit.verify_system.qa_read_models import (
     build_qa_findings,
     build_qa_stage_result,

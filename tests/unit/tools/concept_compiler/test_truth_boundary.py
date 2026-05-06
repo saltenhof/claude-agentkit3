@@ -50,7 +50,7 @@ def test_truth_boundary_rejects_forbidden_loader_import(tmp_path: Path) -> None:
         tmp_path,
         protected_module="agentkit.pipeline.verify_gate",
         source="""
-            from agentkit.qa.artifacts import load_verify_decision_artifact
+            from agentkit.verify_system.artifacts import load_verify_decision_artifact
 
             def evaluate(story_dir):
                 return load_verify_decision_artifact(story_dir)
@@ -173,7 +173,7 @@ def _write_fixture(
             protected_module_prefixes:
               - agentkit.governance
               - agentkit.pipeline
-              - agentkit.qa.structural
+              - agentkit.verify_system.structural
             allowed_module_prefixes:
               - agentkit.cli
               - tests
@@ -185,7 +185,7 @@ def _write_fixture(
               - load_story_context
             forbidden_import_modules:
               - agentkit.pipeline.state
-              - agentkit.qa.artifacts
+              - agentkit.verify_system.artifacts
             forbidden_json_truth_filenames:
               - context.json
               - decision.json
