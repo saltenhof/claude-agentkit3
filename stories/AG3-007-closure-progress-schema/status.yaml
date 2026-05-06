@@ -1,9 +1,10 @@
 story_id: AG3-007
 title: "ClosureProgress-Schema: story_branch_pushed + story_closed"
 type: implementation
-status: in_progress
+status: completed
 phase: setup
 created: "2026-05-04"
+completed_at: "2026-05-06T08:50:20.0302675+02:00"
 size: S
 depends_on: []
 unblocks:
