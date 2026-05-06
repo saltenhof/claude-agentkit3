@@ -171,7 +171,7 @@ class TestBuildStoryContext:
         assert ctx.issue_nr == 42
         assert ctx.title == "Add widget feature"
         assert ctx.project_root == tmp_path
-        assert "owner/repo" in ctx.participating_repos
+        assert "repo" in ctx.participating_repos
         assert "bug" in ctx.labels
         assert "priority:high" in ctx.labels
         assert ctx.created_at is not None

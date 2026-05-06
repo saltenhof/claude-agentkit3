@@ -11,8 +11,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
+from agentkit.config.models import ProjectConfig, RepositoryConfig
 from agentkit.exceptions import WorktreeError
 from agentkit.pipeline.phases.setup.phase import SetupConfig, SetupPhaseHandler
+from agentkit.pipeline.phases.setup.worktree import WorktreeResult
 from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
@@ -66,6 +68,7 @@ def _make_story_context(
         issue_nr=1,
         title="Test Story",
         project_root=project_root,
+        participating_repos=["repo"],
     )
 
 
@@ -74,6 +77,23 @@ def _make_phase_state(story_id: str = "AG3-001") -> PhaseState:
         story_id=story_id,
         phase="setup",
         status=PhaseStatus.IN_PROGRESS,
+    )
+
+
+def _make_project_config(repo_path: Path) -> ProjectConfig:
+    return ProjectConfig(
+        project_key="test-project",
+        project_name="Test Project",
+        repositories=[RepositoryConfig(name="repo", path=repo_path)],
+    )
+
+
+def _make_worktree_result(tmp_path: Path, story_id: str = "AG3-001") -> WorktreeResult:
+    return WorktreeResult(
+        success=True,
+        worktree_path=tmp_path / "worktrees" / story_id,
+        repo_name="repo",
+        branch=f"story/{story_id}",
     )
 
 
@@ -112,14 +132,19 @@ class TestSetupPhaseHandlerWorktree:
                 return_value=enriched,
             ),
             patch(
-                "agentkit.pipeline.phases.setup.phase.create_worktree"
-            ) as mock_create,
+                "agentkit.pipeline.phases.setup.phase.load_project_config",
+                return_value=_make_project_config(tmp_path),
+            ),
+            patch(
+                "agentkit.pipeline.phases.setup.phase.setup_worktrees",
+                return_value=[_make_worktree_result(tmp_path)],
+            ) as mock_setup,
         ):
             result = handler.on_enter(ctx, state)
 
         assert result.status == PhaseStatus.COMPLETED
-        mock_create.assert_called_once()
-        assert mock_create.call_args.kwargs["branch"] == "story/AG3-001"
+        mock_setup.assert_called_once()
+        assert mock_setup.call_args.args[0] == "AG3-001"
 
     def test_create_worktree_not_called_for_concept(
         self, tmp_path: Path
@@ -156,13 +181,13 @@ class TestSetupPhaseHandlerWorktree:
                 return_value=enriched,
             ),
             patch(
-                "agentkit.pipeline.phases.setup.phase.create_worktree"
-            ) as mock_create,
+                "agentkit.pipeline.phases.setup.phase.setup_worktrees"
+            ) as mock_setup,
         ):
             result = handler.on_enter(ctx, state)
 
         assert result.status == PhaseStatus.COMPLETED
-        mock_create.assert_not_called()
+        mock_setup.assert_not_called()
 
     def test_create_worktree_failure_returns_failed(
         self, tmp_path: Path
@@ -191,7 +216,11 @@ class TestSetupPhaseHandlerWorktree:
                 return_value=enriched,
             ),
             patch(
-                "agentkit.pipeline.phases.setup.phase.create_worktree",
+                "agentkit.pipeline.phases.setup.phase.load_project_config",
+                return_value=_make_project_config(tmp_path),
+            ),
+            patch(
+                "agentkit.pipeline.phases.setup.phase.setup_worktrees",
                 side_effect=WorktreeError(
                     "Worktree path already exists: /some/path"
                 ),
@@ -231,7 +260,12 @@ class TestSetupPhaseHandlerWorktree:
                 return_value=enriched,
             ),
             patch(
-                "agentkit.pipeline.phases.setup.phase.create_worktree",
+                "agentkit.pipeline.phases.setup.phase.load_project_config",
+                return_value=_make_project_config(tmp_path),
+            ),
+            patch(
+                "agentkit.pipeline.phases.setup.phase.setup_worktrees",
+                return_value=[_make_worktree_result(tmp_path, "AG3-005")],
             ),
             patch(
                 "agentkit.pipeline.phases.setup.phase.save_story_context",
@@ -272,12 +306,12 @@ class TestSetupPhaseHandlerWorktree:
                 "agentkit.pipeline.phases.setup.phase.build_story_context"
             ) as mock_build,
             patch(
-                "agentkit.pipeline.phases.setup.phase.create_worktree"
-            ) as mock_create,
+                "agentkit.pipeline.phases.setup.phase.setup_worktrees"
+            ) as mock_setup,
         ):
             result = handler.on_enter(ctx, state)
 
         assert result.status == PhaseStatus.FAILED
         assert "issue is closed" in result.errors[0]
         mock_build.assert_not_called()
-        mock_create.assert_not_called()
+        mock_setup.assert_not_called()

@@ -11,16 +11,18 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from agentkit.exceptions import WorktreeError
+from agentkit.config.loader import load_project_config
+from agentkit.exceptions import ConfigError, WorktreeError
 from agentkit.installer.paths import story_dir
 from agentkit.pipeline.lifecycle import HandlerResult
 from agentkit.pipeline.phases.setup.context_builder import build_story_context
 from agentkit.pipeline.phases.setup.preflight import run_preflight
+from agentkit.pipeline.phases.setup.worktree import setup_worktrees
 from agentkit.state_backend.paths import CONTEXT_EXPORT_FILE
 from agentkit.state_backend.store import save_story_context
 from agentkit.story_context_manager.models import PhaseStatus
 from agentkit.story_context_manager.types import get_profile
-from agentkit.utils.git import create_worktree, remove_worktree
+from agentkit.utils.git import remove_worktree
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -120,22 +122,22 @@ class SetupPhaseHandler:
         # 4. Create git worktree
         profile = get_profile(enriched.story_type)
         if cfg.create_worktree and profile.uses_worktree:
-            worktree_path = _compute_worktree_path(
-                cfg.project_root,
-                enriched.story_id,
-            )
-            branch_name = f"story/{enriched.story_id}"
             try:
-                create_worktree(
-                    repo_root=cfg.project_root,
-                    worktree_path=worktree_path,
-                    branch=branch_name,
+                project_config = load_project_config(cfg.project_root)
+                worktree_results = setup_worktrees(
+                    enriched.story_id,
+                    enriched,
+                    project_config,
+                    project_root=cfg.project_root,
                 )
-            except WorktreeError as e:
+            except (ConfigError, WorktreeError) as e:
                 return HandlerResult(
                     status=PhaseStatus.FAILED,
                     errors=(str(e),),
                 )
+            worktree_path = (
+                worktree_results[0].worktree_path if worktree_results else None
+            )
             enriched = enriched.model_copy(
                 update={"worktree_path": worktree_path},
             )
@@ -144,16 +146,20 @@ class SetupPhaseHandler:
             except Exception as persist_err:
                 # Worktree was created but context persistence failed.
                 # Clean up the worktree so it does not leak.
-                with contextlib.suppress(WorktreeError):
-                    remove_worktree(cfg.project_root, worktree_path)
+                for result in worktree_results:
+                    repo_root = result.worktree_path.parent.parent
+                    with contextlib.suppress(WorktreeError):
+                        remove_worktree(repo_root, result.worktree_path)
                 return HandlerResult(
                     status=PhaseStatus.FAILED,
                     errors=(f"Failed to persist worktree context: {persist_err}",),
                 )
             logger.info(
-                "Worktree created: %s (branch: %s)",
-                worktree_path,
-                branch_name,
+                "Worktrees created: %s",
+                ", ".join(
+                    f"{result.repo_name}={result.worktree_path}"
+                    for result in worktree_results
+                ),
             )
 
         # 5. Return COMPLETED
@@ -193,18 +199,3 @@ class SetupPhaseHandler:
             status=PhaseStatus.FAILED,
             errors=("Setup phase does not support resume",),
         )
-
-
-def _compute_worktree_path(project_root: Path, story_id: str) -> Path:
-    """Compute the worktree path for a story.
-
-    The worktree is placed at ``<project_root>/.worktrees/<story_id>``.
-
-    Args:
-        project_root: Root directory of the target project.
-        story_id: The story identifier.
-
-    Returns:
-        The intended worktree directory path.
-    """
-    return project_root / ".worktrees" / story_id

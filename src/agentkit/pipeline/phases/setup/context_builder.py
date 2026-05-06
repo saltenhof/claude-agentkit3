@@ -85,7 +85,7 @@ def build_story_context(
         title=issue.title,
         story_size=estimate_size(list(issue.labels), issue.title),
         project_root=project_root,
-        participating_repos=[f"{owner}/{repo}"],
+        participating_repos=[repo],
         labels=list(issue.labels),
         created_at=datetime.now(tz=UTC),
     )

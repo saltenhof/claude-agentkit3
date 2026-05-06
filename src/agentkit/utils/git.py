@@ -55,15 +55,22 @@ def _ensure_repo_root(repo_root: Path) -> None:
         )
 
 
-def create_worktree(repo_root: Path, worktree_path: Path, branch: str) -> None:
+def create_worktree(
+    repo_root: Path,
+    worktree_path: Path,
+    branch: str,
+    base_ref: str | None = None,
+) -> None:
     """Create a git worktree at *worktree_path* on a new *branch*.
 
-    Runs ``git -C <repo_root> worktree add <worktree_path> -b <branch>``.
+    Runs ``git -C <repo_root> worktree add <worktree_path> -b <branch>``
+    and appends ``base_ref`` when supplied.
 
     Args:
         repo_root: Root directory of the git repository.
         worktree_path: Absolute path where the worktree will be created.
         branch: Name of the new branch to create inside the worktree.
+        base_ref: Optional base reference for the new branch.
 
     Raises:
         WorktreeError: If *worktree_path* already exists on disk.
@@ -76,17 +83,21 @@ def create_worktree(repo_root: Path, worktree_path: Path, branch: str) -> None:
         )
     _ensure_repo_root(repo_root)
 
+    command = [
+        "git",
+        "-C",
+        str(repo_root),
+        "worktree",
+        "add",
+        str(worktree_path),
+        "-b",
+        branch,
+    ]
+    if base_ref is not None:
+        command.append(base_ref)
+
     result = subprocess.run(
-        [
-            "git",
-            "-C",
-            str(repo_root),
-            "worktree",
-            "add",
-            str(worktree_path),
-            "-b",
-            branch,
-        ],
+        command,
         capture_output=True,
         text=True,
     )
@@ -98,10 +109,50 @@ def create_worktree(repo_root: Path, worktree_path: Path, branch: str) -> None:
                 "repo_root": str(repo_root),
                 "worktree_path": str(worktree_path),
                 "branch": branch,
+                "base_ref": base_ref,
                 "stderr": result.stderr,
                 "stdout": result.stdout,
             },
         )
+
+
+def branch_exists(repo_root: Path, branch: str) -> bool:
+    """Return whether a local branch exists in a repository.
+
+    Args:
+        repo_root: Root directory of the git repository.
+        branch: Branch name to check.
+
+    Raises:
+        WorktreeError: If ``repo_root`` is not a git repository root.
+    """
+    _ensure_repo_root(repo_root)
+    result = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo_root),
+            "show-ref",
+            "--verify",
+            "--quiet",
+            f"refs/heads/{branch}",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        return True
+    if result.returncode == 1:
+        return False
+    raise WorktreeError(
+        f"git branch existence check failed (exit {result.returncode})",
+        detail={
+            "repo_root": str(repo_root),
+            "branch": branch,
+            "stderr": result.stderr,
+            "stdout": result.stdout,
+        },
+    )
 
 
 def remove_worktree(repo_root: Path, worktree_path: Path) -> None:
