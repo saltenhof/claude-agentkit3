@@ -138,8 +138,15 @@ class SetupPhaseHandler:
             worktree_path = (
                 worktree_results[0].worktree_path if worktree_results else None
             )
+            worktree_map = {
+                result.repo_name: result.worktree_path
+                for result in worktree_results
+            }
             enriched = enriched.model_copy(
-                update={"worktree_path": worktree_path},
+                update={
+                    "worktree_path": worktree_path,
+                    "worktree_map": worktree_map,
+                },
             )
             try:
                 save_story_context(s_dir, enriched)

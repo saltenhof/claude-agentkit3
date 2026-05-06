@@ -1,10 +1,10 @@
 {
   "bundle_id": "internal-bootstrap-prompts",
-  "bundle_version": "1",
+  "bundle_version": "2",
   "templates": {
     "worker-implementation": {
       "relpath": "internal/prompts/worker-implementation.md",
-      "sha256": "c547072c5eb412c5efc3da135fd02bd9e3a0fcd3fef2df856653fbcb21f7ffdd"
+      "sha256": "81be962bf5577989d40f63c738e94a219b6ec0d21846a28398a11cbf48df994d"
     },
     "worker-bugfix": {
       "relpath": "internal/prompts/worker-bugfix.md",

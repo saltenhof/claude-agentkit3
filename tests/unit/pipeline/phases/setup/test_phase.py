@@ -145,6 +145,10 @@ class TestSetupPhaseHandlerWorktree:
         assert result.status == PhaseStatus.COMPLETED
         mock_setup.assert_called_once()
         assert mock_setup.call_args.args[0] == "AG3-001"
+        assert result.updated_context is not None
+        assert result.updated_context.worktree_map == {
+            "repo": tmp_path / "worktrees" / "AG3-001",
+        }
 
     def test_create_worktree_not_called_for_concept(
         self, tmp_path: Path

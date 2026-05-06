@@ -37,6 +37,9 @@ def _make_context(
     issue_nr: int = 42,
     title: str = "Add widget feature",
     project_root: Path | None = None,
+    worktree_path: Path | None = None,
+    worktree_map: dict[str, Path] | None = None,
+    participating_repos: list[str] | None = None,
 ) -> StoryContext:
     """Build a minimal StoryContext for testing."""
     return StoryContext(
@@ -47,6 +50,9 @@ def _make_context(
         issue_nr=issue_nr,
         title=title,
         project_root=project_root,
+        worktree_path=worktree_path,
+        worktree_map=worktree_map or {},
+        participating_repos=participating_repos or [],
     )
 
 
@@ -166,7 +172,7 @@ class TestComposePrompt:
         assert isinstance(result, ComposedPrompt)
         assert result.content != ""
         assert result.prompt_bundle_id == "internal-bootstrap-prompts"
-        assert result.prompt_bundle_version == "1"
+        assert result.prompt_bundle_version == "2"
         assert len(result.prompt_manifest_sha256) == 64
         assert result.logical_prompt_id == "prompt.worker-implementation"
         assert result.template_name == "worker-implementation"

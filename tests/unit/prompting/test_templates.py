@@ -64,6 +64,8 @@ class TestTemplateRegistry:
             "project_root": "/tmp/project",
             "round_nr": "1",
             "feedback": "No findings",
+            "worktree_context": "Worktree-Pfad: /tmp/project/worktrees/TEST-001",
+            "spawn_cwd": "/tmp/project/worktrees/TEST-001",
         }
         # Should not raise KeyError
         rendered = TEMPLATES[name].format_map(dummy_data)

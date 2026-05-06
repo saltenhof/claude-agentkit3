@@ -215,6 +215,7 @@ class StoryContext(BaseModel):
     story_size: StorySize = StorySize.SMALL
     project_root: Path | None = None
     worktree_path: Path | None = None
+    worktree_map: dict[str, Path] = Field(default_factory=dict)
     participating_repos: list[str] = Field(default_factory=list)
     labels: list[str] = Field(default_factory=list)
     created_at: datetime | None = None

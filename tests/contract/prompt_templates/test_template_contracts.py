@@ -33,6 +33,8 @@ _STANDARD_PLACEHOLDERS: dict[str, str] = {
     "project_root": "/tmp/test-project",
     "round_nr": "1",
     "feedback": "No findings.",
+    "worktree_context": "Worktree-Pfad: /tmp/test-project/worktrees/TEST-001",
+    "spawn_cwd": "/tmp/test-project/worktrees/TEST-001",
 }
 
 

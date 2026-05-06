@@ -73,7 +73,7 @@ class TestInstallFresh:
         bundled = (
             prompt_bundle_store_dir(
                 "internal-bootstrap-prompts",
-                "1",
+                "2",
                 store_root=_prompt_bundle_store_root(root),
             )
             / "internal"
@@ -93,7 +93,7 @@ class TestInstallFresh:
         lock_path = root / ".agentkit" / "config" / "prompt-bundle.lock.json"
         lock = json.loads(lock_path.read_text(encoding="utf-8"))
         assert lock["bundle_id"] == "internal-bootstrap-prompts"
-        assert lock["bundle_version"] == "1"
+        assert lock["bundle_version"] == "2"
         assert lock["binding_root"] == "prompts"
         assert lock["manifest_file"] == "manifest.json"
         assert "manifest_sha256" in lock

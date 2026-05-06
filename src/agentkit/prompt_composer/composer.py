@@ -69,6 +69,15 @@ class ComposeConfig:
 
 
 @dataclass(frozen=True)
+class WorkerWorktreeContext:
+    """Rendered worker worktree context from FK-22 §22.6.4."""
+
+    prompt_markdown: str
+    spawn_cwd: str
+    worktree_map: dict[str, str]
+
+
+@dataclass(frozen=True)
 class _ResolvedPromptSource:
     binding_bundle_id: str
     binding_bundle_version: str
@@ -84,6 +93,7 @@ def _build_placeholder_map(
 ) -> dict[str, str]:
     project_root = str(ctx.project_root) if ctx.project_root is not None else "N/A"
     body = config.feedback if config.spawn_reason == "remediation" else ctx.title
+    worktree_context = build_worker_worktree_context(ctx)
     return {
         "story_id": ctx.story_id,
         "title": ctx.title,
@@ -94,7 +104,78 @@ def _build_placeholder_map(
         "project_root": project_root,
         "round_nr": str(config.round_nr),
         "feedback": config.feedback,
+        "worktree_context": worktree_context.prompt_markdown,
+        "spawn_cwd": worktree_context.spawn_cwd,
     }
+
+
+def build_worker_worktree_context(ctx: StoryContext) -> WorkerWorktreeContext:
+    """Build the worker-facing worktree context.
+
+    For multi-repo stories, FK-22 §22.6.4 requires a worktree map from
+    repo name to worktree path and uses the first participating repo
+    only as deterministic spawn CWD. For single-repo stories, the worker
+    receives one worktree path and no map.
+    """
+    repo_names = list(ctx.participating_repos)
+    worktree_map = {
+        repo_name: _format_prompt_path(path)
+        for repo_name, path in ctx.worktree_map.items()
+    }
+
+    if len(repo_names) >= 2:
+        rows = [
+            "| Repo | Worktree-Pfad |",
+            "|---|---|",
+        ]
+        for repo_name in repo_names:
+            rows.append(f"| {repo_name} | {worktree_map.get(repo_name, 'N/A')} |")
+        spawn_cwd = worktree_map.get(repo_names[0], "N/A")
+        prompt_markdown = "\n".join(
+            [
+                "Multi-Repo-Worktree-Map:",
+                *rows,
+                "",
+                f"Spawn-CWD: {spawn_cwd}",
+                (
+                    "Schreiben in nicht-teilnehmende Repos ist verboten; "
+                    "nicht-teilnehmende Repos sind nur lesend zu nutzen."
+                ),
+            ],
+        )
+        return WorkerWorktreeContext(
+            prompt_markdown=prompt_markdown,
+            spawn_cwd=spawn_cwd,
+            worktree_map=worktree_map,
+        )
+
+    single_path = (
+        _format_prompt_path(ctx.worktree_path)
+        if ctx.worktree_path is not None
+        else "N/A"
+    )
+    if repo_names and repo_names[0] in worktree_map:
+        single_path = worktree_map[repo_names[0]]
+    prompt_markdown = "\n".join(
+        [
+            f"Worktree-Pfad: {single_path}",
+            f"Spawn-CWD: {single_path}",
+            (
+                "Schreiben in nicht-teilnehmende Repos ist verboten; "
+                "nicht-teilnehmende Repos sind nur lesend zu nutzen."
+            ),
+        ],
+    )
+    return WorkerWorktreeContext(
+        prompt_markdown=prompt_markdown,
+        spawn_cwd=single_path,
+        worktree_map=worktree_map,
+    )
+
+
+def _format_prompt_path(path: Path) -> str:
+    """Render filesystem paths in prompts with stable separators."""
+    return path.as_posix()
 
 
 def _logical_prompt_id(template_name: str) -> str:
@@ -367,6 +448,8 @@ __all__ = [
     "ComposedPrompt",
     "MaterializedPromptInstance",
     "RenderedPromptArtifact",
+    "WorkerWorktreeContext",
+    "build_worker_worktree_context",
     "compose_named_prompt",
     "compose_prompt",
     "write_rendered_prompt_artifact",
