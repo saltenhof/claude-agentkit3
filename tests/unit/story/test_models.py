@@ -9,7 +9,9 @@ import pytest
 from pydantic import ValidationError
 
 from agentkit.story_context_manager.models import (
+    ClosurePayload,
     ClosureProgress,
+    MultiRepoClosureState,
     PhaseName,
     PhaseSnapshot,
     PhaseState,
@@ -97,6 +99,74 @@ class TestClosureProgress:
 
         assert progress.story_branch_pushed is True
         assert progress.story_closed is True
+
+
+class TestMultiRepoClosureState:
+    """Tests for multi-repo closure substates."""
+
+    def test_has_concept_fields_with_empty_defaults(self) -> None:
+        state = MultiRepoClosureState()
+
+        assert tuple(MultiRepoClosureState.model_fields) == (
+            "pre_merge_check_passed",
+            "pushed_repos",
+            "merged_repos",
+            "rolled_back_repos",
+            "failed_repo",
+        )
+        assert state.pre_merge_check_passed == []
+        assert state.pushed_repos == []
+        assert state.merged_repos == []
+        assert state.rolled_back_repos == []
+        assert state.failed_repo is None
+
+    def test_frozen_model(self) -> None:
+        state = MultiRepoClosureState(pushed_repos=["api"])
+
+        with pytest.raises(ValidationError):
+            state.failed_repo = "worker"
+
+    def test_json_serialization_is_deterministic(self) -> None:
+        state = MultiRepoClosureState(
+            pre_merge_check_passed=["api", "worker"],
+            pushed_repos=["api"],
+            merged_repos=["api"],
+            rolled_back_repos=["worker"],
+            failed_repo="worker",
+        )
+
+        assert state.model_dump(mode="json") == {
+            "pre_merge_check_passed": ["api", "worker"],
+            "pushed_repos": ["api"],
+            "merged_repos": ["api"],
+            "rolled_back_repos": ["worker"],
+            "failed_repo": "worker",
+        }
+
+
+class TestClosurePayload:
+    """Tests for closure payload multi-repo binding."""
+
+    def test_defaults_to_single_repo_payload(self) -> None:
+        payload = ClosurePayload()
+
+        assert payload.progress == ClosureProgress()
+        assert payload.multi_repo is None
+
+    def test_multi_repo_is_required_with_multi_repo_context(self) -> None:
+        with pytest.raises(ValidationError, match="multi_repo"):
+            ClosurePayload.model_validate(
+                {},
+                context={"participating_repos": ["api", "worker"]},
+            )
+
+    def test_multi_repo_context_accepts_explicit_state(self) -> None:
+        payload = ClosurePayload.model_validate(
+            {"multi_repo": {"pushed_repos": ["api"]}},
+            context={"participating_repos": ["api", "worker"]},
+        )
+
+        assert payload.multi_repo == MultiRepoClosureState(pushed_repos=["api"])
 
 
 class TestStoryContext:

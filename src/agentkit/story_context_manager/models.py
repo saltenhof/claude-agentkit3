@@ -1,4 +1,8 @@
-"""Pydantic models for story data."""
+"""Pydantic models for story data.
+
+ClosurePayload and MultiRepoClosureState follow FK-29 §29.1.6.2 and
+FK-39 §39.2.3.
+"""
 
 from __future__ import annotations
 
@@ -114,11 +118,39 @@ class ClosureProgress(BaseModel):
         return self
 
 
+class MultiRepoClosureState(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    pre_merge_check_passed: list[str] = Field(default_factory=list)
+    pushed_repos: list[str] = Field(default_factory=list)
+    merged_repos: list[str] = Field(default_factory=list)
+    rolled_back_repos: list[str] = Field(default_factory=list)
+    failed_repo: str | None = None
+
+
 class ClosurePayload(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     phase_type: Literal["closure"] = "closure"
     progress: ClosureProgress = Field(default_factory=ClosureProgress)
+    multi_repo: MultiRepoClosureState | None = None
+
+    @model_validator(mode="after")
+    def _validate_multi_repo_context(
+        self,
+        info: ValidationInfo,
+    ) -> ClosurePayload:
+        participating_repos = _participating_repos_from_context(info)
+        if (
+            participating_repos is not None
+            and len(participating_repos) >= 2
+            and self.multi_repo is None
+        ):
+            raise ValueError(
+                "multi_repo is required for stories with multiple "
+                "participating_repos",
+            )
+        return self
 
 
 PhasePayload = (
@@ -324,6 +356,7 @@ __all__ = [
     "ExplorationPhaseMemory",
     "ImplementationPayload",
     "ImplementationPhaseMemory",
+    "MultiRepoClosureState",
     "PhaseMemory",
     "PhaseName",
     "PhasePayload",
@@ -342,3 +375,13 @@ def _story_number_from_id(story_id: str) -> int | None:
     if not suffix.isdigit():
         return None
     return int(suffix)
+
+
+def _participating_repos_from_context(info: ValidationInfo) -> list[str] | None:
+    context = info.context
+    if not isinstance(context, dict):
+        return None
+    raw_repos = context.get("participating_repos")
+    if not isinstance(raw_repos, list):
+        return None
+    return [repo for repo in raw_repos if isinstance(repo, str)]
