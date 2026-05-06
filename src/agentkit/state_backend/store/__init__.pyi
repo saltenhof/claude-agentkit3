@@ -32,6 +32,9 @@ from agentkit.state_backend.store.facade import (
     delete_session_run_binding_global as delete_session_run_binding_global,
 )
 from agentkit.state_backend.store.facade import (
+    delete_story_are_link as delete_story_are_link,
+)
+from agentkit.state_backend.store.facade import (
     delete_story_dependency as delete_story_dependency,
 )
 from agentkit.state_backend.store.facade import (
@@ -111,6 +114,9 @@ from agentkit.state_backend.store.facade import (
 )
 from agentkit.state_backend.store.facade import (
     load_session_run_binding_global as load_session_run_binding_global,
+)
+from agentkit.state_backend.store.facade import (
+    load_story_are_links as load_story_are_links,
 )
 from agentkit.state_backend.store.facade import (
     load_story_context as load_story_context,
@@ -203,6 +209,9 @@ from agentkit.state_backend.store.facade import (
     save_session_run_binding_global as save_session_run_binding_global,
 )
 from agentkit.state_backend.store.facade import (
+    save_story_are_link as save_story_are_link,
+)
+from agentkit.state_backend.store.facade import (
     save_story_context as save_story_context,
 )
 from agentkit.state_backend.store.facade import (
@@ -213,6 +222,9 @@ from agentkit.state_backend.store.facade import (
 )
 from agentkit.state_backend.store.facade import (
     save_story_execution_lock_global as save_story_execution_lock_global,
+)
+from agentkit.state_backend.store.facade import (
+    update_story_are_link_kind as update_story_are_link_kind,
 )
 from agentkit.state_backend.store.facade import (
     upsert_story_metrics as upsert_story_metrics,

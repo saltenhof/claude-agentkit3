@@ -108,6 +108,9 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             FOREIGN KEY (project_key) REFERENCES projects(key)
         );
 
+        CREATE UNIQUE INDEX IF NOT EXISTS story_contexts_story_id_idx
+            ON story_contexts (story_id);
+
         CREATE TABLE IF NOT EXISTS projects (
             key TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -152,6 +155,14 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             extra_config_json TEXT,
             updated_at TEXT NOT NULL,
             FOREIGN KEY (project_key) REFERENCES projects(key)
+        );
+
+        CREATE TABLE IF NOT EXISTS story_are_links (
+            story_id TEXT NOT NULL,
+            are_item_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            PRIMARY KEY (story_id, are_item_id, kind),
+            FOREIGN KEY (story_id) REFERENCES story_contexts(story_id)
         );
 
         CREATE TABLE IF NOT EXISTS project_api_tokens (
@@ -979,6 +990,109 @@ def load_parallelization_config_row(
             (project_key,),
         ).fetchone()
     return dict(row) if row is not None else None
+
+
+# ---------------------------------------------------------------------------
+# Requirements coverage rows
+# ---------------------------------------------------------------------------
+
+
+def save_story_are_link_row(
+    store_dir: Path | None,
+    row: dict[str, Any],
+) -> None:
+    """Persist one StoryAreLink row.
+
+    Migration note: ``story_are_links`` is created idempotently by
+    ``_ensure_schema``. Rollback is ``DROP TABLE story_are_links`` plus the
+    optional ``story_contexts_story_id_idx`` index if no other table uses it;
+    no existing StoryContext rows are mutated.
+    """
+
+    with _connect(_project_store_dir(store_dir)) as conn:
+        conn.execute(
+            """
+            INSERT INTO story_are_links (
+                story_id,
+                are_item_id,
+                kind
+            ) VALUES (?, ?, ?)
+            """,
+            (
+                row["story_id"],
+                row["are_item_id"],
+                row["kind"],
+            ),
+        )
+
+
+def load_story_are_link_rows(
+    store_dir: Path | None,
+    story_id: str,
+) -> list[dict[str, Any]]:
+    """Load StoryAreLink rows for one story."""
+
+    with _connect(_project_store_dir(store_dir)) as conn:
+        rows = conn.execute(
+            """
+            SELECT story_id, are_item_id, kind
+            FROM story_are_links
+            WHERE story_id = ?
+            ORDER BY are_item_id, kind
+            """,
+            (story_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def update_story_are_link_kind_row(
+    store_dir: Path | None,
+    story_id: str,
+    are_item_id: str,
+    old_kind: str,
+    new_kind: str,
+) -> dict[str, Any] | None:
+    """Update one StoryAreLink kind and return the resulting row."""
+
+    with _connect(_project_store_dir(store_dir)) as conn:
+        cursor = conn.execute(
+            """
+            UPDATE story_are_links
+            SET kind = ?
+            WHERE story_id = ? AND are_item_id = ? AND kind = ?
+            """,
+            (new_kind, story_id, are_item_id, old_kind),
+        )
+        if cursor.rowcount == 0:
+            return None
+        row = conn.execute(
+            """
+            SELECT story_id, are_item_id, kind
+            FROM story_are_links
+            WHERE story_id = ? AND are_item_id = ? AND kind = ?
+            """,
+            (story_id, are_item_id, new_kind),
+        ).fetchone()
+    return dict(row) if row is not None else None
+
+
+def delete_story_are_link_row(
+    store_dir: Path | None,
+    story_id: str,
+    are_item_id: str,
+    kind: str,
+) -> int:
+    """Delete one StoryAreLink row and return affected row count."""
+
+    with _connect(_project_store_dir(store_dir)) as conn:
+        cursor = conn.execute(
+            """
+            DELETE FROM story_are_links
+            WHERE story_id = ? AND are_item_id = ? AND kind = ?
+            """,
+            (story_id, are_item_id, kind),
+        )
+        return cursor.rowcount
 
 
 # ---------------------------------------------------------------------------

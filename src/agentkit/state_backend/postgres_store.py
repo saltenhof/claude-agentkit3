@@ -194,6 +194,19 @@ def _schema_alter_statements() -> tuple[str, ...]:
             "ON story_contexts (project_key, story_number)"
         ),
         (
+            "CREATE UNIQUE INDEX IF NOT EXISTS story_contexts_story_id_idx "
+            "ON story_contexts (story_id)"
+        ),
+        (
+            "CREATE TABLE IF NOT EXISTS story_are_links ("
+            "story_id TEXT NOT NULL, "
+            "are_item_id TEXT NOT NULL, "
+            "kind TEXT NOT NULL, "
+            "PRIMARY KEY (story_id, are_item_id, kind), "
+            "FOREIGN KEY (story_id) REFERENCES story_contexts(story_id)"
+            ")"
+        ),
+        (
             "INSERT INTO story_number_counters (project_key, next_story_number) "
             "SELECT project_key, COALESCE(MAX(story_number), 0) + 1 "
             "FROM story_contexts GROUP BY project_key "
@@ -882,6 +895,104 @@ def load_parallelization_config_row(
             (project_key,),
         ).fetchone()
     return row
+
+
+# ---------------------------------------------------------------------------
+# Requirements coverage rows
+# ---------------------------------------------------------------------------
+
+
+def save_story_are_link_row(
+    store_dir: Path | None,
+    row: dict[str, Any],
+) -> None:
+    """Persist one StoryAreLink row.
+
+    Migration note: ``story_are_links`` is created idempotently by
+    ``_schema_create_script``. Rollback is ``DROP TABLE story_are_links`` plus
+    ``DROP INDEX story_contexts_story_id_idx`` if no other table depends on it;
+    no existing StoryContext rows are mutated.
+    """
+
+    del store_dir
+    with _connect_global() as conn:
+        conn.execute(
+            """
+            INSERT INTO story_are_links (
+                story_id,
+                are_item_id,
+                kind
+            ) VALUES (?, ?, ?)
+            """,
+            (
+                row["story_id"],
+                row["are_item_id"],
+                row["kind"],
+            ),
+        )
+
+
+def load_story_are_link_rows(
+    store_dir: Path | None,
+    story_id: str,
+) -> list[dict[str, Any]]:
+    """Load StoryAreLink rows for one story."""
+
+    del store_dir
+    with _connect_global() as conn:
+        rows = conn.execute(
+            """
+            SELECT story_id, are_item_id, kind
+            FROM story_are_links
+            WHERE story_id = ?
+            ORDER BY are_item_id, kind
+            """,
+            (story_id,),
+        ).fetchall()
+    return rows
+
+
+def update_story_are_link_kind_row(
+    store_dir: Path | None,
+    story_id: str,
+    are_item_id: str,
+    old_kind: str,
+    new_kind: str,
+) -> dict[str, Any] | None:
+    """Update one StoryAreLink kind and return the resulting row."""
+
+    del store_dir
+    with _connect_global() as conn:
+        row = conn.execute(
+            """
+            UPDATE story_are_links
+            SET kind = ?
+            WHERE story_id = ? AND are_item_id = ? AND kind = ?
+            RETURNING story_id, are_item_id, kind
+            """,
+            (new_kind, story_id, are_item_id, old_kind),
+        ).fetchone()
+    return row
+
+
+def delete_story_are_link_row(
+    store_dir: Path | None,
+    story_id: str,
+    are_item_id: str,
+    kind: str,
+) -> int:
+    """Delete one StoryAreLink row and return affected row count."""
+
+    del store_dir
+    with _connect_global() as conn:
+        cursor = conn.execute(
+            """
+            DELETE FROM story_are_links
+            WHERE story_id = ? AND are_item_id = ? AND kind = ?
+            """,
+            (story_id, are_item_id, kind),
+        )
+        return int(cursor.rowcount)
 
 
 # ---------------------------------------------------------------------------

@@ -49,6 +49,10 @@ if TYPE_CHECKING:
     from agentkit.project_management.entities import Project
     from agentkit.qa.policy_engine.engine import VerifyDecision
     from agentkit.qa.protocols import LayerResult
+    from agentkit.requirements_coverage.models import (
+        StoryAreLink,
+        StoryAreLinkKind,
+    )
     from agentkit.story_context_manager.models import (
         PhaseSnapshot,
         PhaseState,
@@ -387,6 +391,62 @@ def save_parallelization_config(
 ) -> None:
     row = mappers.parallelization_config_to_row(config)
     _backend_module().save_parallelization_config_row(store_dir, row)
+
+
+# ---------------------------------------------------------------------------
+# Requirements coverage
+# ---------------------------------------------------------------------------
+
+
+def save_story_are_link(
+    link: StoryAreLink,
+    store_dir: Path | None = None,
+) -> None:
+    row = mappers.story_are_link_to_row(link)
+    _backend_module().save_story_are_link_row(store_dir, row)
+
+
+def load_story_are_links(
+    story_id: str,
+    store_dir: Path | None = None,
+) -> list[StoryAreLink]:
+    rows = _backend_module().load_story_are_link_rows(store_dir, story_id)
+    return [mappers.story_are_link_row_to_entity(row) for row in rows]
+
+
+def update_story_are_link_kind(
+    store_dir: Path | None,
+    story_id: str,
+    are_item_id: str,
+    old_kind: StoryAreLinkKind,
+    new_kind: StoryAreLinkKind,
+) -> StoryAreLink | None:
+    row = _backend_module().update_story_are_link_kind_row(
+        store_dir,
+        story_id,
+        are_item_id,
+        old_kind.value,
+        new_kind.value,
+    )
+    if row is None:
+        return None
+    return mappers.story_are_link_row_to_entity(row)
+
+
+def delete_story_are_link(
+    store_dir: Path | None,
+    story_id: str,
+    are_item_id: str,
+    kind: StoryAreLinkKind,
+) -> int:
+    return int(
+        _backend_module().delete_story_are_link_row(
+            store_dir,
+            story_id,
+            are_item_id,
+            kind.value,
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------

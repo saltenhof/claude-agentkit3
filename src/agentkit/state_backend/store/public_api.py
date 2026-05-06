@@ -14,6 +14,7 @@ PUBLIC_API = (
     "backend_verify_decision_passed",
     "backend_verify_decision_passed_for_scope",
     "delete_session_run_binding_global",
+    "delete_story_are_link",
     "delete_story_dependency",
     "load_artifact_record",
     "load_artifact_record_for_scope",
@@ -42,6 +43,7 @@ PUBLIC_API = (
     "load_qa_stage_results",
     "load_qa_stage_results_for_scope",
     "load_session_run_binding_global",
+    "load_story_are_links",
     "load_story_context",
     "load_story_context_by_story_number_global",
     "load_story_context_by_uuid_global",
@@ -77,4 +79,6 @@ PUBLIC_API = (
     "save_story_dependency",
     "save_story_execution_lock_global",
     "upsert_story_metrics",
+    "save_story_are_link",
+    "update_story_are_link_kind",
 )

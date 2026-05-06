@@ -16,6 +16,9 @@
             PRIMARY KEY (project_key, story_id)
         );
 
+        CREATE UNIQUE INDEX IF NOT EXISTS story_contexts_story_id_idx
+            ON story_contexts (story_id);
+
         CREATE TABLE IF NOT EXISTS projects (
             key TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -60,6 +63,14 @@
             extra_config JSONB NULL,
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             FOREIGN KEY (project_key) REFERENCES projects(key)
+        );
+
+        CREATE TABLE IF NOT EXISTS story_are_links (
+            story_id TEXT NOT NULL,
+            are_item_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            PRIMARY KEY (story_id, are_item_id, kind),
+            FOREIGN KEY (story_id) REFERENCES story_contexts(story_id)
         );
 
         CREATE TABLE IF NOT EXISTS project_api_tokens (

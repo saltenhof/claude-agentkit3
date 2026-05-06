@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from agentkit.project_management.entities import Project
     from agentkit.qa.policy_engine.engine import VerifyDecision
     from agentkit.qa.protocols import LayerResult
+    from agentkit.requirements_coverage.models import StoryAreLink
     from agentkit.story_context_manager.models import (
         PhaseSnapshot,
         PhaseState,
@@ -298,6 +299,38 @@ def parallelization_config_row_to_entity(
             if max_parallel_stories_per_repo is not None
             else None
         ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Requirements coverage
+# ---------------------------------------------------------------------------
+
+
+def story_are_link_to_row(link: StoryAreLink) -> dict[str, Any]:
+    """Convert a StoryAreLink edge to a DB row."""
+
+    return {
+        "story_id": link.story_id,
+        "are_item_id": link.are_item_id,
+        "kind": link.kind.value,
+    }
+
+
+def story_are_link_row_to_entity(row: dict[str, Any]) -> StoryAreLink:
+    """Convert a DB row to a StoryAreLink edge."""
+
+    from agentkit.requirements_coverage.models import (
+        StoryAreLink as _StoryAreLink,
+    )
+    from agentkit.requirements_coverage.models import (
+        StoryAreLinkKind as _StoryAreLinkKind,
+    )
+
+    return _StoryAreLink(
+        story_id=str(row["story_id"]),
+        are_item_id=str(row["are_item_id"]),
+        kind=_StoryAreLinkKind(str(row["kind"])),
     )
 
 

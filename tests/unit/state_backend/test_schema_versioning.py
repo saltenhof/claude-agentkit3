@@ -10,11 +10,11 @@ from agentkit.state_backend.sqlite_store import load_project_rows
 
 
 def test_schema_version_helpers_derive_versioned_names() -> None:
-    assert state_config.SCHEMA_VERSION == "3.1.0"
+    assert state_config.SCHEMA_VERSION == "3.2.0"
     assert state_config.versioned_postgres_schema_name("3.0.0") == "ak3_v3_0_0"
     assert state_config.versioned_sqlite_db_file("3.0.0") == "agentkit_3_0_0.sqlite"
-    assert state_config.versioned_postgres_schema_name() == "ak3_v3_1_0"
-    assert state_config.versioned_sqlite_db_file() == "agentkit_3_1_0.sqlite"
+    assert state_config.versioned_postgres_schema_name() == "ak3_v3_2_0"
+    assert state_config.versioned_sqlite_db_file() == "agentkit_3_2_0.sqlite"
 
 
 def test_schema_version_rejects_non_semver() -> None:
@@ -26,9 +26,9 @@ def test_sqlite_state_db_path_contains_current_schema_version(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(state_config, "SCHEMA_VERSION", "3.1.0")
+    monkeypatch.setattr(state_config, "SCHEMA_VERSION", "3.2.0")
 
-    assert sqlite_store.state_db_path_for(tmp_path).name == "agentkit_3_1_0.sqlite"
+    assert sqlite_store.state_db_path_for(tmp_path).name == "agentkit_3_2_0.sqlite"
 
 
 def test_sqlite_bootstrap_is_idempotent_and_side_by_side(
@@ -44,14 +44,14 @@ def test_sqlite_bootstrap_is_idempotent_and_side_by_side(
 
     assert load_project_rows(tmp_path, include_archived=True)[0]["key"] == "old"
 
-    monkeypatch.setattr(state_config, "SCHEMA_VERSION", "3.1.0")
+    monkeypatch.setattr(state_config, "SCHEMA_VERSION", "3.2.0")
     assert load_project_rows(tmp_path) == []
     second_path = sqlite_store.state_db_path_for(tmp_path)
 
     assert first_path.exists()
     assert second_path.exists()
     assert first_path.name == "agentkit_3_0_0.sqlite"
-    assert second_path.name == "agentkit_3_1_0.sqlite"
+    assert second_path.name == "agentkit_3_2_0.sqlite"
 
 
 def test_postgres_current_schema_name_uses_schema_version(
