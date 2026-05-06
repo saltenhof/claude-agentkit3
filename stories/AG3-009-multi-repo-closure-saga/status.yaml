@@ -1,7 +1,7 @@
 story_id: AG3-009
 title: "Multi-Repo-Closure-Saga (5-stufig, Pre-Merge-Check, Rollback)"
 type: implementation
-status: in_progress
+status: completed
 phase: setup
 created: "2026-05-04"
 size: M
@@ -9,3 +9,4 @@ depends_on:
   - AG3-007
   - AG3-008
 unblocks: []
+completed_at: "2026-05-06T11:50:01.2425209+02:00"
