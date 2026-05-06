@@ -17,7 +17,7 @@ class ExecutionReport:
     phases_executed: tuple[str, ...]
     started_at: str | None = None
     completed_at: str | None = None
-    issue_closed: bool = False
+    story_closed: bool = False
     warnings: tuple[str, ...] = ()
     metrics: dict[str, object] | None = None
 
@@ -31,7 +31,7 @@ class ExecutionReport:
             "phases_executed": list(self.phases_executed),
             "started_at": self.started_at,
             "completed_at": self.completed_at,
-            "issue_closed": self.issue_closed,
+            "story_closed": self.story_closed,
             "warnings": list(self.warnings),
         }
         if self.metrics is not None:

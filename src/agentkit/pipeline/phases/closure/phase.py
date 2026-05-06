@@ -142,7 +142,7 @@ class ClosurePhaseHandler:
             )
 
         # 3. Close GitHub issue (best-effort)
-        issue_closed = False
+        story_closed = False
         if (
             cfg.close_issue
             and cfg.owner is not None
@@ -155,7 +155,7 @@ class ClosurePhaseHandler:
                 )
 
                 gh_close_issue(cfg.owner, cfg.repo, cfg.issue_nr)
-                issue_closed = True
+                story_closed = True
                 logger.info(
                     "Closed GitHub issue %s/%s#%d",
                     cfg.owner, cfg.repo, cfg.issue_nr,
@@ -190,7 +190,7 @@ class ClosurePhaseHandler:
             phases_executed=tuple(prior_phases) + ("closure",),
             started_at=ctx.created_at.isoformat() if ctx.created_at else None,
             completed_at=metrics.completed_at,
-            issue_closed=issue_closed,
+            story_closed=story_closed,
             warnings=tuple(warnings),
             metrics=metrics.to_metrics_payload(),
         )

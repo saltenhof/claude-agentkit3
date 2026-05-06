@@ -294,7 +294,7 @@ class TestClosurePhaseHandler:
             encoding="utf-8",
         ) as f:
             data = json.load(f)
-        assert data["issue_closed"] is False
+        assert data["story_closed"] is False
 
     def test_closure_github_error_is_warning_not_failure(
         self,
@@ -345,7 +345,7 @@ class TestClosurePhaseHandler:
         ) as f:
             data = json.load(f)
         assert data["status"] == "completed_with_warnings"
-        assert data["issue_closed"] is False
+        assert data["story_closed"] is False
         assert len(data["warnings"]) > 0
 
     def test_closure_does_not_support_resume(self, tmp_path: Path) -> None:
@@ -628,7 +628,7 @@ class TestExecutionReport:
             ),
             started_at="2026-01-01T00:00:00+00:00",
             completed_at="2026-01-01T01:00:00+00:00",
-            issue_closed=True,
+            story_closed=True,
             warnings=(),
         )
 
@@ -641,7 +641,7 @@ class TestExecutionReport:
         assert len(data["phases_executed"]) == 4
         assert data["started_at"] == "2026-01-01T00:00:00+00:00"
         assert data["completed_at"] == "2026-01-01T01:00:00+00:00"
-        assert data["issue_closed"] is True
+        assert data["story_closed"] is True
         assert data["warnings"] == []
 
     def test_write_execution_report_creates_file(
@@ -690,7 +690,7 @@ class TestExecutionReport:
             phases_executed=("setup", "implementation", "closure"),
             started_at="2026-04-07T10:00:00+00:00",
             completed_at="2026-04-07T10:05:00+00:00",
-            issue_closed=False,
+            story_closed=False,
             warnings=("warn1", "warn2"),
         )
 

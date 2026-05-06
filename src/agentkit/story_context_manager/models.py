@@ -90,10 +90,28 @@ class ClosureProgress(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     integrity_passed: bool = False
+    story_branch_pushed: bool = False
     merge_done: bool = False
-    issue_closed: bool = False
+    story_closed: bool = False
     metrics_written: bool = False
     postflight_done: bool = False
+
+    @model_validator(mode="after")
+    def _validate_checkpoint_order(self) -> ClosureProgress:
+        ordered_checkpoints = (
+            ("story_branch_pushed", self.story_branch_pushed, self.integrity_passed),
+            ("merge_done", self.merge_done, self.story_branch_pushed),
+            ("story_closed", self.story_closed, self.merge_done),
+            ("metrics_written", self.metrics_written, self.story_closed),
+            ("postflight_done", self.postflight_done, self.metrics_written),
+        )
+        for field_name, current, previous in ordered_checkpoints:
+            if current and not previous:
+                raise ValueError(
+                    f"{field_name} cannot be true before the previous "
+                    "closure checkpoint",
+                )
+        return self
 
 
 class ClosurePayload(BaseModel):

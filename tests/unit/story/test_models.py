@@ -9,6 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from agentkit.story_context_manager.models import (
+    ClosureProgress,
     PhaseName,
     PhaseSnapshot,
     PhaseState,
@@ -65,6 +66,37 @@ class TestPhaseName:
                 phase="verify",
                 status=PhaseStatus.PENDING,
             )
+
+
+class TestClosureProgress:
+    """Tests for closure checkpoint ordering."""
+
+    def test_has_concept_ordered_fields(self) -> None:
+        assert tuple(ClosureProgress.model_fields) == (
+            "integrity_passed",
+            "story_branch_pushed",
+            "merge_done",
+            "story_closed",
+            "metrics_written",
+            "postflight_done",
+        )
+
+    def test_story_branch_push_requires_integrity_passed(self) -> None:
+        with pytest.raises(ValidationError, match="story_branch_pushed"):
+            ClosureProgress(story_branch_pushed=True)
+
+    def test_complete_progress_is_valid(self) -> None:
+        progress = ClosureProgress(
+            integrity_passed=True,
+            story_branch_pushed=True,
+            merge_done=True,
+            story_closed=True,
+            metrics_written=True,
+            postflight_done=True,
+        )
+
+        assert progress.story_branch_pushed is True
+        assert progress.story_closed is True
 
 
 class TestStoryContext:
