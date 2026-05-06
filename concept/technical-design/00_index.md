@@ -72,7 +72,7 @@ FK-07 beschreibt die Importregeln und Blutgruppen-Semantik.
 | `20_workflow_engine_state_machine.md` | pipeline-framework | State Machine, Phasen, Feedback-Loop, Eskalation, Recovery, Scheduling |
 | `36_compaction_resilience_prompt_persistence.md` | pipeline-framework | Compaction-Schutz, Resume-Kapsel, Prompt-Persistenz fuer Sub-Agenten |
 | `39_phase_state_persistenz.md` | pipeline-framework | Vierschichtiges State-Modell, PhaseEnvelope, phase-state-projection, PhasePayload (discriminated union), PhaseMemory (carry-forward), AttemptRecord (Outcome + FailureCause), PauseReason-Enum, Lese-/Schreibprotokoll |
-| `45_phase_runner_cli.md` | pipeline-framework | Phase Runner CLI (`agentkit run-phase`), Phasen-Dispatch, Phase-Transition-Enforcement (Graph + Status + semantische Preconditions), Orchestrator-Reaktionstabelle |
+| `45_phase_runner_cli.md` | pipeline-framework | Phase Runner Service (Service-API-Eintrittspunkt `POST /phases/{phase}/start`), Phasen-Dispatch, Phase-Transition-Enforcement (Graph + Status + semantische Preconditions), Orchestrator-Reaktionstabelle; Recovery-CLI als Spezialfall (§45.4) |
 
 ## 3. BC: verify-system
 

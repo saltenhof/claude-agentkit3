@@ -447,7 +447,7 @@ flowchart TD
     START(["Mensch setzt Issue<br/>auf 'Approved'"]) --> ORCH
     ORCH["Orchestrator-Agent<br/>startet Pipeline"] --> SETUP
 
-    subgraph SETUP_PHASE ["agentkit run-phase setup"]
+    subgraph SETUP_PHASE ["Service: POST /phases/setup/start"]
         SETUP["Preflight (9 Gates,<br/>FK-22 §22.3.1)"] --> WT["Worktree erstellen<br/>(pro teilnehmendem Repo)"]
         WT --> CTX["Story-Context<br/>berechnen"]
         CTX --> GUARDS["Guards aktivieren<br/>(Lock-Record im<br/>State-Backend)"]
@@ -464,7 +464,7 @@ flowchart TD
         DOCTREUE -->|PASS| IMPL
     end
 
-    subgraph IMPL_PHASE ["agentkit run-phase implementation"]
+    subgraph IMPL_PHASE ["Service: POST /phases/implementation/start"]
         IMPL["Worker-Loop:<br/>Vertikale Inkremente<br/>Code → Check → Drift → Commit"]
         IMPL --> REVIEW["Reviews durch<br/>konfigurierte LLMs"]
         REVIEW --> HANDOVER["Handover-Paket<br/>erzeugen"]
@@ -485,7 +485,7 @@ flowchart TD
 
     POLICY -->|PASS| CLOSURE
 
-    subgraph CLOSURE_PHASE ["agentkit run-phase closure"]
+    subgraph CLOSURE_PHASE ["Service: POST /phases/closure/start"]
         CLOSURE["Integrity-Gate<br/>(7 Dim. + Telemetrie)"]
         CLOSURE -->|FAIL| ESC_C(["Eskalation<br/>an Mensch"]):::fail
         CLOSURE -->|PASS| MERGE["Branch mergen"]

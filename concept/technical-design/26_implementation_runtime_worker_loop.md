@@ -338,9 +338,9 @@ oder Impact-Überschreitung):
 
 1. Orchestrator erkennt `drift_detected: true` im Phase-State
 2. Orchestrator stoppt den Worker
-3. Orchestrator ruft `agentkit run-phase exploration` erneut
-   auf — nur Dokumententreue-Prüfung, kein neues
-   Entwurfsartefakt
+3. Orchestrator ruft `POST /phases/exploration/start` erneut
+   auf (Aufruf-Parameter gemaess FK-91 §91.1a) — nur Dokumententreue-Prüfung,
+   kein neues Entwurfsartefakt
 4. Bei PASS: Orchestrator spawnt neuen Worker, der ab dem
    Drift-Punkt weiterarbeitet
 5. Bei FAIL: Eskalation an Mensch

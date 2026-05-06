@@ -196,11 +196,14 @@ Konzeptpfade (`concept_paths` als Story-Attribut aus dem AK3-Story-Backend) übe
 bzw. dessen `context.json`-Export.
 `Maturity`, `External Integrations` und `Requires Exploration` wurden entfernt.
 
-### Ebene 4: CLI-Argumente
+### Ebene 4: Aufruf-Parameter
 
-Überschreiben alle anderen Ebenen für einen einzelnen Aufruf:
+Überschreiben alle anderen Ebenen für einen einzelnen Aufruf.
+Normative Aufruf-Parameter sind in FK-91 §91.1a (Service-API) bzw.
+§91.1 (Operator-Recovery-CLI) definiert.
 
 ```bash
+# Operator-Recovery-CLI (Spezialfall; Standardweg ist POST /phases/{phase}/start):
 agentkit run-phase implementation --story ODIN-042 --config .agentkit/config/project.yaml
 agentkit structural --story ODIN-042 --repo-id backend --base-ref main
 agentkit install --gh-owner acme-corp --gh-repo trading-platform --dry-run

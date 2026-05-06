@@ -111,7 +111,7 @@ beteiligt. Alles läuft als Python-Skript über den Phase Runner.
 
 ```mermaid
 flowchart TD
-    START(["agentkit run-phase setup<br/>--story ODIN-042"]) --> PREFLIGHT
+    START(["Service: POST /phases/setup/start<br/>{story_id: ODIN-042}"]) --> PREFLIGHT
 
     subgraph PREFLIGHT_PHASE ["Preflight-Gates (9 Checks)"]
         PREFLIGHT["1. Issue existiert?"]

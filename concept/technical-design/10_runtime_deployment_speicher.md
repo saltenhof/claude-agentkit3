@@ -100,7 +100,7 @@ graph TB
 |-----|-------------|---------------|-----------|
 | **Harness-Session** (Claude Code / Codex; FK-30 §30.11) | Minuten bis Stunden | Mensch (CLI `claude` oder `codex`) | Orchestrator, Worker, Adversarial |
 | **Hook-Prozess** | Millisekunden | Harness (pro Tool-Call, vermittelt durch Harness-Adapter) | `branch_guard.py`, `integrity.py`, `hook.py` |
-| **Pipeline-Skript** | Sekunden bis Minuten | Agent via Bash-Tool | `agentkit run-phase`, `agentkit structural` |
+| **Pipeline-Skript** | Sekunden bis Minuten | Agent via Service-API (FK-91 §91.1a) oder Operator via Bash-Tool | `POST /phases/{phase}/start`, `agentkit structural` |
 | **State-Backend** | Dauerhaft | Zentrale Infrastruktur | Workflow-State, Telemetrie, Artefakt-Metadaten |
 | **MCP-Server** | Dauerhaft | Mensch oder Autostart | LLM-Pools (optional, mind. 1), Story-Knowledge-Base (Pflicht), ARE (optional) |
 | **Docker-Container** | Dauerhaft | `docker-compose up` | Weaviate + text2vec-transformers (Pflicht) |
@@ -343,7 +343,8 @@ Bei einem abgebrochenen Story-Run:
 2. Mensch prüft Zustand: `agentkit status --story {story_id}` oder
    State-Backend-Eintrag des Runs
 3. Stale Locks werden via PID-Prüfung automatisch erkannt
-4. Neuer Run mit `agentkit run-phase setup --story {story_id}` —
+4. Neuer Run mit `POST /phases/setup/start` (Aufruf-Parameter gemaess FK-91 §91.1a)
+   oder Operator-CLI `agentkit run-phase setup --story {story_id}` (§91.1) —
    Preflight erkennt bestehenden Worktree/Branch und kann
    konfigurierbar damit umgehen (abbrechen oder wiederverwenden)
 5. Alternativ: Manuelles Cleanup via

@@ -423,7 +423,7 @@ Servicepfade erfolgen.
 
 | Pfad | Principal |
 |------|-----------|
-| `agentkit run-phase closure ...` interne Git-Mutationen | `pipeline_deterministic` |
+| `POST /phases/closure/start` (Service-API) / `agentkit run-phase closure` (Operator-CLI) — interne Git-Mutationen | `pipeline_deterministic` |
 | `agentkit split-story ...` | `admin_service` / `human_cli` |
 | `agentkit reset-story ...` | `admin_service` / `human_cli` |
 | `agentkit cleanup --story ...` fuer stale Runtime-Reste | `pipeline_deterministic` oder `human_cli` |

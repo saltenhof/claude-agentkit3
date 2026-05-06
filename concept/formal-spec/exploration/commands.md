@@ -15,7 +15,10 @@ prose_refs:
 
 # Exploration Commands
 
-Exploration laeuft nur ueber offizielle Phase- und Resume-Pfade.
+Exploration laeuft ueber offizielle Phase-Runner-Service- und Resume-Pfade.
+Normative Aufruf-Parameter (story_id, phase) sind in FK-91 §91.1a definiert.
+Die Operator-Recovery-CLI `agentkit run-phase exploration --story <story_id>`
+ist ein Spezialfall (FK-91 §91.1, FK-45 §45.4).
 
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
@@ -25,7 +28,7 @@ kind: command-set
 context: exploration
 commands:
   - id: exploration.command.run-phase
-    signature: agentkit run-phase exploration --story <story_id>
+    signature: POST /v1/story-runs/{run_id}/phases/exploration/start {story_id}
     allowed_statuses:
       - exploration.status.draft_in_progress
       - exploration.status.review_aggregated

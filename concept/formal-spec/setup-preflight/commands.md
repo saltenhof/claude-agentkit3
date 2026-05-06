@@ -13,7 +13,10 @@ prose_refs:
 
 # Setup Preflight Commands
 
-Setup laeuft nur ueber den offiziellen Phase-Runner-Pfad.
+Setup laeuft ueber den offiziellen Phase-Runner-Service.
+Normative Aufruf-Parameter (story_id, phase) sind in FK-91 §91.1a definiert.
+Die Operator-Recovery-CLI `agentkit run-phase setup --story <story_id>`
+ist ein Spezialfall (FK-91 §91.1, FK-45 §45.4).
 
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
@@ -23,7 +26,7 @@ kind: command-set
 context: setup-preflight
 commands:
   - id: setup-preflight.command.run-phase
-    signature: agentkit run-phase setup --story <story_id>
+    signature: POST /v1/story-runs/{run_id}/phases/setup/start {story_id}
     allowed_statuses:
       - setup-preflight.status.requested
     requires:

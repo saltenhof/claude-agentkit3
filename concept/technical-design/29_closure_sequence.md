@@ -229,7 +229,7 @@ liegt jetzt auf `ImplementationPayload`, nicht mehr auf
 
 ```mermaid
 flowchart TD
-    START(["agentkit run-phase closure<br/>--story ODIN-042"]) --> STYPE{Story-Typ?}
+    START(["Service: POST /phases/closure/start<br/>{story_id: ODIN-042}"]) --> STYPE{Story-Typ?}
 
     STYPE -->|"impl / bugfix"| FR
     STYPE -->|"concept / research<br/>(kein QA-Subflow, kein Merge)"| CR_SUB1["Substate:<br/>integrity_passed = true<br/>story_branch_pushed = true<br/>merge_done = true<br/>(direkt gesetzt, §29.1.1)"]
@@ -320,7 +320,7 @@ Zugriff: `payload.progress.integrity_passed`,
 `payload.progress.story_branch_pushed`,
 `payload.progress.merge_done` etc.
 
-Bei erneutem Aufruf von `agentkit run-phase closure`:
+Bei erneutem Aufruf (Service: `POST /phases/closure/start` oder Operator-CLI `agentkit run-phase closure`):
 
 - Story-Branch-Push wird übersprungen, wenn
   `payload.progress.story_branch_pushed == true`

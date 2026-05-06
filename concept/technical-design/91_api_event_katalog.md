@@ -70,57 +70,18 @@ formal_refs:
 
 # 91 — API- und Event-Katalog
 
-## 91.1 CLI-Befehle (agentkit)
-
-**Akteur:** Die CLI ist ausschliesslich ein menschlicher und
-administrativer Adapterpfad auf die Control-Plane-API (siehe §91.1a).
-Agents duerfen die CLI niemals direkt aufrufen; ihr Zugriff laeuft
-ueber den `Project Edge Client` gegen die REST-API. Die folgenden
-Befehle sind damit fachlich gleichbedeutend mit dem zugehoerigen
-API-Aufruf und erzeugen dieselbe Befehls- und Event-Semantik.
-
-<!-- PROSE-FORMAL: formal.installer.commands, formal.deterministic-checks.commands, formal.guard-system.commands, formal.conformance.commands, formal.llm-evaluations.commands, formal.integrity-gate.commands, formal.governance-observation.commands, formal.escalation.commands, formal.setup-preflight.commands, formal.verify.commands, formal.exploration.commands, formal.story-creation.commands, formal.story-closure.commands, formal.story-workflow.commands, formal.story-split.commands, formal.story-reset.commands, formal.principal-capabilities.commands, formal.operating-modes.commands, formal.execution-planning.state-machine, formal.execution-planning.commands, formal.state-storage.commands, formal.telemetry-analytics.commands, formal.integration-stabilization.commands, formal.story-exit.commands -->
-
-| Befehl | Kapitel | Beschreibung |
-|--------|---------|-------------|
-| `agentkit register-project --gh-owner {owner} --gh-repo {repo}` | 50 | Projekt registrieren bzw. idempotent erneut registrieren |
-| `agentkit register-project --gh-owner {owner} --gh-repo {repo} --dry-run` | 50 | Checkpoint-Vorschau ohne Mutation |
-| `agentkit verify-project` | 50 | Read-only Verifikation des Registrierungszustands |
-| `agentkit run-phase {phase}` | 20 | Pipeline-Phase ausführen |
-| `agentkit structural` | 33 | Structural Checks ausführen |
-| `agentkit policy` | 33 | Policy-Evaluation ausführen |
-| `agentkit stages` | 33 | Stage-Registry anzeigen |
-| `agentkit status` | 52 | Systemstatus anzeigen |
-| `agentkit cleanup --story {story_id}` | 20 | Stale Worktree/Branch/Locks aufräumen |
-| `agentkit resume --story {story_id}` | 35 | Pausierte Story fortsetzen |
-| `agentkit reset-escalation --story {story_id}` | 35 | Eskalation zurücksetzen |
-| `agentkit reset-story --story {story_id}` | 53 | Vollständige korrupt gewordene Umsetzung administrativ zurücksetzen |
-| `agentkit split-story --story {story_id}` | 54 | Scope-Explosion kontrolliert in Nachfolger-Stories überführen |
-| `agentkit resolve-conflict --story {story_id} --decision {decision}` | 55 | Autoritativen Snapshot-/Normkonflikt offiziell auflösen |
-| `agentkit approve-integration-manifest --story {story_id} --manifest {path}` | 57 | Integrations-Scope-Manifest fuer systemische E2E-/Stabilisierungsstory offiziell freigeben |
-| `agentkit amend-integration-manifest --story {story_id} --manifest {path}` | 57 | Erweiterung oder Rekonfiguration eines laufenden Integrations-Manifests offiziell anfordern |
-| `agentkit exit-story --story {story_id} --reason {reason}` | 58 | Story-Execution offiziell beenden und in Human-Takeover uebergeben |
-| `agentkit approve-permission-request --request {request_id}` | 55 | Offenen Permission-Einzelfall als Mensch freigeben, optional als Lease |
-| `agentkit reject-permission-request --request {request_id}` | 55 | Offenen Permission-Einzelfall als Mensch ablehnen |
-| `agentkit guard-status` | 56 | Aktuellen Betriebsmodus, Run-Bindung und aktives Guard-Regime anzeigen |
-| `agentkit override-integrity --story {story_id}` | 35 | Integrity-Gate bewusst overriden |
-| `agentkit query-telemetry` | 52 | Telemetrie-Events abfragen |
-| `agentkit dashboard [--port {port}]` | 63 | Read-only Dashboard für Runtime- und Analytics-Daten starten |
-| `agentkit weekly-review` | 52 | Wöchentlichen Review-Slot anzeigen |
-| `agentkit failure-corpus suggest-patterns` | 41 | Pattern-Kandidaten vorschlagen |
-| `agentkit failure-corpus review-patterns` | 41 | Patterns reviewen |
-| `agentkit failure-corpus review-checks` | 41 | Check-Proposals reviewen |
-| `agentkit failure-corpus effectiveness-report` | 41 | Wirksamkeits-Report |
-| `agentkit failure-corpus list-checks` | 41 | Aktive Checks anzeigen |
-| `agentkit failure-corpus add-incident` | 41 | Incident manuell erfassen |
-| `agentkit evidence assemble` | 26 | Evidence-Bundle für Review assemblieren (3-Stufen: Git-Diff, Import-Resolver, Worker-Hints) |
-
 ## 91.1a Service-API-Endpunkte (Control Plane)
 
-Diese Endpunkte beschreiben die **normative Zielgrenze** der zentralen
-AgentKit-Control-Plane. Die lokale CLI ist aktuell ein Adapterpfad und
-kann diese Operationen intern aufrufen; fachlich autoritativ ist der
-API-Vertrag.
+Die Service-API ist der **normative Standard-Zugriffspfad** fuer
+alle Agents und den Orchestrator-Skill. Agents verwenden
+ausschliesslich den offiziellen `Project Edge Client` gegen diese
+Endpunkte. Die Aufruf-Parameter (story_id, phase, mode, op_id)
+sind hier normativ definiert und gelten als Schema-Owner fuer alle
+anderen Dokumente, die auf diese Parameter verweisen.
+
+Diese Endpunkte beschreiben die normative Zielgrenze der zentralen
+AgentKit-Control-Plane. Die lokale CLI (§91.1) ist ein menschlicher
+Adapterpfad auf diese API; fachlich autoritativ ist der API-Vertrag.
 
 | Endpoint | Methode | Beschreibung |
 |----------|---------|--------------|
@@ -194,6 +155,54 @@ API-Vertrag.
     `resolve-conflict`, `approve-permission-request`), gilt das als
     offene Konzept-Schuld; eigenstaendige CLI-Implementierungen ohne
     API-Vertrag sind unzulaessig.
+
+## 91.1 Operator-Recovery-CLI (agentkit)
+
+**Akteur:** Die CLI ist ausschliesslich ein menschlicher und
+administrativer Adapterpfad auf die Control-Plane-API (§91.1a).
+Agents duerfen die CLI niemals direkt aufrufen; ihr Zugriff laeuft
+ueber den `Project Edge Client` gegen die REST-API. Die folgenden
+Befehle sind damit fachlich gleichbedeutend mit dem zugehoerigen
+API-Aufruf und erzeugen dieselbe Befehls- und Event-Semantik.
+
+**Standardweg fuer Agents ist §91.1a (Service-API). Die CLI ist
+Operator-Recovery-Pfad, kein Agent-Eingangstor.**
+
+<!-- PROSE-FORMAL: formal.installer.commands, formal.deterministic-checks.commands, formal.guard-system.commands, formal.conformance.commands, formal.llm-evaluations.commands, formal.integrity-gate.commands, formal.governance-observation.commands, formal.escalation.commands, formal.setup-preflight.commands, formal.verify.commands, formal.exploration.commands, formal.story-creation.commands, formal.story-closure.commands, formal.story-workflow.commands, formal.story-split.commands, formal.story-reset.commands, formal.principal-capabilities.commands, formal.operating-modes.commands, formal.execution-planning.state-machine, formal.execution-planning.commands, formal.state-storage.commands, formal.telemetry-analytics.commands, formal.integration-stabilization.commands, formal.story-exit.commands -->
+
+| Befehl | Kapitel | Beschreibung |
+|--------|---------|-------------|
+| `agentkit register-project --gh-owner {owner} --gh-repo {repo}` | 50 | Projekt registrieren bzw. idempotent erneut registrieren |
+| `agentkit register-project --gh-owner {owner} --gh-repo {repo} --dry-run` | 50 | Checkpoint-Vorschau ohne Mutation |
+| `agentkit verify-project` | 50 | Read-only Verifikation des Registrierungszustands |
+| `agentkit run-phase {phase} --story {story_id}` | 45 | Pipeline-Phase ausfuehren — **Operator-Recovery-Spezialfall**; Standardweg ist `POST /v1/story-runs/{run_id}/phases/{phase}/start` (§91.1a) |
+| `agentkit structural` | 33 | Structural Checks ausführen |
+| `agentkit policy` | 33 | Policy-Evaluation ausführen |
+| `agentkit stages` | 33 | Stage-Registry anzeigen |
+| `agentkit status` | 52 | Systemstatus anzeigen |
+| `agentkit cleanup --story {story_id}` | 20 | Stale Worktree/Branch/Locks aufräumen |
+| `agentkit resume --story {story_id}` | 35 | Pausierte Story fortsetzen |
+| `agentkit reset-escalation --story {story_id}` | 35 | Eskalation zurücksetzen |
+| `agentkit reset-story --story {story_id}` | 53 | Vollständige korrupt gewordene Umsetzung administrativ zurücksetzen — **Operator-Notfallpfad** |
+| `agentkit split-story --story {story_id}` | 54 | Scope-Explosion kontrolliert in Nachfolger-Stories überführen — **Operator-Notfallpfad** |
+| `agentkit resolve-conflict --story {story_id} --decision {decision}` | 55 | Autoritativen Snapshot-/Normkonflikt offiziell auflösen |
+| `agentkit approve-integration-manifest --story {story_id} --manifest {path}` | 57 | Integrations-Scope-Manifest fuer systemische E2E-/Stabilisierungsstory offiziell freigeben |
+| `agentkit amend-integration-manifest --story {story_id} --manifest {path}` | 57 | Erweiterung oder Rekonfiguration eines laufenden Integrations-Manifests offiziell anfordern |
+| `agentkit exit-story --story {story_id} --reason {reason}` | 58 | Story-Execution offiziell beenden und in Human-Takeover uebergeben — **Operator-Notfallpfad** |
+| `agentkit approve-permission-request --request {request_id}` | 55 | Offenen Permission-Einzelfall als Mensch freigeben, optional als Lease |
+| `agentkit reject-permission-request --request {request_id}` | 55 | Offenen Permission-Einzelfall als Mensch ablehnen |
+| `agentkit guard-status` | 56 | Aktuellen Betriebsmodus, Run-Bindung und aktives Guard-Regime anzeigen |
+| `agentkit override-integrity --story {story_id}` | 35 | Integrity-Gate bewusst overriden |
+| `agentkit query-telemetry` | 52 | Telemetrie-Events abfragen |
+| `agentkit dashboard [--port {port}]` | 63 | Read-only Dashboard für Runtime- und Analytics-Daten starten |
+| `agentkit weekly-review` | 52 | Wöchentlichen Review-Slot anzeigen |
+| `agentkit failure-corpus suggest-patterns` | 41 | Pattern-Kandidaten vorschlagen |
+| `agentkit failure-corpus review-patterns` | 41 | Patterns reviewen |
+| `agentkit failure-corpus review-checks` | 41 | Check-Proposals reviewen |
+| `agentkit failure-corpus effectiveness-report` | 41 | Wirksamkeits-Report |
+| `agentkit failure-corpus list-checks` | 41 | Aktive Checks anzeigen |
+| `agentkit failure-corpus add-incident` | 41 | Incident manuell erfassen |
+| `agentkit evidence assemble` | 26 | Evidence-Bundle für Review assemblieren (3-Stufen: Git-Diff, Import-Resolver, Worker-Hints) |
 
 ## 91.2 Telemetrie-Event-Typen
 

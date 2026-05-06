@@ -14,7 +14,7 @@ Abschluss der Story.
 
 Im Scope sind:
 
-- der offizielle CLI-Pfad `agentkit run-phase closure`
+- der offizielle Service-API-Pfad `POST /phases/closure/start` (FK-91 §91.1a; normativ) sowie der Operator-Recovery-CLI-Pfad `agentkit run-phase closure` (FK-91 §91.1; Spezialfall)
 - die Merge-Policies `ff_only` und `no_ff`
 - die Reihenfolge Push vor Merge
 - Guard-Regeln fuer den offiziellen Closure-Pfad

@@ -503,14 +503,14 @@ flowchart TD
 > Lese-/Schreibprotokoll sind in **FK-39 (Phase-State-Persistenz und
 > Phase-Envelope-Modell)** normiert.
 
-## 20.4 Phase Runner: CLI-Schnittstelle
+## 20.4 Phase Runner: Service-Schnittstelle
 
-> CLI-Aufrufkonvention (`agentkit run-phase ...`), Phasen-Dispatch,
-> Phase-Transition-Enforcement (Graphen- und Status-Validierung,
-> semantische Preconditions, Remediation-Pfad mit Guard-Check vor
-> Inkrement) und die Tabelle "Phasen-Ergebnisse und Orchestrator-Reaktion"
-> sind in **FK-45 (Phase Runner CLI und Phase-Transition-Enforcement)**
-> normiert.
+> Service-API-Aufruf (`POST /phases/{phase}/start`, FK-91 §91.1a),
+> Phasen-Dispatch, Phase-Transition-Enforcement (Graphen- und
+> Status-Validierung, semantische Preconditions, Remediation-Pfad
+> mit Guard-Check vor Inkrement) und die Tabelle
+> "Phasen-Ergebnisse und Orchestrator-Reaktion" sind in
+> **FK-45 (Phase Runner Service mit Recovery-CLI)** normiert.
 
 ## 20.5 Feedback-Loop
 
@@ -797,7 +797,7 @@ FK-06-040 bis FK-06-055 (Execution/Exploration Mode)*
 
 **Querverweise:**
 - FK-39 — Phase-State-Persistenz: PhaseEnvelope, PhasePayload (discriminated union), PhaseMemory (carry-forward), AttemptRecord, PauseReason-Enum, Lese-/Schreibprotokoll
-- FK-45 — Phase Runner CLI: `agentkit run-phase`, Phasen-Dispatch, Phase-Transition-Enforcement, Orchestrator-Reaktionstabelle
+- FK-45 — Phase Runner Service: Service-API-Eintrittspunkt, Phasen-Dispatch, Phase-Transition-Enforcement, Orchestrator-Reaktionstabelle; Recovery-CLI als Spezialfall (§45.4)
 - FK-38 — QA-Subflow-Feedback und Dokumententreue-Schleife: Maengelliste-Format, Mandatory-Target-Rueckkopplung, Ebene 3 und 4
 - FK-35 — Integrity-Gate, Governance-Beobachtung und Eskalation
 - FK-23 — Modusermittlung und Exploration: ExplorationPayload, gate_status, Design-Review-Gate

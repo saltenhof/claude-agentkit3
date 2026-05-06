@@ -13,8 +13,10 @@ prose_refs:
 
 # Implementation Commands
 
-Implementation laeuft ueber den offiziellen Phase-Runner- und
-Worker-Pfad.
+Implementation laeuft ueber den offiziellen Phase-Runner-Service.
+Normative Aufruf-Parameter (story_id, phase, mode) sind in FK-91 §91.1a definiert.
+Die Operator-Recovery-CLI `agentkit run-phase implementation --story <story_id>`
+ist ein Spezialfall (FK-91 §91.1, FK-45 §45.4).
 
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
@@ -24,7 +26,7 @@ kind: command-set
 context: implementation
 commands:
   - id: implementation.command.run-phase
-    signature: agentkit run-phase implementation --story <story_id>
+    signature: POST /v1/story-runs/{run_id}/phases/implementation/start {story_id, mode}
     allowed_statuses:
       - implementation.status.requested
     requires:

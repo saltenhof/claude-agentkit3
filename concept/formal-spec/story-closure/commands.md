@@ -17,7 +17,10 @@ prose_refs:
 # Story Closure Commands
 
 Closure darf nur ueber offizielle Pipeline-Kommandos oder explizit als
-verbotener manueller Eingriff modelliert werden.
+verbotener manueller Eingriff modelliert werden. Normative Aufruf-Parameter
+sind in FK-91 §91.1a (Service-API) als Schema-Owner definiert.
+Die CLI-Signaturen sind menschliche Operator-Recovery-Pfade (FK-91 §91.1,
+FK-45 §45.4).
 
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
@@ -27,7 +30,7 @@ kind: command-set
 context: story-closure
 commands:
   - id: story-closure.command.execute-default
-    signature: agentkit run-phase closure --story <story_id>
+    signature: "POST /v1/story-runs/{run_id}/phases/closure/start -- body: {story_id}"
     allowed_statuses:
       - story-closure.status.requested
       - story-closure.status.policy_checked
@@ -45,7 +48,7 @@ commands:
       - story-closure.event.closure.completed
       - story-closure.event.closure.escalated
   - id: story-closure.command.execute-no-ff
-    signature: agentkit run-phase closure --story <story_id> --no-ff
+    signature: "POST /v1/story-runs/{run_id}/phases/closure/start -- body: {story_id, no_ff: true}"
     allowed_statuses:
       - story-closure.status.requested
       - story-closure.status.policy_checked

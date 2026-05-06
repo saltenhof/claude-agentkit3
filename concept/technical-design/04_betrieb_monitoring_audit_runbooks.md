@@ -215,7 +215,7 @@ Symptom: Closure ESCALATED mit Merge-Konflikt
 Ursache: Main hat sich seit Story-Start weiterentwickelt
 
 Lösung:
-1. Offiziellen Closure-Retry pruefen: `agentkit run-phase closure --story {story_id} --no-ff`
+1. Offiziellen Closure-Retry pruefen: `POST /phases/closure/start` mit `no_ff: true` (Service-API FK-91 §91.1a) oder Operator-CLI `agentkit run-phase closure --story {story_id} --no-ff` (FK-91 §91.1)
 2. Wenn Closure damit sauber abschliesst: Story normal beenden
 3. Wenn weiterhin harter, nicht workflowfaehiger Konflikt vorliegt:
    Eskalation bestehen lassen und menschliche Entscheidung treffen

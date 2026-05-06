@@ -33,7 +33,7 @@ commands:
       - guard-system.event.guard.allowed
       - guard-system.event.guard.blocked
   - id: guard-system.command.official-closure-push
-    signature: agentkit run-phase closure ... internal story-branch push
+    signature: POST /phases/closure/start (Service-API) or agentkit run-phase closure (Operator-CLI) — internal story-branch push
     allowed_statuses:
       - guard-system.status.received
     requires:

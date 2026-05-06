@@ -212,17 +212,17 @@ Der wichtigste Skill. Er orchestriert die gesamte Story-
 Bearbeitungs-Pipeline:
 
 1. Liest freigegebene Story aus dem AK3-Story-Backend
-2. Ruft `agentkit run-phase setup` auf
+2. Ruft `POST /phases/setup/start` auf (Aufruf-Parameter gemaess FK-91 §91.1a)
 3. Liest Phase-State -> spawnt Worker (oder Exploration-Worker)
 4. Wartet auf Worker-Ende
-5. Ruft `agentkit run-phase implementation` auf — der QA-Subflow
+5. Ruft `POST /phases/implementation/start` auf — der QA-Subflow
    laeuft Subflow-intern in der Implementation-Phase und ruft die
    Capability `VerifySystem` (FK-27)
 6. Liest Phase-State -> bei `qa_cycle_status: awaiting_remediation`:
-   spawnt Remediation-Worker und ruft `agentkit run-phase implementation`
+   spawnt Remediation-Worker und ruft `POST /phases/implementation/start`
    erneut auf (Subflow-Loop, kein Phasenwechsel)
 7. Bei `qa_cycle_status: pass` (Implementation COMPLETED): ruft
-   `agentkit run-phase closure` auf
+   `POST /phases/closure/start` auf
 8. Bei Eskalation: stoppt und informiert Mensch
 
 **Der Skill ist der Orchestrator.** Er enthält die Logik, die

@@ -15,7 +15,10 @@ prose_refs:
 # Story Workflow Commands
 
 Diese Kommandos bilden nur die offiziellen Workflow-Eingriffe fuer den
-laufenden Story-Run ab.
+laufenden Story-Run ab. Normative Aufruf-Parameter (story_id, phase,
+mode, op_id) sind in FK-91 §91.1a (Service-API) als Schema-Owner
+definiert. Die CLI-Signaturen (FK-91 §91.1) sind menschliche
+Operator-Recovery-Pfade.
 
 `split-story` und `reset-story` gehoeren bewusst nicht in diesen
 Kontext, weil sie administrative Services ausserhalb des normalen
@@ -29,7 +32,7 @@ kind: command-set
 context: story-workflow
 commands:
   - id: story-workflow.command.run-phase
-    signature: agentkit run-phase <phase> --story <story_id>
+    signature: POST /v1/story-runs/{run_id}/phases/<phase>/start {story_id, mode}
     allowed_statuses:
       - story-workflow.status.in_progress
       - story-workflow.status.failed

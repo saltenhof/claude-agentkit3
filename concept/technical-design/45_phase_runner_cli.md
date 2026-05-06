@@ -1,6 +1,6 @@
 ---
 concept_id: FK-45
-title: Phase Runner CLI und Phase-Transition-Enforcement
+title: Phase Runner Service mit Recovery-CLI
 module: phase-runner-cli
 domain: pipeline-framework
 status: active
@@ -35,9 +35,12 @@ defers_to:
   - target: FK-59
     scope: story-contract-classification
     reason: "`mode`/`execution_route`-Vertragsachse"
+  - target: FK-91
+    scope: api-call-parameters
+    reason: Normative Aufruf-Parameter (story_id, phase, mode, op_id) fuer den Service-API-Eintrittspunkt liegen in FK-91 §91.1a
 supersedes: []
 superseded_by:
-tags: [phase-runner, cli, state-machine, pipeline, orchestration]
+tags: [phase-runner, api, cli, state-machine, pipeline, orchestration]
 prose_anchor_policy: strict
 formal_refs:
   - formal.setup-preflight.entities
@@ -72,24 +75,32 @@ glossary:
         der exportierte Begriff ist phase-transition (FK-20).
 ---
 
-# 45 — Phase Runner CLI und Phase-Transition-Enforcement
+# 45 — Phase Runner Service mit Recovery-CLI
 
 <!-- PROSE-FORMAL: formal.setup-preflight.entities, formal.setup-preflight.state-machine, formal.setup-preflight.invariants, formal.setup-preflight.scenarios, formal.implementation.state-machine, formal.implementation.commands, formal.implementation.events, formal.implementation.scenarios, formal.verify.state-machine, formal.verify.commands, formal.verify.events, formal.verify.scenarios, formal.story-workflow.commands -->
 
-## 45.1 Aufrufkonvention und Phasen-Dispatch
+## 45.1 Service-API-Eintrittspunkt und Phasen-Dispatch
 
-### 45.1.1 Aufrufkonvention
+Der Standard-Eintrittspunkt fuer den Phase Runner ist die
+Control-Plane-API (FK-91 §91.1a). Agents und der Orchestrator-Skill
+verwenden ausschliesslich diese API. Die normative
+Aufruf-Parameterdefinition (story_id, phase, mode, op_id) liegt
+in FK-91 §91.1a als Schema-Owner.
 
-```bash
-agentkit run-phase {phase} --story {story_id} [--config {path}]
+### 45.1.1 Service-API-Aufruf (Standard)
+
+```
+POST /v1/story-runs/{run_id}/phases/{phase}/start
+Body: { "story_id": "ODIN-042", "mode": "execution" }
 ```
 
-Der Orchestrator-Skill ruft den Phase Runner für jede Phase
-einzeln auf. Der Phase Runner führt die Phase aus, aktualisiert
-den Phase-State und beendet sich. Der Orchestrator liest dann
-den Phase-State und entscheidet, was als nächstes passiert.
+Der Orchestrator-Skill ruft den Phase Runner fuer jede Phase
+einzeln ueber die Control-Plane-API auf. Der Phase Runner fuehrt
+die Phase aus, aktualisiert den Phase-State und gibt eine normierte
+Antwort zurueck. Der Orchestrator liest den Phase-State und
+entscheidet, was als naechstes passiert.
 
-### 45.1.2 Phasen-Dispatch
+### 45.1.2 Interner Phasen-Dispatch
 
 ```python
 def run_phase(phase: str, story_id: str, config: PipelineConfig) -> PhaseState:
@@ -324,11 +335,41 @@ Referenz: DK-02 §Phase-Transition-Enforcement, FK-23 §23.4
 | `setup` COMPLETED | `mode: execution` oder `exploration`, `agents_to_spawn: [worker]` | Spawnt Worker (oder Exploration-Worker bei Exploration Mode) |
 | `setup` ESCALATED | `escalation_reason: "preflight_fail"`, `errors: [...]` | Eskalation an Mensch — Preflight-Checks fehlgeschlagen, kein automatischer Remediation-Pfad (FK-20 §20.6.1). |
 | `exploration` COMPLETED | `agents_to_spawn: [worker]` | Spawnt Implementation-Worker |
-| `exploration` PAUSED | `pause_reason: "awaiting_design_review"` oder `"awaiting_design_challenge"` | Orchestrator wartet auf externe Klärung (Design-Review bzw. Design-Challenge). Resume nach Abschluss via `agentkit resume`. [Entscheidung 2026-04-09: PAUSED-Ergebnis ergänzt — Exploration nutzt PAUSED zentral für Design-Review und Design-Challenge.] |
+| `exploration` PAUSED | `pause_reason: "awaiting_design_review"` oder `"awaiting_design_challenge"` | Orchestrator wartet auf externe Klärung (Design-Review bzw. Design-Challenge). Resume nach Abschluss via `POST /phases/exploration/start` (Service-Resume) oder Operator-CLI `agentkit resume` (§45.4). [Entscheidung 2026-04-09: PAUSED-Ergebnis ergänzt — Exploration nutzt PAUSED zentral für Design-Review und Design-Challenge.] |
 | `exploration` ESCALATED | `escalation_reason: "doc_fidelity_fail"` oder `"design_review_rejected"` | Eskalation an Mensch. Auslöser: (1) Dokumententreue FAIL (doc_fidelity_fail), (2) Design-Review FAIL non-remediable oder Rundenlimit überschritten (gate_status = REJECTED → design_review_rejected). [Entscheidung 2026-04-09: Design-Review-Terminalpfad gemäß FK-23 §23.5 Stufe 2c ergänzt; `errors`-Feld durch `escalation_reason` ersetzt für Konsistenz mit anderen ESCALATED-Zeilen.] |
-| `implementation` COMPLETED (QA-Subflow PASS) | `agents_to_spawn: []`, `payload.qa_cycle_status: pass` | Ruft `run-phase closure` auf. Implementation kann COMPLETED nur erreichen, wenn der interne QA-Subflow `qa_cycle_status = pass` erreicht. [Entscheidung 2026-05-01: kein `run-phase verify` mehr — Top-Phase `verify` entfaellt.] |
-| `implementation` mit QA-Subflow im Remediation-Loop | `payload.qa_cycle_status: awaiting_remediation`, `agents_to_spawn: [remediation_worker]` | Subflow-intern: QA-Subflow lieferte FAIL mit verbleibenden Runden. Phase Runner inkrementiert `memory.implementation.qa_feedback_rounds` nach Guard-Check (Pre-Check VOR Inkrement) und persistiert via `save_phase_state()`. Orchestrator spawnt Remediation-Worker. Nach Worker-Abschluss erneut `run-phase implementation` — der Subflow setzt mit `verify_context = POST_REMEDIATION` fort, kein Phasenwechsel. [Entscheidung 2026-05-01: vormals zwei Eintraege `verify FAILED -> run-phase implementation -> run-phase verify`; mit Cut der Top-Phase `verify` Subflow-intern in `implementation`.] |
+| `implementation` COMPLETED (QA-Subflow PASS) | `agents_to_spawn: []`, `payload.qa_cycle_status: pass` | Startet `POST /phases/closure/start`. Implementation kann COMPLETED nur erreichen, wenn der interne QA-Subflow `qa_cycle_status = pass` erreicht. [Entscheidung 2026-05-01: kein `run-phase verify` mehr — Top-Phase `verify` entfaellt.] |
+| `implementation` mit QA-Subflow im Remediation-Loop | `payload.qa_cycle_status: awaiting_remediation`, `agents_to_spawn: [remediation_worker]` | Subflow-intern: QA-Subflow lieferte FAIL mit verbleibenden Runden. Phase Runner inkrementiert `memory.implementation.qa_feedback_rounds` nach Guard-Check (Pre-Check VOR Inkrement) und persistiert via `save_phase_state()`. Orchestrator spawnt Remediation-Worker. Nach Worker-Abschluss erneut `POST /phases/implementation/start` — der Subflow setzt mit `verify_context = POST_REMEDIATION` fort, kein Phasenwechsel. [Entscheidung 2026-05-01: vormals zwei Eintraege `verify FAILED -> run-phase implementation -> run-phase verify`; mit Cut der Top-Phase `verify` Subflow-intern in `implementation`.] |
 | `implementation` ESCALATED (Worker BLOCKED) | `escalation_reason: "worker_blocked"`, Blocker-Details aus `worker-manifest.json` | Eskalation an Mensch. Worker hat unloesbaren Constraint gemeldet (z.B. Hook-Barriere, fehlende Dependency). |
 | `implementation` ESCALATED (QA-Subflow) | `escalation_reason: "max_rounds_exceeded"` / `"doc_fidelity_fail"` / `"impact_violation"`, `payload.qa_cycle_status: escalated` | Eskalation an Mensch. Ausloeser im QA-Subflow: (1) Max Feedback-Runden erschoepft, (2) Dokumententreue Ebene 3 FAIL (Umsetzungstreue), (3) Impact-Violation (Issue-Metadaten falsch deklariert). [Entscheidung 2026-04-09: Beschreibung um Dokumententreue-FAIL und Impact-Violation erweitert — waren in FK-20 §20.6.1 dokumentiert, fehlten in der Uebersichtstabelle.] [Entscheidung 2026-05-01: Phase ist `implementation` — QA-Subflow statt eigene Verify-Phase.] |
 | `closure` COMPLETED | `payload.progress: {alle true}` | Story ist Done |
 | `closure` ESCALATED | `escalation_reason: "integrity_fail"` oder `"merge_fail"` | Eskalation an Mensch. [Korrektur 2026-04-09: `errors`-Feld durch `escalation_reason` ersetzt für Konsistenz mit anderen ESCALATED-Zeilen.] |
+
+## 45.4 Operator-Recovery-CLI (Spezialfall)
+
+Die CLI `agentkit run-phase ...` ist **kein Standard-Aufrufweg**.
+Sie ist ausschliesslich fuer menschliche Operator-Recovery-Szenarien
+vorgesehen, in denen kein Orchestrator-Agent verfuegbar ist oder
+ein defekter Run manuell weitergeschrieben werden muss.
+
+**Erlaubte CLI-Recovery-Befehle:**
+
+```bash
+# Nur als Operator-Recovery, nicht als normaler Aufrufweg
+agentkit run-phase {phase} --story {story_id} [--config {path}]
+agentkit resume --story {story_id}
+agentkit reset-escalation --story {story_id}
+agentkit cleanup --story {story_id}
+```
+
+**Unveraenderlich CLI-basiert (kein Service-Aequivalent):**
+
+| Befehl | Grund |
+|--------|-------|
+| `agentkit-hook-claude` / `agentkit-hook-codex` | Harness-Hooks sind OS-Prozesse mit stdin/stdout-Pipes — unausweichlich CLI (FK-30 §30.3.1) |
+| `agentkit register-project` / `agentkit verify-project` | Einmaliges Operator-Bootstrap/Setup (FK-50) |
+| `agentkit reset-story`, `agentkit split-story`, `agentkit exit-story` | Operator-Notfallpfade (FK-53, FK-54, FK-58) |
+
+**Normative Regel:** Kein Agent darf die CLI direkt aufrufen.
+Agents greifen ausschliesslich ueber den `Project Edge Client`
+gegen die Control-Plane-API (FK-91 §91.1a) zu.
+Die CLI ist menschlicher und administrativer Adapterpfad (FK-91 §91.1).
