@@ -1,9 +1,10 @@
 story_id: AG3-008
 title: "MultiRepoClosureState im ClosurePayload modellieren"
 type: implementation
-status: in_progress
+status: completed
 phase: setup
 created: "2026-05-04"
+completed_at: "2026-05-06T09:09:39.8576326+02:00"
 size: S
 depends_on:
   - AG3-007

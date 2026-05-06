@@ -1,7 +1,7 @@
 story_id: AG3-009
 title: "Multi-Repo-Closure-Saga (5-stufig, Pre-Merge-Check, Rollback)"
 type: implementation
-status: blocked
+status: ready
 phase: setup
 created: "2026-05-04"
 size: M
