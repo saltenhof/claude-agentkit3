@@ -1,0 +1,9 @@
+story_id: AG3-018
+title: "Fast-Modus konzeptionell und im Code aufnehmen"
+type: implementation
+status: ready
+phase: setup
+created: "2026-05-06"
+size: L
+depends_on: []
+unblocks: ["AG3-019"]
