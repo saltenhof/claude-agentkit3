@@ -15,6 +15,8 @@ from agentkit.state_backend.store import facade
 if TYPE_CHECKING:
     from agentkit.requirements_coverage.models import StoryAreLink, StoryAreLinkKind
 
+_NOT_FOUND_MESSAGE = "StoryAreLink not found"
+
 
 class StateBackendStoryAreLinkRepository(StoryAreLinkRepository):
     """Persist StoryAreLink edges through the canonical state-backend facade."""
@@ -46,7 +48,7 @@ class StateBackendStoryAreLinkRepository(StoryAreLinkRepository):
                 if link.are_item_id == are_item_id and link.kind == old_kind
             ]
             if not current:
-                raise StoryAreLinkNotFoundError("StoryAreLink not found")
+                raise StoryAreLinkNotFoundError(_NOT_FOUND_MESSAGE)
             return current[0]
 
         if any(
@@ -63,7 +65,7 @@ class StateBackendStoryAreLinkRepository(StoryAreLinkRepository):
             new_kind,
         )
         if updated is None:
-            raise StoryAreLinkNotFoundError("StoryAreLink not found")
+            raise StoryAreLinkNotFoundError(_NOT_FOUND_MESSAGE)
         return updated
 
     def remove(
@@ -79,7 +81,7 @@ class StateBackendStoryAreLinkRepository(StoryAreLinkRepository):
             kind,
         )
         if removed == 0:
-            raise StoryAreLinkNotFoundError("StoryAreLink not found")
+            raise StoryAreLinkNotFoundError(_NOT_FOUND_MESSAGE)
 
     def list_by_story(self, story_id: str) -> list[StoryAreLink]:
         return facade.load_story_are_links(story_id, self._store_dir)
