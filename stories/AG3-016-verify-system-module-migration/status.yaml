@@ -1,9 +1,10 @@
 story_id: AG3-016
 title: "Verify-System: agentkit.qa.* -> agentkit.verify_system.* migrieren"
 type: implementation
-status: in_progress
+status: completed
 phase: setup
 created: "2026-05-05"
+completed_at: "2026-05-06T12:01:08+02:00"
 size: M
 depends_on: []
 unblocks: []
