@@ -208,7 +208,8 @@ Halte an, melde und warte auf Entscheidung, wenn:
 | AG3-015 | Prompt-Runtime: Bundle-Pinning, Materialisierung, Audit | L | AG3-011 |
 | AG3-016 | Verify-System: agentkit.qa.* -> agentkit.verify_system.* migrieren | M | — |
 | AG3-017 | Harness-Hook-Wrapper-CLI: agentkit-hook-claude / agentkit-hook-codex | M | — |
-| AG3-018 | Fast-Modus konzeptionell und im Code aufnehmen | L | AG3-019 |
+| AG3-018 | Fast-Modus konzeptionell und im Code aufnehmen | L | — |
+| AG3-019 | Phase-/Substep-Visualisierung mit Mode-Label im UI-Prototyp | M | — |
 
 ### 6.3 Blocked (warten auf Dependency)
 
@@ -217,7 +218,6 @@ Halte an, melde und warte auf Entscheidung, wenn:
 | AG3-008 | MultiRepoClosureState im ClosurePayload modellieren | S | AG3-007 |
 | AG3-009 | Multi-Repo-Closure-Saga (5-stufig, Pre-Merge-Check, Rollback) | M | AG3-007, AG3-008 |
 | AG3-011 | Worker-Spawn mit Worktree-Map (Multi-Repo) | S | AG3-010 |
-| AG3-019 | Story-Inspector: Phase-/Substep-Visualisierung mit Mode-Label | M | AG3-018 |
 
 ### 6.4 Bereits abgeschlossen (Referenz)
 

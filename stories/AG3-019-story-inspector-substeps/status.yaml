@@ -1,9 +1,9 @@
 story_id: AG3-019
-title: "Story-Inspector: Phase-/Substep-Visualisierung mit Mode-Label"
+title: "Phase-/Substep-Visualisierung mit Mode-Label im UI-Prototyp"
 type: implementation
-status: blocked
+status: ready
 phase: setup
 created: "2026-05-06"
 size: M
-depends_on: ["AG3-018"]
+depends_on: []
 unblocks: []
