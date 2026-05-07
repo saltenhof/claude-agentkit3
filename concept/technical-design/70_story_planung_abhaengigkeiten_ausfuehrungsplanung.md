@@ -644,6 +644,98 @@ entsteht nur ueber ein typisiertes `HumanGate`.
 
 Querverweis: FK-20 §20.8.2 (PipelineEngine-Pflicht).
 
+## 70.8a Execution-Input-Top-Surface (lebend, Doppel-Schnittstelle)
+
+Die Execution-Input-Top-Surface beantwortet zu jedem Zeitpunkt die
+Frage: **was kann jetzt maximal an den Orchestrator delegiert werden,
+ohne dass die Caps oder die Graph-Feasibility verletzt werden?** Sie
+ist **lebend** — jeder Story-Status-Wechsel, jeder Cap-Wechsel, jede
+neue Story, jede Dependency-Aenderung loest eine bounded
+Re-Evaluation aus (§70.6.2a Re-Plan-Trigger). Damit traegt die
+Surface den Druck, die Umsetzungspipeline auf hoher Auslastung zu
+halten, ohne dabei die zentralen Caps zu verletzen.
+
+Die Top-Surface hat **zwei fachlich gleiche Auspraegungen** auf
+derselben Triage-Logik, mit unterschiedlichen Payload-Formaten — eine
+fuer das Frontend, eine fuer den autonomen Orchestrator-Skill. Beide
+Auspraegungen pumpen aus **einem** deterministischen Selektor; eine
+Doppel-Implementierung ist explizit unzulaessig.
+
+### 70.8a.1 UI-Snapshot
+
+Konsument: Frontend (Story-Cockpit / Execution-Input-View, FK-72).
+Endpoint: `GET /v1/projects/{project_key}/execution-input/snapshot`.
+
+Liefert in einem Aufruf:
+
+- `running` — bereits delegierte Stories mit Predecessor/Successor-
+  Stack-Format
+- `eligibleReady` — Triage-gefilterte Ready-Stories mit Predecessor/
+  Successor-Stack-Format
+- `totalReady` — Anzahl theoretisch ready (vor Triage)
+- `globalSlotsLeft` — verbleibende Slots aus dem globalen Cap
+
+Pflicht: liefert das vollstaendige Bild fuer eine menschlich
+gesteuerte Sicht. Eine leere Liste ist eine zulaessige Antwort,
+keine `404`. Die Sicht zeigt im Empty-State eine Platzhalter-Saeule
+(siehe FK-72 Layout-Invarianten der Execution-Input-View) — die
+API-Antwort selbst traegt die leeren Listen plus die Counters.
+
+### 70.8a.2 Agent-Pull
+
+Konsument: Orchestrator-Skill, autonom oder operator-getrieben.
+Endpoint: `GET /v1/projects/{project_key}/execution-input/next`.
+
+Liefert pro Aufruf **genau eine** naechste Story (oder `null`,
+wenn nichts delegierbar ist), plus eine maschinenlesbare Triage-
+Begruendung: Repo-Bucket, Critical-Path-Flag, verbleibende Slots
+pro relevanten Cap, aktiver Tiebreaker.
+
+Pflicht: idempotent. Wiederholte Aufrufe ohne Backlog-Aenderung
+liefern dieselbe Antwort. Der Skill darf den Endpoint deshalb
+nach jedem Story-Abschluss aufrufen, ohne lokale Cache-Logik.
+Dieser Pfad ermoeglicht autonomen Pipeline-Pull: nach
+Closure-Abschluss zieht der Orchestrator selbststaendig die
+naechste Story und beginnt sofort den naechsten Setup-Lauf.
+
+### 70.8a.3 Gemeinsame Triage-Logik
+
+Beide Auspraegungen leiten aus demselben deterministischen
+Selektor ab:
+
+1. `globalSlotsLeft = min(merge_risk_cap, max_parallel_agent_cap,
+   llm_pool_cap, ci_capacity_cap) - running.length`,
+   lower-bounded auf 0.
+2. Pro Repo: `repoSlotsLeft = repo_parallel_cap - running_in_repo
+   - bereits_im_pick_genutzt`.
+3. Bucket pro Repo, intern sortiert nach `critical_path`
+   absteigend, dann Story-Nummer aufsteigend.
+4. Round-Robin ueber Repos (Repo-Liste alphabetisch sortiert
+   fuer Determinismus), bis `globalSlotsLeft` aufgebraucht ist
+   oder kein Repo mehr Karten/Slots hat.
+
+Der UI-Snapshot liefert das gesamte Pick-Ergebnis. Der Agent-Pull
+liefert die erste Karte des Pick-Ergebnisses.
+
+### 70.8a.4 Determinismus und Re-Plan
+
+- Gleiche Eingabe (Stories, Caps, Stati) liefert identische
+  Ausgabe.
+- Cap-Aenderung wirkt sofort. Reale Implementierung nutzt
+  Optimistic-Update + debounced Backend-Sync; aus Vertragssicht
+  ist die Cap-Aktualisierung Pflicht-Trigger fuer Re-Plan
+  (§70.6.2a).
+- Re-Evaluation triggert §70.6.2a (Story DONE, Blocker, Cap-
+  Aenderung, Rulebook-Update, Konfliktflaeche).
+
+### 70.8a.5 Trennung gegenueber bestehenden Planning-Endpoints
+
+`/v1/planning/ready-set` und `/v1/planning/execution-plan`
+liefern Planungs-**Detail** (alle ready, blocked, Wave, Critical-
+Path). Die Execution-Input-Top-Surface liefert die direkt
+delegierbare Teilmenge nach Triage gegen die Caps. Sie ist also
+keine Doppelung, sondern die eingeschnittene operative Teilsicht.
+
 ## 70.9 UI- und API-Folgen
 
 Die Webanwendung braucht spaeter mindestens diese Pflichtsichten auf

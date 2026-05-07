@@ -104,13 +104,16 @@ export function selectReadyStacks(stories: Story[]): ReadyStack[] {
 
 /* ---- Execution-Input-Selector ----
  *
+ * Konzept-Anker: FK-70 §70.8a (Execution-Input-Top-Surface,
+ * Doppel-Schnittstelle).
+ *
  * Liefert genau die Stories, die operativ relevant sind:
  *   - laufende (In-Progress) Stories
  *   - Ready-Stories nach Triage gegen die Execution-Limits, also nicht
  *     "alle theoretisch ready" sondern "diese duerfen jetzt starten".
  *
  * Triage:
- *   1. globalCap = min(mergeRiskCap, apiRateLimitCap, llmPoolCap,
+ *   1. globalCap = min(mergeRiskCap, maxParallelAgentCap, llmPoolCap,
  *      ciCapacityCap). Davon wird die Anzahl bereits laufender
  *      Stories abgezogen -> globalSlotsLeft.
  *   2. pro Repo: repoParallelCap - bereits laufend in diesem Repo.
@@ -122,6 +125,15 @@ export function selectReadyStacks(stories: Story[]): ReadyStack[] {
  *
  * Determinismus: gleiche Eingabe -> gleiche Ausgabe (sortierte
  * Repo-Iteration und Story-IDs).
+ *
+ * Diese Funktion ist die Single-Source-Triage. Im Backend muss sie
+ * exakt zwei Adapter speisen (FK-70 §70.8a, FK-91 §91.1a):
+ *   - GET /v1/projects/{project_key}/execution-input/snapshot
+ *     (Frontend, gibt das gesamte Pick-Ergebnis)
+ *   - GET /v1/projects/{project_key}/execution-input/next
+ *     (Orchestrator-Skill, gibt die erste Karte des Pick-Ergebnisses)
+ * Eine Doppel-Implementierung der Triage-Logik ist explizit
+ * unzulaessig.
  */
 
 export interface ExecutionInputSnapshot {

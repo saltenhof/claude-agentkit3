@@ -98,6 +98,8 @@ Adapterpfad auf diese API; fachlich autoritativ ist der API-Vertrag.
 | `/v1/planning/proposals` | `POST` | Strukturierte Agenten- oder Analyse-Proposals fuer Abhaengigkeiten, Gates und Waves offiziell einreichen |
 | `/v1/planning/proposals/{proposal_id}` | `GET` | Persistiertes Planning-Proposal mit Validierungs- und Anwendungsstatus lesen |
 | `/v1/planning/recompute` | `POST` | Offizielle Neuplanung nach Aenderung an Graph, Gates oder Story-Zustaenden ausloesen |
+| `/v1/projects/{project_key}/execution-input/snapshot` | `GET` | Lebende Execution-Input-Sicht fuer das Frontend: laufende Stories + Triage-gefilterte delegierbare Stories + Counters (FK-70 §70.8a.1) |
+| `/v1/projects/{project_key}/execution-input/next` | `GET` | Agent-orientierter Pull: genau eine naechste delegierbare Story (oder `null`) plus Triage-Begruendung; idempotent (FK-70 §70.8a.2) |
 | `/v1/stories` | `POST` | Neue Story in der Control-Plane anlegen (kanonische Story-Wahrheit) |
 | `/v1/stories` | `GET` | Projektgebundene Story-Liste für Web- und Agent-Clients |
 | `/v1/stories/{story_id}` | `GET` | Story-Detailansicht mit Status, Laufzeit- und Telemetriebezug |
