@@ -1,9 +1,9 @@
 export type GraphTab = 'graph' | 'ready' | 'limits';
 
 const TABS: Array<{ id: GraphTab; label: string }> = [
-  { id: 'graph', label: 'Graph' },
-  { id: 'ready', label: 'Ausführbar' },
-  { id: 'limits', label: 'Limits' },
+  { id: 'graph', label: 'Story Dependency Graph' },
+  { id: 'ready', label: 'Execution Input' },
+  { id: 'limits', label: 'Execution Limits' },
 ];
 
 export function GraphTabs({
