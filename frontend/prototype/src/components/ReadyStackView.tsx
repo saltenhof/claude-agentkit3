@@ -25,6 +25,24 @@
  * 4. Logik (Triage gegen Caps, Round-Robin pro Repo, Critical-Path
  *    priorisiert) liegt im Store (`selectExecutionInput`). Diese
  *    View ist reine Praesentation.
+ *
+ * 5. Copy-Mechanik (Hand-off an Orchestrator):
+ *    - Bulk-Copy hinter der Headline "Effektiv delegierbar"
+ *      kopiert alle delegierbaren Story-IDs als
+ *      "BB2-X, BB2-Y, BB2-Z"-String (Komma plus Leerzeichen
+ *      getrennt). Disabled, solange die Sektion leer ist.
+ *      Konsument: Operator, der das Set in einem Rutsch an
+ *      einen Orchestrator-Skill weiterreichen will.
+ *    - Per-Card-Copy oben rechts in jeder delegierbaren Story
+ *      kopiert ausschliesslich diese eine Story-ID. Konsument:
+ *      Operator, der eine gezielte Einzel-Story delegiert.
+ *    Per-Card-Copy ist per showCopyId-Prop nur fuer Variant
+ *    'current' aktiv. Vorgaenger, Nachfolger, Running- und
+ *    Placeholder-Karten zeigen keinen Copy-Button — sie sind
+ *    nicht das delegierbare Set.
+ *    Aktive "Aktuell laufend"-Karten haben bewusst keinen
+ *    Copy-Button: sie sind bereits delegiert, ein erneutes
+ *    Kopieren fuer Hand-off ergibt fachlich keinen Sinn.
  */
 
 import {
@@ -86,11 +104,7 @@ export function ReadyStackView({
           <h3 className="ready-stack-section__title">
             Effektiv delegierbar ({eligibleReady.length})
           </h3>
-          {/*
-            Bulk-Copy aller delegierbaren Story-IDs als
-            "BB2-X, BB2-Y, BB2-Z"-String. Disabled, solange keine
-            Story aufgefuehrt ist.
-          */}
+          {/* Bulk-Copy — siehe §5 Copy-Mechanik im Header-Kommentar. */}
           <CopyButton
             text={() => eligibleReady.map((s) => s.story.id).join(', ')}
             ariaLabel="Alle delegierbaren Story-IDs kopieren"
