@@ -1,4 +1,4 @@
-import type { Story } from '../data';
+import type { Story } from '../store';
 
 export type StoryCardVariant = 'completed' | 'current' | 'upcoming' | 'placeholder';
 

@@ -1,5 +1,5 @@
 import type { Edge, Node } from '@xyflow/react';
-import type { Story } from './data';
+import type { Story } from './store';
 
 const NODE_WIDTH_REM = 15.25;
 const NODE_HEIGHT_REM = 8.75;

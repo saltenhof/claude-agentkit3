@@ -1,5 +1,4 @@
-import type { Story } from '../data';
-import { buildReadyStacks } from '../lib/readyStack';
+import { selectReadyStacks, type Story } from '../store';
 import { StoryCard } from './StoryCard';
 
 export function ReadyStackView({
@@ -9,7 +8,7 @@ export function ReadyStackView({
   stories: Story[];
   onSelect: (story: Story) => void;
 }) {
-  const stacks = buildReadyStacks(stories);
+  const stacks = selectReadyStacks(stories);
 
   if (stacks.length === 0) {
     return (

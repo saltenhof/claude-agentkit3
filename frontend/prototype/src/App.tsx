@@ -49,14 +49,24 @@ import {
   X,
   XCircle,
 } from 'lucide-react';
-import { conceptAnchors, project, projects, rulebookStressStories as initialStories, type PhaseStatus, type Story } from './data';
+import {
+  buildStoryKpiTiles,
+  conceptAnchors,
+  DEFAULT_EXECUTION_LIMITS,
+  project,
+  projects,
+  selectStoryCounters,
+  STORY_FIXTURES as initialStories,
+  type ExecutionLimits,
+  type PhaseStatus,
+  type Story,
+  type StoryCounters,
+} from './store';
 import { layoutGraph, toGraph } from './graph';
 import { KpiBar } from './components/KpiBar';
-import { buildStoryKpiTiles, type StoryCounters } from './lib/storyKpis';
 import { GraphTabs, type GraphTab } from './components/GraphTabs';
 import { ReadyStackView } from './components/ReadyStackView';
 import { ExecutionLimitsView } from './components/ExecutionLimitsView';
-import { DEFAULT_EXECUTION_LIMITS, type ExecutionLimits } from './lib/executionLimits';
 
 type ViewMode = 'graph' | 'kanban' | 'sheet' | 'analytics' | 'hub';
 const INSPECTOR_WIDTH_KEY = 'ak3.storyInspector.width';
@@ -463,21 +473,7 @@ export function App() {
     setDetailOpen(true);
   }, []);
 
-  const counters = useMemo(() => {
-    const doneStoryIds = new Set(storyState.filter((story) => story.status === 'Done').map((story) => story.id));
-    const hasOpenDependency = (story: Story) => story.dependencies.some((dependency) => !doneStoryIds.has(dependency));
-    const isReady = (story: Story) => story.status === 'Approved' && !story.blocker && !hasOpenDependency(story);
-    const isBlocked = (story: Story) =>
-      story.status === 'Backlog' || (story.status === 'Approved' && (Boolean(story.blocker) || hasOpenDependency(story)));
-    return {
-      total: storyState.length,
-      running: storyState.filter((story) => story.status === 'In Progress').length,
-      finished: storyState.filter((story) => story.status === 'Done').length,
-      ready: storyState.filter(isReady).length,
-      queue: storyState.filter((story) => story.status === 'Approved').length,
-      blocked: storyState.filter(isBlocked).length,
-    };
-  }, [storyState]);
+  const counters = useMemo(() => selectStoryCounters(storyState), [storyState]);
 
   const activeProject = projects.find((candidate) => candidate.key === activeProjectKey) ?? project;
 

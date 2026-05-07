@@ -1,5 +1,4 @@
-import type { ExecutionLimits } from '../lib/executionLimits';
-import { EXECUTION_LIMIT_DESCRIPTORS } from '../lib/executionLimits';
+import { EXECUTION_LIMIT_DESCRIPTORS, type ExecutionLimits } from '../store';
 
 export function ExecutionLimitsView({
   limits,

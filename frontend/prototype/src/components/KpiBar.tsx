@@ -1,4 +1,4 @@
-import type { KpiTileData } from '../lib/storyKpis';
+import type { KpiTileData } from '../store';
 
 export function KpiTile({ label, value, suffix, tone = 'default' }: KpiTileData) {
   const className = tone === 'warning' ? 'kpi-tile kpi-tile--warning' : 'kpi-tile';
