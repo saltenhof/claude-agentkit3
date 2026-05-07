@@ -188,7 +188,7 @@ export function selectExecutionInput(
   /* Globaler Slot-Cap aus den Caps, abzueglich Laufender. */
   const globalCap = Math.min(
     limits.mergeRiskCap,
-    limits.apiRateLimitCap,
+    limits.maxParallelAgentCap,
     limits.llmPoolCap,
     limits.ciCapacityCap,
   );
@@ -250,7 +250,7 @@ export function selectExecutionInput(
 export const DEFAULT_EXECUTION_LIMITS: ExecutionLimits = {
   repoParallelCap: 3,
   mergeRiskCap: 5,
-  apiRateLimitCap: 30,
+  maxParallelAgentCap: 8,
   llmPoolCap: 10,
   ciCapacityCap: 4,
 };
@@ -267,9 +267,9 @@ export const EXECUTION_LIMIT_DESCRIPTORS: ExecutionLimitDescriptor[] = [
     description: 'Aggregiertes Merge-Risiko-Budget über alle aktiven Stories.',
   },
   {
-    key: 'apiRateLimitCap',
-    label: 'API Rate Limit Cap',
-    description: 'Max. parallele API-Aufrufe gegen externe Anbieter (Claude, GitHub).',
+    key: 'maxParallelAgentCap',
+    label: 'Max Parallel Agent Cap',
+    description: 'Max. parallel laufende Worker-Agent-Sessions ueber alle Stories hinweg.',
   },
   {
     key: 'llmPoolCap',

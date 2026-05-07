@@ -108,7 +108,7 @@ export interface Story {
 export interface ExecutionLimits {
   repoParallelCap: number;
   mergeRiskCap: number;
-  apiRateLimitCap: number;
+  maxParallelAgentCap: number;
   llmPoolCap: number;
   ciCapacityCap: number;
 }
