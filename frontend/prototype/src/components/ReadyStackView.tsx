@@ -1,16 +1,30 @@
 /*
- * Execution Input — laufende und effektiv delegierbare Stories.
+ * Execution-Input-View — laufende und effektiv delegierbare Stories.
  *
- * Sicht zeigt zwei Sektionen:
- *   - "Aktuell laufend" (status = In Progress): bereits delegierte
- *     Stories. Sie belegen Slots und werden hier sichtbar als
- *     Running-Karten dargestellt.
- *   - "Effektiv delegierbar": Ready-Stories nach Triage gegen die
- *     Execution Limits (FK-70 §70.6.2). Mehr als globalSlotsLeft
- *     wird nicht angezeigt.
+ * ---------------------------------------------------------------
+ * Layout-Invarianten (normatives UI-Verhalten, FK-72 Prototyp):
+ * ---------------------------------------------------------------
  *
- * Die Triage-Logik liegt im Store (`selectExecutionInput`). Diese
- * Komponente ist reine Praesentation.
+ * 1. Beide Sektionen ("Aktuell laufend" und "Effektiv delegierbar")
+ *    sind IMMER sichtbar — auch wenn die jeweilige Liste leer ist.
+ *    Headline und Sektion-Reihenfolge bleiben ortsfest. Damit hat
+ *    der User keinen "ist die View kaputt?"-Eindruck bei leerem
+ *    Backlog.
+ *
+ * 2. Ist eine Liste leer, wird genau EINE Platzhalter-Saeule
+ *    gerendert: drei Placeholder-Karten (Vorgaenger / "keine
+ *    laufende Story" bzw. "keine ausfuehrbare Story" / Nachfolger).
+ *    Damit gibt es eine visuelle Andocke, in die spaetere
+ *    SSE-Updates Karten einfuegen koennen, ohne dass das Layout
+ *    wandert.
+ *
+ * 3. Bei echten Stories ersetzt eine echte Spalte die Platzhalter-
+ *    Saeule; weitere Stories docken nach rechts an. Kein
+ *    Layout-Sprung.
+ *
+ * 4. Logik (Triage gegen Caps, Round-Robin pro Repo, Critical-Path
+ *    priorisiert) liegt im Store (`selectExecutionInput`). Diese
+ *    View ist reine Praesentation.
  */
 
 import {
@@ -33,19 +47,6 @@ export function ReadyStackView({
   const { running, eligibleReady, totalReady, globalSlotsLeft } =
     selectExecutionInput(stories, limits);
 
-  if (running.length === 0 && eligibleReady.length === 0) {
-    return (
-      <div className="ready-stack-empty">
-        <strong>Keine Story aktuell delegierbar oder laufend.</strong>
-        <p>
-          {totalReady > 0
-            ? `Theoretisch ready: ${totalReady}. Aktuell schöpfen die Execution-Caps die freien Slots auf 0 — pruefe die Limits-View.`
-            : 'Alle freigegebenen Stories haben offene Abhängigkeiten oder sind bereits abgeschlossen.'}
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="ready-stack-view">
       <header className="ready-stack-view__header">
@@ -57,41 +58,45 @@ export function ReadyStackView({
         </p>
       </header>
 
-      {running.length > 0 && (
-        <section className="ready-stack-section">
-          <h3 className="ready-stack-section__title">
-            Aktuell laufend ({running.length})
-          </h3>
-          <div className="ready-stack-grid">
-            {running.map((stack) => (
+      <section className="ready-stack-section">
+        <h3 className="ready-stack-section__title">
+          Aktuell laufend ({running.length})
+        </h3>
+        <div className="ready-stack-grid">
+          {running.length > 0 ? (
+            running.map((stack) => (
               <StackColumn
                 key={stack.story.id}
                 stack={stack}
                 variant="running"
                 onSelect={onSelect}
               />
-            ))}
-          </div>
-        </section>
-      )}
+            ))
+          ) : (
+            <PlaceholderColumn centerLabel="Keine laufende Story" />
+          )}
+        </div>
+      </section>
 
-      {eligibleReady.length > 0 && (
-        <section className="ready-stack-section">
-          <h3 className="ready-stack-section__title">
-            Effektiv delegierbar ({eligibleReady.length})
-          </h3>
-          <div className="ready-stack-grid">
-            {eligibleReady.map((stack) => (
+      <section className="ready-stack-section">
+        <h3 className="ready-stack-section__title">
+          Effektiv delegierbar ({eligibleReady.length})
+        </h3>
+        <div className="ready-stack-grid">
+          {eligibleReady.length > 0 ? (
+            eligibleReady.map((stack) => (
               <StackColumn
                 key={stack.story.id}
                 stack={stack}
                 variant="current"
                 onSelect={onSelect}
               />
-            ))}
-          </div>
-        </section>
-      )}
+            ))
+          ) : (
+            <PlaceholderColumn centerLabel="Keine ausführbare Story" />
+          )}
+        </div>
+      </section>
     </div>
   );
 }
@@ -118,6 +123,22 @@ function StackColumn({
         variant="upcoming"
         placeholderLabel="Kein Nachfolger"
       />
+    </div>
+  );
+}
+
+/*
+ * PlaceholderColumn — wird gerendert, wenn die Sektion leer ist.
+ * Gleiches dreiteiliges Layout wie eine echte Spalte (Vorgaenger /
+ * Story / Nachfolger), damit das Layout der View ortsfest bleibt
+ * und SSE-Updates ohne Layout-Sprung Karten einsetzen koennen.
+ */
+function PlaceholderColumn({ centerLabel }: { centerLabel: string }) {
+  return (
+    <div className="ready-stack-column">
+      <StoryCard story={null} variant="placeholder" placeholderLabel="Kein Vorgänger" />
+      <StoryCard story={null} variant="placeholder" placeholderLabel={centerLabel} />
+      <StoryCard story={null} variant="placeholder" placeholderLabel="Kein Nachfolger" />
     </div>
   );
 }

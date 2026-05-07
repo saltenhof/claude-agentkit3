@@ -2443,28 +2443,11 @@ td:hover .sheet-title-cell svg {
   gap: var(--space-2);
 }
 
-.ready-stack-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  gap: var(--space-2);
-  padding: var(--space-8);
-  color: var(--ak-text);
-  opacity: 0.7;
-}
-
-.ready-stack-empty strong {
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.ready-stack-empty p {
-  margin: 0;
-  font-size: 13px;
-  max-width: 28rem;
-}
+/* Empty-State der Execution-Input-View nicht mehr noetig:
+ * Statt eines globalen "leer"-Containers rendert die View pro
+ * Sektion eine Platzhalter-Saeule mit drei Placeholder-Karten,
+ * sobald die Liste leer ist (siehe ReadyStackView.tsx Layout-
+ * Invarianten). Das Layout bleibt damit ortsfest. */
 
 /* Execution-Limits-View */
 
