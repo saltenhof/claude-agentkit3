@@ -2520,8 +2520,8 @@ td:hover .sheet-title-cell svg {
 .execution-limits-field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: var(--space-3) var(--space-4);
+  gap: var(--space-2);
+  padding: var(--space-4);
   border-radius: var(--radius-md);
   border: 1px solid var(--ak-border);
   background:
@@ -2541,22 +2541,97 @@ td:hover .sheet-title-cell svg {
   color: var(--ak-text);
   opacity: 0.7;
   line-height: 1.45;
+  flex: 1 1 auto;
 }
 
-.execution-limits-field input {
-  margin-top: 4px;
+.execution-limits-field__control {
+  margin-top: var(--space-3);
   align-self: flex-start;
-  width: 6rem;
-  padding: 6px 10px;
-  font-size: 14px;
-  font-weight: 600;
+}
+
+/* NumberStepper — eigener Stepper im Dark-Theme,
+ * ersetzt die nativen Browser-Spinner. */
+
+.number-stepper {
+  display: inline-flex;
+  align-items: stretch;
+  height: 2rem;
   border-radius: var(--radius-sm);
   border: 1px solid var(--ak-border-strong);
-  background: var(--ak-surface-2);
-  color: var(--ak-text);
+  background:
+    linear-gradient(180deg, var(--overlay-white-035), var(--overlay-white-0) 46%),
+    var(--ak-surface-2);
+  box-shadow: 0 1px 0 var(--overlay-white-3) inset;
+  overflow: hidden;
 }
 
-.execution-limits-field input:focus {
+.number-stepper__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ak-text);
+  cursor: pointer;
+  user-select: none;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.number-stepper__btn:first-child {
+  border-right: 1px solid var(--ak-border);
+}
+
+.number-stepper__btn:last-child {
+  border-left: 1px solid var(--ak-border);
+}
+
+.number-stepper__btn:hover:not(:disabled) {
+  background: var(--overlay-white-5);
+  color: var(--ak-accent-text);
+}
+
+.number-stepper__btn:active:not(:disabled) {
+  background: var(--overlay-white-7);
+}
+
+.number-stepper__btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.number-stepper__btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ak-accent-text), transparent 50%);
+  outline-offset: -2px;
+}
+
+.number-stepper__input {
+  width: 3rem;
+  padding: 0 6px;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ak-text);
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.number-stepper__input::-webkit-inner-spin-button,
+.number-stepper__input::-webkit-outer-spin-button {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.number-stepper__input:focus {
   outline: none;
-  border-color: rgba(80, 180, 200, 0.65);
+}
+
+.number-stepper:focus-within {
+  border-color: color-mix(in srgb, var(--ak-accent-text), transparent 35%);
 }

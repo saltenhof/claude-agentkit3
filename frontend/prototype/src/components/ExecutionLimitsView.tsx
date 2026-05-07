@@ -1,4 +1,5 @@
 import { EXECUTION_LIMIT_DESCRIPTORS, type ExecutionLimits } from '../store';
+import { NumberStepper } from './NumberStepper';
 
 export function ExecutionLimitsView({
   limits,
@@ -26,23 +27,24 @@ export function ExecutionLimitsView({
       </header>
       <div className="execution-limits-grid">
         {EXECUTION_LIMIT_DESCRIPTORS.map((descriptor) => (
-          <label key={descriptor.key} className="execution-limits-field">
+          <div key={descriptor.key} className="execution-limits-field">
             <div className="execution-limits-field__label">{descriptor.label}</div>
             <div className="execution-limits-field__description">{descriptor.description}</div>
-            <input
-              type="number"
-              min={0}
-              step={1}
-              value={limits[descriptor.key]}
-              onChange={(event) => {
-                const parsed = Number(event.target.value);
-                onChange({
-                  ...limits,
-                  [descriptor.key]: Number.isFinite(parsed) && parsed >= 0 ? parsed : 0,
-                });
-              }}
-            />
-          </label>
+            <div className="execution-limits-field__control">
+              <NumberStepper
+                value={limits[descriptor.key]}
+                min={0}
+                step={1}
+                ariaLabel={descriptor.label}
+                onChange={(next) =>
+                  onChange({
+                    ...limits,
+                    [descriptor.key]: next,
+                  })
+                }
+              />
+            </div>
+          </div>
         ))}
       </div>
     </div>
