@@ -8,10 +8,49 @@ information is collected.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING, TypeAlias
+
+from agentkit.governance.protocols import GuardVerdict, ViolationType
 
 if TYPE_CHECKING:
-    from agentkit.governance.protocols import GovernanceGuard, GuardVerdict
+    from agentkit.governance.guard_evaluation import HookEvent
+    from agentkit.governance.protocols import GovernanceGuard
+
+HookDecision: TypeAlias = GuardVerdict
+
+PRE_HOOK_IDS = frozenset(
+    {
+        "branch_guard",
+        "orchestrator_guard",
+        "story_creation_guard",
+        "integrity_guard",
+        "qa_agent_guard",
+        "adversarial_guard",
+        "self_protection_guard",
+        "health_monitor",
+        "ccag_gatekeeper",
+    }
+)
+POST_HOOK_IDS = frozenset(
+    {
+        "telemetry",
+        "review_guard",
+        "budget",
+        "health_monitor",
+    }
+)
+SUPPORTED_PHASES = frozenset({"pre", "post"})
+SUPPORTED_HOOK_IDS = frozenset(PRE_HOOK_IDS | POST_HOOK_IDS)
+
+
+@dataclass(frozen=True)
+class HookWrapperArgs:
+    """Validated hook-wrapper command-line selector."""
+
+    phase: str
+    hook_id: str
 
 
 class GuardRunner:
@@ -74,3 +113,103 @@ class GuardRunner:
         verdicts = self.evaluate(operation, context)
         allowed = all(v.allowed for v in verdicts)
         return allowed, verdicts
+
+
+class Governance:
+    """Harness-neutral governance top surface."""
+
+    @staticmethod
+    def run_hook(
+        hook_id: str,
+        event: HookEvent,
+        *,
+        phase: str = "pre",
+        project_root: Path | None = None,
+    ) -> HookDecision:
+        """Dispatch a named hook against the harness-neutral event model."""
+        return run_hook(
+            hook_id,
+            event,
+            phase=phase,
+            project_root=project_root,
+        )
+
+
+def parse_hook_wrapper_args(
+    argv: list[str],
+    *,
+    command_name: str,
+) -> HookWrapperArgs:
+    """Validate ``agentkit-hook-{harness} {phase} {hook_id}`` arguments."""
+    if len(argv) != 2:
+        raise ValueError(f"Usage: {command_name} {{pre|post}} {{hook_id}}")
+    phase, hook_id = argv
+    verdict = validate_hook_selector(phase=phase, hook_id=hook_id)
+    if verdict is not None:
+        raise ValueError(verdict.message or "Invalid hook selector")
+    return HookWrapperArgs(phase=phase, hook_id=hook_id)
+
+
+def validate_hook_selector(*, phase: str, hook_id: str) -> GuardVerdict | None:
+    """Return a fail-closed verdict when a hook selector is invalid."""
+    if phase not in SUPPORTED_PHASES:
+        return GuardVerdict.block(
+            "hook_dispatcher",
+            ViolationType.POLICY_VIOLATION,
+            f"Unknown hook phase {phase!r}; expected one of {sorted(SUPPORTED_PHASES)}",
+            detail={"phase": phase, "hook_id": hook_id},
+        )
+    if hook_id not in _hook_ids_for_phase(phase):
+        return GuardVerdict.block(
+            "hook_dispatcher",
+            ViolationType.POLICY_VIOLATION,
+            f"Unknown hook id {hook_id!r} for phase {phase!r}",
+            detail={
+                "phase": phase,
+                "hook_id": hook_id,
+                "supported_hook_ids": sorted(_hook_ids_for_phase(phase)),
+            },
+        )
+    return None
+
+
+def run_hook(
+    hook_id: str,
+    event: HookEvent,
+    *,
+    phase: str = "pre",
+    project_root: Path | None = None,
+) -> HookDecision:
+    """Run a named governance hook, fail-closed on unknown selectors."""
+    invalid = validate_hook_selector(phase=phase, hook_id=hook_id)
+    if invalid is not None:
+        return invalid
+    if phase == "post":
+        return GuardVerdict.allow(hook_id)
+
+    from agentkit.governance.guard_evaluation import evaluate_pre_tool_use
+
+    return evaluate_pre_tool_use(event, project_root=project_root or Path.cwd())
+
+
+def _hook_ids_for_phase(phase: str) -> frozenset[str]:
+    if phase == "pre":
+        return PRE_HOOK_IDS
+    if phase == "post":
+        return POST_HOOK_IDS
+    return frozenset()
+
+
+__all__ = [
+    "Governance",
+    "GuardRunner",
+    "HookDecision",
+    "HookWrapperArgs",
+    "POST_HOOK_IDS",
+    "PRE_HOOK_IDS",
+    "SUPPORTED_HOOK_IDS",
+    "SUPPORTED_PHASES",
+    "parse_hook_wrapper_args",
+    "run_hook",
+    "validate_hook_selector",
+]
