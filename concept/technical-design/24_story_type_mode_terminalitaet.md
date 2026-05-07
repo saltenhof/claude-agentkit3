@@ -85,6 +85,7 @@ formal_refs:
   - formal.story-workflow.scenarios
   - formal.integration-stabilization.entities
   - formal.integration-stabilization.invariants
+  - formal.setup-preflight.invariants
 ---
 
 # 24 — Story Type, Mode und Terminalitaet
@@ -179,6 +180,52 @@ Insbesondere gilt:
   Exploration ist ein Vorlauf, nicht das Endergebnis.
 - `story_type=bugfix` + `mode=exploration` bedeutet:
   Exploration ist ein Vorlauf, nicht das Endergebnis.
+
+### 24.3.3 Mutual Exclusion zwischen Fast- und Standard-Mode
+
+Fast (`mode=fast`, eingefuehrt mit AG3-018) und Standard
+(`mode=execution` oder `mode=exploration`) sind **fachlich
+ausschliesslich**. Solange in einem Projekt mindestens eine Story
+im Standard-Mode aktiv ist (Status `In Progress`), darf keine
+Fast-Story starten — und umgekehrt.
+
+Begruendung:
+
+1. Fast deaktiviert die Story-scoped Repo-Schutz-Guards
+   (Branch-Guard, Scope-Overlap, Lock-Records). Genau diese
+   Guards sind aber von einer parallel laufenden Standard-Story
+   aktiv geschaltet und schuetzen ihren Scope. Eine Fast-Story
+   wuerde reproduzierbar in den Geltungsbereich dieser Guards
+   laufen und damit nicht das liefern, was Fast verspricht.
+2. Fast-Mode setzt voraus, dass ein Mensch die Story aktiv
+   begleitet (vgl. AG3-018). Eine zweite, parallel laufende
+   Standard-Pipeline verwaessert dieses Begleit-Versprechen.
+3. Pre-Merge-Rebase-Konflikte zwischen Fast und Standard sind
+   wahrscheinlicher als zwischen zwei Fast- oder zwei Standard-
+   Stories desselben Modes.
+
+**Innerhalb** eines Modes ist Parallelitaet erlaubt und wird
+ueber die Execution-Caps (FK-70 §70.6.2) reglementiert.
+
+**Enforcement:** AK3 fuehrt einen projektweiten `mode_lock` als
+Zustandsobjekt der Control Plane: Wert ist `null`, `standard`
+oder `fast` plus ein `holder_count`. Beim Story-Start
+(Setup-Preflight) wird der Lock atomar geprueft und gesetzt:
+
+- `mode_lock = null` -> setze auf gewuenschten Mode, holder_count = 1.
+- `mode_lock = gewuenschter Mode` -> holder_count++.
+- `mode_lock = anderer Mode` -> Setup faellt durch den
+  Mode-Konflikt-Check (FK-22 §22.3.1, Check 10
+  `no_competing_story_mode_active`); Story bleibt in Approved.
+
+Beim Story-Abschluss (Closure / Cancellation) wird
+`holder_count--`; bei `0` faellt der Lock zurueck auf `null`.
+Der Mode-Wechsel ist damit erst moeglich, wenn die letzte
+Story des aktiven Modus beendet ist.
+
+<!-- PROSE-FORMAL: formal.setup-preflight.invariants -->
+
+Formale Invariante: `formal.setup-preflight.no_competing_story_mode_active`.
 
 ## 24.3a `implementation_contract` fuer implementierende Storys
 

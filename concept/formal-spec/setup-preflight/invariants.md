@@ -8,6 +8,7 @@ spec_kind: invariant-set
 version: 1
 prose_refs:
   - concept/technical-design/22_setup_preflight_worktree_guard_activation.md
+  - concept/technical-design/24_story_type_mode_terminalitaet.md
   - concept/technical-design/45_phase_runner_cli.md
   - concept/domain-design/02-pipeline-orchestrierung.md
 ---
@@ -38,5 +39,8 @@ invariants:
   - id: setup-preflight.invariant.noncode-stories-skip-worktrees
     scope: process
     rule: concept and research stories complete setup without worktree or code mode routing
+  - id: setup-preflight.invariant.no_competing_story_mode_active
+    scope: process
+    rule: a story may only start setup when the project-level mode_lock is null or holds the same execution_route mode (standard or fast); fast and standard are mutually exclusive at the project level for the duration of any active in-progress story
 ```
 <!-- FORMAL-SPEC:END -->

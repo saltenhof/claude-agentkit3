@@ -73,7 +73,7 @@ glossary:
       definition: >
         Einer der neun deterministischen Checks in der Setup-Phase, die
         fail-closed geprueft werden, bevor eine Story gestartet wird. Alle
-        neun Checks werden ausgefuehrt; ein einzelner FAIL stoppt den Start.
+        zehn Checks werden ausgefuehrt; ein einzelner FAIL stoppt den Start.
         Prueft u.a. Issue-Existenz, Story-Status, offene Abhaengigkeiten,
         fehlende Laufzeit-Reste und Scope-Overlap mit parallelen Stories.
       see_also:
@@ -88,7 +88,7 @@ glossary:
         des Project Edge Client, genutzt von FK-30 und FK-31.
     - id: scope-overlap-check
       reason: >
-        Einer der neun Preflight-Checks (Check 9). Implementierungsdetail der
+        Einer der zehn Preflight-Checks (Check 9). Implementierungsdetail der
         Preflight-Suite; der exportierte Begriff ist preflight-gate.
 ---
 
@@ -113,7 +113,7 @@ beteiligt. Alles läuft als Python-Skript über den Phase Runner.
 flowchart TD
     START(["Service: POST /phases/setup/start<br/>{story_id: ODIN-042}"]) --> PREFLIGHT
 
-    subgraph PREFLIGHT_PHASE ["Preflight-Gates (9 Checks)"]
+    subgraph PREFLIGHT_PHASE ["Preflight-Gates (10 Checks)"]
         PREFLIGHT["1. Issue existiert?"]
         PREFLIGHT --> P2["2. Story-ID im Project?"]
         P2 --> P3["3. Status == Approved?"]
@@ -160,7 +160,7 @@ flowchart TD
 
 ## 22.3 Preflight-Gates
 
-### 22.3.1 Die neun Checks
+### 22.3.1 Die zehn Checks
 
 | # | Check | Was geprüft wird | Wie | FAIL-Grund |
 |---|-------|-----------------|-----|-----------|
@@ -173,11 +173,12 @@ flowchart TD
 | 7 | `no_story_branch` | Kein Branch `story/{story_id}` existiert **oder** Branch gehört zu abgeschlossenem Run | `git rev-parse --verify story/{story_id}`. Bei Existenz: prüfe ob zugehöriger Run abgeschlossen. Bei abgestürztem Run: FAIL (Mensch muss entscheiden: Cleanup oder Recovery). | Branch eines unaufgeräumten Runs vorhanden |
 | 8 | `no_stale_worktree` | Kein Worktree für diese Story **oder** Worktree gehört zu abgeschlossenem Run | `git worktree list --porcelain` + Suche nach Story-ID. Logik analog zu Check 7. | Worktree eines unaufgeräumten Runs vorhanden |
 | 9 | `no_scope_overlap` | Keine aktive parallele Story arbeitet an denselben Modulen/Pfaden | Aktive Lock-Records und deren `StoryContext` im State-Backend lesen und Scope ueber `scope_keys`/`repo_bindings` vergleichen. Bei Ueberschneidung: FAIL. | Parallele Story arbeitet an überlappenden Modulen — Merge-Konflikt vorprogrammiert |
+| 10 | `no_competing_story_mode_active` | Kein konflikthafter Story-Mode (FK-24 §24.3.3) ist projektweit aktiv | Projektweiten `mode_lock` der Control Plane lesen. Erlaubt: `mode_lock = null` oder `mode_lock.mode = gewuenschter Mode`. FAIL: Mode-Lock haelt einen anderen Mode (`fast` waehrend `standard` aktiv ist oder umgekehrt). | Fast und Standard sind fachlich ausschliesslich; aktive Stories des anderen Modus muessen erst Done/Cancelled sein |
 
 ### 22.3.2 Fail-closed
 
 Jeder einzelne Check-Failure führt zum Abbruch. Es werden trotzdem
-alle 9 Checks ausgeführt (nicht beim ersten Failure abbrechen),
+alle 10 Checks ausgeführt (nicht beim ersten Failure abbrechen),
 damit der Mensch alle Probleme auf einmal sieht.
 
 ### 22.3.3 Ergebnis
@@ -758,7 +759,7 @@ Control-Plane-Exporte unter `_temp/governance/`.
 ---
 
 *FK-Referenzen: FK-05-052 bis FK-05-073 (Setup-Phase komplett),
-FK-05-058 bis FK-05-066 (9 Preflight-Checks),
+FK-05-058 bis FK-05-066 (Preflight-Checks 1-9; Check 10 Mode-Konflikt aus FK-24 §24.3.3 nachgezogen),
 FK-05-067 bis FK-05-069 (Worktree, Context, Guards),
 FK-05-070 bis FK-05-073 (Modus-Ermittlung),
 REF-032 (4-Trigger-Modell, ersetzt FK-06-044 bis FK-06-055)*

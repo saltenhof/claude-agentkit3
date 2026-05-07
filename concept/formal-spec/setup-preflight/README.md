@@ -13,7 +13,7 @@ Preflight-Pfad bis zur Startfaehigkeit einer Story-Bearbeitung.
 
 Im Scope sind:
 
-- die neun Preflight-Checks
+- die zehn Preflight-Checks
 - Story-Context-Berechnung
 - Worktree- und Branch-Setup
 - Guard-Aktivierung

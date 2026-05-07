@@ -28,13 +28,48 @@ Der Fast-Modus loest das: die Story bleibt eine vollwertige AK3-Story (Story-ID,
 - **Kein** Projekt-Feature-Flag. Fast ist Standard-Modus, in jedem AK3-Projekt verfuegbar gleichrangig zu execution/exploration.
 - Verfuegbar nur fuer Story-Typen `implementation` und `bugfix`. `concept`/`research` -> Fail-Closed.
 
+## Mutual Exclusion zwischen Fast und Standard (FK-24 §24.3.3)
+
+Fast und Standard (`execution` / `exploration`) sind **fachlich
+ausschliesslich** auf Projekt-Ebene. Solange in einem Projekt
+mindestens eine Story im Standard-Modus aktiv ist (Status
+`In Progress`), darf keine Fast-Story starten — und umgekehrt.
+
+Begruendung:
+
+- Eine parallel aktive Standard-Story haelt ihre Story-scoped
+  Repo-Schutz-Guards aktiv. Genau diese deaktiviert Fast — die
+  Fast-Story wuerde reproduzierbar gegen die noch aktiven Guards
+  der Standard-Story laufen.
+- Fast setzt voraus, dass ein Mensch die Story aktiv begleitet.
+  Eine zweite Pipeline parallel verwaessert dieses Versprechen.
+- Pre-Merge-Rebase-Konflikte zwischen Fast und Standard sind
+  wahrscheinlicher als zwischen zwei Stories desselben Modes.
+
+**Innerhalb** desselben Modes ist Parallelitaet erlaubt
+(reglementiert ueber die Execution-Caps, FK-70 §70.6.2). Das
+Mutex-Verbot greift nur zwischen verschiedenen Modes.
+
+Diese Story enforced die Regel ueber:
+
+1. **Projektweiten `mode_lock`** in der Control Plane mit Werten
+   `null` | `standard` | `fast` plus `holder_count`. Atomar gesetzt
+   beim Story-Start, runtergezaehlt bei Story-Abschluss.
+2. **Setup-Preflight-Check 10** `no_competing_story_mode_active`
+   (FK-22 §22.3.1, formale Invariante
+   `formal.setup-preflight.no_competing_story_mode_active`).
+3. **Klare Operator-Fehlermeldung** bei Konflikt: "Mode-Konflikt:
+   Fast nicht startbar; Standard-Story BB2-XXX laeuft noch. Story
+   bleibt in Approved." Die Story bleibt im Backlog ready, sobald
+   der aktive Modus alle Stories beendet hat.
+
 ## Mode-Profil (kanonische Tabelle, Owner FK-24)
 
 Vollstaendige Tabelle Phase × Substep × Fast-Verhalten als kanonische Quelle in einer neuen FK-24-Sektion. Alle abhaengigen Konzepte verweisen auf diese Sektion — keine Duplikation. Auszeichnung: **IN** unveraendert / **OUT** entfaellt / **MOD** veraendert (Delta hinter dem Doppelpunkt).
 
 | Phase | Substep | Fast-Verhalten |
 |-------|---------|----------------|
-| Setup | Preflight-Gates (9 Checks) | **MOD**: nur 3 Mindest-Checks (story_exists, kein aktiver Run, kein staler Worktree); Status/Deps/Scope-Overlap weg |
+| Setup | Preflight-Gates (10 Checks) | **MOD**: 4 Mindest-Checks aktiv (story_exists, kein aktiver Run, kein staler Worktree, Mode-Konflikt aus §24.3.3); Status/Deps/Scope-Overlap weg |
 | Setup | Story-Context-Berechnung | **IN** |
 | Setup | ARE-Bundle laden | **OUT** |
 | Setup | Story-Typ-Weiche | **MOD**: nur impl/bugfix erlaubt |
