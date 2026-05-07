@@ -2216,6 +2216,14 @@ td:hover .sheet-title-cell svg {
 
 .file-tabs--graph {
   margin-top: 2px;
+  justify-content: center;
+  padding-left: 0;
+}
+
+.file-tabs--graph button {
+  width: 20vw;
+  min-width: 20vw;
+  max-width: 20vw;
 }
 
 .graph-main > .graph-shell,
