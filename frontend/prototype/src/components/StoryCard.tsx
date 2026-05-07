@@ -1,6 +1,6 @@
 import type { Story } from '../store';
 
-export type StoryCardVariant = 'completed' | 'current' | 'upcoming' | 'placeholder';
+export type StoryCardVariant = 'completed' | 'current' | 'running' | 'upcoming' | 'placeholder';
 
 export interface StoryCardProps {
   story: Story | null;

@@ -39,7 +39,13 @@ export {
   buildStoryKpiTiles,
   DEFAULT_EXECUTION_LIMITS,
   EXECUTION_LIMIT_DESCRIPTORS,
+  selectExecutionInput,
   selectReadyStacks,
   selectStoryCounters,
 } from './storySelectors';
-export type { KpiTileData, ReadyStack, StoryCounters } from './storySelectors';
+export type {
+  ExecutionInputSnapshot,
+  KpiTileData,
+  ReadyStack,
+  StoryCounters,
+} from './storySelectors';

@@ -2320,6 +2320,33 @@ td:hover .sheet-title-cell svg {
     0 -1px 0 rgba(0, 0, 0, 0.22) inset;
 }
 
+.story-card--running {
+  border-color: color-mix(in srgb, var(--ak-accent-warm), transparent 30%);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0) 46%),
+    linear-gradient(180deg, rgba(80, 60, 30, 0.78) 0%, rgba(50, 35, 15, 0.85) 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 220, 160, 0.10) inset,
+    0 -1px 0 rgba(0, 0, 0, 0.22) inset;
+}
+
+.story-card--running::after {
+  content: 'läuft';
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ak-accent-warm-strong);
+  opacity: 0.92;
+}
+
+.story-card--running {
+  position: relative;
+}
+
 .story-card--current .story-card__title {
   font-weight: 600;
 }
@@ -2391,6 +2418,22 @@ td:hover .sheet-title-cell svg {
   gap: var(--space-4);
 }
 
+.ready-stack-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.ready-stack-section__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ak-text);
+  opacity: 0.78;
+}
+
 .ready-stack-column {
   display: flex;
   flex-direction: column;
@@ -2457,9 +2500,21 @@ td:hover .sheet-title-cell svg {
 
 .execution-limits-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
   gap: var(--space-4);
-  max-width: 64rem;
+}
+
+.execution-limits-view__hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ak-text);
+  opacity: 0.66;
+  line-height: 1.5;
+}
+
+.execution-limits-view__hint strong {
+  color: var(--ak-accent-text);
+  font-weight: 600;
 }
 
 .execution-limits-field {

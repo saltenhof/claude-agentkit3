@@ -801,7 +801,11 @@ function MainView({
         </div>
       )}
       {graphTab === 'ready' && (
-        <ReadyStackView stories={allStories} onSelect={onSelect} />
+        <ReadyStackView
+          stories={allStories}
+          limits={executionLimits}
+          onSelect={onSelect}
+        />
       )}
       {graphTab === 'limits' && (
         <ExecutionLimitsView
