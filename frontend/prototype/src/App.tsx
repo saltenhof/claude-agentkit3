@@ -53,6 +53,10 @@ import { conceptAnchors, project, projects, rulebookStressStories as initialStor
 import { layoutGraph, toGraph } from './graph';
 import { KpiBar } from './components/KpiBar';
 import { buildStoryKpiTiles, type StoryCounters } from './lib/storyKpis';
+import { GraphTabs, type GraphTab } from './components/GraphTabs';
+import { ReadyStackView } from './components/ReadyStackView';
+import { ExecutionLimitsView } from './components/ExecutionLimitsView';
+import { DEFAULT_EXECUTION_LIMITS, type ExecutionLimits } from './lib/executionLimits';
 
 type ViewMode = 'graph' | 'kanban' | 'sheet' | 'analytics' | 'hub';
 const INSPECTOR_WIDTH_KEY = 'ak3.storyInspector.width';
@@ -389,6 +393,8 @@ export function App() {
   const [statusFilter, setStatusFilter] = useState<'all' | Story['status']>('all');
   const [kanbanStoryIdFilter, setKanbanStoryIdFilter] = useState('');
   const [view, setView] = useState<ViewMode>(viewFromLocationHash);
+  const [graphTab, setGraphTab] = useState<GraphTab>('graph');
+  const [executionLimits, setExecutionLimits] = useState<ExecutionLimits>(DEFAULT_EXECUTION_LIMITS);
   const [selectedStory, setSelectedStory] = useState<Story>(selectInitialStory);
   const [detailOpen, setDetailOpen] = useState(false);
   const [inspectorWidth, setInspectorWidth] = useState(() => {
@@ -670,6 +676,11 @@ export function App() {
               statusFilter={statusFilter}
               onStatusFilterChange={setStatusFilter}
               kpis={counters}
+              allStories={storyState}
+              graphTab={graphTab}
+              onGraphTabChange={setGraphTab}
+              executionLimits={executionLimits}
+              onExecutionLimitsChange={setExecutionLimits}
             />
           </div>
         </section>
@@ -703,6 +714,11 @@ function MainView({
   statusFilter,
   onStatusFilterChange,
   kpis,
+  allStories,
+  graphTab,
+  onGraphTabChange,
+  executionLimits,
+  onExecutionLimitsChange,
 }: {
   view: ViewMode;
   nodes: Node[];
@@ -720,6 +736,11 @@ function MainView({
   statusFilter: 'all' | Story['status'];
   onStatusFilterChange: (status: 'all' | Story['status']) => void;
   kpis: StoryCounters;
+  allStories: Story[];
+  graphTab: GraphTab;
+  onGraphTabChange: (tab: GraphTab) => void;
+  executionLimits: ExecutionLimits;
+  onExecutionLimitsChange: (limits: ExecutionLimits) => void;
 }) {
   if (view === 'kanban') {
     return (
@@ -758,26 +779,40 @@ function MainView({
   }
 
   return (
-    <div className="graph-shell">
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onNodeClick={onNodeClick}
-        nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
-        fitView
-        fitViewOptions={{ padding: 0.18 }}
-        minZoom={0.35}
-        maxZoom={1.8}
-        nodesConnectable={false}
-        proOptions={{ hideAttribution: true }}
-      >
-        <Background gap={28} size={1} />
-        <Controls />
-        <MiniMap pannable zoomable nodeStrokeWidth={3} />
-      </ReactFlow>
+    <div className="graph-main">
+      <GraphTabs active={graphTab} onChange={onGraphTabChange} />
+      {graphTab === 'graph' && (
+        <div className="graph-shell">
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onNodeClick={onNodeClick}
+            nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
+            fitView
+            fitViewOptions={{ padding: 0.18 }}
+            minZoom={0.35}
+            maxZoom={1.8}
+            nodesConnectable={false}
+            proOptions={{ hideAttribution: true }}
+          >
+            <Background gap={28} size={1} />
+            <Controls />
+            <MiniMap pannable zoomable nodeStrokeWidth={3} />
+          </ReactFlow>
+        </div>
+      )}
+      {graphTab === 'ready' && (
+        <ReadyStackView stories={allStories} onSelect={onSelect} />
+      )}
+      {graphTab === 'limits' && (
+        <ExecutionLimitsView
+          limits={executionLimits}
+          onChange={onExecutionLimitsChange}
+        />
+      )}
     </div>
   );
 }
