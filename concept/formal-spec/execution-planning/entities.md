@@ -76,8 +76,6 @@ entities:
       - api_rate_limit_cap
       - llm_pool_cap
       - ci_capacity_cap
-      - human_gate_cap
-      - global_orchestrator_cap
   - id: execution-planning.entity.execution-wave
     identity_key: wave_id
     attributes:

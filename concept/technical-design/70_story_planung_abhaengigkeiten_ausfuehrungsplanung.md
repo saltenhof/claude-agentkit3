@@ -382,8 +382,6 @@ beruecksichtigen:
 - `api_rate_limit_cap`
 - `llm_pool_cap`
 - `ci_capacity_cap`
-- `human_gate_cap`
-- `global_orchestrator_cap`
 
 **Normative Auswertungsreihenfolge:**
 
