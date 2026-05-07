@@ -2215,9 +2215,7 @@ td:hover .sheet-title-cell svg {
 }
 
 .file-tabs--graph {
-  border-bottom: 1px solid var(--ak-border);
-  background: var(--ak-bg-canvas-top);
-  padding: 0 var(--space-4);
+  margin-top: 2px;
 }
 
 .graph-main > .graph-shell,
