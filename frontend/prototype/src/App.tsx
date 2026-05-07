@@ -51,6 +51,8 @@ import {
 } from 'lucide-react';
 import { conceptAnchors, project, projects, rulebookStressStories as initialStories, type PhaseStatus, type Story } from './data';
 import { layoutGraph, toGraph } from './graph';
+import { KpiBar } from './components/KpiBar';
+import { buildStoryKpiTiles, type StoryCounters } from './lib/storyKpis';
 
 type ViewMode = 'graph' | 'kanban' | 'sheet' | 'analytics' | 'hub';
 const INSPECTOR_WIDTH_KEY = 'ak3.storyInspector.width';
@@ -667,6 +669,7 @@ export function App() {
               onKanbanStoryIdFilterChange={setKanbanStoryIdFilter}
               statusFilter={statusFilter}
               onStatusFilterChange={setStatusFilter}
+              kpis={counters}
             />
           </div>
         </section>
@@ -699,6 +702,7 @@ function MainView({
   onKanbanStoryIdFilterChange,
   statusFilter,
   onStatusFilterChange,
+  kpis,
 }: {
   view: ViewMode;
   nodes: Node[];
@@ -715,6 +719,7 @@ function MainView({
   onKanbanStoryIdFilterChange: (value: string) => void;
   statusFilter: 'all' | Story['status'];
   onStatusFilterChange: (status: 'all' | Story['status']) => void;
+  kpis: StoryCounters;
 }) {
   if (view === 'kanban') {
     return (
@@ -726,6 +731,7 @@ function MainView({
         onStoryStatusChange={onStoryStatusChange}
         storyIdFilter={kanbanStoryIdFilter}
         onStoryIdFilterChange={onKanbanStoryIdFilterChange}
+        kpis={kpis}
       />
     );
   }
@@ -738,6 +744,7 @@ function MainView({
         statusFilter={statusFilter}
         onSelect={onSelect}
         onStatusFilterChange={onStatusFilterChange}
+        kpis={kpis}
       />
     );
   }
@@ -803,6 +810,7 @@ function Kanban({
   onStoryStatusChange,
   storyIdFilter,
   onStoryIdFilterChange,
+  kpis,
 }: {
   stories: Story[];
   selectedStory: Story;
@@ -811,6 +819,7 @@ function Kanban({
   onStoryStatusChange: (storyId: string, status: Story['status']) => void;
   storyIdFilter: string;
   onStoryIdFilterChange: (value: string) => void;
+  kpis: StoryCounters;
 }) {
   const [draggedStoryId, setDraggedStoryId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<Story['status'] | null>(null);
@@ -881,6 +890,7 @@ function Kanban({
 
   return (
     <div className="kanban">
+      <KpiBar tiles={buildStoryKpiTiles(kpis)} />
       <div className="kanban-toolbar ak-panel" data-story-interactive="true">
         <label className="kanban-filter">
           <span>Story ID</span>
@@ -976,12 +986,14 @@ function StorySheet({
   statusFilter,
   onSelect,
   onStatusFilterChange,
+  kpis,
 }: {
   stories: Story[];
   selectedStory: Story;
   statusFilter: 'all' | Story['status'];
   onSelect: (story: Story) => void;
   onStatusFilterChange: (status: 'all' | Story['status']) => void;
+  kpis: StoryCounters;
 }) {
   type SheetField = keyof Pick<Story, 'id' | 'title' | 'epic' | 'module' | 'status' | 'labels' | 'type' | 'primaryRepo' | 'participatingRepos' | 'size' | 'createdAt' | 'completedAt' | 'processingTime' | 'qaRoundsExploration' | 'qaRoundsImplementation' | 'changeImpact'>;
   type Column = {
@@ -1150,6 +1162,7 @@ function StorySheet({
 
   return (
     <div className="sheet-wrap">
+      <KpiBar tiles={buildStoryKpiTiles(kpis)} />
       <div className="sheet-toolbar ak-panel">
         <div className="sheet-toolbar__row">
           <div className="sheet-title">

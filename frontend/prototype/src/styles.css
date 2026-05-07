@@ -2110,3 +2110,97 @@ td:hover .sheet-title-cell svg {
     grid-template-columns: 1fr;
   }
 }
+
+/* KPI Bar — Story KPIs als Querbalken in Sheet- und Kanban-View */
+.kpi-bar {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-3);
+  border-radius: var(--radius-md);
+  grid-column: 1 / -1;
+  border: 1px solid rgba(168, 110, 130, 0.22);
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.07),
+      rgba(255, 255, 255, 0) 46%
+    ),
+    linear-gradient(
+      180deg,
+      rgb(135, 54, 81) 0%,
+      rgb(92, 33, 56) 100%
+    );
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.07) inset,
+    0 -1px 0 rgba(0, 0, 0, 0.16) inset;
+}
+
+.kpi-tile {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 4px;
+  padding: var(--space-3) var(--space-3);
+  border-radius: var(--radius-sm);
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.05),
+      rgba(255, 255, 255, 0) 50%
+    ),
+    rgba(44, 14, 26, 0.62);
+  border: 1px solid rgba(168, 110, 130, 0.22);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 -1px 0 rgba(0, 0, 0, 0.18) inset;
+}
+
+.kpi-tile--warning {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.07),
+      rgba(255, 255, 255, 0) 50%
+    ),
+    rgba(232, 102, 58, 0.5);
+  border-color: rgba(255, 150, 100, 0.5);
+  box-shadow:
+    0 1px 0 rgba(255, 230, 200, 0.12) inset,
+    0 -1px 0 rgba(0, 0, 0, 0.18) inset;
+}
+
+.kpi-tile__value {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px;
+}
+
+.kpi-tile__number {
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--ak-text);
+}
+
+.kpi-tile__suffix {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ak-text);
+  opacity: 0.78;
+}
+
+.kpi-tile__label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ak-text);
+  opacity: 0.74;
+}
