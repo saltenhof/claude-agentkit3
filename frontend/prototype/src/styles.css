@@ -2330,21 +2330,24 @@ td:hover .sheet-title-cell svg {
     0 -1px 0 rgba(0, 0, 0, 0.22) inset;
 }
 
-.story-card--running::after {
-  content: 'läuft';
-  position: absolute;
-  top: 8px;
-  right: 12px;
+.story-card__header-left {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.story-card__status-badge {
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 220, 160, 0.12);
   color: var(--ak-accent-warm-strong);
-  opacity: 0.92;
-}
-
-.story-card--running {
-  position: relative;
+  border: 1px solid color-mix(in srgb, var(--ak-accent-warm), transparent 60%);
+  white-space: nowrap;
 }
 
 .story-card--current .story-card__title {

@@ -44,7 +44,12 @@ export function StoryCard({ story, variant, placeholderLabel, onSelect }: StoryC
       }
     >
       <div className="story-card__header">
-        <span className="story-card__id">{story.id}</span>
+        <div className="story-card__header-left">
+          <span className="story-card__id">{story.id}</span>
+          {variant === 'running' && (
+            <span className="story-card__status-badge">In Progress</span>
+          )}
+        </div>
         <span className="story-card__size">{story.size}</span>
       </div>
       <div className="story-card__title">{story.title}</div>
