@@ -560,7 +560,7 @@ const rulebookRows: RulebookRow[] = [
   ['230', ['BB2-229'], 'BE_MODELS', 'backend'],
   ['231', ['BB2-229'], 'BE_PREFLIGHT', 'backend'],
   ['232', ['BB2-229', 'BB2-233'], 'BE_PREFLIGHT', 'backend'],
-  ['233', [], 'BE_PREFLIGHT', 'backend'],
+  ['233', ['BB2-200'], 'BE_PREFLIGHT', 'backend'],
   ['234', [], 'BE_RUNTIME', 'backend'],
   ['245', [], 'BE_EVENT', 'backend'],
   ['246', [], 'BE_TOPOLOGY', 'backend'],
@@ -590,6 +590,8 @@ const rulebookRows: RulebookRow[] = [
   ['242', ['BB2-224', 'BB2-188', 'BB2-189'], 'FE_PIPE_VIEW', 'frontend'],
   ['243', ['BB2-224', 'BB2-212', 'BB2-207'], 'FE_PIPE_VIEW', 'frontend'],
   ['244', ['BB2-226', 'BB2-227', 'BB2-228', 'BB2-235', 'BB2-236', 'BB2-237', 'BB2-238', 'BB2-239', 'BB2-240', 'BB2-241', 'BB2-242', 'BB2-243'], 'FE_E2E', 'frontend'],
+  ['260', ['BB2-200'], 'BE_DEMO', 'backend'],
+  ['261', [], 'BE_DEMO', 'backend'],
 ];
 
 const repoLabels: Record<string, string> = {
