@@ -2241,6 +2241,7 @@ td:hover .sheet-title-cell svg {
   flex-direction: column;
   gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
+  min-height: 6rem;
   border-radius: var(--radius-md);
   border: 1px solid var(--ak-border);
   background:
@@ -2310,13 +2311,13 @@ td:hover .sheet-title-cell svg {
 }
 
 .story-card--current {
-  border-color: rgba(80, 180, 200, 0.45);
+  border-color: color-mix(in srgb, var(--ak-accent-text), transparent 25%);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0) 46%),
-    rgba(34, 110, 130, 0.65);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 46%),
+    linear-gradient(180deg, rgba(20, 80, 130, 0.92) 0%, rgba(10, 48, 90, 0.92) 100%);
   box-shadow:
     0 1px 0 rgba(190, 235, 245, 0.10) inset,
-    0 -1px 0 rgba(0, 0, 0, 0.18) inset;
+    0 -1px 0 rgba(0, 0, 0, 0.22) inset;
 }
 
 .story-card--current .story-card__title {
@@ -2335,7 +2336,7 @@ td:hover .sheet-title-cell svg {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 64px;
+  min-height: 6rem;
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md);
   border: 1px dashed rgba(255, 255, 255, 0.12);

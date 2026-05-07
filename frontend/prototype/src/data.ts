@@ -198,7 +198,7 @@ export const stories: Story[] = [
     events: [
       { time: '08:31', type: 'planning_recompute', detail: 'READY nach FK-70 Graph-Pruefung', severity: 'info' },
     ],
-    dependencies: ['AK3-118'],
+    dependencies: [],
   },
   {
     id: 'AK3-122',
@@ -243,7 +243,7 @@ export const stories: Story[] = [
     events: [
       { time: '10:42', type: 'planning_recompute', detail: 'Epic-Gruppe AK3 Story Cockpit erweitert', severity: 'info' },
     ],
-    dependencies: ['AK3-121'],
+    dependencies: ['AK3-101'],
   },
   {
     id: 'AK3-123',
@@ -334,7 +334,7 @@ export const stories: Story[] = [
     events: [
       { time: '11:31', type: 'backlog_refinement', detail: 'Graph-Sheet-Synchronisierung als Wave-2 Kandidat markiert', severity: 'info' },
     ],
-    dependencies: ['AK3-121'],
+    dependencies: ['AK3-101'],
   },
   {
     id: 'AK3-109',
