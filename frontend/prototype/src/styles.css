@@ -2388,7 +2388,7 @@ td:hover .sheet-title-cell svg {
   display: flex;
   flex-direction: column;
   padding: var(--space-4);
-  gap: var(--space-4);
+  gap: var(--space-6);
   background:
     linear-gradient(180deg, var(--ak-bg-canvas-top), var(--ak-bg-canvas)),
     var(--ak-bg-canvas);
@@ -2429,12 +2429,14 @@ td:hover .sheet-title-cell svg {
 
 .ready-stack-section__title {
   margin: 0;
+  padding-bottom: var(--space-2);
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--ak-text);
   opacity: 0.78;
+  border-bottom: 1px solid var(--ak-border);
 }
 
 .ready-stack-column {
