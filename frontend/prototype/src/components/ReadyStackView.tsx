@@ -33,6 +33,7 @@ import {
   type ReadyStack,
   type Story,
 } from '../store';
+import { CopyButton } from './CopyButton';
 import { StoryCard } from './StoryCard';
 
 export function ReadyStackView({
@@ -59,9 +60,11 @@ export function ReadyStackView({
       </header>
 
       <section className="ready-stack-section">
-        <h3 className="ready-stack-section__title">
-          Aktuell laufend ({running.length})
-        </h3>
+        <header className="ready-stack-section__header">
+          <h3 className="ready-stack-section__title">
+            Aktuell laufend ({running.length})
+          </h3>
+        </header>
         <div className="ready-stack-grid">
           {running.length > 0 ? (
             running.map((stack) => (
@@ -79,9 +82,21 @@ export function ReadyStackView({
       </section>
 
       <section className="ready-stack-section">
-        <h3 className="ready-stack-section__title">
-          Effektiv delegierbar ({eligibleReady.length})
-        </h3>
+        <header className="ready-stack-section__header">
+          <h3 className="ready-stack-section__title">
+            Effektiv delegierbar ({eligibleReady.length})
+          </h3>
+          {/*
+            Bulk-Copy aller delegierbaren Story-IDs als
+            "BB2-X, BB2-Y, BB2-Z"-String. Disabled, solange keine
+            Story aufgefuehrt ist.
+          */}
+          <CopyButton
+            text={() => eligibleReady.map((s) => s.story.id).join(', ')}
+            ariaLabel="Alle delegierbaren Story-IDs kopieren"
+            disabled={eligibleReady.length === 0}
+          />
+        </header>
         <div className="ready-stack-grid">
           {eligibleReady.length > 0 ? (
             eligibleReady.map((stack) => (
@@ -90,6 +105,7 @@ export function ReadyStackView({
                 stack={stack}
                 variant="current"
                 onSelect={onSelect}
+                showCopyId
               />
             ))
           ) : (
@@ -105,10 +121,12 @@ function StackColumn({
   stack,
   variant,
   onSelect,
+  showCopyId,
 }: {
   stack: ReadyStack;
   variant: 'running' | 'current';
   onSelect: (story: Story) => void;
+  showCopyId?: boolean;
 }) {
   return (
     <div className="ready-stack-column">
@@ -117,7 +135,12 @@ function StackColumn({
         variant="completed"
         placeholderLabel="Kein Vorgänger"
       />
-      <StoryCard story={stack.story} variant={variant} onSelect={onSelect} />
+      <StoryCard
+        story={stack.story}
+        variant={variant}
+        onSelect={onSelect}
+        showCopyId={showCopyId}
+      />
       <StoryCard
         story={stack.successor}
         variant="upcoming"

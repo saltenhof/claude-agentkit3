@@ -1,4 +1,5 @@
 import type { Story } from '../store';
+import { CopyButton } from './CopyButton';
 
 export type StoryCardVariant = 'completed' | 'current' | 'running' | 'upcoming' | 'placeholder';
 
@@ -7,9 +8,13 @@ export interface StoryCardProps {
   variant: StoryCardVariant;
   placeholderLabel?: string;
   onSelect?: (story: Story) => void;
+  /* Wenn gesetzt, wird ein Copy-Button im Card-Header rechts neben
+   * dem Size-Badge eingeblendet. Klick kopiert die Story-ID des
+   * konkreten Cards in den Zwischenspeicher. */
+  showCopyId?: boolean;
 }
 
-export function StoryCard({ story, variant, placeholderLabel, onSelect }: StoryCardProps) {
+export function StoryCard({ story, variant, placeholderLabel, onSelect, showCopyId }: StoryCardProps) {
   if (variant === 'placeholder' || story === null) {
     return (
       <div className="story-card story-card--placeholder">
@@ -50,7 +55,16 @@ export function StoryCard({ story, variant, placeholderLabel, onSelect }: StoryC
             <span className="story-card__status-badge">In Progress</span>
           )}
         </div>
-        <span className="story-card__size">{story.size}</span>
+        <div className="story-card__header-right">
+          <span className="story-card__size">{story.size}</span>
+          {showCopyId && (
+            <CopyButton
+              text={story.id}
+              ariaLabel={`Story-ID ${story.id} kopieren`}
+              size="sm"
+            />
+          )}
+        </div>
       </div>
       <div className="story-card__title">{story.title}</div>
       <div className="story-card__meta">

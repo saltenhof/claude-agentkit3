@@ -2314,7 +2314,7 @@ td:hover .sheet-title-cell svg {
   border-color: color-mix(in srgb, var(--ak-accent-text), transparent 25%);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 46%),
-    linear-gradient(180deg, rgba(20, 80, 130, 0.92) 0%, rgba(10, 48, 90, 0.92) 100%);
+    linear-gradient(180deg, rgba(15, 100, 115, 0.92) 0%, rgba(8, 60, 75, 0.92) 100%);
   box-shadow:
     0 1px 0 rgba(190, 235, 245, 0.10) inset,
     0 -1px 0 rgba(0, 0, 0, 0.22) inset;
@@ -2335,6 +2335,59 @@ td:hover .sheet-title-cell svg {
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
+}
+
+.story-card__header-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Copy-Button — wiederverwendbares Copy-Icon im Dark-Theme. */
+
+.copy-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  padding: 4px;
+  margin: 0;
+  background: transparent;
+  color: var(--ak-text);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  opacity: 0.62;
+  transition: background 120ms ease, color 120ms ease, opacity 120ms ease;
+}
+
+.copy-button--sm {
+  padding: 3px;
+}
+
+.copy-button:hover:not(:disabled) {
+  background: var(--overlay-white-5);
+  color: var(--ak-accent-text);
+  opacity: 1;
+}
+
+.copy-button:active:not(:disabled) {
+  background: var(--overlay-white-7);
+}
+
+.copy-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ak-accent-text), transparent 50%);
+  outline-offset: 1px;
+}
+
+.copy-button:disabled {
+  opacity: 0.28;
+  cursor: not-allowed;
+}
+
+.copy-button--copied {
+  color: var(--ak-accent-text);
+  opacity: 1;
 }
 
 .story-card__status-badge {
@@ -2427,16 +2480,22 @@ td:hover .sheet-title-cell svg {
   gap: var(--space-3);
 }
 
+.ready-stack-section__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--ak-border);
+}
+
 .ready-stack-section__title {
   margin: 0;
-  padding-bottom: var(--space-2);
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--ak-text);
   opacity: 0.78;
-  border-bottom: 1px solid var(--ak-border);
 }
 
 .ready-stack-column {
