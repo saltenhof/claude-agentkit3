@@ -117,7 +117,7 @@ class ControlPlaneApplication:
         if story_routes is None:
             from agentkit.story_context_manager.http.routes import StoryContextRoutes
 
-            story_routes = StoryContextRoutes(story_service=self._story_service)
+            story_routes = StoryContextRoutes()
         self._story_routes = story_routes
         if concept_routes is None:
             from agentkit.concept_catalog.http.routes import ConceptCatalogRoutes
@@ -260,7 +260,7 @@ class ControlPlaneApplication:
         if project_response is not None:
             return _project_response_to_http_response(project_response)
 
-        story_response = self._story_routes.handle_get(route_path, correlation_id)
+        story_response = self._story_routes.handle_get(route_path, correlation_id, query)
         if story_response is not None:
             return _story_response_to_http_response(story_response)
 
@@ -382,6 +382,15 @@ class ControlPlaneApplication:
         )
         if planning_response is not None:
             return _planning_response_to_http_response(planning_response)
+
+        story_response = self._story_routes.handle_put(
+            route_path,
+            payload,
+            correlation_id,
+        )
+        if story_response is not None:
+            return _story_response_to_http_response(story_response)
+
         return _error_response(
             HTTPStatus.NOT_FOUND,
             error_code="not_found",
@@ -428,6 +437,15 @@ class ControlPlaneApplication:
         )
         if project_response is not None:
             return _project_response_to_http_response(project_response)
+
+        story_response = self._story_routes.handle_patch(
+            route_path,
+            payload,
+            correlation_id,
+        )
+        if story_response is not None:
+            return _story_response_to_http_response(story_response)
+
         return _error_response(
             HTTPStatus.NOT_FOUND,
             error_code="not_found",

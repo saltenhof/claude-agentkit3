@@ -30,6 +30,10 @@ from agentkit.dashboard.models import (
 from agentkit.dashboard.service import DashboardService
 from agentkit.story.models import StoryDetail, StoryListResponse, StorySummary
 from agentkit.story.service import StoryService
+from agentkit.story_context_manager.http.routes import (
+    StoryContextRoutes,
+    StoryRouteResponse,
+)
 from agentkit.story_context_manager.sizing import StorySize
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
@@ -213,6 +217,117 @@ class _FakeStoryService(StoryService):
             labels=["size:medium"],
             participating_repos=["app"],
         )
+
+
+class _FakeStoryContextRoutes(StoryContextRoutes):
+    """Stub StoryContextRoutes for control-plane routing tests.
+
+    Avoids real service/repo construction; only verifies routing decisions.
+    """
+
+    def __init__(self) -> None:  # type: ignore[override]
+        # Intentionally skip StoryContextRoutes.__init__ to avoid DB access.
+        self.get_calls: list[tuple[str, str]] = []
+        self.patch_calls: list[tuple[str, object]] = []
+        self.put_calls: list[tuple[str, str, object]] = []
+
+    def handle_get(
+        self,
+        route_path: str,
+        correlation_id: str,
+        query: dict[str, list[str]] | None = None,
+    ) -> StoryRouteResponse | None:
+        query = query or {}
+        # Only claim ownership of the /v1/stories collection and detail paths.
+        if route_path == "/v1/stories":
+            self.get_calls.append((route_path, correlation_id))
+            project_key_values = query.get("project_key", [])
+            if not project_key_values:
+                return StoryRouteResponse(
+                    status_code=400,
+                    body=json.dumps({
+                        "error_code": "missing_project_key",
+                        "error": "Missing required query parameter: project_key",
+                        "correlation_id": correlation_id,
+                    }).encode(),
+                    headers=(("X-Correlation-Id", correlation_id),),
+                )
+            project_key = project_key_values[0]
+            return StoryRouteResponse(
+                status_code=200,
+                body=json.dumps({
+                    "project_key": project_key,
+                    "stories": [{"story_id": "AG3-100"}],
+                }).encode(),
+                headers=(("X-Correlation-Id", correlation_id),),
+            )
+        if route_path.startswith("/v1/stories/"):
+            story_id = route_path[len("/v1/stories/"):]
+            if "/" not in story_id:
+                # detail path
+                self.get_calls.append((route_path, correlation_id))
+                if story_id == "missing":
+                    return StoryRouteResponse(
+                        status_code=404,
+                        body=json.dumps({
+                            "error_code": "story_not_found",
+                            "error": "Story not found",
+                            "correlation_id": correlation_id,
+                        }).encode(),
+                        headers=(("X-Correlation-Id", correlation_id),),
+                    )
+                return StoryRouteResponse(
+                    status_code=200,
+                    body=json.dumps({
+                        "summary": {
+                            "story_id": story_id,
+                            "project_key": "tenant-a",
+                            "title": "Implement control plane",
+                        },
+                        "spec": None,
+                    }).encode(),
+                    headers=(("X-Correlation-Id", correlation_id),),
+                )
+        return None
+
+    def handle_post(
+        self,
+        route_path: str,
+        payload: object,
+        correlation_id: str,
+    ) -> StoryRouteResponse | None:
+        return None
+
+    def handle_patch(
+        self,
+        route_path: str,
+        payload: object,
+        correlation_id: str,
+    ) -> StoryRouteResponse | None:
+        if route_path.startswith("/v1/stories/"):
+            self.patch_calls.append((route_path, payload))
+            return StoryRouteResponse(
+                status_code=200,
+                body=json.dumps({"story_id": "AG3-100"}).encode(),
+                headers=(("X-Correlation-Id", correlation_id),),
+            )
+        return None
+
+    def handle_put(
+        self,
+        route_path: str,
+        payload: object,
+        correlation_id: str,
+    ) -> StoryRouteResponse | None:
+        if "/fields/" in route_path and route_path.startswith("/v1/stories/"):
+            parts = route_path.split("/fields/")
+            self.put_calls.append((route_path, parts[-1], payload))
+            return StoryRouteResponse(
+                status_code=200,
+                body=json.dumps({"story_id": "AG3-100"}).encode(),
+                headers=(("X-Correlation-Id", correlation_id),),
+            )
+        return None
 
 
 class _FakeDashboardService(DashboardService):
@@ -521,11 +636,11 @@ def test_invalid_json_returns_bad_request() -> None:
 
 
 def test_get_stories_returns_project_scoped_list() -> None:
-    story_service = _FakeStoryService()
+    fake_routes = _FakeStoryContextRoutes()
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
-        story_service=story_service,
+        story_routes=fake_routes,
     )
 
     response = app.handle_request(
@@ -538,40 +653,40 @@ def test_get_stories_returns_project_scoped_list() -> None:
     body = json.loads(response.body)
     assert body["project_key"] == "tenant-a"
     assert body["stories"][0]["story_id"] == "AG3-100"
-    assert story_service.calls == [("tenant-a", None)]
+    assert fake_routes.get_calls == [("/v1/stories", _response_header(response, "X-Correlation-Id"))]
 
 
 def test_get_story_returns_detail() -> None:
-    story_service = _FakeStoryService()
+    fake_routes = _FakeStoryContextRoutes()
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
-        story_service=story_service,
-    )
-
-    response = app.handle_request(
-        method="GET",
-        path="/v1/stories/AG3-100?project_key=tenant-a",
-        body=b"",
-    )
-
-    assert response.status_code == HTTPStatus.OK
-    body = json.loads(response.body)
-    assert body["story_id"] == "AG3-100"
-    assert body["labels"] == ["size:medium"]
-    assert story_service.calls == [("tenant-a", "AG3-100")]
-
-
-def test_get_story_requires_project_key() -> None:
-    app = ControlPlaneApplication(
-        telemetry_service=_FakeTelemetryService(),
-        runtime_service=_FakeRuntimeService(),
-        story_service=_FakeStoryService(),
+        story_routes=fake_routes,
     )
 
     response = app.handle_request(
         method="GET",
         path="/v1/stories/AG3-100",
+        body=b"",
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    body = json.loads(response.body)
+    assert body["summary"]["story_id"] == "AG3-100"
+    assert fake_routes.get_calls == [("/v1/stories/AG3-100", _response_header(response, "X-Correlation-Id"))]
+
+
+def test_get_stories_missing_project_key_returns_bad_request() -> None:
+    """GET /v1/stories without project_key returns 400 via story_routes."""
+    app = ControlPlaneApplication(
+        telemetry_service=_FakeTelemetryService(),
+        runtime_service=_FakeRuntimeService(),
+        story_routes=_FakeStoryContextRoutes(),
+    )
+
+    response = app.handle_request(
+        method="GET",
+        path="/v1/stories",
         body=b"",
     )
 
@@ -587,17 +702,59 @@ def test_get_missing_story_returns_not_found() -> None:
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
-        story_service=_FakeStoryService(),
+        story_routes=_FakeStoryContextRoutes(),
     )
 
     response = app.handle_request(
         method="GET",
-        path="/v1/stories/missing?project_key=tenant-a",
+        path="/v1/stories/missing",
         body=b"",
     )
 
     assert response.status_code == HTTPStatus.NOT_FOUND
     _assert_error(response, error_code="story_not_found", message="Story not found")
+
+
+def test_patch_story_routes_to_story_context_routes() -> None:
+    """PATCH /v1/stories/{id} is dispatched through story_routes.handle_patch."""
+    fake_routes = _FakeStoryContextRoutes()
+    app = ControlPlaneApplication(
+        telemetry_service=_FakeTelemetryService(),
+        runtime_service=_FakeRuntimeService(),
+        story_routes=fake_routes,
+    )
+
+    response = app.handle_request(
+        method="PATCH",
+        path="/v1/stories/AG3-100",
+        body=json.dumps({"op_id": "op-patch-1", "title": "New title"}).encode(),
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    assert json.loads(response.body)["story_id"] == "AG3-100"
+    assert len(fake_routes.patch_calls) == 1
+    assert fake_routes.patch_calls[0][0] == "/v1/stories/AG3-100"
+
+
+def test_put_story_field_routes_to_story_context_routes() -> None:
+    """PUT /v1/stories/{id}/fields/{key} is dispatched through story_routes.handle_put."""
+    fake_routes = _FakeStoryContextRoutes()
+    app = ControlPlaneApplication(
+        telemetry_service=_FakeTelemetryService(),
+        runtime_service=_FakeRuntimeService(),
+        story_routes=fake_routes,
+    )
+
+    response = app.handle_request(
+        method="PUT",
+        path="/v1/stories/AG3-100/fields/title",
+        body=json.dumps({"op_id": "op-put-1", "value": "New title"}).encode(),
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    assert json.loads(response.body)["story_id"] == "AG3-100"
+    assert len(fake_routes.put_calls) == 1
+    assert fake_routes.put_calls[0][1] == "title"
 
 
 def test_get_dashboard_board_returns_project_scoped_columns() -> None:

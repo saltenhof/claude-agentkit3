@@ -320,6 +320,61 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL,
             PRIMARY KEY (story_id, decision_kind, attempt_nr)
         );
+
+        CREATE TABLE IF NOT EXISTS stories (
+            story_uuid TEXT NOT NULL,
+            project_key TEXT NOT NULL,
+            story_number INTEGER NOT NULL,
+            story_display_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            story_type TEXT NOT NULL,
+            status TEXT NOT NULL,
+            size TEXT NOT NULL,
+            mode TEXT,
+            epic TEXT NOT NULL,
+            module TEXT NOT NULL,
+            participating_repos_json TEXT NOT NULL,
+            change_impact TEXT NOT NULL,
+            concept_quality TEXT NOT NULL,
+            owner TEXT NOT NULL,
+            risk TEXT NOT NULL,
+            blocker TEXT,
+            labels_json TEXT NOT NULL,
+            wave INTEGER NOT NULL,
+            critical_path INTEGER NOT NULL,
+            created_at TEXT,
+            completed_at TEXT,
+            PRIMARY KEY (story_uuid),
+            UNIQUE (story_display_id),
+            UNIQUE (project_key, story_number)
+        );
+
+        CREATE INDEX IF NOT EXISTS stories_project_key_idx
+            ON stories (project_key);
+
+        CREATE INDEX IF NOT EXISTS stories_project_key_number_idx
+            ON stories (project_key, story_number);
+
+        CREATE TABLE IF NOT EXISTS story_specifications (
+            story_uuid TEXT NOT NULL,
+            need TEXT,
+            solution TEXT,
+            acceptance_json TEXT NOT NULL,
+            definition_of_done_json TEXT,
+            concept_refs_json TEXT,
+            guardrail_refs_json TEXT,
+            external_sources_json TEXT,
+            PRIMARY KEY (story_uuid)
+        );
+
+        CREATE TABLE IF NOT EXISTS idempotency_keys (
+            op_id TEXT NOT NULL,
+            body_hash TEXT NOT NULL,
+            result_payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            correlation_id TEXT NOT NULL,
+            PRIMARY KEY (op_id)
+        );
         """
     )
     _ensure_story_identity_migration(conn)

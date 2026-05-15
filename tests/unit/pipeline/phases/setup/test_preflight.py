@@ -1,163 +1,260 @@
 """Unit tests for setup phase preflight checks.
 
-Uses monkeypatch on ``get_issue`` to avoid real GitHub CLI calls.
+Tests use a stub StoryService (via duck typing) to avoid real DB or
+GitHub CLI calls.  The new preflight checks are StoryService-based
+(FK-22 §22.4.1), not GitHub-based.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from agentkit.pipeline.phases.setup.preflight import PreflightCheck, PreflightResult, run_preflight
+from agentkit.story_context_manager.story_model import (
+    StoryStatus,
+    WireStoryType,
+)
 
-from agentkit.exceptions import IntegrationError
-from agentkit.integrations.github.issues import IssueData
-from agentkit.pipeline.phases.setup.preflight import run_preflight
-
-if TYPE_CHECKING:
-    import pytest
-
-
-def _make_issue(
-    *,
-    number: int = 1,
-    title: str = "TEST-001: Sample issue",
-    state: str = "OPEN",
-    labels: tuple[str, ...] = ("implementation",),
-    body: str = "Test body",
-    url: str = "https://github.com/owner/repo/issues/1",
-) -> IssueData:
-    """Create an ``IssueData`` instance for testing."""
-    return IssueData(
-        number=number,
-        title=title,
-        state=state,
-        body=body,
-        labels=labels,
-        url=url,
-    )
+# ---------------------------------------------------------------------------
+# Stub helpers
+# ---------------------------------------------------------------------------
 
 
-class TestPreflightWithValidIssue:
-    """Preflight with a valid, open issue passes all checks."""
+class _StubStory:
+    """Minimal Story stub for preflight tests."""
 
-    def test_all_checks_pass(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """All checks pass for a valid open issue with a type label."""
-        monkeypatch.setattr(
-            "agentkit.pipeline.phases.setup.preflight.get_issue",
-            lambda owner, repo, nr: _make_issue(),
-        )
-        result = run_preflight("owner", "repo", 1)
-
-        assert result.passed is True
-        assert len(result.checks) == 3
-        assert all(c.passed for c in result.checks)
-
-    def test_issue_data_is_attached(
-        self, monkeypatch: pytest.MonkeyPatch,
+    def __init__(
+        self,
+        *,
+        story_display_id: str = "AK3-1",
+        title: str = "Test story",
+        status: StoryStatus = StoryStatus.APPROVED,
+        dependencies: list[str] | None = None,
     ) -> None:
-        """Successful preflight attaches the fetched IssueData."""
-        issue = _make_issue()
-        monkeypatch.setattr(
-            "agentkit.pipeline.phases.setup.preflight.get_issue",
-            lambda owner, repo, nr: issue,
-        )
-        result = run_preflight("owner", "repo", 1)
-        assert result.issue_data is not None
-        assert result.issue_data.number == 1
+        self.story_display_id = story_display_id
+        self.title = title
+        self.status = status
+        self.story_type = WireStoryType.IMPLEMENTATION
+        self.dependencies = dependencies or []
 
 
-class TestPreflightIssueNotFound:
-    """Preflight when the issue does not exist."""
+class _StubService:
+    """Duck-typed StoryService stub that resolves story lookups from a dict."""
 
-    def test_issue_exists_check_fails(
-        self, monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """The ``issue_exists`` check fails for a missing issue."""
-        def _raise(*_args: object, **_kwargs: object) -> IssueData:
-            raise IntegrationError("Not found")
+    def __init__(self, stories: dict[str, _StubStory]) -> None:
+        self._stories = stories
 
-        monkeypatch.setattr(
-            "agentkit.pipeline.phases.setup.preflight.get_issue",
-            _raise,
-        )
-        result = run_preflight("owner", "repo", 99999)
-
-        assert result.passed is False
-        check_names = {c.name for c in result.checks}
-        assert "issue_exists" in check_names
-        exists_check = next(c for c in result.checks if c.name == "issue_exists")
-        assert exists_check.passed is False
-
-    def test_all_checks_run_despite_missing_issue(
-        self, monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """All three checks run even when the issue cannot be fetched."""
-        def _raise(*_args: object, **_kwargs: object) -> IssueData:
-            raise IntegrationError("Not found")
-
-        monkeypatch.setattr(
-            "agentkit.pipeline.phases.setup.preflight.get_issue",
-            _raise,
-        )
-        result = run_preflight("owner", "repo", 99999)
-
-        assert len(result.checks) == 3
+    def get_story(self, story_display_id: str) -> _StubStory | None:
+        return self._stories.get(story_display_id)
 
 
-class TestPreflightClosedIssue:
-    """Preflight when the issue is closed."""
+def _approved_service(story_id: str = "AK3-1", **kwargs: object) -> _StubService:
+    """Return a service containing one approved story with no dependencies."""
+    story = _StubStory(story_display_id=story_id, status=StoryStatus.APPROVED, **kwargs)  # type: ignore[arg-type]
+    return _StubService({story_id: story})
 
-    def test_issue_open_check_fails(
-        self, monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """The ``issue_open`` check fails for a closed issue."""
-        monkeypatch.setattr(
-            "agentkit.pipeline.phases.setup.preflight.get_issue",
-            lambda owner, repo, nr: _make_issue(state="CLOSED"),
-        )
-        result = run_preflight("owner", "repo", 1)
 
-        assert result.passed is False
-        open_check = next(c for c in result.checks if c.name == "issue_open")
-        assert open_check.passed is False
+# ---------------------------------------------------------------------------
+# story_exists check
+# ---------------------------------------------------------------------------
 
-    def test_other_checks_still_run(
-        self, monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """All checks run even when the issue is closed."""
-        monkeypatch.setattr(
-            "agentkit.pipeline.phases.setup.preflight.get_issue",
-            lambda owner, repo, nr: _make_issue(state="CLOSED"),
-        )
-        result = run_preflight("owner", "repo", 1)
 
-        assert len(result.checks) == 3
-        # issue_exists should still pass
-        exists_check = next(
-            c for c in result.checks if c.name == "issue_exists"
-        )
+class TestPreflightStoryExists:
+    """Check 1: story_exists."""
+
+    def test_passes_when_story_found(self) -> None:
+        svc = _approved_service()
+        result = run_preflight("AK3-1", svc)  # type: ignore[arg-type]
+
+        exists_check = next(c for c in result.checks if c.name == "story_exists")
         assert exists_check.passed is True
+
+    def test_fails_when_story_not_found(self) -> None:
+        svc = _StubService({})  # empty
+        result = run_preflight("AK3-99", svc)  # type: ignore[arg-type]
+
+        exists_check = next(c for c in result.checks if c.name == "story_exists")
+        assert exists_check.passed is False
+        assert "AK3-99" in exists_check.message
+
+    def test_story_attached_when_found(self) -> None:
+        svc = _approved_service()
+        result = run_preflight("AK3-1", svc)  # type: ignore[arg-type]
+
+        assert result.story is not None
+        assert result.story.story_display_id == "AK3-1"
+
+    def test_story_none_when_not_found(self) -> None:
+        svc = _StubService({})
+        result = run_preflight("AK3-99", svc)  # type: ignore[arg-type]
+
+        assert result.story is None
+
+
+# ---------------------------------------------------------------------------
+# status_approved check
+# ---------------------------------------------------------------------------
+
+
+class TestPreflightStatusApproved:
+    """Check 2: status_approved."""
+
+    def test_passes_when_approved(self) -> None:
+        svc = _approved_service()
+        result = run_preflight("AK3-1", svc)  # type: ignore[arg-type]
+
+        approved_check = next(c for c in result.checks if c.name == "status_approved")
+        assert approved_check.passed is True
+
+    def test_fails_when_backlog(self) -> None:
+        story = _StubStory(status=StoryStatus.BACKLOG)
+        svc = _StubService({"AK3-1": story})
+        result = run_preflight("AK3-1", svc)  # type: ignore[arg-type]
+
+        approved_check = next(c for c in result.checks if c.name == "status_approved")
+        assert approved_check.passed is False
+        assert "Backlog" in approved_check.message
+
+    def test_fails_when_in_progress(self) -> None:
+        story = _StubStory(status=StoryStatus.IN_PROGRESS)
+        svc = _StubService({"AK3-1": story})
+        result = run_preflight("AK3-1", svc)  # type: ignore[arg-type]
+
+        approved_check = next(c for c in result.checks if c.name == "status_approved")
+        assert approved_check.passed is False
+
+    def test_fails_when_done(self) -> None:
+        story = _StubStory(status=StoryStatus.DONE)
+        svc = _StubService({"AK3-1": story})
+        result = run_preflight("AK3-1", svc)  # type: ignore[arg-type]
+
+        approved_check = next(c for c in result.checks if c.name == "status_approved")
+        assert approved_check.passed is False
+
+    def test_fails_when_story_not_fetched(self) -> None:
+        svc = _StubService({})
+        result = run_preflight("AK3-99", svc)  # type: ignore[arg-type]
+
+        approved_check = next(c for c in result.checks if c.name == "status_approved")
+        assert approved_check.passed is False
+        assert "Cannot check status" in approved_check.message
+
+
+# ---------------------------------------------------------------------------
+# dependencies_closed check
+# ---------------------------------------------------------------------------
+
+
+class TestPreflightDependenciesClosed:
+    """Check 3: dependencies_closed."""
+
+    def test_passes_when_no_dependencies(self) -> None:
+        svc = _approved_service()
+        result = run_preflight("AK3-1", svc)  # type: ignore[arg-type]
+
+        dep_check = next(c for c in result.checks if c.name == "dependencies_closed")
+        assert dep_check.passed is True
+        assert "No dependencies" in dep_check.message
+
+    def test_passes_when_all_deps_done(self) -> None:
+        dep1 = _StubStory(story_display_id="AK3-2", status=StoryStatus.DONE)
+        dep2 = _StubStory(story_display_id="AK3-3", status=StoryStatus.DONE)
+        main = _StubStory(story_display_id="AK3-1", dependencies=["AK3-2", "AK3-3"])
+        svc = _StubService({"AK3-1": main, "AK3-2": dep1, "AK3-3": dep2})
+        result = run_preflight("AK3-1", svc)  # type: ignore[arg-type]
+
+        dep_check = next(c for c in result.checks if c.name == "dependencies_closed")
+        assert dep_check.passed is True
+        assert "2" in dep_check.message
+
+    def test_fails_when_dep_not_done(self) -> None:
+        dep = _StubStory(story_display_id="AK3-2", status=StoryStatus.IN_PROGRESS)
+        main = _StubStory(story_display_id="AK3-1", dependencies=["AK3-2"])
+        svc = _StubService({"AK3-1": main, "AK3-2": dep})
+        result = run_preflight("AK3-1", svc)  # type: ignore[arg-type]
+
+        dep_check = next(c for c in result.checks if c.name == "dependencies_closed")
+        assert dep_check.passed is False
+        assert "AK3-2" in dep_check.message
+
+    def test_fails_when_dep_missing(self) -> None:
+        main = _StubStory(story_display_id="AK3-1", dependencies=["AK3-99"])
+        svc = _StubService({"AK3-1": main})  # dep not in service
+        result = run_preflight("AK3-1", svc)  # type: ignore[arg-type]
+
+        dep_check = next(c for c in result.checks if c.name == "dependencies_closed")
+        assert dep_check.passed is False
+        assert "AK3-99" in dep_check.message
+        assert "missing" in dep_check.message
+
+    def test_fails_when_story_not_fetched(self) -> None:
+        svc = _StubService({})
+        result = run_preflight("AK3-99", svc)  # type: ignore[arg-type]
+
+        dep_check = next(c for c in result.checks if c.name == "dependencies_closed")
+        assert dep_check.passed is False
+        assert "Cannot check dependencies" in dep_check.message
+
+
+# ---------------------------------------------------------------------------
+# PreflightResult.passed aggregate
+# ---------------------------------------------------------------------------
 
 
 class TestPreflightResultPassed:
     """PreflightResult.passed reflects aggregate of all checks."""
 
-    def test_passed_false_when_any_check_fails(
-        self, monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """``passed`` is False if at least one check fails."""
-        monkeypatch.setattr(
-            "agentkit.pipeline.phases.setup.preflight.get_issue",
-            lambda owner, repo, nr: _make_issue(state="CLOSED"),
-        )
-        result = run_preflight("owner", "repo", 1)
+    def test_passed_true_when_all_checks_pass(self) -> None:
+        svc = _approved_service()
+        result = run_preflight("AK3-1", svc)  # type: ignore[arg-type]
+
+        assert result.passed is True
+        assert len(result.checks) == 3
+        assert all(c.passed for c in result.checks)
+
+    def test_passed_false_when_not_approved(self) -> None:
+        story = _StubStory(status=StoryStatus.BACKLOG)
+        svc = _StubService({"AK3-1": story})
+        result = run_preflight("AK3-1", svc)  # type: ignore[arg-type]
+
         assert result.passed is False
 
-    def test_passed_true_when_all_pass(
-        self, monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """``passed`` is True when all checks pass."""
-        monkeypatch.setattr(
-            "agentkit.pipeline.phases.setup.preflight.get_issue",
-            lambda owner, repo, nr: _make_issue(),
-        )
-        result = run_preflight("owner", "repo", 1)
-        assert result.passed is True
+    def test_passed_false_when_story_missing(self) -> None:
+        svc = _StubService({})
+        result = run_preflight("AK3-99", svc)  # type: ignore[arg-type]
+
+        assert result.passed is False
+        assert len(result.checks) == 3  # all three checks run regardless
+
+    def test_all_checks_run_even_when_story_missing(self) -> None:
+        """All checks always run (fail-closed pattern)."""
+        svc = _StubService({})
+        result = run_preflight("AK3-99", svc)  # type: ignore[arg-type]
+
+        check_names = {c.name for c in result.checks}
+        assert check_names == {"story_exists", "status_approved", "dependencies_closed"}
+
+    def test_single_open_dep_fails_result(self) -> None:
+        dep = _StubStory(story_display_id="AK3-2", status=StoryStatus.BACKLOG)
+        main = _StubStory(story_display_id="AK3-1", dependencies=["AK3-2"])
+        svc = _StubService({"AK3-1": main, "AK3-2": dep})
+        result = run_preflight("AK3-1", svc)  # type: ignore[arg-type]
+
+        assert result.passed is False
+
+
+# ---------------------------------------------------------------------------
+# PreflightCheck and PreflightResult dataclass contracts
+# ---------------------------------------------------------------------------
+
+
+def test_preflight_check_is_frozen() -> None:
+    check = PreflightCheck(name="story_exists", passed=True, message="ok")
+    import pytest
+    with pytest.raises((AttributeError, TypeError)):
+        check.passed = False  # type: ignore[misc]
+
+
+def test_preflight_result_is_frozen() -> None:
+    result = PreflightResult(passed=True, checks=())
+    import pytest
+    with pytest.raises((AttributeError, TypeError)):
+        result.passed = False  # type: ignore[misc]

@@ -1,7 +1,8 @@
 """Setup phase handler -- first phase in every pipeline run.
 
 Reads the GitHub issue, builds StoryContext, runs preflight checks,
-and optionally creates a git worktree.
+and optionally creates a git worktree.  On successful completion,
+calls ``StoryService.begin_progress`` (FK-22 §22.4.3).
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.story_context_manager.models import PhaseState, StoryContext
+    from agentkit.story_context_manager.service import StoryService
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +47,10 @@ class SetupConfig:
             from the issue number.
         create_worktree: Whether to create a git worktree.
             Automatically determined from story type when ``True``.
+        story_service: Optional StoryService instance.  When provided,
+            ``begin_progress`` is called on successful completion
+            (FK-22 §22.4.3). When ``None``, the transition is skipped
+            (legacy / standalone mode).
     """
 
     owner: str
@@ -53,6 +59,7 @@ class SetupConfig:
     project_root: Path
     story_id: str | None = None
     create_worktree: bool = True
+    story_service: StoryService | None = None
 
 
 class SetupPhaseHandler:
@@ -61,7 +68,9 @@ class SetupPhaseHandler:
     Implements the :class:`~agentkit.pipeline.lifecycle.PhaseHandler`
     protocol.  Reads a GitHub issue, builds the story context, runs
     preflight checks, persists the context, and optionally prepares a
-    git worktree path.
+    git worktree path.  On successful completion, transitions the story
+    to ``In Progress`` via ``StoryService.begin_progress`` when a
+    ``story_service`` is provided in ``SetupConfig`` (FK-22 §22.4.3).
     """
 
     def __init__(self, config: SetupConfig) -> None:
@@ -71,12 +80,16 @@ class SetupPhaseHandler:
         """Execute the setup phase.
 
         Steps:
-            1. Run preflight checks -- if any fail, return ``FAILED``.
+            1. Run preflight checks against StoryService -- if any fail,
+               return ``FAILED``.
             2. Build ``StoryContext`` from the GitHub issue.
             3. Save ``context.json`` to the story directory.
             4. Create a git worktree via ``git worktree add`` if the story
                type requires one; on failure return ``FAILED``.
-            5. Return ``COMPLETED`` with a list of produced artifacts.
+            5. If a ``story_service`` is configured, call
+               ``begin_progress`` on the story to transition it to
+               ``In Progress`` (FK-22 §22.4.3).
+            6. Return ``COMPLETED`` with a list of produced artifacts.
 
         Note:
             The *ctx* parameter is the **initial** context (may be
@@ -94,7 +107,13 @@ class SetupPhaseHandler:
         cfg = self._config
 
         # 1. Preflight
-        preflight = run_preflight(cfg.owner, cfg.repo, cfg.issue_nr)
+        story_display_id = cfg.story_id or ctx.story_id
+        if cfg.story_service is not None:
+            preflight = run_preflight(story_display_id, cfg.story_service)
+        else:
+            # Legacy / standalone mode: construct a service with defaults
+            from agentkit.story_context_manager.service import StoryService as _StoryService
+            preflight = run_preflight(story_display_id, _StoryService())
         if not preflight.passed:
             error_msgs = tuple(c.message for c in preflight.checks if not c.passed)
             return HandlerResult(
@@ -169,7 +188,17 @@ class SetupPhaseHandler:
                 ),
             )
 
-        # 5. Return COMPLETED
+        # 5. Transition story to In Progress (FK-22 §22.4.3)
+        if cfg.story_service is not None:
+            try:
+                cfg.story_service.begin_progress(enriched.story_id)
+            except Exception as bp_err:  # noqa: BLE001
+                return HandlerResult(
+                    status=PhaseStatus.FAILED,
+                    errors=(f"begin_progress failed: {bp_err}",),
+                )
+
+        # 6. Return COMPLETED
         return HandlerResult(
             status=PhaseStatus.COMPLETED,
             artifacts_produced=tuple(artifacts),

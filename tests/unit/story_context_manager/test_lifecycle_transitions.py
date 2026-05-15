@@ -1,0 +1,96 @@
+"""Lifecycle transition tests for story_context_manager.
+
+Tests the status graph exhaustively:
+  - All valid transitions pass
+  - All invalid transitions raise InvalidStatusTransitionError
+  - Terminal statuses block further transitions
+  - Special error message for In Progress -> Cancelled
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from agentkit.story_context_manager.errors import InvalidStatusTransitionError
+from agentkit.story_context_manager.service import _check_transition
+from agentkit.story_context_manager.story_model import StoryStatus
+
+# All valid (from, to) transitions:
+_VALID = [
+    (StoryStatus.BACKLOG, StoryStatus.APPROVED),       # approve
+    (StoryStatus.APPROVED, StoryStatus.BACKLOG),       # reject
+    (StoryStatus.BACKLOG, StoryStatus.CANCELLED),      # cancel from backlog
+    (StoryStatus.APPROVED, StoryStatus.CANCELLED),     # cancel from approved
+    (StoryStatus.APPROVED, StoryStatus.IN_PROGRESS),   # begin_progress (pipeline)
+    (StoryStatus.IN_PROGRESS, StoryStatus.DONE),       # complete_story (pipeline)
+]
+
+# All invalid (from, to) pairs that must raise:
+_ALL_STATUSES = list(StoryStatus)
+_INVALID = [
+    (f, t)
+    for f in _ALL_STATUSES
+    for t in _ALL_STATUSES
+    if f is not t and (f, t) not in _VALID
+]
+
+
+@pytest.mark.parametrize("from_status,to_status", _VALID)
+def test_valid_transitions_do_not_raise(
+    from_status: StoryStatus,
+    to_status: StoryStatus,
+) -> None:
+    _check_transition(from_status, to_status)  # must not raise
+
+
+@pytest.mark.parametrize("from_status,to_status", _INVALID)
+def test_invalid_transitions_raise(
+    from_status: StoryStatus,
+    to_status: StoryStatus,
+) -> None:
+    with pytest.raises(InvalidStatusTransitionError):
+        _check_transition(from_status, to_status)
+
+
+def test_same_status_transition_is_idempotent() -> None:
+    """Repeating the same status does not raise."""
+    for status in StoryStatus:
+        _check_transition(status, status)  # no exception
+
+
+def test_in_progress_to_cancelled_has_informative_message() -> None:
+    """Special case: In Progress -> Cancelled must mention story-reset."""
+    with pytest.raises(InvalidStatusTransitionError, match="story-reset|FK-53"):
+        _check_transition(StoryStatus.IN_PROGRESS, StoryStatus.CANCELLED)
+
+
+def test_done_is_terminal_no_further_transitions() -> None:
+    """Done -> anything must raise."""
+    terminal = StoryStatus.DONE
+    for target in _ALL_STATUSES:
+        if target is terminal:
+            continue  # same-status is allowed
+        with pytest.raises(InvalidStatusTransitionError):
+            _check_transition(terminal, target)
+
+
+def test_cancelled_is_terminal_no_further_transitions() -> None:
+    """Cancelled -> anything must raise."""
+    terminal = StoryStatus.CANCELLED
+    for target in _ALL_STATUSES:
+        if target is terminal:
+            continue
+        with pytest.raises(InvalidStatusTransitionError):
+            _check_transition(terminal, target)
+
+
+def test_transition_error_carries_detail() -> None:
+    """InvalidStatusTransitionError must have detail with current/target status."""
+    with pytest.raises(InvalidStatusTransitionError) as exc_info:
+        _check_transition(StoryStatus.DONE, StoryStatus.BACKLOG)
+
+    detail = exc_info.value.detail
+    assert "current_status" in detail
+    assert "target_status" in detail
+    assert detail["current_status"] == "Done"
+    assert detail["target_status"] == "Backlog"

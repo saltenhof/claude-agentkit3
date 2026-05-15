@@ -1,7 +1,7 @@
 """Unit tests for SetupPhaseHandler.
 
 Mocks only the three external system boundaries:
-  - run_preflight  (GitHub CLI call)
+  - run_preflight  (StoryService-based, mocked)
   - build_story_context  (GitHub CLI call)
   - create_worktree  (git subprocess call)
 """
@@ -319,3 +319,116 @@ class TestSetupPhaseHandlerWorktree:
         assert "issue is closed" in result.errors[0]
         mock_build.assert_not_called()
         mock_setup.assert_not_called()
+
+
+class TestSetupPhaseBeginProgress:
+    """Tests for begin_progress call on successful setup."""
+
+    def test_begin_progress_called_on_success(self, tmp_path: Path) -> None:
+        """begin_progress is called when story_service is provided and setup succeeds."""
+        calls: list[str] = []
+
+        class _StubService:
+            def begin_progress(self, story_id: str, *, correlation_id: str = "") -> object:
+                calls.append(story_id)
+                return object()
+
+        svc = _StubService()
+        cfg = SetupConfig(
+            owner="owner",
+            repo="repo",
+            issue_nr=1,
+            project_root=tmp_path,
+            story_id="AG3-001",
+            create_worktree=False,
+            story_service=svc,  # type: ignore[arg-type]
+        )
+        handler = SetupPhaseHandler(cfg)
+        ctx = _make_story_context(project_root=tmp_path)
+        state = _make_phase_state()
+        enriched = _make_story_context(project_root=tmp_path)
+
+        with (
+            patch(
+                "agentkit.pipeline.phases.setup.phase.run_preflight",
+                return_value=_make_preflight_pass(),
+            ),
+            patch(
+                "agentkit.pipeline.phases.setup.phase.build_story_context",
+                return_value=enriched,
+            ),
+        ):
+            result = handler.on_enter(ctx, state)
+
+        assert result.status == PhaseStatus.COMPLETED
+        assert calls == ["AG3-001"]
+
+    def test_begin_progress_not_called_when_no_service(self, tmp_path: Path) -> None:
+        """begin_progress is not called when story_service is None."""
+        calls: list[str] = []
+
+        cfg = SetupConfig(
+            owner="owner",
+            repo="repo",
+            issue_nr=1,
+            project_root=tmp_path,
+            story_id="AG3-001",
+            create_worktree=False,
+            story_service=None,
+        )
+        handler = SetupPhaseHandler(cfg)
+        ctx = _make_story_context(project_root=tmp_path)
+        state = _make_phase_state()
+        enriched = _make_story_context(project_root=tmp_path)
+
+        with (
+            patch(
+                "agentkit.pipeline.phases.setup.phase.run_preflight",
+                return_value=_make_preflight_pass(),
+            ),
+            patch(
+                "agentkit.pipeline.phases.setup.phase.build_story_context",
+                return_value=enriched,
+            ),
+        ):
+            result = handler.on_enter(ctx, state)
+
+        assert result.status == PhaseStatus.COMPLETED
+        assert calls == []
+
+    def test_begin_progress_failure_returns_failed(self, tmp_path: Path) -> None:
+        """on_enter returns FAILED when begin_progress raises."""
+
+        class _FailingService:
+            def begin_progress(self, story_id: str, *, correlation_id: str = "") -> object:
+                raise RuntimeError("transition error: not Approved")
+
+        cfg = SetupConfig(
+            owner="owner",
+            repo="repo",
+            issue_nr=1,
+            project_root=tmp_path,
+            story_id="AG3-001",
+            create_worktree=False,
+            story_service=_FailingService(),  # type: ignore[arg-type]
+        )
+        handler = SetupPhaseHandler(cfg)
+        ctx = _make_story_context(project_root=tmp_path)
+        state = _make_phase_state()
+        enriched = _make_story_context(project_root=tmp_path)
+
+        with (
+            patch(
+                "agentkit.pipeline.phases.setup.phase.run_preflight",
+                return_value=_make_preflight_pass(),
+            ),
+            patch(
+                "agentkit.pipeline.phases.setup.phase.build_story_context",
+                return_value=enriched,
+            ),
+        ):
+            result = handler.on_enter(ctx, state)
+
+        assert result.status == PhaseStatus.FAILED
+        assert "begin_progress failed" in result.errors[0]
+        assert "transition error" in result.errors[0]

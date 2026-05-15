@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.story_context_manager.models import PhaseState, StoryContext
+    from agentkit.story_context_manager.service import StoryService
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,10 @@ class ClosureConfig:
         issue_nr: GitHub issue number.
         close_issue: Whether to close the GitHub issue.
         story_dir: Story artifacts directory.
+        story_service: Optional StoryService instance.  When provided,
+            ``complete_story`` is called on successful closure
+            (formal.story-workflow.invariant.completion_only_after_closure).
+            When ``None``, the transition is skipped (legacy / standalone mode).
     """
 
     owner: str | None = None
@@ -52,6 +57,7 @@ class ClosureConfig:
     issue_nr: int | None = None
     close_issue: bool = True
     story_dir: Path | None = None
+    story_service: StoryService | None = None
 
 
 class ClosurePhaseHandler:
@@ -65,7 +71,9 @@ class ClosurePhaseHandler:
            closure must be COMPLETED).
         2. Close GitHub issue (if configured).
         3. Write execution report (``closure.json``).
-        4. Return COMPLETED.
+        4. Transition story to Done via ``StoryService.complete_story``
+           (when ``story_service`` is configured).
+        5. Return COMPLETED.
 
     If prior phases are not completed, returns FAILED (not BLOCKED --
     closure should only be entered via the engine's transition system
@@ -203,6 +211,16 @@ class ClosurePhaseHandler:
                 project_root=ctx.project_root,
             ),
         )
+
+        # 4. Transition story to Done (completion_only_after_closure invariant)
+        if cfg.story_service is not None:
+            try:
+                cfg.story_service.complete_story(ctx.story_id)
+            except Exception as cs_err:  # noqa: BLE001
+                return HandlerResult(
+                    status=PhaseStatus.FAILED,
+                    errors=(f"complete_story failed: {cs_err}",),
+                )
 
         # 5. Return COMPLETED
         return HandlerResult(

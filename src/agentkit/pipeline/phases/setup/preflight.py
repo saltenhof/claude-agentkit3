@@ -1,14 +1,18 @@
 """Preflight checks for the setup phase.
 
 All checks run even if earlier ones fail (fail-closed, collect all errors).
+Checks are performed against the StoryService (story_context_manager BC),
+not GitHub — GitHub was the v2 approach, replaced in FK-22 §22.4.1.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from agentkit.exceptions import IntegrationError
-from agentkit.integrations.github.issues import IssueData, get_issue
+if TYPE_CHECKING:
+    from agentkit.story_context_manager.service import StoryService
+    from agentkit.story_context_manager.story_model import Story
 
 
 @dataclass(frozen=True)
@@ -16,7 +20,7 @@ class PreflightCheck:
     """A single preflight check result.
 
     Attributes:
-        name: Short identifier for the check (e.g. ``"issue_exists"``).
+        name: Short identifier for the check (e.g. ``"story_exists"``).
         passed: Whether the check passed.
         message: Human-readable description of the outcome.
     """
@@ -33,120 +37,111 @@ class PreflightResult:
     Attributes:
         passed: ``True`` only if every individual check passed.
         checks: Tuple of all check results, in execution order.
-        issue_data: The fetched issue data, or ``None`` if the issue
+        story: The fetched Story entity, or ``None`` if the story
             could not be retrieved.
     """
 
     passed: bool
     checks: tuple[PreflightCheck, ...]
-    issue_data: IssueData | None = None
-
-
-_STORY_TYPE_LABELS: frozenset[str] = frozenset({
-    "bug",
-    "bugfix",
-    "concept",
-    "research",
-    "implementation",
-})
-"""Labels that map to a recognised story type."""
-
-
-def _has_story_type_label(labels: tuple[str, ...]) -> bool:
-    """Check whether at least one label maps to a known story type.
-
-    Args:
-        labels: Tuple of label names from the issue.
-
-    Returns:
-        ``True`` if a recognisable story-type label is present.
-    """
-    return any(label.strip().lower() in _STORY_TYPE_LABELS for label in labels)
+    story: Story | None = None
 
 
 def run_preflight(
-    owner: str,
-    repo: str,
-    issue_nr: int,
+    story_display_id: str,
+    service: StoryService,
 ) -> PreflightResult:
-    """Run all preflight checks against a GitHub issue.
+    """Run all preflight checks against a StoryService.
 
     Checks (all run regardless of earlier failures):
-        1. **issue_exists** -- ``gh issue view`` succeeds.
-        2. **issue_open** -- issue state is ``OPEN``.
-        3. **has_story_type** -- at least one label maps to a
-           recognised story type, or the default (IMPLEMENTATION)
-           is acceptable.
+        1. **story_exists** -- ``StoryService.get_story`` returns a Story.
+        2. **status_approved** -- story status is ``StoryStatus.APPROVED``.
+        3. **dependencies_closed** -- all dependency story_display_ids
+           have ``StoryStatus.DONE``.
 
     Args:
-        owner: GitHub repository owner.
-        repo: GitHub repository name.
-        issue_nr: Issue number to validate.
+        story_display_id: Story display ID to validate (e.g. ``"AK3-042"``).
+        service: Authoritative StoryService instance.
 
     Returns:
         A ``PreflightResult`` containing all check outcomes.
     """
+    from agentkit.story_context_manager.story_model import StoryStatus
+
     checks: list[PreflightCheck] = []
-    issue: IssueData | None = None
+    story: Story | None = None
 
-    # --- Check 1: issue exists ---
-    try:
-        issue = get_issue(owner, repo, issue_nr)
+    # --- Check 1: story exists ---
+    story = service.get_story(story_display_id)
+    if story is not None:
         checks.append(PreflightCheck(
-            name="issue_exists",
+            name="story_exists",
             passed=True,
-            message=f"Issue #{issue_nr} found: {issue.title}",
+            message=f"Story {story_display_id!r} found: {story.title!r}",
         ))
-    except IntegrationError as exc:
+    else:
         checks.append(PreflightCheck(
-            name="issue_exists",
+            name="story_exists",
             passed=False,
-            message=f"Issue #{issue_nr} not found: {exc}",
+            message=f"Story {story_display_id!r} not found in StoryService",
         ))
 
-    # --- Check 2: issue is open ---
-    if issue is not None:
-        is_open = issue.state == "OPEN"
+    # --- Check 2: status_approved ---
+    if story is not None:
+        is_approved = story.status is StoryStatus.APPROVED
         checks.append(PreflightCheck(
-            name="issue_open",
-            passed=is_open,
+            name="status_approved",
+            passed=is_approved,
             message=(
-                f"Issue #{issue_nr} is {issue.state}"
-                if not is_open
-                else f"Issue #{issue_nr} is OPEN"
+                f"Story {story_display_id!r} is {story.status.value!r}"
+                if not is_approved
+                else f"Story {story_display_id!r} is Approved"
             ),
         ))
     else:
         checks.append(PreflightCheck(
-            name="issue_open",
+            name="status_approved",
             passed=False,
-            message="Cannot check state: issue could not be fetched",
+            message="Cannot check status: story could not be fetched",
         ))
 
-    # --- Check 3: has recognisable story type ---
-    # Default IMPLEMENTATION is always acceptable, so this check
-    # passes even without an explicit story-type label.
-    if issue is not None:
-        has_label = _has_story_type_label(issue.labels)
-        checks.append(PreflightCheck(
-            name="has_story_type",
-            passed=True,
-            message=(
-                f"Story type label found in: {list(issue.labels)}"
-                if has_label
-                else "No explicit story-type label; defaulting to IMPLEMENTATION"
-            ),
-        ))
+    # --- Check 3: dependencies_closed ---
+    if story is not None:
+        open_deps: list[str] = []
+        for dep_id in story.dependencies:
+            dep = service.get_story(dep_id)
+            if dep is None or dep.status is not StoryStatus.DONE:
+                dep_status = dep.status.value if dep is not None else "missing"
+                open_deps.append(f"{dep_id} ({dep_status})")
+
+        if open_deps:
+            checks.append(PreflightCheck(
+                name="dependencies_closed",
+                passed=False,
+                message=(
+                    f"Open dependencies: {', '.join(open_deps)}"
+                ),
+            ))
+        else:
+            dep_count = len(story.dependencies)
+            checks.append(PreflightCheck(
+                name="dependencies_closed",
+                passed=True,
+                message=(
+                    "No dependencies"
+                    if dep_count == 0
+                    else f"All {dep_count} dependenc{'y' if dep_count == 1 else 'ies'} done"
+                ),
+            ))
     else:
         checks.append(PreflightCheck(
-            name="has_story_type",
+            name="dependencies_closed",
             passed=False,
-            message="Cannot determine story type: issue could not be fetched",
+            message="Cannot check dependencies: story could not be fetched",
         ))
 
     all_passed = all(c.passed for c in checks)
     return PreflightResult(
         passed=all_passed,
         checks=tuple(checks),
-        issue_data=issue,
+        story=story,
     )

@@ -328,3 +328,58 @@
             created_at TEXT NOT NULL,
             PRIMARY KEY (story_id, decision_kind, attempt_nr)
         );
+
+        CREATE TABLE IF NOT EXISTS stories (
+            story_uuid UUID NOT NULL,
+            project_key TEXT NOT NULL,
+            story_number INTEGER NOT NULL,
+            story_display_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            story_type TEXT NOT NULL,
+            status TEXT NOT NULL,
+            size TEXT NOT NULL,
+            mode TEXT NULL,
+            epic TEXT NOT NULL,
+            module TEXT NOT NULL,
+            participating_repos JSONB NOT NULL,
+            change_impact TEXT NOT NULL,
+            concept_quality TEXT NOT NULL,
+            owner TEXT NOT NULL,
+            risk TEXT NOT NULL,
+            blocker TEXT NULL,
+            labels JSONB NOT NULL,
+            wave INTEGER NOT NULL,
+            critical_path BOOLEAN NOT NULL,
+            created_at TIMESTAMPTZ NULL,
+            completed_at TIMESTAMPTZ NULL,
+            PRIMARY KEY (story_uuid),
+            UNIQUE (story_display_id),
+            UNIQUE (project_key, story_number)
+        );
+
+        CREATE INDEX IF NOT EXISTS stories_project_key_idx
+            ON stories (project_key);
+
+        CREATE INDEX IF NOT EXISTS stories_project_key_number_idx
+            ON stories (project_key, story_number);
+
+        CREATE TABLE IF NOT EXISTS story_specifications (
+            story_uuid UUID NOT NULL,
+            need TEXT NULL,
+            solution TEXT NULL,
+            acceptance JSONB NOT NULL,
+            definition_of_done JSONB NULL,
+            concept_refs JSONB NULL,
+            guardrail_refs JSONB NULL,
+            external_sources JSONB NULL,
+            PRIMARY KEY (story_uuid)
+        );
+
+        CREATE TABLE IF NOT EXISTS idempotency_keys (
+            op_id TEXT NOT NULL,
+            body_hash TEXT NOT NULL,
+            result_payload JSONB NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL,
+            correlation_id TEXT NOT NULL,
+            PRIMARY KEY (op_id)
+        );
