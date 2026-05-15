@@ -6,7 +6,6 @@ build-backend = "hatchling.build"
 name = "agentkit"
 version = "0.1.0"
 description = "Deterministic orchestration engine for AI-driven story execution"
-readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
 authors = [
@@ -33,6 +32,7 @@ dev = [
 
 [project.scripts]
 agentkit = "agentkit.cli.main:main"
+agentkit-hook-claude = "agentkit.governance.harness_adapters.claude_code:main"
 agentkit-hook-codex = "agentkit.governance.harness_adapters.codex.cli:main"
 
 [tool.hatch.build.targets.wheel]

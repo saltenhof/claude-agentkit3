@@ -1,10 +1,12 @@
 """Claude Code pre-tool hook adapter.
 
 Official CLI entry point for Claude Code hooks:
-``python -m agentkit.governance.harness_adapters.claude_code``.
+``agentkit-hook-claude {phase} {hook_id}``
+
 The adapter preserves the external hook contract: blocked decisions are
 printed as JSON to stdout and return exit code 2; allowed decisions
-return exit code 0.
+return exit code 0.  Invalid arguments (unknown phase or hook_id) also
+return exit code 2 with a message on stderr.
 """
 
 from __future__ import annotations
@@ -24,8 +26,8 @@ from pydantic import (
 from agentkit.governance.guard_evaluation import (
     HookEvent,
     PrincipalKind,
-    evaluate_pre_tool_use,
 )
+from agentkit.governance.runner import Governance, parse_hook_wrapper_args
 
 _READ_ONLY_TOOLS = frozenset({"Glob", "Grep", "Read"})
 
@@ -126,12 +128,37 @@ def to_neutral_event(claude_event: ClaudeCodeHookEvent) -> HookEvent:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Read one Claude Code hook event from stdin and return hook exit code."""
-    del argv
-    raw = sys.stdin.read()
-    claude_event = _parse_hook_event(raw)
+    """Parse args, read stdin, evaluate governance hook, return exit code.
+
+    Args:
+        argv: Command-line arguments after the script name.  When ``None``,
+            ``sys.argv[1:]`` is used.  Expected format:
+            ``{phase} {hook_id}`` (e.g. ``pre branch_guard``).
+
+    Returns:
+        0 on ALLOW, 2 on BLOCK or invalid arguments.
+    """
+    args = list(sys.argv[1:]) if argv is None else list(argv)
+    try:
+        selector = parse_hook_wrapper_args(args, command_name="agentkit-hook-claude")
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    try:
+        raw = sys.stdin.read()
+        claude_event = _parse_hook_event(raw)
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
     event = to_neutral_event(claude_event)
-    decision = evaluate_pre_tool_use(event, project_root=Path.cwd())
+    decision = Governance.run_hook(
+        selector.hook_id,
+        event,
+        phase=selector.phase,
+        project_root=Path.cwd(),
+    )
     if not decision.allowed:
         payload = {
             "decision": "block",

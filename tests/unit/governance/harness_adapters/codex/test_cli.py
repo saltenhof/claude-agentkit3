@@ -20,11 +20,11 @@ def test_main_returns_allow_exit_code_and_stdout_json(
         io.StringIO(json.dumps({"tool": "read_file", "arguments": {"path": "a.py"}, "cwd": "."})),
     )
     monkeypatch.setattr(
-        "agentkit.governance.harness_adapters.codex.cli.evaluate_pre_tool_use",
-        lambda event, project_root: GuardVerdict.allow("guard_evaluation"),
+        "agentkit.governance.runner.Governance.run_hook",
+        staticmethod(lambda hook_id, event, phase="pre", project_root=None: GuardVerdict.allow("guard_evaluation")),
     )
 
-    assert main() == 0
+    assert main(["pre", "branch_guard"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload == {"decision": "allow", "guard": "guard_evaluation"}
 
@@ -38,16 +38,18 @@ def test_main_returns_block_exit_code_and_stdout_json(
         io.StringIO(json.dumps({"tool": "shell_command", "arguments": {"command": "git push --force"}, "cwd": "."})),
     )
     monkeypatch.setattr(
-        "agentkit.governance.harness_adapters.codex.cli.evaluate_pre_tool_use",
-        lambda event, project_root: GuardVerdict.block(
-            "branch_guard",
-            ViolationType.BRANCH_VIOLATION,
-            "blocked",
-            detail={"command": "git push --force"},
+        "agentkit.governance.runner.Governance.run_hook",
+        staticmethod(
+            lambda hook_id, event, phase="pre", project_root=None: GuardVerdict.block(
+                "branch_guard",
+                ViolationType.BRANCH_VIOLATION,
+                "blocked",
+                detail={"command": "git push --force"},
+            )
         ),
     )
 
-    assert main() == 2
+    assert main(["pre", "branch_guard"]) == 2
     payload = json.loads(capsys.readouterr().out)
     assert payload == {
         "decision": "block",

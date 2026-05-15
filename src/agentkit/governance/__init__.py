@@ -20,14 +20,16 @@ from agentkit.governance.protocols import (
     GuardVerdict,
     ViolationType,
 )
-from agentkit.governance.runner import GuardRunner
+from agentkit.governance.runner import Governance, GuardRunner, HookDecision
 
 __all__ = [
     "ArtifactGuard",
     "BranchGuard",
     "GovernanceGuard",
+    "Governance",
     "GuardRunner",
     "GuardVerdict",
+    "HookDecision",
     "IntegrityCheckResult",
     "IntegrityGate",
     "IntegrityGateResult",

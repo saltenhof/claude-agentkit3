@@ -118,23 +118,25 @@ def test_main_returns_allow_and_block_exit_codes(
     allow_event = json.dumps({"tool_name": "Task", "tool_input": {}, "cwd": "."})
     monkeypatch.setattr("sys.stdin", io.StringIO(allow_event))
     monkeypatch.setattr(
-        "agentkit.governance.harness_adapters.claude_code.evaluate_pre_tool_use",
-        lambda event, project_root: GuardVerdict.allow("guard_evaluation"),
+        "agentkit.governance.runner.Governance.run_hook",
+        staticmethod(lambda hook_id, event, phase="pre", project_root=None: GuardVerdict.allow("guard_evaluation")),
     )
-    assert main() == 0
+    assert main(["pre", "branch_guard"]) == 0
 
     block_event = json.dumps({"tool_name": "Task", "tool_input": {}, "cwd": "."})
     monkeypatch.setattr("sys.stdin", io.StringIO(block_event))
     monkeypatch.setattr(
-        "agentkit.governance.harness_adapters.claude_code.evaluate_pre_tool_use",
-        lambda event, project_root: GuardVerdict.block(
-            "branch_guard",
-            ViolationType.BRANCH_VIOLATION,
-            "blocked",
-            detail={"command": "git push --force"},
+        "agentkit.governance.runner.Governance.run_hook",
+        staticmethod(
+            lambda hook_id, event, phase="pre", project_root=None: GuardVerdict.block(
+                "branch_guard",
+                ViolationType.BRANCH_VIOLATION,
+                "blocked",
+                detail={"command": "git push --force"},
+            )
         ),
     )
 
-    assert main() == 2
+    assert main(["pre", "branch_guard"]) == 2
     out = capsys.readouterr().out
     assert "\"decision\": \"block\"" in out
