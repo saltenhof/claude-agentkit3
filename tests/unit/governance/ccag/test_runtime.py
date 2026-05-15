@@ -15,7 +15,7 @@ from agentkit.governance.ccag.runtime import (
     CcagPermissionRuntime,
     _extract_operating_mode,
 )
-from agentkit.governance.guard_evaluation import HookEvent
+from agentkit.governance.guard_evaluation import HookEvent, Operation
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 
 def _make_event(
-    operation: str = "bash_command",
+    operation: Operation = "bash_command",
     tool_name: str = "Bash",
     command: str = "git push",
     is_subagent: bool = False,
@@ -52,7 +52,7 @@ def _make_event(
     )
 
 
-def _write_rules(rules_dir: Path, filename: str, rules: list[dict]) -> None:
+def _write_rules(rules_dir: Path, filename: str, rules: list[dict[str, object]]) -> None:
     rules_dir.mkdir(parents=True, exist_ok=True)
     (rules_dir / filename).write_text(
         yaml.dump({"rules": rules}, allow_unicode=True),

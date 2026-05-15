@@ -109,9 +109,6 @@ def _check_transition(
         target: Requested target status.
         context: Optional human-readable context for error messages.
     """
-    if current is target:
-        # Idempotent repeat on same status — OK for terminal-safe semantics
-        return
     if (current, target) not in _ALLOWED_TRANSITIONS:
         # Special-case inflight cancel to give a clearer error message
         if current is StoryStatus.IN_PROGRESS and target is StoryStatus.CANCELLED:
@@ -320,13 +317,16 @@ class StoryService:
             op_id, body, correlation_id=correlation_id
         )
         if cached:
-            # Return the cached story
+            # Befund 5: return the CACHED story snapshot, not a live DB read.
             assert cached_payload is not None
+            cached_story = _story_from_cached_payload(cached_payload)
+            if cached_story is not None:
+                return cached_story
+            # Legacy records without internal fields: fall back to DB read.
             cached_display_id = str(cached_payload.get("story_id", ""))
             story = self._story_repo.get_by_display_id(cached_display_id)
             if story is not None:
                 return story
-            # Fallback: reconstruct from payload (shouldn't happen normally)
             raise StoryNotFoundError(
                 f"Idempotent replay: cached story {cached_display_id!r} not found",
             )
@@ -388,15 +388,21 @@ class StoryService:
             created_at=now,
         )
 
-        # -- 8. Persist --
+        # -- 8. Persist Story + default Specification (story.md §2.1.3 AC5) --
         self._story_repo.save(story)
+        default_spec = StorySpecification(
+            need=None,
+            solution=None,
+            acceptance=[],
+        )
+        self._story_repo.save_specification(story.story_uuid, default_spec)
 
-        # -- 9. Persist idempotency --
+        # -- 9. Persist idempotency (full internal snapshot, Befund 5) --
         wire_summary = story_to_wire_summary(story)
         self._idempotency.record(
             op_id,
             body,
-            {"story_id": story_display_id, **wire_summary},
+            _story_to_internal_snapshot(story),
             correlation_id=correlation_id,
         )
 
@@ -451,7 +457,11 @@ class StoryService:
             op_id, body, correlation_id=correlation_id
         )
         if cached:
+            # Befund 5: return CACHED snapshot, not live DB read.
             assert cached_payload is not None
+            cached_story = _story_from_cached_payload(cached_payload)
+            if cached_story is not None:
+                return cached_story
             cached_id = str(cached_payload.get("story_id", story_display_id))
             story = self._story_repo.get_by_display_id(cached_id)
             if story is not None:
@@ -475,7 +485,7 @@ class StoryService:
 
         wire_summary = story_to_wire_summary(story)
         self._idempotency.record(
-            op_id, body, {"story_id": story_display_id, **wire_summary},
+            op_id, body, _story_to_internal_snapshot(story),
             correlation_id=correlation_id,
         )
         self._emit(story.project_key, story_display_id, wire_summary)
@@ -590,7 +600,11 @@ class StoryService:
             op_id, body, correlation_id=correlation_id
         )
         if cached:
+            # Befund 5: return CACHED snapshot, not live DB read.
             assert cached_payload is not None
+            cached_story = _story_from_cached_payload(cached_payload)
+            if cached_story is not None:
+                return cached_story
             cached_id = str(cached_payload.get("story_id", story_display_id))
             story = self._story_repo.get_by_display_id(cached_id)
             if story is not None:
@@ -614,7 +628,7 @@ class StoryService:
 
         wire_summary = story_to_wire_summary(story)
         self._idempotency.record(
-            op_id, body, {"story_id": story_display_id, **wire_summary},
+            op_id, body, _story_to_internal_snapshot(story),
             correlation_id=correlation_id,
         )
         self._emit(story.project_key, story_display_id, wire_summary)
@@ -755,7 +769,11 @@ class StoryService:
             op_id, body, correlation_id=correlation_id
         )
         if cached:
+            # Befund 5: return CACHED snapshot, not live DB read.
             assert cached_payload is not None
+            cached_story = _story_from_cached_payload(cached_payload)
+            if cached_story is not None:
+                return cached_story
             cached_id = str(cached_payload.get("story_id", story_display_id))
             story = self._story_repo.get_by_display_id(cached_id)
             if story is not None:
@@ -777,7 +795,7 @@ class StoryService:
 
         wire_summary = story_to_wire_summary(story)
         self._idempotency.record(
-            op_id, body, {"story_id": story_display_id, **wire_summary},
+            op_id, body, _story_to_internal_snapshot(story),
             correlation_id=correlation_id,
         )
         self._emit(story.project_key, story_display_id, wire_summary)
@@ -794,8 +812,96 @@ def _null_emitter(
     story_display_id: str,
     wire_summary: dict[str, object],
 ) -> None:
-    """No-op event emitter (used as default in tests and when telemetry is off)."""
+    """No-op event emitter (test-only; default HTTP service uses real emitter)."""
     _ = project_key, story_display_id, wire_summary
+
+
+def _story_to_internal_snapshot(story: Story) -> dict[str, object]:
+    """Serialise a Story to a full internal snapshot for idempotency records.
+
+    Unlike ``story_to_wire_summary``, this snapshot includes ``story_uuid``
+    and ``story_number`` so that replay can reconstruct the exact Story
+    without a live DB read (Befund 5).
+
+    Args:
+        story: The Story entity to snapshot.
+
+    Returns:
+        A JSON-serialisable dict with all Story fields.
+    """
+    from agentkit.story_context_manager.wire_adapter import story_to_wire_summary
+
+    wire = story_to_wire_summary(story)
+    return {
+        **wire,
+        "_story_uuid": str(story.story_uuid),
+        "_story_number": story.story_number,
+    }
+
+
+def _to_list(value: object) -> list[object]:
+    """Return ``value`` as a list, or an empty list if not iterable / None."""
+    if isinstance(value, list):
+        return value
+    return []
+
+
+def _story_from_cached_payload(payload: dict[str, object]) -> Story | None:
+    """Reconstruct a Story from an idempotency result_payload snapshot.
+
+    Returns ``None`` if the payload does not contain the required internal
+    fields (legacy records without ``_story_uuid`` fall back to DB read).
+
+    Args:
+        payload: The ``result_payload`` from an IdempotencyRecord.
+
+    Returns:
+        Reconstructed Story, or ``None`` if snapshot is incomplete.
+    """
+    from datetime import datetime
+
+    uuid_str = payload.get("_story_uuid")
+    story_number = payload.get("_story_number")
+    if not isinstance(uuid_str, str) or not isinstance(story_number, int):
+        return None
+
+    from uuid import UUID
+
+    try:
+        return Story(
+            story_uuid=UUID(uuid_str),
+            project_key=str(payload["project_key"]),
+            story_number=story_number,
+            story_display_id=str(payload["story_id"]),
+            title=str(payload["title"]),
+            story_type=WireStoryType(str(payload["type"])),
+            status=StoryStatus(str(payload["status"])),
+            size=WireStorySize(str(payload["size"])),
+            mode=WireStoryMode(str(payload["mode"])) if payload.get("mode") else None,
+            epic=str(payload.get("epic", "")),
+            module=str(payload.get("module", "")),
+            participating_repos=[str(r) for r in _to_list(payload.get("repos"))],
+            change_impact=ChangeImpact(str(payload["change_impact"])),
+            concept_quality=ConceptQuality(str(payload["concept_quality"])),
+            owner=str(payload.get("owner", "")),
+            risk=RiskLevel(str(payload["risk"])),
+            blocker=str(payload["blocker"]) if payload.get("blocker") else None,
+            labels=[str(lb) for lb in _to_list(payload.get("labels"))],
+            wave=int(str(payload.get("wave", 0))),
+            critical_path=bool(payload.get("critical_path", False)),
+            created_at=(
+                datetime.fromisoformat(str(payload["created_at"]))
+                if payload.get("created_at")
+                else None
+            ),
+            completed_at=(
+                datetime.fromisoformat(str(payload["completed_at"]))
+                if payload.get("completed_at")
+                else None
+            ),
+        )
+    except (KeyError, ValueError):
+        return None
 
 
 def _get_project_repos(project: object) -> list[str]:

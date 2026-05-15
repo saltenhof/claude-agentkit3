@@ -7,7 +7,7 @@ from uuid import UUID
 
 import pytest
 
-from agentkit.project_management.entities import ProjectConfiguration
+from agentkit.project_management.entities import Project, ProjectConfiguration
 from agentkit.project_management.lifecycle import archive_project, create_project
 from agentkit.state_backend.store import facade
 from agentkit.state_backend.store.project_management_repository import (
@@ -41,7 +41,7 @@ def _configuration() -> ProjectConfiguration:
 
 class _ProjectRepository:
     def __init__(self) -> None:
-        self.projects = {
+        self.projects: dict[str, Project] = {
             "tenant-a": create_project(
                 "tenant-a",
                 "Tenant A",
@@ -50,8 +50,14 @@ class _ProjectRepository:
             ),
         }
 
-    def get(self, key: str):
+    def get(self, key: str) -> Project | None:
         return self.projects.get(key)
+
+    def list(self, *, include_archived: bool = False) -> list[Project]:
+        return list(self.projects.values())
+
+    def save(self, project: Project) -> None:
+        self.projects[project.key] = project
 
 
 class _StoryRepository:

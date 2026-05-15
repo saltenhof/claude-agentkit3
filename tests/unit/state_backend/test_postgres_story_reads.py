@@ -7,6 +7,7 @@ calling the public facade functions.
 
 from __future__ import annotations
 
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -49,9 +50,19 @@ def _fake_global(rows: list[Any]) -> Generator[_FakeConnection, None, None]:
 
 
 @pytest.fixture(autouse=True)
-def _use_postgres_backend(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Force postgres backend and clear the facade LRU cache for every test."""
+def _use_postgres_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Generator[None, None, None]:
+    """Force postgres backend and clear the facade LRU cache for every test.
+
+    The cache is also cleared on teardown so subsequent tests (which rely on
+    AGENTKIT_STATE_BACKEND=sqlite) are not contaminated by the postgres module
+    remaining in the LRU cache after monkeypatch reverts the env var.
+    """
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "postgres")
+    facade.reset_backend_cache_for_tests()
+    yield
+    # Teardown: clear cache so next test gets the correct backend (sqlite).
     facade.reset_backend_cache_for_tests()
 
 

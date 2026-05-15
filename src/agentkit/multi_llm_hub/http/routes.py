@@ -24,7 +24,7 @@ from agentkit.multi_llm_hub.sse_stream import iter_hub_sse_stream, parse_hub_top
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from agentkit.multi_llm_hub.client import HubClient
+    from agentkit.multi_llm_hub.client import HubClientProtocol
     from agentkit.multi_llm_hub.entities import HubBackendMetric, HubHealth, HubSession
 
 _CORRELATION_HEADER = "X-Correlation-Id"
@@ -77,7 +77,7 @@ class ReleaseHubSessionRequest(BaseModel):
 class MultiLlmHubRoutes:
     """Route handler for the project-neutral Multi-LLM-Hub surface."""
 
-    def __init__(self, client: HubClient | None = None) -> None:
+    def __init__(self, client: HubClientProtocol | None = None) -> None:
         if client is None:
             from agentkit.multi_llm_hub.client import HubClient
 
@@ -281,7 +281,7 @@ def _mutation_response(
 
 
 class _HubClientSseSnapshotSource:
-    def __init__(self, client: HubClient) -> None:
+    def __init__(self, client: HubClientProtocol) -> None:
         self._client = client
 
     def backend_status(self) -> tuple[HubHealth, list[HubBackendMetric]]:

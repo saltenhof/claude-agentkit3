@@ -17,7 +17,7 @@ from agentkit.execution_planning.errors import (
     StoryDependencyNotFoundError,
 )
 from agentkit.execution_planning.http.routes import ExecutionPlanningRoutes
-from agentkit.project_management.entities import ProjectConfiguration
+from agentkit.project_management.entities import Project, ProjectConfiguration
 from agentkit.project_management.lifecycle import archive_project, create_project
 
 
@@ -25,7 +25,7 @@ from agentkit.project_management.lifecycle import archive_project, create_projec
 class _ProjectRepo:
     archived: bool = False
 
-    def get(self, key: str):
+    def get(self, key: str) -> Project | None:
         if key != "tenant-a":
             return None
         project = create_project(
@@ -43,12 +43,12 @@ class _ProjectRepo:
             return archive_project(project, archived_at=datetime.now(UTC))
         return project
 
-    def list(self, *, include_archived: bool = False):
+    def list(self, *, include_archived: bool = False) -> list[Project]:
         del include_archived
         project = self.get("tenant-a")
         return [project] if project is not None else []
 
-    def save(self, project: object) -> None:
+    def save(self, project: Project) -> None:
         del project
 
 
@@ -145,7 +145,9 @@ def _app(
 
 
 def _json(body: bytes) -> dict[str, object]:
-    return json.loads(body.decode("utf-8"))
+    result = json.loads(body.decode("utf-8"))
+    assert isinstance(result, dict)
+    return result
 
 
 def test_get_dependency_graph() -> None:
@@ -184,9 +186,11 @@ def test_post_dependency_and_next_ready() -> None:
 
     assert post.status_code == HTTPStatus.CREATED
     assert _json(post.body)["correlation_id"] == "corr-test"
-    assert [story["story_id"] for story in _json(ready.body)["next_ready"]] == [
-        "AK3-002",
-    ]
+    ready_body = _json(ready.body)
+    next_ready_raw = ready_body["next_ready"]
+    assert isinstance(next_ready_raw, list)
+    next_ready: list[dict[str, object]] = [s for s in next_ready_raw if isinstance(s, dict)]
+    assert [s["story_id"] for s in next_ready] == ["AK3-002"]
 
 
 def test_delete_dependency() -> None:
@@ -224,7 +228,8 @@ def test_config_get_and_put() -> None:
         ),
     )
 
-    assert _json(get_default.body)["config"]["max_parallel_stories"] == 1
+    default_config = _json(get_default.body)["config"]
+    assert isinstance(default_config, dict) and default_config["max_parallel_stories"] == 1
     assert put.status_code == HTTPStatus.OK
     assert config_repo.config == ParallelizationConfig(
         project_key="tenant-a",

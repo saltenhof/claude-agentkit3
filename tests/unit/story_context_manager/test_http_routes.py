@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from http import HTTPStatus
 
+from agentkit.project_management.entities import Project, ProjectConfiguration
 from agentkit.story_context_manager.http.routes import StoryContextRoutes, StoryRouteResponse
 from agentkit.story_context_manager.idempotency import InMemoryIdempotencyKeyRepository
 from agentkit.story_context_manager.service import StoryService
@@ -21,9 +22,7 @@ from agentkit.story_context_manager.story_repository import InMemoryStoryReposit
 
 class _InMemoryProjectRepository:
     def __init__(self) -> None:
-        from agentkit.project_management.entities import Project, ProjectConfiguration
-
-        self._projects: dict[str, object] = {
+        self._projects: dict[str, Project] = {
             "ak3": Project(
                 key="ak3",
                 name="AgentKit 3",
@@ -36,16 +35,13 @@ class _InMemoryProjectRepository:
             ),
         }
 
-    def get(self, key: str) -> object | None:
+    def get(self, key: str) -> Project | None:
         return self._projects.get(key)
 
-    def list(self, *, include_archived: bool = False) -> list[object]:
+    def list(self, *, include_archived: bool = False) -> list[Project]:
         return list(self._projects.values())
 
-    def save(self, project: object) -> None:
-        from agentkit.project_management.entities import Project
-
-        assert isinstance(project, Project)
+    def save(self, project: Project) -> None:
         self._projects[project.key] = project
 
 
@@ -59,7 +55,9 @@ def _make_routes() -> StoryContextRoutes:
 
 
 def _body(resp: StoryRouteResponse) -> dict[str, object]:
-    return json.loads(resp.body)
+    result = json.loads(resp.body)
+    assert isinstance(result, dict)
+    return result
 
 
 def _correlation_header(resp: StoryRouteResponse) -> str:
@@ -210,7 +208,8 @@ def test_get_story_detail_returns_200() -> None:
     assert resp.status_code == HTTPStatus.OK
     body = _body(resp)
     assert body["summary"]["story_id"] == "AK3-1"  # type: ignore[index]
-    assert body["spec"] is None
+    # Befund 2: create_story always persists a default StorySpecification.
+    assert body["spec"] is not None
 
 
 def test_get_story_detail_not_found_returns_404() -> None:
@@ -246,7 +245,7 @@ def test_get_story_fields_returns_wire_dict() -> None:
     assert "fields" in body
     fields = body["fields"]
     assert isinstance(fields, dict)
-    assert fields["status"] == "Backlog"  # type: ignore[index]
+    assert isinstance(fields, dict) and fields["status"] == "Backlog"
 
 
 def test_get_story_fields_not_found_returns_404() -> None:

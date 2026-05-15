@@ -7,6 +7,7 @@ from http import HTTPStatus
 from agentkit.control_plane.http import ControlPlaneApplication
 from agentkit.multi_llm_hub.entities import (
     HubBackendMetric,
+    HubBackendName,
     HubHealth,
     HubMessage,
     HubSession,
@@ -71,7 +72,7 @@ class _FakeHubClient:
         *,
         owner: str,
         description: str,
-        llms: list[str],
+        llms: list[HubBackendName],
     ) -> HubSessionLease:
         if self.unavailable:
             raise HubUnavailableError("Hub down")
@@ -88,9 +89,9 @@ class _FakeHubClient:
         session_id: str,
         token: str,
         message: str | None = None,
-        target: str | None = None,
-        targets: dict[str, str] | None = None,
-    ) -> dict[str, HubMessage]:
+        target: HubBackendName | None = None,
+        targets: dict[HubBackendName, str] | None = None,
+    ) -> dict[HubBackendName, HubMessage]:
         if self.unavailable:
             raise HubUnavailableError("Hub down")
         return {
@@ -109,6 +110,16 @@ class _FakeHubClient:
         if self.unavailable:
             raise HubUnavailableError("Hub down")
         self.released.append((session_id, token))
+
+    def resume(self, *, session_id: str) -> HubSessionLease:
+        if self.unavailable:
+            raise HubUnavailableError("Hub down")
+        return HubSessionLease(
+            session_id=session_id,
+            token="resumed-tok",
+            llms=["chatgpt"],
+            slots={"chatgpt": 0},
+        )
 
 
 def _app(client: _FakeHubClient) -> ControlPlaneApplication:
@@ -198,7 +209,10 @@ def test_post_hub_messages_sends_message() -> None:
     body = _json_body(response.body)
     assert response.status_code == HTTPStatus.OK
     assert body["op_id"] == "op-send"
-    assert body["messages"]["chatgpt"]["text"] == "Hello"
+    messages = body["messages"]
+    assert isinstance(messages, dict)
+    chatgpt_msg = messages["chatgpt"]
+    assert isinstance(chatgpt_msg, dict) and chatgpt_msg["text"] == "Hello"
 
 
 def test_post_hub_release_releases_session() -> None:

@@ -26,7 +26,7 @@ def test_story_dependency_accepts_declared_kinds() -> None:
     edge = StoryDependency(
         story_id="AK3-002",
         depends_on_story_id="AK3-001",
-        kind="derives_from",
+        kind=StoryDependencyKind.DERIVES_FROM,
         created_at=datetime.now(UTC),
     )
 

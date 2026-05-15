@@ -12,9 +12,11 @@ from agentkit.governance.harness_adapters.codex.event_mapping import (
 if TYPE_CHECKING:
     from pathlib import Path
 
+    import pytest
+
 
 def test_parse_hook_event_accepts_codex_aliases_and_defaults_cwd(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     monkeypatch.chdir(tmp_path)

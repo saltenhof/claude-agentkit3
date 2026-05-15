@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
@@ -32,7 +32,7 @@ def _make_rule(
     decision: str = "",
     scope: str = "all",
     priority: int = 100,
-    conditions: list | None = None,
+    conditions: list[dict[str, Any]] | None = None,
     applies_to: str = "all",
 ) -> CcagRule:
     return CcagRule(
@@ -48,7 +48,7 @@ def _make_rule(
     )
 
 
-def _write_rules(rules_dir: Path, filename: str, rules: list[dict]) -> None:
+def _write_rules(rules_dir: Path, filename: str, rules: list[dict[str, object]]) -> None:
     rules_dir.mkdir(parents=True, exist_ok=True)
     (rules_dir / filename).write_text(
         yaml.dump({"rules": rules}, allow_unicode=True),

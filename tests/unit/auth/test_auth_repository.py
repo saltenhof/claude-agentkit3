@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from agentkit.auth.entities import ProjectApiToken
+
+if TYPE_CHECKING:
+    from pathlib import Path
 from agentkit.project_management.entities import Project, ProjectConfiguration
 from agentkit.state_backend.store.auth_repository import StateBackendProjectApiTokenRepository
 from agentkit.state_backend.store.project_management_repository import (
@@ -10,7 +14,7 @@ from agentkit.state_backend.store.project_management_repository import (
 )
 
 
-def test_state_backend_project_api_token_repository_roundtrip(tmp_path) -> None:
+def test_state_backend_project_api_token_repository_roundtrip(tmp_path: Path) -> None:
     project_repo = StateBackendProjectRepository(tmp_path)
     project_repo.save(
         Project(

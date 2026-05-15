@@ -187,7 +187,7 @@ class PhaseMemory(BaseModel):
 class StoryContext(BaseModel):
     story_uuid: UUID = Field(default_factory=uuid4)
     project_key: str
-    story_number: int = Field(ge=1)
+    story_number: int = Field(default=0)  # derived from story_id by model_validator if not given
     story_id: str
     story_type: StoryType
     execution_route: StoryMode
@@ -256,6 +256,11 @@ class StoryContext(BaseModel):
 
     @model_validator(mode="after")
     def _validate_contract_shape(self) -> StoryContext:
+        if self.story_number < 1:
+            raise ValueError(
+                f"story_number must be >= 1, got {self.story_number!r}"
+            )
+
         profile = get_profile(self.story_type)
 
         if self.execution_route not in profile.allowed_modes:

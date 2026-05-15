@@ -8,7 +8,7 @@ No mocking of core components — uses real SQLite in-memory paths via tmp_path.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
@@ -41,7 +41,7 @@ def _make_event(
     )
 
 
-def _write_rules(rules_dir: Path, filename: str, rules: list[dict]) -> None:
+def _write_rules(rules_dir: Path, filename: str, rules: list[dict[str, object]]) -> None:
     rules_dir.mkdir(parents=True, exist_ok=True)
     (rules_dir / filename).write_text(
         yaml.dump({"rules": rules}, allow_unicode=True),
@@ -71,7 +71,7 @@ class TestDispatcherRouting:
 
         original_init = CcagPermissionRuntime.__init__
 
-        def patched_init(self: CcagPermissionRuntime, **kwargs: object) -> None:
+        def patched_init(self: CcagPermissionRuntime, **kwargs: Any) -> None:
             original_init(self, rules_dir=rules_dir, **kwargs)
 
         monkeypatch.setattr(CcagPermissionRuntime, "__init__", patched_init)
@@ -97,7 +97,7 @@ class TestDispatcherRouting:
 
         original_init = CcagPermissionRuntime.__init__
 
-        def patched_init(self: CcagPermissionRuntime, **kwargs: object) -> None:
+        def patched_init(self: CcagPermissionRuntime, **kwargs: Any) -> None:
             original_init(self, rules_dir=rules_dir, **kwargs)
 
         monkeypatch.setattr(CcagPermissionRuntime, "__init__", patched_init)
@@ -135,7 +135,7 @@ class TestDispatcherRouting:
 
         original_init = CcagPermissionRuntime.__init__
 
-        def patched_init(self: CcagPermissionRuntime, **kwargs: object) -> None:
+        def patched_init(self: CcagPermissionRuntime, **kwargs: Any) -> None:
             original_init(self, rules_dir=rules_dir, **kwargs)
 
         monkeypatch.setattr(CcagPermissionRuntime, "__init__", patched_init)
@@ -171,7 +171,7 @@ class TestUnknownPermissionDispatch:
         request_store = PermissionRequestStore(tmp_path / "req.db")
         original_init = CcagPermissionRuntime.__init__
 
-        def patched_init(self: CcagPermissionRuntime, **kwargs: object) -> None:
+        def patched_init(self: CcagPermissionRuntime, **kwargs: Any) -> None:
             original_init(
                 self,
                 rules_dir=rules_dir,

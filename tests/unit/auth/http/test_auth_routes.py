@@ -11,6 +11,8 @@ from agentkit.auth.sessions import InMemorySessionStore
 from agentkit.control_plane.http import ControlPlaneApplication, HttpResponse
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from agentkit.auth.entities import ProjectApiToken
 
 
@@ -55,7 +57,7 @@ def _header(response: HttpResponse, name: str) -> str:
     raise AssertionError(f"Missing header {name}")
 
 
-def _app(tmp_path) -> tuple[ControlPlaneApplication, _InMemoryTokenRepository]:
+def _app(tmp_path: Path) -> tuple[ControlPlaneApplication, _InMemoryTokenRepository]:
     credentials = StrategistCredentialStore(tmp_path / "auth.json")
     credentials.set_password("secret", username="strategist")
     sessions = InMemorySessionStore()
@@ -72,7 +74,7 @@ def _app(tmp_path) -> tuple[ControlPlaneApplication, _InMemoryTokenRepository]:
     ), tokens
 
 
-def test_login_sets_session_cookie_and_returns_csrf(tmp_path) -> None:
+def test_login_sets_session_cookie_and_returns_csrf(tmp_path: Path) -> None:
     app, _tokens = _app(tmp_path)
 
     response = app.handle_request(
@@ -91,7 +93,7 @@ def test_login_sets_session_cookie_and_returns_csrf(tmp_path) -> None:
     assert _header(response, "Set-Cookie").startswith("ak3_session=")
 
 
-def test_project_api_token_lifecycle_routes(tmp_path) -> None:
+def test_project_api_token_lifecycle_routes(tmp_path: Path) -> None:
     app, tokens = _app(tmp_path)
     login = app.handle_request(
         method="POST",

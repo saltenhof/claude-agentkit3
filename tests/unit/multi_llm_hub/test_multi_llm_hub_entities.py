@@ -34,7 +34,7 @@ def test_hub_session_rejects_unknown_backend() -> None:
             session_id="s-1",
             owner="owner",
             description="Test session",
-            llms=["unknown"],
+            llms=["unknown"],  # type: ignore[list-item]  # intentionally invalid
             status="active",
             created_at=datetime(2026, 1, 1, tzinfo=UTC),
             last_activity=datetime(2026, 1, 1, tzinfo=UTC),

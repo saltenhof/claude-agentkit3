@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import sqlite3
+from typing import TYPE_CHECKING
 
 import pytest
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 from agentkit.state_backend import config as state_config
 from agentkit.state_backend import postgres_store, sqlite_store
@@ -23,7 +27,7 @@ def test_schema_version_rejects_non_semver() -> None:
 
 
 def test_sqlite_state_db_path_contains_current_schema_version(
-    tmp_path,
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(state_config, "SCHEMA_VERSION", "3.2.0")
@@ -32,7 +36,7 @@ def test_sqlite_state_db_path_contains_current_schema_version(
 
 
 def test_sqlite_bootstrap_is_idempotent_and_side_by_side(
-    tmp_path,
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(state_config, "SCHEMA_VERSION", "3.0.0")

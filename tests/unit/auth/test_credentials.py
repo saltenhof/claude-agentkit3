@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 from agentkit.auth.credentials import StrategistCredentialStore
 from agentkit.auth.entities import StrategistCredentials
 from agentkit.auth.errors import AuthFailedError
 
 
-def test_strategist_password_is_hashed_and_verified(tmp_path) -> None:
+def test_strategist_password_is_hashed_and_verified(tmp_path: Path) -> None:
     store = StrategistCredentialStore(tmp_path / "auth.json")
     store.set_password("correct horse battery staple", username="strategist")
 
@@ -23,7 +28,7 @@ def test_strategist_password_is_hashed_and_verified(tmp_path) -> None:
     assert "argon2" in store.path.read_text(encoding="utf-8")
 
 
-def test_strategist_password_rejects_wrong_credentials(tmp_path) -> None:
+def test_strategist_password_rejects_wrong_credentials(tmp_path: Path) -> None:
     store = StrategistCredentialStore(tmp_path / "auth.json")
     store.set_password("secret", username="strategist")
 

@@ -89,6 +89,26 @@ class UrllibJsonTransport:
         return cast("dict[str, object]", data)
 
 
+class HubClientProtocol(Protocol):
+    """Structural protocol for HubClient — allows test-doubles without inheritance."""
+
+    def health(self) -> HubHealth: ...
+    def pool_status(self) -> list[HubBackendMetric]: ...
+    def list_sessions(self, *, include_inactive: bool = ...) -> list[HubSession]: ...
+    def acquire(self, *, owner: str, description: str, llms: list[HubBackendName]) -> HubSessionLease: ...
+    def send(
+        self,
+        *,
+        session_id: str,
+        token: str,
+        message: str | None = ...,
+        target: HubBackendName | None = ...,
+        targets: dict[HubBackendName, str] | None = ...,
+    ) -> dict[HubBackendName, HubMessage]: ...
+    def release(self, *, session_id: str, token: str) -> None: ...
+    def resume(self, *, session_id: str) -> HubSessionLease: ...
+
+
 class HubClient:
     """Adapter client for the external Multi-LLM Hub REST API."""
 

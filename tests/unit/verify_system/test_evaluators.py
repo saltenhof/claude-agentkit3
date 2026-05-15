@@ -109,10 +109,10 @@ class TestSemanticReviewer:
             "verify-semantic-attempt-001/rendered-manifest.json"
         )
         assert (
-            project_root / cast("str", audit["artifact_path"])
+            project_root / str(audit["artifact_path"])
         ).is_file()
         assert (
-            project_root / cast("str", audit["manifest_path"])
+            project_root / str(audit["manifest_path"])
         ).is_file()
 
     def test_evaluate_skips_when_flow_story_does_not_match_context(

@@ -225,7 +225,7 @@ class _FakeStoryContextRoutes(StoryContextRoutes):
     Avoids real service/repo construction; only verifies routing decisions.
     """
 
-    def __init__(self) -> None:  # type: ignore[override]
+    def __init__(self) -> None:
         # Intentionally skip StoryContextRoutes.__init__ to avoid DB access.
         self.get_calls: list[tuple[str, str]] = []
         self.patch_calls: list[tuple[str, object]] = []

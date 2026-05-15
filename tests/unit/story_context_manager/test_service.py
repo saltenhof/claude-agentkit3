@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import pytest
 
+from agentkit.project_management.entities import Project, ProjectConfiguration
 from agentkit.story_context_manager.errors import (
     ForbiddenError,
     ForbiddenFieldError,
@@ -39,9 +40,7 @@ class _InMemoryProjectRepository:
     """Minimal in-memory ProjectRepository for tests."""
 
     def __init__(self) -> None:
-        from agentkit.project_management.entities import Project, ProjectConfiguration
-
-        self._projects: dict[str, object] = {
+        self._projects: dict[str, Project] = {
             "ak3": Project(
                 key="ak3",
                 name="AgentKit 3",
@@ -54,16 +53,13 @@ class _InMemoryProjectRepository:
             ),
         }
 
-    def get(self, key: str) -> object | None:
+    def get(self, key: str) -> Project | None:
         return self._projects.get(key)
 
-    def list(self, *, include_archived: bool = False) -> list[object]:
+    def list(self, *, include_archived: bool = False) -> list[Project]:
         return list(self._projects.values())
 
-    def save(self, project: object) -> None:
-        from agentkit.project_management.entities import Project
-
-        assert isinstance(project, Project)
+    def save(self, project: Project) -> None:
         self._projects[project.key] = project
 
 
@@ -556,6 +552,10 @@ def test_get_story_fields_not_found_raises() -> None:
 
 
 def test_get_story_detail_returns_story_and_spec() -> None:
+    """create_story must persist a default StorySpecification (Befund 2).
+
+    story.md §2.1.3 AC5: spec is never None after creation.
+    """
     svc = _make_service()
     story = _create_story(svc, op_id="op-create")
 
@@ -564,4 +564,5 @@ def test_get_story_detail_returns_story_and_spec() -> None:
     assert result is not None
     story_out, spec = result
     assert story_out.story_display_id == story.story_display_id
-    assert spec is None  # no spec saved
+    # Befund 2: spec must be present (default created by create_story)
+    assert spec is not None

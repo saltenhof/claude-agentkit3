@@ -25,13 +25,13 @@ _VALID = [
     (StoryStatus.IN_PROGRESS, StoryStatus.DONE),       # complete_story (pipeline)
 ]
 
-# All invalid (from, to) pairs that must raise:
+# All invalid (from, to) pairs that must raise (including same-status):
 _ALL_STATUSES = list(StoryStatus)
 _INVALID = [
     (f, t)
     for f in _ALL_STATUSES
     for t in _ALL_STATUSES
-    if f is not t and (f, t) not in _VALID
+    if (f, t) not in _VALID  # same-status is also invalid (no idempotent bypass)
 ]
 
 
@@ -52,10 +52,15 @@ def test_invalid_transitions_raise(
         _check_transition(from_status, to_status)
 
 
-def test_same_status_transition_is_idempotent() -> None:
-    """Repeating the same status does not raise."""
+def test_same_status_transition_is_rejected() -> None:
+    """Same-status transitions must raise InvalidStatusTransitionError.
+
+    Idempotent replay runs through the Idempotency-Layer (op_id),
+    NOT through the status transition guard (Befund 4).
+    """
     for status in StoryStatus:
-        _check_transition(status, status)  # no exception
+        with pytest.raises(InvalidStatusTransitionError):
+            _check_transition(status, status)
 
 
 def test_in_progress_to_cancelled_has_informative_message() -> None:
@@ -65,21 +70,17 @@ def test_in_progress_to_cancelled_has_informative_message() -> None:
 
 
 def test_done_is_terminal_no_further_transitions() -> None:
-    """Done -> anything must raise."""
+    """Done -> anything (including Done itself) must raise."""
     terminal = StoryStatus.DONE
     for target in _ALL_STATUSES:
-        if target is terminal:
-            continue  # same-status is allowed
         with pytest.raises(InvalidStatusTransitionError):
             _check_transition(terminal, target)
 
 
 def test_cancelled_is_terminal_no_further_transitions() -> None:
-    """Cancelled -> anything must raise."""
+    """Cancelled -> anything (including Cancelled itself) must raise."""
     terminal = StoryStatus.CANCELLED
     for target in _ALL_STATUSES:
-        if target is terminal:
-            continue
         with pytest.raises(InvalidStatusTransitionError):
             _check_transition(terminal, target)
 
