@@ -1,9 +1,10 @@
 story_id: AG3-017
 title: "Harness-Hook-Wrapper-CLI: agentkit-hook-claude / agentkit-hook-codex"
 type: implementation
-status: in_progress
-phase: setup
+status: completed
+phase: closure
 created: "2026-05-05"
+completed_at: "2026-05-15T00:00:00Z"
 size: M
 depends_on: []
 unblocks: []
