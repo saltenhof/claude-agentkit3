@@ -40,10 +40,7 @@ from agentkit.story_context_manager.errors import (
     StoryProjectNotFoundError,
     StoryValidationError,
 )
-from agentkit.story_context_manager.idempotency import (
-    IdempotencyKeyStore,
-    InMemoryIdempotencyKeyRepository,
-)
+from agentkit.story_context_manager.idempotency import IdempotencyKeyStore
 from agentkit.story_context_manager.story_model import (
     ChangeImpact,
     ConceptQuality,
@@ -54,10 +51,6 @@ from agentkit.story_context_manager.story_model import (
     WireStoryMode,
     WireStorySize,
     WireStoryType,
-)
-from agentkit.story_context_manager.story_repository import (
-    InMemoryStoryRepository,
-    StoryRepository,
 )
 from agentkit.story_context_manager.wire_adapter import (
     FORBIDDEN_PATCH_FIELDS,
@@ -72,6 +65,7 @@ if TYPE_CHECKING:
 
     from agentkit.project_management.repository import ProjectRepository
     from agentkit.story_context_manager.idempotency import IdempotencyKeyRepository
+    from agentkit.story_context_manager.story_repository import StoryRepository
 
 
 # ---------------------------------------------------------------------------
@@ -160,9 +154,15 @@ class StoryService:
         event_emitter: Callable[[str, str, dict[str, object]], None] | None = None,
     ) -> None:
         if story_repository is None:
-            story_repository = InMemoryStoryRepository()
+            from agentkit.state_backend.store.story_repository import (
+                StateBackendStoryRepository,
+            )
+            story_repository = StateBackendStoryRepository()
         if idempotency_repository is None:
-            idempotency_repository = InMemoryIdempotencyKeyRepository()
+            from agentkit.state_backend.store.story_repository import (
+                StateBackendIdempotencyKeyRepository,
+            )
+            idempotency_repository = StateBackendIdempotencyKeyRepository()
         if project_repository is None:
             from agentkit.state_backend.store.project_management_repository import (
                 StateBackendProjectRepository,
@@ -172,7 +172,7 @@ class StoryService:
         self._story_repo: StoryRepository = story_repository
         self._project_repo: ProjectRepository = project_repository
         self._idempotency = IdempotencyKeyStore(idempotency_repository)
-        self._emit = event_emitter or _null_emitter
+        self._emit = event_emitter if event_emitter is not None else _logging_emitter
 
     # ------------------------------------------------------------------
     # Read operations
@@ -360,18 +360,12 @@ class StoryService:
         if allowed_repos:
             validate_repos_against_project(repos, allowed_repos)
 
-        # -- 5. Allocate story_number atomically --
-        story_number = self._story_repo.allocate_next_story_number(project_key)
-
-        # -- 6. Materialize display ID --
-        story_display_id = f"{project.story_id_prefix}-{story_number}"
-
-        # -- 7. Build Story --
+        # -- 5-7. Build Story (story_number is a placeholder; overwritten atomically) --
         now = datetime.now(UTC)
         story = Story(
             project_key=project_key,
-            story_number=story_number,
-            story_display_id=story_display_id,
+            story_number=1,         # placeholder (ge=1); patched by create_story_atomic
+            story_display_id="",    # placeholder; patched by create_story_atomic
             title=title,
             story_type=story_type,
             status=StoryStatus.BACKLOG,
@@ -387,15 +381,22 @@ class StoryService:
             labels=list(labels or []),
             created_at=now,
         )
-
-        # -- 8. Persist Story + default Specification (story.md §2.1.3 AC5) --
-        self._story_repo.save(story)
         default_spec = StorySpecification(
             need=None,
             solution=None,
             acceptance=[],
         )
-        self._story_repo.save_specification(story.story_uuid, default_spec)
+
+        # -- 8. Persist Story + Specification atomically (Befund 6) --
+        # create_story_atomic allocates story_number, patches story in-place,
+        # and persists story + spec in a single DB transaction.
+        self._story_repo.create_story_atomic(
+            story,
+            default_spec,
+            story_id_prefix=project.story_id_prefix,
+        )
+
+        story_display_id = story.story_display_id
 
         # -- 9. Persist idempotency (full internal snapshot, Befund 5) --
         wire_summary = story_to_wire_summary(story)
@@ -812,8 +813,37 @@ def _null_emitter(
     story_display_id: str,
     wire_summary: dict[str, object],
 ) -> None:
-    """No-op event emitter (test-only; default HTTP service uses real emitter)."""
+    """No-op event emitter. Use only in isolated unit tests that do not test events."""
     _ = project_key, story_display_id, wire_summary
+
+
+_story_lifecycle_logger = __import__("logging").getLogger(
+    "agentkit.story_context_manager.story_lifecycle"
+)
+
+
+def _logging_emitter(
+    project_key: str,
+    story_display_id: str,
+    wire_summary: dict[str, object],
+) -> None:
+    """Default story_upserted emitter that logs the mutation.
+
+    Records a structured INFO log entry for every story mutation.
+    This is the default for production HTTP paths until a dedicated
+    SSE/telemetry story_upserted projection is wired (FK-91 §91.8).
+
+    Args:
+        project_key: Project the story belongs to.
+        story_display_id: Story display ID (e.g. ``"AK3-042"``).
+        wire_summary: Wire-format story summary dict.
+    """
+    _story_lifecycle_logger.info(
+        "story_upserted project=%s story_id=%s status=%s",
+        project_key,
+        story_display_id,
+        wire_summary.get("status", "?"),
+    )
 
 
 def _story_to_internal_snapshot(story: Story) -> dict[str, object]:

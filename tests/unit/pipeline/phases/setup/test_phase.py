@@ -98,6 +98,18 @@ def _make_worktree_result(tmp_path: Path, story_id: str = "AG3-001") -> Worktree
 
 
 # ---------------------------------------------------------------------------
+# Helpers (continued)
+# ---------------------------------------------------------------------------
+
+
+class _NoOpStoryService:
+    """Minimal no-op stub for SetupPhaseHandler tests that don't test begin_progress."""
+
+    def begin_progress(self, story_id: str, *, correlation_id: str = "") -> object:
+        return object()
+
+
+# ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
 
@@ -116,6 +128,7 @@ class TestSetupPhaseHandlerWorktree:
             project_root=tmp_path,
             story_id="AG3-001",
             create_worktree=True,
+            story_service=_NoOpStoryService(),  # type: ignore[arg-type]
         )
         handler = SetupPhaseHandler(cfg)
         ctx = _make_story_context(project_root=tmp_path)
@@ -161,6 +174,7 @@ class TestSetupPhaseHandlerWorktree:
             project_root=tmp_path,
             story_id="AG3-002",
             create_worktree=True,
+            story_service=_NoOpStoryService(),  # type: ignore[arg-type]
         )
         handler = SetupPhaseHandler(cfg)
         ctx = _make_story_context(
@@ -363,9 +377,20 @@ class TestSetupPhaseBeginProgress:
         assert result.status == PhaseStatus.COMPLETED
         assert calls == ["AG3-001"]
 
-    def test_begin_progress_not_called_when_no_service(self, tmp_path: Path) -> None:
-        """begin_progress is not called when story_service is None."""
+    def test_begin_progress_called_via_default_service_when_none(
+        self, tmp_path: Path
+    ) -> None:
+        """When story_service is None, a default StoryService is constructed and used.
+
+        Befund 9: story_service=None must NOT silently skip begin_progress.
+        A default StoryService is constructed so begin_progress is always called.
+        """
         calls: list[str] = []
+
+        class _TrackingService:
+            def begin_progress(self, story_id: str, *, correlation_id: str = "") -> object:
+                calls.append(story_id)
+                return object()
 
         cfg = SetupConfig(
             owner="owner",
@@ -381,6 +406,7 @@ class TestSetupPhaseBeginProgress:
         state = _make_phase_state()
         enriched = _make_story_context(project_root=tmp_path)
 
+        tracking_svc = _TrackingService()
         with (
             patch(
                 "agentkit.pipeline.phases.setup.phase.run_preflight",
@@ -390,11 +416,18 @@ class TestSetupPhaseBeginProgress:
                 "agentkit.pipeline.phases.setup.phase.build_story_context",
                 return_value=enriched,
             ),
+            # Patch StoryService at its source so the default construction
+            # inside on_enter returns our tracking service (Befund 9).
+            patch(
+                "agentkit.story_context_manager.service.StoryService",
+                return_value=tracking_svc,
+            ),
         ):
             result = handler.on_enter(ctx, state)
 
         assert result.status == PhaseStatus.COMPLETED
-        assert calls == []
+        # begin_progress must be called even when story_service=None (Befund 9)
+        assert calls == ["AG3-001"]
 
     def test_begin_progress_failure_returns_failed(self, tmp_path: Path) -> None:
         """on_enter returns FAILED when begin_progress raises."""

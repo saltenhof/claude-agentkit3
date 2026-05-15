@@ -106,14 +106,22 @@ class SetupPhaseHandler:
         _ = state
         cfg = self._config
 
+        # Resolve story_service: use injected or construct with real defaults (Befund 9)
+        story_service = cfg.story_service
+        if story_service is None:
+            from agentkit.story_context_manager.service import StoryService as _StoryService
+            story_service = _StoryService()
+
         # 1. Preflight
         story_display_id = cfg.story_id or ctx.story_id
-        if cfg.story_service is not None:
-            preflight = run_preflight(story_display_id, cfg.story_service)
-        else:
-            # Legacy / standalone mode: construct a service with defaults
-            from agentkit.story_context_manager.service import StoryService as _StoryService
-            preflight = run_preflight(story_display_id, _StoryService())
+        from agentkit.state_backend.store.story_dependency_repository import (
+            StateBackendStoryDependencyRepository,
+        )
+        preflight = run_preflight(
+            story_display_id,
+            story_service,
+            dependency_repository=StateBackendStoryDependencyRepository(),
+        )
         if not preflight.passed:
             error_msgs = tuple(c.message for c in preflight.checks if not c.passed)
             return HandlerResult(
@@ -189,14 +197,13 @@ class SetupPhaseHandler:
             )
 
         # 5. Transition story to In Progress (FK-22 §22.4.3)
-        if cfg.story_service is not None:
-            try:
-                cfg.story_service.begin_progress(enriched.story_id)
-            except Exception as bp_err:  # noqa: BLE001
-                return HandlerResult(
-                    status=PhaseStatus.FAILED,
-                    errors=(f"begin_progress failed: {bp_err}",),
-                )
+        try:
+            story_service.begin_progress(enriched.story_id)
+        except Exception as bp_err:  # noqa: BLE001
+            return HandlerResult(
+                status=PhaseStatus.FAILED,
+                errors=(f"begin_progress failed: {bp_err}",),
+            )
 
         # 6. Return COMPLETED
         return HandlerResult(

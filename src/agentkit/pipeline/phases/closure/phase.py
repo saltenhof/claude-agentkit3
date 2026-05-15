@@ -213,14 +213,18 @@ class ClosurePhaseHandler:
         )
 
         # 4. Transition story to Done (completion_only_after_closure invariant)
-        if cfg.story_service is not None:
-            try:
-                cfg.story_service.complete_story(ctx.story_id)
-            except Exception as cs_err:  # noqa: BLE001
-                return HandlerResult(
-                    status=PhaseStatus.FAILED,
-                    errors=(f"complete_story failed: {cs_err}",),
-                )
+        # Construct a default StoryService when none injected (Befund 9)
+        story_service = cfg.story_service
+        if story_service is None:
+            from agentkit.story_context_manager.service import StoryService as _StoryService
+            story_service = _StoryService()
+        try:
+            story_service.complete_story(ctx.story_id)
+        except Exception as cs_err:  # noqa: BLE001
+            return HandlerResult(
+                status=PhaseStatus.FAILED,
+                errors=(f"complete_story failed: {cs_err}",),
+            )
 
         # 5. Return COMPLETED
         return HandlerResult(

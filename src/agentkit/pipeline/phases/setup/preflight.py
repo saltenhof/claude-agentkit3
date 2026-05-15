@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from agentkit.execution_planning.repository import StoryDependencyRepository
     from agentkit.story_context_manager.service import StoryService
     from agentkit.story_context_manager.story_model import Story
 
@@ -49,6 +50,8 @@ class PreflightResult:
 def run_preflight(
     story_display_id: str,
     service: StoryService,
+    *,
+    dependency_repository: StoryDependencyRepository | None = None,
 ) -> PreflightResult:
     """Run all preflight checks against a StoryService.
 
@@ -56,11 +59,18 @@ def run_preflight(
         1. **story_exists** -- ``StoryService.get_story`` returns a Story.
         2. **status_approved** -- story status is ``StoryStatus.APPROVED``.
         3. **dependencies_closed** -- all dependency story_display_ids
-           have ``StoryStatus.DONE``.
+           have ``StoryStatus.DONE``. Dependencies are loaded from
+           ``dependency_repository.list_for_story`` when provided, or
+           fall back to ``story.dependencies`` (which may be empty if
+           the Story was loaded without the join).
 
     Args:
         story_display_id: Story display ID to validate (e.g. ``"AK3-042"``).
         service: Authoritative StoryService instance.
+        dependency_repository: Optional StoryDependencyRepository. When
+            provided, dependency IDs are loaded from the repository
+            (authoritative source). When ``None``, falls back to
+            ``story.dependencies`` (legacy / in-memory path).
 
     Returns:
         A ``PreflightResult`` containing all check outcomes.
@@ -106,8 +116,17 @@ def run_preflight(
 
     # --- Check 3: dependencies_closed ---
     if story is not None:
+        # Load dependency IDs from authoritative repository if available (Befund 8)
+        if dependency_repository is not None:
+            dep_edges = dependency_repository.list_for_story(story_display_id)
+            dep_ids = [edge.depends_on_story_id for edge in dep_edges]
+        else:
+            # Legacy fallback: story.dependencies (may be [] for DB-loaded stories
+            # that don't have the join populated)
+            dep_ids = list(story.dependencies)
+
         open_deps: list[str] = []
-        for dep_id in story.dependencies:
+        for dep_id in dep_ids:
             dep = service.get_story(dep_id)
             if dep is None or dep.status is not StoryStatus.DONE:
                 dep_status = dep.status.value if dep is not None else "missing"
@@ -117,12 +136,10 @@ def run_preflight(
             checks.append(PreflightCheck(
                 name="dependencies_closed",
                 passed=False,
-                message=(
-                    f"Open dependencies: {', '.join(open_deps)}"
-                ),
+                message=f"Open dependencies: {', '.join(open_deps)}",
             ))
         else:
-            dep_count = len(story.dependencies)
+            dep_count = len(dep_ids)
             checks.append(PreflightCheck(
                 name="dependencies_closed",
                 passed=True,

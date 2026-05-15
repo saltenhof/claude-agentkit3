@@ -53,6 +53,13 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
+class _NoOpStoryService:
+    """Minimal no-op stub for ClosurePhaseHandler tests that don't test complete_story."""
+
+    def complete_story(self, story_id: str, *, correlation_id: str = "") -> object:
+        return object()
+
+
 @pytest.fixture(autouse=True)
 def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     from agentkit.state_backend.store import reset_backend_cache_for_tests
@@ -203,7 +210,7 @@ class TestClosurePhaseHandler:
         _save_flow(s_dir)
         _append_agent_start_event(s_dir)
 
-        config = ClosureConfig(story_dir=s_dir, close_issue=False)
+        config = ClosureConfig(story_dir=s_dir, close_issue=False, story_service=_NoOpStoryService())  # type: ignore[arg-type]
         handler = ClosurePhaseHandler(config)
         ctx = _make_ctx(project_root=tmp_path)
         state = _make_state()
@@ -224,7 +231,7 @@ class TestClosurePhaseHandler:
         _save_snapshot(s_dir, "setup")
         _save_snapshot(s_dir, "implementation")
 
-        config = ClosureConfig(story_dir=s_dir, close_issue=False)
+        config = ClosureConfig(story_dir=s_dir, close_issue=False, story_service=_NoOpStoryService())  # type: ignore[arg-type]
         handler = ClosurePhaseHandler(config)
         ctx = _make_ctx(project_root=tmp_path)
         state = _make_state()
@@ -246,7 +253,7 @@ class TestClosurePhaseHandler:
         _append_agent_start_event(s_dir)
         _append_increment_event(s_dir)
 
-        config = ClosureConfig(story_dir=s_dir, close_issue=False)
+        config = ClosureConfig(story_dir=s_dir, close_issue=False, story_service=_NoOpStoryService())  # type: ignore[arg-type]
         handler = ClosurePhaseHandler(config)
         ctx = _make_ctx(project_root=tmp_path)
         state = _make_state()
@@ -280,7 +287,7 @@ class TestClosurePhaseHandler:
         _append_agent_start_event(s_dir)
 
         # No owner/repo/issue_nr
-        config = ClosureConfig(story_dir=s_dir)
+        config = ClosureConfig(story_dir=s_dir, story_service=_NoOpStoryService())  # type: ignore[arg-type]
         handler = ClosurePhaseHandler(config)
         ctx = _make_ctx(project_root=tmp_path)
         state = _make_state()
@@ -315,6 +322,7 @@ class TestClosurePhaseHandler:
             issue_nr=99999,
             close_issue=True,
             story_dir=s_dir,
+            story_service=_NoOpStoryService(),  # type: ignore[arg-type]
         )
 
         # Monkeypatch close_issue to raise IntegrationError
@@ -375,7 +383,7 @@ class TestClosurePhaseHandler:
         _save_flow(s_dir, story_id="TEST-101")
         _append_agent_start_event(s_dir, story_id="TEST-101")
 
-        config = ClosureConfig(story_dir=s_dir, close_issue=False)
+        config = ClosureConfig(story_dir=s_dir, close_issue=False, story_service=_NoOpStoryService())  # type: ignore[arg-type]
         handler = ClosurePhaseHandler(config)
         ctx = _make_ctx(
             story_id="TEST-101",
@@ -428,7 +436,7 @@ class TestClosurePhaseHandler:
         )
         save_phase_snapshot(s_dir, failed_snapshot)
 
-        config = ClosureConfig(story_dir=s_dir, close_issue=False)
+        config = ClosureConfig(story_dir=s_dir, close_issue=False, story_service=_NoOpStoryService())  # type: ignore[arg-type]
         handler = ClosurePhaseHandler(config)
         ctx = _make_ctx(story_id="TEST-102", project_root=tmp_path)
         state = _make_state(story_id="TEST-102")
@@ -468,7 +476,7 @@ class TestClosurePhaseHandler:
         )
         save_phase_snapshot(s_dir, escalated_snapshot)
 
-        config = ClosureConfig(story_dir=s_dir, close_issue=False)
+        config = ClosureConfig(story_dir=s_dir, close_issue=False, story_service=_NoOpStoryService())  # type: ignore[arg-type]
         handler = ClosurePhaseHandler(config)
         ctx = _make_ctx(story_id="TEST-103", project_root=tmp_path)
         state = _make_state(story_id="TEST-103")
@@ -490,7 +498,7 @@ class TestClosurePhaseHandler:
         _append_agent_start_event(s_dir, story_id="TEST-104")
         ctx = _make_ctx(story_id="TEST-104", project_root=tmp_path)
         state = _make_state(story_id="TEST-104")
-        handler = ClosurePhaseHandler(ClosureConfig(story_dir=s_dir, close_issue=False))
+        handler = ClosurePhaseHandler(ClosureConfig(story_dir=s_dir, close_issue=False, story_service=_NoOpStoryService()))  # type: ignore[arg-type]
         save_story_context(s_dir, ctx)
 
         append_execution_event(
@@ -540,7 +548,7 @@ class TestClosurePhaseHandler:
         for phase in ("setup", "exploration", "implementation"):
             _save_snapshot(s_dir, phase, story_id="TEST-105")
 
-        handler = ClosurePhaseHandler(ClosureConfig(story_dir=s_dir, close_issue=False))
+        handler = ClosurePhaseHandler(ClosureConfig(story_dir=s_dir, close_issue=False, story_service=_NoOpStoryService()))  # type: ignore[arg-type]
         ctx = _make_ctx(story_id="TEST-105", project_root=tmp_path)
         state = _make_state(story_id="TEST-105")
 
@@ -572,7 +580,7 @@ class TestClosurePhaseHandler:
             occurred_at=datetime(2026, 1, 1, 9, 45, 0, tzinfo=UTC),
         )
 
-        handler = ClosurePhaseHandler(ClosureConfig(story_dir=s_dir, close_issue=False))
+        handler = ClosurePhaseHandler(ClosureConfig(story_dir=s_dir, close_issue=False, story_service=_NoOpStoryService()))  # type: ignore[arg-type]
         ctx = _make_ctx(story_id="TEST-106", project_root=tmp_path)
         state = _make_state(story_id="TEST-106")
 
@@ -590,7 +598,7 @@ class TestClosurePhaseHandler:
             _save_snapshot(s_dir, phase, story_id="TEST-107")
         _save_flow(s_dir, story_id="TEST-107")
 
-        handler = ClosurePhaseHandler(ClosureConfig(story_dir=s_dir, close_issue=False))
+        handler = ClosurePhaseHandler(ClosureConfig(story_dir=s_dir, close_issue=False, story_service=_NoOpStoryService()))  # type: ignore[arg-type]
         ctx = _make_ctx(story_id="TEST-107", project_root=tmp_path)
         state = _make_state(story_id="TEST-107")
 

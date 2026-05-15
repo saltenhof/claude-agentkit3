@@ -75,6 +75,28 @@ class StoryRepository(Protocol):
         """Persist (insert or update) one StorySpecification."""
         ...
 
+    def create_story_atomic(
+        self,
+        story: Story,
+        spec: StorySpecification,
+        *,
+        story_id_prefix: str,
+    ) -> None:
+        """Atomically allocate a story number and persist story + spec.
+
+        Implementations MUST allocate the story_number, set
+        ``story.story_number`` and ``story.story_display_id`` on the
+        caller's Story object, then persist Story + StorySpecification
+        within a single database transaction.
+
+        Args:
+            story: The Story entity (story_number/story_display_id are
+                mutated in-place).
+            spec: The default StorySpecification to persist.
+            story_id_prefix: Project story-ID prefix (e.g. ``"AK3"``).
+        """
+        ...
+
 
 # ---------------------------------------------------------------------------
 # In-memory implementation (for unit tests — NOT a mock)
@@ -141,3 +163,18 @@ class InMemoryStoryRepository:
         spec: StorySpecification,
     ) -> None:
         self._specs[story_uuid] = spec
+
+    def create_story_atomic(
+        self,
+        story: Story,
+        spec: StorySpecification,
+        *,
+        story_id_prefix: str,
+    ) -> None:
+        """Allocate story_number, patch story in-place, and save story + spec."""
+        next_n = self._next_numbers.get(story.project_key, 1)
+        self._next_numbers[story.project_key] = next_n + 1
+        story.story_number = next_n
+        story.story_display_id = f"{story_id_prefix}-{next_n}"
+        self.save(story)
+        self.save_specification(story.story_uuid, spec)
