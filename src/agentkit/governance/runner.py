@@ -180,16 +180,79 @@ def run_hook(
     phase: str = "pre",
     project_root: Path | None = None,
 ) -> HookDecision:
-    """Run a named governance hook, fail-closed on unknown selectors."""
+    """Run a named governance hook, fail-closed on unknown selectors.
+
+    For ``phase="pre"`` and ``hook_id="ccag_gatekeeper"``, delegates to
+    :class:`~agentkit.governance.ccag.runtime.CcagPermissionRuntime` which
+    implements FK-42 §42.1.  All other pre-hooks are dispatched to the
+    general :func:`~agentkit.governance.guard_evaluation.evaluate_pre_tool_use`
+    guard evaluation chain.
+
+    Args:
+        hook_id: The registered hook identifier (see PRE_HOOK_IDS / POST_HOOK_IDS).
+        event: Harness-neutral hook event.
+        phase: ``"pre"`` or ``"post"``.
+        project_root: Project root for guard context resolution.
+
+    Returns:
+        A :class:`~agentkit.governance.protocols.GuardVerdict`.
+    """
     invalid = validate_hook_selector(phase=phase, hook_id=hook_id)
     if invalid is not None:
         return invalid
     if phase == "post":
         return GuardVerdict.allow(hook_id)
 
+    # CCAG is the last PreToolUse hook — dispatched separately (FK-42 §42.5.2)
+    if hook_id == "ccag_gatekeeper":
+        return _run_ccag_hook(event)
+
     from agentkit.governance.guard_evaluation import evaluate_pre_tool_use
 
     return evaluate_pre_tool_use(event, project_root=project_root or Path.cwd())
+
+
+def _run_ccag_hook(event: HookEvent) -> HookDecision:
+    """Dispatch to CcagPermissionRuntime and translate decision to GuardVerdict.
+
+    The CCAG runtime returns a :class:`~agentkit.governance.ccag.runtime.CcagDecision`
+    which we map to the :class:`~agentkit.governance.protocols.GuardVerdict`
+    type used by the hook chain.
+
+    Translation:
+        ``allow``              → ``GuardVerdict.allow("ccag_gatekeeper")``
+        ``unknown_permission`` → ``GuardVerdict.allow("ccag_gatekeeper")``
+            (unknown → adapter decides; in story_execution the request is
+             persisted and the CLI exits 2 via the standalone path)
+        ``block_by_rule``      → ``GuardVerdict.block("ccag_gatekeeper", ...)``
+
+    Args:
+        event: Harness-neutral hook event.
+
+    Returns:
+        A :class:`~agentkit.governance.protocols.GuardVerdict`.
+    """
+    from agentkit.governance.ccag.runtime import CcagDecisionKind, CcagPermissionRuntime
+
+    runtime = CcagPermissionRuntime()
+    decision = runtime.evaluate(event)
+
+    if decision.kind == CcagDecisionKind.BLOCK_BY_RULE:
+        return GuardVerdict.block(
+            "ccag_gatekeeper",
+            ViolationType.UNAUTHORIZED_OPERATION,
+            decision.reason or "Blocked by CCAG deny rule",
+            detail={
+                "ccag_decision": decision.kind.value,
+                "matched_rule_id": decision.matched_rule_id,
+            },
+        )
+
+    # allow or unknown_permission → allow at the GuardVerdict level
+    # For unknown_permission in story_execution, the PermissionRequest was
+    # already created by CcagPermissionRuntime._handle_unknown(); the CLI
+    # entry points can inspect the decision.kind for exit code decisions.
+    return GuardVerdict.allow("ccag_gatekeeper")
 
 
 def _hook_ids_for_phase(phase: str) -> frozenset[str]:
