@@ -61,9 +61,13 @@ events:
   - id: frontend-contracts.event.story_deleted
     topic: stories
     description: >
-      Eine Story wurde aus der projekt-skopierten Liste entfernt.
-      Tritt nur in Reset-/Split-Folgen auf, nicht durch normales
-      `cancel`.
+      Eine Story wurde aus der projekt-skopierten Liste hart
+      entfernt. Selten — der Normalpfad ist, dass abgeschlossene,
+      abgebrochene oder zurueckgesetzte Stories sichtbar bleiben und
+      ihren Status fuehren. Hard-Delete tritt nur in offiziellen
+      Admin-Pfaden (z. B. nicht-rueckholbarer Story-Split, bei dem
+      die Original-Story aufgeloest und durch Nachfolger ersetzt
+      wird, oder explizite administrative Bereinigung).
     producer:
       bc: telemetry
       source_bc: story-lifecycle
@@ -77,7 +81,23 @@ events:
       - name: reason
         kind: enum
         required: true
-        values: [reset, split]
+        values:
+          - split_dissolved
+          - admin_purge
+        notes:
+          - >
+            `split_dissolved`: Story wurde im Story-Split (FK-54)
+            aufgeloest; Nachfolger werden als separate
+            `story_upserted`-Events publiziert.
+          - >
+            `admin_purge`: Story durch offiziellen Admin-Pfad
+            entfernt (selten).
+          - >
+            **Nicht** in diesem Enum: `reset` (FK-53) — Reset
+            entfernt die Story nicht, sondern fuehrt zu
+            `story_upserted` mit neuem Status und Run-ID.
+            `cancel` (Frontend-Aktion) — fuehrt zu `story_upserted`
+            mit Status `Cancelled`.
 
   # ---- Topic: phases -------------------------------------------------
 

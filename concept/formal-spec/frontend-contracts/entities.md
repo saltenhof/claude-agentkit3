@@ -194,13 +194,22 @@ entities:
         notes:
           - >
             Die Repos, an denen die Story arbeitet. Mindestens ein
-            Eintrag. Reihenfolge ist semantisch ohne Bedeutung;
-            insbesondere existiert auf der Wire-Sicht kein
-            ausgezeichneter "Primary". Die Implementierung des
-            Backends darf intern eine Reihenfolge oder Default-
-            Worktree-Bindung fuehren (FK-22 Multi-Repo-Worktrees);
-            das ist Implementierungsdetail und nicht Teil dieses
-            Vertrags.
+            Eintrag. Fachlich existiert kein ausgezeichneter
+            "Primary"-Repo; die Liste ist die volle Repo-Bindung.
+          - >
+            Die Reihenfolge der Liste ist **fachlich** ohne
+            Bedeutung, **anzeigeseitig** stabil. Das Frontend leitet
+            seine Sheet-Spalten "Primary Repo" und "Participating
+            Repos" als UI-Konvention aus `repos[0]` und
+            `repos[1..]` ab; dasselbe gilt fuer Single-Line-
+            Anzeigen. Damit bleiben Inspector-Spec ("Repo") und
+            Sheet konsistent, ohne dass das Backend zwei Felder
+            fuehrt.
+          - >
+            Die Implementierung des Backends darf intern eine
+            Reihenfolge oder Default-Worktree-Bindung fuehren
+            (FK-22 Multi-Repo-Worktrees); das ist
+            Implementierungsdetail und nicht Teil dieses Vertrags.
       - name: change_impact
         kind: enum
         required: true
@@ -572,7 +581,33 @@ entities:
       - name: state
         kind: enum
         required: true
-        values: [done, active, pending, skipped, optional-pending, optional-skipped]
+        values:
+          - done
+          - active
+          - pending
+          - skipped
+          - optional-pending
+          - optional-skipped
+          - failed
+          - escalated
+          - paused
+        notes:
+          - >
+            `failed`/`escalated`/`paused` projizieren die jeweiligen
+            Phase-State-Status (FK-91 §91.5) auf die Wire-Sicht. Nur
+            eine dieser drei Werte ist gesetzt, wenn die Phase
+            entsprechend angehalten ist; die Phase ist dann nicht
+            mehr `active`.
+      - name: state_reason
+        kind: string
+        required: false
+        notes:
+          - >
+            Frei formatierter Hinweis, der bei `failed`/`escalated`/
+            `paused` den naechsten Schritt fuer den Strategen erklaert
+            (z. B. "Worker eskaliert nach 3 Remediation-Loops" oder
+            "Manueller Override notwendig"). UI rendert das als
+            Hinweistext unter der Phase.
       - name: iteration
         kind: integer
         required: false
@@ -598,7 +633,22 @@ entities:
       - name: state
         kind: enum
         required: true
-        values: [done, active, pending, skipped, optional-pending, optional-skipped]
+        values:
+          - done
+          - active
+          - pending
+          - skipped
+          - optional-pending
+          - optional-skipped
+          - failed
+          - escalated
+          - paused
+        notes:
+          - >
+            Die nicht-aktive Halte-Zustaende `failed`/`escalated`/
+            `paused` koennen sich am Substep zeigen, an dem die Phase
+            steht. Die umgebende Phase erbt denselben Zustand
+            (siehe `story_flow_phase.state`).
       - name: optional
         kind: bool
         required: true

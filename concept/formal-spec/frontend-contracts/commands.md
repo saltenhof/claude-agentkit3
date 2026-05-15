@@ -21,6 +21,37 @@ verweist auf den Owner-BC, der das fachliche Verhalten besitzt.
 Read-Operationen sind hier **nicht** als Commands gefuehrt; sie
 laufen ueber `GET` auf die in `entities.md` modellierten Read-Models.
 
+## Fehler-Vertrag
+
+Jeder Command kann fehlschlagen. Die Antwort folgt dem Fehler-Vertrag
+aus FK-91 §91.1a Regel 8 (`error_code`, `error`, `correlation_id`,
+optional strukturiertes `detail`). Jedes Kommando unten listet in
+`error_codes` die fachlichen Fehlerklassen, die das Frontend
+behandeln muss; jede Klasse traegt einen `http_status`-Hint. Ein
+nicht gelisteter `error_code` ist ein Backend-Bug, kein
+Konsumenten-Pfad.
+
+UI-Verhalten bei Fehler:
+
+- **`validation_failed`** (400): Frontend zeigt die fehlerhaften
+  Felder im Formular/Sheet inline an, das Optimistic-Update wird
+  revertiert.
+- **`story_not_found`** (404): Frontend invalidiert die lokale
+  Story-Kopie, zeigt einen "Story wurde entfernt"-Hinweis und
+  schliesst Inspector, falls die betroffene Story selected war.
+- **`invalid_transition`** (422): Frontend zeigt einen
+  Klartext-Hinweis (z. B. "Eine laufende Story kann nicht direkt
+  abgebrochen werden"), revertiert das Optimistic-Update.
+- **`idempotency_mismatch`** (409): Das gleiche `op_id` wurde mit
+  abweichendem Payload zweimal genutzt — Frontend-Bug. UI zeigt
+  einen generischen Fehler.
+- **`conflict`** (409): Generischer Concurrency-Conflict (siehe
+  pro-Command-Spalte).
+- **`forbidden`** (403): Projekt archiviert oder Auth-Scope fehlt.
+  Frontend deaktiviert mutierende UI-Elemente fuer dieses Projekt.
+- **`internal_error`** (500): Frontend zeigt einen Retry-Hinweis;
+  revertiert Optimistic-Update.
+
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
 object: formal.frontend-contracts.commands
@@ -87,6 +118,19 @@ commands:
     emits:
       - frontend-contracts.event.story_upserted
     owner_bc: story-lifecycle
+    error_codes:
+      - code: validation_failed
+        http_status: 400
+        reason: Pflichtfelder fehlen oder Enums ungueltig (title leer, type nicht im Enum, repos leer).
+      - code: forbidden
+        http_status: 403
+        reason: Projekt archiviert oder Auth-Scope fehlt.
+      - code: idempotency_mismatch
+        http_status: 409
+        reason: Gleiche op_id wurde mit abweichendem Body wiederverwendet.
+      - code: internal_error
+        http_status: 500
+        reason: Backend-Fehler; Retry mit derselben op_id erlaubt.
 
   # ---- Story-Stammdaten-Pflege --------------------------------------
 
@@ -168,6 +212,25 @@ commands:
     emits:
       - frontend-contracts.event.story_upserted
     owner_bc: story-lifecycle
+    error_codes:
+      - code: validation_failed
+        http_status: 400
+        reason: Felder enthalten ungueltige Werte (z. B. repos leer, size nicht im Enum).
+      - code: story_not_found
+        http_status: 404
+        reason: Story existiert nicht mehr; Frontend invalidiert die Karte.
+      - code: forbidden
+        http_status: 403
+        reason: Projekt archiviert oder Auth-Scope fehlt.
+      - code: forbidden_field
+        http_status: 422
+        reason: Verbotenes Feld im Body (status, created_at, completed_at).
+      - code: idempotency_mismatch
+        http_status: 409
+        reason: Gleiche op_id wurde mit abweichendem Body wiederverwendet.
+      - code: internal_error
+        http_status: 500
+        reason: Backend-Fehler; Retry mit derselben op_id erlaubt.
 
   # ---- Status-Transitionen ------------------------------------------
 
@@ -190,6 +253,18 @@ commands:
     emits:
       - frontend-contracts.event.story_upserted
     owner_bc: story-lifecycle
+    error_codes:
+      - code: story_not_found
+        http_status: 404
+      - code: invalid_transition
+        http_status: 422
+        reason: Story ist nicht in Backlog (z. B. bereits Approved, In Progress, Done, Cancelled).
+      - code: forbidden
+        http_status: 403
+      - code: idempotency_mismatch
+        http_status: 409
+      - code: internal_error
+        http_status: 500
 
   - id: frontend-contracts.command.reject_story
     description: >
@@ -210,6 +285,18 @@ commands:
     emits:
       - frontend-contracts.event.story_upserted
     owner_bc: story-lifecycle
+    error_codes:
+      - code: story_not_found
+        http_status: 404
+      - code: invalid_transition
+        http_status: 422
+        reason: Story ist nicht in Approved.
+      - code: forbidden
+        http_status: 403
+      - code: idempotency_mismatch
+        http_status: 409
+      - code: internal_error
+        http_status: 500
 
   - id: frontend-contracts.command.cancel_story
     description: >
@@ -239,6 +326,18 @@ commands:
     emits:
       - frontend-contracts.event.story_upserted
     owner_bc: story-lifecycle
+    error_codes:
+      - code: story_not_found
+        http_status: 404
+      - code: invalid_transition
+        http_status: 422
+        reason: Story ist In Progress oder Done; offizieller Pfad ist Story-Reset (FK-53) bzw. Story-Exit (FK-58).
+      - code: forbidden
+        http_status: 403
+      - code: idempotency_mismatch
+        http_status: 409
+      - code: internal_error
+        http_status: 500
     notes:
       - >
         `In Progress`-Cancel laeuft offiziell ueber Story-Reset
@@ -284,10 +383,29 @@ commands:
       - frontend-contracts.event.limits_changed
       - frontend-contracts.event.execution_input_changed
     owner_bc: execution-planning
+    concurrency: last_writer_wins
+    error_codes:
+      - code: validation_failed
+        http_status: 400
+        reason: Mindestens ein Cap negativ oder kein Integer.
+      - code: forbidden
+        http_status: 403
+        reason: Projekt archiviert oder Auth-Scope fehlt.
+      - code: idempotency_mismatch
+        http_status: 409
+      - code: internal_error
+        http_status: 500
     notes:
       - >
         Reale Implementierung darf Optimistic-Update am Frontend
         nutzen; der Vertrag verlangt aber den `PUT` als
         autoritativen Schritt.
+      - >
+        Concurrency-Modell ist `last_writer_wins`: paralleles `PUT`
+        zweier Strategen ueberschreibt sich. Der Vertrag fuehrt
+        bewusst kein ETag/Version. Hintergrund: das Stratege-Tool
+        bedient nur sehr wenige Nutzer, die Caps werden selten und
+        nicht von mehreren parallel veraendert. Beide Strategen
+        sehen das Endergebnis ueber `limits_changed`.
 ```
 <!-- FORMAL-SPEC:END -->

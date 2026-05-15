@@ -499,3 +499,96 @@ Stratege die Phasen-Leistung eines Agents bewerten koennen muss
 Schema: `frontend-contracts.entity.story_telemetry_summary`. Eine
 Frontend-Synthese aus rohen Totals (wie aktuell im Prototyp) ist
 mit dieser Lieferung nicht mehr notwendig und nicht mehr zulaessig.
+
+### 72.14.6 Edge-Cases und UI-Verhalten
+
+Diese Sektion deckt das UI-Verhalten an Vertragsgrenzen ab —
+Fehlerantworten, Race-Bedingungen, Empty-States. Die Pflicht-Regeln
+sind formal in `formal.frontend-contracts.invariants` festgelegt;
+hier die UI-Lesart.
+
+**Mutation fehlgeschlagen** (HTTP 4xx/5xx):
+
+- Optimistic-Update wird revertiert
+  (`frontend-contracts.invariant.optimistic_update_revert`).
+- Der Stratege bekommt eine kurze Fehler-Pille mit dem
+  `error_code` als Klartext (z. B. „Story-Status hat sich
+  zwischenzeitlich geaendert"). Stilles Schlucken ist
+  unzulaessig.
+- Spezialfall Kanban-Drop mit `invalid_transition`: die Karte
+  springt sichtbar auf die reale Spalte zurueck
+  (`frontend-contracts.invariant.kanban_drop_handles_backend_rejection`).
+- Spezialfall Sheet-Inline-Edit mit `validation_failed`: die
+  Cell behaelt den Draft-Stand sichtbar und markiert das Feld
+  rot, bis der Stratege korrigiert oder verwirft.
+
+**Story verschwindet** (`story_deleted` oder 404 auf Detail-GET):
+
+- Wenn die Story im Inspector selected war: Inspector schliesst
+  sich, Hinweis-Pille „Story wurde entfernt"
+  (`frontend-contracts.invariant.stale_selected_story`).
+- Karten in Kanban/Sheet/Graph verschwinden ohne Animation;
+  Counters werden neu geladen.
+- Reset (FK-53) und cancel (UI-Aktion) sind **keine** Loesch-
+  Faelle — die Story bleibt sichtbar mit neuem Status.
+
+**Race beim schnellen Wechseln**:
+
+- Inspector wechselt schnell zwischen Stories: spaet eintreffende
+  Detail-Antworten ueberschreiben die aktuelle Selection nicht
+  (`frontend-contracts.invariant.last_request_wins_per_inspector`).
+- SSE-Events koennen in jeder Reihenfolge kommen
+  (`frontend-contracts.invariant.no_global_event_ordering`); per-
+  Story-Konsistenz entsteht durch Re-Fetch nach Event.
+
+**Empty-States** (alle Sichten):
+
+- Leere Story-Liste: alle Sichten zeigen einen kurzen Hinweis
+  („Noch keine Stories — `+Story` zum Anlegen").
+- Leere Execution-Input-Sektionen: PlaceholderColumn (FK-72
+  bereits in §72.5 als Layout-Invariante beschrieben).
+- Leere Akzeptanzkriterien/Dependencies/Bundle-Entries im
+  Inspector: kurze „keine …"-Zeile, kein leerer Container.
+- Kein QA-Cycle gestartet: Inspector-Ergebnis-Tab zeigt
+  „QA-Subflow noch nicht gelaufen", keine Bundle-Liste.
+
+**Phase im Halte-Zustand** (`escalated` / `paused` / `failed`):
+
+- Flow-Tab markiert die Phase farblich und zeigt
+  `state_reason` als Hinweistext.
+- Kein „active"-Marker mehr auf dieser Phase; die Iteration-
+  Anzeige verbleibt auf dem letzten Stand.
+- Inspector-Header zeigt eine globale Pille „pausiert" /
+  „eskaliert", damit der Strateg ohne Tab-Wechsel sieht, dass
+  Eingriff noetig ist.
+
+**Project-Switch**:
+
+- Beim Wechsel ueber den Topbar-Project-Selector werden alle
+  SSE-Subscriptions auf das alte Projekt geschlossen, der
+  Inspector wird zugeklappt, lokale Drafts (Sheet) gehen
+  verloren mit einer Warnung. Eine View-Selection (`graph` /
+  `kanban` / ...) bleibt erhalten.
+- Archivierte Projekte erscheinen in der Liste, ihre mutierenden
+  UI-Elemente sind disabled (`forbidden` ist die Backend-
+  Antwortklasse, das UI praeventiert).
+
+**Concurrency bei Limits**:
+
+- Zwei Strategen aendern parallel die Caps: `last_writer_wins`
+  (siehe `command.update_execution_limits.concurrency`). Beide
+  sehen das Endergebnis ueber `limits_changed`-Event. Es gibt
+  kein ETag, keine Konflikt-Warnung. Begruendung: das Stratege-
+  Tool bedient wenige Nutzer, parallele Cap-Aenderungen sind
+  selten und nicht eskalationspflichtig.
+
+**Reconnect / Network Loss**:
+
+- SSE bricht ab: der Browser-EventSource reconnectet
+  automatisch. Beim Reconnect macht das Frontend einen frischen
+  Initial-GET aller geoeffneten Sichten
+  (`frontend-contracts.invariant.lossy_resync_on_reconnect`).
+- Total-Offline: alle mutierenden UI-Elemente werden disabled,
+  ein dezenter „Verbindung verloren"-Indikator am Topbar
+  signalisiert den Stand. Optimistic-Updates werden nicht
+  gestartet.
