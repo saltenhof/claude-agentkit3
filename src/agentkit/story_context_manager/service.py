@@ -937,14 +937,31 @@ def _story_from_cached_payload(payload: dict[str, object]) -> Story | None:
 def _get_project_repos(project: object) -> list[str]:
     """Extract the list of allowed repos from a Project entity.
 
-    The Project.configuration does not have a ``repositories`` field
-    in the current schema (it has ``repo_url`` etc.). We return [] to
-    indicate "no restriction" until the schema is extended.
+    Reads ``Project.configuration.repositories`` which was added by AG3-020.
+    Returns the list of configured repos, or an empty list when the
+    configuration cannot be accessed (e.g. legacy test doubles that pre-date
+    the schema change).
+
+    An empty return value means "no restriction" and callers must treat it
+    accordingly.  In production this should never be empty because
+    ``ProjectConfiguration.repositories`` is a required field (min 1 entry).
+
+    Args:
+        project: A ``Project`` entity or any object with compatible attributes.
+
+    Returns:
+        The list of configured repository identifiers, or ``[]``.
     """
-    # ProjectConfiguration currently has: repo_url, default_branch,
-    # are_url, default_worker_count. No repositories list yet.
-    # Returning [] means: all repos are allowed (no restriction).
-    return []
+    try:
+        configuration = getattr(project, "configuration", None)
+        if configuration is None:
+            return []
+        repositories = getattr(configuration, "repositories", None)
+        if isinstance(repositories, list):
+            return list(repositories)
+        return []
+    except Exception:  # noqa: BLE001 — defensive; never crash story operations
+        return []
 
 
 def _apply_updates(
