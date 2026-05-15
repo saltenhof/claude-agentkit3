@@ -31,3 +31,11 @@ class ProjectNotFoundError(_BaseProjectError):
 
 class ProjectStoryIdPrefixConflictError(_BaseProjectError):
     """Raised when another project already owns a story-id prefix."""
+
+
+class ProjectRepositoriesInvalidError(_BaseProjectError):
+    """Raised when the ``repositories`` list is invalid (empty, duplicates, blanks)."""
+
+
+class ProjectRepoStillInUseError(_BaseProjectError):
+    """Raised when removing a repo that is still referenced by an active story."""
