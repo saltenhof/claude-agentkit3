@@ -539,17 +539,23 @@ def _ensure_four_phase_migration(conn: sqlite3.Connection) -> None:
 
 
 def _ensure_default_projects_for_story_contexts(conn: sqlite3.Connection) -> None:
-    default_configuration = _dump_json(
-        {
-            "repo_url": "",
-            "default_branch": "main",
-            "are_url": None,
-            "default_worker_count": 1,
-        },
-    )
+    """Ensure every orphaned story_context has a parent project row.
+
+    This migration-helper runs during schema bootstrap.  For each
+    ``story_context`` that has no matching ``projects`` row, a minimal
+    default project is inserted.
+
+    The ``repositories`` field introduced by AG3-020 is derived from
+    ``participating_repos`` in the story-context payload when available.
+    Otherwise an empty list is stored and a WARNING is logged so the
+    operator knows a backfill is needed.
+    """
+    import logging
+    _log = logging.getLogger(__name__)
+
     rows = conn.execute(
         """
-        SELECT DISTINCT sc.project_key, sc.story_id
+        SELECT DISTINCT sc.project_key, sc.story_id, sc.payload_json
         FROM story_contexts sc
         LEFT JOIN projects p ON p.key = sc.project_key
         WHERE p.key IS NULL
@@ -557,6 +563,37 @@ def _ensure_default_projects_for_story_contexts(conn: sqlite3.Connection) -> Non
     ).fetchall()
     for row in rows:
         prefix = str(row["story_id"]).split("-", maxsplit=1)[0]
+        project_key = str(row["project_key"])
+
+        # Derive repositories from story-context payload when possible.
+        repositories: list[str] = []
+        try:
+            import json as _json
+            payload = _json.loads(str(row["payload_json"] or "{}"))
+            participating = payload.get("participating_repos", [])
+            if isinstance(participating, list) and participating:
+                repositories = [str(r) for r in participating]
+        except Exception:  # noqa: BLE001
+            pass
+
+        if not repositories:
+            _log.warning(
+                "Bootstrap: project '%s' has no participating_repos in "
+                "story_context payload; setting repositories=[] "
+                "(operator must update project configuration).",
+                project_key,
+            )
+
+        default_configuration = _dump_json(
+            {
+                "repo_url": "",
+                "default_branch": "main",
+                "are_url": None,
+                "default_worker_count": 1,
+                "repositories": repositories,
+            },
+        )
+
         conn.execute(
             """
             INSERT OR IGNORE INTO projects (
@@ -569,8 +606,8 @@ def _ensure_default_projects_for_story_contexts(conn: sqlite3.Connection) -> Non
             VALUES (?, ?, ?, ?, NULL)
             """,
             (
-                row["project_key"],
-                row["project_key"],
+                project_key,
+                project_key,
                 prefix,
                 default_configuration,
             ),
@@ -581,14 +618,20 @@ def _ensure_project_for_story_row(
     conn: sqlite3.Connection,
     row: dict[str, Any],
 ) -> None:
-    default_configuration = _dump_json(
-        {
-            "repo_url": "",
-            "default_branch": "main",
-            "are_url": None,
-            "default_worker_count": 1,
-        },
-    )
+    """Ensure a project row exists for a story-context being saved.
+
+    When a story-context references a ``project_key`` that has no matching
+    project row, a minimal default project is inserted.  The
+    ``repositories`` field is populated from ``row["participating_repos"]``
+    when present, otherwise an empty list is stored and a WARNING is logged.
+
+    Args:
+        conn: Active SQLite connection with schema already applied.
+        row: Story-context dict being saved (may contain ``participating_repos``).
+    """
+    import logging
+    _log = logging.getLogger(__name__)
+
     story_id = str(row["story_id"])
     prefix = story_id.split("-", maxsplit=1)[0]
     project_key = str(row["project_key"])
@@ -598,6 +641,30 @@ def _ensure_project_for_story_row(
     ).fetchone()
     if existing_project is not None:
         return
+
+    # Derive repositories from story row when possible.
+    repositories: list[str] = []
+    participating = row.get("participating_repos", [])
+    if isinstance(participating, list) and participating:
+        repositories = [str(r) for r in participating]
+    else:
+        _log.warning(
+            "Bootstrap: project '%s' story '%s' has no participating_repos; "
+            "setting repositories=[] (operator must update project configuration).",
+            project_key,
+            story_id,
+        )
+
+    default_configuration = _dump_json(
+        {
+            "repo_url": "",
+            "default_branch": "main",
+            "are_url": None,
+            "default_worker_count": 1,
+            "repositories": repositories,
+        },
+    )
+
     prefix_owner = conn.execute(
         "SELECT key FROM projects WHERE story_id_prefix = ?",
         (prefix,),
