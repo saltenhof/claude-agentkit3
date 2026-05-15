@@ -1,0 +1,4 @@
+# approved.yaml — session-persistent CCAG approved rules (FK-42 §42.7).
+# Auto-populated by the CCAG runtime when the human approves a tool call.
+# Do not edit manually unless you understand the CCAG rule format.
+# Fields: id, tool, allow_pattern, learned_from, learned_at, scope

@@ -1,0 +1,17 @@
+# global.yaml — CCAG rules for all agents (main + sub-agents).
+# Applied on every hook invocation regardless of agent type (FK-42 §42.7).
+#
+# Rule format:
+#   id:            unique identifier
+#   tool:          tool name or pipe-delimited list (e.g. "Bash|Write")
+#   allow_pattern: regex matched against serialised tool input -> allow
+#   block_pattern: regex matched against serialised tool input -> block
+#   description:   human-readable explanation
+#   priority:      lower = higher priority (default: 100)
+
+rules:
+  - id: allow-read-tools
+    tool: "Read|Glob|Grep"
+    allow_pattern: ".*"
+    description: "Allow all read-only tool operations globally"
+    priority: 200

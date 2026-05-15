@@ -1,0 +1,20 @@
+# subagents.yaml — CCAG rules for sub-agents only (FK-42 §42.7).
+# Sub-agents receive narrower rights than the main agent.
+#
+# These rules are loaded IN ADDITION to global.yaml for sub-agent calls.
+# Block rules here take priority over allow rules in global.yaml.
+
+rules:
+  - id: deny-sub-write-claude-dir
+    tool: 'Write|Edit'
+    block_pattern: 'file_path:\.claude/'
+    description: 'Sub-agents may not modify .claude/ settings'
+    priority: 10
+    applies_to: sub
+
+  - id: deny-sub-write-agentkit-dir
+    tool: 'Write|Edit'
+    block_pattern: 'file_path:\.agentkit/'
+    description: 'Sub-agents may not modify .agentkit/ config'
+    priority: 10
+    applies_to: sub
