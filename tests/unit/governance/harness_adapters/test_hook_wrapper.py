@@ -26,7 +26,7 @@ import pytest
 
 from agentkit.governance.harness_adapters.claude_code import main as claude_main
 from agentkit.governance.harness_adapters.codex.cli import main as codex_main
-from agentkit.governance.protocols import GuardVerdict, ViolationType
+from agentkit.governance.protocols import GuardVerdict
 from agentkit.governance.runner import POST_HOOK_IDS, PRE_HOOK_IDS, SUPPORTED_HOOK_IDS
 
 if TYPE_CHECKING:
@@ -55,33 +55,6 @@ _CODEX_BLOCK_EVENT = json.dumps(
         "cwd": ".",
     }
 )
-
-
-def _monkeypatch_allow(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Patch Governance.run_hook to always allow."""
-    monkeypatch.setattr(
-        "agentkit.governance.runner.Governance.run_hook",
-        staticmethod(
-            lambda hook_id, event, phase="pre", project_root=None: GuardVerdict.allow(
-                "guard_evaluation"
-            )
-        ),
-    )
-
-
-def _monkeypatch_block(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Patch Governance.run_hook to always block."""
-    monkeypatch.setattr(
-        "agentkit.governance.runner.Governance.run_hook",
-        staticmethod(
-            lambda hook_id, event, phase="pre", project_root=None: GuardVerdict.block(
-                "branch_guard",
-                ViolationType.BRANCH_VIOLATION,
-                "blocked for test",
-                detail={"hook_id": hook_id},
-            )
-        ),
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -114,12 +87,7 @@ class TestSharedDispatcher:
     ) -> None:
         captured: list[str] = []
 
-        def _spy(
-            hook_id: str,
-            event: object,
-            phase: str = "pre",
-            project_root: object = None,
-        ) -> GuardVerdict:
+        def _spy(hook_id: str, *_args: object, **_kwargs: object) -> GuardVerdict:
             captured.append(hook_id)
             return GuardVerdict.allow("guard_evaluation")
 
@@ -138,12 +106,7 @@ class TestSharedDispatcher:
     ) -> None:
         captured: list[str] = []
 
-        def _spy(
-            hook_id: str,
-            event: object,
-            phase: str = "pre",
-            project_root: object = None,
-        ) -> GuardVerdict:
+        def _spy(hook_id: str, *_args: object, **_kwargs: object) -> GuardVerdict:
             captured.append(hook_id)
             return GuardVerdict.allow("guard_evaluation")
 
@@ -287,7 +250,6 @@ class TestFailClosedInvalidArgs:
     def test_wrong_phase_for_hook_id_codex(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        capsys: pytest.CaptureFixture[str],
     ) -> None:
         monkeypatch.setattr("sys.stdin", io.StringIO(_CODEX_ALLOW_EVENT))
         result = codex_main(["pre", "telemetry"])
@@ -349,7 +311,6 @@ class TestInvalidStdin:
     def test_json_array_claude_returns_exit_2(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        capsys: pytest.CaptureFixture[str],
     ) -> None:
         monkeypatch.setattr("sys.stdin", io.StringIO("[]"))
         result = claude_main(["pre", "branch_guard"])
@@ -358,7 +319,6 @@ class TestInvalidStdin:
     def test_json_array_codex_returns_exit_2(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        capsys: pytest.CaptureFixture[str],
     ) -> None:
         monkeypatch.setattr("sys.stdin", io.StringIO("[]"))
         result = codex_main(["pre", "branch_guard"])
