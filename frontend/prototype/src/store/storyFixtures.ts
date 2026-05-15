@@ -422,3 +422,210 @@ export const LOOP_GROUP_MAX_ITERATIONS: Record<string, number> = {
   design_iteration: 3,
   remediation: 5,
 };
+
+/* ---- Demo-Szenarien fuer AG3-019 Phase-/Substep-Visualisierung ----
+ *
+ * Vier repraesentative Mock-Stories, die alle wesentlichen UI-Zustaende
+ * des Phase-Steppers, Sub-Steppers und Mode-Labels abdecken. Sie
+ * dienen ausschliesslich dem interaktiven Demo-Schalter im Inspector.
+ *
+ * Streng nach AG3-018 §Mode-Profil und AG3-019 §"Was die Story liefern
+ * soll" Punkt 5 modelliert:
+ * 1. Standard-Mode — Implementation, QA Layer 2 LLM-Bewertung
+ * 2. Fast-Mode     — Implementation, Worker-Start (light prompt)
+ * 3. Standard-Mode — Exploration, Design-Review
+ * 4. Standard-Mode — Closure, Branch-Merge (Pre-Merge-Rebase)
+ */
+
+function makeDemoGates(): Story['gates'] {
+  return [
+    { label: 'Dependency Graph', state: 'PASS' },
+    { label: 'Merge Window', state: 'PASS' },
+    { label: 'Rulebook Policy', state: 'PASS' },
+  ];
+}
+
+function makeDemoPhases(activePhaseLabel: string): Story['phases'] {
+  const allPhases = ['Setup', 'Exploration', 'Implementation', 'Closure'];
+  return allPhases.map((label) => ({
+    label,
+    state: (label === activePhaseLabel ? 'active' : allPhases.indexOf(label) < allPhases.indexOf(activePhaseLabel) ? 'done' : 'idle') as 'active' | 'done' | 'idle' | 'skipped' | 'blocked',
+    detail: label === activePhaseLabel ? 'Aktuell aktiv' : 'Abgeschlossen oder ausstehend',
+  }));
+}
+
+export interface DemoScenario {
+  label: string;
+  description: string;
+  story: Story;
+}
+
+export const DEMO_SCENARIOS: DemoScenario[] = [
+  {
+    label: 'Standard · Implementation · QA L2',
+    description: 'Standard-Mode, Implementation-Phase, QA Layer 2 LLM-Bewertung laeuft (zweite Remediation-Runde).',
+    story: {
+      id: 'DEMO-001',
+      title: 'UC2A State Pipeline Redesign',
+      type: 'implementation',
+      status: 'In Progress',
+      size: 'L',
+      owner: 'worker-1',
+      repo: 'extraction-pipeline',
+      primaryRepo: 'extraction-pipeline',
+      participatingRepos: ['extraction-pipeline'],
+      module: 'uc2a-state',
+      epic: 'UC2a Pipeline',
+      changeImpact: 'Component',
+      conceptQuality: 'High',
+      wave: 2,
+      risk: 'medium',
+      criticalPath: false,
+      qaRounds: 2,
+      qaRoundsExploration: 0,
+      qaRoundsImplementation: 2,
+      processingTime: '148 min',
+      createdAt: '2026-05-10',
+      labels: ['uc2a-state', 'pipeline', 'wave-2'],
+      acceptance: [
+        'Dependency-Kanten sind im Graph sichtbar',
+        'Status wird korrekt abgeleitet',
+        'QA-Layer-2-Befunde werden remediiert',
+      ],
+      definitionOfDone: ['Tests gruen', 'QA Schicht 2 PASS', 'Merge-Window konfliktfrei'],
+      gates: makeDemoGates(),
+      phases: makeDemoPhases('Implementation'),
+      events: [
+        { time: 'Now', type: 'qa_layer2_llm', detail: 'LLM-Bewertung laeuft, Remediation-Runde 2', severity: 'info' },
+      ],
+      dependencies: [],
+      mode: 'standard',
+      runtime: { phase: 'implementation', substep: 'qa_layer2_llm', iteration: 2 },
+    },
+  },
+  {
+    label: 'Fast · Implementation · Worker-Start',
+    description: 'Fast-Mode (FK-24 §24.3.3), Implementation beginnt — Light-Prompt, keine Inkrement-Pflicht.',
+    story: {
+      id: 'DEMO-002',
+      title: 'UC2A Contract Validator Fix',
+      type: 'implementation',
+      status: 'In Progress',
+      size: 'S',
+      owner: 'worker-2',
+      repo: 'extraction-pipeline',
+      primaryRepo: 'extraction-pipeline',
+      participatingRepos: ['extraction-pipeline'],
+      module: 'uc2a-contract',
+      epic: 'UC2a Pipeline',
+      changeImpact: 'Local',
+      conceptQuality: 'High',
+      wave: 2,
+      risk: 'low',
+      criticalPath: false,
+      qaRounds: 0,
+      qaRoundsExploration: 0,
+      qaRoundsImplementation: 0,
+      processingTime: '22 min',
+      createdAt: '2026-05-12',
+      labels: ['uc2a-contract', 'pipeline', 'fast'],
+      acceptance: [
+        'Contract-Validierung korrekt',
+        'Tests gruen (Fast-Pflicht-Floor)',
+      ],
+      definitionOfDone: ['Tests gruen', 'Merge-Rebase OK'],
+      gates: makeDemoGates(),
+      phases: makeDemoPhases('Implementation'),
+      events: [
+        { time: 'Now', type: 'worker_start', detail: 'Fast-Mode Worker gestartet (Light-Prompt)', severity: 'info' },
+      ],
+      dependencies: [],
+      mode: 'fast',
+      runtime: { phase: 'implementation', substep: 'worker_start', iteration: 1 },
+    },
+  },
+  {
+    label: 'Standard · Exploration · Design-Review',
+    description: 'Standard-Mode, Exploration-Phase — drittes Design-Review in der Iteration.',
+    story: {
+      id: 'DEMO-003',
+      title: 'UC2A Graph Extraction Redesign',
+      type: 'implementation',
+      status: 'In Progress',
+      size: 'M',
+      owner: 'worker-3',
+      repo: 'extraction-pipeline',
+      primaryRepo: 'extraction-pipeline',
+      participatingRepos: ['extraction-pipeline'],
+      module: 'uc2a-graph',
+      epic: 'UC2a Pipeline',
+      changeImpact: 'Component',
+      conceptQuality: 'High',
+      wave: 2,
+      risk: 'medium',
+      criticalPath: true,
+      qaRounds: 1,
+      qaRoundsExploration: 1,
+      qaRoundsImplementation: 0,
+      processingTime: '67 min',
+      createdAt: '2026-05-09',
+      labels: ['uc2a-graph', 'pipeline', 'exploration'],
+      acceptance: [
+        'Entwurfsartefakt liegt vor',
+        'Design-Review bestanden',
+        'Feindesign optional abgeschlossen',
+      ],
+      definitionOfDone: ['Entwurf eingfroren', 'Exploration Exit-Gate PASS'],
+      gates: makeDemoGates(),
+      phases: makeDemoPhases('Exploration'),
+      events: [
+        { time: 'Now', type: 'design_review', detail: 'Design-Iteration 3, Review laeuft', severity: 'info' },
+      ],
+      dependencies: [],
+      mode: 'standard',
+      runtime: { phase: 'exploration', substep: 'design_review', iteration: 3 },
+    },
+  },
+  {
+    label: 'Standard · Closure · Branch-Merge',
+    description: 'Standard-Mode, Closure-Phase — Branch wird in main gemergt (Pre-Merge-Rebase OK).',
+    story: {
+      id: 'DEMO-004',
+      title: 'UC2A Report Generation',
+      type: 'implementation',
+      status: 'In Progress',
+      size: 'M',
+      owner: 'worker-4',
+      repo: 'extraction-pipeline',
+      primaryRepo: 'extraction-pipeline',
+      participatingRepos: ['extraction-pipeline'],
+      module: 'uc2a-report',
+      epic: 'UC2a Pipeline',
+      changeImpact: 'Component',
+      conceptQuality: 'High',
+      wave: 2,
+      risk: 'low',
+      criticalPath: false,
+      qaRounds: 2,
+      qaRoundsExploration: 0,
+      qaRoundsImplementation: 2,
+      processingTime: '195 min',
+      createdAt: '2026-05-07',
+      labels: ['uc2a-report', 'pipeline', 'closure'],
+      acceptance: [
+        'Report-Generation korrekt',
+        'Alle QA-Schichten PASS',
+        'Merge in main erfolgreich',
+      ],
+      definitionOfDone: ['Merge in main', 'Story-Close gesetzt', 'Telemetrie erfasst'],
+      gates: makeDemoGates(),
+      phases: makeDemoPhases('Closure'),
+      events: [
+        { time: 'Now', type: 'merge', detail: 'Pre-Merge-Rebase OK, Branch-Merge laeuft', severity: 'info' },
+      ],
+      dependencies: [],
+      mode: 'standard',
+      runtime: { phase: 'closure', substep: 'merge', iteration: 1 },
+    },
+  },
+];

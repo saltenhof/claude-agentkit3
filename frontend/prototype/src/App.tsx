@@ -53,11 +53,13 @@ import {
   buildStoryKpiTiles,
   conceptAnchors,
   DEFAULT_EXECUTION_LIMITS,
+  DEMO_SCENARIOS,
   project,
   projects,
   selectActiveProjectMode,
   selectStoryCounters,
   STORY_FIXTURES as initialStories,
+  type DemoScenario,
   type ExecutionLimits,
   type PhaseStatus,
   type ProjectModeLock,
@@ -72,6 +74,9 @@ import { ExecutionLimitsView } from './components/ExecutionLimitsView';
 import { FlowTab } from './components/FlowTab';
 import { FastBadge } from './components/FastBadge';
 import { AnalyticsView } from './components/AnalyticsView';
+import { PhaseStepper } from './components/PhaseStepper';
+import { SubStepper } from './components/SubStepper';
+import { ModeLabel } from './components/ModeLabel';
 
 type ViewMode = 'graph' | 'kanban' | 'sheet' | 'analytics' | 'hub';
 const INSPECTOR_WIDTH_KEY = 'ak3.storyInspector.width';
@@ -1724,6 +1729,15 @@ function DetailInspector({
   onResizeStart: () => void;
 }) {
   const [activeTab, setActiveTab] = useState<'spec' | 'evidence' | 'kpi' | 'flow'>('spec');
+  /* Demo-Schalter: null = echte Story-Daten; 0–3 = Demo-Szenario-Index */
+  const [demoIndex, setDemoIndex] = useState<number | null>(null);
+
+  const displayStory: Story =
+    demoIndex !== null ? DEMO_SCENARIOS[demoIndex].story : story;
+
+  const activeDemoScenario: DemoScenario | null =
+    demoIndex !== null ? DEMO_SCENARIOS[demoIndex] : null;
+
   return (
     <aside className="detail-inspector ak-panel" data-story-inspector="true" style={{ width }}>
       <div
@@ -1739,9 +1753,10 @@ function DetailInspector({
         <div>
           <p className="eyebrow">Story Inspector</p>
           <h2>
-            {story.id}
-            <FastBadge mode={story.mode} size={22} />
-            <Badge tone={statusClass[story.status]}>{story.status}</Badge>
+            {displayStory.id}
+            <FastBadge mode={displayStory.mode} size={22} />
+            <Badge tone={statusClass[displayStory.status]}>{displayStory.status}</Badge>
+            <ModeLabel mode={displayStory.mode} showStandard={false} />
           </h2>
         </div>
         <button className="ak-button" type="button" onClick={onClose}>
@@ -1749,6 +1764,42 @@ function DetailInspector({
           Close
         </button>
       </header>
+
+      {/* Phase-Stepper + Sub-Stepper: aktiver Phasen-/Substep-Fortschritt */}
+      <div className="inspector-pipeline">
+        <PhaseStepper story={displayStory} />
+        <SubStepper story={displayStory} />
+      </div>
+
+      {/* Demo-Schalter (AG3-019: interaktives Durchklicken der 4 Mock-Szenarien) */}
+      <div className="demo-switcher" role="group" aria-label="Demo-Szenarien">
+        <span className="demo-switcher__label">Demo</span>
+        <button
+          type="button"
+          className={`demo-switcher__btn${demoIndex === null ? ' demo-switcher__btn--active' : ''}`}
+          onClick={() => setDemoIndex(null)}
+          title="Echtdaten: Story aus dem aktuellen Auswahl"
+        >
+          Live
+        </button>
+        {DEMO_SCENARIOS.map((scenario, index) => (
+          <button
+            key={scenario.story.id}
+            type="button"
+            className={`demo-switcher__btn${demoIndex === index ? ' demo-switcher__btn--active' : ''}${scenario.story.mode === 'fast' ? ' demo-switcher__btn--fast' : ''}`}
+            onClick={() => setDemoIndex(index)}
+            title={scenario.description}
+          >
+            {index + 1}
+          </button>
+        ))}
+        {activeDemoScenario && (
+          <span className="demo-switcher__scenario-label" title={activeDemoScenario.description}>
+            {activeDemoScenario.label}
+          </span>
+        )}
+      </div>
+
       <div className="file-tabs" role="tablist">
         <button className={activeTab === 'spec' ? 'active' : ''} type="button" onClick={() => setActiveTab('spec')}>
           Spezifikation
@@ -1763,7 +1814,7 @@ function DetailInspector({
           Ablauf
         </button>
       </div>
-      <Detail story={story} activeTab={activeTab} />
+      <Detail story={displayStory} activeTab={activeTab} />
     </aside>
   );
 }

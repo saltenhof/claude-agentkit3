@@ -3598,3 +3598,424 @@ td:hover .sheet-title-cell svg {
 .flow-chart__legend-item--loop svg {
   display: block;
 }
+
+/* ===================================================================
+ * AG3-019: Phase-Stepper, Sub-Stepper, ModeLabel, Demo-Schalter
+ * ===================================================================
+ *
+ * Styling-Prinzip: Konsistente Design-Tokens aus design-system.css.
+ * Keine neue Design-Sprache — die Komponenten fuegen sich in den
+ * bestehenden Inspector-Stil ein (dunkle Flaechen, Cyan-Akzente,
+ * Amber fuer Fast-Mode).
+ * ================================================================ */
+
+/* ---- ModeLabel ---- */
+
+.mode-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: var(--radius-pill);
+  border: var(--border-hairline) solid transparent;
+  font-family: var(--font-display);
+  font-size: 0.6875rem;
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.mode-label__icon {
+  display: block;
+}
+
+/* Fast: warmes Amber — faellt auf, signalisiert reduzierten Schutzmodus */
+.mode-label--fast {
+  color: #fff;
+  background: color-mix(in srgb, var(--ak-accent-warm), #b86000 30%);
+  border-color: color-mix(in srgb, var(--ak-accent-warm), transparent 20%);
+  box-shadow: 0 0 0.4375rem color-mix(in srgb, var(--ak-accent-warm), transparent 55%);
+}
+
+/* Standard: dezentes Cyan — kein Alarm, aber erkennbar */
+.mode-label--standard {
+  color: var(--ak-accent-text-soft);
+  background: color-mix(in srgb, var(--ak-accent), transparent 82%);
+  border-color: color-mix(in srgb, var(--ak-accent), transparent 50%);
+}
+
+/* Vertikale Korrektur im Inspector-h2 (analog .fast-badge) */
+.inspector-head h2 .mode-label {
+  transform: translateY(-0.0625rem);
+}
+
+/* ---- Inspector-Pipeline-Area (PhaseStepper + SubStepper) ---- */
+
+.inspector-pipeline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5) var(--space-3);
+  background: color-mix(in srgb, var(--ak-bg-raised-alt), transparent 30%);
+  border-bottom: var(--border-hairline) solid var(--ak-border);
+}
+
+/* ---- PhaseStepper ---- */
+
+.phase-stepper {
+  /* Kein extra Padding: das Inspector-Pipeline gibt den Rahmen vor. */
+}
+
+.phase-stepper__list {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-x: auto;
+  /* Horizontal scrollbar bei sehr kleinen Inspectoren */
+  scrollbar-width: thin;
+  scrollbar-color: var(--ak-border) transparent;
+}
+
+.phase-stepper__step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+}
+
+.phase-stepper__bullet {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 1.125rem;
+  height: 1.125rem;
+  border-radius: 100%;
+  border: 0.125rem solid var(--ak-border-strong);
+  background: var(--ak-bg-raised);
+  transition: background 0.18s, border-color 0.18s, box-shadow 0.18s;
+}
+
+.phase-stepper__bullet--done {
+  background: var(--ak-success);
+  border-color: color-mix(in srgb, var(--ak-success), white 20%);
+  color: var(--ak-bg-deep);
+  box-shadow: 0 0 0 0.1875rem color-mix(in srgb, var(--ak-success), transparent 78%);
+}
+
+.phase-stepper__bullet--active {
+  background: var(--ak-accent-text);
+  border-color: var(--ak-accent-text);
+  box-shadow: 0 0 0 0.25rem color-mix(in srgb, var(--ak-accent-text), transparent 65%);
+  animation: phase-bullet-pulse 2.2s ease-in-out infinite;
+}
+
+@keyframes phase-bullet-pulse {
+  0%, 100% { box-shadow: 0 0 0 0.1875rem color-mix(in srgb, var(--ak-accent-text), transparent 65%); }
+  50%       { box-shadow: 0 0 0 0.3125rem color-mix(in srgb, var(--ak-accent-text), transparent 45%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .phase-stepper__bullet--active {
+    animation: none;
+  }
+}
+
+.phase-stepper__bullet--skipped {
+  background: var(--ak-bg-raised-alt);
+  border-color: var(--ak-border);
+  border-style: dashed;
+}
+
+.phase-stepper__bullet--pending {
+  background: var(--ak-bg-raised);
+  border-color: var(--ak-border);
+}
+
+.phase-stepper__label {
+  font-family: var(--font-display);
+  font-size: 0.75rem;
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.02em;
+  color: var(--ak-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  cursor: default;
+}
+
+.phase-stepper__step--active .phase-stepper__label {
+  color: var(--ak-accent-text);
+}
+
+.phase-stepper__step--done .phase-stepper__label {
+  color: var(--ak-success);
+}
+
+.phase-stepper__step--skipped .phase-stepper__label {
+  color: var(--ak-text-faint);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--ak-text-faint), transparent 50%);
+}
+
+.phase-stepper__connector {
+  flex: 1;
+  height: 0.125rem;
+  min-width: 0.5rem;
+  background: var(--ak-border);
+  border-radius: 0.125rem;
+  margin: 0 var(--space-2);
+}
+
+.phase-stepper__step--done .phase-stepper__connector {
+  background: color-mix(in srgb, var(--ak-success), transparent 55%);
+}
+
+.phase-stepper__step--active .phase-stepper__connector {
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--ak-accent-text), transparent 50%),
+    var(--ak-border)
+  );
+}
+
+.phase-stepper__step--skipped .phase-stepper__connector {
+  background: repeating-linear-gradient(
+    90deg,
+    var(--ak-border) 0,
+    var(--ak-border) 0.25rem,
+    transparent 0.25rem,
+    transparent 0.5rem
+  );
+}
+
+/* ---- SubStepper ---- */
+
+.sub-stepper {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.sub-stepper__phase-label {
+  font-family: var(--font-display);
+  font-size: 0.6875rem;
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ak-text-faint);
+}
+
+.sub-stepper__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sub-stepper__step {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: var(--radius-pill);
+  border: var(--border-hairline) solid var(--ak-border);
+  background: var(--ak-bg-raised-alt);
+  cursor: default;
+  transition: background 0.15s;
+}
+
+.sub-stepper__step--active,
+.sub-stepper__step--current {
+  background: color-mix(in srgb, var(--ak-accent), transparent 85%);
+  border-color: color-mix(in srgb, var(--ak-accent-text), transparent 45%);
+  animation: sub-chip-pulse 2.2s ease-in-out infinite;
+}
+
+@keyframes sub-chip-pulse {
+  0%, 100% { border-color: color-mix(in srgb, var(--ak-accent-text), transparent 45%); }
+  50%       { border-color: color-mix(in srgb, var(--ak-accent-text), transparent 20%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sub-stepper__step--active,
+  .sub-stepper__step--current {
+    animation: none;
+  }
+}
+
+.sub-stepper__step--done {
+  background: color-mix(in srgb, var(--ak-success), transparent 93%);
+  border-color: color-mix(in srgb, var(--ak-success), transparent 72%);
+}
+
+/* Fast-OUT: ausgegraut, gestrichelter Rand */
+.sub-stepper__step--fast-out {
+  background: transparent;
+  border-color: var(--ak-border);
+  border-style: dashed;
+  opacity: 0.45;
+}
+
+/* Fast-MOD: sichtbar, aber mit Hinweis-Akzent */
+.sub-stepper__step--fast-mod {
+  border-color: color-mix(in srgb, var(--ak-accent-warm), transparent 55%);
+  background: color-mix(in srgb, var(--ak-accent-warm), transparent 92%);
+}
+
+.sub-stepper__dot {
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 100%;
+  flex: 0 0 auto;
+  background: var(--ak-border-strong);
+}
+
+.sub-stepper__dot--active {
+  background: var(--ak-accent-text);
+  box-shadow: 0 0 0 0.125rem color-mix(in srgb, var(--ak-accent-text), transparent 60%);
+}
+
+.sub-stepper__dot--done {
+  background: var(--ak-success);
+}
+
+.sub-stepper__dot--out {
+  background: var(--ak-text-faint);
+  opacity: 0.5;
+}
+
+.sub-stepper__chip-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.6875rem;
+  font-weight: var(--weight-semibold);
+  color: var(--ak-text-muted);
+  white-space: nowrap;
+}
+
+.sub-stepper__step--active .sub-stepper__chip-label,
+.sub-stepper__step--current .sub-stepper__chip-label {
+  color: var(--ak-accent-text);
+}
+
+.sub-stepper__step--done .sub-stepper__chip-label {
+  color: var(--ak-text-muted);
+}
+
+.sub-stepper__step--fast-out .sub-stepper__chip-label {
+  color: var(--ak-text-faint);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--ak-text-faint), transparent 40%);
+}
+
+.sub-stepper__step--fast-mod .sub-stepper__chip-label {
+  color: color-mix(in srgb, var(--ak-accent-warm-strong), transparent 15%);
+}
+
+.sub-stepper__mod-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.25rem;
+  border-radius: 0.1875rem;
+  background: color-mix(in srgb, var(--ak-accent-warm), transparent 75%);
+  border: 0.0625rem solid color-mix(in srgb, var(--ak-accent-warm), transparent 50%);
+  color: var(--ak-accent-warm-strong);
+  font-size: 0.5625rem;
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.4;
+}
+
+.sub-stepper--inactive {
+  align-items: flex-start;
+}
+
+.sub-stepper__empty {
+  color: var(--ak-text-faint);
+  font-size: 0.8125rem;
+  font-style: italic;
+}
+
+/* ---- Demo-Schalter (AG3-019 interaktiver Review-Schalter) ---- */
+
+.demo-switcher {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-5);
+  background: color-mix(in srgb, var(--ak-bg-raised-alt), transparent 50%);
+  border-bottom: var(--border-hairline) solid var(--ak-border);
+}
+
+.demo-switcher__label {
+  font-family: var(--font-display);
+  font-size: 0.625rem;
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ak-text-faint);
+  margin-right: var(--space-1);
+}
+
+.demo-switcher__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.75rem;
+  height: 1.5rem;
+  padding: 0 0.5rem;
+  border-radius: var(--radius-sm);
+  border: var(--border-hairline) solid var(--ak-border);
+  background: var(--ak-bg-raised);
+  color: var(--ak-text-muted);
+  font-size: 0.75rem;
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.demo-switcher__btn:hover {
+  background: var(--ak-surface-2);
+  border-color: var(--ak-border-strong);
+  color: var(--ak-text);
+}
+
+.demo-switcher__btn--active {
+  background: color-mix(in srgb, var(--ak-accent), transparent 82%);
+  border-color: color-mix(in srgb, var(--ak-accent-text), transparent 42%);
+  color: var(--ak-accent-text);
+}
+
+/* Fast-Demo-Button: Amber-Akzent */
+.demo-switcher__btn--fast {
+  border-color: color-mix(in srgb, var(--ak-accent-warm), transparent 55%);
+}
+
+.demo-switcher__btn--fast.demo-switcher__btn--active {
+  background: color-mix(in srgb, var(--ak-accent-warm), transparent 82%);
+  border-color: color-mix(in srgb, var(--ak-accent-warm), transparent 30%);
+  color: var(--ak-accent-warm-strong);
+}
+
+.demo-switcher__scenario-label {
+  font-size: 0.75rem;
+  color: var(--ak-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: min(22rem, 50%);
+  margin-left: var(--space-2);
+}

@@ -23,6 +23,7 @@ export type {
 export {
   ACTIVE_PROJECT,
   CONCEPT_ANCHORS,
+  DEMO_SCENARIOS,
   LOOP_GROUP_LABELS,
   LOOP_GROUP_MAX_ITERATIONS,
   PHASE_LABELS,
@@ -35,7 +36,7 @@ export {
   SUBSTEP_META,
   substepLabel,
 } from './storyFixtures';
-export type { ProjectFixture } from './storyFixtures';
+export type { DemoScenario, ProjectFixture } from './storyFixtures';
 
 /* Backward-compatible aliases for legacy importers. */
 export {
