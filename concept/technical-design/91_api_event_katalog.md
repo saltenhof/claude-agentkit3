@@ -66,11 +66,17 @@ formal_refs:
   - formal.story-exit.commands
   - formal.story-exit.events
   - formal.story-contracts.events
+  - formal.frontend-contracts.entities
+  - formal.frontend-contracts.commands
+  - formal.frontend-contracts.events
+  - formal.frontend-contracts.invariants
 ---
 
 # 91 — API- und Event-Katalog
 
 ## 91.1a Service-API-Endpunkte (Control Plane)
+
+<!-- PROSE-FORMAL: formal.frontend-contracts.entities, formal.frontend-contracts.commands, formal.frontend-contracts.invariants -->
 
 Die Service-API ist der **normative Standard-Zugriffspfad** fuer
 alle Agents und den Orchestrator-Skill. Agents verwenden
@@ -82,6 +88,13 @@ anderen Dokumente, die auf diese Parameter verweisen.
 Diese Endpunkte beschreiben die normative Zielgrenze der zentralen
 AgentKit-Control-Plane. Die lokale CLI (§91.1) ist ein menschlicher
 Adapterpfad auf diese API; fachlich autoritativ ist der API-Vertrag.
+
+Read-Models, Mutationen und Konsistenz-Invarianten fuer den
+Web-Frontend-Konsumenten sind formal in
+`formal.frontend-contracts.entities`,
+`formal.frontend-contracts.commands` und
+`formal.frontend-contracts.invariants` festgelegt; die
+Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
 
 | Endpoint | Methode | Beschreibung |
 |----------|---------|--------------|
@@ -113,6 +126,13 @@ Adapterpfad auf diese API; fachlich autoritativ ist der API-Vertrag.
 | `/v1/dashboard/story-metrics` | `GET` | Read-only Story-Metriken aus Runtime- und Analytics-Sicht |
 | `/v1/projects/{project_key}/coverage/stories/{story_id}/acceptance` | `GET` | Soll-Sicht: Akzeptanzkriterien und ARE-Anforderungs-Verknuepfungen, die diese Story adressiert (Inspector-Spezifikations-Tab; FK-40 §40.10) |
 | `/v1/projects/{project_key}/coverage/stories/{story_id}/are-evidence` | `GET` | Ist-Sicht: ARE-Evidenz pro Story — verlinkte Anforderungen, Coverage-Status, Evidenz-Pfade (Inspector-Ergebnis-Tab; FK-40 §40.10) |
+| `/v1/projects` | `GET` | Projekt-Liste (`project_summary`) fuer den Topbar-Project-Selector (FK-72 §72.5) |
+| `/v1/projects/{project_key}` | `GET` | Projekt-Detail (`project_detail`) inklusive `mode_lock` und `story_counters` (FK-72 §72.5 Topbar; `formal.frontend-contracts.entities.project_detail`) |
+| `/v1/projects/{project_key}/mode-lock` | `GET` | Projektweiter Story-Mode-Lock (Standard/Fast/Idle) fuer den Topbar-ModeIndicator (FK-24 §24.3.3) |
+| `/v1/projects/{project_key}/stories/counters` | `GET` | Aggregierte Story-Zaehler (total, finished, running, ready, queue, blocked) fuer die KpiBar |
+| `/v1/projects/{project_key}/stories/{story_id}/flow` | `GET` | Phasen- und Substep-Snapshot fuer den Inspector-Ablauf-Tab (FK-72 §72.6, Projektion auf `phase-state-projection` FK-39) |
+| `/v1/projects/{project_key}/execution-input/limits` | `GET` | Aktive Execution-Limits-Caps lesen (FK-70 §70.6.2) |
+| `/v1/projects/{project_key}/execution-input/limits` | `PUT` | Caps anpassen; triggert Re-Plan (§70.6.2a) und SSE-Events `limits_changed` + `execution_input_changed` |
 
 **Normative Regeln:**
 
@@ -443,11 +463,16 @@ administrativen Split-Vorgang aus FK-54.
 
 ## 91.8 Live-Event-Streams (SSE)
 
+<!-- PROSE-FORMAL: formal.frontend-contracts.events -->
+
 Frontend und BFF kommunizieren Live-Updates ueber Server-Sent Events
 (SSE), siehe FK-72 §72.12. Dieser Abschnitt katalogisiert die
-verfuegbaren SSE-Endpunkte und Event-Topics. Das Schema der einzelnen
-Events ist in FK-90 (Schema-Katalog) bzw. in den jeweiligen
-BC-Konzepten verankert.
+verfuegbaren SSE-Endpunkte und Event-Topics. Die konkreten
+Event-Schemas auf dem projekt-skopierten Stream
+`/v1/projects/{key}/events` sind formal in
+`formal.frontend-contracts.events` definiert; FK-90 fuehrt zusaetzlich
+die rohen Telemetrie-Schemas auf, soweit sie auch in
+nicht-Frontend-Pfaden verwendet werden.
 
 ### 91.8.1 SSE-Endpunkte
 
@@ -471,22 +496,25 @@ zu holen. Es gibt keinen Sequence-Cursor, kein Acknowledge-Protokoll.
 
 Der Katalog der unter `/v1/projects/{key}/events` gestreamten Topics
 entwickelt sich mit dem Implementierungsstand. Die folgenden Topics
-sind als verbindliche Bereiche festgelegt; konkrete Event-Typen pro
-Topic werden waehrend der Implementierung hier nachgetragen.
+sind als verbindliche Bereiche festgelegt; die Spalte
+"Wire-Schemas" verweist auf die formalen Event-IDs in
+`formal.frontend-contracts.events`. Erweiterungen werden ueber das
+formale Set gepflegt; eine zusaetzliche Prosa-Tabelle der einzelnen
+Event-Schemas ist explizit unzulaessig (keine zweite Wahrheitsquelle).
 
-| Topic | Inhalt | Owner-BC |
-|---|---|---|
-| `stories` | Story-Lifecycle: angelegt, geaendert, archiviert | `story_context_manager` |
-| `phases` | Phasen-Uebergaenge: started, completed, failed, escalated, paused | `pipeline_engine` |
-| `gates` | QA-Gate-Ergebnisse: pass, fail, warning, mit Findings | `verify_system` |
-| `governance` | Guard-Verletzungen, Integrity-Gate-Resultate | `governance` |
-| `closure` | Closure-Sequenz: started, merged, completed, escalated | `closure` |
-| `artifacts` | Artefakt-Erzeugungen mit Envelope-Metadaten | `artifacts` |
-| `telemetry` | rohe Execution-Events (granular, optional verbose) | `telemetry` |
-| `kpi` | KPI-Aenderungen, neue Aggregate | `kpi_analytics` |
-| `planning` | Wave-/Readiness-Aenderungen, Konfigurations-Updates | `execution_planning` |
-| `failure_corpus` | Pattern-Promotions, neue Incidents | `failure_corpus` |
-| `coverage` | ARE-Verknuepfungen, Coverage-Status-Updates | `requirements_coverage` |
+| Topic | Inhalt | Owner-BC | Wire-Schemas |
+|---|---|---|---|
+| `stories` | Story-Lifecycle: angelegt, geaendert, entfernt | `story_context_manager` | `frontend-contracts.event.story_upserted`, `.story_deleted` |
+| `phases` | Phasen- und Substep-Uebergaenge, Phase-Status | `pipeline_engine` | `frontend-contracts.event.phase_transitioned` |
+| `gates` | QA-Gate-Ergebnisse (pass, warning, fail) | `verify_system` | `frontend-contracts.event.gate_evaluated` |
+| `governance` | Guard-Verletzungen, Integrity-Gate-Resultate | `governance` | `frontend-contracts.event.governance_signal` |
+| `closure` | Closure-Substate-Uebergaenge | `closure` | `frontend-contracts.event.closure_transitioned` |
+| `artifacts` | Artefakt-Erzeugungen mit Envelope-Metadaten | `artifacts` | `frontend-contracts.event.artifact_produced` |
+| `telemetry` | Mode-Lock-Projektion plus rohe Execution-Events (verbose) | `telemetry` | `frontend-contracts.event.mode_lock_changed` |
+| `kpi` | KPI-Aenderungen, neue Aggregate | `kpi_analytics` | offen (folgt mit der Analytics-Hauptsicht; FK-72 §72.14.2) |
+| `planning` | Triage-Updates, Caps-Aenderungen, Graph-Aenderungen | `execution_planning` | `frontend-contracts.event.execution_input_changed`, `.limits_changed`, `.dependency_graph_changed` |
+| `failure_corpus` | Pattern-Promotions, neue Incidents | `failure_corpus` | offen (folgt mit dem Failure-Corpus-Browser) |
+| `coverage` | ARE-Verknuepfungen, Coverage-Status-Updates | `requirements_coverage` | `frontend-contracts.event.coverage_updated` |
 
 ### 91.8.4 Event-Topics (Hub-Stream)
 
@@ -500,6 +528,10 @@ Topics unter `/v1/events/hub`:
 
 ### 91.8.5 Pflicht zum Nachtrag
 
-Pro neuem Event-Typ in einem Topic ist dieser Abschnitt zu erweitern,
-damit der Frontend-Konsument einen vollstaendigen Katalog hat. Schemas
-der Events werden in FK-90 (Schema-Katalog) gepflegt.
+Pro neuem Event-Typ auf dem projekt-skopierten Stream wird die
+formale Spec `formal.frontend-contracts.events` erweitert; die
+Topic-Tabelle §91.8.3 referenziert den neuen Event-Bezeichner unter
+"Wire-Schemas". FK-90 fuehrt weiterhin die rohen Telemetrie-Schemas,
+soweit sie ueber Frontend-/SSE-Pfade hinausgehen. Hub-Events
+(§91.8.4) bleiben out-of-scope der Frontend-Contracts-Spec, siehe
+`concept/formal-spec/frontend-contracts/README.md`.

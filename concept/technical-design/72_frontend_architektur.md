@@ -11,6 +11,7 @@ authority_over:
   - scope: app-shell
   - scope: bff-topology
   - scope: frontend-views-inventory
+  - scope: frontend-wire-contracts
 defers_to:
   - target: FK-07
     scope: component-architecture
@@ -24,7 +25,12 @@ defers_to:
 supersedes: []
 superseded_by:
 tags: [frontend, app-shell, bff, ui, react, multi-bc]
-formal_scope: prose-only
+prose_anchor_policy: strict
+formal_refs:
+  - formal.frontend-contracts.entities
+  - formal.frontend-contracts.commands
+  - formal.frontend-contracts.events
+  - formal.frontend-contracts.invariants
 ---
 
 # 72 — Frontend-Architektur
@@ -112,24 +118,57 @@ Shell stellt nur den Slot.
 
 ## 72.5 Sichten-Inventar und BC-Mapping
 
+Die Hauptnavigation der Web-App fuehrt **fuenf** Top-Sichten:
+Graph, Kanban, Sheet, Analytics und Hub. Die Sichten 6/7
+(Wave-/Readiness, Konfiguration praktische Parallelisierbarkeit)
+sind keine eigenstaendigen Hauptmenue-Eintraege, sondern
+**Sub-Tabs** unter Graph. Der Concept-Browser ist eine
+Foundation-Sicht und nicht zwingend Teil der Hauptnavigation.
+
 | # | Sicht | Primaerer BC / Foundation | Mitliefernd | Charakter |
 |---|---|---|---|---|
-| 1 | Graph (Dependency) | `execution_planning` | `story_context_manager` | Single-BC |
+| 1 | Graph (Top-Sicht mit Sub-Tabs) | `execution_planning` | `story_context_manager` | Single-BC + Composer |
+| 1a | Sub-Tab `graph` (Dependency-Graph) | `execution_planning` | `story_context_manager` | Single-BC |
+| 1b | Sub-Tab `ready` (Execution-Input) | `execution_planning` | `story_context_manager` | Composer, Lese-Pfad |
+| 1c | Sub-Tab `limits` (Execution-Limits) | `execution_planning` | — | Single-BC, Schreibpfad |
 | 2 | Kanban | `story_context_manager` | `pipeline_engine`, `verify_system`, `governance` | Composer |
 | 3 | Sheet | `story_context_manager` | viele | Composer |
 | 4 | Analytics | `kpi_analytics` (Komposition) | `telemetry`, `verify_system`, `failure_corpus`, `pipeline_engine` | Composer |
 | 5 | Hub | Foundation `multi_llm_hub` | — | Foundation |
-| 6 | Wave-/Readiness | `execution_planning` | `story_context_manager` | Single-BC |
-| 7 | Konfiguration praktische Parallelisierbarkeit | `execution_planning` | — | Single-BC, Schreibpfad |
-| 8 | Concept-Browser | Foundation `concept_catalog` | viele Konsumenten | Foundation |
+| 6 | Concept-Browser | Foundation `concept_catalog` | viele Konsumenten | Foundation |
+
+Der `ready`-Sub-Tab projiziert die Execution-Input-Top-Surface aus
+FK-70 §70.8a.1; der `limits`-Sub-Tab ist die Schreib-Sicht auf
+dieselbe Caps-Sphaere. Beide Sub-Tabs teilen denselben deterministischen
+Selektor (FK-70 §70.8a.3) und werden ueber denselben SSE-Topic
+`planning` live aktuell gehalten.
+
+Die App-Shell rendert zusaetzlich eine **Topbar-Komposition**, die
+nicht als eigene Sicht zaehlt:
+
+| Element | BC-Quelle | Charakter |
+|---|---|---|
+| Project-Selector (Dropdown) | `project_management` | Schreibpfad: aktives Projekt waehlen |
+| ModeIndicator (Standard/Fast/Idle) | `story_context_manager` (Mode-Lock) | Lese-Pfad, abgeleitet aus laufenden Stories (FK-24 §24.3.3) |
+| Global Search | App-Shell, dispatcht an mehrere BCs | Lese-Pfad |
+| `+Story`-Button | `story_context_manager` | Schreibpfad: Anlage |
 
 ## 72.6 Inspector-Tabs
+
+Der Story-Inspector traegt **vier** Tabs in fester Reihenfolge.
 
 | Tab | Primaerer BC | Mitliefernd |
 |---|---|---|
 | Spezifikation | `story_context_manager` | `requirements_coverage`, `governance`, `concept_catalog` |
 | Ergebnis (Evidence) | `artifacts` | `pipeline_engine`, `verify_system`, `telemetry`, `governance`, `requirements_coverage` |
 | KPIs | `kpi_analytics` | `telemetry` |
+| Ablauf (Flow) | `pipeline_engine` | `story_context_manager`, `exploration`, `verify_system`, `closure` |
+
+Der `Ablauf`-Tab projiziert die kanonische
+`phase-state-projection` (FK-39) in eine Wire-Sicht mit
+Phasen-, Substep- und Loop-Iteration-Zustaenden (siehe
+§72.14). Im Fast-Mode bleibt die Exploration-Phase sichtbar,
+aber als `skipped` gefuehrt und ohne Substeps (FK-24 §24.3.3).
 
 ## 72.7 Schreibpfade
 
@@ -344,3 +383,76 @@ Sobald der Prototyp funktional und in der UX stabil ist, folgt eine
 Bis dahin gilt: was im Prototyp lebt, ist Soll. Konzept-Aussagen in
 diesem Dokument oder anderen FKs duerfen ihm **nicht** widersprechen
 — bei Konflikt wird hier nachgezogen, nicht der Prototyp angepasst.
+
+## 72.14 Frontend-Datenvertraege
+
+<!-- PROSE-FORMAL: formal.frontend-contracts.entities, formal.frontend-contracts.commands, formal.frontend-contracts.events, formal.frontend-contracts.invariants -->
+
+Die Wire-Sicht zwischen Frontend und BFF — Read-Models, Mutationen,
+Live-Events und ihre Konsistenzregeln — ist formal in
+`formal.frontend-contracts.*` festgelegt. Die hier in Prosa
+beschriebene Sichten-, Tab- und Schreibpfad-Struktur (§72.5..§72.8)
+projiziert auf diese formale Schicht; die einzelnen Endpunkte
+werden in FK-91 §91.1a aufgefuehrt.
+
+### 72.14.1 Geltungsbereich
+
+Die formale Schicht deckt ab:
+
+- **Read-Models** als `entity-set` in
+  `formal.frontend-contracts.entities`: ProjectSummary,
+  ProjectDetail, ProjectModeLock, StoryCounters, StorySummary,
+  StoryRuntimeState, StoryDetail (inkl. Specification, Evidence,
+  TelemetrySummary, Gates, Phases, Events), StoryFlowSnapshot
+  (inkl. Phasen und Substeps mit Loop-Iterationen),
+  ExecutionInputSnapshot, ExecutionInputStack, ExecutionLimits,
+  DependencyGraphSnapshot.
+- **Mutationen** als `command-set` in
+  `formal.frontend-contracts.commands`: `create_story`,
+  `update_story_fields`, `approve_story`, `reject_story`,
+  `cancel_story`, `update_execution_limits`. Jeder Command ist
+  auf den Endpoint aus FK-91 §91.1a gebunden, traegt einen
+  `op_id`-Idempotenzschluessel und nennt den fachlichen Owner-BC.
+- **Live-Events** als `event-set` in
+  `formal.frontend-contracts.events`: pro SSE-Topic
+  (`stories`, `phases`, `gates`, `governance`, `closure`,
+  `artifacts`, `planning`, `telemetry`, `coverage`) das konkrete
+  Wire-Schema des Frontends. Producer bleibt `telemetry` als
+  Single-Producer (§72.12.3).
+- **Konsistenz-Invarianten** als `invariant-set` in
+  `formal.frontend-contracts.invariants`: Initial-GET-plus-Subscribe,
+  Lossy-Re-Sync, kein Polling, Triage-Determinismus, Mode-Lock-
+  Ableitung, Status-Transitionen nur via dedizierte Endpoints,
+  Counters-Klassifikation, Flow-Snapshot-Konsistenz.
+
+### 72.14.2 Was bewusst nicht formal ist
+
+Bewusst **nicht** im formalen Vertrag:
+
+- **LLM-Hub-Integration** (Sicht 5 in §72.5). Hub-Cockpit und der
+  separate SSE-Stream `/v1/events/hub` bleiben zurueckgestellt,
+  bis die Hub-View produktiv ist. Heute Prototyp-Stand.
+- **Analytics-Hauptsicht** (Sicht 4 in §72.5). KPI-Definitionen
+  und Aggregat-Endpoints sind Eigentum von `kpi-and-dashboard`
+  (FK-60..63) und werden dort formalisiert, sobald die View
+  produktiv ist.
+- **Inspector-KPI-Tab-Lieferform**: Read-Modell entsteht aus
+  `kpi-and-dashboard`-Projektionen; im Frontend-Contract sind nur
+  `story_telemetry_summary`-Aggregate enthalten, die fuer das
+  Inspector-Rendering ausreichen, ohne KPI-Semantik zu
+  duplizieren.
+
+### 72.14.3 Aenderungsregel
+
+Jede Erweiterung der Web-Schnittstelle ist Pflicht-Erweiterung der
+formalen Schicht:
+
+1. Neuer Endpoint -> Eintrag in FK-91 §91.1a **und** Command bzw.
+   Entity in `formal.frontend-contracts.*`.
+2. Neues SSE-Event -> Eintrag in FK-91 §91.8 (Topic) **und** Event
+   in `formal.frontend-contracts.events`.
+3. Neue Sicht oder Tab -> Eintrag in §72.5 bzw. §72.6, mit Verweis
+   auf die Read-Model-Entitaeten, die sie konsumiert.
+
+Eine zweite Wahrheitsquelle (z. B. Prosa-Tabelle eines Schemas
+ohne Formal-ID) ist ausgeschlossen.
