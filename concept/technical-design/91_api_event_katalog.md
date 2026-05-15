@@ -133,6 +133,7 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
 | `/v1/projects/{project_key}/stories/{story_id}/flow` | `GET` | Phasen- und Substep-Snapshot fuer den Inspector-Ablauf-Tab (FK-72 §72.6, Projektion auf `phase-state-projection` FK-39) |
 | `/v1/projects/{project_key}/execution-input/limits` | `GET` | Aktive Execution-Limits-Caps lesen (FK-70 §70.6.2) |
 | `/v1/projects/{project_key}/execution-input/limits` | `PUT` | Caps anpassen; triggert Re-Plan (§70.6.2a) und SSE-Events `limits_changed` + `execution_input_changed` |
+| `/v1/projects/{project_key}/stories/search` | `GET` | Projektgebundene Story-Suche (Query-Parameter `q`); filtert auf `id`, `title`, `repos`, `module`, `epic` und liefert `story_summary`-Liste (FK-72 §72.5 Topbar-Search) |
 
 **Normative Regeln:**
 

@@ -65,12 +65,13 @@ commands:
         kind: enum
         required: false
         values: [standard, fast]
-      - name: primary_repo
-        kind: string
-        required: false
-      - name: participating_repos
+      - name: repos
         kind: list<string>
-        required: false
+        required: true
+        notes:
+          - >
+            Mindestens ein Repo, kein fachlicher Primary. Siehe
+            `frontend-contracts.entity.story_summary.repos`.
       - name: labels
         kind: list<string>
         required: false
@@ -121,16 +122,25 @@ commands:
         kind: enum
         required: false
         values: [standard, fast]
-      - name: primary_repo
-        kind: string
-        required: false
-      - name: participating_repos
+      - name: repos
         kind: list<string>
         required: false
+        notes:
+          - >
+            Wenn gesetzt: Vollersatz der bisherigen `repos`-Liste der
+            Story. Min ein Eintrag erforderlich; eine leere Liste ist
+            unzulaessig.
       - name: change_impact
         kind: enum
         required: false
         values: [Local, Component, Cross-Component, Architecture Impact]
+      - name: concept_quality
+        kind: enum
+        required: false
+        values: [High, Medium, Low]
+      - name: owner
+        kind: string
+        required: false
       - name: labels
         kind: list<string>
         required: false
@@ -143,7 +153,18 @@ commands:
           Status-Transitionen laufen ausschliesslich ueber die
           dedizierten Endpunkte (`approve`, `reject`, `cancel`,
           Phase-Lifecycle). Ein Frontend, das `status` per PATCH
-          mitschickt, ist fehlerhaft.
+          mitschickt, ist fehlerhaft. Sheet- und Inspector-UIs, die
+          eine Status-Auswahl anbieten, MUSSEN intern auf die
+          dedizierten Endpunkte dispatchen (siehe
+          `frontend-contracts.invariant.status_transitions_only_via_endpoints`).
+      - name: created_at
+        reason: >
+          System-managed beim Anlegen. Eine UI-seitige Editierbarkeit
+          im Sheet-Prototyp ist Anzeigefreiheit ohne Backend-Wirkung.
+      - name: completed_at
+        reason: >
+          System-managed beim Erreichen von `Done`. Eine UI-seitige
+          Editierbarkeit ist nicht persistierend.
     emits:
       - frontend-contracts.event.story_upserted
     owner_bc: story-lifecycle

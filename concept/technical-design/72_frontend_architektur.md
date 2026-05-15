@@ -456,3 +456,46 @@ formalen Schicht:
 
 Eine zweite Wahrheitsquelle (z. B. Prosa-Tabelle eines Schemas
 ohne Formal-ID) ist ausgeschlossen.
+
+### 72.14.4 Status-Mutationen — UI-Verbindlichkeit
+
+Story-Status-Wechsel sind keine PATCH-Operation auf Stammdaten,
+sondern Aufrufe der dedizierten Endpunkte. Die UI-Verbindlichkeit
+folgt der formalen Spec:
+
+- **Sheet** (Status-Cell): Auch wenn die Cell editierbar wirkt, wird
+  ein Status-Wechsel intern auf `approve_story`, `reject_story` bzw.
+  `cancel_story` dispatcht — niemals als `PATCH /v1/stories/{id}` mit
+  `status`-Feld. Siehe `frontend-contracts.invariant.status_transitions_only_via_endpoints`
+  und `forbidden_inputs.status` im `update_story_fields`-Command.
+- **Kanban** (Drag&Drop): Erlaubt ausschliesslich die Pfade
+  `Backlog -> Approved`, `Approved -> Backlog`, `Backlog -> Cancelled`,
+  `Approved -> Cancelled`. Terminale (`Done`, `Cancelled`) und
+  laufende (`In Progress`) Karten sind nicht draggable.
+  Pipeline-getriebene Uebergaenge (`Approved -> In Progress`,
+  `In Progress -> Done`) gehoeren der Pipeline, nicht dem UI. Siehe
+  `frontend-contracts.invariant.kanban_drag_drop_constrained_transitions`.
+- **Administrative Mutationen** auf laufende oder fertige Stories
+  laufen ueber `story-reset` (FK-53), `story-split` (FK-54) und
+  `story-exit` (FK-58); sie sind kein direkter Kanban- oder
+  Sheet-Pfad.
+
+### 72.14.5 Inspector-KPI-Tab — Phasenaufteilung
+
+Der Inspector-KPI-Tab liefert Werte phasenaufgeteilt, soweit der
+Stratege die Phasen-Leistung eines Agents bewerten koennen muss
+(Exploration loesen vs. Implementation loesen):
+
+- **Laufzeit**: getrennt fuer Setup, Exploration, Implementation,
+  Closure plus Total. Exploration ist im Fast-Mode `null` (Phase
+  ausgelassen, FK-24 §24.3.3).
+- **Solving Rate**: getrennt fuer Exploration und Implementation,
+  als Anteil der QA-Findings, die im Subflow-Remediation-Loop
+  abgearbeitet wurden.
+- **Tokens** (Total/In/Out/Cached): nicht phasenaufgeteilt, pro
+  Story. `tokens_cached` ist Pflicht und stammt aus der echten
+  Cache-Messung der LLM-Pools, nicht aus einer Frontend-Heuristik.
+
+Schema: `frontend-contracts.entity.story_telemetry_summary`. Eine
+Frontend-Synthese aus rohen Totals (wie aktuell im Prototyp) ist
+mit dieser Lieferung nicht mehr notwendig und nicht mehr zulaessig.

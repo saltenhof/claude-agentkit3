@@ -55,7 +55,8 @@ entities:
     identity: project_key
     description: >
       Detailsicht eines Projekts inkl. abgeleiteter Indikatoren fuer
-      die Topbar und KPI-Bar.
+      die Topbar und KPI-Bar plus projektweite Konzept-Anker fuer
+      den Inspector-Spezifikations-Tab.
     attributes:
       - name: project_key
         kind: string
@@ -75,6 +76,19 @@ entities:
         kind: ref
         required: true
         target: frontend-contracts.entity.story_counters
+      - name: concept_anchors
+        kind: list<string>
+        required: true
+        notes:
+          - >
+            Projektweite Konzept-Anker, die als statische "Konzeptanker"-
+            Sektion im Inspector-Spezifikations-Tab pro Story
+            gerendert werden. Inhalt sind kurze normative Verweise
+            (z. B. "FK-70: Pflichtsicht ist der Dependency-Graph").
+            Leer erlaubt. Aenderungen werden nicht auf einem eigenen
+            SSE-Topic propagiert; das Frontend re-fetcht
+            `project_detail` bei `mode_lock_changed` oder explizitem
+            User-Reload.
 
   - id: frontend-contracts.entity.project_mode_lock
     identity: project_key
@@ -174,16 +188,30 @@ entities:
       - name: module
         kind: string
         required: true
-      - name: primary_repo
-        kind: string
-        required: true
-      - name: participating_repos
+      - name: repos
         kind: list<string>
-        required: false
+        required: true
+        notes:
+          - >
+            Die Repos, an denen die Story arbeitet. Mindestens ein
+            Eintrag. Reihenfolge ist semantisch ohne Bedeutung;
+            insbesondere existiert auf der Wire-Sicht kein
+            ausgezeichneter "Primary". Die Implementierung des
+            Backends darf intern eine Reihenfolge oder Default-
+            Worktree-Bindung fuehren (FK-22 Multi-Repo-Worktrees);
+            das ist Implementierungsdetail und nicht Teil dieses
+            Vertrags.
       - name: change_impact
         kind: enum
         required: true
         values: [Local, Component, Cross-Component, Architecture Impact]
+      - name: concept_quality
+        kind: enum
+        required: true
+        values: [High, Medium, Low]
+      - name: owner
+        kind: string
+        required: true
       - name: wave
         kind: integer
         required: true
@@ -374,10 +402,13 @@ entities:
   - id: frontend-contracts.entity.story_telemetry_summary
     identity: story_id
     description: >
-      Aggregierte Telemetrie fuer Inspector-KPI-Tab (Tokens,
-      Pool-Calls, einfache Counter). Detaillierte Analytics-Sichten
-      werden in `kpi-and-dashboard` modelliert und sind hier nicht
-      enthalten.
+      Aggregierte Telemetrie fuer Inspector-KPI-Tab. Tokens werden
+      pro Story gefuehrt (keine Phasen-Aufteilung), Laufzeit und
+      Solving Rate werden phasenaufgeteilt geliefert, damit
+      sichtbar wird, ob ein Agent z. B. Exploration schwer und
+      Implementation leicht loest. Detaillierte Analytics-Sichten
+      ueber Stories hinweg werden in `kpi-and-dashboard` modelliert
+      und sind hier nicht enthalten.
     attributes:
       - name: run_id
         kind: string
@@ -390,7 +421,11 @@ entities:
         required: true
       - name: tokens_cached
         kind: integer
-        required: false
+        required: true
+        notes:
+          - >
+            Real von der LLM-Pool-Schicht gemessener Cache-Hit-Anteil
+            der Input-Tokens. Keine Frontend-Synthese.
       - name: llm_calls
         kind: integer
         required: false
@@ -400,6 +435,41 @@ entities:
       - name: web_calls
         kind: integer
         required: false
+      - name: runtime_total_minutes
+        kind: number
+        required: true
+      - name: runtime_setup_minutes
+        kind: number
+        required: true
+      - name: runtime_exploration_minutes
+        kind: number
+        required: false
+        notes:
+          - >
+            `null` im Fast-Mode (Exploration-Phase ausgelassen, FK-24
+            §24.3.3). Sonst Pflicht-Wert.
+      - name: runtime_implementation_minutes
+        kind: number
+        required: true
+      - name: runtime_closure_minutes
+        kind: number
+        required: true
+      - name: solving_rate_exploration
+        kind: number
+        required: false
+        notes:
+          - >
+            Anteil der in der Exploration gefundenen Findings, die im
+            Subflow-Remediation-Loop abgearbeitet wurden (0..100).
+            `null` im Fast-Mode. Quelle ist die QA-Subflow-Aggregation
+            (FK-27/FK-38).
+      - name: solving_rate_implementation
+        kind: number
+        required: true
+        notes:
+          - >
+            Anteil der in der Implementation-QA gefundenen Findings,
+            die durch Remediation abgearbeitet wurden (0..100).
       - name: pools
         kind: list<ref>
         required: false

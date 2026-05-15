@@ -177,6 +177,31 @@ invariants:
         where R.method == "PATCH" AND R.path matches "/v1/stories/{id}":
           R.body.status is absent
 
+  - id: frontend-contracts.invariant.kanban_drag_drop_constrained_transitions
+    scope: kanban_view
+    description: >
+      Drag&Drop im Kanban-Board exponiert genau die durch
+      `approve_story`, `reject_story` und `cancel_story` erlaubten
+      Status-Wechsel. Pipeline-getriebene Uebergaenge (`Approved` ->
+      `In Progress`, `In Progress` -> `Done`) sind kein UI-Pfad und
+      duerfen nicht per Drag ausgeloest werden. Terminal-Stories
+      (`Done`, `Cancelled`) sind nicht draggable.
+    rule: >
+      forall drag(story s, target_status t) in kanban_view:
+        (s.status == "Backlog"  AND t == "Approved")   // approve
+        OR (s.status == "Approved" AND t == "Backlog")  // reject
+        OR (s.status in {"Backlog", "Approved"} AND t == "Cancelled")  // cancel
+        // alle anderen Kombinationen sind UI-seitig zu blockieren
+    notes:
+      - >
+        `In Progress` und `Done` werden ausschliesslich von der
+        Pipeline gesetzt (Setup-Phase bzw. Closure-Sequence). Eine
+        UI-seitige Mutation auf diese Stati ist semantisch falsch.
+      - >
+        Administrative Mutationen auf laufende oder fertige Stories
+        laufen ueber `story-reset` (FK-53), `story-split` (FK-54) und
+        `story-exit` (FK-58) und sind nicht Teil des Kanban-Pfads.
+
   - id: frontend-contracts.invariant.cancel_not_during_inflight
     scope: cancel_story
     description: >
