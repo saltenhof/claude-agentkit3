@@ -1,0 +1,10 @@
+story_id: AG3-020
+title: "ProjectConfiguration mit Multi-Repo-Liste (Vorab-Story fuer AG3-014 §2.1.7)"
+type: implementation
+status: ready
+phase: setup
+created: "2026-05-15"
+size: S
+depends_on: []
+unblocks:
+  - AG3-014
