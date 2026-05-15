@@ -8,6 +8,7 @@ from agentkit.project_management.entities import ProjectConfiguration
 from agentkit.project_management.errors import (
     ProjectAlreadyArchivedError,
     ProjectImmutableFieldError,
+    ProjectRepositoriesInvalidError,
 )
 from agentkit.project_management.lifecycle import (
     archive_project,
@@ -22,6 +23,7 @@ def _configuration() -> ProjectConfiguration:
         default_branch="main",
         are_url=None,
         default_worker_count=2,
+        repositories=["https://example.test/repo.git"],
     )
 
 
@@ -73,3 +75,66 @@ def test_archive_project_rejects_double_archive() -> None:
 
     with pytest.raises(ProjectAlreadyArchivedError):
         archive_project(archived, archived_at=datetime(2026, 5, 3, 11, 0, tzinfo=UTC))
+
+
+# ---------------------------------------------------------------------------
+# AG3-020: repositories lifecycle tests
+# ---------------------------------------------------------------------------
+
+
+def test_create_project_persists_repositories() -> None:
+    """create_project stores the repositories list in the configuration."""
+    config = _configuration()
+    project = create_project("tenant-a", "Tenant A", "AG3", config)
+
+    assert project.configuration.repositories == ["https://example.test/repo.git"]
+
+
+def test_create_project_with_repositories_override() -> None:
+    """The repositories kwarg overrides the configuration's repositories field."""
+    base_config = _configuration()
+    project = create_project(
+        "tenant-a",
+        "Tenant A",
+        "AG3",
+        base_config,
+        repositories=["repo-x", "repo-y"],
+    )
+
+    assert project.configuration.repositories == ["repo-x", "repo-y"]
+
+
+def test_create_project_empty_repositories_raises() -> None:
+    """create_project rejects an empty repositories list (min-1 write-time guard)."""
+    config = ProjectConfiguration(
+        repo_url="https://example.test/repo.git",
+        default_branch="main",
+        are_url=None,
+        default_worker_count=1,
+        repositories=[],
+    )
+    with pytest.raises(ProjectRepositoriesInvalidError):
+        create_project("tenant-a", "Tenant A", "AG3", config)
+
+
+def test_update_configuration_repositories_empty_raises() -> None:
+    """update_configuration rejects replacing repositories with empty list."""
+    project = create_project("tenant-a", "Tenant A", "AG3", _configuration())
+
+    with pytest.raises(ProjectRepositoriesInvalidError):
+        update_configuration(
+            project,
+            configuration_updates={"repositories": []},
+        )
+
+
+def test_update_configuration_repositories_replaces_list() -> None:
+    """update_configuration can replace repositories with a valid new list."""
+    project = create_project("tenant-a", "Tenant A", "AG3", _configuration())
+
+    updated = update_configuration(
+        project,
+        configuration_updates={"repositories": ["repo-a", "repo-b"]},
+    )
+
+    assert updated.configuration.repositories == ["repo-a", "repo-b"]

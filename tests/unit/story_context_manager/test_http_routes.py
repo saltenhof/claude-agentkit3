@@ -31,6 +31,7 @@ class _InMemoryProjectRepository:
                     repo_url="https://github.com/example/ak3",
                     default_branch="main",
                     default_worker_count=2,
+                    repositories=["ak3", "r"],
                 ),
             ),
         }

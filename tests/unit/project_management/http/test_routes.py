@@ -49,6 +49,7 @@ def _configuration_payload() -> dict[str, object]:
         "default_branch": "main",
         "are_url": None,
         "default_worker_count": 2,
+        "repositories": ["https://example.test/repo.git"],
     }
 
 
@@ -217,3 +218,174 @@ def test_post_duplicate_project_returns_409() -> None:
     )
 
     assert response.status_code == HTTPStatus.CONFLICT
+
+
+# ---------------------------------------------------------------------------
+# AG3-020: repositories field HTTP-level tests
+# ---------------------------------------------------------------------------
+
+
+def test_post_project_without_repositories_uses_default_backfill() -> None:
+    """POST /v1/projects without repositories uses model_validator backfill from repo_url."""
+    repository = _InMemoryProjectRepository()
+    config_without_repos = {
+        "repo_url": "https://example.test/repo.git",
+        "default_branch": "main",
+        "are_url": None,
+        "default_worker_count": 2,
+        # repositories absent — model_validator derives from repo_url
+    }
+    payload = {
+        "key": "tenant-b",
+        "name": "Tenant B",
+        "story_id_prefix": "TB",
+        "configuration": config_without_repos,
+        "op_id": "op-create-without-repos",
+    }
+
+    response = _app(repository).handle_request(
+        method="POST",
+        path="/v1/projects",
+        body=json.dumps(payload).encode("utf-8"),
+        request_headers={"X-Correlation-Id": "req-create-no-repos"},
+    )
+
+    assert response.status_code == HTTPStatus.CREATED
+    project = repository.get("tenant-b")
+    assert project is not None
+    assert project.configuration.repositories == ["https://example.test/repo.git"]
+
+
+def test_post_project_with_repositories_persists_list() -> None:
+    """POST /v1/projects with explicit repositories stores the list."""
+    repository = _InMemoryProjectRepository()
+    payload = {
+        "key": "tenant-c",
+        "name": "Tenant C",
+        "story_id_prefix": "TC",
+        "configuration": {
+            "repo_url": "https://example.test/primary.git",
+            "default_branch": "main",
+            "are_url": None,
+            "default_worker_count": 1,
+            "repositories": ["primary-repo", "secondary-repo"],
+        },
+        "op_id": "op-create-with-repos",
+    }
+
+    response = _app(repository).handle_request(
+        method="POST",
+        path="/v1/projects",
+        body=json.dumps(payload).encode("utf-8"),
+        request_headers={"X-Correlation-Id": "req-create-repos"},
+    )
+
+    assert response.status_code == HTTPStatus.CREATED
+    project = repository.get("tenant-c")
+    assert project is not None
+    assert project.configuration.repositories == ["primary-repo", "secondary-repo"]
+
+
+def test_patch_configuration_updates_repositories() -> None:
+    """PATCH /v1/projects/{key}/configuration with repositories replaces the list."""
+    repository = _InMemoryProjectRepository()
+    repository.save(_project())
+
+    response = _app(repository).handle_request(
+        method="PATCH",
+        path="/v1/projects/tenant-a/configuration",
+        body=json.dumps({"repositories": ["repo-a", "repo-b"]}).encode("utf-8"),
+        request_headers={"X-Correlation-Id": "req-patch-config"},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    project = repository.get("tenant-a")
+    assert project is not None
+    assert project.configuration.repositories == ["repo-a", "repo-b"]
+
+
+def test_patch_configuration_repos_in_use_returns_validation_failed() -> None:
+    """PATCH /v1/projects/{key}/configuration that removes a repo still in use returns 400."""
+    repository = _InMemoryProjectRepository()
+    repository.save(_project())
+
+    def _checker(project_key: str, repos: list[str]) -> list[str]:
+        # Simulate: "repo-in-use" is still referenced by an active story.
+        return [r for r in repos if r == "https://example.test/repo.git"]
+
+    routes = ProjectManagementRoutes(repository, repos_in_use_checker=_checker)
+    app = ControlPlaneApplication(project_routes=routes)
+
+    response = app.handle_request(
+        method="PATCH",
+        path="/v1/projects/tenant-a/configuration",
+        body=json.dumps({"repositories": ["new-repo"]}).encode("utf-8"),
+        request_headers={"X-Correlation-Id": "req-patch-repos-in-use"},
+    )
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    body = _json_body(response.body)
+    assert body["error_code"] == "validation_failed"
+    assert "repos_still_in_use" in str(body.get("detail", ""))
+
+
+def test_patch_configuration_repos_not_in_use_succeeds() -> None:
+    """PATCH /v1/projects/{key}/configuration removing a repo not in use succeeds."""
+    repository = _InMemoryProjectRepository()
+    # Project has two repos; we'll remove the second one.
+    project = Project(
+        key="tenant-a",
+        name="Tenant A",
+        story_id_prefix="AG3",
+        configuration=ProjectConfiguration(
+            repo_url="https://example.test/repo.git",
+            default_branch="main",
+            are_url=None,
+            default_worker_count=2,
+            repositories=["repo-keep", "repo-remove"],
+        ),
+        archived_at=None,
+    )
+    repository.save(project)
+
+    def _checker(project_key: str, repos: list[str]) -> list[str]:
+        # "repo-remove" is NOT in use — returns empty list
+        return []
+
+    routes = ProjectManagementRoutes(repository, repos_in_use_checker=_checker)
+    app = ControlPlaneApplication(project_routes=routes)
+
+    response = app.handle_request(
+        method="PATCH",
+        path="/v1/projects/tenant-a/configuration",
+        body=json.dumps({"repositories": ["repo-keep"]}).encode("utf-8"),
+        request_headers={"X-Correlation-Id": "req-patch-repos-ok"},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    saved = repository.get("tenant-a")
+    assert saved is not None
+    assert saved.configuration.repositories == ["repo-keep"]
+
+
+def test_patch_project_updates_repositories_via_body_configuration() -> None:
+    """PATCH /v1/projects/{key} with configuration.repositories updates repos."""
+    repository = _InMemoryProjectRepository()
+    repository.save(_project())
+
+    response = _app(repository).handle_request(
+        method="PATCH",
+        path="/v1/projects/tenant-a",
+        body=json.dumps(
+            {
+                "configuration": {"repositories": ["repo-new"]},
+                "op_id": "op-patch-repos",
+            },
+        ).encode("utf-8"),
+        request_headers={"X-Correlation-Id": "req-patch-repos"},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    project = repository.get("tenant-a")
+    assert project is not None
+    assert project.configuration.repositories == ["repo-new"]

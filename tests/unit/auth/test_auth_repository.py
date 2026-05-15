@@ -26,6 +26,7 @@ def test_state_backend_project_api_token_repository_roundtrip(tmp_path: Path) ->
                 default_branch="main",
                 are_url=None,
                 default_worker_count=1,
+                repositories=["https://example.test/repo.git"],
             ),
             archived_at=None,
         ),

@@ -49,6 +49,7 @@ class _InMemoryProjectRepository:
                     repo_url="https://github.com/example/ak3",
                     default_branch="main",
                     default_worker_count=2,
+                    repositories=["ak3", "ak3-frontend"],
                 ),
             ),
         }
@@ -194,6 +195,7 @@ def test_create_story_archived_project_raises() -> None:
             repo_url="https://example.com",
             default_branch="main",
             default_worker_count=1,
+            repositories=["repo"],
         ),
         archived_at=datetime(2025, 1, 1, tzinfo=UTC),
     )
@@ -502,6 +504,7 @@ def test_list_stories_excludes_other_projects() -> None:
             repo_url="https://example.com",
             default_branch="main",
             default_worker_count=1,
+            repositories=["beta-repo"],
         ),
     )
     svc = _make_service(project_repo=project_repo)
@@ -542,6 +545,64 @@ def test_get_story_fields_returns_wire_dict() -> None:
 
     assert fields["story_id"] == story.story_display_id
     assert fields["status"] == "Backlog"
+
+
+# ---------------------------------------------------------------------------
+# AG3-020/AG3-014 Integration: repo validation now live (Befund 3 fixed)
+# ---------------------------------------------------------------------------
+
+
+def test_create_story_unknown_repo_is_blocked() -> None:
+    """AG3-014 AC6: creating a story with a repo not in project config is rejected.
+
+    This test verifies that the AG3-014 Befund 3 fix is complete:
+    _get_project_repos now returns project.configuration.repositories,
+    so validate_repos_against_project blocks unknown repos.
+    """
+    svc = _make_service()
+
+    with pytest.raises(StoryValidationError) as exc_info:
+        svc.create_story(
+            project_key="ak3",
+            title="Story with unknown repo",
+            story_type=WireStoryType.IMPLEMENTATION,
+            repos=["nicht-existent"],
+            op_id="op-unknown-repo",
+        )
+
+    detail = exc_info.value.args[0] if exc_info.value.args else ""
+    # detail.unknown_repos must be populated
+    assert "unknown_repos" in str(exc_info.value.__dict__.get("detail", {})) or \
+           "nicht-existent" in str(detail) or \
+           hasattr(exc_info.value, "detail") and "unknown_repos" in str(getattr(exc_info.value, "detail", ""))
+
+
+def test_create_story_known_repo_is_allowed() -> None:
+    """AG3-014 AC6 happy path: a story with a repo in project config is accepted."""
+    svc = _make_service()
+
+    story = svc.create_story(
+        project_key="ak3",
+        title="Story with known repo",
+        story_type=WireStoryType.IMPLEMENTATION,
+        repos=["ak3"],
+        op_id="op-known-repo",
+    )
+
+    assert story.participating_repos == ["ak3"]
+
+
+def test_update_story_fields_unknown_repo_is_blocked() -> None:
+    """AG3-014 AC6: updating a story's repos to include an unknown repo is rejected."""
+    svc = _make_service()
+    story = _create_story(svc, repos=["ak3"], op_id="op-create")
+
+    with pytest.raises(StoryValidationError):
+        svc.update_story_fields(
+            story.story_display_id,
+            updates={"repos": ["ak3", "nicht-existent"]},
+            op_id="op-update-unknown",
+        )
 
 
 def test_get_story_fields_not_found_raises() -> None:

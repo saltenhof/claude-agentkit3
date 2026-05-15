@@ -23,6 +23,7 @@ def _configuration() -> ProjectConfiguration:
         default_branch="main",
         are_url=None,
         default_worker_count=2,
+        repositories=["https://example.test/repo.git"],
     )
 
 
@@ -61,3 +62,72 @@ def test_repository_rejects_duplicate_story_id_prefix(tmp_path: Path) -> None:
 
     with pytest.raises(ProjectStoryIdPrefixConflictError):
         repository.save(create_project("tenant-b", "Tenant B", "AG3", _configuration()))
+
+
+# ---------------------------------------------------------------------------
+# AG3-020: JSON migration loader (old records without 'repositories' field)
+# ---------------------------------------------------------------------------
+
+
+def test_repository_roundtrip_includes_repositories(tmp_path: Path) -> None:
+    """Saving a project with repositories and reading it back preserves the list."""
+    from agentkit.project_management.entities import ProjectConfiguration
+
+    config = ProjectConfiguration(
+        repo_url="https://example.test/repo.git",
+        default_branch="main",
+        are_url=None,
+        default_worker_count=1,
+        repositories=["repo-a", "repo-b"],
+    )
+    repository = StateBackendProjectRepository(tmp_path)
+    project = create_project("p1", "Project 1", "P1", config)
+    repository.save(project)
+
+    loaded = repository.get("p1")
+    assert loaded is not None
+    assert loaded.configuration.repositories == ["repo-a", "repo-b"]
+
+
+def test_repository_reads_old_record_without_repositories_field(tmp_path: Path) -> None:
+    """Old DB records without 'repositories' key are backfilled from repo_url without crashing."""
+    import json
+    import sqlite3
+
+    from agentkit.state_backend import sqlite_store
+    from agentkit.state_backend.store import facade
+
+    # Write an old-style record directly into the DB, bypassing the ORM.
+    db_path = sqlite_store.state_db_path_for(tmp_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    sqlite_store._ensure_schema(conn)
+    old_config = json.dumps(
+        {
+            "repo_url": "https://example.test/legacy.git",
+            "default_branch": "main",
+            "are_url": None,
+            "default_worker_count": 1,
+            # 'repositories' intentionally absent — simulates old DB row
+        }
+    )
+    conn.execute(
+        """
+        INSERT INTO projects (key, name, story_id_prefix, configuration_json, archived_at)
+        VALUES (?, ?, ?, ?, NULL)
+        """,
+        ("legacy-proj", "Legacy Project", "LEG", old_config),
+    )
+    conn.commit()
+    conn.close()
+
+    facade.reset_backend_cache_for_tests()
+    repository = StateBackendProjectRepository(tmp_path)
+    project = repository.get("legacy-proj")
+
+    assert project is not None
+    # Backfill derives repos from repo_url
+    assert project.configuration.repositories == ["https://example.test/legacy.git"]

@@ -36,6 +36,7 @@ def _configuration() -> ProjectConfiguration:
         default_branch="main",
         are_url=None,
         default_worker_count=1,
+        repositories=["https://example.test/repo.git"],
     )
 
 
