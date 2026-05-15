@@ -21,6 +21,7 @@ from agentkit.project_management.entities import Project, ProjectConfiguration
 from agentkit.project_management.errors import (
     ProjectAlreadyArchivedError,
     ProjectImmutableFieldError,
+    ProjectRepoStillInUseError,
     ProjectStoryIdPrefixConflictError,
 )
 from agentkit.project_management.lifecycle import (
@@ -30,11 +31,16 @@ from agentkit.project_management.lifecycle import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from agentkit.project_management.repository import ProjectRepository
 
 _CORRELATION_HEADER = "X-Correlation-Id"
 _PROJECT_DETAIL_PATH = re.compile(r"^/v1/projects/(?P<key>[^/]+)$")
 _PROJECT_ARCHIVE_PATH = re.compile(r"^/v1/projects/(?P<key>[^/]+)/archive$")
+_PROJECT_CONFIG_PATH = re.compile(
+    r"^/v1/projects/(?P<key>[^/]+)/configuration$"
+)
 
 
 @dataclass(frozen=True)
@@ -47,7 +53,7 @@ class ProjectRouteResponse:
 
 
 class ProjectConfigurationPatch(BaseModel):
-    """Partial configuration update payload."""
+    """Partial configuration update payload for PATCH /v1/projects/{key}/configuration."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -55,6 +61,7 @@ class ProjectConfigurationPatch(BaseModel):
     default_branch: str | None = None
     are_url: str | None = None
     default_worker_count: int | None = Field(default=None, ge=1)
+    repositories: list[str] | None = None
 
 
 class CreateProjectRequest(BaseModel):
@@ -91,9 +98,25 @@ class ArchiveProjectRequest(BaseModel):
 
 
 class ProjectManagementRoutes:
-    """Route handler for the project-management HTTP surface."""
+    """Route handler for the project-management HTTP surface.
 
-    def __init__(self, repository: ProjectRepository | None = None) -> None:
+    Args:
+        repository: Project persistence port.  Defaults to
+            ``StateBackendProjectRepository``.
+        repos_in_use_checker: Optional callable that receives
+            ``(project_key: str, repos: list[str])`` and returns the subset
+            of ``repos`` that are still referenced by an *active* (In Progress)
+            story.  Used by the PATCH configuration path to enforce
+            ``fail-closed`` when removing repos still in use.  When ``None``
+            the check is skipped (safe default for unit tests that do not
+            exercise the guard path).
+    """
+
+    def __init__(
+        self,
+        repository: ProjectRepository | None = None,
+        repos_in_use_checker: Callable[[str, list[str]], list[str]] | None = None,
+    ) -> None:
         if repository is None:
             from agentkit.state_backend.store.project_management_repository import (
                 StateBackendProjectRepository,
@@ -101,6 +124,7 @@ class ProjectManagementRoutes:
 
             repository = StateBackendProjectRepository()
         self._repository = repository
+        self._repos_in_use_checker = repos_in_use_checker
 
     def handle_get(
         self,
@@ -158,7 +182,19 @@ class ProjectManagementRoutes:
         payload: object,
         correlation_id: str,
     ) -> ProjectRouteResponse | None:
-        """Handle project-management PATCH routes or return None."""
+        """Handle project-management PATCH routes or return None.
+
+        Routes handled:
+          - ``PATCH /v1/projects/{key}``                 (full project patch)
+          - ``PATCH /v1/projects/{key}/configuration``   (configuration-only patch)
+        """
+        config_match = _PROJECT_CONFIG_PATH.match(route_path)
+        if config_match is not None:
+            return self._handle_patch_configuration(
+                config_match.group("key"),
+                payload,
+                correlation_id,
+            )
 
         detail_match = _PROJECT_DETAIL_PATH.match(route_path)
         if detail_match is None:
@@ -193,6 +229,23 @@ class ProjectManagementRoutes:
                 exclude_none=False,
             )
         try:
+            # When repositories is being updated, check repos-in-use before saving.
+            if configuration_updates and "repositories" in configuration_updates:
+                new_repos_raw = configuration_updates["repositories"]
+                new_repos = (
+                    [str(r) for r in new_repos_raw]
+                    if isinstance(new_repos_raw, list)
+                    else []
+                )
+                in_use_check = self._check_repos_removal(
+                    project.key,
+                    list(project.configuration.repositories),
+                    new_repos,
+                    correlation_id,
+                )
+                if in_use_check is not None:
+                    return in_use_check
+
             updated = update_configuration(
                 project,
                 name=request.name,
@@ -219,6 +272,136 @@ class ProjectManagementRoutes:
             correlation_id,
             updated,
             operation_kind="project_update",
+        )
+
+    def _handle_patch_configuration(
+        self,
+        key: str,
+        payload: object,
+        correlation_id: str,
+    ) -> ProjectRouteResponse:
+        """Handle PATCH /v1/projects/{key}/configuration.
+
+        Validates the new ``repositories`` list (if present) against active
+        stories before persisting the update.
+
+        Args:
+            key: Project key from the URL.
+            payload: Raw request body.
+            correlation_id: Request correlation ID.
+
+        Returns:
+            A ``ProjectRouteResponse``.
+        """
+        try:
+            patch = ProjectConfigurationPatch.model_validate(payload)
+        except ValidationError as exc:
+            return _validation_error_response(
+                "invalid_project_configuration_patch",
+                "Invalid project configuration patch",
+                correlation_id,
+                exc,
+            )
+
+        project = self._repository.get(key)
+        if project is None:
+            return _not_found_response(correlation_id)
+
+        op_id = f"op-{uuid.uuid4().hex}"
+        configuration_updates = patch.model_dump(
+            mode="python",
+            exclude_unset=True,
+            exclude_none=False,
+        )
+        # Remove keys that are None (unset optional fields)
+        configuration_updates = {
+            k: v for k, v in configuration_updates.items() if v is not None
+        }
+
+        # Guard: fail-closed if repos being removed are still in active stories.
+        if "repositories" in configuration_updates:
+            in_use_check = self._check_repos_removal(
+                project.key,
+                list(project.configuration.repositories),
+                list(configuration_updates["repositories"]),
+                correlation_id,
+            )
+            if in_use_check is not None:
+                return in_use_check
+
+        try:
+            updated = update_configuration(
+                project,
+                configuration_updates=configuration_updates or None,
+            )
+            self._repository.save(updated)
+        except (ProjectImmutableFieldError, ProjectStoryIdPrefixConflictError) as exc:
+            return _conflict_response(
+                "project_update_conflict",
+                str(exc),
+                correlation_id,
+            )
+        except ValidationError as exc:
+            return _validation_error_response(
+                "invalid_project_configuration",
+                "Invalid project configuration",
+                correlation_id,
+                exc,
+            )
+        except ProjectRepoStillInUseError as exc:
+            return _validation_error_response_plain(
+                "validation_failed",
+                str(exc),
+                correlation_id,
+                detail={"repos_still_in_use": []},
+            )
+
+        return _mutation_response(
+            HTTPStatus.OK,
+            op_id,
+            correlation_id,
+            updated,
+            operation_kind="project_configuration_update",
+        )
+
+    def _check_repos_removal(
+        self,
+        project_key: str,
+        current_repos: list[str],
+        new_repos: list[str],
+        correlation_id: str,
+    ) -> ProjectRouteResponse | None:
+        """Check whether any repo being removed is still in use by an active story.
+
+        Returns a ``validation_failed`` response when the check finds conflicts,
+        or ``None`` when the update is safe to proceed.
+
+        Args:
+            project_key: Project key for the in-use lookup.
+            current_repos: Current repositories list on the project.
+            new_repos: Proposed new repositories list.
+            correlation_id: Request correlation ID.
+
+        Returns:
+            A ``ProjectRouteResponse`` with ``validation_failed`` if any
+            removed repo is still in use by an active story, otherwise ``None``.
+        """
+        if self._repos_in_use_checker is None:
+            return None
+
+        removed = [r for r in current_repos if r not in set(new_repos)]
+        if not removed:
+            return None
+
+        in_use = self._repos_in_use_checker(project_key, removed)
+        if not in_use:
+            return None
+
+        return _validation_error_response_plain(
+            "validation_failed",
+            "Cannot remove repos that are still referenced by active stories",
+            correlation_id,
+            detail={"repos_still_in_use": in_use},
         )
 
     def _handle_create(
@@ -383,6 +566,22 @@ def _validation_error_response(
         message=message,
         correlation_id=correlation_id,
         detail=exc.errors(),
+    )
+
+
+def _validation_error_response_plain(
+    error_code: str,
+    message: str,
+    correlation_id: str,
+    detail: object | None = None,
+) -> ProjectRouteResponse:
+    """Return a 400 validation_failed response with a plain (non-Pydantic) detail."""
+    return _error_response(
+        HTTPStatus.BAD_REQUEST,
+        error_code=error_code,
+        message=message,
+        correlation_id=correlation_id,
+        detail=detail,
     )
 
 
