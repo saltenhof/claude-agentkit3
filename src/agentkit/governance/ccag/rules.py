@@ -190,9 +190,6 @@ def _parse_rule_entry(entry: dict[str, Any], source_file: str = "") -> CcagRule 
     Returns:
         A parsed :class:`CcagRule`, or ``None`` on failure.
     """
-    if not isinstance(entry, dict):
-        return None
-
     tool = str(entry.get("tool", "")).strip()
     if not tool:
         return None
