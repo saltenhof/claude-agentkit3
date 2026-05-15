@@ -44,6 +44,11 @@ var/
 .pytest-temp*/
 /tmp*/
 
+# Verbotene Repo-Root-Spiegelung der Zielprojekt-Struktur (PROJECT_STRUCTURE.md).
+# Bei Dev/Smoke-Runs entsteht .agentkit/ versehentlich (z.B. SQLite-Default-Pfad
+# eines Default-StoryService). Hier hard-ignored gegen Re-Add.
+/.agentkit/
+
 # OS
 Thumbs.db
 .DS_Store
