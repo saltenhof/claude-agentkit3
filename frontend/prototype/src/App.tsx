@@ -55,10 +55,12 @@ import {
   DEFAULT_EXECUTION_LIMITS,
   project,
   projects,
+  selectActiveProjectMode,
   selectStoryCounters,
   STORY_FIXTURES as initialStories,
   type ExecutionLimits,
   type PhaseStatus,
+  type ProjectModeLock,
   type Story,
   type StoryCounters,
 } from './store';
@@ -67,6 +69,9 @@ import { KpiBar } from './components/KpiBar';
 import { GraphTabs, type GraphTab } from './components/GraphTabs';
 import { ReadyStackView } from './components/ReadyStackView';
 import { ExecutionLimitsView } from './components/ExecutionLimitsView';
+import { FlowTab } from './components/FlowTab';
+import { FastBadge } from './components/FastBadge';
+import { AnalyticsView } from './components/AnalyticsView';
 
 type ViewMode = 'graph' | 'kanban' | 'sheet' | 'analytics' | 'hub';
 const INSPECTOR_WIDTH_KEY = 'ak3.storyInspector.width';
@@ -364,7 +369,10 @@ function StoryNode({ data, selected }: NodeProps) {
     >
       <Handle className="node-handle" type="target" position={Position.Left} />
       <div className="node-topline">
-        <span className="node-id">{story.id}</span>
+        <span className="node-id">
+          {story.id}
+          <FastBadge mode={story.mode} />
+        </span>
         <Badge tone={statusClass[story.status]}>{story.status}</Badge>
       </div>
       <div className="node-title">{story.title}</div>
@@ -474,6 +482,10 @@ export function App() {
   }, []);
 
   const counters = useMemo(() => selectStoryCounters(storyState), [storyState]);
+  const activeMode: ProjectModeLock = useMemo(
+    () => selectActiveProjectMode(storyState),
+    [storyState],
+  );
 
   const activeProject = projects.find((candidate) => candidate.key === activeProjectKey) ?? project;
 
@@ -642,6 +654,7 @@ export function App() {
             </div>
           </div>
           <div className="top-actions">
+            <ModeIndicator mode={activeMode} />
             <div className="ak-input search">
               <Search size={17} />
               <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Story, Repo, Modul oder Epic" />
@@ -767,7 +780,7 @@ function MainView({
   }
 
   if (view === 'analytics') {
-    return <AnalyticsView />;
+    return <AnalyticsView stories={allStories} />;
   }
 
   if (view === 'hub') {
@@ -999,7 +1012,10 @@ function Kanban({
                   }
                 }}
               >
-                <span className="node-id">{story.id}</span>
+                <span className="node-id">
+                  {story.id}
+                  <FastBadge mode={story.mode} />
+                </span>
                 <strong>{story.title}</strong>
                 <small>{story.module} · Wave {story.wave}</small>
                 <div className="tag-row">
@@ -1431,64 +1447,15 @@ function SheetCell({
   if (column.id === 'epic') {
     return <span className="epic-label">{String(value)}</span>;
   }
-  if (column.id === 'id') return <span className="cell-id">{story.id}</span>;
+  if (column.id === 'id') {
+    return (
+      <span className="cell-id">
+        {story.id}
+        <FastBadge mode={story.mode} size={12} />
+      </span>
+    );
+  }
   return <span>{value || '-'}</span>;
-}
-
-function AnalyticsView() {
-  const pipelineSeries = [78, 64, 71, 86, 82, 91];
-  const qaSeries = [3, 2, 4, 1, 2, 3];
-  const poolRows = [
-    ['chatgpt', '1.9s', '5.8s', '84%'],
-    ['gemini', '2.4s', '7.1s', '79%'],
-    ['grok', '2.8s', '8.6s', '73%'],
-    ['qwen', '2.1s', '6.3s', '76%'],
-  ];
-
-  return (
-    <div className="analytics-grid">
-      <section className="analytics-card ak-panel accent-teal">
-        <h2>Story KPI</h2>
-        <div className="big-number">82%</div>
-        <p>First-Pass-Rate, gueltige nicht zurueckgesetzte Runs.</p>
-        <Sparkline values={pipelineSeries} />
-      </section>
-      <section className="analytics-card ak-panel accent-amber">
-        <h2>Pipeline Trends</h2>
-        <div className="bar-stack">
-          {qaSeries.map((value, index) => (
-            <div className="bar" key={index}>
-              <span style={{ height: `${value * 20}%` }} />
-            </div>
-          ))}
-        </div>
-        <p>QA-Runden-Trend und Processing-Time bleiben zusammen zu lesen.</p>
-      </section>
-      <section className="analytics-card ak-panel accent-violet">
-        <h2>LLM Performance</h2>
-        <table className="mini-table">
-          <tbody>
-            {poolRows.map(([pool, p50, p95, adoption]) => (
-              <tr key={pool}>
-                <td>{pool}</td>
-                <td>{p50}</td>
-                <td>{p95}</td>
-                <td>{adoption}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-      <section className="analytics-card ak-panel accent-danger">
-        <h2>Failure Corpus</h2>
-        <div className="funnel">
-          <span style={{ width: '92%' }}>Incidents 24</span>
-          <span style={{ width: '62%' }}>Patterns 11</span>
-          <span style={{ width: '38%' }}>Checks 4</span>
-        </div>
-      </section>
-    </div>
-  );
 }
 
 function formatDuration(ms: number | null): string {
@@ -1722,6 +1689,29 @@ function LlmHubView() {
   );
 }
 
+function ModeIndicator({ mode }: { mode: ProjectModeLock }) {
+  const tone = mode ?? 'idle';
+  const label = mode === 'fast' ? 'Fast' : mode === 'standard' ? 'Standard' : 'Idle';
+  const title =
+    mode === null
+      ? 'Kein Modus aktiv — keine Story in Bearbeitung.'
+      : mode === 'fast'
+        ? 'Fast-Modus aktiv: Exploration ausgelassen, Standard-Stories blockiert (FK-24 §24.3.3).'
+        : 'Standard-Modus aktiv: Fast-Stories blockiert (FK-24 §24.3.3).';
+  return (
+    <span
+      className={`mode-indicator mode-indicator--${tone}`}
+      role="status"
+      title={title}
+      aria-label={`Projekt-Mode: ${label}`}
+    >
+      <span className="mode-indicator__dot" aria-hidden="true" />
+      <span className="mode-indicator__label">Mode</span>
+      <span className="mode-indicator__value">{label}</span>
+    </span>
+  );
+}
+
 function DetailInspector({
   story,
   width,
@@ -1733,7 +1723,7 @@ function DetailInspector({
   onClose: () => void;
   onResizeStart: () => void;
 }) {
-  const [activeTab, setActiveTab] = useState<'spec' | 'evidence' | 'kpi'>('spec');
+  const [activeTab, setActiveTab] = useState<'spec' | 'evidence' | 'kpi' | 'flow'>('spec');
   return (
     <aside className="detail-inspector ak-panel" data-story-inspector="true" style={{ width }}>
       <div
@@ -1748,7 +1738,11 @@ function DetailInspector({
       <header className="inspector-head">
         <div>
           <p className="eyebrow">Story Inspector</p>
-          <h2>{story.id}</h2>
+          <h2>
+            {story.id}
+            <FastBadge mode={story.mode} size={22} />
+            <Badge tone={statusClass[story.status]}>{story.status}</Badge>
+          </h2>
         </div>
         <button className="ak-button" type="button" onClick={onClose}>
           <X size={16} />
@@ -1765,22 +1759,22 @@ function DetailInspector({
         <button className={activeTab === 'kpi' ? 'active' : ''} type="button" onClick={() => setActiveTab('kpi')}>
           KPIs
         </button>
+        <button className={activeTab === 'flow' ? 'active' : ''} type="button" onClick={() => setActiveTab('flow')}>
+          Ablauf
+        </button>
       </div>
       <Detail story={story} activeTab={activeTab} />
     </aside>
   );
 }
 
-function Detail({ story, activeTab }: { story: Story; activeTab: 'spec' | 'evidence' | 'kpi' }) {
+function Detail({ story, activeTab }: { story: Story; activeTab: 'spec' | 'evidence' | 'kpi' | 'flow' }) {
   return (
     <aside className="detail">
-      <div className="detail-head">
-        <span className="node-id">{story.id}</span>
-        <Badge tone={statusClass[story.status]}>{story.status}</Badge>
-      </div>
       {activeTab === 'spec' && <SpecificationTab story={story} />}
       {activeTab === 'evidence' && <EvidenceTab story={story} />}
       {activeTab === 'kpi' && <KpiTab story={story} />}
+      {activeTab === 'flow' && <FlowTab story={story} />}
     </aside>
   );
 }
@@ -1962,23 +1956,78 @@ function EvidenceTab({ story }: { story: Story }) {
   );
 }
 
+function parseMinutes(value: string): number | null {
+  const match = value.match(/(\d+(?:[\.,]\d+)?)/);
+  if (!match) return null;
+  const num = Number.parseFloat(match[1].replace(',', '.'));
+  return Number.isFinite(num) ? num : null;
+}
+
 function KpiTab({ story }: { story: Story }) {
   const telemetry = story.telemetry;
-  const observedLlmCalls = story.events.filter((event) => event.type === 'llm_call').length || (story.qaRounds > 0 ? story.qaRounds * 3 : 0);
-  const llmCalls = telemetry?.llmCalls ?? observedLlmCalls;
-  const tokenEstimate = (telemetry?.tokensIn ?? 0) + (telemetry?.tokensOut ?? 0) || story.qaRounds * 42000 + (story.status === 'In Progress' ? 28000 : 12000);
+  const fmt = (value: number) => value.toLocaleString('de-DE');
+
+  /* Laufzeit-Aufteilung: bei vorhandenem Total grob synthetisch
+   * 20%/60%/20% Exploration/Implementation/Closure -- bis das Backend
+   * die echten Phasenzeiten liefert. */
+  const totalMinutes = parseMinutes(story.processingTime);
+  const fastMode = story.mode === 'fast';
+  const phaseSplit = totalMinutes === null
+    ? null
+    : fastMode
+      ? { exploration: 0, implementation: Math.round(totalMinutes * 0.75), closure: Math.round(totalMinutes * 0.25) }
+      : { exploration: Math.round(totalMinutes * 0.2), implementation: Math.round(totalMinutes * 0.6), closure: Math.round(totalMinutes * 0.2) };
+
+  const runtimeTotal = story.processingTime;
+  const runtimeExploration = phaseSplit
+    ? fastMode
+      ? '— (Fast)'
+      : `${phaseSplit.exploration} min`
+    : '-';
+  const runtimeImplementation = phaseSplit ? `${phaseSplit.implementation} min` : '-';
+  const runtimeClosure = phaseSplit ? `${phaseSplit.closure} min` : '-';
+
+  /* Tokens: aus Telemetrie wenn vorhanden, sonst synthetisch aus
+   * QA-Runden und Story-Status abgeleitet. Cached wird mit ~32 %
+   * Cache-Hit-Rate angenaehert -- typischer Wert in den AK3-Pools. */
+  const tokensIn = telemetry?.tokensIn ?? Math.round(story.qaRounds * 22000 + 8000);
+  const tokensOut = telemetry?.tokensOut ?? Math.round(story.qaRounds * 8000 + 3000);
+  const tokensCached = Math.round(tokensIn * 0.32);
+  const tokensTotal = tokensIn + tokensOut;
+
+  /* QA-Runden + Solving Rate. Die Solving Rate beschreibt den Anteil
+   * der in der Phase gefundenen Findings, die durch Remediation-Runden
+   * abgearbeitet werden konnten -- bis auf evtl. tolerierte Minors.
+   * Im Prototyp synthetisch abgeleitet. */
+  const qaExploration = story.qaRoundsExploration ?? 0;
+  const qaImplementation = story.qaRoundsImplementation ?? story.qaRounds;
+  const solvingExploration =
+    qaExploration === 0
+      ? story.status === 'Done' && !fastMode ? 100 : 0
+      : Math.min(100, 70 + qaExploration * 10);
+  const solvingImplementation =
+    qaImplementation === 0
+      ? story.status === 'Done' ? 100 : 0
+      : Math.min(100, 72 + qaImplementation * 8);
 
   return (
     <>
       <h2>KPI und Telemetrie</h2>
       <div className="kpi-grid">
-        <Info label="Laufzeit" value={story.processingTime} />
-        <Info label="QA-Runden" value={String(story.qaRounds)} />
-        <Info label="LLM Calls" value={String(llmCalls)} />
-        <Info label="Tokens Total" value={tokenEstimate.toLocaleString('de-DE')} />
-        <Info label="Review Events" value={`${telemetry?.reviewResponses ?? story.events.filter((event) => event.type === 'review_response').length}/${telemetry?.reviewRequests ?? story.events.filter((event) => event.type === 'review_request').length}`} />
-        <Info label="Increments" value={String(telemetry?.incrementCommits ?? story.events.filter((event) => event.type === 'increment_commit').length)} />
-        <Info label="Completed At" value={story.completedAt ?? '-'} />
+        <Info label="Laufzeit Total" value={runtimeTotal} />
+        <Info label="Laufzeit Exploration" value={runtimeExploration} />
+        <Info label="Laufzeit Implementation" value={runtimeImplementation} />
+        <Info label="Laufzeit Closure" value={runtimeClosure} />
+
+        <Info label="Token Total" value={fmt(tokensTotal)} />
+        <Info label="Token In" value={fmt(tokensIn)} />
+        <Info label="Token Out" value={fmt(tokensOut)} />
+        <Info label="Token Cached" value={fmt(tokensCached)} />
+
+        <Info label="QA-Runden Exploration" value={fastMode ? '— (Fast)' : String(qaExploration)} />
+        <Info label="Solving Rate Exploration" value={fastMode ? '— (Fast)' : `${solvingExploration} %`} />
+        <Info label="QA-Runden Implementation" value={String(qaImplementation)} />
+        <Info label="Solving Rate Implementation" value={`${solvingImplementation} %`} />
       </div>
 
       <section className="detail-section">
@@ -2004,7 +2053,9 @@ function KpiTab({ story }: { story: Story }) {
           {(telemetry?.pools ?? [
             { pool: 'chatgpt' as const, role: 'qa_review', calls: Math.max(story.qaRounds, 0), status: 'PASS' as const },
             { pool: 'gemini' as const, role: 'semantic_review', calls: Math.max(story.qaRounds - 1, 0), status: 'PASS' as const },
+            { pool: 'grok' as const, role: 'adversarial', calls: Math.max(story.qaRounds - 1, 0), status: 'PASS' as const },
             { pool: 'qwen' as const, role: 'doc_fidelity', calls: Math.max(story.qaRounds - 1, 0), status: 'PASS' as const },
+            { pool: 'kimi' as const, role: 'long_context_audit', calls: Math.max(story.qaRounds - 2, 0), status: 'PASS' as const },
           ]).map((pool) => (
             <div className="pool-row" key={`${pool.pool}-${pool.role}`}>
               <span>{pool.pool}</span>

@@ -460,6 +460,10 @@ select {
   color: var(--ak-accent-text);
   font-size: var(--type-label-size);
   font-weight: var(--weight-bold);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  line-height: 1;
 }
 
 .story-sheet .cell-id,
@@ -673,6 +677,12 @@ select {
 .kanban-card strong,
 .kanban-card small {
   display: block;
+}
+
+.kanban-card .node-id {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
 }
 
 .kanban-card small {
@@ -2016,8 +2026,280 @@ td:hover .sheet-title-cell svg {
 
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--space-3);
+}
+
+/* ---- Analytics-Seite (KPI-Cockpit, /analytics) ---- */
+
+.analytics-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  height: 100%;
+  padding: var(--space-6);
+  overflow: auto;
+}
+
+.analytics-view__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-5);
+}
+
+.analytics-view__head h1 {
+  margin: 0;
+}
+
+.analytics-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  padding: 0.25rem;
+  border-radius: var(--radius-pill);
+  background: var(--ak-bg-raised-alt);
+  border: var(--border-hairline) solid var(--ak-border);
+}
+
+.analytics-tabs button {
+  appearance: none;
+  padding: 0.4375rem 1.125rem;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ak-text-muted);
+  font-family: var(--font-display);
+  font-size: 0.8125rem;
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.analytics-tabs button:hover {
+  color: var(--ak-text);
+}
+
+.analytics-tabs button.active {
+  color: var(--ak-accent-text);
+  background: color-mix(in srgb, var(--ak-accent), transparent 80%);
+  box-shadow: inset 0 0 0 var(--border-hairline) color-mix(in srgb, var(--ak-accent-text), transparent 60%);
+}
+
+.analytics-overview__lead {
+  margin: 0;
+  max-width: 56rem;
+  color: var(--ak-text-muted);
+  font-size: var(--font-sm);
+  line-height: 1.5;
+}
+
+.analytics-overview__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.kpi-stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.kpi-stat-card__head h3 {
+  margin: 0;
+  color: var(--ak-text-muted);
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.kpi-stat-card__primary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.kpi-stat-card__primary-label {
+  color: var(--ak-text-faint);
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.kpi-stat-card__primary-value {
+  color: var(--ak-accent-text);
+  font-family: var(--font-display);
+  font-size: 1.75rem;
+  font-weight: var(--weight-semibold);
+  line-height: 1.05;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
+}
+
+.kpi-stat-card__unit {
+  color: var(--ak-text-muted);
+  font-size: 0.875rem;
+  font-weight: var(--weight-medium, 500);
+  font-family: var(--font-body);
+}
+
+.kpi-stat-card__breakdown {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-3) 0 0;
+  border-top: var(--border-hairline) solid var(--ak-border);
+}
+
+.kpi-stat-card__breakdown > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.kpi-stat-card__breakdown dt {
+  color: var(--ak-text-faint);
+  font-size: 0.625rem;
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.kpi-stat-card__breakdown dd {
+  margin: 0;
+  color: var(--ak-text);
+  font-family: var(--font-display);
+  font-size: 0.9375rem;
+  font-weight: var(--weight-semibold);
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.1875rem;
+}
+
+/* ---- Timeseries-Tab ---- */
+
+.analytics-timeseries {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.analytics-timeseries__controls {
+  display: grid;
+  grid-template-columns: max-content 1fr max-content;
+  gap: var(--space-5);
+  align-items: start;
+  padding: var(--space-4);
+}
+
+.analytics-timeseries__group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.analytics-timeseries__group--wide {
+  min-width: 0;
+}
+
+.analytics-timeseries__presets {
+  display: inline-flex;
+  gap: 0.25rem;
+  border-radius: var(--radius-md);
+  padding: 0.25rem;
+  background: var(--ak-bg-raised);
+  border: var(--border-hairline) solid var(--ak-border);
+}
+
+.analytics-timeseries__presets button {
+  appearance: none;
+  padding: 0.3125rem 0.75rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ak-text-muted);
+  font-size: 0.75rem;
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.analytics-timeseries__presets button:hover {
+  color: var(--ak-text);
+}
+
+.analytics-timeseries__presets button.active {
+  color: var(--ak-accent-text);
+  background: color-mix(in srgb, var(--ak-accent), transparent 80%);
+}
+
+.analytics-timeseries__metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+.metric-chip {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4375rem;
+  padding: 0.3125rem 0.625rem 0.3125rem 0.5rem;
+  border-radius: var(--radius-pill);
+  border: var(--border-hairline) solid var(--ak-border);
+  background: transparent;
+  color: var(--ak-text-muted);
+  font-size: 0.75rem;
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.metric-chip:hover {
+  color: var(--ak-text);
+  border-color: var(--ak-border-strong);
+}
+
+.metric-chip__swatch {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 100%;
+  background: var(--ak-border-strong);
+  opacity: 0.55;
+}
+
+.metric-chip.active {
+  background: color-mix(in srgb, var(--ak-bg-raised), transparent 0%);
+}
+
+.metric-chip.active .metric-chip__swatch {
+  opacity: 1;
+}
+
+.analytics-timeseries__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--ak-text-muted);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.analytics-timeseries__toggle input {
+  accent-color: var(--ak-accent-text);
+}
+
+.analytics-timeseries__chart {
+  padding: var(--space-3);
 }
 
 .pool-list {
@@ -2681,4 +2963,638 @@ td:hover .sheet-title-cell svg {
 
 .number-stepper:focus-within {
   border-color: color-mix(in srgb, var(--ak-accent-text), transparent 35%);
+}
+
+/* ---- Fast-Mode-Badge (Story-Id-Suffix in allen Views) ---- */
+
+.fast-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ak-accent-text);
+  line-height: 0;
+}
+
+.fast-badge svg {
+  display: block;
+  fill: color-mix(in srgb, var(--ak-accent-text), transparent 70%);
+  stroke: var(--ak-accent-text);
+  stroke-width: 2;
+  filter: drop-shadow(0 0 0.1875rem color-mix(in srgb, var(--ak-accent-text), transparent 65%));
+}
+
+.inspector-head h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  line-height: 1;
+}
+
+/* Display-Font "League Spartan" hat eine erhoehte x-Linie -- der
+ * geometrische Mittelpunkt der Glyphen liegt oberhalb der Box-Mitte.
+ * Wir korrigieren Blitz und Status-Badge visuell auf den
+ * Glyphen-Mittelpunkt. */
+.inspector-head h2 .fast-badge {
+  transform: translateY(-0.125rem);
+}
+
+/* Das Status-Badge erbt sonst die em-relative Label-Size aus dem h2
+ * (0.75em von ~32px = 24px) und wird viel zu gross. Fix: rem-fixe
+ * Groesse + dezentere Hoehe + vertikale Korrektur auf die Cap-Line. */
+.inspector-head h2 .ak-badge {
+  font-size: 0.75rem;
+  min-height: 1.25rem;
+  padding: 0.125rem 0.5rem;
+  transform: translateY(-0.1875rem);
+}
+
+/* ---- Mode-Indicator (Topbar, FK-24 §24.3.3) ---- */
+
+.mode-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0.3125rem 0.75rem;
+  border: var(--border-hairline) solid var(--ak-border);
+  border-radius: var(--radius-pill);
+  background: var(--ak-bg-raised-alt);
+  color: var(--ak-text-muted);
+  font-family: var(--font-display);
+  font-size: 0.8125rem;
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.mode-indicator__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 100%;
+  background: currentcolor;
+  box-shadow: 0 0 0 0.1875rem color-mix(in srgb, currentcolor, transparent 78%);
+}
+
+.mode-indicator__label {
+  color: var(--ak-text-faint);
+  text-transform: uppercase;
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+}
+
+.mode-indicator__value {
+  color: var(--ak-text-soft);
+}
+
+.mode-indicator--fast {
+  color: var(--ak-accent-warm);
+  border-color: color-mix(in srgb, var(--ak-accent-warm), transparent 55%);
+  background: color-mix(in srgb, var(--ak-accent-warm), transparent 88%);
+}
+
+.mode-indicator--fast .mode-indicator__value {
+  color: var(--ak-accent-warm-strong);
+}
+
+.mode-indicator--standard {
+  color: var(--ak-accent-text);
+  border-color: color-mix(in srgb, var(--ak-accent), transparent 50%);
+  background: color-mix(in srgb, var(--ak-accent), transparent 86%);
+}
+
+.mode-indicator--standard .mode-indicator__value {
+  color: var(--ak-accent-text-soft);
+}
+
+.mode-indicator--idle {
+  color: var(--ak-text-faint);
+  border-color: var(--ak-border);
+  background: var(--ak-bg-raised-alt);
+}
+
+.mode-indicator--idle .mode-indicator__dot {
+  background: var(--ak-text-faint);
+  box-shadow: none;
+}
+
+/* ---- FlowTab (Story-Inspector, 4. Tab "Ablauf") ---- */
+
+.flow-chart {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  margin-top: var(--space-3);
+}
+
+.flow-chart__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.flow-chart__head h3 {
+  margin: 0;
+  color: var(--ak-text);
+  font-family: var(--font-display);
+  font-size: var(--type-panel-title-size);
+  font-weight: var(--type-title-weight);
+  line-height: var(--leading-tight);
+}
+
+.flow-chart__hint {
+  margin: 0;
+  max-width: 32rem;
+  color: var(--ak-text-muted);
+  font-size: var(--font-sm);
+  line-height: var(--leading-normal, 1.5);
+  text-align: right;
+}
+
+.flow-chart__phases {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.flow-phase {
+  display: grid;
+  grid-template-columns: 1.5rem 1fr;
+  gap: var(--space-4);
+  padding: 0;
+}
+
+.flow-phase__rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 0.375rem;
+}
+
+.flow-phase__bullet {
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: 100%;
+  border: 0.125rem solid var(--ak-border-strong);
+  background: var(--ak-bg-raised);
+  flex: 0 0 auto;
+}
+
+.flow-phase__bullet--done {
+  background: var(--ak-success);
+  border-color: color-mix(in srgb, var(--ak-success), white 18%);
+  box-shadow: 0 0 0 0.1875rem color-mix(in srgb, var(--ak-success), transparent 78%);
+}
+
+.flow-phase__bullet--active {
+  background: var(--ak-accent-text);
+  border-color: var(--ak-accent-text);
+  box-shadow: 0 0 0 0.1875rem color-mix(in srgb, var(--ak-accent-text), transparent 70%);
+}
+
+.flow-phase__bullet--skipped {
+  background: var(--ak-bg-raised);
+  border-color: var(--ak-border);
+  border-style: dashed;
+}
+
+.flow-phase__bullet--pending {
+  background: var(--ak-bg-raised);
+  border-color: var(--ak-border-strong);
+}
+
+.flow-phase__connector {
+  flex: 1;
+  width: 0.125rem;
+  min-height: 1.5rem;
+  margin: 0.25rem 0;
+  background: var(--ak-border);
+  border-radius: var(--border-hairline);
+}
+
+.flow-phase--done .flow-phase__connector {
+  background: color-mix(in srgb, var(--ak-success), transparent 55%);
+}
+
+.flow-phase--active .flow-phase__connector {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--ak-accent-text), transparent 50%),
+    var(--ak-border)
+  );
+}
+
+.flow-phase--skipped .flow-phase__connector {
+  background:
+    repeating-linear-gradient(
+      180deg,
+      var(--ak-border) 0,
+      var(--ak-border) 0.25rem,
+      transparent 0.25rem,
+      transparent 0.5rem
+    );
+}
+
+.flow-phase__body {
+  flex: 1;
+  min-width: 0;
+  padding: 0 0 var(--space-5);
+}
+
+.flow-phase__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.flow-phase__head-titles {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.flow-phase__head h4 {
+  margin: 0;
+  color: var(--ak-text);
+  font-family: var(--font-display);
+  font-size: 1.0625rem;
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.01em;
+}
+
+.flow-phase__iteration {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1875rem 0.5rem;
+  border-radius: var(--radius-pill);
+  border: var(--border-hairline) solid color-mix(in srgb, var(--ak-accent-warm), transparent 55%);
+  background: color-mix(in srgb, var(--ak-accent-warm), transparent 86%);
+  color: var(--ak-accent-warm-strong);
+  font-size: 0.6875rem;
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.flow-phase__iteration svg {
+  display: block;
+}
+
+.flow-phase--skipped .flow-phase__head h4 {
+  color: var(--ak-text-faint);
+}
+
+.flow-phase__state-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1875rem 0.625rem;
+  border-radius: var(--radius-pill);
+  border: var(--border-hairline) solid var(--ak-border);
+  background: var(--ak-bg-raised-alt);
+  color: var(--ak-text-muted);
+  font-size: 0.75rem;
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+}
+
+.flow-phase__state-pill--done {
+  color: var(--ak-success);
+  border-color: color-mix(in srgb, var(--ak-success), transparent 55%);
+  background: color-mix(in srgb, var(--ak-success), transparent 88%);
+}
+
+.flow-phase__state-pill--active {
+  color: var(--ak-accent-text);
+  border-color: color-mix(in srgb, var(--ak-accent-text), transparent 45%);
+  background: color-mix(in srgb, var(--ak-accent), transparent 84%);
+}
+
+.flow-phase__state-pill--skipped {
+  color: var(--ak-text-faint);
+  border-style: dashed;
+}
+
+.flow-phase__empty {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-hairline) dashed var(--ak-border);
+  border-radius: var(--radius-md);
+  color: var(--ak-text-faint);
+  font-size: var(--font-sm);
+  font-style: italic;
+}
+
+.flow-substeps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1875rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: var(--border-hairline) solid var(--ak-border);
+  border-radius: var(--radius-md);
+  background: var(--ak-bg-raised);
+  overflow: hidden;
+}
+
+.flow-substep {
+  display: grid;
+  grid-template-columns: 1rem 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0.5rem 0.875rem;
+  background: transparent;
+  font-size: var(--font-sm);
+  position: relative;
+}
+
+.flow-substep__trailing {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+.flow-substep__state {
+  display: inline-block;
+  min-width: 6rem;
+  text-align: right;
+}
+
+/* Loop-Region: zusammenhaengende Substeps mit gleicher loopGroup
+ * bekommen einen subtilen Akzent-Streifen links + leicht abgesenkten
+ * Hintergrund, damit die Region als Block lesbar wird. */
+.flow-substep--in-loop {
+  background: color-mix(in srgb, var(--ak-accent-warm), transparent 95%);
+}
+
+.flow-substep--in-loop::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0.1875rem;
+  background: color-mix(in srgb, var(--ak-accent-warm), transparent 60%);
+}
+
+.flow-substep--active {
+  background: color-mix(in srgb, var(--ak-accent), transparent 92%);
+  animation: flow-substep-pulse 2.4s ease-in-out infinite;
+}
+
+.flow-substep--active.flow-substep--in-loop::before {
+  background: var(--ak-accent-text);
+}
+
+@keyframes flow-substep-pulse {
+  0%, 100% {
+    background: color-mix(in srgb, var(--ak-accent), transparent 92%);
+    box-shadow: inset 0.1875rem 0 0 0 color-mix(in srgb, var(--ak-accent-text), transparent 60%);
+  }
+  50% {
+    background: color-mix(in srgb, var(--ak-accent), transparent 80%);
+    box-shadow: inset 0.1875rem 0 0 0 var(--ak-accent-text);
+  }
+}
+
+@keyframes flow-marker-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0.1875rem color-mix(in srgb, var(--ak-accent-text), transparent 70%);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 0.3125rem color-mix(in srgb, var(--ak-accent-text), transparent 50%);
+    transform: scale(1.15);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flow-substep--active {
+    animation: none;
+  }
+  .flow-substep__marker--active {
+    animation: none;
+  }
+}
+
+.flow-substep + .flow-substep {
+  border-top: var(--border-hairline) solid color-mix(in srgb, var(--ak-border), transparent 40%);
+}
+
+.flow-substep__marker {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 100%;
+  background: var(--ak-border-strong);
+}
+
+.flow-substep__marker--done {
+  background: var(--ak-success);
+}
+
+.flow-substep__marker--active {
+  background: var(--ak-accent-text);
+  box-shadow: 0 0 0 0.1875rem color-mix(in srgb, var(--ak-accent-text), transparent 65%);
+  animation: flow-marker-pulse 2.4s ease-in-out infinite;
+}
+
+.flow-substep__marker--skipped {
+  background: transparent;
+  border: var(--border-hairline) dashed var(--ak-text-faint);
+}
+
+/* Optionale Substeps: dashed Marker, leicht warmer Akzent. Variante
+ * "optional-skipped" (nicht ausgefuehrt) wird klar entfaerbt. */
+.flow-substep__marker--optional-pending {
+  background: transparent;
+  border: 0.0625rem dashed color-mix(in srgb, var(--ak-accent-warm), transparent 35%);
+  box-sizing: border-box;
+  width: 0.625rem;
+  height: 0.625rem;
+}
+
+.flow-substep__marker--optional-skipped {
+  background: transparent;
+  border: 0.0625rem dashed var(--ak-text-faint);
+  box-sizing: border-box;
+  width: 0.625rem;
+  height: 0.625rem;
+}
+
+.flow-substep__label {
+  color: var(--ak-text-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-substep--done .flow-substep__label {
+  color: var(--ak-text-muted);
+}
+
+.flow-substep--active .flow-substep__label {
+  color: var(--ak-accent-text);
+  font-weight: var(--weight-semibold);
+}
+
+.flow-substep--pending .flow-substep__label {
+  color: var(--ak-text-muted);
+}
+
+.flow-substep--skipped .flow-substep__label {
+  color: var(--ak-text-faint);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--ak-text-faint), transparent 50%);
+}
+
+.flow-substep--optional .flow-substep__label {
+  font-style: italic;
+}
+
+.flow-substep--optional-pending .flow-substep__label {
+  color: color-mix(in srgb, var(--ak-text-soft), var(--ak-accent-warm) 25%);
+}
+
+.flow-substep--optional-skipped .flow-substep__label {
+  color: var(--ak-text-faint);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--ak-text-faint), transparent 60%);
+}
+
+.flow-substep__optional-pill {
+  font-family: var(--font-body);
+  font-size: 0.625rem;
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.0625rem 0.4375rem;
+  border-radius: var(--radius-pill);
+  border: 0.0625rem dashed color-mix(in srgb, var(--ak-accent-warm), transparent 50%);
+  background: color-mix(in srgb, var(--ak-accent-warm), transparent 90%);
+  color: var(--ak-accent-warm-strong);
+}
+
+.flow-substep--optional-skipped .flow-substep__optional-pill {
+  border-color: var(--ak-border);
+  background: var(--ak-bg-raised-alt);
+  color: var(--ak-text-faint);
+}
+
+.flow-substep__state {
+  font-family: var(--font-body);
+  font-size: 0.6875rem;
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ak-text-faint);
+}
+
+.flow-substep__state--done {
+  color: var(--ak-success);
+}
+
+.flow-substep__state--active {
+  color: var(--ak-accent-text);
+}
+
+.flow-substep__state--skipped {
+  color: var(--ak-text-faint);
+}
+
+.flow-substep__state--optional-pending {
+  color: color-mix(in srgb, var(--ak-accent-warm-strong), transparent 25%);
+}
+
+.flow-substep__state--optional-skipped {
+  color: var(--ak-text-faint);
+}
+
+/* Loop-Marker: Header- bzw. Footer-Zeile, die eine Loop-Region oben
+ * und unten begrenzt. Header zeigt zusaetzlich aktuelle Iteration +
+ * konfiguriertes Maximum. Beide Marker sind reine Beschriftung -
+ * sie suggerieren keinen automatischen Loop-Sprung. */
+.flow-loop-marker {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0.3125rem 0.875rem;
+  background: color-mix(in srgb, var(--ak-accent-warm), transparent 95%);
+  color: var(--ak-accent-warm-strong);
+  font-size: 0.6875rem;
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.flow-loop-marker--start {
+  border-bottom: var(--border-hairline) dashed color-mix(in srgb, var(--ak-accent-warm), transparent 60%);
+}
+
+.flow-loop-marker--end {
+  border-top: var(--border-hairline) dashed color-mix(in srgb, var(--ak-accent-warm), transparent 60%);
+}
+
+.flow-loop-marker__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 100%;
+  border: 0.0625rem dashed color-mix(in srgb, var(--ak-accent-warm), transparent 40%);
+  background: var(--ak-bg-raised);
+  color: var(--ak-accent-warm-strong);
+}
+
+.flow-loop-marker__label {
+  color: color-mix(in srgb, var(--ak-accent-warm-strong), transparent 15%);
+}
+
+.flow-loop-marker__detail {
+  margin-left: auto;
+  color: var(--ak-accent-warm-strong);
+}
+
+.flow-loop-marker__max {
+  color: color-mix(in srgb, var(--ak-accent-warm-strong), transparent 30%);
+  font-weight: var(--weight-medium, 500);
+}
+
+/* Legende unter dem Flowchart. */
+.flow-chart__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-5);
+  align-items: center;
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: var(--border-hairline) solid var(--ak-border);
+  color: var(--ak-text-muted);
+  font-size: 0.75rem;
+}
+
+.flow-chart__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.flow-chart__legend-item--optional {
+  color: color-mix(in srgb, var(--ak-accent-warm-strong), transparent 20%);
+}
+
+.flow-chart__legend-item--loop {
+  color: color-mix(in srgb, var(--ak-accent-warm-strong), transparent 20%);
+}
+
+.flow-chart__legend-item--loop svg {
+  display: block;
 }

@@ -8,7 +8,7 @@
  * Mode-Sichten sinnvolle Beispiele haben.
  */
 
-import type { Mode, Phase, RuntimeState, Story, StoryStatus, Substep } from './storyModel';
+import type { Mode, Phase, RuntimeState, Story, StoryStatus, Substep, SubstepMeta } from './storyModel';
 
 type RulebookRow = [
   id: string,
@@ -102,7 +102,11 @@ const repoLabels: Record<string, string> = {
 };
 
 const completedCutoff = 36;
-const inFlightStoryIds = new Set(['BB2-229', 'BB2-230', 'BB2-231', 'BB2-223']);
+/* Hinweis: streng nach FK-24 §24.3.3 (Mode-Lock) duerften Fast und
+ * Standard nicht zeitgleich In Progress sein. Im Fixture lockern wir
+ * das fuer Demo-Zwecke, damit der Story-Inspector beide Mode-Profile
+ * mit aktivem Substep zeigen kann. */
+const inFlightStoryIds = new Set(['BB2-229', 'BB2-230', 'BB2-231', 'BB2-223', 'BB2-224']);
 const approvedOverrideStoryIds = new Set(['BB2-247', 'BB2-249', 'BB2-254']);
 const cancelledStoryIds = new Set(['BB2-246']);
 const externallyBlockedStoryIds = new Set(['BB2-238']);
@@ -116,10 +120,16 @@ const fastModeStoryIds = new Set(['BB2-224', 'BB2-247', 'BB2-260']);
  * damit die Story-Inspector- und Phase-Stepper-Sicht (AG3-019) den
  * Pipeline-Fortschritt visualisieren kann. */
 const runtimeStateByStoryId: Record<string, RuntimeState> = {
-  'BB2-229': { phase: 'implementation', substep: 'qa_layer2_llm' },
-  'BB2-230': { phase: 'implementation', substep: 'incremental' },
-  'BB2-231': { phase: 'closure', substep: 'integrity_gate' },
-  'BB2-223': { phase: 'exploration', substep: 'design_review' },
+  /* BB2-229: zweite Remediation-Runde, gerade in QA Layer 2. */
+  'BB2-229': { phase: 'implementation', substep: 'qa_layer2_llm', iteration: 2 },
+  'BB2-230': { phase: 'implementation', substep: 'incremental', iteration: 1 },
+  'BB2-231': { phase: 'closure', substep: 'integrity_gate', iteration: 1 },
+  /* BB2-223: dritte Design-Iteration in Exploration. */
+  'BB2-223': { phase: 'exploration', substep: 'design_review', iteration: 3 },
+  /* BB2-224: Fast-Mode-Story in der einzigen QA-Schicht des
+   * Fast-Profils (Schicht 1, MOD = Tests-gruen-Floor). Schichten 2-4
+   * existieren in Fast nicht. */
+  'BB2-224': { phase: 'implementation', substep: 'qa_layer1_structural', iteration: 1 },
 };
 
 function toStoryStatus(id: string, index: number, dependencies: string[]): StoryStatus {
@@ -224,10 +234,191 @@ export const CONCEPT_ANCHORS: string[] = [
 ];
 
 /* Phasen-/Substep-Defaults pro Phase (Sequenz aus den Phasen-FKs).
- * Wird spaeter vom Phase-Stepper / Sub-Stepper genutzt. */
+ * Wird vom Phase-Stepper / Sub-Stepper / Story-Inspector "Ablauf"-Tab
+ * genutzt. */
 export const PHASE_SUBSTEP_SEQUENCE: Record<Phase, Substep[]> = {
   setup: ['preflight', 'story_context', 'are_bundle', 'type_switch', 'worktree', 'guard_activation', 'mode_resolution'],
   exploration: ['worker_spawn', 'draft', 'structural_validation', 'doc_fidelity_l2', 'design_review', 'aggregation', 'feindesign', 'freeze'],
   implementation: ['worker_start', 'incremental', 'inline_reviews', 'final_build', 'handover', 'qa_layer1_structural', 'qa_layer2_llm', 'qa_layer3_adversarial', 'qa_layer4_policy', 'qa_feedback'],
   closure: ['finding_resolution', 'integrity_gate', 'branch_push', 'merge', 'main_push', 'teardown', 'story_close', 'metrics', 'doc_fidelity_l4', 'postflight', 'vectordb_sync', 'guards_off'],
+};
+
+/* Fast-Mode (FK-24 §24.3.3, AG3-018 §"Mode-Profil"):
+ * Die kanonische Tabelle aus `stories/AG3-018-fast-modus/story.md`
+ * markiert pro Substep IN (unveraendert), MOD (anders parametrisiert,
+ * laeuft aber) oder OUT (entfaellt). Hier listen wir ausschliesslich
+ * die Substeps, die im Fast-Mode tatsaechlich laufen (IN + MOD).
+ * OUT-Substeps tauchen gar nicht erst auf, damit der User nicht erst
+ * im Nachhinein merkt, dass etwas uebersprungen wurde.
+ *
+ * Quellen-Anker: AG3-018-Tabelle ab Zeile 66; siehe auch FK-24 §24.3.3,
+ * FK-27 §27.4–27.7 (QA-Schichten 2–4 entfallen) und FK-29 (Closure-OUTs). */
+export const PHASE_SUBSTEP_SEQUENCE_FAST: Record<Phase, Substep[]> = {
+  /* OUT: are_bundle, guard_activation, mode_resolution */
+  setup: ['preflight', 'story_context', 'type_switch', 'worktree'],
+  /* gesamte Phase OUT */
+  exploration: [],
+  /* OUT: inline_reviews, qa_layer2_llm, qa_layer3_adversarial,
+   *      qa_layer4_policy, qa_feedback. QA-Schicht 1 bleibt MOD
+   *      (degeneriert auf Tests-gruen-Floor). */
+  implementation: ['worker_start', 'incremental', 'final_build', 'handover', 'qa_layer1_structural'],
+  /* OUT: finding_resolution, doc_fidelity_l4. Rest ist MOD oder IN. */
+  closure: [
+    'integrity_gate',
+    'branch_push',
+    'merge',
+    'main_push',
+    'teardown',
+    'story_close',
+    'metrics',
+    'postflight',
+    'vectordb_sync',
+    'guards_off',
+  ],
+};
+
+/* Phasen-Reihenfolge im UI-Flowchart. Fast laesst Exploration als
+ * "skipped"-Phase weiterhin sichtbar (greyed), damit der Mode-Effekt
+ * im Vergleich zum Standard nachvollziehbar ist. */
+export const PHASE_ORDER: Phase[] = ['setup', 'exploration', 'implementation', 'closure'];
+
+export const PHASE_LABELS: Record<Phase, string> = {
+  setup: 'Setup',
+  exploration: 'Exploration',
+  implementation: 'Implementation',
+  closure: 'Closure',
+};
+
+/* Fachliche Substep-Bezeichner fuer die UI.
+ *
+ * Die Keys (technische IDs aus PHASE_SUBSTEP_SEQUENCE) bleiben stabil
+ * gegenueber Backend / Telemetrie; die Werte sind sprechende
+ * Kurz-Bezeichner (max. 4 Worte) fuer das Story-Inspector-Flowchart. */
+export const SUBSTEP_LABELS: Record<Substep, string> = {
+  /* Setup */
+  preflight: 'Preflight-Check',
+  story_context: 'Story-Kontext laden',
+  are_bundle: 'ARE-Bundle erstellen',
+  type_switch: 'Story-Typ-Routing',
+  worktree: 'Worktree anlegen',
+  guard_activation: 'Schutz-Guards aktivieren',
+  mode_resolution: 'Mode-Lock setzen',
+
+  /* Exploration */
+  worker_spawn: 'Explorations-Worker starten',
+  draft: 'Entwurf erstellen',
+  structural_validation: 'Strukturprüfung',
+  doc_fidelity_l2: 'Konzepttreue prüfen',
+  design_review: 'Design-Review',
+  aggregation: 'Ergebnisse aggregieren',
+  feindesign: 'Feindesign verfassen',
+  freeze: 'Entwurf einfrieren',
+
+  /* Implementation */
+  worker_start: 'Worker starten',
+  incremental: 'Inkrementelle Umsetzung',
+  inline_reviews: 'Inline-Reviews',
+  final_build: 'Final-Build',
+  handover: 'Handover-Paket',
+  qa_layer1_structural: 'QA Strukturprüfung',
+  qa_layer2_llm: 'QA LLM-Bewertung',
+  qa_layer3_adversarial: 'QA Adversarial-Tests',
+  qa_layer4_policy: 'QA Policy-Aggregation',
+  qa_feedback: 'QA-Feedback einarbeiten',
+
+  /* Closure */
+  finding_resolution: 'Findings auflösen',
+  integrity_gate: 'Integrity-Gate',
+  branch_push: 'Branch-Push',
+  merge: 'Merge in Main',
+  main_push: 'Main-Push',
+  teardown: 'Worktree abreißen',
+  story_close: 'Story schließen',
+  metrics: 'Metriken erfassen',
+  doc_fidelity_l4: 'Konzepttreue Final-Check',
+  postflight: 'Postflight-Check',
+  vectordb_sync: 'VectorDB-Sync',
+  guards_off: 'Guards deaktivieren',
+};
+
+export function substepLabel(substep: Substep): string {
+  return SUBSTEP_LABELS[substep] ?? substep;
+}
+
+/* Substep-Metadaten:
+ * - Optionalitaet: nur dann aktiv, wenn Vorbedingung erfuellt ist
+ * - Loop-Gruppen: Substeps, die mehrfach durchlaufen werden koennen
+ *
+ * Loop-Gruppen-IDs sind UI-stabile Tokens; das Backend wird sie spaeter
+ * aus den Phase-FKs ableiten. */
+export const SUBSTEP_META: Record<Substep, SubstepMeta> = {
+  /* Setup -- alle Pflicht, kein Loop. `guard_activation` ist nur im
+   * Fast-Mode ausgelassen, was ueber PHASE_SUBSTEP_SEQUENCE_FAST
+   * abgedeckt ist. */
+  preflight: {},
+  story_context: {},
+  are_bundle: {},
+  type_switch: {},
+  worktree: {},
+  guard_activation: {},
+  mode_resolution: {},
+
+  /* Exploration -- Design-Iteration ist die natuerliche Loop-Gruppe
+   * (Draft -> Strukturpruefung -> Konzepttreue -> Design-Review ->
+   * ggfs. zurueck zum Draft). Feindesign ist optional (FK-26): nur
+   * Stories mit Feindesign-Pflicht durchlaufen es. */
+  worker_spawn: {},
+  draft: { loopGroup: 'design_iteration' },
+  structural_validation: { loopGroup: 'design_iteration' },
+  doc_fidelity_l2: { loopGroup: 'design_iteration' },
+  design_review: { loopGroup: 'design_iteration' },
+  aggregation: {},
+  feindesign: { optional: true },
+  freeze: {},
+
+  /* Implementation -- Remediation-Loop (FK-27): nach QA-Feedback geht
+   * der Worker ggfs. zurueck in `incremental` und faehrt die QA-Kette
+   * erneut. `inline_reviews` und `qa_feedback` sind optional (nicht
+   * jede Story nutzt Inline-Reviews; QA-Feedback nur wenn Findings). */
+  worker_start: {},
+  incremental: { loopGroup: 'remediation' },
+  inline_reviews: { optional: true, loopGroup: 'remediation' },
+  final_build: { loopGroup: 'remediation' },
+  handover: { loopGroup: 'remediation' },
+  qa_layer1_structural: { loopGroup: 'remediation' },
+  qa_layer2_llm: { loopGroup: 'remediation' },
+  qa_layer3_adversarial: { loopGroup: 'remediation' },
+  qa_layer4_policy: { loopGroup: 'remediation' },
+  qa_feedback: { optional: true, loopGroup: 'remediation' },
+
+  /* Closure -- `finding_resolution` nur wenn Findings vorliegen;
+   * `vectordb_sync` nur, wenn die VectorDB im Projekt eingebunden ist. */
+  finding_resolution: { optional: true },
+  integrity_gate: {},
+  branch_push: {},
+  merge: {},
+  main_push: {},
+  teardown: {},
+  story_close: {},
+  metrics: {},
+  doc_fidelity_l4: {},
+  postflight: {},
+  vectordb_sync: { optional: true },
+  guards_off: {},
+};
+
+/* Lesbare Bezeichner fuer Loop-Gruppen, die im UI sichtbar werden. */
+export const LOOP_GROUP_LABELS: Record<string, string> = {
+  design_iteration: 'Design-Iteration',
+  remediation: 'Remediation-Loop',
+};
+
+/* Konfigurierter Hard-Cap fuer Iterationen pro Loop-Gruppe. Der
+ * Story-Inspector zeigt das als "max N" neben der aktuellen Runde,
+ * damit klar ist, ab wann der Loop fail-closed greift. Werte sind
+ * Prototyp-Defaults; das Backend wird sie spaeter aus den Phase-FKs
+ * bzw. aus Project-Settings ableiten. */
+export const LOOP_GROUP_MAX_ITERATIONS: Record<string, number> = {
+  design_iteration: 3,
+  remediation: 5,
 };

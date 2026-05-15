@@ -28,6 +28,28 @@ export type Substep = string;
 export interface RuntimeState {
   phase: Phase;
   substep: Substep;
+  /* Aktuelle Iteration einer Loop-Gruppe innerhalb der Phase
+   * (z. B. Remediation-Loop in Implementation: Worker -> QA -> Worker
+   * -> QA ...). 1 = erste Runde, 2 = erste Wiederholung, usw.
+   * Default 1. */
+  iteration?: number;
+}
+
+/* Substep-Metadaten fuer Visualisierung im Story-Inspector "Ablauf"-Tab.
+ *
+ * - `optional = true`: Substep ist im Standard-Mode konzeptionell
+ *   vorgesehen, wird aber nur dann ausgefuehrt, wenn eine Vorbedingung
+ *   eintritt (Beispiel: `feindesign` nur fuer Stories mit erforderlicher
+ *   Feindesign-Pflicht; `finding_resolution` nur, wenn QA-Findings
+ *   vorliegen).
+ * - `loopGroup`: zusammenhaengende Substep-Sequenz, die mehrfach
+ *   durchlaufen werden kann (z. B. `remediation` in der Implementation,
+ *   `design_iteration` in der Exploration). Substeps mit gleichem Wert
+ *   bilden eine Loop-Region; das Phase-UI zeigt einen
+ *   Iterations-Counter und eine Return-Markierung. */
+export interface SubstepMeta {
+  optional?: boolean;
+  loopGroup?: string;
 }
 
 export interface Story {
@@ -87,7 +109,7 @@ export interface Story {
     tokensIn: number;
     tokensOut: number;
     pools: Array<{
-      pool: 'chatgpt' | 'gemini' | 'grok' | 'qwen';
+      pool: 'chatgpt' | 'gemini' | 'grok' | 'qwen' | 'kimi';
       role: string;
       calls: number;
       status: 'PASS' | 'WARNING' | 'FAIL';

@@ -1,5 +1,6 @@
 import type { Story } from '../store';
 import { CopyButton } from './CopyButton';
+import { FastBadge } from './FastBadge';
 
 export type StoryCardVariant = 'completed' | 'current' | 'running' | 'upcoming' | 'placeholder';
 
@@ -51,6 +52,7 @@ export function StoryCard({ story, variant, placeholderLabel, onSelect, showCopy
       <div className="story-card__header">
         <div className="story-card__header-left">
           <span className="story-card__id">{story.id}</span>
+          <FastBadge mode={story.mode} size={13} />
           {variant === 'running' && (
             <span className="story-card__status-badge">In Progress</span>
           )}
