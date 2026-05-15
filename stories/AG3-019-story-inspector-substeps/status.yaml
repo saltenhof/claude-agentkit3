@@ -1,9 +1,10 @@
 story_id: AG3-019
 title: "Phase-/Substep-Visualisierung mit Mode-Label im UI-Prototyp"
 type: implementation
-status: in_progress
+status: completed
 phase: setup
 created: "2026-05-06"
+completed_at: "2026-05-15T15:18:20+02:00"
 size: M
 depends_on: []
 unblocks: []
