@@ -15,3 +15,52 @@ class StoryProjectArchivedError(StoryError):
 
 class StoryIdentityConflictError(StoryError):
     """Raised when story identity uniqueness is violated."""
+
+
+class StoryValidationError(StoryError):
+    """Raised when story field values fail validation.
+
+    ``error_code`` maps to ``validation_failed`` (HTTP 400).
+    """
+
+
+class StoryNotFoundError(StoryError):
+    """Raised when the requested story does not exist.
+
+    ``error_code`` maps to ``story_not_found`` (HTTP 404).
+    """
+
+
+class InvalidStatusTransitionError(StoryError):
+    """Raised when a status transition is not permitted.
+
+    ``error_code`` maps to ``invalid_transition`` (HTTP 422).
+    """
+
+
+class IdempotencyMismatchError(StoryError):
+    """Raised when op_id is reused with a different body hash.
+
+    ``error_code`` maps to ``idempotency_mismatch`` (HTTP 409).
+    """
+
+
+class ForbiddenFieldError(StoryError):
+    """Raised when a forbidden field appears in a mutation.
+
+    ``error_code`` maps to ``forbidden_field`` (HTTP 422).
+    """
+
+
+class ForbiddenError(StoryError):
+    """Raised when a project is archived or the auth scope is insufficient.
+
+    ``error_code`` maps to ``forbidden`` (HTTP 403).
+    """
+
+
+class StoryConcurrencyConflictError(StoryError):
+    """Raised on optimistic-locking conflict.
+
+    ``error_code`` maps to ``conflict`` (HTTP 409).
+    """
