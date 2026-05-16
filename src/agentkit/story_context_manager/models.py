@@ -190,7 +190,7 @@ class StoryContext(BaseModel):
     story_number: int = Field(default=0)  # derived from story_id by model_validator if not given
     story_id: str
     story_type: StoryType
-    execution_route: StoryMode | None
+    execution_route: StoryMode | None = None
     implementation_contract: ImplementationContract | None = None
     issue_nr: int | None = None
 

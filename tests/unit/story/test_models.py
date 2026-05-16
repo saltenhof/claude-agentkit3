@@ -314,7 +314,7 @@ class TestStoryContext:
         with pytest.raises(ValidationError):
             StoryContext(
                 project_key="test-project",
-                story_id="AG3-001",  # type: ignore[call-arg]
+                story_id="AG3-001",
                 story_type=StoryType.IMPLEMENTATION,
             )
 

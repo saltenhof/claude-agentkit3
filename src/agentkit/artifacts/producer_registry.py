@@ -118,10 +118,7 @@ class ProducerRegistry:
             return _LLM_STATUS_MAPPING[llm_status]
         except KeyError:
             known = list(_LLM_STATUS_MAPPING.keys())
-            msg = (
-                f"Unbekannter LLM-Check-Status '{llm_status}'. "
-                f"Bekannte Werte: {known}"
-            )
+            msg = f"Unbekannter LLM-Check-Status '{llm_status}'. Bekannte Werte: {known}"
             raise LlmStatusMappingError(msg) from None
 
     def known_producers(self, artifact_class: ArtifactClass) -> set[str]:
