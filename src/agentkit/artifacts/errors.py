@@ -1,12 +1,13 @@
 """Fehlerklassen des Artefakt-BCs (agentkit.artifacts).
 
-Alle Fehler erben von `EnvelopeValidationError` (Basis).
+Alle Envelope-Validierungsfehler erben von `EnvelopeValidationError` (Basis).
 Sub-Klassen koennen fachlich differenziert werden:
 
 - `ProducerNotRegisteredError` — fail-closed bei unbekanntem Producer-Namen
 - `ProducerTypeMismatchError` — fail-closed bei Typ-Drift gegen Registry
 - `EnvelopeFieldError` — Pflichtfeld-Verletzung oder Matrix-Bruch
 - `LlmStatusMappingError` — unbekannter LLM-Check-Status
+- `ArtifactNotFoundError` — Artefakt-Lookup schlaegt fehl (ArtifactManager.read)
 
 FK-71 §71.2 (Fehlermodell), bc-cut-decisions.md §BC 8.
 """
@@ -49,4 +50,15 @@ class LlmStatusMappingError(EnvelopeValidationError):
     """Unbekannter LLM-Check-Status kann nicht gemappt werden (fail-closed).
 
     Wird von `ProducerRegistry.map_llm_status_to_envelope_status` geworfen.
+    """
+
+
+class ArtifactNotFoundError(Exception):
+    """Artefakt-Lookup anhand einer ArtifactReference schlaegt fehl.
+
+    Wird von ``ArtifactManager.read`` geworfen, wenn kein Eintrag fuer
+    die gegebene Reference im Backend vorhanden ist (fail-closed; kein
+    silent None-Return).
+
+    bc-cut-decisions.md §BC 8, FK-71 §71.2.
     """

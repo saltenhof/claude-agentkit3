@@ -11,11 +11,13 @@ internal sub-components such as ``policy_engine`` or
 
 from __future__ import annotations
 
-from agentkit.verify_system.artifacts import (
+from agentkit.governance.guard_system.protected_paths import (
     GUARDRAIL_FILE,
     LAYER_ARTIFACT_FILES,
     PROTECTED_QA_ARTIFACTS,
     VERIFY_DECISION_FILE,
+)
+from agentkit.verify_system.artifacts import (
     build_verify_decision_artifact,
     load_verify_decision_artifact,
     serialize_finding,

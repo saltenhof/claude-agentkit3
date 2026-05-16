@@ -2,6 +2,12 @@
 
 Blood group: T (infrastructure_driver)
 Owner:       state-backend BC
+
+Migration AG3-023: PROTECTED_QA_ARTIFACTS, LAYER_ARTIFACT_FILES und
+VERIFY_DECISION_FILE wurden nach
+``agentkit.governance.guard_system.protected_paths`` verschoben
+(FK-31 §31.3 + bc-cut-decisions.md §BC 4, Refactor-Liste Pkt. 24).
+Kein Re-Export-Shim hier (Zero-Debt-Regel).
 """
 
 from __future__ import annotations
@@ -20,18 +26,7 @@ STATE_DB_DIR = ".agentkit"
 CONTEXT_EXPORT_FILE = "context.json"
 PHASE_STATE_EXPORT_FILE = "phase-state.json"
 CLOSURE_REPORT_FILE = "closure.json"
-LAYER_ARTIFACT_FILES: dict[str, str] = {
-    "structural": "structural.json",
-    "semantic": "semantic-review.json",
-    "adversarial": "adversarial.json",
-}
-VERIFY_DECISION_FILE = "verify-decision.json"
 GUARDRAIL_FILE = "guardrail.json"
-PROTECTED_QA_ARTIFACTS: tuple[str, ...] = (
-    *LAYER_ARTIFACT_FILES.values(),
-    GUARDRAIL_FILE,
-    VERIFY_DECISION_FILE,
-)
 
 # ---------------------------------------------------------------------------
 # Driver-level path helpers

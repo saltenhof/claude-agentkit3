@@ -1,4 +1,16 @@
-"""QA artifact persistence and reads."""
+"""QA artifact persistence and reads.
+
+Migration AG3-023: Dieses Modul war zuvor direkter Persistenz-Owner.
+Es ist jetzt ein Konsument von ArtifactManager — verify-system schreibt
+nur noch via ArtifactManager, kein eigener Persistenz-Owner mehr.
+
+Backward-Compat: Die drei Funktionen (write_layer_artifacts,
+write_verify_decision_artifacts, load_verify_decision_artifact) behalten
+ihre Signaturen. Interne Implementierung nutzt jetzt ArtifactManager
+(falls verfuegbar, via _get_manager()), faellt aber auf die bisherige
+Projektions-Persistenz zurueck wenn kein Manager injiziert wurde
+(Legacy-Kompatibilitaets-Pfad fuer Aufrufer ausserhalb eines Story-Runs).
+"""
 
 from __future__ import annotations
 
@@ -6,13 +18,13 @@ from typing import TYPE_CHECKING
 
 from agentkit.boundary.filesystem import atomic_write_json, load_json_object
 from agentkit.exceptions import CorruptStateError
-from agentkit.installer.paths import resolve_qa_story_dir
-from agentkit.state_backend.paths import (
+from agentkit.governance.guard_system.protected_paths import (
     GUARDRAIL_FILE,
     LAYER_ARTIFACT_FILES,
     PROTECTED_QA_ARTIFACTS,
     VERIFY_DECISION_FILE,
 )
+from agentkit.installer.paths import resolve_qa_story_dir
 from agentkit.state_backend.store import (
     load_latest_verify_decision,
     load_latest_verify_decision_for_scope,
