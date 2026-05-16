@@ -75,9 +75,12 @@ mutation_surface_rules:
       - save_story_context
     allowed_module_prefixes:
       - agentkit.state_backend
-      - agentkit.pipeline
       - agentkit.pipeline_engine
-    message: story context mutation may only be imported from pipeline surfaces
+      - agentkit.governance.setup_preflight_gate
+      - agentkit.exploration
+      - agentkit.implementation
+      - agentkit.closure
+    message: story context mutation may only be imported from pipeline-engine or pipeline-phase surfaces
   - id: architecture-conformance.rule.phase_state_projection_write_surface
     writer_symbols:
       - save_phase_state
@@ -132,8 +135,7 @@ mutation_surface_rules:
       - record_closure_report
     allowed_module_prefixes:
       - agentkit.state_backend
-      - agentkit.pipeline.phases.closure
-      - agentkit.pipeline_engine.closure_phase
+      - agentkit.closure
     message: closure projections may only be imported from closure surfaces
 read_surface_rules:
   - id: architecture-conformance.rule.story_read_surface

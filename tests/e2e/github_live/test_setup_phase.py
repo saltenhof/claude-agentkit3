@@ -10,10 +10,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from agentkit.governance.setup_preflight_gate.phase import SetupConfig, SetupPhaseHandler
 from agentkit.installer import InstallConfig, install_agentkit
 from agentkit.installer.paths import story_dir
-from agentkit.pipeline.phases.setup.phase import SetupConfig, SetupPhaseHandler
-from agentkit.pipeline.state import load_story_context
+from agentkit.state_backend.store import read_story_context_record
 from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
@@ -70,7 +70,7 @@ class TestSetupPhaseE2E:
 
         # 3. Verify context.json was written
         s_dir = story_dir(tmp_path, "TEST-001")
-        loaded = load_story_context(s_dir)
+        loaded = read_story_context_record(s_dir)
         assert loaded is not None
         assert loaded.issue_nr == 1
         assert loaded.story_id == "TEST-001"

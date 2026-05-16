@@ -8,7 +8,7 @@ component/process DSL:
 - ``OverrideRecord``: audit trail for manual/orchestrator interventions
 
 The current runtime still persists ``PhaseState`` and attempt records via
-``agentkit.pipeline.state``. This module establishes the canonical
+``agentkit.state_backend.store``. This module establishes the canonical
 component namespace for the richer flow-oriented state model so the
 engine can migrate towards it incrementally.
 """

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from agentkit.installer import InstallConfig, install_agentkit
-from agentkit.pipeline.lifecycle import NoOpHandler, PhaseHandlerRegistry
+from agentkit.pipeline_engine.lifecycle import NoOpHandler, PhaseHandlerRegistry
 
 if TYPE_CHECKING:
     from pathlib import Path

@@ -17,6 +17,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from agentkit.closure.phase import (
+    ClosureConfig,
+    ClosurePhaseHandler,
+)
+from agentkit.governance.setup_preflight_gate.phase import SetupConfig, SetupPhaseHandler
 from agentkit.installer import InstallConfig, install_agentkit
 from agentkit.installer.paths import qa_story_dir, story_dir
 from agentkit.integrations.github.client import run_gh, run_gh_json
@@ -25,15 +30,10 @@ from agentkit.integrations.github.issues import (
     get_issue,
     reopen_issue,
 )
-from agentkit.pipeline.lifecycle import NoOpHandler, PhaseHandlerRegistry
-from agentkit.pipeline.phases.closure.phase import (
-    ClosureConfig,
-    ClosurePhaseHandler,
-)
-from agentkit.pipeline.phases.setup.phase import SetupConfig, SetupPhaseHandler
-from agentkit.pipeline.runner import run_pipeline
-from agentkit.pipeline.state import load_story_context, save_story_context
+from agentkit.pipeline_engine.lifecycle import NoOpHandler, PhaseHandlerRegistry
+from agentkit.pipeline_engine.runner import run_pipeline
 from agentkit.process.language.definitions import resolve_workflow
+from agentkit.state_backend.store import read_story_context_record, save_story_context
 from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
@@ -171,7 +171,7 @@ class TestRealPipelineE2E:
             assert "closure" in result.phases_executed
 
             # Context was enriched by real setup (not manually built)
-            loaded_ctx = load_story_context(s_dir)
+            loaded_ctx = read_story_context_record(s_dir)
             assert loaded_ctx is not None
             assert loaded_ctx.issue_nr == issue.number
 
@@ -269,7 +269,7 @@ class TestRealPipelineE2E:
             )
 
             # Context was enriched by real setup
-            loaded_ctx = load_story_context(s_dir)
+            loaded_ctx = read_story_context_record(s_dir)
             assert loaded_ctx is not None
             assert loaded_ctx.issue_nr == issue.number
 

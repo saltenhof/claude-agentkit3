@@ -19,6 +19,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from agentkit.closure.phase import (
+    ClosureConfig,
+    ClosurePhaseHandler,
+)
+from agentkit.governance.setup_preflight_gate.phase import SetupConfig, SetupPhaseHandler
 from agentkit.installer import InstallConfig, install_agentkit
 from agentkit.installer.paths import qa_story_dir, story_dir
 from agentkit.integrations.github.issues import (
@@ -27,15 +32,10 @@ from agentkit.integrations.github.issues import (
     reopen_issue,
 )
 from agentkit.phase_state_store.models import FlowExecution
-from agentkit.pipeline.phases.closure.phase import (
-    ClosureConfig,
-    ClosurePhaseHandler,
-)
-from agentkit.pipeline.phases.setup.phase import SetupConfig, SetupPhaseHandler
-from agentkit.pipeline.state import save_phase_snapshot
 from agentkit.state_backend.store import (
     append_execution_event,
     save_flow_execution,
+    save_phase_snapshot,
 )
 from agentkit.story_context_manager.models import (
     PhaseSnapshot,
