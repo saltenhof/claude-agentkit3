@@ -28,7 +28,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final
 
-from agentkit.artifacts.errors import LlmStatusMappingError, ProducerNotRegisteredError
+from agentkit.artifacts.errors import (
+    LlmStatusMappingError,
+    ProducerNotRegisteredError,
+    ProducerTypeMismatchError,
+)
 from agentkit.core_types import ArtifactClass, EnvelopeStatus
 
 if TYPE_CHECKING:
@@ -86,21 +90,40 @@ class ProducerRegistry:
     def validate(self, envelope: ArtifactEnvelope) -> None:
         """Prueft, ob der Producer im Envelope registriert ist (fail-closed).
 
+        Es werden BEIDE Aspekte gegen die Registry geprueft:
+        1. Der Producer-Name muss fuer die gegebene ``ArtifactClass``
+           registriert sein.
+        2. Der ``ProducerType`` im Envelope muss mit dem registrierten
+           Typ uebereinstimmen — sonst kann ein Producer-Name still
+           seinen Typ drehen (Defense in depth gegen Drift).
+
         Args:
             envelope: Das zu pruefende ArtifactEnvelope.
 
         Raises:
             ProducerNotRegisteredError: Wenn der Producer-Name fuer die
                 gegebene ArtifactClass nicht registriert ist.
+            ProducerTypeMismatchError: Wenn der Producer-Name registriert
+                ist, aber sein im Envelope angegebener Typ vom
+                registrierten Typ abweicht.
         """
         allowed = self._producers[envelope.artifact_class]
-        if envelope.producer.name not in allowed:
+        registered_type = allowed.get(envelope.producer.name)
+        if registered_type is None:
             msg = (
                 f"Producer '{envelope.producer.name}' ist fuer "
                 f"ArtifactClass '{envelope.artifact_class}' nicht registriert. "
                 f"Bekannte Producer: {set(allowed.keys()) or '{}'}"
             )
             raise ProducerNotRegisteredError(msg)
+        if registered_type is not envelope.producer.type:
+            msg = (
+                f"Producer '{envelope.producer.name}' ist fuer ArtifactClass "
+                f"'{envelope.artifact_class}' als '{registered_type.value}' "
+                f"registriert, Envelope behauptet aber "
+                f"'{envelope.producer.type.value}' (Typ-Drift)."
+            )
+            raise ProducerTypeMismatchError(msg)
 
     def map_llm_status_to_envelope_status(self, llm_status: str) -> EnvelopeStatus:
         """Mappt einen LLM-Check-Status auf `EnvelopeStatus` (FK-71 §71.2).

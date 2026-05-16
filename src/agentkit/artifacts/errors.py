@@ -3,7 +3,8 @@
 Alle Fehler erben von `EnvelopeValidationError` (Basis).
 Sub-Klassen koennen fachlich differenziert werden:
 
-- `ProducerNotRegisteredError` — fail-closed bei unbekanntem Producer
+- `ProducerNotRegisteredError` — fail-closed bei unbekanntem Producer-Namen
+- `ProducerTypeMismatchError` — fail-closed bei Typ-Drift gegen Registry
 - `EnvelopeFieldError` — Pflichtfeld-Verletzung oder Matrix-Bruch
 - `LlmStatusMappingError` — unbekannter LLM-Check-Status
 
@@ -18,9 +19,19 @@ class EnvelopeValidationError(Exception):
 
 
 class ProducerNotRegisteredError(EnvelopeValidationError):
-    """Producer ist fuer die gegebene ArtifactClass nicht registriert.
+    """Producer-Name ist fuer die gegebene ArtifactClass nicht registriert.
 
     Wird von `ProducerRegistry.validate` geworfen (fail-closed).
+    """
+
+
+class ProducerTypeMismatchError(EnvelopeValidationError):
+    """Producer-Name ist registriert, aber mit anderem ``ProducerType``.
+
+    Beispiel: registriert als ``DETERMINISTIC``, Envelope behauptet
+    ``LLM_REVIEWER``. Wird von `ProducerRegistry.validate` geworfen
+    (fail-closed), damit ein Producer-Name nicht still seinen Typ
+    drehen kann.
     """
 
 

@@ -265,3 +265,140 @@ class TestEnvelopeSerde:
         assert data["story_id"] == "AG3-022"
         assert data["artifact_class"] == "qa"
         assert data["status"] == "PASS"
+
+
+# ---------------------------------------------------------------------------
+# Regressions-Tests fuer Codex/Stefan-Review (Findings am AG3-022-Erstwurf)
+# ---------------------------------------------------------------------------
+
+
+class TestStagePattern:
+    """Codex-Finding ERROR: ``stage`` braucht Mindestpattern (AG3-022 §2.1.2)."""
+
+    @pytest.mark.parametrize(
+        "bad_stage", ["", "   ", "qa structural", "QaStructural", "1stage", "stage!", "-leading"],
+    )
+    def test_invalid_stage_rejected(self, bad_stage: str) -> None:
+        start = _now()
+        with pytest.raises(ValidationError):
+            ArtifactEnvelope(
+                schema_version="3.0",
+                story_id="AG3-022",
+                run_id="r1",
+                stage=bad_stage,
+                attempt=1,
+                producer=_make_producer(),
+                started_at=start,
+                finished_at=start,
+                status=EnvelopeStatus.PASS,
+                artifact_class=ArtifactClass.QA,
+            )
+
+    @pytest.mark.parametrize(
+        "good_stage", ["impl", "qa-structural", "exploration_draft", "phase1", "a"],
+    )
+    def test_valid_stage_accepted(self, good_stage: str) -> None:
+        start = _now()
+        env = ArtifactEnvelope(
+            schema_version="3.0",
+            story_id="AG3-022",
+            run_id="r1",
+            stage=good_stage,
+            attempt=1,
+            producer=_make_producer(),
+            started_at=start,
+            finished_at=start,
+            status=EnvelopeStatus.PASS,
+            artifact_class=ArtifactClass.QA,
+        )
+        assert env.stage == good_stage
+
+
+class TestUtcTimestamps:
+    """Codex-Finding ERROR: started_at/finished_at muessen tz-aware UTC sein."""
+
+    def test_naive_started_at_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            ArtifactEnvelope(
+                schema_version="3.0",
+                story_id="AG3-022",
+                run_id="r1",
+                stage="impl",
+                attempt=1,
+                producer=_make_producer(),
+                started_at=datetime(2026, 5, 16, 12, 0, 0),  # naive
+                finished_at=_now(),
+                status=EnvelopeStatus.PASS,
+                artifact_class=ArtifactClass.QA,
+            )
+
+    def test_naive_finished_at_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            ArtifactEnvelope(
+                schema_version="3.0",
+                story_id="AG3-022",
+                run_id="r1",
+                stage="impl",
+                attempt=1,
+                producer=_make_producer(),
+                started_at=_now(),
+                finished_at=datetime(2026, 5, 16, 12, 0, 0),  # naive
+                status=EnvelopeStatus.PASS,
+                artifact_class=ArtifactClass.QA,
+            )
+
+    def test_non_utc_offset_rejected(self) -> None:
+        from datetime import timezone
+        plus_two = timezone(timedelta(hours=2))
+        with pytest.raises(ValidationError):
+            ArtifactEnvelope(
+                schema_version="3.0",
+                story_id="AG3-022",
+                run_id="r1",
+                stage="impl",
+                attempt=1,
+                producer=_make_producer(),
+                started_at=datetime(2026, 5, 16, 12, 0, 0, tzinfo=plus_two),
+                finished_at=_now(),
+                status=EnvelopeStatus.PASS,
+                artifact_class=ArtifactClass.QA,
+            )
+
+
+class TestPayloadSerialisable:
+    """Codex-Finding WARNING: payload muss JSON-serialisierbar sein."""
+
+    def test_unserialisable_payload_rejected(self) -> None:
+        start = _now()
+        with pytest.raises(ValidationError):
+            ArtifactEnvelope(
+                schema_version="3.0",
+                story_id="AG3-022",
+                run_id="r1",
+                stage="impl",
+                attempt=1,
+                producer=_make_producer(),
+                started_at=start,
+                finished_at=start,
+                status=EnvelopeStatus.PASS,
+                artifact_class=ArtifactClass.QA,
+                payload={"bad": object()},
+            )
+
+    def test_serialisable_payload_accepted(self) -> None:
+        start = _now()
+        env = ArtifactEnvelope(
+            schema_version="3.0",
+            story_id="AG3-022",
+            run_id="r1",
+            stage="impl",
+            attempt=1,
+            producer=_make_producer(),
+            started_at=start,
+            finished_at=start,
+            status=EnvelopeStatus.PASS,
+            artifact_class=ArtifactClass.QA,
+            payload={"nested": {"k": [1, 2, "x"]}, "count": 42, "flag": True, "null": None},
+        )
+        assert env.payload is not None
+        assert env.payload["count"] == 42

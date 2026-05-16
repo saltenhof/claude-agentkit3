@@ -158,3 +158,81 @@ class TestLlmStatusMapping:
         """AK7: PASS_WITH_CONCERNS existiert nicht als EnvelopeStatus."""
         with pytest.raises(ValueError):
             EnvelopeStatus("PASS_WITH_CONCERNS")
+
+
+# ---------------------------------------------------------------------------
+# Regressions-Tests: Codex-Finding ERROR — Typ-Drift muss fail-closed sein
+# ---------------------------------------------------------------------------
+
+
+class TestProducerTypeMismatch:
+    """Codex-Finding ERROR: gleicher Name + abweichender ProducerType abgelehnt."""
+
+    def test_same_name_drift_to_llm_rejected(self) -> None:
+        from agentkit.artifacts.errors import ProducerTypeMismatchError
+
+        registry = ProducerRegistry()
+        registry.register(ArtifactClass.QA, "qa-structural", ProducerType.DETERMINISTIC)
+        envelope = ArtifactEnvelope(
+            schema_version="3.0",
+            story_id="AG3-022",
+            run_id="run-001",
+            stage="impl",
+            attempt=1,
+            producer=Producer(
+                type=ProducerType.LLM_REVIEWER,
+                name="qa-structural",
+                id=ProducerId("inst-001"),
+            ),
+            started_at=_now(),
+            finished_at=_now(),
+            status=EnvelopeStatus.PASS,
+            artifact_class=ArtifactClass.QA,
+        )
+        with pytest.raises(ProducerTypeMismatchError):
+            registry.validate(envelope)
+
+    def test_same_name_drift_to_worker_rejected(self) -> None:
+        from agentkit.artifacts.errors import ProducerTypeMismatchError
+
+        registry = ProducerRegistry()
+        registry.register(ArtifactClass.WORKER, "impl-worker", ProducerType.WORKER)
+        envelope = ArtifactEnvelope(
+            schema_version="3.0",
+            story_id="AG3-022",
+            run_id="run-001",
+            stage="impl",
+            attempt=1,
+            producer=Producer(
+                type=ProducerType.DETERMINISTIC,
+                name="impl-worker",
+                id=ProducerId("inst-001"),
+            ),
+            started_at=_now(),
+            finished_at=_now(),
+            status=EnvelopeStatus.PASS,
+            artifact_class=ArtifactClass.WORKER,
+        )
+        with pytest.raises(ProducerTypeMismatchError):
+            registry.validate(envelope)
+
+    def test_matching_type_passes(self) -> None:
+        registry = ProducerRegistry()
+        registry.register(ArtifactClass.QA, "qa-structural", ProducerType.DETERMINISTIC)
+        envelope = ArtifactEnvelope(
+            schema_version="3.0",
+            story_id="AG3-022",
+            run_id="run-001",
+            stage="impl",
+            attempt=1,
+            producer=Producer(
+                type=ProducerType.DETERMINISTIC,
+                name="qa-structural",
+                id=ProducerId("inst-001"),
+            ),
+            started_at=_now(),
+            finished_at=_now(),
+            status=EnvelopeStatus.PASS,
+            artifact_class=ArtifactClass.QA,
+        )
+        registry.validate(envelope)  # darf NICHT werfen

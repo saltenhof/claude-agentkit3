@@ -23,6 +23,7 @@ from agentkit.artifacts.errors import (
     EnvelopeValidationError,
     LlmStatusMappingError,
     ProducerNotRegisteredError,
+    ProducerTypeMismatchError,
 )
 from agentkit.artifacts.producer import Producer, ProducerId, ProducerType
 from agentkit.artifacts.producer_registry import ProducerRegistry
@@ -45,4 +46,5 @@ __all__ = [
     "ProducerNotRegisteredError",
     "ProducerRegistry",
     "ProducerType",
+    "ProducerTypeMismatchError",
 ]

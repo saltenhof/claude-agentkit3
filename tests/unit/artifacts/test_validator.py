@@ -8,7 +8,10 @@ import pytest
 from pydantic import ValidationError
 
 from agentkit.artifacts.envelope import ArtifactEnvelope
-from agentkit.artifacts.errors import EnvelopeFieldError, ProducerNotRegisteredError
+from agentkit.artifacts.errors import (
+    EnvelopeFieldError,
+    ProducerNotRegisteredError,
+)
 from agentkit.artifacts.producer import Producer, ProducerId, ProducerType
 from agentkit.artifacts.producer_registry import ProducerRegistry
 from agentkit.artifacts.validator import EnvelopeValidator
@@ -33,6 +36,7 @@ def _make_envelope(
     artifact_class: ArtifactClass = ArtifactClass.QA,
     status: EnvelopeStatus = EnvelopeStatus.PASS,
     producer_name: str = "test-producer",
+    producer_type: ProducerType = ProducerType.DETERMINISTIC,
 ) -> ArtifactEnvelope:
     start = _now()
     return ArtifactEnvelope(
@@ -42,7 +46,7 @@ def _make_envelope(
         stage="impl",
         attempt=1,
         producer=Producer(
-            type=ProducerType.DETERMINISTIC,
+            type=producer_type,
             name=producer_name,
             id=ProducerId("inst-001"),
         ),
@@ -139,7 +143,9 @@ class TestEnvelopeValidatorStep4Matrix:
         for status in EnvelopeStatus:
             registry = _make_registry(ArtifactClass.WORKER, "worker-prod", ProducerType.WORKER)
             validator = EnvelopeValidator(registry)
-            envelope = _make_envelope(ArtifactClass.WORKER, status, "worker-prod")
+            envelope = _make_envelope(
+                ArtifactClass.WORKER, status, "worker-prod", ProducerType.WORKER,
+            )
             validator.validate(envelope)  # kein Fehler
 
 
@@ -229,7 +235,9 @@ class TestEnvelopeValidatorAllClassesMatrix:
         for status in EnvelopeStatus:
             registry = _make_registry(ArtifactClass.HANDOVER, "handover-writer", ProducerType.WORKER)
             validator = EnvelopeValidator(registry)
-            envelope = _make_envelope(ArtifactClass.HANDOVER, status, "handover-writer")
+            envelope = _make_envelope(
+                ArtifactClass.HANDOVER, status, "handover-writer", ProducerType.WORKER,
+            )
             validator.validate(envelope)
 
     def test_adversarial_all_statuses_accepted(self) -> None:

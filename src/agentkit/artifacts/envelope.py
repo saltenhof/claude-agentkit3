@@ -28,11 +28,12 @@ Pflichtfelder und Validatoren (FK-71 §71.2, AG3-022 §2.1.2):
 
 from __future__ import annotations
 
+import json
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Final, Literal
 
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from agentkit.artifacts.producer import Producer
 from agentkit.core_types import ArtifactClass, EnvelopeStatus
@@ -43,6 +44,10 @@ from agentkit.core_types import ArtifactClass, EnvelopeStatus
 ENVELOPE_SCHEMA_VERSION: Final[str] = "3.0"
 
 _STORY_ID_PATTERN: re.Pattern[str] = re.compile(r"^[A-Z][A-Z0-9]+-\d+$")
+#: Stage-ID-Pattern: lowercase Start, alphanumerisch mit ``-``/``_``
+#: (kebab/snake), 1-64 Zeichen. Bindung an die StageRegistry erfolgt in
+#: THEME-009; bis dahin gilt mindestens dieses Strukturpattern.
+_STAGE_ID_PATTERN: re.Pattern[str] = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 
 
 class ArtifactEnvelope(BaseModel):
@@ -69,7 +74,7 @@ class ArtifactEnvelope(BaseModel):
 
     schema_version: Literal["3.0"]
     story_id: str
-    run_id: str
+    run_id: str = Field(min_length=1)
     stage: str
     attempt: int
     producer: Producer
@@ -90,12 +95,76 @@ class ArtifactEnvelope(BaseModel):
             raise ValueError(msg)
         return v
 
+    @field_validator("stage")
+    @classmethod
+    def _validate_stage(cls, v: str) -> str:
+        if not _STAGE_ID_PATTERN.match(v):
+            msg = (
+                f"stage '{v}' entspricht nicht dem Pattern "
+                r"'^[a-z][a-z0-9_-]{0,63}$' "
+                "(kleinbuchstaben, kebab/snake, 1-64 Zeichen)"
+            )
+            raise ValueError(msg)
+        return v
+
     @field_validator("attempt")
     @classmethod
     def _validate_attempt(cls, v: int) -> int:
         if v < 1:
             msg = f"attempt muss >= 1 sein, erhalten: {v}"
             raise ValueError(msg)
+        return v
+
+    @field_validator("started_at", "finished_at")
+    @classmethod
+    def _validate_utc(cls, v: datetime) -> datetime:
+        """Erzwingt tz-aware Datetimes mit UTC-Offset.
+
+        FK-71 §71.2 verlangt ISO-8601-Timestamps mit Zeitzone; AG3-022
+        Story-§2.1.2 spezifiziert UTC. Naive Datetimes oder Non-UTC-
+        Offsets sind fail-closed verboten, damit Audit- und
+        Reproduzierbarkeitspruefungen nicht an Zeitzonen-Drift
+        scheitern.
+        """
+        if v.tzinfo is None:
+            msg = (
+                f"timestamp muss tz-aware sein, naive datetime nicht "
+                f"zulaessig: {v!r}"
+            )
+            raise ValueError(msg)
+        offset = v.utcoffset()
+        if offset is None or offset != timedelta(0):
+            msg = (
+                f"timestamp muss UTC-Offset 0 haben (FK-71 §71.2), "
+                f"erhalten: {v!r} mit Offset {offset}"
+            )
+            raise ValueError(msg)
+        return v
+
+    @field_validator("payload")
+    @classmethod
+    def _validate_payload_json_serialisable(
+        cls, v: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        """Erzwingt JSON-Serialisierbarkeit des Payloads.
+
+        Pydantic v2 lehnt dict-Inhalte mit beliebigen Python-Objekten
+        nicht automatisch ab. Diese Validator-Pruefung versucht eine
+        kanonische JSON-Serialisierung und schlaegt fail-closed fehl,
+        sobald ein Wert nicht JSON-konvertierbar ist — passt zur
+        Wire-Pflicht aus AG3-022 §2.1.2 ("Pydantic-konforme
+        Serialisierung").
+        """
+        if v is None:
+            return v
+        try:
+            json.dumps(v, sort_keys=True, default=None)
+        except TypeError as exc:
+            msg = (
+                f"payload ist nicht JSON-serialisierbar: {exc}. "
+                "Erlaubt sind nur Werte, die json.dumps verarbeiten kann."
+            )
+            raise ValueError(msg) from exc
         return v
 
     @model_validator(mode="after")
