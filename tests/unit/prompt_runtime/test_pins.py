@@ -10,13 +10,13 @@ import pytest
 
 from agentkit.exceptions import ProjectError
 from agentkit.installer.paths import PROMPT_BUNDLE_STORE_ENV, prompt_bundle_store_dir
-from agentkit.prompt_composer.pins import (
+from agentkit.prompt_runtime.pins import (
     ensure_prompt_run_pin,
     initialize_prompt_run_pin,
     load_prompt_run_pin,
     resolve_run_prompt_binding,
 )
-from agentkit.prompt_composer.resources import PROJECT_LOCK_RELPATH
+from agentkit.prompt_runtime.resources import PROJECT_LOCK_RELPATH
 
 if TYPE_CHECKING:
     from pathlib import Path

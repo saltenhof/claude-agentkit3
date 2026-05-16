@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, cast
 from agentkit.installer import InstallConfig, install_agentkit
 from agentkit.installer.paths import PROMPT_BUNDLE_STORE_ENV
 from agentkit.phase_state_store import FlowExecution, save_flow_execution
-from agentkit.prompt_composer.pins import initialize_prompt_run_pin
+from agentkit.prompt_runtime.pins import initialize_prompt_run_pin
 from agentkit.state_backend.store import save_story_context
 from agentkit.verify_system.llm_evaluator.reviewer import SemanticReviewer
 

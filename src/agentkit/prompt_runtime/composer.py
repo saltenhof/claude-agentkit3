@@ -9,18 +9,18 @@ from typing import TYPE_CHECKING
 
 from agentkit.exceptions import ProjectError
 from agentkit.installer.paths import prompt_instance_dir
-from agentkit.prompt_composer.pins import (
+from agentkit.prompt_runtime.pins import (
     initialize_prompt_run_pin,
     resolve_run_prompt_binding,
 )
-from agentkit.prompt_composer.resources import (
+from agentkit.prompt_runtime.resources import (
     load_prompt_template,
     prompt_template_relpath,
     prompt_template_sha256,
     resolve_bootstrap_prompt_binding,
 )
-from agentkit.prompt_composer.selectors import select_template_name
-from agentkit.prompt_composer.sentinels import extract_sentinel
+from agentkit.prompt_runtime.selectors import select_template_name
+from agentkit.prompt_runtime.sentinels import extract_sentinel
 from agentkit.utils.io import atomic_write_text
 
 if TYPE_CHECKING:

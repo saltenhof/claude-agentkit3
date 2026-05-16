@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agentkit.prompt_composer.resources import load_prompt_template
+from agentkit.prompt_runtime.resources import load_prompt_template
 
 
 def _build_templates() -> dict[str, str]:

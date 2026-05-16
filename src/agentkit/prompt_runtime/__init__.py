@@ -1,8 +1,8 @@
-"""Prompt composer component namespace."""
+"""Prompt runtime component namespace."""
 
 from __future__ import annotations
 
-from agentkit.prompt_composer.composer import (
+from agentkit.prompt_runtime.composer import (
     ComposeConfig,
     ComposedPrompt,
     MaterializedPromptInstance,
@@ -15,14 +15,14 @@ from agentkit.prompt_composer.composer import (
     write_prompt_instance,
     write_rendered_prompt_artifact,
 )
-from agentkit.prompt_composer.pins import (
+from agentkit.prompt_runtime.pins import (
     PromptRunPin,
     ensure_prompt_run_pin,
     initialize_prompt_run_pin,
     load_prompt_run_pin,
     resolve_run_prompt_binding,
 )
-from agentkit.prompt_composer.resources import (
+from agentkit.prompt_runtime.resources import (
     PromptBundleBinding,
     load_prompt_template,
     prompt_bundle_id,
@@ -34,13 +34,13 @@ from agentkit.prompt_composer.resources import (
     resolve_bootstrap_prompt_binding,
     resolve_project_prompt_binding,
 )
-from agentkit.prompt_composer.selectors import select_template_name
-from agentkit.prompt_composer.sentinels import (
+from agentkit.prompt_runtime.selectors import select_template_name
+from agentkit.prompt_runtime.sentinels import (
     extract_sentinel,
     make_sentinel,
     validate_sentinel,
 )
-from agentkit.prompt_composer.templates import TEMPLATES
+from agentkit.prompt_runtime.templates import TEMPLATES
 
 __all__ = [
     "TEMPLATES",

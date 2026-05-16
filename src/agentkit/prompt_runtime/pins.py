@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from agentkit.exceptions import ProjectError
 from agentkit.installer.paths import prompt_run_pin_path
-from agentkit.prompt_composer.resources import (
+from agentkit.prompt_runtime.resources import (
     PROJECT_LOCK_RELPATH,
     PromptBundleBinding,
     resolve_project_prompt_binding,

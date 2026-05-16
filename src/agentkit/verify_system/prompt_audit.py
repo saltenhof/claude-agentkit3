@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from agentkit.prompt_composer import (
+from agentkit.prompt_runtime import (
     ComposeConfig,
     compose_named_prompt,
     initialize_prompt_run_pin,

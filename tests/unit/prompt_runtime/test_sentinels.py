@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.prompt_composer.sentinels import (
+from agentkit.prompt_runtime.sentinels import (
     extract_sentinel,
     make_sentinel,
     validate_sentinel,

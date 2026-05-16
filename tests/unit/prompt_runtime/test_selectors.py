@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agentkit.prompt_composer.selectors import select_template_name
+from agentkit.prompt_runtime.selectors import select_template_name
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 

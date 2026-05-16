@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from agentkit.prompt_composer import (
+from agentkit.prompt_runtime import (
     ComposeConfig,
     build_worker_worktree_context,
     compose_prompt,

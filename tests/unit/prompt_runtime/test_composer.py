@@ -10,7 +10,7 @@ import pytest
 
 from agentkit.exceptions import ProjectError
 from agentkit.installer.paths import PROMPT_BUNDLE_STORE_ENV, prompt_bundle_store_dir
-from agentkit.prompt_composer.composer import (
+from agentkit.prompt_runtime.composer import (
     ComposeConfig,
     ComposedPrompt,
     MaterializedPromptInstance,
@@ -19,8 +19,8 @@ from agentkit.prompt_composer.composer import (
     write_prompt,
     write_prompt_instance,
 )
-from agentkit.prompt_composer.pins import initialize_prompt_run_pin
-from agentkit.prompt_composer.resources import PROJECT_LOCK_RELPATH
+from agentkit.prompt_runtime.pins import initialize_prompt_run_pin
+from agentkit.prompt_runtime.resources import PROJECT_LOCK_RELPATH
 from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
