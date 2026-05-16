@@ -1,9 +1,10 @@
 story_id: AG3-022
 title: "Artefakt-BC Foundation: ArtifactEnvelope, ArtifactReference, ProducerRegistry"
 type: implementation
-status: in_progress
+status: completed
 phase: setup
 created: "2026-05-16"
+completed_at: "2026-05-16T19:35:00+02:00"
 size: M
 depends_on:
   - AG3-021
