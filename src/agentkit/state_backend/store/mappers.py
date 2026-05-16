@@ -108,20 +108,23 @@ def _backfill_legacy_project_configuration_payload(
     *,
     project_key: str,
 ) -> dict[str, Any]:
-    """Forward-compat: derive ``repositories`` for old DB rows that pre-date AG3-020.
+    """Forward-compat: derive ``repositories`` for legacy/empty DB rows.
 
-    The strict ``ProjectConfiguration`` schema requires ``repositories`` with at
-    least one entry.  Legacy DB rows that were written before AG3-020 do not
-    carry the field; this helper backfills it here at the read-boundary so the
-    schema can stay strict and writes always go through the proper validation.
+    The strict ``ProjectConfiguration`` schema requires ``repositories`` with
+    at least one entry.  Two read-side cases must be handled here at the
+    boundary so the schema can stay strict on writes:
 
-    A WARNING is logged for every legacy row encountered so the operator can
-    correct the project record explicitly.  The fallback is conservative:
+    - ``repositories`` key absent      (legacy row pre-AG3-020)
+    - ``repositories`` present but ``[]`` (legacy bootstrap fallback)
+
+    Both trigger the same conservative fallback:
 
     - ``repo_url`` set and non-empty -> ``repositories = [repo_url]``
-    - ``repo_url`` empty or missing  -> ``repositories = [project_key]``
-      (last-resort: the project_key is guaranteed to exist; the operator MUST
-      replace this with the real repo list).
+    - else                            -> ``repositories = [project_key]``
+      (the project_key is guaranteed to exist; operator MUST replace it).
+
+    A WARNING is logged for every legacy row encountered so the operator
+    can correct the project record explicitly.
 
     Args:
         payload: Raw configuration dict as it came out of the JSON column.
@@ -130,23 +133,25 @@ def _backfill_legacy_project_configuration_payload(
 
     Returns:
         A new dict with ``repositories`` populated, or the original dict
-        unchanged when ``repositories`` was already present.
+        unchanged when ``repositories`` was already present and non-empty.
     """
 
-    if "repositories" in payload:
+    existing = payload.get("repositories")
+    if isinstance(existing, list) and existing:
+        # Already populated, schema-acceptable — pass through unchanged.
         return payload
     repo_url = payload.get("repo_url", "")
     if isinstance(repo_url, str) and repo_url.strip():
         _log.warning(
-            "Legacy project configuration for %r without 'repositories' field; "
+            "Legacy project configuration for %r without usable 'repositories'; "
             "deriving [%r] from repo_url. Update the project record.",
             project_key,
             repo_url,
         )
         return {**payload, "repositories": [repo_url]}
     _log.warning(
-        "Legacy project configuration for %r without 'repositories' and without "
-        "a usable repo_url; falling back to [%r]. Operator MUST replace this.",
+        "Legacy project configuration for %r without usable 'repositories' and "
+        "without a usable repo_url; falling back to [%r]. Operator MUST replace.",
         project_key,
         project_key,
     )

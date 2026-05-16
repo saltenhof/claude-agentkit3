@@ -49,8 +49,11 @@ def _app(repository: _InMemoryProjectRepository) -> ControlPlaneApplication:
 
 
 def _configuration_payload() -> dict[str, object]:
+    # ``repo_url=""`` opts out of the AG3-020 consistency check (the field is
+    # only enforced when a primary URL is set).  These fixture-driven tests
+    # focus on the repositories-update path, not on the primary-URL contract.
     return {
-        "repo_url": "https://example.test/repo.git",
+        "repo_url": "",
         "default_branch": "main",
         "are_url": None,
         "default_worker_count": 2,
@@ -299,14 +302,19 @@ def test_post_project_with_empty_repositories_returns_400_validation_failed() ->
 
 
 def test_post_project_with_repositories_persists_list() -> None:
-    """POST /v1/projects with explicit repositories stores the list."""
+    """POST /v1/projects with explicit repositories stores the list.
+
+    ``repo_url`` is the primary-URL contract (AG3-020 §2.1.1); when set, it
+    must be a member of ``repositories``.  Here the primary URL is the same
+    as the first repository entry.
+    """
     repository = _InMemoryProjectRepository()
     payload = {
         "key": "tenant-c",
         "name": "Tenant C",
         "story_id_prefix": "TC",
         "configuration": {
-            "repo_url": "https://example.test/primary.git",
+            "repo_url": "primary-repo",
             "default_branch": "main",
             "are_url": None,
             "default_worker_count": 1,
@@ -383,7 +391,7 @@ def test_patch_configuration_repos_not_in_use_succeeds() -> None:
         name="Tenant A",
         story_id_prefix="AG3",
         configuration=ProjectConfiguration(
-            repo_url="https://example.test/repo.git",
+            repo_url="",
             default_branch="main",
             are_url=None,
             default_worker_count=2,

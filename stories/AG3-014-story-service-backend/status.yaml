@@ -1,10 +1,9 @@
 story_id: AG3-014
 title: "AK3 Story-Service Backend (Anlage, Status, Dependencies, Attribute)"
 type: implementation
-status: completed
+status: in_progress
 phase: setup
 created: "2026-05-04"
-completed_at: "2026-05-16T06:30:00+02:00"
 size: L
 depends_on: []
 unblocks:

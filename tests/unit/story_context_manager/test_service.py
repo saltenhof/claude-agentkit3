@@ -47,7 +47,7 @@ class _InMemoryProjectRepository:
                 name="AgentKit 3",
                 story_id_prefix="AK3",
                 configuration=ProjectConfiguration(
-                    repo_url="https://github.com/example/ak3",
+                    repo_url="",
                     default_branch="main",
                     default_worker_count=2,
                     repositories=["ak3", "ak3-frontend"],
@@ -197,7 +197,7 @@ def test_create_story_archived_project_raises() -> None:
         name="Archived",
         story_id_prefix="ARCH",
         configuration=ProjectConfiguration(
-            repo_url="https://example.com",
+            repo_url="",
             default_branch="main",
             default_worker_count=1,
             repositories=["repo"],
@@ -508,7 +508,7 @@ def test_list_stories_excludes_other_projects() -> None:
         name="Beta",
         story_id_prefix="BETA",
         configuration=ProjectConfiguration(
-            repo_url="https://example.com",
+            repo_url="",
             default_branch="main",
             default_worker_count=1,
             repositories=["beta-repo"],

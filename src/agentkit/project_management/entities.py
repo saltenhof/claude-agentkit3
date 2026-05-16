@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 _PROJECT_KEY_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 _STORY_ID_PREFIX_PATTERN = re.compile(r"^[A-Z][A-Z0-9]{1,9}$")
@@ -53,6 +53,30 @@ class ProjectConfiguration(BaseModel):
         if len(value) != len(set(value)):
             raise ValueError("repositories must not contain duplicate entries")
         return value
+
+    @model_validator(mode="after")
+    def _validate_repo_url_consistency(self) -> ProjectConfiguration:
+        """Enforce AG3-020 §2.1.1: ``repo_url`` must appear in ``repositories``.
+
+        Story §2.1.1 ("Empfohlene Variante: repositories[0] ist der
+        konventionelle 'primary' Repo"): when ``repo_url`` is non-empty it
+        MUST be a member of the ``repositories`` list.  An empty
+        ``repo_url`` is the legacy/bootstrap case (no single primary), for
+        which the constraint is relaxed.
+
+        This is the schema-level consistency check that prevents
+        contradictory configurations from being persisted (e.g.
+        ``repo_url="primary-repo"`` together with
+        ``repositories=["other-repo"]``).
+        """
+        url = self.repo_url.strip()
+        if url and url not in self.repositories:
+            raise ValueError(
+                f"repo_url={self.repo_url!r} is not contained in "
+                f"repositories={self.repositories!r}; the primary repo URL "
+                "must be a member of the configured repositories list",
+            )
+        return self
 
 
 class Project(BaseModel):

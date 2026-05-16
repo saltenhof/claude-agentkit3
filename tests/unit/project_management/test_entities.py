@@ -10,7 +10,7 @@ from agentkit.project_management.lifecycle import create_project
 
 def _configuration() -> ProjectConfiguration:
     return ProjectConfiguration(
-        repo_url="https://example.test/repo.git",
+        repo_url="",
         default_branch="main",
         are_url=None,
         default_worker_count=2,
@@ -58,7 +58,7 @@ def test_project_rejects_invalid_story_id_prefix(prefix: str) -> None:
 def test_configuration_rejects_worker_count_below_one() -> None:
     with pytest.raises(ValidationError):
         ProjectConfiguration(
-            repo_url="https://example.test/repo.git",
+            repo_url="",
             default_branch="main",
             are_url=None,
             default_worker_count=0,
@@ -94,7 +94,7 @@ def test_configuration_repositories_missing_raises_validation_error() -> None:
     """
     with pytest.raises(ValidationError):
         ProjectConfiguration(  # type: ignore[call-arg]
-            repo_url="https://example.test/repo.git",
+            repo_url="",
             default_branch="main",
             are_url=None,
             default_worker_count=1,
@@ -106,7 +106,7 @@ def test_configuration_repositories_empty_list_raises_validation_error() -> None
     """AG3-020: repositories=[] is rejected at the schema level (min_length=1)."""
     with pytest.raises(ValidationError):
         ProjectConfiguration(
-            repo_url="https://example.test/repo.git",
+            repo_url="",
             default_branch="main",
             are_url=None,
             default_worker_count=1,
@@ -117,7 +117,7 @@ def test_configuration_repositories_empty_list_raises_validation_error() -> None
 def test_create_project_rejects_empty_repositories_when_override_used() -> None:
     """create_project rejects an empty repositories override at write time."""
     config = ProjectConfiguration(
-        repo_url="https://example.test/repo.git",
+        repo_url="",
         default_branch="main",
         are_url=None,
         default_worker_count=1,
@@ -131,7 +131,7 @@ def test_configuration_repositories_rejects_empty_string() -> None:
     """A whitespace-only entry in repositories must be rejected."""
     with pytest.raises(ValidationError):
         ProjectConfiguration(
-            repo_url="https://example.test/repo.git",
+            repo_url="",
             default_branch="main",
             are_url=None,
             default_worker_count=1,
@@ -143,7 +143,7 @@ def test_configuration_repositories_rejects_duplicates() -> None:
     """Duplicate entries in repositories must be rejected."""
     with pytest.raises(ValidationError):
         ProjectConfiguration(
-            repo_url="https://example.test/repo.git",
+            repo_url="",
             default_branch="main",
             are_url=None,
             default_worker_count=1,
@@ -154,7 +154,7 @@ def test_configuration_repositories_rejects_duplicates() -> None:
 def test_configuration_repositories_accepts_multiple_unique_entries() -> None:
     """Multiple unique, non-empty entries must be accepted."""
     config = ProjectConfiguration(
-        repo_url="https://example.test/repo.git",
+        repo_url="",
         default_branch="main",
         are_url=None,
         default_worker_count=1,

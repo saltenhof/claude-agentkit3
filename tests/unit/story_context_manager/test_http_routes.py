@@ -28,7 +28,7 @@ class _InMemoryProjectRepository:
                 name="AgentKit 3",
                 story_id_prefix="AK3",
                 configuration=ProjectConfiguration(
-                    repo_url="https://github.com/example/ak3",
+                    repo_url="",
                     default_branch="main",
                     default_worker_count=2,
                     repositories=["ak3", "r"],

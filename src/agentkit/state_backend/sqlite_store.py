@@ -547,8 +547,11 @@ def _ensure_default_projects_for_story_contexts(conn: sqlite3.Connection) -> Non
 
     The ``repositories`` field introduced by AG3-020 is derived from
     ``participating_repos`` in the story-context payload when available.
-    Otherwise an empty list is stored and a WARNING is logged so the
-    operator knows a backfill is needed.
+    When the payload carries no usable list, ``[project_key]`` is used as
+    a last-resort placeholder so the strict ``ProjectConfiguration`` schema
+    (``repositories: list[str] = Field(min_length=1)``) does not reject the
+    row on read.  The mapper layer emits a WARN whenever this fallback is
+    encountered so the operator can replace it.
     """
     import logging
     _log = logging.getLogger(__name__)
@@ -577,10 +580,14 @@ def _ensure_default_projects_for_story_contexts(conn: sqlite3.Connection) -> Non
             pass
 
         if not repositories:
+            # Strict schema rejects []; fall back to [project_key] so the
+            # default project is at least readable.  Mapper logs WARN.
+            repositories = [project_key]
             _log.warning(
                 "Bootstrap: project '%s' has no participating_repos in "
-                "story_context payload; setting repositories=[] "
-                "(operator must update project configuration).",
+                "story_context payload; falling back to repositories=[%r] "
+                "(operator MUST replace this placeholder).",
+                project_key,
                 project_key,
             )
 

@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 def _configuration() -> ProjectConfiguration:
     return ProjectConfiguration(
-        repo_url="https://example.test/repo.git",
+        repo_url="",
         default_branch="main",
         are_url=None,
         default_worker_count=2,
@@ -74,7 +74,7 @@ def test_repository_roundtrip_includes_repositories(tmp_path: Path) -> None:
     from agentkit.project_management.entities import ProjectConfiguration
 
     config = ProjectConfiguration(
-        repo_url="https://example.test/repo.git",
+        repo_url="",
         default_branch="main",
         are_url=None,
         default_worker_count=1,

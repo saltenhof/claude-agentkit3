@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
 def _configuration() -> ProjectConfiguration:
     return ProjectConfiguration(
-        repo_url="https://example.test/repo.git",
+        repo_url="",
         default_branch="main",
         are_url=None,
         default_worker_count=1,
