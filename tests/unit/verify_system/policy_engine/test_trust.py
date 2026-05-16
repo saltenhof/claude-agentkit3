@@ -26,47 +26,49 @@ class TestTrustWeight:
 
 
 class TestEffectiveSeverity:
-    """effective_severity computation tests."""
+    """effective_severity computation tests using BLOCKING/MAJOR/MINOR."""
 
-    def test_critical_system_scores_highest(self) -> None:
+    def test_blocking_system_scores_highest(self) -> None:
         f = Finding(
-            layer="s", check="a", severity=Severity.CRITICAL,
+            layer="s", check="a", severity=Severity.BLOCKING,
             message="msg", trust_class=TrustClass.SYSTEM,
         )
         assert effective_severity(f) == 100 * 3  # 300
 
-    def test_critical_worker_scores_lower_than_critical_system(self) -> None:
+    def test_blocking_worker_scores_lower_than_blocking_system(self) -> None:
         system = Finding(
-            layer="s", check="a", severity=Severity.CRITICAL,
+            layer="s", check="a", severity=Severity.BLOCKING,
             message="msg", trust_class=TrustClass.SYSTEM,
         )
         worker = Finding(
-            layer="s", check="a", severity=Severity.CRITICAL,
+            layer="s", check="a", severity=Severity.BLOCKING,
             message="msg", trust_class=TrustClass.WORKER_ASSERTION,
         )
         assert effective_severity(system) > effective_severity(worker)
 
-    def test_high_system_scores_higher_than_high_worker(self) -> None:
+    def test_major_system_scores_higher_than_major_worker(self) -> None:
         system = Finding(
-            layer="s", check="a", severity=Severity.HIGH,
+            layer="s", check="a", severity=Severity.MAJOR,
             message="msg", trust_class=TrustClass.SYSTEM,
         )
         worker = Finding(
-            layer="s", check="a", severity=Severity.HIGH,
+            layer="s", check="a", severity=Severity.MAJOR,
             message="msg", trust_class=TrustClass.WORKER_ASSERTION,
         )
         assert effective_severity(system) > effective_severity(worker)
 
-    def test_info_severity_scores_zero(self) -> None:
+    def test_minor_score(self) -> None:
         f = Finding(
-            layer="s", check="a", severity=Severity.INFO,
+            layer="s", check="a", severity=Severity.MINOR,
             message="msg", trust_class=TrustClass.SYSTEM,
         )
-        assert effective_severity(f) == 0
+        # MINOR score = 20, trust SYSTEM weight = 3, total = 60.
+        assert effective_severity(f) == 60
 
-    def test_medium_verified_llm_score(self) -> None:
+    def test_major_verified_llm_score(self) -> None:
         f = Finding(
-            layer="s", check="a", severity=Severity.MEDIUM,
+            layer="s", check="a", severity=Severity.MAJOR,
             message="msg", trust_class=TrustClass.VERIFIED_LLM,
         )
-        assert effective_severity(f) == 50 * 2  # 100
+        # MAJOR score = 50, VERIFIED_LLM weight = 2, total = 100.
+        assert effective_severity(f) == 100

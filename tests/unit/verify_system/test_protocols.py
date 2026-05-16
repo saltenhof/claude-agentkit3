@@ -8,17 +8,20 @@ from agentkit.verify_system.protocols import Finding, LayerResult, Severity, Tru
 
 
 class TestSeverity:
-    """Severity enum values."""
+    """Severity enum values per FK-27 §27.4.2 (BLOCKING/MAJOR/MINOR)."""
 
     def test_severity_values(self) -> None:
-        assert Severity.CRITICAL.value == "critical"
-        assert Severity.HIGH.value == "high"
-        assert Severity.MEDIUM.value == "medium"
-        assert Severity.LOW.value == "low"
-        assert Severity.INFO.value == "info"
+        assert Severity.BLOCKING.value == "BLOCKING"
+        assert Severity.MAJOR.value == "MAJOR"
+        assert Severity.MINOR.value == "MINOR"
 
-    def test_severity_has_five_members(self) -> None:
-        assert len(Severity) == 5
+    def test_severity_has_three_members(self) -> None:
+        assert len(Severity) == 3
+
+    def test_legacy_values_rejected(self) -> None:
+        for legacy in ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"):
+            with pytest.raises(ValueError):
+                Severity(legacy)
 
 
 class TestTrustClass:
@@ -40,13 +43,13 @@ class TestFinding:
         f = Finding(
             layer="structural",
             check="context_exists",
-            severity=Severity.CRITICAL,
+            severity=Severity.BLOCKING,
             message="context.json missing",
             trust_class=TrustClass.SYSTEM,
         )
         assert f.layer == "structural"
         assert f.check == "context_exists"
-        assert f.severity == Severity.CRITICAL
+        assert f.severity == Severity.BLOCKING
         assert f.message == "context.json missing"
         assert f.trust_class == TrustClass.SYSTEM
         assert f.file_path is None
@@ -57,7 +60,7 @@ class TestFinding:
         f = Finding(
             layer="structural",
             check="test",
-            severity=Severity.LOW,
+            severity=Severity.MINOR,
             message="test msg",
             trust_class=TrustClass.SYSTEM,
             file_path="/some/file.py",
@@ -72,7 +75,7 @@ class TestFinding:
         f = Finding(
             layer="structural",
             check="test",
-            severity=Severity.LOW,
+            severity=Severity.MINOR,
             message="test",
             trust_class=TrustClass.SYSTEM,
         )
@@ -90,52 +93,51 @@ class TestLayerResult:
         assert lr.findings == ()
         assert lr.metadata == {}
 
-    def test_critical_findings_filters_correctly(self) -> None:
+    def test_blocking_findings_filters_correctly(self) -> None:
         findings = (
             Finding(
-                layer="s", check="a", severity=Severity.CRITICAL,
-                message="crit", trust_class=TrustClass.SYSTEM,
+                layer="s", check="a", severity=Severity.BLOCKING,
+                message="block", trust_class=TrustClass.SYSTEM,
             ),
             Finding(
-                layer="s", check="b", severity=Severity.HIGH,
-                message="high", trust_class=TrustClass.SYSTEM,
+                layer="s", check="b", severity=Severity.MAJOR,
+                message="major", trust_class=TrustClass.SYSTEM,
             ),
             Finding(
-                layer="s", check="c", severity=Severity.INFO,
-                message="info", trust_class=TrustClass.SYSTEM,
-            ),
-        )
-        lr = LayerResult(layer="s", passed=False, findings=findings)
-        crit = lr.critical_findings
-        assert len(crit) == 1
-        assert crit[0].severity == Severity.CRITICAL
-
-    def test_blocking_findings_filters_critical_and_high(self) -> None:
-        findings = (
-            Finding(
-                layer="s", check="a", severity=Severity.CRITICAL,
-                message="crit", trust_class=TrustClass.SYSTEM,
-            ),
-            Finding(
-                layer="s", check="b", severity=Severity.HIGH,
-                message="high", trust_class=TrustClass.SYSTEM,
-            ),
-            Finding(
-                layer="s", check="c", severity=Severity.MEDIUM,
-                message="med", trust_class=TrustClass.SYSTEM,
-            ),
-            Finding(
-                layer="s", check="d", severity=Severity.LOW,
-                message="low", trust_class=TrustClass.SYSTEM,
+                layer="s", check="c", severity=Severity.MINOR,
+                message="minor", trust_class=TrustClass.SYSTEM,
             ),
         )
         lr = LayerResult(layer="s", passed=False, findings=findings)
         blocking = lr.blocking_findings
-        assert len(blocking) == 2
-        severities = {f.severity for f in blocking}
-        assert severities == {Severity.CRITICAL, Severity.HIGH}
+        assert len(blocking) == 1
+        assert blocking[0].severity == Severity.BLOCKING
+
+    def test_major_findings_filters_major_only(self) -> None:
+        findings = (
+            Finding(
+                layer="s", check="a", severity=Severity.BLOCKING,
+                message="block", trust_class=TrustClass.SYSTEM,
+            ),
+            Finding(
+                layer="s", check="b", severity=Severity.MAJOR,
+                message="major", trust_class=TrustClass.SYSTEM,
+            ),
+            Finding(
+                layer="s", check="c", severity=Severity.MAJOR,
+                message="major2", trust_class=TrustClass.SYSTEM,
+            ),
+            Finding(
+                layer="s", check="d", severity=Severity.MINOR,
+                message="minor", trust_class=TrustClass.SYSTEM,
+            ),
+        )
+        lr = LayerResult(layer="s", passed=False, findings=findings)
+        major = lr.major_findings
+        assert len(major) == 2
+        assert all(f.severity == Severity.MAJOR for f in major)
 
     def test_empty_findings_returns_empty_tuples(self) -> None:
         lr = LayerResult(layer="s", passed=True)
-        assert lr.critical_findings == ()
         assert lr.blocking_findings == ()
+        assert lr.major_findings == ()

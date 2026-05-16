@@ -6,7 +6,7 @@ Handles all field-name and value translations between the wire format
 Translations:
   - ``repos`` (Wire) <-> ``participating_repos`` (Internal, FK-21 language)
   - ``status="In Progress"`` <-> ``StoryStatus.IN_PROGRESS``
-  - ``size`` wire values ("XS","S","M","L","XL","XXL") -> ``WireStorySize``
+  - ``size`` wire values ("XS","S","M","L","XL") -> ``WireStorySize``
   - ``type`` wire values -> ``WireStoryType``
   - ``story_id`` (Wire: display_id) <-> ``story_display_id`` (Internal)
 

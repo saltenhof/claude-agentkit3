@@ -166,7 +166,7 @@ class IntegrityGate:
                 dimension="verify_decision",
                 passed=False,
                 message=(
-                    f"Verify decision is {label!r}, expected PASS/PASS_WITH_WARNINGS"
+                    f"Verify decision is {label!r}, expected PASS"
                 ),
             )
         return IntegrityCheckResult(

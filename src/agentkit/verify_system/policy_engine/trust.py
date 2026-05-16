@@ -3,6 +3,8 @@
 System checks (``TrustClass.SYSTEM``) outweigh worker assertions
 (``TrustClass.WORKER_ASSERTION``) in the policy engine. This module
 provides the weight mapping and effective severity computation.
+
+Severity-Skala folgt FK-27 §27.4.2 (BLOCKING/MAJOR/MINOR).
 """
 
 from __future__ import annotations
@@ -17,21 +19,19 @@ TRUST_WEIGHT: dict[TrustClass, int] = {
 """Weight multiplier for each trust class. Higher = more trusted."""
 
 _SEVERITY_SCORE: dict[Severity, int] = {
-    Severity.CRITICAL: 100,
-    Severity.HIGH: 80,
-    Severity.MEDIUM: 50,
-    Severity.LOW: 20,
-    Severity.INFO: 0,
+    Severity.BLOCKING: 100,
+    Severity.MAJOR: 50,
+    Severity.MINOR: 20,
 }
-"""Base severity score. Higher = more severe."""
+"""Base severity score per FK-27 §27.4.2. Higher = more severe."""
 
 
 def effective_severity(finding: Finding) -> int:
     """Compute effective severity score (higher = worse).
 
     Combines the base severity score with the trust class weight.
-    A CRITICAL finding from a SYSTEM check scores higher than a
-    CRITICAL finding from a WORKER_ASSERTION.
+    A BLOCKING finding from a SYSTEM check scores higher than a
+    BLOCKING finding from a WORKER_ASSERTION.
 
     Args:
         finding: The finding to score.

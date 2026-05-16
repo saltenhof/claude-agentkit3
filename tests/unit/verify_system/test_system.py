@@ -4,6 +4,9 @@ The facade is the sole entry point for cross-BC callers
 (``concept/_meta/bc-cut-decisions.md`` §"BC 2: verify-system",
 FK-07 §7.4.2, FK-27). These tests cover construction and pure-delegation
 behaviour for the operations consumed by ``agentkit.implementation``.
+
+Wertebereich seit AG3-021: ``Severity`` ist BLOCKING/MAJOR/MINOR und
+``PolicyVerdict`` ist PASS/FAIL.
 """
 
 from __future__ import annotations
@@ -33,9 +36,9 @@ class TestVerifySystemFacade:
             verify_system.adversarial_challenger, AdversarialChallenger
         )
 
-    def test_create_default_propagates_max_high_findings(self) -> None:
-        verify_system = VerifySystem.create_default(max_high_findings=2)
-        # Two HIGH findings remain non-blocking, three flip to blocking.
+    def test_create_default_propagates_max_major_findings(self) -> None:
+        verify_system = VerifySystem.create_default(max_major_findings=2)
+        # Two MAJOR findings remain non-blocking, three flip to blocking.
         non_blocking = LayerResult(
             layer="probe",
             passed=True,
@@ -43,14 +46,14 @@ class TestVerifySystemFacade:
                 Finding(
                     layer="probe",
                     check="c1",
-                    severity=Severity.HIGH,
+                    severity=Severity.MAJOR,
                     message="m1",
                     trust_class=TrustClass.VERIFIED_LLM,
                 ),
                 Finding(
                     layer="probe",
                     check="c2",
-                    severity=Severity.HIGH,
+                    severity=Severity.MAJOR,
                     message="m2",
                     trust_class=TrustClass.VERIFIED_LLM,
                 ),
@@ -68,7 +71,7 @@ class TestVerifySystemFacade:
                 Finding(
                     layer="probe",
                     check="c3",
-                    severity=Severity.HIGH,
+                    severity=Severity.MAJOR,
                     message="m3",
                     trust_class=TrustClass.VERIFIED_LLM,
                 ),
@@ -100,7 +103,7 @@ class TestVerifySystemFacade:
         assert decision.status == "PASS"
         assert decision.blocking_findings == ()
 
-    def test_policy_decision_fail_on_system_critical(self) -> None:
+    def test_policy_decision_fail_on_system_blocking(self) -> None:
         verify_system = VerifySystem.create_default()
         result = LayerResult(
             layer="structural",
@@ -109,8 +112,8 @@ class TestVerifySystemFacade:
                 Finding(
                     layer="structural",
                     check="missing",
-                    severity=Severity.CRITICAL,
-                    message="critical blocker",
+                    severity=Severity.BLOCKING,
+                    message="blocking finding",
                     trust_class=TrustClass.SYSTEM,
                 ),
             ),

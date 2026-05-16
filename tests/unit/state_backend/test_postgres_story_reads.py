@@ -76,7 +76,7 @@ def test_load_story_context_global_reads_single_payload(monkeypatch: pytest.Monk
                     "payload_json": (
                         '{"project_key":"tenant-a","story_id":"AG3-100",'
                         '"story_type":"implementation","execution_route":"execution",'
-                        '"title":"Story 100","story_size":"medium"}'
+                        '"title":"Story 100","story_size":"M"}'
                     ),
                 },
             ],
@@ -100,14 +100,14 @@ def test_load_story_contexts_global_reads_multiple_payloads(monkeypatch: pytest.
                     "payload_json": (
                         '{"project_key":"tenant-a","story_id":"AG3-100",'
                         '"story_type":"implementation","execution_route":"execution",'
-                        '"title":"Story 100","story_size":"small"}'
+                        '"title":"Story 100","story_size":"S"}'
                     ),
                 },
                 {
                     "payload_json": (
                         '{"project_key":"tenant-a","story_id":"AG3-101",'
                         '"story_type":"bugfix","execution_route":"execution",'
-                        '"title":"Story 101","story_size":"medium"}'
+                        '"title":"Story 101","story_size":"M"}'
                     ),
                 },
             ],

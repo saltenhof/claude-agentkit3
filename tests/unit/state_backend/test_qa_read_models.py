@@ -49,7 +49,7 @@ def test_build_qa_stage_result_prefers_explicit_count_metadata() -> None:
         findings=(
             _finding(
                 check="context_exists",
-                severity=Severity.CRITICAL,
+                severity=Severity.BLOCKING,
                 file_path="context.json",
                 line_number=1,
             ),
@@ -85,14 +85,14 @@ def test_build_qa_findings_uses_deterministic_non_text_identity() -> None:
         findings=(
             _finding(
                 check="lint",
-                severity=Severity.HIGH,
+                severity=Severity.BLOCKING,
                 file_path="src/app.py",
                 line_number=10,
                 message="first wording",
             ),
             _finding(
                 check="lint",
-                severity=Severity.HIGH,
+                severity=Severity.BLOCKING,
                 file_path="src/app.py",
                 line_number=10,
                 message="second wording",

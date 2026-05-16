@@ -174,7 +174,7 @@ def test_post_dependency_and_next_ready() -> None:
             {
                 "story_id": "AK3-003",
                 "depends_on_story_id": "AK3-002",
-                "kind": "blocks",
+                "kind": "hard_story_dependency",
                 "op_id": "op-test",
             },
         ).encode("utf-8"),
@@ -199,13 +199,13 @@ def test_delete_dependency() -> None:
     edge = StoryDependency(
         story_id="AK3-003",
         depends_on_story_id="AK3-002",
-        kind=StoryDependencyKind.BLOCKS,
+        kind=StoryDependencyKind.HARD_STORY_DEPENDENCY,
         created_at=datetime.now(UTC),
     )
     dep_repo = _DepRepo([edge])
     response = _app(dep_repo=dep_repo).handle_request(
         method="DELETE",
-        path="/v1/projects/tenant-a/planning/dependencies/AK3-003/AK3-002/blocks",
+        path="/v1/projects/tenant-a/planning/dependencies/AK3-003/AK3-002/hard_story_dependency",
         body=b"",
     )
 
@@ -247,7 +247,7 @@ def test_conflicts_and_not_found_status_codes() -> None:
             {
                 "story_id": "AK3-002",
                 "depends_on_story_id": "AK3-001",
-                "kind": "blocks",
+                "kind": "hard_story_dependency",
             },
         ).encode("utf-8"),
     )

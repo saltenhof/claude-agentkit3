@@ -61,21 +61,21 @@ class VerifySystem:
     def create_default(
         cls,
         *,
-        max_high_findings: int = 0,
+        max_major_findings: int = 0,
     ) -> VerifySystem:
         """Construct a ``VerifySystem`` with default sub-components.
 
         Args:
-            max_high_findings: Threshold for the policy engine. Mirrors
-                :class:`PolicyEngine` -- HIGH findings beyond this count
-                turn into blocking findings.
+            max_major_findings: Threshold for the policy engine. Mirrors
+                :class:`PolicyEngine` -- MAJOR findings beyond this count
+                turn into blocking findings (FK-27 §27.4.2 / §27.7.2).
 
         Returns:
             A frozen ``VerifySystem`` with default-configured
             sub-components.
         """
         return cls(
-            policy_engine=PolicyEngine(max_high_findings=max_high_findings),
+            policy_engine=PolicyEngine(max_major_findings=max_major_findings),
             adversarial_challenger=AdversarialChallenger(),
         )
 

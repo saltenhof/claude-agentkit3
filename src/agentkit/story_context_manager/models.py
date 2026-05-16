@@ -23,6 +23,11 @@ from pydantic import (
     model_validator,
 )
 
+from agentkit.core_types import (
+    ExplorationGateStatus,
+    PauseReason,
+    QaContext,
+)
 from agentkit.story_context_manager.sizing import StorySize, estimate_size
 from agentkit.story_context_manager.types import (
     ImplementationContract,
@@ -51,11 +56,6 @@ class PhaseName(StrEnum):
     CLOSURE = "closure"
 
 
-class VerifyContext(StrEnum):
-    POST_IMPLEMENTATION = "POST_IMPLEMENTATION"
-    POST_REMEDIATION = "POST_REMEDIATION"
-
-
 class QaCycleStatus(StrEnum):
     IDLE = "idle"
     AWAITING_QA = "awaiting_qa"
@@ -75,7 +75,7 @@ class ExplorationPayload(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     phase_type: Literal["exploration"] = "exploration"
-    gate_status: str | None = None
+    gate_status: ExplorationGateStatus | None = None
 
 
 class ImplementationPayload(BaseModel):
@@ -83,7 +83,7 @@ class ImplementationPayload(BaseModel):
 
     phase_type: Literal["implementation"] = "implementation"
     qa_cycle_status: QaCycleStatus = QaCycleStatus.IDLE
-    verify_context: VerifyContext | None = None
+    verify_context: QaContext | None = None
     qa_cycle_round: int = Field(default=0, ge=0)
     qa_cycle_id: str | None = None
     evidence_epoch: str | None = None
@@ -190,7 +190,7 @@ class StoryContext(BaseModel):
     story_number: int = Field(default=0)  # derived from story_id by model_validator if not given
     story_id: str
     story_type: StoryType
-    execution_route: StoryMode
+    execution_route: StoryMode | None
     implementation_contract: ImplementationContract | None = None
     issue_nr: int | None = None
 
@@ -212,7 +212,7 @@ class StoryContext(BaseModel):
         return v
 
     title: str = ""
-    story_size: StorySize = StorySize.SMALL
+    story_size: StorySize = StorySize.S
     project_root: Path | None = None
     worktree_path: Path | None = None
     worktree_map: dict[str, Path] = Field(default_factory=dict)
@@ -299,7 +299,7 @@ class PhaseState(BaseModel):
     status: PhaseStatus
     payload: PhasePayload | None = None
     memory: PhaseMemory = Field(default_factory=PhaseMemory)
-    paused_reason: str | None = None
+    paused_reason: PauseReason | None = None
     review_round: int = 0
     errors: list[str] = Field(default_factory=list)
     attempt_id: str | None = None
@@ -372,7 +372,6 @@ __all__ = [
     "QaCycleStatus",
     "SetupPayload",
     "StoryContext",
-    "VerifyContext",
 ]
 
 

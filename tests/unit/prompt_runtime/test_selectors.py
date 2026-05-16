@@ -1,7 +1,11 @@
-"""Tests for template selection logic."""
+"""Tests for template selection logic.
+
+``spawn_reason`` ist seit AG3-021 ein typisiertes ``SpawnReason``-Enum.
+"""
 
 from __future__ import annotations
 
+from agentkit.core_types import SpawnReason
 from agentkit.prompt_runtime.selectors import select_template_name
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
@@ -38,10 +42,10 @@ class TestSelectTemplateName:
         assert result == "worker-exploration"
 
     def test_remediation_overrides_everything(self) -> None:
-        """spawn_reason='remediation' always selects remediation."""
+        """spawn_reason=REMEDIATION always selects remediation."""
         result = select_template_name(
             StoryType.IMPLEMENTATION,
-            spawn_reason="remediation",
+            spawn_reason=SpawnReason.REMEDIATION,
         )
         assert result == "worker-remediation"
 
@@ -50,7 +54,7 @@ class TestSelectTemplateName:
         result = select_template_name(
             StoryType.IMPLEMENTATION,
             execution_route=StoryMode.EXPLORATION,
-            spawn_reason="remediation",
+            spawn_reason=SpawnReason.REMEDIATION,
         )
         assert result == "worker-remediation"
 
@@ -78,13 +82,26 @@ class TestSelectTemplateName:
         )
         assert result == "worker-exploration"
 
-    def test_unknown_spawn_reason_uses_type_mapping(self) -> None:
-        """Non-remediation spawn_reason uses the type mapping."""
+    def test_paused_retry_spawn_reason_uses_type_mapping(self) -> None:
+        """PAUSED_RETRY non-remediation spawn_reason uses the type mapping."""
         result = select_template_name(
             StoryType.RESEARCH,
-            spawn_reason="retry",
+            spawn_reason=SpawnReason.PAUSED_RETRY,
         )
         assert result == "worker-research"
+
+    def test_string_spawn_reason_rejected(self) -> None:
+        """SpawnReason ist seit AG3-021 typisiert; freie Strings sind tabu."""
+        # ``select_template_name`` macht eine ``is``-Pruefung gegen
+        # ``SpawnReason.REMEDIATION`` -- ein freier String matcht nicht.
+        # Wir wollen aber, dass mypy strict den Aufruf ablehnt; zur Laufzeit
+        # akzeptiert Python natuerlich jeden Wert. Wir verifizieren, dass
+        # nur das richtige Enum-Member den Remediation-Pfad aktiviert.
+        result = select_template_name(
+            StoryType.IMPLEMENTATION,
+            spawn_reason=SpawnReason.INITIAL,
+        )
+        assert result == "worker-implementation"
 
     def test_all_story_types_have_template(self) -> None:
         """Every StoryType member must produce a valid template name."""

@@ -265,7 +265,11 @@ def story_context_to_row(ctx: StoryContext) -> dict[str, Any]:
         "story_number": ctx.story_number,
         "story_id": ctx.story_id,
         "story_type": ctx.story_type.value,
-        "execution_route": ctx.execution_route.value,
+        "execution_route": (
+            ctx.execution_route.value
+            if ctx.execution_route is not None
+            else None
+        ),
         "implementation_contract": (
             ctx.implementation_contract.value
             if ctx.implementation_contract is not None

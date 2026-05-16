@@ -59,7 +59,11 @@ def _make_story_context(
     project_key: str = "test-project",
 ) -> StoryContext:
     """Build a minimal StoryContext for testing."""
-    mode = StoryMode.EXPLORATION if story_type == StoryType.IMPLEMENTATION else StoryMode.NOT_APPLICABLE
+    mode: StoryMode | None = (
+        StoryMode.EXPLORATION
+        if story_type == StoryType.IMPLEMENTATION
+        else None
+    )
     return StoryContext(
         project_key=project_key,
         story_id=story_id,

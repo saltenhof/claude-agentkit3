@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from agentkit.core_types import PauseReason
 from agentkit.exceptions import PipelineError
 from agentkit.pipeline_engine.phase_executor.records import AttemptRecord
 from agentkit.pipeline_engine.runtime_state import EngineRuntimeState
@@ -33,6 +34,66 @@ from agentkit.story_context_manager.models import (
     PhaseStatus,
     StoryContext,
 )
+
+
+def _yield_point_matches_paused_reason(
+    yield_point_status: str,
+    paused_reason: PauseReason | None,
+) -> bool:
+    """Vergleicht den Yield-Point-Status mit dem persistierten PauseReason.
+
+    ``yield_points[].status`` ist seit AG3-021 weiterhin ein freier String
+    im DSL-Vertrag (``YieldPoint``-Dataclass); ``paused_reason`` ist ein
+    typisiertes ``PauseReason``-Enum. Der Vergleich erfolgt deshalb ueber
+    die Wire-Repraesentation und nutzt ``from_yield_status``, damit
+    Synonyme aus AG3-021 §2.1.4 ebenfalls greifen.
+    """
+    if paused_reason is None:
+        return False
+    try:
+        return PauseReason.from_yield_status(yield_point_status) is paused_reason
+    except ValueError:
+        return False
+
+
+def _coerce_paused_reason(
+    raw: str | PauseReason | None,
+    *,
+    phase_name: str,
+) -> PauseReason | None:
+    """Convert handler yield_status into a typed PauseReason or None.
+
+    Aufrufer (Phase Handler) duerfen seit AG3-021 entweder einen
+    ``PauseReason`` direkt oder einen freien String liefern, der via
+    ``PauseReason.from_yield_status`` (Story §2.1.4) auf das normierte
+    Enum gemappt wird. Unbekannte Strings sind fail-closed: sie werfen
+    ``PipelineError``, der Handler-Vertrag haelt damit den Vertrag aus
+    FK-39 §39.2.2 (nur drei zulaessige Pause-Reasons).
+
+    Args:
+        raw: Vom Handler geliefertes Yield-Status-Datum (Optional).
+        phase_name: Phase-Name fuer aussagekraeftige Fehlermeldungen.
+
+    Returns:
+        Den normierten ``PauseReason`` oder ``None``, wenn der Handler
+        keinen Yield-Grund gemeldet hat.
+
+    Raises:
+        PipelineError: Wenn ``raw`` ein nicht-zulaessiger String ist.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, PauseReason):
+        return raw
+    try:
+        return PauseReason.from_yield_status(raw)
+    except ValueError as exc:
+        raise PipelineError(
+            f"Handler for phase {phase_name!r} produced unknown yield_status "
+            f"{raw!r}; PauseReason allows only "
+            f"{[m.value for m in PauseReason]}",
+            detail={"phase": phase_name, "raw": raw},
+        ) from exc
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -380,6 +441,11 @@ def _handle_paused_result(
     resume_trigger: str | None,
 ) -> EngineResult:
     phase_name = state.phase
+    # AG3-021 §2.1.4: yield_status wird typisiert via PauseReason. Aus
+    # Migrationsgruenden akzeptieren wir hier weiterhin freie Strings vom
+    # Handler und mappen sie via from_yield_status auf das normierte Enum.
+    # Unbekannte Werte fuehren zu PipelineError (fail-closed).
+    paused_reason = _coerce_paused_reason(result.yield_status, phase_name=phase_name)
     save_phase_state(
         engine._story_dir,
         PhaseState(
@@ -388,7 +454,7 @@ def _handle_paused_result(
             status=PhaseStatus.PAUSED,
             payload=(result.updated_state or state).payload,
             memory=(result.updated_state or state).memory,
-            paused_reason=result.yield_status,
+            paused_reason=paused_reason,
             attempt_id=attempt_id,
         ),
     )
@@ -801,10 +867,18 @@ class PipelineEngine:
                 },
             )
 
-        # 2. Verify trigger is valid for a yield point
+        # 2. Verify trigger is valid for a yield point.
+        # Seit AG3-021 ist state.paused_reason ein PauseReason-Enum; im
+        # YieldPoint-Vertrag bleibt yp.status ein freier String, wir
+        # vergleichen daher Wire-strings via from_yield_status, damit das
+        # Synonym-Mapping aus Story §2.1.4 auch hier greift.
         valid_trigger = False
         for yp in phase_def.yield_points:
-            if yp.status == state.paused_reason and trigger in yp.resume_triggers:
+            if not _yield_point_matches_paused_reason(
+                yp.status, state.paused_reason,
+            ):
+                continue
+            if trigger in yp.resume_triggers:
                 valid_trigger = True
                 break
 

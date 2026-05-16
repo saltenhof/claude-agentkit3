@@ -98,7 +98,7 @@ def build_feedback(
 
     advisory = tuple(
         f for f in decision.all_findings
-        if f.severity not in (Severity.CRITICAL, Severity.HIGH)
+        if f.severity != Severity.BLOCKING
     )
 
     return RemediationFeedback(

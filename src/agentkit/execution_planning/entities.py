@@ -1,19 +1,25 @@
-"""Domain entities for execution planning."""
+"""Domain entities for execution planning.
+
+``StoryDependencyKind`` wird seit AG3-021 aus ``agentkit.core_types``
+importiert und nutzt das FK-70-§70.4.2-normative 8-Werte-Vokabular.
+"""
 
 from __future__ import annotations
 
 from datetime import datetime
-from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from agentkit.core_types import StoryDependencyKind
 
-class StoryDependencyKind(StrEnum):
-    """Typed story-dependency edge kind."""
-
-    BLOCKS = "blocks"
-    DERIVES_FROM = "derives_from"
-    BRANCHES_OFF = "branches_off"
+__all__ = [
+    "ParallelizationConfig",
+    "ReadinessAssessment",
+    "StoryDependency",
+    "StoryDependencyKind",
+    "StoryRefForPlanning",
+    "WaveStory",
+]
 
 
 class StoryDependency(BaseModel):

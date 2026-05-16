@@ -35,7 +35,7 @@ from agentkit.pipeline_engine.runner import run_pipeline
 from agentkit.process.language.definitions import resolve_workflow
 from agentkit.state_backend.store import read_story_context_record, save_story_context
 from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.story_context_manager.types import StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -128,7 +128,7 @@ class TestRealPipelineE2E:
                 project_key="e2e-test",
                 story_id=story_id,
                 story_type=StoryType.CONCEPT,
-                execution_route=StoryMode.NOT_APPLICABLE,
+                execution_route=None,
                 project_root=project_dir,
             )
             save_story_context(s_dir, initial_ctx)
@@ -226,7 +226,7 @@ class TestRealPipelineE2E:
                 project_key="e2e-test",
                 story_id=story_id,
                 story_type=StoryType.RESEARCH,
-                execution_route=StoryMode.NOT_APPLICABLE,
+                execution_route=None,
                 project_root=project_dir,
             )
             save_story_context(s_dir, initial_ctx)

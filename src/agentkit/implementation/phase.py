@@ -6,6 +6,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from agentkit.core_types import QaContext
 from agentkit.implementation.qa_subflow import (
     QaSubflowCycle,
     QaSubflowCycleResult,
@@ -24,7 +25,6 @@ from agentkit.story_context_manager.models import (
     PhaseState,
     PhaseStatus,
     QaCycleStatus,
-    VerifyContext,
 )
 from agentkit.verify_system import VerifySystem
 from agentkit.verify_system.llm_evaluator.reviewer import SemanticReviewer
@@ -66,7 +66,7 @@ class ImplementationPhaseHandler:
                 updated_state=_state_with_payload(
                     state,
                     QaCycleStatus.ESCALATED,
-                    VerifyContext.POST_IMPLEMENTATION,
+                    QaContext.IMPLEMENTATION_INITIAL,
                 ),
             )
         save_story_context(s_dir, ctx)
@@ -149,7 +149,7 @@ class ImplementationPhaseHandler:
                 )
 
             qa_rounds += 1
-            current_context = VerifyContext.POST_REMEDIATION
+            current_context = QaContext.IMPLEMENTATION_REMEDIATION
 
     def on_exit(self, _ctx: StoryContext, _state: PhaseState) -> None:
         """No-op for implementation phase."""
@@ -166,10 +166,10 @@ class ImplementationPhaseHandler:
         return self.on_enter(ctx, state)
 
 
-def _verify_context_for(qa_feedback_rounds: int) -> VerifyContext:
+def _verify_context_for(qa_feedback_rounds: int) -> QaContext:
     if qa_feedback_rounds == 0:
-        return VerifyContext.POST_IMPLEMENTATION
-    return VerifyContext.POST_REMEDIATION
+        return QaContext.IMPLEMENTATION_INITIAL
+    return QaContext.IMPLEMENTATION_REMEDIATION
 
 
 def _feedback_errors(result: QaSubflowCycleResult) -> list[str]:
@@ -184,7 +184,7 @@ def _feedback_errors(result: QaSubflowCycleResult) -> list[str]:
 def _state_with_payload(
     state: PhaseState,
     qa_cycle_status: QaCycleStatus,
-    verify_context: VerifyContext,
+    verify_context: QaContext,
     *,
     qa_feedback_rounds: int | None = None,
     qa_cycle_round: int = 0,

@@ -1,7 +1,13 @@
-"""Template selection based on story type, execution route, and spawn reason."""
+"""Template selection based on story type, execution route, and spawn reason.
+
+``spawn_reason`` ist seit AG3-021 ein typisiertes ``SpawnReason``-Enum
+(``agentkit.core_types``) statt eines freien Strings. Aufrufer muessen
+ein ``SpawnReason``-Member uebergeben.
+"""
 
 from __future__ import annotations
 
+from agentkit.core_types import SpawnReason
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 _TYPE_TO_TEMPLATE: dict[StoryType, str] = {
@@ -17,11 +23,25 @@ def select_template_name(
     execution_route: StoryMode | None = None,
     *,
     mode: StoryMode | None = None,
-    spawn_reason: str = "initial",
+    spawn_reason: SpawnReason = SpawnReason.INITIAL,
 ) -> str:
+    """Resolve the worker prompt template name for the given context.
+
+    Args:
+        story_type: Story-Typ-Kennzeichen aus ``StoryContext``.
+        execution_route: Story-Mode-Route (Implementation-Pfad).
+        mode: Legacy-Alias fuer ``execution_route``; bleibt aus
+            Kompatibilitaet bestehen.
+        spawn_reason: ``SpawnReason``-Enum, das die aktuelle
+            Spawn-Phase klassifiziert (``INITIAL`` / ``PAUSED_RETRY``
+            / ``REMEDIATION``). Pflicht: typisiertes Enum.
+
+    Returns:
+        Der Name der Worker-Prompt-Vorlage.
+    """
     route = execution_route if execution_route is not None else mode
 
-    if spawn_reason == "remediation":
+    if spawn_reason is SpawnReason.REMEDIATION:
         return "worker-remediation"
 
     if route == StoryMode.EXPLORATION:
@@ -33,5 +53,6 @@ def select_template_name(
         raise ValueError(msg)
 
     return template_name
+
 
 __all__ = ["select_template_name"]

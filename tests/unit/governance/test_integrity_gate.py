@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from agentkit.core_types import PolicyVerdict
 from agentkit.exceptions import CorruptStateError
 from agentkit.governance.integrity_gate import IntegrityGate
 from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
@@ -54,10 +55,10 @@ def _create_context(
     story_dir: Path,
     story_type: StoryType = StoryType.IMPLEMENTATION,
 ) -> None:
-    mode = (
+    mode: StoryMode | None = (
         StoryMode.EXECUTION
         if story_type in (StoryType.IMPLEMENTATION, StoryType.BUGFIX)
-        else StoryMode.NOT_APPLICABLE
+        else None
     )
     save_story_context(
         story_dir,
@@ -86,7 +87,15 @@ def _create_snapshot(story_dir: Path, phase: str, status: PhaseStatus = PhaseSta
 
 
 def _create_decision(story_dir: Path, decision: str = "PASS") -> None:
-    passed = decision in ("PASS", "PASS_WITH_WARNINGS")
+    """Persist a verify decision artifact for testing.
+
+    Args:
+        story_dir: Target story directory.
+        decision: ``"PASS"`` or ``"FAIL"``. Since AG3-021, ``PolicyVerdict``
+            has only these two values; ``PASS_WITH_WARNINGS`` is gone.
+    """
+    verdict = PolicyVerdict.PASS if decision == "PASS" else PolicyVerdict.FAIL
+    passed = verdict is PolicyVerdict.PASS
     structural = LayerResult(layer="structural", passed=passed, findings=())
     record_layer_artifacts(
         story_dir,
@@ -97,7 +106,7 @@ def _create_decision(story_dir: Path, decision: str = "PASS") -> None:
         story_dir,
         decision=VerifyDecision(
             passed=passed,
-            status=decision,
+            verdict=verdict,
             layer_results=(structural,),
             all_findings=(),
             blocking_findings=(),

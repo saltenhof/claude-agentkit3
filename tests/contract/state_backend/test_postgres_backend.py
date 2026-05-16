@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
+from agentkit.core_types import PolicyVerdict
 from agentkit.phase_state_store.models import FlowExecution
 from agentkit.state_backend.store import (
     append_execution_event,
@@ -133,7 +134,7 @@ def test_public_state_backend_contract_works_on_postgres(
                     Finding(
                         layer="structural",
                         check="context_exists",
-                        severity=Severity.CRITICAL,
+                        severity=Severity.BLOCKING,
                         message="context.json is missing",
                         trust_class=TrustClass.SYSTEM,
                         file_path="context.json",
@@ -142,7 +143,7 @@ def test_public_state_backend_contract_works_on_postgres(
                     Finding(
                         layer="structural",
                         check="lint",
-                        severity=Severity.MEDIUM,
+                        severity=Severity.MAJOR,
                         message="style drift",
                         trust_class=TrustClass.SYSTEM,
                         file_path="src/app.py",
@@ -183,7 +184,7 @@ def test_public_state_backend_contract_works_on_postgres(
     assert len(findings) == 2
     assert findings[0].status == "REPORTED"
     assert findings[0].artifact_id == "structural-attempt-1"
-    assert {finding.severity for finding in findings} == {"critical", "medium"}
+    assert {finding.severity for finding in findings} == {"BLOCKING", "MAJOR"}
 
     save_flow_execution(
         story_dir,
@@ -220,7 +221,7 @@ def test_public_state_backend_contract_works_on_postgres(
         story_dir,
         decision=VerifyDecision(
             passed=False,
-            status="FAIL",
+            verdict=PolicyVerdict.FAIL,
             layer_results=(LayerResult(layer="structural", passed=False),),
             all_findings=(),
             blocking_findings=(),
@@ -264,7 +265,7 @@ def test_public_state_backend_contract_works_on_postgres(
                     Finding(
                         layer="structural",
                         check="context_exists",
-                        severity=Severity.CRITICAL,
+                        severity=Severity.BLOCKING,
                         message="context.json is still missing",
                         trust_class=TrustClass.SYSTEM,
                         file_path="context.json",
@@ -287,7 +288,7 @@ def test_public_state_backend_contract_works_on_postgres(
 
     decision = VerifyDecision(
         passed=True,
-        status="PASS",
+        verdict=PolicyVerdict.PASS,
         layer_results=(
             LayerResult(
                 layer="structural",

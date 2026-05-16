@@ -13,7 +13,7 @@ from agentkit.process.language.guards import (
     preflight_passed,
 )
 from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.story_context_manager.types import StoryType
 
 
 class TestGuardResult:
@@ -227,7 +227,7 @@ class TestModeIsExploration:
             project_key="test-project",
             story_id="TEST-003",
             story_type=StoryType.CONCEPT,
-            execution_route=StoryMode.NOT_APPLICABLE,
+            execution_route=None,
         )
         result = mode_is_exploration(ctx, minimal_phase_state)
         assert result.passed is False

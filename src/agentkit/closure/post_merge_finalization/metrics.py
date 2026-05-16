@@ -81,7 +81,7 @@ def build_story_metrics_record(
         run_id=run_id,
         story_type=ctx.story_type.value,
         story_size=ctx.story_size.value,
-        mode=ctx.execution_route.value,
+        mode=ctx.execution_route.value if ctx.execution_route is not None else None,
         processing_time_min=processing_time_min,
         qa_rounds=qa_rounds,
         increments=increments,

@@ -1,4 +1,7 @@
-"""Tests for remediation feedback building."""
+"""Tests for remediation feedback building.
+
+Wertebereich seit AG3-021: ``Severity`` ist BLOCKING/MAJOR/MINOR.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +11,7 @@ from agentkit.verify_system.remediation.feedback import RemediationFeedback, bui
 
 
 def _finding(
-    severity: Severity = Severity.CRITICAL,
+    severity: Severity = Severity.BLOCKING,
     trust: TrustClass = TrustClass.SYSTEM,
     check: str = "test_check",
 ) -> Finding:
@@ -31,7 +34,7 @@ class TestBuildFeedback:
             LayerResult(
                 layer="structural",
                 passed=False,
-                findings=(_finding(Severity.CRITICAL),),
+                findings=(_finding(Severity.BLOCKING),),
             ),
         ])
         feedback = build_feedback(decision, "TEST-001", round_nr=1)
@@ -56,18 +59,18 @@ class TestBuildFeedback:
                 layer="structural",
                 passed=False,
                 findings=(
-                    _finding(Severity.CRITICAL, check="a"),
-                    _finding(Severity.MEDIUM, check="b"),
-                    _finding(Severity.LOW, check="c"),
+                    _finding(Severity.BLOCKING, check="a"),
+                    _finding(Severity.MAJOR, check="b"),
+                    _finding(Severity.MINOR, check="c"),
                 ),
             ),
         ])
         feedback = build_feedback(decision, "TEST-001", round_nr=2)
         assert feedback is not None
         assert len(feedback.blocking_findings) >= 1
-        # MEDIUM and LOW should be advisory
+        # MAJOR and MINOR should be advisory; BLOCKING never advisory.
         advisory_severities = {f.severity for f in feedback.advisory_findings}
-        assert Severity.CRITICAL not in advisory_severities
+        assert Severity.BLOCKING not in advisory_severities
 
 
 class TestRemediationFeedbackPrompt:
@@ -78,23 +81,23 @@ class TestRemediationFeedbackPrompt:
             story_id="TEST-001",
             round_nr=1,
             blocking_findings=(
-                _finding(Severity.CRITICAL, check="context_exists"),
+                _finding(Severity.BLOCKING, check="context_exists"),
             ),
             advisory_findings=(),
-            summary="1 critical finding",
+            summary="1 blocking finding",
         )
         text = fb.to_prompt_text()
         assert "Remediation Feedback" in text
         assert "Round 1" in text
         assert "TEST-001" in text
-        assert "CRITICAL" in text
+        assert "BLOCKING" in text
         assert "context_exists" in text
 
     def test_prompt_text_includes_file_path(self) -> None:
         f = Finding(
             layer="structural",
             check="test",
-            severity=Severity.HIGH,
+            severity=Severity.BLOCKING,
             message="msg",
             trust_class=TrustClass.SYSTEM,
             file_path="/some/path.json",
@@ -113,7 +116,7 @@ class TestRemediationFeedbackPrompt:
         f = Finding(
             layer="structural",
             check="test",
-            severity=Severity.HIGH,
+            severity=Severity.BLOCKING,
             message="msg",
             trust_class=TrustClass.SYSTEM,
             suggestion="Fix this thing",

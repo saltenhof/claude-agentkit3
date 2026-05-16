@@ -54,12 +54,11 @@ class WireStoryType(StrEnum):
 
 
 class WireStorySize(StrEnum):
-    """Wire-level story size values including XXL.
+    """Wire-level story size values per DK-10 §10.4 (XS/S/M/L/XL).
 
-    Note: this is distinct from the internal ``StorySize`` in
-    ``sizing.py`` (small/medium/large/epic) which the pipeline uses
-    for automatic sizing heuristics. The wire contract uses the
-    XS/S/M/L/XL/XXL vocabulary.
+    Seit AG3-021 deckungsgleich mit ``agentkit.core_types.StorySize`` —
+    der frueher hier gefuehrte ``XXL``-Wert war kein Konzept-Wert und ist
+    entfallen.
     """
 
     XS = "XS"
@@ -67,7 +66,6 @@ class WireStorySize(StrEnum):
     M = "M"
     L = "L"
     XL = "XL"
-    XXL = "XXL"
 
 
 class WireStoryMode(StrEnum):

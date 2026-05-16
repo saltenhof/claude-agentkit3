@@ -171,9 +171,15 @@ def test_parse_wire_story_type_invalid_raises() -> None:
 
 
 def test_parse_wire_story_size_valid() -> None:
-    for size_val in ["XS", "S", "M", "L", "XL", "XXL"]:
+    for size_val in ["XS", "S", "M", "L", "XL"]:
         result = parse_wire_story_size(size_val)
         assert result.value == size_val
+
+
+def test_parse_wire_story_size_xxl_rejected() -> None:
+    """XXL ist kein Konzept-Wert (DK-10 §10.4) und mit AG3-021 entfallen."""
+    with pytest.raises(StoryValidationError, match="Invalid story size"):
+        parse_wire_story_size("XXL")
 
 
 def test_parse_wire_story_size_invalid_raises() -> None:

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from agentkit.core_types import PolicyVerdict
 from agentkit.exceptions import CorruptStateError
 from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.state_backend.store import record_verify_decision, reset_backend_cache_for_tests, save_story_context
@@ -48,7 +49,7 @@ def _finding(
     *,
     layer: str = "structural",
     check: str = "context_exists",
-    severity: Severity = Severity.HIGH,
+    severity: Severity = Severity.BLOCKING,
 ) -> Finding:
     return Finding(
         layer=layer,
@@ -61,7 +62,7 @@ def _finding(
     )
 
 
-def _decision(*, passed: bool, status: str) -> VerifyDecision:
+def _decision(*, passed: bool, verdict: PolicyVerdict) -> VerifyDecision:
     structural = LayerResult(
         layer="structural",
         passed=passed,
@@ -77,11 +78,11 @@ def _decision(*, passed: bool, status: str) -> VerifyDecision:
     blocking = structural.findings if not passed else ()
     return VerifyDecision(
         passed=passed,
-        status=status,
+        verdict=verdict,
         layer_results=(structural, semantic),
         all_findings=structural.findings,
         blocking_findings=blocking,
-        summary=f"Decision {status}",
+        summary=f"Decision {verdict.value}",
     )
 
 
@@ -98,10 +99,10 @@ class TestArtifactConstants:
 
 class TestSerialization:
     def test_serialize_finding(self) -> None:
-        data = serialize_finding(_finding())
+        data = serialize_finding(_finding(severity=Severity.BLOCKING))
         assert data["layer"] == "structural"
         assert data["check"] == "context_exists"
-        assert data["severity"] == "high"
+        assert data["severity"] == "BLOCKING"
         assert data["trust_class"] == "A"
         assert data["file_path"] == "/tmp/example.json"
         assert data["suggestion"] == "Fix it"
@@ -124,7 +125,7 @@ class TestSerialization:
 
     def test_build_verify_decision_artifact(self) -> None:
         artifact = build_verify_decision_artifact(
-            _decision(passed=False, status="FAIL"),
+            _decision(passed=False, verdict=PolicyVerdict.FAIL),
             attempt_nr=2,
         )
         assert artifact["passed"] is False
@@ -160,12 +161,12 @@ class TestPersistence:
     def test_write_verify_decision_artifacts(self, tmp_path: Path) -> None:
         produced = write_verify_decision_artifacts(
             tmp_path,
-            decision=_decision(passed=True, status="PASS_WITH_WARNINGS"),
+            decision=_decision(passed=True, verdict=PolicyVerdict.PASS),
             attempt_nr=5,
         )
         assert produced == ("verify-decision.json",)
         canonical = json.loads((tmp_path / VERIFY_DECISION_FILE).read_text("utf-8"))
-        assert canonical["status"] == "PASS_WITH_WARNINGS"
+        assert canonical["status"] == "PASS"
         assert canonical["passed"] is True
 
     def test_load_json_object_handles_invalid(self, tmp_path: Path) -> None:
@@ -202,7 +203,7 @@ class TestPersistence:
         )
         record_verify_decision(
             tmp_path,
-            decision=_decision(passed=True, status="PASS_WITH_WARNINGS"),
+            decision=_decision(passed=True, verdict=PolicyVerdict.PASS),
             attempt_nr=2,
         )
         (tmp_path / VERIFY_DECISION_FILE).write_text(
@@ -213,7 +214,7 @@ class TestPersistence:
         name, data = load_verify_decision_artifact(tmp_path) or ("", {})
 
         assert name == VERIFY_DECISION_FILE
-        assert data["status"] == "PASS_WITH_WARNINGS"
+        assert data["status"] == "PASS"
 
     def test_load_verify_decision_artifact_falls_back_to_projection_on_corrupt_scope(
         self,
@@ -294,7 +295,7 @@ class TestPersistence:
 
         produced = write_verify_decision_artifacts(
             tmp_path,
-            decision=_decision(passed=True, status="PASS"),
+            decision=_decision(passed=True, verdict=PolicyVerdict.PASS),
             attempt_nr=2,
         )
 
@@ -306,10 +307,11 @@ class TestDecisionPassSemantics:
     def test_verify_decision_passed_for_canonical_pass(self) -> None:
         assert verify_decision_passed({"status": "PASS", "passed": True}) is True
 
-    def test_verify_decision_passed_for_canonical_warnings(self) -> None:
+    def test_verify_decision_passed_rejects_pass_with_warnings(self) -> None:
+        """PASS_WITH_WARNINGS faellt mit AG3-021 weg; ist kein valider Status."""
         assert verify_decision_passed(
             {"status": "PASS_WITH_WARNINGS", "passed": True},
-        ) is True
+        ) is False
 
     def test_verify_decision_passed_requires_true_passed_flag(self) -> None:
         assert verify_decision_passed({"status": "PASS", "passed": False}) is False

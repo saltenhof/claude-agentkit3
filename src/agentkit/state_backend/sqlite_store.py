@@ -98,7 +98,10 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             story_number INTEGER NOT NULL,
             story_id TEXT NOT NULL,
             story_type TEXT NOT NULL,
-            execution_route TEXT NOT NULL,
+            -- execution_route is nullable since AG3-021: non-implementing
+            -- story types (concept/research) carry NULL instead of the
+            -- deprecated StoryMode.NOT_APPLICABLE sentinel.
+            execution_route TEXT,
             implementation_contract TEXT,
             issue_nr INTEGER,
             title TEXT NOT NULL,
@@ -266,7 +269,9 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             run_id TEXT NOT NULL,
             story_type TEXT NOT NULL,
             story_size TEXT NOT NULL,
-            mode TEXT NOT NULL,
+            -- mode is nullable since AG3-021: non-implementing story
+            -- types carry NULL execution_route.
+            mode TEXT,
             processing_time_min REAL NOT NULL,
             qa_rounds INTEGER NOT NULL,
             increments INTEGER NOT NULL,

@@ -77,7 +77,7 @@ def _make_ctx(
     project_key: str = "test-project",
     story_id: str = "TEST-001",
     story_type: StoryType = StoryType.IMPLEMENTATION,
-    execution_route: StoryMode = StoryMode.EXECUTION,
+    execution_route: StoryMode | None = StoryMode.EXECUTION,
     project_root: Path | None = None,
 ) -> StoryContext:
     """Create a minimal ``StoryContext`` for testing."""
@@ -388,7 +388,7 @@ class TestClosurePhaseHandler:
         ctx = _make_ctx(
             story_id="TEST-101",
             story_type=StoryType.RESEARCH,
-            execution_route=StoryMode.NOT_APPLICABLE,
+            execution_route=None,
             project_root=tmp_path,
         )
         state = _make_state(story_id="TEST-101")

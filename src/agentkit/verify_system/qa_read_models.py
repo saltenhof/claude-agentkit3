@@ -128,7 +128,7 @@ def _count_from_metadata(
 
 
 def _finding_blocks(finding: Finding) -> bool:
-    return finding.severity in (Severity.CRITICAL, Severity.HIGH)
+    return finding.severity == Severity.BLOCKING
 
 
 def _finding_identity_key(

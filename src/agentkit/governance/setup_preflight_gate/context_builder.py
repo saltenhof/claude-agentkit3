@@ -70,7 +70,7 @@ def build_story_context(
 
     story_type = _extract_story_type(issue.labels)
     profile = get_profile(story_type)
-    mode: StoryMode = profile.default_mode
+    mode: StoryMode | None = profile.default_mode
 
     resolved_story_id = story_id if story_id is not None else f"STORY-{issue_nr}"
     story_number = _story_number_from_id(resolved_story_id) or issue.number

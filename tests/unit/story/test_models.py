@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from agentkit.core_types import PauseReason
 from agentkit.story_context_manager.models import (
     ClosurePayload,
     ClosureProgress,
@@ -185,7 +186,7 @@ class TestStoryContext:
         assert ctx.implementation_contract == ImplementationContract.STANDARD
         assert ctx.issue_nr is None
         assert ctx.title == ""
-        assert ctx.story_size == StorySize.SMALL
+        assert ctx.story_size == StorySize.S
         assert ctx.project_root is None
         assert ctx.worktree_path is None
         assert ctx.participating_repos == []
@@ -214,7 +215,7 @@ class TestStoryContext:
         assert ctx.worktree_path == Path("/tmp/worktrees/AG3-042")
         assert ctx.participating_repos == ["saltenhof/claude-agentkit3"]
         assert ctx.labels == ["bugfix", "size:small"]
-        assert ctx.story_size == StorySize.SMALL
+        assert ctx.story_size == StorySize.S
         assert ctx.created_at == now
 
     def test_implementation_defaults_standard_contract(self) -> None:
@@ -231,7 +232,7 @@ class TestStoryContext:
             project_key="test-project",
             story_id="AG3-052",
             story_type=StoryType.CONCEPT,
-            execution_route=StoryMode.NOT_APPLICABLE,
+            execution_route=None,
         )
         assert ctx.implementation_contract is None
 
@@ -345,10 +346,10 @@ class TestStoryContext:
             story_id="AG3-058",
             story_type=StoryType.IMPLEMENTATION,
             execution_route=StoryMode.EXECUTION,
-            labels=["size:large"],
+            labels=["size:l"],
             title="Implement closure metrics",
         )
-        assert ctx.story_size == StorySize.LARGE
+        assert ctx.story_size == StorySize.L
 
     def test_default_lists_are_independent(self) -> None:
         """Verify mutable default lists are not shared between instances."""
@@ -356,13 +357,13 @@ class TestStoryContext:
             project_key="test-project",
             story_id="AG3-001",
             story_type=StoryType.CONCEPT,
-            execution_route=StoryMode.NOT_APPLICABLE,
+            execution_route=None,
         )
         ctx2 = StoryContext(
             project_key="test-project",
             story_id="AG3-002",
             story_type=StoryType.CONCEPT,
-            execution_route=StoryMode.NOT_APPLICABLE,
+            execution_route=None,
         )
         assert ctx1.labels is not ctx2.labels
         assert ctx1.participating_repos is not ctx2.participating_repos
@@ -390,12 +391,12 @@ class TestPhaseState:
             story_id="AG3-001",
             phase="implementation",
             status=PhaseStatus.PAUSED,
-            paused_reason="Awaiting manual review",
+            paused_reason=PauseReason.GOVERNANCE_INCIDENT,
             review_round=2,
             errors=["Test coverage below threshold"],
             attempt_id="attempt-abc123",
         )
-        assert state.paused_reason == "Awaiting manual review"
+        assert state.paused_reason == PauseReason.GOVERNANCE_INCIDENT
         assert state.review_round == 2
         assert state.errors == ["Test coverage below threshold"]
         assert state.attempt_id == "attempt-abc123"

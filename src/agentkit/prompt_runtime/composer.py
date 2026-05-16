@@ -7,6 +7,7 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from agentkit.core_types import SpawnReason
 from agentkit.exceptions import ProjectError
 from agentkit.installer.paths import prompt_instance_dir
 from agentkit.prompt_runtime.pins import (
@@ -63,7 +64,7 @@ class RenderedPromptArtifact:
 class ComposeConfig:
     story_type: StoryType
     execution_route: StoryMode | None = None
-    spawn_reason: str = "initial"
+    spawn_reason: SpawnReason = SpawnReason.INITIAL
     round_nr: int = 1
     feedback: str = ""
 
@@ -92,7 +93,11 @@ def _build_placeholder_map(
     config: ComposeConfig,
 ) -> dict[str, str]:
     project_root = str(ctx.project_root) if ctx.project_root is not None else "N/A"
-    body = config.feedback if config.spawn_reason == "remediation" else ctx.title
+    body = (
+        config.feedback
+        if config.spawn_reason is SpawnReason.REMEDIATION
+        else ctx.title
+    )
     worktree_context = build_worker_worktree_context(ctx)
     return {
         "story_id": ctx.story_id,
@@ -298,10 +303,10 @@ def write_prompt(
     prompt: ComposedPrompt,
     output_dir: Path,
     *,
-    spawn_reason: str = "initial",
+    spawn_reason: SpawnReason = SpawnReason.INITIAL,
     round_nr: int = 1,
 ) -> Path:
-    filename = f"{prompt.template_name}--{spawn_reason}--r{round_nr}.md"
+    filename = f"{prompt.template_name}--{spawn_reason.value}--r{round_nr}.md"
     path = output_dir / filename
     atomic_write_text(path, prompt.content)
     return path

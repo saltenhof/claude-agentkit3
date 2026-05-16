@@ -109,7 +109,7 @@ def test_add_and_remove_dependency() -> None:
     edge = add_dependency(
         story_id="AK3-002",
         depends_on_story_id="AK3-001",
-        kind=StoryDependencyKind.BLOCKS,
+        kind=StoryDependencyKind.HARD_STORY_DEPENDENCY,
         project_key="tenant-a",
         story_repo=story_repo,
         dep_repo=dep_repo,
@@ -119,7 +119,7 @@ def test_add_and_remove_dependency() -> None:
     remove_dependency(
         story_id="AK3-002",
         depends_on_story_id="AK3-001",
-        kind=StoryDependencyKind.BLOCKS,
+        kind=StoryDependencyKind.HARD_STORY_DEPENDENCY,
         dep_repo=dep_repo,
     )
     assert dep_repo.edges == []
@@ -137,7 +137,7 @@ def test_add_dependency_rejects_cycle_without_persisting() -> None:
             StoryDependency(
                 story_id="AK3-002",
                 depends_on_story_id="AK3-001",
-                kind=StoryDependencyKind.BLOCKS,
+                kind=StoryDependencyKind.HARD_STORY_DEPENDENCY,
                 created_at=datetime.now(UTC),
             ),
         ],
@@ -147,7 +147,7 @@ def test_add_dependency_rejects_cycle_without_persisting() -> None:
         add_dependency(
             story_id="AK3-001",
             depends_on_story_id="AK3-002",
-            kind=StoryDependencyKind.BLOCKS,
+            kind=StoryDependencyKind.HARD_STORY_DEPENDENCY,
             project_key="tenant-a",
             story_repo=story_repo,
             dep_repo=dep_repo,
@@ -168,7 +168,7 @@ def test_add_dependency_rejects_self_cross_project_and_missing_story() -> None:
         add_dependency(
             story_id="AK3-001",
             depends_on_story_id="AK3-001",
-            kind=StoryDependencyKind.BLOCKS,
+            kind=StoryDependencyKind.HARD_STORY_DEPENDENCY,
             project_key="tenant-a",
             story_repo=story_repo,
             dep_repo=_DepRepo(),
@@ -177,7 +177,7 @@ def test_add_dependency_rejects_self_cross_project_and_missing_story() -> None:
         add_dependency(
             story_id="AK3-002",
             depends_on_story_id="AK3-001",
-            kind=StoryDependencyKind.BLOCKS,
+            kind=StoryDependencyKind.HARD_STORY_DEPENDENCY,
             project_key="tenant-a",
             story_repo=story_repo,
             dep_repo=_DepRepo(),
@@ -186,7 +186,7 @@ def test_add_dependency_rejects_self_cross_project_and_missing_story() -> None:
         add_dependency(
             story_id="missing",
             depends_on_story_id="AK3-001",
-            kind=StoryDependencyKind.BLOCKS,
+            kind=StoryDependencyKind.HARD_STORY_DEPENDENCY,
             project_key="tenant-a",
             story_repo=story_repo,
             dep_repo=_DepRepo(),
@@ -205,7 +205,7 @@ def test_assess_readiness_uses_default_parallel_config() -> None:
             StoryDependency(
                 story_id="AK3-002",
                 depends_on_story_id="AK3-001",
-                kind=StoryDependencyKind.BLOCKS,
+                kind=StoryDependencyKind.HARD_STORY_DEPENDENCY,
                 created_at=datetime.now(UTC),
             ),
         ],

@@ -3,6 +3,10 @@
 Central types for the 4-layer QA system. All result types are frozen
 dataclasses (ARCH-29). Business results via return types, not
 exceptions (ARCH-20).
+
+Severity stammt seit AG3-021 aus ``agentkit.core_types`` und nutzt das
+FK-27-normative Vokabular BLOCKING/MAJOR/MINOR (kein
+CRITICAL/HIGH/MEDIUM/LOW/INFO mehr).
 """
 
 from __future__ import annotations
@@ -11,28 +15,21 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+from agentkit.core_types import Severity
+
 if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.story_context_manager.models import StoryContext
 
 
-class Severity(StrEnum):
-    """Finding severity levels.
-
-    Attributes:
-        CRITICAL: Blocker -- must be fixed before progression.
-        HIGH: Serious -- should be fixed before progression.
-        MEDIUM: Relevant -- should be fixed if feasible.
-        LOW: Note -- nice to fix.
-        INFO: Informational -- no action required.
-    """
-
-    CRITICAL = "critical"
-    HIGH = "high"
-    MEDIUM = "medium"
-    LOW = "low"
-    INFO = "info"
+__all__ = [
+    "Finding",
+    "LayerResult",
+    "QALayer",
+    "Severity",
+    "TrustClass",
+]
 
 
 class TrustClass(StrEnum):
@@ -97,25 +94,24 @@ class LayerResult:
     metadata: dict[str, object] = field(default_factory=dict)
 
     @property
-    def critical_findings(self) -> tuple[Finding, ...]:
-        """Return only CRITICAL severity findings.
-
-        Returns:
-            Tuple of findings with ``Severity.CRITICAL``.
-        """
-        return tuple(f for f in self.findings if f.severity == Severity.CRITICAL)
-
-    @property
     def blocking_findings(self) -> tuple[Finding, ...]:
-        """Return findings that block progression (CRITICAL or HIGH).
+        """Return findings that block progression (``Severity.BLOCKING``).
 
         Returns:
-            Tuple of findings with ``Severity.CRITICAL`` or ``Severity.HIGH``.
+            Tuple of findings with ``Severity.BLOCKING``.
         """
         return tuple(
-            f for f in self.findings
-            if f.severity in (Severity.CRITICAL, Severity.HIGH)
+            f for f in self.findings if f.severity == Severity.BLOCKING
         )
+
+    @property
+    def major_findings(self) -> tuple[Finding, ...]:
+        """Return findings classified as MAJOR.
+
+        Returns:
+            Tuple of findings with ``Severity.MAJOR``.
+        """
+        return tuple(f for f in self.findings if f.severity == Severity.MAJOR)
 
 
 @runtime_checkable

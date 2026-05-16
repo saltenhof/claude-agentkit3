@@ -1140,7 +1140,7 @@ def backend_verify_decision_passed(story_dir: Path) -> bool:
     return (
         isinstance(status, str)
         and bool(payload.get("passed"))
-        and status in ("PASS", "PASS_WITH_WARNINGS")
+        and status == "PASS"
     )
 
 

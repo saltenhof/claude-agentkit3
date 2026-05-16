@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from agentkit.core_types import SpawnReason
 from agentkit.exceptions import ProjectError
 from agentkit.installer.paths import PROMPT_BUNDLE_STORE_ENV, prompt_bundle_store_dir
 from agentkit.prompt_runtime.composer import (
@@ -33,7 +34,7 @@ def _make_context(
     project_key: str = "test-project",
     story_id: str = "AG3-001",
     story_type: StoryType = StoryType.IMPLEMENTATION,
-    execution_route: StoryMode = StoryMode.EXECUTION,
+    execution_route: StoryMode | None = StoryMode.EXECUTION,
     issue_nr: int = 42,
     title: str = "Add widget feature",
     project_root: Path | None = None,
@@ -235,7 +236,7 @@ class TestComposePrompt:
         ctx = _make_context()
         config = ComposeConfig(
             story_type=StoryType.IMPLEMENTATION,
-            spawn_reason="remediation",
+            spawn_reason=SpawnReason.REMEDIATION,
             round_nr=3,
             feedback="Fix the off-by-one error",
         )
@@ -247,7 +248,7 @@ class TestComposePrompt:
         ctx = _make_context()
         config = ComposeConfig(
             story_type=StoryType.IMPLEMENTATION,
-            spawn_reason="remediation",
+            spawn_reason=SpawnReason.REMEDIATION,
             round_nr=2,
             feedback="Test coverage is below threshold",
         )
@@ -276,7 +277,7 @@ class TestComposePrompt:
         """Concept type must select the concept template."""
         ctx = _make_context(
             story_type=StoryType.CONCEPT,
-            execution_route=StoryMode.NOT_APPLICABLE,
+            execution_route=None,
         )
         config = ComposeConfig(story_type=StoryType.CONCEPT)
         result = compose_prompt(ctx, config)
@@ -287,7 +288,7 @@ class TestComposePrompt:
         """Research type must select the research template."""
         ctx = _make_context(
             story_type=StoryType.RESEARCH,
-            execution_route=StoryMode.NOT_APPLICABLE,
+            execution_route=None,
         )
         config = ComposeConfig(story_type=StoryType.RESEARCH)
         result = compose_prompt(ctx, config)
@@ -332,7 +333,7 @@ class TestWritePrompt:
         ctx = _make_context()
         config = ComposeConfig(
             story_type=StoryType.IMPLEMENTATION,
-            spawn_reason="remediation",
+            spawn_reason=SpawnReason.REMEDIATION,
             round_nr=2,
             feedback="Fix issues",
         )
@@ -341,7 +342,7 @@ class TestWritePrompt:
         path = write_prompt(
             prompt,
             tmp_path,
-            spawn_reason="remediation",
+            spawn_reason=SpawnReason.REMEDIATION,
             round_nr=2,
         )
 

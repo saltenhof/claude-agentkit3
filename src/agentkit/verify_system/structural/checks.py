@@ -40,7 +40,7 @@ def check_context_exists(story_dir: Path) -> Finding | None:
     return Finding(
         layer="structural",
         check="context_exists",
-        severity=Severity.CRITICAL,
+        severity=Severity.BLOCKING,
         trust_class=TrustClass.SYSTEM,
         message="Canonical story context record missing; "
         f"{CONTEXT_EXPORT_FILE} cannot act as truth",
@@ -56,7 +56,7 @@ def check_context_valid(story_dir: Path) -> Finding | None:
         return Finding(
             layer="structural",
             check="context_valid",
-            severity=Severity.CRITICAL,
+            severity=Severity.BLOCKING,
             trust_class=TrustClass.SYSTEM,
             message="Canonical story context record is corrupt or invalid",
         )
@@ -80,7 +80,7 @@ def check_phase_snapshots(
                 Finding(
                     layer="structural",
                     check="phase_snapshots",
-                    severity=Severity.HIGH,
+                    severity=Severity.BLOCKING,
                     trust_class=TrustClass.SYSTEM,
                     message=f"Canonical phase snapshot missing for phase '{phase}'",
                     suggestion=(
@@ -115,7 +115,7 @@ def check_artifacts_present(
                 Finding(
                     layer="structural",
                     check="artifacts_present",
-                    severity=Severity.HIGH,
+                    severity=Severity.BLOCKING,
                     trust_class=TrustClass.SYSTEM,
                     message=(
                         "Required canonical artifact record missing "
@@ -130,7 +130,7 @@ def check_artifacts_present(
             Finding(
                 layer="structural",
                 check="artifacts_present",
-                severity=Severity.HIGH,
+                severity=Severity.BLOCKING,
                 trust_class=TrustClass.SYSTEM,
                 message=f"Required artifact missing: '{artifact}'",
                 file_path=str(artifact_path),
@@ -148,7 +148,7 @@ def check_no_corrupt_state(story_dir: Path) -> Finding | None:
         return Finding(
             layer="structural",
             check="no_corrupt_state",
-            severity=Severity.HIGH,
+            severity=Severity.BLOCKING,
             trust_class=TrustClass.SYSTEM,
             message="Canonical phase state record is corrupt or invalid; "
             f"{PHASE_STATE_EXPORT_FILE} cannot act as truth",

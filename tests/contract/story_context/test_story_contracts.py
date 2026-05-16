@@ -30,15 +30,15 @@ class TestStoryContextContracts:
     @pytest.mark.parametrize(
         ("story_type", "mode"),
         (
-            (StoryType.CONCEPT, StoryMode.NOT_APPLICABLE),
-            (StoryType.RESEARCH, StoryMode.NOT_APPLICABLE),
+            (StoryType.CONCEPT, None),
+            (StoryType.RESEARCH, None),
             (StoryType.BUGFIX, StoryMode.EXECUTION),
         ),
     )
     def test_non_implementation_contract_axis_remains_empty(
         self,
         story_type: StoryType,
-        mode: StoryMode,
+        mode: StoryMode | None,
     ) -> None:
         ctx = StoryContext(
             project_key="test-project",
@@ -53,14 +53,14 @@ class TestStoryContextContracts:
         ("story_type", "mode"),
         (
             (StoryType.BUGFIX, StoryMode.EXECUTION),
-            (StoryType.CONCEPT, StoryMode.NOT_APPLICABLE),
-            (StoryType.RESEARCH, StoryMode.NOT_APPLICABLE),
+            (StoryType.CONCEPT, None),
+            (StoryType.RESEARCH, None),
         ),
     )
     def test_integration_stabilization_is_rejected_outside_implementation(
         self,
         story_type: StoryType,
-        mode: StoryMode,
+        mode: StoryMode | None,
     ) -> None:
         with pytest.raises(ValidationError, match="implementation_contract"):
             StoryContext(

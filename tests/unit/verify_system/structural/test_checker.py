@@ -75,7 +75,7 @@ class TestStructuralChecker:
         result = checker.evaluate(ctx, story_dir)
         assert result.passed is False
         assert any(
-            finding.severity == Severity.CRITICAL and finding.check == "context_exists"
+            finding.severity == Severity.BLOCKING and finding.check == "context_exists"
             for finding in result.findings
         )
 

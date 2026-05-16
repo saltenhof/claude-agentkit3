@@ -1,13 +1,22 @@
 """Policy engine -- deterministic aggregation of QA layer results.
 
 Takes LayerResults from all layers, applies trust weighting, and
-produces a final PASS/FAIL decision. No LLM, no side effects (ARCH-12).
+produces a final PASS/FAIL decision per FK-27 §27.7.2. No LLM, no
+side effects (ARCH-12).
+
+PolicyVerdict ist seit AG3-021 ein StrEnum aus ``agentkit.core_types``
+mit nur zwei Werten (PASS/FAIL); ``PASS_WITH_WARNINGS`` ist explizit
+NICHT mehr Teil der Werteliste — das war ein v2-Konstrukt und ist mit
+AG3-021 entfernt (Codex-Befund §"PASS_WITH_WARNINGS konzeptlos"). Der
+verwandte LLM-Check-Status ``PASS_WITH_CONCERNS`` lebt am
+Envelope-Rand (AG3-022) und ist mit dieser Datei nicht zu verwechseln.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
+from agentkit.core_types import PolicyVerdict
 from agentkit.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
 
 
@@ -19,8 +28,8 @@ class VerifyDecision:
 
     Args:
         passed: Whether the overall verification passed.
-        status: Decision status string (``"PASS"``, ``"FAIL"``,
-            ``"PASS_WITH_WARNINGS"``).
+        verdict: Endentscheidung als ``PolicyVerdict``-Enum
+            (``PASS`` oder ``FAIL``).
         layer_results: Tuple of all layer results that contributed.
         all_findings: Flattened tuple of all findings from all layers.
         blocking_findings: Tuple of findings that caused failure.
@@ -28,11 +37,21 @@ class VerifyDecision:
     """
 
     passed: bool
-    status: str
+    verdict: PolicyVerdict
     layer_results: tuple[LayerResult, ...]
     all_findings: tuple[Finding, ...]
     blocking_findings: tuple[Finding, ...]
     summary: str
+
+    @property
+    def status(self) -> str:
+        """Backward-compat property — die Wire-Repraesentation des Verdicts.
+
+        ``status`` lieferte vor AG3-021 zusaetzlich
+        ``"PASS_WITH_WARNINGS"`` — dieser Wert ist mit AG3-021
+        entfallen. Liefert jetzt ``"PASS"`` oder ``"FAIL"``.
+        """
+        return self.verdict.value
 
 
 class PolicyEngine:
@@ -40,17 +59,23 @@ class PolicyEngine:
 
     Applies the following rules in order:
 
-    1. ANY critical finding from SYSTEM trust -> FAIL.
-    2. ANY high finding from SYSTEM trust -> FAIL.
-    3. More than ``max_high_findings`` high findings from any trust -> FAIL.
-    4. Only medium/low/info findings -> PASS_WITH_WARNINGS.
-    5. No findings -> PASS.
+    1. ANY BLOCKING finding from SYSTEM trust -> FAIL.
+    2. More than ``max_major_findings`` MAJOR findings from any trust -> FAIL.
+    3. Otherwise -> PASS (warnings/minor findings tolerated).
 
     Configurable thresholds via constructor.
     """
 
-    def __init__(self, max_high_findings: int = 0) -> None:
-        self._max_high = max_high_findings
+    def __init__(self, max_major_findings: int = 0) -> None:
+        """Initialise the policy engine.
+
+        Args:
+            max_major_findings: Maximum number of MAJOR findings tolerated
+                before they become blocking. Default ``0`` (any MAJOR
+                blocks, identical to the v2 ``max_high_findings=0``
+                threshold pre-rename).
+        """
+        self._max_major = max_major_findings
 
     def decide(self, layer_results: list[LayerResult]) -> VerifyDecision:
         """Produce a final decision from all layer results.
@@ -59,7 +84,8 @@ class PolicyEngine:
             layer_results: List of results from all QA layers.
 
         Returns:
-            A ``VerifyDecision`` with the aggregated outcome.
+            A ``VerifyDecision`` with the aggregated outcome
+            (``PolicyVerdict.PASS`` or ``PolicyVerdict.FAIL``).
         """
         results_tuple = tuple(layer_results)
 
@@ -71,26 +97,26 @@ class PolicyEngine:
         all_findings_tuple = tuple(all_findings)
 
         # Identify blocking findings
-        blocking = _compute_blocking(all_findings, self._max_high)
+        blocking = _compute_blocking(all_findings, self._max_major)
         blocking_tuple = tuple(blocking)
 
-        # Determine status
+        # Determine verdict — only PASS/FAIL; kein PASS_WITH_WARNINGS.
         if blocking_tuple:
-            status = "FAIL"
+            verdict = PolicyVerdict.FAIL
             passed = False
             summary = _build_fail_summary(blocking_tuple)
         elif all_findings_tuple:
-            status = "PASS_WITH_WARNINGS"
+            verdict = PolicyVerdict.PASS
             passed = True
             summary = _build_warnings_summary(all_findings_tuple)
         else:
-            status = "PASS"
+            verdict = PolicyVerdict.PASS
             passed = True
             summary = "All QA layers passed with no findings."
 
         return VerifyDecision(
             passed=passed,
-            status=status,
+            verdict=verdict,
             layer_results=results_tuple,
             all_findings=all_findings_tuple,
             blocking_findings=blocking_tuple,
@@ -100,19 +126,18 @@ class PolicyEngine:
 
 def _compute_blocking(
     findings: list[Finding],
-    max_high: int,
+    max_major: int,
 ) -> list[Finding]:
     """Determine which findings are blocking.
 
     Rules:
-    - Any CRITICAL finding from SYSTEM trust blocks.
-    - Any HIGH finding from SYSTEM trust blocks.
-    - If total HIGH findings (any trust) exceed ``max_high``, all HIGH
-      findings block.
+    - Any BLOCKING finding from SYSTEM trust blocks immediately.
+    - If total MAJOR findings (any trust) exceed ``max_major``, all
+      MAJOR findings block.
 
     Args:
         findings: All findings to evaluate.
-        max_high: Maximum number of HIGH findings allowed before
+        max_major: Maximum number of MAJOR findings allowed before
             they become blocking.
 
     Returns:
@@ -120,18 +145,18 @@ def _compute_blocking(
     """
     blocking: list[Finding] = []
 
-    # Rule 1 & 2: CRITICAL or HIGH from SYSTEM trust
+    # Rule 1: BLOCKING from SYSTEM trust blocks immediately.
     system_blockers = [
         f for f in findings
         if f.trust_class == TrustClass.SYSTEM
-        and f.severity in (Severity.CRITICAL, Severity.HIGH)
+        and f.severity == Severity.BLOCKING
     ]
     blocking.extend(system_blockers)
 
-    # Rule 3: Too many HIGH findings from any trust
-    all_high = [f for f in findings if f.severity == Severity.HIGH]
-    if len(all_high) > max_high:
-        for f in all_high:
+    # Rule 2: Too many MAJOR findings (any trust) become blocking.
+    all_major = [f for f in findings if f.severity == Severity.MAJOR]
+    if len(all_major) > max_major:
+        for f in all_major:
             if f not in blocking:
                 blocking.append(f)
 
@@ -147,19 +172,22 @@ def _build_fail_summary(blocking: tuple[Finding, ...]) -> str:
     Returns:
         Summary string listing blocking finding count and details.
     """
-    critical_count = sum(1 for f in blocking if f.severity == Severity.CRITICAL)
-    high_count = sum(1 for f in blocking if f.severity == Severity.HIGH)
+    blocking_count = sum(
+        1 for f in blocking if f.severity == Severity.BLOCKING
+    )
+    major_count = sum(1 for f in blocking if f.severity == Severity.MAJOR)
     parts: list[str] = []
-    if critical_count:
-        parts.append(f"{critical_count} critical")
-    if high_count:
-        parts.append(f"{high_count} high")
+    if blocking_count:
+        parts.append(f"{blocking_count} blocking")
+    if major_count:
+        parts.append(f"{major_count} major")
     detail = ", ".join(parts)
     return f"FAIL: {len(blocking)} blocking finding(s) ({detail})."
 
 
 def _build_warnings_summary(findings: tuple[Finding, ...]) -> str:
-    """Build a human-readable summary for PASS_WITH_WARNINGS decisions.
+    """Build a human-readable summary for PASS decisions that carry
+    non-blocking findings.
 
     Args:
         findings: Tuple of all (non-blocking) findings.

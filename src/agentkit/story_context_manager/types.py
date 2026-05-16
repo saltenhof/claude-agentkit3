@@ -1,10 +1,16 @@
-"""Story type definitions and pipeline routing profiles."""
+"""Story type definitions and pipeline routing profiles.
+
+``StoryMode`` und ``StorySize`` werden seit AG3-021 aus
+``agentkit.core_types`` re-exportiert. Lokale Definitionen existieren
+nicht mehr; alle Importer arbeiten gegen den Core-Typ.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
 
+from agentkit.core_types import StoryMode
 from agentkit.exceptions import StoryError
 
 
@@ -20,22 +26,14 @@ class ImplementationContract(StrEnum):
     INTEGRATION_STABILIZATION = "integration_stabilization"
 
 
-class StoryMode(StrEnum):
-    """Execution route for one governed story run."""
-
-    EXECUTION = "execution"
-    EXPLORATION = "exploration"
-    NOT_APPLICABLE = "not_applicable"
-
-
 @dataclass(frozen=True)
 class StoryTypeProfile:
     story_type: StoryType
     uses_worktree: bool
     uses_full_qa: bool
     uses_merge: bool
-    allowed_modes: tuple[StoryMode, ...]
-    default_mode: StoryMode
+    allowed_modes: tuple[StoryMode | None, ...]
+    default_mode: StoryMode | None
     allowed_implementation_contracts: tuple[ImplementationContract, ...]
     default_implementation_contract: ImplementationContract | None
     phases: tuple[str, ...]
@@ -72,8 +70,8 @@ PROFILES: dict[StoryType, StoryTypeProfile] = {
         uses_worktree=False,
         uses_full_qa=False,
         uses_merge=False,
-        allowed_modes=(StoryMode.NOT_APPLICABLE,),
-        default_mode=StoryMode.NOT_APPLICABLE,
+        allowed_modes=(None,),
+        default_mode=None,
         allowed_implementation_contracts=(),
         default_implementation_contract=None,
         phases=("setup", "implementation", "closure"),
@@ -83,8 +81,8 @@ PROFILES: dict[StoryType, StoryTypeProfile] = {
         uses_worktree=False,
         uses_full_qa=False,
         uses_merge=False,
-        allowed_modes=(StoryMode.NOT_APPLICABLE,),
-        default_mode=StoryMode.NOT_APPLICABLE,
+        allowed_modes=(None,),
+        default_mode=None,
         allowed_implementation_contracts=(),
         default_implementation_contract=None,
         phases=("setup", "implementation", "closure"),
@@ -100,6 +98,7 @@ def get_profile(story_type: StoryType) -> StoryTypeProfile:
             detail={"story_type": str(story_type)},
         )
     return profile
+
 
 __all__ = [
     "ImplementationContract",

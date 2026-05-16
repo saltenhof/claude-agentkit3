@@ -16,7 +16,7 @@ class StoryMetricsRecord:
     run_id: str
     story_type: str
     story_size: str
-    mode: str
+    mode: str | None
     processing_time_min: float
     qa_rounds: int
     increments: int

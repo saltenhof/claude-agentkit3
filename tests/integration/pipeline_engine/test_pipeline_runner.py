@@ -58,7 +58,7 @@ def _setup_story(
     project_dir: Path,
     story_id: str,
     story_type: StoryType,
-    mode: StoryMode,
+    mode: StoryMode | None,
 ) -> tuple[StoryContext, Path]:
     """Create a story context and persist it to the story directory.
 
@@ -409,7 +409,7 @@ class TestSmokeConceptStory:
             project_dir,
             "CONCEPT-001",
             StoryType.CONCEPT,
-            StoryMode.NOT_APPLICABLE,
+            None,
         )
 
         workflow = resolve_workflow(StoryType.CONCEPT)
@@ -435,7 +435,7 @@ class TestSmokeConceptStory:
             project_dir,
             "CONCEPT-002",
             StoryType.CONCEPT,
-            StoryMode.NOT_APPLICABLE,
+            None,
         )
 
         workflow = resolve_workflow(StoryType.CONCEPT)
@@ -467,7 +467,7 @@ class TestSmokeResearchStory:
             project_dir,
             "RES-001",
             StoryType.RESEARCH,
-            StoryMode.NOT_APPLICABLE,
+            None,
         )
 
         workflow = resolve_workflow(StoryType.RESEARCH)
@@ -493,7 +493,7 @@ class TestSmokeResearchStory:
             project_dir,
             "RES-002",
             StoryType.RESEARCH,
-            StoryMode.NOT_APPLICABLE,
+            None,
         )
 
         workflow = resolve_workflow(StoryType.RESEARCH)
@@ -635,7 +635,7 @@ class TestSmokePipelineRobustness:
             project_dir,
             "ROBUST-001",
             StoryType.RESEARCH,
-            StoryMode.NOT_APPLICABLE,
+            None,
         )
 
         workflow = resolve_workflow(StoryType.RESEARCH)
@@ -659,7 +659,7 @@ class TestSmokePipelineRobustness:
             project_dir,
             "ROBUST-002",
             StoryType.RESEARCH,
-            StoryMode.NOT_APPLICABLE,
+            None,
         )
 
         # Write corrupt state file before running
@@ -685,22 +685,26 @@ class TestSmokePipelineRobustness:
             project_dir,
             "ROBUST-003",
             StoryType.RESEARCH,
-            StoryMode.NOT_APPLICABLE,
+            None,
         )
 
         workflow = resolve_workflow(StoryType.RESEARCH)
 
-        # Make implementation yield
+        # Make implementation yield. Seit AG3-021 muss yield_status auf einen
+        # normierten PauseReason mappen — verwende den Synonym-Wert
+        # 'awaiting_design_review'.
         registry = PhaseHandlerRegistry()
         registry.register("setup", NoOpHandler())
-        registry.register("implementation", _YieldingHandler("awaiting_test"))
+        registry.register(
+            "implementation", _YieldingHandler("awaiting_design_review"),
+        )
         registry.register("closure", NoOpHandler())
 
         result = run_pipeline(ctx, s_dir, registry, workflow)
 
         assert result.final_status == "yielded"
         assert result.yielded is True
-        assert result.yield_status == "awaiting_test"
+        assert result.yield_status == "awaiting_design_review"
         assert result.final_phase == "implementation"
         assert result.phases_executed == ("setup", "implementation")
 
@@ -719,7 +723,7 @@ class TestSmokePipelineRobustness:
             project_dir,
             "ROBUST-004",
             StoryType.RESEARCH,
-            StoryMode.NOT_APPLICABLE,
+            None,
         )
 
         workflow = resolve_workflow(StoryType.RESEARCH)
@@ -751,7 +755,7 @@ class TestSmokePipelineRobustness:
             project_dir,
             "ROBUST-005",
             StoryType.RESEARCH,
-            StoryMode.NOT_APPLICABLE,
+            None,
         )
 
         workflow = resolve_workflow(StoryType.RESEARCH)
@@ -783,7 +787,7 @@ class TestSmokePipelineRobustness:
             project_dir,
             "ROBUST-006",
             StoryType.RESEARCH,
-            StoryMode.NOT_APPLICABLE,
+            None,
         )
 
         workflow = resolve_workflow(StoryType.RESEARCH)
@@ -836,7 +840,7 @@ class TestSmokePipelineRobustness:
             project_dir,
             "ROBUST-007",
             StoryType.RESEARCH,
-            StoryMode.NOT_APPLICABLE,
+            None,
         )
 
         workflow = resolve_workflow(StoryType.RESEARCH)

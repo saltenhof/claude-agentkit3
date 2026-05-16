@@ -86,7 +86,7 @@ def test_story_dependency_repository_roundtrip(tmp_path: Path) -> None:
     edge = add_dependency(
         story_id="AK3-002",
         depends_on_story_id="AK3-001",
-        kind=StoryDependencyKind.BLOCKS,
+        kind=StoryDependencyKind.HARD_STORY_DEPENDENCY,
         project_key="tenant-a",
         story_repo=story_repository,
         dep_repo=dependency_repository,
@@ -96,7 +96,7 @@ def test_story_dependency_repository_roundtrip(tmp_path: Path) -> None:
     assert dependency_repository.list_for_story("AK3-002") == [edge]
     with pytest.raises(StoryDependencyConflictError):
         dependency_repository.add(edge, project_key="tenant-a")
-    dependency_repository.remove("AK3-002", "AK3-001", StoryDependencyKind.BLOCKS)
+    dependency_repository.remove("AK3-002", "AK3-001", StoryDependencyKind.HARD_STORY_DEPENDENCY)
     assert dependency_repository.list_for_project("tenant-a") == []
 
 

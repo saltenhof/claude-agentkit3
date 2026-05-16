@@ -17,7 +17,7 @@ def test_story_dependency_rejects_self_edge() -> None:
         StoryDependency(
             story_id="AK3-001",
             depends_on_story_id="AK3-001",
-            kind=StoryDependencyKind.BLOCKS,
+            kind=StoryDependencyKind.HARD_STORY_DEPENDENCY,
             created_at=datetime.now(UTC),
         )
 
@@ -26,11 +26,11 @@ def test_story_dependency_accepts_declared_kinds() -> None:
     edge = StoryDependency(
         story_id="AK3-002",
         depends_on_story_id="AK3-001",
-        kind=StoryDependencyKind.DERIVES_FROM,
+        kind=StoryDependencyKind.SHARED_CONTRACT_DEPENDENCY,
         created_at=datetime.now(UTC),
     )
 
-    assert edge.kind is StoryDependencyKind.DERIVES_FROM
+    assert edge.kind is StoryDependencyKind.SHARED_CONTRACT_DEPENDENCY
 
 
 def test_parallelization_config_rejects_zero_limits() -> None:

@@ -1,4 +1,10 @@
-"""Unit tests for agentkit.story.types."""
+"""Unit tests for agentkit.story.types.
+
+``StoryMode`` enthaelt seit AG3-021 ausschliesslich EXECUTION,
+EXPLORATION und FAST; ``NOT_APPLICABLE`` ist entfallen. Profile fuer
+nicht-implementierende Story-Typen tragen ``None`` in ``allowed_modes``
+und ``default_mode``.
+"""
 
 from __future__ import annotations
 
@@ -36,19 +42,24 @@ class TestStoryType:
 
 
 class TestStoryMode:
-    """Tests for the StoryMode enum."""
+    """Tests for the StoryMode enum (FK-24 §24.3.2 + AG3-018)."""
 
     def test_all_values(self) -> None:
         assert set(StoryMode) == {
             StoryMode.EXECUTION,
             StoryMode.EXPLORATION,
-            StoryMode.NOT_APPLICABLE,
+            StoryMode.FAST,
         }
 
     def test_string_values(self) -> None:
         assert StoryMode.EXECUTION.value == "execution"
         assert StoryMode.EXPLORATION.value == "exploration"
-        assert StoryMode.NOT_APPLICABLE.value == "not_applicable"
+        assert StoryMode.FAST.value == "fast"
+
+    def test_not_applicable_removed(self) -> None:
+        """NOT_APPLICABLE faellt mit AG3-021 weg."""
+        with pytest.raises(ValueError):
+            StoryMode("not_applicable")
 
 
 class TestImplementationContract:
@@ -122,8 +133,8 @@ class TestProfiles:
         assert p.uses_worktree is False
         assert p.uses_full_qa is False
         assert p.uses_merge is False
-        assert p.allowed_modes == (StoryMode.NOT_APPLICABLE,)
-        assert p.default_mode == StoryMode.NOT_APPLICABLE
+        assert p.allowed_modes == (None,)
+        assert p.default_mode is None
         assert p.allowed_implementation_contracts == ()
         assert p.default_implementation_contract is None
         assert p.phases == ("setup", "implementation", "closure")
@@ -134,8 +145,8 @@ class TestProfiles:
         assert p.uses_worktree is False
         assert p.uses_full_qa is False
         assert p.uses_merge is False
-        assert p.allowed_modes == (StoryMode.NOT_APPLICABLE,)
-        assert p.default_mode == StoryMode.NOT_APPLICABLE
+        assert p.allowed_modes == (None,)
+        assert p.default_mode is None
         assert p.allowed_implementation_contracts == ()
         assert p.default_implementation_contract is None
         assert p.phases == ("setup", "implementation", "closure")

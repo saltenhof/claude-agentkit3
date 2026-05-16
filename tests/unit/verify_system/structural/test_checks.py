@@ -69,11 +69,11 @@ class TestCheckContextExists:
         _save_context(story_dir)
         assert check_context_exists(story_dir) is None
 
-    def test_context_missing_returns_critical_finding(self, tmp_path: Path) -> None:
+    def test_context_missing_returns_blocking_finding(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         finding = check_context_exists(story_dir)
         assert finding is not None
-        assert finding.severity == Severity.CRITICAL
+        assert finding.severity == Severity.BLOCKING
         assert finding.trust_class == TrustClass.SYSTEM
         assert finding.check == "context_exists"
 
@@ -92,7 +92,7 @@ class TestCheckContextValid:
             conn.commit()
         finding = check_context_valid(story_dir)
         assert finding is not None
-        assert finding.severity == Severity.CRITICAL
+        assert finding.severity == Severity.BLOCKING
         assert finding.check == "context_valid"
 
     def test_missing_context_returns_none(self, tmp_path: Path) -> None:
@@ -115,7 +115,7 @@ class TestCheckPhaseSnapshots:
         _save_snapshot(story_dir, "setup")
         result = check_phase_snapshots(story_dir, ["setup", "implementation"])
         assert len(result) == 1
-        assert result[0].severity == Severity.HIGH
+        assert result[0].severity == Severity.BLOCKING
         assert "implementation" in result[0].message
 
     def test_all_missing_returns_finding_per_phase(self, tmp_path: Path) -> None:
@@ -156,7 +156,7 @@ class TestCheckArtifactsPresent:
         story_dir = _story_dir(tmp_path)
         result = check_artifacts_present(story_dir, ["protocol.md"])
         assert len(result) == 1
-        assert result[0].severity == Severity.HIGH
+        assert result[0].severity == Severity.BLOCKING
         assert "protocol.md" in result[0].message
 
 
@@ -194,5 +194,5 @@ class TestCheckNoCorruptState:
             conn.commit()
         finding = check_no_corrupt_state(story_dir)
         assert finding is not None
-        assert finding.severity == Severity.HIGH
+        assert finding.severity == Severity.BLOCKING
         assert finding.check == "no_corrupt_state"

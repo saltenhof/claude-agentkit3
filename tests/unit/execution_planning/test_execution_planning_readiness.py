@@ -26,7 +26,7 @@ def _edge(story_id: str, depends_on: str) -> StoryDependency:
     return StoryDependency(
         story_id=story_id,
         depends_on_story_id=depends_on,
-        kind=StoryDependencyKind.BLOCKS,
+        kind=StoryDependencyKind.HARD_STORY_DEPENDENCY,
         created_at=datetime.now(UTC),
     )
 

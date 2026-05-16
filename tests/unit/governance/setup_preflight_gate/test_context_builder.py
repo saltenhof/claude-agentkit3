@@ -14,7 +14,6 @@ from agentkit.governance.setup_preflight_gate.context_builder import (
 from agentkit.integrations.github.issues import IssueData
 from agentkit.story_context_manager.types import (
     ImplementationContract,
-    StoryMode,
     StoryType,
 )
 
@@ -185,5 +184,5 @@ class TestBuildStoryContext:
             lambda owner, repo, nr: _make_issue(labels=("concept",)),
         )
         ctx = build_story_context("owner", "repo", 42, tmp_path, "test-project")
-        # Concept profile's default mode is NOT_APPLICABLE
-        assert ctx.execution_route == StoryMode.NOT_APPLICABLE
+        # Concept profile's default mode is None (no execution_route)
+        assert ctx.execution_route is None

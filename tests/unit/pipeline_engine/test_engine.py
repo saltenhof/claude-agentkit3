@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from agentkit.core_types import PauseReason
 from agentkit.exceptions import PipelineError
 from agentkit.phase_state_store import (
     OverrideRecord,
@@ -55,7 +56,7 @@ if TYPE_CHECKING:
 class PausingHandler:
     """Handler that pauses with a given yield status."""
 
-    def __init__(self, yield_status: str = "awaiting_review") -> None:
+    def __init__(self, yield_status: str = "awaiting_design_review") -> None:
         self._yield_status = yield_status
 
     def on_enter(
@@ -317,14 +318,14 @@ class TestRunPhaseNormal:
             .phase("exploration")
                 .yield_to(
                     "review",
-                    on="awaiting_review",
+                    on="awaiting_design_review",
                     resume_triggers=["approved"],
                 )
             .build()
         )
         registry = PhaseHandlerRegistry()
         registry.register(
-            "exploration", PausingHandler("awaiting_review"),
+            "exploration", PausingHandler("awaiting_design_review"),
         )
         engine = PipelineEngine(workflow, registry, story_dir)
         state = PhaseState(
@@ -334,7 +335,7 @@ class TestRunPhaseNormal:
         result = engine.run_phase(story_ctx, state)
 
         assert result.status == "yielded"
-        assert result.yield_status == "awaiting_review"
+        assert result.yield_status == "awaiting_design_review"
         assert result.phase == "exploration"
 
         flow = load_flow_execution(story_dir)
@@ -358,7 +359,7 @@ class TestRunPhaseNormal:
             .phase("exploration")
                 .yield_to(
                     "review",
-                    on="awaiting_review",
+                    on="awaiting_design_review",
                     resume_triggers=["approved"],
                 )
             .build()
@@ -376,7 +377,7 @@ class TestRunPhaseNormal:
             ) -> HandlerResult:
                 return HandlerResult(
                     status=PhaseStatus.PAUSED,
-                    yield_status="awaiting_review",
+                    yield_status="awaiting_design_review",
                 )
 
             def on_exit(
@@ -409,7 +410,7 @@ class TestRunPhaseNormal:
         paused_state = PhaseState(
             story_id="TEST-001", phase="exploration",
             status=PhaseStatus.PAUSED,
-            paused_reason="awaiting_review",
+            paused_reason=PauseReason.AWAITING_DESIGN_REVIEW,
         )
         resume_result = engine.resume_phase(
             story_ctx, paused_state, "approved",
@@ -823,19 +824,19 @@ class TestPipelineRobustness:
             .phase("exploration")
                 .yield_to(
                     "review",
-                    on="awaiting_review",
+                    on="awaiting_design_review",
                     resume_triggers=["approved", "rejected"],
                 )
             .build()
         )
         registry = PhaseHandlerRegistry()
-        registry.register("exploration", PausingHandler("awaiting_review"))
+        registry.register("exploration", PausingHandler("awaiting_design_review"))
         engine = PipelineEngine(workflow, registry, story_dir)
 
         paused_state = PhaseState(
             story_id="TEST-001", phase="exploration",
             status=PhaseStatus.PAUSED,
-            paused_reason="awaiting_review",
+            paused_reason=PauseReason.AWAITING_DESIGN_REVIEW,
         )
         result = engine.resume_phase(
             story_ctx, paused_state, "invalid_trigger",

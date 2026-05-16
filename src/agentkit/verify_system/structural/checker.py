@@ -46,8 +46,8 @@ class StructuralChecker:
         """Run all structural checks and collect findings.
 
         All checks run unconditionally -- no early returns. Findings
-        are aggregated and the layer passes only if no CRITICAL or
-        HIGH severity findings exist.
+        are aggregated and the layer passes only if no ``BLOCKING``
+        severity findings exist (FK-27 §27.4.2).
 
         Args:
             ctx: Story context for type-specific evaluation.
@@ -82,8 +82,7 @@ class StructuralChecker:
             findings.append(f)
 
         passed = not any(
-            f.severity in (Severity.CRITICAL, Severity.HIGH)
-            for f in findings
+            f.severity == Severity.BLOCKING for f in findings
         )
         return LayerResult(
             layer=self.name,
