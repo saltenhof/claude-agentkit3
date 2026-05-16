@@ -859,7 +859,7 @@ def record_layer_artifacts(
     from datetime import datetime
 
     from agentkit.boundary.shared.time import now_iso
-    from agentkit.governance.guard_system.protected_paths import LAYER_ARTIFACT_FILES
+    from agentkit.core_types.qa_artifact_names import LAYER_ARTIFACT_FILES
 
     # Need flow_row for FK-69 QA materialization (Postgres-specific)
     flow_row = _backend_module().load_flow_execution_row(story_dir)

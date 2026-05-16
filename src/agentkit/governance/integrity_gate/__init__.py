@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from agentkit.core_types.qa_artifact_names import VERIFY_DECISION_FILE
 from agentkit.exceptions import CorruptStateError
-from agentkit.governance.guard_system.protected_paths import VERIFY_DECISION_FILE
 from agentkit.state_backend.paths import (
     CONTEXT_EXPORT_FILE,
     PHASE_STATE_EXPORT_FILE,

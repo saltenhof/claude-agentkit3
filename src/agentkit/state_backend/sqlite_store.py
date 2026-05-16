@@ -16,8 +16,8 @@ from uuid import uuid4
 
 from agentkit.boundary.filesystem import atomic_write_json, load_json_object
 from agentkit.boundary.shared.time import now_iso
+from agentkit.core_types.qa_artifact_names import VERIFY_DECISION_FILE
 from agentkit.exceptions import CorruptStateError
-from agentkit.governance.guard_system.protected_paths import VERIFY_DECISION_FILE
 from agentkit.state_backend.config import versioned_sqlite_db_file
 from agentkit.state_backend.paths import (
     CLOSURE_REPORT_FILE,

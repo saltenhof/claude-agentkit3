@@ -9,35 +9,29 @@ Begruendung (FK-31 §31.3 + bc-cut-decisions.md §BC 4 + Refactor-Liste Pkt. 24)
 - Refactor-Pkt. 24: "PROTECTED_ARTIFACTS-Liste gehoert zur Hook-Konfiguration
   in BC 4 (governance.guard_system), nicht zu artifacts oder state_backend".
 
-Migrationspfad: Die Konstanten waren zuvor in ``agentkit.state_backend.paths``.
-  Kein Re-Export-Shim dort; keine Re-Exports aus ``agentkit.governance``-Top-Level.
-  Einziger kanonischer Importpfad: dieses Modul.
+Truth-Boundary-Disziplin: ``agentkit.governance`` ist
+``protected_module_prefix`` laut
+``concept/formal-spec/truth-boundary-checker/invariants.md`` Z. 24-52.
+Die Wire-String-Literale ("structural.json", "verify-decision.json", ...)
+duerfen daher nicht **in** diesem Modul stehen. Sie leben als
+Cross-Cutting-Konstanten in ``agentkit.core_types.qa_artifact_names``
+und werden hier nur zur Tuple-Konfiguration des Hooks importiert.
 
 Quelle:
 - FK-31 §31.3 — ``concept/technical-design/31_branch_guard_orchestrator_guard_artefaktschutz.md``
   (Z. 420-487)
 - ``concept/_meta/bc-cut-decisions.md §BC 4`` — Z. 285-338
 - ``concept/_meta/bc-cut-decisions.md §BC 8 Refactor-Liste Pkt. 24`` — Z. 1900
+- ``concept/formal-spec/truth-boundary-checker/invariants.md`` Z. 24-52
 """
 
 from __future__ import annotations
 
-# ---------------------------------------------------------------------------
-# Layer-Artefakt-Dateinamen pro QA-Layer (FK-31 §31.3)
-# ---------------------------------------------------------------------------
-
-#: Kanonische Dateinamen pro QA-Layer-Name.
-LAYER_ARTIFACT_FILES: dict[str, str] = {
-    "structural": "structural.json",
-    "semantic": "semantic-review.json",
-    "adversarial": "adversarial.json",
-}
-
-#: Dateiname des Verify-Decision-Artefakts.
-VERIFY_DECISION_FILE: str = "verify-decision.json"
-
-#: Dateiname des Guardrail-Artefakts.
-GUARDRAIL_FILE: str = "guardrail.json"
+from agentkit.core_types.qa_artifact_names import (
+    GUARDRAIL_FILE,
+    LAYER_ARTIFACT_FILES,
+    VERIFY_DECISION_FILE,
+)
 
 #: Schutzliste aller QA-Artefakt-Dateinamen.
 #: Schreibzugriff durch Sub-Agents auf diese Dateien ist im GuardSystem

@@ -9,6 +9,7 @@ import pytest
 
 from agentkit.core_types import PolicyVerdict
 from agentkit.exceptions import CorruptStateError
+from agentkit.governance.guard_system.protected_paths import PROTECTED_QA_ARTIFACTS
 from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.state_backend.store import record_verify_decision, reset_backend_cache_for_tests, save_story_context
 from agentkit.story_context_manager.models import StoryContext
@@ -16,7 +17,6 @@ from agentkit.story_context_manager.types import StoryMode, StoryType
 from agentkit.verify_system.artifacts import (
     GUARDRAIL_FILE,
     LAYER_ARTIFACT_FILES,
-    PROTECTED_QA_ARTIFACTS,
     VERIFY_DECISION_FILE,
     build_verify_decision_artifact,
     load_json_object,

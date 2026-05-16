@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agentkit.exceptions import CorruptStateError
-from agentkit.governance.guard_system.protected_paths import (
+from agentkit.core_types.qa_artifact_names import (
     LAYER_ARTIFACT_FILES,
     VERIFY_DECISION_FILE,
 )
+from agentkit.exceptions import CorruptStateError
 from agentkit.state_backend.paths import (
     CONTEXT_EXPORT_FILE,
     PHASE_STATE_EXPORT_FILE,

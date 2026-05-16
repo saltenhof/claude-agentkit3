@@ -17,13 +17,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from agentkit.boundary.filesystem import atomic_write_json, load_json_object
-from agentkit.exceptions import CorruptStateError
-from agentkit.governance.guard_system.protected_paths import (
+from agentkit.core_types.qa_artifact_names import (
     GUARDRAIL_FILE,
     LAYER_ARTIFACT_FILES,
-    PROTECTED_QA_ARTIFACTS,
     VERIFY_DECISION_FILE,
 )
+from agentkit.exceptions import CorruptStateError
 from agentkit.installer.paths import resolve_qa_story_dir
 from agentkit.state_backend.store import (
     load_latest_verify_decision,
@@ -144,7 +143,6 @@ def _qa_projection_dir(story_dir: Path) -> Path:
 __all__ = [
     "GUARDRAIL_FILE",
     "LAYER_ARTIFACT_FILES",
-    "PROTECTED_QA_ARTIFACTS",
     "VERIFY_DECISION_FILE",
     "build_verify_decision_artifact",
     "load_json_object",
