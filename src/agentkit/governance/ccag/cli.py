@@ -44,7 +44,21 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
+    from agentkit.governance.guard_evaluation import Operation
     from agentkit.projectedge.runtime import FreshnessClass
+
+
+_OPERATION_TO_FRESHNESS: dict[str, FreshnessClass] = {
+    "file_read": "baseline_read",
+    "bash_command": "mutation",
+    "file_write": "mutation",
+    "file_edit": "mutation",
+}
+
+
+def _classify_freshness(operation: Operation) -> FreshnessClass:
+    """Return the freshness class for *operation*; unknown ops are guarded reads."""
+    return _OPERATION_TO_FRESHNESS.get(operation, "guarded_read")
 
 
 class _CcagHookInput(BaseModel):
@@ -75,7 +89,7 @@ def main() -> None:
     """
     from agentkit.governance.ccag.rules import OPAQUE_MESSAGE
     from agentkit.governance.ccag.runtime import CcagDecisionKind, CcagPermissionRuntime
-    from agentkit.governance.guard_evaluation import HookEvent, Operation
+    from agentkit.governance.guard_evaluation import HookEvent
 
     try:
         raw = sys.stdin.read()
@@ -104,13 +118,7 @@ def main() -> None:
             "Grep": "file_read",
         }
         operation: Operation = _tool_to_op.get(tool_name, "unknown_tool")
-        freshness: FreshnessClass = (
-            "baseline_read"
-            if operation == "file_read"
-            else "mutation"
-            if operation in ("bash_command", "file_write", "file_edit")
-            else "guarded_read"
-        )
+        freshness: FreshnessClass = _classify_freshness(operation)
         # Inject tool_name into args so runtime can recover it
         args: dict[str, object] = {
             "tool_name": tool_name,

@@ -25,6 +25,7 @@ from agentkit.story_context_manager.errors import (
 from agentkit.story_context_manager.idempotency import InMemoryIdempotencyKeyRepository
 from agentkit.story_context_manager.service import StoryService
 from agentkit.story_context_manager.story_model import (
+    CreateStoryInput,
     Story,
     StoryStatus,
     WireStoryType,
@@ -99,10 +100,12 @@ def _create_story(
     op_id: str = "op-001",
 ) -> Story:
     return svc.create_story(
-        project_key=project_key,
-        title=title,
-        story_type=WireStoryType.IMPLEMENTATION,
-        repos=repos or ["ak3"],
+        CreateStoryInput(
+            project_key=project_key,
+            title=title,
+            story_type=WireStoryType.IMPLEMENTATION,
+            repos=repos or ["ak3"],
+        ),
         op_id=op_id,
     )
 
@@ -173,10 +176,12 @@ def test_create_story_unknown_project_raises() -> None:
 
     with pytest.raises(StoryProjectNotFoundError):
         svc.create_story(
-            project_key="NONEXISTENT",
-            title="Orphan story",
-            story_type=WireStoryType.IMPLEMENTATION,
-            repos=["repo"],
+            CreateStoryInput(
+                project_key="NONEXISTENT",
+                title="Orphan story",
+                story_type=WireStoryType.IMPLEMENTATION,
+                repos=["repo"],
+            ),
             op_id="op-001",
         )
 
@@ -205,37 +210,39 @@ def test_create_story_archived_project_raises() -> None:
 
     with pytest.raises(ForbiddenError):
         svc.create_story(
-            project_key="arch",
-            title="Story on archived project",
-            story_type=WireStoryType.IMPLEMENTATION,
-            repos=["repo"],
+            CreateStoryInput(
+                project_key="arch",
+                title="Story on archived project",
+                story_type=WireStoryType.IMPLEMENTATION,
+                repos=["repo"],
+            ),
             op_id="op-001",
         )
 
 
 def test_create_story_empty_title_raises() -> None:
-    svc = _make_service()
+    """Title validation happens at the DTO boundary (Pydantic ValidationError)."""
+    from pydantic import ValidationError
 
-    with pytest.raises(StoryValidationError, match="title"):
-        svc.create_story(
+    with pytest.raises(ValidationError, match="title"):
+        CreateStoryInput(
             project_key="ak3",
             title="   ",
             story_type=WireStoryType.IMPLEMENTATION,
             repos=["ak3"],
-            op_id="op-001",
         )
 
 
 def test_create_story_empty_repos_raises() -> None:
-    svc = _make_service()
+    """Repos validation happens at the DTO boundary (Pydantic ValidationError)."""
+    from pydantic import ValidationError
 
-    with pytest.raises(StoryValidationError, match="repos"):
-        svc.create_story(
+    with pytest.raises(ValidationError, match="repos"):
+        CreateStoryInput(
             project_key="ak3",
             title="No repos story",
             story_type=WireStoryType.IMPLEMENTATION,
             repos=[],
-            op_id="op-001",
         )
 
 
@@ -510,10 +517,12 @@ def test_list_stories_excludes_other_projects() -> None:
     svc = _make_service(project_repo=project_repo)
     _create_story(svc, project_key="ak3", op_id="op-ak3")
     svc.create_story(
-        project_key="beta",
-        title="Beta story",
-        story_type=WireStoryType.IMPLEMENTATION,
-        repos=["beta-repo"],
+        CreateStoryInput(
+            project_key="beta",
+            title="Beta story",
+            story_type=WireStoryType.IMPLEMENTATION,
+            repos=["beta-repo"],
+        ),
         op_id="op-beta",
     )
 
@@ -563,10 +572,12 @@ def test_create_story_unknown_repo_is_blocked() -> None:
 
     with pytest.raises(StoryValidationError) as exc_info:
         svc.create_story(
-            project_key="ak3",
-            title="Story with unknown repo",
-            story_type=WireStoryType.IMPLEMENTATION,
-            repos=["nicht-existent"],
+            CreateStoryInput(
+                project_key="ak3",
+                title="Story with unknown repo",
+                story_type=WireStoryType.IMPLEMENTATION,
+                repos=["nicht-existent"],
+            ),
             op_id="op-unknown-repo",
         )
 
@@ -582,10 +593,12 @@ def test_create_story_known_repo_is_allowed() -> None:
     svc = _make_service()
 
     story = svc.create_story(
-        project_key="ak3",
-        title="Story with known repo",
-        story_type=WireStoryType.IMPLEMENTATION,
-        repos=["ak3"],
+        CreateStoryInput(
+            project_key="ak3",
+            title="Story with known repo",
+            story_type=WireStoryType.IMPLEMENTATION,
+            repos=["ak3"],
+        ),
         op_id="op-known-repo",
     )
 

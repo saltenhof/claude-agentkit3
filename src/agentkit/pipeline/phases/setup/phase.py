@@ -105,31 +105,12 @@ class SetupPhaseHandler:
         """
         _ = state
         cfg = self._config
+        story_service = _resolve_story_service(cfg)
 
-        # Resolve story_service: use injected or construct with real defaults (Befund 9)
-        story_service = cfg.story_service
-        if story_service is None:
-            from agentkit.story_context_manager.service import StoryService as _StoryService
-            story_service = _StoryService()
+        preflight_error = _run_preflight_check(cfg, ctx, story_service)
+        if preflight_error is not None:
+            return preflight_error
 
-        # 1. Preflight
-        story_display_id = cfg.story_id or ctx.story_id
-        from agentkit.state_backend.store.story_dependency_repository import (
-            StateBackendStoryDependencyRepository,
-        )
-        preflight = run_preflight(
-            story_display_id,
-            story_service,
-            dependency_repository=StateBackendStoryDependencyRepository(),
-        )
-        if not preflight.passed:
-            error_msgs = tuple(c.message for c in preflight.checks if not c.passed)
-            return HandlerResult(
-                status=PhaseStatus.FAILED,
-                errors=error_msgs,
-            )
-
-        # 2. Build enriched context
         enriched = build_story_context(
             owner=cfg.owner,
             repo=cfg.repo,
@@ -139,73 +120,21 @@ class SetupPhaseHandler:
             story_id=cfg.story_id or ctx.story_id,
         )
 
-        # 3. Persist context.json
         s_dir = story_dir(cfg.project_root, enriched.story_id)
         s_dir.mkdir(parents=True, exist_ok=True)
         save_story_context(s_dir, enriched)
 
         artifacts: list[str] = [str(s_dir / CONTEXT_EXPORT_FILE)]
 
-        # 4. Create git worktree
-        profile = get_profile(enriched.story_type)
-        if cfg.create_worktree and profile.uses_worktree:
-            try:
-                project_config = load_project_config(cfg.project_root)
-                worktree_results = setup_worktrees(
-                    enriched.story_id,
-                    enriched,
-                    project_config,
-                    project_root=cfg.project_root,
-                )
-            except (ConfigError, WorktreeError) as e:
-                return HandlerResult(
-                    status=PhaseStatus.FAILED,
-                    errors=(str(e),),
-                )
-            worktree_path = (
-                worktree_results[0].worktree_path if worktree_results else None
-            )
-            worktree_map = {
-                result.repo_name: result.worktree_path
-                for result in worktree_results
-            }
-            enriched = enriched.model_copy(
-                update={
-                    "worktree_path": worktree_path,
-                    "worktree_map": worktree_map,
-                },
-            )
-            try:
-                save_story_context(s_dir, enriched)
-            except Exception as persist_err:
-                # Worktree was created but context persistence failed.
-                # Clean up the worktree so it does not leak.
-                for result in worktree_results:
-                    repo_root = result.worktree_path.parent.parent
-                    with contextlib.suppress(WorktreeError):
-                        remove_worktree(repo_root, result.worktree_path)
-                return HandlerResult(
-                    status=PhaseStatus.FAILED,
-                    errors=(f"Failed to persist worktree context: {persist_err}",),
-                )
-            logger.info(
-                "Worktrees created: %s",
-                ", ".join(
-                    f"{result.repo_name}={result.worktree_path}"
-                    for result in worktree_results
-                ),
-            )
+        worktree_outcome = _setup_worktrees_if_needed(cfg, enriched, s_dir)
+        if isinstance(worktree_outcome, HandlerResult):
+            return worktree_outcome
+        enriched = worktree_outcome
 
-        # 5. Transition story to In Progress (FK-22 §22.4.3)
-        try:
-            story_service.begin_progress(enriched.story_id)
-        except Exception as bp_err:  # noqa: BLE001
-            return HandlerResult(
-                status=PhaseStatus.FAILED,
-                errors=(f"begin_progress failed: {bp_err}",),
-            )
+        begin_error = _begin_progress(story_service, enriched.story_id)
+        if begin_error is not None:
+            return begin_error
 
-        # 6. Return COMPLETED
         return HandlerResult(
             status=PhaseStatus.COMPLETED,
             artifacts_produced=tuple(artifacts),
@@ -242,3 +171,106 @@ class SetupPhaseHandler:
             status=PhaseStatus.FAILED,
             errors=("Setup phase does not support resume",),
         )
+
+
+def _resolve_story_service(cfg: SetupConfig) -> StoryService:
+    """Return the injected StoryService or build a real one (Befund 9)."""
+    if cfg.story_service is not None:
+        return cfg.story_service
+    from agentkit.story_context_manager.service import StoryService as _StoryService
+    return _StoryService()
+
+
+def _run_preflight_check(
+    cfg: SetupConfig,
+    ctx: StoryContext,
+    story_service: StoryService,
+) -> HandlerResult | None:
+    """Run preflight; return None on pass or a FAILED HandlerResult on failure."""
+    from agentkit.state_backend.store.story_dependency_repository import (
+        StateBackendStoryDependencyRepository,
+    )
+
+    story_display_id = cfg.story_id or ctx.story_id
+    preflight = run_preflight(
+        story_display_id,
+        story_service,
+        dependency_repository=StateBackendStoryDependencyRepository(),
+    )
+    if preflight.passed:
+        return None
+    error_msgs = tuple(c.message for c in preflight.checks if not c.passed)
+    return HandlerResult(status=PhaseStatus.FAILED, errors=error_msgs)
+
+
+def _setup_worktrees_if_needed(
+    cfg: SetupConfig,
+    enriched: StoryContext,
+    s_dir: Path,
+) -> StoryContext | HandlerResult:
+    """Create worktrees and persist enriched context — returns updated ctx or FAILED."""
+    profile = get_profile(enriched.story_type)
+    if not (cfg.create_worktree and profile.uses_worktree):
+        return enriched
+
+    try:
+        project_config = load_project_config(cfg.project_root)
+        worktree_results = setup_worktrees(
+            enriched.story_id,
+            enriched,
+            project_config,
+            project_root=cfg.project_root,
+        )
+    except (ConfigError, WorktreeError) as e:
+        return HandlerResult(status=PhaseStatus.FAILED, errors=(str(e),))
+
+    worktree_path = (
+        worktree_results[0].worktree_path if worktree_results else None
+    )
+    worktree_map = {
+        result.repo_name: result.worktree_path
+        for result in worktree_results
+    }
+    enriched = enriched.model_copy(
+        update={
+            "worktree_path": worktree_path,
+            "worktree_map": worktree_map,
+        },
+    )
+
+    try:
+        save_story_context(s_dir, enriched)
+    except Exception as persist_err:
+        # Worktree was created but context persistence failed.
+        # Clean up the worktree so it does not leak.
+        for result in worktree_results:
+            repo_root = result.worktree_path.parent.parent
+            with contextlib.suppress(WorktreeError):
+                remove_worktree(repo_root, result.worktree_path)
+        return HandlerResult(
+            status=PhaseStatus.FAILED,
+            errors=(f"Failed to persist worktree context: {persist_err}",),
+        )
+
+    logger.info(
+        "Worktrees created: %s",
+        ", ".join(
+            f"{result.repo_name}={result.worktree_path}"
+            for result in worktree_results
+        ),
+    )
+    return enriched
+
+
+def _begin_progress(
+    story_service: StoryService, story_id: str,
+) -> HandlerResult | None:
+    """Call ``begin_progress``; return None on success or FAILED HandlerResult."""
+    try:
+        story_service.begin_progress(story_id)
+    except Exception as bp_err:  # noqa: BLE001
+        return HandlerResult(
+            status=PhaseStatus.FAILED,
+            errors=(f"begin_progress failed: {bp_err}",),
+        )
+    return None

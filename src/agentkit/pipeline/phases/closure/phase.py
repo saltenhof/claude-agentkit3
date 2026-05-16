@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from datetime import datetime
     from pathlib import Path
 
+    from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
     from agentkit.story_context_manager.models import PhaseState, StoryContext
     from agentkit.story_context_manager.service import StoryService
 
@@ -102,95 +103,30 @@ class ClosurePhaseHandler:
         """
         _ = state
         cfg = self._config
-        warnings: list[str] = []
 
-        # Resolve story_dir
-        s_dir = cfg.story_dir
-        if s_dir is None:
+        if cfg.story_dir is None:
             return HandlerResult(
                 status=PhaseStatus.FAILED,
                 errors=("story_dir is not configured in ClosureConfig",),
             )
+        s_dir = cfg.story_dir
         save_story_context(s_dir, ctx)
 
-        # 1. Determine required prior phases
         profile = get_profile(ctx.story_type)
         prior_phases = profile.phases[:-1]  # all except closure itself
 
-        # 2. Check phase snapshots for all prior phases
-        missing: list[str] = []
-        for phase in prior_phases:
-            snapshot = load_phase_snapshot(s_dir, phase)
-            if snapshot is None:
-                missing.append(
-                    f"Phase '{phase}': no snapshot found",
-                )
-            elif snapshot.status != PhaseStatus.COMPLETED:
-                missing.append(
-                    f"Phase '{phase}': status is "
-                    f"'{snapshot.status}', expected 'completed'",
-                )
-            elif (
-                phase == "implementation"
-                and snapshot.evidence.get("qa_cycle_status") not in (
-                    None,
-                    QaCycleStatus.PASS.value,
-                )
-            ):
-                missing.append(
-                    "Phase 'implementation': qa_cycle_status is "
-                    f"'{snapshot.evidence.get('qa_cycle_status')}', "
-                    "expected 'pass'",
-                )
-
+        missing = _validate_prior_phases(s_dir, prior_phases)
         if missing:
-            return HandlerResult(
-                status=PhaseStatus.FAILED,
-                errors=tuple(missing),
-            )
+            return HandlerResult(status=PhaseStatus.FAILED, errors=tuple(missing))
 
-        # 3. Close GitHub issue (best-effort)
-        story_closed = False
-        if (
-            cfg.close_issue
-            and cfg.owner is not None
-            and cfg.repo is not None
-            and cfg.issue_nr is not None
-        ):
-            try:
-                from agentkit.integrations.github.issues import (
-                    close_issue as gh_close_issue,
-                )
+        story_closed, warnings = _close_github_issue(cfg)
 
-                gh_close_issue(cfg.owner, cfg.repo, cfg.issue_nr)
-                story_closed = True
-                logger.info(
-                    "Closed GitHub issue %s/%s#%d",
-                    cfg.owner, cfg.repo, cfg.issue_nr,
-                )
-            except IntegrationError as exc:
-                issue_ref = f"{cfg.owner}/{cfg.repo}#{cfg.issue_nr}"
-                warning_msg = f"Failed to close GitHub issue {issue_ref}: {exc}"
-                warnings.append(warning_msg)
-                logger.warning(warning_msg)
-
-        completed_at = _completed_at()
         status = "completed_with_warnings" if warnings else "completed"
-        try:
-            metrics = build_story_metrics_record(
-                s_dir,
-                ctx,
-                completed_at=completed_at,
-                final_status=status,
-            )
-            upsert_story_metrics(s_dir, metrics)
-        except Exception as exc:  # noqa: BLE001
-            return HandlerResult(
-                status=PhaseStatus.FAILED,
-                errors=(f"Failed to materialize story metrics: {exc}",),
-            )
+        metrics_or_error = _build_and_persist_metrics(s_dir, ctx, status)
+        if isinstance(metrics_or_error, HandlerResult):
+            return metrics_or_error
+        metrics = metrics_or_error
 
-        # 4. Write execution report
         report = ExecutionReport(
             story_id=ctx.story_id,
             story_type=str(ctx.story_type.value),
@@ -212,21 +148,10 @@ class ClosurePhaseHandler:
             ),
         )
 
-        # 4. Transition story to Done (completion_only_after_closure invariant)
-        # Construct a default StoryService when none injected (Befund 9)
-        story_service = cfg.story_service
-        if story_service is None:
-            from agentkit.story_context_manager.service import StoryService as _StoryService
-            story_service = _StoryService()
-        try:
-            story_service.complete_story(ctx.story_id)
-        except Exception as cs_err:  # noqa: BLE001
-            return HandlerResult(
-                status=PhaseStatus.FAILED,
-                errors=(f"complete_story failed: {cs_err}",),
-            )
+        transition_error = _transition_story_done(cfg, ctx.story_id)
+        if transition_error is not None:
+            return transition_error
 
-        # 5. Return COMPLETED
         return HandlerResult(
             status=PhaseStatus.COMPLETED,
             artifacts_produced=(str(report_path),),
@@ -265,3 +190,94 @@ def _completed_at() -> datetime:
     from datetime import UTC, datetime
 
     return datetime.now(tz=UTC)
+
+
+def _validate_prior_phases(s_dir: Path, prior_phases: tuple[str, ...]) -> list[str]:
+    """Return one error message per phase whose snapshot is missing or not COMPLETED."""
+    missing: list[str] = []
+    for phase in prior_phases:
+        snapshot = load_phase_snapshot(s_dir, phase)
+        if snapshot is None:
+            missing.append(f"Phase '{phase}': no snapshot found")
+            continue
+        if snapshot.status != PhaseStatus.COMPLETED:
+            missing.append(
+                f"Phase '{phase}': status is "
+                f"'{snapshot.status}', expected 'completed'",
+            )
+            continue
+        if phase == "implementation":
+            qa_status = snapshot.evidence.get("qa_cycle_status")
+            if qa_status not in (None, QaCycleStatus.PASS.value):
+                missing.append(
+                    f"Phase 'implementation': qa_cycle_status is "
+                    f"'{qa_status}', expected 'pass'",
+                )
+    return missing
+
+
+def _close_github_issue(cfg: ClosureConfig) -> tuple[bool, list[str]]:
+    """Best-effort GitHub issue close — returns ``(closed, warnings)``."""
+    if not (
+        cfg.close_issue
+        and cfg.owner is not None
+        and cfg.repo is not None
+        and cfg.issue_nr is not None
+    ):
+        return False, []
+    try:
+        from agentkit.integrations.github.issues import (
+            close_issue as gh_close_issue,
+        )
+
+        gh_close_issue(cfg.owner, cfg.repo, cfg.issue_nr)
+    except IntegrationError as exc:
+        issue_ref = f"{cfg.owner}/{cfg.repo}#{cfg.issue_nr}"
+        warning_msg = f"Failed to close GitHub issue {issue_ref}: {exc}"
+        logger.warning(warning_msg)
+        return False, [warning_msg]
+    logger.info(
+        "Closed GitHub issue %s/%s#%d",
+        cfg.owner, cfg.repo, cfg.issue_nr,
+    )
+    return True, []
+
+
+def _build_and_persist_metrics(
+    s_dir: Path,
+    ctx: StoryContext,
+    status: str,
+) -> StoryMetricsRecord | HandlerResult:
+    """Materialise the metrics record or return a ``HandlerResult`` on failure."""
+    try:
+        metrics = build_story_metrics_record(
+            s_dir,
+            ctx,
+            completed_at=_completed_at(),
+            final_status=status,
+        )
+        upsert_story_metrics(s_dir, metrics)
+    except Exception as exc:  # noqa: BLE001
+        return HandlerResult(
+            status=PhaseStatus.FAILED,
+            errors=(f"Failed to materialize story metrics: {exc}",),
+        )
+    return metrics
+
+
+def _transition_story_done(
+    cfg: ClosureConfig, story_id: str,
+) -> HandlerResult | None:
+    """Call ``complete_story`` (Befund 9 default service) — return None on success."""
+    story_service = cfg.story_service
+    if story_service is None:
+        from agentkit.story_context_manager.service import StoryService as _StoryService
+        story_service = _StoryService()
+    try:
+        story_service.complete_story(story_id)
+    except Exception as cs_err:  # noqa: BLE001
+        return HandlerResult(
+            status=PhaseStatus.FAILED,
+            errors=(f"complete_story failed: {cs_err}",),
+        )
+    return None

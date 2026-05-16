@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, TypeAlias
+from typing import TYPE_CHECKING
 
 from agentkit.governance.protocols import GuardVerdict, ViolationType
 
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from agentkit.governance.guard_evaluation import HookEvent
     from agentkit.governance.protocols import GovernanceGuard
 
-HookDecision: TypeAlias = GuardVerdict
+type HookDecision = GuardVerdict
 
 PRE_HOOK_IDS = frozenset(
     {

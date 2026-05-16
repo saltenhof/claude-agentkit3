@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
+from pydantic import ValidationError
 
 from agentkit.project_management.entities import ProjectConfiguration
 from agentkit.project_management.errors import (
@@ -104,24 +105,42 @@ def test_create_project_with_repositories_override() -> None:
     assert project.configuration.repositories == ["repo-x", "repo-y"]
 
 
-def test_create_project_empty_repositories_raises() -> None:
-    """create_project rejects an empty repositories list (min-1 write-time guard)."""
-    config = ProjectConfiguration(
+def test_create_project_empty_repositories_override_raises() -> None:
+    """create_project rejects an empty repositories override.
+
+    The strict schema (Befund 1 fix) prevents direct construction of
+    ``ProjectConfiguration(repositories=[])`` — Pydantic raises
+    ``ValidationError`` for ``min_length=1``.  The lifecycle's
+    ``_validate_repositories_for_write`` still catches the override path
+    where callers pass an explicit ``repositories=[]`` keyword.
+    """
+    base_config = ProjectConfiguration(
         repo_url="https://example.test/repo.git",
         default_branch="main",
         are_url=None,
         default_worker_count=1,
-        repositories=[],
+        repositories=["https://example.test/repo.git"],
     )
-    with pytest.raises(ProjectRepositoriesInvalidError):
-        create_project("tenant-a", "Tenant A", "AG3", config)
+    with pytest.raises((ProjectRepositoriesInvalidError, ValidationError)):
+        create_project(
+            "tenant-a",
+            "Tenant A",
+            "AG3",
+            base_config,
+            repositories=[],
+        )
 
 
 def test_update_configuration_repositories_empty_raises() -> None:
-    """update_configuration rejects replacing repositories with empty list."""
+    """update_configuration rejects replacing repositories with empty list.
+
+    The strict ``min_length=1`` schema raises ``ValidationError`` when the
+    re-validated configuration would carry an empty repos list.  Both that
+    error and the explicit ``ProjectRepositoriesInvalidError`` are accepted.
+    """
     project = create_project("tenant-a", "Tenant A", "AG3", _configuration())
 
-    with pytest.raises(ProjectRepositoriesInvalidError):
+    with pytest.raises((ProjectRepositoriesInvalidError, ValidationError)):
         update_configuration(
             project,
             configuration_updates={"repositories": []},

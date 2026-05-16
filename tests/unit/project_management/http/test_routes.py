@@ -38,8 +38,13 @@ class _InMemoryProjectRepository:
 
 
 def _app(repository: _InMemoryProjectRepository) -> ControlPlaneApplication:
+    from agentkit.project_management.http.routes import _no_repos_in_use
+
     return ControlPlaneApplication(
-        project_routes=ProjectManagementRoutes(repository),
+        project_routes=ProjectManagementRoutes(
+            repository=repository,
+            repos_in_use_checker=_no_repos_in_use,
+        ),
     )
 
 
@@ -225,15 +230,20 @@ def test_post_duplicate_project_returns_409() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_post_project_without_repositories_uses_default_backfill() -> None:
-    """POST /v1/projects without repositories uses model_validator backfill from repo_url."""
+def test_post_project_without_repositories_returns_400_validation_failed() -> None:
+    """AG3-020 AC3: POST /v1/projects without repositories MUST return 400 validation_failed.
+
+    Replaces the earlier permissive ``backfill``-test that hid the missing
+    field behind a model-validator default.  The strict schema (Befund 1
+    fix from the second review) requires ``repositories`` explicitly.
+    """
     repository = _InMemoryProjectRepository()
     config_without_repos = {
         "repo_url": "https://example.test/repo.git",
         "default_branch": "main",
         "are_url": None,
         "default_worker_count": 2,
-        # repositories absent — model_validator derives from repo_url
+        # repositories absent — strict schema must reject this
     }
     payload = {
         "key": "tenant-b",
@@ -250,10 +260,42 @@ def test_post_project_without_repositories_uses_default_backfill() -> None:
         request_headers={"X-Correlation-Id": "req-create-no-repos"},
     )
 
-    assert response.status_code == HTTPStatus.CREATED
-    project = repository.get("tenant-b")
-    assert project is not None
-    assert project.configuration.repositories == ["https://example.test/repo.git"]
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    body = _json_body(response.body)
+    assert body["error_code"] == "validation_failed"
+    assert "invalid_repos" in str(body.get("detail", ""))
+    assert repository.get("tenant-b") is None
+
+
+def test_post_project_with_empty_repositories_returns_400_validation_failed() -> None:
+    """AG3-020 AC3: POST /v1/projects with repositories=[] returns 400 validation_failed."""
+    repository = _InMemoryProjectRepository()
+    payload = {
+        "key": "tenant-c",
+        "name": "Tenant C",
+        "story_id_prefix": "TC",
+        "configuration": {
+            "repo_url": "https://example.test/repo.git",
+            "default_branch": "main",
+            "are_url": None,
+            "default_worker_count": 1,
+            "repositories": [],
+        },
+        "op_id": "op-create-empty-repos",
+    }
+
+    response = _app(repository).handle_request(
+        method="POST",
+        path="/v1/projects",
+        body=json.dumps(payload).encode("utf-8"),
+        request_headers={"X-Correlation-Id": "req-create-empty-repos"},
+    )
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    body = _json_body(response.body)
+    assert body["error_code"] == "validation_failed"
+    assert "invalid_repos" in str(body.get("detail", ""))
+    assert repository.get("tenant-c") is None
 
 
 def test_post_project_with_repositories_persists_list() -> None:
@@ -313,7 +355,10 @@ def test_patch_configuration_repos_in_use_returns_validation_failed() -> None:
         # Simulate: "repo-in-use" is still referenced by an active story.
         return [r for r in repos if r == "https://example.test/repo.git"]
 
-    routes = ProjectManagementRoutes(repository, repos_in_use_checker=_checker)
+    routes = ProjectManagementRoutes(
+        repository=repository,
+        repos_in_use_checker=_checker,
+    )
     app = ControlPlaneApplication(project_routes=routes)
 
     response = app.handle_request(
@@ -352,7 +397,10 @@ def test_patch_configuration_repos_not_in_use_succeeds() -> None:
         # "repo-remove" is NOT in use — returns empty list
         return []
 
-    routes = ProjectManagementRoutes(repository, repos_in_use_checker=_checker)
+    routes = ProjectManagementRoutes(
+        repository=repository,
+        repos_in_use_checker=_checker,
+    )
     app = ControlPlaneApplication(project_routes=routes)
 
     response = app.handle_request(

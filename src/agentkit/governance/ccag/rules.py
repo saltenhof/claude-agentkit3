@@ -67,10 +67,65 @@ SCOPE_SUBAGENT: str = "subagent"
 # ReDoS protection: max input length for regex matching.
 _REGEX_MAX_INPUT_LEN: int = 4096
 
-# Patterns known to cause catastrophic backtracking.
-_CATASTROPHIC_PATTERNS = re.compile(
-    r"\([^)]*[+*][^)]*\)[+*]"
-)
+
+def _scan_flat_group(pattern: str, start: int) -> tuple[int, bool] | None:
+    """Scan the body of a flat group starting at ``pattern[start]`` (after ``"("``).
+
+    Returns ``(close_idx, has_inner_quantifier)`` if a matching ``)`` is
+    reached without seeing a nested ``(``.  Returns ``None`` when the
+    body opens a nested group (this candidate cannot match the flat
+    shape) or runs off the end without closing.
+
+    Args:
+        pattern: The full regex pattern.
+        start: Index immediately after the opening ``(``.
+    """
+    inner_has_quantifier = False
+    j = start
+    n = len(pattern)
+    while j < n and pattern[j] != ")":
+        if pattern[j] == "(":
+            return None
+        if pattern[j] in "+*":
+            inner_has_quantifier = True
+        j += 1
+    if j >= n:
+        return None
+    return j, inner_has_quantifier
+
+
+def _has_nested_quantifier(pattern: str) -> bool:
+    """Return ``True`` when *pattern* contains a flat ``(... [+*] ...)[+*]`` group.
+
+    Detects the classic nested-quantifier shape that yields polynomial
+    backtracking (e.g. ``(a+)+``).  Implemented as a single linear pass
+    over the input so the detector itself cannot fall victim to ReDoS —
+    a regex-based detector here would re-introduce the very risk we want
+    to flag.
+
+    Args:
+        pattern: The user-supplied regex to inspect.
+
+    Returns:
+        ``True`` iff a group with an inner ``+``/``*`` is followed by an
+        outer ``+``/``*``.
+    """
+    n = len(pattern)
+    i = 0
+    while i < n:
+        if pattern[i] != "(":
+            i += 1
+            continue
+        scan = _scan_flat_group(pattern, i + 1)
+        if scan is None:
+            # Nested ``(`` or unclosed — skip this opening paren.
+            i += 1
+            continue
+        close_idx, inner_has_quantifier = scan
+        if inner_has_quantifier and close_idx + 1 < n and pattern[close_idx + 1] in "+*":
+            return True
+        i = close_idx + 1
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -386,7 +441,7 @@ def _safe_regex_search(pattern: str, text: str) -> re.Match[str] | None:
     Returns:
         The match object if found, else ``None``.
     """
-    if _CATASTROPHIC_PATTERNS.search(pattern):
+    if _has_nested_quantifier(pattern):
         _logger.warning(
             "Rejected regex %r — nested quantifiers (potential ReDoS); treating as no-match",
             pattern[:80],

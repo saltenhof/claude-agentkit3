@@ -34,14 +34,7 @@ from agentkit.story_context_manager.errors import (
     StoryProjectNotFoundError,
     StoryValidationError,
 )
-from agentkit.story_context_manager.story_model import (
-    ChangeImpact,
-    ConceptQuality,
-    RiskLevel,
-    WireStoryMode,
-    WireStorySize,
-    WireStoryType,
-)
+from agentkit.story_context_manager.story_model import CreateStoryInput
 from agentkit.story_context_manager.wire_adapter import (
     story_spec_to_wire,
     story_to_wire_summary,
@@ -283,116 +276,14 @@ class StoryContextRoutes:
         op_id = _require_str(body, "op_id", correlation_id)
         if isinstance(op_id, StoryRouteResponse):
             return op_id
-        project_key = _require_str(body, "project_key", correlation_id)
-        if isinstance(project_key, StoryRouteResponse):
-            return project_key
-        title = _require_str(body, "title", correlation_id)
-        if isinstance(title, StoryRouteResponse):
-            return title
 
-        # story type
-        raw_type = body.get("type", "implementation")
-        try:
-            story_type = WireStoryType(str(raw_type))
-        except ValueError:
-            return _error_response(
-                HTTPStatus.BAD_REQUEST,
-                error_code="validation_failed",
-                message=f"Invalid story type: {raw_type!r}",
-                correlation_id=correlation_id,
-            )
-
-        raw_repos = body.get("repos", [])
-        if not isinstance(raw_repos, list):
-            return _error_response(
-                HTTPStatus.BAD_REQUEST,
-                error_code="validation_failed",
-                message="repos must be a list",
-                correlation_id=correlation_id,
-            )
-        repos = [str(r) for r in raw_repos]
-
-        # Optional fields with defaults
-        raw_size = body.get("size", "M")
-        try:
-            size = WireStorySize(str(raw_size))
-        except ValueError:
-            return _error_response(
-                HTTPStatus.BAD_REQUEST,
-                error_code="validation_failed",
-                message=f"Invalid size: {raw_size!r}",
-                correlation_id=correlation_id,
-            )
-
-        raw_mode = body.get("mode")
-        mode: WireStoryMode | None = None
-        if raw_mode is not None:
-            try:
-                mode = WireStoryMode(str(raw_mode))
-            except ValueError:
-                return _error_response(
-                    HTTPStatus.BAD_REQUEST,
-                    error_code="validation_failed",
-                    message=f"Invalid mode: {raw_mode!r}",
-                    correlation_id=correlation_id,
-                )
-
-        raw_change_impact = body.get("change_impact", "Local")
-        try:
-            change_impact = ChangeImpact(str(raw_change_impact))
-        except ValueError:
-            return _error_response(
-                HTTPStatus.BAD_REQUEST,
-                error_code="validation_failed",
-                message=f"Invalid change_impact: {raw_change_impact!r}",
-                correlation_id=correlation_id,
-            )
-
-        raw_concept_quality = body.get("concept_quality", "Medium")
-        try:
-            concept_quality = ConceptQuality(str(raw_concept_quality))
-        except ValueError:
-            return _error_response(
-                HTTPStatus.BAD_REQUEST,
-                error_code="validation_failed",
-                message=f"Invalid concept_quality: {raw_concept_quality!r}",
-                correlation_id=correlation_id,
-            )
-
-        raw_risk = body.get("risk", "low")
-        try:
-            risk = RiskLevel(str(raw_risk))
-        except ValueError:
-            return _error_response(
-                HTTPStatus.BAD_REQUEST,
-                error_code="validation_failed",
-                message=f"Invalid risk: {raw_risk!r}",
-                correlation_id=correlation_id,
-            )
-
-        epic = str(body.get("epic", ""))
-        module = str(body.get("module", ""))
-        owner = str(body.get("owner", ""))
-        raw_labels = body.get("labels", [])
-        labels: list[str] = (
-            [str(lb) for lb in raw_labels] if isinstance(raw_labels, list) else []
-        )
+        request_or_error = _parse_create_story_input(body, correlation_id)
+        if isinstance(request_or_error, StoryRouteResponse):
+            return request_or_error
 
         try:
             story = self._svc.create_story(
-                project_key=project_key,
-                title=title,
-                story_type=story_type,
-                repos=repos,
-                epic=epic,
-                module=module,
-                size=size,
-                mode=mode,
-                change_impact=change_impact,
-                concept_quality=concept_quality,
-                owner=owner,
-                risk=risk,
-                labels=labels,
+                request_or_error,
                 op_id=op_id,
                 correlation_id=correlation_id,
             )
@@ -402,7 +293,7 @@ class StoryContextRoutes:
             return _service_error_response(exc, correlation_id)
         except IdempotencyMismatchError as exc:
             return _service_error_response(exc, correlation_id)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — last-resort 500 wrapper
             return _error_response(
                 HTTPStatus.INTERNAL_SERVER_ERROR,
                 error_code="internal_error",
@@ -673,6 +564,31 @@ def _require_dict(
             correlation_id=correlation_id,
         )
     return cast("dict[str, object]", payload)
+
+
+def _parse_create_story_input(
+    body: dict[str, object], correlation_id: str
+) -> CreateStoryInput | StoryRouteResponse:
+    """Parse the create-story request body into a typed ``CreateStoryInput``.
+
+    Builds a payload dict (without ``op_id``) and lets Pydantic do the
+    enum coercion, optionality and constraint checks in one step.  All
+    Pydantic ``ValidationError``s are mapped to a HTTP 400.
+    """
+    from pydantic import ValidationError
+
+    payload = {k: v for k, v in body.items() if k != "op_id"}
+    try:
+        return CreateStoryInput.model_validate(payload)
+    except ValidationError as exc:
+        first = exc.errors()[0]
+        location = ".".join(str(part) for part in first.get("loc", ()))
+        return _error_response(
+            HTTPStatus.BAD_REQUEST,
+            error_code="validation_failed",
+            message=f"{location}: {first.get('msg', 'invalid value')}".lstrip(": "),
+            correlation_id=correlation_id,
+        )
 
 
 def _require_str(

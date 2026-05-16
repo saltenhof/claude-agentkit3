@@ -85,43 +85,46 @@ def test_configuration_forbids_extra_fields() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_configuration_repositories_backfill_from_repo_url_on_direct_construct() -> None:
-    """model_validator fires even for direct construction; repo_url is used as backfill."""
+def test_configuration_repositories_missing_raises_validation_error() -> None:
+    """AG3-020: repositories is mandatory; absence raises ValidationError.
+
+    The earlier permissive default+backfill on the model has been removed
+    (Befund 1 from the second review).  Forward-compat for legacy DB rows
+    is handled exclusively in the mapper layer.
+    """
+    with pytest.raises(ValidationError):
+        ProjectConfiguration(  # type: ignore[call-arg]
+            repo_url="https://example.test/repo.git",
+            default_branch="main",
+            are_url=None,
+            default_worker_count=1,
+            # repositories intentionally omitted
+        )
+
+
+def test_configuration_repositories_empty_list_raises_validation_error() -> None:
+    """AG3-020: repositories=[] is rejected at the schema level (min_length=1)."""
+    with pytest.raises(ValidationError):
+        ProjectConfiguration(
+            repo_url="https://example.test/repo.git",
+            default_branch="main",
+            are_url=None,
+            default_worker_count=1,
+            repositories=[],
+        )
+
+
+def test_create_project_rejects_empty_repositories_when_override_used() -> None:
+    """create_project rejects an empty repositories override at write time."""
     config = ProjectConfiguration(
         repo_url="https://example.test/repo.git",
         default_branch="main",
         are_url=None,
         default_worker_count=1,
-        # repositories not given — model_validator backfills from repo_url
+        repositories=["https://example.test/repo.git"],
     )
-    assert config.repositories == ["https://example.test/repo.git"]
-
-
-def test_configuration_repositories_default_with_empty_repo_url_is_empty() -> None:
-    """When repo_url is empty and repositories absent, repositories defaults to []."""
-    config = ProjectConfiguration.model_validate(
-        {
-            "repo_url": "",
-            "default_branch": "main",
-            "are_url": None,
-            "default_worker_count": 1,
-            # both absent — cannot derive
-        }
-    )
-    assert config.repositories == []
-
-
-def test_create_project_rejects_empty_repositories() -> None:
-    """create_project enforces min-1 entry at write time."""
-    config = ProjectConfiguration(
-        repo_url="https://example.test/repo.git",
-        default_branch="main",
-        are_url=None,
-        default_worker_count=1,
-        repositories=[],
-    )
-    with pytest.raises(ProjectRepositoriesInvalidError):
-        create_project("proj-a", "Proj A", "PA", config)
+    with pytest.raises((ProjectRepositoriesInvalidError, ValidationError)):
+        create_project("proj-a", "Proj A", "PA", config, repositories=[])
 
 
 def test_configuration_repositories_rejects_empty_string() -> None:
@@ -160,33 +163,22 @@ def test_configuration_repositories_accepts_multiple_unique_entries() -> None:
     assert config.repositories == ["repo-a", "repo-b", "repo-c"]
 
 
-def test_configuration_json_migration_backfills_from_repo_url() -> None:
-    """Old record without repositories is backfilled from repo_url via model_validator."""
-    config = ProjectConfiguration.model_validate(
-        {
-            "repo_url": "https://example.test/old.git",
-            "default_branch": "main",
-            "are_url": None,
-            "default_worker_count": 1,
-            # 'repositories' intentionally absent — simulates old DB record
-        }
-    )
-    assert config.repositories == ["https://example.test/old.git"]
+def test_configuration_model_rejects_legacy_record_without_repositories() -> None:
+    """AG3-020 (second review): the schema is strict.
 
-
-def test_configuration_json_migration_no_repo_url_gives_empty_list() -> None:
-    """Old record without repositories AND without repo_url gives repositories=[] and a warning.
-
-    This is the forward-compat path for legacy bootstrap records that had repo_url=''.
-    The schema allows [] for reads; min-1 is enforced at write time (lifecycle/routes).
+    Forward-compat for legacy DB rows lives exclusively in the mapper layer
+    (see ``state_backend/store/mappers.py::_backfill_legacy_project_configuration_payload``
+    and the mapper-level test in ``test_repository.py``).  Bypassing the
+    mapper and pushing a legacy-shaped dict directly into ``model_validate``
+    MUST fail — that proves the schema is fail-closed.
     """
-    config = ProjectConfiguration.model_validate(
-        {
-            "repo_url": "",
-            "default_branch": "main",
-            "are_url": None,
-            "default_worker_count": 1,
-            # 'repositories' absent AND repo_url is empty
-        }
-    )
-    assert config.repositories == []
+    with pytest.raises(ValidationError):
+        ProjectConfiguration.model_validate(
+            {
+                "repo_url": "",
+                "default_branch": "main",
+                "are_url": None,
+                "default_worker_count": 1,
+                # 'repositories' intentionally absent
+            },
+        )

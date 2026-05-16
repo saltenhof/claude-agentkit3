@@ -93,7 +93,7 @@ class TestCcagRuleProperties:
         assert rule.effective_scope == "main"
 
     def test_invalid_priority_coerced_to_100(self) -> None:
-        rule = CcagRule(rule_id="x", tool="Bash", priority="bad")  # type: ignore[arg-type]
+        rule = CcagRule(rule_id="x", tool="Bash", priority="bad")
         assert rule.priority == 100
 
 

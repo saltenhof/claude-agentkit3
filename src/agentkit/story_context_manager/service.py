@@ -44,6 +44,7 @@ from agentkit.story_context_manager.idempotency import IdempotencyKeyStore
 from agentkit.story_context_manager.story_model import (
     ChangeImpact,
     ConceptQuality,
+    CreateStoryInput,
     RiskLevel,
     Story,
     StorySpecification,
@@ -63,6 +64,7 @@ from agentkit.story_context_manager.wire_adapter import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from agentkit.project_management.entities import Project
     from agentkit.project_management.repository import ProjectRepository
     from agentkit.story_context_manager.idempotency import IdempotencyKeyRepository
     from agentkit.story_context_manager.story_repository import StoryRepository
@@ -217,6 +219,27 @@ class StoryService:
         """Return all Stories for a project, ordered by story_number."""
         return self._story_repo.list_for_project(project_key)
 
+    def list_active_repos(self, project_key: str) -> set[str]:
+        """Return the set of repositories referenced by any ``In Progress`` story.
+
+        Used by the project-management PATCH-configuration guard
+        (AG3-020 §2.1.3, AC4) to fail-closed when an operator tries to
+        remove a repo that is still in active use.
+
+        Args:
+            project_key: Project key to scope the lookup.
+
+        Returns:
+            Set of repo identifiers from ``participating_repos`` across all
+            ``In Progress`` stories in this project.  Empty set when no
+            story is active.
+        """
+        active: set[str] = set()
+        for story in self._story_repo.list_for_project(project_key):
+            if story.status is StoryStatus.IN_PROGRESS:
+                active.update(story.participating_repos)
+        return active
+
     def search_stories(self, project_key: str, query: str) -> list[Story]:
         """Search Stories by query string across display_id, title, repos, module, epic."""
         return self._story_repo.search(project_key, query)
@@ -239,20 +262,8 @@ class StoryService:
 
     def create_story(
         self,
+        request: CreateStoryInput,
         *,
-        project_key: str,
-        title: str,
-        story_type: WireStoryType,
-        repos: list[str],
-        epic: str = "",
-        module: str = "",
-        size: WireStorySize = WireStorySize.M,
-        mode: WireStoryMode | None = None,
-        change_impact: ChangeImpact = ChangeImpact.LOCAL,
-        concept_quality: ConceptQuality = ConceptQuality.MEDIUM,
-        owner: str = "",
-        risk: RiskLevel = RiskLevel.LOW,
-        labels: list[str] | None = None,
         op_id: str,
         correlation_id: str = "",
     ) -> Story:
@@ -262,7 +273,7 @@ class StoryService:
         Steps (story.md §2.1.15):
           1. Lookup Project (ProjectRepository).
           2. Archived project? -> forbidden (403).
-          3. Validate repos.
+          3. Validate repos against project configuration.
           4. Allocate story_number atomically.
           5. Materialize story_display_id.
           6. Persist Story + Specification.
@@ -271,19 +282,9 @@ class StoryService:
           9. Return story_summary wire payload.
 
         Args:
-            project_key: Project identifier.
-            title: Story title (required, non-empty).
-            story_type: Wire story type.
-            repos: Participating repos (wire name; min 1).
-            epic: Epic label.
-            module: Module label.
-            size: Wire story size (default M).
-            mode: standard/fast or None (treated as standard).
-            change_impact: Change impact classification.
-            concept_quality: Concept quality classification.
-            owner: Owner identifier.
-            risk: Risk level.
-            labels: Optional labels list.
+            request: ``CreateStoryInput`` carrying all stammdaten fields.
+                Wire-level validation (empty title/repos, enum coercion) is
+                enforced by Pydantic at construction time.
             op_id: Idempotency key (required).
             correlation_id: Correlation ID for propagation.
 
@@ -291,114 +292,61 @@ class StoryService:
             The created Story.
 
         Raises:
-            ``StoryNotFoundError`` (wrapped as story_not_found in HTTP).
-            ``StoryProjectArchivedError`` / ``ForbiddenError`` (403).
-            ``StoryValidationError`` (400).
+            ``StoryProjectNotFoundError`` (404).
+            ``ForbiddenError`` (403) if project is archived.
+            ``StoryValidationError`` (400) for repo-vs-project violations.
             ``IdempotencyMismatchError`` (409).
         """
-        # Build a canonical body dict for idempotency check
-        body: dict[str, object] = {
-            "project_key": project_key,
-            "title": title,
-            "type": story_type.value,
-            "repos": sorted(repos),
-            "epic": epic,
-            "module": module,
-            "size": size.value,
-            "mode": mode.value if mode else None,
-            "change_impact": change_impact.value,
-            "concept_quality": concept_quality.value,
-            "owner": owner,
-            "risk": risk.value,
-            "labels": sorted(labels or []),
-            "op_id": op_id,
-        }
-        cached, cached_payload = self._idempotency.check(
-            op_id, body, correlation_id=correlation_id
-        )
+        body = _create_story_body(request, op_id)
+        cached, cached_payload = self._idempotency.check(op_id, body)
         if cached:
-            # Befund 5: return the CACHED story snapshot, not a live DB read.
-            assert cached_payload is not None
-            cached_story = _story_from_cached_payload(cached_payload)
-            if cached_story is not None:
-                return cached_story
-            # Legacy records without internal fields: fall back to DB read.
-            cached_display_id = str(cached_payload.get("story_id", ""))
-            story = self._story_repo.get_by_display_id(cached_display_id)
-            if story is not None:
-                return story
-            raise StoryNotFoundError(
-                f"Idempotent replay: cached story {cached_display_id!r} not found",
-            )
+            return self._resolve_cached_create(cached_payload)
 
-        # -- 1. Lookup project --
-        project = self._project_repo.get(project_key)
+        project = self._project_repo.get(request.project_key)
         if project is None:
             raise StoryProjectNotFoundError(
-                f"Project {project_key!r} does not exist",
-                detail={"project_key": project_key},
+                f"Project {request.project_key!r} does not exist",
+                detail={"project_key": request.project_key},
             )
-
-        # -- 2. Archived check --
         if project.archived_at is not None:
             raise ForbiddenError(
-                f"Project {project_key!r} is archived",
-                detail={"project_key": project_key},
+                f"Project {request.project_key!r} is archived",
+                detail={"project_key": request.project_key},
             )
 
-        # -- 3. Validate title --
-        if not title.strip():
-            raise StoryValidationError(
-                "title must not be empty",
-                detail={"field": "title"},
-            )
-
-        # -- 4. Validate repos --
-        validate_repos_not_empty(repos)
-        # Project configuration may list allowed repos; validate if present
+        validate_repos_not_empty(request.repos)
         allowed_repos = _get_project_repos(project)
         if allowed_repos:
-            validate_repos_against_project(repos, allowed_repos)
+            validate_repos_against_project(request.repos, allowed_repos)
 
-        # -- 5-7. Build Story (story_number is a placeholder; overwritten atomically) --
-        now = datetime.now(UTC)
+        # story_number / story_display_id are placeholders patched by create_story_atomic.
         story = Story(
-            project_key=project_key,
-            story_number=1,         # placeholder (ge=1); patched by create_story_atomic
-            story_display_id="",    # placeholder; patched by create_story_atomic
-            title=title,
-            story_type=story_type,
+            project_key=request.project_key,
+            story_number=1,
+            story_display_id="",
+            title=request.title,
+            story_type=request.story_type,
             status=StoryStatus.BACKLOG,
-            size=size,
-            mode=mode,
-            epic=epic,
-            module=module,
-            participating_repos=list(repos),
-            change_impact=change_impact,
-            concept_quality=concept_quality,
-            owner=owner,
-            risk=risk,
-            labels=list(labels or []),
-            created_at=now,
+            size=request.size,
+            mode=request.mode,
+            epic=request.epic,
+            module=request.module,
+            participating_repos=list(request.repos),
+            change_impact=request.change_impact,
+            concept_quality=request.concept_quality,
+            owner=request.owner,
+            risk=request.risk,
+            labels=list(request.labels),
+            created_at=datetime.now(UTC),
         )
-        default_spec = StorySpecification(
-            need=None,
-            solution=None,
-            acceptance=[],
-        )
+        default_spec = StorySpecification(need=None, solution=None, acceptance=[])
 
-        # -- 8. Persist Story + Specification atomically (Befund 6) --
-        # create_story_atomic allocates story_number, patches story in-place,
-        # and persists story + spec in a single DB transaction.
         self._story_repo.create_story_atomic(
             story,
             default_spec,
             story_id_prefix=project.story_id_prefix,
         )
 
-        story_display_id = story.story_display_id
-
-        # -- 9. Persist idempotency (full internal snapshot, Befund 5) --
         wire_summary = story_to_wire_summary(story)
         self._idempotency.record(
             op_id,
@@ -406,11 +354,25 @@ class StoryService:
             _story_to_internal_snapshot(story),
             correlation_id=correlation_id,
         )
-
-        # -- 10. Emit event --
-        self._emit(project_key, story_display_id, wire_summary)
-
+        self._emit(request.project_key, story.story_display_id, wire_summary)
         return story
+
+    def _resolve_cached_create(
+        self, cached_payload: dict[str, object] | None,
+    ) -> Story:
+        """Return the cached story for an idempotent create_story replay (Befund 5)."""
+        assert cached_payload is not None
+        cached_story = _story_from_cached_payload(cached_payload)
+        if cached_story is not None:
+            return cached_story
+        # Legacy records without internal fields: fall back to DB read.
+        cached_display_id = str(cached_payload.get("story_id", ""))
+        story = self._story_repo.get_by_display_id(cached_display_id)
+        if story is not None:
+            return story
+        raise StoryNotFoundError(
+            f"Idempotent replay: cached story {cached_display_id!r} not found",
+        )
 
     # ------------------------------------------------------------------
     # update_story_fields (PATCH /v1/stories/{id})
@@ -454,9 +416,7 @@ class StoryService:
             **updates,
             "op_id": op_id,
         }
-        cached, cached_payload = self._idempotency.check(
-            op_id, body, correlation_id=correlation_id
-        )
+        cached, cached_payload = self._idempotency.check(op_id, body)
         if cached:
             # Befund 5: return CACHED snapshot, not live DB read.
             assert cached_payload is not None
@@ -597,9 +557,7 @@ class StoryService:
             "reason": reason,
             "op_id": op_id,
         }
-        cached, cached_payload = self._idempotency.check(
-            op_id, body, correlation_id=correlation_id
-        )
+        cached, cached_payload = self._idempotency.check(op_id, body)
         if cached:
             # Befund 5: return CACHED snapshot, not live DB read.
             assert cached_payload is not None
@@ -686,12 +644,7 @@ class StoryService:
     # Pipeline-only operations
     # ------------------------------------------------------------------
 
-    def begin_progress(
-        self,
-        story_display_id: str,
-        *,
-        correlation_id: str = "",
-    ) -> Story:
+    def begin_progress(self, story_display_id: str) -> Story:
         """Set story to In Progress (Approved -> In Progress).
 
         Called by Setup Phase after successful completion (FK-22 §22.4.3).
@@ -699,7 +652,6 @@ class StoryService:
 
         Args:
             story_display_id: Story to transition.
-            correlation_id: Correlation ID for telemetry.
 
         Returns:
             Updated Story.
@@ -716,12 +668,7 @@ class StoryService:
         self._emit(story.project_key, story_display_id, wire_summary)
         return story
 
-    def complete_story(
-        self,
-        story_display_id: str,
-        *,
-        correlation_id: str = "",
-    ) -> Story:
+    def complete_story(self, story_display_id: str) -> Story:
         """Set story to Done (In Progress -> Done).
 
         Called by Closure Sequence after successful closure
@@ -730,7 +677,6 @@ class StoryService:
 
         Args:
             story_display_id: Story to complete.
-            correlation_id: Correlation ID for telemetry.
 
         Returns:
             Updated Story.
@@ -766,9 +712,7 @@ class StoryService:
             "target_status": target.value,
             "op_id": op_id,
         }
-        cached, cached_payload = self._idempotency.check(
-            op_id, body, correlation_id=correlation_id
-        )
+        cached, cached_payload = self._idempotency.check(op_id, body)
         if cached:
             # Befund 5: return CACHED snapshot, not live DB read.
             assert cached_payload is not None
@@ -844,6 +788,26 @@ def _logging_emitter(
         story_display_id,
         wire_summary.get("status", "?"),
     )
+
+
+def _create_story_body(request: CreateStoryInput, op_id: str) -> dict[str, object]:
+    """Build the canonical idempotency body for ``create_story``."""
+    return {
+        "project_key": request.project_key,
+        "title": request.title,
+        "type": request.story_type.value,
+        "repos": sorted(request.repos),
+        "epic": request.epic,
+        "module": request.module,
+        "size": request.size.value,
+        "mode": request.mode.value if request.mode else None,
+        "change_impact": request.change_impact.value,
+        "concept_quality": request.concept_quality.value,
+        "owner": request.owner,
+        "risk": request.risk.value,
+        "labels": sorted(request.labels),
+        "op_id": op_id,
+    }
 
 
 def _story_to_internal_snapshot(story: Story) -> dict[str, object]:
@@ -934,133 +898,180 @@ def _story_from_cached_payload(payload: dict[str, object]) -> Story | None:
         return None
 
 
-def _get_project_repos(project: object) -> list[str]:
+def _get_project_repos(project: Project | None) -> list[str]:
     """Extract the list of allowed repos from a Project entity.
 
-    Reads ``Project.configuration.repositories`` which was added by AG3-020.
-    Returns the list of configured repos, or an empty list when the
-    configuration cannot be accessed (e.g. legacy test doubles that pre-date
-    the schema change).
-
-    An empty return value means "no restriction" and callers must treat it
-    accordingly.  In production this should never be empty because
-    ``ProjectConfiguration.repositories`` is a required field (min 1 entry).
+    Reads ``Project.configuration.repositories`` (AG3-020).  An empty
+    return value means "no restriction" and callers treat it accordingly;
+    in production it is always populated because ``ProjectConfiguration``
+    requires at least one repository entry.
 
     Args:
-        project: A ``Project`` entity or any object with compatible attributes.
+        project: The Project entity, or ``None`` when the project lookup
+            failed upstream.
 
     Returns:
         The list of configured repository identifiers, or ``[]``.
     """
-    try:
-        configuration = getattr(project, "configuration", None)
-        if configuration is None:
-            return []
-        repositories = getattr(configuration, "repositories", None)
-        if isinstance(repositories, list):
-            return list(repositories)
+    if project is None:
         return []
-    except Exception:  # noqa: BLE001 — defensive; never crash story operations
-        return []
+    return list(project.configuration.repositories)
 
 
 def _apply_updates(
     story: Story,
     updates: dict[str, object],
-    project: object,
+    project: Project | None,
 ) -> Story:
     """Apply wire-level field updates to a Story.
 
-    Only touches fields that are present in ``updates``.
-    Validates enum values and repos constraints.
+    Dispatches each wire field name to its handler in ``_PATCH_HANDLERS``.
+    Unknown fields are silently ignored per REST PATCH semantics; fields
+    in ``FORBIDDEN_PATCH_FIELDS`` raise :class:`ForbiddenFieldError`.
 
     Args:
-        story: Current Story instance (mutable).
+        story: Current Story instance (mutated in place).
         updates: Wire field name -> new value.
-        project: Project entity (for repo validation).
+        project: Project entity (used by the ``repos`` handler).
 
     Returns:
-        The mutated Story (same object, modified in place).
+        The mutated Story.
 
     Raises:
         ``StoryValidationError`` for invalid field values.
+        ``ForbiddenFieldError`` for forbidden fields.
     """
-    from agentkit.story_context_manager.wire_adapter import (
-        parse_wire_change_impact,
-        parse_wire_concept_quality,
-        parse_wire_risk_level,
-        parse_wire_story_mode,
-        parse_wire_story_size,
-        parse_wire_story_type,
-    )
-
     for field_key, value in updates.items():
-        if field_key == "title":
-            if not isinstance(value, str) or not value.strip():
-                raise StoryValidationError(
-                    "title must be a non-empty string",
-                    detail={"field": "title"},
-                )
-            story.title = value
-        elif field_key == "epic":
-            story.epic = str(value) if value is not None else ""
-        elif field_key == "module":
-            story.module = str(value) if value is not None else ""
-        elif field_key == "type":
-            story.story_type = parse_wire_story_type(str(value))
-        elif field_key == "size":
-            story.size = parse_wire_story_size(str(value))
-        elif field_key == "mode":
-            story.mode = parse_wire_story_mode(
-                str(value) if value is not None else None
-            )
-        elif field_key == "repos":
-            if not isinstance(value, list):
-                raise StoryValidationError(
-                    "repos must be a list",
-                    detail={"field": "repos"},
-                )
-            repos = [str(r) for r in value]
-            validate_repos_not_empty(repos)
-            allowed = _get_project_repos(project)
-            if allowed:
-                validate_repos_against_project(repos, allowed)
-            story.participating_repos = repos
-        elif field_key == "change_impact":
-            story.change_impact = parse_wire_change_impact(str(value))
-        elif field_key == "concept_quality":
-            story.concept_quality = parse_wire_concept_quality(str(value))
-        elif field_key == "owner":
-            story.owner = str(value) if value is not None else ""
-        elif field_key == "risk":
-            story.risk = parse_wire_risk_level(str(value))
-        elif field_key == "blocker":
-            story.blocker = str(value) if value is not None else None
-        elif field_key == "labels":
-            if not isinstance(value, list):
-                raise StoryValidationError(
-                    "labels must be a list",
-                    detail={"field": "labels"},
-                )
-            story.labels = [str(label) for label in value]
-        elif field_key == "wave":
-            if not isinstance(value, int):
-                raise StoryValidationError(
-                    "wave must be an integer",
-                    detail={"field": "wave"},
-                )
-            story.wave = value
-        elif field_key == "critical_path":
-            story.critical_path = bool(value)
-        elif field_key == "op_id":
-            pass  # op_id is not a story field
-        elif field_key in FORBIDDEN_PATCH_FIELDS:
+        if field_key == "op_id":
+            continue  # transport-level field, not part of the story
+        handler = _PATCH_HANDLERS.get(field_key)
+        if handler is not None:
+            handler(story, value, project)
+            continue
+        if field_key in FORBIDDEN_PATCH_FIELDS:
             raise ForbiddenFieldError(
                 f"Field {field_key!r} is forbidden in updates",
                 detail={"forbidden_field": field_key},
             )
-        else:
-            # Unknown field -- ignore silently per REST PATCH semantics
-            pass
-
+        # Unknown field -- ignore silently per REST PATCH semantics.
     return story
+
+
+# ---------------------------------------------------------------------------
+# _apply_updates dispatch handlers
+# ---------------------------------------------------------------------------
+
+
+def _patch_title(story: Story, value: object, _project: Project | None) -> None:
+    if not isinstance(value, str) or not value.strip():
+        raise StoryValidationError(
+            "title must be a non-empty string",
+            detail={"field": "title"},
+        )
+    story.title = value
+
+
+def _patch_epic(story: Story, value: object, _project: Project | None) -> None:
+    story.epic = str(value) if value is not None else ""
+
+
+def _patch_module(story: Story, value: object, _project: Project | None) -> None:
+    story.module = str(value) if value is not None else ""
+
+
+def _patch_type(story: Story, value: object, _project: Project | None) -> None:
+    from agentkit.story_context_manager.wire_adapter import parse_wire_story_type
+    story.story_type = parse_wire_story_type(str(value))
+
+
+def _patch_size(story: Story, value: object, _project: Project | None) -> None:
+    from agentkit.story_context_manager.wire_adapter import parse_wire_story_size
+    story.size = parse_wire_story_size(str(value))
+
+
+def _patch_mode(story: Story, value: object, _project: Project | None) -> None:
+    from agentkit.story_context_manager.wire_adapter import parse_wire_story_mode
+    story.mode = parse_wire_story_mode(
+        str(value) if value is not None else None
+    )
+
+
+def _patch_repos(story: Story, value: object, project: Project | None) -> None:
+    if not isinstance(value, list):
+        raise StoryValidationError(
+            "repos must be a list", detail={"field": "repos"},
+        )
+    repos = [str(r) for r in value]
+    validate_repos_not_empty(repos)
+    allowed = _get_project_repos(project)
+    if allowed:
+        validate_repos_against_project(repos, allowed)
+    story.participating_repos = repos
+
+
+def _patch_change_impact(
+    story: Story, value: object, _project: Project | None,
+) -> None:
+    from agentkit.story_context_manager.wire_adapter import parse_wire_change_impact
+    story.change_impact = parse_wire_change_impact(str(value))
+
+
+def _patch_concept_quality(
+    story: Story, value: object, _project: Project | None,
+) -> None:
+    from agentkit.story_context_manager.wire_adapter import parse_wire_concept_quality
+    story.concept_quality = parse_wire_concept_quality(str(value))
+
+
+def _patch_owner(story: Story, value: object, _project: Project | None) -> None:
+    story.owner = str(value) if value is not None else ""
+
+
+def _patch_risk(story: Story, value: object, _project: Project | None) -> None:
+    from agentkit.story_context_manager.wire_adapter import parse_wire_risk_level
+    story.risk = parse_wire_risk_level(str(value))
+
+
+def _patch_blocker(story: Story, value: object, _project: Project | None) -> None:
+    story.blocker = str(value) if value is not None else None
+
+
+def _patch_labels(story: Story, value: object, _project: Project | None) -> None:
+    if not isinstance(value, list):
+        raise StoryValidationError(
+            "labels must be a list", detail={"field": "labels"},
+        )
+    story.labels = [str(label) for label in value]
+
+
+def _patch_wave(story: Story, value: object, _project: Project | None) -> None:
+    if not isinstance(value, int):
+        raise StoryValidationError(
+            "wave must be an integer", detail={"field": "wave"},
+        )
+    story.wave = value
+
+
+def _patch_critical_path(
+    story: Story, value: object, _project: Project | None,
+) -> None:
+    story.critical_path = bool(value)
+
+
+_PATCH_HANDLERS: dict[str, Callable[[Story, object, Project | None], None]] = {
+    "title": _patch_title,
+    "epic": _patch_epic,
+    "module": _patch_module,
+    "type": _patch_type,
+    "size": _patch_size,
+    "mode": _patch_mode,
+    "repos": _patch_repos,
+    "change_impact": _patch_change_impact,
+    "concept_quality": _patch_concept_quality,
+    "owner": _patch_owner,
+    "risk": _patch_risk,
+    "blocker": _patch_blocker,
+    "labels": _patch_labels,
+    "wave": _patch_wave,
+    "critical_path": _patch_critical_path,
+}

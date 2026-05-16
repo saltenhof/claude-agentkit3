@@ -7,7 +7,7 @@ name = "agentkit"
 version = "0.1.0"
 description = "Deterministic orchestration engine for AI-driven story execution"
 license = "MIT"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 authors = [
     { name = "Stefan Altenhof" },
 ]
@@ -61,10 +61,11 @@ show_missing = true
 strict = true
 packages = ["agentkit"]
 mypy_path = ["src", "tools"]
+plugins = ["pydantic.mypy"]
 
 [tool.ruff]
 src = ["src", "tests"]
-target-version = "py311"
+target-version = "py312"
 line-length = 130
 
 [tool.ruff.lint]

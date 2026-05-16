@@ -21,7 +21,7 @@ from agentkit.project_management.entities import Project, ProjectConfiguration
 from agentkit.project_management.errors import (
     ProjectAlreadyArchivedError,
     ProjectImmutableFieldError,
-    ProjectRepoStillInUseError,
+    ProjectRepositoriesInvalidError,
     ProjectStoryIdPrefixConflictError,
 )
 from agentkit.project_management.lifecycle import (
@@ -97,25 +97,38 @@ class ArchiveProjectRequest(BaseModel):
     archived_at: datetime | None = None
 
 
+def _no_repos_in_use(_project_key: str, _repos: list[str]) -> list[str]:
+    """Explicit test-double checker: claims no repos are in use.
+
+    Used by unit tests that do not exercise the repo-removal guard path.
+    Production callers MUST inject a real checker that consults the
+    Story-Service (or other authoritative source) for actively referenced
+    repos.  This double is deliberately named so that grep-audits make the
+    "no guard active" decision visible.
+    """
+    return []
+
+
 class ProjectManagementRoutes:
     """Route handler for the project-management HTTP surface.
 
     Args:
         repository: Project persistence port.  Defaults to
             ``StateBackendProjectRepository``.
-        repos_in_use_checker: Optional callable that receives
-            ``(project_key: str, repos: list[str])`` and returns the subset
-            of ``repos`` that are still referenced by an *active* (In Progress)
-            story.  Used by the PATCH configuration path to enforce
-            ``fail-closed`` when removing repos still in use.  When ``None``
-            the check is skipped (safe default for unit tests that do not
-            exercise the guard path).
+        repos_in_use_checker: Callable that receives
+            ``(project_key, repos)`` and returns the subset of ``repos``
+            that are still referenced by an *active* (In Progress) story.
+            **Mandatory** to keep the PATCH-configuration guard fail-closed
+            in production.  Tests that do not exercise the guard path can
+            pass ``_no_repos_in_use`` explicitly to opt out — but the opt-out
+            is visible in the call site, not hidden in a default.
     """
 
     def __init__(
         self,
+        *,
+        repos_in_use_checker: Callable[[str, list[str]], list[str]],
         repository: ProjectRepository | None = None,
-        repos_in_use_checker: Callable[[str, list[str]], list[str]] | None = None,
     ) -> None:
         if repository is None:
             from agentkit.state_backend.store.project_management_repository import (
@@ -258,7 +271,26 @@ class ProjectManagementRoutes:
                 str(exc),
                 correlation_id,
             )
+        except ProjectRepositoriesInvalidError as exc:
+            return _validation_error_response_plain(
+                "validation_failed",
+                str(exc),
+                correlation_id,
+                detail={
+                    "invalid_repos": _repos_from_updates(configuration_updates),
+                },
+            )
         except ValidationError as exc:
+            if _is_repositories_error(exc):
+                return _validation_error_response_plain(
+                    "validation_failed",
+                    "Invalid repositories list",
+                    correlation_id,
+                    detail={
+                        "invalid_repos": _repos_from_updates(configuration_updates),
+                        "errors": exc.errors(),
+                    },
+                )
             return _validation_error_response(
                 "invalid_project_configuration",
                 "Invalid project configuration",
@@ -341,19 +373,29 @@ class ProjectManagementRoutes:
                 str(exc),
                 correlation_id,
             )
+        except ProjectRepositoriesInvalidError as exc:
+            return _validation_error_response_plain(
+                "validation_failed",
+                str(exc),
+                correlation_id,
+                detail={"invalid_repos": _repos_from_updates(configuration_updates)},
+            )
         except ValidationError as exc:
+            if _is_repositories_error(exc):
+                return _validation_error_response_plain(
+                    "validation_failed",
+                    "Invalid repositories list",
+                    correlation_id,
+                    detail={
+                        "invalid_repos": _repos_from_updates(configuration_updates),
+                        "errors": exc.errors(),
+                    },
+                )
             return _validation_error_response(
                 "invalid_project_configuration",
                 "Invalid project configuration",
                 correlation_id,
                 exc,
-            )
-        except ProjectRepoStillInUseError as exc:
-            return _validation_error_response_plain(
-                "validation_failed",
-                str(exc),
-                correlation_id,
-                detail={"repos_still_in_use": []},
             )
 
         return _mutation_response(
@@ -412,6 +454,16 @@ class ProjectManagementRoutes:
         try:
             request = CreateProjectRequest.model_validate(payload)
         except ValidationError as exc:
+            if _is_repositories_error(exc):
+                return _validation_error_response_plain(
+                    "validation_failed",
+                    "Invalid repositories list in project create payload",
+                    correlation_id,
+                    detail={
+                        "invalid_repos": _extract_invalid_repos(payload),
+                        "errors": exc.errors(),
+                    },
+                )
             return _validation_error_response(
                 "invalid_project_create_payload",
                 "Invalid project create payload",
@@ -426,12 +478,23 @@ class ProjectManagementRoutes:
                 correlation_id,
             )
 
-        project = create_project(
-            request.key,
-            request.name,
-            request.story_id_prefix,
-            request.configuration,
-        )
+        try:
+            project = create_project(
+                request.key,
+                request.name,
+                request.story_id_prefix,
+                request.configuration,
+            )
+        except ProjectRepositoriesInvalidError as exc:
+            return _validation_error_response_plain(
+                "validation_failed",
+                str(exc),
+                correlation_id,
+                detail={
+                    "invalid_repos": list(request.configuration.repositories),
+                },
+            )
+
         try:
             self._repository.save(project)
         except ProjectStoryIdPrefixConflictError as exc:
@@ -552,6 +615,47 @@ def _error_response(
     if detail is not None:
         payload["detail"] = detail
     return _json_response(status, payload, correlation_id=correlation_id)
+
+
+def _repos_from_updates(updates: dict[str, object] | None) -> list[str]:
+    """Extract a typed string-list of repos from a configuration_updates dict.
+
+    Returns ``[]`` when ``updates`` is None, the ``repositories`` key is
+    missing, or the value is not a list.  Coerces any list elements to ``str``.
+    """
+    if not updates:
+        return []
+    repos = updates.get("repositories")
+    if not isinstance(repos, list):
+        return []
+    return [str(r) for r in repos]
+
+
+def _is_repositories_error(exc: ValidationError) -> bool:
+    """Return True when any error in *exc* points at the ``repositories`` field."""
+    for err in exc.errors():
+        loc = err.get("loc", ())
+        if any(part == "repositories" for part in loc):
+            return True
+    return False
+
+
+def _extract_invalid_repos(payload: object) -> list[str]:
+    """Best-effort extraction of the raw ``repositories`` list from a request body.
+
+    Used to populate ``detail.invalid_repos`` in error responses.  Returns an
+    empty list when the payload does not carry a usable ``repositories`` value
+    (e.g. omitted, not a list, or nested in a non-dict structure).
+    """
+    if not isinstance(payload, dict):
+        return []
+    configuration = payload.get("configuration")
+    if not isinstance(configuration, dict):
+        return []
+    repos = configuration.get("repositories")
+    if not isinstance(repos, list):
+        return []
+    return [str(r) for r in repos]
 
 
 def _validation_error_response(

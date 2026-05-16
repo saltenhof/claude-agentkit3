@@ -111,8 +111,35 @@ class ControlPlaneApplication:
         )
         if project_routes is None:
             from agentkit.project_management.http.routes import ProjectManagementRoutes
+            from agentkit.story_context_manager.service import (
+                StoryService as StoryContextStoryService,
+            )
 
-            project_routes = ProjectManagementRoutes()
+            # Lazy-init the owner-BC StoryService for the checker.  This is the
+            # AG3-014 service (story_context_manager.StoryService), not the
+            # dashboard read-model service held in ``self._story_service``.
+            _ctx_service: list[StoryContextStoryService | None] = [None]
+
+            def _repos_in_use_checker(
+                project_key: str,
+                repos: list[str],
+            ) -> list[str]:
+                """Default checker: query StoryContext StoryService for active repos.
+
+                Returns the subset of ``repos`` that are referenced by at
+                least one ``In Progress`` story in ``project_key``.  The
+                owner-BC service is lazy-instantiated on first use.
+                """
+                svc = _ctx_service[0]
+                if svc is None:
+                    svc = StoryContextStoryService()
+                    _ctx_service[0] = svc
+                in_use = svc.list_active_repos(project_key)
+                return [r for r in repos if r in in_use]
+
+            project_routes = ProjectManagementRoutes(
+                repos_in_use_checker=_repos_in_use_checker,
+            )
         self._project_routes = project_routes
         if story_routes is None:
             from agentkit.story_context_manager.http.routes import StoryContextRoutes

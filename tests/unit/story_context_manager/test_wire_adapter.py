@@ -50,7 +50,7 @@ def _make_story(**kwargs: object) -> Story:
         "participating_repos": ["ak3"],
     }
     defaults.update(kwargs)
-    return Story(**defaults)  # type: ignore[arg-type]
+    return Story(**defaults)
 
 
 def test_story_to_wire_summary_maps_display_id_to_story_id() -> None:

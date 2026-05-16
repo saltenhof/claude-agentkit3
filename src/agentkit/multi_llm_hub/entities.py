@@ -64,7 +64,7 @@ class HubMessage(BaseModel):
 
     id: str
     session_id: str
-    backend: HubBackendName | None
+    backend: HubBackendName | None = None
     role: HubMessageRole
     text: str
     at: datetime

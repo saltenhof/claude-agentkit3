@@ -124,7 +124,7 @@ class TestMultiRepoClosureState:
         state = MultiRepoClosureState(pushed_repos=["api"])
 
         with pytest.raises(ValidationError):
-            state.failed_repo = "worker"
+            state.failed_repo = "worker"  # type: ignore[misc]  # frozen-test by design
 
     def test_json_serialization_is_deterministic(self) -> None:
         state = MultiRepoClosureState(
@@ -291,7 +291,7 @@ class TestStoryContext:
             execution_route=StoryMode.EXPLORATION,
         )
         with pytest.raises(ValidationError):
-            ctx.story_id = "AG3-002"
+            ctx.story_id = "AG3-002"  # type: ignore[misc]  # frozen-test by design
 
     def test_requires_story_id(self) -> None:
         with pytest.raises(ValidationError):
@@ -460,7 +460,7 @@ class TestPhaseSnapshot:
             completed_at=now,
         )
         with pytest.raises(ValidationError):
-            snap.status = PhaseStatus.FAILED
+            snap.status = PhaseStatus.FAILED  # type: ignore[misc]  # frozen-test by design
 
     def test_defaults(self) -> None:
         now = datetime.now(tz=UTC)

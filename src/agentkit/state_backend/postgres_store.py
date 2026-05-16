@@ -165,6 +165,12 @@ def _schema_alter_statements() -> tuple[str, ...]:
             "WHERE story_number IS NULL AND story_id ~ '-[0-9]+$'"
         ),
         (
+            # AG3-020: backfill default projects MUST include `repositories` so
+            # the strict ProjectConfiguration schema accepts the row on read.
+            # The repositories list defaults to [project_key] — a last-resort
+            # placeholder that the operator MUST replace with the real list.
+            # The mapper layer emits a WARN whenever this fallback is read,
+            # so the placeholder cannot drift unnoticed.
             "INSERT INTO projects (key, name, story_id_prefix, configuration, "
             "archived_at) "
             "SELECT DISTINCT sc.project_key, sc.project_key, "
@@ -175,8 +181,13 @@ def _schema_alter_statements() -> tuple[str, ...]:
             ") THEN left(split_part(sc.story_id, '-', 1), 4) || "
             "upper(substr(md5(sc.project_key), 1, 6)) "
             "ELSE split_part(sc.story_id, '-', 1) END, "
-            "'{\"repo_url\":\"\",\"default_branch\":\"main\",\"are_url\":null,"
-            "\"default_worker_count\":1}'::jsonb, NULL::TIMESTAMPTZ "
+            "jsonb_build_object("
+            "'repo_url', '', "
+            "'default_branch', 'main', "
+            "'are_url', NULL, "
+            "'default_worker_count', 1, "
+            "'repositories', jsonb_build_array(sc.project_key)"
+            "), NULL::TIMESTAMPTZ "
             "FROM story_contexts sc "
             "LEFT JOIN projects p ON p.key = sc.project_key "
             "WHERE p.key IS NULL "
@@ -361,6 +372,9 @@ def _ensure_project_for_story_row(
     if prefix_owner is not None:
         prefix = _disambiguated_story_prefix(prefix, project_key)
     conn.execute(
+        # AG3-020: the schema requires a non-empty `repositories` list, so the
+        # backfill default uses [project_key] as a last-resort placeholder.
+        # The mapper layer emits a WARN whenever this fallback is read.
         """
         INSERT INTO projects (
             key,
@@ -373,13 +387,18 @@ def _ensure_project_for_story_row(
             ?,
             ?,
             ?,
-            '{"repo_url":"","default_branch":"main","are_url":null,
-              "default_worker_count":1}'::jsonb,
+            jsonb_build_object(
+                'repo_url', '',
+                'default_branch', 'main',
+                'are_url', NULL,
+                'default_worker_count', 1,
+                'repositories', jsonb_build_array(?::text)
+            ),
             NULL::TIMESTAMPTZ
         )
         ON CONFLICT(key) DO NOTHING
         """,
-        (project_key, project_key, prefix),
+        (project_key, project_key, prefix, project_key),
     )
 
 

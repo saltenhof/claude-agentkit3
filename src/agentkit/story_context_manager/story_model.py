@@ -22,7 +22,7 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # ---------------------------------------------------------------------------
 # Wire-level enums (formal.frontend-contracts.entity.story_summary)
@@ -193,3 +193,60 @@ class Story(BaseModel):
     # -- Timestamps ---------------------------------------------------------
     created_at: datetime | None = None
     completed_at: datetime | None = None
+
+
+# ---------------------------------------------------------------------------
+# CreateStoryInput (input DTO for StoryService.create_story)
+# ---------------------------------------------------------------------------
+
+
+class CreateStoryInput(BaseModel):
+    """Input DTO for ``StoryService.create_story`` (FK-91 §91.1a).
+
+    Carries all stammdaten that are accepted from the wire / pipeline
+    callers.  Pydantic v2 validators coerce the wire enum strings to the
+    typed ``WireStory*`` / ``ChangeImpact`` / ``ConceptQuality`` /
+    ``RiskLevel`` values, so callers can pass either strings or enums.
+
+    The wire field name ``type`` is accepted as an alias for
+    ``story_type`` so that HTTP payloads validate without renaming.
+
+    ``op_id`` and ``correlation_id`` are intentionally *not* part of this
+    DTO: they belong to the transport layer (idempotency / telemetry),
+    not to the story content.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        populate_by_name=True,
+    )
+
+    project_key: str
+    title: str
+    story_type: WireStoryType = Field(alias="type")
+    repos: list[str] = Field(min_length=1)
+    epic: str = ""
+    module: str = ""
+    size: WireStorySize = WireStorySize.M
+    mode: WireStoryMode | None = None
+    change_impact: ChangeImpact = ChangeImpact.LOCAL
+    concept_quality: ConceptQuality = ConceptQuality.MEDIUM
+    owner: str = ""
+    risk: RiskLevel = RiskLevel.LOW
+    labels: list[str] = Field(default_factory=list)
+
+    @field_validator("title")
+    @classmethod
+    def _title_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("title must not be empty")
+        return value
+
+    @field_validator("repos")
+    @classmethod
+    def _repos_no_blanks(cls, value: list[str]) -> list[str]:
+        for entry in value:
+            if not entry.strip():
+                raise ValueError("repos entries must not be empty")
+        return value

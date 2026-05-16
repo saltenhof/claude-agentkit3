@@ -75,90 +75,119 @@ def run_preflight(
     Returns:
         A ``PreflightResult`` containing all check outcomes.
     """
-    from agentkit.story_context_manager.story_model import StoryStatus
-
-    checks: list[PreflightCheck] = []
-    story: Story | None = None
-
-    # --- Check 1: story exists ---
     story = service.get_story(story_display_id)
-    if story is not None:
-        checks.append(PreflightCheck(
-            name="story_exists",
-            passed=True,
-            message=f"Story {story_display_id!r} found: {story.title!r}",
-        ))
-    else:
-        checks.append(PreflightCheck(
+    checks = (
+        _check_story_exists(story_display_id, story),
+        _check_status_approved(story_display_id, story),
+        _check_dependencies_closed(story, service, dependency_repository),
+    )
+    return PreflightResult(
+        passed=all(c.passed for c in checks),
+        checks=checks,
+        story=story,
+    )
+
+
+def _check_story_exists(story_display_id: str, story: Story | None) -> PreflightCheck:
+    """Return the story_exists check result."""
+    if story is None:
+        return PreflightCheck(
             name="story_exists",
             passed=False,
             message=f"Story {story_display_id!r} not found in StoryService",
-        ))
+        )
+    return PreflightCheck(
+        name="story_exists",
+        passed=True,
+        message=f"Story {story_display_id!r} found: {story.title!r}",
+    )
 
-    # --- Check 2: status_approved ---
-    if story is not None:
-        is_approved = story.status is StoryStatus.APPROVED
-        checks.append(PreflightCheck(
-            name="status_approved",
-            passed=is_approved,
-            message=(
-                f"Story {story_display_id!r} is {story.status.value!r}"
-                if not is_approved
-                else f"Story {story_display_id!r} is Approved"
-            ),
-        ))
-    else:
-        checks.append(PreflightCheck(
+
+def _check_status_approved(
+    story_display_id: str, story: Story | None,
+) -> PreflightCheck:
+    """Return the status_approved check result."""
+    from agentkit.story_context_manager.story_model import StoryStatus
+
+    if story is None:
+        return PreflightCheck(
             name="status_approved",
             passed=False,
             message="Cannot check status: story could not be fetched",
-        ))
+        )
+    if story.status is StoryStatus.APPROVED:
+        return PreflightCheck(
+            name="status_approved",
+            passed=True,
+            message=f"Story {story_display_id!r} is Approved",
+        )
+    return PreflightCheck(
+        name="status_approved",
+        passed=False,
+        message=f"Story {story_display_id!r} is {story.status.value!r}",
+    )
 
-    # --- Check 3: dependencies_closed ---
-    if story is not None:
-        # Load dependency IDs from authoritative repository if available (Befund 8)
-        if dependency_repository is not None:
-            dep_edges = dependency_repository.list_for_story(story_display_id)
-            dep_ids = [edge.depends_on_story_id for edge in dep_edges]
-        else:
-            # Legacy fallback: story.dependencies (may be [] for DB-loaded stories
-            # that don't have the join populated)
-            dep_ids = list(story.dependencies)
 
-        open_deps: list[str] = []
-        for dep_id in dep_ids:
-            dep = service.get_story(dep_id)
-            if dep is None or dep.status is not StoryStatus.DONE:
-                dep_status = dep.status.value if dep is not None else "missing"
-                open_deps.append(f"{dep_id} ({dep_status})")
-
-        if open_deps:
-            checks.append(PreflightCheck(
-                name="dependencies_closed",
-                passed=False,
-                message=f"Open dependencies: {', '.join(open_deps)}",
-            ))
-        else:
-            dep_count = len(dep_ids)
-            checks.append(PreflightCheck(
-                name="dependencies_closed",
-                passed=True,
-                message=(
-                    "No dependencies"
-                    if dep_count == 0
-                    else f"All {dep_count} dependenc{'y' if dep_count == 1 else 'ies'} done"
-                ),
-            ))
-    else:
-        checks.append(PreflightCheck(
+def _check_dependencies_closed(
+    story: Story | None,
+    service: StoryService,
+    dependency_repository: StoryDependencyRepository | None,
+) -> PreflightCheck:
+    """Return the dependencies_closed check result."""
+    if story is None:
+        return PreflightCheck(
             name="dependencies_closed",
             passed=False,
             message="Cannot check dependencies: story could not be fetched",
-        ))
+        )
 
-    all_passed = all(c.passed for c in checks)
-    return PreflightResult(
-        passed=all_passed,
-        checks=tuple(checks),
-        story=story,
+    dep_ids = _resolve_dependency_ids(story, dependency_repository)
+    open_deps = _open_dependencies(dep_ids, service)
+    if open_deps:
+        return PreflightCheck(
+            name="dependencies_closed",
+            passed=False,
+            message=f"Open dependencies: {', '.join(open_deps)}",
+        )
+    return PreflightCheck(
+        name="dependencies_closed",
+        passed=True,
+        message=_dependencies_passed_message(len(dep_ids)),
     )
+
+
+def _resolve_dependency_ids(
+    story: Story,
+    dependency_repository: StoryDependencyRepository | None,
+) -> list[str]:
+    """Resolve dependency display IDs from the authoritative repo or the story join."""
+    # Befund 8: authoritative source is the dependency repository when available.
+    if dependency_repository is not None:
+        return [
+            edge.depends_on_story_id
+            for edge in dependency_repository.list_for_story(story.story_display_id)
+        ]
+    # Fallback for DB-loaded stories whose dependencies join is not populated.
+    return list(story.dependencies)
+
+
+def _open_dependencies(dep_ids: list[str], service: StoryService) -> list[str]:
+    """Return ``[ "dep_id (status)" ]`` for every unfinished dependency."""
+    from agentkit.story_context_manager.story_model import StoryStatus
+
+    open_deps: list[str] = []
+    for dep_id in dep_ids:
+        dep = service.get_story(dep_id)
+        if dep is None:
+            open_deps.append(f"{dep_id} (missing)")
+        elif dep.status is not StoryStatus.DONE:
+            open_deps.append(f"{dep_id} ({dep.status.value})")
+    return open_deps
+
+
+def _dependencies_passed_message(dep_count: int) -> str:
+    """Build the message for a passing dependencies_closed check."""
+    if dep_count == 0:
+        return "No dependencies"
+    noun = "dependency" if dep_count == 1 else "dependencies"
+    return f"All {dep_count} {noun} done"

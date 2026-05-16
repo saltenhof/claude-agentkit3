@@ -136,15 +136,12 @@ class IdempotencyKeyStore:
         self,
         op_id: str,
         body: dict[str, object],
-        *,
-        correlation_id: str = "",
     ) -> tuple[bool, dict[str, object] | None]:
         """Check whether op_id is already recorded.
 
         Args:
             op_id: The idempotency key from the request.
             body: The full request body (op_id key excluded from hash).
-            correlation_id: Passed for context logging only.
 
         Returns:
             ``(True, cached_result)`` if the op is already recorded with

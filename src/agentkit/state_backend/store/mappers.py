@@ -13,10 +13,13 @@ do not need to import BC-A modules directly.
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from agentkit.exceptions import CorruptStateError
+
+_log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from agentkit.auth.entities import ProjectApiToken
@@ -100,6 +103,56 @@ def project_to_row(project: Project) -> dict[str, Any]:
     }
 
 
+def _backfill_legacy_project_configuration_payload(
+    payload: dict[str, Any],
+    *,
+    project_key: str,
+) -> dict[str, Any]:
+    """Forward-compat: derive ``repositories`` for old DB rows that pre-date AG3-020.
+
+    The strict ``ProjectConfiguration`` schema requires ``repositories`` with at
+    least one entry.  Legacy DB rows that were written before AG3-020 do not
+    carry the field; this helper backfills it here at the read-boundary so the
+    schema can stay strict and writes always go through the proper validation.
+
+    A WARNING is logged for every legacy row encountered so the operator can
+    correct the project record explicitly.  The fallback is conservative:
+
+    - ``repo_url`` set and non-empty -> ``repositories = [repo_url]``
+    - ``repo_url`` empty or missing  -> ``repositories = [project_key]``
+      (last-resort: the project_key is guaranteed to exist; the operator MUST
+      replace this with the real repo list).
+
+    Args:
+        payload: Raw configuration dict as it came out of the JSON column.
+        project_key: The project key this payload belongs to (for log context
+            and last-resort fallback).
+
+    Returns:
+        A new dict with ``repositories`` populated, or the original dict
+        unchanged when ``repositories`` was already present.
+    """
+
+    if "repositories" in payload:
+        return payload
+    repo_url = payload.get("repo_url", "")
+    if isinstance(repo_url, str) and repo_url.strip():
+        _log.warning(
+            "Legacy project configuration for %r without 'repositories' field; "
+            "deriving [%r] from repo_url. Update the project record.",
+            project_key,
+            repo_url,
+        )
+        return {**payload, "repositories": [repo_url]}
+    _log.warning(
+        "Legacy project configuration for %r without 'repositories' and without "
+        "a usable repo_url; falling back to [%r]. Operator MUST replace this.",
+        project_key,
+        project_key,
+    )
+    return {**payload, "repositories": [project_key]}
+
+
 def project_row_to_entity(row: dict[str, Any]) -> Project:
     """Convert a project DB row dict to a project entity."""
 
@@ -115,6 +168,16 @@ def project_row_to_entity(row: dict[str, Any]) -> Project:
         json.loads(configuration_raw)
         if isinstance(configuration_raw, str)
         else configuration_raw
+    )
+    if not isinstance(configuration_payload, dict):
+        raise CorruptStateError(
+            f"project configuration for {row.get('key')!r} is not a dict; "
+            f"got {type(configuration_payload).__name__}",
+        )
+
+    configuration_payload = _backfill_legacy_project_configuration_payload(
+        configuration_payload,
+        project_key=str(row["key"]),
     )
 
     archived_at_raw = row.get("archived_at")
