@@ -39,6 +39,7 @@ class _ProjectRepo:
                 default_worker_count=1,
                 repositories=["https://example.test/repo.git"],
             ),
+            repositories=["https://example.test/repo.git"],
         )
         if self.archived:
             return archive_project(project, archived_at=datetime.now(UTC))

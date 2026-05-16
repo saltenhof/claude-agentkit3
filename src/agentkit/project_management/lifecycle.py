@@ -41,36 +41,41 @@ def create_project(
     name: str,
     story_id_prefix: str,
     configuration: ProjectConfiguration,
-    repositories: list[str] | None = None,
+    repositories: list[str],
 ) -> Project:
     """Create a new non-archived project entity.
+
+    AG3-020 §2.1.3 mandates ``repositories`` as a dedicated explicit
+    parameter rather than only living inside ``configuration``.  When the
+    caller passes a list here it overrides ``configuration.repositories``;
+    the two layers stay aligned via a re-validation of the effective
+    configuration.
 
     Args:
         key: Unique project key (lower-case slugs).
         name: Human-readable project name.
         story_id_prefix: Prefix for generated story display-IDs (e.g. ``"AK3"``).
         configuration: Full project configuration including ``repositories``.
-        repositories: Convenience override for ``configuration.repositories``.
-            When provided, a new ``ProjectConfiguration`` is built from
-            ``configuration`` with ``repositories`` replaced.  Useful when
-            callers want to pass the repo list separately.  When *not*
-            provided the ``repositories`` field in ``configuration`` is used
-            directly (it is a required field of ``ProjectConfiguration``).
+        repositories: Authoritative repositories list for the new project.
+            The list overrides ``configuration.repositories`` so that the
+            field is unambiguous at the call site.  Must contain at least
+            one entry (enforced by the strict ``ProjectConfiguration``
+            schema; ``_validate_repositories_for_write`` provides a clearer
+            error message on the same condition).
 
     Returns:
         A new, non-archived ``Project`` entity.
 
     Raises:
-        ``pydantic.ValidationError`` if the effective configuration is invalid.
+        ``ProjectRepositoriesInvalidError`` if ``repositories`` is empty.
+        ``pydantic.ValidationError`` if the effective configuration is
+        otherwise invalid (e.g. duplicate entries, ``repo_url`` not member
+        of the list, etc.).
     """
-    effective_configuration = configuration
-    if repositories is not None:
-        payload: dict[str, Any] = configuration.model_dump(mode="python")
-        payload["repositories"] = repositories
-        effective_configuration = ProjectConfiguration.model_validate(payload)
-
-    # Enforce min-1 at write time (schema allows [] for legacy-read compat).
-    _validate_repositories_for_write(effective_configuration.repositories)
+    _validate_repositories_for_write(repositories)
+    payload: dict[str, Any] = configuration.model_dump(mode="python")
+    payload["repositories"] = repositories
+    effective_configuration = ProjectConfiguration.model_validate(payload)
 
     return Project(
         key=key,

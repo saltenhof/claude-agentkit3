@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from agentkit.project_management.entities import ProjectConfiguration
+from agentkit.project_management.entities import Project, ProjectConfiguration
 from agentkit.project_management.errors import (
     ProjectAlreadyArchivedError,
     ProjectImmutableFieldError,
@@ -17,6 +17,8 @@ from agentkit.project_management.lifecycle import (
     update_configuration,
 )
 
+_DEFAULT_REPOS: list[str] = ["https://example.test/repo.git"]
+
 
 def _configuration() -> ProjectConfiguration:
     return ProjectConfiguration(
@@ -24,19 +26,38 @@ def _configuration() -> ProjectConfiguration:
         default_branch="main",
         are_url=None,
         default_worker_count=2,
-        repositories=["https://example.test/repo.git"],
+        repositories=list(_DEFAULT_REPOS),
+    )
+
+
+def _make_default_project(
+    key: str = "tenant-a",
+    name: str = "Tenant A",
+    prefix: str = "AG3",
+) -> Project:
+    """Helper: create_project with the default configuration + repositories.
+
+    Centralises the new ``repositories`` mandatory-parameter (AG3-020
+    Befund 3 fix) so the tests stay readable.
+    """
+    return create_project(
+        key,
+        name,
+        prefix,
+        _configuration(),
+        repositories=list(_DEFAULT_REPOS),
     )
 
 
 def test_create_project_returns_non_archived_project() -> None:
-    project = create_project("tenant-a", "Tenant A", "AG3", _configuration())
+    project = _make_default_project()
 
     assert project.key == "tenant-a"
     assert project.archived_at is None
 
 
 def test_update_configuration_changes_mutable_fields() -> None:
-    project = create_project("tenant-a", "Tenant A", "AG3", _configuration())
+    project = _make_default_project()
 
     updated = update_configuration(
         project,
@@ -52,14 +73,14 @@ def test_update_configuration_changes_mutable_fields() -> None:
 
 @pytest.mark.parametrize("field", ["key", "story_id_prefix"])
 def test_update_configuration_rejects_immutable_field_attempt(field: str) -> None:
-    project = create_project("tenant-a", "Tenant A", "AG3", _configuration())
+    project = _make_default_project()
 
     with pytest.raises(ProjectImmutableFieldError):
         update_configuration(project, configuration_updates={field: "changed"})
 
 
 def test_archive_project_sets_timestamp() -> None:
-    project = create_project("tenant-a", "Tenant A", "AG3", _configuration())
+    project = _make_default_project()
     archived_at = datetime(2026, 5, 3, 10, 0, tzinfo=UTC)
 
     archived = archive_project(project, archived_at=archived_at)
@@ -68,7 +89,7 @@ def test_archive_project_sets_timestamp() -> None:
 
 
 def test_archive_project_rejects_double_archive() -> None:
-    project = create_project("tenant-a", "Tenant A", "AG3", _configuration())
+    project = _make_default_project()
     archived = archive_project(
         project,
         archived_at=datetime(2026, 5, 3, 10, 0, tzinfo=UTC),
@@ -85,8 +106,13 @@ def test_archive_project_rejects_double_archive() -> None:
 
 def test_create_project_persists_repositories() -> None:
     """create_project stores the repositories list in the configuration."""
-    config = _configuration()
-    project = create_project("tenant-a", "Tenant A", "AG3", config)
+    project = create_project(
+        "tenant-a",
+        "Tenant A",
+        "AG3",
+        _configuration(),
+        repositories=list(_DEFAULT_REPOS),
+    )
 
     assert project.configuration.repositories == ["https://example.test/repo.git"]
 
@@ -138,7 +164,7 @@ def test_update_configuration_repositories_empty_raises() -> None:
     re-validated configuration would carry an empty repos list.  Both that
     error and the explicit ``ProjectRepositoriesInvalidError`` are accepted.
     """
-    project = create_project("tenant-a", "Tenant A", "AG3", _configuration())
+    project = _make_default_project()
 
     with pytest.raises((ProjectRepositoriesInvalidError, ValidationError)):
         update_configuration(
@@ -149,7 +175,7 @@ def test_update_configuration_repositories_empty_raises() -> None:
 
 def test_update_configuration_repositories_replaces_list() -> None:
     """update_configuration can replace repositories with a valid new list."""
-    project = create_project("tenant-a", "Tenant A", "AG3", _configuration())
+    project = _make_default_project()
 
     updated = update_configuration(
         project,

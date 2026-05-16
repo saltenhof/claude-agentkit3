@@ -34,7 +34,7 @@ def _reset_backend() -> None:
 
 def test_repository_saves_gets_and_lists_projects(tmp_path: Path) -> None:
     repository = StateBackendProjectRepository(tmp_path)
-    project = create_project("tenant-a", "Tenant A", "AG3", _configuration())
+    project = create_project("tenant-a", "Tenant A", "AG3", _configuration(), repositories=["https://example.test/repo.git"])
 
     repository.save(project)
 
@@ -44,7 +44,7 @@ def test_repository_saves_gets_and_lists_projects(tmp_path: Path) -> None:
 
 def test_repository_excludes_archived_projects_by_default(tmp_path: Path) -> None:
     repository = StateBackendProjectRepository(tmp_path)
-    project = create_project("tenant-a", "Tenant A", "AG3", _configuration())
+    project = create_project("tenant-a", "Tenant A", "AG3", _configuration(), repositories=["https://example.test/repo.git"])
     archived = archive_project(
         project,
         archived_at=datetime(2026, 5, 3, 10, 0, tzinfo=UTC),
@@ -58,10 +58,10 @@ def test_repository_excludes_archived_projects_by_default(tmp_path: Path) -> Non
 
 def test_repository_rejects_duplicate_story_id_prefix(tmp_path: Path) -> None:
     repository = StateBackendProjectRepository(tmp_path)
-    repository.save(create_project("tenant-a", "Tenant A", "AG3", _configuration()))
+    repository.save(create_project("tenant-a", "Tenant A", "AG3", _configuration(), repositories=["https://example.test/repo.git"]))
 
     with pytest.raises(ProjectStoryIdPrefixConflictError):
-        repository.save(create_project("tenant-b", "Tenant B", "AG3", _configuration()))
+        repository.save(create_project("tenant-b", "Tenant B", "AG3", _configuration(), repositories=["https://example.test/repo.git"]))
 
 
 # ---------------------------------------------------------------------------
@@ -81,7 +81,13 @@ def test_repository_roundtrip_includes_repositories(tmp_path: Path) -> None:
         repositories=["repo-a", "repo-b"],
     )
     repository = StateBackendProjectRepository(tmp_path)
-    project = create_project("p1", "Project 1", "P1", config)
+    project = create_project(
+        "p1",
+        "Project 1",
+        "P1",
+        config,
+        repositories=["repo-a", "repo-b"],
+    )
     repository.save(project)
 
     loaded = repository.get("p1")

@@ -484,6 +484,7 @@ class ProjectManagementRoutes:
                 request.name,
                 request.story_id_prefix,
                 request.configuration,
+                repositories=list(request.configuration.repositories),
             )
         except ProjectRepositoriesInvalidError as exc:
             return _validation_error_response_plain(

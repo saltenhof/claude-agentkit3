@@ -48,6 +48,7 @@ class _ProjectRepository:
                 "Tenant A",
                 "AK3",
                 _configuration(),
+                repositories=["https://example.test/repo.git"],
             ),
         }
 
@@ -159,7 +160,7 @@ def test_state_backend_repository_enforces_story_identity(tmp_path: Path) -> Non
     project_repository = StateBackendProjectRepository(tmp_path)
     story_repository = StateBackendStoryContextRepository(tmp_path)
     project_repository.save(
-        create_project("tenant-a", "Tenant A", "AK3", _configuration()),
+        create_project("tenant-a", "Tenant A", "AK3", _configuration(), repositories=["https://example.test/repo.git"]),
     )
 
     story = create_story(
@@ -192,7 +193,7 @@ def test_state_backend_allocates_story_numbers_atomically(tmp_path: Path) -> Non
     facade.reset_backend_cache_for_tests()
     project_repository = StateBackendProjectRepository(tmp_path)
     project_repository.save(
-        create_project("tenant-a", "Tenant A", "AK3", _configuration()),
+        create_project("tenant-a", "Tenant A", "AK3", _configuration(), repositories=["https://example.test/repo.git"]),
     )
     story_repository = StateBackendStoryContextRepository(tmp_path)
 

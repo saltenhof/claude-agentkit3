@@ -57,7 +57,13 @@ def _seed_project_with_stories(tmp_path: Path) -> tuple[
 ]:
     project_repository = StateBackendProjectRepository(tmp_path)
     story_context_repository = StateBackendStoryContextRepository(tmp_path)
-    project_repository.save(create_project("tenant-a", "Tenant A", "AK3", _configuration()))
+    project_repository.save(create_project(
+        "tenant-a",
+        "Tenant A",
+        "AK3",
+        _configuration(),
+        repositories=["https://example.test/repo.git"],
+    ))
     for title in ("One", "Two"):
         create_story(
             project_key="tenant-a",
@@ -96,7 +102,13 @@ def test_story_dependency_repository_roundtrip(tmp_path: Path) -> None:
 
 def test_parallelization_config_repository_roundtrip(tmp_path: Path) -> None:
     project_repository = StateBackendProjectRepository(tmp_path)
-    project_repository.save(create_project("tenant-a", "Tenant A", "AK3", _configuration()))
+    project_repository.save(create_project(
+        "tenant-a",
+        "Tenant A",
+        "AK3",
+        _configuration(),
+        repositories=["https://example.test/repo.git"],
+    ))
     repository = StateBackendParallelizationConfigRepository(tmp_path)
     config = ParallelizationConfig(
         project_key="tenant-a",
