@@ -11,12 +11,6 @@ internal sub-components such as ``policy_engine`` or
 
 from __future__ import annotations
 
-from agentkit.governance.guard_system.protected_paths import (
-    GUARDRAIL_FILE,
-    LAYER_ARTIFACT_FILES,
-    PROTECTED_QA_ARTIFACTS,
-    VERIFY_DECISION_FILE,
-)
 from agentkit.verify_system.artifacts import (
     build_verify_decision_artifact,
     load_verify_decision_artifact,
@@ -38,14 +32,10 @@ from agentkit.verify_system.system import VerifySystem
 
 __all__ = [
     "Finding",
-    "GUARDRAIL_FILE",
-    "LAYER_ARTIFACT_FILES",
     "LayerResult",
-    "PROTECTED_QA_ARTIFACTS",
     "QALayer",
     "Severity",
     "TrustClass",
-    "VERIFY_DECISION_FILE",
     "VerifyDecision",
     "VerifySystem",
     "build_verify_decision_artifact",

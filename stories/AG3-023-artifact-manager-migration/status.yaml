@@ -1,7 +1,8 @@
 story_id: AG3-023
 title: "ArtifactManager + Migration der QA-Persistenz und PROTECTED_QA_ARTIFACTS"
 type: implementation
-status: in_progress
+status: completed
+completed_at: "2026-05-16T23:00:00+02:00"
 phase: setup
 created: "2026-05-16"
 size: L

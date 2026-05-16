@@ -14,11 +14,12 @@ from agentkit.state_backend.sqlite_store import load_project_rows
 
 
 def test_schema_version_helpers_derive_versioned_names() -> None:
-    assert state_config.SCHEMA_VERSION == "3.3.0"
+    # AG3-023 Teil 2: SCHEMA_VERSION bumped from 3.3.0 -> 3.4.0 (neue artifact_records-Spalten)
+    assert state_config.SCHEMA_VERSION == "3.4.0"
     assert state_config.versioned_postgres_schema_name("3.0.0") == "ak3_v3_0_0"
     assert state_config.versioned_sqlite_db_file("3.0.0") == "agentkit_3_0_0.sqlite"
-    assert state_config.versioned_postgres_schema_name() == "ak3_v3_3_0"
-    assert state_config.versioned_sqlite_db_file() == "agentkit_3_3_0.sqlite"
+    assert state_config.versioned_postgres_schema_name() == "ak3_v3_4_0"
+    assert state_config.versioned_sqlite_db_file() == "agentkit_3_4_0.sqlite"
 
 
 def test_schema_version_rejects_non_semver() -> None:

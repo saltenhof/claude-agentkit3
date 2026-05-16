@@ -279,6 +279,32 @@
             PRIMARY KEY (story_id, artifact_kind, artifact_name, attempt_nr)
         );
 
+        -- artifact_envelopes: typed Envelope-Persistenz via ArtifactManager (AG3-023 §2.1.4)
+        -- Separate neue Tabelle -- artifact_records ist Legacy-QA-Persistenzpfad.
+        CREATE TABLE IF NOT EXISTS artifact_envelopes (
+            story_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            stage TEXT NOT NULL,
+            attempt INTEGER NOT NULL,
+            schema_version VARCHAR NOT NULL,
+            producer_type VARCHAR NOT NULL CHECK (producer_type IN ('WORKER', 'LLM_REVIEWER', 'DETERMINISTIC')),
+            producer_id VARCHAR NOT NULL,
+            producer_name VARCHAR NOT NULL,
+            producer_version VARCHAR NULL,
+            started_at TIMESTAMPTZ NOT NULL,
+            finished_at TIMESTAMPTZ NOT NULL,
+            status VARCHAR NOT NULL,
+            artifact_class VARCHAR NOT NULL CHECK (artifact_class IN (
+                'worker', 'qa', 'pipeline', 'telemetry', 'governance',
+                'entwurf', 'handover', 'adversarial_test_sandbox'
+            )),
+            payload_json JSON,
+            PRIMARY KEY (story_id, run_id, stage, attempt, artifact_class, producer_name)
+        );
+
+        CREATE INDEX IF NOT EXISTS artifact_envelopes_story_run_stage_attempt_idx
+            ON artifact_envelopes (story_id, run_id, stage, attempt);
+
         CREATE TABLE IF NOT EXISTS qa_stage_results (
             project_key TEXT NOT NULL,
             story_id TEXT NOT NULL,
