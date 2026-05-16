@@ -1,0 +1,20 @@
+story_id: AG3-022
+title: "Artefakt-BC Foundation: ArtifactEnvelope, ArtifactReference, ProducerRegistry"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-05-16"
+size: M
+depends_on:
+  - AG3-021
+unblocks:
+  - AG3-023
+  - AG3-026
+  - AG3-027
+  - AG3-028
+  - AG3-029
+  - AG3-030
+  - AG3-031
+  - AG3-035
+  - AG3-038
+  - AG3-041

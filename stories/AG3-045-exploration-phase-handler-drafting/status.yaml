@@ -1,0 +1,15 @@
+story_id: AG3-045
+title: "ExplorationPhaseHandler + ExplorationDrafting + Bugfix-Profil-Fix + Exploration-Gate-Guard-Erweiterung"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-05-16"
+size: M
+depends_on:
+  - AG3-021
+  - AG3-024
+  - AG3-026
+  - AG3-041
+unblocks:
+  - AG3-046
+  - AG3-047

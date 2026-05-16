@@ -1,0 +1,17 @@
+story_id: AG3-041
+title: "QA-Zyklus-Mechanik: advance_qa_cycle + evidence_epoch + Artefakt-Invalidierung + Remediation-Loop"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-05-16"
+size: L
+depends_on:
+  - AG3-021
+  - AG3-022
+  - AG3-023
+  - AG3-024
+  - AG3-025
+  - AG3-026
+unblocks:
+  - AG3-044
+  - AG3-045

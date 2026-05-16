@@ -1,0 +1,12 @@
+story_id: AG3-025
+title: "AttemptRecord typisieren + Write-Ordering Crash-Safety + QA-Zyklus-Identitaeten"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-05-16"
+size: M
+depends_on:
+  - AG3-021
+  - AG3-024
+unblocks:
+  - AG3-041

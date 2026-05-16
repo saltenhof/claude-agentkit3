@@ -1,0 +1,13 @@
+story_id: AG3-034
+title: "Preflight-Checks 2/5-10 + IntegrityGate-8-Dimensionen + Concept/Research-Drift fix"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-05-16"
+size: L
+depends_on:
+  - AG3-021
+  - AG3-022
+  - AG3-023
+  - AG3-032
+unblocks: []

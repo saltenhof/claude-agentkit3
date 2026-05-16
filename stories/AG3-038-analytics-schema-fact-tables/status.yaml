@@ -1,0 +1,11 @@
+story_id: AG3-038
+title: "PostgreSQL analytics-Schema + 5 Fact-Tabellen + sync_state + Migrations-Strategie"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-05-16"
+size: L
+depends_on:
+  - AG3-021
+  - AG3-029
+unblocks: []

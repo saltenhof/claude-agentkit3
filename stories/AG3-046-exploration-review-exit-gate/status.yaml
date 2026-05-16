@@ -1,0 +1,16 @@
+story_id: AG3-046
+title: "ExplorationReview: dreistufiges Exit-Gate (Dokumententreue/Design-Review/Design-Challenge)"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-05-16"
+size: L
+depends_on:
+  - AG3-021
+  - AG3-026
+  - AG3-037
+  - AG3-041
+  - AG3-043
+  - AG3-045
+unblocks:
+  - AG3-047

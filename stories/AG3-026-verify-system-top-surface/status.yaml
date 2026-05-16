@@ -1,0 +1,14 @@
+story_id: AG3-026
+title: "VerifySystem Top-Surface: run_qa_subflow(...) -> PolicyVerdict"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-05-16"
+size: M
+depends_on:
+  - AG3-021
+  - AG3-022
+  - AG3-023
+unblocks:
+  - AG3-041
+  - AG3-045

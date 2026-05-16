@@ -1,0 +1,13 @@
+story_id: AG3-031
+title: "Governance Top-Surfaces: register_hooks(...) und deactivate_locks(story_id)"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-05-16"
+size: M
+depends_on:
+  - AG3-021
+  - AG3-022
+unblocks:
+  - AG3-032
+  - AG3-034

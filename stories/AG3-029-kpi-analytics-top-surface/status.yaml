@@ -1,0 +1,12 @@
+story_id: AG3-029
+title: "KpiAnalytics BC: Top-Klasse + Paket-Migration aus dashboard"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-05-16"
+size: M
+depends_on:
+  - AG3-021
+  - AG3-022
+unblocks:
+  - AG3-038

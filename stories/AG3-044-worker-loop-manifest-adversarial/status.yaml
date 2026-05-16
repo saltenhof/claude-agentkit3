@@ -1,0 +1,14 @@
+story_id: AG3-044
+title: "WorkerSession + WorkerLoop + HandoverPackager + WorkerManifest + BLOCKED-Exit + Adversarial-Spawn"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-05-16"
+size: L
+depends_on:
+  - AG3-021
+  - AG3-022
+  - AG3-023
+  - AG3-026
+  - AG3-041
+unblocks: []

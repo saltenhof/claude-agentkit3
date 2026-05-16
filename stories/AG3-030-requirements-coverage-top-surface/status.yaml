@@ -1,0 +1,11 @@
+story_id: AG3-030
+title: "RequirementsCoverage BC: Top-Surface mit no-op-Aktivierungslogik + AreClient-Skelett"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-05-16"
+size: M
+depends_on:
+  - AG3-021
+  - AG3-022
+unblocks: []

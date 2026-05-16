@@ -1,0 +1,13 @@
+story_id: AG3-023
+title: "ArtifactManager + Migration der QA-Persistenz und PROTECTED_QA_ARTIFACTS"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-05-16"
+size: L
+depends_on:
+  - AG3-022
+unblocks:
+  - AG3-026
+  - AG3-034
+  - AG3-041

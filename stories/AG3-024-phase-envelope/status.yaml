@@ -1,0 +1,13 @@
+story_id: AG3-024
+title: "PhaseEnvelope + RuntimeMetadata + PauseReason-Typisierung"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-05-16"
+size: M
+depends_on:
+  - AG3-021
+unblocks:
+  - AG3-025
+  - AG3-041
+  - AG3-045

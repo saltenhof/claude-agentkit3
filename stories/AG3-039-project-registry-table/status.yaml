@@ -1,0 +1,10 @@
+story_id: AG3-039
+title: "project_registry-Tabelle + ProjectRegistration-Entitaet + Installer-CP-7"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-05-16"
+size: M
+depends_on:
+  - AG3-021
+unblocks: []

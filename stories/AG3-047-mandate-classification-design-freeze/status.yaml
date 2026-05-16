@@ -1,0 +1,14 @@
+story_id: AG3-047
+title: "MandateClassification + DesignFreezeMarker + Exploration-Telemetrie-Events"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-05-16"
+size: M
+depends_on:
+  - AG3-021
+  - AG3-022
+  - AG3-037
+  - AG3-045
+  - AG3-046
+unblocks: []
