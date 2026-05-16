@@ -41,6 +41,17 @@ def select_template_name(
     """
     route = execution_route if execution_route is not None else mode
 
+    # Fail-closed runtime guard (AG3-021 §AC11): SpawnReason muss
+    # zur Laufzeit ein echtes Enum-Member sein. Freie Strings wuerden
+    # an der ``is``-Pruefung still vorbeilaufen und auf den falschen
+    # Pfad routen.
+    if not isinstance(spawn_reason, SpawnReason):
+        msg = (
+            f"spawn_reason must be SpawnReason, got "
+            f"{type(spawn_reason).__name__!r}: {spawn_reason!r}"
+        )
+        raise TypeError(msg)
+
     if spawn_reason is SpawnReason.REMEDIATION:
         return "worker-remediation"
 

@@ -32,6 +32,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from agentkit.core_types import StorySize
 from agentkit.story_context_manager.errors import (
     ForbiddenError,
     ForbiddenFieldError,
@@ -50,7 +51,6 @@ from agentkit.story_context_manager.story_model import (
     StorySpecification,
     StoryStatus,
     WireStoryMode,
-    WireStorySize,
     WireStoryType,
 )
 from agentkit.story_context_manager.wire_adapter import (
@@ -870,7 +870,7 @@ def _story_from_cached_payload(payload: dict[str, object]) -> Story | None:
             title=str(payload["title"]),
             story_type=WireStoryType(str(payload["type"])),
             status=StoryStatus(str(payload["status"])),
-            size=WireStorySize(str(payload["size"])),
+            size=StorySize(str(payload["size"])),
             mode=WireStoryMode(str(payload["mode"])) if payload.get("mode") else None,
             epic=str(payload.get("epic", "")),
             module=str(payload.get("module", "")),

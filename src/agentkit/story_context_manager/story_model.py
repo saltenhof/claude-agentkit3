@@ -24,6 +24,8 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from agentkit.core_types import StorySize
+
 # ---------------------------------------------------------------------------
 # Wire-level enums (formal.frontend-contracts.entity.story_summary)
 # ---------------------------------------------------------------------------
@@ -51,21 +53,6 @@ class WireStoryType(StrEnum):
     BUGFIX = "bugfix"
     CONCEPT = "concept"
     RESEARCH = "research"
-
-
-class WireStorySize(StrEnum):
-    """Wire-level story size values per DK-10 §10.4 (XS/S/M/L/XL).
-
-    Seit AG3-021 deckungsgleich mit ``agentkit.core_types.StorySize`` —
-    der frueher hier gefuehrte ``XXL``-Wert war kein Konzept-Wert und ist
-    entfallen.
-    """
-
-    XS = "XS"
-    S = "S"
-    M = "M"
-    L = "L"
-    XL = "XL"
 
 
 class WireStoryMode(StrEnum):
@@ -164,7 +151,7 @@ class Story(BaseModel):
     title: str
     story_type: WireStoryType
     status: StoryStatus = StoryStatus.BACKLOG
-    size: WireStorySize = WireStorySize.M
+    size: StorySize = StorySize.M
     mode: WireStoryMode | None = None
     epic: str = ""
     module: str = ""
@@ -226,7 +213,7 @@ class CreateStoryInput(BaseModel):
     repos: list[str] = Field(min_length=1)
     epic: str = ""
     module: str = ""
-    size: WireStorySize = WireStorySize.M
+    size: StorySize = StorySize.M
     mode: WireStoryMode | None = None
     change_impact: ChangeImpact = ChangeImpact.LOCAL
     concept_quality: ConceptQuality = ConceptQuality.MEDIUM

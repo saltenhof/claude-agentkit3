@@ -6,7 +6,7 @@ Handles all field-name and value translations between the wire format
 Translations:
   - ``repos`` (Wire) <-> ``participating_repos`` (Internal, FK-21 language)
   - ``status="In Progress"`` <-> ``StoryStatus.IN_PROGRESS``
-  - ``size`` wire values ("XS","S","M","L","XL") -> ``WireStorySize``
+  - ``size`` wire values ("XS","S","M","L","XL") -> ``StorySize`` (AG3-021)
   - ``type`` wire values -> ``WireStoryType``
   - ``story_id`` (Wire: display_id) <-> ``story_display_id`` (Internal)
 
@@ -16,6 +16,7 @@ string-passthrough. Unknown values raise ``StoryValidationError``.
 
 from __future__ import annotations
 
+from agentkit.core_types import StorySize
 from agentkit.story_context_manager.errors import StoryValidationError
 from agentkit.story_context_manager.story_model import (
     ChangeImpact,
@@ -25,7 +26,6 @@ from agentkit.story_context_manager.story_model import (
     StorySpecification,
     StoryStatus,
     WireStoryMode,
-    WireStorySize,
     WireStoryType,
 )
 
@@ -132,12 +132,12 @@ def parse_wire_story_type(raw: str) -> WireStoryType:
         ) from None
 
 
-def parse_wire_story_size(raw: str) -> WireStorySize:
-    """Parse a wire size string into ``WireStorySize``."""
+def parse_wire_story_size(raw: str) -> StorySize:
+    """Parse a wire size string into ``StorySize`` (AG3-021)."""
     try:
-        return WireStorySize(raw)
+        return StorySize(raw)
     except ValueError:
-        valid = [s.value for s in WireStorySize]
+        valid = [s.value for s in StorySize]
         raise StoryValidationError(
             f"Invalid story size {raw!r}; valid values: {valid}",
             detail={"field": "size", "invalid_value": raw, "valid_values": valid},

@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from agentkit.core_types import StorySize
 from agentkit.story_context_manager.idempotency import IdempotencyRecord
 from agentkit.story_context_manager.story_model import (
     ChangeImpact,
@@ -42,7 +43,6 @@ from agentkit.story_context_manager.story_model import (
     StorySpecification,
     StoryStatus,
     WireStoryMode,
-    WireStorySize,
     WireStoryType,
 )
 
@@ -126,7 +126,7 @@ def _sqlite_row_to_story(row: dict[str, Any]) -> Story:
         title=str(row["title"]),
         story_type=WireStoryType(str(row["story_type"])),
         status=StoryStatus(str(row["status"])),
-        size=WireStorySize(str(row["size"])),
+        size=StorySize(str(row["size"])),
         mode=WireStoryMode(str(row["mode"])) if row["mode"] else None,
         epic=str(row["epic"]),
         module=str(row["module"]),
@@ -230,7 +230,7 @@ def _pg_row_to_story(row: dict[str, Any]) -> Story:
         title=str(row["title"]),
         story_type=WireStoryType(str(row["story_type"])),
         status=StoryStatus(str(row["status"])),
-        size=WireStorySize(str(row["size"])),
+        size=StorySize(str(row["size"])),
         mode=WireStoryMode(str(row["mode"])) if row["mode"] else None,
         epic=str(row["epic"]),
         module=str(row["module"]),

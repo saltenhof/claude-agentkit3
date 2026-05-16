@@ -99,8 +99,8 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             story_id TEXT NOT NULL,
             story_type TEXT NOT NULL,
             -- execution_route is nullable since AG3-021: non-implementing
-            -- story types (concept/research) carry NULL instead of the
-            -- deprecated StoryMode.NOT_APPLICABLE sentinel.
+            -- story types (concept/research) carry NULL instead of a
+            -- sentinel value (siehe AG3-021 §2.1.1.1 StoryMode-Werte).
             execution_route TEXT,
             implementation_contract TEXT,
             issue_nr INTEGER,

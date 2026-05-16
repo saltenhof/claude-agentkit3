@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from agentkit.core_types import SpawnReason
 from agentkit.prompt_runtime.selectors import select_template_name
 from agentkit.story_context_manager.types import StoryMode, StoryType
@@ -90,18 +92,30 @@ class TestSelectTemplateName:
         )
         assert result == "worker-research"
 
-    def test_string_spawn_reason_rejected(self) -> None:
-        """SpawnReason ist seit AG3-021 typisiert; freie Strings sind tabu."""
-        # ``select_template_name`` macht eine ``is``-Pruefung gegen
-        # ``SpawnReason.REMEDIATION`` -- ein freier String matcht nicht.
-        # Wir wollen aber, dass mypy strict den Aufruf ablehnt; zur Laufzeit
-        # akzeptiert Python natuerlich jeden Wert. Wir verifizieren, dass
-        # nur das richtige Enum-Member den Remediation-Pfad aktiviert.
+    def test_remediation_enum_routes_to_remediation_template(self) -> None:
+        """SpawnReason.REMEDIATION (Enum) routet auf worker-remediation."""
         result = select_template_name(
             StoryType.IMPLEMENTATION,
-            spawn_reason=SpawnReason.INITIAL,
+            spawn_reason=SpawnReason.REMEDIATION,
         )
-        assert result == "worker-implementation"
+        assert result == "worker-remediation"
+
+    @pytest.mark.parametrize(
+        "bad_value",
+        ["remediation", "paused_retry", "initial", "", "REMEDIATION", 0, None],
+    )
+    def test_non_enum_spawn_reason_raises_type_error(self, bad_value: object) -> None:
+        """SpawnReason ist seit AG3-021 typisiert; Laufzeitstrings sind tabu.
+
+        Fail-closed-Guard im Selector lehnt freie Strings ab, damit
+        ``spawn_reason="remediation"`` nicht still auf ``worker-implementation``
+        routet (AG3-021 §AC11).
+        """
+        with pytest.raises(TypeError, match="SpawnReason"):
+            select_template_name(
+                StoryType.IMPLEMENTATION,
+                spawn_reason=bad_value,  # type: ignore[arg-type]
+            )
 
     def test_all_story_types_have_template(self) -> None:
         """Every StoryType member must produce a valid template name."""

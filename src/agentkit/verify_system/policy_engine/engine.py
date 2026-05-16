@@ -5,11 +5,9 @@ produces a final PASS/FAIL decision per FK-27 §27.7.2. No LLM, no
 side effects (ARCH-12).
 
 PolicyVerdict ist seit AG3-021 ein StrEnum aus ``agentkit.core_types``
-mit nur zwei Werten (PASS/FAIL); ``PASS_WITH_WARNINGS`` ist explizit
-NICHT mehr Teil der Werteliste — das war ein v2-Konstrukt und ist mit
-AG3-021 entfernt (Codex-Befund §"PASS_WITH_WARNINGS konzeptlos"). Der
-verwandte LLM-Check-Status ``PASS_WITH_CONCERNS`` lebt am
-Envelope-Rand (AG3-022) und ist mit dieser Datei nicht zu verwechseln.
+mit nur zwei Werten: PASS und FAIL. Der LLM-Check-Status am
+Envelope-Rand (AG3-022, FK-71) ist eine getrennte Werteliste und
+gehoert ausdruecklich nicht in diesen Modul-Kontext.
 """
 
 from __future__ import annotations
@@ -45,11 +43,11 @@ class VerifyDecision:
 
     @property
     def status(self) -> str:
-        """Backward-compat property — die Wire-Repraesentation des Verdicts.
+        """Wire-Repraesentation des Verdicts.
 
-        ``status`` lieferte vor AG3-021 zusaetzlich
-        ``"PASS_WITH_WARNINGS"`` — dieser Wert ist mit AG3-021
-        entfallen. Liefert jetzt ``"PASS"`` oder ``"FAIL"``.
+        Liefert ausschliesslich ``"PASS"`` oder ``"FAIL"`` gemaess
+        FK-27 §27.7.2 und ``PolicyVerdict`` (AG3-021); weitere
+        Zwischenwerte sind nicht zulaessig.
         """
         return self.verdict.value
 
@@ -100,7 +98,7 @@ class PolicyEngine:
         blocking = _compute_blocking(all_findings, self._max_major)
         blocking_tuple = tuple(blocking)
 
-        # Determine verdict — only PASS/FAIL; kein PASS_WITH_WARNINGS.
+        # Determine verdict — only PASS/FAIL per FK-27 §27.7.2.
         if blocking_tuple:
             verdict = PolicyVerdict.FAIL
             passed = False

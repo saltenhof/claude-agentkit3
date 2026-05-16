@@ -2,11 +2,10 @@
 
 Source of truth: FK-27 §27.7.2 — concept/technical-design/27_verify_pipeline_closure_orchestration.md
 
-`PolicyEngine.decide` darf nur einen dieser beiden Werte zurueckgeben.
-`PASS_WITH_WARNINGS` ist explizit kein Verdict (Codex-Befund: alter
-v2-Wert, in v3 entfernt). Das LLM-Check-Status-Pendant
-`PASS_WITH_CONCERNS` lebt im Envelope-Layer (AG3-022) und wird dort
-auf `EnvelopeStatus.WARN` gemappt.
+`PolicyEngine.decide` darf ausschliesslich `PASS` oder `FAIL` zurueck-
+geben; weitere Zwischenwerte sind nicht zulaessig. Das LLM-Check-
+Status-Pendant am Envelope-Rand (AG3-022, FK-71) ist eine
+eigenstaendige Werteliste, die hier nicht relevant ist.
 """
 
 from __future__ import annotations

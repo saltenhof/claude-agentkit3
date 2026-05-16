@@ -19,9 +19,9 @@ from enum import StrEnum
 class FailureCategory(StrEnum):
     """Failure-Kategorie pro FK-41 §41.4.1 (12 Werte).
 
-    Frueher zirkulierende Werte wie INSTRUCTION_NEGLECT,
-    BAR_RAISING_FAILURE, TEST_FRAMEWORK_GAP, OTHER etc. sind kein
-    Bestandteil von FK-41 §41.4.1 und entfallen.
+    Die untenstehende Liste ist abschliessend; aeltere, repo-historisch
+    kursierende Werte sind nicht Bestandteil von FK-41 §41.4.1 und
+    entfallen ersatzlos.
 
     Attributes:
         SCOPE_DRIFT: Story-Scope ueberschritten oder verlassen.
@@ -56,8 +56,8 @@ class PromotionStatus(StrEnum):
     """Promotion-Status pro FK-41 Glossar (Story-normative Sub-Liste,
     Z. 70-76).
 
-    Frueher zirkulierende Listen wie
-    OBSERVED/PROPOSED/CONFIRMED/IMPLEMENTED/RETIRED entfallen.
+    Die untenstehende Liste ist abschliessend; aeltere, repo-historisch
+    kursierende Status-Listen entfallen.
 
     Attributes:
         MONITORING: Pattern in Beobachtung; noch nicht akzeptiert.

@@ -7,7 +7,8 @@ Source of truth:
   plus AG3-018 (Fast-Modus).
 
 `execution_route` ist `StoryMode | None`; nicht-implementierende Storys
-tragen `None`, nicht einen eigenen Enum-Wert (kein `NOT_APPLICABLE`).
+tragen `None`, nicht einen eigenen Sentinel-Enum-Wert. Die zulaessigen
+StoryMode-Werte sind in der Klasse selbst dokumentiert.
 """
 
 from __future__ import annotations

@@ -5,7 +5,8 @@ Owner BC:    verify-system / policy-engine
 
 EnvelopeStatus-Werte stammen seit AG3-021 aus ``agentkit.core_types``
 und bestehen aus exakt ``PASS``, ``FAIL``, ``WARN``, ``ERROR``.
-``PASS_WITH_WARNINGS`` ist mit AG3-021 entfallen (Codex-Befund).
+Die Werteliste ist abschliessend; weitere Kombinationen sind hier nicht
+zulaessig (siehe FK-71 fuer das LLM-Mapping im Envelope-Kontext).
 """
 
 from __future__ import annotations
@@ -90,9 +91,9 @@ def build_verify_decision_artifact(
 def verify_decision_passed(data: dict[str, object]) -> bool:
     """Evaluate PASS semantics for decision envelopes.
 
-    ``PolicyVerdict`` enthaelt seit AG3-021 nur noch ``PASS`` und
-    ``FAIL`` (FK-27 §27.7.2); jeder andere Wert (insb. der alte
-    ``PASS_WITH_WARNINGS``) ist ungueltig und liefert ``False``.
+    ``PolicyVerdict`` enthaelt seit AG3-021 ausschliesslich ``PASS`` und
+    ``FAIL`` (FK-27 §27.7.2); jeder andere Wert ist ungueltig und
+    liefert ``False``.
     """
 
     status = data.get("status")
