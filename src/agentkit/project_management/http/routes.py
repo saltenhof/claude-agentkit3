@@ -212,7 +212,19 @@ class ProjectManagementRoutes:
         detail_match = _PROJECT_DETAIL_PATH.match(route_path)
         if detail_match is None:
             return None
+        return self._handle_patch_detail(
+            detail_match.group("key"),
+            payload,
+            correlation_id,
+        )
 
+    def _handle_patch_detail(
+        self,
+        key: str,
+        payload: object,
+        correlation_id: str,
+    ) -> ProjectRouteResponse:
+        """Handle ``PATCH /v1/projects/{key}``."""
         try:
             request = UpdateProjectRequest.model_validate(payload)
         except ValidationError as exc:
@@ -230,7 +242,7 @@ class ProjectManagementRoutes:
                 correlation_id,
             )
 
-        project = self._repository.get(detail_match.group("key"))
+        project = self._repository.get(key)
         if project is None:
             return _not_found_response(correlation_id)
 
@@ -241,19 +253,24 @@ class ProjectManagementRoutes:
                 exclude_unset=True,
                 exclude_none=False,
             )
+        return self._apply_patch_detail_update(
+            project, request, configuration_updates, correlation_id,
+        )
+
+    def _apply_patch_detail_update(
+        self,
+        project: Project,
+        request: UpdateProjectRequest,
+        configuration_updates: dict[str, object] | None,
+        correlation_id: str,
+    ) -> ProjectRouteResponse:
+        """Persist a validated detail patch — try/except cluster lives here."""
         try:
-            # When repositories is being updated, check repos-in-use before saving.
             if configuration_updates and "repositories" in configuration_updates:
-                new_repos_raw = configuration_updates["repositories"]
-                new_repos = (
-                    [str(r) for r in new_repos_raw]
-                    if isinstance(new_repos_raw, list)
-                    else []
-                )
                 in_use_check = self._check_repos_removal(
                     project.key,
                     list(project.configuration.repositories),
-                    new_repos,
+                    _coerce_repo_list(configuration_updates["repositories"]),
                     correlation_id,
                 )
                 if in_use_check is not None:
@@ -281,21 +298,8 @@ class ProjectManagementRoutes:
                 },
             )
         except ValidationError as exc:
-            if _is_repositories_error(exc):
-                return _validation_error_response_plain(
-                    "validation_failed",
-                    "Invalid repositories list",
-                    correlation_id,
-                    detail={
-                        "invalid_repos": _repos_from_updates(configuration_updates),
-                        "errors": exc.errors(),
-                    },
-                )
-            return _validation_error_response(
-                "invalid_project_configuration",
-                "Invalid project configuration",
-                correlation_id,
-                exc,
+            return _validation_error_for_configuration(
+                exc, configuration_updates, correlation_id,
             )
 
         return _mutation_response(
@@ -709,4 +713,35 @@ def _conflict_response(
         error_code=error_code,
         message=message,
         correlation_id=correlation_id,
+    )
+
+
+def _coerce_repo_list(raw: object) -> list[str]:
+    """Coerce a configuration_updates['repositories'] value to ``list[str]``."""
+    if not isinstance(raw, list):
+        return []
+    return [str(r) for r in raw]
+
+
+def _validation_error_for_configuration(
+    exc: ValidationError,
+    configuration_updates: dict[str, object] | None,
+    correlation_id: str,
+) -> ProjectRouteResponse:
+    """Map a Pydantic ValidationError from update_configuration to a 400 response."""
+    if _is_repositories_error(exc):
+        return _validation_error_response_plain(
+            "validation_failed",
+            "Invalid repositories list",
+            correlation_id,
+            detail={
+                "invalid_repos": _repos_from_updates(configuration_updates),
+                "errors": exc.errors(),
+            },
+        )
+    return _validation_error_response(
+        "invalid_project_configuration",
+        "Invalid project configuration",
+        correlation_id,
+        exc,
     )

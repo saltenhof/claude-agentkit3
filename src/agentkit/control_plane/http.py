@@ -74,6 +74,69 @@ _NOT_FOUND_MESSAGE = "Not found"
 _CORRELATION_HEADER = "X-Correlation-Id"
 
 
+def _build_default_project_routes() -> ProjectManagementRoutes:
+    from agentkit.project_management.http.routes import ProjectManagementRoutes
+    from agentkit.story_context_manager.service import (
+        StoryService as StoryContextStoryService,
+    )
+
+    _ctx_service: list[StoryContextStoryService | None] = [None]
+
+    def _repos_in_use_checker(
+        project_key: str,
+        repos: list[str],
+    ) -> list[str]:
+        svc = _ctx_service[0]
+        if svc is None:
+            svc = StoryContextStoryService()
+            _ctx_service[0] = svc
+        in_use = svc.list_active_repos(project_key)
+        return [r for r in repos if r in in_use]
+
+    return ProjectManagementRoutes(repos_in_use_checker=_repos_in_use_checker)
+
+
+def _build_default_story_routes() -> StoryContextRoutes:
+    from agentkit.story_context_manager.http.routes import StoryContextRoutes
+
+    return StoryContextRoutes()
+
+
+def _build_default_concept_routes() -> ConceptCatalogRoutes:
+    from agentkit.concept_catalog.http.routes import ConceptCatalogRoutes
+
+    return ConceptCatalogRoutes()
+
+
+def _build_default_hub_routes() -> MultiLlmHubRoutes:
+    from agentkit.multi_llm_hub.http.routes import MultiLlmHubRoutes
+
+    return MultiLlmHubRoutes()
+
+
+def _build_default_planning_routes() -> ExecutionPlanningRoutes:
+    from agentkit.execution_planning.http.routes import ExecutionPlanningRoutes
+
+    return ExecutionPlanningRoutes()
+
+
+def _build_default_telemetry_routes() -> TelemetryRoutes:
+    from agentkit.telemetry.http.routes import TelemetryRoutes
+
+    return TelemetryRoutes()
+
+
+def _build_default_auth_routes(auth_middleware: AuthMiddleware | None) -> AuthRoutes:
+    from agentkit.auth.http.routes import AuthRoutes
+
+    if auth_middleware is not None:
+        return AuthRoutes(
+            session_store=auth_middleware.session_store,
+            token_repository=auth_middleware.token_repository,
+        )
+    return AuthRoutes()
+
+
 @dataclass(frozen=True)
 class HttpResponse:
     """Serializable HTTP response."""
@@ -109,75 +172,13 @@ class ControlPlaneApplication:
         self._dashboard_service = dashboard_service or DashboardService(
             story_service=self._story_service,
         )
-        if project_routes is None:
-            from agentkit.project_management.http.routes import ProjectManagementRoutes
-            from agentkit.story_context_manager.service import (
-                StoryService as StoryContextStoryService,
-            )
-
-            # Lazy-init the owner-BC StoryService for the checker.  This is the
-            # AG3-014 service (story_context_manager.StoryService), not the
-            # dashboard read-model service held in ``self._story_service``.
-            _ctx_service: list[StoryContextStoryService | None] = [None]
-
-            def _repos_in_use_checker(
-                project_key: str,
-                repos: list[str],
-            ) -> list[str]:
-                """Default checker: query StoryContext StoryService for active repos.
-
-                Returns the subset of ``repos`` that are referenced by at
-                least one ``In Progress`` story in ``project_key``.  The
-                owner-BC service is lazy-instantiated on first use.
-                """
-                svc = _ctx_service[0]
-                if svc is None:
-                    svc = StoryContextStoryService()
-                    _ctx_service[0] = svc
-                in_use = svc.list_active_repos(project_key)
-                return [r for r in repos if r in in_use]
-
-            project_routes = ProjectManagementRoutes(
-                repos_in_use_checker=_repos_in_use_checker,
-            )
-        self._project_routes = project_routes
-        if story_routes is None:
-            from agentkit.story_context_manager.http.routes import StoryContextRoutes
-
-            story_routes = StoryContextRoutes()
-        self._story_routes = story_routes
-        if concept_routes is None:
-            from agentkit.concept_catalog.http.routes import ConceptCatalogRoutes
-
-            concept_routes = ConceptCatalogRoutes()
-        self._concept_routes = concept_routes
-        if hub_routes is None:
-            from agentkit.multi_llm_hub.http.routes import MultiLlmHubRoutes
-
-            hub_routes = MultiLlmHubRoutes()
-        self._hub_routes = hub_routes
-        if planning_routes is None:
-            from agentkit.execution_planning.http.routes import ExecutionPlanningRoutes
-
-            planning_routes = ExecutionPlanningRoutes()
-        self._planning_routes = planning_routes
-        if telemetry_routes is None:
-            from agentkit.telemetry.http.routes import TelemetryRoutes
-
-            telemetry_routes = TelemetryRoutes()
-        self._telemetry_routes = telemetry_routes
-        if auth_routes is None and auth_middleware is not None:
-            from agentkit.auth.http.routes import AuthRoutes
-
-            auth_routes = AuthRoutes(
-                session_store=auth_middleware.session_store,
-                token_repository=auth_middleware.token_repository,
-            )
-        elif auth_routes is None:
-            from agentkit.auth.http.routes import AuthRoutes
-
-            auth_routes = AuthRoutes()
-        self._auth_routes = auth_routes
+        self._project_routes = project_routes or _build_default_project_routes()
+        self._story_routes = story_routes or _build_default_story_routes()
+        self._concept_routes = concept_routes or _build_default_concept_routes()
+        self._hub_routes = hub_routes or _build_default_hub_routes()
+        self._planning_routes = planning_routes or _build_default_planning_routes()
+        self._telemetry_routes = telemetry_routes or _build_default_telemetry_routes()
+        self._auth_routes = auth_routes or _build_default_auth_routes(auth_middleware)
         self._auth_middleware = auth_middleware
 
     def handle_request(
