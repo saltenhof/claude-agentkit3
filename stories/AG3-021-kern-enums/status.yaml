@@ -1,7 +1,7 @@
 story_id: AG3-021
 title: "Kern-Enums: Severity, QaContext, PauseReason, ArtifactClass, ExplorationGateStatus u.a."
 type: implementation
-status: ready
+status: in_progress
 phase: setup
 created: "2026-05-16"
 size: M
