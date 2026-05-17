@@ -24,6 +24,7 @@ from agentkit.closure.phase import (
 from agentkit.exceptions import IntegrationError
 from agentkit.installer.paths import qa_story_dir
 from agentkit.phase_state_store.models import FlowExecution
+from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
 from agentkit.pipeline_engine.phase_executor.records import AttemptRecord
 from agentkit.state_backend.store import (
     append_execution_event,
@@ -215,7 +216,7 @@ class TestClosurePhaseHandler:
         ctx = _make_ctx(project_root=tmp_path)
         state = _make_state()
 
-        result = handler.on_enter(ctx, state)
+        result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
         assert result.status == PhaseStatus.COMPLETED
         assert len(result.errors) == 0
@@ -236,7 +237,7 @@ class TestClosurePhaseHandler:
         ctx = _make_ctx(project_root=tmp_path)
         state = _make_state()
 
-        result = handler.on_enter(ctx, state)
+        result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
         assert result.status == PhaseStatus.FAILED
         assert len(result.errors) >= 1
@@ -258,7 +259,7 @@ class TestClosurePhaseHandler:
         ctx = _make_ctx(project_root=tmp_path)
         state = _make_state()
 
-        handler.on_enter(ctx, state)
+        handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
         report_path = qa_story_dir(tmp_path, "TEST-001") / "closure.json"
         assert report_path.exists()
@@ -292,7 +293,7 @@ class TestClosurePhaseHandler:
         ctx = _make_ctx(project_root=tmp_path)
         state = _make_state()
 
-        result = handler.on_enter(ctx, state)
+        result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
         assert result.status == PhaseStatus.COMPLETED
 
@@ -342,7 +343,7 @@ class TestClosurePhaseHandler:
         ctx = _make_ctx(project_root=tmp_path)
         state = _make_state()
 
-        result = handler.on_enter(ctx, state)
+        result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
         assert result.status == PhaseStatus.COMPLETED
         assert len(result.errors) == 0
@@ -363,7 +364,7 @@ class TestClosurePhaseHandler:
         ctx = _make_ctx()
         state = _make_state()
 
-        result = handler.on_resume(ctx, state, "some_trigger")
+        result = handler.on_resume(ctx, PhaseEnvelopeStore.make_fresh_envelope(state), "some_trigger")
 
         assert result.status == PhaseStatus.FAILED
         assert "resume" in result.errors[0].lower()
@@ -393,7 +394,7 @@ class TestClosurePhaseHandler:
         )
         state = _make_state(story_id="TEST-101")
 
-        result = handler.on_enter(ctx, state)
+        result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
         assert result.status == PhaseStatus.COMPLETED
 
@@ -404,7 +405,7 @@ class TestClosurePhaseHandler:
         ctx = _make_ctx()
         state = _make_state()
 
-        result = handler.on_enter(ctx, state)
+        result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
         assert result.status == PhaseStatus.FAILED
         assert "story_dir" in result.errors[0]
@@ -441,7 +442,7 @@ class TestClosurePhaseHandler:
         ctx = _make_ctx(story_id="TEST-102", project_root=tmp_path)
         state = _make_state(story_id="TEST-102")
 
-        result = handler.on_enter(ctx, state)
+        result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
         assert result.status == PhaseStatus.FAILED
         assert len(result.errors) >= 1
@@ -481,7 +482,7 @@ class TestClosurePhaseHandler:
         ctx = _make_ctx(story_id="TEST-103", project_root=tmp_path)
         state = _make_state(story_id="TEST-103")
 
-        result = handler.on_enter(ctx, state)
+        result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
         assert result.status == PhaseStatus.FAILED
         assert len(result.errors) >= 1
@@ -544,7 +545,7 @@ class TestClosurePhaseHandler:
             ),
         )
 
-        result = handler.on_enter(ctx, state)
+        result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
         assert result.status == PhaseStatus.COMPLETED
         metrics = load_story_metrics(s_dir)
@@ -561,7 +562,7 @@ class TestClosurePhaseHandler:
         ctx = _make_ctx(story_id="TEST-105", project_root=tmp_path)
         state = _make_state(story_id="TEST-105")
 
-        result = handler.on_enter(ctx, state)
+        result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
         assert result.status == PhaseStatus.FAILED
         assert result.errors == (
@@ -593,7 +594,7 @@ class TestClosurePhaseHandler:
         ctx = _make_ctx(story_id="TEST-106", project_root=tmp_path)
         state = _make_state(story_id="TEST-106")
 
-        result = handler.on_enter(ctx, state)
+        result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
         assert result.status == PhaseStatus.COMPLETED
         metrics = load_story_metrics(s_dir)
@@ -611,7 +612,7 @@ class TestClosurePhaseHandler:
         ctx = _make_ctx(story_id="TEST-107", project_root=tmp_path)
         state = _make_state(story_id="TEST-107")
 
-        result = handler.on_enter(ctx, state)
+        result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
         assert result.status == PhaseStatus.FAILED
         assert result.errors == (

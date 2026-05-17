@@ -50,6 +50,25 @@ class _InMemoryRepository:
     def read_envelope(self, reference: ArtifactReference) -> ArtifactEnvelope | None:
         return self._store.get(reference.record_key)
 
+    def find_latest_envelope(
+        self,
+        *,
+        story_id: str,
+        run_id: str | None,
+        artifact_class: ArtifactClass,
+        stage: str,
+    ) -> ArtifactEnvelope | None:
+        matches = [
+            e for e in self._store.values()
+            if e.story_id == story_id
+            and (run_id is None or e.run_id == run_id)
+            and e.artifact_class == artifact_class
+            and e.stage == stage
+        ]
+        if not matches:
+            return None
+        return max(matches, key=lambda e: e.attempt)
+
     def exists_envelope(self, reference: ArtifactReference) -> bool:
         return reference.record_key in self._store
 

@@ -27,7 +27,7 @@ def _completed_record(**kwargs: object) -> AttemptRecord:
         "ended_at": _LATER,
     }
     defaults.update(kwargs)
-    return AttemptRecord(**defaults)  # type: ignore[arg-type]
+    return AttemptRecord(**defaults)
 
 
 def _failed_record(**kwargs: object) -> AttemptRecord:
@@ -42,7 +42,7 @@ def _failed_record(**kwargs: object) -> AttemptRecord:
         "ended_at": _LATER,
     }
     defaults.update(kwargs)
-    return AttemptRecord(**defaults)  # type: ignore[arg-type]
+    return AttemptRecord(**defaults)
 
 
 class TestAttemptRecordPflichtfelder:

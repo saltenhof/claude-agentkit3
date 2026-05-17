@@ -12,7 +12,8 @@ from agentkit.pipeline_engine.lifecycle import NoOpHandler, PhaseHandlerRegistry
 if TYPE_CHECKING:
     from pathlib import Path
 
-pytest_plugins = ("tests.fixtures.postgres_backend",)
+# ``pytest_plugins`` lebt in ``tests/conftest.py`` (Top-Level, pytest 8+
+# Anforderung); hier nur Collection-Hook fuer Postgres-Bindung.
 
 
 def pytest_collection_modifyitems(config, items):  # type: ignore[no-untyped-def]

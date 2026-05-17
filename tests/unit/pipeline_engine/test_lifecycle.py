@@ -11,6 +11,7 @@ from agentkit.pipeline_engine.lifecycle import (
     PhaseHandler,
     PhaseHandlerRegistry,
 )
+from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
 from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
@@ -71,16 +72,16 @@ class TestNoOpHandler:
 
     def test_on_enter_returns_completed(self) -> None:
         handler = NoOpHandler()
-        result = handler.on_enter(_make_ctx(), _make_state())
+        result = handler.on_enter(_make_ctx(), PhaseEnvelopeStore.make_fresh_envelope(_make_state()))
         assert result.status == PhaseStatus.COMPLETED
 
     def test_on_exit_returns_none(self) -> None:
         handler = NoOpHandler()
-        handler.on_exit(_make_ctx(), _make_state())
+        handler.on_exit(_make_ctx(), PhaseEnvelopeStore.make_fresh_envelope(_make_state()))
 
     def test_on_resume_returns_completed(self) -> None:
         handler = NoOpHandler()
-        result = handler.on_resume(_make_ctx(), _make_state(), "manual_trigger")
+        result = handler.on_resume(_make_ctx(), PhaseEnvelopeStore.make_fresh_envelope(_make_state()), "manual_trigger")
         assert result.status == PhaseStatus.COMPLETED
 
 

@@ -15,6 +15,7 @@ from agentkit.config.models import ProjectConfig, RepositoryConfig
 from agentkit.exceptions import WorktreeError
 from agentkit.governance.setup_preflight_gate.phase import SetupConfig, SetupPhaseHandler
 from agentkit.governance.setup_preflight_gate.worktree import WorktreeResult
+from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
 from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
@@ -157,7 +158,7 @@ class TestSetupPhaseHandlerWorktree:
                 return_value=[_make_worktree_result(tmp_path)],
             ) as mock_setup,
         ):
-            result = handler.on_enter(ctx, state)
+            result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
         assert result.status == PhaseStatus.COMPLETED
         mock_setup.assert_called_once()
@@ -206,7 +207,7 @@ class TestSetupPhaseHandlerWorktree:
                 "agentkit.governance.setup_preflight_gate.phase.setup_worktrees"
             ) as mock_setup,
         ):
-            result = handler.on_enter(ctx, state)
+            result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
         assert result.status == PhaseStatus.COMPLETED
         mock_setup.assert_not_called()
@@ -248,7 +249,7 @@ class TestSetupPhaseHandlerWorktree:
                 ),
             ),
         ):
-            result = handler.on_enter(ctx, state)
+            result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
         assert result.status == PhaseStatus.FAILED
         assert len(result.errors) == 1
@@ -299,7 +300,7 @@ class TestSetupPhaseHandlerWorktree:
                 "agentkit.governance.setup_preflight_gate.phase.remove_worktree",
             ) as mock_remove,
         ):
-            result = handler.on_enter(ctx, state)
+            result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
         assert result.status == PhaseStatus.FAILED
         assert "disk full" in result.errors[0]
@@ -331,7 +332,7 @@ class TestSetupPhaseHandlerWorktree:
                 "agentkit.governance.setup_preflight_gate.phase.setup_worktrees"
             ) as mock_setup,
         ):
-            result = handler.on_enter(ctx, state)
+            result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
         assert result.status == PhaseStatus.FAILED
         assert "issue is closed" in result.errors[0]
@@ -376,7 +377,7 @@ class TestSetupPhaseBeginProgress:
                 return_value=enriched,
             ),
         ):
-            result = handler.on_enter(ctx, state)
+            result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
         assert result.status == PhaseStatus.COMPLETED
         assert calls == ["AG3-001"]
@@ -427,7 +428,7 @@ class TestSetupPhaseBeginProgress:
                 return_value=tracking_svc,
             ),
         ):
-            result = handler.on_enter(ctx, state)
+            result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
         assert result.status == PhaseStatus.COMPLETED
         # begin_progress must be called even when story_service=None (Befund 9)
@@ -464,7 +465,7 @@ class TestSetupPhaseBeginProgress:
                 return_value=enriched,
             ),
         ):
-            result = handler.on_enter(ctx, state)
+            result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
         assert result.status == PhaseStatus.FAILED
         assert "begin_progress failed" in result.errors[0]

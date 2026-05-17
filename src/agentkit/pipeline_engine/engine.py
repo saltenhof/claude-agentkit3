@@ -325,14 +325,6 @@ def _handle_guard_failure_result(
         return retry_result
 
     finished_at = datetime.now(tz=UTC)
-    engine._runtime.record_flow_execution(
-        ctx,
-        phase_name,
-        attempt_id,
-        status="FAILED",
-        node_id=phase_name,
-        finished_at=finished_at,
-    )
 
     detail: dict[str, object] = {"guard_evaluations": guard_evals}
     if result.artifacts_produced:
@@ -359,10 +351,23 @@ def _handle_guard_failure_result(
         errors=failure_reasons,
         attempt_id=attempt_id,
     )
+    # FK-39 §39.4.4 Crash-Safety: AttemptRecord ZUERST (vor allen weiteren
+    # phasenabschliessenden Schreibvorgaengen). record_flow_execution darf
+    # erst NACH save_phase_completion durabel werden, sonst kann ein Crash
+    # einen "FAILED"-Flow-Eintrag ohne korrespondierenden AttemptRecord
+    # hinterlassen.
     save_phase_completion(
         engine._story_dir,
         envelope=_WrapState(new_state),
         attempt_record=attempt_record,
+    )
+    engine._runtime.record_flow_execution(
+        ctx,
+        phase_name,
+        attempt_id,
+        status="FAILED",
+        node_id=phase_name,
+        finished_at=finished_at,
     )
     engine._runtime.record_node_outcome(
         ctx,
@@ -428,27 +433,6 @@ def _handle_completed_result(
             resume_trigger=resume_trigger,
         )
 
-    save_phase_snapshot(
-        engine._story_dir,
-        PhaseSnapshot(
-            story_id=state.story_id,
-            phase=phase_name,
-            status=PhaseStatus.COMPLETED,
-            completed_at=datetime.now(tz=UTC),
-            artifacts=list(result.artifacts_produced),
-            evidence=_snapshot_evidence(completed_state),
-        ),
-    )
-
-    engine._runtime.record_flow_execution(
-        ctx,
-        phase_name,
-        attempt_id,
-        status="COMPLETED",
-        node_id=phase_name,
-        finished_at=datetime.now(tz=UTC),
-    )
-
     finished_at = datetime.now(tz=UTC)
     detail: dict[str, object] | None = None
     if guard_evals:
@@ -472,11 +456,34 @@ def _handle_completed_result(
         ended_at=finished_at,
         detail=detail,
     )
-    # FK-39 §39.4.4: AttemptRecord ZUERST, dann PhaseState
+    # FK-39 §39.4.4 Crash-Safety: AttemptRecord ZUERST.
+    # save_phase_snapshot und record_flow_execution duerfen erst NACH
+    # save_phase_completion durabel werden, sonst kann ein Crash dazu
+    # fuehren, dass ein Phase-Snapshot mit "COMPLETED" existiert ohne
+    # korrespondierenden AttemptRecord — Recovery liefe dann blind.
     save_phase_completion(
         engine._story_dir,
         envelope=_WrapState(completed_state),
         attempt_record=attempt_record,
+    )
+    save_phase_snapshot(
+        engine._story_dir,
+        PhaseSnapshot(
+            story_id=state.story_id,
+            phase=phase_name,
+            status=PhaseStatus.COMPLETED,
+            completed_at=datetime.now(tz=UTC),
+            artifacts=list(result.artifacts_produced),
+            evidence=_snapshot_evidence(completed_state),
+        ),
+    )
+    engine._runtime.record_flow_execution(
+        ctx,
+        phase_name,
+        attempt_id,
+        status="COMPLETED",
+        node_id=phase_name,
+        finished_at=datetime.now(tz=UTC),
     )
     engine._runtime.record_node_outcome(
         ctx,
@@ -890,14 +897,6 @@ class PipelineEngine:
         )
         if not can_enter:
             finished_at = datetime.now(tz=UTC)
-            self._runtime.record_flow_execution(
-                ctx,
-                phase_name,
-                attempt_id,
-                status="BLOCKED",
-                node_id=phase_name,
-                finished_at=finished_at,
-            )
             blocked_state = PhaseState(
                 story_id=state.story_id,
                 phase=phase_name,
@@ -917,10 +916,20 @@ class PipelineEngine:
                 ended_at=finished_at,
                 detail={"failure_reasons": failure_reasons} if failure_reasons else None,
             )
+            # FK-39 §39.4.4 Crash-Safety: AttemptRecord ZUERST,
+            # record_flow_execution erst danach.
             save_phase_completion(
                 self._story_dir,
                 envelope=_WrapState(blocked_state),
                 attempt_record=attempt,
+            )
+            self._runtime.record_flow_execution(
+                ctx,
+                phase_name,
+                attempt_id,
+                status="BLOCKED",
+                node_id=phase_name,
+                finished_at=finished_at,
             )
             self._runtime.record_node_outcome(
                 ctx,
@@ -1312,14 +1321,6 @@ class PipelineEngine:
             attempt_id=attempt_id,
         )
         finished_at = datetime.now(tz=UTC)
-        self._runtime.record_flow_execution(
-            ctx,
-            phase_name,
-            attempt_id,
-            status=flow_status,
-            node_id=phase_name,
-            finished_at=finished_at,
-        )
 
         detail: dict[str, object] | None = None
         if artifacts:
@@ -1337,10 +1338,20 @@ class PipelineEngine:
             ended_at=finished_at,
             detail=detail,
         )
+        # FK-39 §39.4.4 Crash-Safety: AttemptRecord ZUERST,
+        # record_flow_execution erst danach.
         save_phase_completion(
             self._story_dir,
             envelope=_WrapState(completed_state),
             attempt_record=attempt,
+        )
+        self._runtime.record_flow_execution(
+            ctx,
+            phase_name,
+            attempt_id,
+            status=flow_status,
+            node_id=phase_name,
+            finished_at=finished_at,
         )
         self._runtime.record_node_outcome(
             ctx,
@@ -1484,14 +1495,6 @@ class PipelineEngine:
             attempt_id=attempt_id,
         )
         finished_at = datetime.now(tz=UTC)
-        self._runtime.record_flow_execution(
-            ctx,
-            phase_name,
-            attempt_id,
-            status="BACKTRACK",
-            node_id=retry_policy.backtrack_target,
-            finished_at=finished_at,
-        )
 
         detail: dict[str, object] | None = None
         if artifacts:
@@ -1512,10 +1515,20 @@ class PipelineEngine:
             ended_at=finished_at,
             detail=detail,
         )
+        # FK-39 §39.4.4 Crash-Safety: AttemptRecord ZUERST,
+        # record_flow_execution erst danach.
         save_phase_completion(
             self._story_dir,
             envelope=_WrapState(failed_state),
             attempt_record=attempt,
+        )
+        self._runtime.record_flow_execution(
+            ctx,
+            phase_name,
+            attempt_id,
+            status="BACKTRACK",
+            node_id=retry_policy.backtrack_target,
+            finished_at=finished_at,
         )
         self._runtime.record_node_outcome(
             ctx,

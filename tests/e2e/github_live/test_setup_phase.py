@@ -13,6 +13,7 @@ import pytest
 from agentkit.governance.setup_preflight_gate.phase import SetupConfig, SetupPhaseHandler
 from agentkit.installer import InstallConfig, install_agentkit
 from agentkit.installer.paths import story_dir
+from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
 from agentkit.state_backend.store import read_story_context_record
 from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
@@ -64,7 +65,7 @@ class TestSetupPhaseE2E:
             status=PhaseStatus.IN_PROGRESS,
         )
 
-        result = handler.on_enter(ctx, state)
+        result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
         assert result.status == PhaseStatus.COMPLETED
 
@@ -107,6 +108,6 @@ class TestSetupPhaseE2E:
             status=PhaseStatus.IN_PROGRESS,
         )
 
-        result = handler.on_enter(ctx, state)
+        result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
         assert result.status == PhaseStatus.FAILED
         assert len(result.errors) > 0

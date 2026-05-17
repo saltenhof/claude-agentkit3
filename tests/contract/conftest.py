@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-pytest_plugins = ("tests.fixtures.postgres_backend",)
+# ``pytest_plugins`` lebt in ``tests/conftest.py`` (Top-Level, pytest 8+
+# Anforderung); hier nur Collection-Hook fuer Postgres-Bindung.
 
 # Contract test suites that operate on pure in-memory types and do NOT
 # require the Postgres backend fixture. Adding the session-scoped

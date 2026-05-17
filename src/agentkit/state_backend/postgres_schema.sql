@@ -111,21 +111,6 @@
             PRIMARY KEY (story_id, phase)
         );
 
-        CREATE TABLE IF NOT EXISTS attempt_records (
-            story_id TEXT NOT NULL,
-            phase TEXT NOT NULL,
-            seq INTEGER NOT NULL,
-            attempt_id TEXT NOT NULL,
-            entered_at TEXT NOT NULL,
-            exit_status TEXT,
-            outcome TEXT,
-            yield_status TEXT,
-            resume_trigger TEXT,
-            guard_evaluations_json TEXT NOT NULL,
-            artifacts_json TEXT NOT NULL,
-            PRIMARY KEY (story_id, phase, seq)
-        );
-
         CREATE TABLE IF NOT EXISTS attempts (
             run_id          VARCHAR        NOT NULL,
             phase           VARCHAR        NOT NULL,

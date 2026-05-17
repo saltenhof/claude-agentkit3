@@ -25,6 +25,13 @@ if os.name == "nt":
     os.environ.setdefault("PYTEST_DEBUG_TEMPROOT", str(PYTEST_TEMP_ROOT))
 
 
+#: ``pytest_plugins`` muss ab pytest 8 in der **top-level** ``conftest.py``
+#: stehen — Definitionen in ``tests/contract/conftest.py``,
+#: ``tests/integration/conftest.py`` oder ``tests/e2e/conftest.py`` brechen
+#: die Collection. Wir buendeln den Postgres-Backend-Plugin hier.
+pytest_plugins = ("tests.fixtures.postgres_backend",)
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _isolate_prompt_bundle_store(tmp_path_factory: pytest.TempPathFactory) -> None:
     os.environ.setdefault(

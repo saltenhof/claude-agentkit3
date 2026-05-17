@@ -42,11 +42,13 @@ from agentkit.state_backend.store import (
     read_story_context_record,
     save_story_context,
 )
-from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
+from agentkit.story_context_manager.models import PhaseStatus, StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
 
 
 # ---------------------------------------------------------------------------
@@ -257,7 +259,7 @@ class TestSmokeImplementationStory:
             attempts = load_attempts(s_dir, phase_name)
             assert len(attempts) >= 1, f"No canonical attempts for phase '{phase_name}'"
             for attempt in attempts:
-                assert attempt.attempt_id
+                assert f"{attempt.run_id}-{attempt.phase}-{attempt.attempt}"
                 assert attempt.phase == phase_name
 
 
@@ -523,13 +525,13 @@ class _FailingHandler:
     def on_enter(
         self,
         ctx: StoryContext,
-        state: PhaseState,
+        envelope: PhaseEnvelope,
     ) -> HandlerResult:
         """Return FAILED status.
 
         Args:
             ctx: Story context (unused).
-            state: Phase state (unused).
+            envelope: Phase envelope (unused).
 
         Returns:
             HandlerResult with FAILED status.
@@ -539,25 +541,25 @@ class _FailingHandler:
             errors=(self._error_msg,),
         )
 
-    def on_exit(self, ctx: StoryContext, state: PhaseState) -> None:
+    def on_exit(self, ctx: StoryContext, envelope: PhaseEnvelope) -> None:
         """No-op exit.
 
         Args:
             ctx: Story context (unused).
-            state: Phase state (unused).
+            envelope: Phase envelope (unused).
         """
 
     def on_resume(
         self,
         ctx: StoryContext,
-        state: PhaseState,
+        envelope: PhaseEnvelope,
         trigger: str,
     ) -> HandlerResult:
         """Return FAILED status on resume.
 
         Args:
             ctx: Story context (unused).
-            state: Phase state (unused).
+            envelope: Phase envelope (unused).
             trigger: Resume trigger (unused).
 
         Returns:
@@ -578,13 +580,13 @@ class _YieldingHandler:
     def on_enter(
         self,
         ctx: StoryContext,
-        state: PhaseState,
+        envelope: PhaseEnvelope,
     ) -> HandlerResult:
         """Return PAUSED status.
 
         Args:
             ctx: Story context (unused).
-            state: Phase state (unused).
+            envelope: Phase envelope (unused).
 
         Returns:
             HandlerResult with PAUSED status.
@@ -594,25 +596,25 @@ class _YieldingHandler:
             yield_status=self._yield_status,
         )
 
-    def on_exit(self, ctx: StoryContext, state: PhaseState) -> None:
+    def on_exit(self, ctx: StoryContext, envelope: PhaseEnvelope) -> None:
         """No-op exit.
 
         Args:
             ctx: Story context (unused).
-            state: Phase state (unused).
+            envelope: Phase envelope (unused).
         """
 
     def on_resume(
         self,
         ctx: StoryContext,
-        state: PhaseState,
+        envelope: PhaseEnvelope,
         trigger: str,
     ) -> HandlerResult:
         """Return COMPLETED status on resume.
 
         Args:
             ctx: Story context (unused).
-            state: Phase state (unused).
+            envelope: Phase envelope (unused).
             trigger: Resume trigger (unused).
 
         Returns:
@@ -798,7 +800,7 @@ class TestSmokePipelineRobustness:
             def on_enter(
                 self,
                 ctx: StoryContext,
-                state: PhaseState,
+                envelope: PhaseEnvelope,
             ) -> HandlerResult:
                 msg = "Boom!"
                 raise RuntimeError(msg)
@@ -806,14 +808,14 @@ class TestSmokePipelineRobustness:
             def on_exit(
                 self,
                 ctx: StoryContext,
-                state: PhaseState,
+                envelope: PhaseEnvelope,
             ) -> None:
                 pass
 
             def on_resume(
                 self,
                 ctx: StoryContext,
-                state: PhaseState,
+                envelope: PhaseEnvelope,
                 trigger: str,
             ) -> HandlerResult:
                 msg = "Boom!"

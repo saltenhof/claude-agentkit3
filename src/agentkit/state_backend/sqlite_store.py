@@ -203,21 +203,6 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             PRIMARY KEY (story_id, phase)
         );
 
-        CREATE TABLE IF NOT EXISTS attempt_records (
-            story_id TEXT NOT NULL,
-            phase TEXT NOT NULL,
-            seq INTEGER NOT NULL,
-            attempt_id TEXT NOT NULL,
-            entered_at TEXT NOT NULL,
-            exit_status TEXT,
-            outcome TEXT,
-            yield_status TEXT,
-            resume_trigger TEXT,
-            guard_evaluations_json TEXT NOT NULL,
-            artifacts_json TEXT NOT NULL,
-            PRIMARY KEY (story_id, phase, seq)
-        );
-
         CREATE TABLE IF NOT EXISTS attempts (
             run_id          TEXT     NOT NULL,
             phase           TEXT     NOT NULL,
@@ -560,25 +545,10 @@ def _ensure_four_phase_migration(conn: sqlite3.Connection) -> None:
         WHERE phase = 'verify'
         """,
     )
-    conn.execute(
-        """
-        UPDATE attempt_records
-        SET phase = 'implementation'
-        WHERE phase = 'verify'
-          AND NOT EXISTS (
-              SELECT 1 FROM attempt_records existing
-              WHERE existing.story_id = attempt_records.story_id
-                AND existing.phase = 'implementation'
-                AND existing.seq = attempt_records.seq
-          )
-        """,
-    )
-    conn.execute(
-        """
-        DELETE FROM attempt_records
-        WHERE phase = 'verify'
-        """,
-    )
+    # Legacy ``attempt_records``-Tabelle ist mit Schema 3.5.0 entfernt
+    # (siehe AG3-025 Re-Review-Befund 2): keine Migrations-Updates mehr
+    # auf der Alt-Tabelle. ``attempts`` ist die neue Quelle und wird
+    # nicht von der 'verify' -> 'implementation'-Konsolidierung beruehrt.
 
 
 def _ensure_default_projects_for_story_contexts(conn: sqlite3.Connection) -> None:

@@ -259,15 +259,8 @@ def _schema_alter_statements() -> tuple[str, ...]:
             "AND existing.phase = 'implementation')"
         ),
         "DELETE FROM phase_snapshots WHERE phase = 'verify'",
-        (
-            "UPDATE attempt_records a SET phase = 'implementation' "
-            "WHERE a.phase = 'verify' AND NOT EXISTS ("
-            "SELECT 1 FROM attempt_records existing "
-            "WHERE existing.story_id = a.story_id "
-            "AND existing.phase = 'implementation' "
-            "AND existing.seq = a.seq)"
-        ),
-        "DELETE FROM attempt_records WHERE phase = 'verify'",
+        # Legacy ``attempt_records``-Tabelle ist mit Schema 3.5.0 entfernt
+        # (AG3-025 Re-Review-Befund 2). Keine Migrations-Updates mehr.
     )
 
 
@@ -1253,61 +1246,54 @@ def read_phase_snapshot_row(story_dir: Path, phase: str) -> dict[str, Any] | Non
 
 
 def save_attempt_row(story_dir: Path, row: dict[str, Any]) -> None:
-    """Persist an attempt row dict to the database."""
+    """Persist an attempt row dict to the ``attempts`` table (Schema 3.5.0).
 
-    story_id = _story_id_for(story_dir)
-    if story_id is None:
-        raise CorruptStateError(
-            "Cannot persist attempt without story context in canonical backend",
-        )
+    Idempotent: ``INSERT ... ON CONFLICT DO UPDATE`` overwrites the row when
+    the same ``(run_id, phase, attempt)``-key is written again.
+    """
+
     with _connect(story_dir) as conn:
-        max_row = conn.execute(
-            """
-            SELECT COALESCE(MAX(seq), 0) AS max_seq
-            FROM attempt_records
-            WHERE story_id = ? AND phase = ?
-            """,
-            (story_id, row["phase"]),
-        ).fetchone()
-        seq = int(max_row["max_seq"]) + 1 if max_row is not None else 1
         conn.execute(
             """
-            INSERT INTO attempt_records (
-                story_id, phase, seq, attempt_id, entered_at, exit_status,
-                outcome, yield_status, resume_trigger,
-                guard_evaluations_json, artifacts_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO attempts (
+                run_id, phase, attempt, outcome, failure_cause,
+                started_at, ended_at, detail_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (run_id, phase, attempt) DO UPDATE SET
+                outcome=excluded.outcome,
+                failure_cause=excluded.failure_cause,
+                started_at=excluded.started_at,
+                ended_at=excluded.ended_at,
+                detail_json=excluded.detail_json
             """,
             (
-                story_id,
+                row["run_id"],
                 row["phase"],
-                seq,
-                row["attempt_id"],
-                row["entered_at"],
-                row["exit_status"],
+                row["attempt"],
                 row["outcome"],
-                row["yield_status"],
-                row["resume_trigger"],
-                row["guard_evaluations_json"],
-                row["artifacts_json"],
+                row.get("failure_cause"),
+                row["started_at"],
+                row["ended_at"],
+                row.get("detail_json"),
             ),
         )
 
 
 def load_attempt_rows(story_dir: Path, phase: str) -> list[dict[str, Any]]:
-    """Return attempt row dicts for a given phase, ordered by seq."""
+    """Return attempt row dicts for a given phase from the ``attempts`` table.
 
-    story_id = _story_id_for(story_dir)
-    if story_id is None:
-        return []
+    Ordering by ``attempt`` ascending — the natural attempt-counter order
+    (FK-39 §39.4.1).
+    """
+
     with _connect(story_dir) as conn:
         rows = conn.execute(
             """
-            SELECT * FROM attempt_records
-            WHERE story_id = ? AND phase = ?
-            ORDER BY seq ASC
+            SELECT * FROM attempts
+            WHERE phase = ?
+            ORDER BY attempt ASC
             """,
-            (story_id, phase),
+            (phase,),
         ).fetchall()
     return [dict(row) for row in rows]
 

@@ -32,6 +32,7 @@ from agentkit.integrations.github.issues import (
     reopen_issue,
 )
 from agentkit.phase_state_store.models import FlowExecution
+from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
 from agentkit.state_backend.store import (
     append_execution_event,
     save_flow_execution,
@@ -174,7 +175,7 @@ class TestClosurePhaseE2E:
                 status=PhaseStatus.IN_PROGRESS,
             )
 
-            result = handler.on_enter(ctx, state)
+            result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
             # 4. Verify COMPLETED and issue is CLOSED
             assert result.status == PhaseStatus.COMPLETED
@@ -236,7 +237,7 @@ class TestClosurePhaseE2E:
                 status=PhaseStatus.IN_PROGRESS,
             )
 
-            setup_result = setup_handler.on_enter(ctx, state)
+            setup_result = setup_handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
             assert setup_result.status == PhaseStatus.COMPLETED
 
             # 4. NoOp snapshots for exploration, implementation, verify
@@ -282,7 +283,7 @@ class TestClosurePhaseE2E:
 
             closure_result = closure_handler.on_enter(
                 closure_ctx,
-                closure_state,
+                PhaseEnvelopeStore.make_fresh_envelope(closure_state),
             )
 
             # 6. Verify

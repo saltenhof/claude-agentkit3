@@ -12,8 +12,8 @@ from agentkit.pipeline_engine.phase_envelope.runtime import PhaseOrigin, Runtime
 
 def test_phase_origin_values() -> None:
     """PhaseOrigin has exactly NEW and LOADED values."""
-    assert PhaseOrigin.NEW == "new"
-    assert PhaseOrigin.LOADED == "loaded"
+    assert PhaseOrigin.NEW.value == "new"
+    assert PhaseOrigin.LOADED.value == "loaded"
     assert set(PhaseOrigin) == {PhaseOrigin.NEW, PhaseOrigin.LOADED}
 
 

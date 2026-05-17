@@ -36,6 +36,8 @@ if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
+    from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
+
 
 @pytest.fixture(autouse=True)
 def sqlite_backend_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
@@ -77,7 +79,7 @@ def _make_state(review_round: int = 0) -> PhaseState:
     )
 
 
-def _make_envelope(state: PhaseState) -> object:
+def _make_envelope(state: PhaseState) -> PhaseEnvelope:
     """Wrap a PhaseState in a PhaseEnvelope for handler calls."""
     return PhaseEnvelopeStore.make_fresh_envelope(state)
 
@@ -215,7 +217,7 @@ class TestImplementationPhaseHandler:
         ctx = _make_context(project_root=tmp_path)
         state = _make_state()
         # on_exit should not raise
-        handler.on_exit(ctx, state)
+        handler.on_exit(ctx, _make_envelope(state))
 
     def test_implements_phase_handler_protocol(self, tmp_path: Path) -> None:
         config = ImplementationConfig(story_dir=_story_dir(tmp_path))

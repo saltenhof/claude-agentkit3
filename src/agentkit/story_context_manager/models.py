@@ -37,6 +37,8 @@ from agentkit.story_context_manager.types import (
 )
 
 _STORY_ID_PATTERN = re.compile(r"^[A-Z][A-Z0-9]{1,9}-\d+$")
+#: 64-char lowercase hex (SHA-256). Used by ``evidence_fingerprint`` validation.
+_SHA256_HEX_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 
 class PhaseStatus(StrEnum):
@@ -97,9 +99,47 @@ class ImplementationPayload(BaseModel):
     qa_cycle_status: QaCycleStatus = QaCycleStatus.IDLE
     verify_context: QaContext | None = None
     qa_cycle_round: int = Field(default=0, ge=0)
+    #: UUID4-String (Pattern: 8-4-4-4-12 hex, version=4); validated below.
     qa_cycle_id: str | None = None
     evidence_epoch: int = Field(default=0, ge=0)
+    #: SHA-256 hex (64 lowercase hex chars); validated below.
     evidence_fingerprint: str | None = None
+
+    @field_validator("qa_cycle_id")
+    @classmethod
+    def _validate_qa_cycle_id(cls, value: str | None) -> str | None:
+        """FK-27 §27.2: qa_cycle_id is a UUID4 string (fail-closed)."""
+        if value is None:
+            return value
+        try:
+            parsed = UUID(value)
+        except ValueError as exc:
+            msg = (
+                f"qa_cycle_id must be a UUID4 string (FK-27 §27.2); "
+                f"got {value!r}"
+            )
+            raise ValueError(msg) from exc
+        if parsed.version != 4:
+            msg = (
+                f"qa_cycle_id must be UUID version 4 (FK-27 §27.2); "
+                f"got version={parsed.version} for {value!r}"
+            )
+            raise ValueError(msg)
+        return value
+
+    @field_validator("evidence_fingerprint")
+    @classmethod
+    def _validate_evidence_fingerprint(cls, value: str | None) -> str | None:
+        """FK-27 §27.2: evidence_fingerprint is a SHA-256 hex string."""
+        if value is None:
+            return value
+        if not _SHA256_HEX_PATTERN.fullmatch(value):
+            msg = (
+                "evidence_fingerprint must be a 64-char lowercase hex SHA-256 "
+                f"digest (FK-27 §27.2); got {value!r}"
+            )
+            raise ValueError(msg)
+        return value
 
     @model_validator(mode="after")
     def _validate_qa_cycle_round_when_id_set(self) -> ImplementationPayload:
