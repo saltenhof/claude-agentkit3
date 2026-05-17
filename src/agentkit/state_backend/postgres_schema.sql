@@ -249,38 +249,8 @@
             consumed_at TEXT
         );
 
-        CREATE TABLE IF NOT EXISTS artifact_records (
-            project_key TEXT,
-            story_id TEXT NOT NULL,
-            run_id TEXT,
-            artifact_id TEXT,
-            artifact_class TEXT,
-            artifact_kind TEXT NOT NULL,
-            artifact_format TEXT,
-            artifact_status TEXT,
-            produced_in_phase TEXT,
-            artifact_name TEXT NOT NULL,
-            producer TEXT NOT NULL,
-            producer_component TEXT,
-            producer_trust TEXT,
-            protection_level TEXT,
-            frozen INTEGER,
-            integrity_verified INTEGER,
-            status TEXT,
-            attempt_nr INTEGER NOT NULL,
-            attempt_no INTEGER,
-            qa_cycle_id TEXT,
-            qa_cycle_round INTEGER,
-            evidence_epoch INTEGER,
-            payload_json TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            finished_at TEXT,
-            storage_ref TEXT,
-            PRIMARY KEY (story_id, artifact_kind, artifact_name, attempt_nr)
-        );
-
         -- artifact_envelopes: typed Envelope-Persistenz via ArtifactManager (AG3-023 §2.1.4)
-        -- Separate neue Tabelle -- artifact_records ist Legacy-QA-Persistenzpfad.
+        -- artifact_records wurde in 3.4.0 entfernt (AG3-023 ReCut).
         CREATE TABLE IF NOT EXISTS artifact_envelopes (
             story_id TEXT NOT NULL,
             run_id TEXT NOT NULL,

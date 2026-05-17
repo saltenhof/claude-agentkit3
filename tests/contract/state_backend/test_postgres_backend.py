@@ -29,7 +29,6 @@ from agentkit.state_backend.store import (
     load_story_context_global,
     load_story_contexts_global,
     load_story_metrics,
-    record_layer_artifacts,
     record_verify_decision,
     resolve_runtime_scope,
     save_flow_execution,
@@ -46,6 +45,10 @@ from agentkit.story_context_manager.models import (
 )
 from agentkit.story_context_manager.types import StoryMode, StoryType
 from agentkit.telemetry.contract.records import ExecutionEventRecord
+from agentkit.verify_system.artifacts import (
+    write_layer_artifacts,
+    write_verify_decision_artifacts,
+)
 from agentkit.verify_system.policy_engine.engine import VerifyDecision
 from agentkit.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
 
@@ -124,7 +127,7 @@ def test_public_state_backend_contract_works_on_postgres(
     run1_scope = resolve_runtime_scope(story_dir)
     assert run1_scope.run_id == "run-contract-001"
 
-    produced = record_layer_artifacts(
+    produced = write_layer_artifacts(
         story_dir,
         layer_results=(
             LayerResult(
@@ -200,7 +203,7 @@ def test_public_state_backend_contract_works_on_postgres(
     )
     run2_scope = resolve_runtime_scope(story_dir)
     assert run2_scope.run_id == "run-contract-002"
-    record_layer_artifacts(
+    write_layer_artifacts(
         story_dir,
         layer_results=(
             LayerResult(
@@ -217,7 +220,7 @@ def test_public_state_backend_contract_works_on_postgres(
     run2_record_scoped = load_artifact_record_for_scope(run2_scope, "structural")
     assert run2_record_scoped is not None
     assert run2_record_scoped["passed"] is True
-    record_verify_decision(
+    write_verify_decision_artifacts(
         story_dir,
         decision=VerifyDecision(
             passed=False,
@@ -255,7 +258,7 @@ def test_public_state_backend_contract_works_on_postgres(
     assert run1_record_scoped is not None
     assert run1_record_scoped["passed"] is False
 
-    record_layer_artifacts(
+    write_layer_artifacts(
         story_dir,
         layer_results=(
             LayerResult(
@@ -300,7 +303,7 @@ def test_public_state_backend_contract_works_on_postgres(
         blocking_findings=(),
         summary="postgres ok",
     )
-    written = record_verify_decision(
+    written = write_verify_decision_artifacts(
         story_dir,
         decision=decision,
         attempt_nr=1,

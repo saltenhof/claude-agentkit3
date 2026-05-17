@@ -13,11 +13,7 @@ from agentkit.implementation.qa_subflow import (
 )
 from agentkit.installer.paths import resolve_qa_story_dir
 from agentkit.pipeline_engine.lifecycle import HandlerResult
-from agentkit.state_backend.store import (
-    record_layer_artifacts,
-    record_verify_decision,
-    save_story_context,
-)
+from agentkit.state_backend.store import save_story_context
 from agentkit.story_context_manager.models import (
     ImplementationPayload,
     ImplementationPhaseMemory,
@@ -27,6 +23,10 @@ from agentkit.story_context_manager.models import (
     QaCycleStatus,
 )
 from agentkit.verify_system import VerifySystem
+from agentkit.verify_system.artifacts import (
+    write_layer_artifacts,
+    write_verify_decision_artifacts,
+)
 from agentkit.verify_system.llm_evaluator.reviewer import SemanticReviewer
 from agentkit.verify_system.structural.checker import StructuralChecker
 
@@ -98,7 +98,7 @@ class ImplementationPhaseHandler:
                 project_root=ctx.project_root,
             )
             artifacts.extend(
-                record_layer_artifacts(
+                write_layer_artifacts(
                     s_dir,
                     layer_results=result.decision.layer_results,
                     attempt_nr=result.attempt_nr,
@@ -106,7 +106,7 @@ class ImplementationPhaseHandler:
                 ),
             )
             artifacts.extend(
-                record_verify_decision(
+                write_verify_decision_artifacts(
                     s_dir,
                     decision=result.decision,
                     attempt_nr=result.attempt_nr,

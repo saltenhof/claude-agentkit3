@@ -6,9 +6,10 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
+from agentkit.phase_state_store.models import FlowExecution
 from agentkit.state_backend.sqlite_store import state_db_path_for
 from agentkit.state_backend.store import (
-    record_layer_artifacts,
+    save_flow_execution,
     save_phase_snapshot,
     save_phase_state,
     save_story_context,
@@ -20,6 +21,7 @@ from agentkit.story_context_manager.models import (
     StoryContext,
 )
 from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.verify_system.artifacts import write_layer_artifacts
 from agentkit.verify_system.protocols import LayerResult, Severity, TrustClass
 from agentkit.verify_system.structural.checks import (
     check_artifacts_present,
@@ -142,10 +144,23 @@ class TestCheckArtifactsPresent:
     ) -> None:
         story_dir = _story_dir(tmp_path)
         _save_context(story_dir)
-        record_layer_artifacts(
+        save_flow_execution(
+            story_dir,
+            FlowExecution(
+                project_key="test-project",
+                story_id="TEST-001",
+                run_id="run-structural-001",
+                flow_id="implementation",
+                level="story",
+                owner="pipeline_engine",
+                status="IN_PROGRESS",
+            ),
+        )
+        write_layer_artifacts(
             story_dir,
             layer_results=(LayerResult(layer="structural", passed=True),),
             attempt_nr=1,
+            projection_dir=story_dir,
         )
         (story_dir / "structural.json").unlink()
 

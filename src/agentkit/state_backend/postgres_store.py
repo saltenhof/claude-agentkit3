@@ -234,27 +234,6 @@ def _schema_alter_statements() -> tuple[str, ...]:
             "ADD CONSTRAINT story_execution_locks_pkey "
             "PRIMARY KEY (project_key, run_id, lock_type)"
         ),
-        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS project_key TEXT",
-        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS run_id TEXT",
-        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS artifact_id TEXT",
-        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS artifact_class TEXT",
-        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS artifact_format TEXT",
-        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS artifact_status TEXT",
-        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS produced_in_phase TEXT",
-        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS producer_component TEXT",
-        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS producer_trust TEXT",
-        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS protection_level TEXT",
-        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS frozen INTEGER",
-        (
-            "ALTER TABLE artifact_records "
-            "ADD COLUMN IF NOT EXISTS integrity_verified INTEGER"
-        ),
-        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS attempt_no INTEGER",
-        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS qa_cycle_id TEXT",
-        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS qa_cycle_round INTEGER",
-        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS evidence_epoch INTEGER",
-        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS finished_at TEXT",
-        "ALTER TABLE artifact_records ADD COLUMN IF NOT EXISTS storage_ref TEXT",
         "ALTER TABLE decision_records ADD COLUMN IF NOT EXISTS project_key TEXT",
         "ALTER TABLE decision_records ADD COLUMN IF NOT EXISTS run_id TEXT",
         "ALTER TABLE decision_records ADD COLUMN IF NOT EXISTS flow_id TEXT",
@@ -293,12 +272,6 @@ def _schema_alter_statements() -> tuple[str, ...]:
 
 
 def _ensure_reporting_indexes(conn: _CompatConnection) -> None:
-    conn.execute(
-        """
-        CREATE UNIQUE INDEX IF NOT EXISTS artifact_records_scope_identity_idx
-        ON artifact_records (project_key, run_id, artifact_id)
-        """
-    )
     conn.execute(
         "ALTER TABLE decision_records DROP CONSTRAINT IF EXISTS decision_records_pkey"
     )
@@ -415,12 +388,6 @@ def _artifact_id_for(artifact_kind: str, attempt_no: int | None = None) -> str:
     return f"{artifact_kind.replace('_', '-')}-attempt-{attempt_no}"
 
 
-def _artifact_class_for(artifact_kind: str) -> str:
-    if artifact_kind == "closure_report":
-        return "closure"
-    return "qa"
-
-
 def _produced_in_phase_for(artifact_kind: str) -> str:
     if artifact_kind == "closure_report":
         return "closure"
@@ -433,96 +400,6 @@ def _producer_trust_for(producer_component: str) -> str:
     if producer_component in {"qa-adversarial"}:
         return "agent"
     return "system"
-
-
-def _upsert_artifact_record(
-    conn: _CompatConnection,
-    *,
-    flow_row: dict[str, Any],
-    artifact_kind: str,
-    artifact_name: str,
-    producer_component: str,
-    lifecycle_status: str,
-    payload: dict[str, object],
-    created_at: datetime,
-    attempt_no: int | None = None,
-) -> str:
-    """Insert or update an artifact record using a plain flow_row dict."""
-
-    artifact_id = _artifact_id_for(artifact_kind, attempt_no)
-    run_id = str(flow_row["run_id"])
-    legacy_artifact_name = f"{artifact_name}@{run_id}"
-    conn.execute(
-        """
-        INSERT INTO artifact_records (
-            project_key, story_id, run_id, artifact_id, artifact_class,
-            artifact_kind, artifact_format, artifact_status, produced_in_phase,
-            artifact_name, producer, producer_component, producer_trust,
-            protection_level, frozen, integrity_verified, status, attempt_nr,
-            attempt_no, qa_cycle_id, qa_cycle_round, evidence_epoch,
-            payload_json, created_at, finished_at, storage_ref
-        ) VALUES (
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-        )
-        ON CONFLICT(project_key, run_id, artifact_id) DO UPDATE SET
-            story_id=excluded.story_id,
-            artifact_class=excluded.artifact_class,
-            artifact_kind=excluded.artifact_kind,
-            artifact_format=excluded.artifact_format,
-            artifact_status=excluded.artifact_status,
-            produced_in_phase=excluded.produced_in_phase,
-            artifact_name=excluded.artifact_name,
-            producer=excluded.producer,
-            producer_component=excluded.producer_component,
-            producer_trust=excluded.producer_trust,
-            protection_level=excluded.protection_level,
-            frozen=excluded.frozen,
-            integrity_verified=excluded.integrity_verified,
-            status=excluded.status,
-            attempt_nr=excluded.attempt_nr,
-            attempt_no=excluded.attempt_no,
-            qa_cycle_id=excluded.qa_cycle_id,
-            qa_cycle_round=excluded.qa_cycle_round,
-            evidence_epoch=excluded.evidence_epoch,
-            payload_json=excluded.payload_json,
-            created_at=excluded.created_at,
-            finished_at=excluded.finished_at,
-            storage_ref=excluded.storage_ref
-        """,
-        (
-            flow_row["project_key"],
-            flow_row["story_id"],
-            run_id,
-            artifact_id,
-            _artifact_class_for(artifact_kind),
-            artifact_kind,
-            "json",
-            "produced",
-            _produced_in_phase_for(artifact_kind),
-            legacy_artifact_name,
-            producer_component,
-            producer_component,
-            _producer_trust_for(producer_component),
-            "hook_locked",
-            0,
-            0,
-            lifecycle_status,
-            attempt_no if attempt_no is not None else 0,
-            attempt_no,
-            (
-                f"verify-attempt-{attempt_no}"
-                if attempt_no is not None and artifact_kind != "closure_report"
-                else None
-            ),
-            attempt_no,
-            attempt_no,
-            _dump_json(payload),
-            created_at.isoformat(),
-            created_at.isoformat(),
-            artifact_name,
-        ),
-    )
-    return artifact_id
 
 
 # ---------------------------------------------------------------------------
@@ -2143,23 +2020,10 @@ def persist_layer_artifact_rows(
         for item in layer_payload_rows:
             layer = str(item["layer"])
             artifact_name = str(item["artifact_name"])
-            producer_component = str(item["producer_component"])
             payload = cast("_JsonRecord", item["payload"])
-            passed = bool(item["passed"])
-            recorded_at = datetime.fromisoformat(str(item["recorded_at"]))
             target_dir = projection_dir or story_dir
             _write_projection(target_dir / artifact_name, payload)
-            artifact_id = _upsert_artifact_record(
-                conn,
-                flow_row=flow_row,
-                artifact_kind=layer,
-                artifact_name=artifact_name,
-                producer_component=producer_component,
-                lifecycle_status="PASS" if passed else "FAIL",
-                payload=payload,
-                created_at=recorded_at,
-                attempt_no=attempt_nr,
-            )
+            artifact_id = _artifact_id_for(layer, attempt_nr)
             # FK-69: delete old findings for this scope + layer
             conn.execute(
                 """
@@ -2327,17 +2191,6 @@ def persist_verify_decision_row(
                 recorded_at.isoformat(),
             ),
         )
-        _upsert_artifact_record(
-            conn,
-            flow_row=flow_row,
-            artifact_kind="verify_decision",
-            artifact_name=written[0],
-            producer_component="qa-policy-engine",
-            lifecycle_status=str(decision_row["status"]),
-            payload=canonical_payload,
-            created_at=recorded_at,
-            attempt_no=attempt_nr,
-        )
     return written
 
 
@@ -2426,48 +2279,62 @@ def load_artifact_record_payload(
     story_dir: Path,
     artifact_kind: str,
 ) -> dict[str, object] | None:
-    """Return the latest artifact payload dict for a kind, or None."""
+    """Return the latest QA artifact payload from artifact_envelopes for a kind.
 
+    Maps artifact_kind ("structural"/"semantic"/"adversarial") to stage
+    "qa-layer-{kind}" and reads from artifact_envelopes (AG3-023 3.4.0).
+    Uses run_id from current flow execution when available for scoped lookup.
+    """
     story_id = _story_id_for(story_dir)
     if story_id is None:
         return None
+    stage = f"qa-layer-{artifact_kind}"
     flow_row = load_flow_execution_row(story_dir)
     with _connect(story_dir) as conn:
         if flow_row is not None:
             row = conn.execute(
                 """
                 SELECT payload_json
-                FROM artifact_records
-                WHERE project_key = ? AND story_id = ? AND run_id = ?
-                  AND artifact_kind = ?
-                ORDER BY attempt_no DESC NULLS LAST, created_at DESC
+                FROM artifact_envelopes
+                WHERE story_id = ? AND run_id = ? AND stage = ?
+                ORDER BY attempt DESC
                 LIMIT 1
                 """,
-                (
-                    flow_row["project_key"],
-                    flow_row["story_id"],
-                    flow_row["run_id"],
-                    artifact_kind,
-                ),
+                (story_id, flow_row["run_id"], stage),
             ).fetchone()
+            if row is None:
+                row = conn.execute(
+                    """
+                    SELECT payload_json
+                    FROM artifact_envelopes
+                    WHERE story_id = ? AND stage = ?
+                    ORDER BY attempt DESC
+                    LIMIT 1
+                    """,
+                    (story_id, stage),
+                ).fetchone()
         else:
             row = conn.execute(
                 """
                 SELECT payload_json
-                FROM artifact_records
-                WHERE story_id = ? AND artifact_kind = ?
-                ORDER BY attempt_nr DESC, created_at DESC
+                FROM artifact_envelopes
+                WHERE story_id = ? AND stage = ?
+                ORDER BY attempt DESC
                 LIMIT 1
                 """,
-                (story_id, artifact_kind),
+                (story_id, stage),
             ).fetchone()
     if row is None:
         return None
+    raw = row["payload_json"]
+    if raw is None:
+        return None
     try:
-        return _cast_json_record(json.loads(str(row["payload_json"])))
+        result = raw if isinstance(raw, dict) else json.loads(str(raw))
+        return _cast_json_record(result)
     except json.JSONDecodeError as exc:
         raise CorruptStateError(
-            f"artifact_records payload is invalid in {_database_label()}: {exc}",
+            f"artifact_envelopes payload is invalid in {_database_label()}: {exc}",
         ) from exc
 
 
@@ -2475,27 +2342,31 @@ def load_artifact_record_payload_for_scope(
     scope: RuntimeStateScope,
     artifact_kind: str,
 ) -> dict[str, object] | None:
-    """Return the latest artifact payload for a scope and kind, or None."""
+    """Return the latest artifact payload for a scope and kind from artifact_envelopes."""
 
+    stage = f"qa-layer-{artifact_kind}"
     with _connect(scope.story_dir) as conn:
         row = conn.execute(
             """
             SELECT payload_json
-            FROM artifact_records
-            WHERE project_key = ? AND story_id = ? AND run_id = ?
-              AND artifact_kind = ?
-            ORDER BY attempt_no DESC NULLS LAST, created_at DESC
+            FROM artifact_envelopes
+            WHERE story_id = ? AND run_id = ? AND stage = ?
+            ORDER BY attempt DESC
             LIMIT 1
             """,
-            (scope.project_key, scope.story_id, scope.run_id, artifact_kind),
+            (scope.story_id, scope.run_id, stage),
         ).fetchone()
     if row is None:
         return None
+    raw = row["payload_json"]
+    if raw is None:
+        return None
     try:
-        return _cast_json_record(json.loads(str(row["payload_json"])))
+        result = raw if isinstance(raw, dict) else json.loads(str(raw))
+        return _cast_json_record(result)
     except json.JSONDecodeError as exc:
         raise CorruptStateError(
-            f"artifact_records payload is invalid in {_database_label()}: {exc}",
+            f"artifact_envelopes payload is invalid in {_database_label()}: {exc}",
         ) from exc
 
 
@@ -2517,17 +2388,6 @@ def persist_closure_report_row(
     path = target_dir / CLOSURE_REPORT_FILE
     payload = cast("_JsonRecord", report_row["payload"])
     _write_projection(path, payload)
-    with _connect(story_dir) as conn:
-        _upsert_artifact_record(
-            conn,
-            flow_row=flow_row,
-            artifact_kind="closure_report",
-            artifact_name=path.name,
-            producer_component="story-closure",
-            lifecycle_status=str(report_row["status"]).upper(),
-            payload=payload,
-            created_at=datetime.fromisoformat(now_iso()),
-        )
     return path
 
 

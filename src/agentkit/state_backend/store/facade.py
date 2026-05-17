@@ -851,10 +851,13 @@ def record_layer_artifacts(
     attempt_nr: int,
     projection_dir: Path | None = None,
 ) -> tuple[str, ...]:
-    """Serialize QA layer results and persist via driver.
+    """Serialize QA layer results and persist projection + FK-69 rows.
 
     Mapper converts BC-typed ``LayerResult`` objects to plain dicts;
-    driver performs only SQL and filesystem I/O.
+    driver performs only SQL and filesystem I/O. ``artifact_envelopes``
+    writes are owned by ``verify_system.artifacts`` — this facade does
+    not know about ArtifactManager (no state_backend -> verify_system
+    import).
     """
     from datetime import datetime
 

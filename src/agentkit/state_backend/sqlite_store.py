@@ -302,18 +302,6 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             consumed_at TEXT
         );
 
-        CREATE TABLE IF NOT EXISTS artifact_records (
-            story_id TEXT NOT NULL,
-            artifact_kind TEXT NOT NULL,
-            artifact_name TEXT NOT NULL,
-            producer TEXT NOT NULL,
-            status TEXT,
-            attempt_nr INTEGER,
-            payload_json TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            PRIMARY KEY (story_id, artifact_kind, artifact_name, attempt_nr)
-        );
-
         CREATE TABLE IF NOT EXISTS decision_records (
             story_id TEXT NOT NULL,
             decision_kind TEXT NOT NULL,
@@ -380,6 +368,30 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             correlation_id TEXT NOT NULL,
             PRIMARY KEY (op_id)
         );
+
+        CREATE TABLE IF NOT EXISTS artifact_envelopes (
+            story_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            stage TEXT NOT NULL,
+            attempt INTEGER NOT NULL,
+            schema_version TEXT NOT NULL,
+            producer_type TEXT NOT NULL CHECK (producer_type IN ('WORKER', 'LLM_REVIEWER', 'DETERMINISTIC')),
+            producer_id TEXT NOT NULL,
+            producer_name TEXT NOT NULL,
+            producer_version TEXT,
+            started_at TEXT NOT NULL,
+            finished_at TEXT NOT NULL,
+            status TEXT NOT NULL,
+            artifact_class TEXT NOT NULL CHECK (artifact_class IN (
+                'worker', 'qa', 'pipeline', 'telemetry', 'governance',
+                'entwurf', 'handover', 'adversarial_test_sandbox'
+            )),
+            payload_json TEXT,
+            PRIMARY KEY (story_id, run_id, stage, attempt, artifact_class, producer_name)
+        );
+
+        CREATE INDEX IF NOT EXISTS artifact_envelopes_story_run_stage_attempt_idx
+            ON artifact_envelopes (story_id, run_id, stage, attempt);
         """
     )
     _ensure_story_identity_migration(conn)
@@ -2052,13 +2064,6 @@ def load_override_record_rows(story_dir: Path) -> list[dict[str, Any]]:
 # QA layer artifacts + QA decision
 # ---------------------------------------------------------------------------
 
-_ARTIFACT_PRODUCERS: dict[str, str] = {
-    "structural": "qa-structural-check",
-    "semantic": "qa-semantic-review",
-    "adversarial": "qa-adversarial",
-}
-
-
 def persist_layer_artifact_rows(
     story_dir: Path,
     *,
@@ -2074,6 +2079,7 @@ def persist_layer_artifact_rows(
     ``payload``, ``passed``, ``recorded_at``.
     ``flow_row`` and FK-69 fields (``stage_row``, ``finding_rows``) are
     ignored on SQLite (FK-69 read models are Postgres-only).
+    artifact_records removed in 3.4.0 — projection file is the only SQLite output.
     """
     del flow_row
     story_id = _story_id_for(story_dir)
@@ -2083,39 +2089,12 @@ def persist_layer_artifact_rows(
             "in canonical backend",
         )
     produced: list[str] = []
-    with _connect(story_dir) as conn:
-        for item in layer_payload_rows:
-            layer = str(item["layer"])
-            artifact_name = str(item["artifact_name"])
-            payload = cast("_JsonRecord", item["payload"])
-            passed = bool(item["passed"])
-            target_dir = projection_dir or story_dir
-            _write_projection(target_dir / artifact_name, payload)
-            conn.execute(
-                """
-                INSERT INTO artifact_records (
-                    story_id, artifact_kind, artifact_name, producer,
-                    status, attempt_nr, payload_json, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(story_id, artifact_kind, artifact_name, attempt_nr)
-                DO UPDATE SET
-                    producer=excluded.producer,
-                    status=excluded.status,
-                    payload_json=excluded.payload_json,
-                    created_at=excluded.created_at
-                """,
-                (
-                    story_id,
-                    layer,
-                    artifact_name,
-                    _ARTIFACT_PRODUCERS.get(layer, "qa-layer"),
-                    "PASS" if passed else "FAIL",
-                    attempt_nr,
-                    _dump_json(payload),
-                    now_iso(),
-                ),
-            )
-            produced.append(artifact_name)
+    for item in layer_payload_rows:
+        artifact_name = str(item["artifact_name"])
+        payload = cast("_JsonRecord", item["payload"])
+        target_dir = projection_dir or story_dir
+        _write_projection(target_dir / artifact_name, payload)
+        produced.append(artifact_name)
     return tuple(produced)
 
 
@@ -2164,30 +2143,6 @@ def persist_verify_decision_row(
                 now_iso(),
             ),
         )
-        conn.execute(
-            """
-            INSERT INTO artifact_records (
-                story_id, artifact_kind, artifact_name, producer,
-                status, attempt_nr, payload_json, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(story_id, artifact_kind, artifact_name, attempt_nr)
-            DO UPDATE SET
-                producer=excluded.producer,
-                status=excluded.status,
-                payload_json=excluded.payload_json,
-                created_at=excluded.created_at
-            """,
-            (
-                story_id,
-                "verify_decision",
-                written[0],
-                "qa-policy-engine",
-                decision_row["status"],
-                attempt_nr,
-                _dump_json(canonical_payload),
-                now_iso(),
-            ),
-        )
     return written
 
 
@@ -2232,29 +2187,36 @@ def load_artifact_record_payload(
     story_dir: Path,
     artifact_kind: str,
 ) -> dict[str, object] | None:
-    """Return the latest artifact payload dict for a kind, or None."""
+    """Return the latest QA artifact payload from artifact_envelopes for a kind.
 
+    Maps artifact_kind ("structural"/"semantic"/"adversarial") to stage
+    "qa-layer-{kind}" and reads from artifact_envelopes (AG3-023 3.4.0).
+    """
     story_id = _story_id_for(story_dir)
     if story_id is None:
         return None
+    stage = f"qa-layer-{artifact_kind}"
     with _connect(story_dir) as conn:
         row = conn.execute(
             """
             SELECT payload_json
-            FROM artifact_records
-            WHERE story_id = ? AND artifact_kind = ?
-            ORDER BY attempt_nr DESC, created_at DESC
+            FROM artifact_envelopes
+            WHERE story_id = ? AND stage = ?
+            ORDER BY attempt DESC
             LIMIT 1
             """,
-            (story_id, artifact_kind),
+            (story_id, stage),
         ).fetchone()
     if row is None:
         return None
+    raw = row["payload_json"]
+    if raw is None:
+        return None
     try:
-        return _cast_json_record(json.loads(str(row["payload_json"])))
+        return _cast_json_record(json.loads(str(raw)))
     except json.JSONDecodeError as exc:
         raise CorruptStateError(
-            f"artifact_records payload is invalid in {state_db_path_for(story_dir)}: {exc}",
+            f"artifact_envelopes payload is invalid in {state_db_path_for(story_dir)}: {exc}",
         ) from exc
 
 
@@ -2277,36 +2239,10 @@ def persist_closure_report_row(
     """Persist a closure-report and write the projection file."""
 
     del flow_row
-    story_id = _story_id_for(story_dir) or str(report_row["story_id"])
     target_dir = projection_dir or story_dir
     path = target_dir / CLOSURE_REPORT_FILE
     payload = cast("_JsonRecord", report_row["payload"])
     _write_projection(path, payload)
-    with _connect(story_dir) as conn:
-        conn.execute(
-            """
-            INSERT INTO artifact_records (
-                story_id, artifact_kind, artifact_name, producer,
-                status, attempt_nr, payload_json, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(story_id, artifact_kind, artifact_name, attempt_nr)
-            DO UPDATE SET
-                producer=excluded.producer,
-                status=excluded.status,
-                payload_json=excluded.payload_json,
-                created_at=excluded.created_at
-            """,
-            (
-                story_id,
-                "closure_report",
-                path.name,
-                "closure-phase",
-                str(report_row["status"]).upper(),
-                0,
-                _dump_json(payload),
-                now_iso(),
-            ),
-        )
     return path
 
 

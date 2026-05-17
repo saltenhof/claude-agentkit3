@@ -11,13 +11,13 @@ import pytest
 from agentkit.core_types import PolicyVerdict
 from agentkit.exceptions import CorruptStateError
 from agentkit.governance.integrity_gate import IntegrityGate
+from agentkit.phase_state_store.models import FlowExecution
 from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.state_backend.scope import RuntimeStateScope
 from agentkit.state_backend.sqlite_store import state_db_path_for
 from agentkit.state_backend.store import (
-    record_layer_artifacts,
-    record_verify_decision,
     reset_backend_cache_for_tests,
+    save_flow_execution,
     save_phase_snapshot,
     save_story_context,
 )
@@ -27,6 +27,10 @@ from agentkit.story_context_manager.models import (
     StoryContext,
 )
 from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.verify_system.artifacts import (
+    write_layer_artifacts,
+    write_verify_decision_artifacts,
+)
 from agentkit.verify_system.policy_engine.engine import VerifyDecision
 from agentkit.verify_system.protocols import LayerResult
 
@@ -70,6 +74,20 @@ def _create_context(
             title="Integrity Gate Test",
         ),
     )
+    # FlowExecution is required by write_layer_artifacts / write_verify_decision_artifacts
+    # to resolve a runtime scope with run_id (fail-closed).
+    save_flow_execution(
+        story_dir,
+        FlowExecution(
+            project_key="test-project",
+            story_id="AG3-001",
+            run_id="run-integrity-001",
+            flow_id="implementation",
+            level="story",
+            owner="pipeline_engine",
+            status="IN_PROGRESS",
+        ),
+    )
 
 
 def _create_snapshot(story_dir: Path, phase: str, status: PhaseStatus = PhaseStatus.COMPLETED) -> None:
@@ -97,12 +115,12 @@ def _create_decision(story_dir: Path, decision: str = "PASS") -> None:
     verdict = PolicyVerdict.PASS if decision == "PASS" else PolicyVerdict.FAIL
     passed = verdict is PolicyVerdict.PASS
     structural = LayerResult(layer="structural", passed=passed, findings=())
-    record_layer_artifacts(
+    write_layer_artifacts(
         story_dir,
         layer_results=(structural,),
         attempt_nr=1,
     )
-    record_verify_decision(
+    write_verify_decision_artifacts(
         story_dir,
         decision=VerifyDecision(
             passed=passed,
@@ -128,7 +146,8 @@ def _corrupt_table_payload(story_dir: Path, table: str) -> None:
         if table == "decision_records":
             conn.execute("UPDATE decision_records SET payload_json = 'not json'")
         elif table == "artifact_records":
-            conn.execute("UPDATE artifact_records SET payload_json = 'not json'")
+            # artifact_records removed in 3.4.0; corrupt artifact_envelopes instead
+            conn.execute("UPDATE artifact_envelopes SET payload_json = 'not json'")
         elif table == "story_contexts":
             conn.execute("UPDATE story_contexts SET payload_json = 'not json'")
         conn.commit()
@@ -136,7 +155,9 @@ def _corrupt_table_payload(story_dir: Path, table: str) -> None:
 
 def _delete_from_table(story_dir: Path, table: str) -> None:
     with sqlite3.connect(state_db_path_for(story_dir)) as conn:
-        conn.execute(f"DELETE FROM {table}")
+        # artifact_records removed in 3.4.0; map to artifact_envelopes
+        actual_table = "artifact_envelopes" if table == "artifact_records" else table
+        conn.execute(f"DELETE FROM {actual_table}")
         conn.commit()
 
 
