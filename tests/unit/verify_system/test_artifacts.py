@@ -1,4 +1,11 @@
-"""Tests for canonical QA artifact serialization and persistence."""
+"""Tests for verify_system.artifacts (ArtifactManager-injected API).
+
+Re-Refactor nach Stefan-Review: verify_system/artifacts.py akzeptiert nur
+noch eine injizierte ``ArtifactManager``-Instanz; kein
+``state_backend.store``-Import mehr im Modul-Header (AG3-023 §AK12).
+Die Tests injizieren den Manager via ``build_artifact_manager`` aus dem
+Composition-Root.
+"""
 
 from __future__ import annotations
 
@@ -7,19 +14,10 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from agentkit.artifacts import ArtifactNotFoundError
+from agentkit.bootstrap.composition_root import build_artifact_manager
 from agentkit.core_types import PolicyVerdict
-from agentkit.exceptions import CorruptStateError
 from agentkit.governance.guard_system.protected_paths import PROTECTED_QA_ARTIFACTS
-from agentkit.phase_state_store.models import FlowExecution
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import (
-    record_verify_decision,
-    reset_backend_cache_for_tests,
-    save_flow_execution,
-    save_story_context,
-)
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
 from agentkit.verify_system.artifacts import (
     GUARDRAIL_FILE,
     LAYER_ARTIFACT_FILES,
@@ -37,18 +35,7 @@ from agentkit.verify_system.policy_engine.engine import VerifyDecision
 from agentkit.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
     from pathlib import Path
-
-
-@pytest.fixture(autouse=True)
-def sqlite_backend_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
-    monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
-    monkeypatch.setenv(ALLOW_SQLITE_ENV, "1")
-    monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
-    reset_backend_cache_for_tests()
-    yield
-    reset_backend_cache_for_tests()
 
 
 def _finding(
@@ -141,39 +128,16 @@ class TestSerialization:
         assert artifact["all_findings_count"] == 1
         assert len(cast("list[object]", artifact["blocking_findings"])) == 1
 
-class TestPersistence:
-    def test_write_layer_artifacts(self, tmp_path: Path) -> None:
-        # Needs a story context AND flow execution so ArtifactManager can
-        # resolve a runtime scope with a run_id (fail-closed without).
-        # _story_id_for(story_dir) returns story_dir.name, so the dir name
-        # must match the persisted story_id.
-        story_dir = tmp_path / "TEST-201"
-        story_dir.mkdir(parents=True, exist_ok=True)
-        save_story_context(
-            story_dir,
-            StoryContext(
-                project_key="test-project",
-                story_number=201,
-                story_id="TEST-201",
-                story_type=StoryType.IMPLEMENTATION,
-                execution_route=StoryMode.EXECUTION,
-                title="Layer artifacts test",
-            ),
-        )
-        save_flow_execution(
-            story_dir,
-            FlowExecution(
-                project_key="test-project",
-                story_id="TEST-201",
-                run_id="run-test-201",
-                flow_id="implementation",
-                level="story",
-                owner="pipeline_engine",
-                status="IN_PROGRESS",
-            ),
-        )
+
+class TestPersistenceViaManager:
+    """Persist via ArtifactManager — verify_system kennt state_backend nicht direkt."""
+
+    def test_write_layer_artifacts_round_trip(self, tmp_path: Path) -> None:
+        manager = build_artifact_manager(tmp_path)
         produced = write_layer_artifacts(
-            story_dir,
+            manager=manager,
+            story_id="TEST-201",
+            run_id="run-test-201",
             layer_results=(
                 LayerResult(layer="structural", passed=True),
                 LayerResult(
@@ -181,127 +145,124 @@ class TestPersistence:
                     passed=True,
                     metadata={"prompt_audit": {"status": "skipped"}},
                 ),
-                LayerResult(layer="unknown", passed=True),
+                LayerResult(layer="unknown", passed=True),  # ignored: unknown layer
             ),
             attempt_nr=4,
         )
+        # Unknown layers werden nicht geschrieben.
         assert produced == ("structural.json", "semantic-review.json")
-        # resolve_qa_story_dir falls back to story_dir when no project root found
-        structural = json.loads((story_dir / "structural.json").read_text("utf-8"))
-        semantic = json.loads((story_dir / "semantic-review.json").read_text("utf-8"))
-        assert structural["layer"] == "structural"
-        assert structural["attempt_nr"] == 4
-        assert semantic["metadata"]["prompt_audit"]["status"] == "skipped"
-        assert not (story_dir / "unknown.json").exists()
+        # Read-back via Manager.read_latest beweist, dass ArtifactManager
+        # die einzige Lese-/Schreib-API ist.
+        from agentkit.core_types import ArtifactClass
 
-    def test_write_verify_decision_artifacts(self, tmp_path: Path) -> None:
-        # Needs a story context AND flow execution so ArtifactManager can
-        # resolve a runtime scope with a run_id.
-        story_dir = tmp_path / "TEST-202"
-        story_dir.mkdir(parents=True, exist_ok=True)
-        save_story_context(
-            story_dir,
-            StoryContext(
-                project_key="test-project",
-                story_number=202,
-                story_id="TEST-202",
-                story_type=StoryType.IMPLEMENTATION,
-                execution_route=StoryMode.EXECUTION,
-                title="Verify decision test",
-            ),
+        envelope = manager.read_latest(
+            story_id="TEST-201",
+            run_id="run-test-201",
+            artifact_class=ArtifactClass.QA,
+            stage="qa-layer-structural",
         )
-        save_flow_execution(
-            story_dir,
-            FlowExecution(
-                project_key="test-project",
-                story_id="TEST-202",
-                run_id="run-test-202",
-                flow_id="implementation",
-                level="story",
-                owner="pipeline_engine",
-                status="IN_PROGRESS",
-            ),
-        )
+        assert envelope.payload is not None
+        assert envelope.payload["layer"] == "structural"
+        assert envelope.payload["attempt_nr"] == 4
+
+    def test_write_verify_decision_round_trip(self, tmp_path: Path) -> None:
+        manager = build_artifact_manager(tmp_path)
         produced = write_verify_decision_artifacts(
-            story_dir,
+            manager=manager,
+            story_id="TEST-202",
+            run_id="run-test-202",
             decision=_decision(passed=True, verdict=PolicyVerdict.PASS),
             attempt_nr=5,
         )
-        assert produced == ("verify-decision.json",)
-        canonical = json.loads((story_dir / VERIFY_DECISION_FILE).read_text("utf-8"))
-        assert canonical["status"] == "PASS"
-        assert canonical["passed"] is True
+        assert produced == (VERIFY_DECISION_FILE,)
+        name_payload = load_verify_decision_artifact(
+            manager=manager,
+            story_id="TEST-202",
+            run_id="run-test-202",
+        )
+        assert name_payload is not None
+        name, payload = name_payload
+        assert name == VERIFY_DECISION_FILE
+        assert payload["status"] == "PASS"
+        assert payload["passed"] is True
 
+    def test_rewrite_with_different_status_upserts_envelope(
+        self, tmp_path: Path,
+    ) -> None:
+        """Anti-Divergence: identischer Key + neuer Status -> UPSERT, kein Silent-Ignore.
+
+        Stefan-Befund 2: Re-Write mit gleicher Reference muss den
+        Envelope auf den aktuellen Stand bringen; die alte ``INSERT OR
+        IGNORE``-Semantik fuehrte zu divergenter Wahrheit zwischen
+        Envelope und Projektion.
+        """
+        manager = build_artifact_manager(tmp_path)
+        from agentkit.core_types import ArtifactClass
+
+        # 1. Schreibe passed=true.
+        write_layer_artifacts(
+            manager=manager,
+            story_id="TEST-203",
+            run_id="run-test-203",
+            layer_results=(LayerResult(layer="structural", passed=True),),
+            attempt_nr=1,
+        )
+        envelope_first = manager.read_latest(
+            story_id="TEST-203",
+            run_id="run-test-203",
+            artifact_class=ArtifactClass.QA,
+            stage="qa-layer-structural",
+        )
+        assert envelope_first.status.value == "PASS"
+
+        # 2. Schreibe gleichen Key mit passed=false.
+        write_layer_artifacts(
+            manager=manager,
+            story_id="TEST-203",
+            run_id="run-test-203",
+            layer_results=(LayerResult(layer="structural", passed=False),),
+            attempt_nr=1,
+        )
+        envelope_second = manager.read_latest(
+            story_id="TEST-203",
+            run_id="run-test-203",
+            artifact_class=ArtifactClass.QA,
+            stage="qa-layer-structural",
+        )
+        # UPSERT muss den Status auf FAIL gezogen haben (NICHT silent PASS lassen).
+        assert envelope_second.status.value == "FAIL"
+        assert envelope_second.payload is not None
+        assert envelope_second.payload["passed"] is False
+
+    def test_load_verify_decision_returns_none_when_missing(
+        self, tmp_path: Path,
+    ) -> None:
+        manager = build_artifact_manager(tmp_path)
+        result = load_verify_decision_artifact(
+            manager=manager,
+            story_id="TEST-MISSING",
+            run_id="run-missing",
+        )
+        assert result is None
+
+    def test_manager_read_latest_raises_when_missing(self, tmp_path: Path) -> None:
+        manager = build_artifact_manager(tmp_path)
+        from agentkit.core_types import ArtifactClass
+
+        with pytest.raises(ArtifactNotFoundError):
+            manager.read_latest(
+                story_id="TEST-MISSING",
+                run_id="run-missing",
+                artifact_class=ArtifactClass.QA,
+                stage="qa-verify-decision",
+            )
+
+
+class TestProjectionFileLoad:
     def test_load_json_object_handles_invalid(self, tmp_path: Path) -> None:
         assert load_json_object(tmp_path / "missing.json") is None
         (tmp_path / "bad.json").write_text("{bad", encoding="utf-8")
         assert load_json_object(tmp_path / "bad.json") is None
-
-    def test_load_verify_decision_artifact_prefers_canonical(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        (tmp_path / VERIFY_DECISION_FILE).write_text(
-            json.dumps({"status": "PASS", "passed": True}),
-            encoding="utf-8",
-        )
-        name, data = load_verify_decision_artifact(tmp_path) or ("", {})
-        assert name == VERIFY_DECISION_FILE
-        assert data["status"] == "PASS"
-
-    def test_load_verify_decision_artifact_prefers_canonical_state_record(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        save_story_context(
-            tmp_path,
-            StoryContext(
-                project_key="test-project",
-                story_number=201,
-                story_id="TEST-201",
-                story_type=StoryType.IMPLEMENTATION,
-                execution_route=StoryMode.EXECUTION,
-                title="Canonical decision",
-            ),
-        )
-        record_verify_decision(
-            tmp_path,
-            decision=_decision(passed=True, verdict=PolicyVerdict.PASS),
-            attempt_nr=2,
-        )
-        (tmp_path / VERIFY_DECISION_FILE).write_text(
-            json.dumps({"status": "FAIL", "passed": False}),
-            encoding="utf-8",
-        )
-
-        name, data = load_verify_decision_artifact(tmp_path) or ("", {})
-
-        assert name == VERIFY_DECISION_FILE
-        assert data["status"] == "PASS"
-
-    def test_load_verify_decision_artifact_falls_back_to_projection_on_corrupt_scope(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        tmp_path: Path,
-    ) -> None:
-        monkeypatch.setattr(
-            "agentkit.verify_system.artifacts.resolve_runtime_scope",
-            lambda story_dir: (_ for _ in ()).throw(CorruptStateError("broken")),
-        )
-        monkeypatch.setattr(
-            "agentkit.verify_system.artifacts.load_latest_verify_decision",
-            lambda story_dir: None,
-        )
-        monkeypatch.setattr(
-            "agentkit.verify_system.artifacts._load_verify_decision_projection",
-            lambda story_dir: (VERIFY_DECISION_FILE, {"status": "PROJECTION"}),
-        )
-
-        assert load_verify_decision_artifact(tmp_path) == (
-            VERIFY_DECISION_FILE,
-            {"status": "PROJECTION"},
-        )
-
 
 
 class TestDecisionPassSemantics:
@@ -319,3 +280,8 @@ class TestDecisionPassSemantics:
 
     def test_verify_decision_failed_for_unexpected_status(self) -> None:
         assert verify_decision_passed({"status": "FAIL", "passed": False}) is False
+
+
+def _unused_json_import_marker() -> None:
+    # json is used for projection-file tests elsewhere; keep import stable.
+    json.dumps({})

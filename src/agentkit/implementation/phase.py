@@ -6,14 +6,21 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from agentkit.bootstrap.composition_root import build_artifact_manager
 from agentkit.core_types import QaContext
+from agentkit.exceptions import CorruptStateError
 from agentkit.implementation.qa_subflow import (
     QaSubflowCycle,
     QaSubflowCycleResult,
 )
 from agentkit.installer.paths import resolve_qa_story_dir
 from agentkit.pipeline_engine.lifecycle import HandlerResult
-from agentkit.state_backend.store import save_story_context
+from agentkit.state_backend.store import (
+    load_flow_execution,
+    record_layer_artifacts,
+    record_verify_decision,
+    save_story_context,
+)
 from agentkit.story_context_manager.models import (
     ImplementationPayload,
     ImplementationPhaseMemory,
@@ -71,6 +78,15 @@ class ImplementationPhaseHandler:
             )
         save_story_context(s_dir, ctx)
 
+        flow = load_flow_execution(s_dir)
+        if flow is None or flow.run_id is None:
+            raise CorruptStateError(
+                "Implementation phase requires a bound FlowExecution with run_id; "
+                "the pipeline_engine must persist it before invoking the QA-subflow.",
+                detail={"story_id": ctx.story_id, "story_dir": str(s_dir)},
+            )
+        manager = build_artifact_manager(s_dir)
+
         verify_system = self._config.verify_system or VerifySystem.create_default()
         layers: list[QALayer] = list(self._config.layers) if self._config.layers else [
             StructuralChecker(),
@@ -97,21 +113,41 @@ class ImplementationPhaseHandler:
                 story_id=ctx.story_id,
                 project_root=ctx.project_root,
             )
+            # Schreibpfad 1: ArtifactEnvelope-Wahrheit via ArtifactManager
+            #   (verify_system kennt ausschliesslich diese API).
             artifacts.extend(
                 write_layer_artifacts(
-                    s_dir,
+                    manager=manager,
+                    story_id=ctx.story_id,
+                    run_id=flow.run_id,
                     layer_results=result.decision.layer_results,
                     attempt_nr=result.attempt_nr,
-                    projection_dir=projection_dir,
                 ),
             )
             artifacts.extend(
                 write_verify_decision_artifacts(
-                    s_dir,
+                    manager=manager,
+                    story_id=ctx.story_id,
+                    run_id=flow.run_id,
                     decision=result.decision,
                     attempt_nr=result.attempt_nr,
-                    projection_dir=projection_dir,
                 ),
+            )
+            # Schreibpfad 2: FK-69-Materialisierung (qa_stage_results,
+            #   qa_findings, decision_records) + Projektionsdatei via
+            #   state_backend. Beide Pfade sind idempotent (UPSERT) und
+            #   konvergieren bei Re-Run auf den aktuellen Stand.
+            record_layer_artifacts(
+                s_dir,
+                layer_results=result.decision.layer_results,
+                attempt_nr=result.attempt_nr,
+                projection_dir=projection_dir,
+            )
+            record_verify_decision(
+                s_dir,
+                decision=result.decision,
+                attempt_nr=result.attempt_nr,
+                projection_dir=projection_dir,
             )
 
             if result.decision.passed:

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from agentkit.bootstrap.composition_root import build_artifact_manager
 from agentkit.core_types import PolicyVerdict
 from agentkit.exceptions import CorruptStateError
 from agentkit.governance.integrity_gate import IntegrityGate
@@ -16,6 +17,8 @@ from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.state_backend.scope import RuntimeStateScope
 from agentkit.state_backend.sqlite_store import state_db_path_for
 from agentkit.state_backend.store import (
+    record_layer_artifacts,
+    record_verify_decision,
     reset_backend_cache_for_tests,
     save_flow_execution,
     save_phase_snapshot,
@@ -115,21 +118,40 @@ def _create_decision(story_dir: Path, decision: str = "PASS") -> None:
     verdict = PolicyVerdict.PASS if decision == "PASS" else PolicyVerdict.FAIL
     passed = verdict is PolicyVerdict.PASS
     structural = LayerResult(layer="structural", passed=passed, findings=())
+    decision_obj = VerifyDecision(
+        passed=passed,
+        verdict=verdict,
+        layer_results=(structural,),
+        all_findings=(),
+        blocking_findings=(),
+        summary="decision summary",
+    )
+    # Schreibpfad 1: Envelope-Wahrheit via ArtifactManager (AG3-023 §AK12).
+    manager = build_artifact_manager(story_dir)
     write_layer_artifacts(
-        story_dir,
+        manager=manager,
+        story_id="AG3-001",
+        run_id="run-integrity-001",
         layer_results=(structural,),
         attempt_nr=1,
     )
     write_verify_decision_artifacts(
+        manager=manager,
+        story_id="AG3-001",
+        run_id="run-integrity-001",
+        decision=decision_obj,
+        attempt_nr=1,
+    )
+    # Schreibpfad 2: FK-69-Materialisierung (qa_stage_results, qa_findings,
+    # decision_records) -- IntegrityGate liest aktuell aus decision_records.
+    record_layer_artifacts(
         story_dir,
-        decision=VerifyDecision(
-            passed=passed,
-            verdict=verdict,
-            layer_results=(structural,),
-            all_findings=(),
-            blocking_findings=(),
-            summary="decision summary",
-        ),
+        layer_results=(structural,),
+        attempt_nr=1,
+    )
+    record_verify_decision(
+        story_dir,
+        decision=decision_obj,
         attempt_nr=1,
     )
 

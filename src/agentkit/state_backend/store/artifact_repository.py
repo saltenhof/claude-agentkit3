@@ -407,10 +407,14 @@ class StateBackendArtifactRepository:
     # ------------------------------------------------------------------
 
     def write_envelope(self, envelope: ArtifactEnvelope) -> ArtifactReference:
-        """Persistiert einen validen ArtifactEnvelope.
+        """Persistiert einen validen ArtifactEnvelope (UPSERT).
 
-        Idempotent: zweiter Aufruf mit gleichen Identitaetsfeldern
-        schreibt nichts (INSERT OR IGNORE / ON CONFLICT DO NOTHING).
+        Fail-closed gegen divergente Wahrheit: bei gleichem Primary-Key
+        (story_id, run_id, stage, attempt, artifact_class, producer_name)
+        UPDATEt der Aufruf alle nicht-Key-Spalten auf die aktuellen
+        Envelope-Werte. So bleibt ``artifact_envelopes`` die einzige
+        Source-of-Truth und kann nicht auseinanderlaufen mit der
+        Projektion (AG3-023 §AK4, Re-Review-Befund 2).
 
         Args:
             envelope: Vollstaendig validierter ArtifactEnvelope.
@@ -433,7 +437,7 @@ class StateBackendArtifactRepository:
         with _sqlite_connect(self._store_dir) as conn:
             conn.execute(
                 """
-                INSERT OR IGNORE INTO artifact_envelopes (
+                INSERT INTO artifact_envelopes (
                     story_id, run_id, stage, attempt,
                     schema_version, producer_type, producer_id,
                     producer_name, producer_version,
@@ -446,6 +450,16 @@ class StateBackendArtifactRepository:
                     :started_at, :finished_at, :status, :artifact_class,
                     :payload_json
                 )
+                ON CONFLICT(story_id, run_id, stage, attempt, artifact_class, producer_name)
+                DO UPDATE SET
+                    schema_version=excluded.schema_version,
+                    producer_type=excluded.producer_type,
+                    producer_id=excluded.producer_id,
+                    producer_version=excluded.producer_version,
+                    started_at=excluded.started_at,
+                    finished_at=excluded.finished_at,
+                    status=excluded.status,
+                    payload_json=excluded.payload_json
                 """,
                 row,
             )
@@ -470,10 +484,115 @@ class StateBackendArtifactRepository:
                     %(artifact_class)s,
                     %(payload_json)s::json
                 )
-                ON CONFLICT DO NOTHING
+                ON CONFLICT (story_id, run_id, stage, attempt, artifact_class, producer_name)
+                DO UPDATE SET
+                    schema_version=excluded.schema_version,
+                    producer_type=excluded.producer_type,
+                    producer_id=excluded.producer_id,
+                    producer_version=excluded.producer_version,
+                    started_at=excluded.started_at,
+                    finished_at=excluded.finished_at,
+                    status=excluded.status,
+                    payload_json=excluded.payload_json
                 """,
                 row,
             )
+
+    # ------------------------------------------------------------------
+    # find_latest_envelope (AG3-023 §AK4 — read via Manager)
+    # ------------------------------------------------------------------
+
+    def find_latest_envelope(
+        self,
+        *,
+        story_id: str,
+        run_id: str | None,
+        artifact_class: ArtifactClass,
+        stage: str,
+    ) -> ArtifactEnvelope | None:
+        """Return the highest-attempt envelope matching the scope (or None).
+
+        Args:
+            story_id: Story-Display-ID.
+            run_id: Run-Korrelations-ID (None matched ueber alle runs).
+            artifact_class: Erzeugerklasse-Filter.
+            stage: Stage-Filter (z.B. ``qa-verify-decision``).
+
+        Returns:
+            Latest ``ArtifactEnvelope`` oder ``None``.
+        """
+        if _is_postgres():
+            return self._pg_find_latest(story_id, run_id, artifact_class, stage)
+        return self._sqlite_find_latest(story_id, run_id, artifact_class, stage)
+
+    def _sqlite_find_latest(
+        self,
+        story_id: str,
+        run_id: str | None,
+        artifact_class: ArtifactClass,
+        stage: str,
+    ) -> ArtifactEnvelope | None:
+        with _sqlite_connect(self._store_dir) as conn:
+            if run_id is None:
+                cursor = conn.execute(
+                    """
+                    SELECT * FROM artifact_envelopes
+                    WHERE story_id = ? AND stage = ? AND artifact_class = ?
+                    ORDER BY attempt DESC
+                    LIMIT 1
+                    """,
+                    (story_id, stage, artifact_class.value),
+                )
+            else:
+                cursor = conn.execute(
+                    """
+                    SELECT * FROM artifact_envelopes
+                    WHERE story_id = ? AND run_id = ? AND stage = ?
+                      AND artifact_class = ?
+                    ORDER BY attempt DESC
+                    LIMIT 1
+                    """,
+                    (story_id, run_id, stage, artifact_class.value),
+                )
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            return _sqlite_row_to_envelope(dict(row))
+
+    def _pg_find_latest(
+        self,
+        story_id: str,
+        run_id: str | None,
+        artifact_class: ArtifactClass,
+        stage: str,
+    ) -> ArtifactEnvelope | None:
+        with _postgres_connect() as conn:
+            _ensure_artifact_table_postgres(conn)
+            if run_id is None:
+                cursor = conn.execute(
+                    """
+                    SELECT * FROM artifact_envelopes
+                    WHERE story_id = %s AND stage = %s AND artifact_class = %s
+                    ORDER BY attempt DESC
+                    LIMIT 1
+                    """,
+                    (story_id, stage, artifact_class.value),
+                )
+            else:
+                cursor = conn.execute(
+                    """
+                    SELECT * FROM artifact_envelopes
+                    WHERE story_id = %s AND run_id = %s AND stage = %s
+                      AND artifact_class = %s
+                    ORDER BY attempt DESC
+                    LIMIT 1
+                    """,
+                    (story_id, run_id, stage, artifact_class.value),
+                )
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            return _pg_row_to_envelope(dict(row))
 
     # ------------------------------------------------------------------
     # read_envelope

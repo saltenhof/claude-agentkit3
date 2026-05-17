@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 if TYPE_CHECKING:
     from agentkit.artifacts.envelope import ArtifactEnvelope
     from agentkit.artifacts.reference import ArtifactReference
+    from agentkit.core_types import ArtifactClass
 
 
 @runtime_checkable
@@ -32,6 +33,9 @@ class ArtifactRepository(Protocol):
             eine ArtifactReference zurueck.
         read_envelope: Laedt einen Envelope anhand einer Reference;
             gibt ``None`` bei Nicht-Existenz.
+        find_latest_envelope: Sucht den hoechsten ``attempt`` fuer eine
+            (story_id, run_id, artifact_class, stage)-Scope und gibt den
+            Envelope oder ``None`` zurueck.
         exists_envelope: Prueft Existenz ohne Volllesen.
     """
 
@@ -64,6 +68,27 @@ class ArtifactRepository(Protocol):
 
         Returns:
             ArtifactEnvelope wenn vorhanden, sonst ``None``.
+        """
+        ...
+
+    def find_latest_envelope(
+        self,
+        *,
+        story_id: str,
+        run_id: str | None,
+        artifact_class: ArtifactClass,
+        stage: str,
+    ) -> ArtifactEnvelope | None:
+        """Findet den Envelope mit dem hoechsten ``attempt`` im Scope.
+
+        Args:
+            story_id: Story-Display-ID.
+            run_id: Run-Korrelations-ID; ``None`` matched ueber alle Runs.
+            artifact_class: Erzeugerklasse-Filter.
+            stage: Stage-Filter (z.B. ``qa-verify-decision``).
+
+        Returns:
+            Latest ``ArtifactEnvelope`` oder ``None``.
         """
         ...
 

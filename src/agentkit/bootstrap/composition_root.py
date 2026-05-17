@@ -13,8 +13,20 @@ Quelle:
 
 from __future__ import annotations
 
-from agentkit.artifacts import ProducerRegistry
+from typing import TYPE_CHECKING
+
+from agentkit.artifacts import (
+    ArtifactManager,
+    EnvelopeValidator,
+    ProducerRegistry,
+)
+from agentkit.state_backend.store.artifact_repository import (
+    StateBackendArtifactRepository,
+)
 from agentkit.verify_system.register import register_verify_producers
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def build_producer_registry() -> ProducerRegistry:
@@ -38,4 +50,27 @@ def build_producer_registry() -> ProducerRegistry:
     return registry
 
 
-__all__ = ["build_producer_registry"]
+def build_artifact_manager(store_dir: Path) -> ArtifactManager:
+    """Erzeugt einen vollstaendig verdrahteten ``ArtifactManager``.
+
+    Composition-Root fuer den Artefakt-Schreib-/Lese-Pfad: bindet die
+    Producer-Registry, den Envelope-Validator und das
+    StateBackend-Repository zusammen. Konsument-BCs (z. B.
+    ``verify_system.artifacts``) erhalten den Manager via DI und kennen
+    die Repository-Implementierung nicht.
+
+    Args:
+        store_dir: Basisverzeichnis des State-Backends (SQLite legt
+            unter ``store_dir/.agentkit/...`` an; Postgres ignoriert
+            den Pfad).
+
+    Returns:
+        ``ArtifactManager`` mit allen verify-Producern registriert.
+    """
+    registry = build_producer_registry()
+    validator = EnvelopeValidator(registry)
+    repository = StateBackendArtifactRepository(store_dir)
+    return ArtifactManager(repository, validator)
+
+
+__all__ = ["build_artifact_manager", "build_producer_registry"]

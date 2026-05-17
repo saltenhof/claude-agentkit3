@@ -1,20 +1,29 @@
-"""QA artifact persistence and reads.
+"""QA artifact persistence via ArtifactManager (AG3-023 §AK12).
 
-Schreibpfad (AG3-023 ReCut 3.4.0):
-  write_layer_artifacts / write_verify_decision_artifacts:
-    1. ArtifactEnvelope bauen und via ArtifactManager in artifact_envelopes
-       persistieren (fail-closed; CorruptStateError und ProducerNotRegisteredError
-       propagieren).
-    2. state_backend.store.record_layer_artifacts / record_verify_decision
-       fuer FK-69-Materialisierung und Projektionsdatei rufen.
-  Kein Legacy-Fallback auf Projektionspfad mehr; kein synthetic run_id;
-  keine Exception-Suppression.
+Diese Top-Surface ist ausschliesslich Konsumer der ``ArtifactManager``-API
+aus dem ``agentkit.artifacts``-BC. Sie importiert **keine**
+``agentkit.state_backend.store``-Funktionen — der Aufrufer
+(``implementation/phase.py`` oder ein Test) muss die Manager-Instanz und
+die Scope-Felder explizit liefern. Damit ist der von der Story (Z. 287
++ Z. 316) geforderte BC-Schnitt eingehalten: verify_system nutzt
+ausschliesslich ``ArtifactManager.write/read`` als Persistenz-Facade.
 
-Lesepfad:
-  load_verify_decision_artifact -- liest aus decision_records ueber den
-  state_backend; bei korruptem Scope nur dann auf die Projektionsdatei
-  zurueckfallen, wenn die kanonische Quelle nicht erreichbar ist (graceful
-  read-degrade, kein Schreib-Bypass).
+Funktionen:
+  - ``write_layer_artifacts``: pro bekanntem QA-Layer einen Envelope via
+    ``manager.write`` schreiben (UPSERT in artifact_envelopes).
+  - ``write_verify_decision_artifacts``: einen Verify-Decision-Envelope
+    via ``manager.write`` schreiben.
+  - ``load_verify_decision_artifact``: liest den hoechsten-attempt
+    Envelope per ``manager.read_latest`` und gibt
+    ``(VERIFY_DECISION_FILE, payload)`` zurueck.
+
+Die FK-69-Materialisierung (qa_stage_results, qa_findings,
+decision_records) und das Projektionsfile sind **nicht** Aufgabe dieses
+Moduls; sie laufen im Orchestrator (implementation/phase.py) via
+``state_backend.record_layer_artifacts`` / ``record_verify_decision``.
+Beide Pfade sind idempotent (UPSERT in artifact_envelopes; UPSERT in
+den FK-69-Tabellen), so dass ein Re-Run keine divergente Wahrheit
+erzeugt.
 """
 
 from __future__ import annotations
@@ -24,11 +33,10 @@ from typing import TYPE_CHECKING
 from agentkit.artifacts import (
     ArtifactEnvelope,
     ArtifactManager,
+    ArtifactNotFoundError,
     EnvelopeStatus,
-    EnvelopeValidator,
     Producer,
     ProducerId,
-    ProducerRegistry,
     ProducerType,
 )
 from agentkit.boundary.filesystem import atomic_write_json, load_json_object
@@ -39,31 +47,17 @@ from agentkit.core_types.qa_artifact_names import (
     LAYER_ARTIFACT_FILES,
     VERIFY_DECISION_FILE,
 )
-from agentkit.exceptions import CorruptStateError
-from agentkit.installer.paths import resolve_qa_story_dir
-from agentkit.state_backend.store import (
-    load_latest_verify_decision,
-    load_latest_verify_decision_for_scope,
-    record_layer_artifacts,
-    record_verify_decision,
-    resolve_runtime_scope,
-)
-from agentkit.state_backend.store.artifact_repository import (
-    StateBackendArtifactRepository,
-)
 from agentkit.verify_system.policy_engine.projections import (
     build_verify_decision_artifact,
     serialize_finding,
     serialize_layer_result,
     verify_decision_passed,
 )
-from agentkit.verify_system.register import register_verify_producers
 
 if TYPE_CHECKING:
     from datetime import datetime
     from pathlib import Path
 
-    from agentkit.state_backend.scope import RuntimeStateScope
     from agentkit.verify_system.policy_engine.engine import VerifyDecision
     from agentkit.verify_system.protocols import LayerResult
 
@@ -85,68 +79,48 @@ _VERIFY_DECISION_PRODUCER: tuple[str, ProducerType] = (
 _VERIFY_DECISION_STAGE = "qa-verify-decision"
 
 
-def load_verify_decision_artifact(
-    story_dir: Path,
-) -> tuple[str, dict[str, object]] | None:
-    """Load the canonical verify decision (graceful degrade on corrupt scope)."""
-
-    try:
-        scope = resolve_runtime_scope(story_dir)
-    except CorruptStateError:
-        scope = None
-    if scope is not None and scope.run_id is not None:
-        payload = load_latest_verify_decision_for_scope(scope)
-        if payload is not None:
-            return VERIFY_DECISION_FILE, payload
-
-    payload = load_latest_verify_decision(story_dir)
-    if payload is not None:
-        return VERIFY_DECISION_FILE, payload
-
-    return _load_verify_decision_projection(_qa_projection_dir(story_dir))
-
-
 def write_layer_artifacts(
-    story_dir: Path,
     *,
+    manager: ArtifactManager,
+    story_id: str,
+    run_id: str,
     layer_results: tuple[LayerResult, ...],
     attempt_nr: int,
-    projection_dir: Path | None = None,
 ) -> tuple[str, ...]:
-    """Persist canonical layer records (fail-closed).
+    """Schreibt pro bekanntem QA-Layer einen ArtifactEnvelope via Manager.
 
-    Schritt 1: ArtifactEnvelope pro bekanntem Layer via ArtifactManager
-        in artifact_envelopes schreiben.
-    Schritt 2: FK-69-Materialisierung + Projektionsfile via state_backend.
+    Args:
+        manager: Injizierte ArtifactManager-Instanz.
+        story_id: Story-Display-ID (z.B. ``AG3-901``).
+        run_id: Run-Korrelations-ID.
+        layer_results: Layer-Ergebnisse aus dem QA-Subflow.
+        attempt_nr: Versuchszaehler (>= 1).
+
+    Returns:
+        Tuple der Projektions-Filenamen je geschriebenem Layer
+        (analog zur bisherigen Signatur).
 
     Raises:
-        CorruptStateError: Wenn keine bindbare Runtime-Scope (Story-Context
-            oder FlowExecution) aufloesbar ist, oder wenn die Scope keinen
-            ``run_id`` traegt.
-        Errors aus ``ArtifactManager.write`` propagieren unveraendert
-        (``ProducerNotRegisteredError``, ``EnvelopeFieldError``, ...).
+        ProducerNotRegisteredError / EnvelopeFieldError: aus
+            ``ArtifactManager.write`` (fail-closed).
     """
 
-    normalized = tuple(layer_results)
-    scope = resolve_runtime_scope(story_dir)
-    _require_run_scope(scope)
-
-    manager = _build_artifact_manager(story_dir)
     started_at = _utc_now()
-    for layer_result in normalized:
+    produced: list[str] = []
+    for layer_result in layer_results:
         if layer_result.layer not in _LAYER_TO_STAGE:
             continue
         producer_name, producer_type = _LAYER_TO_PRODUCER[layer_result.layer]
         envelope = ArtifactEnvelope(
             schema_version="3.0",
-            story_id=scope.story_id,
-            run_id=_run_id(scope),
+            story_id=story_id,
+            run_id=run_id,
             stage=_LAYER_TO_STAGE[layer_result.layer],
             attempt=attempt_nr,
             producer=Producer(
                 type=producer_type,
                 name=producer_name,
-                id=ProducerId(f"{producer_name}-{_run_id(scope)}-{attempt_nr}"),
+                id=ProducerId(f"{producer_name}-{run_id}-{attempt_nr}"),
             ),
             started_at=started_at,
             finished_at=started_at,
@@ -155,50 +129,37 @@ def write_layer_artifacts(
             payload=serialize_layer_result(layer_result, attempt_nr=attempt_nr),
         )
         manager.write(envelope)
-
-    return record_layer_artifacts(
-        story_dir,
-        layer_results=normalized,
-        attempt_nr=attempt_nr,
-        projection_dir=projection_dir or _qa_projection_dir(story_dir),
-    )
+        produced.append(LAYER_ARTIFACT_FILES[layer_result.layer])
+    return tuple(produced)
 
 
 def write_verify_decision_artifacts(
-    story_dir: Path,
     *,
+    manager: ArtifactManager,
+    story_id: str,
+    run_id: str,
     decision: VerifyDecision,
     attempt_nr: int,
-    projection_dir: Path | None = None,
 ) -> tuple[str, ...]:
-    """Persist canonical decision records (fail-closed).
-
-    Schritt 1: ArtifactEnvelope fuer die Verify-Decision via
-        ArtifactManager schreiben.
-    Schritt 2: decision_records + Projektionsfile via state_backend.
+    """Schreibt einen Verify-Decision-Envelope via ArtifactManager.
 
     Raises:
-        CorruptStateError: Wenn keine bindbare Runtime-Scope mit ``run_id``
-            existiert.
-        Errors aus ``ArtifactManager.write`` propagieren unveraendert.
+        ProducerNotRegisteredError / EnvelopeFieldError: aus
+            ``ArtifactManager.write`` (fail-closed).
     """
 
-    scope = resolve_runtime_scope(story_dir)
-    _require_run_scope(scope)
-
-    manager = _build_artifact_manager(story_dir)
     started_at = _utc_now()
     producer_name, producer_type = _VERIFY_DECISION_PRODUCER
     envelope = ArtifactEnvelope(
         schema_version="3.0",
-        story_id=scope.story_id,
-        run_id=_run_id(scope),
+        story_id=story_id,
+        run_id=run_id,
         stage=_VERIFY_DECISION_STAGE,
         attempt=attempt_nr,
         producer=Producer(
             type=producer_type,
             name=producer_name,
-            id=ProducerId(f"{producer_name}-{_run_id(scope)}-{attempt_nr}"),
+            id=ProducerId(f"{producer_name}-{run_id}-{attempt_nr}"),
         ),
         started_at=started_at,
         finished_at=started_at,
@@ -207,44 +168,36 @@ def write_verify_decision_artifacts(
         payload=build_verify_decision_artifact(decision, attempt_nr=attempt_nr),
     )
     manager.write(envelope)
-
-    return record_verify_decision(
-        story_dir,
-        decision=decision,
-        attempt_nr=attempt_nr,
-        projection_dir=projection_dir or _qa_projection_dir(story_dir),
-    )
+    return (VERIFY_DECISION_FILE,)
 
 
-def _build_artifact_manager(story_dir: Path) -> ArtifactManager:
-    """Construct an ArtifactManager bound to the current story-dir backend."""
+def load_verify_decision_artifact(
+    *,
+    manager: ArtifactManager,
+    story_id: str,
+    run_id: str | None = None,
+) -> tuple[str, dict[str, object]] | None:
+    """Liest den letzten Verify-Decision-Envelope via ``manager.read_latest``.
 
-    registry = ProducerRegistry()
-    register_verify_producers(registry)
-    validator = EnvelopeValidator(registry)
-    repository = StateBackendArtifactRepository(story_dir)
-    return ArtifactManager(repository, validator)
+    Args:
+        manager: Injizierte ArtifactManager-Instanz.
+        story_id: Story-Display-ID.
+        run_id: Run-Korrelations-ID; ``None`` matched ueber alle runs.
 
-
-def _require_run_scope(scope: RuntimeStateScope) -> None:
-    """Fail-closed: ArtifactEnvelope-Writes verlangen einen gebundenen run_id."""
-
-    if scope.run_id is None:
-        raise CorruptStateError(
-            "ArtifactEnvelope write requires a runtime scope with run_id; "
-            "no FlowExecution is bound to this story-dir.",
-            detail={
-                "story_id": scope.story_id,
-                "story_dir": str(scope.story_dir),
-            },
+    Returns:
+        ``(VERIFY_DECISION_FILE, payload)`` oder ``None`` wenn kein
+        Envelope existiert.
+    """
+    try:
+        envelope = manager.read_latest(
+            story_id=story_id,
+            run_id=run_id,
+            artifact_class=ArtifactClass.QA,
+            stage=_VERIFY_DECISION_STAGE,
         )
-
-
-def _run_id(scope: RuntimeStateScope) -> str:
-    """Type-narrowing helper used after ``_require_run_scope``."""
-
-    assert scope.run_id is not None  # noqa: S101 -- guarded by _require_run_scope
-    return scope.run_id
+    except ArtifactNotFoundError:
+        return None
+    return VERIFY_DECISION_FILE, dict(envelope.payload or {})
 
 
 def _utc_now() -> datetime:
@@ -255,26 +208,14 @@ def _utc_now() -> datetime:
     return datetime.fromisoformat(now_iso())
 
 
-def _load_verify_decision_projection(
-    story_dir: Path,
-) -> tuple[str, dict[str, object]] | None:
-    """Load the verify-decision projection file if present."""
-
-    canonical = load_json_object(story_dir / VERIFY_DECISION_FILE)
-    if canonical is not None:
-        return VERIFY_DECISION_FILE, canonical
-    return None
-
-
 def _write_projection(path: Path, payload: dict[str, object]) -> None:
-    """Atomically write a JSON projection file, creating parent dirs as needed."""
+    """Atomically write a JSON projection file, creating parent dirs as needed.
+
+    Beibehalten fuer Tests, die das Projektions-Verhalten direkt pruefen.
+    """
 
     path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_json(path, payload)
-
-
-def _qa_projection_dir(story_dir: Path) -> Path:
-    return resolve_qa_story_dir(story_dir, story_id=story_dir.name)
 
 
 __all__ = [

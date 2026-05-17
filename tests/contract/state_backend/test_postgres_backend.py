@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from agentkit.bootstrap.composition_root import build_artifact_manager
 from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
 from agentkit.core_types import PolicyVerdict
 from agentkit.phase_state_store.models import FlowExecution
@@ -29,6 +30,7 @@ from agentkit.state_backend.store import (
     load_story_context_global,
     load_story_contexts_global,
     load_story_metrics,
+    record_layer_artifacts,
     record_verify_decision,
     resolve_runtime_scope,
     save_flow_execution,
@@ -127,37 +129,42 @@ def test_public_state_backend_contract_works_on_postgres(
     run1_scope = resolve_runtime_scope(story_dir)
     assert run1_scope.run_id == "run-contract-001"
 
-    produced = write_layer_artifacts(
-        story_dir,
-        layer_results=(
-            LayerResult(
-                layer="structural",
-                passed=False,
-                findings=(
-                    Finding(
-                        layer="structural",
-                        check="context_exists",
-                        severity=Severity.BLOCKING,
-                        message="context.json is missing",
-                        trust_class=TrustClass.SYSTEM,
-                        file_path="context.json",
-                        line_number=1,
-                    ),
-                    Finding(
-                        layer="structural",
-                        check="lint",
-                        severity=Severity.MAJOR,
-                        message="style drift",
-                        trust_class=TrustClass.SYSTEM,
-                        file_path="src/app.py",
-                        line_number=10,
-                    ),
+    manager = build_artifact_manager(story_dir)
+    run1_layers = (
+        LayerResult(
+            layer="structural",
+            passed=False,
+            findings=(
+                Finding(
+                    layer="structural",
+                    check="context_exists",
+                    severity=Severity.BLOCKING,
+                    message="context.json is missing",
+                    trust_class=TrustClass.SYSTEM,
+                    file_path="context.json",
+                    line_number=1,
                 ),
-                metadata={"source": "contract", "total_checks": 7},
+                Finding(
+                    layer="structural",
+                    check="lint",
+                    severity=Severity.MAJOR,
+                    message="style drift",
+                    trust_class=TrustClass.SYSTEM,
+                    file_path="src/app.py",
+                    line_number=10,
+                ),
             ),
+            metadata={"source": "contract", "total_checks": 7},
         ),
+    )
+    produced = write_layer_artifacts(
+        manager=manager,
+        story_id="AG3-901",
+        run_id="run-contract-001",
+        layer_results=run1_layers,
         attempt_nr=1,
     )
+    record_layer_artifacts(story_dir, layer_results=run1_layers, attempt_nr=1)
     assert produced == ("structural.json",)
     structural_record = load_artifact_record(story_dir, "structural")
     assert structural_record is not None
@@ -203,35 +210,39 @@ def test_public_state_backend_contract_works_on_postgres(
     )
     run2_scope = resolve_runtime_scope(story_dir)
     assert run2_scope.run_id == "run-contract-002"
+    run2_layers = (
+        LayerResult(layer="structural", passed=True, findings=()),
+    )
     write_layer_artifacts(
-        story_dir,
-        layer_results=(
-            LayerResult(
-                layer="structural",
-                passed=True,
-                findings=(),
-            ),
-        ),
+        manager=manager,
+        story_id="AG3-901",
+        run_id="run-contract-002",
+        layer_results=run2_layers,
         attempt_nr=1,
     )
+    record_layer_artifacts(story_dir, layer_results=run2_layers, attempt_nr=1)
     run2_record = load_artifact_record(story_dir, "structural")
     assert run2_record is not None
     assert run2_record["passed"] is True
     run2_record_scoped = load_artifact_record_for_scope(run2_scope, "structural")
     assert run2_record_scoped is not None
     assert run2_record_scoped["passed"] is True
+    run2_decision_obj = VerifyDecision(
+        passed=False,
+        verdict=PolicyVerdict.FAIL,
+        layer_results=(LayerResult(layer="structural", passed=False),),
+        all_findings=(),
+        blocking_findings=(),
+        summary="run2 failed",
+    )
     write_verify_decision_artifacts(
-        story_dir,
-        decision=VerifyDecision(
-            passed=False,
-            verdict=PolicyVerdict.FAIL,
-            layer_results=(LayerResult(layer="structural", passed=False),),
-            all_findings=(),
-            blocking_findings=(),
-            summary="run2 failed",
-        ),
+        manager=manager,
+        story_id="AG3-901",
+        run_id="run-contract-002",
+        decision=run2_decision_obj,
         attempt_nr=1,
     )
+    record_verify_decision(story_dir, decision=run2_decision_obj, attempt_nr=1)
     run2_decision = load_latest_verify_decision(story_dir)
     assert run2_decision is not None
     assert run2_decision["status"] == "FAIL"
@@ -258,27 +269,31 @@ def test_public_state_backend_contract_works_on_postgres(
     assert run1_record_scoped is not None
     assert run1_record_scoped["passed"] is False
 
-    write_layer_artifacts(
-        story_dir,
-        layer_results=(
-            LayerResult(
-                layer="structural",
-                passed=False,
-                findings=(
-                    Finding(
-                        layer="structural",
-                        check="context_exists",
-                        severity=Severity.BLOCKING,
-                        message="context.json is still missing",
-                        trust_class=TrustClass.SYSTEM,
-                        file_path="context.json",
-                        line_number=1,
-                    ),
+    rerun_layers = (
+        LayerResult(
+            layer="structural",
+            passed=False,
+            findings=(
+                Finding(
+                    layer="structural",
+                    check="context_exists",
+                    severity=Severity.BLOCKING,
+                    message="context.json is still missing",
+                    trust_class=TrustClass.SYSTEM,
+                    file_path="context.json",
+                    line_number=1,
                 ),
             ),
         ),
+    )
+    write_layer_artifacts(
+        manager=manager,
+        story_id="AG3-901",
+        run_id="run-contract-001",
+        layer_results=rerun_layers,
         attempt_nr=1,
     )
+    record_layer_artifacts(story_dir, layer_results=rerun_layers, attempt_nr=1)
     rematerialized_findings = load_qa_findings(
         story_dir,
         project_key="demo-project",
@@ -304,10 +319,13 @@ def test_public_state_backend_contract_works_on_postgres(
         summary="postgres ok",
     )
     written = write_verify_decision_artifacts(
-        story_dir,
+        manager=manager,
+        story_id="AG3-901",
+        run_id="run-contract-001",
         decision=decision,
         attempt_nr=1,
     )
+    record_verify_decision(story_dir, decision=decision, attempt_nr=1)
     assert written == ("verify-decision.json",)
     verify_record = load_latest_verify_decision(story_dir)
     assert verify_record is not None

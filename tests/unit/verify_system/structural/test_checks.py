@@ -6,9 +6,11 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
+from agentkit.bootstrap.composition_root import build_artifact_manager
 from agentkit.phase_state_store.models import FlowExecution
 from agentkit.state_backend.sqlite_store import state_db_path_for
 from agentkit.state_backend.store import (
+    record_layer_artifacts,
     save_flow_execution,
     save_phase_snapshot,
     save_phase_state,
@@ -156,7 +158,17 @@ class TestCheckArtifactsPresent:
                 status="IN_PROGRESS",
             ),
         )
+        # Schreibpfad 1: ArtifactEnvelope via Manager (verify_system-Top-Surface).
+        manager = build_artifact_manager(story_dir)
         write_layer_artifacts(
+            manager=manager,
+            story_id="TEST-001",
+            run_id="run-structural-001",
+            layer_results=(LayerResult(layer="structural", passed=True),),
+            attempt_nr=1,
+        )
+        # Schreibpfad 2: FK-69 + Projection via state_backend (Orchestrator-Aufgabe).
+        record_layer_artifacts(
             story_dir,
             layer_results=(LayerResult(layer="structural", passed=True),),
             attempt_nr=1,

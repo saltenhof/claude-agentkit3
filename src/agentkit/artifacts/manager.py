@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from agentkit.artifacts.reference import ArtifactReference
     from agentkit.artifacts.repository import ArtifactRepository
     from agentkit.artifacts.validator import EnvelopeValidator
+    from agentkit.core_types import ArtifactClass
 
 
 class ArtifactManager:
@@ -99,6 +100,44 @@ class ArtifactManager:
                 f"story_id={reference.story_id!r}, "
                 f"run_id={reference.run_id!r}, "
                 f"record_key={reference.record_key!r}"
+            )
+            raise ArtifactNotFoundError(msg)
+        return result
+
+    def read_latest(
+        self,
+        *,
+        story_id: str,
+        run_id: str | None,
+        artifact_class: ArtifactClass,
+        stage: str,
+    ) -> ArtifactEnvelope:
+        """Laedt den hoechsten-attempt-Envelope im (story, run, class, stage)-Scope.
+
+        Args:
+            story_id: Story-Display-ID.
+            run_id: Run-Korrelations-ID; ``None`` matched ueber alle Runs.
+            artifact_class: Erzeugerklasse-Filter.
+            stage: Stage-Filter.
+
+        Returns:
+            ``ArtifactEnvelope`` mit dem hoechsten ``attempt`` im Scope.
+
+        Raises:
+            ArtifactNotFoundError: Wenn kein Envelope im Scope existiert
+                (fail-closed; kein silent None).
+        """
+        result = self._repository.find_latest_envelope(
+            story_id=story_id,
+            run_id=run_id,
+            artifact_class=artifact_class,
+            stage=stage,
+        )
+        if result is None:
+            msg = (
+                "Kein Artefakt im Scope: "
+                f"story_id={story_id!r}, run_id={run_id!r}, "
+                f"artifact_class={artifact_class!r}, stage={stage!r}"
             )
             raise ArtifactNotFoundError(msg)
         return result
