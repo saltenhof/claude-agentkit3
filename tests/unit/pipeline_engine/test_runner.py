@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.pipeline_engine.lifecycle import PhaseHandlerRegistry
+    from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
     from agentkit.process.language.model import WorkflowDefinition
 
 
@@ -44,7 +45,7 @@ class _EngineFactory:
 
     def __post_init__(self) -> None:
         self.created_with: list[tuple[WorkflowDefinition, object, Path]] = []
-        self.run_calls: list[tuple[StoryContext, PhaseState]] = []
+        self.run_calls: list[tuple[StoryContext, PhaseEnvelope]] = []
 
     def __call__(
         self,
@@ -55,8 +56,8 @@ class _EngineFactory:
         self.created_with.append((workflow, handler_registry, story_dir))
         return self
 
-    def run_phase(self, ctx: StoryContext, state: PhaseState) -> EngineResult:
-        self.run_calls.append((ctx, state))
+    def run_phase(self, ctx: StoryContext, envelope: PhaseEnvelope) -> EngineResult:
+        self.run_calls.append((ctx, envelope))
         return self.results.pop(0)
 
 
@@ -75,9 +76,10 @@ def test_run_pipeline_resolves_workflow_and_initializes_phase_state(
         "agentkit.pipeline_engine.runner.resolve_workflow",
         lambda story_type: workflow,
     )
+    # Patch the repository's load to return None (fresh start)
     monkeypatch.setattr(
-        "agentkit.pipeline_engine.runner.read_phase_state_record",
-        lambda story_dir: None,
+        "agentkit.pipeline_engine.runner.StateBackendPhaseEnvelopeRepository",
+        lambda story_dir: _make_null_repo(),
     )
     monkeypatch.setattr(
         "agentkit.pipeline_engine.runner.save_phase_state",
@@ -104,8 +106,8 @@ def test_run_pipeline_fails_closed_on_corrupt_phase_state(
     ctx = _story_context()
 
     monkeypatch.setattr(
-        "agentkit.pipeline_engine.runner.read_phase_state_record",
-        lambda story_dir: (_ for _ in ()).throw(CorruptStateError("broken")),
+        "agentkit.pipeline_engine.runner.StateBackendPhaseEnvelopeRepository",
+        lambda story_dir: _make_corrupt_repo(),
     )
 
     result = run_pipeline(ctx, tmp_path, cast("PhaseHandlerRegistry", object()), workflow=_workflow("setup"))
@@ -121,11 +123,6 @@ def test_run_pipeline_returns_yielded_result(
     tmp_path: Path,
 ) -> None:
     ctx = _story_context()
-    state = PhaseState(
-        story_id=ctx.story_id,
-        phase="setup",
-        status=PhaseStatus.PENDING,
-    )
     engine_factory = _EngineFactory(
         [
             EngineResult(
@@ -137,8 +134,12 @@ def test_run_pipeline_returns_yielded_result(
     )
 
     monkeypatch.setattr(
-        "agentkit.pipeline_engine.runner.read_phase_state_record",
-        lambda story_dir: state,
+        "agentkit.pipeline_engine.runner.StateBackendPhaseEnvelopeRepository",
+        lambda story_dir: _make_null_repo(),
+    )
+    monkeypatch.setattr(
+        "agentkit.pipeline_engine.runner.save_phase_state",
+        lambda story_dir, state: None,
     )
     monkeypatch.setattr("agentkit.pipeline_engine.runner.PipelineEngine", engine_factory)
 
@@ -157,11 +158,6 @@ def test_run_pipeline_returns_terminal_engine_statuses(
     status: str,
 ) -> None:
     ctx = _story_context()
-    state = PhaseState(
-        story_id=ctx.story_id,
-        phase="implementation",
-        status=PhaseStatus.PENDING,
-    )
     engine_factory = _EngineFactory(
         [
             EngineResult(
@@ -173,8 +169,12 @@ def test_run_pipeline_returns_terminal_engine_statuses(
     )
 
     monkeypatch.setattr(
-        "agentkit.pipeline_engine.runner.read_phase_state_record",
-        lambda story_dir: state,
+        "agentkit.pipeline_engine.runner.StateBackendPhaseEnvelopeRepository",
+        lambda story_dir: _make_null_repo(),
+    )
+    monkeypatch.setattr(
+        "agentkit.pipeline_engine.runner.save_phase_state",
+        lambda story_dir, state: None,
     )
     monkeypatch.setattr("agentkit.pipeline_engine.runner.PipelineEngine", engine_factory)
 
@@ -190,11 +190,6 @@ def test_run_pipeline_advances_and_saves_next_phase(
     tmp_path: Path,
 ) -> None:
     ctx = _story_context()
-    state = PhaseState(
-        story_id=ctx.story_id,
-        phase="setup",
-        status=PhaseStatus.PENDING,
-    )
     saved: list[PhaseState] = []
     engine_factory = _EngineFactory(
         [
@@ -212,8 +207,8 @@ def test_run_pipeline_advances_and_saves_next_phase(
     )
 
     monkeypatch.setattr(
-        "agentkit.pipeline_engine.runner.read_phase_state_record",
-        lambda story_dir: state,
+        "agentkit.pipeline_engine.runner.StateBackendPhaseEnvelopeRepository",
+        lambda story_dir: _make_null_repo(),
     )
     monkeypatch.setattr(
         "agentkit.pipeline_engine.runner.save_phase_state",
@@ -230,8 +225,10 @@ def test_run_pipeline_advances_and_saves_next_phase(
 
     assert result.final_status == "completed"
     assert result.phases_executed == ("setup", "implementation")
-    assert [phase_state.phase for phase_state in saved] == ["implementation"]
-    assert saved[0].status is PhaseStatus.PENDING
+    # First save: initial state for "setup"; second save: state for "implementation"
+    implementation_saves = [s for s in saved if s.phase == "implementation"]
+    assert len(implementation_saves) == 1
+    assert implementation_saves[0].status is PhaseStatus.PENDING
 
 
 def test_run_pipeline_reloads_persisted_context_between_phases(
@@ -240,11 +237,6 @@ def test_run_pipeline_reloads_persisted_context_between_phases(
 ) -> None:
     ctx = _story_context()
     enriched = ctx.model_copy(update={"title": "Enriched", "issue_nr": 42})
-    state = PhaseState(
-        story_id=ctx.story_id,
-        phase="setup",
-        status=PhaseStatus.PENDING,
-    )
     engine_factory = _EngineFactory(
         [
             EngineResult(
@@ -262,8 +254,8 @@ def test_run_pipeline_reloads_persisted_context_between_phases(
     )
 
     monkeypatch.setattr(
-        "agentkit.pipeline_engine.runner.read_phase_state_record",
-        lambda story_dir: state,
+        "agentkit.pipeline_engine.runner.StateBackendPhaseEnvelopeRepository",
+        lambda story_dir: _make_null_repo(),
     )
     monkeypatch.setattr(
         "agentkit.pipeline_engine.runner.save_phase_state",
@@ -289,11 +281,6 @@ def test_run_pipeline_fails_when_iteration_limit_is_reached(
     tmp_path: Path,
 ) -> None:
     ctx = _story_context()
-    state = PhaseState(
-        story_id=ctx.story_id,
-        phase="implementation",
-        status=PhaseStatus.PENDING,
-    )
     engine_factory = _EngineFactory(
         [
             EngineResult(
@@ -306,8 +293,8 @@ def test_run_pipeline_fails_when_iteration_limit_is_reached(
     )
 
     monkeypatch.setattr(
-        "agentkit.pipeline_engine.runner.read_phase_state_record",
-        lambda story_dir: state,
+        "agentkit.pipeline_engine.runner.StateBackendPhaseEnvelopeRepository",
+        lambda story_dir: _make_null_repo(),
     )
     monkeypatch.setattr(
         "agentkit.pipeline_engine.runner.save_phase_state",
@@ -326,3 +313,42 @@ def test_run_pipeline_fails_when_iteration_limit_is_reached(
     assert result.final_phase == "implementation"
     assert result.errors == ("Max iteration limit reached",)
     assert len(engine_factory.run_calls) == 20
+
+
+# ---------------------------------------------------------------------------
+# Stub helpers for repository patching
+# ---------------------------------------------------------------------------
+
+
+class _NullRepo:
+    """Repository stub that always returns None (fresh start)."""
+
+    def load_state(self, story_id: str, phase: object) -> None:
+        return None
+
+    def save_state(self, state: PhaseState) -> None:
+        pass
+
+    def exists_state(self, story_id: str, phase: object) -> bool:
+        return False
+
+
+class _CorruptRepo:
+    """Repository stub that raises CorruptStateError on load."""
+
+    def load_state(self, story_id: str, phase: object) -> None:
+        raise CorruptStateError("broken")
+
+    def save_state(self, state: PhaseState) -> None:
+        pass
+
+    def exists_state(self, story_id: str, phase: object) -> bool:
+        return False
+
+
+def _make_null_repo() -> _NullRepo:
+    return _NullRepo()
+
+
+def _make_corrupt_repo() -> _CorruptRepo:
+    return _CorruptRepo()

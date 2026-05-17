@@ -40,6 +40,7 @@ from agentkit.verify_system.structural.checker import StructuralChecker
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
     from agentkit.story_context_manager.models import StoryContext
     from agentkit.verify_system.protocols import QALayer
 
@@ -62,9 +63,10 @@ class ImplementationPhaseHandler:
     def __init__(self, config: ImplementationConfig) -> None:
         self._config = config
 
-    def on_enter(self, ctx: StoryContext, state: PhaseState) -> HandlerResult:
+    def on_enter(self, ctx: StoryContext, envelope: PhaseEnvelope) -> HandlerResult:
         """Run the implementation QA-subflow to pass or escalation."""
 
+        state = envelope.state
         s_dir = self._config.story_dir
         if s_dir is None:
             return HandlerResult(
@@ -187,19 +189,19 @@ class ImplementationPhaseHandler:
             qa_rounds += 1
             current_context = QaContext.IMPLEMENTATION_REMEDIATION
 
-    def on_exit(self, _ctx: StoryContext, _state: PhaseState) -> None:
+    def on_exit(self, _ctx: StoryContext, _envelope: PhaseEnvelope) -> None:
         """No-op for implementation phase."""
 
     def on_resume(
         self,
         ctx: StoryContext,
-        state: PhaseState,
+        envelope: PhaseEnvelope,
         trigger: str,
     ) -> HandlerResult:
         """Resume the implementation QA-subflow."""
 
         del trigger
-        return self.on_enter(ctx, state)
+        return self.on_enter(ctx, envelope)
 
 
 def _verify_context_for(qa_feedback_rounds: int) -> QaContext:

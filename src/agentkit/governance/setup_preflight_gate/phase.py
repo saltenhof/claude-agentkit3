@@ -28,7 +28,8 @@ from agentkit.utils.git import remove_worktree
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.story_context_manager.models import PhaseState, StoryContext
+    from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
+    from agentkit.story_context_manager.models import StoryContext
     from agentkit.story_context_manager.service import StoryService
 
 logger = logging.getLogger(__name__)
@@ -76,7 +77,7 @@ class SetupPhaseHandler:
     def __init__(self, config: SetupConfig) -> None:
         self._config = config
 
-    def on_enter(self, ctx: StoryContext, state: PhaseState) -> HandlerResult:
+    def on_enter(self, ctx: StoryContext, envelope: PhaseEnvelope) -> HandlerResult:
         """Execute the setup phase.
 
         Steps:
@@ -98,12 +99,12 @@ class SetupPhaseHandler:
 
         Args:
             ctx: The initial (possibly sparse) story context.
-            state: The current phase state.
+            envelope: The current phase envelope (state unused by setup).
 
         Returns:
             A ``HandlerResult`` describing the outcome.
         """
-        _ = state
+        _ = envelope
         cfg = self._config
         story_service = _resolve_story_service(cfg)
 
@@ -141,32 +142,32 @@ class SetupPhaseHandler:
             updated_context=enriched,
         )
 
-    def on_exit(self, _ctx: StoryContext, _state: PhaseState) -> None:
+    def on_exit(self, _ctx: StoryContext, _envelope: PhaseEnvelope) -> None:
         """No-op for setup phase.
 
         Args:
             ctx: The story context (unused).
-            state: The current phase state (unused).
+            envelope: The current phase envelope (unused).
         """
-        _ = _ctx, _state
+        _ = _ctx, _envelope
 
     def on_resume(
         self,
         _ctx: StoryContext,
-        _state: PhaseState,
+        _envelope: PhaseEnvelope,
         _trigger: str,
     ) -> HandlerResult:
         """Setup phase does not support resume -- return FAILED.
 
         Args:
             ctx: The story context (unused).
-            state: The current phase state (unused).
+            envelope: The current phase envelope (unused).
             trigger: The resume trigger (unused).
 
         Returns:
             A ``HandlerResult`` with ``FAILED`` status.
         """
-        _ = _ctx, _state, _trigger
+        _ = _ctx, _envelope, _trigger
         return HandlerResult(
             status=PhaseStatus.FAILED,
             errors=("Setup phase does not support resume",),

@@ -12,14 +12,19 @@ from typing import TYPE_CHECKING
 
 from agentkit.exceptions import CorruptStateError
 from agentkit.pipeline_engine.engine import PipelineEngine
+from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
 from agentkit.process.language.definitions import resolve_workflow
-from agentkit.state_backend.store import read_phase_state_record, save_phase_state
-from agentkit.story_context_manager.models import PhaseState, PhaseStatus
+from agentkit.state_backend.store import save_phase_state
+from agentkit.state_backend.store.phase_envelope_repository import (
+    StateBackendPhaseEnvelopeRepository,
+)
+from agentkit.story_context_manager.models import PhaseName, PhaseState, PhaseStatus
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.pipeline_engine.lifecycle import PhaseHandlerRegistry
+    from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
     from agentkit.process.language.model import WorkflowDefinition
     from agentkit.story_context_manager.models import StoryContext
 
@@ -60,9 +65,10 @@ def run_pipeline(
     This is the high-level orchestration function.  It:
 
     1. Resolves the workflow for the story type (or uses the provided one).
-    2. Creates a :class:`PipelineEngine`.
+    2. Creates a :class:`PipelineEngine` and a :class:`PhaseEnvelopeStore`.
     3. Determines the starting phase (from existing state or first phase).
-    4. Runs phases sequentially, following transitions.
+    4. Wraps state in a ``PhaseEnvelope`` (origin=LOADED or NEW) and
+       runs phases sequentially, following transitions.
     5. Stops on: completion (no more transitions), yield, failure, or
        escalation.
 
@@ -80,12 +86,25 @@ def run_pipeline(
     # 1. Resolve workflow if not provided
     resolved_workflow = workflow or resolve_workflow(story_context.story_type)
 
-    # 2. Create engine
+    # 2. Create engine and envelope store
     engine = PipelineEngine(resolved_workflow, handler_registry, story_dir)
+    repository = StateBackendPhaseEnvelopeRepository(story_dir)
+    envelope_store = PhaseEnvelopeStore(repository)
 
-    # 3. Load or create initial state (fail-closed on corrupt state)
+    # 3. Load or create initial envelope (fail-closed on corrupt state)
+    first_phase_name = resolved_workflow.phases[0].name
+    # Attempt to derive a PhaseName from the workflow's first phase name
     try:
-        state = read_phase_state_record(story_dir)
+        first_phase = PhaseName(first_phase_name)
+    except ValueError:
+        first_phase = None
+
+    try:
+        envelope: PhaseEnvelope | None = (
+            envelope_store.load(story_context.story_id, first_phase)
+            if first_phase is not None
+            else None
+        )
     except CorruptStateError:
         return PipelineRunResult(
             story_id=story_context.story_id,
@@ -97,21 +116,22 @@ def run_pipeline(
                 "Manual investigation required.",
             ),
         )
-    if state is None:
-        first_phase = resolved_workflow.phases[0].name
-        state = PhaseState(
+
+    if envelope is None:
+        fresh_state = PhaseState(
             story_id=story_context.story_id,
-            phase=first_phase,
+            phase=first_phase_name,
             status=PhaseStatus.PENDING,
         )
-        save_phase_state(story_dir, state)
+        save_phase_state(story_dir, fresh_state)
+        envelope = PhaseEnvelopeStore.make_fresh_envelope(fresh_state)
 
     # 4. Run phase loop
     phases_executed: list[str] = []
     max_iterations = 20  # safety limit
 
     for _ in range(max_iterations):
-        result = engine.run_phase(story_context, state)
+        result = engine.run_phase(story_context, envelope)
         phases_executed.append(result.phase)
         if result.updated_context is not None:
             story_context = result.updated_context
@@ -145,13 +165,14 @@ def run_pipeline(
                 final_phase=result.phase,
             )
 
-        # Create state for next phase
-        state = PhaseState(
+        # Create state for next phase and wrap in fresh envelope
+        next_state = PhaseState(
             story_id=story_context.story_id,
             phase=result.next_phase,
             status=PhaseStatus.PENDING,
         )
-        save_phase_state(story_dir, state)
+        save_phase_state(story_dir, next_state)
+        envelope = PhaseEnvelopeStore.make_fresh_envelope(next_state)
 
     # Safety limit reached
     return PipelineRunResult(

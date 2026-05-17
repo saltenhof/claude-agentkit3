@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 from agentkit.core_types import PauseReason
 from agentkit.exceptions import PipelineError
+from agentkit.pipeline_engine.phase_envelope.errors import InvalidPauseReasonError
 from agentkit.pipeline_engine.phase_executor.records import AttemptRecord
 from agentkit.pipeline_engine.runtime_state import EngineRuntimeState
 from agentkit.process.language.model import ExecutionPolicy
@@ -88,7 +89,7 @@ def _coerce_paused_reason(
     try:
         return PauseReason.from_yield_status(raw)
     except ValueError as exc:
-        raise PipelineError(
+        raise InvalidPauseReasonError(
             f"Handler for phase {phase_name!r} produced unknown yield_status "
             f"{raw!r}; PauseReason allows only "
             f"{[m.value for m in PauseReason]}",
@@ -103,6 +104,7 @@ if TYPE_CHECKING:
         PhaseHandler,
         PhaseHandlerRegistry,
     )
+    from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
     from agentkit.process.language.model import (
         OverridePolicy,
         PhaseDefinition,
@@ -343,12 +345,13 @@ def _handle_completed_result(
     handler: PhaseHandler,
     result: HandlerResult,
     attempt_id: str,
+    envelope: PhaseEnvelope,
     *,
     resume_trigger: str | None,
 ) -> EngineResult:
     phase_name = state.phase
     try:
-        handler.on_exit(ctx, state)
+        handler.on_exit(ctx, envelope)
     except Exception as exc:
         logger.warning(
             "on_exit raised for phase '%s': %s",
@@ -588,6 +591,7 @@ def _process_handler_result_impl(
     handler: PhaseHandler,
     result: HandlerResult,
     attempt_id: str,
+    envelope: PhaseEnvelope,
     *,
     resume_trigger: str | None,
 ) -> EngineResult:
@@ -600,6 +604,7 @@ def _process_handler_result_impl(
             handler,
             result,
             attempt_id,
+            envelope,
             resume_trigger=resume_trigger,
         )
     if result.status == PhaseStatus.PAUSED:
@@ -658,7 +663,7 @@ class PipelineEngine:
     def run_phase(
         self,
         ctx: StoryContext,
-        state: PhaseState,
+        envelope: PhaseEnvelope,
     ) -> EngineResult:
         """Run the current phase through its handler.
 
@@ -677,7 +682,8 @@ class PipelineEngine:
 
         Args:
             ctx: The story context for this pipeline run.
-            state: The current phase state.
+            envelope: The current phase envelope (durable state +
+                ephemeral runtime).
 
         Returns:
             An ``EngineResult`` describing the outcome.
@@ -686,6 +692,7 @@ class PipelineEngine:
             PipelineError: If the phase is not defined in the workflow
                 or no handler is registered for it.
         """
+        state = envelope.state
         phase_name = state.phase
         save_story_context(self._story_dir, ctx)
 
@@ -796,7 +803,7 @@ class PipelineEngine:
 
         # 4. Call handler.on_enter, catching exceptions
         try:
-            result = handler.on_enter(ctx, state)
+            result = handler.on_enter(ctx, envelope)
         except Exception as exc:
             return self._handle_handler_exception(
                 ctx,
@@ -815,12 +822,13 @@ class PipelineEngine:
             handler,
             result,
             attempt_id,
+            envelope,
         )
 
     def resume_phase(
         self,
         ctx: StoryContext,
-        state: PhaseState,
+        envelope: PhaseEnvelope,
         trigger: str,
     ) -> EngineResult:
         """Resume a yielded phase after external input.
@@ -833,7 +841,7 @@ class PipelineEngine:
 
         Args:
             ctx: The story context for this pipeline run.
-            state: The current phase state (must be PAUSED).
+            envelope: The current phase envelope (must be PAUSED).
             trigger: The resume trigger event name.
 
         Returns:
@@ -841,6 +849,7 @@ class PipelineEngine:
             ``status="failed"`` if the state is not PAUSED or the
             trigger is not valid for the current yield point.
         """
+        state = envelope.state
         phase_name = state.phase
         save_story_context(self._story_dir, ctx)
 
@@ -898,7 +907,7 @@ class PipelineEngine:
         attempt_id = self._runtime.generate_attempt_id(phase_name)
 
         try:
-            result = handler.on_resume(ctx, state, trigger)
+            result = handler.on_resume(ctx, envelope, trigger)
         except Exception as exc:
             return self._handle_handler_exception(
                 ctx,
@@ -917,6 +926,7 @@ class PipelineEngine:
             handler,
             result,
             attempt_id,
+            envelope,
             resume_trigger=trigger,
         )
 
@@ -928,6 +938,7 @@ class PipelineEngine:
         handler: PhaseHandler,
         result: HandlerResult,
         attempt_id: str,
+        envelope: PhaseEnvelope,
         *,
         resume_trigger: str | None = None,
     ) -> EngineResult:
@@ -943,6 +954,7 @@ class PipelineEngine:
             handler: The handler instance (for calling on_exit).
             result: The handler's result.
             attempt_id: The attempt identifier.
+            envelope: The full phase envelope (needed for on_exit call).
             resume_trigger: If resuming, the trigger that was used.
 
         Returns:
@@ -956,6 +968,7 @@ class PipelineEngine:
             handler,
             result,
             attempt_id,
+            envelope,
             resume_trigger=resume_trigger,
         )
 

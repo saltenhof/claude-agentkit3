@@ -15,6 +15,7 @@ from agentkit.exceptions import PipelineError
 from agentkit.story_context_manager.models import PhaseStatus
 
 if TYPE_CHECKING:
+    from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
     from agentkit.story_context_manager.models import PhaseState, StoryContext
 
 
@@ -30,6 +31,8 @@ class HandlerResult:
             (e.g. ``"awaiting_design_review"``).
         artifacts_produced: Paths to artifacts produced during execution.
         errors: Error messages if the phase FAILED.
+        updated_context: Updated story context (if the handler modified it).
+        updated_state: Updated phase state (if the handler modified it).
     """
 
     status: PhaseStatus
@@ -47,37 +50,41 @@ class PhaseHandler(Protocol):
     Each pipeline phase (setup, exploration, implementation, closure)
     has a handler that implements this protocol. The handler contains the
     execution logic -- the workflow DSL only defines topology.
+
+    Handlers receive a ``PhaseEnvelope`` which bundles the durable
+    ``PhaseState`` with ephemeral ``RuntimeMetadata``. For read access to
+    the persistent state, handlers use ``envelope.state``.
     """
 
-    def on_enter(self, _ctx: StoryContext, _state: PhaseState) -> HandlerResult:
+    def on_enter(self, _ctx: StoryContext, _envelope: PhaseEnvelope) -> HandlerResult:
         """Called when entering a phase. Do the main work here.
 
         Args:
             ctx: The story context for this pipeline run.
-            state: The current phase state.
+            envelope: The current phase envelope (state + runtime).
 
         Returns:
             A ``HandlerResult`` describing the outcome.
         """
         ...
 
-    def on_exit(self, _ctx: StoryContext, _state: PhaseState) -> None:
+    def on_exit(self, _ctx: StoryContext, _envelope: PhaseEnvelope) -> None:
         """Called when leaving a phase. Write snapshots, validate artifacts.
 
         Args:
             ctx: The story context for this pipeline run.
-            state: The current phase state.
+            envelope: The current phase envelope (state + runtime).
         """
         ...
 
     def on_resume(
-        self, _ctx: StoryContext, _state: PhaseState, _trigger: str,
+        self, _ctx: StoryContext, _envelope: PhaseEnvelope, _trigger: str,
     ) -> HandlerResult:
         """Called when resuming a yielded phase after external input.
 
         Args:
             ctx: The story context for this pipeline run.
-            state: The current phase state.
+            envelope: The current phase envelope (state + runtime).
             trigger: The resume trigger that caused re-entry.
 
         Returns:
@@ -93,42 +100,42 @@ class NoOpHandler:
     Satisfies the ``PhaseHandler`` protocol.
     """
 
-    def on_enter(self, ctx: StoryContext, state: PhaseState) -> HandlerResult:
+    def on_enter(self, ctx: StoryContext, envelope: PhaseEnvelope) -> HandlerResult:
         """Immediately return COMPLETED status.
 
         Args:
             ctx: The story context (unused).
-            state: The current phase state (unused).
+            envelope: The current phase envelope (unused).
 
         Returns:
             A ``HandlerResult`` with ``COMPLETED`` status.
         """
-        _ = ctx, state
+        _ = ctx, envelope
         return HandlerResult(status=PhaseStatus.COMPLETED)
 
-    def on_exit(self, ctx: StoryContext, state: PhaseState) -> None:
+    def on_exit(self, ctx: StoryContext, envelope: PhaseEnvelope) -> None:
         """No-op exit -- does nothing.
 
         Args:
             ctx: The story context (unused).
-            state: The current phase state (unused).
+            envelope: The current phase envelope (unused).
         """
-        _ = ctx, state
+        _ = ctx, envelope
 
     def on_resume(
-        self, ctx: StoryContext, state: PhaseState, trigger: str,
+        self, ctx: StoryContext, envelope: PhaseEnvelope, trigger: str,
     ) -> HandlerResult:
         """Immediately return COMPLETED status on resume.
 
         Args:
             ctx: The story context (unused).
-            state: The current phase state (unused).
+            envelope: The current phase envelope (unused).
             trigger: The resume trigger (unused).
 
         Returns:
             A ``HandlerResult`` with ``COMPLETED`` status.
         """
-        _ = ctx, state, trigger
+        _ = ctx, envelope, trigger
         return HandlerResult(status=PhaseStatus.COMPLETED)
 
 

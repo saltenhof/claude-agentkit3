@@ -29,6 +29,7 @@ from agentkit.pipeline_engine.lifecycle import (
     NoOpHandler,
     PhaseHandlerRegistry,
 )
+from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
 from agentkit.process.language.builder import Workflow
 from agentkit.process.language.guards import GuardResult, guard
 from agentkit.process.language.model import ExecutionPolicy
@@ -47,6 +48,13 @@ if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
+    from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
+
+
+def _make_envelope(state: PhaseState) -> PhaseEnvelope:
+    """Wrap a PhaseState in a fresh PhaseEnvelope for test calls."""
+    return PhaseEnvelopeStore.make_fresh_envelope(state)
+
 
 # ---------------------------------------------------------------------------
 # Test helpers — real handler classes (no mocks)
@@ -60,18 +68,18 @@ class PausingHandler:
         self._yield_status = yield_status
 
     def on_enter(
-        self, ctx: StoryContext, state: PhaseState,
+        self, ctx: StoryContext, envelope: PhaseEnvelope,
     ) -> HandlerResult:
         return HandlerResult(
             status=PhaseStatus.PAUSED,
             yield_status=self._yield_status,
         )
 
-    def on_exit(self, ctx: StoryContext, state: PhaseState) -> None:
+    def on_exit(self, ctx: StoryContext, envelope: PhaseEnvelope) -> None:
         pass
 
     def on_resume(
-        self, ctx: StoryContext, state: PhaseState, trigger: str,
+        self, ctx: StoryContext, envelope: PhaseEnvelope, trigger: str,
     ) -> HandlerResult:
         return HandlerResult(status=PhaseStatus.COMPLETED)
 
@@ -83,15 +91,15 @@ class FailingHandler:
         self._message = message
 
     def on_enter(
-        self, ctx: StoryContext, state: PhaseState,
+        self, ctx: StoryContext, envelope: PhaseEnvelope,
     ) -> HandlerResult:
         raise RuntimeError(self._message)
 
-    def on_exit(self, ctx: StoryContext, state: PhaseState) -> None:
+    def on_exit(self, ctx: StoryContext, envelope: PhaseEnvelope) -> None:
         pass
 
     def on_resume(
-        self, ctx: StoryContext, state: PhaseState, trigger: str,
+        self, ctx: StoryContext, envelope: PhaseEnvelope, trigger: str,
     ) -> HandlerResult:
         raise RuntimeError(self._message)
 
@@ -103,18 +111,18 @@ class FailResultHandler:
         self._errors = errors
 
     def on_enter(
-        self, ctx: StoryContext, state: PhaseState,
+        self, ctx: StoryContext, envelope: PhaseEnvelope,
     ) -> HandlerResult:
         return HandlerResult(
             status=PhaseStatus.FAILED,
             errors=self._errors,
         )
 
-    def on_exit(self, ctx: StoryContext, state: PhaseState) -> None:
+    def on_exit(self, ctx: StoryContext, envelope: PhaseEnvelope) -> None:
         pass
 
     def on_resume(
-        self, ctx: StoryContext, state: PhaseState, trigger: str,
+        self, ctx: StoryContext, envelope: PhaseEnvelope, trigger: str,
     ) -> HandlerResult:
         return HandlerResult(
             status=PhaseStatus.FAILED,
@@ -126,25 +134,25 @@ class TrackingHandler:
     """Handler that tracks calls for verification."""
 
     def __init__(self) -> None:
-        self.on_enter_calls: list[tuple[StoryContext, PhaseState]] = []
-        self.on_exit_calls: list[tuple[StoryContext, PhaseState]] = []
+        self.on_enter_calls: list[tuple[StoryContext, PhaseEnvelope]] = []
+        self.on_exit_calls: list[tuple[StoryContext, PhaseEnvelope]] = []
         self.on_resume_calls: list[
-            tuple[StoryContext, PhaseState, str]
+            tuple[StoryContext, PhaseEnvelope, str]
         ] = []
 
     def on_enter(
-        self, ctx: StoryContext, state: PhaseState,
+        self, ctx: StoryContext, envelope: PhaseEnvelope,
     ) -> HandlerResult:
-        self.on_enter_calls.append((ctx, state))
+        self.on_enter_calls.append((ctx, envelope))
         return HandlerResult(status=PhaseStatus.COMPLETED)
 
-    def on_exit(self, ctx: StoryContext, state: PhaseState) -> None:
-        self.on_exit_calls.append((ctx, state))
+    def on_exit(self, ctx: StoryContext, envelope: PhaseEnvelope) -> None:
+        self.on_exit_calls.append((ctx, envelope))
 
     def on_resume(
-        self, ctx: StoryContext, state: PhaseState, trigger: str,
+        self, ctx: StoryContext, envelope: PhaseEnvelope, trigger: str,
     ) -> HandlerResult:
-        self.on_resume_calls.append((ctx, state, trigger))
+        self.on_resume_calls.append((ctx, envelope, trigger))
         return HandlerResult(status=PhaseStatus.COMPLETED)
 
 
@@ -250,7 +258,7 @@ class TestRunPhaseNormal:
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.PENDING,
         )
-        result = engine.run_phase(story_ctx, state)
+        result = engine.run_phase(story_ctx, _make_envelope(state))
         assert result.status == "phase_completed"
         assert result.phase == "setup"
         assert result.attempt_id is not None
@@ -268,7 +276,7 @@ class TestRunPhaseNormal:
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.PENDING,
         )
-        engine.run_phase(story_ctx, state)
+        engine.run_phase(story_ctx, _make_envelope(state))
 
         attempts = load_attempts(story_dir, "setup")
         assert len(attempts) == 1
@@ -288,7 +296,7 @@ class TestRunPhaseNormal:
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.PENDING,
         )
-        engine.run_phase(story_ctx, state)
+        engine.run_phase(story_ctx, _make_envelope(state))
 
         loaded = read_phase_state_record(story_dir)
         assert loaded is not None
@@ -332,7 +340,7 @@ class TestRunPhaseNormal:
             story_id="TEST-001", phase="exploration",
             status=PhaseStatus.PENDING,
         )
-        result = engine.run_phase(story_ctx, state)
+        result = engine.run_phase(story_ctx, _make_envelope(state))
 
         assert result.status == "yielded"
         assert result.yield_status == "awaiting_design_review"
@@ -373,7 +381,7 @@ class TestRunPhaseNormal:
                 self._tracker = tracker
 
             def on_enter(
-                self, ctx: StoryContext, state: PhaseState,
+                self, ctx: StoryContext, envelope: PhaseEnvelope,
             ) -> HandlerResult:
                 return HandlerResult(
                     status=PhaseStatus.PAUSED,
@@ -381,15 +389,15 @@ class TestRunPhaseNormal:
                 )
 
             def on_exit(
-                self, ctx: StoryContext, state: PhaseState,
+                self, ctx: StoryContext, envelope: PhaseEnvelope,
             ) -> None:
                 pass
 
             def on_resume(
-                self, ctx: StoryContext, state: PhaseState, trigger: str,
+                self, ctx: StoryContext, envelope: PhaseEnvelope, trigger: str,
             ) -> HandlerResult:
                 self._tracker.on_resume_calls.append(
-                    (ctx, state, trigger),
+                    (ctx, envelope, trigger),
                 )
                 return HandlerResult(status=PhaseStatus.COMPLETED)
 
@@ -403,7 +411,7 @@ class TestRunPhaseNormal:
             story_id="TEST-001", phase="exploration",
             status=PhaseStatus.PENDING,
         )
-        yield_result = engine.run_phase(story_ctx, initial_state)
+        yield_result = engine.run_phase(story_ctx, _make_envelope(initial_state))
         assert yield_result.status == "yielded"
 
         # Then: resume
@@ -413,7 +421,7 @@ class TestRunPhaseNormal:
             paused_reason=PauseReason.AWAITING_DESIGN_REVIEW,
         )
         resume_result = engine.resume_phase(
-            story_ctx, paused_state, "approved",
+            story_ctx, _make_envelope(paused_state), "approved",
         )
         assert resume_result.status == "phase_completed"
         assert len(tracking.on_resume_calls) == 1
@@ -451,7 +459,7 @@ class TestGuardAndPrecondition:
             story_id="TEST-001", phase="closure",
             status=PhaseStatus.PENDING,
         )
-        result = engine.run_phase(story_ctx, state)
+        result = engine.run_phase(story_ctx, _make_envelope(state))
         assert result.status == "phase_completed"
 
     def test_precondition_violated_blocks(
@@ -477,7 +485,7 @@ class TestGuardAndPrecondition:
             story_id="TEST-001", phase="closure",
             status=PhaseStatus.PENDING,
         )
-        result = engine.run_phase(story_ctx, state)
+        result = engine.run_phase(story_ctx, _make_envelope(state))
         assert result.status == "blocked"
 
 
@@ -506,8 +514,8 @@ class TestExecutionPoliciesAndOverrides:
             status=PhaseStatus.PENDING,
         )
 
-        first = engine.run_phase(story_ctx, state)
-        second = engine.run_phase(story_ctx, state)
+        first = engine.run_phase(story_ctx, _make_envelope(state))
+        second = engine.run_phase(story_ctx, _make_envelope(state))
 
         assert first.status == "phase_completed"
         assert second.status == "phase_completed"
@@ -541,7 +549,7 @@ class TestExecutionPoliciesAndOverrides:
             phase="closure",
             status=PhaseStatus.PENDING,
         )
-        result = engine.run_phase(story_ctx, state)
+        result = engine.run_phase(story_ctx, _make_envelope(state))
 
         assert result.status == "phase_completed"
         assert result.next_phase == "implementation"
@@ -591,7 +599,7 @@ class TestExecutionPoliciesAndOverrides:
             phase="implementation",
             status=PhaseStatus.PENDING,
         )
-        result = engine.run_phase(story_ctx, state)
+        result = engine.run_phase(story_ctx, _make_envelope(state))
 
         assert result.status == "phase_completed"
         assert result.next_phase == "closure"
@@ -638,7 +646,7 @@ class TestExecutionPoliciesAndOverrides:
             phase="implementation",
             status=PhaseStatus.PENDING,
         )
-        result = engine.run_phase(story_ctx, state)
+        result = engine.run_phase(story_ctx, _make_envelope(state))
 
         assert result.status == "phase_completed"
         assert result.next_phase == "closure"
@@ -674,7 +682,7 @@ class TestExecutionPoliciesAndOverrides:
             status=PhaseStatus.PENDING,
         )
         # Should NOT be blocked since mode is EXECUTION, not EXPLORATION
-        result = engine.run_phase(ctx, state)
+        result = engine.run_phase(ctx, _make_envelope(state))
         assert result.status == "phase_completed"
 
     def test_transition_guard_pass_returns_transition(
@@ -766,7 +774,7 @@ class TestPipelineRobustness:
             status=PhaseStatus.PENDING,
         )
         with pytest.raises(PipelineError, match="not defined in workflow"):
-            engine.run_phase(story_ctx, state)
+            engine.run_phase(story_ctx, _make_envelope(state))
 
     def test_no_handler_registered_raises(
         self,
@@ -784,7 +792,7 @@ class TestPipelineRobustness:
             status=PhaseStatus.PENDING,
         )
         with pytest.raises(PipelineError, match="No handler registered"):
-            engine.run_phase(story_ctx, state)
+            engine.run_phase(story_ctx, _make_envelope(state))
 
     def test_resume_when_not_paused_fails(
         self,
@@ -809,7 +817,7 @@ class TestPipelineRobustness:
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.IN_PROGRESS,
         )
-        result = engine.resume_phase(story_ctx, state, "go")
+        result = engine.resume_phase(story_ctx, _make_envelope(state), "go")
         assert result.status == "failed"
         assert "expected 'paused'" in result.errors[0]
 
@@ -839,7 +847,7 @@ class TestPipelineRobustness:
             paused_reason=PauseReason.AWAITING_DESIGN_REVIEW,
         )
         result = engine.resume_phase(
-            story_ctx, paused_state, "invalid_trigger",
+            story_ctx, _make_envelope(paused_state), "invalid_trigger",
         )
         assert result.status == "failed"
         assert "Invalid resume trigger" in result.errors[0]
@@ -859,7 +867,7 @@ class TestPipelineRobustness:
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.PENDING,
         )
-        result = engine.run_phase(story_ctx, state)
+        result = engine.run_phase(story_ctx, _make_envelope(state))
         assert result.status == "failed"
         assert len(result.errors) > 0
         assert "Boom!" in result.errors[0]
@@ -889,7 +897,7 @@ class TestPipelineRobustness:
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.PENDING,
         )
-        result = engine.run_phase(story_ctx, state)
+        result = engine.run_phase(story_ctx, _make_envelope(state))
         assert result.status == "failed"
 
         # Load persisted state and verify story_id is preserved
@@ -915,7 +923,7 @@ class TestPipelineRobustness:
             story_id="TEST-001", phase="implementation",
             status=PhaseStatus.PENDING,
         )
-        result = engine.run_phase(story_ctx, state)
+        result = engine.run_phase(story_ctx, _make_envelope(state))
         assert result.status == "failed"
         assert "qa check failed" in result.errors
 
@@ -987,7 +995,7 @@ class TestTransitionEvaluation:
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.PENDING,
         )
-        result = engine.run_phase(story_ctx, state)
+        result = engine.run_phase(story_ctx, _make_envelope(state))
         assert result.status == "phase_completed"
         assert result.next_phase == "closure"
 
@@ -1004,7 +1012,7 @@ class TestTransitionEvaluation:
             story_id="TEST-001", phase="closure",
             status=PhaseStatus.PENDING,
         )
-        result = engine.run_phase(story_ctx, state)
+        result = engine.run_phase(story_ctx, _make_envelope(state))
         assert result.status == "phase_completed"
         assert result.next_phase is None
 
@@ -1062,7 +1070,7 @@ class TestTransitionEvaluation:
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.PENDING,
         )
-        engine.run_phase(story_ctx, state)
+        engine.run_phase(story_ctx, _make_envelope(state))
 
         snapshot_file = story_dir / "phase-state-setup.json"
         assert snapshot_file.exists()
@@ -1082,8 +1090,8 @@ class TestTransitionEvaluation:
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.PENDING,
         )
-        r1 = engine.run_phase(story_ctx, state)
-        r2 = engine.run_phase(story_ctx, state)
+        r1 = engine.run_phase(story_ctx, _make_envelope(state))
+        r2 = engine.run_phase(story_ctx, _make_envelope(state))
 
         assert r1.attempt_id == "setup-001"
         assert r2.attempt_id == "setup-002"
@@ -1111,7 +1119,7 @@ class TestTransitionEvaluation:
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.PENDING,
         )
-        result = engine.run_phase(story_ctx, state)
+        result = engine.run_phase(story_ctx, _make_envelope(state))
         assert result.status == "phase_completed"
 
         attempts = load_attempts(story_dir, "setup")
@@ -1141,7 +1149,7 @@ class TestTransitionEvaluation:
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.PENDING,
         )
-        result = engine.run_phase(story_ctx, state)
+        result = engine.run_phase(story_ctx, _make_envelope(state))
         # Handler completed but guard blocked the transition
         assert result.status == "failed"
         assert result.phase == "setup"
@@ -1214,7 +1222,7 @@ class TestRuntimeTelemetry:
             phase="setup",
             status=PhaseStatus.PENDING,
         )
-        engine.run_phase(story_ctx, state)
+        engine.run_phase(story_ctx, _make_envelope(state))
 
         flow = load_flow_execution(story_dir)
         assert flow is not None
@@ -1276,7 +1284,7 @@ class TestRuntimeTelemetry:
             phase="implementation",
             status=PhaseStatus.PENDING,
         )
-        engine.run_phase(story_ctx, state)
+        engine.run_phase(story_ctx, _make_envelope(state))
 
         flow = load_flow_execution(story_dir)
         assert flow is not None
@@ -1325,7 +1333,7 @@ class TestRuntimeTelemetry:
             phase="closure",
             status=PhaseStatus.PENDING,
         )
-        result = engine.run_phase(story_ctx, state)
+        result = engine.run_phase(story_ctx, _make_envelope(state))
         assert result.status == "phase_completed"
         assert result.next_phase == "implementation"
 

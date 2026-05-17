@@ -31,7 +31,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
-    from agentkit.story_context_manager.models import PhaseState, StoryContext
+    from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
+    from agentkit.story_context_manager.models import StoryContext
     from agentkit.story_context_manager.service import StoryService
 
 logger = logging.getLogger(__name__)
@@ -84,7 +85,7 @@ class ClosurePhaseHandler:
     def __init__(self, config: ClosureConfig) -> None:
         self._config = config
 
-    def on_enter(self, ctx: StoryContext, state: PhaseState) -> HandlerResult:
+    def on_enter(self, ctx: StoryContext, envelope: PhaseEnvelope) -> HandlerResult:
         """Execute closure.
 
         1. Determine required prior phases from story type profile.
@@ -96,12 +97,12 @@ class ClosurePhaseHandler:
 
         Args:
             ctx: The story context for this pipeline run.
-            state: The current phase state.
+            envelope: The current phase envelope (state unused by closure).
 
         Returns:
             A ``HandlerResult`` describing the outcome.
         """
-        _ = state
+        _ = envelope
         cfg = self._config
 
         if cfg.story_dir is None:
@@ -157,29 +158,29 @@ class ClosurePhaseHandler:
             artifacts_produced=(str(report_path),),
         )
 
-    def on_exit(self, _ctx: StoryContext, _state: PhaseState) -> None:
+    def on_exit(self, _ctx: StoryContext, _envelope: PhaseEnvelope) -> None:
         """No-op for closure phase.
 
         Args:
             ctx: The story context (unused).
-            state: The current phase state (unused).
+            envelope: The current phase envelope (unused).
         """
-        _ = _ctx, _state
+        _ = _ctx, _envelope
 
     def on_resume(
-        self, _ctx: StoryContext, _state: PhaseState, _trigger: str,
+        self, _ctx: StoryContext, _envelope: PhaseEnvelope, _trigger: str,
     ) -> HandlerResult:
         """Closure phase does not support resume -- return FAILED.
 
         Args:
             ctx: The story context (unused).
-            state: The current phase state (unused).
+            envelope: The current phase envelope (unused).
             trigger: The resume trigger (unused).
 
         Returns:
             A ``HandlerResult`` with ``FAILED`` status.
         """
-        _ = _ctx, _state, _trigger
+        _ = _ctx, _envelope, _trigger
         return HandlerResult(
             status=PhaseStatus.FAILED,
             errors=("Closure phase does not support resume",),

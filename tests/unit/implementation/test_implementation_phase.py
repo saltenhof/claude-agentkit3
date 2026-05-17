@@ -15,6 +15,7 @@ from agentkit.implementation.phase import (
 from agentkit.installer.paths import qa_story_dir
 from agentkit.phase_state_store.models import FlowExecution
 from agentkit.pipeline_engine.lifecycle import PhaseHandler
+from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
 from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.state_backend.store import (
     reset_backend_cache_for_tests,
@@ -76,6 +77,11 @@ def _make_state(review_round: int = 0) -> PhaseState:
     )
 
 
+def _make_envelope(state: PhaseState) -> object:
+    """Wrap a PhaseState in a PhaseEnvelope for handler calls."""
+    return PhaseEnvelopeStore.make_fresh_envelope(state)
+
+
 def _setup_complete_story_dir(
     tmp_path: Path,
     story_type: StoryType = StoryType.BUGFIX,
@@ -126,7 +132,7 @@ class TestImplementationPhaseHandler:
         ctx = _make_context()
         state = _make_state()
 
-        result = handler.on_enter(ctx, state)
+        result = handler.on_enter(ctx, _make_envelope(state))
         assert result.status == PhaseStatus.COMPLETED
         assert result.artifacts_produced == (
             "structural.json",
@@ -156,7 +162,7 @@ class TestImplementationPhaseHandler:
         ctx = _make_context()
         state = _make_state()
 
-        result = handler.on_enter(ctx, state)
+        result = handler.on_enter(ctx, _make_envelope(state))
         assert result.status == PhaseStatus.ESCALATED
         assert len(result.errors) > 0
         assert result.artifacts_produced == (
@@ -173,7 +179,7 @@ class TestImplementationPhaseHandler:
         ctx = _make_context()
         state = _make_state(review_round=1)
 
-        result = handler.on_resume(ctx, state, trigger="remediation_complete")
+        result = handler.on_resume(ctx, _make_envelope(state), trigger="remediation_complete")
         assert result.status == PhaseStatus.COMPLETED
 
     def test_no_story_dir_returns_failed(self) -> None:
@@ -182,7 +188,7 @@ class TestImplementationPhaseHandler:
         ctx = _make_context()
         state = _make_state()
 
-        result = handler.on_enter(ctx, state)
+        result = handler.on_enter(ctx, _make_envelope(state))
         assert result.status == PhaseStatus.FAILED
         assert "story_dir" in result.errors[0]
 
@@ -196,7 +202,7 @@ class TestImplementationPhaseHandler:
         ctx = _make_context()
         state = _make_state()
 
-        result = handler.on_enter(ctx, state)
+        result = handler.on_enter(ctx, _make_envelope(state))
         assert result.status == PhaseStatus.COMPLETED
         assert result.artifacts_produced == (
             "structural.json",
@@ -236,7 +242,7 @@ class TestImplementationPhaseHandler:
         ctx = _make_context()
         state = _make_state()
 
-        result = handler.on_enter(ctx, state)
+        result = handler.on_enter(ctx, _make_envelope(state))
         assert result.status == PhaseStatus.ESCALATED
         # Should contain structured feedback
         full_errors = "\n".join(result.errors)
@@ -249,7 +255,7 @@ class TestImplementationPhaseHandler:
         ctx = _make_context()
         state = _make_state()
 
-        result = handler.on_enter(ctx, state)
+        result = handler.on_enter(ctx, _make_envelope(state))
         assert result.status == PhaseStatus.COMPLETED
 
         qa_dir = qa_story_dir(tmp_path, "TEST-001")
@@ -320,7 +326,7 @@ class TestImplementationPhaseHandler:
         ctx = _make_context()
         state = _make_state()
 
-        result = handler.on_enter(ctx, state)
+        result = handler.on_enter(ctx, _make_envelope(state))
         assert result.status == PhaseStatus.ESCALATED
 
         qa_dir = qa_story_dir(tmp_path, "TEST-001")
