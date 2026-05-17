@@ -516,22 +516,31 @@ class TestClosurePhaseHandler:
             ),
         )
 
+        from agentkit.core_types.attempt import AttemptOutcome, FailureCause
+        from agentkit.story_context_manager.models import PhaseName
+
         save_attempt(
             s_dir,
             AttemptRecord(
-                attempt_id="implementation-001",
-                phase="implementation",
-                entered_at=datetime(2026, 1, 1, 10, 1, 0, tzinfo=UTC),
-                exit_status=PhaseStatus.FAILED,
+                run_id=_run_id_for("TEST-104"),
+                phase=PhaseName.IMPLEMENTATION,
+                attempt=1,
+                outcome=AttemptOutcome.FAILED,
+                failure_cause=FailureCause.HANDLER_REPORTED_FAILED,
+                started_at=datetime(2026, 1, 1, 10, 1, 0, tzinfo=UTC),
+                ended_at=datetime(2026, 1, 1, 10, 2, 0, tzinfo=UTC),
             ),
         )
         save_attempt(
             s_dir,
             AttemptRecord(
-                attempt_id="implementation-002",
-                phase="implementation",
-                entered_at=datetime(2026, 1, 1, 10, 2, 0, tzinfo=UTC),
-                exit_status=PhaseStatus.COMPLETED,
+                run_id=_run_id_for("TEST-104"),
+                phase=PhaseName.IMPLEMENTATION,
+                attempt=2,
+                outcome=AttemptOutcome.COMPLETED,
+                failure_cause=None,
+                started_at=datetime(2026, 1, 1, 10, 2, 0, tzinfo=UTC),
+                ended_at=datetime(2026, 1, 1, 10, 3, 0, tzinfo=UTC),
             ),
         )
 

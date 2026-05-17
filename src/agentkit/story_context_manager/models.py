@@ -79,6 +79,18 @@ class ExplorationPayload(BaseModel):
 
 
 class ImplementationPayload(BaseModel):
+    """Payload for the Implementation phase.
+
+    QA-Zyklus-Identitaeten (FK-27 §27.2):
+    - ``qa_cycle_id``: UUID4-String; gesetzt beim ersten QA-Subflow-Start.
+      Wenn gesetzt, muss ``qa_cycle_round >= 1`` sein.
+    - ``qa_cycle_round``: Zaehler der Remediation-Runden (>= 0).
+    - ``evidence_epoch``: Zaehler der advance_qa_cycle-Aufrufe (>= 0).
+    - ``evidence_fingerprint``: SHA-256 ueber relevante Code-Aenderungen.
+    Befuellung/Inkrementierung ist AG3-041 (THEME-009); diese Story
+    stellt nur das Datenmodell bereit.
+    """
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     phase_type: Literal["implementation"] = "implementation"
@@ -86,8 +98,19 @@ class ImplementationPayload(BaseModel):
     verify_context: QaContext | None = None
     qa_cycle_round: int = Field(default=0, ge=0)
     qa_cycle_id: str | None = None
-    evidence_epoch: str | None = None
+    evidence_epoch: int = Field(default=0, ge=0)
     evidence_fingerprint: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_qa_cycle_round_when_id_set(self) -> ImplementationPayload:
+        """FK-27 §27.2: wenn qa_cycle_id gesetzt, dann qa_cycle_round >= 1."""
+        if self.qa_cycle_id is not None and self.qa_cycle_round < 1:
+            raise ValueError(
+                "qa_cycle_round must be >= 1 when qa_cycle_id is set; "
+                f"got qa_cycle_round={self.qa_cycle_round!r} with "
+                f"qa_cycle_id={self.qa_cycle_id!r}"
+            )
+        return self
 
 
 class ClosureProgress(BaseModel):

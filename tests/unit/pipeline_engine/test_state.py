@@ -94,19 +94,25 @@ def _make_snapshot() -> PhaseSnapshot:
 def _make_attempt(
     *,
     phase: str = "exploration",
-    attempt_id: str = "exploration-001",
-    exit_status: PhaseStatus | None = PhaseStatus.COMPLETED,
-    outcome: str | None = "completed",
+    run_id: str = "run-abc",
+    attempt: int = 1,
+    outcome: str = "COMPLETED",
+    failure_cause: str | None = None,
 ) -> AttemptRecord:
-    """Create an AttemptRecord for testing."""
+    """Create an AttemptRecord for testing (AG3-025 schema)."""
+    from agentkit.core_types.attempt import AttemptOutcome, FailureCause
+    from agentkit.story_context_manager.models import PhaseName
+
+    fc = FailureCause(failure_cause) if failure_cause is not None else None
     return AttemptRecord(
-        attempt_id=attempt_id,
-        phase=phase,
-        entered_at=datetime(2026, 1, 15, 10, 0, 0, tzinfo=UTC),
-        exit_status=exit_status,
-        guard_evaluations=({"guard": "preflight", "passed": True},),
-        artifacts_produced=("design.md",),
-        outcome=outcome,
+        run_id=run_id,
+        phase=PhaseName(phase) if phase in [p.value for p in PhaseName] else PhaseName.IMPLEMENTATION,
+        attempt=attempt,
+        outcome=AttemptOutcome(outcome),
+        failure_cause=fc,
+        started_at=datetime(2026, 1, 15, 10, 0, 0, tzinfo=UTC),
+        ended_at=datetime(2026, 1, 15, 10, 5, 0, tzinfo=UTC),
+        detail={"guard_evaluations": [{"guard": "preflight", "passed": True}], "artifacts_produced": ["design.md"]},
     )
 
 
@@ -271,41 +277,56 @@ class TestStoryContextPersistence:
 
 
 class TestAttemptPersistence:
-    """Tests for AttemptRecord roundtrip persistence."""
+    """Tests for AttemptRecord roundtrip persistence (AG3-025 schema)."""
 
     def test_roundtrip_single(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
-        _bootstrap_context(story_dir)
         attempt = _make_attempt()
         save_attempt(story_dir, attempt)
         loaded = load_attempts(story_dir, "exploration")
 
         assert len(loaded) == 1
         rec = loaded[0]
-        assert rec.attempt_id == attempt.attempt_id
-        assert rec.phase == attempt.phase
-        assert rec.exit_status == PhaseStatus.COMPLETED
-        assert rec.outcome == "completed"
-        assert rec.artifacts_produced == ("design.md",)
+        assert rec.run_id == "run-abc"
+        assert rec.phase.value == "exploration"
+        assert rec.attempt == 1
+        from agentkit.core_types.attempt import AttemptOutcome
+        assert rec.outcome == AttemptOutcome.COMPLETED
+        assert rec.failure_cause is None
+
+    def test_roundtrip_with_failure_cause(self, tmp_path: Path) -> None:
+        story_dir = _story_dir(tmp_path)
+        attempt = _make_attempt(
+            attempt=1,
+            outcome="FAILED",
+            failure_cause="HANDLER_REPORTED_FAILED",
+        )
+        save_attempt(story_dir, attempt)
+        loaded = load_attempts(story_dir, "exploration")
+
+        assert len(loaded) == 1
+        from agentkit.core_types.attempt import AttemptOutcome, FailureCause
+        assert loaded[0].outcome == AttemptOutcome.FAILED
+        assert loaded[0].failure_cause == FailureCause.HANDLER_REPORTED_FAILED
 
     def test_roundtrip_multiple(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
-        _bootstrap_context(story_dir)
-        save_attempt(story_dir, _make_attempt(attempt_id="exploration-001"))
+        save_attempt(story_dir, _make_attempt(attempt=1))
         save_attempt(
             story_dir,
             _make_attempt(
-                attempt_id="exploration-002",
-                exit_status=PhaseStatus.FAILED,
-                outcome="failed",
+                attempt=2,
+                outcome="FAILED",
+                failure_cause="HANDLER_REPORTED_FAILED",
             ),
         )
 
         loaded = load_attempts(story_dir, "exploration")
         assert len(loaded) == 2
-        assert loaded[0].attempt_id == "exploration-001"
-        assert loaded[1].attempt_id == "exploration-002"
-        assert loaded[1].exit_status == PhaseStatus.FAILED
+        assert loaded[0].attempt == 1
+        assert loaded[1].attempt == 2
+        from agentkit.core_types.attempt import AttemptOutcome
+        assert loaded[1].outcome == AttemptOutcome.FAILED
 
     def test_load_empty_directory_returns_empty_list(
         self,
@@ -321,16 +342,13 @@ class TestAttemptPersistence:
         result = load_attempts(_story_dir(tmp_path), "nonexistent")
         assert result == []
 
-    def test_attempt_numbering_increments(self, tmp_path: Path) -> None:
+    def test_roundtrip_preserves_detail(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
-        _bootstrap_context(story_dir)
-        save_attempt(story_dir, _make_attempt(attempt_id="a1"))
-        save_attempt(story_dir, _make_attempt(attempt_id="a2"))
-
-        attempts = load_attempts(story_dir, "exploration")
-        assert len(attempts) == 2
-        assert attempts[0].attempt_id == "a1"
-        assert attempts[1].attempt_id == "a2"
+        attempt = _make_attempt()
+        save_attempt(story_dir, attempt)
+        loaded = load_attempts(story_dir, "exploration")
+        assert loaded[0].detail is not None
+        assert "guard_evaluations" in loaded[0].detail
 
 
 # --- save_phase_snapshot / load_phase_snapshot ---
@@ -431,45 +449,18 @@ class TestPipelineRobustness:
         """context.json does not exist at all."""
         assert read_story_context_record(_story_dir(tmp_path)) is None
 
-    def test_corrupt_attempt_is_skipped(self, tmp_path: Path) -> None:
-        """One corrupt attempt file does not prevent loading others."""
+    def test_two_valid_attempts_both_loaded(self, tmp_path: Path) -> None:
+        """Two valid attempts in the ``attempts`` table are both loaded."""
         story_dir = _story_dir(tmp_path)
-        _bootstrap_context(story_dir)
-        # Save a valid attempt
-        save_attempt(story_dir, _make_attempt(attempt_id="good"))
-
-        with sqlite3.connect(state_db_path_for(story_dir)) as conn:
-            conn.execute(
-                "INSERT INTO attempt_records ("
-                "story_id, phase, seq, attempt_id, entered_at, exit_status, "
-                "outcome, yield_status, resume_trigger, "
-                "guard_evaluations_json, artifacts_json"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    "TEST-001",
-                    "exploration",
-                    2,
-                    "corrupt",
-                    datetime.now(tz=UTC).isoformat(),
-                    "completed",
-                    "completed",
-                    None,
-                    None,
-                    "not json",
-                    '["design.md"]',
-                ),
-            )
-            conn.commit()
-
-        # Save another valid attempt (will be seq 3 since 2 exists)
-        save_attempt(story_dir, _make_attempt(attempt_id="also-good"))
+        save_attempt(story_dir, _make_attempt(attempt=1))
+        save_attempt(story_dir, _make_attempt(attempt=2))
 
         loaded = load_attempts(story_dir, "exploration")
-        # The corrupt file is skipped, so we get the two valid ones
+        # Both valid attempts are loaded
         assert len(loaded) == 2
-        ids = [r.attempt_id for r in loaded]
-        assert "good" in ids
-        assert "also-good" in ids
+        attempt_nums = [r.attempt for r in loaded]
+        assert 1 in attempt_nums
+        assert 2 in attempt_nums
 
     def test_phase_state_with_wrong_schema_raises_error(
         self,

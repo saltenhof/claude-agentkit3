@@ -491,61 +491,58 @@ def phase_snapshot_completed(snapshot: PhaseSnapshot) -> bool:
 
 
 def attempt_record_to_row(attempt: AttemptRecord) -> dict[str, Any]:
-    """Convert an ``AttemptRecord`` to a DB-insertable row dict."""
+    """Convert an ``AttemptRecord`` to a DB-insertable row dict (Schema 3.5.0).
 
+    Maps the Pydantic model fields to the ``attempts`` table columns as
+    specified in AG3-025 §2.1.1.1.  Wire values are upper-case enum strings
+    (FK-39 §39.4.2/39.4.3 and AG3-021 §2.1.1.1).
+    """
+
+    from enum import StrEnum
+
+    phase_val = attempt.phase.value if isinstance(attempt.phase, StrEnum) else str(attempt.phase)
     return {
-        "phase": attempt.phase,
-        "attempt_id": attempt.attempt_id,
-        "entered_at": attempt.entered_at.isoformat(),
-        "exit_status": attempt.exit_status.value if attempt.exit_status else None,
-        "outcome": attempt.outcome,
-        "yield_status": attempt.yield_status,
-        "resume_trigger": attempt.resume_trigger,
-        "guard_evaluations_json": dump_json(list(attempt.guard_evaluations)),
-        "artifacts_json": dump_json(list(attempt.artifacts_produced)),
+        "run_id": attempt.run_id,
+        "phase": phase_val,
+        "attempt": attempt.attempt,
+        "outcome": attempt.outcome.value,
+        "failure_cause": attempt.failure_cause.value if attempt.failure_cause is not None else None,
+        "started_at": attempt.started_at.isoformat(),
+        "ended_at": attempt.ended_at.isoformat(),
+        "detail_json": attempt.detail_json(),
     }
 
 
 def attempt_row_to_record(row: dict[str, Any]) -> AttemptRecord:
-    """Convert a DB row dict to an ``AttemptRecord``."""
+    """Convert a DB row dict from ``attempts`` table to an ``AttemptRecord``.
+
+    Fail-closed: invalid rows (failure_cause_consistency violation, etc.)
+    raise ``pydantic.ValidationError`` which propagates to the caller.
+    """
 
     from datetime import datetime
-    from typing import cast
 
+    from agentkit.core_types.attempt import AttemptOutcome as _AttemptOutcome
+    from agentkit.core_types.attempt import FailureCause as _FailureCause
     from agentkit.pipeline_engine.phase_executor.records import (
         AttemptRecord as _AttemptRecord,
     )
-    from agentkit.story_context_manager.models import PhaseStatus as _PhaseStatus
+    from agentkit.story_context_manager.models import PhaseName as _PhaseName
 
+    failure_cause_raw = row.get("failure_cause")
     return _AttemptRecord(
-        attempt_id=str(row["attempt_id"]),
-        phase=str(row["phase"]),
-        entered_at=datetime.fromisoformat(str(row["entered_at"])),
-        exit_status=(
-            _PhaseStatus(str(row["exit_status"]))
-            if row["exit_status"] is not None
+        run_id=str(row["run_id"]),
+        phase=_PhaseName(str(row["phase"])),
+        attempt=int(row["attempt"]),
+        outcome=_AttemptOutcome(str(row["outcome"])),
+        failure_cause=(
+            _FailureCause(str(failure_cause_raw))
+            if failure_cause_raw is not None
             else None
         ),
-        guard_evaluations=tuple(
-            cast(
-                "list[dict[str, object]]",
-                load_json(str(row["guard_evaluations_json"]), []),
-            )
-        ),
-        artifacts_produced=tuple(
-            str(item)
-            for item in cast(
-                "list[object]",
-                load_json(str(row["artifacts_json"]), []),
-            )
-        ),
-        outcome=str(row["outcome"]) if row["outcome"] is not None else None,
-        yield_status=(
-            str(row["yield_status"]) if row["yield_status"] is not None else None
-        ),
-        resume_trigger=(
-            str(row["resume_trigger"]) if row["resume_trigger"] is not None else None
-        ),
+        started_at=datetime.fromisoformat(str(row["started_at"])),
+        ended_at=datetime.fromisoformat(str(row["ended_at"])),
+        detail=load_json(str(row["detail_json"]), None) if row.get("detail_json") is not None else None,
     )
 
 

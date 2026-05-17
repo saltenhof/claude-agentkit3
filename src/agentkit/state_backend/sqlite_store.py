@@ -218,6 +218,32 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             PRIMARY KEY (story_id, phase, seq)
         );
 
+        CREATE TABLE IF NOT EXISTS attempts (
+            run_id          TEXT     NOT NULL,
+            phase           TEXT     NOT NULL,
+            attempt         INTEGER  NOT NULL CHECK (attempt >= 1),
+            outcome         TEXT     NOT NULL CHECK (outcome IN ('COMPLETED','FAILED','ESCALATED','SKIPPED','YIELDED','BLOCKED')),
+            failure_cause   TEXT     NULL CHECK (
+                failure_cause IS NULL OR failure_cause IN (
+                    'GUARD_REJECTED','STRUCTURAL_CHECK_FAIL','SEMANTIC_REVIEW_FAIL','ADVERSARIAL_FINDING',
+                    'POLICY_FAIL','WORKER_BLOCKED','INTEGRITY_FAIL','MERGE_FAIL','PREFLIGHT_FAIL',
+                    'MAX_ROUNDS_EXCEEDED','TIMEOUT','GUARD_FAILED','HANDLER_EXCEPTION','PRECONDITION_FAILED',
+                    'HANDLER_REPORTED_FAILED','HANDLER_REPORTED_ESCALATED'
+                )
+            ),
+            started_at      TEXT     NOT NULL,
+            ended_at        TEXT     NOT NULL,
+            detail_json     TEXT     NULL,
+            PRIMARY KEY (run_id, phase, attempt),
+            CHECK (ended_at >= started_at),
+            CHECK (
+                (outcome IN ('FAILED','BLOCKED','ESCALATED') AND failure_cause IS NOT NULL)
+                OR (outcome NOT IN ('FAILED','BLOCKED','ESCALATED') AND failure_cause IS NULL)
+            )
+        );
+        CREATE INDEX IF NOT EXISTS idx_attempts_run_phase ON attempts (run_id, phase);
+        CREATE INDEX IF NOT EXISTS idx_attempts_outcome ON attempts (outcome);
+
         CREATE TABLE IF NOT EXISTS flow_executions (
             story_id TEXT PRIMARY KEY,
             project_key TEXT NOT NULL,
@@ -1603,61 +1629,43 @@ def read_phase_snapshot_row(story_dir: Path, phase: str) -> dict[str, Any] | Non
 
 
 def save_attempt_row(story_dir: Path, row: dict[str, Any]) -> None:
-    """Persist an attempt row dict to the database."""
+    """Persist an attempt row dict to the ``attempts`` table (Schema 3.5.0).
 
-    story_id = _story_id_for(story_dir)
-    if story_id is None:
-        raise CorruptStateError(
-            "Cannot persist attempt without story context in canonical backend",
-        )
+    Uses INSERT OR REPLACE so a repeated call with the same PK is idempotent.
+    """
+
     with _connect(story_dir) as conn:
-        max_row = conn.execute(
-            """
-            SELECT COALESCE(MAX(seq), 0) AS max_seq
-            FROM attempt_records
-            WHERE story_id = ? AND phase = ?
-            """,
-            (story_id, row["phase"]),
-        ).fetchone()
-        seq = int(max_row["max_seq"]) + 1 if max_row is not None else 1
         conn.execute(
             """
-            INSERT INTO attempt_records (
-                story_id, phase, seq, attempt_id, entered_at, exit_status,
-                outcome, yield_status, resume_trigger,
-                guard_evaluations_json, artifacts_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO attempts (
+                run_id, phase, attempt, outcome, failure_cause,
+                started_at, ended_at, detail_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                story_id,
+                row["run_id"],
                 row["phase"],
-                seq,
-                row["attempt_id"],
-                row["entered_at"],
-                row["exit_status"],
+                row["attempt"],
                 row["outcome"],
-                row["yield_status"],
-                row["resume_trigger"],
-                row["guard_evaluations_json"],
-                row["artifacts_json"],
+                row.get("failure_cause"),
+                row["started_at"],
+                row["ended_at"],
+                row.get("detail_json"),
             ),
         )
 
 
 def load_attempt_rows(story_dir: Path, phase: str) -> list[dict[str, Any]]:
-    """Return attempt row dicts for a given phase, ordered by seq."""
+    """Return attempt row dicts for a given phase from the ``attempts`` table."""
 
-    story_id = _story_id_for(story_dir)
-    if story_id is None:
-        return []
     with _connect(story_dir) as conn:
         rows = conn.execute(
             """
-            SELECT * FROM attempt_records
-            WHERE story_id = ? AND phase = ?
-            ORDER BY seq ASC
+            SELECT * FROM attempts
+            WHERE phase = ?
+            ORDER BY attempt ASC
             """,
-            (story_id, phase),
+            (phase,),
         ).fetchall()
     return [dict(row) for row in rows]
 

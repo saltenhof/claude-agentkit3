@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from agentkit.core_types import PauseReason
+from agentkit.core_types.attempt import AttemptOutcome
 from agentkit.exceptions import PipelineError
 from agentkit.phase_state_store import (
     OverrideRecord,
@@ -280,8 +281,8 @@ class TestRunPhaseNormal:
 
         attempts = load_attempts(story_dir, "setup")
         assert len(attempts) == 1
-        assert attempts[0].phase == "setup"
-        assert attempts[0].outcome == "phase_completed"
+        assert attempts[0].phase.value == "setup"
+        assert attempts[0].outcome == AttemptOutcome.COMPLETED
 
     def test_phase_state_persisted(
         self,
@@ -523,7 +524,7 @@ class TestExecutionPoliciesAndOverrides:
 
         attempts = load_attempts(story_dir, "setup")
         assert len(attempts) == 2
-        assert attempts[-1].outcome == "skipped"
+        assert attempts[-1].outcome == AttemptOutcome.SKIPPED
 
     def test_failed_node_backtracks_via_retry_policy(
         self,
@@ -556,7 +557,7 @@ class TestExecutionPoliciesAndOverrides:
 
         attempts = load_attempts(story_dir, "closure")
         assert len(attempts) == 1
-        assert attempts[0].outcome == "backtrack"
+        assert attempts[0].outcome == AttemptOutcome.FAILED
 
     def test_skip_override_bypasses_handler(
         self,
@@ -1124,7 +1125,8 @@ class TestTransitionEvaluation:
 
         attempts = load_attempts(story_dir, "setup")
         assert len(attempts) == 1
-        assert len(attempts[0].guard_evaluations) == 1
+        assert attempts[0].detail is not None
+        assert len(attempts[0].detail.get("guard_evaluations", [])) == 1
 
     def test_guard_failure_after_completion_blocks_transition(
         self,
@@ -1163,8 +1165,9 @@ class TestTransitionEvaluation:
         # Guard evaluation should be recorded in attempt
         attempts = load_attempts(story_dir, "setup")
         assert len(attempts) == 1
-        assert len(attempts[0].guard_evaluations) == 1
-        assert attempts[0].guard_evaluations[0]["passed"] is False
+        assert attempts[0].detail is not None
+        assert len(attempts[0].detail.get("guard_evaluations", [])) == 1
+        assert attempts[0].detail["guard_evaluations"][0]["passed"] is False
 
     def test_can_enter_phase_unknown_phase(
         self,

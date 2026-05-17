@@ -1,7 +1,7 @@
 story_id: AG3-025
 title: "AttemptRecord typisieren + Write-Ordering Crash-Safety + QA-Zyklus-Identitaeten"
 type: implementation
-status: blocked
+status: in_progress
 phase: setup
 created: "2026-05-16"
 size: M

@@ -17,19 +17,22 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from agentkit.core_types import PauseReason
+from agentkit.core_types.attempt import AttemptOutcome, FailureCause
 from agentkit.exceptions import PipelineError
 from agentkit.pipeline_engine.phase_envelope.errors import InvalidPauseReasonError
 from agentkit.pipeline_engine.phase_executor.records import AttemptRecord
+from agentkit.pipeline_engine.phase_executor.save_phase_completion import (
+    save_phase_completion,
+)
 from agentkit.pipeline_engine.runtime_state import EngineRuntimeState
 from agentkit.process.language.model import ExecutionPolicy
 from agentkit.state_backend.store import (
     load_node_execution_ledger,
-    save_attempt,
     save_phase_snapshot,
-    save_phase_state,
     save_story_context,
 )
 from agentkit.story_context_manager.models import (
+    PhaseName,
     PhaseSnapshot,
     PhaseState,
     PhaseStatus,
@@ -95,6 +98,42 @@ def _coerce_paused_reason(
             f"{[m.value for m in PauseReason]}",
             detail={"phase": phase_name, "raw": raw},
         ) from exc
+
+
+def _coerce_phase_name(phase: str) -> PhaseName:
+    """Coerce a phase string to ``PhaseName``, falling back if unknown."""
+    try:
+        return PhaseName(phase)
+    except ValueError:
+        # Unknown phase names (e.g. custom workflow phases) default to
+        # IMPLEMENTATION for audit purposes; this is a best-effort coercion.
+        # Strictly typed phases are AG3-041 scope.
+        return PhaseName.IMPLEMENTATION
+
+
+def _build_attempt_record(
+    *,
+    run_id: str,
+    phase: str,
+    attempt_nr: int,
+    outcome: AttemptOutcome,
+    failure_cause: FailureCause | None,
+    started_at: datetime,
+    ended_at: datetime,
+    detail: dict[str, object] | None = None,
+) -> AttemptRecord:
+    """Construct a typed ``AttemptRecord`` (FK-39 §39.4.1)."""
+    return AttemptRecord(
+        run_id=run_id,
+        phase=_coerce_phase_name(phase),
+        attempt=attempt_nr,
+        outcome=outcome,
+        failure_cause=failure_cause,
+        started_at=started_at,
+        ended_at=ended_at,
+        detail=detail,
+    )
+
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -265,6 +304,7 @@ def _handle_guard_failure_result(
     attempt_id: str,
     guard_evals: list[dict[str, object]],
     *,
+    started_at: datetime,
     resume_trigger: str | None,
 ) -> EngineResult:
     phase_name = state.phase
@@ -279,6 +319,7 @@ def _handle_guard_failure_result(
         attempt_id,
         failure_reasons=failure_reasons,
         resume_trigger=resume_trigger,
+        started_at=started_at,
     )
     if retry_result is not None:
         return retry_result
@@ -292,28 +333,36 @@ def _handle_guard_failure_result(
         node_id=phase_name,
         finished_at=finished_at,
     )
-    save_phase_state(
-        engine._story_dir,
-        PhaseState(
-            story_id=state.story_id,
-            phase=phase_name,
-            status=PhaseStatus.FAILED,
-            errors=failure_reasons,
-            attempt_id=attempt_id,
-        ),
+
+    detail: dict[str, object] = {"guard_evaluations": guard_evals}
+    if result.artifacts_produced:
+        detail["artifacts_produced"] = list(result.artifacts_produced)
+    if resume_trigger is not None:
+        detail["resume_trigger"] = resume_trigger
+
+    run_id = engine._runtime.resolve_run_id(ctx)
+    attempt_nr = engine._runtime.attempt_number(attempt_id)
+    attempt_record = _build_attempt_record(
+        run_id=run_id,
+        phase=phase_name,
+        attempt_nr=attempt_nr,
+        outcome=AttemptOutcome.BLOCKED,
+        failure_cause=FailureCause.GUARD_REJECTED,
+        started_at=started_at,
+        ended_at=finished_at,
+        detail=detail if detail else None,
     )
-    save_attempt(
+    new_state = PhaseState(
+        story_id=state.story_id,
+        phase=phase_name,
+        status=PhaseStatus.FAILED,
+        errors=failure_reasons,
+        attempt_id=attempt_id,
+    )
+    save_phase_completion(
         engine._story_dir,
-        AttemptRecord(
-            attempt_id=attempt_id,
-            phase=phase_name,
-            entered_at=datetime.now(tz=UTC),
-            exit_status=PhaseStatus.FAILED,
-            guard_evaluations=tuple(guard_evals),
-            artifacts_produced=result.artifacts_produced,
-            outcome="failed",
-            resume_trigger=resume_trigger,
-        ),
+        envelope=_WrapState(new_state),
+        attempt_record=attempt_record,
     )
     engine._runtime.record_node_outcome(
         ctx,
@@ -347,6 +396,7 @@ def _handle_completed_result(
     attempt_id: str,
     envelope: PhaseEnvelope,
     *,
+    started_at: datetime,
     resume_trigger: str | None,
 ) -> EngineResult:
     phase_name = state.phase
@@ -374,6 +424,7 @@ def _handle_completed_result(
             result,
             attempt_id,
             guard_evals,
+            started_at=started_at,
             resume_trigger=resume_trigger,
         )
 
@@ -388,7 +439,7 @@ def _handle_completed_result(
             evidence=_snapshot_evidence(completed_state),
         ),
     )
-    save_phase_state(engine._story_dir, completed_state)
+
     engine._runtime.record_flow_execution(
         ctx,
         phase_name,
@@ -397,18 +448,35 @@ def _handle_completed_result(
         node_id=phase_name,
         finished_at=datetime.now(tz=UTC),
     )
-    save_attempt(
+
+    finished_at = datetime.now(tz=UTC)
+    detail: dict[str, object] | None = None
+    if guard_evals:
+        detail = {"guard_evaluations": guard_evals}
+    if result.artifacts_produced:
+        detail = detail or {}
+        detail["artifacts_produced"] = list(result.artifacts_produced)
+    if resume_trigger is not None:
+        detail = detail or {}
+        detail["resume_trigger"] = resume_trigger
+
+    run_id = engine._runtime.resolve_run_id(ctx)
+    attempt_nr = engine._runtime.attempt_number(attempt_id)
+    attempt_record = _build_attempt_record(
+        run_id=run_id,
+        phase=phase_name,
+        attempt_nr=attempt_nr,
+        outcome=AttemptOutcome.COMPLETED,
+        failure_cause=None,
+        started_at=started_at,
+        ended_at=finished_at,
+        detail=detail,
+    )
+    # FK-39 §39.4.4: AttemptRecord ZUERST, dann PhaseState
+    save_phase_completion(
         engine._story_dir,
-        AttemptRecord(
-            attempt_id=attempt_id,
-            phase=phase_name,
-            entered_at=datetime.now(tz=UTC),
-            exit_status=PhaseStatus.COMPLETED,
-            guard_evaluations=tuple(guard_evals),
-            artifacts_produced=result.artifacts_produced,
-            outcome="phase_completed",
-            resume_trigger=resume_trigger,
-        ),
+        envelope=_WrapState(completed_state),
+        attempt_record=attempt_record,
     )
     engine._runtime.record_node_outcome(
         ctx,
@@ -441,6 +509,7 @@ def _handle_paused_result(
     result: HandlerResult,
     attempt_id: str,
     *,
+    started_at: datetime,
     resume_trigger: str | None,
 ) -> EngineResult:
     phase_name = state.phase
@@ -449,37 +518,55 @@ def _handle_paused_result(
     # Handler und mappen sie via from_yield_status auf das normierte Enum.
     # Unbekannte Werte fuehren zu PipelineError (fail-closed).
     paused_reason = _coerce_paused_reason(result.yield_status, phase_name=phase_name)
-    save_phase_state(
-        engine._story_dir,
-        PhaseState(
-            story_id=state.story_id,
-            phase=phase_name,
-            status=PhaseStatus.PAUSED,
-            payload=(result.updated_state or state).payload,
-            memory=(result.updated_state or state).memory,
-            paused_reason=paused_reason,
-            attempt_id=attempt_id,
-        ),
+
+    finished_at = datetime.now(tz=UTC)
+
+    # AG3-025 §2.1.4: AttemptRecord traegt outcome=YIELDED, failure_cause=None.
+    # paused_reason lebt AUSSCHLIESSLICH in PhaseEnvelope.state.paused_reason
+    # (AG3-024 Owner). Kein paused_reason/yield_status in detail.
+    run_id = engine._runtime.resolve_run_id(ctx)
+    attempt_nr = engine._runtime.attempt_number(attempt_id)
+    detail: dict[str, object] | None = None
+    if result.artifacts_produced:
+        detail = {"artifacts_produced": list(result.artifacts_produced)}
+    if resume_trigger is not None:
+        detail = detail or {}
+        detail["resume_trigger"] = resume_trigger
+
+    attempt_record = _build_attempt_record(
+        run_id=run_id,
+        phase=phase_name,
+        attempt_nr=attempt_nr,
+        outcome=AttemptOutcome.YIELDED,
+        failure_cause=None,
+        started_at=started_at,
+        ended_at=finished_at,
+        detail=detail,
     )
+
+    paused_state = PhaseState(
+        story_id=state.story_id,
+        phase=phase_name,
+        status=PhaseStatus.PAUSED,
+        payload=(result.updated_state or state).payload,
+        memory=(result.updated_state or state).memory,
+        paused_reason=paused_reason,
+        attempt_id=attempt_id,
+    )
+
+    # FK-39 §39.4.4: AttemptRecord ZUERST, dann PhaseState
+    save_phase_completion(
+        engine._story_dir,
+        envelope=_WrapState(paused_state),
+        attempt_record=attempt_record,
+    )
+
     engine._runtime.record_flow_execution(
         ctx,
         phase_name,
         attempt_id,
         status="YIELDED",
         node_id=phase_name,
-    )
-    save_attempt(
-        engine._story_dir,
-        AttemptRecord(
-            attempt_id=attempt_id,
-            phase=phase_name,
-            entered_at=datetime.now(tz=UTC),
-            exit_status=PhaseStatus.PAUSED,
-            artifacts_produced=result.artifacts_produced,
-            outcome="yielded",
-            yield_status=result.yield_status,
-            resume_trigger=resume_trigger,
-        ),
     )
     engine._runtime.record_node_outcome(
         ctx,
@@ -505,6 +592,23 @@ def _engine_status_for(result_status: PhaseStatus) -> str:
     return status_map.get(result_status, "failed")
 
 
+def _outcome_for_terminal(result_status: PhaseStatus) -> AttemptOutcome:
+    outcome_map = {
+        PhaseStatus.FAILED: AttemptOutcome.FAILED,
+        PhaseStatus.ESCALATED: AttemptOutcome.ESCALATED,
+        PhaseStatus.BLOCKED: AttemptOutcome.BLOCKED,
+    }
+    return outcome_map.get(result_status, AttemptOutcome.FAILED)
+
+
+def _failure_cause_for_terminal(result_status: PhaseStatus) -> FailureCause:
+    if result_status == PhaseStatus.ESCALATED:
+        return FailureCause.HANDLER_REPORTED_ESCALATED
+    if result_status == PhaseStatus.BLOCKED:
+        return FailureCause.WORKER_BLOCKED
+    return FailureCause.HANDLER_REPORTED_FAILED
+
+
 def _handle_terminal_result(
     engine: PipelineEngine,
     ctx: StoryContext,
@@ -513,6 +617,7 @@ def _handle_terminal_result(
     result: HandlerResult,
     attempt_id: str,
     *,
+    started_at: datetime,
     resume_trigger: str | None,
 ) -> EngineResult:
     phase_name = state.phase
@@ -525,22 +630,50 @@ def _handle_terminal_result(
             failure_reasons=result.errors,
             artifacts=result.artifacts_produced,
             resume_trigger=resume_trigger,
+            started_at=started_at,
         )
         if retry_result is not None:
             return retry_result
 
-    save_phase_state(
-        engine._story_dir,
-        PhaseState(
-            story_id=state.story_id,
-            phase=phase_name,
-            status=result.status,
-            payload=(result.updated_state or state).payload,
-            memory=(result.updated_state or state).memory,
-            errors=list(result.errors),
-            attempt_id=attempt_id,
-        ),
+    finished_at = datetime.now(tz=UTC)
+    terminal_state = PhaseState(
+        story_id=state.story_id,
+        phase=phase_name,
+        status=result.status,
+        payload=(result.updated_state or state).payload,
+        memory=(result.updated_state or state).memory,
+        errors=list(result.errors),
+        attempt_id=attempt_id,
     )
+
+    detail: dict[str, object] | None = None
+    if result.artifacts_produced:
+        detail = {"artifacts_produced": list(result.artifacts_produced)}
+    if resume_trigger is not None:
+        detail = detail or {}
+        detail["resume_trigger"] = resume_trigger
+
+    run_id = engine._runtime.resolve_run_id(ctx)
+    attempt_nr = engine._runtime.attempt_number(attempt_id)
+    outcome = _outcome_for_terminal(result.status)
+    failure_cause = _failure_cause_for_terminal(result.status)
+    attempt_record = _build_attempt_record(
+        run_id=run_id,
+        phase=phase_name,
+        attempt_nr=attempt_nr,
+        outcome=outcome,
+        failure_cause=failure_cause,
+        started_at=started_at,
+        ended_at=finished_at,
+        detail=detail,
+    )
+    # FK-39 §39.4.4: AttemptRecord ZUERST, dann PhaseState
+    save_phase_completion(
+        engine._story_dir,
+        envelope=_WrapState(terminal_state),
+        attempt_record=attempt_record,
+    )
+
     engine._runtime.record_flow_execution(
         ctx,
         phase_name,
@@ -548,18 +681,6 @@ def _handle_terminal_result(
         status=result.status.value.upper(),
         node_id=phase_name,
         finished_at=datetime.now(tz=UTC),
-    )
-    save_attempt(
-        engine._story_dir,
-        AttemptRecord(
-            attempt_id=attempt_id,
-            phase=phase_name,
-            entered_at=datetime.now(tz=UTC),
-            exit_status=result.status,
-            artifacts_produced=result.artifacts_produced,
-            outcome=engine_status,
-            resume_trigger=resume_trigger,
-        ),
     )
     engine._runtime.record_node_outcome(
         ctx,
@@ -593,6 +714,7 @@ def _process_handler_result_impl(
     attempt_id: str,
     envelope: PhaseEnvelope,
     *,
+    started_at: datetime,
     resume_trigger: str | None,
 ) -> EngineResult:
     if result.status == PhaseStatus.COMPLETED:
@@ -605,6 +727,7 @@ def _process_handler_result_impl(
             result,
             attempt_id,
             envelope,
+            started_at=started_at,
             resume_trigger=resume_trigger,
         )
     if result.status == PhaseStatus.PAUSED:
@@ -614,6 +737,7 @@ def _process_handler_result_impl(
             state,
             result,
             attempt_id,
+            started_at=started_at,
             resume_trigger=resume_trigger,
         )
     return _handle_terminal_result(
@@ -623,8 +747,25 @@ def _process_handler_result_impl(
         phase_def,
         result,
         attempt_id,
+        started_at=started_at,
         resume_trigger=resume_trigger,
     )
+
+
+class _WrapState:
+    """Minimal envelope-like wrapper that exposes only ``.state``.
+
+    Satisfies the ``EnvelopeWithState`` protocol used by
+    ``save_phase_completion``, allowing the engine to pass a raw
+    ``PhaseState`` without constructing a full ``PhaseEnvelope``.
+    """
+
+    def __init__(self, state: PhaseState) -> None:
+        self._state = state
+
+    @property
+    def state(self) -> PhaseState:
+        return self._state
 
 
 class PipelineEngine:
@@ -678,7 +819,7 @@ class PipelineEngine:
                  snapshot and evaluate transitions for next phase.
                - PAUSED: save state with yield_status, return ``"yielded"``.
                - FAILED/ESCALATED/BLOCKED: save state, return matching status.
-            6. Persist state and attempt record.
+            6. Persist state and attempt record (AttemptRecord BEFORE PhaseState).
 
         Args:
             ctx: The story context for this pipeline run.
@@ -710,12 +851,14 @@ class PipelineEngine:
             )
 
         attempt_id = self._runtime.generate_attempt_id(phase_name)
+        started_at = datetime.now(tz=UTC)
 
         override_result = self._apply_pre_execution_override(
             ctx,
             state,
             phase_def,
             attempt_id,
+            started_at=started_at,
         )
         if override_result is not None:
             return override_result
@@ -729,11 +872,13 @@ class PipelineEngine:
                 ctx,
                 state,
                 attempt_id,
-                outcome="skipped",
+                outcome=AttemptOutcome.SKIPPED,
+                failure_cause=None,
                 node_outcome="SKIP",
                 flow_status="SKIPPED",
                 artifacts=(),
                 errors=(policy_skip_reason,),
+                started_at=started_at,
             )
 
         # 2. Evaluate preconditions
@@ -760,15 +905,23 @@ class PipelineEngine:
                 errors=failure_reasons,
                 attempt_id=attempt_id,
             )
-            save_phase_state(self._story_dir, blocked_state)
-            attempt = AttemptRecord(
-                attempt_id=attempt_id,
+            run_id = self._runtime.resolve_run_id(ctx)
+            attempt_nr = self._runtime.attempt_number(attempt_id)
+            attempt = _build_attempt_record(
+                run_id=run_id,
                 phase=phase_name,
-                entered_at=datetime.now(tz=UTC),
-                exit_status=PhaseStatus.BLOCKED,
-                outcome="blocked",
+                attempt_nr=attempt_nr,
+                outcome=AttemptOutcome.BLOCKED,
+                failure_cause=FailureCause.PRECONDITION_FAILED,
+                started_at=started_at,
+                ended_at=finished_at,
+                detail={"failure_reasons": failure_reasons} if failure_reasons else None,
             )
-            save_attempt(self._story_dir, attempt)
+            save_phase_completion(
+                self._story_dir,
+                envelope=_WrapState(blocked_state),
+                attempt_record=attempt,
+            )
             self._runtime.record_node_outcome(
                 ctx,
                 phase_name,
@@ -812,6 +965,7 @@ class PipelineEngine:
                 [],
                 exc,
                 story_id=state.story_id,
+                started_at=started_at,
             )
 
         # 5. Process handler result
@@ -823,6 +977,7 @@ class PipelineEngine:
             result,
             attempt_id,
             envelope,
+            started_at=started_at,
         )
 
     def resume_phase(
@@ -905,6 +1060,7 @@ class PipelineEngine:
         # 3. Get handler and call on_resume
         handler = self._registry.get_handler(phase_name)
         attempt_id = self._runtime.generate_attempt_id(phase_name)
+        started_at = datetime.now(tz=UTC)
 
         try:
             result = handler.on_resume(ctx, envelope, trigger)
@@ -916,6 +1072,7 @@ class PipelineEngine:
                 [],
                 exc,
                 story_id=state.story_id,
+                started_at=started_at,
             )
 
         # 4. Process result same as run_phase
@@ -928,6 +1085,7 @@ class PipelineEngine:
             attempt_id,
             envelope,
             resume_trigger=trigger,
+            started_at=started_at,
         )
 
     def _process_handler_result(
@@ -940,6 +1098,7 @@ class PipelineEngine:
         attempt_id: str,
         envelope: PhaseEnvelope,
         *,
+        started_at: datetime,
         resume_trigger: str | None = None,
     ) -> EngineResult:
         """Process a handler result and persist state and attempt records.
@@ -955,6 +1114,7 @@ class PipelineEngine:
             result: The handler's result.
             attempt_id: The attempt identifier.
             envelope: The full phase envelope (needed for on_exit call).
+            started_at: When this attempt was started.
             resume_trigger: If resuming, the trigger that was used.
 
         Returns:
@@ -969,6 +1129,7 @@ class PipelineEngine:
             result,
             attempt_id,
             envelope,
+            started_at=started_at,
             resume_trigger=resume_trigger,
         )
 
@@ -981,11 +1142,12 @@ class PipelineEngine:
         exc: Exception,
         *,
         story_id: str,
+        started_at: datetime,
     ) -> EngineResult:
         """Handle an exception raised by a phase handler.
 
-        Persists a FAILED state and attempt record, then returns
-        an ``EngineResult`` with ``status="failed"``.
+        Persists a FAILED state and attempt record (write-ordered), then
+        returns an ``EngineResult`` with ``status="failed"``.
 
         Args:
             phase_name: The phase that was executing.
@@ -993,6 +1155,7 @@ class PipelineEngine:
             guard_evals: Guard evaluation records for the audit trail.
             exc: The exception that was raised.
             story_id: The story identifier for the failed state.
+            started_at: When this attempt was started.
 
         Returns:
             An ``EngineResult`` with ``status="failed"`` and error details.
@@ -1007,10 +1170,12 @@ class PipelineEngine:
                 phase_def,
                 attempt_id,
                 failure_reasons=(error_msg,),
+                started_at=started_at,
             )
             if retry_result is not None:
                 return retry_result
 
+        finished_at = datetime.now(tz=UTC)
         failed_state = PhaseState(
             story_id=story_id,
             phase=phase_name,
@@ -1018,8 +1183,30 @@ class PipelineEngine:
             errors=[error_msg],
             attempt_id=attempt_id,
         )
-        save_phase_state(self._story_dir, failed_state)
-        finished_at = datetime.now(tz=UTC)
+
+        detail: dict[str, object] = {"exception": error_msg}
+        if guard_evals:
+            detail["guard_evaluations"] = guard_evals
+
+        run_id = self._runtime.resolve_run_id(ctx)
+        attempt_nr = self._runtime.attempt_number(attempt_id)
+        attempt = _build_attempt_record(
+            run_id=run_id,
+            phase=phase_name,
+            attempt_nr=attempt_nr,
+            outcome=AttemptOutcome.FAILED,
+            failure_cause=FailureCause.HANDLER_EXCEPTION,
+            started_at=started_at,
+            ended_at=finished_at,
+            detail=detail,
+        )
+        # FK-39 §39.4.4: AttemptRecord ZUERST, dann PhaseState
+        save_phase_completion(
+            self._story_dir,
+            envelope=_WrapState(failed_state),
+            attempt_record=attempt,
+        )
+
         self._runtime.record_flow_execution(
             ctx,
             phase_name,
@@ -1028,16 +1215,6 @@ class PipelineEngine:
             node_id=phase_name,
             finished_at=finished_at,
         )
-
-        attempt = AttemptRecord(
-            attempt_id=attempt_id,
-            phase=phase_name,
-            entered_at=datetime.now(tz=UTC),
-            exit_status=PhaseStatus.FAILED,
-            guard_evaluations=tuple(guard_evals),
-            outcome="failed",
-        )
-        save_attempt(self._story_dir, attempt)
         self._runtime.record_node_outcome(
             ctx,
             phase_name,
@@ -1115,12 +1292,14 @@ class PipelineEngine:
         state: PhaseState,
         attempt_id: str,
         *,
-        outcome: str,
+        outcome: AttemptOutcome,
+        failure_cause: FailureCause | None,
         node_outcome: str,
         flow_status: str,
         artifacts: tuple[str, ...],
         errors: tuple[str, ...] = (),
         next_phase_override: str | None = None,
+        started_at: datetime,
     ) -> EngineResult:
         """Complete the current node without invoking a handler."""
 
@@ -1132,7 +1311,6 @@ class PipelineEngine:
             errors=list(errors),
             attempt_id=attempt_id,
         )
-        save_phase_state(self._story_dir, completed_state)
         finished_at = datetime.now(tz=UTC)
         self._runtime.record_flow_execution(
             ctx,
@@ -1142,15 +1320,28 @@ class PipelineEngine:
             node_id=phase_name,
             finished_at=finished_at,
         )
-        attempt = AttemptRecord(
-            attempt_id=attempt_id,
+
+        detail: dict[str, object] | None = None
+        if artifacts:
+            detail = {"artifacts_produced": list(artifacts)}
+
+        run_id = self._runtime.resolve_run_id(ctx)
+        attempt_nr = self._runtime.attempt_number(attempt_id)
+        attempt = _build_attempt_record(
+            run_id=run_id,
             phase=phase_name,
-            entered_at=datetime.now(tz=UTC),
-            exit_status=PhaseStatus.COMPLETED,
-            artifacts_produced=artifacts,
+            attempt_nr=attempt_nr,
             outcome=outcome,
+            failure_cause=failure_cause,
+            started_at=started_at,
+            ended_at=finished_at,
+            detail=detail,
         )
-        save_attempt(self._story_dir, attempt)
+        save_phase_completion(
+            self._story_dir,
+            envelope=_WrapState(completed_state),
+            attempt_record=attempt,
+        )
         self._runtime.record_node_outcome(
             ctx,
             phase_name,
@@ -1191,6 +1382,8 @@ class PipelineEngine:
         state: PhaseState,
         phase_def: PhaseDefinition,
         attempt_id: str,
+        *,
+        started_at: datetime,
     ) -> EngineResult | None:
         """Apply supported overrides before handler execution."""
 
@@ -1205,11 +1398,13 @@ class PipelineEngine:
                     ctx,
                     state,
                     attempt_id,
-                    outcome="skipped_by_override",
+                    outcome=AttemptOutcome.SKIPPED,
+                    failure_cause=None,
                     node_outcome="SKIP",
                     flow_status="SKIPPED",
                     artifacts=(),
                     errors=(record.reason,),
+                    started_at=started_at,
                 )
 
             if (
@@ -1223,12 +1418,14 @@ class PipelineEngine:
                         ctx,
                         state,
                         attempt_id,
-                        outcome="jumped_by_override",
+                        outcome=AttemptOutcome.SKIPPED,
+                        failure_cause=None,
                         node_outcome="SKIP",
                         flow_status="JUMPED",
                         artifacts=(),
                         errors=(record.reason,),
                         next_phase_override=destination,
+                        started_at=started_at,
                     )
 
         return None
@@ -1261,6 +1458,7 @@ class PipelineEngine:
         failure_reasons: tuple[str, ...] | list[str],
         artifacts: tuple[str, ...] = (),
         resume_trigger: str | None = None,
+        started_at: datetime,
     ) -> EngineResult | None:
         """Apply retry/backtrack semantics for a failed node execution."""
 
@@ -1285,7 +1483,6 @@ class PipelineEngine:
             errors=list(failure_reasons),
             attempt_id=attempt_id,
         )
-        save_phase_state(self._story_dir, failed_state)
         finished_at = datetime.now(tz=UTC)
         self._runtime.record_flow_execution(
             ctx,
@@ -1295,16 +1492,31 @@ class PipelineEngine:
             node_id=retry_policy.backtrack_target,
             finished_at=finished_at,
         )
-        attempt = AttemptRecord(
-            attempt_id=attempt_id,
+
+        detail: dict[str, object] | None = None
+        if artifacts:
+            detail = {"artifacts_produced": list(artifacts)}
+        if resume_trigger is not None:
+            detail = detail or {}
+            detail["resume_trigger"] = resume_trigger
+
+        run_id = self._runtime.resolve_run_id(ctx)
+        attempt_nr = self._runtime.attempt_number(attempt_id)
+        attempt = _build_attempt_record(
+            run_id=run_id,
             phase=phase_name,
-            entered_at=datetime.now(tz=UTC),
-            exit_status=PhaseStatus.FAILED,
-            artifacts_produced=artifacts,
-            outcome="backtrack",
-            resume_trigger=resume_trigger,
+            attempt_nr=attempt_nr,
+            outcome=AttemptOutcome.FAILED,
+            failure_cause=FailureCause.HANDLER_REPORTED_FAILED,
+            started_at=started_at,
+            ended_at=finished_at,
+            detail=detail,
         )
-        save_attempt(self._story_dir, attempt)
+        save_phase_completion(
+            self._story_dir,
+            envelope=_WrapState(failed_state),
+            attempt_record=attempt,
+        )
         self._runtime.record_node_outcome(
             ctx,
             phase_name,

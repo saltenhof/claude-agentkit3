@@ -126,6 +126,31 @@
             PRIMARY KEY (story_id, phase, seq)
         );
 
+        CREATE TABLE IF NOT EXISTS attempts (
+            run_id          VARCHAR        NOT NULL,
+            phase           VARCHAR        NOT NULL,
+            attempt         INTEGER        NOT NULL CHECK (attempt >= 1),
+            outcome         VARCHAR        NOT NULL CHECK (outcome IN ('COMPLETED','FAILED','ESCALATED','SKIPPED','YIELDED','BLOCKED')),
+            failure_cause   VARCHAR        NULL CHECK (
+                failure_cause IS NULL OR failure_cause IN (
+                    'GUARD_REJECTED','STRUCTURAL_CHECK_FAIL','SEMANTIC_REVIEW_FAIL','ADVERSARIAL_FINDING',
+                    'POLICY_FAIL','WORKER_BLOCKED','INTEGRITY_FAIL','MERGE_FAIL','PREFLIGHT_FAIL',
+                    'MAX_ROUNDS_EXCEEDED','TIMEOUT','GUARD_FAILED','HANDLER_EXCEPTION','PRECONDITION_FAILED',
+                    'HANDLER_REPORTED_FAILED','HANDLER_REPORTED_ESCALATED'
+                )
+            ),
+            started_at      TIMESTAMPTZ    NOT NULL,
+            ended_at        TIMESTAMPTZ    NOT NULL CHECK (ended_at >= started_at),
+            detail_json     JSONB          NULL,
+            PRIMARY KEY (run_id, phase, attempt),
+            CONSTRAINT failure_cause_consistency CHECK (
+                (outcome IN ('FAILED','BLOCKED','ESCALATED') AND failure_cause IS NOT NULL)
+                OR (outcome NOT IN ('FAILED','BLOCKED','ESCALATED') AND failure_cause IS NULL)
+            )
+        );
+        CREATE INDEX IF NOT EXISTS idx_attempts_run_phase ON attempts (run_id, phase);
+        CREATE INDEX IF NOT EXISTS idx_attempts_outcome ON attempts (outcome);
+
         CREATE TABLE IF NOT EXISTS flow_executions (
             story_id TEXT PRIMARY KEY,
             project_key TEXT NOT NULL,
