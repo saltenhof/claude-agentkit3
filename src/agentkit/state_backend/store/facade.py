@@ -529,15 +529,24 @@ def save_attempt(story_dir: Path, attempt: AttemptRecord) -> None:
     _backend_module().save_attempt_row(story_dir, row)
 
 
-def load_attempts(story_dir: Path, phase: str) -> list[AttemptRecord]:
-    rows = _backend_module().load_attempt_rows(story_dir, phase)
-    result: list[AttemptRecord] = []
-    for row in rows:
-        try:
-            result.append(mappers.attempt_row_to_record(row))
-        except (TypeError, ValueError):
-            continue
-    return result
+def load_attempts(
+    story_dir: Path,
+    phase: str,
+    *,
+    run_id: str | None = None,
+) -> list[AttemptRecord]:
+    """Load AttemptRecords for a story+phase, optionally narrowed to a run.
+
+    Fail-closed: invalide DB-Zeilen (CHECK-Constraint-Drift,
+    Schema-Mismatch zwischen Backend und Mapper, korrupte JSON-Payloads)
+    propagieren ``pydantic.ValidationError`` / ``ValueError`` an den
+    Aufrufer. Frueher hat ein ``except`` defective rows still
+    geschluckt — das maskierte echte Inkonsistenzen
+    (vgl. AG3-025 Re-Review Befund 1).
+    """
+
+    rows = _backend_module().load_attempt_rows(story_dir, phase, run_id=run_id)
+    return [mappers.attempt_row_to_record(row) for row in rows]
 
 
 # ---------------------------------------------------------------------------

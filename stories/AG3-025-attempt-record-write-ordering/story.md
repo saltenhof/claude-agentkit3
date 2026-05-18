@@ -193,12 +193,15 @@ class RecordingPhaseRepository:
 
 `src/agentkit/story_context_manager/models.py:PhaseState` (oder die ImplementationPayload-Sub):
 
-- Neue Felder im `ImplementationPayload` (bzw. korrespondierendem Sub-Payload fuer die Phase, in der QA laeuft):
-  - `qa_cycle_id: str | None` (UUID4; gesetzt beim ersten QA-Subflow-Start, bleibt fuer alle Remediation-Runden)
-  - `qa_cycle_round: int` (>=0; inkrementiert pro Remediation)
-  - `evidence_epoch: int` (>=0; inkrementiert bei jedem `advance_qa_cycle`)
-  - `evidence_fingerprint: str | None` (SHA-256 ueber relevante Code-Aenderungen seit letzter Epoch)
-- Validatoren: wenn `qa_cycle_id` gesetzt ist, muss `qa_cycle_round >= 1` sein; `evidence_epoch >= 0`.
+- Neue Felder im `ImplementationPayload` (bzw. korrespondierendem Sub-Payload fuer die Phase, in der QA laeuft) — **wortgleich FK-27 §27.2.1**:
+  - `qa_cycle_id: str | None` (12-Zeichen lowercase hex UUID-Fragment; wird bei jedem `advance_qa_cycle()` neu generiert; bleibt fuer alle Remediation-Runden eines Zyklus)
+  - `qa_cycle_round: int` (>=0, monoton ab 1 wenn `qa_cycle_id` gesetzt; inkrementiert bei neuem Zyklus)
+  - `evidence_epoch: datetime | None` (UTC-aware ISO-8601 Timestamp; Zeitpunkt der letzten Code-/Artefakt-Mutation — **kein Counter**, ein Datum)
+  - `evidence_fingerprint: str | None` (SHA-256-Hash als 64-char lowercase hex ueber die relevanten Artefakte; Entscheidung 2026-04-08 Element 19)
+- Validatoren: wenn `qa_cycle_id` gesetzt ist, muss `qa_cycle_round >= 1` sein; `evidence_epoch` ist tz-aware (fail-closed bei naive datetimes); `qa_cycle_id` matched `^[0-9a-f]{12}$`; `evidence_fingerprint` matched `^[0-9a-f]{64}$`.
+
+<!-- AG3-025 Re-Review (User-Entscheidung 2026-05-18): Variante B — Konzepte (FK-27 §27.2.1) bleiben autoritativ, Implementierung wurde nachgezogen. Aelterer Story-Wortlaut "UUID4" + "evidence_epoch: int" war konzeptwidrig und ist ersetzt. -->
+
 - Schema-Versionierung: Side-by-Side via `state_backend.config.SCHEMA_VERSION`-Bump (AG3-005). Alte DB unangetastet.
 
 WICHTIG: Diese Story stellt nur das **Datenmodell** und die **Persistenz** bereit. Die Logik, die diese Felder befuellt und invalidiert (`advance_qa_cycle`, 11 Artefaktdateien nach `stale/`), ist Inhalt von AG3-041 (THEME-009).

@@ -518,6 +518,11 @@ def attempt_row_to_record(row: dict[str, Any]) -> AttemptRecord:
 
     Fail-closed: invalid rows (failure_cause_consistency violation, etc.)
     raise ``pydantic.ValidationError`` which propagates to the caller.
+
+    Handhabt beide Backend-Repraesentationen der Datums-/JSON-Felder:
+    - SQLite liefert TEXT-Spalten als ``str`` (ISO-Format / JSON-Literal)
+    - Postgres liefert ``TIMESTAMPTZ`` direkt als ``datetime`` und
+      ``JSONB`` direkt als ``dict`` (psycopg dict_row auto-decode).
     """
 
     from datetime import datetime
@@ -528,6 +533,26 @@ def attempt_row_to_record(row: dict[str, Any]) -> AttemptRecord:
         AttemptRecord as _AttemptRecord,
     )
     from agentkit.story_context_manager.models import PhaseName as _PhaseName
+
+    started_raw = row["started_at"]
+    ended_raw = row["ended_at"]
+    started_at = (
+        started_raw if isinstance(started_raw, datetime)
+        else datetime.fromisoformat(str(started_raw))
+    )
+    ended_at = (
+        ended_raw if isinstance(ended_raw, datetime)
+        else datetime.fromisoformat(str(ended_raw))
+    )
+
+    detail_raw = row.get("detail_json")
+    detail: dict[str, Any] | None
+    if detail_raw is None:
+        detail = None
+    elif isinstance(detail_raw, dict):
+        detail = detail_raw
+    else:
+        detail = load_json(str(detail_raw), None)
 
     failure_cause_raw = row.get("failure_cause")
     return _AttemptRecord(
@@ -540,9 +565,9 @@ def attempt_row_to_record(row: dict[str, Any]) -> AttemptRecord:
             if failure_cause_raw is not None
             else None
         ),
-        started_at=datetime.fromisoformat(str(row["started_at"])),
-        ended_at=datetime.fromisoformat(str(row["ended_at"])),
-        detail=load_json(str(row["detail_json"]), None) if row.get("detail_json") is not None else None,
+        started_at=started_at,
+        ended_at=ended_at,
+        detail=detail,
     )
 
 

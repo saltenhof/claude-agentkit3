@@ -93,7 +93,10 @@ class TestAttemptsTableBootstrapIdempotent:
                     "SELECT name FROM sqlite_master WHERE type='index'"
                 ).fetchall()
             }
-        assert "idx_attempts_run_phase" in indices
+        # AG3-025 Re-Review: Index ist jetzt story-scoped (story_id, run_id, phase)
+        # statt nur (run_id, phase) — verhindert Cross-Story-Kontamination bei
+        # generate_attempt_id und load_attempts.
+        assert "idx_attempts_story_run_phase" in indices
         assert "idx_attempts_outcome" in indices
 
 
@@ -204,11 +207,12 @@ class TestAttemptsSchemaConstraints:
             conn.execute("CREATE TABLE IF NOT EXISTS dummy (id TEXT PRIMARY KEY)")
             conn.commit()
 
-        # Neue DB (3.5.0) oeffnen — berührt die alte nicht
+        # Neue DB (3.5.1 nach Re-Review-Schema-Bump) oeffnen — beruehrt
+        # die alte nicht.
         from agentkit.state_backend.sqlite_store import state_db_path_for as sdb
         new_db_path = sdb(old_db_dir)
-        assert new_db_path.name == "agentkit_3_5_0.sqlite", (
-            f"Expected agentkit_3_5_0.sqlite but got {new_db_path.name!r}"
+        assert new_db_path.name == "agentkit_3_5_1.sqlite", (
+            f"Expected agentkit_3_5_1.sqlite but got {new_db_path.name!r}"
         )
         # Alte DB bleibt unveraendert
         assert old_db_path.exists()

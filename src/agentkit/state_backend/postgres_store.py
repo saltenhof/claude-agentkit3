@@ -1248,18 +1248,24 @@ def read_phase_snapshot_row(story_dir: Path, phase: str) -> dict[str, Any] | Non
 def save_attempt_row(story_dir: Path, row: dict[str, Any]) -> None:
     """Persist an attempt row dict to the ``attempts`` table (Schema 3.5.0).
 
-    Idempotent: ``INSERT ... ON CONFLICT DO UPDATE`` overwrites the row when
-    the same ``(run_id, phase, attempt)``-key is written again.
+    ``story_id`` wird aus ``story_dir`` abgeleitet, damit AttemptRecords
+    persistenzseitig story-scoped sind (FK-39 §39.4.1).  Idempotent:
+    ``INSERT ... ON CONFLICT DO UPDATE`` ueberschreibt die Zeile bei
+    Re-Write mit demselben ``(story_id, run_id, phase, attempt)``-Key.
     """
-
+    story_id = _story_id_for(story_dir)
+    if story_id is None:
+        raise CorruptStateError(
+            "Cannot persist attempt without story context in canonical backend",
+        )
     with _connect(story_dir) as conn:
         conn.execute(
             """
             INSERT INTO attempts (
-                run_id, phase, attempt, outcome, failure_cause,
+                story_id, run_id, phase, attempt, outcome, failure_cause,
                 started_at, ended_at, detail_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT (run_id, phase, attempt) DO UPDATE SET
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (story_id, run_id, phase, attempt) DO UPDATE SET
                 outcome=excluded.outcome,
                 failure_cause=excluded.failure_cause,
                 started_at=excluded.started_at,
@@ -1267,6 +1273,7 @@ def save_attempt_row(story_dir: Path, row: dict[str, Any]) -> None:
                 detail_json=excluded.detail_json
             """,
             (
+                story_id,
                 row["run_id"],
                 row["phase"],
                 row["attempt"],
@@ -1279,22 +1286,41 @@ def save_attempt_row(story_dir: Path, row: dict[str, Any]) -> None:
         )
 
 
-def load_attempt_rows(story_dir: Path, phase: str) -> list[dict[str, Any]]:
-    """Return attempt row dicts for a given phase from the ``attempts`` table.
+def load_attempt_rows(
+    story_dir: Path,
+    phase: str,
+    *,
+    run_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Return attempt row dicts for a story+phase from ``attempts``.
 
-    Ordering by ``attempt`` ascending — the natural attempt-counter order
-    (FK-39 §39.4.1).
+    Filtert auf ``story_id`` (aus ``story_dir`` abgeleitet) und ``phase``.
+    Optional ``run_id`` engt zusaetzlich auf einen Run ein — von
+    ``EngineRuntimeState.generate_attempt_id`` genutzt, um Versuche pro
+    Run zu zaehlen und nicht ueber Runs hinweg.
     """
-
+    story_id = _story_id_for(story_dir)
+    if story_id is None:
+        return []
     with _connect(story_dir) as conn:
-        rows = conn.execute(
-            """
-            SELECT * FROM attempts
-            WHERE phase = ?
-            ORDER BY attempt ASC
-            """,
-            (phase,),
-        ).fetchall()
+        if run_id is None:
+            rows = conn.execute(
+                """
+                SELECT * FROM attempts
+                WHERE story_id = ? AND phase = ?
+                ORDER BY attempt ASC
+                """,
+                (story_id, phase),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT * FROM attempts
+                WHERE story_id = ? AND run_id = ? AND phase = ?
+                ORDER BY attempt ASC
+                """,
+                (story_id, run_id, phase),
+            ).fetchall()
     return [dict(row) for row in rows]
 
 

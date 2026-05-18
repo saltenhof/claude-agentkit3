@@ -112,6 +112,7 @@
         );
 
         CREATE TABLE IF NOT EXISTS attempts (
+            story_id        VARCHAR        NOT NULL,
             run_id          VARCHAR        NOT NULL,
             phase           VARCHAR        NOT NULL,
             attempt         INTEGER        NOT NULL CHECK (attempt >= 1),
@@ -127,13 +128,13 @@
             started_at      TIMESTAMPTZ    NOT NULL,
             ended_at        TIMESTAMPTZ    NOT NULL CHECK (ended_at >= started_at),
             detail_json     JSONB          NULL,
-            PRIMARY KEY (run_id, phase, attempt),
+            PRIMARY KEY (story_id, run_id, phase, attempt),
             CONSTRAINT failure_cause_consistency CHECK (
                 (outcome IN ('FAILED','BLOCKED','ESCALATED') AND failure_cause IS NOT NULL)
                 OR (outcome NOT IN ('FAILED','BLOCKED','ESCALATED') AND failure_cause IS NULL)
             )
         );
-        CREATE INDEX IF NOT EXISTS idx_attempts_run_phase ON attempts (run_id, phase);
+        CREATE INDEX IF NOT EXISTS idx_attempts_story_run_phase ON attempts (story_id, run_id, phase);
         CREATE INDEX IF NOT EXISTS idx_attempts_outcome ON attempts (outcome);
 
         CREATE TABLE IF NOT EXISTS flow_executions (

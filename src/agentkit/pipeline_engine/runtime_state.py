@@ -53,9 +53,16 @@ class EngineRuntimeState:
         )
 
     def generate_attempt_id(self, phase: str) -> str:
-        """Generate the next attempt id for a phase."""
+        """Generate the next attempt id for a phase within the active run.
 
-        existing = load_attempts(self._story_dir, phase)
+        FK-39 §39.4.1 / AG3-025 Re-Review: Versuche werden pro
+        ``(story_id, run_id, phase)`` gezaehlt — nicht story-weit ueber
+        alle runs hinweg. Andernfalls steigt der attempt-Counter
+        kontinuierlich zwischen Stories an und Recovery-Logik kann
+        Cross-Run-Daten nicht mehr klar zuordnen.
+        """
+
+        existing = load_attempts(self._story_dir, phase, run_id=self._run_id)
         next_num = len(existing) + 1
         return f"{phase}-{next_num:03d}"
 

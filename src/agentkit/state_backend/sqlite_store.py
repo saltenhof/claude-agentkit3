@@ -204,6 +204,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         );
 
         CREATE TABLE IF NOT EXISTS attempts (
+            story_id        TEXT     NOT NULL,
             run_id          TEXT     NOT NULL,
             phase           TEXT     NOT NULL,
             attempt         INTEGER  NOT NULL CHECK (attempt >= 1),
@@ -219,14 +220,14 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             started_at      TEXT     NOT NULL,
             ended_at        TEXT     NOT NULL,
             detail_json     TEXT     NULL,
-            PRIMARY KEY (run_id, phase, attempt),
+            PRIMARY KEY (story_id, run_id, phase, attempt),
             CHECK (ended_at >= started_at),
             CHECK (
                 (outcome IN ('FAILED','BLOCKED','ESCALATED') AND failure_cause IS NOT NULL)
                 OR (outcome NOT IN ('FAILED','BLOCKED','ESCALATED') AND failure_cause IS NULL)
             )
         );
-        CREATE INDEX IF NOT EXISTS idx_attempts_run_phase ON attempts (run_id, phase);
+        CREATE INDEX IF NOT EXISTS idx_attempts_story_run_phase ON attempts (story_id, run_id, phase);
         CREATE INDEX IF NOT EXISTS idx_attempts_outcome ON attempts (outcome);
 
         CREATE TABLE IF NOT EXISTS flow_executions (
@@ -1601,18 +1602,25 @@ def read_phase_snapshot_row(story_dir: Path, phase: str) -> dict[str, Any] | Non
 def save_attempt_row(story_dir: Path, row: dict[str, Any]) -> None:
     """Persist an attempt row dict to the ``attempts`` table (Schema 3.5.0).
 
-    Uses INSERT OR REPLACE so a repeated call with the same PK is idempotent.
+    ``story_id`` is derived from ``story_dir`` so AttemptRecords are
+    story-scoped on persistence (FK-39 §39.4.1).  INSERT OR REPLACE makes
+    a repeated call with the same PK idempotent.
     """
-
+    story_id = _story_id_for(story_dir)
+    if story_id is None:
+        raise CorruptStateError(
+            "Cannot persist attempt without story context in canonical backend",
+        )
     with _connect(story_dir) as conn:
         conn.execute(
             """
             INSERT OR REPLACE INTO attempts (
-                run_id, phase, attempt, outcome, failure_cause,
+                story_id, run_id, phase, attempt, outcome, failure_cause,
                 started_at, ended_at, detail_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
+                story_id,
                 row["run_id"],
                 row["phase"],
                 row["attempt"],
@@ -1625,18 +1633,41 @@ def save_attempt_row(story_dir: Path, row: dict[str, Any]) -> None:
         )
 
 
-def load_attempt_rows(story_dir: Path, phase: str) -> list[dict[str, Any]]:
-    """Return attempt row dicts for a given phase from the ``attempts`` table."""
+def load_attempt_rows(
+    story_dir: Path,
+    phase: str,
+    *,
+    run_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Return attempt row dicts for a story+phase from the ``attempts`` table.
 
+    Story-scoped: filters on ``story_id`` derived from ``story_dir``.
+    When ``run_id`` is provided, additionally narrows to that run — used
+    by ``EngineRuntimeState.generate_attempt_id`` to count attempts per
+    run, not across runs.
+    """
+    story_id = _story_id_for(story_dir)
+    if story_id is None:
+        return []
     with _connect(story_dir) as conn:
-        rows = conn.execute(
-            """
-            SELECT * FROM attempts
-            WHERE phase = ?
-            ORDER BY attempt ASC
-            """,
-            (phase,),
-        ).fetchall()
+        if run_id is None:
+            rows = conn.execute(
+                """
+                SELECT * FROM attempts
+                WHERE story_id = ? AND phase = ?
+                ORDER BY attempt ASC
+                """,
+                (story_id, phase),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT * FROM attempts
+                WHERE story_id = ? AND run_id = ? AND phase = ?
+                ORDER BY attempt ASC
+                """,
+                (story_id, run_id, phase),
+            ).fetchall()
     return [dict(row) for row in rows]
 
 

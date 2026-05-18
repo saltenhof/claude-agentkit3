@@ -39,6 +39,8 @@ from agentkit.story_context_manager.types import (
 _STORY_ID_PATTERN = re.compile(r"^[A-Z][A-Z0-9]{1,9}-\d+$")
 #: 64-char lowercase hex (SHA-256). Used by ``evidence_fingerprint`` validation.
 _SHA256_HEX_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+#: 12-char lowercase hex — FK-27 §27.2.1 ``qa_cycle_id`` (UUID-Fragment).
+_QA_CYCLE_ID_PATTERN = re.compile(r"^[0-9a-f]{12}$")
 
 
 class PhaseStatus(StrEnum):
@@ -83,12 +85,22 @@ class ExplorationPayload(BaseModel):
 class ImplementationPayload(BaseModel):
     """Payload for the Implementation phase.
 
-    QA-Zyklus-Identitaeten (FK-27 §27.2):
-    - ``qa_cycle_id``: UUID4-String; gesetzt beim ersten QA-Subflow-Start.
-      Wenn gesetzt, muss ``qa_cycle_round >= 1`` sein.
-    - ``qa_cycle_round``: Zaehler der Remediation-Runden (>= 0).
-    - ``evidence_epoch``: Zaehler der advance_qa_cycle-Aufrufe (>= 0).
-    - ``evidence_fingerprint``: SHA-256 ueber relevante Code-Aenderungen.
+    QA-Zyklus-Identitaeten (FK-27 §27.2.1) -- die vier Identitaetsfelder
+    folgen wortgleich dem Konzept:
+
+    - ``qa_cycle_id``: 12-Zeichen UUID-Fragment (lowercase hex). Wird
+      bei jedem ``advance_qa_cycle()`` neu generiert. Wenn gesetzt,
+      muss ``qa_cycle_round >= 1`` sein.
+    - ``qa_cycle_round``: Monotoner Zaehler ab 1. Inkrementiert bei
+      jedem neuen Zyklus. Default ``0`` markiert den Idle-State vor
+      dem ersten Zyklus.
+    - ``evidence_epoch``: ISO-8601-Timestamp (UTC, tz-aware) -- der
+      Zeitpunkt der letzten Code-/Artefakt-Mutation. KEIN Counter; das
+      ist ein Datum.
+    - ``evidence_fingerprint``: SHA-256-Hash als 64-char Hex-String
+      ueber die relevanten Artefakte (FK-27 §27.2.1 + Entscheidung
+      2026-04-08 Element 19).
+
     Befuellung/Inkrementierung ist AG3-041 (THEME-009); diese Story
     stellt nur das Datenmodell bereit.
     """
@@ -99,30 +111,38 @@ class ImplementationPayload(BaseModel):
     qa_cycle_status: QaCycleStatus = QaCycleStatus.IDLE
     verify_context: QaContext | None = None
     qa_cycle_round: int = Field(default=0, ge=0)
-    #: UUID4-String (Pattern: 8-4-4-4-12 hex, version=4); validated below.
+    #: 12-char lowercase hex UUID-Fragment; validated below.
     qa_cycle_id: str | None = None
-    evidence_epoch: int = Field(default=0, ge=0)
+    #: ISO-8601-Timestamp (UTC, tz-aware) -- Zeitpunkt der letzten
+    #: Artefakt-Mutation; ``None`` solange kein Zyklus gelaufen ist.
+    evidence_epoch: datetime | None = None
     #: SHA-256 hex (64 lowercase hex chars); validated below.
     evidence_fingerprint: str | None = None
 
     @field_validator("qa_cycle_id")
     @classmethod
     def _validate_qa_cycle_id(cls, value: str | None) -> str | None:
-        """FK-27 §27.2: qa_cycle_id is a UUID4 string (fail-closed)."""
+        """FK-27 §27.2.1: qa_cycle_id ist ein 12-char lowercase hex UUID-Fragment."""
         if value is None:
             return value
-        try:
-            parsed = UUID(value)
-        except ValueError as exc:
+        if not _QA_CYCLE_ID_PATTERN.fullmatch(value):
             msg = (
-                f"qa_cycle_id must be a UUID4 string (FK-27 §27.2); "
-                f"got {value!r}"
+                "qa_cycle_id must be a 12-char lowercase hex UUID-fragment "
+                f"(FK-27 §27.2.1); got {value!r}"
             )
-            raise ValueError(msg) from exc
-        if parsed.version != 4:
+            raise ValueError(msg)
+        return value
+
+    @field_validator("evidence_epoch")
+    @classmethod
+    def _validate_evidence_epoch(cls, value: datetime | None) -> datetime | None:
+        """FK-27 §27.2.1: evidence_epoch ist ein UTC-aware ISO-8601 Timestamp."""
+        if value is None:
+            return value
+        if value.tzinfo is None:
             msg = (
-                f"qa_cycle_id must be UUID version 4 (FK-27 §27.2); "
-                f"got version={parsed.version} for {value!r}"
+                "evidence_epoch must be tz-aware (UTC); naive datetime not "
+                f"allowed (FK-27 §27.2.1): {value!r}"
             )
             raise ValueError(msg)
         return value
@@ -130,20 +150,20 @@ class ImplementationPayload(BaseModel):
     @field_validator("evidence_fingerprint")
     @classmethod
     def _validate_evidence_fingerprint(cls, value: str | None) -> str | None:
-        """FK-27 §27.2: evidence_fingerprint is a SHA-256 hex string."""
+        """FK-27 §27.2.1: evidence_fingerprint ist ein SHA-256 hex (64 lowercase)."""
         if value is None:
             return value
         if not _SHA256_HEX_PATTERN.fullmatch(value):
             msg = (
                 "evidence_fingerprint must be a 64-char lowercase hex SHA-256 "
-                f"digest (FK-27 §27.2); got {value!r}"
+                f"digest (FK-27 §27.2.1); got {value!r}"
             )
             raise ValueError(msg)
         return value
 
     @model_validator(mode="after")
     def _validate_qa_cycle_round_when_id_set(self) -> ImplementationPayload:
-        """FK-27 §27.2: wenn qa_cycle_id gesetzt, dann qa_cycle_round >= 1."""
+        """FK-27 §27.2.1: wenn qa_cycle_id gesetzt, dann qa_cycle_round >= 1."""
         if self.qa_cycle_id is not None and self.qa_cycle_round < 1:
             raise ValueError(
                 "qa_cycle_round must be >= 1 when qa_cycle_id is set; "
