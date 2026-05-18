@@ -40,56 +40,104 @@ class RequirementsCoverage:
     def link_requirements(self, story_id: str, project_key: str) -> LinkResult:
         if not self.is_enabled:
             return LinkResult(status=AreDockpointStatus.SKIPPED, reason="feature_disabled")
+        if self._are_client is None:
+            raise AreConfigurationError("features.are=True but AreClient missing")
         # Andock-Punkt 1 — Full-Implementation in Folge-Story
-        raise NotImplementedError("link_requirements full body in follow-up story")
+        raise AreCapabilityNotImplementedError(
+            "link_requirements full body in follow-up story"
+        )
 
     def load_context(self, story_id: str, project_key: str, run_id: str) -> ContextLoadResult:
         if not self.is_enabled:
             return ContextLoadResult(status=AreDockpointStatus.SKIPPED, are_bundle_ref=None)
-        raise NotImplementedError("load_context full body in follow-up story")
+        if self._are_client is None:
+            raise AreConfigurationError("features.are=True but AreClient missing")
+        raise AreCapabilityNotImplementedError(
+            "load_context full body in follow-up story"
+        )
 
     def submit_evidence(self, story_id: str, evidence: AreEvidence) -> EvidenceSubmitResult:
         if not self.is_enabled:
             return EvidenceSubmitResult(status=AreDockpointStatus.SKIPPED)
-        raise NotImplementedError("submit_evidence full body in follow-up story")
+        if self._are_client is None:
+            raise AreConfigurationError("features.are=True but AreClient missing")
+        raise AreCapabilityNotImplementedError(
+            "submit_evidence full body in follow-up story"
+        )
 
     def check_gate(self, story_id: str, project_key: str) -> CoverageVerdict:
         if not self.is_enabled:
             return CoverageVerdict(status=AreDockpointStatus.SKIPPED, verdict=None)
-        raise NotImplementedError("check_gate full body in follow-up story")
+        if self._are_client is None:
+            raise AreConfigurationError("features.are=True but AreClient missing")
+        # In der Folge-Story wird hier fail-closed CoverageVerdict(status=FAIL,
+        # reason="are_gate_unavailable") zurueckgegeben, sobald Layer-1 verdrahtet
+        # ist (THEME-009 / AG3-042).
+        raise AreCapabilityNotImplementedError(
+            "check_gate full body in follow-up story"
+        )
 ```
+
+<!-- AG3-030 deep-review: NotImplementedError pro Enabled-Pfad zu fein typisiert (AreConfigurationError vs AreCapabilityNotImplementedError). check_gate wandert in der Folge-Story von Exception zu CoverageVerdict(status=FAIL, reason="are_gate_unavailable"), weil FK-40 ARE-Gate als Pflicht-Gate definiert (kein graceful-degradation). -->
+
+**Wichtiger Kontext (Vertrags-Slot, nicht Produktionsverhalten)**: `AreCapabilityNotImplementedError` bei `features.are: true` ist nur ein Contract-Pinning fuer AG3-030 und darf NICHT in einen produktiven Pipelinepfad eingebunden werden. Solange die Andock-Punkte nicht implementiert sind, darf kein Installer-/Runtime-Pfad ein Projekt mit `features.are: true` als vollstaendig verifiziert registrieren. Folge-Stories (THEME-009) muessen enabled-ARE von `AreCapabilityNotImplementedError` auf echte `PASS/FAIL/FAILED`-Resultate umstellen.
 
 `AreDockpointStatus` ist StrEnum: `SKIPPED`, `PASS`, `FAIL`, `ERROR`.
 
 #### 2.1.2 `AreClient`-Skelett (FK-40 §40.4)
 
-`src/agentkit/integrations/are/client.py`:
+<!-- AG3-030 deep-review: AreClient gehoert per FK-40 §40.4 in agentkit.requirements_coverage.are_client (BC-internes Sub), NICHT in agentkit.integrations.are.client. FK-40 §40.4: "AgentKit-Code kommuniziert ausschliesslich ueber AreClient-Sub agentkit.requirements_coverage.are_client". Pfadkorrektur. -->
+
+`src/agentkit/requirements_coverage/are_client.py` (NICHT `agentkit.integrations.are.client`):
 
 ```python
 class AreClient:
     def __init__(self, base_url: str, auth_token: str | None = None) -> None: ...
 
-    def list_requirements(self, scope: str) -> list[AreRequirement]:
+    def list_requirements(self, story_id: str, scope: str) -> list[AreRequirement]:
         raise NotImplementedError("AreClient.list_requirements is follow-up")
-    def get_recurring(self) -> list[AreRequirement]:
+    def get_recurring(self, scope: str, story_type: str) -> list[AreRequirement]:
         raise NotImplementedError("AreClient.get_recurring is follow-up")
-    def load_context(self, requirement_ids: list[str]) -> AreContext:
+    def load_context(self, story_id: str) -> AreContext:
         raise NotImplementedError("AreClient.load_context is follow-up")
-    def submit_evidence(self, requirement_id: str, evidence: AreEvidence) -> None:
+    def submit_evidence(
+        self,
+        story_id: str,
+        requirement_id: str,
+        evidence_type: EvidenceType,
+        evidence_ref: str,
+    ) -> EvidenceSubmitResult:
         raise NotImplementedError("AreClient.submit_evidence is follow-up")
-    def check_gate(self, story_id: str, scope: str) -> CoverageVerdict:
+    def check_gate(self, story_id: str) -> CoverageVerdict:
         raise NotImplementedError("AreClient.check_gate is follow-up")
 ```
 
+<!-- AG3-030 deep-review: Signaturen an FK-40 §40.4.1 REST-Endpunkte angeglichen. list_requirements braucht story_id; get_recurring braucht scope+story_type; load_context nimmt story_id (nicht requirement_ids); submit_evidence ist strukturiert (evidence_type + evidence_ref); check_gate braucht nur story_id. -->
+
 Begruendung NotImplementedError: HTTP-Adapter mit echtem REST-Code ist viel Arbeit fuer eine eigene Folge-Story. Diese Story stellt sicher, dass die Klasse mit korrekten Signaturen existiert; spaeter wird der Body befuellt.
+
+`src/agentkit/integrations/are/` bleibt unveraendert (keine Re-Exports), weil AreClient BC-internes Sub ist.
 
 #### 2.1.3 Datenmodelle
 
+<!-- AG3-030 deep-review: AreRequirement um requirement_type, description, must_cover ergaenzt; AreEvidence von freiem Text auf evidence_type+evidence_ref umgestellt (FK-40 Evidence-Reference-Vertrag). -->
+
 `src/agentkit/requirements_coverage/contract.py`:
 
-- `AreRequirement` (Pydantic-Modell): `requirement_id`, `summary`, `acceptance_criteria`, `recurring: bool`
+- `AreRequirement` (Pydantic-Modell):
+  - `requirement_id: str`
+  - `requirement_type: AreRequirementType` (StrEnum gemaess FK-40)
+  - `summary: str`
+  - `description: str | None`
+  - `must_cover: bool`
+  - `acceptance_criteria: list[str]`
+  - `recurring: bool`
 - `AreContext`: `requirements: list[AreRequirement]`, `loaded_at`
-- `AreEvidence`: `requirement_id`, `evidence_text`, `produced_by` (worker/qa)
+- `AreEvidence`:
+  - `requirement_id: str`
+  - `evidence_type: EvidenceType` (StrEnum: `TEST_REPORT`, `COMMIT_REF`, `ARTIFACT_REF`, `MANUAL_NOTE`)
+  - `evidence_ref: str`
+  - `produced_by: EvidenceProducer` (StrEnum: `WORKER`, `QA`)
 - `LinkResult`, `ContextLoadResult`, `EvidenceSubmitResult`, `CoverageVerdict` als Result-Modelle
 
 Alle frozen, extra forbid.
@@ -98,14 +146,17 @@ Alle frozen, extra forbid.
 
 Aktuell exportiert `src/agentkit/requirements_coverage/__init__.py` nur `StoryAreLink`-Symbole. Erweitert um `RequirementsCoverage`, `AreClient`, alle Datenmodelle, `AreDockpointStatus`.
 
-#### 2.1.5 Stale-`are_item_id`-Behandlung (B1 Detail, FK-40 §40.5b.5)
+#### 2.1.5 Stale-`are_item_id`-Behandlung — verschoben
 
-`src/agentkit/state_backend/store/story_are_link_repository.py:StateBackendStoryAreLinkRepository.update_kind` und `remove` werden um Stale-Erkennung ergaenzt:
+<!-- AG3-030 deep-review: Stale-Erkennung gehoert nicht ins Repository. FK-40 normiert: stale ARE-Items werden beim Andock-Punkt 4 (check_gate) sichtbar, AreClient.check_gate meldet das Item als unbekannt, das Gate setzt FAIL mit Stale-Hinweis. Das aktuelle StoryAreLink-Istmodell hat ausserdem kein Statusfeld. -->
 
-- Wenn ein `are_item_id` an einer Story haengt, die nicht mehr im ARE-System existiert: `STALE`-Status (neue StrEnum `StoryAreLinkStatus`) wird markiert.
-- Story-Reset-Verhalten: Eintraege ueberleben Reset (FK-40 §40.5b.4) — Test bestaetigt das.
+Stale-Erkennung ist **nicht Scope von AG3-030**. AG3-030 stellt nur sicher, dass bestehende `StoryAreLink`-Modelle und Repository-Protokolle unveraendert importierbar bleiben.
 
-Diese Detail-Erweiterung ist klein und passt natuerlich in die BC-Top-Surface-Story.
+Stale-Behandlung wird in der ARE-Gate-Folge-Story (THEME-009, AG3-042) implementiert:
+- `RequirementsCoverage.check_gate(story_id)` ruft `AreClient.check_gate(story_id)` auf
+- Unbekannte/stale ARE-Items fuehren zu `CoverageVerdict(status=FAIL, stale_items=[...])`
+
+**Story-Reset-Verhalten** (FK-40 §40.5b.4): `StoryAreLink`-Eintraege ueberleben Reset. Wenn dazu noch kein Regressionstest existiert, darf in dieser Story ein einfacher Repository-Regressionstest hinzukommen, **ohne** Schema- oder Statusfeld-Aenderung.
 
 #### 2.1.6 Tests
 
@@ -125,22 +176,21 @@ Diese Detail-Erweiterung ist klein und passt natuerlich in die BC-Top-Surface-St
 - `ScopeMapping`-Sub (`A7`) — Folge-Story (Schreib-Owner ist installation-and-bootstrap)
 - Telemetrie-Events fuer ARE (`A8`) — THEME-007 (AG3-037)
 - Frontend Lese-API (`B2`) — Folge-Story
+- StageRegistry-Registrierung der ARE-Stage — NICHT Scope. `requirements_coverage` liefert nur `check_gate`-Logik; Registrierung und Auswertung als Layer-1-Stage gehoeren zu `verify-system` (FK-40 §40.7). <!-- AG3-030 deep-review -->
+- Stale-`are_item_id`-Behandlung im Repository — verschoben in ARE-Gate-Folge-Story (siehe 2.1.5).
 
 ## 3. Betroffene Dateien
 
 | Datei | Aenderungsart | Beschreibung |
 |---|---|---|
-| `src/agentkit/requirements_coverage/__init__.py` | Modifiziert | Exportiert `RequirementsCoverage`, Datenmodelle, `AreDockpointStatus` |
+| `src/agentkit/requirements_coverage/__init__.py` | Modifiziert | Exportiert `RequirementsCoverage`, `AreClient`, Datenmodelle, `AreDockpointStatus` |
 | `src/agentkit/requirements_coverage/top.py` | Neu | `RequirementsCoverage`-Klasse |
-| `src/agentkit/requirements_coverage/contract.py` | Neu | Datenmodelle |
-| `src/agentkit/requirements_coverage/errors.py` | Neu | typisierte Exceptions |
-| `src/agentkit/integrations/are/__init__.py` | Modifiziert | Re-Export `AreClient` |
-| `src/agentkit/integrations/are/client.py` | Neu | `AreClient`-Klasse mit NotImplementedError-Stubs |
-| `src/agentkit/state_backend/store/story_are_link_repository.py` | Modifiziert | Stale-Erkennung in update_kind/remove |
+| `src/agentkit/requirements_coverage/are_client.py` | Neu | `AreClient`-Klasse mit NotImplementedError-Stubs (BC-internes Sub, FK-40 §40.4) <!-- AG3-030 deep-review: Pfadkorrektur. --> |
+| `src/agentkit/requirements_coverage/contract.py` | Neu | Datenmodelle inkl. `EvidenceType`, `EvidenceProducer`, `AreRequirementType` |
+| `src/agentkit/requirements_coverage/errors.py` | Neu | typisierte Exceptions inkl. `AreConfigurationError`, `AreCapabilityNotImplementedError` |
 | `tests/unit/requirements_coverage/test_top.py` | Neu | Top-Surface-Tests |
 | `tests/unit/requirements_coverage/test_contract.py` | Neu | Datenmodelle |
-| `tests/unit/integrations/are/test_client.py` | Neu | Skelett-Asserts |
-| `tests/unit/state_backend/store/test_story_are_link_stale.py` | Neu | Stale-Tests |
+| `tests/unit/requirements_coverage/test_are_client.py` | Neu | AreClient-Skelett-Asserts |
 | `tests/contract/requirements_coverage/test_top_surface.py` | Neu | Vertrags-Pinning |
 
 ## 4. Akzeptanzkriterien
@@ -148,10 +198,10 @@ Diese Detail-Erweiterung ist klein und passt natuerlich in die BC-Top-Surface-St
 1. **`RequirementsCoverage`-Klasse existiert** und ist via `from agentkit.requirements_coverage import RequirementsCoverage` importierbar.
 2. **`is_enabled`-Property** liefert `True` wenn Pipeline-Config `features.are == True` und `AreClient` gesetzt ist; sonst `False`.
 3. **Vier Top-Methoden**: `link_requirements`, `load_context`, `submit_evidence`, `check_gate`. Jede prueft `is_enabled` zuerst. Wenn `False`: gibt Result-Modell mit `status=SKIPPED` zurueck (kein Fehler, keine Exception). Wenn `True`: `NotImplementedError` mit Verweis auf Folge-Story.
-4. **`AreClient`-Klasse existiert** mit fuenf Methoden (`list_requirements`, `get_recurring`, `load_context`, `submit_evidence`, `check_gate`); alle werfen `NotImplementedError` mit "follow-up"-Verweis.
+4. **`AreClient`-Klasse existiert** unter `src/agentkit/requirements_coverage/are_client.py` mit fuenf Methoden gemaess FK-40 §40.4.1: `list_requirements(story_id, scope)`, `get_recurring(scope, story_type)`, `load_context(story_id)`, `submit_evidence(story_id, requirement_id, evidence_type, evidence_ref)`, `check_gate(story_id)`. Alle werfen `NotImplementedError` mit "follow-up"-Verweis. <!-- AG3-030 deep-review: Pfad + Signaturen korrigiert. -->
 5. **Result-Modelle** sind frozen, extra forbid: `LinkResult`, `ContextLoadResult`, `EvidenceSubmitResult`, `CoverageVerdict`.
-6. **Stale-`are_item_id`-Behandlung**: `StoryAreLinkStatus`-StrEnum mit `ACTIVE`, `STALE` ist im Repository nutzbar; `update_kind`/`remove` koennen Eintraege als STALE markieren statt zu loeschen.
-7. **Architecture-Conformance**: `agentkit.requirements_coverage` importiert nur `agentkit.core_types`, `agentkit.config`, `agentkit.integrations.are`; nicht direkt aus state_backend.store-Fassaden ausserhalb Repository-Module.
+6. **`features.are: true`-Pfad**: bei aktivierter ARE und fehlendem `AreClient` wirft jede Methode `AreConfigurationError`; bei aktivierter ARE und vorhandenem `AreClient` wirft jede Methode `AreCapabilityNotImplementedError` mit Verweis auf die Folge-Story (Vertrags-Slot, kein produktives Verhalten). <!-- AG3-030 deep-review: ehemals AK 6 (Stale-Erkennung) ersetzt — Stale wandert in Folge-Story. -->
+7. **Architecture-Conformance**: `agentkit.requirements_coverage` importiert nur `agentkit.core_types`, `agentkit.config`; nicht aus `agentkit.integrations.are` (AreClient ist BC-internes Sub) und nicht direkt aus state_backend.store-Fassaden ausserhalb Repository-Module.
 8. **Pflichtbefehle gruen**: pytest unit + contract; mypy --strict; ruff clean; Coverage haelt 85%.
 
 ## 5. Definition of Done

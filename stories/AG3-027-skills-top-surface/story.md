@@ -1,7 +1,9 @@
 # AG3-027: Skills BC — Top-Komponente Skills + Sub-Klassen
 
+<!-- AG3-027 deep-review (Schnitt-Vorbehalt): ChatGPT empfiehlt, Persistenz (SQLite/Postgres skill_bindings-Tabelle), Installer-Integration (BC12) und __pycache__-Cleanup aus dieser Story auszulagern, weil sie die Top-Surface-Story von "M" auf "L" aufblaehen und BC-fremde Aenderungen (state_backend, installer/runner) mit hineintragen. Die Story behaelt aktuell den Vollscope, markiert aber Out-of-Scope-Kandidaten explizit. Orchestrator entscheidet, ob ein Split notwendig ist. -->
+
 **Typ:** Implementation
-**Groesse:** L
+**Groesse:** L (Schnitt-Vorbehalt — siehe Header-Kommentar)
 **Abhaengigkeiten:** AG3-021 (Enums fuer Status-Felder), AG3-022 (`ArtifactClass`-Bezug fuer Skill-Bundle-Records)
 **Quell-Konzepte (autoritativ, in dieser Reihenfolge):**
 - `concept/_meta/bc-cut-decisions.md §BC 11 agent-skills`
@@ -43,60 +45,74 @@ Neue Modul-Struktur:
 - `placeholder.py` — `PlaceholderSubstitutor`
 - `errors.py` — typisierte Exceptions
 
-#### 2.1.2 `Skills`-Top-Klasse (bc-cut-decisions.md §BC 11)
+#### 2.1.2 `Skills`-Top-Klasse (bc-cut-decisions.md §BC 11, FK-43, FK-50 CP8)
+
+<!-- AG3-027 deep-review: bind_skill-Signatur korrigiert. FK-43 + FK-50 CP8 normieren bind_skill(skill_name, bundle_root, project_root) -> None. Profil-/Bundle-Resolution ist Installer-Vorarbeit (CP6/CP7), nicht bind_skill-Parameter. -->
 
 ```python
 class Skills:
-    def __init__(self, bundle_store: SkillBundleStore, binding_repo: SkillBindingRepository, substitutor: PlaceholderSubstitutor) -> None: ...
+    def __init__(self, bundle_store: SkillBundleStore, binding_repo: SkillBindingRepository) -> None: ...
 
     def bind_skill(
         self,
+        skill_name: str,
+        bundle_root: Path,
         project_root: Path,
-        skill_logical_id: LogicalSkillId,
-        profile: SkillProfile,
-        pipeline_config: PipelineConfig,
-    ) -> SkillBinding: ...
+    ) -> None: ...
 
-    def resolve_binding(self, project_root: Path, skill_logical_id: LogicalSkillId) -> SkillBinding | None: ...
+    def resolve_binding(self, project_root: Path, skill_name: str) -> SkillBinding | None: ...
 
     def list_bound_skills(self, project_root: Path) -> list[SkillBinding]: ...
 
-    def collect_quality_metrics(self, skill_logical_id: LogicalSkillId) -> SkillQualityMetric:
-        # Stub: liefert leere SkillQualityMetric; voller Ausbau in Folge-Story
-        ...
+    def collect_quality_metrics(self, skill_name: str) -> SkillQualityMetric:
+        # Convention: ohne Telemetrie-Datenquelle (Folge-Story) MUSS NotImplementedError
+        # geworfen werden. Eine leere SkillQualityMetric ist nicht akzeptabel, weil sie
+        # ein "alles okay" suggeriert (FK-43: Skill-Quality ist echte Messung aus
+        # Telemetrie + Failure-Corpus).
+        raise NotImplementedError("SkillQualityMetric requires telemetry/failure-corpus data — follow-up story")
 ```
 
-`SkillProfile` ist StrEnum mit den Konzept-Profilen (`CORE`, `ARE`). `LogicalSkillId` ist NewType.
+`SkillProfile` ist StrEnum mit den Konzept-Profilen (`CORE`, `ARE`). `LogicalSkillId` ist NewType — wird in dieser Story durch `skill_name: str` ersetzt (entspricht FK-43-Vokabular); `LogicalSkillId` bleibt als interner Alias erlaubt.
+
+Eine optionale Convenience-Methode `bind_profile_skills(project_root: Path, profile: SkillProfile, config: PipelineConfig) -> list[SkillBinding]` ist **erlaubt**, aber NICHT Teil der FK-43/FK-50-Top-Surface — interne Helper, nicht im `__init__.py`-Export.
 
 #### 2.1.3 `SkillBundleStore`
 
+<!-- AG3-027 deep-review: resolve_variant ist Installer-Vorarbeit (CP6/CP7), nicht Teil der Top-Surface dieser Story. -->
+
 Systemweiter, kanonischer Bundle-Store (analog `PromptBundleStore` aus AG3-015):
 
-- `SkillBundle` (Pydantic-v2-Modell): `bundle_id`, `bundle_version`, `bundle_root: Path`, `manifest_digest: str`, `variants: dict[SkillProfile, LogicalSkillId]`
+- `SkillBundle` (Pydantic-v2-Modell): `bundle_id`, `bundle_version`, `bundle_root: Path`, `manifest_digest: str`, `variants: dict[SkillProfile, str]` (skill_name pro Profil)
 - `SkillBundleStore.get_bundle(bundle_id) -> SkillBundle`
-- `SkillBundleStore.resolve_variant(skill_logical_id, profile) -> SkillBundle` — waehlt die passende Bundle-Variante fuer das angegebene Profil
 - Default-Pfad: `~/.agentkit/skills/` (systemweit); pro Test kann ein temporaerer Pfad uebergeben werden.
+
+`SkillBundleStore.resolve_variant(skill_name, profile) -> SkillBundle` ist **NICHT Scope dieser Story** — `bind_skill` bekommt bereits einen konkreten `bundle_root` uebergeben. Profilermittlung + Bundle-Auswahl gehoeren in eine Folge-Story (Installer-Andockung CP6/CP7).
 
 Bundle-Versionierung: `SkillBundleVersion` als Pydantic-Modell mit `version: str`, `pinned_at: datetime`. Eigenstaendig zu PromptBundle (`FK-43 §43.5.2`).
 
-#### 2.1.4 `SkillBinding` mit Skill-Lifecycle (formal.skills-and-bundles.state-machine)
+#### 2.1.4 `SkillBinding` mit Skill-Lifecycle (formal.skills-and-bundles.entities + state-machine)
 
-`SkillBinding` ist Pydantic-v2-Modell (frozen, extra forbid):
+<!-- AG3-027 deep-review: Feldnamen an formal.skills-and-bundles.entities angeglichen (binding_id, project_key, skill_name, bundle_id, target_path, binding_mode). -->
 
+`SkillBinding` ist Pydantic-v2-Modell (frozen, extra forbid) und folgt der formalen Entity `skill-binding`:
+
+- `binding_id: str` — kanonische Identitaet aus formal.skills-and-bundles.entities
 - `project_key: str`
-- `skill_logical_id: LogicalSkillId`
-- `profile: SkillProfile`
+- `skill_name: str`
 - `bundle_id: str`
 - `bundle_version: str`
+- `target_path: Path` — Bindungspunkt im Projekt (z.B. `.claude/skills/{skill_name}`)
+- `binding_mode: SkillBindingMode` — StrEnum: `SYMLINK` (Pflicht), Zukunfts-Slots
 - `status: SkillLifecycleStatus`
-- `symlink_path: Path` — Pfad innerhalb des Projekts (`.claude/skills/{name}/`)
 - `pinned_at: datetime`
 
 `SkillLifecycleStatus` StrEnum mit den Werten aus `formal.skills-and-bundles.state-machine`: `REQUESTED`, `PROFILE_RESOLVED`, `BUNDLE_SELECTED`, `BOUND`, `VERIFIED`, `REJECTED`.
 
-`SkillBindingRepository` Protocol fuer Persistenz. Storage: Tabelle `skill_bindings` in state_backend (siehe 2.1.6).
+`SkillBindingRepository` Protocol fuer Persistenz. **Top-Surface-Story-Scope**: Repository-Protocol + InMemory-/Fake-Implementierung fuer Unit-Tests. Echte SQLite/Postgres-Tabelle siehe Vorbehalt in 2.1.6.
 
 #### 2.1.5 `PlaceholderSubstitutor` (FK-43 §43.4.2)
+
+<!-- AG3-027 deep-review: PlaceholderSubstitutor ist Implementierungsdetail fuer materialisierte/substituierte Harness-Varianten (FK-43 §43.4.2). bind_skill ist Symlink-only und ruft den Substitutor NICHT. -->
 
 ```python
 class PlaceholderSubstitutor:
@@ -111,24 +127,34 @@ class PlaceholderSubstitutor:
 
 Read-only-Zugriff auf `PipelineConfig`. Bei unbekanntem Platzhalter im Inhalt: fail-closed (`UnknownPlaceholderError`).
 
+**Wichtig**: `PlaceholderSubstitutor` ist ein interner Service fuer materialisierte/substituierte Harness-Varianten und kuenftige Read-Time-Aufloesung. Er ist NICHT Teil der `bind_skill`-Top-Surface — `bind_skill(skill_name, bundle_root, project_root)` ruft den Substitutor nicht (Symlink-Invariante `project_binding_is_symlink_only`).
+
 #### 2.1.6 Persistenz (SQLite + Postgres)
 
+<!-- AG3-027 deep-review (Schnitt-Vorbehalt): ChatGPT empfiehlt, Persistenz aus dieser Top-Surface-Story herauszuziehen und in eine Folge-Story "AG3-027b SkillBinding persistence + pin record" zu schneiden. Begruendung: Top-Surface braucht nur Protocol + InMemory-Fake; produktive State-Backend-Migration ist BC-fremde Arbeit (state_backend). Aktuell bleibt der Vollscope drin, mit dem Hinweis, dass Orchestrator entscheidet, ob Split vorgezogen wird. -->
+
 Neue Tabelle `skill_bindings`:
-- `project_key`, `skill_logical_id`, `profile`, `bundle_id`, `bundle_version`, `status`, `symlink_path`, `pinned_at`
-- UNIQUE `(project_key, skill_logical_id)`
+- `binding_id` (PK), `project_key`, `skill_name`, `bundle_id`, `bundle_version`, `target_path`, `binding_mode`, `status`, `pinned_at`
+- UNIQUE `(project_key, skill_name)`
 - Konkrete Repository in `state_backend/store/skill_binding_repository.py`
 - Schema-Versionierung Side-by-Side (AG3-005)
 
-#### 2.1.7 `bind_skill`-Mechanik (FK-43 §43.4.1, Invariante `project_binding_is_symlink_only`)
+**Wenn Split**: Diese Story behaelt nur `SkillBindingRepository`-Protocol + InMemory-Implementierung; alle `state_backend/`-Aenderungen wandern in die Folge-Story.
 
-Schritte:
-1. Validierung: project_root existiert, profile ist erlaubt fuer skill_logical_id (aus Bundle-Variants-Map)
-2. Bundle-Resolution via `SkillBundleStore.resolve_variant`
-3. Lifecycle: status -> `REQUESTED` -> `PROFILE_RESOLVED` -> `BUNDLE_SELECTED`
-4. Symlink-Erzeugung im Projekt unter `{project_root}/.claude/skills/{skill_logical_id}` zeigt auf Bundle-Root
-5. PlaceholderSubstitutor wird **nicht** auf den Bundle-Inhalt angewendet (Invariante `project_binding_is_symlink_only`: kein Kopieren, kein Mutieren); Platzhalter werden **zur Read-Zeit** durch Skill-Konsumenten substituiert. Diese Story bietet aber `PlaceholderSubstitutor` als Service bereit.
-6. Lifecycle: `BOUND`. Persistenz via Repository.
-7. Verifikation (Symlink existiert, zeigt auf Bundle, Manifest-Digest stimmt): `VERIFIED`.
+#### 2.1.7 `bind_skill`-Mechanik (FK-43 §43.4.1, FK-50 CP8, Invariante `project_binding_is_symlink_only`)
+
+<!-- AG3-027 deep-review: Profilauflösung/Bundle-Resolution wandert raus (Installer CP6/CP7). bind_skill bekommt bereits konkreten bundle_root. Multi-Harness-Symlinks (Claude Code + Codex) sind FK-43-Pflicht. -->
+
+Schritte (Aufruf `bind_skill(skill_name, bundle_root, project_root)`):
+1. Validierung: `project_root` existiert; `bundle_root` existiert + ist gueltiges Bundle; Manifest-Digest validiert
+2. Lifecycle: status -> `REQUESTED` -> `BUNDLE_SELECTED` (Profil-/Bundle-Resolution ist bereits durch Caller geleistet)
+3. Symlink-Erzeugung pro aktiviertem Harness am harness-spezifischen Bindungspunkt:
+   - Claude Code: `{project_root}/.claude/skills/{skill_name}` -> `bundle_root`
+   - Codex: harness-spezifischer Pfad gemaess FK-30 §30.11 (Codex-Aequivalent)
+   Beide Symlinks werden gesetzt, wenn der jeweilige Harness im Projekt aktiviert ist (Mehrfach-Harness-Support gemaess FK-43).
+4. PlaceholderSubstitutor wird **nicht** auf den Bundle-Inhalt angewendet (Invariante `project_binding_is_symlink_only`: kein Kopieren, kein Mutieren); Platzhalter werden zur Read-Zeit durch Skill-Konsumenten substituiert.
+5. Lifecycle: `BOUND`. Persistenz via Repository (Protocol).
+6. Verifikation (Symlinks existieren, zeigen auf Bundle, Manifest-Digest stimmt): `VERIFIED`.
 
 Fail-closed-Pfade:
 - Symlink-Erzeugung schlaegt fehl -> `SkillBindingFailedError` (status bleibt `BUNDLE_SELECTED`, nicht persistiert)
@@ -137,10 +163,14 @@ Fail-closed-Pfade:
 
 #### 2.1.8 Installer-Anschluss (agent-skills.C1)
 
+<!-- AG3-027 deep-review (Schnitt-Vorbehalt): Installer-Aenderungen (installer/runner.py:install_agentkit) gehoeren zum BC `installation-and-bootstrap` (BC12), nicht zur Skills-Top-Surface. ChatGPT empfiehlt, diesen Abschnitt in eine eigene BC12-Andock-Story zu verschieben. Aktuell bleibt der Vollscope inklusive Installer-Umbau drin; Orchestrator entscheidet, ob Split. -->
+
 `src/agentkit/installer/runner.py:install_agentkit`:
-- Aufruf von `Skills.bind_skill` fuer jeden Pflicht-Skill (FK-43 §43.3.1 nennt: `create-userstory`, `execute-userstory`, `lookup-userstory`, `llm-discussion` — Profile core/are je nach Projekt-Profil)
+- Aufruf von `Skills.bind_skill` fuer jeden Pflicht-Skill (FK-43 §43.3.1 nennt: `create-userstory`, `execute-userstory`, `lookup-userstory`, `llm-discussion` — Profile core/are je nach Projekt-Profil; Profilermittlung in CP6/CP7 vor dem Aufruf)
 - Direktes Anlegen von `.claude/skills/` als leerer Platzhalter entfaellt
 - Falls Bundle nicht im System-Store: fail-closed mit Installation-Fehler
+
+**Wenn Split**: Diese Story liefert nur `Skills.bind_skill` als konsumierbare Top-Surface plus einen Contract-Test/Integration-Fixture, der zeigt, dass `Skills.bind_skill` vom Installer konsumierbar ist. Der tatsaechliche Umbau von `installer/runner.py` wandert in die BC12-Andock-Story.
 
 #### 2.1.9 Tests
 
@@ -153,6 +183,8 @@ Fail-closed-Pfade:
 - Contract-Test `tests/contract/skills/test_top_surface.py`: alle vier Methoden mit exakter Signatur, Invariante `project_binding_is_symlink_only`
 
 #### 2.1.10 Cleanup `__pycache__`-Artefakte (agent-skills.C2)
+
+<!-- AG3-027 deep-review (Schnitt-Vorbehalt): __pycache__-Cleanup ist Repo-Hygiene, kein Skills-Top-Surface-Vertrag. ChatGPT empfiehlt, das als separate Cleanup-Task auszulagern. Aktuell bleibt es drin; Orchestrator entscheidet. -->
 
 `src/agentkit/project_ops/install/__pycache__/` mit `skills.cpython-314.pyc`, `skill_variant.cpython-314.pyc` (Verzeichnis ohne Quellcode) wird geloescht.
 
@@ -194,10 +226,10 @@ Fail-closed-Pfade:
 
 ## 4. Akzeptanzkriterien
 
-1. **Paket `src/agentkit/skills/` existiert** und exportiert `Skills`, `SkillBinding`, `SkillBundle`, `SkillBundleVersion`, `SkillBundleStore`, `PlaceholderSubstitutor`, `SkillLifecycleStatus`, `SkillProfile`.
-2. **`Skills`-Klasse hat vier Top-Methoden** mit den genannten Signaturen: `bind_skill`, `resolve_binding`, `list_bound_skills`, `collect_quality_metrics` (letzteres als Stub mit leerer Metric).
-3. **`bind_skill` durchlaeuft die Lifecycle-Transitions** `REQUESTED -> PROFILE_RESOLVED -> BUNDLE_SELECTED -> BOUND -> VERIFIED`. Tests verifizieren die Transitionen.
-4. **Symlink-Invariante**: nach erfolgreichem `bind_skill` existiert unter `{project_root}/.claude/skills/{skill}/` ein Symlink (kein File-Copy), der auf den Bundle-Root zeigt. Tests pruefen `Path.is_symlink()`.
+1. **Paket `src/agentkit/skills/` existiert** und exportiert `Skills`, `SkillBinding`, `SkillBundle`, `SkillBundleVersion`, `SkillBundleStore`, `PlaceholderSubstitutor`, `SkillLifecycleStatus`, `SkillProfile`, `SkillBindingMode`.
+2. **`Skills`-Klasse hat vier Top-Methoden** mit den genannten Signaturen: `bind_skill(skill_name: str, bundle_root: Path, project_root: Path) -> None`, `resolve_binding(project_root, skill_name)`, `list_bound_skills(project_root)`, `collect_quality_metrics(skill_name)` (letzteres wirft `NotImplementedError` mit Verweis auf Folge-Story; **keine leere Metric**). <!-- AG3-027 deep-review: Signatur an FK-43/FK-50 CP8 angeglichen; collect_quality_metrics darf nicht still ein "alles okay" suggerieren. -->
+3. **`bind_skill` durchlaeuft die Lifecycle-Transitions** `REQUESTED -> BUNDLE_SELECTED -> BOUND -> VERIFIED` (Profilauflösung ist Caller-Vorarbeit). Tests verifizieren die Transitionen.
+4. **Symlink-Invariante (Multi-Harness)**: nach erfolgreichem `bind_skill` existiert pro aktiviertem Harness ein Symlink am harness-spezifischen Bindungspunkt — fuer Claude Code `{project_root}/.claude/skills/{skill_name}`, fuer Codex der FK-30 §30.11-Aequivalentpfad. Kein File-Copy, kein Canonical Skill Source im Projekt. Tests pruefen `Path.is_symlink()` fuer alle aktivierten Harnesses. <!-- AG3-027 deep-review: FK-43 fordert AK3 ab Tag 1 Claude Code + Codex parallel; Story darf nicht nur .claude/skills pruefen. -->
 5. **Fail-closed-Pfade typisiert**: `SkillBindingFailedError`, `SkillBundleDigestMismatchError`, `SkillProfileNotSupportedError`, `UnknownPlaceholderError`, `SkillBundleNotFoundError`. Jede Exception ist in `errors.py` definiert und wird in Tests provoziert.
 6. **`PlaceholderSubstitutor` ersetzt die vier Pflicht-Platzhalter** korrekt. Unbekannte Platzhalter -> `UnknownPlaceholderError`.
 7. **Persistenz**: `skill_bindings`-Tabelle in SQLite + Postgres. Parametrisierte Repository-Tests laufen auf beiden Backends. UNIQUE `(project_key, skill_logical_id)` ist enforced.

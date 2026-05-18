@@ -19,6 +19,11 @@ THEME-005 aus `stories/_priorisierungsempfehlung.md`. Befund `verify-system.A1`:
 
 Diese Story liefert die **Top-Surface als typisierten Vertrag mit verkabeltem Skelett**. Layer 1-4 bleiben dahinter im aktuellen (teilweise stub-) Zustand; ihre inhaltliche Vervollstaendigung ist THEME-009. Die Top-Surface ist eigenstaendig pruefbar: Tests verifizieren Vertragsform (Signaturen, Return-Type, Fehlertypen, fail-closed-Pfade), nicht die Layer-Logik.
 
+<!-- AG3-026 deep-review: Hinweis zum oeffentlichen Vertrag. -->
+**Normativer Vertrag (BC-Cut + FK-27 + formal.verify.commands):**
+`VerifySystem.run_qa_subflow(ctx, story_id, qa_context, target: ArtifactReference) -> PolicyVerdict`.
+Der Return-Type ist exakt `PolicyVerdict` (PASS | FAIL). Detaildaten werden ueber QA-Artefakte und Read-Models transportiert, nicht ueber den Return-Type. Interne Ergebnisobjekte (z.B. `QaSubflowExecutionResult`) sind erlaubt, aber NICHT Teil der oeffentlichen Surface.
+
 ## 2. Scope
 
 ### 2.1 In Scope
@@ -43,45 +48,57 @@ class VerifySystem:
         ctx: VerifyContextBundle,
         story_id: str,
         qa_context: QaContext,
-        target: VerifyTarget,
+        target: ArtifactReference,
     ) -> PolicyVerdict:
         ...
 ```
 
-`VerifyContextBundle` und `VerifyTarget` sind neue typisierte Pydantic-Modelle in `src/agentkit/verify_system/contract.py`:
+<!-- AG3-026 deep-review: target ist ArtifactReference (BC-Cut + FK-27 + formal.verify.commands); VerifyTarget bleibt internes Wrapper-Modell. -->
+
+`VerifyContextBundle` ist ein neues typisiertes Pydantic-Modell in `src/agentkit/verify_system/contract.py`:
 
 - `VerifyContextBundle`: `run_id`, `story_dir`, `phase_envelope` (Read-only), `attempt`
-- `VerifyTarget`: `target_type` (StrEnum: `IMPLEMENTATION`, `EXPLORATION`, `BUGFIX`), `branch_ref`, `commit_sha`, `paths_in_scope: list[str]`
+
+`VerifyTarget` ist ein **internes** Wrapper-Modell, das `VerifySystem` aus `ctx + target: ArtifactReference` ableitet. Es ist KEIN Methodenparameter und KEIN `__init__.py`-Export:
+
+- `VerifyTarget` (intern): `artifact_ref: ArtifactReference`, `target_type: VerifyTargetType`, `branch_ref: str | None`, `commit_sha: str | None`, `paths_in_scope: tuple[str, ...]`
+- `VerifyTargetType` StrEnum: `IMPLEMENTATION`, `EXPLORATION`, `BUGFIX`
 
 #### 2.1.2 QA-Context-Routing (concept/_meta/bc-cut-decisions.md §QA-Subflow-Vertrag)
 
 `run_qa_subflow` verzweigt anhand `qa_context: QaContext`:
 
-- `IMPLEMENTATION_INITIAL`/`IMPLEMENTATION_REMEDIATION` -> volle 4-Schichten (Layer 1+2+3+Policy)
-- `EXPLORATION_INITIAL`/`EXPLORATION_REMEDIATION` -> nur Layer 2 (Design-Review-Schicht) + Policy
+- `IMPLEMENTATION_INITIAL`/`IMPLEMENTATION_REMEDIATION` -> volle 4-Schichten (Layer 1+2+3+Policy) gemaess FK-27 §27.3 + formal.verify.scenarios (POST_IMPLEMENTATION/POST_REMEDIATION)
+- `EXPLORATION_INITIAL`/`EXPLORATION_REMEDIATION` -> reduzierte Layer-Auswahl (Design-Review-Schicht + Policy) gemaess QA-Subflow-Vertrag im BC-Cut
 
-Routing-Regel ist im Konzept normiert; eine Helper-Funktion `select_layers(qa_context: QaContext) -> tuple[QALayer, ...]` ist Teil der Top-Surface.
+<!-- AG3-026 deep-review: Routing fuer Exploration ist im BC-Cut/Exploration-Vertrag normiert, nicht in FK-27 selbst. Die konkrete Layer-Reduktion fuer Exploration wird in dieser Story als Konfigurationstabelle gepinnt; FK-27 §27.3 begruendet primaer den Implementation-Pfad. -->
+
+`select_layers(qa_context: QaContext) -> tuple[QALayer, ...]` ist Helper-Funktion und Teil der Top-Surface.
 
 #### 2.1.3 PolicyVerdict-Antwort
 
-`run_qa_subflow` gibt `PolicyVerdict` (aus `agentkit.core_types`, AG3-021) zurueck. Antwort-Modell wird angereichert:
+<!-- AG3-026 deep-review: PolicyVerdictResult als oeffentlicher Return-Type war Konzept-Bruch (BC-Cut + FK-27 + formal.verify.commands). Korrektur: Return-Type ist exakt PolicyVerdict; Details ueber QA-Artefakte. -->
+
+`run_qa_subflow(...)` gibt **exakt** `PolicyVerdict` zurueck (`PASS` oder `FAIL`). Das ist der oeffentliche Capability-Vertrag aus BC-Cut, FK-27 §27.7 und `formal.verify.commands`.
+
+Detaildaten (Findings, Layer-Ergebnisse, Artefakt-Refs, QA-Zyklus-Identitaeten) werden NICHT ueber den Return-Type transportiert, sondern ueber:
+- zyklusgebundene QA-Artefakte (`structural.json`, `qa_review.json`, `semantic_review.json`, `doc_fidelity.json`, `adversarial.json`, `decision.json`) gemaess FK-27 §27.7 mit ArtifactEnvelope + ProducerRegistry
+- Read-Model-/Projection-Records (Folge-Stories)
+
+Optional internes Modell (nicht exportiert, nicht Teil der Top-Surface):
 
 ```python
-class PolicyVerdictResult(BaseModel):
-    verdict: PolicyVerdict          # PASS | FAIL
-    findings: list[Finding]
-    blocking_findings: list[Finding]
-    layer_results: dict[str, LayerResult]
-    qa_cycle_id: str
-    qa_cycle_round: int
-    evidence_epoch: int
-    artifact_refs: list[ArtifactReference]
+class QaSubflowExecutionResult(BaseModel):
+    verdict: PolicyVerdict
+    stage_results: tuple[StageResult, ...]
+    artifact_refs: tuple[ArtifactReference, ...]
+    blocking_failures: int
+    major_failures: int
+    minor_failures: int
     model_config = ConfigDict(frozen=True, extra="forbid")
 ```
 
-Begruendung: `PolicyVerdict` allein als Return-Type ist zu eng; Aufrufer braucht Finding-Details und Persistenzreferenzen. Konzept (FK-27 §27.7) erlaubt erweitertes Antwortmodell, solange `PolicyVerdict` enthalten ist. Der Methoden-Return-Type bleibt `PolicyVerdict` als Top-Level-Signature; das `PolicyVerdictResult` ist Bestandteil der oeffentlichen API als Detail-Wrapper, in der Praxis liefert `run_qa_subflow` `PolicyVerdictResult` (das `verdict: PolicyVerdict` propagiert). 
-
-Pragmatische Loesung: Methode liefert `PolicyVerdictResult` (das hat ein `.verdict`-Feld). Wenn Konzept-Wortlaut "-> PolicyVerdict" verlangt: Sub-Klassen-Vertrag explizit dokumentieren; Architecture-Conformance-Test pinnt das.
+`qa_cycle_id`, `qa_cycle_round`, `evidence_epoch`, `evidence_fingerprint` sind QA-Zyklus-Identitaeten aus PhaseState (AG3-025). Wenn `ctx.phase_envelope` bzw. PhaseState diese Werte traegt, schreibt `VerifySystem` sie in die erzeugten QA-Artefakte. Das **Befuellen/Invalidieren** dieser Zyklusfelder ist NICHT Scope dieser Story (siehe AG3-041, THEME-009).
 
 #### 2.1.4 Fail-Closed-Wege
 
@@ -108,8 +125,8 @@ Beim Modul-Load (`verify_system/__init__.py` Init-Hook, etabliert in AG3-023): d
 - Unit-Tests fuer `VerifyContextBundle`, `VerifyTarget`-Modelle (Pflichtfelder, Validators)
 - Contract-Test `tests/contract/verify_system/test_top_surface.py`:
   - `VerifySystem.run_qa_subflow` ist als oeffentliche Methode im `__init__.py`-Export verfuegbar
-  - Signatur exakt: `(ctx: VerifyContextBundle, story_id: str, qa_context: QaContext, target: VerifyTarget)`
-  - Return-Type `PolicyVerdictResult` mit `.verdict: PolicyVerdict`
+  - Signatur exakt: `(ctx: VerifyContextBundle, story_id: str, qa_context: QaContext, target: ArtifactReference)` <!-- AG3-026 deep-review: target ist ArtifactReference -->
+  - Return-Type exakt `PolicyVerdict` (PASS | FAIL)
 
 ### 2.2 Out of Scope
 
@@ -129,9 +146,9 @@ Beim Modul-Load (`verify_system/__init__.py` Init-Hook, etabliert in AG3-023): d
 
 | Datei | Aenderungsart | Beschreibung |
 |---|---|---|
-| `src/agentkit/verify_system/__init__.py` | Modifiziert | Re-Export `VerifySystem`, `VerifyContextBundle`, `VerifyTarget`, `PolicyVerdictResult` |
+| `src/agentkit/verify_system/__init__.py` | Modifiziert | Re-Export `VerifySystem`, `VerifyContextBundle` <!-- AG3-026 deep-review: PolicyVerdictResult/VerifyTarget nicht oeffentlich --> |
 | `src/agentkit/verify_system/system.py` | Neu | `VerifySystem`-Top-Klasse |
-| `src/agentkit/verify_system/contract.py` | Neu | `VerifyContextBundle`, `VerifyTarget`, `VerifyTargetType`-StrEnum, `PolicyVerdictResult` |
+| `src/agentkit/verify_system/contract.py` | Neu | `VerifyContextBundle`; intern `VerifyTarget`, `VerifyTargetType`-StrEnum; optional internes `QaSubflowExecutionResult` (nicht exportiert) |
 | `src/agentkit/verify_system/errors.py` | Neu (oder Modifiziert) | `VerifySystemError`, `VerifyTargetUnknownError`, `LayerExecutionError` |
 | `src/agentkit/verify_system/routing.py` | Neu | `select_layers(qa_context)` |
 | `tests/unit/verify_system/test_top_surface.py` | Neu | Methoden-Tests |
@@ -142,15 +159,17 @@ Beim Modul-Load (`verify_system/__init__.py` Init-Hook, etabliert in AG3-023): d
 ## 4. Akzeptanzkriterien
 
 1. **Klasse `VerifySystem`** ist in `src/agentkit/verify_system/system.py` definiert und ueber `from agentkit.verify_system import VerifySystem` importierbar.
-2. **Methode `run_qa_subflow(ctx, story_id, qa_context, target)`** existiert mit den genannten Parametern. Return-Type ist `PolicyVerdictResult`, das ein Feld `.verdict: PolicyVerdict` traegt.
-3. **`VerifyContextBundle` und `VerifyTarget`** sind Pydantic-v2-Modelle, frozen, extra forbid, mit Pflichtfeldern wie in 2.1.1 beschrieben.
-4. **Routing-Regel**: `select_layers(QaContext.IMPLEMENTATION_INITIAL)` und `IMPLEMENTATION_REMEDIATION` liefern alle vier Layer (Structural, LLM-Evaluator, Adversarial, Policy); `EXPLORATION_INITIAL`/`EXPLORATION_REMEDIATION` liefern nur Layer 2 + Policy.
+2. **Methode `run_qa_subflow(ctx, story_id, qa_context, target)`** existiert mit den genannten Parametern. Return-Type ist exakt `PolicyVerdict` (PASS | FAIL). Contract-Test prueft die Annotation und dass ausschliesslich `PolicyVerdict.PASS` oder `PolicyVerdict.FAIL` zurueckgegeben werden. <!-- AG3-026 deep-review: Return-Type aus FK-27 §27.7 + formal.verify.commands -->
+3. **`VerifyContextBundle`** ist Pydantic-v2-Modell, frozen, extra forbid, mit Pflichtfeldern wie in 2.1.1 beschrieben. `VerifyTarget` ist ein internes Wrapper-Modell und NICHT Teil der oeffentlichen Surface (kein Methodenparameter, kein `__init__.py`-Export).
+4. **Routing-Regel**: `select_layers(QaContext.IMPLEMENTATION_INITIAL)` und `IMPLEMENTATION_REMEDIATION` liefern alle vier Layer (Structural, LLM-Evaluator, Adversarial, Policy); `EXPLORATION_INITIAL`/`EXPLORATION_REMEDIATION` liefern die reduzierte Exploration-Layer-Auswahl (Layer 2 + Policy) gemaess QA-Subflow-Vertrag (BC-Cut).
 5. **Layer-Reihenfolge**: bei Implementation-Context ruft `run_qa_subflow` die Layer in genau dieser Reihenfolge: Structural -> LlmEvaluator -> Adversarial -> Policy. (Layer-Implementierungen koennen Stubs sein.)
-6. **Fail-closed-Verhalten**: unbekannter `target_type` -> `VerifyTargetUnknownError`. Layer wirft Exception -> wird zu `LayerExecutionError`, das als BLOCKING-Finding ins `PolicyVerdictResult` einfliesst und `verdict = FAIL` setzt.
-7. **ArtifactManager-Integration**: `run_qa_subflow` schreibt mindestens ein Envelope pro Layer-Ergebnis ueber `ArtifactManager` (Producer aus Registry, ArtifactClass.QA, Pflichtfelder aus AG3-022). Tests bestaetigen das.
-8. **`PolicyVerdictResult` Pflichtfelder**: `verdict`, `findings`, `blocking_findings`, `layer_results`, `qa_cycle_id`, `qa_cycle_round`, `evidence_epoch`, `artifact_refs`. (QA-Zyklus-Identitaeten werden ggf. aus PhaseState gelesen — Mechanik in AG3-041.)
+6. **Fail-closed-Verhalten**: unbekannter `target_type` (intern) -> `VerifyTargetUnknownError`. Layer wirft Exception -> wird zu `LayerExecutionError`, das als BLOCKING-Finding im optional internen `QaSubflowExecutionResult` einfliesst und `verdict = PolicyVerdict.FAIL` setzt (Return-Type bleibt `PolicyVerdict`).
+7. **ArtifactManager-Integration**: `run_qa_subflow` schreibt fuer jeden tatsaechlich ausgefuehrten Layer das **zugehoerige** QA-Artefakt gemaess FK-27 §27.7 (Layer 1: `structural.json`; Layer 2: `qa_review.json`, `semantic_review.json`, `doc_fidelity.json`; Layer 3: `adversarial.json`; Policy: `decision.json`) ueber `ArtifactManager`. Producer aus ProducerRegistry, ArtifactClass.QA, Pflichtfelder aus AG3-022. Stub-Layer duerfen ein synthetisches, aber schema-valides Layer-Artefakt liefern. Tests bestaetigen Producer + Schema-Vertrag. <!-- AG3-026 deep-review: "mindestens ein Envelope pro Layer" war zu unscharf. -->
+8. **QA-Zyklus-Felder werden nicht vom Return-Type erzwungen.** Wenn `ctx.phase_envelope` bzw. PhaseState bereits `qa_cycle_id`, `qa_cycle_round`, `evidence_epoch`, `evidence_fingerprint` enthaelt, schreibt `VerifySystem` diese Werte in die erzeugten QA-Artefakte. Das Befuellen/Invalidieren der Zyklusfelder ist NICHT Scope dieser Story (siehe AG3-041, THEME-009). <!-- AG3-026 deep-review: PolicyVerdictResult-Pflichtfelder waren oeffentlicher Vertrag — fehlerhaft. -->
+8a. **Optional interne Detail-Modelle** (z.B. `QaSubflowExecutionResult`) duerfen mit Feldern wie `stage_results`, `blocking_failures`, `major_failures`, `minor_failures`, `artifact_refs` existieren, sind aber kein `__init__.py`-Export und kein Return-Type.
 9. **Architecture-Conformance**: `VerifySystem` haelt sich an die BC-Grenzen; importiert `ArtifactManager` via Protocol (Dependency-Injection), nicht aus `state_backend.store` direkt.
 10. **Pflichtbefehle gruen**: pytest unit + contract; mypy --strict; ruff clean; Coverage haelt 85%.
+11. **`PolicyVerdictResult` ist NICHT in `__init__.py` exportiert** und NICHT Return-Type. <!-- AG3-026 deep-review: explizites Verbot, um Konzeptbruch zu verhindern. -->
 
 ## 5. Definition of Done
 

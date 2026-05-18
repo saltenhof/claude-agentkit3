@@ -46,12 +46,24 @@ class KpiAnalytics:
         return self._catalog.list_definitions()
 
     def refresh_analytics(self, story_id: str | None = None) -> RefreshResult:
-        # Stub-Implementation: gibt RefreshResult(refreshed_facts=0, errors=[]) zurueck wenn fact_store/worker None
-        # Vollausbau in Folge-Story
+        # AG3-029 deep-review: kein stiller Erfolg. Wenn FactStore/Worker None -> SKIPPED-Status.
+        if self._fact_store is None or self._refresh_worker is None:
+            return RefreshResult(
+                status=RefreshStatus.SKIPPED,
+                reason="fact_store_or_refresh_worker_not_configured",
+                refreshed_facts=0,
+                errors=[],
+            )
         ...
 
     def get_dashboard_view(self, view_name: str, project_key: str) -> DashboardView:
-        # Stub: liefert leere DashboardView wenn fact_store None
+        # AG3-029 deep-review: kein stilles rows=[] (das wuerde "keine Daten" statt
+        # "Datenquelle fehlt" signalisieren). Entweder typisierte Exception oder
+        # explizites UNAVAILABLE-Status.
+        if self._fact_store is None:
+            raise AnalyticsNotConfiguredError(
+                "DashboardView requires FactStore; implemented in AG3-038+"
+            )
         ...
 
     def query(self, kpi_id: str, project_key: str, period: str) -> KpiResult:
@@ -59,11 +71,26 @@ class KpiAnalytics:
         raise NotImplementedError("KpiAnalytics.query is part of follow-up story for FactStore + RefreshWorker")
 
     def get_design_tokens(self) -> DesignTokens:
-        # Stub: leere DesignTokens; DesignSystem ist Folge-Story
-        return DesignTokens(tokens={})
+        # AG3-029 deep-review: leere DesignTokens sind nicht konzepttreu (FK-64:
+        # DesignSystem ist nicht runtime-dynamisch). Entweder Methode aus AG3-029
+        # entfernen oder hart NotImplementedError werfen. Aktuelle Wahl: hard-fail.
+        raise NotImplementedError(
+            "DesignSystem tokens are implemented in follow-up story (FK-64)"
+        )
 ```
 
+<!-- AG3-029 deep-review: Stub-Pattern an Severity-Semantik angeglichen. Stille leere Returns sind nicht zulaessig (FAIL CLOSED). -->
+
+Zugehoerige Modelle/Enums (Pydantic-v2, frozen):
+- `RefreshStatus`: StrEnum `OK`, `SKIPPED`, `FAILED`
+- `RefreshResult`: `status: RefreshStatus`, `reason: str | None`, `refreshed_facts: int`, `errors: list[str]`
+- `DashboardViewStatus`: StrEnum `OK`, `UNAVAILABLE`
+- `AnalyticsNotConfiguredError`: Exception in `errors.py`
+
 `KpiCatalog` ist im Skelett vorhanden — die 40 KPI-Definitionen werden nicht alle hier befuellt; eine Folge-Story migriert sie aus FK-60. Diese Story stellt sicher, dass das Datenmodell `KpiDefinition` korrekt typisiert ist.
+
+<!-- AG3-029 deep-review: KpiCatalog darf nicht suggerieren, vollstaendig zu sein. -->
+`KpiCatalog` ist in AG3-029 nur das typisierte Katalogmodell + testbare InMemory-Registry. Es enthaelt KEINE produktive Vollstaendigkeitsbehauptung gegen FK-60 §60.4. Bis zur Befuellungs-Folge-Story MUSS `catalog.is_complete == False` bzw. `catalog_status = CatalogStatus.SKELETON` sichtbar sein. Konsumenten duerfen sich nicht auf vollstaendige KPI-Listen verlassen.
 
 #### 2.1.3 `KpiDefinition`-Datenmodell (FK-60 §60.4)
 
@@ -143,7 +170,7 @@ Pydantic-v2:
 4. **`KpiGranularity` und `KpiDomain` sind StrEnums** mit den konzept-normativen Werten.
 5. **Paket-Migration abgeschlossen**: `agentkit.dashboard` existiert nicht mehr; Importe auf `agentkit.kpi_analytics.dashboard` umgestellt; `agentkit.telemetry.kpis` entfernt.
 6. **Statusspalten-Drift behoben**: `_COLUMN_ORDER` (oder Aequivalent) enthaelt `["Backlog", "Approved", "In Progress", "Done", "Cancelled"]`.
-7. **Architecture-Conformance**: `agentkit.kpi_analytics` importiert nur `agentkit.core_types`, `agentkit.story` (existing Read-Models), nicht direkt aus `state_backend.store`-Fassaden (Repository-Pfad bleibt erlaubt fuer das Dashboard-Sub, das auf StoryService leiht — wird in AG3-038 weiter migriert).
+7. **Architecture-Conformance**: `agentkit.kpi_analytics` importiert nur `agentkit.core_types`; alle **neuen** KpiAnalytics-Top-Methoden duerfen nicht direkt aus `state_backend` oder alten Dashboard-/Story-Fassaden lesen. **Uebergangs-Ausnahme** (zeitlich begrenzt): `agentkit.kpi_analytics.dashboard.service` darf bis AG3-038 in einem klar markierten Uebergangspfad (Inline-Kommentar `# DRIFT-AG3-038: temporary StoryService leihe`) den bestehenden `StoryService` lesen. Der Drift zur FactStore-Leseseite ist in AG3-038 zu schliessen und wird nicht als neue Architektur legitimiert. <!-- AG3-029 deep-review: StoryService-Leihe nur fuer dashboard.service, nicht fuer alle neuen Methoden. -->
 8. **Pflichtbefehle gruen**: pytest unit + contract; mypy --strict; ruff clean; Coverage haelt 85%.
 
 ## 5. Definition of Done
