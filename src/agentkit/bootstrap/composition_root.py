@@ -9,6 +9,7 @@ Quelle:
   Composition-Root-Variante
 - ``concept/_meta/bc-cut-decisions.md §BC 8 artifacts`` — Producer-Registry
 - AK3-Schnitt-Disziplin: kein operativer Code in ``__init__.py``
+- AG3-026 §Station 5 -- ``build_verify_system`` ergaenzt.
 """
 
 from __future__ import annotations
@@ -27,6 +28,8 @@ from agentkit.verify_system.register import register_verify_producers
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from agentkit.verify_system.system import VerifySystem
 
 
 def build_producer_registry() -> ProducerRegistry:
@@ -73,4 +76,34 @@ def build_artifact_manager(store_dir: Path) -> ArtifactManager:
     return ArtifactManager(repository, validator)
 
 
-__all__ = ["build_artifact_manager", "build_producer_registry"]
+def build_verify_system(
+    store_dir: Path,
+    *,
+    max_major_findings: int = 0,
+) -> VerifySystem:
+    """Erzeugt einen vollstaendig verdrahteten ``VerifySystem``.
+
+    Composition-Root fuer die QA-Subflow-Top-Surface (AG3-026):
+    instanziiert alle fuenf Sub-Komponenten und verdrahtet einen echten
+    ``ArtifactManager`` (inkl. ProducerRegistry) als Persistenz-Facade.
+
+    Args:
+        store_dir: Basisverzeichnis des State-Backends. Wird an
+            ``build_artifact_manager`` durchgereicht.
+        max_major_findings: Schwellenwert fuer die PolicyEngine (Anzahl
+            tolerierter MAJOR-Findings; 0 = jedes MAJOR blockiert).
+
+    Returns:
+        ``VerifySystem`` mit allen fuenf Sub-Komponenten und einem
+        vollstaendig verdrahteten ``ArtifactManager``.
+    """
+    from agentkit.verify_system.system import VerifySystem
+
+    manager = build_artifact_manager(store_dir)
+    return VerifySystem.create_default(
+        max_major_findings=max_major_findings,
+        artifact_manager=manager,
+    )
+
+
+__all__ = ["build_artifact_manager", "build_producer_registry", "build_verify_system"]
