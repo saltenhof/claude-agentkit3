@@ -106,7 +106,7 @@ class TestQaSubflowCycle:
     def test_all_layers_pass_returns_pass(self, tmp_path: Path) -> None:
         story_dir = _setup_complete_story_dir(tmp_path)
         ctx = _make_context()
-        verify_system = VerifySystem.create_default()
+        verify_system = make_test_verify_system()
         layers: list[QALayer] = [
             StructuralChecker(),
             SemanticReviewer(),
@@ -122,7 +122,7 @@ class TestQaSubflowCycle:
     def test_structural_fail_returns_fail_with_feedback(self, tmp_path: Path) -> None:
         # No artifacts at all -> structural fails
         ctx = _make_context()
-        verify_system = VerifySystem.create_default()
+        verify_system = make_test_verify_system()
         layers: list[QALayer] = [
             StructuralChecker(),
             SemanticReviewer(),
@@ -139,7 +139,7 @@ class TestQaSubflowCycle:
         """When structural fails but semantic and adversarial pass,
         the overall result is FAIL because structural produces blockers."""
         ctx = _make_context()
-        verify_system = VerifySystem.create_default()
+        verify_system = make_test_verify_system()
         layers: list[QALayer] = [
             StructuralChecker(),
             SemanticReviewer(),
@@ -160,7 +160,7 @@ class TestQaSubflowCycle:
     def test_feedback_prompt_text_contains_details(self, tmp_path: Path) -> None:
         ctx = _make_context()
         layers: list[QALayer] = [StructuralChecker()]
-        verify_system = VerifySystem.create_default()
+        verify_system = make_test_verify_system()
         cycle = QaSubflowCycle(layers=layers, verify_system=verify_system)
 
         result = cycle.run(ctx, tmp_path)
@@ -173,8 +173,43 @@ class TestQaSubflowCycle:
         story_dir = _setup_complete_story_dir(tmp_path)
         ctx = _make_context()
         layers: list[QALayer] = [StructuralChecker()]
-        verify_system = VerifySystem.create_default()
+        verify_system = make_test_verify_system()
         cycle = QaSubflowCycle(layers=layers, verify_system=verify_system)
 
         result = cycle.run(ctx, story_dir, attempt_nr=3)
         assert result.attempt_nr == 3
+
+
+# ---------------------------------------------------------------------------
+# Local test helpers (AG3-026 Re-Review: VerifySystem.create_default braucht
+# einen ArtifactManager als Pflicht-Argument; Recording-Test-Double inline
+# ohne Cross-Module-Helper, um pytest/mypy-Pfad-Konflikte zu vermeiden).
+# ---------------------------------------------------------------------------
+
+from agentkit.artifacts import ArtifactEnvelope as _AGAEnvelope  # noqa: E402
+from agentkit.artifacts import ArtifactManager as _AGAManager  # noqa: E402
+from agentkit.artifacts import ArtifactReference as _AGARef  # noqa: E402
+
+
+class _RecordingArtifactManagerForTests(_AGAManager):
+    """In-memory ArtifactManager for unit tests (no MagicMock)."""
+
+    def __init__(self) -> None:
+        self.written_envelopes: list[_AGAEnvelope] = []
+
+    def write(self, envelope: _AGAEnvelope) -> _AGARef:
+        self.written_envelopes.append(envelope)
+        return _AGARef(
+            artifact_class=envelope.artifact_class,
+            story_id=envelope.story_id,
+            run_id=envelope.run_id,
+            record_key=f"rec/{envelope.stage}/{envelope.attempt}",
+        )
+
+
+def make_test_verify_system(*, max_major_findings: int = 0) -> VerifySystem:
+    """Build a VerifySystem wired with a recording ArtifactManager."""
+    return VerifySystem.create_default(
+        max_major_findings=max_major_findings,
+        artifact_manager=_RecordingArtifactManagerForTests(),
+    )

@@ -29,10 +29,22 @@ if TYPE_CHECKING:
     from agentkit.artifacts import ProducerRegistry
 
 # (ArtifactClass, Producer-Name, ProducerType) — Single Source of Truth
-# fuer die vier verify-system-Producer. Eine Aenderung dieser Liste ist
+# fuer die verify-system-Producer. Eine Aenderung dieser Liste ist
 # eine Konzept-Aenderung und muss in FK-27 nachgezogen werden.
+#
+# AG3-026 §AK7 verlangt fuer Layer 2 drei separate QA-Artefakte
+# (qa_review.json, semantic_review.json, doc_fidelity.json); deshalb
+# drei separate Layer-2-Producer mit unterscheidbaren Namen.
+# ``verify-system.layer-2-llm`` (Bestand aus AG3-023) bleibt fuer
+# Backward-Compatibility mit Bestandscode (write_layer_artifacts in
+# verify_system.artifacts) registriert.
 _VERIFY_PRODUCERS: Final[tuple[tuple[ArtifactClass, str, ProducerType], ...]] = (
     (ArtifactClass.QA, "verify-system.layer-1-structural", ProducerType.DETERMINISTIC),
+    # Layer 2 -- AG3-026 §AK7: drei FK-27 §27.7-Artefakte
+    (ArtifactClass.QA, "verify-system.layer-2-qa-review", ProducerType.LLM_REVIEWER),
+    (ArtifactClass.QA, "verify-system.layer-2-semantic-review", ProducerType.LLM_REVIEWER),
+    (ArtifactClass.QA, "verify-system.layer-2-doc-fidelity", ProducerType.LLM_REVIEWER),
+    # Layer 2 (Bestand AG3-023, write_layer_artifacts/_decision-Pfad)
     (ArtifactClass.QA, "verify-system.layer-2-llm", ProducerType.LLM_REVIEWER),
     (ArtifactClass.QA, "verify-system.layer-3-adversarial", ProducerType.LLM_REVIEWER),
     (ArtifactClass.QA, "verify-system.layer-4-policy", ProducerType.DETERMINISTIC),

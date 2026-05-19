@@ -29,7 +29,6 @@ from agentkit.story_context_manager.models import (
     PhaseStatus,
     QaCycleStatus,
 )
-from agentkit.verify_system import VerifySystem
 from agentkit.verify_system.artifacts import (
     write_layer_artifacts,
     write_verify_decision_artifacts,
@@ -42,6 +41,7 @@ if TYPE_CHECKING:
 
     from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
     from agentkit.story_context_manager.models import StoryContext
+    from agentkit.verify_system import VerifySystem
     from agentkit.verify_system.protocols import QALayer
 
 logger = logging.getLogger(__name__)
@@ -89,7 +89,13 @@ class ImplementationPhaseHandler:
             )
         manager = build_artifact_manager(s_dir)
 
-        verify_system = self._config.verify_system or VerifySystem.create_default()
+        # AG3-026 Re-Review: VerifySystem.create_default() braucht jetzt
+        # einen ArtifactManager (Pflicht-Arg, fail-closed). Wir bauen die
+        # Default-Instanz ueber den Composition-Root, der den Manager
+        # bereits an die Story-DB bindet.
+        from agentkit.bootstrap.composition_root import build_verify_system
+
+        verify_system = self._config.verify_system or build_verify_system(s_dir)
         layers: list[QALayer] = list(self._config.layers) if self._config.layers else [
             StructuralChecker(),
             SemanticReviewer(),

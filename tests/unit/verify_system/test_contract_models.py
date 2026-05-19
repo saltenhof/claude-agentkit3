@@ -26,19 +26,20 @@ class TestVerifyContextBundle:
         bundle = VerifyContextBundle(
             run_id="run-001",
             story_dir=tmp_path,
-            phase_envelope={"phase": "implementation"},
+            phase_envelope=None,
             attempt=1,
         )
         assert bundle.run_id == "run-001"
         assert bundle.story_dir == tmp_path
         assert bundle.attempt == 1
+        assert bundle.phase_envelope is None
 
     def test_is_frozen(self, tmp_path: Path) -> None:
         """VerifyContextBundle must be immutable (frozen=True)."""
         bundle = VerifyContextBundle(
             run_id="run-001",
             story_dir=tmp_path,
-            phase_envelope={},
+            phase_envelope=None,
             attempt=1,
         )
         with pytest.raises(ValidationError):
@@ -50,7 +51,7 @@ class TestVerifyContextBundle:
             VerifyContextBundle(  # type: ignore[call-arg]
                 run_id="run-001",
                 story_dir=tmp_path,
-                phase_envelope={},
+                phase_envelope=None,
                 attempt=1,
                 unknown_field="bad",
             )
@@ -64,7 +65,7 @@ class TestVerifyContextBundle:
         bundle = VerifyContextBundle(
             run_id="abc-123",
             story_dir=tmp_path,
-            phase_envelope={},
+            phase_envelope=None,
             attempt=1,
         )
         assert isinstance(bundle.run_id, str)
@@ -73,29 +74,54 @@ class TestVerifyContextBundle:
         bundle = VerifyContextBundle(
             run_id="run-x",
             story_dir=tmp_path,
-            phase_envelope={},
+            phase_envelope=None,
             attempt=2,
         )
         assert isinstance(bundle.story_dir, Path)
 
-    def test_phase_envelope_accepts_dict(self, tmp_path: Path) -> None:
-        envelope_data = {
-            "qa_cycle_id": "abc123def456",
-            "qa_cycle_round": 1,
-        }
+    def test_phase_envelope_accepts_phase_envelope_instance(
+        self, tmp_path: Path
+    ) -> None:
+        """AG3-026 Re-Review: ``phase_envelope`` ist typisiert
+        ``PhaseEnvelope | None``, kein freier dict mehr."""
+        from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
+        from agentkit.pipeline_engine.phase_envelope.runtime import (
+            PhaseOrigin,
+            RuntimeMetadata,
+        )
+        from agentkit.story_context_manager.models import (
+            ImplementationPayload,
+            PhaseName,
+            PhaseState,
+            PhaseStatus,
+        )
+
+        state = PhaseState(
+            story_id="TEST-001",
+            phase=PhaseName.IMPLEMENTATION,
+            status=PhaseStatus.IN_PROGRESS,
+            payload=ImplementationPayload(),
+        )
+        runtime = RuntimeMetadata(
+            origin=PhaseOrigin.NEW,
+            loaded_at=None,
+            process_id=1,
+            worker_id=None,
+        )
+        envelope = PhaseEnvelope(state=state, runtime=runtime)
         bundle = VerifyContextBundle(
             run_id="run-x",
             story_dir=tmp_path,
-            phase_envelope=envelope_data,
+            phase_envelope=envelope,
             attempt=1,
         )
-        assert bundle.phase_envelope == envelope_data
+        assert bundle.phase_envelope is envelope
 
     def test_attempt_is_integer(self, tmp_path: Path) -> None:
         bundle = VerifyContextBundle(
             run_id="run-y",
             story_dir=tmp_path,
-            phase_envelope={},
+            phase_envelope=None,
             attempt=3,
         )
         assert bundle.attempt == 3

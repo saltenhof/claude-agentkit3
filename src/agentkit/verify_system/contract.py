@@ -23,6 +23,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from agentkit.core_types import PolicyVerdict
+from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
 from agentkit.verify_system.protocols import LayerResult
 
 
@@ -35,18 +36,20 @@ class VerifyContextBundle(BaseModel):
     Attributes:
         run_id: Correlation ID of the current pipeline run.
         story_dir: Root directory of the story being verified.
-        phase_envelope: Read-only snapshot of the current PhaseState as a
-            dict. Contains optional QA-cycle fields (``qa_cycle_id``,
-            ``qa_cycle_round``, ``evidence_epoch``, ``evidence_fingerprint``)
-            if they have been populated by the orchestrator (AG3-041).
+        phase_envelope: Read-only snapshot of the current ``PhaseEnvelope``
+            (or ``None`` if the caller has no envelope yet). The QA-cycle
+            fields (``qa_cycle_id``, ``qa_cycle_round``, ``evidence_epoch``,
+            ``evidence_fingerprint``) are read from
+            ``phase_envelope.state.payload`` when present (AG3-026 §AK8;
+            populated by AG3-041 / THEME-009).
         attempt: QA-subflow attempt counter (>= 1).
     """
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    model_config = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=True)
 
     run_id: str
     story_dir: Path
-    phase_envelope: dict[str, object]
+    phase_envelope: PhaseEnvelope | None = None
     attempt: int
 
 

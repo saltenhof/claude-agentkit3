@@ -29,7 +29,7 @@ class TestVerifySystemFacade:
     """Construction and delegation behaviour of VerifySystem."""
 
     def test_create_default_returns_configured_facade(self) -> None:
-        verify_system = VerifySystem.create_default()
+        verify_system = make_test_verify_system()
         assert isinstance(verify_system, VerifySystem)
         assert isinstance(verify_system.policy_engine, PolicyEngine)
         assert isinstance(
@@ -37,7 +37,7 @@ class TestVerifySystemFacade:
         )
 
     def test_create_default_propagates_max_major_findings(self) -> None:
-        verify_system = VerifySystem.create_default(max_major_findings=2)
+        verify_system = make_test_verify_system(max_major_findings=2)
         # Two MAJOR findings remain non-blocking, three flip to blocking.
         non_blocking = LayerResult(
             layer="probe",
@@ -83,7 +83,7 @@ class TestVerifySystemFacade:
 
     def test_facade_is_frozen_dataclass(self) -> None:
         """The facade must be immutable (FrozenInstanceError on assignment)."""
-        verify_system = VerifySystem.create_default()
+        verify_system = make_test_verify_system()
         try:
             verify_system.policy_engine = PolicyEngine()  # type: ignore[misc]
         except Exception as exc:  # noqa: BLE001 -- dataclasses.FrozenInstanceError
@@ -95,7 +95,7 @@ class TestVerifySystemFacade:
             raise AssertionError(msg)
 
     def test_policy_decision_pass_without_findings(self) -> None:
-        verify_system = VerifySystem.create_default()
+        verify_system = make_test_verify_system()
         decision = verify_system.policy_decision(
             [LayerResult(layer="probe", passed=True, findings=())],
         )
@@ -104,7 +104,7 @@ class TestVerifySystemFacade:
         assert decision.blocking_findings == ()
 
     def test_policy_decision_fail_on_system_blocking(self) -> None:
-        verify_system = VerifySystem.create_default()
+        verify_system = make_test_verify_system()
         result = LayerResult(
             layer="structural",
             passed=False,
@@ -124,12 +124,47 @@ class TestVerifySystemFacade:
         assert len(decision.blocking_findings) == 1
 
     def test_adversarial_layer_returns_qa_layer_protocol(self) -> None:
-        verify_system = VerifySystem.create_default()
+        verify_system = make_test_verify_system()
         layer = verify_system.adversarial_layer()
         assert isinstance(layer, QALayer)
         assert layer.name == "adversarial"
 
     def test_adversarial_layer_returns_facade_owned_instance(self) -> None:
-        verify_system = VerifySystem.create_default()
+        verify_system = make_test_verify_system()
         # Pure delegation: facade exposes the instance it holds.
         assert verify_system.adversarial_layer() is verify_system.adversarial_challenger
+
+
+# ---------------------------------------------------------------------------
+# Local test helpers (AG3-026 Re-Review: VerifySystem.create_default braucht
+# einen ArtifactManager als Pflicht-Argument; Recording-Test-Double inline
+# ohne Cross-Module-Helper, um pytest/mypy-Pfad-Konflikte zu vermeiden).
+# ---------------------------------------------------------------------------
+
+from agentkit.artifacts import ArtifactEnvelope as _AGAEnvelope  # noqa: E402
+from agentkit.artifacts import ArtifactManager as _AGAManager  # noqa: E402
+from agentkit.artifacts import ArtifactReference as _AGARef  # noqa: E402
+
+
+class _RecordingArtifactManagerForTests(_AGAManager):
+    """In-memory ArtifactManager for unit tests (no MagicMock)."""
+
+    def __init__(self) -> None:
+        self.written_envelopes: list[_AGAEnvelope] = []
+
+    def write(self, envelope: _AGAEnvelope) -> _AGARef:
+        self.written_envelopes.append(envelope)
+        return _AGARef(
+            artifact_class=envelope.artifact_class,
+            story_id=envelope.story_id,
+            run_id=envelope.run_id,
+            record_key=f"rec/{envelope.stage}/{envelope.attempt}",
+        )
+
+
+def make_test_verify_system(*, max_major_findings: int = 0) -> VerifySystem:
+    """Build a VerifySystem wired with a recording ArtifactManager."""
+    return VerifySystem.create_default(
+        max_major_findings=max_major_findings,
+        artifact_manager=_RecordingArtifactManagerForTests(),
+    )

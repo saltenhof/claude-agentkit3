@@ -202,5 +202,6 @@ class TestMigrationRoundtrip:
         registry = ProducerRegistry()
         register_verify_producers(registry)
         register_verify_producers(registry)  # idempotent
-        # Immer noch genau 4 Producer
-        assert len(registry.known_producers(ArtifactClass.QA)) == 4
+        # AG3-026 Re-Review: 7 Producer (Layer 2 split in 3 + alter
+        # layer-2-llm fuer Backward-Compat).
+        assert len(registry.known_producers(ArtifactClass.QA)) == 7  # noqa: PLR2004

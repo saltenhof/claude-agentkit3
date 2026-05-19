@@ -110,7 +110,7 @@ def _make_bundle(tmp_path: Path, *, attempt: int = 1) -> VerifyContextBundle:
     return VerifyContextBundle(
         run_id="run-test-001",
         story_dir=tmp_path,
-        phase_envelope={},
+        phase_envelope=None,
         attempt=attempt,
     )
 
@@ -201,8 +201,8 @@ class TestRunQaSubflowImplementationHappyPath:
         assert len(l2.calls) == 1
         assert len(l3.calls) == 1
 
-    def test_artifact_manager_receives_four_writes(self, tmp_path: Path) -> None:
-        """3 data layers + 1 policy = 4 artefact writes."""
+    def test_artifact_manager_receives_six_writes(self, tmp_path: Path) -> None:
+        """AG3-026 §AK7: Layer 1 (1) + Layer 2 (3) + Layer 3 (1) + Policy (1) = 6."""
         vs, manager = _make_system()
 
         vs.run_qa_subflow(
@@ -212,10 +212,10 @@ class TestRunQaSubflowImplementationHappyPath:
             target=_make_target(),
         )
 
-        assert len(manager.written_envelopes) == 4  # noqa: PLR2004
+        assert len(manager.written_envelopes) == 6  # noqa: PLR2004
 
     def test_artifact_stages_match_fk27(self, tmp_path: Path) -> None:
-        """Written envelope stages correspond to FK-27 §27.7 canonical names."""
+        """AG3-026 §AK7: stages decken alle sechs FK-27 §27.7-Artefakte ab."""
         vs, manager = _make_system()
 
         vs.run_qa_subflow(
@@ -226,12 +226,61 @@ class TestRunQaSubflowImplementationHappyPath:
         )
 
         stages = {e.stage for e in manager.written_envelopes}
-        assert "qa-layer-structural" in stages
-        assert "qa-layer-semantic" in stages
-        assert "qa-layer-adversarial" in stages
-        assert "qa-verify-decision" in stages
+        assert stages == {
+            "qa-layer-structural",
+            "qa-layer-qa-review",
+            "qa-layer-semantic-review",
+            "qa-layer-doc-fidelity",
+            "qa-layer-adversarial",
+            "qa-policy-decision",
+        }
 
-    def test_implementation_remediation_also_uses_four_layers(
+    def test_layer_2_writes_three_distinct_artifacts(
+        self, tmp_path: Path
+    ) -> None:
+        """AG3-026 §AK7: Layer 2 erzeugt qa_review/semantic_review/doc_fidelity."""
+        vs, manager = _make_system()
+
+        vs.run_qa_subflow(
+            ctx=_make_bundle(tmp_path),
+            story_id="TEST-001",
+            qa_context=QaContext.IMPLEMENTATION_INITIAL,
+            target=_make_target(),
+        )
+
+        layer_2_producers = {
+            e.producer.name
+            for e in manager.written_envelopes
+            if e.stage.startswith("qa-layer-")
+            and e.stage not in {"qa-layer-structural", "qa-layer-adversarial"}
+        }
+        assert layer_2_producers == {
+            "verify-system.layer-2-qa-review",
+            "verify-system.layer-2-semantic-review",
+            "verify-system.layer-2-doc-fidelity",
+        }
+
+    def test_policy_uses_decision_filename(self, tmp_path: Path) -> None:
+        """AG3-026 §AK7: Policy schreibt unter ``decision.json`` (kein verify- Prefix)."""
+        vs, manager = _make_system()
+
+        verdict = vs.run_qa_subflow(
+            ctx=_make_bundle(tmp_path),
+            story_id="TEST-001",
+            qa_context=QaContext.IMPLEMENTATION_INITIAL,
+            target=_make_target(),
+        )
+
+        # Producer + Stage des Policy-Envelopes pinnen den Filename indirekt.
+        policy_envs = [
+            e for e in manager.written_envelopes
+            if e.stage == "qa-policy-decision"
+        ]
+        assert len(policy_envs) == 1
+        assert policy_envs[0].producer.name == "verify-system.layer-4-policy"
+        assert verdict is PolicyVerdict.PASS
+
+    def test_implementation_remediation_also_writes_six(
         self, tmp_path: Path
     ) -> None:
         vs, manager = _make_system()
@@ -243,7 +292,7 @@ class TestRunQaSubflowImplementationHappyPath:
             target=_make_target(),
         )
 
-        assert len(manager.written_envelopes) == 4  # noqa: PLR2004
+        assert len(manager.written_envelopes) == 6  # noqa: PLR2004
 
 
 # ---------------------------------------------------------------------------
@@ -282,8 +331,8 @@ class TestRunQaSubflowExplorationHappyPath:
         assert len(l2.calls) == 1, "LLM-Evaluator layer must run for Exploration"
         assert len(l3.calls) == 0, "Adversarial layer must NOT run for Exploration"
 
-    def test_artifact_manager_receives_two_writes(self, tmp_path: Path) -> None:
-        """1 data layer (LLM) + 1 policy = 2 artefact writes."""
+    def test_artifact_manager_receives_four_writes(self, tmp_path: Path) -> None:
+        """AG3-026 §AK7: Layer 2 (3 Artefakte) + Policy (1) = 4 Envelopes."""
         vs, manager = _make_system()
 
         vs.run_qa_subflow(
@@ -293,9 +342,9 @@ class TestRunQaSubflowExplorationHappyPath:
             target=_make_target(ArtifactClass.ENTWURF),
         )
 
-        assert len(manager.written_envelopes) == 2  # noqa: PLR2004
+        assert len(manager.written_envelopes) == 4  # noqa: PLR2004
 
-    def test_exploration_remediation_also_uses_two_layers(
+    def test_exploration_remediation_also_writes_four(
         self, tmp_path: Path
     ) -> None:
         vs, manager = _make_system()
@@ -307,7 +356,7 @@ class TestRunQaSubflowExplorationHappyPath:
             target=_make_target(ArtifactClass.ENTWURF),
         )
 
-        assert len(manager.written_envelopes) == 2  # noqa: PLR2004
+        assert len(manager.written_envelopes) == 4  # noqa: PLR2004
 
 
 # ---------------------------------------------------------------------------
@@ -509,3 +558,106 @@ class TestRunQaSubflowLayerException:
             target=_make_target(),
         )
         assert verdict is PolicyVerdict.FAIL
+
+
+# ---------------------------------------------------------------------------
+# Tests: AG3-026 Re-Review -- AK7 (6 Envelopes), AK8 (QA-Cycle), fail-closed
+# ---------------------------------------------------------------------------
+
+
+class TestAk8QaCycleFieldsInPayload:
+    """AG3-026 §AK8: qa_cycle_id/qa_cycle_round/evidence_epoch/
+    evidence_fingerprint aus ``ctx.phase_envelope`` werden in jede
+    Envelope-Payload eingebettet (FK-27 §27.2.1).
+    """
+
+    def test_payload_carries_qa_cycle_fields_when_envelope_present(
+        self, tmp_path: Path
+    ) -> None:
+        from datetime import UTC, datetime
+
+        from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
+        from agentkit.pipeline_engine.phase_envelope.runtime import (
+            PhaseOrigin,
+            RuntimeMetadata,
+        )
+        from agentkit.story_context_manager.models import (
+            ImplementationPayload,
+            PhaseName,
+            PhaseState,
+            PhaseStatus,
+        )
+
+        qa_cycle_id = "a1b2c3d4e5f6"
+        epoch = datetime(2026, 5, 19, 14, 0, 0, tzinfo=UTC)
+        fingerprint = "f" * 64
+        impl_payload = ImplementationPayload(
+            qa_cycle_id=qa_cycle_id,
+            qa_cycle_round=2,
+            evidence_epoch=epoch,
+            evidence_fingerprint=fingerprint,
+        )
+        state = PhaseState(
+            story_id="TEST-001",
+            phase=PhaseName.IMPLEMENTATION,
+            status=PhaseStatus.IN_PROGRESS,
+            payload=impl_payload,
+        )
+        runtime = RuntimeMetadata(
+            origin=PhaseOrigin.NEW,
+            loaded_at=None,
+            process_id=1,
+            worker_id=None,
+        )
+        envelope = PhaseEnvelope(state=state, runtime=runtime)
+        bundle = VerifyContextBundle(
+            run_id="run-test-001",
+            story_dir=tmp_path,
+            phase_envelope=envelope,
+            attempt=1,
+        )
+
+        vs, manager = _make_system()
+        vs.run_qa_subflow(
+            ctx=bundle,
+            story_id="TEST-001",
+            qa_context=QaContext.IMPLEMENTATION_INITIAL,
+            target=_make_target(),
+        )
+
+        # Jede Envelope-Payload muss die vier QA-Zyklus-Felder tragen.
+        for env in manager.written_envelopes:
+            assert env.payload is not None
+            assert env.payload["qa_cycle_id"] == qa_cycle_id
+            assert env.payload["qa_cycle_round"] == 2  # noqa: PLR2004
+            assert env.payload["evidence_epoch"] == epoch.isoformat()
+            assert env.payload["evidence_fingerprint"] == fingerprint
+
+    def test_payload_omits_qa_cycle_fields_when_envelope_missing(
+        self, tmp_path: Path
+    ) -> None:
+        """Ohne ``phase_envelope`` werden keine Cycle-Felder eingebettet."""
+        vs, manager = _make_system()
+        vs.run_qa_subflow(
+            ctx=_make_bundle(tmp_path),
+            story_id="TEST-001",
+            qa_context=QaContext.IMPLEMENTATION_INITIAL,
+            target=_make_target(),
+        )
+
+        for env in manager.written_envelopes:
+            assert env.payload is not None
+            assert "qa_cycle_id" not in env.payload
+            assert "qa_cycle_round" not in env.payload
+            assert "evidence_epoch" not in env.payload
+            assert "evidence_fingerprint" not in env.payload
+
+
+class TestCreateDefaultFailClosed:
+    """AG3-026 §2.1.4 + Re-Review-Befund 3: fail-closed bei manager=None."""
+
+    def test_create_default_without_manager_raises(self) -> None:
+        from agentkit.verify_system.errors import VerifySystemError
+
+        with pytest.raises(VerifySystemError, match="ArtifactManager"):
+            VerifySystem.create_default(artifact_manager=None)  # type: ignore[arg-type]

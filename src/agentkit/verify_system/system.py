@@ -36,10 +36,7 @@ from agentkit.artifacts import (
     ProducerType,
 )
 from agentkit.core_types import ArtifactClass, PolicyVerdict, QaContext
-from agentkit.core_types.qa_artifact_names import (
-    LAYER_ARTIFACT_FILES,
-    VERIFY_DECISION_FILE,
-)
+from agentkit.core_types.qa_artifact_names import LAYER_ARTIFACT_FILES
 from agentkit.verify_system.adversarial_orchestrator.challenger import (
     AdversarialChallenger,
 )
@@ -49,7 +46,11 @@ from agentkit.verify_system.contract import (
     VerifyTargetType,
     _QaSubflowExecutionResult,
 )
-from agentkit.verify_system.errors import LayerExecutionError, VerifyTargetUnknownError
+from agentkit.verify_system.errors import (
+    LayerExecutionError,
+    VerifySystemError,
+    VerifyTargetUnknownError,
+)
 from agentkit.verify_system.llm_evaluator.reviewer import SemanticReviewer
 from agentkit.verify_system.policy_engine.engine import PolicyEngine, VerifyDecision
 from agentkit.verify_system.protocols import (
@@ -68,35 +69,75 @@ logger = logging.getLogger(__name__)
 # Layer-name -> FK-27 §27.7 artefact filename + producer registry entry
 # ---------------------------------------------------------------------------
 
-#: Maps layer kind -> (stage-id, producer-name, producer-type)
-_LAYER_META: dict[QALayerKind, tuple[str, str, ProducerType]] = {
-    QALayerKind.STRUCTURAL: (
-        "qa-layer-structural",
-        "verify-system.layer-1-structural",
-        ProducerType.DETERMINISTIC,
-    ),
-    QALayerKind.LLM_EVALUATOR: (
-        "qa-layer-semantic",
-        "verify-system.layer-2-llm",
-        ProducerType.LLM_REVIEWER,
-    ),
-    QALayerKind.ADVERSARIAL: (
-        "qa-layer-adversarial",
-        "verify-system.layer-3-adversarial",
-        ProducerType.LLM_REVIEWER,
-    ),
-}
+@dataclass(frozen=True)
+class _LayerArtifactSpec:
+    """One QA artefact write specification (FK-27 §27.7 + AG3-026 §AK7)."""
 
-#: Policy/decision artefact meta
-_POLICY_STAGE = "qa-verify-decision"
-_POLICY_PRODUCER_NAME = "verify-system.layer-4-policy"
-_POLICY_PRODUCER_TYPE = ProducerType.DETERMINISTIC
+    filename: str
+    stage: str
+    producer_name: str
+    producer_type: ProducerType
 
-#: Maps layer kind -> FK-27 §27.7 filename (for non-policy layers)
-_KIND_TO_FILENAME: dict[QALayerKind, str] = {
-    QALayerKind.STRUCTURAL: LAYER_ARTIFACT_FILES["structural"],
-    QALayerKind.LLM_EVALUATOR: LAYER_ARTIFACT_FILES["semantic"],
-    QALayerKind.ADVERSARIAL: LAYER_ARTIFACT_FILES["adversarial"],
+
+#: Layer 1 -- single artefact ``structural.json`` (FK-27 §27.7)
+_LAYER_1_ARTIFACTS: tuple[_LayerArtifactSpec, ...] = (
+    _LayerArtifactSpec(
+        filename=LAYER_ARTIFACT_FILES["structural"],
+        stage="qa-layer-structural",
+        producer_name="verify-system.layer-1-structural",
+        producer_type=ProducerType.DETERMINISTIC,
+    ),
+)
+
+#: Layer 2 -- three artefacts (AG3-026 §AK7): qa_review.json,
+#: semantic_review.json, doc_fidelity.json. Filenames mit Unterstrich
+#: gemaess Story-Wortlaut (vgl. FK-27 §27.7).
+_LAYER_2_ARTIFACTS: tuple[_LayerArtifactSpec, ...] = (
+    _LayerArtifactSpec(
+        filename="qa_review.json",
+        stage="qa-layer-qa-review",
+        producer_name="verify-system.layer-2-qa-review",
+        producer_type=ProducerType.LLM_REVIEWER,
+    ),
+    _LayerArtifactSpec(
+        filename="semantic_review.json",
+        stage="qa-layer-semantic-review",
+        producer_name="verify-system.layer-2-semantic-review",
+        producer_type=ProducerType.LLM_REVIEWER,
+    ),
+    _LayerArtifactSpec(
+        filename="doc_fidelity.json",
+        stage="qa-layer-doc-fidelity",
+        producer_name="verify-system.layer-2-doc-fidelity",
+        producer_type=ProducerType.LLM_REVIEWER,
+    ),
+)
+
+#: Layer 3 -- single artefact ``adversarial.json``
+_LAYER_3_ARTIFACTS: tuple[_LayerArtifactSpec, ...] = (
+    _LayerArtifactSpec(
+        filename=LAYER_ARTIFACT_FILES["adversarial"],
+        stage="qa-layer-adversarial",
+        producer_name="verify-system.layer-3-adversarial",
+        producer_type=ProducerType.LLM_REVIEWER,
+    ),
+)
+
+#: Policy/decision artefact (AG3-026 §AK7: ``decision.json``,
+#: nicht ``verify-decision.json`` -- Letzteres ist AG3-023-Bestand fuer
+#: write_verify_decision_artifacts und bleibt dort unangetastet).
+_POLICY_ARTIFACT_SPEC = _LayerArtifactSpec(
+    filename="decision.json",
+    stage="qa-policy-decision",
+    producer_name="verify-system.layer-4-policy",
+    producer_type=ProducerType.DETERMINISTIC,
+)
+
+#: Maps layer kind -> tuple of artefact specs (1, 3, 1).
+_KIND_TO_ARTIFACTS: dict[QALayerKind, tuple[_LayerArtifactSpec, ...]] = {
+    QALayerKind.STRUCTURAL: _LAYER_1_ARTIFACTS,
+    QALayerKind.LLM_EVALUATOR: _LAYER_2_ARTIFACTS,
+    QALayerKind.ADVERSARIAL: _LAYER_3_ARTIFACTS,
 }
 
 #: Maps artifact_class to internal VerifyTargetType.
@@ -154,28 +195,39 @@ class VerifySystem:
     def create_default(
         cls,
         *,
+        artifact_manager: ArtifactManager,
         max_major_findings: int = 0,
-        artifact_manager: ArtifactManager | None = None,
     ) -> VerifySystem:
         """Construct a ``VerifySystem`` with default sub-components.
 
-        Builds all five sub-components with sensible defaults. When
-        ``artifact_manager`` is ``None``, a no-op stub manager is used;
-        callers that need real persistence must supply one explicitly.
+        Builds all five sub-components with sensible defaults.
+        ``artifact_manager`` ist **Pflicht-Argument** (AG3-026 §2.1.4 +
+        Re-Review-Befund 3): ein fehlender ArtifactManager war
+        Story-explizit als Fail-closed-Pfad markiert; eine stille
+        No-Op-Variante hatte unbemerkt QA-Wahrheit verworfen.
 
         Args:
+            artifact_manager: ``ArtifactManager`` fuer Artefakt-Writes.
+                **Pflicht**. Aufrufer, die einen Test-Stub brauchen,
+                liefern einen Recording-Test-Double; produktive Aufrufer
+                nutzen ``bootstrap.composition_root.build_verify_system``.
             max_major_findings: Threshold for the policy engine. Mirrors
                 :class:`PolicyEngine` -- MAJOR findings beyond this count
                 turn into blocking findings (FK-27 §27.4.2 / §27.7.2).
-            artifact_manager: Optional ``ArtifactManager`` for artefact
-                writes. Defaults to a stub that satisfies the interface.
 
         Returns:
-            A frozen ``VerifySystem`` with default-configured
-            sub-components.
+            A frozen ``VerifySystem`` with default-configured sub-components.
+
+        Raises:
+            VerifySystemError: when ``artifact_manager`` is ``None``.
         """
         if artifact_manager is None:
-            artifact_manager = _NoOpArtifactManager()
+            raise VerifySystemError(
+                "VerifySystem.create_default() requires an ArtifactManager "
+                "(AG3-026 §2.1.4 fail-closed). Use "
+                "agentkit.bootstrap.composition_root.build_verify_system "
+                "for the wired default.",
+            )
         return cls(
             layer_1=StructuralChecker(),
             layer_2=SemanticReviewer(),
@@ -269,6 +321,8 @@ class VerifySystem:
         artifact_refs_written: list[str] = []
         now_str = _utc_now_iso()
 
+        qa_cycle_fields = _extract_qa_cycle_fields(ctx)
+
         for kind in layer_kinds:
             if kind is QALayerKind.POLICY:
                 # Policy runs after all data layers; handled in step 5/6.
@@ -278,15 +332,19 @@ class VerifySystem:
             result = self._execute_layer(layer_instance, ctx, story_id, kind)
             layer_results.append(result)
 
-            # Write QA artefact for this layer.
-            artifact_ref = self._write_layer_artifact(
-                kind=kind,
-                result=result,
-                ctx=ctx,
-                story_id=story_id,
-                now_str=now_str,
-            )
-            artifact_refs_written.append(artifact_ref)
+            # Write QA artefact(s) for this layer. AG3-026 §AK7: Layer 2
+            # produces three artefacts (qa_review/semantic_review/
+            # doc_fidelity); Layer 1 and 3 produce one each.
+            for spec in _KIND_TO_ARTIFACTS[kind]:
+                self._write_layer_envelope(
+                    spec=spec,
+                    result=result,
+                    ctx=ctx,
+                    story_id=story_id,
+                    now_str=now_str,
+                    qa_cycle_fields=qa_cycle_fields,
+                )
+                artifact_refs_written.append(spec.filename)
 
         # Step 5: Policy decision.
         decision = self.policy_engine.decide(layer_results)
@@ -297,6 +355,7 @@ class VerifySystem:
             ctx=ctx,
             story_id=story_id,
             now_str=now_str,
+            qa_cycle_fields=qa_cycle_fields,
         )
         artifact_refs_written.append(decision_ref)
 
@@ -439,47 +498,52 @@ class VerifySystem:
                 metadata={"layer_execution_error": str(wrapped)},
             )
 
-    def _write_layer_artifact(
+    def _write_layer_envelope(
         self,
         *,
-        kind: QALayerKind,
+        spec: _LayerArtifactSpec,
         result: LayerResult,
         ctx: VerifyContextBundle,
         story_id: str,
         now_str: str,
-    ) -> str:
-        """Write a QA artefact envelope for a data layer via ArtifactManager.
+        qa_cycle_fields: dict[str, object],
+    ) -> None:
+        """Schreibt ein einzelnes Layer-Envelope via ArtifactManager.
 
-        Args:
-            kind: The layer kind (determines producer + filename).
-            result: The layer's evaluation result.
-            ctx: Context bundle (run_id, attempt, phase_envelope).
-            story_id: Story display-ID.
-            now_str: ISO-8601 UTC timestamp string for envelope timestamps.
+        AG3-026 §AK7: pro Layer-Artefakt-Spec eine eigene
+        ``ArtifactEnvelope`` mit dem zugehoerigen Producer + Stage.
+        Layer 2 ruft diese Methode 3-fach (qa_review, semantic_review,
+        doc_fidelity) -- die LayerResult-Payload wird in alle drei
+        Envelopes geschrieben, da die Story Layer 2 als eine logische
+        Pruefebene mit drei FK-27-Artefakten beschreibt.
 
-        Returns:
-            The canonical FK-27 §27.7 filename for the written artefact.
+        AG3-026 §AK8: QA-Zyklus-Felder (``qa_cycle_id``,
+        ``qa_cycle_round``, ``evidence_epoch``, ``evidence_fingerprint``)
+        werden aus ``ctx.phase_envelope`` in jede Envelope-Payload
+        eingebettet, sofern dort gesetzt.
         """
-        stage, producer_name, producer_type = _LAYER_META[kind]
+        payload = _layer_result_to_payload(result, attempt=ctx.attempt)
+        payload.update(qa_cycle_fields)
         envelope = ArtifactEnvelope(
             schema_version="3.0",
             story_id=story_id,
             run_id=ctx.run_id,
-            stage=stage,
+            stage=spec.stage,
             attempt=ctx.attempt,
             producer=Producer(
-                type=producer_type,
-                name=producer_name,
-                id=ProducerId(f"{producer_name}-{ctx.run_id}-{ctx.attempt}"),
+                type=spec.producer_type,
+                name=spec.producer_name,
+                id=ProducerId(
+                    f"{spec.producer_name}-{ctx.run_id}-{ctx.attempt}"
+                ),
             ),
             started_at=datetime.fromisoformat(now_str),
             finished_at=datetime.fromisoformat(now_str),
             status=EnvelopeStatus.PASS if result.passed else EnvelopeStatus.FAIL,
             artifact_class=ArtifactClass.QA,
-            payload=_layer_result_to_payload(result, attempt=ctx.attempt),
+            payload=payload,
         )
         self.artifact_manager.write(envelope)
-        return _KIND_TO_FILENAME[kind]
 
     def _write_policy_artifact(
         self,
@@ -488,43 +552,45 @@ class VerifySystem:
         ctx: VerifyContextBundle,
         story_id: str,
         now_str: str,
+        qa_cycle_fields: dict[str, object],
     ) -> str:
-        """Write the policy decision artefact via ArtifactManager.
+        """Schreibt das Policy-Decision-Envelope (``decision.json``).
 
-        Args:
-            decision: Aggregated policy decision.
-            ctx: Context bundle (run_id, attempt).
-            story_id: Story display-ID.
-            now_str: ISO-8601 UTC timestamp string.
+        AG3-026 §AK7: Filename ist ``decision.json`` (nicht
+        ``verify-decision.json``; Letzteres ist AG3-023-Bestand fuer
+        ``write_verify_decision_artifacts`` und bleibt dort unangetastet).
+        QA-Zyklus-Felder werden analog Layer-Artefakten eingebettet.
 
         Returns:
-            The canonical FK-27 §27.7 filename for the decision artefact.
+            ``"decision.json"`` (FK-27 §27.7 / AG3-026 §AK7).
         """
         from agentkit.verify_system.policy_engine.projections import (
             build_verify_decision_artifact,
         )
 
+        payload = build_verify_decision_artifact(decision, attempt_nr=ctx.attempt)
+        payload.update(qa_cycle_fields)
         envelope = ArtifactEnvelope(
             schema_version="3.0",
             story_id=story_id,
             run_id=ctx.run_id,
-            stage=_POLICY_STAGE,
+            stage=_POLICY_ARTIFACT_SPEC.stage,
             attempt=ctx.attempt,
             producer=Producer(
-                type=_POLICY_PRODUCER_TYPE,
-                name=_POLICY_PRODUCER_NAME,
+                type=_POLICY_ARTIFACT_SPEC.producer_type,
+                name=_POLICY_ARTIFACT_SPEC.producer_name,
                 id=ProducerId(
-                    f"{_POLICY_PRODUCER_NAME}-{ctx.run_id}-{ctx.attempt}"
+                    f"{_POLICY_ARTIFACT_SPEC.producer_name}-{ctx.run_id}-{ctx.attempt}"
                 ),
             ),
             started_at=datetime.fromisoformat(now_str),
             finished_at=datetime.fromisoformat(now_str),
             status=EnvelopeStatus.PASS if decision.passed else EnvelopeStatus.FAIL,
             artifact_class=ArtifactClass.QA,
-            payload=build_verify_decision_artifact(decision, attempt_nr=ctx.attempt),
+            payload=payload,
         )
         self.artifact_manager.write(envelope)
-        return VERIFY_DECISION_FILE
+        return _POLICY_ARTIFACT_SPEC.filename
 
 
 # ---------------------------------------------------------------------------
@@ -557,43 +623,38 @@ def _layer_result_to_payload(
     return serialize_layer_result(result, attempt_nr=attempt)
 
 
-# ---------------------------------------------------------------------------
-# No-op stub ArtifactManager for create_default() when no real manager given
-# ---------------------------------------------------------------------------
+def _extract_qa_cycle_fields(ctx: VerifyContextBundle) -> dict[str, object]:
+    """Extract QA-Zyklus-Identitaeten from the phase envelope payload.
 
+    AG3-026 §AK8 + FK-27 §27.2.1: wenn ``ctx.phase_envelope`` einen
+    ``ImplementationPayload`` traegt, werden ``qa_cycle_id``,
+    ``qa_cycle_round``, ``evidence_epoch``, ``evidence_fingerprint`` in
+    jede erzeugte QA-Artefakt-Payload geschrieben. Felder, die im
+    PhaseState ``None``/Default sind, werden nicht ausgegeben (sauberes
+    JSON, keine ``null``-Stuempfe).
 
-class _NoOpArtifactManager(ArtifactManager):
-    """Stub ArtifactManager that silently discards all writes.
-
-    Used by ``VerifySystem.create_default()`` when no real manager is
-    supplied. This keeps the default factory zero-dependency so that
-    callers that only use ``policy_decision()`` or ``adversarial_layer()``
-    (AG3-023/AG3-024 patterns) do not need a full storage setup.
-
-    ``read`` and ``read_latest`` are intentionally not overridden -- they
-    will raise ``ArtifactNotFoundError`` from the base class, which is
-    the correct fail-closed behaviour.
+    Befuellung/Invalidierung dieser Felder ist AG3-041 (THEME-009).
     """
-
-    def __init__(self) -> None:
-        # Deliberately do NOT call super().__init__() -- we bypass
-        # the repository/validator requirement for this stub.
-        pass
-
-    def write(self, envelope: ArtifactEnvelope) -> ArtifactReference:
-        """Silently discard the envelope; return a synthetic reference.
-
-        Args:
-            envelope: The envelope to (not) persist.
-
-        Returns:
-            A synthetic ``ArtifactReference`` with the envelope's fields.
-        """
-        from agentkit.artifacts import ArtifactReference
-
-        return ArtifactReference(
-            artifact_class=envelope.artifact_class,
-            story_id=envelope.story_id,
-            run_id=envelope.run_id,
-            record_key=f"noop/{envelope.stage}/{envelope.attempt}",
-        )
+    envelope = ctx.phase_envelope
+    if envelope is None:
+        return {}
+    state = getattr(envelope, "state", None)
+    payload = getattr(state, "payload", None) if state is not None else None
+    if payload is None:
+        return {}
+    fields: dict[str, object] = {}
+    for attr in (
+        "qa_cycle_id",
+        "qa_cycle_round",
+        "evidence_epoch",
+        "evidence_fingerprint",
+    ):
+        value = getattr(payload, attr, None)
+        if value is None:
+            continue
+        # datetimes serialise to ISO-8601 strings for JSON payload portability.
+        if hasattr(value, "isoformat"):
+            fields[attr] = value.isoformat()
+        else:
+            fields[attr] = value
+    return fields
