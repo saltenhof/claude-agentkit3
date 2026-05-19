@@ -46,11 +46,18 @@ THEME-004 (Phase/Attempt) — depends_on: AG3-021:
 
 THEME-005 (Top-Surfaces) — depends_on: AG3-021, AG3-022, ggf. AG3-023:
   AG3-026 (M)  VerifySystem.run_qa_subflow
-  AG3-027 (L)  Skills.bind_skill + Subs
-  AG3-028 (M)  FailureCorpus.record_incident + IncidentTriage
+  AG3-027 (M)  Skills.bind_skill + Subs (schlanke Top-Surface; siehe AG3-048)
+    — geaendert 2026-05-19: User-Entscheidung Split, war L
+  AG3-028 (L)  FailureCorpus.record_incident + IncidentTriage
+    — geaendert 2026-05-19: User-Entscheidung Vollumsetzung, war M;
+      depends_on jetzt zusaetzlich AG3-035, AG3-040
   AG3-029 (M)  KpiAnalytics + Paket-Migration
   AG3-030 (M)  RequirementsCoverage + AreClient-Skelett
   AG3-031 (M)  Governance.register_hooks/deactivate_locks
+
+THEME-005-Folge (neu 2026-05-19) — depends_on: AG3-027:
+  AG3-048 (M)  Skills-Persistenz + Installer-Andockung + Repo-Hygiene
+    (Auslagerung aus AG3-027, siehe Split-Entscheidung)
 
 THEME-006 (Trust-Boundary) — depends_on: AG3-021 + ggf. AG3-031:
   AG3-032 (L)  Principal-Capability-Modell + Matrix + Freeze
