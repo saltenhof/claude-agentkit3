@@ -1,0 +1,10 @@
+story_id: AG3-048
+title: "Skills BC -- Persistenz + Installer-Andockung + Repo-Hygiene"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-05-19"
+size: M
+depends_on:
+  - AG3-027
+unblocks: []

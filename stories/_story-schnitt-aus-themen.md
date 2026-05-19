@@ -197,4 +197,4 @@ Folge-Story markiert wurden:
 - **Story-Status**:
   - `ready`: AG3-021 (keine Dependencies).
   - `blocked`: 26 (alle warten auf direkte oder indirekte Vorgaenger).
-- **Naechste freie ID nach diesem Schnitt**: AG3-048.
+- **Naechste freie ID nach diesem Schnitt**: AG3-049 (AG3-048 ist seit 2026-05-19 belegt -- Folge-Story zu AG3-027 nach ChatGPT-Deep-Review + User-Split-Entscheidung; siehe `stories/AG3-048-skills-persistence-installer-cleanup/`).

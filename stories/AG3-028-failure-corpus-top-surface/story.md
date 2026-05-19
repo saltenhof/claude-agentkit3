@@ -1,10 +1,10 @@
 # AG3-028: FailureCorpus BC — Top-Komponente + IncidentTriage + record_incident-Empfaenger
 
-<!-- AG3-028 deep-review (Schnitt-Vorbehalt): ChatGPT identifiziert die Persistenz als Hauptkonflikt. FK-41 + FK-69 normieren den Schreibpfad fuer fc_incidents ausdruecklich als FailureCorpus -> Telemetry.write_projection -> fc_incidents (Schema-Owner failure-corpus, DB-Owner telemetry-and-events.ProjectionAccessor). Der direkte Repository-Schreibpfad waere eine zweite operative Wahrheit. Entweder: (a) AG3-028 erhaelt Abhaengigkeit zu AG3-035/040 und nutzt Telemetry.write_projection, oder (b) AG3-028 bleibt Top-Surface mit Protocol/Fake und verschiebt produktive Persistenz in eine Folge-Story. Aktuelle Story-Variante: Option (b). Orchestrator entscheidet. -->
+<!-- AG3-028 deep-review (User-Entscheidung 2026-05-19): Variante (a) Vorgezogene Vollumsetzung gewaehlt. FailureCorpus.record_incident schreibt produktiv ueber Telemetry.write_projection (FK-41 + FK-69-konform). Daraus ergeben sich harte Abhaengigkeiten zu AG3-035 (ProjectionAccessor) und AG3-040 (Postgres-Store-Completion); die Story wird auf L hochgestuft. Variante (b) "Top-Surface mit Protocol/Fake" ist verworfen. -->
 
 **Typ:** Implementation
-**Groesse:** M
-**Abhaengigkeiten:** AG3-021 (`FailureCategory`, `PromotionStatus`, `Severity`), AG3-022 (`ArtifactClass`-Bezug)
+**Groesse:** L
+**Abhaengigkeiten:** AG3-021 (`FailureCategory`, `PromotionStatus`, `Severity`), AG3-022 (`ArtifactClass`-Bezug), **AG3-035 (`ProjectionAccessor`)**, **AG3-040 (Postgres-Store-Completion)**
 **Quell-Konzepte (autoritativ, in dieser Reihenfolge):**
 - `concept/_meta/bc-cut-decisions.md §BC 13 failure-corpus`
 - `FK-41 §41.1` (FailureCorpus-Top-Komponente, sechs Methoden)
@@ -133,33 +133,55 @@ class IncidentTriage:
 - Mindest-Severity-Filter (z.B. `MEDIUM` aufwaerts; konfigurierbar)
 - Doppelung-Filter (gleiche `source_bc + story_id + summary` innerhalb 60s -> verworfen)
 
-#### 2.1.5 Persistenz — fc_incidents-Tabelle (FK-41 §41.3.1, FK-69)
+#### 2.1.5 Persistenz — fc_incidents-Tabelle via Telemetry.write_projection (FK-41 §41.3.1, FK-69)
 
-<!-- AG3-028 deep-review: Persistenz auf Telemetry-Projection-Vertrag umgestellt. FK-41 + FK-69 normieren den Schreibpfad eindeutig: FailureCorpus -> Telemetry.write_projection -> fc_incidents. Direkter state_backend.store-Schreibpfad waere zweite operative Wahrheit (Konzept-Bruch). -->
+<!-- AG3-028 deep-review (User-Entscheidung 2026-05-19): Variante (a) Vollumsetzung. Produktiver Schreibpfad ueber Telemetry.write_projection. Keine InMemory-Fake-Variante mehr; AG3-035 (ProjectionAccessor) und AG3-040 (Postgres-Store-Completion) sind Vorbedingung. -->
 
-`FailureCorpus.record_incident` schreibt fachlich **ausschliesslich** ueber eine injizierte `IncidentProjectionWriter`-/`TelemetryProjectionWriter`-Schnittstelle, deren produktive Implementierung `Telemetry.write_projection(table="fc_incidents", row=...)` ist (FK-41 §41.3 + FK-69: Schema-Owner `failure-corpus`, Writer `failure_corpus.FailureCorpus`, DB-Owner `telemetry-and-events.ProjectionAccessor`).
+`FailureCorpus.record_incident` schreibt fachlich **ausschliesslich** ueber die in
+AG3-035 etablierte `Telemetry.write_projection(table, row)`-API
+(FK-41 §41.3 + FK-69: Schema-Owner `failure-corpus`, Writer
+`failure_corpus.FailureCorpus`, DB-Owner
+`telemetry-and-events.ProjectionAccessor`). Direkter `state_backend.store`-
+Schreibpfad waere zweite operative Wahrheit und ist verboten.
 
-**Story-Scope-Variante (Default, Top-Surface)**:
-- Diese Story liefert das `IncidentProjectionWriter`-Protocol + eine InMemory-/Fake-Implementierung fuer Unit/Integration-Tests.
-- KEINE direkte state_backend-Tabellenerzeugung in dieser Story.
-- KEINE Postgres/SQLite-Schema-Aenderung.
-- KEIN SCHEMA_VERSION-Bump.
+`fc_incidents`-Tabelle wird in dieser Story produktiv angelegt (Schema-Owner
+`failure-corpus` -> DDL liegt in `state_backend/postgres_schema.sql` + SQLite-
+Bootstrap; Side-by-Side via SCHEMA_VERSION-Bump nach FK-18 §18.9a).
 
-**Alternative Variante (wenn vorgezogen)**:
-- AG3-028 erhaelt harte Abhaengigkeit zu AG3-035 (`ProjectionAccessor`) und schreibt produktiv ueber `Telemetry.write_projection`.
-- `fc_incidents`-DDL gehoert in die ProjectionAccessor-Story, nicht hierher.
-
-Tabellen-Schema fuer `fc_incidents` (zur Doku — Erzeugung in der ProjectionAccessor-Folge-Story):
+Tabellen-Schema fuer `fc_incidents`:
 - `incident_id` (PK, UUID)
 - `category` (CHECK: 12 erlaubte Werte aus `FailureCategory`)
-- `severity` (CHECK: 4 erlaubte Werte)
-- `source_bc`
-- `story_id`
-- `run_id`
-- `summary`
-- `evidence_json` (JSON)
-- `observed_at`, `normalized_at`
-- `promotion_status` (CHECK: exakt die Werte aus `PromotionStatus` gemaess FK-41-Glossar — NICHT auf 5 reduziert; Default fuer neue Incidents: `observed`). <!-- AG3-028 deep-review: PromotionStatus hat deutlich mehr als 5 Werte (observed/triaged/clustered/promoted/closed_one_off/archived/candidate/accepted/check_proposed/check_active/monitoring/draft/approved/active/tuned/retired/rejected). -->
+- `severity` (CHECK: 4 erlaubte Werte aus `Severity`)
+- `source_bc` (VARCHAR, NOT NULL)
+- `story_id` (VARCHAR, NOT NULL)
+- `run_id` (VARCHAR, NULL)
+- `summary` (TEXT, NOT NULL)
+- `evidence_json` (JSON/JSONB, NULL)
+- `observed_at` (TIMESTAMPTZ, NOT NULL)
+- `normalized_at` (TIMESTAMPTZ, NOT NULL)
+- `promotion_status` (CHECK: exakt die Werte aus `PromotionStatus` gemaess
+  FK-41-Glossar — NICHT auf 5 reduziert; Default fuer neue Incidents: `observed`).
+  Wertebereich: `observed`, `triaged`, `clustered`, `promoted`, `closed_one_off`,
+  `archived`, `candidate`, `accepted`, `check_proposed`, `check_active`,
+  `monitoring`, `draft`, `approved`, `active`, `tuned`, `retired`, `rejected`.
+- Index: `idx_fc_incidents_story_run ON fc_incidents(story_id, run_id)` (FK-41-konform).
+- Index: `idx_fc_incidents_promotion_status ON fc_incidents(promotion_status)`.
+
+**Telemetry.write_projection-Vertrag** (wird in AG3-035 etabliert; hier nur
+konsumiert):
+- `Telemetry.write_projection(table: str, row: dict[str, object]) -> None`
+- Schreibpfad: ProjectionAccessor -> Postgres/SQLite-Bootstrap-getriebene Tabelle
+- Idempotenz/Konflikt-Verhalten: UPSERT auf Primary-Key (FK-69-Default)
+- Bei Fail: `ProjectionWriteError` (in `telemetry`-BC definiert)
+
+`FailureCorpus`-Komposition (Composition-Root in `bootstrap/composition_root.py`):
+```python
+def build_failure_corpus(telemetry: Telemetry) -> FailureCorpus:
+    return FailureCorpus(
+        triage=IncidentTriage(...),
+        projection_writer=telemetry,  # injects write_projection-Vertrag
+    )
+```
 
 #### 2.1.6 `record_incident`-Empfaenger fuer andere BCs
 
@@ -183,7 +205,6 @@ Die Top-Surface ist transport-agnostisch (kein eigener CLI/HTTP-Endpunkt in dies
 - LlmEvaluator-Integration (`failure-corpus.A8`) — Folge-Story
 - GitHub-Adapter fuer Story-Erzeugung (`failure-corpus.A9`) — Folge-Story
 - Reset-Purge fuer fc_*-Tabellen — gehoert zu THEME-007 (AG3-035)
-- ProjectionAccessor-Umlenkung — gehoert zu THEME-007 (AG3-035)
 - fc_patterns, fc_check_proposals Tabellen — Folge-Stories (kommen mit PatternPromotion/CheckFactory)
 - Telemetrie-Events fuer Incident-Erzeugung — separate Folge nach THEME-007
 
@@ -196,16 +217,21 @@ Die Top-Surface ist transport-agnostisch (kein eigener CLI/HTTP-Endpunkt in dies
 | `src/agentkit/failure_corpus/types.py` | Neu | NewTypes, `IncidentSeverity` |
 | `src/agentkit/failure_corpus/incident.py` | Neu | `IncidentCandidate`, `Incident` Pydantic-Modelle |
 | `src/agentkit/failure_corpus/incident_triage.py` | Neu | `IncidentTriage`, `IncidentNormalizer`, `IngressCriteria` |
-| `src/agentkit/failure_corpus/repository.py` | Neu | `IncidentRepository`-Protocol |
 | `src/agentkit/failure_corpus/errors.py` | Neu | typisierte Exceptions |
-| `src/agentkit/state_backend/store/fc_incident_repository.py` | Neu | SQLite/Postgres-Implementierung |
-| `src/agentkit/state_backend/postgres_schema.sql` | Modifiziert | `fc_incidents`-Tabelle |
+| `src/agentkit/state_backend/postgres_schema.sql` | Modifiziert | `fc_incidents`-Tabelle (DDL + Indizes) |
 | `src/agentkit/state_backend/sqlite_store.py` | Modifiziert | analog SQLite |
 | `src/agentkit/state_backend/config.py` | Modifiziert | SCHEMA_VERSION-Bump |
+| `src/agentkit/bootstrap/composition_root.py` | Modifiziert | `build_failure_corpus(telemetry)` |
+
+<!-- AG3-028 deep-review (Vollumsetzung 2026-05-19): keine
+  failure_corpus/repository.py und keine fc_incident_repository.py mehr.
+  Persistenz-Pfad geht ueber Telemetry.write_projection (AG3-035 liefert
+  die API). Tests konsumieren die produktive Telemetry-Instanz. -->
+
 | `tests/unit/failure_corpus/test_top.py` | Neu | Top-Tests |
 | `tests/unit/failure_corpus/test_incident.py` | Neu | Modell-Tests |
 | `tests/unit/failure_corpus/test_incident_triage.py` | Neu | Triage-Tests |
-| `tests/unit/state_backend/store/test_fc_incident_repository.py` | Neu | parametrisiert SQLite + Postgres |
+| `tests/unit/state_backend/store/test_fc_incidents_schema_bootstrap.py` | Neu | Bootstrap-Idempotenz fuer `fc_incidents` (analog `attempts`) |
 | `tests/contract/failure_corpus/test_top_surface.py` | Neu | Vertrags-Pinning |
 | `tests/integration/failure_corpus/test_record_incident_roundtrip.py` | Neu | End-to-End Empfaenger-Pfad |
 
@@ -213,11 +239,11 @@ Die Top-Surface ist transport-agnostisch (kein eigener CLI/HTTP-Endpunkt in dies
 
 1. **Paket `src/agentkit/failure_corpus/` ist nicht mehr leer** und exportiert `FailureCorpus`, `IncidentCandidate`, `Incident`, `IncidentId`, `PatternId`, `CheckId`, `IncidentSeverity`, `IncidentTriage`, `IngressCriteria`, `IncidentNormalizer`.
 2. **Top-Klasse `FailureCorpus` hat sechs Methoden**: `record_incident`, `suggest_patterns`, `confirm_pattern`, `derive_check`, `approve_check`, `report_effectiveness`. Nur `record_incident` ist voll funktional; die anderen werfen `NotImplementedError` mit aussagekraeftiger Begruendung.
-3. **`record_incident(candidate)` ist fail-closed**: validiert IngressCriteria, normalisiert, persistiert (via `IncidentProjectionWriter`-Protocol, FK-41/FK-69-konform); gibt `IncidentId` zurueck oder wirft `IncidentRejectedError` (in `errors.py`) bei IngressCriteria-Reject. `IncidentRejectedError` traegt strukturierte `reason_codes` (StrEnum: `BELOW_MIN_SEVERITY`, `DUPLICATE_WINDOW`, `NOT_BLOCKING`). <!-- AG3-028 deep-review: reason_codes strukturiert statt freier String. -->
-4. **`Incident`-Modell ist persistiert** in `fc_incidents` mit allen Spalten aus 2.1.5. UNIQUE auf `incident_id`. CHECK-Constraints auf `category`, `severity`, `promotion_status`.
-5. **`IncidentTriage` durchlaeuft drei Schritte**: IngressCriteria -> Normalizer -> Repository.write. Per Test verifizierbar.
-6. **Architecture-Conformance**: `agentkit.failure_corpus` importiert nur `agentkit.core_types` und `agentkit.artifacts` (optional fuer Future-ArtifactRefs); nicht aus `state_backend.store`-Fassaden ausserhalb des Repository-Moduls.
-7. **Persistenz parametrisiert**: Repository-Tests laufen auf SQLite und Postgres.
+3. **`record_incident(candidate)` ist fail-closed**: validiert IngressCriteria, normalisiert, schreibt produktiv ueber `Telemetry.write_projection(table="fc_incidents", row=...)` (FK-41/FK-69-konform); gibt `IncidentId` zurueck oder wirft `IncidentRejectedError` (in `errors.py`) bei IngressCriteria-Reject. `IncidentRejectedError` traegt strukturierte `reason_codes` (StrEnum: `BELOW_MIN_SEVERITY`, `DUPLICATE_WINDOW`, `NOT_BLOCKING`).
+4. **`fc_incidents`-Tabelle existiert** in SQLite + Postgres mit allen Spalten + Indizes aus §2.1.5. UNIQUE auf `incident_id`. CHECK-Constraints auf `category`, `severity`, `promotion_status`. SCHEMA_VERSION-Bump ist verbindlich (FK-18 §18.9a, alte DB unangetastet).
+5. **`IncidentTriage` durchlaeuft drei Schritte**: IngressCriteria -> Normalizer -> `Telemetry.write_projection`. Per Test verifizierbar.
+6. **Architecture-Conformance**: `agentkit.failure_corpus` importiert nur `agentkit.core_types`, `agentkit.artifacts` (optional) und `agentkit.telemetry` (fuer den `Telemetry.write_projection`-Vertrag); **nicht** aus `agentkit.state_backend.store` direkt.
+7. **End-to-End-Persistenz**: ein Integration-Test ruft `record_incident` und liest den persistierten Row aus `fc_incidents` auf beiden Backends (SQLite + Postgres).
 8. **Pflichtbefehle gruen**: pytest unit + integration + contract; mypy --strict; ruff clean; Coverage haelt 85%.
 
 ## 5. Definition of Done

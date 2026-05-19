@@ -1,9 +1,9 @@
 # AG3-027: Skills BC — Top-Komponente Skills + Sub-Klassen
 
-<!-- AG3-027 deep-review (Schnitt-Vorbehalt): ChatGPT empfiehlt, Persistenz (SQLite/Postgres skill_bindings-Tabelle), Installer-Integration (BC12) und __pycache__-Cleanup aus dieser Story auszulagern, weil sie die Top-Surface-Story von "M" auf "L" aufblaehen und BC-fremde Aenderungen (state_backend, installer/runner) mit hineintragen. Die Story behaelt aktuell den Vollscope, markiert aber Out-of-Scope-Kandidaten explizit. Orchestrator entscheidet, ob ein Split notwendig ist. -->
+<!-- AG3-027 deep-review (User-Entscheidung 2026-05-19): Split-Variante (A) gewaehlt. Diese Story bleibt schlanke Top-Surface (M). Persistenz (skill_bindings-Tabelle), Installer-Integration (BC12) und __pycache__-Cleanup wandern in die Folge-Story AG3-048-skills-persistence-installer-cleanup. -->
 
 **Typ:** Implementation
-**Groesse:** L (Schnitt-Vorbehalt — siehe Header-Kommentar)
+**Groesse:** M
 **Abhaengigkeiten:** AG3-021 (Enums fuer Status-Felder), AG3-022 (`ArtifactClass`-Bezug fuer Skill-Bundle-Records)
 **Quell-Konzepte (autoritativ, in dieser Reihenfolge):**
 - `concept/_meta/bc-cut-decisions.md §BC 11 agent-skills`
@@ -161,16 +161,11 @@ Fail-closed-Pfade:
 - Bundle-Manifest-Digest mismatch -> `SkillBundleDigestMismatchError`
 - Profile passt nicht zu Bundle-Variants -> `SkillProfileNotSupportedError`
 
-#### 2.1.8 Installer-Anschluss (agent-skills.C1)
+#### 2.1.8 Installer-Anschluss (agent-skills.C1) — **AUSGELAGERT NACH AG3-048**
 
-<!-- AG3-027 deep-review (Schnitt-Vorbehalt): Installer-Aenderungen (installer/runner.py:install_agentkit) gehoeren zum BC `installation-and-bootstrap` (BC12), nicht zur Skills-Top-Surface. ChatGPT empfiehlt, diesen Abschnitt in eine eigene BC12-Andock-Story zu verschieben. Aktuell bleibt der Vollscope inklusive Installer-Umbau drin; Orchestrator entscheidet, ob Split. -->
+<!-- AG3-027 deep-review (User-Entscheidung 2026-05-19): Split umgesetzt. Installer-Umbau (installer/runner.py:install_agentkit -> Skills.bind_skill) ist Inhalt der Folge-Story AG3-048. Diese Story liefert ausschliesslich die Top-Surface ``Skills.bind_skill`` plus einen Contract-Test, der zeigt, dass die Top-Surface vom Installer konsumierbar ist. -->
 
-`src/agentkit/installer/runner.py:install_agentkit`:
-- Aufruf von `Skills.bind_skill` fuer jeden Pflicht-Skill (FK-43 §43.3.1 nennt: `create-userstory`, `execute-userstory`, `lookup-userstory`, `llm-discussion` — Profile core/are je nach Projekt-Profil; Profilermittlung in CP6/CP7 vor dem Aufruf)
-- Direktes Anlegen von `.claude/skills/` als leerer Platzhalter entfaellt
-- Falls Bundle nicht im System-Store: fail-closed mit Installation-Fehler
-
-**Wenn Split**: Diese Story liefert nur `Skills.bind_skill` als konsumierbare Top-Surface plus einen Contract-Test/Integration-Fixture, der zeigt, dass `Skills.bind_skill` vom Installer konsumierbar ist. Der tatsaechliche Umbau von `installer/runner.py` wandert in die BC12-Andock-Story.
+Diese Story liefert nur `Skills.bind_skill` als konsumierbare Top-Surface plus einen Contract-Test, der zeigt, dass die Top-Surface vom Installer **konsumierbar** ist (keine Aenderung am Installer hier). Der tatsaechliche Umbau von `installer/runner.py` ist Inhalt von AG3-048.
 
 #### 2.1.9 Tests
 
@@ -182,15 +177,16 @@ Fail-closed-Pfade:
 - Integration-Test: Installer ruft `Skills.bind_skill` fuer alle Pflicht-Skills; `.claude/skills/` enthaelt Symlinks, keine Datei-Kopien
 - Contract-Test `tests/contract/skills/test_top_surface.py`: alle vier Methoden mit exakter Signatur, Invariante `project_binding_is_symlink_only`
 
-#### 2.1.10 Cleanup `__pycache__`-Artefakte (agent-skills.C2)
+#### 2.1.10 Cleanup `__pycache__`-Artefakte (agent-skills.C2) — **AUSGELAGERT NACH AG3-048**
 
-<!-- AG3-027 deep-review (Schnitt-Vorbehalt): __pycache__-Cleanup ist Repo-Hygiene, kein Skills-Top-Surface-Vertrag. ChatGPT empfiehlt, das als separate Cleanup-Task auszulagern. Aktuell bleibt es drin; Orchestrator entscheidet. -->
-
-`src/agentkit/project_ops/install/__pycache__/` mit `skills.cpython-314.pyc`, `skill_variant.cpython-314.pyc` (Verzeichnis ohne Quellcode) wird geloescht.
+<!-- AG3-027 deep-review (User-Entscheidung 2026-05-19): Cleanup wandert in AG3-048 (Repo-Hygiene wird dort gebuendelt). -->
 
 ### 2.2 Out of Scope
 
-- `SkillQualityMetric`-Vollausbau (`agent-skills.A4`) — die Top-Methode `collect_quality_metrics` liefert hier nur einen leeren Stub. Voller Ausbau ist Folge-Story nach THEME-007 (Telemetrie-Projektionen).
+- **Persistenz der `SkillBinding`-Records** (`skill_bindings`-Tabelle in SQLite/Postgres, SCHEMA_VERSION-Bump, parametrisierte Repository-Tests) — wandert nach **AG3-048**. Diese Story liefert nur das `SkillBindingRepository`-Protocol plus eine InMemory-Implementierung, damit die Top-Surface testbar ist; produktive Persistenz folgt in AG3-048.
+- **Installer-Integration BC12** (`installer/runner.py:install_agentkit` ruft `Skills.bind_skill`) — wandert nach **AG3-048**.
+- **`__pycache__`-Cleanup** unter `src/agentkit/project_ops/install/` — wandert nach **AG3-048** (Repo-Hygiene-Block).
+- `SkillQualityMetric`-Vollausbau (`agent-skills.A4`) — die Top-Methode `collect_quality_metrics` wirft hier `NotImplementedError`. Voller Ausbau ist Folge-Story nach THEME-007 (Telemetrie-Projektionen).
 - Pflicht-Skill-SKILL.md-Inhalte (`agent-skills.A5`) — die `.md`-Inhalte der Skills selbst (Anleitungen) sind nicht Teil dieser Backend-Story. Folge-Story Skills-Content.
 - Optional-Skills `manage-requirements`, `semantic-review` (`agent-skills.A6`) — Folge-Story.
 - Hook `skill_usage_check` in `governance.guard_system` (`agent-skills.A9`) — Folge-Story der Governance-Welle.
@@ -209,20 +205,23 @@ Fail-closed-Pfade:
 | `src/agentkit/skills/binding.py` | Neu | `SkillBinding`, `SkillLifecycleStatus`, `SkillProfile` |
 | `src/agentkit/skills/placeholder.py` | Neu | `PlaceholderSubstitutor` |
 | `src/agentkit/skills/errors.py` | Neu | Exceptions |
-| `src/agentkit/skills/repository.py` | Neu | `SkillBindingRepository`-Protocol |
-| `src/agentkit/state_backend/store/skill_binding_repository.py` | Neu | SQLite/Postgres-Implementierung |
-| `src/agentkit/state_backend/postgres_schema.sql` | Modifiziert | `skill_bindings`-Tabelle |
-| `src/agentkit/state_backend/sqlite_store.py` | Modifiziert | analog SQLite |
-| `src/agentkit/state_backend/config.py` | Modifiziert | SCHEMA_VERSION-Bump |
-| `src/agentkit/installer/runner.py` | Modifiziert | `Skills.bind_skill`-Aufruf statt direktem `.claude/skills/`-Mkdir |
-| `src/agentkit/project_ops/install/__pycache__/` | Geloescht | leerer Pyc-Stub entfernen |
+| `src/agentkit/skills/repository.py` | Neu | `SkillBindingRepository`-Protocol + InMemory-Implementierung fuer Tests |
 | `tests/unit/skills/test_top.py` | Neu | Skills-Top-Tests |
 | `tests/unit/skills/test_bundle_store.py` | Neu | Bundle-Store-Tests |
 | `tests/unit/skills/test_binding.py` | Neu | Binding-Lifecycle-Tests |
 | `tests/unit/skills/test_placeholder.py` | Neu | Substitution-Tests |
-| `tests/unit/state_backend/store/test_skill_binding_repository.py` | Neu | parametrisiert SQLite + Postgres |
-| `tests/integration/installer/test_skills_binding.py` | Neu | Installer ruft Skills.bind_skill; Symlink-Check |
-| `tests/contract/skills/test_top_surface.py` | Neu | Vertrags-Pinning |
+| `tests/contract/skills/test_top_surface.py` | Neu | Vertrags-Pinning fuer alle vier Methoden + Installer-Konsumierbarkeits-Probe |
+
+<!-- AG3-027 deep-review (Split 2026-05-19): folgende Files NICHT mehr in dieser Story -- wandern nach AG3-048:
+  - state_backend/store/skill_binding_repository.py (SQLite/Postgres-Persistenz)
+  - state_backend/postgres_schema.sql + sqlite_store.py (skill_bindings-Tabelle)
+  - state_backend/config.py (SCHEMA_VERSION-Bump)
+  - installer/runner.py (Installer-Andockung)
+  - project_ops/install/__pycache__/ (Repo-Hygiene)
+  - tests/unit/state_backend/store/test_skill_binding_repository.py
+  - tests/integration/installer/test_skills_binding.py
+-->
+
 
 ## 4. Akzeptanzkriterien
 
@@ -232,19 +231,18 @@ Fail-closed-Pfade:
 4. **Symlink-Invariante (Multi-Harness)**: nach erfolgreichem `bind_skill` existiert pro aktiviertem Harness ein Symlink am harness-spezifischen Bindungspunkt — fuer Claude Code `{project_root}/.claude/skills/{skill_name}`, fuer Codex der FK-30 §30.11-Aequivalentpfad. Kein File-Copy, kein Canonical Skill Source im Projekt. Tests pruefen `Path.is_symlink()` fuer alle aktivierten Harnesses. <!-- AG3-027 deep-review: FK-43 fordert AK3 ab Tag 1 Claude Code + Codex parallel; Story darf nicht nur .claude/skills pruefen. -->
 5. **Fail-closed-Pfade typisiert**: `SkillBindingFailedError`, `SkillBundleDigestMismatchError`, `SkillProfileNotSupportedError`, `UnknownPlaceholderError`, `SkillBundleNotFoundError`. Jede Exception ist in `errors.py` definiert und wird in Tests provoziert.
 6. **`PlaceholderSubstitutor` ersetzt die vier Pflicht-Platzhalter** korrekt. Unbekannte Platzhalter -> `UnknownPlaceholderError`.
-7. **Persistenz**: `skill_bindings`-Tabelle in SQLite + Postgres. Parametrisierte Repository-Tests laufen auf beiden Backends. UNIQUE `(project_key, skill_logical_id)` ist enforced.
-8. **Installer-Integration**: `install_agentkit` ruft `Skills.bind_skill` fuer die vier Pflicht-Skills (`create-userstory`, `execute-userstory`, `lookup-userstory`, `llm-discussion` — Profile passend zum Projekt). Direktes `mkdir(.claude/skills)` entfaellt.
-9. **`__pycache__`-Artefakte entfernt**: `src/agentkit/project_ops/install/__pycache__/skills.cpython-314.pyc` und `skill_variant.cpython-314.pyc` existieren nicht mehr.
-10. **Architecture-Conformance**: `agentkit.skills` importiert nur aus `agentkit.core_types`, `agentkit.artifacts` (ggf. fuer Bundle-Records spaeter — heute optional), `agentkit.config` (PipelineConfig); nicht direkt aus `agentkit.state_backend.store`-Fassaden ausserhalb des Repository-Moduls.
-11. **Pflichtbefehle gruen**: pytest unit + integration + contract; mypy --strict; ruff clean; Coverage haelt 85%.
+7. **Persistenz-Protocol**: `SkillBindingRepository`-Protocol ist definiert; InMemory-Implementierung liegt im Skills-BC und ist Unit-/Contract-test-fest. **Produktive SQLite/Postgres-Persistenz ist explizit AG3-048**.
+8. **Installer-Konsumierbarkeits-Probe**: Contract-Test beweist, dass `Skills.bind_skill` mit der vom Installer erwarteten Signatur aufrufbar ist (keine tatsaechliche Aenderung am Installer in dieser Story — siehe AG3-048).
+9. **Architecture-Conformance**: `agentkit.skills` importiert nur aus `agentkit.core_types`, `agentkit.artifacts` (ggf. fuer Bundle-Records spaeter — heute optional), `agentkit.config` (PipelineConfig); nicht direkt aus `agentkit.state_backend.store`-Fassaden.
+10. **Pflichtbefehle gruen**: pytest unit + contract; mypy --strict; ruff clean; Coverage haelt 85%.
 
 ## 5. Definition of Done
 
-- AK 1-11 erfuellt.
-- `.venv\Scripts\python -m pytest tests/unit/skills tests/integration/installer tests/contract/skills -q` gruen.
+- AK 1-10 erfuellt.
+- `.venv\Scripts\python -m pytest tests/unit/skills tests/contract/skills -q` gruen.
 - `mypy --strict` gruen, `ruff check src tests` gruen.
-- SQLite + Postgres migriert.
 - Aenderungen committed auf `main`.
+- AG3-048 (Folge-Story fuer Persistenz + Installer-Andockung + Cache-Cleanup) ist angelegt und referenziert AG3-027 als Vorgaenger.
 
 ## 6. Konzept-Referenzen (autoritativ)
 

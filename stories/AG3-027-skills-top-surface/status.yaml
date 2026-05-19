@@ -4,8 +4,9 @@ type: implementation
 status: blocked
 phase: setup
 created: "2026-05-16"
-size: L
+size: M
 depends_on:
   - AG3-021
   - AG3-022
-unblocks: []
+unblocks:
+  - AG3-048
