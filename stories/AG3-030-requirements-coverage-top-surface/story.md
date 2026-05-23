@@ -35,7 +35,10 @@ class RequirementsCoverage:
 
     @property
     def is_enabled(self) -> bool:
-        return self._pipeline_config.features.are is True and self._are_client is not None
+        # AG3-030 Pass-1 Korrektur: is_enabled spiegelt nur features.are (FAIL-CLOSED:
+        # fehlender AreClient bei features.are=True ist Konfigurationsfehler, kein
+        # Disabled-Zustand). Siehe AK6.
+        return self._pipeline_config.features.are is True
 
     def link_requirements(self, story_id: str, project_key: str) -> LinkResult:
         if not self.is_enabled:

@@ -8,6 +8,8 @@ import pytest
 from pydantic import ValidationError
 
 from agentkit.config.models import (
+    AreConfig,
+    Features,
     PipelineConfig,
     ProjectConfig,
     RepositoryConfig,
@@ -157,3 +159,46 @@ class TestProjectConfig:
         cfg2 = ProjectConfig(project_key="b", project_name="b", repositories=[])
         cfg1.pipeline.max_feedback_rounds = 99
         assert cfg2.pipeline.max_feedback_rounds == 3
+
+
+class TestAreSectionRequiredWhenEnabled:
+    """FK-03 §3.2.1: pipeline.features.are=True requires an 'are' section."""
+
+    def test_disabled_without_are_section_ok(self) -> None:
+        cfg = ProjectConfig(
+            project_key="p",
+            project_name="P",
+            repositories=[],
+            pipeline=PipelineConfig(features=Features(are=False)),
+        )
+        assert cfg.are is None
+
+    def test_enabled_without_are_section_raises(self) -> None:
+        with pytest.raises(ValidationError, match="FK-03 §3.2.1"):
+            ProjectConfig(
+                project_key="p",
+                project_name="P",
+                repositories=[],
+                pipeline=PipelineConfig(features=Features(are=True)),
+            )
+
+    def test_enabled_with_are_section_ok(self) -> None:
+        cfg = ProjectConfig(
+            project_key="p",
+            project_name="P",
+            repositories=[],
+            pipeline=PipelineConfig(features=Features(are=True)),
+            are=AreConfig(mcp_server="https://are.example.com/mcp"),
+        )
+        assert cfg.are is not None
+        assert cfg.are.mcp_server == "https://are.example.com/mcp"
+
+    def test_extra_top_level_field_rejected(self) -> None:
+        """ProjectConfig must reject unknown top-level fields (extra=forbid)."""
+        with pytest.raises(ValidationError):
+            ProjectConfig(  # type: ignore[call-arg]
+                project_key="p",
+                project_name="P",
+                repositories=[],
+                unknown_field="oops",
+            )

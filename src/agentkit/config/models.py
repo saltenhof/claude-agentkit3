@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Annotated, Any
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict
+from pydantic import BaseModel, BeforeValidator, ConfigDict, model_validator
 
 from agentkit.config.defaults import (
     DEFAULT_MAX_FEEDBACK_ROUNDS,
@@ -17,6 +17,39 @@ from agentkit.config.defaults import (
     DEFAULT_STORY_TYPES,
     DEFAULT_VERIFY_LAYERS,
 )
+
+
+class Features(BaseModel):
+    """Optional feature flags for a target project.
+
+    Attributes:
+        are: Whether the Agent Requirements Engine (ARE) integration
+            is enabled. When ``False`` (default), all
+            ``RequirementsCoverage`` top-surface methods are no-ops
+            that return ``SKIPPED`` results (FK-40 §40.2).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    are: bool = False
+
+
+class AreConfig(BaseModel):
+    """Configuration section for the Agent Requirements Engine (ARE).
+
+    Required when ``pipeline.features.are`` is ``True`` (FK-03 §3.2.1).
+
+    Attributes:
+        mcp_server: MCP server endpoint for the ARE integration.
+        rest_base_url: Optional REST base URL for ``AreClient`` (FK-40 §40.4).
+        auth_token: Optional bearer token for ARE API authentication.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    mcp_server: str
+    rest_base_url: str | None = None
+    auth_token: str | None = None
 
 
 class PipelineConfig(BaseModel):
@@ -31,6 +64,7 @@ class PipelineConfig(BaseModel):
             (Phase 2) is enabled for implementation stories.
         verify_layers: Ordered list of QA layers to execute during
             the implementation QA-subflow.
+        features: Optional feature flags (e.g. ARE integration).
     """
 
     model_config = ConfigDict(strict=True)
@@ -39,6 +73,7 @@ class PipelineConfig(BaseModel):
     max_remediation_rounds: int = DEFAULT_MAX_REMEDIATION_ROUNDS
     exploration_mode: bool = True
     verify_layers: list[str] = list(DEFAULT_VERIFY_LAYERS)
+    features: Features = Features()
 
 
 def _coerce_path(value: Any) -> Path:
@@ -87,7 +122,7 @@ class ProjectConfig(BaseModel):
         github_repo: GitHub repository name.
     """
 
-    model_config = ConfigDict(strict=True)
+    model_config = ConfigDict(strict=True, extra="forbid")
 
     project_key: str
     project_name: str
@@ -96,3 +131,15 @@ class ProjectConfig(BaseModel):
     story_types: list[str] = list(DEFAULT_STORY_TYPES)
     github_owner: str | None = None
     github_repo: str | None = None
+    are: AreConfig | None = None
+
+    @model_validator(mode="after")
+    def _validate_are_section_when_enabled(self) -> ProjectConfig:
+        """FK-03 §3.2.1: ``features.are=True`` requires an ``are`` section."""
+        if self.pipeline.features.are and self.are is None:
+            msg = (
+                "pipeline.features.are=True requires an 'are' configuration "
+                "section (FK-03 §3.2.1)"
+            )
+            raise ValueError(msg)
+        return self
