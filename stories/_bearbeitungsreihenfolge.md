@@ -17,9 +17,9 @@ Wahrheit.
 
 | # | Story | Groesse | Status | Vorbedingung erfuellt? |
 |---|---|---|---|---|
-| 1 | AG3-026 VerifySystem Top-Surface | M | in_progress (2026-05-19) | ja (AG3-021/022/023 done) |
-| 2 | AG3-029 KpiAnalytics Top + Paket-Migration | M | blocked | nach AG3-026 ja |
-| 3 | AG3-030 RequirementsCoverage Top + AreClient | M | blocked | nach AG3-026 ja |
+| 1 | AG3-026 VerifySystem Top-Surface | M | done (2026-05-23, Pass-4 + Codex-PASS) | ja (AG3-021/022/023 done) |
+| 2 | AG3-029 KpiAnalytics Top + Paket-Migration | M | done (2026-05-23, Pass-4 + Codex-PASS) | ja |
+| 3 | AG3-030 RequirementsCoverage Top + AreClient | M | in_progress (naechste WIP) | ja |
 | 4 | AG3-027 Skills Top-Surface (schlank) | M | blocked | nach AG3-026 ja |
 | 5 | AG3-031 Governance Top-Surfaces | M | blocked | nach AG3-026 ja |
 | 6 | AG3-035 ProjectionAccessor + Reset-Purge | M | blocked | nach Top-Surfaces ja |
@@ -66,6 +66,24 @@ Reihenfolge zwingend: erst Telemetry-Infrastruktur, dann FailureCorpus.
 Folge-Story zu AG3-027 (siehe Split-Entscheidung 2026-05-19). Setzt
 auf den fertigen Skills-Top-Surface auf und bringt SQLite/Postgres-
 Persistenz + BC12-Installer-Andockung + Repo-Hygiene mit.
+
+## 2a. Stefan-Nach-Review-Entscheidungen 2026-05-19 (AG3-026)
+
+Nach-Review 2026-05-19 lieferte 2 ERRORs + 2 WARNINGs. Entschieden:
+
+- **E1 + E2 fix-pflichtig** (kein Wahlentscheid): Implementation-Phase-Handler auf `VerifySystem.run_qa_subflow` migrieren; `load_verify_decision_artifact` auf Stage `qa-policy-decision` / Filename `decision.json` (FK-27 §27.7) synchronisieren.
+- **W1 (Layer-2 Stub-Payloads): Voll umsetzen.** Stefan entschied gegen die Stub-Variante. Drei echte LLM-Reviewer (`qa_review` / `semantic` / `doc_fidelity`) werden in AG3-026 implementiert. Damit zieht AG3-026 **Teile von AG3-043 (Layer-2-LLM-Evaluations) vor**. Konsequenz fuer AG3-043: Story muss um die drei in 026 erledigten Reviewer reduziert werden, sobald die Remediation done ist (TODO bei Remediation-Abschluss eintragen).
+- **W2: PhaseEnvelopeView-DTO** in `verify_system/contract.py` (vier Felder `qa_cycle_id`, `qa_cycle_round`, `evidence_epoch`, `evidence_fingerprint`). Caller baut den View. Kein `pipeline_engine`-Import in `verify_system`.
+- **Sonar (13 violations / 5 critical)** sind Teil der Remediation, nicht separater Folge-Auftrag.
+
+**Pass-3-Entscheidung 2026-05-22 (BC-Topology-Drift AG3-026):**
+`verify_system/system.py` liest `StoryContext` weiterhin via `state_backend.load_story_context`
+(BC-Topologie-Bruch: VerifySystem sollte ueber ArtifactManager + Top-Surfaces gehen).
+Stefan-Entscheidung: **AG3-035 abwarten** (ProjectionAccessor loest das strukturell auf).
+Bis dahin: DRIFT-AG3-035-Kommentar im Code + dieser Verweis. AG3-035-Scope wurde
+entsprechend ergaenzt (siehe AG3-035-Story-Scope-Block).
+
+Folge: AG3-026 bleibt in `_bearbeitungsreihenfolge.md` §1 auf `in_progress`, wird erst nach Remediation auf `done` gesetzt. Reihenfolge-Vorrang AG3-029 → AG3-026-Remediation → AG3-030 ist explizit von Stefan bestaetigt.
 
 ## 3. Stefan-Entscheidungen 2026-05-19 (zur Nachvollziehbarkeit)
 

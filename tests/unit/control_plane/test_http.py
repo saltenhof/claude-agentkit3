@@ -21,13 +21,14 @@ from agentkit.control_plane.models import (
 )
 from agentkit.control_plane.runtime import ControlPlaneRuntimeService
 from agentkit.control_plane.telemetry import ControlPlaneTelemetryService
-from agentkit.dashboard.models import (
+from agentkit.kpi_analytics.dashboard.models import (
     BoardColumn,
     DashboardBoardResponse,
     DashboardStoryMetricsItem,
     DashboardStoryMetricsResponse,
+    DashboardStorySummary,
 )
-from agentkit.dashboard.service import DashboardService
+from agentkit.kpi_analytics.dashboard.service import DashboardService
 from agentkit.story.models import StoryDetail, StoryListResponse, StorySummary
 from agentkit.story.service import StoryService
 from agentkit.story_context_manager.http.routes import (
@@ -346,12 +347,11 @@ class _FakeDashboardService(DashboardService):
                 BoardColumn(
                     status="active",
                     stories=[
-                        StorySummary(
-                            project_key=project_key,
+                        DashboardStorySummary(
                             story_id="AG3-100",
                             title="Implement control plane",
-                            story_type=StoryType.IMPLEMENTATION,
-                            execution_route=StoryMode.EXECUTION,
+                            story_type=str(StoryType.IMPLEMENTATION),
+                            execution_route=str(StoryMode.EXECUTION),
                             story_size=StorySize.M,
                             lifecycle_status="active",
                             active_phase="implementation",
@@ -372,7 +372,7 @@ class _FakeDashboardService(DashboardService):
                 DashboardStoryMetricsItem(
                     story_id="AG3-101",
                     title="Stabilize telemetry",
-                    story_type=StoryType.IMPLEMENTATION,
+                    story_type=str(StoryType.IMPLEMENTATION),
                     story_size=StorySize.S,
                     final_status="DONE",
                     processing_time_min=12.5,

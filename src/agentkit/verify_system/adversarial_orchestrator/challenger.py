@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.story_context_manager.models import StoryContext
+    from agentkit.verify_system.llm_evaluator.inputs import Layer2ReviewInput
 
 
 class AdversarialChallenger:
@@ -37,16 +38,28 @@ class AdversarialChallenger:
         """
         return "adversarial"
 
-    def evaluate(self, ctx: StoryContext, story_dir: Path) -> LayerResult:
+    def evaluate(
+        self,
+        ctx: StoryContext,
+        story_dir: Path,
+        *,
+        review_input: Layer2ReviewInput | None = None,
+    ) -> LayerResult:
         """Evaluate adversarial quality -- currently a passthrough.
+
+        ``review_input`` is accepted but ignored by Layer 3 (Adversarial);
+        it is only used by Layer-2 reviewers.
 
         Args:
             ctx: Story context (unused in passthrough).
             story_dir: Directory containing story artifacts (unused).
+            review_input: Ignored by Layer 3. Accepted for protocol
+                compatibility with ``QALayer``.
 
         Returns:
             LayerResult with ``passed=True`` and no findings.
         """
+        del review_input  # Layer 3 does not use review_input.
         return LayerResult(
             layer=self.name,
             passed=True,

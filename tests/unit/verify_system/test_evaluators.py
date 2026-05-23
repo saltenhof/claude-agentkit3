@@ -1,4 +1,11 @@
-"""Tests for SemanticReviewer -- passthrough LLM layer."""
+"""Integration-level tests fuer die drei Layer-2 Reviewer (W1 / AG3-026).
+
+Testet die Reviewer-Klassen in realistischen Szenarien (Prompt-Audit,
+Protokoll-Konformitaet). Detaillierte PASS/FAIL-Dimension-Tests sind in
+``tests/unit/verify_system/llm_evaluator/test_reviewers.py``.
+
+AG3-026 Pass-3 ERROR-5: all evaluate() calls now pass review_input.
+"""
 
 from __future__ import annotations
 
@@ -10,32 +17,94 @@ from agentkit.installer.paths import PROMPT_BUNDLE_STORE_ENV
 from agentkit.phase_state_store import FlowExecution, save_flow_execution
 from agentkit.prompt_runtime.pins import initialize_prompt_run_pin
 from agentkit.state_backend.store import save_story_context
-from agentkit.verify_system.llm_evaluator.reviewer import SemanticReviewer
+from agentkit.story_context_manager.models import StoryContext
+from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.verify_system.llm_evaluator.inputs import Layer2ReviewInput
+from agentkit.verify_system.llm_evaluator.reviewer import (
+    DocFidelityReviewer,
+    QaReviewReviewer,
+    SemanticReviewer,
+)
+from agentkit.verify_system.protocols import QALayer
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     import pytest
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.verify_system.protocols import QALayer
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _minimal_ctx() -> StoryContext:
+    return StoryContext(
+        project_key="test-project",
+        story_id="TEST-001",
+        story_type=StoryType.IMPLEMENTATION,
+        execution_route=StoryMode.EXECUTION,
+    )
+
+
+def _empty_ri() -> Layer2ReviewInput:
+    """Empty Layer2ReviewInput (all fields empty strings)."""
+    return Layer2ReviewInput()
+
+
+# ---------------------------------------------------------------------------
+# QaReviewReviewer
+# ---------------------------------------------------------------------------
+
+
+class TestQaReviewReviewer:
+    """QaReviewReviewer integration tests (AG3-026 Pass-2)."""
+
+    def test_evaluate_returns_layer_result_with_qa_review_layer(
+        self, tmp_path: Path
+    ) -> None:
+        """evaluate() always returns LayerResult with layer='qa_review'."""
+        reviewer = QaReviewReviewer()
+        result = reviewer.evaluate(_minimal_ctx(), tmp_path, review_input=_empty_ri())
+        assert result.layer == "qa_review"
+
+    def test_evaluate_includes_prompt_audit_in_metadata(self, tmp_path: Path) -> None:
+        """evaluate() includes 'prompt_audit' in metadata."""
+        reviewer = QaReviewReviewer()
+        result = reviewer.evaluate(_minimal_ctx(), tmp_path, review_input=_empty_ri())
+        assert result.metadata["prompt_audit"] == {
+            "status": "skipped",
+            "reason": "project_root_unavailable",
+        }
+
+    def test_name_is_qa_review(self) -> None:
+        reviewer = QaReviewReviewer()
+        assert reviewer.name == "qa_review"
+
+    def test_implements_qa_layer_protocol(self) -> None:
+        reviewer = QaReviewReviewer()
+        assert isinstance(reviewer, QALayer)
+
+
+# ---------------------------------------------------------------------------
+# SemanticReviewer
+# ---------------------------------------------------------------------------
 
 
 class TestSemanticReviewer:
-    """SemanticReviewer passthrough tests."""
+    """SemanticReviewer integration tests (AG3-026 Pass-2)."""
 
-    def test_evaluate_returns_passed(self, tmp_path: Path) -> None:
+    def test_evaluate_returns_passed_on_empty_dir(self, tmp_path: Path) -> None:
+        """PASS: empty story_dir has no .py files to check.
+
+        With empty review_input, layer2_input.missing (MAJOR) is emitted,
+        but no BLOCKING -> passed=True. findings is non-empty.
+        """
         reviewer = SemanticReviewer()
-        ctx = StoryContext(
-            project_key="test-project",
-            story_id="TEST-001",
-            story_type=StoryType.IMPLEMENTATION,
-            execution_route=StoryMode.EXECUTION,
-        )
-        result = reviewer.evaluate(ctx, tmp_path)
+        result = reviewer.evaluate(_minimal_ctx(), tmp_path, review_input=_empty_ri())
         assert result.passed is True
-        assert result.layer == "semantic"
-        assert result.findings == ()
+        assert result.layer == "semantic_review"
+        # layer2_input.missing is MAJOR; passed is still True (no BLOCKING)
         assert result.metadata["prompt_audit"] == {
             "status": "skipped",
             "reason": "project_root_unavailable",
@@ -94,7 +163,7 @@ class TestSemanticReviewer:
             project_root=project_root,
         )
 
-        result = reviewer.evaluate(ctx, story_dir)
+        result = reviewer.evaluate(ctx, story_dir, review_input=_empty_ri())
 
         audit = cast("dict[str, object]", result.metadata["prompt_audit"])
         assert audit["status"] == "materialized"
@@ -102,11 +171,11 @@ class TestSemanticReviewer:
         assert audit["logical_prompt_id"] == "prompt.qa-semantic-review"
         assert audit["artifact_path"] == (
             ".agentkit/prompts/run-review-001/"
-            "verify-semantic-attempt-001/semantic-prompt.md"
+            "verify-semantic_review-attempt-001/semantic_review-prompt.md"
         )
         assert audit["manifest_path"] == (
             ".agentkit/prompts/run-review-001/"
-            "verify-semantic-attempt-001/rendered-manifest.json"
+            "verify-semantic_review-attempt-001/rendered-manifest.json"
         )
         assert (
             project_root / str(audit["artifact_path"])
@@ -168,7 +237,7 @@ class TestSemanticReviewer:
             project_root=project_root,
         )
 
-        result = reviewer.evaluate(ctx, story_dir)
+        result = reviewer.evaluate(ctx, story_dir, review_input=_empty_ri())
 
         assert result.metadata["prompt_audit"] == {
             "status": "skipped",
@@ -179,6 +248,38 @@ class TestSemanticReviewer:
         reviewer = SemanticReviewer()
         assert isinstance(reviewer, QALayer)
 
-    def test_name_is_semantic(self) -> None:
+    def test_name_is_semantic_review(self) -> None:
         reviewer = SemanticReviewer()
-        assert reviewer.name == "semantic"
+        assert reviewer.name == "semantic_review"
+
+
+# ---------------------------------------------------------------------------
+# DocFidelityReviewer
+# ---------------------------------------------------------------------------
+
+
+class TestDocFidelityReviewer:
+    """DocFidelityReviewer integration tests (AG3-026 Pass-2)."""
+
+    def test_evaluate_returns_passed_on_empty_dir(self, tmp_path: Path) -> None:
+        """PASS: empty story_dir has no .py files to check.
+
+        With empty review_input, layer2_input.missing (MAJOR) is emitted,
+        but no BLOCKING -> passed=True.
+        """
+        reviewer = DocFidelityReviewer()
+        result = reviewer.evaluate(_minimal_ctx(), tmp_path, review_input=_empty_ri())
+        assert result.passed is True
+        assert result.layer == "doc_fidelity"
+        assert result.metadata["prompt_audit"] == {
+            "status": "skipped",
+            "reason": "project_root_unavailable",
+        }
+
+    def test_name_is_doc_fidelity(self) -> None:
+        reviewer = DocFidelityReviewer()
+        assert reviewer.name == "doc_fidelity"
+
+    def test_implements_qa_layer_protocol(self) -> None:
+        reviewer = DocFidelityReviewer()
+        assert isinstance(reviewer, QALayer)

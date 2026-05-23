@@ -85,7 +85,7 @@ class ArtifactRepository(Protocol):
             story_id: Story-Display-ID.
             run_id: Run-Korrelations-ID; ``None`` matched ueber alle Runs.
             artifact_class: Erzeugerklasse-Filter.
-            stage: Stage-Filter (z.B. ``qa-verify-decision``).
+            stage: Stage-Filter (z.B. ``qa-policy-decision``).
 
         Returns:
             Latest ``ArtifactEnvelope`` oder ``None``.

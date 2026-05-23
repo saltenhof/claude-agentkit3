@@ -7,7 +7,7 @@ FK-39 §39.2.3.
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -136,12 +136,23 @@ class ImplementationPayload(BaseModel):
     @field_validator("evidence_epoch")
     @classmethod
     def _validate_evidence_epoch(cls, value: datetime | None) -> datetime | None:
-        """FK-27 §27.2.1: evidence_epoch ist ein UTC-aware ISO-8601 Timestamp."""
+        """FK-27 §27.2.1: evidence_epoch ist ein UTC-aware ISO-8601 Timestamp.
+
+        Pass-4 ERROR-7: lehnt auch nicht-UTC tz-aware datetimes (z.B. +02:00) ab,
+        konsistent zu PhaseEnvelopeView._validate_evidence_epoch in
+        verify_system/contract.py.
+        """
         if value is None:
             return value
         if value.tzinfo is None:
             msg = (
                 "evidence_epoch must be tz-aware (UTC); naive datetime not "
+                f"allowed (FK-27 §27.2.1): {value!r}"
+            )
+            raise ValueError(msg)
+        if value.utcoffset() != timedelta(0):
+            msg = (
+                "evidence_epoch must be UTC (offset=0); non-UTC tz-aware not "
                 f"allowed (FK-27 §27.2.1): {value!r}"
             )
             raise ValueError(msg)

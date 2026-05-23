@@ -131,7 +131,7 @@ def test_guard_evaluation_blocks_qa_artifact_tampering_in_story_execution(
             operation="file_write",
             operation_args={
                 "file_path": str(
-                    tmp_path / "_temp" / "qa" / "AG3-100" / "verify-decision.json",
+                    tmp_path / "_temp" / "qa" / "AG3-100" / "decision.json",
                 ),
             },
             freshness_class="mutation",

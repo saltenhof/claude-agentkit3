@@ -81,13 +81,29 @@ def _decision(*, passed: bool, verdict: PolicyVerdict) -> VerifyDecision:
 
 class TestArtifactConstants:
     def test_protected_artifacts_include_all_runtime_files(self) -> None:
+        # FK-27 §27.7: kanonische Dateinamen (neue Wire-Strings mit Underscore).
         assert LAYER_ARTIFACT_FILES == {
             "structural": "structural.json",
-            "semantic": "semantic-review.json",
             "adversarial": "adversarial.json",
+            "qa_review": "qa_review.json",
+            "semantic_review": "semantic_review.json",
+            "doc_fidelity": "doc_fidelity.json",
         }
-        assert VERIFY_DECISION_FILE in PROTECTED_QA_ARTIFACTS
+        # decision.json ist der kanonische Name (nicht verify-decision.json).
+        assert VERIFY_DECISION_FILE == "decision.json"
+        # Alle 6 FK-27-Artefakte muessen in der Schutzliste sein.
         assert GUARDRAIL_FILE in PROTECTED_QA_ARTIFACTS
+        for qa_file in (
+            "structural.json",
+            "qa_review.json",
+            "semantic_review.json",
+            "doc_fidelity.json",
+            "adversarial.json",
+            "decision.json",
+        ):
+            assert qa_file in PROTECTED_QA_ARTIFACTS, (
+                f"{qa_file!r} fehlt in PROTECTED_QA_ARTIFACTS"
+            )
 
 
 class TestSerialization:
@@ -141,7 +157,7 @@ class TestPersistenceViaManager:
             layer_results=(
                 LayerResult(layer="structural", passed=True),
                 LayerResult(
-                    layer="semantic",
+                    layer="semantic_review",
                     passed=True,
                     metadata={"prompt_audit": {"status": "skipped"}},
                 ),
@@ -150,7 +166,8 @@ class TestPersistenceViaManager:
             attempt_nr=4,
         )
         # Unknown layers werden nicht geschrieben.
-        assert produced == ("structural.json", "semantic-review.json")
+        # FK-27 §27.7: semantic_review.json (Underscore, kein Dash).
+        assert produced == ("structural.json", "semantic_review.json")
         # Read-back via Manager.read_latest beweist, dass ArtifactManager
         # die einzige Lese-/Schreib-API ist.
         from agentkit.core_types import ArtifactClass
@@ -254,7 +271,7 @@ class TestPersistenceViaManager:
                 story_id="TEST-MISSING",
                 run_id="run-missing",
                 artifact_class=ArtifactClass.QA,
-                stage="qa-verify-decision",
+                stage="qa-policy-decision",
             )
 
 

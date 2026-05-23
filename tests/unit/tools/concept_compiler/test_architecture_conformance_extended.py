@@ -105,11 +105,11 @@ def _write_spec(
         "    bloodgroup: A\n"
         "    module_prefixes:\n"
         "      - agentkit.story\n"
-        "  - id: architecture-conformance.group.dashboard\n"
-        "    name: DashboardApplication\n"
+        "  - id: architecture-conformance.group.kpi_analytics\n"
+        "    name: KpiAnalyticsApplication\n"
         "    bloodgroup: A\n"
         "    module_prefixes:\n"
-        "      - agentkit.dashboard\n"
+        "      - agentkit.kpi_analytics\n"
         "  - id: architecture-conformance.group.control_plane\n"
         "    name: ControlPlaneHttp\n"
         "    bloodgroup: R\n"
@@ -152,7 +152,7 @@ def _write_spec(
         f"  - id: {_BASE_RULE_ID}\n"
         "    source_module_prefixes:\n"
         "      - agentkit.story\n"
-        "      - agentkit.dashboard\n"
+        "      - agentkit.kpi_analytics\n"
         "    forbidden_module_prefixes:\n"
         "      - agentkit.control_plane.http\n"
         "    message: story must not depend on control-plane transport\n"
@@ -160,7 +160,7 @@ def _write_spec(
         "  - id: architecture-conformance.acyclic.application_surface\n"
         "    group_ids:\n"
         "      - architecture-conformance.group.story\n"
-        "      - architecture-conformance.group.dashboard\n"
+        "      - architecture-conformance.group.kpi_analytics\n"
         "mutation_surface_rules:\n"
         f"  - id: {_MUTATION_RULE_ID}\n"
         "    writer_symbols:\n"
@@ -532,25 +532,25 @@ def test_cross_bc_import_to_internal_subcomponent_raises_ac001(tmp_path: Path) -
         tmp_path,
         extra_groups=dedent(
             """
-              - id: architecture-conformance.group.dashboard_inner
-                name: DashboardInner
+              - id: architecture-conformance.group.kpi_analytics_inner
+                name: KpiAnalyticsInner
                 bloodgroup: A
                 module_prefixes:
-                  - agentkit.dashboard.inner
-                parent_group_id: architecture-conformance.group.dashboard
+                  - agentkit.kpi_analytics.inner
+                parent_group_id: architecture-conformance.group.kpi_analytics
                 exposure: internal
             """
         ),
         files={
             "agentkit.story.service": dedent(
                 """
-                from agentkit.dashboard.inner import something
+                from agentkit.kpi_analytics.inner import something
 
                 def use() -> None:
                     pass
                 """
             ),
-            "agentkit.dashboard.inner": "def something() -> None:\n    pass\n",
+            "agentkit.kpi_analytics.inner": "def something() -> None:\n    pass\n",
         },
     )
     compiled = compile_formal_specs(root / "concept" / "formal-spec")
@@ -572,25 +572,25 @@ def test_cross_bc_import_to_sub_exposed_subcomponent_no_violation(
         tmp_path,
         extra_groups=dedent(
             """
-              - id: architecture-conformance.group.dashboard_api
-                name: DashboardApi
+              - id: architecture-conformance.group.kpi_analytics_api
+                name: KpiAnalyticsApi
                 bloodgroup: A
                 module_prefixes:
-                  - agentkit.dashboard.api
-                parent_group_id: architecture-conformance.group.dashboard
+                  - agentkit.kpi_analytics.api
+                parent_group_id: architecture-conformance.group.kpi_analytics
                 exposure: sub_exposed
             """
         ),
         files={
             "agentkit.story.service": dedent(
                 """
-                from agentkit.dashboard.api import something
+                from agentkit.kpi_analytics.api import something
 
                 def use() -> None:
                     pass
                 """
             ),
-            "agentkit.dashboard.api": "def something() -> None:\n    pass\n",
+            "agentkit.kpi_analytics.api": "def something() -> None:\n    pass\n",
         },
     )
     compiled = compile_formal_specs(root / "concept" / "formal-spec")
@@ -1279,7 +1279,7 @@ def test_render_component_tree_basic(tmp_path: Path) -> None:
     tree = render_component_tree(config)
 
     assert "StoryApplication" in tree
-    assert "DashboardApplication" in tree
+    assert "KpiAnalyticsApplication" in tree
     assert "ControlPlaneHttp" in tree
     # box-drawing characters
     assert any(c in tree for c in ("├─", "└─"))

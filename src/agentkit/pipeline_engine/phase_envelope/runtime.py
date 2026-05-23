@@ -46,6 +46,6 @@ class RuntimeMetadata(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     origin: PhaseOrigin
-    loaded_at: datetime | None
+    loaded_at: datetime | None = None
     process_id: int
-    worker_id: str | None
+    worker_id: str | None = None

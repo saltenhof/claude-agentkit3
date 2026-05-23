@@ -160,10 +160,7 @@ class ArtifactEnvelope(BaseModel):
         try:
             json.dumps(v, sort_keys=True, default=None)
         except TypeError as exc:
-            msg = (
-                f"payload ist nicht JSON-serialisierbar: {exc}. "
-                "Erlaubt sind nur Werte, die json.dumps verarbeiten kann."
-            )
+            msg = f"payload ist nicht JSON-serialisierbar: {exc}. Erlaubt sind nur Werte, die json.dumps verarbeiten kann."
             raise ValueError(msg) from exc
         return v
 

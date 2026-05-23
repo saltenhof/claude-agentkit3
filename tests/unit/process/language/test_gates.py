@@ -33,14 +33,14 @@ class TestGateStage:
         gs = GateStage(
             name="semantic",
             actor="qa_agent",
-            evidence=("semantic-review.json",),
+            evidence=("semantic_review.json",),
             outcomes=("PASS", "FAIL", "WARN"),
             condition=cond,
             risk_triggers=("coverage_below_threshold",),
         )
         assert gs.name == "semantic"
         assert gs.actor == "qa_agent"
-        assert gs.evidence == ("semantic-review.json",)
+        assert gs.evidence == ("semantic_review.json",)
         assert gs.outcomes == ("PASS", "FAIL", "WARN")
         assert gs.condition is cond
         assert gs.risk_triggers == ("coverage_below_threshold",)

@@ -46,6 +46,7 @@ from agentkit.core_types.qa_artifact_names import (
     GUARDRAIL_FILE,
     LAYER_ARTIFACT_FILES,
     VERIFY_DECISION_FILE,
+    VERIFY_DECISION_STAGE,
 )
 from agentkit.verify_system.policy_engine.projections import (
     build_verify_decision_artifact,
@@ -64,19 +65,26 @@ if TYPE_CHECKING:
 
 _LAYER_TO_PRODUCER: dict[str, tuple[str, ProducerType]] = {
     "structural": ("verify-system.layer-1-structural", ProducerType.DETERMINISTIC),
-    "semantic": ("verify-system.layer-2-llm", ProducerType.LLM_REVIEWER),
+    # Layer-2 sub-reviewers (FK-27 §27.7):
+    "qa_review": ("verify-system.layer-2-qa-review", ProducerType.LLM_REVIEWER),
+    "semantic_review": ("verify-system.layer-2-semantic-review", ProducerType.LLM_REVIEWER),
+    "doc_fidelity": ("verify-system.layer-2-doc-fidelity", ProducerType.LLM_REVIEWER),
     "adversarial": ("verify-system.layer-3-adversarial", ProducerType.LLM_REVIEWER),
 }
 _LAYER_TO_STAGE: dict[str, str] = {
     "structural": "qa-layer-structural",
-    "semantic": "qa-layer-semantic",
+    # Layer-2 sub-stages (FK-27 §27.7):
+    "qa_review": "qa-layer-qa-review",
+    "semantic_review": "qa-layer-semantic-review",
+    "doc_fidelity": "qa-layer-doc-fidelity",
     "adversarial": "qa-layer-adversarial",
 }
 _VERIFY_DECISION_PRODUCER: tuple[str, ProducerType] = (
     "verify-system.layer-4-policy",
     ProducerType.DETERMINISTIC,
 )
-_VERIFY_DECISION_STAGE = "qa-verify-decision"
+# FK-27 §27.7: kanonischer Stage-String fuer das Policy-Decision-Artefakt.
+_VERIFY_DECISION_STAGE = VERIFY_DECISION_STAGE
 
 
 def write_layer_artifacts(

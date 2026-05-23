@@ -1,18 +1,29 @@
-"""Implementation phase handler with internal QA-subflow."""
+"""Implementation phase handler with internal QA-subflow.
+
+E1 (AG3-026 Pass-2): ``on_enter`` calls
+``verify_system.run_qa_subflow(ctx_bundle, story_id, qa_context, target)``
+as the ONLY ArtifactEnvelope write path AND the ONLY layer-execution
+path. ``run_qa_subflow`` now returns ``QaSubflowOutcome`` which carries
+the full ``VerifyDecision``; the FK-69 path
+(``record_layer_artifacts``/``record_verify_decision``) is fed directly
+from ``outcome.decision`` -- no second cycle run needed.
+
+W2 (AG3-026 Re-Review): ``ImplementationPhaseHandler`` builds a
+``PhaseEnvelopeView`` from ``envelope.state.payload`` and passes it
+into ``verify_system.run_qa_subflow``, avoiding a ``pipeline_engine``
+import inside ``verify_system``.
+"""
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from agentkit.bootstrap.composition_root import build_artifact_manager
-from agentkit.core_types import QaContext
+from agentkit.artifacts import ArtifactReference
+from agentkit.core_types import ArtifactClass, QaContext
+from agentkit.core_types.qa_artifact_names import ALL_QA_ARTIFACT_FILES
 from agentkit.exceptions import CorruptStateError
-from agentkit.implementation.qa_subflow import (
-    QaSubflowCycle,
-    QaSubflowCycleResult,
-)
 from agentkit.installer.paths import resolve_qa_story_dir
 from agentkit.pipeline_engine.lifecycle import HandlerResult
 from agentkit.state_backend.store import (
@@ -29,12 +40,8 @@ from agentkit.story_context_manager.models import (
     PhaseStatus,
     QaCycleStatus,
 )
-from agentkit.verify_system.artifacts import (
-    write_layer_artifacts,
-    write_verify_decision_artifacts,
-)
-from agentkit.verify_system.llm_evaluator.reviewer import SemanticReviewer
-from agentkit.verify_system.structural.checker import StructuralChecker
+from agentkit.verify_system.contract import PhaseEnvelopeView, VerifyContextBundle
+from agentkit.verify_system.contract import QaSubflowOutcome as _QaSubflowOutcome
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -42,18 +49,23 @@ if TYPE_CHECKING:
     from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
     from agentkit.story_context_manager.models import StoryContext
     from agentkit.verify_system import VerifySystem
-    from agentkit.verify_system.protocols import QALayer
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class ImplementationConfig:
-    """Configuration for the implementation phase handler."""
+    """Configuration for the implementation phase handler.
+
+    Attributes:
+        story_dir: Root directory of the story being verified.
+        max_feedback_rounds: Maximum QA feedback rounds before escalation.
+        verify_system: Optional pre-wired ``VerifySystem`` instance;
+            if ``None``, built via ``composition_root.build_verify_system``.
+    """
 
     story_dir: Path | None = None
     max_feedback_rounds: int = 3
-    layers: list[QALayer] = field(default_factory=list)
     verify_system: VerifySystem | None = None
 
 
@@ -64,7 +76,18 @@ class ImplementationPhaseHandler:
         self._config = config
 
     def on_enter(self, ctx: StoryContext, envelope: PhaseEnvelope) -> HandlerResult:
-        """Run the implementation QA-subflow to pass or escalation."""
+        """Run the implementation QA-subflow to pass or escalation.
+
+        E1 (AG3-026 Pass-2): ``run_qa_subflow`` is the SINGLE write path
+        for ArtifactEnvelopes AND the single layer-execution path.  The
+        returned ``QaSubflowOutcome`` carries the full ``VerifyDecision``
+        which is fed into the FK-69 recording path
+        (``record_layer_artifacts`` / ``record_verify_decision``) without
+        any second layer execution.
+
+        W2: Builds ``PhaseEnvelopeView`` from ``envelope.state.payload``
+        to avoid a ``pipeline_engine`` import inside ``verify_system``.
+        """
 
         state = envelope.state
         s_dir = self._config.story_dir
@@ -87,21 +110,16 @@ class ImplementationPhaseHandler:
                 "the pipeline_engine must persist it before invoking the QA-subflow.",
                 detail={"story_id": ctx.story_id, "story_dir": str(s_dir)},
             )
-        manager = build_artifact_manager(s_dir)
-
-        # AG3-026 Re-Review: VerifySystem.create_default() braucht jetzt
-        # einen ArtifactManager (Pflicht-Arg, fail-closed). Wir bauen die
-        # Default-Instanz ueber den Composition-Root, der den Manager
-        # bereits an die Story-DB bindet.
+        # AG3-026 Re-Review: VerifySystem.create_default() requires an
+        # ArtifactManager (mandatory arg, fail-closed). Build via the
+        # Composition-Root which already wires the manager to the story DB.
         from agentkit.bootstrap.composition_root import build_verify_system
 
         verify_system = self._config.verify_system or build_verify_system(s_dir)
-        layers: list[QALayer] = list(self._config.layers) if self._config.layers else [
-            StructuralChecker(),
-            SemanticReviewer(),
-            verify_system.adversarial_layer(),
-        ]
-        cycle = QaSubflowCycle(layers=layers, verify_system=verify_system)
+
+        # W2: Build PhaseEnvelopeView from envelope.state.payload.
+        phase_envelope_view = _build_phase_envelope_view(envelope)
+
         qa_rounds = state.memory.implementation.qa_feedback_rounds
         current_context = _verify_context_for(qa_rounds)
         artifacts: list[str] = []
@@ -115,54 +133,56 @@ class ImplementationPhaseHandler:
                 qa_feedback_rounds=qa_rounds,
                 qa_cycle_round=attempt_nr,
             )
-            result = cycle.run(ctx, s_dir, attempt_nr=attempt_nr)
+
+            # E1: run_qa_subflow is the ONLY ArtifactEnvelope write path
+            # and the ONLY layer-execution path. The returned
+            # QaSubflowOutcome carries the full VerifyDecision.
+            ctx_bundle = VerifyContextBundle(
+                run_id=flow.run_id,
+                story_dir=s_dir,
+                phase_envelope=phase_envelope_view,
+                attempt=attempt_nr,
+            )
+            target = ArtifactReference(
+                artifact_class=ArtifactClass.WORKER,
+                story_id=ctx.story_id,
+                run_id=flow.run_id,
+                record_key=f"envelopes/worker/{ctx.story_id}/{attempt_nr}",
+            )
+            outcome: _QaSubflowOutcome = verify_system.run_qa_subflow(
+                ctx_bundle,
+                ctx.story_id,
+                current_context,
+                target,
+            )
+            # E1: Artifact names come from FK-27 §27.7 (deterministic).
+            artifacts.extend(ALL_QA_ARTIFACT_FILES)
+
+            # FK-69 path: feed decision from outcome (no second layer run).
+            decision = outcome.decision
             projection_dir = resolve_qa_story_dir(
                 s_dir,
                 story_id=ctx.story_id,
                 project_root=ctx.project_root,
             )
-            # Schreibpfad 1: ArtifactEnvelope-Wahrheit via ArtifactManager
-            #   (verify_system kennt ausschliesslich diese API).
-            artifacts.extend(
-                write_layer_artifacts(
-                    manager=manager,
-                    story_id=ctx.story_id,
-                    run_id=flow.run_id,
-                    layer_results=result.decision.layer_results,
-                    attempt_nr=result.attempt_nr,
-                ),
-            )
-            artifacts.extend(
-                write_verify_decision_artifacts(
-                    manager=manager,
-                    story_id=ctx.story_id,
-                    run_id=flow.run_id,
-                    decision=result.decision,
-                    attempt_nr=result.attempt_nr,
-                ),
-            )
-            # Schreibpfad 2: FK-69-Materialisierung (qa_stage_results,
-            #   qa_findings, decision_records) + Projektionsdatei via
-            #   state_backend. Beide Pfade sind idempotent (UPSERT) und
-            #   konvergieren bei Re-Run auf den aktuellen Stand.
             record_layer_artifacts(
                 s_dir,
-                layer_results=result.decision.layer_results,
-                attempt_nr=result.attempt_nr,
+                layer_results=decision.layer_results,
+                attempt_nr=attempt_nr,
                 projection_dir=projection_dir,
             )
             record_verify_decision(
                 s_dir,
-                decision=result.decision,
-                attempt_nr=result.attempt_nr,
+                decision=decision,
+                attempt_nr=attempt_nr,
                 projection_dir=projection_dir,
             )
 
-            if result.decision.passed:
+            if decision.passed:
                 logger.info("QA-subflow passed for %s", ctx.story_id)
                 return HandlerResult(
                     status=PhaseStatus.COMPLETED,
-                    artifacts_produced=tuple(artifacts),
+                    artifacts_produced=tuple(dict.fromkeys(artifacts)),
                     updated_state=_state_with_payload(
                         awaiting_state,
                         QaCycleStatus.PASS,
@@ -173,7 +193,7 @@ class ImplementationPhaseHandler:
                 )
 
             if qa_rounds >= self._config.max_feedback_rounds:
-                error_msgs = _feedback_errors(result)
+                error_msgs = _feedback_errors(outcome)
                 logger.warning(
                     "QA-subflow escalated for %s after %d rounds",
                     ctx.story_id,
@@ -182,7 +202,7 @@ class ImplementationPhaseHandler:
                 return HandlerResult(
                     status=PhaseStatus.ESCALATED,
                     errors=tuple(error_msgs),
-                    artifacts_produced=tuple(artifacts),
+                    artifacts_produced=tuple(dict.fromkeys(artifacts)),
                     updated_state=_state_with_payload(
                         awaiting_state,
                         QaCycleStatus.ESCALATED,
@@ -210,15 +230,65 @@ class ImplementationPhaseHandler:
         return self.on_enter(ctx, envelope)
 
 
+def _build_phase_envelope_view(envelope: PhaseEnvelope) -> PhaseEnvelopeView | None:
+    """Build a ``PhaseEnvelopeView`` from a ``PhaseEnvelope``.
+
+    Extracts only the four QA-cycle identity fields from
+    ``envelope.state.payload`` (if it is an ``ImplementationPayload``).
+    Returns ``None`` if the payload is not an ``ImplementationPayload``
+    or the fields are all unset.
+
+    W2 (AG3-026 Re-Review): isolates the ``pipeline_engine``-type
+    ``PhaseEnvelope`` from the ``verify_system`` BC.
+
+    Args:
+        envelope: The ``PhaseEnvelope`` from the handler context.
+
+    Returns:
+        ``PhaseEnvelopeView`` with the four QA-cycle fields, or
+        ``None`` if no valid ``ImplementationPayload`` is present.
+    """
+    from agentkit.story_context_manager.models import ImplementationPayload
+
+    payload = envelope.state.payload
+    if not isinstance(payload, ImplementationPayload):
+        return None
+    # Only create view if at least one QA-cycle field is set.
+    if all(
+        v is None
+        for v in (
+            payload.qa_cycle_id,
+            payload.qa_cycle_round or None,
+            payload.evidence_epoch,
+            payload.evidence_fingerprint,
+        )
+    ):
+        return None
+    return PhaseEnvelopeView(
+        qa_cycle_id=payload.qa_cycle_id,
+        qa_cycle_round=payload.qa_cycle_round if payload.qa_cycle_round >= 1 else None,
+        evidence_epoch=payload.evidence_epoch,
+        evidence_fingerprint=payload.evidence_fingerprint,
+    )
+
+
 def _verify_context_for(qa_feedback_rounds: int) -> QaContext:
     if qa_feedback_rounds == 0:
         return QaContext.IMPLEMENTATION_INITIAL
     return QaContext.IMPLEMENTATION_REMEDIATION
 
 
-def _feedback_errors(result: QaSubflowCycleResult) -> list[str]:
-    decision = result.decision
-    feedback = result.feedback
+def _feedback_errors(outcome: _QaSubflowOutcome) -> list[str]:
+    """Build human-readable error strings from a failed QA-subflow outcome.
+
+    Args:
+        outcome: The ``QaSubflowOutcome`` from a failed QA-subflow run.
+
+    Returns:
+        List of error message strings for ``HandlerResult.errors``.
+    """
+    decision = outcome.decision
+    feedback = outcome.feedback
     errors = [str(decision.summary)]
     if feedback is not None:
         errors.append(str(feedback.to_prompt_text()))

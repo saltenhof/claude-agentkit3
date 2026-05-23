@@ -45,7 +45,8 @@ class KpiAnalytics:
     def list_kpis(self) -> list[KpiDefinition]:
         return self._catalog.list_definitions()
 
-    def refresh_analytics(self, story_id: str | None = None) -> RefreshResult:
+    def refresh_analytics(self, project_key: str, hint_story_id: str | None = None) -> RefreshResult:
+        # AG3-029 Pass-3 W-A: Signatur aus bc-cut-decisions.md §BC 16 Z. 1581 uebernommen.
         # AG3-029 deep-review: kein stiller Erfolg. Wenn FactStore/Worker None -> SKIPPED-Status.
         if self._fact_store is None or self._refresh_worker is None:
             return RefreshResult(
@@ -56,7 +57,8 @@ class KpiAnalytics:
             )
         ...
 
-    def get_dashboard_view(self, view_name: str, project_key: str) -> DashboardView:
+    def get_dashboard_view(self, project_key: str, view_kind: str) -> DashboardView:
+        # AG3-029 Pass-3 W-A: Signatur aus bc-cut-decisions.md §BC 16 Z. 1582 uebernommen.
         # AG3-029 deep-review: kein stilles rows=[] (das wuerde "keine Daten" statt
         # "Datenquelle fehlt" signalisieren). Entweder typisierte Exception oder
         # explizites UNAVAILABLE-Status.
@@ -66,8 +68,10 @@ class KpiAnalytics:
             )
         ...
 
-    def query(self, kpi_id: str, project_key: str, period: str) -> KpiResult:
-        # Stub: NotImplementedError mit Verweis auf Folge-Story
+    def query(self, project_key: str, sql: str) -> KpiResult:
+        # AG3-029 Pass-3 W-A: Signatur aus bc-cut-decisions.md §BC 16 Z. 1583 uebernommen.
+        # AG3-038-FOLLOWUP: rohes SQL ist Sicherheits-Risiko; die produktive Folge-Story
+        # muss ein typisiertes KPI-Query mitbringen statt rohem SQL (Injection-Schutz).
         raise NotImplementedError("KpiAnalytics.query is part of follow-up story for FactStore + RefreshWorker")
 
     def get_design_tokens(self) -> DesignTokens:
@@ -101,7 +105,8 @@ Pydantic-v2:
 - `formula_repr: str` (deklarativ, kein Code)
 - `granularity: KpiGranularity` (StrEnum: `STORY`, `ENTITY_PERIOD`, `PERIOD`)
 - `collection_point: KpiCollectionPoint`
-- `domain: KpiDomain` (StrEnum: zwoelf Werte aus FK-60 §60.4 — z.B. `THROUGHPUT`, `QUALITY`, `WORKFLOW`)
+- `domain: KpiDomain` (StrEnum: zehn Werte aus FK-60 §60.4 — Domaenen 1-10, Sektionen §60.4.2-§60.4.11; z.B. `THROUGHPUT`, `QUALITY`, `WORKFLOW`) <!-- AG3-029 worker 2026-05-19: Story sprach urspruenglich von "zwoelf"; FK-60 §60.4 ist autoritativ und definiert exakt zehn Domaenen. -->
+
 
 #### 2.1.4 Status-Spalten-Drift behebt (kpi-and-dashboard.C3)
 

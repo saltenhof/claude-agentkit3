@@ -12,7 +12,7 @@ Begruendung (FK-31 §31.3 + bc-cut-decisions.md §BC 4 + Refactor-Liste Pkt. 24)
 Truth-Boundary-Disziplin: ``agentkit.governance`` ist
 ``protected_module_prefix`` laut
 ``concept/formal-spec/truth-boundary-checker/invariants.md`` Z. 24-52.
-Die Wire-String-Literale ("structural.json", "verify-decision.json", ...)
+Die Wire-String-Literale ("structural.json", "decision.json", ...)
 duerfen daher nicht **in** diesem Modul stehen. Sie leben als
 Cross-Cutting-Konstanten in ``agentkit.core_types.qa_artifact_names``
 und werden hier nur zur Tuple-Konfiguration des Hooks importiert.
@@ -28,21 +28,23 @@ Quelle:
 from __future__ import annotations
 
 from agentkit.core_types.qa_artifact_names import (
+    ALL_QA_ARTIFACT_FILES,
     GUARDRAIL_FILE,
     LAYER_ARTIFACT_FILES,
     VERIFY_DECISION_FILE,
 )
 
-#: Schutzliste aller QA-Artefakt-Dateinamen.
+#: Schutzliste aller QA-Artefakt-Dateinamen (FK-31 §31.3 + FK-27 §27.7).
 #: Schreibzugriff durch Sub-Agents auf diese Dateien ist im GuardSystem
 #: geblockt, solange der QA-Artifact-Lock aktiv ist (FK-31 §31.3).
+#: Enthaelt alle 6 FK-27-Artefakte + das Guardrail-Artefakt.
 PROTECTED_QA_ARTIFACTS: tuple[str, ...] = (
-    *LAYER_ARTIFACT_FILES.values(),
+    *ALL_QA_ARTIFACT_FILES,
     GUARDRAIL_FILE,
-    VERIFY_DECISION_FILE,
 )
 
 __all__ = [
+    "ALL_QA_ARTIFACT_FILES",
     "GUARDRAIL_FILE",
     "LAYER_ARTIFACT_FILES",
     "PROTECTED_QA_ARTIFACTS",

@@ -37,7 +37,7 @@ class TestArtifactGuardBlocked:
         v = guard.evaluate(
             "file_edit",
             {
-                "file_path": "/repo/_temp/qa/AG3-001/verify-decision.json",
+                "file_path": "/repo/_temp/qa/AG3-001/decision.json",
                 "operating_mode": "story_execution",
                 "qa_artifact_lock_active": True,
                 "principal_kind": "subagent",

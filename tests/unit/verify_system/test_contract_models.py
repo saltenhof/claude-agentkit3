@@ -13,6 +13,7 @@ import pytest
 from pydantic import ValidationError
 
 from agentkit.verify_system.contract import (
+    PhaseEnvelopeView,
     VerifyContextBundle,
     VerifyTarget,
     VerifyTargetType,
@@ -79,43 +80,68 @@ class TestVerifyContextBundle:
         )
         assert isinstance(bundle.story_dir, Path)
 
-    def test_phase_envelope_accepts_phase_envelope_instance(
+    def test_phase_envelope_accepts_phase_envelope_view(
         self, tmp_path: Path
     ) -> None:
-        """AG3-026 Re-Review: ``phase_envelope`` ist typisiert
-        ``PhaseEnvelope | None``, kein freier dict mehr."""
-        from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
-        from agentkit.pipeline_engine.phase_envelope.runtime import (
-            PhaseOrigin,
-            RuntimeMetadata,
-        )
-        from agentkit.story_context_manager.models import (
-            ImplementationPayload,
-            PhaseName,
-            PhaseState,
-            PhaseStatus,
-        )
+        """W2: ``phase_envelope`` ist jetzt ``PhaseEnvelopeView | None``.
+        Kein ``pipeline_engine.PhaseEnvelope``-Import in verify_system."""
+        from datetime import UTC, datetime
 
-        state = PhaseState(
-            story_id="TEST-001",
-            phase=PhaseName.IMPLEMENTATION,
-            status=PhaseStatus.IN_PROGRESS,
-            payload=ImplementationPayload(),
+        view = PhaseEnvelopeView(
+            qa_cycle_id="a1b2c3d4e5f6",
+            qa_cycle_round=1,
+            evidence_epoch=datetime(2026, 5, 19, 12, 0, 0, tzinfo=UTC),
+            evidence_fingerprint="f" * 64,
         )
-        runtime = RuntimeMetadata(
-            origin=PhaseOrigin.NEW,
-            loaded_at=None,
-            process_id=1,
-            worker_id=None,
-        )
-        envelope = PhaseEnvelope(state=state, runtime=runtime)
         bundle = VerifyContextBundle(
             run_id="run-x",
             story_dir=tmp_path,
-            phase_envelope=envelope,
+            phase_envelope=view,
             attempt=1,
         )
-        assert bundle.phase_envelope is envelope
+        assert bundle.phase_envelope is view
+        assert bundle.phase_envelope.qa_cycle_id == "a1b2c3d4e5f6"
+
+    def test_phase_envelope_none_is_valid(self, tmp_path: Path) -> None:
+        """``phase_envelope=None`` ist weiterhin valid."""
+        bundle = VerifyContextBundle(
+            run_id="run-x",
+            story_dir=tmp_path,
+            phase_envelope=None,
+            attempt=1,
+        )
+        assert bundle.phase_envelope is None
+
+    def test_phase_envelope_view_validates_qa_cycle_id_format(self) -> None:
+        """qa_cycle_id muss 12-char lowercase hex sein."""
+        import pytest
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            PhaseEnvelopeView(qa_cycle_id="TOOSHORT", qa_cycle_round=1)
+
+    def test_phase_envelope_view_rejects_naive_evidence_epoch(self) -> None:
+        """evidence_epoch ohne tzinfo ist nicht erlaubt (FK-27 §27.2.1 UTC-Pflicht)."""
+        from datetime import datetime
+
+        with pytest.raises(ValidationError, match="tz-aware"):
+            PhaseEnvelopeView(evidence_epoch=datetime(2026, 5, 19, 12, 0, 0))
+
+    def test_phase_envelope_view_rejects_non_utc_evidence_epoch(self) -> None:
+        """evidence_epoch mit +02:00 (nicht UTC) muss abgelehnt werden (FK-27 §27.2.1)."""
+        from datetime import datetime, timedelta, timezone
+
+        non_utc = datetime(2026, 5, 19, 12, 0, 0, tzinfo=timezone(timedelta(hours=2)))
+        with pytest.raises(ValidationError, match="UTC"):
+            PhaseEnvelopeView(evidence_epoch=non_utc)
+
+    def test_phase_envelope_view_accepts_utc_evidence_epoch(self) -> None:
+        """evidence_epoch mit UTC-Offset=0 wird akzeptiert (FK-27 §27.2.1)."""
+        from datetime import UTC, datetime
+
+        utc_dt = datetime(2026, 5, 19, 12, 0, 0, tzinfo=UTC)
+        view = PhaseEnvelopeView(evidence_epoch=utc_dt)
+        assert view.evidence_epoch == utc_dt
 
     def test_attempt_is_integer(self, tmp_path: Path) -> None:
         bundle = VerifyContextBundle(

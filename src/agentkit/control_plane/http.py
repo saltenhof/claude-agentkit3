@@ -24,7 +24,7 @@ from agentkit.control_plane.models import (
 )
 from agentkit.control_plane.runtime import ControlPlaneRuntimeService
 from agentkit.control_plane.telemetry import ControlPlaneTelemetryService
-from agentkit.dashboard import DashboardService
+from agentkit.kpi_analytics.dashboard import DashboardService
 from agentkit.story.service import StoryService
 
 if TYPE_CHECKING:

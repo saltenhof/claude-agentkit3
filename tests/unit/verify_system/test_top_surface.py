@@ -23,6 +23,7 @@ from agentkit.artifacts import (
 )
 from agentkit.core_types import ArtifactClass, PolicyVerdict, QaContext, Severity
 from agentkit.verify_system import (
+    QaSubflowOutcome,
     VerifyContextBundle,
     VerifySystem,
     VerifyTargetUnknownError,
@@ -72,7 +73,13 @@ class _RecordingLayer:
     def name(self) -> str:
         return self._name
 
-    def evaluate(self, ctx: object, story_dir: Path) -> LayerResult:
+    def evaluate(
+        self,
+        ctx: object,
+        story_dir: Path,
+        *,
+        review_input: object = None,
+    ) -> LayerResult:
         self.calls.append((ctx, story_dir))
         if self._raise_exc is not None:
             raise self._raise_exc  # noqa: RSE102
@@ -130,14 +137,24 @@ def _make_system(
     *,
     layer_1: _RecordingLayer | StructuralChecker | None = None,
     layer_2: _RecordingLayer | SemanticReviewer | None = None,
+    layer_2a: _RecordingLayer | None = None,
+    layer_2b: _RecordingLayer | None = None,
+    layer_2c: _RecordingLayer | None = None,
     layer_3: _RecordingLayer | AdversarialChallenger | None = None,
     manager: _RecordingArtifactManager | None = None,
     max_major_findings: int = 0,
 ) -> tuple[VerifySystem, _RecordingArtifactManager]:
     recording_manager = manager or _RecordingArtifactManager()
+    # W1: three distinct Layer-2 reviewers.
+    # Backward compat: if layer_2 is given, use it for layer_2a (primary reviewer).
+    _l2a = layer_2a or layer_2 or _RecordingLayer("qa_review")
+    _l2b = layer_2b or _RecordingLayer("semantic_review")
+    _l2c = layer_2c or _RecordingLayer("doc_fidelity")
     vs = VerifySystem(
         layer_1=layer_1 or _RecordingLayer("structural"),
-        layer_2=layer_2 or _RecordingLayer("semantic"),
+        layer_2a=_l2a,
+        layer_2b=_l2b,
+        layer_2c=_l2c,
         layer_3=layer_3 or _RecordingLayer("adversarial"),
         policy_engine=PolicyEngine(max_major_findings=max_major_findings),
         artifact_manager=recording_manager,
@@ -155,27 +172,36 @@ class TestRunQaSubflowImplementationHappyPath:
 
     def test_returns_pass_when_all_layers_pass(self, tmp_path: Path) -> None:
         vs, _ = _make_system()
-        verdict = vs.run_qa_subflow(
+        outcome = vs.run_qa_subflow(
             ctx=_make_bundle(tmp_path),
             story_id="TEST-001",
             qa_context=QaContext.IMPLEMENTATION_INITIAL,
             target=_make_target(),
         )
-        assert verdict is PolicyVerdict.PASS
+        assert isinstance(outcome, QaSubflowOutcome)
+        assert outcome.verdict is PolicyVerdict.PASS
 
-    def test_all_three_data_layers_called_in_order(self, tmp_path: Path) -> None:
-        """Layer execution order: structural -> semantic -> adversarial."""
+    def test_all_five_data_layers_called_in_order(self, tmp_path: Path) -> None:
+        """Layer execution order: structural -> qa_review -> semantic_review -> doc_fidelity -> adversarial."""
         call_log: list[str] = []
 
         class _OrderedLayer(_RecordingLayer):
-            def evaluate(self, ctx: object, story_dir: Path) -> LayerResult:
+            def evaluate(
+                self,
+                ctx: object,
+                story_dir: Path,
+                *,
+                review_input: object = None,
+            ) -> LayerResult:
                 call_log.append(self._name)
-                return super().evaluate(ctx, story_dir)
+                return super().evaluate(ctx, story_dir, review_input=review_input)
 
         l1 = _OrderedLayer("structural")
-        l2 = _OrderedLayer("semantic")
+        l2a = _OrderedLayer("qa_review")
+        l2b = _OrderedLayer("semantic_review")
+        l2c = _OrderedLayer("doc_fidelity")
         l3 = _OrderedLayer("adversarial")
-        vs, _ = _make_system(layer_1=l1, layer_2=l2, layer_3=l3)
+        vs, _ = _make_system(layer_1=l1, layer_2a=l2a, layer_2b=l2b, layer_2c=l2c, layer_3=l3)
         vs.run_qa_subflow(
             ctx=_make_bundle(tmp_path),
             story_id="TEST-001",
@@ -183,13 +209,17 @@ class TestRunQaSubflowImplementationHappyPath:
             target=_make_target(),
         )
 
-        assert call_log == ["structural", "semantic", "adversarial"]
+        assert call_log == [
+            "structural", "qa_review", "semantic_review", "doc_fidelity", "adversarial"
+        ]
 
     def test_each_data_layer_called_exactly_once(self, tmp_path: Path) -> None:
         l1 = _RecordingLayer("structural")
-        l2 = _RecordingLayer("semantic")
+        l2a = _RecordingLayer("qa_review")
+        l2b = _RecordingLayer("semantic_review")
+        l2c = _RecordingLayer("doc_fidelity")
         l3 = _RecordingLayer("adversarial")
-        vs, _ = _make_system(layer_1=l1, layer_2=l2, layer_3=l3)
+        vs, _ = _make_system(layer_1=l1, layer_2a=l2a, layer_2b=l2b, layer_2c=l2c, layer_3=l3)
         vs.run_qa_subflow(
             ctx=_make_bundle(tmp_path),
             story_id="TEST-001",
@@ -198,7 +228,9 @@ class TestRunQaSubflowImplementationHappyPath:
         )
 
         assert len(l1.calls) == 1
-        assert len(l2.calls) == 1
+        assert len(l2a.calls) == 1
+        assert len(l2b.calls) == 1
+        assert len(l2c.calls) == 1
         assert len(l3.calls) == 1
 
     def test_artifact_manager_receives_six_writes(self, tmp_path: Path) -> None:
@@ -264,7 +296,7 @@ class TestRunQaSubflowImplementationHappyPath:
         """AG3-026 §AK7: Policy schreibt unter ``decision.json`` (kein verify- Prefix)."""
         vs, manager = _make_system()
 
-        verdict = vs.run_qa_subflow(
+        outcome = vs.run_qa_subflow(
             ctx=_make_bundle(tmp_path),
             story_id="TEST-001",
             qa_context=QaContext.IMPLEMENTATION_INITIAL,
@@ -278,7 +310,7 @@ class TestRunQaSubflowImplementationHappyPath:
         ]
         assert len(policy_envs) == 1
         assert policy_envs[0].producer.name == "verify-system.layer-4-policy"
-        assert verdict is PolicyVerdict.PASS
+        assert outcome.verdict is PolicyVerdict.PASS
 
     def test_implementation_remediation_also_writes_six(
         self, tmp_path: Path
@@ -305,21 +337,23 @@ class TestRunQaSubflowExplorationHappyPath:
 
     def test_returns_pass_when_layers_pass(self, tmp_path: Path) -> None:
         vs, _ = _make_system()
-        verdict = vs.run_qa_subflow(
+        outcome = vs.run_qa_subflow(
             ctx=_make_bundle(tmp_path),
             story_id="TEST-001",
             qa_context=QaContext.EXPLORATION_INITIAL,
             target=_make_target(ArtifactClass.ENTWURF),
         )
-        assert verdict is PolicyVerdict.PASS
+        assert outcome.verdict is PolicyVerdict.PASS
 
-    def test_only_llm_layer_called_not_structural_not_adversarial(
+    def test_only_llm_layers_called_not_structural_not_adversarial(
         self, tmp_path: Path
     ) -> None:
         l1 = _RecordingLayer("structural")
-        l2 = _RecordingLayer("semantic")
+        l2a = _RecordingLayer("qa_review")
+        l2b = _RecordingLayer("semantic_review")
+        l2c = _RecordingLayer("doc_fidelity")
         l3 = _RecordingLayer("adversarial")
-        vs, _ = _make_system(layer_1=l1, layer_2=l2, layer_3=l3)
+        vs, _ = _make_system(layer_1=l1, layer_2a=l2a, layer_2b=l2b, layer_2c=l2c, layer_3=l3)
         vs.run_qa_subflow(
             ctx=_make_bundle(tmp_path),
             story_id="TEST-001",
@@ -328,7 +362,9 @@ class TestRunQaSubflowExplorationHappyPath:
         )
 
         assert len(l1.calls) == 0, "Structural layer must NOT run for Exploration"
-        assert len(l2.calls) == 1, "LLM-Evaluator layer must run for Exploration"
+        assert len(l2a.calls) == 1, "LLM-Evaluator qa_review must run for Exploration"
+        assert len(l2b.calls) == 1, "LLM-Evaluator semantic_review must run for Exploration"
+        assert len(l2c.calls) == 1, "LLM-Evaluator doc_fidelity must run for Exploration"
         assert len(l3.calls) == 0, "Adversarial layer must NOT run for Exploration"
 
     def test_artifact_manager_receives_four_writes(self, tmp_path: Path) -> None:
@@ -442,30 +478,30 @@ class TestRunQaSubflowLayerException:
             raise_exc=RuntimeError("disk exploded"),
         )
         vs, _ = _make_system(layer_1=exploding_l1)
-        verdict = vs.run_qa_subflow(
+        outcome = vs.run_qa_subflow(
             ctx=_make_bundle(tmp_path),
             story_id="TEST-001",
             qa_context=QaContext.IMPLEMENTATION_INITIAL,
             target=_make_target(),
         )
 
-        assert verdict is PolicyVerdict.FAIL
+        assert outcome.verdict is PolicyVerdict.FAIL
 
     def test_llm_layer_exception_returns_fail(self, tmp_path: Path) -> None:
         """LLM layer raising ValueError -> PolicyVerdict.FAIL."""
-        exploding_l2 = _RecordingLayer(
-            "semantic",
+        exploding_l2a = _RecordingLayer(
+            "qa_review",
             raise_exc=ValueError("LLM unavailable"),
         )
-        vs, _ = _make_system(layer_2=exploding_l2)
-        verdict = vs.run_qa_subflow(
+        vs, _ = _make_system(layer_2a=exploding_l2a)
+        outcome = vs.run_qa_subflow(
             ctx=_make_bundle(tmp_path),
             story_id="TEST-001",
             qa_context=QaContext.IMPLEMENTATION_INITIAL,
             target=_make_target(),
         )
 
-        assert verdict is PolicyVerdict.FAIL
+        assert outcome.verdict is PolicyVerdict.FAIL
 
     def test_layer_exception_generates_blocking_finding_in_artifact(
         self, tmp_path: Path
@@ -495,21 +531,31 @@ class TestRunQaSubflowLayerException:
     def test_execution_continues_after_one_layer_fails(
         self, tmp_path: Path
     ) -> None:
-        """Even if structural layer fails, LLM and adversarial still run."""
+        """Even if structural layer fails, LLM reviewers and adversarial still run."""
         call_log: list[str] = []
 
         class _LoggingLayer(_RecordingLayer):
-            def evaluate(self, ctx: object, story_dir: Path) -> LayerResult:
+            def evaluate(
+                self,
+                ctx: object,
+                story_dir: Path,
+                *,
+                review_input: object = None,
+            ) -> LayerResult:
                 call_log.append(self._name)
-                return super().evaluate(ctx, story_dir)
+                return super().evaluate(ctx, story_dir, review_input=review_input)
 
         exploding_l1 = _RecordingLayer(
             "structural",
             raise_exc=RuntimeError("disk full"),
         )
-        l2 = _LoggingLayer("semantic")
+        l2a = _LoggingLayer("qa_review")
+        l2b = _LoggingLayer("semantic_review")
+        l2c = _LoggingLayer("doc_fidelity")
         l3 = _LoggingLayer("adversarial")
-        vs, _ = _make_system(layer_1=exploding_l1, layer_2=l2, layer_3=l3)
+        vs, _ = _make_system(
+            layer_1=exploding_l1, layer_2a=l2a, layer_2b=l2b, layer_2c=l2c, layer_3=l3
+        )
         vs.run_qa_subflow(
             ctx=_make_bundle(tmp_path),
             story_id="TEST-001",
@@ -517,12 +563,14 @@ class TestRunQaSubflowLayerException:
             target=_make_target(),
         )
 
-        # LLM and adversarial layers still execute after structural failure.
-        assert "semantic" in call_log
+        # All LLM reviewers and adversarial layer still execute after structural failure.
+        assert "qa_review" in call_log
+        assert "semantic_review" in call_log
+        assert "doc_fidelity" in call_log
         assert "adversarial" in call_log
 
-    def test_return_type_is_exactly_policy_verdict(self, tmp_path: Path) -> None:
-        """run_qa_subflow always returns a PolicyVerdict instance (AK2, AK11)."""
+    def test_return_type_is_qa_subflow_outcome(self, tmp_path: Path) -> None:
+        """run_qa_subflow returns QaSubflowOutcome (AG3-026 Pass-2 §Befund-A)."""
         vs, _ = _make_system()
         result = vs.run_qa_subflow(
             ctx=_make_bundle(tmp_path),
@@ -530,7 +578,8 @@ class TestRunQaSubflowLayerException:
             qa_context=QaContext.IMPLEMENTATION_INITIAL,
             target=_make_target(),
         )
-        assert isinstance(result, PolicyVerdict)
+        assert isinstance(result, QaSubflowOutcome)
+        assert isinstance(result.verdict, PolicyVerdict)
 
     def test_return_type_is_fail_when_finding_is_blocking(
         self, tmp_path: Path
@@ -551,13 +600,112 @@ class TestRunQaSubflowLayerException:
         )
         l1 = _RecordingLayer("structural", result=blocking_result)
         vs, _ = _make_system(layer_1=l1)
-        verdict = vs.run_qa_subflow(
+        outcome = vs.run_qa_subflow(
             ctx=_make_bundle(tmp_path),
             story_id="TEST-001",
             qa_context=QaContext.IMPLEMENTATION_INITIAL,
             target=_make_target(),
         )
-        assert verdict is PolicyVerdict.FAIL
+        assert outcome.verdict is PolicyVerdict.FAIL
+
+
+# ---------------------------------------------------------------------------
+# Tests: AG3-026 Pass-2 -- QaSubflowOutcome carries VerifyDecision (Befund-A)
+# ---------------------------------------------------------------------------
+
+
+class TestQaSubflowOutcomeCarriesDecision:
+    """run_qa_subflow returns QaSubflowOutcome with full VerifyDecision.
+
+    Verifies Befund-A fix: outcome.decision.layer_results contains all
+    layer results so FK-69 consumers can call record_layer_artifacts /
+    record_verify_decision without a second layer-execution cycle.
+    """
+
+    def test_outcome_decision_has_layer_results(self, tmp_path: Path) -> None:
+        """outcome.decision.layer_results has 5 entries for IMPLEMENTATION."""
+        vs, _ = _make_system()
+        outcome = vs.run_qa_subflow(
+            ctx=_make_bundle(tmp_path),
+            story_id="TEST-001",
+            qa_context=QaContext.IMPLEMENTATION_INITIAL,
+            target=_make_target(),
+        )
+        from agentkit.verify_system.policy_engine.engine import VerifyDecision
+
+        decision = outcome.decision
+        assert isinstance(decision, VerifyDecision)
+        assert len(decision.layer_results) == 5  # noqa: PLR2004  # 1+3+1
+
+    def test_outcome_carries_artifact_refs(self, tmp_path: Path) -> None:
+        """outcome.artifact_refs contains all 6 FK-27 §27.7 filenames."""
+        vs, _ = _make_system()
+        outcome = vs.run_qa_subflow(
+            ctx=_make_bundle(tmp_path),
+            story_id="TEST-001",
+            qa_context=QaContext.IMPLEMENTATION_INITIAL,
+            target=_make_target(),
+        )
+        assert set(outcome.artifact_refs) == {
+            "structural.json",
+            "qa_review.json",
+            "semantic_review.json",
+            "doc_fidelity.json",
+            "adversarial.json",
+            "decision.json",
+        }
+
+    def test_outcome_feedback_none_on_pass(self, tmp_path: Path) -> None:
+        """outcome.feedback is None when verdict is PASS."""
+        vs, _ = _make_system()
+        outcome = vs.run_qa_subflow(
+            ctx=_make_bundle(tmp_path),
+            story_id="TEST-001",
+            qa_context=QaContext.IMPLEMENTATION_INITIAL,
+            target=_make_target(),
+        )
+        assert outcome.verdict is PolicyVerdict.PASS
+        assert outcome.feedback is None
+
+    def test_outcome_feedback_present_on_fail(self, tmp_path: Path) -> None:
+        """outcome.feedback is RemediationFeedback when verdict is FAIL."""
+        blocking_result = LayerResult(
+            layer="structural",
+            passed=False,
+            findings=(
+                Finding(
+                    layer="structural",
+                    check="context_exists",
+                    severity=Severity.BLOCKING,
+                    message="story dir missing",
+                    trust_class=TrustClass.SYSTEM,
+                ),
+            ),
+        )
+        l1 = _RecordingLayer("structural", result=blocking_result)
+        vs, _ = _make_system(layer_1=l1)
+        outcome = vs.run_qa_subflow(
+            ctx=_make_bundle(tmp_path),
+            story_id="TEST-001",
+            qa_context=QaContext.IMPLEMENTATION_INITIAL,
+            target=_make_target(),
+        )
+        assert outcome.verdict is PolicyVerdict.FAIL
+        assert outcome.feedback is not None
+        from agentkit.verify_system.remediation.feedback import RemediationFeedback
+
+        assert isinstance(outcome.feedback, RemediationFeedback)
+
+    def test_outcome_attempt_nr_matches_bundle(self, tmp_path: Path) -> None:
+        """outcome.attempt_nr == ctx.attempt."""
+        vs, _ = _make_system()
+        outcome = vs.run_qa_subflow(
+            ctx=_make_bundle(tmp_path, attempt=3),
+            story_id="TEST-001",
+            qa_context=QaContext.IMPLEMENTATION_INITIAL,
+            target=_make_target(),
+        )
+        assert outcome.attempt_nr == 3  # noqa: PLR2004
 
 
 # ---------------------------------------------------------------------------
@@ -576,44 +724,21 @@ class TestAk8QaCycleFieldsInPayload:
     ) -> None:
         from datetime import UTC, datetime
 
-        from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
-        from agentkit.pipeline_engine.phase_envelope.runtime import (
-            PhaseOrigin,
-            RuntimeMetadata,
-        )
-        from agentkit.story_context_manager.models import (
-            ImplementationPayload,
-            PhaseName,
-            PhaseState,
-            PhaseStatus,
-        )
+        from agentkit.verify_system.contract import PhaseEnvelopeView
 
         qa_cycle_id = "a1b2c3d4e5f6"
         epoch = datetime(2026, 5, 19, 14, 0, 0, tzinfo=UTC)
         fingerprint = "f" * 64
-        impl_payload = ImplementationPayload(
+        view = PhaseEnvelopeView(
             qa_cycle_id=qa_cycle_id,
             qa_cycle_round=2,
             evidence_epoch=epoch,
             evidence_fingerprint=fingerprint,
         )
-        state = PhaseState(
-            story_id="TEST-001",
-            phase=PhaseName.IMPLEMENTATION,
-            status=PhaseStatus.IN_PROGRESS,
-            payload=impl_payload,
-        )
-        runtime = RuntimeMetadata(
-            origin=PhaseOrigin.NEW,
-            loaded_at=None,
-            process_id=1,
-            worker_id=None,
-        )
-        envelope = PhaseEnvelope(state=state, runtime=runtime)
         bundle = VerifyContextBundle(
             run_id="run-test-001",
             story_dir=tmp_path,
-            phase_envelope=envelope,
+            phase_envelope=view,
             attempt=1,
         )
 

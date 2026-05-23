@@ -481,7 +481,7 @@ class TestPhaseSnapshot:
             phase="implementation",
             status=PhaseStatus.COMPLETED,
             completed_at=now,
-            artifacts=["semantic-review.json", "guardrail.json"],
+            artifacts=["semantic_review.json", "guardrail.json"],
             evidence={"qa_passed": True, "layers_completed": 4},
         )
         data = snap.model_dump(mode="json")

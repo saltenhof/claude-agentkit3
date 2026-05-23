@@ -259,7 +259,7 @@ class TestSmokeImplementationStory:
             attempts = load_attempts(s_dir, phase_name)
             assert len(attempts) >= 1, f"No canonical attempts for phase '{phase_name}'"
             for attempt in attempts:
-                assert f"{attempt.run_id}-{attempt.phase}-{attempt.attempt}"
+                assert attempt.run_id, f"attempt.run_id is empty for phase '{phase_name}'"
                 assert attempt.phase == phase_name
 
 

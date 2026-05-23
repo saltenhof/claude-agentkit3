@@ -326,7 +326,7 @@ def test_public_state_backend_contract_works_on_postgres(
         attempt_nr=1,
     )
     record_verify_decision(story_dir, decision=decision, attempt_nr=1)
-    assert written == ("verify-decision.json",)
+    assert written == ("decision.json",)
     verify_record = load_latest_verify_decision(story_dir)
     assert verify_record is not None
     assert verify_record["status"] == "PASS"

@@ -29,7 +29,11 @@ from agentkit.verify_system.artifacts import (
     write_layer_artifacts,
     write_verify_decision_artifacts,
 )
-from agentkit.verify_system.contract import VerifyContextBundle
+from agentkit.verify_system.contract import (
+    PhaseEnvelopeView,
+    QaSubflowOutcome,
+    VerifyContextBundle,
+)
 from agentkit.verify_system.errors import (
     LayerExecutionError,
     VerifySystemError,
@@ -49,7 +53,9 @@ __all__ = [
     "Finding",
     "LayerExecutionError",
     "LayerResult",
+    "PhaseEnvelopeView",
     "QALayer",
+    "QaSubflowOutcome",
     "Severity",
     "TrustClass",
     "VerifyContextBundle",

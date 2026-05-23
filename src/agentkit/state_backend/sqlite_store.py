@@ -202,7 +202,17 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             payload_json TEXT NOT NULL,
             PRIMARY KEY (story_id, phase)
         );
+        """
+    )
+    _ensure_schema_runtime_tables(conn)
+    _ensure_story_identity_migration(conn)
+    _ensure_four_phase_migration(conn)
 
+
+def _ensure_schema_runtime_tables(conn: sqlite3.Connection) -> None:
+    """Create runtime, pipeline, and analytics tables (schema part 2)."""
+    conn.executescript(
+        """
         CREATE TABLE IF NOT EXISTS attempts (
             story_id        TEXT     NOT NULL,
             run_id          TEXT     NOT NULL,
@@ -406,8 +416,6 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             ON artifact_envelopes (story_id, run_id, stage, attempt);
         """
     )
-    _ensure_story_identity_migration(conn)
-    _ensure_four_phase_migration(conn)
 
 
 def _ensure_story_identity_migration(conn: sqlite3.Connection) -> None:
@@ -2091,6 +2099,7 @@ def persist_layer_artifact_rows(
     artifact_records removed in 3.4.0 — projection file is the only SQLite output.
     """
     del flow_row
+    del attempt_nr
     story_id = _story_id_for(story_dir)
     if story_id is None:
         raise CorruptStateError(

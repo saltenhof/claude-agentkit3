@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.story_context_manager.models import StoryContext
+    from agentkit.verify_system.llm_evaluator.inputs import Layer2ReviewInput
 
 
 class StructuralChecker:
@@ -42,20 +43,32 @@ class StructuralChecker:
         """
         return "structural"
 
-    def evaluate(self, ctx: StoryContext, story_dir: Path) -> LayerResult:
+    def evaluate(
+        self,
+        ctx: StoryContext,
+        story_dir: Path,
+        *,
+        review_input: Layer2ReviewInput | None = None,
+    ) -> LayerResult:
         """Run all structural checks and collect findings.
 
         All checks run unconditionally -- no early returns. Findings
         are aggregated and the layer passes only if no ``BLOCKING``
         severity findings exist (FK-27 §27.4.2).
 
+        ``review_input`` is accepted but ignored by Layer 1 (Structural);
+        it is only used by Layer-2 reviewers.
+
         Args:
             ctx: Story context for type-specific evaluation.
             story_dir: Directory containing story artifacts.
+            review_input: Ignored by Layer 1. Accepted for protocol
+                compatibility with ``QALayer``.
 
         Returns:
             LayerResult with all collected findings.
         """
+        del review_input  # Layer 1 does not use review_input.
         findings: list[Finding] = []
 
         # 1. Context existence

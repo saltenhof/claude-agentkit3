@@ -157,6 +157,16 @@ Aufgerufen wird `purge_for_story` aus dem `StoryResetService` (out of scope dies
 - AK 1-8 erfuellt.
 - `.venv\Scripts\python -m pytest tests/unit/telemetry tests/integration/telemetry tests/contract/telemetry -q` gruen.
 - `mypy --strict` gruen, `ruff check src tests` gruen.
+
+## 6. Offene Drifts die diese Story schliesst
+
+- **AG3-026 DRIFT-AG3-035**: `verify_system/system.py` liest `StoryContext` direkt via
+  `state_backend.store.load_story_context` statt ueber ArtifactManager + Top-Surfaces (BC-Topologie-Bruch).
+  Diese Story muss den `_execute_layer`-Aufruf in `system.py` auf
+  `ProjectionAccessor.read_projection` umstellen, sobald der Accessor
+  `STORY_CONTEXT` als ProjectionKind unterstuetzt — oder via uebergebener
+  StoryContext-Injection-Loesung. Bis dahin bleibt der DRIFT-Kommentar im Code
+  (markiert mit `# DRIFT-AG3-035`).
 - Aenderungen committed auf `main`.
 
 ## 6. Konzept-Referenzen (autoritativ)

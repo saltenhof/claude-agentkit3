@@ -1,8 +1,8 @@
 story_id: AG3-026
 title: "VerifySystem Top-Surface: run_qa_subflow(...) -> PolicyVerdict"
 type: implementation
-status: in_progress
-phase: setup
+status: completed
+phase: closure
 created: "2026-05-16"
 size: M
 depends_on:

@@ -9,7 +9,7 @@ Verifiziert wortgleich zum Konzept FK-27 §27.2.1:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from pydantic import ValidationError
@@ -137,6 +137,22 @@ class TestEvidenceEpochTimestamp:
         assert payload.evidence_epoch.tzinfo.utcoffset(payload.evidence_epoch) == (
             payload.evidence_epoch.tzinfo.utcoffset(payload.evidence_epoch)
         )
+
+    def test_non_utc_tz_aware_datetime_rejected(self) -> None:
+        """Pass-4 ERROR-7: tz-aware aber nicht UTC (z.B. +02:00) wird abgelehnt.
+
+        FK-27 §27.2.1 verlangt UTC; ein +02:00-Wert ist nicht offset=0
+        und damit fail-closed.
+        """
+        from datetime import timezone
+
+        plus_two = datetime(2026, 5, 18, 12, 0, 0, tzinfo=timezone(timedelta(hours=2)))
+        with pytest.raises(ValidationError, match="UTC"):
+            ImplementationPayload(
+                qa_cycle_id=_VALID_QA_CYCLE_ID,
+                qa_cycle_round=1,
+                evidence_epoch=plus_two,
+            )
 
 
 class TestEvidenceFingerprintSha256:

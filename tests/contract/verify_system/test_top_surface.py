@@ -2,7 +2,7 @@
 
 Pins:
   - VerifySystem.run_qa_subflow parameter names and type annotations
-  - Return-type annotation is exactly PolicyVerdict
+  - Return-type annotation is exactly QaSubflowOutcome (AG3-026 Pass-2 Befund A)
   - VerifyContextBundle is exported from agentkit.verify_system
   - VerifySystem is exported from agentkit.verify_system
   - PolicyVerdictResult is NOT in __init__.__all__ (AK11)
@@ -16,8 +16,9 @@ import inspect
 import pytest
 
 import agentkit.verify_system as _vs_module
-from agentkit.core_types import PolicyVerdict, QaContext
+from agentkit.core_types import QaContext
 from agentkit.verify_system import (
+    QaSubflowOutcome,
     VerifyContextBundle,
     VerifySystem,
 )
@@ -47,7 +48,10 @@ class TestRunQaSubflowSignature:
         sig = inspect.signature(VerifySystem.run_qa_subflow)
         param_names = list(sig.parameters.keys())
         # 'self' is the first parameter of an unbound method.
-        assert param_names == ["self", "ctx", "story_id", "qa_context", "target"]
+        # 'review_input' is the optional Layer2ReviewInput kwarg (AG3-026 Pass-3).
+        assert param_names == [
+            "self", "ctx", "story_id", "qa_context", "target", "review_input"
+        ]
 
     def test_ctx_annotation_is_verify_context_bundle(self) -> None:
         hints = _resolved_hints()
@@ -67,9 +71,10 @@ class TestRunQaSubflowSignature:
         hints = _resolved_hints()
         assert hints["target"] is ArtifactReference
 
-    def test_return_annotation_is_policy_verdict(self) -> None:
+    def test_return_annotation_is_qa_subflow_outcome(self) -> None:
+        """AG3-026 Pass-2 Befund A: return type changed from PolicyVerdict to QaSubflowOutcome."""
         hints = _resolved_hints()
-        assert hints["return"] is PolicyVerdict
+        assert hints["return"] is QaSubflowOutcome
 
 
 @pytest.mark.contract

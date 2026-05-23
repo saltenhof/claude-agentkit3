@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.story_context_manager.models import StoryContext
+    from agentkit.verify_system.llm_evaluator.inputs import Layer2ReviewInput
 
 
 __all__ = [
@@ -134,12 +135,22 @@ class QALayer(Protocol):
         """
         ...
 
-    def evaluate(self, ctx: StoryContext, story_dir: Path) -> LayerResult:
+    def evaluate(
+        self,
+        ctx: StoryContext,
+        story_dir: Path,
+        *,
+        review_input: Layer2ReviewInput | None = None,
+    ) -> LayerResult:
         """Evaluate this layer against a story's artifacts.
 
         Args:
             ctx: Story context for type/mode-specific evaluation.
             story_dir: Directory containing story artifacts.
+            review_input: Optional Layer-2 text inputs (FK-27 §27.4-§27.6).
+                Layer-1 (Structural) and Layer-3 (Adversarial) ignore this.
+                Layer-2 reviewers require it (fail-closed: raise
+                ``Layer2InputMissingError`` when ``None``).
 
         Returns:
             LayerResult with findings. Never raises for business errors.

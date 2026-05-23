@@ -189,11 +189,10 @@ def _write_fixture(
             forbidden_json_truth_filenames:
               - context.json
               - decision.json
-              - verify-decision.json
               - structural.json
               - qa_review.json
               - semantic_review.json
-              - semantic-review.json
+              - doc_fidelity.json
               - adversarial.json
               - phase-state.json
               - closure.json

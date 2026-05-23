@@ -21,7 +21,10 @@ def producer_component_for_layer(layer: str) -> str:
 
     producers = {
         "structural": "qa-structural-check",
-        "semantic": "qa-semantic-review",
+        # Layer-2 sub-reviewers (FK-27 §27.7):
+        "qa_review": "qa-review",
+        "semantic_review": "qa-semantic-review",
+        "doc_fidelity": "qa-doc-fidelity",
         "adversarial": "qa-adversarial",
     }
     return producers.get(layer, "qa-layer")

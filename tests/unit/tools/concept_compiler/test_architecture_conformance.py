@@ -68,12 +68,12 @@ def test_architecture_conformance_rejects_component_cycle(tmp_path: Path) -> Non
         tmp_path,
         files={
             "agentkit.story.service": """
-                from agentkit.dashboard.service import DashboardService
+                from agentkit.kpi_analytics.dashboard.service import DashboardService
 
                 def build() -> type[DashboardService]:
                     return DashboardService
             """,
-            "agentkit.dashboard.service": """
+            "agentkit.kpi_analytics.dashboard.service": """
                 from agentkit.story.service import build
 
                 def call() -> object:
@@ -114,7 +114,7 @@ def test_architecture_conformance_rejects_unauthorized_read_surface_import(
 ) -> None:
     root = _write_fixture(
         tmp_path,
-        module_name="agentkit.dashboard.service",
+        module_name="agentkit.kpi_analytics.service",
         source="""
             from agentkit.state_backend import load_execution_events_global
 
@@ -248,11 +248,11 @@ def _write_fixture(
                 bloodgroup: A
                 module_prefixes:
                   - agentkit.story
-              - id: architecture-conformance.group.dashboard
-                name: DashboardApplication
+              - id: architecture-conformance.group.kpi_analytics
+                name: KpiAnalyticsApplication
                 bloodgroup: A
                 module_prefixes:
-                  - agentkit.dashboard
+                  - agentkit.kpi_analytics
               - id: architecture-conformance.group.control_plane
                 name: ControlPlaneHttp
                 bloodgroup: R
@@ -297,18 +297,20 @@ def _write_fixture(
               - id: {RULE_ID}
                 source_module_prefixes:
                   - agentkit.story
-                  - agentkit.dashboard
+                  - agentkit.kpi_analytics
                 forbidden_module_prefixes:
                   - agentkit.control_plane.http
                   - agentkit.projectedge.client
                 message: >
-                  story and dashboard application code may not depend on
+                  story and kpi_analytics application code may not depend on
                   control-plane transport or project-edge transport
+                transition_exceptions:
+                  - agentkit.kpi_analytics.dashboard.service
             acyclic_group_sets:
               - id: architecture-conformance.acyclic.application_surface
                 group_ids:
                   - architecture-conformance.group.story
-                  - architecture-conformance.group.dashboard
+                  - architecture-conformance.group.kpi_analytics
             mutation_surface_rules:
               - id: {MUTATION_RULE_ID}
                 writer_symbols:
