@@ -91,6 +91,80 @@ def _verify_manifest_digest(
     )
 
 
+def _validate_bind_paths(project_root: Path, bundle_root: Path) -> None:
+    """Validate that ``project_root`` and ``bundle_root`` exist (fail-closed)."""
+    if not project_root.is_dir():
+        raise SkillBindingFailedError(
+            f"project_root does not exist or is not a directory: {project_root}",
+            detail={"project_root": str(project_root)},
+        )
+    if not bundle_root.is_dir():
+        raise SkillBindingFailedError(
+            f"bundle_root does not exist or is not a directory: {bundle_root}",
+            detail={"bundle_root": str(bundle_root)},
+        )
+
+
+def _create_harness_symlinks(
+    skill_name: str,
+    bundle_root: Path,
+    project_root: Path,
+    harnesses: tuple[HarnessKind, ...],
+) -> None:
+    """Create one symlink per harness; rolls back partial state on failure.
+
+    Invariant ``project_binding_is_symlink_only``: never falls back to file copy.
+    """
+    import contextlib
+
+    created: list[Path] = []
+    try:
+        for harness in harnesses:
+            skills_dir = _harness_skill_dir(project_root, harness)
+            skills_dir.mkdir(parents=True, exist_ok=True)
+            link_path = skills_dir / skill_name
+            if link_path.exists() or link_path.is_symlink():
+                link_path.unlink()
+            try:
+                link_path.symlink_to(bundle_root)
+            except OSError as exc:
+                raise SkillBindingFailedError(
+                    f"Failed to create symlink for skill '{skill_name}' "
+                    f"(harness={harness}). On Windows, Developer Mode must "
+                    f"be enabled or the process must have "
+                    f"SeCreateSymbolicLinkPrivilege. Original error: {exc}",
+                    detail={
+                        "skill_name": skill_name,
+                        "harness": str(harness),
+                        "link_path": str(link_path),
+                        "bundle_root": str(bundle_root),
+                        "os_error": str(exc),
+                    },
+                ) from exc
+            created.append(link_path)
+    except SkillBindingFailedError:
+        for sl in created:
+            with contextlib.suppress(OSError):
+                sl.unlink(missing_ok=True)
+        raise
+
+
+def _verify_harness_symlinks(
+    skill_name: str,
+    project_root: Path,
+    harnesses: tuple[HarnessKind, ...],
+) -> None:
+    """Post-bind verification: each harness symlink must exist."""
+    for harness in harnesses:
+        link_path = _harness_skill_dir(project_root, harness) / skill_name
+        if not link_path.is_symlink():
+            raise SkillBindingFailedError(
+                f"Post-bind verification failed: symlink missing for "
+                f"skill '{skill_name}' (harness={harness})",
+                detail={"skill_name": skill_name, "link_path": str(link_path)},
+            )
+
+
 def _read_bundle_manifest(bundle_root: Path) -> dict[str, object]:
     """Parse the optional ``manifest.json`` at *bundle_root*.
 
@@ -210,24 +284,12 @@ class Skills:
             SkillProfileNotSupportedError: When the bundle declares variants
                 but the skill_name resolves to no supported profile.
         """
-        # -- Validation --------------------------------------------------------
-        if not project_root.is_dir():
-            raise SkillBindingFailedError(
-                f"project_root does not exist or is not a directory: {project_root}",
-                detail={"project_root": str(project_root)},
-            )
-        if not bundle_root.is_dir():
-            raise SkillBindingFailedError(
-                f"bundle_root does not exist or is not a directory: {bundle_root}",
-                detail={"bundle_root": str(bundle_root)},
-            )
-
-        # -- Bundle-resolution side-checks (FK-43 §43.4.1, §43.5.2) -----------
+        _validate_bind_paths(project_root, bundle_root)
         bundle_info = _read_bundle_manifest(bundle_root)
         self._validate_profile_support(skill_name, bundle_info, bundle_root)
         _verify_manifest_digest(skill_name, bundle_info, bundle_root)
 
-        # -- Effective keys: source of truth = project_root.stem -------------
+        # Effective keys: source of truth = project_root.stem
         # (consistent with resolve_binding / list_bound_skills; FK-43 §43.1)
         effective_project_key = project_root.stem
         effective_bundle_id = str(bundle_info.get("bundle_id") or bundle_root.stem)
@@ -235,64 +297,14 @@ class Skills:
         pinned_at = datetime.now(tz=UTC)
         bid = _binding_id_for(effective_project_key, skill_name)
 
-        # -- Lifecycle stages (REQUESTED -> PROFILE_RESOLVED -> BUNDLE_SELECTED)
-        # All transitions before BOUND are in-memory only; persistence happens
-        # at BOUND. Auditing per-stage is left to telemetry (THEME-007).
-        for _stage in (
-            SkillLifecycleStatus.REQUESTED,
-            SkillLifecycleStatus.PROFILE_RESOLVED,
-            SkillLifecycleStatus.BUNDLE_SELECTED,
-        ):
-            pass  # Stage-Walk dokumentiert; Persistenz erst ab BOUND.
-
-        # -- Symlink creation per harness (BUNDLE_SELECTED -> BOUND) ----------
-        # FK-43 §43.4.1 AK4: multi-harness pflicht (Claude Code + Codex).
+        # Symlink creation per harness; multi-harness Pflicht ab Tag 1
+        # (FK-43 §43.4.1 AK4).
         harnesses: tuple[HarnessKind, ...] = (HarnessKind.CLAUDE_CODE, HarnessKind.CODEX)
-        created_symlinks: list[Path] = []
-        try:
-            for harness in harnesses:
-                skills_dir = _harness_skill_dir(project_root, harness)
-                skills_dir.mkdir(parents=True, exist_ok=True)
-                link_path = skills_dir / skill_name
+        _create_harness_symlinks(skill_name, bundle_root, project_root, harnesses)
 
-                # Invariant: SYMLINK only — no copy fallback.
-                if link_path.exists() or link_path.is_symlink():
-                    link_path.unlink()
-
-                try:
-                    link_path.symlink_to(bundle_root)
-                except OSError as exc:
-                    raise SkillBindingFailedError(
-                        f"Failed to create symlink for skill '{skill_name}' "
-                        f"(harness={harness}). On Windows, Developer Mode must "
-                        f"be enabled or the process must have "
-                        f"SeCreateSymbolicLinkPrivilege. "
-                        f"Original error: {exc}",
-                        detail={
-                            "skill_name": skill_name,
-                            "harness": str(harness),
-                            "link_path": str(link_path),
-                            "bundle_root": str(bundle_root),
-                            "os_error": str(exc),
-                        },
-                    ) from exc
-
-                created_symlinks.append(link_path)
-        except SkillBindingFailedError:
-            # Clean up any symlinks created before the failure.
-            import contextlib
-
-            for sl in created_symlinks:
-                with contextlib.suppress(OSError):
-                    sl.unlink(missing_ok=True)
-            raise
-
-        # -- BOUND: Persist binding -------------------------------------------
-        # Canonical target_path: the Claude Code symlink (primary harness).
         canonical_target = (
             _harness_skill_dir(project_root, HarnessKind.CLAUDE_CODE) / skill_name
         )
-
         binding = SkillBinding(
             binding_id=bid,
             project_key=effective_project_key,
@@ -306,15 +318,7 @@ class Skills:
         )
         self._binding_repo.save(binding)
 
-        # -- VERIFIED: Re-check symlinks resolve correctly --------------------
-        for harness in harnesses:
-            link_path = _harness_skill_dir(project_root, harness) / skill_name
-            if not link_path.is_symlink():
-                raise SkillBindingFailedError(
-                    f"Post-bind verification failed: symlink missing for "
-                    f"skill '{skill_name}' (harness={harness})",
-                    detail={"skill_name": skill_name, "link_path": str(link_path)},
-                )
+        _verify_harness_symlinks(skill_name, project_root, harnesses)
 
         # Update status to VERIFIED.
         verified_binding = SkillBinding(
