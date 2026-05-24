@@ -129,17 +129,19 @@ Read-only-Zugriff auf `PipelineConfig`. Bei unbekanntem Platzhalter im Inhalt: f
 
 **Wichtig**: `PlaceholderSubstitutor` ist ein interner Service fuer materialisierte/substituierte Harness-Varianten und kuenftige Read-Time-Aufloesung. Er ist NICHT Teil der `bind_skill`-Top-Surface — `bind_skill(skill_name, bundle_root, project_root)` ruft den Substitutor nicht (Symlink-Invariante `project_binding_is_symlink_only`).
 
-#### 2.1.6 Persistenz (SQLite + Postgres)
+#### 2.1.6 Persistenz — **vollstaendig ausgelagert nach AG3-048**
 
-<!-- AG3-027 deep-review (Schnitt-Vorbehalt): ChatGPT empfiehlt, Persistenz aus dieser Top-Surface-Story herauszuziehen und in eine Folge-Story "AG3-027b SkillBinding persistence + pin record" zu schneiden. Begruendung: Top-Surface braucht nur Protocol + InMemory-Fake; produktive State-Backend-Migration ist BC-fremde Arbeit (state_backend). Aktuell bleibt der Vollscope drin, mit dem Hinweis, dass Orchestrator entscheidet, ob Split vorgezogen wird. -->
+<!-- AG3-027 Pass-1 (Stefan-Klarstellung 2026-05-24): Persistenz ist in dieser Story ausschliesslich Protocol + InMemory-Implementierung. Der produktive Backend-Pfad wandert nach AG3-048 und ist dort als **Postgres-First** geschnitten (kanonische Persistenz gemaess DK-05 §5: "Die kanonische Speicherung von Telemetrie, Workflow-State und KPI-Rohdaten erfolgt in einer systemweiten PostgreSQL-Instanz"; FK-60 §60: "SQLite-Varianten verworfen zugunsten klarer Writer-/Reader-Trennung auf PostgreSQL"). SQLite zieht das gleiche Schema parallel mit, aber ausschliesslich als Test-Pfad (`AGENTKIT_ALLOW_SQLITE=1` nur fuer "narrow unit-test execution"; Runtime/Build/Contract/Integration/E2E werfen RuntimeError gemaess state_backend/config.py). -->
 
-Neue Tabelle `skill_bindings`:
-- `binding_id` (PK), `project_key`, `skill_name`, `bundle_id`, `bundle_version`, `target_path`, `binding_mode`, `status`, `pinned_at`
-- UNIQUE `(project_key, skill_name)`
+AG3-027 liefert **ausschliesslich**:
+- `SkillBindingRepository`-Protocol in `src/agentkit/skills/repository.py`
+- InMemory-Implementierung fuer Unit- und Contract-Tests
+
+**Produktive Persistenz ist Inhalt von AG3-048**:
+- Postgres-Tabelle `skill_bindings` (kanonische Wahrheit) — `binding_id` (PK), `project_key`, `skill_name`, `bundle_id`, `bundle_version`, `target_path`, `binding_mode`, `status`, `pinned_at`; UNIQUE `(project_key, skill_name)`
+- SQLite-Parallel-Schema (gleiche DDL, nur fuer Unit-Tests) gemaess Pattern aus AG3-024/AG3-025
 - Konkrete Repository in `state_backend/store/skill_binding_repository.py`
 - Schema-Versionierung Side-by-Side (AG3-005)
-
-**Wenn Split**: Diese Story behaelt nur `SkillBindingRepository`-Protocol + InMemory-Implementierung; alle `state_backend/`-Aenderungen wandern in die Folge-Story.
 
 #### 2.1.7 `bind_skill`-Mechanik (FK-43 §43.4.1, FK-50 CP8, Invariante `project_binding_is_symlink_only`)
 

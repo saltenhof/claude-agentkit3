@@ -11,9 +11,20 @@ hier gebuendelt und greifen erst nachdem AG3-027 die Top-Surface produktiv hat. 
 **Quell-Konzepte (autoritativ, in dieser Reihenfolge):**
 - `concept/_meta/bc-cut-decisions.md §BC 11 agent-skills` (Persistenz-Andockung)
 - `concept/_meta/bc-cut-decisions.md §BC 12 installation-and-bootstrap` (Installer-Anschluss)
+- `concept/domain-design/05-telemetrie-und-metriken.md §5` (kanonische Persistenz **Postgres**, nicht SQLite)
 - `FK-43 §43.3.1` (Pflicht-Skills, die der Installer binden muss)
 - `FK-43 §43.4.1` (Symlink-Bindungsvertrag, der vom Installer konsumiert wird)
 - `FK-18 §18.9a` (Side-by-Side-Schema-Versionierung fuer `skill_bindings`-Tabelle)
+- `FK-60 §60` ("SQLite-Varianten verworfen zugunsten klarer Writer-/Reader-Trennung auf PostgreSQL")
+
+> **Persistenz-Konvention (Stefan-Klarstellung 2026-05-24):**
+> Postgres ist die kanonische Wahrheit fuer den `skill_bindings`-State. SQLite zieht
+> das gleiche Schema parallel mit, aber ausschliesslich als **Test-Pfad** —
+> `AGENTKIT_ALLOW_SQLITE=1` ist nur fuer "narrow unit-test execution" freigegeben;
+> Runtime/Build/Contract/Integration/E2E werfen `RuntimeError` gemaess
+> `state_backend/config.py:_sqlite_allowed`. Wenn im Folgenden "SQLite + Postgres"
+> steht, ist immer **Postgres-kanonisch + SQLite-Test-Parallelpfad** gemeint, kein
+> gleichberechtigter Dual-Backend-Betrieb.
 
 ---
 
@@ -25,7 +36,7 @@ InMemory-Impl) als schlanke M-Story geliefert. Drei Bereiche wurden bewusst
 ausgegliedert, weil sie BC-fremde Aenderungen mitbringen und die Top-Surface-Story
 auf L aufgeblaeht haetten:
 
-- `skill_bindings`-Tabelle in SQLite + Postgres (state_backend-BC)
+- `skill_bindings`-Tabelle in Postgres (kanonisch) + SQLite (Test-Parallel-Schema) (state_backend-BC)
 - `installer/runner.py:install_agentkit` ruft `Skills.bind_skill` (installer-BC,
   BC12)
 - `__pycache__`-Artefakte unter `src/agentkit/project_ops/install/` (Repo-Hygiene)
@@ -39,10 +50,12 @@ Diese Story buendelt die drei Bereiche und macht die Skills-Persistenz produktiv
 #### 2.1.1 `skill_bindings`-Tabelle (state_backend-Persistenz)
 
 `src/agentkit/state_backend/store/skill_binding_repository.py` (neu) implementiert
-das in AG3-027 definierte `SkillBindingRepository`-Protocol fuer SQLite + Postgres.
+das in AG3-027 definierte `SkillBindingRepository`-Protocol fuer Postgres (kanonisch)
+und SQLite (Test-Parallel-Pfad mit identischem Schema, siehe Persistenz-Konvention
+oben).
 
-Schema (SQLite + Postgres, FK-18 §18.9a Side-by-Side -- neuer SCHEMA_VERSION-Bump
-3.5.1 -> 3.6.0):
+Schema (kanonisch Postgres, identisches DDL in SQLite parallel; FK-18 §18.9a
+Side-by-Side -- neuer SCHEMA_VERSION-Bump 3.5.1 -> 3.6.0):
 
 ```sql
 CREATE TABLE IF NOT EXISTS skill_bindings (
@@ -116,7 +129,8 @@ zu invasiv -- in dieser Story nur einmaliges Loeschen + Doku).
 #### 2.1.6 Tests
 
 - `tests/unit/state_backend/store/test_skill_binding_repository.py` -- parametrisierter
-  Roundtrip auf SQLite + Postgres (analog `test_attempt_repository.py`)
+  Roundtrip auf Postgres (kanonisch) + SQLite (Test-Parallelpfad), analog
+  `test_attempt_repository.py`
 - `tests/unit/state_backend/store/test_skill_binding_schema_bootstrap_idempotent.py`
   -- Bootstrap-Idempotenz analog `test_attempt_schema_bootstrap_idempotent.py`
 - `tests/integration/installer/test_skills_binding.py` -- Installer ruft
@@ -138,9 +152,9 @@ zu invasiv -- in dieser Story nur einmaliges Loeschen + Doku).
 
 | Datei | Aenderungsart | Beschreibung |
 |---|---|---|
-| `src/agentkit/state_backend/store/skill_binding_repository.py` | Neu | SQLite/Postgres-Impl von `SkillBindingRepository` |
-| `src/agentkit/state_backend/postgres_schema.sql` | Modifiziert | `skill_bindings`-Tabelle |
-| `src/agentkit/state_backend/sqlite_store.py` | Modifiziert | analog SQLite |
+| `src/agentkit/state_backend/store/skill_binding_repository.py` | Neu | Postgres-kanonische + SQLite-Test-parallele Impl von `SkillBindingRepository` |
+| `src/agentkit/state_backend/postgres_schema.sql` | Modifiziert | `skill_bindings`-Tabelle (kanonisch) |
+| `src/agentkit/state_backend/sqlite_store.py` | Modifiziert | identisches Parallel-Schema fuer Unit-Tests |
 | `src/agentkit/state_backend/store/mappers.py` | Modifiziert | `skill_binding_to_row` / `skill_binding_row_to_record` |
 | `src/agentkit/state_backend/config.py` | Modifiziert | `SCHEMA_VERSION` 3.5.1 -> 3.6.0 |
 | `src/agentkit/bootstrap/composition_root.py` | Modifiziert | `build_skills(store_dir) -> Skills` |
@@ -153,13 +167,15 @@ zu invasiv -- in dieser Story nur einmaliges Loeschen + Doku).
 
 ## 4. Akzeptanzkriterien
 
-1. **`skill_bindings`-Tabelle existiert** in SQLite + Postgres-Schema `ak3_v3_6_0`
-   mit `binding_id`-PK, `UNIQUE(project_key, skill_name)`, CHECK-Constraints fuer
-   `binding_mode` und `lifecycle_status`, plus Index `idx_skill_bindings_project_skill`.
+1. **`skill_bindings`-Tabelle existiert** kanonisch in Postgres-Schema `ak3_v3_6_0`
+   (mit identischem Parallel-Schema in SQLite fuer Unit-Tests), mit `binding_id`-PK,
+   `UNIQUE(project_key, skill_name)`, CHECK-Constraints fuer `binding_mode` und
+   `lifecycle_status`, plus Index `idx_skill_bindings_project_skill`.
 2. **`SCHEMA_VERSION` ist 3.6.0** (Side-by-Side, FK-18 §18.9a; alte 3.5.1-DB
    unangetastet).
 3. **`StateBackendSkillBindingRepository`** implementiert das aus AG3-027 bekannte
-   Protocol; Roundtrip-Test laeuft auf SQLite + Postgres (parametrisiert).
+   Protocol; Roundtrip-Test laeuft auf Postgres (kanonisch) + SQLite (Test-Parallel)
+   parametrisiert (`AGENTKIT_ALLOW_SQLITE=1` nur in Unit-Tests).
 4. **`build_skills` Composition-Root** existiert und buendelt
    `SkillBundleStore` + `StateBackendSkillBindingRepository` zu einer
    `Skills`-Instanz.
@@ -183,7 +199,7 @@ zu invasiv -- in dieser Story nur einmaliges Loeschen + Doku).
 - AK 1-10 erfuellt.
 - `.venv\Scripts\python -m pytest tests/unit/state_backend/store tests/integration/installer tests/contract/skills -q` gruen.
 - `mypy --strict src tests` gruen, `ruff check src tests` gruen.
-- SQLite + Postgres migriert (Side-by-Side, alte DB unangetastet).
+- Postgres (kanonisch) + SQLite (Test-Parallel-Schema) migriert (Side-by-Side, alte DB unangetastet).
 - AG3-027 muss vorher abgenommen sein (Top-Surface produktiv).
 - Aenderungen committed auf `main`.
 

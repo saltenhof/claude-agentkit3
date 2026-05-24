@@ -20,8 +20,8 @@ Wahrheit.
 | 1 | AG3-026 VerifySystem Top-Surface | M | done (2026-05-23, Pass-4 + Codex-PASS) | ja (AG3-021/022/023 done) |
 | 2 | AG3-029 KpiAnalytics Top + Paket-Migration | M | done (2026-05-23, Pass-4 + Codex-PASS) | ja |
 | 3 | AG3-030 RequirementsCoverage Top + AreClient | M | done (2026-05-23, Pass-2 + Sonar gruen erwartet) | ja |
-| 4 | AG3-027 Skills Top-Surface (schlank) | M | in_progress (naechste WIP) | ja |
-| 5 | AG3-031 Governance Top-Surfaces | M | blocked | nach AG3-026 ja |
+| 4 | AG3-027 Skills Top-Surface (schlank) | M | done (2026-05-24, pending Codex-Review) | ja |
+| 5 | AG3-031 Governance Top-Surfaces | M | in_progress (naechste WIP) | ja |
 | 6 | AG3-035 ProjectionAccessor + Reset-Purge | M | blocked | nach Top-Surfaces ja |
 | 7 | AG3-040 Postgres-Store-Komplettierung | M | blocked | nach AG3-035 + AG3-028? Lesehinweis: AG3-040 depends_on AG3-021 + AG3-028 — siehe Anmerkung 1 |
 | 8 | AG3-028 FailureCorpus (Vollumsetzung) | L | blocked | nach AG3-035 + AG3-040 |

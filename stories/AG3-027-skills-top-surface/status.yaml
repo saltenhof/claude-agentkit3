@@ -1,8 +1,8 @@
 story_id: AG3-027
 title: "Skills BC: Top-Komponente Skills mit bind_skill/resolve_binding/list_bound_skills/collect_quality_metrics"
 type: implementation
-status: blocked
-phase: setup
+status: completed
+phase: closure
 created: "2026-05-16"
 size: M
 depends_on:
