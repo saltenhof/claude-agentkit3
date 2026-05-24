@@ -144,8 +144,10 @@ class Governance:
         project_root: Root directory used by harness settings writers
             (Fix E2).  Defaults to ``Path.cwd()``.  Tests pass ``tmp_path``.
         worktree_repo: Repository for resolving worktree paths per story
-            (Fix E4, AG3-031 Pass-4).  When ``None``, the default
-            ``StateBackendWorktreeRepository`` is used.
+            (Fix E4, AG3-031 Pass-4 / E9 AG3-031 Pass-5).  Must be provided
+            explicitly — use
+            ``agentkit.state_backend.store.worktree_repository.StateBackendWorktreeRepository()``
+            or inject a test double.  No internal fallback factory.
     """
 
     def __init__(
@@ -155,29 +157,13 @@ class Governance:
         lock_repo: LockRecordRepository,
         project_key: str = "",
         project_root: Path | None = None,
-        worktree_repo: WorktreeRepository | None = None,
+        worktree_repo: WorktreeRepository,
     ) -> None:
         self._hook_repo = hook_repo
         self._lock_repo = lock_repo
         self._project_key = project_key
         self._project_root = project_root
-        self._worktree_repo: WorktreeRepository = (
-            worktree_repo if worktree_repo is not None
-            else self._build_default_worktree_repo()
-        )
-
-    @staticmethod
-    def _build_default_worktree_repo() -> WorktreeRepository:
-        """Build the default WorktreeRepository (lazy import, Fix E4).
-
-        Returns:
-            A ``StateBackendWorktreeRepository`` instance.
-        """
-        from agentkit.state_backend.store.worktree_repository import (
-            StateBackendWorktreeRepository,
-        )
-
-        return StateBackendWorktreeRepository()
+        self._worktree_repo: WorktreeRepository = worktree_repo
 
     # ------------------------------------------------------------------
     # register_hooks (FK-30 §30.3.1)
@@ -301,7 +287,20 @@ class Governance:
         removed_exports, export_errors = self._purge_qa_lock_export(story_id)
         errors.extend(export_errors)
 
-        restored, worktree_lock_exports = self._restore_ai_augmented_mode(story_id)
+        # WorktreeRepository exceptions are surfaced in errors[] (fail-closed — E4 Fix).
+        try:
+            restored, worktree_lock_exports, restore_errors = (
+                self._restore_ai_augmented_mode(story_id)
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Fail-closed: WorktreeRepository unavailability is an error, not silently skipped.
+            errors.append(
+                f"WorktreeRepository.list_worktree_paths failed for story_id={story_id!r}: {exc}"
+            )
+            restored = False
+            worktree_lock_exports = []
+            restore_errors = []
+        errors.extend(restore_errors)
         removed_exports = removed_exports + worktree_lock_exports
 
         return DeactivationResult(
@@ -374,18 +373,21 @@ class Governance:
 
     def _restore_ai_augmented_mode(
         self, story_id: str
-    ) -> tuple[bool, list[Path]]:
+    ) -> tuple[bool, list[Path], list[str]]:
         """Revert operating mode to ``ai_augmented`` for the story (FK-30 §30.6.0 Z.683).
 
-        FK-30 §30.6.0 + FK-22 §22.7 (Fix E4, AG3-031 Pass-4):
+        FK-30 §30.6.0 + FK-22 §22.7 (Fix E4, AG3-031 Pass-4/5):
         - Iterates over all worktree paths for ``story_id`` via
-          ``WorktreeRepository.list_worktree_paths``.
+          ``WorktreeRepository.list_worktree_paths`` — exception propagates to
+          caller (``deactivate_locks``) which appends it to ``errors[]``.
         - For each worktree: removes ``.agent-guard/lock.json`` if present,
-          collecting the removed path.
+          collecting the removed path; OSError collected in ``errors[]``.
         - For each worktree: writes ``.agent-guard/mode.json`` with the
-          ``ai_augmented`` operating-mode marker.
+          ``ai_augmented`` operating-mode marker; OSError collected in
+          ``errors[]`` (fail-closed — CLAUDE.md FAIL-CLOSED).
         - Also writes the legacy ``_temp/governance/locks/{story_id}/mode.json``
-          tombstone for backward compat (existing non-worktree consumers).
+          tombstone for backward compat (existing non-worktree consumers);
+          OSError collected in ``errors[]``.
 
         When a worktree has no ``.agent-guard/`` directory, the write is
         skipped silently (idempotent: guard dir is created by Setup phase).
@@ -394,10 +396,11 @@ class Governance:
             story_id: Canonical story identifier.
 
         Returns:
-            Tuple of (restored, removed_lock_exports) where ``restored`` is
-            True when at least one mode marker was written and
+            Tuple of (restored, removed_lock_exports, errors) where
+            ``restored`` is True when at least one mode marker was written,
             ``removed_lock_exports`` is the list of ``.agent-guard/lock.json``
-            paths that were deleted.
+            paths that were deleted, and ``errors`` is a list of non-fatal
+            IO error messages encountered (one per failed file operation).
         """
         import json
 
@@ -406,14 +409,11 @@ class Governance:
         )
         any_written = False
         removed_lock_exports: list[Path] = []
+        errors: list[str] = []
 
         # Per-worktree: remove lock.json + write mode.json (FK-30 §30.6.0 + FK-22 §22.7)
-        try:
-            worktree_paths = self._worktree_repo.list_worktree_paths(story_id)
-        except Exception:  # noqa: BLE001
-            # Fail-open for the mode-restore step: if repo is unavailable,
-            # fall through to the legacy tombstone write.
-            worktree_paths = []
+        # WorktreeRepository exceptions propagate to deactivate_locks (fail-closed).
+        worktree_paths = self._worktree_repo.list_worktree_paths(story_id)
 
         for wt_path in worktree_paths:
             guard_dir = wt_path / ".agent-guard"
@@ -425,15 +425,19 @@ class Governance:
                 try:
                     lock_file.unlink()
                     removed_lock_exports.append(lock_file)
-                except OSError:
-                    pass
+                except OSError as exc:
+                    errors.append(
+                        f"failed to remove .agent-guard/lock.json at {lock_file}: {exc}"
+                    )
             # Write mode.json (FK-30 §30.6.0 Z.683)
             mode_file = guard_dir / "mode.json"
             try:
                 mode_file.write_text(mode_payload, encoding="utf-8")
                 any_written = True
-            except OSError:
-                pass
+            except OSError as exc:
+                errors.append(
+                    f"failed to write .agent-guard/mode.json at {mode_file}: {exc}"
+                )
 
         # Legacy tombstone (non-worktree consumers, backward compat)
         mode_dir = Path("_temp") / "governance" / "locks" / story_id
@@ -442,10 +446,12 @@ class Governance:
             try:
                 legacy_file.write_text(mode_payload, encoding="utf-8")
                 any_written = True
-            except OSError:
-                pass
+            except OSError as exc:
+                errors.append(
+                    f"failed to write legacy mode.json at {legacy_file}: {exc}"
+                )
 
-        return any_written, removed_lock_exports
+        return any_written, removed_lock_exports, errors
 
     # ------------------------------------------------------------------
     # run_hook (pre-existing static method — unchanged)

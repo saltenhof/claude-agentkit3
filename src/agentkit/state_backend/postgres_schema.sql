@@ -193,6 +193,11 @@
             updated_at TEXT NOT NULL
         );
 
+        -- AG3-031 Pass-5 FK-22 §22.7 corrective: PK is (project_key, story_id, run_id, lock_type).
+        -- Previous schema 3.6.0 had PK (project_key, run_id, lock_type) which omitted story_id,
+        -- breaking 4-tuple isolation.  Corrected under the same SCHEMA_VERSION 3.6.0 as the
+        -- old DB was never in production (migration migration step in postgres_store.py updated
+        -- to match).
         CREATE TABLE IF NOT EXISTS story_execution_locks (
             project_key TEXT NOT NULL,
             story_id TEXT NOT NULL,
@@ -204,7 +209,7 @@
             activated_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             deactivated_at TEXT,
-            PRIMARY KEY (project_key, run_id, lock_type)
+            PRIMARY KEY (project_key, story_id, run_id, lock_type)
         );
 
         -- AG3-031 Pass-2 FK-30-Korrektur 2026-05-24: schema corrected to

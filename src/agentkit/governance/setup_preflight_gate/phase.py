@@ -6,8 +6,13 @@ calls ``StoryService.begin_progress`` (FK-22 §22.4.3).
 
 AG3-031 Pass-4 Fix E9 (2026-05-24): direct import of ``save_story_context``
 from ``agentkit.state_backend.store`` replaced by ``SetupContextRepository``
-protocol injection via ``SetupPhaseHandler.__init__``.  The composition
-root wires the ``StateBackendSetupContextAdapter`` as the default.
+protocol injection via ``SetupPhaseHandler.__init__``.
+
+AG3-031 Pass-5 Fix E9 (2026-05-24): ``_default_context_repository()`` factory
+removed.  The composition root
+(``agentkit.bootstrap.composition_root.build_setup_preflight_gate``) is the
+canonical wiring point.  All callers must inject a ``SetupContextRepository``
+explicitly — no internal fallback factory remains.
 """
 
 from __future__ import annotations
@@ -32,31 +37,13 @@ from agentkit.utils.git import remove_worktree
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from agentkit.execution_planning.repository import StoryDependencyRepository
     from agentkit.governance.repository import SetupContextRepository
     from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
     from agentkit.story_context_manager.models import StoryContext
     from agentkit.story_context_manager.service import StoryService
 
 logger = logging.getLogger(__name__)
-
-
-def _default_context_repository() -> SetupContextRepository:
-    """Build the default ``SetupContextRepository`` via the state backend.
-
-    Lazy import keeps the module-level import graph clean:
-    ``governance.setup_preflight_gate.phase`` imports only from
-    ``governance.repository`` (Protocols) at TYPE_CHECKING time.  The
-    concrete adapter is imported here, at runtime, only when
-    ``SetupPhaseHandler`` is constructed without an explicit repository.
-
-    Returns:
-        A ``StateBackendSetupContextAdapter`` instance.
-    """
-    from agentkit.state_backend.store.setup_context_repository import (
-        StateBackendSetupContextAdapter,
-    )
-
-    return StateBackendSetupContextAdapter()
 
 
 @dataclass
@@ -100,21 +87,26 @@ class SetupPhaseHandler:
     Args:
         config: Setup phase configuration.
         context_repository: Repository for persisting ``StoryContext``.
-            When ``None``, the default ``StateBackendSetupContextAdapter``
-            is used (Fix E9, AG3-031 Pass-4).
+            Must be provided explicitly.  Use
+            ``agentkit.bootstrap.composition_root.build_setup_preflight_gate()``
+            to obtain the canonical adapter (AG3-031 Pass-5 Fix E9).
+        dependency_repository: Repository for story dependencies used in
+            preflight.  When ``None``, a
+            ``StateBackendStoryDependencyRepository()`` is instantiated
+            lazily in ``_run_preflight_check``.  Provide a test double
+            to avoid the state-backend import in unit tests (AG3-031
+            Pass-5 Fix E9).
     """
 
     def __init__(
         self,
         config: SetupConfig,
-        context_repository: SetupContextRepository | None = None,
+        context_repository: SetupContextRepository,
+        dependency_repository: StoryDependencyRepository | None = None,
     ) -> None:
         self._config = config
-        self._context_repo: SetupContextRepository = (
-            context_repository
-            if context_repository is not None
-            else _default_context_repository()
-        )
+        self._context_repo: SetupContextRepository = context_repository
+        self._dependency_repo: StoryDependencyRepository | None = dependency_repository
 
     def on_enter(self, ctx: StoryContext, envelope: PhaseEnvelope) -> HandlerResult:
         """Execute the setup phase.
@@ -147,7 +139,9 @@ class SetupPhaseHandler:
         cfg = self._config
         story_service = _resolve_story_service(cfg)
 
-        preflight_error = _run_preflight_check(cfg, ctx, story_service)
+        preflight_error = _run_preflight_check(
+            cfg, ctx, story_service, self._dependency_repo
+        )
         if preflight_error is not None:
             return preflight_error
 
@@ -227,17 +221,29 @@ def _run_preflight_check(
     cfg: SetupConfig,
     ctx: StoryContext,
     story_service: StoryService,
+    dependency_repository: StoryDependencyRepository | None = None,
 ) -> HandlerResult | None:
-    """Run preflight; return None on pass or a FAILED HandlerResult on failure."""
-    from agentkit.state_backend.store.story_dependency_repository import (
-        StateBackendStoryDependencyRepository,
-    )
+    """Run preflight; return None on pass or a FAILED HandlerResult on failure.
+
+    Args:
+        cfg: Setup configuration.
+        ctx: Current story context.
+        story_service: StoryService instance for preflight checks.
+        dependency_repository: Optional repository for story dependencies.
+            When ``None``, ``StateBackendStoryDependencyRepository`` is used
+            (lazy import to keep module-level imports clean — AG3-031 Pass-5).
+    """
+    if dependency_repository is None:
+        from agentkit.state_backend.store.story_dependency_repository import (
+            StateBackendStoryDependencyRepository,
+        )
+        dependency_repository = StateBackendStoryDependencyRepository()
 
     story_display_id = cfg.story_id or ctx.story_id
     preflight = run_preflight(
         story_display_id,
         story_service,
-        dependency_repository=StateBackendStoryDependencyRepository(),
+        dependency_repository=dependency_repository,
     )
     if preflight.passed:
         return None

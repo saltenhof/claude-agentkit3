@@ -96,6 +96,20 @@ class _RecordingWorktreeRepo:
         return self._paths
 
 
+class _FailingWorktreeRepo:
+    """Test-double that raises on list_worktree_paths (Fix E4 fail-closed).
+
+    AG3-031 Pass-5: WorktreeRepository exceptions must be surfaced in errors[],
+    not silently swallowed.
+    """
+
+    def __init__(self, exc: Exception) -> None:
+        self._exc = exc
+
+    def list_worktree_paths(self, story_id: str) -> list[Path]:
+        raise self._exc
+
+
 # ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
@@ -423,3 +437,88 @@ class TestDeactivateLocksWorktreeLoop:
         gov.deactivate_locks("story-track-001")  # type: ignore[union-attr]
 
         assert "story-track-001" in wt_repo.calls
+
+
+# ---------------------------------------------------------------------------
+# Tests: Fail-closed E4 (AG3-031 Pass-5)
+# ---------------------------------------------------------------------------
+
+
+class TestDeactivateLocksFailClosed:
+    """AG3-031 Pass-5 Fix E4: fail-closed worktree-loop error handling.
+
+    WorktreeRepository exceptions and per-file OSErrors must be collected
+    in errors[], not silently swallowed.
+    """
+
+    def test_worktree_repo_exception_surfaced_in_errors(self) -> None:
+        """list_worktree_paths exception is recorded in errors[], not swallowed."""
+        lock_repo = _RecordingLockRepo()
+        lock_repo.mark_known("story-wt-exc")
+        wt_repo = _FailingWorktreeRepo(RuntimeError("repo unavailable"))
+
+        gov = _make_governance(lock_repo, worktree_repo=wt_repo)  # type: ignore[arg-type]
+        result = gov.deactivate_locks("story-wt-exc")  # type: ignore[union-attr]
+
+        assert any("repo unavailable" in e or "list_worktree_paths" in e for e in result.errors)  # type: ignore[union-attr]
+        assert result.restored_to_ai_augmented is False  # type: ignore[union-attr]
+
+    def test_lock_file_unlink_oserror_collected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """OSError on lock.json unlink is appended to errors[], not ignored."""
+        wt = tmp_path / "wt-unlink-fail"
+        guard = wt / ".agent-guard"
+        guard.mkdir(parents=True)
+        lock_file = guard / "lock.json"
+        lock_file.write_text('{"status": "active"}', encoding="utf-8")
+
+        original_unlink = Path.unlink
+
+        def _fail_unlink(self: Path, missing_ok: bool = False) -> None:
+            if self.name == "lock.json" and ".agent-guard" in str(self):
+                raise OSError("Permission denied (simulated unlink)")
+            original_unlink(self, missing_ok=missing_ok)  # type: ignore[call-arg]
+
+        monkeypatch.setattr(Path, "unlink", _fail_unlink)
+
+        wt_repo = _RecordingWorktreeRepo(worktree_paths=[wt])
+        lock_repo = _RecordingLockRepo()
+        lock_repo.mark_known("story-unlink-fail")
+
+        gov = _make_governance(lock_repo, worktree_repo=wt_repo)
+        result = gov.deactivate_locks("story-unlink-fail")  # type: ignore[union-attr]
+
+        assert any(
+            "lock.json" in e or "Permission denied" in e for e in result.errors  # type: ignore[union-attr]
+        ), f"Expected error mentioning lock.json, got: {result.errors}"  # type: ignore[union-attr]
+
+    def test_mode_file_write_oserror_collected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """OSError on mode.json write_text is appended to errors[], not ignored."""
+        wt = tmp_path / "wt-write-fail"
+        guard = wt / ".agent-guard"
+        guard.mkdir(parents=True)
+
+        original_write_text = Path.write_text
+
+        def _fail_write_text(
+            self: Path, data: str, encoding: str | None = None, errors: str | None = None
+        ) -> int:
+            if self.name == "mode.json" and ".agent-guard" in str(self):
+                raise OSError("Read-only filesystem (simulated write)")
+            return original_write_text(self, data, encoding=encoding, errors=errors)  # type: ignore[call-arg]
+
+        monkeypatch.setattr(Path, "write_text", _fail_write_text)
+
+        wt_repo = _RecordingWorktreeRepo(worktree_paths=[wt])
+        lock_repo = _RecordingLockRepo()
+        lock_repo.mark_known("story-write-fail")
+
+        gov = _make_governance(lock_repo, worktree_repo=wt_repo)
+        result = gov.deactivate_locks("story-write-fail")  # type: ignore[union-attr]
+
+        assert any(
+            "mode.json" in e or "Read-only" in e for e in result.errors  # type: ignore[union-attr]
+        ), f"Expected error mentioning mode.json, got: {result.errors}"  # type: ignore[union-attr]

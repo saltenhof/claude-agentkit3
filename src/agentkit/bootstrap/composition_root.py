@@ -10,6 +10,10 @@ Quelle:
 - ``concept/_meta/bc-cut-decisions.md §BC 8 artifacts`` — Producer-Registry
 - AK3-Schnitt-Disziplin: kein operativer Code in ``__init__.py``
 - AG3-026 §Station 5 -- ``build_verify_system`` ergaenzt.
+- AG3-031 Pass-5 §E9 -- ``build_integrity_gate``, ``build_setup_preflight_gate``
+  ergaenzt; direkte Runtime-Imports aus ``governance.integrity_gate`` und
+  ``governance.setup_preflight_gate.phase`` sind damit in den Composition-Root
+  verlagert (DI-Muster).
 """
 
 from __future__ import annotations
@@ -29,6 +33,8 @@ from agentkit.verify_system.register import register_verify_producers
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from agentkit.governance.integrity_gate import IntegrityGate
+    from agentkit.governance.repository import SetupContextRepository
     from agentkit.verify_system.system import VerifySystem
 
 
@@ -106,4 +112,47 @@ def build_verify_system(
     )
 
 
-__all__ = ["build_artifact_manager", "build_producer_registry", "build_verify_system"]
+def build_integrity_gate() -> IntegrityGate:
+    """Erzeugt einen vollstaendig verdrahteten ``IntegrityGate``.
+
+    Composition-Root fuer die Closure-Phase (AG3-031 Pass-5 Fix E9):
+    Instanziiert ``StateBackendIntegrityGateStateAdapter`` und reicht ihn
+    als ``state_port`` an ``IntegrityGate`` weiter.  Consuminerende Module
+    duerfen nicht selbst aus ``state_backend.store`` importieren.
+
+    Returns:
+        ``IntegrityGate`` mit dem State-Backend-Adapter als State-Port.
+    """
+    from agentkit.governance.integrity_gate import IntegrityGate as _IntegrityGate
+    from agentkit.state_backend.store.integrity_gate_repository import (
+        StateBackendIntegrityGateStateAdapter,
+    )
+
+    return _IntegrityGate(state_port=StateBackendIntegrityGateStateAdapter())
+
+
+def build_setup_preflight_gate() -> SetupContextRepository:
+    """Erzeugt einen verdrahteten ``SetupContextRepository``-Adapter.
+
+    Composition-Root fuer die Setup-Phase (AG3-031 Pass-5 Fix E9):
+    Instanziiert ``StateBackendSetupContextAdapter`` und gibt ihn als
+    ``SetupContextRepository`` zurueck.  Aufrufer reichen ihn via
+    ``SetupPhaseHandler(config, context_repository=...)`` ein.
+
+    Returns:
+        ``StateBackendSetupContextAdapter`` als ``SetupContextRepository``.
+    """
+    from agentkit.state_backend.store.setup_context_repository import (
+        StateBackendSetupContextAdapter,
+    )
+
+    return StateBackendSetupContextAdapter()
+
+
+__all__ = [
+    "build_artifact_manager",
+    "build_integrity_gate",
+    "build_producer_registry",
+    "build_setup_preflight_gate",
+    "build_verify_system",
+]

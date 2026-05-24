@@ -225,6 +225,9 @@ def _schema_alter_statements() -> tuple[str, ...]:
             "GREATEST(story_number_counters.next_story_number, "
             "excluded.next_story_number)"
         ),
+        # AG3-031 Pass-5 FK-22 §22.7 corrective: PK corrected to 4-tuple
+        # (project_key, story_id, run_id, lock_type).  Old PK omitted story_id.
+        # Applied under SCHEMA_VERSION 3.6.0 as the old schema was never in production.
         (
             "ALTER TABLE story_execution_locks "
             "DROP CONSTRAINT IF EXISTS story_execution_locks_pkey"
@@ -232,7 +235,7 @@ def _schema_alter_statements() -> tuple[str, ...]:
         (
             "ALTER TABLE story_execution_locks "
             "ADD CONSTRAINT story_execution_locks_pkey "
-            "PRIMARY KEY (project_key, run_id, lock_type)"
+            "PRIMARY KEY (project_key, story_id, run_id, lock_type)"
         ),
         "ALTER TABLE decision_records ADD COLUMN IF NOT EXISTS project_key TEXT",
         "ALTER TABLE decision_records ADD COLUMN IF NOT EXISTS run_id TEXT",

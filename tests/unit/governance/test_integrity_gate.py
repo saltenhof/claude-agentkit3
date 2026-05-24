@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.bootstrap.composition_root import build_artifact_manager
+from agentkit.bootstrap.composition_root import build_artifact_manager, build_integrity_gate
 from agentkit.core_types import PolicyVerdict
 from agentkit.exceptions import CorruptStateError
 from agentkit.governance.integrity_gate import IntegrityGate
@@ -187,7 +187,7 @@ class TestIntegrityGateAllPassing:
     def test_implementation_all_pass(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         _populate_implementation_story(story_dir)
-        result = IntegrityGate().evaluate(story_dir, StoryType.IMPLEMENTATION)
+        result = build_integrity_gate().evaluate(story_dir, StoryType.IMPLEMENTATION)
         assert result.passed is True
         assert len(result.failed_checks) == 0
 
@@ -197,7 +197,7 @@ class TestIntegrityGateAllPassing:
         for phase in ("setup", "implementation"):
             _create_snapshot(story_dir, phase)
         _create_decision(story_dir)
-        result = IntegrityGate().evaluate(story_dir, StoryType.BUGFIX)
+        result = build_integrity_gate().evaluate(story_dir, StoryType.BUGFIX)
         assert result.passed is True
 
     def test_concept_all_pass(self, tmp_path: Path) -> None:
@@ -205,7 +205,7 @@ class TestIntegrityGateAllPassing:
         _create_context(story_dir, StoryType.CONCEPT)
         for phase in ("setup", "implementation"):
             _create_snapshot(story_dir, phase)
-        result = IntegrityGate().evaluate(story_dir, StoryType.CONCEPT)
+        result = build_integrity_gate().evaluate(story_dir, StoryType.CONCEPT)
         assert result.passed is True
 
     def test_research_all_pass(self, tmp_path: Path) -> None:
@@ -213,7 +213,7 @@ class TestIntegrityGateAllPassing:
         _create_context(story_dir, StoryType.RESEARCH)
         for phase in ("setup", "implementation"):
             _create_snapshot(story_dir, phase)
-        result = IntegrityGate().evaluate(story_dir, StoryType.RESEARCH)
+        result = build_integrity_gate().evaluate(story_dir, StoryType.RESEARCH)
         assert result.passed is True
 
 
@@ -223,7 +223,7 @@ class TestIntegrityGateMissingSnapshot:
         _create_context(story_dir)
         _create_snapshot(story_dir, "implementation")
         _create_decision(story_dir)
-        result = IntegrityGate().evaluate(story_dir, StoryType.IMPLEMENTATION)
+        result = build_integrity_gate().evaluate(story_dir, StoryType.IMPLEMENTATION)
         assert result.passed is False
         assert any("setup" in check.dimension for check in result.failed_checks)
 
@@ -232,7 +232,7 @@ class TestIntegrityGateMissingSnapshot:
         _create_context(story_dir)
         _create_snapshot(story_dir, "setup")
         _create_decision(story_dir)
-        result = IntegrityGate().evaluate(story_dir, StoryType.IMPLEMENTATION)
+        result = build_integrity_gate().evaluate(story_dir, StoryType.IMPLEMENTATION)
         assert result.passed is False
         assert any(
             "implementation" in check.dimension
@@ -245,7 +245,7 @@ class TestIntegrityGateCorruptData:
         story_dir = _story_dir(tmp_path)
         _populate_implementation_story(story_dir)
         _corrupt_table_payload(story_dir, "decision_records")
-        result = IntegrityGate().evaluate(story_dir, StoryType.IMPLEMENTATION)
+        result = build_integrity_gate().evaluate(story_dir, StoryType.IMPLEMENTATION)
         assert result.passed is False
         assert any(
             check.dimension == "verify_decision"
@@ -256,7 +256,7 @@ class TestIntegrityGateCorruptData:
         story_dir = _story_dir(tmp_path)
         _populate_implementation_story(story_dir)
         _delete_from_table(story_dir, "artifact_records")
-        result = IntegrityGate().evaluate(story_dir, StoryType.IMPLEMENTATION)
+        result = build_integrity_gate().evaluate(story_dir, StoryType.IMPLEMENTATION)
         assert result.passed is False
         assert any(
             check.dimension == "structural_artifact"
@@ -273,7 +273,7 @@ class TestIntegrityGateCorruptData:
                 "WHERE phase = 'setup'"
             )
             conn.commit()
-        result = IntegrityGate().evaluate(story_dir, StoryType.IMPLEMENTATION)
+        result = build_integrity_gate().evaluate(story_dir, StoryType.IMPLEMENTATION)
         assert result.passed is False
         assert any("setup" in check.dimension for check in result.failed_checks)
 
@@ -281,7 +281,7 @@ class TestIntegrityGateCorruptData:
         story_dir = _story_dir(tmp_path)
         _populate_implementation_story(story_dir)
         _corrupt_table_payload(story_dir, "story_contexts")
-        result = IntegrityGate().evaluate(story_dir, StoryType.IMPLEMENTATION)
+        result = build_integrity_gate().evaluate(story_dir, StoryType.IMPLEMENTATION)
         assert result.passed is False
         assert any(
             check.dimension == "context_record"
@@ -294,7 +294,7 @@ class TestIntegrityGateCorruptData:
         for phase in ("setup", "implementation"):
             _create_snapshot(story_dir, phase)
         _create_decision(story_dir, decision="FAIL")
-        result = IntegrityGate().evaluate(story_dir, StoryType.IMPLEMENTATION)
+        result = build_integrity_gate().evaluate(story_dir, StoryType.IMPLEMENTATION)
         assert result.passed is False
         assert any(
             check.dimension == "verify_decision"
@@ -308,7 +308,7 @@ class TestIntegrityGateResearchFewerDimensions:
         _create_context(story_dir, StoryType.RESEARCH)
         for phase in ("setup", "implementation"):
             _create_snapshot(story_dir, phase)
-        result = IntegrityGate().evaluate(story_dir, StoryType.RESEARCH)
+        result = build_integrity_gate().evaluate(story_dir, StoryType.RESEARCH)
         assert result.passed is True
         assert "verify_decision" not in {check.dimension for check in result.checks}
 
@@ -317,14 +317,14 @@ class TestIntegrityGateResearchFewerDimensions:
         _create_context(story_dir, StoryType.CONCEPT)
         for phase in ("setup", "implementation"):
             _create_snapshot(story_dir, phase)
-        result = IntegrityGate().evaluate(story_dir, StoryType.CONCEPT)
+        result = build_integrity_gate().evaluate(story_dir, StoryType.CONCEPT)
         assert result.passed is True
         assert "verify_decision" not in {check.dimension for check in result.checks}
 
 
 class TestIntegrityGateResultProperties:
     def test_failed_checks_property(self, tmp_path: Path) -> None:
-        result = IntegrityGate().evaluate(
+        result = build_integrity_gate().evaluate(
             _story_dir(tmp_path),
             StoryType.IMPLEMENTATION,
         )
@@ -527,11 +527,11 @@ class TestIntegrityGateWithRecordingPort:
         assert result.passed is True
         assert result.failed_checks == ()
 
-    def test_default_port_is_state_backend_adapter(self) -> None:
-        """When no port is passed, IntegrityGate builds a StateBackendIntegrityGateStateAdapter."""
+    def test_build_integrity_gate_wires_state_backend_adapter(self) -> None:
+        """build_integrity_gate() wires StateBackendIntegrityGateStateAdapter as state_port."""
         from agentkit.state_backend.store.integrity_gate_repository import (
             StateBackendIntegrityGateStateAdapter,
         )
 
-        gate = IntegrityGate()
+        gate = build_integrity_gate()
         assert isinstance(gate._state_port, StateBackendIntegrityGateStateAdapter)

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from agentkit.bootstrap.composition_root import build_setup_preflight_gate
 from agentkit.governance.setup_preflight_gate.phase import SetupConfig, SetupPhaseHandler
 from agentkit.installer import InstallConfig, install_agentkit
 from agentkit.installer.paths import story_dir
@@ -50,7 +51,7 @@ class TestSetupPhaseE2E:
             project_root=tmp_path,
             create_worktree=False,  # No git repo in tmp_path
         )
-        handler = SetupPhaseHandler(config)
+        handler = SetupPhaseHandler(config, build_setup_preflight_gate())
 
         # Minimal initial context
         ctx = StoryContext(
@@ -95,7 +96,7 @@ class TestSetupPhaseE2E:
             issue_nr=99999,
             project_root=tmp_path,
         )
-        handler = SetupPhaseHandler(config)
+        handler = SetupPhaseHandler(config, build_setup_preflight_gate())
         ctx = StoryContext(
             project_key="test",
             story_id="FAIL-001",

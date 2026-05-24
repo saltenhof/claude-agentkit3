@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from agentkit.bootstrap.composition_root import build_setup_preflight_gate
 from agentkit.closure.phase import (
     ClosureConfig,
     ClosurePhaseHandler,
@@ -223,7 +224,7 @@ class TestClosurePhaseE2E:
                 story_id="E2E-FULL",
                 create_worktree=False,
             )
-            setup_handler = SetupPhaseHandler(setup_config)
+            setup_handler = SetupPhaseHandler(setup_config, build_setup_preflight_gate())
 
             ctx = StoryContext(
                 project_key="e2e-closure-test",

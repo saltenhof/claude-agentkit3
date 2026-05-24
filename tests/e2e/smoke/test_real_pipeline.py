@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from agentkit.bootstrap.composition_root import build_setup_preflight_gate
 from agentkit.closure.phase import (
     ClosureConfig,
     ClosurePhaseHandler,
@@ -145,7 +146,7 @@ class TestRealPipelineE2E:
 
             workflow = resolve_workflow(StoryType.CONCEPT)
             registry = PhaseHandlerRegistry()
-            registry.register("setup", SetupPhaseHandler(setup_config))
+            registry.register("setup", SetupPhaseHandler(setup_config, build_setup_preflight_gate()))
             registry.register("implementation", NoOpHandler())  # OK: LLM phase
             registry.register(
                 "closure",
@@ -242,7 +243,7 @@ class TestRealPipelineE2E:
 
             workflow = resolve_workflow(StoryType.RESEARCH)
             registry = PhaseHandlerRegistry()
-            registry.register("setup", SetupPhaseHandler(setup_config))
+            registry.register("setup", SetupPhaseHandler(setup_config, build_setup_preflight_gate()))
             registry.register("implementation", NoOpHandler())  # OK: LLM phase
             registry.register(
                 "closure",

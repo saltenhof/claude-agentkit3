@@ -3,8 +3,12 @@
 AG3-031 Pass-4 Fix E9 (2026-05-24): direct imports from
 ``agentkit.state_backend.store`` replaced by ``IntegrityGateStatePort``
 protocol injection.  ``IntegrityGate`` now receives a state-port via its
-constructor (DI).  The composition root wires the
-``StateBackendIntegrityGateStateAdapter`` as the default implementation.
+constructor (DI).
+
+AG3-031 Pass-5 Fix E9 (2026-05-24): ``_default_state_port()`` factory removed.
+The composition root (``agentkit.bootstrap.composition_root.build_integrity_gate``)
+is the canonical wiring point.  All callers must inject an
+``IntegrityGateStatePort`` explicitly — no internal fallback factory remains.
 """
 
 from __future__ import annotations
@@ -26,25 +30,6 @@ if TYPE_CHECKING:
 
     from agentkit.governance.repository import IntegrityGateStatePort
     from agentkit.state_backend.scope import RuntimeStateScope
-
-
-def _default_state_port() -> IntegrityGateStatePort:
-    """Build the default ``IntegrityGateStatePort`` via the state backend.
-
-    Lazy import keeps the module-level import graph clean:
-    ``governance.integrity_gate`` imports only from ``governance.repository``
-    (Protocols) at module level.  The concrete adapter is imported here, at
-    runtime, only when ``IntegrityGate`` is constructed without an explicit
-    port.
-
-    Returns:
-        A ``StateBackendIntegrityGateStateAdapter`` instance.
-    """
-    from agentkit.state_backend.store.integrity_gate_repository import (
-        StateBackendIntegrityGateStateAdapter,
-    )
-
-    return StateBackendIntegrityGateStateAdapter()
 
 
 @dataclass(frozen=True)
@@ -81,17 +66,16 @@ class IntegrityGate:
 
     Args:
         state_port: Protocol implementation for state-backend access.
-            When ``None``, the default ``StateBackendIntegrityGateStateAdapter``
-            is used (Fix E9, AG3-031 Pass-4).
+            Must be provided explicitly.  Use
+            ``agentkit.bootstrap.composition_root.build_integrity_gate()``
+            to obtain a fully-wired instance (AG3-031 Pass-5 Fix E9).
     """
 
     def __init__(
         self,
-        state_port: IntegrityGateStatePort | None = None,
+        state_port: IntegrityGateStatePort,
     ) -> None:
-        self._state_port: IntegrityGateStatePort = (
-            state_port if state_port is not None else _default_state_port()
-        )
+        self._state_port: IntegrityGateStatePort = state_port
 
     def evaluate(self, story_dir: Path, story_type: StoryType) -> IntegrityGateResult:
         """Evaluate all integrity dimensions for the given story.

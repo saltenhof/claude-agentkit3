@@ -101,7 +101,12 @@ def _sqlite_connect(store_dir: Path) -> Iterator[sqlite3.Connection]:
 
 
 def _ensure_sqlite_lock_schema(conn: sqlite3.Connection) -> None:
-    """Ensure story_execution_locks table exists (idempotent)."""
+    """Ensure story_execution_locks table exists (idempotent).
+
+    AG3-031 Pass-5 FK-22 §22.7 corrective: PK is (project_key, story_id, run_id, lock_type).
+    Previous schema had PK (project_key, run_id, lock_type) which omitted story_id.
+    Corrected under SCHEMA_VERSION 3.6.0 (DB never in production).
+    """
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS story_execution_locks (
@@ -115,7 +120,7 @@ def _ensure_sqlite_lock_schema(conn: sqlite3.Connection) -> None:
             activated_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             deactivated_at TEXT,
-            PRIMARY KEY (project_key, run_id, lock_type)
+            PRIMARY KEY (project_key, story_id, run_id, lock_type)
         )
         """
     )
