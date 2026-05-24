@@ -12,23 +12,30 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from agentkit.governance.locks import DeactivationResult
 from agentkit.governance.protocols import GuardVerdict, ViolationType
 
 if TYPE_CHECKING:
     from agentkit.governance.guard_evaluation import HookEvent
+    from agentkit.governance.hook_registration import HookDefinition, RegistrationResult
     from agentkit.governance.protocols import GovernanceGuard
+    from agentkit.governance.repository import HookRegistrationRepository
+    from agentkit.state_backend.store.lock_record_repository import LockRecordRepository
 
 type HookDecision = GuardVerdict
 
 PRE_HOOK_IDS = frozenset(
     {
+        # FK-30 §30.5.1 guard-hook identifiers (wortgleich) + ccag_gatekeeper
         "branch_guard",
         "orchestrator_guard",
-        "story_creation_guard",
-        "integrity_guard",
+        "integrity",
         "qa_agent_guard",
         "adversarial_guard",
-        "self_protection_guard",
+        "self_protection",
+        "story_creation_guard",
+        "budget",
+        "skill_usage_check",
         "health_monitor",
         "ccag_gatekeeper",
     }
@@ -116,7 +123,136 @@ class GuardRunner:
 
 
 class Governance:
-    """Harness-neutral governance top surface."""
+    """Harness-neutral governance top surface.
+
+    Provides three top-level surfaces:
+    - ``run_hook`` (static): dispatch a named hook (pre-existing).
+    - ``register_hooks``: persist hook definitions in the state backend.
+    - ``deactivate_locks``: deactivate story locks and clean up edge bundles.
+
+    Args:
+        hook_repo: Repository for hook-definition persistence.
+        lock_repo: Repository for story-execution lock deactivation.
+        project_key: Owning project key used for hook registration scoping.
+    """
+
+    def __init__(
+        self,
+        *,
+        hook_repo: HookRegistrationRepository,
+        lock_repo: LockRecordRepository,
+        project_key: str = "",
+    ) -> None:
+        self._hook_repo = hook_repo
+        self._lock_repo = lock_repo
+        self._project_key = project_key
+
+    # ------------------------------------------------------------------
+    # register_hooks (FK-30 §30.3.1)
+    # ------------------------------------------------------------------
+
+    def register_hooks(
+        self,
+        hook_definitions: list[HookDefinition],
+        *,
+        project_key: str | None = None,
+    ) -> RegistrationResult:
+        """Register harness-specific hook definitions in the project.
+
+        Idempotent: repeated registration of the same ``(harness, hook_id)``
+        pair returns the hook ID in ``skipped`` without overwriting the
+        existing entry.
+
+        Args:
+            hook_definitions: Hook definitions to register.
+            project_key: Override the project key from ``__init__``.
+                Useful when the same ``Governance`` instance manages multiple
+                projects.
+
+        Returns:
+            ``RegistrationResult`` with ``registered``, ``skipped``, ``errors``.
+
+        Raises:
+            Exception: On unrecoverable backend failures.
+        """
+        resolved_key = project_key if project_key is not None else self._project_key
+        return self._hook_repo.register(resolved_key, hook_definitions)
+
+    # ------------------------------------------------------------------
+    # deactivate_locks (FK-30 §30.6.0)
+    # ------------------------------------------------------------------
+
+    def deactivate_locks(self, story_id: str) -> DeactivationResult:
+        """Deactivate all lock records for a story and remove edge bundles.
+
+        Called by ClosureSequence (FK-29 §29.5) after successful postflight.
+        After this call, guards that depend on an active lock record
+        (branch_guard, orchestrator_guard, qa_agent_guard) become inactive.
+
+        Idempotent: calling for an already-deactivated story returns empty
+        lists without errors.
+
+        Fail-closed:
+        - IO errors on edge-bundle deletion are collected in ``errors[]``.
+        - DB failures are raised immediately (not silently swallowed).
+
+        Args:
+            story_id: Canonical story identifier.
+
+        Returns:
+            ``DeactivationResult`` with ``deactivated_locks``,
+            ``removed_edge_bundles``, ``errors``.
+
+        Raises:
+            Exception: On unrecoverable DB failures.
+        """
+        deactivated = self._lock_repo.deactivate_locks_for_story(story_id)
+        removed_bundles, io_errors = self._purge_edge_bundles(story_id)
+
+        return DeactivationResult(
+            deactivated_locks=deactivated,
+            removed_edge_bundles=removed_bundles,
+            errors=io_errors,
+        )
+
+    def _purge_edge_bundles(
+        self, story_id: str
+    ) -> tuple[list[Path], list[str]]:
+        """Remove edge-bundle files for ``story_id`` from the filesystem.
+
+        Looks for ``_temp/governance/{story_id}/edge-bundle.json`` (per story
+        instruction / FK-22 §22.7).  Missing files are silently skipped
+        (idempotent). IO errors are collected and returned as strings.
+
+        Args:
+            story_id: Canonical story identifier.
+
+        Returns:
+            Tuple of (removed_paths, error_messages).
+        """
+        removed: list[Path] = []
+        errors: list[str] = []
+
+        candidate_paths = [
+            Path("_temp") / "governance" / story_id / "edge-bundle.json",
+        ]
+
+        for candidate in candidate_paths:
+            if not candidate.exists():
+                continue
+            try:
+                candidate.unlink()
+                removed.append(candidate)
+            except OSError as exc:
+                errors.append(
+                    f"Failed to remove edge bundle {candidate}: {exc}"
+                )
+
+        return removed, errors
+
+    # ------------------------------------------------------------------
+    # run_hook (pre-existing static method — unchanged)
+    # ------------------------------------------------------------------
 
     @staticmethod
     def run_hook(
@@ -276,3 +412,7 @@ __all__ = [
     "run_hook",
     "validate_hook_selector",
 ]
+
+# DeactivationResult and LockRecordId are imported at the top of the file
+# and live in governance.locks; re-exported here for convenience.
+

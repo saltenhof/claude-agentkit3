@@ -1,0 +1,315 @@
+"""Unit tests for Governance.register_hooks (AG3-031 §2.1.4).
+
+Uses a Recording-Repository test double (not MagicMock) per project rules.
+
+AG3-031 Pass-2 FK-30-Korrektur 2026-05-24:
+  HookDefinition fields updated to FK-30 §30.3.1 (hook_event_name, matcher,
+  command).  HookId updated to 11 FK-30 §30.5.1 values.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import pytest
+
+from agentkit.governance.hook_registration import (
+    HookDefinition,
+    HookEventName,
+    HookId,
+    RegistrationResult,
+)
+
+if TYPE_CHECKING:
+    from agentkit.governance.locks import LockRecordId
+
+# ---------------------------------------------------------------------------
+# Recording test doubles (no MagicMock per project rules)
+# ---------------------------------------------------------------------------
+
+
+class _RecordingHookRepo:
+    """In-memory recording double for HookRegistrationRepository."""
+
+    def __init__(self) -> None:
+        # Key: (project_key, hook_event_name, matcher)
+        self._registered: dict[tuple[str, str, str], HookDefinition] = {}
+        self.register_calls: list[tuple[str, list[HookDefinition]]] = []
+
+    def register(
+        self,
+        project_key: str,
+        hook_definitions: list[HookDefinition],
+    ) -> RegistrationResult:
+        self.register_calls.append((project_key, hook_definitions))
+        registered: list[str] = []
+        skipped: list[str] = []
+
+        for defn in hook_definitions:
+            key = (project_key, defn.hook_event_name.value, defn.matcher)
+            if key in self._registered:
+                skipped.append(defn.matcher)
+            else:
+                self._registered[key] = defn
+                registered.append(defn.matcher)
+
+        return RegistrationResult(
+            registered=registered,
+            skipped=skipped,
+            errors=[],
+        )
+
+    def list_for_project(self, project_key: str) -> list[HookDefinition]:
+        return [
+            v for (pk, _, _), v in self._registered.items() if pk == project_key
+        ]
+
+    def clear_for_project(self, project_key: str) -> None:
+        keys_to_remove = [k for k in self._registered if k[0] == project_key]
+        for k in keys_to_remove:
+            del self._registered[k]
+
+
+class _RecordingLockRepo:
+    """Stub lock repo (unused in register_hooks tests)."""
+
+    def deactivate_locks_for_story(self, story_id: str) -> list[LockRecordId]:
+        return []
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+def _all_hooks_pre_tool_use() -> list[HookDefinition]:
+    """Build a PreToolUse HookDefinition for every HookId."""
+    return [
+        HookDefinition(
+            hook_event_name=HookEventName.PRE_TOOL_USE,
+            matcher="Bash",
+            command=f"agentkit-hook-claude pre {hid}",
+        )
+        # Use unique matchers by embedding hook_id to avoid collisions
+        # since matcher is the unique key alongside hook_event_name.
+        # Actually, matchers can repeat; we need distinct (hook_event_name, matcher)
+        # combos. Use unique command-based matchers per hook.
+        for hid in HookId
+    ]
+
+
+def _sample_hooks() -> list[HookDefinition]:
+    """Build one HookDefinition per HookId with distinct matchers."""
+    return [
+        HookDefinition(
+            hook_event_name=HookEventName.PRE_TOOL_USE,
+            matcher=hid.value,  # use hook_id string as matcher to guarantee uniqueness
+            command=f"agentkit-hook-claude pre {hid.value}",
+        )
+        for hid in HookId
+    ]
+
+
+def _make_governance(
+    hook_repo: _RecordingHookRepo | None = None,
+) -> object:
+    """Return a Governance instance with recording doubles."""
+    from agentkit.governance.runner import Governance
+
+    repo = hook_repo or _RecordingHookRepo()
+    return Governance(
+        hook_repo=repo,
+        lock_repo=_RecordingLockRepo(),  # type: ignore[arg-type]
+        project_key="test-project",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tests: happy path
+# ---------------------------------------------------------------------------
+
+
+class TestRegisterHooksHappyPath:
+    """register_hooks with all 11 hook IDs succeeds."""
+
+    def test_all_hook_ids_registered(self) -> None:
+        repo = _RecordingHookRepo()
+        gov = _make_governance(repo)
+        definitions = _sample_hooks()
+
+        result = gov.register_hooks(definitions)  # type: ignore[union-attr]
+
+        assert len(result.registered) == len(HookId)
+        assert result.skipped == []
+        assert result.errors == []
+
+    def test_register_calls_repo_once(self) -> None:
+        repo = _RecordingHookRepo()
+        gov = _make_governance(repo)
+        definitions = _sample_hooks()
+
+        gov.register_hooks(definitions)  # type: ignore[union-attr]
+
+        assert len(repo.register_calls) == 1
+
+    def test_project_key_passed_to_repo(self) -> None:
+        repo = _RecordingHookRepo()
+        gov = _make_governance(repo)
+        definitions = _sample_hooks()
+
+        gov.register_hooks(definitions)  # type: ignore[union-attr]
+
+        project_key_used, _ = repo.register_calls[0]
+        assert project_key_used == "test-project"
+
+    def test_project_key_can_be_overridden(self) -> None:
+        repo = _RecordingHookRepo()
+        gov = _make_governance(repo)
+        definitions = _sample_hooks()
+
+        gov.register_hooks(definitions, project_key="other-project")  # type: ignore[union-attr]
+
+        project_key_used, _ = repo.register_calls[0]
+        assert project_key_used == "other-project"
+
+
+# ---------------------------------------------------------------------------
+# Tests: idempotency
+# ---------------------------------------------------------------------------
+
+
+class TestRegisterHooksIdempotency:
+    """Duplicate registration reports skipped, not error."""
+
+    def test_idempotent_second_call_all_skipped(self) -> None:
+        repo = _RecordingHookRepo()
+        gov = _make_governance(repo)
+        definitions = _sample_hooks()
+
+        gov.register_hooks(definitions)  # type: ignore[union-attr]
+        result2 = gov.register_hooks(definitions)  # type: ignore[union-attr]
+
+        assert len(result2.skipped) == len(HookId)
+        assert result2.registered == []
+        assert result2.errors == []
+
+    def test_partial_re_registration(self) -> None:
+        """Only new definitions are registered; existing ones are skipped."""
+        repo = _RecordingHookRepo()
+        gov = _make_governance(repo)
+        first_batch = [
+            HookDefinition(
+                hook_event_name=HookEventName.PRE_TOOL_USE,
+                matcher="Bash",
+                command="agentkit-hook-claude pre branch_guard",
+            )
+        ]
+        second_batch = [
+            HookDefinition(
+                hook_event_name=HookEventName.PRE_TOOL_USE,
+                matcher="Bash",
+                command="agentkit-hook-claude pre branch_guard",
+            ),
+            HookDefinition(
+                hook_event_name=HookEventName.PRE_TOOL_USE,
+                matcher="Bash|Write|Edit|Read|Grep|Glob|Agent",
+                command="agentkit-hook-claude pre health_monitor",
+            ),
+        ]
+
+        gov.register_hooks(first_batch)  # type: ignore[union-attr]
+        result = gov.register_hooks(second_batch)  # type: ignore[union-attr]
+
+        assert "Bash" in result.skipped
+        assert "Bash|Write|Edit|Read|Grep|Glob|Agent" in result.registered
+
+
+# ---------------------------------------------------------------------------
+# Tests: validation errors (Pydantic)
+# ---------------------------------------------------------------------------
+
+
+class TestHookDefinitionValidation:
+    """HookDefinition rejects invalid hook_event_name values and extra fields."""
+
+    def test_unknown_hook_event_name_raises(self) -> None:
+        import pydantic
+
+        with pytest.raises(pydantic.ValidationError):
+            HookDefinition(
+                hook_event_name="UnknownEvent",  # type: ignore[arg-type]
+                matcher="Bash",
+                command="cmd",
+            )
+
+    def test_extra_fields_forbidden(self) -> None:
+        import pydantic
+
+        with pytest.raises(pydantic.ValidationError):
+            HookDefinition(
+                hook_event_name=HookEventName.PRE_TOOL_USE,
+                matcher="Bash",
+                command="cmd",
+                extra_field="not_allowed",  # type: ignore[call-arg]
+            )
+
+    def test_frozen_model_immutable(self) -> None:
+        import pydantic
+
+        defn = HookDefinition(
+            hook_event_name=HookEventName.PRE_TOOL_USE,
+            matcher="Bash",
+            command="cmd",
+        )
+        with pytest.raises(pydantic.ValidationError):
+            defn.hook_event_name = HookEventName.POST_TOOL_USE  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# Tests: HookId enum has exactly 11 values (FK-30 §30.5.1)
+# ---------------------------------------------------------------------------
+
+
+class TestHookIdEnum:
+    """HookId has the canonical 11 hook IDs from FK-30 §30.5.1."""
+
+    def test_all_eleven_hook_ids_present(self) -> None:
+        expected = {
+            "branch_guard",
+            "orchestrator_guard",
+            "integrity",
+            "qa_agent_guard",
+            "adversarial_guard",
+            "self_protection",
+            "story_creation_guard",
+            "budget",
+            "skill_usage_check",
+            "health_monitor",
+            "ccag_gatekeeper",
+        }
+        actual = {hid.value for hid in HookId}
+        assert actual == expected
+
+    def test_hook_id_count(self) -> None:
+        assert len(HookId) == 11
+
+    def test_ccag_gatekeeper_present(self) -> None:
+        assert HookId.CCAG_GATEKEEPER in HookId
+        assert HookId.CCAG_GATEKEEPER.value == "ccag_gatekeeper"
+
+    def test_integrity_wortgleich(self) -> None:
+        """FK-30 §30.5.1 uses 'integrity' not 'integrity_guard'."""
+        assert HookId.INTEGRITY.value == "integrity"
+
+    def test_self_protection_wortgleich(self) -> None:
+        """FK-30 §30.5.1 uses 'self_protection' not 'self_protection_guard'."""
+        assert HookId.SELF_PROTECTION.value == "self_protection"
+
+    def test_budget_wortgleich(self) -> None:
+        """FK-30 §30.5.1 uses 'budget' not 'budget_guard'."""
+        assert HookId.BUDGET.value == "budget"
+
+    def test_skill_usage_check_present(self) -> None:
+        """skill_usage_check was missing in Pass-1; must be present now."""
+        assert HookId.SKILL_USAGE_CHECK in HookId
+        assert HookId.SKILL_USAGE_CHECK.value == "skill_usage_check"

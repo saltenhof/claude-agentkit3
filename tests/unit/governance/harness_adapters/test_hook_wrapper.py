@@ -376,14 +376,17 @@ class TestSupportedHookIdsCompleteness:
         assert SUPPORTED_HOOK_IDS == PRE_HOOK_IDS | POST_HOOK_IDS
 
     def test_pre_hook_ids_are_known(self) -> None:
+        # AG3-031 Pass-2 FK-30-Korrektur 2026-05-24: 11 FK-30 §30.5.1 values
         expected = {
             "branch_guard",
             "orchestrator_guard",
-            "story_creation_guard",
-            "integrity_guard",
+            "integrity",
             "qa_agent_guard",
             "adversarial_guard",
-            "self_protection_guard",
+            "self_protection",
+            "story_creation_guard",
+            "budget",
+            "skill_usage_check",
             "health_monitor",
             "ccag_gatekeeper",
         }

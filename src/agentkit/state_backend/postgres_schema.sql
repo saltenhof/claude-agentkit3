@@ -207,6 +207,18 @@
             PRIMARY KEY (project_key, run_id, lock_type)
         );
 
+        -- AG3-031 Pass-2 FK-30-Korrektur 2026-05-24: schema corrected to
+        -- (project_key, hook_event_name, matcher, command) per FK-30 §30.3.1.
+        CREATE TABLE IF NOT EXISTS governance_hook_registrations (
+            project_key      VARCHAR NOT NULL,
+            hook_event_name  VARCHAR NOT NULL CHECK (hook_event_name IN ('PreToolUse','PostToolUse')),
+            matcher          TEXT NOT NULL,
+            command          TEXT NOT NULL,
+            registered_at    TIMESTAMPTZ NOT NULL,
+            PRIMARY KEY (project_key, hook_event_name, matcher),
+            UNIQUE (project_key, hook_event_name, matcher)
+        );
+
         CREATE TABLE IF NOT EXISTS control_plane_operations (
             op_id TEXT PRIMARY KEY,
             project_key TEXT NOT NULL,

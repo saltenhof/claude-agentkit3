@@ -24,28 +24,49 @@ Diese Story stellt die zwei Top-Surfaces bereit. Sie sind in sich klein, aber bl
 
 #### 2.1.1 `Governance.register_hooks` (FK-30 §30.3.1)
 
+<!-- AG3-031 Pass-2 FK-30-Korrektur 2026-05-24 -->
+
 `src/agentkit/governance/runner.py:Governance`:
 
 ```python
 def register_hooks(self, hook_definitions: list[HookDefinition]) -> RegistrationResult:
     """
     Registriert harness-spezifische Hook-Definitionen im Projekt.
-    Idempotent: doppelte Registrierung gleicher hook_id ueberschreibt nicht ohne Force.
+    Idempotent: doppelte Registrierung gleicher (hook_event_name, matcher) ueberschreibt nicht.
     """
 ```
 
-`HookDefinition` ist Pydantic-Modell:
-- `hook_id: HookId` — StrEnum mit allen 9 Pre-Hook-IDs aus FK-30 §30.5 (`branch_guard`, `orchestrator_guard`, `qa_artifact_guard`, `qa_agent_guard`, `adversarial_guard`, `self_protection_guard`, `story_creation_guard`, `budget_guard`, `health_monitor`) plus `ccag`
-- `harness: HookHarness` — StrEnum `CLAUDE_CODE`, `CODEX`
-- `command_template: str` — wie der Hook aufgerufen wird (z.B. `agentkit-hook-claude --hook=branch_guard`)
-- `event_pattern: str` — auf welches Harness-Event gehoert wird
+`HookDefinition` ist Pydantic-Modell (FK-30 §30.3.1 wortgleich, frozen, extra="forbid"):
+- `hook_event_name: HookEventName` — StrEnum `"PreToolUse"` | `"PostToolUse"`
+- `matcher: str` — Harness Tool-Matcher-Pattern (z.B. `"Bash"` oder `"Write|Edit"`)
+- `command: str` — Harness-Command-String (z.B. `"agentkit-hook-claude pre branch_guard"`)
+
+`HookId` StrEnum — 11 Werte FK-30 §30.5.1 wortgleich + `ccag_gatekeeper` (§30.3.1):
+1. `branch_guard`
+2. `orchestrator_guard`
+3. `integrity` (NICHT `integrity_guard`)
+4. `qa_agent_guard`
+5. `adversarial_guard`
+6. `self_protection` (NICHT `self_protection_guard`)
+7. `story_creation_guard`
+8. `budget` (NICHT `budget_guard`)
+9. `skill_usage_check`
+10. `health_monitor`
+11. `ccag_gatekeeper`
+
+`HookHarness` StrEnum (`CLAUDE_CODE`, `CODEX`) bleibt fuer Validierung und AC-Pruefung erhalten,
+ist aber kein Feld von `HookDefinition`.
 
 `RegistrationResult` ist Pydantic-Modell:
-- `registered: list[HookId]`
-- `skipped: list[HookId]` (idempotent: war schon registriert)
+- `registered: list[str]` — matcher-Strings der registrierten Hooks
+- `skipped: list[str]` — matcher-Strings idempotent uebersprungener Hooks
 - `errors: list[HookRegistrationError]`
 
-Persistenz: hook_definitions werden im State-Backend-Storage abgelegt (neue Tabelle `governance_hook_registrations` mit `(project_key, harness, hook_id)` UNIQUE). Datei-/Settings-Schreibvorgaenge (`.claude/settings.json`, `.codex/config.toml`) werden vom Installer-Body geschrieben (Cross-BC-Aktion); diese Top-Surface verwaltet nur den Backend-Zustand und liefert dem Installer die Liste der zu schreibenden Hooks.
+Persistenz: hook_definitions werden im State-Backend-Storage abgelegt (Tabelle
+`governance_hook_registrations` mit PK `(project_key, hook_event_name, matcher)`,
+UNIQUE `(project_key, hook_event_name, matcher)`). Datei-/Settings-Schreibvorgaenge
+(`.claude/settings.json`, `.codex/config.toml`) werden vom Installer-Body geschrieben
+(Cross-BC-Aktion); diese Top-Surface verwaltet nur den Backend-Zustand.
 
 #### 2.1.2 `Governance.deactivate_locks` (FK-30 §30.6.0)
 
@@ -71,13 +92,22 @@ Implementation:
 
 #### 2.1.3 `HookDefinition`-Datenmodell und Repository
 
+<!-- AG3-031 Pass-2 FK-30-Korrektur 2026-05-24 -->
+
 `src/agentkit/governance/hook_registration.py`:
-- `HookDefinition`, `HookId` (StrEnum), `HookHarness` (StrEnum), `RegistrationResult`
+- `HookEventName` (StrEnum: `"PreToolUse"` | `"PostToolUse"`)
+- `HookDefinition` (frozen Pydantic, FK-30 §30.3.1 Felder: `hook_event_name`, `matcher`, `command`)
+- `HookId` (StrEnum, 11 FK-30 §30.5.1-Werte + `ccag_gatekeeper`)
+- `HookHarness` (StrEnum, behalten fuer Validierung; kein `HookDefinition`-Feld)
+- `RegistrationResult` (matcher-String-Listen statt HookId-Enum-Werte)
 - `HookRegistrationRepository`-Protocol
 
 `src/agentkit/state_backend/store/governance_hook_repository.py`:
 - konkrete Implementierung (SQLite + Postgres) mit Tabelle `governance_hook_registrations`
-- Schema-Versionierung Side-by-Side
+- Schema: `(project_key, hook_event_name, matcher, command, registered_at)`,
+  PK `(project_key, hook_event_name, matcher)`
+- SCHEMA_VERSION bleibt `"3.6.0"` (alte 3.6.0-DB war nicht produktiv; korrekte Felder
+  eingefroren unter gleicher Version)
 
 #### 2.1.4 Tests
 
@@ -131,15 +161,18 @@ Implementation:
 
 ## 4. Akzeptanzkriterien
 
+<!-- AG3-031 Pass-2 FK-30-Korrektur 2026-05-24 -->
+
 1. **`Governance.register_hooks(hook_definitions: list[HookDefinition]) -> RegistrationResult`** ist als Methode der bestehenden `Governance`-Klasse verfuegbar.
-2. **`HookDefinition`** ist Pydantic-Modell mit `hook_id`, `harness`, `command_template`, `event_pattern`. `hook_id` ist `HookId`-StrEnum mit allen 9 Pre-Hooks + `ccag`. `harness` ist `HookHarness` (`CLAUDE_CODE`, `CODEX`).
-3. **`register_hooks` ist idempotent**: doppelte Registrierung gleicher `(harness, hook_id)`-Kombination liefert `skipped`-Eintrag, kein Fehler. Tests bestaetigen das.
-4. **`Governance.deactivate_locks(story_id) -> DeactivationResult`** ist als Methode der bestehenden `Governance`-Klasse verfuegbar.
-5. **`deactivate_locks` ist idempotent**: leerer Story-Lock-Stand liefert `DeactivationResult` mit leeren Listen, ohne Fehler.
-6. **Fail-closed-Verhalten**: IO-Fehler bei Edge-Bundle-Loeschung landen in `errors[]`, werden nicht silent verschluckt; bei kritischen Fehlern (DB-Fehler) wird gehoben.
-7. **Persistenz**: `governance_hook_registrations`-Tabelle in SQLite + Postgres. UNIQUE `(project_key, harness, hook_id)`.
-8. **Architecture-Conformance**: `agentkit.governance` (ausser Repository-Modul) importiert nicht direkt aus state_backend.store-Fassaden.
-9. **Pflichtbefehle gruen**: pytest unit + contract; mypy --strict; ruff clean; Coverage haelt 85%.
+2. **`HookDefinition`** ist FK-30 §30.3.1 wortgleich: Pydantic frozen, extra="forbid", Felder `hook_event_name: HookEventName`, `matcher: str`, `command: str`. Kein `hook_id`-Feld, kein `harness`-Feld in `HookDefinition`.
+3. **`HookId`** ist StrEnum mit 11 FK-30 §30.5.1-wortgleichen Werten: `branch_guard`, `orchestrator_guard`, `integrity`, `qa_agent_guard`, `adversarial_guard`, `self_protection`, `story_creation_guard`, `budget`, `skill_usage_check`, `health_monitor`, `ccag_gatekeeper`.
+4. **`register_hooks` ist idempotent**: doppelte Registrierung gleicher `(project_key, hook_event_name, matcher)`-Kombination liefert `skipped`-Eintrag (matcher-String), kein Fehler. Tests bestaetigen das.
+5. **`Governance.deactivate_locks(story_id) -> DeactivationResult`** ist als Methode der bestehenden `Governance`-Klasse verfuegbar.
+6. **`deactivate_locks` ist idempotent**: leerer Story-Lock-Stand liefert `DeactivationResult` mit leeren Listen, ohne Fehler.
+7. **Fail-closed-Verhalten**: IO-Fehler bei Edge-Bundle-Loeschung landen in `errors[]`, werden nicht silent verschluckt; bei kritischen Fehlern (DB-Fehler) wird gehoben.
+8. **Persistenz**: `governance_hook_registrations`-Tabelle in SQLite + Postgres mit Schema `(project_key, hook_event_name, matcher, command, registered_at)`, PK/UNIQUE `(project_key, hook_event_name, matcher)`.
+9. **Architecture-Conformance**: `agentkit.governance` (ausser Repository-Modul) importiert nicht direkt aus state_backend.store-Fassaden.
+10. **Pflichtbefehle gruen**: pytest unit + contract; mypy --strict; ruff clean; Coverage haelt 85%.
 
 ## 5. Definition of Done
 

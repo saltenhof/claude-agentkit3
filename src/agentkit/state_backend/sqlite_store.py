@@ -414,6 +414,17 @@ def _ensure_schema_runtime_tables(conn: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS artifact_envelopes_story_run_stage_attempt_idx
             ON artifact_envelopes (story_id, run_id, stage, attempt);
+
+        -- AG3-031 Pass-2 FK-30-Korrektur 2026-05-24: schema corrected to
+        -- (project_key, hook_event_name, matcher, command) per FK-30 §30.3.1.
+        CREATE TABLE IF NOT EXISTS governance_hook_registrations (
+            project_key      TEXT NOT NULL,
+            hook_event_name  TEXT NOT NULL CHECK (hook_event_name IN ('PreToolUse','PostToolUse')),
+            matcher          TEXT NOT NULL,
+            command          TEXT NOT NULL,
+            registered_at    TEXT NOT NULL,
+            PRIMARY KEY (project_key, hook_event_name, matcher)
+        );
         """
     )
 
