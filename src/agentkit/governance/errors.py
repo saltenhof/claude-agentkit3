@@ -17,4 +17,16 @@ class HookRegistrationError(GovernanceError):
     """
 
 
-__all__ = ["HookRegistrationError"]
+class LockRecordNotFoundError(GovernanceError):
+    """Raised when no lock records are found for a story_id.
+
+    FK-30 §30.6.0 fail-closed: ``Governance.deactivate_locks`` must not
+    silently ignore an unknown story_id — the Closure-Phase cannot forget
+    a lock.  Raised by ``LockRecordRepository.deactivate_locks_for_story``
+    when the story has no known lock records.
+
+    AG3-031 Pass-3 FK-30-Korrektur 2026-05-24 (Fix E6).
+    """
+
+
+__all__ = ["HookRegistrationError", "LockRecordNotFoundError"]

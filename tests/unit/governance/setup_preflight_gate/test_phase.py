@@ -4,6 +4,9 @@ Mocks only the three external system boundaries:
   - run_preflight  (StoryService-based, mocked)
   - build_story_context  (GitHub CLI call)
   - create_worktree  (git subprocess call)
+
+AG3-031 Pass-4 Fix E9: save_story_context is no longer a module-level name.
+Tests use a _RecordingContextRepo test-double for the persist-failure path.
 """
 
 from __future__ import annotations
@@ -21,6 +24,30 @@ from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+# ---------------------------------------------------------------------------
+# Recording test-double for SetupContextRepository (Fix E9)
+# ---------------------------------------------------------------------------
+
+
+class _RecordingContextRepo:
+    """Recording test-double for SetupContextRepository.
+
+    Configurable: ``_raises_on_call`` controls whether ``save`` raises an
+    exception on the N-th call.
+    """
+
+    def __init__(self, raises_on_call: int | None = None, exc: Exception | None = None) -> None:
+        self.calls: list[tuple[object, object]] = []
+        self._raises_on_call = raises_on_call
+        self._exc = exc or OSError("disk full")
+
+    def save(self, story_dir: Path, ctx: StoryContext) -> None:
+        call_no = len(self.calls) + 1
+        self.calls.append((story_dir, ctx))
+        if self._raises_on_call is not None and call_no == self._raises_on_call:
+            raise self._exc
 
 
 # ---------------------------------------------------------------------------
@@ -135,7 +162,7 @@ class TestSetupPhaseHandlerWorktree:
             create_worktree=True,
             story_service=_NoOpStoryService(),  # type: ignore[arg-type]
         )
-        handler = SetupPhaseHandler(cfg)
+        handler = SetupPhaseHandler(cfg, context_repository=_RecordingContextRepo())  # type: ignore[arg-type]
         ctx = _make_story_context(project_root=tmp_path)
         state = _make_phase_state()
         enriched = _make_story_context(project_root=tmp_path)
@@ -181,7 +208,7 @@ class TestSetupPhaseHandlerWorktree:
             create_worktree=True,
             story_service=_NoOpStoryService(),  # type: ignore[arg-type]
         )
-        handler = SetupPhaseHandler(cfg)
+        handler = SetupPhaseHandler(cfg, context_repository=_RecordingContextRepo())  # type: ignore[arg-type]
         ctx = _make_story_context(
             story_id="AG3-002",
             story_type=StoryType.CONCEPT,
@@ -224,7 +251,7 @@ class TestSetupPhaseHandlerWorktree:
             story_id="AG3-003",
             create_worktree=True,
         )
-        handler = SetupPhaseHandler(cfg)
+        handler = SetupPhaseHandler(cfg, context_repository=_RecordingContextRepo())  # type: ignore[arg-type]
         ctx = _make_story_context(story_id="AG3-003", project_root=tmp_path)
         state = _make_phase_state(story_id="AG3-003")
         enriched = _make_story_context(story_id="AG3-003", project_root=tmp_path)
@@ -259,7 +286,14 @@ class TestSetupPhaseHandlerWorktree:
         self, tmp_path: Path
     ) -> None:
         """on_enter removes the worktree and returns FAILED when the second
-        save_story_context call (which persists the worktree path) raises."""
+        context_repo.save call (which persists the worktree path) raises.
+
+        AG3-031 Pass-4 Fix E9: uses _RecordingContextRepo test-double instead
+        of patching the now-removed module-level save_story_context name.
+        """
+        # Second call (with worktree path) raises to simulate disk-full.
+        ctx_repo = _RecordingContextRepo(raises_on_call=2, exc=OSError("disk full"))
+
         cfg = SetupConfig(
             owner="owner",
             repo="repo",
@@ -268,7 +302,7 @@ class TestSetupPhaseHandlerWorktree:
             story_id="AG3-005",
             create_worktree=True,
         )
-        handler = SetupPhaseHandler(cfg)
+        handler = SetupPhaseHandler(cfg, context_repository=ctx_repo)  # type: ignore[arg-type]
         ctx = _make_story_context(story_id="AG3-005", project_root=tmp_path)
         state = _make_phase_state(story_id="AG3-005")
         enriched = _make_story_context(story_id="AG3-005", project_root=tmp_path)
@@ -291,12 +325,6 @@ class TestSetupPhaseHandlerWorktree:
                 return_value=[_make_worktree_result(tmp_path, "AG3-005")],
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.save_story_context",
-                # First call (initial save) succeeds; second call (with worktree
-                # path) raises to simulate a disk-full or permission error.
-                side_effect=[None, OSError("disk full")],
-            ),
-            patch(
                 "agentkit.governance.setup_preflight_gate.phase.remove_worktree",
             ) as mock_remove,
         ):
@@ -316,7 +344,7 @@ class TestSetupPhaseHandlerWorktree:
             project_root=tmp_path,
             story_id="AG3-004",
         )
-        handler = SetupPhaseHandler(cfg)
+        handler = SetupPhaseHandler(cfg, context_repository=_RecordingContextRepo())
         ctx = _make_story_context(story_id="AG3-004", project_root=tmp_path)
         state = _make_phase_state(story_id="AG3-004")
 
@@ -362,7 +390,7 @@ class TestSetupPhaseBeginProgress:
             create_worktree=False,
             story_service=svc,  # type: ignore[arg-type]
         )
-        handler = SetupPhaseHandler(cfg)
+        handler = SetupPhaseHandler(cfg, context_repository=_RecordingContextRepo())
         ctx = _make_story_context(project_root=tmp_path)
         state = _make_phase_state()
         enriched = _make_story_context(project_root=tmp_path)
@@ -406,7 +434,7 @@ class TestSetupPhaseBeginProgress:
             create_worktree=False,
             story_service=None,
         )
-        handler = SetupPhaseHandler(cfg)
+        handler = SetupPhaseHandler(cfg, context_repository=_RecordingContextRepo())
         ctx = _make_story_context(project_root=tmp_path)
         state = _make_phase_state()
         enriched = _make_story_context(project_root=tmp_path)
@@ -450,7 +478,7 @@ class TestSetupPhaseBeginProgress:
             create_worktree=False,
             story_service=_FailingService(),  # type: ignore[arg-type]
         )
-        handler = SetupPhaseHandler(cfg)
+        handler = SetupPhaseHandler(cfg, context_repository=_RecordingContextRepo())
         ctx = _make_story_context(project_root=tmp_path)
         state = _make_phase_state()
         enriched = _make_story_context(project_root=tmp_path)

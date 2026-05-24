@@ -5,6 +5,11 @@ Uses a Recording-Repository test double (not MagicMock) per project rules.
 AG3-031 Pass-2 FK-30-Korrektur 2026-05-24:
   HookDefinition fields updated to FK-30 §30.3.1 (hook_event_name, matcher,
   command).  HookId updated to 11 FK-30 §30.5.1 values.
+
+AG3-031 Pass-3 FK-30-Korrektur 2026-05-24:
+  Fix E1: project_key removed from register_hooks signature.
+  Fix E2: settings materialisation — tests pass tmp_path as project_root.
+  Fix E3: UPSERT semantics in recording double + new overwrite test.
 """
 
 from __future__ import annotations
@@ -21,6 +26,8 @@ from agentkit.governance.hook_registration import (
 )
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from agentkit.governance.locks import LockRecordId
 
 # ---------------------------------------------------------------------------
@@ -47,9 +54,11 @@ class _RecordingHookRepo:
 
         for defn in hook_definitions:
             key = (project_key, defn.hook_event_name.value, defn.matcher)
-            if key in self._registered:
+            if key in self._registered and self._registered[key].command == defn.command:
+                # Identical row — skip (UPSERT: Fix E3)
                 skipped.append(defn.matcher)
             else:
+                # New row or changed command — register/overwrite
                 self._registered[key] = defn
                 registered.append(defn.matcher)
 
@@ -112,8 +121,11 @@ def _sample_hooks() -> list[HookDefinition]:
 
 def _make_governance(
     hook_repo: _RecordingHookRepo | None = None,
+    project_root: Path | None = None,
 ) -> object:
     """Return a Governance instance with recording doubles."""
+    from pathlib import Path
+
     from agentkit.governance.runner import Governance
 
     repo = hook_repo or _RecordingHookRepo()
@@ -121,6 +133,7 @@ def _make_governance(
         hook_repo=repo,
         lock_repo=_RecordingLockRepo(),  # type: ignore[arg-type]
         project_key="test-project",
+        project_root=project_root or Path("."),
     )
 
 
@@ -132,9 +145,9 @@ def _make_governance(
 class TestRegisterHooksHappyPath:
     """register_hooks with all 11 hook IDs succeeds."""
 
-    def test_all_hook_ids_registered(self) -> None:
+    def test_all_hook_ids_registered(self, tmp_path: Path) -> None:
         repo = _RecordingHookRepo()
-        gov = _make_governance(repo)
+        gov = _make_governance(repo, project_root=tmp_path)
         definitions = _sample_hooks()
 
         result = gov.register_hooks(definitions)  # type: ignore[union-attr]
@@ -143,18 +156,18 @@ class TestRegisterHooksHappyPath:
         assert result.skipped == []
         assert result.errors == []
 
-    def test_register_calls_repo_once(self) -> None:
+    def test_register_calls_repo_once(self, tmp_path: Path) -> None:
         repo = _RecordingHookRepo()
-        gov = _make_governance(repo)
+        gov = _make_governance(repo, project_root=tmp_path)
         definitions = _sample_hooks()
 
         gov.register_hooks(definitions)  # type: ignore[union-attr]
 
         assert len(repo.register_calls) == 1
 
-    def test_project_key_passed_to_repo(self) -> None:
+    def test_project_key_passed_to_repo(self, tmp_path: Path) -> None:
         repo = _RecordingHookRepo()
-        gov = _make_governance(repo)
+        gov = _make_governance(repo, project_root=tmp_path)
         definitions = _sample_hooks()
 
         gov.register_hooks(definitions)  # type: ignore[union-attr]
@@ -162,15 +175,20 @@ class TestRegisterHooksHappyPath:
         project_key_used, _ = repo.register_calls[0]
         assert project_key_used == "test-project"
 
-    def test_project_key_can_be_overridden(self) -> None:
+    def test_project_key_comes_from_init(self, tmp_path: Path) -> None:
+        """FK-30 §30.3.1 Fix E1: no project_key parameter on register_hooks.
+
+        The project_key must be supplied at Governance.__init__ time;
+        register_hooks(hook_definitions) takes no project_key argument.
+        """
         repo = _RecordingHookRepo()
-        gov = _make_governance(repo)
+        gov = _make_governance(repo, project_root=tmp_path)
         definitions = _sample_hooks()
 
-        gov.register_hooks(definitions, project_key="other-project")  # type: ignore[union-attr]
+        gov.register_hooks(definitions)  # type: ignore[union-attr]
 
         project_key_used, _ = repo.register_calls[0]
-        assert project_key_used == "other-project"
+        assert project_key_used == "test-project"
 
 
 # ---------------------------------------------------------------------------
@@ -181,9 +199,9 @@ class TestRegisterHooksHappyPath:
 class TestRegisterHooksIdempotency:
     """Duplicate registration reports skipped, not error."""
 
-    def test_idempotent_second_call_all_skipped(self) -> None:
+    def test_idempotent_second_call_all_skipped(self, tmp_path: Path) -> None:
         repo = _RecordingHookRepo()
-        gov = _make_governance(repo)
+        gov = _make_governance(repo, project_root=tmp_path)
         definitions = _sample_hooks()
 
         gov.register_hooks(definitions)  # type: ignore[union-attr]
@@ -193,10 +211,10 @@ class TestRegisterHooksIdempotency:
         assert result2.registered == []
         assert result2.errors == []
 
-    def test_partial_re_registration(self) -> None:
-        """Only new definitions are registered; existing ones are skipped."""
+    def test_partial_re_registration(self, tmp_path: Path) -> None:
+        """Only new definitions are registered; identical existing ones are skipped."""
         repo = _RecordingHookRepo()
-        gov = _make_governance(repo)
+        gov = _make_governance(repo, project_root=tmp_path)
         first_batch = [
             HookDefinition(
                 hook_event_name=HookEventName.PRE_TOOL_USE,
@@ -222,6 +240,120 @@ class TestRegisterHooksIdempotency:
 
         assert "Bash" in result.skipped
         assert "Bash|Write|Edit|Read|Grep|Glob|Agent" in result.registered
+
+    def test_changed_command_overwrites_not_skips(self, tmp_path: Path) -> None:
+        """Changed command on same matcher → registered (overwrite), not skipped.
+
+        Fix E3 (AG3-031 Pass-3 FK-30 §30.3.1): UPSERT semantics.
+        """
+        repo = _RecordingHookRepo()
+        gov = _make_governance(repo, project_root=tmp_path)
+
+        first = [
+            HookDefinition(
+                hook_event_name=HookEventName.PRE_TOOL_USE,
+                matcher="Bash",
+                command="agentkit-hook-claude pre branch_guard",
+            )
+        ]
+        updated = [
+            HookDefinition(
+                hook_event_name=HookEventName.PRE_TOOL_USE,
+                matcher="Bash",
+                command="agentkit-hook-claude pre branch_guard --verbose",  # changed
+            )
+        ]
+
+        gov.register_hooks(first)  # type: ignore[union-attr]
+        result = gov.register_hooks(updated)  # type: ignore[union-attr]
+
+        assert "Bash" in result.registered, "Changed command must be registered (overwrite)"
+        assert result.skipped == [], "Changed command must NOT be skipped"
+
+
+# ---------------------------------------------------------------------------
+# Tests: settings materialisation (Fix E2 — FK-30 §30.3.1)
+# ---------------------------------------------------------------------------
+
+
+class TestRegisterHooksSettingsMaterialisation:
+    """register_hooks writes .claude/settings.json after backend persist (Fix E2)."""
+
+    def test_settings_json_created_after_register(self, tmp_path: Path) -> None:
+        """After register_hooks, .claude/settings.json exists with hooks section."""
+        import json
+
+        repo = _RecordingHookRepo()
+        gov = _make_governance(repo, project_root=tmp_path)
+        definitions = [
+            HookDefinition(
+                hook_event_name=HookEventName.PRE_TOOL_USE,
+                matcher="Bash",
+                command="agentkit-hook-claude pre branch_guard",
+            )
+        ]
+
+        gov.register_hooks(definitions)  # type: ignore[union-attr]
+
+        settings_path = tmp_path / ".claude" / "settings.json"
+        assert settings_path.exists(), ".claude/settings.json must be created"
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        assert "hooks" in data
+        assert "PreToolUse" in data["hooks"]
+        entries = data["hooks"]["PreToolUse"]
+        assert any(
+            e["matcher"] == "Bash" and "branch_guard" in e["command"]
+            for e in entries
+        )
+
+    def test_settings_json_schema_correct(self, tmp_path: Path) -> None:
+        """Written settings.json has the FK-30 §30.3.1 schema."""
+        import json
+
+        repo = _RecordingHookRepo()
+        gov = _make_governance(repo, project_root=tmp_path)
+        definitions = [
+            HookDefinition(
+                hook_event_name=HookEventName.PRE_TOOL_USE,
+                matcher="Bash",
+                command="agentkit-hook-claude pre branch_guard",
+            ),
+            HookDefinition(
+                hook_event_name=HookEventName.POST_TOOL_USE,
+                matcher="Agent|Bash|*_send",
+                command="agentkit-hook-claude post telemetry",
+            ),
+        ]
+
+        gov.register_hooks(definitions)  # type: ignore[union-attr]
+
+        data = json.loads(
+            (tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8")
+        )
+        # FK-30 §30.3.1 schema: {hooks: {PreToolUse: [{matcher, command}], ...}}
+        pre_entries = data["hooks"]["PreToolUse"]
+        post_entries = data["hooks"]["PostToolUse"]
+        assert all("matcher" in e and "command" in e for e in pre_entries)
+        assert all("matcher" in e and "command" in e for e in post_entries)
+
+    def test_broken_settings_json_raises(self, tmp_path: Path) -> None:
+        """Broken existing .claude/settings.json raises (fail-closed FK-30 §30.3.1 Z.339)."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text("{ invalid json {{", encoding="utf-8")
+
+        repo = _RecordingHookRepo()
+        gov = _make_governance(repo, project_root=tmp_path)
+        definitions = [
+            HookDefinition(
+                hook_event_name=HookEventName.PRE_TOOL_USE,
+                matcher="Bash",
+                command="agentkit-hook-claude pre branch_guard",
+            )
+        ]
+
+        with pytest.raises(ValueError, match="Invalid JSON|broken"):
+            gov.register_hooks(definitions)  # type: ignore[union-attr]
 
 
 # ---------------------------------------------------------------------------

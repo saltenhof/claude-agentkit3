@@ -3,6 +3,11 @@
 Reads the GitHub issue, builds StoryContext, runs preflight checks,
 and optionally creates a git worktree.  On successful completion,
 calls ``StoryService.begin_progress`` (FK-22 §22.4.3).
+
+AG3-031 Pass-4 Fix E9 (2026-05-24): direct import of ``save_story_context``
+from ``agentkit.state_backend.store`` replaced by ``SetupContextRepository``
+protocol injection via ``SetupPhaseHandler.__init__``.  The composition
+root wires the ``StateBackendSetupContextAdapter`` as the default.
 """
 
 from __future__ import annotations
@@ -20,7 +25,6 @@ from agentkit.governance.setup_preflight_gate.worktree import setup_worktrees
 from agentkit.installer.paths import story_dir
 from agentkit.pipeline_engine.lifecycle import HandlerResult
 from agentkit.state_backend.paths import CONTEXT_EXPORT_FILE
-from agentkit.state_backend.store import save_story_context
 from agentkit.story_context_manager.models import PhaseStatus
 from agentkit.story_context_manager.types import get_profile
 from agentkit.utils.git import remove_worktree
@@ -28,11 +32,31 @@ from agentkit.utils.git import remove_worktree
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from agentkit.governance.repository import SetupContextRepository
     from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
     from agentkit.story_context_manager.models import StoryContext
     from agentkit.story_context_manager.service import StoryService
 
 logger = logging.getLogger(__name__)
+
+
+def _default_context_repository() -> SetupContextRepository:
+    """Build the default ``SetupContextRepository`` via the state backend.
+
+    Lazy import keeps the module-level import graph clean:
+    ``governance.setup_preflight_gate.phase`` imports only from
+    ``governance.repository`` (Protocols) at TYPE_CHECKING time.  The
+    concrete adapter is imported here, at runtime, only when
+    ``SetupPhaseHandler`` is constructed without an explicit repository.
+
+    Returns:
+        A ``StateBackendSetupContextAdapter`` instance.
+    """
+    from agentkit.state_backend.store.setup_context_repository import (
+        StateBackendSetupContextAdapter,
+    )
+
+    return StateBackendSetupContextAdapter()
 
 
 @dataclass
@@ -72,10 +96,25 @@ class SetupPhaseHandler:
     git worktree path.  On successful completion, transitions the story
     to ``In Progress`` via ``StoryService.begin_progress`` when a
     ``story_service`` is provided in ``SetupConfig`` (FK-22 §22.4.3).
+
+    Args:
+        config: Setup phase configuration.
+        context_repository: Repository for persisting ``StoryContext``.
+            When ``None``, the default ``StateBackendSetupContextAdapter``
+            is used (Fix E9, AG3-031 Pass-4).
     """
 
-    def __init__(self, config: SetupConfig) -> None:
+    def __init__(
+        self,
+        config: SetupConfig,
+        context_repository: SetupContextRepository | None = None,
+    ) -> None:
         self._config = config
+        self._context_repo: SetupContextRepository = (
+            context_repository
+            if context_repository is not None
+            else _default_context_repository()
+        )
 
     def on_enter(self, ctx: StoryContext, envelope: PhaseEnvelope) -> HandlerResult:
         """Execute the setup phase.
@@ -123,11 +162,13 @@ class SetupPhaseHandler:
 
         s_dir = story_dir(cfg.project_root, enriched.story_id)
         s_dir.mkdir(parents=True, exist_ok=True)
-        save_story_context(s_dir, enriched)
+        self._context_repo.save(s_dir, enriched)
 
         artifacts: list[str] = [str(s_dir / CONTEXT_EXPORT_FILE)]
 
-        worktree_outcome = _setup_worktrees_if_needed(cfg, enriched, s_dir)
+        worktree_outcome = _setup_worktrees_if_needed(
+            cfg, enriched, s_dir, self._context_repo
+        )
         if isinstance(worktree_outcome, HandlerResult):
             return worktree_outcome
         enriched = worktree_outcome
@@ -208,6 +249,7 @@ def _setup_worktrees_if_needed(
     cfg: SetupConfig,
     enriched: StoryContext,
     s_dir: Path,
+    context_repo: SetupContextRepository,
 ) -> StoryContext | HandlerResult:
     """Create worktrees and persist enriched context — returns updated ctx or FAILED."""
     profile = get_profile(enriched.story_type)
@@ -240,7 +282,7 @@ def _setup_worktrees_if_needed(
     )
 
     try:
-        save_story_context(s_dir, enriched)
+        context_repo.save(s_dir, enriched)
     except Exception as persist_err:
         # Worktree was created but context persistence failed.
         # Clean up the worktree so it does not leak.

@@ -76,11 +76,11 @@ mutation_surface_rules:
     allowed_module_prefixes:
       - agentkit.state_backend
       - agentkit.pipeline_engine
-      - agentkit.governance.setup_preflight_gate
       - agentkit.exploration
       - agentkit.implementation
       - agentkit.closure
-    message: story context mutation may only be imported from pipeline-engine or pipeline-phase surfaces
+      - agentkit.state_backend.store
+    message: "story context mutation may only be imported from state-backend or pipeline-phase surfaces (governance.setup_preflight_gate removed: now uses SetupContextRepository Protocol + adapter -- Fix E9 AG3-031)"
   - id: architecture-conformance.rule.phase_state_projection_write_surface
     writer_symbols:
       - save_phase_state

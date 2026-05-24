@@ -61,6 +61,21 @@ def _is_postgres() -> bool:
     return os.environ.get("AGENTKIT_STATE_BACKEND", "sqlite").lower() == "postgres"
 
 
+def _assert_sqlite_allowed() -> None:
+    """Raise RuntimeError if SQLite backend is not explicitly enabled.
+
+    Enforces the AGENTKIT_ALLOW_SQLITE=1 gating pattern from
+    ``state_backend/config.py:_sqlite_allowed`` (Fix E8, AG3-031 Pass-3).
+    """
+    from agentkit.state_backend.config import ALLOW_SQLITE_ENV, _sqlite_allowed
+
+    if not _sqlite_allowed():
+        raise RuntimeError(
+            "SQLite backend is disabled for this path. "
+            f"Set {ALLOW_SQLITE_ENV}=1 only for narrow unit-test execution.",
+        )
+
+
 def _postgres_database_url() -> str:
     url = os.environ.get("AGENTKIT_STATE_DATABASE_URL", "")
     if not url:
@@ -150,6 +165,7 @@ def _sqlite_db_path(store_dir: Path) -> Path:
 
 @contextmanager
 def _sqlite_connect(store_dir: Path) -> Iterator[sqlite3.Connection]:
+    _assert_sqlite_allowed()
     db_path = _sqlite_db_path(store_dir)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
@@ -266,21 +282,40 @@ class StateBackendHookRegistrationRepository:
         with _sqlite_connect(self._store_dir) as conn:
             for defn in definitions:
                 try:
-                    row = _definition_to_row(project_key, defn, now_ts)
-                    cursor = conn.execute(
+                    # Fix E3 (AG3-031 Pass-3): UPSERT semantics.
+                    # Pre-check: is an identical row already present?
+                    existing = conn.execute(
                         """
-                        INSERT OR IGNORE INTO governance_hook_registrations
-                            (project_key, hook_event_name, matcher, command, registered_at)
-                        VALUES
-                            (:project_key, :hook_event_name, :matcher,
-                             :command, :registered_at)
+                        SELECT command FROM governance_hook_registrations
+                        WHERE project_key = :project_key
+                          AND hook_event_name = :hook_event_name
+                          AND matcher = :matcher
                         """,
-                        row,
-                    )
-                    if cursor.rowcount and cursor.rowcount > 0:
-                        registered.append(_defn_identifier(defn))
-                    else:
+                        {
+                            "project_key": project_key,
+                            "hook_event_name": defn.hook_event_name.value,
+                            "matcher": defn.matcher,
+                        },
+                    ).fetchone()
+
+                    if existing is not None and str(existing[0]) == defn.command:
+                        # Identical row — skip (no-op)
                         skipped.append(_defn_identifier(defn))
+                    else:
+                        # New row or row with changed command — INSERT OR REPLACE
+                        row = _definition_to_row(project_key, defn, now_ts)
+                        conn.execute(
+                            """
+                            INSERT OR REPLACE INTO governance_hook_registrations
+                                (project_key, hook_event_name, matcher, command,
+                                 registered_at)
+                            VALUES
+                                (:project_key, :hook_event_name, :matcher,
+                                 :command, :registered_at)
+                            """,
+                            row,
+                        )
+                        registered.append(_defn_identifier(defn))
                 # Broad except is intentional: exceptions are collected as
                 # HookRegistrationError entries in the result, never re-raised
                 # (caller pattern: partial-success registration with errors[]).
@@ -312,23 +347,47 @@ class StateBackendHookRegistrationRepository:
         with _postgres_connect() as conn:
             for defn in definitions:
                 try:
-                    row = _definition_to_row(project_key, defn, now_ts)
-                    cursor = conn.execute(
+                    # Fix E3 (AG3-031 Pass-3): UPSERT semantics.
+                    # Pre-check: is an identical row already present?
+                    existing = conn.execute(
                         """
-                        INSERT INTO governance_hook_registrations
-                            (project_key, hook_event_name, matcher, command, registered_at)
-                        VALUES
-                            (%(project_key)s, %(hook_event_name)s, %(matcher)s,
-                             %(command)s, %(registered_at)s)
-                        ON CONFLICT (project_key, hook_event_name, matcher)
-                        DO NOTHING
+                        SELECT command FROM governance_hook_registrations
+                        WHERE project_key = %(project_key)s
+                          AND hook_event_name = %(hook_event_name)s
+                          AND matcher = %(matcher)s
                         """,
-                        row,
-                    )
-                    if cursor.rowcount and cursor.rowcount > 0:
-                        registered.append(_defn_identifier(defn))
-                    else:
+                        {
+                            "project_key": project_key,
+                            "hook_event_name": defn.hook_event_name.value,
+                            "matcher": defn.matcher,
+                        },
+                    ).fetchone()
+
+                    existing_command: str | None = (
+                        str(existing.get("command", "")) if hasattr(existing, "get") else str(existing[0])
+                    ) if existing is not None else None
+                    if existing_command is not None and existing_command == defn.command:
+                        # Identical row — skip (no-op)
                         skipped.append(_defn_identifier(defn))
+                    else:
+                        # New row or row with changed command — UPSERT
+                        row = _definition_to_row(project_key, defn, now_ts)
+                        conn.execute(
+                            """
+                            INSERT INTO governance_hook_registrations
+                                (project_key, hook_event_name, matcher, command,
+                                 registered_at)
+                            VALUES
+                                (%(project_key)s, %(hook_event_name)s, %(matcher)s,
+                                 %(command)s, %(registered_at)s)
+                            ON CONFLICT (project_key, hook_event_name, matcher)
+                            DO UPDATE SET
+                                command = EXCLUDED.command,
+                                registered_at = EXCLUDED.registered_at
+                            """,
+                            row,
+                        )
+                        registered.append(_defn_identifier(defn))
                 # Broad except is intentional: exceptions are collected as
                 # HookRegistrationError entries in the result, never re-raised
                 # (caller pattern: partial-success registration with errors[]).

@@ -1,4 +1,11 @@
-"""Integrity gate -- canonical pre-closure quality checks."""
+"""Integrity gate -- canonical pre-closure quality checks.
+
+AG3-031 Pass-4 Fix E9 (2026-05-24): direct imports from
+``agentkit.state_backend.store`` replaced by ``IntegrityGateStatePort``
+protocol injection.  ``IntegrityGate`` now receives a state-port via its
+constructor (DI).  The composition root wires the
+``StateBackendIntegrityGateStateAdapter`` as the default implementation.
+"""
 
 from __future__ import annotations
 
@@ -11,24 +18,33 @@ from agentkit.state_backend.paths import (
     CONTEXT_EXPORT_FILE,
     PHASE_STATE_EXPORT_FILE,
 )
-from agentkit.state_backend.store import (
-    backend_has_completed_snapshot,
-    backend_has_structural_artifact,
-    backend_has_structural_artifact_for_scope,
-    backend_has_valid_context,
-    backend_has_valid_phase_state,
-    load_latest_verify_decision,
-    load_latest_verify_decision_for_scope,
-    read_phase_state_record,
-    resolve_runtime_scope,
-)
 from agentkit.story_context_manager.types import StoryType
 from agentkit.verify_system import verify_decision_passed
 
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from agentkit.governance.repository import IntegrityGateStatePort
     from agentkit.state_backend.scope import RuntimeStateScope
+
+
+def _default_state_port() -> IntegrityGateStatePort:
+    """Build the default ``IntegrityGateStatePort`` via the state backend.
+
+    Lazy import keeps the module-level import graph clean:
+    ``governance.integrity_gate`` imports only from ``governance.repository``
+    (Protocols) at module level.  The concrete adapter is imported here, at
+    runtime, only when ``IntegrityGate`` is constructed without an explicit
+    port.
+
+    Returns:
+        A ``StateBackendIntegrityGateStateAdapter`` instance.
+    """
+    from agentkit.state_backend.store.integrity_gate_repository import (
+        StateBackendIntegrityGateStateAdapter,
+    )
+
+    return StateBackendIntegrityGateStateAdapter()
 
 
 @dataclass(frozen=True)
@@ -61,12 +77,37 @@ _REQUIRED_PHASES: dict[StoryType, tuple[str, ...]] = {
 
 
 class IntegrityGate:
-    """Run canonical integrity checks before closure."""
+    """Run canonical integrity checks before closure.
+
+    Args:
+        state_port: Protocol implementation for state-backend access.
+            When ``None``, the default ``StateBackendIntegrityGateStateAdapter``
+            is used (Fix E9, AG3-031 Pass-4).
+    """
+
+    def __init__(
+        self,
+        state_port: IntegrityGateStatePort | None = None,
+    ) -> None:
+        self._state_port: IntegrityGateStatePort = (
+            state_port if state_port is not None else _default_state_port()
+        )
 
     def evaluate(self, story_dir: Path, story_type: StoryType) -> IntegrityGateResult:
+        """Evaluate all integrity dimensions for the given story.
+
+        Args:
+            story_dir: Story base directory.
+            story_type: Type of the story being evaluated.
+
+        Returns:
+            An ``IntegrityGateResult`` with per-dimension check results.
+        """
         checks: list[IntegrityCheckResult] = []
         try:
-            runtime_scope: RuntimeStateScope | None = resolve_runtime_scope(story_dir)
+            runtime_scope: RuntimeStateScope | None = (
+                self._state_port.resolve_runtime_scope(story_dir)
+            )
         except CorruptStateError:
             runtime_scope = None
         checks.extend(self._check_phase_snapshots(story_dir, story_type))
@@ -82,8 +123,8 @@ class IntegrityGate:
             checks=tuple(checks),
         )
 
-    @staticmethod
     def _check_phase_snapshots(
+        self,
         story_dir: Path,
         story_type: StoryType,
     ) -> list[IntegrityCheckResult]:
@@ -91,7 +132,7 @@ class IntegrityGate:
         for phase in _REQUIRED_PHASES.get(story_type, ()):
             dim_name = f"phase_snapshot_{phase}"
             try:
-                completed = backend_has_completed_snapshot(story_dir, phase)
+                completed = self._state_port.has_completed_snapshot(story_dir, phase)
             except CorruptStateError:
                 completed = False
             if completed:
@@ -115,16 +156,18 @@ class IntegrityGate:
             )
         return results
 
-    @staticmethod
     def _check_structural_artifact(
+        self,
         story_dir: Path,
         runtime_scope: RuntimeStateScope | None,
     ) -> IntegrityCheckResult:
         try:
             if runtime_scope is not None and runtime_scope.run_id is not None:
-                present = backend_has_structural_artifact_for_scope(runtime_scope)
+                present = self._state_port.has_structural_artifact_for_scope(
+                    runtime_scope
+                )
             else:
-                present = backend_has_structural_artifact(story_dir)
+                present = self._state_port.has_structural_artifact(story_dir)
         except CorruptStateError:
             present = False
         if present:
@@ -139,16 +182,18 @@ class IntegrityGate:
             message="Missing canonical structural QA artifact record",
         )
 
-    @staticmethod
     def _check_verify_decision(
+        self,
         story_dir: Path,
         runtime_scope: RuntimeStateScope | None,
     ) -> IntegrityCheckResult:
         try:
             if runtime_scope is not None and runtime_scope.run_id is not None:
-                payload = load_latest_verify_decision_for_scope(runtime_scope)
+                payload = self._state_port.load_latest_verify_decision_for_scope(
+                    runtime_scope
+                )
             else:
-                payload = load_latest_verify_decision(story_dir)
+                payload = self._state_port.load_latest_verify_decision(story_dir)
         except CorruptStateError:
             payload = None
         if payload is None:
@@ -175,10 +220,9 @@ class IntegrityGate:
             message="Canonical verify decision record passed",
         )
 
-    @staticmethod
-    def _check_context_record(story_dir: Path) -> IntegrityCheckResult:
+    def _check_context_record(self, story_dir: Path) -> IntegrityCheckResult:
         try:
-            valid = backend_has_valid_context(story_dir)
+            valid = self._state_port.has_valid_context(story_dir)
         except CorruptStateError:
             valid = False
         if valid:
@@ -196,10 +240,9 @@ class IntegrityGate:
             message="Missing or invalid canonical story context record",
         )
 
-    @staticmethod
-    def _check_phase_state_record(story_dir: Path) -> IntegrityCheckResult:
+    def _check_phase_state_record(self, story_dir: Path) -> IntegrityCheckResult:
         try:
-            state = read_phase_state_record(story_dir)
+            state = self._state_port.read_phase_state_record(story_dir)
         except CorruptStateError:
             return IntegrityCheckResult(
                 dimension="phase_state_record",
@@ -215,7 +258,7 @@ class IntegrityGate:
                     "after cleanup (acceptable)"
                 ),
             )
-        if backend_has_valid_phase_state(story_dir):
+        if self._state_port.has_valid_phase_state(story_dir):
             return IntegrityCheckResult(
                 dimension="phase_state_record",
                 passed=True,

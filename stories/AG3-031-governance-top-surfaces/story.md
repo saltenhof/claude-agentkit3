@@ -114,7 +114,7 @@ Implementation:
 - Unit-Tests fuer `register_hooks`:
   - happy path: Registrierung aller 9 Hook-IDs
   - Idempotenz: doppelter Aufruf liefert `skipped`-Liste statt Fehler
-  - Validation-Fehler bei unbekanntem `harness` oder unbekannter `hook_id`
+  - Validation-Fehler bei unbekanntem `hook_event_name`-Wert (Pydantic rejects unknown StrEnum value) <!-- AG3-031 Pass-3 FK-30-Korrektur 2026-05-24: harness/hook_id-Vokabular entfernt -->
 - Unit-Tests fuer `deactivate_locks`:
   - happy path: Locks geloescht, Edge-Bundle entfernt
   - Missing Lock-Record: leeres Ergebnis ohne Fehler (Idempotenz)
@@ -139,7 +139,7 @@ Implementation:
 - Hook-Dispatch-Differenzierung (`C5`) — THEME-006
 - Namensraum-Konsolidierung guard_system (`C1`) — wurde unter THEME-001 adressiert
 - Cleanup `governance.monitoring`, `doc_fidelity`, `policies` (`C2/C3`) — THEME-001
-- Tatsaechliches Schreiben von `.claude/settings.json`/`.codex/config.toml` durch register_hooks — bleibt im Installer; `register_hooks` liefert nur die Hook-Liste
+- ~~Tatsaechliches Schreiben von `.claude/settings.json`/`.codex/config.toml` durch register_hooks — bleibt im Installer~~ <!-- AG3-031 Pass-3 FK-30-Korrektur 2026-05-24: entfaellt; register_hooks materialisiert Settings-Dateien direkt ueber harness_adapters/settings_writer.py -->
 
 ## 3. Betroffene Dateien
 
@@ -168,7 +168,7 @@ Implementation:
 3. **`HookId`** ist StrEnum mit 11 FK-30 §30.5.1-wortgleichen Werten: `branch_guard`, `orchestrator_guard`, `integrity`, `qa_agent_guard`, `adversarial_guard`, `self_protection`, `story_creation_guard`, `budget`, `skill_usage_check`, `health_monitor`, `ccag_gatekeeper`.
 4. **`register_hooks` ist idempotent**: doppelte Registrierung gleicher `(project_key, hook_event_name, matcher)`-Kombination liefert `skipped`-Eintrag (matcher-String), kein Fehler. Tests bestaetigen das.
 5. **`Governance.deactivate_locks(story_id) -> DeactivationResult`** ist als Methode der bestehenden `Governance`-Klasse verfuegbar.
-6. **`deactivate_locks` ist idempotent**: leerer Story-Lock-Stand liefert `DeactivationResult` mit leeren Listen, ohne Fehler.
+6. **`deactivate_locks` fail-closed bei unbekannter Story-ID**: Komplett unbekannte Story-ID (kein Lock-Record im Backend) → `LockRecordNotFoundError` in `errors[0]`. Bereits komplett inaktive Story (alle Locks INACTIVE) → leere `deactivated_locks`-Liste ohne Fehler (idempotente Re-Deaktivierung). <!-- AG3-031 Pass-3 FK-30-Korrektur 2026-05-24 Fix E6: AK5 auf fail-closed korrigiert -->
 7. **Fail-closed-Verhalten**: IO-Fehler bei Edge-Bundle-Loeschung landen in `errors[]`, werden nicht silent verschluckt; bei kritischen Fehlern (DB-Fehler) wird gehoben.
 8. **Persistenz**: `governance_hook_registrations`-Tabelle in SQLite + Postgres mit Schema `(project_key, hook_event_name, matcher, command, registered_at)`, PK/UNIQUE `(project_key, hook_event_name, matcher)`.
 9. **Architecture-Conformance**: `agentkit.governance` (ausser Repository-Modul) importiert nicht direkt aus state_backend.store-Fassaden.

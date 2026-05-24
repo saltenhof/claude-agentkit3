@@ -333,103 +333,205 @@ class TestIntegrityGateResultProperties:
         assert all(check.passed is False for check in result.failed_checks)
 
 
-class TestIntegrityGateStaticBranches:
-    def test_structural_artifact_uses_runtime_scope_reader(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        tmp_path: Path,
+# ---------------------------------------------------------------------------
+# Recording test-doubles for IntegrityGateStatePort (Fix E9)
+# ---------------------------------------------------------------------------
+
+
+class _RecordingStatePort:
+    """Recording test-double for IntegrityGateStatePort.
+
+    Configurable: each method has a corresponding ``_*_result`` attribute
+    that controls the return value.  Calls are recorded in ``calls`` for
+    assertion.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, object]] = []
+        self._completed_snapshot: bool = True
+        self._structural_artifact: bool = True
+        self._structural_artifact_for_scope: bool = True
+        self._valid_context: bool = True
+        self._valid_phase_state: bool = True
+        self._latest_verify_decision: dict[str, object] | None = {
+            "status": "PASS", "passed": True
+        }
+        self._latest_verify_decision_for_scope: dict[str, object] | None = {
+            "status": "PASS", "passed": True
+        }
+        self._phase_state_record: object | None = None
+        self._runtime_scope_result: RuntimeStateScope | None = None
+        self._resolve_scope_raise: type[Exception] | None = None
+
+    def has_completed_snapshot(self, story_dir: object, phase: str) -> bool:
+        self.calls.append(("has_completed_snapshot", phase))
+        return self._completed_snapshot
+
+    def has_structural_artifact(self, story_dir: object) -> bool:
+        self.calls.append(("has_structural_artifact", story_dir))
+        return self._structural_artifact
+
+    def has_structural_artifact_for_scope(self, scope: RuntimeStateScope) -> bool:
+        self.calls.append(("has_structural_artifact_for_scope", scope))
+        return self._structural_artifact_for_scope
+
+    def has_valid_context(self, story_dir: object) -> bool:
+        self.calls.append(("has_valid_context", story_dir))
+        return self._valid_context
+
+    def has_valid_phase_state(self, story_dir: object) -> bool:
+        self.calls.append(("has_valid_phase_state", story_dir))
+        return self._valid_phase_state
+
+    def load_latest_verify_decision(
+        self, story_dir: object
+    ) -> dict[str, object] | None:
+        self.calls.append(("load_latest_verify_decision", story_dir))
+        return self._latest_verify_decision
+
+    def load_latest_verify_decision_for_scope(
+        self, scope: RuntimeStateScope
+    ) -> dict[str, object] | None:
+        self.calls.append(("load_latest_verify_decision_for_scope", scope))
+        return self._latest_verify_decision_for_scope
+
+    def read_phase_state_record(self, story_dir: object) -> object | None:
+        self.calls.append(("read_phase_state_record", story_dir))
+        if self._phase_state_record is CorruptStateError:
+            raise CorruptStateError("simulated corrupt")
+        return self._phase_state_record
+
+    def resolve_runtime_scope(self, story_dir: object) -> RuntimeStateScope:
+        self.calls.append(("resolve_runtime_scope", story_dir))
+        if self._resolve_scope_raise is not None:
+            raise self._resolve_scope_raise("simulated")
+        if self._runtime_scope_result is not None:
+            return self._runtime_scope_result
+        raise CorruptStateError("no scope configured")
+
+
+class TestIntegrityGateWithRecordingPort:
+    """Validate IntegrityGate DI path using a recording state-port test-double.
+
+    These tests replace the former monkeypatch-based ``TestIntegrityGateStaticBranches``
+    tests, which patched module-level symbols that no longer exist after Fix E9.
+    """
+
+    def test_structural_artifact_uses_scope_reader_when_scope_has_run_id(
+        self, tmp_path: Path
     ) -> None:
+        """When runtime_scope has run_id, has_structural_artifact_for_scope is called."""
+        port = _RecordingStatePort()
         scope = RuntimeStateScope(
             project_key="test-project",
             story_id="AG3-001",
             story_dir=tmp_path,
             run_id="run-1",
         )
-        seen: list[RuntimeStateScope] = []
+        port._runtime_scope_result = scope
+        port._resolve_scope_raise = None
 
-        def _record_scope_and_allow(runtime_scope: RuntimeStateScope) -> bool:
-            seen.append(runtime_scope)
-            return True
-
-        monkeypatch.setattr(
-            "agentkit.governance.integrity_gate.backend_has_structural_artifact_for_scope",
-            _record_scope_and_allow,
-        )
-        monkeypatch.setattr(
-            "agentkit.governance.integrity_gate.backend_has_structural_artifact",
-            lambda story_dir: pytest.fail("story_dir fallback should not be used"),
-        )
-
-        result = IntegrityGate._check_structural_artifact(tmp_path, scope)
+        gate = IntegrityGate(state_port=port)  # type: ignore[arg-type]
+        result = gate._check_structural_artifact(tmp_path, scope)
 
         assert result.passed is True
-        assert seen == [scope]
+        scope_calls = [
+            c for c in port.calls if c[0] == "has_structural_artifact_for_scope"
+        ]
+        assert scope_calls, "has_structural_artifact_for_scope should have been called"
+        fallback_calls = [c for c in port.calls if c[0] == "has_structural_artifact"]
+        assert not fallback_calls, "story_dir fallback must not be used when scope has run_id"
 
-    def test_verify_decision_uses_runtime_scope_reader(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        tmp_path: Path,
+    def test_structural_artifact_falls_back_to_story_dir_when_scope_none(
+        self, tmp_path: Path
     ) -> None:
+        """When runtime_scope is None, has_structural_artifact(story_dir) is used."""
+        port = _RecordingStatePort()
+
+        gate = IntegrityGate(state_port=port)  # type: ignore[arg-type]
+        result = gate._check_structural_artifact(tmp_path, None)
+
+        assert result.passed is True
+        fallback_calls = [c for c in port.calls if c[0] == "has_structural_artifact"]
+        assert fallback_calls, "story_dir fallback should be called when scope is None"
+
+    def test_verify_decision_uses_scope_reader_when_scope_has_run_id(
+        self, tmp_path: Path
+    ) -> None:
+        """When runtime_scope has run_id, load_latest_verify_decision_for_scope is called."""
+        port = _RecordingStatePort()
         scope = RuntimeStateScope(
             project_key="test-project",
             story_id="AG3-001",
             story_dir=tmp_path,
             run_id="run-1",
         )
-        seen: list[RuntimeStateScope] = []
 
-        def fake_scope_loader(runtime_scope: RuntimeStateScope) -> dict[str, object]:
-            seen.append(runtime_scope)
-            return {"status": "PASS", "passed": True}
-
-        monkeypatch.setattr(
-            "agentkit.governance.integrity_gate.load_latest_verify_decision_for_scope",
-            fake_scope_loader,
-        )
-        monkeypatch.setattr(
-            "agentkit.governance.integrity_gate.verify_decision_passed",
-            lambda payload: True,
-        )
-        monkeypatch.setattr(
-            "agentkit.governance.integrity_gate.load_latest_verify_decision",
-            lambda story_dir: pytest.fail("story_dir fallback should not be used"),
-        )
-
-        result = IntegrityGate._check_verify_decision(tmp_path, scope)
+        gate = IntegrityGate(state_port=port)  # type: ignore[arg-type]
+        result = gate._check_verify_decision(tmp_path, scope)
 
         assert result.passed is True
-        assert seen == [scope]
+        scope_calls = [
+            c for c in port.calls
+            if c[0] == "load_latest_verify_decision_for_scope"
+        ]
+        assert scope_calls
+        fallback_calls = [
+            c for c in port.calls if c[0] == "load_latest_verify_decision"
+        ]
+        assert not fallback_calls, "story_dir fallback must not be used when scope has run_id"
 
-    def test_phase_state_record_reports_corrupt_state(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        tmp_path: Path,
-    ) -> None:
-        monkeypatch.setattr(
-            "agentkit.governance.integrity_gate.read_phase_state_record",
-            lambda story_dir: (_ for _ in ()).throw(CorruptStateError("broken")),
-        )
+    def test_phase_state_record_reports_corrupt_state(self, tmp_path: Path) -> None:
+        """CorruptStateError from read_phase_state_record yields failed check."""
+        port = _RecordingStatePort()
+        port._phase_state_record = CorruptStateError  # sentinel: raise on access
 
-        result = IntegrityGate._check_phase_state_record(tmp_path)
+        gate = IntegrityGate(state_port=port)  # type: ignore[arg-type]
+        result = gate._check_phase_state_record(tmp_path)
 
         assert result.passed is False
         assert result.dimension == "phase_state_record"
 
     def test_phase_state_record_fails_when_existing_record_is_invalid(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        tmp_path: Path,
+        self, tmp_path: Path
     ) -> None:
-        monkeypatch.setattr(
-            "agentkit.governance.integrity_gate.read_phase_state_record",
-            lambda story_dir: object(),
-        )
-        monkeypatch.setattr(
-            "agentkit.governance.integrity_gate.backend_has_valid_phase_state",
-            lambda story_dir: False,
-        )
+        """Non-None phase state record + has_valid_phase_state=False → failed check."""
+        port = _RecordingStatePort()
+        port._phase_state_record = object()  # non-None → not absent
+        port._valid_phase_state = False
 
-        result = IntegrityGate._check_phase_state_record(tmp_path)
+        gate = IntegrityGate(state_port=port)  # type: ignore[arg-type]
+        result = gate._check_phase_state_record(tmp_path)
 
         assert result.passed is False
         assert result.message == "Missing or invalid canonical phase state record"
+
+    def test_evaluate_passes_all_checks_with_recording_port(
+        self, tmp_path: Path
+    ) -> None:
+        """Full evaluate() path passes when all port methods return positive results."""
+        port = _RecordingStatePort()
+        scope = RuntimeStateScope(
+            project_key="p",
+            story_id="AG3-001",
+            story_dir=tmp_path,
+            run_id="run-1",
+        )
+        port._runtime_scope_result = scope
+        port._resolve_scope_raise = None
+        port._phase_state_record = object()  # non-None, valid_phase_state=True
+
+        gate = IntegrityGate(state_port=port)  # type: ignore[arg-type]
+        result = gate.evaluate(tmp_path, StoryType.IMPLEMENTATION)
+
+        assert result.passed is True
+        assert result.failed_checks == ()
+
+    def test_default_port_is_state_backend_adapter(self) -> None:
+        """When no port is passed, IntegrityGate builds a StateBackendIntegrityGateStateAdapter."""
+        from agentkit.state_backend.store.integrity_gate_repository import (
+            StateBackendIntegrityGateStateAdapter,
+        )
+
+        gate = IntegrityGate()
+        assert isinstance(gate._state_port, StateBackendIntegrityGateStateAdapter)

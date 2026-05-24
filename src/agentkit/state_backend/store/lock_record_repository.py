@@ -28,6 +28,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from agentkit.governance.errors import LockRecordNotFoundError
 from agentkit.governance.locks import LockRecordId
 
 if TYPE_CHECKING:
@@ -40,6 +41,21 @@ if TYPE_CHECKING:
 
 def _is_postgres() -> bool:
     return os.environ.get("AGENTKIT_STATE_BACKEND", "sqlite").lower() == "postgres"
+
+
+def _assert_sqlite_allowed() -> None:
+    """Raise RuntimeError if SQLite backend is not explicitly enabled.
+
+    Enforces the AGENTKIT_ALLOW_SQLITE=1 gating pattern from
+    ``state_backend/config.py:_sqlite_allowed`` (Fix E8, AG3-031 Pass-3).
+    """
+    from agentkit.state_backend.config import ALLOW_SQLITE_ENV, _sqlite_allowed
+
+    if not _sqlite_allowed():
+        raise RuntimeError(
+            "SQLite backend is disabled for this path. "
+            f"Set {ALLOW_SQLITE_ENV}=1 only for narrow unit-test execution.",
+        )
 
 
 def _postgres_database_url() -> str:
@@ -66,6 +82,7 @@ def _sqlite_db_path(store_dir: Path) -> Path:
 
 @contextmanager
 def _sqlite_connect(store_dir: Path) -> Iterator[sqlite3.Connection]:
+    _assert_sqlite_allowed()
     db_path = _sqlite_db_path(store_dir)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
@@ -162,20 +179,27 @@ class LockRecordRepository:
         self._store_dir: Path = store_dir or Path.cwd()
 
     def deactivate_locks_for_story(self, story_id: str) -> list[LockRecordId]:
-        """Mark all lock records for ``story_id`` as deactivated and return IDs.
+        """Mark all lock records for ``story_id`` as inactive and return IDs.
 
-        Implementation: UPDATE rows to ``status='DEACTIVATED'`` and set
-        ``deactivated_at``, then return the ``LockRecordId`` of each row.
-        If no rows exist, returns an empty list (idempotent).
+        Fail-closed (Fix E6, AG3-031 Pass-3 FK-30 §30.6.0): if no lock records
+        exist at all for ``story_id``, raises ``LockRecordNotFoundError``.
+        If all records are already INACTIVE (idempotent re-call), returns an
+        empty list without error.
+
+        Implementation: SELECT all rows (any status) first to distinguish
+        "unknown story" from "already inactive". Then UPDATE only ACTIVE rows
+        to ``status='INACTIVE'``.
 
         Args:
             story_id: Canonical story identifier.
 
         Returns:
-            List of ``LockRecordId`` for all deactivated lock records.
+            List of ``LockRecordId`` for all newly deactivated lock records
+            (may be empty when all locks were already INACTIVE).
 
         Raises:
-            Exception: On unrecoverable backend failures (fail-closed).
+            LockRecordNotFoundError: When no lock records exist for story_id.
+            Exception: On unrecoverable backend failures.
         """
         if _is_postgres():
             return self._pg_deactivate(story_id)
@@ -184,12 +208,24 @@ class LockRecordRepository:
     def _sqlite_deactivate(self, story_id: str) -> list[LockRecordId]:
         now_ts = datetime.now(UTC).isoformat()
         with _sqlite_connect(self._store_dir) as conn:
-            # Fetch affected rows first (SQLite UPDATE RETURNING not universal)
+            # E6: first check if ANY records exist (ACTIVE or INACTIVE)
+            count_cursor = conn.execute(
+                "SELECT COUNT(*) FROM story_execution_locks WHERE story_id = ?",
+                (story_id,),
+            )
+            total_count = int(count_cursor.fetchone()[0])
+            if total_count == 0:
+                raise LockRecordNotFoundError(
+                    f"No lock records found for story_id={story_id!r}. "
+                    "Fail-closed: Closure must not silently skip lock deactivation."
+                )
+
+            # Fetch only not-yet-INACTIVE rows
             cursor = conn.execute(
                 """
                 SELECT project_key, story_id, run_id, lock_type
                 FROM story_execution_locks
-                WHERE story_id = ? AND status != 'DEACTIVATED'
+                WHERE story_id = ? AND status != 'INACTIVE'
                 """,
                 (story_id,),
             )
@@ -199,8 +235,8 @@ class LockRecordRepository:
                 conn.execute(
                     """
                     UPDATE story_execution_locks
-                    SET status = 'DEACTIVATED', deactivated_at = ?
-                    WHERE story_id = ? AND status != 'DEACTIVATED'
+                    SET status = 'INACTIVE', deactivated_at = ?
+                    WHERE story_id = ? AND status != 'INACTIVE'
                     """,
                     (now_ts, story_id),
                 )
@@ -210,11 +246,24 @@ class LockRecordRepository:
     def _pg_deactivate(self, story_id: str) -> list[LockRecordId]:
         now_ts = datetime.now(UTC).isoformat()
         with _postgres_connect() as conn:
+            # E6: first check if ANY records exist (ACTIVE or INACTIVE)
+            count_cursor = conn.execute(
+                "SELECT COUNT(*) FROM story_execution_locks WHERE story_id = %s",
+                (story_id,),
+            )
+            row = count_cursor.fetchone()
+            total_count = int(row["count"] if isinstance(row, dict) else row[0])
+            if total_count == 0:
+                raise LockRecordNotFoundError(
+                    f"No lock records found for story_id={story_id!r}. "
+                    "Fail-closed: Closure must not silently skip lock deactivation."
+                )
+
             cursor = conn.execute(
                 """
                 UPDATE story_execution_locks
-                SET status = 'DEACTIVATED', deactivated_at = %s
-                WHERE story_id = %s AND status != 'DEACTIVATED'
+                SET status = 'INACTIVE', deactivated_at = %s
+                WHERE story_id = %s AND status != 'INACTIVE'
                 RETURNING project_key, story_id, run_id, lock_type
                 """,
                 (now_ts, story_id),

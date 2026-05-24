@@ -92,8 +92,11 @@ class RegistrationResult(BaseModel):
     """Result of a ``register_hooks`` call.
 
     Attributes:
-        registered: Matcher strings for hooks that were written to the backend.
-        skipped: Matcher strings for hooks already registered and unchanged.
+        registered: Matcher strings for hooks that were written (or overwritten)
+            in the backend.  Includes new entries and entries whose ``command``
+            changed (UPSERT — Fix E3, AG3-031 Pass-3).
+        skipped: Matcher strings for hooks already registered with an identical
+            ``command`` value.  Only truly identical rows are skipped.
         errors: Non-fatal registration errors (fatal errors are raised).
     """
 
