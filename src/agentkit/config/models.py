@@ -115,6 +115,9 @@ class ProjectConfig(BaseModel):
     Attributes:
         project_key: Stable technical key of the target project.
         project_name: Display name of the target project.
+        project_prefix: Story-ID prefix (FK-03 §3.2 / FK-43 §43.4.2 placeholder
+            ``{{project_prefix}}``). Defaults to ``project_key.upper()`` when
+            not provided.
         repositories: List of repositories managed by this project.
         pipeline: Pipeline behaviour configuration.
         story_types: Allowed story types for this project.
@@ -126,6 +129,7 @@ class ProjectConfig(BaseModel):
 
     project_key: str
     project_name: str
+    project_prefix: str | None = None
     repositories: list[RepositoryConfig]
     pipeline: PipelineConfig = PipelineConfig()
     story_types: list[str] = list(DEFAULT_STORY_TYPES)
@@ -142,4 +146,13 @@ class ProjectConfig(BaseModel):
                 "section (FK-03 §3.2.1)"
             )
             raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _default_project_prefix(self) -> ProjectConfig:
+        """FK-03 §3.2 / FK-43 §43.4.2: derive ``project_prefix`` from ``project_key``
+        when not explicitly set (story-id prefix convention)."""
+        if self.project_prefix is None:
+            # Pydantic v2 frozen models: rebuild via model_copy to set the default.
+            object.__setattr__(self, "project_prefix", self.project_key.upper())
         return self

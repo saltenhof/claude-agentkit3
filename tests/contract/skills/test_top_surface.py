@@ -53,13 +53,11 @@ class TestSkillsSignatures:
         assert params == ["self", "bundle_store", "binding_repo"]
 
     def test_bind_skill_signature(self) -> None:
+        """FK-43 §43.1: bind_skill takes exactly self, skill_name, bundle_root, project_root."""
         sig = inspect.signature(Skills.bind_skill)
         params = list(sig.parameters)
-        # Required positional params (besides self): skill_name, bundle_root, project_root
-        assert "self" in params
-        assert "skill_name" in params
-        assert "bundle_root" in params
-        assert "project_root" in params
+        # Strict: no extra keyword-only parameters (Pass-2 Codex giftig fix).
+        assert params == ["self", "skill_name", "bundle_root", "project_root"]
 
     def test_bind_skill_required_params_order(self) -> None:
         """The three required positional parameters are skill_name, bundle_root, project_root."""
@@ -185,8 +183,11 @@ class TestInstallerConsumability:
         # No TypeError means the contract is satisfied.
         skills.bind_skill("implement", bundle_root, project_root)
 
-        link = project_root / ".claude" / "skills" / "implement"
-        assert link.is_symlink()
+        # FK-43 §43.4.1 AK4: pflicht-Multi-Harness ab Tag 1 — beide Symlinks da.
+        claude_link = project_root / ".claude" / "skills" / "implement"
+        codex_link = project_root / ".codex" / "skills" / "implement"
+        assert claude_link.is_symlink()
+        assert codex_link.is_symlink()
 
 
 # ---------------------------------------------------------------------------

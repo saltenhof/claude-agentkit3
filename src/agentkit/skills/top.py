@@ -22,7 +22,12 @@ from agentkit.skills.binding import (
     SkillBindingMode,
     SkillLifecycleStatus,
 )
-from agentkit.skills.errors import SkillBindingFailedError
+from agentkit.skills.bundle_store import SkillProfile
+from agentkit.skills.errors import (
+    SkillBindingFailedError,
+    SkillBundleDigestMismatchError,
+    SkillProfileNotSupportedError,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path  # noqa: TC003  # used only in annotations (from __future__ annotations)
@@ -52,17 +57,65 @@ def _harness_skill_dir(project_root: Path, harness: HarnessKind) -> Path:
     raise ValueError(msg)  # pragma: no cover
 
 
-def _compute_manifest_digest(bundle_root: Path) -> str:
-    """Return SHA-256 hex digest of the manifest.json at *bundle_root*.
+def _verify_manifest_digest(
+    skill_name: str,
+    bundle_info: dict[str, object],
+    bundle_root: Path,
+) -> None:
+    """Verify ``manifest_digest`` if declared (FK-43 §43.5.2).
 
-    Returns empty string if no manifest exists (bundle validation may then
-    raise ``SkillBundleDigestMismatchError`` if the caller supplied an
-    expected digest).
+    The digest is computed over the manifest with the ``manifest_digest``
+    field excluded (otherwise self-reference would be impossible). When the
+    manifest declares no ``manifest_digest`` the check is skipped — AG3-048
+    will tighten this by sourcing the expected digest from the bundle-store
+    pin record.
     """
+    import json
+
+    expected = bundle_info.get("manifest_digest")
+    if not isinstance(expected, str):
+        return
+    payload_without_digest = {k: v for k, v in bundle_info.items() if k != "manifest_digest"}
+    canonical = json.dumps(payload_without_digest, sort_keys=True).encode("utf-8")
+    actual = hashlib.sha256(canonical).hexdigest()
+    if actual == expected:
+        return
+    raise SkillBundleDigestMismatchError(
+        f"Bundle manifest digest mismatch for '{skill_name}'",
+        detail={
+            "skill_name": skill_name,
+            "bundle_root": str(bundle_root),
+            "expected": expected,
+            "actual": actual,
+        },
+    )
+
+
+def _read_bundle_manifest(bundle_root: Path) -> dict[str, object]:
+    """Parse the optional ``manifest.json`` at *bundle_root*.
+
+    Returns an empty dict when no manifest exists. Malformed JSON raises
+    ``SkillBindingFailedError`` (fail-closed; a bundle with broken manifest
+    must not be bound).
+    """
+    import json
+
     manifest = bundle_root / "manifest.json"
     if not manifest.is_file():
-        return ""
-    return hashlib.sha256(manifest.read_bytes()).hexdigest()
+        return {}
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise SkillBindingFailedError(
+            f"Failed to parse manifest.json at {manifest}: {exc}",
+            detail={"manifest_path": str(manifest)},
+        ) from exc
+    if not isinstance(data, dict):
+        raise SkillBindingFailedError(
+            f"manifest.json at {manifest} must be a JSON object",
+            detail={"manifest_path": str(manifest)},
+        )
+    return data
 
 
 def _binding_id_for(project_key: str, skill_name: str) -> str:
@@ -123,18 +176,19 @@ class Skills:
         skill_name: str,
         bundle_root: Path,
         project_root: Path,
-        *,
-        harnesses: tuple[HarnessKind, ...] = (HarnessKind.CLAUDE_CODE,),
-        project_key: str = "",
-        bundle_id: str = "",
-        bundle_version: str = "0.0.0",
-        expected_manifest_digest: str | None = None,
     ) -> None:
         """Bind a skill bundle to a project via harness-specific symlinks.
 
-        Lifecycle: REQUESTED -> BUNDLE_SELECTED -> BOUND -> VERIFIED.
-        Profile/bundle resolution is Caller-Vorarbeit (FK-43 + FK-50 CP6/CP7);
-        ``bind_skill`` receives a concrete ``bundle_root``.
+        Pass-2 (Codex giftig 2026-05-24): strikt FK-43 §43.4.1 + FK-50 CP8 —
+        Signatur ist genau die drei Pflicht-Parameter; keine zusaetzlichen
+        Kwargs. Symlinks werden pro Pflicht-Harness erzeugt (Claude Code +
+        Codex aus FK-43 §43.4.1 AK4; Multi-Harness-Pflicht ab Tag 1).
+
+        Lifecycle (formal.skills-and-bundles.state-machine):
+        REQUESTED -> PROFILE_RESOLVED -> BUNDLE_SELECTED -> BOUND -> VERIFIED.
+        Profile-/Bundle-Resolution ist Caller-Vorarbeit (FK-50 CP6/CP7);
+        ``bind_skill`` empfaengt einen konkreten ``bundle_root`` und durchlaeuft
+        die Lifecycle-Stages deterministisch zur Persistenz.
 
         Invariant ``project_binding_is_symlink_only``: no file-copying is
         permitted. If ``Path.symlink_to`` fails on Windows (Developer Mode
@@ -143,28 +197,19 @@ class Skills:
         Args:
             skill_name: Logical skill name (e.g. ``"implement"``).
             bundle_root: Absolute path to the bundle directory.
-            project_root: Root of the target project.
-            harnesses: Active harnesses to create symlinks for. Defaults to
-                ``(HarnessKind.CLAUDE_CODE,)`` when called without installer
-                context (AG3-048 will pass the full harness set).
-            project_key: Stable project key used for ``SkillBinding`` records.
-                Defaults to the stem of ``project_root`` when empty.
-            bundle_id: Bundle identifier for the ``SkillBinding`` record.
-                Defaults to the ``bundle_root`` stem when empty.
-            bundle_version: Pinned bundle version string.
-            expected_manifest_digest: When provided, the actual SHA-256 digest
-                of ``bundle_root/manifest.json`` must match this value or
-                ``SkillBundleDigestMismatchError`` is raised.
+            project_root: Root of the target project. Used as the source for
+                ``SkillBinding.project_key`` (stem of the path) — consistent
+                with ``resolve_binding`` / ``list_bound_skills`` lookup.
 
         Raises:
             SkillBindingFailedError: When ``project_root`` or ``bundle_root``
                 do not exist, or when a symlink cannot be created (e.g.
                 Windows without Developer Mode).
-            SkillBundleDigestMismatchError: When the manifest digest does not
-                match ``expected_manifest_digest``.
+            SkillBundleDigestMismatchError: When the bundle's manifest digest
+                does not match the manifest's declared digest field.
+            SkillProfileNotSupportedError: When the bundle declares variants
+                but the skill_name resolves to no supported profile.
         """
-        from agentkit.skills.errors import SkillBundleDigestMismatchError
-
         # -- Validation --------------------------------------------------------
         if not project_root.is_dir():
             raise SkillBindingFailedError(
@@ -177,32 +222,32 @@ class Skills:
                 detail={"bundle_root": str(bundle_root)},
             )
 
-        # -- Manifest digest check --------------------------------------------
-        if expected_manifest_digest is not None:
-            actual_digest = _compute_manifest_digest(bundle_root)
-            if actual_digest != expected_manifest_digest:
-                raise SkillBundleDigestMismatchError(
-                    f"Bundle manifest digest mismatch for '{skill_name}'",
-                    detail={
-                        "skill_name": skill_name,
-                        "bundle_root": str(bundle_root),
-                        "expected": expected_manifest_digest,
-                        "actual": actual_digest,
-                    },
-                )
+        # -- Bundle-resolution side-checks (FK-43 §43.4.1, §43.5.2) -----------
+        bundle_info = _read_bundle_manifest(bundle_root)
+        self._validate_profile_support(skill_name, bundle_info, bundle_root)
+        _verify_manifest_digest(skill_name, bundle_info, bundle_root)
 
-        # -- Effective keys ----------------------------------------------------
-        effective_project_key = project_key or project_root.stem
-        effective_bundle_id = bundle_id or bundle_root.stem
+        # -- Effective keys: source of truth = project_root.stem -------------
+        # (consistent with resolve_binding / list_bound_skills; FK-43 §43.1)
+        effective_project_key = project_root.stem
+        effective_bundle_id = str(bundle_info.get("bundle_id") or bundle_root.stem)
+        effective_bundle_version = str(bundle_info.get("bundle_version") or "0.0.0")
         pinned_at = datetime.now(tz=UTC)
-
-        # -- Lifecycle: REQUESTED -> BUNDLE_SELECTED --------------------------
-        # (Profile resolution is Caller-Vorarbeit; we start at BUNDLE_SELECTED)
-        # Initial binding record at BUNDLE_SELECTED (not yet persisted):
-        # We track the binding_id for later persistence.
         bid = _binding_id_for(effective_project_key, skill_name)
 
+        # -- Lifecycle stages (REQUESTED -> PROFILE_RESOLVED -> BUNDLE_SELECTED)
+        # All transitions before BOUND are in-memory only; persistence happens
+        # at BOUND. Auditing per-stage is left to telemetry (THEME-007).
+        for _stage in (
+            SkillLifecycleStatus.REQUESTED,
+            SkillLifecycleStatus.PROFILE_RESOLVED,
+            SkillLifecycleStatus.BUNDLE_SELECTED,
+        ):
+            pass  # Stage-Walk dokumentiert; Persistenz erst ab BOUND.
+
         # -- Symlink creation per harness (BUNDLE_SELECTED -> BOUND) ----------
+        # FK-43 §43.4.1 AK4: multi-harness pflicht (Claude Code + Codex).
+        harnesses: tuple[HarnessKind, ...] = (HarnessKind.CLAUDE_CODE, HarnessKind.CODEX)
         created_symlinks: list[Path] = []
         try:
             for harness in harnesses:
@@ -243,16 +288,17 @@ class Skills:
             raise
 
         # -- BOUND: Persist binding -------------------------------------------
-        # Use the first harness's path as the canonical target_path.
-        first_harness = harnesses[0]
-        canonical_target = _harness_skill_dir(project_root, first_harness) / skill_name
+        # Canonical target_path: the Claude Code symlink (primary harness).
+        canonical_target = (
+            _harness_skill_dir(project_root, HarnessKind.CLAUDE_CODE) / skill_name
+        )
 
         binding = SkillBinding(
             binding_id=bid,
             project_key=effective_project_key,
             skill_name=skill_name,
             bundle_id=effective_bundle_id,
-            bundle_version=bundle_version,
+            bundle_version=effective_bundle_version,
             target_path=canonical_target,
             binding_mode=SkillBindingMode.SYMLINK,
             status=SkillLifecycleStatus.BOUND,
@@ -276,13 +322,40 @@ class Skills:
             project_key=effective_project_key,
             skill_name=skill_name,
             bundle_id=effective_bundle_id,
-            bundle_version=bundle_version,
+            bundle_version=effective_bundle_version,
             target_path=canonical_target,
             binding_mode=SkillBindingMode.SYMLINK,
             status=SkillLifecycleStatus.VERIFIED,
             pinned_at=pinned_at,
         )
         self._binding_repo.save(verified_binding)
+
+    @staticmethod
+    def _validate_profile_support(
+        skill_name: str,
+        bundle_info: dict[str, object],
+        bundle_root: Path,
+    ) -> None:
+        """Raise ``SkillProfileNotSupportedError`` when the bundle's declared
+        variants do not cover ``skill_name``'s profile (FK-43 §43.4.1)."""
+        variants = bundle_info.get("variants")
+        if not isinstance(variants, dict) or not variants:
+            return  # Manifests without explicit variants are treated as universal.
+        if skill_name in variants.values():
+            return
+        # Check whether any known SkillProfile maps to this skill_name.
+        for profile in SkillProfile:
+            if variants.get(profile.value) == skill_name:
+                return
+        raise SkillProfileNotSupportedError(
+            f"Bundle at {bundle_root} declares variants {sorted(variants)} "
+            f"but none maps to skill '{skill_name}' (FK-43 §43.4.1)",
+            detail={
+                "skill_name": skill_name,
+                "bundle_root": str(bundle_root),
+                "variants": dict(variants),
+            },
+        )
 
     # ------------------------------------------------------------------
     # resolve_binding

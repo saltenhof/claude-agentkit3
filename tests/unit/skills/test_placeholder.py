@@ -43,16 +43,18 @@ class TestMandatoryPlaceholders:
         assert result == "Owner: my-org"
 
     def test_gh_repo(self) -> None:
+        # FK-43 §43.4.2: gh_repo source is config.repositories[0].name
         result = self.sub.substitute("Repo: {{gh_repo}}", self.cfg)
-        assert result == "Repo: my-repo"
+        assert result == "Repo: app"
 
     def test_project_key(self) -> None:
         result = self.sub.substitute("Key: {{project_key}}", self.cfg)
         assert result == "Key: my-proj"
 
     def test_project_prefix(self) -> None:
+        # FK-03 §3.2 / Pass-2: project_prefix defaults to project_key.upper()
         result = self.sub.substitute("Prefix: {{project_prefix}}", self.cfg)
-        assert result == "Prefix: my-proj"
+        assert result == "Prefix: MY-PROJ"
 
     def test_all_four_together(self) -> None:
         template = (
@@ -60,7 +62,7 @@ class TestMandatoryPlaceholders:
             "key={{project_key}} prefix={{project_prefix}}"
         )
         result = self.sub.substitute(template, self.cfg)
-        assert result == "owner=my-org repo=my-repo key=my-proj prefix=my-proj"
+        assert result == "owner=my-org repo=app key=my-proj prefix=MY-PROJ"
 
     def test_no_placeholders_passthrough(self) -> None:
         result = self.sub.substitute("no placeholders here", self.cfg)
@@ -75,10 +77,26 @@ class TestMandatoryPlaceholders:
         result = self.sub.substitute("{{gh_owner}}", cfg)
         assert result == ""
 
-    def test_none_github_repo_becomes_empty_string(self) -> None:
-        cfg = _project_config(github_repo=None)
-        result = self.sub.substitute("{{gh_repo}}", cfg)
-        assert result == ""
+    def test_explicit_project_prefix_overrides_default(self) -> None:
+        # FK-03 §3.2 / FK-43 §43.4.2: explicit project_prefix wins.
+        cfg = ProjectConfig(
+            project_key="my-proj",
+            project_name="My Project",
+            project_prefix="ACME",
+            repositories=[RepositoryConfig(name="app", path=Path("."))],
+        )
+        result = self.sub.substitute("Prefix: {{project_prefix}}", cfg)
+        assert result == "Prefix: ACME"
+
+    def test_empty_repositories_raises_value_error(self) -> None:
+        # FK-43 §43.4.2: gh_repo has no canonical source without a repository.
+        cfg = ProjectConfig(
+            project_key="my-proj",
+            project_name="My Project",
+            repositories=[],
+        )
+        with pytest.raises(ValueError, match="gh_repo"):
+            self.sub.substitute("{{gh_repo}}", cfg)
 
 
 # ---------------------------------------------------------------------------

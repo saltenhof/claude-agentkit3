@@ -36,43 +36,55 @@ _MANDATORY_PLACEHOLDERS: frozenset[str] = frozenset(
 class PlaceholderSubstitutor:
     """Substitutes FK-43 §43.4.2 placeholder tokens in skill content.
 
-    Supports exactly four mandatory placeholders:
+    Supports exactly four mandatory placeholders (FK-43 §43.4.2 table):
 
-    * ``{{gh_owner}}``      — ``project_config.github_owner``
-    * ``{{gh_repo}}``       — ``project_config.github_repo``
-    * ``{{project_prefix}}`` — ``project_config.project_key`` prefix (used as
-      ``story_id_prefix``; in this model equal to ``project_key`` since
-      ``PipelineConfig`` does not carry ``story_id_prefix``). If the concept
-      requires a distinct field this must be supplied via a follow-up story.
-    * ``{{project_key}}``   — ``project_config.project_key``
+    * ``{{gh_owner}}``       — ``config.github_owner``
+    * ``{{gh_repo}}``        — ``config.repositories[0].name``
+      (deterministic first repository; single-repo: the only one)
+    * ``{{project_prefix}}`` — ``config.project_prefix``
+      (FK-03 §3.2 / defaulted from ``project_key.upper()`` when absent)
+    * ``{{project_key}}``    — ``config.project_key``
 
-    Raises ``UnknownPlaceholderError`` on any unrecognised token (fail-closed
-    per FK-43 §43.4.2).
+    The accepted config type is the top-level ``ProjectConfig`` (which
+    aggregates ``PipelineConfig`` and carries all FK-03 §3.2 fields).
+    Read-only access — no mutation, no state held.
+
+    Raises ``UnknownPlaceholderError`` on any unrecognised token
+    (fail-closed per FK-43 §43.4.2).
 
     Args:
         None — stateless; ``substitute`` receives the config at call time.
     """
 
-    def substitute(self, content: str, project_config: ProjectConfig) -> str:
-        """Replace all placeholder tokens in *content*.
+    def substitute(self, content: str, config: ProjectConfig) -> str:
+        """Replace all placeholder tokens in *content* (FK-43 §43.4.2).
 
         Args:
             content: Raw text that may contain ``{{...}}`` tokens.
-            project_config: The project configuration used to resolve values.
+            config: The project configuration used to resolve values.
 
         Returns:
             The content with all recognised placeholders replaced.
 
         Raises:
             UnknownPlaceholderError: When an unrecognised placeholder is found.
+            ValueError: When ``config.repositories`` is empty
+                (``{{gh_repo}}`` has no canonical source).
         """
+        if not config.repositories:
+            msg = (
+                "PlaceholderSubstitutor requires at least one repository in "
+                "config.repositories to resolve {{gh_repo}} (FK-43 §43.4.2)"
+            )
+            raise ValueError(msg)
+        # project_prefix is FK-03 §3.2 Pflichtfeld; ProjectConfig defaults it
+        # to project_key.upper() when not provided.
+        assert config.project_prefix is not None  # noqa: S101 -- enforced by validator
         placeholder_values: dict[str, str] = {
-            "gh_owner": project_config.github_owner or "",
-            "gh_repo": project_config.github_repo or "",
-            # story_id_prefix is not a PipelineConfig field; using project_key
-            # as the canonical prefix until a follow-up story extends the model.
-            "project_prefix": project_config.project_key,
-            "project_key": project_config.project_key,
+            "gh_owner": config.github_owner or "",
+            "gh_repo": config.repositories[0].name,
+            "project_prefix": config.project_prefix,
+            "project_key": config.project_key,
         }
 
         def _replace(match: re.Match[str]) -> str:

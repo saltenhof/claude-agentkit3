@@ -25,6 +25,7 @@ from agentkit.skills.bundle_store import SkillBundleStore
 from agentkit.skills.errors import (
     SkillBindingFailedError,
     SkillBundleDigestMismatchError,
+    SkillProfileNotSupportedError,
 )
 from agentkit.skills.repository import InMemorySkillBindingRepository
 from agentkit.skills.top import Skills
@@ -162,7 +163,7 @@ class TestBindSkillHappyPath:
         skills = _make_skills()
         # No .claude/skills/ directory pre-exists
         assert not (project_root / ".claude").exists()
-        skills.bind_skill("implement", bundle_root, project_root, project_key="proj")
+        skills.bind_skill("implement", bundle_root, project_root)
         assert (project_root / ".claude" / "skills").is_dir()
 
     def test_no_file_copy(self, tmp_path: Path) -> None:
@@ -174,7 +175,7 @@ class TestBindSkillHappyPath:
         project_root.mkdir()
 
         skills = _make_skills()
-        skills.bind_skill("implement", bundle_root, project_root, project_key="proj")
+        skills.bind_skill("implement", bundle_root, project_root)
 
         # The project must NOT contain a copy of skill.md
         assert not (project_root / "skill.md").exists()
@@ -199,7 +200,7 @@ class TestBindSkillLifecycle:
         project_root.mkdir()
 
         skills = _make_skills()
-        skills.bind_skill("implement", bundle_root, project_root, project_key="proj")
+        skills.bind_skill("implement", bundle_root, project_root)
 
         binding = skills.resolve_binding(project_root, "implement")
         assert binding is not None
@@ -248,44 +249,58 @@ class TestBindSkillFailClosed:
             skills.bind_skill("implement", bundle_root, project_root)
 
     def test_digest_mismatch_raises(self, tmp_path: Path) -> None:
+        # FK-43 §43.5.2: manifest declares its own digest; mismatch is fail-closed.
         bundle_root = tmp_path / "bundle"
         bundle_root.mkdir()
-        (bundle_root / "manifest.json").write_text('{"bundle_id": "x"}')
+        (bundle_root / "manifest.json").write_text(
+            '{"bundle_id": "x", "manifest_digest": "deadbeef"}'
+        )
         project_root = tmp_path / "project"
         project_root.mkdir()
 
         skills = _make_skills()
         with pytest.raises(SkillBundleDigestMismatchError, match="mismatch"):
-            skills.bind_skill(
-                "implement",
-                bundle_root,
-                project_root,
-                expected_manifest_digest="aaaaaa",
-            )
+            skills.bind_skill("implement", bundle_root, project_root)
 
     @pytest.mark.skipif(
         not _SYMLINKS_AVAILABLE,
         reason="Symlinks not supported without Developer Mode (Story §8)",
     )
     def test_correct_digest_passes(self, tmp_path: Path) -> None:
+        # FK-43 §43.5.2: manifest_digest covers the manifest payload *excluding*
+        # the manifest_digest field itself (otherwise self-reference is impossible).
         import hashlib
+        import json
+
+        payload = {"bundle_id": "x"}
+        canonical = json.dumps(payload, sort_keys=True).encode("utf-8")
+        digest = hashlib.sha256(canonical).hexdigest()
 
         bundle_root = tmp_path / "bundle"
         bundle_root.mkdir()
-        manifest_content = b'{"bundle_id": "x"}'
-        (bundle_root / "manifest.json").write_bytes(manifest_content)
-        digest = hashlib.sha256(manifest_content).hexdigest()
+        manifest = {"bundle_id": "x", "manifest_digest": digest}
+        (bundle_root / "manifest.json").write_text(json.dumps(manifest))
         project_root = tmp_path / "project"
         project_root.mkdir()
 
         skills = _make_skills()
-        # Should not raise
-        skills.bind_skill(
-            "implement",
-            bundle_root,
-            project_root,
-            expected_manifest_digest=digest,
-        )
+        # Should not raise: digest matches payload-without-digest.
+        skills.bind_skill("implement", bundle_root, project_root)
+
+    def test_profile_not_supported_raises(self, tmp_path: Path) -> None:
+        # FK-43 §43.4.1: bundle declares variants but skill_name maps to none.
+        import json
+
+        bundle_root = tmp_path / "bundle"
+        bundle_root.mkdir()
+        manifest = {"bundle_id": "x", "variants": {"CORE": "other_skill"}}
+        (bundle_root / "manifest.json").write_text(json.dumps(manifest))
+        project_root = tmp_path / "project"
+        project_root.mkdir()
+
+        skills = _make_skills()
+        with pytest.raises(SkillProfileNotSupportedError, match="variants"):
+            skills.bind_skill("implement", bundle_root, project_root)
 
     @pytest.mark.skipif(
         sys.platform != "win32",
@@ -335,7 +350,7 @@ class TestResolveBinding:
         project_root.mkdir()
 
         skills = _make_skills()
-        skills.bind_skill("implement", bundle_root, project_root, project_key="proj")
+        skills.bind_skill("implement", bundle_root, project_root)
         result = skills.resolve_binding(project_root, "implement")
         assert result is not None
         assert result.skill_name == "implement"
