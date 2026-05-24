@@ -13,6 +13,11 @@ removed.  The composition root
 (``agentkit.bootstrap.composition_root.build_setup_preflight_gate``) is the
 canonical wiring point.  All callers must inject a ``SetupContextRepository``
 explicitly — no internal fallback factory remains.
+
+AG3-031 Pass-6 Fix E9 (2026-05-24): lazy ``StateBackendStoryDependencyRepository``
+fallback removed from ``_run_preflight_check``.  ``dependency_repository``
+may be ``None``; ``run_preflight`` handles ``None`` natively (no-dep check).
+All state-backend imports go through DI or composition root.
 """
 
 from __future__ import annotations
@@ -91,11 +96,10 @@ class SetupPhaseHandler:
             ``agentkit.bootstrap.composition_root.build_setup_preflight_gate()``
             to obtain the canonical adapter (AG3-031 Pass-5 Fix E9).
         dependency_repository: Repository for story dependencies used in
-            preflight.  When ``None``, a
-            ``StateBackendStoryDependencyRepository()`` is instantiated
-            lazily in ``_run_preflight_check``.  Provide a test double
-            to avoid the state-backend import in unit tests (AG3-031
-            Pass-5 Fix E9).
+            preflight.  When ``None``, the dependency check is skipped
+            inside ``run_preflight`` (no lazy import).  Provide a test
+            double or real repository to enable the dependency check
+            (AG3-031 Pass-6 Fix E9).
     """
 
     def __init__(
@@ -230,15 +234,9 @@ def _run_preflight_check(
         ctx: Current story context.
         story_service: StoryService instance for preflight checks.
         dependency_repository: Optional repository for story dependencies.
-            When ``None``, ``StateBackendStoryDependencyRepository`` is used
-            (lazy import to keep module-level imports clean — AG3-031 Pass-5).
+            When ``None``, dependency checks are skipped inside
+            ``run_preflight`` — no lazy import (AG3-031 Pass-6 Fix E9).
     """
-    if dependency_repository is None:
-        from agentkit.state_backend.store.story_dependency_repository import (
-            StateBackendStoryDependencyRepository,
-        )
-        dependency_repository = StateBackendStoryDependencyRepository()
-
     story_display_id = cfg.story_id or ctx.story_id
     preflight = run_preflight(
         story_display_id,

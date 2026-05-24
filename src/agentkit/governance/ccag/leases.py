@@ -92,9 +92,24 @@ CREATE TABLE IF NOT EXISTS ccag_permission_leases (
 _lock = threading.Lock()
 
 
+def _assert_sqlite_allowed() -> None:
+    """Raise RuntimeError if SQLite backend is not explicitly enabled.
+
+    Enforces the AGENTKIT_ALLOW_SQLITE=1 gating pattern (Fix E8, AG3-031 Pass-6).
+    """
+    from agentkit.state_backend.config import ALLOW_SQLITE_ENV, _sqlite_allowed
+
+    if not _sqlite_allowed():
+        raise RuntimeError(
+            "SQLite backend is disabled for this path. "
+            f"Set {ALLOW_SQLITE_ENV}=1 only for narrow unit-test execution.",
+        )
+
+
 @contextmanager
 def _connect(db_path: Path) -> Generator[sqlite3.Connection, None, None]:
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    _assert_sqlite_allowed()
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
     conn.executescript(_SCHEMA)

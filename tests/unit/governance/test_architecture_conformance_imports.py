@@ -6,6 +6,10 @@ contain no module-level or class-level ``from agentkit.state_backend.store`` imp
 TYPE_CHECKING blocks.  Lazy imports inside function/method bodies are acceptable (they are
 deferred, not side-effects of module loading).  The canonical wiring point is the composition
 root (``agentkit.bootstrap.composition_root``).
+
+AG3-031 Pass-6 Fix E9: ``setup_preflight_gate.phase`` is additionally checked for ANY
+``from agentkit.state_backend.store`` import anywhere in the module — including inside
+function bodies — because all wiring must go through DI/composition-root, not lazy fallbacks.
 """
 
 from __future__ import annotations
@@ -86,6 +90,57 @@ def _collect_module_level_state_backend_store_imports(source: str) -> list[str]:
     return violations
 
 
+def _collect_all_state_backend_store_imports(source: str) -> list[str]:
+    """Return ALL ``from agentkit.state_backend.store...`` imports anywhere in the module.
+
+    Unlike ``_collect_module_level_state_backend_store_imports``, this also
+    catches lazy imports inside function/method bodies.  Only TYPE_CHECKING
+    blocks are excluded.
+
+    Used for ``setup_preflight_gate.phase`` where even lazy fallbacks are
+    forbidden (AG3-031 Pass-6 Fix E9).
+    """
+    tree = ast.parse(source)
+
+    # Collect linenos that are inside TYPE_CHECKING blocks.
+    type_checking_linenos: set[int] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.If):
+            continue
+        test = node.test
+        is_type_checking = (
+            (isinstance(test, ast.Name) and test.id == "TYPE_CHECKING")
+            or (
+                isinstance(test, ast.Attribute)
+                and isinstance(test.value, ast.Name)
+                and test.value.id == "typing"
+                and test.attr == "TYPE_CHECKING"
+            )
+        )
+        if is_type_checking:
+            for child in ast.walk(node):
+                if hasattr(child, "lineno"):
+                    type_checking_linenos.add(child.lineno)
+
+    lines = source.splitlines()
+    violations: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Import, ast.ImportFrom)):
+            continue
+        if node.lineno in type_checking_linenos:
+            continue
+        if (
+            isinstance(node, ast.ImportFrom)
+            and node.module is not None
+            and (
+                node.module == "agentkit.state_backend.store"
+                or node.module.startswith("agentkit.state_backend.store.")
+            )
+        ):
+            violations.append(lines[node.lineno - 1].strip())
+    return violations
+
+
 class TestGovernanceNoModuleLevelStateBackendImports:
     """Governance modules must not have module-level imports from agentkit.state_backend.store.
 
@@ -115,6 +170,24 @@ class TestGovernanceNoModuleLevelStateBackendImports:
         assert not violations, (
             f"agentkit.governance.setup_preflight_gate.phase contains forbidden module-level imports "
             f"from agentkit.state_backend.store: {violations}"
+        )
+
+    def test_setup_preflight_gate_phase_no_lazy_state_backend_store_import(
+        self,
+    ) -> None:
+        """agentkit.governance.setup_preflight_gate.phase has no lazy state_backend.store import anywhere.
+
+        AG3-031 Pass-6 Fix E9: even lazy (function-body) imports from
+        agentkit.state_backend.store are forbidden in this module.  All wiring
+        must go through DI parameters or the composition root.
+        """
+        src = _source_path("agentkit.governance.setup_preflight_gate.phase")
+        violations = _collect_all_state_backend_store_imports(
+            src.read_text(encoding="utf-8")
+        )
+        assert not violations, (
+            f"agentkit.governance.setup_preflight_gate.phase contains forbidden imports "
+            f"(including lazy) from agentkit.state_backend.store: {violations}"
         )
 
     def test_runner_no_module_level_state_backend_store_import(self) -> None:

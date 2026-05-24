@@ -1654,7 +1654,7 @@ def save_story_execution_lock_global_row(row: dict[str, Any]) -> None:
                 worktree_roots_json, binding_version, activated_at,
                 updated_at, deactivated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT (project_key, run_id, lock_type) DO UPDATE SET
+            ON CONFLICT (project_key, story_id, run_id, lock_type) DO UPDATE SET
                 story_id = EXCLUDED.story_id,
                 status = EXCLUDED.status,
                 worktree_roots_json = EXCLUDED.worktree_roots_json,

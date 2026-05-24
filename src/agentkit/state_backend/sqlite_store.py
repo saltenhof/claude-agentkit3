@@ -18,7 +18,7 @@ from agentkit.boundary.filesystem import atomic_write_json, load_json_object
 from agentkit.boundary.shared.time import now_iso
 from agentkit.core_types.qa_artifact_names import VERIFY_DECISION_FILE
 from agentkit.exceptions import CorruptStateError
-from agentkit.state_backend.config import versioned_sqlite_db_file
+from agentkit.state_backend.config import ALLOW_SQLITE_ENV, _sqlite_allowed, versioned_sqlite_db_file
 from agentkit.state_backend.paths import (
     CLOSURE_REPORT_FILE,
     CONTEXT_EXPORT_FILE,
@@ -74,10 +74,23 @@ def _cast_json_record(value: object) -> _JsonRecord:
     return cast("_JsonRecord", value)
 
 
+def _assert_sqlite_allowed() -> None:
+    """Raise RuntimeError if SQLite backend is not explicitly enabled.
+
+    Enforces the AGENTKIT_ALLOW_SQLITE=1 gating pattern (Fix E8, AG3-031 Pass-6).
+    """
+    if not _sqlite_allowed():
+        raise RuntimeError(
+            "SQLite backend is disabled for this path. "
+            f"Set {ALLOW_SQLITE_ENV}=1 only for narrow unit-test execution.",
+        )
+
+
 @contextmanager
 def _connect(story_dir: Path) -> Iterator[sqlite3.Connection]:
     db_path = state_db_path_for(story_dir)
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    _assert_sqlite_allowed()
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
