@@ -151,6 +151,19 @@ def _defn_identifier(defn: HookDefinition) -> str:
     return defn.matcher
 
 
+def _extract_existing_command(existing: Any) -> str | None:
+    """Pull the ``command`` value from a fetchone() result row.
+
+    Handles both dict-shaped rows (psycopg row_factory=dict_row) and
+    sqlite3.Row mappings. Returns ``None`` when no row is present.
+    """
+    if existing is None:
+        return None
+    if hasattr(existing, "get"):
+        return str(existing.get("command", ""))
+    return str(existing[0])
+
+
 # ---------------------------------------------------------------------------
 # SQLite connection helper
 # ---------------------------------------------------------------------------
@@ -363,9 +376,7 @@ class StateBackendHookRegistrationRepository:
                         },
                     ).fetchone()
 
-                    existing_command: str | None = (
-                        str(existing.get("command", "")) if hasattr(existing, "get") else str(existing[0])
-                    ) if existing is not None else None
+                    existing_command = _extract_existing_command(existing)
                     if existing_command is not None and existing_command == defn.command:
                         # Identical row — skip (no-op)
                         skipped.append(_defn_identifier(defn))
