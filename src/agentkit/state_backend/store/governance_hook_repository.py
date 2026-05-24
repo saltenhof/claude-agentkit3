@@ -281,7 +281,7 @@ class StateBackendHookRegistrationRepository:
                         registered.append(_defn_identifier(defn))
                     else:
                         skipped.append(_defn_identifier(defn))
-                except Exception as exc:  # noqa: BLE001 — collected, not re-raised
+                except Exception as exc:  # noqa: BLE001 -- collected as HookRegistrationError, not re-raised
                     errors.append(
                         HookRegistrationError(
                             f"Failed to register matcher {defn.matcher!r}: {exc}",
@@ -326,7 +326,7 @@ class StateBackendHookRegistrationRepository:
                         registered.append(_defn_identifier(defn))
                     else:
                         skipped.append(_defn_identifier(defn))
-                except Exception as exc:  # noqa: BLE001 — collected, not re-raised
+                except Exception as exc:  # noqa: BLE001 -- collected as HookRegistrationError, not re-raised
                     errors.append(
                         HookRegistrationError(
                             f"Failed to register matcher {defn.matcher!r}: {exc}",
