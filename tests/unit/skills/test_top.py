@@ -17,10 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from agentkit.skills.binding import (
-    HarnessKind,
-    SkillLifecycleStatus,
-)
+from agentkit.skills.binding import SkillLifecycleStatus
 from agentkit.skills.bundle_store import SkillBundleStore
 from agentkit.skills.errors import (
     SkillBindingFailedError,
@@ -84,7 +81,7 @@ class TestBindSkillHappyPath:
         project_root.mkdir()
 
         skills = _make_skills()
-        skills.bind_skill("implement", bundle_root, project_root, project_key="proj-a")
+        skills.bind_skill("implement", bundle_root, project_root)
 
         link = project_root / ".claude" / "skills" / "implement"
         assert link.is_symlink()
@@ -97,13 +94,9 @@ class TestBindSkillHappyPath:
         project_root.mkdir()
 
         skills = _make_skills()
-        skills.bind_skill(
-            "implement",
-            bundle_root,
-            project_root,
-            harnesses=(HarnessKind.CLAUDE_CODE, HarnessKind.CODEX),
-            project_key="proj-a",
-        )
+        # FK-43 §43.4.1 AK4: multi-harness Pflicht ab Tag 1; bind_skill setzt
+        # immer beide Symlinks (Claude Code + Codex), kein Kwarg-Override.
+        skills.bind_skill("implement", bundle_root, project_root)
 
         claude_link = project_root / ".claude" / "skills" / "implement"
         codex_link = project_root / ".codex" / "skills" / "implement"
@@ -117,7 +110,7 @@ class TestBindSkillHappyPath:
         project_root.mkdir()
 
         skills = _make_skills()
-        skills.bind_skill("implement", bundle_root, project_root, project_key="proj-a")
+        skills.bind_skill("implement", bundle_root, project_root)
 
         binding = skills.resolve_binding(project_root, "implement")
         assert binding is not None
@@ -132,7 +125,7 @@ class TestBindSkillHappyPath:
         project_root.mkdir()
 
         skills = _make_skills()
-        skills.bind_skill("implement", bundle_root, project_root, project_key="proj-a")
+        skills.bind_skill("implement", bundle_root, project_root)
 
         binding = skills.resolve_binding(project_root, "implement")
         assert binding is not None
@@ -147,8 +140,8 @@ class TestBindSkillHappyPath:
         project_root.mkdir()
 
         skills = _make_skills()
-        skills.bind_skill("implement", bundle1, project_root, project_key="proj")
-        skills.bind_skill("implement", bundle2, project_root, project_key="proj")
+        skills.bind_skill("implement", bundle1, project_root)
+        skills.bind_skill("implement", bundle2, project_root)
 
         link = project_root / ".claude" / "skills" / "implement"
         assert link.is_symlink()
@@ -215,10 +208,10 @@ class TestBindSkillLifecycle:
         project_root.mkdir()
 
         skills = _make_skills()
-        skills.bind_skill("implement", bundle1, project_root, project_key="proj")
+        skills.bind_skill("implement", bundle1, project_root)
         b1 = skills.resolve_binding(project_root, "implement")
 
-        skills.bind_skill("implement", bundle2, project_root, project_key="proj")
+        skills.bind_skill("implement", bundle2, project_root)
         b2 = skills.resolve_binding(project_root, "implement")
 
         assert b1 is not None and b2 is not None
@@ -380,9 +373,9 @@ class TestListBoundSkills:
         project_root.mkdir()
 
         skills = _make_skills()
-        skills.bind_skill("zzz", bundle, project_root, project_key="proj")
-        skills.bind_skill("aaa", bundle, project_root, project_key="proj")
-        skills.bind_skill("mmm", bundle, project_root, project_key="proj")
+        skills.bind_skill("zzz", bundle, project_root)
+        skills.bind_skill("aaa", bundle, project_root)
+        skills.bind_skill("mmm", bundle, project_root)
 
         result = skills.list_bound_skills(project_root)
         names = [b.skill_name for b in result]
@@ -401,8 +394,8 @@ class TestListBoundSkills:
         proj_b.mkdir()
 
         skills = _make_skills()
-        skills.bind_skill("skill-x", bundle, proj_a, project_key="proj_a")
-        skills.bind_skill("skill-y", bundle, proj_b, project_key="proj_b")
+        skills.bind_skill("skill-x", bundle, proj_a)
+        skills.bind_skill("skill-y", bundle, proj_b)
 
         result_a = skills.list_bound_skills(proj_a)
         result_b = skills.list_bound_skills(proj_b)
