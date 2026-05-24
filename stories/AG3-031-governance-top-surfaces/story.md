@@ -146,7 +146,7 @@ Implementation:
 | Datei | Aenderungsart | Beschreibung |
 |---|---|---|
 | `src/agentkit/governance/runner.py` | Modifiziert | `Governance.register_hooks`, `Governance.deactivate_locks` |
-| `src/agentkit/governance/hook_registration.py` | Neu | `HookDefinition`, `HookId`, `HookHarness`, `RegistrationResult`, Errors |
+| `src/agentkit/governance/hook_registration.py` | Neu | `HookDefinition` (Felder: `hook_event_name`, `matcher`, `command`), `HookEventName`, `HookId`, `HookHarness` (fuer Validierung; kein Feld in `HookDefinition`), `RegistrationResult`, Errors |
 | `src/agentkit/governance/locks.py` | Neu (oder Modifiziert) | `DeactivationResult`, `LockRecordId` |
 | `src/agentkit/governance/repository.py` | Neu | `HookRegistrationRepository`-Protocol |
 | `src/agentkit/state_backend/store/governance_hook_repository.py` | Neu | SQLite/Postgres-Implementierung |
