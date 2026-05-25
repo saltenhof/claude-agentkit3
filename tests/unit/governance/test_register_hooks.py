@@ -39,8 +39,12 @@ class _RecordingHookRepo:
     """In-memory recording double for HookRegistrationRepository."""
 
     def __init__(self) -> None:
-        # Key: (project_key, hook_event_name, matcher)
-        self._registered: dict[tuple[str, str, str], HookDefinition] = {}
+        # Key: (project_key, hook_event_name, matcher, command).
+        # AG3-031 Hotfix 2026-05-25: command is part of the identity, mirroring
+        # the StateBackendHookRegistrationRepository PK. FK-30 §30.3.1 registers
+        # several hooks under one matcher (e.g. "Bash" hosts branch_guard AND
+        # story_creation_guard); a matcher-only key collapsed them.
+        self._registered: dict[tuple[str, str, str, str], HookDefinition] = {}
         self.register_calls: list[tuple[str, list[HookDefinition]]] = []
 
     def register(
@@ -53,12 +57,17 @@ class _RecordingHookRepo:
         skipped: list[str] = []
 
         for defn in hook_definitions:
-            key = (project_key, defn.hook_event_name.value, defn.matcher)
-            if key in self._registered and self._registered[key].command == defn.command:
-                # Identical row — skip (UPSERT: Fix E3)
+            key = (
+                project_key,
+                defn.hook_event_name.value,
+                defn.matcher,
+                defn.command,
+            )
+            if key in self._registered:
+                # Identical 4-tuple — skip (idempotent)
                 skipped.append(defn.matcher)
             else:
-                # New row or changed command — register/overwrite
+                # New (matcher, command) combination — register
                 self._registered[key] = defn
                 registered.append(defn.matcher)
 
@@ -70,7 +79,7 @@ class _RecordingHookRepo:
 
     def list_for_project(self, project_key: str) -> list[HookDefinition]:
         return [
-            v for (pk, _, _), v in self._registered.items() if pk == project_key
+            v for (pk, _, _, _), v in self._registered.items() if pk == project_key
         ]
 
     def clear_for_project(self, project_key: str) -> None:
@@ -456,3 +465,96 @@ class TestHookIdEnum:
         """skill_usage_check was missing in Pass-1; must be present now."""
         assert HookId.SKILL_USAGE_CHECK in HookId
         assert HookId.SKILL_USAGE_CHECK.value == "skill_usage_check"
+
+
+# ---------------------------------------------------------------------------
+# Tests: shared-matcher governance hole (AG3-031 Hotfix 2026-05-25)
+# ---------------------------------------------------------------------------
+
+
+class TestRegisterHooksSharedMatcherGovernanceHole:
+    """Hooks sharing a matcher must not collapse into one.
+
+    FK-30 §30.3.1 registers multiple distinct hooks under the same matcher:
+    ``Bash`` hosts both branch_guard and story_creation_guard;
+    ``Write|Edit`` hosts qa_agent_guard and adversarial_guard; etc.
+    The pre-hotfix UPSERT keyed on matcher alone silently overwrote one with
+    the other, leaving 4 of 11 guards unregistered (governance hole).
+    Identity is now (event, matcher, command).
+    """
+
+    @staticmethod
+    def _shared_matcher_hooks() -> list[HookDefinition]:
+        # Three matcher groups each hosting two distinct guards (FK-30 §30.3.1).
+        pairs = [
+            ("Bash", "branch_guard", "story_creation_guard"),
+            ("Write|Edit", "qa_agent_guard", "adversarial_guard"),
+            (
+                "Bash|Write|Edit|Read|Grep|Glob|Agent",
+                "health_monitor",
+                "ccag_gatekeeper",
+            ),
+        ]
+        defs: list[HookDefinition] = []
+        for matcher, guard_a, guard_b in pairs:
+            defs.append(
+                HookDefinition(
+                    hook_event_name=HookEventName.PRE_TOOL_USE,
+                    matcher=matcher,
+                    command=f"agentkit-hook-claude pre {guard_a}",
+                )
+            )
+            defs.append(
+                HookDefinition(
+                    hook_event_name=HookEventName.PRE_TOOL_USE,
+                    matcher=matcher,
+                    command=f"agentkit-hook-claude pre {guard_b}",
+                )
+            )
+        return defs
+
+    def test_shared_matcher_hooks_all_persisted_in_settings(
+        self, tmp_path: Path
+    ) -> None:
+        """All six shared-matcher hooks survive in .claude/settings.json."""
+        import json
+
+        repo = _RecordingHookRepo()
+        gov = _make_governance(repo, project_root=tmp_path)
+
+        gov.register_hooks(self._shared_matcher_hooks())  # type: ignore[union-attr]
+
+        data = json.loads(
+            (tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8")
+        )
+        commands = {e["command"] for e in data["hooks"]["PreToolUse"]}
+        for guard in (
+            "branch_guard",
+            "story_creation_guard",
+            "qa_agent_guard",
+            "adversarial_guard",
+            "health_monitor",
+            "ccag_gatekeeper",
+        ):
+            assert f"agentkit-hook-claude pre {guard}" in commands, (
+                f"{guard} must survive — shared-matcher collapse is the hole"
+            )
+        # Two distinct Bash entries, not one (collapse would leave one).
+        bash_entries = [
+            e for e in data["hooks"]["PreToolUse"] if e["matcher"] == "Bash"
+        ]
+        assert len(bash_entries) == 2
+
+    def test_shared_matcher_hooks_all_registered_in_repo(
+        self, tmp_path: Path
+    ) -> None:
+        """The recording repo keeps all six (4-tuple identity)."""
+        repo = _RecordingHookRepo()
+        gov = _make_governance(repo, project_root=tmp_path)
+
+        result = gov.register_hooks(self._shared_matcher_hooks())  # type: ignore[union-attr]
+
+        assert len(result.registered) == 6
+        assert result.skipped == []
+        listed = repo.list_for_project("test-project")
+        assert len(listed) == 6

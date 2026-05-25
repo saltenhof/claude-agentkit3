@@ -6,8 +6,11 @@ Concrete implementation of ``HookRegistrationRepository`` protocol from
 Design decisions:
 - Backend switch via ``AGENTKIT_STATE_BACKEND`` env-var (sqlite/postgres),
   analog to ``artifact_repository.py``.
-- UNIQUE constraint on ``(project_key, hook_event_name, matcher)``
-  per FK-30 §30.3.1 — schema frozen as of AG3-031 Pass-2 (2026-05-24).
+- UNIQUE constraint on ``(project_key, hook_event_name, matcher, command)``
+  per FK-30 §30.3.1.  AG3-031 Hotfix 2026-05-25: ``command`` added to the
+  identity because §30.3.1 registers several hooks under one matcher
+  (e.g. ``Bash`` hosts branch_guard AND story_creation_guard); the prior
+  3-tuple key collapsed them and silently dropped guards.
 - INSERT OR IGNORE (SQLite) / ON CONFLICT DO NOTHING (Postgres) for idempotent
   registration without overwriting unchanged rows. Rows not inserted are
   reported as ``skipped``.
@@ -97,7 +100,7 @@ CREATE TABLE IF NOT EXISTS governance_hook_registrations (
     matcher         TEXT NOT NULL,
     command         TEXT NOT NULL,
     registered_at   TEXT NOT NULL,
-    PRIMARY KEY (project_key, hook_event_name, matcher)
+    PRIMARY KEY (project_key, hook_event_name, matcher, command)
 )
 """
 
@@ -108,8 +111,8 @@ CREATE TABLE IF NOT EXISTS governance_hook_registrations (
     matcher         TEXT NOT NULL,
     command         TEXT NOT NULL,
     registered_at   TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (project_key, hook_event_name, matcher),
-    UNIQUE (project_key, hook_event_name, matcher)
+    PRIMARY KEY (project_key, hook_event_name, matcher, command),
+    UNIQUE (project_key, hook_event_name, matcher, command)
 )
 """
 
@@ -141,27 +144,9 @@ def _row_to_definition(row: dict[str, Any]) -> HookDefinition:
     )
 
 
-def _row_identifier(row: dict[str, Any]) -> str:
-    """Return a human-readable identifier for a hook row (matcher string)."""
-    return str(row["matcher"])
-
-
 def _defn_identifier(defn: HookDefinition) -> str:
     """Return a stable string identifier for a HookDefinition."""
     return defn.matcher
-
-
-def _extract_existing_command(existing: Any) -> str | None:
-    """Pull the ``command`` value from a fetchone() result row.
-
-    Handles both dict-shaped rows (psycopg row_factory=dict_row) and
-    sqlite3.Row mappings. Returns ``None`` when no row is present.
-    """
-    if existing is None:
-        return None
-    if hasattr(existing, "get"):
-        return str(existing.get("command", ""))
-    return str(existing[0])
 
 
 # ---------------------------------------------------------------------------
@@ -243,10 +228,11 @@ class StateBackendHookRegistrationRepository:
     SQLite is only allowed when ``AGENTKIT_ALLOW_SQLITE=1``.
 
     Idempotent registration:
-        INSERT OR IGNORE (SQLite) / ON CONFLICT DO NOTHING (Postgres) means
-        identical ``(project_key, hook_event_name, matcher)`` tuples are
-        silently skipped. A second ``register`` call with the same definitions
+        Identity is the 4-tuple ``(project_key, hook_event_name, matcher,
+        command)``. A second ``register`` call with the same definitions
         returns all matchers in ``skipped`` and none in ``registered``.
+        Distinct commands sharing a matcher (e.g. branch_guard and
+        story_creation_guard both on ``Bash``) are preserved as separate rows.
 
     Args:
         store_dir: Base directory for SQLite state store. Ignored for Postgres.
@@ -295,27 +281,33 @@ class StateBackendHookRegistrationRepository:
         with _sqlite_connect(self._store_dir) as conn:
             for defn in definitions:
                 try:
-                    # Fix E3 (AG3-031 Pass-3): UPSERT semantics.
-                    # Pre-check: is an identical row already present?
+                    # AG3-031 Hotfix 2026-05-25 (Governance-Loch): Identitaet ist
+                    # das 4-Tupel (project_key, hook_event_name, matcher, command).
+                    # FK-30 §30.3.1 registriert mehrere Hooks mit demselben matcher
+                    # (z. B. "Bash" fuer branch_guard UND story_creation_guard);
+                    # ein 3-Tupel-PK ohne command kollabierte sie und verwarf Guards.
+                    # Pre-check: exaktes 4-Tupel bereits vorhanden -> idempotent skip.
                     existing = conn.execute(
                         """
-                        SELECT command FROM governance_hook_registrations
+                        SELECT 1 FROM governance_hook_registrations
                         WHERE project_key = :project_key
                           AND hook_event_name = :hook_event_name
                           AND matcher = :matcher
+                          AND command = :command
                         """,
                         {
                             "project_key": project_key,
                             "hook_event_name": defn.hook_event_name.value,
                             "matcher": defn.matcher,
+                            "command": defn.command,
                         },
                     ).fetchone()
 
-                    if existing is not None and str(existing[0]) == defn.command:
-                        # Identical row — skip (no-op)
+                    if existing is not None:
+                        # Identical 4-tuple already present — skip (no-op)
                         skipped.append(_defn_identifier(defn))
                     else:
-                        # New row or row with changed command — INSERT OR REPLACE
+                        # New (matcher, command) combination — INSERT
                         row = _definition_to_row(project_key, defn, now_ts)
                         conn.execute(
                             """
@@ -360,28 +352,32 @@ class StateBackendHookRegistrationRepository:
         with _postgres_connect() as conn:
             for defn in definitions:
                 try:
-                    # Fix E3 (AG3-031 Pass-3): UPSERT semantics.
-                    # Pre-check: is an identical row already present?
+                    # AG3-031 Hotfix 2026-05-25 (Governance-Loch): Identitaet ist
+                    # das 4-Tupel (project_key, hook_event_name, matcher, command).
+                    # FK-30 §30.3.1 registriert mehrere Hooks mit demselben matcher;
+                    # ein 3-Tupel-PK ohne command kollabierte sie und verwarf Guards.
+                    # Pre-check: exaktes 4-Tupel bereits vorhanden -> idempotent skip.
                     existing = conn.execute(
                         """
-                        SELECT command FROM governance_hook_registrations
+                        SELECT 1 FROM governance_hook_registrations
                         WHERE project_key = %(project_key)s
                           AND hook_event_name = %(hook_event_name)s
                           AND matcher = %(matcher)s
+                          AND command = %(command)s
                         """,
                         {
                             "project_key": project_key,
                             "hook_event_name": defn.hook_event_name.value,
                             "matcher": defn.matcher,
+                            "command": defn.command,
                         },
                     ).fetchone()
 
-                    existing_command = _extract_existing_command(existing)
-                    if existing_command is not None and existing_command == defn.command:
-                        # Identical row — skip (no-op)
+                    if existing is not None:
+                        # Identical 4-tuple already present — skip (no-op)
                         skipped.append(_defn_identifier(defn))
                     else:
-                        # New row or row with changed command — UPSERT
+                        # New (matcher, command) combination — INSERT (idempotent UPSERT)
                         row = _definition_to_row(project_key, defn, now_ts)
                         conn.execute(
                             """
@@ -391,9 +387,8 @@ class StateBackendHookRegistrationRepository:
                             VALUES
                                 (%(project_key)s, %(hook_event_name)s, %(matcher)s,
                                  %(command)s, %(registered_at)s)
-                            ON CONFLICT (project_key, hook_event_name, matcher)
+                            ON CONFLICT (project_key, hook_event_name, matcher, command)
                             DO UPDATE SET
-                                command = EXCLUDED.command,
                                 registered_at = EXCLUDED.registered_at
                             """,
                             row,

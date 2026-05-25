@@ -48,9 +48,11 @@ class ClaudeCodeSettingsWriter:
           }
         }
 
-    Idempotent / UPSERT semantics: existing entries with matching ``matcher``
-    under the same event key are replaced by the new ``command``; new matchers
-    are appended.  The file is written atomically (write to tmp + rename is
+    Idempotent / UPSERT semantics: an entry is replaced only when both its
+    ``matcher`` and ``command`` match under the same event key (idempotent
+    re-registration); a distinct ``command`` under the same matcher is kept as
+    a separate entry, because FK-30 §30.3.1 registers several hooks that share a
+    matcher (e.g. ``Bash``).  The file is written atomically (write to tmp + rename is
     impractical on all OSes; write-in-place is sufficient for settings files).
 
     Fail-closed: if the existing settings file contains invalid JSON, raises
@@ -73,8 +75,9 @@ class ClaudeCodeSettingsWriter:
         """Materialise ``hook_definitions`` into ``.claude/settings.json``.
 
         Reads the existing file (if any), merges the hook definitions, and
-        writes the result back.  Entries with the same ``matcher`` under the
-        same event name are overwritten (UPSERT); new matchers are appended.
+        writes the result back.  An entry is overwritten only when both its
+        ``matcher`` and ``command`` match (UPSERT); distinct commands under the
+        same matcher are preserved as separate entries (FK-30 §30.3.1).
 
         Args:
             hook_definitions: Hook definitions to materialise.
@@ -103,9 +106,20 @@ class ClaudeCodeSettingsWriter:
         for defn in hook_definitions:
             event_key = defn.hook_event_name.value  # "PreToolUse" or "PostToolUse"
             entries: list[dict[str, str]] = list(hooks_section.get(event_key, []))
-            # UPSERT: replace existing entry with same matcher, or append
+            # UPSERT keyed on (matcher, command): FK-30 §30.3.1 registers
+            # multiple distinct hooks under the same matcher (e.g. "Bash" hosts
+            # both branch_guard and story_creation_guard). Keying the UPSERT on
+            # matcher alone silently collapsed those into one, dropping guards.
+            # Identity is therefore (matcher, command) -- re-registering an
+            # identical pair is idempotent; a different command under the same
+            # matcher is preserved as a separate entry.
             idx = next(
-                (i for i, e in enumerate(entries) if e.get("matcher") == defn.matcher),
+                (
+                    i
+                    for i, e in enumerate(entries)
+                    if e.get("matcher") == defn.matcher
+                    and e.get("command") == defn.command
+                ),
                 None,
             )
             entry: dict[str, str] = {"matcher": defn.matcher, "command": defn.command}

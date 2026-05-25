@@ -285,6 +285,64 @@ class TestGovernanceHookRepositoryClear:
 # ---------------------------------------------------------------------------
 
 
+class TestGovernanceHookRepositorySharedMatcher:
+    """AG3-031 Hotfix 2026-05-25: shared-matcher hooks must both persist.
+
+    FK-30 §30.3.1 registers branch_guard and story_creation_guard both on
+    matcher ``Bash``. The pre-hotfix PK (project_key, hook_event_name, matcher)
+    collided on the second insert and overwrote the first, dropping a guard.
+    The PK now includes ``command`` (4-tuple), so both rows persist.
+    """
+
+    def test_shared_matcher_distinct_command_both_persist(
+        self,
+        repo: StateBackendHookRegistrationRepository,
+    ) -> None:
+        branch = _sample_definition(
+            matcher="Bash",
+            command="agentkit-hook-claude pre branch_guard",
+        )
+        story = _sample_definition(
+            matcher="Bash",
+            command="agentkit-hook-claude pre story_creation_guard",
+        )
+
+        result = repo.register(_PROJECT_KEY, [branch, story])
+
+        assert len(result.registered) == 2
+        assert result.skipped == []
+        assert result.errors == []
+
+        listed = repo.list_for_project(_PROJECT_KEY)
+        bash = [d for d in listed if d.matcher == "Bash"]
+        assert len(bash) == 2, "Both Bash hooks must persist (governance hole closed)"
+        assert {d.command for d in bash} == {
+            "agentkit-hook-claude pre branch_guard",
+            "agentkit-hook-claude pre story_creation_guard",
+        }
+
+    def test_shared_matcher_idempotent_reregistration(
+        self,
+        repo: StateBackendHookRegistrationRepository,
+    ) -> None:
+        """Re-registering the exact 4-tuple set is fully skipped (idempotent)."""
+        branch = _sample_definition(
+            matcher="Bash",
+            command="agentkit-hook-claude pre branch_guard",
+        )
+        story = _sample_definition(
+            matcher="Bash",
+            command="agentkit-hook-claude pre story_creation_guard",
+        )
+
+        repo.register(_PROJECT_KEY, [branch, story])
+        result2 = repo.register(_PROJECT_KEY, [branch, story])
+
+        assert result2.registered == []
+        assert len(result2.skipped) == 2
+        assert len(repo.list_for_project(_PROJECT_KEY)) == 2
+
+
 class TestGovernanceHookRepositorySqliteBootstrap:
     """SQLite schema is created idempotently on every connect."""
 

@@ -214,14 +214,18 @@
 
         -- AG3-031 Pass-2 FK-30-Korrektur 2026-05-24: schema corrected to
         -- (project_key, hook_event_name, matcher, command) per FK-30 §30.3.1.
+        -- AG3-031 Hotfix 2026-05-25 (Governance-Loch): command added to PK/UNIQUE.
+        -- FK-30 §30.3.1 registers multiple hooks under one matcher (e.g. "Bash"
+        -- hosts branch_guard AND story_creation_guard); a 3-tuple key collapsed
+        -- them and silently dropped guards.
         CREATE TABLE IF NOT EXISTS governance_hook_registrations (
             project_key      VARCHAR NOT NULL,
             hook_event_name  VARCHAR NOT NULL CHECK (hook_event_name IN ('PreToolUse','PostToolUse')),
             matcher          TEXT NOT NULL,
             command          TEXT NOT NULL,
             registered_at    TIMESTAMPTZ NOT NULL,
-            PRIMARY KEY (project_key, hook_event_name, matcher),
-            UNIQUE (project_key, hook_event_name, matcher)
+            PRIMARY KEY (project_key, hook_event_name, matcher, command),
+            UNIQUE (project_key, hook_event_name, matcher, command)
         );
 
         CREATE TABLE IF NOT EXISTS control_plane_operations (
