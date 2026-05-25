@@ -160,8 +160,13 @@ class CodexSettingsWriter:
     Codex-equivalent configuration path).
 
     Currently a stub implementation that writes a minimal TOML-like
-    representation.  Full Codex adapter implementation is deferred to
-    the Codex-adapter story (AG3-031 scope boundary).
+    representation. The ``command`` strings are passed through unchanged
+    (still ``agentkit-hook-claude ...``) and the Codex-specific tool-matcher
+    conventions (FK-30 §30.11) are not yet applied. Full Codex adapter —
+    command remap to ``agentkit-hook-codex`` + tool-matcher mapping + native
+    Codex settings schema — is AG3-049 (Codex-Harness-Adapter, follow-up to
+    AG3-031). Until AG3-049 lands, no installer/runtime path may register a
+    Codex project as fully hook-activated.
 
     Args:
         project_root: Root directory of the project.

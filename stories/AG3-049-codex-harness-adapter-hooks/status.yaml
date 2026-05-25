@@ -1,0 +1,10 @@
+story_id: AG3-049
+title: "Codex-Harness-Adapter: CodexSettingsWriter Vollausbau (Hook-Command + Tool-Matcher-Mapping)"
+type: implementation
+status: backlog
+phase: setup
+created: "2026-05-25"
+size: M
+depends_on:
+  - AG3-031
+unblocks: []
