@@ -152,6 +152,43 @@ Kontrolle mit `concept_status()`. Nach Konzept-Aenderungen reicht `delta`.
 
 ---
 
+## 6a. LSP / Code-Intelligence (basedpyright) auf neuem Rechner
+
+Claude Code zeigt beim Editieren von `.py` live `<new-diagnostics>` getaggt
+`(basedpyright)`. **Verifizierter Mechanismus auf diesem Rechner** (Claude Code
+**2.1.158**): Claude Codes **eingebaute** Code-Intelligence-Auto-Discovery
+erkennt `basedpyright-langserver` auf dem PATH und startet ihn als internen
+Inline-Server `basedpyright-python-inline`. Es ist **KEIN** Marketplace-Plugin
+installiert (`~/.claude/plugins/installed_plugins.json` listet nur skill-creator/
+codex/codex-bridge), und **kein** `ENABLE_LSP_TOOL` gesetzt (ab Claude Code
+v2.0.74 default-on).
+
+### Replikation (Windows)
+```powershell
+# 1) Claude Code aktuell (>= 2.0.74; hier 2.1.158)
+claude --version          # ggf. claude update
+
+# 2) basedpyright GLOBAL installieren -> legt basedpyright-langserver auf den PATH
+pip install basedpyright  # in die globale Python-Installation, NICHT nur ins venv
+
+# 3) verifizieren, dass der Langserver gefunden wird
+where.exe basedpyright-langserver
+#   erwartet z.B. C:\Program Files\Python314\Scripts\basedpyright-langserver
+
+# 4) Claude Code im Repo starten, eine .py-Datei oeffnen -> Diagnostics erscheinen.
+#    Inline ansehen: Ctrl+O. Diagnose bei Problemen: claude doctor  /  /status
+```
+> Wichtig: `basedpyright-langserver` muss in der **PATH-Python-Umgebung** liegen
+> (global), damit die Auto-Discovery ihn unabhaengig vom Projekt-venv findet.
+
+### Alternative (falls Auto-Discovery in einer Version mal nicht greift)
+Offizielles Marketplace-Plugin `pyright-lsp` (nutzt Microsofts `pyright`, nicht
+basedpyright): in einer Claude-Code-Session `/plugin install pyright-lsp@claude-plugins-official`,
+dann `pyright` global installieren (`pyright-langserver` auf PATH). Der offizielle
+Marketplace fuehrt `*-lsp`-Plugins fuer viele Sprachen (pyright, typescript, rust-analyzer, …).
+
+---
+
 ## 7. Infrastruktur außenrum (Services)
 
 AK3 nutzt im Vollbetrieb mehrere lokale Dienste. **Credentials sind lokal/
