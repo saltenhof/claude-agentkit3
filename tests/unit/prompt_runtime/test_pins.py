@@ -12,6 +12,7 @@ from agentkit.exceptions import ProjectError
 from agentkit.installer.paths import PROMPT_BUNDLE_STORE_ENV, prompt_bundle_store_dir
 from agentkit.prompt_runtime.pins import (
     ensure_prompt_run_pin,
+    ensure_run_prompt_pin_present,
     initialize_prompt_run_pin,
     load_prompt_run_pin,
     resolve_run_prompt_binding,
@@ -191,6 +192,49 @@ def test_mid_run_rebind_does_not_mutate_active_run(
     assert binding.bundle_id == "project-bound"
     assert binding.bundle_version == "99"
     assert binding.manifest_sha256 == pin.prompt_manifest_sha256
+
+
+def test_ensure_run_prompt_pin_present_creates_when_absent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Create-if-absent: with no pin yet, the current binding is pinned."""
+    _write_binding_lock(tmp_path)
+    monkeypatch.setenv(PROMPT_BUNDLE_STORE_ENV, str(tmp_path / "prompt-bundles"))
+
+    assert load_prompt_run_pin(tmp_path, "run-1") is None
+    pin = ensure_run_prompt_pin_present(tmp_path, run_id="run-1")
+
+    assert pin.prompt_bundle_id == "project-bound"
+    assert pin.prompt_bundle_version == "99"
+
+
+def test_ensure_run_prompt_pin_present_does_not_revalidate_after_rebind(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """N1 (AG3-015 R2): an existing pin is returned without lock re-validation.
+
+    Reproduces the regression at the pin layer: after a legitimate mid-run
+    ``update_binding`` (project lock points at a new version), the
+    consumer-side ``ensure_run_prompt_pin_present`` must return the existing
+    pin untouched -- it must NOT compare it against the current lock and trip a
+    spurious ``PROMPT_RUN_PIN_MISMATCH`` (C2
+    ``binding_changes_affect_only_future_runs``, FK-44 §44.3).
+    """
+    _write_binding_lock(tmp_path)
+    monkeypatch.setenv(PROMPT_BUNDLE_STORE_ENV, str(tmp_path / "prompt-bundles"))
+    first = ensure_run_prompt_pin_present(tmp_path, run_id="run-1")
+
+    # Legitimate mid-run rebind: project lock now points at a new version.
+    lock = json.loads((tmp_path / PROJECT_LOCK_RELPATH).read_text(encoding="utf-8"))
+    lock["bundle_version"] = "100"
+    (tmp_path / PROJECT_LOCK_RELPATH).write_text(json.dumps(lock), encoding="utf-8")
+
+    # No ProjectError; the existing v99 pin is returned unchanged.
+    second = ensure_run_prompt_pin_present(tmp_path, run_id="run-1")
+    assert second.prompt_bundle_version == "99"
+    assert second.prompt_manifest_sha256 == first.prompt_manifest_sha256
 
 
 def test_resolve_run_prompt_binding_rejects_pin_corruption(

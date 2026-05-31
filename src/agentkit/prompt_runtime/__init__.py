@@ -23,6 +23,7 @@ from agentkit.prompt_runtime.composer import (
 from agentkit.prompt_runtime.pins import (
     PromptRunPin,
     ensure_prompt_run_pin,
+    ensure_run_prompt_pin_present,
     initialize_prompt_run_pin,
     load_prompt_run_pin,
     resolve_run_prompt_binding,
@@ -69,6 +70,7 @@ __all__ = [
     "PromptRunPin",
     "compose_prompt",
     "ensure_prompt_run_pin",
+    "ensure_run_prompt_pin_present",
     "extract_sentinel",
     "initialize_prompt_run_pin",
     "load_prompt_template",

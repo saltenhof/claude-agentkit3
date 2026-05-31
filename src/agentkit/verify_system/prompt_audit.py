@@ -72,8 +72,17 @@ def materialize_qa_prompt_audit(
 
     invocation_id = f"verify-{layer_name}-attempt-{run_scope.attempt:03d}"
     runtime = PromptRuntime(ctx.project_root, artifact_manager)
-    runtime.create_run_pin(run_scope.run_id)
     try:
+        # C2 (FK-44 §44.3, binding_changes_affect_only_future_runs): the verify
+        # prompt-audit path is a CONSUMER of the run pin, not a re-pinner. It
+        # establishes the pin once (idempotent: only when absent) and NEVER
+        # re-validates an existing pin against the current project lock.
+        # Re-pinning against the lock would trip a spurious
+        # PROMPT_RUN_PIN_MISMATCH after a legitimate mid-run rebind and break
+        # active-run stability; the pinned bundle stays authoritative for the
+        # materialization below. A genuinely missing pin/binding is fail-closed
+        # and surfaced as a clean skip (caught here, no QA-subflow crash).
+        runtime.ensure_run_pin(run_scope.run_id)
         instance = runtime.materialize_prompt(
             ctx,
             template_name,

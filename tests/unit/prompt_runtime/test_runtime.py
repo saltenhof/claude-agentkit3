@@ -158,6 +158,24 @@ class TestCreateRunPin:
         assert loaded.prompt_bundle_version == written.prompt_bundle_version
         assert loaded.prompt_manifest_sha256 == written.prompt_manifest_sha256
 
+    def test_ensure_run_pin_is_idempotent_across_rebind(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """N1: ensure_run_pin create-if-absent, no lock re-validation (C2)."""
+        _write_binding(tmp_path, version="99")
+        monkeypatch.setenv(PROMPT_BUNDLE_STORE_ENV, str(tmp_path / "prompt-bundles"))
+        runtime = PromptRuntime(tmp_path)
+
+        pin = runtime.ensure_run_pin("run-1")  # creates v99
+        assert pin.prompt_bundle_version == "99"
+
+        # Legitimate rebind; an existing pin must survive untouched.
+        _write_binding(tmp_path, version="100")
+        runtime.update_binding("project-bound", "100")
+
+        again = runtime.ensure_run_pin("run-1")  # no PROMPT_RUN_PIN_MISMATCH
+        assert again.prompt_bundle_version == "99"
+
 
 class TestUpdateBinding:
     def test_writes_lock_for_future_runs(

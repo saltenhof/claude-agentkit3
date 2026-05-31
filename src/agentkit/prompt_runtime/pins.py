@@ -124,6 +124,32 @@ def initialize_prompt_run_pin(project_root: Path, *, run_id: str) -> PromptRunPi
     return pin
 
 
+def ensure_run_prompt_pin_present(project_root: Path, *, run_id: str) -> PromptRunPin:
+    """Idempotently ensure a run pin exists, without re-validating it.
+
+    Create-if-absent only: if a pin for ``run_id`` already exists it is
+    returned as-is and **never** compared against the current project lock.
+    This is the consumer-side entry (e.g. the verify prompt-audit path,
+    bc-cut-decisions §BC 10) -- it must not trip a spurious
+    ``PROMPT_RUN_PIN_MISMATCH`` after a legitimate ``update_binding`` on the
+    project lock (C2 invariant ``binding_changes_affect_only_future_runs``,
+    FK-44 §44.3). Only when no pin exists yet is the current project binding
+    resolved and pinned.
+
+    Args:
+        project_root: Project root holding ``.agentkit/``.
+        run_id: Active run identifier.
+
+    Returns:
+        The existing or freshly created ``PromptRunPin``.
+    """
+
+    existing = load_prompt_run_pin(project_root, run_id)
+    if existing is not None:
+        return existing
+    return initialize_prompt_run_pin(project_root, run_id=run_id)
+
+
 def load_prompt_run_pin(project_root: Path, run_id: str) -> PromptRunPin | None:
     """Load an existing run-level prompt pin if present."""
 
@@ -284,6 +310,7 @@ __all__ = [
     "PROJECT_LOCK_RELPATH",
     "PromptRunPin",
     "ensure_prompt_run_pin",
+    "ensure_run_prompt_pin_present",
     "initialize_prompt_run_pin",
     "load_prompt_run_pin",
     "resolve_run_prompt_binding",

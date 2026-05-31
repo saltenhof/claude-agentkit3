@@ -44,6 +44,7 @@ from agentkit.prompt_runtime.composer import (
 )
 from agentkit.prompt_runtime.pins import (
     PromptRunPin,
+    ensure_run_prompt_pin_present,
     initialize_prompt_run_pin,
     load_prompt_run_pin,
     resolve_run_prompt_binding,
@@ -177,6 +178,26 @@ class PromptRuntime:
             The persisted ``PromptRunPin``.
         """
         return initialize_prompt_run_pin(self._project_root, run_id=run_id)
+
+    def ensure_run_pin(self, run_id: str) -> PromptRunPin:
+        """Idempotently ensure a run pin exists (create-if-absent only).
+
+        Consumer-side entry for paths that materialize against an active run
+        but are not the run-start pinner (e.g. the verify prompt-audit path,
+        FK-44 §44.4.2). Unlike :meth:`create_run_pin`, an **existing** pin is
+        returned untouched and is **never** re-validated against the current
+        project lock -- so a legitimate mid-run ``update_binding`` cannot trip
+        a spurious ``PROMPT_RUN_PIN_MISMATCH`` (C2 invariant
+        ``binding_changes_affect_only_future_runs``, FK-44 §44.3). Only when no
+        pin exists yet is the current project binding resolved and pinned.
+
+        Args:
+            run_id: Run identifier.
+
+        Returns:
+            The existing or freshly created ``PromptRunPin``.
+        """
+        return ensure_run_prompt_pin_present(self._project_root, run_id=run_id)
 
     # ------------------------------------------------------------------
     # update_binding (FK-44 §44.3 / FK-50 §50.5)
