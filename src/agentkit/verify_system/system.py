@@ -102,8 +102,13 @@ class _NullStoryContextPort:
     IMPLEMENTATION-Stub in ``_execute_layer`` (AG3-035).
     """
 
-    def load(self, story_dir: Path) -> StoryContext | None:  # noqa: ARG002
-        """Return ``None`` (kein persistierter StoryContext im No-op-Port)."""
+    def load(self, story_dir: Path) -> StoryContext | None:
+        """Return ``None``; der No-op-Port ignoriert ``story_dir``.
+
+        Args:
+            story_dir: Story-Arbeitsverzeichnis (vom No-op-Port nicht konsumiert).
+        """
+        del story_dir  # No-op-Port nutzt den Pfad nicht (Protocol-Param, S1172).
         return None
 
 

@@ -87,15 +87,15 @@ _ACCESSOR_OWNED_KINDS: frozenset[ProjectionKind] = frozenset(
 
 # Extern besessene Kinds: publiziert in ProjectionKind (FK-69 §69.3), aber der
 # Datenpfad gehoert per Design einem anderen Writer/einer anderen Story.
+_FC_OWNER = "AG3-028 FailureCorpus (fc-Repos + Schreib-/Lesepfad)"
+
 _EXTERNALLY_OWNED_KINDS: dict[ProjectionKind, str] = {
     ProjectionKind.PHASE_STATE_PROJECTION: (
         "pipeline_engine.PhaseExecutor (FK-69 §69.4 Write-Ownership)"
     ),
-    ProjectionKind.FC_INCIDENTS: "AG3-028 FailureCorpus (fc-Repos + Schreib-/Lesepfad)",
-    ProjectionKind.FC_PATTERNS: "AG3-028 FailureCorpus (fc-Repos + Schreib-/Lesepfad)",
-    ProjectionKind.FC_CHECK_PROPOSALS: (
-        "AG3-028 FailureCorpus (fc-Repos + Schreib-/Lesepfad)"
-    ),
+    ProjectionKind.FC_INCIDENTS: _FC_OWNER,
+    ProjectionKind.FC_PATTERNS: _FC_OWNER,
+    ProjectionKind.FC_CHECK_PROPOSALS: _FC_OWNER,
 }
 
 
