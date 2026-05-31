@@ -92,15 +92,63 @@ python -m venv .venv
 | **multi-llm-hub** | Session/global | Sparring/Reviews via ChatGPT, Gemini, Grok, Qwen, Kimi (Browser-Pools) |
 | **codex-bridge** | Session/global | Giftige Codex-Reviews + Story-Vorlagen |
 
-`.mcp.json` (aktuell):
+### 6.1 agentkit3-concepts MCP auf einem neuen Rechner verfuegbar machen
+
+Der Server (`tools/concept_mcp/server.py`) ist ein hybrider (BM25 + Vektor)
+Index ueber `concept/`, gespeichert in **Weaviate**. Vektorisiert wird
+**serverseitig in Weaviate** ueber das Modul `text2vec-transformers` (kein
+Client-seitiges Embedding). Drei Bausteine:
+
+**(a) Weaviate mit `text2vec-transformers`** — die eigentliche Infra-Abhaengigkeit.
+- Lokal erwartet auf **HTTP `9903`**, **gRPC `50051`** (Defaults; override via
+  `AK3_WEAVIATE_HOST` / `AK3_WEAVIATE_HTTP_PORT` / `AK3_WEAVIATE_GRPC_PORT`).
+- Weaviate-Image mit **aktivem Modul `text2vec-transformers`** + ein
+  transformers-inference-Container mit **multilingualem** Modell (Korpus ist
+  DE+EN). Referenz-Stand der aktuellen Maschine: Weaviate **1.36.4**.
+- docker-compose-Eckwerte: `ENABLE_MODULES=text2vec-transformers`,
+  `DEFAULT_VECTORIZER_MODULE=text2vec-transformers`,
+  `TRANSFORMERS_INFERENCE_API=http://<inference-host>:8080`, Port-Mapping
+  `9903:8080` (HTTP) + `50051:50051` (gRPC). Inference-Image z.B.
+  `semitechnologies/transformers-inference` mit einem multilingual-Modell
+  (z.B. multilingual-e5 / paraphrase-multilingual-MiniLM).
+
+**(b) Python-Umgebung fuer den Server** — `.mcp.json` startet
+`python -m tools.concept_mcp.server`. Diese Umgebung braucht **nicht** die volle
+agentkit-Installation, nur:
+```bash
+pip install "mcp[cli]" weaviate-client pyyaml
+```
+> Das ist NICHT `pip install -e .` von agentkit. Die AK2/AK3-Namenskollision
+> (§4) betrifft nur das `agentkit`-Paket, nicht mcp/weaviate/pyyaml. Sauberste
+> Variante: ins **venv** installieren und `.mcp.json` aufs venv-Python zeigen (c).
+
+**(c) `.mcp.json` anpassen** (liegt im Repo-Root, wird von Claude Code beim Start
+im Repo automatisch erkannt):
 ```json
 { "mcpServers": { "agentkit3-concepts": {
-    "command": "python", "args": ["-m", "tools.concept_mcp.server"],
-    "cwd": "T:/codebase/claude-agentkit3" } } }
+    "command": "<klon>/.venv/Scripts/python",
+    "args": ["-m", "tools.concept_mcp.server"],
+    "cwd": "<lokaler-klon-pfad>" } } }
 ```
-→ Auf dem neuen Rechner `cwd` auf den lokalen Klon-Pfad setzen. Der Concepts-MCP
-laeuft ueber das venv-Python; bei Erstnutzung muss der Concept-Index ggf. neu
-ingestet werden (siehe §11, offener Punkt „Concept-Index Re-Ingest").
+→ `cwd` MUSS der lokale Klon-Pfad sein (der Server importiert `tools.*` relativ
+dazu). `command` = venv-Python (empfohlen) oder `"python"`, falls mcp+weaviate
+global liegen. Alternativ via CLI: `claude mcp add`.
+
+**(d) Index befuellen** (einmalig, sobald Weaviate laeuft + leer ist):
+```bash
+<klon>/.venv/Scripts/python -m tools.concept_ingester.cli full     # Schema + Vollingest
+<klon>/.venv/Scripts/python -m tools.concept_ingester.cli status   # local vs. remote counts
+```
+Alternativ zur Laufzeit ueber das MCP-Tool `concept_ingest(strategy="full")`,
+Kontrolle mit `concept_status()`. Nach Konzept-Aenderungen reicht `delta`.
+
+**Env-Variablen** (alle mit Default, nur bei abweichendem Setup setzen):
+`AK3_WEAVIATE_HOST`=127.0.0.1 · `AK3_WEAVIATE_HTTP_PORT`=9903 ·
+`AK3_WEAVIATE_GRPC_PORT`=50051 · `AK3_CONCEPT_COLLECTION`=Ak3ConceptChunk ·
+`AK3_CONCEPT_CHUNK_MAX`=12000.
+
+**Smoke-Test:** `... cli status` zeigt remote-Counts > 0; dann im Agent
+`concept_search(query="ProjectionAccessor", limit=3)`.
 
 ---
 
