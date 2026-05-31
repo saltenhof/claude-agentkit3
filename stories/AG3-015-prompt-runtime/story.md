@@ -364,3 +364,18 @@ ohne Parallel-Anlage.
    fuer echte Pin-Korruption (Pin → nicht existentes/inkonsistentes Bundle
    bleibt fail-closed). Bugfix gemaess FK-44-Invariante
    `binding_changes_affect_only_future_runs`.
+
+## Offene Folge (Codex-Review r3, WARNING W1 — owner-zugeordnet, NICHT in AG3-015)
+
+- **W1 (PASS-MIT-WARNINGS, r3):** Es existiert **kein produktiver
+  Run-Start-Pinner in der Pipeline**. Der Run-Pin entsteht aktuell *lazy* beim
+  ersten Verify-Prompt-Audit (`PromptRuntime.ensure_run_pin`, create-if-absent).
+  FK-44/bc-cut-decisions §BC 10 nennen `create_run_pin` „bei Run-Start". Das ist
+  ein echter Konzept-/Pipeline-Rand, aber **kein Blocker fuer AG3-015** (N1
+  RESOLVED; die lazy-Semantik ist konsistent und fail-closed) und liegt
+  fachlich im **Setup-/Pipeline-Engine-BC**, nicht in prompt-runtime.
+  Disposition: als Setup-/Pipeline-Folgeschnitt fuehren (analog AG3-035 #4 →
+  AG3-028 owner-zugeordnet). Aktiv an Stefan zu spiegeln (Severity-Regel:
+  WARNING wird nicht still liegengelassen) — **offene User-Entscheidung**:
+  eigene Folgestory „Pipeline-Run-Start-Pinning" ODER bewusste Beibehaltung der
+  lazy-Pin-Semantik. Bis zur Entscheidung bleibt der Hinweis hier getrackt.
