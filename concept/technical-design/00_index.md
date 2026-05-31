@@ -200,7 +200,13 @@ FK-07 beschreibt die Importregeln und Blutgruppen-Semantik.
 |----------|-----------|--------|
 | `73_project_management.md` | project-management | Project-Datenmodell, Lifecycle-Uebergaenge, API, Storage; Owner des Story-ID-Praefix-Schemas und der Projekt-Konfiguration |
 
-## 19. Frontend-Architektur und Foundation-Adapter (cross_cutting)
+## 19. BC: harness-integration
+
+| Dokument | BC/Domain | Inhalt |
+|----------|-----------|--------|
+| `76_agent_harness_integration.md` | harness-integration | Harness-spezifische Anbindung (Claude Code, Codex): Adapter (AT), CLI-Wrapper, Settings-Schemas (`.claude/settings.json`, `.codex/hooks.json`), Subagent-Hybrid-Lifecycle. Harness-neutrale Hook-/Guard-Definition + Enforcement bleiben FK-30 |
+
+## 20. Frontend-Architektur und Foundation-Adapter (cross_cutting)
 
 | Dokument | BC/Domain | Inhalt |
 |----------|-----------|--------|
@@ -208,7 +214,7 @@ FK-07 beschreibt die Importregeln und Blutgruppen-Semantik.
 | `74_concept_catalog.md` | cross_cutting | Foundation-Adapter zum Markdown-Konzept-Korpus: ConceptRef-Resolver, Cross-Reference-Graph, Backlinks, API fuer Concept-Browser |
 | `75_multi_llm_hub.md` | cross_cutting | Foundation-Adapter zum externen Multi-LLM-Hub: Sessions, Backend-Status, Send-Operationen, Hub-Cockpit-Read-Models |
 
-## 20. Referenzanhaenge
+## 21. Referenzanhaenge
 
 | Dokument | BC/Domain | Inhalt |
 |----------|-----------|--------|
@@ -217,7 +223,7 @@ FK-07 beschreibt die Importregeln und Blutgruppen-Semantik.
 | `92_verzeichnis_namenskonventionen.md` | cross_cutting | Repo-Struktur, Run-Verzeichnisse, Naming-Schemata |
 | `93_standardwerte_schwellwerte_timeouts.md` | cross_cutting | Defaults, Budgets, Timeouts, Retry-Limits, Cooldowns |
 
-## 21. Frontmatter-Vertrag
+## 22. Frontmatter-Vertrag
 
 Dieses Kapitel ist **normativ** fuer jedes Dokument unter
 `concept/technical-design/`. Es ergaenzt FK-00 um den

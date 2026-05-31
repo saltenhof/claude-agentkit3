@@ -26,6 +26,7 @@ modules:
 - failure-corpus
 - github-integration
 - governance
+- harness-integration
 - hooks
 - implementation
 - installation

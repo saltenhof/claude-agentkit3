@@ -32,6 +32,7 @@ superseded_by:
 tags: [harness, agent-harness, adapter, claude-code, codex, meta-harness, settings]
 prose_anchor_policy: strict
 formal_refs: []
+formal_scope: prose-only
 glossary:
   exported_terms:
     - id: agent-harness

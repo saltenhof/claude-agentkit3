@@ -293,3 +293,9 @@ yaml
 yaml-rules
 zieltreue
 zustaende
+harness
+agent-harness
+claude-code
+codex
+meta-harness
+settings
