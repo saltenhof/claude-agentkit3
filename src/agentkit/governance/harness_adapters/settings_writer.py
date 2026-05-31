@@ -21,6 +21,8 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from agentkit.utils.io import read_json_object
+
 if TYPE_CHECKING:
     from agentkit.governance.hook_registration import HookDefinition
 
@@ -134,25 +136,13 @@ class ClaudeCodeSettingsWriter:
         return self.settings_path
 
     def _load_existing(self) -> dict[str, object]:
-        """Load the existing settings file or return an empty dict."""
-        path = self.settings_path
-        if not path.exists():
-            return {}
-        raw = path.read_text(encoding="utf-8")
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise ValueError(
-                f"Invalid JSON in {path}: {exc}. "
-                "Fail-closed: refusing to overwrite a broken settings file "
-                "(FK-30 §30.3.1)."
-            ) from exc
-        if not isinstance(data, dict):
-            raise ValueError(
-                f"Settings file {path} must contain a JSON object, "
-                f"got {type(data).__name__}."
-            )
-        return data
+        """Load the existing settings file or return an empty dict.
+
+        Delegates JSON parsing to ``utils.io.read_json_object`` so this
+        protected governance module stays on the safe side of the truth
+        boundary (FK-30 §30.3.1 fail-closed semantics are preserved there).
+        """
+        return read_json_object(self.settings_path)
 
     def _write(self, settings: dict[str, object]) -> None:
         """Write ``settings`` to ``.claude/settings.json``."""

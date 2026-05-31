@@ -7,9 +7,10 @@ import re
 from dataclasses import dataclass
 from enum import StrEnum
 
+from agentkit.config.sqlite_gate import ALLOW_SQLITE_ENV, sqlite_allowed
+
 STATE_BACKEND_ENV = "AGENTKIT_STATE_BACKEND"
 STATE_DATABASE_URL_ENV = "AGENTKIT_STATE_DATABASE_URL"
-ALLOW_SQLITE_ENV = "AGENTKIT_ALLOW_SQLITE"
 SCHEMA_VERSION = "3.6.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 
@@ -25,6 +26,17 @@ class StateBackendConfig:
 
     backend: StateBackendKind
     database_url: str | None = None
+
+
+def _sqlite_allowed() -> bool:
+    """Backward-compatible accessor for the config-foundation SQLite gate.
+
+    Defined locally (not a bare import alias) so existing
+    ``boundary.state_backend_repository`` modules may keep importing it from
+    this driver-config module under mypy's ``no_implicit_reexport``. The single
+    source of truth is :func:`agentkit.config.sqlite_gate.sqlite_allowed`.
+    """
+    return sqlite_allowed()
 
 
 def load_state_backend_config() -> StateBackendConfig:
@@ -50,11 +62,6 @@ def load_state_backend_config() -> StateBackendConfig:
         backend=backend,
         database_url=database_url,
     )
-
-
-def _sqlite_allowed() -> bool:
-    raw = os.environ.get(ALLOW_SQLITE_ENV, "")
-    return raw.lower() in {"1", "true", "yes", "on"}
 
 
 def schema_version_slug(version: str | None = None) -> str:

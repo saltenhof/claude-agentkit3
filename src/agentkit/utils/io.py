@@ -7,8 +7,9 @@ no business logic.
 
 from __future__ import annotations
 
+import json
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import yaml
 
@@ -56,6 +57,45 @@ def atomic_write_yaml(path: Path, data: dict[str, object]) -> None:
         sort_keys=False,
     )
     atomic_write_text(path, content)
+
+
+def read_json_object(path: Path) -> dict[str, object]:
+    """Read a JSON file that must hold a JSON object at the top level.
+
+    Generic reader for harness-native or tooling JSON (for example
+    ``.claude/settings.json``). This is explicitly NOT an AK3 story-export
+    truth loader: it lives in ``utils.io`` (stateless helpers) so that
+    protected governance / harness-adapter modules can merge harness settings
+    without crossing the truth boundary
+    (``formal.truth-boundary-checker.invariants`` forbids ``json.load*`` and
+    AK3 export loaders inside ``agentkit.governance.*``).
+
+    Args:
+        path: JSON file to read.
+
+    Returns:
+        The parsed object as a dict, or an empty dict if *path* is absent.
+
+    Raises:
+        ValueError: If the file holds invalid JSON or a non-object top-level
+            value. Fail-closed: callers must never silently overwrite a
+            broken file.
+    """
+    if not path.exists():
+        return {}
+    raw = path.read_text(encoding="utf-8")
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"Invalid JSON in {path}: {exc}. "
+            "Fail-closed: refusing to treat a broken settings file as empty."
+        ) from exc
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"JSON file {path} must contain an object, got {type(data).__name__}."
+        )
+    return cast("dict[str, object]", data)
 
 
 def ensure_dir(path: Path) -> Path:
