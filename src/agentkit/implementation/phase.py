@@ -4,9 +4,10 @@ E1 (AG3-026 Pass-2): ``on_enter`` calls
 ``verify_system.run_qa_subflow(ctx_bundle, story_id, qa_context, target)``
 as the ONLY ArtifactEnvelope write path AND the ONLY layer-execution
 path. ``run_qa_subflow`` now returns ``QaSubflowOutcome`` which carries
-the full ``VerifyDecision``; the FK-69 path
-(``record_layer_artifacts``/``record_verify_decision``) is fed directly
-from ``outcome.decision`` -- no second cycle run needed.
+the full ``VerifyDecision``; the FK-69 path is fed directly from
+``outcome.decision`` -- no second cycle run needed. QA-Read-Models are
+written via ``ProjectionAccessor.record_qa_layer_artifacts`` (fachliche
+Schreibgrenze, AG3-035 #5); ``record_verify_decision`` persists the decision.
 
 W2 (AG3-026 Re-Review): ``ImplementationPhaseHandler`` builds a
 ``PhaseEnvelopeView`` from ``envelope.state.payload`` and passes it
@@ -28,7 +29,6 @@ from agentkit.installer.paths import resolve_qa_story_dir
 from agentkit.pipeline_engine.lifecycle import HandlerResult
 from agentkit.state_backend.store import (
     load_flow_execution,
-    record_layer_artifacts,
     record_verify_decision,
     save_story_context,
 )
@@ -81,9 +81,9 @@ class ImplementationPhaseHandler:
         E1 (AG3-026 Pass-2): ``run_qa_subflow`` is the SINGLE write path
         for ArtifactEnvelopes AND the single layer-execution path.  The
         returned ``QaSubflowOutcome`` carries the full ``VerifyDecision``
-        which is fed into the FK-69 recording path
-        (``record_layer_artifacts`` / ``record_verify_decision``) without
-        any second layer execution.
+        which is fed into the FK-69 recording path: QA-Read-Models via
+        ``ProjectionAccessor.record_qa_layer_artifacts`` (AG3-035 #5) and the
+        decision via ``record_verify_decision`` -- no second layer execution.
 
         W2: Builds ``PhaseEnvelopeView`` from ``envelope.state.payload``
         to avoid a ``pipeline_engine`` import inside ``verify_system``.
@@ -165,7 +165,14 @@ class ImplementationPhaseHandler:
                 story_id=ctx.story_id,
                 project_root=ctx.project_root,
             )
-            record_layer_artifacts(
+            # FK-69 §69.4 / AG3-035 #5: QA-Read-Models werden ueber den
+            # ProjectionAccessor als fachliche Schreibgrenze persistiert (nicht
+            # direkt via state_backend-Fassade). Die atomare Driver-Transaktion
+            # bleibt im injizierten Batch-Port gekapselt (Befund D Option i).
+            from agentkit.bootstrap.composition_root import build_projection_accessor
+
+            accessor = build_projection_accessor(s_dir)
+            accessor.record_qa_layer_artifacts(
                 s_dir,
                 layer_results=decision.layer_results,
                 attempt_nr=attempt_nr,

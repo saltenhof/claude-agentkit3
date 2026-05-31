@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
+    from agentkit.verify_system.protocols import LayerResult
     from agentkit.verify_system.stage_registry.records import (
         QAFindingRecord,
         QAStageResultRecord,
@@ -179,6 +180,30 @@ class PhaseStateProjectionRepository(Protocol):
         ...
 
 
+@runtime_checkable
+class QALayerBatchWriter(Protocol):
+    """Atomarer Batch-Schreibpfad fuer QA-Layer-Artefakte (FK-69 §69.4, AG3-035 #5).
+
+    Fachlicher Eintrittspunkt fuer den QA-Subflow: schreibt qa_stage_results +
+    qa_findings + die Quell-artifact_records in EINER Driver-Transaktion. Der
+    ``ProjectionAccessor`` delegiert hierhin (``record_qa_layer_artifacts``),
+    ohne die Transaktion zu zerteilen (Befund D Option i: Transaktion bleibt im
+    Driver). Die konkrete Impl kapselt den facade-/Driver-Batch -- der Accessor
+    in ``agentkit.telemetry`` kennt keine facade-Details (AC#7).
+    """
+
+    def persist_layer_artifacts(
+        self,
+        story_dir: Path,
+        *,
+        layer_results: tuple[LayerResult, ...],
+        attempt_nr: int,
+        projection_dir: Path | None = None,
+    ) -> tuple[str, ...]:
+        """Persistiere QA-Layer-Ergebnisse atomar; gibt die Artefakt-IDs zurueck."""
+        ...
+
+
 # ---------------------------------------------------------------------------
 # ProjectionRepositories Dataclass (Dependency-Injection-Container)
 # ---------------------------------------------------------------------------
@@ -198,12 +223,15 @@ class ProjectionRepositories:
         qa_findings: Adapter fuer ``qa_findings``.
         story_metrics: Adapter fuer ``story_metrics``.
         phase_state_projection: Adapter fuer ``phase_state_projection``.
+        qa_layer_batch: Atomarer QA-Layer-Batch-Schreibpfad (fachlicher
+            Eintrittspunkt des QA-Subflows via ``record_qa_layer_artifacts``).
     """
 
     qa_stage_results: QAStageResultsRepository
     qa_findings: QAFindingsRepository
     story_metrics: StoryMetricsRepository
     phase_state_projection: PhaseStateProjectionRepository
+    qa_layer_batch: QALayerBatchWriter
 
 
 # ---------------------------------------------------------------------------
@@ -903,6 +931,34 @@ class FacadePhaseStateProjectionRepository:
             return int(cursor.rowcount)
 
 
+class FacadeQALayerBatchWriter:
+    """Atomarer QA-Layer-Batch-Adapter (FK-69 §69.4, AG3-035 #5).
+
+    Kapselt ``facade.record_layer_artifacts`` -- den bestehenden atomaren
+    Driver-Batch (qa_stage_results + qa_findings + artifact_records in EINER
+    Transaktion). Liegt in der DB-Schicht; der ``ProjectionAccessor`` in
+    ``agentkit.telemetry`` delegiert hierhin, ohne facade direkt zu kennen (AC#7).
+    """
+
+    def persist_layer_artifacts(
+        self,
+        story_dir: Path,
+        *,
+        layer_results: tuple[LayerResult, ...],
+        attempt_nr: int,
+        projection_dir: Path | None = None,
+    ) -> tuple[str, ...]:
+        """Delegiere an den atomaren facade-/Driver-Batch und gib Artefakt-IDs zurueck."""
+        from agentkit.state_backend.store.facade import record_layer_artifacts
+
+        return record_layer_artifacts(
+            story_dir,
+            layer_results=layer_results,
+            attempt_nr=attempt_nr,
+            projection_dir=projection_dir,
+        )
+
+
 def build_projection_repositories(store_dir: Path | None = None) -> ProjectionRepositories:
     """Erzeugt eine vollstaendig verdrahtete ``ProjectionRepositories``-Instanz.
 
@@ -921,17 +977,20 @@ def build_projection_repositories(store_dir: Path | None = None) -> ProjectionRe
         qa_findings=FacadeQAFindingsRepository(store_dir),
         story_metrics=FacadeStoryMetricsRepository(store_dir),
         phase_state_projection=FacadePhaseStateProjectionRepository(store_dir),
+        qa_layer_batch=FacadeQALayerBatchWriter(),
     )
 
 
 __all__ = [
     "FacadePhaseStateProjectionRepository",
     "FacadeQAFindingsRepository",
+    "FacadeQALayerBatchWriter",
     "FacadeQAStageResultsRepository",
     "FacadeStoryMetricsRepository",
     "PhaseStateProjectionRepository",
     "ProjectionRepositories",
     "QAFindingsRepository",
+    "QALayerBatchWriter",
     "QAStageResultsRepository",
     "StoryMetricsRepository",
     "build_projection_repositories",

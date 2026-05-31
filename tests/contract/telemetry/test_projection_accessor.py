@@ -57,8 +57,8 @@ def test_workflow_metrics_is_not_in_projection_kind() -> None:
     values = {kind.value for kind in ProjectionKind}
     assert "workflow_metrics" not in values, (
         "WORKFLOW_METRICS darf NICHT in ProjectionKind sein. "
-        "FK-69 §69.3 listet diese Tabelle nicht auf. "
-        "Story-Skizze §2.1.1 war in diesem Punkt falsch."
+        "FK-69 §69.3 listet diese Tabelle nicht auf (sie ist FK-68). "
+        "Story AG3-035 §2.1.1/AK2 ist auf die 7 FK-69-Werte angeglichen."
     )
 
 

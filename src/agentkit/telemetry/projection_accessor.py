@@ -32,10 +32,13 @@ from agentkit.verify_system.stage_registry.records import (
 )
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from agentkit.state_backend.store.projection_repositories import (
         ProjectionRepositories,
     )
     from agentkit.telemetry.projection_records import ProjectionRecord
+    from agentkit.verify_system.protocols import LayerResult
 
 
 # ---------------------------------------------------------------------------
@@ -46,9 +49,9 @@ if TYPE_CHECKING:
 class ProjectionKind(StrEnum):
     """Kanonische Enum-Werte fuer alle FK-69-Tabellen.
 
-    DRIFT 1 (aufgeloest): FK-69 §69.3/§69.4 autorisiert genau 7 Tabellen.
-    Story-Skizze §2.1.1 nannte faelschlich 8 Werte inkl. WORKFLOW_METRICS --
-    das ist NICHT in FK-69 und wird hier weggelassen.
+    FK-69 §69.3/§69.4 autorisiert genau 7 Tabellen. WORKFLOW_METRICS ist eine
+    FK-68-Tabelle (Telemetrie/Eventing), kein FK-69-Read-Model, und gehoert
+    nicht hierher. Story AG3-035 §2.1.1/AK2 ist auf diese 7 Werte angeglichen.
     """
 
     QA_STAGE_RESULTS = "qa_stage_results"
@@ -292,9 +295,9 @@ class ProjectionAccessor:
         ungueltig (FK-69 §69.10.1: "Spaeteres Herausfiltern in Queries ist
         unzulaessig").
 
-        DRIFT 2 (aufgeloest, AG3-035): Reset-Purge ist run_id-scoped, nicht
-        bloss story_id-scoped. Story-Skizze ``purge_for_story(story_id)`` war
-        unterspezifiziert. Signatur: ``purge_run(project_key, story_id, run_id)``.
+        Reset-Purge ist run_id-scoped (FK-69 §69.10.1), nicht bloss
+        story_id-scoped. Signatur: ``purge_run(project_key, story_id, run_id)``.
+        Story AG3-035 §2.1.3/AK1/AK5 ist auf diese Signatur angeglichen.
 
         DRIFT 3 (vertagt, AG3-028): fc_*-Purge wird mit dem fc-Schreibpfad
         nach AG3-028 implementiert. Per FK-69 §69.9 MUSS ein zurueckgesetzter
@@ -349,32 +352,46 @@ class ProjectionAccessor:
 
         return PurgeResult(purged_rows=purged_rows, errors=errors)
 
-    def write_qa_layer_batch(
+    def record_qa_layer_artifacts(
         self,
-        stage_result: QAStageResultRecord,
-        finding_records: list[QAFindingRecord],
-    ) -> None:
-        """Schreibe FK-69-QA-Projektionsdaten fuer einen Layer-Batch atomar.
+        story_dir: Path,
+        *,
+        layer_results: tuple[LayerResult, ...],
+        attempt_nr: int,
+        projection_dir: Path | None = None,
+    ) -> tuple[str, ...]:
+        """Fachlicher Schreib-Eintrittspunkt fuer den QA-Layer-Batch (FK-69 §69.4, AK4).
 
-        Dies ist der Einzel-Layer-Schreibpfad fuer den ProjectionAccessor.
-        Schreibt stage_result und alle finding_records via die injizierten Repos.
-        Der Accessor ist damit die EINE Schreibgrenze fuer FK-69-QA-Read-Models
-        (FK-69 §69.4, SINGLE SOURCE OF TRUTH, Befund D AG3-035 Remediation).
+        Der ProjectionAccessor ist die EINE fachliche Schreibgrenze fuer die
+        FK-69-QA-Read-Models (``qa_stage_results``, ``qa_findings``). Der
+        produktive QA-Subflow (implementation/verify) MUSS diese Methode rufen
+        statt direkt die ``state_backend``-Fassade -- sonst entsteht eine zweite
+        operative Wahrheit am Accessor vorbei (SINGLE SOURCE OF TRUTH, AG3-035 #5).
 
-        Hinweis zur Transaktionalitaet: Dieser Pfad erzeugt pro write() eine
-        eigene Transaktion (kein gemeinsamer Transaktionskontext).
-        Der atomare Batch-Pfad innerhalb der Driver-Transaktion
-        (``persist_layer_artifact_rows``) nutzt die within-conn-Methoden der
-        konkreten Repo-Implementierungen direkt -- die Transaktion bleibt im
-        Driver (FK-69 §69.4, Befund D Option i).
+        Atomaritaet: Die Transaktion (qa_stage_results + qa_findings +
+        artifact_records in EINER Driver-Transaktion inkl. Platzhalter-
+        artifact_id-Ersetzung) bleibt im Driver gekapselt (FK-69 §69.4,
+        Befund D Option i). Der Accessor delegiert an den injizierten
+        Batch-Port (``ProjectionRepositories.qa_layer_batch``) und zerteilt die
+        Transaktion nicht. Der Port kapselt das gemeinsame Schreiben von
+        FK-69-QA-Zeilen und Quell-Artefakt -- der Accessor selbst kennt keine
+        ``artifact_records``-Details (AC#7: kein facade-Import in telemetry).
 
         Args:
-            stage_result: QA-Stage-Ergebnis-Record fuer diesen Layer.
-            finding_records: Liste aller QA-Finding-Records fuer diesen Layer.
+            story_dir: Story-Arbeitsverzeichnis.
+            layer_results: QA-Layer-Ergebnisse dieses Attempts.
+            attempt_nr: Attempt-Nummer.
+            projection_dir: Optionales Projektionsverzeichnis (Export).
+
+        Returns:
+            Tuple der geschriebenen Artefakt-IDs (vom Driver-Batch).
         """
-        self._repos.qa_stage_results.write(stage_result)
-        for finding in finding_records:
-            self._repos.qa_findings.write(finding)
+        return self._repos.qa_layer_batch.persist_layer_artifacts(
+            story_dir,
+            layer_results=layer_results,
+            attempt_nr=attempt_nr,
+            projection_dir=projection_dir,
+        )
 
 
 __all__ = [

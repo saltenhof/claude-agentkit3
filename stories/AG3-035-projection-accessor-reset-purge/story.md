@@ -52,24 +52,40 @@ class ProjectionAccessor:
     ) -> list[ProjectionRecord]:
         ...
 
-    def purge_for_story(self, story_id: str) -> PurgeResult:
+    def purge_run(self, project_key: str, story_id: str, run_id: str) -> PurgeResult:
         """
-        Reset-Purge: entfernt alle Projektionsdaten einer Story aus FK-69-Tabellen.
-        Voraussetzung fuer formal.telemetry-analytics.invariants
+        Reset-Purge (run_id-scoped, FK-69 §69.10.1): entfernt aktiv alle
+        FK-69-Projektionsdaten des zurueckgesetzten run_id. Voraussetzung fuer
+        formal.telemetry-analytics.invariants
         §reset-invalidates-read-models-and-facts.
+        """
+        ...
+
+    def record_qa_layer_artifacts(
+        self, story_dir, *, layer_results, attempt_nr, projection_dir=None,
+    ) -> tuple[str, ...]:
+        """
+        Fachliche QA-Schreibgrenze (FK-69 §69.4): atomarer Layer-Batch
+        (qa_stage_results + qa_findings); delegiert an den Batch-Port, die
+        Transaktion bleibt im Driver (Befund D Option i).
         """
         ...
 ```
 
-`ProjectionKind` ist StrEnum mit den existing + zukuenftigen FK-69-Tabellen:
+`ProjectionKind` ist StrEnum mit **genau den sieben FK-69-Tabellen** (FK-69
+§69.3 autorisiert exakt diese sieben):
 - `QA_STAGE_RESULTS`
 - `QA_FINDINGS`
 - `STORY_METRICS`
 - `PHASE_STATE_PROJECTION`
 - `FC_INCIDENTS`
-- `FC_PATTERNS` (falls existent)
-- `FC_CHECK_PROPOSALS` (falls existent)
-- `WORKFLOW_METRICS`
+- `FC_PATTERNS`
+- `FC_CHECK_PROPOSALS`
+
+**Korrektur (AG3-035 Remediation):** Eine fruehere Skizze nannte zusaetzlich
+`WORKFLOW_METRICS` (acht Werte). Das ist falsch: `workflow_metrics` ist eine
+FK-68-Tabelle (Telemetrie/Eventing), keine FK-69-Read-Model-Tabelle, und gehoert
+nicht in `ProjectionKind`. Massgeblich ist FK-69 §69.3 (sieben Tabellen).
 
 `ProjectionRecord` ist ein Union-Type bzw. Pydantic-Discriminated-Union ueber die konkreten Record-Klassen (`QAStageResultRecord`, `QAFindingRecord`, `StoryMetricsRecord`, `WorkflowMetricRecord`, `Incident`).
 
@@ -79,26 +95,45 @@ class ProjectionAccessor:
 
 Verteilte Schreiber werden auf den Accessor umgestellt:
 
-- `src/agentkit/verify_system/qa_read_models.py:build_qa_stage_result` -> ruft `ProjectionAccessor.write_projection(QA_STAGE_RESULTS, record)`
-- `src/agentkit/verify_system/qa_read_models.py:build_qa_findings` -> ruft `ProjectionAccessor.write_projection(QA_FINDINGS, record)`
-- `src/agentkit/closure/...` Schreibstellen fuer `StoryMetricsRecord` -> Accessor
+- **QA-Read-Models (qa_stage_results + qa_findings):** Der produktive
+  QA-Schreibpfad ist der atomare Layer-Batch des QA-Subflows
+  (`src/agentkit/implementation/phase.py` nach `run_qa_subflow`). Dieser ruft
+  **`ProjectionAccessor.record_qa_layer_artifacts(...)`** als fachliche
+  Schreibgrenze (FK-69 §69.4) statt direkt die `state_backend`-Fassade. Der
+  Accessor delegiert an den injizierten Batch-Port; die atomare Driver-
+  Transaktion (qa_stage_results + qa_findings + artifact_records inkl.
+  artifact_id-Aufloesung) bleibt im Driver gekapselt (Befund D Option i). Die
+  Einzel-Record-Methode `write_projection(QA_STAGE_RESULTS|QA_FINDINGS, record)`
+  bleibt fuer nicht-Batch-Schreiber/Read-Roundtrips verfuegbar.
+- `src/agentkit/closure/...` Schreibstellen fuer `StoryMetricsRecord` -> Accessor (`write_projection(STORY_METRICS, record)`)
 - AG3-028 (FailureCorpus): wenn dort fc_incident-Repository direkt schreibt, hier umstellen auf `ProjectionAccessor.write_projection(FC_INCIDENTS, incident)`. **Hinweis**: AG3-028 ist Voraussetzung fuer THEME-005; falls AG3-028 bei Erreichen dieser Story bereits gemerged ist, wird die Schreibstelle hier umgelenkt; sonst wartet die Umstellung auf der entsprechenden Folge-Story. Diese Story enthaelt die Accessor-Methoden; den fc_incidents-Schreib-Pfad nutzt die Folge-Story.
 
 #### 2.1.3 Reset-Purge (FK-69 §69.10.1)
 
-`ProjectionAccessor.purge_for_story(story_id)`:
+`ProjectionAccessor.purge_run(project_key, story_id, run_id)`:
 
-- Loescht alle Eintraege mit dem story_id-Filter aus:
+**Korrektur (AG3-035 Remediation):** Die Signatur ist `purge_run(project_key,
+story_id, run_id)` — **run_id-scoped**, nicht bloss `purge_for_story(story_id)`.
+FK-69 §69.10.1 verlangt das aktive Entfernen aller FK-69-Zeilen des
+zurueckgesetzten `run_id` ("Spaeteres Herausfiltern in Queries ist unzulaessig").
+
+- Loescht alle Zeilen des `(project_key, story_id, run_id)` aus:
   - `qa_stage_results`
   - `qa_findings`
   - `story_metrics`
   - `phase_state_projection`
-  - `workflow_metrics`
-- NICHT geloescht werden:
-  - `fc_incidents`/`fc_patterns`/`fc_check_proposals` (Begruendung: Failure-Corpus-Faelle sollen ueber Story-Reset hinaus erhalten bleiben fuer Patterns). Klarstellung im Docstring.
+  - (kein `workflow_metrics` — FK-68, nicht FK-69)
+- **fc_*-Tabellen (`fc_incidents`/`fc_patterns`/`fc_check_proposals`):** in
+  AG3-035 noch NICHT gepurged — **vertagt auf AG3-028** (dort entstehen die
+  fc_*-Tabellen, Repos und Schreibpfade; vorher gibt es keine Zeilen zu loeschen).
+  Wichtig: Das ist KEINE "Failure-Corpus ueberlebt Reset"-Regel. FK-69 §69.9
+  verlangt im Gegenteil, dass die `fc_incidents` des zurueckgesetzten `run_id`
+  **entfernt** und betroffene `fc_patterns` (incident_count) **neu berechnet**
+  werden (Patterns werden korrigiert, nicht geloescht). Diese Pflicht wird in
+  AG3-028 umgesetzt; der Code traegt bis dahin den `# DRIFT-AG3-028`-Marker.
 - Liefert `PurgeResult` mit `purged_rows: dict[ProjectionKind, int]` und `errors: list[str]`.
 
-Aufgerufen wird `purge_for_story` aus dem `StoryResetService` (out of scope dieser Story; in der Erst-Welle reicht der Accessor-Endpoint).
+Aufgerufen wird `purge_run` aus dem `StoryResetService` (out of scope dieser Story; in der Erst-Welle reicht der Accessor-Endpoint).
 
 #### 2.1.4 ProjectionAccessor in Composition-Root
 
@@ -108,7 +143,7 @@ Aufgerufen wird `purge_for_story` aus dem `StoryResetService` (out of scope dies
 
 - Unit-Tests fuer `write_projection`: jedes ProjectionKind landet im richtigen Repository
 - Unit-Tests fuer `read_projection`: Filter werden korrekt durchgereicht
-- Unit-Tests fuer `purge_for_story`: alle relevanten Tabellen werden geleert; fc_*-Tabellen bleiben
+- Unit-Tests fuer `purge_run`: die FK-69-Tabellen des run_id werden geleert; fc_*-Purge ist auf AG3-028 vertagt (in AG3-035 noch nicht aufgerufen)
 - Unit-Tests fuer ProjectionRecord-Discriminated-Union (validation: falscher Record-Typ fuer Kind -> Exception)
 - Integration-Test: verify-system schreibt ueber Accessor; Read-Roundtrip via Accessor
 - Contract-Test `tests/contract/telemetry/test_projection_accessor.py`: ProjectionKind-Werte enthalten alle FK-69-Tabellen
@@ -143,11 +178,11 @@ Aufgerufen wird `purge_for_story` aus dem `StoryResetService` (out of scope dies
 
 ## 4. Akzeptanzkriterien
 
-1. **Klasse `ProjectionAccessor` existiert** in `src/agentkit/telemetry/projection_accessor.py` mit drei Methoden `write_projection`, `read_projection`, `purge_for_story`.
-2. **`ProjectionKind`-StrEnum** enthaelt die acht Werte aus 2.1.1.
+1. **Klasse `ProjectionAccessor` existiert** in `src/agentkit/telemetry/projection_accessor.py` mit den Methoden `write_projection`, `read_projection`, `purge_run(project_key, story_id, run_id)` sowie `record_qa_layer_artifacts` (fachliche QA-Schreibgrenze).
+2. **`ProjectionKind`-StrEnum** enthaelt die **sieben** FK-69-Werte aus 2.1.1 (ohne `workflow_metrics`, das FK-68 ist).
 3. **`write_projection` validiert Record-Typ vs. Kind**: falscher Record-Typ fuer ein Kind -> `ProjectionRecordTypeMismatchError` (in `telemetry/errors.py`).
 4. **Migration**: `verify_system/qa_read_models.py` und Closure-Schreibstellen rufen jetzt `ProjectionAccessor.write_projection`, nicht direkt das Repository.
-5. **`purge_for_story`** loescht qa_stage_results, qa_findings, story_metrics, phase_state_projection, workflow_metrics fuer die angegebene story_id. fc_*-Tabellen werden NICHT geloescht. `PurgeResult.purged_rows` enthaelt Zaehlung pro Tabelle.
+5. **`purge_run(project_key, story_id, run_id)`** loescht qa_stage_results, qa_findings, story_metrics, phase_state_projection fuer den angegebenen `run_id` (run-scoped, FK-69 §69.10.1). fc_*-Purge ist auf AG3-028 vertagt (Tabellen existieren noch nicht; FK-69 §69.9-Pflicht wird dort umgesetzt). `PurgeResult.purged_rows` enthaelt Zaehlung pro Tabelle.
 6. **Read-Roundtrip funktioniert**: write -> read liefert den geschriebenen Record (Integration-Test mit echtem SQLite).
 7. **Architecture-Conformance**: `ProjectionAccessor` ist im `agentkit.telemetry`-Paket; importiert konkrete Repositories nur ueber `ProjectionRepositories`-Dataclass (Dependency-Injection); kein direkter `state_backend.store`-Fassaden-Import.
 8. **Pflichtbefehle gruen**: pytest unit + integration + contract; mypy --strict; ruff clean; Coverage haelt 85%.
@@ -187,5 +222,5 @@ Aufgerufen wird `purge_for_story` aus dem `StoryResetService` (out of scope dies
 ## 8. Hinweise fuer den Sub-Agent
 
 - `ProjectionRecord` als Discriminated-Union: pruefe Pydantic-v2-Pattern `Annotated[Union[...], Field(discriminator="kind")]`.
-- `purge_for_story` ist transactional pro Tabelle (best-effort), Fehler werden in `errors[]` propagiert. Wenn alle leer: result.errors leer.
+- `purge_run` ist transactional pro Tabelle (best-effort), Fehler werden in `errors[]` propagiert. Wenn alle leer: result.errors leer.
 - AK2 NICHT veraendern.

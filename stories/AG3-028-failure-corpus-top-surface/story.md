@@ -183,6 +183,28 @@ def build_failure_corpus(telemetry: Telemetry) -> FailureCorpus:
     )
 ```
 
+#### 2.1.5b fc_incidents Reset-Purge (FK-69 §69.9 / FK-41 §41.3)
+
+AG3-035 hat `ProjectionAccessor.purge_run(project_key, story_id, run_id)` mit den
+damals existierenden FK-69-Tabellen umgesetzt und den fc_*-Purge ausdruecklich auf
+**diese Story** vertagt (`# DRIFT-AG3-028`-Marker), weil hier `fc_incidents`
+entsteht. Diese Story loest den Marker auf:
+
+- `ProjectionAccessor.purge_run` wird um `ProjectionKind.FC_INCIDENTS` erweitert:
+  beim vollstaendigen Reset eines `run_id` werden **alle `fc_incidents`-Zeilen
+  dieses `run_id` aktiv entfernt** (FK-41 §41.3: „Vollstaendiger Story-Reset
+  loescht alle `fc_incidents`-Zeilen des betroffenen `run_id`"; FK-69 §69.9).
+- Dafuer bekommt das `fc_incidents`-Repository (Adapter in `state_backend/store`)
+  eine `purge_run(project_key, story_id, run_id) -> int`-Methode analog den
+  uebrigen FK-69-Repos; sie wird via `ProjectionRepositories` injiziert.
+- **KEINE** „Failure-Corpus ueberlebt Reset"-Regel: die Incidents des
+  zurueckgesetzten Runs verschwinden. Der `# DRIFT-AG3-028`-Marker in
+  `telemetry/projection_accessor.py:purge_run` wird entfernt.
+- `fc_patterns.incident_count`-Recompute und die Unberuehrtheit von
+  `fc_check_proposals` (FK-41 §41.3) gehoeren zu den Folge-Stories, die diese
+  Tabellen anlegen (PatternPromotion/CheckFactory) — solange es keine
+  `fc_patterns`/`fc_check_proposals`-Tabellen gibt, gibt es dort nichts zu tun.
+
 #### 2.1.6 `record_incident`-Empfaenger fuer andere BCs
 
 Die Top-Surface ist transport-agnostisch (kein eigener CLI/HTTP-Endpunkt in dieser Story). Aufrufer-BCs (`governance-and-guards`, `verify-system`, `story-closure`) erhalten `FailureCorpus` ueber Dependency-Injection und rufen `record_incident(candidate)` auf.
@@ -204,8 +226,7 @@ Die Top-Surface ist transport-agnostisch (kein eigener CLI/HTTP-Endpunkt in dies
 - Auto-Deaktivierung (`failure-corpus.A7`) — Folge-Story
 - LlmEvaluator-Integration (`failure-corpus.A8`) — Folge-Story
 - GitHub-Adapter fuer Story-Erzeugung (`failure-corpus.A9`) — Folge-Story
-- Reset-Purge fuer fc_*-Tabellen — gehoert zu THEME-007 (AG3-035)
-- fc_patterns, fc_check_proposals Tabellen — Folge-Stories (kommen mit PatternPromotion/CheckFactory)
+- fc_patterns, fc_check_proposals Tabellen — Folge-Stories (kommen mit PatternPromotion/CheckFactory); deren Reset-Recompute (`fc_patterns.incident_count`) / Unberuehrtheit (`fc_check_proposals`) wird mit diesen Tabellen in den jeweiligen Folge-Stories umgesetzt (FK-41 §41.3, FK-69 §69.9)
 - Telemetrie-Events fuer Incident-Erzeugung — separate Folge nach THEME-007
 
 ## 3. Betroffene Dateien
@@ -222,6 +243,9 @@ Die Top-Surface ist transport-agnostisch (kein eigener CLI/HTTP-Endpunkt in dies
 | `src/agentkit/state_backend/sqlite_store.py` | Modifiziert | analog SQLite |
 | `src/agentkit/state_backend/config.py` | Modifiziert | SCHEMA_VERSION-Bump |
 | `src/agentkit/bootstrap/composition_root.py` | Modifiziert | `build_failure_corpus(telemetry)` |
+| `src/agentkit/state_backend/store/fc_incident_repository.py` | Neu | fc_incidents-Repo inkl. `purge_run` (FK-69 §69.9) |
+| `src/agentkit/state_backend/store/projection_repositories.py` | Modifiziert | `fc_incidents`-Repo in `ProjectionRepositories` + Wiring |
+| `src/agentkit/telemetry/projection_accessor.py` | Modifiziert | `purge_run` um `FC_INCIDENTS` erweitert; `# DRIFT-AG3-028`-Marker entfernt |
 
 <!-- AG3-028 deep-review (Vollumsetzung 2026-05-19): keine
   failure_corpus/repository.py und keine fc_incident_repository.py mehr.
@@ -245,6 +269,7 @@ Die Top-Surface ist transport-agnostisch (kein eigener CLI/HTTP-Endpunkt in dies
 6. **Architecture-Conformance**: `agentkit.failure_corpus` importiert nur `agentkit.core_types`, `agentkit.artifacts` (optional) und `agentkit.telemetry` (fuer den `Telemetry.write_projection`-Vertrag); **nicht** aus `agentkit.state_backend.store` direkt.
 7. **End-to-End-Persistenz**: ein Integration-Test ruft `record_incident` und liest den persistierten Row aus `fc_incidents` auf beiden Backends (SQLite + Postgres).
 8. **Pflichtbefehle gruen**: pytest unit + integration + contract; mypy --strict; ruff clean; Coverage haelt 85%.
+9. **fc_incidents Reset-Purge (FK-69 §69.9 / FK-41 §41.3)**: `ProjectionAccessor.purge_run` entfernt beim Reset eines `run_id` auch alle `fc_incidents`-Zeilen dieses Runs; das `fc_incidents`-Repository hat `purge_run`; der `# DRIFT-AG3-028`-Marker in `telemetry/projection_accessor.py` ist entfernt. Ein Test legt echte `fc_incidents`-Zeilen an und beweist, dass nach `purge_run` keine Zeile des Runs verbleibt (und andere Runs unberuehrt bleiben).
 
 ## 5. Definition of Done
 

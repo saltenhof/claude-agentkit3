@@ -365,7 +365,13 @@ Fuer Attribute, Fachregeln und Reset-Semantik der drei Tabellen:
 **Reset-Regel (analog §69.10.1):** Wird ein `run_id` vollstaendig
 zurueckgesetzt, muessen alle `fc_incidents`-Zeilen dieses `run_id`
 entfernt werden. Betroffene `fc_patterns`-Projektionen (incident_count)
-muessen neu berechnet oder korrigiert werden.
+muessen neu berechnet oder korrigiert werden (Patterns werden korrigiert,
+nicht geloescht). `fc_check_proposals` bleiben unberuehrt (FK-41 §41.3).
+Klarstellung: Dies ist KEINE "Failure-Corpus ueberlebt Reset"-Regel — die
+Incidents des zurueckgesetzten Runs werden aktiv entfernt; nur der
+aggregierte Pattern-/Proposal-Bestand bleibt (korrigiert) erhalten. Der
+fc_*-Purge-/Recompute-Pfad wird mit den fc-Repos in **AG3-028** umgesetzt
+(in AG3-035 existieren die fc_*-Tabellen noch nicht).
 
 ## 69.10 Quellen und Materialisierung
 
