@@ -1,11 +1,13 @@
 """ArtifactClass und EnvelopeStatus — Artefakt-Klassifikation.
 
 Source of truth:
-- ArtifactClass: FK-71 §71.1.1, Z. 90-99 (acht Artefaktklassen, lower-case).
+- ArtifactClass: FK-71 §71.1.1, Z. 90-99 (acht Artefaktklassen, lower-case)
+  plus ``prompt_audit`` (AG3-015, FK-44 §44.6 — Prompt-Audit-Records).
 - EnvelopeStatus: FK-71 §71.2, Z. 145 (PASS/FAIL/WARN/ERROR, upper-case).
 
 Wire-Werte fuer ArtifactClass sind lowercase und konsistent mit dem
-Postgres-CHECK-Constraint aus AG3-023 §2.1.4.
+Postgres-CHECK-Constraint aus AG3-023 §2.1.4 (um ``prompt_audit``
+erweitert in AG3-015).
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ class ArtifactClass(StrEnum):
         ENTWURF: Worker-Entwurfsartefakt (Exploration-Phase).
         HANDOVER: Worker-Handover (Implementation-Phase).
         ADVERSARIAL_TEST_SANDBOX: Adversarial-Test-Sandbox-Verzeichnis.
+        PROMPT_AUDIT: Prompt-Runtime-Audit-Record (FK-44 §44.6, AG3-015).
     """
 
     WORKER = "worker"
@@ -35,6 +38,7 @@ class ArtifactClass(StrEnum):
     ENTWURF = "entwurf"
     HANDOVER = "handover"
     ADVERSARIAL_TEST_SANDBOX = "adversarial_test_sandbox"
+    PROMPT_AUDIT = "prompt_audit"
 
 
 class EnvelopeStatus(StrEnum):

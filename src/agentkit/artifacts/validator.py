@@ -82,6 +82,15 @@ _ALLOWED_STATUSES: dict[ArtifactClass, frozenset[EnvelopeStatus]] = {
         EnvelopeStatus.WARN,
         EnvelopeStatus.ERROR,
     }),
+    # AG3-015 / FK-44 §44.6: prompt-audit records are deterministic
+    # evidence of a materialization. A record either documents a
+    # successful prompt usage (PASS) or an infrastructure failure during
+    # materialization (ERROR). There is no FAIL/WARN semantic for an
+    # audit record (it is not a verdict).
+    ArtifactClass.PROMPT_AUDIT: frozenset({
+        EnvelopeStatus.PASS,
+        EnvelopeStatus.ERROR,
+    }),
 }
 
 

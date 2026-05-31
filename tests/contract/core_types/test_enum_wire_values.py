@@ -15,7 +15,7 @@ Die Pflichtliste folgt der Story-Tabelle in AG3-021 §2.1.9.2:
 | PauseReason           | 3      | FK-39 §39.2.2                |
 | AttemptOutcome        | 6      | FK-39 §39.4.2                |
 | FailureCause          | 16     | FK-39 §39.4.3                |
-| ArtifactClass         | 8      | FK-71 §71.1.1                |
+| ArtifactClass         | 9      | FK-71 §71.1.1 + FK-44 §44.6  |
 | EnvelopeStatus        | 4      | FK-71 §71.2                  |
 | StorySize             | 5      | DK-10 §10.4                  |
 | StoryMode             | 3      | FK-24 §24.3.2 + AG3-018      |
@@ -128,6 +128,7 @@ _ARTIFACT_CLASS_EXPECTED: Final[Mapping[str, str]] = {
     "ENTWURF": "entwurf",
     "HANDOVER": "handover",
     "ADVERSARIAL_TEST_SANDBOX": "adversarial_test_sandbox",
+    "PROMPT_AUDIT": "prompt_audit",
 }
 
 _ENVELOPE_STATUS_EXPECTED: Final[Mapping[str, str]] = {
@@ -290,9 +291,13 @@ def test_failure_cause_wire_values() -> None:
 
 
 def test_artifact_class_wire_values() -> None:
-    """FK-71 §71.1.1 — acht lower-case ArtifactClass-Werte."""
+    """FK-71 §71.1.1 + FK-44 §44.6 — neun lower-case ArtifactClass-Werte.
+
+    AG3-015 ergaenzt ``prompt_audit`` (8 -> 9) fuer Prompt-Runtime-Audit-
+    Records (Entscheidung 1).
+    """
     _assert_wire_contract(
-        ArtifactClass, _ARTIFACT_CLASS_EXPECTED, expected_count=8,
+        ArtifactClass, _ARTIFACT_CLASS_EXPECTED, expected_count=9,
     )
 
 

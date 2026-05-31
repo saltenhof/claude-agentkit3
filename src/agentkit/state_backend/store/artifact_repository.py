@@ -316,7 +316,8 @@ def _ensure_artifact_table_sqlite(conn: sqlite3.Connection) -> None:
             status TEXT NOT NULL,
             artifact_class TEXT NOT NULL CHECK (artifact_class IN (
                 'worker', 'qa', 'pipeline', 'telemetry', 'governance',
-                'entwurf', 'handover', 'adversarial_test_sandbox'
+                'entwurf', 'handover', 'adversarial_test_sandbox',
+                'prompt_audit'
             )),
             payload_json TEXT,
             PRIMARY KEY (story_id, run_id, stage, attempt, artifact_class, producer_name)
@@ -351,7 +352,8 @@ def _ensure_artifact_table_postgres(conn: Any) -> None:
             status VARCHAR NOT NULL,
             artifact_class VARCHAR NOT NULL CHECK (artifact_class IN (
                 'worker', 'qa', 'pipeline', 'telemetry', 'governance',
-                'entwurf', 'handover', 'adversarial_test_sandbox'
+                'entwurf', 'handover', 'adversarial_test_sandbox',
+                'prompt_audit'
             )),
             payload_json JSON,
             PRIMARY KEY (story_id, run_id, stage, attempt, artifact_class, producer_name)

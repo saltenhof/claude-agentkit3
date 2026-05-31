@@ -42,7 +42,7 @@ def _make_envelope(
 
 
 class TestProducerRegistryClassSeed:
-    """AK6, AK12: Alle acht ArtifactClass-Werte sind per Default geseeded."""
+    """AK6, AK12: Alle ArtifactClass-Werte sind per Default geseeded."""
 
     def test_all_artifact_classes_in_registry(self) -> None:
         registry = ProducerRegistry()
@@ -50,9 +50,9 @@ class TestProducerRegistryClassSeed:
             # known_producers gibt leeres Set zurueck, wirft aber keinen Fehler
             assert registry.known_producers(ac) == set()
 
-    def test_eight_classes_seeded(self) -> None:
+    def test_all_classes_seeded(self) -> None:
         registry = ProducerRegistry()
-        # Alle acht Klassen sind bekannt (kein KeyError)
+        # Alle Klassen sind bekannt (kein KeyError); AG3-015: inkl. prompt_audit.
         for ac in ArtifactClass:
             registry.known_producers(ac)
 

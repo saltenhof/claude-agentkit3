@@ -11,7 +11,10 @@ from agentkit.config.sqlite_gate import ALLOW_SQLITE_ENV, sqlite_allowed
 
 STATE_BACKEND_ENV = "AGENTKIT_STATE_BACKEND"
 STATE_DATABASE_URL_ENV = "AGENTKIT_STATE_DATABASE_URL"
-SCHEMA_VERSION = "3.6.0"
+# AG3-015: 3.6.0 -> 3.7.0 (artifact_class CHECK extended with
+# 'prompt_audit'; FK-44 §44.6, AG3-023 §2.1.4 idempotent side-by-side
+# migration per FK-18 §18.9a).
+SCHEMA_VERSION = "3.7.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 
 

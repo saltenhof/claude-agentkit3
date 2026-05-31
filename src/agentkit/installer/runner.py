@@ -323,24 +323,38 @@ def _write_prompt_bundle_lock(
     manifest: dict[str, object],
     manifest_text: str,
 ) -> str | None:
-    manifest_sha256 = hashlib.sha256(
-        manifest_text.encode("utf-8"),
-    ).hexdigest()
-    lock_data = {
-        "bundle_id": manifest["bundle_id"],
-        "bundle_version": manifest["bundle_version"],
-        "binding_root": "prompts",
-        "manifest_file": PROMPT_MANIFEST_FILENAME,
-        "manifest_sha256": manifest_sha256,
-        "templates": manifest["templates"],
-    }
+    """Update the project prompt-bundle binding (FK-50 §50.5).
+
+    Delegates the actual binding update to the prompt-runtime top-surface
+    ``PromptRuntime.update_binding`` (Owner-BC principle). Idempotence for
+    ``created_files`` reporting is preserved by composing the would-be lock
+    content via the shared ``build_prompt_bundle_lock_content`` and only
+    delegating when it differs from the on-disk lock. The fail-closed path
+    is not weakened: ``update_binding`` re-resolves the manifest from the
+    installer-managed central store and raises on any inconsistency.
+
+    Imported lazily to avoid an import cycle (``prompt_runtime`` imports
+    ``installer.paths``; the installer package eagerly imports this runner).
+    """
+    from agentkit.prompt_runtime.runtime import (
+        PromptRuntime,
+        build_prompt_bundle_lock_content,
+    )
+
+    bundle_id = str(manifest["bundle_id"])
+    bundle_version = str(manifest["bundle_version"])
+    desired_content = build_prompt_bundle_lock_content(
+        bundle_id=bundle_id,
+        bundle_version=bundle_version,
+        manifest_file=PROMPT_MANIFEST_FILENAME,
+        manifest_text=manifest_text,
+    )
     lock_path = prompt_bundle_lock_path(target_root)
-    content = json.dumps(lock_data, indent=2, sort_keys=True) + "\n"
-    if not _write_text_if_changed(
-        lock_path,
-        content,
+    if lock_path.is_file() and (
+        lock_path.read_text(encoding="utf-8") == desired_content
     ):
         return None
+    PromptRuntime(target_root).update_binding(bundle_id, bundle_version)
     return str(lock_path.relative_to(target_root))
 
 

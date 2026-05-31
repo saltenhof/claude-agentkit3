@@ -296,9 +296,12 @@
             started_at TIMESTAMPTZ NOT NULL,
             finished_at TIMESTAMPTZ NOT NULL,
             status VARCHAR NOT NULL,
+            -- AG3-015: 'prompt_audit' added (FK-44 §44.6). Idempotent
+            -- side-by-side migration via SCHEMA_VERSION bump 3.6.0->3.7.0.
             artifact_class VARCHAR NOT NULL CHECK (artifact_class IN (
                 'worker', 'qa', 'pipeline', 'telemetry', 'governance',
-                'entwurf', 'handover', 'adversarial_test_sandbox'
+                'entwurf', 'handover', 'adversarial_test_sandbox',
+                'prompt_audit'
             )),
             payload_json JSON,
             PRIMARY KEY (story_id, run_id, stage, attempt, artifact_class, producer_name)

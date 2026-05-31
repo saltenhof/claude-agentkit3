@@ -159,14 +159,26 @@ def test_resolve_run_prompt_binding_requires_existing_pin(
         resolve_run_prompt_binding(tmp_path, "run-1")
 
 
-def test_resolve_run_prompt_binding_rejects_binding_drift(
+def test_mid_run_rebind_does_not_mutate_active_run(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """C2 (FK-44 §44.3, invariant binding_changes_affect_only_future_runs).
+
+    Was previously ``test_resolve_run_prompt_binding_rejects_binding_drift``
+    which froze the *buggy* semantics (expected a mismatch after a lock
+    version bump). Inverted per AG3-015 Entscheidung 2: after a legitimate
+    rebind of the project lock to a new version, an already pinned active
+    run keeps resolving its pinned bundle from the central store and does
+    NOT raise PROMPT_RUN_PIN_MISMATCH (scenario
+    ``mid_run_rebind_does_not_mutate_active_run``).
+    """
     _write_binding_lock(tmp_path)
     monkeypatch.setenv(PROMPT_BUNDLE_STORE_ENV, str(tmp_path / "prompt-bundles"))
-    initialize_prompt_run_pin(tmp_path, run_id="run-1")
+    pin = initialize_prompt_run_pin(tmp_path, run_id="run-1")
+    assert pin.prompt_bundle_version == "99"
 
+    # Legitimate mid-run rebind: project lock now points at a new version.
     lock = json.loads((tmp_path / PROJECT_LOCK_RELPATH).read_text(encoding="utf-8"))
     lock["bundle_version"] = "100"
     (tmp_path / PROJECT_LOCK_RELPATH).write_text(
@@ -174,5 +186,50 @@ def test_resolve_run_prompt_binding_rejects_binding_drift(
         encoding="utf-8",
     )
 
-    with pytest.raises(ProjectError, match="Prompt run pin mismatch"):
+    # The active run still resolves the PINNED bundle (99), no mismatch.
+    binding = resolve_run_prompt_binding(tmp_path, "run-1")
+    assert binding.bundle_id == "project-bound"
+    assert binding.bundle_version == "99"
+    assert binding.manifest_sha256 == pin.prompt_manifest_sha256
+
+
+def test_resolve_run_prompt_binding_rejects_pin_corruption(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Genuine pin corruption stays fail-closed (AG3-015 Entscheidung 2).
+
+    If the run pin points at a bundle/version that no longer exists in the
+    central store, resolution must fail fail-closed rather than silently
+    fall back to a different bundle.
+    """
+    _write_binding_lock(tmp_path)
+    monkeypatch.setenv(PROMPT_BUNDLE_STORE_ENV, str(tmp_path / "prompt-bundles"))
+    initialize_prompt_run_pin(tmp_path, run_id="run-1")
+
+    # Corrupt the pin: point it at a non-existent bundle version.
+    pin_path = tmp_path / ".agentkit" / "manifests" / "prompt-pins" / "run-1.json"
+    pin = json.loads(pin_path.read_text(encoding="utf-8"))
+    pin["prompt_bundle_version"] = "does-not-exist"
+    pin_path.write_text(json.dumps(pin), encoding="utf-8")
+
+    with pytest.raises(ProjectError, match="Pinned prompt bundle manifest is missing"):
+        resolve_run_prompt_binding(tmp_path, "run-1")
+
+
+def test_resolve_run_prompt_binding_rejects_pin_digest_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A pinned digest that diverges from the stored manifest is fail-closed."""
+    _write_binding_lock(tmp_path)
+    monkeypatch.setenv(PROMPT_BUNDLE_STORE_ENV, str(tmp_path / "prompt-bundles"))
+    initialize_prompt_run_pin(tmp_path, run_id="run-1")
+
+    pin_path = tmp_path / ".agentkit" / "manifests" / "prompt-pins" / "run-1.json"
+    pin = json.loads(pin_path.read_text(encoding="utf-8"))
+    pin["prompt_manifest_sha256"] = "0" * 64
+    pin_path.write_text(json.dumps(pin), encoding="utf-8")
+
+    with pytest.raises(ProjectError, match="manifest digest mismatch"):
         resolve_run_prompt_binding(tmp_path, "run-1")

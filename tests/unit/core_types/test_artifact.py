@@ -18,6 +18,7 @@ class TestArtifactClass:
             "entwurf",
             "handover",
             "adversarial_test_sandbox",
+            "prompt_audit",
         ):
             assert ArtifactClass(raw).value == raw
 
@@ -31,6 +32,7 @@ class TestArtifactClass:
             ArtifactClass.ENTWURF,
             ArtifactClass.HANDOVER,
             ArtifactClass.ADVERSARIAL_TEST_SANDBOX,
+            ArtifactClass.PROMPT_AUDIT,
         ]
 
     def test_str_enum_invariants(self) -> None:
@@ -43,8 +45,9 @@ class TestArtifactClass:
             with pytest.raises(ValueError):
                 ArtifactClass(raw)
 
-    def test_eight_values(self) -> None:
-        assert len(ArtifactClass) == 8
+    def test_nine_values(self) -> None:
+        # AG3-015: prompt_audit added (FK-44 §44.6); 8 -> 9.
+        assert len(ArtifactClass) == 9
 
 
 class TestEnvelopeStatus:

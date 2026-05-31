@@ -1,16 +1,33 @@
-"""Run-level prompt pin persistence and validation."""
+"""Run-level prompt pin persistence and validation.
+
+Owner: ``bundle_pinning`` sub of the prompt-runtime BC (bc-cut-decisions
+§BC 10). Materializes ``RunPromptPin`` instances under
+``.agentkit/manifests/prompt-pins/{run_id}.json`` and resolves the
+pin-authoritative bundle for an active run.
+
+C2 invariant (FK-44 §44.3 / formal.prompt-runtime.invariants
+``binding_changes_affect_only_future_runs``): once a run is pinned, the
+run pin is the authority. A later legitimate ``update_binding`` on the
+project lock affects only future runs; the active run keeps resolving
+its pinned bundle from the central store. Only genuine corruption (the
+pinned bundle/manifest is missing or its digest diverges from the pin)
+is fail-closed.
+"""
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
+
+from pydantic import BaseModel, ConfigDict
 
 from agentkit.exceptions import ProjectError
 from agentkit.installer.paths import prompt_run_pin_path
 from agentkit.prompt_runtime.resources import (
     PROJECT_LOCK_RELPATH,
     PromptBundleBinding,
+    resolve_pinned_prompt_binding,
     resolve_project_prompt_binding,
 )
 from agentkit.utils.io import atomic_write_text
@@ -20,25 +37,61 @@ if TYPE_CHECKING:
 
 PROMPT_RUN_PIN_MISMATCH = "Prompt run pin mismatch"
 
+#: Default manifest filename when a legacy pin omits ``prompt_manifest_file``.
+_DEFAULT_MANIFEST_FILE = "manifest.json"
 
-@dataclass(frozen=True)
-class PromptRunPin:
+
+class PromptRunPin(BaseModel):
+    """Pin record for an active run (Pydantic v2; FK-44 §44.3).
+
+    Maps to the formal entity ``prompt-runtime.entity.run-prompt-pin``.
+    ``resolved_prompt_bundle_version`` and
+    ``resolved_prompt_bundle_manifest_digest`` are exposed as read-only
+    aliases over the wire-stable field names.
+
+    Attributes:
+        run_id: Run identifier (identity key).
+        prompt_bundle_id: Pinned bundle identifier.
+        prompt_bundle_version: Pinned bundle version
+            (``resolved_prompt_bundle_version``).
+        prompt_manifest_sha256: Pinned manifest digest
+            (``resolved_prompt_bundle_manifest_digest``).
+        prompt_manifest_file: Manifest filename inside the bundle root.
+        pinned_at: UTC timestamp the pin was first written.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
     run_id: str
     prompt_bundle_id: str
     prompt_bundle_version: str
     prompt_manifest_sha256: str
+    prompt_manifest_file: str = _DEFAULT_MANIFEST_FILE
+    pinned_at: datetime
+
+    @property
+    def resolved_prompt_bundle_version(self) -> str:
+        """Formal-entity alias for the pinned bundle version."""
+        return self.prompt_bundle_version
+
+    @property
+    def resolved_prompt_bundle_manifest_digest(self) -> str:
+        """Formal-entity alias for the pinned manifest digest."""
+        return self.prompt_manifest_sha256
 
 
 def initialize_prompt_run_pin(project_root: Path, *, run_id: str) -> PromptRunPin:
     """Resolve the current project binding and persist the canonical run pin."""
 
     binding = resolve_project_prompt_binding(project_root)
+    manifest_file = binding.manifest_path.name
     ensure_prompt_run_pin(
         project_root,
         run_id=run_id,
         prompt_bundle_id=binding.bundle_id,
         prompt_bundle_version=binding.bundle_version,
         prompt_manifest_sha256=binding.manifest_sha256,
+        prompt_manifest_file=manifest_file,
     )
     pin = load_prompt_run_pin(project_root, run_id)
     if pin is None:  # pragma: no cover
@@ -56,11 +109,21 @@ def load_prompt_run_pin(project_root: Path, run_id: str) -> PromptRunPin | None:
     if not path.is_file():
         return None
     data = json.loads(path.read_text(encoding="utf-8"))
+    pinned_at_raw = data.get("pinned_at")
+    pinned_at = (
+        datetime.fromisoformat(str(pinned_at_raw))
+        if pinned_at_raw is not None
+        else datetime.now(tz=UTC)
+    )
     return PromptRunPin(
         run_id=str(data["run_id"]),
         prompt_bundle_id=str(data["prompt_bundle_id"]),
         prompt_bundle_version=str(data["prompt_bundle_version"]),
         prompt_manifest_sha256=str(data["prompt_manifest_sha256"]),
+        prompt_manifest_file=str(
+            data.get("prompt_manifest_file", _DEFAULT_MANIFEST_FILE),
+        ),
+        pinned_at=pinned_at,
     )
 
 
@@ -71,8 +134,14 @@ def ensure_prompt_run_pin(
     prompt_bundle_id: str,
     prompt_bundle_version: str,
     prompt_manifest_sha256: str,
+    prompt_manifest_file: str = _DEFAULT_MANIFEST_FILE,
 ) -> Path:
-    """Persist or validate the canonical prompt pin for a run."""
+    """Persist or validate the canonical prompt pin for a run.
+
+    The pin is write-once per run identity. A second call with diverging
+    bundle coordinates for the same ``run_id`` is mid-run pin corruption
+    and is rejected fail-closed.
+    """
 
     existing = load_prompt_run_pin(project_root, run_id)
     path = prompt_run_pin_path(project_root, run_id)
@@ -106,6 +175,8 @@ def ensure_prompt_run_pin(
                 "prompt_bundle_id": prompt_bundle_id,
                 "prompt_bundle_version": prompt_bundle_version,
                 "prompt_manifest_sha256": prompt_manifest_sha256,
+                "prompt_manifest_file": prompt_manifest_file,
+                "pinned_at": datetime.now(tz=UTC).isoformat(),
             },
             indent=2,
             sort_keys=True,
@@ -116,7 +187,26 @@ def ensure_prompt_run_pin(
 
 
 def resolve_run_prompt_binding(project_root: Path, run_id: str) -> PromptBundleBinding:
-    """Resolve the active run's prompt binding via the persisted run pin."""
+    """Resolve the active run's prompt binding via the persisted run pin.
+
+    The run pin is the authority (FK-44 §44.3). The pinned bundle is
+    resolved directly from the installer-managed central store using the
+    pinned ``bundle_id``/``bundle_version``. A later legitimate rebind of
+    the project lock does **not** affect this resolution (C2 invariant
+    ``binding_changes_affect_only_future_runs``).
+
+    Args:
+        project_root: Project root.
+        run_id: Active run identifier.
+
+    Returns:
+        The pin-authoritative ``PromptBundleBinding``.
+
+    Raises:
+        ProjectError: If the run pin is missing, or the pinned bundle /
+            manifest is missing or its digest diverges from the pin
+            (genuine corruption, fail-closed).
+    """
 
     pin = load_prompt_run_pin(project_root, run_id)
     if pin is None:
@@ -125,54 +215,13 @@ def resolve_run_prompt_binding(project_root: Path, run_id: str) -> PromptBundleB
             detail={"path": str(prompt_run_pin_path(project_root, run_id))},
         )
 
-    lock_path = project_root / PROJECT_LOCK_RELPATH
-    if lock_path.is_file():
-        lock = json.loads(lock_path.read_text(encoding="utf-8"))
-        lock_bundle_id = lock.get("bundle_id")
-        lock_bundle_version = lock.get("bundle_version")
-        if (
-            isinstance(lock_bundle_id, str)
-            and isinstance(lock_bundle_version, str)
-            and (
-                lock_bundle_id != pin.prompt_bundle_id
-                or lock_bundle_version != pin.prompt_bundle_version
-            )
-        ):
-            _raise_prompt_run_pin_mismatch(
-                path=prompt_run_pin_path(project_root, run_id),
-                run_id=run_id,
-                expected=_pin_detail(
-                    prompt_bundle_id=pin.prompt_bundle_id,
-                    prompt_bundle_version=pin.prompt_bundle_version,
-                    prompt_manifest_sha256=pin.prompt_manifest_sha256,
-                ),
-                actual={
-                    "prompt_bundle_id": lock_bundle_id,
-                    "prompt_bundle_version": lock_bundle_version,
-                },
-            )
-
-    binding = resolve_project_prompt_binding(project_root)
-    if (
-        binding.bundle_id != pin.prompt_bundle_id
-        or binding.bundle_version != pin.prompt_bundle_version
-        or binding.manifest_sha256 != pin.prompt_manifest_sha256
-    ):
-        _raise_prompt_run_pin_mismatch(
-            path=prompt_run_pin_path(project_root, run_id),
-            run_id=run_id,
-            expected=_pin_detail(
-                prompt_bundle_id=pin.prompt_bundle_id,
-                prompt_bundle_version=pin.prompt_bundle_version,
-                prompt_manifest_sha256=pin.prompt_manifest_sha256,
-            ),
-            actual=_pin_detail(
-                prompt_bundle_id=binding.bundle_id,
-                prompt_bundle_version=binding.bundle_version,
-                prompt_manifest_sha256=binding.manifest_sha256,
-            ),
-        )
-    return binding
+    return resolve_pinned_prompt_binding(
+        project_root,
+        bundle_id=pin.prompt_bundle_id,
+        bundle_version=pin.prompt_bundle_version,
+        manifest_file=pin.prompt_manifest_file,
+        expected_manifest_sha256=pin.prompt_manifest_sha256,
+    )
 
 
 def _pin_detail(
@@ -207,6 +256,7 @@ def _raise_prompt_run_pin_mismatch(
 
 
 __all__ = [
+    "PROJECT_LOCK_RELPATH",
     "PromptRunPin",
     "ensure_prompt_run_pin",
     "initialize_prompt_run_pin",

@@ -1,8 +1,8 @@
 story_id: AG3-015
 title: "Prompt-Runtime: Bundle-Pinning, Materialisierung, Audit"
 type: implementation
-status: ready
-phase: setup
+status: in_progress
+phase: implementation
 created: "2026-05-04"
 size: L
 depends_on: []

@@ -1,9 +1,22 @@
-"""Prompt composition -- builds complete prompts from templates and context."""
+"""Prompt composition -- builds complete prompts from templates and context.
+
+Owner: ``materialization`` sub of the prompt-runtime BC (bc-cut-decisions
+§BC 10; module prefix ``agentkit.prompt_runtime``). Renders dynamic
+prompts and materializes run-scoped agent prompt instances under
+``{project_root}/.agentkit/prompts/{run_id}/{invocation_id}/prompt.md``
+(FK-44 §44.4.1). Static prompts are projected from the pinned central
+bundle file via hardlink/symlink (copy only as platform fallback). The
+loose run-scoped ``manifest.json`` is a convenience file for agents and
+**not** the audit truth -- the audit record is persisted via
+``artifacts.ArtifactManager`` (FK-44 §44.6, see ``audit.py``/``runtime.py``).
+"""
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
+import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -52,6 +65,27 @@ class ComposedPrompt:
 class MaterializedPromptInstance:
     prompt_path: Path
     manifest_path: Path
+
+
+@dataclass(frozen=True)
+class StaticMaterializedPromptInstance:
+    """Result of a static (hardlink/symlink/copy) prompt projection.
+
+    Attributes:
+        prompt_path: Run-scoped instance path that agents consume.
+        render_mode: Always ``"static"`` (FK-44 §44.4.1).
+        link_mode: How the projection was created -- ``"hardlink"``,
+            ``"symlink"`` or ``"copy"`` (copy only as platform fallback).
+        template_sha256: Digest of the canonical template bytes.
+        output_sha256: Digest of the materialized bytes (equals
+            ``template_sha256`` for a faithful static projection).
+    """
+
+    prompt_path: Path
+    render_mode: str
+    link_mode: str
+    template_sha256: str
+    output_sha256: str
 
 
 @dataclass(frozen=True)
@@ -448,15 +482,128 @@ def write_rendered_prompt_artifact(
         manifest_path=manifest_path,
     )
 
+def _project_static_prompt(source: Path, target: Path) -> str:
+    """Project ``source`` to ``target`` and report the link mode used.
+
+    FK-44 §44.4.1: static prompts are projected from the pinned central
+    bundle file via hardlink (preferred), then symlink, falling back to a
+    copy only when the platform rejects both. Returns the mode used.
+    """
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists() or target.is_symlink():
+        target.unlink()
+    try:
+        os.link(source, target)
+        return "hardlink"
+    except OSError as link_exc:
+        if not _can_fallback_to_symlink(link_exc):
+            _raise_static_projection_error(source, target, link_exc)
+    try:
+        os.symlink(source, target)
+        return "symlink"
+    except OSError as symlink_exc:
+        if not _can_fallback_to_copy(symlink_exc):
+            _raise_static_projection_error(source, target, symlink_exc)
+    import shutil
+
+    try:
+        shutil.copy2(source, target)
+    except OSError as copy_exc:
+        _raise_static_projection_error(source, target, copy_exc)
+    return "copy"
+
+
+def _can_fallback_to_symlink(exc: OSError) -> bool:
+    return exc.errno == errno.EXDEV or getattr(exc, "winerror", None) == 17
+
+
+def _can_fallback_to_copy(exc: OSError) -> bool:
+    return getattr(exc, "winerror", None) == 1314
+
+
+def _raise_static_projection_error(
+    source: Path,
+    target: Path,
+    exc: OSError,
+) -> None:
+    raise ProjectError(
+        f"Failed to project static prompt from {source} to {target}: {exc}",
+        detail={"source": str(source), "target": str(target), "error": str(exc)},
+    ) from exc
+
+
+def materialize_static_prompt_instance(
+    project_root: Path,
+    *,
+    run_id: str,
+    invocation_id: str,
+    template_name: str,
+) -> StaticMaterializedPromptInstance:
+    """Materialize a static agent prompt by projecting the pinned bundle file.
+
+    Resolves the pin-authoritative bundle for the run, locates the
+    canonical template inside the central bundle store, and projects it to
+    the run-scoped instance path via hardlink/symlink/copy (FK-44
+    §44.4.1). The source/target therefore share the same bytes; for a
+    hardlink they share the same inode.
+
+    Args:
+        project_root: Project root.
+        run_id: Active run id (must already be pinned).
+        invocation_id: Spawn/invocation id.
+        template_name: Logical template name to project.
+
+    Returns:
+        A ``StaticMaterializedPromptInstance`` with the projection mode and
+        digests.
+
+    Raises:
+        ProjectError: If the run pin/bundle is missing or the projection
+            fails (fail-closed).
+    """
+    initialize_prompt_run_pin(project_root, run_id=run_id)
+    binding = resolve_run_prompt_binding(project_root, run_id)
+    relpath = prompt_template_relpath(template_name, project_root=project_root)
+    template_sha256 = prompt_template_sha256(
+        template_name,
+        project_root=project_root,
+    )
+    source = binding.bundle_root / relpath
+    if not source.is_file():
+        raise ProjectError(
+            f"Static prompt source is missing in the pinned bundle: {source}",
+            detail={
+                "run_id": run_id,
+                "template_name": template_name,
+                "source": str(source),
+            },
+        )
+    output_dir = prompt_instance_dir(project_root, run_id, invocation_id)
+    prompt_path = output_dir / "prompt.md"
+    link_mode = _project_static_prompt(source, prompt_path)
+    output_sha256 = hashlib.sha256(
+        prompt_path.read_bytes(),
+    ).hexdigest()
+    return StaticMaterializedPromptInstance(
+        prompt_path=prompt_path,
+        render_mode="static",
+        link_mode=link_mode,
+        template_sha256=template_sha256,
+        output_sha256=output_sha256,
+    )
+
+
 __all__ = [
     "ComposeConfig",
     "ComposedPrompt",
     "MaterializedPromptInstance",
     "RenderedPromptArtifact",
+    "StaticMaterializedPromptInstance",
     "WorkerWorktreeContext",
     "build_worker_worktree_context",
     "compose_named_prompt",
     "compose_prompt",
+    "materialize_static_prompt_instance",
     "write_rendered_prompt_artifact",
     "write_prompt",
     "write_prompt_instance",

@@ -2,7 +2,8 @@
 
 Prueft:
 - ``ENVELOPE_SCHEMA_VERSION == "3.0"``
-- Alle acht ``ArtifactClass``-Werte sind im Registry-Default geseeded
+- Alle neun ``ArtifactClass``-Werte sind im Registry-Default geseeded
+  (AG3-015: inkl. ``prompt_audit``, FK-44 §44.6)
 - LLM-Status-Mapping ist exakt das aus FK-71 §71.2
 
 Diese Tests pinnen das Wire-Verhalten fest; jede Abweichung ist ein
@@ -39,8 +40,8 @@ def test_envelope_schema_version_is_3_0() -> None:
     )
 
 
-def test_all_eight_artifact_classes_seeded() -> None:
-    """AK12: Alle acht ArtifactClass-Werte sind im Registry-Default als Keys vorhanden."""
+def test_all_nine_artifact_classes_seeded() -> None:
+    """AK12 + AG3-015: Alle neun ArtifactClass-Werte sind im Registry-Default als Keys vorhanden."""
     registry = ProducerRegistry()
     for ac in ArtifactClass:
         # known_producers darf nicht werfen; leer ist OK
@@ -49,8 +50,8 @@ def test_all_eight_artifact_classes_seeded() -> None:
             f"known_producers({ac}) hat unerwarteten Typ: {type(known)}"
         )
 
-    assert len(list(ArtifactClass)) == 8, (
-        f"Erwartet 8 ArtifactClass-Werte, gefunden: {len(list(ArtifactClass))}"
+    assert len(list(ArtifactClass)) == 9, (
+        f"Erwartet 9 ArtifactClass-Werte, gefunden: {len(list(ArtifactClass))}"
     )
 
 

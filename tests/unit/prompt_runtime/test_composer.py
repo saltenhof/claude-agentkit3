@@ -15,8 +15,10 @@ from agentkit.prompt_runtime.composer import (
     ComposeConfig,
     ComposedPrompt,
     MaterializedPromptInstance,
+    StaticMaterializedPromptInstance,
     compose_named_prompt,
     compose_prompt,
+    materialize_static_prompt_instance,
     write_prompt,
     write_prompt_instance,
 )
@@ -471,4 +473,89 @@ class TestWritePrompt:
                 tmp_path,
                 run_id="run-123",
                 invocation_id="invoke-001",
+            )
+
+
+class TestStaticMaterializer:
+    """AK3: static prompts projected from the pinned central bundle file."""
+
+    def test_static_projection_shares_bytes_and_render_mode(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _write_project_prompt_binding(tmp_path)
+        monkeypatch.setenv(PROMPT_BUNDLE_STORE_ENV, str(tmp_path / "prompt-bundles"))
+        initialize_prompt_run_pin(tmp_path, run_id="run-static")
+
+        result = materialize_static_prompt_instance(
+            tmp_path,
+            run_id="run-static",
+            invocation_id="inv-1",
+            template_name="worker-implementation",
+        )
+
+        assert isinstance(result, StaticMaterializedPromptInstance)
+        assert result.render_mode == "static"
+        assert result.prompt_path == (
+            tmp_path / ".agentkit" / "prompts" / "run-static" / "inv-1" / "prompt.md"
+        )
+        assert result.prompt_path.is_file()
+        # Source and target must share the exact bytes.
+        source = (
+            prompt_bundle_store_dir(
+                "project-bound", "99", store_root=tmp_path / "prompt-bundles"
+            )
+            / "internal"
+            / "prompts"
+            / "worker-implementation.md"
+        )
+        assert result.prompt_path.read_bytes() == source.read_bytes()
+        # output digest reflects the exact bytes the agent consumes; the
+        # template digest is the manifest-pinned digest (FK-44 §44.6).
+        assert len(result.output_sha256) == 64
+        assert len(result.template_sha256) == 64
+
+    def test_static_projection_uses_hardlink_same_inode(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """On same-filesystem tmp_path the projection is a hardlink (same inode)."""
+        _write_project_prompt_binding(tmp_path)
+        monkeypatch.setenv(PROMPT_BUNDLE_STORE_ENV, str(tmp_path / "prompt-bundles"))
+        initialize_prompt_run_pin(tmp_path, run_id="run-static")
+
+        result = materialize_static_prompt_instance(
+            tmp_path,
+            run_id="run-static",
+            invocation_id="inv-1",
+            template_name="worker-implementation",
+        )
+        source = (
+            prompt_bundle_store_dir(
+                "project-bound", "99", store_root=tmp_path / "prompt-bundles"
+            )
+            / "internal"
+            / "prompts"
+            / "worker-implementation.md"
+        )
+        if result.link_mode == "hardlink":
+            assert result.prompt_path.stat().st_ino == source.stat().st_ino
+        else:  # symlink/copy fallback still shares bytes
+            assert result.prompt_path.read_bytes() == source.read_bytes()
+
+    def test_static_projection_requires_pin(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """FAIL-CLOSED: without binding lock the run pin cannot be created."""
+        monkeypatch.setenv(PROMPT_BUNDLE_STORE_ENV, str(tmp_path / "prompt-bundles"))
+        with pytest.raises(ProjectError):
+            materialize_static_prompt_instance(
+                tmp_path,
+                run_id="run-missing",
+                invocation_id="inv-1",
+                template_name="worker-implementation",
             )

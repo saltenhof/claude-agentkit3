@@ -207,13 +207,16 @@ class TestAttemptsSchemaConstraints:
             conn.execute("CREATE TABLE IF NOT EXISTS dummy (id TEXT PRIMARY KEY)")
             conn.commit()
 
-        # Neue DB (3.6.0 nach AG3-031-Schema-Bump) oeffnen — beruehrt
-        # die alte nicht.
+        # Neue DB (aktuelle SCHEMA_VERSION) oeffnen — beruehrt die alte
+        # nicht. Derived from config so it does not drift on schema bumps.
+        from agentkit.state_backend.config import versioned_sqlite_db_file
         from agentkit.state_backend.sqlite_store import state_db_path_for as sdb
         new_db_path = sdb(old_db_dir)
-        assert new_db_path.name == "agentkit_3_6_0.sqlite", (
-            f"Expected agentkit_3_6_0.sqlite but got {new_db_path.name!r}"
+        expected_name = versioned_sqlite_db_file()
+        assert new_db_path.name == expected_name, (
+            f"Expected {expected_name} but got {new_db_path.name!r}"
         )
+        assert new_db_path.name != old_db_path.name
         # Alte DB bleibt unveraendert
         assert old_db_path.exists()
         with sqlite3.connect(str(old_db_path)) as old_conn:

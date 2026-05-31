@@ -1,12 +1,21 @@
-"""Resource access for bundled prompt templates."""
+"""Resource access for bundled prompt templates.
+
+Owner: ``bundle_store`` sub of the prompt-runtime BC (bc-cut-decisions
+§BC 10; ``agentkit.prompt_runtime`` module prefix). Resolves the
+lock-authoritative project binding (FK-44 §44.2) and the pin-authoritative
+bundle for an active run (FK-44 §44.3, §44.5), always deriving the
+effective bundle path from the installer-managed central prompt-bundle
+store -- never from a free project-local path.
+"""
 
 from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
+
+from pydantic import BaseModel, ConfigDict
 
 from agentkit.exceptions import ProjectError
 from agentkit.installer.paths import prompt_bundle_store_dir
@@ -20,9 +29,24 @@ RESOURCE_DIR = (
 MANIFEST_PATH = RESOURCE_DIR / "manifest.json"
 PROJECT_LOCK_RELPATH = Path(".agentkit") / "config" / "prompt-bundle.lock.json"
 
+#: Message raised when a mutable project-local prompt copy diverges from the
+#: bound bundle (FK-44 §44.5, command ``reject-stale-local-prompt-cache``).
+STALE_LOCAL_PROMPT_CACHE = "Stale project-local prompt cache rejected"
 
-@dataclass(frozen=True)
-class PromptBundleBinding:
+
+class PromptBundleBinding(BaseModel):
+    """Resolved prompt-bundle binding (Pydantic v2; FK-44 §44.2).
+
+    Attributes:
+        bundle_id: Canonical bundle identifier.
+        bundle_version: Bound bundle version.
+        bundle_root: Absolute path in the central store for this version.
+        manifest_path: Absolute path of the resolved manifest.
+        manifest_sha256: Digest of the resolved manifest bytes.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
     bundle_id: str
     bundle_version: str
     bundle_root: Path
@@ -147,6 +171,130 @@ def resolve_bootstrap_prompt_binding() -> PromptBundleBinding:
     """Resolve the internal bootstrap prompt bundle for non-project contexts."""
 
     return _bootstrap_binding()
+
+
+def resolve_pinned_prompt_binding(
+    project_root: Path,
+    *,
+    bundle_id: str,
+    bundle_version: str,
+    manifest_file: str,
+    expected_manifest_sha256: str,
+) -> PromptBundleBinding:
+    """Resolve a *pinned* bundle directly from the central store.
+
+    FK-44 §44.3: the bundle for an active run is resolved via the
+    installer-managed central prompt-bundle store using the pinned
+    ``bundle_id``/``bundle_version`` -- **not** via the (possibly
+    rebound) project lock. This is the pin-authoritative resolution path
+    that makes ``binding_changes_affect_only_future_runs`` (C2) hold.
+
+    Real corruption stays fail-closed: a missing pinned bundle file or a
+    manifest digest that diverges from the pinned digest raises
+    ``ProjectError``.
+
+    Args:
+        project_root: Project root (used only for error context).
+        bundle_id: Pinned bundle identifier.
+        bundle_version: Pinned bundle version.
+        manifest_file: Manifest filename inside the bundle root.
+        expected_manifest_sha256: Pinned manifest digest to enforce.
+
+    Returns:
+        The resolved ``PromptBundleBinding`` for the pinned version.
+
+    Raises:
+        ProjectError: If the pinned bundle/manifest is missing or its
+            digest diverges from the pin (fail-closed).
+    """
+    bundle_root = prompt_bundle_store_dir(bundle_id, bundle_version)
+    manifest_path = bundle_root / Path(manifest_file)
+    if not manifest_path.is_file():
+        raise ProjectError(
+            f"Pinned prompt bundle manifest is missing: {manifest_path}",
+            detail={
+                "project_root": str(project_root),
+                "bundle_id": bundle_id,
+                "bundle_version": bundle_version,
+                "manifest_path": str(manifest_path),
+            },
+        )
+    actual_sha256 = _sha256_text(manifest_path.read_text(encoding="utf-8"))
+    if actual_sha256 != expected_manifest_sha256:
+        raise ProjectError(
+            "Pinned prompt bundle manifest digest mismatch",
+            detail={
+                "project_root": str(project_root),
+                "bundle_id": bundle_id,
+                "bundle_version": bundle_version,
+                "manifest_path": str(manifest_path),
+                "expected_sha256": expected_manifest_sha256,
+                "actual_sha256": actual_sha256,
+            },
+        )
+    return PromptBundleBinding(
+        bundle_id=bundle_id,
+        bundle_version=bundle_version,
+        bundle_root=bundle_root,
+        manifest_path=manifest_path,
+        manifest_sha256=actual_sha256,
+    )
+
+
+def reject_stale_local_prompt_cache(
+    project_root: Path,
+    *,
+    binding: PromptBundleBinding,
+    local_prompt_path: Path,
+    template_relpath: str,
+) -> None:
+    """Reject a mutable project-local prompt copy that diverges from the bundle.
+
+    FK-44 §44.5 / command ``reject-stale-local-prompt-cache``: a
+    project-local prompt file is only ever a read-only projection on the
+    bound bundle version. If such a file exists but its bytes diverge from
+    the canonical bundle template, it is a stale cache and must be rejected
+    fail-closed (invariant
+    ``project_local_prompt_copy_is_never_authoritative``).
+
+    A missing local file is fine (nothing to reject); an identical file is
+    a legitimate read-only projection.
+
+    Args:
+        project_root: Project root (error context).
+        binding: The resolved authoritative bundle binding.
+        local_prompt_path: The project-local prompt file to check.
+        template_relpath: Bundle-relative path of the canonical template.
+
+    Raises:
+        ProjectError: If the local file diverges from the bound bundle
+            template (stale cache, fail-closed).
+    """
+    if not local_prompt_path.is_file():
+        return
+    canonical_path = binding.bundle_root / Path(template_relpath)
+    if not canonical_path.is_file():
+        raise ProjectError(
+            f"Canonical bundle template is missing: {canonical_path}",
+            detail={
+                "project_root": str(project_root),
+                "local_prompt_path": str(local_prompt_path),
+                "canonical_path": str(canonical_path),
+            },
+        )
+    local_digest = _sha256_text(local_prompt_path.read_text(encoding="utf-8"))
+    canonical_digest = _sha256_text(canonical_path.read_text(encoding="utf-8"))
+    if local_digest != canonical_digest:
+        raise ProjectError(
+            STALE_LOCAL_PROMPT_CACHE,
+            detail={
+                "project_root": str(project_root),
+                "local_prompt_path": str(local_prompt_path),
+                "canonical_path": str(canonical_path),
+                "local_sha256": local_digest,
+                "canonical_sha256": canonical_digest,
+            },
+        )
 
 
 def prompt_manifest_sha256(project_root: Path | None = None) -> str:
@@ -285,6 +433,7 @@ __all__ = [
     "PromptBundleBinding",
     "PROJECT_LOCK_RELPATH",
     "RESOURCE_DIR",
+    "STALE_LOCAL_PROMPT_CACHE",
     "load_prompt_template",
     "prompt_bundle_id",
     "prompt_manifest_sha256",
@@ -292,6 +441,8 @@ __all__ = [
     "prompt_template_path",
     "prompt_template_relpath",
     "prompt_template_sha256",
+    "reject_stale_local_prompt_cache",
     "resolve_bootstrap_prompt_binding",
+    "resolve_pinned_prompt_binding",
     "resolve_project_prompt_binding",
 ]

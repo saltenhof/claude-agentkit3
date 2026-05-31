@@ -137,10 +137,13 @@ class TestRoundtrip:
         result = repo.read_envelope(ghost)
         assert result is None
 
-    def test_write_all_eight_artifact_classes(
+    def test_write_all_nine_artifact_classes(
         self, repo: StateBackendArtifactRepository
     ) -> None:
-        """Alle acht ArtifactClass-Wire-Werte sind schreib- und lesbar."""
+        """Alle neun ArtifactClass-Wire-Werte sind schreib- und lesbar.
+
+        AG3-015: ``prompt_audit`` ergaenzt (FK-44 §44.6).
+        """
         all_classes = [
             (ArtifactClass.WORKER, ProducerType.WORKER),
             (ArtifactClass.QA, ProducerType.DETERMINISTIC),
@@ -150,6 +153,7 @@ class TestRoundtrip:
             (ArtifactClass.ENTWURF, ProducerType.WORKER),
             (ArtifactClass.HANDOVER, ProducerType.WORKER),
             (ArtifactClass.ADVERSARIAL_TEST_SANDBOX, ProducerType.LLM_REVIEWER),
+            (ArtifactClass.PROMPT_AUDIT, ProducerType.DETERMINISTIC),
         ]
         for artifact_class, producer_type in all_classes:
             env = _make_envelope(

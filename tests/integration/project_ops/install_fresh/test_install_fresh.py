@@ -239,6 +239,32 @@ class TestInstallFresh:
         )
 
 
+    def test_install_delegates_binding_to_prompt_runtime(
+        self, tmp_path: object, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """FK-50 §50.5 / AG3-015 AK9: install routes the binding update through
+        ``PromptRuntime.update_binding`` (Owner-BC principle)."""
+        from agentkit.prompt_runtime import runtime as runtime_module
+
+        calls: list[tuple[str, str]] = []
+        original = runtime_module.PromptRuntime.update_binding
+
+        def _spy(self: object, bundle_id: str, version: str) -> None:
+            calls.append((bundle_id, version))
+            original(self, bundle_id, version)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(
+            runtime_module.PromptRuntime, "update_binding", _spy, raising=True
+        )
+
+        root = _as_path(tmp_path)
+        install_agentkit(_make_install_config(root, project_name="test-project"))
+
+        assert calls == [("internal-bootstrap-prompts", "2")]
+        lock_path = root / ".agentkit" / "config" / "prompt-bundle.lock.json"
+        assert lock_path.is_file()
+
+
 def _as_path(tmp_path: object) -> Path:
     """Cast pytest tmp_path fixture to Path for type safety."""
     if not isinstance(tmp_path, Path):  # pragma: no cover
