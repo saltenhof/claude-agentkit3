@@ -72,7 +72,7 @@ glossary:
       definition: >
         Plattformseitiger Mechanismus, der jeden Tool-Call eines Agenten
         abfaengt. Konkret: PreToolUse/PostToolUse-aequivalente Hooks pro
-        unterstuetztem Harness (Claude Code, Codex; siehe §30.11). Exit 0
+        unterstuetztem Harness (Claude Code, Codex; siehe FK-76 §76.4). Exit 0
         erlaubt, Exit 2 blockiert, jeder Crash ist fail-closed blockiert.
         Hooks sind Teil der Plattform-Infrastruktur — Agenten koennen sie
         nicht umgehen.
@@ -104,7 +104,7 @@ Hooks sind der technische Enforcement-Mechanismus für alle
 Governance-Regeln in AgentKit. Sie sind der Grund, warum Agents
 ihre eigenen Einschränkungen nicht umgehen können: Hooks sind
 Teil der Plattform (Agent-Harness — Claude Code, Codex; siehe
-§30.11), nicht Teil des Agent-Codes (Kap. 01 P2).
+FK-76), nicht Teil des Agent-Codes (Kap. 01 P2).
 
 Dieses Kapitel beschreibt die Hook-Infrastruktur als Ganzes:
 Wie Hooks registriert werden, wie sie aufgerufen werden, welche
@@ -126,7 +126,7 @@ nicht zu diesem System, sondern ist eine separate Permission-Runtime
 > stdin-/Exit-Code-Vertrag, JSON-Payloads) beschreiben das Claude-Code-
 > Hook-Schema als konkretes Beispiel. Codex hat ein eigenes, harness-
 > spezifisches Aequivalent. Beide werden im jeweiligen Harness-Adapter
-> (siehe §30.11) auf das harness-neutrale `HookEvent`-Schema
+> (siehe FK-76 §76.4) auf das harness-neutrale `HookEvent`-Schema
 > normalisiert; der A-Kern `guard_evaluation` arbeitet ausschliesslich
 > auf dieser neutralen Repraesentation.
 
@@ -147,7 +147,7 @@ Zeitpunkte abgebildet:
 ```mermaid
 sequenceDiagram
     participant A as Agent
-    participant CC as Harness (Claude Code / Codex; FK-30 §30.11)
+    participant CC as Harness (Claude Code / Codex; FK-76)
     participant PRE as PreToolUse-Hook (Python)
     participant TOOL as Tool-Ausführung
     participant POST as PostToolUse-Hook (Python)
@@ -175,7 +175,7 @@ sequenceDiagram
 
 Beispiel anhand Claude Code (Codex hat ein harness-eigenes Aequivalent,
 das vom Codex-Adapter auf dieselbe `HookEvent`-Struktur gemappt wird;
-siehe §30.11): Claude Code sendet dem Hook-Prozess ein JSON-Objekt über stdin:
+siehe FK-76 §76.4): Claude Code sendet dem Hook-Prozess ein JSON-Objekt über stdin:
 
 **PreToolUse:**
 ```json
@@ -214,7 +214,7 @@ system soll nicht durchlassen.
 
 **Prompt-Regel fuer aktive Runs:** Im `story_execution`-Modus darf ein
 Hook niemals auf einen harness-nativen Permission-Dialog (Claude Code
-oder Codex; siehe §30.11) als Fortschrittsmechanismus setzen. Unbekannte Freigaben werden im Hook
+oder Codex; siehe FK-76) als Fortschrittsmechanismus setzen. Unbekannte Freigaben werden im Hook
 sofort blockiert und als Permission-Fall materialisiert.
 
 ### 30.2.5 GuardSystem als Komponenten-Flow
@@ -283,7 +283,7 @@ Freeze-Entscheidung zum Zug und darf harte Denies nicht in Allow
 umwandeln.
 
 **Externe Permission-Systeme:** Harness-native Permission-Prompts
-(Claude Code, Codex; siehe §30.11), TTY-Interaktivitaet oder
+(Claude Code, Codex; siehe FK-76), TTY-Interaktivitaet oder
 hostseitige Sonderfaelle fuer geschuetzte
 Verzeichnisse sind fuer AK3 kein autoritativer Bestandteil dieser
 Pipeline. Tritt so etwas im aktiven Story-Run trotzdem auf, gilt das als
@@ -319,7 +319,7 @@ vorliegen; andernfalls `binding_invalid` bzw. Blockade.
 ## 30.3 Hook-Registrierung
 
 > Hook-Registrierung erfolgt **harness-spezifisch** ueber den jeweiligen
-> Adapter (siehe §30.11). Das folgende Beispiel zeigt die
+> Adapter (siehe FK-76 §76.5). Das folgende Beispiel zeigt die
 > Claude-Code-Materialisierung (`.claude/settings.json`); fuer Codex
 > materialisiert der Codex-Adapter das harness-eigene Aequivalent (z. B.
 > `.codex/config.toml`). Die `Governance.register_hooks(...)`-Top-Surface
@@ -528,7 +528,7 @@ Sekunden warten muss, wird unbrauchbar langsam.
 
 > **Owner-Hinweis:** FK-30 (governance.guard_system) ist Owner fuer: Hook-Definitionen,
 > Registrierung (`Governance.register_hooks`), Enforcement-Verhalten (Block/Warn/Pass)
-> und harness-spezifische Settings-Schemas (Beispiel Claude Code: `.claude/settings.json`; Codex: harness-eigenes Aequivalent — siehe §30.11). Die Zuordnung von Hooks zu Telemetrie-Events
+> und harness-spezifische Settings-Schemas (Beispiel Claude Code: `.claude/settings.json`; Codex: harness-eigenes Aequivalent — siehe FK-76 §76.5). Die Zuordnung von Hooks zu Telemetrie-Events
 > (EventTypeId-Mapping, Hook-Pfad-zu-Event-Tabelle) ist Verantwortung von
 > FK-68 §68.3.1 (telemetry-and-events). Aenderungen an Event-Emission-Semantik
 > werden in FK-68 autorisiert; Aenderungen an Enforcement-Entscheidungen werden
@@ -595,7 +595,7 @@ oder PostToolUse sein.
 Ein Git-Pre-Commit-Hook (`tools/hooks/pre-commit`) validiert den
 Concept-Corpus bei Änderungen unter `concept/`. Der Hook ist
 unabhängig von den harness-Hooks in §30.3 (Claude Code, Codex; siehe
-§30.11) — er wird über `git config core.hooksPath` registriert
+FK-76) — er wird über `git config core.hooksPath` registriert
 (CP 11, Kap. 50.3).
 
 | Trigger | Prüfung | Härte |
@@ -658,7 +658,7 @@ selbst (Kap. 15.7):
 
 | Geschützte Pfade | Reaktion |
 |-----------------|---------|
-| Harness-spezifische Hook-Settings (Beispiel Claude Code: `.claude/settings.json`; Codex: harness-eigenes Aequivalent — siehe §30.11) | Sofortiger Stopp |
+| Harness-spezifische Hook-Settings (Beispiel Claude Code: `.claude/settings.json`; Codex: harness-eigenes Aequivalent — siehe FK-76 §76.5) | Sofortiger Stopp |
 | Harness-spezifische CCAG-Symlinks (Beispiel Claude Code: `.claude/ccag/rules/`; kanonisch `.agentkit/ccag/rules/`) | Sofortiger Stopp |
 | `.agentkit/config/project.yaml` | Sofortiger Stopp |
 | `.installed-manifest.json` | Sofortiger Stopp |
@@ -901,179 +901,11 @@ akzeptiert), aber die `EventType`-Validierung und der
 
 > Der Worker-Health-Monitor (Scoring-Engine im PostToolUse-Hook, Interventions-Gate im PreToolUse-Hook, LLM-Assessment-Sidecar, Hook-Commit-Failure-Klassifikation, Persistenz-Artefakte und Konfiguration) ist normativ in **FK-49 (Worker-Health-Monitor)** beschrieben.
 
-## 30.11 Multi-Harness — zwei Adapter ab Tag 1
+## 30.11 Agent-Harness-Anbindung (verlagert nach FK-76)
 
-[Entscheidung 2026-05-04] AK3 unterstuetzt **ab Tag 1 zwei Agent-
-Harnesses parallel**: **Claude Code** und **Codex**. Beide Adapter
-sind gleichberechtigt; der Stratege waehlt pro Session, welchen
-Harness er startet.
-
-### 30.11.1 Treiber
-
-Multi-Harness ist nicht hypothetisch, sondern oekonomische und
-funktionale Realitaet:
-
-- **Provider-Kostenpolitik**: Anthropic-Preis fuer das Top-Modell
-  ist deutlich gestiegen, OpenAI subventioniert Codex aktuell
-  massiv. Dieselbe Workload laesst sich je nach Harness zu sehr
-  unterschiedlichen Kosten umsetzen.
-- **Modell-Vielfalt**: Claude Code ist an Anthropic-Modelle
-  gebunden, Codex an OpenAI-Modelle. Bei vergleichbarer Qualitaet
-  ist die Wahl ein Stratege-Hebel — nicht eine
-  Engine-Entscheidung.
-- **Hybrid-Form**: Claude Code kann Codex als Sub-Agent spawnen.
-  Der Sub-Agent laeuft dann durch die Hooks des aeusseren Harness
-  (siehe 30.11.4).
-
-Ohne Multi-Harness von Anfang an wird AK3 an einen Anbieter
-gebunden — was dem Kernauftrag „skalierbare agentische
-Software-Entwicklung" widerspricht. Skalierbarkeit ist auch
-oekonomisch zu lesen, nicht nur technisch.
-
-### 30.11.2 Adapter-Architektur
-
-Hook-Auswertung ist seit `entities.md` Version 19 in zwei
-Subkomponenten gespalten:
-
-- **`governance.guard_evaluation`** — A-Kern, harness-neutral. Nimmt
-  eine generische `HookEvent`-Struktur (mit fachlichen Feldern wie
-  `operation`, `operation_args`, `principal_kind`,
-  `freshness_class`), ruft die Guards, gibt Decision zurueck.
-- **`governance.harness_adapters.{harness}`** — AT-Insel pro
-  Harness. Mappt harness-spezifische Mechanik auf die generische
-  `HookEvent`-Struktur und liefert die harness-spezifische
-  Decision-Repraesentation zurueck.
-
-Aktuelle Adapter:
-
-| Adapter | Status | Modul-Pfad |
-|---|---|---|
-| `harness_adapters.claude_code` | **implementiert** (Backward-Compat-Pfad `governance.hookruntime`) | `agentkit.governance.harness_adapters.claude_code` |
-| `harness_adapters.codex` | **implementiert** (CLI-Pfad `agentkit-hook-codex`) | `agentkit.governance.harness_adapters.codex` |
-
-Weitere Harnesses (Qwen Code, Gemini-Code-Cli, AK3-eigener Harness,
-…) folgen demselben Pattern. Es gibt **keine Plugin-Registry** und
-**keine Capability-Selection-Policy** — jeder Adapter ist ein
-fest verdrahtetes Sub-Modul.
-
-### 30.11.3 Adapter-Vertrag
-
-Ein Harness-Adapter erfuellt drei Pflichten:
-
-1. **Eingangs-Mapping**: harness-spezifischer Hook-Event → generische
-   `HookEvent`. Tool-Namen, Tool-Argumente, Principal-Identifikation,
-   Operation-Klasse (mutating/read/unknown) werden auf die
-   harness-neutralen Felder abgebildet.
-2. **Ausgangs-Mapping**: generische Decision (`allow` /
-   `block` mit Begruendung) → harness-spezifischer Output. Bei
-   Claude Code: JSON-Decision auf stdout, Exit-Code 2 = block, 0 =
-   allow. Bei Codex: das harness-eigene Aequivalent.
-3. **Sub-Agent-Lifecycle**: wenn der Harness Sub-Agent-Spawn
-   unterstuetzt, mappt der Adapter die Sub-Agent-Identifikation
-   (`is_subagent`-Aequivalent), damit `guard_evaluation` zwischen
-   Haupt-Agent und Sub-Agent unterscheiden kann.
-
-Der Adapter ist **AT** im Sinne der Bluttypen-Methodik (siehe
-`concept/methodology/software-blutgruppen.md` §4.2): Mediation
-zwischen fachlicher Domaene (`guard_evaluation`) und
-harness-spezifischer Mechanik (Tool-Namen, stdin/stdout-Konvention,
-Exit-Code-Konvention). AT-Mischung ist hier **konstitutiv**, nicht
-zu vermeiden.
-
-**Vertrag-Pruefung**: bei Hinzukommen eines neuen Harness ist die
-bestehende `claude_code`-Implementierung die Referenz. Diskrepanzen
-werden gefunden, der Vertrag wird ggf. konzeptionell nachgeschaerft.
-Heute ist der Vertrag **implizit** — er liegt in der Struktur des
-`HookEvent`-Modells und in den drei Pflichten oben. Wenn der Codex-
-Adapter und ein dritter Adapter zusammen tragfaehig sind, kann der
-Vertrag bei Bedarf in eine eigene Konzept-Sektion gehoben werden.
-
-**Cookbook fuer einen weiteren Harness:**
-
-1. Lege ein neues Submodul unter
-   `agentkit.governance.harness_adapters.<harness>` an. Die Codex-
-   Struktur ist die Referenz: `event_mapping.py` fuer Eingangs-Mapping,
-   `decision_mapping.py` fuer Ausgangs-Mapping, `cli.py` fuer stdin/
-   stdout und Exit-Code.
-2. Definiere ein harness-spezifisches Pydantic-Eventmodell, das die
-   dokumentierte Hook-Payload des Harness exakt beschreibt. Tool-Namen
-   und Hook-Felder bleiben in diesem Modul; der neutrale
-   `HookEvent`-Kern darf sie nicht importieren.
-3. Mappe Tool-Aufrufe auf die fachlichen Operationen
-   `bash_command`, `file_write`, `file_edit`, `file_read` oder
-   `unknown_tool`. Mutierende Operationen erhalten
-   `freshness_class = mutation`, reine Leseoperationen
-   `baseline_read`, unbekannte Tools `guarded_read`.
-4. Mappe die Principal-Information auf `principal_kind = main` oder
-   `subagent`. Wenn der Harness keinen Sub-Agent-Indikator liefert,
-   ist `main` der Default.
-5. Rufe ausschliesslich `evaluate_pre_tool_use()` aus
-   `governance.guard_evaluation` auf und mappe danach
-   `GuardVerdict` auf die native Hook-Decision des Harness. Der
-   Adapter enthaelt keine eigenen Guard-Regeln.
-6. Registriere den Entry-Point in `pyproject.toml` und ergaenze
-   `entities.md` um ein internes Governance-Submodul fuer den neuen
-   Adapter. Tests muessen Event-Mapping, Decision-Mapping und CLI-
-   Roundtrip abdecken.
-
-### 30.11.4 Hybrid-Form: Sub-Agent ueber zweiten Harness
-
-Ein Harness-Adapter kann einen **anderen Harness** als Sub-Agent
-spawnen. Beispielsweise spawnt Claude Code einen Codex-Sub-Agent.
-Wichtige Disziplin:
-
-- Der Sub-Agent **laeuft durch die Hooks des aeusseren Harness** —
-  d. h. die Sub-Agent-Aufrufe werden durch den Adapter des
-  Outer-Harness vermittelt, nicht durch einen eigenen Inner-
-  Harness-Adapter.
-- Der Sub-Agent erscheint in den Outer-Hooks als regulaerer
-  Sub-Agent (mit `is_subagent`-Flag), nicht als „fremder Harness".
-- Damit gilt das gesamte Guard-Regelwerk des aeusseren Harness
-  auch fuer den Sub-Agent — inklusive QA-Artefaktschutz, Branch-
-  Guard, Worker-Health-Monitor.
-
-Diese Hybrid-Form ist die **Standard-Empfehlung** fuer
-„harness-uebergreifend arbeiten" — statt zwei eigenstaendige
-Harnesses parallel laufen zu lassen, lebt ein Outer-Harness mit
-Codex-Sub-Agents oder analoge Konstellationen.
-
-### 30.11.5 Installation: parallele Registrierung
-
-Die Installation von AK3 in ein Zielprojekt registriert **beide
-Harnesses parallel**:
-
-- Settings-Dateien fuer Claude Code (`.claude/...`) werden
-  geschrieben.
-- Settings-Dateien fuer Codex werden geschrieben (Pfad-Konvention
-  per Codex-Standard).
-- Hooks beider Harnesses werden registriert.
-- Wrapper unter `tools/agentkit/` sind harness-neutral; sie rufen
-  die fachlichen Komponenten direkt, ohne harness-spezifischen
-  Pfad.
-
-Es gibt **keine** „aktiver Harness"-Konfiguration im Projekt. Die
-Wahl passiert beim Sessions-Start: der Stratege startet entweder
-`claude` oder `codex` im Projektverzeichnis, AK3-Hooks und
-Wrapper sind fuer beide vorhanden.
-
-Die Bootstrap- und Hook-Registrierungs-Mechanik fuer beide
-Harnesses ist in **FK-50 (Installer)** und **FK-51 (Upgrade)**
-beschrieben.
-
-### 30.11.6 Was bewusst NICHT Teil ist
-
-- Keine Plugin-Registry mit dynamischer Harness-Erkennung.
-- Keine Capability-Matching-Logik (welcher Harness fuer welche
-  Story?).
-- Keine Harness-Selection-Policy. Die Wahl ist strategen-getrieben
-  pro Session.
-- Keine Multi-Harness-Worker-Health-Aggregation. Worker-Health
-  laeuft pro Session und pro Harness; aggregierte Sichten kommen
-  bei Bedarf in einer spaeteren Welle.
-
-Diese Themen sind nicht ausgeschlossen, aber kommen erst, wenn der
-zweite Harness (Codex) real ist und konkrete Anforderungen sich
-zeigen.
+Dieser Abschnitt ist nicht mehr normativ. Die harness-spezifische Anbindung von Claude Code/Codex — Adapter, CLI-Wrapper, Settings-Schemas, stdin/stdout/Exit-Code und Sub-Agent-/Hybrid-Lifecycle — ist vollstaendig in FK-76 verankert.
+FK-30 behaelt ausschliesslich die harness-neutrale Hook-/Guard-Definition und das Enforcement-Verhalten (`guard_evaluation`).
+Zielverweise: Adapter-/HookEvent-Mapping → FK-76 §76.4; Settings-Schemas → FK-76 §76.5; Parallel-Registrierung → FK-76 §76.7.
 
 ---
 

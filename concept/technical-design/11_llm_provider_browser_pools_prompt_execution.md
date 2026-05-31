@@ -33,11 +33,11 @@ bestimmt den gesamten technischen Aufbau dieses Kapitels.
 
 | Modus | Wer steuert | Dateisystem | Einsatz |
 |-------|------------|-------------|---------|
-| **LLM als Agent** | Agent-Harness (Claude Code, Codex; FK-30 §30.11) | Ja — liest, schreibt, führt aus | Worker, Adversarial Agent |
+| **LLM als Agent** | Agent-Harness (Claude Code, Codex; FK-76) | Ja — liest, schreibt, führt aus | Worker, Adversarial Agent |
 | **LLM als Bewertungsfunktion** | Deterministisches Python-Skript | Nein — kein Dateisystem-Zugriff | QA-Bewertung, Semantic Review, Dokumententreue, Governance-Adjudication, Konzept-Feedback |
 
 **LLM als Agent** wird vom Agent-Harness (Claude Code oder Codex;
-FK-30 §30.11) gesteuert. AgentKit hat hier keinen direkten Einfluss
+FK-76) gesteuert. AgentKit hat hier keinen direkten Einfluss
 auf den LLM-Aufruf selbst — es steuert nur den Rahmen (Prompts,
 Guards via Harness-Adapter, Telemetrie).
 
@@ -639,7 +639,7 @@ Slot-Konflikte innerhalb eines einzelnen Pools ausschließt.
 ## 11.8 Adversarial-Sparring-Protokoll
 
 Der Adversarial Agent (Schicht 3) ist ein Harness-Sub-Agent
-(Claude Code / Codex; FK-30 §30.11), kein LLM-Evaluator-Aufruf. Aber
+(Claude Code / Codex; FK-76), kein LLM-Evaluator-Aufruf. Aber
 er hat die **Pflicht**, ein zweites LLM als Sparring-Partner zu
 holen (FK-05-189).
 

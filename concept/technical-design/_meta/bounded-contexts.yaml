@@ -117,7 +117,8 @@ bounded_contexts:
 
   - id: governance-and-guards
     responsibility: >
-      Hooks, Branch-/Artefakt-Schutz, Principal/Capability,
+      Harness-neutrale Hook-/Guard-DEFINITION + Enforcement-Verhalten
+      (guard_evaluation), Branch-/Artefakt-Schutz, Principal/Capability,
       CCAG-Tool-Governance, Mandatsgrenzen-Eskalation,
       Security/Identity, Rollen, Integrity-Gate,
       Eskalationsmechanik.
@@ -132,6 +133,8 @@ bounded_contexts:
     excluded:
       - Prompt-Audit-Hash-Format (prompt-runtime)
       - Mandats-Erkennung (exploration-and-design)
+      - Harness-spezifische Adapter, Settings-Schemas, CLI-Wrapper,
+        stdin/stdout/exit-code-Konvention, Sub-Agent-Spawn (harness-integration)
 
   - id: artifacts
     responsibility: >
@@ -226,12 +229,38 @@ bounded_contexts:
   - id: installation-and-bootstrap
     responsibility: >
       Projektregistrierung, Installer-Checkpoints,
-      Hook/Wrapper-Bindung, Upgrade/Migration,
+      Hook/Wrapper-Bindung (Install-Orchestrierung: WANN/Reihenfolge,
+      parallel pro Harness), Upgrade/Migration,
       Customization-Preservation.
     owns:
       - BootstrapStatus
       - InstallerCheckpoint
       - ManifestContract
+    excluded:
+      - Harness-Adapter + Settings-Schema-Format (harness-integration);
+        FK-50 ruft die Materialisierung auf, definiert das Format aber nicht.
+
+  - id: harness-integration
+    responsibility: >
+      AK3 als Meta-Harness an die konkreten Agent-Harnesses (Claude Code,
+      Codex, kuenftige) anbinden: harness-spezifische Adapter, CLI-Wrapper,
+      Settings-Schemas (.claude/settings.json, .codex/hooks.json),
+      stdin/stdout/Exit-Code-Konvention, Sub-Agent-/Hybrid-Lifecycle.
+      Uebersetzt zwischen AK3-Orchestrierung und harness-nativer Mechanik;
+      trifft keine Policy.
+    owns:
+      - HarnessAdapter
+      - HarnessPort
+      - HarnessSettings (.claude/settings.json, .codex/hooks.json)
+      - HarnessInvocation
+      - HarnessCapability
+      - SubAgentSpawn (Hybrid-Form)
+    excluded:
+      - Hook-/Guard-DEFINITION + Enforcement (governance-and-guards/FK-30)
+      - Install-Orchestrierung WANN/Reihenfolge (installation-and-bootstrap/FK-50)
+      - LLM-Pool/Prompt-Execution, Agent-vs-Bewertungsfunktion (FK-11)
+      - Externer Multi-LLM-Hub / Modell-Provider-Sessions (FK-75)
+      - Story-/Prompt-/QA-/Telemetrie-Semantik
 
 
 # ----------------------------------------------------------------------

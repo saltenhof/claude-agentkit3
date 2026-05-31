@@ -153,7 +153,7 @@ Hook-Verwaltung an die Top-Surface `Governance.register_hooks`
 (BC `governance-and-guards`, FK-30). Die Manipulation der
 harness-spezifischen Settings-Dateien (Beispiel Claude Code:
 `.claude/settings.json`; Codex: harness-eigenes Aequivalent — siehe
-FK-30 §30.11) liegt in `agentkit.governance.guard_system` plus dem
+FK-76 §76.5) liegt in `agentkit.governance.guard_system` plus dem
 zugehoerigen Harness-Adapter.
 
 Der Installer:

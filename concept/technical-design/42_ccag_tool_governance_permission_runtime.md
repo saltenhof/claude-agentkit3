@@ -106,7 +106,7 @@ CCAG weder in `allow` noch in `ask` umgewandelt.
 
 **Liveness-Grenze:** CCAG darf in aktiven Story-Runs keinen Fortschritt
 an einen harness-nativen Permission-Dialog koppeln (Claude Code,
-Codex; FK-30 §30.11). Ein unbekannter Permission-Fall im
+Codex; FK-76). Ein unbekannter Permission-Fall im
 `story_execution`-Modus fuehrt deshalb nicht zu einem
 wartenden Prompt, sondern zu einem sofortigen `block` plus
 auditierbarem Permission-Case.
@@ -120,7 +120,7 @@ Die Regeln stehen in allen zukünftigen Sessions sofort zur
 Verfügung. Über Wochen und Monate wächst ein projektspezifischer
 Regelsatz, der häufige Operationen automatisch freigibt.
 
-**Regeldateien** (kanonischer Pfad: `.agentkit/ccag/rules/`; harness-spezifische Symlinks pro Adapter, z. B. `.claude/ccag/rules/` fuer Claude Code; siehe FK-42 §42.7 und FK-30 §30.11):
+**Regeldateien** (kanonischer Pfad: `.agentkit/ccag/rules/`; harness-spezifische Symlinks pro Adapter, z. B. `.claude/ccag/rules/` fuer Claude Code; siehe FK-42 §42.7 und FK-76):
 
 ```
 .agentkit/ccag/rules/
@@ -312,7 +312,7 @@ weiterhin einen nativen Host-Prompt verwenden, allerdings nur als
 Komfortmechanismus einer bewusst interaktiven Sitzung.
 
 **Keine Liveness-Abhaengigkeit:** Ein aktiver Story-Run darf nie davon
-abhaengen, dass ein Harness (Claude Code, Codex; FK-30 §30.11), TTY
+abhaengen, dass ein Harness (Claude Code, Codex; FK-76), TTY
 oder Host-UI einen Prompt zeigt oder der Mensch ihn rechtzeitig
 beantwortet.
 
@@ -362,7 +362,7 @@ Guard-Hooks. Guards haben absolute Prioritaet, CCAG ist die
 komfortable Ergaenzung.
 
 Die Hook-Registrierung erfolgt harness-spezifisch ueber den jeweiligen
-Adapter (FK-30 §30.11 Multi-Harness): unter Claude Code via
+Adapter (FK-76 §76.5): unter Claude Code via
 `.claude/settings.json`-Hook-Eintrag, unter Codex via
 `.codex/config.toml`-Hook-Eintrag. Der Tool-Matcher wird vom
 Adapter normalisiert; CCAG selbst arbeitet auf den
@@ -408,7 +408,7 @@ sind.
 In `project.yaml` gibt es keine CCAG-spezifische Konfiguration. CCAG
 wird ueber YAML-Regeldateien konfiguriert, die unter dem
 projektlokalen AK3-Konfigurationspfad liegen
-(`.agentkit/ccag/rules/`); pro Harness wird der Adapter (FK-30 §30.11)
+(`.agentkit/ccag/rules/`); pro Harness wird der Adapter (FK-76)
 ggf. zusaetzlich Symlinks unter dem harness-eigenen Bindungspunkt
 anlegen, damit der harness-spezifische Hook-Aufruf die Regeln findet.
 

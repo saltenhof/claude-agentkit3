@@ -155,3 +155,8 @@ domains:
       - DK-14
       - FK-73
 
+  - id: harness-integration
+    display_name: Agent-Harness-Integration (Meta-Harness-Anbindung Claude Code / Codex)
+    contract_docs:
+      - FK-76
+

@@ -48,7 +48,7 @@ formal_refs:
 
 | Aspekt | Schicht 2 (FK-34) | Schicht 3 (hier) |
 |--------|----------|----------|
-| Akteur | Deterministisches Skript (StructuredEvaluator) | Harness-Sub-Agent (Claude Code / Codex; FK-30 §30.11) |
+| Akteur | Deterministisches Skript (StructuredEvaluator) | Harness-Sub-Agent (Claude Code / Codex; FK-76) |
 | Dateisystem | Kein Zugriff | Lesen + Schreiben in Sandbox |
 | LLM-Rolle | Bewerter (urteilt über Code) | Angreifer (versucht Code zu brechen) |
 | Tests | Schreibt keine Tests | Schreibt und führt Tests aus |
@@ -74,7 +74,7 @@ Der Phase Runner setzt nach Schicht 2 PASS:
 ```
 
 Der Orchestrator spawnt den Agent als Harness-Sub-Agent (Claude Code
-oder Codex; FK-30 §30.11).
+oder Codex; FK-76).
 
 ### 48.1.3 Adversarial-Prompt: Kernstruktur
 

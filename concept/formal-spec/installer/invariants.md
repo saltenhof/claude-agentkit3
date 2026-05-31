@@ -35,7 +35,7 @@ invariants:
     rule: project registration in the central state backend must complete before project-local bundle bindings become active
   - id: installer.invariant.project_local_scope_is_config_and_symlink_only
     scope: filesystem
-    rule: project-local installer output is limited to configuration, hook registration, and harness-specific symlink bindings (Claude Code, Codex; FK-30 §30.11) and must not copy AgentKit runtime artifacts into the project
+    rule: project-local installer output is limited to configuration, hook registration, and harness-specific symlink bindings (Claude Code, Codex; FK-76) and must not copy AgentKit runtime artifacts into the project
   - id: installer.invariant.bundle_bindings_are_version_pinned
     scope: bundle-binding
     rule: skill and prompt bindings must point to one concrete immutable bundle version and never to a live source checkout or latest alias

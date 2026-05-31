@@ -115,7 +115,7 @@ glossary:
     - id: worker-session
       definition: >
         Eine einzelne Harness-Sub-Agent-Ausfuehrungseinheit (Claude Code
-        oder Codex via Harness-Adapter, siehe FK-30 §30.11) fuer die
+        oder Codex via Harness-Adapter, siehe FK-76 §76.4) fuer die
         Implementation-Phase. Beginnt mit dem Spawn-Protokoll (spawn-reason),
         erhaelt Worker-Kontext (Story, Guardrails, Entwurfsartefakt, ggf.
         Maengelliste) und endet entweder mit COMPLETED/BLOCKED-Status im
@@ -142,7 +142,7 @@ glossary:
 
 Die Implementation-Phase ist der einzige nicht-deterministische
 Schritt in der Pipeline (FK-05-093). Der Worker-Agent (Harness-Sub-Agent;
-Claude Code oder Codex, siehe FK-30 §30.11) schreibt Code, erstellt
+Claude Code oder Codex, siehe FK-76) schreibt Code, erstellt
 Tests und erzeugt Artefakte.
 AgentKit steuert nicht, was der Worker implementiert — das bestimmt
 der Worker selbst basierend auf Story, Konzept und Prompt. AgentKit
@@ -157,8 +157,7 @@ Inkrement-Disziplin, Handover-Paket.
 ### 26.2.1 Startprotokoll
 
 Der Orchestrator spawnt den Worker als Sub-Agent ueber den
-konfigurierten Harness (Claude Code oder Codex; siehe FK-30 §30.11
-Multi-Harness):
+konfigurierten Harness (Claude Code oder Codex; siehe FK-76 §76.7):
 
 ```mermaid
 sequenceDiagram
@@ -794,7 +793,7 @@ Die Tabelle dokumentiert die fachlichen Erwartungswerte pro Story-Lauf.
 
 ### 26.11.1 Worker bricht ab
 
-Wenn der Worker abstürzt oder die Harness-Session (Claude Code / Codex; FK-30 §30.11) beendet wird:
+Wenn der Worker abstürzt oder die Harness-Session (Claude Code / Codex; FK-76) beendet wird:
 
 1. `agent_end` Event fehlt in der Telemetrie
 2. Commits sind auf dem Story-Branch (sofern committed)

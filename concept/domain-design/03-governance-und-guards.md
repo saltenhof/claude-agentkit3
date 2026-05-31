@@ -113,7 +113,7 @@ fehlender Prüfgegenstand wird als "nicht relevant" gewertet.
 
 Alle Guards nutzen dasselbe Funktionsprinzip: Die jeweilige
 Agent-Plattform (Harness, z. B. Claude Code oder Codex; siehe
-FK-30 §30.11) bietet eine Hook-Schicht, die jede Aktion eines Agenten
+FK-76) bietet eine Hook-Schicht, die jede Aktion eines Agenten
 abfängt, bevor sie ausgeführt wird. AgentKit klinkt sich harness-spezifisch
 über den Harness-Adapter in diese Schicht ein. Damit ist die Durchsetzung
 plattformseitig garantiert.

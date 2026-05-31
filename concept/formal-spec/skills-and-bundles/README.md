@@ -15,7 +15,7 @@ Im Scope sind:
 
 - systemweite, versionierte Bundle-Inhalte
 - Profil- und Variantenwahl (`core` vs. `are`)
-- projektlokale harness-spezifische Symlink-Bindungen (Claude Code, Codex; FK-30 §30.11)
+- projektlokale harness-spezifische Symlink-Bindungen (Claude Code, Codex; FK-76)
 - Verbot von `latest`- oder Source-Checkout-Bindungen
 - Upgrade-/Rebind-Semantik fuer bestehende Projekte
 

@@ -78,7 +78,7 @@ ausgefuehrt, nicht ueber GitHub-Mechanik.
 ### 12.4.1 Zwei Betriebsmodi
 
 AgentKit unterscheidet zwei grundlegend verschiedene Arbeitsweisen
-mit dem Agent-Harness (Claude Code, Codex; FK-30 §30.11). Der
+mit dem Agent-Harness (Claude Code, Codex; FK-76). Der
 Branch-Guard muss beide unterstützen.
 
 **AI-Augmented-Modus (kein Story-Lauf aktiv):**

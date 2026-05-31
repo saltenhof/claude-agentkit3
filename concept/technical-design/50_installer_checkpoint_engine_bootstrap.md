@@ -97,7 +97,7 @@ glossary:
 AgentKit wird systemweit installiert und registriert anschließend ein
 Zielprojekt über eine Folge idempotenter Checkpoints (FK 11). Das
 Zielprojekt erhält lokale Konfiguration und harness-spezifische
-Symlink-Bindungen für Skills (Claude Code, Codex; FK-30 §30.11), aber
+Symlink-Bindungen für Skills (Claude Code, Codex; FK-76 §76.7), aber
 keine kopierten AgentKit-Laufzeitartefakte.
 
 **Architekturzuordnung:** Der Installer ist im Komponentenmodell eine
@@ -280,8 +280,7 @@ fachlichen Schemas der anderen BCs).
 Bindet die projektlokalen Skill-Verzeichnisse pro Harness an die
 systemweit installierten, versionierten Bundle-Verzeichnisse. Der
 Bindungspunkt ist harness-spezifisch (Beispiel Claude Code:
-`.claude/skills/`; Codex: harness-eigenes Aequivalent — siehe FK-30
-§30.11 und FK-43 §43.4.1). Der Installer registriert pro
+`.claude/skills/`; Codex: harness-eigenes Aequivalent — siehe FK-43 §43.4.1 und FK-76). Der Installer registriert pro
 unterstuetztem Harness die Symlinks parallel.
 
 Der Installer erzeugt Symlinks **nicht direkt**. Er ruft fuer jeden zu
@@ -301,8 +300,7 @@ PromptRuntime.update_binding(bundle_id, version)
 ```
 
 Beispiel (konzeptuelle Darstellung; Claude-Code-Bindungspunkt — der
-Codex-Adapter erzeugt parallel den harness-eigenen Symlink, FK-30
-§30.11):
+Codex-Adapter erzeugt parallel den harness-eigenen Symlink, FK-76 §76.4):
 
 ```text
 C:\ProgramData\AgentKit\bundles\4.0.0\are\skills\execute-userstory
@@ -327,12 +325,13 @@ die Top-Surface des BC `governance-and-guards` auf:
 Governance.register_hooks(hook_definitions)
 ```
 
-Die Manipulation der harness-spezifischen Settings-Dateien (Claude
-Code: `.claude/settings.json`; Codex: harness-eigenes Aequivalent —
-siehe FK-30 §30.11) liegt in `agentkit.governance.guard_system` (BC 4)
-plus dem zugehoerigen Harness-Adapter. Merge-Modus: bestehende
-Hooks bleiben erhalten, nur fehlende AgentKit-Hooks werden hinzugefuegt.
-Der Installer registriert pro Harness parallel.
+Die harness-spezifischen Settings-Datei-Formate (Claude Code:
+`.claude/settings.json`; Codex: `.codex/hooks.json`) und die zugehoerigen
+Harness-Adapter sind in **FK-76 (BC `harness-integration`)** normiert; FK-50
+ruft die Materialisierung nur auf (Install-Orchestrierung), definiert das
+Format aber nicht. Die harness-neutrale Hook-/Guard-Definition kommt aus FK-30.
+Merge-Modus: bestehende Hooks bleiben erhalten, nur fehlende AgentKit-Hooks
+werden hinzugefuegt. Der Installer registriert pro Harness parallel.
 
 **Idempotenz:** `Governance.register_hooks` prueft ob jeder Hook bereits
 registriert ist.
@@ -438,7 +437,7 @@ Read-only Validierung aller vorherigen Checkpoints:
 - Projekt im State-Backend registriert?
 - Alle erwarteten Skill-Symlinks vorhanden und korrekt — **pro
   unterstuetztem Harness** (Claude Code: `.claude/skills/`, Codex:
-  harness-eigenes Aequivalent; FK-30 §30.11)?
+  harness-eigenes Aequivalent; FK-76)?
 - Alle Hooks registriert — **pro unterstuetztem Harness**
   (`.claude/settings.json`, `.codex/config.toml` o.ae.)?
 - Alle erwarteten `tools/agentkit/`-Wrapper vorhanden?
@@ -478,7 +477,7 @@ Skills.bind_skill(skill_name, bundle_root, project_root)
 `Skills.bind_skill` (BC 11, FK-43) ist verantwortlich fuer die
 Symlink-Anlage am harness-spezifischen Bindungspunkt (Beispiel Claude
 Code: `.claude/skills/`; Codex: harness-eigenes Aequivalent — siehe
-FK-30 §30.11). Der Installer erzeugt Symlinks
+FK-76). Der Installer erzeugt Symlinks
 nicht direkt; er delegiert an die kanonische Schnittstelle des Owner-BC.
 
 Analog dazu wird die Prompt-Bundle-Bindung ueber:

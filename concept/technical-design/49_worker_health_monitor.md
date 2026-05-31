@@ -56,7 +56,7 @@ deterministischen Score (0-100) aus gewichteten Heuristiken.
 operiert **harness-neutral** auf `HookEvent`-Feldern (`operation`,
 `operation_args`, `principal_kind`, `cwd`, `session_id`), nicht auf
 harness-spezifischen Tool-Namen-Strings. Der harness-spezifische
-Adapter (FK-30 §30.11.3) ruft die Scoring-Engine, nachdem er das
+Adapter (FK-76 §76.4) ruft die Scoring-Engine, nachdem er das
 `HookEvent` erstellt hat. Die heutigen Tool-Name-Beispiele
 (`Bash`/`Write`/`Edit`/`Read`/`Grep`/`Glob`/`Agent`) entsprechen
 dem Claude-Code-Adapter; der Codex-Adapter mappt seine Tool-Namen

@@ -174,7 +174,7 @@ glossary:
     - id: telemetry-hook
       reason: >
         Konkrete harness-spezifische Hook-Implementierung (telemetry/hook.py;
-        Claude Code aktuell, Codex via Harness-Adapter — FK-30 §30.11) als
+        Claude Code aktuell, Codex via Harness-Adapter — FK-76 §76.4) als
         aktueller Referenz-Adapterpfad. Implementierungsdetail; der normative
         Begriff ist execution-event und dessen Control-Plane-Schreibgrenze.
     - id: review-sentinel
@@ -248,7 +248,7 @@ eine **offizielle Control-Plane-Schreibgrenze**:
   Wrapper-Skripte) sind nur Aufrufer dieser Grenze
 
 **Normative Regel:** Harness-Hooks (Claude Code, Codex via Adapter;
-FK-30 §30.11), die lokale CLI und kuenftige REST-Endpunkte sind
+FK-76), die lokale CLI und kuenftige REST-Endpunkte sind
 **keine** konkurrierenden Wahrheiten fuer Telemetrie, sondern nur
 Transport- oder Adapterpfade auf denselben kanonischen Event-Vertrag.
 
@@ -400,7 +400,7 @@ Events aus dem ARE-BC (FK-40). Schema-Owner: requirements-and-scope-coverage.
 
 **Normative Abstraktion der Quellen:** Der Event-Katalog ist
 **producer-neutral**. Ein Event-Typ wird fachlich ueber seine Semantik
-definiert, nicht ueber Harness-Hooks (Claude Code, Codex; FK-30 §30.11),
+definiert, nicht ueber Harness-Hooks (Claude Code, Codex; FK-76),
 die lokale CLI oder einen REST-Client. Dieselben Event-Typen muessen spaeter unveraendert ueber
 die zentrale AgentKit-Control-Plane ingestierbar bleiben.
 
@@ -420,13 +420,13 @@ die zentrale AgentKit-Control-Plane ingestierbar bleiben.
 > **Owner der Hook-Definitionen, Registrierung (`Governance.register_hooks`),
 > Enforcement-Verhalten (Block/Warn/Pass) und der harness-spezifischen
 > Settings-Schemas (Beispiel Claude Code: `.claude/settings.json`; Codex:
-> harness-eigenes Aequivalent — siehe FK-30 §30.11) ist
+> harness-eigenes Aequivalent — siehe FK-76 §76.5) ist
 > FK-30 (governance.guard_system). Diese Tabelle nennt ausschliesslich die
 > Event-Emission-Anteile der jeweiligen Hooks — welcher Hook welches Telemetrie-Event
 > emittiert, unter welchem Modul-Pfad er registriert ist und welche EventTypeId er
 > produziert. Normative Hook-Definitionen: FK-30 §30.5.**
 
-Harness-Hooks (Claude Code aktuell; Codex via Adapter — FK-30 §30.11)
+Harness-Hooks (Claude Code aktuell; Codex via Adapter — FK-76 §76.4)
 sind die **aktuelle Referenz-Implementierung** fuer
 mehrere beobachtende Telemetriequellen. Sie sind jedoch kein
 normativer Sonderstatus, sondern ein Adapterpfad fuer die

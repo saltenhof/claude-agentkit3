@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: architecture-conformance
 spec_kind: entity-set
-version: 23
+version: 24
 prose_refs:
   - concept/technical-design/01_systemkontext_und_architekturprinzipien.md
   - concept/technical-design/07_komponentenarchitektur_und_architekturkonformanz.md
@@ -59,6 +59,10 @@ Version 22 fuegt `boundary.auth` als R-Adapter-Boundary fuer Strategen-
 Sessions und projektgebundene Project-API-Tokens hinzu.
 Version 23 fuegt die Codex-Harness-Adapter-Insel
 `harness_adapters.codex` als internes Governance-Submodul hinzu.
+Version 24 aendert BC-Ownership der Harness-Adapter-Inseln
+(`harness_adapters_claude_code`, `harness_adapters_codex`) auf
+`harness-integration` gemaess FK-76. Physische Modul-Pfade bleiben
+unveraendert (Migration folgt als Folge-Story).
 
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
@@ -422,6 +426,12 @@ component_groups:
     component_kind: domain
     # Lokalisierte Claude-Code-Mediation: Tool-Namen, Hook-Payload und
     # Exit-Code-Vertrag bleiben hier und werden auf HookEvent gemappt.
+    # BC ownership: harness-integration (FK-76) — nicht governance-and-guards.
+    # Physical module path: agentkit.governance.harness_adapters.claude_code (Legacy, temporaer).
+    # Migration target: agentkit.harness_integration.claude_code (Folge-Story).
+    # NOTE: Physical module path is temporarily still agentkit.governance.harness_adapters.claude_code.
+    # BC ownership is already harness-integration per FK-76; physical package migration
+    # is a follow-up and must not be used to infer governance ownership.
 
   - id: architecture-conformance.group.harness_adapters_codex
     name: HarnessAdaptersCodex
@@ -433,6 +443,12 @@ component_groups:
     component_kind: domain
     # Lokalisierte Codex-Mediation: Tool-Namen, Hook-Payload und
     # Exit-Code-Vertrag bleiben hier und werden auf HookEvent gemappt.
+    # BC ownership: harness-integration (FK-76) — nicht governance-and-guards.
+    # Physical module path: agentkit.governance.harness_adapters.codex (Legacy, temporaer).
+    # Migration target: agentkit.harness_integration.codex (Folge-Story).
+    # NOTE: Physical module path is temporarily still agentkit.governance.harness_adapters.codex.
+    # BC ownership is already harness-integration per FK-76; physical package migration
+    # is a follow-up and must not be used to infer governance ownership.
 
   - id: architecture-conformance.group.ccag_permission_runtime
     name: CcagPermissionRuntime

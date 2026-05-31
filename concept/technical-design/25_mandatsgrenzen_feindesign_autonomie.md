@@ -508,7 +508,7 @@ sondern das Artefakt konsistent nachzubessern:
 Nach J geht der Entwurf zurück in die Review-Kette (E).
 
 **Zentrale Architekturentscheidung:** Der Feindesign-Subprozess wird
-vom Harness-Agent (Claude Code / Codex; FK-30 §30.11) geführt, nicht
+vom Harness-Agent (Claude Code / Codex; FK-76) geführt, nicht
 von AgentKit orchestriert. Der
 Agent akquiriert externe LLMs, führt eine echte Diskussion mit ihnen,
 reicht Kontext nach und iteriert bis zur Konvergenz. AgentKit
@@ -833,7 +833,7 @@ Persistenz: `execution_events` im zentralen PostgreSQL-State-Backend.
 
 ## 25.9 Orchestrator-Sichtbarkeit
 
-Der Orchestrator (Harness-Agent — Claude Code / Codex; FK-30 §30.11) sieht:
+Der Orchestrator (Harness-Agent — Claude Code / Codex; FK-76) sieht:
 
 | Was | Wie | Wann |
 |-----|-----|------|

@@ -89,7 +89,7 @@ AgentKit ist kein Agent selbst, sondern die Maschine, die Agenten orchestriert.
 ## 2. Für wen?
 
 Entwicklungsteams, die LLM-basierte Agent-Harnesses (Claude Code oder
-Codex; siehe FK-30 §30.11) für KI-gestützte Feature-
+Codex; siehe FK-76) für KI-gestützte Feature-
 Implementierung und Bugfixing einsetzen und dabei nachvollziehbare,
 auditierbare Qualitätsstandards brauchen. Typischer Einsatz: Projekte mit
 regulatorischen Anforderungen oder hohen Qualitätsansprüchen, bei denen
@@ -203,7 +203,7 @@ nicht-deterministischer LLM-Welt und deterministischer QA-Pipeline.
 AgentKit wird systemweit betrieben und registriert Projekte über
 idempotente Checkpoints. Im Projekt liegen nur Konfiguration und
 harness-spezifische Skill-Bindungen (Claude Code, Codex — siehe
-FK-30 §30.11); der kanonische Inhalt liegt
+FK-76); der kanonische Inhalt liegt
 systemweit bzw. im zentralen State-Backend.
 
 **4.9 Umsetzungsautomatisierung und Werkzeuge** (→ [09-tools-und-skills.md](09-tools-und-skills.md)).

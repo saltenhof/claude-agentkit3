@@ -38,7 +38,7 @@ AgentKit ist ein systemweit installiertes Python-Paket (`agentkit`),
 das gegen Zielprojekte betrieben wird, ohne seine Laufzeitartefakte in
 deren Repository zu deployen. Im Projekt liegen nur die
 projektspezifische Konfiguration und die harness-spezifische Anbindung
-(Claude Code, Codex; siehe FK-30 §30.11); der
+(Claude Code, Codex; siehe FK-76 §76.5); der
 kanonische Laufzeit- und Zustandsraum liegt außerhalb des Projekts in
 einem zentralen State-Backend.
 
@@ -55,7 +55,7 @@ Stratege und Controller, kein klassischer Entwickler.
 graph TB
     subgraph DEV["Entwicklermaschine"]
 
-        subgraph CC["Harness-Session (Claude Code oder Codex; FK-30 §30.11)"]
+        subgraph CC["Harness-Session (Claude Code oder Codex; FK-76)"]
             AGENT["Agent<br/>(Orchestrator / Worker /<br/>QA / Adversarial)"]
             HOOKS["Hook-Schicht<br/>PreToolUse / PostToolUse<br/>(agentkit Python-Hooks via Harness-Adapter)"]
             TOOLS["Tool-Ausführung<br/>(harness-spezifische Tool-Namen,<br/>z. B. Bash/Read/Write/Edit/Glob/Grep/Agent)"]
@@ -103,7 +103,7 @@ graph TB
 
 | Komponente | Typ | Protokoll |
 |------------|-----|-----------|
-| Agent-Harness (Claude Code, Codex; FK-30 §30.11) | Agent-Plattform | CLI + Hook-API (PreToolUse/PostToolUse), harness-spezifisch via Adapter normalisiert |
+| Agent-Harness (Claude Code, Codex; FK-76) | Agent-Plattform | CLI + Hook-API (PreToolUse/PostToolUse), harness-spezifisch via Adapter normalisiert |
 | Git | Versionskontrolle | CLI (`git`) |
 | GitHub | Code-Backend (Repos, Branches, PRs) | CLI (`gh`) |
 
@@ -204,7 +204,7 @@ Fachlogik bleibt lokal in der Komponente.
   eigene AgentKit-Runtime. Das State-Backend ist zentral und vom
   Projekt entkoppelt.
 - Kein LLM-Anbieter — es nutzt LLMs ueber Harness-Sessions (Claude
-  Code mit Anthropic-Modellen, Codex mit OpenAI-Modellen; FK-30 §30.11)
+  Code mit Anthropic-Modellen, Codex mit OpenAI-Modellen; FK-76)
   sowie ChatGPT, Gemini und Grok als externe Dienste.
 - Kein Testframework — es orchestriert Tests, schreibt aber selbst
   keine fachlichen Tests.
@@ -230,7 +230,7 @@ Jeder unbekannte Zustand ist ein Fehler. Konkret:
 ### P2: Plattform-Enforcement
 
 Guards und Governance werden über die Hook-Schicht des jeweiligen
-Agent-Harness (Claude Code, Codex; FK-30 §30.11) durchgesetzt. Ein Agent
+Agent-Harness (Claude Code, Codex; FK-76) durchgesetzt. Ein Agent
 kann seine eigenen Hooks nicht deaktivieren, weil Hooks Teil der
 Plattforminfrastruktur des Harness sind, nicht Teil des Agent-Codes.
 
@@ -242,7 +242,7 @@ Python-Skript aus dem `agentkit`-Paket, das über `sys.stdin` den
 Tool-Call empfängt und über `sys.exit(0)` (erlauben) oder
 `sys.exit(2)` (blockieren) antwortet. Der Adapter normalisiert
 harness-spezifische Tool-Namen und Hook-Events auf das harness-neutrale
-`HookEvent`-Schema (FK-30 §30.11.2).
+`HookEvent`-Schema (FK-76 §76.4).
 
 ```mermaid
 sequenceDiagram
@@ -281,7 +281,7 @@ sequenceDiagram
 | Dokumententreue-Prüfung | LLM als Bewertungsfunktion (kein Dateisystem) |
 | Governance-Adjudication | LLM als Bewertungsfunktion (kein Dateisystem) |
 
-**LLM als Agent:** Harness-Session (Claude Code oder Codex; FK-30 §30.11)
+**LLM als Agent:** Harness-Session (Claude Code oder Codex; FK-76)
 mit Dateisystem-Zugriff. Wird für Worker und Adversarial Agent
 eingesetzt.
 
@@ -315,7 +315,7 @@ Das ist konfigurierte Pflicht, nicht optionale Ergänzung.
 multi_llm: true  # Pflicht, Default true
 
 llm_roles:
-  worker: "claude"                # Harness-Session (Claude Code oder Codex; FK-30 §30.11). Wert ist die LLM-Familie, nicht der Harness-Eigenname.
+  worker: "claude"                # Harness-Session (Claude Code oder Codex; FK-76). Wert ist die LLM-Familie, nicht der Harness-Eigenname.
   qa_review: "chatgpt"            # Schicht 2: QA-Bewertung (12 Checks)
   semantic_review: "gemini"        # Schicht 2: Semantic Review
   adversarial_sparring: "grok"     # Schicht 3: Edge-Case-Ideen
@@ -404,7 +404,7 @@ nur eine Konfigurationsänderung, keine Code-Änderung.
 ### 1.4.1 Boundary-Modell
 
 ```
-    ┌─── Zone 1: Plattform (Harness — Claude Code / Codex; FK-30 §30.11 — + Hooks) ─────────┐
+    ┌─── Zone 1: Plattform (Harness — Claude Code / Codex; FK-76 — + Hooks) ─────────┐
     │   Nicht vom Agent kontrollierbar. Hook-Enforcement.                   │
     │                                                                      │
     │   ┌─── Zone 2: Pipeline-Orchestrierung ──────────────────────────┐   │
@@ -520,7 +520,7 @@ flowchart TD
 
 | Schicht | Technologie | Version | Protokoll |
 |---------|-------------|---------|-----------|
-| Agent-Plattform | Agent-Harness (Claude Code, Codex; FK-30 §30.11) | aktuell | CLI + Hook-API, harness-spezifisch via Adapter |
+| Agent-Plattform | Agent-Harness (Claude Code, Codex; FK-76) | aktuell | CLI + Hook-API, harness-spezifisch via Adapter |
 | Hook-Sprache | Python | 3.14 | stdin/stdout, exit codes |
 | Konfiguration | YAML | — | Dateisystem |
 | Datenmodelle | Pydantic | 2.7+ | Python-Klassen |

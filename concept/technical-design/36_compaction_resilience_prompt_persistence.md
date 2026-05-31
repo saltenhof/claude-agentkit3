@@ -53,7 +53,7 @@ glossary:
 
 > **Harness-Bezug:** Die in diesem Kapitel beschriebene Compaction-
 > Mechanik ist eine Eigenschaft des Claude-Code-Harness. Codex hat
-> ein eigenes Kontext-Management — siehe FK-30 §30.11. Wenn ein
+> ein eigenes Kontext-Management — siehe FK-76. Wenn ein
 > Codex-Aequivalent zu "Compaction" relevant wird, ist es ein
 > separater Folge-Punkt (kein impliziter Mit-Scope). Die hier
 > entworfene Resume-Kapsel-Architektur (§36.4 ff.) ist von der

@@ -108,8 +108,7 @@ konsistent anwenden würde (FK-12-019 bis FK-12-021).
 ### 43.2.1 Dateistruktur
 
 Ein Skill ist ein Verzeichnis mit einer `SKILL.md` (oder `skill.md`)
-Datei. Beide unterstuetzten Harnesses (Claude Code, Codex; FK-30
-§30.11) erwarten Skills an harness-normierten Orten; AgentKit weicht
+Datei. Beide unterstuetzten Harnesses (Claude Code, Codex; FK-76) erwarten Skills an harness-normierten Orten; AgentKit weicht
 davon nicht ab und materialisiert pro Harness die jeweiligen
 Symlink-Bindungspunkte.
 
@@ -123,7 +122,7 @@ Die `SKILL.md` ist ein Markdown-Dokument, das der Harness
 (Claude Code / Codex) als Skill erkennt und bei Aufruf (z.B.
 `/create-userstory`) als Prompt lädt.
 
-**Normierte Skill-Orte (Beispiel anhand Claude Code; FK-30 §30.11):**
+**Normierte Skill-Orte (Beispiel anhand Claude Code; FK-76 §76.5):**
 
 | Ort | Zweck |
 |-----|------|
@@ -131,7 +130,7 @@ Die `SKILL.md` ist ein Markdown-Dokument, das der Harness
 | `{projekt-root}/.claude/skills/` | Projektspezifische Skill-Bindung (Claude Code) |
 
 Codex hat ein harness-eigenes Aequivalent (Pfad-Konvention nach
-Codex-Standard); der Codex-Adapter (FK-30 §30.11) materialisiert die
+Codex-Standard); der Codex-Adapter (FK-76 §76.4) materialisiert die
 Symlinks am dortigen Bindungspunkt.
 
 **Architekturentscheidung für AgentKit 3/4:**
@@ -254,7 +253,7 @@ T:\repo\.codex\skills\execute-userstory    ->  C:\ProgramData\AgentKit\bundles\4
 ```
 
 [Entscheidung 2026-05-04 — Multi-Harness] AK3 unterstuetzt ab Tag 1
-zwei Harnesses parallel (Claude Code, Codex; siehe FK-30 §30.11).
+zwei Harnesses parallel (Claude Code, Codex; siehe FK-76 §76.7).
 Beide haben kompatible `SKILL.md`-Skill-Formate. Der Installer
 pflanzt deshalb pro Skill **zwei Symlinks** — einen pro Harness.
 Der **Skill-Inhalt ist Single-Source** im systemweiten Bundle; die
@@ -347,7 +346,7 @@ agent-skills verwaltet seinen Bundle-Version-Pin eigenstaendig — er ist
 
 - Skill-Bundles sind Verzeichnis-Symlinks (harness-spezifisch — z. B.
   `.claude/skills/<name>/` fuer Claude Code, harness-eigenes
-  Aequivalent fuer Codex; FK-30 §30.11)
+  Aequivalent fuer Codex; FK-76)
   mit einem separaten Lifecycle (Requested → ProfileResolved →
   BundleSelected → Bound → Verified/Rejected).
 - Prompt-Bundles sind Datei-Materialisierungen
@@ -376,7 +375,7 @@ C:\ProgramData\AgentKit\bundles\4.0.0\custom\
     └── SKILL.md
 ```
 
-Der Harness (Claude Code / Codex; FK-30 §30.11) erkennt den Skill
+Der Harness (Claude Code / Codex; FK-76) erkennt den Skill
 automatisch über den projektlokalen Symlink am harness-spezifischen
 Bindungspunkt (z. B. `.claude/skills/` fuer Claude Code).
 
