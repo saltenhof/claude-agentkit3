@@ -65,6 +65,90 @@ def current_schema_name() -> str:
     return versioned_postgres_schema_name()
 
 
+def iter_sql_statements(script: str) -> Iterator[str]:
+    """Yield individual SQL statements from a multi-statement script.
+
+    Splits on top-level ``;`` only, ignoring semicolons that appear inside
+    single-quoted string literals, double-quoted identifiers, ``--`` line
+    comments or ``/* */`` block comments. psycopg's ``execute`` accepts a
+    single statement at a time, so a naive ``str.split(";")`` mis-splits any
+    script whose comment or literal contains a ``;`` (FIX THE MODEL: the
+    AG3-031 governance hotfix added a ``--`` comment that contains ``;``,
+    which the naive splitter executed as the bogus statement
+    ``a 3-tuple key collapsed``).
+
+    Comment-only / whitespace-only fragments are skipped so psycopg never
+    receives an empty query.
+
+    Args:
+        script: One or more ``;``-separated SQL statements.
+
+    Yields:
+        Each non-empty statement, stripped of surrounding whitespace, with its
+        original comments and literals intact (psycopg ignores leading/inline
+        comments).
+    """
+    buf: list[str] = []
+    has_code = False
+    in_single = in_double = in_line = in_block = False
+    i, n = 0, len(script)
+    while i < n:
+        ch = script[i]
+        nxt = script[i + 1] if i + 1 < n else ""
+        if in_line:
+            buf.append(ch)
+            if ch == "\n":
+                in_line = False
+        elif in_block:
+            buf.append(ch)
+            if ch == "*" and nxt == "/":
+                buf.append(nxt)
+                i += 2
+                in_block = False
+                continue
+        elif in_single:
+            buf.append(ch)
+            if ch == "'":
+                if nxt == "'":  # doubled '' escape stays inside the literal
+                    buf.append(nxt)
+                    i += 2
+                    continue
+                in_single = False
+        elif in_double:
+            buf.append(ch)
+            if ch == '"':
+                in_double = False
+        elif ch == "-" and nxt == "-":
+            in_line = True
+            buf.append(ch)
+        elif ch == "/" and nxt == "*":
+            in_block = True
+            buf.append(ch)
+            buf.append(nxt)
+            i += 2
+            continue
+        elif ch == "'":
+            in_single = True
+            has_code = True
+            buf.append(ch)
+        elif ch == '"':
+            in_double = True
+            has_code = True
+            buf.append(ch)
+        elif ch == ";":
+            if has_code:
+                yield "".join(buf).strip()
+            buf = []
+            has_code = False
+        else:
+            if not ch.isspace():
+                has_code = True
+            buf.append(ch)
+        i += 1
+    if has_code:
+        yield "".join(buf).strip()
+
+
 class _CompatConnection:
     """Compatibility wrapper translating sqlite-style queries to psycopg."""
 
@@ -80,8 +164,7 @@ class _CompatConnection:
         return self._conn.execute(normalized, params)
 
     def executescript(self, script: str) -> None:
-        statements = [stmt.strip() for stmt in script.split(";") if stmt.strip()]
-        for statement in statements:
+        for statement in iter_sql_statements(script):
             self._conn.execute(statement)
 
 
@@ -2005,6 +2088,121 @@ def load_override_record_rows(story_dir: Path) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
+def pg_execute_stage_upsert(conn: Any, row: dict[str, Any]) -> None:
+    """Upsert a ``qa_stage_results`` row on an existing psycopg connection.
+
+    Driver-owned SQL (FK-69 §69.4). Callable both from the in-transaction
+    batch path (``persist_layer_artifact_rows``) and from the
+    ``boundary.state_backend_repository`` Facade repos (R -> T), so the SQL
+    lives exactly once in the driver (SSOT; AC010: the driver never imports a
+    repository).
+
+    Args:
+        conn: Open psycopg connection (driver transaction).
+        row: Fully serialised ``qa_stage_results`` row (dict).
+    """
+    conn.execute(
+        """
+        INSERT INTO qa_stage_results (
+            project_key, story_id, run_id, attempt_no, stage_id, layer,
+            producer_component, status, blocking, total_checks,
+            failed_checks, warning_checks, artifact_id, recorded_at
+        ) VALUES (
+            %(project_key)s, %(story_id)s, %(run_id)s, %(attempt_no)s,
+            %(stage_id)s, %(layer)s, %(producer_component)s, %(status)s,
+            %(blocking)s, %(total_checks)s, %(failed_checks)s,
+            %(warning_checks)s, %(artifact_id)s, %(recorded_at)s
+        )
+        ON CONFLICT (project_key, run_id, attempt_no, stage_id)
+        DO UPDATE SET
+            story_id=EXCLUDED.story_id,
+            layer = EXCLUDED.layer,
+            producer_component = EXCLUDED.producer_component,
+            status = EXCLUDED.status,
+            blocking = EXCLUDED.blocking,
+            total_checks = EXCLUDED.total_checks,
+            failed_checks = EXCLUDED.failed_checks,
+            warning_checks = EXCLUDED.warning_checks,
+            artifact_id = EXCLUDED.artifact_id,
+            recorded_at = EXCLUDED.recorded_at
+        """,
+        row,
+    )
+
+
+def pg_execute_finding_upsert(conn: Any, row: dict[str, Any]) -> None:
+    """Upsert a ``qa_findings`` row on an existing psycopg connection.
+
+    Driver-owned SQL (FK-69 §69.4). See :func:`pg_execute_stage_upsert` for the
+    SSOT / AC010 rationale.
+
+    Args:
+        conn: Open psycopg connection (driver transaction).
+        row: Fully serialised ``qa_findings`` row (dict).
+    """
+    conn.execute(
+        """
+        INSERT INTO qa_findings (
+            project_key, story_id, run_id, attempt_no, stage_id,
+            finding_id, check_id, status, severity, blocking,
+            source_component, artifact_id, occurred_at,
+            category, reason, description, detail, metadata_json
+        ) VALUES (
+            %(project_key)s, %(story_id)s, %(run_id)s, %(attempt_no)s,
+            %(stage_id)s, %(finding_id)s, %(check_id)s, %(status)s,
+            %(severity)s, %(blocking)s, %(source_component)s,
+            %(artifact_id)s, %(occurred_at)s, %(category)s, %(reason)s,
+            %(description)s, %(detail)s, %(metadata_json)s
+        )
+        ON CONFLICT (project_key, run_id, attempt_no, stage_id, finding_id)
+        DO UPDATE SET
+            story_id=EXCLUDED.story_id,
+            check_id = EXCLUDED.check_id,
+            status = EXCLUDED.status,
+            severity = EXCLUDED.severity,
+            blocking = EXCLUDED.blocking,
+            source_component = EXCLUDED.source_component,
+            artifact_id = EXCLUDED.artifact_id,
+            occurred_at = EXCLUDED.occurred_at,
+            category = EXCLUDED.category,
+            reason = EXCLUDED.reason,
+            description = EXCLUDED.description,
+            detail = EXCLUDED.detail,
+            metadata_json = EXCLUDED.metadata_json
+        """,
+        row,
+    )
+
+
+def pg_delete_findings_for_scope(
+    conn: Any,
+    *,
+    project_key: str,
+    run_id: str,
+    attempt_no: int,
+    stage_id: str,
+) -> None:
+    """Delete ``qa_findings`` for a scope on an existing psycopg connection.
+
+    Driver-owned SQL (FK-69). Removes stale findings before a batch re-write so
+    no outdated rows survive (idempotency invariant of the batch write).
+
+    Args:
+        conn: Open psycopg connection (driver transaction).
+        project_key: Project key.
+        run_id: Run ID.
+        attempt_no: Attempt number.
+        stage_id: Layer / stage ID.
+    """
+    conn.execute(
+        """
+        DELETE FROM qa_findings
+        WHERE project_key = %s AND run_id = %s AND attempt_no = %s AND stage_id = %s
+        """,
+        (project_key, run_id, attempt_no, stage_id),
+    )
+
+
 def persist_layer_artifact_rows(
     story_dir: Path,
     *,
@@ -2020,16 +2218,14 @@ def persist_layer_artifact_rows(
     ``payload``, ``passed``, ``recorded_at``, ``stage_row``, ``finding_rows``.
 
     Befund D (AG3-035 Remediation): FK-69-Zeilen-Persistenz laeuft ueber die
-    Accessor-Repo-Methoden (``_pg_execute_stage_upsert``,
-    ``_pg_execute_finding_upsert``, ``_pg_delete_findings_for_scope``).
-    Transaktion bleibt im Driver (FAIL-CLOSED: Stage+Findings+artifact_records
-    atomar in EINER Transaktion). Kein Bypass des Accessor-Pfads (ZERO DEBT).
+    treibereigenen Upsert-/Delete-Funktionen (``pg_execute_stage_upsert``,
+    ``pg_execute_finding_upsert``, ``pg_delete_findings_for_scope`` in diesem
+    Modul). Transaktion bleibt im Driver (FAIL-CLOSED: Stage+Findings+
+    artifact_records atomar in EINER Transaktion). Die Accessor-Repos
+    (boundary.state_backend_repository) delegieren ihren Postgres-Schreibpfad
+    an dieselben Funktionen -- die SQL lebt genau einmal im Treiber (SSOT;
+    AC010: der Treiber importiert kein Repository).
     """
-    from agentkit.state_backend.store.projection_repositories import (
-        FacadeQAFindingsRepository,
-        FacadeQAStageResultsRepository,
-    )
-
     story_id = _story_id_for(story_dir)
     if story_id is None:
         raise CorruptStateError(
@@ -2041,10 +2237,6 @@ def persist_layer_artifact_rows(
             "Cannot materialize FK-69 QA read models without flow execution "
             "scope in canonical Postgres backend",
         )
-    # Repo-Instanzen fuer within-conn-Batch-Writes (Befund D)
-    stage_repo = FacadeQAStageResultsRepository(story_dir)
-    finding_repo = FacadeQAFindingsRepository(story_dir)
-
     produced: list[str] = []
     with _connect(story_dir) as conn:
         for item in layer_payload_rows:
@@ -2054,8 +2246,8 @@ def persist_layer_artifact_rows(
             target_dir = projection_dir or story_dir
             _write_projection(target_dir / artifact_name, payload)
             artifact_id = _artifact_id_for(layer, attempt_nr)
-            # FK-69: delete old findings for this scope + layer via Repo (Befund D)
-            finding_repo._pg_delete_findings_for_scope(
+            # FK-69: delete old findings for this scope + layer (driver-owned SQL)
+            pg_delete_findings_for_scope(
                 conn,
                 project_key=str(flow_row["project_key"]),
                 run_id=str(flow_row["run_id"]),
@@ -2068,16 +2260,13 @@ def persist_layer_artifact_rows(
                 "list[dict[str, object]]", item.get("finding_rows") or []
             )
             if stage_row is not None:
-                # Replace placeholder artifact_id with real one; persist via Repo
                 updated_stage = dict(stage_row)
                 updated_stage["artifact_id"] = artifact_id
-                # Befund D: ueber Accessor-Repo, kein direktes SQL im Driver
-                stage_repo._pg_execute_stage_upsert(conn, updated_stage)
+                pg_execute_stage_upsert(conn, updated_stage)
             for fr in finding_rows:
                 updated_fr = dict(fr)
                 updated_fr["artifact_id"] = artifact_id
-                # Befund D: ueber Accessor-Repo, kein direktes SQL im Driver
-                finding_repo._pg_execute_finding_upsert(conn, updated_fr)
+                pg_execute_finding_upsert(conn, updated_fr)
             produced.append(artifact_name)
     return tuple(produced)
 

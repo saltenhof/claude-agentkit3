@@ -396,33 +396,9 @@ class FacadeQAStageResultsRepository:
             conn: Bestehende psycopg-Verbindung (Driver-Transaktion).
             row: Fertig serialisierte qa_stage_results-Zeile (dict).
         """
-        conn.execute(
-            """
-            INSERT INTO qa_stage_results (
-                project_key, story_id, run_id, attempt_no, stage_id, layer,
-                producer_component, status, blocking, total_checks,
-                failed_checks, warning_checks, artifact_id, recorded_at
-            ) VALUES (
-                %(project_key)s, %(story_id)s, %(run_id)s, %(attempt_no)s,
-                %(stage_id)s, %(layer)s, %(producer_component)s, %(status)s,
-                %(blocking)s, %(total_checks)s, %(failed_checks)s,
-                %(warning_checks)s, %(artifact_id)s, %(recorded_at)s
-            )
-            ON CONFLICT (project_key, run_id, attempt_no, stage_id)
-            DO UPDATE SET
-                story_id=EXCLUDED.story_id,
-                layer = EXCLUDED.layer,
-                producer_component = EXCLUDED.producer_component,
-                status = EXCLUDED.status,
-                blocking = EXCLUDED.blocking,
-                total_checks = EXCLUDED.total_checks,
-                failed_checks = EXCLUDED.failed_checks,
-                warning_checks = EXCLUDED.warning_checks,
-                artifact_id = EXCLUDED.artifact_id,
-                recorded_at = EXCLUDED.recorded_at
-            """,
-            row,
-        )
+        from agentkit.state_backend import postgres_store
+
+        postgres_store.pg_execute_stage_upsert(conn, row)
 
     def read(
         self,
@@ -627,38 +603,9 @@ class FacadeQAFindingsRepository:
             conn: Bestehende psycopg-Verbindung (Driver-Transaktion).
             row: Fertig serialisierte qa_findings-Zeile (dict).
         """
-        conn.execute(
-            """
-            INSERT INTO qa_findings (
-                project_key, story_id, run_id, attempt_no, stage_id,
-                finding_id, check_id, status, severity, blocking,
-                source_component, artifact_id, occurred_at,
-                category, reason, description, detail, metadata_json
-            ) VALUES (
-                %(project_key)s, %(story_id)s, %(run_id)s, %(attempt_no)s,
-                %(stage_id)s, %(finding_id)s, %(check_id)s, %(status)s,
-                %(severity)s, %(blocking)s, %(source_component)s,
-                %(artifact_id)s, %(occurred_at)s, %(category)s, %(reason)s,
-                %(description)s, %(detail)s, %(metadata_json)s
-            )
-            ON CONFLICT (project_key, run_id, attempt_no, stage_id, finding_id)
-            DO UPDATE SET
-                story_id=EXCLUDED.story_id,
-                check_id = EXCLUDED.check_id,
-                status = EXCLUDED.status,
-                severity = EXCLUDED.severity,
-                blocking = EXCLUDED.blocking,
-                source_component = EXCLUDED.source_component,
-                artifact_id = EXCLUDED.artifact_id,
-                occurred_at = EXCLUDED.occurred_at,
-                category = EXCLUDED.category,
-                reason = EXCLUDED.reason,
-                description = EXCLUDED.description,
-                detail = EXCLUDED.detail,
-                metadata_json = EXCLUDED.metadata_json
-            """,
-            row,
-        )
+        from agentkit.state_backend import postgres_store
+
+        postgres_store.pg_execute_finding_upsert(conn, row)
 
     def _pg_delete_findings_for_scope(
         self,
@@ -681,12 +628,14 @@ class FacadeQAFindingsRepository:
             attempt_no: Attempt-Nummer.
             stage_id: Layer/Stage-ID.
         """
-        conn.execute(
-            """
-            DELETE FROM qa_findings
-            WHERE project_key = %s AND run_id = %s AND attempt_no = %s AND stage_id = %s
-            """,
-            (project_key, run_id, attempt_no, stage_id),
+        from agentkit.state_backend import postgres_store
+
+        postgres_store.pg_delete_findings_for_scope(
+            conn,
+            project_key=project_key,
+            run_id=run_id,
+            attempt_no=attempt_no,
+            stage_id=stage_id,
         )
 
     def read(
