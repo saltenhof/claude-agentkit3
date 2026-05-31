@@ -65,16 +65,68 @@ def current_schema_name() -> str:
     return versioned_postgres_schema_name()
 
 
+def _consume_sql_comment(script: str, i: int) -> int | None:
+    """Return the index just after a ``--`` or ``/* */`` comment opened at ``i``.
+
+    Returns ``None`` when no comment starts at ``i``. The comment text (which
+    may itself contain ``;``) is consumed wholesale so it never triggers a
+    statement split.
+
+    Args:
+        script: The full SQL script.
+        i: Candidate comment-start index.
+
+    Returns:
+        Index after the comment, or ``None``.
+    """
+    two = script[i : i + 2]
+    n = len(script)
+    if two == "--":
+        newline = script.find("\n", i)
+        return n if newline == -1 else newline + 1
+    if two == "/*":
+        end = script.find("*/", i + 2)
+        return n if end == -1 else end + 2
+    return None
+
+
+def _consume_sql_string(script: str, i: int, quote: str) -> int:
+    """Return the index just after a quoted literal/identifier opened at ``i``.
+
+    Handles doubled-quote escapes (``''`` / ``""``); an unterminated literal
+    consumes the rest of the script.
+
+    Args:
+        script: The full SQL script.
+        i: Index of the opening quote.
+        quote: The quote character (``'`` or ``"``).
+
+    Returns:
+        Index after the closing quote (or end of script).
+    """
+    n = len(script)
+    j = i + 1
+    while j < n:
+        if script[j] != quote:
+            j += 1
+        elif j + 1 < n and script[j + 1] == quote:  # doubled escape stays inside
+            j += 2
+        else:
+            return j + 1
+    return n
+
+
 def iter_sql_statements(script: str) -> Iterator[str]:
     """Yield individual SQL statements from a multi-statement script.
 
-    Splits on top-level ``;`` only, ignoring semicolons that appear inside
-    single-quoted string literals, double-quoted identifiers, ``--`` line
-    comments or ``/* */`` block comments. psycopg's ``execute`` accepts a
-    single statement at a time, so a naive ``str.split(";")`` mis-splits any
-    script whose comment or literal contains a ``;`` (FIX THE MODEL: the
-    AG3-031 governance hotfix added a ``--`` comment that contains ``;``,
-    which the naive splitter executed as the bogus statement
+    Splits on top-level ``;`` only, ignoring semicolons inside single-quoted
+    string literals, double-quoted identifiers, ``--`` line comments or
+    ``/* */`` block comments (the scanning of those spans is delegated to
+    :func:`_consume_sql_comment` / :func:`_consume_sql_string`). psycopg's
+    ``execute`` accepts a single statement at a time, so a naive
+    ``str.split(";")`` mis-splits any script whose comment or literal contains a
+    ``;`` (FIX THE MODEL: the AG3-031 governance hotfix added a ``--`` comment
+    containing ``;``, which the naive splitter executed as the bogus statement
     ``a 3-tuple key collapsed``).
 
     Comment-only / whitespace-only fragments are skipped so psycopg never
@@ -85,64 +137,31 @@ def iter_sql_statements(script: str) -> Iterator[str]:
 
     Yields:
         Each non-empty statement, stripped of surrounding whitespace, with its
-        original comments and literals intact (psycopg ignores leading/inline
-        comments).
+        original comments and literals intact (psycopg ignores them).
     """
     buf: list[str] = []
     has_code = False
-    in_single = in_double = in_line = in_block = False
     i, n = 0, len(script)
     while i < n:
-        ch = script[i]
-        nxt = script[i + 1] if i + 1 < n else ""
-        if in_line:
-            buf.append(ch)
-            if ch == "\n":
-                in_line = False
-        elif in_block:
-            buf.append(ch)
-            if ch == "*" and nxt == "/":
-                buf.append(nxt)
-                i += 2
-                in_block = False
-                continue
-        elif in_single:
-            buf.append(ch)
-            if ch == "'":
-                if nxt == "'":  # doubled '' escape stays inside the literal
-                    buf.append(nxt)
-                    i += 2
-                    continue
-                in_single = False
-        elif in_double:
-            buf.append(ch)
-            if ch == '"':
-                in_double = False
-        elif ch == "-" and nxt == "-":
-            in_line = True
-            buf.append(ch)
-        elif ch == "/" and nxt == "*":
-            in_block = True
-            buf.append(ch)
-            buf.append(nxt)
-            i += 2
+        comment_end = _consume_sql_comment(script, i)
+        if comment_end is not None:
+            buf.append(script[i:comment_end])
+            i = comment_end
             continue
-        elif ch == "'":
-            in_single = True
+        ch = script[i]
+        if ch in {"'", '"'}:
+            end = _consume_sql_string(script, i, ch)
+            buf.append(script[i:end])
             has_code = True
-            buf.append(ch)
-        elif ch == '"':
-            in_double = True
-            has_code = True
-            buf.append(ch)
-        elif ch == ";":
+            i = end
+            continue
+        if ch == ";":
             if has_code:
                 yield "".join(buf).strip()
             buf = []
             has_code = False
         else:
-            if not ch.isspace():
-                has_code = True
+            has_code = has_code or not ch.isspace()
             buf.append(ch)
         i += 1
     if has_code:
