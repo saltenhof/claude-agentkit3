@@ -23,14 +23,14 @@ from typing import TYPE_CHECKING
 from agentkit.core_types import SpawnReason
 from agentkit.exceptions import ProjectError
 from agentkit.installer.paths import prompt_instance_dir
-from agentkit.prompt_runtime.pins import (
-    initialize_prompt_run_pin,
-    resolve_run_prompt_binding,
-)
+from agentkit.prompt_runtime.pins import resolve_run_prompt_binding
 from agentkit.prompt_runtime.resources import (
     load_prompt_template,
+    load_prompt_template_from_binding,
     prompt_template_relpath,
+    prompt_template_relpath_from_binding,
     prompt_template_sha256,
+    prompt_template_sha256_from_binding,
     resolve_bootstrap_prompt_binding,
 )
 from agentkit.prompt_runtime.selectors import select_template_name
@@ -86,12 +86,6 @@ class StaticMaterializedPromptInstance:
     link_mode: str
     template_sha256: str
     output_sha256: str
-
-
-@dataclass(frozen=True)
-class RenderedPromptArtifact:
-    prompt_path: Path
-    manifest_path: Path
 
 
 @dataclass(frozen=True)
@@ -236,28 +230,39 @@ def _resolve_prompt_source(
 ) -> _ResolvedPromptSource:
     if project_root is None:
         binding = resolve_bootstrap_prompt_binding()
-        template = load_prompt_template(template_name)
-    else:
-        if run_id is None:
-            raise ProjectError(
-                "Prompt composition for a project-bound run requires run_id",
-                detail={"story_id": story_id},
-            )
-        binding = resolve_run_prompt_binding(project_root, run_id)
-        template = load_prompt_template(template_name, project_root=project_root)
-
+        # Bootstrap (non-project) context: no run pin exists; resolve from
+        # the internal resource manifest.
+        return _ResolvedPromptSource(
+            binding_bundle_id=binding.bundle_id,
+            binding_bundle_version=binding.bundle_version,
+            binding_manifest_sha256=binding.manifest_sha256,
+            template_text=load_prompt_template(template_name),
+            template_relpath=prompt_template_relpath(template_name),
+            template_sha256=prompt_template_sha256(template_name),
+        )
+    if run_id is None:
+        raise ProjectError(
+            "Prompt composition for a project-bound run requires run_id",
+            detail={"story_id": story_id},
+        )
+    # Active run: the pin is the authority. Template bytes AND metadata
+    # (relpath, sha256) are resolved from the pin-resolved binding, never
+    # from the (possibly rebound) project lock -- this is what makes
+    # binding_changes_affect_only_future_runs (C2, FK-44 §44.3) hold for the
+    # actual materialized content, not only for the binding coordinates.
+    binding = resolve_run_prompt_binding(project_root, run_id)
     return _ResolvedPromptSource(
         binding_bundle_id=binding.bundle_id,
         binding_bundle_version=binding.bundle_version,
         binding_manifest_sha256=binding.manifest_sha256,
-        template_text=template,
-        template_relpath=prompt_template_relpath(
+        template_text=load_prompt_template_from_binding(template_name, binding),
+        template_relpath=prompt_template_relpath_from_binding(
             template_name,
-            project_root=project_root,
+            binding,
         ),
-        template_sha256=prompt_template_sha256(
+        template_sha256=prompt_template_sha256_from_binding(
             template_name,
-            project_root=project_root,
+            binding,
         ),
     )
 
@@ -356,7 +361,10 @@ def write_prompt_instance(
     """Write the canonical run-scoped prompt artifact set."""
 
     output_dir = prompt_instance_dir(project_root, run_id, invocation_id)
-    initialize_prompt_run_pin(project_root, run_id=run_id)
+    # Materialization resolves the EXISTING pin (fail-closed if missing); it
+    # must NOT re-pin from the current project lock, otherwise a legitimate
+    # mid-run rebind would trip a spurious PROMPT_RUN_PIN_MISMATCH (C2, FK-44
+    # §44.3). The pin is established at run start via create_run_pin.
     binding = resolve_run_prompt_binding(project_root, run_id)
     if (
         prompt.prompt_bundle_id != binding.bundle_id
@@ -381,7 +389,11 @@ def write_prompt_instance(
         )
     prompt_path = output_dir / "prompt.md"
     manifest_path = output_dir / "manifest.json"
-    atomic_write_text(prompt_path, prompt.content)
+    # newline="" disables platform newline translation so the on-disk bytes
+    # equal prompt.content.encode("utf-8") byte-for-byte. prompt.output_sha256
+    # is computed from those bytes, so the audit digest faithfully reflects
+    # the consumed bytes on every platform (FK-44 §44.6, byte reproducibility).
+    atomic_write_text(prompt_path, prompt.content, newline="")
     atomic_write_text(
         manifest_path,
         json.dumps(
@@ -413,74 +425,6 @@ def write_prompt_instance(
         manifest_path=manifest_path,
     )
 
-
-def write_rendered_prompt_artifact(
-    prompt: ComposedPrompt,
-    project_root: Path,
-    *,
-    run_id: str,
-    invocation_id: str,
-    artifact_name: str = "rendered-prompt.md",
-) -> RenderedPromptArtifact:
-    """Write a run-scoped rendered prompt artifact for non-agent consumers."""
-
-    output_dir = prompt_instance_dir(project_root, run_id, invocation_id)
-    initialize_prompt_run_pin(project_root, run_id=run_id)
-    binding = resolve_run_prompt_binding(project_root, run_id)
-    if (
-        prompt.prompt_bundle_id != binding.bundle_id
-        or prompt.prompt_bundle_version != binding.bundle_version
-        or prompt.prompt_manifest_sha256 != binding.manifest_sha256
-    ):
-        raise ProjectError(
-            "Rendered prompt metadata does not match the active run pin",
-            detail={
-                "run_id": run_id,
-                "expected": {
-                    "prompt_bundle_id": binding.bundle_id,
-                    "prompt_bundle_version": binding.bundle_version,
-                    "prompt_manifest_sha256": binding.manifest_sha256,
-                },
-                "actual": {
-                    "prompt_bundle_id": prompt.prompt_bundle_id,
-                    "prompt_bundle_version": prompt.prompt_bundle_version,
-                    "prompt_manifest_sha256": prompt.prompt_manifest_sha256,
-                },
-            },
-        )
-    prompt_path = output_dir / artifact_name
-    manifest_path = output_dir / "rendered-manifest.json"
-    atomic_write_text(prompt_path, prompt.content)
-    atomic_write_text(
-        manifest_path,
-        json.dumps(
-            {
-                "run_id": run_id,
-                "invocation_id": invocation_id,
-                "prompt_instance_id": invocation_id,
-                "story_id": prompt.story_id,
-                "artifact_kind": "rendered_prompt",
-                "prompt_bundle_id": prompt.prompt_bundle_id,
-                "prompt_bundle_version": prompt.prompt_bundle_version,
-                "prompt_manifest_sha256": prompt.prompt_manifest_sha256,
-                "logical_prompt_id": prompt.logical_prompt_id,
-                "template_name": prompt.template_name,
-                "template_relpath": prompt.template_relpath,
-                "render_mode": prompt.render_mode,
-                "template_sha256": prompt.template_sha256,
-                "render_input_digest": prompt.render_input_digest,
-                "output_sha256": prompt.output_sha256,
-                "artifact_path": prompt_path.relative_to(project_root).as_posix(),
-            },
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
-    )
-    return RenderedPromptArtifact(
-        prompt_path=prompt_path,
-        manifest_path=manifest_path,
-    )
 
 def _project_static_prompt(source: Path, target: Path) -> str:
     """Project ``source`` to ``target`` and report the link mode used.
@@ -561,12 +505,17 @@ def materialize_static_prompt_instance(
         ProjectError: If the run pin/bundle is missing or the projection
             fails (fail-closed).
     """
-    initialize_prompt_run_pin(project_root, run_id=run_id)
+    # Resolve the EXISTING pin (fail-closed if missing); never re-pin from the
+    # current lock (C2, FK-44 §44.3).
     binding = resolve_run_prompt_binding(project_root, run_id)
-    relpath = prompt_template_relpath(template_name, project_root=project_root)
-    template_sha256 = prompt_template_sha256(
+    # Pin-authoritative: relpath and template digest come from the
+    # pin-resolved binding, not the (possibly rebound) project lock, so a
+    # mid-run rebind cannot change the static projection source (C2, FK-44
+    # §44.3).
+    relpath = prompt_template_relpath_from_binding(template_name, binding)
+    template_sha256 = prompt_template_sha256_from_binding(
         template_name,
-        project_root=project_root,
+        binding,
     )
     source = binding.bundle_root / relpath
     if not source.is_file():
@@ -597,14 +546,12 @@ __all__ = [
     "ComposeConfig",
     "ComposedPrompt",
     "MaterializedPromptInstance",
-    "RenderedPromptArtifact",
     "StaticMaterializedPromptInstance",
     "WorkerWorktreeContext",
     "build_worker_worktree_context",
     "compose_named_prompt",
     "compose_prompt",
     "materialize_static_prompt_instance",
-    "write_rendered_prompt_artifact",
     "write_prompt",
     "write_prompt_instance",
 ]

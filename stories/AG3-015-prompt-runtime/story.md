@@ -343,6 +343,18 @@ ohne Parallel-Anlage.
    Pipeline-Artefakt. ZERO DEBT: die Enum-Erweiterung wird vollstaendig durch
    alle gebundenen Stellen (DB-Constraint, Contract-/Golden-Tests, Registry,
    Mappings) gezogen, nicht nur im Enum.
+3. **AK7 `project_key` am `PromptRunPin` → ergaenzt (Review R1).** Die
+   formale Entity `prompt-runtime.entity.run-prompt-pin`
+   (`concept/formal-spec/prompt-runtime/entities.md`) fuehrt `project_key`
+   als Attribut. `PromptRunPin` traegt es jetzt als
+   `project_key: str | None`. Quelle ist die kanonische Projektkonfiguration
+   (`config.loader.load_project_config`) — KEINE zweite project-key-Wahrheit;
+   in bare/bootstrap-Fixtures ohne Config bleibt es `None` (fail-soft, da der
+   Pin auch ohne project_key run-eindeutig ist). Eine vollstaendige
+   Propagierung von `project_key` in den Lock-Datensatz
+   (`project-prompt-binding`) bleibt bewusst ausgeklammert (eigener
+   Installer-/Lock-Format-Schnitt; nicht Teil dieser Story).
+
 2. **C2-Drift-Test invertieren → JA.** Der bestehende Test
    `test_resolve_run_prompt_binding_rejects_binding_drift`
    (`tests/unit/prompt_runtime/test_pins.py:162`) schreibt die **fehlerhafte**

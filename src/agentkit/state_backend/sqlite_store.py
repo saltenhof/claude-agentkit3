@@ -417,9 +417,13 @@ def _ensure_schema_runtime_tables(conn: sqlite3.Connection) -> None:
             started_at TEXT NOT NULL,
             finished_at TEXT NOT NULL,
             status TEXT NOT NULL,
+            -- AG3-015: 'prompt_audit' added (FK-44 §44.6). Kept in lockstep
+            -- with postgres_schema.sql + artifact_repository -- no second,
+            -- competing DDL truth.
             artifact_class TEXT NOT NULL CHECK (artifact_class IN (
                 'worker', 'qa', 'pipeline', 'telemetry', 'governance',
-                'entwurf', 'handover', 'adversarial_test_sandbox'
+                'entwurf', 'handover', 'adversarial_test_sandbox',
+                'prompt_audit'
             )),
             payload_json TEXT,
             PRIMARY KEY (story_id, run_id, stage, attempt, artifact_class, producer_name)

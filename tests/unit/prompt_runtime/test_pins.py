@@ -217,6 +217,50 @@ def test_resolve_run_prompt_binding_rejects_pin_corruption(
         resolve_run_prompt_binding(tmp_path, "run-1")
 
 
+def test_run_pin_carries_project_key_when_config_present(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AK7 (Review R1): PromptRunPin carries project_key from the project config.
+
+    The formal entity ``run-prompt-pin`` includes ``project_key``; it is
+    resolved from the canonical project config (no second project-key truth)
+    and round-trips through write/read.
+    """
+    from agentkit.installer import InstallConfig, install_agentkit
+
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv(PROMPT_BUNDLE_STORE_ENV, str(tmp_path / "prompt-bundles-store"))
+    install_agentkit(
+        InstallConfig(
+            project_key="acme-key",
+            project_name="acme",
+            project_root=project_root,
+        ),
+    )
+
+    pin = initialize_prompt_run_pin(project_root, run_id="run-pk")
+    assert pin.project_key == "acme-key"
+    reloaded = load_prompt_run_pin(project_root, "run-pk")
+    assert reloaded is not None
+    assert reloaded.project_key == "acme-key"
+
+
+def test_run_pin_project_key_none_without_config(tmp_path: Path) -> None:
+    """AK7: bare fixtures without a project config keep project_key None (fail-soft)."""
+    ensure_prompt_run_pin(
+        tmp_path,
+        run_id="run-no-cfg",
+        prompt_bundle_id="bundle-a",
+        prompt_bundle_version="1",
+        prompt_manifest_sha256="abc123",
+    )
+    loaded = load_prompt_run_pin(tmp_path, "run-no-cfg")
+    assert loaded is not None
+    assert loaded.project_key is None
+
+
 def test_resolve_run_prompt_binding_rejects_pin_digest_drift(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -51,6 +51,10 @@ class PromptRunPin(BaseModel):
 
     Attributes:
         run_id: Run identifier (identity key).
+        project_key: Stable technical key of the owning project
+            (cross-reference to the formal ``project-prompt-binding``
+            entity). Best-effort: resolved from the canonical project config
+            when present, ``None`` for bare/bootstrap fixtures without one.
         prompt_bundle_id: Pinned bundle identifier.
         prompt_bundle_version: Pinned bundle version
             (``resolved_prompt_bundle_version``).
@@ -63,6 +67,7 @@ class PromptRunPin(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     run_id: str
+    project_key: str | None = None
     prompt_bundle_id: str
     prompt_bundle_version: str
     prompt_manifest_sha256: str
@@ -80,6 +85,22 @@ class PromptRunPin(BaseModel):
         return self.prompt_manifest_sha256
 
 
+def _resolve_project_key(project_root: Path) -> str | None:
+    """Resolve the owning project_key from the canonical project config.
+
+    Best-effort: returns ``None`` when no validated project config exists
+    (bare/bootstrap fixtures). Reads the single canonical config source -- it
+    does NOT introduce a second project-key truth.
+    """
+    from agentkit.config.loader import load_project_config
+    from agentkit.exceptions import ConfigError
+
+    try:
+        return load_project_config(project_root).project_key
+    except ConfigError:
+        return None
+
+
 def initialize_prompt_run_pin(project_root: Path, *, run_id: str) -> PromptRunPin:
     """Resolve the current project binding and persist the canonical run pin."""
 
@@ -88,6 +109,7 @@ def initialize_prompt_run_pin(project_root: Path, *, run_id: str) -> PromptRunPi
     ensure_prompt_run_pin(
         project_root,
         run_id=run_id,
+        project_key=_resolve_project_key(project_root),
         prompt_bundle_id=binding.bundle_id,
         prompt_bundle_version=binding.bundle_version,
         prompt_manifest_sha256=binding.manifest_sha256,
@@ -115,8 +137,12 @@ def load_prompt_run_pin(project_root: Path, run_id: str) -> PromptRunPin | None:
         if pinned_at_raw is not None
         else datetime.now(tz=UTC)
     )
+    project_key_raw = data.get("project_key")
     return PromptRunPin(
         run_id=str(data["run_id"]),
+        project_key=(
+            str(project_key_raw) if project_key_raw is not None else None
+        ),
         prompt_bundle_id=str(data["prompt_bundle_id"]),
         prompt_bundle_version=str(data["prompt_bundle_version"]),
         prompt_manifest_sha256=str(data["prompt_manifest_sha256"]),
@@ -135,6 +161,7 @@ def ensure_prompt_run_pin(
     prompt_bundle_version: str,
     prompt_manifest_sha256: str,
     prompt_manifest_file: str = _DEFAULT_MANIFEST_FILE,
+    project_key: str | None = None,
 ) -> Path:
     """Persist or validate the canonical prompt pin for a run.
 
@@ -167,21 +194,19 @@ def ensure_prompt_run_pin(
             )
         return path
 
+    pin_data: dict[str, object] = {
+        "run_id": run_id,
+        "prompt_bundle_id": prompt_bundle_id,
+        "prompt_bundle_version": prompt_bundle_version,
+        "prompt_manifest_sha256": prompt_manifest_sha256,
+        "prompt_manifest_file": prompt_manifest_file,
+        "pinned_at": datetime.now(tz=UTC).isoformat(),
+    }
+    if project_key is not None:
+        pin_data["project_key"] = project_key
     atomic_write_text(
         path,
-        json.dumps(
-            {
-                "run_id": run_id,
-                "prompt_bundle_id": prompt_bundle_id,
-                "prompt_bundle_version": prompt_bundle_version,
-                "prompt_manifest_sha256": prompt_manifest_sha256,
-                "prompt_manifest_file": prompt_manifest_file,
-                "pinned_at": datetime.now(tz=UTC).isoformat(),
-            },
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
+        json.dumps(pin_data, indent=2, sort_keys=True) + "\n",
     )
     return path
 

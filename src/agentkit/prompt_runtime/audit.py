@@ -57,6 +57,18 @@ class PromptAuditHash(BaseModel):
     output_sha256: str
 
 
+def empty_render_input_digest() -> str:
+    """Return the digest of an empty render-input map (static prompts).
+
+    Static projections do no rendering; their ``render_input_digest`` is the
+    canonical digest of an empty placeholder map. Kept here as the single
+    source of truth so static and dynamic paths agree on the empty-map digest.
+    """
+    return hashlib.sha256(
+        json.dumps({}, sort_keys=True).encode("utf-8"),
+    ).hexdigest()
+
+
 def compute_prompt_audit_hash(
     *,
     template_text: str,
@@ -188,5 +200,6 @@ __all__ = [
     "PromptAuditHash",
     "build_prompt_audit_envelope",
     "compute_prompt_audit_hash",
+    "empty_render_input_digest",
     "persist_prompt_audit",
 ]

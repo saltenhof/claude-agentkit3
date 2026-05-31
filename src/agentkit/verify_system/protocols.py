@@ -28,6 +28,7 @@ __all__ = [
     "Finding",
     "LayerResult",
     "QALayer",
+    "RunScope",
     "Severity",
     "StoryContextQueryPort",
     "TrustClass",
@@ -55,6 +56,38 @@ class StoryContextQueryPort(Protocol):
             Der ``StoryContext`` oder ``None``, wenn keiner persistiert ist.
         """
         ...
+
+    def resolve_run_scope(self, story_dir: Path) -> RunScope | None:
+        """Loese die Run-Korrelation (run_id, attempt) fuer ``story_dir`` auf.
+
+        AG3-015 (FK-44 §44.4.2): der Prompt-Audit-Pfad braucht die
+        authoritative Run-Korrelation, um ueber ``PromptRuntime`` zu
+        materialisieren -- **ohne** direkten ``state_backend.store``-Import in
+        ``verify_system``. Der konkrete Adapter lebt im state-backend-BC.
+
+        Args:
+            story_dir: Story-Arbeitsverzeichnis.
+
+        Returns:
+            Ein ``RunScope`` oder ``None``, wenn keine Run-Korrelation
+            aufloesbar ist (dann wird der Prompt-Audit uebersprungen).
+        """
+        ...
+
+
+@dataclass(frozen=True)
+class RunScope:
+    """Resolved run correlation for the prompt-audit path (AG3-015).
+
+    Attributes:
+        run_id: Active run identifier.
+        story_id: Story identifier the run belongs to.
+        attempt: QA-subflow attempt counter (>= 1).
+    """
+
+    run_id: str
+    story_id: str
+    attempt: int
 
 
 class TrustClass(StrEnum):

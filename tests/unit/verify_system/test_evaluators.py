@@ -12,11 +12,14 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
 
+from agentkit.bootstrap.composition_root import build_artifact_manager
 from agentkit.installer import InstallConfig, install_agentkit
 from agentkit.installer.paths import PROMPT_BUNDLE_STORE_ENV
 from agentkit.phase_state_store import FlowExecution, save_flow_execution
-from agentkit.prompt_runtime.pins import initialize_prompt_run_pin
 from agentkit.state_backend.store import save_story_context
+from agentkit.state_backend.store.verify_story_context_repository import (
+    StateBackendVerifyStoryContextAdapter,
+)
 from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 from agentkit.verify_system.llm_evaluator.inputs import Layer2ReviewInput
@@ -47,6 +50,21 @@ def _minimal_ctx() -> StoryContext:
     )
 
 
+def _wired_audit_deps(store_dir: Path) -> dict[str, object]:
+    """Build the injected prompt-audit deps the composition root wires.
+
+    AG3-015 / FK-44 §44.4.2: the QA layers materialize prompts via
+    ``PromptRuntime.materialize_prompt`` (audited through the
+    ``ArtifactManager``) and resolve the run correlation through the
+    state-backed ``StoryContextQueryPort`` -- no loose ``rendered-manifest``
+    JSON and no direct ``state_backend.store`` import inside ``verify_system``.
+    """
+    return {
+        "artifact_manager": build_artifact_manager(store_dir),
+        "story_context_port": StateBackendVerifyStoryContextAdapter(),
+    }
+
+
 def _empty_ri() -> Layer2ReviewInput:
     """Empty Layer2ReviewInput (all fields empty strings)."""
     return Layer2ReviewInput()
@@ -70,7 +88,7 @@ class TestQaReviewReviewer:
 
     def test_evaluate_includes_prompt_audit_in_metadata(self, tmp_path: Path) -> None:
         """evaluate() includes 'prompt_audit' in metadata."""
-        reviewer = QaReviewReviewer()
+        reviewer = QaReviewReviewer(**_wired_audit_deps(tmp_path))
         result = reviewer.evaluate(_minimal_ctx(), tmp_path, review_input=_empty_ri())
         assert result.metadata["prompt_audit"] == {
             "status": "skipped",
@@ -100,7 +118,7 @@ class TestSemanticReviewer:
         With empty review_input, layer2_input.missing (MAJOR) is emitted,
         but no BLOCKING -> passed=True. findings is non-empty.
         """
-        reviewer = SemanticReviewer()
+        reviewer = SemanticReviewer(**_wired_audit_deps(tmp_path))
         result = reviewer.evaluate(_minimal_ctx(), tmp_path, review_input=_empty_ri())
         assert result.passed is True
         assert result.layer == "semantic_review"
@@ -153,8 +171,7 @@ class TestSemanticReviewer:
                 started_at=datetime.now(tz=UTC),
             ),
         )
-        initialize_prompt_run_pin(project_root, run_id="run-review-001")
-        reviewer = SemanticReviewer()
+        reviewer = SemanticReviewer(**_wired_audit_deps(project_root))
         ctx = StoryContext(
             project_key="test-project",
             story_id="TEST-001",
@@ -168,21 +185,28 @@ class TestSemanticReviewer:
         audit = cast("dict[str, object]", result.metadata["prompt_audit"])
         assert audit["status"] == "materialized"
         assert audit["run_id"] == "run-review-001"
-        assert audit["logical_prompt_id"] == "prompt.qa-semantic-review"
+        assert audit["render_mode"] == "rendered"
+        # FK-44 §44.4.1 canonical run-scoped instance path (prompt.md), not a
+        # loose layer-named file; audit persisted via ArtifactManager.
         assert audit["artifact_path"] == (
             ".agentkit/prompts/run-review-001/"
-            "verify-semantic_review-attempt-001/semantic_review-prompt.md"
+            "verify-semantic_review-attempt-001/prompt.md"
         )
-        assert audit["manifest_path"] == (
-            ".agentkit/prompts/run-review-001/"
-            "verify-semantic_review-attempt-001/rendered-manifest.json"
-        )
+        assert "manifest_path" not in audit
+        assert isinstance(audit["audit_record_key"], str)
+        assert len(str(audit["output_sha256"])) == 64
         assert (
             project_root / str(audit["artifact_path"])
         ).is_file()
-        assert (
-            project_root / str(audit["manifest_path"])
-        ).is_file()
+        # No loose rendered-manifest.json is written as audit truth anymore.
+        assert not (
+            project_root
+            / ".agentkit"
+            / "prompts"
+            / "run-review-001"
+            / "verify-semantic_review-attempt-001"
+            / "rendered-manifest.json"
+        ).exists()
 
     def test_evaluate_skips_when_flow_story_does_not_match_context(
         self,
@@ -227,8 +251,7 @@ class TestSemanticReviewer:
                 started_at=datetime.now(tz=UTC),
             ),
         )
-        initialize_prompt_run_pin(project_root, run_id="run-review-001")
-        reviewer = SemanticReviewer()
+        reviewer = SemanticReviewer(**_wired_audit_deps(project_root))
         ctx = StoryContext(
             project_key="test-project",
             story_id="TEST-001",
@@ -267,7 +290,7 @@ class TestDocFidelityReviewer:
         With empty review_input, layer2_input.missing (MAJOR) is emitted,
         but no BLOCKING -> passed=True.
         """
-        reviewer = DocFidelityReviewer()
+        reviewer = DocFidelityReviewer(**_wired_audit_deps(tmp_path))
         result = reviewer.evaluate(_minimal_ctx(), tmp_path, review_input=_empty_ri())
         assert result.passed is True
         assert result.layer == "doc_fidelity"

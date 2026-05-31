@@ -26,6 +26,7 @@ from agentkit.artifacts import (
     EnvelopeValidator,
     ProducerRegistry,
 )
+from agentkit.prompt_runtime.register import register_prompt_runtime_producers
 from agentkit.state_backend.store.artifact_repository import (
     StateBackendArtifactRepository,
 )
@@ -44,19 +45,21 @@ def build_producer_registry() -> ProducerRegistry:
     """Erzeugt eine frische ``ProducerRegistry`` und ruft alle bekannten
     BC-Init-Hooks auf.
 
-    Aktueller Stand (AG3-023): nur ``register_verify_producers`` ist
-    angebunden. Weitere BC-Init-Hooks (worker, telemetry, governance,
-    closure ...) werden in ihren Folgestories analog ergaenzt.
+    Aktueller Stand: ``register_verify_producers`` (AG3-023) und
+    ``register_prompt_runtime_producers`` (AG3-015, FK-44 §44.6 --
+    ``ArtifactClass.PROMPT_AUDIT``) sind angebunden. Weitere BC-Init-Hooks
+    (worker, telemetry, governance, closure ...) werden in ihren
+    Folgestories analog ergaenzt.
 
     Returns:
         Eine ``ProducerRegistry`` mit allen heute bekannten Producern.
 
     Notes:
         Reihenfolge der Init-Hooks ist deterministisch (BC-alphabetisch
-        bzw. Capability-Reihenfolge); Verify ist heute die einzige
-        registrierte Quelle.
+        bzw. Capability-Reihenfolge). Jeder Hook ist idempotent.
     """
     registry = ProducerRegistry()
+    register_prompt_runtime_producers(registry)
     register_verify_producers(registry)
     return registry
 

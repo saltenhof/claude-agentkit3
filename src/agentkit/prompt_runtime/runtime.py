@@ -32,6 +32,7 @@ from agentkit.prompt_runtime.audit import (
     PromptAuditHash,
     build_prompt_audit_envelope,
     compute_prompt_audit_hash,
+    empty_render_input_digest,
     persist_prompt_audit,
 )
 from agentkit.prompt_runtime.composer import (
@@ -48,7 +49,7 @@ from agentkit.prompt_runtime.pins import (
     resolve_run_prompt_binding,
 )
 from agentkit.prompt_runtime.resources import (
-    prompt_template_relpath,
+    prompt_template_relpath_from_binding,
     reject_stale_local_prompt_cache,
 )
 from agentkit.utils.io import atomic_write_text
@@ -375,16 +376,20 @@ class PromptRuntime:
             )
         )
         binding = resolve_run_prompt_binding(self._project_root, run_id)
-        template_relpath = prompt_template_relpath(
+        template_relpath = prompt_template_relpath_from_binding(
             template_name,
-            project_root=self._project_root,
+            binding,
         )
-        # Static projection: the render-input digest is the digest of an
-        # empty render-input map (no rendering occurred). Determinism holds.
-        audit_hash = compute_prompt_audit_hash(
-            template_text=static.prompt_path.read_text(encoding="utf-8"),
-            render_inputs={},
-            output_text=static.prompt_path.read_text(encoding="utf-8"),
+        # Static projection: the audit digests come from the projected file's
+        # RAW bytes (computed in the composer via read_bytes), never from a
+        # re-decode/re-encode round-trip -- so output_sha256 faithfully
+        # reflects the bytes on disk (FK-44 §44.6, byte reproducibility).
+        # template_sha256 is the verified pinned-template digest; the
+        # render-input digest is the empty-map digest (no rendering occurred).
+        audit_hash = PromptAuditHash(
+            template_sha256=static.template_sha256,
+            render_input_digest=empty_render_input_digest(),
+            output_sha256=static.output_sha256,
         )
         artifact_path = static.prompt_path.relative_to(
             self._project_root,
@@ -466,9 +471,12 @@ class PromptRuntime:
             ProjectError: If the local file is a stale cache (fail-closed).
         """
         binding = resolve_run_prompt_binding(self._project_root, run_id)
-        template_relpath = prompt_template_relpath(
+        # Pin-authoritative relpath (C2): the canonical template path is read
+        # from the pin-resolved binding, not the rebound project lock, so the
+        # stale-cache check compares against the pinned bundle template.
+        template_relpath = prompt_template_relpath_from_binding(
             template_name,
-            project_root=self._project_root,
+            binding,
         )
         reject_stale_local_prompt_cache(
             self._project_root,

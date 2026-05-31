@@ -51,17 +51,20 @@ def _make_context(project_root: Path) -> StoryContext:
     )
 
 
-def _bundle_templates() -> dict[str, str]:
+def _bundle_templates(version: str = "99") -> dict[str, str]:
+    # Embed the version in the template content so a rebind to a new version
+    # produces materially different bytes -- this is what makes the C2
+    # mid-run-stability test (E1) meaningful (not just identical bytes).
     return {
         "worker-implementation": (
-            "# Project Bound Prompt {story_id}\n"
+            f"# Project Bound Prompt v{version} {{story_id}}\n"
             "[SENTINEL:worker-implementation-v1:{story_id}]\n"
         ),
     }
 
 
 def _write_binding(project_root: Path, *, version: str = "99") -> None:
-    templates = _bundle_templates()
+    templates = _bundle_templates(version)
     bundle_dir = prompt_bundle_store_dir(
         "project-bound",
         version,
@@ -316,6 +319,105 @@ class TestMaterializePrompt:
                 invocation_id="inv-1",
                 render_mode="static",
             )
+
+    def test_mid_run_rebind_does_not_mutate_materialized_bytes(
+        self,
+        tmp_path: Path,
+        manager: ArtifactManager,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """E1 / C2: materialize after rebind must use the PINNED template bytes.
+
+        Reproduces the review finding: previously the materializer read the
+        template text/metadata via the (rebound) project lock, so a mid-run
+        rebind to a new bundle version would leak the new template bytes into
+        an already pinned run. Scenario
+        ``mid_run_rebind_does_not_mutate_active_run`` (FK-44 §44.3/§44.7).
+        """
+        _write_binding(tmp_path, version="99")
+        monkeypatch.setenv(PROMPT_BUNDLE_STORE_ENV, str(tmp_path / "prompt-bundles"))
+        runtime = PromptRuntime(tmp_path, manager)
+        runtime.create_run_pin("run-1")  # pins v99
+        ctx = _make_context(tmp_path)
+
+        # Legitimate rebind: v100 with materially different template bytes.
+        _write_binding(tmp_path, version="100")
+        runtime.update_binding("project-bound", "100")
+
+        for mode in ("rendered", "static"):
+            instance = runtime.materialize_prompt(
+                ctx,
+                "worker-implementation",
+                ComposeConfig(story_type=StoryType.IMPLEMENTATION),
+                run_id="run-1",
+                invocation_id=f"inv-{mode}",
+                render_mode=mode,
+            )
+            text = instance.prompt_path.read_text(encoding="utf-8")
+            assert "v99" in text, f"{mode}: expected pinned v99 bytes, got: {text!r}"
+            assert "v100" not in text, f"{mode}: leaked rebound v100 bytes"
+            # Audit bundle version reflects the pin, not the rebound lock.
+            loaded = manager.read(instance.audit_reference)
+            assert loaded.payload is not None
+            assert loaded.payload["prompt_bundle_version"] == "99"
+
+    def test_rendered_output_sha256_matches_disk_raw_bytes(
+        self,
+        tmp_path: Path,
+        manager: ArtifactManager,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """E4: audit output_sha256 == sha256 of the materialized file raw bytes.
+
+        Cross-platform: the prompt is written with newline="" so no newline
+        translation occurs and the digest faithfully reflects the consumed
+        bytes (FK-44 §44.6). Previously the rendered digest was computed from
+        ``content.encode`` while the file could differ via CRLF translation.
+        """
+        from hashlib import sha256 as _sha256
+
+        _write_binding(tmp_path)
+        monkeypatch.setenv(PROMPT_BUNDLE_STORE_ENV, str(tmp_path / "prompt-bundles"))
+        runtime = PromptRuntime(tmp_path, manager)
+        runtime.create_run_pin("run-1")
+        ctx = _make_context(tmp_path)
+
+        instance = runtime.materialize_prompt(
+            ctx,
+            "worker-implementation",
+            ComposeConfig(story_type=StoryType.IMPLEMENTATION),
+            run_id="run-1",
+            invocation_id="inv-bytes",
+            render_mode="rendered",
+        )
+        disk_digest = _sha256(instance.prompt_path.read_bytes()).hexdigest()
+        assert instance.audit_hash.output_sha256 == disk_digest
+
+    def test_static_output_sha256_matches_disk_raw_bytes(
+        self,
+        tmp_path: Path,
+        manager: ArtifactManager,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """E4 (static): the static audit digest is the projected file raw bytes."""
+        from hashlib import sha256 as _sha256
+
+        _write_binding(tmp_path)
+        monkeypatch.setenv(PROMPT_BUNDLE_STORE_ENV, str(tmp_path / "prompt-bundles"))
+        runtime = PromptRuntime(tmp_path, manager)
+        runtime.create_run_pin("run-1")
+        ctx = _make_context(tmp_path)
+
+        instance = runtime.materialize_prompt(
+            ctx,
+            "worker-implementation",
+            ComposeConfig(story_type=StoryType.IMPLEMENTATION),
+            run_id="run-1",
+            invocation_id="inv-static-bytes",
+            render_mode="static",
+        )
+        disk_digest = _sha256(instance.prompt_path.read_bytes()).hexdigest()
+        assert instance.audit_hash.output_sha256 == disk_digest
 
 
 class TestRejectStaleLocalPromptCache:

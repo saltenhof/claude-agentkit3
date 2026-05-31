@@ -297,6 +297,114 @@ def reject_stale_local_prompt_cache(
         )
 
 
+def _manifest_entry_from_binding(
+    name: str,
+    binding: PromptBundleBinding,
+) -> dict[str, str]:
+    """Resolve a template manifest entry from an explicit binding.
+
+    Pin-authoritative counterpart to ``_manifest_entry``: reads the
+    manifest declared by *binding* (which for an active run is the
+    pin-resolved binding from ``resolve_run_prompt_binding``), never the
+    possibly-rebound project lock. This is what makes
+    ``binding_changes_affect_only_future_runs`` (C2, FK-44 §44.3) hold for
+    template bytes and metadata, not only for the binding coordinates.
+    """
+    raw = json.loads(binding.manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ProjectError(
+            "Prompt manifest must be a JSON object",
+            detail={"path": str(binding.manifest_path)},
+        )
+    templates = raw.get("templates")
+    if not isinstance(templates, dict):
+        raise ProjectError(
+            "Prompt manifest is missing a templates mapping",
+            detail={"path": str(binding.manifest_path)},
+        )
+    entry = templates.get(name)
+    if not isinstance(entry, dict):
+        raise ProjectError(
+            f"Prompt template is not declared in manifest: {name}",
+            detail={"template_name": name, "path": str(binding.manifest_path)},
+        )
+    relpath = entry.get("relpath")
+    sha256 = entry.get("sha256")
+    if not isinstance(relpath, str) or not isinstance(sha256, str):
+        raise ProjectError(
+            f"Prompt manifest entry is malformed for template: {name}",
+            detail={"template_name": name, "path": str(binding.manifest_path)},
+        )
+    return {"relpath": relpath, "sha256": sha256}
+
+
+def prompt_template_relpath_from_binding(
+    name: str,
+    binding: PromptBundleBinding,
+) -> str:
+    """Return the bundle-relative template path from an explicit binding."""
+
+    return _manifest_entry_from_binding(name, binding)["relpath"]
+
+
+def prompt_template_path_from_binding(
+    name: str,
+    binding: PromptBundleBinding,
+) -> Path:
+    """Return the absolute path of a template inside *binding*'s bundle root.
+
+    Pin-authoritative: the path is anchored at ``binding.bundle_root`` so an
+    active run always reads the pinned bundle file, never a rebound project
+    projection (FK-44 §44.3 / §44.5).
+    """
+    relpath = _manifest_entry_from_binding(name, binding)["relpath"]
+    path = binding.bundle_root / Path(relpath)
+    if not path.is_file():
+        raise ProjectError(
+            f"Prompt template resource not found: {path}",
+            detail={"template_name": name, "path": str(path)},
+        )
+    return path
+
+
+def prompt_template_sha256_from_binding(
+    name: str,
+    binding: PromptBundleBinding,
+) -> str:
+    """Return a verified SHA-256 digest of the pinned template.
+
+    The digest is over the UTF-8 *text* of the template (read via
+    ``read_text``, universal-newline normalized), matching how the bundle
+    manifest authored ``sha256``. This is the canonical template digest;
+    output byte-faithfulness is enforced separately on the materialized file
+    (FK-44 §44.6).
+    """
+    content = load_prompt_template_from_binding(name, binding).encode("utf-8")
+    digest = hashlib.sha256(content).hexdigest()
+    expected = _manifest_entry_from_binding(name, binding)["sha256"]
+    if digest != expected:
+        raise ProjectError(
+            f"Prompt template digest mismatch for {name}",
+            detail={
+                "template_name": name,
+                "expected_sha256": expected,
+                "actual_sha256": digest,
+            },
+        )
+    return digest
+
+
+def load_prompt_template_from_binding(
+    name: str,
+    binding: PromptBundleBinding,
+) -> str:
+    """Load the pinned template bytes as UTF-8 text from *binding*."""
+
+    return prompt_template_path_from_binding(name, binding).read_text(
+        encoding="utf-8",
+    )
+
+
 def prompt_manifest_sha256(project_root: Path | None = None) -> str:
     """Return the digest of the resolved prompt manifest."""
 
@@ -435,12 +543,16 @@ __all__ = [
     "RESOURCE_DIR",
     "STALE_LOCAL_PROMPT_CACHE",
     "load_prompt_template",
+    "load_prompt_template_from_binding",
     "prompt_bundle_id",
     "prompt_manifest_sha256",
     "prompt_bundle_version",
     "prompt_template_path",
+    "prompt_template_path_from_binding",
     "prompt_template_relpath",
+    "prompt_template_relpath_from_binding",
     "prompt_template_sha256",
+    "prompt_template_sha256_from_binding",
     "reject_stale_local_prompt_cache",
     "resolve_bootstrap_prompt_binding",
     "resolve_pinned_prompt_binding",

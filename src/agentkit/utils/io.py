@@ -17,7 +17,12 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def atomic_write_text(path: Path, content: str) -> None:
+def atomic_write_text(
+    path: Path,
+    content: str,
+    *,
+    newline: str | None = None,
+) -> None:
     """Write text content atomically via temporary file and ``os.replace``.
 
     Creates parent directories if they do not exist.  Writes to a
@@ -27,11 +32,17 @@ def atomic_write_text(path: Path, content: str) -> None:
     Args:
         path: Destination file path.
         content: Text content to write.
+        newline: Newline handling passed to ``open`` (see ``io.open``).
+            Defaults to ``None`` (platform translation). Pass ``""`` to
+            disable translation so the on-disk bytes equal
+            ``content.encode("utf-8")`` byte-for-byte -- required where a
+            digest of the written file must match a digest of *content*
+            (e.g. prompt-audit byte reproducibility, FK-44 §44.6).
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     try:
-        with tmp.open("w", encoding="utf-8") as f:
+        with tmp.open("w", encoding="utf-8", newline=newline) as f:
             f.write(content)
             f.flush()
             os.fsync(f.fileno())

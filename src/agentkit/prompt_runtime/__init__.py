@@ -11,7 +11,6 @@ from agentkit.prompt_runtime.composer import (
     ComposeConfig,
     ComposedPrompt,
     MaterializedPromptInstance,
-    RenderedPromptArtifact,
     StaticMaterializedPromptInstance,
     WorkerWorktreeContext,
     build_worker_worktree_context,
@@ -20,7 +19,6 @@ from agentkit.prompt_runtime.composer import (
     materialize_static_prompt_instance,
     write_prompt,
     write_prompt_instance,
-    write_rendered_prompt_artifact,
 )
 from agentkit.prompt_runtime.pins import (
     PromptRunPin,
@@ -61,7 +59,6 @@ __all__ = [
     "PromptAuditHash",
     "PromptInstance",
     "PromptRuntime",
-    "RenderedPromptArtifact",
     "StaticMaterializedPromptInstance",
     "WorkerWorktreeContext",
     "build_prompt_audit_envelope",
@@ -92,7 +89,6 @@ __all__ = [
     "resolve_run_prompt_binding",
     "select_template_name",
     "validate_sentinel",
-    "write_rendered_prompt_artifact",
     "write_prompt",
     "write_prompt_instance",
 ]

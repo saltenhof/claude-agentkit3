@@ -126,7 +126,12 @@ def test_postgres_all_artifact_classes(
     tmp_path: Path,
     postgres_backend_env: object,
 ) -> None:
-    """Alle acht ArtifactClass-Wire-Werte koennen persistiert und gelesen werden."""
+    """Alle neun ArtifactClass-Wire-Werte koennen persistiert und gelesen werden.
+
+    FAIL-CLOSED gepinnt: die Liste deckt die volle ``ArtifactClass``-Menge ab
+    (inkl. ``prompt_audit``, AG3-015 / FK-44 §44.6). Ein neuer Enum-Wert ohne
+    Postgres-CHECK-Eintrag wuerde hier auflaufen.
+    """
     repo = StateBackendArtifactRepository(store_dir=tmp_path)
     all_classes = [
         (ArtifactClass.WORKER, ProducerType.WORKER),
@@ -137,7 +142,11 @@ def test_postgres_all_artifact_classes(
         (ArtifactClass.ENTWURF, ProducerType.WORKER),
         (ArtifactClass.HANDOVER, ProducerType.WORKER),
         (ArtifactClass.ADVERSARIAL_TEST_SANDBOX, ProducerType.LLM_REVIEWER),
+        (ArtifactClass.PROMPT_AUDIT, ProducerType.DETERMINISTIC),
     ]
+    # Guard against a silently un-pinned enum value: the contract MUST cover
+    # the entire ArtifactClass set.
+    assert {ac for ac, _ in all_classes} == set(ArtifactClass)
     for artifact_class, producer_type in all_classes:
         env = _make_envelope(
             artifact_class=artifact_class,

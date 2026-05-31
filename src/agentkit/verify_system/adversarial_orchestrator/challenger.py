@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agentkit.verify_system.prompt_audit import materialize_qa_prompt_audit
+from agentkit.verify_system.prompt_audit_support import PromptAuditMixin
 from agentkit.verify_system.protocols import LayerResult
 
 if TYPE_CHECKING:
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from agentkit.verify_system.llm_evaluator.inputs import Layer2ReviewInput
 
 
-class AdversarialChallenger:
+class AdversarialChallenger(PromptAuditMixin):
     """Layer 3: Adversarial edge-case testing.
 
     Currently a passthrough that always passes. Real implementation
@@ -64,7 +64,7 @@ class AdversarialChallenger:
             layer=self.name,
             passed=True,
             metadata={
-                "prompt_audit": materialize_qa_prompt_audit(
+                "prompt_audit": self._materialize_prompt_audit(
                     layer_name=self.name,
                     template_name="qa-adversarial-review",
                     ctx=ctx,

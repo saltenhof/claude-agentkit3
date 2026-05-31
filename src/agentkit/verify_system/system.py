@@ -78,6 +78,7 @@ from agentkit.verify_system.protocols import (
     Finding,
     LayerResult,
     QALayer,
+    RunScope,
     Severity,
     StoryContextQueryPort,
     TrustClass,
@@ -104,6 +105,15 @@ class _NullStoryContextPort:
 
     def load(self, story_dir: Path) -> StoryContext | None:
         """Return ``None``; der No-op-Port ignoriert ``story_dir``.
+
+        Args:
+            story_dir: Story-Arbeitsverzeichnis (vom No-op-Port nicht konsumiert).
+        """
+        del story_dir  # No-op-Port nutzt den Pfad nicht (Protocol-Param, S1172).
+        return None
+
+    def resolve_run_scope(self, story_dir: Path) -> RunScope | None:
+        """Return ``None``; ohne State-Backend ist keine Run-Korrelation bekannt.
 
         Args:
             story_dir: Story-Arbeitsverzeichnis (vom No-op-Port nicht konsumiert).
@@ -219,15 +229,32 @@ class VerifySystem:
                 "agentkit.bootstrap.composition_root.build_verify_system "
                 "for the wired default.",
             )
+        resolved_port = story_context_port or _NULL_STORY_CONTEXT_PORT
+        # AG3-015 / FK-44 §44.4.2: the QA layers materialize their prompts via
+        # PromptRuntime.materialize_prompt and audit them via the
+        # ArtifactManager. Both dependencies are injected here so no layer
+        # reaches into prompt-runtime sub-modules or state_backend.store.
         return cls(
             layer_1=StructuralChecker(),
-            layer_2a=QaReviewReviewer(),
-            layer_2b=SemanticReviewer(),
-            layer_2c=DocFidelityReviewer(),
-            layer_3=AdversarialChallenger(),
+            layer_2a=QaReviewReviewer(
+                artifact_manager=artifact_manager,
+                story_context_port=resolved_port,
+            ),
+            layer_2b=SemanticReviewer(
+                artifact_manager=artifact_manager,
+                story_context_port=resolved_port,
+            ),
+            layer_2c=DocFidelityReviewer(
+                artifact_manager=artifact_manager,
+                story_context_port=resolved_port,
+            ),
+            layer_3=AdversarialChallenger(
+                artifact_manager=artifact_manager,
+                story_context_port=resolved_port,
+            ),
             policy_engine=PolicyEngine(max_major_findings=max_major_findings),
             artifact_manager=artifact_manager,
-            story_context_port=story_context_port or _NULL_STORY_CONTEXT_PORT,
+            story_context_port=resolved_port,
         )
 
     # ------------------------------------------------------------------

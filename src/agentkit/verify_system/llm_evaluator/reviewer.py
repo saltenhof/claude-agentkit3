@@ -34,13 +34,15 @@ import re
 from typing import TYPE_CHECKING
 
 from agentkit.verify_system.llm_evaluator.inputs import Layer2InputMissingError, Layer2ReviewInput
-from agentkit.verify_system.prompt_audit import materialize_qa_prompt_audit
+from agentkit.verify_system.prompt_audit_support import PromptAuditMixin
 from agentkit.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
 
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from agentkit.artifacts import ArtifactManager
     from agentkit.story_context_manager.models import StoryContext
+    from agentkit.verify_system.protocols import StoryContextQueryPort
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +147,7 @@ def _all_empty(review_input: Layer2ReviewInput) -> bool:
 # ---------------------------------------------------------------------------
 
 
-class QaReviewReviewer:
+class QaReviewReviewer(PromptAuditMixin):
     """Layer 2a: Deterministic QA reviewer (Testqualitaet, Coverage, Edge-Cases).
 
     FK-27 §27.5 (sinngemaess). Prueft:
@@ -164,12 +166,22 @@ class QaReviewReviewer:
             Pass ``None`` (default) for deterministic-only evaluation.
     """
 
-    def __init__(self, *, llm_client: object | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        llm_client: object | None = None,
+        artifact_manager: ArtifactManager | None = None,
+        story_context_port: StoryContextQueryPort | None = None,
+    ) -> None:
         """Initialise the QaReviewReviewer.
 
         Args:
             llm_client: Must be ``None`` until AG3-043. If non-None,
                 raises ``NotImplementedError``.
+            artifact_manager: ArtifactManager for prompt-audit persistence
+                (FK-44 §44.6); injected by ``create_default``.
+            story_context_port: Port resolving the run correlation for the
+                prompt-audit path (FK-44 §44.4.2).
 
         Raises:
             NotImplementedError: If ``llm_client`` is not ``None``.
@@ -180,6 +192,10 @@ class QaReviewReviewer:
                 "Bis dahin muss llm_client=None bleiben."
             )
             raise NotImplementedError(msg)
+        super().__init__(
+            artifact_manager=artifact_manager,
+            story_context_port=story_context_port,
+        )
         self._llm_client = llm_client
 
     @property
@@ -240,7 +256,7 @@ class QaReviewReviewer:
             passed=passed,
             findings=tuple(findings),
             metadata={
-                "prompt_audit": materialize_qa_prompt_audit(
+                "prompt_audit": self._materialize_prompt_audit(
                     layer_name=self.name,
                     template_name="qa-review",
                     ctx=ctx,
@@ -365,7 +381,7 @@ class QaReviewReviewer:
 # ---------------------------------------------------------------------------
 
 
-class SemanticReviewer:
+class SemanticReviewer(PromptAuditMixin):
     """Layer 2b: Deterministic semantic reviewer (Konzept-Treue, Naming).
 
     FK-27 §27.4 (sinngemaess). Prueft:
@@ -386,12 +402,22 @@ class SemanticReviewer:
             Pass ``None`` (default) for deterministic-only evaluation.
     """
 
-    def __init__(self, *, llm_client: object | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        llm_client: object | None = None,
+        artifact_manager: ArtifactManager | None = None,
+        story_context_port: StoryContextQueryPort | None = None,
+    ) -> None:
         """Initialise the SemanticReviewer.
 
         Args:
             llm_client: Must be ``None`` until AG3-043. If non-None,
                 raises ``NotImplementedError``.
+            artifact_manager: ArtifactManager for prompt-audit persistence
+                (FK-44 §44.6); injected by ``create_default``.
+            story_context_port: Port resolving the run correlation for the
+                prompt-audit path (FK-44 §44.4.2).
 
         Raises:
             NotImplementedError: If ``llm_client`` is not ``None``.
@@ -402,6 +428,10 @@ class SemanticReviewer:
                 "Bis dahin muss llm_client=None bleiben."
             )
             raise NotImplementedError(msg)
+        super().__init__(
+            artifact_manager=artifact_manager,
+            story_context_port=story_context_port,
+        )
         self._llm_client = llm_client
 
     @property
@@ -463,7 +493,7 @@ class SemanticReviewer:
             passed=passed,
             findings=tuple(findings),
             metadata={
-                "prompt_audit": materialize_qa_prompt_audit(
+                "prompt_audit": self._materialize_prompt_audit(
                     layer_name=self.name,
                     template_name="qa-semantic-review",
                     ctx=ctx,
@@ -652,7 +682,7 @@ class SemanticReviewer:
 # ---------------------------------------------------------------------------
 
 
-class DocFidelityReviewer:
+class DocFidelityReviewer(PromptAuditMixin):
     """Layer 2c: Deterministic doc-fidelity reviewer (Docstrings/ADR).
 
     FK-27 §27.6 (sinngemaess). Prueft:
@@ -676,12 +706,22 @@ class DocFidelityReviewer:
             Pass ``None`` (default) for deterministic-only evaluation.
     """
 
-    def __init__(self, *, llm_client: object | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        llm_client: object | None = None,
+        artifact_manager: ArtifactManager | None = None,
+        story_context_port: StoryContextQueryPort | None = None,
+    ) -> None:
         """Initialise the DocFidelityReviewer.
 
         Args:
             llm_client: Must be ``None`` until AG3-043. If non-None,
                 raises ``NotImplementedError``.
+            artifact_manager: ArtifactManager for prompt-audit persistence
+                (FK-44 §44.6); injected by ``create_default``.
+            story_context_port: Port resolving the run correlation for the
+                prompt-audit path (FK-44 §44.4.2).
 
         Raises:
             NotImplementedError: If ``llm_client`` is not ``None``.
@@ -692,6 +732,10 @@ class DocFidelityReviewer:
                 "Bis dahin muss llm_client=None bleiben."
             )
             raise NotImplementedError(msg)
+        super().__init__(
+            artifact_manager=artifact_manager,
+            story_context_port=story_context_port,
+        )
         self._llm_client = llm_client
 
     @property
@@ -743,7 +787,7 @@ class DocFidelityReviewer:
             passed=passed,
             findings=tuple(findings),
             metadata={
-                "prompt_audit": materialize_qa_prompt_audit(
+                "prompt_audit": self._materialize_prompt_audit(
                     layer_name=self.name,
                     template_name="qa-doc-fidelity",
                     ctx=ctx,

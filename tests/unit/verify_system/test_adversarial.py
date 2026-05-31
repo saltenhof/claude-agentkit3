@@ -5,11 +5,14 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
 
+from agentkit.bootstrap.composition_root import build_artifact_manager
 from agentkit.installer import InstallConfig, install_agentkit
 from agentkit.installer.paths import PROMPT_BUNDLE_STORE_ENV
 from agentkit.phase_state_store import FlowExecution, save_flow_execution
-from agentkit.prompt_runtime.pins import initialize_prompt_run_pin
 from agentkit.state_backend.store import save_story_context
+from agentkit.state_backend.store.verify_story_context_repository import (
+    StateBackendVerifyStoryContextAdapter,
+)
 from agentkit.verify_system.adversarial_orchestrator.challenger import AdversarialChallenger
 
 if TYPE_CHECKING:
@@ -21,11 +24,19 @@ from agentkit.story_context_manager.types import StoryMode, StoryType
 from agentkit.verify_system.protocols import QALayer
 
 
+def _wired_audit_deps(store_dir: Path) -> dict[str, object]:
+    """Prompt-audit deps as wired by the composition root (AG3-015)."""
+    return {
+        "artifact_manager": build_artifact_manager(store_dir),
+        "story_context_port": StateBackendVerifyStoryContextAdapter(),
+    }
+
+
 class TestAdversarialChallenger:
     """AdversarialChallenger passthrough tests."""
 
     def test_evaluate_returns_passed(self, tmp_path: Path) -> None:
-        challenger = AdversarialChallenger()
+        challenger = AdversarialChallenger(**_wired_audit_deps(tmp_path))
         ctx = StoryContext(
             project_key="test-project",
             story_id="TEST-001",
@@ -84,8 +95,7 @@ class TestAdversarialChallenger:
                 started_at=datetime.now(tz=UTC),
             ),
         )
-        initialize_prompt_run_pin(project_root, run_id="run-review-001")
-        challenger = AdversarialChallenger()
+        challenger = AdversarialChallenger(**_wired_audit_deps(project_root))
         ctx = StoryContext(
             project_key="test-project",
             story_id="TEST-001",
@@ -99,21 +109,24 @@ class TestAdversarialChallenger:
         audit = cast("dict[str, object]", result.metadata["prompt_audit"])
         assert audit["status"] == "materialized"
         assert audit["run_id"] == "run-review-001"
-        assert audit["logical_prompt_id"] == "prompt.qa-adversarial-review"
+        assert audit["render_mode"] == "rendered"
         assert audit["artifact_path"] == (
             ".agentkit/prompts/run-review-001/"
-            "verify-adversarial-attempt-001/adversarial-prompt.md"
+            "verify-adversarial-attempt-001/prompt.md"
         )
-        assert audit["manifest_path"] == (
-            ".agentkit/prompts/run-review-001/"
-            "verify-adversarial-attempt-001/rendered-manifest.json"
-        )
+        assert "manifest_path" not in audit
+        assert isinstance(audit["audit_record_key"], str)
         assert (
             project_root / str(audit["artifact_path"])
         ).is_file()
-        assert (
-            project_root / str(audit["manifest_path"])
-        ).is_file()
+        assert not (
+            project_root
+            / ".agentkit"
+            / "prompts"
+            / "run-review-001"
+            / "verify-adversarial-attempt-001"
+            / "rendered-manifest.json"
+        ).exists()
 
     def test_implements_qa_layer_protocol(self) -> None:
         challenger = AdversarialChallenger()

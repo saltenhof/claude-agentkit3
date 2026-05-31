@@ -79,6 +79,16 @@ POLICY_ARTIFACT_SPEC = _LayerArtifactSpec(
 
 #: Maps artifact_class to internal VerifyTargetType.
 #: All others -> VerifyTargetUnknownError (fail-closed, AG3-026 §2.1.4).
+#:
+#: AG3-015 decision (FK-44 §44.6): ``ArtifactClass.PROMPT_AUDIT`` is
+#: deliberately NOT a verify target. A prompt-audit record is a
+#: reproducibility proof produced by the prompt-runtime materialization, not
+#: a QA-reviewable deliverable; routing it into the QA layers would be a
+#: category error. Its absence is enforced fail-closed via the ``.get(...)``
+#: fallback in ``system.py`` (``VerifyTargetUnknownError``) and pinned by
+#: ``tests/unit/verify_system/test_artifact_class_target_mapping.py``.
+#: (Other non-target classes -- PIPELINE, TELEMETRY, GOVERNANCE -- are
+#: excluded for the same structural reason.)
 ARTIFACT_CLASS_TO_TARGET_TYPE: dict[ArtifactClass, VerifyTargetType] = {
     ArtifactClass.WORKER: VerifyTargetType.IMPLEMENTATION,
     ArtifactClass.QA: VerifyTargetType.IMPLEMENTATION,

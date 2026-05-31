@@ -16,7 +16,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from agentkit.exceptions import CorruptStateError
 from agentkit.state_backend.store import facade
+from agentkit.verify_system.protocols import RunScope
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -27,7 +29,11 @@ if TYPE_CHECKING:
 class StateBackendVerifyStoryContextAdapter:
     """Adapter, der ``verify_system.protocols.StoryContextQueryPort`` erfuellt.
 
-    Delegiert das Laden an ``facade.load_story_context``.
+    Delegiert das Laden an ``facade.load_story_context`` und die
+    Run-Korrelation an ``facade.resolve_runtime_scope`` (AG3-015, FK-44
+    §44.4.2). Konsumierende BCs duerfen nicht selbst aus
+    ``state_backend.store`` importieren; dieser Adapter kapselt den
+    ``facade``-Aufruf.
     """
 
     def load(self, story_dir: Path) -> StoryContext | None:
@@ -40,3 +46,26 @@ class StateBackendVerifyStoryContextAdapter:
             Der ``StoryContext`` oder ``None``, wenn keiner persistiert ist.
         """
         return facade.load_story_context(story_dir)
+
+    def resolve_run_scope(self, story_dir: Path) -> RunScope | None:
+        """Loese die Run-Korrelation (run_id, story_id, attempt) auf.
+
+        Args:
+            story_dir: Story-Arbeitsverzeichnis.
+
+        Returns:
+            Ein ``RunScope`` oder ``None``, wenn keine eindeutige
+            Run-Korrelation aufloesbar ist (kein Flow-/Context-State oder
+            kein ``run_id``); dann wird der Prompt-Audit uebersprungen.
+        """
+        try:
+            scope = facade.resolve_runtime_scope(story_dir)
+        except CorruptStateError:
+            return None
+        if scope.run_id is None:
+            return None
+        return RunScope(
+            run_id=scope.run_id,
+            story_id=scope.story_id,
+            attempt=scope.attempt_no or 1,
+        )
