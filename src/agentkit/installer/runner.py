@@ -35,10 +35,13 @@ from agentkit.installer.paths import (
     codex_config_path,
     config_dir,
     control_plane_config_path,
+    manifests_dir,
     project_config_path,
     prompt_bundle_lock_path,
     prompt_bundle_store_dir,
+    runtime_prompts_dir,
     static_prompts_dir,
+    stories_dir,
 )
 
 PROMPT_MANIFEST_FILENAME = "manifest.json"
@@ -409,9 +412,27 @@ def install_agentkit(config: InstallConfig) -> InstallResult:
     created.extend(_deploy_static_resource_files(resources_dir, root))
     created.extend(_deploy_prompt_bindings(root, canonical_prompt_bundle_root))
 
-    cfg_dir = config_dir(root)
-    if not cfg_dir.exists():
-        cfg_dir.mkdir(parents=True, exist_ok=True)
+    # Runtime working directories that are intentionally empty right after a
+    # fresh install. Git cannot track empty directories, so they are absent
+    # from the resources/target_project scaffold and the scaffold-mirroring
+    # deploy step never creates them. The installer therefore guarantees them
+    # explicitly. This set is the mirror image of what ``uninstall_agentkit``
+    # removes (keep both in sync):
+    #   .agentkit/config    -- also receives files below; created here too
+    #   .agentkit/prompts   -- FK-44 prompt-materialization root (prompt_instance_dir)
+    #   .agentkit/manifests -- prompt-pin manifests
+    #   stories             -- story working tree
+    #   .claude/context     -- harness context dir (Claude Code)
+    #   .claude/skills      -- harness skill bind point (FK-50 §50.5)
+    for runtime_dir in (
+        config_dir(root),
+        runtime_prompts_dir(root),
+        manifests_dir(root),
+        stories_dir(root),
+        root / CLAUDE_DIR / "context",
+        root / CLAUDE_DIR / "skills",
+    ):
+        runtime_dir.mkdir(parents=True, exist_ok=True)
 
     prompt_lock = _write_prompt_bundle_lock(
         root,
