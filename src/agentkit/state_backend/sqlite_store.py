@@ -439,6 +439,50 @@ def _ensure_schema_runtime_tables(conn: sqlite3.Connection) -> None:
             PRIMARY KEY (project_key, hook_event_name, matcher)
         );
 
+        -- AG3-035 Befund-B: qa_stage_results/qa_findings DDL verschoben von
+        -- projection_repositories._ensure_sqlite_qa_schema hierher.
+        -- Schema-Owner fuer SQLite-DDL ist sqlite_store (SINGLE SOURCE OF TRUTH).
+        -- Symmetrisch zu Postgres-Schema (postgres_schema.sql §69.6/§69.7).
+        CREATE TABLE IF NOT EXISTS qa_stage_results (
+            project_key      TEXT NOT NULL,
+            story_id         TEXT NOT NULL,
+            run_id           TEXT NOT NULL,
+            attempt_no       INTEGER NOT NULL,
+            stage_id         TEXT NOT NULL,
+            layer            TEXT NOT NULL,
+            producer_component TEXT NOT NULL,
+            status           TEXT NOT NULL,
+            blocking         INTEGER NOT NULL,
+            total_checks     INTEGER NOT NULL,
+            failed_checks    INTEGER NOT NULL,
+            warning_checks   INTEGER NOT NULL,
+            artifact_id      TEXT NOT NULL,
+            recorded_at      TEXT NOT NULL,
+            PRIMARY KEY (project_key, run_id, attempt_no, stage_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS qa_findings (
+            project_key      TEXT NOT NULL,
+            story_id         TEXT NOT NULL,
+            run_id           TEXT NOT NULL,
+            attempt_no       INTEGER NOT NULL,
+            stage_id         TEXT NOT NULL,
+            finding_id       TEXT NOT NULL,
+            check_id         TEXT NOT NULL,
+            status           TEXT NOT NULL,
+            severity         TEXT NOT NULL,
+            blocking         INTEGER NOT NULL,
+            source_component TEXT NOT NULL,
+            artifact_id      TEXT NOT NULL,
+            occurred_at      TEXT NOT NULL,
+            category         TEXT,
+            reason           TEXT,
+            description      TEXT,
+            detail           TEXT,
+            metadata_json    TEXT NOT NULL DEFAULT '{}',
+            PRIMARY KEY (project_key, run_id, attempt_no, stage_id, finding_id)
+        );
+
         -- AG3-031 Pass-7: DDL consolidated from lock_record_repository.py into
         -- the canonical schema bootstrap (symmetric with Postgres).
         -- PK corrected to (project_key, story_id, run_id, lock_type) per

@@ -2018,7 +2018,18 @@ def persist_layer_artifact_rows(
     ``layer_payload_rows`` contains pre-serialized dicts from the mapper layer.
     Each element has keys: ``layer``, ``artifact_name``, ``producer_component``,
     ``payload``, ``passed``, ``recorded_at``, ``stage_row``, ``finding_rows``.
+
+    Befund D (AG3-035 Remediation): FK-69-Zeilen-Persistenz laeuft ueber die
+    Accessor-Repo-Methoden (``_pg_execute_stage_upsert``,
+    ``_pg_execute_finding_upsert``, ``_pg_delete_findings_for_scope``).
+    Transaktion bleibt im Driver (FAIL-CLOSED: Stage+Findings+artifact_records
+    atomar in EINER Transaktion). Kein Bypass des Accessor-Pfads (ZERO DEBT).
     """
+    from agentkit.state_backend.store.projection_repositories import (
+        FacadeQAFindingsRepository,
+        FacadeQAStageResultsRepository,
+    )
+
     story_id = _story_id_for(story_dir)
     if story_id is None:
         raise CorruptStateError(
@@ -2030,6 +2041,10 @@ def persist_layer_artifact_rows(
             "Cannot materialize FK-69 QA read models without flow execution "
             "scope in canonical Postgres backend",
         )
+    # Repo-Instanzen fuer within-conn-Batch-Writes (Befund D)
+    stage_repo = FacadeQAStageResultsRepository(story_dir)
+    finding_repo = FacadeQAFindingsRepository(story_dir)
+
     produced: list[str] = []
     with _connect(story_dir) as conn:
         for item in layer_payload_rows:
@@ -2039,18 +2054,13 @@ def persist_layer_artifact_rows(
             target_dir = projection_dir or story_dir
             _write_projection(target_dir / artifact_name, payload)
             artifact_id = _artifact_id_for(layer, attempt_nr)
-            # FK-69: delete old findings for this scope + layer
-            conn.execute(
-                """
-                DELETE FROM qa_findings
-                WHERE project_key = ? AND run_id = ? AND attempt_no = ? AND stage_id = ?
-                """,
-                (
-                    flow_row["project_key"],
-                    flow_row["run_id"],
-                    attempt_nr,
-                    layer,
-                ),
+            # FK-69: delete old findings for this scope + layer via Repo (Befund D)
+            finding_repo._pg_delete_findings_for_scope(
+                conn,
+                project_key=str(flow_row["project_key"]),
+                run_id=str(flow_row["run_id"]),
+                attempt_no=attempt_nr,
+                stage_id=layer,
             )
             # Rebuild stage_row and finding_rows with the real artifact_id
             stage_row = cast("dict[str, object] | None", item.get("stage_row"))
@@ -2058,94 +2068,16 @@ def persist_layer_artifact_rows(
                 "list[dict[str, object]]", item.get("finding_rows") or []
             )
             if stage_row is not None:
-                # Replace placeholder artifact_id with real one
+                # Replace placeholder artifact_id with real one; persist via Repo
                 updated_stage = dict(stage_row)
                 updated_stage["artifact_id"] = artifact_id
-                conn.execute(
-                    """
-                    INSERT INTO qa_stage_results (
-                        project_key, story_id, run_id, attempt_no, stage_id, layer,
-                        producer_component, status, blocking, total_checks,
-                        failed_checks, warning_checks, artifact_id, recorded_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(project_key, run_id, attempt_no, stage_id)
-                    DO UPDATE SET
-                        story_id=excluded.story_id,
-                        layer=excluded.layer,
-                        producer_component=excluded.producer_component,
-                        status=excluded.status,
-                        blocking=excluded.blocking,
-                        total_checks=excluded.total_checks,
-                        failed_checks=excluded.failed_checks,
-                        warning_checks=excluded.warning_checks,
-                        artifact_id=excluded.artifact_id,
-                        recorded_at=excluded.recorded_at
-                    """,
-                    (
-                        updated_stage["project_key"],
-                        updated_stage["story_id"],
-                        updated_stage["run_id"],
-                        updated_stage["attempt_no"],
-                        updated_stage["stage_id"],
-                        updated_stage["layer"],
-                        updated_stage["producer_component"],
-                        updated_stage["status"],
-                        updated_stage["blocking"],
-                        updated_stage["total_checks"],
-                        updated_stage["failed_checks"],
-                        updated_stage["warning_checks"],
-                        updated_stage["artifact_id"],
-                        updated_stage["recorded_at"],
-                    ),
-                )
+                # Befund D: ueber Accessor-Repo, kein direktes SQL im Driver
+                stage_repo._pg_execute_stage_upsert(conn, updated_stage)
             for fr in finding_rows:
                 updated_fr = dict(fr)
                 updated_fr["artifact_id"] = artifact_id
-                conn.execute(
-                    """
-                    INSERT INTO qa_findings (
-                        project_key, story_id, run_id, attempt_no, stage_id,
-                        finding_id, check_id, status, severity, blocking,
-                        source_component, artifact_id, occurred_at, category,
-                        reason, description, detail, metadata_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(project_key, run_id, attempt_no, stage_id, finding_id)
-                    DO UPDATE SET
-                        story_id=excluded.story_id,
-                        check_id=excluded.check_id,
-                        status=excluded.status,
-                        severity=excluded.severity,
-                        blocking=excluded.blocking,
-                        source_component=excluded.source_component,
-                        artifact_id=excluded.artifact_id,
-                        occurred_at=excluded.occurred_at,
-                        category=excluded.category,
-                        reason=excluded.reason,
-                        description=excluded.description,
-                        detail=excluded.detail,
-                        metadata_json=excluded.metadata_json
-                    """,
-                    (
-                        updated_fr["project_key"],
-                        updated_fr["story_id"],
-                        updated_fr["run_id"],
-                        updated_fr["attempt_no"],
-                        updated_fr["stage_id"],
-                        updated_fr["finding_id"],
-                        updated_fr["check_id"],
-                        updated_fr["status"],
-                        updated_fr["severity"],
-                        updated_fr["blocking"],
-                        updated_fr["source_component"],
-                        updated_fr["artifact_id"],
-                        updated_fr["occurred_at"],
-                        updated_fr["category"],
-                        updated_fr["reason"],
-                        updated_fr["description"],
-                        updated_fr["detail"],
-                        updated_fr["metadata_json"],
-                    ),
-                )
+                # Befund D: ueber Accessor-Repo, kein direktes SQL im Driver
+                finding_repo._pg_execute_finding_upsert(conn, updated_fr)
             produced.append(artifact_name)
     return tuple(produced)
 

@@ -14,6 +14,7 @@ Quelle:
   ergaenzt; direkte Runtime-Imports aus ``governance.integrity_gate`` und
   ``governance.setup_preflight_gate.phase`` sind damit in den Composition-Root
   verlagert (DI-Muster).
+- AG3-035 -- ``build_projection_accessor`` ergaenzt (FK-69 ProjectionAccessor).
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
 
     from agentkit.governance.integrity_gate import IntegrityGate
     from agentkit.governance.repository import SetupContextRepository
+    from agentkit.telemetry.projection_accessor import ProjectionAccessor
     from agentkit.verify_system.system import VerifySystem
 
 
@@ -149,10 +151,41 @@ def build_setup_preflight_gate() -> SetupContextRepository:
     return StateBackendSetupContextAdapter()
 
 
+def build_projection_accessor(store_dir: Path | None = None) -> ProjectionAccessor:
+    """Erzeugt einen vollstaendig verdrahteten ``ProjectionAccessor``.
+
+    Composition-Root fuer den FK-69-Projektions-Schreib-/Lese-Pfad (AG3-035):
+    Instanziiert alle vier Repository-Adapter und reicht sie via
+    ``ProjectionRepositories``-Dataclass in den ``ProjectionAccessor`` ein.
+    Konsument-BCs (z. B. ``story_closure.PostMergeFinalization``) erhalten
+    den Accessor via DI und kennen die Repository-Implementierungen nicht.
+
+    Architecture Conformance (AC#7): ProjectionAccessor importiert keine
+    konkreten Implementierungen aus ``state_backend.store.facade``.
+
+    Args:
+        store_dir: Basisverzeichnis des State-Backends. Nur fuer SQLite relevant;
+            Postgres ignoriert den Pfad.
+
+    Returns:
+        ``ProjectionAccessor`` mit allen vier Repository-Adaptern.
+    """
+    from agentkit.state_backend.store.projection_repositories import (
+        build_projection_repositories,
+    )
+    from agentkit.telemetry.projection_accessor import (
+        ProjectionAccessor as _ProjectionAccessor,
+    )
+
+    repos = build_projection_repositories(store_dir)
+    return _ProjectionAccessor(repos)
+
+
 __all__ = [
     "build_artifact_manager",
     "build_integrity_gate",
     "build_producer_registry",
+    "build_projection_accessor",
     "build_setup_preflight_gate",
     "build_verify_system",
 ]

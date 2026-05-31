@@ -25,6 +25,7 @@ from agentkit.closure.multi_repo_saga import (
     teardown_worktrees,
 )
 from agentkit.closure.phase import ClosureConfig, ClosurePhaseHandler
+from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
 
 __all__ = [
     "ClosureConfig",
@@ -42,6 +43,7 @@ __all__ = [
     "push_main",
     "push_story_branches",
     "run_multi_repo_closure",
+    "StoryMetricsRecord",
     "teardown_worktrees",
     "write_execution_report",
 ]

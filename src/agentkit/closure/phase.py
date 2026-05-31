@@ -21,7 +21,6 @@ from agentkit.pipeline_engine.lifecycle import HandlerResult
 from agentkit.state_backend.store import (
     load_phase_snapshot,
     save_story_context,
-    upsert_story_metrics,
 )
 from agentkit.story_context_manager.models import PhaseStatus, QaCycleStatus
 from agentkit.story_context_manager.types import get_profile
@@ -249,7 +248,16 @@ def _build_and_persist_metrics(
     ctx: StoryContext,
     status: str,
 ) -> StoryMetricsRecord | HandlerResult:
-    """Materialise the metrics record or return a ``HandlerResult`` on failure."""
+    """Materialise the metrics record or return a ``HandlerResult`` on failure.
+
+    FK-29 §29.6: PostMergeFinalization ist Schema-Owner + Writer fuer
+    story_metrics via ``ProjectionAccessor.write_projection``.
+    Accessor wird hier ueber die Composition-Root gebaut (kein direkter
+    facade-Import -- AC#7 analog).
+    """
+    from agentkit.bootstrap.composition_root import build_projection_accessor
+    from agentkit.telemetry.projection_accessor import ProjectionKind
+
     try:
         metrics = build_story_metrics_record(
             s_dir,
@@ -257,7 +265,8 @@ def _build_and_persist_metrics(
             completed_at=_completed_at(),
             final_status=status,
         )
-        upsert_story_metrics(s_dir, metrics)
+        accessor = build_projection_accessor(s_dir)
+        accessor.write_projection(ProjectionKind.STORY_METRICS, metrics)
     except Exception as exc:  # noqa: BLE001
         return HandlerResult(
             status=PhaseStatus.FAILED,

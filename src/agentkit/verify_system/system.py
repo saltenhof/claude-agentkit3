@@ -296,6 +296,15 @@ class VerifySystem:
             else _L2Input()
         )
 
+        # Step 1c: Load StoryContext for layer evaluation (AG3-035: replaces
+        # direct state_backend.store import inside _execute_layer).
+        # Centralised here so the import is in the BC's top-surface, not in
+        # the internal _execute_layer helper. Falls back to None if unavailable;
+        # _execute_layer uses an IMPLEMENTATION stub in that case.
+        from agentkit.state_backend.store import load_story_context as _load_story_context
+
+        _story_ctx = _load_story_context(ctx.story_dir)
+
         # Step 2: Select layers.
         layer_kinds = select_layers(qa_context)
 
@@ -318,6 +327,7 @@ class VerifySystem:
                     result = self._execute_layer(
                         layer_instance, ctx, story_id, kind,
                         review_input=effective_review_input,
+                        story_context=_story_ctx,
                     )
                     layer_results.append(result)
                     self._write_layer_envelope(
@@ -334,6 +344,7 @@ class VerifySystem:
                 result = self._execute_layer(
                     layer_instance, ctx, story_id, kind,
                     review_input=effective_review_input,
+                    story_context=_story_ctx,
                 )
                 layer_results.append(result)
 
@@ -474,6 +485,7 @@ class VerifySystem:
         kind: QALayerKind,
         *,
         review_input: object | None = None,
+        story_context: object | None = None,
     ) -> LayerResult:
         """Execute a single layer, wrapping exceptions as BLOCKING findings.
 
@@ -484,12 +496,15 @@ class VerifySystem:
             kind: Layer kind identifier (for error messages).
             review_input: Optional ``Layer2ReviewInput`` passed to Layer-2
                 reviewers. Layer 1/3 ignore it.
+            story_context: Optional pre-resolved ``StoryContext`` injected by
+                the caller (AG3-035: eliminates direct state_backend import
+                inside verify_system). When ``None``, falls back to the
+                IMPLEMENTATION stub (safe default for tests without a DB).
 
         Returns:
             ``LayerResult`` -- either the genuine result or a synthetic
             BLOCKING result if the layer raised an unexpected exception.
         """
-        from agentkit.state_backend.store import load_story_context  # DRIFT-AG3-035
         from agentkit.story_context_manager.models import StoryContext
         from agentkit.story_context_manager.types import StoryMode, StoryType
         from agentkit.verify_system.llm_evaluator.inputs import Layer2ReviewInput as _L2Input
@@ -497,20 +512,21 @@ class VerifySystem:
         effective_ri = review_input if isinstance(review_input, _L2Input) else None
 
         try:
-            # DRIFT-AG3-035: verify_system reads StoryContext via state_backend
-            # until ProjectionAccessor lands (AG3-035). Structural resolution
-            # deferred; BC-Topology documented in _bearbeitungsreihenfolge.md §2a.
-            # Load the real StoryContext from story_dir so that
-            # story_type-specific checks (e.g. StructuralChecker phase-snapshot
-            # validation) use the correct phase profile (FK-27 §27.4 / AG3-026
-            # Pass-2 fix).  Fall back to a minimal IMPLEMENTATION stub only when
-            # the story_dir has no persisted context yet.
-            layer_ctx = load_story_context(ctx.story_dir) or StoryContext(
-                project_key="verify-system-run",
-                story_id=story_id,
-                story_type=StoryType.IMPLEMENTATION,
-                execution_route=StoryMode.EXECUTION,
-            )
+            # AG3-035: StoryContext wird via Injection uebergeben
+            # (story_context-Parameter), nicht via direktem state_backend.store-Import.
+            # Der Aufrufer (run_qa_subflow) laedt den StoryContext einmalig und
+            # reicht ihn hier ein (BC-Topologie-konform).
+            # Fallback auf IMPLEMENTATION-Stub wenn kein StoryContext verfuegbar
+            # (Testpfad ohne persistierten Kontext, FK-27 §27.4).
+            if story_context is not None and isinstance(story_context, StoryContext):
+                layer_ctx = story_context
+            else:
+                layer_ctx = StoryContext(
+                    project_key="verify-system-run",
+                    story_id=story_id,
+                    story_type=StoryType.IMPLEMENTATION,
+                    execution_route=StoryMode.EXECUTION,
+                )
             return layer.evaluate(layer_ctx, ctx.story_dir, review_input=effective_ri)
         except Exception as exc:
             error_msg = f"Layer {kind!r} raised an unexpected exception: {type(exc).__name__}: {exc}"

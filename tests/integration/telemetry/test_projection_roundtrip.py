@@ -1,0 +1,48 @@
+"""Integration-Test: ProjectionAccessor Smoke-Test gegen Postgres.
+
+Dieser Test wird von der integration conftest.py automatisch mit
+``postgres_runtime_env`` versehen und laeuft daher nur gegen Postgres.
+
+Fuer SQLite-Roundtrip-Tests: siehe
+``tests/unit/telemetry/test_projection_roundtrip.py``.
+"""
+
+from __future__ import annotations
+
+
+def test_projection_accessor_module_importable() -> None:
+    """ProjectionAccessor und ProjectionKind sind korrekt importierbar."""
+    from agentkit.telemetry.projection_accessor import (
+        ProjectionKind,
+    )
+
+    # Sanity: alle 7 FK-69-Tabellen sind in ProjectionKind
+    assert len(list(ProjectionKind)) == 7
+    assert ProjectionKind.QA_STAGE_RESULTS == "qa_stage_results"
+    assert ProjectionKind.STORY_METRICS == "story_metrics"
+
+
+def test_projection_repositories_buildable() -> None:
+    """build_projection_repositories kann ohne Fehler aufgerufen werden."""
+    from pathlib import Path
+
+    from agentkit.state_backend.store.projection_repositories import (
+        build_projection_repositories,
+    )
+
+    repos = build_projection_repositories(Path("."))
+    assert repos is not None
+    assert repos.qa_stage_results is not None
+    assert repos.qa_findings is not None
+    assert repos.story_metrics is not None
+    assert repos.phase_state_projection is not None
+
+
+def test_composition_root_builds_accessor() -> None:
+    """build_projection_accessor in Composition-Root funktioniert."""
+    from pathlib import Path
+
+    from agentkit.bootstrap.composition_root import build_projection_accessor
+
+    accessor = build_projection_accessor(Path("."))
+    assert accessor is not None
