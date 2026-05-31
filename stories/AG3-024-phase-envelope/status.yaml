@@ -1,8 +1,8 @@
 story_id: AG3-024
 title: "PhaseEnvelope + RuntimeMetadata + PauseReason-Typisierung"
 type: implementation
-status: in_progress
-phase: setup
+status: completed
+phase: closure
 created: "2026-05-16"
 size: M
 depends_on:

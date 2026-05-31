@@ -95,6 +95,11 @@ def build_verify_system(
     instanziiert alle fuenf Sub-Komponenten und verdrahtet einen echten
     ``ArtifactManager`` (inkl. ProducerRegistry) als Persistenz-Facade.
 
+    AG3-035 (echter Drift-Fix): verdrahtet zusaetzlich den
+    ``StateBackendVerifyStoryContextAdapter`` als ``story_context_port``, damit
+    ``verify_system`` den ``StoryContext`` ueber einen Port aufloest statt via
+    direktem ``state_backend.store``-Import (BC-Topologie).
+
     Args:
         store_dir: Basisverzeichnis des State-Backends. Wird an
             ``build_artifact_manager`` durchgereicht.
@@ -105,12 +110,16 @@ def build_verify_system(
         ``VerifySystem`` mit allen fuenf Sub-Komponenten und einem
         vollstaendig verdrahteten ``ArtifactManager``.
     """
+    from agentkit.state_backend.store.verify_story_context_repository import (
+        StateBackendVerifyStoryContextAdapter,
+    )
     from agentkit.verify_system.system import VerifySystem
 
     manager = build_artifact_manager(store_dir)
     return VerifySystem.create_default(
         max_major_findings=max_major_findings,
         artifact_manager=manager,
+        story_context_port=StateBackendVerifyStoryContextAdapter(),
     )
 
 

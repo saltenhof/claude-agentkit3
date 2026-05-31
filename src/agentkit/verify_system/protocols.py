@@ -29,8 +29,32 @@ __all__ = [
     "LayerResult",
     "QALayer",
     "Severity",
+    "StoryContextQueryPort",
     "TrustClass",
 ]
+
+
+@runtime_checkable
+class StoryContextQueryPort(Protocol):
+    """Read-only Port zum Aufloesen eines ``StoryContext`` fuer die QA-Auswertung.
+
+    AG3-035 (echter Drift-Fix): eliminiert den direkten
+    ``agentkit.state_backend.store``-Import innerhalb von ``verify_system``. Der
+    konkrete Adapter lebt im state-backend-BC und wird via
+    ``bootstrap.composition_root.build_verify_system`` verdrahtet. BC-Topologie:
+    ``verify-system`` haengt von diesem Port ab, nicht von ``state_backend.store``.
+    """
+
+    def load(self, story_dir: Path) -> StoryContext | None:
+        """Lade den persistierten ``StoryContext`` fuer ``story_dir``.
+
+        Args:
+            story_dir: Story-Arbeitsverzeichnis.
+
+        Returns:
+            Der ``StoryContext`` oder ``None``, wenn keiner persistiert ist.
+        """
+        ...
 
 
 class TrustClass(StrEnum):

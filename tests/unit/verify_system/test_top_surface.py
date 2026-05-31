@@ -32,8 +32,6 @@ from agentkit.verify_system.policy_engine.engine import PolicyEngine
 from agentkit.verify_system.protocols import Finding, LayerResult, TrustClass
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from agentkit.verify_system.adversarial_orchestrator.challenger import (
         AdversarialChallenger,
     )
@@ -143,6 +141,7 @@ def _make_system(
     layer_3: _RecordingLayer | AdversarialChallenger | None = None,
     manager: _RecordingArtifactManager | None = None,
     max_major_findings: int = 0,
+    story_context_port: _SpyStoryContextPort | None = None,
 ) -> tuple[VerifySystem, _RecordingArtifactManager]:
     recording_manager = manager or _RecordingArtifactManager()
     # W1: three distinct Layer-2 reviewers.
@@ -150,6 +149,9 @@ def _make_system(
     _l2a = layer_2a or layer_2 or _RecordingLayer("qa_review")
     _l2b = layer_2b or _RecordingLayer("semantic_review")
     _l2c = layer_2c or _RecordingLayer("doc_fidelity")
+    kwargs: dict[str, object] = {}
+    if story_context_port is not None:
+        kwargs["story_context_port"] = story_context_port
     vs = VerifySystem(
         layer_1=layer_1 or _RecordingLayer("structural"),
         layer_2a=_l2a,
@@ -158,6 +160,7 @@ def _make_system(
         layer_3=layer_3 or _RecordingLayer("adversarial"),
         policy_engine=PolicyEngine(max_major_findings=max_major_findings),
         artifact_manager=recording_manager,
+        **kwargs,  # type: ignore[arg-type]
     )
     return vs, recording_manager
 
@@ -786,3 +789,52 @@ class TestCreateDefaultFailClosed:
 
         with pytest.raises(VerifySystemError, match="ArtifactManager"):
             VerifySystem.create_default(artifact_manager=None)  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# AG3-035 (echter Drift-Fix): StoryContext via injizierten Port, kein
+# direkter state_backend.store-Import mehr in verify_system.
+# ---------------------------------------------------------------------------
+
+
+class _SpyStoryContextPort:
+    """Records load() calls; returns a preconfigured StoryContext (or None).
+
+    Satisfies ``verify_system.protocols.StoryContextQueryPort`` structurally.
+    """
+
+    def __init__(self, result: object = None) -> None:
+        self._result = result
+        self.calls: list[Path] = []
+
+    def load(self, story_dir: Path) -> object:
+        self.calls.append(story_dir)
+        return self._result
+
+
+class TestStoryContextPortInjection:
+    """AG3-035: run_qa_subflow loest StoryContext via injizierten Port auf."""
+
+    def test_run_qa_subflow_uses_injected_story_context_port(self, tmp_path: Path) -> None:
+        spy = _SpyStoryContextPort(result=None)
+        vs, _ = _make_system(story_context_port=spy)
+        bundle = _make_bundle(tmp_path)
+
+        vs.run_qa_subflow(
+            ctx=bundle,
+            story_id="TEST-001",
+            qa_context=QaContext.IMPLEMENTATION_INITIAL,
+            target=_make_target(),
+        )
+
+        # Der Port wurde genau einmal mit dem story_dir des Bundles aufgerufen.
+        assert spy.calls == [bundle.story_dir]
+
+    def test_create_default_defaults_to_null_story_context_port(self) -> None:
+        from agentkit.verify_system.system import _NULL_STORY_CONTEXT_PORT
+
+        vs = VerifySystem.create_default(artifact_manager=_RecordingArtifactManager())
+
+        assert vs.story_context_port is _NULL_STORY_CONTEXT_PORT
+        # No-op-Port liefert None -> _execute_layer faellt auf IMPLEMENTATION-Stub.
+        assert vs.story_context_port.load(Path(".")) is None

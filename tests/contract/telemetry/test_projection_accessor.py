@@ -96,17 +96,29 @@ def test_fc_check_proposals_in_projection_kind() -> None:
 
 
 def test_drift_ag3_035_resolved_in_verify_system() -> None:
-    """Direkter state_backend-Import mit DRIFT-Marker entfernt aus verify_system/system.py.
+    """verify_system/system.py importiert StoryContext NICHT mehr aus state_backend.store.
 
-    AG3-035 hat diesen Drift aufgeloest: StoryContext wird jetzt via Injection
-    uebergeben, nicht via direktem state_backend.store-Import in _execute_layer.
+    AG3-035 (echter Drift-Fix): der BC-Topologie-Bruch ist real aufgeloest --
+    ``run_qa_subflow`` loest den ``StoryContext`` ueber den injizierten
+    ``StoryContextQueryPort`` auf, nicht via direktem
+    ``state_backend.store``-Import. Dieser Test prueft den ECHTEN Zustand
+    (Abwesenheit des Imports + Nutzung des Ports), nicht nur einen
+    Marker-Kommentar (Codex-Recheck N1: keine Marker-Kosmetik).
     """
     import pathlib
 
     system_py = pathlib.Path(__file__).parents[3] / "src" / "agentkit" / "verify_system" / "system.py"
     content = system_py.read_text(encoding="utf-8")
-    # Der urspruengliche DRIFT-Marker-Import muss weg sein:
-    assert 'load_story_context  # DRIFT-AG3-035' not in content, (
-        "verify_system/system.py enthaelt noch den urspruenglichen DRIFT-AG3-035-Import. "
-        "AG3-035 hat diesen Drift aufgeloest: StoryContext via Injection."
+    # Kein direkter state_backend.store-Import mehr (der eigentliche Drift):
+    assert "from agentkit.state_backend.store import" not in content, (
+        "verify_system/system.py importiert weiterhin direkt aus "
+        "agentkit.state_backend.store. AG3-035 verlangt Aufloesung des "
+        "BC-Topologie-Drifts via StoryContextQueryPort-Injection."
+    )
+    # Der Port wird tatsaechlich genutzt (kein toter Pfad):
+    assert "self.story_context_port.load(" in content, (
+        "run_qa_subflow nutzt den injizierten StoryContextQueryPort nicht."
+    )
+    assert "StoryContextQueryPort" in content, (
+        "verify_system/system.py referenziert den StoryContextQueryPort nicht."
     )

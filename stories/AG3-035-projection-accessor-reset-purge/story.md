@@ -195,13 +195,25 @@ Aufgerufen wird `purge_run` aus dem `StoryResetService` (out of scope dieser Sto
 
 ## 6. Offene Drifts die diese Story schliesst
 
-- **AG3-026 DRIFT-AG3-035**: `verify_system/system.py` liest `StoryContext` direkt via
-  `state_backend.store.load_story_context` statt ueber ArtifactManager + Top-Surfaces (BC-Topologie-Bruch).
-  Diese Story muss den `_execute_layer`-Aufruf in `system.py` auf
-  `ProjectionAccessor.read_projection` umstellen, sobald der Accessor
-  `STORY_CONTEXT` als ProjectionKind unterstuetzt — oder via uebergebener
-  StoryContext-Injection-Loesung. Bis dahin bleibt der DRIFT-Kommentar im Code
-  (markiert mit `# DRIFT-AG3-035`).
+- **AG3-026 DRIFT-AG3-035 — GESCHLOSSEN (2026-05-31, echter Fix):**
+  `verify_system/system.py` las `StoryContext` direkt via
+  `state_backend.store.load_story_context` (BC-Topologie-Bruch). Aufgeloest via
+  Port-Injection: neuer `StoryContextQueryPort` (`verify_system/protocols.py`),
+  produktiver Adapter `StateBackendVerifyStoryContextAdapter`
+  (`state_backend/store/verify_story_context_repository.py`), verdrahtet im
+  `composition_root.build_verify_system`. `run_qa_subflow` nutzt jetzt
+  `self.story_context_port.load(...)`; der direkte `state_backend.store`-Import
+  ist vollstaendig entfernt. Der Contract-Test prueft den ECHTEN Zustand
+  (Abwesenheit des Imports + Port-Nutzung), nicht mehr nur einen Marker-String
+  (Codex-Recheck-r2 #6/N1).
+- **Codex-Recheck-r2 #3 — Write/Read-Owner-Vertrag geschaerft (2026-05-31):**
+  `ProjectionKind` listet weiterhin alle 7 FK-69-Tabellen (§69.3), aber der
+  Accessor trennt jetzt explizit accessor-besessene Kinds (QA + story_metrics)
+  von extern besessenen (PHASE_STATE_PROJECTION -> PhaseExecutor; FC_* ->
+  AG3-028). `write_projection`/`read_projection` werfen fuer extern besessene
+  Kinds `ProjectionKindNotAccessorOwnedError` (Subklasse von
+  `NotImplementedError`) mit Owner-Benennung statt eines blanken
+  `NotImplementedError`; `is_accessor_owned(kind)` macht den Vertrag testbar.
 - Aenderungen committed auf `main`.
 
 ## 6. Konzept-Referenzen (autoritativ)

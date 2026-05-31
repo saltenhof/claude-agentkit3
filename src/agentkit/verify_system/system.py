@@ -25,6 +25,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from agentkit.artifacts import (
     ArtifactEnvelope,
@@ -78,12 +79,35 @@ from agentkit.verify_system.protocols import (
     LayerResult,
     QALayer,
     Severity,
+    StoryContextQueryPort,
     TrustClass,
 )
 from agentkit.verify_system.routing import QALayerKind, select_layers
 from agentkit.verify_system.structural.checker import StructuralChecker
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from agentkit.story_context_manager.models import StoryContext
+
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class _NullStoryContextPort:
+    """No-op ``StoryContextQueryPort``: liefert immer ``None``.
+
+    Default fuer ``VerifySystem`` ohne injizierten state-backed Adapter
+    (Testpfad ohne DB). Erhaelt das historische Fallback-Verhalten auf den
+    IMPLEMENTATION-Stub in ``_execute_layer`` (AG3-035).
+    """
+
+    def load(self, story_dir: Path) -> StoryContext | None:  # noqa: ARG002
+        """Return ``None`` (kein persistierter StoryContext im No-op-Port)."""
+        return None
+
+
+_NULL_STORY_CONTEXT_PORT: StoryContextQueryPort = _NullStoryContextPort()
 
 
 @dataclass(frozen=True)
@@ -111,6 +135,11 @@ class VerifySystem:
             Must satisfy :class:`QALayer` protocol.
         policy_engine: Layer-4 deterministic aggregator.
         artifact_manager: ArtifactManager for writing QA artefacts.
+        story_context_port: Injizierter Read-Port zum Aufloesen des
+            ``StoryContext`` (AG3-035). Default ist ein No-op-Port; der
+            produktive state-backed Adapter wird via
+            ``composition_root.build_verify_system`` verdrahtet. Eliminiert den
+            direkten ``state_backend.store``-Import in ``run_qa_subflow``.
         adversarial_challenger: Backward-compatible alias for ``layer_3``;
             kept to avoid breaking AG3-023/AG3-024 consumers.
     """
@@ -122,6 +151,7 @@ class VerifySystem:
     layer_3: QALayer
     policy_engine: PolicyEngine
     artifact_manager: ArtifactManager
+    story_context_port: StoryContextQueryPort = _NULL_STORY_CONTEXT_PORT
 
     @property
     def layer_2(self) -> QALayer:
@@ -147,6 +177,7 @@ class VerifySystem:
         *,
         artifact_manager: ArtifactManager,
         max_major_findings: int = 0,
+        story_context_port: StoryContextQueryPort | None = None,
     ) -> VerifySystem:
         """Construct a ``VerifySystem`` with default sub-components.
 
@@ -164,6 +195,11 @@ class VerifySystem:
             max_major_findings: Threshold for the policy engine. Mirrors
                 :class:`PolicyEngine` -- MAJOR findings beyond this count
                 turn into blocking findings (FK-27 §27.4.2 / §27.7.2).
+            story_context_port: Optionaler ``StoryContextQueryPort`` (AG3-035).
+                Wenn ``None``, wird der No-op-Port genutzt (Fallback auf den
+                IMPLEMENTATION-Stub in ``_execute_layer``). Produktive Aufrufer
+                reichen den state-backed Adapter via
+                ``composition_root.build_verify_system`` ein.
 
         Returns:
             A frozen ``VerifySystem`` with default-configured sub-components.
@@ -186,6 +222,7 @@ class VerifySystem:
             layer_3=AdversarialChallenger(),
             policy_engine=PolicyEngine(max_major_findings=max_major_findings),
             artifact_manager=artifact_manager,
+            story_context_port=story_context_port or _NULL_STORY_CONTEXT_PORT,
         )
 
     # ------------------------------------------------------------------
@@ -296,14 +333,12 @@ class VerifySystem:
             else _L2Input()
         )
 
-        # Step 1c: Load StoryContext for layer evaluation (AG3-035: replaces
-        # direct state_backend.store import inside _execute_layer).
-        # Centralised here so the import is in the BC's top-surface, not in
-        # the internal _execute_layer helper. Falls back to None if unavailable;
-        # _execute_layer uses an IMPLEMENTATION stub in that case.
-        from agentkit.state_backend.store import load_story_context as _load_story_context
-
-        _story_ctx = _load_story_context(ctx.story_dir)
+        # Step 1c: Resolve StoryContext via the injected query port (AG3-035
+        # echter Drift-Fix). KEIN direkter ``state_backend.store``-Import mehr in
+        # verify_system; der konkrete Adapter wird im composition_root verdrahtet
+        # (BC-Topologie: verify-system haengt am Port, nicht an state_backend).
+        # No-op-Port liefert None -> _execute_layer faellt auf IMPLEMENTATION-Stub.
+        _story_ctx = self.story_context_port.load(ctx.story_dir)
 
         # Step 2: Select layers.
         layer_kinds = select_layers(qa_context)

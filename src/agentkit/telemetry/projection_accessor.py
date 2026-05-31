@@ -25,7 +25,10 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
-from agentkit.telemetry.errors import ProjectionRecordTypeMismatchError
+from agentkit.telemetry.errors import (
+    ProjectionKindNotAccessorOwnedError,
+    ProjectionRecordTypeMismatchError,
+)
 from agentkit.verify_system.stage_registry.records import (
     QAFindingRecord,
     QAStageResultRecord,
@@ -61,6 +64,39 @@ class ProjectionKind(StrEnum):
     FC_INCIDENTS = "fc_incidents"
     FC_PATTERNS = "fc_patterns"
     FC_CHECK_PROPOSALS = "fc_check_proposals"
+
+
+# ---------------------------------------------------------------------------
+# Write/Read-Ownership (FK-69 §69.4) — expliziter Vertrag statt toter Enum-Werte
+# ---------------------------------------------------------------------------
+#
+# FK-69 §69.3 verlangt alle 7 Tabellennamen in ``ProjectionKind``. Die
+# Schreib-/Lese-Ownership (§69.4) liegt aber NICHT durchgaengig beim Accessor:
+# der Accessor besitzt in AG3-035 nur die QA- und story_metrics-Kinds. Die
+# uebrigen Kinds sind bewusst publiziert (FK-69 §69.3), aber extern besessen.
+# Der Accessor weist sie fail-closed mit ``ProjectionKindNotAccessorOwnedError``
+# ab und benennt den Owner — kein ``NotImplementedError`` als "halb gebaut".
+
+_ACCESSOR_OWNED_KINDS: frozenset[ProjectionKind] = frozenset(
+    {
+        ProjectionKind.QA_STAGE_RESULTS,
+        ProjectionKind.QA_FINDINGS,
+        ProjectionKind.STORY_METRICS,
+    }
+)
+
+# Extern besessene Kinds: publiziert in ProjectionKind (FK-69 §69.3), aber der
+# Datenpfad gehoert per Design einem anderen Writer/einer anderen Story.
+_EXTERNALLY_OWNED_KINDS: dict[ProjectionKind, str] = {
+    ProjectionKind.PHASE_STATE_PROJECTION: (
+        "pipeline_engine.PhaseExecutor (FK-69 §69.4 Write-Ownership)"
+    ),
+    ProjectionKind.FC_INCIDENTS: "AG3-028 FailureCorpus (fc-Repos + Schreib-/Lesepfad)",
+    ProjectionKind.FC_PATTERNS: "AG3-028 FailureCorpus (fc-Repos + Schreib-/Lesepfad)",
+    ProjectionKind.FC_CHECK_PROPOSALS: (
+        "AG3-028 FailureCorpus (fc-Repos + Schreib-/Lesepfad)"
+    ),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +203,23 @@ class ProjectionAccessor:
     def __init__(self, repositories: ProjectionRepositories) -> None:
         self._repos = repositories
 
+    @staticmethod
+    def is_accessor_owned(projection_kind: ProjectionKind) -> bool:
+        """True, wenn der Accessor den Write-/Read-Pfad fuer ``projection_kind`` besitzt.
+
+        Expliziter FK-69-§69.4-Vertrag: nur QA- und story_metrics-Kinds sind in
+        AG3-035 accessor-besessen. Extern besessene Kinds (PHASE_STATE_PROJECTION,
+        FC_*) werden von ``write_projection``/``read_projection`` fail-closed mit
+        ``ProjectionKindNotAccessorOwnedError`` abgewiesen.
+
+        Args:
+            projection_kind: Die zu pruefende FK-69-Tabellen-Familie.
+
+        Returns:
+            ``True`` fuer accessor-besessene Kinds, sonst ``False``.
+        """
+        return projection_kind in _ACCESSOR_OWNED_KINDS
+
     def write_projection(
         self,
         projection_kind: ProjectionKind,
@@ -183,20 +236,22 @@ class ProjectionAccessor:
                 uebereinstimmen (FK-69 §69.4).
 
         Raises:
+            ProjectionKindNotAccessorOwnedError: Fuer extern besessene
+                ProjectionKinds (PHASE_STATE_PROJECTION, FC_*). Subklasse von
+                ``NotImplementedError``; benennt den Owner (FK-69 §69.4).
             ProjectionRecordTypeMismatchError: Wenn ``type(record)`` nicht dem
                 erwarteten Typ fuer ``projection_kind`` entspricht.
-            NotImplementedError: Fuer ProjectionKinds ohne aktiven Schreibpfad
-                in AG3-035 (PHASE_STATE_PROJECTION, FC_*).
         """
-        kind_map = _get_kind_to_record_type()
-        expected_type = kind_map.get(projection_kind)
-        if expected_type is None:
-            raise NotImplementedError(
-                f"ProjectionKind {projection_kind!r} hat keinen aktiven "
-                "Schreibpfad in AG3-035. "
-                f"PHASE_STATE_PROJECTION: Write-Owner ist pipeline_engine.PhaseExecutor. "
-                f"FC_*-Schreibpfade: vertagt auf AG3-028 (fc-Repos + Schreibpfad dort)."
+        if projection_kind not in _ACCESSOR_OWNED_KINDS:
+            raise ProjectionKindNotAccessorOwnedError(
+                kind=projection_kind,
+                owner=_EXTERNALLY_OWNED_KINDS.get(
+                    projection_kind, "unbekannt (kein FK-69-Owner registriert)"
+                ),
             )
+
+        kind_map = _get_kind_to_record_type()
+        expected_type = kind_map[projection_kind]
 
         if not isinstance(record, expected_type):
             raise ProjectionRecordTypeMismatchError(
@@ -235,8 +290,9 @@ class ProjectionAccessor:
             Liste von ``ProjectionRecord``-Instanzen (leer wenn keine Treffer).
 
         Raises:
-            NotImplementedError: Fuer ProjectionKinds ohne aktiven Lese-Pfad
-                in AG3-035 (FC_*).
+            ProjectionKindNotAccessorOwnedError: Fuer extern besessene
+                ProjectionKinds (PHASE_STATE_PROJECTION, FC_*). Subklasse von
+                ``NotImplementedError``; benennt den Owner (FK-69 §69.4).
         """
         if projection_kind is ProjectionKind.QA_STAGE_RESULTS:
             return list(
@@ -266,21 +322,15 @@ class ProjectionAccessor:
                     run_id=filter.run_id,
                 )
             )
-        elif projection_kind is ProjectionKind.PHASE_STATE_PROJECTION:
-            # Read-Pfad via ProjectionAccessor fuer phase_state_projection:
-            # derzeit nicht implementiert (Write-Owner ist PhaseExecutor, kein
-            # eigenstaendiger Read-Accessor in AG3-035 vorgesehen).
-            raise NotImplementedError(
-                "PHASE_STATE_PROJECTION-Read via ProjectionAccessor ist in "
-                "AG3-035 nicht implementiert. Reads laufen direkt via "
-                "facade.load_phase_state / load_phase_state_global."
-            )
-        else:
-            raise NotImplementedError(
-                f"FC_*-Read-Pfade (fc_incidents, fc_patterns, fc_check_proposals) "
-                f"sind mit den fc-Repos nach AG3-028 vertagt. "
-                f"ProjectionKind: {projection_kind!r}"
-            )
+        # Extern besessene Kinds (PHASE_STATE_PROJECTION, FC_*): fail-closed mit
+        # Owner-Benennung. phase_state-Reads laufen direkt via
+        # facade.load_phase_state; fc_*-Reads kommen mit AG3-028 (fc-Repos).
+        raise ProjectionKindNotAccessorOwnedError(
+            kind=projection_kind,
+            owner=_EXTERNALLY_OWNED_KINDS.get(
+                projection_kind, "unbekannt (kein FK-69-Owner registriert)"
+            ),
+        )
 
     def purge_run(
         self,

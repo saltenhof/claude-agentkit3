@@ -14,7 +14,10 @@ from unittest.mock import MagicMock
 import pytest
 
 from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
-from agentkit.telemetry.errors import ProjectionRecordTypeMismatchError
+from agentkit.telemetry.errors import (
+    ProjectionKindNotAccessorOwnedError,
+    ProjectionRecordTypeMismatchError,
+)
 from agentkit.telemetry.projection_accessor import (
     ProjectionAccessor,
     ProjectionFilter,
@@ -183,28 +186,64 @@ def test_wrong_record_type_for_story_metrics_raises() -> None:
 
 
 # ---------------------------------------------------------------------------
-# write_projection: nicht-implementierte Kinds -> NotImplementedError
+# write_projection: extern besessene Kinds -> ProjectionKindNotAccessorOwnedError
+# (FK-69 §69.3/§69.4 expliziter Owner-Vertrag; Codex-Recheck #3: kein toter
+#  NotImplementedError-Pfad, sondern fail-closed mit Owner-Benennung)
 # ---------------------------------------------------------------------------
 
 
-def test_phase_state_projection_write_raises_not_implemented() -> None:
-    """PHASE_STATE_PROJECTION hat keinen Schreibpfad im Accessor (PhaseExecutor schreibt)."""
+def test_phase_state_projection_write_raises_not_accessor_owned() -> None:
+    """PHASE_STATE_PROJECTION ist extern besessen (Write-Owner: PhaseExecutor)."""
     repos = _make_repos()
     accessor = ProjectionAccessor(repos)
-    record = _make_story_metrics()  # Typ spielt keine Rolle; Kind fehlt
+    record = _make_story_metrics()  # Typ spielt keine Rolle; Kind extern besessen
 
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(ProjectionKindNotAccessorOwnedError) as exc_info:
         accessor.write_projection(ProjectionKind.PHASE_STATE_PROJECTION, record)
 
+    assert exc_info.value.kind is ProjectionKind.PHASE_STATE_PROJECTION
+    assert "PhaseExecutor" in exc_info.value.owner
+    # Subklasse von NotImplementedError (Backwards-Kompatibilitaet der Guards):
+    assert isinstance(exc_info.value, NotImplementedError)
 
-def test_fc_incidents_write_raises_not_implemented() -> None:
-    """FC_INCIDENTS Schreibpfad ist nach AG3-028 vertagt."""
+
+def test_fc_incidents_write_raises_not_accessor_owned() -> None:
+    """FC_INCIDENTS ist extern besessen (Owner: AG3-028 FailureCorpus)."""
     repos = _make_repos()
     accessor = ProjectionAccessor(repos)
     record = _make_story_metrics()
 
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(ProjectionKindNotAccessorOwnedError) as exc_info:
         accessor.write_projection(ProjectionKind.FC_INCIDENTS, record)
+
+    assert exc_info.value.kind is ProjectionKind.FC_INCIDENTS
+    assert "AG3-028" in exc_info.value.owner
+
+
+def test_is_accessor_owned_contract() -> None:
+    """is_accessor_owned trennt accessor-besessene von extern besessenen Kinds.
+
+    FK-69 §69.3 listet alle 7 Tabellen; §69.4 vergibt Write-Ownership. Der
+    Accessor besitzt in AG3-035 nur QA + story_metrics; die uebrigen vier
+    Kinds sind bewusst publiziert, aber extern besessen.
+    """
+    owned = {
+        ProjectionKind.QA_STAGE_RESULTS,
+        ProjectionKind.QA_FINDINGS,
+        ProjectionKind.STORY_METRICS,
+    }
+    external = {
+        ProjectionKind.PHASE_STATE_PROJECTION,
+        ProjectionKind.FC_INCIDENTS,
+        ProjectionKind.FC_PATTERNS,
+        ProjectionKind.FC_CHECK_PROPOSALS,
+    }
+    for kind in owned:
+        assert ProjectionAccessor.is_accessor_owned(kind) is True
+    for kind in external:
+        assert ProjectionAccessor.is_accessor_owned(kind) is False
+    # Vollstaendigkeit: jede der 7 FK-69-Tabellen ist klassifiziert.
+    assert owned | external == set(ProjectionKind)
 
 
 # ---------------------------------------------------------------------------
@@ -275,24 +314,30 @@ def test_read_story_metrics_passes_filter() -> None:
     assert result == expected
 
 
-def test_read_fc_incidents_raises_not_implemented() -> None:
-    """FC_*-Read-Pfade sind nach AG3-028 vertagt."""
+def test_read_fc_incidents_raises_not_accessor_owned() -> None:
+    """FC_*-Read-Pfade sind extern besessen (Owner: AG3-028 FailureCorpus)."""
     repos = _make_repos()
     accessor = ProjectionAccessor(repos)
     f = ProjectionFilter()
 
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(ProjectionKindNotAccessorOwnedError) as exc_info:
         accessor.read_projection(ProjectionKind.FC_INCIDENTS, f)
 
+    assert exc_info.value.kind is ProjectionKind.FC_INCIDENTS
+    assert "AG3-028" in exc_info.value.owner
 
-def test_read_phase_state_projection_raises_not_implemented() -> None:
-    """PHASE_STATE_PROJECTION-Read via Accessor ist in AG3-035 nicht implementiert."""
+
+def test_read_phase_state_projection_raises_not_accessor_owned() -> None:
+    """PHASE_STATE_PROJECTION-Read ist extern besessen (Write-Owner: PhaseExecutor)."""
     repos = _make_repos()
     accessor = ProjectionAccessor(repos)
     f = ProjectionFilter()
 
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(ProjectionKindNotAccessorOwnedError) as exc_info:
         accessor.read_projection(ProjectionKind.PHASE_STATE_PROJECTION, f)
+
+    assert exc_info.value.kind is ProjectionKind.PHASE_STATE_PROJECTION
+    assert "PhaseExecutor" in exc_info.value.owner
 
 
 # ---------------------------------------------------------------------------

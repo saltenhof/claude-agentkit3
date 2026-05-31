@@ -22,8 +22,8 @@ Wahrheit.
 | 3 | AG3-030 RequirementsCoverage Top + AreClient | M | done (2026-05-23, Pass-2 + Sonar gruen erwartet) | ja |
 | 4 | AG3-027 Skills Top-Surface (schlank) | M | done (2026-05-24, Pass-2.2 + Sonar gruen) | ja |
 | 5 | AG3-031 Governance Top-Surfaces | M | done (2026-05-25, Pass-7 + 4x Codex-giftig; Codex-Adapter -> AG3-049) | ja |
-| 6 | AG3-035 ProjectionAccessor + Reset-Purge | M | done (2026-05-31, commit db5396c; AC001 gruen, Telemetry 399 passed; offen: Sonar-Verifikation + giftige Codex-Review) | ja |
-| 7 | AG3-040 Postgres-Store-Komplettierung | M | in_progress (naechste WIP) | nach AG3-035 + AG3-028? Lesehinweis: AG3-040 depends_on AG3-021 + AG3-028 — siehe Anmerkung 1 |
+| 6 | AG3-035 ProjectionAccessor + Reset-Purge | M | r2-remediation (2026-05-31; LightWild 2c0eefb -> Jenkins #10 SUCCESS/Sonar OK; giftiger Codex-Recheck-r2 = BLOCK auf #6 (BC-Drift lebte + irrefuehrender Test) + #3 (NotImplementedError fuer 4 Kinds). Echter Fix: StoryContextQueryPort-Injection (kein state_backend.store-Import in verify_system mehr) + Owner-Vertrag write/read (ProjectionKindNotAccessorOwnedError). Lokal 2610 passed/25 skipped (5 e2e env-bedingt, opt-in), ruff/mypy/4 Gates gruen. CI #11 + finaler Codex-Pass ausstehend) | ja |
+| 7 | AG3-040 Postgres-Store-Komplettierung | M | WIP (aktuell) | startbar: Sub-Block (a) project_management + project_detail-Wire-Adapter ohne fc_-Tabellen — siehe Anmerkung 1 |
 | 8 | AG3-028 FailureCorpus (Vollumsetzung) | L | blocked | nach AG3-035 + AG3-040 |
 | 9 | AG3-048 Skills-Persistenz + Installer + Hygiene | M | blocked | nach AG3-027 |
 | 10 | AG3-049 Codex-Harness-Adapter (CodexSettingsWriter Vollausbau) | M | blocked | nach AG3-031 (Codex-Adapter-Stub aus AG3-031 ausgelagert) |
@@ -38,6 +38,18 @@ Komplettierung ohne fc_-Tabellen` zuerst (befriedigt AG3-028-Dep), (b)
 Schema-Owner laut FK-69). Der Worker fuer AG3-040 muss diesen Schnitt
 respektieren; der `depends_on: AG3-028` in AG3-040.status.yaml verweist
 nur auf den `fc_-Tabellen`-Block, der mit AG3-028 zusammenfaellt.
+
+**Anmerkung 2 (Foundation-Welle AG3-021..025, Status-Pflege 2026-05-31):**
+AG3-023 (ArtifactManager L), AG3-024 (PhaseEnvelope M) und AG3-025
+(AttemptRecord M) gehoeren zur fruehen Foundation-Welle (um AG3-021/022),
+nicht zur hier gelisteten Welle 2026-05-19+. Sie waren faktisch
+implementiert, mehrfach re-reviewed und auf `main` (letzte Impact-Commits
+d11069e / 8631804 / 7e94165), aber ihre `status.yaml` stand faelschlich
+auf `in_progress/setup` (Abnahme-Flip nie vollzogen). Am 2026-05-31 von
+Stefan abgenommen und auf `completed/closure` gesetzt. AG3-026 (depends_on
+AG3-023, bereits `completed`) belegt die produktive Nutzung des
+ArtifactManager. Lehre: Abnahme = User-OK + status-Flip + Listenpflege in
+einem Schritt, sonst entsteht genau dieser Drift.
 
 ## 2. Begruendung der Reihenfolge
 
