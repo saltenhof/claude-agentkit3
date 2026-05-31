@@ -222,11 +222,16 @@ def _pg_row_to_envelope(row: dict[str, Any]) -> ArtifactEnvelope:
         started_at = datetime.fromisoformat(started_at)
     if isinstance(finished_at, str):
         finished_at = datetime.fromisoformat(finished_at)
-    # Postgres TIMESTAMPTZ returns tz-aware; ensure UTC
-    if started_at.tzinfo is None:
-        started_at = started_at.replace(tzinfo=UTC)
-    if finished_at.tzinfo is None:
-        finished_at = finished_at.replace(tzinfo=UTC)
+    # Postgres TIMESTAMPTZ returns tz-aware values in the connection's session
+    # timezone (e.g. Europe/Berlin on a localized server), but FK-71 §71.2
+    # requires UTC offset 0. Normalize regardless of the incoming tz: convert
+    # aware values to UTC, and treat naive values as already-UTC.
+    started_at = (
+        started_at.replace(tzinfo=UTC) if started_at.tzinfo is None else started_at.astimezone(UTC)
+    )
+    finished_at = (
+        finished_at.replace(tzinfo=UTC) if finished_at.tzinfo is None else finished_at.astimezone(UTC)
+    )
 
     return ArtifactEnvelope(
         schema_version="3.0",
