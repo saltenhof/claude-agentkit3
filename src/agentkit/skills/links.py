@@ -23,6 +23,7 @@ Junction caveats this module encapsulates (so callers never special-case them):
 
 from __future__ import annotations
 
+import importlib
 import os
 import sys
 from typing import TYPE_CHECKING
@@ -58,10 +59,17 @@ def create_directory_link(link_path: Path, target: Path) -> SkillBindingMode:
         OSError: When the underlying OS link call fails.
     """
     if _IS_WINDOWS:
-        import _winapi  # Windows-only stdlib extension; guarded by _IS_WINDOWS.
-
+        # ``_winapi`` is a Windows-only stdlib extension. Import it DYNAMICALLY
+        # (not a static ``import _winapi``) so a cross-platform mypy/CI run on
+        # POSIX — e.g. the Linux Jenkins — never tries to resolve a module (and
+        # its ``CreateJunction`` attribute) that does not exist there. The branch
+        # is unreachable on POSIX at runtime (``_IS_WINDOWS`` is False), so the
+        # dynamic import only ever executes on Windows. Using a static import +
+        # ``# type: ignore`` would be WRONG: the ignore is needed on POSIX but
+        # flagged unused on Windows (warn_unused_ignores).
+        winapi = importlib.import_module("_winapi")
         # CreateJunction(target, junction): a junction stores an ABSOLUTE path.
-        _winapi.CreateJunction(str(target.resolve()), str(link_path))
+        winapi.CreateJunction(str(target.resolve()), str(link_path))
         return SkillBindingMode.JUNCTION
     # Codex-r7-r2: resolve the target to an ABSOLUTE path (symmetric to the
     # junction branch). A relative target would be stored relative to the link

@@ -10,6 +10,7 @@ excluded from coverage.
 
 from __future__ import annotations
 
+import types
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -56,6 +57,47 @@ class TestCreateDirectoryLinkPosixBranch:
         assert recorded["self"] == link
         # Codex-r7-r2: the POSIX branch resolves the target to an absolute path.
         assert recorded["target"] == target.resolve()
+
+
+class TestCreateDirectoryLinkWindowsBranch:
+    """Windows junction branch of ``create_directory_link`` (host-independent).
+
+    Covers the win32 branch on ANY platform by stubbing the DYNAMIC ``_winapi``
+    import (the dynamic import is what keeps Linux mypy/CI clean): the function
+    must call ``CreateJunction(absolute_target, link)`` and return ``JUNCTION``.
+    """
+
+    def test_windows_branch_creates_junction_via_winapi(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(links_mod, "_IS_WINDOWS", True)
+
+        recorded: dict[str, object] = {}
+
+        def _create_junction(target: str, junction: str) -> None:
+            recorded["target"] = target
+            recorded["junction"] = junction
+
+        # SimpleNamespace stands in for the ``_winapi`` module (its ``CreateJunction``
+        # attribute mirrors the Windows API name without a non-PEP8 function def).
+        fake_winapi = types.SimpleNamespace(CreateJunction=_create_junction)
+        real_import = links_mod.importlib.import_module
+
+        def _fake_import(name: str, *args: object, **kwargs: object) -> object:
+            return fake_winapi if name == "_winapi" else real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(links_mod.importlib, "import_module", _fake_import)
+
+        target = tmp_path / "bundle"
+        target.mkdir()
+        link = tmp_path / "link"
+
+        mode = links_mod.create_directory_link(link, target)
+
+        assert mode is SkillBindingMode.JUNCTION
+        assert recorded["junction"] == str(link)
+        # A junction stores an ABSOLUTE target path.
+        assert recorded["target"] == str(target.resolve())
 
 
 class TestRemoveDirectoryLinkNonJunctionBranch:
