@@ -537,14 +537,20 @@ def _ensure_schema_runtime_tables(conn: sqlite3.Connection) -> None:
             tags             TEXT,
             impact           TEXT,
             pattern_ref      TEXT,
-            -- Codex-r1 Konzept-Tension (gemeldet): FK-41 §41.3.1 nennt
-            -- "incident_id PK" UND "FC-YYYY-NNNN gap-free pro (project_key,Jahr)"
-            -- ohne Projekt-Segment in der id. Beides zusammen kollidiert global.
-            -- Fail-closed-treue Aufloesung: per-(project_key,Jahr)-Nummerierung
-            -- (wie story_number) + zusammengesetzter PK (project_key,incident_id),
-            -- damit die id projektgebunden eindeutig bleibt und die Anzeige
-            -- FC-YYYY-NNNN bleibt.
-            PRIMARY KEY (project_key, incident_id)
+            -- Codex-r2 (User-Entscheidung 2026-06-01): incident_id ist GLOBAL
+            -- eindeutig (kein Projekt-Segment, keine per-project-Nummerierung).
+            -- PK = incident_id allein; project_key bleibt NOT-NULL-Spalte und
+            -- read/purge filtern weiterhin zwingend nach project_key (r1-Fix).
+            -- Die FC-YYYY-NNNN-Nummern stammen aus einem globalen Per-Jahr-
+            -- Zaehler (fc_incident_counters, gekeyt auf year allein).
+            -- CHECK erzwingt FC-YYYY-NNNN (GLOB) und evidence_json = JSON-Array.
+            CONSTRAINT fc_incidents_id_format
+                CHECK (incident_id GLOB
+                       'FC-[0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9]*'),
+            CONSTRAINT fc_incidents_evidence_is_array
+                CHECK (json_valid(evidence_json)
+                       AND json_type(evidence_json) = 'array'),
+            PRIMARY KEY (incident_id)
         );
 
         CREATE INDEX IF NOT EXISTS idx_fc_incidents_project_story_run
@@ -553,14 +559,14 @@ def _ensure_schema_runtime_tables(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_fc_incidents_incident_status
             ON fc_incidents (incident_status);
 
-        -- AG3-028 (Codex-r1): gap-free, race-sichere FC-YYYY-NNNN-Allokation pro
-        -- (project_key, Jahr) — analog story_number_counters (AG3-050). Die
-        -- naechste Sequenznummer wird in derselben Schreibtransaktion vergeben.
+        -- AG3-028 (Codex-r2): GLOBALER Per-Jahr-Zaehler fuer die global
+        -- eindeutige FC-YYYY-NNNN-Allokation (PK = year allein, KEIN
+        -- project_key). Race-sicher in EINEM atomaren UPSERT mit RETURNING
+        -- (SQLite >= 3.35), unter BEGIN IMMEDIATE serialisiert.
         CREATE TABLE IF NOT EXISTS fc_incident_counters (
-            project_key       TEXT NOT NULL,
             year              INTEGER NOT NULL,
             next_seq          INTEGER NOT NULL,
-            PRIMARY KEY (project_key, year)
+            PRIMARY KEY (year)
         );
 
         -- AG3-031 Pass-7: DDL consolidated from lock_record_repository.py into

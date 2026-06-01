@@ -46,7 +46,7 @@ class FCIncidentWriteViaDedicatedMethodError(TypeError):
     """Raised when ``write_projection(FC_INCIDENTS, ...)`` is used for an incident.
 
     FK-41 §41.3.1 requires the ``incident_id`` (``FC-YYYY-NNNN``) to be allocated
-    gap-free per (project_key, year) inside the DB write transaction. The generic
+    globally unique, gap-free per year inside the DB write transaction. The generic
     ``write_projection`` returns ``None`` and cannot surface the allocated id, so
     incidents MUST be written via the dedicated
     ``ProjectionAccessor.record_fc_incident(draft) -> IncidentId``. FAIL-CLOSED:

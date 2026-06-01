@@ -65,6 +65,22 @@ class TestIncidentCandidate:
         with pytest.raises(ValidationError):
             cand.symptom = "mutated"  # type: ignore[misc]
 
+    def test_rejects_dict_evidence(self) -> None:
+        # Codex-r2: evidence MUSS list[str] sein, kein dict (FAIL-CLOSED).
+        with pytest.raises(ValidationError):
+            IncidentCandidate(
+                project_key="p",
+                story_id="s",
+                run_id="r",
+                category=FailureCategory.SCOPE_DRIFT,
+                severity=IncidentSeverity.HIGH,
+                phase="implementation",
+                role=IncidentRole.WORKER,
+                model="m",
+                symptom="z",
+                evidence={"k": "v"},  # type: ignore[arg-type]
+            )
+
     def test_extra_forbid(self) -> None:
         with pytest.raises(ValidationError):
             IncidentCandidate(
@@ -116,6 +132,41 @@ class TestIncident:
         )
         with pytest.raises(ValidationError):
             incident.symptom = "mutated"  # type: ignore[misc]
+
+    def test_rejects_invalid_incident_id_format(self) -> None:
+        # Codex-r2: FC-YYYY-NNNN FAIL-CLOSED — "not-fc" muss rot werden.
+        with pytest.raises(ValidationError):
+            Incident(
+                project_key="proj-a",
+                incident_id=IncidentId("not-fc"),
+                run_id="run-1",
+                story_id="AG3-001",
+                category=FailureCategory.SCOPE_DRIFT,
+                severity=IncidentSeverity.HIGH,
+                phase="implementation",
+                role=IncidentRole.WORKER,
+                model="m",
+                symptom="s",
+                recorded_at=_NOW,
+            )
+
+    def test_rejects_dict_evidence(self) -> None:
+        # Codex-r2: evidence MUSS list[str] sein — dict-evidence muss rot werden.
+        with pytest.raises(ValidationError):
+            Incident(
+                project_key="proj-a",
+                incident_id=IncidentId("FC-2026-0001"),
+                run_id="run-1",
+                story_id="AG3-001",
+                category=FailureCategory.SCOPE_DRIFT,
+                severity=IncidentSeverity.HIGH,
+                phase="implementation",
+                role=IncidentRole.WORKER,
+                model="m",
+                symptom="s",
+                evidence={"k": "v"},  # type: ignore[arg-type]
+                recorded_at=_NOW,
+            )
 
 
 class TestIncidentDraft:

@@ -24,11 +24,14 @@ def test_schema_version_helpers_derive_versioned_names() -> None:
     # AG3-028 Codex-r1: 3.9.0 -> 3.10.0 (fc_incidents realigned to FK-41 §41.3.1:
     # project_key/run_id/role/phase/model/symptom NOT NULL, evidence list[str],
     # FC-YYYY-NNNN ids + fc_incident_counters table)
-    assert state_config.SCHEMA_VERSION == "3.10.0"
+    # AG3-028 Codex-r2: 3.10.0 -> 3.11.0 (incident_id GLOBAL unique — PK =
+    # incident_id allein; fc_incident_counters auf year allein gekeyt; DB-CHECKs
+    # fuer FC-YYYY-NNNN-Format + evidence_json = JSON-Array)
+    assert state_config.SCHEMA_VERSION == "3.11.0"
     assert state_config.versioned_postgres_schema_name("3.0.0") == "ak3_v3_0_0"
     assert state_config.versioned_sqlite_db_file("3.0.0") == "agentkit_3_0_0.sqlite"
-    assert state_config.versioned_postgres_schema_name() == "ak3_v3_10_0"
-    assert state_config.versioned_sqlite_db_file() == "agentkit_3_10_0.sqlite"
+    assert state_config.versioned_postgres_schema_name() == "ak3_v3_11_0"
+    assert state_config.versioned_sqlite_db_file() == "agentkit_3_11_0.sqlite"
 
 
 def test_schema_version_rejects_non_semver() -> None:

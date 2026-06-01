@@ -6,18 +6,21 @@ FK-69-Repos — auf der Accessor-Seite in ``state_backend/store`` und wird via
 ``failure_corpus``-BC kennt diesen Adapter NICHT (AC#6); er schreibt/liest
 ausschliesslich ueber den ``ProjectionAccessor``.
 
-Codex-r1 Remediation 2026-06-01:
+Codex-r2 Remediation 2026-06-01 (User-Entscheidung: incident_id GLOBAL eindeutig):
 - Schema exakt nach FK-41 §41.3.1 (project_key NOT NULL, incident_id
   FC-YYYY-NNNN, run_id NOT NULL, role, phase, model, symptom, evidence list[str],
   recorded_at, status, optional tags/impact/pattern_ref).
 - ``project_key`` ist Pflicht und wird in ``read``/``purge_run`` **zwingend**
   gefiltert (fehlt project_key -> ValueError, FAIL-CLOSED). FK-41 §41.3.1:
   "Abfragen sind stets projektgebunden".
-- ``incident_id`` (``FC-YYYY-NNNN``) wird gap-free pro (project_key, Jahr) in
-  derselben Schreibtransaktion vergeben — analog dem story_number-Allokator aus
-  AG3-050 (``create_story_atomic``; SQLite BEGIN IMMEDIATE, Postgres
-  SELECT ... FOR UPDATE). ``record_incident`` gibt die vergebene id zurueck
-  (loest die "write_projection gibt None zurueck"-Spannung fc-scoped).
+- ``incident_id`` (``FC-YYYY-NNNN``) ist **global eindeutig** (PK
+  ``incident_id`` allein) und wird ueber einen **globalen Per-Jahr-Zaehler**
+  (``fc_incident_counters`` gekeyt auf ``year`` allein) vergeben.
+- Die Allokation laeuft race-sicher in EINEM atomaren Statement (kein
+  SELECT-dann-INSERT-TOCTOU): Postgres ``INSERT ... ON CONFLICT(year) DO UPDATE
+  SET next_seq = fc_incident_counters.next_seq + 1 RETURNING next_seq - 1``
+  (deckt den Initial-Row-Fall mit ab); SQLite ``BEGIN IMMEDIATE`` + dasselbe
+  atomare UPSERT mit ``RETURNING`` (SQLite >= 3.35).
 
 ``fc_incidents`` ist append-only (genau ein Datensatz pro ``incident_id``,
 FK-41 §41.3.1): INSERT, kein UPSERT.
@@ -182,7 +185,8 @@ class StateBackendFCIncidentsRepository:
     def record_incident(self, draft: IncidentDraft) -> IncidentId:
         """Allokiere FC-YYYY-NNNN und persistiere (append-only) in einer Transaktion.
 
-        FK-41 §41.3.1: gap-free pro (project_key, Jahr), race-sicher. Gibt die
+        FK-41 §41.3.1: global eindeutig, gap-free pro Jahr (Counter gekeyt auf
+        ``year`` allein), race-sicher. Gibt die
         vergebene ``IncidentId`` zurueck.
         """
         from agentkit.failure_corpus.types import IncidentId
@@ -198,75 +202,60 @@ class StateBackendFCIncidentsRepository:
     def _sqlite_record(self, draft: IncidentDraft, year: int) -> str:
         # _sqlite_connect_qa fuehrt zuerst den Schema-Bootstrap aus und haelt die
         # Verbindung bereits in einer offenen Transaktion (commit am Block-Ende).
-        # Allokation (SELECT counter -> UPDATE/INSERT) + INSERT laufen damit in
-        # EINER Transaktion auf EINER Verbindung — gap-free. Echte
-        # cross-connection-Concurrency ist auf SQLite lokal nicht beweisbar
-        # (analog AG3-050-N1-WARNING); der WAL-/busy_timeout-Pfad serialisiert
-        # konkurrierende Writer auf Postgres (SELECT ... FOR UPDATE).
+        # BEGIN IMMEDIATE nimmt sofort den RESERVED-Write-Lock (analog AG3-050
+        # create_story_atomic) und serialisiert konkurrierende Erst-/Folge-
+        # Allokationen ueber busy_timeout. Allokation (ein atomares UPSERT mit
+        # RETURNING) + INSERT laufen in EINER Transaktion auf EINER Verbindung.
         with _sqlite_connect_qa(self._store_dir) as conn:
-            seq = self._sqlite_allocate_seq(conn, draft.project_key, year)
+            # _sqlite_connect_qa hat ueber den Schema-Bootstrap evtl. eine
+            # implizite Transaktion offen; sauber committen, bevor wir den
+            # expliziten Write-Lock nehmen (sonst "transaction within a
+            # transaction").
+            conn.commit()
+            conn.execute("BEGIN IMMEDIATE")
+            seq = self._sqlite_allocate_seq(conn, year)
             incident_id = _format_incident_id(year, seq)
             row = _draft_to_row(draft, incident_id)
             conn.execute(_SQLITE_INSERT, row)
         return incident_id
 
     @staticmethod
-    def _sqlite_allocate_seq(conn: Any, project_key: str, year: int) -> int:
+    def _sqlite_allocate_seq(conn: Any, year: int) -> int:
+        # Ein atomares Statement: deckt Initial-Row (VALUES 2 -> RETURNING 1) und
+        # Folge-Allokation (next_seq+1 -> RETURNING vorheriges next_seq) ab. Kein
+        # SELECT-dann-INSERT-TOCTOU. SQLite >= 3.35 unterstuetzt RETURNING.
         cursor = conn.execute(
-            "SELECT next_seq FROM fc_incident_counters "
-            "WHERE project_key = ? AND year = ?",
-            (project_key, year),
+            "INSERT INTO fc_incident_counters (year, next_seq) VALUES (?, 2) "
+            "ON CONFLICT (year) DO UPDATE SET "
+            "next_seq = fc_incident_counters.next_seq + 1 "
+            "RETURNING next_seq - 1",
+            (year,),
         )
-        row = cursor.fetchone()
-        if row is None:
-            next_n = 1
-            conn.execute(
-                "INSERT INTO fc_incident_counters (project_key, year, next_seq) "
-                "VALUES (?, ?, ?)",
-                (project_key, year, next_n + 1),
-            )
-        else:
-            next_n = int(row[0])
-            conn.execute(
-                "UPDATE fc_incident_counters SET next_seq = ? "
-                "WHERE project_key = ? AND year = ?",
-                (next_n + 1, project_key, year),
-            )
-        return next_n
+        return int(cursor.fetchone()[0])
 
     def _pg_record(self, draft: IncidentDraft, year: int) -> str:
         with _postgres_connect() as conn:
-            seq = self._pg_allocate_seq(conn, draft.project_key, year)
+            seq = self._pg_allocate_seq(conn, year)
             incident_id = _format_incident_id(year, seq)
             row = _draft_to_row(draft, incident_id)
             conn.execute(_PG_INSERT, row)
         return incident_id
 
     @staticmethod
-    def _pg_allocate_seq(conn: Any, project_key: str, year: int) -> int:
+    def _pg_allocate_seq(conn: Any, year: int) -> int:
+        # Ein atomares Statement: der Initial-Row-Fall (Zeile fehlt) wird ueber
+        # den VALUES(...,2)-Zweig abgedeckt, der Folgefall ueber DO UPDATE. Kein
+        # SELECT ... FOR UPDATE auf einer evtl. fehlenden Zeile (der alte Bug:
+        # FOR UPDATE sperrt bei fehlender Zeile nichts -> zwei Txns lieferten
+        # FC-YYYY-0001). RETURNING liefert die zugewiesene Nummer atomar.
         cursor = conn.execute(
-            "SELECT next_seq FROM fc_incident_counters "
-            "WHERE project_key = %s AND year = %s FOR UPDATE",
-            (project_key, year),
+            "INSERT INTO fc_incident_counters (year, next_seq) VALUES (%s, 2) "
+            "ON CONFLICT (year) DO UPDATE SET "
+            "next_seq = fc_incident_counters.next_seq + 1 "
+            "RETURNING (next_seq - 1) AS allocated_seq",
+            (year,),
         )
-        row = cursor.fetchone()
-        if row is None:
-            next_n = 1
-            conn.execute(
-                "INSERT INTO fc_incident_counters (project_key, year, next_seq) "
-                "VALUES (%s, %s, %s) "
-                "ON CONFLICT (project_key, year) DO UPDATE SET "
-                "next_seq = fc_incident_counters.next_seq",
-                (project_key, year, next_n + 1),
-            )
-        else:
-            next_n = int(row["next_seq"])
-            conn.execute(
-                "UPDATE fc_incident_counters SET next_seq = %s "
-                "WHERE project_key = %s AND year = %s",
-                (next_n + 1, project_key, year),
-            )
-        return next_n
+        return int(cursor.fetchone()["allocated_seq"])
 
     # -- Lesen --------------------------------------------------------------
 

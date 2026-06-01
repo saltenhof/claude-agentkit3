@@ -34,7 +34,7 @@ class IncidentWriterPort(Protocol):
     """Schmale fc-Schreib-Sicht auf den ``ProjectionAccessor`` (FK-41 §41.3.1).
 
     ``record_fc_incident`` allokiert die ``FC-YYYY-NNNN``-id in derselben
-    DB-Schreibtransaktion (gap-free pro (project_key, Jahr), race-sicher) und
+    DB-Schreibtransaktion (global eindeutig, gap-free pro Jahr, race-sicher) und
     gibt sie zurueck. Der ``ProjectionAccessor`` erfuellt dieses Protocol per
     Strukturtyping.
     """

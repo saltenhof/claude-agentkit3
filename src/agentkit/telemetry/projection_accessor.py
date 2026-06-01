@@ -313,7 +313,7 @@ class ProjectionAccessor:
         """Persistiere einen Incident und gib die vergebene ``IncidentId`` zurueck.
 
         Dedizierter fc_incidents-Schreibpfad (FK-41 §41.3.1, AG3-028 Codex-r1):
-        die ``FC-YYYY-NNNN``-id wird DB-seitig gap-free pro (project_key, Jahr)
+        die ``FC-YYYY-NNNN``-id wird DB-seitig global eindeutig, gap-free pro Jahr
         in der Schreibtransaktion vergeben (analog story_number-Allokator,
         AG3-050) und an den Aufrufer zurueckgegeben. Append-only.
 

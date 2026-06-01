@@ -177,7 +177,9 @@ Pflichtattribute:
 - `run_id`
 - `story_id`
 - `category` — Enum-Wert aus `FailureCategory` (§41.4.1)
-- `severity` — `niedrig | mittel | hoch | kritisch`
+- `severity` — `low | medium | high | critical` (englische Wire-Werte, analog
+  `FailureCategory`; vierstufige Incident-Impact-Skala, nicht zu verwechseln mit
+  der dreistufigen FK-27-QA-`Severity`)
 - `phase` — betroffene Pipeline-Phase
 - `role` — ausfuehrender Akteur (`worker | qa | governance`)
 - `model` — verwendetes LLM-Modell
@@ -325,7 +327,7 @@ class FailureCategory(Enum):
   "story_id": "ODIN-042",
   "run_id": "a1b2...",
   "category": "scope_drift",
-  "severity": "mittel",
+  "severity": "medium",
   "phase": "implementation",
   "role": "worker",
   "model": "claude-opus",

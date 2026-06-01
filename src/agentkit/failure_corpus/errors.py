@@ -1,11 +1,12 @@
-"""Typisierte Exceptions des Failure-Corpus-BC (FK-41 §41.4.3).
+"""Typisierte Exceptions des Failure-Corpus-BC (DK-07 §7.3.6 / FK-41 §41.4.3).
 
 FAIL-CLOSED: IngressCriteria-Reject ist eine Exception mit strukturierten
 ``reason_codes`` — kein stilles Verwerfen (Guardrail FAIL CLOSED, AG3-028 AK#3).
 
-ZERO DEBT (Codex-r1 Remediation): jeder ``IncidentRejectReason`` ist von der
+ZERO DEBT (Codex-r2 Remediation): jeder ``IncidentRejectReason`` ist von der
 ``IngressCriteria``-Implementierung tatsaechlich erreichbar; es gibt keinen
-toten reason_code mehr.
+toten reason_code mehr. Das frühere ``BELOW_MIN_SEVERITY`` ist entfernt — DK-07
+§7.3.6 ist explizit ein reines ODER (Severity ist KEIN harter Floor mehr).
 """
 
 from __future__ import annotations
@@ -16,20 +17,20 @@ from enum import StrEnum
 class IncidentRejectReason(StrEnum):
     """Strukturierter Grund, warum die IngressCriteria einen Kandidaten verwirft.
 
-    Die reason_codes spiegeln exakt die implementierten FK-41-§41.4.3-Kriterien
-    (Severity-Floor als harter Gate + mindestens ein Signifikanz-Trigger).
+    Die reason_codes spiegeln exakt die implementierten DK-07-§7.3.6-Kriterien
+    (reines ODER der vier Aufnahme-Trigger) plus die Exact-Duplicate-Dedup.
 
     Attributes:
-        BELOW_MIN_SEVERITY: Kandidat unterschreitet die Mindest-Severity
-            (FK-41 §41.4.3: "Severity mindestens mittel"). Harter Gate.
-        NOT_SIGNIFICANT: Severity ok, aber KEIN Signifikanz-Trigger erfuellt —
-            d.h. weder Merge-blockiert, noch Rework > 30min, noch neuer
-            Fehlertyp/Corpus-Neuheit (FK-41 §41.4.3 Kriterien 2-4 als
-            OR-Verknuepfung; siehe IngressCriteria-Kombinator-Doku).
+        NOT_SIGNIFICANT: KEINES der vier DK-07-§7.3.6-Aufnahmekriterien greift —
+            d.h. severity < MEDIUM UND nicht Merge-blockiert UND Rework <= 30min
+            UND der Fehlertyp ist bereits im Corpus (nicht neu). Reines ODER:
+            ein einziges erfülltes Kriterium genügt zur Aufnahme.
+        DUPLICATE_WINDOW: Exakter Duplikat eines bereits im Zeitfenster
+            persistierten Incidents (Dedup; separater Reject-Grund).
     """
 
-    BELOW_MIN_SEVERITY = "below_min_severity"
     NOT_SIGNIFICANT = "not_significant"
+    DUPLICATE_WINDOW = "duplicate_window"
 
 
 class FailureCorpusError(Exception):

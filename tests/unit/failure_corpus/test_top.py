@@ -100,10 +100,40 @@ class TestRecordIncident:
         finally:
             reset_backend_cache_for_tests()
 
-    def test_reject_below_min_severity(self, corpus: FailureCorpus) -> None:
+    def test_low_severity_admitted_when_merge_blocked(
+        self, corpus: FailureCorpus
+    ) -> None:
+        # DK-07 §7.3.6 reines ODER: LOW + merge_blocked wird aufgenommen
+        # (der alte AND-Floor verwarf das faelschlich).
+        incident_id = corpus.record_incident(
+            _candidate(severity=IncidentSeverity.LOW)
+        )
+        assert str(incident_id).startswith("FC-")
+
+    def test_reject_not_significant_when_no_criterion(
+        self, corpus: FailureCorpus
+    ) -> None:
+        # LOW + nichts: nicht merge-blocked, kein Rework, und nicht novel (es gibt
+        # bereits einen Incident derselben category) -> NOT_SIGNIFICANT (reines
+        # ODER, DK-07 §7.3.6). Zuerst einen gleichartigen Incident aufnehmen.
+        corpus.record_incident(_candidate(severity=IncidentSeverity.LOW))
+        no_trigger = IncidentCandidate(
+            project_key=_PROJECT,
+            story_id="AG3-001",
+            run_id="run-1",
+            category=FailureCategory.SCOPE_DRIFT,
+            severity=IncidentSeverity.LOW,
+            phase="implementation",
+            role=IncidentRole.WORKER,
+            model="claude-opus",
+            symptom="something else entirely",
+            evidence=["detail x"],
+            merge_blocked=False,
+            rework_minutes=0,
+        )
         with pytest.raises(IncidentRejectedError) as exc:
-            corpus.record_incident(_candidate(severity=IncidentSeverity.LOW))
-        assert IncidentRejectReason.BELOW_MIN_SEVERITY in exc.value.reason_codes
+            corpus.record_incident(no_trigger)
+        assert IncidentRejectReason.NOT_SIGNIFICANT in exc.value.reason_codes
 
 
 class TestNotImplementedSurface:

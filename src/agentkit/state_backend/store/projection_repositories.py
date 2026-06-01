@@ -341,9 +341,17 @@ def _sqlite_connect_qa(store_dir: Path) -> Iterator[sqlite3.Connection]:
     _assert_sqlite_allowed()
     db_path = _sqlite_db_path(store_dir)
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(db_path))
+    conn = sqlite3.connect(str(db_path), timeout=30.0)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
+    # AG3-028 Codex-r2: busy_timeout FIRST, so a held write lock (z.B. die
+    # BEGIN IMMEDIATE-Allokation in fc_incident_repository) andere Writer warten
+    # laesst statt sofort SQLITE_BUSY zu werfen — race-sichere Erst-Allokation.
+    conn.execute("PRAGMA busy_timeout = 30000")
+    # Nur umschalten, wenn noch nicht WAL (der WAL-Switch achtet busy_timeout
+    # nicht; wiederholtes Setzen wuerde unter Concurrency spuriose Locks werfen).
+    current_mode = conn.execute("PRAGMA journal_mode").fetchone()
+    if current_mode is None or str(current_mode[0]).lower() != "wal":
+        conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys = ON")
     # Bootstrap via kanonischer Schema-Owner (SINGLE SOURCE OF TRUTH, Befund B)
     sqlite_store._ensure_schema(conn)

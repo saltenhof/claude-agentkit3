@@ -92,11 +92,22 @@ def test_record_read_roundtrip(accessor: ProjectionAccessor) -> None:
     assert row.evidence == ["e1", "e2"]  # type: ignore[union-attr]
 
 
-def test_incident_id_gap_free_per_project_year(accessor: ProjectionAccessor) -> None:
+def test_incident_id_global_gap_free_per_year(accessor: ProjectionAccessor) -> None:
+    # Codex-r2: incident_id ist GLOBAL eindeutig (globaler Per-Jahr-Zaehler).
     a = accessor.record_fc_incident(_draft(story_id="S1"))
     b = accessor.record_fc_incident(_draft(story_id="S2"))
     assert a == "FC-2026-0001"
     assert b == "FC-2026-0002"
+
+
+def test_incident_id_global_across_projects(accessor: ProjectionAccessor) -> None:
+    # Codex-r2: der Per-Jahr-Zaehler ist GLOBAL (ueber alle Projekte), daher
+    # bekommen zwei verschiedene Projekte VERSCHIEDENE, fortlaufende ids.
+    a = accessor.record_fc_incident(_draft(project_key="proj-a"))
+    b = accessor.record_fc_incident(_draft(project_key="proj-b"))
+    assert a == "FC-2026-0001"
+    assert b == "FC-2026-0002"
+    assert a != b
 
 
 def test_write_projection_fc_incidents_fail_closed(

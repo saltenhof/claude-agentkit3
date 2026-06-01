@@ -371,12 +371,17 @@
             tags JSON,
             impact TEXT,
             pattern_ref TEXT,
-            -- Codex-r1 Konzept-Tension (gemeldet): FK-41 §41.3.1 nennt
-            -- "incident_id PK" UND "FC-YYYY-NNNN gap-free pro (project_key,Jahr)"
-            -- ohne Projekt-Segment in der id. Beides zusammen kollidiert global.
-            -- Fail-closed-treue Aufloesung: per-(project_key,Jahr)-Nummerierung
-            -- (wie story_number) + zusammengesetzter PK (project_key,incident_id).
-            PRIMARY KEY (project_key, incident_id)
+            -- Codex-r2 (User-Entscheidung 2026-06-01): incident_id ist GLOBAL
+            -- eindeutig (kein Projekt-Segment, keine per-project-Nummerierung).
+            -- PK = incident_id allein; project_key bleibt NOT-NULL-Spalte und
+            -- read/purge filtern weiterhin zwingend nach project_key (r1-Fix).
+            -- Die FC-YYYY-NNNN-Nummern stammen aus einem globalen Per-Jahr-
+            -- Zaehler (fc_incident_counters, gekeyt auf year allein).
+            PRIMARY KEY (incident_id),
+            CONSTRAINT fc_incidents_id_format
+                CHECK (incident_id ~ '^FC-[0-9]{4}-[0-9]+$'),
+            CONSTRAINT fc_incidents_evidence_is_array
+                CHECK (jsonb_typeof(evidence_json::jsonb) = 'array')
         );
 
         CREATE INDEX IF NOT EXISTS idx_fc_incidents_project_story_run
@@ -385,15 +390,16 @@
         CREATE INDEX IF NOT EXISTS idx_fc_incidents_incident_status
             ON fc_incidents (incident_status);
 
-        -- AG3-028 (Codex-r1): gap-free, race-sichere FC-YYYY-NNNN-Allokation pro
-        -- (project_key, Jahr) — analog story_number_counters (AG3-050). Die
-        -- naechste Sequenznummer wird in derselben Schreibtransaktion vergeben
-        -- (SELECT ... FOR UPDATE).
+        -- AG3-028 (Codex-r2): GLOBALER Per-Jahr-Zaehler fuer die global
+        -- eindeutige FC-YYYY-NNNN-Allokation (PK = year allein, KEIN
+        -- project_key). Race-sicher in EINEM atomaren Statement:
+        -- INSERT ... ON CONFLICT(year) DO UPDATE SET next_seq = next_seq + 1
+        -- RETURNING next_seq - 1 (deckt Initial-Row + Folge-Allokation ab;
+        -- kein SELECT-dann-INSERT-TOCTOU).
         CREATE TABLE IF NOT EXISTS fc_incident_counters (
-            project_key TEXT NOT NULL,
             year INTEGER NOT NULL,
             next_seq INTEGER NOT NULL,
-            PRIMARY KEY (project_key, year)
+            PRIMARY KEY (year)
         );
 
         CREATE TABLE IF NOT EXISTS decision_records (

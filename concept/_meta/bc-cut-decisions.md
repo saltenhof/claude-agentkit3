@@ -1221,8 +1221,9 @@ Modul-Prefixes:
   (draft/approved/active/rejected/retired), `IncidentId`, `PatternId`,
   `CheckId` (NewType)
 - `IncidentTriage` (~6): `IncidentTriage` (Coordinator), `Incident`, `IncidentNormalizer`,
-  `IngressCriteria`, `IncidentRepository`, `IncidentSeverity` (StrEnum: niedrig, mittel,
-  hoch, kritisch)
+  `IngressCriteria`, `ProjectionWriterPort` (schmale write_projection-Sicht; kein
+  failure_corpus-eigenes DB-Repo, KONFLIKT-2), `IncidentSeverity` (StrEnum: low,
+  medium, high, critical)
 - `PatternPromotion` (~7): `PatternPromotion` (Coordinator), `FailurePattern`,
   `PatternClusterer`, `PromotionRule` (StrEnum: Wiederholung, HoheSchwere, Checkbarkeit),
   `PatternConfirmation`, `PatternRepository`, `RiskLevel` (StrEnum: kritisch, hoch,
