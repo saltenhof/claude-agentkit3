@@ -1,8 +1,8 @@
 story_id: AG3-048
 title: "Skills BC -- Persistenz + Installer-Andockung + Repo-Hygiene"
 type: implementation
-status: in_progress
-phase: implementation
+status: completed
+phase: closure
 created: "2026-05-19"
 size: M
 depends_on:
