@@ -501,7 +501,22 @@ def _ensure_schema_runtime_tables(conn: sqlite3.Connection) -> None:
             metadata_json    TEXT NOT NULL DEFAULT '{}',
             PRIMARY KEY (project_key, run_id, attempt_no, stage_id, finding_id)
         );
+        """
+    )
+    _ensure_runtime_tables_part2(conn)
 
+
+def _ensure_runtime_tables_part2(conn: sqlite3.Connection) -> None:
+    """Create failure-corpus, lock and remaining runtime tables (schema part 2b).
+
+    Split out of ``_ensure_schema_runtime_tables`` so neither function exceeds the
+    300-LOC limit (python:S138, Codex/Sonar): the AG3-028 failure-corpus DDL
+    (fc_incidents, fc_incident_counters, element-type triggers) pushed the combined
+    function over the threshold. Pure structural split — identische DDL, zwei
+    idempotente ``executescript``-Aufrufe.
+    """
+    conn.executescript(
+        """
         -- AG3-028 (FK-41 §41.3.1, FK-69): fc_incidents. Schema-Owner
         -- failure-corpus, DB-Owner telemetry-and-events via ProjectionAccessor.
         -- Append-only (genau ein Datensatz pro incident_id). Schema exakt nach
