@@ -1,9 +1,10 @@
 story_id: AG3-028
 title: "FailureCorpus BC: Top-Komponente + IncidentTriage + record_incident-Empfaenger"
 type: implementation
-status: blocked
-phase: setup
+status: completed
+phase: closure
 created: "2026-05-16"
+completed: "2026-06-01"
 size: L
 depends_on:
   - AG3-021
