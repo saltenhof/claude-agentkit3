@@ -426,6 +426,8 @@ class TestFailClosed:
             '{"hooks": {"PreToolUse": [123]}}',  # group not an object
             '{"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": "x"}]}}',  # nested hooks not a list
             '{"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [1]}]}}',  # handler not an object
+            '{"hooks": {"Stop": [{}]}}',  # group missing required 'hooks' list (Codex-r2)
+            '{"hooks": {"PreToolUse": [{"matcher": "Bash"}]}}',  # matching group missing 'hooks' (would KeyError, Codex-r2)
         ],
     )
     def test_malformed_hooks_shape_raises(

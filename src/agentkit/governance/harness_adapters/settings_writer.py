@@ -517,19 +517,22 @@ def _coerce_hooks_section(
                     f"Existing .codex/hooks.json group under {event_key!r} must be "
                     f"an object, got {type(group).__name__} (fail-closed).",
                 )
+            # The Codex shape REQUIRES a ``hooks`` handler list per group (incl.
+            # matcher-less groups like Stop/UserPromptSubmit). A group missing it
+            # is malformed: fail-closed here, never let it reach _merge_handler
+            # (which would KeyError on group["hooks"]) — Codex-r2 ERROR.
             handlers = group.get("hooks")
-            if handlers is not None and not isinstance(handlers, list):
+            if not isinstance(handlers, list):
                 raise ValueError(
-                    f"Existing .codex/hooks.json group {group!r} 'hooks' must be a "
-                    f"list, got {type(handlers).__name__} (fail-closed).",
+                    f"Existing .codex/hooks.json group {group!r} must have a "
+                    f"'hooks' list, got {type(handlers).__name__} (fail-closed).",
                 )
-            if isinstance(handlers, list):
-                for handler in handlers:
-                    if not isinstance(handler, dict):
-                        raise ValueError(
-                            "Existing .codex/hooks.json handler must be an object, "
-                            f"got {type(handler).__name__} (fail-closed).",
-                        )
+            for handler in handlers:
+                if not isinstance(handler, dict):
+                    raise ValueError(
+                        "Existing .codex/hooks.json handler must be an object, "
+                        f"got {type(handler).__name__} (fail-closed).",
+                    )
         section[str(event_key)] = groups
     return section
 
