@@ -45,7 +45,7 @@ events:
       - skill_name
       - target_path
       - bundle_version
-    role: project-local symlink binding applied
+    role: project-local link binding applied (symlink on POSIX, directory junction on Windows)
   - id: skills-and-bundles.event.binding.verified
     producer: installer
     payload:

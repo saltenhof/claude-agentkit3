@@ -280,6 +280,21 @@ materialisiert ueber den jeweiligen Adapter:
 Es gibt **keine** „aktiver Harness"-Konfiguration im Projekt; der Stratege
 waehlt beim Session-Start `claude` oder `codex`.
 
+**Zweistufiges Skill-Laden und Re-Install-Vertrag.** Der Harness liest
+Skills in zwei Stufen: Stufe 1 — beim **Session-Start** wird die
+`SKILL.md`-Frontmatter (`name` + `description`) **aller** gebundenen
+Skills eager in die Discovery-Liste gelesen; Stufe 2 — der restliche
+Inhalt (Body + gebundelte Dateien) wird **lazy erst beim Aufruf** des
+Skills gelesen. AK3 startet keine Sessions selbst (Owner ist der Harness;
+Sessions koennen parallel laufen) und kann die Bindung daher zur Laufzeit
+nicht umhaengen. Skill-Bindungen sind **install-zeit-fest** (FK-43
+§43.5.3). Ein Re-Install/Upgrade aendert die Bundle-Bindung; weil eine
+ueber den Re-Install hinweg laufende Session bereits alte Header im
+Kontext haelt und danach neue Bodies laed (Header-Body-Schieflage), gilt
+der Betriebsvertrag: **Nach einem Re-Install muessen die Harnesses neu
+gestartet werden.** Die Mechanik der Aufforderung liegt beim Installer
+(FK-50 CP8).
+
 ## 76.8 Was bewusst NICHT Teil ist
 
 FK-76 bleibt eine **duenne** BC (keine „God-Foundation"):

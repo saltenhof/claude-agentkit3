@@ -31,9 +31,12 @@ invariants:
   - id: skills-and-bundles.invariant.bundle_binding_points_to_concrete_version
     scope: bundle-version
     rule: every production skill or prompt binding must target one concrete immutable bundle version and never latest or another moving alias
-  - id: skills-and-bundles.invariant.project_binding_is_symlink_only
+  - id: skills-and-bundles.invariant.project_binding_is_link_only
     scope: binding
-    rule: project-local harness-specific skill exposure (Claude Code, Codex; FK-76) is implemented only through symlink-style bindings to system bundles and not by copying canonical skill sources
+    rule: project-local harness-specific skill exposure (Claude Code, Codex; FK-76) is implemented only through filesystem link bindings to system bundles - a symbolic link on POSIX and a directory junction on Windows - and never by copying canonical skill sources; the directory junction is the Windows binding because it requires no Developer Mode or elevated symlink privilege
+  - id: skills-and-bundles.invariant.binding_is_install_time_stable
+    scope: binding
+    rule: a project skill binding is established at install or registration time and is never retargeted to a different bundle version during a run; a new bundle version is adopted only through a deliberate reinstall or upgrade, after which the operator must restart the harnesses so the two-stage skill read (eager header at session start, lazy body on invocation) cannot mix an old header with a new body
   - id: skills-and-bundles.invariant.project_local_repo_never_contains_canonical_skill_source
     scope: repository
     rule: the project repository may contain configuration and binding points but must not contain the canonical bundled skill or prompt source

@@ -155,7 +155,7 @@ sequenceDiagram
     M->>INS: agentkit register-project --gh-owner acme --gh-repo platform
     INS->>STATE: Projekt registrieren / Konfiguration validieren
     INS->>PROJ: .agentkit/config/project.yaml + harness-spezifische Settings aktualisieren (z. B. .claude/settings.json fuer Claude Code; harness-eigenes Aequivalent fuer Codex; FK-76 §76.5)
-    INS->>PROJ: harness-spezifische Skill-Symlinks auf Bundle-Version erzeugen (z. B. .claude/skills/ fuer Claude Code)
+    INS->>PROJ: harness-spezifische Skill-Links (Symlink/Junction) auf Bundle-Version erzeugen (z. B. .claude/skills/ fuer Claude Code)
     INS->>PROJ: tools/agentkit/ Wrapper fuer Project-Edge-Aufrufe binden
     Note over PROJ: Nur lokale Konfiguration und Skill-Bindungen<br/>keine kopierten Skills/Prompts/DB-Dateien
 ```
@@ -221,7 +221,7 @@ Orchestrator und Worker.
 │       └── rules/                  # Projektbezogene Permission-/Policy-Konfiguration (kanonisch)
 ├── .claude/                        # Beispiel: Claude-Code-Adapter (FK-76)
 │   ├── settings.json               # Hook-Registrierung (Claude Code)
-│   └── skills/                     # Symlinks auf systemweite Skill-Bundles (Claude Code)
+│   └── skills/                     # Links (Symlink/Junction) auf systemweite Skill-Bundles (Claude Code)
 ├── .codex/                         # Beispiel: Codex-Adapter (FK-76)
 │   └── config.toml                 # Hook-Registrierung (Codex)
 │
@@ -236,7 +236,7 @@ Die jeweils harness-spezifischen Verzeichnisse werden vom zugehoerigen
 Adapter beschrieben.
 
 **Projektlokal weiterhin vorgesehen, aber nicht kanonisch:**
-- harness-spezifische Skill-Symlinks (z. B. `.claude/skills/` fuer Claude Code) als Symlink-Bindung auf systemweite, versionierte Bundles
+- harness-spezifische Skill-Links (z. B. `.claude/skills/` fuer Claude Code) als Link-Bindung (Symlink auf POSIX, Directory Junction auf Windows) auf systemweite, versionierte Bundles
 
 **Nicht mehr im Projekt vorgesehen:**
 - keine projektlokalen Telemetrie-DBs
@@ -252,8 +252,8 @@ Adapter beschrieben.
 | State-Backend: Telemetrie | Hook-Prozesse + Pipeline-Skripte | Integrity-Gate, Postflight, Governance | Zentraler Audit-Trail |
 | State-Backend: Governance/Locks | Pipeline-Skripte | Hooks | Nur deterministische Komponenten schreiben |
 | State-Backend: Failure Corpus | Governance-Beobachtung, Pipeline | Failure-Corpus-Engine | Append-only, permanent |
-| Systemweite Skill-/Prompt-Bundles | AgentKit-Installer | Agents (read-only via Projekt-Symlink) | Versioniert, immutable pro Bundle-Version |
-| harness-spezifische Skill-Symlinks (z. B. `.claude/skills/` fuer Claude Code; FK-76) | Installer | Harness / Agents | Nur Symlink-Bindung, kein kanonischer Inhalt |
+| Systemweite Skill-/Prompt-Bundles | AgentKit-Installer | Agents (read-only via Projekt-Link) | Versioniert, immutable pro Bundle-Version |
+| harness-spezifische Skill-Links (z. B. `.claude/skills/` fuer Claude Code; FK-76) | Installer | Harness / Agents | Nur Link-Bindung (Symlink/Junction), kein kanonischer Inhalt |
 | `.agentkit/config/project.yaml` | Mensch, Installer | Alle Pipeline-Komponenten | Menschlich editierbar |
 
 ## 10.4 Persistenz und Datenflüsse

@@ -45,7 +45,7 @@ transitions:
   - id: skills-and-bundles.transition.bundle_selected_to_bound
     from: skills-and-bundles.status.bundle_selected
     to: skills-and-bundles.status.bound
-    guard: skills-and-bundles.invariant.project_binding_is_symlink_only
+    guard: skills-and-bundles.invariant.project_binding_is_link_only
   - id: skills-and-bundles.transition.bound_to_verified
     from: skills-and-bundles.status.bound
     to: skills-and-bundles.status.verified

@@ -132,6 +132,7 @@ kpis
 layered-checks
 learning-loop
 lightweight-approval
+link-binding
 llm
 llm-evaluation
 llm-selection

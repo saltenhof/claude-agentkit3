@@ -15,7 +15,7 @@ Im Scope sind:
 
 - systemweite, versionierte Bundle-Inhalte
 - Profil- und Variantenwahl (`core` vs. `are`)
-- projektlokale harness-spezifische Symlink-Bindungen (Claude Code, Codex; FK-76)
+- projektlokale harness-spezifische Link-Bindungen — Symlink (POSIX) / Directory Junction (Windows) — (Claude Code, Codex; FK-76)
 - Verbot von `latest`- oder Source-Checkout-Bindungen
 - Upgrade-/Rebind-Semantik fuer bestehende Projekte
 
@@ -37,7 +37,7 @@ Nicht Teil dieses Kontexts sind:
 | `state-machine.md` | Zustandsraum von Variantenwahl und Bindung |
 | `commands.md` | Offizielle Bundle- und Binding-Operationen |
 | `events.md` | Bundle- und Binding-spezifische Events |
-| `invariants.md` | Harte Regeln fuer Versionierung, Profilwahl und Symlink-Modell |
+| `invariants.md` | Harte Regeln fuer Versionierung, Profilwahl und Link-Bindungsmodell |
 | `scenarios.md` | Deklarierte Bundle- und Binding-Traces |
 
 ## Prosa-Quellen

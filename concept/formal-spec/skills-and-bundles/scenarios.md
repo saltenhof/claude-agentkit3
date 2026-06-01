@@ -35,7 +35,7 @@ scenarios:
       status: skills-and-bundles.status.verified
     requires:
       - skills-and-bundles.invariant.profile_selects_one_variant_before_binding
-      - skills-and-bundles.invariant.project_binding_is_symlink_only
+      - skills-and-bundles.invariant.project_binding_is_link_only
   - id: skills-and-bundles.scenario.are-profile-binds-are-variant
     start:
       status: skills-and-bundles.status.requested

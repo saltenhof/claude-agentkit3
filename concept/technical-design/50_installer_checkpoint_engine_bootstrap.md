@@ -36,11 +36,13 @@ glossary:
   exported_terms:
     - id: bundle-binding
       definition: >
-        Projektlokale Symlink-Verknuepfung auf ein systemweit installiertes,
+        Projektlokale Link-Verknuepfung (Symlink auf POSIX, Directory
+        Junction auf Windows) auf ein systemweit installiertes,
         versioniertes Skill- oder Prompt-Bundle. Zeigt stets auf eine konkrete
         unveraenderliche Bundle-Version, nie auf einen Live-Checkout oder
         latest-Alias. Wird durch den Installer angelegt und durch Upgrade
-        gezielt ersetzt.
+        gezielt ersetzt; nach Re-Install muessen die Harnesses neu gestartet
+        werden (FK-43 §43.5.3).
     - id: checkpoint-result
       definition: >
         Rueckgabewert eines einzelnen Installer-Checkpoints mit den Feldern
@@ -100,7 +102,8 @@ glossary:
 AgentKit wird systemweit installiert und registriert anschließend ein
 Zielprojekt über eine Folge idempotenter Checkpoints (FK 11). Das
 Zielprojekt erhält lokale Konfiguration und harness-spezifische
-Symlink-Bindungen für Skills (Claude Code, Codex; FK-76 §76.7), aber
+Link-Bindungen für Skills (Symlink auf POSIX, Directory Junction auf
+Windows; Claude Code, Codex; FK-76 §76.7), aber
 keine kopierten AgentKit-Laufzeitartefakte.
 
 **Architekturzuordnung:** Der Installer ist im Komponentenmodell eine
@@ -137,7 +140,7 @@ flowchart TD
     CP5["CP 5: Pipeline-Config<br/>.agentkit/config/project.yaml"] --> CP6
     CP6["CP 6: Projektprofil<br/>ermitteln"] --> CP7
     CP7["CP 7: Projekt im<br/>State-Backend registrieren"] --> CP8
-    CP8["CP 8: Skill-Symlinks<br/>binden"] --> CP9
+    CP8["CP 8: Skill-Links<br/>binden"] --> CP9
     CP9["CP 9: Hooks<br/>registrieren"] --> CP10
     CP10["CP 10: MCP-Server<br/>(wenn VektorDB/ARE)"] --> CP11
     CP11["CP 11: Git-Hooks +<br/>CLAUDE.md"] --> CP12
@@ -280,15 +283,25 @@ fachlichen Schemas der anderen BCs).
 
 **Idempotenz:** Upsert auf Projektkennung; nur Deltas werden geschrieben.
 
-### CP 8: Skill-Symlinks binden
+### CP 8: Skill-Links binden
 
 Bindet die projektlokalen Skill-Verzeichnisse pro Harness an die
 systemweit installierten, versionierten Bundle-Verzeichnisse. Der
 Bindungspunkt ist harness-spezifisch (Beispiel Claude Code:
 `.claude/skills/`; Codex: harness-eigenes Aequivalent — siehe FK-43 §43.4.1 und FK-76). Der Installer registriert pro
-unterstuetztem Harness die Symlinks parallel.
+unterstuetztem Harness die Links parallel — plattformabhaengig ein
+Symlink (POSIX) bzw. eine Directory Junction (Windows). Die Junction
+ist die Windows-Bindung, weil sie keinen Developer Mode voraussetzt
+(FK-43 §43.4.1.1); deshalb ist Developer Mode **keine** Installer-
+Vorbedingung.
 
-Der Installer erzeugt Symlinks **nicht direkt**. Er ruft fuer jeden zu
+**Re-Install-Vertrag (FK-43 §43.5.3):** Ein Re-Install/Upgrade haengt
+die Bindung gezielt auf eine neue Bundle-Version um. Danach **muss der
+Operator die Harnesses neu starten**, sonst riskiert eine laufende
+Session inkonsistente Staende (zweistufiges Skill-Laden). Der Installer
+gibt diese Aufforderung nach erfolgreicher (Neu-)Bindung aus.
+
+Der Installer erzeugt Links **nicht direkt**. Er ruft fuer jeden zu
 bindenden Skill die Top-Surface des BC `agent-skills` auf:
 
 ```python
@@ -305,7 +318,7 @@ PromptRuntime.update_binding(bundle_id, version)
 ```
 
 Beispiel (konzeptuelle Darstellung; Claude-Code-Bindungspunkt — der
-Codex-Adapter erzeugt parallel den harness-eigenen Symlink, FK-76 §76.4):
+Codex-Adapter erzeugt parallel den harness-eigenen Link, FK-76 §76.4):
 
 ```text
 C:\ProgramData\AgentKit\bundles\4.0.0\are\skills\execute-userstory
@@ -313,11 +326,15 @@ T:\repo\.claude\skills\execute-userstory  ->  C:\ProgramData\AgentKit\bundles\4.
 ```
 
 **Regeln:**
-- Der Symlink zeigt auf eine konkrete Bundle-Version, nie auf `latest`.
+- Der Link zeigt auf eine konkrete Bundle-Version, nie auf `latest`.
 - Pro Projekt wird nur die profilpassende Skill-Variante gebunden.
-- Der Symlink ist Bindungspunkt, nicht Source of Truth.
+- Der Link ist Bindungspunkt, nicht Source of Truth.
+- Eine Windows-Junction wird ueber `os.path.isjunction` erkannt und
+  ausschliesslich ueber `os.rmdir` (nie rekursiv durch den Link) wieder
+  entfernt; `.claude/skills/` und `.codex/skills/` stehen projektseitig
+  in `.gitignore` (FK-43 §43.4.1.1).
 
-**Idempotenz:** Bestehende korrekte Symlinks bleiben unveraendert;
+**Idempotenz:** Bestehende korrekte Links bleiben unveraendert;
 falsche oder veraltete Bindungen werden gezielt ersetzt.
 
 ### CP 9: Hooks registrieren
@@ -513,8 +530,8 @@ Read-only Validierung aller vorherigen Checkpoints:
 - Config lesbar und Schema-valide?
 - Projektprofil bestimmt?
 - Projekt im State-Backend registriert?
-- Alle erwarteten Skill-Symlinks vorhanden und korrekt — **pro
-  unterstuetztem Harness** (Claude Code: `.claude/skills/`, Codex:
+- Alle erwarteten Skill-Links (Symlink/Junction) vorhanden und korrekt
+  — **pro unterstuetztem Harness** (Claude Code: `.claude/skills/`, Codex:
   harness-eigenes Aequivalent; FK-76)?
 - Alle Hooks registriert — **pro unterstuetztem Harness**
   (`.claude/settings.json`, `.codex/config.toml` o.ae.)?
@@ -543,7 +560,7 @@ class CheckpointResult:
 | SKIPPED | Nicht relevant (z.B. VektorDB bei `vectordb: false`) |
 | FAILED | Checkpoint gescheitert — Installation abbrechen |
 
-## 50.5 Symlink-Bindung
+## 50.5 Link-Bindung (Symlink/Junction)
 
 Der Installer bindet projektlokale Skills ueber die Top-Surface des BC
 `agent-skills`. Fuer jeden zu bindenden Skill wird aufgerufen:
@@ -554,9 +571,10 @@ Skills.bind_skill(skill_name, bundle_root, project_root)
 ```
 
 `Skills.bind_skill` (BC 11, FK-43) ist verantwortlich fuer die
-Symlink-Anlage am harness-spezifischen Bindungspunkt (Beispiel Claude
+Link-Anlage am harness-spezifischen Bindungspunkt (Beispiel Claude
 Code: `.claude/skills/`; Codex: harness-eigenes Aequivalent — siehe
-FK-76). Der Installer erzeugt Symlinks
+FK-76) — plattformabhaengig Symlink (POSIX) bzw. Directory Junction
+(Windows; FK-43 §43.4.1.1). Der Installer erzeugt Links
 nicht direkt; er delegiert an die kanonische Schnittstelle des Owner-BC.
 
 Analog dazu wird die Prompt-Bundle-Bindung ueber:
@@ -582,7 +600,7 @@ nicht zulaessig.
 | GitHub API Rate Limit | CP 2 | Retry mit Backoff, dann FAILED |
 | Keine Schreibrechte im Projekt | CP 8/9/11 | FAILED |
 | State-Backend nicht erreichbar | CP 7 | FAILED |
-| Symlink kann nicht angelegt oder aktualisiert werden | CP 8 | FAILED |
+| Link (Symlink/Junction) kann nicht angelegt oder aktualisiert werden | CP 8 | FAILED |
 | Bestehende Config mit inkompatiblem Schema | CP 5 | Migration versuchen (Kap. 51), bei Scheitern FAILED |
 | SonarQube nicht erreichbar / Version < `min_version` / Creds ungueltig | CP 10d | FAILED, Installation abbrechen |
 | Community Branch Plugin fehlt oder Version zu niedrig | CP 10d | FAILED — Green-Gate nicht durchsetzbar |

@@ -15,14 +15,15 @@ defers_to:
   - target: FK-44
     scope: prompt-bundles
     reason: >
-      agent-skills verwaltet Skill-Bundles eigenstaendig ueber Symlink-Bindungen
-      (.claude/skills/). FK-44 (prompt-runtime) wird nur dann aufgerufen, wenn
+      agent-skills verwaltet Skill-Bundles eigenstaendig ueber Link-Bindungen
+      (Symlink auf POSIX, Directory Junction auf Windows; .claude/skills/).
+      FK-44 (prompt-runtime) wird nur dann aufgerufen, wenn
       Skill-Inhalte zur Laufzeit eines Runs durch PromptRuntime.materialize_prompt
       aufgeloest werden muessen. Die Skill-Bundle-Mechanik (Versionierung,
-      Symlink-Erzeugung, Projektbindung) bleibt vollstaendig in agent-skills.
+      Link-Erzeugung, Projektbindung) bleibt vollstaendig in agent-skills.
 supersedes: []
 superseded_by:
-tags: [skills, automation, prompt-templates, symlink-binding, extensibility]
+tags: [skills, automation, prompt-templates, link-binding, extensibility]
 prose_anchor_policy: strict
 formal_refs:
   - formal.skills-and-bundles.entities
@@ -35,11 +36,14 @@ glossary:
   exported_terms:
     - id: skill-binding
       definition: >
-        Projektlokal erzeugte Verknuepfung (Symlink) von einem
-        Claude-Code-Bindungspunkt im Projekt (.claude/skills/<name>)
-        auf ein systemweites Bundle-Verzeichnis. Projektrepos duerfen
-        ausschliesslich Symlinks enthalten, niemals die kanonische
-        Skill-Quelle selbst.
+        Projektlokal erzeugte Dateisystem-Verknuepfung von einem
+        harness-spezifischen Bindungspunkt im Projekt (z. B.
+        .claude/skills/<name>) auf ein systemweites Bundle-Verzeichnis.
+        Die Verknuepfung ist plattformabhaengig: ein Symlink auf POSIX,
+        eine Directory Junction auf Windows (Junction, weil sie keinen
+        Developer Mode bzw. kein Symlink-Privileg voraussetzt). Projektrepos
+        duerfen ausschliesslich solche Links enthalten, niemals die
+        kanonische Skill-Quelle selbst.
       see_also:
         - term: skill-bundle
           domain: agent-skills
@@ -61,7 +65,7 @@ glossary:
       definition: >
         Eindeutiger Bezeichner eines Skills innerhalb eines Bundles,
         z.B. create-userstory-core. Bildet zusammen mit der
-        Bundle-Version den stabilen Schluessel fuer Symlink-Bindungen
+        Bundle-Version den stabilen Schluessel fuer Link-Bindungen
         und Upgrade-Tracking.
     - id: skill-lifecycle
       definition: >
@@ -110,7 +114,7 @@ konsistent anwenden würde (FK-12-019 bis FK-12-021).
 Ein Skill ist ein Verzeichnis mit einer `SKILL.md` (oder `skill.md`)
 Datei. Beide unterstuetzten Harnesses (Claude Code, Codex; FK-76) erwarten Skills an harness-normierten Orten; AgentKit weicht
 davon nicht ab und materialisiert pro Harness die jeweiligen
-Symlink-Bindungspunkte.
+Link-Bindungspunkte (Symlink auf POSIX, Directory Junction auf Windows).
 
 ```
 <skill-root>/
@@ -131,14 +135,15 @@ Die `SKILL.md` ist ein Markdown-Dokument, das der Harness
 
 Codex hat ein harness-eigenes Aequivalent (Pfad-Konvention nach
 Codex-Standard); der Codex-Adapter (FK-76 §76.4) materialisiert die
-Symlinks am dortigen Bindungspunkt.
+Links (Symlink/Junction) am dortigen Bindungspunkt.
 
 **Architekturentscheidung für AgentKit 3/4:**
 - Der kanonische Skill-Inhalt liegt systemweit in versionierten
   AgentKit-Bundles.
 - Im Projekt liegen unter dem harness-spezifischen Bindungspunkt
-  (z. B. `.claude/skills/` fuer Claude Code) nur Symlinks auf die
-  ausgewählten Bundle-Verzeichnisse.
+  (z. B. `.claude/skills/` fuer Claude Code) nur Links (Symlink auf
+  POSIX, Directory Junction auf Windows) auf die ausgewählten
+  Bundle-Verzeichnisse.
 - Das Projekt enthält damit pro Harness einen kompatiblen
   Bindungspunkt, aber nicht die Skill-Quelle selbst.
 
@@ -238,8 +243,9 @@ Stattdessen:
 
 1. installiert er versionierte AgentKit-Skill-Bundles systemweit
 2. waehlt projektweise das passende Profil (`core`, `are`, ...)
-3. erzeugt **pro unterstuetzem Harness** Symlinks auf genau diese
-   systemweiten Bundle-Verzeichnisse — fuer Claude Code unter
+3. erzeugt **pro unterstuetzem Harness** je einen Link auf genau diese
+   systemweiten Bundle-Verzeichnisse — plattformabhaengig ein Symlink
+   (POSIX) bzw. eine Directory Junction (Windows) — fuer Claude Code unter
    `.claude/skills/`, fuer Codex unter dem Codex-Skill-Verzeichnis
    (Pfad-Konvention nach Codex-Standard)
 
@@ -255,9 +261,50 @@ T:\repo\.codex\skills\execute-userstory    ->  C:\ProgramData\AgentKit\bundles\4
 [Entscheidung 2026-05-04 — Multi-Harness] AK3 unterstuetzt ab Tag 1
 zwei Harnesses parallel (Claude Code, Codex; siehe FK-76 §76.7).
 Beide haben kompatible `SKILL.md`-Skill-Formate. Der Installer
-pflanzt deshalb pro Skill **zwei Symlinks** — einen pro Harness.
+pflanzt deshalb pro Skill **zwei Links** — einen pro Harness.
 Der **Skill-Inhalt ist Single-Source** im systemweiten Bundle; die
-Symlinks zeigen beide auf dieselbe Datei.
+Links zeigen beide auf dasselbe Bundle-Verzeichnis.
+
+#### 43.4.1.1 Plattformabhaengige Binde-Mechanik (Symlink/Junction)
+
+[Entscheidung 2026-06-01 — Junction-on-Windows] AK3 laeuft zentral auf
+Windows-Maschinen: **eine** zentrale AK3-Installation bedient **N**
+Projekte ohne Pro-Projekt-Installation und ohne Datei-Kopien. Die
+Projektbindung ist deshalb ein **duenner Dateisystem-Link** auf das
+zentrale, versionierte Bundle-Verzeichnis — kein Manifest-Indirektion
+und keine Resolver-Schicht, weil der **Konsument des Bindungspunkts der
+externe Harness** (Claude Code / Codex) ist und dieser einen echten
+Pfad im Dateisystem erwartet.
+
+Die Link-Art ist plattformabhaengig:
+
+| Plattform | Link-Art | Begruendung |
+|---|---|---|
+| POSIX | symbolischer Link (`os.symlink`) | Standard, kein Sonderrecht noetig |
+| Windows | **Directory Junction** (`mklink /J`-Aequivalent) | benoetigt **keinen** Developer Mode und kein `SeCreateSymbolicLinkPrivilege`; ein Windows-*Symlink* wuerde beides voraussetzen und ist auf Zielmaschinen nicht annehmbar |
+
+Daraus folgen verbindliche Sicherheitsregeln fuer die Junction-Variante
+(Windows), die die Implementierung (AG3-027) einhalten muss:
+
+- **Detektion**: Eine Junction wird **nicht** von `os.path.islink`
+  erkannt; die Bindungspruefung verwendet `os.path.isjunction`
+  (Python 3.12+) bzw. eine aequivalente Pruefung. `SkillBinding`
+  fuehrt den `binding_mode` (`SYMLINK` | `JUNCTION`) explizit mit.
+- **Entfernung**: `shutil.rmtree` in eine Junction hinein loescht das
+  **zentrale Ziel** — verboten. Entbinden erfolgt ueber `os.rmdir`
+  (bzw. `Path.unlink` fuer Symlinks) **nach** vorheriger
+  `isjunction`/`islink`-Pruefung, niemals rekursiv durch den Link.
+- **Repo-Hygiene**: Git und Backups folgen Junctions. Der
+  harness-spezifische Bindungspunkt (`.claude/skills/`,
+  `.codex/skills/`) **muss** projektseitig in `.gitignore` stehen,
+  damit die Bindung nicht ins Repo wandert (Invariante
+  `project_local_repo_never_contains_canonical_skill_source`).
+
+Die fachliche Semantik beider Link-Arten ist identisch: ein duenner
+Verweis auf das zentrale Bundle, keine Kopie. Die Invariante
+`project_binding_is_link_only` (formal.skills-and-bundles.invariants)
+deckt beide Plattformen ab; ein Fallback auf Datei-Kopie ist auf keiner
+Plattform zulaessig.
 
 Falls einzelne Harnesses harness-spezifische Frontmatter- oder
 Format-Konventionen erzwingen, die das gemeinsame Bundle nicht
@@ -273,7 +320,7 @@ Schritte) doppelt gepflegt werden muss.
 `Skills.bind_skill` ist die kanonische Schnittstelle der Komponente
 `Skills` (BC agent-skills) fuer die Installer-Interaktion. Der Installer
 (BC installation-and-bootstrap, FK-50) ruft diese Methode auf — er
-erzeugt Symlinks nicht direkt. Analogie zu `PromptRuntime.update_binding`
+erzeugt Links nicht direkt. Analogie zu `PromptRuntime.update_binding`
 (BC prompt-runtime, FK-44).
 
 ```python
@@ -337,16 +384,19 @@ Die Projektbindung trackt, auf welche Bundle-Version ein Projekt zeigt:
 Bei AgentKit-Upgrade werden bestehende Projekte nicht automatisch auf
 `latest` umgehaengt. Der Installer zeigt auf eine konkrete Bundle-Version.
 Ein Projekt erhaelt eine neue Skill-Version erst, wenn seine
-Symlink-Bindungen bewusst auf die neue Bundle-Version umgestellt werden.
+Link-Bindungen (Symlink/Junction) bewusst auf die neue Bundle-Version
+umgestellt werden — das ist ausschliesslich eine bewusste (Re-)Install-/
+Upgrade-Aktion, kein Pipeline- oder Run-Schritt (siehe §43.5.3).
 
 **Eigenstaendiger Skill-Pin:**
 
 agent-skills verwaltet seinen Bundle-Version-Pin eigenstaendig — er ist
 **nicht** mit `prompt-runtime.BundlePinning` (FK-44) geteilt. Begruendung:
 
-- Skill-Bundles sind Verzeichnis-Symlinks (harness-spezifisch — z. B.
+- Skill-Bundles sind Verzeichnis-Links (harness-spezifisch — z. B.
   `.claude/skills/<name>/` fuer Claude Code, harness-eigenes
-  Aequivalent fuer Codex; FK-76)
+  Aequivalent fuer Codex; FK-76; Symlink auf POSIX, Directory Junction
+  auf Windows)
   mit einem separaten Lifecycle (Requested → ProfileResolved →
   BundleSelected → Bound → Verified/Rejected).
 - Prompt-Bundles sind Datei-Materialisierungen
@@ -359,13 +409,64 @@ Der Skill-Versionierungs-Record wird in `SkillBundleStore` gefuehrt
 (BC agent-skills); `prompt-runtime.BundlePinning` bleibt fuer
 Prompt-Bundle-Pins zustaendig.
 
+### 43.5.3 Bindungs-Stabilitaet und Re-Install-Vertrag (Determinismus)
+
+Skill-Bindungen sind **install-zeit-fest**. Sie werden zur Install-/
+Registrierungszeit gesetzt und waehrend des Betriebs **nicht**
+zur Laufzeit umgehaengt (Invariante `binding_is_install_time_stable`).
+Daraus folgt: **Solange nicht neu installiert wird, gibt es keine neuen
+Skills** — jeder Run sieht denselben Bundle-Stand. Der Determinismus
+entsteht damit aus der **Stabilitaet der Bindung** plus den unveraender-
+lichen, versionierten Bundles, nicht aus einem Per-Run-Pinning.
+
+Das ist eine bewusste Konsequenz der AK3-Topologie: **AK3 spawnt keine
+Agent-Sessions.** Die Sessions werden vom externen Harness (Claude Code /
+Codex) gestartet — orchestriert durch den Orchestrator-Agent und durch den
+Menschen — und koennen **parallel** laufen. AK3 steuert von aussen ueber
+Hooks, Guards und deterministische Pipeline-Skripte; es besitzt weder den
+Session-Lifecycle noch ein kontrolliertes „Ruhefenster". Ein Umhaengen der
+Bindung pro Run waere daher gar nicht durchsetzbar und ist explizit kein
+Mechanismus von AK3.
+
+**Re-Install ist die einzige Stelle, an der sich Skills aendern** — eine
+bewusste Operator-Aktion. Sie traegt eine harte Betriebsregel:
+
+> Nach einem Re-Install / Upgrade **muss der Operator die Harnesses neu
+> starten**, bevor die neue Bindung genutzt wird.
+
+Begruendung ist das **zweistufige Laden** von Skills durch den Harness
+(FK-76 §76.7):
+
+1. **Stufe 1 — Header (eager):** Beim Session-Start liest der Harness die
+   `SKILL.md`-Frontmatter (`name` + `description`) **aller** Skills in die
+   Discovery-/Verfuegbarkeitsliste.
+2. **Stufe 2 — Body (lazy):** Der restliche `SKILL.md`-Inhalt und die
+   gebundelten Dateien werden **erst beim Aufruf** des Skills gelesen.
+
+Eine **laufende** Session, die ueber einen Re-Install hinweg
+weiterlaeuft, hat die alten Header bereits im Kontext; greift sie danach
+auf die neuen Bodies zu (oder sehen zwei parallele Sub-Agents alt/neu),
+entsteht ein inkonsistenter Stand (Header-Body-Schieflage). AK3 kann das
+zur Laufzeit nicht verhindern — es ist ein **Operator-/Umgebungs-Vertrag**:
+„Re-Install ⇒ Harnesses neu starten". „Zentrales Update wirkt" damit beim
+**naechsten Install + Neustart**, nicht live.
+
+Verworfene Alternativen (zur Klarstellung):
+
+- **Per-Run-Versionspin durch Link-Umhaengen** — nicht implementierbar:
+  AK3 kontrolliert den Spawn nicht, Sessions laufen parallel, kein
+  Ruhefenster.
+- **Live-Alias auf das jeweils neueste zentrale Bundle** — bricht den
+  Determinismus (laufende Sessions saehen wechselnde Inhalte).
+
 ## 43.6 Erweiterbarkeit (FK-12-027)
 
 ### 43.6.1 Eigene Skills hinzufügen
 
 Neue Skills können hinzugefügt werden, ohne den AgentKit-Kern zu
 ändern. Dazu wird ein neues systemweites Bundle oder Teilbundle
-bereitgestellt; das Projekt bindet es anschließend über Symlink ein:
+bereitgestellt; das Projekt bindet es anschließend über einen Link
+(Symlink auf POSIX, Directory Junction auf Windows) ein:
 
 ```
 C:\ProgramData\AgentKit\bundles\4.0.0\custom\
@@ -376,8 +477,9 @@ C:\ProgramData\AgentKit\bundles\4.0.0\custom\
 ```
 
 Der Harness (Claude Code / Codex; FK-76) erkennt den Skill
-automatisch über den projektlokalen Symlink am harness-spezifischen
-Bindungspunkt (z. B. `.claude/skills/` fuer Claude Code).
+automatisch über den projektlokalen Link (Symlink/Junction) am
+harness-spezifischen Bindungspunkt (z. B. `.claude/skills/` fuer
+Claude Code).
 
 ### 43.6.2 Skill-Qualitaet
 

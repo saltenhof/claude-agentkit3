@@ -41,16 +41,16 @@ commands:
     emits:
       - skills-and-bundles.event.bundle.selected
   - id: skills-and-bundles.command.bind-project-skills
-    signature: internal create project-local harness-specific symlink bindings (Claude Code, Codex; FK-76) to selected bundles
+    signature: internal create project-local harness-specific link bindings (symlink on POSIX, directory junction on Windows; Claude Code, Codex; FK-76) to selected bundles
     allowed_statuses:
       - skills-and-bundles.status.bundle_selected
     requires:
-      - skills-and-bundles.invariant.project_binding_is_symlink_only
+      - skills-and-bundles.invariant.project_binding_is_link_only
       - skills-and-bundles.invariant.project_local_repo_never_contains_canonical_skill_source
     emits:
       - skills-and-bundles.event.binding.applied
   - id: skills-and-bundles.command.verify-bindings
-    signature: internal verify profile, bundle version, and symlink bindings
+    signature: internal verify profile, bundle version, and link bindings (symlink on POSIX, directory junction on Windows)
     allowed_statuses:
       - skills-and-bundles.status.bound
       - skills-and-bundles.status.verified
