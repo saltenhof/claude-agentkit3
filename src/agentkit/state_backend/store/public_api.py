@@ -5,7 +5,6 @@ from __future__ import annotations
 PUBLIC_API = (
     "append_execution_event",
     "append_execution_event_global",
-    "allocate_next_story_number_global",
     "backend_has_completed_snapshot",
     "backend_has_structural_artifact",
     "backend_has_structural_artifact_for_scope",

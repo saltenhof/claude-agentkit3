@@ -211,13 +211,6 @@ def load_story_context_by_uuid_global(
     )
 
 
-def allocate_next_story_number_global(
-    store_dir: Path | None,
-    project_key: str,
-) -> int:
-    return int(_backend_module().allocate_next_story_number_row(store_dir, project_key))
-
-
 def load_story_contexts_global(
     project_key: str,
     store_dir: Path | None = None,

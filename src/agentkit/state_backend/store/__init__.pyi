@@ -1,7 +1,4 @@
 from agentkit.state_backend.store.facade import (
-    allocate_next_story_number_global as allocate_next_story_number_global,
-)
-from agentkit.state_backend.store.facade import (
     append_execution_event as append_execution_event,
 )
 from agentkit.state_backend.store.facade import (

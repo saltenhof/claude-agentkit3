@@ -129,7 +129,7 @@ def test_post_stories_creates_story() -> None:
     assert resp is not None
     assert resp.status_code == HTTPStatus.CREATED
     body = _body(resp)
-    assert body["story_id"] == "AK3-1"
+    assert body["story_id"] == "AK3-001"
     assert body["status"] == "Backlog"
 
 
@@ -204,11 +204,11 @@ def test_get_story_detail_returns_200() -> None:
         },
         CORR,
     )
-    resp = routes.handle_get("/v1/stories/AK3-1", CORR)
+    resp = routes.handle_get("/v1/stories/AK3-001", CORR)
     assert resp is not None
     assert resp.status_code == HTTPStatus.OK
     body = _body(resp)
-    assert body["summary"]["story_id"] == "AK3-1"  # type: ignore[index]
+    assert body["summary"]["story_id"] == "AK3-001"  # type: ignore[index]
     # Befund 2: create_story always persists a default StorySpecification.
     assert body["spec"] is not None
 
@@ -239,7 +239,7 @@ def test_get_story_fields_returns_wire_dict() -> None:
         },
         CORR,
     )
-    resp = routes.handle_get("/v1/stories/AK3-1/fields", CORR)
+    resp = routes.handle_get("/v1/stories/AK3-001/fields", CORR)
     assert resp is not None
     assert resp.status_code == HTTPStatus.OK
     body = _body(resp)
@@ -324,7 +324,7 @@ def _setup_story(routes: StoryContextRoutes) -> str:
         },
         CORR,
     )
-    return "AK3-1"
+    return "AK3-001"
 
 
 def test_post_approve_transitions_to_approved() -> None:

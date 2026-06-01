@@ -144,6 +144,13 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             FOREIGN KEY (project_key) REFERENCES projects(key)
         );
 
+        -- AG3-050 (FK-02 §2.11.3, FK-18 §18.6a): the StoryDependency edge binds
+        -- to the STATIC story stammdaten (`stories`), NOT the runtime projection
+        -- (`story_contexts`). story_id/depends_on_story_id hold display-ID
+        -- strings; the FK target is `stories.story_display_id`, the globally
+        -- UNIQUE Story key. story_display_id is chosen over story_uuid because
+        -- the columns carry display-ID strings (no wire/data change), and over
+        -- (project_key, story_number) because that would require storing numbers.
         CREATE TABLE IF NOT EXISTS story_dependencies (
             project_key TEXT NOT NULL,
             story_id TEXT NOT NULL,
@@ -152,10 +159,10 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL,
             PRIMARY KEY (project_key, story_id, depends_on_story_id, kind),
             FOREIGN KEY (project_key) REFERENCES projects(key),
-            FOREIGN KEY (project_key, story_id)
-                REFERENCES story_contexts(project_key, story_id),
-            FOREIGN KEY (project_key, depends_on_story_id)
-                REFERENCES story_contexts(project_key, story_id)
+            FOREIGN KEY (story_id)
+                REFERENCES stories(story_display_id),
+            FOREIGN KEY (depends_on_story_id)
+                REFERENCES stories(story_display_id)
         );
 
         CREATE INDEX IF NOT EXISTS story_dependencies_project_story_idx
@@ -1037,51 +1044,6 @@ def load_story_context_by_uuid_row(
     if row is None:
         return None
     return {"payload_json": str(row["payload_json"])}
-
-
-def allocate_next_story_number_row(store_dir: Path | None, project_key: str) -> int:
-    """Atomically reserve the next story number for one project."""
-
-    with _connect(_project_store_dir(store_dir)) as conn:
-        conn.commit()
-        conn.execute("BEGIN IMMEDIATE")
-        row = conn.execute(
-            """
-            SELECT next_story_number
-            FROM story_number_counters
-            WHERE project_key = ?
-            """,
-            (project_key,),
-        ).fetchone()
-        if row is None:
-            max_row = conn.execute(
-                """
-                SELECT COALESCE(MAX(story_number), 0) + 1 AS next_story_number
-                FROM story_contexts
-                WHERE project_key = ?
-                """,
-                (project_key,),
-            ).fetchone()
-            next_story_number = int(max_row["next_story_number"])
-            conn.execute(
-                """
-                INSERT INTO story_number_counters (project_key, next_story_number)
-                VALUES (?, ?)
-                """,
-                (project_key, next_story_number + 1),
-            )
-            return next_story_number
-
-        next_story_number = int(row["next_story_number"])
-        conn.execute(
-            """
-            UPDATE story_number_counters
-            SET next_story_number = ?
-            WHERE project_key = ?
-            """,
-            (next_story_number + 1, project_key),
-        )
-        return next_story_number
 
 
 # ---------------------------------------------------------------------------

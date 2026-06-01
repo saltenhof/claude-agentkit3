@@ -697,26 +697,6 @@ def load_story_context_by_uuid_row(
     return {"payload_json": str(row["payload_json"])}
 
 
-def allocate_next_story_number_row(store_dir: Path | None, project_key: str) -> int:
-    """Atomically reserve the next story number for one project."""
-
-    del store_dir
-    with _connect_global() as conn:
-        row = conn.execute(
-            """
-            INSERT INTO story_number_counters (project_key, next_story_number)
-            VALUES (?, 2)
-            ON CONFLICT(project_key) DO UPDATE SET
-                next_story_number = story_number_counters.next_story_number + 1
-            RETURNING next_story_number - 1 AS allocated_story_number
-            """,
-            (project_key,),
-        ).fetchone()
-    if row is None:
-        raise RuntimeError("Story-number allocation failed")
-    return int(row["allocated_story_number"])
-
-
 def load_story_context_rows_global(
     store_dir: Path | None,
     project_key: str,

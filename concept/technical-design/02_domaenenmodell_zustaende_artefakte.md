@@ -643,6 +643,31 @@ Bei Story-Anlage ruft `story_context_manager` `project_management` auf,
 um das Praefix zu lesen, allokiert die naechste Nummer atomar und
 schreibt die zusammengesetzte Anzeige-ID in den Record.
 
+**Anzeige-ID-Format ist reine Praesentation; Sortierung ist numerisch
+(AG3-050).** Die Anzeige-ID wird mit einer **mindestens dreistelligen**,
+fuehrend mit Nullen aufgefuellten Nummer gerendert
+(`story_number=42 → "AK3-042"`). Das ist ein **Minimum**, kein Maximum:
+Nummern `>= 1000` werden automatisch breiter (`story_number=1000 →
+"AK3-1000"`); es gibt keine fixe Maximalbreite und kein dynamisches
+Breiten-Gerechne. Es existiert **genau eine** zentrale Formatter-Funktion
+(`format_story_display_id(prefix, story_number)`), durch die **jede**
+Materialisierungsstelle die Anzeige-ID erzeugt — kein zweites Format,
+kein abweichendes Padding. Die Storage-/Sortier-Wahrheit ist allein die
+ganzzahlige `story_number`: **jede** Sortierung von Story-Listen erfolgt
+numerisch ueber `story_number`, **niemals** lexikografisch ueber die
+Anzeige-ID (sonst stuende `AK3-1000` vor `AK3-999`).
+
+**Genau eine kanonische Erzeugungs-/Allokationsquelle (AG3-050,
+FK-91 §91.1a).** Story- und `story_number`-Erzeugung liegt in **genau
+einem** BC (`story_context_manager`) und darin in **genau einer**
+kanonischen Klasse/Instanz: dem `create_story_atomic`-Allokationspfad
+hinter `StoryService.create_story`. Ein zweiter Allokator oder ein
+zweiter Materialisierungspfad mit abweichendem Format ist **verboten**
+(ZERO DEBT, Drift-Vermeidung). Die Laufzeit-Projektion `StoryContext`
+(`story_contexts`) erzeugt **keine** zweite Nummer — sie wird beim Setup
+mit der bereits allokierten Identitaet aus den `stories`-Stammdaten
+befuellt.
+
 ### 2.11.3 `StoryDependency` (Owner: `execution_planning`)
 
 Edge-Tabelle, gerichteter DAG zwischen Stories.
@@ -656,6 +681,17 @@ Edge-Tabelle, gerichteter DAG zwischen Stories.
 Graph-Abfragen (transitive Vorgaenger/Nachfolger, topologische
 Sortierung, Wave-Berechnung, „naechste Stories") laufen ueber Recursive
 CTE in Postgres. Eindeutigkeit auf `(story_id, depends_on_story_id, kind)`.
+
+**Die Dependency-Kante bindet an die STATISCHE Story-Stammdaten-Identitaet,
+nicht an die Laufzeit (AG3-050).** Sowohl fachlich (UML-Assoziation) als auch
+relational (Foreign Key) zeigen `story_id` und `depends_on_story_id` auf die
+statische Story-Entitaet `Story`/`stories` — **explizit nicht** auf
+`StoryContext`/`story_contexts`, auch wenn der Schluessel zufaellig derselbe
+String ist. Abhaengigkeiten sind **Story-Inhalt** (Vorbedingungen, bekannt zur
+Definitionszeit), kein Laufzeitzustand; sie existieren unabhaengig davon, ob je
+ein Run und damit ein `StoryContext` angelegt wurde. Eine Dependency auf eine
+Story, die nicht in `stories` existiert, ist ein Fehler und wird **fail-closed**
+am FK abgewiesen. Das relationale FK-Ziel ist in FK-18 §18.6a/§18.13 normiert.
 
 ### 2.11.4 `StoryAreLink` (Owner: `requirements_coverage`)
 

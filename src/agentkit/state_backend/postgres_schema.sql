@@ -39,25 +39,10 @@
             FOREIGN KEY (project_key) REFERENCES projects(key)
         );
 
-        CREATE TABLE IF NOT EXISTS story_dependencies (
-            project_key TEXT NOT NULL,
-            story_id TEXT NOT NULL,
-            depends_on_story_id TEXT NOT NULL,
-            kind TEXT NOT NULL,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-            PRIMARY KEY (project_key, story_id, depends_on_story_id, kind),
-            FOREIGN KEY (project_key) REFERENCES projects(key),
-            FOREIGN KEY (project_key, story_id)
-                REFERENCES story_contexts(project_key, story_id),
-            FOREIGN KEY (project_key, depends_on_story_id)
-                REFERENCES story_contexts(project_key, story_id)
-        );
-
-        CREATE INDEX IF NOT EXISTS story_dependencies_project_story_idx
-            ON story_dependencies (project_key, story_id);
-
-        CREATE INDEX IF NOT EXISTS story_dependencies_project_depends_idx
-            ON story_dependencies (project_key, depends_on_story_id);
+        -- AG3-050: story_dependencies (FK -> stories) is created AFTER the
+        -- `stories` table below, because PostgreSQL requires the referenced
+        -- table + its UNIQUE(story_display_id) constraint to exist at CREATE
+        -- TABLE time. See the story_dependencies block following `stories`.
 
         CREATE TABLE IF NOT EXISTS parallelization_configs (
             project_key TEXT PRIMARY KEY,
@@ -398,6 +383,34 @@
 
         CREATE INDEX IF NOT EXISTS stories_project_key_number_idx
             ON stories (project_key, story_number);
+
+        -- AG3-050 (FK-02 §2.11.3, FK-18 §18.6a): the StoryDependency edge binds
+        -- to the STATIC story stammdaten (`stories`), NOT the runtime projection
+        -- (`story_contexts`). story_id/depends_on_story_id hold display-ID
+        -- strings; the FK target is `stories.story_display_id`, the globally
+        -- UNIQUE Story key. story_display_id is chosen over story_uuid because
+        -- the columns carry display-ID strings (no wire/data change), and over
+        -- (project_key, story_number) because that would require storing numbers.
+        -- Placed after `stories` so the referenced UNIQUE column already exists.
+        CREATE TABLE IF NOT EXISTS story_dependencies (
+            project_key TEXT NOT NULL,
+            story_id TEXT NOT NULL,
+            depends_on_story_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            PRIMARY KEY (project_key, story_id, depends_on_story_id, kind),
+            FOREIGN KEY (project_key) REFERENCES projects(key),
+            FOREIGN KEY (story_id)
+                REFERENCES stories(story_display_id),
+            FOREIGN KEY (depends_on_story_id)
+                REFERENCES stories(story_display_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS story_dependencies_project_story_idx
+            ON story_dependencies (project_key, story_id);
+
+        CREATE INDEX IF NOT EXISTS story_dependencies_project_depends_idx
+            ON story_dependencies (project_key, depends_on_story_id);
 
         CREATE TABLE IF NOT EXISTS story_specifications (
             story_uuid UUID NOT NULL,

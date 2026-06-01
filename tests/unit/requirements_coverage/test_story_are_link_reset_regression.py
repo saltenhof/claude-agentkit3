@@ -29,7 +29,8 @@ from agentkit.state_backend.store.story_are_link_repository import (
 from agentkit.state_backend.store.story_context_repository import (
     StateBackendStoryContextRepository,
 )
-from agentkit.story_context_manager.lifecycle import create_story
+from agentkit.story_context_manager.display_id import format_story_display_id
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 
@@ -60,16 +61,19 @@ def _seed_story(tmp_path: Path) -> str:
             repositories=["https://example.test/repo.git"],
         )
     )
-    story = create_story(
-        project_key="tenant-b",
-        story_type=StoryType.IMPLEMENTATION,
-        execution_route=StoryMode.EXECUTION,
-        project_repository=project_repository,
-        story_repository=story_repository,
-        title="Reset regression story",
-        created_at=datetime.now(UTC),
+    story_id = format_story_display_id("AK3", 1)
+    story_repository.save(
+        StoryContext(
+            project_key="tenant-b",
+            story_number=1,
+            story_id=story_id,
+            story_type=StoryType.IMPLEMENTATION,
+            execution_route=StoryMode.EXECUTION,
+            title="Reset regression story",
+            created_at=datetime.now(UTC),
+        ),
     )
-    return story.story_id
+    return story_id
 
 
 def test_story_are_links_survive_reset_simulation(tmp_path: Path) -> None:

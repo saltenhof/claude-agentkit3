@@ -38,8 +38,10 @@ class TestPackageExports:
     def test_get_phases_for_story_exported(self) -> None:
         assert hasattr(story_pkg, "get_phases_for_story")
 
-    def test_create_story_exported(self) -> None:
-        assert hasattr(story_pkg, "create_story")
+    def test_format_story_display_id_exported(self) -> None:
+        # AG3-050: the canonical display-ID formatter replaces the removed
+        # dead ``create_story`` lifecycle re-export.
+        assert hasattr(story_pkg, "format_story_display_id")
 
     def test_all_list_matches_exports(self) -> None:
         expected = {
@@ -52,7 +54,7 @@ class TestPackageExports:
             "StorySize",
             "StoryType",
             "StoryTypeProfile",
-            "create_story",
+            "format_story_display_id",
             "get_phases_for_story",
             "get_profile",
         }

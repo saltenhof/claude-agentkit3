@@ -599,6 +599,7 @@ modelliert.
 |-------------|--------------|
 | `stories` | `project_spaces(project_key)` |
 | `story_contexts` | `stories(project_key, story_id)` |
+| `story_dependencies` | `stories(story_display_id)` für **beide** Endpunkte (`story_id`, `depends_on_story_id`); zusätzlich `projects(key)` |
 | `story_custom_field_values` | `stories(project_key, story_id)` |
 | `story_custom_field_values` | `story_custom_field_definitions(project_key, field_key)` |
 | `flow_executions` | `stories(project_key, story_id)` |
@@ -613,6 +614,17 @@ modelliert.
 **Regel:** Für optionale Beziehungen wie `execution_events.flow_id` oder
 `node_id` sind nullable FK-Pfade zulässig. Ein Event muss nicht immer
 an Flow und Node gebunden sein.
+
+**StoryDependency → STATISCHE Story-Stammdaten (AG3-050).** Die Kanten der
+`story_dependencies`-Edge-Tabelle referenzieren die statische `stories`-Entität
+(FK-02 §2.11.3), **nicht** die Laufzeit-Projektion `story_contexts`.
+Abhängigkeiten sind Story-Inhalt, kein Laufzeitzustand. Als FK-Ziel-Spalte wird
+`stories.story_display_id` (global `UNIQUE`, siehe §18.6a.1) gewählt, weil die
+Spalten `story_id`/`depends_on_story_id` Display-ID-**Strings** tragen: so
+bleibt der Wire-/Datenstand unverändert. `story_uuid` schiede aus, weil die
+Spalten keine UUIDs halten; `(project_key, story_number)` schiede aus, weil das
+das Speichern von Nummern statt der Display-ID erzwänge. Eine Kante auf eine
+nicht in `stories` vorhandene Story wird **fail-closed** am FK abgewiesen.
 
 ## 18.14 Indizes
 

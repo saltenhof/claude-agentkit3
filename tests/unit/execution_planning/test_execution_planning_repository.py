@@ -29,7 +29,16 @@ from agentkit.state_backend.store.story_context_repository import (
 from agentkit.state_backend.store.story_dependency_repository import (
     StateBackendStoryDependencyRepository,
 )
-from agentkit.story_context_manager.lifecycle import create_story
+from agentkit.state_backend.store.story_repository import (
+    StateBackendIdempotencyKeyRepository,
+    StateBackendStoryRepository,
+)
+from agentkit.story_context_manager.models import StoryContext
+from agentkit.story_context_manager.service import StoryService
+from agentkit.story_context_manager.story_model import (
+    CreateStoryInput,
+    WireStoryType,
+)
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
@@ -55,6 +64,14 @@ def _seed_project_with_stories(tmp_path: Path) -> tuple[
     StateBackendPlanningStoryRepository,
     StateBackendStoryDependencyRepository,
 ]:
+    """Seed two stories via the canonical path (AG3-050).
+
+    The ``story_dependencies`` FK now references the STATIC ``stories``
+    stammdaten (FK-02 §2.11.3), so the edge endpoints must exist there —
+    they are created via ``StoryService.create_story``. The matching
+    ``story_contexts`` runtime rows are seeded too because execution
+    planning reads the runtime projection.
+    """
     project_repository = StateBackendProjectRepository(tmp_path)
     story_context_repository = StateBackendStoryContextRepository(tmp_path)
     project_repository.save(create_project(
@@ -64,15 +81,32 @@ def _seed_project_with_stories(tmp_path: Path) -> tuple[
         _configuration(),
         repositories=["https://example.test/repo.git"],
     ))
-    for title in ("One", "Two"):
-        create_story(
-            project_key="tenant-a",
-            story_type=StoryType.IMPLEMENTATION,
-            execution_route=StoryMode.EXECUTION,
-            project_repository=project_repository,
-            story_repository=story_context_repository,
-            title=title,
-            created_at=datetime.now(UTC),
+    service = StoryService(
+        story_repository=StateBackendStoryRepository(tmp_path),
+        project_repository=project_repository,
+        idempotency_repository=StateBackendIdempotencyKeyRepository(tmp_path),
+        event_emitter=lambda *_: None,
+    )
+    for idx, title in enumerate(("One", "Two"), start=1):
+        created = service.create_story(
+            CreateStoryInput(
+                project_key="tenant-a",
+                title=title,
+                type=WireStoryType.IMPLEMENTATION,
+                repos=["https://example.test/repo.git"],
+            ),
+            op_id=f"op-seed-{idx}",
+        )
+        story_context_repository.save(
+            StoryContext(
+                project_key="tenant-a",
+                story_number=created.story_number,
+                story_id=created.story_display_id,
+                story_type=StoryType.IMPLEMENTATION,
+                execution_route=StoryMode.EXECUTION,
+                title=title,
+                created_at=datetime.now(UTC),
+            ),
         )
     return (
         StateBackendPlanningStoryRepository(tmp_path),

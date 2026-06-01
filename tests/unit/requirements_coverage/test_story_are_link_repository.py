@@ -23,7 +23,8 @@ from agentkit.state_backend.store.story_are_link_repository import (
 from agentkit.state_backend.store.story_context_repository import (
     StateBackendStoryContextRepository,
 )
-from agentkit.story_context_manager.lifecycle import create_story
+from agentkit.story_context_manager.display_id import format_story_display_id
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
@@ -46,19 +47,28 @@ def _configuration() -> ProjectConfiguration:
 
 
 def _seed_story(tmp_path: Path) -> str:
+    """Seed a story_contexts row (AG3-050).
+
+    The ``story_are_links`` FK references ``story_contexts(story_id)``, so the
+    runtime projection row is what must exist. The display-ID is materialized
+    through the single canonical formatter (FK-02 §2.11.2).
+    """
     project_repository = StateBackendProjectRepository(tmp_path)
     story_repository = StateBackendStoryContextRepository(tmp_path)
     project_repository.save(create_project("tenant-a", "Tenant A", "AK3", _configuration(), repositories=["https://example.test/repo.git"]))
-    story = create_story(
-        project_key="tenant-a",
-        story_type=StoryType.IMPLEMENTATION,
-        execution_route=StoryMode.EXECUTION,
-        project_repository=project_repository,
-        story_repository=story_repository,
-        title="Coverage story",
-        created_at=datetime.now(UTC),
+    story_id = format_story_display_id("AK3", 1)
+    story_repository.save(
+        StoryContext(
+            project_key="tenant-a",
+            story_number=1,
+            story_id=story_id,
+            story_type=StoryType.IMPLEMENTATION,
+            execution_route=StoryMode.EXECUTION,
+            title="Coverage story",
+            created_at=datetime.now(UTC),
+        ),
     )
-    return story.story_id
+    return story_id
 
 
 def test_story_are_link_repository_insert_update_delete(tmp_path: Path) -> None:

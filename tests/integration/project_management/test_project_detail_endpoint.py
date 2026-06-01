@@ -176,11 +176,12 @@ def test_counters_classify_persisted_dependency_as_blocked(tmp_path: Path) -> No
     service.approve_story(story_a.story_display_id, op_id="dep-op-approve-a")
     service.approve_story(story_b.story_display_id, op_id="dep-op-approve-b")
 
-    # The dependency store FK-references ``story_contexts`` (FK-18 §18.12.1:
-    # both ``stories`` and ``story_contexts`` share the ``(project_key,
-    # story_id)`` display-id key).  Seed the matching story_contexts rows
-    # through the real repository so the persisted edge below is valid against
-    # the real schema and the join key matches the wire corpus exactly.
+    # AG3-050: the dependency store FK-references the STATIC ``stories``
+    # stammdaten (``stories.story_display_id``), satisfied above by
+    # ``create_story``.  The matching ``story_contexts`` rows are still seeded
+    # here because execution-planning reads the runtime projection for
+    # readiness; the persisted edge below is valid against the real schema and
+    # the join key matches the wire corpus exactly.
     context_repo = StateBackendStoryContextRepository(tmp_path)
     for created in (story_a, story_b):
         context_repo.save(

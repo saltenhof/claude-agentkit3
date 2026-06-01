@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Protocol
 from uuid import UUID  # noqa: TC003 (used at runtime in InMemoryStoryRepository)
 
+from agentkit.story_context_manager.display_id import format_story_display_id
 from agentkit.story_context_manager.story_model import (  # noqa: TC001
     Story,
     StorySpecification,
@@ -175,6 +176,6 @@ class InMemoryStoryRepository:
         next_n = self._next_numbers.get(story.project_key, 1)
         self._next_numbers[story.project_key] = next_n + 1
         story.story_number = next_n
-        story.story_display_id = f"{story_id_prefix}-{next_n}"
+        story.story_display_id = format_story_display_id(story_id_prefix, next_n)
         self.save(story)
         self.save_specification(story.story_uuid, spec)

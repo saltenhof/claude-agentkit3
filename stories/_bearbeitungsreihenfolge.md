@@ -65,6 +65,17 @@ Folgeschnitt, offene Stefan-Entscheidung (siehe AG3-015 story.md "Offene
 Folge"). Zusaetzlich: 5 e2e-Tests (Story-Seeding nach AG3-031-Preflight-Gate)
 gefixt (commit 8d06d43).
 
+**Anmerkung 4 (AG3-050 Story-Identity-Unifizierung, Stefan-Vorgabe 2026-06-01):**
+Aus der AG3-040(a)-Feasibility + giftigem Codex-Recheck (W-DISPLAYID) entstanden:
+dedizierte Story AG3-050. Drei Vorgaben: (A) StoryDependency-Kante/FK auf die
+statische `stories`-Identitaet statt `story_contexts`; (B) Display-ID = reine
+Anzeige-Formatierung (min-3 `:03d`) ueber EINE zentrale Formatter-Funktion,
+Storage `story_number` (int), Sortierung numerisch; (C) genau EIN BC + EINE Klasse
+als ID/Nummer-Quelle, toter `lifecycle.create_story`-Pfad raus. Beruehrt formal-spec
+(FK-02/FK-18). **AG3-040(a)** (lokal committed `530c40c`, NICHT gepusht) bleibt
+in_progress und wird nach AG3-050 abgenommen (Landmine entfernt). Reihenfolge:
+AG3-050 -> AG3-040(a)-Abnahme -> dann AG3-028/Welle.
+
 ## 2. Begruendung der Reihenfolge
 
 **AG3-026 zuerst (Top-Surface der Capability):**

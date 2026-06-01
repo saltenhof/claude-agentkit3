@@ -11,10 +11,15 @@ if TYPE_CHECKING:
 
 
 class StoryContextRepository(Protocol):
-    """Storage port for story identity and context records."""
+    """Storage port for the StoryContext runtime projection.
 
-    def allocate_next_story_number(self, project_key: str) -> int:
-        """Atomically allocate the next project-local story number."""
+    AG3-050 (FK-02 §2.11.2, FK-91 §91.1a): story-number allocation is NOT a
+    responsibility of this port. The single canonical allocator lives in
+    ``StoryRepository`` (the ``stories`` stammdaten path behind
+    ``StoryService.create_story``). ``story_contexts`` is the runtime snapshot
+    and is populated at Setup from the already-allocated canonical identity;
+    it never allocates a (second) number.
+    """
 
     def get(self, project_key: str, story_id: str) -> StoryContext | None:
         """Load a story by materialized display id."""

@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from agentkit.core_types import StorySize
+from agentkit.story_context_manager.display_id import format_story_display_id
 from agentkit.story_context_manager.idempotency import IdempotencyRecord
 from agentkit.story_context_manager.story_model import (
     ChangeImpact,
@@ -718,9 +719,12 @@ class StateBackendStoryRepository:
         with _sqlite_connect(self._store_dir) as conn:
             conn.execute("BEGIN IMMEDIATE")
             story_number = _sqlite_allocate_story_number(conn, story.project_key)
-            # Patch story_number and story_display_id in-place (mutable model)
+            # Patch story_number and story_display_id in-place (mutable model).
+            # FK-02 §2.11.2: display-ID materialized via the single formatter.
             story.story_number = story_number
-            story.story_display_id = f"{story_id_prefix}-{story_number}"
+            story.story_display_id = format_story_display_id(
+                story_id_prefix, story_number
+            )
             _sqlite_upsert_story(conn, _story_to_sqlite_row(story))
             _sqlite_upsert_spec(conn, _sqlite_spec_to_row(story.story_uuid, spec))
 
@@ -735,7 +739,9 @@ class StateBackendStoryRepository:
         with _postgres_connect() as conn:
             story_number = _pg_allocate_story_number(conn, story.project_key)
             story.story_number = story_number
-            story.story_display_id = f"{story_id_prefix}-{story_number}"
+            story.story_display_id = format_story_display_id(
+                story_id_prefix, story_number
+            )
             _pg_upsert_story(conn, _story_to_pg_row(story))
             _pg_upsert_spec(conn, _pg_spec_to_row(story.story_uuid, spec))
 

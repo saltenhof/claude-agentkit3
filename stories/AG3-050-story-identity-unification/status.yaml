@@ -1,0 +1,11 @@
+story_id: AG3-050
+title: "Story-Identity-Unifizierung: ein ID-Generator, Anzeige-Padding, Dependency-FK auf Stammdaten"
+type: implementation
+status: in_progress
+phase: implementation
+created: "2026-06-01"
+size: M
+depends_on:
+  - AG3-021
+unblocks:
+  - AG3-040

@@ -123,7 +123,9 @@ def test_create_story_returns_story_in_backlog() -> None:
     assert story.status == StoryStatus.BACKLOG
     assert story.title == "Initial story"
     assert story.project_key == "ak3"
-    assert story.story_display_id == "AK3-1"
+    # AG3-050: display-ID is materialized via the single formatter
+    # (FK-02 §2.11.2) with min-width 3 padding.
+    assert story.story_display_id == "AK3-001"
     assert story.story_number == 1
 
 
