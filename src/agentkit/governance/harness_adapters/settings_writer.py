@@ -512,29 +512,37 @@ def _coerce_hooks_section(
                 f"list of matcher groups, got {type(groups).__name__} (fail-closed).",
             )
         for group in groups:
-            if not isinstance(group, dict):
-                raise ValueError(
-                    f"Existing .codex/hooks.json group under {event_key!r} must be "
-                    f"an object, got {type(group).__name__} (fail-closed).",
-                )
-            # The Codex shape REQUIRES a ``hooks`` handler list per group (incl.
-            # matcher-less groups like Stop/UserPromptSubmit). A group missing it
-            # is malformed: fail-closed here, never let it reach _merge_handler
-            # (which would KeyError on group["hooks"]) — Codex-r2 ERROR.
-            handlers = group.get("hooks")
-            if not isinstance(handlers, list):
-                raise ValueError(
-                    f"Existing .codex/hooks.json group {group!r} must have a "
-                    f"'hooks' list, got {type(handlers).__name__} (fail-closed).",
-                )
-            for handler in handlers:
-                if not isinstance(handler, dict):
-                    raise ValueError(
-                        "Existing .codex/hooks.json handler must be an object, "
-                        f"got {type(handler).__name__} (fail-closed).",
-                    )
+            _validate_group_shape(event_key, group)
         section[str(event_key)] = groups
     return section
+
+
+def _validate_group_shape(event_key: str, group: object) -> None:
+    """Fail-closed validation of one matcher group (helper of _coerce_hooks_section).
+
+    Extracted to keep ``_coerce_hooks_section`` under the cognitive-complexity
+    limit (python:S3776). A group must be an object with a ``hooks`` handler
+    LIST (the Codex shape requires it even for matcher-less Stop/UserPromptSubmit
+    groups; Codex-r2), and every handler must be an object. The group is NOT
+    mutated — only validated; the caller preserves it verbatim (Codex-r1 ERROR 1).
+    """
+    if not isinstance(group, dict):
+        raise ValueError(
+            f"Existing .codex/hooks.json group under {event_key!r} must be "
+            f"an object, got {type(group).__name__} (fail-closed).",
+        )
+    handlers = group.get("hooks")
+    if not isinstance(handlers, list):
+        raise ValueError(
+            f"Existing .codex/hooks.json group {group!r} must have a "
+            f"'hooks' list, got {type(handlers).__name__} (fail-closed).",
+        )
+    for handler in handlers:
+        if not isinstance(handler, dict):
+            raise ValueError(
+                "Existing .codex/hooks.json handler must be an object, "
+                f"got {type(handler).__name__} (fail-closed).",
+            )
 
 
 __all__ = [
