@@ -7,7 +7,6 @@ auf ihren NotImplementedError-Vertrag gepinnt.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
@@ -17,6 +16,7 @@ from agentkit.core_types import FailureCategory
 from agentkit.failure_corpus import (
     FailureCorpus,
     IncidentCandidate,
+    IncidentRole,
     IncidentSeverity,
 )
 from agentkit.failure_corpus.errors import IncidentRejectedError, IncidentRejectReason
@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
     from pathlib import Path
 
-_NOW = datetime(2026, 6, 1, 12, 0, 0, tzinfo=UTC)
+_PROJECT = "proj-a"
 
 
 @pytest.fixture()
@@ -53,16 +53,23 @@ def corpus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[FailureC
     reset_backend_cache_for_tests()
 
 
-def _candidate(summary: str = "scope exceeded") -> IncidentCandidate:
+def _candidate(
+    symptom: str = "scope exceeded",
+    *,
+    severity: IncidentSeverity = IncidentSeverity.HIGH,
+) -> IncidentCandidate:
     return IncidentCandidate(
-        category=FailureCategory.SCOPE_DRIFT,
-        severity=IncidentSeverity.HIGH,
-        source_bc="governance-and-guards",
+        project_key=_PROJECT,
         story_id="AG3-001",
         run_id="run-1",
-        summary=summary,
-        evidence={"detail": "x"},
-        observed_at=_NOW,
+        category=FailureCategory.SCOPE_DRIFT,
+        severity=severity,
+        phase="implementation",
+        role=IncidentRole.WORKER,
+        model="claude-opus",
+        symptom=symptom,
+        evidence=["detail x"],
+        merge_blocked=True,
     )
 
 
@@ -80,11 +87,13 @@ class TestRecordIncident:
             fc = build_failure_corpus(acc)
 
             incident_id = fc.record_incident(_candidate())
-            assert incident_id.startswith("FC-")
+            assert incident_id == "FC-2026-0001"
 
             rows = acc.read_projection(
                 ProjectionKind.FC_INCIDENTS,
-                ProjectionFilter(story_id="AG3-001", run_id="run-1"),
+                ProjectionFilter(
+                    project_key=_PROJECT, story_id="AG3-001", run_id="run-1"
+                ),
             )
             assert len(rows) == 1
             assert rows[0].incident_id == incident_id
@@ -93,17 +102,7 @@ class TestRecordIncident:
 
     def test_reject_below_min_severity(self, corpus: FailureCorpus) -> None:
         with pytest.raises(IncidentRejectedError) as exc:
-            corpus.record_incident(
-                IncidentCandidate(
-                    category=FailureCategory.SCOPE_DRIFT,
-                    severity=IncidentSeverity.LOW,
-                    source_bc="bc",
-                    story_id="AG3-001",
-                    run_id="run-1",
-                    summary="trivial",
-                    observed_at=_NOW,
-                )
-            )
+            corpus.record_incident(_candidate(severity=IncidentSeverity.LOW))
         assert IncidentRejectReason.BELOW_MIN_SEVERITY in exc.value.reason_codes
 
 

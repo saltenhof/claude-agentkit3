@@ -3,17 +3,24 @@
 Der DB-Owner-seitige Adapter fuer ``fc_incidents``. Liegt — wie die uebrigen
 FK-69-Repos — auf der Accessor-Seite in ``state_backend/store`` und wird via
 ``ProjectionRepositories`` in den ``ProjectionAccessor`` injiziert. Der
-``failure_corpus``-BC kennt diesen Adapter NICHT (AC#6); er schreibt
-ausschliesslich ueber ``ProjectionAccessor.write_projection``.
+``failure_corpus``-BC kennt diesen Adapter NICHT (AC#6); er schreibt/liest
+ausschliesslich ueber den ``ProjectionAccessor``.
+
+Codex-r1 Remediation 2026-06-01:
+- Schema exakt nach FK-41 §41.3.1 (project_key NOT NULL, incident_id
+  FC-YYYY-NNNN, run_id NOT NULL, role, phase, model, symptom, evidence list[str],
+  recorded_at, status, optional tags/impact/pattern_ref).
+- ``project_key`` ist Pflicht und wird in ``read``/``purge_run`` **zwingend**
+  gefiltert (fehlt project_key -> ValueError, FAIL-CLOSED). FK-41 §41.3.1:
+  "Abfragen sind stets projektgebunden".
+- ``incident_id`` (``FC-YYYY-NNNN``) wird gap-free pro (project_key, Jahr) in
+  derselben Schreibtransaktion vergeben — analog dem story_number-Allokator aus
+  AG3-050 (``create_story_atomic``; SQLite BEGIN IMMEDIATE, Postgres
+  SELECT ... FOR UPDATE). ``record_incident`` gibt die vergebene id zurueck
+  (loest die "write_projection gibt None zurueck"-Spannung fc-scoped).
 
 ``fc_incidents`` ist append-only (genau ein Datensatz pro ``incident_id``,
-FK-41 §41.3.1): INSERT, kein UPSERT. Ein doppelter ``incident_id`` ist ein
-Fehler (PK-Verletzung -> IntegrityError, FAIL-CLOSED).
-
-Die Tabelle ist fachlich ueber ``story_id``/``run_id`` verankert (FK-41 §41.3.1)
-und traegt — anders als die uebrigen FK-69-Tabellen — KEIN ``project_key``
-(Story-Schema §2.1.5). Die Accessor-Aufrufe reichen ``project_key`` mit; der
-Adapter filtert/purged ausschliesslich ueber ``story_id``/``run_id``.
+FK-41 §41.3.1): INSERT, kein UPSERT.
 """
 
 from __future__ import annotations
@@ -30,7 +37,8 @@ from agentkit.state_backend.store.projection_repositories import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.failure_corpus.incident import Incident
+    from agentkit.failure_corpus.incident import Incident, IncidentDraft
+    from agentkit.failure_corpus.types import IncidentId
 
 
 @runtime_checkable
@@ -41,18 +49,18 @@ class FCIncidentsRepository(Protocol):
     DB-Owner: telemetry-and-events via ProjectionAccessor.
     """
 
-    def write(self, record: Incident) -> None:
-        """Persistiere genau einen Incident (append-only INSERT)."""
+    def record_incident(self, draft: IncidentDraft) -> IncidentId:
+        """Allokiere FC-YYYY-NNNN, persistiere (append-only INSERT), gib id zurueck."""
         ...
 
     def read(
         self,
         *,
-        project_key: str | None = None,
+        project_key: str,
         story_id: str | None = None,
         run_id: str | None = None,
     ) -> list[Incident]:
-        """Lade Incidents mit optionalen Filtern (project_key wird ignoriert)."""
+        """Lade Incidents; ``project_key`` ist Pflicht (FK-41 §41.3.1)."""
         ...
 
     def purge_run(
@@ -61,30 +69,34 @@ class FCIncidentsRepository(Protocol):
         story_id: str,
         run_id: str,
     ) -> int:
-        """Loesche alle fc_incidents-Zeilen fuer (story_id, run_id).
+        """Loesche alle fc_incidents-Zeilen fuer (project_key, story_id, run_id).
 
         FK-41 §41.3 / FK-69 §69.9: ein vollstaendiger Story-Reset loescht alle
-        ``fc_incidents``-Zeilen des betroffenen ``run_id``. ``project_key`` wird
-        zur Signatur-Paritaet mitgereicht, aber nicht gefiltert (die Tabelle ist
-        ueber story_id/run_id verankert). Gibt die Anzahl geloeschter Zeilen.
+        ``fc_incidents``-Zeilen des betroffenen ``run_id``. Projektgebunden
+        (project_key Pflicht). Gibt die Anzahl geloeschter Zeilen.
         """
         ...
 
 
-def _record_to_row(record: Incident) -> dict[str, Any]:
-    """Serialisiere einen ``Incident`` in eine fc_incidents-Zeile (dict)."""
+def _draft_to_row(draft: IncidentDraft, incident_id: str) -> dict[str, Any]:
+    """Serialisiere einen ``IncidentDraft`` + vergebene id in eine fc_incidents-Zeile."""
     return {
-        "incident_id": str(record.incident_id),
-        "category": record.category.value,
-        "severity": record.severity.value,
-        "source_bc": record.source_bc,
-        "story_id": record.story_id,
-        "run_id": record.run_id,
-        "summary": record.summary,
-        "evidence_json": json.dumps(record.evidence, sort_keys=True),
-        "observed_at": record.observed_at.isoformat(),
-        "normalized_at": record.normalized_at.isoformat(),
-        "incident_status": record.incident_status.value,
+        "project_key": draft.project_key,
+        "incident_id": incident_id,
+        "run_id": draft.run_id,
+        "story_id": draft.story_id,
+        "category": draft.category.value,
+        "severity": draft.severity.value,
+        "phase": draft.phase,
+        "role": draft.role.value,
+        "model": draft.model,
+        "symptom": draft.symptom,
+        "evidence_json": json.dumps(list(draft.evidence)),
+        "recorded_at": draft.recorded_at.isoformat(),
+        "incident_status": draft.incident_status.value,
+        "tags": json.dumps(list(draft.tags)) if draft.tags is not None else None,
+        "impact": draft.impact,
+        "pattern_ref": draft.pattern_ref,
     }
 
 
@@ -94,41 +106,63 @@ def _row_to_record(row: dict[str, Any]) -> Incident:
 
     from agentkit.core_types import FailureCategory, IncidentStatus
     from agentkit.failure_corpus.incident import Incident as _Incident
-    from agentkit.failure_corpus.types import IncidentId, IncidentSeverity
+    from agentkit.failure_corpus.types import (
+        IncidentId,
+        IncidentRole,
+        IncidentSeverity,
+    )
 
-    # Postgres JSON-Spalten liefert psycopg bereits als dict/list zurueck;
+    # Postgres JSON-Spalten liefert psycopg bereits als list/dict zurueck;
     # SQLite TEXT als JSON-String. Beide Faelle robust behandeln.
-    evidence_raw = row["evidence_json"]
-    evidence: dict[str, Any]
-    if isinstance(evidence_raw, str):
-        evidence = json.loads(evidence_raw) if evidence_raw else {}
-    elif evidence_raw is None:
-        evidence = {}
-    else:
-        evidence = evidence_raw
-    observed_at = row["observed_at"]
-    normalized_at = row["normalized_at"]
+    evidence = _decode_json_list(row["evidence_json"])
+    tags_raw = row.get("tags")
+    tags = _decode_json_list(tags_raw) if tags_raw is not None else None
+    recorded_at = row["recorded_at"]
     return _Incident(
+        project_key=str(row["project_key"]),
         incident_id=IncidentId(str(row["incident_id"])),
+        run_id=str(row["run_id"]),
+        story_id=str(row["story_id"]),
         category=FailureCategory(str(row["category"])),
         severity=IncidentSeverity(str(row["severity"])),
-        source_bc=str(row["source_bc"]),
-        story_id=str(row["story_id"]),
-        run_id=str(row["run_id"]) if row["run_id"] is not None else None,
-        summary=str(row["summary"]),
+        phase=str(row["phase"]),
+        role=IncidentRole(str(row["role"])),
+        model=str(row["model"]),
+        symptom=str(row["symptom"]),
         evidence=evidence,
-        observed_at=(
-            observed_at
-            if isinstance(observed_at, datetime)
-            else datetime.fromisoformat(str(observed_at))
-        ),
-        normalized_at=(
-            normalized_at
-            if isinstance(normalized_at, datetime)
-            else datetime.fromisoformat(str(normalized_at))
+        recorded_at=(
+            recorded_at
+            if isinstance(recorded_at, datetime)
+            else datetime.fromisoformat(str(recorded_at))
         ),
         incident_status=IncidentStatus(str(row["incident_status"])),
+        tags=tags,
+        impact=str(row["impact"]) if row.get("impact") is not None else None,
+        pattern_ref=(
+            str(row["pattern_ref"]) if row.get("pattern_ref") is not None else None
+        ),
     )
+
+
+def _decode_json_list(raw: object) -> list[str]:
+    """Decode a JSON list[str] column (SQLite TEXT or Postgres JSON)."""
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        return [str(x) for x in json.loads(raw)] if raw else []
+    if isinstance(raw, list):
+        return [str(x) for x in raw]
+    raise TypeError(f"unexpected JSON-list column type: {type(raw)!r}")
+
+
+def _require_project_key(project_key: str | None) -> str:
+    """FAIL-CLOSED: ``project_key`` ist Pflicht (FK-41 §41.3.1, projektgebunden)."""
+    if not project_key:
+        raise ValueError(
+            "fc_incidents queries require a project_key (FK-41 §41.3.1: "
+            "Abfragen sind stets projektgebunden)"
+        )
+    return project_key
 
 
 class StateBackendFCIncidentsRepository:
@@ -143,86 +177,139 @@ class StateBackendFCIncidentsRepository:
 
         self._store_dir: Path = store_dir or _Path.cwd()
 
-    def write(self, record: Incident) -> None:
-        """Persistiere genau einen Incident (append-only INSERT, FK-41 §41.3.1)."""
-        row = _record_to_row(record)
-        if _is_postgres():
-            self._pg_write(row)
-        else:
-            self._sqlite_write(row)
+    # -- Schreiben + id-Allokation -----------------------------------------
 
-    def _sqlite_write(self, row: dict[str, Any]) -> None:
+    def record_incident(self, draft: IncidentDraft) -> IncidentId:
+        """Allokiere FC-YYYY-NNNN und persistiere (append-only) in einer Transaktion.
+
+        FK-41 §41.3.1: gap-free pro (project_key, Jahr), race-sicher. Gibt die
+        vergebene ``IncidentId`` zurueck.
+        """
+        from agentkit.failure_corpus.types import IncidentId
+
+        year = draft.recorded_at.year
+        incident_id = (
+            self._pg_record(draft, year)
+            if _is_postgres()
+            else self._sqlite_record(draft, year)
+        )
+        return IncidentId(incident_id)
+
+    def _sqlite_record(self, draft: IncidentDraft, year: int) -> str:
+        # _sqlite_connect_qa fuehrt zuerst den Schema-Bootstrap aus und haelt die
+        # Verbindung bereits in einer offenen Transaktion (commit am Block-Ende).
+        # Allokation (SELECT counter -> UPDATE/INSERT) + INSERT laufen damit in
+        # EINER Transaktion auf EINER Verbindung — gap-free. Echte
+        # cross-connection-Concurrency ist auf SQLite lokal nicht beweisbar
+        # (analog AG3-050-N1-WARNING); der WAL-/busy_timeout-Pfad serialisiert
+        # konkurrierende Writer auf Postgres (SELECT ... FOR UPDATE).
         with _sqlite_connect_qa(self._store_dir) as conn:
-            conn.execute(
-                """
-                INSERT INTO fc_incidents (
-                    incident_id, category, severity, source_bc, story_id,
-                    run_id, summary, evidence_json, observed_at, normalized_at,
-                    incident_status
-                ) VALUES (
-                    :incident_id, :category, :severity, :source_bc, :story_id,
-                    :run_id, :summary, :evidence_json, :observed_at,
-                    :normalized_at, :incident_status
-                )
-                """,
-                row,
-            )
+            seq = self._sqlite_allocate_seq(conn, draft.project_key, year)
+            incident_id = _format_incident_id(year, seq)
+            row = _draft_to_row(draft, incident_id)
+            conn.execute(_SQLITE_INSERT, row)
+        return incident_id
 
-    def _pg_write(self, row: dict[str, Any]) -> None:
-        with _postgres_connect() as conn:
+    @staticmethod
+    def _sqlite_allocate_seq(conn: Any, project_key: str, year: int) -> int:
+        cursor = conn.execute(
+            "SELECT next_seq FROM fc_incident_counters "
+            "WHERE project_key = ? AND year = ?",
+            (project_key, year),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            next_n = 1
             conn.execute(
-                """
-                INSERT INTO fc_incidents (
-                    incident_id, category, severity, source_bc, story_id,
-                    run_id, summary, evidence_json, observed_at, normalized_at,
-                    incident_status
-                ) VALUES (
-                    %(incident_id)s, %(category)s, %(severity)s, %(source_bc)s,
-                    %(story_id)s, %(run_id)s, %(summary)s, %(evidence_json)s,
-                    %(observed_at)s, %(normalized_at)s, %(incident_status)s
-                )
-                """,
-                row,
+                "INSERT INTO fc_incident_counters (project_key, year, next_seq) "
+                "VALUES (?, ?, ?)",
+                (project_key, year, next_n + 1),
             )
+        else:
+            next_n = int(row[0])
+            conn.execute(
+                "UPDATE fc_incident_counters SET next_seq = ? "
+                "WHERE project_key = ? AND year = ?",
+                (next_n + 1, project_key, year),
+            )
+        return next_n
+
+    def _pg_record(self, draft: IncidentDraft, year: int) -> str:
+        with _postgres_connect() as conn:
+            seq = self._pg_allocate_seq(conn, draft.project_key, year)
+            incident_id = _format_incident_id(year, seq)
+            row = _draft_to_row(draft, incident_id)
+            conn.execute(_PG_INSERT, row)
+        return incident_id
+
+    @staticmethod
+    def _pg_allocate_seq(conn: Any, project_key: str, year: int) -> int:
+        cursor = conn.execute(
+            "SELECT next_seq FROM fc_incident_counters "
+            "WHERE project_key = %s AND year = %s FOR UPDATE",
+            (project_key, year),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            next_n = 1
+            conn.execute(
+                "INSERT INTO fc_incident_counters (project_key, year, next_seq) "
+                "VALUES (%s, %s, %s) "
+                "ON CONFLICT (project_key, year) DO UPDATE SET "
+                "next_seq = fc_incident_counters.next_seq",
+                (project_key, year, next_n + 1),
+            )
+        else:
+            next_n = int(row["next_seq"])
+            conn.execute(
+                "UPDATE fc_incident_counters SET next_seq = %s "
+                "WHERE project_key = %s AND year = %s",
+                (next_n + 1, project_key, year),
+            )
+        return next_n
+
+    # -- Lesen --------------------------------------------------------------
 
     def read(
         self,
         *,
-        project_key: str | None = None,
+        project_key: str,
         story_id: str | None = None,
         run_id: str | None = None,
     ) -> list[Incident]:
-        del project_key  # fc_incidents traegt kein project_key (Story §2.1.5)
+        """Lade Incidents; ``project_key`` ist Pflicht (FAIL-CLOSED)."""
+        pk = _require_project_key(project_key)
         if _is_postgres():
-            return self._pg_read(story_id=story_id, run_id=run_id)
-        return self._sqlite_read(story_id=story_id, run_id=run_id)
+            return self._pg_read(project_key=pk, story_id=story_id, run_id=run_id)
+        return self._sqlite_read(project_key=pk, story_id=story_id, run_id=run_id)
 
     @staticmethod
     def _build_where(
         *,
+        project_key: str,
         story_id: str | None,
         run_id: str | None,
         placeholder: str,
     ) -> tuple[str, list[object]]:
-        clauses: list[str] = []
-        params: list[object] = []
+        clauses: list[str] = [f"project_key = {placeholder}"]
+        params: list[object] = [project_key]
         if story_id is not None:
             clauses.append(f"story_id = {placeholder}")
             params.append(story_id)
         if run_id is not None:
             clauses.append(f"run_id = {placeholder}")
             params.append(run_id)
-        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        return where, params
+        return f"WHERE {' AND '.join(clauses)}", params
 
     def _sqlite_read(
         self,
         *,
+        project_key: str,
         story_id: str | None,
         run_id: str | None,
     ) -> list[Incident]:
         where, params = self._build_where(
-            story_id=story_id, run_id=run_id, placeholder="?"
+            project_key=project_key, story_id=story_id, run_id=run_id, placeholder="?"
         )
         with _sqlite_connect_qa(self._store_dir) as conn:
             rows = conn.execute(
@@ -234,11 +321,12 @@ class StateBackendFCIncidentsRepository:
     def _pg_read(
         self,
         *,
+        project_key: str,
         story_id: str | None,
         run_id: str | None,
     ) -> list[Incident]:
         where, params = self._build_where(
-            story_id=story_id, run_id=run_id, placeholder="%s"
+            project_key=project_key, story_id=story_id, run_id=run_id, placeholder="%s"
         )
         with _postgres_connect() as conn:
             rows = conn.execute(
@@ -247,31 +335,67 @@ class StateBackendFCIncidentsRepository:
             ).fetchall()
         return [_row_to_record(dict(r)) for r in rows]
 
+    # -- Purge --------------------------------------------------------------
+
     def purge_run(self, project_key: str, story_id: str, run_id: str) -> int:
-        """Loesche alle fc_incidents-Zeilen fuer (story_id, run_id).
+        """Loesche alle fc_incidents-Zeilen fuer (project_key, story_id, run_id).
 
         FK-41 §41.3 / FK-69 §69.9: aktives Loeschen, kein Query-Filter-Trick.
+        ``project_key`` ist Pflicht und wird gefiltert (FAIL-CLOSED).
         """
-        del project_key  # fc_incidents ist ueber story_id/run_id verankert
+        pk = _require_project_key(project_key)
         if _is_postgres():
-            return self._pg_purge(story_id, run_id)
-        return self._sqlite_purge(story_id, run_id)
+            return self._pg_purge(pk, story_id, run_id)
+        return self._sqlite_purge(pk, story_id, run_id)
 
-    def _sqlite_purge(self, story_id: str, run_id: str) -> int:
+    def _sqlite_purge(self, project_key: str, story_id: str, run_id: str) -> int:
         with _sqlite_connect_qa(self._store_dir) as conn:
             cursor = conn.execute(
-                "DELETE FROM fc_incidents WHERE story_id=? AND run_id=?",
-                (story_id, run_id),
+                "DELETE FROM fc_incidents "
+                "WHERE project_key=? AND story_id=? AND run_id=?",
+                (project_key, story_id, run_id),
             )
             return int(cursor.rowcount)
 
-    def _pg_purge(self, story_id: str, run_id: str) -> int:
+    def _pg_purge(self, project_key: str, story_id: str, run_id: str) -> int:
         with _postgres_connect() as conn:
             cursor = conn.execute(
-                "DELETE FROM fc_incidents WHERE story_id=%s AND run_id=%s",
-                (story_id, run_id),
+                "DELETE FROM fc_incidents "
+                "WHERE project_key=%s AND story_id=%s AND run_id=%s",
+                (project_key, story_id, run_id),
             )
             return int(cursor.rowcount)
+
+
+def _format_incident_id(year: int, seq: int) -> str:
+    """Formatiere eine fc_incidents-id als ``FC-YYYY-NNNN`` (FK-41 §41.3.1/§41.4.1)."""
+    return f"FC-{year:04d}-{seq:04d}"
+
+
+_SQLITE_INSERT = """
+    INSERT INTO fc_incidents (
+        project_key, incident_id, run_id, story_id, category, severity,
+        phase, role, model, symptom, evidence_json, recorded_at,
+        incident_status, tags, impact, pattern_ref
+    ) VALUES (
+        :project_key, :incident_id, :run_id, :story_id, :category, :severity,
+        :phase, :role, :model, :symptom, :evidence_json, :recorded_at,
+        :incident_status, :tags, :impact, :pattern_ref
+    )
+"""
+
+_PG_INSERT = """
+    INSERT INTO fc_incidents (
+        project_key, incident_id, run_id, story_id, category, severity,
+        phase, role, model, symptom, evidence_json, recorded_at,
+        incident_status, tags, impact, pattern_ref
+    ) VALUES (
+        %(project_key)s, %(incident_id)s, %(run_id)s, %(story_id)s,
+        %(category)s, %(severity)s, %(phase)s, %(role)s, %(model)s,
+        %(symptom)s, %(evidence_json)s, %(recorded_at)s, %(incident_status)s,
+        %(tags)s, %(impact)s, %(pattern_ref)s
+    )
+"""
 
 
 __all__ = [

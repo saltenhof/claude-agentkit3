@@ -339,8 +339,15 @@
         -- failure-corpus, DB-Owner telemetry-and-events via ProjectionAccessor.
         -- Append-only (genau ein Datensatz pro incident_id). Schreibpfad
         -- ausschliesslich ueber Telemetry.write_projection(FC_INCIDENTS, record).
+        -- Schema exakt nach FK-41 §41.3.1 (Codex-r1 Remediation 2026-06-01):
+        -- project_key NOT NULL, incident_id PK im Format FC-YYYY-NNNN, run_id
+        -- NOT NULL, role CHECK (worker|qa|governance), phase/model/symptom
+        -- NOT NULL, evidence_json = Liste von Strings.
         CREATE TABLE IF NOT EXISTS fc_incidents (
+            project_key TEXT NOT NULL,
             incident_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            story_id TEXT NOT NULL,
             category TEXT NOT NULL CHECK (category IN (
                 'scope_drift', 'architecture_violation', 'evidence_fabrication',
                 'hallucination', 'test_omission', 'assertion_weakness',
@@ -350,24 +357,44 @@
             severity TEXT NOT NULL CHECK (severity IN (
                 'low', 'medium', 'high', 'critical'
             )),
-            source_bc TEXT NOT NULL,
-            story_id TEXT NOT NULL,
-            run_id TEXT,
-            summary TEXT NOT NULL,
-            evidence_json JSON,
-            observed_at TIMESTAMPTZ NOT NULL,
-            normalized_at TIMESTAMPTZ NOT NULL,
+            phase TEXT NOT NULL,
+            role TEXT NOT NULL CHECK (role IN (
+                'worker', 'qa', 'governance'
+            )),
+            model TEXT NOT NULL,
+            symptom TEXT NOT NULL,
+            evidence_json JSON NOT NULL,
+            recorded_at TIMESTAMPTZ NOT NULL,
             incident_status TEXT NOT NULL DEFAULT 'observed' CHECK (incident_status IN (
                 'observed', 'promoted', 'closed_one_off', 'archived'
             )),
-            PRIMARY KEY (incident_id)
+            tags JSON,
+            impact TEXT,
+            pattern_ref TEXT,
+            -- Codex-r1 Konzept-Tension (gemeldet): FK-41 §41.3.1 nennt
+            -- "incident_id PK" UND "FC-YYYY-NNNN gap-free pro (project_key,Jahr)"
+            -- ohne Projekt-Segment in der id. Beides zusammen kollidiert global.
+            -- Fail-closed-treue Aufloesung: per-(project_key,Jahr)-Nummerierung
+            -- (wie story_number) + zusammengesetzter PK (project_key,incident_id).
+            PRIMARY KEY (project_key, incident_id)
         );
 
-        CREATE INDEX IF NOT EXISTS idx_fc_incidents_story_run
-            ON fc_incidents (story_id, run_id);
+        CREATE INDEX IF NOT EXISTS idx_fc_incidents_project_story_run
+            ON fc_incidents (project_key, story_id, run_id);
 
         CREATE INDEX IF NOT EXISTS idx_fc_incidents_incident_status
             ON fc_incidents (incident_status);
+
+        -- AG3-028 (Codex-r1): gap-free, race-sichere FC-YYYY-NNNN-Allokation pro
+        -- (project_key, Jahr) — analog story_number_counters (AG3-050). Die
+        -- naechste Sequenznummer wird in derselben Schreibtransaktion vergeben
+        -- (SELECT ... FOR UPDATE).
+        CREATE TABLE IF NOT EXISTS fc_incident_counters (
+            project_key TEXT NOT NULL,
+            year INTEGER NOT NULL,
+            next_seq INTEGER NOT NULL,
+            PRIMARY KEY (project_key, year)
+        );
 
         CREATE TABLE IF NOT EXISTS decision_records (
             project_key TEXT,

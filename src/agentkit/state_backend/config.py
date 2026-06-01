@@ -29,7 +29,15 @@ STATE_DATABASE_URL_ENV = "AGENTKIT_STATE_DATABASE_URL"
 # values). Idempotent side-by-side migration via the versioned-schema pattern
 # (FK-18 §18.9a) — a fresh ak3_v3_9_0 schema / agentkit_3_9_0.sqlite file is
 # created; the old DB is never touched.
-SCHEMA_VERSION = "3.9.0"
+# AG3-028 Codex-r1 Remediation 2026-06-01: 3.9.0 -> 3.10.0 (fc_incidents
+# realigned to FK-41 §41.3.1 — project_key NOT NULL, incident_id FC-YYYY-NNNN,
+# run_id NOT NULL, role CHECK (worker|qa|governance), phase/model/symptom,
+# evidence_json = list[str], recorded_at, tags/impact/pattern_ref; new
+# fc_incident_counters table for gap-free FC-YYYY-NNNN allocation). Idempotent
+# side-by-side migration via the versioned-schema pattern (FK-18 §18.9a) — a
+# fresh ak3_v3_10_0 schema / agentkit_3_10_0.sqlite file is created; the old DB
+# is never touched.
+SCHEMA_VERSION = "3.10.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 
 

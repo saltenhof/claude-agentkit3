@@ -1,7 +1,11 @@
-"""Typisierte Exceptions des Failure-Corpus-BC (FK-41 §41.4).
+"""Typisierte Exceptions des Failure-Corpus-BC (FK-41 §41.4.3).
 
 FAIL-CLOSED: IngressCriteria-Reject ist eine Exception mit strukturierten
 ``reason_codes`` — kein stilles Verwerfen (Guardrail FAIL CLOSED, AG3-028 AK#3).
+
+ZERO DEBT (Codex-r1 Remediation): jeder ``IncidentRejectReason`` ist von der
+``IngressCriteria``-Implementierung tatsaechlich erreichbar; es gibt keinen
+toten reason_code mehr.
 """
 
 from __future__ import annotations
@@ -12,17 +16,20 @@ from enum import StrEnum
 class IncidentRejectReason(StrEnum):
     """Strukturierter Grund, warum die IngressCriteria einen Kandidaten verwirft.
 
+    Die reason_codes spiegeln exakt die implementierten FK-41-§41.4.3-Kriterien
+    (Severity-Floor als harter Gate + mindestens ein Signifikanz-Trigger).
+
     Attributes:
-        BELOW_MIN_SEVERITY: Kandidat unterschreitet die konfigurierte
-            Mindest-Severity.
-        DUPLICATE_WINDOW: Identischer Kandidat (source_bc + story_id + summary)
-            innerhalb des Dedup-Fensters bereits erfasst.
-        NOT_BLOCKING: Kandidat traegt keinen blockierenden/relevanten Befund.
+        BELOW_MIN_SEVERITY: Kandidat unterschreitet die Mindest-Severity
+            (FK-41 §41.4.3: "Severity mindestens mittel"). Harter Gate.
+        NOT_SIGNIFICANT: Severity ok, aber KEIN Signifikanz-Trigger erfuellt —
+            d.h. weder Merge-blockiert, noch Rework > 30min, noch neuer
+            Fehlertyp/Corpus-Neuheit (FK-41 §41.4.3 Kriterien 2-4 als
+            OR-Verknuepfung; siehe IngressCriteria-Kombinator-Doku).
     """
 
     BELOW_MIN_SEVERITY = "below_min_severity"
-    DUPLICATE_WINDOW = "duplicate_window"
-    NOT_BLOCKING = "not_blocking"
+    NOT_SIGNIFICANT = "not_significant"
 
 
 class FailureCorpusError(Exception):

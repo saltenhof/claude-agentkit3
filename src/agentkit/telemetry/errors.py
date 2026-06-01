@@ -6,6 +6,7 @@ Defines exception types raised by the telemetry BC.
 from __future__ import annotations
 
 __all__ = (
+    "FCIncidentWriteViaDedicatedMethodError",
     "ProjectionKindNotAccessorOwnedError",
     "ProjectionRecordTypeMismatchError",
 )
@@ -39,6 +40,27 @@ class ProjectionRecordTypeMismatchError(TypeError):
         self.kind = kind
         self.expected = expected
         self.received = received
+
+
+class FCIncidentWriteViaDedicatedMethodError(TypeError):
+    """Raised when ``write_projection(FC_INCIDENTS, ...)`` is used for an incident.
+
+    FK-41 §41.3.1 requires the ``incident_id`` (``FC-YYYY-NNNN``) to be allocated
+    gap-free per (project_key, year) inside the DB write transaction. The generic
+    ``write_projection`` returns ``None`` and cannot surface the allocated id, so
+    incidents MUST be written via the dedicated
+    ``ProjectionAccessor.record_fc_incident(draft) -> IncidentId``. FAIL-CLOSED:
+    the accessor refuses the ambiguous generic path instead of silently dropping
+    the allocated id.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "FC_INCIDENTS must be written via "
+            "ProjectionAccessor.record_fc_incident(draft) -> IncidentId, not "
+            "write_projection: FK-41 §41.3.1 allocates the FC-YYYY-NNNN id in the "
+            "write transaction and the id must be returned to the caller."
+        )
 
 
 class ProjectionKindNotAccessorOwnedError(NotImplementedError):

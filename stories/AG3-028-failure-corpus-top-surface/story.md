@@ -1,5 +1,35 @@
 # AG3-028: FailureCorpus BC — Top-Komponente + IncidentTriage + record_incident-Empfaenger
 
+> ## Codex-r1 Remediation 2026-06-01: fc_incidents auf FK-41 §41.3.1/§41.4.1/§41.4.3 angeglichen
+>
+> Die giftige Codex-Review r1 (Gesamturteil BLOCK) hat ein **falsches
+> fc_incidents-Schema** aufgedeckt (`source_bc`/`summary`/`evidence`-dict/
+> `observed_at`/`normalized_at`/`FC-{uuid}`/kein `project_key`). Diese Story
+> wurde auf den echten FK-41-Vertrag gezogen:
+>
+> - **fc_incidents (FK-41 §41.3.1):** `project_key` NOT NULL, `incident_id` im
+>   Format **`FC-YYYY-NNNN`** (kein uuid), `run_id` NOT NULL, `category`,
+>   `severity`, `phase`, `role` (CHECK `worker|qa|governance`), `model`,
+>   `symptom`, `evidence_json` = **Liste von Strings**, `recorded_at`,
+>   `incident_status`; optional `tags`/`impact`/`pattern_ref`. Alt-Felder
+>   entfallen. SCHEMA_VERSION 3.9.0 -> **3.10.0** (Side-by-Side, FK-18 §18.9a).
+> - **IncidentCandidate/Incident (FK-41 §41.4.1):** auf diese Felder umgestellt;
+>   `IncidentCandidate` traegt zusaetzlich die Gate-Inputs `merge_blocked`/
+>   `rework_minutes` (NICHT persistiert).
+> - **IngressCriteria (FK-41 §41.4.3):** Severity-Floor (AND) + mindestens ein
+>   Signifikanz-Trigger (`merge_blocked` OR `rework>30min` OR Corpus-Neuheit; OR).
+>   reason_codes auf die implementierten Kriterien reduziert (kein toter Code):
+>   `BELOW_MIN_SEVERITY`, `NOT_SIGNIFICANT`.
+> - **project_key Pflicht:** read/purge_run filtern zwingend nach `project_key`
+>   (FAIL-CLOSED).
+> - **incident_id-Allokation:** gap-free pro `(project_key, Jahr)` in der
+>   DB-Schreibtransaktion via `fc_incident_counters` (analog story_number,
+>   AG3-050); `ProjectionAccessor.record_fc_incident(draft) -> IncidentId`.
+> - **Konzept-Tension gemeldet:** FK-41 §41.3.1 nennt `incident_id` als PK UND
+>   `FC-YYYY-NNNN` gap-free pro (project_key, Jahr) ohne Projekt-Segment — beides
+>   global kollidiert. Aufgeloest mit zusammengesetztem PK
+>   `(project_key, incident_id)`.
+
 <!-- AG3-028 deep-review (User-Entscheidung 2026-05-19): Variante (a) Vorgezogene Vollumsetzung gewaehlt. FailureCorpus.record_incident schreibt produktiv ueber Telemetry.write_projection (FK-41 + FK-69-konform). Daraus ergeben sich harte Abhaengigkeiten zu AG3-035 (ProjectionAccessor) und AG3-040 (Postgres-Store-Completion); die Story wird auf L hochgestuft. Variante (b) "Top-Surface mit Protocol/Fake" ist verworfen. -->
 
 > ## KONFLIKT-1 — RESOLVED (User-Entscheidung 2026-06-01): drei entitäts-scoped Lifecycle-Enums, abgespeckt
@@ -95,10 +125,11 @@ Bestehender leerer `__init__.py`-Stub wird aufgebaut. Neue Modul-Struktur:
 - `__init__.py` — Re-Export
 - `top.py` — `FailureCorpus`-Top-Komponente
 - `types.py` — `IncidentId`, `PatternId`, `CheckId` (NewType), `IncidentSeverity` (StrEnum: `LOW`, `MEDIUM`, `HIGH`, `CRITICAL` — gemaess FK-41)
-- `incident.py` — `IncidentCandidate`, `Incident` Pydantic-Modelle
+- `incident.py` — `IncidentCandidate`, `IncidentDraft`, `Incident` Pydantic-Modelle
 - `incident_triage.py` — `IncidentTriage`, `IncidentNormalizer`, `IngressCriteria`
-- `ports.py` — `ProjectionWriterPort`-Protocol (schmale Konsumenten-Sicht auf
-  `Telemetry.write_projection`; **kein** DB-Repository in `failure_corpus`. Der
+- `ports.py` — `IncidentWriterPort` (`record_fc_incident -> IncidentId`) +
+  `ProjectionReaderPort` (Corpus-Neuheit) — schmale Konsumenten-Sichten auf den
+  `ProjectionAccessor`; **kein** DB-Repository in `failure_corpus`. Der
   fc_incidents-DB-Repo-Adapter lebt auf der Accessor-Seite in
   `state_backend/store`, siehe KONFLIKT-2 + §2.1.5/§3.)
 - `errors.py` — typisierte Exceptions
@@ -154,46 +185,68 @@ Begruendung fuer NotImplementedError: Top-Surface ist vollstaendig vertraglich (
 
 `record_incident` ist **vollstaendig funktional**, weil das der Empfaenger-Vertrag ist, den andere BCs brauchen.
 
-#### 2.1.3 `IncidentCandidate` und `Incident` (FK-41 §41.4)
+#### 2.1.3 `IncidentCandidate`, `IncidentDraft` und `Incident` (FK-41 §41.4.1)
 
-`IncidentCandidate` ist Pydantic-v2-Modell (Input):
-- `category: FailureCategory`
-- `severity: IncidentSeverity`
-- `source_bc: str` (governance-and-guards / verify-system / story-closure / implementation-phase)
+`IncidentCandidate` ist Pydantic-v2-Modell (Input; frozen, extra forbid):
+- `project_key: str` (Pflicht; Abfragen stets projektgebunden, FK-41 §41.3.1)
 - `story_id: str`
-- `run_id: str`
-- `summary: str`
-- `evidence: dict[str, Any]` (frei strukturiert; spaetere Verfeinerung in Folge-Stories)
-- `observed_at: datetime`
+- `run_id: str` (Pflicht)
+- `category: FailureCategory`
+- `severity: IncidentSeverity` (4 Stufen low/medium/high/critical = FK-41 niedrig/mittel/hoch/kritisch)
+- `phase: str`
+- `role: IncidentRole` (worker | qa | governance)
+- `model: str`
+- `symptom: str`
+- `evidence: list[str]` (FK-41 §41.4.1: Liste von Evidenz-Strings)
+- `tags: list[str] | None`, `impact: str | None` (optional)
+- PLUS Gate-Inputs (FK-41 §41.4.3, NICHT persistiert): `merge_blocked: bool`, `rework_minutes: int`
 
-`Incident` ist Pydantic-v2-Modell (Persistenz, frozen, extra forbid):
-- alle Felder von `IncidentCandidate`
-- plus `incident_id: IncidentId`
-- plus `normalized_at: datetime`
-- plus `incident_status: IncidentStatus` (Default: `OBSERVED`)
+`IncidentDraft` (normalisiert, vor id-Allokation; frozen): alle Persistenzfelder
+ausser `incident_id`, plus `recorded_at` und `incident_status` (Default `OBSERVED`),
+optional `pattern_ref`. Die `incident_id` wird DB-seitig vergeben.
+
+`Incident` ist Pydantic-v2-Modell (Persistenz, frozen, extra forbid) — die
+fc_incidents-Zeile (FK-41 §41.3.1):
+- `project_key`, `incident_id` (`FC-YYYY-NNNN`), `run_id`, `story_id`, `category`,
+  `severity`, `phase`, `role`, `model`, `symptom`, `evidence: list[str]`,
+  `recorded_at`, `incident_status` (Default `OBSERVED`)
+- optional `tags`, `impact`, `pattern_ref`
 
 #### 2.1.4 `IncidentTriage`-Sub (FK-41 §41.4)
 
 ```python
 class IncidentTriage:
-    def __init__(self, normalizer: IncidentNormalizer, criteria: IngressCriteria, projection_writer: ProjectionWriterPort) -> None: ...
+    def __init__(self, normalizer: IncidentNormalizer, criteria: IngressCriteria,
+                 writer: IncidentWriterPort, reader: ProjectionReaderPort) -> None: ...
 
     def ingest(self, candidate: IncidentCandidate) -> IncidentId:
-        # 1. Pruefe IngressCriteria — verwerfe wenn nicht relevant (IncidentRejectedError)
-        # 2. Normalisiere via IncidentNormalizer
-        # 3. Erzeuge Incident mit normalized_at und incident_status=OBSERVED
-        # 4. Persistiere via projection_writer.write_projection(ProjectionKind.FC_INCIDENTS, incident)
+        # 1. Corpus-Neuheit ermitteln (reader.read_projection(FC_INCIDENTS, project_key))
+        # 2. Pruefe IngressCriteria — verwerfe wenn nicht relevant (IncidentRejectedError)
+        # 3. Normalisiere via IncidentNormalizer -> IncidentDraft (recorded_at, OBSERVED)
+        # 4. Persistiere via writer.record_fc_incident(draft) -> IncidentId
+        #    (id-Allokation FC-YYYY-NNNN in der DB-Transaktion)
         # 5. Gib IncidentId zurueck
         ...
 ```
 
 `IncidentNormalizer` (Default-Implementierung):
-- ergaenzt fehlende `category` (aber `category` ist Pflicht in `IncidentCandidate` — der Normalizer schaerft also nicht die Kategorie, sondern macht Whitespace-/Encoding-/Length-Normalisierung von `summary`)
-- setzt `normalized_at = now()`
+- `category` ist Pflicht im Kandidaten — der Normalizer schaerft nicht die
+  Kategorie, sondern macht Whitespace-/Length-Normalisierung von `symptom`
+- setzt `recorded_at = now()`
 
-`IngressCriteria` (Default-Implementierung):
-- Mindest-Severity-Filter (z.B. `MEDIUM` aufwaerts; konfigurierbar)
-- Doppelung-Filter (gleiche `source_bc + story_id + summary` innerhalb 60s -> verworfen)
+`IngressCriteria` (Default-Implementierung, FK-41 §41.4.3 — Aufnahmekriterien):
+Kombinator-Semantik (im Konzept nicht 100% explizit; gewaehlte, fail-closed-
+vernuenftigste Lesart, an Review/User gemeldet):
+
+    ADMIT  <=>  (severity >= min_severity)  AND
+                (merge_blocked OR rework_minutes > 30 OR is_novel)
+
+- Severity-Floor (mind. `MEDIUM`/`mittel`) ist **harter Gate** (AND).
+- Die drei Signifikanz-Trigger sind **OR**-verknuepft (ein einziger genuegt).
+- Corpus-Neuheit (`is_novel`): gleiche `(project_key, category)` noch nicht in
+  `fc_incidents` -> neu (geprueft via `read_projection(FC_INCIDENTS, ...)`).
+- Reject = `IncidentRejectedError` mit erreichbaren reason_codes
+  `BELOW_MIN_SEVERITY` / `NOT_SIGNIFICANT` (FAIL-CLOSED; kein toter reason_code).
 
 #### 2.1.5 Persistenz — fc_incidents-Tabelle via Telemetry.write_projection (FK-41 §41.3.1, FK-69)
 
@@ -210,43 +263,53 @@ Schreibpfad waere zweite operative Wahrheit und ist verboten.
 `failure-corpus` -> DDL liegt in `state_backend/postgres_schema.sql` + SQLite-
 Bootstrap; Side-by-Side via SCHEMA_VERSION-Bump nach FK-18 §18.9a).
 
-Tabellen-Schema fuer `fc_incidents`:
-- `incident_id` (PK, UUID)
+Tabellen-Schema fuer `fc_incidents` (FK-41 §41.3.1, Codex-r1):
+- `project_key` (TEXT, NOT NULL — Pflicht; projektgebunden)
+- `incident_id` (TEXT, Format `FC-YYYY-NNNN` — kein uuid)
+- `run_id` (TEXT, NOT NULL)
+- `story_id` (TEXT, NOT NULL)
 - `category` (CHECK: 12 erlaubte Werte aus `FailureCategory`)
-- `severity` (CHECK: 4 erlaubte Werte aus `Severity`)
-- `source_bc` (VARCHAR, NOT NULL)
-- `story_id` (VARCHAR, NOT NULL)
-- `run_id` (VARCHAR, NULL)
-- `summary` (TEXT, NOT NULL)
-- `evidence_json` (JSON/JSONB, NULL)
-- `observed_at` (TIMESTAMPTZ, NOT NULL)
-- `normalized_at` (TIMESTAMPTZ, NOT NULL)
-- `incident_status` (CHECK: exakt die vier Werte aus `IncidentStatus` gemaess
-  FK-41-Glossar `incident-status`; Default fuer neue Incidents: `observed`).
-  Wertebereich: `observed`, `promoted`, `closed_one_off`, `archived`.
-- Index: `idx_fc_incidents_story_run ON fc_incidents(story_id, run_id)` (FK-41-konform).
+- `severity` (CHECK: 4 Werte `low|medium|high|critical` aus `IncidentSeverity`)
+- `phase` (TEXT, NOT NULL)
+- `role` (TEXT, NOT NULL, CHECK `worker|qa|governance`)
+- `model` (TEXT, NOT NULL)
+- `symptom` (TEXT, NOT NULL)
+- `evidence_json` (JSON/TEXT, NOT NULL — Liste von Strings, FK-41 §41.4.1)
+- `recorded_at` (TIMESTAMPTZ, NOT NULL)
+- `incident_status` (CHECK: vier Werte `observed|promoted|closed_one_off|archived`;
+  Default `observed`)
+- optional: `tags` (JSON/TEXT, NULL), `impact` (TEXT, NULL), `pattern_ref` (TEXT, NULL)
+- **PK `(project_key, incident_id)`** (Konzept-Tension aufgeloest, siehe Banner)
+- Append-only: genau ein Datensatz pro `(project_key, incident_id)`.
+- Index: `idx_fc_incidents_project_story_run ON fc_incidents(project_key, story_id, run_id)`.
 - Index: `idx_fc_incidents_incident_status ON fc_incidents(incident_status)`.
+- Begleit-Tabelle `fc_incident_counters(project_key, year, next_seq)` fuer die
+  gap-free `FC-YYYY-NNNN`-Allokation (analog `story_number_counters`, AG3-050).
 
-**Telemetry.write_projection-Vertrag** (echte AG3-035-API — am Code verifiziert):
-- `write_projection(projection_kind: ProjectionKind, record: ProjectionRecord) -> None`
-  (NICHT `(table: str, row: dict)` — die echte Signatur ist `ProjectionKind` +
-  typisierter Record). Für Incidents: `ProjectionKind.FC_INCIDENTS` + der
-  `Incident`-Record.
-- Schreibpfad: `ProjectionAccessor.write_projection` delegiert an den injizierten
-  `fc_incidents`-Repo-Adapter (Postgres/SQLite-Bootstrap-Tabelle).
-- `fc_incidents` ist **append-only** (genau ein Datensatz pro `incident_id`,
-  FK-41 §41.3.1) — INSERT, kein UPSERT.
-- Fehlerverhalten: `ProjectionRecordTypeMismatchError` bei falschem Record-Typ.
-  `FC_INCIDENTS` ist nach dieser Story accessor-owned, wirft also **nicht** mehr
-  `ProjectionKindNotAccessorOwnedError` (das fail-closed wird gerade aufgehoben).
+**Accessor-Schreibvertrag** (Codex-r1 — am Code verifiziert):
+- fc_incidents wird ueber die dedizierte
+  `ProjectionAccessor.record_fc_incident(draft: IncidentDraft) -> IncidentId`
+  geschrieben — NICHT ueber die generische `write_projection` (die `-> None`
+  gibt und die in der Transaktion vergebene `FC-YYYY-NNNN`-id nicht liefern
+  koennte). `write_projection(FC_INCIDENTS, ...)` ist fail-closed
+  (`FCIncidentWriteViaDedicatedMethodError`).
+- Schreibpfad: `record_fc_incident` delegiert an den injizierten
+  `fc_incidents`-Repo-Adapter, der die id gap-free pro `(project_key, Jahr)` in
+  der Schreibtransaktion vergibt (Postgres `SELECT ... FOR UPDATE`; SQLite eine
+  Transaktion ueber `fc_incident_counters` + INSERT).
+- `fc_incidents` ist **append-only** (genau ein Datensatz pro
+  `(project_key, incident_id)`, FK-41 §41.3.1) — INSERT, kein UPSERT.
+- `FC_INCIDENTS` ist accessor-owned (`is_accessor_owned(FC_INCIDENTS) is True`);
+  `read_projection(FC_INCIDENTS, ...)` verlangt `project_key` fail-closed.
 
 `FailureCorpus`-Komposition (Composition-Root in `bootstrap/composition_root.py`):
 ```python
-def build_failure_corpus(telemetry: Telemetry) -> FailureCorpus:
+def build_failure_corpus(accessor: ProjectionAccessor) -> FailureCorpus:
     triage = IncidentTriage(
         normalizer=IncidentNormalizer(),
         criteria=IngressCriteria(),
-        projection_writer=telemetry,  # schmaler Port auf write_projection (FK-69 §69.9)
+        writer=accessor,  # IncidentWriterPort: record_fc_incident -> IncidentId
+        reader=accessor,  # ProjectionReaderPort: Corpus-Neuheit (FK-41 §41.4.3)
     )
     return FailureCorpus(incident_triage=triage)
 ```
@@ -314,7 +377,9 @@ Die Top-Surface ist transport-agnostisch (kein eigener CLI/HTTP-Endpunkt in dies
 | `src/agentkit/state_backend/store/fc_incident_repository.py` | Neu | fc_incidents-Repo inkl. `purge_run` (FK-69 §69.9) |
 | `src/agentkit/state_backend/store/projection_repositories.py` | Modifiziert | `fc_incidents`-Repo in `ProjectionRepositories` + Wiring |
 | `src/agentkit/telemetry/projection_accessor.py` | Modifiziert | `FC_INCIDENTS` von `_EXTERNALLY_OWNED_KINDS` → `_ACCESSOR_OWNED_KINDS`; Record-Typ ins `_KIND_TO_RECORD_TYPE`; Branch in `write_projection`/`read_projection`/`purge_run`; `# DRIFT-AG3-028`-Marker entfernt (KONFLIKT-2) |
-| `src/agentkit/failure_corpus/ports.py` | Neu | `ProjectionWriterPort`-Protocol (Konsumenten-Sicht auf `write_projection`) |
+| `src/agentkit/failure_corpus/ports.py` | Neu | `IncidentWriterPort` (`record_fc_incident -> IncidentId`) + `ProjectionReaderPort` (Corpus-Neuheit) |
+| `src/agentkit/state_backend/config.py` | Modifiziert | SCHEMA_VERSION 3.9.0 -> 3.10.0 |
+| `src/agentkit/telemetry/errors.py` | Modifiziert | `FCIncidentWriteViaDedicatedMethodError` |
 | `src/agentkit/core_types/failure_corpus.py` | Modifiziert | `PromotionStatus` (7) entfernt → `IncidentStatus` (4: observed/promoted/closed_one_off/archived) ergänzt (KONFLIKT-1) |
 | `src/agentkit/core_types/__init__.py` | Modifiziert | Export `PromotionStatus` → `IncidentStatus` |
 | `tests/unit/core_types/test_failure_corpus.py` | Modifiziert | `IncidentStatus` (4 Werte) statt `PromotionStatus` |
@@ -339,8 +404,8 @@ Die Top-Surface ist transport-agnostisch (kein eigener CLI/HTTP-Endpunkt in dies
 
 1. **Paket `src/agentkit/failure_corpus/` ist nicht mehr leer** und exportiert `FailureCorpus`, `IncidentCandidate`, `Incident`, `IncidentStatus`, `IncidentId`, `PatternId`, `CheckId`, `IncidentSeverity`, `IncidentTriage`, `IngressCriteria`, `IncidentNormalizer`. (`IncidentStatus` ersetzt `PromotionStatus` in `core_types`; siehe KONFLIKT-1.)
 2. **Top-Klasse `FailureCorpus` hat sechs Methoden**: `record_incident`, `suggest_patterns`, `confirm_pattern`, `derive_check`, `approve_check`, `report_effectiveness`. Nur `record_incident` ist voll funktional; die anderen werfen `NotImplementedError` mit aussagekraeftiger Begruendung.
-3. **`record_incident(candidate)` ist fail-closed**: validiert IngressCriteria, normalisiert, schreibt produktiv ueber `Telemetry.write_projection(ProjectionKind.FC_INCIDENTS, incident_record)` (echte API: ProjectionKind + typisierter Record, FK-41/FK-69-konform); gibt `IncidentId` zurueck oder wirft `IncidentRejectedError` (in `errors.py`) bei IngressCriteria-Reject. `IncidentRejectedError` traegt strukturierte `reason_codes` (StrEnum: `BELOW_MIN_SEVERITY`, `DUPLICATE_WINDOW`, `NOT_BLOCKING`).
-4. **`fc_incidents`-Tabelle existiert** in SQLite + Postgres mit allen Spalten + Indizes aus §2.1.5. UNIQUE auf `incident_id`. CHECK-Constraints auf `category`, `severity`, `incident_status` (vier Werte). SCHEMA_VERSION-Bump ist verbindlich (FK-18 §18.9a, alte DB unangetastet).
+3. **`record_incident(candidate)` ist fail-closed**: ermittelt Corpus-Neuheit, validiert IngressCriteria (FK-41 §41.4.3), normalisiert, schreibt produktiv ueber `ProjectionAccessor.record_fc_incident(draft)` (id-Allokation `FC-YYYY-NNNN` in der DB-Transaktion); gibt `IncidentId` zurueck oder wirft `IncidentRejectedError` (in `errors.py`) bei Reject. `IncidentRejectedError` traegt strukturierte, **erreichbare** `reason_codes` (StrEnum: `BELOW_MIN_SEVERITY`, `NOT_SIGNIFICANT` — kein toter reason_code). Die generische `write_projection(FC_INCIDENTS, ...)` ist fail-closed (`FCIncidentWriteViaDedicatedMethodError`), weil die id zurueckkommen muss.
+4. **`fc_incidents`-Tabelle existiert** in SQLite + Postgres mit allen Spalten + Indizes aus §2.1.5 (FK-41 §41.3.1). `project_key`/`run_id`/`role`/`phase`/`model`/`symptom` NOT NULL; `evidence_json` = Liste von Strings; `incident_id` Format `FC-YYYY-NNNN`. PK `(project_key, incident_id)`. CHECK-Constraints auf `category` (12), `severity` (4), `role` (3), `incident_status` (4). `fc_incident_counters` fuer die id-Allokation. SCHEMA_VERSION-Bump 3.9.0 -> 3.10.0 (FK-18 §18.9a, alte DB unangetastet).
 5. **`IncidentTriage` durchlaeuft drei Schritte**: IngressCriteria -> Normalizer -> `Telemetry.write_projection`. Per Test verifizierbar.
 6. **Architecture-Conformance**: `agentkit.failure_corpus` importiert nur `agentkit.core_types`, `agentkit.artifacts` (optional) und `agentkit.telemetry` (fuer den `Telemetry.write_projection`-Vertrag); **nicht** aus `agentkit.state_backend.store` direkt.
 7. **End-to-End-Persistenz**: ein Integration-Test ruft `record_incident` und liest den persistierten Row aus `fc_incidents` auf beiden Backends (SQLite + Postgres).

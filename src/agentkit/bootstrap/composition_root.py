@@ -194,19 +194,20 @@ def build_projection_accessor(store_dir: Path | None = None) -> ProjectionAccess
     return _ProjectionAccessor(repos)
 
 
-def build_failure_corpus(projection_writer: ProjectionAccessor) -> FailureCorpus:
+def build_failure_corpus(accessor: ProjectionAccessor) -> FailureCorpus:
     """Erzeugt eine verdrahtete ``FailureCorpus``-Top-Komponente (AG3-028).
 
     Composition-Root fuer den Failure-Corpus-BC (FK-41 §41.1/§41.4). Verdrahtet
     die ``IncidentTriage`` mit Default-Normalizer und -IngressCriteria und reicht
-    den ``ProjectionAccessor`` als schmalen ``ProjectionWriterPort`` ein
-    (FK-69 §69.9). ``failure_corpus`` kennt die fc_incidents-DB-Repo-Adapter
-    NICHT (KONFLIKT-2, AC#6): die Persistenz laeuft ueber
-    ``ProjectionAccessor.write_projection(FC_INCIDENTS, incident)``.
+    den ``ProjectionAccessor`` sowohl als schmalen ``IncidentWriterPort``
+    (``record_fc_incident`` -> ``IncidentId``, FK-41 §41.3.1) als auch als
+    ``ProjectionReaderPort`` (Corpus-Neuheit, FK-41 §41.4.3) ein (FK-69 §69.9).
+    ``failure_corpus`` kennt die fc_incidents-DB-Repo-Adapter NICHT (KONFLIKT-2,
+    AC#6): Persistenz/Lesen laufen ueber den ``ProjectionAccessor``.
 
     Args:
-        projection_writer: Der ``ProjectionAccessor`` als Schreibgrenze (erfuellt
-            das schmale ``ProjectionWriterPort``-Protocol).
+        accessor: Der ``ProjectionAccessor`` als Schreib-/Lesegrenze (erfuellt
+            ``IncidentWriterPort`` und ``ProjectionReaderPort`` per Strukturtyping).
 
     Returns:
         ``FailureCorpus`` mit funktionalem ``record_incident``; die uebrigen
@@ -224,7 +225,8 @@ def build_failure_corpus(projection_writer: ProjectionAccessor) -> FailureCorpus
     triage = IncidentTriage(
         normalizer=IncidentNormalizer(),
         criteria=IngressCriteria(),
-        projection_writer=projection_writer,
+        writer=accessor,
+        reader=accessor,
     )
     return _FailureCorpus(incident_triage=triage)
 

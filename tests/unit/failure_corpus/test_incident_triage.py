@@ -1,9 +1,9 @@
-"""Unit-Tests fuer IncidentTriage / IncidentNormalizer / IngressCriteria (AG3-028 §2.1.4).
+"""Unit-Tests fuer IncidentTriage / IncidentNormalizer / IngressCriteria (AG3-028 §2.1.4, FK-41 §41.4.3).
 
-Der ``ProjectionWriterPort`` wird hier durch einen minimalen In-Memory-Spy
-ersetzt: das ist ein technisch begruendeter, isolierter Unit-Test der reinen
-Triage-Logik (CLAUDE.md MOCKS/STUBS-Ausnahme 2). Der echte Schreibpfad ueber
-den ProjectionAccessor wird im Roundtrip-/Integration-Test verprobt.
+Writer-/Reader-Ports werden hier durch minimale In-Memory-Spies ersetzt: ein
+technisch begruendeter, isolierter Unit-Test der reinen Triage-Logik
+(CLAUDE.md MOCKS/STUBS-Ausnahme 2). Der echte Schreib-/Lesepfad ueber den
+ProjectionAccessor wird im Roundtrip-/Integration-Test verprobt.
 """
 
 from __future__ import annotations
@@ -13,11 +13,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.core_types import FailureCategory
+from agentkit.core_types import FailureCategory, IncidentStatus
 from agentkit.failure_corpus import (
-    Incident,
     IncidentCandidate,
+    IncidentDraft,
     IncidentNormalizer,
+    IncidentRole,
     IncidentSeverity,
     IncidentTriage,
     IngressCriteria,
@@ -26,140 +27,193 @@ from agentkit.failure_corpus.errors import IncidentRejectedError, IncidentReject
 from agentkit.failure_corpus.types import IncidentId
 
 if TYPE_CHECKING:
-    from agentkit.telemetry.projection_accessor import ProjectionKind
+    from agentkit.telemetry.projection_accessor import ProjectionFilter, ProjectionKind
     from agentkit.telemetry.projection_records import ProjectionRecord
 
 _NOW = datetime(2026, 6, 1, 12, 0, 0, tzinfo=UTC)
 
 
 class _SpyWriter:
-    """Minimaler ProjectionWriterPort-Spy fuer den isolierten Triage-Test."""
+    """Minimaler IncidentWriterPort-Spy; vergibt sequenzielle FC-Ids."""
 
     def __init__(self) -> None:
-        self.writes: list[tuple[ProjectionKind, ProjectionRecord]] = []
+        self.drafts: list[IncidentDraft] = []
 
-    def write_projection(
+    def record_fc_incident(self, draft: IncidentDraft) -> IncidentId:
+        self.drafts.append(draft)
+        return IncidentId(f"FC-2026-{len(self.drafts):04d}")
+
+
+class _SpyReader:
+    """Minimaler ProjectionReaderPort-Spy; gibt fest konfigurierte Records zurueck."""
+
+    def __init__(self, existing: list[ProjectionRecord] | None = None) -> None:
+        self._existing = existing or []
+        self.reads: list[tuple[ProjectionKind, ProjectionFilter]] = []
+
+    def read_projection(
         self,
         projection_kind: ProjectionKind,
-        record: ProjectionRecord,
-    ) -> None:
-        self.writes.append((projection_kind, record))
+        filter: ProjectionFilter,  # noqa: A002
+    ) -> list[ProjectionRecord]:
+        self.reads.append((projection_kind, filter))
+        return list(self._existing)
 
 
 def _candidate(
     *,
     severity: IncidentSeverity = IncidentSeverity.HIGH,
-    summary: str = "scope exceeded",
+    symptom: str = "scope exceeded",
     story_id: str = "AG3-001",
-    source_bc: str = "governance-and-guards",
+    category: FailureCategory = FailureCategory.SCOPE_DRIFT,
+    merge_blocked: bool = True,
+    rework_minutes: int = 0,
 ) -> IncidentCandidate:
     return IncidentCandidate(
-        category=FailureCategory.SCOPE_DRIFT,
-        severity=severity,
-        source_bc=source_bc,
+        project_key="proj-a",
         story_id=story_id,
         run_id="run-1",
-        summary=summary,
-        evidence={"x": 1},
-        observed_at=_NOW,
+        category=category,
+        severity=severity,
+        phase="implementation",
+        role=IncidentRole.WORKER,
+        model="claude-opus",
+        symptom=symptom,
+        evidence=["e1"],
+        merge_blocked=merge_blocked,
+        rework_minutes=rework_minutes,
     )
 
 
 class TestIncidentNormalizer:
-    def test_collapses_whitespace_and_sets_normalized_at(self) -> None:
-        normalizer = IncidentNormalizer()
-        incident = normalizer.normalize(
-            _candidate(summary="  scope   exceeded \n badly  "),
-            incident_id=IncidentId("FC-1"),
-            normalized_at=_NOW,
+    def test_collapses_whitespace_and_sets_recorded_at(self) -> None:
+        draft = IncidentNormalizer().normalize(
+            _candidate(symptom="  scope   exceeded \n badly  "),
+            recorded_at=_NOW,
         )
-        assert incident.summary == "scope exceeded badly"
-        assert incident.normalized_at == _NOW
+        assert draft.symptom == "scope exceeded badly"
+        assert draft.recorded_at == _NOW
+        assert draft.incident_status is IncidentStatus.OBSERVED
 
-    def test_caps_summary_length(self) -> None:
-        normalizer = IncidentNormalizer(max_summary_length=5)
-        incident = normalizer.normalize(
-            _candidate(summary="abcdefghij"),
-            incident_id=IncidentId("FC-1"),
-            normalized_at=_NOW,
+    def test_caps_symptom_length(self) -> None:
+        draft = IncidentNormalizer(max_symptom_length=5).normalize(
+            _candidate(symptom="abcdefghij"),
+            recorded_at=_NOW,
         )
-        assert incident.summary == "abcde"
+        assert draft.symptom == "abcde"
 
-    def test_returns_incident_instance(self) -> None:
-        incident = IncidentNormalizer().normalize(
-            _candidate(),
-            incident_id=IncidentId("FC-1"),
-            normalized_at=_NOW,
-        )
-        assert isinstance(incident, Incident)
+    def test_returns_draft_without_id(self) -> None:
+        draft = IncidentNormalizer().normalize(_candidate(), recorded_at=_NOW)
+        assert isinstance(draft, IncidentDraft)
 
 
 class TestIngressCriteria:
     def test_rejects_below_min_severity(self) -> None:
         criteria = IngressCriteria(min_severity=IncidentSeverity.MEDIUM)
         with pytest.raises(IncidentRejectedError) as exc:
-            criteria.check(_candidate(severity=IncidentSeverity.LOW), now=_NOW)
-        assert IncidentRejectReason.BELOW_MIN_SEVERITY in exc.value.reason_codes
+            criteria.check(_candidate(severity=IncidentSeverity.LOW), is_novel=True)
+        assert exc.value.reason_codes == (IncidentRejectReason.BELOW_MIN_SEVERITY,)
 
-    def test_accepts_at_min_severity(self) -> None:
-        criteria = IngressCriteria(min_severity=IncidentSeverity.MEDIUM)
-        criteria.check(_candidate(severity=IncidentSeverity.MEDIUM), now=_NOW)
+    def test_admits_merge_blocked(self) -> None:
+        IngressCriteria().check(
+            _candidate(merge_blocked=True, rework_minutes=0), is_novel=False
+        )
 
-    def test_dedup_within_window(self) -> None:
-        criteria = IngressCriteria(dedup_window_s=60.0)
-        cand = _candidate()
-        criteria.check(cand, now=_NOW)
-        criteria.remember(cand, now=_NOW)
-        later = _NOW.replace(second=30)
+    def test_admits_rework_over_threshold(self) -> None:
+        IngressCriteria().check(
+            _candidate(merge_blocked=False, rework_minutes=31), is_novel=False
+        )
+
+    def test_admits_novel_error_type(self) -> None:
+        IngressCriteria().check(
+            _candidate(merge_blocked=False, rework_minutes=0), is_novel=True
+        )
+
+    def test_rejects_not_significant(self) -> None:
+        # Severity ok, aber kein Signifikanz-Trigger -> NOT_SIGNIFICANT erreichbar.
+        criteria = IngressCriteria()
         with pytest.raises(IncidentRejectedError) as exc:
-            criteria.check(cand, now=later)
-        assert IncidentRejectReason.DUPLICATE_WINDOW in exc.value.reason_codes
+            criteria.check(
+                _candidate(
+                    severity=IncidentSeverity.HIGH,
+                    merge_blocked=False,
+                    rework_minutes=10,
+                ),
+                is_novel=False,
+            )
+        assert exc.value.reason_codes == (IncidentRejectReason.NOT_SIGNIFICANT,)
 
-    def test_dedup_outside_window_allowed(self) -> None:
-        criteria = IngressCriteria(dedup_window_s=60.0)
-        cand = _candidate()
-        criteria.check(cand, now=_NOW)
-        criteria.remember(cand, now=_NOW)
-        later = _NOW.replace(minute=2)
-        # outside 60s window -> accepted again
-        criteria.check(cand, now=later)
+    def test_rework_exactly_at_threshold_is_not_significant(self) -> None:
+        # "Ueber 30 Minuten" -> 30 genau ist NICHT signifikant (strict >).
+        with pytest.raises(IncidentRejectedError):
+            IngressCriteria().check(
+                _candidate(merge_blocked=False, rework_minutes=30),
+                is_novel=False,
+            )
 
 
 class TestIncidentTriageIngest:
-    def _triage(self, writer: _SpyWriter) -> IncidentTriage:
+    def _triage(self, writer: _SpyWriter, reader: _SpyReader) -> IncidentTriage:
         return IncidentTriage(
             normalizer=IncidentNormalizer(),
             criteria=IngressCriteria(),
-            projection_writer=writer,
+            writer=writer,
+            reader=reader,
         )
 
-    def test_happy_path_writes_fc_incidents(self) -> None:
+    def test_happy_path_persists_and_returns_id(self) -> None:
+        writer, reader = _SpyWriter(), _SpyReader()
+        incident_id = self._triage(writer, reader).ingest(_candidate())
+
+        assert len(writer.drafts) == 1
+        assert writer.drafts[0].symptom == "scope exceeded"
+        assert incident_id == "FC-2026-0001"
+
+    def test_novelty_checks_corpus_projectbound(self) -> None:
+        writer, reader = _SpyWriter(), _SpyReader()
+        self._triage(writer, reader).ingest(_candidate())
+
         from agentkit.telemetry.projection_accessor import ProjectionKind
 
-        writer = _SpyWriter()
-        triage = self._triage(writer)
-
-        incident_id = triage.ingest(_candidate())
-
-        assert len(writer.writes) == 1
-        kind, record = writer.writes[0]
+        assert len(reader.reads) == 1
+        kind, flt = reader.reads[0]
         assert kind is ProjectionKind.FC_INCIDENTS
-        assert isinstance(record, Incident)
-        assert record.incident_id == incident_id
-        assert record.summary == "scope exceeded"
+        assert flt.project_key == "proj-a"
 
-    def test_reject_does_not_write(self) -> None:
-        writer = _SpyWriter()
-        triage = self._triage(writer)
+    def test_reject_does_not_persist(self) -> None:
+        writer, reader = _SpyWriter(), _SpyReader()
         with pytest.raises(IncidentRejectedError):
-            triage.ingest(_candidate(severity=IncidentSeverity.LOW))
-        assert writer.writes == []
+            self._triage(writer, reader).ingest(
+                _candidate(severity=IncidentSeverity.LOW)
+            )
+        assert writer.drafts == []
 
-    def test_three_steps_dedup_blocks_second_identical(self) -> None:
-        writer = _SpyWriter()
-        triage = self._triage(writer)
-        triage.ingest(_candidate())
-        # identical candidate within the 60s default window -> rejected
-        with pytest.raises(IncidentRejectedError):
-            triage.ingest(_candidate())
-        assert len(writer.writes) == 1
+    def test_not_significant_when_in_corpus_and_no_trigger(self) -> None:
+        # Existierender Incident gleicher (project, category) -> nicht novel;
+        # kein Merge-Block, Rework klein -> NOT_SIGNIFICANT.
+        from agentkit.failure_corpus import Incident
+
+        existing = Incident(
+            project_key="proj-a",
+            incident_id=IncidentId("FC-2026-0001"),
+            run_id="run-0",
+            story_id="AG3-000",
+            category=FailureCategory.SCOPE_DRIFT,
+            severity=IncidentSeverity.HIGH,
+            phase="implementation",
+            role=IncidentRole.WORKER,
+            model="m",
+            symptom="prior",
+            recorded_at=_NOW,
+        )
+        writer, reader = _SpyWriter(), _SpyReader([existing])
+        with pytest.raises(IncidentRejectedError) as exc:
+            self._triage(writer, reader).ingest(
+                _candidate(
+                    category=FailureCategory.SCOPE_DRIFT,
+                    merge_blocked=False,
+                    rework_minutes=5,
+                )
+            )
+        assert exc.value.reason_codes == (IncidentRejectReason.NOT_SIGNIFICANT,)
+        assert writer.drafts == []

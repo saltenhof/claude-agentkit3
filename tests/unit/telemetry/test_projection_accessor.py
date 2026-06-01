@@ -92,19 +92,48 @@ def _make_incident() -> object:
 
     from agentkit.core_types import FailureCategory
     from agentkit.failure_corpus.incident import Incident
-    from agentkit.failure_corpus.types import IncidentId, IncidentSeverity
+    from agentkit.failure_corpus.types import (
+        IncidentId,
+        IncidentRole,
+        IncidentSeverity,
+    )
 
     return Incident(
-        incident_id=IncidentId("FC-1"),
+        project_key="pk",
+        incident_id=IncidentId("FC-2026-0001"),
+        run_id="run-abc",
+        story_id="TEST-001",
         category=FailureCategory.SCOPE_DRIFT,
         severity=IncidentSeverity.HIGH,
-        source_bc="governance-and-guards",
-        story_id="TEST-001",
+        phase="implementation",
+        role=IncidentRole.WORKER,
+        model="claude-opus",
+        symptom="scope exceeded",
+        evidence=["e1"],
+        recorded_at=_dt(2026, 6, 1, 12, 0, 0, tzinfo=_UTC),
+    )
+
+
+def _make_draft() -> object:
+    from datetime import UTC as _UTC
+    from datetime import datetime as _dt
+
+    from agentkit.core_types import FailureCategory
+    from agentkit.failure_corpus.incident import IncidentDraft
+    from agentkit.failure_corpus.types import IncidentRole, IncidentSeverity
+
+    return IncidentDraft(
+        project_key="pk",
         run_id="run-abc",
-        summary="scope exceeded",
-        evidence={},
-        observed_at=_dt(2026, 6, 1, 12, 0, 0, tzinfo=_UTC),
-        normalized_at=_dt(2026, 6, 1, 12, 0, 0, tzinfo=_UTC),
+        story_id="TEST-001",
+        category=FailureCategory.SCOPE_DRIFT,
+        severity=IncidentSeverity.HIGH,
+        phase="implementation",
+        role=IncidentRole.WORKER,
+        model="claude-opus",
+        symptom="scope exceeded",
+        evidence=["e1"],
+        recorded_at=_dt(2026, 6, 1, 12, 0, 0, tzinfo=_UTC),
     )
 
 
@@ -230,15 +259,28 @@ def test_phase_state_projection_write_raises_not_accessor_owned() -> None:
     assert isinstance(exc_info.value, NotImplementedError)
 
 
-def test_fc_incidents_write_calls_repo() -> None:
-    """AG3-028 KONFLIKT-2: FC_INCIDENTS ist accessor-owned -> fc_incidents.write."""
+def test_fc_incidents_record_calls_repo() -> None:
+    """AG3-028 Codex-r1: FC_INCIDENTS wird ueber record_fc_incident geschrieben.
+
+    Die generische write_projection-API ist fail-closed (id muss zurueck);
+    der dedizierte Pfad delegiert an fc_incidents.record_incident und gibt die id.
+    """
+    from agentkit.failure_corpus.types import IncidentId
+    from agentkit.telemetry.errors import FCIncidentWriteViaDedicatedMethodError
+
     repos = _make_repos()
+    repos.fc_incidents.record_incident.return_value = IncidentId("FC-2026-0007")
     accessor = ProjectionAccessor(repos)
-    record = _make_incident()
+    draft = _make_draft()
 
-    accessor.write_projection(ProjectionKind.FC_INCIDENTS, record)  # type: ignore[arg-type]
+    # Generische write_projection ist fail-closed.
+    with pytest.raises(FCIncidentWriteViaDedicatedMethodError):
+        accessor.write_projection(ProjectionKind.FC_INCIDENTS, _make_incident())  # type: ignore[arg-type]
 
-    repos.fc_incidents.write.assert_called_once_with(record)
+    # Dedizierter Pfad gibt die id zurueck.
+    incident_id = accessor.record_fc_incident(draft)  # type: ignore[arg-type]
+    repos.fc_incidents.record_incident.assert_called_once_with(draft)
+    assert incident_id == "FC-2026-0007"
     repos.story_metrics.write.assert_not_called()
 
 

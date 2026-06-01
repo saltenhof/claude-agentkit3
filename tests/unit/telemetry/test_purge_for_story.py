@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from agentkit.telemetry.projection_accessor import (
     ProjectionAccessor,
     ProjectionKind,
@@ -119,45 +121,47 @@ def test_purge_run_scoped_to_run_id() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Fehlerbehandlung: best-effort, errors werden propagiert
+# Fehlerbehandlung (AG3-028 Codex-r1): Pflicht-Tabellen eskalieren hart;
+# nur phase_state_projection ist best-effort (dokumentierter Alt-Schema-Fall).
 # ---------------------------------------------------------------------------
 
 
-def test_purge_run_error_in_one_repo_propagated_to_errors() -> None:
-    """Fehler in einem Repo-Purge wird in errors[] propagiert, andere Repos laufen weiter."""
+def test_purge_run_mandatory_table_error_escalates() -> None:
+    """Ein Purge-Fehler einer Pflicht-Tabelle (story_metrics) eskaliert hart.
+
+    Codex-r1 (FK-69 §69.11.5): fc_incidents/QA/story_metrics-Purge-Fehler duerfen
+    NICHT im blanket-catch verschwinden — kein FK-69-Zustand nach Reset.
+    """
     repos = _make_repos(qa_stage_rows=2, qa_finding_rows=3)
     repos.story_metrics.purge_run.side_effect = RuntimeError("DB unavailable")
     accessor = ProjectionAccessor(repos)
 
-    result = accessor.purge_run("pk", "S-001", "run-xyz")
-
-    # QA-Tabellen wurden geleert
-    assert result.purged_rows.get(ProjectionKind.QA_STAGE_RESULTS) == 2
-    assert result.purged_rows.get(ProjectionKind.QA_FINDINGS) == 3
-    # story_metrics Fehler in errors
-    assert len(result.errors) == 1
-    assert "story_metrics" in result.errors[0]
-    assert "RuntimeError" in result.errors[0]
-    # Accessor hat dennoch phase_state_projection versucht
-    repos.phase_state_projection.purge_run.assert_called_once()
+    with pytest.raises(RuntimeError, match="DB unavailable"):
+        accessor.purge_run("pk", "S-001", "run-xyz")
 
 
-def test_purge_run_all_errors_collected() -> None:
-    """Alle Repo-Fehler werden gesammelt; Ergebnis hat errors fuer jeden Fehlschlag."""
-    repos = MagicMock()
-    for attr in [
-        "qa_stage_results",
-        "qa_findings",
-        "story_metrics",
-        "phase_state_projection",
-        "fc_incidents",
-    ]:
-        getattr(repos, attr).purge_run.side_effect = ValueError(f"{attr} failed")
+def test_purge_run_fc_incidents_error_escalates() -> None:
+    """fc_incidents-Purge-Fehler eskaliert hart (Codex-r1 ERROR 4)."""
+    repos = _make_repos()
+    repos.fc_incidents.purge_run.side_effect = RuntimeError("fc down")
+    accessor = ProjectionAccessor(repos)
+
+    with pytest.raises(RuntimeError, match="fc down"):
+        accessor.purge_run("pk", "S-001", "run-xyz")
+
+
+def test_purge_run_phase_state_error_is_best_effort() -> None:
+    """Nur phase_state_projection bleibt best-effort (Alt-Schema-Sonderfall)."""
+    repos = _make_repos(qa_stage_rows=1, fc_incidents_rows=1)
+    repos.phase_state_projection.purge_run.side_effect = ValueError("no run_id col")
     accessor = ProjectionAccessor(repos)
 
     result = accessor.purge_run("pk", "S-001", "run-xyz")
 
-    assert len(result.errors) == 5
+    # Pflicht-Tabellen liefen durch; phase_state-Fehler ist gesammelt.
+    assert result.purged_rows.get(ProjectionKind.FC_INCIDENTS) == 1
+    assert len(result.errors) == 1
+    assert "phase_state_projection" in result.errors[0]
 
 
 # ---------------------------------------------------------------------------

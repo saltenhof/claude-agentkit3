@@ -75,5 +75,11 @@ def __getattr__(name: str) -> Any:
     if name == "ProjectionRecord":
         from agentkit.closure import StoryMetricsRecord
 
-        return QAStageResultRecord | QAFindingRecord | StoryMetricsRecord
+        # AG3-028 Codex-r1 WARNING: Incident gehoert in die Runtime-Union (nicht
+        # nur unter TYPE_CHECKING), damit isinstance/Union-Pruefungen zur Laufzeit
+        # den fc_incidents-Record erfassen. Incident lebt im Blatt-Modul
+        # failure_corpus.incident (importiert kein telemetry -> kein Zyklus).
+        return (
+            QAStageResultRecord | QAFindingRecord | StoryMetricsRecord | Incident
+        )
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -16,13 +16,17 @@ from agentkit.failure_corpus.errors import (
     IncidentRejectedError,
     IncidentRejectReason,
 )
-from agentkit.failure_corpus.incident import Incident, IncidentCandidate
+from agentkit.failure_corpus.incident import (
+    Incident,
+    IncidentCandidate,
+    IncidentDraft,
+)
 from agentkit.failure_corpus.incident_triage import (
     IncidentNormalizer,
     IncidentTriage,
     IngressCriteria,
 )
-from agentkit.failure_corpus.ports import ProjectionWriterPort
+from agentkit.failure_corpus.ports import IncidentWriterPort, ProjectionReaderPort
 from agentkit.failure_corpus.top import (
     CheckApprovalDecision,
     CheckProposal,
@@ -35,6 +39,7 @@ from agentkit.failure_corpus.top import (
 from agentkit.failure_corpus.types import (
     CheckId,
     IncidentId,
+    IncidentRole,
     IncidentSeverity,
     PatternId,
 )
@@ -50,16 +55,19 @@ __all__ = [
     "FailurePattern",
     "Incident",
     "IncidentCandidate",
+    "IncidentDraft",
     "IncidentId",
     "IncidentNormalizer",
     "IncidentRejectReason",
     "IncidentRejectedError",
+    "IncidentRole",
     "IncidentSeverity",
     "IncidentStatus",
     "IncidentTriage",
+    "IncidentWriterPort",
     "IngressCriteria",
     "PatternCandidate",
     "PatternDecision",
     "PatternId",
-    "ProjectionWriterPort",
+    "ProjectionReaderPort",
 ]

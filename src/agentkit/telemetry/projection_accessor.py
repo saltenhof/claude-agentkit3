@@ -26,6 +26,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from agentkit.telemetry.errors import (
+    FCIncidentWriteViaDedicatedMethodError,
     ProjectionKindNotAccessorOwnedError,
     ProjectionRecordTypeMismatchError,
 )
@@ -37,6 +38,8 @@ from agentkit.verify_system.stage_registry.records import (
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from agentkit.failure_corpus.incident import IncidentDraft
+    from agentkit.failure_corpus.types import IncidentId
     from agentkit.state_backend.store.projection_repositories import (
         ProjectionRepositories,
     )
@@ -150,8 +153,12 @@ class PurgeResult:
             Nur Tabellen mit aktivem Schreibpfad werden gezaehlt
             (fc_incidents seit AG3-028 inklusive; fc_patterns/fc_check_proposals
             folgen mit ihren Producer-Stories).
-        errors: Fehlermeldungen bei partiellen Fehlern (best-effort).
-            Leere Liste bedeutet: alle Tabellen erfolgreich geleert.
+        errors: Fehlermeldungen bei partiellen Fehlern. NUR der best-effort-Purge
+            von ``phase_state_projection`` (dokumentierter Alt-Schema-Sonderfall)
+            sammelt hier; Pflicht-Tabellen (qa_stage_results, qa_findings,
+            story_metrics, fc_incidents) eskalieren ihre Purge-Fehler hart
+            (Codex-r1, FK-69 §69.11.5). Leere Liste bedeutet: auch
+            phase_state_projection erfolgreich geleert.
     """
 
     purged_rows: dict[ProjectionKind, int] = field(default_factory=dict)
@@ -268,6 +275,13 @@ class ProjectionAccessor:
                 ),
             )
 
+        # AG3-028 Codex-r1: fc_incidents wird ueber die dedizierte
+        # record_fc_incident-Methode geschrieben (FK-41 §41.3.1 vergibt die
+        # FC-YYYY-NNNN-id in der Transaktion und MUSS sie zurueckgeben). Die
+        # generische write_projection-API (-> None) kann die id nicht liefern.
+        if projection_kind is ProjectionKind.FC_INCIDENTS:
+            raise FCIncidentWriteViaDedicatedMethodError
+
         kind_map = _get_kind_to_record_type()
         expected_type = kind_map[projection_kind]
 
@@ -289,13 +303,27 @@ class ProjectionAccessor:
             # isinstance-Check erfolgte oben via _get_kind_to_record_type();
             # Any-cast weicht mypy-Narrowing aus, ohne Laufzeit-Import zu benoetigen.
             self._repos.story_metrics.write(record)  # type: ignore[arg-type]
-        elif projection_kind is ProjectionKind.FC_INCIDENTS:
-            # Incident ist runtime-lazy geladen (Anti-circular-import via
-            # _get_kind_to_record_type oben). isinstance-Check erfolgte dort.
-            self._repos.fc_incidents.write(record)  # type: ignore[arg-type]
         else:
-            # Should not reach here due to _KIND_TO_RECORD_TYPE check above
+            # FC_INCIDENTS wird oben fail-closed auf record_fc_incident
+            # umgeleitet; alle uebrigen Kinds sind durch den
+            # _KIND_TO_RECORD_TYPE-Check oben abgedeckt.
             raise NotImplementedError(f"Unhandled ProjectionKind: {projection_kind!r}")
+
+    def record_fc_incident(self, draft: IncidentDraft) -> IncidentId:
+        """Persistiere einen Incident und gib die vergebene ``IncidentId`` zurueck.
+
+        Dedizierter fc_incidents-Schreibpfad (FK-41 §41.3.1, AG3-028 Codex-r1):
+        die ``FC-YYYY-NNNN``-id wird DB-seitig gap-free pro (project_key, Jahr)
+        in der Schreibtransaktion vergeben (analog story_number-Allokator,
+        AG3-050) und an den Aufrufer zurueckgegeben. Append-only.
+
+        Args:
+            draft: Normalisierter, noch nicht persistierter Incident (ohne id).
+
+        Returns:
+            Die vergebene ``IncidentId`` (``FC-YYYY-NNNN``).
+        """
+        return self._repos.fc_incidents.record_incident(draft)
 
     def read_projection(
         self,
@@ -345,8 +373,16 @@ class ProjectionAccessor:
                 )
             )
         elif projection_kind is ProjectionKind.FC_INCIDENTS:
-            # AG3-028 KONFLIKT-2: fc_incidents ist accessor-owned. Filter ueber
-            # story_id/run_id (die Tabelle traegt kein project_key, Story §2.1.5).
+            # AG3-028 KONFLIKT-2: fc_incidents ist accessor-owned. FK-41 §41.3.1:
+            # Abfragen sind stets projektgebunden -> project_key ist Pflicht
+            # (FAIL-CLOSED; Codex-r1). Fehlt project_key, faellt der Repo-Read
+            # mit ValueError, statt stillschweigend alle Projekte zu liefern.
+            if not filter.project_key:
+                raise ValueError(
+                    "read_projection(FC_INCIDENTS) requires "
+                    "ProjectionFilter.project_key (FK-41 §41.3.1: Abfragen sind "
+                    "stets projektgebunden)"
+                )
             return list(
                 self._repos.fc_incidents.read(
                     project_key=filter.project_key,
@@ -404,39 +440,42 @@ class ProjectionAccessor:
         purged_rows: dict[ProjectionKind, int] = {}
         errors: list[str] = []
 
-        for kind in [
-            ProjectionKind.QA_STAGE_RESULTS,
-            ProjectionKind.QA_FINDINGS,
-            ProjectionKind.STORY_METRICS,
-            ProjectionKind.PHASE_STATE_PROJECTION,
-            ProjectionKind.FC_INCIDENTS,
-        ]:
-            try:
-                if kind is ProjectionKind.QA_STAGE_RESULTS:
-                    count = self._repos.qa_stage_results.purge_run(
-                        project_key, story_id, run_id
-                    )
-                elif kind is ProjectionKind.QA_FINDINGS:
-                    count = self._repos.qa_findings.purge_run(
-                        project_key, story_id, run_id
-                    )
-                elif kind is ProjectionKind.STORY_METRICS:
-                    count = self._repos.story_metrics.purge_run(
-                        project_key, story_id, run_id
-                    )
-                elif kind is ProjectionKind.PHASE_STATE_PROJECTION:
-                    count = self._repos.phase_state_projection.purge_run(
-                        project_key, story_id, run_id
-                    )
-                elif kind is ProjectionKind.FC_INCIDENTS:
-                    count = self._repos.fc_incidents.purge_run(
-                        project_key, story_id, run_id
-                    )
-                else:
-                    continue  # pragma: no cover
-                purged_rows[kind] = count
-            except Exception as exc:  # noqa: BLE001
-                errors.append(f"purge_run {kind!r}: {type(exc).__name__}: {exc}")
+        # Pflicht-Tabellen (Codex-r1, AG3-028): qa_stage_results, qa_findings,
+        # story_metrics und fc_incidents besitzen einen produktiven Schreibpfad und
+        # ein bootstrapptes Schema. Ein Purge-Fehler hier ist ein echter
+        # Reset-Defekt und darf NICHT im blanket-catch verschwinden (FK-69
+        # §69.10.1/§69.11.5: kein FK-69-Zustand nach Reset; kein produktiver
+        # Reset-Aufrufer gated auf errors==[]). Diese Fehler eskalieren hart.
+        purged_rows[ProjectionKind.QA_STAGE_RESULTS] = (
+            self._repos.qa_stage_results.purge_run(project_key, story_id, run_id)
+        )
+        purged_rows[ProjectionKind.QA_FINDINGS] = self._repos.qa_findings.purge_run(
+            project_key, story_id, run_id
+        )
+        purged_rows[ProjectionKind.STORY_METRICS] = self._repos.story_metrics.purge_run(
+            project_key, story_id, run_id
+        )
+        purged_rows[ProjectionKind.FC_INCIDENTS] = self._repos.fc_incidents.purge_run(
+            project_key, story_id, run_id
+        )
+
+        # Best-effort NUR fuer phase_state_projection: dessen Alt-Schema-Varianten
+        # (fehlende project_key/run_id-Spalten, nicht garantiert bootstrappte
+        # Tabelle in BC-isolierten Persistenz-Sichten) sind ein dokumentierter
+        # Sonderfall (FacadePhaseStateProjectionRepository._sqlite_purge). Der
+        # Fehler wird hier separat gesammelt, statt den Reset der Pflicht-Tabellen
+        # zu blockieren — Write-Owner ist pipeline_engine.PhaseExecutor.
+        try:
+            purged_rows[ProjectionKind.PHASE_STATE_PROJECTION] = (
+                self._repos.phase_state_projection.purge_run(
+                    project_key, story_id, run_id
+                )
+            )
+        except Exception as exc:  # noqa: BLE001
+            errors.append(
+                f"purge_run {ProjectionKind.PHASE_STATE_PROJECTION!r}: "
+                f"{type(exc).__name__}: {exc}"
+            )
 
         return PurgeResult(purged_rows=purged_rows, errors=errors)
 

@@ -1,10 +1,12 @@
-"""Bootstrap-Idempotenz + CHECK-Constraints fuer ``fc_incidents`` (AG3-028 §2.1.5, AK#4).
+"""Bootstrap-Idempotenz + exakter FK-41-§41.3.1-Vertrag fuer ``fc_incidents`` (AG3-028, AK#4).
 
-Verifiziert:
+Pinnt (Codex-r1 Remediation):
 - zweimaliger Bootstrap ist fehlerfrei (CREATE TABLE IF NOT EXISTS)
-- die beiden Indizes werden angelegt
-- CHECK-Constraints auf category / severity / incident_status greifen
+- exakte FK-41-§41.3.1-Spalten + NOT-NULL + CHECK-Constraints (category/severity/
+  role/incident_status)
+- die beiden Indizes (project_key,story_id,run_id) und (incident_status)
 - PK (UNIQUE incident_id): doppelter Insert -> IntegrityError (append-only)
+- fc_incident_counters-Tabelle vorhanden (FC-YYYY-NNNN-Allokation)
 - alte DB (anderer SCHEMA_VERSION-Slug) bleibt unangetastet (FK-18 §18.9a)
 """
 
@@ -23,26 +25,35 @@ if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
-_VALID_ROW = (
-    "FC-1",
-    "scope_drift",
-    "high",
-    "governance-and-guards",
-    "AG3-001",
-    "run-1",
-    "scope exceeded",
-    "{}",
-    "2026-06-01T12:00:00+00:00",
-    "2026-06-01T12:00:00+00:00",
-    "observed",
+# FK-41 §41.3.1 column order of the INSERT used by the repository adapter.
+_COLUMNS = (
+    "project_key, incident_id, run_id, story_id, category, severity, "
+    "phase, role, model, symptom, evidence_json, recorded_at, "
+    "incident_status, tags, impact, pattern_ref"
 )
-
-_INSERT = """
-    INSERT INTO fc_incidents (
-        incident_id, category, severity, source_bc, story_id, run_id,
-        summary, evidence_json, observed_at, normalized_at, incident_status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+_INSERT = f"""
+    INSERT INTO fc_incidents ({_COLUMNS})
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
+
+_VALID_ROW = (
+    "proj-a",                          # project_key
+    "FC-2026-0001",                    # incident_id
+    "run-1",                           # run_id
+    "AG3-001",                         # story_id
+    "scope_drift",                     # category
+    "high",                            # severity
+    "implementation",                  # phase
+    "worker",                          # role
+    "claude-opus",                     # model
+    "scope exceeded",                  # symptom
+    '["e1"]',                          # evidence_json (list[str])
+    "2026-06-01T12:00:00+00:00",       # recorded_at
+    "observed",                        # incident_status
+    None,                              # tags
+    None,                              # impact
+    None,                              # pattern_ref
+)
 
 
 @pytest.fixture(autouse=True)
@@ -70,6 +81,14 @@ class TestBootstrapIdempotent:
             ).fetchone()
         assert result is not None
 
+    def test_counter_table_present(self, story_dir: Path) -> None:
+        with _connect(story_dir) as conn:
+            result = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name='fc_incident_counters'"
+            ).fetchone()
+        assert result is not None
+
     def test_double_bootstrap_no_error(self, story_dir: Path) -> None:
         for _ in range(2):
             with _connect(story_dir) as conn:
@@ -89,8 +108,44 @@ class TestBootstrapIdempotent:
                     "SELECT name FROM sqlite_master WHERE type='index'"
                 ).fetchall()
             }
-        assert "idx_fc_incidents_story_run" in indices
+        assert "idx_fc_incidents_project_story_run" in indices
         assert "idx_fc_incidents_incident_status" in indices
+
+
+class TestExactColumnContract:
+    def test_columns_match_fk41(self, story_dir: Path) -> None:
+        with _connect(story_dir) as conn:
+            cols = {
+                str(row[1]): {"notnull": bool(row[3])}
+                for row in conn.execute(
+                    "PRAGMA table_info(fc_incidents)"
+                ).fetchall()
+            }
+        # Pflicht-Spalten (FK-41 §41.3.1) inkl. NOT NULL.
+        for name in (
+            "project_key",
+            "incident_id",
+            "run_id",
+            "story_id",
+            "category",
+            "severity",
+            "phase",
+            "role",
+            "model",
+            "symptom",
+            "evidence_json",
+            "recorded_at",
+            "incident_status",
+        ):
+            assert name in cols, f"missing column {name}"
+            assert cols[name]["notnull"], f"{name} must be NOT NULL (FK-41 §41.3.1)"
+        # Optionale Spalten (FK-41 §41.3.1) — vorhanden, nullbar.
+        for name in ("tags", "impact", "pattern_ref"):
+            assert name in cols, f"missing optional column {name}"
+            assert not cols[name]["notnull"], f"{name} must be nullable"
+        # Alt-Schema-Spalten duerfen NICHT mehr existieren.
+        for stale in ("source_bc", "summary", "observed_at", "normalized_at"):
+            assert stale not in cols, f"stale column {stale} must be gone"
 
 
 class TestCheckConstraints:
@@ -104,46 +159,86 @@ class TestCheckConstraints:
     def test_default_incident_status_observed(self, story_dir: Path) -> None:
         with _connect(story_dir) as conn:
             conn.execute(
-                """
+                f"""
                 INSERT INTO fc_incidents (
-                    incident_id, category, severity, source_bc, story_id,
-                    run_id, summary, evidence_json, observed_at, normalized_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
+                    project_key, incident_id, run_id, story_id, category,
+                    severity, phase, role, model, symptom, evidence_json,
+                    recorded_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,  # noqa: F541
                 (
-                    "FC-default",
+                    "proj-a",
+                    "FC-2026-0002",
+                    "run-1",
+                    "AG3-001",
                     "scope_drift",
                     "high",
-                    "bc",
-                    "AG3-001",
-                    "run-1",
+                    "implementation",
+                    "worker",
+                    "m",
                     "s",
-                    "{}",
-                    "2026-06-01T12:00:00+00:00",
+                    "[]",
                     "2026-06-01T12:00:00+00:00",
                 ),
             )
             conn.commit()
             status = conn.execute(
-                "SELECT incident_status FROM fc_incidents WHERE incident_id='FC-default'"
+                "SELECT incident_status FROM fc_incidents "
+                "WHERE incident_id='FC-2026-0002'"
             ).fetchone()[0]
         assert status == "observed"
 
     def test_rejects_invalid_category(self, story_dir: Path) -> None:
-        bad = ("FC-2", "not_a_category", *_VALID_ROW[2:])
+        bad = (_VALID_ROW[0], "FC-2026-0003", *_VALID_ROW[2:4], "not_a_cat", *_VALID_ROW[5:])
         with _connect(story_dir) as conn, pytest.raises(sqlite3.IntegrityError):
             conn.execute(_INSERT, bad)
             conn.commit()
 
     def test_rejects_invalid_severity(self, story_dir: Path) -> None:
-        bad = ("FC-3", "scope_drift", "BLOCKING", *_VALID_ROW[3:])
+        # FK-27 Severity-Wert ist KEIN gueltiger IncidentSeverity-Wert.
+        bad = (
+            _VALID_ROW[0],
+            "FC-2026-0004",
+            *_VALID_ROW[2:5],
+            "BLOCKING",
+            *_VALID_ROW[6:],
+        )
+        with _connect(story_dir) as conn, pytest.raises(sqlite3.IntegrityError):
+            conn.execute(_INSERT, bad)
+            conn.commit()
+
+    def test_rejects_invalid_role(self, story_dir: Path) -> None:
+        bad = (
+            _VALID_ROW[0],
+            "FC-2026-0005",
+            *_VALID_ROW[2:7],
+            "admin",  # not in worker|qa|governance
+            *_VALID_ROW[8:],
+        )
         with _connect(story_dir) as conn, pytest.raises(sqlite3.IntegrityError):
             conn.execute(_INSERT, bad)
             conn.commit()
 
     def test_rejects_invalid_incident_status(self, story_dir: Path) -> None:
-        # alter PromotionStatus-Wert ist kein gueltiger IncidentStatus mehr
-        bad = ("FC-4", *_VALID_ROW[1:-1], "monitoring")
+        bad = (
+            _VALID_ROW[0],
+            "FC-2026-0006",
+            *_VALID_ROW[2:12],
+            "monitoring",
+            *_VALID_ROW[13:],
+        )
+        with _connect(story_dir) as conn, pytest.raises(sqlite3.IntegrityError):
+            conn.execute(_INSERT, bad)
+            conn.commit()
+
+    def test_rejects_null_project_key(self, story_dir: Path) -> None:
+        bad = (None, *_VALID_ROW[1:])
+        with _connect(story_dir) as conn, pytest.raises(sqlite3.IntegrityError):
+            conn.execute(_INSERT, bad)
+            conn.commit()
+
+    def test_rejects_null_run_id(self, story_dir: Path) -> None:
+        bad = (*_VALID_ROW[:2], None, *_VALID_ROW[3:])
         with _connect(story_dir) as conn, pytest.raises(sqlite3.IntegrityError):
             conn.execute(_INSERT, bad)
             conn.commit()
@@ -162,7 +257,7 @@ class TestSideBySideMigration:
     def test_old_schema_db_untouched(self, tmp_path: Path) -> None:
         old_dir = tmp_path / "stories" / "OLD"
         old_dir.mkdir(parents=True, exist_ok=True)
-        old_db = old_dir / "agentkit_3_8_0.sqlite"
+        old_db = old_dir / "agentkit_3_9_0.sqlite"
         with sqlite3.connect(str(old_db)) as conn:
             conn.execute("CREATE TABLE dummy (id TEXT PRIMARY KEY)")
             conn.commit()
