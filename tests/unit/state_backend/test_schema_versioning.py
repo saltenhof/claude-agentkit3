@@ -27,11 +27,15 @@ def test_schema_version_helpers_derive_versioned_names() -> None:
     # AG3-028 Codex-r2: 3.10.0 -> 3.11.0 (incident_id GLOBAL unique — PK =
     # incident_id allein; fc_incident_counters auf year allein gekeyt; DB-CHECKs
     # fuer FC-YYYY-NNNN-Format + evidence_json = JSON-Array)
-    assert state_config.SCHEMA_VERSION == "3.11.0"
+    # AG3-028 Codex-r3/r4: 3.11.0 -> 3.12.0 (verschaerfte fc_incidents-CHECKs:
+    # incident_id-Sequenz >=4 Ziffern + nur Ziffern; evidence_json = JSON-Array
+    # AUS STRINGS via Postgres-jsonpath. Bump, weil CREATE TABLE IF NOT EXISTS
+    # bestehende 3.11.0-Constraints nicht ersetzt — FK-18 §18.9a Side-by-Side)
+    assert state_config.SCHEMA_VERSION == "3.12.0"
     assert state_config.versioned_postgres_schema_name("3.0.0") == "ak3_v3_0_0"
     assert state_config.versioned_sqlite_db_file("3.0.0") == "agentkit_3_0_0.sqlite"
-    assert state_config.versioned_postgres_schema_name() == "ak3_v3_11_0"
-    assert state_config.versioned_sqlite_db_file() == "agentkit_3_11_0.sqlite"
+    assert state_config.versioned_postgres_schema_name() == "ak3_v3_12_0"
+    assert state_config.versioned_sqlite_db_file() == "agentkit_3_12_0.sqlite"
 
 
 def test_schema_version_rejects_non_semver() -> None:

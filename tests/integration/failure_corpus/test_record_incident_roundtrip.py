@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from agentkit.bootstrap.composition_root import build_failure_corpus
 from agentkit.core_types import FailureCategory, IncidentStatus
 from agentkit.failure_corpus import IncidentCandidate, IncidentRole, IncidentSeverity
@@ -191,3 +193,56 @@ def test_record_incident_cross_project_isolation() -> None:
         )
         == 1
     )
+
+
+def test_postgres_db_checks_reject_malformed_rows() -> None:
+    """Postgres-DB-CHECKs lehnen Format-/Elementtyp-Verstoesse fail-closed ab.
+
+    Codex-r4: pinnt den FK-41-§41.3.1/§41.4.1-DB-Vertrag DIREKT gegen echtes
+    Postgres (nicht nur SQLite/Pydantic): incident_id != FC-YYYY-NNNN und
+    evidence_json mit Nicht-String-Element muessen vom DB-CHECK abgewiesen werden.
+    """
+    import psycopg
+
+    from agentkit.state_backend.store.projection_repositories import _postgres_connect
+
+    cols = (
+        "project_key, incident_id, run_id, story_id, category, severity, "
+        "phase, role, model, symptom, evidence_json, recorded_at, incident_status"
+    )
+    insert = (
+        f"INSERT INTO fc_incidents ({cols}) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    )
+
+    def _vals(incident_id: str, evidence_json: str) -> tuple[object, ...]:
+        return (
+            "INT-CHK",
+            incident_id,
+            "run-chk",
+            "INT-CHK",
+            "scope_drift",
+            "high",
+            "implementation",
+            "worker",
+            "m",
+            "s",
+            evidence_json,
+            "2026-06-01T12:00:00+00:00",
+            "observed",
+        )
+
+    bad_rows = [
+        _vals("FC-2026-1", '["e1"]'),  # Sequenz < 4 Ziffern
+        _vals("FC-2026-0001x", '["e1"]'),  # Nicht-Ziffern-Suffix
+        _vals("FC-2026-0002", '[{"k": "v"}]'),  # Objekt-Element
+        _vals("FC-2026-0003", "[1]"),  # Number-Element
+    ]
+
+    def _attempt(vals: tuple[object, ...]) -> None:
+        with _postgres_connect() as conn:
+            conn.execute(insert, vals)
+
+    for vals in bad_rows:
+        with pytest.raises(psycopg.errors.IntegrityError):
+            _attempt(vals)

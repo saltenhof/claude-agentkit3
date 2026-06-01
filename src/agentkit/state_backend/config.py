@@ -41,7 +41,15 @@ STATE_DATABASE_URL_ENV = "AGENTKIT_STATE_DATABASE_URL"
 # Counter-Struktur aendert sich -> erneuter Side-by-Side-Bump (FK-18 §18.9a):
 # ein frisches ak3_v3_11_0 schema / agentkit_3_11_0.sqlite wird erzeugt; die
 # alte DB bleibt unangetastet.
-SCHEMA_VERSION = "3.11.0"
+# AG3-028 Codex-r3/r4 Remediation 2026-06-01: 3.11.0 -> 3.12.0. r3 hat die
+# fc_incidents-CHECKs verschaerft (incident_id == FC-YYYY-NNNN mit >=4-stelliger
+# Ziffern-Sequenz; evidence_json = JSON-Array AUS STRINGS via Postgres-jsonpath),
+# OHNE Version-Bump. Da CREATE TABLE IF NOT EXISTS eine bestehende Tabelle nicht
+# ersetzt, behielten bereits gebootete 3.11.0-DBs die alten (schwaecheren)
+# Constraints (zwei DBs gleicher Version, divergentes Schema). Der Bump auf
+# 3.12.0 stellt den Side-by-Side-Vertrag (FK-18 §18.9a) wieder her: die
+# verschaerften Constraints landen frisch in ak3_v3_12_0 / agentkit_3_12_0.sqlite.
+SCHEMA_VERSION = "3.12.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 
 
