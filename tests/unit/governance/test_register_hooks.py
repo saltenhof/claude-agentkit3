@@ -127,11 +127,19 @@ def _all_hooks_pre_tool_use() -> list[HookDefinition]:
 
 
 def _sample_hooks() -> list[HookDefinition]:
-    """Build one HookDefinition per HookId with distinct matchers."""
+    """Build one HookDefinition per HookId.
+
+    Identity is (event, matcher, command); the command (one per HookId) is the
+    distinguishing field.  Matchers MUST be real FK-30 §30.3.1 tool tokens
+    because ``register_hooks`` materialises the fail-closed Codex adapter
+    (AG3-049), which rejects unknown matcher tokens.  ``Bash`` is a valid
+    §30.3.1 token shared by several guards (§30.3.1 registers multiple hooks
+    under one matcher), so distinct commands keep the 4-tuple identities apart.
+    """
     return [
         HookDefinition(
             hook_event_name=HookEventName.PRE_TOOL_USE,
-            matcher=hid.value,  # use hook_id string as matcher to guarantee uniqueness
+            matcher="Bash",
             command=f"agentkit-hook-claude pre {hid.value}",
         )
         for hid in HookId
@@ -280,7 +288,10 @@ class TestRegisterHooksIdempotency:
             HookDefinition(
                 hook_event_name=HookEventName.PRE_TOOL_USE,
                 matcher="Bash",
-                command="agentkit-hook-claude pre branch_guard --verbose",  # changed
+                # Changed command (distinct hook_id) on the same matcher; stays
+                # within the valid agentkit-hook-claude {phase} {hook_id} form so
+                # the fail-closed Codex adapter (AG3-049) accepts it.
+                command="agentkit-hook-claude pre story_creation_guard",
             )
         ]
 

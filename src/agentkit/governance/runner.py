@@ -234,7 +234,7 @@ class Governance:
 
         # Write Claude Code settings (.claude/settings.json)
         ClaudeCodeSettingsWriter(self._project_root).write(hook_definitions)
-        # Write Codex settings (.codex/config.toml)
+        # Write Codex settings (.codex/hooks.json — FK-76 §76.5.2)
         CodexSettingsWriter(self._project_root).write(hook_definitions)
 
     # ------------------------------------------------------------------
