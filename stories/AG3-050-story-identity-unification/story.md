@@ -128,3 +128,15 @@ Story-Inhalt (Vorbedingungen, bekannt zur Definitionszeit), kein Laufzeitzustand
   an der statischen Wahrheit.
 - **ZERO DEBT:** duplizierter (toter) Pfad wird entfernt, nicht nur deprecaten.
 - **FAIL CLOSED:** FK-Constraint gegen statische Story; unbekannte Dependency-Story blockiert.
+
+## 8. Offene Folge (Codex-Review r2, WARNING — getrackt)
+
+- **N1 (WARNING, r2):** Die gap-free/Race-Sicherheit der story_number-Allokation
+  ist fuer **SQLite** durch einen echten 16-Thread-Test bewiesen (faellt ohne
+  `BEGIN IMMEDIATE`). Fuer den **Postgres**-Pfad (`_pg_allocate_story_number`
+  innerhalb `create_story_atomic`-Transaktion) ist Race-Sicherheit unter echter
+  Konkurrenz **nicht eigens bewiesen** (keine lokale Postgres-Instanz im
+  Worker-Lauf). Disposition: Postgres-Concurrency-Allokationstest als
+  owner-zugeordnete Folge (Docker-Postgres-Testcontainer, analog e2e) — kein
+  Blocker (Transaktions-/Counter-Upsert ist strukturell korrekt). Aktiv an
+  Stefan zu spiegeln (Severity-Regel WARNING).
