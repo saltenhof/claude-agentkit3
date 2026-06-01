@@ -44,6 +44,10 @@ if TYPE_CHECKING:
     from agentkit.story_context_manager.types import StoryMode, StoryType
 
 
+# Run-scoped materialized prompt-instance filename (FK-44 §44.4.1).
+_PROMPT_INSTANCE_FILENAME = "prompt.md"
+
+
 @dataclass(frozen=True)
 class ComposedPrompt:
     content: str
@@ -387,7 +391,7 @@ def write_prompt_instance(
                 },
             },
         )
-    prompt_path = output_dir / "prompt.md"
+    prompt_path = output_dir / _PROMPT_INSTANCE_FILENAME
     manifest_path = output_dir / "manifest.json"
     # newline="" disables platform newline translation so the on-disk bytes
     # equal prompt.content.encode("utf-8") byte-for-byte. prompt.output_sha256
@@ -413,7 +417,7 @@ def write_prompt_instance(
                 "render_input_digest": prompt.render_input_digest,
                 "output_sha256": prompt.output_sha256,
                 "artifact_path": prompt_path.relative_to(project_root).as_posix(),
-                "prompt_file": "prompt.md",
+                "prompt_file": _PROMPT_INSTANCE_FILENAME,
             },
             indent=2,
             sort_keys=True,
@@ -528,7 +532,7 @@ def materialize_static_prompt_instance(
             },
         )
     output_dir = prompt_instance_dir(project_root, run_id, invocation_id)
-    prompt_path = output_dir / "prompt.md"
+    prompt_path = output_dir / _PROMPT_INSTANCE_FILENAME
     link_mode = _project_static_prompt(source, prompt_path)
     output_sha256 = hashlib.sha256(
         prompt_path.read_bytes(),
