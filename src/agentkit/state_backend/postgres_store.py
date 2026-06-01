@@ -709,7 +709,7 @@ def load_story_context_rows_global(
             """
             SELECT payload_json FROM story_contexts
             WHERE project_key = ?
-            ORDER BY story_id ASC
+            ORDER BY story_number ASC, story_id ASC
             """,
             (project_key,),
         ).fetchall()

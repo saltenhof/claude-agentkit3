@@ -11,6 +11,8 @@ stammdaten (FK-02 §2.11.3, FK-18 §18.6a).
 from __future__ import annotations
 
 import sqlite3
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -217,9 +219,15 @@ def test_create_story_rejects_missing_project() -> None:
         _create(service, title="X", op_id="op-missing", project_key="missing")
 
 
-def test_state_backend_allocates_story_numbers_monotone(tmp_path: Path) -> None:
-    """The single canonical allocator (create_story_atomic behind
-    StoryService.create_story) hands out monotone, gap-free numbers."""
+def test_state_backend_allocates_story_numbers_monotone_sequence(
+    tmp_path: Path,
+) -> None:
+    """Sequential proof: the single canonical allocator (create_story_atomic
+    behind StoryService.create_story) hands out a monotone, gap-free SEQUENCE.
+
+    This test makes no race-safety claim; concurrent atomicity is proven
+    separately by ``test_state_backend_concurrent_allocation_is_gap_free``.
+    """
     facade.reset_backend_cache_for_tests()
     project_repository = StateBackendProjectRepository(tmp_path)
     project_repository.save(
@@ -239,6 +247,79 @@ def test_state_backend_allocates_story_numbers_monotone(tmp_path: Path) -> None:
     assert [story.story_display_id for story in created] == [
         "AK3-001", "AK3-002", "AK3-003", "AK3-004", "AK3-005", "AK3-006",
     ]
+
+
+def test_state_backend_concurrent_allocation_is_gap_free(tmp_path: Path) -> None:
+    """C2: a REAL concurrent proof that ``create_story_atomic`` is race-safe.
+
+    Many threads call ``StoryService.create_story`` against the same project at
+    once. The SQLite path serialises the allocation transaction via
+    ``BEGIN IMMEDIATE`` + WAL, so the allocated ``story_number`` set MUST be
+    unique (no duplicate number), gap-free (a contiguous 1..N range), and the
+    materialised display IDs MUST match the numbers one-to-one.
+
+    Without transactional allocation, two threads could read the same counter
+    value and produce duplicate numbers / a gap — this asserts that does not
+    happen.
+    """
+    facade.reset_backend_cache_for_tests()
+    project_repository = StateBackendProjectRepository(tmp_path)
+    project_repository.save(
+        create_project(
+            "tenant-a", "Tenant A", "AK3", _configuration(),
+            repositories=["https://example.test/repo.git"],
+        ),
+    )
+
+    worker_count = 16
+
+    # Provision the schema once up front (as production does at startup) so the
+    # concurrent phase contends only on the BEGIN IMMEDIATE allocation
+    # transaction — which honours busy_timeout — and not on autocommit
+    # CREATE TABLE DDL (whose read->write upgrade ignores busy_timeout).
+    StateBackendStoryRepository(tmp_path).list_for_project("tenant-a")
+
+    def _allocate(i: int) -> Story:
+        # Each thread uses its own service/repository instances against the
+        # same on-disk SQLite database (real cross-connection concurrency).
+        service = StoryService(
+            story_repository=StateBackendStoryRepository(tmp_path),
+            project_repository=project_repository,
+            idempotency_repository=StateBackendIdempotencyKeyRepository(tmp_path),
+            event_emitter=lambda *_: None,
+        )
+        return service.create_story(
+            CreateStoryInput(
+                project_key="tenant-a",
+                title=f"Concurrent {i}",
+                type=WireStoryType.IMPLEMENTATION,
+                repos=["https://example.test/repo.git"],
+            ),
+            op_id=f"op-conc-{i}",
+        )
+
+    barrier = threading.Barrier(worker_count)
+
+    def _run(i: int) -> Story:
+        barrier.wait()  # maximise contention: release all threads together
+        return _allocate(i)
+
+    with ThreadPoolExecutor(max_workers=worker_count) as pool:
+        results = list(pool.map(_run, range(worker_count)))
+
+    numbers = sorted(story.story_number for story in results)
+    assert numbers == list(range(1, worker_count + 1)), (
+        "allocated numbers must be unique and gap-free under concurrency"
+    )
+    assert len(set(numbers)) == worker_count  # no duplicate number raced through
+    for story in results:
+        assert story.story_display_id == format_story_display_id(
+            "AK3", story.story_number
+        )
+
+    # The persisted stammdaten agree with the allocation (atomic create).
+    persisted = StateBackendStoryRepository(tmp_path).list_for_project("tenant-a")
+    assert [s.story_number for s in persisted] == list(range(1, worker_count + 1))
 
 
 # ---------------------------------------------------------------------------
@@ -289,6 +370,50 @@ def test_dependency_on_unknown_story_fails_closed(tmp_path: Path) -> None:
             StoryDependency(
                 story_id=a_id,
                 depends_on_story_id="AK3-999",  # never created in `stories`
+                kind=StoryDependencyKind.HARD_STORY_DEPENDENCY,
+                created_at=datetime.now(UTC),
+            ),
+            project_key="tenant-a",
+        )
+
+
+def test_cross_project_dependency_edge_fails_closed(tmp_path: Path) -> None:
+    """A3: the project-scoped composite FK rejects an edge whose endpoints
+    belong to a DIFFERENT project than the edge's ``project_key``.
+
+    Before the composite-FK fix the single-column FK only checked that the
+    display IDs existed *somewhere*, so this cross-project edge was accepted.
+    """
+    facade.reset_backend_cache_for_tests()
+    project_repository = StateBackendProjectRepository(tmp_path)
+    project_repository.save(
+        create_project(
+            "tenant-a", "Tenant A", "AK3", _configuration(),
+            repositories=["https://example.test/repo.git"],
+        ),
+    )
+    project_repository.save(
+        create_project(
+            "tenant-b", "Tenant B", "BB2", _configuration(),
+            repositories=["https://example.test/repo.git"],
+        ),
+    )
+    service = _service(project_repository=project_repository, store_dir=tmp_path)
+    a = _create(service, title="A", op_id="op-a", project_key="tenant-a")
+    b = _create(service, title="B", op_id="op-b", project_key="tenant-b")
+    assert a.story_display_id == "AK3-001"
+    assert b.story_display_id == "BB2-001"
+
+    dep_repo = StateBackendStoryDependencyRepository(tmp_path)
+    # Edge under tenant-a: the dependent endpoint (AK3-001) is in tenant-a, but
+    # the predecessor (BB2-001) lives in tenant-b. The composite FK
+    # (project_key, depends_on_story_id) -> stories(project_key,
+    # story_display_id) has no (tenant-a, BB2-001) row, so it fails closed.
+    with pytest.raises(sqlite3.IntegrityError):
+        dep_repo.add(
+            StoryDependency(
+                story_id=a.story_display_id,
+                depends_on_story_id=b.story_display_id,
                 kind=StoryDependencyKind.HARD_STORY_DEPENDENCY,
                 created_at=datetime.now(UTC),
             ),

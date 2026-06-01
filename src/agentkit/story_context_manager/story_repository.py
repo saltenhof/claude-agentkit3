@@ -49,15 +49,6 @@ class StoryRepository(Protocol):
         """
         ...
 
-    def allocate_next_story_number(self, project_key: str) -> int:
-        """Atomically allocate the next project-local story number.
-
-        Returns:
-            The next available story_number for this project.
-            Guaranteed monotone and gap-free under concurrent calls.
-        """
-        ...
-
     def save(self, story: Story) -> None:
         """Persist (insert or update) one Story."""
         ...
@@ -146,7 +137,14 @@ class InMemoryStoryRepository:
                 result.append(story)
         return sorted(result, key=lambda s: s.story_number)
 
-    def allocate_next_story_number(self, project_key: str) -> int:
+    def _allocate_next_story_number(self, project_key: str) -> int:
+        """Allocate the next project-local number (single-allocator step).
+
+        Private: the ONLY way to vend a story_number is via
+        :meth:`create_story_atomic`. There is no standalone public allocator
+        that could reserve a number without persisting Story + Spec (FK-02
+        §2.11.2 Single Allocation Source, AG3-050 C).
+        """
         next_n = self._next_numbers.get(project_key, 1)
         self._next_numbers[project_key] = next_n + 1
         return next_n
@@ -173,8 +171,7 @@ class InMemoryStoryRepository:
         story_id_prefix: str,
     ) -> None:
         """Allocate story_number, patch story in-place, and save story + spec."""
-        next_n = self._next_numbers.get(story.project_key, 1)
-        self._next_numbers[story.project_key] = next_n + 1
+        next_n = self._allocate_next_story_number(story.project_key)
         story.story_number = next_n
         story.story_display_id = format_story_display_id(story_id_prefix, next_n)
         self.save(story)

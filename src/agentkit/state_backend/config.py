@@ -15,11 +15,14 @@ STATE_DATABASE_URL_ENV = "AGENTKIT_STATE_DATABASE_URL"
 # 'prompt_audit'; FK-44 §44.6, AG3-023 §2.1.4 idempotent side-by-side
 # migration per FK-18 §18.9a).
 # AG3-050: 3.7.0 -> 3.8.0 (story_dependencies FK retargeted from the runtime
-# story_contexts projection to the STATIC stories(story_display_id) stammdaten
-# identity; FK-02 §2.11.3, FK-18 §18.6a). Idempotent side-by-side migration via
-# the versioned-schema pattern (FK-18 §18.9a) — a fresh ak3_v3_8_0 schema /
-# agentkit_3_8_0.sqlite file is created; the old FK never coexists. FK
-# violations (dependency on an unknown story) stay fail-closed.
+# story_contexts projection to the STATIC stories stammdaten identity; FK-02
+# §2.11.3, FK-18 §18.6a/§18.13). The endpoints use a COMPOSITE FK
+# (project_key, story_id) -> stories(project_key, story_display_id) backed by a
+# new UNIQUE (project_key, story_display_id) on stories, so cross-project edges
+# fail closed (A3). Idempotent side-by-side migration via the versioned-schema
+# pattern (FK-18 §18.9a) — a fresh ak3_v3_8_0 schema / agentkit_3_8_0.sqlite file
+# is created; the old FK never coexists. FK violations (dependency on an unknown
+# or cross-project story) stay fail-closed.
 SCHEMA_VERSION = "3.8.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 

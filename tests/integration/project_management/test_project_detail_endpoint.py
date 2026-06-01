@@ -33,9 +33,6 @@ from agentkit.state_backend.store import facade
 from agentkit.state_backend.store.project_management_repository import (
     StateBackendProjectRepository,
 )
-from agentkit.state_backend.store.story_context_repository import (
-    StateBackendStoryContextRepository,
-)
 from agentkit.state_backend.store.story_dependency_repository import (
     StateBackendStoryDependencyRepository,
 )
@@ -43,10 +40,8 @@ from agentkit.state_backend.store.story_repository import (
     StateBackendIdempotencyKeyRepository,
     StateBackendStoryRepository,
 )
-from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.service import StoryService
 from agentkit.story_context_manager.story_model import CreateStoryInput
-from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -178,23 +173,10 @@ def test_counters_classify_persisted_dependency_as_blocked(tmp_path: Path) -> No
 
     # AG3-050: the dependency store FK-references the STATIC ``stories``
     # stammdaten (``stories.story_display_id``), satisfied above by
-    # ``create_story``.  The matching ``story_contexts`` rows are still seeded
-    # here because execution-planning reads the runtime projection for
-    # readiness; the persisted edge below is valid against the real schema and
-    # the join key matches the wire corpus exactly.
-    context_repo = StateBackendStoryContextRepository(tmp_path)
-    for created in (story_a, story_b):
-        context_repo.save(
-            StoryContext(
-                project_key="tenant-a",
-                story_number=created.story_number,
-                story_id=created.story_display_id,
-                story_type=StoryType.IMPLEMENTATION,
-                execution_route=StoryMode.EXECUTION,
-                title=created.title,
-                created_at=datetime.now(UTC),
-            ),
-        )
+    # ``create_story``.  No ``story_contexts`` runtime rows are seeded: both the
+    # counters join (``list_stories_with_dependencies``) and the dependency edge
+    # below resolve against the static stories + dependency store, so the
+    # unified static identity (A1) is exercised without a runtime snapshot.
 
     # Persist a REAL dependency edge B -> A through the dependency store.
     dep_repo = StateBackendStoryDependencyRepository(tmp_path)

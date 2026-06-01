@@ -144,13 +144,17 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             FOREIGN KEY (project_key) REFERENCES projects(key)
         );
 
-        -- AG3-050 (FK-02 §2.11.3, FK-18 §18.6a): the StoryDependency edge binds
-        -- to the STATIC story stammdaten (`stories`), NOT the runtime projection
-        -- (`story_contexts`). story_id/depends_on_story_id hold display-ID
-        -- strings; the FK target is `stories.story_display_id`, the globally
-        -- UNIQUE Story key. story_display_id is chosen over story_uuid because
-        -- the columns carry display-ID strings (no wire/data change), and over
-        -- (project_key, story_number) because that would require storing numbers.
+        -- AG3-050 (FK-02 §2.11.3, FK-18 §18.6a/§18.13): the StoryDependency edge
+        -- binds to the STATIC story stammdaten (`stories`), NOT the runtime
+        -- projection (`story_contexts`). story_id/depends_on_story_id hold
+        -- display-ID strings, so the FK target columns are display-ID columns.
+        -- A3: the FK is COMPOSITE on (project_key, story_id) ->
+        -- stories(project_key, story_display_id) for BOTH endpoints, so an edge
+        -- whose endpoints live in a different project is rejected fail-closed at
+        -- the FK (not merely "display-ID exists somewhere"). story_display_id is
+        -- chosen over story_uuid because the columns carry display-ID strings
+        -- (no wire/data change), and over story_number because that would force
+        -- storing numbers instead of the display ID.
         CREATE TABLE IF NOT EXISTS story_dependencies (
             project_key TEXT NOT NULL,
             story_id TEXT NOT NULL,
@@ -159,10 +163,10 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL,
             PRIMARY KEY (project_key, story_id, depends_on_story_id, kind),
             FOREIGN KEY (project_key) REFERENCES projects(key),
-            FOREIGN KEY (story_id)
-                REFERENCES stories(story_display_id),
-            FOREIGN KEY (depends_on_story_id)
-                REFERENCES stories(story_display_id)
+            FOREIGN KEY (project_key, story_id)
+                REFERENCES stories(project_key, story_display_id),
+            FOREIGN KEY (project_key, depends_on_story_id)
+                REFERENCES stories(project_key, story_display_id)
         );
 
         CREATE INDEX IF NOT EXISTS story_dependencies_project_story_idx
@@ -381,6 +385,10 @@ def _ensure_schema_runtime_tables(conn: sqlite3.Connection) -> None:
             completed_at TEXT,
             PRIMARY KEY (story_uuid),
             UNIQUE (story_display_id),
+            -- AG3-050 A3: project-scoped UNIQUE so story_dependencies can use a
+            -- COMPOSITE FK (project_key, story_id)->(project_key,
+            -- story_display_id) and reject cross-project edges fail-closed.
+            UNIQUE (project_key, story_display_id),
             UNIQUE (project_key, story_number)
         );
 

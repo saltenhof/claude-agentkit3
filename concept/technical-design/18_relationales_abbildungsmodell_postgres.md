@@ -226,10 +226,19 @@ kanonische Payloads wie:
 | Tabelle | Fachlicher Identitätskandidat | Unique-Regeln |
 |---------|-------------------------------|---------------|
 | `project_spaces` | `(project_key)` | `project_key` systemweit eindeutig |
-| `stories` | `(project_key, story_id)` | pro Projekt genau eine Story-ID |
-| `story_contexts` | `(project_key, story_id)` | pro Story genau ein aktiver Kontext |
+| `stories` | `(project_key, story_number)` fachlich; `story_uuid` technisch | `story_uuid` global eindeutig; `(project_key, story_number)` pro Projekt eindeutig; `story_display_id` **global UNIQUE** (materialisierte Anzeige-ID, keine `story_id`-Spalte); zusätzlich `(project_key, story_display_id)` UNIQUE (trägt die projektgescopten StoryDependency-FKs, AG3-050) |
+| `story_contexts` | `(project_key, story_id)` | pro Story genau ein aktiver Kontext (`story_id` trägt hier die Display-ID als Laufzeit-Korrelations-String) |
 | `story_custom_field_definitions` | `(project_key, field_key)` | `field_key` pro Projekt eindeutig |
 | `story_custom_field_values` | `(project_key, story_id, field_key)` | pro Story höchstens ein aktueller Wert je Feld |
+
+> **Identität `stories` (AG3-050, FK-02 §2.11.2):** Die `stories`-Stammdaten
+> tragen **keine** `story_id`-Spalte. Kanonische Identität ist fachlich
+> `(project_key, story_number)`, technisch `story_uuid`. `story_display_id`
+> (z.B. `AK3-042`) ist die einmal materialisierte Anzeige-Repräsentation aus
+> `Project.story_id_prefix + story_number` und global `UNIQUE`. Wo nachfolgende
+> Abschnitte FK-Ziele „auf `stories`" beschreiben, ist als Zielspalte
+> `story_display_id` (bzw. `(project_key, story_display_id)`) gemeint, nicht eine
+> `story_id`-Spalte.
 
 ### 18.6a.2 Execution
 
@@ -561,7 +570,7 @@ Migrationen einfacher und bleibt näher am fachlichen Modell.
 | Tabelle | Primärschlüssel |
 |---------|-----------------|
 | `project_spaces` | `(project_key)` |
-| `stories` | `(project_key, story_id)` |
+| `stories` | `story_uuid` (technischer PK); fachlich eindeutig `(project_key, story_number)` und `story_display_id` global UNIQUE — keine `story_id`-Spalte |
 | `story_contexts` | `(project_key, story_id)` |
 | `story_custom_field_definitions` | `(project_key, field_key)` |
 | `story_custom_field_values` | `(project_key, story_id, field_key)` |
@@ -598,11 +607,11 @@ modelliert.
 | Kindtabelle | Referenziert |
 |-------------|--------------|
 | `stories` | `project_spaces(project_key)` |
-| `story_contexts` | `stories(project_key, story_id)` |
-| `story_dependencies` | `stories(story_display_id)` für **beide** Endpunkte (`story_id`, `depends_on_story_id`); zusätzlich `projects(key)` |
-| `story_custom_field_values` | `stories(project_key, story_id)` |
+| `story_contexts` | `stories(project_key, story_display_id)` (Display-ID-Identität; `story_contexts.story_id` trägt die Display-ID) |
+| `story_dependencies` | `stories(project_key, story_display_id)` als **komposite** FK für **beide** Endpunkte (`(project_key, story_id)` und `(project_key, depends_on_story_id)`); zusätzlich `projects(key)` |
+| `story_custom_field_values` | `stories(project_key, story_display_id)` |
 | `story_custom_field_values` | `story_custom_field_definitions(project_key, field_key)` |
-| `flow_executions` | `stories(project_key, story_id)` |
+| `flow_executions` | `stories(project_key, story_display_id)` |
 | `node_executions` | `flow_executions(project_key, run_id, flow_id)` |
 | `attempt_records` | `flow_executions(project_key, run_id, flow_id)` |
 | `override_records` | `flow_executions(project_key, run_id, flow_id)` |
@@ -618,13 +627,17 @@ an Flow und Node gebunden sein.
 **StoryDependency → STATISCHE Story-Stammdaten (AG3-050).** Die Kanten der
 `story_dependencies`-Edge-Tabelle referenzieren die statische `stories`-Entität
 (FK-02 §2.11.3), **nicht** die Laufzeit-Projektion `story_contexts`.
-Abhängigkeiten sind Story-Inhalt, kein Laufzeitzustand. Als FK-Ziel-Spalte wird
+Abhängigkeiten sind Story-Inhalt, kein Laufzeitzustand. Als FK-Ziel wird
 `stories.story_display_id` (global `UNIQUE`, siehe §18.6a.1) gewählt, weil die
 Spalten `story_id`/`depends_on_story_id` Display-ID-**Strings** tragen: so
 bleibt der Wire-/Datenstand unverändert. `story_uuid` schiede aus, weil die
 Spalten keine UUIDs halten; `(project_key, story_number)` schiede aus, weil das
-das Speichern von Nummern statt der Display-ID erzwänge. Eine Kante auf eine
-nicht in `stories` vorhandene Story wird **fail-closed** am FK abgewiesen.
+das Speichern von Nummern statt der Display-ID erzwänge. Der FK ist **komposit**
+über `(project_key, story_id) → stories(project_key, story_display_id)` (analog
+für `depends_on_story_id`), gestützt auf das zusätzliche `(project_key,
+story_display_id)`-UNIQUE aus §18.6a.1. Damit wird eine Kante auf eine nicht
+vorhandene **oder** projektfremde Story **fail-closed** am FK abgewiesen — die
+projektgescopte Edge kann keine Endpunkte aus einem anderen Projekt binden.
 
 ## 18.14 Indizes
 

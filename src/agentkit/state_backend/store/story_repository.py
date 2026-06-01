@@ -330,11 +330,25 @@ def _sqlite_connect(store_dir: Path) -> Iterator[sqlite3.Connection]:
     db_path = _sqlite_db_path(store_dir)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     _assert_sqlite_allowed()
-    conn = sqlite3.connect(str(db_path))
+    conn = sqlite3.connect(str(db_path), timeout=30.0)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
+    # AG3-050 C2: set busy_timeout FIRST so every subsequent lock acquisition
+    # (including the WAL switch and BEGIN IMMEDIATE inside create_story_atomic)
+    # waits for a held write lock instead of failing immediately. This keeps
+    # the single canonical allocator gap-free + race-safe under real
+    # cross-connection concurrency.
+    conn.execute("PRAGMA busy_timeout = 30000")
+    # Only switch journal mode when it is not already WAL. The WAL switch needs
+    # an exclusive moment that does NOT honour busy_timeout, so re-issuing it on
+    # every connection would spuriously raise "database is locked" under
+    # concurrent create_story_atomic calls. Reading the current mode takes no
+    # write lock; once any connection has set WAL it is persistent for the file.
+    current_mode = conn.execute("PRAGMA journal_mode").fetchone()
+    if current_mode is None or str(current_mode[0]).lower() != "wal":
+        conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys = ON")
-    # Ensure the stories tables exist (additive, idempotent)
+    # Ensure the stories tables exist (additive, idempotent). The CREATE TABLE
+    # IF NOT EXISTS DDL waits on the write lock via busy_timeout above.
     _ensure_story_tables_sqlite(conn)
     try:
         yield conn
@@ -350,7 +364,20 @@ def _ensure_story_tables_sqlite(conn: sqlite3.Connection) -> None:
     """Create the story stammdaten tables if they don't exist yet.
 
     These tables were added in schema 3.3.0 (side-by-side, additive).
+
+    Concurrency (AG3-050 C2): the ``CREATE TABLE`` DDL takes a write lock and,
+    when issued in autocommit mode, SQLite refuses to honour ``busy_timeout``
+    for the read->write upgrade and raises ``SQLITE_BUSY`` immediately. We
+    therefore gate the DDL behind a cheap, read-lock-only ``sqlite_master``
+    existence check: only the very first connection (when the table is absent)
+    runs the DDL; all later connections skip it and never contend on the write
+    lock during concurrent ``create_story_atomic`` calls.
     """
+    existing = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'stories'",
+    ).fetchone()
+    if existing is not None:
+        return
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS stories (
@@ -378,6 +405,10 @@ def _ensure_story_tables_sqlite(conn: sqlite3.Connection) -> None:
             completed_at TEXT,
             PRIMARY KEY (story_uuid),
             UNIQUE (story_display_id),
+            -- AG3-050 A3: project-scoped UNIQUE backing the composite FK from
+            -- story_dependencies (project_key, story_id) so cross-project edges
+            -- fail closed at the database layer.
+            UNIQUE (project_key, story_display_id),
             UNIQUE (project_key, story_number)
         );
 
@@ -579,28 +610,6 @@ class StateBackendStoryRepository:
                 (project_key, q, q, q, q, q),
             )
             return [_pg_row_to_story(dict(row)) for row in cursor.fetchall()]
-
-    # ------------------------------------------------------------------
-    # Number allocation (within open transaction for atomic create)
-    # ------------------------------------------------------------------
-
-    def allocate_next_story_number(self, project_key: str) -> int:
-        """Atomically allocate the next story number for a project.
-
-        SQLite: uses BEGIN IMMEDIATE to prevent concurrent writes.
-        Postgres: relies on the caller holding an exclusive transaction
-          (used inside ``create_story_atomic``).
-        """
-        if _is_postgres():
-            return self._pg_allocate_next_story_number(project_key)
-        with _sqlite_connect(self._store_dir) as conn:
-            # Use BEGIN IMMEDIATE to get exclusive write access
-            conn.execute("BEGIN IMMEDIATE")
-            return _sqlite_allocate_story_number(conn, project_key)
-
-    def _pg_allocate_next_story_number(self, project_key: str) -> int:
-        with _postgres_connect() as conn:
-            return _pg_allocate_story_number(conn, project_key)
 
     # ------------------------------------------------------------------
     # Save (story and spec)
