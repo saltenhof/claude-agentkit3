@@ -20,6 +20,7 @@ import pytest
 from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.state_backend.sqlite_store import _connect, state_db_path_for
 from agentkit.state_backend.store import reset_backend_cache_for_tests
+from agentkit.state_backend.store.fc_incident_repository import _decode_json_list
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -251,6 +252,48 @@ class TestCheckConstraints:
         with _connect(story_dir) as conn, pytest.raises(sqlite3.IntegrityError):
             conn.execute(_INSERT, _VALID_ROW)
             conn.commit()
+
+    def test_rejects_short_sequence_id(self, story_dir: Path) -> None:
+        """FC-YYYY-NNNN braucht >= 4-stellige Sequenz; FC-2026-1 wird abgelehnt."""
+        bad = (_VALID_ROW[0], "FC-2026-1", *_VALID_ROW[2:])
+        with _connect(story_dir) as conn, pytest.raises(sqlite3.IntegrityError):
+            conn.execute(_INSERT, bad)
+            conn.commit()
+
+    def test_rejects_nondigit_suffix_id(self, story_dir: Path) -> None:
+        """Nicht-Ziffern-Suffix (FC-2026-0001x) wird vom DB-CHECK abgelehnt."""
+        bad = (_VALID_ROW[0], "FC-2026-0001x", *_VALID_ROW[2:])
+        with _connect(story_dir) as conn, pytest.raises(sqlite3.IntegrityError):
+            conn.execute(_INSERT, bad)
+            conn.commit()
+
+
+class TestEvidenceDecodeFailClosed:
+    """``_decode_json_list`` ist fail-closed (NO ERROR BYPASSING): das frühere
+    stille ``str()``-Coercion korrupter Persistenz ist entfernt. ``evidence``/
+    ``tags`` sind FK-41 §41.4.1 ``list[str]``. Deckt die Backend-Luecke ab, die
+    der SQLite-CHECK (kein Elementtyp im JSON-Array) nicht schliessen kann.
+    """
+
+    def test_string_list_decodes(self) -> None:
+        assert _decode_json_list('["a", "b"]') == ["a", "b"]
+        assert _decode_json_list(["a", "b"]) == ["a", "b"]
+        assert _decode_json_list(None) == []
+        assert _decode_json_list("") == []
+
+    def test_object_element_rejected(self) -> None:
+        with pytest.raises(ValueError, match="only strings"):
+            _decode_json_list('[{"k": "v"}]')
+        with pytest.raises(ValueError, match="only strings"):
+            _decode_json_list([{"k": "v"}])
+
+    def test_number_element_rejected(self) -> None:
+        with pytest.raises(ValueError, match="only strings"):
+            _decode_json_list("[1, 2]")
+
+    def test_non_array_rejected(self) -> None:
+        with pytest.raises(ValueError, match="JSON array"):
+            _decode_json_list('{"k": "v"}')
 
 
 class TestSideBySideMigration:

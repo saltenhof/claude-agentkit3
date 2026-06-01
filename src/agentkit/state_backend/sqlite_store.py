@@ -543,10 +543,20 @@ def _ensure_schema_runtime_tables(conn: sqlite3.Connection) -> None:
             -- read/purge filtern weiterhin zwingend nach project_key (r1-Fix).
             -- Die FC-YYYY-NNNN-Nummern stammen aus einem globalen Per-Jahr-
             -- Zaehler (fc_incident_counters, gekeyt auf year allein).
-            -- CHECK erzwingt FC-YYYY-NNNN (GLOB) und evidence_json = JSON-Array.
+            -- incident_id == FC-YYYY-NNNN (NNNN >= 4 Stellen, NUR Ziffern). Der
+            -- Prefix-GLOB erzwingt FC-YYYY- + >=4 Ziffern; das NOT GLOB auf der
+            -- Sequenz (ab Pos. 9) verbietet ein Nicht-Ziffern-Suffix wie
+            -- "...0001x". Spiegelt den Pydantic-Validator (Jahr 4-stellig,
+            -- Sequenz mindestens 4 Ziffern, nur Ziffern).
             CONSTRAINT fc_incidents_id_format
                 CHECK (incident_id GLOB
-                       'FC-[0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9]*'),
+                       'FC-[0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9]*'
+                       AND substr(incident_id, 9) NOT GLOB '*[^0-9]*'),
+            -- evidence_json = JSON-Array. Der Element-Typ (list[str], FK-41
+            -- §41.4.1) ist app-seitig fail-closed erzwungen: Pydantic beim
+            -- Schreiben + _decode_json_list beim Lesen (kein str()-Coercion).
+            -- SQLite-CHECK kann JSON-Arrays nicht elementweise pruefen
+            -- (kein json_each in CHECK), daher nur Array-Typ DB-seitig.
             CONSTRAINT fc_incidents_evidence_is_array
                 CHECK (json_valid(evidence_json)
                        AND json_type(evidence_json) = 'array'),

@@ -148,14 +148,32 @@ def _row_to_record(row: dict[str, Any]) -> Incident:
 
 
 def _decode_json_list(raw: object) -> list[str]:
-    """Decode a JSON list[str] column (SQLite TEXT or Postgres JSON)."""
+    """Decode a JSON ``list[str]`` column (SQLite TEXT or Postgres JSON).
+
+    FAIL-CLOSED (NO ERROR BYPASSING): ein Nicht-String-Element ist korrupte
+    Persistenz und wird NICHT still via ``str()`` koerziert, sondern als Fehler
+    gemeldet. ``evidence``/``tags`` sind laut FK-41 §41.4.1 ``list[str]``.
+    """
     if raw is None:
         return []
     if isinstance(raw, str):
-        return [str(x) for x in json.loads(raw)] if raw else []
-    if isinstance(raw, list):
-        return [str(x) for x in raw]
-    raise TypeError(f"unexpected JSON-list column type: {type(raw)!r}")
+        decoded: object = json.loads(raw) if raw else []
+    elif isinstance(raw, list):
+        decoded = raw
+    else:
+        raise TypeError(f"unexpected JSON-list column type: {type(raw)!r}")
+    if not isinstance(decoded, list):
+        raise ValueError(
+            f"fc_incidents JSON-list column must be a JSON array, got "
+            f"{type(decoded).__name__}"
+        )
+    if not all(isinstance(x, str) for x in decoded):
+        raise ValueError(
+            "fc_incidents JSON-list column must contain only strings (FK-41 "
+            f"§41.4.1 list[str]), got element types "
+            f"{[type(x).__name__ for x in decoded]}"
+        )
+    return list(decoded)
 
 
 def _require_project_key(project_key: str | None) -> str:

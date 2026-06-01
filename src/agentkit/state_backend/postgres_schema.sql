@@ -378,10 +378,16 @@
             -- Die FC-YYYY-NNNN-Nummern stammen aus einem globalen Per-Jahr-
             -- Zaehler (fc_incident_counters, gekeyt auf year allein).
             PRIMARY KEY (incident_id),
+            -- incident_id muss exakt FC-YYYY-NNNN sein (NNNN >= 4 Stellen,
+            -- spiegelt den Pydantic-Validator ^FC-\d{4}-\d{4,}$; FAIL-CLOSED).
             CONSTRAINT fc_incidents_id_format
-                CHECK (incident_id ~ '^FC-[0-9]{4}-[0-9]+$'),
-            CONSTRAINT fc_incidents_evidence_is_array
-                CHECK (jsonb_typeof(evidence_json::jsonb) = 'array')
+                CHECK (incident_id ~ '^FC-[0-9]{4}-[0-9]{4,}$'),
+            -- evidence_json muss ein JSON-Array AUS STRINGS sein (FK-41 §41.4.1
+            -- evidence=list[str]). Der jsonpath-Filter trifft jedes Element, das
+            -- KEIN String ist; existiert ein solches, schlaegt der CHECK fehl.
+            CONSTRAINT fc_incidents_evidence_is_string_array
+                CHECK (jsonb_typeof(evidence_json::jsonb) = 'array'
+                       AND NOT (evidence_json::jsonb @? '$[*] ? (@.type() != "string")'))
         );
 
         CREATE INDEX IF NOT EXISTS idx_fc_incidents_project_story_run
