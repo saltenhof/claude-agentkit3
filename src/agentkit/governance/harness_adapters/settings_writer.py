@@ -177,14 +177,15 @@ _CLAUDE_COMMAND_RE = re.compile(r"^agentkit-hook-claude (?P<phase>\S+) (?P<hook_
 # ``*_send`` decision (Codex-Plan-Segen WARNING, §2.1.2 row): FK-30 §30.3.2
 # defines ``*_send`` as "Alle MCP-Pool-Send-Tools (chatgpt_send, gemini_send,
 # ...)".  These ARE MCP tools, and the live Codex doc confirms MCP tools are
-# matchable via regex (e.g. ``mcp__filesystem__.*``).  Therefore ``*_send``
-# maps to the Codex MCP-tool matcher regex ``mcp__.*_send`` rather than being
-# dropped — pinned by a test (test_send_token_maps_to_mcp_regex).
+# matchable via regex (canonical name ``mcp__server__tool``).  The regex is
+# **anchored** (``^mcp__.*_send$``) so it only matches MCP tool names that end
+# in ``_send`` — an unanchored ``mcp__.*_send`` could match foreign tools that
+# merely contain ``_send`` as a substring (Codex-r1 WARNING). Pinned by a test.
 _MATCHER_MAPPABLE: dict[str, str] = {
     "Bash": "Bash",
     "Write": "apply_patch",
     "Edit": "apply_patch",
-    "*_send": "mcp__.*_send",
+    "*_send": "^mcp__.*_send$",
 }
 # Known §30.3.1 tokens with no Codex matcher equivalent — drop token-wise.
 _MATCHER_NOT_REPRESENTABLE: frozenset[str] = frozenset(
@@ -287,7 +288,22 @@ def remap_command(command: str) -> str:
             "'agentkit-hook-claude {phase} {hook_id}'. Fail-closed: refusing to "
             "pass an unrecognised command through to the Codex settings file.",
         )
-    return f"agentkit-hook-codex {match['phase']} {match['hook_id']}"
+    phase, hook_id = match["phase"], match["hook_id"]
+    # Not just the SHAPE (regex) but the SEMANTICS: an unknown phase or hook_id
+    # would be remapped to a Codex command the wrapper later rejects fail-closed
+    # (runner.validate_hook_selector). Validate at the REGISTRATION boundary so
+    # we never write a hook that cannot run (Codex-r1 ERROR 3, Auflage 5).
+    # Lazy import avoids a governance import cycle (runner imports adapters).
+    from agentkit.governance.runner import validate_hook_selector
+
+    verdict = validate_hook_selector(phase=phase, hook_id=hook_id)
+    if verdict is not None:
+        raise HookRegistrationError(
+            f"Invalid hook selector in command {command!r}: "
+            f"{verdict.message or 'unknown phase/hook_id'}. Fail-closed: refusing "
+            "to emit a Codex hook for an unregistered phase/hook_id.",
+        )
+    return f"agentkit-hook-codex {phase} {hook_id}"
 
 
 class CodexSettingsWriter:
@@ -317,7 +333,7 @@ class CodexSettingsWriter:
       ``agentkit-hook-codex {phase} {hook_id}``; deviating form raises.
     - **Matcher** (Auflage 2+3): mapped token-wise to real Codex matchers
       (``Bash`` -> ``Bash``; ``Write``/``Edit`` -> one ``apply_patch``;
-      ``*_send`` -> ``mcp__.*_send``; ``Read``/``Grep``/``Glob``/``Agent``/
+      ``*_send`` -> ``^mcp__.*_send$``; ``Read``/``Grep``/``Glob``/``Agent``/
       ``WebSearch``/``WebFetch`` drop with a diagnostic; unknown token ->
       error).  A matcher that is empty after dropping yields no Codex hook
       (documented non-applicability, recorded in :attr:`diagnostics`).
@@ -334,8 +350,12 @@ class CodexSettingsWriter:
     are skipped until trusted.  This writer only materialises the file; the
     actual trust activation is installer work (FK-50/FK-51) and out of scope.
 
-    Fail-closed: a broken existing ``.codex/hooks.json`` (invalid JSON or
-    non-object top level) raises ``ValueError`` rather than being overwritten.
+    Fail-closed: a broken existing ``.codex/hooks.json`` raises ``ValueError``
+    rather than being overwritten — invalid JSON / non-object top level (via
+    ``read_json_object``) AND a present-but-malformed ``hooks`` structure (event
+    value not a list, group not an object, nested ``hooks`` not a list, handler
+    not an object; Codex-r1 ERROR 2). Existing/foreign groups are preserved
+    verbatim (no ``matcher`` synthesis; Codex-r1 ERROR 1).
 
     Args:
         project_root: Root directory of the project.  ``.codex/hooks.json`` is
@@ -462,33 +482,55 @@ class CodexSettingsWriter:
 def _coerce_hooks_section(
     raw_hooks: object,
 ) -> dict[str, list[dict[str, object]]]:
-    """Coerce a loaded ``hooks`` value into the three-level Codex shape.
+    """Validate the existing ``hooks`` section, fail-closed; preserve it verbatim.
 
-    Preserves existing (including foreign) matcher groups and handlers; tolerates
-    a missing or non-dict ``hooks`` value by starting empty.
+    A MISSING ``hooks`` key (``None``) starts empty. A PRESENT-but-malformed
+    structure raises ``ValueError`` instead of being silently coerced to
+    empty/partial — silent coercion would delete existing governance/foreign
+    hooks on the next write (FAIL CLOSED, AK5; Codex-r1 ERROR 2). Malformed =
+    ``hooks`` not an object; an event value that is not a list; a matcher group
+    that is not an object; a group ``hooks`` present but not a list; a handler
+    that is not an object.
+
+    Existing (including FOREIGN) groups and handlers are returned **verbatim** —
+    no ``matcher`` synthesis, no key stripping (Codex-r1 ERROR 1). Foreign groups
+    without a ``matcher`` (e.g. ``Stop``/``UserPromptSubmit``) stay untouched; the
+    merge never matches them because AK3 groups always carry a ``matcher``.
     """
-    section: dict[str, list[dict[str, object]]] = {}
+    if raw_hooks is None:
+        return {}
     if not isinstance(raw_hooks, dict):
-        return section
+        raise ValueError(
+            "Existing .codex/hooks.json 'hooks' must be an object, got "
+            f"{type(raw_hooks).__name__}; refusing to overwrite (fail-closed).",
+        )
+    section: dict[str, list[dict[str, object]]] = {}
     for event_key, groups in raw_hooks.items():
         if not isinstance(groups, list):
-            continue
-        coerced_groups: list[dict[str, object]] = []
+            raise ValueError(
+                f"Existing .codex/hooks.json event {event_key!r} must map to a "
+                f"list of matcher groups, got {type(groups).__name__} (fail-closed).",
+            )
         for group in groups:
             if not isinstance(group, dict):
-                continue
-            handlers_raw = group.get("hooks")
-            handlers: list[dict[str, object]] = (
-                [h for h in handlers_raw if isinstance(h, dict)]
-                if isinstance(handlers_raw, list)
-                else []
-            )
-            coerced: dict[str, object] = {
-                "matcher": group.get("matcher"),
-                "hooks": handlers,
-            }
-            coerced_groups.append(coerced)
-        section[str(event_key)] = coerced_groups
+                raise ValueError(
+                    f"Existing .codex/hooks.json group under {event_key!r} must be "
+                    f"an object, got {type(group).__name__} (fail-closed).",
+                )
+            handlers = group.get("hooks")
+            if handlers is not None and not isinstance(handlers, list):
+                raise ValueError(
+                    f"Existing .codex/hooks.json group {group!r} 'hooks' must be a "
+                    f"list, got {type(handlers).__name__} (fail-closed).",
+                )
+            if isinstance(handlers, list):
+                for handler in handlers:
+                    if not isinstance(handler, dict):
+                        raise ValueError(
+                            "Existing .codex/hooks.json handler must be an object, "
+                            f"got {type(handler).__name__} (fail-closed).",
+                        )
+        section[str(event_key)] = groups
     return section
 
 

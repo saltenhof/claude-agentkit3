@@ -12,7 +12,7 @@ Verified 2026-06-01 against ``developers.openai.com/codex/hooks``:
   tool names (e.g. ``mcp__filesystem__.*``) are matchable.  Read/Grep/Glob/
   WebSearch/WebFetch and Agent-spawn are not interceptable.
 - ``*_send`` (FK-30 §30.3.2: MCP pool-send tools) therefore maps to the MCP
-  matcher regex ``mcp__.*_send`` — pinned by ``test_send_token_maps_to_mcp_regex``.
+  matcher regex ``^mcp__.*_send$`` (anchored) — pinned by ``test_send_token_maps_to_mcp_regex``.
 
 No mocks/stubs: real writer, real filesystem (tmp_path), real JSON parse-back.
 """
@@ -133,6 +133,22 @@ class TestCommandRemap:
         with pytest.raises(HookRegistrationError):
             CodexSettingsWriter(tmp_path).write([bad])
 
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "agentkit-hook-claude later branch_guard",  # regex-valid, bad phase
+            "agentkit-hook-claude pre frobnicate_guard",  # regex-valid, bad hook_id
+            "agentkit-hook-claude pre telemetry",  # telemetry is a POST hook, not PRE
+        ],
+    )
+    def test_regex_valid_but_invalid_selector_raises(self, command: str) -> None:
+        """Codex-r1 ERROR 3: shape alone is not enough — an unknown phase/hook_id
+        (or phase/hook_id mismatch) is fail-closed at the registration boundary,
+        not silently emitted as a command the wrapper later rejects.
+        """
+        with pytest.raises(HookRegistrationError):
+            remap_command(command)
+
 
 # ---------------------------------------------------------------------------
 # Matcher-mapping matrix (§2.1.2, Auflage 2+3, AC2)
@@ -168,14 +184,14 @@ class TestMatcherMapping:
         assert result.dropped_tokens == [token]
 
     def test_send_token_maps_to_mcp_regex(self) -> None:
-        """``*_send`` (MCP pool-send tools, FK-30 §30.3.2) -> ``mcp__.*_send``.
+        """``*_send`` (MCP pool-send tools, FK-30 §30.3.2) -> ``^mcp__.*_send$``.
 
         Pinned decision: the live Codex doc confirms MCP tools are matchable
         via regex; the pool-send tools are exposed as MCP tools, so the
         matcher maps rather than dropping.
         """
         result = map_claude_matcher("*_send")
-        assert result.codex_matcher == "mcp__.*_send"
+        assert result.codex_matcher == "^mcp__.*_send$"
         assert result.dropped_tokens == []
 
     def test_partial_drop_keeps_representable_tokens(self) -> None:
@@ -186,7 +202,7 @@ class TestMatcherMapping:
 
     def test_mixed_send_and_bash(self) -> None:
         result = map_claude_matcher("Agent|Bash|*_send")
-        assert result.codex_matcher == "Bash|mcp__.*_send"
+        assert result.codex_matcher == "Bash|^mcp__.*_send$"
         assert result.dropped_tokens == ["Agent"]
 
     def test_unknown_token_raises(self) -> None:
@@ -355,6 +371,32 @@ class TestMergeIdempotency:
             "agentkit-hook-codex pre branch_guard"
         ]
 
+    def test_foreign_group_without_matcher_preserved_verbatim(
+        self, tmp_path: Path
+    ) -> None:
+        """Codex-r1 ERROR 1: a foreign group with NO ``matcher`` (e.g. ``Stop``/
+        ``UserPromptSubmit``) must stay verbatim — no ``"matcher": null`` synthesis.
+        """
+        path = tmp_path / ".codex" / "hooks.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "Stop": [
+                            {"hooks": [{"type": "command", "command": "cleanup.sh"}]}
+                        ]
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        CodexSettingsWriter(tmp_path).write([_pre("Bash", "branch_guard")])
+        data = _read_hooks(tmp_path)
+        stop_group = data["hooks"]["Stop"][0]
+        assert "matcher" not in stop_group  # NOT rewritten to {"matcher": null}
+        assert stop_group["hooks"] == [{"type": "command", "command": "cleanup.sh"}]
+
 
 # ---------------------------------------------------------------------------
 # Fail-closed on broken existing file (§2.1.4, AC5)
@@ -373,6 +415,29 @@ class TestFailClosed:
         path = tmp_path / ".codex" / "hooks.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("[1, 2, 3]", encoding="utf-8")
+        with pytest.raises(ValueError):
+            CodexSettingsWriter(tmp_path).write([_pre("Bash", "branch_guard")])
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            '{"hooks": []}',  # hooks present but not an object
+            '{"hooks": {"PreToolUse": {}}}',  # event value not a list
+            '{"hooks": {"PreToolUse": [123]}}',  # group not an object
+            '{"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": "x"}]}}',  # nested hooks not a list
+            '{"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [1]}]}}',  # handler not an object
+        ],
+    )
+    def test_malformed_hooks_shape_raises(
+        self, tmp_path: Path, payload: str
+    ) -> None:
+        """Codex-r1 ERROR 2: a present-but-malformed ``hooks`` structure is
+        fail-closed (ValueError), not silently coerced to empty/partial — silent
+        coercion would delete existing governance/foreign hooks on the next write.
+        """
+        path = tmp_path / ".codex" / "hooks.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(payload, encoding="utf-8")
         with pytest.raises(ValueError):
             CodexSettingsWriter(tmp_path).write([_pre("Bash", "branch_guard")])
 
@@ -435,9 +500,9 @@ class TestRegisterHooksWritesCodex:
         assert _commands_for_matcher(data, "PreToolUse", "Bash") == [
             "agentkit-hook-codex pre branch_guard"
         ]
-        # PostToolUse Agent|Bash|*_send -> Bash|mcp__.*_send (Agent dropped).
+        # PostToolUse Agent|Bash|*_send -> Bash|^mcp__.*_send$ (Agent dropped).
         assert _commands_for_matcher(
-            data, "PostToolUse", "Bash|mcp__.*_send"
+            data, "PostToolUse", "Bash|^mcp__.*_send$"
         ) == ["agentkit-hook-codex post telemetry"]
 
     def test_register_hooks_also_writes_claude(self, tmp_path: Path) -> None:
