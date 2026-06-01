@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.e2e._helpers import seed_approved_story
 
 from agentkit.bootstrap.composition_root import build_setup_preflight_gate
 from agentkit.closure.phase import (
@@ -45,6 +46,7 @@ from agentkit.story_context_manager.models import (
     PhaseStatus,
     StoryContext,
 )
+from agentkit.story_context_manager.story_model import StoryStatus, WireStoryType
 from agentkit.story_context_manager.types import StoryMode, StoryType
 from agentkit.telemetry.contract.records import ExecutionEventRecord
 from agentkit.telemetry.events import EventType
@@ -59,7 +61,7 @@ REPO = "agentkit3-testbed"
 def _save_snapshot(
     s_dir: Path,
     phase: str,
-    story_id: str = "E2E-CLOSURE",
+    story_id: str = "E2E-7001",
 ) -> None:
     """Persist a completed phase snapshot to disk."""
     snapshot = PhaseSnapshot(
@@ -139,20 +141,35 @@ class TestClosurePhaseE2E:
         issue_nr = issue.number
 
         try:
-            # 2. Create snapshots for all prior phases (bugfix profile)
-            s_dir = tmp_path / "stories" / "E2E-CLOSURE"
+            # 2. Create snapshots for all prior phases (bugfix profile:
+            #    setup -> implementation -> closure; verify is an internal
+            #    Implementation subflow, not a top-level phase, FK-27).
+            s_dir = tmp_path / "stories" / "E2E-7001"
             s_dir.mkdir(parents=True)
-            for phase in ("setup", "implementation", "verify"):
+            for phase in ("setup", "implementation"):
                 _save_snapshot(s_dir, phase)
             _save_flow(
                 s_dir,
                 project_key="e2e-closure-test",
-                story_id="E2E-CLOSURE",
+                story_id="E2E-7001",
             )
             _append_agent_start(
                 s_dir,
                 project_key="e2e-closure-test",
-                story_id="E2E-CLOSURE",
+                story_id="E2E-7001",
+            )
+
+            # Seed an IN_PROGRESS Story so closure's complete_story
+            # (In Progress -> Done) succeeds. Closure runs standalone here,
+            # so Setup's begin_progress never executed -- the story must
+            # already be In Progress (real StoryService persistence, no mock).
+            seed_approved_story(
+                project_key="e2e-closure-test",
+                story_display_id="E2E-7001",
+                story_number=1,
+                story_type=WireStoryType.BUGFIX,
+                title="E2E closure: closes real issue",
+                status=StoryStatus.IN_PROGRESS,
             )
 
             # 3. Run closure handler
@@ -166,12 +183,12 @@ class TestClosurePhaseE2E:
             handler = ClosurePhaseHandler(config)
             ctx = StoryContext(
                 project_key="e2e-closure-test",
-                story_id="E2E-CLOSURE",
+                story_id="E2E-7001",
                 story_type=StoryType.BUGFIX,
                 execution_route=StoryMode.EXECUTION,
             )
             state = PhaseState(
-                story_id="E2E-CLOSURE",
+                story_id="E2E-7001",
                 phase="closure",
                 status=PhaseStatus.IN_PROGRESS,
             )
@@ -184,7 +201,7 @@ class TestClosurePhaseE2E:
             assert closed_issue.state == "CLOSED"
 
             # Verify closure.json exists
-            assert (qa_story_dir(tmp_path, "E2E-CLOSURE") / "closure.json").exists()
+            assert (qa_story_dir(tmp_path, "E2E-7001") / "closure.json").exists()
 
         finally:
             # 5. Cleanup: reopen the issue
@@ -221,19 +238,30 @@ class TestClosurePhaseE2E:
                 repo=REPO,
                 issue_nr=issue_nr,
                 project_root=tmp_path,
-                story_id="E2E-FULL",
+                story_id="E2E-7002",
                 create_worktree=False,
             )
             setup_handler = SetupPhaseHandler(setup_config, build_setup_preflight_gate())
 
+            # Seed the APPROVED Story the Setup preflight gate requires.
+            # Setup transitions Approved -> In Progress, closure In Progress
+            # -> Done (real StoryService persistence, no mock).
+            seed_approved_story(
+                project_key="e2e-closure-test",
+                story_display_id="E2E-7002",
+                story_number=2,
+                story_type=WireStoryType.IMPLEMENTATION,
+                title="E2E full pipeline: setup to closure",
+            )
+
             ctx = StoryContext(
                 project_key="e2e-closure-test",
-                story_id="E2E-FULL",
+                story_id="E2E-7002",
                 story_type=StoryType.IMPLEMENTATION,
                 execution_route=StoryMode.EXECUTION,
             )
             state = PhaseState(
-                story_id="E2E-FULL",
+                story_id="E2E-7002",
                 phase="setup",
                 status=PhaseStatus.IN_PROGRESS,
             )
@@ -241,23 +269,25 @@ class TestClosurePhaseE2E:
             setup_result = setup_handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
             assert setup_result.status == PhaseStatus.COMPLETED
 
-            # 4. NoOp snapshots for exploration, implementation, verify
-            s_dir = story_dir(tmp_path, "E2E-FULL")
-            for phase in ("exploration", "implementation", "verify"):
-                _save_snapshot(s_dir, phase, story_id="E2E-FULL")
+            # 4. NoOp snapshots for the implementation profile's prior phases
+            #    (setup, exploration, implementation). verify is an internal
+            #    Implementation subflow, not a top-level phase (FK-27).
+            s_dir = story_dir(tmp_path, "E2E-7002")
+            for phase in ("exploration", "implementation"):
+                _save_snapshot(s_dir, phase, story_id="E2E-7002")
 
             # Also save setup snapshot (setup handler produces context,
             # but the engine would normally save the snapshot)
-            _save_snapshot(s_dir, "setup", story_id="E2E-FULL")
+            _save_snapshot(s_dir, "setup", story_id="E2E-7002")
             _save_flow(
                 s_dir,
                 project_key="e2e-closure-test",
-                story_id="E2E-FULL",
+                story_id="E2E-7002",
             )
             _append_agent_start(
                 s_dir,
                 project_key="e2e-closure-test",
-                story_id="E2E-FULL",
+                story_id="E2E-7002",
             )
 
             # 5. Closure with close_issue=True
@@ -272,12 +302,12 @@ class TestClosurePhaseE2E:
 
             closure_ctx = StoryContext(
                 project_key="e2e-closure-test",
-                story_id="E2E-FULL",
+                story_id="E2E-7002",
                 story_type=StoryType.IMPLEMENTATION,
                 execution_route=StoryMode.EXECUTION,
             )
             closure_state = PhaseState(
-                story_id="E2E-FULL",
+                story_id="E2E-7002",
                 phase="closure",
                 status=PhaseStatus.IN_PROGRESS,
             )
@@ -289,7 +319,7 @@ class TestClosurePhaseE2E:
 
             # 6. Verify
             assert closure_result.status == PhaseStatus.COMPLETED
-            assert (qa_story_dir(tmp_path, "E2E-FULL") / "closure.json").exists()
+            assert (qa_story_dir(tmp_path, "E2E-7002") / "closure.json").exists()
 
             closed_issue = get_issue(OWNER, REPO, issue_nr)
             assert closed_issue.state == "CLOSED"

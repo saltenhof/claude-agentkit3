@@ -16,6 +16,7 @@ import contextlib
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.e2e._helpers import seed_approved_story
 
 from agentkit.bootstrap.composition_root import build_setup_preflight_gate
 from agentkit.closure.phase import (
@@ -36,6 +37,7 @@ from agentkit.pipeline_engine.runner import run_pipeline
 from agentkit.process.language.definitions import resolve_workflow
 from agentkit.state_backend.store import read_story_context_record, save_story_context
 from agentkit.story_context_manager.models import StoryContext
+from agentkit.story_context_manager.story_model import WireStoryType
 from agentkit.story_context_manager.types import StoryType
 
 if TYPE_CHECKING:
@@ -134,6 +136,16 @@ class TestRealPipelineE2E:
             )
             save_story_context(s_dir, initial_ctx)
 
+            # Seed the APPROVED Story the Setup preflight gate requires
+            # (real StoryService persistence, no mock).
+            seed_approved_story(
+                project_key="e2e-test",
+                story_display_id=story_id,
+                story_number=issue.number,
+                story_type=WireStoryType.CONCEPT,
+                title="E2E-AUTO: real pipeline concept test",
+            )
+
             # 4. Build registry with REAL handlers where possible
             setup_config = SetupConfig(
                 owner=OWNER,
@@ -231,6 +243,16 @@ class TestRealPipelineE2E:
                 project_root=project_dir,
             )
             save_story_context(s_dir, initial_ctx)
+
+            # Seed the APPROVED Story the Setup preflight gate requires
+            # (real StoryService persistence, no mock).
+            seed_approved_story(
+                project_key="e2e-test",
+                story_display_id=story_id,
+                story_number=issue.number,
+                story_type=WireStoryType.RESEARCH,
+                title="E2E-AUTO: real pipeline research test",
+            )
 
             setup_config = SetupConfig(
                 owner=OWNER,

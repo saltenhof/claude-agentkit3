@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.e2e._helpers import seed_approved_story
 
 from agentkit.bootstrap.composition_root import build_setup_preflight_gate
 from agentkit.governance.setup_preflight_gate.phase import SetupConfig, SetupPhaseHandler
@@ -17,6 +18,7 @@ from agentkit.installer.paths import story_dir
 from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
 from agentkit.state_backend.store import read_story_context_record
 from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
+from agentkit.story_context_manager.story_model import WireStoryType
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
@@ -52,6 +54,16 @@ class TestSetupPhaseE2E:
             create_worktree=False,  # No git repo in tmp_path
         )
         handler = SetupPhaseHandler(config, build_setup_preflight_gate())
+
+        # Seed the APPROVED Story the Setup preflight gate requires
+        # (real StoryService persistence, no mock).
+        seed_approved_story(
+            project_key="test",
+            story_display_id="TEST-001",
+            story_number=1,
+            story_type=WireStoryType.IMPLEMENTATION,
+            title="E2E setup: reads real issue",
+        )
 
         # Minimal initial context
         ctx = StoryContext(
