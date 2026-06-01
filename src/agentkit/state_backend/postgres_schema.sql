@@ -335,6 +335,40 @@
             PRIMARY KEY (project_key, run_id, attempt_no, stage_id, finding_id)
         );
 
+        -- AG3-028 (FK-41 §41.3.1, FK-69): fc_incidents. Schema-Owner
+        -- failure-corpus, DB-Owner telemetry-and-events via ProjectionAccessor.
+        -- Append-only (genau ein Datensatz pro incident_id). Schreibpfad
+        -- ausschliesslich ueber Telemetry.write_projection(FC_INCIDENTS, record).
+        CREATE TABLE IF NOT EXISTS fc_incidents (
+            incident_id TEXT NOT NULL,
+            category TEXT NOT NULL CHECK (category IN (
+                'scope_drift', 'architecture_violation', 'evidence_fabrication',
+                'hallucination', 'test_omission', 'assertion_weakness',
+                'unsafe_refactor', 'policy_violation', 'tool_misuse',
+                'state_desync', 'requirements_miss', 'review_evasion'
+            )),
+            severity TEXT NOT NULL CHECK (severity IN (
+                'low', 'medium', 'high', 'critical'
+            )),
+            source_bc TEXT NOT NULL,
+            story_id TEXT NOT NULL,
+            run_id TEXT,
+            summary TEXT NOT NULL,
+            evidence_json JSON,
+            observed_at TIMESTAMPTZ NOT NULL,
+            normalized_at TIMESTAMPTZ NOT NULL,
+            incident_status TEXT NOT NULL DEFAULT 'observed' CHECK (incident_status IN (
+                'observed', 'promoted', 'closed_one_off', 'archived'
+            )),
+            PRIMARY KEY (incident_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_fc_incidents_story_run
+            ON fc_incidents (story_id, run_id);
+
+        CREATE INDEX IF NOT EXISTS idx_fc_incidents_incident_status
+            ON fc_incidents (incident_status);
+
         CREATE TABLE IF NOT EXISTS decision_records (
             project_key TEXT,
             story_id TEXT NOT NULL,

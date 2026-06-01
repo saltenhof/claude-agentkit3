@@ -316,7 +316,7 @@ und `WITHOUT ROWID`.
 | KPI | Quelle | Erhebungspunkt | Ziel |
 |-----|--------|----------------|------|
 | `incident_volume_per_month` | `runtime.fc_incidents` Tabelle, `COUNT WHERE created_at >= month_start` | Refresh-Worker aggregiert aus dem Runtime-Schema | → `fact_corpus_period.new_incident_count` |
-| `pattern_to_check_conversion_rate` | `fc_patterns` (status = 'check_active') / `fc_patterns` (total) | Refresh-Worker berechnet Ratio | → `fact_corpus_period.patterns_with_active_check`, `fact_corpus_period.patterns_total_count` |
+| `pattern_to_check_conversion_rate` | `fc_patterns` mit `check_ref` auf einen `fc_check_proposals`-Eintrag mit `status = 'active'` (Join, kein Pattern-Status) / `fc_patterns` (total) | Refresh-Worker berechnet Ratio | → `fact_corpus_period.patterns_with_active_check`, `fact_corpus_period.patterns_total_count` |
 
 **Fachregel:** Failure-Corpus-KPIs duerfen nur auf `fc_incidents` und
 `fc_patterns` aus gueltigen, nicht vollstaendig zurueckgesetzten Runs

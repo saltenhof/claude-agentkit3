@@ -23,7 +23,7 @@ Die Pflichtliste folgt der Story-Tabelle in AG3-021 §2.1.9.2:
 | MergePolicy           | 2      | FK-29 §29.1.5                |
 | StoryDependencyKind   | 8      | FK-70 §70.4.2                |
 | FailureCategory       | 12     | FK-41 §41.4.1                |
-| PromotionStatus       | 7      | FK-41 Glossar                |
+| IncidentStatus        | 4      | FK-41 §41.3.1 + Glossar      |
 | BlockingCategory      | 4      | FK-26 §26.8.2                |
 | SpawnReason           | 3      | bc-cut §BC 6 + FK-26 §26.2   |
 """
@@ -45,10 +45,10 @@ from agentkit.core_types import (
     ExplorationGateStatus,
     FailureCategory,
     FailureCause,
+    IncidentStatus,
     MergePolicy,
     PauseReason,
     PolicyVerdict,
-    PromotionStatus,
     QaContext,
     Severity,
     SpawnReason,
@@ -188,14 +188,11 @@ _FAILURE_CATEGORY_EXPECTED: Final[Mapping[str, str]] = {
     "REVIEW_EVASION": "review_evasion",
 }
 
-_PROMOTION_STATUS_EXPECTED: Final[Mapping[str, str]] = {
-    "MONITORING": "monitoring",
-    "DRAFT": "draft",
-    "APPROVED": "approved",
-    "ACTIVE": "active",
-    "TUNED": "tuned",
-    "RETIRED": "retired",
-    "REJECTED": "rejected",
+_INCIDENT_STATUS_EXPECTED: Final[Mapping[str, str]] = {
+    "OBSERVED": "observed",
+    "PROMOTED": "promoted",
+    "CLOSED_ONE_OFF": "closed_one_off",
+    "ARCHIVED": "archived",
 }
 
 _BLOCKING_CATEGORY_EXPECTED: Final[Mapping[str, str]] = {
@@ -348,10 +345,10 @@ def test_failure_category_wire_values() -> None:
     )
 
 
-def test_promotion_status_wire_values() -> None:
-    """FK-41 Glossar Z. 70-76 — sieben lower-case PromotionStatus-Werte."""
+def test_incident_status_wire_values() -> None:
+    """FK-41 §41.3.1 + Glossar — vier lower-case IncidentStatus-Werte (AG3-028)."""
     _assert_wire_contract(
-        PromotionStatus, _PROMOTION_STATUS_EXPECTED, expected_count=7,
+        IncidentStatus, _INCIDENT_STATUS_EXPECTED, expected_count=4,
     )
 
 

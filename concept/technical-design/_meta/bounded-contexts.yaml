@@ -222,7 +222,9 @@ bounded_contexts:
       Lernschleife in deterministische Guards.
     owns:
       - FailurePattern
-      - PromotionStatus
+      - IncidentStatus
+      - PatternStatus
+      - CheckStatus
       - GeneratedCheckProposal
       - IncidentCandidate
 

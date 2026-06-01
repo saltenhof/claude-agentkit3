@@ -23,7 +23,13 @@ STATE_DATABASE_URL_ENV = "AGENTKIT_STATE_DATABASE_URL"
 # pattern (FK-18 §18.9a) — a fresh ak3_v3_8_0 schema / agentkit_3_8_0.sqlite file
 # is created; the old FK never coexists. FK violations (dependency on an unknown
 # or cross-project story) stay fail-closed.
-SCHEMA_VERSION = "3.8.0"
+# AG3-028: 3.8.0 -> 3.9.0 (fc_incidents table added; FK-41 §41.3.1, FK-69. New
+# accessor-owned FK-69 projection with CHECK constraints on category (12),
+# severity (4 IncidentSeverity values) and incident_status (4 IncidentStatus
+# values). Idempotent side-by-side migration via the versioned-schema pattern
+# (FK-18 §18.9a) — a fresh ak3_v3_9_0 schema / agentkit_3_9_0.sqlite file is
+# created; the old DB is never touched.
+SCHEMA_VERSION = "3.9.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 
 

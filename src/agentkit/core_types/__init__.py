@@ -17,7 +17,7 @@ from agentkit.core_types.attempt import AttemptOutcome, FailureCause
 from agentkit.core_types.closure import ClosureVerdict, MergePolicy
 from agentkit.core_types.dependency import StoryDependencyKind
 from agentkit.core_types.exploration import ExplorationGateStatus
-from agentkit.core_types.failure_corpus import FailureCategory, PromotionStatus
+from agentkit.core_types.failure_corpus import FailureCategory, IncidentStatus
 from agentkit.core_types.pause_reason import PauseReason
 from agentkit.core_types.policy_verdict import PolicyVerdict
 from agentkit.core_types.qa_artifact_names import (
@@ -44,6 +44,7 @@ __all__ = [
     "FailureCategory",
     "FailureCause",
     "GUARDRAIL_FILE",
+    "IncidentStatus",
     "LAYER_ARTIFACT_FILES",
     "MergePolicy",
     "PauseReason",
@@ -51,7 +52,6 @@ __all__ = [
     "QA_LAYER2_FILES",
     "VERIFY_DECISION_FILE",
     "VERIFY_DECISION_STAGE",
-    "PromotionStatus",
     "QaContext",
     "Severity",
     "SpawnReason",

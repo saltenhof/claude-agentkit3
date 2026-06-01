@@ -33,6 +33,7 @@ def _make_repos(
     qa_finding_rows: int = 0,
     story_metrics_rows: int = 0,
     phase_state_rows: int = 0,
+    fc_incidents_rows: int = 0,
 ) -> MagicMock:
     """Erzeugt Mock-Repos mit konfigurierbaren Zaehlern."""
     repos = MagicMock()
@@ -44,6 +45,8 @@ def _make_repos(
     repos.story_metrics.purge_run.return_value = story_metrics_rows
     repos.phase_state_projection = MagicMock()
     repos.phase_state_projection.purge_run.return_value = phase_state_rows
+    repos.fc_incidents = MagicMock()
+    repos.fc_incidents.purge_run.return_value = fc_incidents_rows
     return repos
 
 
@@ -142,51 +145,48 @@ def test_purge_run_error_in_one_repo_propagated_to_errors() -> None:
 def test_purge_run_all_errors_collected() -> None:
     """Alle Repo-Fehler werden gesammelt; Ergebnis hat errors fuer jeden Fehlschlag."""
     repos = MagicMock()
-    for attr in ["qa_stage_results", "qa_findings", "story_metrics", "phase_state_projection"]:
+    for attr in [
+        "qa_stage_results",
+        "qa_findings",
+        "story_metrics",
+        "phase_state_projection",
+        "fc_incidents",
+    ]:
         getattr(repos, attr).purge_run.side_effect = ValueError(f"{attr} failed")
     accessor = ProjectionAccessor(repos)
 
     result = accessor.purge_run("pk", "S-001", "run-xyz")
 
-    assert len(result.errors) == 4
+    assert len(result.errors) == 5
 
 
 # ---------------------------------------------------------------------------
-# fc_*-Tabellen werden NICHT gepurgt in AG3-035
-# (AG3-028 bringt fc-Repos + Schreibpfad + fc_patterns-Recompute)
+# fc_incidents wird gepurgt (AG3-028 KONFLIKT-2, AK#9)
+# fc_patterns/fc_check_proposals folgen mit ihren Producer-Stories.
 # ---------------------------------------------------------------------------
 
 
-def test_fc_tables_not_purged_in_ag3_035() -> None:
-    """purge_run loescht KEINE fc_*-Zeilen in AG3-035 (nach AG3-028 vertagt).
+def test_fc_incidents_purged_in_ag3_028() -> None:
+    """purge_run loescht fc_incidents-Zeilen des Runs (FK-41 §41.3 / FK-69 §69.9).
 
-    FK-69 §69.9: reset eines run_id MUSS fc_incidents entfernen und
-    fc_patterns neu berechnen. Das wird mit den fc-Repos in AG3-028
-    implementiert. # DRIFT-AG3-028
+    AG3-028 KONFLIKT-2 loest den frueheren # DRIFT-AG3-028-Marker auf:
+    fc_incidents ist accessor-owned und wird beim Reset aktiv geleert.
     """
-    repos = _make_repos()
+    repos = _make_repos(fc_incidents_rows=2)
     accessor = ProjectionAccessor(repos)
 
-    accessor.purge_run("pk", "S-001", "run-xyz")
+    result = accessor.purge_run("pk", "S-001", "run-xyz")
 
-    # Keine fc_*-Attribute auf den Mock-Repos erwartet
-    # (der Mock hat keine fc_incidents.purge_run-Methode aufgerufen)
-    # Sicherstellung: nur die 4 bekannten Repos werden angesprochen
-    call_attrs = [
-        "qa_stage_results",
-        "qa_findings",
-        "story_metrics",
-        "phase_state_projection",
+    repos.fc_incidents.purge_run.assert_called_once_with("pk", "S-001", "run-xyz")
+    assert result.purged_rows.get(ProjectionKind.FC_INCIDENTS) == 2
+
+    # fc_patterns / fc_check_proposals haben (noch) keinen Repo -> nicht gepurgt
+    fc_pattern_calls = [
+        c
+        for c in repos.mock_calls
+        if "fc_patterns" in str(c) or "fc_check_proposals" in str(c)
     ]
-    for attr in call_attrs:
-        getattr(repos, attr).purge_run.assert_called_once()
-
-    # fc_*-Attribute wurden NICHT aufgerufen (kein hasattr-Aufruf auf fc_incidents)
-    # Der Mock wuerde bei Zugriff einen neuen MagicMock erzeugen; wir pruefen
-    # sicher, dass kein unerwarteter Aufruf stattfand:
-    assert repos.mock_calls.count == repos.mock_calls.count  # sanity
-    fc_calls = [c for c in repos.mock_calls if "fc_" in str(c)]
-    assert fc_calls == [], f"Unexpected fc_* calls: {fc_calls}"
+    assert fc_pattern_calls == [], f"Unexpected fc_patterns calls: {fc_pattern_calls}"
 
 
 # ---------------------------------------------------------------------------

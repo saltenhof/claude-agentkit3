@@ -20,11 +20,12 @@ def test_schema_version_helpers_derive_versioned_names() -> None:
     # AG3-015: 3.6.0 -> 3.7.0 (artifact_class CHECK + 'prompt_audit', FK-44 §44.6)
     # AG3-050: 3.7.0 -> 3.8.0 (story_dependencies FK retargeted to the static
     # stories(story_display_id) identity; FK-02 §2.11.3, FK-18 §18.6a)
-    assert state_config.SCHEMA_VERSION == "3.8.0"
+    # AG3-028: 3.8.0 -> 3.9.0 (fc_incidents table; FK-41 §41.3.1, FK-69, FK-18 §18.9a)
+    assert state_config.SCHEMA_VERSION == "3.9.0"
     assert state_config.versioned_postgres_schema_name("3.0.0") == "ak3_v3_0_0"
     assert state_config.versioned_sqlite_db_file("3.0.0") == "agentkit_3_0_0.sqlite"
-    assert state_config.versioned_postgres_schema_name() == "ak3_v3_8_0"
-    assert state_config.versioned_sqlite_db_file() == "agentkit_3_8_0.sqlite"
+    assert state_config.versioned_postgres_schema_name() == "ak3_v3_9_0"
+    assert state_config.versioned_sqlite_db_file() == "agentkit_3_9_0.sqlite"
 
 
 def test_schema_version_rejects_non_semver() -> None:

@@ -72,30 +72,38 @@ class ProjectionKind(StrEnum):
 #
 # FK-69 §69.3 verlangt alle 7 Tabellennamen in ``ProjectionKind``. Die
 # Schreib-/Lese-Ownership (§69.4) liegt aber NICHT durchgaengig beim Accessor:
-# der Accessor besitzt in AG3-035 nur die QA- und story_metrics-Kinds. Die
-# uebrigen Kinds sind bewusst publiziert (FK-69 §69.3), aber extern besessen.
-# Der Accessor weist sie fail-closed mit ``ProjectionKindNotAccessorOwnedError``
-# ab und benennt den Owner — kein ``NotImplementedError`` als "halb gebaut".
+# der Accessor besitzt die QA-, story_metrics- und (seit AG3-028) FC_INCIDENTS-
+# Kinds. Die uebrigen Kinds sind bewusst publiziert (FK-69 §69.3), aber extern
+# besessen. Der Accessor weist sie fail-closed mit
+# ``ProjectionKindNotAccessorOwnedError`` ab und benennt den Owner — kein
+# ``NotImplementedError`` als "halb gebaut".
 
 _ACCESSOR_OWNED_KINDS: frozenset[ProjectionKind] = frozenset(
     {
         ProjectionKind.QA_STAGE_RESULTS,
         ProjectionKind.QA_FINDINGS,
         ProjectionKind.STORY_METRICS,
+        # AG3-028 KONFLIKT-2: fc_incidents ist nach dieser Story accessor-owned
+        # (FK-69 §69.9/§69.14 routen fc_* explizit ueber write_projection). Der
+        # fc_incidents-Repo-Adapter lebt accessor-seitig in state_backend/store.
+        ProjectionKind.FC_INCIDENTS,
     }
 )
 
 # Extern besessene Kinds: publiziert in ProjectionKind (FK-69 §69.3), aber der
 # Datenpfad gehoert per Design einem anderen Writer/einer anderen Story.
-_FC_OWNER = "AG3-028 FailureCorpus (fc-Repos + Schreib-/Lesepfad)"
+# FC_PATTERNS/FC_CHECK_PROPOSALS bleiben fail-closed bis zu ihren Folge-Stories
+# (PatternPromotion/CheckFactory) — FAIL-CLOSED fuer noch nicht gebaute Tabellen.
+_FC_FOLLOWUP_OWNER = (
+    "failure-corpus Folge-Story (PatternPromotion/CheckFactory; Tabelle noch nicht gebaut)"
+)
 
 _EXTERNALLY_OWNED_KINDS: dict[ProjectionKind, str] = {
     ProjectionKind.PHASE_STATE_PROJECTION: (
         "pipeline_engine.PhaseExecutor (FK-69 §69.4 Write-Ownership)"
     ),
-    ProjectionKind.FC_INCIDENTS: _FC_OWNER,
-    ProjectionKind.FC_PATTERNS: _FC_OWNER,
-    ProjectionKind.FC_CHECK_PROPOSALS: _FC_OWNER,
+    ProjectionKind.FC_PATTERNS: _FC_FOLLOWUP_OWNER,
+    ProjectionKind.FC_CHECK_PROPOSALS: _FC_FOLLOWUP_OWNER,
 }
 
 
@@ -140,7 +148,8 @@ class PurgeResult:
     Attributes:
         purged_rows: Anzahl geloeschter Zeilen pro ``ProjectionKind``.
             Nur Tabellen mit aktivem Schreibpfad werden gezaehlt
-            (fc_*-Purge vertagt auf AG3-028).
+            (fc_incidents seit AG3-028 inklusive; fc_patterns/fc_check_proposals
+            folgen mit ihren Producer-Stories).
         errors: Fehlermeldungen bei partiellen Fehlern (best-effort).
             Leere Liste bedeutet: alle Tabellen erfolgreich geleert.
     """
@@ -160,16 +169,24 @@ def _build_kind_to_record_type() -> dict[ProjectionKind, type]:
     closure beim Package-Init. StoryMetricsRecord wird erst bei erstem Aufruf
     ueber die exponierte Closure-Top-Surface importiert (AC001: kein direkter
     Zugriff auf das interne Submodul post_merge_finalization.records).
+
+    AG3-028 KONFLIKT-2: ``Incident`` ist der fc_incidents-Record-Typ. Er liegt
+    im Blatt-Modul ``failure_corpus.incident`` (importiert nur core_types +
+    failure_corpus.types, NICHT telemetry) — analog
+    ``verify_system.stage_registry.records``. Damit entsteht kein Zyklus
+    ``failure_corpus`` <-> ``telemetry``.
     """
     from agentkit.closure import StoryMetricsRecord as _StoryMetricsRecord
+    from agentkit.failure_corpus.incident import Incident as _Incident
 
     return {
         ProjectionKind.QA_STAGE_RESULTS: QAStageResultRecord,
         ProjectionKind.QA_FINDINGS: QAFindingRecord,
         ProjectionKind.STORY_METRICS: _StoryMetricsRecord,
+        ProjectionKind.FC_INCIDENTS: _Incident,
         # PHASE_STATE_PROJECTION hat keinen BC-eigenen Record-Typ in AG3-035;
         # Write-Owner ist pipeline_engine.PhaseExecutor (nicht ueber Accessor).
-        # FC_*-Record-Typen fehlen noch; AG3-028 bringt fc-Repos + Schreibpfade.
+        # FC_PATTERNS/FC_CHECK_PROPOSALS folgen mit ihren Producer-Stories.
     }
 
 
@@ -207,9 +224,10 @@ class ProjectionAccessor:
     def is_accessor_owned(projection_kind: ProjectionKind) -> bool:
         """True, wenn der Accessor den Write-/Read-Pfad fuer ``projection_kind`` besitzt.
 
-        Expliziter FK-69-§69.4-Vertrag: nur QA- und story_metrics-Kinds sind in
-        AG3-035 accessor-besessen. Extern besessene Kinds (PHASE_STATE_PROJECTION,
-        FC_*) werden von ``write_projection``/``read_projection`` fail-closed mit
+        Expliziter FK-69-§69.4-Vertrag: QA-, story_metrics- und (seit AG3-028)
+        FC_INCIDENTS-Kinds sind accessor-besessen. Extern besessene Kinds
+        (PHASE_STATE_PROJECTION, FC_PATTERNS, FC_CHECK_PROPOSALS) werden von
+        ``write_projection``/``read_projection`` fail-closed mit
         ``ProjectionKindNotAccessorOwnedError`` abgewiesen.
 
         Args:
@@ -237,7 +255,7 @@ class ProjectionAccessor:
 
         Raises:
             ProjectionKindNotAccessorOwnedError: Fuer extern besessene
-                ProjectionKinds (PHASE_STATE_PROJECTION, FC_*). Subklasse von
+                ProjectionKinds (PHASE_STATE_PROJECTION, FC_PATTERNS, FC_CHECK_PROPOSALS). Subklasse von
                 ``NotImplementedError``; benennt den Owner (FK-69 §69.4).
             ProjectionRecordTypeMismatchError: Wenn ``type(record)`` nicht dem
                 erwarteten Typ fuer ``projection_kind`` entspricht.
@@ -271,6 +289,10 @@ class ProjectionAccessor:
             # isinstance-Check erfolgte oben via _get_kind_to_record_type();
             # Any-cast weicht mypy-Narrowing aus, ohne Laufzeit-Import zu benoetigen.
             self._repos.story_metrics.write(record)  # type: ignore[arg-type]
+        elif projection_kind is ProjectionKind.FC_INCIDENTS:
+            # Incident ist runtime-lazy geladen (Anti-circular-import via
+            # _get_kind_to_record_type oben). isinstance-Check erfolgte dort.
+            self._repos.fc_incidents.write(record)  # type: ignore[arg-type]
         else:
             # Should not reach here due to _KIND_TO_RECORD_TYPE check above
             raise NotImplementedError(f"Unhandled ProjectionKind: {projection_kind!r}")
@@ -291,7 +313,7 @@ class ProjectionAccessor:
 
         Raises:
             ProjectionKindNotAccessorOwnedError: Fuer extern besessene
-                ProjectionKinds (PHASE_STATE_PROJECTION, FC_*). Subklasse von
+                ProjectionKinds (PHASE_STATE_PROJECTION, FC_PATTERNS, FC_CHECK_PROPOSALS). Subklasse von
                 ``NotImplementedError``; benennt den Owner (FK-69 §69.4).
         """
         if projection_kind is ProjectionKind.QA_STAGE_RESULTS:
@@ -322,9 +344,20 @@ class ProjectionAccessor:
                     run_id=filter.run_id,
                 )
             )
-        # Extern besessene Kinds (PHASE_STATE_PROJECTION, FC_*): fail-closed mit
-        # Owner-Benennung. phase_state-Reads laufen direkt via
-        # facade.load_phase_state; fc_*-Reads kommen mit AG3-028 (fc-Repos).
+        elif projection_kind is ProjectionKind.FC_INCIDENTS:
+            # AG3-028 KONFLIKT-2: fc_incidents ist accessor-owned. Filter ueber
+            # story_id/run_id (die Tabelle traegt kein project_key, Story §2.1.5).
+            return list(
+                self._repos.fc_incidents.read(
+                    project_key=filter.project_key,
+                    story_id=filter.story_id,
+                    run_id=filter.run_id,
+                )
+            )
+        # Extern besessene Kinds (PHASE_STATE_PROJECTION, FC_PATTERNS,
+        # FC_CHECK_PROPOSALS): fail-closed mit Owner-Benennung. phase_state-Reads
+        # laufen direkt via facade.load_phase_state; fc_patterns/fc_check_proposals
+        # kommen mit ihren Producer-Folge-Stories.
         raise ProjectionKindNotAccessorOwnedError(
             kind=projection_kind,
             owner=_EXTERNALLY_OWNED_KINDS.get(
@@ -349,15 +382,15 @@ class ProjectionAccessor:
         story_id-scoped. Signatur: ``purge_run(project_key, story_id, run_id)``.
         Story AG3-035 §2.1.3/AK1/AK5 ist auf diese Signatur angeglichen.
 
-        DRIFT 3 (vertagt, AG3-028): fc_*-Purge wird mit dem fc-Schreibpfad
-        nach AG3-028 implementiert. Per FK-69 §69.9 MUSS ein zurueckgesetzter
-        run_id seine fc_incidents entfernen und fc_patterns neu berechnen --
-        das wird mit den fc-Repos in AG3-028 implementiert.
-        # DRIFT-AG3-028
+        AG3-028 KONFLIKT-2 (FK-41 §41.3 / FK-69 §69.9): der vollstaendige Reset
+        eines ``run_id`` entfernt jetzt auch alle ``fc_incidents``-Zeilen dieses
+        Runs aktiv (kein Filter-Trick). fc_patterns/fc_check_proposals folgen mit
+        ihren Producer-Stories (solange diese Tabellen nicht existieren, gibt es
+        dort nichts zu purgen).
 
-        Purge deckt die Tabellen ab, deren Repos/Schreibpfade in AG3-035
-        existieren: qa_stage_results, qa_findings, story_metrics,
-        phase_state_projection.
+        Purge deckt die Tabellen ab, deren Repos/Schreibpfade existieren:
+        qa_stage_results, qa_findings, story_metrics, phase_state_projection,
+        fc_incidents.
 
         Args:
             project_key: Projekt-Schluessel.
@@ -376,6 +409,7 @@ class ProjectionAccessor:
             ProjectionKind.QA_FINDINGS,
             ProjectionKind.STORY_METRICS,
             ProjectionKind.PHASE_STATE_PROJECTION,
+            ProjectionKind.FC_INCIDENTS,
         ]:
             try:
                 if kind is ProjectionKind.QA_STAGE_RESULTS:
@@ -392,6 +426,10 @@ class ProjectionAccessor:
                     )
                 elif kind is ProjectionKind.PHASE_STATE_PROJECTION:
                     count = self._repos.phase_state_projection.purge_run(
+                        project_key, story_id, run_id
+                    )
+                elif kind is ProjectionKind.FC_INCIDENTS:
+                    count = self._repos.fc_incidents.purge_run(
                         project_key, story_id, run_id
                     )
                 else:

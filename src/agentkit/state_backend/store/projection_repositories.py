@@ -32,6 +32,9 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
+    from agentkit.state_backend.store.fc_incident_repository import (
+        FCIncidentsRepository,
+    )
     from agentkit.verify_system.protocols import LayerResult
     from agentkit.verify_system.stage_registry.records import (
         QAFindingRecord,
@@ -225,6 +228,7 @@ class ProjectionRepositories:
         phase_state_projection: Adapter fuer ``phase_state_projection``.
         qa_layer_batch: Atomarer QA-Layer-Batch-Schreibpfad (fachlicher
             Eintrittspunkt des QA-Subflows via ``record_qa_layer_artifacts``).
+        fc_incidents: Adapter fuer ``fc_incidents`` (AG3-028, FK-41 §41.3.1).
     """
 
     qa_stage_results: QAStageResultsRepository
@@ -232,6 +236,7 @@ class ProjectionRepositories:
     story_metrics: StoryMetricsRepository
     phase_state_projection: PhaseStateProjectionRepository
     qa_layer_batch: QALayerBatchWriter
+    fc_incidents: FCIncidentsRepository
 
 
 # ---------------------------------------------------------------------------
@@ -297,6 +302,7 @@ def _postgres_connect() -> Iterator[Any]:
     import psycopg
     from psycopg.rows import dict_row
 
+    from agentkit.state_backend import postgres_store
     from agentkit.state_backend.config import versioned_postgres_schema_name
 
     schema = versioned_postgres_schema_name()
@@ -304,6 +310,14 @@ def _postgres_connect() -> Iterator[Any]:
     try:
         conn.execute(f"CREATE SCHEMA IF NOT EXISTS {schema}")
         conn.execute(f"SET search_path TO {schema}, public")
+        # Bootstrap via kanonischer Postgres-Schema-Owner (SINGLE SOURCE OF
+        # TRUTH, symmetrisch zu _sqlite_connect_qa): garantiert, dass die
+        # FK-69-Tabellen (inkl. fc_incidents, AG3-028) vorhanden sind, bevor der
+        # Projektions-Repo-Adapter schreibt/liest. Idempotent (CREATE IF NOT
+        # EXISTS). Verhindert "relation does not exist", wenn der Schreibpfad
+        # ueber den ProjectionAccessor laeuft, ohne dass zuvor ein anderer
+        # postgres_store-Call das Schema gebootet hat.
+        postgres_store._ensure_schema(postgres_store._CompatConnection(conn))
         yield conn
         conn.commit()
     except Exception:
@@ -970,14 +984,19 @@ def build_projection_repositories(store_dir: Path | None = None) -> ProjectionRe
             Postgres ignoriert den Pfad.
 
     Returns:
-        ``ProjectionRepositories`` mit allen vier konkreten Adapter-Instanzen.
+        ``ProjectionRepositories`` mit allen konkreten Adapter-Instanzen.
     """
+    from agentkit.state_backend.store.fc_incident_repository import (
+        StateBackendFCIncidentsRepository,
+    )
+
     return ProjectionRepositories(
         qa_stage_results=FacadeQAStageResultsRepository(store_dir),
         qa_findings=FacadeQAFindingsRepository(store_dir),
         story_metrics=FacadeStoryMetricsRepository(store_dir),
         phase_state_projection=FacadePhaseStateProjectionRepository(store_dir),
         qa_layer_batch=FacadeQALayerBatchWriter(),
+        fc_incidents=StateBackendFCIncidentsRepository(store_dir),
     )
 
 

@@ -47,33 +47,50 @@ glossary:
         check_type, pipeline_stage, pipeline_layer, owner,
         false_positive_risk sowie positive und negative Testfixtures.
         Status durchläuft draft → approved | rejected → active.
-    - id: promotion-status
+    - id: incident-status
       definition: >
-        Lebenszykluszustand eines Failure-Corpus-Artefakts.
-        Für Incidents: observed | triaged | clustered | promoted |
-        closed_one_off | archived. Für Patterns: candidate | accepted |
-        check_proposed | check_active | monitoring | retired.
-        Für Checks: draft | approved | active | tuned | retired |
-        rejected. Jeder Übergang ist ausschließlich vorwärtsgerichtet,
-        ausser der menschliche Rückruf einer Auto-Deaktivierung.
+        Lebenszykluszustand eines Incident-Datensatzes (fc_incidents).
+        observed: erfasst und klassifiziert — Pflichtfelder werden beim
+        Schreiben erzwungen, einen unklassifizierten Roh-Zustand gibt es
+        nicht. promoted: in ein Pattern übernommen (zusätzlich aus
+        gesetztem pattern_ref ableitbar). closed_one_off: geprüft, kein
+        Präventionswert. archived: nur noch historisch relevant. Übergänge
+        sind ausschließlich vorwärtsgerichtet.
       values:
         - observed
-        - triaged
-        - clustered
         - promoted
         - closed_one_off
         - archived
+    - id: pattern-status
+      definition: >
+        Lebenszykluszustand eines FailurePattern (fc_patterns).
+        candidate: aus Clustering vorgeschlagen, noch nicht bestätigt.
+        accepted: menschlich bestätigt, Check-Ableitung möglich.
+        rejected: im Review verworfen. retired: nicht mehr relevant. Der
+        Fortschritt eines abgeleiteten Checks ist KEIN Pattern-Zustand,
+        sondern über check_ref auf check-status ableitbar. Übergänge sind
+        ausschließlich vorwärtsgerichtet.
+      values:
         - candidate
         - accepted
-        - check_proposed
-        - check_active
-        - monitoring
+        - rejected
+        - retired
+    - id: check-status
+      definition: >
+        Lebenszykluszustand eines generierten Checks (fc_check_proposals).
+        draft: Spezifikation erstellt. approved: menschlich freigegeben.
+        active: in der Pipeline aktiv (ein aktiver Check wird zwangsläufig
+        auf Wirksamkeit erfasst — kein separater Beobachtungszustand).
+        rejected: im Review verworfen. retired: deaktiviert (irrelevant
+        oder zu viele False Positives). Eine Nachjustierung ist eine neue
+        Check-Revision, kein eigener Status. Rückwärtsgerichtet nur beim
+        menschlichen Rückruf einer Auto-Deaktivierung.
+      values:
         - draft
         - approved
         - active
-        - tuned
-        - retired
         - rejected
+        - retired
   internal_terms:
     - id: failure-category
       reason: >
@@ -167,6 +184,11 @@ Pflichtattribute:
 - `symptom` — Freitextbeschreibung des Fehlerbildes
 - `evidence` — Liste von Evidenz-Strings
 - `recorded_at`
+- `incident_status` — Enum aus `incident-status` (§glossary): `observed |
+  promoted | closed_one_off | archived`; Default für neue Incidents:
+  `observed`. `promoted` ist zusätzlich aus gesetztem `pattern_ref`
+  ableitbar; `closed_one_off`/`archived` sind menschliche bzw.
+  Retention-Entscheidungen.
 
 Optionale Attribute:
 
@@ -191,8 +213,10 @@ Pflichtattribute:
 
 - `project_key`
 - `pattern_id` — Format `FP-NNNN`
-- `status` — Enum aus `promotion-status` (§glossary): `candidate |
-  accepted | check_proposed | check_active | monitoring | retired`
+- `status` — Enum aus `pattern-status` (§glossary): `candidate |
+  accepted | rejected | retired`. Der Fortschritt eines abgeleiteten
+  Checks ist KEIN Pattern-Zustand, sondern über `check_ref` auf
+  `check-status` ableitbar.
 - `category` — Enum-Wert aus `FailureCategory`
 - `invariant` — praezise, deterministische Regelaussage
 - `incident_refs` — JSON-Array der zugehoerigen `incident_id`-Werte
@@ -224,8 +248,9 @@ Pflichtattribute:
 
 - `project_key`
 - `check_id` — Format `CHK-NNNN`
-- `status` — Enum aus `promotion-status`: `draft | approved | rejected |
-  active | tuned | retired`
+- `status` — Enum aus `check-status` (§glossary): `draft | approved |
+  rejected | active | retired`. Eine Nachjustierung ist eine neue
+  Check-Revision, kein eigener Status.
 - `pattern_ref` — Verweis auf `fc_patterns.pattern_id`
 - `invariant` — deterministische Regelaussage (abgeleitet aus Pattern)
 - `check_type` — Enum: `Changed-File-Policy | Artifact-Completeness |
@@ -633,9 +658,11 @@ in `fc_check_proposals` zurueckgeschrieben (§41.3.3).
 | Mensch macht Deaktivierung rueckgaengig | Check wird reaktiviert |
 | Pattern-Schweregrad "kritisch" oder "sicherheitskritisch" | **Ausgenommen** von Auto-Deaktivierung. Nur manuell durch Mensch. |
 
-Status wechselt auf `tuned` (angepasst) oder `retired` (deaktiviert).
-Rueckruf durch Mensch ist der einzige rueckwaertsgerichtete
-Status-Uebergang (vgl. §41.3.3 Fachregeln).
+Status wechselt auf `retired` (deaktiviert) — oder der Check bleibt
+`active`. Eine inhaltliche Nachjustierung erfolgt als neue Check-Revision
+(neuer `draft`-Zyklus), nicht als eigener Zwischenstatus. Rueckruf durch
+Mensch ist der einzige rueckwaertsgerichtete Status-Uebergang (vgl.
+§41.3.3 Fachregeln).
 
 ## 41.7 Grundprinzip: Kein LLM-Judging als Check
 

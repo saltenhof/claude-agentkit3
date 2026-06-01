@@ -16,6 +16,9 @@ _POSTGRES_INDEPENDENT_CONTRACT_PATHS: tuple[str, ...] = (
     # session-scoped postgres_runtime_env switch, which would otherwise
     # leave AGENTKIT_STATE_BACKEND=postgres for interleaved SQLite tests.
     "/contract/project_management/",
+    # failure_corpus top-surface contract pins method signatures via pure
+    # introspection (no state backend).
+    "/contract/failure_corpus/",
 )
 
 

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from agentkit.failure_corpus.incident import Incident
 from agentkit.verify_system.stage_registry.records import (
     QAFindingRecord,
     QAStageResultRecord,
@@ -34,10 +35,15 @@ if TYPE_CHECKING:
     # ProjectionRecord: Discriminated union ueber alle FK-69-Read-Model-Klassen.
     # Phase-State-Projection wird als dict[str, object] repraesentiert (kein
     # eigenes BC-Record-Typ existiert fuer phase_state_projection in phase-framework).
-    # fc_*-Records fehlen noch (AG3-028 bringt die fc-Repository-Schreibpfade).
-    ProjectionRecord = QAStageResultRecord | QAFindingRecord | StoryMetricsRecord
+    # ``Incident`` ist der fc_incidents-Record (AG3-028 KONFLIKT-2). Er liegt im
+    # Blatt-Modul ``failure_corpus.incident`` (importiert nur core_types + types,
+    # NICHT telemetry) -- analog ``verify_system.stage_registry.records``.
+    ProjectionRecord = (
+        QAStageResultRecord | QAFindingRecord | StoryMetricsRecord | Incident
+    )
 
 __all__ = [
+    "Incident",
     "ProjectionRecord",
     "QAFindingRecord",
     "QAStageResultRecord",

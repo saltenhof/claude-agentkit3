@@ -35,6 +35,7 @@ from agentkit.verify_system.register import register_verify_producers
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from agentkit.failure_corpus import FailureCorpus
     from agentkit.governance.integrity_gate import IntegrityGate
     from agentkit.governance.repository import SetupContextRepository
     from agentkit.telemetry.projection_accessor import ProjectionAccessor
@@ -193,8 +194,44 @@ def build_projection_accessor(store_dir: Path | None = None) -> ProjectionAccess
     return _ProjectionAccessor(repos)
 
 
+def build_failure_corpus(projection_writer: ProjectionAccessor) -> FailureCorpus:
+    """Erzeugt eine verdrahtete ``FailureCorpus``-Top-Komponente (AG3-028).
+
+    Composition-Root fuer den Failure-Corpus-BC (FK-41 §41.1/§41.4). Verdrahtet
+    die ``IncidentTriage`` mit Default-Normalizer und -IngressCriteria und reicht
+    den ``ProjectionAccessor`` als schmalen ``ProjectionWriterPort`` ein
+    (FK-69 §69.9). ``failure_corpus`` kennt die fc_incidents-DB-Repo-Adapter
+    NICHT (KONFLIKT-2, AC#6): die Persistenz laeuft ueber
+    ``ProjectionAccessor.write_projection(FC_INCIDENTS, incident)``.
+
+    Args:
+        projection_writer: Der ``ProjectionAccessor`` als Schreibgrenze (erfuellt
+            das schmale ``ProjectionWriterPort``-Protocol).
+
+    Returns:
+        ``FailureCorpus`` mit funktionalem ``record_incident``; die uebrigen
+        Top-Methoden sind Vertrags-Slots (NotImplementedError, Folge-Stories).
+    """
+    from agentkit.failure_corpus import (
+        FailureCorpus as _FailureCorpus,
+    )
+    from agentkit.failure_corpus import (
+        IncidentNormalizer,
+        IncidentTriage,
+        IngressCriteria,
+    )
+
+    triage = IncidentTriage(
+        normalizer=IncidentNormalizer(),
+        criteria=IngressCriteria(),
+        projection_writer=projection_writer,
+    )
+    return _FailureCorpus(incident_triage=triage)
+
+
 __all__ = [
     "build_artifact_manager",
+    "build_failure_corpus",
     "build_integrity_gate",
     "build_producer_registry",
     "build_projection_accessor",

@@ -625,8 +625,9 @@ mit Schweregrad "kritisch" oder "sicherheitskritisch" abgeleitet
 wurden, sind von der Auto-Deaktivierung ausgenommen und können nur
 manuell durch den Menschen deaktiviert werden.
 
-**Output:** Status wechselt auf "tuned" (angepasst) oder "retired"
-(deaktiviert).
+**Output:** Status wechselt auf "retired" (deaktiviert) — oder der Check
+bleibt "active". Eine inhaltliche Nachjustierung erfolgt als neue
+Check-Revision (neuer "draft"-Zyklus), nicht als eigener Zwischenstatus.
 
 ---
 
@@ -635,38 +636,47 @@ manuell durch den Menschen deaktiviert werden.
 Nicht jeder Incident wird ein Pattern. Nicht jedes Pattern wird ein
 Check. Das ist gewollt.
 
-### 7.7.1 Incident-Status
+Jede der drei Ebenen hat ihren **eigenen, entitäts-scoped Status** —
+ein Pattern führt nicht den Fortschritt seines Checks mit, ein Incident
+nicht den seines Patterns. Cross-Ebenen-Fortschritt ist eine Beziehung
+(`pattern_ref`, `check_ref`), kein gespiegelter Zustand. Es gibt nur
+Zustände, die eine echte fachliche Gabelung markieren und nicht aus einer
+Beziehung ableitbar sind.
+
+### 7.7.1 Incident-Status (Enum `IncidentStatus`)
 
 | Status | Bedeutung |
 |---|---|
-| **observed** | Roher Fund, automatisch oder manuell erfasst |
-| **triaged** | Klassifiziert, Evidenz ergänzt, Pflichtfelder befüllt |
-| **clustered** | Ähnlichen Incidents zugeordnet |
-| **promoted** | In ein Pattern übernommen |
-| **closed_one_off** | Einzelfall ohne weiteren Präventionswert |
+| **observed** | Erfasst und klassifiziert (Pflichtfelder beim Schreiben erzwungen — einen unklassifizierten Roh-Zustand gibt es nicht) |
+| **promoted** | In ein Pattern übernommen (zusätzlich aus `pattern_ref` ableitbar) |
+| **closed_one_off** | Geprüft, kein weiterer Präventionswert |
 | **archived** | Nur noch historisch relevant |
 
-### 7.7.2 Pattern-Status
+### 7.7.2 Pattern-Status (Enum `PatternStatus`)
 
 | Status | Bedeutung |
 |---|---|
 | **candidate** | Vorgeschlagen, noch nicht bestätigt |
 | **accepted** | Menschlich bestätigt, Check-Ableitung möglich |
-| **check_proposed** | Check-Spezifikation liegt vor |
-| **check_active** | Deterministischer Check ist in der Pipeline aktiv |
-| **monitoring** | Check läuft, wird auf Wirksamkeit beobachtet |
-| **retired** | Pattern ist nicht mehr relevant oder Check wurde entfernt |
+| **rejected** | Im Review verworfen |
+| **retired** | Nicht mehr relevant |
 
-### 7.7.3 Check-Status
+Ob ein Pattern bereits einen Check hat und ob dieser aktiv ist, steht
+über `check_ref` im zugehörigen Check (`CheckStatus`) — das ist kein
+eigener Pattern-Zustand.
+
+### 7.7.3 Check-Status (Enum `CheckStatus`)
 
 | Status | Bedeutung |
 |---|---|
 | **draft** | Spezifikation erstellt, noch nicht implementiert |
 | **approved** | Menschlich freigegeben, Implementierung steht aus |
-| **active** | In der Pipeline aktiv |
-| **tuned** | Nach Nutzen-Review angepasst |
-| **retired** | Deaktiviert, weil nicht mehr relevant oder zu viele False Positives |
+| **active** | In der Pipeline aktiv (ein aktiver Check wird zwangsläufig auf Wirksamkeit erfasst) |
 | **rejected** | Vom Menschen im Review verworfen |
+| **retired** | Deaktiviert, weil nicht mehr relevant oder zu viele False Positives |
+
+Eine inhaltliche Nachjustierung ist eine **neue Check-Revision** (neuer
+`draft`-Zyklus), kein eigener Zwischenstatus.
 
 ### 7.7.4 Aufbewahrung und Löschung
 

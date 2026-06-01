@@ -1,14 +1,17 @@
-"""FailureCategory und PromotionStatus — Failure-Corpus-Klassifikation.
+"""FailureCategory und IncidentStatus — Failure-Corpus-Klassifikation.
 
 Source of truth:
 - FailureCategory: FK-41 §41.4.1 — concept/technical-design/41_failure_corpus_pattern_promotion_check_factory.md
-  (Z. 281-294, 12 Werte). Abgeglichen mit bc-cut-decisions §BC 13
-  Z. 1214-1218.
-- PromotionStatus: FK-41 Glossar `exported_terms.promotion-status.values`
-  Z. 70-76 (7 Werte). Die volle Glossar-Liste enthaelt zwar 17 Werte
-  (Z. 60-76), Story AG3-021 §2.1.1.1 hat sich normativ auf die Sub-Liste
-  in Z. 70-76 (monitoring/draft/approved/active/tuned/retired/rejected)
-  festgelegt.
+  (12 Werte). Abgeglichen mit bc-cut-decisions §BC 13.
+- IncidentStatus: FK-41 §41.3.1 + Glossar `exported_terms.incident-status.values`
+  (4 Werte: observed/promoted/closed_one_off/archived). AG3-028 KONFLIKT-1
+  (User-Entscheidung 2026-06-01) ersetzt den frueheren Sammel-Enum
+  ``PromotionStatus`` (ein Enum fuer drei Entitaeten) durch drei
+  entitaets-scoped Lifecycle-Enums. ``IncidentStatus`` ist der einzige Enum
+  mit funktionalem Producer (``record_incident``/``fc_incidents.incident_status``)
+  und wird daher in dieser Story materialisiert; ``PatternStatus``/``CheckStatus``
+  folgen mit ihren Producern (PatternPromotion/CheckFactory) in Folge-Stories
+  (ZERO DEBT: kein toter Code).
 """
 
 from __future__ import annotations
@@ -52,27 +55,24 @@ class FailureCategory(StrEnum):
     REVIEW_EVASION = "review_evasion"
 
 
-class PromotionStatus(StrEnum):
-    """Promotion-Status pro FK-41 Glossar (Story-normative Sub-Liste,
-    Z. 70-76).
+class IncidentStatus(StrEnum):
+    """Incident-Lebenszyklus pro FK-41 §41.3.1 + Glossar ``incident-status``.
 
-    Die untenstehende Liste ist abschliessend; aeltere, repo-historisch
-    kursierende Status-Listen entfallen.
+    Die untenstehende Liste ist abschliessend (4 Werte). Uebergaenge sind
+    ausschliesslich vorwaertsgerichtet. AG3-028 KONFLIKT-1: ersetzt den
+    frueheren Sammel-Enum ``PromotionStatus``.
 
     Attributes:
-        MONITORING: Pattern in Beobachtung; noch nicht akzeptiert.
-        DRAFT: Check-Vorschlag im Entwurf.
-        APPROVED: Check vom Menschen freigegeben.
-        ACTIVE: Check aktiv in der Pipeline eingesetzt.
-        TUNED: Check nach Effektivitaetsmessung nachjustiert.
-        RETIRED: Check ausser Dienst gestellt.
-        REJECTED: Check-Vorschlag abgelehnt.
+        OBSERVED: erfasst und klassifiziert — Pflichtfelder werden beim
+            Schreiben erzwungen, einen unklassifizierten Roh-Zustand gibt es
+            nicht (Default fuer neue Incidents).
+        PROMOTED: in ein Pattern uebernommen (zusaetzlich aus gesetztem
+            ``pattern_ref`` ableitbar).
+        CLOSED_ONE_OFF: geprueft, kein Praeventionswert.
+        ARCHIVED: nur noch historisch relevant.
     """
 
-    MONITORING = "monitoring"
-    DRAFT = "draft"
-    APPROVED = "approved"
-    ACTIVE = "active"
-    TUNED = "tuned"
-    RETIRED = "retired"
-    REJECTED = "rejected"
+    OBSERVED = "observed"
+    PROMOTED = "promoted"
+    CLOSED_ONE_OFF = "closed_one_off"
+    ARCHIVED = "archived"

@@ -1,10 +1,10 @@
-"""Unit-Tests fuer FailureCategory und PromotionStatus (AG3-021 §2.1.9.1)."""
+"""Unit-Tests fuer FailureCategory und IncidentStatus (AG3-021 §2.1.9.1, AG3-028 KONFLIKT-1)."""
 
 from __future__ import annotations
 
 import pytest
 
-from agentkit.core_types import FailureCategory, PromotionStatus
+from agentkit.core_types import FailureCategory, IncidentStatus
 
 
 class TestFailureCategory:
@@ -56,33 +56,32 @@ class TestFailureCategory:
                 FailureCategory(legacy)
 
 
-class TestPromotionStatus:
+class TestIncidentStatus:
+    """AG3-028 KONFLIKT-1: IncidentStatus ersetzt PromotionStatus (4 Werte)."""
+
     _EXPECTED_VALUES = (
-        "monitoring",
-        "draft",
-        "approved",
-        "active",
-        "tuned",
-        "retired",
-        "rejected",
+        "observed",
+        "promoted",
+        "closed_one_off",
+        "archived",
     )
 
     def test_each_value_constructable(self) -> None:
         for raw in self._EXPECTED_VALUES:
-            assert PromotionStatus(raw).value == raw
+            assert IncidentStatus(raw).value == raw
 
     def test_iteration_is_deterministic(self) -> None:
-        assert [member.value for member in PromotionStatus] == list(self._EXPECTED_VALUES)
+        assert [member.value for member in IncidentStatus] == list(self._EXPECTED_VALUES)
 
     def test_str_enum_invariants(self) -> None:
-        assert PromotionStatus.MONITORING.value == "monitoring"
-        assert isinstance(PromotionStatus.MONITORING, str)
+        assert IncidentStatus.OBSERVED.value == "observed"
+        assert isinstance(IncidentStatus.OBSERVED, str)
 
-    def test_seven_values(self) -> None:
-        assert len(PromotionStatus) == 7
+    def test_four_values(self) -> None:
+        assert len(IncidentStatus) == 4
 
-    def test_legacy_v2_values_rejected(self) -> None:
-        """Werteliste OBSERVED/PROPOSED/CONFIRMED/IMPLEMENTED entfaellt."""
-        for legacy in ("observed", "proposed", "confirmed", "implemented"):
+    def test_legacy_promotion_status_values_rejected(self) -> None:
+        """Die alten PromotionStatus-Werte sind kein IncidentStatus mehr."""
+        for legacy in ("monitoring", "draft", "approved", "active", "tuned", "retired"):
             with pytest.raises(ValueError):
-                PromotionStatus(legacy)
+                IncidentStatus(legacy)

@@ -86,6 +86,28 @@ def _make_story_metrics() -> StoryMetricsRecord:
     )
 
 
+def _make_incident() -> object:
+    from datetime import UTC as _UTC
+    from datetime import datetime as _dt
+
+    from agentkit.core_types import FailureCategory
+    from agentkit.failure_corpus.incident import Incident
+    from agentkit.failure_corpus.types import IncidentId, IncidentSeverity
+
+    return Incident(
+        incident_id=IncidentId("FC-1"),
+        category=FailureCategory.SCOPE_DRIFT,
+        severity=IncidentSeverity.HIGH,
+        source_bc="governance-and-guards",
+        story_id="TEST-001",
+        run_id="run-abc",
+        summary="scope exceeded",
+        evidence={},
+        observed_at=_dt(2026, 6, 1, 12, 0, 0, tzinfo=_UTC),
+        normalized_at=_dt(2026, 6, 1, 12, 0, 0, tzinfo=_UTC),
+    )
+
+
 def _make_repos() -> MagicMock:
     """Erzeugt einen Mock-ProjectionRepositories-Container."""
     repos = MagicMock()
@@ -93,6 +115,7 @@ def _make_repos() -> MagicMock:
     repos.qa_findings = MagicMock()
     repos.story_metrics = MagicMock()
     repos.phase_state_projection = MagicMock()
+    repos.fc_incidents = MagicMock()
     return repos
 
 
@@ -207,34 +230,33 @@ def test_phase_state_projection_write_raises_not_accessor_owned() -> None:
     assert isinstance(exc_info.value, NotImplementedError)
 
 
-def test_fc_incidents_write_raises_not_accessor_owned() -> None:
-    """FC_INCIDENTS ist extern besessen (Owner: AG3-028 FailureCorpus)."""
+def test_fc_incidents_write_calls_repo() -> None:
+    """AG3-028 KONFLIKT-2: FC_INCIDENTS ist accessor-owned -> fc_incidents.write."""
     repos = _make_repos()
     accessor = ProjectionAccessor(repos)
-    record = _make_story_metrics()
+    record = _make_incident()
 
-    with pytest.raises(ProjectionKindNotAccessorOwnedError) as exc_info:
-        accessor.write_projection(ProjectionKind.FC_INCIDENTS, record)
+    accessor.write_projection(ProjectionKind.FC_INCIDENTS, record)  # type: ignore[arg-type]
 
-    assert exc_info.value.kind is ProjectionKind.FC_INCIDENTS
-    assert "AG3-028" in exc_info.value.owner
+    repos.fc_incidents.write.assert_called_once_with(record)
+    repos.story_metrics.write.assert_not_called()
 
 
 def test_is_accessor_owned_contract() -> None:
     """is_accessor_owned trennt accessor-besessene von extern besessenen Kinds.
 
     FK-69 §69.3 listet alle 7 Tabellen; §69.4 vergibt Write-Ownership. Der
-    Accessor besitzt in AG3-035 nur QA + story_metrics; die uebrigen vier
-    Kinds sind bewusst publiziert, aber extern besessen.
+    Accessor besitzt QA + story_metrics + (seit AG3-028) fc_incidents; die
+    uebrigen drei Kinds sind bewusst publiziert, aber extern besessen.
     """
     owned = {
         ProjectionKind.QA_STAGE_RESULTS,
         ProjectionKind.QA_FINDINGS,
         ProjectionKind.STORY_METRICS,
+        ProjectionKind.FC_INCIDENTS,
     }
     external = {
         ProjectionKind.PHASE_STATE_PROJECTION,
-        ProjectionKind.FC_INCIDENTS,
         ProjectionKind.FC_PATTERNS,
         ProjectionKind.FC_CHECK_PROPOSALS,
     }
@@ -314,17 +336,34 @@ def test_read_story_metrics_passes_filter() -> None:
     assert result == expected
 
 
-def test_read_fc_incidents_raises_not_accessor_owned() -> None:
-    """FC_*-Read-Pfade sind extern besessen (Owner: AG3-028 FailureCorpus)."""
+def test_read_fc_incidents_passes_filter() -> None:
+    """AG3-028 KONFLIKT-2: FC_INCIDENTS-Read leitet Filter an fc_incidents.read."""
+    repos = _make_repos()
+    expected = [_make_incident()]
+    repos.fc_incidents.read.return_value = expected
+    accessor = ProjectionAccessor(repos)
+    f = ProjectionFilter(project_key="pk", story_id="S-001", run_id="run-xyz")
+
+    result = accessor.read_projection(ProjectionKind.FC_INCIDENTS, f)
+
+    repos.fc_incidents.read.assert_called_once_with(
+        project_key="pk",
+        story_id="S-001",
+        run_id="run-xyz",
+    )
+    assert result == expected
+
+
+def test_read_fc_patterns_raises_not_accessor_owned() -> None:
+    """FC_PATTERNS bleibt fail-closed bis zur Producer-Folge-Story."""
     repos = _make_repos()
     accessor = ProjectionAccessor(repos)
     f = ProjectionFilter()
 
     with pytest.raises(ProjectionKindNotAccessorOwnedError) as exc_info:
-        accessor.read_projection(ProjectionKind.FC_INCIDENTS, f)
+        accessor.read_projection(ProjectionKind.FC_PATTERNS, f)
 
-    assert exc_info.value.kind is ProjectionKind.FC_INCIDENTS
-    assert "AG3-028" in exc_info.value.owner
+    assert exc_info.value.kind is ProjectionKind.FC_PATTERNS
 
 
 def test_read_phase_state_projection_raises_not_accessor_owned() -> None:

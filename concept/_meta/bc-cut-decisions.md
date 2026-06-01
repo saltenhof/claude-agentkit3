@@ -1179,14 +1179,15 @@ Layer 4: Upgrade (orthogonal, nutzt Engine fuer Re-Run)
 **Status:** geschnitten (2026-05-01)
 **Quellen:** DK-07, FK-41
 **BC-Verantwortung:** Fehlmuster-Sammlung, Pattern-Promotion, Check-Factory,
-Lernschleife in deterministische Guards. Owns: FailurePattern, PromotionStatus,
-GeneratedCheckProposal, IncidentCandidate.
+Lernschleife in deterministische Guards. Owns: FailurePattern, IncidentStatus,
+PatternStatus, CheckStatus, GeneratedCheckProposal, IncidentCandidate.
 
 **Top:** `FailureCorpus` (A, top, prefix=`agentkit.failure_corpus`)
 
 Koordiniert Incident-Aufnahme, Pattern-Aggregation und Check-Ableitung.
-Enthaelt direkt (~6 Klassen): `FailureCorpus`, `IncidentCandidate`,
-`FailureCategory`, `PromotionStatus`, `IncidentId`, `PatternId`, `CheckId`.
+Enthaelt direkt: `FailureCorpus`, `IncidentCandidate`,
+`FailureCategory`, `IncidentStatus`, `PatternStatus`, `CheckStatus`,
+`IncidentId`, `PatternId`, `CheckId`.
 
 **Top-Surface:**
 - `FailureCorpus.record_incident(candidate: IncidentCandidate) -> IncidentId`
@@ -1214,8 +1215,11 @@ Modul-Prefixes:
 - Top (~6): `FailureCorpus`, `IncidentCandidate`, `FailureCategory` (StrEnum, 12
   Werte: scope_drift, architecture_violation, evidence_fabrication, hallucination,
   test_omission, assertion_weakness, unsafe_refactor, policy_violation, tool_misuse,
-  state_desync, requirements_miss, review_evasion), `PromotionStatus` (StrEnum,
-  deckt alle 3 Ebenen ab), `IncidentId`, `PatternId`, `CheckId` (NewType)
+  state_desync, requirements_miss, review_evasion), drei entitäts-scoped
+  Lifecycle-Enums `IncidentStatus` (observed/promoted/closed_one_off/archived),
+  `PatternStatus` (candidate/accepted/rejected/retired), `CheckStatus`
+  (draft/approved/active/rejected/retired), `IncidentId`, `PatternId`,
+  `CheckId` (NewType)
 - `IncidentTriage` (~6): `IncidentTriage` (Coordinator), `Incident`, `IncidentNormalizer`,
   `IngressCriteria`, `IncidentRepository`, `IncidentSeverity` (StrEnum: niedrig, mittel,
   hoch, kritisch)
