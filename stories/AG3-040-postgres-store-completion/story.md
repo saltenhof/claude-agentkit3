@@ -11,6 +11,41 @@
 
 ---
 
+## Realignment-Notiz (2026-06-01, Feasibility vor Sub-Block (a))
+
+- **Scope jetzt: NUR Sub-Block (a)** (project_management Postgres + Wire-Adapter
+  + project_detail/mode_lock/story_counters Views). Die **fc_*-Tabellen (§2.1.2)
+  bleiben ausgeklammert** und gehoeren zu AG3-028 (Schema-Owner failure-corpus,
+  `_bearbeitungsreihenfolge.md` Anmerkung 1).
+- **Story teilweise veraltet (Feasibility-Recon):** Die `projects`-Tabelle
+  (Postgres `key`/`name`/`story_id_prefix`/`configuration`(JSONB)/`archived_at`,
+  SQLite analog mit `configuration_json`) **existiert bereits** inkl.
+  save/load/list-CRUD (`postgres_store.py`, `sqlite_store.py`) und
+  `StateBackendProjectRepository`. §2.1.1 ist also faktisch ERLEDIGT (der
+  Spaltenname-Mapping `configuration`↔`configuration_json` ist im Mapper schon
+  geloest). Realer Restscope (a): `_project_payload`-Wire-Adapter (heute rohes
+  `model_dump`), neue `views.py`, StoryCounters-Aggregation, Tests.
+- **Wire-Vertrag = `formal.frontend-contracts.entities` ist autoritativ
+  (Konzept > Story).** Daraus folgt gegenueber der Story-Skizze:
+  - `project_summary` = exakt `project_key`, `display_name`, `status`
+    (active|archived). **KEIN** `created_at`/`story_id_prefix`/`configuration`
+    im Summary-Wire (Story §2.1.3 ist hier drift; `created_at` existiert nicht
+    mal als Entity-Feld → wird NICHT erfunden).
+  - `project_detail` = `project_key`/`display_name`/`status` **flach** +
+    `mode_lock` + `story_counters` + `concept_anchors` (Story nestet
+    `project_summary` — Wire ist flach; flach gewinnt).
+  - `project_mode_lock` = `project_key` + `mode` (standard|fast|idle). **KEIN
+    `holder_count`** im Wire (Story-Skizze/AG3-018 drift; falls je noetig →
+    eigener formal-spec-/AG3-018-Schnitt mit Consent, NICHT hier erfinden).
+  - `story_counters` = die 6 int-Zaehler; Klassifikation deterministisch nach
+    `frontend-contracts.invariant.counters_classification`.
+- **§2.2 Out-of-Scope Zeile „Failure-Corpus ueberlebt Reset" ist veraltet**
+  (FK-69 §69.9: fc_incidents werden bei Reset entfernt, fc_patterns neu
+  berechnet; gehoert ohnehin zum fc_-Block/AG3-028) — wird mit dem fc_-Block
+  korrigiert, hier ohne Belang (fc_* ausgeklammert).
+
+---
+
 ## 1. Kontext
 
 THEME-008 aus `stories/_priorisierungsempfehlung.md`. Befunde:

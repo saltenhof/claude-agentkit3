@@ -11,6 +11,11 @@ from __future__ import annotations
 # SQLite backend (e.g. ``tests/unit/verify_system/structural/``).
 _POSTGRES_INDEPENDENT_CONTRACT_PATHS: tuple[str, ...] = (
     "/contract/core_types/",
+    # project_management wire-contract tests pin pure in-memory Pydantic
+    # model field-sets (no state backend).  They must NOT trigger the
+    # session-scoped postgres_runtime_env switch, which would otherwise
+    # leave AGENTKIT_STATE_BACKEND=postgres for interleaved SQLite tests.
+    "/contract/project_management/",
 )
 
 

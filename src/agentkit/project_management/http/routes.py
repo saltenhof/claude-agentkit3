@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from agentkit.project_management.repository import ProjectRepository
+    from agentkit.project_management.service import ProjectDetailService
 
 _CORRELATION_HEADER = "X-Correlation-Id"
 _PROJECT_DETAIL_PATH = re.compile(r"^/v1/projects/(?P<key>[^/]+)$")
@@ -129,6 +130,7 @@ class ProjectManagementRoutes:
         *,
         repos_in_use_checker: Callable[[str, list[str]], list[str]],
         repository: ProjectRepository | None = None,
+        detail_service: ProjectDetailService | None = None,
     ) -> None:
         if repository is None:
             from agentkit.state_backend.store.project_management_repository import (
@@ -138,6 +140,7 @@ class ProjectManagementRoutes:
             repository = StateBackendProjectRepository()
         self._repository = repository
         self._repos_in_use_checker = repos_in_use_checker
+        self._detail_service = detail_service
 
     def handle_get(
         self,
@@ -160,14 +163,31 @@ class ProjectManagementRoutes:
         if detail_match is None:
             return None
 
-        project = self._repository.get(detail_match.group("key"))
-        if project is None:
+        key = detail_match.group("key")
+        if self._repository.get(key) is None:
             return _not_found_response(correlation_id)
+        detail_view = self._detail_view_service().build_project_detail_view(key)
         return _json_response(
             HTTPStatus.OK,
-            {"project": _project_payload(project)},
+            {"project": detail_view.model_dump(mode="json")},
             correlation_id=correlation_id,
         )
+
+    def _detail_view_service(self) -> ProjectDetailService:
+        """Return the project-detail aggregation service.
+
+        Constructed lazily over the same project repository as the route
+        handler so the detail view stays consistent with list/mutation
+        responses.  Story-derived data is obtained through the default
+        story_context_manager ``StoryService`` (AK7 cross-BC API).
+        """
+        if self._detail_service is None:
+            from agentkit.project_management.service import ProjectDetailService
+
+            self._detail_service = ProjectDetailService(
+                project_repository=self._repository,
+            )
+        return self._detail_service
 
     def handle_post(
         self,
@@ -567,7 +587,21 @@ def _parse_bool_query(query: dict[str, list[str]], key: str) -> bool:
 
 
 def _project_payload(project: Project) -> dict[str, object]:
-    return project.model_dump(mode="json")
+    """Serialize a Project to the ``project_summary`` wire shape.
+
+    Exactly the three canonical attributes of
+    ``frontend-contracts.entity.project_summary`` —
+    ``project_key`` (= ``project.key``), ``display_name``
+    (= ``project.name``) and ``status`` (``active`` while
+    ``archived_at`` is ``None``, otherwise ``archived``).  No further
+    entity fields are exposed (no ``story_id_prefix`` / ``configuration``
+    / timestamps); leaking them would break the wire contract.
+    """
+    return {
+        "project_key": project.key,
+        "display_name": project.name,
+        "status": "active" if project.archived_at is None else "archived",
+    }
 
 
 def _mutation_response(

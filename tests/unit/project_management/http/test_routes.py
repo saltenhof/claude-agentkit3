@@ -37,13 +37,34 @@ class _InMemoryProjectRepository:
         self.projects[project.key] = project
 
 
-def _app(repository: _InMemoryProjectRepository) -> ControlPlaneApplication:
-    from agentkit.project_management.http.routes import _no_repos_in_use
+class _StoryListStub:
+    """Minimal story-listing port returning a fixed story corpus."""
 
+    def __init__(self, stories: list[object] | None = None) -> None:
+        self._stories = stories or []
+
+    def list_stories(self, project_key: str) -> list[object]:
+        _ = project_key
+        return list(self._stories)
+
+
+def _app(
+    repository: _InMemoryProjectRepository,
+    *,
+    stories: list[object] | None = None,
+) -> ControlPlaneApplication:
+    from agentkit.project_management.http.routes import _no_repos_in_use
+    from agentkit.project_management.service import ProjectDetailService
+
+    detail_service = ProjectDetailService(
+        project_repository=repository,
+        story_service=_StoryListStub(stories),
+    )
     return ControlPlaneApplication(
         project_routes=ProjectManagementRoutes(
             repository=repository,
             repos_in_use_checker=_no_repos_in_use,
+            detail_service=detail_service,
         ),
     )
 
@@ -89,13 +110,13 @@ def test_get_projects_returns_list() -> None:
     )
 
     assert response.status_code == HTTPStatus.OK
+    # GET /v1/projects returns the project_summary wire shape (exactly the
+    # three canonical fields), NOT the raw entity (AG3-040 sub-block a).
     assert _json_body(response.body)["projects"] == [
         {
-            "key": "tenant-a",
-            "name": "Tenant A",
-            "story_id_prefix": "AG3",
-            "configuration": _configuration_payload(),
-            "archived_at": None,
+            "project_key": "tenant-a",
+            "display_name": "Tenant A",
+            "status": "active",
         },
     ]
     assert ("X-Correlation-Id", "req-projects") in response.headers
@@ -115,7 +136,23 @@ def test_get_project_returns_detail() -> None:
     assert response.status_code == HTTPStatus.OK
     project_payload = _json_body(response.body)["project"]
     assert isinstance(project_payload, dict)
-    assert project_payload["key"] == "tenant-a"
+    # GET /v1/projects/{key} returns the flat project_detail wire view.
+    assert project_payload == {
+        "project_key": "tenant-a",
+        "display_name": "Tenant A",
+        "status": "active",
+        "mode_lock": {"project_key": "tenant-a", "mode": "idle"},
+        "story_counters": {
+            "project_key": "tenant-a",
+            "total": 0,
+            "finished": 0,
+            "running": 0,
+            "ready": 0,
+            "queue": 0,
+            "blocked": 0,
+        },
+        "concept_anchors": [],
+    }
 
 
 def test_post_projects_creates_project() -> None:
