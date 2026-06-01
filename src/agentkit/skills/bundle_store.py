@@ -454,98 +454,93 @@ class SkillBundleStore:
         """
         # AG3-048 Codex-r4 FINDING 2: order versions SEMANTICALLY (SemVer
         # major/minor/patch as ints), NOT by lexicographic directory-name sort
-        # (which makes "9.0.0" > "10.0.0" and would silently downgrade).
+        # (which makes "9.0.0" > "10.0.0" and would silently downgrade). Sort
+        # DESCENDING so the highest version is processed first (Codex-r7-r2:
+        # ``sorted(reverse=True)`` instead of ``reversed(sorted(...))``).
         version_dirs = sorted(
             (p for p in bundle_dir.iterdir() if p.is_dir()),
             key=lambda p: (_semver_sort_key(p.name), p.name),
+            reverse=True,
         )
         directory_bundle_id = bundle_dir.name
-        for version_dir in reversed(version_dirs):  # highest version is authoritative
+        # Each failure branch routes through ``_corrupt_or_none`` (raise in
+        # fail-closed mode, ``None`` in fail-soft) so this loop stays within the
+        # cognitive-complexity budget (Codex-r7-r2, Sonar S3776).
+        for version_dir in version_dirs:  # highest version is authoritative
             manifest_path = version_dir / BUNDLE_MANIFEST_FILENAME
             if not manifest_path.is_file():
                 # AG3-048 Codex-r7 FINDING: a CONFORMANT highest version directory
                 # WITHOUT a manifest is an incomplete/corrupt bundle, NOT "no
-                # signal". It must NEVER silently downgrade to an older version
-                # (same discipline as a malformed manifest). In the fail-closed
-                # requested path raise ``SkillBundleCorruptError``; in the
-                # fail-soft scan leave the bundle undiscovered (``None``) so the
-                # requested-id path reports the corruption honestly. A
-                # NON-conformant trailing directory (a stray ``docs``/``latest``
-                # that is not a version at all) is still skipped.
-                tier = _semver_sort_key(version_dir.name)[0]
-                if tier == _SEMVER_TIER_NONCONFORMANT:
+                # signal"; never downgrade past it. A NON-conformant trailing dir
+                # (a stray ``docs``/``latest`` that is not a version) is skipped.
+                if _semver_sort_key(version_dir.name)[0] == _SEMVER_TIER_NONCONFORMANT:
                     continue
-                if fail_closed_bundle_id is not None:
-                    raise SkillBundleCorruptError(
-                        f"Skill bundle '{fail_closed_bundle_id}' is present but its "
-                        f"highest version directory has no manifest (incomplete "
-                        f"bundle): {manifest_path}",
-                        detail={
-                            "bundle_id": fail_closed_bundle_id,
-                            "manifest_path": str(manifest_path),
-                            "parse_error": "highest version directory has no manifest.json",
-                        },
-                    )
-                return None
+                return cls._corrupt_or_none(
+                    fail_closed_bundle_id,
+                    manifest_path,
+                    "highest version directory has no manifest.json",
+                )
             try:
                 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             except (OSError, ValueError) as exc:
-                if fail_closed_bundle_id is not None:
-                    raise SkillBundleCorruptError(
-                        f"Skill bundle '{fail_closed_bundle_id}' is present but its "
-                        f"highest-version manifest is unreadable/malformed: "
-                        f"{manifest_path} ({exc})",
-                        detail={
-                            "bundle_id": fail_closed_bundle_id,
-                            "manifest_path": str(manifest_path),
-                            "parse_error": str(exc),
-                        },
-                    ) from exc
-                # Fail-soft scan: the highest version is authoritative. A corrupt
-                # highest manifest must NOT silently downgrade to an older
-                # version — leave the bundle undiscovered so the fail-closed
-                # requested-id path (``_discover_requested_or_raise``) can report
-                # the corruption honestly (AG3-048 Codex-r3).
-                return None
+                return cls._corrupt_or_none(fail_closed_bundle_id, manifest_path, str(exc))
             # AG3-048 Codex-r4 FINDING 2: the DIRECTORY name is authoritative for
-            # the bundle id. A manifest whose ``bundle_id`` disagrees with its
-            # directory is corruption — never let it resolve a DIFFERENT id.
+            # the bundle id; a mismatching manifest bundle_id is corruption and
+            # must never resolve a DIFFERENT id from this directory.
             id_mismatch = cls._manifest_bundle_id_mismatch(manifest, directory_bundle_id)
             if id_mismatch is not None:
-                if fail_closed_bundle_id is not None:
-                    raise SkillBundleCorruptError(
-                        f"Skill bundle '{fail_closed_bundle_id}' is present but its "
-                        f"highest-version manifest declares a mismatching bundle_id "
-                        f"'{id_mismatch}' (directory name is authoritative): "
-                        f"{manifest_path}",
-                        detail={
-                            "bundle_id": fail_closed_bundle_id,
-                            "directory_bundle_id": directory_bundle_id,
-                            "manifest_bundle_id": id_mismatch,
-                            "manifest_path": str(manifest_path),
-                            "parse_error": "manifest bundle_id does not match directory",
-                        },
-                    )
-                # Fail-soft scan: a mismatched manifest must NOT resolve a
-                # different bundle id from this directory. Skip it entirely.
-                return None
+                return cls._corrupt_or_none(
+                    fail_closed_bundle_id,
+                    manifest_path,
+                    "manifest bundle_id does not match directory",
+                    extra={
+                        "directory_bundle_id": directory_bundle_id,
+                        "manifest_bundle_id": id_mismatch,
+                    },
+                )
             bundle = cls._bundle_from_manifest(manifest, version_dir)
             if bundle is not None:
                 return bundle
-            if fail_closed_bundle_id is not None:
-                raise SkillBundleCorruptError(
-                    f"Skill bundle '{fail_closed_bundle_id}' is present but its "
-                    f"highest-version manifest is structurally invalid: "
-                    f"{manifest_path}",
-                    detail={
-                        "bundle_id": fail_closed_bundle_id,
-                        "manifest_path": str(manifest_path),
-                        "parse_error": "manifest is not a valid bundle object",
-                    },
-                )
-            # Fail-soft scan: skip this unrelated/invalid dir entirely.
-            return None
+            return cls._corrupt_or_none(
+                fail_closed_bundle_id,
+                manifest_path,
+                "manifest is not a valid bundle object",
+            )
         return None
+
+    @staticmethod
+    def _corrupt_or_none(
+        fail_closed_bundle_id: str | None,
+        manifest_path: Path,
+        parse_error: str,
+        *,
+        extra: dict[str, str] | None = None,
+    ) -> None:
+        """Raise ``SkillBundleCorruptError`` (fail-closed) or return ``None`` (fail-soft).
+
+        Centralises the 'highest version is corrupt' decision shared by every
+        failure branch of ``_load_highest_version`` so that method stays within
+        the cognitive-complexity budget (Codex-r7-r2, Sonar S3776). In fail-soft
+        mode (``fail_closed_bundle_id is None``) a problem returns ``None`` (the
+        bundle stays undiscovered so the requested-id path reports it honestly);
+        in fail-closed mode it raises a corruption error naming the offending
+        manifest path + parse error — never a silent downgrade, never a generic
+        NotFound.
+        """
+        if fail_closed_bundle_id is None:
+            return None
+        detail: dict[str, str] = {
+            "bundle_id": fail_closed_bundle_id,
+            "manifest_path": str(manifest_path),
+            "parse_error": parse_error,
+        }
+        if extra:
+            detail.update(extra)
+        raise SkillBundleCorruptError(
+            f"Skill bundle '{fail_closed_bundle_id}' is present but its highest "
+            f"version is corrupt ({parse_error}): {manifest_path}",
+            detail=detail,
+        )
 
     @staticmethod
     def _manifest_bundle_id_mismatch(

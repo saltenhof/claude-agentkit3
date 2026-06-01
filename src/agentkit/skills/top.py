@@ -526,7 +526,7 @@ class Skills:
         persisted_row_remains = False
         try:
             self._binding_repo.delete(project_root.stem, skill_name)
-        except Exception:  # noqa: BLE001 — best-effort; tracked, not swallowed
+        except Exception:  # noqa: BLE001  # best-effort; tracked, not swallowed
             persisted_row_remains = True
 
         return _CleanupResidual(

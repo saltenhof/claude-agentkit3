@@ -544,12 +544,12 @@ def _rollback_bindings(
                 "skill_name": skill_name,
                 "error": str(exc),
                 "residual_links": [
-                    str(r) for r in (exc.detail.get("residual_links") or [])
+                    str(r) for r in exc.detail.get("residual_links") or []
                 ],
                 "persisted_row_remains": bool(exc.detail.get("persisted_row_remains")),
             }
             orphaned.append(entry)
-        except Exception as exc:  # noqa: BLE001 — honest capture, never silent
+        except Exception as exc:  # noqa: BLE001  # honest capture, never silent
             orphaned.append({"skill_name": skill_name, "error": str(exc)})
     return orphaned
 
@@ -678,7 +678,7 @@ def _bind_resolved_skills(
                 "skill_name": skill_name,
                 "error": str(exc),
                 "residual_links": [
-                    str(r) for r in (exc.detail.get("residual_links") or [])
+                    str(r) for r in exc.detail.get("residual_links") or []
                 ],
                 "persisted_row_remains": bool(exc.detail.get("persisted_row_remains")),
             }
