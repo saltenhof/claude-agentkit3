@@ -1,15 +1,69 @@
+from __future__ import annotations
+
+import tempfile
 from pathlib import Path
 
+import pytest
+
 from agentkit.installer import InstallConfig, install_agentkit
+from agentkit.installer.runner import MANDATORY_SKILLS
+from agentkit.skills import Skills, create_directory_link
+from agentkit.skills.bundle_store import SkillBundle, SkillBundleStore
+from agentkit.skills.repository import InMemorySkillBindingRepository
 
 
+def _directory_links_supported() -> bool:
+    """Probe the production link layer (symlink POSIX / junction Windows; the
+    junction needs no Developer Mode, so True on every supported platform)."""
+    with tempfile.TemporaryDirectory() as d:
+        src = Path(d) / "src"
+        src.mkdir()
+        link = Path(d) / "link"
+        try:
+            create_directory_link(link, src)
+            return True
+        except OSError:
+            return False
+
+
+_LINKS_AVAILABLE = _directory_links_supported()
+_BUNDLE_IDS = {name: f"{name}-core" for name in MANDATORY_SKILLS}
+
+
+def _provisioned_skills(bundle_store_root: Path) -> tuple[Skills, SkillBundleStore]:
+    store = SkillBundleStore(store_root=bundle_store_root)
+    for skill_name in MANDATORY_SKILLS:
+        bundle_root = bundle_store_root / f"{skill_name}-core" / "4.0.0"
+        bundle_root.mkdir(parents=True, exist_ok=True)
+        (bundle_root / "SKILL.md").write_text(f"# {skill_name}\n", encoding="utf-8")
+        store.register_bundle(
+            SkillBundle(
+                bundle_id=f"{skill_name}-core",
+                bundle_version="4.0.0",
+                bundle_root=bundle_root,
+                manifest_digest="0" * 64,
+            )
+        )
+    return Skills(bundle_store=store, binding_repo=InMemorySkillBindingRepository()), store
+
+
+@pytest.mark.skipif(
+    not _LINKS_AVAILABLE,
+    reason="Filesystem supports neither symlinks nor directory junctions",
+)
 def test_installer_namespace_exposes_install_api(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    skills, store = _provisioned_skills(tmp_path / ".skill-bundles")
     config = InstallConfig(
         project_key="demo",
         project_name="demo",
-        project_root=tmp_path,
+        project_root=project_root,
+        skills=skills,
+        skill_bundle_store=store,
+        skill_bundle_ids=_BUNDLE_IDS,
     )
     result = install_agentkit(config)
 
     assert result.success is True
-    assert (tmp_path / ".agentkit" / "config" / "project.yaml").exists()
+    assert (project_root / ".agentkit" / "config" / "project.yaml").exists()

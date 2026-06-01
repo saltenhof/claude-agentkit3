@@ -49,6 +49,15 @@ var/
 # eines Default-StoryService). Hier hard-ignored gegen Re-Add.
 /.agentkit/
 
+# Ephemeres Laufzeit-Arbeitsverzeichnis (PROJECT_STRUCTURE.md / Konzept §92):
+# enthaelt _temp/qa/{story_id}/..., _temp/governance/... und die
+# Telemetrie-Exporte _temp/story-telemetry/{story_id}.jsonl. Das ist
+# Laufzeit-Output, niemals fachliche Wahrheit (CLAUDE.md: var/ bzw. _temp/
+# sind ephemer). Es darf den committeten Baum nicht verschmutzen. Die
+# Laufzeit-Export-Konventionen bleiben unberuehrt — die Verzeichnisse werden
+# zur Laufzeit erzeugt; nur lose Top-Level-Laufzeitdateien bleiben aus Git.
+/_temp/
+
 # OS
 Thumbs.db
 .DS_Store

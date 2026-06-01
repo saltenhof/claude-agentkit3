@@ -18,27 +18,29 @@ from pathlib import Path
 
 import pytest
 
+from agentkit.skills.links import create_directory_link, is_directory_link
 from agentkit.skills.top import Skills
 
 
-def _symlinks_supported() -> bool:
-    """Return True when the OS/process can create directory symlinks.
+def _directory_links_supported() -> bool:
+    """Return True when the OS/process can create a binding link.
 
-    On Windows without Developer Mode, symlink_to raises OSError [WinError 1314].
-    Story §8: tests may skip when symlinks are unavailable.
+    Uses the production link layer (symlink on POSIX, directory junction on
+    Windows). The junction needs no Developer Mode, so this is True on every
+    supported platform; the probe only guards exotic filesystems.
     """
     with tempfile.TemporaryDirectory() as d:
         src = Path(d) / "src"
         src.mkdir()
         link = Path(d) / "link"
         try:
-            link.symlink_to(src)
+            create_directory_link(link, src)
             return True
         except OSError:
             return False
 
 
-_SYMLINKS_AVAILABLE = _symlinks_supported()
+_LINKS_AVAILABLE = _directory_links_supported()
 
 # ---------------------------------------------------------------------------
 # 1. Signature pinning
@@ -162,8 +164,8 @@ class TestInstallerConsumability:
     """
 
     @pytest.mark.skipif(
-        not _SYMLINKS_AVAILABLE,
-        reason="Symlinks not supported without Developer Mode (Story §8)",
+        not _LINKS_AVAILABLE,
+        reason="Filesystem supports neither symlinks nor directory junctions",
     )
     def test_bind_skill_callable_with_positional_args(self, tmp_path: Path) -> None:
         from agentkit.skills.bundle_store import SkillBundleStore
@@ -183,11 +185,12 @@ class TestInstallerConsumability:
         # No TypeError means the contract is satisfied.
         skills.bind_skill("implement", bundle_root, project_root)
 
-        # FK-43 §43.4.1 AK4: pflicht-Multi-Harness ab Tag 1 — beide Symlinks da.
+        # FK-43 §43.4.1 AK4: pflicht-Multi-Harness ab Tag 1 — beide Links da
+        # (Symlink auf POSIX, Directory Junction auf Windows).
         claude_link = project_root / ".claude" / "skills" / "implement"
         codex_link = project_root / ".codex" / "skills" / "implement"
-        assert claude_link.is_symlink()
-        assert codex_link.is_symlink()
+        assert is_directory_link(claude_link)
+        assert is_directory_link(codex_link)
 
 
 # ---------------------------------------------------------------------------
@@ -261,3 +264,54 @@ class TestRepositoryProtocol:
         result = repo.list_for_project("proj")
         names = [b.skill_name for b in result]
         assert names == sorted(names)
+
+
+# ---------------------------------------------------------------------------
+# 5. Productive StateBackend persistence path (AG3-048)
+# ---------------------------------------------------------------------------
+
+
+class TestProductivePersistencePath:
+    """Skills top-surface works end-to-end against the productive
+    ``StateBackendSkillBindingRepository`` (AG3-048), not only InMemory.
+
+    Uses the SQLite test-parallel path (``AGENTKIT_ALLOW_SQLITE=1``, set by the
+    top-level conftest); Postgres is the canonical runtime backend.
+    """
+
+    @pytest.mark.skipif(
+        not _LINKS_AVAILABLE,
+        reason="Filesystem supports neither symlinks nor directory junctions",
+    )
+    def test_bind_resolve_list_via_state_backend_repo(self, tmp_path: Path) -> None:
+        from agentkit.skills.binding import SkillLifecycleStatus
+        from agentkit.skills.bundle_store import SkillBundleStore
+        from agentkit.state_backend.store import reset_backend_cache_for_tests
+        from agentkit.state_backend.store.skill_binding_repository import (
+            StateBackendSkillBindingRepository,
+        )
+
+        reset_backend_cache_for_tests()
+        try:
+            bundle_root = tmp_path / "bundle"
+            bundle_root.mkdir()
+            project_root = tmp_path / "project"
+            project_root.mkdir()
+
+            skills = Skills(
+                bundle_store=SkillBundleStore(store_root=tmp_path / "store"),
+                binding_repo=StateBackendSkillBindingRepository(tmp_path / "state"),
+            )
+
+            skills.bind_skill("execute-userstory", bundle_root, project_root)
+
+            # resolve_binding reads back through the productive repo.
+            binding = skills.resolve_binding(project_root, "execute-userstory")
+            assert binding is not None
+            assert binding.skill_name == "execute-userstory"
+            assert binding.status is SkillLifecycleStatus.VERIFIED
+
+            listed = skills.list_bound_skills(project_root)
+            assert [b.skill_name for b in listed] == ["execute-userstory"]
+        finally:
+            reset_backend_cache_for_tests()

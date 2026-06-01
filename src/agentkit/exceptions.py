@@ -136,3 +136,13 @@ class WorktreeError(AgentKitError):
     the target path already exists, the git command returns a non-zero
     exit code, or the repository is in an unexpected state.
     """
+
+
+class InstallationError(ProjectError):
+    """Target-project installation failure (installer/bootstrap BC, FK-50).
+
+    Raised when ``install_agentkit`` cannot complete a fail-closed step, e.g.
+    a mandatory skill bundle is not available in the systemwide bundle store
+    (``detail["cause"] == "BundleNotFound"``). FAIL-CLOSED: the installer must
+    abort before creating any partial install artifact (no partial symlinks).
+    """

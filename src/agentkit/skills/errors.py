@@ -14,14 +14,39 @@ class SkillError(AgentKitError):
 
 
 class SkillBindingFailedError(SkillError):
-    """Raised when symlink creation fails during ``bind_skill``.
+    """Raised when the binding link cannot be created during ``bind_skill``.
 
-    Common causes on Windows: Developer Mode not enabled or the process
-    lacks SeCreateSymbolicLinkPrivilege. Copying the bundle instead is
-    explicitly forbidden by invariant ``project_binding_is_symlink_only``
-    (formal.skills-and-bundles.invariants).
+    The binding is a thin filesystem link — a symbolic link on POSIX, a
+    directory junction on Windows (FK-43 §43.4.1.1). Copying the bundle instead
+    is explicitly forbidden by invariant ``project_binding_is_link_only``
+    (formal.skills-and-bundles.invariants); on any OS-level link failure this is
+    raised rather than falling back to a copy.
 
-    To fix: enable Windows Developer Mode or run with elevated privileges.
+    The Windows junction needs no Developer Mode and no
+    ``SeCreateSymbolicLinkPrivilege``, so this is not the usual Windows-symlink
+    privilege failure; the underlying ``OSError`` is carried in ``detail``.
+    """
+
+
+class SkillBindingPartialStateError(SkillBindingFailedError):
+    """Raised when ``bind_skill`` failed AND its self-atomic cleanup could NOT
+    fully undo the partial state (AG3-048 Codex-r4 FINDING 1).
+
+    This is the HONEST counterpart to a clean ``SkillBindingFailedError``: the
+    bind failed and the compensating cleanup left residual side effects behind
+    (one or more harness links could not be detached, and/or the persisted
+    binding row could not be deleted). The caller MUST NOT mistake this for a
+    fully-clean failure — the leftover state needs operator/installer attention.
+
+    The ``detail`` dict carries:
+
+    * ``residual_links`` — list of binding-link paths that could not be removed.
+    * ``persisted_row_remains`` — ``True`` when the binding row delete failed.
+    * ``original_error`` — string form of the error that caused the bind to fail.
+
+    It subclasses ``SkillBindingFailedError`` so existing ``except
+    SkillBindingFailedError`` handlers still catch it, but its distinct type and
+    detail surface the residual partial state explicitly.
     """
 
 
@@ -54,4 +79,19 @@ class UnknownPlaceholderError(SkillError):
 class SkillBundleNotFoundError(SkillError):
     """Raised when ``SkillBundleStore.get_bundle`` cannot locate a bundle with
     the requested ``bundle_id``.
+    """
+
+
+class SkillBundleCorruptError(SkillError):
+    """Raised when a REQUESTED bundle directory exists but its manifest is
+    unreadable/malformed (AG3-048 Codex-r3, fail-closed discovery).
+
+    Distinct from ``SkillBundleNotFoundError``: the bundle directory is
+    present, so the operator must be told the bundle is CORRUPT (with the
+    offending manifest path and parse error) rather than being misled into
+    thinking it was never shipped. Discovery never silently downgrades to an
+    older parseable version when the highest version is corrupt.
+
+    The ``detail`` dict carries ``bundle_id``, ``manifest_path`` and
+    ``parse_error``.
     """

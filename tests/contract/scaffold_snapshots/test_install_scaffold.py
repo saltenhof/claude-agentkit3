@@ -11,19 +11,69 @@ plus the generated ``project.yaml``.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+import tempfile
+from pathlib import Path
+from typing import Any
 
 import pytest
 
 from agentkit.config.loader import load_project_config
 from agentkit.installer import InstallConfig, install_agentkit
 from agentkit.installer.paths import PROMPT_BUNDLE_STORE_ENV
+from agentkit.installer.runner import MANDATORY_SKILLS
+from agentkit.skills import Skills, create_directory_link
+from agentkit.skills.bundle_store import SkillBundle, SkillBundleStore
+from agentkit.skills.repository import InMemorySkillBindingRepository
 
-if TYPE_CHECKING:
-    from pathlib import Path
+
+def _directory_links_supported() -> bool:
+    """Probe the production link layer (symlink POSIX / junction Windows; the
+    junction needs no Developer Mode, so True on every supported platform)."""
+    with tempfile.TemporaryDirectory() as d:
+        src = Path(d) / "src"
+        src.mkdir()
+        link = Path(d) / "link"
+        try:
+            create_directory_link(link, src)
+            return True
+        except OSError:
+            return False
+
+
+_LINKS_AVAILABLE = _directory_links_supported()
+_BUNDLE_IDS = {name: f"{name}-core" for name in MANDATORY_SKILLS}
+
+
+def _provisioned_skills(bundle_store_root: Path) -> tuple[Skills, SkillBundleStore]:
+    """Provision the four mandatory FK-43 §43.3.1 bundles in a fresh store.
+
+    The scaffold contract verifies the directory/file scaffold of a normal
+    install. AG3-048 makes a normal install bind the four mandatory skills
+    (no silent skip), so the contract setup must provision those bundles —
+    otherwise the install correctly fails closed before producing a scaffold.
+    """
+    store = SkillBundleStore(store_root=bundle_store_root)
+    for skill_name in MANDATORY_SKILLS:
+        bundle_root = bundle_store_root / f"{skill_name}-core" / "4.0.0"
+        bundle_root.mkdir(parents=True, exist_ok=True)
+        (bundle_root / "SKILL.md").write_text(f"# {skill_name}\n", encoding="utf-8")
+        store.register_bundle(
+            SkillBundle(
+                bundle_id=f"{skill_name}-core",
+                bundle_version="4.0.0",
+                bundle_root=bundle_root,
+                manifest_digest="0" * 64,
+            )
+        )
+    skills = Skills(bundle_store=store, binding_repo=InMemorySkillBindingRepository())
+    return skills, store
 
 
 @pytest.mark.contract
+@pytest.mark.skipif(
+    not _LINKS_AVAILABLE,
+    reason="Filesystem supports neither symlinks nor directory junctions",
+)
 class TestInstallScaffoldContract:
     """Contract tests for the installed project scaffold structure."""
 
@@ -44,8 +94,13 @@ class TestInstallScaffoldContract:
             ".agentkit/manifests",
             ".claude",
             ".claude/context",
+            # AG3-048 (AC#5/AC#6): the installer no longer pre-creates an empty
+            # ``.claude/skills`` directory. The harness skill bind points are
+            # owned by the agent-skills BC and are created by ``Skills.bind_skill``
+            # when the four mandatory skills are bound during a normal install.
             ".claude/skills",
             ".codex",
+            ".codex/skills",
             "prompts",
             "stories",
             "tools",
@@ -195,8 +250,17 @@ class TestInstallScaffoldContract:
 
 def _make_install_config(project_root: Path, **kwargs: Any) -> InstallConfig:
     kwargs.setdefault("project_key", kwargs.get("project_name", "test-project"))
+    # Provision + inject the four mandatory skill bundles so the normal-install
+    # binding step (AG3-048 AC#5) resolves and the scaffold is produced. The
+    # systemwide store is unique per project_root to keep installs isolated.
+    skills, store = _provisioned_skills(
+        project_root.parent / f".skill-bundles-{project_root.name}"
+    )
     return InstallConfig(
         project_root=project_root,
+        skills=skills,
+        skill_bundle_store=store,
+        skill_bundle_ids=_BUNDLE_IDS,
         **kwargs,
     )
 

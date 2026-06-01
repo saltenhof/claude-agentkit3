@@ -59,6 +59,20 @@ class SkillBindingRepository(Protocol):
         """
         ...
 
+    def delete(self, project_key: str, skill_name: str) -> None:
+        """Remove a binding by its natural key (no-op if absent).
+
+        Required for transactional rollback by the installer: when binding a
+        set of mandatory skills fails part-way, every binding already
+        persisted in that transaction must be undone (FAIL-CLOSED, no partial
+        install — FK-50 §50.5).
+
+        Args:
+            project_key: Target project key.
+            skill_name: Logical skill name.
+        """
+        ...
+
 
 class InMemorySkillBindingRepository:
     """In-memory implementation of ``SkillBindingRepository``.
@@ -103,3 +117,12 @@ class InMemorySkillBindingRepository:
             (b for b in self._store.values() if b.project_key == project_key),
             key=lambda b: b.skill_name,
         )
+
+    def delete(self, project_key: str, skill_name: str) -> None:
+        """Remove a binding by natural key (no-op if absent).
+
+        Args:
+            project_key: Target project key.
+            skill_name: Logical skill name.
+        """
+        self._store.pop((project_key, skill_name), None)

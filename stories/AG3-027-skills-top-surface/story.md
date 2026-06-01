@@ -2,6 +2,8 @@
 
 <!-- AG3-027 deep-review (User-Entscheidung 2026-05-19): Split-Variante (A) gewaehlt. Diese Story bleibt schlanke Top-Surface (M). Persistenz (skill_bindings-Tabelle), Installer-Integration (BC12) und __pycache__-Cleanup wandern in die Folge-Story AG3-048-skills-persistence-installer-cleanup. -->
 
+<!-- AG3-027 Nachbesserung (User-Entscheidung 2026-06-01): Binde-Mechanik plattformabhaengig. Die "nur-Symlink"-Invariante faellt; an ihre Stelle tritt `project_binding_is_link_only` (Symlink auf POSIX, Directory Junction auf Windows — Junction braucht KEINEN Developer Mode). `SkillBindingMode` ist `SYMLINK | JUNCTION`; `bind_skill` persistiert den tatsaechlich verwendeten Modus. Mechanik in `src/agentkit/skills/links.py` (`_winapi.CreateJunction` auf Windows, `os.rmdir` zum Loesen ohne Ziel-Loeschung, `os.path.isjunction`-Detektion). Bindung ist install-zeit-fest; Re-Install erfordert Harness-Neustart (zweistufiges Laden). Konzept: FK-43 §43.4.1.1 + §43.5.3, FK-50 CP8, FK-76 §76.7. -->
+
 **Typ:** Implementation
 **Groesse:** M
 **Abhaengigkeiten:** AG3-021 (Enums fuer Status-Felder), AG3-022 (`ArtifactClass`-Bezug fuer Skill-Bundle-Records)
@@ -9,13 +11,14 @@
 - `concept/_meta/bc-cut-decisions.md §BC 11 agent-skills`
 - `FK-43 §43.1` (Skills-Top-Komponente)
 - `FK-43 §43.3.1/43.3.2` (Pflicht-/Optional-Skills)
-- `FK-43 §43.4.1` (Symlink-basierte Projekt-Bindung)
+- `FK-43 §43.4.1` + `§43.4.1.1` (plattformabhaengige Link-Bindung: Symlink/Junction)
+- `FK-43 §43.5.3` (Bindungs-Stabilitaet, Re-Install-Vertrag)
 - `FK-43 §43.4.2` (PlaceholderSubstitutor)
 - `FK-43 §43.5.2` (Skill-Version-Pin)
 - `FK-43 §43.6.2` (SkillQualityMetric)
 - `formal.skills-and-bundles.entities`
 - `formal.skills-and-bundles.state-machine`
-- `formal.skills-and-bundles.invariants` (insbesondere `project_binding_is_symlink_only`)
+- `formal.skills-and-bundles.invariants` (insbesondere `project_binding_is_link_only` + `binding_is_install_time_stable`)
 
 ---
 
@@ -102,7 +105,7 @@ Bundle-Versionierung: `SkillBundleVersion` als Pydantic-Modell mit `version: str
 - `bundle_id: str`
 - `bundle_version: str`
 - `target_path: Path` — Bindungspunkt im Projekt (z.B. `.claude/skills/{skill_name}`)
-- `binding_mode: SkillBindingMode` — StrEnum: `SYMLINK` (Pflicht), Zukunfts-Slots
+- `binding_mode: SkillBindingMode` — StrEnum: `SYMLINK | JUNCTION` (plattformabhaengig, FK-43 §43.4.1.1)
 - `status: SkillLifecycleStatus`
 - `pinned_at: datetime`
 
@@ -127,7 +130,7 @@ class PlaceholderSubstitutor:
 
 Read-only-Zugriff auf `PipelineConfig`. Bei unbekanntem Platzhalter im Inhalt: fail-closed (`UnknownPlaceholderError`).
 
-**Wichtig**: `PlaceholderSubstitutor` ist ein interner Service fuer materialisierte/substituierte Harness-Varianten und kuenftige Read-Time-Aufloesung. Er ist NICHT Teil der `bind_skill`-Top-Surface — `bind_skill(skill_name, bundle_root, project_root)` ruft den Substitutor nicht (Symlink-Invariante `project_binding_is_symlink_only`).
+**Wichtig**: `PlaceholderSubstitutor` ist ein interner Service fuer materialisierte/substituierte Harness-Varianten und kuenftige Read-Time-Aufloesung. Er ist NICHT Teil der `bind_skill`-Top-Surface — `bind_skill(skill_name, bundle_root, project_root)` ruft den Substitutor nicht (Symlink-Invariante `project_binding_is_link_only`).
 
 #### 2.1.6 Persistenz — **vollstaendig ausgelagert nach AG3-048**
 
@@ -143,23 +146,23 @@ AG3-027 liefert **ausschliesslich**:
 - Konkrete Repository in `state_backend/store/skill_binding_repository.py`
 - Schema-Versionierung Side-by-Side (AG3-005)
 
-#### 2.1.7 `bind_skill`-Mechanik (FK-43 §43.4.1, FK-50 CP8, Invariante `project_binding_is_symlink_only`)
+#### 2.1.7 `bind_skill`-Mechanik (FK-43 §43.4.1/§43.4.1.1, FK-50 CP8, Invariante `project_binding_is_link_only`)
 
 <!-- AG3-027 deep-review: Profilauflösung/Bundle-Resolution wandert raus (Installer CP6/CP7). bind_skill bekommt bereits konkreten bundle_root. Multi-Harness-Symlinks (Claude Code + Codex) sind FK-43-Pflicht. -->
 
 Schritte (Aufruf `bind_skill(skill_name, bundle_root, project_root)`):
 1. Validierung: `project_root` existiert; `bundle_root` existiert + ist gueltiges Bundle; Manifest-Digest validiert
 2. Lifecycle: status -> `REQUESTED` -> `BUNDLE_SELECTED` (Profil-/Bundle-Resolution ist bereits durch Caller geleistet)
-3. Symlink-Erzeugung pro aktiviertem Harness am harness-spezifischen Bindungspunkt:
+3. Link-Erzeugung pro aktiviertem Harness am harness-spezifischen Bindungspunkt — plattformabhaengig Symlink (POSIX) bzw. Directory Junction (Windows, via `_winapi.CreateJunction`; kein Developer Mode noetig):
    - Claude Code: `{project_root}/.claude/skills/{skill_name}` -> `bundle_root`
    - Codex: harness-spezifischer Pfad gemaess FK-30 §30.11 (Codex-Aequivalent)
-   Beide Symlinks werden gesetzt, wenn der jeweilige Harness im Projekt aktiviert ist (Mehrfach-Harness-Support gemaess FK-43).
-4. PlaceholderSubstitutor wird **nicht** auf den Bundle-Inhalt angewendet (Invariante `project_binding_is_symlink_only`: kein Kopieren, kein Mutieren); Platzhalter werden zur Read-Zeit durch Skill-Konsumenten substituiert.
+   Beide Links werden gesetzt, wenn der jeweilige Harness im Projekt aktiviert ist (Mehrfach-Harness-Support gemaess FK-43). Der tatsaechlich verwendete `SkillBindingMode` wird im `SkillBinding` persistiert.
+4. PlaceholderSubstitutor wird **nicht** auf den Bundle-Inhalt angewendet (Invariante `project_binding_is_link_only`: kein Kopieren, kein Mutieren); Platzhalter werden zur Read-Zeit durch Skill-Konsumenten substituiert.
 5. Lifecycle: `BOUND`. Persistenz via Repository (Protocol).
-6. Verifikation (Symlinks existieren, zeigen auf Bundle, Manifest-Digest stimmt): `VERIFIED`.
+6. Verifikation (Links existieren via `is_directory_link` = Symlink ODER Junction, Manifest-Digest stimmt): `VERIFIED`.
 
 Fail-closed-Pfade:
-- Symlink-Erzeugung schlaegt fehl -> `SkillBindingFailedError` (status bleibt `BUNDLE_SELECTED`, nicht persistiert)
+- Link-Erzeugung schlaegt fehl -> `SkillBindingFailedError` (status bleibt `BUNDLE_SELECTED`, nicht persistiert); kein Datei-Copy-Fallback
 - Bundle-Manifest-Digest mismatch -> `SkillBundleDigestMismatchError`
 - Profile passt nicht zu Bundle-Variants -> `SkillProfileNotSupportedError`
 
@@ -176,8 +179,8 @@ Diese Story liefert nur `Skills.bind_skill` als konsumierbare Top-Surface plus e
 - Unit-Tests fuer `SkillBundleStore.resolve_variant` (Profil-Variant-Mapping)
 - Unit-Tests fuer `PlaceholderSubstitutor` (alle vier Pflicht-Platzhalter + unknown-placeholder fail-closed)
 - Unit-Tests fuer `SkillBindingRepository` (parametrisiert SQLite + Postgres)
-- Integration-Test: Installer ruft `Skills.bind_skill` fuer alle Pflicht-Skills; `.claude/skills/` enthaelt Symlinks, keine Datei-Kopien
-- Contract-Test `tests/contract/skills/test_top_surface.py`: alle vier Methoden mit exakter Signatur, Invariante `project_binding_is_symlink_only`
+- Integration-Test: Installer ruft `Skills.bind_skill` fuer alle Pflicht-Skills; `.claude/skills/` enthaelt Links (Symlink/Junction), keine Datei-Kopien
+- Contract-Test `tests/contract/skills/test_top_surface.py`: alle vier Methoden mit exakter Signatur, Invariante `project_binding_is_link_only`
 
 #### 2.1.10 Cleanup `__pycache__`-Artefakte (agent-skills.C2) — **AUSGELAGERT NACH AG3-048**
 
@@ -194,7 +197,7 @@ Diese Story liefert nur `Skills.bind_skill` als konsumierbare Top-Surface plus e
 - Hook `skill_usage_check` in `governance.guard_system` (`agent-skills.A9`) — Folge-Story der Governance-Welle.
 - Skill-Lifecycle-Events fuer Telemetrie (`agent-skills.A10`) — Folge-Story nach THEME-007.
 - Eigenstaendiger Skill-Version-Pin (`agent-skills.A7`) — Datenmodell `SkillBundleVersion` ist hier vorhanden, aber kein Pin-Lifecycle-Service (`update_binding`-aequivalent). Folge-Story.
-- Formale Invarianten-Codierung als Laufzeitpruefungen darueber hinaus (`agent-skills.A8`) — die zentrale Invariante `project_binding_is_symlink_only` ist in dieser Story enforced; weitere sechs Invarianten in Folge.
+- Formale Invarianten-Codierung als Laufzeitpruefungen darueber hinaus (`agent-skills.A8`) — die zentrale Invariante `project_binding_is_link_only` ist in dieser Story enforced; weitere sechs Invarianten in Folge.
 - F-43-029 (Semantic-Review-Skill, 12 Pruefdimensionen) — Folge-Story.
 
 ## 3. Betroffene Dateien
@@ -230,7 +233,7 @@ Diese Story liefert nur `Skills.bind_skill` als konsumierbare Top-Surface plus e
 1. **Paket `src/agentkit/skills/` existiert** und exportiert `Skills`, `SkillBinding`, `SkillBundle`, `SkillBundleVersion`, `SkillBundleStore`, `PlaceholderSubstitutor`, `SkillLifecycleStatus`, `SkillProfile`, `SkillBindingMode`.
 2. **`Skills`-Klasse hat vier Top-Methoden** mit den genannten Signaturen: `bind_skill(skill_name: str, bundle_root: Path, project_root: Path) -> None`, `resolve_binding(project_root, skill_name)`, `list_bound_skills(project_root)`, `collect_quality_metrics(skill_name)` (letzteres wirft `NotImplementedError` mit Verweis auf Folge-Story; **keine leere Metric**). <!-- AG3-027 deep-review: Signatur an FK-43/FK-50 CP8 angeglichen; collect_quality_metrics darf nicht still ein "alles okay" suggerieren. -->
 3. **`bind_skill` durchlaeuft die Lifecycle-Transitions** `REQUESTED -> BUNDLE_SELECTED -> BOUND -> VERIFIED` (Profilauflösung ist Caller-Vorarbeit). Tests verifizieren die Transitionen.
-4. **Symlink-Invariante (Multi-Harness)**: nach erfolgreichem `bind_skill` existiert pro aktiviertem Harness ein Symlink am harness-spezifischen Bindungspunkt — fuer Claude Code `{project_root}/.claude/skills/{skill_name}`, fuer Codex der FK-30 §30.11-Aequivalentpfad. Kein File-Copy, kein Canonical Skill Source im Projekt. Tests pruefen `Path.is_symlink()` fuer alle aktivierten Harnesses. <!-- AG3-027 deep-review: FK-43 fordert AK3 ab Tag 1 Claude Code + Codex parallel; Story darf nicht nur .claude/skills pruefen. -->
+4. **Link-Invariante (Multi-Harness, plattformabhaengig)**: nach erfolgreichem `bind_skill` existiert pro aktiviertem Harness ein Link (Symlink auf POSIX, Directory Junction auf Windows) am harness-spezifischen Bindungspunkt — fuer Claude Code `{project_root}/.claude/skills/{skill_name}`, fuer Codex der FK-30 §30.11-Aequivalentpfad. Kein File-Copy, kein Canonical Skill Source im Projekt. Tests pruefen `is_directory_link()` (Symlink ODER Junction) fuer alle aktivierten Harnesses. <!-- AG3-027 Nachbesserung 2026-06-01: project_binding_is_link_only; Junction auf Windows braucht keinen Developer Mode, daher laufen die Bind-Tests auf jeder Plattform ohne Skip. -->
 5. **Fail-closed-Pfade typisiert**: `SkillBindingFailedError`, `SkillBundleDigestMismatchError`, `SkillProfileNotSupportedError`, `UnknownPlaceholderError`, `SkillBundleNotFoundError`. Jede Exception ist in `errors.py` definiert und wird in Tests provoziert.
 6. **`PlaceholderSubstitutor` ersetzt die vier Pflicht-Platzhalter** korrekt. Unbekannte Platzhalter -> `UnknownPlaceholderError`.
 7. **Persistenz-Protocol**: `SkillBindingRepository`-Protocol ist definiert; InMemory-Implementierung liegt im Skills-BC und ist Unit-/Contract-test-fest. **Produktive SQLite/Postgres-Persistenz ist explizit AG3-048**.
@@ -251,21 +254,21 @@ Diese Story liefert nur `Skills.bind_skill` als konsumierbare Top-Surface plus e
 - **`concept/_meta/bc-cut-decisions.md §BC 11`** — Top-Surface, Sub-Komponenten, Klassen-Skizze
 - **FK-43 §43.1** — Skills-Top
 - **FK-43 §43.3.1/43.3.2** — Pflicht-/Optional-Skills
-- **FK-43 §43.4.1** — Symlink-Bindung
+- **FK-43 §43.4.1/§43.4.1.1** — Link-Bindung (Symlink/Junction)
 - **FK-43 §43.4.2** — PlaceholderSubstitutor
 - **FK-43 §43.5.2** — Skill-Version-Pin
 - **`formal.skills-and-bundles.state-machine`** — Lifecycle
-- **`formal.skills-and-bundles.invariants`** — insbesondere `project_binding_is_symlink_only`
+- **`formal.skills-and-bundles.invariants`** — insbesondere `project_binding_is_link_only`
 
 ## 7. Guardrail-Referenzen
 
 - **FIX THE MODEL, NOT THE SYMPTOM**: Skills-BC bekommt Produktionsmodul; Installer wird BC-grenztreu.
 - **ZERO DEBT**: Lifecycle-Status sind vollstaendig typisiert; keine Status-Strings.
 - **FAIL CLOSED**: jeder Bindungspfad mit eigener Exception; keine stillen Fallbacks.
-- **SINGLE SOURCE OF TRUTH**: Symlinks statt Datei-Kopien; Bundle lebt einmal im System-Store.
+- **SINGLE SOURCE OF TRUTH**: Links (Symlink/Junction) statt Datei-Kopien; Bundle lebt einmal im System-Store.
 
 ## 8. Hinweise fuer den Sub-Agent
 
-- Symlinks unter Windows: das Repo lebt auf Windows; `Path.symlink_to` benoetigt entweder Developer-Mode oder Admin-Rechte. Falls Symlinks fehlschlagen, **darf nicht** in Datei-Copy gefallen werden — Invariante! Stattdessen: hartfehlern mit Aufforderung, Developer-Mode zu aktivieren. Tests koennen `tmp_path` nutzen; CI muss Symlinks koennen.
+- Links unter Windows: das Repo lebt auf Windows. Die Bindung nutzt auf Windows eine **Directory Junction** (`_winapi.CreateJunction`), die KEINEN Developer Mode und kein `SeCreateSymbolicLinkPrivilege` braucht — der fruehere Symlink-only-Ansatz scheiterte ohne Developer Mode (WinError 1314) und ist verworfen. Falls die Link-Erzeugung fehlschlaegt, **darf nicht** in Datei-Copy gefallen werden (Invariante `project_binding_is_link_only`) — stattdessen hartfehlern. Junction-Sicherheit: Detektion via `os.path.isjunction`, Loesen via `os.rmdir` (nie `shutil.rmtree` durch den Link — das loescht das zentrale Ziel). Tests laufen mit `tmp_path` auf jeder Plattform.
 - Installer-Integration: pruefe alle Aufrufpfade in `install_agentkit`. Es gibt vermutlich Tests, die direktes mkdir erwarten — die werden angepasst.
 - AK2 NICHT veraendern. Aber: AK2 hat einen `.claude/skills/`-Pfad mit Inhalten — die sind nicht Vorlage, aber zur Orientierung lesbar.

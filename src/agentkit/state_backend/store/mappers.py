@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     from agentkit.pipeline_engine.phase_executor.records import AttemptRecord
     from agentkit.project_management.entities import Project
     from agentkit.requirements_coverage.models import StoryAreLink
+    from agentkit.skills.binding import SkillBinding
     from agentkit.story_context_manager.models import (
         PhaseSnapshot,
         PhaseState,
@@ -568,6 +569,109 @@ def attempt_row_to_record(row: dict[str, Any]) -> AttemptRecord:
         started_at=started_at,
         ended_at=ended_at,
         detail=detail,
+    )
+
+
+# ---------------------------------------------------------------------------
+# SkillBinding (AG3-048, FK-43 §43.4.1, bc-cut-decisions.md §BC 11)
+# ---------------------------------------------------------------------------
+
+
+def skill_binding_to_row(binding: SkillBinding) -> dict[str, Any]:
+    """Convert a ``SkillBinding`` to a DB-insertable row dict.
+
+    ``target_path`` (``pathlib.Path``) is stored as TEXT; enums are persisted
+    by their ``.value``. ``pinned_at`` is serialized tz-aware via ``isoformat``
+    (FK-18 datetime pattern, analog ``attempt_record_to_row``).
+
+    Args:
+        binding: The ``SkillBinding`` to serialize.
+
+    Returns:
+        Row dict keyed by ``skill_bindings`` column names.
+    """
+
+    return {
+        "binding_id": binding.binding_id,
+        "project_key": binding.project_key,
+        "skill_name": binding.skill_name,
+        "bundle_id": binding.bundle_id,
+        "bundle_version": binding.bundle_version,
+        "target_path": str(binding.target_path),
+        "binding_mode": binding.binding_mode.value,
+        "status": binding.status.value,
+        "pinned_at": binding.pinned_at.isoformat(),
+    }
+
+
+def skill_binding_row_to_record(row: dict[str, Any]) -> SkillBinding:
+    """Convert a ``skill_bindings`` DB row dict to a ``SkillBinding``.
+
+    Fail-closed: malformed rows (unknown enum value, missing column, invalid
+    timestamp) raise ``pydantic.ValidationError`` / ``ValueError`` which
+    propagates to the caller (NO ERROR BYPASSING).
+
+    Handles both backend representations of the ``pinned_at`` column:
+    SQLite returns TEXT (ISO string); Postgres returns ``TIMESTAMPTZ`` as a
+    tz-aware ``datetime`` (psycopg dict_row auto-decode).
+
+    Datetime handling mirrors ``attempt_row_to_record`` (FK-18 pattern):
+    the parsed value is returned EXACTLY as stored — aware datetimes keep
+    their original offset and tzinfo (no silent ``.astimezone(UTC)``
+    coercion, which would mutate the serialized shape of a non-UTC offset
+    such as ``+02:00``). A naive value (no tzinfo) is rejected fail-closed:
+    the ``skill_bindings.pinned_at`` column is ``TIMESTAMPTZ NOT NULL`` and
+    ``Skills.bind_skill`` always writes an aware UTC timestamp, so a naive
+    value signals a corrupt/foreign write and must not be silently repaired
+    (FAIL-CLOSED, NO ERROR BYPASSING).
+
+    Args:
+        row: A ``skill_bindings`` row dict.
+
+    Returns:
+        The reconstructed ``SkillBinding``.
+
+    Raises:
+        ValueError: When ``pinned_at`` parses to a naive (tz-unaware)
+            datetime.
+    """
+
+    from datetime import datetime
+    from pathlib import Path
+
+    from agentkit.skills.binding import (
+        SkillBinding as _SkillBinding,
+    )
+    from agentkit.skills.binding import (
+        SkillBindingMode as _SkillBindingMode,
+    )
+    from agentkit.skills.binding import (
+        SkillLifecycleStatus as _SkillLifecycleStatus,
+    )
+
+    pinned_raw = row["pinned_at"]
+    pinned_at = (
+        pinned_raw
+        if isinstance(pinned_raw, datetime)
+        else datetime.fromisoformat(str(pinned_raw))
+    )
+    if pinned_at.tzinfo is None:
+        msg = (
+            "skill_bindings.pinned_at is tz-naive; expected an aware "
+            "TIMESTAMPTZ value (fail-closed, FK-18)"
+        )
+        raise ValueError(msg)
+
+    return _SkillBinding(
+        binding_id=str(row["binding_id"]),
+        project_key=str(row["project_key"]),
+        skill_name=str(row["skill_name"]),
+        bundle_id=str(row["bundle_id"]),
+        bundle_version=str(row["bundle_version"]),
+        target_path=Path(str(row["target_path"])),
+        binding_mode=_SkillBindingMode(str(row["binding_mode"])),
+        status=_SkillLifecycleStatus(str(row["status"])),
+        pinned_at=pinned_at,
     )
 
 

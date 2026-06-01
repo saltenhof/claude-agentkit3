@@ -519,3 +519,31 @@
             correlation_id TEXT NOT NULL,
             PRIMARY KEY (op_id)
         );
+
+        -- AG3-048 (FK-43 §43.4.1, bc-cut-decisions.md §BC 11): skill_bindings.
+        -- Schema-Owner agent-skills (SkillBinding entity, AG3-027); DB-Owner
+        -- state_backend. Kanonische Wahrheit (concept/domain-design
+        -- /05-telemetrie-und-metriken.md §5: Postgres). Spalten spiegeln EXAKT
+        -- das SkillBinding-Modell (kein manifest_digest — das Modell ist Owner
+        -- der Shape). Upsert auf (project_key, skill_name). status deckt ALLE
+        -- SECHS SkillLifecycleStatus-Werte ab (FAIL-CLOSED CHECK). Identisches
+        -- Parallel-Schema in sqlite_store.py fuer Unit-Tests.
+        CREATE TABLE IF NOT EXISTS skill_bindings (
+            binding_id      VARCHAR NOT NULL,
+            project_key     VARCHAR NOT NULL,
+            skill_name      VARCHAR NOT NULL,
+            bundle_id       VARCHAR NOT NULL,
+            bundle_version  VARCHAR NOT NULL,
+            target_path     TEXT NOT NULL,
+            binding_mode    VARCHAR NOT NULL CHECK (binding_mode IN ('SYMLINK', 'JUNCTION')),
+            status          VARCHAR NOT NULL CHECK (status IN (
+                'REQUESTED', 'PROFILE_RESOLVED', 'BUNDLE_SELECTED',
+                'BOUND', 'VERIFIED', 'REJECTED'
+            )),
+            pinned_at       TIMESTAMPTZ NOT NULL,
+            PRIMARY KEY (binding_id),
+            UNIQUE (project_key, skill_name)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_skill_bindings_project_skill
+            ON skill_bindings (project_key, skill_name);

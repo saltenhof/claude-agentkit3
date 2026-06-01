@@ -40,14 +40,20 @@ class SkillLifecycleStatus(StrEnum):
 
 
 class SkillBindingMode(StrEnum):
-    """Binding mechanism.
+    """Binding mechanism — a thin filesystem link to the central bundle.
 
-    ``SYMLINK`` is the only production-valid mode per invariant
-    ``project_binding_is_symlink_only``. Additional future slots may be
-    added by a follow-up story without breaking this enum.
+    Platform-aware per invariant ``project_binding_is_link_only``
+    (formal.skills-and-bundles.invariants, FK-43 §43.4.1.1):
+
+    * ``SYMLINK``  — symbolic link, used on POSIX.
+    * ``JUNCTION`` — Windows directory junction, used on Windows because it
+      needs no Developer Mode / ``SeCreateSymbolicLinkPrivilege`` (unlike a
+      Windows symlink). Same semantics: a thin link to the central, versioned
+      bundle directory — never a file copy.
     """
 
     SYMLINK = "SYMLINK"
+    JUNCTION = "JUNCTION"
 
 
 class HarnessKind(StrEnum):
@@ -77,8 +83,9 @@ class SkillBinding(BaseModel):
         skill_name: Logical skill name (e.g. ``"implement"``).
         bundle_id: Identifier of the bound ``SkillBundle``.
         bundle_version: Pinned version string of the bundle.
-        target_path: Harness-specific symlink path within the project.
-        binding_mode: Must be ``SYMLINK`` (invariant).
+        target_path: Harness-specific link path within the project.
+        binding_mode: The link mechanism actually used — ``SYMLINK`` on POSIX,
+            ``JUNCTION`` on Windows (invariant ``project_binding_is_link_only``).
         status: Current lifecycle state.
         pinned_at: Timestamp when the bundle version was pinned.
     """

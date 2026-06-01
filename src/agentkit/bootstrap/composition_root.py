@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from agentkit.failure_corpus import FailureCorpus
     from agentkit.governance.integrity_gate import IntegrityGate
     from agentkit.governance.repository import SetupContextRepository
+    from agentkit.skills import Skills
     from agentkit.telemetry.projection_accessor import ProjectionAccessor
     from agentkit.verify_system.system import VerifySystem
 
@@ -125,6 +126,44 @@ def build_verify_system(
         artifact_manager=manager,
         story_context_port=StateBackendVerifyStoryContextAdapter(),
     )
+
+
+def build_skills(
+    store_dir: Path,
+    *,
+    bundle_store_root: Path | None = None,
+) -> Skills:
+    """Erzeugt eine vollstaendig verdrahtete ``Skills``-Top-Surface (AG3-048).
+
+    Composition-Root fuer den agent-skills-BC (FK-43, bc-cut-decisions.md §BC 11
+    + §BC 12), analog ``build_artifact_manager``: bindet den systemweiten
+    ``SkillBundleStore`` und das produktive
+    ``StateBackendSkillBindingRepository`` zu einer ``Skills``-Instanz. Aufrufer
+    (Installer, runtime, Tests) erhalten ``Skills`` ueber DI und kennen die
+    Repository-Implementierung nicht.
+
+    Architecture Conformance: ``agentkit.skills`` importiert NICHT aus
+    ``state_backend.store``; die Verdrahtung der State-Backend-Persistenz
+    geschieht ausschliesslich hier im Composition-Root.
+
+    Args:
+        store_dir: Basisverzeichnis des State-Backends (SQLite legt unter
+            ``store_dir/.agentkit/...`` an; Postgres ignoriert den Pfad).
+        bundle_store_root: Optionaler Override fuer den systemweiten
+            Skill-Bundle-Store. ``None`` -> Plattform-Default (FK-43 §43.5.2).
+
+    Returns:
+        ``Skills`` mit ``SkillBundleStore`` + ``StateBackendSkillBindingRepository``.
+    """
+    from agentkit.skills import Skills as _Skills
+    from agentkit.skills.bundle_store import SkillBundleStore as _SkillBundleStore
+    from agentkit.state_backend.store.skill_binding_repository import (
+        StateBackendSkillBindingRepository,
+    )
+
+    bundle_store = _SkillBundleStore(store_root=bundle_store_root)
+    repository = StateBackendSkillBindingRepository(store_dir)
+    return _Skills(bundle_store=bundle_store, binding_repo=repository)
 
 
 def build_integrity_gate() -> IntegrityGate:
@@ -238,5 +277,6 @@ __all__ = [
     "build_producer_registry",
     "build_projection_accessor",
     "build_setup_preflight_gate",
+    "build_skills",
     "build_verify_system",
 ]

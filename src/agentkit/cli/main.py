@@ -122,8 +122,15 @@ def _cmd_install(args: argparse.Namespace) -> int:
     """
     from pathlib import Path
 
+    from agentkit.exceptions import InstallationError
     from agentkit.installer import InstallConfig, install_agentkit
 
+    # AG3-048 (FK-43 §43.3.1, AC#5): the skill fields are intentionally left at
+    # their defaults. ``skill_bundle_ids=None`` resolves to the four mandatory
+    # skill bundles (DEFAULT_MANDATORY_SKILL_BUNDLE_IDS) — it does NOT skip
+    # binding. A normal ``agentkit install`` therefore binds all four; if the
+    # systemwide skill-bundle store has not been provisioned the install fails
+    # closed with InstallationError(cause=BundleNotFound) (AC#7).
     config = InstallConfig(
         project_key=args.project_key,
         project_name=args.project_name,
@@ -134,7 +141,15 @@ def _cmd_install(args: argparse.Namespace) -> int:
             else None
         ),
     )
-    result = install_agentkit(config)
+    try:
+        result = install_agentkit(config)
+    except InstallationError as exc:
+        # FAIL-CLOSED (AC#7): mandatory-skill binding could not complete (e.g.
+        # the systemwide skill-bundle store is not provisioned). Surface a
+        # clean non-zero exit instead of a partial install or a traceback.
+        cause = exc.detail.get("cause", "InstallationError")
+        print(f"Install failed [{cause}]: {exc}", file=sys.stderr)
+        return 1
     if result.success:
         print(f"AgentKit installed into {args.project_root}")
         for f in result.created_files:

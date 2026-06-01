@@ -1,17 +1,44 @@
 from __future__ import annotations
 
 import hashlib
-from typing import TYPE_CHECKING
+import tempfile
+from pathlib import Path
 
 import pytest
 
 from agentkit.installer import InstallConfig, install_agentkit, uninstall_agentkit
 from agentkit.installer.paths import PROMPT_BUNDLE_STORE_ENV
+from agentkit.installer.runner import MANDATORY_SKILLS
+from agentkit.skills import Skills, create_directory_link, is_directory_link
+from agentkit.skills.bundle_store import SkillBundle, SkillBundleStore
+from agentkit.skills.repository import InMemorySkillBindingRepository
 
-if TYPE_CHECKING:
-    from pathlib import Path
+
+def _directory_links_supported() -> bool:
+    """Probe the production link layer (symlink on POSIX, junction on Windows).
+
+    The Windows junction needs no Developer Mode, so this is True on every
+    supported platform; the probe only guards an exotic filesystem.
+    """
+    with tempfile.TemporaryDirectory() as d:
+        src = Path(d) / "src"
+        src.mkdir()
+        link = Path(d) / "link"
+        try:
+            create_directory_link(link, src)
+            return True
+        except OSError:
+            return False
 
 
+_LINKS_AVAILABLE = _directory_links_supported()
+_BUNDLE_IDS = {name: f"{name}-core" for name in MANDATORY_SKILLS}
+
+
+@pytest.mark.skipif(
+    not _LINKS_AVAILABLE,
+    reason="Filesystem supports neither symlinks nor directory junctions",
+)
 def test_install_creates_claude_and_codex_settings(tmp_path: Path) -> None:
     result = install_agentkit(_make_config(tmp_path))
 
@@ -23,6 +50,10 @@ def test_install_creates_claude_and_codex_settings(tmp_path: Path) -> None:
     ).read_text(encoding="utf-8")
 
 
+@pytest.mark.skipif(
+    not _LINKS_AVAILABLE,
+    reason="Filesystem supports neither symlinks nor directory junctions",
+)
 def test_install_is_idempotent(tmp_path: Path) -> None:
     first = install_agentkit(_make_config(tmp_path))
     before = _file_snapshot(tmp_path)
@@ -35,6 +66,10 @@ def test_install_is_idempotent(tmp_path: Path) -> None:
     assert after == before
 
 
+@pytest.mark.skipif(
+    not _LINKS_AVAILABLE,
+    reason="Filesystem supports neither symlinks nor directory junctions",
+)
 def test_uninstall_removes_harness_settings(tmp_path: Path) -> None:
     install_agentkit(_make_config(tmp_path))
 
@@ -46,11 +81,73 @@ def test_uninstall_removes_harness_settings(tmp_path: Path) -> None:
     assert not (tmp_path / ".agentkit").exists()
 
 
+@pytest.mark.skipif(
+    not _LINKS_AVAILABLE,
+    reason="Filesystem supports neither symlinks nor directory junctions",
+)
+def test_uninstall_removes_skill_links_and_central_bundle_survives(
+    tmp_path: Path,
+) -> None:
+    """Codex-r7-r2: install creates the harness skill links; uninstall must
+    DETACH every link (a junction via os.rmdir, NEVER rmtree through the link)
+    so no link survives, the bind-point dirs are gone, AND the central bundle is
+    untouched (the link removal must not delete its target).
+    """
+    bundle_store_root = tmp_path.parent / f".skill-bundles-{tmp_path.name}"
+    install_agentkit(_make_config(tmp_path))
+
+    # Links exist after install (one per mandatory skill, per harness).
+    claude_links = [
+        p for p in (tmp_path / ".claude" / "skills").iterdir() if is_directory_link(p)
+    ]
+    assert len(claude_links) == len(MANDATORY_SKILLS)
+
+    uninstall_agentkit(tmp_path)
+
+    # No skill links survive; both bind-point dirs are removed.
+    assert not (tmp_path / ".claude" / "skills").exists()
+    assert not (tmp_path / ".codex" / "skills").exists()
+    # The CENTRAL bundles survive — os.rmdir detached the links without deleting
+    # their targets (no rmtree through a junction).
+    for skill_name in MANDATORY_SKILLS:
+        assert (
+            bundle_store_root / f"{skill_name}-core" / "4.0.0" / "SKILL.md"
+        ).is_file()
+
+
+def _provisioned_skills(bundle_store_root: Path) -> tuple[Skills, SkillBundleStore]:
+    """Provision the four FK-43 §43.3.1 mandatory bundles in a fresh store.
+
+    AG3-048: a normal install binds the four mandatory skills (no silent skip),
+    so these tests must provision the bundles for the install to succeed.
+    """
+    store = SkillBundleStore(store_root=bundle_store_root)
+    for skill_name in MANDATORY_SKILLS:
+        bundle_root = bundle_store_root / f"{skill_name}-core" / "4.0.0"
+        bundle_root.mkdir(parents=True, exist_ok=True)
+        (bundle_root / "SKILL.md").write_text(f"# {skill_name}\n", encoding="utf-8")
+        store.register_bundle(
+            SkillBundle(
+                bundle_id=f"{skill_name}-core",
+                bundle_version="4.0.0",
+                bundle_root=bundle_root,
+                manifest_digest="0" * 64,
+            )
+        )
+    return Skills(bundle_store=store, binding_repo=InMemorySkillBindingRepository()), store
+
+
 def _make_config(project_root: Path) -> InstallConfig:
+    skills, store = _provisioned_skills(
+        project_root.parent / f".skill-bundles-{project_root.name}"
+    )
     return InstallConfig(
         project_key="ag3",
         project_name="AG3",
         project_root=project_root,
+        skills=skills,
+        skill_bundle_store=store,
+        skill_bundle_ids=_BUNDLE_IDS,
     )
 
 

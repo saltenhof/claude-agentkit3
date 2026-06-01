@@ -13,7 +13,7 @@ hier gebuendelt und greifen erst nachdem AG3-027 die Top-Surface produktiv hat. 
 - `concept/_meta/bc-cut-decisions.md §BC 12 installation-and-bootstrap` (Installer-Anschluss)
 - `concept/domain-design/05-telemetrie-und-metriken.md §5` (kanonische Persistenz **Postgres**, nicht SQLite)
 - `FK-43 §43.3.1` (Pflicht-Skills, die der Installer binden muss)
-- `FK-43 §43.4.1` (Symlink-Bindungsvertrag, der vom Installer konsumiert wird)
+- `FK-43 §43.4.1`/`§43.4.1.1` (Link-Bindungsvertrag Symlink/Junction, vom Installer konsumiert)
 - `FK-18 §18.9a` (Side-by-Side-Schema-Versionierung fuer `skill_bindings`-Tabelle)
 - `FK-60 §60` ("SQLite-Varianten verworfen zugunsten klarer Writer-/Reader-Trennung auf PostgreSQL")
 
@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS skill_bindings (
     bundle_id       VARCHAR  NOT NULL,
     bundle_version  VARCHAR  NOT NULL,
     target_path     TEXT     NOT NULL,
-    binding_mode    VARCHAR  NOT NULL CHECK (binding_mode IN ('SYMLINK')),
+    binding_mode    VARCHAR  NOT NULL CHECK (binding_mode IN ('SYMLINK', 'JUNCTION')),
     lifecycle_status VARCHAR NOT NULL CHECK (
         lifecycle_status IN ('REQUESTED','BUNDLE_SELECTED','BOUND','VERIFIED')
     ),
@@ -134,8 +134,8 @@ zu invasiv -- in dieser Story nur einmaliges Loeschen + Doku).
 - `tests/unit/state_backend/store/test_skill_binding_schema_bootstrap_idempotent.py`
   -- Bootstrap-Idempotenz analog `test_attempt_schema_bootstrap_idempotent.py`
 - `tests/integration/installer/test_skills_binding.py` -- Installer ruft
-  `Skills.bind_skill` fuer alle Pflicht-Skills; `.claude/skills/`-Symlinks
-  existieren, keine Datei-Kopien
+  `Skills.bind_skill` fuer alle Pflicht-Skills; `.claude/skills/`-Links
+  (Symlink/Junction) existieren, keine Datei-Kopien
 - Update der `tests/contract/skills/test_top_surface.py` (aus AG3-027) auf den
   produktiven Persistenz-Pfad (StateBackend-Repo statt InMemory)
 
@@ -181,11 +181,12 @@ zu invasiv -- in dieser Story nur einmaliges Loeschen + Doku).
    `Skills`-Instanz.
 5. **Installer (`install_agentkit`)** ruft `Skills.bind_skill` fuer alle vier
    Pflicht-Skills aus `FK-43 §43.3.1`. Direktes `mkdir(.claude/skills)` entfaellt.
-6. **Multi-Harness-Symlinks**: nach `install_agentkit` existieren Symlinks pro
-   aktiviertem Harness (Claude Code + Codex) -- gepruefte via Integration-Test.
+6. **Multi-Harness-Links**: nach `install_agentkit` existieren Links (Symlink
+   auf POSIX, Directory Junction auf Windows) pro aktiviertem Harness
+   (Claude Code + Codex) -- gepruefte via Integration-Test.
 7. **Fail-closed-Pfade**: Bundle nicht gefunden -> `InstallationError` mit
    strukturiertem `cause`; partial-install ist verboten (Installer bricht ab
-   bevor irgendein Symlink angelegt wird).
+   bevor irgendein Link angelegt wird).
 8. **`__pycache__`-Cleanup**: `src/agentkit/project_ops/install/__pycache__/`
    existiert nach diesem Commit nicht mehr.
 9. **Architecture-Conformance**: `agentkit.installer` darf `agentkit.skills`

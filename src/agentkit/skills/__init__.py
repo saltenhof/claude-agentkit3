@@ -28,6 +28,12 @@ from agentkit.skills.errors import (
     SkillProfileNotSupportedError,
     UnknownPlaceholderError,
 )
+from agentkit.skills.links import (
+    create_directory_link,
+    is_directory_link,
+    platform_binding_mode,
+    remove_directory_link,
+)
 from agentkit.skills.placeholder import PlaceholderSubstitutor
 from agentkit.skills.repository import (
     InMemorySkillBindingRepository,
@@ -50,6 +56,11 @@ __all__ = [
     "SkillBundle",
     "SkillBundleStore",
     "SkillBundleVersion",
+    # Link mechanics (platform-aware: symlink on POSIX, junction on Windows)
+    "create_directory_link",
+    "is_directory_link",
+    "platform_binding_mode",
+    "remove_directory_link",
     # Placeholder
     "PlaceholderSubstitutor",
     # Repository

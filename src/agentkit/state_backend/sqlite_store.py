@@ -648,6 +648,34 @@ def _ensure_runtime_tables_part2(conn: sqlite3.Connection) -> None:
             deactivated_at       TEXT,
             PRIMARY KEY (project_key, story_id, run_id, lock_type)
         );
+
+        -- AG3-048 (FK-43 §43.4.1, bc-cut-decisions.md §BC 11): skill_bindings.
+        -- Schema-Owner agent-skills (SkillBinding entity, AG3-027); DB-Owner
+        -- state_backend. Postgres ist kanonisch, dieses SQLite-Schema ist der
+        -- Test-Parallel-Pfad mit IDENTISCHER DDL (symmetrisch zu
+        -- postgres_schema.sql). Spalten spiegeln EXAKT das SkillBinding-Modell
+        -- (kein manifest_digest, das Modell ist Owner der Shape). Upsert auf
+        -- (project_key, skill_name). status deckt ALLE SECHS
+        -- SkillLifecycleStatus-Werte ab (FAIL-CLOSED CHECK).
+        CREATE TABLE IF NOT EXISTS skill_bindings (
+            binding_id       TEXT NOT NULL,
+            project_key      TEXT NOT NULL,
+            skill_name       TEXT NOT NULL,
+            bundle_id        TEXT NOT NULL,
+            bundle_version   TEXT NOT NULL,
+            target_path      TEXT NOT NULL,
+            binding_mode     TEXT NOT NULL CHECK (binding_mode IN ('SYMLINK', 'JUNCTION')),
+            status           TEXT NOT NULL CHECK (status IN (
+                'REQUESTED', 'PROFILE_RESOLVED', 'BUNDLE_SELECTED',
+                'BOUND', 'VERIFIED', 'REJECTED'
+            )),
+            pinned_at        TEXT NOT NULL,
+            PRIMARY KEY (binding_id),
+            UNIQUE (project_key, skill_name)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_skill_bindings_project_skill
+            ON skill_bindings (project_key, skill_name);
         """
     )
 

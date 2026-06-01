@@ -55,7 +55,18 @@ STATE_DATABASE_URL_ENV = "AGENTKIT_STATE_DATABASE_URL"
 # Zuvor liessen sich tags='"x"'/'{"k":"v"}' als Nicht-Array durchschmuggeln.
 # Constraint-Aenderung -> Side-by-Side-Bump (FK-18 §18.9a): frisch in
 # ak3_v3_13_0 / agentkit_3_13_0.sqlite.
-SCHEMA_VERSION = "3.13.0"
+# AG3-048: 3.13.0 -> 3.14.0 (skill_bindings table added; agent-skills BC
+# persistence, FK-43 §43.4.1 Link-Bindungsvertrag, bc-cut-decisions.md §BC 11.
+# Canonical Postgres + SQLite test-parallel schema with identical DDL. The table
+# owns the SkillBinding shape from AG3-027 (binding_id PK, UNIQUE(project_key,
+# skill_name), binding_mode CHECK IN ('SYMLINK', 'JUNCTION') — platform-aware
+# per FK-43 §43.4.1.1: symlink on POSIX, directory junction on Windows; status
+# CHECK over all SIX SkillLifecycleStatus values, index
+# idx_skill_bindings_project_skill).
+# Idempotent side-by-side migration via the versioned-schema pattern (FK-18
+# §18.9a) — a fresh ak3_v3_14_0 schema / agentkit_3_14_0.sqlite file is created;
+# the old 3.13.0 DB is never touched.
+SCHEMA_VERSION = "3.14.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 
 

@@ -8,6 +8,7 @@ loadable by :func:`agentkit.config.load_project_config`.
 from __future__ import annotations
 
 import json
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -22,9 +23,47 @@ from agentkit.installer.paths import (
 )
 
 
+def _symlinks_supported() -> bool:
+    """Return True when the OS/process can create symlinks.
+
+    NOTE (Codex-r7-r2): this fresh-install integration test drives a REAL
+    completing ``install_agentkit`` against the session-shared Postgres backend.
+    It stays gated off no-symlink hosts because un-gating heavy integration tests
+    here surfaces a PRE-EXISTING shared-Postgres isolation limitation (tracked
+    separately, NOT AG3-048 skills-binding scope). The junction install path is
+    covered platform-independently by the installer-surface tests (multi-harness,
+    CLI, namespace, scaffold).
+    """
+    with tempfile.TemporaryDirectory() as d:
+        src = Path(d) / "src"
+        src.mkdir()
+        link = Path(d) / "link"
+        try:
+            link.symlink_to(src)
+        except OSError:
+            return False
+        return True
+
+
+_SYMLINKS_AVAILABLE = _symlinks_supported()
+_SKIP_SYMLINKS = pytest.mark.skipif(
+    not _SYMLINKS_AVAILABLE,
+    reason="Symlinks/junctions gated — heavy integration install test (Codex-r7-r2)",
+)
+
+
 @pytest.mark.integration
+@_SKIP_SYMLINKS
 class TestInstallFresh:
-    """Test suite for fresh AgentKit installation into a target project."""
+    """Test suite for fresh AgentKit installation into a target project.
+
+    Every test here drives a COMPLETING ``install_agentkit``, which binds the
+    mandatory skills as harness symlinks — gated on symlink availability
+    (AG3-048 Codex-r6 FINDING 3). The host-independent install glue (no symlink
+    privilege required) is covered by
+    ``tests/unit/installer/test_install_host_independent.py`` via an injected
+    fake ``Skills`` top-surface.
+    """
 
     def test_install_creates_agentkit_dir(self, tmp_path: object) -> None:
         """Install creates ``.agentkit/`` directory."""
@@ -105,17 +144,6 @@ class TestInstallFresh:
         install_agentkit(config)
         result = install_agentkit(config)
         assert result.created_files == ()
-
-    def test_install_fails_if_root_missing(self, tmp_path: object) -> None:
-        """Install into non-existent directory raises :class:`ProjectError`."""
-        root = _as_path(tmp_path)
-        config = InstallConfig(
-            project_name="test",
-            project_key="test",
-            project_root=root / "nope",
-        )
-        with pytest.raises(ProjectError):
-            install_agentkit(config)
 
     def test_install_with_repositories(self, tmp_path: object) -> None:
         """Install with custom repositories includes them in config."""
@@ -263,6 +291,27 @@ class TestInstallFresh:
         assert calls == [("internal-bootstrap-prompts", "2")]
         lock_path = root / ".agentkit" / "config" / "prompt-bundle.lock.json"
         assert lock_path.is_file()
+
+
+@pytest.mark.integration
+class TestInstallFreshFailClosed:
+    """Install fail-closed paths that abort BEFORE any symlink binding.
+
+    AG3-048 Codex-r6 FINDING 3: these run host-independently — the install
+    aborts before ``_bind_mandatory_skills`` is reached, so no symlink privilege
+    is needed and the test must NOT be gated.
+    """
+
+    def test_install_fails_if_root_missing(self, tmp_path: object) -> None:
+        """Install into non-existent directory raises :class:`ProjectError`."""
+        root = _as_path(tmp_path)
+        config = InstallConfig(
+            project_name="test",
+            project_key="test",
+            project_root=root / "nope",
+        )
+        with pytest.raises(ProjectError):
+            install_agentkit(config)
 
 
 def _as_path(tmp_path: object) -> Path:
