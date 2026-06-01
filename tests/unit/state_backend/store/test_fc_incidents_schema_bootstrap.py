@@ -267,6 +267,35 @@ class TestCheckConstraints:
             conn.execute(_INSERT, bad)
             conn.commit()
 
+    def test_rejects_object_evidence_element(self, story_dir: Path) -> None:
+        """evidence_json mit Objekt-Element wird DB-seitig (Trigger) abgelehnt."""
+        # index 10 == evidence_json
+        bad = (*_VALID_ROW[:10], '[{"k": "v"}]', *_VALID_ROW[11:])
+        with _connect(story_dir) as conn, pytest.raises(
+            (sqlite3.IntegrityError, sqlite3.OperationalError)
+        ):
+            conn.execute(_INSERT, bad)
+            conn.commit()
+
+    def test_rejects_number_evidence_element(self, story_dir: Path) -> None:
+        """evidence_json mit Number-Element wird DB-seitig (Trigger) abgelehnt."""
+        bad = (*_VALID_ROW[:10], "[1, 2]", *_VALID_ROW[11:])
+        with _connect(story_dir) as conn, pytest.raises(
+            (sqlite3.IntegrityError, sqlite3.OperationalError)
+        ):
+            conn.execute(_INSERT, bad)
+            conn.commit()
+
+    def test_rejects_object_tags_element(self, story_dir: Path) -> None:
+        """tags mit Nicht-String-Element wird DB-seitig (Trigger) abgelehnt."""
+        # index 13 == tags
+        bad = (*_VALID_ROW[:13], "[1]", *_VALID_ROW[14:])
+        with _connect(story_dir) as conn, pytest.raises(
+            (sqlite3.IntegrityError, sqlite3.OperationalError)
+        ):
+            conn.execute(_INSERT, bad)
+            conn.commit()
+
 
 class TestEvidenceDecodeFailClosed:
     """``_decode_json_list`` ist fail-closed (NO ERROR BYPASSING): das frühere

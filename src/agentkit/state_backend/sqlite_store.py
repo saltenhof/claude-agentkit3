@@ -552,11 +552,11 @@ def _ensure_schema_runtime_tables(conn: sqlite3.Connection) -> None:
                 CHECK (incident_id GLOB
                        'FC-[0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9]*'
                        AND substr(incident_id, 9) NOT GLOB '*[^0-9]*'),
-            -- evidence_json = JSON-Array. Der Element-Typ (list[str], FK-41
-            -- §41.4.1) ist app-seitig fail-closed erzwungen: Pydantic beim
-            -- Schreiben + _decode_json_list beim Lesen (kein str()-Coercion).
-            -- SQLite-CHECK kann JSON-Arrays nicht elementweise pruefen
-            -- (kein json_each in CHECK), daher nur Array-Typ DB-seitig.
+            -- evidence_json = JSON-Array. Der Array-Typ wird per CHECK erzwungen;
+            -- der Element-Typ (list[str], FK-41 §41.4.1) DB-seitig per
+            -- BEFORE-Trigger (json_each, siehe unten) — ein CHECK kann JSON-Arrays
+            -- nicht elementweise pruefen. Damit ist die DB symmetrisch zum
+            -- Postgres-jsonpath-CHECK fail-closed (auch gegen Direktinserts).
             CONSTRAINT fc_incidents_evidence_is_array
                 CHECK (json_valid(evidence_json)
                        AND json_type(evidence_json) = 'array'),
@@ -568,6 +568,36 @@ def _ensure_schema_runtime_tables(conn: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_fc_incidents_incident_status
             ON fc_incidents (incident_status);
+
+        -- AG3-028 (Codex-r5): evidence_json/tags MUESSEN JSON-Arrays AUS STRINGS
+        -- sein (FK-41 §41.4.1 list[str]). Ein CHECK kann Array-Elemente nicht
+        -- iterieren; ein BEFORE-Trigger mit json_each schon. RAISE(ABORT) macht
+        -- den Insert/Update fail-closed bei einem Nicht-String-Element — DB-Ebene,
+        -- unabhaengig von Pydantic (deckt Direktinserts ab; symmetrisch zum
+        -- Postgres-jsonpath-CHECK).
+        CREATE TRIGGER IF NOT EXISTS trg_fc_incidents_strarray_insert
+        BEFORE INSERT ON fc_incidents
+        WHEN EXISTS (SELECT 1 FROM json_each(NEW.evidence_json) AS e
+                     WHERE e.type <> 'text')
+          OR (NEW.tags IS NOT NULL
+              AND EXISTS (SELECT 1 FROM json_each(NEW.tags) AS t
+                          WHERE t.type <> 'text'))
+        BEGIN
+            SELECT RAISE(ABORT,
+                'evidence_json/tags must be a JSON array of strings (FK-41 §41.4.1)');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_fc_incidents_strarray_update
+        BEFORE UPDATE ON fc_incidents
+        WHEN EXISTS (SELECT 1 FROM json_each(NEW.evidence_json) AS e
+                     WHERE e.type <> 'text')
+          OR (NEW.tags IS NOT NULL
+              AND EXISTS (SELECT 1 FROM json_each(NEW.tags) AS t
+                          WHERE t.type <> 'text'))
+        BEGIN
+            SELECT RAISE(ABORT,
+                'evidence_json/tags must be a JSON array of strings (FK-41 §41.4.1)');
+        END;
 
         -- AG3-028 (Codex-r2): GLOBALER Per-Jahr-Zaehler fuer die global
         -- eindeutige FC-YYYY-NNNN-Allokation (PK = year allein, KEIN
