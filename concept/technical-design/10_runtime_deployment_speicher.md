@@ -26,7 +26,10 @@ defers_to:
     reason: Weaviate als Pflicht-Datendienst ist in FK-13 verankert
   - target: FK-33
     scope: stage-registry
-    reason: Externe Stage-Registry-Dienste (Jenkins, SonarQube) werden ueber FK-33 angebunden
+    reason: Externe Stage-Registry-Dienste (Jenkins, SonarQube) werden ueber FK-33 angebunden; SonarQube-Green-Gate-Semantik und Capability `sonarqube_gate` sind in FK-33 §33.6.3 normiert
+  - target: FK-50
+    scope: installer
+    reason: Die Pflicht-Pruefung von SonarQube-Verfuegbarkeit, Community-Branch-Plugin und Conformance-Self-Test ist als Installer-Checkpoint (CP 10d) in FK-50 definiert
   - target: FK-40
     scope: are-integration
     reason: ARE-MCP-Server als optionale Integration wird in FK-40 spezifiziert
@@ -79,7 +82,7 @@ graph TB
         POOL_X["Grok-Pool (optional)<br/>(:9400)"]
         DASHBOARD["AgentKit Dashboard<br/>(:9700)"]
         ARE_EXT["ARE Server (optional)<br/>(:9800)"]
-        WEAVIATE["Story-Knowledge-Base<br/>Weaviate (:9902)"]
+        WEAVIATE["Story-Knowledge-Base<br/>Weaviate (:9903)"]
     end
 
     ORCH -->|"Bash-Tool"| CLI
@@ -171,6 +174,8 @@ Pflicht-Infrastrukturdienste benötigt (Weaviate).
 | LLM-Pools (MCP) | Pflicht: mind. 2 verschiedene Pools zusätzlich zu Claude (Schicht 2 fordert verschiedene LLMs für QA-Review und Semantic Review) | Integrity-Gate bei Closure prüft konfigurierte `llm_roles` gegen Telemetrie |
 | Weaviate + MCP-Wrapper | Pflicht | Installer Checkpoint 9 |
 | ARE (MCP) | Optional (`are: true`) | Installer prüft Erreichbarkeit des MCP-Servers |
+| SonarQube (Community Build ≥ `min_version`) | **Pflicht fuer codeproduzierende Projekte** (`sonarqube.enabled: true`; impl/bugfix-Stories); Optional fuer reine Concept-/Research-Projekte | Installer Checkpoint CP 10d (Verfuegbarkeit + Mindestversion + Creds) **plus Branch-Plugin-Conformance-Self-Test** (FK-50); Gate-Semantik FK-33 §33.6.3 |
+| └─ Community Branch Plugin | **Pflicht (Sub-Abhaengigkeit von SonarQube)** — Community Edition hat keine native Branch-Analyse; ohne Plugin ist das Green-Gate auf Branches/Pre-Merge nicht durchsetzbar (FK-33 §33.6.3) | Installer CP 10d: Plugin-Existenz + Mindestversion + Conformance-Self-Test (nur dann Trust-A-faehig) |
 
 **LLM-Pool-Anforderung im Detail:**
 
@@ -319,7 +324,7 @@ Alle Pipeline-Skripte müssen idempotent sein:
 | Setup (Worktree) | Prüft ob Worktree existiert, erstellt nur wenn nicht vorhanden. |
 | Structural Checks | Liest nur, schreibt Ergebnis. Wiederholbar (überschreibt vorheriges Ergebnis). |
 | LLM-Evaluator | Sendet an Pool, schreibt Ergebnis. Wiederholbar (überschreibt). |
-| Closure | Nicht pauschal idempotent — Closure hat sequentielle Seiteneffekte über verschiedene Systeme (Merge, Story-Close, Metriken, Postflight). Wird über persistierte Substates abgesichert: `integrity_passed`, `merge_done`, `story_closed`, `metrics_written`, `postflight_done`. Bei Crash: Recovery setzt beim letzten bestätigten Substate wieder an. |
+| Closure | Nicht pauschal idempotent — Closure hat sequentielle Seiteneffekte über verschiedene Systeme (Merge, Story-Close, Metriken, Postflight). Wird über persistierte Substates abgesichert: `integrity_passed`, `story_branch_pushed`, `merge_done`, `story_closed`, `metrics_written`, `postflight_done` (sechs Booleans, vollständige Liste in FK-29 §29.1.0). Bei Crash: Recovery setzt beim letzten bestätigten Substate wieder an. |
 | Postflight | Prüft nur, ändert nichts. Wiederholbar. |
 
 ## 10.6 Fehlerbehandlung und Recovery
@@ -384,7 +389,7 @@ Portbereich-Schema:
 | 9702 | AgentKit Project-API (REST) | AgentKit | HTTP/JSON | Optional (Pflicht wenn Thin-Client im Zielprojekt verwendet wird) | `agentkit serve --project-api` |
 | 9800 | ARE Server | Fachliche Integration | MCP | Optional (FK-40) | Manuell |
 | 9900 | Jenkins (Web-UI) | CI/CD | HTTP | Optional (externe Stage-Registry, FK-33) | Docker Compose |
-| 9901 | SonarQube | Code-Qualitaet | HTTP | Optional (externe Stage-Registry, FK-33) | Systemdienst |
+| 9901 | SonarQube (inkl. Community Branch Plugin) | Code-Qualitaet | HTTP | **Pflicht fuer codeproduzierende Projekte** (`sonarqube.enabled: true`, FK-33 §33.6.3); sonst Optional | Systemdienst (Installer CP 10d) |
 | 9902 | Jenkins (Agent-Port) | CI/CD | TCP | Optional (Jenkins-Agent-Kommunikation) | Docker Compose |
 | 9903 | Weaviate (VektorDB) | Dateninfrastruktur | HTTP + gRPC | Pflicht (FK-13) | Docker Compose |
 
@@ -419,7 +424,8 @@ Die Ports sind konfigurierbar:
 | Project-API | `agentkit serve --project-api --port N` | 9702 |
 | ARE | `project.yaml` → `are.base_url` | 9800 |
 | Weaviate | `project.yaml` → `vectordb.url` | 9903 |
-| Jenkins/SonarQube | `project.yaml` → Stage-Registry `external_tools` | 9900/9901 (Jenkins Agent: 9902) |
+| Jenkins | `project.yaml` → Stage-Registry `external_tools` | 9900 (Jenkins Agent: 9902) |
+| SonarQube | `project.yaml` → `sonarqube.base_url` (FK-03 `sonarqube`-Stanza) | 9901 |
 | PostgreSQL | Umgebungsvariable oder Connection-String (spaeter) | 5432 |
 
 ---

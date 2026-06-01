@@ -17,6 +17,9 @@ defers_to:
   - target: FK-02
     scope: lock-mechanismus
     reason: Branch-Guard nutzt Lock-Mechanismus aus FK-02
+  - target: FK-29
+    scope: closure-sequence
+    reason: Die Closure-Reihenfolge (Pre-Merge-Scan-und-Merge-Block, Integrated-Candidate-Scan vor Push/Merge, Merge-Serialisierungs-Lock) liegt normativ in FK-29 §29.1a; FK-12 ownt nur die einzelnen Git-Mechaniken
 supersedes: []
 superseded_by:
 tags: [github, branching, worktree, merge]
@@ -219,24 +222,48 @@ zentralen Lock-Record.
 
 ### 12.5.2 Worktree-Merge (Closure-Phase)
 
+**Ordnung defers_to FK-29:** Die *Reihenfolge* der Closure-Schritte —
+insbesondere dass der latest `main` zuerst in den Story-Branch
+integriert, der integrierte Kandidat **frisch** per SonarQube vermessen
+(commit-gebundene Attestation), das Integrity-Gate (inkl. Dimension 9)
+**nach** dem Scan und **vor** Push/Merge ausgewertet, und der gesamte
+Block **innerhalb des Merge-Serialisierungs-Locks** ausgefuehrt wird —
+ist normativ in **FK-29 §29.1a** (Pre-Merge-Scan-und-Merge-Block)
+festgelegt. FK-12 ownt ausschliesslich die einzelnen **Git-Mechaniken**,
+die FK-29 in dieser Ordnung aufruft; FK-12 schreibt **keine** eigene
+Closure-Sequenz mehr vor.
+
+Git-Primitiven, die FK-29 §29.1a in der dort definierten Reihenfolge
+nutzt (alle innerhalb des Merge-Locks, gegen den gepushten,
+gruen-vermessenen Story-Branch):
+
 ```python
 def merge_worktree(story_id: str, *, merge_policy: str = "ff_only") -> MergeResult:
-    """
-    1. git push origin story/{story_id}
-    2. git checkout main (im Hauptrepo, nicht im Worktree)
-    3. git pull origin main
-    4. git merge --ff-only story/{story_id}   # merge_policy == "ff_only"
-       oder
-       git merge --no-ff story/{story_id}     # merge_policy == "no_ff"
-    5. git push origin main
-    6. Bei Push- oder Merge-Fehler: FAIL → Eskalation
+    """Git-Mechaniken; Reihenfolge/Gating siehe FK-29 §29.1a (defers_to).
+
+    Primitiven (NICHT die Ablauf-Ordnung — die ownt FK-29):
+    - git fetch origin; integrate origin/main -> story/{story_id}
+    - git clean -xfd  (sauberer, reproduzierbar vermessener Tree)
+    - git push origin story/{story_id}                 # finaler Integrationsstand
+    - git merge --ff-only story/{story_id}              # merge_policy == "ff_only"
+      oder git merge --no-ff story/{story_id}           # merge_policy == "no_ff"
+      jeweils compare-and-swap/lease gegen locked_sha (FK-29 §29.1a Punkt 7)
+    - git push origin main
+    - Bei Push- oder Merge-Fehler: FAIL -> Eskalation (FK-29 closure-verdict)
     """
 ```
 
+Der frueher hier beschriebene Ablauf „push -> checkout/pull main ->
+merge -> push main" ist durch FK-29 §29.1a abgeloest: der Push des
+Story-Branch liegt **innerhalb** des Locks nach gruener Messung, und es
+gibt kein separates `checkout/pull main` mehr, weil `main` ueber ein
+ff-only CAS/Lease-Update gegen `locked_sha` aktualisiert wird.
+
 Bei Multi-Repo-Stories wird die Merge-Mechanik nicht pro Repo
-einzeln durchlaufen, sondern als 5-stufige atomare Saga ueber alle
-teilnehmenden Repos (FK-29 §29.1.6 mit `pre_merge_sha`-Rollback).
-Die obige Single-Repo-Sequenz beschreibt nur den Single-Repo-Fall.
+einzeln in dieser Reihenfolge entschieden, sondern als atomare
+Per-Repo-Pre-Merge-Scan-und-Merge-Bloecke ueber alle teilnehmenden
+Repos (FK-29 §29.1.6 mit `pre_merge_sha`-Rollback und per-Repo-Lock).
+Die obigen Primitiven beschreiben nur den Single-Repo-Fall.
 
 **Vorgeschriebene Merge-Policy:**
 
@@ -305,16 +332,21 @@ Namen aus dieser Liste.
 | Worktree | 1 Worktree | 1 Worktree pro teilnehmendem Repo |
 | Branch | 1 Branch `story/{story_id}` | 1 Branch pro Repo, gleicher Name |
 | Structural Checks | 1 Durchlauf | 1 Durchlauf pro Repo |
-| Merge | 1 Push + 1 Merge | N Pushes + N Merges (alle oder keiner) |
+| Merge | 1 Push + 1 Merge | Atomare Gruen-und-FF-Mergbarkeits-Barriere (alle Repos, ohne Push) VOR dem ersten Push; danach N Pushes + N Merges, die Cross-Remote NICHT transaktional atomar sind — partieller Push eskaliert (ESCALATED) mit kompensierender Recovery (FK-29 §29.1.6) |
 | Scope-Erkennung | Aus Diff | Aus Diff pro Repo |
 
-**Atomarer Multi-Repo-Closure:** Alle teilnehmenden Repos werden in
-Stufen behandelt: Pre-Merge-Check, Push-Stage, lokal-atomarer
-FF-Merge mit `pre_merge_sha`-Rollback, Push-zu-main-Stage, Teardown
-(FK-29 §29.1.6). Bei Push- oder Merge-Fehler in einem Repo:
-Eskalation, kein partieller Abschluss. Closure-Substates tracken
+**Multi-Repo-Closure (praezise Garantie statt Pseudo-Atomicity):** Die
+Closure garantiert eine **atomare Gruen-und-FF-Mergbarkeits-Barriere**
+ueber **alle** teilnehmenden Repos, **bevor** auf irgendeinem Repo ein
+Push beginnt: kein `main` wird sichtbar veraendert, solange nicht alle
+Repos gruen **und** ff-mergebar sind. Cross-Remote-Push ueber mehrere
+Git-Hosts ist hingegen **nicht** transaktional atomar; faellt ein Push
+in Repo k aus, nachdem 1..k-1 bereits remote gepusht wurden, ist der
+partielle Main-Zustand **kein** stiller Abschluss, sondern ein
+**eskalierter** Endzustand (ESCALATED) mit dokumentierter kompensierender
+Recovery (FK-29 §29.1.6, §29.1.6.3). Closure-Substates tracken
 Push- und Merge-Status pro Repo ueber `ClosurePayload.multi_repo`
-(FK-39 §39.x). Worker-Modell und Spawn-Worktree siehe FK-22 §22.6.4.
+(FK-39 §39.2.3). Worker-Modell und Spawn-Worktree siehe FK-22 §22.6.4.
 
 ## 12.7 GitHub-Operationen in der Pipeline
 

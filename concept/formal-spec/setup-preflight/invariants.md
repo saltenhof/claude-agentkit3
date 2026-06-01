@@ -24,9 +24,9 @@ schema_version: 1
 kind: invariant-set
 context: setup-preflight
 invariants:
-  - id: setup-preflight.invariant.all_nine_checks_pass_before_context
+  - id: setup-preflight.invariant.all_ten_checks_pass_before_context
     scope: process
-    rule: story context materialization is legal only after all nine preflight checks have completed and passed
+    rule: story context materialization is legal only after all ten preflight checks have completed and passed
   - id: setup-preflight.invariant.fail_closed_on_any_preflight_failure
     scope: process
     rule: any failed preflight check prevents setup completion and terminates setup with failed status
@@ -42,5 +42,14 @@ invariants:
   - id: setup-preflight.invariant.no_competing_story_mode_active
     scope: process
     rule: a story may only start setup when the project-level mode_lock is null or holds the same execution_route mode (standard or fast); fast and standard are mutually exclusive at the project level for the duration of any active in-progress story
+  - id: setup-preflight.invariant.code_stories_require_green_main_attestation
+    scope: process
+    rule: implementation and bugfix worktree creation is legal only when the sonarqube_gate main attestation is GREEN read by analysisId on the overall-code invariant AND the revision matches (sonar_last_analyzed_revision == git main HEAD); a RED or STALE attestation refuses setup fail-closed
+  - id: setup-preflight.invariant.main_green_refusal_emits_active_cleanup_proposal
+    scope: process
+    rule: a main-green precondition refusal must emit an active blame-free out-of-story cleanup-worker proposal in the phase-state result; silent refusal without a proposal is a ZERO-DEBT violation
+  - id: setup-preflight.invariant.main_green_unreachable_fails_closed
+    scope: process
+    rule: if SonarQube or the branch plugin is unreachable so the main attestation cannot be read, the precondition is an unresolved state and setup fails closed rather than proceeding on an assumed-green main
 ```
 <!-- FORMAL-SPEC:END -->

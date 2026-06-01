@@ -36,7 +36,10 @@ invariants:
     rule: phase progression is strictly forward; remediation loops within a phase (e.g. exploration exit-gate iterations, implementation QA-subflow iterations) are subflow-internal and do not constitute phase transitions
   - id: story-workflow.invariant.closure_requires_implementation_completed
     scope: phase-transition
-    rule: closure is legal only after implementation has completed successfully, which implies the implementation-internal QA-subflow reached a passing verdict from the verify-system capability
+    rule: closure is legal only after implementation has completed successfully; for implementing stories (implementation, bugfix) this implies the implementation-internal QA-subflow reached a passing verdict from the verify-system capability, while for non-implementing stories (concept, research) the implementation phase produces the documentation/research artifact WITHOUT a code QA-subflow and closure proceeds via the direct non-implementing shortcut (FK-29 §29.2, RESOLUTION B); the QA-subflow-pass precondition therefore applies only to code stories
+  - id: story-workflow.invariant.noncode_closure_skips_qa_subflow
+    scope: phase-transition
+    rule: concept and research stories close without the implementation QA-subflow, without the Finding-Resolution-Gate, without the Integrity-Gate and without the Pre-Merge-Scan-und-Merge-Block; their closure is legal once the implementation phase produced its non-code artifact, and integrity_passed/story_branch_pushed/merge_done are set true without any branch, scan or merge (FK-29 §29.1.1, §29.2)
   - id: story-workflow.invariant.completion_only_after_closure
     scope: status-transition
     rule: status COMPLETED is legal only when current_phase is closure and closure progress reached its completion state

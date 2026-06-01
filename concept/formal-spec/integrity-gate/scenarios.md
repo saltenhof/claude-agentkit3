@@ -50,5 +50,60 @@ scenarios:
       status: integrity-gate.status.overridden
     requires:
       - integrity-gate.invariant.override_requires_explicit_human_reason
+  - id: integrity-gate.scenario.dimension9-missing-attestation-fails
+    start:
+      status: integrity-gate.status.open
+    trace:
+      - command: integrity-gate.command.run-gate
+    expected_end:
+      status: integrity-gate.status.failed
+    requires:
+      - integrity-gate.invariant.dimension9_verifies_attestation_never_rescans
+      - integrity-gate.invariant.gate_failures_are_auditable
+  - id: integrity-gate.scenario.dimension9-tree-hash-drift-fails
+    start:
+      status: integrity-gate.status.open
+    trace:
+      - command: integrity-gate.command.run-gate
+    expected_end:
+      status: integrity-gate.status.failed
+    requires:
+      - integrity-gate.invariant.dimension9_attestation_binds_to_merge_state
+  - id: integrity-gate.scenario.dimension9-quality-gate-red-on-overall-code-fails
+    start:
+      status: integrity-gate.status.open
+    trace:
+      - command: integrity-gate.command.run-gate
+    expected_end:
+      status: integrity-gate.status.failed
+    requires:
+      - integrity-gate.invariant.dimension9_attestation_binds_to_merge_state
+  - id: integrity-gate.scenario.dimension9-ledger-hash-mismatch-fails
+    start:
+      status: integrity-gate.status.open
+    trace:
+      - command: integrity-gate.command.run-gate
+    expected_end:
+      status: integrity-gate.status.failed
+    requires:
+      - integrity-gate.invariant.dimension9_requires_ledger_and_version_match
+  - id: integrity-gate.scenario.dimension9-tool-config-version-mismatch-fails
+    start:
+      status: integrity-gate.status.open
+    trace:
+      - command: integrity-gate.command.run-gate
+    expected_end:
+      status: integrity-gate.status.failed
+    requires:
+      - integrity-gate.invariant.dimension9_requires_ledger_and_version_match
+  - id: integrity-gate.scenario.dimension9-skipped-for-concept-research
+    start:
+      status: integrity-gate.status.open
+    trace:
+      - command: integrity-gate.command.run-gate
+    expected_end:
+      status: integrity-gate.status.passed
+    requires:
+      - integrity-gate.invariant.dimension9_applies_to_code_stories_only
 ```
 <!-- FORMAL-SPEC:END -->

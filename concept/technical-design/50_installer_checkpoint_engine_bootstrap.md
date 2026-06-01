@@ -12,6 +12,9 @@ defers_to:
   - target: FK-03
     scope: configuration-schema
     reason: Pipeline-Config schema and validation rules defined in FK-03
+  - target: FK-33
+    scope: sonarqube-gate
+    reason: SonarQube-Green-Gate semantics, commit-bound attestation and Accepted-ledger are owned by FK-33; the installer only checks availability, plugin presence and branch-plugin conformance as a fail-closed precondition
 supersedes: []
 superseded_by:
 tags: [installer, checkpoint, bootstrap, idempotency]
@@ -178,6 +181,8 @@ cp_01_package_check
   -> cp_10_mcp_registration?
   -> branch_are_enabled
   -> cp_10c_are_scope_validation?
+  -> branch_sonarqube_enabled
+  -> cp_10d_sonarqube_availability_and_conformance?
   -> cp_11_git_hooks_and_claude
   -> cp_12_verify_registration
 ```
@@ -410,6 +415,79 @@ Nur wenn `features.are: true`.
 
 **Idempotenz:** Nur fehlende/unmapped Einträge werden abgefragt.
 
+### CP 10d: SonarQube-Verfügbarkeit + Branch-Plugin + Conformance-Self-Test
+
+Nur wenn `sonarqube.enabled: true` (Pflicht fuer codeproduzierende
+Projekte, FK-03 `sonarqube`-Stanza). Dieser Checkpoint ist die
+**fail-closed Umgebungs-Vorbedingung** des SonarQube-Green-Gates (FK-33
+§33.6.3). Stil analog zum Weaviate-/MCP-Checkpoint: fehlt eine harte
+Voraussetzung, **bricht der Installer ab (FAILED)** — er verweigert die
+Registrierung, statt ein Projekt ohne durchsetzbares Gate zuzulassen.
+
+**1. Verfuegbarkeit / Mindestversion / Erreichbarkeit + Creds:**
+
+- SonarQube unter `sonarqube.base_url` erreichbar (`/api/system/status`)
+- Server-Version `>= sonarqube.min_version`
+- Authentifizierung mit dem Token aus `sonarqube.token_env` erfolgreich,
+  Rolle reicht fuer Analyse + „Administer Issues" (fuer den
+  Accepted-Reconciler, FK-33 §33.6.4)
+- **Community Branch Plugin** installiert, Version
+  `>= sonarqube.plugins.community_branch.min_version`
+  (`/api/plugins/installed`)
+
+Fehlt eines davon → **FAILED, Installation abbrechen**.
+
+**2. Branch-Plugin-Conformance-Self-Test (Pflicht):**
+
+Das Community Branch Plugin ist **inoffiziell**. Es ist nur dann
+**Trust-A-faehig** (blocking, FK-33 §33.5.1), wenn dieser Self-Test
+besteht. Er laeuft **bei der Installation UND nach jedem
+SonarQube-/Plugin-Upgrade** (Upgrade ist ein erneuter Trigger dieses
+Checkpoints). Ablauf auf einem **wegwerfbaren Mini-Projekt**:
+
+1. Mini-Projekt anlegen, `main` scannen → muss **gruen** sein
+2. einen Branch scannen → Branch-Analyse muss erscheinen
+3. auf `main` ein Issue auf **Accepted** setzen → Branch-Handling
+   pruefen (Accepted-Vererbung auf den Branch greift, FK-33 §33.6.3)
+4. auf dem **Branch** ein Issue auf Accepted setzen → Merge-/
+   Reference-Branch-Sync pruefen (Accepted bleibt nach Merge/Sync
+   gegen `main` konsistent)
+5. Quality Gate per `analysisId` (nicht per `projectKey`) verifizieren
+6. Test-Projekt wieder **loeschen**
+
+Scheitert ein Schritt → **FAILED**: das Plugin verhaelt sich nicht
+gatebar, das Green-Gate darf nicht als Trust-A-Stage scharf geschaltet
+werden. Der Installer verweigert die Registrierung mit explizitem
+Hinweis auf den fehlgeschlagenen Conformance-Schritt.
+
+**3. Config-Drift-Behandlung (Policy-Change → voller main-Rescan):**
+
+Eine **manuelle SonarQube-Admin-Aenderung** an Quality Gate,
+Quality Profile, Analysis-Scope oder New-Code-Definition aendert die
+Bedeutung von „gruen". Solche Aenderungen werden ueber den **Config-Hash**
+(FK-03, Bestandteil der Attestation) erkannt: weicht der aktuelle
+Server-Config-Hash vom registrierten Erwartungswert (`project_registry`,
+CP 7) ab, gilt das als **„Policy-Change, der einen vollstaendigen
+main-Rescan erfordert"**. Der Checkpoint markiert den Drift, aktualisiert
+den erwarteten Config-Hash erst nach erfolgreichem main-Rescan-Gruen und
+stellt sicher, dass keine Story auf einem nach altem Regelwerk gruenen,
+nach neuem Regelwerk aber ungemessenen `main` aufsetzt.
+
+**Abhängigkeiten:** CP 5 (Pipeline-Config), CP 7 (State-Backend-
+Registrierung — Config-Hash-Erwartungswert).
+
+**Referenzen:** FK-03 (`sonarqube`-Config + Config-Hash), FK-33
+(Gate-Semantik, Accepted-Ledger), FK-10 §10.2.2 (Pflicht-Laufzeit-
+Abhaengigkeit).
+
+**Idempotenz:** Verfuegbarkeits-/Versions-/Plugin-Pruefung ist read-only.
+Der Conformance-Self-Test legt ausschliesslich ein wegwerfbares
+Mini-Projekt an und loescht es wieder (keine Seiteneffekte auf echte
+Projekte). Bei unveraendertem Server (gleiche Versionen, gleicher
+Config-Hash) und bereits bestandenem Self-Test wird der Self-Test
+uebersprungen (SKIPPED); er wird nur bei Erst-Setup und nach
+Versions-/Config-Drift erneut ausgefuehrt.
+
 ### CP 11: Git-Hooks + CLAUDE.md
 
 Installiert `pre-commit` Hook (Secret-Detection, Kap. 15.5.2)
@@ -442,6 +520,7 @@ Read-only Validierung aller vorherigen Checkpoints:
   (`.claude/settings.json`, `.codex/config.toml` o.ae.)?
 - Alle erwarteten `tools/agentkit/`-Wrapper vorhanden?
 - ARE-Scope-Zuordnung vollständig? (alle Code-Repos haben `are_scope`, alle Modul-Werte gemappt — nur wenn `features.are: true`)
+- SonarQube erreichbar, Mindestversion erfuellt, Community Branch Plugin vorhanden und Conformance-Self-Test bestanden, Config-Hash == registrierter Erwartungswert — **nur wenn `sonarqube.enabled: true`** (CP 10d)
 
 **Ergebnis:** PASS oder Liste von Problemen.
 
@@ -505,6 +584,10 @@ nicht zulaessig.
 | State-Backend nicht erreichbar | CP 7 | FAILED |
 | Symlink kann nicht angelegt oder aktualisiert werden | CP 8 | FAILED |
 | Bestehende Config mit inkompatiblem Schema | CP 5 | Migration versuchen (Kap. 51), bei Scheitern FAILED |
+| SonarQube nicht erreichbar / Version < `min_version` / Creds ungueltig | CP 10d | FAILED, Installation abbrechen |
+| Community Branch Plugin fehlt oder Version zu niedrig | CP 10d | FAILED — Green-Gate nicht durchsetzbar |
+| Branch-Plugin-Conformance-Self-Test scheitert | CP 10d | FAILED — Plugin nicht Trust-A-faehig, Gate darf nicht scharf geschaltet werden |
+| Config-Drift erkannt (manuelle Admin-Aenderung an Gate/Profil/Scope/New-Code) | CP 10d | Policy-Change → vollstaendiger main-Rescan erforderlich, Erwartungswert erst nach Gruen aktualisieren |
 
 **Bei FAILED:** Alle vorherigen Checkpoints waren erfolgreich und
 bleiben erhalten. Der Installer kann nach Problembehebung erneut

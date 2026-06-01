@@ -41,11 +41,24 @@ transitions:
   - id: setup-preflight.transition.preflight_running_to_context_materialized
     from: setup-preflight.status.preflight_running
     to: setup-preflight.status.context_materialized
-    guard: setup-preflight.invariant.all_nine_checks_pass_before_context
+    guard: setup-preflight.invariant.all_ten_checks_pass_before_context
+  # Main-green precondition (FK-22 §22.4c): only a GREEN sonarqube_gate
+  # main attestation (read by analysisId, revision-matched) advances code
+  # stories to worktree creation. RED/STALE and unreachable each have their
+  # own fail-closed edge with a distinct failure invariant — the positive
+  # green invariant is no longer (ab)used as a failure guard.
   - id: setup-preflight.transition.context_materialized_to_worktrees_ready
     from: setup-preflight.status.context_materialized
     to: setup-preflight.status.worktrees_ready
-    guard: setup-preflight.invariant.code_stories_require_worktree_setup
+    guard: setup-preflight.invariant.code_stories_require_green_main_attestation
+  - id: setup-preflight.transition.context_materialized_to_failed_on_red_or_stale_main
+    from: setup-preflight.status.context_materialized
+    to: setup-preflight.status.failed
+    guard: setup-preflight.invariant.main_green_refusal_emits_active_cleanup_proposal
+  - id: setup-preflight.transition.context_materialized_to_failed_on_unreachable_main
+    from: setup-preflight.status.context_materialized
+    to: setup-preflight.status.failed
+    guard: setup-preflight.invariant.main_green_unreachable_fails_closed
   - id: setup-preflight.transition.worktrees_ready_to_guards_active
     from: setup-preflight.status.worktrees_ready
     to: setup-preflight.status.guards_active
@@ -62,5 +75,7 @@ transitions:
 compound_rules:
   - id: setup-preflight.rule.concept-research-shortcut
     description: Concept and research stories complete setup without worktree creation and without mode routing for execution or exploration.
+  - id: setup-preflight.rule.main-green-precondition-gates-worktree-creation
+    description: For implementation and bugfix stories the main-green precondition (FK-22 22.4c) is checked between context_materialized and worktree creation; only a GREEN sonarqube_gate main attestation read by analysisId plus revision-match advances to worktrees_ready, while RED, STALE, or unreachable refuses setup fail-closed and transitions to failed with an active blame-free out-of-story cleanup-worker proposal.
 ```
 <!-- FORMAL-SPEC:END -->

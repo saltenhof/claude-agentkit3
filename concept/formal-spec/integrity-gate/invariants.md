@@ -37,5 +37,17 @@ invariants:
   - id: integrity-gate.invariant.gate_failures_are_auditable
     scope: audit
     rule: every failed gate produces audit-visible fail codes before any human may decide on override or recovery
+  - id: integrity-gate.invariant.dimension9_verifies_attestation_never_rescans
+    scope: process
+    rule: dimension 9 SonarQube-Green only verifies the commit-bound sonarqube_gate attestation produced by the pre-merge scan block and never runs a Sonar scan of its own
+  - id: integrity-gate.invariant.dimension9_attestation_binds_to_merge_state
+    scope: process
+    rule: the dimension 9 attestation must bind to the merge commit_sha and tree_hash of the integrated candidate (tree_hash(scan) == tree_hash(merge)) and the Quality Gate must be OK on the overall-code invariant read by analysisId
+  - id: integrity-gate.invariant.dimension9_requires_ledger_and_version_match
+    scope: process
+    rule: dimension 9 passes only when the attestation exception-ledger-hash matches the versioned accepted-ledger AND the quality-gate-hash, quality-profile-hash, analysis-scope-hash, new-code-definition and SonarQube, branch-plugin and scanner versions match the project-expected values; any drift fails the dimension
+  - id: integrity-gate.invariant.dimension9_applies_to_code_stories_only
+    scope: mode
+    rule: dimension 9 is evaluated only for implementation and bugfix stories; concept and research stories have no merge and no analyzed code and skip the dimension
 ```
 <!-- FORMAL-SPEC:END -->

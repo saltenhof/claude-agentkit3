@@ -33,7 +33,7 @@ defers_to:
     reason: StructuredEvaluator-Architektur in Kap. 11
   - target: FK-35
     scope: integrity-gate
-    reason: Integrity-Gate-Definition, 8 Dimensionen und Eskalation in FK-35 §35.2 normiert
+    reason: Integrity-Gate-Definition, 9 Dimensionen und Eskalation in FK-35 §35.2 normiert
   - target: FK-37
     scope: verify-context
     reason: VerifyContext (Subflow-internes Diskriminator-Feld), Context-Bundle-Vorbereitung und Section-aware Packing in FK-37
@@ -211,6 +211,7 @@ verschoben (11 Dateien).
 | Umsetzungstreue | `doc_fidelity.json` |
 | Feedback | `feedback.json` |
 | Adversarial | `adversarial.json` |
+| SonarQube-Gate | `sonarqube_gate.json` | <!-- [Ergänzung] sonarqube_gate (FK-33 §33.2.2, Abfolge nach Schicht 3, §27.6a) ist zyklusgebunden: jede Remediation aendert Fachcode → die commit-gebundene Attestation der Vorrunde wird ungueltig und nach stale/ verschoben. -->
 | E2E Verify | `e2e_verify.json` | <!-- [Hinweis 2026-04-09] Kein aktiver Producer in §27.5 definiert — reserviert für eine zukünftige End-to-End-Integritätsprüfung. Artefakt verbleibt in der Invalidierungs-Liste für den Fall, dass es aus einem früheren Zyklus noch existiert. -->
 | Structural | `structural.json` |
 | Context | `context.json` | <!-- [Hinweis 2026-04-09] context.json ist keine Löschung — es wird vor Schicht 2 vom Phase Runner neu aufgebaut (rebuild pre-step), um dem Context Sufficiency Builder (FK-37 §37.2.6) ein aktuelles Artefakt zu liefern. Ohne diesen Rebuild wäre der Remediation-Re-Entry-Pfad nicht implementierbar. Der Eintrag in der Invalidierungs-Liste bedeutet: altes context.json wird nach stale/ verschoben, dann neu erzeugt. -->
@@ -290,7 +291,11 @@ flowchart TD
     end
 
     S3_RESULT -->|"Fehler gefunden"| FB
-    S3_RESULT -->|"Keine Befunde"| S4
+    S3_RESULT -->|"Keine Befunde"| SONAR
+
+    SONAR["SonarQube-Gate<br/>(sonarqube_gate, Layer-1 det., Trust A;<br/>Abfolge: nach Schicht 3)<br/>misst den Branch"]
+    SONAR -->|"Violations"| FB
+    SONAR -->|"Quality Gate OK<br/>(Branch gruen)"| S4
 
     subgraph SCHICHT_4 ["Schicht 4: Policy-Evaluation (Skript)"]
         S4["Ergebnisse aller<br/>Schichten aggregieren"]
@@ -598,6 +603,57 @@ einer textuellen Mängelbeschreibung.
 | `adversarial_test_executed` | >= 1 (Pflicht: mindestens 1 Test ausführen) |
 | `adversarial_end` | Genau 1 |
 
+## 27.6a SonarQube-Gate (Abfolge: nach Schicht 3, vor Schicht 4)
+
+### 27.6a.1 Einordnung
+
+Nach der Adversarial-Stage (Schicht 3) und **vor** der
+Policy-Evaluation (Schicht 4) laeuft das `sonarqube_gate` auf dem
+**Story-Branch**. Es ist der zweite der drei Lifecycle-Gate-Punkte der
+Capability (FK-33 §33.6.3, Punkt 2; Setup-Vorbedingung in FK-22 §22.4c,
+Closure-Pre-Merge in FK-29/FK-35).
+
+Das `sonarqube_gate` ist klassifikatorisch eine **Layer-1-Stage
+(deterministisch, Trust-Klasse A, blocking)**, wird in der
+Ausfuehrungs**abfolge** des QA-Subflows aber bewusst nach Schicht 3
+eingehaengt. Die Layer-vs-Abfolge-Begruendung — jede vorgelagerte
+Remediation (Layer 1/2/3) aendert Fachcode und kann neue Violations
+erzeugen, daher ist die Sonar-Messung der **finale deterministische
+Konvergenz-Schritt** — wird **nicht** hier dupliziert, sondern liegt
+normativ in **FK-33 §33.6.3 und §33.8.3**. An der Menge der QS-Schichten
+aendert sich nichts; es kommt nur ein Abfolge-Schritt hinzu.
+
+### 27.6a.2 Gate und Remediation-Loop
+
+- **Green-Definition, Attestation, Accepted-Ledger:** FK-33 §33.6.3 /
+  §33.6.4 (Owner). Gruen = Quality Gate OK auf der
+  Overall-Code-Invariante (keine offenen, nicht-akzeptierten Issues im
+  gesamten Scope); bewusst `Accepted`-Issues (Sechs-Augen, FK-33 §33.6.4)
+  zaehlen nicht.
+- **Rot → Remediation:** Hat das Gate Violations, geht die Story in den
+  bestehenden Remediation-Loop des QA-Subflows zurueck (Feedback →
+  zurueck zu Implementation, FK-20 §20.5). Die QA-Zyklus-Semantik bleibt
+  unveraendert: `advance_qa_cycle()` invalidiert die zyklusgebundenen
+  Artefakte (§27.2.3), `max_feedback_rounds` (FK-03 §3.4.2, Default 3)
+  greift; Erschoepfung fuehrt zu `escalated`
+  (`max_rounds_exceeded`, §27.2.2). Der `sonarqube_gate`-Lauf gehoert in
+  denselben `verify_context`-gesteuerten Subflow-Durchlauf
+  (`POST_IMPLEMENTATION` / `POST_REMEDIATION`, FK-37 §37.1) wie die
+  uebrigen Schichten.
+- **Gruen → Schicht 4:** Erst wenn der Branch gruen ist, materialisiert
+  der `StageExecutionPlan` die Policy-Evaluation. Die Policy-Engine
+  aggregiert das `sonarqube_gate`-Ergebnis als blocking Trust-A-Stage mit
+  (FK-33 §33.8.2).
+
+### 27.6a.3 Ergebnis-Artefakt
+
+`_temp/qa/{story_id}/sonarqube_gate.json` (Envelope-Format, Producer:
+`qa-sonarqube-gate`, Stage-ID `sonarqube_gate` aus FK-33 §33.2.2). Das
+Artefakt traegt die commit-gebundene Attestation (FK-33 §33.6.3:
+`commit_sha`, `tree_hash`, `analysisId`/`ceTaskId`, QG-/Profile-Hash,
+Tool-Versionen) und ist — wie die uebrigen zyklusgebundenen Artefakte —
+in der Invalidierung bei `advance_qa_cycle()` enthalten.
+
 ## 27.7 Schicht 4: Policy-Evaluation
 
 ### 27.7.1 Aggregation
@@ -674,7 +730,7 @@ FK-27-051 (Konsolidierungsverbot Test-Suite)*
 - FK-29 — Closure-Sequence: Finding-Resolution-Gate, Integrity-Gate-Aufruf, Merge, Postflight, Execution Report, Guard-Deaktivierung
 - FK-37 — Verify-Context und QA-Bundle-Vorbereitung: VerifyContext, ContextSufficiencyBuilder, Section-aware Packing, HARD-BLOCKER-Garantie
 - FK-38 — Verify-Feedback und Dokumententreue-Schleife: Feedback-Mechanismus, Mandatory-Target-Rückkopplung, Umsetzungstreue (Ebene 3), Rückkopplungstreue (Ebene 4)
-- FK-35 — Integrity-Gate (Definitions-Owner), 8 Dimensionen und Eskalation
+- FK-35 — Integrity-Gate (Definitions-Owner), 9 Dimensionen und Eskalation
 - FK-28 — Evidence Assembly: EvidenceAssembler, Import-Resolver, Autoritätsklassen, Request-DSL, BundleManifest, Section-aware Packing-Modul (`agentkit/core/packing.py`)
 - FK-34 — LLM-Evaluierungen: StructuredEvaluator, ParallelEvalRunner, ContextBundle, `truncate_bundle()` Dispatcher, Evaluator-Erweiterung fuer Finding-Resolution im Remediation-Modus
 - DK-04 §4.4a — Verify-Kontext-Differenzierung, Guard-Severity (Fachkonzept-Provenienz fuer FK-37 §37.1 und §27.4.3) [Korrektur 2026-04-09: STRUCTURAL_ONLY_PASS-Invariante entfällt]

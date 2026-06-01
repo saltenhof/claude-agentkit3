@@ -274,7 +274,7 @@ flowchart TD
     QA_SUBFLOW_PASS --> CLOSURE
 
     subgraph CLOSURE_PHASE [Closure-Phase]
-        CLOSURE["Integrity-Gate<br/>7 Dimensionen"]
+        CLOSURE["Integrity-Gate<br/>9 Dimensionen"]
         CLOSURE -->|FAIL| ESCALATE["ESCALATED:<br/>Mensch entscheidet<br/>→ neuer Run oder Override"]
         CLOSURE -->|PASS| MERGE["Branch mergen<br/>Worktree aufräumen"]
         MERGE --> CLOSE_ISSUE["Issue schließen<br/>Status: Done"]
@@ -632,9 +632,11 @@ Adversarial-Runtime).**
 
 ### Closure-Phase
 
-Bevor eine Story geschlossen werden kann, validiert das Integrity-Gate
-in sieben Dimensionen, dass der Prozess vollständig durchlaufen wurde.
-Dieses Gate ist die letzte Verteidigungslinie gegen Prozessabkürzungen.
+Bevor eine Code-Story (impl/bugfix) gemergt werden kann, validiert das
+Integrity-Gate in neun Dimensionen, dass der Prozess vollständig
+durchlaufen wurde (normativer Owner: FK-35 §35.2; Dimension 9 prüft den
+SonarQube-Green-Stand des integrierten Pre-Merge-Kandidaten). Dieses
+Gate ist die letzte Verteidigungslinie gegen Prozessabkürzungen.
 Scheitert es, wird an den Menschen eskaliert, nicht an einen Agenten.
 
 Eskalation bedeutet konkret: Die Story bleibt im AK3-Story-Status
@@ -646,12 +648,20 @@ Pipeline eingespeist werden. Dasselbe Eskalationsverhalten gilt für
 alle Eskalationspunkte im Ablauf (Dokumententreue-Konflikt,
 Governance-Beobachtung stoppt den Prozess).
 
-Nach bestandenem Integrity-Gate erfolgt die eigentliche Closure: Zuerst
-wird der Branch gemergt und der Worktree aufgeräumt. Erst nach
-erfolgreichem Merge wird das Issue geschlossen und der Projektstatus
-auf "Done" gesetzt. Dann werden Metriken erfasst (QA-Runden,
-Durchlaufzeit, Abschlussdatum). Diese Reihenfolge stellt sicher, dass
-ein Issue nie geschlossen wird, wenn der Merge scheitert.
+Die genaue Closure-Reihenfolge ist normativ in FK-29 §29.1a festgelegt
+(diese Übersicht deferiert dorthin): Unter dem Merge-Serialisierungs-Lock
+wird der letzte `main`-Stand in den Story-Branch integriert, der
+integrierte Kandidat frisch per SonarQube vermessen (erzeugt die
+Attestation), danach läuft das Integrity-Gate (das Dimension 9 gegen
+genau diese frische Attestation prüft), und erst bei Gate-PASS folgen
+Push und ff-Merge — alles innerhalb desselben Locks. Erst nach
+erfolgreichem Merge und Worktree-Teardown wird das Issue geschlossen und
+der Projektstatus auf "Done" gesetzt; danach werden Metriken erfasst
+(QA-Runden, Durchlaufzeit, Abschlussdatum). Diese Reihenfolge stellt
+sicher, dass ein Issue nie geschlossen wird, wenn der Merge scheitert,
+und dass das Gate die Attestation verifiziert, die der Scan zuvor erzeugt
+hat. Concept/Research-Stories haben keinen Branch und keinen Merge; für
+sie entfällt der gesamte Block (FK-29 §29.1.1, §29.2).
 
 Nach den Metriken wird ein Execution Report erzeugt: ein
 konsolidierter Abschlussbericht, der den gesamten Story-Durchlauf
@@ -679,7 +689,11 @@ Start- und Ende-Events vorhanden, Artefakte vollständig.
 
 ## Anhang A — Preflight-Checks (vollständiger Katalog)
 
-Die acht Preflight-Checks stellen sicher, dass alle Voraussetzungen für
+> **Nicht-normative Zusammenfassung.** Die normative Quelle für die
+> Preflight-Checks ist **FK-22 §22.3.1** (zehn Checks). Dieser Anhang
+> spiegelt sie zur fachlichen Übersicht; bei Abweichungen gilt FK-22.
+
+Die zehn Preflight-Checks stellen sicher, dass alle Voraussetzungen für
 die Story-Bearbeitung erfüllt sind, bevor ein Worktree erstellt und ein
 Agent gestartet wird. Scheitert ein Check, wird die Story nicht gestartet
 (fail-closed). Referenz: Abschnitt 2.2, Setup-Phase.
@@ -694,12 +708,16 @@ Agent gestartet wird. Scheitert ein Check, wird die Story nicht gestartet
 | PRE-06 | Saubere Telemetrie | Kein offener Lauf oder inkonsistentes `agent_start`/fehlendes terminales Telemetrie-Paar in `execution_events` bzw. `flow_executions` fuer `(project_key, story_id)` | Vorheriger Lauf fuer dieselbe Story ist telemetrisch oder runtime-seitig unvollstaendig |
 | PRE-07 | Kein Story-Branch | Kein Branch mit dem Story-Branch-Namensschema für diese Story-ID existiert lokal oder remote | Branch existiert bereits (Hinweis auf einen vorherigen, nicht aufgeräumten Lauf) |
 | PRE-08 | Kein staler Worktree | Kein Git-Worktree für diese Story-ID vorhanden | Worktree existiert bereits (Hinweis auf einen vorherigen, nicht aufgeräumten Lauf) |
+| PRE-09 | Kein Scope-Overlap | Keine aktive parallele Story arbeitet an denselben Modulen/Pfaden (aktive Lock-Records + `StoryContext`-Scope vergleichen) | Parallele Story arbeitet an überlappenden Modulen — Merge-Konflikt vorprogrammiert (FK-22 §22.3.1 Check 9) |
+| PRE-10 | Kein konflikthafter Story-Mode | Kein projektweit aktiver, konflikthafter Story-Mode (`fast` vs. `standard`); `mode_lock = null` oder gleicher Mode | Mode-Lock hält einen anderen Mode (FK-22 §22.3.1 Check 10, FK-24 §24.3.3) |
 
 **Reihenfolge:** Die Checks laufen in der angegebenen Reihenfolge.
 PRE-01 bis PRE-03 prüfen fachliche Voraussetzungen. PRE-04 prüft
 Abhängigkeiten. PRE-05 bis PRE-08 prüfen technische Sauberkeit
-(keine Reste aus vorherigen Läufen). Ein FAIL in einem frühen Check
-macht die nachfolgenden Checks hinfällig.
+(keine Reste aus vorherigen Läufen). PRE-09 und PRE-10 prüfen die
+projektweite Parallelitäts-/Modus-Verträglichkeit. Es werden trotzdem
+alle zehn Checks ausgeführt (nicht beim ersten Failure abbrechen),
+damit der Mensch alle Probleme auf einmal sieht (FK-22 §22.3.2).
 
 ---
 

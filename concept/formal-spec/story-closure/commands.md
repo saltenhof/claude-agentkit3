@@ -34,16 +34,27 @@ commands:
     allowed_statuses:
       - story-closure.status.requested
       - story-closure.status.policy_checked
+      - story-closure.status.integrity_passed
+      - story-closure.status.merge_lock_acquired
+      - story-closure.status.integrated_candidate_green
       - story-closure.status.story_branch_pushed
     requires:
       - story-closure.invariant.ff_only_is_default_policy
       - story-closure.invariant.branch_guard_allows_official_closure
+      - story-closure.invariant.merge_block_runs_under_serialization_lock
+      - story-closure.invariant.integrated_candidate_scanned_green_before_push
     emits:
       - story-closure.event.closure.started
       - story-closure.event.policy.ff_only_selected
+      - story-closure.event.integrity_gate.passed
+      - story-closure.event.merge_lock.acquired
+      - story-closure.event.integrated_candidate.green
+      - story-closure.event.integrated_candidate.red
       - story-closure.event.story_branch.pushed
       - story-closure.event.merge.attempted
       - story-closure.event.merge.completed
+      - story-closure.event.post_merge.reconciled
+      - story-closure.event.merge_lock.released
       - story-closure.event.issue.closed
       - story-closure.event.closure.completed
       - story-closure.event.closure.escalated
@@ -52,17 +63,28 @@ commands:
     allowed_statuses:
       - story-closure.status.requested
       - story-closure.status.policy_checked
+      - story-closure.status.integrity_passed
+      - story-closure.status.merge_lock_acquired
+      - story-closure.status.integrated_candidate_green
       - story-closure.status.story_branch_pushed
     requires:
       - story-closure.invariant.no_ff_only_official_fallback
       - story-closure.invariant.branch_guard_allows_official_closure
+      - story-closure.invariant.merge_block_runs_under_serialization_lock
+      - story-closure.invariant.integrated_candidate_scanned_green_before_push
     emits:
       - story-closure.event.closure.started
       - story-closure.event.policy.no_ff_selected
       - story-closure.event.policy_fallback.used
+      - story-closure.event.integrity_gate.passed
+      - story-closure.event.merge_lock.acquired
+      - story-closure.event.integrated_candidate.green
+      - story-closure.event.integrated_candidate.red
       - story-closure.event.story_branch.pushed
       - story-closure.event.merge.attempted
       - story-closure.event.merge.completed
+      - story-closure.event.post_merge.reconciled
+      - story-closure.event.merge_lock.released
       - story-closure.event.issue.closed
       - story-closure.event.closure.completed
       - story-closure.event.closure.escalated

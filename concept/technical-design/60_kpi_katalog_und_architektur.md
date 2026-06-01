@@ -447,7 +447,7 @@ gut genug?
 | `integrity_gate_block_rate` | **AKTIV** | `[N]` | Periode | Wie oft blockiert das Integrity-Gate? |
 | `adversarial_sandbox_escape_count` | INVENTAR | `[N]` | Entitaet+Periode | Sandbox-Ausbruchsversuche |
 | `compaction_agent_spawn_deny_count` | INVENTAR | `[N]` | Periode | Blockierte Agent-Spawns im Recovery |
-| `integrity_gate_block_by_dimension` | INVENTAR | `[N]` | Periode | Aufschluesselung nach 7 Gate-Dimensionen |
+| `integrity_gate_block_by_dimension` | INVENTAR | `[N]` | Periode | Aufschluesselung nach 9 Gate-Dimensionen |
 | `guard_story_resolution_ambiguity_rate` | INVENTAR | `[N]` | Periode | Violations mit story_id=unknown |
 | `risk_score_threshold_breach_frequency` | INVENTAR | `[N]` | Periode | Governance-Schwellenwert-Ueberschreitungen |
 

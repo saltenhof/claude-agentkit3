@@ -40,5 +40,16 @@ commands:
       - setup-preflight.event.guards.activated
       - setup-preflight.event.mode.routed
       - setup-preflight.event.setup.completed
+  - id: setup-preflight.command.check-main-green-precondition
+    signature: internal check_main_green_precondition <story_type> <project> via sonarqube_gate capability
+    actor: pipeline_deterministic
+    allowed_statuses:
+      - setup-preflight.status.context_materialized
+    requires:
+      - setup-preflight.invariant.code_stories_require_green_main_attestation
+      - setup-preflight.invariant.main_green_refusal_emits_active_cleanup_proposal
+    emits:
+      - setup-preflight.event.main_green_precondition_passed
+      - setup-preflight.event.main_green_precondition_refused
 ```
 <!-- FORMAL-SPEC:END -->

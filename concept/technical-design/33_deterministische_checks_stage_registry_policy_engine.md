@@ -10,6 +10,7 @@ authority_over:
   - scope: deterministic-checks
   - scope: stage-registry
   - scope: policy-engine
+  - scope: sonarqube-gate
 defers_to:
   - target: FK-20
     scope: workflow-engine
@@ -67,6 +68,22 @@ glossary:
           domain: verify-system
         - term: policy-engine
           domain: verify-system
+    - id: sonarqube-gate
+      definition: >
+        Normatives, deterministisches Green-Gate der statischen Analyse
+        (SonarQube). Klassifikatorisch eine Layer-1-Stage (Trust-Klasse A,
+        blocking), in der Abfolge des QA-Subflows aber nach Schicht 3
+        (Adversarial) eingehängt, weil jede Remediation Fachcode aendert und
+        neue Violations erzeugen kann. Green bedeutet Quality Gate OK / Zero
+        Violations (Broken-Window-Prinzip); Toleranzen liegen ausschliesslich
+        in den SonarQube-Quality-Gate-Conditions, nicht im AK-Code. Liefert die
+        Capability fuer alle drei Lifecycle-Gate-Punkte (Setup-Vorbedingung
+        FK-22, QA-Subflow, Closure-Pre-Merge FK-29/FK-35).
+      see_also:
+        - term: stage-definition
+          domain: verify-system
+        - term: policy-engine
+          domain: verify-system
   internal_terms:
     - id: stage-execution-plan
       reason: >
@@ -79,6 +96,10 @@ formal_refs:
   - formal.deterministic-checks.events
   - formal.deterministic-checks.invariants
   - formal.deterministic-checks.scenarios
+  - formal.story-closure.state-machine
+  - formal.story-closure.events
+  - formal.story-closure.invariants
+  - formal.story-closure.scenarios
 ---
 
 # 33 — Deterministische Checks, Stage-Registry und Policy-Engine
@@ -147,6 +168,7 @@ class StageDefinition:
 | `doc_fidelity_impl` | 2 | llm_evaluation | implementation, bugfix | Ja | `qa-doc-fidelity` |
 | `context_sufficiency` | 2 (Pre-Step) | deterministic | implementation, bugfix | Nein (Warning) | `qa-context-sufficiency` |
 | `adversarial` | 3 | agent | implementation, bugfix | Ja | `qa-adversarial` |
+| `sonarqube_gate` | 1 (Abfolge: nach Schicht 3) | deterministic | implementation, bugfix | Ja (Trust A) | `qa-sonarqube-gate` |
 | `policy` | 4 | policy | implementation, bugfix | Ja | `qa-policy-engine` |
 | `concept_feedback` | — | llm_evaluation | concept | Ja | `qa-concept-feedback` |
 | `research_quality` | — | deterministic | research | Nein | `qa-research-check` |
@@ -159,6 +181,13 @@ class StageDefinition:
   deklariert ist
 - `override_policy` ist pro Stage restriktiv zu waehlen; harte
   Layer-1-Stages sind standardmaessig nicht skipbar
+
+> **Layer vs. Abfolge (`sonarqube_gate`):** Die `layer`-Zahl klassifiziert die
+> *Art* des Checks (1 = deterministisch), nicht zwingend seine Position in der
+> Ausfuehrungsabfolge. `sonarqube_gate` ist klassifikatorisch Layer 1, wird vom
+> `StageExecutionPlan` aber **nach** der Adversarial-Stage (Schicht 3)
+> materialisiert — Begruendung und Sequenz: §33.6.3 und §33.8.3. Die Menge der
+> QS-Layer bleibt unveraendert; es kommt nur ein neuer Abfolge-Schritt hinzu.
 
 ### 33.2.3 Einheitliche Namenskonvention: Stage-ID = Dateiname
 
@@ -473,25 +502,25 @@ Die Trust-Klasse ist ein Feld der StageDefinition. Die
 Policy-Engine validiert, dass keine Stage mit `trust_class: "C"`
 als `blocking: true` konfiguriert ist.
 
-## 33.6 Externe Checks (Stage-Registry-Erweiterung)
+## 33.6 Externe Checks und SonarQube-Green-Gate
 
-### 33.6.1 Plugin-Modell
+### 33.6.1 Plugin-Modell (generische Erweiterung)
 
-Die Stage-Registry kann um externe Checks erweitert werden
-(FK-05-149: "SonarQube oder vergleichbare statische Analyse über
-die konfigurierbare Stage-Registry"):
+Die Stage-Registry kann um projekt-spezifische externe Checks erweitert
+werden. Solche optionalen Checks werden über `project.yaml` als zusätzliche
+Stages deklariert:
 
 ```yaml
 # In project.yaml
 policy:
   additional_stages:
-    - id: sonarqube
+    - id: <external-check-id>
       layer: 1
       kind: deterministic
       applies_to: [implementation, bugfix]
       blocking: false
-      producer: sonarqube-check
-      command: "python tools/qa/sonarqube_check.py"
+      producer: <producer-name>
+      command: "..."
 ```
 
 ### 33.6.2 Anforderungen an externe Checks
@@ -502,6 +531,137 @@ policy:
 | Producer-Name | Muss mit `producer` in der Stage-Definition übereinstimmen |
 | Exit-Code | 0 = erfolgreich gelaufen (Status im JSON), != 0 = Check konnte nicht laufen (FAIL) |
 | Timeout | Muss innerhalb des Pipeline-Timeouts abschließen |
+
+### 33.6.3 SonarQube-Green-Gate (normativ)
+
+Anders als ein optionaler Projekt-Check (§33.6.1) ist das **SonarQube-Green-Gate
+ein normativer, fester Bestandteil der QA für codeproduzierende Stories**
+(`implementation`, `bugfix`). Es ist die `sonarqube_gate`-Stage aus §33.2.2:
+klassifikatorisch **Layer 1 deterministisch**, Trust-Klasse **A**
+(autoritatives externes System — blocking erlaubt, analog ARE-Gate/DB,
+§33.5.1), in der **Abfolge nach Schicht 3** ausgeführt (§33.8.3).
+
+**Green-Definition (Broken-Window, Overall-Code-Invariant):** Das Gate ist
+genau dann grün, wenn das SonarQube **Quality Gate OK** meldet UND der Befund
+**Zero Violations overall** ist: **keine offenen, nicht-akzeptierten Issues im
+gesamten analysierten Scope** — nicht nur auf New Code. Ein rein
+New-Code-fokussiertes Gate (`new_violations`, `new_critical_violations`, …)
+garantiert nur „kein neuer Dreck"; das Broken-Window-Ziel verlangt **zusätzlich**
+eine **Overall-Code-Condition** „keine offenen nicht-akzeptierten Issues".
+Beide Conditions gehören in das ausgelieferte Default-Quality-Gate-Profil
+(§33.6.3 Umgebungs-Verankerung). Toleranzen (z.B. eine
+Code-Duplication-Schwelle) liegen **ausschliesslich** in den
+SonarQube-Quality-Gate-Conditions, **nicht** im AK-Code; AK liest den
+Gate-Status, interpretiert aber keine Einzelregeln nach.
+
+**Gate-Ergebnis = commit-gebundene Attestation, kein Live-Read.** SonarQube
+verarbeitet Scanner-Ergebnisse asynchron (Compute Engine) — ein „Scanner
+SUCCESS" ist noch kein gatebarer Zustand. Das Gate liest deshalb **nie** bloss
+„ist Projekt X gerade grün?" über den `projectKey`, sondern bindet sich an die
+konkrete Analyse (Scanner mit `sonar.qualitygate.wait=true`, QG-Status per
+`analysisId`/`ceTaskId`). Das Ergebnis ist eine **Attestation**, gebunden an
+`commit_sha`, `tree_hash`, `analysisId`, den Quality-Gate-/Quality-Profile-Hash
+und die Versionen (SonarQube, Branch-Plugin, Scanner), und gilt nur für genau
+diesen Zustand. So sind Stale-Reads ausgeschlossen (Sonar grün für Commit `M1`,
+während Git-`main` schon bei `M2` steht). Die drei Lifecycle-Punkte lesen/
+erzeugen diese Attestation; das Closure-Lock (FK-29/FK-35) sichert
+`tree_hash(scan) == tree_hash(merge)`.
+
+**Scope-Ehrlichkeit:** „Sonar-clean" ist nicht „security-/dependency-/
+secret-clean". Dependency-/SCA-, Secret-, Lizenz- und Container-Scans gehören in
+eigene deterministische Layer-1-Checks (§33.3.2 Security), nicht in dieses Gate.
+
+**Drei-Punkt-Verankerung im Story-Lifecycle.** Diese Stage liefert die
+deterministische Capability „SonarQube grün?"; sie wird an drei Stellen des
+Lifecycles aufgerufen (Begründung: jede Nachbesserung verändert Fachcode und
+kann neue Violations erzeugen — final grün wird erst geprüft, wenn alle
+Remediation durch ist):
+
+1. **Setup-Vorbedingung (FK-22):** Beim Anlegen des Worktrees wird geprüft, ob
+   der aktuelle `main` *für sich* grün ist — Read der main-Attestation (QG per
+   `analysisId`) **plus** Abgleich, dass die letzte grüne Analyse dem aktuellen
+   `main`-HEAD entspricht (`sonar_last_analyzed_revision == git main HEAD`),
+   sonst ist der grüne Status für einen veralteten Commit wertlos. Ist `main`
+   rot (oder die Attestation stale), wird Setup **fail-closed
+   verweigert** — aber nicht stumm: AK macht den **aktiven Vorschlag**, einen
+   eigenständigen Remediation-Worker (ausserhalb des Story-Scopes) zum
+   Aufräumen zu starten. So setzt jede Story auf grünem `main` auf, und kein
+   Worker wird gezwungen, scope-fremde Alt-Issues zu schultern. Schuldfrage
+   irrelevant — nur die Frage „wer kann was sinnvoll beackern".
+2. **QA-Subflow (hier):** Nach Schicht 3 misst das Gate den **Branch**. Rot →
+   Remediation-Loop (FK-27), bis der Branch grün ist.
+3. **Closure-Pre-Merge (FK-29 / Integrity-Gate FK-35):** Unmittelbar vor dem
+   Merge wird der letzte `main`-Stand in den Branch integriert und der
+   **integrierte Zustand frisch neu vermessen**. Nur wenn grün → ff-merge
+   (damit gilt „`main` == vermessener Zustand" → `main` bleibt grün). Rot durch
+   `main`-Drift → erneuter Remediation-Loop, dann Merge. Dieser
+   Scan-dann-Merge-Block läuft unter dem Merge-Serialisierungs-Lock (ein Merge
+   zur Zeit).
+
+**Branch-Vermessung:** SonarQube Community Edition hat keine native
+Branch-/PR-Analyse; AK setzt dafür das **Community Branch Plugin** voraus, das
+die `Accepted`/`False-Positive`-Stati von `main` auf den Branch vererbt (so
+gelten bewusste Ausnahmen, §33.6.4, auch im Branch-Gate). Plugin- und
+Server-Anforderung sind eine harte Umgebungsabhängigkeit.
+
+**Umgebungs- und Installer-Verankerung:** Die Anforderung „SonarQube ≥
+Mindestversion, erreichbar mit Rolle/Token, Branch-Plugin vorhanden" wird
+deklariert in **FK-03** (`sonarqube`-Config-Stanza), als Installer-Vorbedingung
+**fail-closed** geprüft in **FK-50** (Checkpoint) und im Index der
+Laufzeit-Abhängigkeiten **FK-10 §10.2.2** als Pflicht geführt. Das
+**Default-Quality-Gate-Profil „ab Werk"** ist ein ausgeliefertes Artefakt unter
+`resources/target_project/` (SSOT); der Projektverantwortliche darf es durch
+ein eigenes Regelwerk ersetzen.
+
+### 33.6.4 Bewusste Einzelfall-Ausnahmen (Accepted) — Sechs-Augen-Prinzip
+
+Eine SonarQube-Regel kann im Einzelfall keinen Clean-Code-Mehrwert haben (z.B.
+eine bewusst nicht weiter zerlegte Methode, deren Aufteilung künstlich wäre und
+die Lesbarkeit nicht verbessert). Ein solches Issue darf auf **Accepted**
+gesetzt werden — dann zählt es nicht mehr ins Quality Gate und das Gate ist
+wieder grün. Das ist kein Bypass, sondern der von SonarQube vorgesehene
+Mechanismus für bewusste Ausnahmen, **aber streng gated**:
+
+- **Sechs-Augen-Prinzip (gehärtet):** Eine Akzeptanz gilt nur, wenn der
+  **vorschlagende Agent plus zwei unabhängige QS-Agents** zustimmen. „Unabhängig"
+  ist normativ: **unterschiedliche Modelle bzw. mindestens unterschiedliche
+  Review-Prompts** (drei gleiche Modelle mit gleichem Prompt sind korrelierte,
+  keine unabhängigen Prüfer), darunter ein **adversariales Gegenvotum** („warum
+  darf das *nicht* akzeptiert werden?"). Kein Agent darf seine eigene
+  Remediation/Ausnahme approven. Pro Projekt/Regel gilt ein **Exception-Budget**;
+  häufige Akzeptanz derselben Regel **eskaliert** (Hinweis auf falsch
+  konfiguriertes Profil/Scope statt Einzelfall).
+- **Quelle der Wahrheit = versioniertes Repo-Artefakt mit robuster Identität:**
+  Issue-Identität in SonarQube ist *nicht* stabil (Match über Regel, Line-Hash,
+  Zeilennummer, Message, verschobene Blöcke) — ein Ledger-Eintrag, der nur
+  `issueKey` oder Datei+Zeile speichert, bricht bei Refactor/Formatter/
+  Message-Änderung. Ein Eintrag führt daher mindestens: `rule_key`, `file_path`,
+  `normalized_code_fingerprint`, `expected_message_pattern`, semantische
+  Begründung, `approved_by[3]`, `approved_commit`, `expiry`/`review_after`,
+  `scope` (`branch-only` | `main-eligible`). Der Ledger-Hash ist Teil der
+  Attestation (§33.6.3).
+- **Deterministischer Reconciler, Single-Match, fail-closed:** Ein
+  deterministischer Pipeline-Schritt (scoped Token mit „Administer Issues"; der
+  Worker/Agent hat **keine** Issue-Admin-Rechte) wendet eine Ausnahme **nur an,
+  wenn genau EIN** aktuelles Sonar-Issue auf den Eintrag matcht. Bei **0 oder
+  >1** Matches: fail-closed → neue Zustimmung nötig. Verlasse dich **nicht** auf
+  die Branch-Plugin-Vererbung allein: der Reconciler wendet die Ledger-Ausnahmen
+  auf **genau den finalen Branch-Scan** an und reconciled **nach dem Merge**
+  erneut gegen `main` (sonst kann Branch grün sein und `main` beim nächsten Scan
+  rot werden).
+
+Die prozessuale Verankerung des Sechs-Augen-Quorums (welche QS-Agents, wie das
+Quorum erhoben und gegen das Repo-Artefakt durchgesetzt wird) ist
+Governance-seitig zu detaillieren und hier bewusst als Forward-Reference offen
+gehalten; FK-33 ownt nur die Gate-Semantik „Accepted zählt grün" und den
+Reconciler-Vertrag.
+
+Der Closure-seitige Integrated-Candidate-Scan und der Post-Merge-Reconcile gegen
+`main` (§33.6.3, §33.6.4) werden in der Closure-Sequenz (FK-29) als
+Pre-Merge-Scan-und-Merge-Block orchestriert; die formalen Closure-Spezifikationen
+verweisen reziprok auf diese Gate- und Reconciler-Semantik.
+
+<!-- PROSE-FORMAL: formal.story-closure.state-machine, formal.story-closure.events, formal.story-closure.invariants, formal.story-closure.scenarios -->
 
 ## 33.7 Policy-Engine
 
@@ -678,8 +838,11 @@ flowchart TD
     S2["Schicht 2:<br/>LLM-Bewertungen<br/>(parallel)"] -->|"Kein FAIL"| S3
     S2 -->|"FAIL"| STOP
 
-    S3["Schicht 3:<br/>Adversarial Testing"] -->|"Keine Befunde"| S4
+    S3["Schicht 3:<br/>Adversarial Testing"] -->|"Keine Befunde"| SONAR
     S3 -->|"Befunde"| STOP
+
+    SONAR["SonarQube-Gate<br/>(Layer-1 det.,<br/>Abfolge nach Schicht 3)"] -->|"Quality Gate OK"| S4
+    SONAR -->|"Violations"| STOP
 
     S4["Schicht 4:<br/>Policy-Evaluation<br/>(aggregiert alles)"] -->|"PASS"| DONE["Verify PASS"]
     S4 -->|"FAIL"| STOP
@@ -691,8 +854,29 @@ flowchart TD
 |----------|-----------|
 | Schicht 1 → 2 | Kein BLOCKING-Check in Schicht 1 darf FAIL sein. MAJOR/MINOR-Failures werden gesammelt, blockieren aber nicht. |
 | Schicht 2 → 3 | Kein Check in Schicht 2 darf FAIL sein (jeder FAIL blockiert, FK-05-164). PASS_WITH_CONCERNS werden als Ansatzpunkte an Adversarial weitergegeben. |
-| Schicht 3 → 4 | Wenn Adversarial Befunde hat: FAIL (Fehler gefunden). Wenn keine Befunde: PASS (Angriffsversuche gescheitert). |
-| Schicht 4 | Policy aggregiert alles: blocking_failures, major_threshold. |
+| Schicht 3 → SonarQube-Gate | Wenn Adversarial Befunde hat: FAIL (Fehler gefunden) → Remediation. Wenn keine Befunde: weiter zum SonarQube-Gate. |
+| SonarQube-Gate → 4 | Quality Gate OK (Zero Violations; nur bewusst `Accepted`-Issues zaehlen nicht) → weiter. Sonst FAIL (blocking, Trust A) → Remediation-Loop, bis gruen. Wird **erst hier** ausgewertet, weil jede vorgelagerte Remediation Fachcode aendert und neue Violations erzeugen kann (§33.6.3, §33.8.3). |
+| Schicht 4 | Policy aggregiert alles inkl. SonarQube-Gate-Ergebnis: blocking_failures, major_threshold. |
+
+### 33.8.3 Layer-Klassifikation vs. Ausfuehrungsabfolge
+
+Die `layer`-Zahl einer Stage klassifiziert die **Art** des Checks
+(1 = deterministisch, 2 = LLM-Bewertung, 3 = Agent, 4 = Policy) und ist
+unabhaengig von ihrer **Position in der Ausfuehrungsabfolge**, die der
+`StageExecutionPlan` materialisiert. In der Regel fallen beide zusammen
+(deterministische Checks zuerst). Das `sonarqube_gate` ist die bewusste
+Ausnahme: klassifikatorisch **Layer 1 deterministisch**, in der Abfolge aber
+**nach Schicht 3 (Adversarial)** eingehaengt.
+
+**Begruendung.** Jedes Feedback — aus deterministischen Layer-1-Checks, den
+LLM-Bewertungen (Schicht 2) oder den Adversarial-Edge-Cases (Schicht 3) — setzt
+einen Remediation-Worker auf, der den Fachcode nachbessert. Jede Nachbesserung
+kann neue Sonar-Violations erzeugen. Eine Sonar-Vermessung vor Abschluss aller
+Remediation waere wertlos: man machte Sonar gruen und risse es mit dem naechsten
+Fachfix wieder auf. Deshalb ist das SonarQube-Green-Gate der **finale
+deterministische Konvergenz-Schritt**: es laeuft erst, wenn alle vorgelagerten
+Nachbesserungen durch sind. An der Menge der QS-Layer aendert das nichts — es
+ist ein zusaetzlicher Abfolge-Schritt, kein neuer Layer.
 
 ## 33.9 Konzept- und Research-Checks
 

@@ -75,5 +75,24 @@ events:
         - run_id
         - story_id
         - mode
+  - id: setup-preflight.event.main_green_precondition_passed
+    producer: setup-preflight
+    role: lifecycle
+    payload:
+      required:
+        - run_id
+        - story_id
+        - main_head
+        - attestation_analysis_id
+  - id: setup-preflight.event.main_green_precondition_refused
+    producer: setup-preflight
+    role: lifecycle
+    payload:
+      required:
+        - run_id
+        - story_id
+        - status
+        - main_head
+        - cleanup_proposal
 ```
 <!-- FORMAL-SPEC:END -->

@@ -54,5 +54,19 @@ events:
       required:
         - gate_id
         - actor
+  - id: integrity-gate.event.dimension9.sonar_not_green
+    producer: integrity-gate
+    role: verdict
+    payload:
+      required:
+        - gate_id
+        - fail_code
+        - reason
+    notes: >
+      fail_code is the constant SONAR_NOT_GREEN, the dimension-9 FAIL-code
+      added alongside the existing dimension fail-codes (NO_QA_ARTIFACTS,
+      CONTEXT_INVALID, STRUCTURAL_SHALLOW, DECISION_INVALID, NO_LLM_REVIEW,
+      NO_ADVERSARIAL, NO_VERIFY, TIMESTAMP_INVERSION). It is emitted as part
+      of gate.result.failed_codes and never re-scanned by the gate itself.
 ```
 <!-- FORMAL-SPEC:END -->

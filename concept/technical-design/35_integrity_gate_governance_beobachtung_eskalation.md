@@ -16,7 +16,7 @@ defers_to:
     reason: Governance observation sensors are embedded in the hook infrastructure
   - target: FK-33
     scope: deterministic-checks
-    reason: Integrity-Gate validates that all stage artifacts from deterministic checks exist
+    reason: Integrity-Gate validates that all stage artifacts from deterministic checks exist; Dimension 9 (SonarQube-Green) verifies the commit-bound sonarqube_gate attestation whose semantics are owned by FK-33 §33.6.3/§33.6.4
   - target: FK-34
     scope: llm-evaluation
     reason: Integrity-Gate validates that LLM evaluation artifacts exist
@@ -46,7 +46,9 @@ glossary:
         Deterministischer Prozess-Integritaets-Check unmittelbar vor dem
         Story-Merge. Prueft nicht die fachliche Qualitaet, sondern ob der
         definierte Prozess vollstaendig durchlaufen wurde: Pflicht-Artefakte
-        vorhanden, alle acht Dimensionen erfuellt, Timestamp-Kausalitaet
+        vorhanden, alle neun Dimensionen erfuellt (inkl. Dimension 9
+        SonarQube-Green: Verifikation der commit-gebundenen Sonar-Attestation
+        des integrierten Pre-Merge-Stands), Timestamp-Kausalitaet
         korrekt. Bei FAIL: Phase-State ESCALATED, kein Merge.
         Fehlermeldung gegenueber dem Agent ist opak.
       see_also:
@@ -122,6 +124,10 @@ formal_refs:
   - formal.story-split.scenarios
   - formal.operating-modes.invariants
   - formal.operating-modes.scenarios
+  - formal.story-closure.state-machine
+  - formal.story-closure.events
+  - formal.story-closure.invariants
+  - formal.story-closure.scenarios
 ---
 
 # 35 — Integrity-Gate, Governance-Beobachtung und Eskalation
@@ -151,15 +157,25 @@ Dieses Kapitel beschreibt die drei Governance-Mechanismen, die
 
 ### 35.2.1 Wann
 
-Unmittelbar vor dem Merge, als erster Schritt der Closure-Phase.
-Der Phase Runner ruft das Integrity-Gate **als Python-Funktion**
-auf — nicht als Hook. Das Gate muss vor dem Merge greifen, damit
-kein invalidierter Run Code auf Main bringt.
+Innerhalb des Pre-Merge-Scan-und-Merge-Blocks der Closure-Sequenz
+(FK-29 §29.1a), **unter der Merge-Serialisierungs-Sperre** und
+**unmittelbar nach** dem Integrated-Candidate-Sonar-Scan, der die
+commit-gebundene Attestation erzeugt — und **vor** Push und ff-Merge.
+Das Gate bleibt damit das letzte Gate vor dem Merge, sitzt aber bewusst
+*nach* dem Scan, weil Dimension 9 die frische Attestation des
+integrierten Kandidaten verifiziert (§35.2.4a) und nicht eine, die es
+zeitlich noch gar nicht geben kann. Der Phase Runner ruft das
+Integrity-Gate **als Python-Funktion** auf — nicht als Hook. Das Gate
+muss vor dem Merge greifen, damit kein invalidierter Run Code auf Main
+bringt; durch die Position innerhalb der Sperre kann zwischen Gate-PASS
+und ff-Merge keine konkurrierende Main-Bewegung dazwischengrätschen.
 
 **Nicht als Hook auf den Story-Status-Wechsel auf Done:** Das waere zu
 spaet — der Merge waere zu dem Zeitpunkt bereits passiert. Das Gate
-ist ein deterministisches Skript, aufgerufen vom Phase Runner
-(`_phase_closure()` → `check_integrity()` → bei PASS: Merge).
+ist ein deterministisches Skript, aufgerufen vom Phase Runner innerhalb
+des gesperrten Blocks (`_phase_closure()` → Lock erwerben → Integrieren →
+Build/Test → Integrated-Candidate-Scan → `check_integrity()` → bei PASS:
+Push → ff-Merge).
 
 **Explizite Abgrenzung:** Das Integrity-Gate ist kein allgemeiner
 Live-Guard fuer freien Agenteneinsatz im Projekt. Es existiert nur fuer
@@ -192,8 +208,8 @@ gestartet.
 fehlte, trotzdem lief Closure durch und das Issue wurde geschlossen. Das war ein
 konkreter Defekt in der Gate-Logik. Die Pflicht-Artefakt-Pruefung
 als Vorstufe stellt sicher, dass dieser Fehler nicht mehr auftreten
-kann — die 8-Dimensionen-Pruefung wird bei fehlenden Artefakten
-gar nicht erst erreicht.
+kann — die Dimensionspruefung (neun Dimensionen, §35.2.4) wird bei
+fehlenden Artefakten gar nicht erst erreicht.
 
 ```python
 def check_mandatory_artifacts(project_key: str, story_id: str, run_id: str, client) -> list[str]:
@@ -234,7 +250,7 @@ def check_integrity(project_key: str, story_id: str, run_id: str) -> IntegrityRe
             phase="mandatory_artifacts",
         )
 
-    # Phase 2: 8-Dimensionen-Pruefung (nur wenn Phase 1 PASS)
+    # Phase 2: Dimensionspruefung (neun Dimensionen, §35.2.4; nur wenn Phase 1 PASS)
     dimension_failures = check_dimensions(story_id, run_id)
     # ...
 ```
@@ -242,7 +258,7 @@ def check_integrity(project_key: str, story_id: str, run_id: str) -> IntegrityRe
 **Provenienz:** Kap. 03, §3.6 (Integrity-Gate, Pflicht-Artefakt-
 Pruefung).
 
-### 35.2.4 Acht Artefakt-Dimensionen
+### 35.2.4 Neun Artefakt-Dimensionen
 
 | Dim | Prüfgegenstand | FAIL-Code | Prüfung |
 |-----|---------------|-----------|---------|
@@ -254,6 +270,73 @@ Pruefung).
 | 6 | **Adversarial-Ergebnis** | `NO_ADVERSARIAL` | Bei implementation/bugfix: `ArtifactRecord(adversarial)` existiert, > 200 Bytes, Producer = `qa-adversarial` |
 | 7 | **QA-Subflow innerhalb Implementation** | `NO_VERIFY` | `flow_end` fuer den QA-Subflow-Flow innerhalb der Implementation-Phase mit `status == COMPLETED` (`qa_cycle_status == pass`); optional zusaetzlich entsprechende `phase_state_projection`. [Entscheidung 2026-05-01: Top-Phase `verify` entfaellt — Output-QA ist Subflow-intern in `implementation`.] |
 | 8 | **Timestamp-Kausalität** | `TIMESTAMP_INVERSION` | `ArtifactRecord(context).finished_at` < `ArtifactRecord(decision).finished_at` |
+| 9 | **SonarQube-Green** | `SONAR_NOT_GREEN` | Bei implementation/bugfix: commit-gebundene Sonar-Attestation des integrierten Pre-Merge-Stands existiert, ist an `commit_sha`/`tree_hash` des Merge gebunden, QG OK auf der Overall-Code-Invariante (per `analysisId`), Exception-Ledger-Hash und Tool-/Config-Versionen stimmen mit dem Erwartungswert. **Verifiziert nur — vermisst nicht neu** (§35.2.4a). |
+
+### 35.2.4a Dimension 9 — SonarQube-Green (Attestations-Verifikation)
+
+**Abgrenzung (zentrale Regel):** Dimension 9 **fuehrt keinen Sonar-Scan
+aus**. Der Scan des integrierten Pre-Merge-Kandidaten lebt im
+Pre-Merge-Scan-und-Merge-Block der Closure-Sequenz (FK-29 §29.1a) und
+nutzt die Capability `sonarqube_gate` (FK-33 §33.6.3). Dimension 9
+**verifiziert** ausschliesslich die dort erzeugte, commit-gebundene
+**Attestation** — konsistent mit dem Integrity-Gate-Prinzip „prueft
+Prozess-Integritaet, nicht fachliche Qualitaet" (§35.2.2). Damit bleibt
+das Gate ein deterministischer Verifizierer und kein zweiter Scanner.
+
+**Prueftiefe (alle Bedingungen muessen erfuellt sein):**
+
+1. **Attestation existiert** fuer den aktuellen, gueltigen `run_id` und
+   ist der kanonische Sonar-Nachweis (kein Worker-Artefakt, kein
+   Dateiexport als Wahrheitsquelle).
+2. **Commit-Bindung:** Die Attestation ist an genau den Merge-Zustand
+   gebunden — `commit_sha` und `tree_hash` der Attestation stimmen mit
+   dem zu mergenden bzw. gemergten integrierten Kandidaten ueberein
+   (FK-29 §29.1a: `tree_hash(scan) == tree_hash(merge)`).
+3. **Quality Gate OK auf der Overall-Code-Invariante:** Das QG-Ergebnis
+   wird per `analysisId`/`ceTaskId` gelesen (nie ein blosser
+   `projectKey`-Live-Read) und ist OK auf der Overall-Code-Condition
+   („keine offenen, nicht-akzeptierten Issues im gesamten Scope"), nicht
+   nur auf New Code (FK-33 §33.6.3).
+4. **Exception-Ledger-Hash stimmt:** Der in der Attestation hinterlegte
+   Ledger-Hash entspricht dem versionierten Accepted-Ledger (FK-33
+   §33.6.4) — so ist belegt, dass nur bewusst gated-akzeptierte Ausnahmen
+   (Sechs-Augen) gruen gezaehlt wurden und der Ledger nicht zwischen Scan
+   und Gate veraendert wurde.
+5. **Tool-/Config-Versionen stimmen:** Quality-Gate-Hash,
+   Quality-Profile-Hash, Analysis-Scope-Hash, New-Code-Definition sowie
+   die Versionen von SonarQube, Community Branch Plugin und Scanner
+   entsprechen den fuer das Projekt erwarteten Werten (FK-03
+   `sonarqube`-Config + Config-Hash). Drift hier bedeutet, dass gegen ein
+   anderes Regelwerk vermessen wurde — FAIL.
+
+**Story-Typ-Geltung:** Nur `implementation` und `bugfix`. Concept- und
+Research-Stories haben keinen Merge und keinen analysierten Fachcode;
+fuer sie wird Dimension 9 wie die uebrigen impl/bugfix-spezifischen
+Dimensionen (5, 6) nicht geprueft (analog `merge_done`/`integrity_passed`
+direkt `true`, FK-29 §29.1.1).
+
+**Bei FAIL:** FAIL-Code `SONAR_NOT_GREEN`, Phase-State `ESCALATED` —
+konsistent mit allen anderen Dimensionen (§35.2.9). Die Fehlermeldung
+gegenueber dem Agent bleibt opak (§35.2.7); der konkrete FAIL-Code geht
+ins Audit-Log (§35.2.8). Ein gescheiterter `SONAR_NOT_GREEN` bedeutet
+typischerweise: die Attestation fehlt, ist nicht an den Merge-Zustand
+gebunden (Drift zwischen Scan und Merge), das QG ist nicht gruen, der
+Ledger-Hash weicht ab oder die Tool-/Config-Versionen passen nicht.
+
+**Sequenzierung im gesperrten Block:** Dimension 9 — und das gesamte
+Integrity-Gate — läuft innerhalb der Merge-Serialisierungs-Sperre
+**nach** dem Integrated-Candidate-Scan (der die Attestation erzeugt) und
+**vor** Push und ff-Merge (FK-29 §29.1a, formal:
+`formal.story-closure.state-machine` Übergang
+`integrated_candidate_green → integrity_passed`). Das Gate selbst bleibt
+atomar und re-vermisst nichts; es prüft nur die frische, in genau diesem
+Lock-Durchlauf erzeugte Attestation.
+
+**Provenienz:** FK-33 §33.6.3 (commit-gebundene Attestation,
+Overall-Code-Invariante), FK-33 §33.6.4 (Accepted-Ledger), FK-29 §29.1a
+(Pre-Merge-Scan-und-Merge-Block, der die Attestation erzeugt).
+
+<!-- PROSE-FORMAL: formal.story-closure.state-machine, formal.story-closure.events, formal.story-closure.invariants, formal.story-closure.scenarios -->
 
 ### 35.2.5 Telemetrie-Signale und Audit-Korrelation
 
@@ -365,7 +448,7 @@ insert_event(
     payload={
         "status": "FAIL",
         "failed_codes": ["NO_LLM_REVIEW", "REVIEW_NOT_COMPLIANT"],
-        "dimensions_checked": 7,
+        "dimensions_checked": 9,
         "telemetry_checks": 8,
     },
 )

@@ -21,6 +21,9 @@ defers_to:
   - target: FK-31
     scope: branch-guard
     reason: Guard-Definitionen und Orchestrator-Guard-Regeln liegen in FK-31; Setup aktiviert sie nur
+  - target: FK-33
+    scope: sonarqube-gate
+    reason: Die Capability `sonarqube_gate` (Gate-Semantik, commit-gebundene Attestation, Overall-Code-Invariant, Accepted-Ledger) liegt in FK-33; Setup ruft sie nur fuer die main-Green-Vorbedingung auf
 supersedes: []
 superseded_by:
 tags: [setup, preflight, worktree, guards, mode-routing]
@@ -71,7 +74,7 @@ glossary:
         - exploration
     - id: preflight-gate
       definition: >
-        Einer der neun deterministischen Checks in der Setup-Phase, die
+        Einer der zehn deterministischen Checks in der Setup-Phase, die
         fail-closed geprueft werden, bevor eine Story gestartet wird. Alle
         zehn Checks werden ausgefuehrt; ein einzelner FAIL stoppt den Start.
         Prueft u.a. Issue-Existenz, Story-Status, offene Abhaengigkeiten,
@@ -79,6 +82,24 @@ glossary:
       see_also:
         - term: guard-activation
           domain: governance-and-guards
+    - id: main-green-precondition
+      definition: >
+        Deterministische Setup-Vorbedingung fuer codeproduzierende Stories
+        (implementation, bugfix): der aktuelle `main` muss *fuer sich* gruen
+        sein. Geprueft wird die commit-gebundene main-Attestation der
+        `sonarqube_gate`-Capability (FK-33 §33.6.3) — Quality Gate OK auf der
+        Overall-Code-Invariante, gelesen per `analysisId` — PLUS Revision-Match
+        (`sonar_last_analyzed_revision == git main HEAD`), damit ein gruener
+        Status fuer einen veralteten Commit nicht zaehlt. Ist `main` rot oder
+        die Attestation stale, wird Setup fail-closed verweigert, aber nicht
+        stumm: AK macht den aktiven, schuldfreien Vorschlag, einen
+        eigenstaendigen Cleanup-Remediation-Worker ausserhalb des Story-Scopes
+        zu starten.
+      see_also:
+        - term: preflight-gate
+          domain: governance-and-guards
+        - term: sonarqube-gate
+          domain: verify-system
   internal_terms:
     - id: edge-bundle
       reason: >
@@ -376,6 +397,115 @@ nicht der Orchestrator-Agent, der stoppt. Der Orchestrator-Agent liest
 den Phase-State und sieht `status: FAILED`; er startet keinen Worker
 und beschafft den Bundle nicht eigenständig nach.
 
+## 22.4c SonarQube-main-Green-Vorbedingung
+
+### 22.4c.1 Zweck
+
+Codeproduzierende Stories (`implementation`, `bugfix`) duerfen nur auf
+einem **gruenen `main`** aufsetzen. Bevor ein Worktree fuer eine solche
+Story erstellt wird, prueft das Setup-Skript deterministisch, ob der
+aktuelle `main` *fuer sich* gruen ist. Das ist der erste der drei
+Lifecycle-Gate-Punkte der `sonarqube_gate`-Capability (FK-33 §33.6.3,
+Punkt 1); die QA-Subflow-Messung des Branch (Punkt 2) und die
+Closure-Pre-Merge-Messung (Punkt 3) liegen in FK-27 bzw. FK-29/FK-35.
+
+Dieser Schritt ist deterministisch und laeuft ohne LLM-Beteiligung. Die
+Gate-Semantik selbst (Green-Definition, Overall-Code-Invariante,
+Attestation, Accepted-Ledger) ist nicht hier modelliert, sondern wird
+aus FK-33 bezogen; Setup ist nur **Aufrufer**, kein Owner der
+Gate-Logik.
+
+**Story-Typ-Geltung:** Nur `implementation` und `bugfix`. Concept- und
+Research-Stories durchlaufen diese Vorbedingung nicht — sie erhalten
+keinen Worktree (§22.5.1) und veraendern keinen analysierten Fachcode.
+
+### 22.4c.2 Pruefung (Read der main-Attestation, kein Live-Read)
+
+Das Setup-Skript liest die **commit-gebundene main-Attestation** der
+`sonarqube_gate`-Capability (FK-33 §33.6.3) — nie einen blossen
+„ist Projekt X gerade gruen?"-Read ueber den `projectKey`. Gruen gilt
+genau dann, wenn **beide** Bedingungen erfuellt sind:
+
+1. **Attestation gruen:** Quality Gate OK auf der
+   **Overall-Code-Invariante** (keine offenen, nicht-akzeptierten Issues
+   im gesamten analysierten Scope, nicht nur New Code), gelesen per
+   `analysisId` (nicht per `projectKey`).
+2. **Revision-Match:** `sonar_last_analyzed_revision == git main HEAD`.
+   Ein gruener Status fuer einen veralteten Commit ist wertlos; ohne
+   Revision-Match gilt die Attestation als **stale** und damit als
+   Vorbedingungs-FAIL.
+
+```python
+def check_main_green_precondition(
+    story_type: str, project: Project, sonar: SonarGate
+) -> MainGreenResult:
+    """Setup-Vorbedingung: ist der aktuelle main fuer sich gruen?
+
+    Nur fuer codeproduzierende Stories (implementation, bugfix).
+    Liest die commit-gebundene main-Attestation (FK-33 §33.6.3) und
+    gleicht die analysierte Revision gegen den aktuellen main-HEAD ab.
+    """
+    if story_type not in ("implementation", "bugfix"):
+        return MainGreenResult(status="SKIPPED")
+
+    main_head = git_rev_parse("main", project.path)
+    attestation = sonar.read_main_attestation(project)  # QG per analysisId
+
+    if attestation is None or attestation.quality_gate_status != "OK":
+        return MainGreenResult(status="RED", main_head=main_head)
+    if attestation.last_analyzed_revision != main_head:
+        return MainGreenResult(status="STALE", main_head=main_head,
+                               analyzed_revision=attestation.last_analyzed_revision)
+
+    return MainGreenResult(status="GREEN", main_head=main_head)
+```
+
+### 22.4c.3 Fail-closed mit aktivem Cleanup-Vorschlag (nicht stumm)
+
+Ist `main` rot oder die Attestation stale, wird Setup **fail-closed
+verweigert** — die Story wird nicht gestartet. Das ist aber **kein
+stilles Liegenlassen** (Verstoss gegen ZERO DEBT waere genau das):
+Das Setup-Skript schreibt einen **aktiven, schuldfreien Vorschlag** in
+das Phase-State-Ergebnis, einen **eigenstaendigen
+Cleanup-Remediation-Worker ausserhalb des Story-Scopes** zu starten, der
+`main` wieder gruen macht.
+
+**Schuldfreie Rahmung (normativ):** Der Vorschlag adressiert nicht „wer
+hat den roten `main` verursacht", sondern „wer kann das sinnvoll
+beackern". So setzt jede Story auf gruenem `main` auf, und **kein Worker
+wird gezwungen, scope-fremde Alt-Issues zu schultern**. Der
+Cleanup-Worker laeuft als eigene Story/eigener Run mit eigenem Scope; er
+ist nicht Teil der gerade gestarteten Story.
+
+```json
+{
+  "phase": "setup",
+  "status": "FAILED",
+  "sonarqube_main_green": {
+    "status": "RED",
+    "main_head": "a1b2c3d4",
+    "cleanup_proposal": {
+      "action": "start_independent_cleanup_worker",
+      "scope": "out_of_story",
+      "framing": "blame_free",
+      "rationale": "main muss fuer sich gruen sein, bevor eine neue Story aufsetzt (Broken-Window). Vorschlag: eigenstaendiger Cleanup-Remediation-Worker ausserhalb dieses Story-Scopes."
+    }
+  }
+}
+```
+
+| Status | Bedeutung | Folgeaktion |
+|--------|-----------|-------------|
+| `GREEN` | main-Attestation OK + Revision-Match | Setup laeuft weiter (Worktree-Erstellung) |
+| `SKIPPED` | Concept/Research — kein Worktree, kein Fachcode | Setup laeuft weiter |
+| `RED` | Quality Gate nicht OK auf Overall-Code-Invariante | **Setup fail-closed**, aktiver Cleanup-Vorschlag |
+| `STALE` | gruene Attestation, aber `last_analyzed_revision != main HEAD` | **Setup fail-closed**, aktiver Cleanup-Vorschlag (main neu vermessen lassen) |
+
+**Reihenfolge:** Diese Vorbedingung wird nach der Story-Typ-Weiche
+(§22.5) fuer implementierende Stories und **vor** der Worktree-Erstellung
+(§22.6) geprueft — ein roter `main` darf gar nicht erst zu einem
+Worktree fuehren.
+
 ## 22.5 Story-Typ-Weiche
 
 ### 22.5.1 Konzept- und Research-Stories
@@ -520,8 +650,11 @@ Begruendung (Multi-Worker abgewaehlt):
   konsistent im selben mentalen Modell gehalten werden. N Worker
   brauechten ein explizites Coordination-Protokoll, das es nicht gibt.
 - **Atomicity der Aenderungen:** CWD-Wechsel per Tool-Call ist kein
-  Atomicity-Problem auf Aenderungsebene. Atomicity entsteht erst bei
-  Commit/Closure und ist dort als Multi-Repo-Saga geregelt (FK-29 §29.5).
+  Atomicity-Problem auf Aenderungsebene. Die einzige garantierte
+  Atomicity entsteht bei Closure als atomare Gruen-und-FF-Mergbarkeits-
+  Barriere vor dem ersten Push; der Cross-Remote-Push selbst ist nicht
+  transaktional atomar, ein partieller Push eskaliert mit kompensierender
+  Saga-Recovery (FK-29 §29.1.6, §29.1.6.3).
 - **Handover-Konsistenz:** ein Worker-Manifest ueber alle Repos ist
   einfacher zu validieren als N Manifests, die spaeter aggregiert werden
   muessten.
@@ -755,6 +888,8 @@ Control-Plane-Exporte unter `_temp/governance/`.
 | Lock-Record kann nicht angelegt werden | Guard-Aktivierung | Setup FAIL. State-Backend-/Berechtigungsproblem prüfen. |
 | Modus-Ermittlung: unbekannter Feldwert | Modus-Ermittlung | Exploration Mode (fail-closed). Kein Fehler, nur Warnung. |
 | ARE nicht erreichbar (bei `features.are: true`) | ARE-Bundle-Laden | Setup FAIL. Phase-State enthält `are_bundle.status: FAILED`. Orchestrator-Agent verweigert Worker-Start. Mensch muss ARE-Verbindung prüfen. |
+| `main` rot oder Attestation stale (impl/bugfix) | SonarQube-main-Green-Vorbedingung (§22.4c) | Setup fail-closed verweigert. Phase-State enthält `sonarqube_main_green.status: RED`/`STALE` mit aktivem, schuldfreiem Cleanup-Vorschlag (§22.4c.3). Kein Worker wird gezwungen, scope-fremde Alt-Issues zu schultern; der Mensch entscheidet ueber einen eigenstaendigen Cleanup-Remediation-Worker. |
+| SonarQube/Branch-Plugin nicht erreichbar (impl/bugfix) | SonarQube-main-Green-Vorbedingung (§22.4c) | Setup FAIL (fail-closed). Die Attestation kann nicht gelesen werden — unklare Vorbedingung wird nicht grosszuegig toleriert. Mensch muss SonarQube-Verfuegbarkeit pruefen (Installer-Checkpoint FK-50, Laufzeit-Abhaengigkeit FK-10 §10.2.2). |
 
 ---
 

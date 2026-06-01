@@ -46,5 +46,24 @@ entities:
       - reason
       - actor
       - decided_at
+  - id: integrity-gate.entity.dimension-9-sonar-attestation-reference
+    identity_key: gate_id
+    attributes:
+      - gate_id
+      - story_id
+      - run_id
+      - attestation_analysis_id
+      - merge_commit_sha
+      - merge_tree_hash
+      - quality_gate_status
+      - exception_ledger_hash
+      - quality_gate_hash
+      - quality_profile_hash
+      - analysis_scope_hash
+      - new_code_definition
+      - sonarqube_version
+      - branch_plugin_version
+      - scanner_version
+      - applies_to
 ```
 <!-- FORMAL-SPEC:END -->

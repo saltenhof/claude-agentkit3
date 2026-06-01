@@ -36,12 +36,23 @@ glossary:
         uebersprungen.
     - id: closure-sequence
       definition: >
-        Die normativ festgelegte, geordnete Abfolge von elf Closure-Schritten
-        mit irreversiblen Seiteneffekten: Finding-Resolution-Gate,
-        Integrity-Gate, Story-Branch-Push, Merge, Worktree-Teardown,
-        Story-Closed (AK3-Story-Status Done), Metriken, Rueckkopplungstreue, Postflight-Gates,
-        VektorDB-Sync, Guard-Deaktivierung. Reihenfolge ist Pflicht (FK-05-226);
-        kein Schritt darf vorgezogen oder uebersprungen werden.
+        Die normativ festgelegte, geordnete Abfolge der Closure-Schritte
+        mit irreversiblen Seiteneffekten (impl/bugfix): Finding-Resolution-Gate,
+        dann der Pre-Merge-Scan-und-Merge-Block unter dem
+        Merge-Serialisierungs-Lock (§29.1a, FK-33 §33.6.3 Punkt 3) in der
+        internen Reihenfolge latest-main-integrieren -> Build/Test ->
+        Integrated-Candidate-Sonar-Scan (erzeugt die commit-gebundene
+        Attestation) -> Integrity-Gate inkl. Dimension 9 SonarQube-Green
+        (verifiziert genau diese frische Attestation, FK-35 §35.2.4a) ->
+        Story-Branch-Push -> ff-Merge -> post-merge Reconcile, danach
+        Worktree-Teardown, Story-Closed (AK3-Story-Status Done), Metriken,
+        Rueckkopplungstreue, Postflight-Gates, VektorDB-Sync,
+        Guard-Deaktivierung. Das Integrity-Gate liegt damit innerhalb des
+        Locks nach dem Scan und vor dem Merge. Concept/Research-Stories
+        ueberspringen Finding-Resolution-Gate, Integrity-Gate und den
+        gesamten gesperrten Block (kein Branch, kein Merge; §29.1.1, §29.2).
+        Reihenfolge ist Pflicht (FK-05-226); kein Schritt darf vorgezogen
+        oder uebersprungen werden.
     - id: closure-verdict
       definition: >
         Ergebnis der vollstaendigen Closure-Sequence fuer eine Story. Moegliche
@@ -97,7 +108,10 @@ defers_to:
     reason: Closure laeuft erst nach abgeschlossener Implementation-Phase (inkl. QA-Subflow PASS); konsumiert Layer-2-Artefakte (FK-27 §27.5.5)
   - target: FK-35
     scope: integrity-gate
-    reason: Integrity-Gate-Definition, 8 Dimensionen, Pflicht-Artefakt-Vorstufe und Audit-Log liegen normativ in FK-35 §35.2
+    reason: Integrity-Gate-Definition, 9 Dimensionen, Pflicht-Artefakt-Vorstufe und Audit-Log liegen normativ in FK-35 §35.2
+  - target: FK-33
+    scope: sonarqube-gate
+    reason: Die Capability `sonarqube_gate` (Gate-Semantik, commit-gebundene Attestation, Overall-Code-Invariant, Accepted-Ledger/Single-Match-Reconciler) liegt in FK-33; Closure ruft sie fuer den Pre-Merge-Scan des integrierten Kandidaten auf
   - target: FK-20
     scope: workflow-engine
     reason: Phase-Runner-Recovery und Workflow-Engine-Mechanik in FK-20
@@ -180,9 +194,22 @@ Implementation kann nur dann mit COMPLETED enden, wenn der QA-Subflow
 mit `qa_cycle_status = pass` abgeschlossen wurde. **Ausnahme: Concept-
 und Research-Stories** durchlaufen keinen QA-Subflow — fuer diese
 Story-Typen wird Closure direkt nach der Implementation-Phase
-aufgerufen. `integrity_passed` und `merge_done` werden fuer
-Concept/Research direkt auf `true` gesetzt (kein Worktree, kein
-Branch-Merge, FK-20 §20.8.2).
+aufgerufen. `integrity_passed`, `story_branch_pushed` und `merge_done`
+werden fuer Concept/Research direkt auf `true` gesetzt (kein QA-Subflow,
+kein Pre-Merge-Scan; FK-20 §20.8.2). [Entscheidung 2026-06-01 (revidiert):
+Concept/Research-Stories haben **keinen** Worktree und **keinen**
+`story/{story_id}`-Branch und arbeiten **direkt auf `main`** (FK-20 §20.8.2,
+FK-22 §22.5.1). Fuer sie ist `story_branch_pushed` **nicht anwendbar (N/A)**
+und wird im Recovery-Sinn als „nichts zu pushen" uebersprungen; das Boolean
+wird der Einheitlichkeit der `ClosureProgress`-Struktur halber auf `true`
+gesetzt, ohne dass ein Branch-Push stattfindet. Die fruehere „uniforme
+Branch-Push"-Lesart (Concept/Research arbeiten auf `story/{story_id}` und
+pushen) ist damit **zurueckgenommen**: der gesamte Pre-Merge-Scan-und-Merge-
+Block, das SonarQube-Green-Gate und die Integrity-Gate-Dimension 9 sind
+**ausschliesslich fuer impl/bugfix** (§29.1a, §29.2; FK-22 §22.4c; FK-10
+§10.5.3; FK-39 §39.2.3). Der Recovery-Algorithmus (§29.1.3) braucht damit
+genau eine Story-Typ-Fallunterscheidung: code-Stories durchlaufen den
+gesperrten Block, non-code-Stories nicht.]
 
 > **[Entscheidung 2026-05-01]** Closure-Precondition lautet jetzt
 > "Implementation COMPLETED" statt "Verify COMPLETED". Die Top-Phase
@@ -238,21 +265,25 @@ flowchart TD
 
     FR["Finding-Resolution-Gate<br/>(§29.2)"]
     FR -->|"FAIL: Ungelöste Findings"| ESC_FR(["ESCALATED:<br/>Offene Findings."])
-    FR -->|PASS| INTEGRITY
+    FR -->|PASS| PMB_LOCK
 
-    INTEGRITY["Integrity-Gate<br/>(agentkit.governance.integrity_gate;<br/>FK-35 §35.2: Pflicht-Artefakt-Vorstufe +<br/>8 Dimensionen +<br/>Telemetrie-Korrelation)"]
+    PMB_LOCK["Pre-Merge-Scan-und-Merge-Block (§29.1a)<br/>acquire merge-lock (locked_sha := origin/main)<br/>fetch + assert origin/main == locked_sha<br/>integrate main → story/{story_id}<br/>clean workspace (git clean -xfd)"]
+    PMB_LOCK --> PMB_SCAN["Build/Test/Coverage +<br/>full integrated-candidate Sonar scan<br/>wait by ceTaskId · apply ledger (FK-33 §33.6.4)<br/>verify QG by analysisId (Overall-Code)<br/>→ erzeugt commit-gebundene Attestation"]
+    PMB_SCAN -->|"rot (main-Drift)"| ESC_RED(["Remediation-Loop (§29.1a.4)<br/>→ Retry mit neuem locked_sha<br/>dauerhaft rot/nicht-ff: ESCALATED"])
+    PMB_SCAN -->|"gruen"| PMB_TREE["assert tree_hash(scan) == tree_hash(merge)"]
+
+    PMB_TREE --> INTEGRITY["Integrity-Gate (innerhalb des Locks)<br/>(agentkit.governance.integrity_gate;<br/>FK-35 §35.2: Pflicht-Artefakt-Vorstufe +<br/>9 Dimensionen inkl. Dim. 9 SonarQube-Green<br/>= verifiziert die frische Attestation +<br/>Telemetrie-Korrelation)"]
     INTEGRITY -->|FAIL| ESC_I(["ESCALATED:<br/>Opake Meldung.<br/>Details in Audit-Log."])
     INTEGRITY -->|PASS| SUB1["Substate:<br/>integrity_passed = true"]
 
-    SUB1 --> PUSH_SB["Story-Branch pushen<br/>(git push origin story/{story_id})"]
-    PUSH_SB -->|Push-Fehler| ESC_P(["ESCALATED:<br/>Story-Branch-Push fehlgeschlagen."])
+    SUB1 --> PUSH_SB["Story-Branch pushen<br/>(git push origin story/{story_id})<br/>innerhalb des Locks"]
+    PUSH_SB -->|Push-Fehler| ESC_P(["ESCALATED:<br/>Story-Branch-Push fehlgeschlagen.<br/>kein ff-Update auf main."])
     PUSH_SB -->|Erfolg| SUB_PUSH["Substate:<br/>story_branch_pushed = true"]
 
-    SUB_PUSH --> MERGE["Branch mergen<br/>(Default: git merge --ff-only)<br/>Fallback: git merge --no-ff"]
-    MERGE -->|Merge-Fehler| ESC_M(["ESCALATED:<br/>Merge fehlgeschlagen.<br/>Closure-Retry mit offizieller Merge-Policy prüfen."])
-    MERGE -->|Erfolg| PUSH_MAIN["Main pushen<br/>(git push origin main)"]
-    PUSH_MAIN -->|Push-Fehler| ESC_PM(["ESCALATED:<br/>Main-Push fehlgeschlagen.<br/>Lokaler Merge wird zurueckgesetzt."])
-    PUSH_MAIN -->|Erfolg| SUB2["Substate:<br/>merge_done = true"]
+    SUB_PUSH --> MERGE["ff-only update main<br/>(compare-and-swap/lease gegen locked_sha)<br/>Fallback-Policy: no_ff (dok. Retry, §29.1.5)"]
+    MERGE -->|"CAS-Fehler / Merge-Fehler"| ESC_M(["ESCALATED:<br/>Block neu aufsetzen oder<br/>Closure-Retry mit offizieller Merge-Policy."])
+    MERGE -->|Erfolg| PMB_POST["post-merge reconcile/verify<br/>(Ledger erneut gegen main, FK-33 §33.6.4)<br/>release merge-lock"]
+    PMB_POST --> SUB2["Substate:<br/>merge_done = true"]
 
     SUB2 --> TEARDOWN["Worktree aufräumen<br/>Branch löschen"]
     TEARDOWN --> CLOSE["Story-Status: Done<br/>(AK3-Story-Service)"]
@@ -331,22 +362,67 @@ Bei erneutem Aufruf (Service: `POST /phases/closure/start` oder Operator-CLI `ag
 
 Teardown (Worktree aufräumen, Branch löschen) ist idempotent — er wird bei jedem Recovery-Lauf mit `merge_done == true && story_closed == false` erneut ausgeführt. Ein eigenes `teardown_done`-Feld ist nicht erforderlich, da ein fehlgeschlagener oder bereits erledigter Teardown keinen Datenverlust verursacht.
 
+**Der gesperrte Pre-Merge-Scan-und-Merge-Block ist eine einzige
+recoverable Einheit (keine intra-lock-Sub-Checkpoints).** Die internen
+Schritte des Blocks (Lock erwerben, integrieren, Build/Test,
+Integrated-Candidate-Scan → Attestation, Integrity-Gate/Dimension 9,
+post-merge Reconcile) werden **nicht** je einzeln im `ClosureProgress`
+verfolgt. Nur zwei Checkpoints des Blocks sind durabel: der
+Story-Branch-Push (`story_branch_pushed`) und der abgeschlossene Merge
+(`merge_done`). Crasht der Lauf **innerhalb** des Locks **vor** dem
+Push, ist `story_branch_pushed == false`: der gesamte Block wird beim
+Recovery mit einem **frischen `locked_sha`** neu aufgesetzt — inklusive
+einer **frischen** Attestation und einer **erneuten**
+Integrity-Gate-Pruefung, weil `main` zwischenzeitlich gewandert sein
+kann. Die alte Attestation wird nie wiederverwendet. `integrity_passed`
+markiert daher den Gate-PASS **dieses** Block-Durchlaufs und ist an die
+frische Attestation gebunden, nicht an einen separat resumebaren
+Zwischenstand. Resume **ab** `story_branch_pushed == true` setzt den
+ff-Merge unter dem Lock fort (FK-29-Rule
+`story-branch-pushed-is-resumable`), ohne erneuten semantischen Eintritt
+in den Implementation-QA-Subflow.
+
 ### 29.1.4 Reihenfolge ist Pflicht (FK-05-226)
 
 Die Reihenfolge stellt sicher, dass eine Story nie auf Done gesetzt
-wird, wenn der Merge scheitert:
+wird, wenn der Merge scheitert. Fuer impl/bugfix-Stories gilt die
+folgende kanonische Closure-Reihenfolge:
 
 1. Erst Finding-Resolution-Gate (§29.2) → sicherstellt: alle Findings vollständig aufgelöst
-2. Erst Integrity-Gate (FK-35 §35.2) → sicherstellt: Prozess wurde durchlaufen
-3. Erst Story-Branch pushen → Remote enthält den finalen Integrationsstand
-4. Erst mergen → Code ist auf Main
-5. Erst Worktree aufräumen → kein staler Worktree
-6. Dann Story-Status auf Done setzen (AK3-Story-Service) → fachlich abgeschlossen
-7. Dann Metriken → Nachvollziehbarkeit
-8. Dann Rückkopplungstreue (FK-38 §38.3) → Doku aktuell?
-9. Dann Postflight → Konsistenzprüfung
-10. Dann VektorDB-Sync → für nachfolgende Stories suchbar
-11. Zuletzt Guards deaktivieren → AI-Augmented-Modus wieder frei
+2. Erst Pre-Merge-Scan-und-Merge-Block (§29.1a) **unter dem Merge-Serialisierungs-Lock** — in dieser strikten internen Reihenfolge:
+   a. Lock erwerben (`locked_sha := origin/main`), `fetch`, `assert origin/main == locked_sha`
+   b. latest `main` in den Story-Branch integrieren, Workspace säubern (`git clean -xfd`)
+   c. Build / Test / Coverage auf dem integrierten Stand
+   d. **Integrated-Candidate-Sonar-Scan** (Single-Match-Ledger, QG per `analysisId`, Overall-Code) → **erzeugt die commit-gebundene Attestation**; `tree_hash(scan) == tree_hash(merge)`
+   e. **Integrity-Gate** (FK-35 §35.2, Dimensionen 1–9) → Dimension 9 `SonarQube-Green` **verifiziert genau die in Schritt d erzeugte frische Attestation** (FK-35 §35.2.4a) und vermisst nicht neu
+   f. Story-Branch pushen (innerhalb des Locks), `progress.story_branch_pushed = true`
+   g. ff-only Update von `main` (compare-and-swap/lease gegen `locked_sha`)
+   h. post-merge Reconcile (Ledger erneut gegen `main`, FK-33 §33.6.4), Lock freigeben
+3. Erst Worktree aufräumen → kein staler Worktree
+4. Dann Story-Status auf Done setzen (AK3-Story-Service) → fachlich abgeschlossen
+5. Dann Metriken → Nachvollziehbarkeit
+6. Dann Rückkopplungstreue (FK-38 §38.3) → Doku aktuell?
+7. Dann Postflight → Konsistenzprüfung
+8. Dann VektorDB-Sync → für nachfolgende Stories suchbar
+9. Zuletzt Guards deaktivieren → AI-Augmented-Modus wieder frei
+
+**Kausalitaet (Korrektur 2026-06-01):** Das Integrity-Gate sitzt jetzt
+bewusst **innerhalb** des gesperrten Blocks **nach** dem Scan (Schritt
+2.d) und **vor** Push/ff-Merge (Schritt 2.f/2.g) — nicht mehr als
+separater Schritt vor dem Block. Grund: Dimension 9 verifiziert die
+commit-gebundene Attestation des integrierten Kandidaten; diese
+existiert erst, nachdem der Scan in Schritt 2.d gelaufen ist. Das Gate
+bleibt damit „das letzte Gate vor dem Merge", liegt aber unmittelbar
+nach dem Scan. Push und ff-Merge liegen ebenfalls **innerhalb** des
+Merge-Serialisierungs-Locks, weil der gruene Sonar-Zustand und der
+gemergte `main` denselben `tree_hash` tragen muessen (FK-33 §33.6.3).
+
+**Story-Typ-Geltung:** Schritt 2 (Pre-Merge-Scan-und-Merge-Block inkl.
+Integrity-Gate-Dimension 9 und SonarQube-Green-Gate) gilt **nur fuer
+impl/bugfix**. Concept/Research-Stories haben keinen Branch und mergen
+nicht (§29.1.1, §29.2): fuer sie entfallen Finding-Resolution-Gate,
+Integrity-Gate und der gesamte gesperrte Block; der Ablauf startet
+effektiv bei Schritt 4 (Story-Status auf Done).
 
 ### 29.1.5 Merge-Policy
 
@@ -365,51 +441,106 @@ offiziellen Merge-Policy `no_ff`.
 
 ### 29.1.6 Multi-Repo-Closure (Atomicity)
 
-[Entscheidung 2026-05-04 — Multi-Repo-Closure ist atomar] Bei Stories
-mit mehreren teilnehmenden Repos (`participating_repos` mit |N| >= 2,
-FK-22 §22.6) ist die Closure **atomar ueber alle teilnehmenden Repos**:
-entweder werden alle N Repos gemerged und gepusht, oder kein einziger
-Merge wird auf `main` sichtbar gelassen. Eine partial-merged Story ist
-ein **defekter Endzustand** und nicht zulaessig.
+[Entscheidung 2026-05-04, praezisiert 2026-06-01 — Multi-Repo-Closure:
+Gruen-Barriere atomar, Cross-Remote-Push best-effort mit kompensierender
+Recovery] Bei Stories mit mehreren teilnehmenden Repos
+(`participating_repos` mit |N| >= 2, FK-22 §22.6) gilt eine **praezise**
+Garantie statt einer Garantie, die das System gar nicht halten kann:
+
+- **Was garantiert ist (atomare Gruen-Barriere):** Kein `main` irgendeines
+  teilnehmenden Repos wird sichtbar veraendert, bevor **alle** Repos die
+  Gruen-**und**-FF-Mergbarkeits-Barriere (Stufe 1, ohne Push) bestanden
+  haben. Ein nicht-gruener oder nicht-ff-faehiger Repo blockiert die
+  gesamte Closure (ESCALATED), bevor ueberhaupt ein Push beginnt.
+- **Was NICHT garantiert werden kann (ehrlicher Caveat):** Cross-Remote-
+  Push ueber mehrere Git-Hosts ist **nicht transaktional atomar**. Ist die
+  Gruen-Barriere bestanden und beginnt die Push-Stufe, kann ein
+  Push-Fehler in Repo k (nachdem 1..k-1 bereits remote gepusht wurden)
+  einen **partiellen Main-Zustand** hinterlassen, der **nicht** still als
+  atomar weginterpretiert wird, sondern **eskaliert** (ESCALATED, Mensch
+  entscheidet) und ueber dokumentierte **kompensierende Recovery**
+  (§29.1.6.3) behandelt wird.
+
+Eine partial-pushed Story ist daher ein **eskalierter** (nicht stiller,
+nicht „atomar gutgeschriebener") Endzustand. Die frueher behauptete
+unbedingte „alles-oder-nichts ueber alle Remotes"-Atomicity ist damit
+**zurueckgenommen**; die honest-formulierte Garantie ist die der
+Gruen-und-FF-Mergbarkeits-Barriere vor dem ersten Push.
 
 #### 29.1.6.1 Sequenz
 
-Die Reihenfolge aus §29.1.4 gilt unveraendert; Schritte 3 (Push), 4
-(Merge) und 5 (Teardown) werden bei Multi-Repo zu **Stufen ueber alle
-Repos** ausgepraegt. Die nachfolgenden Stufen 1-5 sind die Multi-Repo-
-Auspraegung dieser drei Schritte aus der Single-Repo-Sequenz; alles
-nach Teardown (Story-Closed, Metriken, Postflight, VektorDB-Sync,
-Guards-Off; §29.1.4 Schritte 6-11) laeuft pro-Story und ist nicht
-multi-repo-aufgespalten.
+Die Reihenfolge aus §29.1.4 gilt unveraendert; im **Single-Repo**-Fall
+sind Scan, Push und ff-Merge **ein** gesperrter Block (§29.1a, ein
+Merge-Serialisierungs-Lock). Im **Multi-Repo**-Fall wird dieser Block
+**bewusst aufgeteilt**: die Gruen-und-FF-Mergbarkeits-**Barriere** (pro
+Repo, **ohne** Push) wird von der eigentlichen Push-/Merge-Stufe
+getrennt — genau **weil** Cross-Remote-Push nicht atomar ist und kein
+`main` sichtbar werden darf, bevor **alle** Repos die Barriere bestanden
+haben. Der Teardown (§29.1.4 Schritt 4) wird ebenfalls zu einer Stufe
+ueber alle Repos. Die nachfolgenden Stufen 1-5 sind die Multi-Repo-
+Auspraegung dieser Schritte aus der Single-Repo-Sequenz; alles nach
+Teardown (Story-Closed, Metriken, Rueckkopplungstreue, Postflight,
+VektorDB-Sync, Guards-Off; §29.1.4 Schritte 5-10) laeuft pro-Story und
+ist nicht multi-repo-aufgespalten. Jeder teilnehmende Repo wird dabei
+auf seinem integrierten Pre-Merge-Stand gruen vermessen (§29.1a) und auf
+ff-Mergbarkeit geprueft, **bevor** auf irgendeinem Repo ein Push beginnt;
+ein nicht-gruener oder nicht-ff-faehiger Repo blockiert die gesamte
+Closure (ESCALATED).
 
-1. **Stufe 1 — Pre-Merge-Check (vor Push):** fuer jedes teilnehmende
-   Repo wird geprueft, ob `story/{story_id}` ff-mergebar gegen den
-   aktuellen `origin/main` ist. Auch ein einziger nicht-ff-faehiger
-   Repo blockiert die gesamte Closure (ESCALATED, kein Push, kein
-   Merge).
-2. **Stufe 2 — Push der Story-Branches:** alle Story-Branches werden
-   gepusht. Erst nach Erfolg in **allen** teilnehmenden Repos wird
-   `payload.progress.story_branch_pushed = true` gesetzt. Bei
-   Push-Fehler in Repo k werden bereits gepushte Branches nicht
-   ausgerollt (Push ist remote-irreversibel ohne force-push), die
-   Closure escaliert mit Hinweis auf den partial-push-Zustand.
+1. **Stufe 1 — Pre-Merge-Gruen-und-FF-Mergbarkeits-Barriere (pro Repo,
+   ohne Push):** fuer **jedes** teilnehmende Repo wird unter dem
+   **pro-Repo** Merge-Serialisierungs-Lock geprueft — **aber noch nichts
+   gepusht und nichts auf `main` sichtbar gemacht**: `locked_sha`
+   festhalten, latest `main` integrieren, Workspace saeubern,
+   Build/Test, **Integrated-Candidate-Sonar-Scan** (erzeugt die
+   commit-gebundene Attestation pro Repo), `tree_hash(scan) ==
+   tree_hash(merge)`, **Integrity-Gate-Dimension 9** verifiziert die
+   frische Per-Repo-Attestation (FK-35 §35.2.4a), sowie der lokale
+   ff-Mergebarkeits-Check gegen den jeweils aktuellen `origin/main`.
+   Diese Stufe ist **nicht** der „vollstaendige Pre-Merge-Scan-und-Merge-
+   Block" (Push und ff-Merge sind die spaeteren Stufen 2-4); sie ist die
+   reine Gruen-und-FF-Mergbarkeits-**Barriere**. Auch ein einziger roter
+   Kandidat oder ein nicht-ff-faehiger Repo blockiert die **gesamte**
+   Closure (ESCALATED, kein Push, kein Merge auf irgendeinem Repo). Eine
+   **Barriere** verlangt, dass **ALLE** teilnehmenden Repos gruen **und**
+   ff-faehig sind, bevor in Stufe 2 ueberhaupt ein Push beginnt — so wird
+   kein einziger `main` sichtbar, bevor alle Repos die Barriere bestehen
+   (Cross-Repo-Atomicity der Gruen-Vorbedingung).
+2. **Stufe 2 — Push der Story-Branches (innerhalb der jeweiligen
+   Repo-Locks):** alle Story-Branches werden mit ihrem gruen
+   vermessenen Integrationsstand gepusht. Erst nach Erfolg in **allen**
+   teilnehmenden Repos wird `payload.progress.story_branch_pushed =
+   true` gesetzt. Bei Push-Fehler in Repo k werden bereits gepushte
+   Branches nicht ausgerollt (Push ist remote-irreversibel ohne
+   force-push), die Closure escaliert mit Hinweis auf den
+   partial-push-Zustand.
 3. **Stufe 3 — lokal-atomarer FF-Merge:** alle teilnehmenden
-   Worktrees fuehren `git merge --ff-only` lokal aus. Vor jedem Merge
-   wird der `pre_merge_sha` des Ziel-Branches festgehalten. Wenn
-   Merge in Repo k fehlschlaegt, werden alle bereits lokal gemergten
-   Repos via `git reset --hard <pre_merge_sha>` zurueckgesetzt
-   (lokale Atomicity-Garantie). Closure escaliert.
-4. **Stufe 4 — Push-zu-main:** alle gemergten Hauptbranches werden
-   gepusht. Bei Push-Fehler in Repo k bleiben Repos 1..k-1 permanent
-   auf den Remotes; Repos k..N werden lokal zurueckgesetzt; Closure
-   escaliert mit explizitem **Partial-Push-State** (siehe §29.1.6.3).
+   Worktrees fuehren `git merge --ff-only` (CAS/Lease gegen den jeweils
+   gelockten `locked_sha`) lokal aus. Vor jedem Merge wird der
+   `pre_merge_sha` des Ziel-Branches festgehalten. Wenn Merge in Repo k
+   fehlschlaegt, werden alle bereits lokal gemergten Repos via
+   `git reset --hard <pre_merge_sha>` zurueckgesetzt (lokale
+   Atomicity-Garantie). Closure escaliert.
+4. **Stufe 4 — Push-zu-main + Per-Repo-Post-Merge-Reconcile:** alle
+   gemergten Hauptbranches werden gepusht; je Repo wird der
+   Accepted-Ledger erneut gegen `main` reconciled (FK-33 §33.6.4) und
+   der pro-Repo Merge-Lock freigegeben. Bei Push-Fehler in Repo k
+   bleiben Repos 1..k-1 permanent auf den Remotes; Repos k..N werden
+   lokal zurueckgesetzt; Closure escaliert mit explizitem
+   **Partial-Push-State** (siehe §29.1.6.3).
 5. **Stufe 5 — Teardown:** Worktrees aller teilnehmenden Repos werden
    aufgeraeumt, Story-Branches lokal geloescht. Idempotent.
 
-`payload.progress.merge_done = true` wird erst gesetzt, wenn Stufe 5
-erfolgreich abgeschlossen ist UND Stufe 4 fuer alle Repos PASS
-gemeldet hat. Ein einzelner Repo-Push-Fehler in Stufe 4 verhindert
-das Setzen von `merge_done`.
+`payload.progress.merge_done = true` wird gesetzt, sobald Stufe 4
+(Push-zu-main) fuer **alle** teilnehmenden Repos PASS gemeldet hat —
+also **vor** dem Teardown (Stufe 5). Damit ist `merge_done` konsistent
+mit der Recovery-Regel aus §29.1.3 (Teardown wird bei
+`merge_done == true && story_closed == false` erneut ausgefuehrt) und
+mit der Single-Repo-Sequenz (§29.1.2), in der `merge_done` direkt nach
+dem post-merge Reconcile und vor dem Worktree-Teardown gesetzt wird.
+Ein einzelner Repo-Push-Fehler in Stufe 4 verhindert das Setzen von
+`merge_done`. Der nachgelagerte Teardown (Stufe 5) ist idempotent und
+hat keine Recovery-Relevanz fuer `merge_done`.
 
 #### 29.1.6.2 ClosureProgress bei Multi-Repo
 
@@ -429,7 +560,7 @@ class MultiRepoClosureState(BaseModel):
 Diese Liste wird NUR fuer Multi-Repo-Stories gefuehrt; bei
 Single-Repo-Stories bleibt das Feld leer und wird ignoriert.
 
-#### 29.1.6.3 Partial-Push-State (Stufe 3 Failure)
+#### 29.1.6.3 Partial-Push-State (Stufe 4 Failure)
 
 Cross-Remote-Atomicity ueber mehrere Git-Hosts ist nicht erreichbar.
 Wenn in Stufe 4 (Push-zu-main) Repo k push-failed, nachdem Repos
@@ -459,6 +590,128 @@ mit `pre_merge_sha`-Rollback) ist die fachliche Vorlage. Die AK3-
 Umsetzung lebt im BC `story-closure` und respektiert die
 ClosureProgress-Granularitaet aus §29.1.0.
 
+## 29.1a Pre-Merge-Scan-und-Merge-Block (SonarQube-Green, FK-33-Punkt-3)
+
+### 29.1a.1 Zweck
+
+Der dritte Lifecycle-Gate-Punkt der `sonarqube_gate`-Capability (FK-33
+§33.6.3, Punkt 3) liegt hier: unmittelbar vor dem Merge wird der letzte
+`main`-Stand in den Story-Branch integriert und der **integrierte
+Kandidaten-Zustand frisch neu vermessen**. Nur wenn dieser integrierte
+Zustand gruen ist, wird ff-only auf `main` gemerged — damit gilt nach
+dem Merge „`main` == vermessener Zustand" und `main` bleibt gruen
+(Broken-Window). Ein QA-Subflow-gruener Branch (§27.6a) allein genuegt
+nicht: zwischen Branch-Messung und Merge kann `main` weitergewandert
+sein und neue Violations einschleppen (main-Drift).
+
+Die Gate-Semantik (Green-Definition, Overall-Code-Invariante,
+Attestation, Accepted-Ledger + Single-Match-Reconciler) ist **nicht
+hier**, sondern in **FK-33 §33.6.3/§33.6.4** modelliert; Closure ist
+Aufrufer. Die Integrity-Gate-Dimension 9 (FK-35 §35.2.4a) verifiziert
+die hier erzeugte Attestation — sie vermisst nicht selbst neu.
+
+### 29.1a.2 Merge-Serialisierungs-Lock (ein Merge zur Zeit)
+
+Der gesamte Block laeuft unter dem **Merge-Serialisierungs-Lock**: pro
+`main` darf zu jedem Zeitpunkt nur **ein** Pre-Merge-Scan-und-Merge-Block
+laufen. Andernfalls koennten zwei parallel scannende Stories beide gruen
+sein, aber nach Verschachtelung ihrer Merges einen roten `main`
+hinterlassen. Der zum Lock-Zeitpunkt festgehaltene `main`-Stand ist
+`locked_sha`.
+
+### 29.1a.3 Strikte Sequenz innerhalb des Locks
+
+```text
+acquire merge-lock (locked_sha := origin/main HEAD)
+  -> git fetch origin
+  -> assert origin/main == locked_sha            (sonst: Lock-Drift → erneut)
+  -> integrate main into story branch            (merge/rebase main → story/{story_id})
+  -> clean workspace: git clean -xfd; assert git status --porcelain leer
+  -> build / test / coverage (Layer-1-Determinismus auf dem integrierten Stand)
+  -> full integrated-candidate Sonar scan
+  -> wait by ceTaskId (Compute Engine fertig)
+  -> apply exception ledger (Single-Match-Reconciler, FK-33 §33.6.4)
+  -> verify QG by analysisId (Overall-Code-Invariante)
+  -> assert tree_hash(scan) == tree_hash(merge)   (gemessener == zu mergender Zustand)
+  -> Integrity-Gate (FK-35 §35.2, Dim 1-9)        (Dim 9 verifiziert die frische Attestation; kein Re-Scan)
+  -> git push origin story/{story_id}             (finaler Integrationsstand auf Remote)
+  -> set progress.story_branch_pushed = true      (Checkpoint innerhalb des Locks)
+  -> ff-only update main (compare-and-swap / lease gegen locked_sha)
+  -> post-merge reconcile/verify (Ledger erneut gegen main, FK-33 §33.6.4)
+  -> release merge-lock
+```
+
+**Normative Punkte:**
+
+1. **Assert `origin/main == locked_sha`** nach dem Fetch: ist `main`
+   zwischen Lock-Akquise und Fetch gewandert (z.B. ausserhalb des
+   Locks), wird der Block mit dem neuen Stand neu aufgesetzt — es wird
+   nie gegen einen veralteten Stand vermessen.
+2. **Clean workspace ist Pflicht:** `git clean -xfd` und ein leeres
+   `git status --porcelain` stellen sicher, dass der Sonar-Scan exakt den
+   committeten Tree vermisst (kein verschmutzter Worktree). Andernfalls
+   waere die Attestation nicht auf einen reproduzierbaren `tree_hash`
+   bindbar.
+3. **Wait by `ceTaskId`:** SonarQube verarbeitet Scanner-Ergebnisse
+   asynchron (Compute Engine). Closure wartet auf den Abschluss ueber den
+   `ceTaskId` und liest das Quality Gate dann per `analysisId` — nie ein
+   blosser `projectKey`-Live-Read (FK-33 §33.6.3).
+4. **Single-Match-Reconciler:** bewusste Ausnahmen aus dem
+   versionierten Accepted-Ledger werden deterministisch angewendet —
+   nur wenn **genau EIN** aktuelles Issue auf den Ledger-Eintrag matcht;
+   bei 0 oder >1 Matches fail-closed (FK-33 §33.6.4). Der Reconciler
+   laeuft sowohl auf den finalen integrierten Scan als auch **nach dem
+   Merge erneut gegen `main`**.
+5. **`tree_hash(scan) == tree_hash(merge)`:** vor dem ff-Update wird
+   verifiziert, dass der vermessene Tree exakt dem zu mergenden Tree
+   entspricht — so kann zwischen gruener Messung und Merge kein anderer
+   Stand untergeschoben werden.
+5a. **Integrity-Gate innerhalb des Locks, nach dem Scan:** unmittelbar
+   nach der gruenen `tree_hash`-Verifikation und **vor** dem
+   Story-Branch-Push laeuft das Integrity-Gate (FK-35 §35.2,
+   Dimensionen 1–9). Dimension 9 (`SonarQube-Green`, FK-35 §35.2.4a)
+   verifiziert genau die in diesem Lock-Durchlauf erzeugte
+   commit-gebundene Attestation und fuehrt **keinen** eigenen Scan aus.
+   Das Gate liegt bewusst **nach** dem Scan (die Attestation muss
+   existieren, bevor sie verifiziert werden kann) und bleibt zugleich
+   das letzte Gate **vor** dem Merge; bei FAIL escaliert Closure
+   (`ESCALATED`), kein Push, kein ff-Update. Erst bei Gate-PASS wird
+   `payload.progress.integrity_passed = true` gesetzt.
+6. **Story-Branch-Push innerhalb des Locks:** `git push origin
+   story/{story_id}` liegt **innerhalb** des Merge-Locks, nach der
+   gruenen `tree_hash`-Verifikation und vor dem ff-Update auf `main`.
+   Der gepushte Story-Branch traegt damit exakt den vermessenen,
+   gruenen Integrationsstand. Nach erfolgreichem Push wird
+   `payload.progress.story_branch_pushed = true` gesetzt
+   (Checkpoint, §29.1.0). Bei Push-Fehler escaliert Closure
+   (`ESCALATED`, kein ff-Update auf `main`).
+7. **ff-only mit compare-and-swap/lease:** `main` wird nur dann
+   fast-forward aktualisiert, wenn der Remote-`main` weiterhin auf
+   `locked_sha` steht (atomare CAS/Lease). Schlaegt die CAS fehl (jemand
+   anderes hat gemerged), wird der Block neu aufgesetzt.
+
+### 29.1a.4 Rot durch main-Drift → Remediation-Loop, dann Retry
+
+Ist der integrierte Kandidat **rot** (typischerweise weil frischer
+`main`-Code mit dem Story-Branch zu neuen Violations fuehrt — main-Drift),
+gilt: **kein Merge**. Die Story geht in einen Remediation-Loop zurueck
+(analog §27.6a / FK-20 §20.5), bis der integrierte Stand gruen ist; dann
+wird der Pre-Merge-Scan-und-Merge-Block erneut durchlaufen (neuer
+`locked_sha`-Stand, da `main` inzwischen gewandert sein kann). Die
+Closure-Verdict-Semantik bleibt unveraendert: bleibt der Block dauerhaft
+nicht gruen oder ist der Merge nicht ff-faehig, escaliert Closure
+(`ESCALATED`, §29.1.0 closure-verdict).
+
+### 29.1a.5 Verhaeltnis zu Push/Merge und Multi-Repo
+
+Push des Story-Branch (Remote enthaelt den finalen Integrationsstand) und
+der ff-Merge aus der bisherigen Sequenz (§29.1.2) sind jetzt **Teil
+dieses Blocks** und liegen innerhalb des Merge-Locks. Bei Multi-Repo
+(§29.1.6) gilt der Lock und der Pre-Merge-Scan-und-Merge-Block **pro
+teilnehmendem Repo**; die Atomicity-Stufen (§29.1.6.1) bleiben
+unveraendert, jede Stufe arbeitet auf dem jeweils integrierten,
+gruen-vermessenen Stand.
+
 ## 29.2 Finding-Resolution als Closure-Gate (FK-27-221 bis FK-27-225)
 
 ### 29.2.1 Prinzip
@@ -470,10 +723,10 @@ harter Blocker.
 
 **Ausnahme Concept/Research:** Fuer Concept- und Research-Stories
 entfallen Finding-Resolution-Gate UND Integrity-Gate vollstaendig (kein
-Layer-2-QA, kein QA-Subflow, kein Merge). `integrity_passed` und
-`merge_done` werden direkt auf `true` gesetzt; der Closure-Ablauf
-startet effektiv bei `story_closed` (§29.1.2 Concept/Research-Pfad im
-Flowchart).
+Layer-2-QA, kein QA-Subflow, kein Pre-Merge-Scan). `integrity_passed`,
+`story_branch_pushed` und `merge_done` werden direkt auf `true` gesetzt
+(§29.1.1); der Closure-Ablauf startet effektiv bei `story_closed`
+(§29.1.2 Concept/Research-Pfad im Flowchart).
 
 **Provenienz:** DK-04 §4.6. Empirischer Beleg BB2-012: Worker
 markierte ein Finding als `ADDRESSED`, obwohl nur ein Teilfall

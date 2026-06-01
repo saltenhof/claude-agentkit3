@@ -815,7 +815,7 @@ zum execution-planning-BC:
 | `wave_collapsed` | Wave kollabiert oder neu geschnitten |
 
 Definitive Werte- und Schema-Liste: FK-68 §68.3 (EventTypeId-Enum).
-Execution-planning-Sicht: FK-68 §68.x (Execution-Planning-Events).
+Execution-planning-Sicht: FK-68 §68.2.2 (Execution-Planning-Events, BC 14).
 
 ## 70.11 Invarianten
 

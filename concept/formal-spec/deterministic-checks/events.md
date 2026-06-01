@@ -54,5 +54,44 @@ events:
         - qa_cycle_id
         - outcome
         - blocking_stage_ids
+  - id: deterministic-checks.event.sonar-attestation.read
+    producer: qa-sonarqube-gate
+    role: lifecycle
+    payload:
+      required:
+        - qa_cycle_id
+        - analysis_id
+      references:
+        # read-attestation materializes the commit-bound attestation for the
+        # gate to verdict on. It is a lifecycle (read) event, NOT a verdict;
+        # only run-sonarqube-gate emits the passed/failed verdict.
+        - entity: deterministic-checks.entity.sonar-attestation
+          by: analysis_id
+  - id: deterministic-checks.event.sonarqube-gate.passed
+    producer: qa-sonarqube-gate
+    role: verdict
+    payload:
+      required:
+        - qa_cycle_id
+        - analysis_id
+      references:
+        # Canonical attestation payload is the sonar-attestation entity
+        # (commit_sha, tree_hash, ce_task_id, quality_gate_status,
+        # quality_gate_hash, quality_profile_hash, analysis_scope_hash,
+        # new_code_definition, exception_ledger_hash, last_analyzed_revision,
+        # sonarqube_version, branch_plugin_version, scanner_version, status;
+        # FK-27 §27.6a.3, FK-33 §33.6.3). The event carries it by
+        # reference (analysis_id is the identity key) rather than
+        # duplicating or partially listing the fields.
+        - entity: deterministic-checks.entity.sonar-attestation
+          by: analysis_id
+  - id: deterministic-checks.event.sonarqube-gate.failed
+    producer: qa-sonarqube-gate
+    role: verdict
+    payload:
+      required:
+        - qa_cycle_id
+        - analysis_id
+        - failure_reason
 ```
 <!-- FORMAL-SPEC:END -->

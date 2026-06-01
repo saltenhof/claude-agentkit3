@@ -48,5 +48,48 @@ entities:
       - outcome
       - blocking_stage_ids
       - stage_results
+  - id: deterministic-checks.entity.sonarqube-gate-stage
+    identity_key: stage_id
+    attributes:
+      - stage_id
+      - layer
+      - kind
+      - applies_to
+      - blocking
+      - trust_class
+      - producer
+      - sequence_after
+      - execution_policy
+      - override_policy
+  - id: deterministic-checks.entity.sonar-attestation
+    identity_key: analysis_id
+    attributes:
+      - commit_sha
+      - tree_hash
+      - analysis_id
+      - ce_task_id
+      - quality_gate_status
+      - quality_gate_hash
+      - quality_profile_hash
+      - analysis_scope_hash
+      - new_code_definition
+      - exception_ledger_hash
+      - last_analyzed_revision
+      - sonarqube_version
+      - branch_plugin_version
+      - scanner_version
+      - status
+  - id: deterministic-checks.entity.accepted-exception-ledger-entry
+    identity_key: normalized_code_fingerprint
+    attributes:
+      - rule_key
+      - file_path
+      - normalized_code_fingerprint
+      - expected_message_pattern
+      - rationale
+      - approved_by
+      - approved_commit
+      - expiry
+      - scope
 ```
 <!-- FORMAL-SPEC:END -->

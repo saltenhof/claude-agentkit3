@@ -168,7 +168,78 @@ governance:
   risk_threshold: 30          # Risikoscore-Schwelle für Incident-Kandidat
   window_size: 50             # Rolling-Window-Breite in Events
   cooldown_s: 300             # Cooldown zwischen LLM-Adjudications gleichen Typs
+
+sonarqube:
+  enabled: true               # Pflicht (hart) für codeproduzierende Projekte (impl/bugfix-Stories)
+  base_url: "http://localhost:9901"   # SonarQube-Server (FK-10 §10.7.2)
+  min_version: "26.4"         # SonarQube Community Build Mindestversion
+  token_env: "SONARQUBE_TOKEN" # Verweis auf ENV/Secret-Store — NIE inline-Token
+  plugins:
+    community_branch:
+      min_version: "1.23.0"   # Community Branch Plugin (harte Abhängigkeit, FK-33 §33.6.3)
+  quality_gate:
+    default_profile: "resources/target_project/sonar/ak3-default-gate.json"  # ausgeliefertes Default-Profil (SSOT)
+    overrides_allowed: true   # Projektverantwortlicher darf eigenes Regelwerk setzen
 ```
+
+#### SonarQube-Stanza (`sonarqube`) — Felder und Validierung
+
+Die `sonarqube`-Stanza deklariert die Umgebungs- und Profil-Anforderung
+des SonarQube-Green-Gates (Gate-Semantik in FK-33 §33.6.3, Capability
+`sonarqube_gate`). Sie ist der Config-Owner-Anteil dieser Anforderung;
+geprueft wird sie als Installer-Vorbedingung (FK-50) und gefuehrt als
+Pflicht-Laufzeitabhaengigkeit (FK-10 §10.2.2).
+
+| Feld | Typ | Bedeutung |
+|------|-----|-----------|
+| `enabled` | bool | **Hart Pflicht (`true`) fuer codeproduzierende Projekte** (Projekte mit impl/bugfix-Stories). Reine Concept-/Research-Projekte duerfen `false` setzen. |
+| `base_url` | str (URL) | SonarQube-Server-Endpunkt (Default-Port 9901, FK-10 §10.7.2). |
+| `min_version` | str (SemVer) | Mindestversion SonarQube Community Build. Niedrigere Server-Version → Installer-FAIL (FK-50). |
+| `token_env` | str | Name der ENV-Variable bzw. des Secret-Store-Schluessels mit dem Sonar-Token. **Kein Inline-Token** (Secret-Hygiene, FK-33 §33.3.2 `security.secrets`). |
+| `plugins.community_branch.min_version` | str (SemVer) | Mindestversion des **Community Branch Plugin** (harte Abhaengigkeit, da Community Edition keine native Branch-Analyse hat; FK-33 §33.6.3). |
+| `quality_gate.default_profile` | str (Pfad) | Verweis auf das ausgelieferte Default-Quality-Gate-Profil unter `resources/target_project/` (SSOT). Traegt BEIDE Conditions: New-Code UND Overall-Code (FK-33 §33.6.3 Overall-Code-Invariante). |
+| `quality_gate.overrides_allowed` | bool | Ob der Projektverantwortliche das Default-Profil durch ein eigenes Regelwerk ersetzen darf (Default `true`). |
+
+**Pydantic v2-Validierung** (`SonarQubeConfig` als frozen-Modell,
+`extra="forbid"`, eingebunden in `PipelineConfig`):
+
+- `enabled == true` UND fehlende `base_url`/`token_env` →
+  `ValueError` (fail-closed, kein stiller Default auf Localhost ohne
+  Auth).
+- `min_version` / `plugins.community_branch.min_version` muessen
+  parsebare SemVer-Strings sein.
+- `quality_gate.default_profile` muss auf eine existierende Profil-Datei
+  unter `resources/target_project/` zeigen (Pfad-Existenz im
+  Installer-Verify, FK-50 CP 12).
+- **Cross-Field-Regel:** Ein Projekt mit codeproduzierenden Stories
+  (impl/bugfix im Story-Backend) und `sonarqube.enabled: false` ist
+  unzulaessig — der Setup-Preflight (FK-22 §22.4c) und das Closure-Gate
+  (FK-29 §29.1a / FK-35 §35.2.4a) koennen dann ihre Vorbedingung nicht
+  erfuellen. Diese Regel wird beim Config-Laden als `ValueError`
+  durchgesetzt (analog `e2e_assertions requires db`, §3.2.1).
+
+#### Config-Hash (Drift-Erkennung der Gate-Konfiguration)
+
+Damit eine manuelle Aenderung am SonarQube-Regelwerk nicht unbemerkt die
+Gate-Bedeutung verschiebt, werden die folgenden Bestandteile zu einem
+**Config-Hash** verdichtet und in die commit-gebundene Attestation
+gepinnt (FK-33 §33.6.3):
+
+- **Quality-Gate-Hash** (die aktiven Gate-Conditions),
+- **Quality-Profile-Hash** (das aktive Regelprofil),
+- **Analysis-Scope-Hash** (`sonar.sources`/`sonar.inclusions`/
+  `sonar.exclusions`),
+- **New-Code-Definition** (Referenz-Branch / Datum / Tage),
+- **Plugin-Version** des Community Branch Plugin.
+
+Stimmt der Config-Hash der Attestation nicht mit dem erwarteten Wert des
+Projekts ueberein, wurde gegen ein anderes Regelwerk vermessen — das
+Integrity-Gate Dimension 9 (`SONAR_NOT_GREEN`, FK-35 §35.2.4a) schlaegt
+dann fehl, und eine manuelle Admin-Aenderung an Gate/Profil/Scope/
+New-Code-Definition gilt als „Policy-Change, der einen vollstaendigen
+main-Rescan erfordert" (FK-50 Config-Drift-Behandlung). So bleibt Config
+ein erkennbarer Teil der Wahrheit und kann nicht still neben dem
+Gate-Ergebnis driften (FIX THE MODEL).
 
 ### Ebene 3: Story-spezifische Felder (Story-Attribute im AK3-Story-Backend)
 

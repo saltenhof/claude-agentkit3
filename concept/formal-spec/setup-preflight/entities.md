@@ -56,5 +56,17 @@ entities:
       - story_id
       - worktree_path
       - branch_name
+  - id: setup-preflight.entity.main-green-result
+    identity_key: run_id
+    attributes:
+      - run_id
+      - story_id
+      - story_type
+      - status
+      - main_head
+      - analyzed_revision
+      - attestation_analysis_id
+      - quality_gate_status
+      - cleanup_proposal
 ```
 <!-- FORMAL-SPEC:END -->

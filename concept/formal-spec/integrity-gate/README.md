@@ -13,7 +13,7 @@ Dieser Kontext formalisiert das letzte Closure-Gate vor dem Merge.
 Im Scope sind:
 
 - Pflicht-Artefakt-Pruefung
-- acht Gate-Dimensionen und Telemetrie-Nachweise
+- neun Gate-Dimensionen und Telemetrie-Nachweise
 - offizieller Override-Pfad
 - Gate-Audit-Log
 

@@ -416,7 +416,7 @@ plausibel sind und von den richtigen Prozessschritten erzeugt wurden.
 **Wann aktiv:** Unmittelbar vor der Closure-Phase. Scheitert das Gate,
 wird an den Menschen eskaliert, nicht an einen Agenten.
 
-**Was geprüft wird (7 Dimensionen):**
+**Was geprüft wird (neun Dimensionen; normativer Owner FK-35 §35.2.4):**
 
 | Dimension | Prüfgegenstand |
 |-----------|----------------|
@@ -425,8 +425,10 @@ wird an den Menschen eskaliert, nicht an einen Agenten.
 | Structural-Check-Tiefe | Wurden Structural Checks durchgeführt, und zwar in ausreichender Tiefe (nicht nur ein Stub)? Wurden sie vom richtigen Prozessschritt erzeugt? |
 | Policy-Decision | Existiert ein kanonischer Policy-/Verify-Decision-Record, ist er plausibel und wurde er vom richtigen Prozessschritt erzeugt? **Fehlen ist ein harter Blocker** — fehlender Decision-Record darf nie zu `Closure | DONE` fuehren. |
 | Semantic-Validierung | Wurde bei Implementierungs- und Bugfix-Stories ein Semantic Review durchgeführt (nicht übersprungen)? |
+| Adversarial-Ergebnis | Liegt bei Implementierungs- und Bugfix-Stories ein Adversarial-Ergebnis vom richtigen Producer vor? |
 | QA-Subflow innerhalb Implementation | Hat mindestens ein QA-Subflow-Durchlauf stattgefunden? |
 | Timestamp-Kausalität | Liegen die Zeitstempel der Artefakte in der richtigen Reihenfolge? (Context vor Decision, nicht umgekehrt) |
+| SonarQube-Green | Existiert bei Implementierungs- und Bugfix-Stories die commit-gebundene Sonar-Attestation des integrierten Pre-Merge-Stands und ist sie grün? **Verifiziert nur — vermisst nicht neu** (FK-35 §35.2.4a). |
 
 **Telemetrie-Signale (nicht kanonisch):**
 

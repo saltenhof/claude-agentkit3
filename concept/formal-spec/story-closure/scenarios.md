@@ -10,6 +10,8 @@ prose_refs:
   - concept/technical-design/12_github_integration_repo_operationen.md
   - concept/technical-design/29_closure_sequence.md
   - concept/technical-design/31_branch_guard_orchestrator_guard_artefaktschutz.md
+  - concept/technical-design/33_deterministische_checks_stage_registry_policy_engine.md
+  - concept/technical-design/35_integrity_gate_governance_beobachtung_eskalation.md
   - concept/technical-design/04_betrieb_monitoring_audit_runbooks.md
 ---
 
@@ -34,8 +36,23 @@ scenarios:
       status: story-closure.status.completed
     requires:
       - story-closure.invariant.ff_only_is_default_policy
+      - story-closure.invariant.integrity_gate_precedes_merge_block
+      - story-closure.invariant.merge_block_runs_under_serialization_lock
+      - story-closure.invariant.integrated_candidate_scanned_green_before_push
+      - story-closure.invariant.push_inside_lock_after_green_scan
       - story-closure.invariant.push_precedes_merge
+      - story-closure.invariant.post_merge_reconcile_before_lock_release
       - story-closure.invariant.completed_requires_merge_and_story_close
+  - id: story-closure.scenario.main-drift-red-candidate-escalates
+    start:
+      status: story-closure.status.merge_lock_acquired
+    trace:
+      - command: story-closure.command.execute-default
+    expected_end:
+      status: story-closure.status.escalated
+    requires:
+      - story-closure.invariant.integrated_candidate_scanned_green_before_push
+      - story-closure.invariant.red_integrated_candidate_blocks_merge
   - id: story-closure.scenario.ff-only-rejected-then-no-ff-fallback
     start:
       status: story-closure.status.requested
