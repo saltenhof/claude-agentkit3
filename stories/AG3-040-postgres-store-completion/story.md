@@ -272,3 +272,17 @@ GET-Endpoint `/v1/projects/{key}` antwortet jetzt `ProjectDetailView` statt rohe
 - `concept_anchors`: leere Liste als Default. Inhalt-Befuellung ist Folge-Story (braucht Konzept-Inventar).
 - `mode_lock`: falls noch nicht persistent verfuegbar (AG3-018/AG3-034), liefere `mode="idle", holder_count=0`. Nicht erfinden.
 - AK2 NICHT veraendern.
+
+## 9. Abnahme-Status (2026-06-01)
+
+- **Sub-Block (a) — done + abgenommen.** project_management Postgres/Wire +
+  project_detail/mode_lock/story_counters-Views + dependency-aware Counters.
+  Giftige Codex-Review (a): r1 BLOCK (Dependency-Materialisierung) -> r2 BLOCK
+  (W-DISPLAYID) -> beide behoben. **W-DISPLAYID ist durch AG3-050 aufgeloest**
+  (vereinheitlichte Story-Identitaet; Dependency-FK/Read-Pfad auf statische
+  `stories`). Kumulativ gruen @01421c7: Jenkins #24 SUCCESS, Sonar Quality Gate
+  OK (new_coverage 84.4%, 0 new/critical violations). Counter-Klassifikation
+  laeuft jetzt produktiv ueber den statischen Pfad (kein story_contexts-Seeding).
+- **Sub-Block (b) — fc_*-Tabellen (§2.1.2): offen, owned by AG3-028**
+  (Anmerkung 1 in `_bearbeitungsreihenfolge.md`). Deshalb bleibt
+  `AG3-040.status.yaml` auf `in_progress`, bis (b) ueber AG3-028 abgeschlossen ist.

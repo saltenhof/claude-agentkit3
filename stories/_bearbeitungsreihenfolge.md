@@ -23,7 +23,8 @@ Wahrheit.
 | 4 | AG3-027 Skills Top-Surface (schlank) | M | done (2026-05-24, Pass-2.2 + Sonar gruen) | ja |
 | 5 | AG3-031 Governance Top-Surfaces | M | done (2026-05-25, Pass-7 + 4x Codex-giftig; Codex-Adapter -> AG3-049) | ja |
 | 6 | AG3-035 ProjectionAccessor + Reset-Purge | M | done (2026-06-01; LightWild 2c0eefb -> giftiger Codex-Recheck-r2 = BLOCK auf #6 (BC-Drift lebte + irrefuehrender Test) + #3. Echter Fix 80ae0ce: StoryContextQueryPort-Injection + Owner-Vertrag (ProjectionKindNotAccessorOwnedError); Sonar-Fix d838de1 (S1192/S1172). Final gruen im kumulativen HEAD 14df2eb: Jenkins #18 SUCCESS, Sonar Quality Gate OK (0 new/critical violations)) | ja |
-| 7 | AG3-040 Postgres-Store-Komplettierung | M | WIP (aktuell) | startbar: Sub-Block (a) project_management + project_detail-Wire-Adapter ohne fc_-Tabellen — siehe Anmerkung 1 |
+| 7 | AG3-040 Postgres-Store-Komplettierung | M | Sub-Block (a) done+abgenommen (2026-06-01, kumulativ @01421c7: Jenkins #24 SUCCESS, Sonar OK; project_management Postgres/Wire/project_detail-Views + Counters auf vereinheitlichter Identitaet). Sub-Block (b) fc_-Tabellen offen -> AG3-028 (Anmerkung 1). AG3-040.status.yaml bleibt in_progress bis (b). |
+| 7a | AG3-050 Story-Identity-Unifizierung | M | done (2026-06-01; Stefan-Vorgabe; Codex r1 BLOCK -> r2 PASS-MIT-WARNINGS; @01421c7 Jenkins #24 SUCCESS, Sonar OK. WARNING N1: Postgres-Concurrency-Allokation unbewiesen -> Folge, getrackt) |
 | 8 | AG3-028 FailureCorpus (Vollumsetzung) | L | blocked | nach AG3-035 + AG3-040 |
 | 9 | AG3-048 Skills-Persistenz + Installer + Hygiene | M | blocked | nach AG3-027 |
 | 10 | AG3-049 Codex-Harness-Adapter (CodexSettingsWriter Vollausbau) | M | blocked | nach AG3-031 (Codex-Adapter-Stub aus AG3-031 ausgelagert) |
