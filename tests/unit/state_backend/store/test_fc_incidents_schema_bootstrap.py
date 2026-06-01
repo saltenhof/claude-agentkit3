@@ -286,8 +286,8 @@ class TestCheckConstraints:
             conn.execute(_INSERT, bad)
             conn.commit()
 
-    def test_rejects_object_tags_element(self, story_dir: Path) -> None:
-        """tags mit Nicht-String-Element wird DB-seitig (Trigger) abgelehnt."""
+    def test_rejects_number_tags_element(self, story_dir: Path) -> None:
+        """tags-Array mit Number-Element wird DB-seitig (Trigger) abgelehnt."""
         # index 13 == tags
         bad = (*_VALID_ROW[:13], "[1]", *_VALID_ROW[14:])
         with _connect(story_dir) as conn, pytest.raises(
@@ -295,6 +295,31 @@ class TestCheckConstraints:
         ):
             conn.execute(_INSERT, bad)
             conn.commit()
+
+    @pytest.mark.parametrize("non_array_tags", ['"x"', '{"k": "v"}', "1"])
+    def test_rejects_non_array_tags(
+        self, story_dir: Path, non_array_tags: str
+    ) -> None:
+        """tags als JSON-Scalar/Objekt (kein Array) wird DB-seitig abgelehnt (CHECK).
+
+        Codex-r6: ohne den tags-Array-CHECK wuerde json_each einen Scalar/ein
+        Objekt faelschlich als text-Rows durchwinken.
+        """
+        bad = (*_VALID_ROW[:13], non_array_tags, *_VALID_ROW[14:])
+        with _connect(story_dir) as conn, pytest.raises(
+            (sqlite3.IntegrityError, sqlite3.OperationalError)
+        ):
+            conn.execute(_INSERT, bad)
+            conn.commit()
+
+    def test_accepts_valid_string_tags(self, story_dir: Path) -> None:
+        """tags als JSON-Array aus Strings wird akzeptiert."""
+        ok = (*_VALID_ROW[:13], '["t1", "t2"]', *_VALID_ROW[14:])
+        with _connect(story_dir) as conn:
+            conn.execute(_INSERT, ok)
+            conn.commit()
+            count = conn.execute("SELECT COUNT(*) FROM fc_incidents").fetchone()[0]
+        assert count == 1
 
 
 class TestEvidenceDecodeFailClosed:

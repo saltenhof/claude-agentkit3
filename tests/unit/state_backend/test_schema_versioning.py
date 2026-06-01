@@ -31,11 +31,13 @@ def test_schema_version_helpers_derive_versioned_names() -> None:
     # incident_id-Sequenz >=4 Ziffern + nur Ziffern; evidence_json = JSON-Array
     # AUS STRINGS via Postgres-jsonpath. Bump, weil CREATE TABLE IF NOT EXISTS
     # bestehende 3.11.0-Constraints nicht ersetzt — FK-18 §18.9a Side-by-Side)
-    assert state_config.SCHEMA_VERSION == "3.12.0"
+    # AG3-028 Codex-r6: 3.12.0 -> 3.13.0 (auch tags wird als JSON-Array-aus-
+    # Strings DB-seitig erzwungen — Postgres-CHECK + SQLite-Array-CHECK)
+    assert state_config.SCHEMA_VERSION == "3.13.0"
     assert state_config.versioned_postgres_schema_name("3.0.0") == "ak3_v3_0_0"
     assert state_config.versioned_sqlite_db_file("3.0.0") == "agentkit_3_0_0.sqlite"
-    assert state_config.versioned_postgres_schema_name() == "ak3_v3_12_0"
-    assert state_config.versioned_sqlite_db_file() == "agentkit_3_12_0.sqlite"
+    assert state_config.versioned_postgres_schema_name() == "ak3_v3_13_0"
+    assert state_config.versioned_sqlite_db_file() == "agentkit_3_13_0.sqlite"
 
 
 def test_schema_version_rejects_non_semver() -> None:

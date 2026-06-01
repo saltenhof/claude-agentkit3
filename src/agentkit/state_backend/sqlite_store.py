@@ -560,6 +560,13 @@ def _ensure_schema_runtime_tables(conn: sqlite3.Connection) -> None:
             CONSTRAINT fc_incidents_evidence_is_array
                 CHECK (json_valid(evidence_json)
                        AND json_type(evidence_json) = 'array'),
+            -- tags ist optional; wenn gesetzt ein JSON-Array (Element-Typ
+            -- list[str] erzwingt der BEFORE-Trigger unten). NULL erlaubt. Ohne
+            -- diesen CHECK wuerde json_each einen Scalar/Objekt faelschlich als
+            -- text-Rows durchwinken (Codex-r6).
+            CONSTRAINT fc_incidents_tags_is_array
+                CHECK (tags IS NULL
+                       OR (json_valid(tags) AND json_type(tags) = 'array')),
             PRIMARY KEY (incident_id)
         );
 

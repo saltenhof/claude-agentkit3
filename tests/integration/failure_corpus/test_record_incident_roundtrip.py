@@ -246,3 +246,18 @@ def test_postgres_db_checks_reject_malformed_rows() -> None:
     for vals in bad_rows:
         with pytest.raises(psycopg.errors.IntegrityError):
             _attempt(vals)
+
+    # tags (optional) muss, wenn gesetzt, ebenfalls ein JSON-Array aus Strings
+    # sein (Codex-r6: Scalar/Objekt darf nicht durchrutschen).
+    tags_insert = (
+        f"INSERT INTO fc_incidents ({cols}, tags) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    )
+
+    def _attempt_tags(tags_value: str) -> None:
+        with _postgres_connect() as conn:
+            conn.execute(tags_insert, (*_vals("FC-2026-0100", '["e1"]'), tags_value))
+
+    for bad_tags in ('"x"', '{"k": "v"}', "[1]"):
+        with pytest.raises(psycopg.errors.IntegrityError):
+            _attempt_tags(bad_tags)

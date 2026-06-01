@@ -49,7 +49,13 @@ STATE_DATABASE_URL_ENV = "AGENTKIT_STATE_DATABASE_URL"
 # Constraints (zwei DBs gleicher Version, divergentes Schema). Der Bump auf
 # 3.12.0 stellt den Side-by-Side-Vertrag (FK-18 §18.9a) wieder her: die
 # verschaerften Constraints landen frisch in ak3_v3_12_0 / agentkit_3_12_0.sqlite.
-SCHEMA_VERSION = "3.12.0"
+# AG3-028 Codex-r6 Remediation 2026-06-01: 3.12.0 -> 3.13.0. Auch fuer die
+# OPTIONALE Spalte tags wird jetzt die JSON-Array-AUS-STRINGS-Form DB-seitig
+# erzwungen (Postgres-CHECK via jsonpath; SQLite Array-CHECK + Element-Trigger).
+# Zuvor liessen sich tags='"x"'/'{"k":"v"}' als Nicht-Array durchschmuggeln.
+# Constraint-Aenderung -> Side-by-Side-Bump (FK-18 §18.9a): frisch in
+# ak3_v3_13_0 / agentkit_3_13_0.sqlite.
+SCHEMA_VERSION = "3.13.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 
 

@@ -387,7 +387,13 @@
             -- KEIN String ist; existiert ein solches, schlaegt der CHECK fehl.
             CONSTRAINT fc_incidents_evidence_is_string_array
                 CHECK (jsonb_typeof(evidence_json::jsonb) = 'array'
-                       AND NOT (evidence_json::jsonb @? '$[*] ? (@.type() != "string")'))
+                       AND NOT (evidence_json::jsonb @? '$[*] ? (@.type() != "string")')),
+            -- tags ist optional; wenn gesetzt ebenfalls ein JSON-Array AUS
+            -- STRINGS (FK-41 §41.4.1). NULL erlaubt.
+            CONSTRAINT fc_incidents_tags_is_string_array
+                CHECK (tags IS NULL
+                       OR (jsonb_typeof(tags::jsonb) = 'array'
+                           AND NOT (tags::jsonb @? '$[*] ? (@.type() != "string")')))
         );
 
         CREATE INDEX IF NOT EXISTS idx_fc_incidents_project_story_run
