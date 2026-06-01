@@ -44,6 +44,22 @@
   berechnet; gehoert ohnehin zum fc_-Block/AG3-028) — wird mit dem fc_-Block
   korrigiert, hier ohne Belang (fc_* ausgeklammert).
 
+## Offene Folge (Codex-Review (a) r1, WARNING — owner-zugeordnet, NICHT Sub-Block (a))
+
+- **W-DISPLAYID (WARNING, aus Remediation aufgedeckt):** Zwei divergente
+  Display-ID-Formate ueber die zwei Story-Projektionen: `StoryService.create_story`
+  bildet `f"{prefix}-{number}"` (z.B. `AG3-1`), `story_context_manager.lifecycle.
+  create_story` `f"{prefix}-{number:03d}"` (z.B. `AG3-001`); zudem separate
+  story-number-Counter pro Projektion (`stories` vs `story_contexts`). FK-18
+  §18.12.1 / FK-02 §2.11.2 behandeln die Display-ID als gemeinsamen Business-Key
+  ueber beide Tabellen — die Divergenz kann produktiv den Dependency-Join
+  brechen. Der counters-Fix joint korrekt auf `story_display_id`; der
+  Regressionstest seedet ausgerichtete IDs. Echtes Modell-Inkonsistenz-Risiko,
+  aber AUSSERHALB Sub-Block (a). Disposition: eigene Folgestory
+  „Display-ID/story-number-Vereinheitlichung ueber beide Projektionen". Aktiv an
+  Stefan zu spiegeln (Severity-Regel) — **offene User-Entscheidung**, bis dahin
+  getrackt.
+
 ---
 
 ## 1. Kontext

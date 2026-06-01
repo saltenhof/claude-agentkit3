@@ -61,7 +61,7 @@ class _StoryListStub:
     def __init__(self, stories: list[Story]) -> None:
         self._stories = stories
 
-    def list_stories(self, project_key: str) -> list[Story]:
+    def list_stories_with_dependencies(self, project_key: str) -> list[Story]:
         assert project_key == _PROJECT_KEY
         return list(self._stories)
 

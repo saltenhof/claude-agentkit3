@@ -43,7 +43,7 @@ class _StoryListStub:
     def __init__(self, stories: list[object] | None = None) -> None:
         self._stories = stories or []
 
-    def list_stories(self, project_key: str) -> list[object]:
+    def list_stories_with_dependencies(self, project_key: str) -> list[object]:
         _ = project_key
         return list(self._stories)
 

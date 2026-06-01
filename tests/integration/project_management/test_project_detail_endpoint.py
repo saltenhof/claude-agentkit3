@@ -13,12 +13,15 @@ No mocks: real ``StateBackendProjectRepository`` /
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from http import HTTPStatus
 from typing import TYPE_CHECKING
 
 import pytest
 
 from agentkit.control_plane.http import ControlPlaneApplication
+from agentkit.core_types import StoryDependencyKind
+from agentkit.execution_planning.entities import StoryDependency
 from agentkit.project_management.entities import ProjectConfiguration
 from agentkit.project_management.http.routes import (
     ProjectManagementRoutes,
@@ -30,12 +33,20 @@ from agentkit.state_backend.store import facade
 from agentkit.state_backend.store.project_management_repository import (
     StateBackendProjectRepository,
 )
+from agentkit.state_backend.store.story_context_repository import (
+    StateBackendStoryContextRepository,
+)
+from agentkit.state_backend.store.story_dependency_repository import (
+    StateBackendStoryDependencyRepository,
+)
 from agentkit.state_backend.store.story_repository import (
     StateBackendIdempotencyKeyRepository,
     StateBackendStoryRepository,
 )
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.service import StoryService
 from agentkit.story_context_manager.story_model import CreateStoryInput
+from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -57,6 +68,7 @@ def _story_service(tmp_path: Path) -> StoryService:
         story_repository=StateBackendStoryRepository(tmp_path),
         project_repository=StateBackendProjectRepository(tmp_path),
         idempotency_repository=StateBackendIdempotencyKeyRepository(tmp_path),
+        dependency_repository=StateBackendStoryDependencyRepository(tmp_path),
         event_emitter=lambda *_: None,
     )
 
@@ -131,6 +143,96 @@ def test_get_project_detail_returns_flat_wire_view(tmp_path: Path) -> None:
         "concept_anchors": [],
     }
     _ = backlog  # created for the corpus; asserted via counters
+
+
+def test_counters_classify_persisted_dependency_as_blocked(tmp_path: Path) -> None:
+    """Regression (codex-a-r1 BLOCK): a persisted, NON-Done dependency edge
+    must move an Approved story from ``ready`` to ``blocked`` through the real
+    state-backend read path.
+
+    Seeds two Approved stories where B depends on A (A not Done) with a real
+    ``StateBackendStoryDependencyRepository`` edge.  Before the fix, the
+    production read path returned ``Story.dependencies == []`` (the join was
+    never materialized), so B was wrongly counted ``ready``.  After A
+    completes, B becomes ``ready``.
+    """
+    _seed_project(tmp_path)
+    service = _story_service(tmp_path)
+
+    story_a = service.create_story(
+        CreateStoryInput(
+            project_key="tenant-a", title="Predecessor A",
+            type="implementation", repos=["repo-a"],
+        ),
+        op_id="dep-op-a",
+    )
+    story_b = service.create_story(
+        CreateStoryInput(
+            project_key="tenant-a", title="Dependent B",
+            type="implementation", repos=["repo-a"],
+        ),
+        op_id="dep-op-b",
+    )
+    service.approve_story(story_a.story_display_id, op_id="dep-op-approve-a")
+    service.approve_story(story_b.story_display_id, op_id="dep-op-approve-b")
+
+    # The dependency store FK-references ``story_contexts`` (FK-18 §18.12.1:
+    # both ``stories`` and ``story_contexts`` share the ``(project_key,
+    # story_id)`` display-id key).  Seed the matching story_contexts rows
+    # through the real repository so the persisted edge below is valid against
+    # the real schema and the join key matches the wire corpus exactly.
+    context_repo = StateBackendStoryContextRepository(tmp_path)
+    for created in (story_a, story_b):
+        context_repo.save(
+            StoryContext(
+                project_key="tenant-a",
+                story_number=created.story_number,
+                story_id=created.story_display_id,
+                story_type=StoryType.IMPLEMENTATION,
+                execution_route=StoryMode.EXECUTION,
+                title=created.title,
+                created_at=datetime.now(UTC),
+            ),
+        )
+
+    # Persist a REAL dependency edge B -> A through the dependency store.
+    dep_repo = StateBackendStoryDependencyRepository(tmp_path)
+    dep_repo.add(
+        StoryDependency(
+            story_id=story_b.story_display_id,
+            depends_on_story_id=story_a.story_display_id,
+            kind=StoryDependencyKind.HARD_STORY_DEPENDENCY,
+            created_at=datetime.now(UTC),
+        ),
+        project_key="tenant-a",
+    )
+
+    def _counters() -> dict[str, int]:
+        response = _app(tmp_path).handle_request(
+            method="GET",
+            path="/v1/projects/tenant-a",
+            body=b"",
+            request_headers={"X-Correlation-Id": "req-dep"},
+        )
+        assert response.status_code == HTTPStatus.OK
+        body = json.loads(response.body.decode("utf-8"))
+        return body["project"]["story_counters"]
+
+    # A is Approved+ready, B is Approved but blocked by the open dependency.
+    before = _counters()
+    assert before["queue"] == 2  # both Approved
+    assert before["ready"] == 1  # only A
+    assert before["blocked"] == 1  # B blocked by open dependency A
+
+    # Complete A; B's only dependency is now Done -> B becomes ready.
+    service.begin_progress(story_a.story_display_id)
+    service.complete_story(story_a.story_display_id)
+
+    after = _counters()
+    assert after["finished"] == 1  # A Done
+    assert after["queue"] == 1  # only B Approved
+    assert after["ready"] == 1  # B now ready
+    assert after["blocked"] == 0
 
 
 def test_get_missing_project_detail_returns_404(tmp_path: Path) -> None:

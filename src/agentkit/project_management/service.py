@@ -9,10 +9,11 @@ Cross-BC boundary (AK7 / architecture-conformance):
     ``ProjectRepository``.
   - Story-derived data (``mode_lock`` and ``story_counters``) are read
     through the **story_context_manager** ``StoryService`` API
-    (``list_stories``).  project-management does NOT touch the story
-    persistence directly — the story-counter concept is owned by
-    story_context_manager (architecture-conformance group note for
-    BC 17).
+    (``list_stories_with_dependencies``).  project-management does NOT
+    touch the story persistence or the dependency store directly — the
+    story-counter concept (incl. the ``dependencies`` read-model join used
+    for ``ready``/``blocked``) is owned by story_context_manager
+    (architecture-conformance group note for BC 17).
 """
 
 from __future__ import annotations
@@ -42,10 +43,17 @@ class StoryListPort(Protocol):
     Mirrors the subset of ``story_context_manager.StoryService`` used by
     this service.  Production always injects the real ``StoryService``;
     the Protocol keeps the dependency explicit and narrow for tests.
+
+    ``list_stories_with_dependencies`` is the authoritative dependency-aware
+    read: it returns stories whose ``dependencies`` read-model join is
+    materialized from the story_context_manager dependency store.  This is
+    required so the ``ready``/``blocked`` counter classification is correct
+    against persisted dependency edges (project-management must NOT read the
+    dependency store directly — AK7 cross-BC boundary).
     """
 
-    def list_stories(self, project_key: str) -> list[Story]:
-        """Return all stories of a project."""
+    def list_stories_with_dependencies(self, project_key: str) -> list[Story]:
+        """Return all stories of a project with ``dependencies`` filled."""
         ...
 
 
@@ -98,7 +106,7 @@ class ProjectDetailService:
         if project is None:
             raise ProjectNotFoundError(f"Project {project_key!r} not found")
 
-        stories = list(self._stories.list_stories(project_key))
+        stories = list(self._stories.list_stories_with_dependencies(project_key))
         return ProjectDetailView(
             project_key=project.key,
             display_name=project.name,

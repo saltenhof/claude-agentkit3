@@ -64,6 +64,7 @@ from agentkit.story_context_manager.wire_adapter import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from agentkit.execution_planning.repository import StoryDependencyRepository
     from agentkit.project_management.entities import Project
     from agentkit.project_management.repository import ProjectRepository
     from agentkit.story_context_manager.idempotency import IdempotencyKeyRepository
@@ -143,6 +144,11 @@ class StoryService:
         story_repository: Story stammdaten persistence.
         project_repository: Project entity access (for archived/repos check).
         idempotency_repository: Idempotency key persistence.
+        dependency_repository: Story dependency-edge read port (execution_planning
+            ``StoryDependencyRepository``).  Used by
+            ``list_stories_with_dependencies`` to materialize the
+            ``Story.dependencies`` read-model join.  Defaults to the real
+            ``StateBackendStoryDependencyRepository``.
         event_emitter: Callable that emits story_upserted events. Receives
             ``(project_key, story_display_id, wire_summary_dict)`` as args.
     """
@@ -153,6 +159,7 @@ class StoryService:
         story_repository: StoryRepository | None = None,
         project_repository: ProjectRepository | None = None,
         idempotency_repository: IdempotencyKeyRepository | None = None,
+        dependency_repository: StoryDependencyRepository | None = None,
         event_emitter: Callable[[str, str, dict[str, object]], None] | None = None,
     ) -> None:
         if story_repository is None:
@@ -170,9 +177,15 @@ class StoryService:
                 StateBackendProjectRepository,
             )
             project_repository = StateBackendProjectRepository()
+        if dependency_repository is None:
+            from agentkit.state_backend.store.story_dependency_repository import (
+                StateBackendStoryDependencyRepository,
+            )
+            dependency_repository = StateBackendStoryDependencyRepository()
 
         self._story_repo: StoryRepository = story_repository
         self._project_repo: ProjectRepository = project_repository
+        self._dependency_repo: StoryDependencyRepository = dependency_repository
         self._idempotency = IdempotencyKeyStore(idempotency_repository)
         self._emit = event_emitter if event_emitter is not None else _logging_emitter
 
@@ -218,6 +231,47 @@ class StoryService:
     def list_stories(self, project_key: str) -> list[Story]:
         """Return all Stories for a project, ordered by story_number."""
         return self._story_repo.list_for_project(project_key)
+
+    def list_stories_with_dependencies(self, project_key: str) -> list[Story]:
+        """Return all Stories with their ``dependencies`` read-model join filled.
+
+        ``Story.dependencies`` is a read-model join that does NOT live in the
+        ``stories`` table; the authoritative source is the
+        ``StoryDependencyRepository`` (execution_planning dependency edges).
+        The plain :meth:`list_stories` read path returns stories with an empty
+        ``dependencies`` list, which is correct for consumers that do not need
+        the join but wrong for readiness-derived aggregations.
+
+        This method is the authoritative dependency-aware Story read used by
+        cross-BC consumers (e.g. project-management ``story_counters``).  Each
+        story's ``dependencies`` is populated with the sorted display IDs of
+        its direct predecessors (``depends_on_story_id`` of every edge whose
+        ``story_id`` matches), so the resulting corpus satisfies
+        ``frontend-contracts.invariant.counters_classification`` end to end.
+
+        All dependency kinds are treated as predecessors, consistent with the
+        execution-planning ``DependencyGraph`` predecessor semantics; kind-aware
+        soft/hard distinctions are an execution-planning readiness concern and
+        are out of scope for the wire-counter join.
+
+        Args:
+            project_key: Project key to scope the read.
+
+        Returns:
+            The project's stories (ordered by ``story_number``), each with its
+            ``dependencies`` list materialized from the dependency store.
+        """
+        stories = self._story_repo.list_for_project(project_key)
+        predecessors: dict[str, list[str]] = {}
+        for edge in self._dependency_repo.list_for_project(project_key):
+            predecessors.setdefault(edge.story_id, []).append(
+                edge.depends_on_story_id
+            )
+        for story in stories:
+            deps = predecessors.get(story.story_display_id)
+            if deps:
+                story.dependencies = sorted(set(deps))
+        return stories
 
     def list_active_repos(self, project_key: str) -> set[str]:
         """Return the set of repositories referenced by any ``In Progress`` story.
