@@ -1,8 +1,8 @@
 story_id: AG3-035
 title: "ProjectionAccessor zentralisieren + Reset-Purge fuer FK-69-Tabellen"
 type: implementation
-status: in_progress
-phase: implementation
+status: completed
+phase: closure
 created: "2026-05-16"
 size: M
 depends_on:

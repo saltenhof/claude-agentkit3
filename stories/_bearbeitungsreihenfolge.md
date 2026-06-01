@@ -22,7 +22,7 @@ Wahrheit.
 | 3 | AG3-030 RequirementsCoverage Top + AreClient | M | done (2026-05-23, Pass-2 + Sonar gruen erwartet) | ja |
 | 4 | AG3-027 Skills Top-Surface (schlank) | M | done (2026-05-24, Pass-2.2 + Sonar gruen) | ja |
 | 5 | AG3-031 Governance Top-Surfaces | M | done (2026-05-25, Pass-7 + 4x Codex-giftig; Codex-Adapter -> AG3-049) | ja |
-| 6 | AG3-035 ProjectionAccessor + Reset-Purge | M | r2-remediation (2026-05-31; LightWild 2c0eefb -> Jenkins #10 SUCCESS/Sonar OK; giftiger Codex-Recheck-r2 = BLOCK auf #6 (BC-Drift lebte + irrefuehrender Test) + #3 (NotImplementedError fuer 4 Kinds). Echter Fix: StoryContextQueryPort-Injection (kein state_backend.store-Import in verify_system mehr) + Owner-Vertrag write/read (ProjectionKindNotAccessorOwnedError). Lokal 2610 passed/25 skipped (5 e2e env-bedingt, opt-in), ruff/mypy/4 Gates gruen. CI #11 + finaler Codex-Pass ausstehend) | ja |
+| 6 | AG3-035 ProjectionAccessor + Reset-Purge | M | done (2026-06-01; LightWild 2c0eefb -> giftiger Codex-Recheck-r2 = BLOCK auf #6 (BC-Drift lebte + irrefuehrender Test) + #3. Echter Fix 80ae0ce: StoryContextQueryPort-Injection + Owner-Vertrag (ProjectionKindNotAccessorOwnedError); Sonar-Fix d838de1 (S1192/S1172). Final gruen im kumulativen HEAD 14df2eb: Jenkins #18 SUCCESS, Sonar Quality Gate OK (0 new/critical violations)) | ja |
 | 7 | AG3-040 Postgres-Store-Komplettierung | M | WIP (aktuell) | startbar: Sub-Block (a) project_management + project_detail-Wire-Adapter ohne fc_-Tabellen — siehe Anmerkung 1 |
 | 8 | AG3-028 FailureCorpus (Vollumsetzung) | L | blocked | nach AG3-035 + AG3-040 |
 | 9 | AG3-048 Skills-Persistenz + Installer + Hygiene | M | blocked | nach AG3-027 |
@@ -50,6 +50,20 @@ Stefan abgenommen und auf `completed/closure` gesetzt. AG3-026 (depends_on
 AG3-023, bereits `completed`) belegt die produktive Nutzung des
 ArtifactManager. Lehre: Abnahme = User-OK + status-Flip + Listenpflege in
 einem Schritt, sonst entsteht genau dieser Drift.
+
+**Anmerkung 3 (AG3-015 Prompt-Runtime, abgenommen 2026-06-01):**
+AG3-015 (Prompt-Runtime FK-44-Completion, ausserhalb der Welle-2-Tabelle, war
+`ready`) ist `completed`. Die Story wurde von Greenfield auf "Completion des
+existierenden prompt_runtime" realignt (W6-Migration-Altbestand). Giftige
+Codex-Reviews im Ping-Pong: r1 BLOCK (E1-E5) -> Remediation 4731e18; r2 BLOCK
+(neuer N1: verify re-pin bricht C2 nach Rebind) -> Remediation 2fc1309; r3
+PASS-MIT-WARNINGS (BLOCK aufgehoben). Final gruen im kumulativen HEAD 14df2eb
+(Jenkins #18 SUCCESS, Sonar OK, 2639+ Tests). **Offene Folge W1** (owner-
+zugeordnet, NICHT AG3-015): kein produktiver Run-Start-Pinner in der Pipeline
+(Pin entsteht lazy beim ersten Verify-Audit) -> Setup-/Pipeline-Engine-
+Folgeschnitt, offene Stefan-Entscheidung (siehe AG3-015 story.md "Offene
+Folge"). Zusaetzlich: 5 e2e-Tests (Story-Seeding nach AG3-031-Preflight-Gate)
+gefixt (commit 8d06d43).
 
 ## 2. Begruendung der Reihenfolge
 
