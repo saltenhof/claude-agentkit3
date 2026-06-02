@@ -283,6 +283,18 @@ GET-Endpoint `/v1/projects/{key}` antwortet jetzt `ProjectDetailView` statt rohe
   `stories`). Kumulativ gruen @01421c7: Jenkins #24 SUCCESS, Sonar Quality Gate
   OK (new_coverage 84.4%, 0 new/critical violations). Counter-Klassifikation
   laeuft jetzt produktiv ueber den statischen Pfad (kein story_contexts-Seeding).
-- **Sub-Block (b) — fc_*-Tabellen (§2.1.2): offen, owned by AG3-028**
-  (Anmerkung 1 in `_bearbeitungsreihenfolge.md`). Deshalb bleibt
-  `AG3-040.status.yaml` auf `in_progress`, bis (b) ueber AG3-028 abgeschlossen ist.
+- **Sub-Block (b) — fc_*-Tabellen (§2.1.2): done + abgenommen (2026-06-02).**
+  Die Reassignment-Notiz hatte (b) an AG3-028 delegiert, doch AG3-028 wurde ohne
+  fc_patterns/fc_check_proposals abgeschlossen (verwaist). Auf User-Entscheidung
+  wurde (b) hier umgesetzt, damit AG3-040 feature- + spec-complete ist: fc_patterns
+  + fc_check_proposals (Postgres-kanonisch JSONB + SQLite-Test-parallel), Enums
+  PatternStatus(4)/CheckStatus(5)/CheckType(6), Repos (Skelette), SCHEMA_VERSION
+  3.14.0 -> 3.15.0 (Side-by-Side, FK-18 §18.9a). FK-41-treu (§41.3.2/§41.3.3):
+  ASCII-IDs ^FP-/^CHK-\d{4,}$ (re.ASCII), NULL-safe Human-CHECKs (accepted=>
+  confirmed_by='human', approved/active=>approved_by='human'), Fixture-Element-
+  Shape {description,expected}, schema-scoped Zirkular-FK check_ref<->pattern_ref.
+  Writer-Logik (PatternPromotion/CheckFactory) bleibt Out of Scope (FK-41 §41.5/§41.6).
+  Giftige-Codex-Loop r1 (4 ERRORs) -> r2 (2) -> r3 -> S6353-Fix -> VERDICT PASS.
+  Kumulativ gruen @90578ca: Jenkins #63 SUCCESS, Sonar Quality Gate OK
+  (violations=0, new_violations=0, 0 hotspots), pytest 3027 passed/Coverage >=85%,
+  mypy src + --platform linux, ruff. AG3-040 damit vollstaendig abgeschlossen.
