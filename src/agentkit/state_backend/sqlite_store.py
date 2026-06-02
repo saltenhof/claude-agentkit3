@@ -678,6 +678,216 @@ def _ensure_runtime_tables_part2(conn: sqlite3.Connection) -> None:
             ON skill_bindings (project_key, skill_name);
         """
     )
+    _ensure_runtime_tables_part3(conn)
+
+
+def _ensure_runtime_tables_part3(conn: sqlite3.Connection) -> None:
+    """Create the AG3-040 failure-corpus aggregate tables (schema part 2c).
+
+    Split out of ``_ensure_runtime_tables_part2`` so neither function exceeds the
+    300-LOC limit (python:S138, Codex/Sonar): the AG3-040 Sub-Block (b) DDL
+    (fc_patterns, fc_check_proposals incl. element-type trigger) pushed part2 over
+    the threshold. Pure structural split — identische DDL, idempotenter
+    ``executescript``-Aufruf. Test-Parallel-Pfad zu ``postgres_schema.sql``
+    (Postgres ist kanonisch; FK-41 §41.3.2/§41.3.3, FK-69 §69.3).
+    """
+    conn.executescript(
+        """
+        -- AG3-040 Sub-Block (b) (FK-41 §41.3.2, FK-69 §69.3): fc_patterns.
+        -- Schema-Owner failure-corpus. Test-Parallel-Pfad mit IDENTISCHER
+        -- Semantik zu postgres_schema.sql (Postgres ist kanonisch). status =
+        -- pattern-status (4 Werte), category = FailureCategory (12 Werte),
+        -- promotion_rule/risk_level mit den FK-41-Enums. incident_refs = JSON-
+        -- Array von incident_id-Strings (Element-Typ list[str] via BEFORE-Trigger,
+        -- da ein CHECK Array-Elemente nicht iterieren kann). NUR Tabelle +
+        -- Repository-Skelett; Writer (PatternPromotion) ist Out of Scope.
+        CREATE TABLE IF NOT EXISTS fc_patterns (
+            pattern_id        TEXT NOT NULL,
+            project_key       TEXT NOT NULL,
+            status            TEXT NOT NULL CHECK (status IN (
+                'candidate', 'accepted', 'rejected', 'retired'
+            )),
+            category          TEXT NOT NULL CHECK (category IN (
+                'scope_drift', 'architecture_violation', 'evidence_fabrication',
+                'hallucination', 'test_omission', 'assertion_weakness',
+                'unsafe_refactor', 'policy_violation', 'tool_misuse',
+                'state_desync', 'requirements_miss', 'review_evasion'
+            )),
+            invariant         TEXT NOT NULL,
+            incident_refs     TEXT NOT NULL,
+            promotion_rule    TEXT NOT NULL CHECK (promotion_rule IN (
+                'wiederholung', 'hohe_schwere', 'checkbarkeit'
+            )),
+            risk_level        TEXT NOT NULL CHECK (risk_level IN (
+                'mittel', 'hoch', 'kritisch'
+            )),
+            incident_count    INTEGER NOT NULL,
+            confirmed_at      TEXT,
+            confirmed_by      TEXT CHECK (confirmed_by IS NULL OR confirmed_by = 'human'),
+            owner             TEXT,
+            -- check_ref ist FK auf fc_check_proposals(check_id) (FK-41 §41.3.2:234).
+            -- Zirkulaere FK mit fc_check_proposals.pattern_ref: SQLite erlaubt die
+            -- Forward-Referenz in CREATE TABLE (FK-Ziel wird erst bei Benutzung
+            -- aufgeloest), und _connect setzt PRAGMA foreign_keys = ON (erzwingt
+            -- die FK identisch zu pattern_ref). Beide Refs sind nullable.
+            check_ref         TEXT REFERENCES fc_check_proposals(check_id),
+            retired_at        TEXT,
+            -- pattern_id == FP-NNNN (NNNN >= 4 Stellen, NUR Ziffern). Der
+            -- Prefix-GLOB erzwingt FP- + >=4 Ziffern; das NOT GLOB ab Pos. 4
+            -- verbietet ein Nicht-Ziffern-Suffix.
+            CONSTRAINT fc_patterns_id_format
+                CHECK (pattern_id GLOB 'FP-[0-9][0-9][0-9][0-9]*'
+                       AND substr(pattern_id, 4) NOT GLOB '*[^0-9]*'),
+            -- incident_refs = JSON-Array (Array-Typ per CHECK; Element-Typ
+            -- list[str] erzwingt der BEFORE-Trigger unten).
+            CONSTRAINT fc_patterns_incident_refs_is_array
+                CHECK (json_valid(incident_refs)
+                       AND json_type(incident_refs) = 'array'),
+            -- FK-41 §41.3.2:239: kein Pattern wechselt in 'accepted' ohne
+            -- confirmed_by = 'human' (FAIL-CLOSED, Lifecycle-Invariante;
+            -- spiegelt Postgres fc_patterns_accepted_human + Pydantic-Validator).
+            CONSTRAINT fc_patterns_accepted_human
+                CHECK (status <> 'accepted' OR confirmed_by IS 'human'),
+            PRIMARY KEY (pattern_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_fc_patterns_project
+            ON fc_patterns (project_key);
+
+        CREATE INDEX IF NOT EXISTS idx_fc_patterns_status
+            ON fc_patterns (status);
+
+        -- incident_refs MUSS ein JSON-Array AUS STRINGS sein (FK-41 §41.3.2).
+        -- Symmetrisch zum Postgres-jsonpath-CHECK + fc_incidents-Trigger.
+        CREATE TRIGGER IF NOT EXISTS trg_fc_patterns_strarray_insert
+        BEFORE INSERT ON fc_patterns
+        WHEN EXISTS (SELECT 1 FROM json_each(NEW.incident_refs) AS e
+                     WHERE e.type <> 'text')
+        BEGIN
+            SELECT RAISE(ABORT,
+                'incident_refs must be a JSON array of strings (FK-41 §41.3.2)');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_fc_patterns_strarray_update
+        BEFORE UPDATE ON fc_patterns
+        WHEN EXISTS (SELECT 1 FROM json_each(NEW.incident_refs) AS e
+                     WHERE e.type <> 'text')
+        BEGIN
+            SELECT RAISE(ABORT,
+                'incident_refs must be a JSON array of strings (FK-41 §41.3.2)');
+        END;
+
+        -- AG3-040 Sub-Block (b) (FK-41 §41.3.3, FK-69 §69.3): fc_check_proposals.
+        -- Schema-Owner failure-corpus. Test-Parallel-Pfad mit IDENTISCHER
+        -- Semantik zu postgres_schema.sql. status = check-status (5 Werte),
+        -- check_type = 6 FK-41-Werte, false_positive_risk = niedrig|mittel|hoch.
+        -- pattern_ref ist FK auf fc_patterns(pattern_id). positive_/negative_
+        -- fixtures = JSON-Arrays. NUR Tabelle + Repository-Skelett; Writer
+        -- (CheckFactory) ist Out of Scope.
+        CREATE TABLE IF NOT EXISTS fc_check_proposals (
+            check_id              TEXT NOT NULL,
+            project_key           TEXT NOT NULL,
+            status                TEXT NOT NULL CHECK (status IN (
+                'draft', 'approved', 'active', 'rejected', 'retired'
+            )),
+            pattern_ref           TEXT NOT NULL REFERENCES fc_patterns(pattern_id),
+            invariant             TEXT NOT NULL,
+            check_type            TEXT NOT NULL CHECK (check_type IN (
+                'Changed-File-Policy', 'Artifact-Completeness', 'Test-Obligation',
+                'Sensitive-Path-Guard', 'Forbidden-Dependency', 'Fixture-Replay'
+            )),
+            pipeline_stage        TEXT NOT NULL,
+            pipeline_layer        INTEGER NOT NULL,
+            owner                 TEXT NOT NULL,
+            false_positive_risk   TEXT NOT NULL CHECK (false_positive_risk IN (
+                'niedrig', 'mittel', 'hoch'
+            )),
+            positive_fixtures     TEXT NOT NULL,
+            negative_fixtures     TEXT NOT NULL,
+            created_at            TEXT NOT NULL,
+            approved_at           TEXT,
+            approved_by           TEXT CHECK (approved_by IS NULL OR approved_by = 'human'),
+            rejected_reason       TEXT,
+            effectiveness_last_checked_at TEXT,
+            true_positives_90d    INTEGER,
+            false_positives_90d   INTEGER,
+            -- check_id == CHK-NNNN (NNNN >= 4 Stellen, NUR Ziffern).
+            CONSTRAINT fc_check_proposals_id_format
+                CHECK (check_id GLOB 'CHK-[0-9][0-9][0-9][0-9]*'
+                       AND substr(check_id, 5) NOT GLOB '*[^0-9]*'),
+            -- positive_/negative_fixtures = JSON-Array (Array-Typ per CHECK;
+            -- Element-Shape {description, expected} erzwingt der BEFORE-Trigger
+            -- unten, da ein CHECK Array-Elemente nicht iterieren kann).
+            CONSTRAINT fc_check_proposals_positive_fixtures_is_array
+                CHECK (json_valid(positive_fixtures)
+                       AND json_type(positive_fixtures) = 'array'),
+            CONSTRAINT fc_check_proposals_negative_fixtures_is_array
+                CHECK (json_valid(negative_fixtures)
+                       AND json_type(negative_fixtures) = 'array'),
+            -- FK-41 §41.3.3:282: approved_by muss 'human' sein; 'active' erbt die
+            -- Pflicht (Vorwaerts-Uebergang aus 'approved'). FAIL-CLOSED, spiegelt
+            -- Postgres fc_check_proposals_approved_human + Pydantic-Validator.
+            CONSTRAINT fc_check_proposals_approved_human
+                CHECK (status NOT IN ('approved', 'active')
+                       OR approved_by IS 'human'),
+            PRIMARY KEY (check_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_fc_check_proposals_project
+            ON fc_check_proposals (project_key);
+
+        CREATE INDEX IF NOT EXISTS idx_fc_check_proposals_pattern_ref
+            ON fc_check_proposals (pattern_ref);
+
+        CREATE INDEX IF NOT EXISTS idx_fc_check_proposals_status
+            ON fc_check_proposals (status);
+
+        -- positive_/negative_fixtures MUESSEN JSON-Arrays von {description,
+        -- expected}-Objekten sein (FK-41 §41.3.3:265-266). Ein CHECK kann
+        -- Array-Elemente nicht iterieren; ein BEFORE-Trigger mit json_each schon.
+        -- RAISE(ABORT) macht Insert/Update fail-closed bei einem Element, das
+        -- KEIN Objekt ist oder einen Pflicht-Key vermissen laesst. Damit kann die
+        -- DB keinen fixtures-Wert halten, den der Repo-Decoder ablehnt
+        -- (symmetrisch zum Postgres-jsonpath-CHECK *_fixtures_shape).
+        CREATE TRIGGER IF NOT EXISTS trg_fc_check_proposals_fixtures_insert
+        BEFORE INSERT ON fc_check_proposals
+        WHEN EXISTS (
+                 SELECT 1 FROM json_each(NEW.positive_fixtures) AS e
+                 WHERE e.type <> 'object'
+                    OR json_type(e.value, '$.description') IS NULL
+                    OR json_type(e.value, '$.expected') IS NULL
+             )
+          OR EXISTS (
+                 SELECT 1 FROM json_each(NEW.negative_fixtures) AS e
+                 WHERE e.type <> 'object'
+                    OR json_type(e.value, '$.description') IS NULL
+                    OR json_type(e.value, '$.expected') IS NULL
+             )
+        BEGIN
+            SELECT RAISE(ABORT,
+                'fixtures must be a JSON array of {description, expected} objects (FK-41 §41.3.3)');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_fc_check_proposals_fixtures_update
+        BEFORE UPDATE ON fc_check_proposals
+        WHEN EXISTS (
+                 SELECT 1 FROM json_each(NEW.positive_fixtures) AS e
+                 WHERE e.type <> 'object'
+                    OR json_type(e.value, '$.description') IS NULL
+                    OR json_type(e.value, '$.expected') IS NULL
+             )
+          OR EXISTS (
+                 SELECT 1 FROM json_each(NEW.negative_fixtures) AS e
+                 WHERE e.type <> 'object'
+                    OR json_type(e.value, '$.description') IS NULL
+                    OR json_type(e.value, '$.expected') IS NULL
+             )
+        BEGIN
+            SELECT RAISE(ABORT,
+                'fixtures must be a JSON array of {description, expected} objects (FK-41 §41.3.3)');
+        END;
+        """
+    )
 
 
 def _ensure_story_identity_migration(conn: sqlite3.Connection) -> None:

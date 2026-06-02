@@ -72,7 +72,22 @@ SCHEMA_OVERRIDE_ALLOWED_ENV = "AGENTKIT_PG_SCHEMA_OVERRIDE_ALLOWED"
 # Idempotent side-by-side migration via the versioned-schema pattern (FK-18
 # §18.9a) — a fresh ak3_v3_14_0 schema / agentkit_3_14_0.sqlite file is created;
 # the old 3.13.0 DB is never touched.
-SCHEMA_VERSION = "3.14.0"
+# AG3-040 Sub-Block (b): 3.14.0 -> 3.15.0 (fc_patterns + fc_check_proposals
+# tables added; FK-41 §41.3.2/§41.3.3, FK-69 §69.3. Schema-Owner failure-corpus,
+# DB-Owner telemetry-and-events. Canonical Postgres (JSONB/jsonpath CHECK) +
+# SQLite test-parallel schema with identical semantics. fc_patterns: PK
+# pattern_id (FP-NNNN), CHECK on status (4 pattern-status values), category (12
+# FailureCategory values), promotion_rule (3), risk_level (3), confirmed_by =
+# 'human'; incident_refs = JSON array of strings. fc_check_proposals: PK check_id
+# (CHK-NNNN), pattern_ref FK -> fc_patterns(pattern_id), CHECK on status (5
+# check-status values), check_type (6 CheckType values), false_positive_risk (3),
+# approved_by = 'human'; positive_/negative_fixtures = JSON arrays. New enums
+# PatternStatus (4), CheckStatus (5), CheckType (6) in core_types. Only tables +
+# repository skeletons; the writers PatternPromotion/CheckFactory stay Out of
+# Scope (FK-41 §41.5/§41.6). Idempotent side-by-side migration via the
+# versioned-schema pattern (FK-18 §18.9a) — a fresh ak3_v3_15_0 schema /
+# agentkit_3_15_0.sqlite file is created; the old 3.14.0 DB is never touched.
+SCHEMA_VERSION = "3.15.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 # AG3-051: reserved test-schema namespace. Disjoint from the production schema
 # name (``ak3_v<slug>``), so a test override can never resolve onto production

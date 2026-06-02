@@ -35,11 +35,13 @@ def test_schema_version_helpers_derive_versioned_names() -> None:
     # Strings DB-seitig erzwungen — Postgres-CHECK + SQLite-Array-CHECK)
     # AG3-048: 3.13.0 -> 3.14.0 (skill_bindings table; agent-skills BC
     # persistence, FK-43 §43.4.1, bc-cut-decisions.md §BC 11, FK-18 §18.9a)
-    assert state_config.SCHEMA_VERSION == "3.14.0"
+    # AG3-040 Sub-Block (b): 3.14.0 -> 3.15.0 (fc_patterns + fc_check_proposals
+    # tables; failure-corpus BC, FK-41 §41.3.2/§41.3.3, FK-69 §69.3, FK-18 §18.9a)
+    assert state_config.SCHEMA_VERSION == "3.15.0"
     assert state_config.versioned_postgres_schema_name("3.0.0") == "ak3_v3_0_0"
     assert state_config.versioned_sqlite_db_file("3.0.0") == "agentkit_3_0_0.sqlite"
-    assert state_config.versioned_postgres_schema_name() == "ak3_v3_14_0"
-    assert state_config.versioned_sqlite_db_file() == "agentkit_3_14_0.sqlite"
+    assert state_config.versioned_postgres_schema_name() == "ak3_v3_15_0"
+    assert state_config.versioned_sqlite_db_file() == "agentkit_3_15_0.sqlite"
 
 
 def test_schema_version_rejects_non_semver() -> None:

@@ -414,6 +414,144 @@
             PRIMARY KEY (year)
         );
 
+        -- AG3-040 Sub-Block (b) (FK-41 §41.3.2, FK-69 §69.3): fc_patterns.
+        -- Schema-Owner failure-corpus, DB-Owner telemetry-and-events. Schema
+        -- exakt nach FK-41 §41.3.2 (Pflicht-/Optional-Attribute). status =
+        -- pattern-status (4 Werte: candidate|accepted|rejected|retired),
+        -- category = FailureCategory (12 Werte), promotion_rule/risk_level mit
+        -- den FK-41-Enums. incident_refs = JSON-Array von incident_id-Strings
+        -- (FK-41: "JSON-Array der zugehoerigen incident_id-Werte"). Diese Story
+        -- liefert NUR Tabelle + Repository-Skelett; der Writer (PatternPromotion)
+        -- folgt in einer Folge-Story (FK-41 §41.5, Out of Scope).
+        CREATE TABLE IF NOT EXISTS fc_patterns (
+            pattern_id TEXT NOT NULL,
+            project_key TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN (
+                'candidate', 'accepted', 'rejected', 'retired'
+            )),
+            category TEXT NOT NULL CHECK (category IN (
+                'scope_drift', 'architecture_violation', 'evidence_fabrication',
+                'hallucination', 'test_omission', 'assertion_weakness',
+                'unsafe_refactor', 'policy_violation', 'tool_misuse',
+                'state_desync', 'requirements_miss', 'review_evasion'
+            )),
+            invariant TEXT NOT NULL,
+            incident_refs JSON NOT NULL,
+            promotion_rule TEXT NOT NULL CHECK (promotion_rule IN (
+                'wiederholung', 'hohe_schwere', 'checkbarkeit'
+            )),
+            risk_level TEXT NOT NULL CHECK (risk_level IN (
+                'mittel', 'hoch', 'kritisch'
+            )),
+            incident_count INTEGER NOT NULL,
+            confirmed_at TIMESTAMPTZ,
+            confirmed_by TEXT CHECK (confirmed_by IS NULL OR confirmed_by = 'human'),
+            owner TEXT,
+            -- check_ref ist FK auf fc_check_proposals(check_id) (FK-41 §41.3.2:234).
+            -- Die FK-Constraint selbst wird idempotent NACH dem Anlegen beider
+            -- Tabellen ergaenzt (zirkulaere FK mit fc_check_proposals.pattern_ref;
+            -- siehe postgres_store._ensure_failure_corpus_constraints). Beide Refs
+            -- sind nullable.
+            check_ref TEXT,
+            retired_at TIMESTAMPTZ,
+            PRIMARY KEY (pattern_id),
+            -- pattern_id == FP-NNNN (NNNN >= 4 Stellen, NUR Ziffern; spiegelt den
+            -- FK-41-§41.3.2-Vertrag und den Pydantic-Validator, FAIL-CLOSED).
+            CONSTRAINT fc_patterns_id_format
+                CHECK (pattern_id ~ '^FP-[0-9]{4,}$'),
+            -- incident_refs ist ein JSON-Array AUS STRINGS (FK-41 §41.3.2). Der
+            -- jsonpath-Filter trifft jedes Nicht-String-Element; existiert eines,
+            -- schlaegt der CHECK fehl (symmetrisch zum fc_incidents-evidence-CHECK).
+            CONSTRAINT fc_patterns_incident_refs_is_string_array
+                CHECK (jsonb_typeof(incident_refs::jsonb) = 'array'
+                       AND NOT (incident_refs::jsonb @? '$[*] ? (@.type() != "string")')),
+            -- FK-41 §41.3.2:239: kein Pattern wechselt in 'accepted' ohne
+            -- confirmed_by = 'human'. Konditionaler CHECK (FAIL-CLOSED,
+            -- Lifecycle-Invariante, spiegelt den Pydantic-model_validator).
+            CONSTRAINT fc_patterns_accepted_human
+                CHECK (status <> 'accepted'
+                       OR confirmed_by IS NOT DISTINCT FROM 'human')
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_fc_patterns_project
+            ON fc_patterns (project_key);
+
+        CREATE INDEX IF NOT EXISTS idx_fc_patterns_status
+            ON fc_patterns (status);
+
+        -- AG3-040 Sub-Block (b) (FK-41 §41.3.3, FK-69 §69.3): fc_check_proposals.
+        -- Schema-Owner failure-corpus, DB-Owner telemetry-and-events. Schema
+        -- exakt nach FK-41 §41.3.3. status = check-status (5 Werte: draft|approved|
+        -- active|rejected|retired), check_type = 6 FK-41-Werte, false_positive_risk
+        -- = niedrig|mittel|hoch. pattern_ref ist FK auf fc_patterns(pattern_id)
+        -- (FK-41 §41.3.3: "Verweis auf fc_patterns.pattern_id"). positive_/
+        -- negative_fixtures = JSON-Arrays. Diese Story liefert NUR Tabelle +
+        -- Repository-Skelett; der Writer (CheckFactory) folgt in einer Folge-Story
+        -- (FK-41 §41.6, Out of Scope).
+        CREATE TABLE IF NOT EXISTS fc_check_proposals (
+            check_id TEXT NOT NULL,
+            project_key TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN (
+                'draft', 'approved', 'active', 'rejected', 'retired'
+            )),
+            pattern_ref TEXT NOT NULL REFERENCES fc_patterns(pattern_id),
+            invariant TEXT NOT NULL,
+            check_type TEXT NOT NULL CHECK (check_type IN (
+                'Changed-File-Policy', 'Artifact-Completeness', 'Test-Obligation',
+                'Sensitive-Path-Guard', 'Forbidden-Dependency', 'Fixture-Replay'
+            )),
+            pipeline_stage TEXT NOT NULL,
+            pipeline_layer INTEGER NOT NULL,
+            owner TEXT NOT NULL,
+            false_positive_risk TEXT NOT NULL CHECK (false_positive_risk IN (
+                'niedrig', 'mittel', 'hoch'
+            )),
+            positive_fixtures JSON NOT NULL,
+            negative_fixtures JSON NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL,
+            approved_at TIMESTAMPTZ,
+            approved_by TEXT CHECK (approved_by IS NULL OR approved_by = 'human'),
+            rejected_reason TEXT,
+            effectiveness_last_checked_at TIMESTAMPTZ,
+            true_positives_90d INTEGER,
+            false_positives_90d INTEGER,
+            PRIMARY KEY (check_id),
+            -- check_id == CHK-NNNN (NNNN >= 4 Stellen, NUR Ziffern; FK-41
+            -- §41.3.3, FAIL-CLOSED).
+            CONSTRAINT fc_check_proposals_id_format
+                CHECK (check_id ~ '^CHK-[0-9]{4,}$'),
+            -- positive_/negative_fixtures sind JSON-Arrays von {description,
+            -- expected}-Objekten (FK-41 §41.3.3:265-266). Der jsonpath-Filter
+            -- trifft jedes Element, das KEIN Objekt mit BEIDEN Pflicht-Keys ist;
+            -- existiert ein solches, schlaegt der CHECK fehl. Damit kann die DB
+            -- keinen fixtures-Wert halten, den der Repo-Decoder ablehnt
+            -- (FAIL-CLOSED, kein DB-state-the-repo-rejects-Loch).
+            CONSTRAINT fc_check_proposals_positive_fixtures_shape
+                CHECK (jsonb_typeof(positive_fixtures::jsonb) = 'array'
+                       AND NOT (positive_fixtures::jsonb @? '$[*] ? (@.type() != "object"
+                                || !exists(@.description) || !exists(@.expected))')),
+            CONSTRAINT fc_check_proposals_negative_fixtures_shape
+                CHECK (jsonb_typeof(negative_fixtures::jsonb) = 'array'
+                       AND NOT (negative_fixtures::jsonb @? '$[*] ? (@.type() != "object"
+                                || !exists(@.description) || !exists(@.expected))')),
+            -- FK-41 §41.3.3:282: approved_by muss 'human' sein; 'active' ist ein
+            -- Vorwaerts-Uebergang aus 'approved' (FK-41 §41.6.7) und erbt die
+            -- Pflicht. Konditionaler CHECK (FAIL-CLOSED, Lifecycle-Invariante,
+            -- spiegelt den Pydantic-model_validator).
+            CONSTRAINT fc_check_proposals_approved_human
+                CHECK (status NOT IN ('approved', 'active')
+                       OR approved_by IS NOT DISTINCT FROM 'human')
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_fc_check_proposals_project
+            ON fc_check_proposals (project_key);
+
+        CREATE INDEX IF NOT EXISTS idx_fc_check_proposals_pattern_ref
+            ON fc_check_proposals (pattern_ref);
+
+        CREATE INDEX IF NOT EXISTS idx_fc_check_proposals_status
+            ON fc_check_proposals (status);
+
         CREATE TABLE IF NOT EXISTS decision_records (
             project_key TEXT,
             story_id TEXT NOT NULL,

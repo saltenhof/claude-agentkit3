@@ -11,6 +11,10 @@ und wird hier nur durchgereicht.
 from __future__ import annotations
 
 from agentkit.core_types import FailureCategory, IncidentStatus
+from agentkit.failure_corpus.check_proposal import (
+    CheckProposalRecord,
+    FalsePositiveRisk,
+)
 from agentkit.failure_corpus.errors import (
     FailureCorpusError,
     IncidentRejectedError,
@@ -25,6 +29,11 @@ from agentkit.failure_corpus.incident_triage import (
     IncidentNormalizer,
     IncidentTriage,
     IngressCriteria,
+)
+from agentkit.failure_corpus.pattern import (
+    FailurePatternRecord,
+    PatternRiskLevel,
+    PromotionRule,
 )
 from agentkit.failure_corpus.ports import IncidentWriterPort, ProjectionReaderPort
 from agentkit.failure_corpus.top import (
@@ -48,11 +57,14 @@ __all__ = [
     "CheckApprovalDecision",
     "CheckId",
     "CheckProposal",
+    "CheckProposalRecord",
     "EffectivenessReport",
     "FailureCategory",
     "FailureCorpus",
     "FailureCorpusError",
     "FailurePattern",
+    "FailurePatternRecord",
+    "FalsePositiveRisk",
     "Incident",
     "IncidentCandidate",
     "IncidentDraft",
@@ -69,5 +81,7 @@ __all__ = [
     "PatternCandidate",
     "PatternDecision",
     "PatternId",
+    "PatternRiskLevel",
     "ProjectionReaderPort",
+    "PromotionRule",
 ]

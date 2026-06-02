@@ -417,12 +417,57 @@ def _ensure_story_identity_constraints(conn: _CompatConnection) -> None:
     )
 
 
+def _ensure_failure_corpus_constraints(conn: _CompatConnection) -> None:
+    """Apply the idempotent circular FK between fc_patterns and fc_check_proposals.
+
+    FK-41 §41.3.2:234 defines ``fc_patterns.check_ref`` as a reference to
+    ``fc_check_proposals(check_id)``; FK-41 §41.3.3:256 defines
+    ``fc_check_proposals.pattern_ref`` as a reference to ``fc_patterns(pattern_id)``.
+    The latter is inline in ``CREATE TABLE`` (fc_patterns exists first); the former
+    is a forward reference and is therefore added here, after both tables exist.
+    Both refs are nullable. Idempotent via ``pg_constraint`` existence guard.
+
+    The existence guard is scoped to ``current_schema()`` (join
+    ``pg_constraint`` -> ``pg_class`` -> ``pg_namespace``): in a shared DB with
+    several versioned/test schemas (``ak3_v*``, ``ak3test_*``) a same-named
+    constraint in ANOTHER schema must not make a fresh schema skip the FK, which
+    would leave FK-41 §41.3.2:234 unenforced there. ``search_path`` is set to the
+    resolved schema first (see ``schema_bootstrap.ensure_versioned_schema`` /
+    AG3-051 test isolation), so ``current_schema()`` is exactly that target
+    schema and every schema lacking the FK gets it.
+
+    Rollback plan: drop ``fc_patterns_check_ref_fkey``; ``check_ref`` stays a plain
+    nullable TEXT column.
+    """
+    conn.execute(
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1
+                FROM pg_constraint c
+                JOIN pg_class t ON t.oid = c.conrelid
+                JOIN pg_namespace n ON n.oid = t.relnamespace
+                WHERE c.conname = 'fc_patterns_check_ref_fkey'
+                  AND n.nspname = current_schema()
+            ) THEN
+                ALTER TABLE fc_patterns
+                ADD CONSTRAINT fc_patterns_check_ref_fkey
+                FOREIGN KEY (check_ref) REFERENCES fc_check_proposals(check_id);
+            END IF;
+        END
+        $$;
+        """,
+    )
+
+
 def _ensure_schema(conn: _CompatConnection) -> None:
     conn.executescript(_schema_create_script())
     for statement in _schema_alter_statements():
         conn.execute(statement)
     _ensure_reporting_indexes(conn)
     _ensure_story_identity_constraints(conn)
+    _ensure_failure_corpus_constraints(conn)
 
 
 def _story_id_for(story_dir: Path) -> str | None:
