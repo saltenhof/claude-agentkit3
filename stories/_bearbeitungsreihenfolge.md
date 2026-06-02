@@ -77,6 +77,28 @@ als ID/Nummer-Quelle, toter `lifecycle.create_story`-Pfad raus. Beruehrt formal-
 in_progress und wird nach AG3-050 abgenommen (Landmine entfernt). Reihenfolge:
 AG3-050 -> AG3-040(a)-Abnahme -> dann AG3-028/Welle.
 
+**Anmerkung 5 (AG3-032 Principal-Capability-Modell, THEME-006, abgenommen 2026-06-03):**
+AG3-032 (FK-55 Principal/PathClass/OperationClass + harte Matrix + Conflict-Freeze-
+Overlay, Enforcement vor CCAG) ist `completed` (@e1a411a: Jenkins #74 SUCCESS, Sonar
+Quality Gate OK — violations/critical/blocker/open_hotspots = 0). **Konzeptkorrektur
+mitgeliefert** (Stefan-Abnahme): FK-55 §55.1a (Durchsetzungsgrenzen, Schutzschichten,
+Runner-Boundary-Class) + FK-30 §30.1/Glossar nachgeschaerft. Ehrliche Scope-Ziehung:
+der Hook ist **Schicht A = Stufe 1+2** (direkte, klassifizierbare Tool-Ops, hart &
+nicht umgehbar); **Stufe 3** (Obfuskation/beliebige Codeausfuehrung) ist explizit
+**out-of-scope** — auf nativem Windows gibt es kein unprivilegiertes Per-Tool-Call-FS-
+Containment (Kernel-FS-Sandbox/Landlock waere Schicht B, nur in Linux-/WSL2-Runner;
+NICHT gebaut). Stufe-3-Schutz ruht auf Broker-Wahrheit + Akzeptanz-Gate. giftige Codex
+r1 (8 ERROR -> remediation), r2 (B/C/D/E PASS + binding_invalid fail-open CONFIRMED ->
+remediation), r3 PASS (fail-open geschlossen). LLM-Hub-Diskussion (5 Backends) lieferte
+die Runner-Boundary-Class-Idee. **Folge:** AG3-033 (Self-Protection/Story-Creation-Guard)
+und AG3-034 (Preflight 2/5-10 + IntegrityGate-8-Dim) sind damit unblockt (depends_on
+AG3-032 erfuellt). **WICHTIG fuer AG3-033/034-Worker:** AG3-032 lieferte NICHT die in
+deren story.md angenommenen Typnamen — real gilt PathClass `governance_plane`/
+`git_internal`, OperationClass `write`/`execute`, 9 Principals (`pipeline_deterministic`/
+`admin_service`/`human_cli` statt INSTALLER/RECOVERY), Freeze-Pfad-Konstante
+`GOVERNANCE_FREEZE_EXPORT_*` in `core_types`. Gegen das gelieferte Modell implementieren,
+nicht gegen die story.md-Code-Skizzen (Akzeptanzkriterien-Intent bleibt gueltig).
+
 ## 2. Begruendung der Reihenfolge
 
 **AG3-026 zuerst (Top-Surface der Capability):**
