@@ -1,8 +1,8 @@
 story_id: AG3-033
 title: "Self-Protection-Guard + Story-Creation-Guard als eigenstaendige Module"
 type: implementation
-status: blocked
-phase: setup
+status: in_progress
+phase: implementation
 created: "2026-05-16"
 size: M
 depends_on:

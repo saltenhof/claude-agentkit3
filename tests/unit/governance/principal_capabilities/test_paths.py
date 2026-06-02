@@ -46,6 +46,48 @@ def test_governance_plane_agentkit_and_temp() -> None:
     assert _classify("/repo/.agent-guard/lock.json") is PathClass.GOVERNANCE_PLANE
 
 
+def test_governance_plane_self_protection_hook_settings() -> None:
+    # AG3-033 / FK-30 §30.5.4 + FK-55 §55.4 (Guardrail-Zustaende → governance_plane):
+    # harness hook-settings classify as governance_plane so the capability matrix
+    # makes a coherent decision (worker DENY, official principals ALLOW) instead
+    # of UNCLASSIFIED_MUTATION hard-blocking ALL principals.
+    assert _classify(".claude/settings.json") is PathClass.GOVERNANCE_PLANE
+    assert _classify(".codex/config.toml") is PathClass.GOVERNANCE_PLANE
+    assert _classify(".codex/hooks.json") is PathClass.GOVERNANCE_PLANE
+
+
+def test_governance_plane_self_protection_config_and_manifest() -> None:
+    # FK-30 §30.5.4: governance config + installer manifest.
+    assert _classify(".agentkit/config/project.yaml") is PathClass.GOVERNANCE_PLANE
+    assert _classify(".installed-manifest.json") is PathClass.GOVERNANCE_PLANE
+
+
+def test_governance_plane_self_protection_symlink_dirs() -> None:
+    # FK-30 §30.5.4 / FK-15 §15.7.1: CCAG-rule + skill-symlink dirs (any path
+    # UNDER them) classify as governance_plane.
+    assert _classify(".agentkit/ccag/rules/subagents.yaml") is (
+        PathClass.GOVERNANCE_PLANE
+    )
+    assert _classify(".claude/ccag/rules/subagents.yaml") is PathClass.GOVERNANCE_PLANE
+    assert _classify(".claude/skills/create-userstory/SKILL.md") is (
+        PathClass.GOVERNANCE_PLANE
+    )
+
+
+def test_self_protection_classification_is_precise_not_over_broad() -> None:
+    # AG3-033 (over-classification guard): only the SPECIFIC protected files/dirs
+    # are governance_plane. Arbitrary harness working files under .claude/.codex
+    # must NOT be swept in — they stay unclassified (None sentinel), exactly as
+    # before the AG3-033 change. Over-classifying would lock down legitimate
+    # harness working files.
+    assert _classify(".claude/other.json") is None
+    assert _classify(".codex/scratch.txt") is None
+    assert _classify(".claude/settings.local.json") is None
+    assert _classify(".agentkit/config/other.yaml") is None
+    # A skill-like name OUTSIDE the protected skills dir is not protected.
+    assert _classify("docs/skills/notes.md") is None
+
+
 def test_qa_sandbox() -> None:
     assert _classify(f"_temp/adversarial/{_STORY}/probe.py") is PathClass.QA_SANDBOX
 

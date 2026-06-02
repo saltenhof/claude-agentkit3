@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agentkit.governance.errors import LockRecordNotFoundError
+from agentkit.governance.hook_registration import HookId
 from agentkit.governance.locks import DeactivationResult, LockRecordId
 from agentkit.governance.protocols import GuardVerdict, ViolationType
 
@@ -552,6 +553,20 @@ def run_hook(
     if capability_block is not None:
         return capability_block
 
+    # AG3-033 (governance-and-guards.C5): two hooks now own dedicated guard
+    # modules instead of the pauschal `evaluate_pre_tool_use` dispatch. They run
+    # AFTER the capability enforcement (a hard DENY / UNCLASSIFIED_MUTATION /
+    # binding_invalid block above still precedes them — AG3-032 fail-closed
+    # ordering is NOT regressed) and pre-empt the generic chain only for their
+    # own hook id. ``self_protection`` (FK-30 §30.5.4) and
+    # ``story_creation_guard`` (FK-31 §31.5) are dispatched here; every other
+    # hook (branch_guard, qa_agent_guard, scope_guard via guard_evaluation,
+    # ccag_gatekeeper, ...) keeps its current path unchanged.
+    if hook_id == HookId.SELF_PROTECTION.value:
+        return _run_self_protection_guard(event)
+    if hook_id == HookId.STORY_CREATION_GUARD.value:
+        return _run_story_creation_guard(event)
+
     # CCAG is the last PreToolUse hook — dispatched separately (FK-42 §42.5.2)
     if hook_id == "ccag_gatekeeper":
         return _run_ccag_hook(event)
@@ -559,6 +574,56 @@ def run_hook(
     from agentkit.governance.guard_evaluation import evaluate_pre_tool_use
 
     return evaluate_pre_tool_use(event, project_root=project_root or Path.cwd())
+
+
+def _run_self_protection_guard(event: HookEvent) -> HookDecision:
+    """Dispatch the ``self_protection`` hook to :class:`SelfProtectionGuard`.
+
+    FK-30 §30.5.4: always active. Wires the real PrincipalResolver /
+    PathClassifier / OperationClassifier (no fabricated state — the same
+    components the capability enforcement uses).
+
+    Args:
+        event: Harness-neutral hook event.
+
+    Returns:
+        The guard's :class:`~agentkit.governance.protocols.GuardVerdict`.
+    """
+    from agentkit.governance.guards.self_protection_guard import SelfProtectionGuard
+    from agentkit.governance.principal_capabilities import (
+        OperationClassifier,
+        PathClassifier,
+        PrincipalResolver,
+    )
+
+    return SelfProtectionGuard(
+        principal_resolver=PrincipalResolver(),
+        path_classifier=PathClassifier(),
+        op_classifier=OperationClassifier(),
+    ).evaluate(event)
+
+
+def _run_story_creation_guard(event: HookEvent) -> HookDecision:
+    """Dispatch the ``story_creation_guard`` hook to :class:`StoryCreationGuard`.
+
+    FK-31 §31.5 / FK-21 §21.13: always active.
+
+    Args:
+        event: Harness-neutral hook event.
+
+    Returns:
+        The guard's :class:`~agentkit.governance.protocols.GuardVerdict`.
+    """
+    from agentkit.governance.guards.story_creation_guard import StoryCreationGuard
+    from agentkit.governance.principal_capabilities import (
+        OperationClassifier,
+        PrincipalResolver,
+    )
+
+    return StoryCreationGuard(
+        principal_resolver=PrincipalResolver(),
+        op_classifier=OperationClassifier(),
+    ).evaluate(event)
 
 
 def _run_capability_enforcement(

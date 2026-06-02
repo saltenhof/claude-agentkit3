@@ -59,9 +59,65 @@ GOVERNANCE_FREEZE_EXPORT_PARTS: tuple[str, ...] = (
 #: Literal.
 GOVERNANCE_FREEZE_EXPORT_RELPATH: str = "/".join(GOVERNANCE_FREEZE_EXPORT_PARTS)
 
+
+# ---------------------------------------------------------------------------
+# Self-Protection-Pfade (FK-30 §30.5.4 / FK-15 §15.7.1) — SINGLE SOURCE.
+#
+# Der Governance-Selbstschutz (FK-30 §30.5.4) schuetzt eine feste Menge von
+# Hook-Settings-, CCAG-Symlink-, Konfigurations-, Manifest- und Lock-/Edge-
+# Bundle-Pfaden vor jeder Mutation durch nicht-offizielle Principals. Die
+# zugehoerigen Pfad-Literale leben hier (core_types) als SINGLE SOURCE OF TRUTH,
+# damit der geschuetzte ``agentkit.governance``-Namespace (insbesondere der
+# ``SelfProtectionGuard``) keine zweite Wahrheit fuer geschuetzte Pfade haelt
+# (CLAUDE.md SINGLE SOURCE OF TRUTH / Truth-Boundary, FK-55 §55.4 governance_plane).
+#
+# Die Pfadklasse ``governance_plane`` (``.agentkit/governance``, ``_temp/governance``,
+# ``.agent-guard``) und ``git_internal`` (``.git``) deckt der PathClassifier bereits
+# ab (FK-55 §55.4). Die folgenden Pfade liegen NICHT in der Pfadklassifikation,
+# weil sie harness-spezifische Bindungspunkte sind — der SelfProtectionGuard ist
+# ihr Owner und klassifiziert sie ueber diese Segment-Tupel.
+# ---------------------------------------------------------------------------
+
+#: Harness-spezifische Hook-Settings-Dateien (FK-30 §30.5.4 / FK-76 §76.5):
+#: Claude-Code ``.claude/settings.json`` (FK-76 §76.5.1) sowie die beiden
+#: Codex-Dateien — die allgemeine Codex-Konfiguration ``.codex/config.toml`` und
+#: die produktive Codex-HOOK-Settings-Datei ``.codex/hooks.json`` (FK-76 §76.5.2;
+#: ``CodexSettingsWriter.settings_path``). FK-30 §30.5.4 fuehrt nur das harness-
+#: neutrale „harness-eigenes Aequivalent" und verweist fuer die konkrete Datei auf
+#: FK-76 §76.5; dort ist ``.codex/hooks.json`` die normative Hook-Settings-Datei,
+#: ueber die der Agent die Hooks deaktivieren koennte — daher ebenfalls geschuetzt.
+#: Jeder Eintrag ist ein projekt-relatives POSIX-Segment-Tupel.
+SELF_PROTECTION_HOOK_SETTINGS_PARTS: tuple[tuple[str, ...], ...] = (
+    (".claude", "settings.json"),
+    (".codex", "config.toml"),
+    (".codex", "hooks.json"),
+)
+
+#: CCAG-Regel- und Skill-Symlink-Verzeichnisse (FK-30 §30.5.4 / FK-15 §15.7.1):
+#: der kanonische CCAG-Regelpfad ``.agentkit/ccag/rules`` (FK-15 §15.7.1 erste
+#: Zeile der geschuetzten Pfade — der eigentliche Owner-Pfad, nicht nur sein
+#: Symlink), der harness-spezifische Symlink ``.claude/ccag/rules`` (Symlink auf
+#: den kanonischen Pfad) und ``.claude/skills`` (CCAG-/Skill-Symlink-Targets).
+#: Verzeichnis-Praefixe — jede Mutation UNTER diesen Pfaden ist geschuetzt.
+SELF_PROTECTION_SYMLINK_DIR_PARTS: tuple[tuple[str, ...], ...] = (
+    (".agentkit", "ccag", "rules"),
+    (".claude", "ccag", "rules"),
+    (".claude", "skills"),
+)
+
+#: Kanonische Governance-Konfigurations-/Manifest-Dateien (FK-30 §30.5.4):
+#: ``.agentkit/config/project.yaml`` und ``.installed-manifest.json``.
+SELF_PROTECTION_CONFIG_FILE_PARTS: tuple[tuple[str, ...], ...] = (
+    (".agentkit", "config", "project.yaml"),
+    (".installed-manifest.json",),
+)
+
 __all__ = [
     "CONTENT_PLANE_FILES",
     "CONTROL_PLANE_FILES",
     "GOVERNANCE_FREEZE_EXPORT_PARTS",
     "GOVERNANCE_FREEZE_EXPORT_RELPATH",
+    "SELF_PROTECTION_CONFIG_FILE_PARTS",
+    "SELF_PROTECTION_HOOK_SETTINGS_PARTS",
+    "SELF_PROTECTION_SYMLINK_DIR_PARTS",
 ]

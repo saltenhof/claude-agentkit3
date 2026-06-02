@@ -29,6 +29,9 @@ from typing import TYPE_CHECKING
 from agentkit.core_types.plane_artifact_names import (
     CONTENT_PLANE_FILES,
     CONTROL_PLANE_FILES,
+    SELF_PROTECTION_CONFIG_FILE_PARTS,
+    SELF_PROTECTION_HOOK_SETTINGS_PARTS,
+    SELF_PROTECTION_SYMLINK_DIR_PARTS,
 )
 from agentkit.core_types.qa_artifact_names import ALL_QA_ARTIFACT_FILES, GUARDRAIL_FILE
 
@@ -70,6 +73,30 @@ _CONTROL_PLANE_FILES: frozenset[str] = frozenset(CONTROL_PLANE_FILES)
 #: under the QA story dir; writing them out of band is governance-protected.
 _QA_ARTIFACT_FILES: frozenset[str] = frozenset(
     {*ALL_QA_ARTIFACT_FILES, GUARDRAIL_FILE}
+)
+
+#: Self-protection registry EXACT-file segment tuples (FK-30 §30.5.4): harness
+#: hook-settings (``.claude/settings.json``, ``.codex/config.toml``,
+#: ``.codex/hooks.json``) plus governance config / installer manifest
+#: (``.agentkit/config/project.yaml``, ``.installed-manifest.json``). They are
+#: "Guardrail-Zustaende" in the FK-55 §55.4 sense — platform self-governance
+#: state that "nur offizielle Servicepfade" may mutate — and therefore classify
+#: as :attr:`PathClass.GOVERNANCE_PLANE` (AG3-033: closes the dead-whitelist
+#: inconsistency where these paths were UNCLASSIFIED and hard-blocked for ALL
+#: principals before the SelfProtectionGuard could narrow by zone). Wire literals
+#: live in ``core_types.plane_artifact_names`` (SINGLE SOURCE OF TRUTH /
+#: Truth-Boundary — no second source here).
+_SELF_PROTECTION_FILE_PARTS: tuple[tuple[str, ...], ...] = (
+    *SELF_PROTECTION_HOOK_SETTINGS_PARTS,
+    *SELF_PROTECTION_CONFIG_FILE_PARTS,
+)
+
+#: Self-protection registry DIRECTORY-prefix segment tuples (FK-30 §30.5.4 /
+#: FK-15 §15.7.1): the CCAG-rule / skill-symlink dirs (``.agentkit/ccag/rules``,
+#: ``.claude/ccag/rules``, ``.claude/skills``). A mutation UNDER any of these is
+#: governance-plane (FK-55 §55.4 Guardrail-Zustaende). Same canonical source.
+_SELF_PROTECTION_DIR_PARTS: tuple[tuple[str, ...], ...] = (
+    *SELF_PROTECTION_SYMLINK_DIR_PARTS,
 )
 
 
@@ -145,7 +172,19 @@ class PathClassifier:
             return True
         if ".agent-guard" in segments:
             return True
-        return "_temp" in segments and "governance" in segments
+        if "_temp" in segments and "governance" in segments:
+            return True
+        # Self-protection registry (FK-30 §30.5.4): harness hook-settings,
+        # CCAG-/skill-symlink dirs and governance config / installer manifest are
+        # "Guardrail-Zustaende" (FK-55 §55.4 governance_plane: "nur offizielle
+        # Servicepfade"). Precise: exact files + dir-prefix runs only — NOT all of
+        # ``.claude``/``.codex`` (arbitrary harness working files stay
+        # unclassified). AG3-033: this makes the capability matrix coherent
+        # (worker DENY, official principals ALLOW) so the SelfProtectionGuard can
+        # narrow harness-zone paths to pipeline_deterministic only.
+        if _ends_with_file(segments, _SELF_PROTECTION_FILE_PARTS):
+            return True
+        return _contains_dir_run(segments, _SELF_PROTECTION_DIR_PARTS)
 
     @staticmethod
     def _is_qa_sandbox(segments: list[str]) -> bool:
@@ -214,6 +253,37 @@ def _is_under(target: list[str], root: list[str]) -> bool:
     if not root or len(root) > len(target):
         return False
     return target[: len(root)] == root
+
+
+def _ends_with_file(segments: list[str], file_parts: tuple[tuple[str, ...], ...]) -> bool:
+    """Whether ``segments`` ends with one of the exact protected file tuples.
+
+    Cheap suffix comparison only (FK-55 §55.10.2): no filesystem access.
+    """
+    return any(
+        len(parts) <= len(segments) and parts == tuple(segments[-len(parts) :])
+        for parts in file_parts
+    )
+
+
+def _contains_dir_run(segments: list[str], dir_parts: tuple[tuple[str, ...], ...]) -> bool:
+    """Whether ``segments`` contains one of the protected dir tuples as a run.
+
+    A mutation UNDER (or AT) a protected directory matches. Cheap contiguous-run
+    comparison only (FK-55 §55.10.2): no filesystem access.
+    """
+    return any(_run_matches(segments, parts) for parts in dir_parts)
+
+
+def _run_matches(segments: list[str], parts: tuple[str, ...]) -> bool:
+    """Whether ``parts`` appears as a contiguous run within ``segments``."""
+    width = len(parts)
+    if width == 0 or width > len(segments):
+        return False
+    return any(
+        parts == tuple(segments[start : start + width])
+        for start in range(len(segments) - width + 1)
+    )
 
 
 def _norm_segments(path: Path | str) -> list[str]:
