@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: architecture-conformance
 spec_kind: entity-set
-version: 24
+version: 25
 prose_refs:
   - concept/technical-design/01_systemkontext_und_architekturprinzipien.md
   - concept/technical-design/07_komponentenarchitektur_und_architekturkonformanz.md
@@ -63,6 +63,13 @@ Version 24 aendert BC-Ownership der Harness-Adapter-Inseln
 (`harness_adapters_claude_code`, `harness_adapters_codex`) auf
 `harness-integration` gemaess FK-76. Physische Modul-Pfade bleiben
 unveraendert (Migration folgt als Folge-Story).
+Version 25 ergaenzt `agentkit.state_backend.schema_bootstrap` als
+module_prefix des boundary_modules `state_backend_drivers` (AG3-051):
+Der gemeinsame Driver-Helper `ensure_versioned_schema` ist ein
+T-Bluttyp-Driver wie `config`/`postgres_store`/`sqlite_store`, importiert
+`config.resolve_schema_name` Same-Boundary und ist von
+`state_backend_repository` (den Repos) sowie `postgres_store` nutzbar.
+Keine Lockerung einer globalen Regel.
 
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
@@ -1427,6 +1434,7 @@ boundary_modules:
       - agentkit.state_backend.postgres_store
       - agentkit.state_backend.sqlite_store
       - agentkit.state_backend.config
+      - agentkit.state_backend.schema_bootstrap
     importable_by:
       - architecture-conformance.boundary.state_backend_repository
     may_import_component_groups: []
@@ -1439,6 +1447,10 @@ boundary_modules:
     # Postgres- und SQLite-Driver. config.py haelt StateBackendKind +
     # load_state_backend_config (Driver-Schicht-Konfig). paths.py
     # haelt Filesystem-Pfade (STATE_DB_DIR/STATE_DB_FILE).
+    # schema_bootstrap.py ist der gemeinsame Driver-Helper
+    # (ensure_versioned_schema) — loest den Schema-Namen via
+    # config.resolve_schema_name (Same-Boundary-Import) und ist von
+    # state_backend_repository (den Repos) sowie postgres_store nutzbar.
     #
     # Driver importieren keine BC-Records mehr direkt; Mapping erfolgt
     # in store.mappers (boundary.state_backend_repository). Die Driver
