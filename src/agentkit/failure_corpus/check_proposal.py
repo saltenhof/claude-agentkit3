@@ -42,10 +42,12 @@ _HUMAN_APPROVAL_STATUSES = frozenset({CheckStatus.APPROVED, CheckStatus.ACTIVE})
 
 # FK-41 §41.3.3: check_id ist ``CHK-NNNN`` (Sequenz mindestens 4-stellig).
 # FAIL-CLOSED erzwingen (symmetrisch zum DB-CHECK fc_check_proposals_id_format).
-# ASCII-only ([0-9], nicht ``\d``): ``\d`` matcht Unicode-Ziffern (z. B. ``CHK-１２３４``
-# mit Fullwidth-Ziffern), der DB-CHECK aber nur ``[0-9]`` — ASCII haelt alle drei
-# Schichten (Pydantic, SQLite, Postgres) exakt deckungsgleich.
-_CHECK_ID_PATTERN = re.compile(r"^CHK-[0-9]{4,}$")
+# ASCII-only via ``\d`` + ``re.ASCII``: ohne Flag matcht ``\d`` Unicode-Ziffern
+# (z. B. ``CHK-１２３４`` mit Fullwidth-Ziffern), der DB-CHECK aber nur ``[0-9]``.
+# ``re.ASCII`` beschraenkt ``\d`` auf ASCII-Ziffern und haelt damit alle drei
+# Schichten (Pydantic, SQLite, Postgres) deckungsgleich (FK-41 fail-closed,
+# rejects Unicode-Ziffern) und erfuellt zugleich Sonar python:S6353.
+_CHECK_ID_PATTERN = re.compile(r"^CHK-\d{4,}$", re.ASCII)
 
 
 class FalsePositiveRisk(StrEnum):

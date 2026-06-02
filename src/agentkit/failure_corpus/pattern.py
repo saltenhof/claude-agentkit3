@@ -30,10 +30,12 @@ from agentkit.core_types import FailureCategory, PatternStatus
 
 # FK-41 §41.3.2: pattern_id ist ``FP-NNNN`` (Sequenz mindestens 4-stellig).
 # FAIL-CLOSED erzwingen (symmetrisch zum DB-CHECK fc_patterns_id_format).
-# ASCII-only ([0-9], nicht ``\d``): ``\d`` matcht Unicode-Ziffern (z. B. ``FP-１２３４``
-# mit Fullwidth-Ziffern), der DB-CHECK aber nur ``[0-9]`` — ASCII haelt alle drei
-# Schichten (Pydantic, SQLite, Postgres) exakt deckungsgleich.
-_PATTERN_ID_PATTERN = re.compile(r"^FP-[0-9]{4,}$")
+# ASCII-only via ``\d`` + ``re.ASCII``: ohne Flag matcht ``\d`` Unicode-Ziffern
+# (z. B. ``FP-１２３４`` mit Fullwidth-Ziffern), der DB-CHECK aber nur ``[0-9]``.
+# ``re.ASCII`` beschraenkt ``\d`` auf ASCII-Ziffern und haelt damit alle drei
+# Schichten (Pydantic, SQLite, Postgres) deckungsgleich (FK-41 fail-closed,
+# rejects Unicode-Ziffern) und erfuellt zugleich Sonar python:S6353.
+_PATTERN_ID_PATTERN = re.compile(r"^FP-\d{4,}$", re.ASCII)
 
 
 class PromotionRule(StrEnum):
