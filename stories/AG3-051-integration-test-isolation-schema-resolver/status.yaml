@@ -1,9 +1,10 @@
 story_id: AG3-051
 title: "Integration-Test-Isolation via zentralem Postgres-Schema-Resolver"
 type: implementation
-status: in_progress
-phase: setup
+status: completed
+phase: closure
 created: "2026-06-02"
+completed_at: "2026-06-02"
 size: L
 depends_on:
   - AG3-048
