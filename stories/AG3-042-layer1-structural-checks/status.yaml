@@ -1,7 +1,7 @@
 story_id: AG3-042
 title: "Layer 1: Artefakt-/Branch-/Build-/Test-/Hygiene-Checks + Recurring Guards als BLOCKING-Gates"
 type: implementation
-status: blocked
+status: ready
 phase: setup
 created: "2026-05-16"
 size: L

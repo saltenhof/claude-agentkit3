@@ -1,7 +1,7 @@
 story_id: AG3-032
 title: "Principal-Capability-Modell (FK-55): Principal/PathClass/OperationClass + harte Matrix + Freeze-Overlay"
 type: implementation
-status: blocked
+status: ready
 phase: setup
 created: "2026-05-16"
 size: L
