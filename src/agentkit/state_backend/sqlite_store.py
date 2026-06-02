@@ -676,6 +676,20 @@ def _ensure_runtime_tables_part2(conn: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_skill_bindings_project_skill
             ON skill_bindings (project_key, skill_name);
+
+        -- AG3-032 (FK-55 §55.8 / §55.10.5, FK-31 §31.2.7): governance_freeze_records.
+        -- Test-Parallel-Pfad mit IDENTISCHER DDL zu postgres_schema.sql (Postgres
+        -- ist kanonisch). Kanonische (Wahrheits-)Seite der dualen Conflict-Freeze-
+        -- Materialisierung; die lokale .agentkit/governance/freeze.json ist der
+        -- hook-schnelle Export mit identischem freeze_version. Genau ein aktiver
+        -- Freeze pro Story (PK story_id).
+        CREATE TABLE IF NOT EXISTS governance_freeze_records (
+            story_id        TEXT NOT NULL,
+            frozen_at       TEXT NOT NULL,
+            freeze_reason   TEXT NOT NULL,
+            freeze_version  INTEGER NOT NULL,
+            PRIMARY KEY (story_id)
+        );
         """
     )
     _ensure_runtime_tables_part3(conn)

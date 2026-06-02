@@ -43,6 +43,12 @@ class HookEvent(BaseModel):
     freshness_class: FreshnessClass
     cwd: str = ""
     session_id: str | None = None
+    # AG3-032 (FK-55 §55.3a): harness-context fields the PrincipalResolver reads
+    # to attest the technical principal. NEVER prompt content. Default None; the
+    # resolver then falls back to the context default principal. Deliberately a
+    # minimal extension — no full HookEvent overhaul (AG3-032 §2.2).
+    parent_session_id: str | None = None
+    cli_args: list[str] | None = None
     principal_kind: PrincipalKind = "main"
 
     @model_validator(mode="before")
@@ -61,10 +67,17 @@ class HookEvent(BaseModel):
             return value
         return str(Path.cwd())
 
-    @field_validator("session_id", mode="before")
+    @field_validator("session_id", "parent_session_id", mode="before")
     @classmethod
     def _coerce_session_id(cls, value: object) -> str | None:
         return value if isinstance(value, str) else None
+
+    @field_validator("cli_args", mode="before")
+    @classmethod
+    def _coerce_cli_args(cls, value: object) -> list[str] | None:
+        if isinstance(value, list) and all(isinstance(item, str) for item in value):
+            return list(value)
+        return None
 
 
 def evaluate_pre_tool_use(event: HookEvent, *, project_root: Path) -> GuardVerdict:

@@ -76,7 +76,12 @@ class TestDispatcherRouting:
 
         monkeypatch.setattr(CcagPermissionRuntime, "__init__", patched_init)
 
-        event = _make_event(command="git push origin main")
+        # A read-only git command in normal mode (no story binding): the hard
+        # capability layer leaves an unclassified cwd target UNRESOLVED and — being
+        # mode-scharf (FK-55 §55.6.1) — defers to CCAG, whose allow rule fires.
+        # (A free-bash ``git push`` would instead be a hard capability DENY:
+        # git_internal mutation requires an official service path, §55.10.7.)
+        event = _make_event(command="git status")
         verdict = run_hook("ccag_gatekeeper", event, phase="pre")
         assert isinstance(verdict, GuardVerdict)
         assert verdict.allowed is True
@@ -90,7 +95,7 @@ class TestDispatcherRouting:
         _write_rules(
             rules_dir,
             "global.yaml",
-            [{"id": "deny-rm", "tool": "Bash", "block_pattern": r"rm\s+-rf"}],
+            [{"id": "deny-curl", "tool": "Bash", "block_pattern": r"curl\s"}],
         )
 
         from agentkit.governance.ccag.runtime import CcagPermissionRuntime
@@ -102,7 +107,13 @@ class TestDispatcherRouting:
 
         monkeypatch.setattr(CcagPermissionRuntime, "__init__", patched_init)
 
-        event = _make_event(command="rm -rf /tmp")
+        # A non-mutating exec (no file/mutation target) in normal mode leaves the
+        # cwd target UNRESOLVED and — mode-scharf (FK-55 §55.6.1) — defers to CCAG,
+        # whose block rule fires. (A free-bash ``rm -rf /tmp`` would instead be a
+        # hard UNCLASSIFIED_MUTATION capability BLOCK in ALL modes — ERROR 2 — and
+        # never reach CCAG; that fail-closed path is covered in the capability
+        # pipeline integration tests.)
+        event = _make_event(command="curl http://example.test")
         verdict = run_hook("ccag_gatekeeper", event, phase="pre")
         assert isinstance(verdict, GuardVerdict)
         assert verdict.allowed is False

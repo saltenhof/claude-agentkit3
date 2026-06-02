@@ -75,7 +75,10 @@ glossary:
         unterstuetztem Harness (Claude Code, Codex; siehe FK-76 §76.4). Exit 0
         erlaubt, Exit 2 blockiert, jeder Crash ist fail-closed blockiert.
         Hooks sind Teil der Plattform-Infrastruktur — Agenten koennen sie
-        nicht umgehen.
+        nicht umgehen. Diese Nicht-Umgehbarkeit gilt fuer den Hook selbst
+        und fuer direkte, klassifizierbare Tool-Operationen (Stufe 1+2);
+        sie ist kein Seiteneffekt-Containment gegen beliebige
+        Codeausfuehrung (Stufe 3, siehe FK-55 §55.1a).
       see_also:
         - term: guard-system
           domain: governance-and-guards
@@ -105,6 +108,15 @@ Governance-Regeln in AgentKit. Sie sind der Grund, warum Agents
 ihre eigenen Einschränkungen nicht umgehen können: Hooks sind
 Teil der Plattform (Agent-Harness — Claude Code, Codex; siehe
 FK-76), nicht Teil des Agent-Codes (Kap. 01 P2).
+
+Diese Nicht-Umgehbarkeit gilt für den Hook selbst (er kann nicht
+abgeschaltet werden) und für direkte, plattformvermittelte,
+klassifizierbare Tool-Operationen. Sie ist kein vollständiges
+Seiteneffekt-Containment gegen beliebige Codeausführung (etwa über
+einen erlaubten Interpreter); welche Bedrohungsstufe auf welcher
+Schicht und unter welcher Betriebssystem-Voraussetzung tatsächlich
+gehalten wird, definiert FK-55 §55.1a (Durchsetzungsgrenzen,
+Schutzschichten und Runner-Boundary-Class).
 
 Dieses Kapitel beschreibt die Hook-Infrastruktur als Ganzes:
 Wie Hooks registriert werden, wie sie aufgerufen werden, welche

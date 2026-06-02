@@ -87,7 +87,16 @@ SCHEMA_OVERRIDE_ALLOWED_ENV = "AGENTKIT_PG_SCHEMA_OVERRIDE_ALLOWED"
 # Scope (FK-41 §41.5/§41.6). Idempotent side-by-side migration via the
 # versioned-schema pattern (FK-18 §18.9a) — a fresh ak3_v3_15_0 schema /
 # agentkit_3_15_0.sqlite file is created; the old 3.14.0 DB is never touched.
-SCHEMA_VERSION = "3.15.0"
+# AG3-032 (FK-55 §55.8/§55.10.5, FK-31 §31.2.7): 3.15.0 -> 3.16.0
+# (governance_freeze_records table added; Principal-Capability-Modell. Schema-/
+# DB-Owner governance-and-guards. Canonical Postgres + SQLite test-parallel
+# schema with IDENTICAL DDL. The table is the canonical (truth) side of the dual
+# conflict-freeze materialization; the local .agentkit/governance/freeze.json
+# export carries a matching freeze_version. Columns: story_id PK, frozen_at,
+# freeze_reason, freeze_version. Idempotent side-by-side migration via the
+# versioned-schema pattern (FK-18 §18.9a): a fresh ak3_v3_16_0 schema /
+# agentkit_3_16_0.sqlite file is created; the old 3.15.0 DB is never touched.
+SCHEMA_VERSION = "3.16.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 # AG3-051: reserved test-schema namespace. Disjoint from the production schema
 # name (``ak3_v<slug>``), so a test override can never resolve onto production

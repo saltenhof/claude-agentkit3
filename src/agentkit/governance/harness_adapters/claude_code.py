@@ -153,12 +153,29 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     event = to_neutral_event(claude_event)
-    decision = Governance.run_hook(
-        selector.hook_id,
-        event,
-        phase=selector.phase,
-        project_root=Path.cwd(),
-    )
+    try:
+        decision = Governance.run_hook(
+            selector.hook_id,
+            event,
+            phase=selector.phase,
+            project_root=Path.cwd(),
+        )
+    except Exception as exc:  # noqa: BLE001 — outermost fail-closed safety net.
+        # AG3-032 ERROR 6 / FK-55 §55.10.5 / FK-31 §31.2.7: a governance hook
+        # must NEVER let an evaluation fault escape and silently allow the tool
+        # call. Any escaping exception is mapped to a fail-closed BLOCK (exit 2).
+        print(
+            json.dumps(
+                {
+                    "decision": "block",
+                    "guard": "principal_capability",
+                    "message": f"governance hook failed fail-closed: {exc}",
+                    "detail": {"fault_class": type(exc).__name__},
+                },
+                sort_keys=True,
+            )
+        )
+        return 2
     if not decision.allowed:
         payload = {
             "decision": "block",

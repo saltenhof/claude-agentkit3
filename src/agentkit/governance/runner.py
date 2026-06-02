@@ -542,6 +542,16 @@ def run_hook(
     if phase == "post":
         return GuardVerdict.allow(hook_id)
 
+    # FK-55 §55.10.3 / §30.2.6 (governance-and-guards.B5): the hard
+    # Principal-Capability matrix + conflict-freeze overlay run BEFORE the legacy
+    # guard chain and BEFORE CCAG. A capability DENY is hard — CCAG is never
+    # consulted and cannot soften it (invariant ccag_never_elevates_hard_capabilities).
+    capability_block = _run_capability_enforcement(
+        event, project_root=project_root or Path.cwd()
+    )
+    if capability_block is not None:
+        return capability_block
+
     # CCAG is the last PreToolUse hook — dispatched separately (FK-42 §42.5.2)
     if hook_id == "ccag_gatekeeper":
         return _run_ccag_hook(event)
@@ -549,6 +559,326 @@ def run_hook(
     from agentkit.governance.guard_evaluation import evaluate_pre_tool_use
 
     return evaluate_pre_tool_use(event, project_root=project_root or Path.cwd())
+
+
+def _run_capability_enforcement(
+    event: HookEvent,
+    *,
+    project_root: Path,
+) -> HookDecision | None:
+    """Run FK-55 §55.10.3 steps 1-5 before the legacy guard chain / CCAG.
+
+    Engages for EVERY hook event (FK-55 §55.10.3 / formal
+    ``evaluate-principal-operation`` is allowed in ``normal``, ``story_scoped``
+    and ``frozen`` status). Absence of an active story binding is ``normal``
+    mode, NOT a skip (AG3-032 ERROR 2 — never fail-open).
+
+    Returns a blocking :class:`GuardVerdict` on:
+
+    - a hard capability DENY (matrix / freeze) — in ALL modes; or
+    - an UNCLASSIFIED_MUTATION target — in ALL modes. A target that cannot be
+      classified to a PathClass while the operation MUTATES (write /
+      git_mutation / curate / admin_transition) is a fail-closed BLOCK
+      regardless of mode (FK-55 §55.10.2). ``normal`` mode is NOT a fail-open
+      escape for unclassified mutations (AG3-032 ERROR 2); the §55.6.1
+      unknown-permission rule is a different case that only applies AFTER the
+      capability zone is known and must not be used to defer an unclassified
+      mutation; or
+    - an UNRESOLVED (non-mutating, target-less) event WHEN a story-execution
+      binding is active (FK-55 §55.10.2 fail-closed BLOCK; §55.6.1 mode-scharf).
+    - a capability-layer evaluation fault (e.g. a corrupt / stale dual freeze
+      export) — mapped to a hard BLOCK rather than an escaping runtime fault
+      (FK-55 §55.10.5 / FK-31 §31.2.7, AG3-032 ERROR 6).
+
+    Returns ``None`` when the operation is matrix-permitted (ALLOW — proceed to
+    CCAG, step 7) OR when a NON-mutating target is unclassifiable OUTSIDE a story
+    run (the §55.6.1 unknown-permission rule is mode-scharf: in
+    interactive/ai_augmented mode the unknown non-mutating target defers to the
+    legacy guards / CCAG / external prompt rather than hard-blocking generic
+    interactive work). The deferred step 6 mode-rule (B3 / AG3-018) is what would
+    later open a permission request here.
+    """
+    from agentkit.governance.principal_capabilities import (
+        CapabilityEnforcement,
+        CapabilityMatrix,
+        ConflictFreezeOverlay,
+        EnforcementOutcome,
+        OperationClassifier,
+        PathClassifier,
+        PrincipalResolver,
+    )
+    from agentkit.state_backend.store.freeze_repository import (
+        FreezeRepository,
+        LocalFreezeJsonExport,
+    )
+
+    enforcement = CapabilityEnforcement(
+        principal_resolver=PrincipalResolver(),
+        path_classifier=PathClassifier(),
+        op_classifier=OperationClassifier(),
+        matrix=CapabilityMatrix(),
+        freeze=ConflictFreezeOverlay(
+            FreezeRepository(project_root),
+            local_export=LocalFreezeJsonExport(project_root),
+        ),
+    )
+    # FK-55 §55.10.3 step 2: derive execution_mode (and the story binding) from
+    # the LOCAL lock/run exports — NOT from operation_args (AG3-032 ERROR C). The
+    # ProjectEdgeResolver is the single local source of both the operating mode
+    # and the story_scope_binding (same source as guard_evaluation).
+    context = _resolve_capability_context(event, project_root=project_root)
+    story_id = context.story_id
+    scope_roots = context.scope_roots
+    try:
+        result = enforcement.evaluate(
+            event,
+            project_root=project_root,
+            story_id=story_id,
+            story_scope_roots=scope_roots,
+        )
+    except Exception as exc:  # noqa: BLE001
+        # AG3-032 ERROR 6 + ERROR D / FK-55 §55.10.5 / FK-31 §31.2.7 / FAIL-CLOSED:
+        # ANY capability-layer evaluation fault must FAIL-CLOSED as a deterministic
+        # BLOCK, never escape as a runtime fault. This is the capability-layer
+        # boundary: a typed ``PrincipalCapabilityError`` (e.g. a corrupt/stale dual
+        # freeze export, FreezePersistenceError) AND an untyped backend fault from
+        # the injected FreezeRepository (e.g. a disabled-SQLite / missing-Postgres-
+        # URL ``RuntimeError`` raised inside the freeze read) are both mapped here.
+        # The concrete fault class is recorded in ``detail`` for the audit trail.
+        return _capability_fault_block(exc)
+    if result.outcome is EnforcementOutcome.DENY:
+        return _capability_block(result.verdict)
+    if result.outcome is EnforcementOutcome.UNCLASSIFIED_MUTATION:
+        # ALL modes: an unclassified MUTATION target is a fail-closed BLOCK
+        # (FK-55 §55.10.2). normal mode is NOT a fail-open escape (ERROR 2).
+        return _capability_block(result.verdict)
+    if result.outcome is EnforcementOutcome.UNKNOWN_PERMISSION:
+        # FK-55 §55.6.1 mode-scharf (AG3-032 ERROR C / FK-55 §55.10.1/§55.10.4):
+        # an UNKNOWN tool resolves by the THREE locally-derived mode buckets.
+        return _resolve_mode_scoped_block(context, event, result.verdict, project_root)
+    if result.outcome is EnforcementOutcome.UNRESOLVED:
+        # A non-mutating unclassifiable / target-less event resolves by the SAME
+        # three mode buckets (FK-55 §55.10.2 / §55.6.1 mode-scharf): a binding-
+        # invalid edge must fail-closed here too — it must NOT defer to CCAG.
+        return _resolve_mode_scoped_block(context, event, result.verdict, project_root)
+    return None
+
+
+def _resolve_mode_scoped_block(
+    context: _CapabilityContext,
+    event: HookEvent,
+    verdict: object,
+    project_root: Path,
+) -> HookDecision | None:
+    """Resolve an UNKNOWN_PERMISSION / UNRESOLVED outcome by execution-mode bucket.
+
+    FK-55 §55.6.1 mode-scharf with the §55.10.1/§55.10.4 fail-closed correction
+    for inconsistent bindings. Three exhaustive buckets:
+
+    - ``story_execution``: a coherent autonomous run. Open a GRANTABLE
+      ``permission_request`` AND return a blocking verdict (no native prompt may
+      hang a run). Unchanged behaviour.
+    - ``binding_invalid``: a story-execution lock/session EXISTS but is
+      inconsistent (session mismatch / inactive lock / worktree-root mismatch).
+      A broken binding must NOT degrade to free mode and is NOT a grantable
+      in-story permission — it is a fail-closed HARD BLOCK carrying the resolver
+      ``block_reason`` (FK-55 §55.10.1/§55.10.4, FK-56 §51, FK-59 §175).
+    - genuine ``ai_augmented`` (no lock/session at all): defer (return ``None``).
+      This is the ONLY bucket that may defer to CCAG / an external prompt.
+    """
+    if context.is_story_execution:
+        return _block_with_permission_request(event, verdict, project_root)
+    if context.is_binding_invalid:
+        return _binding_invalid_block(context.block_reason)
+    return None
+
+
+def _binding_invalid_block(reason: str | None) -> HookDecision:
+    """Fail-closed HARD BLOCK for an inconsistent story-execution binding.
+
+    FK-55 §55.10.1/§55.10.4 (FK-56 §51 "broken binding must not degrade to free
+    mode", FK-59 §175 "binding_invalid is not a normal third mode"): when a
+    story-execution lock/session exists but is inconsistent, an unknown /
+    unresolved permission must NOT open a grantable in-story permission_request
+    and must NOT defer to CCAG. It is a deterministic ``principal_capability``
+    BLOCK whose ``detail`` carries the specific resolver ``block_reason``.
+
+    Args:
+        reason: The ``ProjectEdgeResolver`` block reason (e.g.
+            ``worktree_root_mismatch``), or ``None`` if not available.
+
+    Returns:
+        A blocking :class:`~agentkit.governance.protocols.GuardVerdict`.
+    """
+    return GuardVerdict.block(
+        "principal_capability",
+        ViolationType.UNAUTHORIZED_OPERATION,
+        f"operating_mode binding_invalid: {reason or 'inconsistent_story_binding'}",
+        detail={
+            "capability_rule_id": "FK-55-55.10.1/55.10.4",
+            "operating_mode": "binding_invalid",
+            "block_reason": reason,
+        },
+    )
+
+
+def _block_with_permission_request(
+    event: HookEvent,
+    verdict: object,
+    project_root: Path,
+) -> HookDecision:
+    """Open a permission_request (story_execution) and return a blocking verdict.
+
+    FK-55 §55.6.1 / formal ``open-permission-request``: in ``story_execution`` an
+    unknown / non-actionable permission must not hang on a native host prompt —
+    the hook blocks AND emits an auditable ``permission_request_opened`` (AG3-032
+    ERROR C). Request creation is owned by the CCAG runtime (the single owner of
+    permission requests); the runner only triggers it with the locally-derived
+    mode. A failure to persist the request must not turn the fail-closed BLOCK
+    into a fault that escapes — it stays a deterministic BLOCK.
+    """
+    from agentkit.governance.ccag.runtime import CcagPermissionRuntime
+
+    request_id: str | None = None
+    try:
+        request = CcagPermissionRuntime(
+            request_db_path=project_root / ".agentkit" / "ccag" / "ccag_requests.db"
+        ).open_permission_request(event)
+        request_id = request.request_id
+    except Exception:  # noqa: BLE001
+        # FAIL-CLOSED: persisting the audit request is best-effort; the block
+        # stands regardless. The block reason already carries the rule id.
+        request_id = None
+    reason = getattr(verdict, "reason", "capability denied")
+    rule_id = getattr(verdict, "rule_id", None)
+    detail: dict[str, object] = {
+        "capability_rule_id": rule_id,
+        "permission_request_opened": request_id is not None,
+    }
+    if request_id is not None:
+        detail["permission_request_id"] = request_id
+    return GuardVerdict.block(
+        "principal_capability",
+        ViolationType.UNAUTHORIZED_OPERATION,
+        reason,
+        detail=detail,
+    )
+
+
+def _capability_block(verdict: object) -> HookDecision:
+    """Translate a capability DENY verdict into a blocking GuardVerdict."""
+    reason = getattr(verdict, "reason", "capability denied")
+    rule_id = getattr(verdict, "rule_id", None)
+    return GuardVerdict.block(
+        "principal_capability",
+        ViolationType.UNAUTHORIZED_OPERATION,
+        reason,
+        detail={"capability_rule_id": rule_id},
+    )
+
+
+def _capability_fault_block(exc: Exception) -> HookDecision:
+    """Map a capability-layer fault to a hard fail-closed BLOCK (ERROR 6).
+
+    FK-55 §55.10.5 / FK-31 §31.2.7: a stale / missing / corrupt dual freeze
+    context (or any other capability-layer wiring fault) must surface as a
+    deterministic ``principal_capability`` BLOCK, not as an escaping runtime
+    exception. The fault class is recorded in ``detail`` for the audit trail.
+    """
+    return GuardVerdict.block(
+        "principal_capability",
+        ViolationType.UNAUTHORIZED_OPERATION,
+        f"capability evaluation failed fail-closed: {exc}",
+        detail={
+            "capability_rule_id": "FK-55-55.10.5",
+            "fault_class": type(exc).__name__,
+        },
+    )
+
+
+@dataclass(frozen=True)
+class _CapabilityContext:
+    """Locally-derived capability context (FK-55 §55.10.3 steps 2 + 4).
+
+    Attributes:
+        execution_mode: The execution mode derived from the LOCAL lock/run
+            exports (``ProjectEdgeResolver.operating_mode`` — one of
+            ``"story_execution"`` / ``"ai_augmented"`` / ``"binding_invalid"``).
+            NOT read from ``operation_args`` (AG3-032 ERROR C / §55.10.3 step 2).
+        story_id: The active story id, or ``None`` when no story binding is
+            published (``normal`` mode — enforcement still engages).
+        scope_roots: The §55.7.1 story-scope roots (worktree roots), or ``None``.
+        block_reason: The ``ProjectEdgeResolver`` block reason that accompanies a
+            ``binding_invalid`` mode (one of ``session_binding_mismatch`` /
+            ``inactive_story_execution_lock`` / ``worktree_root_mismatch``), or
+            ``None`` for a coherent ``story_execution`` / ``ai_augmented`` mode.
+    """
+
+    execution_mode: str
+    story_id: str | None
+    scope_roots: list[str] | None
+    block_reason: str | None = None
+
+    @property
+    def is_story_execution(self) -> bool:
+        """Whether the locally-derived mode is the autonomous ``story_execution``.
+
+        Only this mode hard-blocks an unknown / non-actionable permission and
+        opens a GRANTABLE permission_request (FK-55 §55.6.1); genuine
+        ``ai_augmented`` (no lock/session at all) defers to an external prompt.
+        """
+        return self.execution_mode == "story_execution"
+
+    @property
+    def is_binding_invalid(self) -> bool:
+        """Whether the locally-derived mode is the INCONSISTENT ``binding_invalid``.
+
+        FK-55 §55.10.1/§55.10.4 (and FK-56 §51, FK-59 §175): a story-execution
+        lock/session EXISTS but is inconsistent (session mismatch, inactive lock,
+        worktree-root mismatch). A broken binding must NOT degrade to free mode
+        and must NOT open a grantable in-story permission — it is a fail-closed
+        HARD BLOCK. ``binding_invalid`` is not a normal third mode.
+        """
+        return self.execution_mode == "binding_invalid"
+
+
+def _resolve_capability_context(
+    event: HookEvent,
+    *,
+    project_root: Path,
+) -> _CapabilityContext:
+    """Resolve the execution mode + story binding from the LOCAL edge bundle.
+
+    FK-55 §55.10.3 step 2 + step 4 / §55.7.1: both the ``execution_mode`` and the
+    ``story_scope_binding`` (story id + participating-repo / worktree roots) are
+    read from the locally materialized run context (the lock/run exports), NOT
+    from prompt content or ``operation_args``. Mirrors the source used by
+    ``guard_evaluation``. When no active story binding is published the mode is
+    whatever the resolver derives (``ai_augmented`` with no lock; ``binding_invalid``
+    on a mismatched lock) and the story fields are ``None`` (``normal`` mode —
+    enforcement still engages; story paths simply have no in-scope root).
+    """
+    from agentkit.projectedge.runtime import ProjectEdgeResolver
+
+    resolved = ProjectEdgeResolver(project_root=project_root).resolve(
+        session_id=event.session_id,
+        cwd=event.cwd,
+        freshness_class=event.freshness_class,
+    )
+    if resolved.bundle is None or resolved.bundle.session is None:
+        return _CapabilityContext(
+            execution_mode=resolved.operating_mode,
+            story_id=None,
+            scope_roots=None,
+            block_reason=resolved.block_reason,
+        )
+    session = resolved.bundle.session
+    return _CapabilityContext(
+        execution_mode=resolved.operating_mode,
+        story_id=session.story_id,
+        scope_roots=list(session.worktree_roots),
+        block_reason=resolved.block_reason,
+    )
 
 
 def _run_ccag_hook(event: HookEvent) -> HookDecision:

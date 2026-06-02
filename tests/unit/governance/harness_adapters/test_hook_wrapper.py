@@ -36,7 +36,14 @@ if TYPE_CHECKING:
 # Shared helpers
 # ---------------------------------------------------------------------------
 
-_CLAUDE_ALLOW_EVENT = json.dumps({"tool_name": "Task", "tool_input": {}, "cwd": "."})
+# A genuinely SAFE event is a non-mutating read (mirrors the Codex read_file
+# safe event). AG3-032 ERROR 2 / FK-55 §55.10.2: an unknown tool fail-closes to
+# WRITE and — with no resolvable target — is now a hard BLOCK in ALL modes (see
+# ``test_unknown_tool_event_blocks_fail_closed``), so it can no longer stand in
+# for the dispatcher ALLOW path.
+_CLAUDE_ALLOW_EVENT = json.dumps(
+    {"tool_name": "Read", "tool_input": {"file_path": "a.py"}, "cwd": "."}
+)
 _CODEX_ALLOW_EVENT = json.dumps(
     {"tool": "read_file", "arguments": {"path": "a.py"}, "cwd": "."}
 )
@@ -164,11 +171,28 @@ class TestDispatcherAllHookIds:
         tmp_path: Path,
         hook_id: str,
     ) -> None:
-        # ai_augmented mode (no .agentkit/) + unknown_tool -> BranchGuard ALLOWs
+        # ai_augmented mode (no .agentkit/) + a non-mutating Read -> ALLOW.
         monkeypatch.setattr("sys.stdin", io.StringIO(_CLAUDE_ALLOW_EVENT))
         monkeypatch.chdir(tmp_path)
         result = claude_main(["pre", hook_id])
         assert result == 0, f"Expected 0 (ALLOW) for pre/{hook_id}"
+
+    def test_unknown_tool_event_defers_mode_scharf(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        # AG3-032 ERROR C / FK-55 §55.6.1 (mode-scharf): an UNKNOWN tool (Task /
+        # TodoWrite / …) is an UNKNOWN PERMISSION. The enforcement signals
+        # UNKNOWN_PERMISSION (the matrix is NOT consulted for an ALLOW). OUTSIDE a
+        # story run (here: ai_augmented, no .agentkit/) the runner defers it to an
+        # external prompt / CCAG rather than hard-blocking generic interactive
+        # work — so the event flows to the legacy guards / CCAG and is allowed
+        # (exit 0). Only story_execution would hard-block + open a request.
+        event = json.dumps({"tool_name": "Task", "tool_input": {}, "cwd": "."})
+        monkeypatch.setattr("sys.stdin", io.StringIO(event))
+        monkeypatch.chdir(tmp_path)
+        assert claude_main(["pre", "branch_guard"]) == 0
 
     @pytest.mark.parametrize("hook_id", sorted(PRE_HOOK_IDS))
     def test_pre_hook_ids_allow_codex_safe_event(
@@ -331,7 +355,16 @@ class TestInvalidStdin:
 
 
 class TestBlockPathRealGuard:
-    """Force-push command triggers BranchGuard BLOCK -- no mock needed."""
+    """Force-push command is BLOCKED -- no mock needed.
+
+    FK-55 §55.10.3 / §55.10.7: the hard Principal-Capability layer runs BEFORE
+    the legacy guard chain. A free-bash ``git push --force`` is a git_mutation on
+    ``git_internal``; the interactive_agent has no such capability (invariant
+    ``git_internal_never_mutated_via_free_bash``) so the capability layer blocks
+    it first (guard name ``principal_capability``). The operation is still
+    blocked with exit 2 — the security property holds; only the (now-earlier)
+    blocking layer changed (AG3-032 ERROR 2 — enforcement engages in all modes).
+    """
 
     def test_claude_block_on_force_push_returns_exit_2(
         self,
@@ -346,7 +379,7 @@ class TestBlockPathRealGuard:
         out = capsys.readouterr().out
         payload = json.loads(out)
         assert payload["decision"] == "block"
-        assert payload["guard"] == "branch_guard"
+        assert payload["guard"] == "principal_capability"
 
     def test_codex_block_on_force_push_returns_exit_2(
         self,
@@ -361,7 +394,7 @@ class TestBlockPathRealGuard:
         out = capsys.readouterr().out
         payload = json.loads(out)
         assert payload["decision"] == "block"
-        assert payload["guard"] == "branch_guard"
+        assert payload["guard"] == "principal_capability"
 
 
 # ---------------------------------------------------------------------------

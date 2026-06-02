@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: architecture-conformance
 spec_kind: entity-set
-version: 25
+version: 26
 prose_refs:
   - concept/technical-design/01_systemkontext_und_architekturprinzipien.md
   - concept/technical-design/07_komponentenarchitektur_und_architekturkonformanz.md
@@ -70,6 +70,17 @@ T-Bluttyp-Driver wie `config`/`postgres_store`/`sqlite_store`, importiert
 `config.resolve_schema_name` Same-Boundary und ist von
 `state_backend_repository` (den Repos) sowie `postgres_store` nutzbar.
 Keine Lockerung einer globalen Regel.
+Version 26 zielt den bestehenden Governance-Sub `principal_capability`
+auf den real geschnittenen Paketpfad
+`agentkit.governance.principal_capabilities` (Plural, AG3-032 §3) um.
+Der Stub zeigte zuvor auf einen nicht existierenden Singular-Pfad; das
+Capability-Paket (FK-55) lebt unter dem Plural. Reine Modul-Prefix-
+Praezisierung, kein neuer Sub, keine gelockerte Regel. Zusaetzlich wird
+`principal_capability` in `intra_bc_layer_order` hinter `hook_runtime`
+(GuardEvaluation) einsortiert: das Capability-Paket konsumiert den
+harness-neutralen `HookEvent` aus `guard_evaluation` (FK-55 §55.10.3,
+AG3-032 AK10) und liegt damit fachlich eine Schicht ueber dem
+HookEvent-Kern.
 
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
@@ -390,10 +401,10 @@ component_groups:
     top_surface_modules: []
     component_kind: domain
     intra_bc_layer_order:
-      - architecture-conformance.group.principal_capability
       - architecture-conformance.group.escalation_mechanism
       - architecture-conformance.group.guard_system
       - architecture-conformance.group.hook_runtime
+      - architecture-conformance.group.principal_capability
       - architecture-conformance.group.harness_adapters_claude_code
       - architecture-conformance.group.harness_adapters_codex
       - architecture-conformance.group.ccag_permission_runtime
@@ -488,7 +499,7 @@ component_groups:
     name: PrincipalCapability
     bloodgroup: A
     module_prefixes:
-      - agentkit.governance.principal_capability
+      - agentkit.governance.principal_capabilities
     parent_group_id: architecture-conformance.group.governance
     exposure: sub_exposed
     component_kind: domain

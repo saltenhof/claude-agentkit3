@@ -181,9 +181,92 @@ sondern:
 > Welche Operationen kann ein Principal auf Plattformebene technisch
 > ueberhaupt ausfuehren?
 
-Das Ziel ist, dass ein Orchestrator oder anderer Principal nicht aus
-Hilfsbereitschaft, Zeitdruck oder absichtlichem Regelbruch in
-verbotene Mutationen ausbrechen kann.
+Das Ziel ist, dass ein Principal seine zugewiesenen Capabilities nicht
+aus Hilfsbereitschaft, Zeitdruck oder absichtlichem Regelbruch ueber
+**direkte, plattformvermittelte Tool-Operationen** ueberschreiten kann.
+Diese Durchsetzung ist hart und nicht umgehbar fuer den direkten
+Operationspfad (siehe FK-30 30.1: der Hook ist Teil der Plattform, nicht
+des Agent-Codes). Sie ist **kein** vollstaendiges Seiteneffekt-Containment
+gegen beliebige Codeausfuehrung. Was diese Schicht leistet und wo ihre
+Grenze liegt, definiert verbindlich 55.1a.
+
+## 55.1a Durchsetzungsgrenzen, Schutzschichten und Runner-Boundary-Class
+
+Das Capability-Modell setzt Grenzen technisch durch, aber nicht jede
+Grenze ist mit demselben Mechanismus erreichbar. Dieser Abschnitt zieht
+ehrlich, welche Bedrohung auf welcher Schicht und unter welcher
+Betriebssystem-Voraussetzung tatsaechlich gehalten wird. Stilles
+Ueberdehnen der Schutzbehauptung ist ein ZERO-DEBT-Verstoss.
+
+### Drei Bedrohungsstufen
+
+| Stufe | Charakter | Beispiel |
+|---|---|---|
+| **1 — fahrlaessig-offensichtlich** | ungewollter, offen sichtbarer Schaden | versehentliches `rm` im falschen Pfad |
+| **2 — ungehorsam-nicht-ausweichend** | bewusste, aber strukturierte Operation am Scope vorbei; Ziel steht im Tool-Argument | `Write`/`Edit` auf `codebase_out_of_scope` |
+| **3 — aktiv-ausweichend** | Obfuskation / beliebige Codeausfuehrung; Ziel statisch nicht erkennbar | `python -c`, `echo \| bash`, `bash -c`-Verschachtelung |
+
+### Drei Schutzschichten und was jede WIRKLICH leistet
+
+**Schicht A — Hook-Capability-Enforcement (dieses Kapitel).**
+Hart und nicht umgehbar fuer Stufe 1 und 2: Der Agent kann den Hook
+nicht abschalten (er lebt im Harness, nicht im Agent-Code, FK-30 30.1)
+und kann eine direkt klassifizierte verbotene Operation nicht
+ausfuehren. Klassifikation bleibt billig ueber Story-Scope-Exports,
+nicht per semantischer Shell-Interpretation (siehe path-class-Glossar).
+Stufe 3 ist ausdruecklich **nicht** Aufgabe dieser Schicht.
+
+**Schicht B — Kernel-FS-Containment pro Tool-Call.**
+Der einzige Mechanismus, der Stufe 3 haelt: eine ephemere, pfadbasierte
+Sandbox beim Prozessstart des mutierenden Tool-Calls (Linux: Landlock /
+bubblewrap / Mount-Namespace; Containment per ORT, nicht per
+Shell-Semantik). Entkoppelt UX-Isolation (ein Hauptagent) von
+Kernel-Containment — ohne separate UIDs, ohne N Harnesse. **Verfuegbar
+nur in einem Contained-Execution-Runner** (Linux-CI, WSL2/Container).
+Status: benannte Zukunftsoption, **derzeit nicht in Umsetzung** (siehe
+Runner-Boundary-Class).
+
+**Schicht C — Broker-Wahrheit + Akzeptanz-Gate.**
+QA-Verdikte, Governance- und Run-State leben in AK3s Datenhaltung; der
+Agent besitzt keine Credentials dafuer und kann sie nicht direkt
+mutieren. Der Worktree ist Wegwerf; nichts wird Wahrheit, ohne ein
+deterministisches Integrity-/Closure-Gate zu passieren, das AK3 besitzt.
+Das Gate ist clean-room/patch-basiert: es vertraut nicht dem
+kontaminierten Worktree, sondern rekonstruiert aus dem Diff auf frischer
+Basis und fuehrt Tests/Scans selbst aus. **Wichtig:** Schicht C ist
+Detektion und Invalidierung *post hoc*, kein Containment. Sie schuetzt
+die System-Wahrheit (Datenhaltung + finales Repo), aber **nicht** den
+lokalen Blast-Radius (z. B. Exfiltration von Host-Credentials) und
+**nicht** Cross-Story-Kontamination zur Laufzeit.
+
+### Runner-Boundary-Class
+
+Die durchsetzbare Schutzklasse haengt vom Ausfuehrungs-Runner ab. AK3
+behauptet nicht absolut "kann nicht ausbrechen", sondern deklariert die
+Grenze pro Runner-Typ:
+
+| Runner | Stufe 1+2 (Schicht A) | Stufe 3 (Schicht B) | System-Wahrheit (Schicht C) |
+|---|---|---|---|
+| `native-windows` | hart | **nicht vorhanden** | geschuetzt |
+| `wsl2-contained` | hart | kernel-hart | geschuetzt |
+| `linux-ci` | hart | kernel-hart | geschuetzt |
+
+### Operative Festlegung (Stand: native Windows)
+
+AK3 laeuft bis auf Weiteres auf einem **nativen Windows-Dev-Host**.
+Windows besitzt kein unprivilegiertes, leichtgewichtiges, pfadbasiertes
+Per-Tool-Call-FS-Containment (Job Objects, Restricted Token + ACL und
+AppContainer scheitern an Tragfaehigkeit bzw. Wartbarkeit). Daraus folgt
+ehrlich: **Auf native-windows existiert Stufe-3-Containment nicht.**
+Jeder In-Process-Versuch, Stufe 3 auf Windows praeventiv zu halten,
+waere ein Papiertiger und wird daher nicht gebaut. Der Schutz gegen
+Stufe 3 ruht dort allein auf Schicht C (Wahrheit + Gate + Violation-
+Logging) — mit der bewusst akzeptierten Restexposition: lokaler
+Blast-Radius und Cross-Story-Kontamination sind auf native-windows
+nicht praeventiv verhindert. Echtes Stufe-3-Containment erfordert die
+Verlagerung der Tool-Ausfuehrung in einen Contained-Execution-Runner
+(WSL2/Container/Linux); das ist eine bewusste, separate Architektur-
+entscheidung und derzeit nicht beauftragt.
 
 ## 55.2 Grundprinzip
 

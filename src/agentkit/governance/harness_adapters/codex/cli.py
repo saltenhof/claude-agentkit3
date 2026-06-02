@@ -17,6 +17,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from agentkit.governance.harness_adapters.codex.decision_mapping import (
+    CodexHookOutput,
     codex_exit_code,
     to_codex_output,
 )
@@ -52,13 +53,24 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     neutral_event = to_neutral_event(codex_event)
-    verdict = Governance.run_hook(
-        selector.hook_id,
-        neutral_event,
-        phase=selector.phase,
-        project_root=Path.cwd(),
-    )
-    output = to_codex_output(verdict)
+    try:
+        verdict = Governance.run_hook(
+            selector.hook_id,
+            neutral_event,
+            phase=selector.phase,
+            project_root=Path.cwd(),
+        )
+        output = to_codex_output(verdict)
+    except Exception as exc:  # noqa: BLE001 — outermost fail-closed safety net.
+        # AG3-032 ERROR 6 / FK-55 §55.10.5 / FK-31 §31.2.7: a governance hook
+        # must NEVER let an evaluation fault escape and silently allow the tool
+        # call. Any escaping exception is mapped to a fail-closed BLOCK (exit 2).
+        output = CodexHookOutput(
+            decision="block",
+            guard="principal_capability",
+            message=f"governance hook failed fail-closed: {exc}",
+            detail={"fault_class": type(exc).__name__},
+        )
     print(json.dumps(output.model_dump(exclude_none=True), sort_keys=True))
     return codex_exit_code(output)
 

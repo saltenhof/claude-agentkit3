@@ -27,6 +27,9 @@ Quelle:
 
 from __future__ import annotations
 
+from agentkit.core_types.plane_artifact_names import (
+    GOVERNANCE_FREEZE_EXPORT_RELPATH,
+)
 from agentkit.core_types.qa_artifact_names import (
     ALL_QA_ARTIFACT_FILES,
     GUARDRAIL_FILE,
@@ -43,10 +46,20 @@ PROTECTED_QA_ARTIFACTS: tuple[str, ...] = (
     GUARDRAIL_FILE,
 )
 
+#: Lokaler Conflict-Freeze-Export (AG3-032, FK-55 §55.10.5 / FK-31 §31.2.7).
+#: Projekt-relativer Pfad der dualen Freeze-Materialisierung; gehoert zur
+#: ``governance_plane`` (FK-55 §55.4) und darf nur ueber offizielle Servicepfade
+#: mutiert werden. Hier als geschuetzter Governance-Pfad registriert (AG3-023).
+#: Das Pfad-Literal lebt in ``core_types.plane_artifact_names`` (SINGLE SOURCE OF
+#: TRUTH / Truth-Boundary) und wird hier nur re-exportiert — kein Literal in
+#: diesem geschuetzten governance-Modul.
+PROTECTED_GOVERNANCE_FREEZE_EXPORT: str = GOVERNANCE_FREEZE_EXPORT_RELPATH
+
 __all__ = [
     "ALL_QA_ARTIFACT_FILES",
     "GUARDRAIL_FILE",
     "LAYER_ARTIFACT_FILES",
+    "PROTECTED_GOVERNANCE_FREEZE_EXPORT",
     "PROTECTED_QA_ARTIFACTS",
     "VERIFY_DECISION_FILE",
 ]

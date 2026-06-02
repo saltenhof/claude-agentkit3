@@ -372,6 +372,30 @@ class CcagPermissionRuntime:
             operating_mode=operating_mode,
         )
 
+    def open_permission_request(self, hook_event: HookEvent) -> PermissionRequest:
+        """Open + persist a permission request for an unknown permission.
+
+        FK-55 §55.6.1 / formal ``principal-capabilities.command.open-permission-
+        request``: in ``story_execution`` mode a tool call may never hang on a
+        native host prompt — the hook blocks and emits an auditable
+        ``permission_request_opened`` instead. This is the surface the capability
+        runner calls when its locally-derived execution mode is
+        ``story_execution`` and the operation is an UNKNOWN_PERMISSION (or an
+        UNRESOLVED non-actionable event inside a run). Request ownership stays
+        here (the single owner of permission requests), not in the runner.
+
+        Args:
+            hook_event: The harness-neutral hook event whose permission is open.
+
+        Returns:
+            The created + persisted :class:`PermissionRequest`.
+        """
+        return self._create_permission_request(
+            tool_name=self._tool_name_from_event(hook_event),
+            tool_input=dict(hook_event.operation_args),
+            hook_event=hook_event,
+        )
+
     def _create_permission_request(
         self,
         *,

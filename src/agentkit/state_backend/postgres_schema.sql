@@ -685,3 +685,17 @@
 
         CREATE INDEX IF NOT EXISTS idx_skill_bindings_project_skill
             ON skill_bindings (project_key, skill_name);
+
+        -- AG3-032 (FK-55 §55.8 / §55.10.5, FK-31 §31.2.7): governance_freeze_records.
+        -- Kanonische (Wahrheits-)Seite der dualen Conflict-Freeze-Materialisierung;
+        -- die lokale .agentkit/governance/freeze.json ist der hook-schnelle Export
+        -- mit identischem freeze_version. Schema-/DB-Owner governance-and-guards.
+        -- Genau ein aktiver Freeze pro Story (PK story_id). Identisches Parallel-
+        -- Schema in sqlite_store.py fuer Unit-Tests.
+        CREATE TABLE IF NOT EXISTS governance_freeze_records (
+            story_id        TEXT NOT NULL,
+            frozen_at       TEXT NOT NULL,
+            freeze_reason   TEXT NOT NULL,
+            freeze_version  INTEGER NOT NULL,
+            PRIMARY KEY (story_id)
+        );
