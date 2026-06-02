@@ -303,13 +303,11 @@ def _postgres_connect() -> Iterator[Any]:
     from psycopg.rows import dict_row
 
     from agentkit.state_backend import postgres_store
-    from agentkit.state_backend.config import versioned_postgres_schema_name
+    from agentkit.state_backend.schema_bootstrap import ensure_versioned_schema
 
-    schema = versioned_postgres_schema_name()
     conn = psycopg.connect(_postgres_database_url(), row_factory=dict_row)
     try:
-        conn.execute(f"CREATE SCHEMA IF NOT EXISTS {schema}")
-        conn.execute(f"SET search_path TO {schema}, public")
+        ensure_versioned_schema(conn)
         # Bootstrap via kanonischer Postgres-Schema-Owner (SINGLE SOURCE OF
         # TRUTH, symmetrisch zu _sqlite_connect_qa): garantiert, dass die
         # FK-69-Tabellen (inkl. fc_incidents, AG3-028) vorhanden sind, bevor der

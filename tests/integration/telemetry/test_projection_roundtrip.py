@@ -1,9 +1,11 @@
-"""Integration-Test: ProjectionAccessor Smoke-Test gegen Postgres.
+"""Integration-Test: ProjectionAccessor Import-/Buildability-Smoke-Test.
 
-Dieser Test wird von der integration conftest.py automatisch mit
-``postgres_runtime_env`` versehen und laeuft daher nur gegen Postgres.
+Reine Import-/Buildability-Pruefung ohne DB-Zugriff (kein ``save_*``/``read_*``,
+keine offene Connection). AG3-051 (Codex-Fix): ``telemetry/`` ist daher NICHT in
+der Postgres-Allow-List der integration conftest.py — dieser Test zieht **kein**
+Docker/Postgres an und laeuft Docker-frei.
 
-Fuer SQLite-Roundtrip-Tests: siehe
+Fuer den echten SQLite-Roundtrip (write -> read): siehe
 ``tests/unit/telemetry/test_projection_roundtrip.py``.
 """
 

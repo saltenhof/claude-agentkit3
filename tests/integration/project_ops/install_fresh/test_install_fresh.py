@@ -8,7 +8,6 @@ loadable by :func:`agentkit.config.load_project_config`.
 from __future__ import annotations
 
 import json
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -23,46 +22,16 @@ from agentkit.installer.paths import (
 )
 
 
-def _symlinks_supported() -> bool:
-    """Return True when the OS/process can create symlinks.
-
-    NOTE (Codex-r7-r2): this fresh-install integration test drives a REAL
-    completing ``install_agentkit`` against the session-shared Postgres backend.
-    It stays gated off no-symlink hosts because un-gating heavy integration tests
-    here surfaces a PRE-EXISTING shared-Postgres isolation limitation (tracked
-    separately, NOT AG3-048 skills-binding scope). The junction install path is
-    covered platform-independently by the installer-surface tests (multi-harness,
-    CLI, namespace, scaffold).
-    """
-    with tempfile.TemporaryDirectory() as d:
-        src = Path(d) / "src"
-        src.mkdir()
-        link = Path(d) / "link"
-        try:
-            link.symlink_to(src)
-        except OSError:
-            return False
-        return True
-
-
-_SYMLINKS_AVAILABLE = _symlinks_supported()
-_SKIP_SYMLINKS = pytest.mark.skipif(
-    not _SYMLINKS_AVAILABLE,
-    reason="Symlinks/junctions gated — heavy integration install test (Codex-r7-r2)",
-)
-
-
 @pytest.mark.integration
-@_SKIP_SYMLINKS
 class TestInstallFresh:
     """Test suite for fresh AgentKit installation into a target project.
 
     Every test here drives a COMPLETING ``install_agentkit``, which binds the
-    mandatory skills as harness symlinks — gated on symlink availability
-    (AG3-048 Codex-r6 FINDING 3). The host-independent install glue (no symlink
-    privilege required) is covered by
-    ``tests/unit/installer/test_install_host_independent.py`` via an injected
-    fake ``Skills`` top-surface.
+    mandatory skills via a Windows directory junction / POSIX symlink (FK-43
+    §43.4.1.1 — a junction needs no privilege on Windows). AG3-051 un-gated this
+    suite: the per-test ``postgres_isolated_schema`` fixture (attached by the
+    integration conftest) TRUNCATEs the worker test schema, so the repeated
+    ``test-project`` install rows no longer collide across tests.
     """
 
     def test_install_creates_agentkit_dir(self, tmp_path: object) -> None:

@@ -84,7 +84,11 @@ def test_public_state_backend_contract_works_on_postgres(
     assert loaded_ctx is not None
     assert loaded_ctx.story_id == "AG3-901"
     assert load_story_context_global("demo-project", "AG3-901") is not None
-    assert load_story_contexts_global("demo-project")[0].story_id == "AG3-901"
+    # AG3-051: self-contained — the per-test ``postgres_isolated_schema``
+    # TRUNCATE guarantees this test's single write is the ONLY row, so the
+    # query result is deterministic (no reliance on sibling-test rows / ordering).
+    project_contexts = load_story_contexts_global("demo-project")
+    assert [c.story_id for c in project_contexts] == ["AG3-901"]
 
     state = PhaseState(
         story_id="AG3-901",

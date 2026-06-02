@@ -24,13 +24,14 @@ from agentkit.exceptions import CorruptStateError
 from agentkit.state_backend.config import (
     STATE_DATABASE_URL_ENV,
     load_state_backend_config,
-    versioned_postgres_schema_name,
+    resolve_schema_name,
 )
 from agentkit.state_backend.paths import (
     CLOSURE_REPORT_FILE,
     CONTEXT_EXPORT_FILE,
     PHASE_STATE_EXPORT_FILE,
 )
+from agentkit.state_backend.schema_bootstrap import ensure_versioned_schema
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -60,9 +61,14 @@ def _database_label() -> str:
 
 
 def current_schema_name() -> str:
-    """Return the versioned PostgreSQL schema used by this driver."""
+    """Return the resolved PostgreSQL schema used by this driver.
 
-    return versioned_postgres_schema_name()
+    Delegates to :func:`resolve_schema_name` so the test override (AG3-051) is
+    honored consistently with every other connection path. Production returns
+    the versioned ``ak3_v<slug>`` unchanged.
+    """
+
+    return resolve_schema_name()
 
 
 def _consume_sql_comment(script: str, i: int) -> int | None:
@@ -247,9 +253,10 @@ def _schema_create_script() -> str:
 
 
 def _ensure_versioned_schema(conn: _CompatConnection) -> None:
-    schema_name = current_schema_name()
-    conn.execute(f"CREATE SCHEMA IF NOT EXISTS {schema_name}")
-    conn.execute(f"SET search_path TO {schema_name}, public")
+    # SINGLE SOURCE OF TRUTH: schema bootstrap is owned by schema_bootstrap and
+    # quoted via sql.Identifier; operate on the raw connection because the
+    # sqlite-style _CompatConnection.execute only accepts ``str`` queries.
+    ensure_versioned_schema(conn._conn)
 
 
 def _schema_alter_statements() -> tuple[str, ...]:

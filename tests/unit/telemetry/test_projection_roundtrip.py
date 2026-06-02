@@ -5,7 +5,8 @@ Verifiziert, dass write_projection und read_projection tatsaechlich
 persistieren und zuruecklesen koennen.
 
 Platzierung in tests/unit/ (statt tests/integration/) weil:
-- tests/integration/ erzwingt via conftest postgres_runtime_env fuer alle Tests
+- der echte SQLite-Read-Roundtrip eine reine Logik-/Persistenz-Pruefung ist und
+  in tests/unit/ (sqlite-autouse) ohne Docker laeuft
 - Dieser Test braucht explizit SQLite fuer den FK-69-Read-Roundtrip-Pfad
 """
 

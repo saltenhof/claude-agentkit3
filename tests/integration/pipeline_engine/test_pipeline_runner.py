@@ -15,8 +15,6 @@ For real E2E tests that exercise actual handlers, see
 from __future__ import annotations
 
 import json
-import tempfile
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -48,34 +46,9 @@ from agentkit.story_context_manager.models import PhaseStatus, StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
-
-
-def _symlinks_supported() -> bool:
-    """Return True when the OS/process can create symlinks.
-
-    NOTE (Codex-r7-r2): these heavy pipeline smoke tests drive a REAL completing
-    ``install_agentkit`` against the session-shared Postgres backend. They remain
-    gated off hosts without OS symlinks because un-gating them surfaces a
-    PRE-EXISTING integration-test isolation limitation (the session-pinned
-    ``postgres`` env lets other tests accrue rows in the shared
-    ``story_contexts``/``skill_bindings`` tables, colliding with these tests'
-    fixed story ids). That hardening is tracked separately and is NOT part of the
-    AG3-048 skills-binding scope; the installer-surface tests (multi-harness,
-    CLI, namespace, scaffold) DO exercise the junction path on every platform.
-    """
-    with tempfile.TemporaryDirectory() as d:
-        src = Path(d) / "src"
-        src.mkdir()
-        link = Path(d) / "link"
-        try:
-            link.symlink_to(src)
-        except OSError:
-            return False
-        return True
-
-
-_SYMLINKS_AVAILABLE = _symlinks_supported()
 
 
 # ---------------------------------------------------------------------------
@@ -108,12 +81,10 @@ def _setup_story(
 
 
 def _install_project(project_dir: Path) -> None:
-    if not _SYMLINKS_AVAILABLE:
-        pytest.skip(
-            "Heavy pipeline smoke test gated off no-symlink hosts pending the "
-            "integration shared-Postgres isolation hardening (Codex-r7-r2; not "
-            "AG3-048 scope)"
-        )
+    # AG3-051: un-gated. The host-independent install path binds skills via a
+    # Windows directory junction / POSIX symlink (FK-43 §43.4.1.1), and the
+    # per-test ``postgres_isolated_schema`` fixture (attached by the integration
+    # conftest) TRUNCATEs the test schema so fixed story ids no longer collide.
     install_result = install_agentkit(
         InstallConfig(
             project_key=project_dir.name,

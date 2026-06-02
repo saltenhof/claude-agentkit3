@@ -122,13 +122,11 @@ def _postgres_connect() -> Iterator[Any]:
     from psycopg.rows import dict_row
 
     from agentkit.state_backend import postgres_store
-    from agentkit.state_backend.config import versioned_postgres_schema_name
+    from agentkit.state_backend.schema_bootstrap import ensure_versioned_schema
 
-    schema = versioned_postgres_schema_name()
     conn = psycopg.connect(_postgres_database_url(), row_factory=dict_row)
     try:
-        conn.execute(f"CREATE SCHEMA IF NOT EXISTS {schema}")
-        conn.execute(f"SET search_path TO {schema}, public")
+        ensure_versioned_schema(conn)
         # Bootstrap via the canonical Postgres schema owner (SINGLE SOURCE OF
         # TRUTH, symmetric to _sqlite_connect): guarantees skill_bindings exists
         # before the adapter writes/reads. Idempotent (CREATE IF NOT EXISTS).

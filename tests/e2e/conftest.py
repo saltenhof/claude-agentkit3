@@ -14,12 +14,31 @@ if TYPE_CHECKING:
 
 # ``pytest_plugins`` lebt in ``tests/conftest.py`` (Top-Level, pytest 8+
 # Anforderung); hier nur Collection-Hook fuer Postgres-Bindung.
+#
+# AG3-051 (Codex-Fix): OPT-IN statt Suite-Wholesale. Frueher haengte dieser Hook
+# ``postgres_isolated_schema`` an JEDES ``/e2e/`` item. Das zog Docker auch auf
+# reine GitHub-Live-Tests, die KEIN State-Backend ausueben:
+# ``github_live/test_issues.py`` und ``github_live/test_projects.py`` reden nur
+# mit der GitHub-API (kein ``save_*``/``load_*``). Das ist derselbe AK4-Verstoss
+# wie bei der Contract-Deny-List ("Pure-Tests ziehen kein Docker/Postgres").
+#
+# Modell jetzt: eine EXPLIZITE ALLOW-LIST der Postgres-nutzenden e2e-Pfade. Die
+# Smoke-Pipeline und die GitHub-Live-Phasentests persistieren echten State
+# (``save_story_context``/``save_phase_snapshot``/``save_flow_execution``) und
+# brauchen die per-test-Isolation; die zwei reinen GitHub-API-Module nicht.
+_POSTGRES_E2E_ALLOW_PATHS: tuple[str, ...] = (
+    "/e2e/smoke/",
+    "/e2e/github_live/test_closure_phase.py",
+    "/e2e/github_live/test_setup_phase.py",
+)
 
 
 def pytest_collection_modifyitems(config, items):  # type: ignore[no-untyped-def]
     del config  # unused, explicit for hook signature parity
     for item in items:
-        item.fixturenames.append("postgres_runtime_env")
+        path = str(item.fspath).replace("\\", "/")
+        if any(allow in path for allow in _POSTGRES_E2E_ALLOW_PATHS):
+            item.fixturenames.append("postgres_isolated_schema")
 
 
 @pytest.fixture()

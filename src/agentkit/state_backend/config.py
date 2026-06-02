@@ -11,6 +11,12 @@ from agentkit.config.sqlite_gate import ALLOW_SQLITE_ENV, sqlite_allowed
 
 STATE_BACKEND_ENV = "AGENTKIT_STATE_BACKEND"
 STATE_DATABASE_URL_ENV = "AGENTKIT_STATE_DATABASE_URL"
+# AG3-051: test-only Postgres schema override. Production/runtime/build NEVER
+# set these; the override is honored fail-closed (gate active AND name matches
+# the reserved test namespace) so a leaked override cannot point at production
+# data. See FK-18 §18.9a (versioned schema) and AG3-051 §2.1.2.
+SCHEMA_OVERRIDE_ENV = "AGENTKIT_PG_SCHEMA_OVERRIDE"
+SCHEMA_OVERRIDE_ALLOWED_ENV = "AGENTKIT_PG_SCHEMA_OVERRIDE_ALLOWED"
 # AG3-015: 3.6.0 -> 3.7.0 (artifact_class CHECK extended with
 # 'prompt_audit'; FK-44 §44.6, AG3-023 §2.1.4 idempotent side-by-side
 # migration per FK-18 §18.9a).
@@ -68,6 +74,11 @@ STATE_DATABASE_URL_ENV = "AGENTKIT_STATE_DATABASE_URL"
 # the old 3.13.0 DB is never touched.
 SCHEMA_VERSION = "3.14.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
+# AG3-051: reserved test-schema namespace. Disjoint from the production schema
+# name (``ak3_v<slug>``), so a test override can never resolve onto production
+# data even if the gate is mis-set.
+_TEST_SCHEMA_NAME_PATTERN = re.compile(r"^ak3test_[a-z0-9_]+$")
+_TRUTHY = frozenset({"1", "true", "yes", "on"})
 
 
 class StateBackendKind(StrEnum):
@@ -136,6 +147,49 @@ def versioned_postgres_schema_name(version: str | None = None) -> str:
     return f"ak3_v{schema_version_slug(version)}"
 
 
+def resolve_schema_name(version: str | None = None) -> str:
+    """Resolve the active PostgreSQL schema name (single source of truth).
+
+    Production path returns the versioned schema ``ak3_v<slug>`` unchanged. A
+    test override (``AGENTKIT_PG_SCHEMA_OVERRIDE``) is honored **only** when it
+    is fail-closed safe:
+
+    - the gate ``AGENTKIT_PG_SCHEMA_OVERRIDE_ALLOWED`` is truthy, AND
+    - the override matches the reserved test namespace ``^ak3test_[a-z0-9_]+$``.
+
+    Any other combination raises :class:`RuntimeError`. Production/runtime/build
+    never set the override, so their behaviour is identical to
+    :func:`versioned_postgres_schema_name`. The reserved prefix guarantees a
+    test schema can never collide with production data.
+
+    Args:
+        version: Optional explicit schema version; defaults to ``SCHEMA_VERSION``.
+
+    Returns:
+        The resolved schema name to ``CREATE SCHEMA`` / ``SET search_path`` on.
+
+    Raises:
+        RuntimeError: If the override is set without an active gate or with a
+            name outside the reserved ``ak3test_`` namespace.
+    """
+
+    override = os.environ.get(SCHEMA_OVERRIDE_ENV)
+    if override is None:
+        return versioned_postgres_schema_name(version)
+    if os.environ.get(SCHEMA_OVERRIDE_ALLOWED_ENV, "").lower() not in _TRUTHY:
+        raise RuntimeError(
+            f"{SCHEMA_OVERRIDE_ENV} is set but {SCHEMA_OVERRIDE_ALLOWED_ENV} is "
+            "not active. The schema override is a test-only control and stays "
+            "fail-closed in production paths.",
+        )
+    if _TEST_SCHEMA_NAME_PATTERN.fullmatch(override) is None:
+        raise RuntimeError(
+            f"Invalid {SCHEMA_OVERRIDE_ENV}={override!r}; a test schema override "
+            "must match ^ak3test_[a-z0-9_]+$ (reserved test namespace).",
+        )
+    return override
+
+
 def versioned_sqlite_db_file(version: str | None = None) -> str:
     """Return the SQLite file name for a schema version."""
 
@@ -146,10 +200,13 @@ __all__ = [
     "STATE_BACKEND_ENV",
     "STATE_DATABASE_URL_ENV",
     "ALLOW_SQLITE_ENV",
+    "SCHEMA_OVERRIDE_ENV",
+    "SCHEMA_OVERRIDE_ALLOWED_ENV",
     "SCHEMA_VERSION",
     "StateBackendConfig",
     "StateBackendKind",
     "load_state_backend_config",
+    "resolve_schema_name",
     "schema_version_slug",
     "versioned_postgres_schema_name",
     "versioned_sqlite_db_file",

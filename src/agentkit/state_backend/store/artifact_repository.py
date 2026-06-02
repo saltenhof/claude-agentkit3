@@ -379,13 +379,11 @@ def _postgres_connect() -> Iterator[Any]:
     import psycopg
     from psycopg.rows import dict_row
 
-    from agentkit.state_backend.config import versioned_postgres_schema_name
+    from agentkit.state_backend.schema_bootstrap import ensure_versioned_schema
 
-    schema = versioned_postgres_schema_name()
     conn = psycopg.connect(_postgres_database_url(), row_factory=dict_row)
     try:
-        conn.execute(f"CREATE SCHEMA IF NOT EXISTS {schema}")
-        conn.execute(f"SET search_path TO {schema}, public")
+        ensure_versioned_schema(conn)
         yield conn
         conn.commit()
     except Exception:

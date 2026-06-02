@@ -2,7 +2,8 @@
 
 End-to-end through ``install_agentkit`` with a real ``SkillBundleStore`` +
 productive ``StateBackendSkillBindingRepository`` (the integration backend is
-real Postgres via the autoused ``postgres_runtime_env`` fixture):
+real Postgres via the per-test ``postgres_isolated_schema`` fixture the
+integration conftest attaches to every ``/integration/`` item — AG3-051):
 
 - all four mandatory skills are bound
 - the harness bind points (``.claude/skills/`` AND ``.codex/skills/``) hold
