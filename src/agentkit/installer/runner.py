@@ -238,23 +238,38 @@ def _default_sonarqube_stanza(config: InstallConfig) -> dict[str, object]:
     return stanza
 
 
+def _build_repo_entries(config: InstallConfig) -> list[dict[str, str]]:
+    """Build the ``repositories`` list for ``project.yaml``.
+
+    Mirrors the declared repositories verbatim (carrying optional
+    ``language``/``test_command``/``build_command`` fields when present) and
+    falls back to the single default ``app`` repo when none are declared.
+    Extracted from ``_build_project_yaml`` to keep its cognitive complexity
+    within the S3776 budget (no behaviour change).
+
+    Args:
+        config: The install configuration carrying ``repositories``.
+
+    Returns:
+        The list of repository entry mappings for ``project.yaml``.
+    """
+    if not config.repositories:
+        return [{"name": "app", "path": "."}]
+    repos: list[dict[str, str]] = []
+    for repo in config.repositories:
+        entry: dict[str, str] = {
+            "name": repo["name"],
+            "path": repo["path"],
+        }
+        for optional_field in ("language", "test_command", "build_command"):
+            if optional_field in repo:
+                entry[optional_field] = repo[optional_field]
+        repos.append(entry)
+    return repos
+
+
 def _build_project_yaml(config: InstallConfig) -> dict[str, object]:
-    if config.repositories:
-        repos: list[dict[str, str]] = []
-        for repo in config.repositories:
-            entry: dict[str, str] = {
-                "name": repo["name"],
-                "path": repo["path"],
-            }
-            if "language" in repo:
-                entry["language"] = repo["language"]
-            if "test_command" in repo:
-                entry["test_command"] = repo["test_command"]
-            if "build_command" in repo:
-                entry["build_command"] = repo["build_command"]
-            repos.append(entry)
-    else:
-        repos = [{"name": "app", "path": "."}]
+    repos = _build_repo_entries(config)
 
     story_types = list(DEFAULT_STORY_TYPES)
     pipeline: dict[str, object] = {

@@ -411,85 +411,29 @@ class VerifySystem:
                 continue
 
             if kind is QALayerKind.SONARQUBE_GATE:
-                # FK-33 §33.6 / §33.8.3: classificatory Layer 1, sequenced
-                # AFTER adversarial, BEFORE policy. State-machine conformant
-                # (formal.deterministic-checks.state-machine):
-                #   * NOT_APPLICABLE_FAST => stage DROPPED entirely (None): no
-                #     LayerResult, no artefact, no Sonar status; the fast
-                #     QA-subflow terminates via the tests-green floor.
-                #   * NOT_APPLICABLE_UNAVAILABLE => SKIP marker; policy still
-                #     aggregates over the other layers.
-                #   * APPLICABLE green => PASS; the run continues to policy.
-                #   * APPLICABLE fail-closed (red/stale/unreadable/0-or-multi
-                #     ledger match) => route DIRECTLY to the terminal `failed`
-                #     WITHOUT the policy engine and WITHOUT a decision artefact
-                #     (invariant.passed-requires-sonarqube-gate-passed).
-                stage_result = run_sonarqube_gate_stage(
-                    self.sonar_gate_port, story_id, ctx.story_dir
+                early_outcome = self._run_sonarqube_gate_kind(
+                    ctx=ctx,
+                    story_id=story_id,
+                    now_str=now_str,
+                    qa_cycle_fields=qa_cycle_fields,
+                    layer_results=layer_results,
+                    artifact_refs_written=artifact_refs_written,
                 )
-                if stage_result is None:
-                    # NOT_APPLICABLE_FAST: drop the stage entirely.
-                    continue
-                gate_result = stage_result.layer_result
-                for spec in _SONARQUBE_GATE_ARTIFACTS:
-                    self._write_layer_envelope(
-                        spec=spec,
-                        result=gate_result,
-                        ctx=ctx,
-                        story_id=story_id,
-                        now_str=now_str,
-                        qa_cycle_fields=qa_cycle_fields,
-                    )
-                    artifact_refs_written.append(spec.filename)
-                if stage_result.short_circuit_failed:
-                    return self._sonarqube_gate_failed_outcome(
-                        stage_result=stage_result,
-                        layer_results=layer_results,
-                        artifact_refs_written=artifact_refs_written,
-                        ctx=ctx,
-                        story_id=story_id,
-                    )
-                layer_results.append(gate_result)
+                if early_outcome is not None:
+                    return early_outcome
                 continue
 
-            if kind is QALayerKind.LLM_EVALUATOR:
-                # W1: Layer 2 runs three distinct reviewers, each producing
-                # its own LayerResult and its own envelope.
-                for layer_instance, spec in self._layer2_pairs():
-                    result = self._execute_layer(
-                        layer_instance, ctx, story_id, kind,
-                        review_input=effective_review_input,
-                        story_context=_story_ctx,
-                    )
-                    layer_results.append(result)
-                    self._write_layer_envelope(
-                        spec=spec,
-                        result=result,
-                        ctx=ctx,
-                        story_id=story_id,
-                        now_str=now_str,
-                        qa_cycle_fields=qa_cycle_fields,
-                    )
-                    artifact_refs_written.append(spec.filename)
-            else:
-                layer_instance = self._layer_for_kind(kind)
-                result = self._execute_layer(
-                    layer_instance, ctx, story_id, kind,
-                    review_input=effective_review_input,
-                    story_context=_story_ctx,
-                )
-                layer_results.append(result)
-
-                for spec in self._kind_to_single_artifacts(kind):
-                    self._write_layer_envelope(
-                        spec=spec,
-                        result=result,
-                        ctx=ctx,
-                        story_id=story_id,
-                        now_str=now_str,
-                        qa_cycle_fields=qa_cycle_fields,
-                    )
-                    artifact_refs_written.append(spec.filename)
+            self._run_data_layer_kind(
+                kind=kind,
+                ctx=ctx,
+                story_id=story_id,
+                now_str=now_str,
+                qa_cycle_fields=qa_cycle_fields,
+                effective_review_input=effective_review_input,
+                story_ctx=_story_ctx,
+                layer_results=layer_results,
+                artifact_refs_written=artifact_refs_written,
+            )
 
         # Step 5: Policy decision.
         decision = self.policy_engine.decide(layer_results)
@@ -549,6 +493,153 @@ class VerifySystem:
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    def _run_sonarqube_gate_kind(
+        self,
+        *,
+        ctx: VerifyContextBundle,
+        story_id: str,
+        now_str: str,
+        qa_cycle_fields: dict[str, object],
+        layer_results: list[LayerResult],
+        artifact_refs_written: list[str],
+    ) -> QaSubflowOutcome | None:
+        """Run the ``sonarqube_gate`` stage and update the run accumulators.
+
+        Extracted from :meth:`run_qa_subflow` (S3776) without behaviour change.
+        FK-33 §33.6 / §33.8.3 — classificatory Layer 1, sequenced AFTER
+        adversarial, BEFORE policy. State-machine conformant
+        (formal.deterministic-checks.state-machine):
+
+        * NOT_APPLICABLE_FAST => stage DROPPED entirely (``stage_result is
+          None``): no LayerResult, no artefact, no Sonar status; the fast
+          QA-subflow terminates via the tests-green floor. Returns ``None`` so
+          the caller simply continues.
+        * NOT_APPLICABLE_UNAVAILABLE => SKIP marker; the gate ``LayerResult`` is
+          appended so policy still aggregates over the other layers. Returns
+          ``None``.
+        * APPLICABLE green => PASS; the ``LayerResult`` is appended and the run
+          continues to policy. Returns ``None``.
+        * APPLICABLE fail-closed (red/stale/unreadable/0-or-multi ledger match)
+          => route DIRECTLY to the terminal ``failed`` WITHOUT the policy engine
+          and WITHOUT a decision artefact
+          (invariant.passed-requires-sonarqube-gate-passed). Returns the FAIL
+          ``QaSubflowOutcome`` so the caller returns it immediately.
+
+        Args:
+            ctx: Run-time context bundle.
+            story_id: Story display-ID.
+            now_str: Pre-computed ISO timestamp for envelope writes.
+            qa_cycle_fields: QA-cycle identity fields embedded in payloads.
+            layer_results: Mutable accumulator of layer results (appended in
+                place for the SKIP / PASS paths).
+            artifact_refs_written: Mutable accumulator of artefact filenames
+                (the gate envelope is appended; deliberately NO decision.json
+                on the fail-closed path).
+
+        Returns:
+            The fail-closed ``QaSubflowOutcome`` for an APPLICABLE gate FAIL, or
+            ``None`` when the run should continue (dropped / SKIP / PASS).
+        """
+        stage_result = run_sonarqube_gate_stage(
+            self.sonar_gate_port, story_id, ctx.story_dir
+        )
+        if stage_result is None:
+            # NOT_APPLICABLE_FAST: drop the stage entirely.
+            return None
+        gate_result = stage_result.layer_result
+        for spec in _SONARQUBE_GATE_ARTIFACTS:
+            self._write_layer_envelope(
+                spec=spec,
+                result=gate_result,
+                ctx=ctx,
+                story_id=story_id,
+                now_str=now_str,
+                qa_cycle_fields=qa_cycle_fields,
+            )
+            artifact_refs_written.append(spec.filename)
+        if stage_result.short_circuit_failed:
+            return self._sonarqube_gate_failed_outcome(
+                stage_result=stage_result,
+                layer_results=layer_results,
+                artifact_refs_written=artifact_refs_written,
+                ctx=ctx,
+                story_id=story_id,
+            )
+        layer_results.append(gate_result)
+        return None
+
+    def _run_data_layer_kind(
+        self,
+        *,
+        kind: QALayerKind,
+        ctx: VerifyContextBundle,
+        story_id: str,
+        now_str: str,
+        qa_cycle_fields: dict[str, object],
+        effective_review_input: object | None,
+        story_ctx: object | None,
+        layer_results: list[LayerResult],
+        artifact_refs_written: list[str],
+    ) -> None:
+        """Execute a non-gate data layer and write its envelope(s).
+
+        Extracted from :meth:`run_qa_subflow` (S3776) without behaviour change.
+
+        * ``LLM_EVALUATOR`` (W1): runs the three distinct Layer-2 reviewers,
+          each producing its own ``LayerResult`` and its own envelope.
+        * STRUCTURAL / ADVERSARIAL: resolves the single layer instance, executes
+          it once and writes its single artefact spec(s).
+
+        Args:
+            kind: The (non-POLICY, non-SONARQUBE_GATE) layer kind to run.
+            ctx: Run-time context bundle.
+            story_id: Story display-ID.
+            now_str: Pre-computed ISO timestamp for envelope writes.
+            qa_cycle_fields: QA-cycle identity fields embedded in payloads.
+            effective_review_input: Normalised Layer-2 review input.
+            story_ctx: Pre-resolved ``StoryContext`` (or ``None``).
+            layer_results: Mutable accumulator of layer results (appended in
+                place).
+            artifact_refs_written: Mutable accumulator of artefact filenames
+                (appended in place).
+        """
+        if kind is QALayerKind.LLM_EVALUATOR:
+            for layer_instance, spec in self._layer2_pairs():
+                result = self._execute_layer(
+                    layer_instance, ctx, story_id, kind,
+                    review_input=effective_review_input,
+                    story_context=story_ctx,
+                )
+                layer_results.append(result)
+                self._write_layer_envelope(
+                    spec=spec,
+                    result=result,
+                    ctx=ctx,
+                    story_id=story_id,
+                    now_str=now_str,
+                    qa_cycle_fields=qa_cycle_fields,
+                )
+                artifact_refs_written.append(spec.filename)
+            return
+
+        layer_instance = self._layer_for_kind(kind)
+        result = self._execute_layer(
+            layer_instance, ctx, story_id, kind,
+            review_input=effective_review_input,
+            story_context=story_ctx,
+        )
+        layer_results.append(result)
+        for spec in self._kind_to_single_artifacts(kind):
+            self._write_layer_envelope(
+                spec=spec,
+                result=result,
+                ctx=ctx,
+                story_id=story_id,
+                now_str=now_str,
+                qa_cycle_fields=qa_cycle_fields,
+            )
+            artifact_refs_written.append(spec.filename)
 
     def _sonarqube_gate_failed_outcome(
         self,

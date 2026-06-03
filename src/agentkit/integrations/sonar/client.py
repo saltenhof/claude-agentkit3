@@ -198,7 +198,12 @@ class SonarClient:
                 f"SonarQube API returned HTTP {exc.code} for {request.full_url}",
                 detail={"status_code": exc.code, "url": request.full_url},
             ) from exc
-        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        except OSError as exc:
+            # urllib.error.URLError and TimeoutError both derive from OSError
+            # (verified hierarchy); catching the base class is identical in
+            # behaviour and avoids S5713 redundant-subclass except clauses.
+            # HTTPError (a URLError subclass) is caught by the prior block, so
+            # it never reaches here — the fail-closed path is unchanged.
             raise SonarApiError(
                 f"SonarQube API unreachable for {request.full_url}: {exc}",
                 detail={"url": request.full_url},
