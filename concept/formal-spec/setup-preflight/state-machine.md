@@ -59,6 +59,17 @@ transitions:
     from: setup-preflight.status.context_materialized
     to: setup-preflight.status.failed
     guard: setup-preflight.invariant.main_green_unreachable_fails_closed
+  # Applicability-resolved SKIP edge (FK-33 §33.6.5): when the sonarqube_gate
+  # is NOT_APPLICABLE — Sonar deliberately absent (sonarqube.available false)
+  # OR mode fast — the green-main precondition is skipped WITHOUT fail-closed
+  # and code stories advance straight to worktree creation. This edge keeps
+  # the deliberately-absent SKIP path strictly distinct from the unreachable
+  # fail-closed edge above (absent != broken); a configured-but-unreachable
+  # Sonar (available true) stays APPLICABLE and still routes to failed.
+  - id: setup-preflight.transition.context_materialized_to_worktrees_ready_sonar_not_applicable
+    from: setup-preflight.status.context_materialized
+    to: setup-preflight.status.worktrees_ready
+    guard: setup-preflight.invariant.green_main_precondition_only_when_sonarqube_gate_applicable
   - id: setup-preflight.transition.worktrees_ready_to_guards_active
     from: setup-preflight.status.worktrees_ready
     to: setup-preflight.status.guards_active
@@ -76,6 +87,6 @@ compound_rules:
   - id: setup-preflight.rule.concept-research-shortcut
     description: Concept and research stories complete setup without worktree creation and without mode routing for execution or exploration.
   - id: setup-preflight.rule.main-green-precondition-gates-worktree-creation
-    description: For implementation and bugfix stories the main-green precondition (FK-22 22.4c) is checked between context_materialized and worktree creation; only a GREEN sonarqube_gate main attestation read by analysisId plus revision-match advances to worktrees_ready, while RED, STALE, or unreachable refuses setup fail-closed and transitions to failed with an active blame-free out-of-story cleanup-worker proposal.
+    description: For implementation and bugfix stories the main-green precondition (FK-22 22.4c) is applicability-resolved between context_materialized and worktree creation (FK-33 §33.6.5). When the sonarqube_gate is APPLICABLE (sonarqube.available true AND mode not fast) only a GREEN sonarqube_gate main attestation read by analysisId plus revision-match advances to worktrees_ready, while a configured-but-unreachable Sonar — RED, STALE, or server/branch-plugin unreachable (all available true) — refuses setup fail-closed and transitions to failed with an active blame-free out-of-story cleanup-worker proposal. When the sonarqube_gate is NOT_APPLICABLE because Sonar is deliberately absent (sonarqube.available false) OR mode is fast, the green-main precondition is skipped WITHOUT fail-closed and the story advances straight to worktrees_ready via the applicability-resolved skip edge; absent is not broken, so a deliberately absent Sonar must never be conflated with an unreachable one.
 ```
 <!-- FORMAL-SPEC:END -->

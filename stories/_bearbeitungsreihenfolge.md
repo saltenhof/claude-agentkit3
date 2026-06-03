@@ -125,6 +125,21 @@ Contract-Test gepinnt + dokumentiert. **Folge:** THEME-006 fast komplett — ver
 AG3-034 (Preflight 2/5-10 + IntegrityGate-8-Dim + Concept/Research-Drift), ebenfalls
 durch AG3-032 unblockt.
 
+**Anmerkung 7 (AG3-018 Fast-Modus — Konzept-Teil vorgezogen, 2026-06-03, Stefan-approved):**
+Im Rahmen der AG3-034-Arbeit wurde ein **unified Sonar-Gate-Applicability-Modell**
+gelandet (FK-33 §33.6.5 als Owner: 3 Zustaende APPLICABLE / NOT_APPLICABLE-Sonar-
+nicht-verfuegbar / NOT_APPLICABLE-fast; Unterscheidung „bewusst-abwesend ≠ kaputt";
+neuer FK-03-Schalter `sonarqube.available`; Re-Entry ueber den bestehenden
+Cleanup-Remediation-Worker). Dabei wurde der **Konzept-Anteil von AG3-018**
+mitgenommen: FK-24 §24.3.4 „Mode-Profil Fast" als kanonische Tabelle plus die
+Fast-Referenzen quer durch FK-22 §22.4c, FK-27 §27.6a.4, FK-29 §29.1a.6, FK-35
+§35.2.4a (sowie die `mode_lock`-Wertebereich-Vereinheitlichung `{null/idle |
+standard | fast}` in FK-24 §24.3.3 + AG3-034 §2.1.2). **Folge:** Der verbleibende
+Scope von AG3-018 ist die **CODE-Implementierung** (Mode-StrEnum, Phase-Routing,
+Story-Scoped-Guard-Skip, Service-API-`mode`-Feld, Telemetrie-Tagging,
+Pre-Merge-Rebase). Die AG3-018-Akzeptanzkriterien bleiben unveraendert; AC 1
+(kanonische Tabelle) ist konzeptionell vorab erfuellt.
+
 ## 2. Begruendung der Reihenfolge
 
 **AG3-026 zuerst (Top-Surface der Capability):**

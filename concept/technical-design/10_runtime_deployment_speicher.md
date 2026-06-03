@@ -174,7 +174,7 @@ Pflicht-Infrastrukturdienste benötigt (Weaviate).
 | LLM-Pools (MCP) | Pflicht: mind. 2 verschiedene Pools zusätzlich zu Claude (Schicht 2 fordert verschiedene LLMs für QA-Review und Semantic Review) | Integrity-Gate bei Closure prüft konfigurierte `llm_roles` gegen Telemetrie |
 | Weaviate + MCP-Wrapper | Pflicht | Installer Checkpoint 9 |
 | ARE (MCP) | Optional (`are: true`) | Installer prüft Erreichbarkeit des MCP-Servers |
-| SonarQube (Community Build ≥ `min_version`) | **Pflicht fuer codeproduzierende Projekte** (`sonarqube.enabled: true`; impl/bugfix-Stories); Optional fuer reine Concept-/Research-Projekte | Installer Checkpoint CP 10d (Verfuegbarkeit + Mindestversion + Creds) **plus Branch-Plugin-Conformance-Self-Test** (FK-50); Gate-Semantik FK-33 §33.6.3 |
+| SonarQube (Community Build ≥ `min_version`) | **Pflicht fuer codeproduzierende Projekte mit `sonarqube.available: true`** (`sonarqube.enabled: true`; impl/bugfix-Stories); Optional fuer reine Concept-/Research-Projekte **sowie fuer Projekte mit `sonarqube.available: false`** (dann ist das Gate NOT_APPLICABLE, FK-33 §33.6.5 — Betreiber akzeptiert bewusst keine Sonar-Durchsetzung) | Installer Checkpoint CP 10d (Verfuegbarkeit + Mindestversion + Creds) **plus Branch-Plugin-Conformance-Self-Test** (FK-50); Gate-Semantik FK-33 §33.6.3 |
 | └─ Community Branch Plugin | **Pflicht (Sub-Abhaengigkeit von SonarQube)** — Community Edition hat keine native Branch-Analyse; ohne Plugin ist das Green-Gate auf Branches/Pre-Merge nicht durchsetzbar (FK-33 §33.6.3) | Installer CP 10d: Plugin-Existenz + Mindestversion + Conformance-Self-Test (nur dann Trust-A-faehig) |
 
 **LLM-Pool-Anforderung im Detail:**
@@ -389,7 +389,7 @@ Portbereich-Schema:
 | 9702 | AgentKit Project-API (REST) | AgentKit | HTTP/JSON | Optional (Pflicht wenn Thin-Client im Zielprojekt verwendet wird) | `agentkit serve --project-api` |
 | 9800 | ARE Server | Fachliche Integration | MCP | Optional (FK-40) | Manuell |
 | 9900 | Jenkins (Web-UI) | CI/CD | HTTP | Optional (externe Stage-Registry, FK-33) | Docker Compose |
-| 9901 | SonarQube (inkl. Community Branch Plugin) | Code-Qualitaet | HTTP | **Pflicht fuer codeproduzierende Projekte** (`sonarqube.enabled: true`, FK-33 §33.6.3); sonst Optional | Systemdienst (Installer CP 10d) |
+| 9901 | SonarQube (inkl. Community Branch Plugin) | Code-Qualitaet | HTTP | **Pflicht fuer codeproduzierende Projekte mit `sonarqube.available: true`** (`sonarqube.enabled: true`, FK-33 §33.6.3); sonst Optional (auch bei `available: false` → Gate NOT_APPLICABLE, FK-33 §33.6.5) | Systemdienst (Installer CP 10d) |
 | 9902 | Jenkins (Agent-Port) | CI/CD | TCP | Optional (Jenkins-Agent-Kommunikation) | Docker Compose |
 | 9903 | Weaviate (VektorDB) | Dateninfrastruktur | HTTP + gRPC | Pflicht (FK-13) | Docker Compose |
 

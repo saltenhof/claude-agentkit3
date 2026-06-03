@@ -229,9 +229,13 @@ integriert, der integrierte Kandidat **frisch** per SonarQube vermessen
 **nach** dem Scan und **vor** Push/Merge ausgewertet, und der gesamte
 Block **innerhalb des Merge-Serialisierungs-Locks** ausgefuehrt wird —
 ist normativ in **FK-29 §29.1a** (Pre-Merge-Scan-und-Merge-Block)
-festgelegt. FK-12 ownt ausschliesslich die einzelnen **Git-Mechaniken**,
-die FK-29 in dieser Ordnung aufruft; FK-12 schreibt **keine** eigene
-Closure-Sequenz mehr vor.
+festgelegt. Der Sonar-Scan und die Dimension 9 gelten nur im
+APPLICABLE-Fall des `sonarqube_gate` (FK-33 §33.6.5); bei abwesendem
+Sonar (`sonarqube.available=false`) bzw. `mode=fast` entfallen sie (ohne
+Fail-Closed bzw. ersetzt durch das Sanity-Gate), waehrend die uebrigen
+Git-Mechaniken und der Merge-Lock unveraendert greifen. FK-12 ownt
+ausschliesslich die einzelnen **Git-Mechaniken**, die FK-29 in dieser
+Ordnung aufruft; FK-12 schreibt **keine** eigene Closure-Sequenz mehr vor.
 
 Git-Primitiven, die FK-29 §29.1a in der dort definierten Reihenfolge
 nutzt (alle innerhalb des Merge-Locks, gegen den gepushten,

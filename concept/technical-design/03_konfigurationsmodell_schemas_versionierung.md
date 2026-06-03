@@ -170,7 +170,8 @@ governance:
   cooldown_s: 300             # Cooldown zwischen LLM-Adjudications gleichen Typs
 
 sonarqube:
-  enabled: true               # Pflicht (hart) für codeproduzierende Projekte (impl/bugfix-Stories)
+  available: true             # Projekt/Host deklariert ein Sonar überhaupt (Capability-Schalter). false = kein Sonar
+  enabled: true               # Pflicht (hart) für codeproduzierende Projekte (impl/bugfix-Stories) MIT available:true
   base_url: "http://localhost:9901"   # SonarQube-Server (FK-10 §10.7.2)
   min_version: "26.4"         # SonarQube Community Build Mindestversion
   token_env: "SONARQUBE_TOKEN" # Verweis auf ENV/Secret-Store — NIE inline-Token
@@ -192,7 +193,8 @@ Pflicht-Laufzeitabhaengigkeit (FK-10 §10.2.2).
 
 | Feld | Typ | Bedeutung |
 |------|-----|-----------|
-| `enabled` | bool | **Hart Pflicht (`true`) fuer codeproduzierende Projekte** (Projekte mit impl/bugfix-Stories). Reine Concept-/Research-Projekte duerfen `false` setzen. |
+| `available` | bool | **Capability-Schalter (Default `true` fuer codeproduzierende Projekte): Deklariert, ob das Projekt/der Host *ueberhaupt* ein Sonar besitzt.** `false` erklaert „kein Sonar" — das `sonarqube_gate` ist dann an allen drei Lifecycle-Gate-Punkten **NOT_APPLICABLE** (kein fail-closed; FK-33 §33.6.5). Das ist **auch fuer codeproduzierende Projekte ausdruecklich zulaessig** — Konsequenz: keine Sonar-Qualitaetsdurchsetzung, der Betreiber akzeptiert das bewusst. Klar abzugrenzen von `enabled`: `available` sagt „gibt es ein Sonar?", `enabled` sagt „ist die Gate-Maschinerie scharf geschaltet?". |
+| `enabled` | bool | **Hart Pflicht (`true`) fuer codeproduzierende Projekte mit `available: true`** (Projekte mit impl/bugfix-Stories, die ein Sonar besitzen). Reine Concept-/Research-Projekte **oder** Projekte mit `available: false` duerfen `false` setzen. Bei `available: false` ist `enabled` bedeutungslos (das Gate ist NOT_APPLICABLE). |
 | `base_url` | str (URL) | SonarQube-Server-Endpunkt (Default-Port 9901, FK-10 §10.7.2). |
 | `min_version` | str (SemVer) | Mindestversion SonarQube Community Build. Niedrigere Server-Version → Installer-FAIL (FK-50). |
 | `token_env` | str | Name der ENV-Variable bzw. des Secret-Store-Schluessels mit dem Sonar-Token. **Kein Inline-Token** (Secret-Hygiene, FK-33 §33.3.2 `security.secrets`). |
@@ -203,20 +205,30 @@ Pflicht-Laufzeitabhaengigkeit (FK-10 §10.2.2).
 **Pydantic v2-Validierung** (`SonarQubeConfig` als frozen-Modell,
 `extra="forbid"`, eingebunden in `PipelineConfig`):
 
-- `enabled == true` UND fehlende `base_url`/`token_env` →
-  `ValueError` (fail-closed, kein stiller Default auf Localhost ohne
-  Auth).
+- `available == true` UND `enabled == true` UND fehlende
+  `base_url`/`token_env` → `ValueError` (fail-closed, kein stiller Default
+  auf Localhost ohne Auth). Bei `available == false` entfaellt diese
+  Pflicht — die Umgebungsfelder duerfen leer bleiben (es gibt kein Sonar).
 - `min_version` / `plugins.community_branch.min_version` muessen
   parsebare SemVer-Strings sein.
 - `quality_gate.default_profile` muss auf eine existierende Profil-Datei
   unter `resources/target_project/` zeigen (Pfad-Existenz im
   Installer-Verify, FK-50 CP 12).
-- **Cross-Field-Regel:** Ein Projekt mit codeproduzierenden Stories
-  (impl/bugfix im Story-Backend) und `sonarqube.enabled: false` ist
+- **Cross-Field-Regel (auf `available` umgestellt):** Ein Projekt mit
+  codeproduzierenden Stories (impl/bugfix im Story-Backend) und
+  `sonarqube.available: true`, aber `sonarqube.enabled: false`, ist
   unzulaessig — der Setup-Preflight (FK-22 §22.4c) und das Closure-Gate
-  (FK-29 §29.1a / FK-35 §35.2.4a) koennen dann ihre Vorbedingung nicht
-  erfuellen. Diese Regel wird beim Config-Laden als `ValueError`
-  durchgesetzt (analog `e2e_assertions requires db`, §3.2.1).
+  (FK-29 §29.1a / FK-35 §35.2.4a) koennen dann ihre APPLICABLE-Vorbedingung
+  nicht erfuellen (Sonar deklariert vorhanden, Gate aber nicht scharf).
+  Diese Regel wird beim Config-Laden als `ValueError` durchgesetzt (analog
+  `e2e_assertions requires db`, §3.2.1). **`sonarqube.available: false` ist
+  hingegen auch fuer codeproduzierende Projekte ausdruecklich zulaessig**
+  (kein `ValueError`): Das `sonarqube_gate` ist dann an allen drei
+  Lifecycle-Gate-Punkten NOT_APPLICABLE und wird uebersprungen (FK-33
+  §33.6.5) — der Betreiber akzeptiert bewusst, dass es keine
+  Sonar-Qualitaetsdurchsetzung gibt. Abzugrenzen vom *konfiguriert-aber-
+  unerreichbaren* Sonar (`available: true`, Server nicht erreichbar), das
+  weiterhin fail-closed blockt (FK-33 §33.6.5, „abwesend ≠ kaputt").
 
 #### Config-Hash (Drift-Erkennung der Gate-Konfiguration)
 

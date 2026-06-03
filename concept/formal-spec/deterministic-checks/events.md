@@ -54,6 +54,15 @@ events:
         - qa_cycle_id
         - outcome
         - blocking_stage_ids
+  # FAST-ONLY (FK-24 §24.3.4, FK-27 §27.6a): the Layer-1 tests-green floor
+  # verdict under mode fast. It carries NO policy aggregation (Layer 4 is OUT)
+  # and is the only QA-subflow event on the fast terminal path.
+  - id: deterministic-checks.event.tests-green-floor.passed
+    producer: deterministic-checks
+    role: verdict
+    payload:
+      required:
+        - qa_cycle_id
   - id: deterministic-checks.event.sonar-attestation.read
     producer: qa-sonarqube-gate
     role: lifecycle

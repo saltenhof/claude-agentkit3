@@ -49,5 +49,11 @@ invariants:
   - id: integrity-gate.invariant.dimension9_applies_to_code_stories_only
     scope: mode
     rule: dimension 9 is evaluated only for implementation and bugfix stories; concept and research stories have no merge and no analyzed code and skip the dimension
+  - id: integrity-gate.invariant.dimension9_evaluated_only_when_sonarqube_gate_applicable
+    scope: mode
+    rule: dimension 9 is evaluated only when the sonarqube_gate is APPLICABLE; when sonarqube.available is false the dimension is NOT_APPLICABLE and is skipped without a SONAR_NOT_GREEN fail, which stays distinct from a configured-but-unreachable Sonar (available true but attestation missing, stale, or red) that keeps the dimension APPLICABLE and fails it closed as SONAR_NOT_GREEN
+  - id: integrity-gate.invariant.fast_mode_replaces_nine_dimensions_with_sanity_gate
+    scope: mode
+    rule: under mode fast (story attribute mode per FK-24 24.3.4; project-level mode_lock fast per 24.3.3) the nine-dimension integrity gate including dimension 9 is not evaluated and is replaced by the sanity gate (tests green, worktree clean, pre-merge-rebase on main ok) with escalation to the human on rebase conflict
 ```
 <!-- FORMAL-SPEC:END -->

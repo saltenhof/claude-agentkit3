@@ -424,6 +424,18 @@ nicht (§29.1.1, §29.2): fuer sie entfallen Finding-Resolution-Gate,
 Integrity-Gate und der gesamte gesperrte Block; der Ablauf startet
 effektiv bei Schritt 4 (Story-Status auf Done).
 
+**Applicability-Geltung innerhalb impl/bugfix (FK-33 §33.6.5):** Die
+Schritte 2.d (Integrated-Candidate-Sonar-Scan) und der Sonar-Anteil von
+2.e (Dimension 9) gelten zusaetzlich nur, wenn das `sonarqube_gate`
+**APPLICABLE** ist (`sonarqube.available=true` **und** `mode != fast`).
+Bei bewusst abwesendem Sonar (`sonarqube.available=false`) entfallen Scan
+und Dimension 9 ohne Fail-Closed; die Dimensionen 1–8 und alle uebrigen
+Schritte bleiben. Bei `mode=fast` ersetzt das **Sanity-Gate** (§29.1a.6)
+den Scan und das 9-Dimensionen-IntegrityGate. Die genaue
+Drei-Pfad-Aufloesung ist normativ in §29.1a.1 festgelegt; ein
+konfiguriert-aber-unerreichbares/rotes Sonar (`available=true`) bleibt
+APPLICABLE und failt closed (abwesend ≠ kaputt).
+
 ### 29.1.5 Merge-Policy
 
 Closure kennt zwei offizielle Merge-Policies:
@@ -482,21 +494,38 @@ Auspraegung dieser Schritte aus der Single-Repo-Sequenz; alles nach
 Teardown (Story-Closed, Metriken, Rueckkopplungstreue, Postflight,
 VektorDB-Sync, Guards-Off; §29.1.4 Schritte 5-10) laeuft pro-Story und
 ist nicht multi-repo-aufgespalten. Jeder teilnehmende Repo wird dabei
-auf seinem integrierten Pre-Merge-Stand gruen vermessen (§29.1a) und auf
-ff-Mergbarkeit geprueft, **bevor** auf irgendeinem Repo ein Push beginnt;
-ein nicht-gruener oder nicht-ff-faehiger Repo blockiert die gesamte
-Closure (ESCALATED).
+auf seinem integrierten Pre-Merge-Stand applicability-aufgeloest gruen
+vermessen (§29.1a) und auf ff-Mergbarkeit geprueft, **bevor** auf
+irgendeinem Repo ein Push beginnt; ein nicht-gruener oder nicht-ff-faehiger
+Repo blockiert die gesamte Closure (ESCALATED). „Gruen vermessen" meint im
+**APPLICABLE**-Fall (`sonarqube.available true` UND nicht `mode==fast`,
+FK-33 §33.6.5) den Integrated-Candidate-Sonar-Scan plus Dimension 9; bei
+**deliberately absent Sonar** (`sonarqube.available false`) entfaellt der
+Sonar-Scan/Dim 9 und die Barriere stuetzt sich pro Repo auf die
+Integrity-Gate-Dimensionen 1-8 ohne Sonar (kein Fail-Closed); unter
+**`mode==fast`** ersetzt das Sanity-Gate (Tests gruen, Worktree sauber,
+Pre-Merge-Rebase ok) den Scan und das Neun-Dimensionen-Gate. Ein
+konfiguriertes-aber-nicht-erreichbares oder rotes Sonar (`available true`)
+bleibt APPLICABLE und faellt fail-closed (absent ist nicht broken).
 
 1. **Stufe 1 — Pre-Merge-Gruen-und-FF-Mergbarkeits-Barriere (pro Repo,
    ohne Push):** fuer **jedes** teilnehmende Repo wird unter dem
    **pro-Repo** Merge-Serialisierungs-Lock geprueft — **aber noch nichts
    gepusht und nichts auf `main` sichtbar gemacht**: `locked_sha`
    festhalten, latest `main` integrieren, Workspace saeubern,
-   Build/Test, **Integrated-Candidate-Sonar-Scan** (erzeugt die
-   commit-gebundene Attestation pro Repo), `tree_hash(scan) ==
-   tree_hash(merge)`, **Integrity-Gate-Dimension 9** verifiziert die
-   frische Per-Repo-Attestation (FK-35 §35.2.4a), sowie der lokale
-   ff-Mergebarkeits-Check gegen den jeweils aktuellen `origin/main`.
+   Build/Test, sowie der lokale ff-Mergebarkeits-Check gegen den jeweils
+   aktuellen `origin/main`. Der **APPLICABLE**-Anteil dieser Barriere
+   (`sonarqube.available true` UND nicht `mode==fast`) umfasst zusaetzlich
+   den **Integrated-Candidate-Sonar-Scan** (erzeugt die commit-gebundene
+   Attestation pro Repo), `tree_hash(scan) == tree_hash(merge)` und
+   **Integrity-Gate-Dimension 9**, die die frische Per-Repo-Attestation
+   verifiziert (FK-35 §35.2.4a). In den **NOT_APPLICABLE**-Faellen entfaellt
+   dieser Sonar-Anteil: bei `sonarqube.available false` traegt die Barriere
+   pro Repo nur die Integrity-Gate-Dimensionen 1-8 (kein Sonar-Scan, keine
+   Dim 9, kein Fail-Closed), unter `mode==fast` ersetzt das Sanity-Gate den
+   Scan und das Neun-Dimensionen-Gate. Ein konfiguriertes-aber-nicht-
+   erreichbares oder rotes Sonar (`available true`) bleibt APPLICABLE und
+   faellt fail-closed.
    Diese Stufe ist **nicht** der „vollstaendige Pre-Merge-Scan-und-Merge-
    Block" (Push und ff-Merge sind die spaeteren Stufen 2-4); sie ist die
    reine Gruen-und-FF-Mergbarkeits-**Barriere**. Auch ein einziger roter
@@ -507,8 +536,10 @@ Closure (ESCALATED).
    kein einziger `main` sichtbar, bevor alle Repos die Barriere bestehen
    (Cross-Repo-Atomicity der Gruen-Vorbedingung).
 2. **Stufe 2 — Push der Story-Branches (innerhalb der jeweiligen
-   Repo-Locks):** alle Story-Branches werden mit ihrem gruen
-   vermessenen Integrationsstand gepusht. Erst nach Erfolg in **allen**
+   Repo-Locks):** alle Story-Branches werden mit ihrem in Stufe 1
+   applicability-aufgeloest freigegebenen Integrationsstand gepusht (im
+   APPLICABLE-Fall der gruen vermessene Stand, sonst der durch Dimensionen
+   1-8 bzw. das Sanity-Gate freigegebene Stand). Erst nach Erfolg in **allen**
    teilnehmenden Repos wird `payload.progress.story_branch_pushed =
    true` gesetzt. Bei Push-Fehler in Repo k werden bereits gepushte
    Branches nicht ausgerollt (Push ist remote-irreversibel ohne
@@ -594,10 +625,35 @@ ClosureProgress-Granularitaet aus §29.1.0.
 
 ### 29.1a.1 Zweck
 
+**Applicability zuerst (FK-33 §33.6.5):** Auch dieser dritte Lifecycle-Gate-Punkt
+loest **vor** der Gruen/Rot-Bewertung die Anwendbarkeit des `sonarqube_gate`
+auf. Es entstehen drei Pfade:
+
+- **APPLICABLE** (`sonarqube.available == true` UND `mode != fast` UND Story-Typ
+  impl/bugfix): der vollstaendige Pre-Merge-Scan-und-Merge-Block laeuft **wie
+  unten beschrieben unveraendert** — Integrated-Candidate-Scan, Ledger,
+  Dimension 9, fail-closed bei Rot/stale/unerreichbar.
+- **NOT_APPLICABLE (Sonar nicht verfuegbar, `sonarqube.available == false`)**:
+  **nur** der Sonar-Anteil entfaellt — der `full integrated-candidate Sonar
+  scan`, `wait by ceTaskId`, `apply exception ledger`, `verify QG by
+  analysisId`, der `tree_hash(scan) == tree_hash(merge)`-Assert und die
+  **Integrity-Gate-Dimension 9** (SonarQube-Green) werden uebersprungen (SKIP,
+  **kein fail-closed**). **Alle uebrigen Closure-Pflichten bleiben
+  unveraendert bestehen:** Merge-Serialisierungs-Lock (§29.1a.2), Fetch- und
+  `locked_sha`-Drift-Assert, `git clean -xfd` + leeres Working-Tree, Build /
+  Test / Coverage (Layer-1-Determinismus), die **Integrity-Gate-Dimensionen
+  1–8** (FK-35 §35.2), Story-Branch-Push innerhalb des Locks, ff-only-Merge mit
+  CAS/Lease, sowie Finding-Resolution-Gate (§29.2) und Doc-Fidelity-Pflichten.
+  Davon strikt abzugrenzen ist das *konfiguriert-aber-unerreichbare/rote/stale*
+  Sonar (`available == true`): das bleibt **APPLICABLE** und blockt
+  **fail-closed** („abwesend ≠ kaputt", FK-33 §33.6.5).
+- **NOT_APPLICABLE (`mode == fast`)**: es gilt §29.1a.6 (Sanity-Gate statt
+  9-Dimensionen-IntegrityGate, Pre-Merge-Rebase, Eskalation bei Konflikt).
+
 Der dritte Lifecycle-Gate-Punkt der `sonarqube_gate`-Capability (FK-33
-§33.6.3, Punkt 3) liegt hier: unmittelbar vor dem Merge wird der letzte
-`main`-Stand in den Story-Branch integriert und der **integrierte
-Kandidaten-Zustand frisch neu vermessen**. Nur wenn dieser integrierte
+§33.6.3, Punkt 3) liegt hier: im **APPLICABLE**-Fall wird unmittelbar vor dem
+Merge der letzte `main`-Stand in den Story-Branch integriert und der
+**integrierte Kandidaten-Zustand frisch neu vermessen**. Nur wenn dieser integrierte
 Zustand gruen ist, wird ff-only auf `main` gemerged — damit gilt nach
 dem Merge „`main` == vermessener Zustand" und `main` bleibt gruen
 (Broken-Window). Ein QA-Subflow-gruener Branch (§27.6a) allein genuegt
@@ -711,6 +767,19 @@ dieses Blocks** und liegen innerhalb des Merge-Locks. Bei Multi-Repo
 teilnehmendem Repo**; die Atomicity-Stufen (§29.1.6.1) bleiben
 unveraendert, jede Stufe arbeitet auf dem jeweils integrierten,
 gruen-vermessenen Stand.
+
+### 29.1a.6 `mode=fast`: Sanity-Gate statt 9-Dimensionen-IntegrityGate
+
+Im `mode=fast` (Mode-Profil Fast, FK-24 §24.3.4) ist das `sonarqube_gate`
+an diesem Closure-Lifecycle-Punkt **NOT_APPLICABLE** (FK-33 §33.6.5): Der
+Integrated-Candidate-Sonar-Scan und die 9-Dimensionen-Integrity-Gate-Pruefung
+(inkl. Dimension 9 SonarQube-Green, FK-35 §35.2.4a) entfallen. An ihre Stelle
+tritt das **Sanity-Gate** — Tests gruen, Worktree clean, Pre-Merge-Rebase auf
+`main` OK — als Pflicht-Vorbedingung des Merges. Der Merge erfolgt per
+**Pre-Merge-Rebase auf `main` statt unter dem 9-Dim-gesperrten Block**; bei
+Rebase-Konflikt **Eskalation an den Menschen** (der die Fast-Story ohnehin
+aktiv begleitet). Die kanonische OUT/MOD-Tabelle liegt in FK-24 §24.3.4
+(keine Duplikation hier).
 
 ## 29.2 Finding-Resolution als Closure-Gate (FK-27-221 bis FK-27-225)
 

@@ -190,13 +190,22 @@ durchlaeuft:
 Wichtig:
 
 - `execution_route` ist nicht identisch mit `operating_mode`
-- das historische Feld `mode` in `phase-state.json` bezeichnet
-  fachlich **`execution_route`**
+- das Feld `mode` in `phase-state.json` bezeichnet fuer die nicht-fast
+  Standard-Familie fachlich **`execution_route`** (`execution` /
+  `exploration`); seit der Entkopplung in FK-24 §24.3.2 ist `mode`
+  **nicht mehr blosser `execution_route`-Alias**, sondern traegt
+  zusaetzlich den gleichrangigen Story-Modus `fast` (AG3-018), der **kein**
+  `execution_route`-Wert ist und mit `exploration` wechselseitig
+  ausschliessend ist (FK-24 §24.3.3/§24.3.4). Projektweit faltet die
+  Standard-Familie auf `mode_lock=standard`, `fast` ist der dazu exklusive
+  dritte Lock-Wert (`{null/idle | standard | fast}`).
 - ausserhalb eines gueltigen Story-Runs hat `execution_route` keine
   eigenstaendige Bedeutung
 
 Fuer `concept` und `research` ist `execution_route=execution` nur ein
-kompatibler Wire-Wert ohne implementierungsartige Exploration-Semantik.
+kompatibler Wire-Wert ohne implementierungsartige Exploration-Semantik;
+`mode=fast` ist fuer `concept`/`research` fail-closed (nur impl/bugfix,
+FK-24 §24.3.4).
 
 ## 59.6 Ergebnisachsen
 
@@ -295,8 +304,11 @@ Der kanonische Persistenzschnitt lautet:
 - `story_type`: persistent
 - `implementation_contract`: persistent
 - `operating_mode`: abgeleitet, nicht kanonisches Story-Feld
-- `execution_route`: runtime-scoped; derzeit ueber das Wire-Feld `mode`
-  materialisiert
+- `execution_route`: runtime-scoped; fuer die nicht-fast Standard-Familie
+  ueber das Wire-Feld `mode` materialisiert. `mode` ist seit FK-24 §24.3.2
+  kein blosser `execution_route`-Alias mehr, sondern traegt zusaetzlich den
+  Story-Modus `fast`; unter `fast` hat `execution_route` keine
+  eigenstaendige Bedeutung
 - `exit_class`: nur in offiziellen Exit-/Split-/Reset-Records, nicht als
   freies Story-Hauptfeld
 
@@ -313,5 +325,10 @@ Pflichtpruefungen fuer diesen Vertrag sind:
 - `test_operating_mode_is_runtime_derived_not_story_persisted`
 - `test_binding_invalid_is_not_free_ai_augmented`
 - `test_integration_stabilization_is_not_third_operating_mode`
-- `test_phase_state_mode_is_execution_route_alias`
+- `test_phase_state_mode_is_execution_route_alias` (deckt die nicht-fast
+  Standard-Familie ab: dort ist `mode` der `execution_route`-Alias
+  `execution`/`exploration`. Seit der Entkopplung in FK-24 §24.3.2 ist
+  `mode` jedoch **nicht mehr blosser** Alias, sondern traegt zusaetzlich
+  den gleichrangigen Story-Modus `fast` (kein `execution_route`-Wert) —
+  der Testname referenziert weiterhin nur den Standard-Familien-Alias.)
 

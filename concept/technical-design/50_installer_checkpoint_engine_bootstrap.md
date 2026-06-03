@@ -434,12 +434,26 @@ Nur wenn `features.are: true`.
 
 ### CP 10d: SonarQube-Verfügbarkeit + Branch-Plugin + Conformance-Self-Test
 
-Nur wenn `sonarqube.enabled: true` (Pflicht fuer codeproduzierende
-Projekte, FK-03 `sonarqube`-Stanza). Dieser Checkpoint ist die
-**fail-closed Umgebungs-Vorbedingung** des SonarQube-Green-Gates (FK-33
-§33.6.3). Stil analog zum Weaviate-/MCP-Checkpoint: fehlt eine harte
-Voraussetzung, **bricht der Installer ab (FAILED)** — er verweigert die
-Registrierung, statt ein Projekt ohne durchsetzbares Gate zuzulassen.
+**Applicability zuerst (FK-33 §33.6.5):** Ist `sonarqube.available: false`
+(FK-03 — Projekt/Host deklariert *kein* Sonar; auch fuer codeproduzierende
+Projekte zulaessig), ist dieser Checkpoint **NOT_APPLICABLE** und wird
+uebersprungen (CheckpointResult-Status `SKIPPED` mit `reason="not_applicable"`,
+§50.4 — **nicht** `FAILED`) — es gibt keine
+Sonar-Verfuegbarkeit/Plugin-Checks zu pruefen, weil bewusst kein Sonar
+betrieben wird. Das Green-Gate ist dann an allen drei Lifecycle-Gate-Punkten
+NOT_APPLICABLE (FK-33 §33.6.5), und der Betreiber akzeptiert bewusst, dass es
+keine Sonar-Qualitaetsdurchsetzung gibt.
+
+Andernfalls — `sonarqube.available: true` UND `sonarqube.enabled: true`
+(Pflicht fuer codeproduzierende Projekte mit Sonar, FK-03 `sonarqube`-Stanza)
+— ist dieser Checkpoint die **fail-closed Umgebungs-Vorbedingung** des
+SonarQube-Green-Gates (FK-33 §33.6.3). Stil analog zum Weaviate-/MCP-
+Checkpoint: fehlt dann eine harte Voraussetzung (Server unerreichbar,
+Branch-Plugin fehlt, Conformance-Self-Test scheitert), **bricht der Installer
+ab (FAILED)** — er verweigert die Registrierung, statt ein Projekt mit
+deklariertem, aber nicht durchsetzbarem Gate zuzulassen. „Abwesend ≠ kaputt"
+(FK-33 §33.6.5): NOT_APPLICABLE bei `available: false`, FAILED nur bei
+`available: true` mit gebrochener Voraussetzung.
 
 **1. Verfuegbarkeit / Mindestversion / Erreichbarkeit + Creds:**
 
@@ -537,7 +551,7 @@ Read-only Validierung aller vorherigen Checkpoints:
   (`.claude/settings.json`, `.codex/config.toml` o.ae.)?
 - Alle erwarteten `tools/agentkit/`-Wrapper vorhanden?
 - ARE-Scope-Zuordnung vollständig? (alle Code-Repos haben `are_scope`, alle Modul-Werte gemappt — nur wenn `features.are: true`)
-- SonarQube erreichbar, Mindestversion erfuellt, Community Branch Plugin vorhanden und Conformance-Self-Test bestanden, Config-Hash == registrierter Erwartungswert — **nur wenn `sonarqube.enabled: true`** (CP 10d)
+- SonarQube erreichbar, Mindestversion erfuellt, Community Branch Plugin vorhanden und Conformance-Self-Test bestanden, Config-Hash == registrierter Erwartungswert — **nur wenn `sonarqube.available: true` UND `sonarqube.enabled: true`**; bei `sonarqube.available: false` ist CP 10d NOT_APPLICABLE (FK-33 §33.6.5)
 
 **Ergebnis:** PASS oder Liste von Problemen.
 
@@ -549,6 +563,7 @@ class CheckpointResult:
     checkpoint: str     # z.B. "cp_07_state_backend_registration"
     status: str         # PASS, CREATED, UPDATED, SKIPPED, FAILED
     detail: str         # Menschenlesbare Beschreibung
+    reason: str | None  # Maschinenlesbarer Skip-/Fail-Grund, z.B. "not_applicable"
     duration_ms: int    # Ausführungsdauer
 ```
 
@@ -557,8 +572,16 @@ class CheckpointResult:
 | PASS | Checkpoint war bereits erfüllt, keine Aktion nötig |
 | CREATED | Neues Artefakt erstellt |
 | UPDATED | Bestehendes Artefakt aktualisiert |
-| SKIPPED | Nicht relevant (z.B. VektorDB bei `vectordb: false`) |
+| SKIPPED | Nicht relevant — Checkpoint uebersprungen ohne FAILED. Der Grund steht maschinenlesbar in `reason` (z.B. `vectordb_disabled` bei `vectordb: false`; `not_applicable` bei `sonarqube.available: false` gemaess FK-33 §33.6.5 — *bewusst-abwesend*, klar abzugrenzen von einem konfiguriert-aber-unerreichbaren System, das `FAILED` ist) |
 | FAILED | Checkpoint gescheitert — Installation abbrechen |
+
+> **Hinweis (FK-33 §33.6.5):** Die Anwendbarkeits-Aufloesung *NOT_APPLICABLE*
+> wird auf der CheckpointResult-Statusebene als `SKIPPED` mit
+> `reason="not_applicable"` gefuehrt — es wird **kein** eigener Status
+> `NOT_APPLICABLE` eingefuehrt (ZERO DEBT, keine Vokabular-Duplikation). Die
+> Unterscheidung *bewusst-abwesend* (`SKIPPED`/`not_applicable`) vs.
+> *konfiguriert-aber-unerreichbar* (`FAILED`) bleibt damit auf Statusebene
+> hart getrennt: SKIPPED blockt nie, FAILED bricht ab.
 
 ## 50.5 Link-Bindung (Symlink/Junction)
 
@@ -602,7 +625,8 @@ nicht zulaessig.
 | State-Backend nicht erreichbar | CP 7 | FAILED |
 | Link (Symlink/Junction) kann nicht angelegt oder aktualisiert werden | CP 8 | FAILED |
 | Bestehende Config mit inkompatiblem Schema | CP 5 | Migration versuchen (Kap. 51), bei Scheitern FAILED |
-| SonarQube nicht erreichbar / Version < `min_version` / Creds ungueltig | CP 10d | FAILED, Installation abbrechen |
+| `sonarqube.available: false` (Projekt deklariert kein Sonar, auch fuer codeproduzierende Projekte zulaessig) | CP 10d | `SKIPPED` mit `reason="not_applicable"` (§50.4) — Checkpoint uebersprungen, kein FAILED (FK-33 §33.6.5, *bewusst-abwesend* ≠ *kaputt*) |
+| SonarQube nicht erreichbar / Version < `min_version` / Creds ungueltig (bei `available: true`) | CP 10d | FAILED, Installation abbrechen |
 | Community Branch Plugin fehlt oder Version zu niedrig | CP 10d | FAILED — Green-Gate nicht durchsetzbar |
 | Branch-Plugin-Conformance-Self-Test scheitert | CP 10d | FAILED — Plugin nicht Trust-A-faehig, Gate darf nicht scharf geschaltet werden |
 | Config-Drift erkannt (manuelle Admin-Aenderung an Gate/Profil/Scope/New-Code) | CP 10d | Policy-Change → vollstaendiger main-Rescan erforderlich, Erwartungswert erst nach Gruen aktualisieren |

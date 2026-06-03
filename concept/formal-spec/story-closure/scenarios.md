@@ -93,5 +93,36 @@ scenarios:
       status: story-closure.status.escalated
     requires:
       - story-closure.invariant.merge_rejection_never_completes_closure
+  # NOT_APPLICABLE — Sonar deliberately absent (sonarqube.available false,
+  # FK-33 §33.6.5): resumed from the absent-Sonar intra-lock checkpoint, the
+  # integrated-candidate Sonar scan / ledger reconcile / tree_hash assert /
+  # Dimension 9 are skipped WITHOUT fail-closed while Dimensions 1-8 and the
+  # push/ff-merge/reconcile sequence remain in force, terminating at completed.
+  - id: story-closure.scenario.sonar-absent-closure-skips-sonar-completes
+    start:
+      status: story-closure.status.sonar_not_applicable_integrity_passed
+    trace:
+      - command: story-closure.command.execute-default
+    expected_end:
+      status: story-closure.status.completed
+    requires:
+      - story-closure.invariant.closure_proceeds_without_sonar_when_not_applicable
+      - story-closure.invariant.merge_requires_pushed_story_branch
+      - story-closure.invariant.completed_requires_merge_and_story_close
+  # NOT_APPLICABLE — mode fast (FK-24 §24.3.4 / mode_lock fast §24.3.3,
+  # FK-33 §33.6.5): resumed from the Sanity-Gate checkpoint that replaces the
+  # nine-dimension Integrity-Gate and the integrated-candidate Sonar scan,
+  # terminating at completed.
+  - id: story-closure.scenario.fast-mode-closure-sanity-gate-completes
+    start:
+      status: story-closure.status.sanity_gate_passed
+    trace:
+      - command: story-closure.command.execute-default
+    expected_end:
+      status: story-closure.status.completed
+    requires:
+      - story-closure.invariant.fast_mode_closure_uses_sanity_gate
+      - story-closure.invariant.merge_requires_pushed_story_branch
+      - story-closure.invariant.completed_requires_merge_and_story_close
 ```
 <!-- FORMAL-SPEC:END -->

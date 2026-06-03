@@ -428,7 +428,7 @@ wird an den Menschen eskaliert, nicht an einen Agenten.
 | Adversarial-Ergebnis | Liegt bei Implementierungs- und Bugfix-Stories ein Adversarial-Ergebnis vom richtigen Producer vor? |
 | QA-Subflow innerhalb Implementation | Hat mindestens ein QA-Subflow-Durchlauf stattgefunden? |
 | Timestamp-Kausalität | Liegen die Zeitstempel der Artefakte in der richtigen Reihenfolge? (Context vor Decision, nicht umgekehrt) |
-| SonarQube-Green | Existiert bei Implementierungs- und Bugfix-Stories die commit-gebundene Sonar-Attestation des integrierten Pre-Merge-Stands und ist sie grün? **Verifiziert nur — vermisst nicht neu** (FK-35 §35.2.4a). |
+| SonarQube-Green | Existiert bei Implementierungs- und Bugfix-Stories die commit-gebundene Sonar-Attestation des integrierten Pre-Merge-Stands und ist sie grün? **Verifiziert nur — vermisst nicht neu** (FK-35 §35.2.4a). **Applicability (FK-33 §33.6.5):** nur ausgewertet, wenn das `sonarqube_gate` APPLICABLE ist; bei bewusst abwesendem Sonar (`sonarqube.available=false`) ist die Dimension NOT_APPLICABLE und wird ohne `SONAR_NOT_GREEN`-Fail uebersprungen (abwesend ≠ kaputt — ein konfiguriert-aber-unerreichbares/rotes Sonar bleibt APPLICABLE und failt closed); unter `mode=fast` entfaellt Dimension 9 und die Closure nutzt stattdessen das Sanity-Gate (Tests gruen, Worktree clean, Pre-Merge-Rebase OK). |
 
 **Telemetrie-Signale (nicht kanonisch):**
 

@@ -80,18 +80,55 @@ commands:
     # gate verdict on its own, so it emits ONLY the failed verdict.
     emits:
       - deterministic-checks.event.sonarqube-gate.failed
+  - id: deterministic-checks.command.run-tests-green-floor
+    signature: internal run_tests_green_floor <gate_id>
+    # FAST-ONLY terminal floor (FK-24 §24.3.4, FK-27 §27.6a): under mode fast
+    # QA Layers 2-4 — including the Policy Engine (Layer 4) — are OUT. The only
+    # check is the Layer-1 tests-green floor; a green floor reaches the terminal
+    # `passed` DIRECTLY (tests_green_floor_passed -> passed) WITHOUT the policy
+    # engine and WITHOUT a Sonar stage, while a failing floor reuses the
+    # existing fail-closed edge stages_executed -> failed. This command never
+    # emits a policy verdict; the closure-side "Sanity-Gate" (FK-29/FK-35) is a
+    # CLOSURE term and is not produced here.
+    allowed_statuses:
+      - deterministic-checks.status.stages_executed
+    requires:
+      - deterministic-checks.invariant.sonarqube-fast-mode-not-applicable
+      - deterministic-checks.invariant.fast-mode-terminates-via-tests-green-floor-without-policy
+    emits:
+      - deterministic-checks.event.tests-green-floor.passed
   - id: deterministic-checks.command.evaluate-policy
     signature: agentkit policy
-    # The policy aggregator may fire ONLY from sonarqube_gate_passed. Every
-    # fail-closed branch reaches the terminal `failed` without the policy
-    # engine, and there is no stages_executed/attestation_read entry, so a
+    # The policy aggregator fires from exactly one applicability-resolved
+    # entry status (FK-33 §33.6.5), and ONLY in the non-fast flows (under mode
+    # fast the Policy Engine / Layer 4 is OUT, so this command never runs). For
+    # an APPLICABLE Sonar flow that entry is sonarqube_gate_passed: the green
+    # gate verdict gates the PASS (invariant.passed-requires-sonarqube-gate-passed).
+    # For a NOT_APPLICABLE-but-non-fast gate (deliberately absent Sonar,
+    # sonarqube.available false) the entry is sonarqube_gate_not_applicable —
+    # policy aggregation STILL runs over the other layers, guarded by
+    # invariant.passed-path-when-sonarqube-not-applicable. There is intentionally
+    # NO sanity/fast entry here: mode fast does not aggregate policy at all and
+    # terminates via run-tests-green-floor instead.
+    # Every fail-closed branch (red gate, stale/unreadable attestation, an
+    # already-failed prior layer, or a zero/multi-match exception ledger
+    # reconciliation) reaches the terminal `failed` WITHOUT the policy engine,
+    # and there is no stages_executed/attestation_read entry, so an APPLICABLE
     # PASS can be aggregated only after the green gate verdict status has
-    # actually been reached (invariant.passed-requires-sonarqube-gate-passed).
+    # actually been reached. A deliberately absent Sonar (NOT_APPLICABLE) must
+    # never be conflated with a configured-but-unreachable Sonar (available
+    # true), which stays APPLICABLE and fails closed.
     allowed_statuses:
       - deterministic-checks.status.sonarqube_gate_passed
+      - deterministic-checks.status.sonarqube_gate_not_applicable
     requires:
       - deterministic-checks.invariant.blocking-stage-failure-prevents-pass
+      # APPLICABLE-only precondition: enforced only when the gate is APPLICABLE
+      # (sonarqube.available true AND mode not fast). On the NOT_APPLICABLE
+      # entry it is satisfied vacuously and the passed-path-when-... rule
+      # governs instead.
       - deterministic-checks.invariant.passed-requires-sonarqube-gate-passed
+      - deterministic-checks.invariant.passed-path-when-sonarqube-not-applicable
     emits:
       - deterministic-checks.event.policy.evaluated
 ```

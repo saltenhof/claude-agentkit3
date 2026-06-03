@@ -31,7 +31,7 @@ invariants:
     rule: operating_mode is derived from lock binding and worktree consistency and must not be treated as a peer persisted story contract field
   - id: story-contracts.invariant.execution_route_is_distinct_from_operating_mode
     scope: governance
-    rule: execution_route and operating_mode are different dimensions and the wire field mode is only an execution_route alias
+    rule: execution_route and operating_mode are different dimensions; the wire field mode is the execution_route alias for the non-fast standard family (execution/exploration) but is NOT merely that alias, because since the FK-24 24.3.2 decoupling mode additionally carries the first-class story mode fast (AG3-018), which is not an execution_route value, is mutually exclusive with exploration, and folds at project level to mode_lock standard versus the exclusive fast lock value
   - id: story-contracts.invariant.integration_stabilization_is_not_valid_for_bugfix_or_non_implementation
     scope: governance
     rule: implementation_contract integration_stabilization is valid only for story_type implementation and never for bugfix concept or research

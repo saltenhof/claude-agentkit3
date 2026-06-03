@@ -419,6 +419,28 @@ Gate-Logik.
 Research-Stories durchlaufen diese Vorbedingung nicht — sie erhalten
 keinen Worktree (§22.5.1) und veraendern keinen analysierten Fachcode.
 
+**Applicability-Vorbedingung (FK-33 §33.6.5):** Die green-main-Vorbedingung
+greift nur, wenn die `sonarqube_gate`-Capability an diesem Lifecycle-Punkt
+**APPLICABLE** ist — also Sonar verfuegbar (`sonarqube.available == true`,
+FK-03), `mode != fast` (Story-Attribut `mode` aus FK-24 §24.3.4; projektweit
+`mode_lock != fast` aus §24.3.3) und Story-Typ impl/bugfix. Andernfalls ist
+sie **NOT_APPLICABLE** und wird uebersprungen (Status `SKIPPED`):
+- **Sonar nicht verfuegbar** (`sonarqube.available == false`, auch fuer
+  codeproduzierende Projekte zulaessig): kein Read der main-Attestation, kein
+  fail-closed — Setup laeuft weiter ohne green-main-Pruefung.
+- **`mode == fast`** (Story-Attribut `mode` aus FK-24 §24.3.4; projektweit
+  `mode_lock == fast` aus §24.3.3): die green-main-Vorbedingung wird nicht
+  ausgewertet (Mode-Profil Fast, FK-24); Konflikt-Auffang uebernimmt der
+  Pre-Merge-Rebase im Closure (FK-29).
+
+Davon strikt abzugrenzen ist das *konfiguriert-aber-unerreichbare* Sonar
+(`available == true`, Server/Branch-Plugin nicht erreichbar): das bleibt
+APPLICABLE und **fail-closed** (§22.4c.3, „abwesend ≠ kaputt", FK-33 §33.6.5).
+**Re-Entry:** Wechselt ein Projekt von Sonar-unverfuegbar → verfuegbar oder
+startet eine strikte Story nach Fast-Modus-Technikschuld, stellt zuerst der
+bestehende Cleanup-Remediation-Worker (§22.4c.3) `main` gruen her; danach gilt
+die green-main-Vorbedingung wieder normal (FK-33 §33.6.5).
+
 ### 22.4c.2 Pruefung (Read der main-Attestation, kein Live-Read)
 
 Das Setup-Skript liest die **commit-gebundene main-Attestation** der
@@ -446,6 +468,11 @@ def check_main_green_precondition(
     gleicht die analysierte Revision gegen den aktuellen main-HEAD ab.
     """
     if story_type not in ("implementation", "bugfix"):
+        return MainGreenResult(status="SKIPPED")
+    # Applicability zuerst (FK-33 §33.6.5): bewusst-abwesendes Sonar oder
+    # fast -> NOT_APPLICABLE/SKIPPED (kein fail-closed). Konfiguriert-aber-
+    # unerreichbares Sonar bleibt APPLICABLE und faellt unten fail-closed.
+    if not sonar.is_applicable(project):  # available==false OR mode==fast
         return MainGreenResult(status="SKIPPED")
 
     main_head = git_rev_parse("main", project.path)
@@ -497,7 +524,7 @@ ist nicht Teil der gerade gestarteten Story.
 | Status | Bedeutung | Folgeaktion |
 |--------|-----------|-------------|
 | `GREEN` | main-Attestation OK + Revision-Match | Setup laeuft weiter (Worktree-Erstellung) |
-| `SKIPPED` | Concept/Research — kein Worktree, kein Fachcode | Setup laeuft weiter |
+| `SKIPPED` | Concept/Research — kein Worktree, kein Fachcode; **oder** `sonarqube_gate` NOT_APPLICABLE (Sonar nicht verfuegbar / `mode=fast`, FK-33 §33.6.5) | Setup laeuft weiter |
 | `RED` | Quality Gate nicht OK auf Overall-Code-Invariante | **Setup fail-closed**, aktiver Cleanup-Vorschlag |
 | `STALE` | gruene Attestation, aber `last_analyzed_revision != main HEAD` | **Setup fail-closed**, aktiver Cleanup-Vorschlag (main neu vermessen lassen) |
 

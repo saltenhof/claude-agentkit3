@@ -536,7 +536,10 @@ policy:
 
 Anders als ein optionaler Projekt-Check (§33.6.1) ist das **SonarQube-Green-Gate
 ein normativer, fester Bestandteil der QA für codeproduzierende Stories**
-(`implementation`, `bugfix`). Es ist die `sonarqube_gate`-Stage aus §33.2.2:
+(`implementation`, `bugfix`) — **sofern es APPLICABLE ist** (`sonarqube.available
+== true` UND `mode != fast`; das normative Drei-Zustands-Applicability-Modell
+und die NOT_APPLICABLE-Pfade fuer bewusst abwesendes Sonar bzw. `mode=fast`
+stehen in §33.6.5). Es ist die `sonarqube_gate`-Stage aus §33.2.2:
 klassifikatorisch **Layer 1 deterministisch**, Trust-Klasse **A**
 (autoritatives externes System — blocking erlaubt, analog ARE-Gate/DB,
 §33.5.1), in der **Abfolge nach Schicht 3** ausgeführt (§33.8.3).
@@ -660,6 +663,43 @@ Der Closure-seitige Integrated-Candidate-Scan und der Post-Merge-Reconcile gegen
 `main` (§33.6.3, §33.6.4) werden in der Closure-Sequenz (FK-29) als
 Pre-Merge-Scan-und-Merge-Block orchestriert; die formalen Closure-Spezifikationen
 verweisen reziprok auf diese Gate- und Reconciler-Semantik.
+
+### 33.6.5 Applicability-Modell des `sonarqube_gate` (3 Zustaende, normativ)
+
+An **jedem** der drei Lifecycle-Gate-Punkte (§33.6.3: Setup-Vorbedingung
+FK-22 §22.4c, QA-Subflow §27.6a, Closure-Pre-Merge FK-29 §29.1a /
+Integrity-Gate FK-35 §35.2.4a) wird **vor** der Gruen/Rot-Bewertung
+deterministisch die **Anwendbarkeit** der Capability aufgeloest. Die
+Anwendbarkeitsaufloesung liefert genau einen von drei Zustaenden; FK-33 ist
+ihr Owner, die anderen Dokumente verweisen hierher:
+
+| Zustand | Vorbedingung | Verhalten am Gate-Punkt |
+|---------|--------------|--------------------------|
+| **APPLICABLE** | Sonar deklariert verfuegbar (`sonarqube.available == true`, FK-03) **UND** `mode != fast` (Story-Attribut `mode` aus FK-24 §24.3.4; projektweit: `mode_lock != fast` aus §24.3.3) **UND** `story_type ∈ {implementation, bugfix}` | Normale Auswertung: gruen → PASS; rot **oder** stale-Attestation → **fail-closed BLOCK**; konfiguriert-aber-unerreichbar → **fail-closed BLOCK**. |
+| **NOT_APPLICABLE (Sonar nicht verfuegbar)** | `sonarqube.available == false` (FK-03 — Projekt/Host deklariert *kein* Sonar) | Das Gate wird als **nicht anwendbar uebersprungen** (SKIP, **nicht** fail-closed). Auch fuer codeproduzierende Projekte zulaessig; Konsequenz: keine Sonar-Qualitaetsdurchsetzung an diesem Punkt (der Betreiber akzeptiert das, FK-03). |
+| **NOT_APPLICABLE (fast)** | `mode == fast` (Story-Attribut `mode` aus FK-24 §24.3.4; projektweit: `mode_lock == fast` aus §24.3.3) | Der Gate-Punkt entfaellt: Die green-main-Vorbedingung (FK-22 §22.4c) und die 9-Dimensionen-Auswertung inkl. Dimension 9 (FK-35 §35.2.4a) werden **nicht** ausgewertet; die Closure ersetzt das 9-Dimensionen-IntegrityGate durch das **Sanity-Gate** (Tests gruen, Worktree clean, Pre-Merge-Rebase OK) gemaess FK-24 (Mode-Profil Fast) / FK-29. |
+
+**Kernunterscheidung — *bewusst-abwesend* ≠ *kaputt* (zentrale Regel):**
+Ein **bewusst abwesendes** Sonar (`sonarqube.available == false`) fuehrt zu
+**NOT_APPLICABLE** und blockt **nicht** — der Betreiber hat sich gegen Sonar
+entschieden. Ein **konfiguriert-aber-unerreichbares/rotes/stales** Sonar
+(`available == true`, aber Server/Branch-Plugin nicht erreichbar, Quality Gate
+rot oder Attestation stale) ist **APPLICABLE** und blockt **fail-closed**.
+Abwesend ist nicht dasselbe wie kaputt: Ein deklariert-verfuegbares, aber nicht
+lesbares Gate ist ein unaufgeloester Zustand (FAIL-CLOSED), kein Freibrief zum
+Ueberspringen. Diese Unterscheidung war zuvor konflatiert und wird hier
+normativ getrennt.
+
+**Re-Entry-Vorbedingung (Transitionspflicht, kein neuer Mechanismus):** Wenn
+ein Projekt von Sonar-unverfuegbar → verfuegbar wechselt
+(`sonarqube.available` `false` → `true`), **oder** wenn nach akkumulierter
+Fast-Modus-Technikschuld eine strikte (Nicht-`fast`-)Story startet, kann der
+`main` Alt-Issues tragen, die nie gegen das Gate gemessen wurden. Bevor die
+strikte Story fortschreitet, muss der **bestehende
+Cleanup-Remediation-Worker** (FK-22 §22.4c.3 / §33.6.3 Punkt 1) `main` gruen
+herstellen; danach gilt die green-main-Vorbedingung wieder normal
+(APPLICABLE). Dies ist eine Transitionspflicht auf dem bereits definierten
+Cleanup-Pfad — es wird **kein** neuer Mechanismus eingefuehrt.
 
 <!-- PROSE-FORMAL: formal.story-closure.state-machine, formal.story-closure.events, formal.story-closure.invariants, formal.story-closure.scenarios -->
 

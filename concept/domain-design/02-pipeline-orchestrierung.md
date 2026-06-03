@@ -663,6 +663,17 @@ und dass das Gate die Attestation verifiziert, die der Scan zuvor erzeugt
 hat. Concept/Research-Stories haben keinen Branch und keinen Merge; für
 sie entfällt der gesamte Block (FK-29 §29.1.1, §29.2).
 
+Der frische SonarQube-Scan und die Dimension 9 (SonarQube-Green) gelten
+fuer Code-Stories nur, wenn das `sonarqube_gate` **APPLICABLE** ist
+(`sonarqube.available=true` **und** `mode != fast`; Applicability-Modell
+normativ FK-33 §33.6.5). Bei bewusst abwesendem Sonar
+(`sonarqube.available=false`) entfallen Scan und Dimension 9 ohne
+Fail-Closed — alle uebrigen Closure-Pflichten (Lock, Dimensionen 1–8,
+Push, ff-Merge) bleiben; bei `mode=fast` ersetzt das Sanity-Gate (Tests
+gruen, Worktree clean, Pre-Merge-Rebase OK) den Scan und das
+9-Dimensionen-Gate. Ein konfiguriert-aber-unerreichbares oder rotes
+Sonar bleibt dagegen APPLICABLE und failt closed (abwesend ≠ kaputt).
+
 Nach den Metriken wird ein Execution Report erzeugt: ein
 konsolidierter Abschlussbericht, der den gesamten Story-Durchlauf
 für den Menschen zusammenfasst. Der Bericht enthält eine

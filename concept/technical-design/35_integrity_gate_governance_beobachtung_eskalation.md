@@ -46,11 +46,13 @@ glossary:
         Deterministischer Prozess-Integritaets-Check unmittelbar vor dem
         Story-Merge. Prueft nicht die fachliche Qualitaet, sondern ob der
         definierte Prozess vollstaendig durchlaufen wurde: Pflicht-Artefakte
-        vorhanden, alle neun Dimensionen erfuellt (inkl. Dimension 9
-        SonarQube-Green: Verifikation der commit-gebundenen Sonar-Attestation
-        des integrierten Pre-Merge-Stands), Timestamp-Kausalitaet
-        korrekt. Bei FAIL: Phase-State ESCALATED, kein Merge.
-        Fehlermeldung gegenueber dem Agent ist opak.
+        vorhanden, alle anwendbaren Dimensionen erfuellt (Dimension 9
+        SonarQube-Green verifiziert die commit-gebundene Sonar-Attestation
+        des integrierten Pre-Merge-Stands und wird nur ausgewertet, wenn das
+        sonarqube_gate APPLICABLE ist (FK-33 §33.6.5); bei abwesendem Sonar
+        NOT_APPLICABLE/SKIP, bei mode=fast durch das Sanity-Gate ersetzt),
+        Timestamp-Kausalitaet korrekt. Bei FAIL: Phase-State ESCALATED, kein
+        Merge. Fehlermeldung gegenueber dem Agent ist opak.
       see_also:
         - term: guard-decision
           domain: governance-and-guards
@@ -270,7 +272,7 @@ Pruefung).
 | 6 | **Adversarial-Ergebnis** | `NO_ADVERSARIAL` | Bei implementation/bugfix: `ArtifactRecord(adversarial)` existiert, > 200 Bytes, Producer = `qa-adversarial` |
 | 7 | **QA-Subflow innerhalb Implementation** | `NO_VERIFY` | `flow_end` fuer den QA-Subflow-Flow innerhalb der Implementation-Phase mit `status == COMPLETED` (`qa_cycle_status == pass`); optional zusaetzlich entsprechende `phase_state_projection`. [Entscheidung 2026-05-01: Top-Phase `verify` entfaellt — Output-QA ist Subflow-intern in `implementation`.] |
 | 8 | **Timestamp-Kausalität** | `TIMESTAMP_INVERSION` | `ArtifactRecord(context).finished_at` < `ArtifactRecord(decision).finished_at` |
-| 9 | **SonarQube-Green** | `SONAR_NOT_GREEN` | Bei implementation/bugfix: commit-gebundene Sonar-Attestation des integrierten Pre-Merge-Stands existiert, ist an `commit_sha`/`tree_hash` des Merge gebunden, QG OK auf der Overall-Code-Invariante (per `analysisId`), Exception-Ledger-Hash und Tool-/Config-Versionen stimmen mit dem Erwartungswert. **Verifiziert nur — vermisst nicht neu** (§35.2.4a). |
+| 9 | **SonarQube-Green** | `SONAR_NOT_GREEN` | Bei implementation/bugfix **und APPLICABLE** (Sonar verfuegbar, `mode != fast`; FK-33 §33.6.5, §35.2.4a): commit-gebundene Sonar-Attestation des integrierten Pre-Merge-Stands existiert, ist an `commit_sha`/`tree_hash` des Merge gebunden, QG OK auf der Overall-Code-Invariante (per `analysisId`), Exception-Ledger-Hash und Tool-/Config-Versionen stimmen mit dem Erwartungswert. **Verifiziert nur — vermisst nicht neu** (§35.2.4a). NOT_APPLICABLE bei `sonarqube.available == false` oder `mode=fast` (dann Sanity-Gate, §35.2.4a). |
 
 ### 35.2.4a Dimension 9 — SonarQube-Green (Attestations-Verifikation)
 
@@ -314,6 +316,25 @@ Research-Stories haben keinen Merge und keinen analysierten Fachcode;
 fuer sie wird Dimension 9 wie die uebrigen impl/bugfix-spezifischen
 Dimensionen (5, 6) nicht geprueft (analog `merge_done`/`integrity_passed`
 direkt `true`, FK-29 §29.1.1).
+
+**Applicability-Geltung (FK-33 §33.6.5):** Dimension 9 wird nur ausgewertet,
+wenn die `sonarqube_gate`-Capability an diesem Lifecycle-Punkt **APPLICABLE**
+ist:
+- **Sonar nicht verfuegbar** (`sonarqube.available == false`, FK-03 — auch
+  fuer codeproduzierende Projekte zulaessig): Dimension 9 ist
+  **NOT_APPLICABLE** und wird uebersprungen (kein `SONAR_NOT_GREEN`-FAIL,
+  kein fail-closed) — es existiert keine Attestation, weil bewusst kein Sonar
+  betrieben wird. Klar abzugrenzen vom *konfiguriert-aber-unerreichbaren*
+  Sonar (`available == true`, aber Attestation fehlt/stale/rot), das
+  APPLICABLE bleibt und als `SONAR_NOT_GREEN` **fail-closed** scheitert
+  („abwesend ≠ kaputt", FK-33 §33.6.5).
+- **`mode == fast`** (Story-Attribut `mode` aus FK-24 §24.3.4; projektweit
+  `mode_lock == fast` aus §24.3.3; Mode-Profil Fast, FK-24): Das
+  9-Dimensionen-IntegrityGate wird in der Closure **insgesamt durch das
+  Sanity-Gate ersetzt** (Tests gruen, Worktree clean, Pre-Merge-Rebase OK,
+  FK-24 / FK-29). Dimension 9 — wie die uebrigen Dimensionen — wird im
+  Fast-Modus **nicht** ausgewertet; an ihre Stelle tritt der
+  Pre-Merge-Rebase auf `main` (bei Konflikt Eskalation an den Menschen).
 
 **Bei FAIL:** FAIL-Code `SONAR_NOT_GREEN`, Phase-State `ESCALATED` —
 konsistent mit allen anderen Dimensionen (§35.2.9). Die Fehlermeldung

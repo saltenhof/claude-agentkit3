@@ -75,7 +75,7 @@ Alle 10 Checks laufen IMMER (fail-closed, nicht abgebrochen beim ersten Fehler �
 
 Tabelle `project_mode_lock`:
 - `project_key` (PK)
-- `active_mode: StoryMode | None` (Werte `EXECUTION`, `EXPLORATION`, `FAST`, oder `None`/idle)
+- `active_mode: StoryMode | None` (normativer Wertebereich `standard`, `fast`, oder `None`/idle — FK-24 §24.3.3; `execution`/`exploration` falten auf Projekt-Lock-Ebene in `standard`. Fruehere Schreibweise `{EXECUTION, EXPLORATION, FAST}` war Drift, hier korrigiert; reine Story-Record-Korrektur, keine AC-Aenderung.)
 - `holder_count: int`
 - `updated_at`
 
@@ -219,3 +219,44 @@ Dim 5 (LLM_REVIEW_COMPLIANT) und Dim 6 (ADVERSARIAL_NACHWEIS) gelten nur fuer Im
 - Preflight-Tests: kein Mock-Filesystem, nutze `tmp_path`-Fixtures.
 - IntegrityGate-Tests: bauen ArtifactManager mit Stub-Repository.
 - AK2 NICHT veraendern.
+
+## 9. Scope-Amendment 2026-06-03 (Stefan-Entscheidung, Konzept-Treue)
+
+giftige-Codex + Worker haben unabhaengig festgestellt: FK-35 §35.2.4 fordert
+**NEUN** Artefakt-Dimensionen (Dim 9 = `SonarQube-Green` / `SONAR_NOT_GREEN`,
+normativ in `formal-spec/integrity-gate/invariants.md`), und die Setup-Phase
+fordert eine **fail-closed GREEN-main-Precondition** (`formal-spec/
+setup-preflight/invariants.md` + FK-22 §22). Die urspruengliche Story (§2.1.3
+"8 Dimensionen") war damit eine stille Konzept-Unterlieferung. Stefan-
+Entscheidung: AG3-034 wird auf den vollen Konzept-Stand gezogen. Erweiterter
+Scope (zusaetzlich zu §2.1):
+
+**Applicability-Vorbehalt (FK-33 §33.6.5 — Konzept-Nachschärfung 2026-06-03):**
+Dim 9 und die GREEN-main-Precondition gelten NUR, wenn der `sonarqube_gate`
+APPLICABLE ist, d. h. `sonarqube.available == true` (FK-03) **UND** `mode != fast`
+(FK-24 §24.3.4) **UND** `story_type ∈ {implementation, bugfix}`. Bei
+`sonarqube.available == false` (Projekt ohne Sonar) sind Dim 9 / green-main
+NOT_APPLICABLE (Skip, kein fail-closed); bei `mode == fast` ersetzt das
+Sanity-Gate das 9-Dim-Gate (Dim 9 / green-main nicht geprueft). Nur ein
+KONFIGURIERT-aber-rot/stale/unerreichbares Sonar (`available == true`) failt
+fail-closed — bewusst-abwesend ≠ kaputt.
+
+- **Dim 9 `SONARQUBE_GREEN`** (FK-35 §35.2.4 / formal.integrity-gate.invariants):
+  liest die commit-gebundene Sonar-Attestierung, bindet an Merge-State
+  (commit_sha/tree_hash), Quality-Gate OK, Ledger-/Versions-Match; nur fuer
+  `implementation`/`bugfix` **und nur im APPLICABLE-Fall**. Im APPLICABLE-Fall:
+  fehlende/rot/stale/unerreichbare Attestierung -> fail-closed FAIL. Bei
+  `available == false` -> NOT_APPLICABLE (Skip); bei `mode == fast` -> Sanity-Gate.
+- **GREEN-main-Precondition im Preflight** (formal.setup-preflight.invariants /
+  FK-22 §22.4c): im APPLICABLE-Fall verweigert stale/rote/unerreichbare main den
+  Setup fail-closed; bei `available == false` oder `mode == fast` ->
+  NOT_APPLICABLE (Skip-Edge zu `worktrees_ready`).
+- Wenn die commit-gebundene Attestierungs-/Ledger-Quelle noch nicht existiert
+  (bei APPLICABLE-Projekten), ist sie als Abhaengigkeit zu benennen; das Gate
+  failt fail-closed, bis die Attestierung vorliegt (kein Bypass, keine
+  Substitution durch CI-Sonar). Re-Entry nach `available:false->true` bzw. nach
+  Fast-Schulden: Cleanup-Remediation-Worker (FK-22 §22.4c / FK-33 §33.6.3) stellt
+  green-main her, bevor die strict-Story laeuft.
+
+Die §2.2-Ausklammerung von "Multi-LLM-Compliance (Dim 5 Detail Mindest-N)" bleibt
+bestehen (das ist NICHT Dim 9).

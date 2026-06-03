@@ -607,8 +607,20 @@ einer textuellen Mängelbeschreibung.
 
 ### 27.6a.1 Einordnung
 
-Nach der Adversarial-Stage (Schicht 3) und **vor** der
-Policy-Evaluation (Schicht 4) laeuft das `sonarqube_gate` auf dem
+**Applicability zuerst (FK-33 §33.6.5):** An diesem Gate-Punkt wird **vor**
+der Gruen/Rot-Bewertung die Anwendbarkeit des `sonarqube_gate` aufgeloest.
+Nur im **APPLICABLE**-Fall laeuft das Gate wie unten beschrieben. Bei
+**NOT_APPLICABLE (Sonar nicht verfuegbar, `sonarqube.available == false`)**
+wird die Sonar-Stage **uebersprungen (SKIP, kein fail-closed)** und der
+`StageExecutionPlan` geht direkt zur Policy-Evaluation (Schicht 4) — die
+uebrigen QS-Schichten bleiben unveraendert. Bei **NOT_APPLICABLE (`mode ==
+fast`)** gilt §27.6a.4 (Schicht-1-Tests-gruen-Floor statt Sonar-Gate).
+Davon strikt abzugrenzen ist das *konfiguriert-aber-unerreichbare/rote/stale*
+Sonar (`available == true`): das bleibt **APPLICABLE** und blockt
+**fail-closed** („abwesend ≠ kaputt", FK-33 §33.6.5).
+
+Im **APPLICABLE**-Fall laeuft nach der Adversarial-Stage (Schicht 3) und
+**vor** der Policy-Evaluation (Schicht 4) das `sonarqube_gate` auf dem
 **Story-Branch**. Es ist der zweite der drei Lifecycle-Gate-Punkte der
 Capability (FK-33 §33.6.3, Punkt 2; Setup-Vorbedingung in FK-22 §22.4c,
 Closure-Pre-Merge in FK-29/FK-35).
@@ -653,6 +665,16 @@ Artefakt traegt die commit-gebundene Attestation (FK-33 §33.6.3:
 `commit_sha`, `tree_hash`, `analysisId`/`ceTaskId`, QG-/Profile-Hash,
 Tool-Versionen) und ist — wie die uebrigen zyklusgebundenen Artefakte —
 in der Invalidierung bei `advance_qa_cycle()` enthalten.
+
+### 27.6a.4 `mode=fast`: Schicht-1-Floor, kein Sonar-Gate
+
+Im `mode=fast` (Mode-Profil Fast, FK-24 §24.3.4) entfaellt der gesamte
+QA-Subflow ausser einem **harten Tests-gruen-Floor**: Schicht 1 degeneriert
+auf „Build + Tests gruen" (nicht abschaltbar), die Schichten 2–4 entfallen,
+und das `sonarqube_gate` ist an diesem Lifecycle-Punkt **NOT_APPLICABLE**
+(FK-33 §33.6.5) — es wird nicht ausgewertet. Begruendung: Der Mensch reviewt
+das Inhaltliche selbst; die fachliche Tabelle der OUT/MOD-Substeps liegt
+kanonisch in FK-24 §24.3.4 (keine Duplikation hier).
 
 ## 27.7 Schicht 4: Policy-Evaluation
 

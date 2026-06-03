@@ -31,18 +31,34 @@ context: story-closure
 commands:
   - id: story-closure.command.execute-default
     signature: "POST /v1/story-runs/{run_id}/phases/closure/start -- body: {story_id}"
+    # allowed_statuses lists every resumable checkpoint. Besides the APPLICABLE
+    # integrated_candidate_green / integrity_passed entries this includes the
+    # two NOT_APPLICABLE intra-lock checkpoints so a closure can resume from
+    # them: sonar_not_applicable_integrity_passed (Sonar deliberately absent,
+    # sonarqube.available false) and sanity_gate_passed (mode fast). The
+    # integrated_candidate_scanned_green_before_push requirement is itself
+    # qualified APPLICABLE-only and is satisfied vacuously on the NOT_APPLICABLE
+    # entries, where the corresponding NOT_APPLICABLE invariant governs instead.
     allowed_statuses:
       - story-closure.status.requested
       - story-closure.status.policy_checked
       - story-closure.status.integrity_passed
       - story-closure.status.merge_lock_acquired
       - story-closure.status.integrated_candidate_green
+      - story-closure.status.sonar_not_applicable_integrity_passed
+      - story-closure.status.sanity_gate_passed
       - story-closure.status.story_branch_pushed
     requires:
       - story-closure.invariant.ff_only_is_default_policy
       - story-closure.invariant.branch_guard_allows_official_closure
       - story-closure.invariant.merge_block_runs_under_serialization_lock
+      # APPLICABLE-only: the green-integrated-candidate requirement applies only
+      # when the sonarqube_gate is APPLICABLE; the two NOT_APPLICABLE paths are
+      # governed by closure_proceeds_without_sonar_when_not_applicable (Sonar
+      # absent) and fast_mode_closure_uses_sanity_gate (mode fast).
       - story-closure.invariant.integrated_candidate_scanned_green_before_push
+      - story-closure.invariant.closure_proceeds_without_sonar_when_not_applicable
+      - story-closure.invariant.fast_mode_closure_uses_sanity_gate
     emits:
       - story-closure.event.closure.started
       - story-closure.event.policy.ff_only_selected
@@ -60,18 +76,27 @@ commands:
       - story-closure.event.closure.escalated
   - id: story-closure.command.execute-no-ff
     signature: "POST /v1/story-runs/{run_id}/phases/closure/start -- body: {story_id, no_ff: true}"
+    # Same resumable-checkpoint set as execute-default, including the two
+    # NOT_APPLICABLE intra-lock checkpoints sonar_not_applicable_integrity_passed
+    # (Sonar absent, sonarqube.available false) and sanity_gate_passed (mode fast).
     allowed_statuses:
       - story-closure.status.requested
       - story-closure.status.policy_checked
       - story-closure.status.integrity_passed
       - story-closure.status.merge_lock_acquired
       - story-closure.status.integrated_candidate_green
+      - story-closure.status.sonar_not_applicable_integrity_passed
+      - story-closure.status.sanity_gate_passed
       - story-closure.status.story_branch_pushed
     requires:
       - story-closure.invariant.no_ff_only_official_fallback
       - story-closure.invariant.branch_guard_allows_official_closure
       - story-closure.invariant.merge_block_runs_under_serialization_lock
+      # APPLICABLE-only (see execute-default); NOT_APPLICABLE paths governed by
+      # the two NOT_APPLICABLE invariants below.
       - story-closure.invariant.integrated_candidate_scanned_green_before_push
+      - story-closure.invariant.closure_proceeds_without_sonar_when_not_applicable
+      - story-closure.invariant.fast_mode_closure_uses_sanity_gate
     emits:
       - story-closure.event.closure.started
       - story-closure.event.policy.no_ff_selected

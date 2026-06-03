@@ -64,7 +64,16 @@ events:
       required:
         - closure_id
         - story_id
-        - dimension_9_attestation_analysis_id
+      # APPLICABLE-only: dimension_9_attestation_analysis_id is carried only
+      # when the sonarqube_gate is APPLICABLE and the nine-dimension
+      # Integrity-Gate ran (FK-35 §35.2.4a). For a deliberately absent Sonar
+      # (sonarqube.available false) Dimension 9 is skipped, and under mode fast
+      # the nine-dimension gate is replaced by the Sanity-Gate; in both
+      # NOT_APPLICABLE cases this field is absent (a configured-but-unreachable
+      # Sonar stays APPLICABLE and fails closed instead).
+      conditional:
+        - field: dimension_9_attestation_analysis_id
+          required_when: sonarqube_gate APPLICABLE (sonarqube.available true AND mode not fast)
   - id: story-closure.event.merge_lock.acquired
     producer: story-closure
     role: lifecycle
@@ -121,7 +130,15 @@ events:
       required:
         - closure_id
         - story_id
-        - analysis_id
+      # APPLICABLE-only: analysis_id (the post-merge exception-ledger reconcile
+      # against the commit-bound attestation, FK-33 §33.6.4) is carried only
+      # when the sonarqube_gate is APPLICABLE. For a deliberately absent Sonar
+      # the integrated-candidate scan and ledger reconcile are skipped, and
+      # under mode fast they are replaced by the Sanity-Gate; in both
+      # NOT_APPLICABLE cases this field is absent.
+      conditional:
+        - field: analysis_id
+          required_when: sonarqube_gate APPLICABLE (sonarqube.available true AND mode not fast)
   - id: story-closure.event.merge_lock.released
     producer: story-closure
     role: lifecycle

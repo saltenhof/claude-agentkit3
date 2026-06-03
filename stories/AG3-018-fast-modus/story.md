@@ -5,6 +5,17 @@
 **Abhaengigkeiten:** keine harte (impliziter Sequenzwunsch nach abgeschlossener CLI-Drift-Korrektur, weil Fast-Modus die Service-API referenziert)
 **Quell-Konzept:** FK-22 §22.8 (Modus-Ermittlung), FK-24 (Story-Type-Mode-Terminalitaet), FK-27 (QA-Subflow), FK-29 (Closure), FK-30/31/35 (Guards/Integrity), FK-91 §91.1a (Service-API)
 
+> **[Hinweis 2026-06-03, Stefan-approved — Konzept-Teil vorgezogen]** Der
+> **Konzept-Anteil** dieser Story (FK-24 §24.3.4 „Mode-Profil Fast" als
+> kanonische Tabelle + die Fast-Referenzen quer durch FK-22 §22.4c, FK-27
+> §27.6a.4, FK-29 §29.1a.6, FK-33 §33.6.5, FK-35 §35.2.4a) wurde **vorab im
+> Rahmen der AG3-034-Arbeit gelandet** (unified Sonar-Gate-Applicability-Modell).
+> Damit ist der **verbleibende Scope von AG3-018 die CODE-Implementierung**
+> (Mode-StrEnum-Erweiterung, Phase-Handler-Routing, Story-Scoped-Guard-Skip,
+> Service-API-`mode`-Feld, Telemetrie-Tagging, Pre-Merge-Rebase-Logik). Die
+> **Akzeptanzkriterien bleiben unveraendert** — AC 1 (FK-24 §24.X kanonische
+> Tabelle) ist durch die vorgezogene Landung bereits konzeptionell erfuellt.
+
 ---
 
 ## Kontext

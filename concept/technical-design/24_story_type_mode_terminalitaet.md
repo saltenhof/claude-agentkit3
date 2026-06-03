@@ -156,11 +156,25 @@ Die Pflichten sind:
 
 ### 24.3.2 `mode` ist kein fachlicher Ersatz fuer `story_type`
 
-Der historisch als `mode` bezeichnete Wert beschreibt nur den
-Intra-Run-Laufweg. Im konsolidierten Vertragsmodell aus FK-59 ist damit
-fachlich die Achse **`execution_route`** gemeint.
+**Entkopplung `mode` <-> `execution_route` (normativ, AG3-018-Modell):**
+Das Story-Attribut `mode` ist **nicht mehr blosser Alias** der
+Intra-Run-Achse `execution_route`. `mode` traegt den `fast`-Wert als
+gleichrangigen Story-Modus (§24.3.4); `execution_route` bleibt die davon
+abgeleitete Intra-Run-Laufweg-Achse `{execution, exploration, None}`, die
+**nur fuer nicht-fast Storys** eine eigenstaendige Bedeutung hat. Die
+Standard-Familie (`execution`/`exploration`) faltet projektweit auf den
+`mode_lock`-Wert `standard`; `fast` ist der dritte, dazu exklusive Wert
+(§24.3.3). `fast` ist mit `exploration` wechselseitig ausschliessend
+(§24.3.4: Exploration entfaellt unter Fast). Das Applicability-Praedikat
+des `sonarqube_gate` liest entsprechend `mode == fast` (Story) bzw.
+`mode_lock == fast` (Projekt), FK-33 §33.6.5.
 
-Er beschreibt nur den Laufweg:
+Der historisch als `mode` bezeichnete Wert beschreibt fuer die
+nicht-fast Standard-Familie den Intra-Run-Laufweg. Im konsolidierten
+Vertragsmodell aus FK-59 ist damit fachlich die Achse
+**`execution_route`** gemeint.
+
+Dieser abgeleitete Laufweg kennt:
 
 - `execution`
 - `exploration`
@@ -168,11 +182,11 @@ Er beschreibt nur den Laufweg:
 
 Dieser Laufweg darf nie mit `operating_mode` aus FK-56 verwechselt
 werden. `operating_mode` trennt `ai_augmented` und `story_execution`,
-waehrend `mode`/`execution_route` nur den Pfad **innerhalb** eines
+waehrend `execution_route` nur den Pfad **innerhalb** eines
 gebundenen Story-Runs bezeichnet.
 
-`mode` bzw. `execution_route` darf die fachliche Lieferpflicht des Story
-Types **nie** abschwaechen.
+Weder `mode` (inkl. `fast`) noch `execution_route` darf die fachliche
+Lieferpflicht des Story Types **je** abschwaechen.
 
 Insbesondere gilt:
 
@@ -207,6 +221,15 @@ Begruendung:
 **Innerhalb** eines Modes ist Parallelitaet erlaubt und wird
 ueber die Execution-Caps (FK-70 §70.6.2) reglementiert.
 
+**Normativer `mode_lock`-Wertebereich:** Der projektweite `mode_lock`
+fuehrt **genau drei** normative Werte: `null`/idle, `standard` und
+`fast`. Die Intra-Run-Achse `execution_route` (§24.3.2: `execution` /
+`exploration`) **faltet auf Projekt-Lock-Ebene in `standard`** — beide
+Standard-Laufwege halten denselben `standard`-Lock. `fast` ist der
+dritte, dazu exklusive Wert. Aeltere Schreibweisen wie
+`{EXECUTION, EXPLORATION, FAST}` sind **Drift** und auf diesen
+`{null/idle | standard | fast}`-Wertebereich zu vereinheitlichen.
+
 **Enforcement:** AK3 fuehrt einen projektweiten `mode_lock` als
 Zustandsobjekt der Control Plane: Wert ist `null`, `standard`
 oder `fast` plus ein `holder_count`. Beim Story-Start
@@ -226,6 +249,63 @@ Story des aktiven Modus beendet ist.
 <!-- PROSE-FORMAL: formal.setup-preflight.invariants -->
 
 Formale Invariante: `formal.setup-preflight.no_competing_story_mode_active`.
+
+### 24.3.4 Mode-Profil Fast (kanonische Tabelle, Owner FK-24)
+
+Fast (`mode=fast`) ist ein gleichrangiger Projekt-Modus fuer eng
+menschlich begleitete codeproduzierende Stories: die Story bleibt eine
+vollwertige AK3-Story (Story-ID, Branch, Closure-Workflow, Telemetrie),
+aber Schutz- und Pruef-Schichten sind gezielt reduziert, weil ein Mensch
+das Inhaltliche selbst reviewt. Fast ist **nur** fuer Story-Typen
+`implementation` und `bugfix` zulaessig; `concept`/`research` mit
+`mode=fast` ist **fail-closed**.
+
+Die folgende Tabelle ist die **kanonische Quelle** des Fast-Profils
+(Single Source of Truth, ZERO DEBT — keine Duplikation). Alle
+abhaengigen Konzepte (FK-22, FK-23, FK-26, FK-27, FK-29, FK-30/31/35,
+FK-33) **verweisen** hierher. Auszeichnung: **IN** unveraendert /
+**OUT** entfaellt / **MOD** veraendert (Delta hinter dem Doppelpunkt).
+
+| Phase | Substep | Fast-Verhalten |
+|-------|---------|----------------|
+| Setup | Preflight-Gates (10 Checks) | **MOD**: 4 Mindest-Checks aktiv (story_exists, kein aktiver Run, kein staler Worktree, Mode-Konflikt aus §24.3.3); Status/Deps/Scope-Overlap weg |
+| Setup | Story-Context-Berechnung | **IN** |
+| Setup | ARE-Bundle laden | **OUT** |
+| Setup | Story-Typ-Weiche | **MOD**: nur impl/bugfix erlaubt |
+| Setup | Worktree-Erstellung | **IN** |
+| Setup | green-main-Vorbedingung (§22.4c) | **OUT**: `sonarqube_gate` NOT_APPLICABLE (fast), FK-33 §33.6.5 |
+| Setup | Guard-Aktivierung | **OUT** (Baseline-Guards bleiben) |
+| Setup | Modus-Ermittlung | **OUT** (mode aus Story-Attribut, keine 4-Trigger-Auswertung) |
+| Exploration | komplette Phase (alle Substeps) | **OUT** |
+| Implementation | Worker-Start | **MOD**: Light-Prompt, keine Inkrement-/Review-Pflicht |
+| Implementation | Inkrementelles Vorgehen | **MOD**: Disziplin Worker-frei, kein Inkrement-Tracking |
+| Implementation | Inline-Reviews | **OUT** (User reviewed direkt) |
+| Implementation | Finaler Build + Gesamttest | **MOD**: Build+Tests gruen — **harter Pflicht-Floor**, nicht abschaltbar |
+| Implementation | Handover-Paket | **MOD**: nur Worker-Manifest, keine QA-Artefakte |
+| QA-Subflow | Schicht 1 Strukturell | **MOD**: degeneriert auf Tests-gruen-Floor |
+| QA-Subflow | Schicht 2 LLM-Bewertungen | **OUT** |
+| QA-Subflow | Schicht 3 Adversarial | **OUT** |
+| QA-Subflow | Schicht 4 Policy-Eval | **OUT** |
+| QA-Subflow | SonarQube-Gate (§27.6a) | **OUT**: NOT_APPLICABLE (fast), FK-33 §33.6.5 |
+| QA-Subflow | Feedback-Loop | **OUT** (User steuert manuell) |
+| Closure | Finding-Resolution-Gate | **OUT** (keine Findings produziert) |
+| Closure | Integrity-Gate (9 Dim inkl. Dim 9) | **MOD**: ersetzt durch **Sanity-Gate** (Tests gruen, Worktree clean, Pre-Merge-Rebase OK) — Pflicht; Dim 9 NOT_APPLICABLE (FK-35 §35.2.4a) |
+| Closure | Story-Branch Push | **IN** |
+| Closure | Branch-Merge | **MOD**: Pre-Merge-Rebase auf main statt Lock; bei Konflikt Eskalation an User |
+| Closure | Main Push (mit Rollback) | **IN** |
+| Closure | Teardown | **IN** |
+| Closure | Story-Close | **IN** |
+| Closure | Metriken schreiben | **MOD**: Records mit `mode=fast` getaggt; KPI separat aggregierbar |
+| Closure | Doctreue Ebene 4 | **OUT** |
+| Closure | Postflight-Gates | **MOD**: nur Hard-Failures (Branch-Reste, offene Worktrees) bleiben |
+| Closure | VektorDB-Sync | **IN** |
+| Closure | Guards deaktivieren | **MOD**: no-op (keine Locks aktiv) |
+
+**Was in jedem Modus aktiv bleibt (Baseline-Guards):** destructive git
+protections, secrets protection, CCAG, self-protection
+(`formal.operating-modes.baseline_guards_apply_in_all_modes`). Fast
+deaktiviert nur die **Story-scoped** Repo-Schutz-Guards (Branch-Guard,
+Scope-Overlap, Lock-Records).
 
 ## 24.3a `implementation_contract` fuer implementierende Storys
 

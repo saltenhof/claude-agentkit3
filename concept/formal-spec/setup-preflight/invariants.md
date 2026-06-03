@@ -41,15 +41,18 @@ invariants:
     rule: concept and research stories complete setup without worktree or code mode routing
   - id: setup-preflight.invariant.no_competing_story_mode_active
     scope: process
-    rule: a story may only start setup when the project-level mode_lock is null or holds the same execution_route mode (standard or fast); fast and standard are mutually exclusive at the project level for the duration of any active in-progress story
+    rule: a story may only start setup when the project-level mode_lock is null or holds the same mode (standard or fast, per FK-24 24.3.3 where both standard execution_route variants execution and exploration fold into the standard lock); fast and standard are mutually exclusive at the project level for the duration of any active in-progress story
   - id: setup-preflight.invariant.code_stories_require_green_main_attestation
     scope: process
-    rule: implementation and bugfix worktree creation is legal only when the sonarqube_gate main attestation is GREEN read by analysisId on the overall-code invariant AND the revision matches (sonar_last_analyzed_revision == git main HEAD); a RED or STALE attestation refuses setup fail-closed
+    rule: when the sonarqube_gate is APPLICABLE (see setup-preflight.invariant.green_main_precondition_only_when_sonarqube_gate_applicable) implementation and bugfix worktree creation is legal only when the sonarqube_gate main attestation is GREEN read by analysisId on the overall-code invariant AND the revision matches (sonar_last_analyzed_revision == git main HEAD); a RED or STALE attestation refuses setup fail-closed; when the sonarqube_gate is NOT_APPLICABLE the green-main attestation is not required for worktree creation
   - id: setup-preflight.invariant.main_green_refusal_emits_active_cleanup_proposal
     scope: process
     rule: a main-green precondition refusal must emit an active blame-free out-of-story cleanup-worker proposal in the phase-state result; silent refusal without a proposal is a ZERO-DEBT violation
   - id: setup-preflight.invariant.main_green_unreachable_fails_closed
     scope: process
     rule: if SonarQube or the branch plugin is unreachable so the main attestation cannot be read, the precondition is an unresolved state and setup fails closed rather than proceeding on an assumed-green main
+  - id: setup-preflight.invariant.green_main_precondition_only_when_sonarqube_gate_applicable
+    scope: process
+    rule: the green-main precondition is enforced only when the sonarqube_gate is APPLICABLE (sonarqube.available true and mode not fast, story attribute mode per FK-24 24.3.4 / project-level mode_lock not fast per 24.3.3, and story_type implementation or bugfix); when sonarqube.available is false or mode is fast the precondition is NOT_APPLICABLE and is skipped without fail-closed, whereas a configured-but-unreachable Sonar with available true stays APPLICABLE and still fails closed; absent is not broken
 ```
 <!-- FORMAL-SPEC:END -->
