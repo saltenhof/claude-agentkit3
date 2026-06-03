@@ -99,6 +99,32 @@ deren story.md angenommenen Typnamen — real gilt PathClass `governance_plane`/
 `GOVERNANCE_FREEZE_EXPORT_*` in `core_types`. Gegen das gelieferte Modell implementieren,
 nicht gegen die story.md-Code-Skizzen (Akzeptanzkriterien-Intent bleibt gueltig).
 
+**Anmerkung 6 (AG3-033 Self-Protection-/Story-Creation-Guard, THEME-006, abgenommen 2026-06-03):**
+AG3-033 (FK-30 §30.5.4 SelfProtectionGuard + FK-31 §31.5 / FK-21 §21.13
+StoryCreationGuard als eigenstaendige Module, differenzierter Hook-Dispatch) ist
+`completed` (@d784629: Jenkins #77 SUCCESS, Sonar Quality Gate OK —
+violations/critical/new_violations/new_critical/open_hotspots = 0). Implementiert
+gegen das real gelieferte AG3-032-Modell (story.md-Typnamen reconciled:
+governance_plane/git_internal statt PROTECTED_GOVERNANCE_LOCK; write/execute statt
+FILE_WRITE/SHELL_EXEC; Whitelist = FK-55 §55.3a privilegierte Principals statt
+INSTALLER/RECOVERY). Per-Zone-Whitelist (harness-Zone -> nur pipeline_deterministic;
+governance-Zone -> pipeline_deterministic/admin_service/human_cli). Self-Protection-
+Registry-Pfade als governance_plane klassifiziert (Capability-Matrix kohaerent statt
+UNCLASSIFIED_MUTATION). Capability-Enforcement (AG3-032) laeuft weiterhin ZUERST.
+Threat-Stufe 3 (Obfuskation) bewusst out-of-scope (FK-55 §55.1a). giftige Codex r1
+(A-F: .codex/hooks.json-Luecke, zu breite Whitelist, HTTP-Detection-Overclaim,
+Registrierungs-Nexus, Docstring-Literale, spoofbarer Marker) -> Remediation -> r2
+(ERROR B: Capability/Guard-Over-Narrowing) -> Remediation -> r3 PASS. Separater
+Sonar-Refactor-Commit (@d784629) loeste 6 CRITICAL new_violations (S1192 +
+PY_MODULE_TOP_LEVEL_MAX_LOC_100 in 2 Guards + AG3-032s operations.py/matrix_data.py).
+**Offene WARNINGs (gespiegelt, getrackt):** (F) Skill-Marker (--via-skill/X-Skill)
+ist agent-spoofbar (Stufe-1+2-Konvention, keine Attestierung; echte Skill-only-
+Durchsetzung braucht Server-Attestierung, Zukunft); (D) "always active" haengt an der
+Installer-Hook-Registrierung (FK-30 §30.3.1, Owner = Installer/AG3-031), als
+Contract-Test gepinnt + dokumentiert. **Folge:** THEME-006 fast komplett — verbleibt
+AG3-034 (Preflight 2/5-10 + IntegrityGate-8-Dim + Concept/Research-Drift), ebenfalls
+durch AG3-032 unblockt.
+
 ## 2. Begruendung der Reihenfolge
 
 **AG3-026 zuerst (Top-Surface der Capability):**
