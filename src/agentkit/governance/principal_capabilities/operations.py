@@ -6,39 +6,26 @@
 class using only the tool name plus *cheap* argument inspection (FK-55 §55.10.2 —
 no expensive semantic shell interpretation).
 
-Scope boundary (FK-55 §55.1a Schicht A). This classifier is the threat-level-1+2
-layer (negligent + disobedient-but-non-evasive). It does NOT chase active
-obfuscation (threat level 3 / Schicht B — explicitly "Papiertiger, wird nicht
-gebaut" on native Windows). A command that hides its mutation behind an
-interpreter (``bash -c '<script>'``), a command substitution (``$(...)`` /
-backticks) or other evasion is treated as a plain ``execute`` — it is OUT OF
-SCOPE for this layer by design, not silently waved through by a fabricated
-target.
+Scope boundary (FK-55 §55.1a Schicht A). This is the threat-level-1+2 layer
+(negligent + disobedient-but-non-evasive). It does NOT chase active obfuscation
+(threat level 3 / Schicht B). A command that hides its mutation behind an
+interpreter (``bash -c '<script>'``), a command substitution or other evasion is
+treated as a plain ``execute`` — OUT OF SCOPE by design, not waved through by a
+fabricated target. An unknown tool is an UNKNOWN PERMISSION, not a mutation
+(FK-55 §55.6.1): it classifies as the inert :attr:`OperationClass.EXECUTE` so the
+enforcement pipeline resolves it mode-scharf (see :meth:`OperationClassifier.is_known`).
 
-An unknown tool is an UNKNOWN PERMISSION, not a mutation (FK-55 §55.6.1): it is
-classified as the inert :attr:`OperationClass.EXECUTE` so the enforcement
-pipeline resolves it mode-scharf (story_execution ⇒ BLOCK; interactive /
-ai_augmented ⇒ defer to the mode rule / CCAG / external prompt) instead of
-hard-blocking it as an unclassified mutation. Only the four *structured* edit
-tools (``Write`` / ``Edit`` / ``MultiEdit`` / ``NotebookEdit``) are known
-mutations and stay ``write``.
-
-For ``Bash`` the classifier does NOT collapse every non-git command to
-``execute`` on the cwd, and it does NOT look only at the LEADING command. FK-55
-§55.10.2 requires Bash *file mutations* (under ``.git/**``, ``_temp/governance/**``
-and content-plane) to be recognised directly even without a ``git`` subcommand —
-and a hostile chain (``git status && rm .git/index``, ``echo ok; rm x``) must not
-be able to hide a mutation behind a benign leading command. The command string is
-therefore split on top-level separators (``;`` / ``&&`` / ``||`` / ``|`` / ``&``
-/ newlines) and EVERY *visible* top-level sub-command is evaluated for its
-leading verb (mutating shell verb → ``write``, git subcommand → read vs
-git_mutation, agentkit admin verb → admin_transition) and for redirects (``>`` /
-``>>`` / ``2>`` / ``&>`` → ``write``). :func:`bash_mutation_targets` exposes every
-*visible* mutated target path so the path classifier can resolve each path class
-(an unclassifiable SEEN target on a mutating op is then a fail-closed BLOCK in the
-enforcement layer — FK-55 §55.10.2). No recursion into ``bash -c`` wrappers, no
-command-substitution extraction, no raw-text regex nets: those are Schicht-B
-concerns that this layer deliberately does not implement.
+For ``Bash`` the classifier neither collapses every non-git command to
+``execute`` nor looks only at the LEADING command. The string is split on
+top-level separators (``;`` / ``&&`` / ``||`` / ``|`` / ``&`` / newlines) and
+EVERY visible sub-command is evaluated for its leading verb (mutating shell verb
+→ ``write``, git subcommand → read vs git_mutation, agentkit admin verb →
+admin_transition) and for redirects (``>`` / ``>>`` / ``2>`` / ``&>`` →
+``write``) — so a benign leading command cannot mask a mutating follow-up (FK-55
+§55.10.2). :func:`bash_mutation_targets` exposes every visible mutated target so
+the path classifier can resolve each path class (an unclassifiable SEEN target on
+a mutating op is a fail-closed BLOCK in the enforcement layer). No ``bash -c``
+unwrapping, no command-substitution extraction (Schicht B, out of scope).
 """
 
 from __future__ import annotations
@@ -61,118 +48,100 @@ class OperationClass(StrEnum):
     ADMIN_TRANSITION = "admin_transition"
 
 
-#: Tool-name → operation-class mapping for the harness's structured tools
-#: (FK-55 §55.5 examples). Keys are compared case-insensitively. Only the four
-#: structured edit tools are KNOWN mutations; every other (unknown) tool is an
-#: unknown permission resolved mode-scharf as ``execute`` (FK-55 §55.6.1).
-_TOOL_MAP: dict[str, OperationClass] = {
-    "read": OperationClass.READ,
-    "grep": OperationClass.READ,
-    "glob": OperationClass.READ,
-    "ls": OperationClass.READ,
-    "write": OperationClass.WRITE,
-    "edit": OperationClass.WRITE,
-    "multiedit": OperationClass.WRITE,
-    "notebookedit": OperationClass.WRITE,
-}
+class _GitVerbs:
+    """Cheap git/agentkit token sets (FK-55 §55.5 / §55.10.2 — single source).
 
-#: Harness-neutral ``HookEvent.operation`` values (FK-30 guard_evaluation) that
-#: pre-classify the operation without a tool name.
-_OPERATION_MAP: dict[str, OperationClass] = {
-    "file_read": OperationClass.READ,
-    "file_write": OperationClass.WRITE,
-    "file_edit": OperationClass.WRITE,
-}
+    These live in a class body (not as module-level constants) so the module top
+    level stays thin (project LOC linter); the free git-classification helpers
+    reference them as class attributes. Built once at import; no per-call cost.
+    """
 
-#: Unconditionally read-only git subcommands (FK-55 §55.5: "lesende Git-/Shell-
-#: Aufrufe" → read). ``branch`` is deliberately NOT here: a bare/listing
-#: ``git branch`` is READ but any creating/renaming/deleting/setting form is a
-#: GIT_MUTATION (FK-55 §55.5 git_mutation = "Branch-/Worktree-Aenderung"); see
-#: :func:`_is_git_read` / :func:`_branch_is_read`.
-_GIT_READ_SUBCOMMANDS: frozenset[str] = frozenset(
-    {"status", "log", "diff", "show", "rev-parse", "ls-files", "blame"}
-)
+    #: Unconditionally read-only git subcommands (FK-55 §55.5: "lesende Git-/
+    #: Shell-Aufrufe" → read). ``branch`` is deliberately NOT here: a bare/listing
+    #: ``git branch`` is READ but any creating/renaming/deleting/setting form is a
+    #: GIT_MUTATION (FK-55 §55.5 "Branch-/Worktree-Aenderung"); see
+    #: :func:`_is_git_read` / :func:`_branch_is_read`.
+    READ_SUBCOMMANDS: frozenset[str] = frozenset({"status", "log", "diff", "show", "rev-parse", "ls-files", "blame"})
 
-#: ``git branch`` flags that KEEP it a pure listing/inspection (still READ). Any
-#: flag NOT in this set (``-d``/``-D``/``--delete``/``-m``/``-M``/``--move``/
-#: ``-c``/``-C``/``--copy``/``-u``/``--set-upstream-to``/``--unset-upstream``/
-#: ``-f``/``--force`` …) — or any positional branch name (a create) — makes it a
-#: mutation (FK-55 §55.5).
-_GIT_BRANCH_READ_FLAGS: frozenset[str] = frozenset(
-    {
-        "-a",
-        "--all",
-        "-r",
-        "--remotes",
-        "-v",
-        "-vv",
-        "--verbose",
-        "-l",
-        "--list",
-        "--show-current",
-        "--contains",
-        "--no-contains",
-        "--merged",
-        "--no-merged",
-        "--points-at",
-        "--color",
-        "--no-color",
-        "--column",
-        "--no-column",
-        "--sort",
-        "--format",
-        "-i",
-        "--ignore-case",
-        "--abbrev",
-        "--no-abbrev",
-    }
-)
+    #: ``git branch`` flags that KEEP it a pure listing/inspection (still READ).
+    #: Any flag NOT in this set (``-d``/``-D``/``--delete``/``-m``/``-M``/
+    #: ``--move``/``-c``/``-C``/``--copy``/``-u``/``--set-upstream-to``/
+    #: ``--unset-upstream``/``-f``/``--force`` …) — or any positional branch name
+    #: (a create) — makes it a mutation (FK-55 §55.5).
+    BRANCH_READ_FLAGS: frozenset[str] = frozenset(
+        {
+            "-a",
+            "--all",
+            "-r",
+            "--remotes",
+            "-v",
+            "-vv",
+            "--verbose",
+            "-l",
+            "--list",
+            "--show-current",
+            "--contains",
+            "--no-contains",
+            "--merged",
+            "--no-merged",
+            "--points-at",
+            "--color",
+            "--no-color",
+            "--column",
+            "--no-column",
+            "--sort",
+            "--format",
+            "-i",
+            "--ignore-case",
+            "--abbrev",
+            "--no-abbrev",
+        }
+    )
 
-#: ``git branch`` listing flags that consume the FOLLOWING token as their value
-#: (so that token is NOT a create-name positional). Cheap, conservative subset;
-#: ``--flag=value`` forms are self-contained and need no entry here.
-_GIT_BRANCH_VALUE_FLAGS: frozenset[str] = frozenset(
-    {
-        "--contains",
-        "--no-contains",
-        "--merged",
-        "--no-merged",
-        "--points-at",
-        "--sort",
-        "--format",
-        "--color",
-        "--column",
-        "--abbrev",
-    }
-)
+    #: ``git branch`` listing flags that consume the FOLLOWING token as their
+    #: value (so that token is NOT a create-name positional). Cheap, conservative
+    #: subset; ``--flag=value`` forms are self-contained and need no entry here.
+    BRANCH_VALUE_FLAGS: frozenset[str] = frozenset(
+        {
+            "--contains",
+            "--no-contains",
+            "--merged",
+            "--no-merged",
+            "--points-at",
+            "--sort",
+            "--format",
+            "--color",
+            "--column",
+            "--abbrev",
+        }
+    )
 
-#: AK3 official admin CLI verbs (FK-55 §55.5 admin_transition / §55.9 service
-#: paths): reset, split, conflict resolution, registered service paths.
-_ADMIN_SUBCOMMANDS: frozenset[str] = frozenset(
-    {"reset-story", "split-story", "resolve-conflict", "cleanup"}
-)
+    #: AK3 official admin CLI verbs (FK-55 §55.5 admin_transition / §55.9 service
+    #: paths): reset, split, conflict resolution, registered service paths.
+    ADMIN_SUBCOMMANDS: frozenset[str] = frozenset({"reset-story", "split-story", "resolve-conflict", "cleanup"})
 
-#: File-mutating shell verbs (FK-55 §55.10.2 — Bash file mutations must be
-#: recognised directly, not collapsed to ``execute``). These produce a WRITE when
-#: they are the leading verb of a visible sub-command.
-_MUTATING_SHELL_VERBS: frozenset[str] = frozenset(
-    {
-        "rm",
-        "mv",
-        "cp",
-        "tee",
-        "touch",
-        "mkdir",
-        "rmdir",
-        "chmod",
-        "chown",
-        "ln",
-        "truncate",
-        "dd",
-        "install",
-        "sed",  # in-place sed (-i) mutates; conservative WRITE
-    }
-)
+    #: File-mutating shell verbs (FK-55 §55.10.2 — Bash file mutations must be
+    #: recognised directly, not collapsed to ``execute``). These produce a WRITE
+    #: when they are the leading verb of a visible sub-command.
+    MUTATING_SHELL_VERBS: frozenset[str] = frozenset(
+        {
+            "rm",
+            "mv",
+            "cp",
+            "tee",
+            "touch",
+            "mkdir",
+            "rmdir",
+            "chmod",
+            "chown",
+            "ln",
+            "truncate",
+            "dd",
+            "install",
+            "sed",  # in-place sed (-i) mutates; conservative WRITE
+        }
+    )
+
 
 class OperationClassifier:
     """Normalizes a tool call to exactly one :class:`OperationClass`.
@@ -188,6 +157,29 @@ class OperationClassifier:
     4. Unknown tool → :attr:`OperationClass.EXECUTE` (an unknown permission, not
        a mutation — resolved mode-scharf downstream, FK-55 §55.6.1).
     """
+
+    #: Tool-name → operation-class mapping for the harness's structured tools
+    #: (FK-55 §55.5 examples). Keys are compared case-insensitively. Only the four
+    #: structured edit tools are KNOWN mutations; every other (unknown) tool is an
+    #: unknown permission resolved mode-scharf as ``execute`` (FK-55 §55.6.1).
+    _TOOL_MAP: dict[str, OperationClass] = {
+        "read": OperationClass.READ,
+        "grep": OperationClass.READ,
+        "glob": OperationClass.READ,
+        "ls": OperationClass.READ,
+        "write": OperationClass.WRITE,
+        "edit": OperationClass.WRITE,
+        "multiedit": OperationClass.WRITE,
+        "notebookedit": OperationClass.WRITE,
+    }
+
+    #: Harness-neutral ``HookEvent.operation`` values (FK-30 guard_evaluation)
+    #: that pre-classify the operation without a tool name.
+    _OPERATION_MAP: dict[str, OperationClass] = {
+        "file_read": OperationClass.READ,
+        "file_write": OperationClass.WRITE,
+        "file_edit": OperationClass.WRITE,
+    }
 
     def is_known(self, operation_name: str) -> bool:
         """Whether the classifier can positively map ``operation_name``.
@@ -211,11 +203,7 @@ class OperationClassifier:
             unknown tool.
         """
         key = operation_name.strip().lower()
-        return (
-            key in _OPERATION_MAP
-            or key in _TOOL_MAP
-            or key in ("bash", "bash_command", "shell")
-        )
+        return key in self._OPERATION_MAP or key in self._TOOL_MAP or key in ("bash", "bash_command", "shell")
 
     def classify(self, operation_name: str, args: dict[str, object]) -> OperationClass:
         """Classify a tool/operation call.
@@ -230,10 +218,10 @@ class OperationClassifier:
             Exactly one :class:`OperationClass`.
         """
         key = operation_name.strip().lower()
-        if key in _OPERATION_MAP:
-            return _OPERATION_MAP[key]
-        if key in _TOOL_MAP:
-            return _TOOL_MAP[key]
+        if key in self._OPERATION_MAP:
+            return self._OPERATION_MAP[key]
+        if key in self._TOOL_MAP:
+            return self._TOOL_MAP[key]
         if key in ("bash", "bash_command", "shell"):
             return self._classify_shell(args)
         # Unknown tool: an UNKNOWN PERMISSION, not a mutation (FK-55 §55.6.1).
@@ -258,9 +246,7 @@ class OperationClassifier:
         command = self._command_text(args)
         if not command:
             return OperationClass.EXECUTE
-        sub_classes = [
-            self._classify_subcommand(tokens) for tokens in _iter_subcommands(command)
-        ]
+        sub_classes = [self._classify_subcommand(tokens) for tokens in _iter_subcommands(command)]
         if not sub_classes:
             return OperationClass.EXECUTE
         return _reduce_operation_classes(sub_classes)
@@ -289,7 +275,7 @@ class OperationClassifier:
             return _classify_git(tokens)
         # FK-55 §55.10.2: a Bash file mutation (mutating verb) is a WRITE even
         # without a git subcommand — never collapsed to execute.
-        if first in _MUTATING_SHELL_VERBS:
+        if first in _GitVerbs.MUTATING_SHELL_VERBS:
             return OperationClass.WRITE
         return OperationClass.EXECUTE
 
@@ -323,7 +309,7 @@ def _reduce_operation_classes(classes: list[OperationClass]) -> OperationClass:
 
 def _classify_agentkit(tokens: list[str]) -> OperationClass:
     subcommand = tokens[1].lower() if len(tokens) > 1 else ""
-    if subcommand in _ADMIN_SUBCOMMANDS:
+    if subcommand in _GitVerbs.ADMIN_SUBCOMMANDS:
         return OperationClass.ADMIN_TRANSITION
     return OperationClass.EXECUTE
 
@@ -340,14 +326,14 @@ def _classify_git(tokens: list[str]) -> OperationClass:
 def _is_git_read(tokens: list[str]) -> bool:
     """Whether a ``git`` command is a pure read (no repository mutation).
 
-    The unconditionally-read subcommands (:data:`_GIT_READ_SUBCOMMANDS`) are
+    The unconditionally-read subcommands (:data:`_GitVerbs.READ_SUBCOMMANDS`) are
     always reads. ``git branch`` is read ONLY in its bare/listing form
     (:func:`_branch_is_read`); a creating/renaming/deleting/upstream-setting
     ``git branch`` is a mutation (FK-55 §55.5). Cheap flag inspection only — no
     shell semantics (FK-55 §55.10.2 / §55.1a).
     """
     subcommand = tokens[1].lower() if len(tokens) > 1 else ""
-    if subcommand in _GIT_READ_SUBCOMMANDS:
+    if subcommand in _GitVerbs.READ_SUBCOMMANDS:
         return True
     if subcommand == "branch":
         return _branch_is_read(tokens[2:])
@@ -358,8 +344,8 @@ def _branch_is_read(args: list[str]) -> bool:
     """Whether ``git branch <args>`` is a bare/listing form (READ) vs a mutation.
 
     READ: no args (``git branch``), or only listing flags
-    (:data:`_GIT_BRANCH_READ_FLAGS`, plus their ``--flag=value`` forms and the
-    value token consumed by a :data:`_GIT_BRANCH_VALUE_FLAGS` flag).
+    (:data:`_GitVerbs.BRANCH_READ_FLAGS`, plus their ``--flag=value`` forms and
+    the value token consumed by a :data:`_GitVerbs.BRANCH_VALUE_FLAGS` flag).
 
     MUTATION: any flag that is not a listing flag (``-d``/``-D``/``--delete`` /
     ``-m``/``-M``/``--move`` / ``-c``/``-C``/``--copy`` / ``-u``/
@@ -374,11 +360,11 @@ def _branch_is_read(args: list[str]) -> bool:
             continue
         if token.startswith("-"):
             flag = token.split("=", 1)[0]
-            if flag in _GIT_BRANCH_READ_FLAGS:
+            if flag in _GitVerbs.BRANCH_READ_FLAGS:
                 # A value-taking listing flag in its split form consumes the
                 # following token (``--contains <commit>``); the ``--flag=value``
                 # form is self-contained.
-                if flag in _GIT_BRANCH_VALUE_FLAGS and "=" not in token:
+                if flag in _GitVerbs.BRANCH_VALUE_FLAGS and "=" not in token:
                     skip_next = True
                 continue
             # Any other flag (-d/-D/-m/-M/-c/-C/-u/--set-upstream-to/-f/...) is a
@@ -561,7 +547,7 @@ def _leaf_targets(tokens: list[str]) -> list[str]:
     targets: list[str] = []
     targets.extend(_redirect_targets(tokens))
     verb = _leading_verb(tokens)
-    if verb in _MUTATING_SHELL_VERBS:
+    if verb in _GitVerbs.MUTATING_SHELL_VERBS:
         targets.extend(_operands(tokens, verb))
     if verb == "git":
         targets.extend(_git_targets(tokens))

@@ -20,6 +20,10 @@ Konzept-Anker:
 
 from __future__ import annotations
 
+#: Wiederkehrende Verzeichnis-Segmente (Sonar S1192 — Literal nur einmal).
+_AGENTKIT_DIR = ".agentkit"
+_CLAUDE_DIR = ".claude"
+
 #: Content-Plane-Artefakt-Dateinamen (FK-55 §55.4: context.json, are_bundle.json,
 #: handover-/bundle-artige Inhaltsartefakte). Orchestrator-gesperrt.
 CONTENT_PLANE_FILES: tuple[str, ...] = (
@@ -49,7 +53,7 @@ CONTROL_PLANE_FILES: tuple[str, ...] = (
 #: governance_plane). Projekt-relativer POSIX-Pfad; ``GOVERNANCE_FREEZE_EXPORT_PARTS``
 #: ist dieselbe Wahrheit als Segment-Tupel fuer ``pathlib``-basierte Aufrufer.
 GOVERNANCE_FREEZE_EXPORT_PARTS: tuple[str, ...] = (
-    ".agentkit",
+    _AGENTKIT_DIR,
     "governance",
     "freeze.json",
 )
@@ -88,7 +92,7 @@ GOVERNANCE_FREEZE_EXPORT_RELPATH: str = "/".join(GOVERNANCE_FREEZE_EXPORT_PARTS)
 #: ueber die der Agent die Hooks deaktivieren koennte — daher ebenfalls geschuetzt.
 #: Jeder Eintrag ist ein projekt-relatives POSIX-Segment-Tupel.
 SELF_PROTECTION_HOOK_SETTINGS_PARTS: tuple[tuple[str, ...], ...] = (
-    (".claude", "settings.json"),
+    (_CLAUDE_DIR, "settings.json"),
     (".codex", "config.toml"),
     (".codex", "hooks.json"),
 )
@@ -100,15 +104,15 @@ SELF_PROTECTION_HOOK_SETTINGS_PARTS: tuple[tuple[str, ...], ...] = (
 #: den kanonischen Pfad) und ``.claude/skills`` (CCAG-/Skill-Symlink-Targets).
 #: Verzeichnis-Praefixe — jede Mutation UNTER diesen Pfaden ist geschuetzt.
 SELF_PROTECTION_SYMLINK_DIR_PARTS: tuple[tuple[str, ...], ...] = (
-    (".agentkit", "ccag", "rules"),
-    (".claude", "ccag", "rules"),
-    (".claude", "skills"),
+    (_AGENTKIT_DIR, "ccag", "rules"),
+    (_CLAUDE_DIR, "ccag", "rules"),
+    (_CLAUDE_DIR, "skills"),
 )
 
 #: Kanonische Governance-Konfigurations-/Manifest-Dateien (FK-30 §30.5.4):
 #: ``.agentkit/config/project.yaml`` und ``.installed-manifest.json``.
 SELF_PROTECTION_CONFIG_FILE_PARTS: tuple[tuple[str, ...], ...] = (
-    (".agentkit", "config", "project.yaml"),
+    (_AGENTKIT_DIR, "config", "project.yaml"),
     (".installed-manifest.json",),
 )
 
