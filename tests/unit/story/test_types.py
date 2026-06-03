@@ -42,19 +42,27 @@ class TestStoryType:
 
 
 class TestStoryMode:
-    """Tests for the StoryMode enum (FK-24 §24.3.2 + AG3-018)."""
+    """Tests for the StoryMode enum (FK-24 §24.3.2).
+
+    ``StoryMode`` is the ``execution_route`` axis (EXECUTION/EXPLORATION/None).
+    The fast/standard ``mode`` axis is SEPARATE (FK-24 §24.3.3, WireStoryMode)
+    and is intentionally NOT a ``StoryMode`` value.
+    """
 
     def test_all_values(self) -> None:
         assert set(StoryMode) == {
             StoryMode.EXECUTION,
             StoryMode.EXPLORATION,
-            StoryMode.FAST,
         }
 
     def test_string_values(self) -> None:
         assert StoryMode.EXECUTION.value == "execution"
         assert StoryMode.EXPLORATION.value == "exploration"
-        assert StoryMode.FAST.value == "fast"
+
+    def test_fast_is_not_an_execution_route_value(self) -> None:
+        """FK-24 §24.3.3: ``fast`` is a separate axis, not an execution_route."""
+        with pytest.raises(ValueError):
+            StoryMode("fast")
 
     def test_not_applicable_removed(self) -> None:
         """NOT_APPLICABLE faellt mit AG3-021 weg."""

@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from agentkit.governance.repository import SetupContextRepository
     from agentkit.skills import Skills
     from agentkit.telemetry.projection_accessor import ProjectionAccessor
+    from agentkit.verify_system.sonarqube_gate.port import SonarGateInputPort
     from agentkit.verify_system.system import VerifySystem
 
 
@@ -93,6 +94,7 @@ def build_verify_system(
     store_dir: Path,
     *,
     max_major_findings: int = 0,
+    sonar_gate_port: SonarGateInputPort | None = None,
 ) -> VerifySystem:
     """Erzeugt einen vollstaendig verdrahteten ``VerifySystem``.
 
@@ -105,11 +107,23 @@ def build_verify_system(
     ``verify_system`` den ``StoryContext`` ueber einen Port aufloest statt via
     direktem ``state_backend.store``-Import (BC-Topologie).
 
+    AG3-052 (FK-33 §33.6): der ``sonarqube_gate``-Andockpunkt nutzt einen
+    ``SonarGateInputPort``. Bei ``sonarqube.available == true`` reicht der
+    Aufrufer (Pipeline-Engine) den produktiven
+    :class:`ConfiguredSonarGateInputPort` ueber ``sonar_gate_port`` ein (gebaut
+    via :func:`build_sonar_gate_port` mit den per-Run aufgeloesten
+    Koordinaten); ohne Injektion bleibt der Absent-Default-Port aktiv
+    (``available == false`` => Stage SKIP). So bleibt ein
+    konfiguriert-aber-unerreichbares Sonar fail-closed, ohne dass dieser
+    Builder die per-Story-Koordinaten kennen muss.
+
     Args:
         store_dir: Basisverzeichnis des State-Backends. Wird an
             ``build_artifact_manager`` durchgereicht.
         max_major_findings: Schwellenwert fuer die PolicyEngine (Anzahl
             tolerierter MAJOR-Findings; 0 = jedes MAJOR blockiert).
+        sonar_gate_port: Optionaler produktiver ``SonarGateInputPort``
+            (FK-33 §33.6). ``None`` => Absent-Default-Port.
 
     Returns:
         ``VerifySystem`` mit allen fuenf Sub-Komponenten und einem
@@ -125,6 +139,88 @@ def build_verify_system(
         max_major_findings=max_major_findings,
         artifact_manager=manager,
         story_context_port=StateBackendVerifyStoryContextAdapter(),
+        sonar_gate_port=sonar_gate_port,
+    )
+
+
+def build_sonar_gate_port(
+    config: object,
+    *,
+    client: object,
+    fast: bool,
+    story_type: object,
+    ledger: object,
+    bound_analysis: object,
+    main_head_revision: str,
+) -> SonarGateInputPort:
+    """Build the productive ``sonarqube_gate`` port (FK-33 §33.6, AG3-052).
+
+    When ``sonarqube.available == false`` the gate is deliberately absent
+    (not-applicable) and the absent default port is returned — never the
+    fail-closed adapter (FK-33 §33.6.5 "absent != broken"). Otherwise the
+    :class:`ConfiguredSonarGateInputPort` is wired with the per-run
+    collaborators; it fails closed on any unreachable/unreadable input.
+
+    The per-run coordinates (the commit-bound analysis, the loaded ledger,
+    main HEAD, the fast axis/story type) are resolved by the caller (pipeline
+    engine) and passed in; this keeps ``build_verify_system`` free of
+    per-story knowledge. The objects are typed loosely here to avoid
+    importing the capability submodules at module top-level; they are
+    validated by the adapter.
+
+    Args:
+        config: The resolved ``SonarQubeConfig``.
+        client: A connected ``integrations.sonar`` ``SonarClient``.
+        fast: Whether the run is in ``fast`` mode (FK-24 §24.3.3) — the
+            SEPARATE fast/standard axis (``story_context.mode is
+            WireStoryMode.FAST``), NOT ``execution_route``.
+        story_type: Resolved ``StoryType``.
+        ledger: The loaded ``AcceptedExceptionLedger``.
+        bound_analysis: The commit-bound ``BoundAnalysis`` coordinates.
+        main_head_revision: Authoritative current main HEAD revision.
+
+    Returns:
+        A productive ``SonarGateInputPort`` (or the absent default port
+        when ``available == false``).
+    """
+    from agentkit.config.models import SonarQubeConfig
+    from agentkit.integrations.sonar import SonarClient
+    from agentkit.story_context_manager.types import StoryType
+    from agentkit.verify_system.sonarqube_gate.adapter import (
+        BoundAnalysis,
+        ConfiguredSonarGateInputPort,
+    )
+    from agentkit.verify_system.sonarqube_gate.ledger import AcceptedExceptionLedger
+    from agentkit.verify_system.sonarqube_gate.port import (
+        ABSENT_SONAR_GATE_PORT,
+    )
+
+    if not isinstance(config, SonarQubeConfig):
+        msg = f"config must be a SonarQubeConfig; got {type(config).__name__}"
+        raise TypeError(msg)
+    if not config.available:
+        # Deliberately absent Sonar => not-applicable skip; never fail-closed.
+        return ABSENT_SONAR_GATE_PORT
+    if not isinstance(client, SonarClient):
+        msg = f"client must be a SonarClient; got {type(client).__name__}"
+        raise TypeError(msg)
+    if not isinstance(ledger, AcceptedExceptionLedger):
+        msg = f"ledger must be an AcceptedExceptionLedger; got {type(ledger).__name__}"
+        raise TypeError(msg)
+    if not isinstance(bound_analysis, BoundAnalysis):
+        msg = f"bound_analysis must be a BoundAnalysis; got {type(bound_analysis).__name__}"
+        raise TypeError(msg)
+    if not isinstance(story_type, StoryType):
+        msg = f"story_type must be a StoryType; got {type(story_type).__name__}"
+        raise TypeError(msg)
+    return ConfiguredSonarGateInputPort(
+        config=config,
+        client=client,
+        fast=bool(fast),
+        story_type=story_type,
+        ledger=ledger,
+        bound_analysis=bound_analysis,
+        main_head_revision=main_head_revision,
     )
 
 
@@ -278,5 +374,6 @@ __all__ = [
     "build_projection_accessor",
     "build_setup_preflight_gate",
     "build_skills",
+    "build_sonar_gate_port",
     "build_verify_system",
 ]

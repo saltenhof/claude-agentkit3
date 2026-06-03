@@ -3,12 +3,16 @@
 Source of truth:
 - StorySize: DK-10 §10.4 — concept/domain-design/10-story-lifecycle-und-erstellung.md
   (5 Stufen XS/S/M/L/XL; kein XXL, kein epic).
-- StoryMode: FK-24 §24.3.2 — concept/technical-design/24_story_type_mode_terminalitaet.md
-  plus AG3-018 (Fast-Modus).
+- StoryMode: FK-24 §24.3.2 — concept/technical-design/24_story_type_mode_terminalitaet.md.
 
 `execution_route` ist `StoryMode | None`; nicht-implementierende Storys
 tragen `None`, nicht einen eigenen Sentinel-Enum-Wert. Die zulaessigen
 StoryMode-Werte sind in der Klasse selbst dokumentiert.
+
+Der Fast/Standard-Modus (AG3-018) ist eine SEPARATE Achse (FK-24
+§24.3.3) und gehoert NICHT in ``StoryMode``/``execution_route``. Er wird
+ueber ``WireStoryMode`` (story_model) gefuehrt und am Runtime-Context als
+``StoryContext.mode`` durchgereicht.
 """
 
 from __future__ import annotations
@@ -39,19 +43,20 @@ class StorySize(StrEnum):
 class StoryMode(StrEnum):
     """Execution-Route fuer einen governenden Story-Lauf.
 
-    Drei mogliche Werte; `execution_route` ist `StoryMode | None` und
-    traegt `None` fuer nicht-implementierende Storys.
+    Genau zwei Werte; `execution_route` ist `StoryMode | None` und
+    traegt `None` fuer nicht-implementierende Storys (FK-24 §24.3.2:
+    `execution` / `exploration` / `None`).
 
     Achtung: `mode`/`execution_route` darf nicht mit `operating_mode`
     aus FK-56 verwechselt werden — letzteres trennt `ai_augmented`
-    und `story_execution`.
+    und `story_execution`. Ebenso ist der Fast/Standard-Modus (AG3-018,
+    FK-24 §24.3.3) eine SEPARATE Achse und KEIN ``execution_route``-Wert;
+    er wird ueber ``WireStoryMode`` / ``StoryContext.mode`` gefuehrt.
 
     Attributes:
         EXECUTION: Direkter Execution-Pfad ohne Exploration-Vorlauf.
         EXPLORATION: Exploration-Pfad als Vorlauf vor Implementation.
-        FAST: Fast-Modus (AG3-018) — Disable von Story-scoped Guards.
     """
 
     EXECUTION = "execution"
     EXPLORATION = "exploration"
-    FAST = "fast"

@@ -236,8 +236,14 @@ class TestRunQaSubflowImplementationHappyPath:
         assert len(l2c.calls) == 1
         assert len(l3.calls) == 1
 
-    def test_artifact_manager_receives_six_writes(self, tmp_path: Path) -> None:
-        """AG3-026 §AK7: Layer 1 (1) + Layer 2 (3) + Layer 3 (1) + Policy (1) = 6."""
+    def test_artifact_manager_receives_seven_writes(self, tmp_path: Path) -> None:
+        """Layer 1 (1) + Layer 2 (3) + Layer 3 (1) + sonarqube_gate (1) + Policy (1) = 7.
+
+        AG3-052 / FK-33 §33.8.3: the sonarqube_gate stage is sequenced
+        after adversarial and writes its own ``sonarqube_gate.json``
+        envelope (here a SKIP, since the default port resolves
+        NOT_APPLICABLE — no Sonar wired).
+        """
         vs, manager = _make_system()
 
         vs.run_qa_subflow(
@@ -247,10 +253,10 @@ class TestRunQaSubflowImplementationHappyPath:
             target=_make_target(),
         )
 
-        assert len(manager.written_envelopes) == 6  # noqa: PLR2004
+        assert len(manager.written_envelopes) == 7  # noqa: PLR2004
 
     def test_artifact_stages_match_fk27(self, tmp_path: Path) -> None:
-        """AG3-026 §AK7: stages decken alle sechs FK-27 §27.7-Artefakte ab."""
+        """AG3-026 §AK7 + AG3-052: stages cover the seven QA artefacts."""
         vs, manager = _make_system()
 
         vs.run_qa_subflow(
@@ -267,6 +273,7 @@ class TestRunQaSubflowImplementationHappyPath:
             "qa-layer-semantic-review",
             "qa-layer-doc-fidelity",
             "qa-layer-adversarial",
+            "qa-sonarqube-gate",
             "qa-policy-decision",
         }
 
@@ -315,7 +322,7 @@ class TestRunQaSubflowImplementationHappyPath:
         assert policy_envs[0].producer.name == "verify-system.layer-4-policy"
         assert outcome.verdict is PolicyVerdict.PASS
 
-    def test_implementation_remediation_also_writes_six(
+    def test_implementation_remediation_also_writes_seven(
         self, tmp_path: Path
     ) -> None:
         vs, manager = _make_system()
@@ -327,7 +334,7 @@ class TestRunQaSubflowImplementationHappyPath:
             target=_make_target(),
         )
 
-        assert len(manager.written_envelopes) == 6  # noqa: PLR2004
+        assert len(manager.written_envelopes) == 7  # noqa: PLR2004
 
 
 # ---------------------------------------------------------------------------
@@ -626,7 +633,11 @@ class TestQaSubflowOutcomeCarriesDecision:
     """
 
     def test_outcome_decision_has_layer_results(self, tmp_path: Path) -> None:
-        """outcome.decision.layer_results has 5 entries for IMPLEMENTATION."""
+        """outcome.decision.layer_results has 6 entries for IMPLEMENTATION.
+
+        1 structural + 3 layer-2 + 1 adversarial + 1 sonarqube_gate
+        (AG3-052 / FK-33 §33.8.3).
+        """
         vs, _ = _make_system()
         outcome = vs.run_qa_subflow(
             ctx=_make_bundle(tmp_path),
@@ -638,10 +649,10 @@ class TestQaSubflowOutcomeCarriesDecision:
 
         decision = outcome.decision
         assert isinstance(decision, VerifyDecision)
-        assert len(decision.layer_results) == 5  # noqa: PLR2004  # 1+3+1
+        assert len(decision.layer_results) == 6  # noqa: PLR2004  # 1+3+1+1
 
     def test_outcome_carries_artifact_refs(self, tmp_path: Path) -> None:
-        """outcome.artifact_refs contains all 6 FK-27 §27.7 filenames."""
+        """outcome.artifact_refs contains the seven QA artefact filenames."""
         vs, _ = _make_system()
         outcome = vs.run_qa_subflow(
             ctx=_make_bundle(tmp_path),
@@ -655,6 +666,7 @@ class TestQaSubflowOutcomeCarriesDecision:
             "semantic_review.json",
             "doc_fidelity.json",
             "adversarial.json",
+            "sonarqube_gate.json",
             "decision.json",
         }
 

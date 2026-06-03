@@ -29,6 +29,7 @@ from agentkit.core_types import (
     QaContext,
 )
 from agentkit.story_context_manager.sizing import StorySize, estimate_size
+from agentkit.story_context_manager.story_model import WireStoryMode
 from agentkit.story_context_manager.types import (
     ImplementationContract,
     StoryMode,
@@ -285,6 +286,12 @@ class StoryContext(BaseModel):
     story_id: str
     story_type: StoryType
     execution_route: StoryMode | None = None
+    #: Fast/Standard mode (FK-24 §24.3.3) — a SEPARATE axis from
+    #: ``execution_route`` (which is the intra-run path EXECUTION/EXPLORATION/
+    #: None). ``fast`` (AG3-018) disables story-scoped guards and is only
+    #: legal for code-producing stories (implementation/bugfix). Defaults to
+    #: ``standard``. This is NOT conflated into ``execution_route``.
+    mode: WireStoryMode = WireStoryMode.STANDARD
     implementation_contract: ImplementationContract | None = None
     issue_nr: int | None = None
 
@@ -362,6 +369,17 @@ class StoryContext(BaseModel):
                 "execution_route "
                 f"{self.execution_route!r} is not allowed for story_type "
                 f"{self.story_type!r}",
+            )
+
+        if (
+            self.mode is WireStoryMode.FAST
+            and self.story_type
+            not in (StoryType.IMPLEMENTATION, StoryType.BUGFIX)
+        ):
+            raise ValueError(
+                "mode=fast (FK-24 §24.3.3/§24.3.4) is only allowed for "
+                "code-producing story_types (implementation/bugfix); "
+                f"got story_type {self.story_type!r}",
             )
 
         if (

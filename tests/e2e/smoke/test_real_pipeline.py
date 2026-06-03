@@ -118,6 +118,7 @@ class TestRealPipelineE2E:
                     project_key="e2e-test",
                     project_name="e2e-test",
                     project_root=project_dir,
+                    sonarqube_available=False,  # AG3-052: conscious opt-out, no live Sonar
                 )
             )
 
@@ -228,6 +229,7 @@ class TestRealPipelineE2E:
                     project_key="e2e-test",
                     project_name="e2e-test",
                     project_root=project_dir,
+                    sonarqube_available=False,  # AG3-052: conscious opt-out, no live Sonar
                 )
             )
 

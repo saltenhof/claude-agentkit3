@@ -75,6 +75,9 @@ def _config(tmp_path: Path, skills: object, store: object) -> InstallConfig:
         skills=skills,  # type: ignore[arg-type]
         skill_bundle_store=store,  # type: ignore[arg-type]
         skill_bundle_ids=_BUNDLE_IDS,
+        # AG3-052 Design-Decision: scaffold default is available:true (FK-03
+        # §3); no live Sonar here => conscious opt-out so CP 10d is SKIPPED.
+        sonarqube_available=False,
     )
 
 

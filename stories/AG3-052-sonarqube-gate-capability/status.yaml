@@ -1,8 +1,8 @@
 story_id: AG3-052
 title: "SonarQube-Green-Gate-Capability (FK-33 §33.6): commit-gebundene Attestation + Accepted-Ledger-Reconciler + 3-Zustands-Applicability + QA-Subflow-Stage"
 type: implementation
-status: ready
-phase: setup
+status: in_progress
+phase: implementation
 created: "2026-06-03"
 size: L
 depends_on:

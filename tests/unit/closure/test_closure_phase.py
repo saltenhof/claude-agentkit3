@@ -40,6 +40,7 @@ from agentkit.story_context_manager.models import (
     PhaseStatus,
     StoryContext,
 )
+from agentkit.story_context_manager.story_model import WireStoryMode
 from agentkit.story_context_manager.types import StoryMode, StoryType
 from agentkit.telemetry.contract.records import ExecutionEventRecord
 from agentkit.telemetry.events import EventType
@@ -79,6 +80,7 @@ def _make_ctx(
     story_id: str = "TEST-001",
     story_type: StoryType = StoryType.IMPLEMENTATION,
     execution_route: StoryMode | None = StoryMode.EXECUTION,
+    mode: WireStoryMode = WireStoryMode.STANDARD,
     project_root: Path | None = None,
 ) -> StoryContext:
     """Create a minimal ``StoryContext`` for testing."""
@@ -87,6 +89,7 @@ def _make_ctx(
         story_id=story_id,
         story_type=story_type,
         execution_route=execution_route,
+        mode=mode,
         project_root=project_root,
     )
 
@@ -276,7 +279,43 @@ class TestClosurePhaseHandler:
         assert data["metrics"]["increments"] == 1
         metrics = load_story_metrics(s_dir)
         assert len(metrics) == 1
-        assert metrics[0].mode == "execution"
+        # FK-24 §24.3.298: closure metric ``mode`` tags the standard/fast
+        # axis (StoryContext.mode), NOT execution_route. A default context
+        # has mode=standard even though execution_route=execution (AG3-052).
+        assert metrics[0].mode == "standard"
+
+    def test_closure_metrics_tag_fast_mode_not_execution_route(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """FK-24 §24.3.298 regression (AG3-052): a fast context with
+        ``mode=fast`` and ``execution_route=execution`` must tag the closure
+        metric ``mode`` as ``fast`` — the standard/fast axis — not
+        ``execution`` (which would be the wrong axis from the old conflation).
+        """
+        s_dir = tmp_path / "stories" / "TEST-001"
+        s_dir.mkdir(parents=True)
+        for phase in ("setup", "exploration", "implementation"):
+            _save_snapshot(s_dir, phase)
+        _save_flow(s_dir)
+        _append_agent_start_event(s_dir)
+        _append_increment_event(s_dir)
+
+        config = ClosureConfig(story_dir=s_dir, close_issue=False, story_service=_NoOpStoryService())  # type: ignore[arg-type]
+        handler = ClosurePhaseHandler(config)
+        ctx = _make_ctx(
+            project_root=tmp_path,
+            execution_route=StoryMode.EXECUTION,
+            mode=WireStoryMode.FAST,
+        )
+        state = _make_state()
+
+        result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
+
+        assert result.status == PhaseStatus.COMPLETED
+        metrics = load_story_metrics(s_dir)
+        assert len(metrics) == 1
+        assert metrics[0].mode == "fast"
 
     def test_closure_without_github_config(self, tmp_path: Path) -> None:
         """Closure works without GitHub configuration (no issue close)."""

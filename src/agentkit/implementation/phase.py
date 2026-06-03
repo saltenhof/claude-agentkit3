@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
     from agentkit.story_context_manager.models import StoryContext
     from agentkit.verify_system import VerifySystem
+    from agentkit.verify_system.sonarqube_gate.port import SonarGateInputPort
 
 logger = logging.getLogger(__name__)
 
@@ -113,9 +114,19 @@ class ImplementationPhaseHandler:
         # AG3-026 Re-Review: VerifySystem.create_default() requires an
         # ArtifactManager (mandatory arg, fail-closed). Build via the
         # Composition-Root which already wires the manager to the story DB.
+        # AG3-052 E1: this is the ONE productive lifecycle anchor of the
+        # SonarQube-Green-Gate (the QA-subflow). When the run's config has
+        # ``sonarqube.available == true`` we MUST wire the productive port so
+        # the gate actually runs; an absent/unreadable scan artefact then
+        # fails closed (APPLICABLE, attestation=None) — never silently absent
+        # (FK-33 §33.6.5). ``available == false``/no-stanza/fast/non-code keep
+        # the absent default port (declared skip).
         from agentkit.bootstrap.composition_root import build_verify_system
 
-        verify_system = self._config.verify_system or build_verify_system(s_dir)
+        sonar_gate_port = _resolve_sonar_gate_port(ctx, s_dir)
+        verify_system = self._config.verify_system or build_verify_system(
+            s_dir, sonar_gate_port=sonar_gate_port
+        )
 
         # W2: Build PhaseEnvelopeView from envelope.state.payload.
         phase_envelope_view = _build_phase_envelope_view(envelope)
@@ -235,6 +246,68 @@ class ImplementationPhaseHandler:
 
         del trigger
         return self.on_enter(ctx, envelope)
+
+
+def _resolve_sonar_gate_port(
+    ctx: StoryContext, story_dir: Path
+) -> SonarGateInputPort | None:
+    """Resolve the productive ``sonarqube_gate`` port for this run (AG3-052 E1).
+
+    Loads the project's ``sonarqube`` config from ``ctx.project_root`` and
+    delegates to ``build_sonar_gate_port_for_run`` (FK-33 §33.6.5):
+
+    * ``available == true`` AND ``mode != fast`` AND a code-producing story
+      => the productive :class:`ConfiguredSonarGateInputPort`, or a
+      fail-closed APPLICABLE port (``attestation = None``) when the per-run
+      scan coordinates are missing/unreadable — NEVER a silent absent skip.
+    * ``mode == fast`` => a port that genuinely resolves
+      ``NOT_APPLICABLE_FAST`` (E2): the stage drops at the anchor, runtime
+      distinguishable from ``available == false``/UNAVAILABLE.
+    * ``available == false`` / no stanza on a non-code-producing project /
+      non-code-producing story => ``None`` so the caller wires the absent
+      default port (declared, deliberate skip => SKIP).
+
+    FAIL-CLOSED (AG3-052 E1, FK-33 §33.6.5, ZERO DEBT): a config that cannot
+    be loaded or validated for an ``available``-bearing run must NOT collapse
+    into a silent absent skip. A ``ConfigError``/``ValueError`` from
+    ``load_project_config`` PROPAGATES and stops the QA-subflow fail-closed —
+    it is NOT swallowed into ``None``. The absent-port path is reachable ONLY
+    when the config loads successfully and resolves to a deliberate
+    non-applicability (``available: false`` / fast / non-code-producing).
+
+    When ``ctx.project_root`` is unset, no project config exists to load for
+    this run, so there is no Sonar stanza at all (``None`` => absent default).
+    A code-producing project that reaches this anchor always has a loadable,
+    explicit stanza (the E6 config-load rule forbids omission).
+
+    Args:
+        ctx: The run's :class:`StoryContext`.
+        story_dir: The story working directory.
+
+    Returns:
+        A ``SonarGateInputPort`` (productive, fail-closed APPLICABLE, or a
+        genuine NOT_APPLICABLE_FAST port), or ``None`` when Sonar is
+        deliberately not applicable by config/story.
+
+    Raises:
+        ConfigError: When the project config cannot be loaded/validated.
+            Propagated fail-closed (never downgraded to a silent skip).
+    """
+    if ctx.project_root is None:
+        return None
+    from agentkit.config.loader import load_project_config
+    from agentkit.verify_system.sonarqube_gate.runtime_wiring import (
+        build_sonar_gate_port_for_run,
+    )
+
+    # FAIL-CLOSED (E1): NO try/except ConfigError -> None. An unloadable or
+    # invalid run-config (including the E6 hard-fail on an omitted stanza for a
+    # code-producing project) MUST propagate and stop the QA-subflow, never
+    # silently become an inert absent skip (FK-33 §33.6.5).
+    project_config = load_project_config(ctx.project_root)
+    return build_sonar_gate_port_for_run(
+        project_config.pipeline.sonarqube, ctx, story_dir
+    )
 
 
 def _build_phase_envelope_view(envelope: PhaseEnvelope) -> PhaseEnvelopeView | None:

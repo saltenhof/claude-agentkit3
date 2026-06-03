@@ -92,6 +92,10 @@ def _make_config(
         skills=skills,
         skill_bundle_store=skill_bundle_store,
         skill_bundle_ids=skill_bundle_ids,
+        # AG3-052 Design-Decision: scaffold default is ``available: true``
+        # (FK-03 §3). No live SonarQube here => declare the conscious opt-out
+        # so the completing install's CP 10d is SKIPPED (not fail-closed).
+        sonarqube_available=False,
     )
 
 

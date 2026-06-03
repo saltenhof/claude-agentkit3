@@ -8,10 +8,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from agentkit.governance.setup_preflight_gate.context_builder import (
+    _extract_mode,
     _extract_story_type,
     build_story_context,
 )
 from agentkit.integrations.github.issues import IssueData
+from agentkit.story_context_manager.story_model import WireStoryMode
 from agentkit.story_context_manager.types import (
     ImplementationContract,
     StoryType,
@@ -77,8 +79,50 @@ class TestExtractStoryType:
         assert _extract_story_type(("RESEARCH",)) == StoryType.RESEARCH
 
 
+class TestExtractMode:
+    """Tests for label-based fast/standard mode extraction (FK-24 §24.3.3)."""
+
+    def test_fast_label_maps_to_fast(self) -> None:
+        assert _extract_mode(("fast",)) is WireStoryMode.FAST
+
+    def test_fast_label_case_insensitive(self) -> None:
+        assert _extract_mode(("FAST",)) is WireStoryMode.FAST
+
+    def test_no_fast_label_defaults_to_standard(self) -> None:
+        assert _extract_mode(("bug", "priority:high")) is WireStoryMode.STANDARD
+
+    def test_empty_labels_default_to_standard(self) -> None:
+        assert _extract_mode(()) is WireStoryMode.STANDARD
+
+
 class TestBuildStoryContext:
     """Tests for ``build_story_context``."""
+
+    def test_fast_label_passes_through_to_mode(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    ) -> None:
+        """A ``fast`` label on an impl story derives ``StoryContext.mode=fast``.
+
+        This is the genuine derivation path (FK-24 §24.3.3) feeding the
+        SEPARATE fast axis — execution_route stays a normal path value.
+        """
+        monkeypatch.setattr(
+            "agentkit.governance.setup_preflight_gate.context_builder.get_issue",
+            lambda owner, repo, nr: _make_issue(labels=("fast",)),
+        )
+        ctx = build_story_context("owner", "repo", 42, tmp_path, "test-project")
+        assert ctx.story_type is StoryType.IMPLEMENTATION
+        assert ctx.mode is WireStoryMode.FAST
+
+    def test_default_mode_is_standard(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    ) -> None:
+        monkeypatch.setattr(
+            "agentkit.governance.setup_preflight_gate.context_builder.get_issue",
+            lambda owner, repo, nr: _make_issue(labels=()),
+        )
+        ctx = build_story_context("owner", "repo", 42, tmp_path, "test-project")
+        assert ctx.mode is WireStoryMode.STANDARD
 
     def test_bug_label_produces_bugfix_type(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,

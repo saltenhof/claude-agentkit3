@@ -4,18 +4,42 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agentkit.config.models import PipelineConfig, ProjectConfig, RepositoryConfig
+from agentkit.config.models import (
+    PipelineConfig,
+    ProjectConfig,
+    RepositoryConfig,
+    SonarQubeConfig,
+)
 from agentkit.config.validators import validate_project_config
+
+#: AG3-052 E6: code-producing projects must declare sonarqube explicitly.
+_OPT_OUT_SONAR = SonarQubeConfig(available=False, enabled=False)
+
+
+def _pipeline(**kwargs: object) -> PipelineConfig:
+    """PipelineConfig with an explicit sonarqube opt-out (E6)."""
+    return PipelineConfig(sonarqube=_OPT_OUT_SONAR, **kwargs)  # type: ignore[arg-type]
 
 
 def _minimal_config(**overrides: object) -> ProjectConfig:
-    """Create a minimal ProjectConfig with optional overrides."""
+    """Create a minimal ProjectConfig with optional overrides.
+
+    Injects an explicit sonarqube opt-out by default (AG3-052 E6) unless the
+    caller overrides ``pipeline`` or ``story_types`` to a non-code-producing
+    set.
+    """
     defaults: dict[str, object] = {
         "project_key": "test-project",
         "project_name": "test",
         "repositories": [RepositoryConfig(name="r", path=Path("/tmp"))],
     }
     defaults.update(overrides)
+    story_types = defaults.get("story_types")
+    codeproducing = story_types is None or bool(
+        {"implementation", "bugfix"}.intersection(story_types)  # type: ignore[arg-type]
+    )
+    if codeproducing and "pipeline" not in defaults:
+        defaults["pipeline"] = _pipeline()
     return ProjectConfig(**defaults)  # type: ignore[arg-type]
 
 
@@ -36,6 +60,7 @@ class TestValidateProjectConfig:
             ],
             github_owner="owner",
             github_repo="repo",
+            pipeline=_pipeline(),
         )
         warnings = validate_project_config(cfg)
         assert warnings == []
@@ -62,21 +87,21 @@ class TestValidateProjectConfig:
 
     def test_warns_zero_feedback_rounds(self) -> None:
         cfg = _minimal_config(
-            pipeline=PipelineConfig(max_feedback_rounds=0),
+            pipeline=_pipeline(max_feedback_rounds=0),
         )
         warnings = validate_project_config(cfg)
         assert any("max_feedback_rounds" in w for w in warnings)
 
     def test_warns_empty_verify_layers(self) -> None:
         cfg = _minimal_config(
-            pipeline=PipelineConfig(verify_layers=[]),
+            pipeline=_pipeline(verify_layers=[]),
         )
         warnings = validate_project_config(cfg)
         assert any("No verify_layers" in w for w in warnings)
 
     def test_warns_unknown_verify_layers(self) -> None:
         cfg = _minimal_config(
-            pipeline=PipelineConfig(verify_layers=["structural", "unknown_layer"]),
+            pipeline=_pipeline(verify_layers=["structural", "unknown_layer"]),
         )
         warnings = validate_project_config(cfg)
         assert any("Unknown verify layers" in w for w in warnings)

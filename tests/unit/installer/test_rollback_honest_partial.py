@@ -89,6 +89,9 @@ def _config(
         skills=skills,  # type: ignore[arg-type]
         skill_bundle_store=store,  # type: ignore[arg-type]
         skill_bundle_ids={name: f"{name}-core" for name in MANDATORY_SKILLS},
+        # AG3-052: conscious Sonar opt-out (no live Sonar; FK-03 §3 default
+        # is available:true). This install fails earlier at skill-bind anyway.
+        sonarqube_available=False,
     )
 
 

@@ -69,6 +69,16 @@ LAYER_3_ARTIFACTS: tuple[_LayerArtifactSpec, ...] = (
     ),
 )
 
+#: SonarQube-Green-Gate artefact (FK-33 §33.2.3; producer ``qa-sonarqube-gate``).
+SONARQUBE_GATE_ARTIFACTS: tuple[_LayerArtifactSpec, ...] = (
+    _LayerArtifactSpec(
+        filename="sonarqube_gate.json",
+        stage="qa-sonarqube-gate",
+        producer_name="qa-sonarqube-gate",
+        producer_type=ProducerType.DETERMINISTIC,
+    ),
+)
+
 #: Policy/decision artefact (FK-27 §27.7 / AG3-026 §AK7: ``decision.json``).
 POLICY_ARTIFACT_SPEC = _LayerArtifactSpec(
     filename="decision.json",

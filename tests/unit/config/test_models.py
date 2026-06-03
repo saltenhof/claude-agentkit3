@@ -13,8 +13,19 @@ from agentkit.config.models import (
     PipelineConfig,
     ProjectConfig,
     RepositoryConfig,
+    SonarQubeConfig,
     _coerce_path,
 )
+
+#: AG3-052 E6: a code-producing project (default story_types) must DECLARE the
+#: sonarqube stanza explicitly. Tests that are NOT about the gate declare an
+#: explicit opt-out (``available: false`` => gate not-applicable, legal).
+_OPT_OUT_SONAR = SonarQubeConfig(available=False, enabled=False)
+
+
+def _opt_out_pipeline(**kwargs: object) -> PipelineConfig:
+    """Build a PipelineConfig with an explicit sonarqube opt-out (E6)."""
+    return PipelineConfig(sonarqube=_OPT_OUT_SONAR, **kwargs)  # type: ignore[arg-type]
 
 
 class TestPipelineConfig:
@@ -104,6 +115,7 @@ class TestProjectConfig:
             project_key="test-project",
             project_name="test",
             repositories=[RepositoryConfig(name="r", path=Path("/tmp"))],
+            pipeline=_opt_out_pipeline(),
         )
         assert cfg.project_key == "test-project"
         assert cfg.project_name == "test"
@@ -123,7 +135,7 @@ class TestProjectConfig:
             project_key="full-project",
             project_name="full",
             repositories=[RepositoryConfig(name="r", path=Path("/tmp"))],
-            pipeline=PipelineConfig(max_feedback_rounds=1),
+            pipeline=_opt_out_pipeline(max_feedback_rounds=1),
             story_types=["bugfix"],
             github_owner="owner",
             github_repo="repo",
@@ -150,13 +162,20 @@ class TestProjectConfig:
             project_key="test-project",
             project_name="test",
             repositories=[],
+            pipeline=_opt_out_pipeline(),
         )
         assert cfg.repositories == []
 
     def test_default_pipeline_is_independent_instance(self) -> None:
         """Each ProjectConfig gets its own PipelineConfig instance."""
-        cfg1 = ProjectConfig(project_key="a", project_name="a", repositories=[])
-        cfg2 = ProjectConfig(project_key="b", project_name="b", repositories=[])
+        cfg1 = ProjectConfig(
+            project_key="a", project_name="a", repositories=[],
+            pipeline=_opt_out_pipeline(),
+        )
+        cfg2 = ProjectConfig(
+            project_key="b", project_name="b", repositories=[],
+            pipeline=_opt_out_pipeline(),
+        )
         cfg1.pipeline.max_feedback_rounds = 99
         assert cfg2.pipeline.max_feedback_rounds == 3
 
@@ -169,7 +188,7 @@ class TestAreSectionRequiredWhenEnabled:
             project_key="p",
             project_name="P",
             repositories=[],
-            pipeline=PipelineConfig(features=Features(are=False)),
+            pipeline=_opt_out_pipeline(features=Features(are=False)),
         )
         assert cfg.are is None
 
@@ -187,12 +206,66 @@ class TestAreSectionRequiredWhenEnabled:
             project_key="p",
             project_name="P",
             repositories=[],
-            pipeline=PipelineConfig(features=Features(are=True)),
+            pipeline=_opt_out_pipeline(features=Features(are=True)),
             are=AreConfig(mcp_server="https://are.example.com/mcp"),
         )
         assert cfg.are is not None
         assert cfg.are.mcp_server == "https://are.example.com/mcp"
 
+class TestSonarqubeDeclaredExplicitly:
+    """AG3-052 E6 / FK-03 §3: code-producing project must declare sonarqube."""
+
+    def test_codeproducing_without_sonarqube_stanza_raises(self) -> None:
+        """Omitted stanza on a code-producing project => fail-closed ValueError."""
+        with pytest.raises(ValidationError, match="must DECLARE the 'sonarqube'"):
+            ProjectConfig(
+                project_key="p",
+                project_name="P",
+                repositories=[RepositoryConfig(name="r", path=Path("/tmp"))],
+                # default story_types are code-producing; pipeline.sonarqube omitted
+            )
+
+    def test_codeproducing_with_explicit_available_false_ok(self) -> None:
+        """An explicit available:false opt-out stays legal (declared absence)."""
+        cfg = ProjectConfig(
+            project_key="p",
+            project_name="P",
+            repositories=[RepositoryConfig(name="r", path=Path("/tmp"))],
+            pipeline=_opt_out_pipeline(),
+        )
+        assert cfg.pipeline.sonarqube is not None
+        assert cfg.pipeline.sonarqube.available is False
+
+    def test_codeproducing_with_available_true_ok(self) -> None:
+        """An explicit available:true (+endpoint) declaration is legal."""
+        cfg = ProjectConfig(
+            project_key="p",
+            project_name="P",
+            repositories=[RepositoryConfig(name="r", path=Path("/tmp"))],
+            pipeline=PipelineConfig(
+                sonarqube=SonarQubeConfig(
+                    available=True,
+                    enabled=True,
+                    base_url="http://sonar:9901",
+                    token_env="SONARQUBE_TOKEN",
+                )
+            ),
+        )
+        assert cfg.pipeline.sonarqube is not None
+        assert cfg.pipeline.sonarqube.available is True
+
+    def test_non_codeproducing_may_omit_sonarqube(self) -> None:
+        """Concept/research-only projects may omit the stanza entirely."""
+        cfg = ProjectConfig(
+            project_key="p",
+            project_name="P",
+            repositories=[],
+            story_types=["concept", "research"],
+        )
+        assert cfg.pipeline.sonarqube is None
+
+
+class TestExtraFields:
     def test_extra_top_level_field_rejected(self) -> None:
         """ProjectConfig must reject unknown top-level fields (extra=forbid)."""
         with pytest.raises(ValidationError):

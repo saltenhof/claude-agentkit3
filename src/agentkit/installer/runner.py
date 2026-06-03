@@ -51,6 +51,12 @@ if TYPE_CHECKING:
     # PUBLIC surface ``agentkit.skills`` — never the internal
     # ``agentkit.skills.bundle_store`` submodule (exposure=internal). The public
     # package re-exports ``SkillBundleStore``/``SkillProfile``/``Skills``.
+    from agentkit.installer.integration_checkpoints.scanner_harness import ScanRunner
+    from agentkit.installer.integration_checkpoints.sonar_preflight import (
+        BranchPluginSelfTest,
+        SonarPreflightResult,
+    )
+    from agentkit.integrations.sonar import SonarClient
     from agentkit.skills import SkillBundleStore, SkillProfile, Skills
 
 PROMPT_MANIFEST_FILENAME = "manifest.json"
@@ -129,6 +135,41 @@ class InstallConfig:
     skill_bundle_store: SkillBundleStore | None = None
     skill_profile: SkillProfile | None = None
     skill_bundle_ids: dict[str, str] | None = None
+    # AG3-052 (FK-50 CP 10d): the SonarQube precondition checkpoint runs
+    # applicability-conditional. With ``available: false`` it is SKIPPED and
+    # needs no collaborators. With ``available: true`` it is fail-closed and
+    # needs a connected ``SonarClient``, the token's effective permissions and
+    # the branch-plugin conformance self-test. Only the LIVE SonarQube server +
+    # scanner binary is OOS (§2.2): the operator/CI injects ``sonar_client`` and
+    # ``sonar_scan_runner`` (the operational ``sonar-scanner`` invocation), and
+    # the installer builds the PRODUCTIVE ``SonarClientScannerHarness`` from
+    # them (AG3-052 E5). When ``available: true`` and the verification cannot be
+    # carried out, CP 10d FAILs closed and ABORTS the install — there is no
+    # ``verification_deferred`` escape hatch (a green gate must never be armed
+    # against an unverified Sonar, FK-50 §50.6).
+    #
+    # ``sonar_branch_plugin_self_test`` lets a caller inject a fully-prebuilt
+    # self-test (e.g. tests stubbing the HTTP boundary); when it is ``None`` the
+    # installer assembles the productive one from ``sonar_client`` +
+    # ``sonar_scan_runner``.
+    sonar_client: SonarClient | None = None
+    sonar_token_permissions: frozenset[str] | None = None
+    sonar_branch_plugin_self_test: BranchPluginSelfTest | None = None
+    sonar_scan_runner: ScanRunner | None = None
+    # AG3-052 Design-Decision (FK-03 §3): the scaffold default for a
+    # code-producing project is ``sonarqube.available: true`` — the green gate
+    # is a mandatory runtime dependency and an install must DECLARE Sonar
+    # present (FK-03 §3 example uses ``available: true`` + endpoint).
+    # ``available: false`` is a CONSCIOUS operator opt-out, never an automatic
+    # install default. Set ``sonarqube_available=False`` to scaffold the
+    # explicit opt-out (e.g. a server-less install or a test fixture with no
+    # live Sonar). Consequence (accepted, FAIL-CLOSED): an ``available: true``
+    # scaffold with no reachable Sonar makes CP 10d (E5) FAIL closed — the
+    # GEWOLLTE prompt to either provision Sonar or set ``available: false``.
+    sonarqube_available: bool = True
+    # Endpoint used when ``sonarqube_available`` is True (FK-03 §3 example).
+    sonarqube_base_url: str = "http://localhost:9901"
+    sonarqube_token_env: str = "SONARQUBE_TOKEN"
 
 
 @dataclass(frozen=True)
@@ -145,6 +186,56 @@ class UninstallResult:
     project_root: Path
     removed_files: tuple[str, ...] = ()
     errors: tuple[str, ...] = field(default_factory=tuple)
+
+
+def _default_sonarqube_stanza(config: InstallConfig) -> dict[str, object]:
+    """Return the EXPLICIT scaffold ``sonarqube`` stanza for a code project.
+
+    AG3-052 Design-Decision (FK-03 §3, Konzepttreue): for a code-producing
+    project the scaffold default is ``available: true`` (+ ``enabled: true`` +
+    endpoint), exactly as the FK-03 §3 example declares it. The green gate is
+    a mandatory runtime dependency (FK-10 §10.2.2); a fresh install DECLARES
+    Sonar present rather than auto-disabling the gate. ``available: false`` is
+    a CONSCIOUS operator opt-out (``config.sonarqube_available = False``),
+    never an automatic install default — auto-``false`` would silently
+    undercut the gate obligation for fresh code-producing installs (CP 10d
+    would be skipped by design).
+
+    Consequence (accepted, FAIL-CLOSED): an ``available: true`` scaffold with
+    no reachable Sonar makes CP 10d (E5) FAIL closed — the GEWOLLTE prompt to
+    provision Sonar OR consciously set ``available: false``. The stanza is
+    ALWAYS explicit (never omitted), so the operator intent is never silent
+    (AG3-052 E6).
+
+    Args:
+        config: The install configuration; ``sonarqube_available`` selects the
+            declared-present default (FK-03 §3) vs the conscious opt-out, and
+            ``sonarqube_base_url``/``sonarqube_token_env`` carry the endpoint.
+
+    Returns:
+        The ``sonarqube`` stanza mapping for ``project.yaml``.
+    """
+    stanza: dict[str, object] = {
+        "available": config.sonarqube_available,
+        "enabled": config.sonarqube_available,
+        "min_version": "26.4",
+        "plugins": {"community_branch": {"min_version": "1.23.0"}},
+        "quality_gate": {
+            # Target-project-relative path: the installer deploys the SSOT
+            # profile from ``src/agentkit/resources/target_project/sonar/`` to
+            # ``<project>/sonar/`` (resource-mirroring deploy), so the project
+            # config points at the DEPLOYED location (FK-03's
+            # ``resources/target_project/...`` is the SSOT source path).
+            "default_profile": "sonar/ak3-default-gate.json",
+            "overrides_allowed": True,
+        },
+    }
+    if config.sonarqube_available:
+        # FK-03 §3: ``available and enabled`` require base_url + token_env
+        # (cross-field rule, no silent localhost-without-auth default).
+        stanza["base_url"] = config.sonarqube_base_url
+        stanza["token_env"] = config.sonarqube_token_env
+    return stanza
 
 
 def _build_project_yaml(config: InstallConfig) -> dict[str, object]:
@@ -165,17 +256,32 @@ def _build_project_yaml(config: InstallConfig) -> dict[str, object]:
     else:
         repos = [{"name": "app", "path": "."}]
 
+    story_types = list(DEFAULT_STORY_TYPES)
+    pipeline: dict[str, object] = {
+        "max_feedback_rounds": DEFAULT_MAX_FEEDBACK_ROUNDS,
+        "max_remediation_rounds": DEFAULT_MAX_REMEDIATION_ROUNDS,
+        "exploration_mode": True,
+        "verify_layers": list(DEFAULT_VERIFY_LAYERS),
+    }
+    # FK-03 §3 / AG3-052 (E6 + Design-Decision): a code-producing project must
+    # declare the ``sonarqube`` stanza EXPLICITLY — never rely on omission
+    # (config-load rejects a code-producing project with an omitted stanza).
+    # The scaffold default is ``available: true`` (+ endpoint) per FK-03 §3 —
+    # the green gate is mandatory; ``available: false`` is a conscious operator
+    # opt-out (``config.sonarqube_available = False``), not an auto default.
+    # With ``available: true`` and no reachable Sonar, CP 10d (E5/FK-50 §50.6)
+    # FAILs closed — the intended prompt to provision Sonar or opt out
+    # consciously. Non-code-producing scaffolds may omit it, but the default
+    # story types are code-producing, so it is always written here.
+    if {"implementation", "bugfix"}.intersection(story_types):
+        pipeline["sonarqube"] = _default_sonarqube_stanza(config)
+
     data: dict[str, object] = {
         "project_key": config.project_key,
         "project_name": config.project_name,
         "repositories": repos,
-        "story_types": list(DEFAULT_STORY_TYPES),
-        "pipeline": {
-            "max_feedback_rounds": DEFAULT_MAX_FEEDBACK_ROUNDS,
-            "max_remediation_rounds": DEFAULT_MAX_REMEDIATION_ROUNDS,
-            "exploration_mode": True,
-            "verify_layers": list(DEFAULT_VERIFY_LAYERS),
-        },
+        "story_types": story_types,
+        "pipeline": pipeline,
     }
 
     if config.github_owner is not None:
@@ -880,11 +986,144 @@ def install_agentkit(config: InstallConfig) -> InstallResult:
     if _write_yaml_if_changed(yaml_path, yaml_data):
         created.append(str(yaml_path.relative_to(root)))
 
+    # FK-50 CP 10d (AG3-052 E5): applicability-conditional SonarQube
+    # precondition checkpoint, run after the project config is on disk.
+    # available:false => SKIPPED (reason=not_applicable, NOT FAILED);
+    # available:true => fail-closed checks (reachability/version, token role
+    # incl. Administer Issues, branch-plugin presence + conformance self-test).
+    _run_cp10d_sonarqube(config, root, yaml_data)
+
     return InstallResult(
         success=True,
         project_root=root,
         created_files=tuple(created),
     )
+
+
+def _run_cp10d_sonarqube(
+    config: InstallConfig,
+    root: Path,
+    yaml_data: dict[str, object],
+) -> SonarPreflightResult:
+    """Run the FK-50 CP 10d SonarQube precondition checkpoint (fail-closed).
+
+    Parses the written ``sonarqube`` stanza into a ``SonarQubeConfig`` and
+    runs :func:`check_sonarqube_preconditions`:
+
+    * ``available: false`` => SKIPPED (``reason=not_applicable``), no Sonar
+      collaborators needed.
+    * ``available: true`` => the fail-closed checks run; a FAILED result
+      raises ``InstallationError`` and ABORTS the install (FK-50 §50.6 — the
+      green gate must not be armed against an unverifiable Sonar). There is
+      NO ``verification_deferred`` escape hatch (AG3-052 E5): if the
+      verification cannot be carried out — no ``sonar_client``, no
+      branch-plugin self-test (neither injected nor assemblable from a
+      ``sonar_scan_runner``), or any failing probe — CP 10d is FAILED and the
+      install aborts.
+
+    Productive branch-plugin self-test (AG3-052 E5): when the caller does not
+    inject a pre-built ``sonar_branch_plugin_self_test`` but supplies a
+    ``sonar_client`` + ``sonar_scan_runner``, the installer assembles the
+    PRODUCTIVE :class:`SonarClientScannerHarness` and drives the FK-50 §50.3
+    conformance steps through it (``run_branch_plugin_conformance_self_test``).
+    Only the LIVE server + scanner (``sonar_scan_runner``) is OOS (§2.2).
+
+    Args:
+        config: The install configuration (carries the Sonar collaborators).
+        root: Project root (resolves the default-profile path).
+        yaml_data: The project.yaml mapping just written (source of the
+            ``sonarqube`` stanza).
+
+    Returns:
+        The :class:`SonarPreflightResult` (SKIPPED when not applicable, else
+        PASS — a FAILED result raises before returning).
+
+    Raises:
+        InstallationError: When an APPLICABLE checkpoint FAILs (fail-closed).
+    """
+    from agentkit.config.models import SonarQubeConfig
+    from agentkit.installer.integration_checkpoints import (
+        check_sonarqube_preconditions,
+    )
+    from agentkit.installer.integration_checkpoints.sonar_preflight import (
+        CheckpointStatus,
+        SonarPreflightResult,
+    )
+
+    pipeline = yaml_data.get("pipeline", {})
+    stanza = pipeline.get("sonarqube") if isinstance(pipeline, dict) else None
+    if not isinstance(stanza, dict):
+        # No sonarqube stanza written (non-code-producing scaffold) => the
+        # gate is not-applicable; CP 10d is a no-op SKIP.
+        return SonarPreflightResult(
+            status=CheckpointStatus.SKIPPED, reason="not_applicable"
+        )
+
+    sonar_config = SonarQubeConfig.model_validate(stanza)
+    self_test = _resolve_branch_plugin_self_test(config)
+    result = check_sonarqube_preconditions(
+        sonar_config,
+        client=config.sonar_client,
+        repo_root=root,
+        token_permissions=config.sonar_token_permissions or frozenset(),
+        branch_plugin_self_test=self_test,
+    )
+    if result.status == CheckpointStatus.FAILED:
+        raise InstallationError(
+            "FK-50 CP 10d SonarQube precondition FAILED: "
+            f"{result.reason} ({'; '.join(result.details)}). The green gate "
+            "must not be armed against an unverifiable Sonar (FK-50 §50.6). "
+            "Fix the precondition, or set sonarqube.available=false to opt out.",
+            detail={
+                "cause": "SonarPreconditionFailed",
+                "reason": result.reason,
+                "details": list(result.details),
+            },
+        )
+    return result
+
+
+def _resolve_branch_plugin_self_test(
+    config: InstallConfig,
+) -> BranchPluginSelfTest | None:
+    """Resolve the CP 10d branch-plugin conformance self-test (AG3-052 E5).
+
+    Precedence:
+
+    1. an explicitly injected ``sonar_branch_plugin_self_test`` (tests stub
+       the HTTP boundary inside it);
+    2. otherwise, when a ``sonar_client`` AND a ``sonar_scan_runner`` are
+       present, the PRODUCTIVE :class:`SonarClientScannerHarness` wired into
+       ``run_branch_plugin_conformance_self_test``;
+    3. otherwise ``None`` — which makes ``check_sonarqube_preconditions`` FAIL
+       closed (``missing_dependency``) for an ``available: true`` config (no
+       silent skip, FK-50 §50.6).
+
+    Args:
+        config: The install configuration carrying the Sonar collaborators.
+
+    Returns:
+        A ``BranchPluginSelfTest`` callable, or ``None`` when no verification
+        can be assembled.
+    """
+    if config.sonar_branch_plugin_self_test is not None:
+        return config.sonar_branch_plugin_self_test
+    if config.sonar_client is None or config.sonar_scan_runner is None:
+        return None
+    from agentkit.installer.integration_checkpoints.branch_plugin_self_test import (
+        run_branch_plugin_conformance_self_test,
+    )
+    from agentkit.installer.integration_checkpoints.scanner_harness import (
+        SonarClientScannerHarness,
+    )
+
+    scan_runner = config.sonar_scan_runner
+
+    def _self_test(client: SonarClient) -> bool:
+        harness = SonarClientScannerHarness(client=client, scan_runner=scan_runner)
+        return run_branch_plugin_conformance_self_test(client, harness)
+
+    return _self_test
 
 
 def _remove_file(path: Path, project_root: Path) -> list[str]:

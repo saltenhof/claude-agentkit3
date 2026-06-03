@@ -42,6 +42,7 @@ class TestSetupPhaseE2E:
                 project_key="test",
                 project_name="test",
                 project_root=tmp_path,
+                sonarqube_available=False,  # AG3-052: conscious opt-out, no live Sonar
             )
         )
 
@@ -99,6 +100,7 @@ class TestSetupPhaseE2E:
                 project_key="test",
                 project_name="test",
                 project_root=tmp_path,
+                sonarqube_available=False,  # AG3-052: conscious opt-out, no live Sonar
             )
         )
 

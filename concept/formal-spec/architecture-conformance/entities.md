@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: architecture-conformance
 spec_kind: entity-set
-version: 26
+version: 27
 prose_refs:
   - concept/technical-design/01_systemkontext_und_architekturprinzipien.md
   - concept/technical-design/07_komponentenarchitektur_und_architekturkonformanz.md
@@ -81,6 +81,14 @@ Praezisierung, kein neuer Sub, keine gelockerte Regel. Zusaetzlich wird
 harness-neutralen `HookEvent` aus `guard_evaluation` (FK-55 §55.10.3,
 AG3-032 AK10) und liegt damit fachlich eine Schicht ueber dem
 HookEvent-Kern.
+Version 27 ergaenzt den verify-system-Sub `sonarqube_gate`
+(`agentkit.verify_system.sonarqube_gate`, sub_exposed, AG3-052): die
+SonarQube-Green-Gate-Capability (FK-33 §33.6). In `intra_bc_layer_order`
+hinter `adversarial_orchestrator` und vor `policy_engine` einsortiert
+(klassifikatorisch Layer 1, Abfolge nach Schicht 3, FK-33 §33.8.3).
+sub_exposed, damit die drei Lifecycle-Gate-Punkte (QA-Subflow hier;
+Setup-green-main FK-22 / Closure-Dim-9 FK-29/FK-35 als Konsumenten,
+AG3-034) die Capability-API aufrufen koennen. Keine gelockerte Regel.
 
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
@@ -221,6 +229,7 @@ component_groups:
       - architecture-conformance.group.llm_evaluator
       - architecture-conformance.group.conformance_service
       - architecture-conformance.group.adversarial_orchestrator
+      - architecture-conformance.group.sonarqube_gate
       - architecture-conformance.group.policy_engine
       - architecture-conformance.group.qa_cycle_coordinator
 
@@ -244,6 +253,21 @@ component_groups:
     parent_group_id: architecture-conformance.group.verify_system
     exposure: sub_exposed
     component_kind: domain
+
+  - id: architecture-conformance.group.sonarqube_gate
+    name: SonarqubeGate
+    bloodgroup: A
+    module_prefixes:
+      - agentkit.verify_system.sonarqube_gate
+    parent_group_id: architecture-conformance.group.verify_system
+    exposure: sub_exposed
+    component_kind: domain
+    # SonarQube-Green-Gate capability (FK-33 §33.6, AG3-052). sub_exposed
+    # so the three lifecycle gate points (QA-subflow here; Setup-green-main
+    # FK-22 / Closure Dim 9 FK-29/FK-35 as consumers, AG3-034) can call the
+    # capability API. Sequenced after adversarial_orchestrator and before
+    # policy_engine in intra_bc_layer_order (FK-33 §33.8.3). The external
+    # SonarQube HTTP boundary lives in the integrations adapter, not here.
 
   - id: architecture-conformance.group.llm_evaluator
     name: LlmEvaluator

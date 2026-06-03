@@ -45,6 +45,21 @@ def main(argv: list[str] | None = None) -> int:
         required=False,
         help="Optional prompt bundle root to bind into the project",
     )
+    # AG3-052 (FK-03 §3): the SonarQube-Green-Gate is a mandatory runtime
+    # dependency, so a code-producing scaffold DECLARES Sonar present by
+    # default (``--sonarqube-available``). ``--no-sonarqube-available`` is the
+    # CONSCIOUS operator opt-out (gate not applicable, FK-33 §33.6.5); the
+    # default is ``True`` per FK-03 §3 (never an auto-disable).
+    install_parser.add_argument(
+        "--sonarqube-available",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Declare SonarQube present for this code-producing project "
+            "(FK-03 §3 default). Use --no-sonarqube-available for the "
+            "conscious opt-out (gate not applicable)."
+        ),
+    )
     uninstall_parser = subparsers.add_parser(
         "uninstall", help="Remove AgentKit from a target project",
     )
@@ -140,6 +155,10 @@ def _cmd_install(args: argparse.Namespace) -> int:
             if args.prompt_bundle_root is not None
             else None
         ),
+        # AG3-052 (FK-03 §3): default available:true; --no-sonarqube-available
+        # is the conscious opt-out. CP 10d then verifies fail-closed (E5) or
+        # SKIPs (opt-out).
+        sonarqube_available=args.sonarqube_available,
     )
     try:
         result = install_agentkit(config)

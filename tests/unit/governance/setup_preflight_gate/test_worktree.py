@@ -7,7 +7,12 @@ from unittest.mock import call, patch
 
 import pytest
 
-from agentkit.config.models import ProjectConfig, RepositoryConfig
+from agentkit.config.models import (
+    PipelineConfig,
+    ProjectConfig,
+    RepositoryConfig,
+    SonarQubeConfig,
+)
 from agentkit.exceptions import WorktreeError
 from agentkit.governance.setup_preflight_gate.worktree import (
     RepoNotFoundError,
@@ -29,6 +34,10 @@ def _project_config(tmp_path: Path, repo_names: list[str]) -> ProjectConfig:
             RepositoryConfig(name=repo_name, path=tmp_path / repo_name)
             for repo_name in repo_names
         ],
+        # AG3-052 E6: code-producing default story_types => declare sonarqube.
+        pipeline=PipelineConfig(
+            sonarqube=SonarQubeConfig(available=False, enabled=False)
+        ),
     )
 
 

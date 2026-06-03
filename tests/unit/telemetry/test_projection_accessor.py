@@ -77,7 +77,7 @@ def _make_story_metrics() -> StoryMetricsRecord:
         run_id="run-abc",
         story_type="IMPLEMENTATION",
         story_size="M",
-        mode="EXECUTION",
+        mode="standard",
         processing_time_min=12.5,
         qa_rounds=2,
         increments=3,

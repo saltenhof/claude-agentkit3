@@ -35,7 +35,7 @@ from agentkit.artifacts import (
     Producer,
     ProducerId,
 )
-from agentkit.core_types import ArtifactClass, QaContext
+from agentkit.core_types import ArtifactClass, PolicyVerdict, QaContext
 from agentkit.verify_system._artifact_specs import (
     ARTIFACT_CLASS_TO_TARGET_TYPE as _ARTIFACT_CLASS_TO_TARGET_TYPE,
 )
@@ -50,6 +50,9 @@ from agentkit.verify_system._artifact_specs import (
 )
 from agentkit.verify_system._artifact_specs import (
     POLICY_ARTIFACT_SPEC as _POLICY_ARTIFACT_SPEC,
+)
+from agentkit.verify_system._artifact_specs import (
+    SONARQUBE_GATE_ARTIFACTS as _SONARQUBE_GATE_ARTIFACTS,
 )
 from agentkit.verify_system._artifact_specs import (
     _LayerArtifactSpec,
@@ -84,6 +87,14 @@ from agentkit.verify_system.protocols import (
     TrustClass,
 )
 from agentkit.verify_system.routing import QALayerKind, select_layers
+from agentkit.verify_system.sonarqube_gate.port import (
+    ABSENT_SONAR_GATE_PORT,
+    SonarGateInputPort,
+)
+from agentkit.verify_system.sonarqube_gate.stage_runner import (
+    SonarStageResult,
+    run_sonarqube_gate_stage,
+)
 from agentkit.verify_system.structural.checker import StructuralChecker
 
 if TYPE_CHECKING:
@@ -157,6 +168,11 @@ class VerifySystem:
             direkten ``state_backend.store``-Import in ``run_qa_subflow``.
         adversarial_challenger: Backward-compatible alias for ``layer_3``;
             kept to avoid breaking AG3-023/AG3-024 consumers.
+        sonar_gate_port: Read-port resolving the SonarQube-Green-Gate
+            inputs (FK-33 §33.6, AG3-052). Default is the absent-Sonar
+            port (``sonarqube.available == false`` => stage SKIP). The
+            productive adapter (talking to ``integrations.sonar`` + config)
+            is wired via the composition root.
     """
 
     layer_1: QALayer
@@ -167,6 +183,7 @@ class VerifySystem:
     policy_engine: PolicyEngine
     artifact_manager: ArtifactManager
     story_context_port: StoryContextQueryPort = _NULL_STORY_CONTEXT_PORT
+    sonar_gate_port: SonarGateInputPort = ABSENT_SONAR_GATE_PORT
 
     @property
     def layer_2(self) -> QALayer:
@@ -193,6 +210,7 @@ class VerifySystem:
         artifact_manager: ArtifactManager,
         max_major_findings: int = 0,
         story_context_port: StoryContextQueryPort | None = None,
+        sonar_gate_port: SonarGateInputPort | None = None,
     ) -> VerifySystem:
         """Construct a ``VerifySystem`` with default sub-components.
 
@@ -215,6 +233,9 @@ class VerifySystem:
                 IMPLEMENTATION-Stub in ``_execute_layer``). Produktive Aufrufer
                 reichen den state-backed Adapter via
                 ``composition_root.build_verify_system`` ein.
+            sonar_gate_port: Optionaler ``SonarGateInputPort`` (AG3-052,
+                FK-33 §33.6). Wenn ``None``, wird der Absent-Sonar-Port
+                genutzt (``sonarqube.available == false`` => Stage SKIP).
 
         Returns:
             A frozen ``VerifySystem`` with default-configured sub-components.
@@ -230,6 +251,7 @@ class VerifySystem:
                 "for the wired default.",
             )
         resolved_port = story_context_port or _NULL_STORY_CONTEXT_PORT
+        resolved_sonar_port = sonar_gate_port or ABSENT_SONAR_GATE_PORT
         # AG3-015 / FK-44 §44.4.2: the QA layers materialize their prompts via
         # PromptRuntime.materialize_prompt and audit them via the
         # ArtifactManager. Both dependencies are injected here so no layer
@@ -255,6 +277,7 @@ class VerifySystem:
             policy_engine=PolicyEngine(max_major_findings=max_major_findings),
             artifact_manager=artifact_manager,
             story_context_port=resolved_port,
+            sonar_gate_port=resolved_sonar_port,
         )
 
     # ------------------------------------------------------------------
@@ -387,6 +410,48 @@ class VerifySystem:
                 # Policy runs after all data layers; handled in step 5/6.
                 continue
 
+            if kind is QALayerKind.SONARQUBE_GATE:
+                # FK-33 §33.6 / §33.8.3: classificatory Layer 1, sequenced
+                # AFTER adversarial, BEFORE policy. State-machine conformant
+                # (formal.deterministic-checks.state-machine):
+                #   * NOT_APPLICABLE_FAST => stage DROPPED entirely (None): no
+                #     LayerResult, no artefact, no Sonar status; the fast
+                #     QA-subflow terminates via the tests-green floor.
+                #   * NOT_APPLICABLE_UNAVAILABLE => SKIP marker; policy still
+                #     aggregates over the other layers.
+                #   * APPLICABLE green => PASS; the run continues to policy.
+                #   * APPLICABLE fail-closed (red/stale/unreadable/0-or-multi
+                #     ledger match) => route DIRECTLY to the terminal `failed`
+                #     WITHOUT the policy engine and WITHOUT a decision artefact
+                #     (invariant.passed-requires-sonarqube-gate-passed).
+                stage_result = run_sonarqube_gate_stage(
+                    self.sonar_gate_port, story_id, ctx.story_dir
+                )
+                if stage_result is None:
+                    # NOT_APPLICABLE_FAST: drop the stage entirely.
+                    continue
+                gate_result = stage_result.layer_result
+                for spec in _SONARQUBE_GATE_ARTIFACTS:
+                    self._write_layer_envelope(
+                        spec=spec,
+                        result=gate_result,
+                        ctx=ctx,
+                        story_id=story_id,
+                        now_str=now_str,
+                        qa_cycle_fields=qa_cycle_fields,
+                    )
+                    artifact_refs_written.append(spec.filename)
+                if stage_result.short_circuit_failed:
+                    return self._sonarqube_gate_failed_outcome(
+                        stage_result=stage_result,
+                        layer_results=layer_results,
+                        artifact_refs_written=artifact_refs_written,
+                        ctx=ctx,
+                        story_id=story_id,
+                    )
+                layer_results.append(gate_result)
+                continue
+
             if kind is QALayerKind.LLM_EVALUATOR:
                 # W1: Layer 2 runs three distinct reviewers, each producing
                 # its own LayerResult and its own envelope.
@@ -484,6 +549,81 @@ class VerifySystem:
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    def _sonarqube_gate_failed_outcome(
+        self,
+        *,
+        stage_result: SonarStageResult,
+        layer_results: list[LayerResult],
+        artifact_refs_written: list[str],
+        ctx: VerifyContextBundle,
+        story_id: str,
+    ) -> QaSubflowOutcome:
+        """Build the direct fail-closed outcome for an APPLICABLE gate FAIL.
+
+        FK-33 §33.6.3 / formal.deterministic-checks state machine: an
+        APPLICABLE ``sonarqube_gate`` fail-closed verdict (red gate,
+        stale/unreadable attestation, 0/>1 ledger reconciliation) routes
+        DIRECTLY to the terminal ``failed`` and must NEVER traverse
+        ``policy_evaluated`` (invariant.passed-requires-sonarqube-gate-passed).
+        Therefore this path does NOT call the policy engine and does NOT
+        write a ``decision.json`` policy artefact — the only verdict carrier
+        is the gate envelope (already written by the caller).
+
+        The returned ``QaSubflowOutcome`` carries a FAIL ``VerifyDecision``
+        assembled WITHOUT the aggregator (the gate's BLOCKING SYSTEM finding
+        is authoritative) so cross-BC callers still feed FK-69 and surface
+        remediation feedback.
+
+        Args:
+            stage_result: The fail-closed ``SonarStageResult`` from the gate.
+            layer_results: Results of the layers executed before the gate.
+            artifact_refs_written: Artefact filenames written so far
+                (includes the gate envelope; deliberately NO ``decision.json``).
+            ctx: Run-time context bundle.
+            story_id: Story display-ID.
+
+        Returns:
+            A FAIL ``QaSubflowOutcome`` reached without the policy engine.
+        """
+        from agentkit.verify_system.remediation.feedback import build_feedback
+
+        gate_result = stage_result.layer_result
+        all_results = (*tuple(layer_results), gate_result)
+        all_findings = tuple(f for lr in all_results for f in lr.findings)
+        blocking = tuple(
+            f
+            for f in all_findings
+            if f.severity == Severity.BLOCKING and f.trust_class == TrustClass.SYSTEM
+        )
+        decision = VerifyDecision(
+            passed=False,
+            verdict=PolicyVerdict.FAIL,
+            layer_results=all_results,
+            all_findings=all_findings,
+            blocking_findings=blocking,
+            summary=(
+                "FAIL: SonarQube-Green-Gate fail-closed "
+                f"({gate_result.metadata.get('failure_reason')!r}); routed "
+                "directly to failed without policy aggregation "
+                "(FK-33 §33.6.3)."
+            ),
+        )
+        logger.info(
+            "run_qa_subflow sonarqube_gate fail-closed (direct failed, no "
+            "policy): story=%s reason=%s",
+            story_id,
+            gate_result.metadata.get("failure_reason"),
+        )
+        feedback = build_feedback(decision, story_id, ctx.attempt)
+        return QaSubflowOutcome(
+            verdict=PolicyVerdict.FAIL,
+            decision=decision,
+            artifact_refs=tuple(artifact_refs_written),
+            attempt_nr=ctx.attempt,
+            qa_cycle_round=ctx.attempt,
+            feedback=feedback,
+        )
 
     def _layer2_pairs(
         self,

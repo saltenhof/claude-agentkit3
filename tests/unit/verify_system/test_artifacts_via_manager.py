@@ -203,5 +203,5 @@ class TestMigrationRoundtrip:
         register_verify_producers(registry)
         register_verify_producers(registry)  # idempotent
         # AG3-026 Re-Review: 7 Producer (Layer 2 split in 3 + alter
-        # layer-2-llm fuer Backward-Compat).
-        assert len(registry.known_producers(ArtifactClass.QA)) == 7  # noqa: PLR2004
+        # layer-2-llm fuer Backward-Compat) + AG3-052 qa-sonarqube-gate = 8.
+        assert len(registry.known_producers(ArtifactClass.QA)) == 8  # noqa: PLR2004

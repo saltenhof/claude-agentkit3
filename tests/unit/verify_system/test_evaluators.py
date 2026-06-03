@@ -149,6 +149,7 @@ class TestPromptAuditPinStabilityAfterRebind:
                 project_key="test-project",
                 project_name="test-project",
                 project_root=project_root,
+                sonarqube_available=False,  # AG3-052: conscious opt-out, no live Sonar
             ),
         )
         story_dir = project_root / "stories" / "TEST-001"
@@ -332,6 +333,7 @@ class TestSemanticReviewer:
                 project_key="test-project",
                 project_name="test-project",
                 project_root=project_root,
+                sonarqube_available=False,  # AG3-052: conscious opt-out, no live Sonar
             ),
         )
         story_dir = project_root / "stories" / "TEST-001"
@@ -412,6 +414,7 @@ class TestSemanticReviewer:
                 project_key="test-project",
                 project_name="test-project",
                 project_root=project_root,
+                sonarqube_available=False,  # AG3-052: conscious opt-out, no live Sonar
             ),
         )
         story_dir = project_root / "stories" / "OTHER-999"

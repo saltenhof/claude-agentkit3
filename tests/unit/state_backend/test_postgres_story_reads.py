@@ -184,7 +184,7 @@ def test_load_latest_story_metrics_global_reads_row(monkeypatch: pytest.MonkeyPa
                     "run_id": "run-100",
                     "story_type": "implementation",
                     "story_size": "medium",
-                    "mode": "execution",
+                    "mode": "standard",
                     "processing_time_min": 12.5,
                     "qa_rounds": 2,
                     "increments": 3,

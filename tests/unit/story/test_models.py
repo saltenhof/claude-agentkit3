@@ -20,6 +20,7 @@ from agentkit.story_context_manager.models import (
     StoryContext,
 )
 from agentkit.story_context_manager.sizing import StorySize
+from agentkit.story_context_manager.story_model import WireStoryMode
 from agentkit.story_context_manager.types import (
     ImplementationContract,
     StoryMode,
@@ -339,6 +340,70 @@ class TestStoryContext:
         assert restored.execution_route == ctx.execution_route
         assert restored.implementation_contract == ctx.implementation_contract
         assert restored.issue_nr == ctx.issue_nr
+
+    def test_mode_defaults_to_standard(self) -> None:
+        """The fast/standard ``mode`` axis defaults to ``standard`` (FK-24 §24.3.3)."""
+        ctx = StoryContext(
+            project_key="test-project",
+            story_id="AG3-001",
+            story_type=StoryType.IMPLEMENTATION,
+            execution_route=StoryMode.EXECUTION,
+        )
+        assert ctx.mode is WireStoryMode.STANDARD
+
+    def test_mode_is_separate_axis_from_execution_route(self) -> None:
+        """``mode=fast`` is NOT conflated into ``execution_route`` (FK-24 §24.3.3).
+
+        A fast run still carries a valid EXECUTION/EXPLORATION execution_route;
+        the two axes are independent.
+        """
+        ctx = StoryContext(
+            project_key="test-project",
+            story_id="AG3-001",
+            story_type=StoryType.IMPLEMENTATION,
+            execution_route=StoryMode.EXECUTION,
+            mode=WireStoryMode.FAST,
+        )
+        assert ctx.mode is WireStoryMode.FAST
+        # execution_route is untouched by the fast axis.
+        assert ctx.execution_route is StoryMode.EXECUTION
+
+    def test_fast_mode_allowed_for_bugfix(self) -> None:
+        ctx = StoryContext(
+            project_key="test-project",
+            story_id="AG3-001",
+            story_type=StoryType.BUGFIX,
+            execution_route=StoryMode.EXECUTION,
+            mode=WireStoryMode.FAST,
+        )
+        assert ctx.mode is WireStoryMode.FAST
+
+    @pytest.mark.parametrize("story_type", [StoryType.CONCEPT, StoryType.RESEARCH])
+    def test_fast_mode_rejected_for_non_codeproducing(
+        self, story_type: StoryType
+    ) -> None:
+        """FK-24 §24.3.3/§24.3.4: fast is only legal for implementation/bugfix."""
+        with pytest.raises(ValidationError, match="mode=fast"):
+            StoryContext(
+                project_key="test-project",
+                story_id="AG3-001",
+                story_type=story_type,
+                execution_route=None,
+                mode=WireStoryMode.FAST,
+            )
+
+    def test_mode_serialization_roundtrip(self) -> None:
+        ctx = StoryContext(
+            project_key="test-project",
+            story_id="AG3-001",
+            story_type=StoryType.IMPLEMENTATION,
+            execution_route=StoryMode.EXECUTION,
+            mode=WireStoryMode.FAST,
+        )
+        data = ctx.model_dump(mode="json")
+        assert data["mode"] == WireStoryMode.FAST.value
+        restored = StoryContext.model_validate(data)
+        assert restored.mode is WireStoryMode.FAST
 
     def test_story_size_is_estimated_from_labels_when_missing(self) -> None:
         ctx = StoryContext(

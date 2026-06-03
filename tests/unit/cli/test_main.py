@@ -96,6 +96,9 @@ class TestCLIMain:
             "--project-key", "test-cli-project",
             "--project-name", "test-cli-project",
             "--project-root", str(tmp_path),
+            # AG3-052: conscious Sonar opt-out (no live Sonar in this test);
+            # FK-03 §3 default would be available:true => CP 10d fail-closed.
+            "--no-sonarqube-available",
         ])
 
         assert exit_code == 0
@@ -227,6 +230,7 @@ class TestCLIMain:
             "--project-key", "test-cli-project",
             "--project-name", "test-cli-project",
             "--project-root", str(tmp_path),
+            "--no-sonarqube-available",  # AG3-052: conscious opt-out, no live Sonar
         ])
 
         exit_code = main(["uninstall", "--project-root", str(tmp_path)])

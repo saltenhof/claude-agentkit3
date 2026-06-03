@@ -55,6 +55,7 @@ def installed_project(tmp_path: Path) -> Path:
             project_key="test-project",
             project_name="test-project",
             project_root=project_dir,
+            sonarqube_available=False,  # AG3-052: conscious opt-out, no live Sonar
         )
     )
     return project_dir

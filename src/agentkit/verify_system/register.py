@@ -47,6 +47,9 @@ _VERIFY_PRODUCERS: Final[tuple[tuple[ArtifactClass, str, ProducerType], ...]] = 
     # Layer 2 (Bestand AG3-023, write_layer_artifacts/_decision-Pfad)
     (ArtifactClass.QA, "verify-system.layer-2-llm", ProducerType.LLM_REVIEWER),
     (ArtifactClass.QA, "verify-system.layer-3-adversarial", ProducerType.LLM_REVIEWER),
+    # SonarQube-Green-Gate (FK-33 §33.6 / §33.2.2, AG3-052): Layer-1
+    # deterministic stage sequenced after Layer 3, producer ``qa-sonarqube-gate``.
+    (ArtifactClass.QA, "qa-sonarqube-gate", ProducerType.DETERMINISTIC),
     (ArtifactClass.QA, "verify-system.layer-4-policy", ProducerType.DETERMINISTIC),
 )
 

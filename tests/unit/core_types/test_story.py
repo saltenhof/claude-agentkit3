@@ -44,21 +44,29 @@ class TestStoryMode:
     def test_each_value_constructable(self) -> None:
         assert StoryMode("execution") is StoryMode.EXECUTION
         assert StoryMode("exploration") is StoryMode.EXPLORATION
-        assert StoryMode("fast") is StoryMode.FAST
+
+    def test_fast_is_not_an_execution_route_value(self) -> None:
+        """FK-24 §24.3.2/§24.3.3: ``fast`` is a SEPARATE axis (WireStoryMode),
+        never an ``execution_route``/``StoryMode`` value."""
+        import pytest
+
+        with pytest.raises(ValueError, match="fast"):
+            StoryMode("fast")
 
     def test_iteration_is_deterministic(self) -> None:
         assert list(StoryMode) == [
             StoryMode.EXECUTION,
             StoryMode.EXPLORATION,
-            StoryMode.FAST,
         ]
 
     def test_str_enum_invariants(self) -> None:
         assert StoryMode.EXECUTION.value == "execution"
         assert isinstance(StoryMode.EXECUTION, str)
 
-    def test_three_values(self) -> None:
-        assert len(StoryMode) == 3
+    def test_two_values(self) -> None:
+        """FK-24 §24.3.2: ``execution_route`` carries execution/exploration only;
+        the fast/standard axis is SEPARATE (WireStoryMode)."""
+        assert len(StoryMode) == 2
 
     def test_not_applicable_rejected(self) -> None:
         """NOT_APPLICABLE faellt mit AG3-021 weg; execution_route bleibt

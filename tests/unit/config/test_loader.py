@@ -72,6 +72,9 @@ class TestLoadProjectConfig:
             "repositories": [
                 {"name": "backend", "path": "/opt/backend"},
             ],
+            # AG3-052 E6: code-producing default story_types must declare the
+            # sonarqube stanza explicitly (here: explicit opt-out).
+            "pipeline": {"sonarqube": {"available": False, "enabled": False}},
         }
         self._write_config(tmp_path, data)
         config = load_project_config(tmp_path)
@@ -99,6 +102,8 @@ class TestLoadProjectConfig:
                 "max_remediation_rounds": 1,
                 "exploration_mode": False,
                 "verify_layers": ["structural", "policy"],
+                # AG3-052 E6: bugfix is code-producing => declare explicitly.
+                "sonarqube": {"available": False, "enabled": False},
             },
             "story_types": ["bugfix"],
             "github_owner": "acme",

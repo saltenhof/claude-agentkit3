@@ -24,6 +24,7 @@ EXPECTED_QA_PRODUCERS: frozenset[str] = frozenset(
         "verify-system.layer-2-doc-fidelity",
         "verify-system.layer-2-llm",  # AG3-023-Bestand
         "verify-system.layer-3-adversarial",
+        "qa-sonarqube-gate",  # AG3-052 (FK-33 §33.6 SonarQube-Green-Gate)
         "verify-system.layer-4-policy",
     }
 )

@@ -18,6 +18,10 @@ from agentkit.config.models import (
     PipelineConfig,
     ProjectConfig,
     RepositoryConfig,
+    SonarQubeBranchPluginConfig,
+    SonarQubeConfig,
+    SonarQubePluginsConfig,
+    SonarQubeQualityGateConfig,
 )
 
 __all__ = [
@@ -26,6 +30,10 @@ __all__ = [
     "PipelineConfig",
     "ProjectConfig",
     "RepositoryConfig",
+    "SonarQubeBranchPluginConfig",
+    "SonarQubeConfig",
+    "SonarQubePluginsConfig",
+    "SonarQubeQualityGateConfig",
     "find_project_root",
     "load_project_config",
 ]

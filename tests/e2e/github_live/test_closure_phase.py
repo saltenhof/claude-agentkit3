@@ -219,6 +219,7 @@ class TestClosurePhaseE2E:
                 project_key="e2e-closure-test",
                 project_name="e2e-closure-test",
                 project_root=tmp_path,
+                sonarqube_available=False,  # AG3-052: conscious opt-out, no live Sonar
             )
         )
 

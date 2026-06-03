@@ -6,13 +6,24 @@ from pathlib import Path
 
 import pytest
 
-from agentkit.config.models import ProjectConfig, RepositoryConfig
+from agentkit.config.models import (
+    PipelineConfig,
+    ProjectConfig,
+    RepositoryConfig,
+    SonarQubeConfig,
+)
 from agentkit.skills.errors import UnknownPlaceholderError
 from agentkit.skills.placeholder import PlaceholderSubstitutor
 
 # ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
+
+#: AG3-052 E6: code-producing default story_types must declare sonarqube.
+_OPT_OUT_PIPELINE = PipelineConfig(
+    sonarqube=SonarQubeConfig(available=False, enabled=False)
+)
+
 
 def _project_config(
     *,
@@ -26,6 +37,7 @@ def _project_config(
         repositories=[RepositoryConfig(name="app", path=Path("."))],
         github_owner=github_owner,
         github_repo=github_repo,
+        pipeline=_OPT_OUT_PIPELINE,
     )
 
 
@@ -84,6 +96,7 @@ class TestMandatoryPlaceholders:
             project_name="My Project",
             project_prefix="ACME",
             repositories=[RepositoryConfig(name="app", path=Path("."))],
+            pipeline=_OPT_OUT_PIPELINE,
         )
         result = self.sub.substitute("Prefix: {{project_prefix}}", cfg)
         assert result == "Prefix: ACME"
@@ -94,6 +107,7 @@ class TestMandatoryPlaceholders:
             project_key="my-proj",
             project_name="My Project",
             repositories=[],
+            pipeline=_OPT_OUT_PIPELINE,
         )
         with pytest.raises(ValueError, match="gh_repo"):
             self.sub.substitute("{{gh_repo}}", cfg)

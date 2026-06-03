@@ -15,23 +15,29 @@ from agentkit.verify_system.routing import QALayerKind, select_layers
 class TestSelectLayers:
     """Unit tests for select_layers routing function."""
 
-    def test_implementation_initial_returns_all_four_kinds(self) -> None:
-        """IMPLEMENTATION_INITIAL -> all 4 layer kinds in order."""
+    def test_implementation_initial_returns_all_kinds(self) -> None:
+        """IMPLEMENTATION_INITIAL -> all layer kinds in order incl. sonarqube_gate.
+
+        FK-33 §33.8.3: the sonarqube_gate is classificatory Layer 1 but
+        sequenced AFTER adversarial and BEFORE policy.
+        """
         kinds = select_layers(QaContext.IMPLEMENTATION_INITIAL)
         assert kinds == (
             QALayerKind.STRUCTURAL,
             QALayerKind.LLM_EVALUATOR,
             QALayerKind.ADVERSARIAL,
+            QALayerKind.SONARQUBE_GATE,
             QALayerKind.POLICY,
         )
 
-    def test_implementation_remediation_returns_all_four_kinds(self) -> None:
-        """IMPLEMENTATION_REMEDIATION -> same 4-layer set as INITIAL."""
+    def test_implementation_remediation_returns_all_kinds(self) -> None:
+        """IMPLEMENTATION_REMEDIATION -> same sequence as INITIAL."""
         kinds = select_layers(QaContext.IMPLEMENTATION_REMEDIATION)
         assert kinds == (
             QALayerKind.STRUCTURAL,
             QALayerKind.LLM_EVALUATOR,
             QALayerKind.ADVERSARIAL,
+            QALayerKind.SONARQUBE_GATE,
             QALayerKind.POLICY,
         )
 
@@ -51,10 +57,10 @@ class TestSelectLayers:
             QALayerKind.POLICY,
         )
 
-    def test_implementation_initial_has_four_layers(self) -> None:
-        """Layer count matches AK4: implementation -> 4 layers."""
+    def test_implementation_initial_has_five_layers(self) -> None:
+        """Implementation sequence -> 5 kinds (incl. sonarqube_gate, FK-33 §33.8.3)."""
         kinds = select_layers(QaContext.IMPLEMENTATION_INITIAL)
-        assert len(kinds) == 4  # noqa: PLR2004
+        assert len(kinds) == 5  # noqa: PLR2004
 
     def test_exploration_initial_has_two_layers(self) -> None:
         """Layer count matches AK4: exploration -> 2 layers."""
@@ -62,12 +68,17 @@ class TestSelectLayers:
         assert len(kinds) == 2  # noqa: PLR2004
 
     def test_layer_order_structural_before_llm_before_adversarial(self) -> None:
-        """Implementation layer order: structural < llm_evaluator < adversarial < policy."""
+        """Order: structural < llm < adversarial < sonarqube_gate < policy.
+
+        FK-33 §33.8.3: the green gate is the final deterministic
+        convergence step, after adversarial and before policy.
+        """
         kinds = select_layers(QaContext.IMPLEMENTATION_INITIAL)
         indices = {k: i for i, k in enumerate(kinds)}
         assert indices[QALayerKind.STRUCTURAL] < indices[QALayerKind.LLM_EVALUATOR]
         assert indices[QALayerKind.LLM_EVALUATOR] < indices[QALayerKind.ADVERSARIAL]
-        assert indices[QALayerKind.ADVERSARIAL] < indices[QALayerKind.POLICY]
+        assert indices[QALayerKind.ADVERSARIAL] < indices[QALayerKind.SONARQUBE_GATE]
+        assert indices[QALayerKind.SONARQUBE_GATE] < indices[QALayerKind.POLICY]
 
     def test_exploration_llm_before_policy(self) -> None:
         """Exploration layer order: llm_evaluator < policy."""
@@ -84,8 +95,8 @@ class TestSelectLayers:
     @pytest.mark.parametrize(
         ("qa_context", "expected_count"),
         [
-            (QaContext.IMPLEMENTATION_INITIAL, 4),
-            (QaContext.IMPLEMENTATION_REMEDIATION, 4),
+            (QaContext.IMPLEMENTATION_INITIAL, 5),
+            (QaContext.IMPLEMENTATION_REMEDIATION, 5),
             (QaContext.EXPLORATION_INITIAL, 2),
             (QaContext.EXPLORATION_REMEDIATION, 2),
         ],

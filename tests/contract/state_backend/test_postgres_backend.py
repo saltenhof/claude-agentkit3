@@ -443,7 +443,9 @@ def test_public_state_backend_contract_works_on_postgres(
             run_id="run-contract-001",
             story_type="implementation",
             story_size="medium",
-            mode="execution",
+            # Closure-metric mode tags the standard/fast axis (FK-24
+            # §24.3.298), not execution_route (AG3-052).
+            mode="standard",
             processing_time_min=12.5,
             qa_rounds=2,
             increments=3,

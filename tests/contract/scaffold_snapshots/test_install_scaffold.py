@@ -250,6 +250,11 @@ class TestInstallScaffoldContract:
 
 def _make_install_config(project_root: Path, **kwargs: Any) -> InstallConfig:
     kwargs.setdefault("project_key", kwargs.get("project_name", "test-project"))
+    # AG3-052 Design-Decision: the scaffold default is ``available: true``
+    # (FK-03 §3). This contract fixture has NO live SonarQube, so it declares
+    # the CONSCIOUS opt-out (``sonarqube_available=False``) explicitly — never
+    # leaning on a soft default. CP 10d is then SKIPPED (declared opt-out).
+    kwargs.setdefault("sonarqube_available", False)
     # Provision + inject the four mandatory skill bundles so the normal-install
     # binding step (AG3-048 AC#5) resolves and the scaffold is produced. The
     # systemwide store is unique per project_root to keep installs isolated.

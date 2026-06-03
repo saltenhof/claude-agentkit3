@@ -34,20 +34,30 @@ class QALayerKind(StrEnum):
         STRUCTURAL: Layer 1 -- deterministic structural checks.
         LLM_EVALUATOR: Layer 2 -- LLM-based code review.
         ADVERSARIAL: Layer 3 -- adversarial edge-case testing.
+        SONARQUBE_GATE: Layer-1 deterministic SonarQube-Green-Gate
+            (Trust A, blocking) sequenced AFTER the adversarial layer
+            (FK-33 §33.6.3 / §33.8.3): every prior remediation changes
+            production code and may introduce new violations, so the
+            green gate is the final deterministic convergence step before
+            the policy aggregator.
         POLICY: Layer 4 -- deterministic policy aggregation.
     """
 
     STRUCTURAL = "structural"
     LLM_EVALUATOR = "llm_evaluator"
     ADVERSARIAL = "adversarial"
+    SONARQUBE_GATE = "sonarqube_gate"
     POLICY = "policy"
 
 
-#: Full 4-layer sequence for Implementation contexts (FK-27 §27.3).
+#: Full sequence for Implementation contexts (FK-27 §27.3, FK-33 §33.8.3).
+#: ``sonarqube_gate`` is classificatory Layer 1 but sequenced AFTER the
+#: adversarial layer and BEFORE policy aggregation.
 _IMPLEMENTATION_LAYERS: tuple[QALayerKind, ...] = (
     QALayerKind.STRUCTURAL,
     QALayerKind.LLM_EVALUATOR,
     QALayerKind.ADVERSARIAL,
+    QALayerKind.SONARQUBE_GATE,
     QALayerKind.POLICY,
 )
 

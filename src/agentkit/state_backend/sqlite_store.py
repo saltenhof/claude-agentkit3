@@ -315,8 +315,11 @@ def _ensure_schema_runtime_tables(conn: sqlite3.Connection) -> None:
             run_id TEXT NOT NULL,
             story_type TEXT NOT NULL,
             story_size TEXT NOT NULL,
-            -- mode is nullable since AG3-021: non-implementing story
-            -- types carry NULL execution_route.
+            -- mode is the standard/fast axis (WireStoryMode), FK-24 §24.3.298:
+            -- closure metrics are tagged with standard/fast so fast runs are
+            -- separately aggregable. This is NOT execution_route (AG3-052).
+            -- Column stays nullable for legacy rows; new rows always carry a
+            -- value (StoryContext.mode defaults to 'standard').
             mode TEXT,
             processing_time_min REAL NOT NULL,
             qa_rounds INTEGER NOT NULL,

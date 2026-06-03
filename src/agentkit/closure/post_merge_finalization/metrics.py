@@ -81,7 +81,12 @@ def build_story_metrics_record(
         run_id=run_id,
         story_type=ctx.story_type.value,
         story_size=ctx.story_size.value,
-        mode=ctx.execution_route.value if ctx.execution_route is not None else None,
+        # FK-24 §24.3.298: closure metrics are tagged with the standard/fast
+        # axis (``StoryContext.mode``, ``WireStoryMode``), so fast runs are
+        # separately aggregable. This is NOT ``execution_route`` (the
+        # execution/exploration intra-run path); conflating them mis-tagged
+        # the wrong axis (AG3-052).
+        mode=ctx.mode.value,
         processing_time_min=processing_time_min,
         qa_rounds=qa_rounds,
         increments=increments,

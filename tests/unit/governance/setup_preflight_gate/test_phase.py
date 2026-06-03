@@ -14,7 +14,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
-from agentkit.config.models import ProjectConfig, RepositoryConfig
+from agentkit.config.models import (
+    PipelineConfig,
+    ProjectConfig,
+    RepositoryConfig,
+    SonarQubeConfig,
+)
 from agentkit.exceptions import WorktreeError
 from agentkit.governance.setup_preflight_gate.phase import SetupConfig, SetupPhaseHandler
 from agentkit.governance.setup_preflight_gate.worktree import WorktreeResult
@@ -117,6 +122,10 @@ def _make_project_config(repo_path: Path) -> ProjectConfig:
         project_key="test-project",
         project_name="Test Project",
         repositories=[RepositoryConfig(name="repo", path=repo_path)],
+        # AG3-052 E6: code-producing default story_types => declare sonarqube.
+        pipeline=PipelineConfig(
+            sonarqube=SonarQubeConfig(available=False, enabled=False)
+        ),
     )
 
 

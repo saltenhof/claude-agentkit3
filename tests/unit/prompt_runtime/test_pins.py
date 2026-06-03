@@ -281,6 +281,9 @@ def test_run_pin_carries_project_key_when_config_present(
             project_key="acme-key",
             project_name="acme",
             project_root=project_root,
+            # AG3-052: scaffold default is available:true (FK-03 §3); no live
+            # Sonar here => conscious opt-out so the completing CP 10d SKIPs.
+            sonarqube_available=False,
         ),
     )
 

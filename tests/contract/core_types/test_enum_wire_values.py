@@ -149,7 +149,6 @@ _STORY_SIZE_EXPECTED: Final[Mapping[str, str]] = {
 _STORY_MODE_EXPECTED: Final[Mapping[str, str]] = {
     "EXECUTION": "execution",
     "EXPLORATION": "exploration",
-    "FAST": "fast",
 }
 
 _CLOSURE_VERDICT_EXPECTED: Final[Mapping[str, str]] = {
@@ -311,8 +310,13 @@ def test_story_size_wire_values() -> None:
 
 
 def test_story_mode_wire_values() -> None:
-    """FK-24 §24.3.2 + AG3-018 — execution/exploration/fast (3 lower-case)."""
-    _assert_wire_contract(StoryMode, _STORY_MODE_EXPECTED, expected_count=3)
+    """FK-24 §24.3.2 — execution/exploration (2 lower-case).
+
+    ``StoryMode`` is the ``execution_route`` axis only. The fast/standard
+    ``mode`` axis (FK-24 §24.3.3) is SEPARATE (WireStoryMode), not a
+    ``StoryMode`` value.
+    """
+    _assert_wire_contract(StoryMode, _STORY_MODE_EXPECTED, expected_count=2)
 
 
 def test_closure_verdict_wire_values() -> None:

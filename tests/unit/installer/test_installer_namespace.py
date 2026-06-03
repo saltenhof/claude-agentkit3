@@ -62,6 +62,9 @@ def test_installer_namespace_exposes_install_api(tmp_path: Path) -> None:
         skills=skills,
         skill_bundle_store=store,
         skill_bundle_ids=_BUNDLE_IDS,
+        # AG3-052 Design-Decision: scaffold default is available:true (FK-03
+        # §3); no live Sonar here => conscious opt-out so CP 10d is SKIPPED.
+        sonarqube_available=False,
     )
     result = install_agentkit(config)
 
