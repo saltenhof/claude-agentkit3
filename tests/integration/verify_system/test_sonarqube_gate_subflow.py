@@ -26,8 +26,11 @@ Proves:
 
 from __future__ import annotations
 
+import subprocess
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
+
+import pytest
 
 from agentkit.artifacts import ArtifactEnvelope, ArtifactManager, ArtifactReference
 from agentkit.core_types import ArtifactClass, PolicyVerdict, QaContext
@@ -46,6 +49,35 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 _HEAD = "rev-2"
+
+
+@pytest.fixture(autouse=True)
+def _git_worktree(tmp_path: Path) -> None:
+    """Initialise a real git worktree in ``tmp_path`` (hermetic, no fail-open).
+
+    AG3-041 wired ``compute_evidence_fingerprint`` (``git diff
+    origin/main..HEAD``) into ``run_qa_subflow`` -> ``start_cycle``. The
+    productive ``story_dir`` is ALWAYS a git worktree with an ``origin/main``
+    ref; these tests pass ``tmp_path`` as ``story_dir``, so they must stand up
+    a genuine repo. Without it the (correct, fail-closed) fingerprint crashes
+    when pytest places ``tmp_path`` OUTSIDE the checkout (Jenkins ``/tmp/...``)
+    where git finds no ``.git`` via the upward search. A single base commit on
+    ``main`` plus a local ``origin/main`` ref makes the diff range deterministic
+    independent of where ``tmp_path`` lives.
+    """
+
+    def _git(*args: str) -> None:
+        subprocess.run(
+            ["git", *args], cwd=tmp_path, check=True, capture_output=True, text=True
+        )
+
+    _git("init", "-b", "main")
+    _git("config", "user.email", "t@example.com")
+    _git("config", "user.name", "Test")
+    (tmp_path / "base.py").write_text("x = 1\n", encoding="utf-8")
+    _git("add", ".")
+    _git("commit", "-m", "base")
+    _git("update-ref", "refs/remotes/origin/main", "HEAD")
 
 
 class _RecordingLayer:
