@@ -11,9 +11,11 @@ from agentkit.governance.guards.artifact_guard import ArtifactGuard
 from agentkit.governance.guards.branch_guard import BranchGuard
 from agentkit.governance.guards.scope_guard import ScopeGuard
 from agentkit.governance.integrity_gate import (
-    IntegrityCheckResult,
+    DimensionResult,
+    IntegrityDimension,
     IntegrityGate,
     IntegrityGateResult,
+    IntegrityGateStatus,
 )
 from agentkit.governance.protocols import (
     GovernanceGuard,
@@ -29,10 +31,12 @@ __all__ = [
     "Governance",
     "GuardRunner",
     "GuardVerdict",
+    "DimensionResult",
     "HookDecision",
-    "IntegrityCheckResult",
+    "IntegrityDimension",
     "IntegrityGate",
     "IntegrityGateResult",
+    "IntegrityGateStatus",
     "ScopeGuard",
     "ViolationType",
 ]

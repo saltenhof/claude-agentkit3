@@ -702,3 +702,24 @@
             freeze_version  INTEGER NOT NULL,
             PRIMARY KEY (story_id)
         );
+
+        -- AG3-034 (FK-24 §24.3.3, FK-22 §22.3.1 Check 10): project_mode_lock.
+        -- Projektweiter Control-Plane Mode-Lock fuer die Fast/Standard-Mutual-
+        -- Exclusion. AG3-034 stellt NUR den Read-Pfad fuer Preflight-Check 10
+        -- (no_competing_story_mode_active) her; die atomare Setzung beim
+        -- Story-Start ist AG3-018-Folge (story.md §2.1.2 / §2.2). active_mode ist
+        -- NULL (idle) oder einer der WireStoryMode-Werte; holder_count >= 0.
+        -- active_mode liegt auf der ENTKOPPELTEN fast/standard-mode-Achse
+        -- (WireStoryMode, FK-24 §24.3.3), NICHT auf der execution_route-Achse
+        -- (execution/exploration war Achsen-Drift, hier korrigiert).
+        -- Schema-/DB-Owner governance-and-guards. Identisches Parallel-Schema in
+        -- sqlite_store.py fuer Unit-Tests.
+        CREATE TABLE IF NOT EXISTS project_mode_lock (
+            project_key    TEXT NOT NULL,
+            active_mode    TEXT CHECK (active_mode IS NULL OR active_mode IN (
+                'standard', 'fast'
+            )),
+            holder_count   INTEGER NOT NULL DEFAULT 0 CHECK (holder_count >= 0),
+            updated_at     TEXT NOT NULL,
+            PRIMARY KEY (project_key)
+        );

@@ -40,11 +40,18 @@ from agentkit.story_context_manager.types import get_profile
 from agentkit.utils.git import remove_worktree
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
     from agentkit.execution_planning.repository import StoryDependencyRepository
     from agentkit.governance.repository import SetupContextRepository
+    from agentkit.governance.setup_preflight_gate.green_main import MainGreenPort
+    from agentkit.governance.setup_preflight_gate.preflight import PreflightCheckResult
     from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
+    from agentkit.state_backend.store.mode_lock_repository import (
+        ModeLockRecord,
+        ModeLockRepository,
+    )
     from agentkit.story_context_manager.models import StoryContext
     from agentkit.story_context_manager.service import StoryService
 
@@ -107,10 +114,17 @@ class SetupPhaseHandler:
         config: SetupConfig,
         context_repository: SetupContextRepository,
         dependency_repository: StoryDependencyRepository | None = None,
+        *,
+        mode_lock_repository: ModeLockRepository | None = None,
+        green_main_port: MainGreenPort | None = None,
+        residue_probe: Callable[[Path, str], bool] | None = None,
     ) -> None:
         self._config = config
         self._context_repo: SetupContextRepository = context_repository
         self._dependency_repo: StoryDependencyRepository | None = dependency_repository
+        self._mode_lock_repo = mode_lock_repository
+        self._green_main_port = green_main_port
+        self._residue_probe = residue_probe
 
     def on_enter(self, ctx: StoryContext, envelope: PhaseEnvelope) -> HandlerResult:
         """Execute the setup phase.
@@ -144,7 +158,12 @@ class SetupPhaseHandler:
         story_service = _resolve_story_service(cfg)
 
         preflight_error = _run_preflight_check(
-            cfg, ctx, story_service, self._dependency_repo
+            cfg,
+            ctx,
+            story_service,
+            self._dependency_repo,
+            self._mode_lock_repo,
+            self._residue_probe,
         )
         if preflight_error is not None:
             return preflight_error
@@ -163,6 +182,12 @@ class SetupPhaseHandler:
         self._context_repo.save(s_dir, enriched)
 
         artifacts: list[str] = [str(s_dir / CONTEXT_EXPORT_FILE)]
+
+        # FK-22 §22.4c: green-main precondition AFTER the story-type weiche and
+        # BEFORE worktree creation — a red main must not even produce a worktree.
+        green_main_error = self._check_green_main(cfg, enriched)
+        if green_main_error is not None:
+            return green_main_error
 
         worktree_outcome = _setup_worktrees_if_needed(
             cfg, enriched, s_dir, self._context_repo
@@ -212,6 +237,64 @@ class SetupPhaseHandler:
             errors=("Setup phase does not support resume",),
         )
 
+    def _check_green_main(
+        self, cfg: SetupConfig, enriched: StoryContext
+    ) -> HandlerResult | None:
+        """Evaluate the FK-22 §22.4c green-main precondition (consumes AG3-052).
+
+        Resolves applicability from the project ``sonarqube.available`` flag and
+        the story's decoupled ``mode`` axis; a not-applicable resolution
+        (available==false / fast / non-code) is a SKIP.  A RED/STALE main fails
+        Setup closed and writes the active, blame-free cleanup proposal into the
+        phase-state result (§22.4c.3).  Returns ``None`` to proceed.
+        """
+        from agentkit.governance.setup_preflight_gate.green_main import (
+            check_main_green_precondition,
+        )
+
+        available = _sonar_available(cfg.project_root)
+        result = check_main_green_precondition(
+            available=available,
+            mode=enriched.mode,
+            story_type=enriched.story_type,
+            port=self._green_main_port,
+        )
+        if not result.blocks_setup:
+            return None
+        logger.error(
+            "Setup fail-closed: main is %s (head=%s); %s",
+            result.status.value,
+            result.main_head,
+            result.cleanup_proposal,
+        )
+        return HandlerResult(
+            status=PhaseStatus.FAILED,
+            errors=(
+                f"sonarqube_main_green: {result.status.value} "
+                f"(main_head={result.main_head}); cleanup_proposal="
+                f"{result.cleanup_proposal}",
+            ),
+        )
+
+
+def _sonar_available(project_root: Path) -> bool:
+    """Return the project's ``sonarqube.available`` flag (fail-closed default).
+
+    A missing/unreadable project config or absent ``sonarqube`` stanza defaults
+    ``available=True`` (FK-03 §3: the green-gate is the default for
+    code-producing projects; ``available=false`` is a conscious opt-out).  The
+    applicability resolver then decides skip-vs-fail-closed (FK-33 §33.6.5).
+    """
+    try:
+        project_config = load_project_config(project_root)
+    except (ConfigError, OSError):
+        return True
+    pipeline = getattr(project_config, "pipeline", None)
+    sonar = getattr(pipeline, "sonarqube", None) if pipeline is not None else None
+    if sonar is None:
+        return True
+    return bool(getattr(sonar, "available", True))
+
 
 def _resolve_story_service(cfg: SetupConfig) -> StoryService:
     """Return the injected StoryService or build a real one (Befund 9)."""
@@ -226,6 +309,8 @@ def _run_preflight_check(
     ctx: StoryContext,
     story_service: StoryService,
     dependency_repository: StoryDependencyRepository | None = None,
+    mode_lock_repository: ModeLockRepository | None = None,
+    residue_probe: Callable[[Path, str], bool] | None = None,
 ) -> HandlerResult | None:
     """Run preflight; return None on pass or a FAILED HandlerResult on failure.
 
@@ -236,17 +321,67 @@ def _run_preflight_check(
         dependency_repository: Optional repository for story dependencies.
             When ``None``, dependency checks are skipped inside
             ``run_preflight`` — no lazy import (AG3-031 Pass-6 Fix E9).
+        mode_lock_repository: Optional ``ModeLockRepository`` whose read path
+            feeds Preflight Check 10 (``no_competing_story_mode_active``,
+            Check-10 wiring).  When ``None`` the mode-lock is treated as idle.
     """
+    from agentkit.governance.setup_preflight_gate.preflight import PreflightStatus
+
     story_display_id = cfg.story_id or ctx.story_id
+    mode_lock_reader = _build_mode_lock_reader(mode_lock_repository)
     preflight = run_preflight(
         story_display_id,
         story_service,
+        project_key=ctx.project_key,
+        project_root=cfg.project_root,
         dependency_repository=dependency_repository,
+        mode_lock_reader=mode_lock_reader,
+        active_runtime_residue=residue_probe,
     )
     if preflight.passed:
         return None
-    error_msgs = tuple(c.message for c in preflight.checks if not c.passed)
+    error_msgs = tuple(
+        _preflight_error_message(c)
+        for c in preflight.checks
+        if c.status is PreflightStatus.FAIL
+    )
     return HandlerResult(status=PhaseStatus.FAILED, errors=error_msgs)
+
+
+def _build_mode_lock_reader(
+    mode_lock_repository: ModeLockRepository | None,
+) -> Callable[[str], ModeLockRecord | None] | None:
+    """Build the FAIL-CLOSED Check-10 mode-lock read path (E-E fix).
+
+    Returns a reader ``reader(project_key) -> ModeLockRecord | None`` that
+    delegates straight to ``ModeLockRepository.read_lock`` WITHOUT catching
+    errors: a read failure must surface as a fail-closed Check-10 ``FAIL`` (via
+    ``run_preflight._run_one``), NOT be masked as an idle lock that hides a real
+    mode conflict.  ``None`` repository (standalone/legacy) -> no reader (Check
+    10 then treats the lock as idle, the documented absent-repo case).
+    """
+    if mode_lock_repository is None:
+        return None
+    return mode_lock_repository.read_lock
+
+
+def _preflight_error_message(check: PreflightCheckResult) -> str:
+    """Render a single failed preflight check into a human-readable error line.
+
+    Includes the cleanup hint (FK-22 §22.3.4) so the human reading the
+    phase-state result sees the concrete remediation step.
+
+    Args:
+        check: A failed :class:`PreflightCheckResult`.
+
+    Returns:
+        ``"<check_id>: <detail>[ -> <cleanup_hint>]"``.
+    """
+    detail = check.detail or "failed"
+    line = f"{check.check_id.value}: {detail}"
+    if check.cleanup_hint:
+        line = f"{line} -> {check.cleanup_hint}"
+    return line
 
 
 def _setup_worktrees_if_needed(

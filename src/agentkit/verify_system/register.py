@@ -24,6 +24,14 @@ from typing import TYPE_CHECKING, Final
 
 from agentkit.artifacts import ProducerType
 from agentkit.core_types import ArtifactClass
+from agentkit.core_types.qa_artifact_names import (
+    ADVERSARIAL_PRODUCER,
+    DOC_FIDELITY_PRODUCER,
+    QA_REVIEW_PRODUCER,
+    SEMANTIC_REVIEW_PRODUCER,
+    STRUCTURAL_PRODUCER,
+    VERIFY_DECISION_PRODUCER,
+)
 
 if TYPE_CHECKING:
     from agentkit.artifacts import ProducerRegistry
@@ -38,19 +46,23 @@ if TYPE_CHECKING:
 # ``verify-system.layer-2-llm`` (Bestand aus AG3-023) bleibt fuer
 # Backward-Compatibility mit Bestandscode (write_layer_artifacts in
 # verify_system.artifacts) registriert.
+# Producer names reference the cross-cutting SSOT
+# ``core_types.qa_artifact_names`` (no second naming truth, AG3-034 R2-H); the
+# legacy ``verify-system.layer-2-llm`` and the ``qa-sonarqube-gate`` producer are
+# not QA-layer SSOT members and stay literal here.
 _VERIFY_PRODUCERS: Final[tuple[tuple[ArtifactClass, str, ProducerType], ...]] = (
-    (ArtifactClass.QA, "verify-system.layer-1-structural", ProducerType.DETERMINISTIC),
+    (ArtifactClass.QA, STRUCTURAL_PRODUCER, ProducerType.DETERMINISTIC),
     # Layer 2 -- AG3-026 §AK7: drei FK-27 §27.7-Artefakte
-    (ArtifactClass.QA, "verify-system.layer-2-qa-review", ProducerType.LLM_REVIEWER),
-    (ArtifactClass.QA, "verify-system.layer-2-semantic-review", ProducerType.LLM_REVIEWER),
-    (ArtifactClass.QA, "verify-system.layer-2-doc-fidelity", ProducerType.LLM_REVIEWER),
+    (ArtifactClass.QA, QA_REVIEW_PRODUCER, ProducerType.LLM_REVIEWER),
+    (ArtifactClass.QA, SEMANTIC_REVIEW_PRODUCER, ProducerType.LLM_REVIEWER),
+    (ArtifactClass.QA, DOC_FIDELITY_PRODUCER, ProducerType.LLM_REVIEWER),
     # Layer 2 (Bestand AG3-023, write_layer_artifacts/_decision-Pfad)
     (ArtifactClass.QA, "verify-system.layer-2-llm", ProducerType.LLM_REVIEWER),
-    (ArtifactClass.QA, "verify-system.layer-3-adversarial", ProducerType.LLM_REVIEWER),
+    (ArtifactClass.QA, ADVERSARIAL_PRODUCER, ProducerType.LLM_REVIEWER),
     # SonarQube-Green-Gate (FK-33 §33.6 / §33.2.2, AG3-052): Layer-1
     # deterministic stage sequenced after Layer 3, producer ``qa-sonarqube-gate``.
     (ArtifactClass.QA, "qa-sonarqube-gate", ProducerType.DETERMINISTIC),
-    (ArtifactClass.QA, "verify-system.layer-4-policy", ProducerType.DETERMINISTIC),
+    (ArtifactClass.QA, VERIFY_DECISION_PRODUCER, ProducerType.DETERMINISTIC),
 )
 
 

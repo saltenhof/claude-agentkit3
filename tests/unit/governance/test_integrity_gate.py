@@ -1,4 +1,10 @@
-"""Tests for IntegrityGate against canonical DB-backed runtime records."""
+"""Tests for IntegrityGate against canonical DB-backed runtime records.
+
+Drives ``build_integrity_gate().evaluate`` over a populated SQLite story with a
+substantive, FK-35-conformant QA artifact set (Remediation E-A: the dimensions
+verify producer / status / depth / threshold, not mere existence).  Dim 9 is
+exercised through a stubbed AG3-052 capability seam (no live Sonar).
+"""
 
 from __future__ import annotations
 
@@ -8,13 +14,17 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.bootstrap.composition_root import build_artifact_manager, build_integrity_gate
+from agentkit.bootstrap.composition_root import build_artifact_manager
 from agentkit.core_types import PolicyVerdict
 from agentkit.exceptions import CorruptStateError
-from agentkit.governance.integrity_gate import IntegrityGate
+from agentkit.governance.integrity_gate import (
+    IntegrityDimension,
+    IntegrityGate,
+    IntegrityGateStatus,
+)
+from agentkit.governance.integrity_gate.dim9_sonar import SONAR_NOT_GREEN
 from agentkit.phase_state_store.models import FlowExecution
 from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.scope import RuntimeStateScope
 from agentkit.state_backend.sqlite_store import state_db_path_for
 from agentkit.state_backend.store import (
     record_layer_artifacts,
@@ -24,22 +34,38 @@ from agentkit.state_backend.store import (
     save_phase_snapshot,
     save_story_context,
 )
+from agentkit.state_backend.store.integrity_gate_repository import (
+    StateBackendIntegrityGateStateAdapter,
+)
 from agentkit.story_context_manager.models import (
     PhaseSnapshot,
     PhaseStatus,
     StoryContext,
 )
+from agentkit.story_context_manager.story_model import WireStoryMode
 from agentkit.story_context_manager.types import StoryMode, StoryType
 from agentkit.verify_system.artifacts import (
     write_layer_artifacts,
     write_verify_decision_artifacts,
 )
 from agentkit.verify_system.policy_engine.engine import VerifyDecision
-from agentkit.verify_system.protocols import LayerResult
+from agentkit.verify_system.protocols import (
+    Finding,
+    LayerResult,
+    Severity,
+    TrustClass,
+)
+from agentkit.verify_system.sonarqube_gate import SonarApplicability
 
 if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
+
+    from agentkit.state_backend.scope import RuntimeStateScope
+
+_RUN = "run-integrity-001"
+_CODE_PHASES = ("setup", "implementation", "closure")
+_NONCODE_PHASES = ("setup", "closure")
 
 
 @pytest.fixture(autouse=True)
@@ -50,6 +76,66 @@ def sqlite_backend_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None,
     reset_backend_cache_for_tests()
     yield
     reset_backend_cache_for_tests()
+
+
+# ---------------------------------------------------------------------------
+# Stubbed AG3-052 Dim-9 capability seam (no live Sonar).
+# ---------------------------------------------------------------------------
+
+
+def _green_resolution() -> object:
+    """A green AG3-052 capability resolution (the canonical SonarGateOutcome)."""
+    from agentkit.governance.integrity_gate.dim9_sonar import Dim9Resolution
+    from agentkit.verify_system.sonarqube_gate import SonarGateOutcome
+
+    return Dim9Resolution(
+        applicability=SonarApplicability.APPLICABLE,
+        outcome=SonarGateOutcome(
+            applicability=SonarApplicability.APPLICABLE,
+            passed=True,
+            gate_status="sonarqube_gate_passed",
+        ),
+    )
+
+
+def _not_applicable_resolution() -> object:
+    from agentkit.governance.integrity_gate.dim9_sonar import Dim9Resolution
+
+    return Dim9Resolution(
+        applicability=SonarApplicability.NOT_APPLICABLE_UNAVAILABLE, outcome=None
+    )
+
+
+class _StubSonarPort:
+    def __init__(self, resolution: object) -> None:
+        self._resolution = resolution
+
+    def resolve_dim9_outcome(self, gate_ctx: object) -> object:
+        _ = gate_ctx
+        return self._resolution
+
+
+def _green_gate() -> IntegrityGate:
+    """IntegrityGate wired with the canonical envelope validator + green Dim 9."""
+    from agentkit.artifacts import EnvelopeValidator
+    from agentkit.bootstrap.composition_root import build_producer_registry
+
+    return IntegrityGate(
+        state_port=StateBackendIntegrityGateStateAdapter(),
+        envelope_validator=EnvelopeValidator(build_producer_registry()),
+        sonar_port=_StubSonarPort(_green_resolution()),  # type: ignore[arg-type]
+    )
+
+
+def _noncode_gate() -> IntegrityGate:
+    from agentkit.artifacts import EnvelopeValidator
+    from agentkit.bootstrap.composition_root import build_producer_registry
+
+    return IntegrityGate(
+        state_port=StateBackendIntegrityGateStateAdapter(),
+        envelope_validator=EnvelopeValidator(build_producer_registry()),
+        sonar_port=_StubSonarPort(_not_applicable_resolution()),  # type: ignore[arg-type]
+    )
 
 
 def _story_dir(root: Path, story_id: str = "AG3-001") -> Path:
@@ -74,17 +160,19 @@ def _create_context(
             story_id="AG3-001",
             story_type=story_type,
             execution_route=mode,
+            mode=WireStoryMode.STANDARD,
             title="Integrity Gate Test",
+            # FK-35 §35.2.4 Dim 8: context built at setup, strictly before the
+            # QA-subflow decision flow_end (stamped at QA write time, ~now).
+            created_at=datetime(2026, 4, 7, 12, 0, 0, tzinfo=UTC),
         ),
     )
-    # FlowExecution is required by write_layer_artifacts / write_verify_decision_artifacts
-    # to resolve a runtime scope with run_id (fail-closed).
     save_flow_execution(
         story_dir,
         FlowExecution(
             project_key="test-project",
             story_id="AG3-001",
-            run_id="run-integrity-001",
+            run_id=_RUN,
             flow_id="implementation",
             level="story",
             owner="pipeline_engine",
@@ -93,7 +181,9 @@ def _create_context(
     )
 
 
-def _create_snapshot(story_dir: Path, phase: str, status: PhaseStatus = PhaseStatus.COMPLETED) -> None:
+def _create_snapshot(
+    story_dir: Path, phase: str, status: PhaseStatus = PhaseStatus.COMPLETED
+) -> None:
     save_phase_snapshot(
         story_dir,
         PhaseSnapshot(
@@ -107,58 +197,80 @@ def _create_snapshot(story_dir: Path, phase: str, status: PhaseStatus = PhaseSta
     )
 
 
-def _create_decision(story_dir: Path, decision: str = "PASS") -> None:
-    """Persist a verify decision artifact for testing.
+def _structural_result(*, passed: bool = True) -> LayerResult:
+    findings = tuple(
+        Finding(
+            layer="structural",
+            check=f"informational_check_{i}",
+            severity=Severity.MINOR,
+            message=(
+                f"informational structural finding {i} with enough descriptive "
+                "text to push the canonical envelope payload past 500 bytes"
+            ),
+            trust_class=TrustClass.SYSTEM,
+            file_path=f"src/agentkit/module_{i}.py",
+            line_number=i,
+        )
+        for i in range(3)
+    )
+    return LayerResult(
+        layer="structural",
+        passed=passed,
+        findings=findings,
+        metadata={"total_checks": 6},
+    )
 
-    Args:
-        story_dir: Target story directory.
-        decision: ``"PASS"`` or ``"FAIL"``. Since AG3-021, ``PolicyVerdict``
-            has only these two values; ``PASS_WITH_WARNINGS`` is gone.
-    """
+
+def _full_layers(*, passed: bool = True) -> tuple[LayerResult, ...]:
+    return (
+        _structural_result(passed=passed),
+        LayerResult(layer="qa_review", passed=passed, findings=()),
+        LayerResult(layer="semantic_review", passed=passed, findings=()),
+        LayerResult(
+            layer="adversarial",
+            passed=passed,
+            findings=(),
+            metadata={"summary": "adversarial; " + ("edge probe " * 25)},
+        ),
+    )
+
+
+def _create_decision(story_dir: Path, decision: str = "PASS") -> None:
+    """Persist the full FK-35-conformant QA artifact set for testing."""
     verdict = PolicyVerdict.PASS if decision == "PASS" else PolicyVerdict.FAIL
     passed = verdict is PolicyVerdict.PASS
-    structural = LayerResult(layer="structural", passed=passed, findings=())
+    layers = _full_layers(passed=passed)
     decision_obj = VerifyDecision(
         passed=passed,
         verdict=verdict,
-        layer_results=(structural,),
+        layer_results=layers,
         all_findings=(),
         blocking_findings=(),
         summary="decision summary",
+        max_major_findings=0,
     )
-    # Schreibpfad 1: Envelope-Wahrheit via ArtifactManager (AG3-023 §AK12).
     manager = build_artifact_manager(story_dir)
     write_layer_artifacts(
         manager=manager,
         story_id="AG3-001",
-        run_id="run-integrity-001",
-        layer_results=(structural,),
+        run_id=_RUN,
+        layer_results=layers,
         attempt_nr=1,
     )
     write_verify_decision_artifacts(
         manager=manager,
         story_id="AG3-001",
-        run_id="run-integrity-001",
+        run_id=_RUN,
         decision=decision_obj,
         attempt_nr=1,
     )
-    # Schreibpfad 2: FK-69-Materialisierung (qa_stage_results, qa_findings,
-    # decision_records) -- IntegrityGate liest aktuell aus decision_records.
-    record_layer_artifacts(
-        story_dir,
-        layer_results=(structural,),
-        attempt_nr=1,
-    )
-    record_verify_decision(
-        story_dir,
-        decision=decision_obj,
-        attempt_nr=1,
-    )
+    record_layer_artifacts(story_dir, layer_results=layers, attempt_nr=1)
+    record_verify_decision(story_dir, decision=decision_obj, attempt_nr=1)
 
 
 def _populate_implementation_story(story_dir: Path) -> None:
     _create_context(story_dir)
-    for phase in ("setup", "implementation"):
+    for phase in _CODE_PHASES:
         _create_snapshot(story_dir, phase)
     _create_decision(story_dir)
 
@@ -168,7 +280,6 @@ def _corrupt_table_payload(story_dir: Path, table: str) -> None:
         if table == "decision_records":
             conn.execute("UPDATE decision_records SET payload_json = 'not json'")
         elif table == "artifact_records":
-            # artifact_records removed in 3.4.0; corrupt artifact_envelopes instead
             conn.execute("UPDATE artifact_envelopes SET payload_json = 'not json'")
         elif table == "story_contexts":
             conn.execute("UPDATE story_contexts SET payload_json = 'not json'")
@@ -177,7 +288,6 @@ def _corrupt_table_payload(story_dir: Path, table: str) -> None:
 
 def _delete_from_table(story_dir: Path, table: str) -> None:
     with sqlite3.connect(state_db_path_for(story_dir)) as conn:
-        # artifact_records removed in 3.4.0; map to artifact_envelopes
         actual_table = "artifact_envelopes" if table == "artifact_records" else table
         conn.execute(f"DELETE FROM {actual_table}")
         conn.commit()
@@ -187,185 +297,194 @@ class TestIntegrityGateAllPassing:
     def test_implementation_all_pass(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         _populate_implementation_story(story_dir)
-        result = build_integrity_gate().evaluate(story_dir, StoryType.IMPLEMENTATION)
+        result = _green_gate().evaluate(story_dir, StoryType.IMPLEMENTATION)
         assert result.passed is True
-        assert len(result.failed_checks) == 0
+        assert result.failed_dimensions == ()
 
     def test_bugfix_all_pass(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         _create_context(story_dir, StoryType.BUGFIX)
-        for phase in ("setup", "implementation"):
+        for phase in _CODE_PHASES:
             _create_snapshot(story_dir, phase)
         _create_decision(story_dir)
-        result = build_integrity_gate().evaluate(story_dir, StoryType.BUGFIX)
+        result = _green_gate().evaluate(story_dir, StoryType.BUGFIX)
         assert result.passed is True
 
     def test_concept_all_pass(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         _create_context(story_dir, StoryType.CONCEPT)
-        for phase in ("setup", "implementation"):
+        for phase in _NONCODE_PHASES:
             _create_snapshot(story_dir, phase)
-        result = build_integrity_gate().evaluate(story_dir, StoryType.CONCEPT)
+        # Concept carries the mandatory structural artefact (Dim 1/3).
+        manager = build_artifact_manager(story_dir)
+        write_layer_artifacts(
+            manager=manager, story_id="AG3-001", run_id=_RUN,
+            layer_results=(_structural_result(),), attempt_nr=1,
+        )
+        record_layer_artifacts(
+            story_dir, layer_results=(_structural_result(),), attempt_nr=1
+        )
+        result = _noncode_gate().evaluate(story_dir, StoryType.CONCEPT)
         assert result.passed is True
 
     def test_research_all_pass(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         _create_context(story_dir, StoryType.RESEARCH)
-        for phase in ("setup", "implementation"):
+        for phase in _NONCODE_PHASES:
             _create_snapshot(story_dir, phase)
-        result = build_integrity_gate().evaluate(story_dir, StoryType.RESEARCH)
+        manager = build_artifact_manager(story_dir)
+        write_layer_artifacts(
+            manager=manager, story_id="AG3-001", run_id=_RUN,
+            layer_results=(_structural_result(),), attempt_nr=1,
+        )
+        record_layer_artifacts(
+            story_dir, layer_results=(_structural_result(),), attempt_nr=1
+        )
+        result = _noncode_gate().evaluate(story_dir, StoryType.RESEARCH)
         assert result.passed is True
 
 
-class TestIntegrityGateMissingSnapshot:
-    def test_missing_setup_snapshot(self, tmp_path: Path) -> None:
-        story_dir = _story_dir(tmp_path)
-        _create_context(story_dir)
-        _create_snapshot(story_dir, "implementation")
-        _create_decision(story_dir)
-        result = build_integrity_gate().evaluate(story_dir, StoryType.IMPLEMENTATION)
-        assert result.passed is False
-        assert any("setup" in check.dimension for check in result.failed_checks)
-
-    def test_missing_implementation_snapshot(self, tmp_path: Path) -> None:
-        story_dir = _story_dir(tmp_path)
-        _create_context(story_dir)
-        _create_snapshot(story_dir, "setup")
-        _create_decision(story_dir)
-        result = build_integrity_gate().evaluate(story_dir, StoryType.IMPLEMENTATION)
-        assert result.passed is False
-        assert any(
-            "implementation" in check.dimension
-            for check in result.failed_checks
-        )
-
-
 class TestIntegrityGateCorruptData:
-    def test_corrupt_verify_decision(self, tmp_path: Path) -> None:
+    def test_corrupt_verify_decision_fails(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         _populate_implementation_story(story_dir)
         _corrupt_table_payload(story_dir, "decision_records")
-        result = build_integrity_gate().evaluate(story_dir, StoryType.IMPLEMENTATION)
+        result = _green_gate().evaluate(story_dir, StoryType.IMPLEMENTATION)
         assert result.passed is False
-        assert any(
-            check.dimension == "verify_decision"
-            for check in result.failed_checks
-        )
 
     def test_missing_structural_artifact_fails(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         _populate_implementation_story(story_dir)
         _delete_from_table(story_dir, "artifact_records")
-        result = build_integrity_gate().evaluate(story_dir, StoryType.IMPLEMENTATION)
+        result = _green_gate().evaluate(story_dir, StoryType.IMPLEMENTATION)
         assert result.passed is False
-        assert any(
-            check.dimension == "structural_artifact"
-            for check in result.failed_checks
-        )
+        assert result.failure_reason == "MISSING_STRUCTURAL"
 
-    def test_corrupt_phase_snapshot(self, tmp_path: Path) -> None:
-        story_dir = _story_dir(tmp_path)
-        _populate_implementation_story(story_dir)
-        with sqlite3.connect(state_db_path_for(story_dir)) as conn:
-            conn.execute(
-                "UPDATE phase_snapshots "
-                "SET payload_json = 'not json' "
-                "WHERE phase = 'setup'"
-            )
-            conn.commit()
-        result = build_integrity_gate().evaluate(story_dir, StoryType.IMPLEMENTATION)
-        assert result.passed is False
-        assert any("setup" in check.dimension for check in result.failed_checks)
-
-    def test_corrupt_context_record(self, tmp_path: Path) -> None:
+    def test_corrupt_context_record_fails(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         _populate_implementation_story(story_dir)
         _corrupt_table_payload(story_dir, "story_contexts")
-        result = build_integrity_gate().evaluate(story_dir, StoryType.IMPLEMENTATION)
+        result = _green_gate().evaluate(story_dir, StoryType.IMPLEMENTATION)
         assert result.passed is False
-        assert any(
-            check.dimension == "context_record"
-            for check in result.failed_checks
-        )
+        assert result.failure_reason == "MISSING_CONTEXT"
 
-    def test_verify_decision_fail(self, tmp_path: Path) -> None:
+    def test_verify_decision_fail_blocks_gate(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         _create_context(story_dir)
-        for phase in ("setup", "implementation"):
+        for phase in _CODE_PHASES:
             _create_snapshot(story_dir, phase)
         _create_decision(story_dir, decision="FAIL")
-        result = build_integrity_gate().evaluate(story_dir, StoryType.IMPLEMENTATION)
+        result = _green_gate().evaluate(story_dir, StoryType.IMPLEMENTATION)
         assert result.passed is False
-        assert any(
-            check.dimension == "verify_decision"
-            for check in result.failed_checks
-        )
+        dim7 = result.dimension_results[IntegrityDimension.NO_VERIFY]
+        assert dim7.passed is False
+
+
+class TestContextStatusValidationReal:
+    """R3-F: the REAL context validation enforces FK-35 §35.2.4 Dim 2 Z. 268.
+
+    The context's ``status == PASS`` is the Setup phase snapshot COMPLETED (the
+    producer that finalises the context, FK-22 §22.4).  These tests drive the
+    REAL ``StateBackendIntegrityGateStateAdapter.validate_context_record`` /
+    ``evaluate_mandatory_artifact`` (no fake port) against the SQLite backend.
+    """
+
+    def test_setup_snapshot_not_completed_is_context_invalid(
+        self, tmp_path: Path
+    ) -> None:
+        # Full story but the Setup phase snapshot is RUNNING (not COMPLETED) =>
+        # context status != PASS => fail-closed CONTEXT_INVALID (ENVELOPE_VIOLATION).
+        from agentkit.governance.integrity_gate.dimensions import ENVELOPE_VIOLATION
+
+        story_dir = _story_dir(tmp_path)
+        _create_context(story_dir)
+        # Setup snapshot present but NOT COMPLETED; the rest completed.
+        _create_snapshot(story_dir, "setup", status=PhaseStatus.IN_PROGRESS)
+        _create_snapshot(story_dir, "implementation")
+        _create_snapshot(story_dir, "closure")
+        _create_decision(story_dir)
+
+        result = _green_gate().evaluate(story_dir, StoryType.IMPLEMENTATION)
+
+        assert result.passed is False
+        ctx_dim = result.dimension_results[IntegrityDimension.CONTEXT_INVALID]
+        assert ctx_dim.passed is False
+        assert ctx_dim.failure_reason == ENVELOPE_VIOLATION
+        assert "status != PASS" in (ctx_dim.detail or "")
+
+    def test_setup_snapshot_completed_context_passes(self, tmp_path: Path) -> None:
+        # The same story with a COMPLETED Setup snapshot => context status PASS.
+        story_dir = _story_dir(tmp_path)
+        _populate_implementation_story(story_dir)
+
+        result = _green_gate().evaluate(story_dir, StoryType.IMPLEMENTATION)
+
+        ctx_dim = result.dimension_results[IntegrityDimension.CONTEXT_INVALID]
+        assert ctx_dim.passed is True
 
 
 class TestIntegrityGateResearchFewerDimensions:
-    def test_research_fewer_dimensions(self, tmp_path: Path) -> None:
+    def test_research_omits_code_only_dimensions(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         _create_context(story_dir, StoryType.RESEARCH)
-        for phase in ("setup", "implementation"):
+        for phase in _NONCODE_PHASES:
             _create_snapshot(story_dir, phase)
-        result = build_integrity_gate().evaluate(story_dir, StoryType.RESEARCH)
-        assert result.passed is True
-        assert "verify_decision" not in {check.dimension for check in result.checks}
-
-    def test_concept_no_verify_decision_check(self, tmp_path: Path) -> None:
-        story_dir = _story_dir(tmp_path)
-        _create_context(story_dir, StoryType.CONCEPT)
-        for phase in ("setup", "implementation"):
-            _create_snapshot(story_dir, phase)
-        result = build_integrity_gate().evaluate(story_dir, StoryType.CONCEPT)
-        assert result.passed is True
-        assert "verify_decision" not in {check.dimension for check in result.checks}
-
-
-class TestIntegrityGateResultProperties:
-    def test_failed_checks_property(self, tmp_path: Path) -> None:
-        result = build_integrity_gate().evaluate(
-            _story_dir(tmp_path),
-            StoryType.IMPLEMENTATION,
+        manager = build_artifact_manager(story_dir)
+        write_layer_artifacts(
+            manager=manager, story_id="AG3-001", run_id=_RUN,
+            layer_results=(_structural_result(),), attempt_nr=1,
         )
-        assert result.passed is False
-        assert len(result.failed_checks) > 0
-        assert all(check.passed is False for check in result.failed_checks)
+        record_layer_artifacts(
+            story_dir, layer_results=(_structural_result(),), attempt_nr=1
+        )
+        result = _noncode_gate().evaluate(story_dir, StoryType.RESEARCH)
+        assert result.passed is True
+        assert IntegrityDimension.NO_VERIFY not in result.dimension_results
+        assert IntegrityDimension.SONARQUBE_GREEN not in result.dimension_results
+
+
+class TestIntegrityGateDim9Wiring:
+    def test_build_integrity_gate_wires_state_backend_adapter(self) -> None:
+        from agentkit.bootstrap.composition_root import build_integrity_gate
+
+        gate = build_integrity_gate()
+        assert isinstance(
+            gate._state_port, StateBackendIntegrityGateStateAdapter
+        )
+
+    def test_code_story_without_port_fails_closed(self, tmp_path: Path) -> None:
+        # E-C: an impl story with NO sonar_port is APPLICABLE-but-unresolvable
+        # -> Dim 9 fail-closed (never a silent skip).
+        from agentkit.artifacts import EnvelopeValidator
+        from agentkit.bootstrap.composition_root import build_producer_registry
+
+        story_dir = _story_dir(tmp_path)
+        _populate_implementation_story(story_dir)
+        gate = IntegrityGate(
+            state_port=StateBackendIntegrityGateStateAdapter(),
+            envelope_validator=EnvelopeValidator(build_producer_registry()),
+            sonar_port=None,
+        )
+        result = gate.evaluate(story_dir, StoryType.IMPLEMENTATION)
+        assert result.overall is IntegrityGateStatus.ESCALATED
+        assert result.failure_reason == SONAR_NOT_GREEN
 
 
 # ---------------------------------------------------------------------------
-# Recording test-doubles for IntegrityGateStatePort (Fix E9)
+# DI path with a recording state-port test-double (Fix E9).
 # ---------------------------------------------------------------------------
 
 
 class _RecordingStatePort:
-    """Recording test-double for IntegrityGateStatePort.
-
-    Configurable: each method has a corresponding ``_*_result`` attribute
-    that controls the return value.  Calls are recorded in ``calls`` for
-    assertion.
-    """
+    """Recording test-double for IntegrityGateStatePort (no real DB)."""
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, object]] = []
-        self._completed_snapshot: bool = True
-        self._structural_artifact: bool = True
-        self._structural_artifact_for_scope: bool = True
-        self._valid_context: bool = True
-        self._valid_phase_state: bool = True
-        self._latest_verify_decision: dict[str, object] | None = {
-            "status": "PASS", "passed": True
-        }
-        self._latest_verify_decision_for_scope: dict[str, object] | None = {
-            "status": "PASS", "passed": True
-        }
-        self._phase_state_record: object | None = None
-        self._runtime_scope_result: RuntimeStateScope | None = None
-        self._resolve_scope_raise: type[Exception] | None = None
+        self._structural_artifact: bool = False
 
     def has_completed_snapshot(self, story_dir: object, phase: str) -> bool:
         self.calls.append(("has_completed_snapshot", phase))
-        return self._completed_snapshot
+        return True
 
     def has_structural_artifact(self, story_dir: object) -> bool:
         self.calls.append(("has_structural_artifact", story_dir))
@@ -373,165 +492,76 @@ class _RecordingStatePort:
 
     def has_structural_artifact_for_scope(self, scope: RuntimeStateScope) -> bool:
         self.calls.append(("has_structural_artifact_for_scope", scope))
-        return self._structural_artifact_for_scope
+        return self._structural_artifact
 
     def has_valid_context(self, story_dir: object) -> bool:
         self.calls.append(("has_valid_context", story_dir))
-        return self._valid_context
+        return True
 
     def has_valid_phase_state(self, story_dir: object) -> bool:
         self.calls.append(("has_valid_phase_state", story_dir))
-        return self._valid_phase_state
+        return True
+
+    def load_context_finished_at(
+        self, story_dir: object, scope: object
+    ) -> object | None:
+        self.calls.append(("load_context_finished_at", story_dir))
+        return None
+
+    def validate_context_record(
+        self, story_dir: object, scope: object
+    ) -> str | None:
+        self.calls.append(("validate_context_record", story_dir))
+        return None
 
     def load_latest_verify_decision(
         self, story_dir: object
     ) -> dict[str, object] | None:
         self.calls.append(("load_latest_verify_decision", story_dir))
-        return self._latest_verify_decision
+        return {"status": "PASS", "passed": True, "major_threshold": 0}
 
     def load_latest_verify_decision_for_scope(
         self, scope: RuntimeStateScope
     ) -> dict[str, object] | None:
         self.calls.append(("load_latest_verify_decision_for_scope", scope))
-        return self._latest_verify_decision_for_scope
+        return {"status": "PASS", "passed": True, "major_threshold": 0}
 
     def read_phase_state_record(self, story_dir: object) -> object | None:
         self.calls.append(("read_phase_state_record", story_dir))
-        if self._phase_state_record is CorruptStateError:
-            raise CorruptStateError("simulated corrupt")
-        return self._phase_state_record
+        return None
 
     def resolve_runtime_scope(self, story_dir: object) -> RuntimeStateScope:
         self.calls.append(("resolve_runtime_scope", story_dir))
-        if self._resolve_scope_raise is not None:
-            raise self._resolve_scope_raise("simulated")
-        if self._runtime_scope_result is not None:
-            return self._runtime_scope_result
         raise CorruptStateError("no scope configured")
+
+    def find_latest_qa_envelope(
+        self, story_dir: object, scope: object, stage: str
+    ) -> object | None:
+        self.calls.append(("find_latest_qa_envelope", stage))
+        return None
 
 
 class TestIntegrityGateWithRecordingPort:
-    """Validate IntegrityGate DI path using a recording state-port test-double.
-
-    These tests replace the former monkeypatch-based ``TestIntegrityGateStaticBranches``
-    tests, which patched module-level symbols that no longer exist after Fix E9.
-    """
-
-    def test_structural_artifact_uses_scope_reader_when_scope_has_run_id(
+    def test_missing_structural_aborts_and_blocks_later_dimensions(
         self, tmp_path: Path
     ) -> None:
-        """When runtime_scope has run_id, has_structural_artifact_for_scope is called."""
         port = _RecordingStatePort()
-        scope = RuntimeStateScope(
-            project_key="test-project",
-            story_id="AG3-001",
-            story_dir=tmp_path,
-            run_id="run-1",
-        )
-        port._runtime_scope_result = scope
-        port._resolve_scope_raise = None
-
-        gate = IntegrityGate(state_port=port)  # type: ignore[arg-type]
-        result = gate._check_structural_artifact(tmp_path, scope)
-
-        assert result.passed is True
-        scope_calls = [
-            c for c in port.calls if c[0] == "has_structural_artifact_for_scope"
-        ]
-        assert scope_calls, "has_structural_artifact_for_scope should have been called"
-        fallback_calls = [c for c in port.calls if c[0] == "has_structural_artifact"]
-        assert not fallback_calls, "story_dir fallback must not be used when scope has run_id"
-
-    def test_structural_artifact_falls_back_to_story_dir_when_scope_none(
-        self, tmp_path: Path
-    ) -> None:
-        """When runtime_scope is None, has_structural_artifact(story_dir) is used."""
-        port = _RecordingStatePort()
-
-        gate = IntegrityGate(state_port=port)  # type: ignore[arg-type]
-        result = gate._check_structural_artifact(tmp_path, None)
-
-        assert result.passed is True
-        fallback_calls = [c for c in port.calls if c[0] == "has_structural_artifact"]
-        assert fallback_calls, "story_dir fallback should be called when scope is None"
-
-    def test_verify_decision_uses_scope_reader_when_scope_has_run_id(
-        self, tmp_path: Path
-    ) -> None:
-        """When runtime_scope has run_id, load_latest_verify_decision_for_scope is called."""
-        port = _RecordingStatePort()
-        scope = RuntimeStateScope(
-            project_key="test-project",
-            story_id="AG3-001",
-            story_dir=tmp_path,
-            run_id="run-1",
-        )
-
-        gate = IntegrityGate(state_port=port)  # type: ignore[arg-type]
-        result = gate._check_verify_decision(tmp_path, scope)
-
-        assert result.passed is True
-        scope_calls = [
-            c for c in port.calls
-            if c[0] == "load_latest_verify_decision_for_scope"
-        ]
-        assert scope_calls
-        fallback_calls = [
-            c for c in port.calls if c[0] == "load_latest_verify_decision"
-        ]
-        assert not fallback_calls, "story_dir fallback must not be used when scope has run_id"
-
-    def test_phase_state_record_reports_corrupt_state(self, tmp_path: Path) -> None:
-        """CorruptStateError from read_phase_state_record yields failed check."""
-        port = _RecordingStatePort()
-        port._phase_state_record = CorruptStateError  # sentinel: raise on access
-
-        gate = IntegrityGate(state_port=port)  # type: ignore[arg-type]
-        result = gate._check_phase_state_record(tmp_path)
-
-        assert result.passed is False
-        assert result.dimension == "phase_state_record"
-
-    def test_phase_state_record_fails_when_existing_record_is_invalid(
-        self, tmp_path: Path
-    ) -> None:
-        """Non-None phase state record + has_valid_phase_state=False → failed check."""
-        port = _RecordingStatePort()
-        port._phase_state_record = object()  # non-None → not absent
-        port._valid_phase_state = False
-
-        gate = IntegrityGate(state_port=port)  # type: ignore[arg-type]
-        result = gate._check_phase_state_record(tmp_path)
-
-        assert result.passed is False
-        assert result.message == "Missing or invalid canonical phase state record"
-
-    def test_evaluate_passes_all_checks_with_recording_port(
-        self, tmp_path: Path
-    ) -> None:
-        """Full evaluate() path passes when all port methods return positive results."""
-        port = _RecordingStatePort()
-        scope = RuntimeStateScope(
-            project_key="p",
-            story_id="AG3-001",
-            story_dir=tmp_path,
-            run_id="run-1",
-        )
-        port._runtime_scope_result = scope
-        port._resolve_scope_raise = None
-        port._phase_state_record = object()  # non-None, valid_phase_state=True
+        port._structural_artifact = False
 
         gate = IntegrityGate(state_port=port)  # type: ignore[arg-type]
         result = gate.evaluate(tmp_path, StoryType.IMPLEMENTATION)
 
-        assert result.passed is True
-        assert result.failed_checks == ()
-
-    def test_build_integrity_gate_wires_state_backend_adapter(self) -> None:
-        """build_integrity_gate() wires StateBackendIntegrityGateStateAdapter as state_port."""
-        from agentkit.state_backend.store.integrity_gate_repository import (
-            StateBackendIntegrityGateStateAdapter,
-        )
-
-        gate = build_integrity_gate()
-        assert isinstance(gate._state_port, StateBackendIntegrityGateStateAdapter)
+        assert result.overall is IntegrityGateStatus.FAIL
+        assert result.failure_reason == "MISSING_STRUCTURAL"
+        assert "MISSING_STRUCTURAL" in result.missing_artifacts
+        # No sonar_port wired -> code story -> Dim 9 APPLICABLE (fail-closed) is
+        # in the blocked set after the mandatory abort.
+        assert set(result.blocked_dimensions) == {
+            IntegrityDimension.STRUCTURAL_SHALLOW,
+            IntegrityDimension.NO_LLM_REVIEW,
+            IntegrityDimension.NO_ADVERSARIAL,
+            IntegrityDimension.NO_VERIFY,
+            IntegrityDimension.TIMESTAMP_INVERSION,
+            IntegrityDimension.SONARQUBE_GREEN,
+        }
+        assert IntegrityDimension.STRUCTURAL_SHALLOW not in result.dimension_results

@@ -70,26 +70,32 @@ class StructuralChecker:
         """
         del review_input  # Layer 1 does not use review_input.
         findings: list[Finding] = []
+        checks_run = 0
 
         # 1. Context existence
+        checks_run += 1
         f = check_context_exists(story_dir)
         if f:
             findings.append(f)
 
         # 2. Context validity
+        checks_run += 1
         f = check_context_valid(story_dir)
         if f:
             findings.append(f)
 
-        # 3. Phase snapshots -- derived from story type profile
+        # 3. Phase snapshots -- derived from story type profile (one check per
+        # required prior phase).
         profile = get_profile(ctx.story_type)
         # QA-subflow runs inside implementation; all prior phases need snapshots.
         implementation_index = _phase_index(profile.phases, "implementation")
         required_prior = list(profile.phases[:implementation_index])
+        checks_run += len(required_prior)
         phase_findings = check_phase_snapshots(story_dir, required_prior)
         findings.extend(phase_findings)
 
         # 4. State file integrity
+        checks_run += 1
         f = check_no_corrupt_state(story_dir)
         if f:
             findings.append(f)
@@ -97,10 +103,14 @@ class StructuralChecker:
         passed = not any(
             f.severity == Severity.BLOCKING for f in findings
         )
+        # FK-35 §35.2.4 Dim 3 (STRUCTURAL_SHALLOW): record how many checks the
+        # layer actually ran so the IntegrityGate can verify check depth
+        # against the canonical structural envelope (not mere existence).
         return LayerResult(
             layer=self.name,
             passed=passed,
             findings=tuple(findings),
+            metadata={"total_checks": checks_run},
         )
 
 

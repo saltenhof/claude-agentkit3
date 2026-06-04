@@ -13,8 +13,10 @@ from typing import TYPE_CHECKING
 from agentkit.state_backend.store import facade
 
 if TYPE_CHECKING:
+    from datetime import datetime
     from pathlib import Path
 
+    from agentkit.artifacts.envelope import ArtifactEnvelope
     from agentkit.state_backend.scope import RuntimeStateScope
 
 
@@ -92,6 +94,93 @@ class StateBackendIntegrityGateStateAdapter:
         """
         return facade.backend_has_valid_phase_state(story_dir)
 
+    def validate_context_record(
+        self,
+        story_dir: Path,
+        scope: RuntimeStateScope | None,
+    ) -> str | None:
+        """Validate the context record fields (FK-35 §35.2.4 Dim 2, Z. 268).
+
+        FK-35 §35.2.4 Dim 2 (Z. 268) requires the ``ArtifactRecord(context)`` to
+        be present, carry ``status == PASS``, a non-empty ``story_id`` AND a
+        resolvable ``run_id``.  In AK3 the canonical context artifact is the
+        ``StoryContext`` record in ``story_contexts`` (FK-35 §35.2.3 mandatory
+        table; FK-22 §22.4: built and persisted by the Setup phase) — NOT a QA
+        ``ArtifactEnvelope``, so the FK-71 §71.2 ``EnvelopeValidator`` does not
+        apply.  The record itself carries no ``status`` column; its authoritative
+        ``status == PASS`` is the **Setup phase snapshot completion** — the Setup
+        phase is the producer that finalises the context (FK-22 §22.4), and its
+        ``PhaseSnapshot.status == COMPLETED`` is the already-persisted, canonical
+        PASS status (no second truth invented).  All four §35.2.4 Z. 268
+        conditions are verified here with full depth (R3-F):
+
+        * present (``StoryContext`` loadable),
+        * ``status == PASS`` (Setup snapshot COMPLETED),
+        * non-empty ``story_id``,
+        * resolvable ``run_id`` (scope or ``facade.resolve_runtime_scope``).
+
+        Any missing/invalid condition (incl. ``status != PASS``) returns a
+        violation detail string -> Dim 2 fails closed ``CONTEXT_INVALID``;
+        ``None`` only when the context record is fully valid.
+
+        Args:
+            story_dir: Story base directory.
+            scope: Resolved runtime scope (provides ``run_id`` when present).
+
+        Returns:
+            A violation detail string, or ``None`` when the context is valid.
+        """
+        from agentkit.exceptions import CorruptStateError
+
+        ctx = facade.load_story_context(story_dir)
+        if ctx is None:
+            return "context record absent for field validation"
+        if not ctx.story_id:
+            return "context record carries no story_id (FK-35 §35.2.4 Dim 2)"
+        # FK-35 §35.2.4 Dim 2 Z. 268 status == PASS: the context's authoritative
+        # PASS status is the Setup phase having COMPLETED (the producer of the
+        # context, FK-22 §22.4).  An absent/non-completed Setup snapshot means the
+        # context was never finalised PASS -> fail-closed (R3-F).
+        if not facade.backend_has_completed_snapshot(story_dir, "setup"):
+            return (
+                "context record status != PASS: Setup phase snapshot is absent or "
+                "not COMPLETED (FK-35 §35.2.4 Dim 2 Z. 268)"
+            )
+        run_id = scope.run_id if scope is not None else None
+        if run_id is None:
+            try:
+                run_id = facade.resolve_runtime_scope(story_dir).run_id
+            except CorruptStateError:
+                run_id = None
+        if not run_id:
+            return "context record has no resolvable run_id (FK-35 §35.2.4 Dim 2)"
+        return None
+
+    def load_context_finished_at(
+        self,
+        story_dir: Path,
+        scope: RuntimeStateScope | None,
+    ) -> datetime | None:
+        """Return the ``story_contexts`` record completion timestamp (FK-35 Dim 8).
+
+        Reads the canonical context record via ``facade.load_story_context`` and
+        returns its authoritative completion timestamp (``created_at``).  The
+        ``scope`` is accepted for protocol symmetry; the context is keyed by
+        ``story_dir`` (one canonical record per story).
+
+        Args:
+            story_dir: Story base directory.
+            scope: Resolved runtime scope (unused; context is story-keyed).
+
+        Returns:
+            The context record's ``created_at``, or ``None`` when absent.
+        """
+        del scope  # Context is the single canonical story-keyed record.
+        ctx = facade.load_story_context(story_dir)
+        if ctx is None:
+            return None
+        return ctx.created_at
+
     def load_latest_verify_decision(
         self,
         story_dir: Path,
@@ -147,6 +236,31 @@ class StateBackendIntegrityGateStateAdapter:
             CorruptStateError: When scope cannot be resolved.
         """
         return facade.resolve_runtime_scope(story_dir)
+
+    def find_latest_qa_envelope(
+        self,
+        story_dir: Path,
+        scope: RuntimeStateScope | None,
+        stage: str,
+    ) -> ArtifactEnvelope | None:
+        """Delegate to ``facade.find_latest_qa_envelope``.
+
+        Args:
+            story_dir: Story base directory.
+            scope: Resolved runtime scope (or None).
+            stage: QA layer stage id.
+
+        Returns:
+            The latest QA ``ArtifactEnvelope`` for the stage, or None.
+        """
+        from agentkit.artifacts.envelope import ArtifactEnvelope as _Envelope
+
+        envelope = facade.find_latest_qa_envelope(story_dir, scope, stage)
+        if envelope is None:
+            return None
+        if not isinstance(envelope, _Envelope):  # pragma: no cover - defensive
+            return None
+        return envelope
 
 
 __all__ = ["StateBackendIntegrityGateStateAdapter"]

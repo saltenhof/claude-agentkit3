@@ -32,7 +32,9 @@ from __future__ import annotations
 _STRUCTURAL_FILE: str = "structural.json"
 _QA_REVIEW_FILE: str = "qa_review.json"
 _SEMANTIC_REVIEW_FILE: str = "semantic_review.json"
-_DOC_FIDELITY_FILE: str = "doc_fidelity.json"
+#: Public alias (SSOT for verify_system._artifact_specs, AG3-034 R2-H).
+DOC_FIDELITY_FILE: str = "doc_fidelity.json"
+_DOC_FIDELITY_FILE: str = DOC_FIDELITY_FILE
 _ADVERSARIAL_FILE: str = "adversarial.json"
 
 #: Layer-Artefakt-Dateinamen nach FK-27 §27.7.
@@ -63,6 +65,31 @@ VERIFY_DECISION_FILE: str = "decision.json"
 #: Kanonisch: ``qa-policy-decision`` (nicht ``qa-verify-decision``).
 VERIFY_DECISION_STAGE: str = "qa-policy-decision"
 
+#: Canonical QA layer stage IDs (FK-27 §27.7).  This cross-cutting module is the
+#: SINGLE SOURCE OF TRUTH for the QA layer stage/producer strings (AG3-034 R2-H):
+#: both ``verify_system`` (``_artifact_specs`` / ``artifacts`` / ``register``)
+#: and the IntegrityGate (FK-35 §35.2.4) import these constants — neither
+#: re-types the literals (no second naming truth).
+STRUCTURAL_STAGE: str = "qa-layer-structural"
+QA_REVIEW_STAGE: str = "qa-layer-qa-review"
+SEMANTIC_REVIEW_STAGE: str = "qa-layer-semantic-review"
+DOC_FIDELITY_STAGE: str = "qa-layer-doc-fidelity"
+ADVERSARIAL_STAGE: str = "qa-layer-adversarial"
+
+#: Canonical QA layer producer names (FK-27 §27.7).  These are the REAL
+#: producer.name values the QA layers stamp onto their envelopes and the SINGLE
+#: SOURCE OF TRUTH consumed by ``verify_system`` (``_artifact_specs`` /
+#: ``artifacts`` / ``register``) AND the IntegrityGate.  FK-35 §35.2.4 names the
+#: producers illustratively (``qa-structural-check`` / ``qa-policy-engine`` /
+#: ``qa-adversarial``); the canonical AK3 producer ids below are authoritative
+#: (no second naming truth).
+STRUCTURAL_PRODUCER: str = "verify-system.layer-1-structural"
+QA_REVIEW_PRODUCER: str = "verify-system.layer-2-qa-review"
+SEMANTIC_REVIEW_PRODUCER: str = "verify-system.layer-2-semantic-review"
+DOC_FIDELITY_PRODUCER: str = "verify-system.layer-2-doc-fidelity"
+ADVERSARIAL_PRODUCER: str = "verify-system.layer-3-adversarial"
+VERIFY_DECISION_PRODUCER: str = "verify-system.layer-4-policy"
+
 #: Dateiname des Guardrail-Artefakts (siehe FK-31 §31.3).
 GUARDRAIL_FILE: str = "guardrail.json"
 
@@ -77,10 +104,22 @@ ALL_QA_ARTIFACT_FILES: tuple[str, ...] = (
 )
 
 __all__ = [
+    "ADVERSARIAL_PRODUCER",
+    "ADVERSARIAL_STAGE",
     "ALL_QA_ARTIFACT_FILES",
+    "DOC_FIDELITY_FILE",
+    "DOC_FIDELITY_PRODUCER",
+    "DOC_FIDELITY_STAGE",
     "GUARDRAIL_FILE",
     "LAYER_ARTIFACT_FILES",
     "QA_LAYER2_FILES",
+    "QA_REVIEW_PRODUCER",
+    "QA_REVIEW_STAGE",
+    "SEMANTIC_REVIEW_PRODUCER",
+    "SEMANTIC_REVIEW_STAGE",
+    "STRUCTURAL_PRODUCER",
+    "STRUCTURAL_STAGE",
     "VERIFY_DECISION_FILE",
+    "VERIFY_DECISION_PRODUCER",
     "VERIFY_DECISION_STAGE",
 ]

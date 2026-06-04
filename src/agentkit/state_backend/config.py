@@ -96,7 +96,18 @@ SCHEMA_OVERRIDE_ALLOWED_ENV = "AGENTKIT_PG_SCHEMA_OVERRIDE_ALLOWED"
 # freeze_reason, freeze_version. Idempotent side-by-side migration via the
 # versioned-schema pattern (FK-18 §18.9a): a fresh ak3_v3_16_0 schema /
 # agentkit_3_16_0.sqlite file is created; the old 3.15.0 DB is never touched.
-SCHEMA_VERSION = "3.16.0"
+# AG3-034 (FK-24 §24.3.3, FK-22 §22.3.1 Check 10): 3.16.0 -> 3.17.0
+# (project_mode_lock table added; projektweiter Control-Plane Mode-Lock fuer die
+# Fast/Standard-Mutual-Exclusion. AG3-034 stellt NUR den Read-Pfad fuer
+# Preflight-Check 10 (no_competing_story_mode_active) her — die atomare Setzung
+# beim Story-Start ist AG3-018-Folge (story.md §2.1.2 / §2.2). Schema-/DB-Owner
+# governance-and-guards. Canonical Postgres + SQLite test-parallel schema with
+# IDENTICAL DDL: project_key PK, active_mode NULL|execution|exploration|fast
+# (CHECK), holder_count >= 0 (CHECK), updated_at. Idempotent side-by-side
+# migration via the versioned-schema pattern (FK-18 §18.9a): a fresh ak3_v3_17_0
+# schema / agentkit_3_17_0.sqlite file is created; the old 3.16.0 DB is never
+# touched.
+SCHEMA_VERSION = "3.17.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 # AG3-051: reserved test-schema namespace. Disjoint from the production schema
 # name (``ak3_v<slug>``), so a test override can never resolve onto production

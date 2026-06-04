@@ -18,8 +18,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
+    from datetime import datetime
     from pathlib import Path
 
+    from agentkit.artifacts.envelope import ArtifactEnvelope
     from agentkit.governance.hook_registration import HookDefinition, RegistrationResult
     from agentkit.state_backend.scope import RuntimeStateScope
     from agentkit.story_context_manager.models import StoryContext
@@ -167,6 +169,65 @@ class IntegrityGateStatePort(Protocol):
         """
         ...
 
+    def validate_context_record(
+        self,
+        story_dir: Path,
+        scope: RuntimeStateScope | None,
+    ) -> str | None:
+        """Validate the canonical ``ArtifactRecord(context)`` fields (FK-35 §35.2.4 Dim 2).
+
+        The mandatory context artifact (CONTEXT_INVALID) is not a QA
+        ``ArtifactEnvelope`` (so the FK-71 §71.2 ``EnvelopeValidator`` does not
+        apply); it carries its own validity per FK-35 §35.2.4 Dim 2 (Z. 268):
+        the context record must be present, carry ``status == PASS`` (in AK3:
+        the Setup phase snapshot COMPLETED, the producer that finalises the
+        context per FK-22 §22.4), and bind a non-empty ``story_id`` AND a
+        resolvable ``run_id``.  Returns a human-readable violation detail string
+        when any required field (incl. ``status != PASS``) is missing/invalid,
+        or ``None`` when the context record is valid.  Story-AC AK7: every
+        mandatory artifact (Dim 1-3) is field-validated to FK-35 depth — not only
+        the QA envelopes.
+
+        Args:
+            story_dir: Story base directory.
+            scope: Resolved runtime scope (provides ``run_id`` when present).
+
+        Returns:
+            A violation detail string, or ``None`` when the context is valid.
+
+        Raises:
+            CorruptStateError: When the backend record is unreadable.
+        """
+        ...
+
+    def load_context_finished_at(
+        self,
+        story_dir: Path,
+        scope: RuntimeStateScope | None,
+    ) -> datetime | None:
+        """Return the canonical ``ArtifactRecord(context)`` completion timestamp.
+
+        FK-35 §35.2.4 Dim 8 (``TIMESTAMP_INVERSION``) anchors on
+        ``ArtifactRecord(context).finished_at < ArtifactRecord(decision).finished_at``.
+        The canonical context record is the ``story_contexts`` row; its
+        authoritative completion timestamp is ``created_at`` (the context has no
+        separate started/finished split — it is built once at setup and that
+        instant is its completion).  Returns the timezone-aware UTC timestamp,
+        or ``None`` when the context record is absent / carries no timestamp.
+
+        Args:
+            story_dir: Story base directory (resolves story_id when ``scope`` is
+                ``None``).
+            scope: Resolved runtime scope (narrows to one run_id when present).
+
+        Returns:
+            The context record's completion timestamp, or ``None`` when absent.
+
+        Raises:
+            CorruptStateError: When the backend record is unreadable.
+        """
+        ...
+
     def load_latest_verify_decision(
         self,
         story_dir: Path,
@@ -230,6 +291,33 @@ class IntegrityGateStatePort(Protocol):
         Raises:
             CorruptStateError: When neither FlowExecution nor StoryContext
                 can be resolved.
+        """
+        ...
+
+    def find_latest_qa_envelope(
+        self,
+        story_dir: Path,
+        scope: RuntimeStateScope | None,
+        stage: str,
+    ) -> ArtifactEnvelope | None:
+        """Return the highest-attempt canonical QA envelope for a stage.
+
+        Reads the canonical ``ArtifactClass.QA`` envelope (``artifact_envelopes``)
+        for the given QA layer stage so the IntegrityGate dimensions (FK-35
+        §35.2.4) can verify producer / status / payload depth against the real
+        artefact rather than mere existence.
+
+        Args:
+            story_dir: Story base directory (resolves story_id/run_id when
+                ``scope`` is ``None``).
+            scope: Resolved runtime scope (narrows to one run_id when present).
+            stage: The QA layer stage id (e.g. ``qa-layer-structural``).
+
+        Returns:
+            The latest :class:`ArtifactEnvelope`, or ``None`` when absent.
+
+        Raises:
+            CorruptStateError: When the backend record is unreadable.
         """
         ...
 

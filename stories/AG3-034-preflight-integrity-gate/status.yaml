@@ -1,8 +1,8 @@
 story_id: AG3-034
-title: "Preflight-Checks 2/5-10 + IntegrityGate-8-Dimensionen + Concept/Research-Drift fix"
+title: "Preflight-Checks 2/5-10 + IntegrityGate-9-Dimensionen (inkl. Dim 9 SONARQUBE_GREEN) + Setup-green-main-Precondition + Concept/Research-Drift fix"
 type: implementation
-status: blocked
-phase: setup
+status: in_progress
+phase: implementation
 created: "2026-05-16"
 size: L
 depends_on:
@@ -10,4 +10,5 @@ depends_on:
   - AG3-022
   - AG3-023
   - AG3-032
+  - AG3-052
 unblocks: []

@@ -14,18 +14,19 @@ For real E2E pipeline tests, see ``tests/e2e/smoke/test_real_pipeline.py``.
 from __future__ import annotations
 
 import contextlib
+import subprocess
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
 from tests.e2e._helpers import seed_approved_story
 
-from agentkit.bootstrap.composition_root import build_setup_preflight_gate
+from agentkit.bootstrap.composition_root import build_setup_phase_handler
 from agentkit.closure.phase import (
     ClosureConfig,
     ClosurePhaseHandler,
 )
-from agentkit.governance.setup_preflight_gate.phase import SetupConfig, SetupPhaseHandler
+from agentkit.governance.setup_preflight_gate.phase import SetupConfig
 from agentkit.installer import InstallConfig, install_agentkit
 from agentkit.installer.paths import qa_story_dir, story_dir
 from agentkit.integrations.github.issues import (
@@ -242,7 +243,16 @@ class TestClosurePhaseE2E:
                 story_id="E2E-7002",
                 create_worktree=False,
             )
-            setup_handler = SetupPhaseHandler(setup_config, build_setup_preflight_gate())
+            # AG3-034 Finding B: Preflight Check 7 reads the real repo; init one.
+            subprocess.run(["git", "-C", str(tmp_path), "init", "-q"], check=True)
+            subprocess.run(
+                ["git", "-C", str(tmp_path), "config", "user.email", "t@e.com"],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(tmp_path), "config", "user.name", "T"], check=True
+            )
+            setup_handler = build_setup_phase_handler(setup_config)
 
             # Seed the APPROVED Story the Setup preflight gate requires.
             # Setup transitions Approved -> In Progress, closure In Progress

@@ -13,17 +13,18 @@ State arises from actual pipeline execution, not manual construction.
 from __future__ import annotations
 
 import contextlib
+import subprocess
 from typing import TYPE_CHECKING
 
 import pytest
 from tests.e2e._helpers import seed_approved_story
 
-from agentkit.bootstrap.composition_root import build_setup_preflight_gate
+from agentkit.bootstrap.composition_root import build_setup_phase_handler
 from agentkit.closure.phase import (
     ClosureConfig,
     ClosurePhaseHandler,
 )
-from agentkit.governance.setup_preflight_gate.phase import SetupConfig, SetupPhaseHandler
+from agentkit.governance.setup_preflight_gate.phase import SetupConfig
 from agentkit.installer import InstallConfig, install_agentkit
 from agentkit.installer.paths import qa_story_dir, story_dir
 from agentkit.integrations.github.client import run_gh, run_gh_json
@@ -45,6 +46,23 @@ if TYPE_CHECKING:
 
 OWNER = "saltenhof"
 REPO = "agentkit3-testbed"
+
+
+def _init_project_repo(project_dir: Path) -> None:
+    """Init a real git repo so Preflight Check 7's ``git show-ref`` can run.
+
+    AG3-034 Finding B: ``no_story_branch`` reads the real repo and fails closed
+    on a non-repo dir; the real-pipeline smoke run therefore needs an actual
+    git repository (with no ``story/*`` branch) under the project root.
+    """
+    subprocess.run(["git", "-C", str(project_dir), "init", "-q"], check=True)
+    subprocess.run(
+        ["git", "-C", str(project_dir), "config", "user.email", "t@example.com"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(project_dir), "config", "user.name", "T"], check=True
+    )
 
 
 def _ensure_label(name: str, *, color: str, description: str) -> None:
@@ -113,6 +131,7 @@ class TestRealPipelineE2E:
             # 2. Install AgentKit
             project_dir = tmp_path / "project"
             project_dir.mkdir()
+            _init_project_repo(project_dir)
             install_agentkit(
                 InstallConfig(
                     project_key="e2e-test",
@@ -159,7 +178,7 @@ class TestRealPipelineE2E:
 
             workflow = resolve_workflow(StoryType.CONCEPT)
             registry = PhaseHandlerRegistry()
-            registry.register("setup", SetupPhaseHandler(setup_config, build_setup_preflight_gate()))
+            registry.register("setup", build_setup_phase_handler(setup_config))
             registry.register("implementation", NoOpHandler())  # OK: LLM phase
             registry.register(
                 "closure",
@@ -224,6 +243,7 @@ class TestRealPipelineE2E:
         try:
             project_dir = tmp_path / "project"
             project_dir.mkdir()
+            _init_project_repo(project_dir)
             install_agentkit(
                 InstallConfig(
                     project_key="e2e-test",
@@ -267,7 +287,7 @@ class TestRealPipelineE2E:
 
             workflow = resolve_workflow(StoryType.RESEARCH)
             registry = PhaseHandlerRegistry()
-            registry.register("setup", SetupPhaseHandler(setup_config, build_setup_preflight_gate()))
+            registry.register("setup", build_setup_phase_handler(setup_config))
             registry.register("implementation", NoOpHandler())  # OK: LLM phase
             registry.register(
                 "closure",

@@ -26,6 +26,7 @@ from agentkit.verify_system.sonarqube_gate.adapter import (
 )
 from agentkit.verify_system.sonarqube_gate.applicability import (
     SonarApplicability,
+    is_code_producing_story,
     resolve_applicability,
 )
 from agentkit.verify_system.sonarqube_gate.attestation import (
@@ -86,6 +87,7 @@ __all__ = [
     "build_issue_applier",
     "build_sonar_gate_port_for_run",
     "evaluate_sonarqube_gate",
+    "is_code_producing_story",
     "is_green",
     "is_green_status",
     "reconcile_single_match",

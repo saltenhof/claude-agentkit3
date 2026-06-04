@@ -64,6 +64,9 @@ def build_verify_decision_artifact(
     return {
         "passed": decision.passed,
         "status": decision.verdict.value,
+        # FK-35 §35.2.4 Dim 4 (DECISION_INVALID): the canonical policy record
+        # carries the MAJOR threshold it was decided under (FK-27 §27.7.2).
+        "major_threshold": decision.max_major_findings,
         "layers": [
             {
                 "layer": layer_result.layer,

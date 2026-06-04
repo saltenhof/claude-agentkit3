@@ -71,18 +71,25 @@ def _make_preflight_pass() -> object:
 
 
 def _make_preflight_fail(message: str = "issue not open") -> object:
-    """Return a fake PreflightResult that fails."""
+    """Return a fake PreflightResult that fails (AG3-034 model)."""
+    from agentkit.governance.setup_preflight_gate.preflight import (
+        PreflightCheckId,
+        PreflightCheckResult,
+        PreflightResult,
+        PreflightStatus,
+    )
 
-    class _Check:
-        def __init__(self, passed: bool, msg: str) -> None:
-            self.passed = passed
-            self.message = msg
-
-    class _Result:
-        passed = False
-        checks = [_Check(False, message)]
-
-    return _Result()
+    failing = PreflightCheckResult(
+        check_id=PreflightCheckId.STORY_EXISTS,
+        status=PreflightStatus.FAIL,
+        detail=message,
+        cleanup_hint="resolve the precondition before restarting",
+    )
+    return PreflightResult(
+        overall=PreflightStatus.FAIL,
+        checks=(failing,),
+        failed_check_ids=(PreflightCheckId.STORY_EXISTS,),
+    )
 
 
 def _make_story_context(
@@ -413,6 +420,10 @@ class TestSetupPhaseBeginProgress:
                 "agentkit.governance.setup_preflight_gate.phase.build_story_context",
                 return_value=enriched,
             ),
+            patch(
+                "agentkit.governance.setup_preflight_gate.phase.load_project_config",
+                return_value=_make_project_config(tmp_path),
+            ),
         ):
             result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
@@ -458,6 +469,10 @@ class TestSetupPhaseBeginProgress:
                 "agentkit.governance.setup_preflight_gate.phase.build_story_context",
                 return_value=enriched,
             ),
+            patch(
+                "agentkit.governance.setup_preflight_gate.phase.load_project_config",
+                return_value=_make_project_config(tmp_path),
+            ),
             # Patch StoryService at its source so the default construction
             # inside on_enter returns our tracking service (Befund 9).
             patch(
@@ -501,9 +516,155 @@ class TestSetupPhaseBeginProgress:
                 "agentkit.governance.setup_preflight_gate.phase.build_story_context",
                 return_value=enriched,
             ),
+            patch(
+                "agentkit.governance.setup_preflight_gate.phase.load_project_config",
+                return_value=_make_project_config(tmp_path),
+            ),
         ):
             result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
         assert result.status == PhaseStatus.FAILED
         assert "begin_progress failed" in result.errors[0]
         assert "transition error" in result.errors[0]
+
+
+class TestSetupPhaseGreenMain:
+    """Green-main precondition + Check-10 mode-lock wiring (AG3-034 T3/T6)."""
+
+    def _run(self, tmp_path: Path, *, available: bool, port: object):  # type: ignore[no-untyped-def]
+        cfg = SetupConfig(
+            owner="owner",
+            repo="repo",
+            issue_nr=9,
+            project_root=tmp_path,
+            story_id="AG3-009",
+            create_worktree=False,
+            story_service=_NoOpStoryService(),  # type: ignore[arg-type]
+        )
+        handler = SetupPhaseHandler(
+            cfg,
+            context_repository=_RecordingContextRepo(),  # type: ignore[arg-type]
+            green_main_port=port,  # type: ignore[arg-type]
+        )
+        ctx = _make_story_context(story_id="AG3-009", project_root=tmp_path)
+        state = _make_phase_state(story_id="AG3-009")
+        enriched = _make_story_context(story_id="AG3-009", project_root=tmp_path)
+        config = ProjectConfig(
+            project_key="test-project",
+            project_name="Test Project",
+            repositories=[RepositoryConfig(name="repo", path=tmp_path)],
+            pipeline=PipelineConfig(
+                sonarqube=SonarQubeConfig(
+                    available=available,
+                    enabled=available,
+                    base_url="http://sonar" if available else None,
+                    token_env="SONAR_TOKEN" if available else None,
+                )
+            ),
+        )
+        with (
+            patch(
+                "agentkit.governance.setup_preflight_gate.phase.run_preflight",
+                return_value=_make_preflight_pass(),
+            ),
+            patch(
+                "agentkit.governance.setup_preflight_gate.phase.build_story_context",
+                return_value=enriched,
+            ),
+            patch(
+                "agentkit.governance.setup_preflight_gate.phase.load_project_config",
+                return_value=config,
+            ),
+        ):
+            return handler.on_enter(
+                ctx, PhaseEnvelopeStore.make_fresh_envelope(state)
+            )
+
+    def test_red_main_fails_setup_closed(self, tmp_path: Path) -> None:
+        class _RedPort:
+            def main_head_revision(self) -> str:
+                return "head-1"
+
+            def read_main_attestation(self) -> object | None:
+                return None  # configured-but-unreachable -> RED
+
+        result = self._run(tmp_path, available=True, port=_RedPort())
+        assert result.status == PhaseStatus.FAILED
+        assert "sonarqube_main_green: RED" in result.errors[0]
+        assert "blame_free" in result.errors[0]
+
+    def test_unavailable_sonar_skips_green_main(self, tmp_path: Path) -> None:
+        # available:false -> green-main SKIPPED -> setup proceeds (no port needed).
+        result = self._run(tmp_path, available=False, port=None)
+        assert result.status == PhaseStatus.COMPLETED
+
+    def test_mode_lock_read_wired_into_preflight(self, tmp_path: Path) -> None:
+        # Check-10 wiring: the mode-lock repository read path reaches preflight.
+        from agentkit.state_backend.store.mode_lock_repository import ModeLockRecord
+
+        seen: list[object] = []
+
+        class _Repo:
+            def read_lock(self, project_key: str) -> object:
+                seen.append(project_key)
+                return ModeLockRecord(
+                    project_key=project_key,
+                    active_mode="standard",
+                    holder_count=1,
+                    updated_at="t",
+                )
+
+        cfg = SetupConfig(
+            owner="owner",
+            repo="repo",
+            issue_nr=10,
+            project_root=tmp_path,
+            story_id="AG3-010",
+            create_worktree=False,
+            story_service=_NoOpStoryService(),  # type: ignore[arg-type]
+        )
+        handler = SetupPhaseHandler(
+            cfg,
+            context_repository=_RecordingContextRepo(),  # type: ignore[arg-type]
+            mode_lock_repository=_Repo(),  # type: ignore[arg-type]
+        )
+        ctx = _make_story_context(story_id="AG3-010", project_root=tmp_path)
+        state = _make_phase_state(story_id="AG3-010")
+        captured: dict[str, object] = {}
+
+        def _fake_run_preflight(*_a: object, **kw: object) -> object:
+            # E-E: the handler now injects a fail-closed ``mode_lock_reader``
+            # callable (NOT a pre-resolved ``mode_lock``); Check 10 reads it.
+            captured["mode_lock_reader"] = kw.get("mode_lock_reader")
+            return _make_preflight_pass()
+
+        enriched = _make_story_context(story_id="AG3-010", project_root=tmp_path)
+        with (
+            patch(
+                "agentkit.governance.setup_preflight_gate.phase.run_preflight",
+                _fake_run_preflight,
+            ),
+            patch(
+                "agentkit.governance.setup_preflight_gate.phase.build_story_context",
+                return_value=enriched,
+            ),
+            patch(
+                "agentkit.governance.setup_preflight_gate.phase.load_project_config",
+                return_value=ProjectConfig(
+                    project_key="test-project",
+                    project_name="Test Project",
+                    repositories=[RepositoryConfig(name="repo", path=tmp_path)],
+                    pipeline=PipelineConfig(
+                        sonarqube=SonarQubeConfig(available=False, enabled=False)
+                    ),
+                ),
+            ),
+        ):
+            handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
+
+        reader = captured["mode_lock_reader"]
+        assert callable(reader)
+        # The reader delegates straight to the repository read path (Check 10).
+        record = reader("test-project")
+        assert seen == ["test-project"]
+        assert record is not None

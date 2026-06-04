@@ -975,6 +975,51 @@ def read_latest_verify_decision_record(
     return load_latest_verify_decision(story_dir)
 
 
+def find_latest_qa_envelope(
+    story_dir: Path,
+    scope: RuntimeStateScope | None,
+    stage: str,
+) -> object | None:
+    """Return the highest-attempt canonical QA ``ArtifactEnvelope`` for a stage.
+
+    The canonical QA-artefact truth lives in ``artifact_envelopes``
+    (``ArtifactClass.QA``); this resolves the latest envelope for one QA layer
+    stage (e.g. ``qa-layer-structural`` / ``qa-policy-decision`` /
+    ``qa-layer-adversarial``) so the IntegrityGate dimensions (FK-35 §35.2.4)
+    can verify producer / status / payload depth against the real artefact.
+
+    Args:
+        story_dir: Story base directory (used to resolve the story_id/run_id
+            when ``scope`` is ``None``).
+        scope: Resolved runtime scope (narrows to one run_id when present).
+        stage: The QA layer stage id.
+
+    Returns:
+        The latest :class:`ArtifactEnvelope` (typed ``object`` to keep the
+        facade import-light), or ``None`` when absent.
+    """
+    from agentkit.core_types import ArtifactClass
+    from agentkit.state_backend.store.artifact_repository import (
+        StateBackendArtifactRepository,
+    )
+
+    if scope is not None:
+        story_id, run_id = scope.story_id, scope.run_id
+    else:
+        try:
+            resolved = resolve_runtime_scope(story_dir)
+        except CorruptStateError:
+            return None
+        story_id, run_id = resolved.story_id, resolved.run_id
+    repository = StateBackendArtifactRepository(story_dir)
+    return repository.find_latest_envelope(
+        story_id=story_id,
+        run_id=run_id,
+        artifact_class=ArtifactClass.QA,
+        stage=stage,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Artifact records (raw JSON payload reads)
 # ---------------------------------------------------------------------------

@@ -48,6 +48,24 @@ class SonarApplicability(StrEnum):
     NOT_APPLICABLE_FAST = "NOT_APPLICABLE_FAST"
 
 
+def is_code_producing_story(story_type: StoryType) -> bool:
+    """Whether ``story_type`` is code-producing (the gate's applicability axis).
+
+    SSOT for the code-producing set the truth-boundary loader uses to decide
+    whether a missing/unresolvable project root is a legitimate, declared
+    absence (non-code-producing => skip) or a broken precondition that must
+    fail closed (code-producing => never a silent Dim-9 skip, FK-33 §33.6.5).
+
+    Args:
+        story_type: The story type under evaluation.
+
+    Returns:
+        ``True`` iff the gate ever applies to this story type
+        (implementation/bugfix).
+    """
+    return story_type in _CODE_PRODUCING_TYPES
+
+
 def resolve_applicability(
     *,
     available: bool,
@@ -84,4 +102,8 @@ def resolve_applicability(
     return SonarApplicability.APPLICABLE
 
 
-__all__ = ["SonarApplicability", "resolve_applicability"]
+__all__ = [
+    "SonarApplicability",
+    "is_code_producing_story",
+    "resolve_applicability",
+]

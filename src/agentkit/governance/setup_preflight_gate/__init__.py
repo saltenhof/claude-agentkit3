@@ -16,12 +16,20 @@ from agentkit.governance.setup_preflight_gate.phase import (
     SetupPhaseHandler,
 )
 from agentkit.governance.setup_preflight_gate.preflight import (
+    PreflightCheckId,
+    PreflightCheckResult,
+    PreflightContext,
     PreflightResult,
+    PreflightStatus,
     run_preflight,
 )
 
 __all__ = [
+    "PreflightCheckId",
+    "PreflightCheckResult",
+    "PreflightContext",
     "PreflightResult",
+    "PreflightStatus",
     "SetupConfig",
     "SetupPhaseHandler",
     "build_story_context",

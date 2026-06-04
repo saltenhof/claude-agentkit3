@@ -32,6 +32,10 @@ class VerifyDecision:
         all_findings: Flattened tuple of all findings from all layers.
         blocking_findings: Tuple of findings that caused failure.
         summary: Human-readable summary of the decision.
+        max_major_findings: The MAJOR-findings threshold this decision was
+            taken under (FK-27 §27.7.2).  Persisted into the decision artefact
+            as ``major_threshold`` so the IntegrityGate Dim 4 (DECISION_INVALID,
+            FK-35 §35.2.4) can verify the canonical policy record carries it.
     """
 
     passed: bool
@@ -40,6 +44,7 @@ class VerifyDecision:
     all_findings: tuple[Finding, ...]
     blocking_findings: tuple[Finding, ...]
     summary: str
+    max_major_findings: int = 0
 
     @property
     def status(self) -> str:
@@ -119,6 +124,7 @@ class PolicyEngine:
             all_findings=all_findings_tuple,
             blocking_findings=blocking_tuple,
             summary=summary,
+            max_major_findings=self._max_major,
         )
 
 

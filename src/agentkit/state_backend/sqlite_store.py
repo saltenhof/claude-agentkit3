@@ -693,6 +693,24 @@ def _ensure_runtime_tables_part2(conn: sqlite3.Connection) -> None:
             freeze_version  INTEGER NOT NULL,
             PRIMARY KEY (story_id)
         );
+
+        -- AG3-034 (FK-24 §24.3.3, FK-22 §22.3.1 Check 10): project_mode_lock.
+        -- Test-Parallel-Pfad mit IDENTISCHER DDL zu postgres_schema.sql (Postgres
+        -- ist kanonisch). Projektweiter Mode-Lock fuer die Fast/Standard-Mutual-
+        -- Exclusion; AG3-034 stellt NUR den Read-Pfad fuer Preflight-Check 10 her
+        -- (atomare Setzung = AG3-018-Folge, story.md §2.1.2 / §2.2). active_mode
+        -- liegt auf der entkoppelten fast/standard-mode-Achse (WireStoryMode,
+        -- FK-24 §24.3.3), NICHT auf der execution_route-Achse. NULL = idle.
+        -- holder_count >= 0.
+        CREATE TABLE IF NOT EXISTS project_mode_lock (
+            project_key    TEXT NOT NULL,
+            active_mode    TEXT CHECK (active_mode IS NULL OR active_mode IN (
+                'standard', 'fast'
+            )),
+            holder_count   INTEGER NOT NULL DEFAULT 0 CHECK (holder_count >= 0),
+            updated_at     TEXT NOT NULL,
+            PRIMARY KEY (project_key)
+        );
         """
     )
     _ensure_runtime_tables_part3(conn)

@@ -241,3 +241,203 @@ def test_build_verify_system_wires_injected_sonar_gate_port(tmp_path: Path) -> N
     )
     vs = build_verify_system(tmp_path, sonar_gate_port=port)
     assert isinstance(vs.sonar_gate_port, ConfiguredSonarGateInputPort)
+
+
+# ---------------------------------------------------------------------------
+# R3-C/A2 — the Dim-9 truth-boundary config loader (_load_sonar_config) is
+# FAIL-CLOSED: a broken/unreadable project config PROPAGATES (never a silent
+# Dim-9 skip), while a deliberate declared absence (available:false / no stanza
+# on a non-code project) legitimately resolves to None.
+# ---------------------------------------------------------------------------
+
+
+def _save_ctx_with_project_root(story_dir: Path, project_root: Path) -> None:
+    from agentkit.state_backend.store import save_story_context
+    from agentkit.story_context_manager.models import StoryContext
+    from agentkit.story_context_manager.story_model import WireStoryMode
+    from agentkit.story_context_manager.types import StoryMode, StoryType
+
+    save_story_context(
+        story_dir,
+        StoryContext(
+            project_key="proj",
+            story_id="AG3-001",
+            story_type=StoryType.IMPLEMENTATION,
+            execution_route=StoryMode.EXECUTION,
+            mode=WireStoryMode.STANDARD,
+            title="dim9 config loader",
+            project_root=project_root,
+        ),
+    )
+
+
+def _save_ctx_without_project_root(story_dir: Path) -> None:
+    from agentkit.state_backend.store import save_story_context
+    from agentkit.story_context_manager.models import StoryContext
+    from agentkit.story_context_manager.story_model import WireStoryMode
+    from agentkit.story_context_manager.types import StoryMode, StoryType
+
+    save_story_context(
+        story_dir,
+        StoryContext(
+            project_key="proj",
+            story_id="AG3-001",
+            story_type=StoryType.IMPLEMENTATION,
+            execution_route=StoryMode.EXECUTION,
+            mode=WireStoryMode.STANDARD,
+            title="dim9 no project_root",
+            project_root=None,
+        ),
+    )
+
+
+def _gate_ctx(story_dir: Path) -> object:
+    from agentkit.governance.integrity_gate import IntegrityGateContext
+    from agentkit.story_context_manager.types import StoryType
+
+    return IntegrityGateContext(
+        story_dir=story_dir, story_type=StoryType.IMPLEMENTATION
+    )
+
+
+def _gate_ctx_for(story_dir: Path, story_type: object) -> object:
+    from agentkit.governance.integrity_gate import IntegrityGateContext
+
+    return IntegrityGateContext(story_dir=story_dir, story_type=story_type)
+
+
+def test_load_sonar_config_propagates_config_error_no_silent_skip(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R3-C/A2: a code-producing project that OMITS the sonarqube stanza
+    raises ``ConfigError`` (E6 hard-fail); ``_load_sonar_config`` must PROPAGATE
+    it, never swallow it into ``None`` (which would route to a silent Dim-9
+    skip). Mirrors AG3-052 ``test_anchor_propagates_config_error_no_silent_skip``.
+    """
+    monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
+    monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
+    monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
+    import pytest
+
+    from agentkit.bootstrap.composition_root import _load_sonar_config
+    from agentkit.exceptions import ConfigError
+    from agentkit.state_backend.store import reset_backend_cache_for_tests
+
+    reset_backend_cache_for_tests()
+    try:
+        project_root = tmp_path / "project"
+        cfg_dir = project_root / ".agentkit" / "config"
+        cfg_dir.mkdir(parents=True, exist_ok=True)
+        # Code-producing project, NO sonarqube stanza => E6 ConfigError on load.
+        (cfg_dir / "project.yaml").write_text(
+            "project_key: proj\n"
+            "project_name: Proj\n"
+            "repositories:\n  - name: app\n    path: .\n"
+            "pipeline:\n  max_feedback_rounds: 3\n",
+            encoding="utf-8",
+        )
+        story_dir = tmp_path / "stories" / "AG3-001"
+        story_dir.mkdir(parents=True, exist_ok=True)
+        _save_ctx_with_project_root(story_dir, project_root)
+
+        with pytest.raises(ConfigError):
+            _load_sonar_config(_gate_ctx(story_dir))
+    finally:
+        reset_backend_cache_for_tests()
+
+
+def test_load_sonar_config_available_false_is_declared_absence_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R3-C/A2: only a SUCCESSFULLY loaded config with an explicit
+    ``available: false`` is a legitimate declared absence -> ``None`` (skip).
+    """
+    monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
+    monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
+    monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
+    from agentkit.bootstrap.composition_root import _load_sonar_config
+    from agentkit.config.models import SonarQubeConfig
+    from agentkit.state_backend.store import reset_backend_cache_for_tests
+
+    reset_backend_cache_for_tests()
+    try:
+        project_root = tmp_path / "project"
+        cfg_dir = project_root / ".agentkit" / "config"
+        cfg_dir.mkdir(parents=True, exist_ok=True)
+        (cfg_dir / "project.yaml").write_text(
+            "project_key: proj\n"
+            "project_name: Proj\n"
+            "repositories:\n  - name: app\n    path: .\n"
+            "pipeline:\n  sonarqube:\n"
+            "    available: false\n    enabled: false\n",
+            encoding="utf-8",
+        )
+        story_dir = tmp_path / "stories" / "AG3-001"
+        story_dir.mkdir(parents=True, exist_ok=True)
+        _save_ctx_with_project_root(story_dir, project_root)
+
+        stanza = _load_sonar_config(_gate_ctx(story_dir))
+        assert isinstance(stanza, SonarQubeConfig)
+        assert stanza.available is False
+    finally:
+        reset_backend_cache_for_tests()
+
+
+def test_load_sonar_config_no_project_root_code_story_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R4-C/A2: a CODE-PRODUCING story with NO resolvable ``project_root`` is a
+    broken precondition, NOT a declared absence. ``_load_sonar_config`` MUST
+    raise ``ConfigError`` (fail-closed) rather than return ``None`` (which would
+    route the productive port through ``build_sonar_gate_port_for_run(None)`` ->
+    deliberate-absence skip = Dim-9 fail-OPEN). The context is fully readable;
+    only ``project_root`` is unresolvable.
+    """
+    monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
+    monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
+    monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
+    import pytest
+
+    from agentkit.bootstrap.composition_root import _load_sonar_config
+    from agentkit.exceptions import ConfigError
+    from agentkit.state_backend.store import reset_backend_cache_for_tests
+
+    reset_backend_cache_for_tests()
+    try:
+        story_dir = tmp_path / "stories" / "AG3-001"
+        story_dir.mkdir(parents=True, exist_ok=True)
+        _save_ctx_without_project_root(story_dir)
+
+        with pytest.raises(ConfigError):
+            _load_sonar_config(_gate_ctx(story_dir))
+    finally:
+        reset_backend_cache_for_tests()
+
+
+def test_load_sonar_config_no_project_root_non_code_story_is_absence_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R4-C/A2: a NON-code-producing story (concept/research) with no resolvable
+    ``project_root`` is a legitimate, declared absence -> ``None`` (the gate never
+    applies to it). Only the code-producing axis turns the missing root into a
+    fail-closed precondition; this confirms the distinction is not over-broad.
+    """
+    monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
+    monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
+    monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
+    from agentkit.bootstrap.composition_root import _load_sonar_config
+    from agentkit.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.story_context_manager.types import StoryType
+
+    reset_backend_cache_for_tests()
+    try:
+        story_dir = tmp_path / "stories" / "AG3-001"
+        story_dir.mkdir(parents=True, exist_ok=True)
+        _save_ctx_without_project_root(story_dir)
+
+        stanza = _load_sonar_config(
+            _gate_ctx_for(story_dir, StoryType.CONCEPT)
+        )
+        assert stanza is None
+    finally:
+        reset_backend_cache_for_tests()

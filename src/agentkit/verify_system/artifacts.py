@@ -43,9 +43,20 @@ from agentkit.boundary.filesystem import atomic_write_json, load_json_object
 from agentkit.boundary.shared.time import now_iso
 from agentkit.core_types import ArtifactClass
 from agentkit.core_types.qa_artifact_names import (
+    ADVERSARIAL_PRODUCER,
+    ADVERSARIAL_STAGE,
+    DOC_FIDELITY_PRODUCER,
+    DOC_FIDELITY_STAGE,
     GUARDRAIL_FILE,
     LAYER_ARTIFACT_FILES,
+    QA_REVIEW_PRODUCER,
+    QA_REVIEW_STAGE,
+    SEMANTIC_REVIEW_PRODUCER,
+    SEMANTIC_REVIEW_STAGE,
+    STRUCTURAL_PRODUCER,
+    STRUCTURAL_STAGE,
     VERIFY_DECISION_FILE,
+    VERIFY_DECISION_PRODUCER,
     VERIFY_DECISION_STAGE,
 )
 from agentkit.verify_system.policy_engine.projections import (
@@ -63,28 +74,26 @@ if TYPE_CHECKING:
     from agentkit.verify_system.protocols import LayerResult
 
 
+# Producer/stage strings reference the cross-cutting SSOT
+# ``core_types.qa_artifact_names`` (FK-27 §27.7; no second naming truth, R2-H).
 _LAYER_TO_PRODUCER: dict[str, tuple[str, ProducerType]] = {
-    "structural": ("verify-system.layer-1-structural", ProducerType.DETERMINISTIC),
-    # Layer-2 sub-reviewers (FK-27 §27.7):
-    "qa_review": ("verify-system.layer-2-qa-review", ProducerType.LLM_REVIEWER),
-    "semantic_review": ("verify-system.layer-2-semantic-review", ProducerType.LLM_REVIEWER),
-    "doc_fidelity": ("verify-system.layer-2-doc-fidelity", ProducerType.LLM_REVIEWER),
-    "adversarial": ("verify-system.layer-3-adversarial", ProducerType.LLM_REVIEWER),
+    "structural": (STRUCTURAL_PRODUCER, ProducerType.DETERMINISTIC),
+    "qa_review": (QA_REVIEW_PRODUCER, ProducerType.LLM_REVIEWER),
+    "semantic_review": (SEMANTIC_REVIEW_PRODUCER, ProducerType.LLM_REVIEWER),
+    "doc_fidelity": (DOC_FIDELITY_PRODUCER, ProducerType.LLM_REVIEWER),
+    "adversarial": (ADVERSARIAL_PRODUCER, ProducerType.LLM_REVIEWER),
 }
 _LAYER_TO_STAGE: dict[str, str] = {
-    "structural": "qa-layer-structural",
-    # Layer-2 sub-stages (FK-27 §27.7):
-    "qa_review": "qa-layer-qa-review",
-    "semantic_review": "qa-layer-semantic-review",
-    "doc_fidelity": "qa-layer-doc-fidelity",
-    "adversarial": "qa-layer-adversarial",
+    "structural": STRUCTURAL_STAGE,
+    "qa_review": QA_REVIEW_STAGE,
+    "semantic_review": SEMANTIC_REVIEW_STAGE,
+    "doc_fidelity": DOC_FIDELITY_STAGE,
+    "adversarial": ADVERSARIAL_STAGE,
 }
 _VERIFY_DECISION_PRODUCER: tuple[str, ProducerType] = (
-    "verify-system.layer-4-policy",
+    VERIFY_DECISION_PRODUCER,
     ProducerType.DETERMINISTIC,
 )
-# FK-27 §27.7: kanonischer Stage-String fuer das Policy-Decision-Artefakt.
-_VERIFY_DECISION_STAGE = VERIFY_DECISION_STAGE
 
 
 def write_layer_artifacts(
@@ -162,7 +171,7 @@ def write_verify_decision_artifacts(
         schema_version="3.0",
         story_id=story_id,
         run_id=run_id,
-        stage=_VERIFY_DECISION_STAGE,
+        stage=VERIFY_DECISION_STAGE,
         attempt=attempt_nr,
         producer=Producer(
             type=producer_type,
@@ -201,7 +210,7 @@ def load_verify_decision_artifact(
             story_id=story_id,
             run_id=run_id,
             artifact_class=ArtifactClass.QA,
-            stage=_VERIFY_DECISION_STAGE,
+            stage=VERIFY_DECISION_STAGE,
         )
     except ArtifactNotFoundError:
         return None

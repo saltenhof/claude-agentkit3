@@ -33,11 +33,14 @@ from agentkit.state_backend.store.artifact_repository import (
 from agentkit.verify_system.register import register_verify_producers
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
     from agentkit.failure_corpus import FailureCorpus
     from agentkit.governance.integrity_gate import IntegrityGate
+    from agentkit.governance.integrity_gate.dim9_sonar import SonarDimensionPort
     from agentkit.governance.repository import SetupContextRepository
+    from agentkit.governance.setup_preflight_gate.phase import SetupPhaseHandler
     from agentkit.skills import Skills
     from agentkit.telemetry.projection_accessor import ProjectionAccessor
     from agentkit.verify_system.sonarqube_gate.port import SonarGateInputPort
@@ -262,23 +265,157 @@ def build_skills(
     return _Skills(bundle_store=bundle_store, binding_repo=repository)
 
 
-def build_integrity_gate() -> IntegrityGate:
+def build_integrity_gate(store_dir: Path | None = None) -> IntegrityGate:
     """Erzeugt einen vollstaendig verdrahteten ``IntegrityGate``.
 
     Composition-Root fuer die Closure-Phase (AG3-031 Pass-5 Fix E9):
-    Instanziiert ``StateBackendIntegrityGateStateAdapter`` und reicht ihn
-    als ``state_port`` an ``IntegrityGate`` weiter.  Consuminerende Module
-    duerfen nicht selbst aus ``state_backend.store`` importieren.
+    Instanziiert ``StateBackendIntegrityGateStateAdapter`` als ``state_port``.
+
+    AG3-034 (Finding E / Remediation E-F): verdrahtet zusaetzlich den
+    ``EnvelopeValidator``, sodass die Pflicht-Artefakt-Vorstufe die
+    Envelope-Pflichtfeldpruefung (FK-71 §71.2) fuer **jedes** Pflicht-QA-Artefakt
+    (Structural Dim 1 + Decision Dim 4) ausfuehrt (``ENVELOPE_VIOLATION`` bei
+    Verstoss).  Die Dimensionen lesen die kanonischen QA-Envelopes selbst ueber
+    den ``state_port`` (FK-35 §35.2.4 Producer/Status/Tiefe).
+
+    Dimension 9 (SONARQUBE_GREEN, R2-C/A2): verdrahtet den produktiven
+    ``ProductiveSonarDimensionPort``, der die AG3-052-Capability KONSUMIERT
+    (``build_sonar_gate_port_for_run`` + ``evaluate_sonarqube_gate``) — keine
+    eigene Attestation-Mechanik, kein None-Stub-Loader.  Die Capability loest die
+    Applicability aus ``sonarqube.available`` + Story-``mode`` + Story-Typ auf
+    (``available == false`` / fast / non-code => nicht-anwendbar, Dim 9
+    entfaellt).  Fuer einen APPLICABLE impl/bugfix-Run liest
+    ``build_sonar_gate_port_for_run`` das commit-gebundene Scan-Artefakt; ist es
+    abwesend (der integrierte Pre-Merge-Scan FK-29 §29.1a ist OOS), liefert die
+    Capability einen fail-closed APPLICABLE-Port (``attestation = None``) und
+    ``evaluate_sonarqube_gate`` ein ``failed``-Outcome -> Dim 9 **fail-closed**
+    (``SONAR_NOT_GREEN``/ESCALATED), NIEMALS Skip.
+
+    Args:
+        store_dir: Basisverzeichnis des State-Backends (SQLite); Postgres
+            ignoriert den Pfad.  ``None`` => Default-Store des Repositories.
 
     Returns:
-        ``IntegrityGate`` mit dem State-Backend-Adapter als State-Port.
+        ``IntegrityGate`` mit State-Port + Envelope-Validierung + Dim-9-Port.
     """
     from agentkit.governance.integrity_gate import IntegrityGate as _IntegrityGate
     from agentkit.state_backend.store.integrity_gate_repository import (
         StateBackendIntegrityGateStateAdapter,
     )
 
-    return _IntegrityGate(state_port=StateBackendIntegrityGateStateAdapter())
+    validator = EnvelopeValidator(build_producer_registry())
+    sonar_port = _build_dim9_sonar_port(store_dir)
+    return _IntegrityGate(
+        state_port=StateBackendIntegrityGateStateAdapter(),
+        envelope_validator=validator,
+        sonar_port=sonar_port,
+    )
+
+
+def _build_dim9_sonar_port(store_dir: Path | None) -> SonarDimensionPort:
+    """Build the productive Dim-9 ``SonarDimensionPort`` (FK-35 §35.2.4a, R2-C/A2).
+
+    Wires the :class:`ProductiveSonarDimensionPort`, which CONSUMES the AG3-052
+    capability (``build_sonar_gate_port_for_run`` + ``evaluate_sonarqube_gate``)
+    for the resolution AND the verdict — no hand-rolled attestation loader, no
+    second gate mechanic.  The two injected loaders are the truth-boundary reads
+    the composition root owns (``governance`` may not read the StoryContext /
+    project config directly): one resolves the run's :class:`StoryContext`, the
+    other the project :class:`SonarQubeConfig`.  The capability then resolves
+    applicability + the commit-bound inputs and produces the canonical outcome.
+    """
+    from agentkit.governance.integrity_gate.dim9_port import (
+        ProductiveSonarDimensionPort,
+    )
+
+    _ = store_dir  # the facade resolves the active backend itself.
+    return ProductiveSonarDimensionPort(
+        _load_sonar_config,  # type: ignore[arg-type]
+        _load_story_context_for_gate,  # type: ignore[arg-type]
+    )
+
+
+def _load_story_context_for_gate(gate_ctx: object) -> object | None:
+    """Resolve the run's ``StoryContext`` for the Dim-9 port (truth-boundary read).
+
+    Owned by the composition root: ``governance`` may not read the StoryContext
+    directly.  An unreadable/absent context returns ``None`` -> the port treats a
+    code story as APPLICABLE-but-unresolvable -> Dim 9 fails closed.
+    """
+    from agentkit.governance.integrity_gate import IntegrityGateContext
+    from agentkit.state_backend.store import facade
+
+    assert isinstance(gate_ctx, IntegrityGateContext)  # noqa: S101 - DI guard
+    try:
+        return facade.load_story_context(gate_ctx.story_dir)
+    except Exception:  # noqa: BLE001 -- unreadable context -> fail-closed downstream
+        return None
+
+
+def _load_sonar_config(gate_ctx: object) -> object | None:
+    """Resolve the project ``SonarQubeConfig`` for the Dim-9 port (truth boundary).
+
+    Returns the project's ``sonarqube`` config stanza, or ``None`` ONLY for a
+    legitimate, deliberate absence: no resolvable project root, or a successfully
+    loaded config that simply omits the ``sonarqube`` stanza (a non-code-producing
+    project — ``build_sonar_gate_port_for_run`` then resolves a declared skip,
+    FK-33 §33.6.5 "absent != broken").
+
+    FAIL-CLOSED (R3-C/A2, analog AG3-052
+    ``test_anchor_propagates_config_error_no_silent_skip``): a BROKEN or unreadable
+    project config (``ConfigError``/``OSError`` from ``load_project_config``,
+    including the E6 hard-fail on an omitted stanza for a code-producing project)
+    is NOT a declared absence.  It MUST NOT be swallowed into ``None`` (which would
+    route through the absent-port branch => silent Dim-9 skip).  It PROPAGATES so
+    the Dim-9 port fails closed (``SONAR_NOT_GREEN``/escalation), never an inert
+    skip (FAIL-CLOSED, ZERO DEBT).  ``governance`` never reads the project config
+    directly; this composition-root helper owns the read.
+
+    Equally fail-closed (R4-C/A2): an absent/unresolvable ``project_root`` is a
+    declared absence ONLY for a NON-code-producing story (the gate never applies
+    to it; ``None`` -> deliberate skip).  For a CODE-PRODUCING story
+    (implementation/bugfix) an unresolvable ``project_root`` is a BROKEN
+    precondition — the config cannot be loaded, so applicability cannot be
+    proven absent.  It MUST raise ``ConfigError`` (fail-closed) rather than
+    return ``None``, which would otherwise route through the absent-port branch
+    into a silent Dim-9 skip = fail-open.  The code-producing axis is the
+    AG3-052 SSOT (``is_code_producing_story``), not a re-derived flag.
+
+    Raises:
+        ConfigError: When the project config cannot be loaded/validated for a run
+            with a resolvable project root (propagated fail-closed), OR when a
+            code-producing story has no resolvable ``project_root`` (broken
+            precondition => never a silent skip).
+        OSError: When the config files cannot be read (propagated fail-closed).
+    """
+    from agentkit.config.loader import load_project_config
+    from agentkit.exceptions import ConfigError
+    from agentkit.governance.integrity_gate import IntegrityGateContext
+    from agentkit.state_backend.store import facade
+    from agentkit.verify_system.sonarqube_gate import is_code_producing_story
+
+    assert isinstance(gate_ctx, IntegrityGateContext)  # noqa: S101 - DI guard
+    try:
+        ctx = facade.load_story_context(gate_ctx.story_dir)
+    except Exception:  # noqa: BLE001 -- unreadable context -> no config
+        return None
+    if ctx is None or ctx.project_root is None:
+        if is_code_producing_story(gate_ctx.story_type):
+            # Code-producing story without a resolvable project root: the config
+            # is unloadable, so a deliberate absence cannot be proven. Fail
+            # closed (never a silent Dim-9 skip; FK-33 §33.6.5, R4-C/A2).
+            msg = (
+                "cannot resolve project_root for code-producing story "
+                f"{gate_ctx.story_type.value!r}: project config unloadable -> "
+                "Dim 9 fail-closed (no silent skip)"
+            )
+            raise ConfigError(msg)
+        return None
+    # NO try/except ConfigError/OSError -> None here: a broken/unreadable config
+    # is a fail-closed condition, NOT a declared absence (R3-C/A2).
+    project_config = load_project_config(ctx.project_root)
+    pipeline = getattr(project_config, "pipeline", None)
+    return getattr(pipeline, "sonarqube", None) if pipeline is not None else None
 
 
 def build_setup_preflight_gate() -> SetupContextRepository:
@@ -297,6 +434,108 @@ def build_setup_preflight_gate() -> SetupContextRepository:
     )
 
     return StateBackendSetupContextAdapter()
+
+
+def build_setup_phase_handler(
+    config: object,
+    *,
+    store_dir: Path | None = None,
+    dependency_repository: object | None = None,
+    green_main_port: object | None = None,
+) -> SetupPhaseHandler:
+    """Wire a fully-collaborated ``SetupPhaseHandler`` (AG3-034 canonical point).
+
+    Assembles the Setup-phase collaborators the truth-boundary-protected
+    handler may not build itself: the context repository, the run-aware
+    residue probe (Check 6, Finding B), the project ``ModeLockRepository``
+    read path (Check 10) and the optional green-main capability port (FK-22
+    §22.4c).  Callers that build a bare ``SetupPhaseHandler(config, repo)``
+    miss the residue/mode-lock wiring and the residue check fails closed.
+
+    Args:
+        config: The ``SetupConfig``.
+        store_dir: State-backend base dir for the residue probe + mode-lock
+            repository (SQLite); ``None`` => the config's ``project_root``.
+        dependency_repository: Optional ``StoryDependencyRepository`` (Check 4).
+        green_main_port: Optional ``MainGreenPort`` (FK-22 §22.4c); ``None`` is
+            the absent-Sonar default (green-main SKIPs unless APPLICABLE).
+
+    Returns:
+        A wired ``SetupPhaseHandler``.
+    """
+    from agentkit.governance.setup_preflight_gate.phase import (
+        SetupConfig,
+        SetupPhaseHandler,
+    )
+    from agentkit.state_backend.store.mode_lock_repository import ModeLockRepository
+
+    if not isinstance(config, SetupConfig):
+        msg = f"config must be a SetupConfig; got {type(config).__name__}"
+        raise TypeError(msg)
+    return SetupPhaseHandler(
+        config,
+        build_setup_preflight_gate(),
+        dependency_repository=dependency_repository,  # type: ignore[arg-type]
+        mode_lock_repository=ModeLockRepository(config.project_root),
+        green_main_port=green_main_port,  # type: ignore[arg-type]
+        residue_probe=build_phase_state_residue_probe(
+            store_dir or config.project_root
+        ),
+    )
+
+
+def build_phase_state_residue_probe(
+    store_dir: Path | None = None,
+) -> Callable[[Path, str], bool]:
+    """Build the run-residue probe for Preflight Check 6 (AG3-034 Finding B).
+
+    The canonical residue read (a left-over phase-state of a PRIOR, un-reset
+    run) is a state-backend read.  ``governance`` is truth-boundary-protected
+    and may NOT call the loader directly (TB003), so this composition-root
+    helper owns the read and is INJECTED into the ``SetupPhaseHandler`` as a
+    plain callable.
+
+    Excluding the CURRENT run (FK-22 §22.3.1, Check 6): the pipeline persists a
+    fresh ``setup``/``PENDING`` phase-state before preflight runs, so a
+    ``setup``-phase state in a not-yet-active status (``PENDING``/``IN_PROGRESS``)
+    is the run being set up — NOT residue.  Residue is a non-terminal phase-state
+    that signals an un-reset prior run: a ``FAILED``/``PAUSED`` state in any
+    phase, or any non-terminal state in a phase BEYOND setup
+    (``implementation``/``closure`` left-over).
+
+    Args:
+        store_dir: Base directory of the state backend (SQLite); ignored by
+            Postgres.
+
+    Returns:
+        ``check(project_root, story_display_id) -> bool`` (True == residue).
+    """
+    from agentkit.installer.paths import story_dir
+    from agentkit.state_backend.store import facade
+    from agentkit.story_context_manager.models import PhaseStatus
+
+    _ = store_dir  # facade resolves the active backend itself.
+    stalled = {
+        PhaseStatus.FAILED,
+        PhaseStatus.PAUSED,
+        PhaseStatus.ESCALATED,
+        PhaseStatus.BLOCKED,
+    }
+    fresh_current_run = {PhaseStatus.PENDING, PhaseStatus.IN_PROGRESS}
+
+    def _probe(project_root: Path, story_display_id: str) -> bool:
+        s_dir = story_dir(project_root, story_display_id)
+        state = facade.load_phase_state(s_dir)
+        if state is None or state.status is PhaseStatus.COMPLETED:
+            return False
+        if state.status in stalled:
+            return True  # stalled prior run, regardless of phase
+        # PENDING / IN_PROGRESS: residue only when BEYOND the setup phase
+        # (a left-over implementation/closure run); a fresh setup state is the
+        # current run being set up, not residue.
+        return state.phase != "setup" and state.status in fresh_current_run
+
+    return _probe
 
 
 def build_projection_accessor(store_dir: Path | None = None) -> ProjectionAccessor:
@@ -370,8 +609,10 @@ __all__ = [
     "build_artifact_manager",
     "build_failure_corpus",
     "build_integrity_gate",
+    "build_phase_state_residue_probe",
     "build_producer_registry",
     "build_projection_accessor",
+    "build_setup_phase_handler",
     "build_setup_preflight_gate",
     "build_skills",
     "build_sonar_gate_port",

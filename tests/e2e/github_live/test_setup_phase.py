@@ -6,13 +6,14 @@ Pre-existing issues: #1 (implementation), #2 (bugfix), #3 (concept).
 
 from __future__ import annotations
 
+import subprocess
 from typing import TYPE_CHECKING
 
 import pytest
 from tests.e2e._helpers import seed_approved_story
 
-from agentkit.bootstrap.composition_root import build_setup_preflight_gate
-from agentkit.governance.setup_preflight_gate.phase import SetupConfig, SetupPhaseHandler
+from agentkit.bootstrap.composition_root import build_setup_phase_handler
+from agentkit.governance.setup_preflight_gate.phase import SetupConfig
 from agentkit.installer import InstallConfig, install_agentkit
 from agentkit.installer.paths import story_dir
 from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
@@ -27,6 +28,15 @@ if TYPE_CHECKING:
 
 OWNER = "saltenhof"
 REPO = "agentkit3-testbed"
+
+
+def _init_repo(root: Path) -> None:
+    """Init a real git repo (Preflight Check 7 reads it, AG3-034 Finding B)."""
+    subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+    subprocess.run(
+        ["git", "-C", str(root), "config", "user.email", "t@example.com"], check=True
+    )
+    subprocess.run(["git", "-C", str(root), "config", "user.name", "T"], check=True)
 
 
 @pytest.mark.e2e
@@ -54,7 +64,8 @@ class TestSetupPhaseE2E:
             project_root=tmp_path,
             create_worktree=False,  # No git repo in tmp_path
         )
-        handler = SetupPhaseHandler(config, build_setup_preflight_gate())
+        _init_repo(tmp_path)
+        handler = build_setup_phase_handler(config)
 
         # Seed the APPROVED Story the Setup preflight gate requires
         # (real StoryService persistence, no mock).
@@ -110,7 +121,8 @@ class TestSetupPhaseE2E:
             issue_nr=99999,
             project_root=tmp_path,
         )
-        handler = SetupPhaseHandler(config, build_setup_preflight_gate())
+        _init_repo(tmp_path)
+        handler = build_setup_phase_handler(config)
         ctx = StoryContext(
             project_key="test",
             story_id="FAIL-001",
