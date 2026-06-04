@@ -68,7 +68,9 @@ hat Vorrang — diese Rubric ist die *Review-Brille*, nicht ihr Ersatz.
     `pytest` (volle Suite + Coverage ≥85% — nicht nur gezielt), `mypy src` **und**
     `mypy src --platform linux`, `ruff check src tests`, der LOC-Linter (0 issues), die 4
     Konzept-Gates. **Und** den Sonar-Quality-Gate *vorwegnehmen*: typische new_violations selbst
-    vermeiden — `S3776` Cognitive Complexity ≤15 (Funktionen klein/in Helper schneiden),
+    vermeiden — `S3776` Cognitive Complexity ≤15 (Funktionen klein/in Helper schneiden;
+    **jetzt lokal via `ruff check` vorgeprüft** — `tool.ruff.lint.mccabe.max-complexity = 15`
+    als zyklomatischer Proxy, ein C901-Treffer ist ein verlässliches S3776-Frühwarnsignal),
     `S1110` redundante Klammern, `S7632` Suppression-Kommentar-Syntax (sauberes `# noqa: <CODE>`,
     Begründung als eigene Zeile), `S5713` redundante Exception-Klasse (Subklasse, die von einer
     bereits gefangenen Basis abgeleitet ist), `S5886`/`S5890` (dataclasses.replace/typing).

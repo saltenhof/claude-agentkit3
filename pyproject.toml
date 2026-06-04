@@ -71,7 +71,12 @@ target-version = "py312"
 line-length = 130
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM", "TCH"]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM", "TCH", "C90"]
+
+[tool.ruff.lint.mccabe]
+# Local proxy for Sonar S3776 (Cognitive Complexity); catches overly complex
+# functions in the mandatory ruff pre-push run instead of only via Sonar on Jenkins.
+max-complexity = 15
 
 [tool.ruff.lint.flake8-type-checking]
 runtime-evaluated-base-classes = ["pydantic.BaseModel"]
