@@ -98,9 +98,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.story_context_manager.models import StoryContext
-    from agentkit.verify_system.qa_cycle.invalidation import (
-        ArtifactInvalidationSink,
-    )
+    from agentkit.verify_system.llm_evaluator import Layer2ReviewInput, LlmClient, ParallelEvalRunner
+    from agentkit.verify_system.qa_cycle.invalidation import ArtifactInvalidationSink
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +183,8 @@ class VerifySystem:
     artifact_manager: ArtifactManager
     story_context_port: StoryContextQueryPort = _NULL_STORY_CONTEXT_PORT
     sonar_gate_port: SonarGateInputPort = ABSENT_SONAR_GATE_PORT
+    layer2_runner: ParallelEvalRunner | None = None
+    layer2_llm_client: LlmClient | None = None
     qa_cycle_lifecycle: _qa.QaCycleLifecycle = field(
         default_factory=_qa.QaCycleLifecycle
     )
@@ -219,6 +220,7 @@ class VerifySystem:
         story_context_port: StoryContextQueryPort | None = None,
         sonar_gate_port: SonarGateInputPort | None = None,
         invalidation_sink: ArtifactInvalidationSink | None = None,
+        layer2_llm_client: LlmClient | None = None,
     ) -> VerifySystem:
         """Construct a ``VerifySystem`` with default sub-components.
 
@@ -256,6 +258,12 @@ class VerifySystem:
                 verdrahtete Telemetrie). Produktive Aufrufer reichen den
                 telemetrie-gebundenen Sink via
                 ``composition_root.build_verify_system`` ein.
+            layer2_llm_client: Optionaler ``LlmClient`` (AG3-043 E6, FK-27
+                §27.5). Wenn gesetzt, baut der QA-Subflow pro Run einen
+                ``ParallelEvalRunner`` (FK-44 §44.4.2) und faehrt die drei
+                LLM-Bewertungen WIRKLICH (kein Rueckfall auf die
+                deterministischen Stub-Reviewer); ``None`` => Reviewer-Pfad.
+                Produktiv via ``composition_root.build_verify_system``.
 
         Returns:
             A frozen ``VerifySystem`` with default-configured sub-components.
@@ -298,6 +306,7 @@ class VerifySystem:
             artifact_manager=artifact_manager,
             story_context_port=resolved_port,
             sonar_gate_port=resolved_sonar_port,
+            layer2_llm_client=layer2_llm_client,
             remediation_loop_controller=(
                 _qa.RemediationLoopController(
                     max_feedback_rounds=max_feedback_rounds
@@ -490,6 +499,8 @@ class VerifySystem:
                 story_ctx=_story_ctx,
                 layer_results=layer_results,
                 artifact_refs_written=artifact_refs_written,
+                qa_cycle_round=cycle_state.round,
+                previous_findings=previous_findings,
             )
 
         # Step 5: Policy decision. On a Sonar fail-closed short-circuit the
@@ -546,8 +557,17 @@ class VerifySystem:
             resolution_map_has_open_findings,
         )
 
-        resolution_map = _qa.assess_finding_resolution(
-            qa_context, previous_findings, decision.all_findings
+        # AG3-043 E5: the deterministic assessor is the baseline; the Layer-2
+        # LLM resolution verdicts (carried in each Layer-2 LayerResult.metadata)
+        # are merged into the SAME map so a still-open LLM verdict
+        # (partially_resolved / not_resolved) reaches the canonical closure
+        # block -- not just the audit metadata. Fail-closed merge: the more-open
+        # status wins per (layer, check) key.
+        resolution_map = _qa.merge_llm_finding_resolutions(
+            _qa.assess_finding_resolution(
+                qa_context, previous_findings, decision.all_findings
+            ),
+            tuple(decision.layer_results),
         )
         feedback = build_feedback(
             decision, story_id, ctx.attempt, finding_resolution=resolution_map
@@ -683,13 +703,17 @@ class VerifySystem:
         story_ctx: object | None,
         layer_results: list[LayerResult],
         artifact_refs_written: list[str],
+        qa_cycle_round: int,
+        previous_findings: tuple[Finding, ...],
     ) -> None:
         """Execute a non-gate data layer and write its envelope(s).
 
         Extracted from :meth:`run_qa_subflow` (S3776) without behaviour change.
 
-        * ``LLM_EVALUATOR`` (W1): runs the three distinct Layer-2 reviewers,
-          each producing its own ``LayerResult`` and its own envelope.
+        * ``LLM_EVALUATOR`` (AG3-043): when an ``layer2_runner`` is wired, runs
+          the three parallel LLM evaluations (FK-27 §27.5.1); otherwise falls
+          back to the three deterministic Layer-2 reviewers. Either way it
+          produces three ``LayerResult`` (one per role) and three envelopes.
         * STRUCTURAL / ADVERSARIAL: resolves the single layer instance, executes
           it once and writes its single artefact spec(s).
 
@@ -705,34 +729,34 @@ class VerifySystem:
                 place).
             artifact_refs_written: Mutable accumulator of artefact filenames
                 (appended in place).
+            qa_cycle_round: 1-based QA-cycle round (``> 1`` => remediation;
+                passed to the LLM runner for finding-resolution).
+            previous_findings: Prior-round findings carried into the LLM
+                runner's remediation bundle (DK-04 §4.6).
         """
         if kind is QALayerKind.LLM_EVALUATOR:
-            for layer_instance, spec in self._layer2_pairs():
-                result = self._execute_layer(
-                    layer_instance, ctx, story_id, kind,
-                    review_input=effective_review_input,
-                    story_context=story_ctx,
-                )
-                layer_results.append(result)
-                self._write_layer_envelope(
-                    spec=spec,
-                    result=result,
-                    ctx=ctx,
-                    story_id=story_id,
-                    now_str=now_str,
-                    qa_cycle_fields=qa_cycle_fields,
-                )
-                artifact_refs_written.append(spec.filename)
-            return
+            results = _run_layer2(
+                self,
+                ctx=ctx,
+                story_id=story_id,
+                kind=kind,
+                effective_review_input=effective_review_input,
+                story_ctx=story_ctx,
+                qa_cycle_round=qa_cycle_round,
+                previous_findings=previous_findings,
+            )
+            pairs = list(zip(results, _LAYER_2_SPECS, strict=True))
+        else:
+            layer_instance = self._layer_for_kind(kind)
+            result = self._execute_layer(
+                layer_instance, ctx, story_id, kind,
+                review_input=effective_review_input,
+                story_context=story_ctx,
+            )
+            pairs = [(result, spec) for spec in _kind_to_single_artifacts(kind)]
 
-        layer_instance = self._layer_for_kind(kind)
-        result = self._execute_layer(
-            layer_instance, ctx, story_id, kind,
-            review_input=effective_review_input,
-            story_context=story_ctx,
-        )
-        layer_results.append(result)
-        for spec in self._kind_to_single_artifacts(kind):
+        for result, spec in pairs:
+            layer_results.append(result)
             self._write_layer_envelope(
                 spec=spec,
                 result=result,
@@ -1025,28 +1049,162 @@ class VerifySystem:
         self.artifact_manager.write(envelope)
         return _POLICY_ARTIFACT_SPEC.filename
 
-    # ------------------------------------------------------------------
-    # Private static helpers
-    # ------------------------------------------------------------------
 
-    @staticmethod
-    def _kind_to_single_artifacts(
-        kind: QALayerKind,
-    ) -> tuple[_LayerArtifactSpec, ...]:
-        """Return the single-artefact specs for Layer 1 or Layer 3.
+def _kind_to_single_artifacts(kind: QALayerKind) -> tuple[_LayerArtifactSpec, ...]:
+    """Return the single-artefact specs for Layer 1 or Layer 3 (module helper).
 
-        Layer 2 is handled separately via ``_layer2_pairs``.
+    Layer 2 is handled separately via ``VerifySystem._layer2_pairs``. Kept at
+    module level (not a method) to hold ``VerifySystem`` under the class-LOC
+    budget.
 
-        Args:
-            kind: Layer kind (STRUCTURAL or ADVERSARIAL).
+    Args:
+        kind: Layer kind (STRUCTURAL or ADVERSARIAL).
 
-        Returns:
-            Tuple with one ``_LayerArtifactSpec``.
-        """
-        if kind is QALayerKind.STRUCTURAL:
-            return _LAYER_1_ARTIFACTS
-        if kind is QALayerKind.ADVERSARIAL:
-            return _LAYER_3_ARTIFACTS
-        msg = f"_kind_to_single_artifacts called with non-single kind {kind!r}"
-        raise ValueError(msg)  # pragma: no cover
+    Returns:
+        Tuple with one ``_LayerArtifactSpec``.
+    """
+    if kind is QALayerKind.STRUCTURAL:
+        return _LAYER_1_ARTIFACTS
+    if kind is QALayerKind.ADVERSARIAL:
+        return _LAYER_3_ARTIFACTS
+    msg = f"_kind_to_single_artifacts called with non-single kind {kind!r}"
+    raise ValueError(msg)  # pragma: no cover
+
+
+def _run_layer2(
+    system: VerifySystem,
+    *,
+    ctx: VerifyContextBundle,
+    story_id: str,
+    kind: QALayerKind,
+    effective_review_input: object | None,
+    story_ctx: object | None,
+    qa_cycle_round: int,
+    previous_findings: tuple[Finding, ...],
+) -> tuple[LayerResult, LayerResult, LayerResult]:
+    """Return the three Layer-2 role results (qa/semantic/doc) in canonical order.
+
+    Module-level helper (keeps ``VerifySystem`` under the class-LOC budget).
+    Resolution order (AG3-043 E6):
+
+    1. An explicitly-wired ``system.layer2_runner`` (test double / explicit
+       composition) -> three parallel LLM evaluations (FK-27 §27.5.1),
+       fail-closed via ``run_layer2_llm_failclosed``.
+    2. Otherwise, a wired ``system.layer2_llm_client`` (productive default,
+       ``build_verify_system``) -> build a PER-RUN runner with the run's
+       ``StoryContext`` + ``PromptRuntimeMaterializer`` (FK-44 §44.4.2) and run
+       the three evaluations. "Reviews finden IMMER statt" (FK-27 §27.5): when
+       the run's ``StoryContext`` is unresolvable the reviews still RUN and
+       FAIL-CLOSED (three BLOCKING results), never a silent stub fallback.
+    3. Only when NEITHER is wired -> the historical deterministic Layer-2
+       reviewers via ``system._execute_layer``.
+
+    Args:
+        system: The owning ``VerifySystem`` (provides the layer instances and
+            the per-layer executor).
+        ctx: Run-time context bundle.
+        story_id: Story display-ID.
+        kind: ``QALayerKind.LLM_EVALUATOR``.
+        effective_review_input: Normalised ``Layer2ReviewInput``.
+        story_ctx: Pre-resolved ``StoryContext`` (or ``None``).
+        qa_cycle_round: 1-based QA-cycle round.
+        previous_findings: Prior-round findings (remediation context).
+
+    Returns:
+        Three ``LayerResult`` aligned with ``_LAYER_2_SPECS``.
+    """
+    runner = _resolve_layer2_runner(system, story_ctx, ctx.story_dir)
+    if runner is None and system.layer2_llm_client is None:
+        # No LLM wired at all -> historical deterministic reviewers.
+        results = [
+            system._execute_layer(  # noqa: SLF001  -- same-module helper
+                layer_instance, ctx, story_id, kind,
+                review_input=effective_review_input,
+                story_context=story_ctx,
+            )
+            for layer_instance, _spec in system._layer2_pairs()  # noqa: SLF001
+        ]
+        return (results[0], results[1], results[2])
+
+    from agentkit.verify_system.llm_evaluator.layer2_integration import (
+        blocking_layer2_results,
+        run_layer2_llm_failclosed,
+    )
+
+    if runner is None:
+        # An LLM client is wired but no per-run runner could be built (the run's
+        # StoryContext is unresolvable). Reviews must still run -> fail-closed
+        # BLOCKING, NOT a silent deterministic stub fallback (FK-27 §27.5).
+        return blocking_layer2_results(
+            "Layer 2 LLM client is wired but the run StoryContext is "
+            "unresolvable; reviews fail-closed (FK-27 §27.5)."
+        )
+
+    review_input = _normalise_layer2_input(effective_review_input)
+    return run_layer2_llm_failclosed(
+        runner,
+        review_input,
+        story_id=story_id,
+        qa_cycle_round=qa_cycle_round,
+        previous_findings=previous_findings,
+    )
+
+
+def _normalise_layer2_input(effective_review_input: object | None) -> Layer2ReviewInput:
+    """Return a concrete ``Layer2ReviewInput`` (empty default when not one)."""
+    from agentkit.verify_system.llm_evaluator.inputs import Layer2ReviewInput as _L2Input
+
+    return (
+        effective_review_input
+        if isinstance(effective_review_input, _L2Input)
+        else _L2Input()
+    )
+
+
+def _resolve_layer2_runner(
+    system: VerifySystem,
+    story_ctx: object | None,
+    story_dir: Path,
+) -> ParallelEvalRunner | None:
+    """Resolve the Layer-2 runner for this run (AG3-043 E6).
+
+    Returns the explicitly-wired ``system.layer2_runner`` when present;
+    otherwise, when a ``system.layer2_llm_client`` is wired, builds a PER-RUN
+    ``ParallelEvalRunner`` bound to the run's ``StoryContext`` via a
+    ``PromptRuntimeMaterializer`` (FK-44 §44.4.2). Returns ``None`` when no
+    runner can be built (no client, or no resolvable ``StoryContext``); the
+    caller decides between the deterministic path and the fail-closed path.
+
+    Args:
+        system: The owning ``VerifySystem``.
+        story_ctx: Pre-resolved ``StoryContext`` (or ``None``).
+        story_dir: The run's story working directory.
+
+    Returns:
+        A ``ParallelEvalRunner`` or ``None``.
+    """
+    if system.layer2_runner is not None:
+        return system.layer2_runner
+    if system.layer2_llm_client is None:
+        return None
+    from agentkit.story_context_manager.models import StoryContext
+
+    if not isinstance(story_ctx, StoryContext):
+        return None
+    from agentkit.verify_system.llm_evaluator.parallel_runner import ParallelEvalRunner
+    from agentkit.verify_system.llm_evaluator.prompt_materializer import (
+        PromptRuntimeMaterializer,
+    )
+    from agentkit.verify_system.llm_evaluator.structured_evaluator import (
+        StructuredEvaluator,
+    )
+
+    materializer = PromptRuntimeMaterializer(
+        ctx=story_ctx,
+        story_dir=story_dir,
+        artifact_manager=system.artifact_manager,
+        story_context_port=system.story_context_port,
+    )
+    evaluator = StructuredEvaluator(system.layer2_llm_client, materializer)
+    return ParallelEvalRunner(evaluator)
 

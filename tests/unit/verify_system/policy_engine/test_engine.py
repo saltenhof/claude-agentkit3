@@ -116,24 +116,31 @@ class TestPolicyEngine:
         assert result.verdict is PolicyVerdict.FAIL
         assert len(result.blocking_findings) == 1
 
-    def test_major_worker_findings_exceed_threshold_fail(self) -> None:
-        """When max_major_findings=0, even one MAJOR finding blocks."""
+    def test_major_system_findings_exceed_threshold_fail(self) -> None:
+        """When max_major_findings=0, even one MAJOR SYSTEM finding blocks."""
         engine = PolicyEngine(max_major_findings=0)
         result = engine.decide([
             LayerResult(
                 layer="test",
                 passed=False,
                 findings=(
-                    _finding(Severity.MAJOR, TrustClass.WORKER_ASSERTION),
+                    _finding(Severity.MAJOR, TrustClass.SYSTEM),
                 ),
             ),
         ])
         assert result.passed is False
         assert result.verdict is PolicyVerdict.FAIL
 
-    def test_major_worker_within_threshold_passes(self) -> None:
-        """When max_major_findings=2, one MAJOR finding is not blocking."""
-        engine = PolicyEngine(max_major_findings=2)
+    def test_major_worker_finding_never_blocks_even_over_threshold(self) -> None:
+        """Trust-C (WORKER_ASSERTION) MAJOR never blocks, even past threshold.
+
+        DK-04 §4.2 / FK-33 §33.5.2 Kernregel "Klasse C darf nie blocking sein"
+        (FK-07-008): a worker self-report must not be able to pass — or fail —
+        its own check. Even at ``max_major_findings=0`` a MAJOR finding from
+        ``WORKER_ASSERTION`` is filtered out before the MAJOR-threshold rule and
+        cannot drive a FAIL. Only SYSTEM/VERIFIED_LLM MAJOR findings count.
+        """
+        engine = PolicyEngine(max_major_findings=0)
         result = engine.decide([
             LayerResult(
                 layer="test",
@@ -143,8 +150,76 @@ class TestPolicyEngine:
                 ),
             ),
         ])
-        # MAJOR from WORKER_ASSERTION, and count (1) <= max_major (2)
-        # BLOCKING from SYSTEM trust would still block — only MAJOR-WORKER here
+        assert result.passed is True
+        assert result.verdict is PolicyVerdict.PASS
+        assert result.blocking_findings == ()
+
+    def test_blocking_worker_finding_never_blocks(self) -> None:
+        """E1-fix negative test: Trust-C BLOCKING does NOT block.
+
+        DK-04 §4.2 / FK-33 §33.5.2 (FK-07-008): Klasse C darf nie blocking
+        sein. Even a ``Severity.BLOCKING`` finding from ``WORKER_ASSERTION``
+        must NOT produce a FAIL — the worker cannot block (nor pass) its own
+        check. This is the regression test for the over-broad E1 fix that
+        blocked *any* BLOCKING finding regardless of trust class.
+        """
+        engine = PolicyEngine()
+        result = engine.decide([
+            LayerResult(
+                layer="test",
+                passed=True,
+                findings=(
+                    _finding(Severity.BLOCKING, TrustClass.WORKER_ASSERTION),
+                ),
+            ),
+        ])
+        assert result.passed is True
+        assert result.verdict is PolicyVerdict.PASS
+        assert result.blocking_findings == ()
+
+    def test_layer2_llm_fail_blocks_independent_of_high_major_threshold(self) -> None:
+        """E1 negative test: a single Layer-2 LLM FAIL blocks HARD even when
+        ``max_major_findings`` is generous (FK-33 §33.8.2 / FK-34 §34.2.5).
+
+        A Layer-2 role FAIL is mapped to a Trust-B (VERIFIED_LLM) BLOCKING
+        finding. BLOCKING is the unconditional, threshold-independent severity:
+        the engine MUST FAIL regardless of ``max_major_findings``. Before the
+        E1 fix the FAIL was a threshold-gated MAJOR and would have passed here.
+        """
+        engine = PolicyEngine(max_major_findings=5)
+        result = engine.decide([
+            LayerResult(
+                layer="qa_review",
+                passed=False,
+                findings=(
+                    _finding(
+                        Severity.BLOCKING,
+                        TrustClass.VERIFIED_LLM,
+                        layer="qa_review",
+                        check="ac_fulfilled",
+                    ),
+                ),
+            ),
+        ])
+        assert result.passed is False
+        assert result.verdict is PolicyVerdict.FAIL
+        assert len(result.blocking_findings) == 1
+        assert result.blocking_findings[0].trust_class is TrustClass.VERIFIED_LLM
+
+    def test_major_system_within_threshold_passes(self) -> None:
+        """When max_major_findings=2, one MAJOR SYSTEM finding is not blocking."""
+        engine = PolicyEngine(max_major_findings=2)
+        result = engine.decide([
+            LayerResult(
+                layer="test",
+                passed=True,
+                findings=(
+                    _finding(Severity.MAJOR, TrustClass.SYSTEM),
+                ),
+            ),
+        ])
+        # MAJOR from a blocking-eligible trust, count (1) <= max_major (2)
+        # -> not blocking. A BLOCKING-severity finding would still block.
         assert result.passed is True
         assert result.verdict is PolicyVerdict.PASS
 

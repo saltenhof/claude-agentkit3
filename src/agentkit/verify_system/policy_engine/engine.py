@@ -15,7 +15,45 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from agentkit.core_types import PolicyVerdict
-from agentkit.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
+from agentkit.verify_system.protocols import (
+    Finding,
+    LayerResult,
+    Severity,
+    TrustClass,
+)
+
+#: Trust classes whose findings are permitted to block (DK-04 §4.2 /
+#: FK-33 §33.5). Trust A (``SYSTEM``) and Trust B (``VERIFIED_LLM``) are
+#: authoritative enough to block; Trust C (``WORKER_ASSERTION``) is the
+#: worker's own self-report and — per the DK-04 §4.2 / FK-33 §33.5.2
+#: Kernregel "Klasse C darf nie blocking sein" (FK-07-008) — must NEVER
+#: block: the agent must not be able to pass its own check. This frozenset
+#: is the single source of truth for "may a finding of this trust class
+#: contribute a blocking decision"; both blocking rules in
+#: :func:`_compute_blocking` funnel through :func:`_trust_can_block`.
+_BLOCKING_TRUST_CLASSES: frozenset[TrustClass] = frozenset(
+    (TrustClass.SYSTEM, TrustClass.VERIFIED_LLM)
+)
+
+
+def _trust_can_block(finding: Finding) -> bool:
+    """Return whether a finding's trust class may contribute to a FAIL.
+
+    Single trust-class blocking predicate over :data:`_BLOCKING_TRUST_CLASSES`
+    (DK-04 §4.2 / FK-33 §33.5.2): Trust A (``SYSTEM``) and Trust B
+    (``VERIFIED_LLM``) may block, Trust C (``WORKER_ASSERTION``) may NEVER
+    block. All blocking decisions in :func:`_compute_blocking` funnel through
+    here so the trust-class block rule stays a single source of truth (no
+    second blocking truth, FIX THE MODEL).
+
+    Args:
+        finding: The finding to classify.
+
+    Returns:
+        ``True`` iff ``finding.trust_class`` is in
+        :data:`_BLOCKING_TRUST_CLASSES`.
+    """
+    return finding.trust_class in _BLOCKING_TRUST_CLASSES
 
 
 @dataclass(frozen=True)
@@ -62,8 +100,20 @@ class PolicyEngine:
 
     Applies the following rules in order:
 
-    1. ANY BLOCKING finding from SYSTEM trust -> FAIL.
-    2. More than ``max_major_findings`` MAJOR findings from any trust -> FAIL.
+    1. A ``Severity.BLOCKING`` finding whose trust class *may block*
+       (Trust A ``SYSTEM`` or Trust B ``VERIFIED_LLM``, see
+       :func:`_trust_can_block`) -> FAIL. ``BLOCKING`` is the *unconditional*,
+       *schwellenunabhaengige* severity (FK-27 §27.4.2): such a finding blocks
+       the QA-subflow hard, independent of ``max_major_findings``. This covers
+       both the Trust-A structural/Sonar blockers AND a Trust-B Layer-2 FAIL --
+       FK-33 §33.8.2 / FK-34 §34.2.5: "jeder [Layer-2] FAIL blockiert
+       (FK-05-164)", which is threshold-independent. A Trust-C
+       (``WORKER_ASSERTION``) finding NEVER blocks here (DK-04 §4.2 / FK-33
+       §33.5.2 Kernregel "Klasse C darf nie blocking sein", FK-07-008) -- the
+       worker must not be able to pass its own check. This is the SINGLE
+       blocking truth; there is no second gate.
+    2. More than ``max_major_findings`` MAJOR findings (any blocking-eligible
+       trust) -> FAIL.
     3. Otherwise -> PASS (warnings/minor findings tolerated).
 
     Configurable thresholds via constructor.
@@ -134,10 +184,22 @@ def _compute_blocking(
 ) -> list[Finding]:
     """Determine which findings are blocking.
 
-    Rules:
-    - Any BLOCKING finding from SYSTEM trust blocks immediately.
-    - If total MAJOR findings (any trust) exceed ``max_major``, all
-      MAJOR findings block.
+    Only findings whose trust class *may block* (:func:`_trust_can_block` --
+    Trust A ``SYSTEM`` / Trust B ``VERIFIED_LLM``) are ever considered. Trust C
+    (``WORKER_ASSERTION``) findings are filtered out up front and can NEVER
+    contribute a blocking decision, neither via the BLOCKING-severity rule nor
+    via the MAJOR-threshold rule (DK-04 §4.2 / FK-33 §33.5.2 Kernregel "Klasse
+    C darf nie blocking sein", FK-07-008). This single trust filter is the one
+    place the trust-class rule lives (no second blocking truth, FIX THE MODEL).
+
+    Rules (applied to blocking-eligible findings only):
+    - Any ``Severity.BLOCKING`` finding blocks immediately and
+      *schwellenunabhaengig* (FK-27 §27.4.2): ``BLOCKING`` is the unconditional
+      severity. This realises both the Trust-A structural/Sonar block AND the
+      FK-33 §33.8.2 / FK-34 §34.2.5 "jeder Layer-2 FAIL blockiert" rule (a
+      Layer-2 FAIL maps to a Trust-B ``BLOCKING`` finding, not a
+      threshold-gated MAJOR).
+    - If total MAJOR findings exceed ``max_major``, all MAJOR findings block.
 
     Args:
         findings: All findings to evaluate.
@@ -147,18 +209,20 @@ def _compute_blocking(
     Returns:
         List of blocking findings.
     """
+    eligible = [f for f in findings if _trust_can_block(f)]
+
     blocking: list[Finding] = []
 
-    # Rule 1: BLOCKING from SYSTEM trust blocks immediately.
-    system_blockers = [
-        f for f in findings
-        if f.trust_class == TrustClass.SYSTEM
-        and f.severity == Severity.BLOCKING
+    # Rule 1: any BLOCKING-severity finding blocks immediately, INDEPENDENT of
+    # max_major (FK-27 §27.4.2 BLOCKING = hard) -- but only for trust classes
+    # that may block (Trust C already filtered out above).
+    severity_blockers = [
+        f for f in eligible if f.severity == Severity.BLOCKING
     ]
-    blocking.extend(system_blockers)
+    blocking.extend(severity_blockers)
 
-    # Rule 2: Too many MAJOR findings (any trust) become blocking.
-    all_major = [f for f in findings if f.severity == Severity.MAJOR]
+    # Rule 2: Too many MAJOR findings (blocking-eligible trust) become blocking.
+    all_major = [f for f in eligible if f.severity == Severity.MAJOR]
     if len(all_major) > max_major:
         for f in all_major:
             if f not in blocking:

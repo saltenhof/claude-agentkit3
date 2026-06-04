@@ -528,10 +528,26 @@ class TestImplementationPhaseHandler:
         # layer2_input.missing when review_input is empty (THEME-009 not yet
         # wired). max_major_findings=3 tolerates all three MAJOR findings so
         # that the structural / filesystem checks remain the PASS gate.
-        from agentkit.bootstrap.composition_root import build_verify_system
+        #
+        # AG3-043 E6: build_verify_system now wires the productive Layer-2 LLM
+        # path (FailClosedLlmClient by default). This test specifically covers
+        # the DETERMINISTIC Layer-2 reviewers' FK-69 artefacts (prompt_audit
+        # skipped, semantic_review layer), which are the no-LLM-client path. So
+        # it builds a VerifySystem WITHOUT layer2_llm_client (create_default,
+        # the deterministic-reviewer path). The productive LLM path is covered
+        # by tests/integration/verify_system/test_layer2_e2e.py.
+        from agentkit.bootstrap.composition_root import build_artifact_manager
+        from agentkit.state_backend.store.verify_story_context_repository import (
+            StateBackendVerifyStoryContextAdapter,
+        )
+        from agentkit.verify_system import VerifySystem
 
         story_dir = _setup_complete_story_dir(tmp_path)
-        verify_system = build_verify_system(story_dir, max_major_findings=3)
+        verify_system = VerifySystem.create_default(
+            artifact_manager=build_artifact_manager(story_dir),
+            max_major_findings=3,
+            story_context_port=StateBackendVerifyStoryContextAdapter(),
+        )
         config = ImplementationConfig(story_dir=story_dir, verify_system=verify_system)
         handler = ImplementationPhaseHandler(config)
         ctx = _make_context()

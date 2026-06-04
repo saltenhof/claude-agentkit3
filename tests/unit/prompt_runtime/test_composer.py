@@ -305,7 +305,10 @@ class TestComposePrompt:
 
         assert result.logical_prompt_id == "prompt.qa-semantic-review"
         assert result.template_name == "qa-semantic-review"
-        assert "Semantic Review AG3-001" in result.content
+        # AG3-043 rewrote this template (1-check systemic_adequacy); assert the
+        # story_id renders and the single check-id is present.
+        assert "AG3-001" in result.content
+        assert "systemic_adequacy" in result.content
 
 
 class TestWritePrompt:

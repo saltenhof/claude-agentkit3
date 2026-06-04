@@ -35,8 +35,23 @@ class LayerExecutionError(VerifySystemError):
     """
 
 
+class ResolutionMetadataError(VerifySystemError):
+    """Raised when the Layer-2 finding-resolution metadata is malformed.
+
+    Fail-closed (AG3-043 E5): the ``finding_resolutions`` metadata is produced
+    by our own ``serialize_resolution_map`` and consumed by
+    ``resolution_map_from_metadata``. A malformed structure (non-dict payload,
+    a key that is not a well-formed ``"layer:check"`` pair, a non-string value,
+    or an unknown status value) is therefore an internal pipeline corruption /
+    bug, NOT external input. It is surfaced as a hard error rather than skipped
+    silently (DK-04 §4.6 carries hard gate-effect through the existing
+    architecture; FAIL-CLOSED guardrail).
+    """
+
+
 __all__ = [
     "LayerExecutionError",
+    "ResolutionMetadataError",
     "VerifySystemError",
     "VerifyTargetUnknownError",
 ]

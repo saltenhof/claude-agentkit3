@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from agentkit.skills import Skills
     from agentkit.telemetry.emitters import EventEmitter
     from agentkit.telemetry.projection_accessor import ProjectionAccessor
+    from agentkit.verify_system.llm_evaluator.llm_client import LlmClient
     from agentkit.verify_system.qa_cycle.invalidation import (
         ArtifactInvalidationEvent,
         ArtifactInvalidationSink,
@@ -105,6 +106,7 @@ def build_verify_system(
     max_major_findings: int = 0,
     max_feedback_rounds: int | None = None,
     sonar_gate_port: SonarGateInputPort | None = None,
+    layer2_llm_client: LlmClient | None = None,
 ) -> VerifySystem:
     """Erzeugt einen vollstaendig verdrahteten ``VerifySystem``.
 
@@ -140,17 +142,29 @@ def build_verify_system(
             (nicht ueberspringbar, NO ERROR BYPASSING).
         sonar_gate_port: Optionaler produktiver ``SonarGateInputPort``
             (FK-33 §33.6). ``None`` => Absent-Default-Port.
+        layer2_llm_client: Optionaler ``LlmClient`` (AG3-043 E6, FK-27 §27.5).
+            ``None`` => der Composition-Root verdrahtet den fail-closed
+            :class:`FailClosedLlmClient`, damit Layer 2 im Default-Pfad WIRKLICH
+            laeuft (drei parallele LLM-Bewertungen) statt still auf die
+            deterministischen Stub-Reviewer zurueckzufallen. Solange die
+            konkrete LLM-Pool-Auswahl (FK-11, Folge-Story) fehlt, schlaegt der
+            fail-closed Client jeden ``complete``-Aufruf fehl -> Layer 2
+            FAIL-CLOSED (kein stiller Skip, FK-34 §34.5.1). Sobald der
+            Pool-Adapter existiert, reicht der Aufrufer ihn hier ein.
 
     Returns:
         ``VerifySystem`` mit allen fuenf Sub-Komponenten und einem
-        vollstaendig verdrahteten ``ArtifactManager``.
+        vollstaendig verdrahteten ``ArtifactManager`` sowie einem produktiv
+        verdrahteten Layer-2-LLM-Client (E6).
     """
     from agentkit.state_backend.store.verify_story_context_repository import (
         StateBackendVerifyStoryContextAdapter,
     )
+    from agentkit.verify_system.llm_evaluator.llm_client import FailClosedLlmClient
     from agentkit.verify_system.system import VerifySystem
 
     manager = build_artifact_manager(store_dir)
+    resolved_llm_client = layer2_llm_client or FailClosedLlmClient()
     return VerifySystem.create_default(
         max_major_findings=max_major_findings,
         max_feedback_rounds=max_feedback_rounds,
@@ -158,6 +172,7 @@ def build_verify_system(
         story_context_port=StateBackendVerifyStoryContextAdapter(),
         sonar_gate_port=sonar_gate_port,
         invalidation_sink=build_artifact_invalidation_sink(store_dir),
+        layer2_llm_client=resolved_llm_client,
     )
 
 

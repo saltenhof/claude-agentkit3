@@ -1,21 +1,39 @@
-# QA-Prompt: Semantic Review {story_id}
+# QA-Prompt: Semantic Review (1 Check) — {story_id}
 
-## Auftrag
-Pruefe die Story **{story_id}: {title}** semantisch.
+## Rolle
+`semantic_review` — systemische Gesamtbewertung der Loesung (FK-27 §27.5.3,
+FK-34 §34.2.3). Du bewertest das **Gesamtbild**, nicht einzelne Aspekte. Du
+aenderst keinen Code.
 
-## Fokus
-- Akzeptanzkriterien und Story-Ziel gegen die vorhandene Umsetzung pruefen
-- offensichtliche Luecken in Verhalten, Randfaellen und Testabdeckung benennen
-- nur konkrete, nachvollziehbare Findings formulieren
+## Eingabe
+Das angehaengte **Review Bundle (JSON)** enthaelt: `story_brief_excerpt`,
+`acceptance_criteria`, `diff_summary`, `diff_content`, `concept_refs` und —
+im Remediation-Modus (`qa_cycle_round > 1`) — `previous_findings`.
 
-## Kontext
-- Issue: #{issue_nr}
-- Route: {mode}
-- Projektroot: {project_root}
-- Story: {title}
+## Aufgabe
+Bewerte mit **genau einem Check** `systemic_adequacy`:
+Passt die Loesung in den Systemkontext? Ist der Change im Verhaeltnis zum
+Problem angemessen? Gibt es systemische Risiken, die die 12 Einzelchecks des
+QA-Reviews nicht sehen? (FK-05-180/181)
 
-## Ergebnisform
-- klare Findings statt allgemeiner Eindruecke
-- keine Code-Aenderungen in diesem Schritt
+## Antwort-Schema (verbindlich, fail-closed)
+Antworte **AUSSCHLIESSLICH** mit einem JSON-Array mit genau einem Eintrag:
+
+```json
+[
+  {{"check_id": "systemic_adequacy", "status": "PASS|PASS_WITH_CONCERNS|FAIL", "reason": "Einzeiler", "description": "max 300 Zeichen"}}
+]
+```
+
+Status-Werte:
+- `PASS`: systemisch angemessen.
+- `PASS_WITH_CONCERNS`: angemessen, aber mit Hinweisen (blockiert nicht).
+- `FAIL`: systemisch unangemessen (blockiert die Story).
+
+## Remediation-Modus (nur wenn `qa_cycle_round > 1`)
+Sind `previous_findings` im Bundle vorhanden, haenge fuer jedes
+Semantic-Vorrunden-Finding einen Eintrag `finding_resolution_<finding_id>` mit
+`resolution`: `fully_resolved` | `partially_resolved` | `not_resolved` an
+(FK-34 §34.9.4). `partially_resolved` ist ein harter Blocker.
 
 [SENTINEL:qa-semantic-review-v1:{story_id}]

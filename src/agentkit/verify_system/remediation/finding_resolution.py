@@ -28,6 +28,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from agentkit.core_types import Severity
+from agentkit.verify_system.errors import ResolutionMetadataError
 
 if TYPE_CHECKING:
     from agentkit.verify_system.protocols import Finding
@@ -36,6 +37,18 @@ if TYPE_CHECKING:
 #: This is the finding/check id pair (FK-34); two findings with the same key
 #: address the same defect class regardless of message wording.
 FindingKey = tuple[str, str]
+
+#: Metadata key under which a Layer-2 ``LayerResult`` carries the LLM's
+#: finding-resolution verdicts (AG3-043 E5). The value is a JSON-friendly
+#: ``{"layer:check": status_value}`` map; :func:`resolution_map_from_metadata`
+#: decodes it back to the typed ``FindingKey`` map for the closure decision.
+LLM_RESOLUTION_METADATA_KEY: str = "finding_resolutions"
+
+#: Separator between ``layer`` and ``check`` in the serialised metadata key.
+_FINDING_KEY_SEP: str = ":"
+
+#: A ``layer:check`` key splits into exactly this many parts.
+_FINDING_KEY_PARTS: int = 2
 
 #: Severity rank for "reduced severity" comparison. Higher == more severe.
 _SEVERITY_RANK: dict[Severity, int] = {
@@ -206,6 +219,126 @@ def resolution_map_has_open_findings(
     )
 
 
+def serialize_resolution_map(
+    resolution_map: dict[FindingKey, FindingResolutionStatus],
+) -> dict[str, str]:
+    """Serialise a typed resolution map to a JSON-friendly ``{key: status}`` dict.
+
+    The ``FindingKey`` tuple ``(layer, check)`` is joined to ``"layer:check"``
+    so the map round-trips through JSON metadata (tuple keys are not
+    JSON-serialisable). :func:`resolution_map_from_metadata` is the inverse.
+
+    Args:
+        resolution_map: The typed ``(layer, check) -> status`` map.
+
+    Returns:
+        A ``{"layer:check": status_value}`` dict (sorted for determinism).
+    """
+    return {
+        f"{layer}{_FINDING_KEY_SEP}{check}": status.value
+        for (layer, check), status in sorted(resolution_map.items())
+    }
+
+
+def resolution_map_from_metadata(
+    metadata: dict[str, object] | None,
+) -> dict[FindingKey, FindingResolutionStatus]:
+    """Decode the LLM resolution map from a Layer-2 ``LayerResult.metadata``.
+
+    Reads the :data:`LLM_RESOLUTION_METADATA_KEY` entry (written by the Layer-2
+    integration via :func:`serialize_resolution_map`) and decodes each
+    ``"layer:check"`` key back to a typed ``FindingKey`` and each value back to
+    a :class:`FindingResolutionStatus`. This is the ONE decode path feeding the
+    LLM verdicts into the canonical finding-resolution SSOT (E5).
+
+    Fail-closed (AG3-043 E5): the metadata is produced by our own
+    ``serialize_resolution_map`` — a malformed entry is therefore an internal
+    pipeline corruption / bug, not external input, and is surfaced as a
+    :class:`ResolutionMetadataError` instead of being skipped silently
+    (FAIL-CLOSED guardrail). Only the *absence* of any remediation context is
+    benign: a ``None``/empty ``metadata`` or an absent
+    :data:`LLM_RESOLUTION_METADATA_KEY` entry yields an empty map (no Layer-2
+    verdicts in this round). A *present* entry must be a well-formed
+    ``{"layer:check": status_value}`` dict; anything else raises.
+
+    Args:
+        metadata: A Layer-2 ``LayerResult.metadata`` dict (or ``None``).
+
+    Returns:
+        The decoded ``(layer, check) -> status`` map (possibly empty when the
+        key is absent).
+
+    Raises:
+        ResolutionMetadataError: If the :data:`LLM_RESOLUTION_METADATA_KEY`
+            entry is present but malformed (non-dict payload, a key that is not
+            a well-formed ``"layer:check"`` pair, a non-string value, or an
+            unknown status value).
+    """
+    if not metadata or LLM_RESOLUTION_METADATA_KEY not in metadata:
+        return {}
+    raw = metadata[LLM_RESOLUTION_METADATA_KEY]
+    if not isinstance(raw, dict):
+        raise ResolutionMetadataError(
+            f"{LLM_RESOLUTION_METADATA_KEY!r} metadata must be a dict, "
+            f"got {type(raw).__name__}"
+        )
+    decoded: dict[FindingKey, FindingResolutionStatus] = {}
+    for key, value in raw.items():
+        decoded[_decode_finding_key(key)] = _decode_status(value)
+    return decoded
+
+
+def _decode_finding_key(key: object) -> FindingKey:
+    """Decode one serialised ``"layer:check"`` metadata key (fail-closed).
+
+    Args:
+        key: The raw mapping key from the resolution metadata.
+
+    Returns:
+        The typed ``(layer, check)`` identity tuple.
+
+    Raises:
+        ResolutionMetadataError: If ``key`` is not a string or not a
+            well-formed ``"layer:check"`` pair with both parts non-empty.
+    """
+    if not isinstance(key, str):
+        raise ResolutionMetadataError(
+            f"resolution key must be a string, got {type(key).__name__}"
+        )
+    parts = key.split(_FINDING_KEY_SEP)
+    if len(parts) != _FINDING_KEY_PARTS or not parts[0] or not parts[1]:
+        raise ResolutionMetadataError(
+            f"resolution key {key!r} is not a well-formed "
+            f"'layer{_FINDING_KEY_SEP}check' pair"
+        )
+    return (parts[0], parts[1])
+
+
+def _decode_status(value: object) -> FindingResolutionStatus:
+    """Decode one serialised resolution status value (fail-closed).
+
+    Args:
+        value: The raw mapping value from the resolution metadata.
+
+    Returns:
+        The typed :class:`FindingResolutionStatus`.
+
+    Raises:
+        ResolutionMetadataError: If ``value`` is not a string or not a known
+            :class:`FindingResolutionStatus` value.
+    """
+    if not isinstance(value, str):
+        raise ResolutionMetadataError(
+            f"resolution status must be a string, got {type(value).__name__}"
+        )
+    try:
+        return FindingResolutionStatus(value)
+    except ValueError as exc:
+        raise ResolutionMetadataError(
+            f"unknown resolution status value {value!r}"
+        ) from exc
+
+
 def _classify(
     previous_severity: Severity,
     current_severity: Severity | None,
@@ -240,10 +373,14 @@ def _rank(severity: Severity) -> int:
 
 
 __all__ = [
+    "LLM_RESOLUTION_METADATA_KEY",
     "FindingKey",
     "FindingResolutionAssessor",
     "FindingResolutionStatus",
+    "ResolutionMetadataError",
     "finding_key",
     "is_open_resolution_status",
+    "resolution_map_from_metadata",
     "resolution_map_has_open_findings",
+    "serialize_resolution_map",
 ]

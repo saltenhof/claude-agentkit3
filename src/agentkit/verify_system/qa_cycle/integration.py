@@ -134,6 +134,56 @@ def assess_finding_resolution(
     )
 
 
+def merge_llm_finding_resolutions(
+    base_map: dict[FindingKey, FindingResolutionStatus] | None,
+    layer_results: tuple[LayerResult, ...],
+) -> dict[FindingKey, FindingResolutionStatus] | None:
+    """Merge the LLM Layer-2 resolution verdicts into the ONE resolution SSOT (E5).
+
+    FK-34 §34.9: in a remediation round the Layer-2 LLM evaluators judge, per
+    previous finding, whether it is fully/partially/not resolved. Those verdicts
+    are the authoritative (Trust-B) resolution signal and are carried in each
+    Layer-2 ``LayerResult.metadata`` (``finding_resolutions``). This merges them
+    into the deterministic assessor's ``base_map`` so a still-open
+    (``partially_resolved`` / ``not_resolved``) LLM verdict reaches the canonical
+    ``closure_blocked`` derivation (AG3-041 §2.1.6) -- it does not live only in
+    metadata anymore (E5 root fix). The merge is fail-closed: for a key present
+    in both, the MORE OPEN status wins (an open status never gets weakened by a
+    FULLY_RESOLVED from the other source).
+
+    Args:
+        base_map: The deterministic assessor map (``None`` outside remediation).
+        layer_results: All layer results of the round (Layer-2 entries carry the
+            LLM verdicts).
+
+    Returns:
+        The merged ``(layer, check) -> status`` map, or ``None`` when there is
+        neither a base map nor any LLM verdict (no remediation context).
+    """
+    from agentkit.verify_system.remediation.finding_resolution import (
+        is_open_resolution_status,
+        resolution_map_from_metadata,
+    )
+
+    merged: dict[FindingKey, FindingResolutionStatus] = dict(base_map or {})
+    saw_llm = False
+    for result in layer_results:
+        llm_map = resolution_map_from_metadata(result.metadata)
+        for key, status in llm_map.items():
+            saw_llm = True
+            existing = merged.get(key)
+            # Fail-closed: keep whichever is open. Only overwrite a non-open
+            # existing entry, or set a new key.
+            if existing is None or (
+                is_open_resolution_status(status)
+                and not is_open_resolution_status(existing)
+            ):
+                merged[key] = status
+    if not merged and not saw_llm and base_map is None:
+        return None
+    return merged
+
+
 def utc_now_iso() -> str:
     """Return the current UTC instant as an ISO-8601 string.
 
@@ -197,6 +247,7 @@ __all__ = [
     "RemediationLoopController",
     "assess_finding_resolution",
     "evaluate_escalation",
+    "merge_llm_finding_resolutions",
     "qa_cycle_state_to_fields",
     "resolve_qa_cycle_state",
     "serialize_layer_result_payload",

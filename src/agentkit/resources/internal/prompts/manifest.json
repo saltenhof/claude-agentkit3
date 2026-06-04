@@ -26,9 +26,17 @@
       "relpath": "internal/prompts/worker-remediation.md",
       "sha256": "c35efa3eeb99a7d08695f3d16b75e9a506ed91901a1c0b2a2df8cc06740aca54"
     },
+    "qa-review": {
+      "relpath": "internal/prompts/qa-review.md",
+      "sha256": "59976c3f423a37f72b062de345d2ba1f7c473227c16b9d42d2b7cf300540a41f"
+    },
     "qa-semantic-review": {
       "relpath": "internal/prompts/qa-semantic-review.md",
-      "sha256": "4ca3ec68b3d03adc836dd9bba69e496f23617cff07f0024cebfe7ee95c198c1f"
+      "sha256": "1b10778aa71400b3880baf80c2f2ab0545e4806e8a80ed742d2193509ceeb522"
+    },
+    "qa-doc-fidelity": {
+      "relpath": "internal/prompts/qa-doc-fidelity.md",
+      "sha256": "810c3a738a7b692c32186f38133a6ebef79d7546b8c3520f4b1f93251b54d900"
     },
     "qa-adversarial-review": {
       "relpath": "internal/prompts/qa-adversarial-review.md",
