@@ -146,14 +146,19 @@ def derive_github_coordinates(project_root: Path) -> tuple[str, str] | None:
         derived unambiguously.
     """
     try:
-        result = subprocess.run(  # noqa: S603 — fixed argv, no shell
+        # Fixed git argv (no shell, no user-controlled input); S603 reviewed as safe.
+        result = subprocess.run(  # noqa: S603
             ["git", "-C", str(project_root), "remote", "get-url", "origin"],
             capture_output=True,
             text=True,
             timeout=5,
             check=False,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+    # ``OSError`` covers ``FileNotFoundError`` (git not installed) and every other
+    # spawn/IO failure; ``subprocess.TimeoutExpired`` derives from
+    # ``SubprocessError`` (NOT ``OSError``), so it is listed explicitly. Every
+    # failure mode collapses to ``None`` so the caller fails closed.
+    except (OSError, subprocess.TimeoutExpired):
         return None
     if result.returncode != 0:
         return None

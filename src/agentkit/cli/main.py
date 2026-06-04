@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import argparse
 import sys
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -143,6 +147,74 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def _resolve_github_coordinates(
+    args: argparse.Namespace, project_root: Path,
+) -> tuple[str, str] | None:
+    """Resolve the MANDATORY github ``(owner, repo)`` for ``agentkit install``.
+
+    AG3-039 (FK-50 §50.3 CP 7): the flags take PRECEDENCE; when a flag is omitted
+    (or empty after ``.strip()``) the coordinate is derived from the target
+    project's ``origin`` git remote. The resolved pair is validated against the
+    SINGLE coordinate truth (:func:`validate_github_coordinate`) BEFORE any
+    project write happens.
+
+    FAIL-FAST / FAIL-CLOSED (AG3-039 R6 E-a + E-b): flag values are normalised
+    with ``.strip()`` first so a whitespace-only flag (``"   "``) counts as
+    MISSING (derivation may still kick in) rather than sailing past the
+    missing-coordinate check and only blowing up at CP 7 — after a neutral
+    scaffold / project.yaml was already written. Anything that is not a
+    well-formed GitHub owner/repo is rejected; the coordinates are never
+    fabricated (ZERO DEBT).
+
+    Args:
+        args: Parsed CLI arguments carrying ``github_owner``/``github_repo``.
+        project_root: The target project root used for remote derivation.
+
+    Returns:
+        The validated ``(owner, repo)`` pair, or ``None`` when the coordinates
+        are missing or invalid (the failure reason is printed to ``stderr``).
+    """
+    from agentkit.installer.github_coordinates import (
+        derive_github_coordinates,
+        validate_github_coordinate,
+    )
+
+    github_owner = args.github_owner.strip() if args.github_owner is not None else None
+    github_repo = args.github_repo.strip() if args.github_repo is not None else None
+    github_owner = github_owner or None
+    github_repo = github_repo or None
+    if github_owner is None or github_repo is None:
+        derived = derive_github_coordinates(project_root)
+        if derived is not None:
+            github_owner = github_owner or derived[0]
+            github_repo = github_repo or derived[1]
+    if not github_owner or not github_repo:
+        print(
+            "Install failed [MissingGithubCoordinates]: --github-owner and "
+            "--github-repo are required for State-Backend registration (FK-50 "
+            "CP 7) and could not be derived from the project's origin git "
+            "remote. Pass both flags explicitly.",
+            file=sys.stderr,
+        )
+        return None
+    # FAIL-CLOSED (AG3-039 R6 E-b): the resolved coordinates — whether from the
+    # flags or the derived remote — MUST be a valid GitHub owner/repo before they
+    # are persisted into the project_registry. Reject path-traversal tokens,
+    # embedded spaces, leading/trailing hyphens, over-long segments, etc. instead
+    # of recording a meaningless row.
+    if validate_github_coordinate(github_owner, github_repo) is None:
+        print(
+            "Install failed [InvalidGithubCoordinates]: "
+            f"--github-owner {github_owner!r} / --github-repo {github_repo!r} "
+            "are not a valid GitHub owner/repo (owner: 1-39 alphanumerics with "
+            "single internal hyphens; repo: 1-100 chars of [A-Za-z0-9._-], not "
+            "'.'/'..' and no leading dot). Pass valid coordinates.",
+            file=sys.stderr,
+        )
+        return None
+    return github_owner, github_repo
+
+
 def _cmd_install(args: argparse.Namespace) -> int:
     """Handle ``agentkit install`` command.
 
@@ -160,57 +232,17 @@ def _cmd_install(args: argparse.Namespace) -> int:
 
     from agentkit.exceptions import InstallationError
     from agentkit.installer import InstallConfig, install_agentkit
-    from agentkit.installer.github_coordinates import (
-        derive_github_coordinates,
-        validate_github_coordinate,
-    )
 
     project_root = Path(args.project_root)
 
-    # AG3-039 (FK-50 §50.3 CP 7): resolve the MANDATORY github coordinates.
-    # Flags take precedence; otherwise derive from the project's origin remote.
-    #
-    # FAIL-FAST / FAIL-CLOSED (AG3-039 R6 E-a + E-b): the flag values are
-    # normalised with ``.strip()`` FIRST. A whitespace-only flag (``"   "``) is
-    # truthy as a raw string and would otherwise sail past the missing-coordinate
-    # check and only blow up at CP 7 — AFTER a neutral scaffold / project.yaml was
-    # written. Treat empty-after-strip as MISSING so derivation may still kick in,
-    # and reject any value that is not a well-formed GitHub owner/repo BEFORE any
-    # project write happens. The coordinates are never fabricated (ZERO DEBT).
-    github_owner = args.github_owner.strip() if args.github_owner is not None else None
-    github_repo = args.github_repo.strip() if args.github_repo is not None else None
-    github_owner = github_owner or None
-    github_repo = github_repo or None
-    if github_owner is None or github_repo is None:
-        derived = derive_github_coordinates(project_root)
-        if derived is not None:
-            derived_owner, derived_repo = derived
-            github_owner = github_owner if github_owner is not None else derived_owner
-            github_repo = github_repo if github_repo is not None else derived_repo
-    if not github_owner or not github_repo:
-        print(
-            "Install failed [MissingGithubCoordinates]: --github-owner and "
-            "--github-repo are required for State-Backend registration (FK-50 "
-            "CP 7) and could not be derived from the project's origin git "
-            "remote. Pass both flags explicitly.",
-            file=sys.stderr,
-        )
+    # AG3-039 (FK-50 §50.3 CP 7): resolve the MANDATORY github coordinates
+    # (flags take precedence, else derive from origin) and validate them
+    # fail-closed BEFORE any project write. A ``None`` result means the failure
+    # reason was already printed to stderr.
+    coordinates = _resolve_github_coordinates(args, project_root)
+    if coordinates is None:
         return 1
-    # FAIL-CLOSED (AG3-039 R6 E-b): the resolved coordinates — whether from the
-    # flags or the derived remote — MUST be a valid GitHub owner/repo before they
-    # are persisted into the project_registry. Reject path-traversal tokens,
-    # embedded spaces, leading/trailing hyphens, over-long segments, etc. instead
-    # of recording a meaningless row.
-    if validate_github_coordinate(github_owner, github_repo) is None:
-        print(
-            "Install failed [InvalidGithubCoordinates]: "
-            f"--github-owner {github_owner!r} / --github-repo {github_repo!r} "
-            "are not a valid GitHub owner/repo (owner: 1-39 alphanumerics with "
-            "single internal hyphens; repo: 1-100 chars of [A-Za-z0-9._-], not "
-            "'.'/'..' and no leading dot). Pass valid coordinates.",
-            file=sys.stderr,
-        )
-        return 1
+    github_owner, github_repo = coordinates
 
     # AG3-048 (FK-43 §43.3.1, AC#5): the skill fields are intentionally left at
     # their defaults. ``skill_bundle_ids=None`` resolves to the four mandatory
