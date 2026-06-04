@@ -37,10 +37,12 @@ invariants:
       release, absence of READY, or absence of scheduling admission rejects
       the start fail-closed; this run-admission guard is the workflow-side
       precondition that consumes (does not own) the execution-planning
-      readiness and scheduling decision
-    requires:
-      - execution-planning.invariant.ready_requires_all_hard_dependencies_and_no_open_blocker
-      - execution-planning.invariant.flight_requires_ready_and_scheduling_allowance
+      readiness and scheduling decision derived by the execution-planning BC;
+      that readiness/scheduling truth is owned by and resolved within
+      execution-planning and is referenced here at prose level only (not a
+      compile-resolved cross-context reference, since story-workflow specs
+      compile in isolation): execution-planning.invariant.ready_requires_all_hard_dependencies_and_no_open_blocker
+      and execution-planning.invariant.flight_requires_ready_and_scheduling_allowance
   - id: story-workflow.invariant.setup_routes_fail_closed
     scope: phase-transition
     rule: setup may route only to exploration or implementation according to deterministic mode routing; no other target phase is legal

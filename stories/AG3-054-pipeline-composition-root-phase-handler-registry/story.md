@@ -60,7 +60,7 @@ Diese Tabelle fuehrt die normative Wahrheit fuer Umsetzung UND Review mit. Die *
 | DK-10 §10.1 + Glossar `story-status` | Kanonische Enum `Backlog / Approved / In Progress / Done / Cancelled`; `Approved` = fachliche Freigabe (nicht aendern — autoritativ). |
 | FK-59 §59.3.3 / §59.8 | `terminal_state` ∈ {Done, Cancelled}. |
 | `formal.execution-planning.{commands,state-machine,invariants}` | `compute-readiness` / `issue-scheduling-decision`; `ready_requires_all_hard_dependencies_and_no_open_blocker`; `flight_requires_ready_and_scheduling_allowance`. |
-| `formal.story-workflow.{commands,state-machine,invariants}` | `run-phase` + die **NEUE** Start-Guard-Invariante `story-workflow.invariant.phase_start_requires_release_and_readiness` (run-admission, fail-closed; `requires` cross-spec auf die beiden execution-planning-Readiness/Scheduling-Invarianten). |
+| `formal.story-workflow.{commands,state-machine,invariants}` | `run-phase` + die **NEUE** Start-Guard-Invariante `story-workflow.invariant.phase_start_requires_release_and_readiness` (run-admission, fail-closed; verweist **prosa-level** auf die beiden execution-planning-Readiness/Scheduling-Invarianten — story-workflow kompiliert isoliert, daher kein compile-aufgeloester Cross-BC-`requires`). |
 
 ---
 
@@ -196,7 +196,7 @@ Konsequenz fuer die DoD: Es gibt **keinen** „produktives E2E inkl. Worker-Spaw
 > Die vollstaendige normative Referenztabelle mit §-Ankern und Kernaussagen steht im Kopfblock „Quell-Konzepte (autoritativ) — normative Referenztabelle".
 
 **Konzept-Spannung — durch Product-Owner-Entscheidung (2026-06-04) AUFGELOEST:**
-- Frueher offen: Wo sitzt das `evaluate_scheduling`-Gate? Der Product Owner hat entschieden (gesetzt, nicht erneut zur Debatte): **drei Tore** entscheiden ueber den Run-Start — fachliche Freigabe (Mensch, `Approved`), ExecutionPlanning (BC 14, READY/Scheduling NACH `Approved`), Setup-Gate (Phase 1, redundante zweite Linie). Der **Pre-Start-Guard in `run_phase` (FK-45 §45.1.2)** ist die formale Verankerung der ersten beiden Tore; die Invariante `story-workflow.invariant.phase_start_requires_release_and_readiness` (mit cross-spec `requires` auf die execution-planning-Readiness/Scheduling-Invarianten) bindet das maschinenpruefbar. AG3-054 **verdrahtet** diesen Guard konsumierend; die Drift FK-70 §70.5.2 (`InFlight` → `In Progress`) wurde im Zuge der Konzept-Praezisierung korrigiert.
+- Frueher offen: Wo sitzt das `evaluate_scheduling`-Gate? Der Product Owner hat entschieden (gesetzt, nicht erneut zur Debatte): **drei Tore** entscheiden ueber den Run-Start — fachliche Freigabe (Mensch, `Approved`), ExecutionPlanning (BC 14, READY/Scheduling NACH `Approved`), Setup-Gate (Phase 1, redundante zweite Linie). Der **Pre-Start-Guard in `run_phase` (FK-45 §45.1.2)** ist die formale Verankerung der ersten beiden Tore; die Invariante `story-workflow.invariant.phase_start_requires_release_and_readiness` (prosa-level-Verweis auf die execution-planning-Readiness/Scheduling-Invarianten; story-workflow kompiliert isoliert, daher kein compile-aufgeloester Cross-BC-`requires`) verankert das formal. AG3-054 **verdrahtet** diesen Guard konsumierend; die Drift FK-70 §70.5.2 (`InFlight` → `In Progress`) wurde im Zuge der Konzept-Praezisierung korrigiert.
 
 ## 7. Guardrail-Referenzen
 - **FIX THE MODEL, NOT THE SYMPTOM**: keine zweite Phasen-Dispatch-/State-Wahrheit neben Control-Plane-Operations und Phase-State; die Phasenabfolge folgt der typisierten Workflow-Definition, nicht Flag-Kaskaden.
