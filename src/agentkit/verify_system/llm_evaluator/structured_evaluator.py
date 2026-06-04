@@ -357,10 +357,7 @@ class StructuredEvaluator:
         try:
             parsed = json.loads(raw_response)
         except json.JSONDecodeError as exc:
-            msg = (
-                f"LLM response for role={role.value!r} is not valid JSON "
-                + f"(FK-34 §34.5.1 fail-closed): {exc}"
-            )
+            msg = f"LLM response for role={role.value!r} is not valid JSON (FK-34 §34.5.1 fail-closed): {exc}"
             raise StructuredEvaluatorError(msg) from exc
         if not isinstance(parsed, list):
             msg = (
@@ -371,10 +368,7 @@ class StructuredEvaluator:
         try:
             return LlmEvaluatorResponse(checks=tuple(parsed))
         except ValidationError as exc:
-            msg = (
-                f"LLM response for role={role.value!r} violates the CheckResult "
-                + f"schema (FK-34 §34.2 fail-closed): {exc}"
-            )
+            msg = f"LLM response for role={role.value!r} violates the CheckResult schema (FK-34 §34.2 fail-closed): {exc}"
             raise StructuredEvaluatorError(msg) from exc
 
     @staticmethod

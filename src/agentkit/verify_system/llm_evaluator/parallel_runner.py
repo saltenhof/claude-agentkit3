@@ -117,10 +117,8 @@ class ParallelEvalRunner:
                 try:
                     results[role] = future.result()
                 except Exception as exc:
-                    msg = (
-                        f"Layer-2 evaluation for role={role.value!r} failed "
-                        + f"(FK-34 §34.5.1 fail-closed): {type(exc).__name__}: {exc}"
-                    )
+                    detail = f"{type(exc).__name__}: {exc}"
+                    msg = f"Layer-2 evaluation for role={role.value!r} failed (FK-34 §34.5.1 fail-closed): {detail}"
                     raise ParallelEvalError(msg) from exc
         return results
 
