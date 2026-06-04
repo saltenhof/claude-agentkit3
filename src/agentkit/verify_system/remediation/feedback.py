@@ -6,10 +6,16 @@ remediation worker. Pure transformation, no side effects.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from agentkit.verify_system.protocols import Finding, Severity
+from agentkit.verify_system.remediation.finding_resolution import (
+    FindingKey,
+    FindingResolutionStatus,
+    is_open_resolution_status,
+    resolution_map_has_open_findings,
+)
 
 if TYPE_CHECKING:
     from agentkit.verify_system.policy_engine.engine import VerifyDecision
@@ -28,6 +34,11 @@ class RemediationFeedback:
         blocking_findings: Findings that must be fixed.
         advisory_findings: Findings that should be considered.
         summary: Human-readable summary of what needs fixing.
+        finding_resolution: Per previous-round finding resolution status
+            (FK-34 / DK-04 §4.6), keyed by the ``(layer, check)`` finding id.
+            Empty in the initial round (no previous findings) and populated in
+            remediation rounds (AG3-041 §2.1.5). NOT_RESOLVED entries mark
+            still-open previous findings the closure gate must observe.
     """
 
     story_id: str
@@ -35,6 +46,25 @@ class RemediationFeedback:
     blocking_findings: tuple[Finding, ...]
     advisory_findings: tuple[Finding, ...]
     summary: str
+    finding_resolution: dict[FindingKey, FindingResolutionStatus] = field(
+        default_factory=dict
+    )
+
+    def has_open_findings(self) -> bool:
+        """Return whether any previous-round finding is still open (blocking).
+
+        FK-34 (Finding-Resolution): an open finding is one that is NOT fully
+        resolved. Both ``NOT_RESOLVED`` and ``PARTIALLY_RESOLVED`` block closure
+        — a partially-resolved finding still carries an unaddressed remainder
+        (FK-34 ~§Z.685-699; DK-04 §4.6.3 grades an unmet mandatory target at
+        least ``partially_resolved``). Only ``FULLY_RESOLVED`` clears.
+
+        Returns:
+            ``True`` if ``finding_resolution`` carries at least one entry that
+            is ``NOT_RESOLVED`` or ``PARTIALLY_RESOLVED`` (an open previous
+            finding); ``False`` otherwise (empty, or all ``FULLY_RESOLVED``).
+        """
+        return resolution_map_has_open_findings(self.finding_resolution)
 
     def to_prompt_text(self) -> str:
         """Format feedback as text suitable for a remediation prompt.
@@ -70,6 +100,23 @@ class RemediationFeedback:
                 lines.append(f"{i}. [{sev}] {f.check}: {f.message}")
             lines.append("")
 
+        if self.finding_resolution:
+            open_findings = [
+                (key, status)
+                for key, status in self.finding_resolution.items()
+                if is_open_resolution_status(status)
+            ]
+            if open_findings:
+                lines.append(
+                    f"### Unresolved Previous Findings ({len(open_findings)})"
+                )
+                lines.append("")
+                for i, ((layer, check), status) in enumerate(open_findings, 1):
+                    lines.append(
+                        f"{i}. [{layer}] {check}: still {status.value.upper()}"
+                    )
+                lines.append("")
+
         lines.append(f"Summary: {self.summary}")
         return "\n".join(lines)
 
@@ -78,6 +125,8 @@ def build_feedback(
     decision: VerifyDecision,
     story_id: str,
     round_nr: int,
+    *,
+    finding_resolution: dict[FindingKey, FindingResolutionStatus] | None = None,
 ) -> RemediationFeedback | None:
     """Build remediation feedback from a verify decision.
 
@@ -89,6 +138,10 @@ def build_feedback(
         decision: The verify decision to build feedback from.
         story_id: Story identifier for the feedback.
         round_nr: Current remediation round number.
+        finding_resolution: Optional per previous-round finding resolution
+            map (FK-34 / DK-04 §4.6). Passed in remediation rounds so the
+            feedback carries which previous findings remain ``NOT_RESOLVED``;
+            ``None``/empty in the initial round.
 
     Returns:
         ``RemediationFeedback`` if the decision failed, otherwise ``None``.
@@ -107,4 +160,5 @@ def build_feedback(
         blocking_findings=decision.blocking_findings,
         advisory_findings=advisory,
         summary=decision.summary,
+        finding_resolution=dict(finding_resolution) if finding_resolution else {},
     )

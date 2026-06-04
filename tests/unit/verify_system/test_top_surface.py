@@ -107,6 +107,38 @@ class _RecordingArtifactManager(ArtifactManager):
 
 
 # ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _git_worktree(tmp_path: Path) -> None:
+    """Initialise a real git worktree in ``tmp_path`` (no fail-open).
+
+    AG3-041 E2: the QA-subflow now ALWAYS starts a QA cycle on the first call
+    (FK-27 §27.2.2 ``idle -> awaiting_qa``), which computes the deterministic
+    ``evidence_fingerprint`` over the story branch's git delta. The productive
+    ``story_dir`` is always a git worktree; these unit tests therefore run
+    against a REAL repo rather than letting the fingerprint fail closed on a
+    non-repo path. A single base commit on ``main`` + a story branch suffices.
+    """
+    import subprocess
+
+    def _git(*args: str) -> None:
+        subprocess.run(
+            ["git", *args], cwd=tmp_path, check=True, capture_output=True, text=True
+        )
+
+    _git("init", "-b", "main")
+    _git("config", "user.email", "t@example.com")
+    _git("config", "user.name", "Test")
+    (tmp_path / "base.py").write_text("x = 1\n", encoding="utf-8")
+    _git("add", ".")
+    _git("commit", "-m", "base")
+    _git("update-ref", "refs/remotes/origin/main", "HEAD")
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -773,24 +805,38 @@ class TestAk8QaCycleFieldsInPayload:
             assert env.payload["evidence_epoch"] == epoch.isoformat()
             assert env.payload["evidence_fingerprint"] == fingerprint
 
-    def test_payload_omits_qa_cycle_fields_when_envelope_missing(
+    def test_idle_start_embeds_fresh_cycle_fields(
         self, tmp_path: Path
     ) -> None:
-        """Ohne ``phase_envelope`` werden keine Cycle-Felder eingebettet."""
+        """Ohne ``phase_envelope`` startet der Subflow einen Zyklus (E2).
+
+        FK-27 §27.2.2 (``idle -> awaiting_qa``): der ERSTE QA-Subflow-Aufruf
+        startet IMMER einen Zyklus (round 1, epoch 1) und bettet alle vier
+        Identitaetsfelder in jede QA-Artefakt-Payload ein — kein Fail-open-
+        Idle-Pass-through mehr (AG3-041 E2/E1).
+        """
         vs, manager = _make_system()
-        vs.run_qa_subflow(
+        outcome = vs.run_qa_subflow(
             ctx=_make_bundle(tmp_path),
             story_id="TEST-001",
             qa_context=QaContext.IMPLEMENTATION_INITIAL,
             target=_make_target(),
         )
 
+        # Outcome surfaces the freshly-started cycle identities (round 1).
+        assert outcome.qa_cycle_round == 1
+        assert outcome.qa_cycle_id is not None
+        assert len(outcome.qa_cycle_id) == 12  # noqa: PLR2004
+        assert outcome.evidence_epoch is not None
+        assert outcome.evidence_fingerprint is not None
+        assert len(outcome.evidence_fingerprint) == 64  # noqa: PLR2004
+
         for env in manager.written_envelopes:
             assert env.payload is not None
-            assert "qa_cycle_id" not in env.payload
-            assert "qa_cycle_round" not in env.payload
-            assert "evidence_epoch" not in env.payload
-            assert "evidence_fingerprint" not in env.payload
+            assert env.payload["qa_cycle_id"] == outcome.qa_cycle_id
+            assert env.payload["qa_cycle_round"] == 1
+            assert env.payload["evidence_epoch"] == outcome.evidence_epoch.isoformat()
+            assert env.payload["evidence_fingerprint"] == outcome.evidence_fingerprint
 
 
 class TestCreateDefaultFailClosed:

@@ -44,11 +44,13 @@ from agentkit.verify_system.contract import PhaseEnvelopeView, VerifyContextBund
 from agentkit.verify_system.contract import QaSubflowOutcome as _QaSubflowOutcome
 
 if TYPE_CHECKING:
+    from datetime import datetime
     from pathlib import Path
 
     from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
     from agentkit.story_context_manager.models import StoryContext
     from agentkit.verify_system import VerifySystem
+    from agentkit.verify_system.protocols import Finding
     from agentkit.verify_system.sonarqube_gate.port import SonarGateInputPort
 
 logger = logging.getLogger(__name__)
@@ -124,35 +126,40 @@ class ImplementationPhaseHandler:
         from agentkit.bootstrap.composition_root import build_verify_system
 
         sonar_gate_port = _resolve_sonar_gate_port(ctx, s_dir)
+        # E3 (AG3-041): the RemediationLoopController is the HARD owner of the
+        # round ceiling. The handler reaches max_feedback_rounds from its config
+        # into the VerifySystem (controller); it no longer re-derives its own
+        # qa_rounds >= max escalation. NO ERROR BYPASSING — the ceiling lives in
+        # exactly one place (FK-38 / FK-27 §27.2.2).
         verify_system = self._config.verify_system or build_verify_system(
-            s_dir, sonar_gate_port=sonar_gate_port
+            s_dir,
+            sonar_gate_port=sonar_gate_port,
+            max_feedback_rounds=self._config.max_feedback_rounds,
         )
 
-        # W2: Build PhaseEnvelopeView from envelope.state.payload.
+        # W2: Build PhaseEnvelopeView from envelope.state.payload (round 0
+        # identities; refreshed from the persisted identities each round).
         phase_envelope_view = _build_phase_envelope_view(envelope)
 
         qa_rounds = state.memory.implementation.qa_feedback_rounds
         current_context = _verify_context_for(qa_rounds)
         artifacts: list[str] = []
+        previous_findings: tuple[Finding, ...] = ()
 
         while True:
             attempt_nr = qa_rounds + 1
-            awaiting_state = _state_with_payload(
-                state,
-                QaCycleStatus.AWAITING_QA,
-                current_context,
-                qa_feedback_rounds=qa_rounds,
-                qa_cycle_round=attempt_nr,
-            )
 
             # E1: run_qa_subflow is the ONLY ArtifactEnvelope write path
             # and the ONLY layer-execution path. The returned
-            # QaSubflowOutcome carries the full VerifyDecision.
+            # QaSubflowOutcome carries the full VerifyDecision AND the resolved
+            # QA-cycle identities (qa_cycle_id, round, evidence_epoch,
+            # fingerprint) — the state owner persists ALL four (FK-27 §27.2.1).
             ctx_bundle = VerifyContextBundle(
                 run_id=flow.run_id,
                 story_dir=s_dir,
                 phase_envelope=phase_envelope_view,
                 attempt=attempt_nr,
+                project_root=ctx.project_root,
             )
             target = ArtifactReference(
                 artifact_class=ArtifactClass.WORKER,
@@ -165,9 +172,30 @@ class ImplementationPhaseHandler:
                 ctx.story_id,
                 current_context,
                 target,
+                previous_findings=previous_findings,
             )
             # E1: Artifact names come from FK-27 §27.7 (deterministic).
             artifacts.extend(ALL_QA_ARTIFACT_FILES)
+
+            # E1: persist ALL FOUR QA-cycle identities resolved by the subflow
+            # into the PhaseState payload (FK-27 §27.2.1 "im Story-State
+            # persistiert"). awaiting_state carries the cycle so a crash between
+            # the subflow and the terminal write keeps the identities durable.
+            awaiting_state = _state_with_payload(
+                state,
+                QaCycleStatus.AWAITING_QA,
+                current_context,
+                qa_feedback_rounds=qa_rounds,
+                qa_cycle_round=outcome.qa_cycle_round,
+                qa_cycle_id=outcome.qa_cycle_id,
+                evidence_epoch=outcome.evidence_epoch,
+                evidence_fingerprint=outcome.evidence_fingerprint,
+            )
+            # Refresh the view from the persisted identities so the NEXT round's
+            # subflow sees the active cycle (advance_qa_cycle, not start_cycle).
+            phase_envelope_view = _build_phase_envelope_view_from_state(
+                awaiting_state
+            )
 
             # FK-69 path: feed decision from outcome (no second layer run).
             decision = outcome.decision
@@ -206,16 +234,22 @@ class ImplementationPhaseHandler:
                         QaCycleStatus.PASS,
                         current_context,
                         qa_feedback_rounds=qa_rounds,
-                        qa_cycle_round=attempt_nr,
+                        qa_cycle_round=outcome.qa_cycle_round,
+                        qa_cycle_id=outcome.qa_cycle_id,
+                        evidence_epoch=outcome.evidence_epoch,
+                        evidence_fingerprint=outcome.evidence_fingerprint,
                     ),
                 )
 
-            if qa_rounds >= self._config.max_feedback_rounds:
+            # E3: escalation is OWNED by the RemediationLoopController inside the
+            # subflow; the handler consumes outcome.escalated verbatim (no
+            # duplicated qa_rounds >= max check). FK-27 §27.2.2 max_rounds.
+            if outcome.escalated:
                 error_msgs = _feedback_errors(outcome)
                 logger.warning(
                     "QA-subflow escalated for %s after %d rounds",
                     ctx.story_id,
-                    qa_rounds,
+                    outcome.qa_cycle_round,
                 )
                 return HandlerResult(
                     status=PhaseStatus.ESCALATED,
@@ -226,10 +260,17 @@ class ImplementationPhaseHandler:
                         QaCycleStatus.ESCALATED,
                         current_context,
                         qa_feedback_rounds=qa_rounds,
-                        qa_cycle_round=attempt_nr,
+                        qa_cycle_round=outcome.qa_cycle_round,
+                        qa_cycle_id=outcome.qa_cycle_id,
+                        evidence_epoch=outcome.evidence_epoch,
+                        evidence_fingerprint=outcome.evidence_fingerprint,
                     ),
                 )
 
+            # FAIL below the ceiling -> next remediation round. Carry this
+            # round's findings forward so the FindingResolutionAssessor can
+            # classify them next round (FK-34, closure_blocked).
+            previous_findings = decision.all_findings
             qa_rounds += 1
             current_context = QaContext.IMPLEMENTATION_REMEDIATION
 
@@ -313,11 +354,6 @@ def _resolve_sonar_gate_port(
 def _build_phase_envelope_view(envelope: PhaseEnvelope) -> PhaseEnvelopeView | None:
     """Build a ``PhaseEnvelopeView`` from a ``PhaseEnvelope``.
 
-    Extracts only the four QA-cycle identity fields from
-    ``envelope.state.payload`` (if it is an ``ImplementationPayload``).
-    Returns ``None`` if the payload is not an ``ImplementationPayload``
-    or the fields are all unset.
-
     W2 (AG3-026 Re-Review): isolates the ``pipeline_engine``-type
     ``PhaseEnvelope`` from the ``verify_system`` BC.
 
@@ -325,24 +361,36 @@ def _build_phase_envelope_view(envelope: PhaseEnvelope) -> PhaseEnvelopeView | N
         envelope: The ``PhaseEnvelope`` from the handler context.
 
     Returns:
-        ``PhaseEnvelopeView`` with the four QA-cycle fields, or
-        ``None`` if no valid ``ImplementationPayload`` is present.
+        ``PhaseEnvelopeView`` with the four QA-cycle fields, or ``None`` if no
+        valid ``ImplementationPayload`` with an active cycle is present.
+    """
+    return _build_phase_envelope_view_from_state(envelope.state)
+
+
+def _build_phase_envelope_view_from_state(
+    state: PhaseState,
+) -> PhaseEnvelopeView | None:
+    """Build a ``PhaseEnvelopeView`` from a ``PhaseState`` payload.
+
+    E1 (AG3-041): used both for the round-0 view (from the persisted envelope)
+    AND to REFRESH the view between remediation rounds from the just-persisted
+    identities, so the next round's subflow sees the active cycle and advances
+    it (``advance_qa_cycle``) rather than starting a fresh one.
+
+    Args:
+        state: The ``PhaseState`` carrying the ``ImplementationPayload``.
+
+    Returns:
+        ``PhaseEnvelopeView`` with the four QA-cycle fields, or ``None`` when
+        the payload is not an ``ImplementationPayload`` or no cycle is active.
     """
     from agentkit.story_context_manager.models import ImplementationPayload
 
-    payload = envelope.state.payload
+    payload = state.payload
     if not isinstance(payload, ImplementationPayload):
         return None
-    # Only create view if at least one QA-cycle field is set.
-    if all(
-        v is None
-        for v in (
-            payload.qa_cycle_id,
-            payload.qa_cycle_round or None,
-            payload.evidence_epoch,
-            payload.evidence_fingerprint,
-        )
-    ):
+    # Only create a view when an active cycle exists (qa_cycle_id set).
+    if payload.qa_cycle_id is None:
         return None
     return PhaseEnvelopeView(
         qa_cycle_id=payload.qa_cycle_id,
@@ -382,7 +430,32 @@ def _state_with_payload(
     *,
     qa_feedback_rounds: int | None = None,
     qa_cycle_round: int = 0,
+    qa_cycle_id: str | None = None,
+    evidence_epoch: datetime | None = None,
+    evidence_fingerprint: str | None = None,
 ) -> PhaseState:
+    """Rebuild the implementation ``PhaseState`` with QA-cycle identities.
+
+    E1 (AG3-041): the phase handler is the State-Owner; it persists ALL FOUR
+    QA-cycle identity fields (``qa_cycle_id``, ``qa_cycle_round``,
+    ``evidence_epoch``, ``evidence_fingerprint``) into ``ImplementationPayload``
+    so the cycle identity is durable in the Story-State (FK-27 §27.2.1), not
+    just the round.
+
+    Args:
+        state: The source ``PhaseState`` to derive from.
+        qa_cycle_status: The QA-cycle status to set (FK-27 §27.2.2).
+        verify_context: The subflow verify context (initial vs remediation).
+        qa_feedback_rounds: When set, rebuilds ``PhaseMemory`` with this
+            carry-forward counter; ``None`` keeps the existing memory.
+        qa_cycle_round: Monotonic QA-cycle round to persist.
+        qa_cycle_id: 12-char hex cycle id resolved by the subflow.
+        evidence_epoch: UTC-aware timestamp of the cycle's last mutation.
+        evidence_fingerprint: SHA-256 hex over the cycle's evidence.
+
+    Returns:
+        A new ``PhaseState`` carrying the persisted QA-cycle identities.
+    """
     memory = state.memory
     if qa_feedback_rounds is not None:
         memory = PhaseMemory(
@@ -399,6 +472,9 @@ def _state_with_payload(
             qa_cycle_status=qa_cycle_status,
             verify_context=verify_context,
             qa_cycle_round=qa_cycle_round,
+            qa_cycle_id=qa_cycle_id,
+            evidence_epoch=evidence_epoch,
+            evidence_fingerprint=evidence_fingerprint,
         ),
         memory=memory,
         paused_reason=state.paused_reason,

@@ -63,6 +63,9 @@ class EventType(StrEnum):
     DOC_FIDELITY_CHECK = "doc_fidelity_check"
     VECTORDB_SEARCH = "vectordb_search"
     COMPACTION_EVENT = "compaction_event"
+    #: A cycle-bound QA artefact was invalidated (moved to ``stale/``) when a
+    #: new atomic QA cycle began (FK-27 §27.2.3 / AG3-041 §2.1.3).
+    ARTIFACT_INVALIDATED = "artifact_invalidated"
 
     # General
     ERROR = "error"

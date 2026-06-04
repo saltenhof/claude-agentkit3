@@ -109,6 +109,70 @@ def test_build_verify_system_wires_story_context_port(tmp_path: Path) -> None:
     assert isinstance(vs.story_context_port, StateBackendVerifyStoryContextAdapter)
 
 
+def test_build_verify_system_wires_productive_invalidation_sink(
+    tmp_path: Path,
+) -> None:
+    """AG3-041 E5: build_verify_system wires a PRODUCTIVE invalidation sink.
+
+    The lifecycle's sink must NOT be the no-op default in production — it must
+    be the telemetry-emitting adapter (FK-27 §27.2.3 / AG3-041 §2.1.3).
+    """
+    from agentkit.bootstrap.composition_root import build_verify_system
+    from agentkit.verify_system.qa_cycle.invalidation import (
+        NullArtifactInvalidationSink,
+    )
+
+    vs = build_verify_system(tmp_path)
+
+    sink = vs.qa_cycle_lifecycle.invalidation_sink
+    assert not isinstance(sink, NullArtifactInvalidationSink)
+
+
+def test_build_verify_system_threads_max_feedback_rounds(tmp_path: Path) -> None:
+    """AG3-041 E3: build_verify_system threads max_feedback_rounds into the
+    RemediationLoopController (the hard owner of the round ceiling).
+    """
+    from agentkit.bootstrap.composition_root import build_verify_system
+
+    vs = build_verify_system(tmp_path, max_feedback_rounds=2)
+
+    assert vs.remediation_loop_controller.max_feedback_rounds == 2  # noqa: PLR2004
+
+
+def test_artifact_invalidation_sink_emits_event(tmp_path: Path) -> None:
+    """AG3-041 E5: the productive sink emits an ARTIFACT_INVALIDATED event.
+
+    Uses an in-memory ``MemoryEmitter`` to prove the adapter builds and emits a
+    well-formed telemetry event (no no-op swallow).
+    """
+    from agentkit.bootstrap.composition_root import (
+        _TelemetryArtifactInvalidationSink,
+    )
+    from agentkit.telemetry.emitters import MemoryEmitter
+    from agentkit.telemetry.events import EventType
+    from agentkit.verify_system.qa_cycle.invalidation import (
+        ArtifactInvalidationEvent,
+    )
+
+    emitter = MemoryEmitter()
+    sink = _TelemetryArtifactInvalidationSink(emitter)
+    sink.artifact_invalidated(
+        ArtifactInvalidationEvent(
+            story_id="AG3-041",
+            filename="structural.json",
+            old_epoch=1,
+            source_path=tmp_path / "structural.json",
+            stale_path=tmp_path / "stale" / "1" / "structural.json",
+        )
+    )
+
+    events = emitter.query("AG3-041", EventType.ARTIFACT_INVALIDATED)
+    assert len(events) == 1
+    assert events[0].payload["filename"] == "structural.json"
+    assert events[0].payload["old_epoch"] == 1
+    assert events[0].source_component == "verify-system"
+
+
 def _sonar_config(*, available: bool) -> object:
     from agentkit.config.models import SonarQubeConfig
 

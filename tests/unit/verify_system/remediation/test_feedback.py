@@ -143,3 +143,86 @@ class TestRemediationFeedbackPrompt:
         )
         with pytest.raises(AttributeError):
             fb.round_nr = 2  # type: ignore[misc]
+
+
+class TestFindingResolutionInFeedback:
+    """AG3-041 §2.1.6/§2.1.5: finding_resolution + has_open_findings."""
+
+    def test_has_open_findings_true_when_not_resolved(self) -> None:
+        from agentkit.verify_system.remediation.finding_resolution import (
+            FindingResolutionStatus,
+        )
+
+        fb = RemediationFeedback(
+            story_id="TEST-001",
+            round_nr=2,
+            blocking_findings=(),
+            advisory_findings=(),
+            summary="test",
+            finding_resolution={
+                ("structural", "c1"): FindingResolutionStatus.NOT_RESOLVED,
+            },
+        )
+        assert fb.has_open_findings() is True
+        assert "Unresolved Previous Findings" in fb.to_prompt_text()
+
+    def test_has_open_findings_true_when_partially_resolved(self) -> None:
+        """E7 (AG3-041 / FK-34): PARTIALLY_RESOLVED is open/blocking too."""
+        from agentkit.verify_system.remediation.finding_resolution import (
+            FindingResolutionStatus,
+        )
+
+        fb = RemediationFeedback(
+            story_id="TEST-001",
+            round_nr=2,
+            blocking_findings=(),
+            advisory_findings=(),
+            summary="test",
+            finding_resolution={
+                ("structural", "c1"): FindingResolutionStatus.PARTIALLY_RESOLVED,
+            },
+        )
+        assert fb.has_open_findings() is True
+        # The prompt surfaces it as an unresolved previous finding.
+        assert "PARTIALLY_RESOLVED" in fb.to_prompt_text()
+
+    def test_has_open_findings_false_when_resolved(self) -> None:
+        from agentkit.verify_system.remediation.finding_resolution import (
+            FindingResolutionStatus,
+        )
+
+        fb = RemediationFeedback(
+            story_id="TEST-001",
+            round_nr=2,
+            blocking_findings=(),
+            advisory_findings=(),
+            summary="test",
+            finding_resolution={
+                ("structural", "c1"): FindingResolutionStatus.FULLY_RESOLVED,
+            },
+        )
+        assert fb.has_open_findings() is False
+
+    def test_has_open_findings_false_when_empty(self) -> None:
+        fb = RemediationFeedback(
+            story_id="TEST-001",
+            round_nr=1,
+            blocking_findings=(),
+            advisory_findings=(),
+            summary="test",
+        )
+        assert fb.has_open_findings() is False
+
+    def test_build_feedback_carries_resolution_map(self) -> None:
+        from agentkit.verify_system.remediation.finding_resolution import (
+            FindingResolutionStatus,
+        )
+
+        result = LayerResult(
+            layer="structural", passed=False, findings=(_finding(),)
+        )
+        decision = PolicyEngine().decide([result])
+        resolution = {("structural", "c1"): FindingResolutionStatus.NOT_RESOLVED}
+        fb = build_feedback(decision, "TEST-001", 2, finding_resolution=resolution)
+        assert fb is not None
+        assert fb.has_open_findings() is True

@@ -8,10 +8,8 @@ MUST go through this facade and MUST NOT import sub-components such as
 AdversarialChallenger`` directly (Sichtbarkeitsregel, AC001).
 
 Normative contract (BC-Cut + FK-27 + formal.verify.commands):
-
-    VerifySystem.run_qa_subflow(
-        ctx, story_id, qa_context, target
-    ) -> QaSubflowOutcome  # AG3-026 Pass-2 Befund A: was PolicyVerdict
+``run_qa_subflow(ctx, story_id, qa_context, target) -> QaSubflowOutcome``
+(AG3-026 Pass-2 Befund A: was PolicyVerdict).
 
 Quelle:
   - AG3-026 §2.1.1 -- VerifySystem-Top-Klasse
@@ -23,7 +21,7 @@ Quelle:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -54,9 +52,7 @@ from agentkit.verify_system._artifact_specs import (
 from agentkit.verify_system._artifact_specs import (
     SONARQUBE_GATE_ARTIFACTS as _SONARQUBE_GATE_ARTIFACTS,
 )
-from agentkit.verify_system._artifact_specs import (
-    _LayerArtifactSpec,
-)
+from agentkit.verify_system._artifact_specs import _LayerArtifactSpec
 from agentkit.verify_system.adversarial_orchestrator.challenger import (
     AdversarialChallenger,
 )
@@ -86,6 +82,7 @@ from agentkit.verify_system.protocols import (
     StoryContextQueryPort,
     TrustClass,
 )
+from agentkit.verify_system.qa_cycle import integration as _qa
 from agentkit.verify_system.routing import QALayerKind, select_layers
 from agentkit.verify_system.sonarqube_gate.port import (
     ABSENT_SONAR_GATE_PORT,
@@ -101,6 +98,9 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.story_context_manager.models import StoryContext
+    from agentkit.verify_system.qa_cycle.invalidation import (
+        ArtifactInvalidationSink,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +184,12 @@ class VerifySystem:
     artifact_manager: ArtifactManager
     story_context_port: StoryContextQueryPort = _NULL_STORY_CONTEXT_PORT
     sonar_gate_port: SonarGateInputPort = ABSENT_SONAR_GATE_PORT
+    qa_cycle_lifecycle: _qa.QaCycleLifecycle = field(
+        default_factory=_qa.QaCycleLifecycle
+    )
+    remediation_loop_controller: _qa.RemediationLoopController = field(
+        default_factory=_qa.RemediationLoopController
+    )
 
     @property
     def layer_2(self) -> QALayer:
@@ -209,8 +215,10 @@ class VerifySystem:
         *,
         artifact_manager: ArtifactManager,
         max_major_findings: int = 0,
+        max_feedback_rounds: int | None = None,
         story_context_port: StoryContextQueryPort | None = None,
         sonar_gate_port: SonarGateInputPort | None = None,
+        invalidation_sink: ArtifactInvalidationSink | None = None,
     ) -> VerifySystem:
         """Construct a ``VerifySystem`` with default sub-components.
 
@@ -228,6 +236,11 @@ class VerifySystem:
             max_major_findings: Threshold for the policy engine. Mirrors
                 :class:`PolicyEngine` -- MAJOR findings beyond this count
                 turn into blocking findings (FK-27 §27.4.2 / §27.7.2).
+            max_feedback_rounds: Ceiling for the subflow-internal remediation
+                loop (FK-03 §3.4.2 / FK-38; resolved from the pipeline config by
+                ``build_verify_system``). ``None`` => the controller's default
+                (3). The :class:`RemediationLoopController` is the hard owner of
+                the ceiling — it is NOT bypassable (NO ERROR BYPASSING).
             story_context_port: Optionaler ``StoryContextQueryPort`` (AG3-035).
                 Wenn ``None``, wird der No-op-Port genutzt (Fallback auf den
                 IMPLEMENTATION-Stub in ``_execute_layer``). Produktive Aufrufer
@@ -236,6 +249,13 @@ class VerifySystem:
             sonar_gate_port: Optionaler ``SonarGateInputPort`` (AG3-052,
                 FK-33 §33.6). Wenn ``None``, wird der Absent-Sonar-Port
                 genutzt (``sonarqube.available == false`` => Stage SKIP).
+            invalidation_sink: Optionaler produktiver
+                ``ArtifactInvalidationSink`` (FK-27 §27.2.3 / AG3-041 §2.1.3):
+                emittiert pro ``stale/``-Move ein ``artifact_invalidated``-
+                Telemetrie-Event. ``None`` => No-op-Sink (Testpfad ohne
+                verdrahtete Telemetrie). Produktive Aufrufer reichen den
+                telemetrie-gebundenen Sink via
+                ``composition_root.build_verify_system`` ein.
 
         Returns:
             A frozen ``VerifySystem`` with default-configured sub-components.
@@ -278,6 +298,18 @@ class VerifySystem:
             artifact_manager=artifact_manager,
             story_context_port=resolved_port,
             sonar_gate_port=resolved_sonar_port,
+            remediation_loop_controller=(
+                _qa.RemediationLoopController(
+                    max_feedback_rounds=max_feedback_rounds
+                )
+                if max_feedback_rounds is not None
+                else _qa.RemediationLoopController()
+            ),
+            qa_cycle_lifecycle=(
+                _qa.QaCycleLifecycle(invalidation_sink=invalidation_sink)
+                if invalidation_sink is not None
+                else _qa.QaCycleLifecycle()
+            ),
         )
 
     # ------------------------------------------------------------------
@@ -327,6 +359,7 @@ class VerifySystem:
         target: ArtifactReference,
         *,
         review_input: object | None = None,
+        previous_findings: tuple[Finding, ...] = (),
     ) -> QaSubflowOutcome:
         """Execute the full QA-subflow and return a structured outcome.
 
@@ -363,6 +396,13 @@ class VerifySystem:
                 ``Layer2ReviewInput()`` is used (Layer-2 reviewers will emit
                 a MAJOR ``layer2_input.missing`` finding). Pass a populated
                 instance once Workers produce handover artefacts (THEME-009).
+            previous_findings: Findings from the prior remediation round (the
+                state owner / phase handler carries them forward). In a
+                remediation context they are matched against this round's
+                findings by :class:`FindingResolutionAssessor` (FK-34 / DK-04
+                §4.6); a still-open (NOT_RESOLVED / PARTIALLY_RESOLVED) previous
+                finding sets ``closure_blocked`` (AG3-041 §2.1.6). Empty in the
+                initial round.
 
         Returns:
             ``QaSubflowOutcome`` with ``verdict``, ``decision``,
@@ -401,17 +441,28 @@ class VerifySystem:
         # Step 3 + 4: Execute layers in order and write artefacts.
         layer_results: list[LayerResult] = []
         artifact_refs_written: list[str] = []
-        now_str = self._utc_now_iso()
+        now_str = _qa.utc_now_iso()
 
-        qa_cycle_fields = self._extract_qa_cycle_fields(ctx)
+        # AG3-041 §2.1.7: drive the QA-cycle lifecycle. First call (no active
+        # cycle) -> start_cycle (round 1, epoch 1). Remediation context with an
+        # active cycle -> advance_qa_cycle (round/epoch +1, recompute
+        # fingerprint, invalidate the 11/12 cycle-bound artefacts, FK-27
+        # §27.2.3). The resulting identities are embedded into every QA artefact
+        # written below. When no phase-envelope view is present (idle / legacy
+        # callers), fall back to the previously-supplied fields (no cycle).
+        cycle_state = _qa.resolve_qa_cycle_state(
+            self.qa_cycle_lifecycle, ctx, story_id, qa_context
+        )
+        qa_cycle_fields = _qa.qa_cycle_state_to_fields(cycle_state)
 
+        sonar_fail_decision: VerifyDecision | None = None
         for kind in layer_kinds:
             if kind is QALayerKind.POLICY:
                 # Policy runs after all data layers; handled in step 5/6.
                 continue
 
             if kind is QALayerKind.SONARQUBE_GATE:
-                early_outcome = self._run_sonarqube_gate_kind(
+                sonar_fail_decision = self._run_sonarqube_gate_kind(
                     ctx=ctx,
                     story_id=story_id,
                     now_str=now_str,
@@ -419,8 +470,14 @@ class VerifySystem:
                     layer_results=layer_results,
                     artifact_refs_written=artifact_refs_written,
                 )
-                if early_outcome is not None:
-                    return early_outcome
+                if sonar_fail_decision is not None:
+                    # FK-33 §33.6.3: an APPLICABLE gate fail-closed routes
+                    # DIRECTLY to failed WITHOUT policy aggregation. It does NOT
+                    # bypass the remediation loop (FK-27 §27.6a.2): the FAIL is
+                    # fed through the SAME escalation path below (break, do not
+                    # return). No decision.json on this path (the gate envelope
+                    # is the verdict carrier).
+                    break
                 continue
 
             self._run_data_layer_kind(
@@ -435,18 +492,22 @@ class VerifySystem:
                 artifact_refs_written=artifact_refs_written,
             )
 
-        # Step 5: Policy decision.
-        decision = self.policy_engine.decide(layer_results)
-
-        # Step 6: Write policy decision artefact.
-        decision_ref = self._write_policy_artifact(
-            decision=decision,
-            ctx=ctx,
-            story_id=story_id,
-            now_str=now_str,
-            qa_cycle_fields=qa_cycle_fields,
-        )
-        artifact_refs_written.append(decision_ref)
+        # Step 5: Policy decision. On a Sonar fail-closed short-circuit the
+        # gate's BLOCKING SYSTEM finding is authoritative (FK-33 §33.6.3): no
+        # policy aggregation, no decision.json.
+        if sonar_fail_decision is not None:
+            decision = sonar_fail_decision
+        else:
+            decision = self.policy_engine.decide(layer_results)
+            # Step 6: Write policy decision artefact.
+            decision_ref = self._write_policy_artifact(
+                decision=decision,
+                ctx=ctx,
+                story_id=story_id,
+                now_str=now_str,
+                qa_cycle_fields=qa_cycle_fields,
+            )
+            artifact_refs_written.append(decision_ref)
 
         # Build internal result detail (retained for internal diagnostics).
         all_findings = tuple(f for lr in layer_results for f in lr.findings)
@@ -476,18 +537,59 @@ class VerifySystem:
         )
 
         # Step 7: Build remediation feedback when FAIL (AG3-026 Pass-2 §Befund-A).
+        # FK-34 / DK-04 §4.6 (AG3-041 §2.1.5/§2.1.6): in a remediation context
+        # the FindingResolutionAssessor classifies each previous-round finding
+        # (FULLY/PARTIALLY/NOT_RESOLVED) against this round; the resolution map
+        # feeds build_feedback so has_open_findings() drives closure_blocked.
         from agentkit.verify_system.remediation.feedback import build_feedback
+        from agentkit.verify_system.remediation.finding_resolution import (
+            resolution_map_has_open_findings,
+        )
 
-        feedback = build_feedback(decision, story_id, ctx.attempt)
+        resolution_map = _qa.assess_finding_resolution(
+            qa_context, previous_findings, decision.all_findings
+        )
+        feedback = build_feedback(
+            decision, story_id, ctx.attempt, finding_resolution=resolution_map
+        )
 
-        # Step 8: Return QaSubflowOutcome (public DTO, AK11 / §2.1.3).
+        # Step 8: AG3-041 §2.1.7 -- run the remediation loop controller AFTER
+        # the policy engine (or the Sonar fail-closed decision, FK-27 §27.6a.2).
+        # PASS -> CONTINUE_TO_CLOSURE; FAIL + round < max -> CONTINUE_REMEDIATION;
+        # FAIL + round >= max -> ESCALATE (hard, FK-27 §27.2.2
+        # max_rounds_exceeded). escalated forces verdict=FAIL. The Sonar
+        # fail-closed verdict traverses the SAME loop (no bypass, no fail-open).
+        escalated = _qa.evaluate_escalation(
+            self.remediation_loop_controller,
+            cycle_state,
+            decision.verdict,
+        )
+
+        # closure_blocked: in a remediation context with at least one open
+        # (NOT_RESOLVED / PARTIALLY_RESOLVED) previous finding (FK-34 §34.9.4 /
+        # DK-04 §4.6, AG3-041 §2.1.6). Derived DIRECTLY from the finding-
+        # resolution assessment and INDEPENDENT of the policy verdict: a PASS
+        # verdict produces no feedback object, but a still-open (e.g.
+        # PARTIALLY_RESOLVED) previous finding must still block closure
+        # (no fail-open toward closure). The feedback object is not the source
+        # of truth here.
+        closure_blocked = resolution_map_has_open_findings(resolution_map)
+
+        # Step 9: Return QaSubflowOutcome (public DTO, AK11 / §2.1.3). The cycle
+        # is always resolved (FK-27 §27.2.2 idle -> awaiting_qa), so all four
+        # identity fields are surfaced for the state owner to persist.
         return QaSubflowOutcome(
-            verdict=decision.verdict,
+            verdict=PolicyVerdict.FAIL if escalated else decision.verdict,
             decision=decision,
             artifact_refs=tuple(artifact_refs_written),
             attempt_nr=ctx.attempt,
-            qa_cycle_round=ctx.attempt,
+            qa_cycle_round=cycle_state.round,
             feedback=feedback,
+            qa_cycle_id=cycle_state.qa_cycle_id,
+            evidence_epoch=cycle_state.evidence_epoch,
+            evidence_fingerprint=cycle_state.evidence_fingerprint,
+            escalated=escalated,
+            closure_blocked=closure_blocked,
         )
 
     # ------------------------------------------------------------------
@@ -503,7 +605,7 @@ class VerifySystem:
         qa_cycle_fields: dict[str, object],
         layer_results: list[LayerResult],
         artifact_refs_written: list[str],
-    ) -> QaSubflowOutcome | None:
+    ) -> VerifyDecision | None:
         """Run the ``sonarqube_gate`` stage and update the run accumulators.
 
         Extracted from :meth:`run_qa_subflow` (S3776) without behaviour change.
@@ -524,7 +626,9 @@ class VerifySystem:
           => route DIRECTLY to the terminal ``failed`` WITHOUT the policy engine
           and WITHOUT a decision artefact
           (invariant.passed-requires-sonarqube-gate-passed). Returns the FAIL
-          ``QaSubflowOutcome`` so the caller returns it immediately.
+          ``VerifyDecision`` so the caller short-circuits the policy engine but
+          STILL feeds the SAME remediation loop / escalation path
+          (FK-27 §27.6a.2 — no loop bypass, no fail-open).
 
         Args:
             ctx: Run-time context bundle.
@@ -538,7 +642,7 @@ class VerifySystem:
                 on the fail-closed path).
 
         Returns:
-            The fail-closed ``QaSubflowOutcome`` for an APPLICABLE gate FAIL, or
+            The fail-closed ``VerifyDecision`` for an APPLICABLE gate FAIL, or
             ``None`` when the run should continue (dropped / SKIP / PASS).
         """
         stage_result = run_sonarqube_gate_stage(
@@ -559,11 +663,9 @@ class VerifySystem:
             )
             artifact_refs_written.append(spec.filename)
         if stage_result.short_circuit_failed:
-            return self._sonarqube_gate_failed_outcome(
+            return self._sonarqube_gate_failed_decision(
                 stage_result=stage_result,
                 layer_results=layer_results,
-                artifact_refs_written=artifact_refs_written,
-                ctx=ctx,
                 story_id=story_id,
             )
         layer_results.append(gate_result)
@@ -641,44 +743,39 @@ class VerifySystem:
             )
             artifact_refs_written.append(spec.filename)
 
-    def _sonarqube_gate_failed_outcome(
+    def _sonarqube_gate_failed_decision(
         self,
         *,
         stage_result: SonarStageResult,
         layer_results: list[LayerResult],
-        artifact_refs_written: list[str],
-        ctx: VerifyContextBundle,
         story_id: str,
-    ) -> QaSubflowOutcome:
-        """Build the direct fail-closed outcome for an APPLICABLE gate FAIL.
+    ) -> VerifyDecision:
+        """Build the direct fail-closed ``VerifyDecision`` for a gate FAIL.
 
         FK-33 §33.6.3 / formal.deterministic-checks state machine: an
         APPLICABLE ``sonarqube_gate`` fail-closed verdict (red gate,
         stale/unreadable attestation, 0/>1 ledger reconciliation) routes
         DIRECTLY to the terminal ``failed`` and must NEVER traverse
         ``policy_evaluated`` (invariant.passed-requires-sonarqube-gate-passed).
-        Therefore this path does NOT call the policy engine and does NOT
-        write a ``decision.json`` policy artefact — the only verdict carrier
-        is the gate envelope (already written by the caller).
+        Therefore the policy engine is NOT called and NO ``decision.json``
+        policy artefact is written — the only verdict carrier is the gate
+        envelope (already written by the caller).
 
-        The returned ``QaSubflowOutcome`` carries a FAIL ``VerifyDecision``
-        assembled WITHOUT the aggregator (the gate's BLOCKING SYSTEM finding
-        is authoritative) so cross-BC callers still feed FK-69 and surface
-        remediation feedback.
+        The returned ``VerifyDecision`` is assembled WITHOUT the aggregator (the
+        gate's BLOCKING SYSTEM finding is authoritative). The caller still runs
+        the SAME remediation loop / escalation path over this verdict
+        (FK-27 §27.6a.2): a Sonar FAIL is a remediation FAIL like any other —
+        it loops until green or escalates at ``max_feedback_rounds``, it does
+        NOT bypass the loop.
 
         Args:
             stage_result: The fail-closed ``SonarStageResult`` from the gate.
             layer_results: Results of the layers executed before the gate.
-            artifact_refs_written: Artefact filenames written so far
-                (includes the gate envelope; deliberately NO ``decision.json``).
-            ctx: Run-time context bundle.
             story_id: Story display-ID.
 
         Returns:
-            A FAIL ``QaSubflowOutcome`` reached without the policy engine.
+            A FAIL ``VerifyDecision`` reached without the policy engine.
         """
-        from agentkit.verify_system.remediation.feedback import build_feedback
-
         gate_result = stage_result.layer_result
         all_results = (*tuple(layer_results), gate_result)
         all_findings = tuple(f for lr in all_results for f in lr.findings)
@@ -687,7 +784,13 @@ class VerifySystem:
             for f in all_findings
             if f.severity == Severity.BLOCKING and f.trust_class == TrustClass.SYSTEM
         )
-        decision = VerifyDecision(
+        logger.info(
+            "run_qa_subflow sonarqube_gate fail-closed (direct failed, no "
+            "policy; routed into remediation loop): story=%s reason=%s",
+            story_id,
+            gate_result.metadata.get("failure_reason"),
+        )
+        return VerifyDecision(
             passed=False,
             verdict=PolicyVerdict.FAIL,
             layer_results=all_results,
@@ -696,24 +799,9 @@ class VerifySystem:
             summary=(
                 "FAIL: SonarQube-Green-Gate fail-closed "
                 f"({gate_result.metadata.get('failure_reason')!r}); routed "
-                "directly to failed without policy aggregation "
-                "(FK-33 §33.6.3)."
+                "directly to failed without policy aggregation, fed into the "
+                "remediation loop (FK-33 §33.6.3 / FK-27 §27.6a.2)."
             ),
-        )
-        logger.info(
-            "run_qa_subflow sonarqube_gate fail-closed (direct failed, no "
-            "policy): story=%s reason=%s",
-            story_id,
-            gate_result.metadata.get("failure_reason"),
-        )
-        feedback = build_feedback(decision, story_id, ctx.attempt)
-        return QaSubflowOutcome(
-            verdict=PolicyVerdict.FAIL,
-            decision=decision,
-            artifact_refs=tuple(artifact_refs_written),
-            attempt_nr=ctx.attempt,
-            qa_cycle_round=ctx.attempt,
-            feedback=feedback,
         )
 
     def _layer2_pairs(
@@ -867,7 +955,7 @@ class VerifySystem:
         werden aus ``ctx.phase_envelope`` (jetzt ``PhaseEnvelopeView``)
         in jede Envelope-Payload eingebettet, sofern dort gesetzt.
         """
-        payload = self._layer_result_to_payload(result, attempt=ctx.attempt)
+        payload = _qa.serialize_layer_result_payload(result, ctx.attempt)
         payload.update(qa_cycle_fields)
         envelope = ArtifactEnvelope(
             schema_version="3.0",
@@ -962,62 +1050,3 @@ class VerifySystem:
         msg = f"_kind_to_single_artifacts called with non-single kind {kind!r}"
         raise ValueError(msg)  # pragma: no cover
 
-    @staticmethod
-    def _utc_now_iso() -> str:
-        """Return the current UTC time as an ISO-8601 string."""
-        from agentkit.boundary.shared.time import now_iso
-
-        return now_iso()
-
-    @staticmethod
-    def _layer_result_to_payload(
-        result: LayerResult,
-        attempt: int,
-    ) -> dict[str, object]:
-        """Serialise a ``LayerResult`` to a JSON-compatible dict payload.
-
-        Args:
-            result: The layer evaluation result to serialise.
-            attempt: QA-subflow attempt counter.
-
-        Returns:
-            Dict suitable for use as ``ArtifactEnvelope.payload``.
-        """
-        from agentkit.verify_system.policy_engine.projections import serialize_layer_result
-
-        return serialize_layer_result(result, attempt_nr=attempt)
-
-    @staticmethod
-    def _extract_qa_cycle_fields(ctx: VerifyContextBundle) -> dict[str, object]:
-        """Extract QA-Zyklus-Identitaeten from the PhaseEnvelopeView.
-
-        AG3-026 §AK8 + FK-27 §27.2.1: wenn ``ctx.phase_envelope`` ein
-        ``PhaseEnvelopeView`` traegt, werden ``qa_cycle_id``,
-        ``qa_cycle_round``, ``evidence_epoch``, ``evidence_fingerprint`` in
-        jede erzeugte QA-Artefakt-Payload geschrieben. Felder, die ``None``
-        sind, werden nicht ausgegeben (sauberes JSON, keine ``null``-Stuempfe).
-
-        W2: ``ctx.phase_envelope`` ist jetzt ``PhaseEnvelopeView | None`` statt
-        ``PhaseEnvelope | None``; kein ``pipeline_engine``-Import mehr noetig.
-
-        Befuellung/Invalidierung dieser Felder ist AG3-041 (THEME-009).
-        """
-        view = ctx.phase_envelope
-        if view is None:
-            return {}
-        fields: dict[str, object] = {}
-        for attr in (
-            "qa_cycle_id",
-            "qa_cycle_round",
-            "evidence_epoch",
-            "evidence_fingerprint",
-        ):
-            value = getattr(view, attr, None)
-            if value is None:
-                continue
-            # datetimes serialise to ISO-8601 strings for JSON payload portability.
-            if hasattr(value, "isoformat"):
-                fields[attr] = value.isoformat()
-            else:
-                fields[attr] = value
-        return fields

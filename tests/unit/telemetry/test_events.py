@@ -72,6 +72,7 @@ class TestEventType:
             "DOC_FIDELITY_CHECK",
             "VECTORDB_SEARCH",
             "COMPACTION_EVENT",
+            "ARTIFACT_INVALIDATED",
             "ERROR",
             "WARNING",
         }

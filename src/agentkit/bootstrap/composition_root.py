@@ -19,6 +19,7 @@ Quelle:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from agentkit.artifacts import (
@@ -42,7 +43,12 @@ if TYPE_CHECKING:
     from agentkit.governance.repository import SetupContextRepository
     from agentkit.governance.setup_preflight_gate.phase import SetupPhaseHandler
     from agentkit.skills import Skills
+    from agentkit.telemetry.emitters import EventEmitter
     from agentkit.telemetry.projection_accessor import ProjectionAccessor
+    from agentkit.verify_system.qa_cycle.invalidation import (
+        ArtifactInvalidationEvent,
+        ArtifactInvalidationSink,
+    )
     from agentkit.verify_system.sonarqube_gate.port import SonarGateInputPort
     from agentkit.verify_system.system import VerifySystem
 
@@ -97,6 +103,7 @@ def build_verify_system(
     store_dir: Path,
     *,
     max_major_findings: int = 0,
+    max_feedback_rounds: int | None = None,
     sonar_gate_port: SonarGateInputPort | None = None,
 ) -> VerifySystem:
     """Erzeugt einen vollstaendig verdrahteten ``VerifySystem``.
@@ -125,6 +132,12 @@ def build_verify_system(
             ``build_artifact_manager`` durchgereicht.
         max_major_findings: Schwellenwert fuer die PolicyEngine (Anzahl
             tolerierter MAJOR-Findings; 0 = jedes MAJOR blockiert).
+        max_feedback_rounds: Ceiling fuer den Subflow-internen Remediation-Loop
+            (FK-03 §3.4.2 / FK-38, ``policy.max_feedback_rounds``). Der Aufrufer
+            (Phase-Handler) loest ihn aus der Pipeline-Config auf und reicht ihn
+            ein; ``None`` => Controller-Default (3). Der
+            ``RemediationLoopController`` ist der harte Owner der Schranke
+            (nicht ueberspringbar, NO ERROR BYPASSING).
         sonar_gate_port: Optionaler produktiver ``SonarGateInputPort``
             (FK-33 §33.6). ``None`` => Absent-Default-Port.
 
@@ -140,10 +153,71 @@ def build_verify_system(
     manager = build_artifact_manager(store_dir)
     return VerifySystem.create_default(
         max_major_findings=max_major_findings,
+        max_feedback_rounds=max_feedback_rounds,
         artifact_manager=manager,
         story_context_port=StateBackendVerifyStoryContextAdapter(),
         sonar_gate_port=sonar_gate_port,
+        invalidation_sink=build_artifact_invalidation_sink(store_dir),
     )
+
+
+def build_artifact_invalidation_sink(store_dir: Path) -> ArtifactInvalidationSink:
+    """Build the productive ``artifact_invalidated`` telemetry sink (AG3-041 §2.1.3).
+
+    Composition-Root wiring for FK-27 §27.2.3: every cycle-bound QA artefact
+    moved to ``stale/`` on ``advance_qa_cycle`` emits an ``artifact_invalidated``
+    telemetry event through the canonical :class:`StateBackendEmitter`. This is
+    the productive default for ``build_verify_system`` — NOT a no-op stub.
+    ``verify_system`` only knows the ``ArtifactInvalidationSink`` Protocol; the
+    telemetry import lives here, keeping the BC free of a telemetry dependency.
+
+    Args:
+        store_dir: Story working directory (the canonical event store root).
+
+    Returns:
+        A productive sink that emits ``artifact_invalidated`` events.
+    """
+    from agentkit.telemetry.storage import StateBackendEmitter
+
+    return _TelemetryArtifactInvalidationSink(StateBackendEmitter(store_dir))
+
+
+@dataclass(frozen=True)
+class _TelemetryArtifactInvalidationSink:
+    """Adapt ``ArtifactInvalidationEvent`` facts onto the telemetry emitter.
+
+    Bridges the ``verify_system`` invalidation Protocol to the canonical
+    telemetry ``EventEmitter`` (FK-27 §27.2.3 / FK-68). Each invalidation fact
+    becomes an ``EventType.ARTIFACT_INVALIDATED`` event carrying the moved
+    file, the old epoch and the source/stale paths. Emission never raises
+    (``StateBackendEmitter.emit`` swallows storage errors, ARCH-20); the file
+    move has already happened, so a telemetry hiccup never corrupts QA truth.
+    """
+
+    emitter: EventEmitter
+
+    def artifact_invalidated(self, event: ArtifactInvalidationEvent) -> None:
+        """Emit an ``artifact_invalidated`` telemetry event for one moved file.
+
+        Args:
+            event: The invalidation fact (story, filename, epoch, paths).
+        """
+        from agentkit.telemetry.events import Event, EventType
+
+        self.emitter.emit(
+            Event(
+                story_id=event.story_id,
+                event_type=EventType.ARTIFACT_INVALIDATED,
+                phase="implementation",
+                source_component="verify-system",
+                payload={
+                    "filename": event.filename,
+                    "old_epoch": event.old_epoch,
+                    "source_path": str(event.source_path),
+                    "stale_path": str(event.stale_path),
+                },
+            )
+        )
 
 
 def build_sonar_gate_port(
@@ -606,6 +680,7 @@ def build_failure_corpus(accessor: ProjectionAccessor) -> FailureCorpus:
 
 
 __all__ = [
+    "build_artifact_invalidation_sink",
     "build_artifact_manager",
     "build_failure_corpus",
     "build_integrity_gate",

@@ -152,6 +152,13 @@ class VerifyContextBundle(BaseModel):
             ``PhaseEnvelope.state.payload`` to avoid a BC import of
             ``pipeline_engine`` into ``verify_system``.
         attempt: QA-subflow attempt counter (>= 1).
+        project_root: Optional project root for canonical QA-artefact path
+            resolution (FK-27 §27.2.3 invalidation; AG3-041 E4). When set, the
+            cycle-bound artefacts resolve under ``{project_root}/_temp/qa/
+            {story_id}`` via ``installer.paths.resolve_qa_story_dir`` — the SAME
+            resolver the phase handler uses for its QA projections (one path
+            truth). ``None`` => the resolver derives the root from
+            ``story_dir``.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -160,6 +167,7 @@ class VerifyContextBundle(BaseModel):
     story_dir: Path
     phase_envelope: PhaseEnvelopeView | None = None
     attempt: int
+    project_root: Path | None = None
 
 
 class VerifyTargetType(StrEnum):
@@ -226,6 +234,48 @@ class _QaSubflowExecutionResult(BaseModel):
     minor_failures: int
 
 
+class PolicyVerdictResult(BaseModel):
+    """Internal QA-subflow verdict carrier with escalation/closure flags.
+
+    **NOT exported from ``agentkit.verify_system``** (AK11; pinned by
+    ``tests/contract/verify_system/test_top_surface.py``). It is the internal
+    aggregation of the policy verdict with the two AG3-041 control flags that
+    the remediation loop and the closure gate consume:
+
+    * ``escalated`` -- set when the remediation loop exhausted
+      ``max_feedback_rounds`` on a FAIL (FK-27 §27.2.2 ``max_rounds_exceeded``
+      -> ``escalated``). When escalated, ``verdict`` is forced to ``FAIL``.
+    * ``closure_blocked`` -- set when, in a remediation context, at least one
+      previous-round finding remains open -- ``NOT_RESOLVED`` or
+      ``PARTIALLY_RESOLVED`` (FK-34 §34.9.4 / DK-04 §4.6,
+      AG3-041 §2.1.6). The closure-phase handler consumes this flag in a
+      follow-up story; it is computed here, not wired into closure yet.
+
+    Attributes:
+        verdict: PASS/FAIL summary verdict.
+        escalated: Whether the remediation loop escalated (hard FAIL).
+        closure_blocked: Whether open (NOT_RESOLVED or PARTIALLY_RESOLVED)
+            previous findings block closure in a remediation context.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    verdict: PolicyVerdict
+    escalated: bool = False
+    closure_blocked: bool = False
+
+    @model_validator(mode="after")
+    def _escalated_implies_fail(self) -> PolicyVerdictResult:
+        """FK-27 §27.2.2: an escalated cycle is a hard FAIL (no PASS escalation)."""
+        if self.escalated and self.verdict is not PolicyVerdict.FAIL:
+            msg = (
+                "escalated=True requires verdict=FAIL "
+                f"(FK-27 §27.2.2 max_rounds_exceeded); got verdict={self.verdict!r}"
+            )
+            raise ValueError(msg)
+        return self
+
+
 # ---------------------------------------------------------------------------
 # Public outcome DTO (Befund A / AG3-026 Pass-2)
 # ---------------------------------------------------------------------------
@@ -265,6 +315,22 @@ class QaSubflowOutcome(BaseModel):
             bundle; mirrors ``VerifyContextBundle.attempt``.
         feedback: Structured remediation feedback when
             ``verdict == FAIL``; ``None`` when ``verdict == PASS``.
+        qa_cycle_id: 12-char lowercase hex UUID-fragment of the QA cycle this
+            run executed under (FK-27 §27.2.1). The QA-subflow always resolves
+            a cycle (idle -> ``start_cycle``), so this is always set; the state
+            owner (phase handler) persists it into ``ImplementationPayload``.
+        evidence_epoch: UTC-aware timestamp of the cycle's last artefact
+            mutation (FK-27 §27.2.1). Always set; persisted by the state owner.
+        evidence_fingerprint: SHA-256 hex of the cycle's evidence
+            (FK-27 §27.2.1), surfaced from the resolved QA-cycle state. Always
+            set; persisted by the state owner.
+        escalated: Whether the subflow-internal remediation loop escalated
+            (``max_rounds_exceeded`` -> hard FAIL; FK-27 §27.2.2 / AG3-041
+            §2.1.7). Always ``False`` on PASS.
+        closure_blocked: Whether open (NOT_RESOLVED or PARTIALLY_RESOLVED)
+            previous-round findings block closure in a remediation context
+            (FK-34 §34.9.4 / DK-04 §4.6, AG3-041 §2.1.6). Consumed by the
+            closure phase in a follow-up story.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=True)
@@ -275,6 +341,11 @@ class QaSubflowOutcome(BaseModel):
     attempt_nr: int
     qa_cycle_round: int
     feedback: RemediationFeedback | None = None
+    qa_cycle_id: str | None = None
+    evidence_epoch: datetime | None = None
+    evidence_fingerprint: str | None = None
+    escalated: bool = False
+    closure_blocked: bool = False
 
 
 __all__ = [
@@ -284,6 +355,7 @@ __all__ = [
     "VerifyContextBundle",
     # Internal (listed for intra-BC imports only)
     "_QaSubflowExecutionResult",
+    "PolicyVerdictResult",
     "VerifyTarget",
     "VerifyTargetType",
 ]

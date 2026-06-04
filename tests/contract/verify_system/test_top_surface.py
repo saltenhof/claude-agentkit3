@@ -49,8 +49,11 @@ class TestRunQaSubflowSignature:
         param_names = list(sig.parameters.keys())
         # 'self' is the first parameter of an unbound method.
         # 'review_input' is the optional Layer2ReviewInput kwarg (AG3-026 Pass-3).
+        # 'previous_findings' carries the prior round's findings for the
+        # FindingResolutionAssessor (FK-34 / AG3-041 §2.1.5, default ()).
         assert param_names == [
-            "self", "ctx", "story_id", "qa_context", "target", "review_input"
+            "self", "ctx", "story_id", "qa_context", "target",
+            "review_input", "previous_findings",
         ]
 
     def test_ctx_annotation_is_verify_context_bundle(self) -> None:

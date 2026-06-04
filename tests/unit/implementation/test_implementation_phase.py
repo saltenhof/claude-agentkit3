@@ -71,6 +71,25 @@ class _RecordingArtifactManager(ArtifactManager):
         )
 
 
+def _cycle_identity(attempt_nr: int) -> dict[str, object]:
+    """Deterministic QA-cycle identity tuple for a test-double outcome (E1).
+
+    Mirrors what the real subflow surfaces so the phase handler can persist all
+    four fields (FK-27 §27.2.1).
+
+    Args:
+        attempt_nr: Round/attempt counter (== qa_cycle_round).
+
+    Returns:
+        Dict with qa_cycle_id, evidence_epoch and evidence_fingerprint.
+    """
+    return {
+        "qa_cycle_id": f"{attempt_nr:012x}",
+        "evidence_epoch": datetime(2026, 5, 19, tzinfo=UTC),
+        "evidence_fingerprint": "f" * 64,
+    }
+
+
 def _make_pass_outcome(attempt_nr: int = 1) -> QaSubflowOutcome:
     """Build a deterministic PASS QaSubflowOutcome for test doubles.
 
@@ -96,14 +115,20 @@ def _make_pass_outcome(attempt_nr: int = 1) -> QaSubflowOutcome:
         attempt_nr=attempt_nr,
         qa_cycle_round=attempt_nr,
         feedback=None,
+        **_cycle_identity(attempt_nr),  # type: ignore[arg-type]
     )
 
 
-def _make_fail_outcome(attempt_nr: int = 1) -> QaSubflowOutcome:
+def _make_fail_outcome(
+    attempt_nr: int = 1, *, escalated: bool = False
+) -> QaSubflowOutcome:
     """Build a deterministic FAIL QaSubflowOutcome for test doubles.
 
     Args:
         attempt_nr: Attempt counter to embed in the outcome.
+        escalated: Whether the remediation loop escalated (E3): the phase
+            handler consumes ``outcome.escalated`` verbatim, so the double
+            replicates the controller decision here.
 
     Returns:
         A ``QaSubflowOutcome`` with FAIL verdict and one blocking layer.
@@ -134,6 +159,8 @@ def _make_fail_outcome(attempt_nr: int = 1) -> QaSubflowOutcome:
         attempt_nr=attempt_nr,
         qa_cycle_round=attempt_nr,
         feedback=feedback,
+        escalated=escalated,
+        **_cycle_identity(attempt_nr),  # type: ignore[arg-type]
     )
 
 
@@ -145,13 +172,23 @@ class _RecordingVerifySystem:
     No MagicMock (AG3-026 §Station 4).
     """
 
-    def __init__(self, *, verdict: PolicyVerdict = PolicyVerdict.PASS) -> None:
+    def __init__(
+        self,
+        *,
+        verdict: PolicyVerdict = PolicyVerdict.PASS,
+        max_feedback_rounds: int = 1,
+    ) -> None:
         """Initialise the recording VerifySystem.
 
         Args:
             verdict: Verdict to return on each run_qa_subflow call.
+            max_feedback_rounds: Round ceiling the double uses to replicate the
+                RemediationLoopController decision (E3): a FAIL at/over the
+                ceiling sets ``escalated=True`` on the returned outcome, exactly
+                as the real controller would (FK-27 §27.2.2).
         """
         self._verdict = verdict
+        self._max_feedback_rounds = max_feedback_rounds
         self.calls: list[tuple[VerifyContextBundle, str, QaContext, ArtifactReference]] = []
         self._recording_manager = _RecordingArtifactManager()
 
@@ -166,6 +203,8 @@ class _RecordingVerifySystem:
         story_id: str,
         qa_context: QaContext,
         target: ArtifactReference,
+        *,
+        previous_findings: tuple[object, ...] = (),
     ) -> QaSubflowOutcome:
         """Record the call and return a deterministic outcome.
 
@@ -174,14 +213,18 @@ class _RecordingVerifySystem:
             story_id: Story ID.
             qa_context: QA context.
             target: Target artifact reference.
+            previous_findings: Prior-round findings (recorded, unused here).
 
         Returns:
-            Deterministic PASS or FAIL ``QaSubflowOutcome``.
+            Deterministic PASS or FAIL ``QaSubflowOutcome``. A FAIL escalates
+            once the attempt reaches ``max_feedback_rounds`` (controller parity).
         """
+        del previous_findings
         self.calls.append((ctx, story_id, qa_context, target))
         if self._verdict == PolicyVerdict.PASS:
             return _make_pass_outcome(attempt_nr=ctx.attempt)
-        return _make_fail_outcome(attempt_nr=ctx.attempt)
+        escalated = ctx.attempt >= self._max_feedback_rounds
+        return _make_fail_outcome(attempt_nr=ctx.attempt, escalated=escalated)
 
 
 @pytest.fixture(autouse=True)
@@ -196,7 +239,33 @@ def sqlite_backend_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None,
 def _story_dir(root: Path, story_id: str = "TEST-001") -> Path:
     story_dir = root / "stories" / story_id
     story_dir.mkdir(parents=True, exist_ok=True)
+    _init_git_worktree(story_dir)
     return story_dir
+
+
+def _init_git_worktree(path: Path) -> None:
+    """Initialise a real git worktree at ``path`` (AG3-041 E1/E2).
+
+    The QA-subflow now ALWAYS starts a QA cycle on the first call (FK-27
+    §27.2.2), which computes the deterministic ``evidence_fingerprint`` over the
+    git delta. The productive ``story_dir`` is always a git worktree, so these
+    tests run against a REAL repo rather than letting the fingerprint fail
+    closed on a non-repo path (no fail-open).
+    """
+    import subprocess
+
+    def _git(*args: str) -> None:
+        subprocess.run(
+            ["git", *args], cwd=path, check=True, capture_output=True, text=True
+        )
+
+    _git("init", "-b", "main")
+    _git("config", "user.email", "t@example.com")
+    _git("config", "user.name", "Test")
+    (path / "seed.txt").write_text("seed\n", encoding="utf-8")
+    _git("add", ".")
+    _git("commit", "-m", "seed")
+    _git("update-ref", "refs/remotes/origin/main", "HEAD")
 
 
 def _make_context(
@@ -331,10 +400,14 @@ class TestImplementationPhaseHandler:
             ),
         )
         # AG3-026 Pass-2 §Befund-A: inject controlled FAIL VerifySystem.
+        # E3 (AG3-041): escalation is owned by the controller inside the
+        # subflow; the double escalates at round 1 (max_feedback_rounds=1).
         config = ImplementationConfig(
             story_dir=story_dir,
-            max_feedback_rounds=0,
-            verify_system=_RecordingVerifySystem(verdict=PolicyVerdict.FAIL),  # type: ignore[arg-type]
+            max_feedback_rounds=1,
+            verify_system=_RecordingVerifySystem(
+                verdict=PolicyVerdict.FAIL, max_feedback_rounds=1
+            ),  # type: ignore[arg-type]
         )
         handler = ImplementationPhaseHandler(config)
         ctx = _make_context()
@@ -352,6 +425,33 @@ class TestImplementationPhaseHandler:
             "adversarial.json",
             "decision.json",
         }
+
+    def test_persists_all_four_qa_cycle_identities(self, tmp_path: Path) -> None:
+        """E1 (AG3-041): the handler persists ALL FOUR cycle identities.
+
+        FK-27 §27.2.1 "im Story-State persistiert": the resolved qa_cycle_id,
+        qa_cycle_round, evidence_epoch and evidence_fingerprint must land on the
+        ``ImplementationPayload``, not just the round.
+        """
+        story_dir = _setup_complete_story_dir(tmp_path)
+        config = ImplementationConfig(
+            story_dir=story_dir,
+            verify_system=_RecordingVerifySystem(verdict=PolicyVerdict.PASS),  # type: ignore[arg-type]
+        )
+        handler = ImplementationPhaseHandler(config)
+        ctx = _make_context()
+        state = _make_state()
+
+        result = handler.on_enter(ctx, _make_envelope(state))
+        assert result.status == PhaseStatus.COMPLETED
+        payload = result.updated_state.payload
+        from agentkit.story_context_manager.models import ImplementationPayload
+
+        assert isinstance(payload, ImplementationPayload)
+        assert payload.qa_cycle_id is not None
+        assert payload.qa_cycle_round == 1
+        assert payload.evidence_epoch is not None
+        assert payload.evidence_fingerprint is not None
 
     def test_on_resume_reruns_qa_subflow(self, tmp_path: Path) -> None:
         """on_resume re-executes the QA-subflow."""
@@ -405,7 +505,9 @@ class TestImplementationPhaseHandler:
                 status="IN_PROGRESS",
             ),
         )
-        config = ImplementationConfig(story_dir=story_dir, max_feedback_rounds=0)
+        # E3: round ceiling 1 -> a FAIL at round 1 escalates immediately
+        # (the controller owns the ceiling; >= 1 is enforced).
+        config = ImplementationConfig(story_dir=story_dir, max_feedback_rounds=1)
         handler = ImplementationPhaseHandler(config)
         ctx = _make_context()
         state = _make_state()
@@ -506,7 +608,7 @@ class TestImplementationPhaseHandler:
                 status="IN_PROGRESS",
             ),
         )
-        config = ImplementationConfig(story_dir=story_dir, max_feedback_rounds=0)
+        config = ImplementationConfig(story_dir=story_dir, max_feedback_rounds=1)
         handler = ImplementationPhaseHandler(config)
         ctx = _make_context()
         state = _make_state()
