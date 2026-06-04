@@ -1,8 +1,8 @@
 story_id: AG3-043
 title: "Layer 2: StructuredEvaluator + ParallelEvalRunner + drei Rollen (qa_review/semantic_review/doc_fidelity)"
 type: implementation
-status: in_progress
-phase: implementation
+status: completed
+phase: closure
 created: "2026-05-16"
 size: L
 depends_on:
