@@ -79,46 +79,52 @@ class RemediationFeedback:
             "Status: FAILED",
             "",
         ]
-
-        if self.blocking_findings:
-            lines.append(f"### Blocking Issues ({len(self.blocking_findings)})")
-            lines.append("")
-            for i, f in enumerate(self.blocking_findings, 1):
-                sev = f.severity.value.upper()
-                lines.append(f"{i}. [{sev}] {f.check}: {f.message}")
-                if f.file_path:
-                    lines.append(f"   File: {f.file_path}")
-                if f.suggestion:
-                    lines.append(f"   Suggestion: {f.suggestion}")
-            lines.append("")
-
-        if self.advisory_findings:
-            lines.append(f"### Advisory ({len(self.advisory_findings)})")
-            lines.append("")
-            for i, f in enumerate(self.advisory_findings, 1):
-                sev = f.severity.value.upper()
-                lines.append(f"{i}. [{sev}] {f.check}: {f.message}")
-            lines.append("")
-
-        if self.finding_resolution:
-            open_findings = [
-                (key, status)
-                for key, status in self.finding_resolution.items()
-                if is_open_resolution_status(status)
-            ]
-            if open_findings:
-                lines.append(
-                    f"### Unresolved Previous Findings ({len(open_findings)})"
-                )
-                lines.append("")
-                for i, ((layer, check), status) in enumerate(open_findings, 1):
-                    lines.append(
-                        f"{i}. [{layer}] {check}: still {status.value.upper()}"
-                    )
-                lines.append("")
-
+        lines.extend(self._blocking_section())
+        lines.extend(self._advisory_section())
+        lines.extend(self._unresolved_section())
         lines.append(f"Summary: {self.summary}")
         return "\n".join(lines)
+
+    def _blocking_section(self) -> list[str]:
+        """Render the blocking-findings section (empty when none)."""
+        if not self.blocking_findings:
+            return []
+        lines = [f"### Blocking Issues ({len(self.blocking_findings)})", ""]
+        for i, f in enumerate(self.blocking_findings, 1):
+            sev = f.severity.value.upper()
+            lines.append(f"{i}. [{sev}] {f.check}: {f.message}")
+            if f.file_path:
+                lines.append(f"   File: {f.file_path}")
+            if f.suggestion:
+                lines.append(f"   Suggestion: {f.suggestion}")
+        lines.append("")
+        return lines
+
+    def _advisory_section(self) -> list[str]:
+        """Render the advisory-findings section (empty when none)."""
+        if not self.advisory_findings:
+            return []
+        lines = [f"### Advisory ({len(self.advisory_findings)})", ""]
+        for i, f in enumerate(self.advisory_findings, 1):
+            sev = f.severity.value.upper()
+            lines.append(f"{i}. [{sev}] {f.check}: {f.message}")
+        lines.append("")
+        return lines
+
+    def _unresolved_section(self) -> list[str]:
+        """Render the open previous-findings section (empty when none)."""
+        open_findings = [
+            (key, status)
+            for key, status in self.finding_resolution.items()
+            if is_open_resolution_status(status)
+        ]
+        if not open_findings:
+            return []
+        lines = [f"### Unresolved Previous Findings ({len(open_findings)})", ""]
+        for i, ((layer, check), status) in enumerate(open_findings, 1):
+            lines.append(f"{i}. [{layer}] {check}: still {status.value.upper()}")
+        lines.append("")
+        return lines
 
 
 def build_feedback(

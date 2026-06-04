@@ -224,7 +224,8 @@ def _run_git(args: list[str], cwd: Path) -> str:
         FingerprintComputationError: If git is missing or returns non-zero.
     """
     try:
-        completed = subprocess.run(  # noqa: S603 - fixed git argv, no shell
+        # Fixed git argv (no shell, no user-controlled input); S603 reviewed as safe.
+        completed = subprocess.run(  # noqa: S603
             ["git", *_PINNED_GIT_CONFIG, *args],
             cwd=cwd,
             capture_output=True,
@@ -236,10 +237,8 @@ def _run_git(args: list[str], cwd: Path) -> str:
         msg = "git executable not found; cannot compute evidence fingerprint"
         raise FingerprintComputationError(msg) from exc
     except subprocess.CalledProcessError as exc:
-        msg = (
-            f"git {' '.join(args)} failed in {cwd} "
-            f"(exit {exc.returncode}): {exc.stderr.strip()}"
-        )
+        detail = exc.stderr.strip()
+        msg = f"git {' '.join(args)} failed in {cwd} (exit {exc.returncode}): {detail}"
         raise FingerprintComputationError(msg) from exc
     return completed.stdout
 
