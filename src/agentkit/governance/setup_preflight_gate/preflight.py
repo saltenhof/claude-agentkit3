@@ -259,7 +259,8 @@ def _with_resolved_story(context: PreflightContext) -> PreflightContext:
     from dataclasses import replace
 
     story = context.service.get_story(context.story_display_id)
-    return replace(context, story=story)
+    resolved: PreflightContext = replace(context, story=story)
+    return resolved
 
 
 def _run_one(
@@ -281,11 +282,9 @@ def _run_one(
             check_id=check_id,
             status=PreflightStatus.FAIL,
             detail=f"exception: {type(exc).__name__}: {exc}",
-            cleanup_hint=(
-                f"Preflight check {check_id.value!r} raised an unexpected "
-                "error; inspect the preflight artifact and resolve the "
-                "underlying cause before restarting the story."
-            ),
+            cleanup_hint=f"Preflight check {check_id.value!r} raised an unexpected "
+            "error; inspect the preflight artifact and resolve the underlying "
+            "cause before restarting the story.",
         )
 
 
