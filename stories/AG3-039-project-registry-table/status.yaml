@@ -1,8 +1,8 @@
 story_id: AG3-039
 title: "project_registry-Tabelle + ProjectRegistration-Entitaet + Installer-CP-7"
 type: implementation
-status: ready
-phase: setup
+status: completed
+phase: closure
 created: "2026-05-16"
 size: M
 depends_on:
