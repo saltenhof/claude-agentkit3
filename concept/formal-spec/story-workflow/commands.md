@@ -40,6 +40,9 @@ commands:
       - target phase must be legal under the phase transition rules
       - failed is only legal as part of an official remediation re-entry that returns the workflow status to in_progress before phase work continues
       - setup is the only legal entry phase for a fresh run
+      - a fresh-run setup entry is rejected fail-closed unless StoryStatus is Approved and ExecutionPlanning reports READY with scheduling admission (story-workflow.invariant.phase_start_requires_release_and_readiness)
+    requires:
+      - story-workflow.invariant.phase_start_requires_release_and_readiness
     emits:
       - story-workflow.event.phase.started
       - story-workflow.event.phase.completed

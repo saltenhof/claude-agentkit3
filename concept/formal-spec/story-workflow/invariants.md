@@ -25,6 +25,22 @@ schema_version: 1
 kind: invariant-set
 context: story-workflow
 invariants:
+  - id: story-workflow.invariant.phase_start_requires_release_and_readiness
+    scope: run-admission
+    rule: >-
+      a fresh run may start its first phase (the setup entry phase) only
+      when the persisted StoryStatus is Approved AND ExecutionPlanning has
+      derived computed PlanningStatus READY together with an explicit
+      scheduling admission for this story; persisted StoryStatus (lifecycle)
+      and computed PlanningStatus (READY/BLOCKED_*) are orthogonal axes and
+      READY/BLOCKED are never StoryStatus values; absence of the Approved
+      release, absence of READY, or absence of scheduling admission rejects
+      the start fail-closed; this run-admission guard is the workflow-side
+      precondition that consumes (does not own) the execution-planning
+      readiness and scheduling decision
+    requires:
+      - execution-planning.invariant.ready_requires_all_hard_dependencies_and_no_open_blocker
+      - execution-planning.invariant.flight_requires_ready_and_scheduling_allowance
   - id: story-workflow.invariant.setup_routes_fail_closed
     scope: phase-transition
     rule: setup may route only to exploration or implementation according to deterministic mode routing; no other target phase is legal

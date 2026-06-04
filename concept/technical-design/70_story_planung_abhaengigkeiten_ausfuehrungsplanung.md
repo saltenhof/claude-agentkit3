@@ -295,7 +295,7 @@ Policies.
 
 **Konsistenz mit BC 3 (StoryIdentity / story-lifecycle):** BC 3
 fuehrt den Basis-`StoryStatus` als primaere Zustandsachse der Story
-(z.B. Backlog, Approved, InFlight, Done). Der `PlanningStatus` in
+(z.B. Backlog, Approved, In Progress, Done). Der `PlanningStatus` in
 diesem BC ist eine abgeleitete, planungsspezifische Zustandsebene,
 die `ExecutionPlanning` eigenstaendig fuehrt. `PlanningStatus`
 und `StoryStatus` sind orthogonale Achsen; `PlanningStatus=READY`
