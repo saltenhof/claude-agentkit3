@@ -257,10 +257,15 @@ def run_preflight(
 def _with_resolved_story(context: PreflightContext) -> PreflightContext:
     """Return a context with ``story`` resolved from the service (Check 1)."""
     from dataclasses import replace
+    from typing import cast
 
     story = context.service.get_story(context.story_display_id)
-    resolved: PreflightContext = replace(context, story=story)
-    return resolved
+    # ``dataclasses.replace`` is modelled by SonarQube as returning the generic
+    # ``DataclassInstance`` protocol (S5886/S5890); the cast documents the
+    # concrete return type for Sonar. mypy already infers ``PreflightContext``
+    # via the ``replace`` TypeVar, so to mypy the cast is redundant -> the
+    # explained ignore reconciles the two analyzers (no behaviour change).
+    return cast("PreflightContext", replace(context, story=story))  # type: ignore[redundant-cast]
 
 
 def _run_one(
