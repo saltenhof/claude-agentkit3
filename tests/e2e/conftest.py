@@ -55,6 +55,8 @@ def installed_project(tmp_path: Path) -> Path:
             project_key="test-project",
             project_name="test-project",
             project_root=project_dir,
+            github_owner="acme",  # AG3-039 R6: CP 7 coordinates are MANDATORY
+            github_repo="demo",
             sonarqube_available=False,  # AG3-052: conscious opt-out, no live Sonar
         )
     )

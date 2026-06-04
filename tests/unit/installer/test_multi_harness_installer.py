@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -12,6 +13,44 @@ from agentkit.installer.runner import MANDATORY_SKILLS
 from agentkit.skills import Skills, create_directory_link, is_directory_link
 from agentkit.skills.bundle_store import SkillBundle, SkillBundleStore
 from agentkit.skills.repository import InMemorySkillBindingRepository
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from agentkit.installer.registration import ProjectRegistration
+
+
+class _InMemoryRegistrationRepo:
+    """In-memory ProjectRegistrationRepository so the unit path skips Postgres.
+
+    CP 7 (AG3-039) registers the project in the central State-Backend before any
+    bundle binding; these multi-harness unit tests inject this fake so the full
+    install glue runs without a live backend.
+    """
+
+    def __init__(self) -> None:
+        self.rows: dict[str, ProjectRegistration] = {}
+
+    def get(self, project_key: str) -> ProjectRegistration | None:
+        return self.rows.get(project_key)
+
+    def save(self, registration: ProjectRegistration) -> None:
+        self.rows[registration.project_key] = registration
+
+    def update_verified(self, project_key: str, verified_at: datetime) -> None:
+        reg = self.rows[project_key]
+        self.rows[project_key] = reg.model_copy(update={"last_verified_at": verified_at})
+
+    def update_upgraded(
+        self, project_key: str, upgraded_at: datetime, new_digest: str
+    ) -> None:
+        reg = self.rows[project_key]
+        self.rows[project_key] = reg.model_copy(
+            update={"last_upgraded_at": upgraded_at, "config_digest": new_digest}
+        )
+
+    def list_all(self) -> list[ProjectRegistration]:
+        return [self.rows[k] for k in sorted(self.rows)]
 
 
 def _directory_links_supported() -> bool:
@@ -145,6 +184,9 @@ def _make_config(project_root: Path) -> InstallConfig:
         project_key="ag3",
         project_name="AG3",
         project_root=project_root,
+        github_owner="acme",
+        github_repo="ag3",
+        registration_repo=_InMemoryRegistrationRepo(),
         skills=skills,
         skill_bundle_store=store,
         skill_bundle_ids=_BUNDLE_IDS,

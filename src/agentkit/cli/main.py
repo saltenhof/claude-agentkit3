@@ -40,6 +40,27 @@ def main(argv: list[str] | None = None) -> int:
     install_parser.add_argument("--project-key", required=True)
     install_parser.add_argument("--project-name", required=True)
     install_parser.add_argument("--project-root", required=True)
+    # AG3-039 (FK-50 §50.3 CP 7): github_owner/github_repo are MANDATORY
+    # registration coordinates. The flags take PRECEDENCE; when both are omitted
+    # the installer derives them from the target project's ``origin`` git remote.
+    # If neither flags nor a parseable origin remote exist, ``install`` fails
+    # closed (CP 7 would otherwise FAIL after partial work — fail fast instead).
+    install_parser.add_argument(
+        "--github-owner",
+        required=False,
+        help=(
+            "GitHub owner for State-Backend registration (FK-50 CP 7). "
+            "Falls back to the project's origin remote when omitted."
+        ),
+    )
+    install_parser.add_argument(
+        "--github-repo",
+        required=False,
+        help=(
+            "GitHub repo name for State-Backend registration (FK-50 CP 7). "
+            "Falls back to the project's origin remote when omitted."
+        ),
+    )
     install_parser.add_argument(
         "--prompt-bundle-root",
         required=False,
@@ -139,6 +160,57 @@ def _cmd_install(args: argparse.Namespace) -> int:
 
     from agentkit.exceptions import InstallationError
     from agentkit.installer import InstallConfig, install_agentkit
+    from agentkit.installer.github_coordinates import (
+        derive_github_coordinates,
+        validate_github_coordinate,
+    )
+
+    project_root = Path(args.project_root)
+
+    # AG3-039 (FK-50 §50.3 CP 7): resolve the MANDATORY github coordinates.
+    # Flags take precedence; otherwise derive from the project's origin remote.
+    #
+    # FAIL-FAST / FAIL-CLOSED (AG3-039 R6 E-a + E-b): the flag values are
+    # normalised with ``.strip()`` FIRST. A whitespace-only flag (``"   "``) is
+    # truthy as a raw string and would otherwise sail past the missing-coordinate
+    # check and only blow up at CP 7 — AFTER a neutral scaffold / project.yaml was
+    # written. Treat empty-after-strip as MISSING so derivation may still kick in,
+    # and reject any value that is not a well-formed GitHub owner/repo BEFORE any
+    # project write happens. The coordinates are never fabricated (ZERO DEBT).
+    github_owner = args.github_owner.strip() if args.github_owner is not None else None
+    github_repo = args.github_repo.strip() if args.github_repo is not None else None
+    github_owner = github_owner or None
+    github_repo = github_repo or None
+    if github_owner is None or github_repo is None:
+        derived = derive_github_coordinates(project_root)
+        if derived is not None:
+            derived_owner, derived_repo = derived
+            github_owner = github_owner if github_owner is not None else derived_owner
+            github_repo = github_repo if github_repo is not None else derived_repo
+    if not github_owner or not github_repo:
+        print(
+            "Install failed [MissingGithubCoordinates]: --github-owner and "
+            "--github-repo are required for State-Backend registration (FK-50 "
+            "CP 7) and could not be derived from the project's origin git "
+            "remote. Pass both flags explicitly.",
+            file=sys.stderr,
+        )
+        return 1
+    # FAIL-CLOSED (AG3-039 R6 E-b): the resolved coordinates — whether from the
+    # flags or the derived remote — MUST be a valid GitHub owner/repo before they
+    # are persisted into the project_registry. Reject path-traversal tokens,
+    # embedded spaces, leading/trailing hyphens, over-long segments, etc. instead
+    # of recording a meaningless row.
+    if validate_github_coordinate(github_owner, github_repo) is None:
+        print(
+            "Install failed [InvalidGithubCoordinates]: "
+            f"--github-owner {github_owner!r} / --github-repo {github_repo!r} "
+            "are not a valid GitHub owner/repo (owner: 1-39 alphanumerics with "
+            "single internal hyphens; repo: 1-100 chars of [A-Za-z0-9._-], not "
+            "'.'/'..' and no leading dot). Pass valid coordinates.",
+            file=sys.stderr,
+        )
+        return 1
 
     # AG3-048 (FK-43 §43.3.1, AC#5): the skill fields are intentionally left at
     # their defaults. ``skill_bundle_ids=None`` resolves to the four mandatory
@@ -149,7 +221,9 @@ def _cmd_install(args: argparse.Namespace) -> int:
     config = InstallConfig(
         project_key=args.project_key,
         project_name=args.project_name,
-        project_root=Path(args.project_root),
+        project_root=project_root,
+        github_owner=github_owner,
+        github_repo=github_repo,
         prompt_bundle_root=(
             Path(args.prompt_bundle_root)
             if args.prompt_bundle_root is not None

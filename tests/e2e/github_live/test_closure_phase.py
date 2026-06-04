@@ -220,6 +220,8 @@ class TestClosurePhaseE2E:
                 project_key="e2e-closure-test",
                 project_name="e2e-closure-test",
                 project_root=tmp_path,
+                github_owner="acme",  # AG3-039 R6: CP 7 coordinates are MANDATORY
+                github_repo="demo",
                 sonarqube_available=False,  # AG3-052: conscious opt-out, no live Sonar
             )
         )

@@ -96,6 +96,9 @@ class TestCLIMain:
             "--project-key", "test-cli-project",
             "--project-name", "test-cli-project",
             "--project-root", str(tmp_path),
+            # AG3-039: github coordinates are MANDATORY for CP 7 registration.
+            "--github-owner", "acme",
+            "--github-repo", "test-cli-project",
             # AG3-052: conscious Sonar opt-out (no live Sonar in this test);
             # FK-03 §3 default would be available:true => CP 10d fail-closed.
             "--no-sonarqube-available",
@@ -138,6 +141,8 @@ class TestCLIMain:
                 "--project-key", "test",
                 "--project-name", "test",
                 "--project-root", str(tmp_path / "nonexistent"),
+                "--github-owner", "acme",
+                "--github-repo", "test",
             ])
 
     def test_install_command_returns_failure_code(
@@ -165,6 +170,8 @@ class TestCLIMain:
             "--project-key", "test-cli-project",
             "--project-name", "test-cli-project",
             "--project-root", str(tmp_path),
+            "--github-owner", "acme",
+            "--github-repo", "test-cli-project",
         ])
 
         assert exit_code == 1
@@ -192,6 +199,8 @@ class TestCLIMain:
             "--project-key", "test-cli-project",
             "--project-name", "test-cli-project",
             "--project-root", str(tmp_path),
+            "--github-owner", "acme",
+            "--github-repo", "test-cli-project",
         ])
 
         assert exit_code == 1
@@ -200,6 +209,171 @@ class TestCLIMain:
         # No partial install: no harness skill bind points were created.
         assert not (tmp_path / ".claude" / "skills").exists()
         assert not (tmp_path / ".codex" / "skills").exists()
+
+    def test_install_fails_closed_without_github_coordinates(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """AG3-039 R5 FAIL-CLOSED: ``install`` without ``--github-owner``/
+        ``--github-repo`` AND no derivable origin remote aborts with exit 1 and a
+        clear message — it never silently produces an UNREGISTERED install.
+
+        The origin-remote derivation is stubbed to ``None`` so the test does not
+        depend on the ambient git state of ``tmp_path`` (which has no repo here,
+        but the stub makes the precondition explicit and platform-independent).
+        """
+        monkeypatch.setattr(
+            "agentkit.installer.github_coordinates.derive_github_coordinates",
+            lambda _root: None,
+        )
+        exit_code = main([
+            "install",
+            "--project-key", "test-cli-project",
+            "--project-name", "test-cli-project",
+            "--project-root", str(tmp_path),
+        ])
+
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        assert "MissingGithubCoordinates" in captured.err
+        assert "--github-owner" in captured.err
+        # FAIL-CLOSED before any write: nothing was scaffolded.
+        assert not (tmp_path / ".agentkit").exists()
+        assert not (tmp_path / ".claude" / "skills").exists()
+
+    def test_install_fails_closed_on_whitespace_github_flags(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """AG3-039 R6 E-a: whitespace-only ``--github-*`` flags are truthy as
+        raw strings but carry no GitHub identity. They must be treated as MISSING
+        and fail closed BEFORE any scaffold is written — never sailing through to
+        a late CP 7 failure after a neutral scaffold / project.yaml exists.
+        """
+        monkeypatch.setattr(
+            "agentkit.installer.github_coordinates.derive_github_coordinates",
+            lambda _root: None,
+        )
+        exit_code = main([
+            "install",
+            "--project-key", "test-cli-project",
+            "--project-name", "test-cli-project",
+            "--project-root", str(tmp_path),
+            "--github-owner", "   ",
+            "--github-repo", "   ",
+        ])
+
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        assert "MissingGithubCoordinates" in captured.err
+        # FAIL-CLOSED before any write: no scaffold was created.
+        assert not (tmp_path / ".agentkit").exists()
+        assert not (tmp_path / ".claude" / "skills").exists()
+
+    def test_install_fails_closed_on_invalid_github_flags(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """AG3-039 R6 E-b: a malformed owner/repo on the flags (here a
+        path-traversal token) is rejected fail-closed BEFORE any scaffold write
+        — the invalid coordinate is never persisted into project_registry.
+        """
+        exit_code = main([
+            "install",
+            "--project-key", "test-cli-project",
+            "--project-name", "test-cli-project",
+            "--project-root", str(tmp_path),
+            "--github-owner", "..",
+            "--github-repo", "ok-repo",
+        ])
+
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        assert "InvalidGithubCoordinates" in captured.err
+        # FAIL-CLOSED before any write: no scaffold was created.
+        assert not (tmp_path / ".agentkit").exists()
+
+    def test_install_derives_github_coordinates_from_origin_remote(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """AG3-039 R5 FALLBACK: when the flags are omitted, the coordinates are
+        derived from the project's ``origin`` remote and reach ``InstallConfig``.
+
+        ``install_agentkit`` is stubbed to capture the resolved config (this test
+        targets the CLI resolution, not the full install path).
+        """
+        captured_cfg: dict[str, object] = {}
+
+        def fake_install_agentkit(config: object) -> SimpleNamespace:
+            captured_cfg["github_owner"] = config.github_owner  # type: ignore[attr-defined]
+            captured_cfg["github_repo"] = config.github_repo  # type: ignore[attr-defined]
+            return SimpleNamespace(success=True, created_files=[], errors=[])
+
+        monkeypatch.setattr(
+            "agentkit.installer.install_agentkit",
+            fake_install_agentkit,
+        )
+        monkeypatch.setattr(
+            "agentkit.installer.github_coordinates.derive_github_coordinates",
+            lambda _root: ("derived-org", "derived-repo"),
+        )
+
+        exit_code = main([
+            "install",
+            "--project-key", "test-cli-project",
+            "--project-name", "test-cli-project",
+            "--project-root", str(tmp_path),
+        ])
+
+        assert exit_code == 0
+        assert captured_cfg == {
+            "github_owner": "derived-org",
+            "github_repo": "derived-repo",
+        }
+
+    def test_install_flags_take_precedence_over_origin_remote(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """AG3-039 R5: explicit ``--github-*`` flags win over the origin remote."""
+        captured_cfg: dict[str, object] = {}
+
+        def fake_install_agentkit(config: object) -> SimpleNamespace:
+            captured_cfg["github_owner"] = config.github_owner  # type: ignore[attr-defined]
+            captured_cfg["github_repo"] = config.github_repo  # type: ignore[attr-defined]
+            return SimpleNamespace(success=True, created_files=[], errors=[])
+
+        monkeypatch.setattr(
+            "agentkit.installer.install_agentkit",
+            fake_install_agentkit,
+        )
+        monkeypatch.setattr(
+            "agentkit.installer.github_coordinates.derive_github_coordinates",
+            lambda _root: ("derived-org", "derived-repo"),
+        )
+
+        exit_code = main([
+            "install",
+            "--project-key", "test-cli-project",
+            "--project-name", "test-cli-project",
+            "--project-root", str(tmp_path),
+            "--github-owner", "flag-org",
+            "--github-repo", "flag-repo",
+        ])
+
+        assert exit_code == 0
+        assert captured_cfg == {
+            "github_owner": "flag-org",
+            "github_repo": "flag-repo",
+        }
 
     def test_doctor_command(
         self, capsys: pytest.CaptureFixture[str],
@@ -230,6 +404,8 @@ class TestCLIMain:
             "--project-key", "test-cli-project",
             "--project-name", "test-cli-project",
             "--project-root", str(tmp_path),
+            "--github-owner", "acme",  # AG3-039: mandatory CP 7 coordinates
+            "--github-repo", "test-cli-project",
             "--no-sonarqube-available",  # AG3-052: conscious opt-out, no live Sonar
         ])
 

@@ -89,6 +89,11 @@ def _make_config(
         project_key="skills-it",
         project_name="skills-it",
         project_root=root,
+        # CP 7 (AG3-039) requires mandatory GitHub coordinates; without them the
+        # install fails closed at CP 7 BEFORE skill binding. These tests exercise
+        # the binding path, so they must satisfy CP 7's precondition.
+        github_owner="acme",
+        github_repo="skills-it",
         skills=skills,
         skill_bundle_store=skill_bundle_store,
         skill_bundle_ids=skill_bundle_ids,

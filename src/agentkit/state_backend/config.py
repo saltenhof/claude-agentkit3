@@ -107,7 +107,17 @@ SCHEMA_OVERRIDE_ALLOWED_ENV = "AGENTKIT_PG_SCHEMA_OVERRIDE_ALLOWED"
 # migration via the versioned-schema pattern (FK-18 §18.9a): a fresh ak3_v3_17_0
 # schema / agentkit_3_17_0.sqlite file is created; the old 3.16.0 DB is never
 # touched.
-SCHEMA_VERSION = "3.17.0"
+# AG3-039 (FK-50 §50.3 CP 7, formal.installer.entities §project-registration):
+# 3.17.0 -> 3.18.0 (project_registry table added; canonical State-Backend
+# project registration for Installer-Checkpoint 7. Schema-/DB-Owner
+# installation-and-bootstrap. Canonical Postgres + SQLite test-parallel schema
+# with IDENTICAL DDL: project_key PK, project_root UNIQUE, github_owner/
+# github_repo NOT NULL, runtime_profile CHECK IN ('core','are'), config_version
+# / config_digest NOT NULL, registered_at NOT NULL, last_verified_at NULL,
+# last_upgraded_at NULL. Idempotent side-by-side migration via the
+# versioned-schema pattern (FK-18 §18.9a): a fresh ak3_v3_18_0 schema /
+# agentkit_3_18_0.sqlite file is created; the old 3.17.0 DB is never touched.
+SCHEMA_VERSION = "3.18.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 # AG3-051: reserved test-schema namespace. Disjoint from the production schema
 # name (``ak3_v<slug>``), so a test override can never resolve onto production

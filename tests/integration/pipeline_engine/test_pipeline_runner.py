@@ -90,6 +90,9 @@ def _install_project(project_dir: Path) -> None:
             project_key=project_dir.name,
             project_name=project_dir.name,
             project_root=project_dir,
+            # AG3-039 R6: CP 7 github coordinates are MANDATORY (fail-closed).
+            github_owner="acme",
+            github_repo="demo",
             # AG3-052: scaffold default is available:true (FK-03 §3); no live
             # Sonar in CI => conscious opt-out so the completing CP 10d SKIPs.
             sonarqube_available=False,

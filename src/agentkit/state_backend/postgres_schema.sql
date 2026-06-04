@@ -723,3 +723,33 @@
             updated_at     TEXT NOT NULL,
             PRIMARY KEY (project_key)
         );
+
+        -- AG3-039 (FK-50 §50.3 CP 7, formal.installer.entities
+        -- §project-registration): project_registry. Canonical State-Backend
+        -- registration written by Installer-Checkpoint 7. Schema-/DB-Owner
+        -- installation-and-bootstrap. IDENTISCHES Parallel-Schema in
+        -- sqlite_store.py (Postgres ist kanonisch). project_root is UNIQUE so a
+        -- single filesystem root maps to exactly one registration; runtime_profile
+        -- is constrained to the RuntimeProfile wire values (core | are).
+        -- last_verified_at / last_upgraded_at are NULL until verify-project /
+        -- an upgrade rerun touch them. The lifecycle timestamps are TIMESTAMPTZ
+        -- (story §2.1.1), matching the other Postgres temporal columns that carry
+        -- a real instant (e.g. prompt_bundle_pins.pinned_at, runs.started_at). The
+        -- SQLite parallel path keeps ISO-8601 TEXT (SQLite has no native
+        -- timestamptz affinity); the mapper roundtrips datetime against both.
+        CREATE TABLE IF NOT EXISTS project_registry (
+            project_key      TEXT NOT NULL,
+            project_root     TEXT NOT NULL,
+            github_owner     TEXT NOT NULL,
+            github_repo      TEXT NOT NULL,
+            runtime_profile  TEXT NOT NULL CHECK (runtime_profile IN (
+                'core', 'are'
+            )),
+            config_version   TEXT NOT NULL,
+            config_digest    TEXT NOT NULL,
+            registered_at    TIMESTAMPTZ NOT NULL,
+            last_verified_at TIMESTAMPTZ,
+            last_upgraded_at TIMESTAMPTZ,
+            PRIMARY KEY (project_key),
+            UNIQUE (project_root)
+        );

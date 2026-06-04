@@ -29,9 +29,46 @@ from agentkit.installer.runner import (
 from agentkit.skills.bundle_store import SkillBundle
 
 if TYPE_CHECKING:
+    from datetime import datetime
     from pathlib import Path
 
+    from agentkit.installer.registration import ProjectRegistration
+
 _BUNDLE_IDS = {name: f"{name}-core" for name in MANDATORY_SKILLS}
+
+
+class _InMemoryRegistrationRepo:
+    """In-memory ProjectRegistrationRepository so the unit path skips Postgres.
+
+    CP 7 (AG3-039) registers the project in the central State-Backend before any
+    bundle binding. These host-independent unit tests inject this fake (DI, like
+    the fake ``Skills``) so ``install_agentkit`` exercises CP 7 + the binding glue
+    without a live backend.
+    """
+
+    def __init__(self) -> None:
+        self.rows: dict[str, ProjectRegistration] = {}
+
+    def get(self, project_key: str) -> ProjectRegistration | None:
+        return self.rows.get(project_key)
+
+    def save(self, registration: ProjectRegistration) -> None:
+        self.rows[registration.project_key] = registration
+
+    def update_verified(self, project_key: str, verified_at: datetime) -> None:
+        reg = self.rows[project_key]
+        self.rows[project_key] = reg.model_copy(update={"last_verified_at": verified_at})
+
+    def update_upgraded(
+        self, project_key: str, upgraded_at: datetime, new_digest: str
+    ) -> None:
+        reg = self.rows[project_key]
+        self.rows[project_key] = reg.model_copy(
+            update={"last_upgraded_at": upgraded_at, "config_digest": new_digest}
+        )
+
+    def list_all(self) -> list[ProjectRegistration]:
+        return [self.rows[k] for k in sorted(self.rows)]
 
 
 class _FakeStore:
@@ -65,13 +102,21 @@ class _RecordingSkills:
         del skill_name, project_root
 
 
-def _config(tmp_path: Path, skills: object, store: object) -> InstallConfig:
+def _config(
+    tmp_path: Path,
+    skills: object,
+    store: object,
+    registration_repo: _InMemoryRegistrationRepo | None = None,
+) -> InstallConfig:
     root = tmp_path / "project"
     root.mkdir(exist_ok=True)
     return InstallConfig(
         project_key="host-indep",
         project_name="host-indep",
         project_root=root,
+        github_owner="acme",
+        github_repo="host-indep",
+        registration_repo=registration_repo or _InMemoryRegistrationRepo(),
         skills=skills,  # type: ignore[arg-type]
         skill_bundle_store=store,  # type: ignore[arg-type]
         skill_bundle_ids=_BUNDLE_IDS,
@@ -125,11 +170,15 @@ def test_install_repeated_is_idempotent(tmp_path: Path) -> None:
     """A second install over the same root succeeds and re-binds (idempotent
     glue: unchanged files are not re-reported as created)."""
     store = _FakeStore(tmp_path / "bundles")
-    config = _config(tmp_path, _RecordingSkills(), store)
+    # Share the registration repo so the second install is a genuine CP 7
+    # idempotent re-run (same project, already registered) rather than a fresh
+    # CREATED against an empty backend.
+    registration_repo = _InMemoryRegistrationRepo()
+    config = _config(tmp_path, _RecordingSkills(), store, registration_repo)
     install_agentkit(config)
 
     second_skills = _RecordingSkills()
-    config2 = _config(tmp_path, second_skills, store)
+    config2 = _config(tmp_path, second_skills, store, registration_repo)
     result = install_agentkit(config2)
 
     assert result.success

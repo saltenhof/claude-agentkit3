@@ -250,6 +250,11 @@ class TestInstallScaffoldContract:
 
 def _make_install_config(project_root: Path, **kwargs: Any) -> InstallConfig:
     kwargs.setdefault("project_key", kwargs.get("project_name", "test-project"))
+    # AG3-039 R6 (FK-50 §50.3 CP 7): github coordinates are MANDATORY — CP 7 now
+    # fails closed without them. Provide valid defaults so every install in this
+    # contract fixture registers; callers may still override per-test.
+    kwargs.setdefault("github_owner", "acme")
+    kwargs.setdefault("github_repo", "demo")
     # AG3-052 Design-Decision: the scaffold default is ``available: true``
     # (FK-03 §3). This contract fixture has NO live SonarQube, so it declares
     # the CONSCIOUS opt-out (``sonarqube_available=False``) explicitly — never

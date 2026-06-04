@@ -711,6 +711,35 @@ def _ensure_runtime_tables_part2(conn: sqlite3.Connection) -> None:
             updated_at     TEXT NOT NULL,
             PRIMARY KEY (project_key)
         );
+
+        -- AG3-039 (FK-50 §50.3 CP 7, formal.installer.entities
+        -- §project-registration): project_registry. Test-Parallel-Pfad zu
+        -- postgres_schema.sql (Postgres ist kanonisch).
+        -- Kanonische State-Backend-Registrierung fuer Installer-Checkpoint 7.
+        -- project_root ist UNIQUE (genau eine Registrierung pro Filesystem-Root);
+        -- runtime_profile ist auf die RuntimeProfile-Wire-Werte (core | are)
+        -- eingeschraenkt. last_verified_at / last_upgraded_at bleiben NULL bis
+        -- verify-project / ein Upgrade-Rerun sie setzen. Die Zeit-Spalten sind
+        -- ISO-8601 TEXT, konsistent zur SQLite-Timestamp-Konvention der anderen
+        -- AK3-Tabellen (SQLite hat keine native timestamptz-Affinitaet); der
+        -- kanonische Postgres-Pfad nutzt dagegen TIMESTAMPTZ (story §2.1.1). Der
+        -- Mapper roundtrippt datetime gegen beide Backends.
+        CREATE TABLE IF NOT EXISTS project_registry (
+            project_key      TEXT NOT NULL,
+            project_root     TEXT NOT NULL,
+            github_owner     TEXT NOT NULL,
+            github_repo      TEXT NOT NULL,
+            runtime_profile  TEXT NOT NULL CHECK (runtime_profile IN (
+                'core', 'are'
+            )),
+            config_version   TEXT NOT NULL,
+            config_digest    TEXT NOT NULL,
+            registered_at    TEXT NOT NULL,
+            last_verified_at TEXT,
+            last_upgraded_at TEXT,
+            PRIMARY KEY (project_key),
+            UNIQUE (project_root)
+        );
         """
     )
     _ensure_runtime_tables_part3(conn)

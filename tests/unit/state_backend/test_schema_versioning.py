@@ -41,11 +41,14 @@ def test_schema_version_helpers_derive_versioned_names() -> None:
     # Capability-Modell, FK-55 §55.8/§55.10.5, FK-31 §31.2.7, FK-18 §18.9a)
     # AG3-034: 3.16.0 -> 3.17.0 (project_mode_lock table; Fast/Standard-Mode-Lock
     # Read-Pfad fuer Preflight-Check 10, FK-24 §24.3.3, FK-22 §22.3.1, FK-18 §18.9a)
-    assert state_config.SCHEMA_VERSION == "3.17.0"
+    # AG3-039: 3.17.0 -> 3.18.0 (project_registry table; Installer-Checkpoint 7
+    # State-Backend-Registrierung, FK-50 §50.3 CP 7, formal.installer.entities,
+    # FK-18 §18.9a)
+    assert state_config.SCHEMA_VERSION == "3.18.0"
     assert state_config.versioned_postgres_schema_name("3.0.0") == "ak3_v3_0_0"
     assert state_config.versioned_sqlite_db_file("3.0.0") == "agentkit_3_0_0.sqlite"
-    assert state_config.versioned_postgres_schema_name() == "ak3_v3_17_0"
-    assert state_config.versioned_sqlite_db_file() == "agentkit_3_17_0.sqlite"
+    assert state_config.versioned_postgres_schema_name() == "ak3_v3_18_0"
+    assert state_config.versioned_sqlite_db_file() == "agentkit_3_18_0.sqlite"
 
 
 def test_schema_version_rejects_non_semver() -> None:

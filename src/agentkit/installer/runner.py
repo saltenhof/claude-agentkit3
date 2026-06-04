@@ -6,6 +6,7 @@ import hashlib
 import json
 import shutil
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -56,10 +57,18 @@ if TYPE_CHECKING:
         BranchPluginSelfTest,
         SonarPreflightResult,
     )
+    from agentkit.installer.registration import CheckpointResult, RuntimeProfile
+    from agentkit.installer.repository import ProjectRegistrationRepository
     from agentkit.integrations.sonar import SonarClient
     from agentkit.skills import SkillBundleStore, SkillProfile, Skills
 
 PROMPT_MANIFEST_FILENAME = "manifest.json"
+
+# AG3-039 (FK-50 §50.3 CP 7): the project-config version recorded in the
+# ``project_registry`` row. The scaffold project.yaml carries no explicit
+# version yet; "1" is the initial recorded version and is bumpable when the
+# config schema evolves (FK-51 config migration is a follow-up, story §2.2).
+PROJECT_CONFIG_VERSION = "1"
 
 # FK-43 §43.3.1 mandatory skills the installer MUST bind per activated harness.
 # Logical skill names (the installer resolves the profile variant via the
@@ -170,6 +179,16 @@ class InstallConfig:
     # Endpoint used when ``sonarqube_available`` is True (FK-03 §3 example).
     sonarqube_base_url: str = "http://localhost:9901"
     sonarqube_token_env: str = "SONARQUBE_TOKEN"
+    # AG3-039 (FK-50 §50.3 CP 7): the State-Backend project-registration port.
+    # The installer (BC 12) depends only on the
+    # ``ProjectRegistrationRepository`` Protocol; the productive
+    # ``StateBackendProjectRegistrationRepository`` is wired in by the caller
+    # (composition root). When ``None`` the installer builds the default
+    # productive adapter scoped to ``project_root``. ``runtime_profile``
+    # (``core``/``are``, FK-50 §50.3 CP 6/CP 7) is recorded in the registration
+    # row; it defaults to ``core``.
+    registration_repo: ProjectRegistrationRepository | None = None
+    runtime_profile: RuntimeProfile | None = None
 
 
 @dataclass(frozen=True)
@@ -178,6 +197,11 @@ class InstallResult:
     project_root: Path
     created_files: tuple[str, ...] = ()
     errors: tuple[str, ...] = field(default_factory=tuple)
+    # AG3-039 (FK-50 §50.4): per-checkpoint results. Currently only CP 7
+    # (State-Backend registration) populates an entry; the full 12-checkpoint
+    # engine is OUT of scope (story §2.2) and will populate this typed list when
+    # it lands. ``None`` means "no checkpoint results captured" (legacy callers).
+    checkpoint_results: tuple[CheckpointResult, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -935,9 +959,19 @@ def install_agentkit(config: InstallConfig) -> InstallResult:
     canonical_prompt_bundle_root, manifest, manifest_text = (
         _ensure_prompt_bundle_store_entry(prompt_source_dir)
     )
+    # NEUTRAL STRUCTURE ONLY before CP 7 (B1-Rest, AG3-039 R4): create the
+    # directory scaffold (empty dirs, no active payload). The ACTIVE harness
+    # bindings — ``.codex/config.toml`` (Codex pre-tool-use hook config) and
+    # ``.claude/settings.json`` (Claude Code ``PreToolUse`` hook) plus their
+    # referenced hook script / guard rules — are STATIC RESOURCE FILES and must
+    # NOT be written before CP 7. Writing them ahead of CP 7 would arm active
+    # projectlocal harness bindings against a project whose central state-backend
+    # registration has not (yet) completed — a fail-open violation of
+    # ``formal.installer.invariant.state_backend_registration_precedes_bundle_binding``
+    # and story §2.1.4 ("CP 7 lookup ... before writing OTHER artefacts").
+    # The static-file deploy is therefore deferred to STRICTLY AFTER the CP 7
+    # FAILED-abort gate below. Empty directories carry no binding and may stay.
     created = _deploy_directory_structure(resources_dir, root)
-    created.extend(_deploy_static_resource_files(resources_dir, root))
-    created.extend(_deploy_prompt_bindings(root, canonical_prompt_bundle_root))
 
     # Runtime working directories that are intentionally empty right after a
     # fresh install. Git cannot track empty directories, so they are absent
@@ -964,6 +998,59 @@ def install_agentkit(config: InstallConfig) -> InstallResult:
     ):
         runtime_dir.mkdir(parents=True, exist_ok=True)
 
+    # FK-50 CP 5: write the project config (project.yaml) FIRST. The CP 7
+    # config_digest is computed over its canonicalised content, so it must be on
+    # disk before registration. No bundle binding has happened yet.
+    yaml_path = project_config_path(root)
+    yaml_data = _build_project_yaml(config)
+    if _write_yaml_if_changed(yaml_path, yaml_data):
+        created.append(str(yaml_path.relative_to(root)))
+
+    # FK-50 CP 7 (AG3-039): State-Backend project registration. Ordered AFTER
+    # project.yaml (CP 5) and STRICTLY BEFORE every bundle binding — the prompt
+    # bundle binding (FK-50 §50.5), the skill links (CP 8) and the harness
+    # settings. This is the
+    # ``installer.invariant.state_backend_registration_precedes_bundle_binding``
+    # ordering invariant: registration in the central state backend must complete
+    # before project-local bundle bindings become active. Idempotent: same digest
+    # => SKIPPED (no re-write), divergent digest => update_upgraded, absent =>
+    # save; missing GitHub coordinates => FAILED (fail-closed, FK-50 §50.6).
+    from agentkit.installer.registration import CheckpointStatus
+
+    cp7_result = _run_cp7_state_backend_registration(config, root, yaml_data)
+    checkpoint_results: list[CheckpointResult] = [cp7_result]
+
+    # FK-50 §50.4: a FAILED CP 7 aborts the install BEFORE any bundle binding.
+    # This is the fail-closed half of the
+    # ``installer.invariant.state_backend_registration_precedes_bundle_binding``
+    # ordering invariant: a bundle binding must never become active against a
+    # project whose central State-Backend registration did not complete. Returning
+    # ``success=True`` here (and binding anyway) would leave the project
+    # UNREGISTERED behind active bindings (fail-open). The FAILED CheckpointResult
+    # — including its machine-readable ``reason`` — is propagated unchanged so the
+    # caller can branch on the precondition violation.
+    if cp7_result.status is CheckpointStatus.FAILED:
+        return InstallResult(
+            success=False,
+            project_root=root,
+            created_files=tuple(created),
+            errors=(cp7_result.detail or cp7_result.reason or "CP 7 registration failed.",),
+            checkpoint_results=(cp7_result,),
+        )
+
+    # ---- Active projectlocal bindings (FK-50 §50.5 / CP 8) — only AFTER CP 7 ----
+
+    # B1-Rest (AG3-039 R4): the static resource files include the ACTIVE harness
+    # bindings (``.codex/config.toml`` Codex hook config, ``.claude/settings.json``
+    # ``PreToolUse`` hook) plus the hook script and guard rules they reference.
+    # Deploying them here — STRICTLY AFTER the CP 7 FAILED-abort gate — guarantees
+    # no active projectlocal harness binding ever exists on disk against a project
+    # whose central state-backend registration did not complete. This is the
+    # active half of
+    # ``formal.installer.invariant.state_backend_registration_precedes_bundle_binding``
+    # (story §2.1.4; FK-50 §50.3 CP 7 before CP 8/CP 9, §50.4 FAILED => abort).
+    created.extend(_deploy_static_resource_files(resources_dir, root))
+
     # AG3-048 (FK-43 §43.4.1.1): git-ignore the harness link bind points in the
     # TARGET project BEFORE any link is created (Codex-r7-r2). Git and backups
     # follow a Windows directory junction, so a bound `.claude/skills/` /
@@ -975,6 +1062,10 @@ def install_agentkit(config: InstallConfig) -> InstallResult:
     gitignore_rel = _ensure_link_bindpoint_gitignore(root)
     if gitignore_rel is not None and gitignore_rel not in created:
         created.append(gitignore_rel)
+
+    # Prompt-bundle binding (FK-50 §50.5): materialise the prompt bindings only
+    # after the project is registered in the state backend.
+    created.extend(_deploy_prompt_bindings(root, canonical_prompt_bundle_root))
 
     # AG3-048 (FK-43 §43.3.1, BC 12): bind the PRE-RESOLVED mandatory skills via
     # the agent-skills top-surface. Resolution already happened in the preflight
@@ -996,11 +1087,6 @@ def install_agentkit(config: InstallConfig) -> InstallResult:
     if codex_settings is not None and codex_settings not in created:
         created.append(codex_settings)
 
-    yaml_path = project_config_path(root)
-    yaml_data = _build_project_yaml(config)
-    if _write_yaml_if_changed(yaml_path, yaml_data):
-        created.append(str(yaml_path.relative_to(root)))
-
     # FK-50 CP 10d (AG3-052 E5): applicability-conditional SonarQube
     # precondition checkpoint, run after the project config is on disk.
     # available:false => SKIPPED (reason=not_applicable, NOT FAILED);
@@ -1012,6 +1098,178 @@ def install_agentkit(config: InstallConfig) -> InstallResult:
         success=True,
         project_root=root,
         created_files=tuple(created),
+        checkpoint_results=tuple(checkpoint_results),
+    )
+
+
+def _canonical_config_digest(yaml_data: dict[str, object]) -> str:
+    """Return the SHA-256 over the canonicalised project.yaml content (CP 7).
+
+    Canonicalisation uses ``json.dumps(..., sort_keys=True)`` so the digest is
+    stable under key ordering and whitespace. This is the idempotency key for
+    CP 7: an identical config yields an identical digest (SKIPPED), a changed
+    config yields a different digest (UPGRADED).
+    """
+    canonical = json.dumps(yaml_data, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _resolve_registration_repo(
+    config: InstallConfig, root: Path
+) -> ProjectRegistrationRepository:
+    """Return the injected registration repo, or the default productive adapter."""
+    if config.registration_repo is not None:
+        return config.registration_repo
+    from agentkit.state_backend.store.project_registration_repository import (
+        StateBackendProjectRegistrationRepository,
+    )
+
+    return StateBackendProjectRegistrationRepository(root)
+
+
+def _run_cp7_state_backend_registration(
+    config: InstallConfig,
+    root: Path,
+    yaml_data: dict[str, object],
+) -> CheckpointResult:
+    """Run FK-50 §50.3 CP 7 — State-Backend project registration (idempotent).
+
+    Computes the ``config_digest`` over the canonicalised project.yaml, looks up
+    the existing registration and converges on one consistent state
+    (``formal.installer.invariants §register_project_is_idempotent``):
+
+    * no existing registration -> ``save`` a fresh :class:`ProjectRegistration`
+      (``CheckpointStatus.CREATED``).
+    * existing registration with the SAME ``config_digest`` -> no write,
+      ``CheckpointStatus.SKIPPED`` (idempotent re-run).
+    * existing registration with a DIVERGENT ``config_digest`` ->
+      ``update_upgraded`` (new digest + ``last_upgraded_at``),
+      ``CheckpointStatus.UPDATED``.
+
+    The ``project_registry`` row requires ``github_owner``/``github_repo`` NOT
+    NULL (story §2.1.1; FK-50 §50.3 CP 7 records GitHub owner/repo as a MANDATORY
+    coordinate). When the install config carries no GitHub coordinates, CP 7 is a
+    hard precondition failure: it records NOTHING and returns
+    ``CheckpointStatus.FAILED`` (FK-50 §50.6 — a CP 7 precondition violation is
+    FAILED, never a silent SKIP that leaves the project unregistered after a
+    "successful" install). It never fabricates github values (ZERO DEBT) and never
+    writes a partial row (FAIL-CLOSED). ``SKIPPED`` is reserved for the genuine
+    idempotency case (existing registration, identical ``config_digest``).
+
+    Args:
+        config: The install configuration (carries the registration repo, the
+            GitHub coordinates and the runtime profile).
+        root: Project root (recorded as ``project_root``).
+        yaml_data: The project.yaml mapping just written (digest source).
+
+    Returns:
+        The :class:`CheckpointResult` for CP 7.
+    """
+    import time
+
+    from agentkit.installer.github_coordinates import validate_github_coordinate
+    from agentkit.installer.registration import (
+        CP7_STATE_BACKEND_REGISTRATION,
+        REASON_CONFIG_DIGEST_UNCHANGED,
+        REASON_INVALID_GITHUB_COORDINATES,
+        REASON_MISSING_GITHUB_COORDINATES,
+        CheckpointResult,
+        CheckpointStatus,
+        ProjectRegistration,
+        RuntimeProfile,
+    )
+
+    start = time.monotonic()
+    # FK-50 §50.3 CP 7 lists GitHub owner/repo as MANDATORY coordinates. A
+    # missing (``None``) OR empty/whitespace-only coordinate is equally invalid:
+    # ``""`` / ``"   "`` carries no GitHub identity and would persist a
+    # meaningless ``project_registry`` row (fail-open). Both are treated as a
+    # hard precondition violation => FAILED, no write. §50.6 maps a CP 7
+    # precondition violation to FAILED. Returning SKIPPED here would leave the
+    # project UNREGISTERED after a "successful" install (fail-open). It never
+    # fabricates github values (ZERO DEBT) and never writes a partial row.
+    owner = config.github_owner
+    repo_name = config.github_repo
+    if owner is None or repo_name is None or not owner.strip() or not repo_name.strip():
+        return CheckpointResult(
+            checkpoint=CP7_STATE_BACKEND_REGISTRATION,
+            status=CheckpointStatus.FAILED,
+            detail=(
+                "Missing or empty github_owner/github_repo on InstallConfig; "
+                "project_registry requires both NOT NULL and non-empty (FK-50 "
+                "§50.3 CP 7). CP 7 fails closed rather than leaving the project "
+                "unregistered or persisting an empty coordinate."
+            ),
+            reason=REASON_MISSING_GITHUB_COORDINATES,
+            duration_ms=int((time.monotonic() - start) * 1000),
+        )
+
+    # FAIL-CLOSED / SSOT (AG3-039 R7 ERROR-2): the coordinates are PRESENT but
+    # must additionally be WELL-FORMED before they are persisted. The CLI and
+    # the remote-URL parser already gate on ``validate_github_coordinate``; a
+    # direct ``install_agentkit(InstallConfig(...))`` call would otherwise bypass
+    # that single validation truth and persist a malformed coordinate (e.g.
+    # ``".."``, ``"-bad"``, a slash- or control-char-laden value). Enforce the
+    # SAME predicate at this port so no path can write an invalid row. The
+    # downstream ``ProjectRegistration`` model validator is the hard floor; this
+    # check turns a would-be ``ValueError`` into a clean FAILED CheckpointResult.
+    if validate_github_coordinate(owner, repo_name) is None:
+        return CheckpointResult(
+            checkpoint=CP7_STATE_BACKEND_REGISTRATION,
+            status=CheckpointStatus.FAILED,
+            detail=(
+                f"Malformed github_owner={owner!r} / github_repo={repo_name!r} "
+                "on InstallConfig; not a well-formed GitHub owner/repo (FK-50 "
+                "§50.3 CP 7, AG3-039 R6 E-b). CP 7 fails closed rather than "
+                "persisting an invalid project_registry coordinate."
+            ),
+            reason=REASON_INVALID_GITHUB_COORDINATES,
+            duration_ms=int((time.monotonic() - start) * 1000),
+        )
+
+    repo = _resolve_registration_repo(config, root)
+    digest = _canonical_config_digest(yaml_data)
+    profile = config.runtime_profile or RuntimeProfile.CORE
+
+    existing = repo.get(config.project_key)
+    reason: str | None = None
+    if existing is None:
+        repo.save(
+            ProjectRegistration(
+                project_key=config.project_key,
+                project_root=root,
+                github_owner=owner,
+                github_repo=repo_name,
+                runtime_profile=profile,
+                config_version=PROJECT_CONFIG_VERSION,
+                config_digest=digest,
+                registered_at=datetime.now(tz=UTC),
+            )
+        )
+        status = CheckpointStatus.CREATED
+        detail = f"Registered project {config.project_key!r} (digest {digest[:12]})."
+    elif existing.config_digest == digest:
+        status = CheckpointStatus.SKIPPED
+        reason = REASON_CONFIG_DIGEST_UNCHANGED
+        detail = (
+            f"Project {config.project_key!r} already registered with matching "
+            "config_digest; idempotent skip."
+        )
+    else:
+        repo.update_upgraded(config.project_key, datetime.now(tz=UTC), digest)
+        status = CheckpointStatus.UPDATED
+        detail = (
+            f"Project {config.project_key!r} config_digest changed "
+            f"({existing.config_digest[:12]} -> {digest[:12]}); upgraded."
+        )
+
+    duration_ms = int((time.monotonic() - start) * 1000)
+    return CheckpointResult(
+        checkpoint=CP7_STATE_BACKEND_REGISTRATION,
+        status=status,
+        detail=detail,
+        reason=reason,
+        duration_ms=duration_ms,
     )
 
 
@@ -1227,6 +1485,7 @@ def uninstall_agentkit(project_root: Path) -> UninstallResult:
 
 __all__ = [
     "MANDATORY_SKILLS",
+    "PROJECT_CONFIG_VERSION",
     "InstallConfig",
     "InstallResult",
     "UninstallResult",
