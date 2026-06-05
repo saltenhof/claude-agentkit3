@@ -1,0 +1,12 @@
+story_id: AG3-055
+title: "Exploration-Worker — worker-exploration.md-Ausfuehrung erzeugt den echten ChangeFrame (BC exploration-and-design)"
+type: implementation
+status: blocked
+created: "2026-06-05"
+size: L
+depends_on:
+  - AG3-045
+  - AG3-044
+  - AG3-015
+  - AG3-027
+unblocks: []

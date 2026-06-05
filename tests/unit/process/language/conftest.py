@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from agentkit.core_types import ExplorationGateStatus
 from agentkit.process.language.gates import Gate, GateStage
 from agentkit.process.language.guards import GuardResult
 from agentkit.process.language.model import (
@@ -13,7 +14,12 @@ from agentkit.process.language.model import (
     TransitionRule,
     WorkflowDefinition,
 )
-from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
+from agentkit.story_context_manager.models import (
+    ExplorationPayload,
+    PhaseState,
+    PhaseStatus,
+    StoryContext,
+)
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if False:  # TYPE_CHECKING — avoid import for type checkers only
@@ -64,11 +70,17 @@ def completed_setup_state() -> PhaseState:
 
 @pytest.fixture()
 def completed_exploration_state() -> PhaseState:
-    """A PhaseState where exploration is COMPLETED."""
+    """A PhaseState where exploration is COMPLETED and the gate is APPROVED.
+
+    AG3-045 defense-in-depth (FK-23 §23.5.0): a COMPLETED exploration phase only
+    releases implementation when its ``ExplorationPayload.gate_status`` is
+    ``APPROVED``; the payload is part of the state that does so.
+    """
     return PhaseState(
         story_id="TEST-001",
         phase="exploration",
         status=PhaseStatus.COMPLETED,
+        payload=ExplorationPayload(gate_status=ExplorationGateStatus.APPROVED),
     )
 
 

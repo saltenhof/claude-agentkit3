@@ -59,7 +59,14 @@ PROFILES: dict[StoryType, StoryTypeProfile] = {
         uses_worktree=True,
         uses_full_qa=True,
         uses_merge=True,
-        allowed_modes=(StoryMode.EXECUTION,),
+        # FK-23 §23.1: the scope of mode determination is the implementing story
+        # types Implementation AND Bugfix. A bugfix with e.g. ``Concept
+        # Quality=Low`` may route into exploration mode (FK-21 §21.3.3 /
+        # exploration-and-design.C3). ``default_mode`` stays EXECUTION (a bugfix
+        # is explorative only when a trigger fires); ``phases`` stays unchanged --
+        # the exploration phase is inserted solely via the mode switch
+        # (routing_rules), not via the profile phase tuple.
+        allowed_modes=(StoryMode.EXECUTION, StoryMode.EXPLORATION),
         default_mode=StoryMode.EXECUTION,
         allowed_implementation_contracts=(),
         default_implementation_contract=None,

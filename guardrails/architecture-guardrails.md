@@ -126,3 +126,6 @@ ARCH-52 Environments unterscheiden sich nur in Konfiguration, nie im Code.
 Beobachtbarkeit
 ARCH-53 Correlation-IDs an der Systemgrenze erzeugen und ueber alle Komponentengrenzen propagieren.
 
+Sprache und Benennung
+ARCH-55 Quellcode, Bezeichner, Datenmodelle, Wire-/JSON-Keys, Schema-Felder, DB-Spalten, Event-/API-Contracts und Code-Kommentare sind ausnahmslos in Englisch — so verbindlich wie die Sonar-Regeln. Verlangt ein Fachkonzept deutsche Keys/Feldnamen, ist das Fachkonzept auf Englisch anzupassen, nicht der Code. EINZIGE Ausnahme: die deutschsprachige Lokalisierung von UI-Label-Texten an der Oberflaeche und die zugehoerigen Resource-Bundles/Uebersetzungseintraege duerfen Deutsch enthalten. Fach-/Konzept-Prosa darf weiterhin Deutsch sein; betroffen sind ausschliesslich maschinell-strukturelle Bezeichner.
+

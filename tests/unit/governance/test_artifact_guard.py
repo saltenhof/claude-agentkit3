@@ -48,6 +48,133 @@ class TestArtifactGuardBlocked:
         assert v.violation_type == ViolationType.ARTIFACT_TAMPERING
 
 
+class TestArtifactGuardFrozenChangeFrame:
+    """The exploration change-frame is write-protected once frozen (AG3-045 AC8)."""
+
+    def test_subagent_write_to_frozen_change_frame_blocked(
+        self, guard: ArtifactGuard
+    ) -> None:
+        """A frozen change_frame.json is real write-protected (FIX 1)."""
+        v = guard.evaluate(
+            "file_write",
+            {
+                "file_path": "/repo/_temp/qa/AG3-045/change_frame.json",
+                "operating_mode": "story_execution",
+                "principal_kind": "subagent",
+                "active_story_id": "AG3-045",
+                "change_frame_frozen": True,
+            },
+        )
+        assert v.allowed is False
+        assert v.violation_type == ViolationType.ARTIFACT_TAMPERING
+        assert v.detail["protected_filename"] == "change_frame.json"
+
+    def test_subagent_edit_to_frozen_change_frame_blocked(
+        self, guard: ArtifactGuard
+    ) -> None:
+        v = guard.evaluate(
+            "file_edit",
+            {
+                "file_path": "/repo/_temp/qa/AG3-045/change_frame.json",
+                "operating_mode": "story_execution",
+                "principal_kind": "subagent",
+                "active_story_id": "AG3-045",
+                "change_frame_frozen": True,
+            },
+        )
+        assert v.allowed is False
+        assert v.violation_type == ViolationType.ARTIFACT_TAMPERING
+
+    def test_subagent_write_to_unfrozen_change_frame_allowed(
+        self, guard: ArtifactGuard
+    ) -> None:
+        """Before freeze the change-frame is still editable (FK-25 §25.4.2).
+
+        Allowed ONLY when the freeze state is explicitly KNOWN to be not-frozen.
+        """
+        v = guard.evaluate(
+            "file_write",
+            {
+                "file_path": "/repo/_temp/qa/AG3-045/change_frame.json",
+                "operating_mode": "story_execution",
+                "principal_kind": "subagent",
+                "active_story_id": "AG3-045",
+                "change_frame_frozen": False,
+                "change_frame_freeze_known": True,
+            },
+        )
+        assert v.allowed is True
+
+    def test_change_frame_freeze_state_unknown_blocks_fail_closed(
+        self, guard: ArtifactGuard
+    ) -> None:
+        """An unknown / missing freeze state blocks fail-closed (deep-review #5).
+
+        Previously this pinned "no signal => allowed" -- the fail-open hole. An
+        absent / unreadable freeze state is now treated as deny (ARCH-48).
+        """
+        v = guard.evaluate(
+            "file_write",
+            {
+                "file_path": "/repo/_temp/qa/AG3-045/change_frame.json",
+                "operating_mode": "story_execution",
+                "principal_kind": "subagent",
+                "active_story_id": "AG3-045",
+            },
+        )
+        assert v.allowed is False
+        assert v.violation_type == ViolationType.ARTIFACT_TAMPERING
+
+    def test_change_frame_freeze_known_false_blocks_fail_closed(
+        self, guard: ArtifactGuard
+    ) -> None:
+        """An explicitly-unknown freeze state (``known`` False) blocks too."""
+        v = guard.evaluate(
+            "file_write",
+            {
+                "file_path": "/repo/_temp/qa/AG3-045/change_frame.json",
+                "operating_mode": "story_execution",
+                "principal_kind": "subagent",
+                "active_story_id": "AG3-045",
+                "change_frame_frozen": False,
+                "change_frame_freeze_known": False,
+            },
+        )
+        assert v.allowed is False
+        assert v.violation_type == ViolationType.ARTIFACT_TAMPERING
+
+    def test_main_agent_may_write_frozen_change_frame(
+        self, guard: ArtifactGuard
+    ) -> None:
+        """The freeze protection only targets sub-agents (same as QA artifacts)."""
+        v = guard.evaluate(
+            "file_write",
+            {
+                "file_path": "/repo/_temp/qa/AG3-045/change_frame.json",
+                "operating_mode": "story_execution",
+                "principal_kind": "main",
+                "active_story_id": "AG3-045",
+                "change_frame_frozen": True,
+            },
+        )
+        assert v.allowed is True
+
+    def test_other_story_frozen_change_frame_allows(
+        self, guard: ArtifactGuard
+    ) -> None:
+        v = guard.evaluate(
+            "file_write",
+            {
+                "file_path": "/repo/_temp/qa/AG3-099/change_frame.json",
+                "operating_mode": "story_execution",
+                "principal_kind": "subagent",
+                "active_story_id": "AG3-045",
+                "change_frame_frozen": True,
+            },
+        )
+        assert v.allowed is True
+
+
 class TestArtifactGuardAllowed:
     """Non-scoped or non-subagent writes must be allowed."""
 

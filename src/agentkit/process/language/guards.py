@@ -126,30 +126,53 @@ def preflight_passed(ctx: StoryContext, state: PhaseState) -> GuardResult:
 @guard(
     "exploration_gate_approved",
     description="Checks that the exploration gate has been approved.",
-    reads=frozenset({"phase", "status"}),
+    reads=frozenset({"phase", "status", "payload"}),
 )
 def exploration_gate_approved(
     ctx: StoryContext, state: PhaseState,
 ) -> GuardResult:
     """Check whether the exploration gate has been approved.
 
-    Verifies that the exploration phase completed, indicating the
-    design artifact has been reviewed and approved.
+    Defense-in-Depth (FK-23 §23.5.0 / FK-45 §45.2): the exploration phase
+    being ``COMPLETED`` is NOT sufficient to enter implementation. The
+    persisted :class:`ExplorationPayload` MUST additionally carry
+    ``gate_status == ExplorationGateStatus.APPROVED``. A phase that is
+    ``COMPLETED`` for any other reason — or whose gate is still ``PENDING`` /
+    ``REJECTED``, or whose payload is missing / of the wrong type — fails the
+    guard fail-closed and does not release the Implementation phase.
 
     Args:
         ctx: The story context (unused but required by signature).
         state: The current phase state to inspect.
 
     Returns:
-        ``GuardResult.PASS()`` if exploration is completed, ``FAIL`` otherwise.
+        ``GuardResult.PASS()`` only when phase is ``exploration``, status is
+        ``COMPLETED`` AND ``payload.gate_status == APPROVED``; ``FAIL``
+        otherwise.
     """
-    from agentkit.story_context_manager.models import PhaseStatus
+    from agentkit.core_types import ExplorationGateStatus
+    from agentkit.story_context_manager.models import (
+        ExplorationPayload,
+        PhaseName,
+        PhaseStatus,
+    )
 
-    if state.phase == "exploration" and state.status == PhaseStatus.COMPLETED:
+    payload = state.payload
+    approved = (
+        state.phase == PhaseName.EXPLORATION
+        and state.status == PhaseStatus.COMPLETED
+        and isinstance(payload, ExplorationPayload)
+        and payload.gate_status == ExplorationGateStatus.APPROVED
+    )
+    if approved:
         return GuardResult.PASS()
+    gate_status = getattr(payload, "gate_status", None)
     return GuardResult.FAIL(
-        reason=f"Exploration gate not approved: phase={state.phase!r}, "
-        f"status={state.status!r}",
+        reason=(
+            "Exploration gate not approved: "
+            f"phase={state.phase!r}, status={state.status!r}, "
+            f"gate_status={gate_status!r}"
+        ),
     )
 
 

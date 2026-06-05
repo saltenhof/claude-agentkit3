@@ -114,7 +114,7 @@ class TestArtifactEnvelopeRequiredFields:
 
 
 class TestStoryIdValidator:
-    """AK2: story_id Pattern ^[A-Z][A-Z0-9]+-\\d+$."""
+    r"""story_id pattern \A[A-Z][A-Z0-9]+-\d+\Z, matched with fullmatch."""
 
     def _make_env(self, story_id: str) -> ArtifactEnvelope:
         start = _now()
@@ -151,6 +151,28 @@ class TestStoryIdValidator:
     def test_space_rejected(self) -> None:
         with pytest.raises(ValidationError):
             self._make_env("AG 3-022")
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "AG3-045\n",      # trailing newline (old ^...$ + .match accepted it)
+            "AG3-\n045",      # embedded newline
+            "\nAG3-045",      # leading newline
+            "AG3-045\t",      # trailing tab
+            " AG3-045",       # leading whitespace
+            "AG3-045 ",       # trailing whitespace
+            "AG3-045\x00",    # trailing NUL control char
+            "AG3-\x07045",    # embedded BEL control char
+        ],
+    )
+    def test_newlines_whitespace_and_control_chars_rejected(
+        self, bad: str
+    ) -> None:
+        # Fail-closed: the anchored \A...\Z pattern matched with fullmatch must
+        # reject trailing/embedded newlines, surrounding whitespace and control
+        # chars that the prior ^...$ + .match() tolerated (latent bug).
+        with pytest.raises(ValidationError):
+            self._make_env(bad)
 
 
 class TestAttemptValidator:

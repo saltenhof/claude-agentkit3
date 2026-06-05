@@ -129,7 +129,8 @@ class TestProfiles:
         assert p.uses_worktree is True
         assert p.uses_full_qa is True
         assert p.uses_merge is True
-        assert p.allowed_modes == (StoryMode.EXECUTION,)
+        # AG3-045 / FK-23 §23.1: Bugfix is an exploration-capable story type.
+        assert p.allowed_modes == (StoryMode.EXECUTION, StoryMode.EXPLORATION)
         assert p.default_mode == StoryMode.EXECUTION
         assert p.allowed_implementation_contracts == ()
         assert p.default_implementation_contract is None

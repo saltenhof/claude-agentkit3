@@ -77,10 +77,32 @@ class SetupPayload(BaseModel):
 
 
 class ExplorationPayload(BaseModel):
+    """Phase-specific payload for the exploration phase (FK-23 §23.5.0).
+
+    ``gate_status`` is the ONLY orchestration-contract field on this payload
+    (FK-23 §23.5.0: "gate_status is the only orchestration-contract field").
+    It is typed against :class:`ExplorationGateStatus` and defaults to
+    ``PENDING`` (AG3-045 §2.1.6 / AC5): the gate has not been passed until a
+    later, explicit transition to ``APPROVED``.
+
+    Deliberately NOT carried here (FK-23 §23.5.0):
+
+    * ``design_artifact_path`` / a ``change_frame_ref`` — the change-frame path
+      is derivable from the story directory convention
+      (``_temp/qa/{story_id}/change_frame.json``) and is not an
+      orchestration-contract field. Under Option Y (PO 2026-06-05) the
+      ``ExplorationPhaseHandler`` does NOT produce or APPROVE the change-frame:
+      ``on_enter`` CONSUMES / VALIDATES a worker-produced change-frame (AG3-055)
+      and then PAUSES awaiting the design review (or ESCALATES fail-closed when
+      none is present); the gate stays ``PENDING``. The transition to
+      ``APPROVED`` is owned by the three-stage design review (AG3-046), not by
+      this handler and not via a field on this frozen, single-instance payload.
+    """
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     phase_type: Literal["exploration"] = "exploration"
-    gate_status: ExplorationGateStatus | None = None
+    gate_status: ExplorationGateStatus = ExplorationGateStatus.PENDING
 
 
 class ImplementationPayload(BaseModel):

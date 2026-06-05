@@ -35,6 +35,7 @@ from agentkit.core_types.plane_artifact_names import (
 )
 from agentkit.core_types.qa_artifact_names import (
     ALL_QA_ARTIFACT_FILES,
+    CHANGE_FRAME_FILE,
     GUARDRAIL_FILE,
     LAYER_ARTIFACT_FILES,
     VERIFY_DECISION_FILE,
@@ -58,6 +59,25 @@ PROTECTED_QA_ARTIFACTS: tuple[str, ...] = (
 #: TRUTH / Truth-Boundary) und wird hier nur re-exportiert — kein Literal in
 #: diesem geschuetzten governance-Modul.
 PROTECTED_GOVERNANCE_FREEZE_EXPORT: str = GOVERNANCE_FREEZE_EXPORT_RELPATH
+
+#: Exploration change-frame artifact (FK-23 §23.4.3).
+#: The exploration worker (AG3-055, BC ``agent-skills``) writes this file to
+#: ``_temp/qa/{story_id}/change_frame.json``; AG3-045 defines the schema + the
+#: protection mechanics. This constant is the SINGLE SOURCE OF TRUTH for the
+#: protected change-frame filename and is consumed EFFECTIVELY by the
+#: ``ArtifactGuard`` (``governance.guards.artifact_guard``): a sub-agent write to
+#: this file is blocked once the change-frame is **frozen** (guard-context signal
+#: ``change_frame_frozen``) OR the freeze state is **unknown** (missing /
+#: unreadable ``change_frame_freeze_known``) -- fail-closed (deep-review #5,
+#: ARCH-48 default deny). The freeze trigger (setting ``frozen: true`` + feeding
+#: ``change_frame_frozen`` and ``change_frame_freeze_known`` into the guard
+#: context) is owned by AG3-047 (FK-23 §23.4.3: "protection runs via the hook
+#: mechanism, not via file permissions"); a change-frame explicitly known to be
+#: NOT frozen (before freeze, FK-25 §25.4.2) is editable, hence no block. The
+#: protection mechanics are complete here / in the guard (AG3-045 AC8). The path
+#: literal lives in ``core_types.qa_artifact_names`` (truth boundary -- no literal
+#: in the protected governance namespace).
+PROTECTED_CHANGE_FRAME: str = CHANGE_FRAME_FILE
 
 # ---------------------------------------------------------------------------
 # Self-Protection-Pfad-Registry (FK-30 §30.5.4 / FK-15 §15.7.1).
@@ -134,6 +154,7 @@ __all__ = [
     "ALL_QA_ARTIFACT_FILES",
     "GUARDRAIL_FILE",
     "LAYER_ARTIFACT_FILES",
+    "PROTECTED_CHANGE_FRAME",
     "PROTECTED_GOVERNANCE_FREEZE_EXPORT",
     "PROTECTED_QA_ARTIFACTS",
     "SELF_PROTECTION_GOVERNANCE_FILE_PARTS",

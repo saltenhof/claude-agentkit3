@@ -198,6 +198,7 @@ Ratespiel ist hier kein akzeptabler Modus.
 - Pydantic v2 fuer Konfigurationen, Artefaktmodelle und andere strukturierte Daten
 - Google-Style-Docstrings fuer oeffentliche Klassen/Funktionen
 - `snake_case` fuer Funktionen/Variablen/Module, `PascalCase` fuer Klassen
+- **Englisch verbindlich (Guardrail ARCH-55, so verbindlich wie die Sonar-Regeln):** Quellcode, Bezeichner, Datenmodelle, Wire-/JSON-Keys, Schema-Felder, DB-Spalten, Event-/API-Contracts und Code-Kommentare ausnahmslos englisch. Verlangt ein Fachkonzept deutsche Keys/Feldnamen, ist das Fachkonzept englisch anzupassen, nicht der Code. Einzige Ausnahme: deutschsprachige UI-Label-Lokalisierung an der Oberflaeche + zugehoerige Resource-Bundles/Uebersetzungseintraege. Fach-/Konzept-Prosa darf weiter deutsch sein.
 
 ### Architektur
 

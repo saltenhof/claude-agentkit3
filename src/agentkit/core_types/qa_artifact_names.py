@@ -93,6 +93,15 @@ VERIFY_DECISION_PRODUCER: str = "verify-system.layer-4-policy"
 #: Dateiname des Guardrail-Artefakts (siehe FK-31 §31.3).
 GUARDRAIL_FILE: str = "guardrail.json"
 
+#: Filename of the exploration change-frame artifact per FK-23 §23.4.3 -- stored
+#: under ``_temp/qa/{story_id}/``. Cross-cutting SSOT for the wire string: the
+#: exploration worker (AG3-055, BC ``agent-skills``) writes the file, the QA
+#: artifact protection (``governance.guard_system.protected_paths``) registers
+#: the path. Not a QA-layer artifact -- deliberately NOT part of
+#: ``ALL_QA_ARTIFACT_FILES``; only co-located under ``_temp/qa/{story_id}/``
+#: (shared protection mechanism, FK-23 §23.4.3 / FK-31 §31.3).
+CHANGE_FRAME_FILE: str = "change_frame.json"
+
 #: Alle 6 FK-27 §27.7-Artefakt-Dateinamen als Schutzmenge (FK-31 §31.3).
 ALL_QA_ARTIFACT_FILES: tuple[str, ...] = (
     _STRUCTURAL_FILE,
@@ -107,6 +116,7 @@ __all__ = [
     "ADVERSARIAL_PRODUCER",
     "ADVERSARIAL_STAGE",
     "ALL_QA_ARTIFACT_FILES",
+    "CHANGE_FRAME_FILE",
     "DOC_FIDELITY_FILE",
     "DOC_FIDELITY_PRODUCER",
     "DOC_FIDELITY_STAGE",

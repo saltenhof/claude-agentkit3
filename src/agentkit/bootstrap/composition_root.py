@@ -27,6 +27,7 @@ from agentkit.artifacts import (
     EnvelopeValidator,
     ProducerRegistry,
 )
+from agentkit.exploration.register import register_exploration_producers
 from agentkit.prompt_runtime.register import register_prompt_runtime_producers
 from agentkit.state_backend.store.artifact_repository import (
     StateBackendArtifactRepository,
@@ -37,6 +38,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
+    from agentkit.exploration.phase import ExplorationPhaseHandler
     from agentkit.failure_corpus import FailureCorpus
     from agentkit.governance.integrity_gate import IntegrityGate
     from agentkit.governance.integrity_gate.dim9_sonar import SonarDimensionPort
@@ -58,11 +60,12 @@ def build_producer_registry() -> ProducerRegistry:
     """Erzeugt eine frische ``ProducerRegistry`` und ruft alle bekannten
     BC-Init-Hooks auf.
 
-    Aktueller Stand: ``register_verify_producers`` (AG3-023) und
+    Current state: ``register_exploration_producers`` (AG3-045,
+    ``ArtifactClass.ENTWURF``), ``register_verify_producers`` (AG3-023) and
     ``register_prompt_runtime_producers`` (AG3-015, FK-44 §44.6 --
-    ``ArtifactClass.PROMPT_AUDIT``) sind angebunden. Weitere BC-Init-Hooks
-    (worker, telemetry, governance, closure ...) werden in ihren
-    Folgestories analog ergaenzt.
+    ``ArtifactClass.PROMPT_AUDIT``) are wired. Further BC-init hooks
+    (worker, telemetry, governance, closure ...) are added analogously in their
+    follow-up stories.
 
     Returns:
         Eine ``ProducerRegistry`` mit allen heute bekannten Producern.
@@ -72,6 +75,7 @@ def build_producer_registry() -> ProducerRegistry:
         bzw. Capability-Reihenfolge). Jeder Hook ist idempotent.
     """
     registry = ProducerRegistry()
+    register_exploration_producers(registry)
     register_prompt_runtime_producers(registry)
     register_verify_producers(registry)
     return registry
@@ -98,6 +102,53 @@ def build_artifact_manager(store_dir: Path) -> ArtifactManager:
     validator = EnvelopeValidator(registry)
     repository = StateBackendArtifactRepository(store_dir)
     return ArtifactManager(repository, validator)
+
+
+def build_exploration_phase_handler(
+    story_dir: Path,
+) -> ExplorationPhaseHandler:
+    """Wire the registrable ``ExplorationPhaseHandler`` surface (AG3-045 / Option Y).
+
+    Composition root for the exploration-phase handler (BC 5,
+    ``exploration-and-design``): wires the bloodgroup-A handler to the
+    state-backend adapter that fulfils the two boundary ports
+    (``RunScopeResolver`` + ``ChangeFrameReader``). The A-core therefore does
+    NOT import ``state_backend.store`` itself and does no direct filesystem I/O
+    (ARCH-22 / ARCH-31).
+
+    Per PO decision 2026-06-05 ("Option Y") the handler produces NO change-frame:
+    it consumes / validates the change-frame persisted by the exploration worker
+    (AG3-055). Without a valid change-frame the phase is fail-closed (ESCALATED).
+    The **productive registration** of this handler on the
+    ``PhaseHandlerRegistry`` is owned by AG3-054; this builder only provides the
+    registrable surface.
+
+    Args:
+        story_dir: Story working directory (bound ``FlowExecution`` + the read
+            surface root). Passed to the adapter's ``ArtifactManager`` and the
+            handler config.
+
+    Returns:
+        A wired ``ExplorationPhaseHandler``.
+    """
+    from agentkit.exploration.phase import (
+        ExplorationConfig,
+    )
+    from agentkit.exploration.phase import (
+        ExplorationPhaseHandler as _ExplorationPhaseHandler,
+    )
+    from agentkit.state_backend.store.exploration_change_frame_repository import (
+        StateBackendExplorationChangeFrameAdapter,
+    )
+
+    adapter = StateBackendExplorationChangeFrameAdapter(
+        build_artifact_manager(story_dir)
+    )
+    return _ExplorationPhaseHandler(
+        change_frame_reader=adapter,
+        run_scope_resolver=adapter,
+        config=ExplorationConfig(story_dir=story_dir),
+    )
 
 
 def build_verify_system(
@@ -697,6 +748,7 @@ def build_failure_corpus(accessor: ProjectionAccessor) -> FailureCorpus:
 __all__ = [
     "build_artifact_invalidation_sink",
     "build_artifact_manager",
+    "build_exploration_phase_handler",
     "build_failure_corpus",
     "build_integrity_gate",
     "build_phase_state_residue_probe",

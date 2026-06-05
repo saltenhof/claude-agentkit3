@@ -43,7 +43,17 @@ from agentkit.core_types import ArtifactClass, EnvelopeStatus
 #: (Storage-Schema-Version).
 ENVELOPE_SCHEMA_VERSION: Final[str] = "3.0"
 
-_STORY_ID_PATTERN: re.Pattern[str] = re.compile(r"^[A-Z][A-Z0-9]+-\d+$")
+#: Story-Display-ID-Pattern (``{PREFIX}-{NNN}``, FK-02 §2.3.1). SINGLE SOURCE OF
+#: TRUTH for the wire story-id format: the ``ArtifactEnvelope`` validator uses
+#: it just like the change-frame artifact embedded in the envelope
+#: (``agentkit.exploration.change_frame``), so a frame ``story_id`` and the
+#: enclosing envelope ``story_id`` can never drift apart. Anchored with
+#: ``\A``/``\Z`` (not ``^``/``$``) so the multiline-tolerant ``$``/``^`` does
+#: NOT accept a trailing/embedded newline; all call sites match it with
+#: ``fullmatch`` (fail-closed, ZERO DEBT): values carrying a trailing or
+#: embedded newline, control characters or surrounding whitespace are rejected.
+STORY_ID_PATTERN: Final[re.Pattern[str]] = re.compile(r"\A[A-Z][A-Z0-9]+-\d+\Z")
+_STORY_ID_PATTERN: re.Pattern[str] = STORY_ID_PATTERN
 #: Stage-ID-Pattern: lowercase Start, alphanumerisch mit ``-``/``_``
 #: (kebab/snake), 1-64 Zeichen. Bindung an die StageRegistry erfolgt in
 #: THEME-009; bis dahin gilt mindestens dieses Strukturpattern.
@@ -87,10 +97,10 @@ class ArtifactEnvelope(BaseModel):
     @field_validator("story_id")
     @classmethod
     def _validate_story_id(cls, v: str) -> str:
-        if not _STORY_ID_PATTERN.match(v):
+        if _STORY_ID_PATTERN.fullmatch(v) is None:
             msg = (
-                f"story_id '{v}' entspricht nicht dem Pattern "
-                r"'^[A-Z][A-Z0-9]+-\d+$' (z.B. 'AG3-042')"
+                f"story_id '{v}' does not match pattern "
+                r"'\A[A-Z][A-Z0-9]+-\d+\Z' (e.g. 'AG3-042')"
             )
             raise ValueError(msg)
         return v

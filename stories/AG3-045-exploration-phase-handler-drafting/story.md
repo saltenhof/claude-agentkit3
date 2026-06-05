@@ -1,5 +1,7 @@
 # AG3-045: ExplorationPhaseHandler + ExplorationDrafting + Bugfix-Profil-Fix + Gate-Guard-Erweiterung
 
+> **SCOPE-AENDERUNG (Product-Owner-Entscheidung 2026-06-05, „Option Y"):** AG3-045 liefert die **deterministische Klempnerei** der Exploration-Phase — Handler, Gate-Guard, ChangeFrame-**Schema** (FK-23, englische Felder), Persistenz, Protected-Path, Bugfix-Profil — **NICHT** das inhaltliche Drafting. Das echte Erzeugen des ChangeFrame ist Aufgabe eines gespawnten Workers und wurde in die eigene Story **AG3-055** (BC `exploration-and-design`; Worker-Verhalten via `worker-exploration.md`) ausgegliedert. **Folge:** **AC 2** (sieben Drafting-Schritte als Eigenleistung) und der **AC-9-Provisorium-APPROVE** sind hierdurch **SUPERSEDED** — statt eines regelbasierten Pseudo-Produzenten ist die Phase **ehrlich fail-closed**, solange kein vom Worker (AG3-055) erzeugter, valider ChangeFrame vorliegt. `ExplorationDrafting` als Inhaltsproduzent **entfaellt**; Maschinerie-Tests laufen gegen ein statisches Beispiel-Fixture. **Ebenso SUPERSEDED (historische Body-Texte unten):** §2.1.1 Stub-Review/Provisorium-APPROVE, §2.1.6 `change_frame_ref`-Validator, sowie die AC7/AC9-Provisorium-Formulierungen — tatsaechlich **eskaliert der Handler fail-closed** (kein Fake-APPROVED), es gibt **kein** `change_frame_ref`-Feld (die Invariante „APPROVED nur mit persistiertem ChangeFrame" liegt an der Handler-Grenze), und das Artefakt heisst **`change_frame.json`**.
+
 **Typ:** Implementation
 **Groesse:** M
 **Abhaengigkeiten:** AG3-021 (ExplorationGateStatus), AG3-024 (PhaseEnvelope), AG3-026 (VerifySystem-Top fuer Exploration-QA-Aufruf spaeter), AG3-041 (QA-Cycle-Lifecycle fuer Review-Aufruf)
@@ -84,7 +86,9 @@ Plus Lifecycle-Felder:
 - `frozen: bool` (Default False)
 - `frozen_at: datetime | None`
 
-Persistenz: JSON unter `_temp/qa/{story_id}/entwurfsartefakt.json` (FK-23 §23.4.3) plus Envelope ueber ArtifactManager.
+Persistenz: JSON unter `_temp/qa/{story_id}/change_frame.json` (FK-23 §23.4.3) plus Envelope ueber ArtifactManager.
+
+> **Sprache (Guardrail ARCH-55, PO-Entscheidung 2026-06-05):** Code und Datenmodell sind durchgaengig **englisch**; ChangeFrame-Feldnamen sind englisch. FK-23 §23.4 wurde von deutschen auf englische Wire-Keys umgestellt. (Die genaue Feld-Dekomposition gegenueber FK-23s sieben Bestandteilen wird zusammen mit D2 final geklaert.)
 
 #### 2.1.4 `exploration_gate_approved`-Guard Erweiterung (exploration-and-design.B1)
 
@@ -109,7 +113,7 @@ Defense-in-Depth (FK-23 §23.5.0): COMPLETED ohne APPROVED-gate_status -> Guard 
 `src/agentkit/story_context_manager/types.py:PROFILES[StoryType.BUGFIX]`:
 
 - `allowed_modes` wird erweitert: `(StoryMode.EXECUTION, StoryMode.EXPLORATION)` statt nur `(StoryMode.EXECUTION,)`
-- `phases` bleibt unveraendert (Bugfix-Stories durchlaufen Exploration nur, wenn Mode==EXPLORATION)
+- `phases` bleibt unveraendert (Bugfix-Stories durchlaufen Exploration nur, wenn Mode==EXPLORATION). **Boundary:** AG3-045 setzt ausschliesslich das `allowed_modes`-Flag (AC6). Die tatsaechliche **Mode→Exploration-Phase-Routing-Weiche** fuer Bugfix ist Workflow-Dispatch (**AG3-054 §2.1.3**, `resolve_workflow`); bis diese mode-aware ist, darf ein Bugfix+EXPLORATION **nicht still** in Implementation durchrutschen (AG3-054 muss mode-aware routen oder fail-closed ablehnen). Offener Owner: AG3-054.
 - Tests bestaetigen, dass Bugfix-Stories mit `Concept Quality=Low` zu Exploration-Mode routen koennen (FK-21 §21.3.3)
 
 #### 2.1.6 `ExplorationPayload`-Hardening (exploration-and-design.B2)
@@ -119,7 +123,7 @@ Defense-in-Depth (FK-23 §23.5.0): COMPLETED ohne APPROVED-gate_status -> Guard 
 - Feld `gate_status: ExplorationGateStatus | None` -> `gate_status: ExplorationGateStatus = ExplorationGateStatus.PENDING` (typisiert, Default PENDING)
 - Validator: `gate_status` darf nicht direkt von PENDING zu APPROVED springen ohne `change_frame_ref` (Referenz auf persistierten ChangeFrame)
 
-#### 2.1.7 `_temp/qa/{story_id}/entwurfsartefakt.json` als Protected-Path
+#### 2.1.7 `_temp/qa/{story_id}/change_frame.json` als Protected-Path
 
 `src/agentkit/governance/protected_paths.py` (AG3-023) wird erweitert: Entwurfsartefakt-Pfad ist nach Freeze write-protected.
 
@@ -147,6 +151,7 @@ Defense-in-Depth (FK-23 §23.5.0): COMPLETED ohne APPROVED-gate_status -> Guard 
 - Impact-Violation-Check im QA-Subflow Schicht 1 (`FK-23 §23.8`) — bereits Teil von AG3-042
 - Veraltete `pipeline_engine/verify_phase`-Artefakte Cleanup (`exploration-and-design.C1`) — gehoert zu THEME-001 (bereits adressiert)
 - Tests-Stub-Verzeichnis `tests/integration/pipeline/exploration_mode/` befuellen — Folge-Story nach AG3-046/047
+- **Produktive Registrierung des `ExplorationPhaseHandler` an der `PhaseHandlerRegistry`** — **AG3-054** (`pipeline-composition-root-phase-handler-registry`, dort §2.1.1: „exploration → der `ExplorationPhaseHandler` … aus AG3-045"). AG3-045 stellt **nur** die registrierbare Surface/Factory (`build_exploration_phase_handler`) bereit; ein Review-Befund „Handler nicht produktiv verdrahtet" ist damit OOS, **kein** AG3-045-Blocker.
 
 ## 3. Betroffene Dateien
 
@@ -179,7 +184,7 @@ Defense-in-Depth (FK-23 §23.5.0): COMPLETED ohne APPROVED-gate_status -> Guard 
 4. **`exploration_gate_approved`-Guard prueft `payload.gate_status == APPROVED`** zusaetzlich zu `status==COMPLETED`. Defense-in-Depth-Test bestaetigt das.
 5. **`ExplorationPayload.gate_status`** ist typisiert (`ExplorationGateStatus`) mit Default `PENDING`.
 6. **Bugfix-Profil**: `PROFILES[StoryType.BUGFIX].allowed_modes` enthaelt `StoryMode.EXPLORATION`. Tests bestaetigen das.
-7. **`ChangeFrame`-Persistenz** ueber `ArtifactManager` mit `ArtifactClass.ENTWURF`; Envelope-Pflichtfelder gesetzt; auch JSON unter `_temp/qa/{story_id}/entwurfsartefakt.json` geschrieben.
+7. **`ChangeFrame`-Persistenz** ueber `ArtifactManager` mit `ArtifactClass.ENTWURF`; Envelope-Pflichtfelder gesetzt; auch JSON unter `_temp/qa/{story_id}/change_frame.json` geschrieben.
 8. **Protected-Path**: Entwurfsartefakt-Pfad ist nach Freeze (siehe AG3-047) write-protected; die Konstante ist hier vorbereitet, der Freeze-Wechsel passiert in AG3-047.
 9. **Provisorium-Pfad in `ExplorationPhaseHandler.on_enter`**: setzt `gate_status=APPROVED` direkt nach Drafting **mit explizitem TODO-Verweis auf AG3-046** (Review-Methodik) — das ist die einzige Stelle mit dokumentiertem Provisorium; alle anderen Pfade sind konzeptkonform. (Aufgabe von AG3-046 ist diesen Provisorium-Pfad zu ersetzen.)
 10. **Architecture-Conformance**: `pipeline/phases/exploration/` importiert nur `agentkit.core_types`, `agentkit.artifacts`, `agentkit.story_context_manager.models`, `agentkit.process.language`.
@@ -212,5 +217,5 @@ Defense-in-Depth (FK-23 §23.5.0): COMPLETED ohne APPROVED-gate_status -> Guard 
 ## 8. Hinweise fuer den Sub-Agent
 
 - Provisorium-Pfad fuer Gate-Approval: setze `gate_status=APPROVED` mit klarem TODO-Kommentar im Code (`# TODO AG3-046: replace with full ExplorationReview`). Nicht silent.
-- Die sieben Drafting-Schritte koennen vorerst deterministisch sein (kein LLM-Aufruf — Worker-Drafting ist ein zukuenftiger LLM-Pfad, hier reicht das Geruest mit deterministischer Befuellung der Felder anhand StoryContext). Volles LLM-Worker-Drafting kann Folge-Story sein.
+- **Inhaltliches Drafting ist NICHT Teil von AG3-045** (Option Y, PO 2026-06-05): die sieben FK-23-§23.3.2-Schritte erzeugt der gespawnte Exploration-Worker — **AG3-055** (BC `exploration-and-design`; Worker-Verhalten via `worker-exploration.md`). AG3-045 baut die deterministische Klempnerei + das ChangeFrame-**Schema** und **konsumiert/validiert** den vom Worker erzeugten ChangeFrame. Ohne validen Worker-Entwurf ist die Phase **fail-closed** — kein regelbasierter Pseudo-Entwurf, keine Fake-APPROVED. Maschinerie-Tests gegen statisches Beispiel-Fixture; Test-Determinismus der Worker-Grenze via record-replay (AG3-055).
 - AK2 NICHT veraendern.

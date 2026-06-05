@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from agentkit.bootstrap.composition_root import build_exploration_phase_handler
 from agentkit.config.loader import load_project_config
 from agentkit.exceptions import PipelineError
 from agentkit.installer import InstallConfig, install_agentkit
@@ -42,7 +43,10 @@ from agentkit.state_backend.store import (
     read_story_context_record,
     save_story_context,
 )
-from agentkit.story_context_manager.models import PhaseStatus, StoryContext
+from agentkit.story_context_manager.models import (
+    PhaseStatus,
+    StoryContext,
+)
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
@@ -111,6 +115,29 @@ def _registry_for_workflow(
     registry = PhaseHandlerRegistry()
     for name in workflow_def.phase_names:
         registry.register(name, NoOpHandler())
+    return registry
+
+
+def _exploration_registry_for_workflow(
+    workflow_def: object,
+    story_dir_path: Path,
+) -> PhaseHandlerRegistry:
+    """Like ``_registry_for_workflow`` but with the REAL ExplorationPhaseHandler.
+
+    Option Y (AG3-045, PO 2026-06-05): no fake-approve stub. The exploration
+    slot runs the productive :class:`ExplorationPhaseHandler` wired via
+    ``build_exploration_phase_handler`` over the SAME state backend the runner
+    uses. Without a worker-produced change-frame (AG3-055) the handler is
+    honestly fail-closed: it ESCALATES (it does NOT fabricate a draft and does
+    NOT fake an APPROVED). The engine persists the run-bound ``FlowExecution``
+    (status IN_PROGRESS) BEFORE calling ``on_enter``, which is exactly how the
+    handler resolves its run id in production; this test relies on that real
+    ordering, not a seeded run id.
+    """
+    registry = _registry_for_workflow(workflow_def)
+    registry.register(
+        "exploration", build_exploration_phase_handler(story_dir_path)
+    )
     return registry
 
 
@@ -280,13 +307,20 @@ class TestSmokeImplementationStory:
 
 @pytest.mark.integration
 class TestSmokeExplorationMode:
-    """Smoke test: Implementation story with EXPLORATION mode."""
+    """Smoke test: Implementation story with EXPLORATION mode (Option Y).
 
-    def test_exploration_mode_runs_all_four_phases(
+    AG3-045 delivers only the deterministic plumbing; the content drafting is
+    AG3-055 and the gate review is AG3-046. With no worker-produced change-frame
+    the real handler is honestly fail-closed: the pipeline ESCALATES at the
+    exploration phase instead of fake-completing to closure. The 4-phase
+    completion path is pending AG3-055 (drafting) + AG3-046 (review).
+    """
+
+    def test_exploration_mode_escalates_without_change_frame(
         self,
         tmp_path: Path,
     ) -> None:
-        """EXPLORATION mode runs all four phases in order."""
+        """EXPLORATION mode stops at exploration fail-closed (pending AG3-055)."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
         _install_project(project_dir)
@@ -299,23 +333,21 @@ class TestSmokeExplorationMode:
         )
 
         workflow = IMPLEMENTATION_WORKFLOW
-        registry = _registry_for_workflow(workflow)
+        registry = _exploration_registry_for_workflow(workflow, s_dir)
 
         result = run_pipeline(ctx, s_dir, registry, workflow)
 
-        assert result.final_status == "completed"
-        assert result.phases_executed == (
-            "setup",
-            "exploration",
-            "implementation",
-            "closure",
-        )
+        # Honest fail-closed: no fake-approve, no silent completion to closure.
+        assert result.final_status == "escalated"
+        assert result.final_phase == "exploration"
+        assert result.phases_executed == ("setup", "exploration")
+        assert "closure" not in result.phases_executed
 
-    def test_exploration_mode_creates_exploration_artifacts(
+    def test_exploration_mode_records_exploration_attempt(
         self,
         tmp_path: Path,
     ) -> None:
-        """EXPLORATION mode persists canonical exploration records."""
+        """EXPLORATION mode still records a canonical exploration attempt."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
         _install_project(project_dir)
@@ -328,14 +360,17 @@ class TestSmokeExplorationMode:
         )
 
         workflow = IMPLEMENTATION_WORKFLOW
-        registry = _registry_for_workflow(workflow)
+        registry = _exploration_registry_for_workflow(workflow, s_dir)
         result = run_pipeline(ctx, s_dir, registry, workflow)
 
-        assert result.final_status == "completed"
+        assert result.final_status == "escalated"
         assert len(load_attempts(s_dir, "exploration")) >= 1
-        snapshot = read_phase_snapshot_record(s_dir, "exploration")
-        assert snapshot is not None
-        assert snapshot.phase == "exploration"
+        # No pseudo-draft is fabricated: no change_frame.json is written by
+        # the handler (the worker AG3-055 would write it; it is absent here).
+        change_frame = (
+            project_dir / "_temp" / "qa" / "EXPL-002" / "change_frame.json"
+        )
+        assert not change_frame.exists()
 
 
 # ---------------------------------------------------------------------------

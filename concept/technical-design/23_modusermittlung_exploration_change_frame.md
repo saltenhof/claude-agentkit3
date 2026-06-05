@@ -220,7 +220,7 @@ Der Worker-Exploration-Prompt gibt eine feste Schrittfolge vor
 | 3. Änderungsfläche | Im bestehenden System lokalisieren: welche Module, Services, APIs, Tabellen sind betroffen | Betroffene Bausteine im Entwurfsartefakt |
 | 4. Lösungsrichtung | Architekturmuster wählen, Verankerungsort bestimmen, begründen warum das die kleinste passende Lösung ist | Lösungsrichtung im Entwurfsartefakt |
 | 5. Selbst-Konformität | Eigenen Entwurf gegen die Referenzdokumente abgleichen — wo konform, wo Abweichungen | Konformitätsaussage im Entwurfsartefakt |
-| 6. Schreiben | Entwurfsartefakt mit allen 7 Bestandteilen erzeugen | `entwurfsartefakt.json` |
+| 6. Schreiben | Entwurfsartefakt mit allen 7 Bestandteilen erzeugen | `change_frame.json` |
 
 **Wichtig:** Der Worker gleicht den Entwurf bereits selbst gegen
 bestehende Architektur ab (Schritt 5). Die nachfolgende
@@ -239,76 +239,76 @@ unabhängige** Konformitätsprüfung, nicht die erste (FK-05-087).
   "created_at": "2026-03-17T10:30:00+01:00",
   "frozen": true,
 
-  "ziel_und_scope": {
-    "aendert_sich": "Integration der Broker-API für Echtzeit-Kursdaten",
-    "aendert_sich_nicht": "Bestehende REST-API für historische Daten bleibt unverändert"
+  "goal_and_scope": {
+    "changes": "Integration of the broker API for real-time price data",
+    "does_not_change": "Existing REST API for historical data remains unchanged"
   },
 
-  "betroffene_bausteine": {
-    "betroffen": [
+  "affected_building_blocks": {
+    "affected": [
       "trading-engine/broker-client",
       "trading-engine/market-data-service",
       "api-gateway/websocket-endpoint"
     ],
-    "unangetastet": [
+    "untouched": [
       "trading-engine/order-management",
       "reporting-service",
       "user-management"
     ]
   },
 
-  "loesungsrichtung": {
-    "muster": "Adapter-Pattern für Broker-Anbindung",
-    "verankerung": "Neuer BrokerAdapter im trading-engine Modul",
-    "begruendung": "Adapter isoliert Broker-Spezifika, bestehende Services bleiben unberührt. Kleinste passende Lösung, weil nur die Datenschnittstelle abstrahiert wird, nicht die gesamte Trading-Logik."
+  "solution_direction": {
+    "pattern": "Adapter pattern for broker integration",
+    "anchoring": "New BrokerAdapter in the trading-engine module",
+    "rationale": "The adapter isolates broker specifics; existing services remain untouched. Smallest fitting solution because only the data interface is abstracted, not the entire trading logic."
   },
 
-  "vertragsaenderungen": {
-    "schnittstellen": [
-      "Neuer WebSocket-Endpoint /ws/market-data für Echtzeit-Kurse"
+  "contract_changes": {
+    "interfaces": [
+      "New WebSocket endpoint /ws/market-data for real-time prices"
     ],
-    "datenmodell": [
-      "Neue Entity MarketQuote (symbol, bid, ask, timestamp)"
+    "data_model": [
+      "New entity MarketQuote (symbol, bid, ask, timestamp)"
     ],
     "events": [
-      "Neues Domain-Event MarketDataReceived"
+      "New domain event MarketDataReceived"
     ],
-    "externe_integrationen": [
-      "Broker-API via REST (Authentifizierung über API-Key)"
+    "external_integrations": [
+      "Broker API via REST (authentication via API key)"
     ]
   },
 
-  "konformitaetsaussage": {
-    "referenzdokumente": [
+  "conformance_statement": {
+    "reference_documents": [
       "concepts/api-design-guidelines.md",
       "concepts/trading-architecture.md"
     ],
-    "konform": [
-      "WebSocket-Endpoint folgt den API-Design-Guidelines (Naming, Versionierung)",
-      "Adapter-Pattern ist konsistent mit bestehender Broker-Abstraktion"
+    "conformant": [
+      "WebSocket endpoint follows the API design guidelines (naming, versioning)",
+      "Adapter pattern is consistent with the existing broker abstraction"
     ],
-    "abweichungen": [
-      "MarketQuote als eigene Entity statt Erweiterung von ExistingPriceData — begründet: unterschiedliche Lifecycle und Granularität"
+    "deviations": [
+      "MarketQuote as its own entity instead of extending ExistingPriceData — rationale: different lifecycle and granularity"
     ]
   },
 
-  "verifikationsskizze": {
-    "unit": "BrokerAdapter-Logik, MarketQuote-Mapping, Event-Erzeugung",
-    "integration": "WebSocket-Endpoint gegen Mock-Broker, Persistenz von MarketQuote",
-    "e2e": "Vollständiger Flow: Broker liefert Kurs → WebSocket pushed an Client"
+  "verification_sketch": {
+    "unit": "BrokerAdapter logic, MarketQuote mapping, event creation",
+    "integration": "WebSocket endpoint against mock broker, persistence of MarketQuote",
+    "e2e": "Full flow: broker delivers price -> WebSocket pushes to client"
   },
 
-  "offene_punkte": {
-    "entschieden": [
-      "Adapter-Pattern statt direkter Integration",
-      "WebSocket statt Polling für Echtzeit-Daten"
+  "open_points": {
+    "decided": [
+      "Adapter pattern instead of direct integration",
+      "WebSocket instead of polling for real-time data"
     ],
-    "annahmen": [
-      "Broker-API unterstützt WebSocket-Streaming (noch nicht verifiziert)",
-      "Maximale Latenz 500ms für Kursdaten akzeptabel"
+    "assumptions": [
+      "Broker API supports WebSocket streaming (not yet verified)",
+      "Maximum latency 500ms for price data acceptable"
     ],
-    "freigabe_noetig": [
-      "Einführung einer neuen Entity MarketQuote — Architektur-Impact?"
+    "approval_needed": [
+      "Introduction of a new entity MarketQuote — architecture impact?"
     ]
   }
 }
@@ -316,7 +316,7 @@ unabhängige** Konformitätsprüfung, nicht die erste (FK-05-087).
 
 ### 23.4.2 JSON Schema
 
-Das Schema `entwurfsartefakt.schema.json` validiert:
+Das Schema `change_frame.schema.json` validiert:
 
 | Feld | Typ | Pflicht | Validierung |
 |------|-----|---------|-------------|
@@ -325,13 +325,13 @@ Das Schema `entwurfsartefakt.schema.json` validiert:
 | `run_id` | String | Ja | UUID |
 | `created_at` | String | Ja | ISO 8601 |
 | `frozen` | Boolean | Ja | Nach Freeze: `true` |
-| `ziel_und_scope` | Object | Ja | `aendert_sich` + `aendert_sich_nicht` nicht leer |
-| `betroffene_bausteine` | Object | Ja | `betroffen` mind. 1 Eintrag |
-| `loesungsrichtung` | Object | Ja | Alle 3 Felder nicht leer |
-| `vertragsaenderungen` | Object | Ja | Mind. 1 der 4 Arrays nicht leer (oder explizit "keine") |
-| `konformitaetsaussage` | Object | Ja | `referenzdokumente` mind. 1 |
-| `verifikationsskizze` | Object | Ja | Mind. 1 Testebene beschrieben |
-| `offene_punkte` | Object | Ja | Alle 3 Arrays vorhanden (dürfen leer sein) |
+| `goal_and_scope` | Object | Ja | `changes` + `does_not_change` nicht leer |
+| `affected_building_blocks` | Object | Ja | `affected` mind. 1 Eintrag |
+| `solution_direction` | Object | Ja | Alle 3 Felder nicht leer |
+| `contract_changes` | Object | Ja | Mind. 1 der 4 Arrays nicht leer (oder explizit "keine") |
+| `conformance_statement` | Object | Ja | `reference_documents` mind. 1 |
+| `verification_sketch` | Object | Ja | Mind. 1 Testebene beschrieben |
+| `open_points` | Object | Ja | Alle 3 Arrays vorhanden (dürfen leer sein) |
 
 ### 23.4.3 Freeze-Mechanismus
 
@@ -343,7 +343,7 @@ Entwurf editierbar.
 Nach bestandenem Gate wird das Entwurfsartefakt eingefroren:
 
 1. `frozen: true` im JSON gesetzt
-2. Datei wird in `_temp/qa/{story_id}/entwurfsartefakt.json`
+2. Datei wird in `_temp/qa/{story_id}/change_frame.json`
    geschrieben
 3. Ab hier darf der Worker das Artefakt nicht mehr ändern — der
    QA-Artefakt-Schutz (Lock-Record + Hook) verhindert
@@ -374,7 +374,7 @@ class ExplorationPayload(BaseModel):
 
 `gate_status` hat Transition-Relevanz: `can_enter_phase("implementation")` prüft `gate_status == APPROVED`. Ohne `APPROVED` wird die Implementation-Phase nicht betreten (Defense-in-Depth, FK-45 §45.2).
 
-**Nicht in ExplorationPayload:** `design_artifact_path` — ableitbar aus der Story-Verzeichniskonvention (`_temp/qa/{story_id}/entwurfsartefakt.json`), kein orchestrierungsvertragliches Feld.
+**Nicht in ExplorationPayload:** `design_artifact_path` — ableitbar aus der Story-Verzeichniskonvention (`_temp/qa/{story_id}/change_frame.json`), kein orchestrierungsvertragliches Feld.
 
 **Granulare Gate-Stufen:** Die v2-Werte `doc_compliance_passed`, `design_review_passed`, `design_review_failed` werden nicht auf einzelne StrEnum-Werte abgebildet. Die Zwischenzustände während des Gate-Durchlaufs sind Implementierungsdetail des Phase Handlers, nicht Teil des persistierten Contracts. Der Contract kennt nur das Endergebnis: `PENDING | APPROVED | REJECTED`.
 
@@ -430,8 +430,8 @@ evaluator.evaluate(
     role="doc_fidelity",
     prompt_template=Path("prompts/doc-fidelity-design.md"),
     context={
-        "entwurfsartefakt": entwurf_json,
-        "referenzdokumente": lade_referenzdokumente(entwurf),
+        "change_frame": change_frame_json,
+        "reference_documents": load_reference_documents(change_frame),
         "story_description": context.story_description,
     },
     expected_checks=["design_fidelity"],
