@@ -11,9 +11,21 @@
 - AG3-034 (IntegrityGate-9-Dimensionen + `build_integrity_gate` Composition-Root; completed)
 - AG3-041 (QA-Zyklus-Mechanik — `advance_qa_cycle`/Remediation-Loop setzt den Finding-Resolution-Status `fully_resolved`/`partially_resolved`/`not_resolved` auf den Layer-2-Findings; ohne diese Resolution-Semantik hat das Finding-Resolution-Gate §29.2 nichts zu lesen; **in_progress**)
 - AG3-043 (Layer-2-LLM-Evaluations — `StructuredEvaluator` produziert die drei Layer-2-QA-Artefakte `qa_review.json`/`semantic_review.json`/`doc_fidelity.json`, die das Finding-Resolution-Gate §29.2 konsumiert; **blocked**)
-- AG3-052 (`sonarqube_gate`-Capability — Pre-Merge-Scan/Attestation, `build_sonar_gate_port_for_run`/`evaluate_sonarqube_gate`; completed)
+- AG3-052 (`sonarqube_gate`-Capability — Attestation-Modell/Green-Definition/Reconciler/Applicability; liefert die Gate-**Bewertung**, NICHT die Scan-**Ausfuehrung**; completed)
+- AG3-056 (Pre-Merge-Verification-Runner — fuehrt Build/Test + Integrated-Candidate-Sonar-Scan **aus** und liefert von Sonar/CI **commit-gebundene** Ergebnisse fuer `PreMergeScanPort`/`BuildTestPort`; ohne ihn bleibt der Scan-Port fail-open; **neu/blocked**)
 
 > **Status `blocked`:** AG3-041 ist `in_progress`, AG3-043 ist `blocked` (transitiv ueber AG3-041). Das Finding-Resolution-Gate (§29.2) ist ein **harter** In-Scope-Schritt dieser Story und konsumiert die Layer-2-Resolution-Artefakte beider Stories — diese Story kann erst starten, wenn AG3-041 + AG3-043 `completed` sind. (Begruendung des Schnitts: §29.2.1 + bc-cut-decisions BC 7 `ClosureGates.FindingResolutionGate` prueft „gegen Layer-2-Artefakte qa_review/semantic_review/doc_fidelity"; deren Producer ist AG3-043, deren Resolution-Status-Feld AG3-041.)
+>
+> **Status `blocked` (zusaetzlich, #1):** Die echte #1-Vervollstaendigung
+> (integrate-latest-main → Build/Test → Integrated-Candidate-Sonar-Scan,
+> **commit-gebunden**) haengt an **AG3-056** (Pre-Merge-Verification-Runner). Die
+> Barriere-STRUKTUR im Closure-Code steht bereits (Lock/integrate/clean/capture/
+> CAS/tree-hash-Check, atomarer Block, Multi-Repo-Eskalation), aber ihre Scan-/
+> Build-Test-Ports liefern erst mit AG3-056 ein von Sonar/CI **bewiesenes**,
+> commit-gebundenes Ergebnis — bis dahin waere der Scan-Port fail-open. Bis
+> AG3-056 `completed` ist, bleibt #1 offen (unabhaengiges Review-Urteil „passt
+> nicht" auf der reinen Closure-Implementierung; Befunde: Scan liest statt
+> auszufuehren, Bindung lokal statt von Sonar bewiesen, kein atomarer Push-Lease).
 
 **Unblocks:**
 - AG3-018 (Fast-Modus — die Closure-`mode==fast`-Weiche „Sanity-Gate statt 9-Dim-IntegrityGate" braucht einen verdrahteten Closure-Orchestrierungspfad als Andockpunkt; diese Story modelliert die Fast-Weiche im Closure bereits explizit, AG3-018 erweitert/parametrisiert sie)
