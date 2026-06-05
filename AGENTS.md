@@ -33,8 +33,16 @@ Auftraggeber iterieren.
 - Jenkins gruen: `http://localhost:9900/job/claude-agentkit3/`
 - Sonar gruen: `http://192.168.0.20:9901`
 - Sonar-Ziel ist strikt: `violations=0`, `critical_violations=0`,
-  `open_hotspots=0`
-- Sonar-Zugang fuer dieses Workspace: `admin` / `meinSonarCube2026!`
+  `security_hotspots=0` (Sonar-Metrik fuer offene Hotspots auf dieser
+  Instanz; `open_hotspots` ist hier kein gueltiger Metric-Key)
+- Lokale Gate-Zugaenge liegen ausserhalb des Repos in
+  `T:\seu\agentkit3-secrets.cmd` und werden von den Codex-Startern fuer
+  CLI und App geladen. Die Datei setzt `SONAR_URL`, `SONAR_PROJECT_KEY`,
+  `SONAR_USER`, `SONAR_PASSWORD`, `JENKINS_URL`, `JENKINS_USER`,
+  `JENKINS_PASSWORD` und `JENKINS_API_TOKEN`.
+- Remote-Gates mit `scripts/ci/check_remote_gates.ps1` pruefen; das Script
+  nutzt die geladenen Env-Vars und scheitert hart, wenn Jenkins oder Sonar
+  nicht gruen sind.
 - Konzept-Aenderungen werden gleich behandelt wie Code-Aenderungen:
   `scripts/ci/check_concept_frontmatter.py` und
   `scripts/ci/compile_formal_specs.py` muessen gruen sein. Der

@@ -9,6 +9,8 @@ set "LESSCHARSET=utf-8"
 set "PYTHONUTF8=1"
 
 for %%I in ("%~dp0.") do set "WORKDIR=%%~fI"
+set "SECRETS_SCRIPT=T:\seu\agentkit3-secrets.cmd"
+if exist "%SECRETS_SCRIPT%" call "%SECRETS_SCRIPT%"
 set "CONTEXT_WINDOW=1000000"
 set "AUTO_COMPACT=900000"
 set "CODEX_EXE=%LOCALAPPDATA%\Programs\OpenAI\Codex\bin\codex.exe"
@@ -50,6 +52,7 @@ echo [INFO] Modus:   Neues Fenster
 echo [INFO] Workdir: %WORKDIR%
 echo [INFO] Context: %CONTEXT_WINDOW%, Auto-Compact: %AUTO_COMPACT%
 echo [INFO] MCP:     agentkit3-concepts
+if exist "%SECRETS_SCRIPT%" echo [INFO] Secrets: %SECRETS_SCRIPT%
 
 start "Codex CLI [long]" "%PS%" -NoExit -Command ^
   "$env:LANG='en_US.UTF-8'; $env:LC_ALL='en_US.UTF-8'; $env:LESSCHARSET='utf-8'; $env:PYTHONUTF8='1'; Set-Location -LiteralPath '%WORKDIR%'; Write-Host ''; Write-Host ' Codex CLI - Long Context' -ForegroundColor Yellow; Write-Host ''; & '%CODEX_EXE%' -c '%MCP_COMMAND_CONFIG%' -c '%MCP_ARGS_CONFIG%' -c '%MCP_CWD_CONFIG%' -c model_context_window=%CONTEXT_WINDOW% -c model_auto_compact_token_limit=%AUTO_COMPACT% -C '%WORKDIR%'"
@@ -63,6 +66,7 @@ echo [INFO] Modus:   Inline
 echo [INFO] Workdir: %WORKDIR%
 echo [INFO] Context: %CONTEXT_WINDOW%, Auto-Compact: %AUTO_COMPACT%
 echo [INFO] MCP:     agentkit3-concepts
+if exist "%SECRETS_SCRIPT%" echo [INFO] Secrets: %SECRETS_SCRIPT%
 cd /d "%WORKDIR%"
 "%CODEX_EXE%" -c "%MCP_COMMAND_CONFIG%" -c "%MCP_ARGS_CONFIG%" -c "%MCP_CWD_CONFIG%" -c model_context_window=%CONTEXT_WINDOW% -c model_auto_compact_token_limit=%AUTO_COMPACT% -C "%WORKDIR%"
 endlocal

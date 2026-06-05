@@ -5,6 +5,8 @@ rem Start Codex Desktop App in this project with the 1M long context.
 chcp 65001 >nul 2>&1
 
 for %%I in ("%~dp0.") do set "WORKDIR=%%~fI"
+set "SECRETS_SCRIPT=T:\seu\agentkit3-secrets.cmd"
+if exist "%SECRETS_SCRIPT%" call "%SECRETS_SCRIPT%"
 set "CONTEXT_WINDOW=1000000"
 set "AUTO_COMPACT=900000"
 set "CODEX_EXE=%LOCALAPPDATA%\Programs\OpenAI\Codex\bin\codex.exe"
@@ -30,6 +32,7 @@ echo [INFO] Starte Codex App - Long Context
 echo [INFO] Workdir: %WORKDIR%
 echo [INFO] Context: %CONTEXT_WINDOW%, Auto-Compact: %AUTO_COMPACT%
 echo [INFO] MCP:     agentkit3-concepts
+if exist "%SECRETS_SCRIPT%" echo [INFO] Secrets: %SECRETS_SCRIPT%
 
 start "Codex App [long]" "%CODEX_EXE%" -c "%MCP_COMMAND_CONFIG%" -c "%MCP_ARGS_CONFIG%" -c "%MCP_CWD_CONFIG%" -c model_context_window=%CONTEXT_WINDOW% -c model_auto_compact_token_limit=%AUTO_COMPACT% app "%WORKDIR%"
 
