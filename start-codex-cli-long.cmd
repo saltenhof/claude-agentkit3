@@ -13,6 +13,12 @@ set "CONTEXT_WINDOW=1000000"
 set "AUTO_COMPACT=900000"
 set "CODEX_EXE=%LOCALAPPDATA%\Programs\OpenAI\Codex\bin\codex.exe"
 set "LOCAL_PWSH=C:\Program Files\PowerShell\7\pwsh.exe"
+set "WORKDIR_FWD=%WORKDIR:\=/%"
+if "%WORKDIR_FWD:~-1%"=="/" set "WORKDIR_FWD=%WORKDIR_FWD:~0,-1%"
+set "MCP_PYTHON=%WORKDIR_FWD%/.venv/Scripts/python.exe"
+set "MCP_COMMAND_CONFIG=mcp_servers.agentkit3-concepts.command=\"%MCP_PYTHON%\""
+set "MCP_ARGS_CONFIG=mcp_servers.agentkit3-concepts.args=[\"-m\",\"tools.concept_mcp.server\"]"
+set "MCP_CWD_CONFIG=mcp_servers.agentkit3-concepts.cwd=\"%WORKDIR_FWD%\""
 
 if not exist "%CODEX_EXE%" (
   set "CODEX_EXE="
@@ -43,9 +49,10 @@ echo [INFO] Starte Codex CLI - Long Context
 echo [INFO] Modus:   Neues Fenster
 echo [INFO] Workdir: %WORKDIR%
 echo [INFO] Context: %CONTEXT_WINDOW%, Auto-Compact: %AUTO_COMPACT%
+echo [INFO] MCP:     agentkit3-concepts
 
 start "Codex CLI [long]" "%PS%" -NoExit -Command ^
-  "$env:LANG='en_US.UTF-8'; $env:LC_ALL='en_US.UTF-8'; $env:LESSCHARSET='utf-8'; $env:PYTHONUTF8='1'; Set-Location -LiteralPath '%WORKDIR%'; Write-Host ''; Write-Host ' Codex CLI - Long Context' -ForegroundColor Yellow; Write-Host ''; & '%CODEX_EXE%' -c model_context_window=%CONTEXT_WINDOW% -c model_auto_compact_token_limit=%AUTO_COMPACT% -C '%WORKDIR%'"
+  "$env:LANG='en_US.UTF-8'; $env:LC_ALL='en_US.UTF-8'; $env:LESSCHARSET='utf-8'; $env:PYTHONUTF8='1'; Set-Location -LiteralPath '%WORKDIR%'; Write-Host ''; Write-Host ' Codex CLI - Long Context' -ForegroundColor Yellow; Write-Host ''; & '%CODEX_EXE%' -c '%MCP_COMMAND_CONFIG%' -c '%MCP_ARGS_CONFIG%' -c '%MCP_CWD_CONFIG%' -c model_context_window=%CONTEXT_WINDOW% -c model_auto_compact_token_limit=%AUTO_COMPACT% -C '%WORKDIR%'"
 
 endlocal
 exit /b 0
@@ -55,7 +62,8 @@ echo [INFO] Starte Codex CLI - Long Context
 echo [INFO] Modus:   Inline
 echo [INFO] Workdir: %WORKDIR%
 echo [INFO] Context: %CONTEXT_WINDOW%, Auto-Compact: %AUTO_COMPACT%
+echo [INFO] MCP:     agentkit3-concepts
 cd /d "%WORKDIR%"
-"%CODEX_EXE%" -c model_context_window=%CONTEXT_WINDOW% -c model_auto_compact_token_limit=%AUTO_COMPACT% -C "%WORKDIR%"
+"%CODEX_EXE%" -c "%MCP_COMMAND_CONFIG%" -c "%MCP_ARGS_CONFIG%" -c "%MCP_CWD_CONFIG%" -c model_context_window=%CONTEXT_WINDOW% -c model_auto_compact_token_limit=%AUTO_COMPACT% -C "%WORKDIR%"
 endlocal
 exit /b 0
