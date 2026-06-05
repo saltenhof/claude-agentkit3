@@ -18,7 +18,13 @@ formal_scope: prose-only
 
 ## Status
 
-Stand: 16/16 BCs geschnitten (2026-05-01) -- alle BCs geschnitten.
+Stand: 16/16 BCs geschnitten (2026-05-01) -- alle initialen BCs geschnitten.
+
+Update 2026-06-05 (PO-Trigger): Bounded Context `task-management` als
+neuer BC ergaenzt (Tasks / offene Handlungspunkte, nicht AK3-gemanagt).
+Komponenten-Schnitt am Dokumentende. Registry und Konzepte (DK-15,
+FK-77, formal.task-management.*) angelegt; Rewire der Producer
+(FK-38/FK-29 raus aus Failure Corpus) ist ein separater Folgeschritt.
 
 Quelle: Mehrrundige Architektur-Diskussion (User + Hauptagent). Dieses
 Dokument ist die persistierte Entscheidungsbasis. Aenderungen nur per
@@ -1966,3 +1972,82 @@ Alle 16 BCs sind geschnitten. Bestehende entities.md-Eintraege fuer
 verbleibende Stubs (story, control_plane, projectedge, hook_runtime,
 state_backend_drivers, phase_state_store) bleiben unveraendert bis
 der jeweilige BC geschnitten wird.
+
+---
+
+## Nachtrag-BC: task-management (2026-06-05, PO-Trigger)
+
+**Status:** geschnitten (2026-06-05)
+**Quellen:** DK-15 (Domain), FK-77 (Technik), formal.task-management.*
+**BC-Verantwortung:** Verwaltung offener Handlungspunkte (Tasks), deren
+Abarbeitung **nicht** von AK3 gemanagt wird und die deshalb **nie** die
+Story-Zustands-Pipeline durchlaufen. Owns: Task, TaskLink, Task-Lifecycle,
+Verlinkungsmodell (n:m, bidirektional). Kern-Invariante: ein Task ist
+offene Arbeit fuer Mensch oder Agent, nie eine passive Benachrichtigung.
+
+**Top:** `TaskManagement` (A, top, prefix=`agentkit.task_management`)
+
+Top-Surface: `create_task`, `link_task`, `resolve_task`, `dismiss_task`
+sowie Lese-Sichten fuer Frontend und Producer. Es gibt **keinen**
+Phase-Handler — Tasks werden nie bei `pipeline-framework.PipelineRegistry`
+registriert (strukturelle Erzwingung der Kern-Invariante).
+
+**Sub-1-Komponenten (2):**
+
+| Sub | Bluttyp | Exposure | Verantwortung |
+|---|---|---|---|
+| `TaskRegistry` | A | sub_exposed | Task-Entity, Lifecycle/State-Transitions (open→done|dismissed), CRUD, Provenienz. |
+| `TaskLinkGraph` | A | sub_exposed | TaskLink-Kanten (target_kind=task|story), bidirektionale Aufloesung, keine Statusspiegelung. |
+
+**Klassen-Skizzen:**
+
+- `TaskRegistry` (ca. 7): `TaskRegistry`, `Task`, `TaskKind`
+  (StrEnum: reminder, actionable), `TaskType`, `TaskStatus`
+  (StrEnum: open, done, dismissed), `TaskPriority`
+  (StrEnum: low, normal, high), `TaskOrigin`
+  (StrEnum: closure, verify, governance, human)
+- `TaskLinkGraph` (ca. 3): `TaskLinkGraph`, `TaskLink`,
+  `TaskLinkTargetKind` (StrEnum: task, story)
+
+Total: ca. 12 Klassen (+ Top-Koordination).
+
+**intra_bc_layer_order:**
+
+```
+Layer 0: TaskRegistry (Entity + Lifecycle — Fundament)
+Layer 1: TaskLinkGraph (Verlinkung auf bestehende Tasks/Stories)
+```
+
+**Beziehungen zu anderen BCs:**
+
+| Andere BC | Richtung | Was |
+|---|---|---|
+| `pipeline-framework` | — | KEINE. Tasks sind nicht pipeline-gemanagt; kein Phase-Handler. |
+| `story-closure` | C -> TM | `create_task` (Konzept-Feedback / Rueckkopplungstreue) — via Rewire-Schritt |
+| `verify-system` | VS -> TM | `create_task` fuer handlungstragende Befunde |
+| `governance-and-guards` | GG -> TM | `create_task` fuer handlungstragende Befunde |
+| `story-lifecycle` | TM <-> SLC | TaskLink target_kind=story; von beiden Seiten lesbar, kein gespiegelter Status |
+| `telemetry-and-events` | TM -> T | `Telemetry.write_projection`/`read_projection` (Schema-Owner TM; Muster wie `fc_*`) |
+| `control_plane`/Frontend | FE -> TM | „Tasks / Offene Punkte"-View liest Top-Surface (FK-72/frontend-contracts) |
+
+**Konzept-Refactor-/Folgeliste (separater Schritt, nach BC-Freigabe):**
+
+1. FK-38 Ebene-4 (Rueckkopplungstreue): Ergebnis → `TaskManagement.create_task`
+   statt Incident-Kandidat im Failure Corpus.
+2. FK-29 / `PostMergeFinalization.FeedbackFidelityCheck`: Producer-Verdrahtung
+   auf task-management; Beziehung „C -> FC (Doctreue-FAIL)" (BC 7 oben)
+   entsprechend auf „C -> TM" aendern.
+3. FK-72 + frontend-contracts: „Tasks / Offene Punkte"-View + Wire-Entity.
+
+**Eigenstaendige Detail-Entscheidungen:**
+
+1. Top-Name `TaskManagement` (BC-konform).
+2. Nur 2 Subs (Registry + LinkGraph) — „verteile nicht wenn nicht muss".
+3. Persistenz ueber telemetry-and-events (Muster failure-corpus), kein
+   eigener T-Treiber → kein `mix_allowed`.
+4. Auto-Close (verlinkte Story Done → Task done) bewusst **nicht** im Kern:
+   n:m macht die Semantik mehrdeutig; explizites Schliessen ist der
+   Normalfall, weil ungemanagt.
+5. Abgrenzung gegen HumanGate (execution-planning, blockierend),
+   Eskalation (governance, laufgekoppelt) und Incident (failure-corpus,
+   Defekt-Log) — siehe DK-15 §5.

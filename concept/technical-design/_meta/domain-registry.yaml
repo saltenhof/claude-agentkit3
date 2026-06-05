@@ -160,3 +160,9 @@ domains:
     contract_docs:
       - FK-76
 
+  - id: task-management
+    display_name: Task-Management (Tasks, Lifecycle, Verlinkung zu Stories/Tasks)
+    contract_docs:
+      - DK-15
+      - FK-77
+

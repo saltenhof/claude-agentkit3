@@ -264,6 +264,22 @@ bounded_contexts:
       - Externer Multi-LLM-Hub / Modell-Provider-Sessions (FK-75)
       - Story-/Prompt-/QA-/Telemetrie-Semantik
 
+  - id: task-management
+    responsibility: >
+      Verwaltung offener Handlungspunkte (Tasks), deren Abarbeitung nicht
+      von AK3 gemanagt wird und die nie die Story-Zustands-Pipeline
+      durchlaufen. Tasks sind Merker oder leichtgewichtige Aufgaben,
+      nie Benachrichtigungen.
+    owns:
+      - Task
+      - TaskLink
+      - TaskStatus
+      - TaskKind
+    excluded:
+      - Story-Ausfuehrung / Pipeline-Management (story-lifecycle, pipeline-framework)
+      - Publikation von Warnings/Infos (kein Benachrichtigungskanal)
+      - Defekt-Log (failure-corpus)
+
 
 # ----------------------------------------------------------------------
 # Querschnittliche Ebenen — keine BCs

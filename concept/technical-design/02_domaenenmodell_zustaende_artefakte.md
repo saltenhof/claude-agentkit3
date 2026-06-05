@@ -706,12 +706,56 @@ Edge-Tabelle, Verknuepfung von Stories mit ARE-Items.
 Liefert die Grundlage fuer ARE-Evidence im Inspector-Ergebnis-Tab und
 fuer Coverage-Analyse.
 
-### 2.11.5 Persistenz
+### 2.11.5 `Task` (Owner: `task_management`)
 
-Alle vier Anker liegen in Postgres als single source of truth.
-Story-/Dependency-Graph-Abfragen ueber Recursive CTE; eine Graph-DB
-ist explizit nicht vorgesehen. Materialized Views fuer transitive
-Huellen sind moeglich, falls die Read-Last es verlangt.
+Offener Handlungspunkt, dessen Abarbeitung **nicht** von AK3 gemanagt
+wird (durchlaeuft nie die Story-Pipeline). Fachlich in DK-15, technisch
+in FK-77.
+
+| Feld | Typ | Bemerkung |
+|------|-----|-----------|
+| `task_id` | String | `TM-YYYY-NNNN`, eindeutig pro `project_key` |
+| `project_key` | String | FK auf `Project.key` |
+| `kind` | Enum | `reminder` \| `actionable` |
+| `type` | String | fachliche Herkunftskategorie, erweiterbar (v1 `concept_update`) |
+| `title` | String | Kurztitel |
+| `body` | Text | Prosa: was / warum / wo |
+| `priority` | Enum | `low` \| `normal` \| `high` |
+| `status` | Enum | `open` \| `done` \| `dismissed` |
+| `origin` | Enum | `closure` \| `verify` \| `governance` \| `human` |
+| `source_story_id` | String? | Provenienz (Story-Anzeige-ID), nullable |
+| `execution_report_ref` | String? | Provenienz, nullable |
+| `created_at` | Timestamp | |
+| `resolved_at` | Timestamp? | gesetzt bei done/dismissed |
+| `resolved_by` | Enum? | `human` \| `agent`, gesetzt bei done/dismissed |
+
+Eindeutigkeit auf `(project_key, task_id)`.
+
+### 2.11.6 `TaskLink` (Owner: `task_management`)
+
+Edge-Tabelle, n:m-Verknuepfung eines Tasks mit anderen Tasks oder
+Stories; von beiden Seiten lesbar. Referenz, **kein** gespiegelter Status.
+
+| Feld | Typ | Rolle |
+|------|-----|-------|
+| `task_id` | FK | Quell-Task |
+| `target_kind` | Enum | `task` \| `story` |
+| `target_id` | String | Ziel-`task_id` bzw. Story-Anzeige-ID |
+| `kind` | Enum | typisierte Beziehung (`relates_to`, `spawned_story`, `duplicate_of`) |
+
+Eindeutigkeit auf `(project_key, task_id, target_kind, target_id, kind)`.
+
+### 2.11.7 Persistenz
+
+Die Story-/Dependency-Anker (§2.11.1–§2.11.4) liegen in Postgres als
+single source of truth. Story-/Dependency-Graph-Abfragen ueber Recursive
+CTE; eine Graph-DB ist explizit nicht vorgesehen. Materialized Views fuer
+transitive Huellen sind moeglich, falls die Read-Last es verlangt.
+
+Die Task-Anker (§2.11.5–§2.11.6) liegen ebenfalls in Postgres (zentrales
+State-Backend), Schema-Owner `task_management`, Persistenz ueber
+telemetry-and-events (`write_projection`/`read_projection`, `fc_*`-Muster).
+Relationales Detail in FK-77 §77.5.
 
 ---
 

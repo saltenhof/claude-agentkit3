@@ -56,6 +56,7 @@ Bei Konflikten zwischen Operationalisierung und Kernauftrag gilt der Kernauftrag
 | 12 | [12-skills-und-skill-system.md](12-skills-und-skill-system.md) | Spezialisierte Skills und Skill-System |
 | 13 | [13-kpis-und-optimierung.md](13-kpis-und-optimierung.md) | KPIs und nachgelagerte Optimierung |
 | 14 | [14-project-management.md](14-project-management.md) | Project-Management (Project-Entitaet, ID-Praefix-Schema, Konfiguration) |
+| 15 | [15-task-management.md](15-task-management.md) | Task-Management (Tasks, Lifecycle, Verlinkung zu Stories/Tasks) |
 
 ---
 

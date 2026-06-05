@@ -300,3 +300,8 @@ claude-code
 codex
 meta-harness
 settings
+task
+todo
+reminder
+action-item
+linking

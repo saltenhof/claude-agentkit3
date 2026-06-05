@@ -69,6 +69,7 @@ modules:
 - story-split
 - story-types
 - system-architecture
+- task-management
 - telemetry
 - tools-and-skills
 - truth-boundary-checker
