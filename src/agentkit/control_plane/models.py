@@ -140,7 +140,12 @@ class EdgeBundle(BaseModel):
 
     current: EdgePointer
     session: SessionRunBindingView | None = None
-    lock: StoryExecutionLockView
+    #: ``None`` only for a fast story (AG3-018 / FK-24 §24.3.4): a fast story
+    #: materializes NO story-scoped ``story_execution`` lock, so the bundle
+    #: carries no lock view and the local edge resolves to ``ai_augmented``
+    #: (story-scoped guards do not activate; baseline guards remain). Every
+    #: standard/exploration bundle still carries an authoritative lock.
+    lock: StoryExecutionLockView | None = None
     qa_lock: StoryExecutionLockView | None = None
     tombstone_worktree_roots: list[str] = Field(default_factory=list)
 

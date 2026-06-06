@@ -108,7 +108,11 @@ class ProjectEdgeResolver:
                 synced=synced,
             )
 
-        if bundle.lock.status != "ACTIVE":
+        if bundle.lock is None or bundle.lock.status != "ACTIVE":
+            # Fail-closed: a session-bound bundle MUST carry an ACTIVE
+            # story_execution lock. A missing lock here (only legitimate for a
+            # fast, session-less bundle handled above) means a bound run without
+            # an authoritative lock -> binding_invalid, never story_execution.
             return ResolvedEdgeState(
                 operating_mode="binding_invalid",
                 bundle=bundle,
@@ -139,12 +143,19 @@ class ProjectEdgeResolver:
         session_path = bundle_root / "session.json"
         lock_path = bundle_root / "lock.json"
         qa_lock_path = bundle_root / "qa-lock.json"
-        if not lock_path.is_file():
-            return None
         session_payload = _load_json(session_path) if session_path.is_file() else None
         if session_payload is not None and "session_id" not in session_payload:
             session_payload = None
-        lock_payload = _load_json(lock_path)
+        # FAIL-CLOSED (invalid_bound_session_must_not_fall_back_to_free_mode):
+        # the presence of a BOUND bundle is decided by the SESSION, never by
+        # lock.json. A missing lock.json must NOT early-return None (that would
+        # silently downgrade a bound session to ai_augmented/free mode). Set
+        # ``lock_payload = None`` when absent and still return an EdgeBundle; the
+        # classification then lives in ``resolve()``:
+        #   session != None && lock == None -> binding_invalid (corrupt bound run)
+        #   session == None && lock == None -> ai_augmented (the intended FAST bundle)
+        #   session != None && lock != None -> story_execution (standard)
+        lock_payload = _load_json(lock_path) if lock_path.is_file() else None
         qa_lock_payload = (
             _load_json(qa_lock_path) if qa_lock_path.is_file() else None
         )

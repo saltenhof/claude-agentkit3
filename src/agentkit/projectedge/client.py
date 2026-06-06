@@ -95,10 +95,11 @@ class LocalEdgePublisher:
         bundle_root = self._project_root / bundle.current.bundle_dir
         bundle_root.mkdir(parents=True, exist_ok=True)
         _write_json(bundle_root / "session.json", _session_payload(bundle))
-        _write_json(
-            bundle_root / _LOCK_EXPORT_FILE,
-            bundle.lock.model_dump(mode="json"),
-        )
+        if bundle.lock is not None:
+            _write_json(
+                bundle_root / _LOCK_EXPORT_FILE,
+                bundle.lock.model_dump(mode="json"),
+            )
         if bundle.qa_lock is not None:
             _write_json(
                 bundle_root / _QA_LOCK_EXPORT_FILE,
@@ -112,6 +113,7 @@ class LocalEdgePublisher:
         if (
             bundle.session is not None
             and bundle.session.operating_mode == "story_execution"
+            and bundle.lock is not None
         ):
             for root in bundle.session.worktree_roots:
                 _write_json(

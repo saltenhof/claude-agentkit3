@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -46,6 +47,15 @@ if TYPE_CHECKING:
 #: earlier ``{execution, exploration, fast}`` set mixed both axes (the axis
 #: bug); ``StoryContext.mode`` only ever holds ``standard``/``fast``.
 ACTIVE_MODE_VALUES: frozenset[str] = frozenset({"standard", "fast"})
+
+#: SQLite is the test-only parallel path; under real multi-connection thread
+#: contention a concurrent ``BEGIN IMMEDIATE`` / WAL transition can still surface
+#: SQLITE_BUSY ("database is locked") even with ``busy_timeout`` set. The atomic
+#: CAS retries the whole read-decide-write a bounded number of times on that
+#: transient busy error (a clean ``ModeLockConflictError`` is NEVER retried).
+#: Postgres (canonical, DK-05 §5) serialises via ``pg_advisory_xact_lock`` instead.
+_SQLITE_BUSY_RETRIES = 12
+_SQLITE_BUSY_BACKOFF_SECONDS = 0.025
 
 
 @dataclass(frozen=True)
@@ -326,6 +336,30 @@ class ModeLockRepository:
         return self._sqlite_mutate(project_key, decide)
 
     def _sqlite_mutate(
+        self, project_key: str, decide: _LockTransition
+    ) -> ModeLockRecord:
+        """Race-safe SQLite CAS with bounded SQLITE_BUSY retry (FIX-2).
+
+        ``busy_timeout`` covers most contention, but a concurrent WAL transition /
+        ``BEGIN IMMEDIATE`` can still raise SQLITE_BUSY; retry the whole
+        read-decide-write on "database is locked". A ``ModeLockConflictError``
+        (the legitimate opposite-mode decision) is NOT a busy error and propagates
+        immediately — it is never retried.
+        """
+        last_error: sqlite3.OperationalError | None = None
+        for attempt in range(_SQLITE_BUSY_RETRIES):
+            try:
+                return self._sqlite_mutate_once(project_key, decide)
+            except sqlite3.OperationalError as exc:
+                if "locked" not in str(exc).lower():
+                    raise
+                last_error = exc
+                time.sleep(_SQLITE_BUSY_BACKOFF_SECONDS * (attempt + 1))
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("mode-lock CAS retry loop did not execute")
+
+    def _sqlite_mutate_once(
         self, project_key: str, decide: _LockTransition
     ) -> ModeLockRecord:
         with _sqlite_connect(self._store_dir) as conn:

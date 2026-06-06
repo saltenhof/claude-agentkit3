@@ -222,6 +222,72 @@ def test_resolver_returns_ai_augmented_for_minimal_free_bundle(tmp_path: Path) -
     assert resolved.bundle.session is None
 
 
+def test_resolver_bound_session_without_lock_is_binding_invalid(tmp_path: Path) -> None:
+    """AG3-018 FIX-1: a bound session whose lock.json is missing must fail closed.
+
+    ``invalid_bound_session_must_not_fall_back_to_free_mode``: deleting lock.json
+    from a session-bound bundle must yield ``binding_invalid`` -- NOT a silent
+    downgrade to ``ai_augmented`` (the previous fail-open).
+    """
+    worktree = tmp_path / "worktree"
+    bundle = _bundle(worktree_root=str(worktree))
+    LocalEdgePublisher(project_root=tmp_path).publish(bundle)
+    lock_path = tmp_path / bundle.current.bundle_dir / "lock.json"
+    lock_path.unlink()
+
+    resolved = ProjectEdgeResolver(project_root=tmp_path).resolve(
+        session_id="sess-001",
+        cwd=worktree,
+        freshness_class="baseline_read",
+    )
+
+    assert resolved.operating_mode == "binding_invalid"
+    assert resolved.block_reason == "inactive_story_execution_lock"
+    assert resolved.bundle is not None
+    assert resolved.bundle.session is not None
+    assert resolved.bundle.lock is None
+
+
+def test_resolver_fast_bundle_without_session_or_lock_is_ai_augmented(
+    tmp_path: Path,
+) -> None:
+    """AG3-018 FIX-1: a fast bundle (no session, no lock.json) stays ai_augmented.
+
+    The intended FAST bundle has neither a bound session nor a lock.json. After
+    the FIX-1 change the missing lock.json must NOT block this path: with no bound
+    session it still resolves to ``ai_augmented``.
+    """
+    now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
+    fast_bundle = EdgeBundle(
+        current=EdgePointer(
+            project_key="tenant-a",
+            export_version="edge-fast-001",
+            operating_mode="ai_augmented",
+            bundle_dir="_temp/governance/bundles/edge-fast-001",
+            sync_after=now + timedelta(minutes=5),
+            freshness_class="guarded_read",
+            generated_at=now,
+        ),
+        session=None,
+        lock=None,
+        qa_lock=None,
+    )
+    LocalEdgePublisher(project_root=tmp_path).publish(fast_bundle)
+    # The publisher writes a session.json stub (no session_id) and NO lock.json.
+    assert not (tmp_path / fast_bundle.current.bundle_dir / "lock.json").exists()
+
+    resolved = ProjectEdgeResolver(project_root=tmp_path).resolve(
+        session_id=None,
+        cwd=tmp_path,
+        freshness_class="baseline_read",
+    )
+
+    assert resolved.operating_mode == "ai_augmented"
+    assert resolved.bundle is not None
+    assert resolved.bundle.session is None
+    assert resolved.bundle.lock is None
+
+
 def test_resolver_returns_binding_invalid_for_worktree_mismatch(tmp_path: Path) -> None:
     worktree = tmp_path / "worktree"
     LocalEdgePublisher(project_root=tmp_path).publish(_bundle(worktree_root=str(worktree)))

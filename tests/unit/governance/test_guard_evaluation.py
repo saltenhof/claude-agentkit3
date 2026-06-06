@@ -81,6 +81,78 @@ def _bundle(
     )
 
 
+def _fast_bundle() -> EdgeBundle:
+    """A fast-story bundle: no session, no lock (AG3-018 AC3/AC5).
+
+    Mirrors what the control plane materializes for ``mode=fast`` -> the local
+    edge resolves to ``ai_augmented`` and only the baseline guards run.
+    """
+    now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
+    return EdgeBundle(
+        current=EdgePointer(
+            project_key="tenant-a",
+            export_version="edge-fast",
+            operating_mode="ai_augmented",
+            bundle_dir="_temp/governance/bundles/edge-fast",
+            sync_after=now + timedelta(minutes=5),
+            freshness_class="guarded_read",
+            generated_at=now,
+        ),
+        session=None,
+        lock=None,
+        qa_lock=None,
+    )
+
+
+def test_fast_story_allows_write_outside_worktree_no_scope_guard(
+    tmp_path: Path,
+) -> None:
+    """AG3-018 AC3: a fast story activates NO ScopeGuard/ArtifactGuard.
+
+    The same write that ScopeGuard BLOCKS in story_execution is ALLOWED for a
+    fast story, because no story-scoped session/lock is materialized.
+    """
+    LocalEdgePublisher(project_root=tmp_path).publish(_fast_bundle())
+
+    verdict = evaluate_pre_tool_use(
+        HookEvent(
+            operation="file_write",
+            operation_args={"file_path": str(tmp_path / "outside.py")},
+            freshness_class="mutation",
+            cwd=str(tmp_path),
+            session_id="sess-001",
+        ),
+        project_root=tmp_path,
+    )
+
+    assert verdict.allowed is True
+
+
+def test_fast_story_keeps_baseline_branch_guard_active(
+    tmp_path: Path,
+) -> None:
+    """AG3-018 AC5: the BASELINE BranchGuard stays active in fast mode.
+
+    Even with no story-scoped session/lock, destructive-git protection (a
+    BASELINE guard) MUST still block a force-push.
+    """
+    LocalEdgePublisher(project_root=tmp_path).publish(_fast_bundle())
+
+    verdict = evaluate_pre_tool_use(
+        HookEvent(
+            operation="bash_command",
+            operation_args={"command": "git push --force origin feature"},
+            freshness_class="mutation",
+            cwd=str(tmp_path),
+            session_id="sess-001",
+        ),
+        project_root=tmp_path,
+    )
+
+    assert verdict.allowed is False
+    assert verdict.guard_name == "branch_guard"
+
+
 def test_guard_evaluation_blocks_force_push_without_story_execution(
     tmp_path: Path,
 ) -> None:
