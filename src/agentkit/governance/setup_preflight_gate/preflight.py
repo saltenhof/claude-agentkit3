@@ -83,7 +83,9 @@ class PreflightResult(BaseModel):
 
     Attributes:
         overall: ``PASS`` only when every individual check passed.
-        checks: All check results, in canonical execution order (always 10).
+        checks: All check results, in canonical execution order. Ten for a
+            standard story; the four FK-24 §24.3.4 minimum checks for a ``fast``
+            story (FIX-5 mode-aware applicability).
         failed_check_ids: IDs of the checks that failed (possibly empty).
     """
 
@@ -195,13 +197,14 @@ def run_preflight(
     active_runtime_residue: Callable[[Path, str], bool] | None = None,
     context: PreflightContext | None = None,
 ) -> PreflightResult:
-    """Run all ten preflight checks (FK-22 §22.3.1), fail-closed.
+    """Run the applicable preflight checks (FK-22 §22.3.1), fail-closed.
 
-    Every check runs regardless of earlier failures (FK-22 §22.3.2).  An
-    exception raised inside any check is converted to a ``FAIL`` with
-    ``detail="exception: <type>: <msg>"`` (AK4) — no check is silently
-    skipped.  ``PreflightResult.checks`` always contains exactly ten entries
-    (AK1).
+    A standard story runs all ten checks; a ``fast`` story runs ONLY the four
+    FK-24 §24.3.4 minimum checks (FIX-5, mode read from the AUTHORITATIVE story
+    record). Every applicable check runs regardless of earlier failures (FK-22
+    §22.3.2). An exception raised inside any check is converted to a ``FAIL`` with
+    ``detail="exception: <type>: <msg>"`` (AK4) — no applicable check is silently
+    skipped.
 
     Args:
         story_display_id: Story display ID to validate.
@@ -244,7 +247,8 @@ def run_preflight(
     elif context.story is None:
         context = _with_resolved_story(context)
 
-    results = tuple(_run_one(check_fn, context) for check_fn in _CHECK_ORDER)
+    check_order = _check_order_for(context)
+    results = tuple(_run_one(check_fn, context) for check_fn in check_order)
     failed = tuple(r.check_id for r in results if r.status is PreflightStatus.FAIL)
     overall = PreflightStatus.FAIL if failed else PreflightStatus.PASS
     return PreflightResult(
@@ -252,6 +256,33 @@ def run_preflight(
         checks=results,
         failed_check_ids=failed,
     )
+
+
+def _check_order_for(
+    context: PreflightContext,
+) -> tuple[Callable[[PreflightContext], PreflightCheckResult], ...]:
+    """Select the applicable preflight checks for the story's mode (FIX-5).
+
+    FK-24 §24.3.4 Mode-Profil (Setup -> Preflight-Gates): a ``fast`` story runs
+    ONLY the four minimum checks (``story_exists``, no active run, no stale
+    worktree, mode-conflict §24.3.3); status/deps/scope-overlap are OUT for fast.
+    Every other mode runs the full ten (FK-22 §22.3.1). The mode is read from the
+    AUTHORITATIVE resolved ``Story`` record (FIX-1) -- NOT labels; when the story
+    could not be resolved (Check 1 will fail) the full set runs so ``story_exists``
+    reports the missing story.
+
+    Args:
+        context: The preflight context (carries the resolved ``story``).
+
+    Returns:
+        The ordered tuple of check callables to run.
+    """
+    from agentkit.story_context_manager.story_model import WireStoryMode
+
+    story = context.story
+    if story is not None and story.mode is WireStoryMode.FAST:
+        return _FAST_CHECK_ORDER
+    return _CHECK_ORDER
 
 
 def _with_resolved_story(context: PreflightContext) -> PreflightContext:
@@ -334,6 +365,21 @@ _CHECK_ORDER: tuple[
 _CHECK_IDS: dict[
     Callable[[PreflightContext], PreflightCheckResult], PreflightCheckId
 ] = dict(_build_check_order())
+
+#: FK-24 §24.3.4 Mode-Profil: the four MINIMUM checks a ``fast`` story runs
+#: (story_exists, no active run, no stale worktree, mode-conflict §24.3.3).
+#: Status/dependencies/scope-overlap are OUT for fast (FIX-5).
+_FAST_CHECK_IDS: frozenset[PreflightCheckId] = frozenset(
+    {
+        PreflightCheckId.STORY_EXISTS,
+        PreflightCheckId.NO_ACTIVE_RUNTIME_RESIDUE,
+        PreflightCheckId.NO_STALE_WORKTREE,
+        PreflightCheckId.NO_COMPETING_STORY_MODE_ACTIVE,
+    }
+)
+_FAST_CHECK_ORDER: tuple[
+    Callable[[PreflightContext], PreflightCheckResult], ...
+] = tuple(fn for fn, cid in _build_check_order() if cid in _FAST_CHECK_IDS)
 
 
 __all__ = [

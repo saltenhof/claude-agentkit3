@@ -22,7 +22,7 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from agentkit.core_types import StorySize
 
@@ -60,6 +60,38 @@ class WireStoryMode(StrEnum):
 
     STANDARD = "standard"
     FAST = "fast"
+
+
+#: Story types for which ``mode=fast`` is legal (FK-24 §24.3.3/§24.3.4, AC7):
+#: only code-producing stories. ``concept``/``research`` + fast is fail-closed.
+_FAST_ALLOWED_STORY_TYPES: frozenset[WireStoryType] = frozenset(
+    {WireStoryType.IMPLEMENTATION, WireStoryType.BUGFIX}
+)
+
+
+def check_fast_mode_story_type(
+    mode: WireStoryMode | None, story_type: WireStoryType
+) -> None:
+    """Fail closed when ``mode=fast`` is paired with a non-code story type.
+
+    FK-24 §24.3.3/§24.3.4 (AG3-018, AC7 / FIX-1): ``fast`` is only legal for
+    ``implementation``/``bugfix``; ``concept``/``research`` + ``fast`` is
+    rejected at the create/patch boundary (the same invariant the runtime
+    ``StoryContext`` enforces at story start). Enforced here so an invalid
+    Fast/Standard combination can never be persisted in the authoritative store.
+
+    Args:
+        mode: The fast/standard mode (``None`` => standard, always allowed).
+        story_type: The story type to validate against.
+
+    Raises:
+        ValueError: When ``mode is FAST`` and ``story_type`` is not code-producing.
+    """
+    if mode is WireStoryMode.FAST and story_type not in _FAST_ALLOWED_STORY_TYPES:
+        raise ValueError(
+            "mode=fast (FK-24 §24.3.3/§24.3.4) is only allowed for code-producing "
+            f"story_types (implementation/bugfix); got story_type {story_type.value!r}"
+        )
 
 
 class ChangeImpact(StrEnum):
@@ -179,6 +211,12 @@ class Story(BaseModel):
     created_at: datetime | None = None
     completed_at: datetime | None = None
 
+    @model_validator(mode="after")
+    def _validate_fast_mode_story_type(self) -> Story:
+        """FK-24 §24.3.3 (FIX-1, AC7): fast only for code-producing story types."""
+        check_fast_mode_story_type(self.mode, self.story_type)
+        return self
+
 
 # ---------------------------------------------------------------------------
 # CreateStoryInput (input DTO for StoryService.create_story)
@@ -235,3 +273,9 @@ class CreateStoryInput(BaseModel):
             if not entry.strip():
                 raise ValueError("repos entries must not be empty")
         return value
+
+    @model_validator(mode="after")
+    def _validate_fast_mode_story_type(self) -> CreateStoryInput:
+        """FK-24 §24.3.3 (FIX-1, AC7): fast only for code-producing story types."""
+        check_fast_mode_story_type(self.mode, self.story_type)
+        return self

@@ -240,15 +240,32 @@ def implementation_qa_needs_remediation(
 def mode_is_exploration(ctx: StoryContext, state: PhaseState) -> GuardResult:
     """Check whether the story is running on the exploration route.
 
+    Fast-mode override (AG3-018, FK-24 §24.3.4 Mode-Profil ``Exploration =
+    OUT``): a ``mode == fast`` story NEVER enters the Exploration phase, even
+    when its ``execution_route`` would otherwise route there. The fast/standard
+    ``mode`` axis is decoupled from ``execution_route`` (FK-24 §24.3.3); this
+    guard fails closed for fast so the ``setup -> implementation`` transition
+    wins and Setup routes directly to Implementation.
+
     Args:
-        ctx: The story context to inspect for execution route.
+        ctx: The story context to inspect for execution route + mode.
         state: The current phase state (unused but required by signature).
 
     Returns:
-        ``GuardResult.PASS()`` if route is EXPLORATION, ``FAIL`` otherwise.
+        ``GuardResult.PASS()`` only when the route is EXPLORATION AND the story
+        is not in fast mode; ``FAIL`` otherwise.
     """
+    from agentkit.story_context_manager.story_model import WireStoryMode
     from agentkit.story_context_manager.types import StoryMode
 
+    if ctx.mode is WireStoryMode.FAST:
+        return GuardResult.FAIL(
+            reason=(
+                "Story is in fast mode: the Exploration phase is skipped "
+                "(FK-24 §24.3.4 Mode-Profil Exploration=OUT); routing setup "
+                "directly to implementation"
+            ),
+        )
     if ctx.execution_route == StoryMode.EXPLORATION:
         return GuardResult.PASS()
     return GuardResult.FAIL(

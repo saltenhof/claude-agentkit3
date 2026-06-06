@@ -435,6 +435,67 @@ class TestPreflightResultAggregate:
             c.check_id for c in result.checks if c.status is PreflightStatus.FAIL
         )
 
+    def test_fast_story_runs_only_the_four_minimum_checks(
+        self, tmp_path: Path
+    ) -> None:
+        """FIX-5 (FK-24 §24.3.4): a fast story runs ONLY the four minimum checks.
+
+        story_exists, no active run, no stale worktree, mode-conflict §24.3.3;
+        status/dependencies/scope-overlap are OUT for fast. The mode is read from
+        the AUTHORITATIVE resolved story record (FIX-1), not labels.
+        """
+        svc = _approved_service(mode=WireStoryMode.FAST)
+        ctx = _ctx(
+            svc,
+            project_root=tmp_path,
+            active_runtime_residue=lambda _root, _sid: False,
+        )
+        result = run_preflight("AK3-1", svc, context=ctx)  # type: ignore[arg-type]
+        assert {c.check_id for c in result.checks} == {
+            PreflightCheckId.STORY_EXISTS,
+            PreflightCheckId.NO_ACTIVE_RUNTIME_RESIDUE,
+            PreflightCheckId.NO_STALE_WORKTREE,
+            PreflightCheckId.NO_COMPETING_STORY_MODE_ACTIVE,
+        }
+        assert len(result.checks) == 4
+        # The OUT-for-fast checks are not even run (no FAIL leaks from them).
+        ran = {c.check_id for c in result.checks}
+        assert PreflightCheckId.NO_SCOPE_OVERLAP not in ran
+        assert PreflightCheckId.STATUS_APPROVED not in ran
+        assert PreflightCheckId.DEPENDENCIES_DONE not in ran
+        assert result.overall is PreflightStatus.PASS
+
+    def test_fast_story_skips_scope_overlap_even_when_it_would_fail(
+        self, tmp_path: Path
+    ) -> None:
+        """FIX-5: scope-overlap is OUT for fast even when a standard story fails it.
+
+        A fast story whose repos overlap an active story must still PASS preflight
+        (the scope-overlap check is not in the fast minimum set).
+        """
+        active = _StubStory(
+            story_display_id="AK3-2",
+            status=StoryStatus.IN_PROGRESS,
+            participating_repos=["repo-a"],
+        )
+        fast = _StubStory(
+            story_display_id="AK3-1",
+            status=StoryStatus.APPROVED,
+            mode=WireStoryMode.FAST,
+            participating_repos=["repo-a"],
+        )
+        svc = _StubService({"AK3-1": fast, "AK3-2": active})
+        ctx = _ctx(
+            svc,
+            project_root=tmp_path,
+            active_runtime_residue=lambda _root, _sid: False,
+        )
+        result = run_preflight("AK3-1", svc, context=ctx)  # type: ignore[arg-type]
+        assert result.overall is PreflightStatus.PASS
+        assert PreflightCheckId.NO_SCOPE_OVERLAP not in {
+            c.check_id for c in result.checks
+        }
+
     def test_exception_in_check_becomes_failclosed_fail(self, tmp_path: Path) -> None:
         def _boom(_root: Path, _sid: str) -> bool:
             raise RuntimeError("probe blew up")

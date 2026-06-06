@@ -44,6 +44,7 @@ from agentkit.verify_system.contract import PhaseEnvelopeView, VerifyContextBund
 from agentkit.verify_system.contract import QaSubflowOutcome as _QaSubflowOutcome
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from datetime import datetime
     from pathlib import Path
 
@@ -131,10 +132,15 @@ class ImplementationPhaseHandler:
         # into the VerifySystem (controller); it no longer re-derives its own
         # qa_rounds >= max escalation. NO ERROR BYPASSING — the ceiling lives in
         # exactly one place (FK-38 / FK-27 §27.2.2).
+        # FIX-6 (FK-24 §24.3.4): a fast story's QA-subflow degenerates to the
+        # hard tests-green floor. Wire the SAME real AG3-056 Build/Test capability
+        # the closure Sanity-Gate uses; when CI is declared absent the runner is
+        # ``None`` and the fast floor fails closed (non-disableable).
         verify_system = self._config.verify_system or build_verify_system(
             s_dir,
             sonar_gate_port=sonar_gate_port,
             max_feedback_rounds=self._config.max_feedback_rounds,
+            fast_test_runner=_resolve_fast_test_runner(ctx),
         )
 
         # W2: Build PhaseEnvelopeView from envelope.state.payload (round 0
@@ -349,6 +355,42 @@ def _resolve_sonar_gate_port(
     return build_sonar_gate_port_for_run(
         project_config.pipeline.sonarqube, ctx, story_dir
     )
+
+
+def _resolve_fast_test_runner(
+    ctx: StoryContext,
+) -> Callable[[Path], tuple[bool, str | None]] | None:
+    """Resolve the fast-mode tests-green floor runner (FIX-6, FK-24 §24.3.4).
+
+    Only a ``fast`` story degenerates to the tests-green floor; for every other
+    mode the runner is irrelevant (the full QA layers run) so ``None`` is
+    returned. For a fast story the SAME real AG3-056 Build/Test capability the
+    closure Sanity-Gate uses is built from the project ``ci`` config via the
+    composition root (:func:`build_fast_test_runner`). A DECLARED-absent CI yields
+    ``None`` -> the fast floor is unconfirmable and the QA-subflow fails closed
+    (the non-disableable floor, NO ERROR BYPASSING). An APPLICABLE-but-unreachable
+    CI raises fail-closed inside the builder.
+
+    Args:
+        ctx: The run :class:`StoryContext`.
+
+    Returns:
+        The fast tests-green runner, or ``None`` (non-fast / declared-absent CI).
+
+    Raises:
+        ConfigError: When a fast story's project config cannot be loaded.
+    """
+    from agentkit.story_context_manager.story_model import WireStoryMode
+
+    if ctx.mode is not WireStoryMode.FAST or ctx.project_root is None:
+        return None
+    from agentkit.bootstrap.composition_root import build_fast_test_runner
+    from agentkit.config.loader import load_project_config
+
+    project_config = load_project_config(ctx.project_root)
+    pipeline = getattr(project_config, "pipeline", None)
+    ci_config = getattr(pipeline, "ci", None) if pipeline is not None else None
+    return build_fast_test_runner(ci_config)
 
 
 def _build_phase_envelope_view(envelope: PhaseEnvelope) -> PhaseEnvelopeView | None:

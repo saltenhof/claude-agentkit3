@@ -168,6 +168,10 @@ class SetupPhaseHandler:
         if preflight_error is not None:
             return preflight_error
 
+        # FIX-1 (FK-24 §24.3.3): the operative ``mode`` comes from the
+        # AUTHORITATIVE StoryService record, not GitHub labels. Pass the resolved
+        # service so ``build_story_context`` reads ``Story.mode`` (fail-closed on
+        # a missing record).
         enriched = build_story_context(
             owner=cfg.owner,
             repo=cfg.repo,
@@ -175,6 +179,7 @@ class SetupPhaseHandler:
             project_root=cfg.project_root,
             project_key=ctx.project_key,
             story_id=cfg.story_id or ctx.story_id,
+            story_service=story_service,
         )
 
         s_dir = story_dir(cfg.project_root, enriched.story_id)
@@ -196,8 +201,34 @@ class SetupPhaseHandler:
             return worktree_outcome
         enriched = worktree_outcome
 
+        # FK-24 §24.3.3 (AG3-018, FIX-3): atomically ACQUIRE the project mode-lock
+        # BEFORE the status transition — the enforcement half of the Fast/Standard
+        # between-modes mutex (Preflight Check 10 was the early read; this is the
+        # last-writer CAS). Acquiring FIRST is required so that on a mode conflict
+        # the story stays in Approved (FK-24 §24.3.3 "Story bleibt in Approved"):
+        # if it had transitioned first, an acquire-fail would leave it In Progress.
+        # Runs for ALL modes (standard + fast); idempotent per story via a durable
+        # marker so a re-run does not double-increment the holder count.
+        from agentkit.governance.setup_preflight_gate.mode_lock_marker import (
+            mode_lock_acquired,
+        )
+
+        freshly_acquired = (
+            self._mode_lock_repo is not None and not mode_lock_acquired(s_dir)
+        )
+        acquire_error = self._acquire_mode_lock(enriched, s_dir)
+        if acquire_error is not None:
+            return acquire_error
+
+        # Status transition AFTER a successful acquire. If begin_progress fails AND
+        # this run freshly acquired the holder, COMPENSATE (release the holder we
+        # just took + clear the marker) so the mutex does not leak a holder for a
+        # story that never went In Progress. A re-run that did NOT freshly acquire
+        # leaves the prior holder intact (no double-release).
         begin_error = _begin_progress(story_service, enriched.story_id)
         if begin_error is not None:
+            if freshly_acquired:
+                self._compensate_mode_lock(enriched, s_dir)
             return begin_error
 
         return HandlerResult(
@@ -205,6 +236,75 @@ class SetupPhaseHandler:
             artifacts_produced=tuple(artifacts),
             updated_context=enriched,
         )
+
+    def _acquire_mode_lock(
+        self, enriched: StoryContext, s_dir: Path
+    ) -> HandlerResult | None:
+        """Atomically acquire the project mode-lock (FK-24 §24.3.3, AG3-018).
+
+        Idempotent per story via a durable acquire marker: a re-run of Setup for
+        the SAME story does not double-increment the holder count. An opposite
+        mode already held fails closed (``ModeLockConflictError`` -> FAILED;
+        Check 10 normally catches this earlier — this is the last-writer guard).
+        When no ``ModeLockRepository`` is wired (standalone/legacy), the acquire
+        is skipped (the mutex is then unenforced, the documented absent-repo case).
+
+        Args:
+            enriched: The enriched story context (carries ``mode``).
+            s_dir: The story working directory (durable marker location).
+
+        Returns:
+            ``None`` on success/skip; a FAILED ``HandlerResult`` on conflict.
+        """
+        from agentkit.governance.errors import ModeLockConflictError
+        from agentkit.governance.setup_preflight_gate.mode_lock_marker import (
+            mode_lock_acquired,
+            record_mode_lock_acquired,
+        )
+
+        if self._mode_lock_repo is None:
+            return None
+        if mode_lock_acquired(s_dir):
+            return None
+        try:
+            self._mode_lock_repo.acquire(enriched.project_key, enriched.mode.value)
+        except ModeLockConflictError as exc:
+            return HandlerResult(
+                status=PhaseStatus.FAILED,
+                errors=(f"no_competing_story_mode_active: {exc}",),
+            )
+        record_mode_lock_acquired(s_dir, mode=enriched.mode.value)
+        return None
+
+    def _compensate_mode_lock(self, enriched: StoryContext, s_dir: Path) -> None:
+        """Release a freshly-acquired holder + clear the marker (FIX-3 compensation).
+
+        Run only when this Setup run freshly acquired the mode-lock but a
+        subsequent step (the status transition) failed. Releases the holder this
+        run took so the between-modes mutex does not leak a holder for a story that
+        never went In Progress, then clears the durable marker so Closure owes no
+        further release. Best-effort: a release issue is logged, never re-raised
+        (the begin_progress failure is the real, returned error).
+
+        Args:
+            enriched: The enriched story context (carries ``mode``/``project_key``).
+            s_dir: The story working directory (durable marker location).
+        """
+        from agentkit.governance.setup_preflight_gate.mode_lock_marker import (
+            clear_mode_lock_marker,
+        )
+
+        if self._mode_lock_repo is None:
+            return
+        try:
+            self._mode_lock_repo.release(enriched.project_key, enriched.mode.value)
+        except Exception as exc:  # noqa: BLE001 -- best-effort compensation
+            logger.warning(
+                "mode-lock compensation release failed for story=%s: %s",
+                enriched.story_id,
+                exc,
+            )
+        clear_mode_lock_marker(s_dir)
 
     def on_exit(self, _ctx: StoryContext, _envelope: PhaseEnvelope) -> None:
         """No-op for setup phase.

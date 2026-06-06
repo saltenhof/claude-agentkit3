@@ -45,7 +45,11 @@ if TYPE_CHECKING:
         RepoRunners,
         SanityGatePort,
     )
-    from agentkit.closure.phase import ClosurePhaseHandler, ClosureProgressStore
+    from agentkit.closure.phase import (
+        ClosurePhaseHandler,
+        ClosureProgressStore,
+        ModeLockReleasePort,
+    )
     from agentkit.closure.post_merge_finalization.finalization import (
         DocFidelityFeedbackPort,
         GuardDeactivationPort,
@@ -171,6 +175,7 @@ def build_verify_system(
     max_feedback_rounds: int | None = None,
     sonar_gate_port: SonarGateInputPort | None = None,
     layer2_llm_client: LlmClient | None = None,
+    fast_test_runner: Callable[[Path], tuple[bool, str | None]] | None = None,
 ) -> VerifySystem:
     """Erzeugt einen vollstaendig verdrahteten ``VerifySystem``.
 
@@ -237,6 +242,7 @@ def build_verify_system(
         sonar_gate_port=sonar_gate_port,
         invalidation_sink=build_artifact_invalidation_sink(store_dir),
         layer2_llm_client=resolved_llm_client,
+        fast_test_runner=fast_test_runner,
     )
 
 
@@ -791,13 +797,27 @@ def build_closure_phase_handler(
     config.scan_port = primary.scan_port
     config.build_test_port = primary.build_test_port
     config.repo_runners = repo_runners
-    config.sanity_port = _build_sanity_gate_port()
+    config.sanity_port = _build_sanity_gate_port(ci_config)
     config.doc_fidelity_port = _build_doc_fidelity_feedback_port()
     config.vectordb_sync_port = _build_vectordb_sync_port()
     config.guard_deactivation_port = _build_guard_deactivation_port(
         base_dir, project_key=project_key
     )
+    config.mode_lock_release_port = _build_mode_lock_release_port(base_dir)
     return ClosurePhaseHandler(config)
+
+
+def _build_mode_lock_release_port(store_dir: Path) -> ModeLockReleasePort:
+    """Build the project mode-lock release seam (FK-24 §24.3.3, AG3-018).
+
+    Delegates to the atomic ``ModeLockRepository.release`` for the mode this story
+    acquired at Setup (read from the durable acquire marker). Closure holds no
+    mode-lock logic itself.
+    """
+    from agentkit.closure.runtime_ports import ProductiveModeLockReleasePort
+    from agentkit.state_backend.store.mode_lock_repository import ModeLockRepository
+
+    return ProductiveModeLockReleasePort(mode_lock_repo=ModeLockRepository(store_dir))
 
 
 def _build_closure_progress_store(store_dir: Path) -> ClosureProgressStore:
@@ -1027,20 +1047,70 @@ def _build_per_repo_runners(
     return runners, resolved_applicability
 
 
-def _build_sanity_gate_port() -> SanityGatePort:
-    """Build the fast-mode Sanity-Gate seam (FK-29 §29.1a.6).
+def _build_sanity_gate_port(ci_config: object | None) -> SanityGatePort:
+    """Build the fast-mode Sanity-Gate seam (FK-29 §29.1a.6, FIX-6).
 
     Wires the real subprocess git backend so the adapter genuinely confirms the
     two git-mechanic predicates (worktree clean + pre-merge rebase onto
-    ``origin/main`` OK). The third predicate ("tests green") needs the AG3-018
-    live test runner; until that is wired the gate fails closed after the git
-    checks (FAIL-CLOSED -- a fast story without a confirmed test result
-    escalates, FK-29 §29.1a.6 "Rebase-Konflikt -> Eskalation").
+    ``origin/main`` OK). The third predicate ("tests green") is wired to the SAME
+    real AG3-056 Build/Test capability the standard barrier uses, via
+    :func:`build_fast_test_runner` (FIX-6 -- one tests-green truth, not a stub).
+    When CI is DECLARED absent (no ``ci`` stanza / ``ci.available == false``) no
+    real runner exists, so ``test_runner`` stays ``None`` and the gate fails
+    closed after the git checks (FAIL-CLOSED -- a fast story whose tests cannot be
+    confirmed escalates; the floor is non-disableable, NO ERROR BYPASSING).
     """
     from agentkit.closure.multi_repo_saga import SubprocessGitBackend
     from agentkit.closure.runtime_ports import ProductiveSanityGatePort
 
-    return ProductiveSanityGatePort(git_backend=SubprocessGitBackend())
+    return ProductiveSanityGatePort(
+        git_backend=SubprocessGitBackend(),
+        test_runner=build_fast_test_runner(ci_config),
+    )
+
+
+def build_fast_test_runner(
+    ci_config: object | None,
+) -> Callable[[Path], tuple[bool, str | None]] | None:
+    """Build the fast-mode tests-green floor runner (AG3-018 FIX-6, FK-24 §24.3.4).
+
+    Wraps the REAL AG3-056 commit-bound :class:`BuildTestPort` (``CiBuildTestRunner``
+    over the project's CI) as the ``Callable[[Path], tuple[bool, str | None]]``
+    shape consumed by BOTH the fast QA-subflow floor (``build_verify_system
+    fast_test_runner``) and the closure Sanity-Gate
+    (``ProductiveSanityGatePort.test_runner``) -- ONE tests-green truth, not a
+    second mechanism, not a stub.
+
+    Args:
+        ci_config: The resolved ``ci`` (Jenkins) config stanza, or ``None``.
+
+    Returns:
+        * ``None`` when CI is DECLARED absent (no ``ci`` stanza /
+          ``ci.available == false``): no real runner exists, so the fast floor is
+          unconfirmable and the consumer fails closed (the non-disableable floor).
+        * a :class:`CiBuildTestFastRunner` over the real Build/Test port when CI
+          is applicable. An applicable-but-unreachable CI raises
+          ``PreMergeRunnerUnavailableError`` (fail-closed; never a silent skip).
+    """
+    from agentkit.closure.multi_repo_saga import SubprocessGitBackend
+    from agentkit.closure.runtime_ports import CiBuildTestFastRunner
+    from agentkit.config.models import JenkinsConfig
+    from agentkit.verify_system.pre_merge_runner.runtime_wiring import (
+        build_build_test_runner,
+    )
+
+    typed_ci = ci_config if isinstance(ci_config, JenkinsConfig) else None
+    if typed_ci is None or not typed_ci.available:
+        return None
+    # ``repo_root`` is unused by the build/test facet (it needs no tree/ledger
+    # read); the candidate's tree is resolved per-run from the story worktree.
+    build_test_port = build_build_test_runner(typed_ci, Path.cwd())
+    if build_test_port is None:  # pragma: no cover - guarded by the check above
+        return None
+    return CiBuildTestFastRunner(
+        build_test_port=build_test_port,
+        git_backend=SubprocessGitBackend(),
+    )
 
 
 def _build_doc_fidelity_feedback_port() -> DocFidelityFeedbackPort:

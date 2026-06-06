@@ -219,6 +219,11 @@ class ClosureProgress(BaseModel):
 
     @model_validator(mode="after")
     def _validate_checkpoint_order(self) -> ClosureProgress:
+        # FK-29 §29.1.0: EXACTLY six checkpoint booleans (29_closure_sequence.md
+        # §29.1.0). The mode-lock release (FK-24 §24.3.3, AG3-018) is NOT a seventh
+        # checkpoint — its idempotency is the durable per-story acquire marker
+        # (FIX-4): the release reads the marker, releases once, and a resumed
+        # closure with no marker owes nothing.
         ordered_checkpoints = (
             ("story_branch_pushed", self.story_branch_pushed, self.integrity_passed),
             ("merge_done", self.merge_done, self.story_branch_pushed),

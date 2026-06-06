@@ -52,6 +52,7 @@ from agentkit.story_context_manager.story_model import (
     StoryStatus,
     WireStoryMode,
     WireStoryType,
+    check_fast_mode_story_type,
 )
 from agentkit.story_context_manager.wire_adapter import (
     FORBIDDEN_PATCH_FIELDS,
@@ -495,6 +496,17 @@ class StoryService:
 
         # Apply updates
         story = _apply_updates(story, updates, project)
+        # FIX-1 (FK-24 §24.3.3, AC7): a PATCH that sets mode/type must not leave a
+        # fast story on a non-code-producing type. ``Story`` is mutated in place
+        # (frozen=False), so the model_validator does not re-run automatically;
+        # re-validate the post-patch combination fail-closed (wire boundary -> a
+        # typed 400, not a bare ValueError).
+        try:
+            check_fast_mode_story_type(story.mode, story.story_type)
+        except ValueError as exc:
+            raise StoryValidationError(
+                str(exc), detail={"field": "mode", "story_type": story.story_type.value}
+            ) from exc
 
         self._story_repo.save(story)
 

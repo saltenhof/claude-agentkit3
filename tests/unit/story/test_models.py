@@ -76,6 +76,9 @@ class TestClosureProgress:
     """Tests for closure checkpoint ordering."""
 
     def test_has_concept_ordered_fields(self) -> None:
+        # FK-29 §29.1.0: EXACTLY six checkpoints (FIX-4). The mode-lock release
+        # (FK-24 §24.3.3) is NOT a seventh checkpoint -- its idempotency is the
+        # durable per-story acquire marker alone.
         assert tuple(ClosureProgress.model_fields) == (
             "integrity_passed",
             "story_branch_pushed",

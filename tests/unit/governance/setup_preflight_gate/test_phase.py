@@ -612,12 +612,25 @@ class TestSetupPhaseGreenMain:
 
         seen: list[object] = []
 
+        acquired: list[tuple[str, str]] = []
+
         class _Repo:
             def read_lock(self, project_key: str) -> object:
                 seen.append(project_key)
                 return ModeLockRecord(
                     project_key=project_key,
                     active_mode="standard",
+                    holder_count=1,
+                    updated_at="t",
+                )
+
+            def acquire(self, project_key: str, mode: str) -> object:
+                # AG3-018: Setup atomically acquires the mode-lock on the PASS
+                # success path (after begin_progress).
+                acquired.append((project_key, mode))
+                return ModeLockRecord(
+                    project_key=project_key,
+                    active_mode=mode,
                     holder_count=1,
                     updated_at="t",
                 )

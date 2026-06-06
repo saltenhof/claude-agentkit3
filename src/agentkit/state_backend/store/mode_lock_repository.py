@@ -26,11 +26,19 @@ import os
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from agentkit.governance.errors import ModeLockConflictError
+
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
+
+    #: Decide ``(active_mode, holder_count)`` from the current ``(mode, count)``.
+    _LockTransition = Callable[
+        [tuple[str | None, int]], tuple[str | None, int]
+    ]
 
 #: Allowed ``active_mode`` wire values (mirrors the DDL CHECK constraint).
 #: The mode-lock lives on the DECOUPLED fast/standard ``mode`` axis
@@ -106,6 +114,10 @@ def _sqlite_connect(store_dir: Path) -> Iterator[sqlite3.Connection]:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys = ON")
+    # FIX-2: a concurrent ``BEGIN IMMEDIATE`` must WAIT for the in-flight writer to
+    # commit rather than fail immediately with "database is locked" (the default
+    # busy timeout is 0). 5s is ample for the tiny read-decide-write CAS.
+    conn.execute("PRAGMA busy_timeout = 5000")
     # SINGLE SOURCE OF TRUTH: bootstrap the full canonical schema so
     # project_mode_lock exists (DDL owned by sqlite_store, AG3-034).
     sqlite_store._ensure_schema(conn)
@@ -244,6 +256,159 @@ class ModeLockRepository:
             updated_at=updated_at,
         )
 
+    def acquire(self, project_key: str, mode: str) -> ModeLockRecord:
+        """Atomically acquire the project mode-lock for ``mode`` (FK-24 §24.3.3).
+
+        The enforcement half of the Fast/Standard between-modes mutex, run at
+        story START for ALL stories (standard AND fast). ATOMIC (transactional /
+        CAS, not a plain upsert):
+
+        * lock idle (no row / ``holder_count == 0`` / ``active_mode is None``)
+          => set ``active_mode = mode``, ``holder_count = 1``;
+        * same mode already held => increment ``holder_count``;
+        * OPPOSITE mode held => fail closed with :class:`ModeLockConflictError`
+          (the last-writer guard behind Preflight Check 10).
+
+        Args:
+            project_key: Owning project key.
+            mode: The acquiring story's fast/standard ``mode`` (``"standard"`` /
+                ``"fast"`` — the decoupled ``WireStoryMode`` axis).
+
+        Returns:
+            The persisted :class:`ModeLockRecord` after the acquire.
+
+        Raises:
+            ValueError: When ``mode`` is not a recognised value.
+            ModeLockConflictError: When the opposite mode is currently held.
+        """
+        if mode not in ACTIVE_MODE_VALUES:
+            raise ValueError(
+                f"mode {mode!r} must be one of {sorted(ACTIVE_MODE_VALUES)}"
+            )
+        return self._mutate(project_key, lambda current: _acquire_next(current, mode))
+
+    def release(self, project_key: str, mode: str) -> ModeLockRecord:
+        """Atomically release one holder of the project mode-lock (FK-24 §24.3.3).
+
+        The release half of the mutex, run at story CLOSE (and cancel/reset).
+        ATOMIC: decrements ``holder_count``; when it reaches ``0`` the lock
+        resets to idle (``active_mode = None``). Idempotent / fail-safe for an
+        over-release: an already-idle lock (no row / ``holder_count == 0``)
+        stays idle (a story that never acquired must not drive the count
+        negative — recovery/resume safety).
+
+        Args:
+            project_key: Owning project key.
+            mode: The releasing story's mode (validated against the held mode
+                when one is present; a mismatch is a no-op idle-safe release —
+                the holder it would decrement is not this mode).
+
+        Returns:
+            The persisted :class:`ModeLockRecord` after the release.
+
+        Raises:
+            ValueError: When ``mode`` is not a recognised value.
+        """
+        if mode not in ACTIVE_MODE_VALUES:
+            raise ValueError(
+                f"mode {mode!r} must be one of {sorted(ACTIVE_MODE_VALUES)}"
+            )
+        return self._mutate(project_key, lambda current: _release_next(current, mode))
+
+    def _mutate(
+        self,
+        project_key: str,
+        decide: _LockTransition,
+    ) -> ModeLockRecord:
+        """Run an atomic read-decide-write of the mode-lock row (CAS, single tx)."""
+        if _is_postgres():
+            return self._pg_mutate(project_key, decide)
+        return self._sqlite_mutate(project_key, decide)
+
+    def _sqlite_mutate(
+        self, project_key: str, decide: _LockTransition
+    ) -> ModeLockRecord:
+        with _sqlite_connect(self._store_dir) as conn:
+            # FIX-2 (race-safe CAS): a plain deferred transaction lets two
+            # concurrent acquirers BOTH read the (missing) row before either
+            # writes, so two opposite-mode first-acquires would both pass. Issue
+            # ``BEGIN IMMEDIATE`` so a RESERVED write lock is taken BEFORE the
+            # read-decide-write: the second connection blocks here until the first
+            # commits and then reads the post-acquire row, so the opposite-mode
+            # decision sees the held mode and fails closed. ``isolation_level`` is
+            # cleared so sqlite3 does not start its own implicit transaction that
+            # would conflict with this explicit ``BEGIN``.
+            conn.isolation_level = None
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                row = conn.execute(
+                    "SELECT active_mode, holder_count FROM project_mode_lock "
+                    "WHERE project_key=?",
+                    (project_key,),
+                ).fetchone()
+                current = _current_from_row(dict(row) if row is not None else None)
+                active_mode, holder_count = decide(current)
+                updated_at = _now_iso()
+                conn.execute(
+                    _SQLITE_UPSERT,
+                    {
+                        "project_key": project_key,
+                        "active_mode": active_mode,
+                        "holder_count": holder_count,
+                        "updated_at": updated_at,
+                    },
+                )
+            except BaseException:
+                conn.execute("ROLLBACK")
+                raise
+            conn.execute("COMMIT")
+        return ModeLockRecord(
+            project_key=project_key,
+            active_mode=active_mode,
+            holder_count=holder_count,
+            updated_at=updated_at,
+        )
+
+    def _pg_mutate(
+        self, project_key: str, decide: _LockTransition
+    ) -> ModeLockRecord:
+        with _postgres_connect() as conn:
+            # FIX-2 (race-safe CAS): ``SELECT ... FOR UPDATE`` does NOT lock a
+            # MISSING row, so two concurrent first-acquires on a project with no
+            # row would both read "idle" and both write -> two opposite modes
+            # acquired. Take a transaction-scoped ADVISORY lock keyed on the
+            # ``project_key`` FIRST: it serialises the whole read-decide-write per
+            # project even when the row does not yet exist (it is held until the
+            # tx commits/rolls back). The later ``FOR UPDATE`` then row-locks the
+            # now-existing row for good measure.
+            conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                (f"project_mode_lock:{project_key}",),
+            )
+            row = conn.execute(
+                "SELECT active_mode, holder_count FROM project_mode_lock "
+                "WHERE project_key=%s FOR UPDATE",
+                (project_key,),
+            ).fetchone()
+            current = _current_from_row(dict(row) if row is not None else None)
+            active_mode, holder_count = decide(current)
+            updated_at = _now_iso()
+            conn.execute(
+                _PG_UPSERT,
+                {
+                    "project_key": project_key,
+                    "active_mode": active_mode,
+                    "holder_count": holder_count,
+                    "updated_at": updated_at,
+                },
+            )
+        return ModeLockRecord(
+            project_key=project_key,
+            active_mode=active_mode,
+            holder_count=holder_count,
+            updated_at=updated_at,
+        )
+
     def _sqlite_read(self, project_key: str) -> ModeLockRecord | None:
         with _sqlite_connect(self._store_dir) as conn:
             row = conn.execute(
@@ -261,6 +426,61 @@ class ModeLockRepository:
         return _row_to_record(dict(row)) if row is not None else None
 
 
+def _now_iso() -> str:
+    """Return the current UTC instant as an ISO-8601 string."""
+    return datetime.now(UTC).isoformat()
+
+
+def _current_from_row(row: dict[str, Any] | None) -> tuple[str | None, int]:
+    """Normalise a raw row into ``(active_mode, holder_count)`` (idle when absent)."""
+    if row is None:
+        return (None, 0)
+    raw_mode = row.get("active_mode")
+    active_mode = str(raw_mode) if raw_mode is not None else None
+    holder_count = int(row.get("holder_count") or 0)
+    if holder_count <= 0:
+        return (None, holder_count if holder_count > 0 else 0)
+    return (active_mode, holder_count)
+
+
+def _acquire_next(
+    current: tuple[str | None, int], mode: str
+) -> tuple[str | None, int]:
+    """Compute the post-acquire ``(active_mode, holder_count)`` (FK-24 §24.3.3).
+
+    Idle / same-mode -> hold ``mode`` and increment; opposite mode -> fail closed.
+    """
+    active_mode, holder_count = current
+    if active_mode is None or holder_count <= 0:
+        return (mode, 1)
+    if active_mode == mode:
+        return (mode, holder_count + 1)
+    raise ModeLockConflictError(
+        f"cannot acquire mode {mode!r}: project holds the opposite mode "
+        f"{active_mode!r} ({holder_count} holder(s)); Fast and Standard are "
+        "mutually exclusive (FK-24 §24.3.3)"
+    )
+
+
+def _release_next(
+    current: tuple[str | None, int], mode: str
+) -> tuple[str | None, int]:
+    """Compute the post-release ``(active_mode, holder_count)`` (FK-24 §24.3.3).
+
+    Decrement the holder count; reset to idle (``None``, ``0``) at zero. An
+    already-idle lock, or a release of a mode that is not the one held, is an
+    idle-safe no-op (over-release / double-release on resume must not drive the
+    count negative).
+    """
+    active_mode, holder_count = current
+    if active_mode is None or holder_count <= 0 or active_mode != mode:
+        return (active_mode if holder_count > 0 else None, max(holder_count, 0))
+    next_count = holder_count - 1
+    if next_count <= 0:
+        return (None, 0)
+    return (active_mode, next_count)
+
+
 def _row_to_record(row: dict[str, Any]) -> ModeLockRecord:
     raw_mode = row.get("active_mode")
     return ModeLockRecord(
@@ -271,4 +491,9 @@ def _row_to_record(row: dict[str, Any]) -> ModeLockRecord:
     )
 
 
-__all__ = ["ACTIVE_MODE_VALUES", "ModeLockRecord", "ModeLockRepository"]
+__all__ = [
+    "ACTIVE_MODE_VALUES",
+    "ModeLockConflictError",
+    "ModeLockRecord",
+    "ModeLockRepository",
+]

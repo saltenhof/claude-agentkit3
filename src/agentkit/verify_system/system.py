@@ -95,6 +95,7 @@ from agentkit.verify_system.sonarqube_gate.stage_runner import (
 from agentkit.verify_system.structural.checker import StructuralChecker
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
     from agentkit.story_context_manager.models import StoryContext
@@ -185,6 +186,13 @@ class VerifySystem:
     sonar_gate_port: SonarGateInputPort = ABSENT_SONAR_GATE_PORT
     layer2_runner: ParallelEvalRunner | None = None
     layer2_llm_client: LlmClient | None = None
+    #: Fast-mode tests-green floor runner (AG3-018, FK-24 §24.3.4). A callable
+    #: ``runner(story_dir) -> (green, reason)`` — the SAME tests-green mechanism
+    #: the closure Sanity-Gate uses (``ProductiveSanityGatePort.test_runner``),
+    #: not a second one. ``None`` => the floor is unconfirmable and the fast
+    #: QA-subflow FAILS CLOSED (a fast story without a confirmed test result must
+    #: not pass the floor; NO ERROR BYPASSING).
+    fast_test_runner: Callable[[Path], tuple[bool, str | None]] | None = None
     qa_cycle_lifecycle: _qa.QaCycleLifecycle = field(
         default_factory=_qa.QaCycleLifecycle
     )
@@ -221,6 +229,7 @@ class VerifySystem:
         sonar_gate_port: SonarGateInputPort | None = None,
         invalidation_sink: ArtifactInvalidationSink | None = None,
         layer2_llm_client: LlmClient | None = None,
+        fast_test_runner: Callable[[Path], tuple[bool, str | None]] | None = None,
     ) -> VerifySystem:
         """Construct a ``VerifySystem`` with default sub-components.
 
@@ -264,6 +273,12 @@ class VerifySystem:
                 LLM-Bewertungen WIRKLICH (kein Rueckfall auf die
                 deterministischen Stub-Reviewer); ``None`` => Reviewer-Pfad.
                 Produktiv via ``composition_root.build_verify_system``.
+            fast_test_runner: Optional fast-mode tests-green floor runner
+                (AG3-018, FK-24 §24.3.4). In ``mode == fast`` the QA-subflow
+                degenerates to Layer 1 (structural) + the hard tests-green floor
+                and SKIPS Layers 2-4 + the feedback loop. The runner is the SAME
+                mechanism the closure Sanity-Gate uses; ``None`` => the floor is
+                unconfirmable and the fast subflow FAILS CLOSED.
 
         Returns:
             A frozen ``VerifySystem`` with default-configured sub-components.
@@ -307,6 +322,7 @@ class VerifySystem:
             story_context_port=resolved_port,
             sonar_gate_port=resolved_sonar_port,
             layer2_llm_client=layer2_llm_client,
+            fast_test_runner=fast_test_runner,
             remediation_loop_controller=(
                 _qa.RemediationLoopController(
                     max_feedback_rounds=max_feedback_rounds
@@ -443,6 +459,18 @@ class VerifySystem:
         # (BC-Topologie: verify-system haengt am Port, nicht an state_backend).
         # No-op-Port liefert None -> _execute_layer faellt auf IMPLEMENTATION-Stub.
         _story_ctx = self.story_context_port.load(ctx.story_dir)
+
+        # AG3-018 (FK-24 §24.3.4 Mode-Profil): in ``mode == fast`` the QA-subflow
+        # degenerates to Layer 1 (structural) + the hard tests-green floor and
+        # SKIPS Layers 2 (LLM), 3 (adversarial), 4 (policy), the Sonar gate AND
+        # the feedback/remediation loop. The floor is non-disableable: a red test
+        # (or an unconfirmable result) is a fail-closed FAIL (NO ERROR BYPASSING).
+        if _is_fast_mode(_story_ctx):
+            return self._run_fast_floor(
+                ctx=ctx,
+                story_id=story_id,
+                story_ctx=_story_ctx,
+            )
 
         # Step 2: Select layers.
         layer_kinds = select_layers(qa_context)
@@ -610,6 +638,140 @@ class VerifySystem:
             evidence_fingerprint=cycle_state.evidence_fingerprint,
             escalated=escalated,
             closure_blocked=closure_blocked,
+        )
+
+    # ------------------------------------------------------------------
+    # Fast-mode floor (AG3-018, FK-24 §24.3.4)
+    # ------------------------------------------------------------------
+
+    def _run_fast_floor(
+        self,
+        *,
+        ctx: VerifyContextBundle,
+        story_id: str,
+        story_ctx: StoryContext | None,
+    ) -> QaSubflowOutcome:
+        """Run the fast-mode QA floor: Layer 1 (structural) + tests-green.
+
+        FK-24 §24.3.4 Mode-Profil: in ``mode == fast`` the QA-subflow degenerates
+        to Layer 1 (deterministic structural checks) AND the hard, non-disableable
+        tests-green floor. Layers 2-4, the Sonar gate and the feedback/remediation
+        loop are SKIPPED (``OUT``). The floor PASSes only when BOTH the structural
+        layer passes AND the injected ``fast_test_runner`` confirms tests green.
+
+        FAIL-CLOSED (NO ERROR BYPASSING): a red test -> FAIL; an unconfirmable
+        result (no ``fast_test_runner`` wired) -> FAIL. The cycle is still
+        resolved (idle -> ``start_cycle``) so the four identity fields are
+        surfaced for the state owner; there is no remediation/escalation loop on
+        the fast path (the human accompanies the story).
+
+        Args:
+            ctx: Run-time context bundle.
+            story_id: Story display-ID.
+            story_ctx: The pre-resolved fast-mode ``StoryContext``.
+
+        Returns:
+            A ``QaSubflowOutcome`` carrying the floor verdict (PASS/FAIL).
+        """
+        now_str = _qa.utc_now_iso()
+        cycle_state = self.qa_cycle_lifecycle.start_cycle(ctx.story_dir)
+        qa_cycle_fields = _qa.qa_cycle_state_to_fields(cycle_state)
+
+        structural = self._execute_layer(
+            self.layer_1, ctx, story_id, QALayerKind.STRUCTURAL, story_context=story_ctx
+        )
+        tests_finding = self._fast_tests_green_finding(ctx.story_dir)
+        floor_findings = (
+            (*structural.findings, tests_finding)
+            if tests_finding is not None
+            else structural.findings
+        )
+        floor_passed = structural.passed and tests_finding is None
+        floor_result = LayerResult(
+            layer=self.layer_1.name,
+            passed=floor_passed,
+            findings=floor_findings,
+            metadata={
+                **structural.metadata,
+                "fast_mode": True,
+                "tests_green": tests_finding is None,
+            },
+        )
+
+        self._write_layer_envelope(
+            spec=_LAYER_1_ARTIFACTS[0],
+            result=floor_result,
+            ctx=ctx,
+            story_id=story_id,
+            now_str=now_str,
+            qa_cycle_fields=qa_cycle_fields,
+        )
+
+        verdict = PolicyVerdict.PASS if floor_passed else PolicyVerdict.FAIL
+        summary = (
+            "fast-mode QA floor PASS (structural + tests green)"
+            if floor_passed
+            else "fast-mode QA floor FAIL (structural or tests-green floor not met)"
+        )
+        decision = VerifyDecision(
+            passed=floor_passed,
+            verdict=verdict,
+            layer_results=(floor_result,),
+            all_findings=floor_findings,
+            blocking_findings=tuple(
+                f for f in floor_findings if f.severity == Severity.BLOCKING
+            ),
+            summary=summary,
+        )
+        logger.info(
+            "run_qa_subflow fast-mode floor: story=%s verdict=%s tests_green=%s",
+            story_id,
+            verdict,
+            tests_finding is None,
+        )
+        return QaSubflowOutcome(
+            verdict=verdict,
+            decision=decision,
+            artifact_refs=(_LAYER_1_ARTIFACTS[0].filename,),
+            attempt_nr=ctx.attempt,
+            qa_cycle_round=cycle_state.round,
+            feedback=None,
+            qa_cycle_id=cycle_state.qa_cycle_id,
+            evidence_epoch=cycle_state.evidence_epoch,
+            evidence_fingerprint=cycle_state.evidence_fingerprint,
+            escalated=False,
+            closure_blocked=False,
+        )
+
+    def _fast_tests_green_finding(self, story_dir: Path) -> Finding | None:
+        """Run the fast-mode tests-green floor; return a BLOCKING finding on fail.
+
+        Returns ``None`` when the injected ``fast_test_runner`` confirms tests
+        green. Returns a BLOCKING SYSTEM finding when the runner reports red tests
+        OR when no runner is wired (fail-closed: the floor is unconfirmable, so a
+        fast story must not pass it -- NO ERROR BYPASSING).
+        """
+        if self.fast_test_runner is None:
+            return Finding(
+                layer="structural",
+                check="fast_tests_green",
+                severity=Severity.BLOCKING,
+                message=(
+                    "fast-mode tests-green floor has no live test runner wired "
+                    "(AG3-018); cannot confirm tests green -> fail-closed "
+                    "(FK-24 §24.3.4, NO ERROR BYPASSING)"
+                ),
+                trust_class=TrustClass.SYSTEM,
+            )
+        green, reason = self.fast_test_runner(story_dir)
+        if green:
+            return None
+        return Finding(
+            layer="structural",
+            check="fast_tests_green",
+            severity=Severity.BLOCKING,
+            message=reason or "fast-mode tests are not green",
+            trust_class=TrustClass.SYSTEM,
         )
 
     # ------------------------------------------------------------------
@@ -1048,6 +1210,26 @@ class VerifySystem:
         )
         self.artifact_manager.write(envelope)
         return _POLICY_ARTIFACT_SPEC.filename
+
+
+def _is_fast_mode(story_ctx: object | None) -> bool:
+    """Whether the resolved ``StoryContext`` runs in fast mode (FK-24 §24.3.3).
+
+    The fast/standard ``mode`` axis is decoupled from ``execution_route``
+    (FK-24 §24.3.3). Returns ``False`` when no ``StoryContext`` resolved (the
+    no-op port path / tests without a persisted context): a missing mode is the
+    standard full-subflow default, never an accidental fast skip.
+
+    Args:
+        story_ctx: The resolved ``StoryContext`` (or ``None``).
+
+    Returns:
+        ``True`` iff a ``StoryContext`` resolved AND its ``mode`` is fast.
+    """
+    from agentkit.story_context_manager.models import StoryContext
+    from agentkit.story_context_manager.story_model import WireStoryMode
+
+    return isinstance(story_ctx, StoryContext) and story_ctx.mode is WireStoryMode.FAST
 
 
 def _kind_to_single_artifacts(kind: QALayerKind) -> tuple[_LayerArtifactSpec, ...]:

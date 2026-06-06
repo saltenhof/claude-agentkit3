@@ -23,13 +23,20 @@ if TYPE_CHECKING:
 
 @guard(
     "mode_is_not_exploration",
-    description="Checks that the story execution route is NOT EXPLORATION.",
-    reads=frozenset({"execution_route"}),
+    description="Checks that the story routes setup directly to implementation.",
+    reads=frozenset({"execution_route", "mode"}),
 )
 def _mode_is_not_exploration(
     ctx: StoryContext,
     state: PhaseState,
 ) -> GuardResult:
+    # AG3-018 (FK-24 §24.3.4): a fast story ALWAYS routes setup -> implementation
+    # (Exploration=OUT), regardless of execution_route. The fast/standard mode
+    # axis is decoupled from execution_route (FK-24 §24.3.3).
+    from agentkit.story_context_manager.story_model import WireStoryMode
+
+    if ctx.mode is WireStoryMode.FAST:
+        return GuardResult.PASS()
     if ctx.execution_route != StoryMode.EXPLORATION:
         return GuardResult.PASS()
     return GuardResult.FAIL(

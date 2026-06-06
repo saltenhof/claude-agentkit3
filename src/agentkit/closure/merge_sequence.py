@@ -387,6 +387,51 @@ def run_pre_merge_and_merge_block(  # noqa: PLR0913 -- a fail-closed barrier wir
     )
 
 
+def run_fast_merge_block(
+    ctx: StoryContext,
+    *,
+    story_dir: Path,
+    repos: tuple[ClosureRepo, ...],
+    sanity_port: SanityGatePort,
+    git_backend: GitBackend | None = None,
+    checkpoint: CheckpointSink | None = None,
+    progress: ClosureProgress | None = None,
+) -> MergeBlockResult:
+    """Run the fast-mode merge block (FK-29 §29.1a.6, FK-24 §24.3.4, FIX-8).
+
+    The fast-only entrypoint: the Sanity-Gate (tests green + worktree clean +
+    pre-merge rebase OK) replaces the integrated-candidate scan AND the
+    nine-dimension IntegrityGate, so NO ``integrity_gate`` is required (FIX-8 --
+    removes the ``type: ignore[arg-type]`` the handler needed to pass an optional
+    gate into the standard entrypoint). A sanity violation / rebase conflict
+    escalates; on a Sanity PASS the same AG3-009 saga building blocks perform
+    push/merge/CAS.
+
+    Args:
+        ctx: The run :class:`StoryContext` (must be ``mode == fast``).
+        story_dir: The story working directory.
+        repos: The participating repos (one element => single-repo path).
+        sanity_port: The fast-mode Sanity-Gate seam.
+        git_backend: Optional git backend (stubbed in tests).
+        checkpoint: Optional checkpoint sink (FK-29 §29.1.0/§29.1.3).
+        progress: Optional durable recovery ``ClosureProgress``.
+
+    Returns:
+        A :class:`MergeBlockResult`.
+    """
+    sink: CheckpointSink = checkpoint if checkpoint is not None else _no_checkpoint
+    current = progress if progress is not None else ClosureProgress()
+    return _run_fast_block(
+        ctx,
+        story_dir=story_dir,
+        repos=repos,
+        sanity_port=sanity_port,
+        git_backend=git_backend,
+        checkpoint=sink,
+        progress=current,
+    )
+
+
 def _resume_merge_only(
     ctx: StoryContext,
     repos: tuple[ClosureRepo, ...],
@@ -1180,5 +1225,6 @@ __all__ = [
     "SanityGatePort",
     "SanityOutcome",
     "ScanOutcome",
+    "run_fast_merge_block",
     "run_pre_merge_and_merge_block",
 ]

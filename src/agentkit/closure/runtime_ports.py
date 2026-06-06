@@ -32,10 +32,68 @@ if TYPE_CHECKING:
 
     from agentkit.closure.multi_repo_saga import ClosureRepo, GitBackend
     from agentkit.governance import Governance
+    from agentkit.state_backend.store.mode_lock_repository import ModeLockRepository
     from agentkit.story_context_manager.models import StoryContext
     from agentkit.story_context_manager.types import StoryType
+    from agentkit.verify_system.pre_merge_runner.contract import BuildTestPort
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class CiBuildTestFastRunner:
+    """Fast-mode tests-green floor runner over the REAL AG3-056 Build/Test port.
+
+    FK-24 §24.3.4 (AG3-018, FIX-6): the fast-mode tests-green floor is the SAME
+    real tests-green capability the standard closure barrier uses -- the AG3-056
+    commit-bound :class:`BuildTestPort` (``CiBuildTestRunner`` over the project's
+    CI). NOT a second tests-green truth, NOT a stub. This adapter exposes that
+    port as the ``Callable[[Path], tuple[bool, str | None]]`` shape both the fast
+    QA-subflow floor (``build_verify_system fast_test_runner``) and the closure
+    Sanity-Gate (``ProductiveSanityGatePort.test_runner``) consume.
+
+    It resolves the story working tree's current ``HEAD`` (branch + commit +
+    tree) into the AG3-056 :class:`CandidateRef` and runs Build/Test against
+    exactly that commit. A red/aborted/unreachable run is ``(False, reason)``
+    (fail-closed -- the floor is non-disableable, NO ERROR BYPASSING). The git
+    HEAD cannot be read => fail-closed too (a fast story whose tested revision is
+    unknown must not pass the floor).
+
+    Attributes:
+        build_test_port: The real AG3-056 commit-bound Build/Test port.
+        git_backend: The git side-effect port used to resolve the worktree HEAD.
+    """
+
+    build_test_port: BuildTestPort
+    git_backend: GitBackend
+
+    def __call__(self, story_dir: Path) -> tuple[bool, str | None]:
+        """Run Build/Test on the story worktree's current HEAD (fail-closed)."""
+        from agentkit.closure.multi_repo_saga import ClosureRepo
+        from agentkit.verify_system.pre_merge_runner.contract import CandidateRef
+
+        repo = ClosureRepo(name=story_dir.name, repo_root=story_dir)
+        branch = self._read(repo, "rev-parse", "--abbrev-ref", "HEAD")
+        commit = self._read(repo, "rev-parse", "HEAD")
+        tree = self._read(repo, "rev-parse", "HEAD^{tree}")
+        if commit is None or tree is None or branch is None:
+            return (
+                False,
+                "fast-mode tests-green floor: cannot resolve the story worktree "
+                "HEAD (branch/commit/tree) to run Build/Test -> fail-closed",
+            )
+        candidate = CandidateRef(branch=branch, commit_sha=commit, tree_hash=tree)
+        outcome = self.build_test_port.run(candidate)
+        if outcome.green:
+            return (True, None)
+        return (False, outcome.reason or "fast-mode Build/Test was not green")
+
+    def _read(self, repo: ClosureRepo, *args: str) -> str | None:
+        """Run a read-only git command, returning its stdout or ``None`` on error."""
+        result = self.git_backend.run(repo, *args)
+        if not result.ok or not result.stdout.strip():
+            return None
+        return result.stdout.strip()
 
 
 @dataclass(frozen=True)
@@ -209,9 +267,66 @@ class ProductiveGuardDeactivationPort:
         return (True, None)
 
 
+@dataclass(frozen=True)
+class ProductiveModeLockReleasePort:
+    """Project mode-lock release seam at story close (FK-24 §24.3.3, AG3-018).
+
+    The release half of the Fast/Standard between-modes mutex. Delegates to the
+    atomic ``ModeLockRepository.release`` for the mode THIS story acquired (read
+    from the durable per-story acquire marker written by Setup). Closure holds no
+    mode-lock logic itself (single delegation step).
+
+    Idempotency (FIX-4): the durable per-story acquire marker is the SOLE
+    idempotency truth -- NOT a seventh ``ClosureProgress`` checkpoint (FK-29
+    §29.1.0 defines exactly six). A story that never acquired (no marker) owes no
+    release; after a successful release the marker is CLEARED, so a resumed /
+    cancelled closure finds no marker and never double-releases (recovery / cancel
+    safety -- never an over-release).
+
+    Non-blocking: a release error is surfaced as a human Warning (never an
+    ESCALATED verdict; the story is already merged + closed).
+
+    Attributes:
+        mode_lock_repo: The atomic ``ModeLockRepository`` (CAS acquire/release).
+    """
+
+    mode_lock_repo: ModeLockRepository
+
+    def release(self, story_dir: Path, project_key: str) -> tuple[bool, str | None]:
+        """Release this story's mode-lock holder; non-blocking Warning on error."""
+        from agentkit.governance.setup_preflight_gate.mode_lock_marker import (
+            acquired_mode,
+            clear_mode_lock_marker,
+        )
+
+        mode = acquired_mode(story_dir)
+        if mode is None:
+            # This story never acquired the lock (e.g. standalone/legacy run, or
+            # acquire was skipped), OR a prior release already cleared the marker
+            # (resumed closure) -> no release owed (idempotent no-op).
+            return (True, None)
+        try:
+            self.mode_lock_repo.release(project_key, mode)
+        except Exception as exc:  # noqa: BLE001 -- non-blocking post-close step
+            logger.warning(
+                "mode-lock release failed for project=%s mode=%s: %s",
+                project_key,
+                mode,
+                exc,
+            )
+            return (False, f"mode-lock release raised: {exc}")
+        # FIX-4: clear the marker so the release is idempotent without a seventh
+        # checkpoint -- a resumed/cancelled closure then finds no marker and owes
+        # nothing (no double-release of the holder count).
+        clear_mode_lock_marker(story_dir)
+        return (True, None)
+
+
 __all__ = [
+    "CiBuildTestFastRunner",
     "ProductiveDocFidelityFeedbackPort",
     "ProductiveGuardDeactivationPort",
+    "ProductiveModeLockReleasePort",
     "ProductiveSanityGatePort",
     "ProductiveVectorDbSyncPort",
 ]

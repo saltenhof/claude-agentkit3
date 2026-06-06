@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: operating-modes
 spec_kind: invariant-set
-version: 1
+version: 2
 prose_refs:
   - concept/technical-design/56_ai_augmented_mode_and_story_execution_separation.md
   - concept/technical-design/30_hook_adapter_guard_enforcement.md
@@ -17,7 +17,7 @@ prose_refs:
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
 object: formal.operating-modes.invariants
-schema_version: 1
+schema_version: 2
 kind: invariant-set
 context: operating-modes
 invariants:
@@ -33,6 +33,9 @@ invariants:
   - id: operating-modes.invariant.baseline_guards_apply_in_all_modes
     scope: governance
     rule: destructive git protections self protection secrets protection and ccag remain active in all operating modes
+  - id: operating-modes.invariant.story_mode_fast_disables_story_scoped_guards_only
+    scope: governance
+    rule: story mode fast disables only the story scoped guards and story lock records while the baseline guards destructive git protections self protection secrets protection and ccag stay active
   - id: operating-modes.invariant.story_execution_requires_lock_binding_and_worktree_match
     scope: governance
     rule: story_execution may only activate when a valid run binding a valid story_execution lock and a matching worktree root are all present

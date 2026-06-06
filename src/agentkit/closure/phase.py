@@ -50,6 +50,7 @@ from agentkit.closure.merge_sequence import (
     ClosureRepo,
     MergeApplicability,
     MergeBlockStatus,
+    run_fast_merge_block,
     run_pre_merge_and_merge_block,
 )
 from agentkit.closure.post_merge_finalization.finalization import (
@@ -117,6 +118,23 @@ class ClosureProgressStore(Protocol):
         ...
 
 
+class ModeLockReleasePort(Protocol):
+    """Project mode-lock release seam at story close (FK-24 §24.3.3, AG3-018).
+
+    The release half of the Fast/Standard between-modes mutex. Closure holds no
+    mode-lock logic itself; this seam delegates to the atomic
+    ``ModeLockRepository.release`` (wired by the composition root). The release is
+    idempotent via the durable per-story acquire marker ALONE (FIX-4 — NOT a
+    seventh ``ClosureProgress`` checkpoint; FK-29 §29.1.0 defines exactly six):
+    the port releases once and clears the marker, so a resumed/cancelled closure
+    finds no marker and never double-releases the holder count.
+    """
+
+    def release(self, story_dir: Path, project_key: str) -> tuple[bool, str | None]:
+        """Release this story's mode-lock holder; ``(released, warning)``."""
+        ...
+
+
 @dataclass
 class ClosureConfig:
     """Configuration + injected collaborators for the closure phase handler.
@@ -177,6 +195,7 @@ class ClosureConfig:
     progress_store: ClosureProgressStore | None = None
     merge_applicability: MergeApplicability = MergeApplicability.FULL
     repo_runners: object | None = None
+    mode_lock_release_port: ModeLockReleasePort | None = None
 
 
 class ClosurePhaseHandler:
@@ -264,8 +283,20 @@ class ClosurePhaseHandler:
     # ------------------------------------------------------------------
 
     def _prior_phases(self, ctx: StoryContext) -> tuple[str, ...]:
-        """The required prior phases from the typed story-type profile."""
-        return get_profile(ctx.story_type).phases[:-1]
+        """The required prior phases from the typed story-type profile.
+
+        AG3-018 (FK-24 §24.3.4): a fast story SKIPS the Exploration phase, so it
+        never produces an exploration snapshot. The closure prior-phase
+        validation must therefore not require one for a fast story (it routed
+        setup -> implementation directly). The non-fast behaviour is unchanged
+        (the full profile, exploration included).
+        """
+        from agentkit.story_context_manager.story_model import WireStoryMode
+
+        prior = get_profile(ctx.story_type).phases[:-1]
+        if ctx.mode is WireStoryMode.FAST:
+            return tuple(p for p in prior if p != "exploration")
+        return prior
 
     def _run_sequence(
         self,
@@ -324,7 +355,18 @@ class ClosurePhaseHandler:
             progress = _persist(store, ctx, progress, postflight_done=True)
 
         finalization_warnings = finalization.warnings if finalization is not None else ()
-        all_warnings = (*gh_warnings, *finalization_warnings)
+
+        # FK-24 §24.3.3 (AG3-018, FIX-4): RELEASE the project mode-lock holder at
+        # story close (the release half of the between-modes mutex). Idempotency is
+        # the durable per-story acquire marker ALONE — NOT a seventh
+        # ``ClosureProgress`` checkpoint (FK-29 §29.1.0 defines exactly six). The
+        # release reads the marker, releases once and CLEARS the marker; a resumed
+        # closure then finds no marker and owes nothing (no double-release).
+        # Non-blocking: a release issue is a human Warning, never an ESCALATED
+        # verdict (the story is already merged + closed).
+        release_warnings = self._release_mode_lock(ctx, s_dir)
+
+        all_warnings = (*gh_warnings, *finalization_warnings, *release_warnings)
         report_status = "completed_with_warnings" if all_warnings else "completed"
         report_path = _write_report(
             ctx,
@@ -377,6 +419,14 @@ class ClosurePhaseHandler:
     ) -> ClosureProgress | HandlerResult:
         """Run the Finding-Gate + locked merge block for an impl/bugfix story."""
         cfg = self._config
+
+        # AG3-018 (FK-24 §24.3.4 / FK-29 §29.1a.6): a FAST story produces NO QA
+        # Layer-2 findings (QA-subflow layers 2-4 = OUT) so the
+        # Finding-Resolution-Gate is OUT, and it uses the Sanity-Gate (not the
+        # CI/9-dim block) so the CI-absent applicability gate does not apply.
+        # Route straight to the merge block, which dispatches fast -> Sanity-Gate.
+        if _is_fast_mode(ctx):
+            return self._run_fast_merge_block(ctx, s_dir, progress)
 
         # FIX-3: model declared-absence at the applicability layer. A
         # code-producing story whose CI is declared absent has no Build/Test+scan
@@ -465,6 +515,54 @@ class ClosurePhaseHandler:
             return self._escalated(ctx, progress, tuple(block.errors))
         return progress
 
+    def _run_fast_merge_block(
+        self,
+        ctx: StoryContext,
+        s_dir: Path,
+        progress: ClosureProgress,
+    ) -> ClosureProgress | HandlerResult:
+        """Run the fast-mode merge block (FK-29 §29.1a.6, FK-24 §24.3.4).
+
+        Fast skips the Finding-Resolution-Gate (no QA Layer-2 findings produced)
+        and the CI/9-dim barrier; the merge precondition is the Sanity-Gate
+        (tests green + worktree clean + pre-merge rebase OK). Only the
+        ``sanity_port`` collaborator is required for this path; FIX-8: it calls
+        the dedicated fast-only :func:`run_fast_merge_block` entrypoint, which
+        does NOT take ``integrity_gate`` -- removing the ``type: ignore`` that
+        passing an optional gate into the standard entrypoint required.
+        """
+        cfg = self._config
+        if cfg.sanity_port is None:
+            return HandlerResult(
+                status=PhaseStatus.FAILED,
+                errors=(
+                    "Closure fast-mode sanity_port not wired (use "
+                    "build_closure_phase_handler)",
+                ),
+            )
+        git_backend = _git_backend_for(cfg)
+        store = self._store()
+        carried = _Carrier(progress)
+
+        def _checkpoint(block_progress: ClosureProgress) -> None:
+            carried.progress = _persist_block_progress(
+                store, ctx, carried.progress, block_progress
+            )
+
+        block = run_fast_merge_block(
+            ctx,
+            story_dir=s_dir,
+            repos=_resolve_repos(cfg, s_dir),
+            sanity_port=cfg.sanity_port,
+            git_backend=git_backend,
+            checkpoint=_checkpoint,
+            progress=progress,
+        )
+        progress = _persist_block_progress(store, ctx, carried.progress, block.progress)
+        if block.status is MergeBlockStatus.ESCALATED:
+            return self._escalated(ctx, progress, tuple(block.errors))
+        return progress
+
     def _run_finalization(
         self, ctx: StoryContext, s_dir: Path, story_closed: bool
     ) -> FinalizationResult:
@@ -485,6 +583,40 @@ class ClosurePhaseHandler:
             vectordb_sync_port=vectordb_sync,
             guard_deactivation_port=guard_deactivation,
         )
+
+    def _release_mode_lock(
+        self, ctx: StoryContext, s_dir: Path
+    ) -> tuple[str, ...]:
+        """Release the project mode-lock holder (FK-24 §24.3.3, non-blocking).
+
+        Delegates to the injected :class:`ModeLockReleasePort` (the atomic
+        ``ModeLockRepository.release``). When no port is wired (standalone /
+        legacy) the step is a no-op. Any release issue is returned as a human
+        Warning (never an escalation -- the story is already closed). The port's
+        own idempotency reads (and then clears) the durable acquire marker, so a
+        story that never acquired -- or a resumed closure that already released --
+        owes no release (FIX-4: no seventh checkpoint needed).
+
+        Args:
+            ctx: The story context.
+            s_dir: The story working directory.
+
+        Returns:
+            A tuple of human Warnings (empty on success / no-op).
+        """
+        port = self._config.mode_lock_release_port
+        if port is None:
+            return ()
+        try:
+            released, warning = port.release(s_dir, ctx.project_key)
+        except Exception as exc:  # noqa: BLE001 -- non-blocking post-close step
+            logger.warning(
+                "mode-lock release failed for story=%s: %s", ctx.story_id, exc
+            )
+            return (f"mode-lock release raised: {exc}",)
+        if not released and warning is not None:
+            return (warning,)
+        return ()
 
     def _escalated(
         self,
@@ -510,6 +642,13 @@ class _Carrier:
     """Mutable closure-progress carrier for the in-block checkpoint sink (FIX-4)."""
 
     progress: ClosureProgress
+
+
+def _is_fast_mode(ctx: StoryContext) -> bool:
+    """Whether the story runs in fast mode (FK-24 §24.3.3, decoupled axis)."""
+    from agentkit.story_context_manager.story_model import WireStoryMode
+
+    return ctx.mode is WireStoryMode.FAST
 
 
 def _resume_progress(envelope: PhaseEnvelope) -> ClosureProgress:
@@ -963,4 +1102,5 @@ __all__ = [
     "ClosurePhaseHandler",
     "ClosureProgressStore",
     "ClosureVerdict",
+    "ModeLockReleasePort",
 ]
