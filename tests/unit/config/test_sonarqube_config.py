@@ -20,7 +20,12 @@ def _project(**pipeline_sonar: object) -> ProjectConfig:
         project_key="acme",
         project_name="Acme",
         repositories=[RepositoryConfig(name="app", path=".")],
-        pipeline={"sonarqube": pipeline_sonar},  # type: ignore[arg-type]
+        # AG3-056: code-producing projects must also declare the ci stanza;
+        # an explicit opt-out keeps these Sonar-focused tests isolated.
+        pipeline={  # type: ignore[arg-type]
+            "sonarqube": pipeline_sonar,
+            "ci": {"available": False, "enabled": False},
+        },
     )
 
 
@@ -52,8 +57,29 @@ class TestSonarQubeConfigStandalone:
             enabled=True,
             base_url="http://sonar:9901",
             token_env="SONARQUBE_TOKEN",
+            scanner_version="5.0.1",
         )
         assert cfg.base_url == "http://sonar:9901"
+
+    def test_available_enabled_requires_scanner_version(self) -> None:
+        """ERROR-B: scanner_version is a mandatory attestation binding."""
+        with pytest.raises(ValidationError, match="scanner_version"):
+            SonarQubeConfig(
+                available=True,
+                enabled=True,
+                base_url="http://sonar:9901",
+                token_env="SONARQUBE_TOKEN",
+            )
+
+    def test_rejects_unparsable_scanner_version(self) -> None:
+        with pytest.raises(ValidationError, match="SemVer"):
+            SonarQubeConfig(
+                available=True,
+                enabled=True,
+                base_url="http://sonar:9901",
+                token_env="SONARQUBE_TOKEN",
+                scanner_version="not-a-version",
+            )
 
     def test_rejects_unparsable_min_version(self) -> None:
         with pytest.raises(ValidationError, match="SemVer"):
@@ -81,6 +107,7 @@ class TestCrossFieldRule:
             enabled=True,
             base_url="http://sonar:9901",
             token_env="SONARQUBE_TOKEN",
+            scanner_version="5.0.1",
         )
         assert project.pipeline.sonarqube.enabled is True
 

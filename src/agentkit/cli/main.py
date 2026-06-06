@@ -85,6 +85,22 @@ def main(argv: list[str] | None = None) -> int:
             "conscious opt-out (gate not applicable)."
         ),
     )
+    # AG3-056 (FIX-5): mirror the Sonar discipline for the CI (Jenkins)
+    # pre-merge runner. The closure pre-merge barrier needs a real CI trigger,
+    # so a code-producing scaffold DECLARES Jenkins present by default
+    # (``--ci-available``). ``--no-ci-available`` is the CONSCIOUS operator
+    # opt-out (runner not applicable); the default is ``True`` (never an
+    # auto-disable — that would silently skip the fail-closed CI preflight).
+    install_parser.add_argument(
+        "--ci-available",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Declare a CI (Jenkins) pre-merge runner present for this "
+            "code-producing project. Use --no-ci-available for the conscious "
+            "opt-out (pre-merge runner not applicable)."
+        ),
+    )
     uninstall_parser = subparsers.add_parser(
         "uninstall", help="Remove AgentKit from a target project",
     )
@@ -265,6 +281,9 @@ def _cmd_install(args: argparse.Namespace) -> int:
         # is the conscious opt-out. CP 10d then verifies fail-closed (E5) or
         # SKIPs (opt-out).
         sonarqube_available=args.sonarqube_available,
+        # AG3-056 (FIX-5): default ci.available:true; --no-ci-available is the
+        # conscious opt-out. The CI preflight then verifies fail-closed or SKIPs.
+        ci_available=args.ci_available,
     )
     try:
         result = install_agentkit(config)

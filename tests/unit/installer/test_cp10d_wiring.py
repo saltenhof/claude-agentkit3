@@ -63,6 +63,8 @@ def test_built_yaml_has_explicit_sonarqube_stanza() -> None:
     assert sonar["enabled"] is True
     assert sonar["base_url"] == "http://localhost:9901"
     assert sonar["token_env"] == "SONARQUBE_TOKEN"
+    # ERROR-B: scanner_version is a mandatory attestation binding (FK-33 §33.6.3).
+    assert sonar["scanner_version"] == "5.0.1"
 
 
 def test_built_yaml_conscious_optout_writes_available_false() -> None:
@@ -106,6 +108,7 @@ def _available_true_yaml() -> dict[str, object]:
                 "enabled": True,
                 "base_url": "http://sonar:9901",
                 "token_env": "SONARQUBE_TOKEN",
+                "scanner_version": "5.0.1",
                 "quality_gate": {"default_profile": "sonar/ak3-default-gate.json"},
             }
         }

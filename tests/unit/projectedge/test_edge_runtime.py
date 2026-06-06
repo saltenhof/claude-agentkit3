@@ -140,9 +140,13 @@ def test_resolver_performs_bounded_sync_for_stale_bundle(tmp_path: Path, monkeyp
             "repositories:\n"
             "  - name: app\n"
             "    path: .\n"
-            # AG3-052 E6: code-producing default story_types => declare sonarqube.
+            # AG3-052 E6 / AG3-056: code-producing default story_types =>
+            # declare the sonarqube + ci stanzas explicitly (opt-outs).
             "pipeline:\n"
             "  sonarqube:\n"
+            "    available: false\n"
+            "    enabled: false\n"
+            "  ci:\n"
             "    available: false\n"
             "    enabled: false\n"
         ),

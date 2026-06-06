@@ -230,6 +230,7 @@ component_groups:
       - architecture-conformance.group.conformance_service
       - architecture-conformance.group.adversarial_orchestrator
       - architecture-conformance.group.sonarqube_gate
+      - architecture-conformance.group.pre_merge_runner
       - architecture-conformance.group.policy_engine
       - architecture-conformance.group.qa_cycle_coordinator
 
@@ -268,6 +269,23 @@ component_groups:
     # capability API. Sequenced after adversarial_orchestrator and before
     # policy_engine in intra_bc_layer_order (FK-33 §33.8.3). The external
     # SonarQube HTTP boundary lives in the integrations adapter, not here.
+
+  - id: architecture-conformance.group.pre_merge_runner
+    name: PreMergeRunner
+    bloodgroup: A
+    module_prefixes:
+      - agentkit.verify_system.pre_merge_runner
+    parent_group_id: architecture-conformance.group.verify_system
+    exposure: sub_exposed
+    component_kind: domain
+    # Pre-Merge-Verification-Runner capability (AG3-056, FK-29 §29.1a.3 /
+    # FK-33 §33.6.3). Owns the PreMergeScanPort/BuildTestPort contract the
+    # Closure pre-merge barrier (AG3-053) consumes; sub_exposed so the
+    # cross-BC closure consumer can call it (dependency direction
+    # closure -> verify_system.pre_merge_runner, never the reverse).
+    # Sequenced AFTER sonarqube_gate (it consumes AG3-052's attestation /
+    # green definition) and before policy_engine. The external Jenkins/Sonar
+    # HTTP boundary lives in the integrations adapters, not here.
 
   - id: architecture-conformance.group.llm_evaluator
     name: LlmEvaluator

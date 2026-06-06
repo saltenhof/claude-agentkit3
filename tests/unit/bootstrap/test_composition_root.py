@@ -182,6 +182,7 @@ def _sonar_config(*, available: bool) -> object:
             enabled=True,
             base_url="http://sonar:9901",
             token_env="SONARQUBE_TOKEN",
+            scanner_version="5.0.1",
         )
     return SonarQubeConfig(available=False, enabled=False)
 
@@ -190,12 +191,12 @@ def _bound_analysis() -> object:
     from agentkit.verify_system.sonarqube_gate.adapter import BoundAnalysis
 
     return BoundAnalysis(
-        analysis_id="AX-1",
         ce_task_id="CE-1",
         component="proj",
         branch="feature",
         commit_sha="c0ffee",
         tree_hash="deadbeef",
+        scanner_version="5.0.1",
     )
 
 
@@ -433,7 +434,8 @@ def test_load_sonar_config_available_false_is_declared_absence_none(
             "project_name: Proj\n"
             "repositories:\n  - name: app\n    path: .\n"
             "pipeline:\n  sonarqube:\n"
-            "    available: false\n    enabled: false\n",
+            "    available: false\n    enabled: false\n"
+            "  ci:\n    available: false\n    enabled: false\n",
             encoding="utf-8",
         )
         story_dir = tmp_path / "stories" / "AG3-001"

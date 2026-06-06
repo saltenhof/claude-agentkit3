@@ -18,11 +18,52 @@ green-criterion (invariant), see :func:`is_green`.
 from __future__ import annotations
 
 import hashlib
+from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
+
+if TYPE_CHECKING:
+    from typing import Self
 
 #: SonarQube quality-gate "green" status value (``api/qualitygates``).
 QUALITY_GATE_OK = "OK"
+
+#: Attestation lifecycle status of a fully-sourced, commit-bound read.
+ATTESTATION_STATUS_READ = "READ"
+
+#: Mandatory attestation fields for a ``status == "READ"`` attestation —
+#: derived from the FK-33 §33.6.3 binding set ("Attestation, gebunden an
+#: ``commit_sha``, ``tree_hash``, ``analysisId``, den Quality-Gate-/
+#: Quality-Profile-Hash und die Versionen (SonarQube, Branch-Plugin,
+#: Scanner)") plus the always-present read coordinates (``ce_task_id``,
+#: ``quality_gate_status``, ``last_analyzed_revision``), the analysis-scope
+#: hash, and the ledger hash (FK-33 §33.6.4: "Der Ledger-Hash ist Teil der
+#: Attestation"). A READ attestation that carries an empty value for ANY of
+#: these is systemically rejected (fail-closed, ERROR-1) — it could otherwise
+#: be silently produced when a Sonar field was absent and read as "".
+#:
+#: ``new_code_definition`` is INCLUDED: it is a first-class attribute of the
+#: formal ``formal.deterministic-checks.entity.sonar-attestation`` entity
+#: (listed alongside the hashes and versions). A code-producing project under
+#: the Sonar gate always has an active new-code period, so an absent/empty
+#: new-code reference is a fail-closed precondition violation, not a valid
+#: empty value — it must NEVER pass through to the IntegrityGate (Dim 9).
+_MANDATORY_READ_FIELDS: tuple[str, ...] = (
+    "commit_sha",
+    "tree_hash",
+    "analysis_id",
+    "ce_task_id",
+    "quality_gate_status",
+    "quality_gate_hash",
+    "quality_profile_hash",
+    "analysis_scope_hash",
+    "new_code_definition",
+    "exception_ledger_hash",
+    "last_analyzed_revision",
+    "sonarqube_version",
+    "branch_plugin_version",
+    "scanner_version",
+)
 
 
 class SonarAttestation(BaseModel):
@@ -67,6 +108,44 @@ class SonarAttestation(BaseModel):
     branch_plugin_version: str
     scanner_version: str
     status: str
+
+    @model_validator(mode="after")
+    def _require_mandatory_fields_for_read(self) -> Self:
+        """Fail closed when a READ attestation carries an empty MANDATORY field.
+
+        ERROR-1 / FK-33 §33.6.3: a ``status == "READ"`` attestation is only
+        meaningful if every binding it claims is actually present. An empty
+        value in any :data:`_MANDATORY_READ_FIELDS` means a Sonar/run source
+        was absent and silently read as ``""`` — that must NEVER pass through
+        to the IntegrityGate (Dim 9). Construction itself is the fail-closed
+        boundary, so no caller can hand-roll an under-sourced attestation.
+
+        ``new_code_definition`` is enforced like the other bindings: it is a
+        first-class attribute of the formal sonar-attestation entity and a
+        code-producing project under the gate always has an active new-code
+        period, so an empty value is a fail-closed precondition violation.
+
+        Returns:
+            The validated attestation.
+
+        Raises:
+            ValueError: When ``status`` is ``READ`` and any mandatory field is
+                empty/whitespace-only (Pydantic surfaces it as a
+                ``ValidationError``).
+        """
+        if self.status != ATTESTATION_STATUS_READ:
+            return self
+        missing = [
+            name
+            for name in _MANDATORY_READ_FIELDS
+            if not str(getattr(self, name)).strip()
+        ]
+        if missing:
+            raise ValueError(
+                "READ SonarAttestation is missing mandatory FK-33 §33.6.3 "
+                f"binding fields (fail-closed, ERROR-1): {', '.join(missing)}"
+            )
+        return self
 
     def config_hash(self) -> str:
         """Derive the FK-03 Config-Hash for drift detection.
@@ -157,4 +236,10 @@ def is_green(attestation: SonarAttestation, *, overall_open_issue_count: int) ->
     )
 
 
-__all__ = ["QUALITY_GATE_OK", "SonarAttestation", "is_green", "is_green_status"]
+__all__ = [
+    "ATTESTATION_STATUS_READ",
+    "QUALITY_GATE_OK",
+    "SonarAttestation",
+    "is_green",
+    "is_green_status",
+]

@@ -31,6 +31,8 @@ from agentkit.installer.registration import (
     RuntimeProfile,
 )
 from agentkit.installer.runner import (
+    _CI_CHECKPOINT_ID,
+    _SONAR_CHECKPOINT_ID,
     MANDATORY_SKILLS,
     PROMPT_MANIFEST_FILENAME,
     InstallConfig,
@@ -93,6 +95,9 @@ def _make_config(
         runtime_profile=RuntimeProfile.CORE,
         # No live SonarQube here => conscious opt-out so CP 10d is SKIPPED.
         sonarqube_available=False,
+        # No live Jenkins here => conscious opt-out so the CI preflight SKIPS
+        # (AG3-056 FIX-5).
+        ci_available=False,
     )
 
 
@@ -265,6 +270,20 @@ def test_install_persists_project_registration(tmp_path: Path) -> None:
     ]
     assert len(cp7) == 1
     assert cp7[0].status is CheckpointStatus.CREATED
+
+    # AG3-056 WARNING-2: the CI preflight result is RECORDED in
+    # checkpoint_results. This config opts out of CI (ci_available=False) =>
+    # SKIPPED with a machine-readable reason (mirrors the Sonar CP recording).
+    ci_cp = [r for r in result.checkpoint_results if r.checkpoint == _CI_CHECKPOINT_ID]
+    assert len(ci_cp) == 1
+    assert ci_cp[0].status is CheckpointStatus.SKIPPED
+    assert ci_cp[0].reason == "not_applicable"
+    # The Sonar CP 10d result is likewise recorded (also a conscious opt-out).
+    sonar_cp = [
+        r for r in result.checkpoint_results if r.checkpoint == _SONAR_CHECKPOINT_ID
+    ]
+    assert len(sonar_cp) == 1
+    assert sonar_cp[0].status is CheckpointStatus.SKIPPED
 
     # AC4-ish: the registration is persisted with the correct fields.
     stored = repo.get(root.stem)

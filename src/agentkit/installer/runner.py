@@ -52,6 +52,9 @@ if TYPE_CHECKING:
     # PUBLIC surface ``agentkit.skills`` — never the internal
     # ``agentkit.skills.bundle_store`` submodule (exposure=internal). The public
     # package re-exports ``SkillBundleStore``/``SkillProfile``/``Skills``.
+    from agentkit.installer.integration_checkpoints.ci_preflight import (
+        CiPreflightResult,
+    )
     from agentkit.installer.integration_checkpoints.scanner_harness import ScanRunner
     from agentkit.installer.integration_checkpoints.sonar_preflight import (
         BranchPluginSelfTest,
@@ -59,6 +62,7 @@ if TYPE_CHECKING:
     )
     from agentkit.installer.registration import CheckpointResult, RuntimeProfile
     from agentkit.installer.repository import ProjectRegistrationRepository
+    from agentkit.integrations.jenkins import JenkinsClient
     from agentkit.integrations.sonar import SonarClient
     from agentkit.skills import SkillBundleStore, SkillProfile, Skills
 
@@ -179,6 +183,34 @@ class InstallConfig:
     # Endpoint used when ``sonarqube_available`` is True (FK-03 §3 example).
     sonarqube_base_url: str = "http://localhost:9901"
     sonarqube_token_env: str = "SONARQUBE_TOKEN"
+    # The SonarScanner version AK3 pins and RUNS for the local QA-subflow scan
+    # (FK-33 §33.6.3 attestation binding, ERROR-B). Required when
+    # ``sonarqube_available`` is True so a produced attestation never carries an
+    # empty scanner version (the cross-field rule fails closed otherwise).
+    sonarqube_scanner_version: str = "5.0.1"
+    # AG3-056 Design-Decision: mirror the Sonar discipline for the CI
+    # (Jenkins) pre-merge runner. The scaffold default for a code-producing
+    # project is ``ci.available: true`` (+ endpoint + pipeline) — the closure
+    # pre-merge barrier (AG3-053) needs a real CI trigger and an install must
+    # DECLARE Jenkins present. ``ci.available: false`` is a CONSCIOUS operator
+    # opt-out, never an automatic install default. Set ``ci_available=False``
+    # to scaffold the explicit opt-out (e.g. a CI-less install or a test
+    # fixture with no live Jenkins).
+    ci_available: bool = True
+    # Endpoint/job used when ``ci_available`` is True.
+    ci_base_url: str = "http://localhost:8080"
+    ci_token_env: str = "JENKINS_TOKEN"
+    ci_pipeline: str = "ak3-pre-merge"
+    # AG3-056 (FK-50 CP, FIX-5): the CI (Jenkins) precondition checkpoint runs
+    # applicability-conditional, exactly like the Sonar CP 10d check. With
+    # ``ci.available: false`` it is SKIPPED and needs no collaborator. With
+    # ``ci.available: true`` it is fail-closed and needs a connected
+    # ``JenkinsClient`` to verify reachability + token + pipeline existence;
+    # when it is ``None`` (and the stanza is available) the checkpoint FAILs
+    # closed (``missing_dependency``) and the install ABORTS — a real CI
+    # trigger must never be promised against an unverified Jenkins. Only the
+    # LIVE Jenkins server is OOS: the operator/CI injects ``ci_client``.
+    ci_client: JenkinsClient | None = None
     # AG3-039 (FK-50 §50.3 CP 7): the State-Backend project-registration port.
     # The installer (BC 12) depends only on the
     # ``ProjectRegistrationRepository`` Protocol; the productive
@@ -255,10 +287,44 @@ def _default_sonarqube_stanza(config: InstallConfig) -> dict[str, object]:
         },
     }
     if config.sonarqube_available:
-        # FK-03 §3: ``available and enabled`` require base_url + token_env
-        # (cross-field rule, no silent localhost-without-auth default).
+        # FK-03 §3: ``available and enabled`` require base_url + token_env +
+        # scanner_version (cross-field rule, no silent localhost-without-auth
+        # default; scanner_version is an attestation binding, FK-33 §33.6.3).
         stanza["base_url"] = config.sonarqube_base_url
         stanza["token_env"] = config.sonarqube_token_env
+        stanza["scanner_version"] = config.sonarqube_scanner_version
+    return stanza
+
+
+def _default_ci_stanza(config: InstallConfig) -> dict[str, object]:
+    """Return the EXPLICIT scaffold ``ci`` (Jenkins) stanza for a code project.
+
+    AG3-056 Design-Decision: mirror the Sonar discipline. For a code-producing
+    project the scaffold default is ``available: true`` (+ ``enabled: true`` +
+    endpoint + pipeline). The closure pre-merge barrier (AG3-053) needs a real
+    CI trigger to build/test + scan the integrated candidate; a fresh install
+    DECLARES Jenkins present rather than auto-disabling the runner.
+    ``available: false`` is a CONSCIOUS operator opt-out
+    (``config.ci_available = False``), never an automatic install default.
+
+    Args:
+        config: The install configuration; ``ci_available`` selects the
+            declared-present default vs the conscious opt-out, and
+            ``ci_base_url``/``ci_token_env``/``ci_pipeline`` carry the endpoint.
+
+    Returns:
+        The ``ci`` stanza mapping for ``project.yaml``.
+    """
+    stanza: dict[str, object] = {
+        "available": config.ci_available,
+        "enabled": config.ci_available,
+    }
+    if config.ci_available:
+        # ``available and enabled`` require base_url + token_env + pipeline
+        # (cross-field rule, no silent localhost/no-pipeline default).
+        stanza["base_url"] = config.ci_base_url
+        stanza["token_env"] = config.ci_token_env
+        stanza["pipeline"] = config.ci_pipeline
     return stanza
 
 
@@ -314,6 +380,12 @@ def _build_project_yaml(config: InstallConfig) -> dict[str, object]:
     # story types are code-producing, so it is always written here.
     if {"implementation", "bugfix"}.intersection(story_types):
         pipeline["sonarqube"] = _default_sonarqube_stanza(config)
+        # AG3-056: a code-producing project must likewise declare the ``ci``
+        # (Jenkins) stanza EXPLICITLY — never rely on omission (config-load
+        # rejects an omitted stanza for a code-producing project). Scaffold
+        # default ``available: true`` (+ endpoint + pipeline); ``available:
+        # false`` is a conscious operator opt-out (``config.ci_available``).
+        pipeline["ci"] = _default_ci_stanza(config)
 
     data: dict[str, object] = {
         "project_key": config.project_key,
@@ -1092,7 +1164,19 @@ def install_agentkit(config: InstallConfig) -> InstallResult:
     # available:false => SKIPPED (reason=not_applicable, NOT FAILED);
     # available:true => fail-closed checks (reachability/version, token role
     # incl. Administer Issues, branch-plugin presence + conformance self-test).
-    _run_cp10d_sonarqube(config, root, yaml_data)
+    sonar_cp = _run_cp10d_sonarqube(config, root, yaml_data)
+    checkpoint_results.append(_sonar_cp_to_checkpoint_result(sonar_cp))
+
+    # AG3-056 (FIX-5): applicability-conditional CI (Jenkins) precondition
+    # checkpoint, mirroring CP 10d. ci.available:false => SKIPPED
+    # (reason=not_applicable); ci.available:true => fail-closed checks
+    # (reachable, token authenticates, pipeline exists). A FAILED result
+    # ABORTS the install — the closure pre-merge barrier must not be promised a
+    # real CI trigger against an unverified Jenkins. The PASS/SKIPPED outcome
+    # is RECORDED in ``checkpoint_results`` (WARNING-2), mirroring the Sonar CP;
+    # a FAILED result never reaches here (it raised + aborted above).
+    ci_cp = _run_ci_preflight(config, yaml_data)
+    checkpoint_results.append(_ci_cp_to_checkpoint_result(ci_cp))
 
     return InstallResult(
         success=True,
@@ -1354,6 +1438,132 @@ def _run_cp10d_sonarqube(
             },
         )
     return result
+
+
+def _run_ci_preflight(
+    config: InstallConfig,
+    yaml_data: dict[str, object],
+) -> CiPreflightResult:
+    """Run the CI (Jenkins) precondition checkpoint (AG3-056 FIX-5, fail-closed).
+
+    Parses the written ``ci`` stanza into a ``JenkinsConfig`` and runs
+    :func:`check_ci_preconditions`, mirroring the Sonar CP 10d discipline:
+
+    * ``available: false`` => SKIPPED (``reason=not_applicable``), no Jenkins
+      collaborator needed.
+    * ``available: true`` => fail-closed checks (reachable, token
+      authenticates, pipeline exists). A FAILED result raises
+      ``InstallationError`` and ABORTS the install — the closure pre-merge
+      barrier (AG3-053) must not be promised a real CI trigger against an
+      unverified Jenkins. There is NO escape hatch: a missing ``ci_client``
+      on an ``available: true`` stanza FAILs closed (``missing_dependency``).
+
+    Args:
+        config: The install configuration (carries the ``ci_client``).
+        yaml_data: The project.yaml mapping just written (source of the
+            ``ci`` stanza).
+
+    Returns:
+        The :class:`CiPreflightResult` (SKIPPED when not applicable, else PASS
+        — a FAILED result raises before returning).
+
+    Raises:
+        InstallationError: When an APPLICABLE checkpoint FAILs (fail-closed).
+    """
+    from agentkit.config.models import JenkinsConfig
+    from agentkit.installer.integration_checkpoints import (
+        CiPreflightResult,
+        check_ci_preconditions,
+    )
+    from agentkit.installer.integration_checkpoints.ci_preflight import (
+        CheckpointStatus,
+    )
+
+    pipeline = yaml_data.get("pipeline", {})
+    stanza = pipeline.get("ci") if isinstance(pipeline, dict) else None
+    if not isinstance(stanza, dict):
+        # No ci stanza written (non-code-producing scaffold) => the runner is
+        # not-applicable; the checkpoint is a no-op SKIP.
+        return CiPreflightResult(
+            status=CheckpointStatus.SKIPPED, reason="not_applicable"
+        )
+
+    ci_config = JenkinsConfig.model_validate(stanza)
+    result = check_ci_preconditions(ci_config, client=config.ci_client)
+    if result.status == CheckpointStatus.FAILED:
+        raise InstallationError(
+            "AG3-056 CI (Jenkins) precondition FAILED: "
+            f"{result.reason} ({'; '.join(result.details)}). The closure "
+            "pre-merge barrier must not be promised a real CI trigger against "
+            "an unverifiable Jenkins. Fix the precondition, or set "
+            "ci.available=false to opt out.",
+            detail={
+                "cause": "CiPreconditionFailed",
+                "reason": result.reason,
+                "details": list(result.details),
+            },
+        )
+    return result
+
+
+#: Stable checkpoint id for the AG3-052 CP 10d SonarQube precondition.
+_SONAR_CHECKPOINT_ID = "cp_10d_sonarqube_precondition"
+#: Stable checkpoint id for the AG3-056 CI (Jenkins) precondition (FIX-5).
+_CI_CHECKPOINT_ID = "ci_preflight_jenkins_precondition"
+
+
+def _preflight_to_checkpoint_result(
+    checkpoint_id: str,
+    *,
+    status: str,
+    reason: str | None,
+    details: tuple[str, ...],
+) -> CheckpointResult:
+    """Map a preflight result (PASS/SKIPPED/FAILED) to a ``CheckpointResult``.
+
+    Shared by the Sonar CP 10d and the AG3-056 CI preflight recording
+    (WARNING-2). The preflight modules use a flat string status
+    (``PASS``/``SKIPPED``/``FAILED``); this projects it onto the installer's
+    :class:`CheckpointStatus` enum and preserves the machine-readable
+    ``reason`` (mandatory for SKIPPED/FAILED, FK-50 §50.4). ``FAILED`` is
+    mapped for completeness even though an APPLICABLE failure aborts the
+    install before recording.
+    """
+    from agentkit.installer.registration import CheckpointResult, CheckpointStatus
+
+    status_map = {
+        "PASS": CheckpointStatus.PASS,
+        "SKIPPED": CheckpointStatus.SKIPPED,
+        "FAILED": CheckpointStatus.FAILED,
+    }
+    mapped = status_map.get(status, CheckpointStatus.FAILED)
+    return CheckpointResult(
+        checkpoint=checkpoint_id,
+        status=mapped,
+        detail="; ".join(details) or None,
+        reason=reason,
+        duration_ms=0,
+    )
+
+
+def _sonar_cp_to_checkpoint_result(result: SonarPreflightResult) -> CheckpointResult:
+    """Record the Sonar CP 10d outcome as a ``CheckpointResult`` (WARNING-2)."""
+    return _preflight_to_checkpoint_result(
+        _SONAR_CHECKPOINT_ID,
+        status=result.status,
+        reason=result.reason,
+        details=result.details,
+    )
+
+
+def _ci_cp_to_checkpoint_result(result: CiPreflightResult) -> CheckpointResult:
+    """Record the AG3-056 CI preflight outcome as a ``CheckpointResult`` (FIX-5)."""
+    return _preflight_to_checkpoint_result(
+        _CI_CHECKPOINT_ID,
+        status=result.status,
+        reason=result.reason,
+        details=result.details,
+    )
 
 
 def _resolve_branch_plugin_self_test(

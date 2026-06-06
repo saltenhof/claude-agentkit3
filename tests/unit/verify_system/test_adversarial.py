@@ -71,6 +71,7 @@ class TestAdversarialChallenger:
                 github_owner="acme",  # AG3-039 R6: CP 7 coordinates are MANDATORY
                 github_repo="demo",
                 sonarqube_available=False,  # AG3-052: conscious opt-out, no live Sonar
+                ci_available=False,  # AG3-056: conscious opt-out, no live Jenkins
             ),
         )
         story_dir = project_root / "stories" / "TEST-001"

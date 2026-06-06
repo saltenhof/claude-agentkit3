@@ -12,7 +12,35 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 from agentkit.exceptions import WorktreeError
-from agentkit.utils.git import create_worktree, remove_worktree
+from agentkit.utils.git import (
+    create_worktree,
+    remove_worktree,
+    tree_hash_of_commit,
+)
+
+
+@pytest.mark.requires_git
+class TestTreeHashOfCommit:
+    """Tests for tree_hash_of_commit (AG3-056 FIX-4)."""
+
+    def test_returns_tree_hash_of_head(self, git_repo: Path) -> None:
+        head = subprocess.run(
+            ["git", "-C", str(git_repo), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        expected = subprocess.run(
+            ["git", "-C", str(git_repo), "rev-parse", "HEAD^{tree}"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        assert tree_hash_of_commit(git_repo, head) == expected
+
+    def test_unknown_commit_fails_closed(self, git_repo: Path) -> None:
+        with pytest.raises(WorktreeError, match="rev-parse"):
+            tree_hash_of_commit(git_repo, "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
 
 
 @pytest.fixture

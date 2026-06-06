@@ -100,6 +100,9 @@ def _install_project(project_dir: Path) -> None:
             # AG3-052: scaffold default is available:true (FK-03 §3); no live
             # Sonar in CI => conscious opt-out so the completing CP 10d SKIPs.
             sonarqube_available=False,
+            # AG3-056 (FIX-5): no live Jenkins in CI => conscious opt-out so the
+            # CI preflight SKIPS.
+            ci_available=False,
         )
     )
     assert install_result.success

@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from agentkit.config.models import (
     AreConfig,
     Features,
+    JenkinsConfig,
     PipelineConfig,
     ProjectConfig,
     RepositoryConfig,
@@ -21,11 +22,16 @@ from agentkit.config.models import (
 #: sonarqube stanza explicitly. Tests that are NOT about the gate declare an
 #: explicit opt-out (``available: false`` => gate not-applicable, legal).
 _OPT_OUT_SONAR = SonarQubeConfig(available=False, enabled=False)
+#: AG3-056: a code-producing project must likewise DECLARE the ci stanza
+#: explicitly. Tests not about the runner declare an explicit opt-out.
+_OPT_OUT_CI = JenkinsConfig(available=False, enabled=False)
 
 
 def _opt_out_pipeline(**kwargs: object) -> PipelineConfig:
-    """Build a PipelineConfig with an explicit sonarqube opt-out (E6)."""
-    return PipelineConfig(sonarqube=_OPT_OUT_SONAR, **kwargs)  # type: ignore[arg-type]
+    """Build a PipelineConfig with explicit sonarqube + ci opt-outs."""
+    return PipelineConfig(  # type: ignore[arg-type]
+        sonarqube=_OPT_OUT_SONAR, ci=_OPT_OUT_CI, **kwargs
+    )
 
 
 class TestPipelineConfig:
@@ -248,7 +254,9 @@ class TestSonarqubeDeclaredExplicitly:
                     enabled=True,
                     base_url="http://sonar:9901",
                     token_env="SONARQUBE_TOKEN",
-                )
+                    scanner_version="5.0.1",
+                ),
+                ci=_OPT_OUT_CI,
             ),
         )
         assert cfg.pipeline.sonarqube is not None

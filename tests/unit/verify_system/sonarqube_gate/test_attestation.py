@@ -87,3 +87,48 @@ class TestConfigHash:
     def test_extra_field_rejected(self) -> None:
         with pytest.raises(ValueError, match="overall_zero_violations|extra"):
             _attestation(overall_zero_violations=True)
+
+
+class TestMandatoryFieldFailClosed:
+    """ERROR-1: a READ attestation can NEVER carry an empty MANDATORY field."""
+
+    @pytest.mark.parametrize(
+        "field_name",
+        [
+            "commit_sha",
+            "tree_hash",
+            "analysis_id",
+            "ce_task_id",
+            "quality_gate_status",
+            "quality_gate_hash",
+            "quality_profile_hash",
+            "analysis_scope_hash",
+            "new_code_definition",
+            "exception_ledger_hash",
+            "last_analyzed_revision",
+            "sonarqube_version",
+            "branch_plugin_version",
+            "scanner_version",
+        ],
+    )
+    def test_empty_mandatory_field_rejected_for_read(self, field_name: str) -> None:
+        with pytest.raises(ValueError, match="missing mandatory"):
+            _attestation(**{field_name: ""})
+
+    def test_whitespace_only_mandatory_field_rejected_for_read(self) -> None:
+        with pytest.raises(ValueError, match="missing mandatory"):
+            _attestation(commit_sha="   ")
+
+    def test_empty_new_code_definition_rejected_for_read(self) -> None:
+        """new_code_definition is a mandatory first-class attribute of the
+        formal sonar-attestation entity: a code-producing project under the
+        gate always has an active new-code period, so an empty value is a
+        fail-closed precondition violation (ERROR-1)."""
+        with pytest.raises(ValueError, match="missing mandatory"):
+            _attestation(new_code_definition="")
+
+    def test_non_read_status_skips_mandatory_check(self) -> None:
+        """A non-READ attestation (e.g. a placeholder/unread marker) is not
+        subject to the mandatory-binding rule; only READ is enforced."""
+        att = _attestation(commit_sha="", status="UNREAD")
+        assert att.commit_sha == ""

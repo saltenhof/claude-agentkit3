@@ -12,7 +12,7 @@
 - AG3-041 (QA-Zyklus-Mechanik — `advance_qa_cycle`/Remediation-Loop setzt den Finding-Resolution-Status `fully_resolved`/`partially_resolved`/`not_resolved` auf den Layer-2-Findings; ohne diese Resolution-Semantik hat das Finding-Resolution-Gate §29.2 nichts zu lesen; **in_progress**)
 - AG3-043 (Layer-2-LLM-Evaluations — `StructuredEvaluator` produziert die drei Layer-2-QA-Artefakte `qa_review.json`/`semantic_review.json`/`doc_fidelity.json`, die das Finding-Resolution-Gate §29.2 konsumiert; **blocked**)
 - AG3-052 (`sonarqube_gate`-Capability — Attestation-Modell/Green-Definition/Reconciler/Applicability; liefert die Gate-**Bewertung**, NICHT die Scan-**Ausfuehrung**; completed)
-- AG3-056 (Pre-Merge-Verification-Runner — fuehrt Build/Test + Integrated-Candidate-Sonar-Scan **aus** und liefert von Sonar/CI **commit-gebundene** Ergebnisse fuer `PreMergeScanPort`/`BuildTestPort`; ohne ihn bleibt der Scan-Port fail-open; **neu/blocked**)
+- AG3-056 (Pre-Merge-Verification-Runner — fuehrt Build/Test + Integrated-Candidate-Sonar-Scan **aus** und liefert von Sonar/CI **commit-gebundene** Ergebnisse fuer `PreMergeScanPort`/`BuildTestPort`; ohne ihn bleibt der Scan-Port fail-open; **completed**)
 
 > **Status `blocked`:** AG3-041 ist `in_progress`, AG3-043 ist `blocked` (transitiv ueber AG3-041). Das Finding-Resolution-Gate (§29.2) ist ein **harter** In-Scope-Schritt dieser Story und konsumiert die Layer-2-Resolution-Artefakte beider Stories — diese Story kann erst starten, wenn AG3-041 + AG3-043 `completed` sind. (Begruendung des Schnitts: §29.2.1 + bc-cut-decisions BC 7 `ClosureGates.FindingResolutionGate` prueft „gegen Layer-2-Artefakte qa_review/semantic_review/doc_fidelity"; deren Producer ist AG3-043, deren Resolution-Status-Feld AG3-041.)
 >

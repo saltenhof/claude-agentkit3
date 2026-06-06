@@ -111,6 +111,12 @@ def _write_sonar_project_config(project_root: Path) -> None:
                 "    enabled: true",
                 "    base_url: http://sonar.invalid:9901",
                 "    token_env: SONAR_TOKEN_TEST",
+                "    scanner_version: 5.0.1",
+                # AG3-056: code-producing project must declare the ci stanza;
+                # an explicit opt-out keeps this Dim-9/Sonar test isolated.
+                "  ci:",
+                "    available: false",
+                "    enabled: false",
             )
         ),
         encoding="utf-8",
@@ -140,6 +146,10 @@ def _write_sonar_unavailable_project_config(project_root: Path) -> None:
                 "    language: python",
                 "pipeline:",
                 "  sonarqube:",
+                "    available: false",
+                "    enabled: false",
+                # AG3-056: code-producing project must declare the ci stanza.
+                "  ci:",
                 "    available: false",
                 "    enabled: false",
             )

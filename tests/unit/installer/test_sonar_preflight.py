@@ -53,6 +53,7 @@ def _profile(tmp_path: Path) -> SonarQubeConfig:
         enabled=True,
         base_url="http://sonar:9901",
         token_env="SONARQUBE_TOKEN",
+        scanner_version="5.0.1",
     )
 
 
@@ -123,6 +124,7 @@ class TestApplicableFailClosed:
             enabled=True,
             base_url="http://sonar:9901",
             token_env="SONARQUBE_TOKEN",
+            scanner_version="5.0.1",
         )
         result = _check(config, tmp_path)
         assert result.status == CheckpointStatus.FAILED

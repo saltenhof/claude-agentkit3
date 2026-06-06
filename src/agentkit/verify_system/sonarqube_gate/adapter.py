@@ -35,6 +35,11 @@ from agentkit.verify_system.sonarqube_gate.applicability import (
 )
 from agentkit.verify_system.sonarqube_gate.attestation import SonarAttestation
 from agentkit.verify_system.sonarqube_gate.errors import ReconcilerApplyError
+from agentkit.verify_system.sonarqube_gate.integrity_hashes import (
+    compute_analysis_scope_hash,
+    compute_quality_gate_hash,
+    compute_quality_profile_hash,
+)
 from agentkit.verify_system.sonarqube_gate.port import (
     PostApplyGateState,
     SonarGateInputs,
@@ -62,23 +67,32 @@ class BoundAnalysis:
     """The commit-bound analysis coordinates for the final branch scan.
 
     Resolved from the scanner ``report-task.txt`` (``sonar.qualitygate.wait``)
-    plus git — never a bare ``projectKey`` live-read (FK-33 §33.6.3).
+    plus git — never a bare ``projectKey`` live-read (FK-33 §33.6.3). A real
+    ``report-task.txt`` carries only ``ceTaskId`` (plus projectKey/branch/...),
+    NOT an ``analysisId``: the analysisId is a property of the Compute-Engine
+    task and is resolved at attestation time via ``api/ce/task`` (ERROR-A).
 
     Attributes:
-        analysis_id: SonarQube analysis identifier (preferred binding key).
-        ce_task_id: Compute-Engine task identifier.
+        ce_task_id: Compute-Engine task identifier (from ``report-task.txt``;
+            the authoritative key to resolve the analysisId).
         component: Sonar component/project key for issue search.
         branch: Branch name measured by the Community Branch Plugin.
         commit_sha: Git commit the scan was bound to.
         tree_hash: Git tree hash the scan was bound to.
+        scanner_version: SonarScanner version of the run that produced this
+            analysis. Sonar exposes NO authoritative scanner version for an
+            analysis (``project_status``/``ce/task`` do not carry it), so it is
+            carried authoritatively from the run that produced the analysis
+            (FK-33 §33.6.3 names it; ERROR-B). Empty when the producer could
+            not supply it — the attestation build then fails closed.
     """
 
-    analysis_id: str
     ce_task_id: str
     component: str
     branch: str
     commit_sha: str
     tree_hash: str
+    scanner_version: str
 
 
 @dataclass(frozen=True)
@@ -172,8 +186,9 @@ class ConfiguredSonarGateInputPort:
         """
         analysis = self.bound_analysis
         try:
+            analysis_id = resolve_analysis_id(self.client, analysis.ce_task_id)
             status_body = self.client.project_status(
-                analysis_id=analysis.analysis_id, ce_task_id=analysis.ce_task_id
+                analysis_id=analysis_id
             ).json_body
             open_issues = self._read_open_issues()
         except SonarApiError as exc:
@@ -184,46 +199,12 @@ class ConfiguredSonarGateInputPort:
         )
 
     def _read_attestation(self) -> SonarAttestation:
-        analysis = self.bound_analysis
-        status_body = self.client.project_status(
-            analysis_id=analysis.analysis_id, ce_task_id=analysis.ce_task_id
-        ).json_body
-        revision = self._read_last_analyzed_revision(analysis)
-        plugin_version = self.config.plugins.community_branch.min_version
-        return SonarAttestation(
-            commit_sha=analysis.commit_sha,
-            tree_hash=analysis.tree_hash,
-            analysis_id=analysis.analysis_id,
-            ce_task_id=analysis.ce_task_id,
-            quality_gate_status=_quality_gate_status(status_body),
-            quality_gate_hash=_str(status_body, "qualityGateHash"),
-            quality_profile_hash=_str(status_body, "qualityProfileHash"),
-            analysis_scope_hash=_str(status_body, "analysisScopeHash"),
-            new_code_definition=_new_code_definition(status_body),
+        return read_commit_bound_attestation(
+            self.client,
+            self.config,
+            self.bound_analysis,
             exception_ledger_hash=self.ledger.content_hash(),
-            last_analyzed_revision=revision,
-            sonarqube_version=self._read_server_version(),
-            branch_plugin_version=plugin_version,
-            scanner_version=_str(status_body, "scannerVersion"),
-            status="READ",
         )
-
-    def _read_last_analyzed_revision(self, analysis: BoundAnalysis) -> str:
-        body = self.client.component_revision(
-            analysis.component, branch=analysis.branch
-        ).json_body
-        component = body.get("component")
-        if isinstance(component, dict):
-            value = component.get("analysisRevision") or component.get("version")
-            if isinstance(value, str) and value:
-                return value
-        # Fail-closed: an absent revision must not silently pass the stale
-        # check; bind to the scan's commit so the gate compares it to HEAD.
-        return analysis.commit_sha
-
-    def _read_server_version(self) -> str:
-        body = self.client.system_status().json_body
-        return _str(body, "version")
 
     def _read_open_issues(self) -> tuple[SonarIssue, ...]:
         analysis = self.bound_analysis
@@ -265,15 +246,258 @@ def _quality_gate_status(status_body: dict[str, Any]) -> str:
     raise SonarApiError("qualitygates/project_status returned no projectStatus.status")
 
 
+#: Terminal Compute-Engine task status that carries a usable ``analysisId``.
+_CE_TASK_SUCCESS = "SUCCESS"
+
+
+def resolve_analysis_id(client: SonarClient, ce_task_id: str) -> str:
+    """Resolve the real ``analysisId`` from a ``ceTaskId`` (ERROR-A, fail-closed).
+
+    A real SonarScanner ``report-task.txt`` carries only ``ceTaskId`` — the
+    ``analysisId`` is a property of the Compute-Engine task and only exists once
+    the task has terminated successfully. This calls ``api/ce/task`` and returns
+    the analysisId ONLY when the task reached terminal ``SUCCESS`` and carries a
+    non-empty ``analysisId``. A pending / in-progress / failed / canceled task,
+    or a successful task without an analysisId, fails closed.
+
+    Shared by AG3-052's gate adapter and the AG3-056 pre-merge scan runner so
+    there is ONE analysisId-resolution truth (no second Sonar truth).
+
+    Args:
+        client: Thin ``integrations.sonar`` client (scoped token).
+        ce_task_id: The Compute-Engine task id from ``report-task.txt``.
+
+    Returns:
+        The non-empty Sonar ``analysisId`` of the successful analysis.
+
+    Raises:
+        SonarApiError: When ``ce_task_id`` is empty, the task is not terminal
+            SUCCESS, or it carries no analysisId (fail-closed; no shortcut that
+            treats the ceTaskId itself as an analysisId).
+    """
+    if not ce_task_id:
+        raise SonarApiError(
+            "cannot resolve an analysisId without a ceTaskId "
+            "(FK-33 §33.6.3, fail-closed)"
+        )
+    task = client.ce_task(ce_task_id).json_body.get("task")
+    if not isinstance(task, dict):
+        raise SonarApiError(
+            f"ce/task returned no task object for ceTaskId={ce_task_id!r} "
+            "(fail-closed)"
+        )
+    status = task.get("status")
+    if status != _CE_TASK_SUCCESS:
+        raise SonarApiError(
+            f"ce/task for ceTaskId={ce_task_id!r} is not terminal SUCCESS "
+            f"(status={status!r}); the analysis is not gatable (fail-closed)"
+        )
+    analysis_id = task.get("analysisId")
+    if not isinstance(analysis_id, str) or not analysis_id:
+        raise SonarApiError(
+            f"ce/task SUCCESS for ceTaskId={ce_task_id!r} carried no analysisId "
+            "(cannot bind the analysis; fail-closed)"
+        )
+    return analysis_id
+
+
+def read_last_analyzed_revision(
+    client: SonarClient, analysis: BoundAnalysis, analysis_id: str
+) -> str:
+    """Read the git revision SONAR reports for a bound analysis (FK-33 §33.6.3).
+
+    Authoritative source: the revision the analysis actually measured, read
+    from Sonar via ``api/project_analyses/search`` and matched STRICTLY by the
+    analysis ``key == analysis_id`` — NEVER the project-version string, NEVER a
+    single-entry fallback, and NEVER a local fabrication (ERROR-A).
+
+    Shared by AG3-052's gate-input adapter and the AG3-056 pre-merge scan
+    runner so there is ONE revision-binding truth (no second Sonar truth).
+
+    Args:
+        client: Thin ``integrations.sonar`` client (scoped token).
+        analysis: The commit-bound analysis coordinates.
+        analysis_id: The REAL analysisId (resolved via :func:`resolve_analysis_id`).
+
+    Returns:
+        The git revision the analysis measured.
+
+    Raises:
+        SonarApiError: When Sonar reports no analysis whose ``key`` matches
+            ``analysis_id``, or no revision (fail-closed — no local
+            ``commit_sha`` fallback, FIX-2; no single-entry fallback, ERROR-A).
+    """
+    body = client.project_analyses_search(
+        analysis.component, branch=analysis.branch
+    ).json_body
+    revision = _revision_for_analysis(body, analysis_id)
+    if not revision:
+        raise SonarApiError(
+            "project_analyses/search reported no revision for "
+            f"analysisId={analysis_id!r} on branch "
+            f"{analysis.branch!r}; cannot prove the commit binding "
+            "(FK-33 §33.6.3, fail-closed — strict key match, no fallback)"
+        )
+    return revision
+
+
+def read_commit_bound_attestation(
+    client: SonarClient,
+    config: SonarQubeConfig,
+    analysis: BoundAnalysis,
+    *,
+    exception_ledger_hash: str,
+) -> SonarAttestation:
+    """Build a COMPLETE commit-bound ``SonarAttestation`` (FK-33 §33.6.3).
+
+    The single attestation-construction truth reused by both AG3-052's gate
+    adapter and the AG3-056 pre-merge scan runner (FIX-4 / ERROR-A / ERROR-B —
+    no hand-rolled partial attestation, no second Sonar truth). Every field is
+    sourced authoritatively from where Sonar actually exposes it:
+
+    * ``analysis_id`` resolved from ``analysis.ce_task_id`` via ``api/ce/task``
+      (terminal SUCCESS + non-empty analysisId, :func:`resolve_analysis_id`);
+    * ``quality_gate_status`` / ``new_code_definition`` from
+      ``api/qualitygates/project_status`` (by the resolved ``analysisId``);
+    * ``quality_gate_hash`` / ``quality_profile_hash`` / ``analysis_scope_hash``
+      COMPUTED deterministically from ``api/qualitygates/get_by_project`` +
+      ``show`` / ``api/qualityprofiles/search`` / ``api/settings/values``
+      (the ``project_status`` response carries NO such fields, ERROR-B);
+    * ``last_analyzed_revision`` from ``api/project_analyses/search``
+      (:func:`read_last_analyzed_revision`, strict-match, fail-closed);
+    * ``sonarqube_version`` from ``api/system/status``;
+    * ``branch_plugin_version`` from config;
+    * ``scanner_version`` from the run that produced the analysis
+      (``analysis.scanner_version``; Sonar exposes none — ERROR-B);
+    * ``commit_sha`` / ``tree_hash`` from the (already proven) bound analysis;
+    * ``exception_ledger_hash`` from the ledger actually used.
+
+    Args:
+        client: Thin ``integrations.sonar`` client (scoped token).
+        config: The resolved ``sonarqube`` config stanza.
+        analysis: The commit-bound analysis coordinates (``commit_sha`` and
+            ``tree_hash`` MUST already be proven by the caller; ``ce_task_id``
+            and ``scanner_version`` come from the producing run).
+        exception_ledger_hash: Content hash of the accepted-exception ledger
+            actually used for this analysis.
+
+    Returns:
+        A complete :class:`SonarAttestation` (``status="READ"``).
+
+    Raises:
+        SonarApiError: On any unreachable/malformed Sonar read, a non-terminal
+            CE task, a missing revision, or an unsourceable required field
+            (fail-closed; never empty-string-stamped).
+    """
+    if not analysis.scanner_version:
+        raise SonarApiError(
+            "no authoritative scanner_version for the analysis of "
+            f"ceTaskId={analysis.ce_task_id!r}; Sonar exposes none and the "
+            "producing run supplied none (FK-33 §33.6.3, fail-closed — never "
+            "a placeholder scanner version in a produced attestation)"
+        )
+    analysis_id = resolve_analysis_id(client, analysis.ce_task_id)
+    status_body = client.project_status(analysis_id=analysis_id).json_body
+    revision = read_last_analyzed_revision(client, analysis, analysis_id)
+    server_version = _required_server_version(client)
+    return SonarAttestation(
+        commit_sha=analysis.commit_sha,
+        tree_hash=analysis.tree_hash,
+        analysis_id=analysis_id,
+        ce_task_id=analysis.ce_task_id,
+        quality_gate_status=_quality_gate_status(status_body),
+        quality_gate_hash=compute_quality_gate_hash(client, analysis.component),
+        quality_profile_hash=compute_quality_profile_hash(client, analysis.component),
+        analysis_scope_hash=compute_analysis_scope_hash(client, analysis.component),
+        new_code_definition=_new_code_definition(status_body),
+        exception_ledger_hash=exception_ledger_hash,
+        last_analyzed_revision=revision,
+        sonarqube_version=server_version,
+        branch_plugin_version=config.plugins.community_branch.min_version,
+        scanner_version=analysis.scanner_version,
+        status="READ",
+    )
+
+
+def _revision_for_analysis(body: dict[str, Any], analysis_id: str) -> str:
+    """Return the git revision the given analysis measured (FK-33 §33.6.3).
+
+    Matches the analysis STRICTLY by ``key == analysis_id`` in an
+    ``api/project_analyses/search`` body and returns its ``revision``. There is
+    NO single-entry fallback (ERROR-A: against real Sonar the analyses list may
+    carry many entries and the binding proof must be exact). Returns the empty
+    string when no entry's key matches so the caller fails closed.
+    """
+    analyses = body.get("analyses")
+    if not isinstance(analyses, list):
+        return ""
+    for entry in analyses:
+        if isinstance(entry, dict) and entry.get("key") == analysis_id:
+            revision = entry.get("revision")
+            return revision if isinstance(revision, str) else ""
+    return ""
+
+
 def _new_code_definition(status_body: dict[str, Any]) -> str:
+    """Read the new-code-definition mode from a REAL ``project_status`` body.
+
+    The real SonarQube ``api/qualitygates/project_status`` response carries the
+    new-code reference as ``projectStatus.periods`` — an ARRAY of
+    ``{index, mode, date, parameter}`` entries (newer servers; the first entry
+    describes the active new-code period). Older servers (<= 6.x) expose a
+    SINGLE ``projectStatus.period`` object of the same shape, which is still
+    accepted. The ``mode`` (e.g. ``PREVIOUS_VERSION`` / ``NUMBER_OF_DAYS`` /
+    ``REFERENCE_BRANCH``) is the new-code definition.
+
+    ``new_code_definition`` is a first-class attribute of the formal
+    ``deterministic-checks.entity.sonar-attestation`` entity and a MANDATORY
+    READ binding (see ``attestation._MANDATORY_READ_FIELDS``). A code-producing
+    project under the Sonar gate always has an active new-code period, so when
+    neither the real ``periods[]`` array nor the legacy ``period`` dict yields
+    a non-empty ``mode`` this fails closed rather than stamping ``""`` — the
+    absence is a broken precondition, not a silent empty (ERROR-1).
+
+    Raises:
+        SonarApiError: When no non-empty new-code ``mode`` can be sourced from
+            ``projectStatus.periods`` (or the legacy ``period``); fail-closed.
+    """
     project_status = status_body.get("projectStatus")
     if isinstance(project_status, dict):
-        period = project_status.get("period") or project_status.get("periods")
+        periods = project_status.get("periods")
+        if isinstance(periods, list):
+            for entry in periods:
+                if isinstance(entry, dict):
+                    mode = entry.get("mode")
+                    if isinstance(mode, str) and mode:
+                        return mode
+        period = project_status.get("period")  # legacy singular (older servers)
         if isinstance(period, dict):
             mode = period.get("mode")
-            if isinstance(mode, str):
+            if isinstance(mode, str) and mode:
                 return mode
-    return ""
+    raise SonarApiError(
+        "qualitygates/project_status carried no new-code period mode "
+        "(neither projectStatus.periods[] nor the legacy projectStatus.period "
+        "yielded a non-empty mode); cannot bind new_code_definition "
+        "(FK-33 §33.6.3, fail-closed — ERROR-1)"
+    )
+
+
+def _required_server_version(client: SonarClient) -> str:
+    """Read the SonarQube server version, failing closed when absent (ERROR-1).
+
+    ``sonarqube_version`` is a mandatory FK-33 §33.6.3 binding. The real
+    ``api/system/status`` response carries ``{id, version, status}``; a body
+    with no non-empty ``version`` cannot back a complete attestation, so this
+    raises rather than stamping ``""`` (which would otherwise pass silently).
+    """
+    version = client.system_status().json_body.get("version")
+    if not isinstance(version, str) or not version:
+        raise SonarApiError(
+            "api/system/status carried no version; cannot bind "
+            "sonarqube_version (FK-33 §33.6.3, fail-closed — ERROR-1)"
+        )
+    return version
 
 
 def _str(body: dict[str, Any], key: str) -> str:
@@ -321,4 +545,7 @@ __all__ = [
     "BoundAnalysis",
     "ConfiguredSonarGateInputPort",
     "build_issue_applier",
+    "read_commit_bound_attestation",
+    "read_last_analyzed_revision",
+    "resolve_analysis_id",
 ]

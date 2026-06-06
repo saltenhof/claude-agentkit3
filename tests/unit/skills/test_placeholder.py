@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from agentkit.config.models import (
+    JenkinsConfig,
     PipelineConfig,
     ProjectConfig,
     RepositoryConfig,
@@ -19,9 +20,11 @@ from agentkit.skills.placeholder import PlaceholderSubstitutor
 # Helper
 # ---------------------------------------------------------------------------
 
-#: AG3-052 E6: code-producing default story_types must declare sonarqube.
+#: AG3-052 E6 / AG3-056: code-producing default story_types must declare the
+#: sonarqube + ci stanzas explicitly (opt-outs for this placeholder test).
 _OPT_OUT_PIPELINE = PipelineConfig(
-    sonarqube=SonarQubeConfig(available=False, enabled=False)
+    sonarqube=SonarQubeConfig(available=False, enabled=False),
+    ci=JenkinsConfig(available=False, enabled=False),
 )
 
 

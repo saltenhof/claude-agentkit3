@@ -193,6 +193,9 @@ def _make_config(project_root: Path) -> InstallConfig:
         # AG3-052 Design-Decision: scaffold default is available:true (FK-03
         # §3); no live Sonar here => conscious opt-out so CP 10d is SKIPPED.
         sonarqube_available=False,
+        # AG3-056 (FIX-5): no live Jenkins here => conscious opt-out so the CI
+        # preflight SKIPS.
+        ci_available=False,
     )
 
 

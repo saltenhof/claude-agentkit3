@@ -101,6 +101,9 @@ def _make_config(
         # (FK-03 §3). No live SonarQube here => declare the conscious opt-out
         # so the completing install's CP 10d is SKIPPED (not fail-closed).
         sonarqube_available=False,
+        # No live Jenkins here => conscious opt-out so the CI preflight SKIPS
+        # (AG3-056 FIX-5).
+        ci_available=False,
     )
 
 

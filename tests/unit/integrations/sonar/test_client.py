@@ -52,6 +52,58 @@ def test_project_status_uses_analysis_id(captured_urls: list[str]) -> None:
     assert "qualitygates/project_status" in captured_urls[0]
 
 
+def test_project_analyses_search_builds_url(captured_urls: list[str]) -> None:
+    client = SonarClient("http://sonar:9901", "tok")
+    response = client.project_analyses_search("proj", branch="cand")
+    assert response.status_code == 200
+    assert "api/project_analyses/search" in captured_urls[0]
+    assert "project=proj" in captured_urls[0]
+    assert "branch=cand" in captured_urls[0]
+
+
+def test_project_analyses_search_omits_empty_branch(captured_urls: list[str]) -> None:
+    client = SonarClient("http://sonar:9901", "tok")
+    client.project_analyses_search("proj")
+    assert "project=proj" in captured_urls[0]
+    assert "branch=" not in captured_urls[0]
+
+
+def test_ce_task_builds_url(captured_urls: list[str]) -> None:
+    client = SonarClient("http://sonar:9901", "tok")
+    client.ce_task("CE-1")
+    assert "api/ce/task" in captured_urls[0]
+    assert "id=CE-1" in captured_urls[0]
+
+
+def test_qualitygates_get_by_project_builds_url(captured_urls: list[str]) -> None:
+    client = SonarClient("http://sonar:9901", "tok")
+    client.qualitygates_get_by_project("proj")
+    assert "api/qualitygates/get_by_project" in captured_urls[0]
+    assert "project=proj" in captured_urls[0]
+
+
+def test_qualitygates_show_builds_url(captured_urls: list[str]) -> None:
+    client = SonarClient("http://sonar:9901", "tok")
+    client.qualitygates_show("AK3 Way")
+    assert "api/qualitygates/show" in captured_urls[0]
+    assert "name=AK3" in captured_urls[0]
+
+
+def test_qualityprofiles_search_builds_url(captured_urls: list[str]) -> None:
+    client = SonarClient("http://sonar:9901", "tok")
+    client.qualityprofiles_search("proj")
+    assert "api/qualityprofiles/search" in captured_urls[0]
+    assert "project=proj" in captured_urls[0]
+
+
+def test_settings_values_builds_url_with_keys(captured_urls: list[str]) -> None:
+    client = SonarClient("http://sonar:9901", "tok")
+    client.settings_values(component="proj", keys=("sonar.sources", "sonar.tests"))
+    assert "api/settings/values" in captured_urls[0]
+    assert "component=proj" in captured_urls[0]
+    assert "keys=sonar.sources" in captured_urls[0]
+
+
 def test_project_status_requires_a_key() -> None:
     client = SonarClient("http://sonar:9901", "tok")
     with pytest.raises(SonarApiError, match="analysis_id or ce_task_id"):

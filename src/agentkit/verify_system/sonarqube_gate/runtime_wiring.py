@@ -188,7 +188,7 @@ def build_sonar_gate_port_for_run(
         return None
 
     try:
-        bound_analysis = _resolve_bound_analysis(story_context, story_dir)
+        bound_analysis = _resolve_bound_analysis(story_context, story_dir, config)
         ledger = _load_ledger(story_context, story_dir)
         main_head = _resolve_main_head(story_context, story_dir)
         resolved_token = token if token is not None else _resolve_token(config)
@@ -219,19 +219,36 @@ def _scan_root(story_context: StoryContext, story_dir: Path) -> Path:
 
 
 def _resolve_bound_analysis(
-    story_context: StoryContext, story_dir: Path
+    story_context: StoryContext, story_dir: Path, config: SonarQubeConfig
 ) -> BoundAnalysis:
-    """Resolve the commit-bound analysis coordinates (fail-closed)."""
+    """Resolve the commit-bound analysis coordinates (fail-closed).
+
+    A real ``report-task.txt`` carries only ``ceTaskId``/``projectKey`` (and
+    server metadata) — NOT a top-level ``branch`` key (ERROR-2); the analysisId
+    is resolved later from the Compute-Engine task (ERROR-A). The analysed
+    branch is therefore taken from the worktree git itself (the branch the
+    Community Branch Plugin scanned), never from a non-real report-task field.
+    The scanner version is the AK3-pinned ``sonarqube.scanner_version`` (the
+    scanner AK3 runs for the local branch scan — Sonar exposes none,
+    FK-33 §33.6.3).
+    """
     root = _scan_root(story_context, story_dir)
     report = _read_report_task(root)
     commit_sha, tree_hash = _resolve_head_commit_tree(root)
+    branch = _git(root, "rev-parse", "--abbrev-ref", "HEAD")
+    if not config.scanner_version:
+        raise SonarCoordinatesUnavailableError(
+            "sonarqube.scanner_version is unset on an available=true config "
+            "(no authoritative scanner version for the attestation binding, "
+            "FK-33 §33.6.3, fail-closed)"
+        )
     return BoundAnalysis(
-        analysis_id=report.get("analysisId") or report.get("ceTaskId", ""),
         ce_task_id=report.get("ceTaskId", ""),
         component=report["projectKey"],
-        branch=report.get("branch", ""),
+        branch=branch,
         commit_sha=commit_sha,
         tree_hash=tree_hash,
+        scanner_version=config.scanner_version,
     )
 
 
@@ -256,10 +273,10 @@ def _read_report_task(root: Path) -> dict[str, str]:
         raise SonarCoordinatesUnavailableError(
             f"scanner report-task at {path} is missing projectKey"
         )
-    if not props.get("ceTaskId") and not props.get("analysisId"):
+    if not props.get("ceTaskId"):
         raise SonarCoordinatesUnavailableError(
-            f"scanner report-task at {path} is missing ceTaskId/analysisId "
-            "(cannot bind the gate by analysis, FK-33 §33.6.3)"
+            f"scanner report-task at {path} is missing ceTaskId "
+            "(cannot resolve the analysis via ce/task, FK-33 §33.6.3)"
         )
     return props
 

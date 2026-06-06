@@ -155,6 +155,44 @@ def branch_exists(repo_root: Path, branch: str) -> bool:
     )
 
 
+def tree_hash_of_commit(repo_root: Path, commit_sha: str) -> str:
+    """Return the git tree hash of a commit (``rev-parse <commit>^{tree}``).
+
+    Used by the pre-merge scan runner (AG3-056 FIX-4) to derive the
+    ``tree_hash`` of the PROVEN candidate commit for the commit-bound
+    attestation — never from a local ``HEAD``. The consumer asserts
+    ``tree_hash(scan) == tree_hash(merge)`` (FK-29 §29.1a.3).
+
+    Args:
+        repo_root: Root directory of the git repository.
+        commit_sha: The commit whose tree hash is requested.
+
+    Returns:
+        The 40-char (or longer, for SHA-256 repos) tree object id.
+
+    Raises:
+        WorktreeError: When the commit is unknown or git exits non-zero
+            (fail-closed — the caller must not stamp an empty tree hash).
+    """
+    result = subprocess.run(
+        ["git", "-C", str(repo_root), "rev-parse", f"{commit_sha}^{{tree}}"],
+        capture_output=True,
+        text=True,
+    )
+    tree = result.stdout.strip()
+    if result.returncode != 0 or not tree:
+        raise WorktreeError(
+            f"git rev-parse {commit_sha}^{{tree}} failed (exit {result.returncode})",
+            detail={
+                "repo_root": str(repo_root),
+                "commit_sha": commit_sha,
+                "stderr": result.stderr,
+                "stdout": result.stdout,
+            },
+        )
+    return tree
+
+
 def remove_worktree(repo_root: Path, worktree_path: Path) -> None:
     """Remove a git worktree at *worktree_path*.
 

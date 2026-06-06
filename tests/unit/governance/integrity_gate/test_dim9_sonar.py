@@ -156,6 +156,7 @@ def test_consumer_path_applicable_missing_scan_fails_closed(tmp_path: Path) -> N
         enabled=True,
         base_url="http://sonar.invalid:9901",
         token_env="SONAR_TOKEN_TEST",
+        scanner_version="5.0.1",
     )
     ctx = _impl_context(tmp_path)  # no .scannerwork/report-task.txt present
     port = ProductiveSonarDimensionPort(
@@ -231,9 +232,12 @@ def _write_report_task(root: Path) -> None:
             (
                 "projectKey=proj",
                 "serverUrl=http://sonar:9901",
-                "branch=feature/x",
+                "serverVersion=26.4.0.1",
+                # A REAL report-task.txt carries only ceTaskId (ERROR-A) and NO
+                # top-level branch key (ERROR-2): production derives the analysed
+                # branch from the worktree git HEAD, not from this artefact.
                 "ceTaskId=CE-123",
-                "analysisId=AX-123",
+                "ceTaskUrl=http://sonar:9901/api/ce/task?id=CE-123",
             )
         ),
         encoding="utf-8",
@@ -250,6 +254,17 @@ class _GreenSonarClient:
     def __init__(self, revision: str) -> None:
         self._revision = revision
 
+    def ce_task(self, ce_task_id: str) -> object:
+        from agentkit.integrations.sonar import SonarHttpResponse
+
+        del ce_task_id
+        # ERROR-A: the analysisId is resolved from the terminal CE task and
+        # matches the project_analyses key below.
+        return SonarHttpResponse(
+            status_code=200,
+            json_body={"task": {"id": "CE-123", "status": "SUCCESS", "analysisId": "AX-1"}},
+        )
+
     def project_status(
         self, *, analysis_id: str | None = None, ce_task_id: str | None = None
     ) -> object:
@@ -261,27 +276,82 @@ class _GreenSonarClient:
             json_body={
                 "projectStatus": {
                     "status": "OK",
-                    "qualityGateHash": "qgh",
-                    "qualityProfileHash": "qph",
-                    "analysisScopeHash": "ash",
-                    "period": {"mode": "PREVIOUS_VERSION"},
+                    "conditions": [],
+                    "periods": [{"mode": "PREVIOUS_VERSION"}],
                 }
             },
         )
 
-    def component_revision(self, component: str, branch: str | None = None) -> object:
+    def project_analyses_search(
+        self, project: str, *, branch: str | None = None
+    ) -> object:
         from agentkit.integrations.sonar import SonarHttpResponse
 
-        del component, branch
+        del project, branch
+        # FIX-2: the authoritative revision source — matched STRICTLY by the
+        # analysisId ce/task resolved.
         return SonarHttpResponse(
             status_code=200,
-            json_body={"component": {"analysisRevision": self._revision}},
+            json_body={"analyses": [{"key": "AX-1", "revision": self._revision}]},
         )
 
     def system_status(self) -> object:
         from agentkit.integrations.sonar import SonarHttpResponse
 
-        return SonarHttpResponse(status_code=200, json_body={"version": "26.4"})
+        return SonarHttpResponse(
+            status_code=200, json_body={"id": "srv", "version": "26.4", "status": "UP"}
+        )
+
+    def qualitygates_get_by_project(self, project: str) -> object:
+        from agentkit.integrations.sonar import SonarHttpResponse
+
+        del project
+        return SonarHttpResponse(
+            status_code=200, json_body={"qualityGate": {"id": "1", "name": "AK3 Way"}}
+        )
+
+    def qualitygates_show(self, name: str) -> object:
+        from agentkit.integrations.sonar import SonarHttpResponse
+
+        del name
+        return SonarHttpResponse(
+            status_code=200,
+            json_body={
+                "id": "1",
+                "name": "AK3 Way",
+                "conditions": [
+                    {"id": 1, "metric": "new_violations", "op": "GT", "error": "0"}
+                ],
+            },
+        )
+
+    def qualityprofiles_search(self, project: str) -> object:
+        from agentkit.integrations.sonar import SonarHttpResponse
+
+        del project
+        return SonarHttpResponse(
+            status_code=200,
+            json_body={
+                "profiles": [
+                    {
+                        "key": "py-1",
+                        "name": "Sonar way",
+                        "language": "py",
+                        "rulesUpdatedAt": "2026-01-01T00:00:00+0000",
+                        "lastUsed": "2026-06-01T00:00:00+0000",
+                    }
+                ]
+            },
+        )
+
+    def settings_values(self, *, component: str, keys: tuple[str, ...] = ()) -> object:
+        from agentkit.integrations.sonar import SonarHttpResponse
+
+        del component, keys
+        return SonarHttpResponse(
+            status_code=200,
+            json_body={"settings": [{"key": "sonar.sources", "value": "src"}]},
+        )
 
     def search_issues(self, params: object) -> object:
         from agentkit.integrations.sonar import SonarHttpResponse
@@ -296,6 +366,7 @@ def _green_config() -> SonarQubeConfig:
         enabled=True,
         base_url="http://sonar:9901",
         token_env="SONARQUBE_TOKEN_TEST",
+        scanner_version="5.0.1",
     )
 
 
@@ -362,7 +433,7 @@ def test_consumer_path_green_attestation_passes(
 class _RedSonarClient(_GreenSonarClient):
     """HTTP-boundary stub: bound revision matches (not stale) but QG is RED.
 
-    Inherits the green client's matching ``component_revision`` (so the
+    Inherits the green client's matching ``project_analyses_search`` (so the
     commit-binding/stale-check PASSES) and overrides only ``project_status`` to
     report a red quality gate (``status == "ERROR"``).  The REAL post-apply
     re-read then sees the red verdict => the REAL evaluator yields ``failed``
@@ -380,10 +451,8 @@ class _RedSonarClient(_GreenSonarClient):
             json_body={
                 "projectStatus": {
                     "status": "ERROR",
-                    "qualityGateHash": "qgh",
-                    "qualityProfileHash": "qph",
-                    "analysisScopeHash": "ash",
-                    "period": {"mode": "PREVIOUS_VERSION"},
+                    "conditions": [],
+                    "periods": [{"mode": "PREVIOUS_VERSION"}],
                 }
             },
         )
@@ -392,23 +461,28 @@ class _RedSonarClient(_GreenSonarClient):
 class _StaleSonarClient(_GreenSonarClient):
     """HTTP-boundary stub: QG is OK but the analysed revision is STALE.
 
-    Overrides only ``component_revision`` to return an ``analysisRevision`` that
-    does NOT equal the worktree/main HEAD.  The REAL ``_read_last_analyzed_revision``
+    Overrides only ``project_analyses_search`` to return a ``revision`` that
+    does NOT equal the worktree/main HEAD.  The REAL ``read_last_analyzed_revision``
     surfaces that mismatching revision; the REAL evaluator's commit-binding
     stale-check (``attestation.is_bound_to``) fails => ``failed``
     (``stale_attestation``).  No stale green is ever admitted (FK-33 §33.6.3).
     """
 
-    def component_revision(self, component: str, branch: str | None = None) -> object:
+    def project_analyses_search(
+        self, project: str, *, branch: str | None = None
+    ) -> object:
         from agentkit.integrations.sonar import SonarHttpResponse
 
-        del component, branch
+        del project, branch
         return SonarHttpResponse(
             status_code=200,
             json_body={
-                "component": {
-                    "analysisRevision": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
-                }
+                "analyses": [
+                    {
+                        "key": "AX-1",
+                        "revision": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+                    }
+                ]
             },
         )
 

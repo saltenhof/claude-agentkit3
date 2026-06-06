@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from agentkit.config.models import (
+    JenkinsConfig,
     PipelineConfig,
     ProjectConfig,
     RepositoryConfig,
@@ -14,11 +15,15 @@ from agentkit.config.validators import validate_project_config
 
 #: AG3-052 E6: code-producing projects must declare sonarqube explicitly.
 _OPT_OUT_SONAR = SonarQubeConfig(available=False, enabled=False)
+#: AG3-056: code-producing projects must declare the ci stanza explicitly.
+_OPT_OUT_CI = JenkinsConfig(available=False, enabled=False)
 
 
 def _pipeline(**kwargs: object) -> PipelineConfig:
-    """PipelineConfig with an explicit sonarqube opt-out (E6)."""
-    return PipelineConfig(sonarqube=_OPT_OUT_SONAR, **kwargs)  # type: ignore[arg-type]
+    """PipelineConfig with explicit sonarqube + ci opt-outs (E6 / AG3-056)."""
+    return PipelineConfig(  # type: ignore[arg-type]
+        sonarqube=_OPT_OUT_SONAR, ci=_OPT_OUT_CI, **kwargs
+    )
 
 
 def _minimal_config(**overrides: object) -> ProjectConfig:

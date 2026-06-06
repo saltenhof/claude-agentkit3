@@ -287,6 +287,7 @@ def test_run_pin_carries_project_key_when_config_present(
             # AG3-052: scaffold default is available:true (FK-03 §3); no live
             # Sonar here => conscious opt-out so the completing CP 10d SKIPs.
             sonarqube_available=False,
+            ci_available=False,  # AG3-056: conscious opt-out, no live Jenkins
         ),
     )
 

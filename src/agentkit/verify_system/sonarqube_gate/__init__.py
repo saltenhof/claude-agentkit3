@@ -23,6 +23,9 @@ from agentkit.verify_system.sonarqube_gate.adapter import (
     BoundAnalysis,
     ConfiguredSonarGateInputPort,
     build_issue_applier,
+    read_commit_bound_attestation,
+    read_last_analyzed_revision,
+    resolve_analysis_id,
 )
 from agentkit.verify_system.sonarqube_gate.applicability import (
     SonarApplicability,
@@ -90,7 +93,10 @@ __all__ = [
     "is_code_producing_story",
     "is_green",
     "is_green_status",
+    "read_commit_bound_attestation",
+    "read_last_analyzed_revision",
     "reconcile_single_match",
+    "resolve_analysis_id",
     "resolve_applicability",
     "resolve_for_context",
 ]

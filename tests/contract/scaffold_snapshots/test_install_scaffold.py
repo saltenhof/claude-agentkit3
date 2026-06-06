@@ -260,6 +260,10 @@ def _make_install_config(project_root: Path, **kwargs: Any) -> InstallConfig:
     # the CONSCIOUS opt-out (``sonarqube_available=False``) explicitly — never
     # leaning on a soft default. CP 10d is then SKIPPED (declared opt-out).
     kwargs.setdefault("sonarqube_available", False)
+    # AG3-056 Design-Decision: mirror the Sonar opt-out for the CI stanza —
+    # no live Jenkins in the contract fixture, so declare the conscious
+    # ``ci_available=False`` opt-out explicitly.
+    kwargs.setdefault("ci_available", False)
     # Provision + inject the four mandatory skill bundles so the normal-install
     # binding step (AG3-048 AC#5) resolves and the scaffold is produced. The
     # systemwide store is unique per project_root to keep installs isolated.

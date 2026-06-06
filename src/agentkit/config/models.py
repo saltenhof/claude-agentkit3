@@ -14,6 +14,7 @@ from pydantic import (
     BaseModel,
     BeforeValidator,
     ConfigDict,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -156,6 +157,15 @@ class SonarQubeConfig(BaseModel):
         min_version: Minimum SonarQube Community Build version (SemVer).
         plugins: Plugin requirements (Community Branch Plugin).
         quality_gate: Quality-gate / default-profile reference.
+        scanner_version: The SonarScanner version AK3 pins and RUNS for the
+            local QA-subflow branch scan (FK-33 §33.6.3 names the scanner
+            version as an attestation binding). Sonar exposes no authoritative
+            scanner version for an analysis, so for the local-scan gate path
+            this AK3-pinned version is the authoritative source (AK3 controls
+            the scanner invocation — SSOT). Required when ``available and
+            enabled`` so a produced attestation never carries an empty scanner
+            version (fail-closed). The CI/pre-merge path carries the scanner
+            version from the producing CI run instead (AG3-056).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -167,12 +177,21 @@ class SonarQubeConfig(BaseModel):
     min_version: str = "26.4"
     plugins: SonarQubePluginsConfig = SonarQubePluginsConfig()
     quality_gate: SonarQubeQualityGateConfig = SonarQubeQualityGateConfig()
+    scanner_version: str | None = None
 
     @field_validator("min_version")
     @classmethod
     def _check_min_version(cls, value: str) -> str:
         """FK-03 §3: ``min_version`` must be parsable SemVer."""
         return _validate_semver(value, field="min_version")
+
+    @field_validator("scanner_version")
+    @classmethod
+    def _check_scanner_version(cls, value: str | None) -> str | None:
+        """FK-03 §3: the pinned scanner version must be parsable SemVer."""
+        if value is None:
+            return None
+        return _validate_semver(value, field="scanner_version")
 
     @model_validator(mode="after")
     def _validate_active_requires_endpoint(self) -> SonarQubeConfig:
@@ -183,14 +202,106 @@ class SonarQubeConfig(BaseModel):
         if self.available and self.enabled:
             missing = [
                 name
-                for name, value in (("base_url", self.base_url), ("token_env", self.token_env))
+                for name, value in (
+                    ("base_url", self.base_url),
+                    ("token_env", self.token_env),
+                    ("scanner_version", self.scanner_version),
+                )
                 if not value
             ]
             if missing:
                 msg = (
                     "sonarqube.available=true and sonarqube.enabled=true require "
                     f"{' and '.join(missing)} (FK-03 §3, fail-closed: no silent "
-                    "localhost-without-auth default)"
+                    "localhost-without-auth default; scanner_version is an "
+                    "attestation binding, FK-33 §33.6.3)"
+                )
+                raise ValueError(msg)
+        return self
+
+
+class JenkinsConfig(BaseModel):
+    """CI (Jenkins) requirement for the pre-merge verification runner.
+
+    Config-owner slice of the Pre-Merge-Verification-Runner requirement
+    (AG3-056 §2.1.6); the runner semantics live in
+    ``agentkit.verify_system.pre_merge_runner`` (FK-29 §29.1a.3 / FK-33
+    §33.6.3). Checked as an installer precondition and carried as the CI
+    trigger configuration for the closure pre-merge barrier (AG3-053).
+
+    The ``available``/``enabled`` split mirrors ``SonarQubeConfig`` and is
+    normative:
+
+    * ``available`` -- whether Jenkins is declared present for this
+      project/host. Core default ``true``: the pre-merge runner triggers a
+      real CI build/test + Sonar scan for code-producing projects;
+      ``available == false`` is a CONSCIOUS, EXPLICIT opt-out (the runner is
+      simply not applicable — a deliberate absence, NOT a failure). This
+      makes a present-but-empty ``ci: {}`` stanza fail closed (it defaults
+      ``available/enabled == true`` and the missing endpoint then raises)
+      rather than becoming a SILENT opt-out.
+    * ``enabled`` -- whether the runner is switched on. Default ``true``.
+
+    Attributes:
+        available: Jenkins declared present (applicability axis). Core
+            default ``true``; ``false`` is an explicit opt-out only.
+        enabled: Runner switched on. Core default ``true``.
+        base_url: Jenkins server endpoint. Required when
+            ``available and enabled``.
+        token_env: Name of the ENV/secret-store key holding the Jenkins API
+            token (never an inline token). Required when
+            ``available and enabled``.
+        user: Optional Jenkins user the token belongs to (HTTP Basic
+            username). Empty for token-only setups.
+        pipeline: Jenkins job/pipeline name to trigger for the integrated
+            candidate. Required when ``available and enabled``.
+        poll_timeout_seconds: Bounded wait for a triggered build to reach a
+            terminal state before fail-closed timeout.
+        poll_interval_seconds: Delay between build-status polls.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    available: bool = True
+    enabled: bool = True
+    base_url: str | None = None
+    token_env: str | None = None
+    user: str = ""
+    pipeline: str | None = None
+    poll_timeout_seconds: int = 1800
+    poll_interval_seconds: int = 10
+
+    @field_validator("poll_timeout_seconds", "poll_interval_seconds")
+    @classmethod
+    def _check_positive(cls, value: int, info: ValidationInfo) -> int:
+        """Poll bounds must be positive (no zero/negative wait window)."""
+        if value <= 0:
+            msg = f"ci.{info.field_name} must be a positive integer; got {value}"
+            raise ValueError(msg)
+        return value
+
+    @model_validator(mode="after")
+    def _validate_active_requires_endpoint(self) -> JenkinsConfig:
+        """``available and enabled`` requires base_url + token_env + pipeline.
+
+        No silent default to localhost without auth or without a target job
+        (fail-closed; mirrors ``SonarQubeConfig`` discipline).
+        """
+        if self.available and self.enabled:
+            missing = [
+                name
+                for name, value in (
+                    ("base_url", self.base_url),
+                    ("token_env", self.token_env),
+                    ("pipeline", self.pipeline),
+                )
+                if not value
+            ]
+            if missing:
+                msg = (
+                    "ci.available=true and ci.enabled=true require "
+                    f"{' and '.join(missing)} (AG3-056 §2.1.6, fail-closed: no "
+                    "silent localhost/no-pipeline default)"
                 )
                 raise ValueError(msg)
         return self
@@ -220,6 +331,14 @@ class PipelineConfig(BaseModel):
             ``available: false`` opt-out stays legal. The existing cross-field
             rule (``available: true`` + ``enabled: false`` on a code-producing
             project) is unchanged.
+        ci: CI (Jenkins) requirement for the pre-merge verification runner
+            (AG3-056 §2.1.6). ``None`` only for non-code-producing projects; a
+            code-producing project MUST declare the stanza explicitly — an
+            omitted stanza is rejected at config-load (FAIL-CLOSED, see
+            ``ProjectConfig._validate_ci_codeproducing``). The pre-merge
+            runner triggers a real, commit-bound CI build/test + Sonar scan,
+            so its CI endpoint must be an EXPLICIT operator decision. The
+            explicit ``available: false`` opt-out stays legal.
     """
 
     model_config = ConfigDict(strict=True)
@@ -230,6 +349,7 @@ class PipelineConfig(BaseModel):
     verify_layers: list[str] = list(DEFAULT_VERIFY_LAYERS)
     features: Features = Features()
     sonarqube: SonarQubeConfig | None = None
+    ci: JenkinsConfig | None = None
 
 
 def _coerce_path(value: Any) -> Path:
@@ -353,6 +473,57 @@ class ProjectConfig(BaseModel):
                 "set sonarqube.enabled=false (FK-03 §3): the green-gate "
                 "precondition cannot be satisfied. Set enabled=true, or declare "
                 "sonarqube.available=false to opt out (gate not applicable)."
+            )
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _validate_ci_codeproducing(self) -> ProjectConfig:
+        """AG3-056 §2.1.6: code-producing project must DECLARE the CI stanza.
+
+        A project whose ``story_types`` include ``implementation`` or
+        ``bugfix`` is code-producing. Two fail-closed rules apply (mirroring
+        the ``sonarqube`` discipline):
+
+        1. **No silent disable by omission (FAIL-CLOSED).** A code-producing
+           project that omits the ``ci`` stanza entirely
+           (``self.pipeline.ci is None``) is rejected. The closure pre-merge
+           barrier (AG3-053, FK-29 §29.1a.3) needs a real CI trigger to
+           build/test + scan the integrated candidate; the operator's intent
+           must be EXPLICIT: either declare ``available: true`` (runner
+           enforced) or ``available: false`` (deliberate, declared opt-out —
+           runner not applicable).
+
+        2. **Cross-field rule.** A declared-present but switched-off runner
+           (``ci.available == true`` and ``ci.enabled == false``) is rejected:
+           the closure pre-merge barrier could not satisfy its precondition.
+
+        Non-code-producing (concept/research-only) projects may omit the
+        stanza or switch the runner off entirely.
+        """
+        codeproducing = bool(
+            {"implementation", "bugfix"}.intersection(self.story_types)
+        )
+        ci = self.pipeline.ci
+        if codeproducing and ci is None:
+            msg = (
+                "A code-producing project (story_types include "
+                "implementation/bugfix) must DECLARE the 'ci' stanza "
+                "explicitly in pipeline (AG3-056 §2.1.6, FAIL-CLOSED): the "
+                "closure pre-merge barrier (AG3-053, FK-29 §29.1a.3) triggers "
+                "a real CI build/test + Sonar scan on the integrated candidate "
+                "and must not be disabled by omission. Declare ci.available=true "
+                "to enforce the runner, or ci.available=false to opt out "
+                "explicitly (runner not applicable)."
+            )
+            raise ValueError(msg)
+        if codeproducing and ci is not None and ci.available and not ci.enabled:
+            msg = (
+                "A code-producing project (story_types include "
+                "implementation/bugfix) with ci.available=true must not set "
+                "ci.enabled=false (AG3-056 §2.1.6): the pre-merge runner "
+                "precondition cannot be satisfied. Set enabled=true, or declare "
+                "ci.available=false to opt out (runner not applicable)."
             )
             raise ValueError(msg)
         return self

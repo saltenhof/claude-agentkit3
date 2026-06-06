@@ -8,6 +8,7 @@ from unittest.mock import call, patch
 import pytest
 
 from agentkit.config.models import (
+    JenkinsConfig,
     PipelineConfig,
     ProjectConfig,
     RepositoryConfig,
@@ -34,9 +35,11 @@ def _project_config(tmp_path: Path, repo_names: list[str]) -> ProjectConfig:
             RepositoryConfig(name=repo_name, path=tmp_path / repo_name)
             for repo_name in repo_names
         ],
-        # AG3-052 E6: code-producing default story_types => declare sonarqube.
+        # AG3-052 E6 / AG3-056: code-producing default story_types => declare
+        # the sonarqube + ci stanzas explicitly (opt-outs here).
         pipeline=PipelineConfig(
-            sonarqube=SonarQubeConfig(available=False, enabled=False)
+            sonarqube=SonarQubeConfig(available=False, enabled=False),
+            ci=JenkinsConfig(available=False, enabled=False),
         ),
     )
 

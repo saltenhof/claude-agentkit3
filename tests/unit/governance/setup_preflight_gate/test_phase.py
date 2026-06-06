@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 from agentkit.config.models import (
+    JenkinsConfig,
     PipelineConfig,
     ProjectConfig,
     RepositoryConfig,
@@ -29,6 +30,9 @@ from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+#: AG3-056: code-producing projects must declare the ci stanza explicitly.
+_OPT_OUT_CI = JenkinsConfig(available=False, enabled=False)
 
 
 # ---------------------------------------------------------------------------
@@ -129,9 +133,11 @@ def _make_project_config(repo_path: Path) -> ProjectConfig:
         project_key="test-project",
         project_name="Test Project",
         repositories=[RepositoryConfig(name="repo", path=repo_path)],
-        # AG3-052 E6: code-producing default story_types => declare sonarqube.
+        # AG3-052 E6 / AG3-056: code-producing default story_types => declare
+        # the sonarqube + ci stanzas explicitly.
         pipeline=PipelineConfig(
-            sonarqube=SonarQubeConfig(available=False, enabled=False)
+            sonarqube=SonarQubeConfig(available=False, enabled=False),
+            ci=_OPT_OUT_CI,
         ),
     )
 
@@ -559,7 +565,9 @@ class TestSetupPhaseGreenMain:
                     enabled=available,
                     base_url="http://sonar" if available else None,
                     token_env="SONAR_TOKEN" if available else None,
-                )
+                    scanner_version="5.0.1" if available else None,
+                ),
+                ci=_OPT_OUT_CI,
             ),
         )
         with (
@@ -655,7 +663,8 @@ class TestSetupPhaseGreenMain:
                     project_name="Test Project",
                     repositories=[RepositoryConfig(name="repo", path=tmp_path)],
                     pipeline=PipelineConfig(
-                        sonarqube=SonarQubeConfig(available=False, enabled=False)
+                        sonarqube=SonarQubeConfig(available=False, enabled=False),
+                        ci=_OPT_OUT_CI,
                     ),
                 ),
             ),

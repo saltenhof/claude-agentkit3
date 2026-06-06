@@ -102,6 +102,9 @@ class TestCLIMain:
             # AG3-052: conscious Sonar opt-out (no live Sonar in this test);
             # FK-03 §3 default would be available:true => CP 10d fail-closed.
             "--no-sonarqube-available",
+            # AG3-056 (FIX-5): conscious CI opt-out (no live Jenkins in this
+            # test); default would be available:true => CI preflight fail-closed.
+            "--no-ci-available",
         ])
 
         assert exit_code == 0
@@ -407,6 +410,7 @@ class TestCLIMain:
             "--github-owner", "acme",  # AG3-039: mandatory CP 7 coordinates
             "--github-repo", "test-cli-project",
             "--no-sonarqube-available",  # AG3-052: conscious opt-out, no live Sonar
+            "--no-ci-available",  # AG3-056: conscious opt-out, no live Jenkins
         ])
 
         exit_code = main(["uninstall", "--project-root", str(tmp_path)])

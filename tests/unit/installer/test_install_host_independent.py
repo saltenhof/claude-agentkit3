@@ -123,6 +123,9 @@ def _config(
         # AG3-052 Design-Decision: scaffold default is available:true (FK-03
         # §3); no live Sonar here => conscious opt-out so CP 10d is SKIPPED.
         sonarqube_available=False,
+        # AG3-056 (FIX-5): the CI preflight mirrors the Sonar discipline; no
+        # live Jenkins here => conscious opt-out so the CI checkpoint SKIPS.
+        ci_available=False,
     )
 
 
@@ -146,6 +149,50 @@ def test_full_install_glue_runs_and_binds_all_mandatory(tmp_path: Path) -> None:
     # A representative set of glue artifacts were created.
     created = set(result.created_files)
     assert any("project.yaml" in c for c in created)
+
+
+def test_full_install_aborts_when_ci_available_without_client(tmp_path: Path) -> None:
+    """FIX-5 end-to-end: an available:true CI with no ci_client ABORTS install.
+
+    The CI preflight is wired into ``install_agentkit`` exactly like CP 10d; a
+    real CI trigger must never be promised against an unverified Jenkins.
+    """
+    import pytest
+
+    from agentkit.exceptions import InstallationError
+
+    skills = _RecordingSkills()
+    store = _FakeStore(tmp_path / "bundles")
+    config = _config(tmp_path, skills, store)
+    # Re-declare CI as present but inject no Jenkins client => fail-closed abort.
+    config.ci_available = True
+    with pytest.raises(InstallationError, match="CI .Jenkins. precondition FAILED"):
+        install_agentkit(config)
+
+
+def test_full_install_passes_ci_preflight_with_working_client(tmp_path: Path) -> None:
+    """FIX-5 end-to-end: an available:true CI with a working client install OK."""
+    from dataclasses import dataclass
+
+    @dataclass(frozen=True)
+    class _Resp:
+        json_body: dict[str, object]
+
+    class _OkJenkins:
+        def whoami(self) -> _Resp:
+            return _Resp({"id": "ak3"})
+
+        def job_exists(self, pipeline: str) -> _Resp:
+            del pipeline
+            return _Resp({"name": "ak3-pre-merge"})
+
+    skills = _RecordingSkills()
+    store = _FakeStore(tmp_path / "bundles")
+    config = _config(tmp_path, skills, store)
+    config.ci_available = True
+    config.ci_client = _OkJenkins()  # type: ignore[assignment]
+    result = install_agentkit(config)
+    assert result.success
 
 
 def test_install_then_uninstall_removes_artifacts(tmp_path: Path) -> None:

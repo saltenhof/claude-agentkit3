@@ -12,6 +12,10 @@ from agentkit.installer.integration_checkpoints.branch_plugin_self_test import (
     SelfTestScan,
     run_branch_plugin_conformance_self_test,
 )
+from agentkit.installer.integration_checkpoints.ci_preflight import (
+    CiPreflightResult,
+    check_ci_preconditions,
+)
 from agentkit.installer.integration_checkpoints.scanner_harness import (
     ScanRunner,
     SonarClientScannerHarness,
@@ -22,11 +26,13 @@ from agentkit.installer.integration_checkpoints.sonar_preflight import (
 )
 
 __all__ = [
+    "CiPreflightResult",
     "ScanRunner",
     "ScannerHarness",
     "SelfTestScan",
     "SonarClientScannerHarness",
     "SonarPreflightResult",
+    "check_ci_preconditions",
     "check_sonarqube_preconditions",
     "run_branch_plugin_conformance_self_test",
 ]

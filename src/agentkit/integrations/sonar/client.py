@@ -11,8 +11,9 @@ Operations (FK-33 §33.6, AG3-052 §2.1.1):
   ``analysisId``/``ceTaskId`` (never a bare ``projectKey`` live-read,
   FK-33 §33.6.3).
 * ``ce_task`` -- ``GET api/ce/task`` (Compute-Engine analysis status).
-* ``component_revision`` -- ``GET api/navigation/component`` for the last
-  analysed revision (``sonar_last_analyzed_revision``).
+* ``project_analyses_search`` -- ``GET api/project_analyses/search`` to map a
+  concrete ``analysisId`` to the git ``revision`` it measured (FK-33 §33.6.3
+  commit binding, authoritative source — never a project-version string).
 * ``search_issues`` -- ``GET api/issues/search`` (open, non-accepted
   issues for the Overall-Code invariant).
 * ``transition_issue`` / ``set_issue_tags`` -- ``Administer Issues``
@@ -121,15 +122,85 @@ class SonarClient:
         return self._get("api/qualitygates/project_status", params)
 
     def ce_task(self, ce_task_id: str) -> SonarHttpResponse:
-        """Read a Compute-Engine task status (``api/ce/task``)."""
+        """Read a Compute-Engine task status (``api/ce/task``).
+
+        The real response is ``{"task": {"id", "type", "componentKey",
+        "status", "analysisId", ...}}``; ``status`` is one of ``PENDING`` /
+        ``IN_PROGRESS`` / ``SUCCESS`` / ``FAILED`` / ``CANCELED`` and
+        ``analysisId`` is present only once the task terminated successfully.
+        The capability resolves the analysisId from this terminal task — the
+        scanner ``report-task.txt`` carries only ``ceTaskId`` (FK-33 §33.6.3).
+        """
         return self._get("api/ce/task", {"id": ce_task_id})
 
-    def component_revision(self, component: str, branch: str | None = None) -> SonarHttpResponse:
-        """Read component navigation incl. the last analysed revision."""
+    def qualitygates_get_by_project(self, project: str) -> SonarHttpResponse:
+        """Read the quality gate a project is bound to.
+
+        ``GET api/qualitygates/get_by_project`` -> ``{"qualityGate": {"id",
+        "name", "default"}}``. Used (with :meth:`qualitygates_show`) to compute
+        the deterministic quality-gate integrity hash (FK-33 §33.6.3).
+        """
+        return self._get("api/qualitygates/get_by_project", {"project": project})
+
+    def qualitygates_show(self, name: str) -> SonarHttpResponse:
+        """Read a quality gate's definition by name.
+
+        ``GET api/qualitygates/show`` -> ``{"id", "name", "conditions":
+        [{"id", "metric", "op", "error"}], ...}``. The conditions are the
+        authoritative material for the quality-gate integrity hash.
+        """
+        return self._get("api/qualitygates/show", {"name": name})
+
+    def qualityprofiles_search(self, project: str) -> SonarHttpResponse:
+        """List the quality profiles a project actively uses.
+
+        ``GET api/qualityprofiles/search?project=<key>`` -> ``{"profiles":
+        [{"key", "name", "language", "rulesUpdatedAt", "lastUsed", ...}]}``.
+        Authoritative material for the quality-profile integrity hash.
+        """
+        return self._get("api/qualityprofiles/search", {"project": project})
+
+    def settings_values(
+        self, *, component: str, keys: tuple[str, ...] = ()
+    ) -> SonarHttpResponse:
+        """Read a component's settings values.
+
+        ``GET api/settings/values?component=<key>[&keys=...]`` -> ``{"settings":
+        [{"key", "value" | "values" | "fieldValues", "inherited", ...}]}``.
+        Authoritative material for the analysis-scope integrity hash.
+
+        Args:
+            component: The Sonar component/project key.
+            keys: Optional explicit setting keys to scope the read to.
+        """
         params: dict[str, str] = {"component": component}
+        if keys:
+            params["keys"] = ",".join(keys)
+        return self._get("api/settings/values", params)
+
+    def project_analyses_search(
+        self, project: str, *, branch: str | None = None
+    ) -> SonarHttpResponse:
+        """List a project's analyses (``GET api/project_analyses/search``).
+
+        Each entry carries the analysis ``key`` and the git ``revision`` the
+        analysis was computed on. This is the authoritative source for the
+        commit a concrete ``analysisId`` measured (FK-33 §33.6.3): the caller
+        matches the triggered run's ``analysisId`` against an entry and reads
+        its ``revision`` — never a project-version string or a local
+        ``git rev-parse HEAD``.
+
+        Args:
+            project: The Sonar project/component key.
+            branch: The Community-Branch-Plugin branch to scope to.
+
+        Returns:
+            The Web-API response (``analyses`` array of ``{key, revision, ...}``).
+        """
+        params: dict[str, str] = {"project": project}
         if branch:
             params["branch"] = branch
-        return self._get("api/navigation/component", params)
+        return self._get("api/project_analyses/search", params)
 
     def search_issues(self, params: Mapping[str, str]) -> SonarHttpResponse:
         """Search issues (``api/issues/search``) with the given query params."""
