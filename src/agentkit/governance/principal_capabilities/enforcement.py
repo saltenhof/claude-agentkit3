@@ -212,7 +212,7 @@ class CapabilityEnforcement:
         # inert EXECUTE, but ``is_known`` is the explicit unknown-permission
         # signal resolved AFTER the hard matrix / freeze DENY checks.
         op_class = self._op_classifier.classify(event.operation, event.operation_args)
-        is_known = self._op_classifier.is_known(event.operation)
+        is_known = self._op_classifier.is_known(event.operation, event.operation_args)
         # Step 3: normalize target path classes (may include the unclassified
         # sentinel `None`). A target-less event falls back to the event ``cwd``
         # so the matrix still receives a concrete target; if that too is

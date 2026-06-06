@@ -2,11 +2,37 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
+
+import pytest
+
+from agentkit.governance.guard_evaluation import HookEvent
 from agentkit.governance.guards.artifact_guard import ArtifactGuard
 from agentkit.governance.guards.branch_guard import BranchGuard
 from agentkit.governance.guards.scope_guard import ScopeGuard
 from agentkit.governance.protocols import GuardVerdict, ViolationType
-from agentkit.governance.runner import GuardRunner
+from agentkit.governance.runner import (
+    GuardRunner,
+    _authoritative_required_roles,
+    _event_tool,
+    _is_code_producing_story,
+    _resolve_local_story_type,
+)
+from agentkit.state_backend.store import reset_backend_cache_for_tests
+from agentkit.state_backend.store.story_repository import StateBackendStoryRepository
+from agentkit.story_context_manager.story_model import Story, WireStoryType
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
+    from pathlib import Path
+
+_TYPE_TO_WIRE = {
+    "implementation": WireStoryType.IMPLEMENTATION,
+    "bugfix": WireStoryType.BUGFIX,
+    "concept": WireStoryType.CONCEPT,
+    "research": WireStoryType.RESEARCH,
+}
 
 
 class _AlwaysAllowGuard:
@@ -119,3 +145,225 @@ class TestGuardRunnerWithRealGuards:
             "file_write", {"file_path": "/etc/passwd"},
         )
         assert allowed is False
+
+
+# ---------------------------------------------------------------------------
+# AG3-036 FIX-2/FIX-3: authoritative story-type + required-roles resolution
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
+    monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
+    monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
+    monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
+    reset_backend_cache_for_tests()
+    yield
+    reset_backend_cache_for_tests()
+
+
+_STORY_ID = "AK3-300"
+
+
+def _save_story(project_root: Path, story_type: str) -> None:
+    """Persist a canonical Story record (the authoritative story-type source)."""
+    StateBackendStoryRepository(project_root).save(
+        Story(
+            project_key="p",
+            story_number=300,
+            story_display_id=_STORY_ID,
+            title="t",
+            story_type=_TYPE_TO_WIRE[story_type],
+            participating_repos=["repo-a"],
+            created_at=datetime.now(UTC),
+        ),
+    )
+
+
+class TestEventTool:
+    """``_event_tool`` derives the canonical tool name (FIX-3)."""
+
+    def test_explicit_tool_name_wins(self) -> None:
+        event = HookEvent.model_validate(
+            {
+                "operation": "unknown_tool",
+                "freshness_class": "guarded_read",
+                "operation_args": {"tool_name": "WebFetch"},
+            }
+        )
+        assert _event_tool(event) == "WebFetch"
+
+    def test_operation_mapped_to_tool(self) -> None:
+        event = HookEvent.model_validate(
+            {"operation": "bash_command", "freshness_class": "guarded_read"}
+        )
+        assert _event_tool(event) == "Bash"
+
+
+class TestResolveLocalStoryType:
+    """``_resolve_local_story_type`` is a TYPED outcome (AG3-036 FIX-A)."""
+
+    def test_research_story_resolves(
+        self, tmp_path: Path, _sqlite_backend: None
+    ) -> None:
+        _save_story(tmp_path, "research")
+        resolution = _resolve_local_story_type(_STORY_ID, store_dir=tmp_path)
+        assert resolution.resolved is True
+        assert resolution.story_type == "research"
+        assert resolution.is_code_producing is False
+
+    def test_implementation_is_code_producing_resolution(
+        self, tmp_path: Path, _sqlite_backend: None
+    ) -> None:
+        _save_story(tmp_path, "implementation")
+        resolution = _resolve_local_story_type(_STORY_ID, store_dir=tmp_path)
+        assert resolution.resolved is True
+        assert resolution.is_code_producing is True
+
+    def test_missing_record_is_unresolved(
+        self, tmp_path: Path, _sqlite_backend: None
+    ) -> None:
+        # FIX-A: a missing record is UNRESOLVED, NOT an empty story-type string.
+        resolution = _resolve_local_story_type("AK3-999", store_dir=tmp_path)
+        assert resolution.resolved is False
+        assert resolution.story_type == ""
+        assert resolution.is_code_producing is False
+
+    def test_backend_fault_is_unresolved(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # FIX-A: a backend fault is UNRESOLVED (fail-closed downstream), never a
+        # silently-downgraded story type. Force the repository read to raise.
+        import agentkit.state_backend.store.story_repository as story_repo_mod
+
+        def _boom(self: object, display_id: str) -> object:
+            raise RuntimeError("backend down")
+
+        monkeypatch.setattr(
+            story_repo_mod.StateBackendStoryRepository,
+            "get_by_display_id",
+            _boom,
+        )
+        resolution = _resolve_local_story_type(_STORY_ID, store_dir=tmp_path)
+        assert resolution.resolved is False
+        assert resolution.is_code_producing is False
+
+
+class TestIsCodeProducingStory:
+    """``_is_code_producing_story`` (FIX-2 fail-closed gate)."""
+
+    def test_implementation_is_code_producing(
+        self, tmp_path: Path, _sqlite_backend: None
+    ) -> None:
+        _save_story(tmp_path, "implementation")
+        assert _is_code_producing_story(_STORY_ID, store_dir=tmp_path) is True
+
+    def test_research_is_not_code_producing(
+        self, tmp_path: Path, _sqlite_backend: None
+    ) -> None:
+        _save_story(tmp_path, "research")
+        assert _is_code_producing_story(_STORY_ID, store_dir=tmp_path) is False
+
+
+class TestAuthoritativeRequiredRoles:
+    """``_authoritative_required_roles`` (FIX-2)."""
+
+    def _write_config(
+        self, project_root: Path, *, required_roles: list[str]
+    ) -> None:
+        import yaml
+
+        config_dir = project_root / ".agentkit" / "config"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "project.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "project_key": "p",
+                    "project_name": "P",
+                    "repositories": [
+                        {"name": "r", "path": str(project_root / "r")}
+                    ],
+                    "story_types": ["concept"],
+                    "pipeline": {"review": {"required_roles": required_roles}},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    def test_roles_from_config(
+        self, tmp_path: Path, _sqlite_backend: None
+    ) -> None:
+        # A RESOLVED code-producing story yields the configured roles.
+        _save_story(tmp_path, "implementation")
+        self._write_config(tmp_path, required_roles=["qa", "security"])
+        outcome = _authoritative_required_roles(
+            project_root=tmp_path, story_id=_STORY_ID
+        )
+        assert outcome.block is None
+        assert outcome.non_code_story is False
+        assert outcome.roles == ("qa", "security")
+
+    def test_missing_config_code_story_fails_closed(
+        self, tmp_path: Path, _sqlite_backend: None
+    ) -> None:
+        # Code-producing story + no project.yaml -> fail-closed DENY.
+        _save_story(tmp_path, "implementation")
+        outcome = _authoritative_required_roles(
+            project_root=tmp_path, story_id=_STORY_ID
+        )
+        assert outcome.block is not None
+        assert outcome.block.allowed is False
+        assert "review_config_unavailable" in (outcome.block.message or "")
+
+    def test_non_code_story_allows_via_non_code_signal(
+        self, tmp_path: Path, _sqlite_backend: None
+    ) -> None:
+        # RESOLVED research story -> non_code_story allow (ReviewGuard N/A),
+        # distinct from the UNRESOLVED block path. Config is never even consulted.
+        _save_story(tmp_path, "research")
+        outcome = _authoritative_required_roles(
+            project_root=tmp_path, story_id=_STORY_ID
+        )
+        assert outcome.block is None
+        assert outcome.non_code_story is True
+        assert outcome.roles == ()
+
+    def test_unresolved_story_fails_closed(
+        self, tmp_path: Path, _sqlite_backend: None
+    ) -> None:
+        # FIX-C: a missing record (UNRESOLVED) must fail-closed, NOT downgrade to
+        # the non-code allow path.
+        outcome = _authoritative_required_roles(
+            project_root=tmp_path, story_id="AK3-999"
+        )
+        assert outcome.non_code_story is False
+        assert outcome.block is not None
+        assert outcome.block.allowed is False
+        assert "story_type_unresolved" in (outcome.block.message or "")
+
+    def test_code_story_empty_required_roles_fails_closed(
+        self, tmp_path: Path, _sqlite_backend: None
+    ) -> None:
+        # FIX-C: a RESOLVED code story with EMPTY required_roles is a fail-closed
+        # block (empty coverage is NOT "fully compliant").
+        _save_story(tmp_path, "implementation")
+        self._write_config(tmp_path, required_roles=[])
+        outcome = _authoritative_required_roles(
+            project_root=tmp_path, story_id=_STORY_ID
+        )
+        assert outcome.block is not None
+        assert outcome.block.allowed is False
+        assert "review_required_roles_empty" in (outcome.block.message or "")
+
+    def test_code_story_with_roles_resolves(
+        self, tmp_path: Path, _sqlite_backend: None
+    ) -> None:
+        # RESOLVED code story + non-empty roles -> the authoritative roles.
+        _save_story(tmp_path, "implementation")
+        self._write_config(tmp_path, required_roles=["qa"])
+        outcome = _authoritative_required_roles(
+            project_root=tmp_path, story_id=_STORY_ID
+        )
+        assert outcome.block is None
+        assert outcome.non_code_story is False
+        assert outcome.roles == ("qa",)

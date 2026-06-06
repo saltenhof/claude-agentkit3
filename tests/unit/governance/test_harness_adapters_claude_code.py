@@ -107,7 +107,10 @@ def test_to_neutral_event_maps_read_and_unknown_tools() -> None:
         ClaudeCodeHookEvent(tool_name="Task", tool_input={}, cwd="."),
     )
     assert unknown.operation == "unknown_tool"
-    assert unknown.operation_args == {}
+    # AG3-036 FIX-1: the original tool name MUST survive the adapter (the
+    # runner's ``_event_tool`` derives WebFetch/WebSearch from it). Dropping it
+    # (the old ``{}``) blinded the web-call budget guard -> fail-open.
+    assert unknown.operation_args == {"tool_name": "Task"}
     assert unknown.freshness_class == "guarded_read"
 
 

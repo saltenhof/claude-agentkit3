@@ -350,7 +350,8 @@ def test_capability_unknown_tool_normal_mode_defers_to_ccag(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # FK-55 §55.6.1 (corrected): outside a story run an UNKNOWN tool (Task /
-    # TodoWrite / WebFetch / …) is an UNKNOWN PERMISSION, not a mutation. It
+    # TodoWrite / … — NOT WebFetch/WebSearch, which are now a KNOWN READ per
+    # AG3-036 FIX-1) is an UNKNOWN PERMISSION, not a mutation. It
     # normalizes to the inert EXECUTE; with no file/mutation target it is
     # UNRESOLVED and — mode-scharf — defers to CCAG / the mode rule rather than
     # hard-blocking generic interactive work. CCAG must be consulted (NOT a hard

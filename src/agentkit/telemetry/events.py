@@ -34,6 +34,10 @@ class EventType(StrEnum):
     REVIEW_REQUEST = "review_request"
     REVIEW_RESPONSE = "review_response"
     REVIEW_COMPLIANT = "review_compliant"
+    #: Emitted by the double-role ``ReviewGuard`` when it denies an increment
+    #: commit because a mandatory reviewer role is missing since the last commit
+    #: (FK-68 §68.3.1 / AG3-036 §2.1.5).
+    REVIEW_GUARD_INTERVENTION = "review_guard_intervention"
     LLM_CALL = "llm_call"
 
     # Adversarial

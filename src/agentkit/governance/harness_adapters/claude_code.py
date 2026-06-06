@@ -117,9 +117,15 @@ def to_neutral_event(claude_event: ClaudeCodeHookEvent) -> HookEvent:
             session_id=claude_event.session_id,
             principal_kind=principal_kind,
         )
+    # AG3-036 FIX-1: any tool without a dedicated harness-neutral operation
+    # (WebFetch / WebSearch and every other unmapped tool) is emitted as
+    # ``unknown_tool``, but its canonical name MUST survive the adapter via
+    # ``operation_args["tool_name"]``. Discarding it (the old ``{}``) blinded
+    # the runner's ``_event_tool`` so the web-call budget guard could never
+    # derive WebFetch/WebSearch and silently failed OPEN (FK-68 §68.6.1).
     return HookEvent(
         operation="unknown_tool",
-        operation_args={},
+        operation_args={"tool_name": claude_event.tool_name},
         freshness_class="guarded_read",
         cwd=claude_event.cwd,
         session_id=claude_event.session_id,

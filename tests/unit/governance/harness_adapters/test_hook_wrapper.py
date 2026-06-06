@@ -4,9 +4,13 @@ Tests the full flow: argv -> stdin parse -> adapter normalisation ->
 Governance.run_hook dispatch -> exit code.
 
 Design rationale (CLAUDE.md §MOCKS/STUBS):
-  - Post-hook IDs (telemetry, review_guard, budget, health_monitor):
+  - Post-hook IDs (telemetry, budget, health_monitor):
     Governance.run_hook returns GuardVerdict.allow unconditionally for
     post-phase hooks — no mock needed.
+  - Pre-hook IDs review_guard / budget_event_emitter (AG3-036 FIX-1/FIX-3):
+    these are the double-role telemetry guards. With no .agentkit/ binding in
+    tmp_path there is no active story, so both stay observational (ALLOW) —
+    no mock needed.
   - Pre-hook IDs with ``tool_name="Task"`` / ``tool="unknown_tool"``:
     In ``ai_augmented`` mode (no .agentkit/ dir in tmp_path), BranchGuard
     returns ALLOW for ``unknown_tool`` operations — no mock needed.
@@ -409,7 +413,10 @@ class TestSupportedHookIdsCompleteness:
         assert SUPPORTED_HOOK_IDS == PRE_HOOK_IDS | POST_HOOK_IDS
 
     def test_pre_hook_ids_are_known(self) -> None:
-        # AG3-031 Pass-2 FK-30-Korrektur 2026-05-24: 11 FK-30 §30.5.1 values
+        # AG3-031 Pass-2 FK-30-Korrektur 2026-05-24: 11 FK-30 §30.5.1 values.
+        # AG3-036 FIX-1/FIX-3: the two double-role telemetry guards
+        # (review_guard, budget_event_emitter) are PreToolUse blocking hooks so a
+        # DENY blocks BEFORE the commit / web call runs.
         expected = {
             "branch_guard",
             "orchestrator_guard",
@@ -422,9 +429,11 @@ class TestSupportedHookIdsCompleteness:
             "skill_usage_check",
             "health_monitor",
             "ccag_gatekeeper",
+            "review_guard",
+            "budget_event_emitter",
         }
         assert expected == PRE_HOOK_IDS
 
     def test_post_hook_ids_are_known(self) -> None:
-        expected = {"telemetry", "review_guard", "budget", "health_monitor"}
+        expected = {"telemetry", "budget", "health_monitor"}
         assert expected == POST_HOOK_IDS

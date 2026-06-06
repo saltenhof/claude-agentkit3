@@ -187,9 +187,21 @@ _MATCHER_MAPPABLE: dict[str, str] = {
     "Edit": "apply_patch",
     "*_send": "^mcp__.*_send$",
 }
+# Web-tool tokens with NO Codex tool surface (FK-76 §76.5.2, verified against
+# ``developers.openai.com/codex/hooks``): Codex does not expose WebSearch /
+# WebFetch at all, so there is nothing to intercept and no matcher can be
+# registered. Tracked SEPARATELY from the merely-non-interceptable tokens so the
+# omission of the ``budget_event_emitter`` enforcement surface is an EXPLICIT,
+# named, guarded decision — not a silent drop bucketed with ordinary tools
+# (AG3-036 FIX-2 / FK-68 §68.6.1). The fail-closed backstop, should a web call
+# ever reach the Codex governance runner regardless, lives in the Codex event
+# mapping (``codex.event_mapping``: it preserves the tool name so
+# ``budget_event_emitter`` still DENIES an over-budget / unresolved research
+# web call).
+_MATCHER_NO_CODEX_WEB_SURFACE: frozenset[str] = frozenset({"WebSearch", "WebFetch"})
 # Known §30.3.1 tokens with no Codex matcher equivalent — drop token-wise.
-_MATCHER_NOT_REPRESENTABLE: frozenset[str] = frozenset(
-    {"Read", "Grep", "Glob", "Agent", "WebSearch", "WebFetch"},
+_MATCHER_NOT_REPRESENTABLE: frozenset[str] = (
+    frozenset({"Read", "Grep", "Glob", "Agent"}) | _MATCHER_NO_CODEX_WEB_SURFACE
 )
 # Full known §30.3.1 token universe (FK-30 §30.3.1 / §30.3.2 table).  Any
 # token outside this set is unclassified → FAIL CLOSED.
@@ -410,6 +422,25 @@ class CodexSettingsWriter:
                     f"non-representable token(s) {mapping.dropped_tokens} "
                     "(no Codex matcher equivalent).",
                 )
+                # Web tokens are not merely non-interceptable — Codex has NO web
+                # tool surface (FK-76 §76.5.2). Emit an EXPLICIT, named guard
+                # diagnostic so the budget_event_emitter enforcement surface is
+                # documented as deliberately absent on Codex, never a silent gap
+                # (AG3-036 FIX-2 / FK-68 §68.6.1).
+                dropped_web = [
+                    t for t in mapping.dropped_tokens
+                    if t in _MATCHER_NO_CODEX_WEB_SURFACE
+                ]
+                if dropped_web:
+                    self.diagnostics.append(
+                        f"{event_key} matcher {defn.matcher!r}: web tool(s) "
+                        f"{dropped_web} have NO Codex tool surface "
+                        "(FK-76 §76.5.2) — budget_event_emitter is intentionally "
+                        "not registered for Codex. Fail-closed backstop: if a web "
+                        "call ever reaches the Codex runner, the Codex event "
+                        "mapping preserves the tool name so budget_event_emitter "
+                        "still denies an over-budget/unresolved research web call.",
+                    )
             if mapping.codex_matcher is None:
                 self.diagnostics.append(
                     f"{event_key} matcher {defn.matcher!r}: not applicable to "

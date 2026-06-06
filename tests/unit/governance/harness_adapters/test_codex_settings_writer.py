@@ -241,6 +241,50 @@ class TestEmptyMatcherNonApplicability:
 
 
 # ---------------------------------------------------------------------------
+# Web-tool surface absence is EXPLICIT, not a silent enforcement-surface drop
+# (AG3-036 FIX-2, FK-76 §76.5.2 / FK-68 §68.6.1)
+# ---------------------------------------------------------------------------
+
+
+class TestWebSurfaceExplicitGuard:
+    def test_web_matcher_emits_explicit_no_surface_diagnostic(
+        self, tmp_path: Path
+    ) -> None:
+        """A web matcher records a NAMED ``no Codex tool surface`` diagnostic
+        (citing FK-76 §76.5.2), not just the generic ``dropped`` line — so the
+        absent ``budget_event_emitter`` surface is a deliberate, documented
+        decision rather than a silent omission."""
+        writer = CodexSettingsWriter(tmp_path)
+        writer.write([_pre("WebSearch|WebFetch", "budget_event_emitter")])
+        explicit = [
+            d
+            for d in writer.diagnostics
+            if "NO Codex tool surface" in d and "budget_event_emitter" in d
+        ]
+        assert explicit, writer.diagnostics
+        assert any("FK-76" in d for d in explicit)
+
+    def test_web_matcher_names_the_failclosed_backstop(self, tmp_path: Path) -> None:
+        """The diagnostic points at the fail-closed backstop (the Codex event
+        mapping preserving the tool name) — ZERO DEBT: no unenforced gap."""
+        writer = CodexSettingsWriter(tmp_path)
+        writer.write([_pre("WebFetch", "budget_event_emitter")])
+        assert any(
+            "preserves the tool name" in d and "denies" in d
+            for d in writer.diagnostics
+        )
+
+    def test_non_web_unrepresentable_token_has_no_web_diagnostic(
+        self, tmp_path: Path
+    ) -> None:
+        """An ordinary non-interceptable token (Read) does NOT trigger the
+        web-surface diagnostic — the explicit guard is scoped to web tools."""
+        writer = CodexSettingsWriter(tmp_path)
+        writer.write([_pre("Read", "orchestrator_guard")])
+        assert not any("NO Codex tool surface" in d for d in writer.diagnostics)
+
+
+# ---------------------------------------------------------------------------
 # Three-level shape parse-back (§2.1.3, AC4)
 # ---------------------------------------------------------------------------
 

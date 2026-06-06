@@ -49,6 +49,7 @@ class TestEventType:
             "REVIEW_REQUEST",
             "REVIEW_RESPONSE",
             "REVIEW_COMPLIANT",
+            "REVIEW_GUARD_INTERVENTION",
             "LLM_CALL",
             "ADVERSARIAL_START",
             "ADVERSARIAL_SPARRING",

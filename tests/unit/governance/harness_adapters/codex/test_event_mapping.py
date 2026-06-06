@@ -108,7 +108,9 @@ def test_to_neutral_event_maps_read_and_unknown_codex_tools() -> None:
         CodexHookEvent(tool_name="spawn_agent", tool_input={}, cwd="."),
     )
     assert unknown.operation == "unknown_tool"
-    assert unknown.operation_args == {}
+    # AG3-036 FIX-2: the original tool name MUST survive the adapter so the
+    # runner's ``_event_tool`` can still derive it (fail-closed backstop).
+    assert unknown.operation_args == {"tool_name": "spawn_agent"}
     assert unknown.freshness_class == "guarded_read"
 
 

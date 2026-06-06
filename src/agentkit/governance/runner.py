@@ -15,6 +15,11 @@ from typing import TYPE_CHECKING
 from agentkit.governance.errors import LockRecordNotFoundError
 from agentkit.governance.hook_registration import HookId
 from agentkit.governance.locks import DeactivationResult, LockRecordId
+from agentkit.governance.principal_capabilities.operations import (
+    WEB_FETCH,
+    WEB_SEARCH,
+    canonical_web_tool,
+)
 from agentkit.governance.protocols import GuardVerdict, ViolationType
 
 if TYPE_CHECKING:
@@ -28,6 +33,13 @@ if TYPE_CHECKING:
     from agentkit.state_backend.store.lock_record_repository import LockRecordRepository
 
 type HookDecision = GuardVerdict
+
+#: Canonical tool names that count as a research web call (FK-68 §68.6.1). Used at
+#: the runner edge to gate the BudgetEventEmitter dispatch (fail-closed on an
+#: UNRESOLVED story type) to actual WebFetch/WebSearch operations. ``_event_tool``
+#: canonicalizes alias / casing forms (``web_fetch`` / ``web-search`` / ...) to
+#: these BEFORE this membership check (AG3-036 FIX-2 — never a fail-open gap).
+_WEB_TOOLS = frozenset({WEB_FETCH, WEB_SEARCH})
 
 PRE_HOOK_IDS = frozenset(
     {
@@ -43,12 +55,20 @@ PRE_HOOK_IDS = frozenset(
         "skill_usage_check",
         "health_monitor",
         "ccag_gatekeeper",
+        # AG3-036 (FK-68 §68.3.1) FIX-1/FIX-3: the two double-role telemetry
+        # guards enforce at PreToolUse so a DENY blocks BEFORE the tool runs.
+        # ``review_guard`` (§2.1.5) blocks a ``git commit`` whose mandatory
+        # reviewer roles are not covered; ``budget_event_emitter`` (§2.1.6)
+        # blocks a research web call over the hard budget. A PostToolUse DENY
+        # cannot stop an action that already ran (fail-open), so both belong in
+        # the PRE phase.
+        "review_guard",
+        "budget_event_emitter",
     }
 )
 POST_HOOK_IDS = frozenset(
     {
         "telemetry",
-        "review_guard",
         "budget",
         "health_monitor",
     }
@@ -541,6 +561,11 @@ def run_hook(
     if invalid is not None:
         return invalid
     if phase == "post":
+        # AG3-036 (FK-68 §68.3.1) FIX-1: the double-role ReviewGuard and the
+        # BudgetEventEmitter no longer live in the post phase — a PostToolUse
+        # DENY cannot block an action that already ran (fail-open). They are now
+        # PreToolUse blocking hooks (see the PRE branch below). Every post hook
+        # stays observational (allow at the GuardVerdict level).
         return GuardVerdict.allow(hook_id)
 
     # FK-55 §55.10.3 / §30.2.6 (governance-and-guards.B5): the hard
@@ -552,6 +577,21 @@ def run_hook(
     )
     if capability_block is not None:
         return capability_block
+
+    # AG3-036 (FK-68 §68.3.1) FIX-1/FIX-3: the two double-role telemetry guards
+    # are dispatched AFTER capability enforcement so the AG3-032 fail-closed
+    # ordering is NOT regressed (a hard capability DENY / UNCLASSIFIED_MUTATION /
+    # binding_invalid block still precedes them). A DENY here blocks the
+    # PreToolUse operation BEFORE it runs (a commit / web call is never
+    # executed). The authoritative roles (review) and story type (budget) are
+    # resolved at this runner edge from the LOCAL state — never a forgeable
+    # operation_args payload.
+    if hook_id == "review_guard":
+        return _run_review_guard(event, project_root=project_root or Path.cwd())
+    if hook_id == "budget_event_emitter":
+        return _run_budget_event_emitter(
+            event, project_root=project_root or Path.cwd()
+        )
 
     # AG3-033 (governance-and-guards.C5): two hooks now own dedicated guard
     # modules instead of the pauschal `evaluate_pre_tool_use` dispatch. They run
@@ -574,6 +614,429 @@ def run_hook(
     from agentkit.governance.guard_evaluation import evaluate_pre_tool_use
 
     return evaluate_pre_tool_use(event, project_root=project_root or Path.cwd())
+
+
+def _run_review_guard(event: HookEvent, *, project_root: Path) -> HookDecision:
+    """Dispatch the ``review_guard`` pre-hook to the double-role ReviewGuard.
+
+    AG3-036 (FK-68 §68.3.1) FIX-1/FIX-2: builds the telemetry
+    :class:`~agentkit.telemetry.hooks.review_guard.ReviewGuard` over the canonical
+    :class:`~agentkit.telemetry.storage.StateBackendEmitter` bound to the active
+    story directory (story binding resolved from the LOCAL edge bundle, same
+    source as the capability enforcement). On a missing reviewer role the guard
+    returns a fail-closed DENY (blocking the PreToolUse ``git commit`` BEFORE it
+    runs) and emits ``review_guard_intervention``; otherwise it allows the commit
+    and emits nothing.
+
+    The mandatory reviewer roles are resolved AUTHORITATIVELY at this runner edge
+    from ``pipeline.review.required_roles`` (FK-68 §68.3.1 / §2.1.5) — NOT from a
+    forgeable ``operation_args`` payload. The runner MAY import config; the hook
+    still receives the roles as injected plain values, preserving the hook import
+    boundary (AC10).
+
+    Fail-closed (FIX-2): when no story binding is resolvable, the pre-tool
+    capability chain has already run; this guard stays observational (allow).
+    When a binding IS active but the authoritative ``required_roles`` config is
+    unavailable for a code-producing story, the commit is DENIED (never a silent
+    guard-skip).
+
+    Args:
+        event: Harness-neutral hook event.
+        project_root: Project root for binding + config resolution.
+
+    Returns:
+        The guard's :class:`~agentkit.governance.protocols.GuardVerdict`.
+    """
+    from agentkit.projectedge.runtime import ProjectEdgeResolver
+    from agentkit.telemetry.hooks.base import HookContext, HookTrigger
+    from agentkit.telemetry.hooks.review_guard import ReviewGuard
+    from agentkit.telemetry.storage import StateBackendEmitter
+
+    resolved = ProjectEdgeResolver(project_root=project_root).resolve(
+        session_id=event.session_id,
+        cwd=event.cwd,
+        freshness_class=event.freshness_class,
+    )
+    if resolved.bundle is None or resolved.bundle.session is None:
+        return GuardVerdict.allow("review_guard")
+    session = resolved.bundle.session
+    story_id = session.story_id
+    run_id = session.run_id
+    if not story_id or not run_id:
+        return GuardVerdict.allow("review_guard")
+
+    story_dir = project_root / "stories" / story_id
+
+    # FIX-C: branch on the TYPED authoritative outcome. The UNRESOLVED story type,
+    # a config fault, AND an empty required_roles for a code story are all
+    # fail-closed blocks here; only a RESOLVED non-code story takes the allow path
+    # (distinct from UNRESOLVED — they do NOT share one path).
+    roles_outcome = _authoritative_required_roles(
+        project_root=project_root, story_id=story_id
+    )
+    if roles_outcome.block is not None:
+        return roles_outcome.block
+    if roles_outcome.non_code_story:
+        # RESOLVED non-code story: ReviewGuard is not applicable (non_code_story,
+        # explicitly NOT the story_type_unresolved path).
+        return GuardVerdict.allow("review_guard")
+    required_roles = roles_outcome.roles
+
+    guard = ReviewGuard(
+        StateBackendEmitter(story_dir, default_project_key=session.project_key),
+        required_roles=required_roles,
+    )
+    context = HookContext(
+        trigger=HookTrigger.PRE_TOOL_USE,
+        story_id=story_id,
+        run_id=run_id,
+        project_key=session.project_key,
+        principal=event.principal_kind,
+        tool="Bash",
+        command=_event_command(event),
+    )
+    result = guard.evaluate(context)
+    guard.emit(result)
+    if result.verdict is not None:
+        return result.verdict
+    return GuardVerdict.allow("review_guard")
+
+
+@dataclass(frozen=True)
+class _RequiredRolesOutcome:
+    """Resolved authoritative reviewer roles, or a fail-closed block.
+
+    Attributes:
+        roles: The authoritative ``pipeline.review.required_roles`` for a RESOLVED
+            code-producing story (always non-empty when ``block`` is ``None`` and
+            the story is code-producing).
+        block: A fail-closed blocking verdict; ``None`` on a clean resolution.
+        non_code_story: ``True`` when the authoritative story type is RESOLVED and
+            NOT code-producing — the ReviewGuard does not apply and the commit is
+            allowed. This is distinct from the UNRESOLVED case (which yields a
+            ``block``); the two must NOT share the allow path (AG3-036 FIX-C).
+    """
+
+    roles: tuple[str, ...] = ()
+    block: GuardVerdict | None = None
+    non_code_story: bool = False
+
+
+def _authoritative_required_roles(
+    *, project_root: Path, story_id: str
+) -> _RequiredRolesOutcome:
+    """Resolve mandatory reviewer roles from the authoritative pipeline config.
+
+    FK-68 §68.3.1 / AG3-036 §2.1.5 (FIX-C): the runner — NOT a forgeable harness
+    payload — owns the authority. Branches on the TYPED story-type outcome and
+    fail-closes on every non-compliant authoritative state:
+
+    - UNRESOLVED story type (backend fault OR missing record) → block
+      ``story_type_unresolved`` (NOT downgraded to non-code — the two error cases
+      must not reach the non-code allow path);
+    - RESOLVED non-code story → ``non_code_story`` allow (ReviewGuard N/A);
+    - RESOLVED code story + config unavailable → block ``review_config_unavailable``;
+    - RESOLVED code story + ``required_roles`` EMPTY → block
+      ``review_required_roles_empty`` (empty coverage defeats §2.1.5 / the
+      Integrity-Gate Dim 5 mandatory-reviewer rule — empty is NOT "fully
+      compliant");
+    - RESOLVED code story + non-empty roles → return the roles.
+
+    Args:
+        project_root: Project root for config + story-store resolution.
+        story_id: Canonical story display id for the authoritative story type.
+
+    Returns:
+        A :class:`_RequiredRolesOutcome` carrying the roles, a block, or the
+        ``non_code_story`` allow signal.
+    """
+    from agentkit.config.loader import load_project_config
+
+    resolution = _resolve_local_story_type(story_id, store_dir=project_root)
+    if not resolution.resolved:
+        # UNRESOLVED (backend fault OR missing record): fail-closed. Must NOT
+        # downgrade to non-code (which would share the allow path).
+        return _RequiredRolesOutcome(
+            block=GuardVerdict.block(
+                "review_guard",
+                ViolationType.POLICY_VIOLATION,
+                "story_type_unresolved: the authoritative story type could not "
+                "be resolved fail-closed (backend fault or missing record)",
+                detail={"story_id": story_id},
+            ),
+        )
+    if not resolution.is_code_producing:
+        # RESOLVED non-code story: ReviewGuard does not apply (distinct from the
+        # UNRESOLVED block above — these must NOT share one path).
+        return _RequiredRolesOutcome(non_code_story=True)
+
+    try:
+        config = load_project_config(project_root)
+    except Exception as exc:  # noqa: BLE001 -- fail-closed mapping of any config/backend fault to a review_config_unavailable BLOCK
+        return _RequiredRolesOutcome(
+            block=GuardVerdict.block(
+                "review_guard",
+                ViolationType.POLICY_VIOLATION,
+                "review_config_unavailable: pipeline.review.required_roles "
+                f"could not be resolved fail-closed ({exc})",
+                detail={"fault_class": type(exc).__name__},
+            ),
+        )
+    roles = tuple(config.pipeline.review.required_roles)
+    if not roles:
+        # RESOLVED code story with EMPTY required_roles: empty coverage provides
+        # NO protection and must NOT be treated as fully compliant (FIX-C).
+        return _RequiredRolesOutcome(
+            block=GuardVerdict.block(
+                "review_guard",
+                ViolationType.POLICY_VIOLATION,
+                "review_required_roles_empty: a code-producing story requires a "
+                "non-empty pipeline.review.required_roles (empty coverage defeats "
+                "the mandatory-reviewer rule, §2.1.5 / Integrity-Gate Dim 5)",
+                detail={"story_id": story_id},
+            ),
+        )
+    return _RequiredRolesOutcome(roles=roles)
+
+
+_CODE_PRODUCING_STORY_TYPES = frozenset({"implementation", "bugfix"})
+
+
+@dataclass(frozen=True)
+class _StoryTypeResolution:
+    """Typed outcome of the authoritative story-type resolution (AG3-036 FIX-A).
+
+    Distinguishes EXACTLY two states; the UNRESOLVED state must NOT be collapsed
+    into a story-type string (an empty string previously conflated a backend
+    fault and a missing record with a real non-research / non-code story, which
+    fails OPEN at the dispatch sites):
+
+    - ``RESOLVED``   — the canonical story store was read AND the record was found;
+      ``story_type`` carries the authoritative value (e.g. ``"research"``).
+    - ``UNRESOLVED`` — a backend fault OR a missing record. Both downstream
+      dispatch sites (ReviewGuard, BudgetEventEmitter) fail-closed on this state
+      rather than downgrading it to "not research" / "not code-producing".
+
+    Attributes:
+        resolved: ``True`` only for the ``RESOLVED`` state.
+        story_type: The authoritative story-type string when ``resolved`` is
+            ``True``; an empty string when ``resolved`` is ``False`` (never read
+            as a story type — callers must branch on ``resolved`` first).
+    """
+
+    resolved: bool
+    story_type: str = ""
+
+    @classmethod
+    def of(cls, story_type: str) -> _StoryTypeResolution:
+        """Return a ``RESOLVED`` outcome carrying *story_type*."""
+        return cls(resolved=True, story_type=story_type)
+
+    @classmethod
+    def unresolved(cls) -> _StoryTypeResolution:
+        """Return the ``UNRESOLVED`` outcome (backend fault OR missing record)."""
+        return cls(resolved=False)
+
+    @property
+    def is_code_producing(self) -> bool:
+        """Whether a RESOLVED story type is code-producing (implementation/bugfix).
+
+        Only meaningful for the ``RESOLVED`` state; an ``UNRESOLVED`` outcome
+        returns ``False`` here, but callers must check :attr:`resolved` first and
+        fail-closed on UNRESOLVED — they must NOT use this ``False`` as a
+        non-code allow path.
+        """
+        return self.resolved and self.story_type in _CODE_PRODUCING_STORY_TYPES
+
+
+def _resolve_local_story_type(
+    story_id: str, *, store_dir: Path
+) -> _StoryTypeResolution:
+    """Resolve the authoritative story type as a TYPED outcome (AG3-036 FIX-A).
+
+    FK-24 §24.3.2: the story type is read from the CANONICAL story master data
+    (the state-backend ``stories`` table via
+    :class:`~agentkit.state_backend.store.story_repository.StateBackendStoryRepository`)
+    — NOT from a forgeable ``operation_args`` payload and NOT from a file-based
+    export loader (the truth-boundary contract forbids governance modules reading
+    story export json / calling ``load_story_context``; the DB store is the
+    canonical truth).
+
+    Returns a :class:`_StoryTypeResolution` distinguishing exactly RESOLVED
+    (store read + record found) from UNRESOLVED (backend fault OR missing record).
+    The two error cases are deliberately NOT collapsed into a story-type string:
+    an UNRESOLVED outcome must fail-closed at the dispatch sites instead of
+    silently downgrading to "not research" / "not code-producing".
+
+    Args:
+        story_id: Canonical story display id.
+        store_dir: Base store directory for the SQLite backend (project root).
+
+    Returns:
+        A RESOLVED outcome with the story-type string, or the UNRESOLVED outcome.
+    """
+    from agentkit.state_backend.store.story_repository import (
+        StateBackendStoryRepository,
+    )
+
+    try:
+        story = StateBackendStoryRepository(store_dir).get_by_display_id(story_id)
+    except Exception:  # noqa: BLE001 -- fail-closed mapping of any backend/store fault to UNRESOLVED (never a story type)
+        # Backend fault: UNRESOLVED (fail-closed downstream), never a story type.
+        return _StoryTypeResolution.unresolved()
+    if story is None:
+        # Missing record: UNRESOLVED (fail-closed downstream), never a story type.
+        return _StoryTypeResolution.unresolved()
+    return _StoryTypeResolution.of(str(story.story_type.value))
+
+
+def _is_code_producing_story(story_id: str, *, store_dir: Path) -> bool:
+    """Return whether a RESOLVED story is code-producing (implementation/bugfix).
+
+    Thin convenience over :func:`_resolve_local_story_type`. An UNRESOLVED outcome
+    (backend fault OR missing record) returns ``False`` here; callers that must
+    fail-closed on UNRESOLVED branch on the typed
+    :class:`_StoryTypeResolution` directly (see :func:`_authoritative_required_roles`
+    and :func:`_run_budget_event_emitter`) — they do NOT use this boolean as an
+    allow path.
+
+    Args:
+        story_id: Canonical story display id.
+        store_dir: Base store directory for the SQLite backend (project root).
+
+    Returns:
+        ``True`` only for a RESOLVED implementation/bugfix story.
+    """
+    return _resolve_local_story_type(story_id, store_dir=store_dir).is_code_producing
+
+
+def _run_budget_event_emitter(
+    event: HookEvent, *, project_root: Path
+) -> HookDecision:
+    """Dispatch the ``budget_event_emitter`` pre-hook (FK-68 §68.6, AG3-036 FIX-3).
+
+    Builds the :class:`~agentkit.telemetry.hooks.budget_event_emitter.BudgetEventEmitter`
+    over the canonical :class:`~agentkit.telemetry.storage.StateBackendEmitter`
+    for the active story. Only research stories are budget-gated; the
+    authoritative story type is resolved at this runner edge from the LOCAL
+    story context (FK-24 §24.3.2) — never from a forgeable ``operation_args``
+    payload. A research web call over the hard budget emits ``web_call`` and
+    returns a fail-closed DENY (blocking the PreToolUse WebFetch/WebSearch BEFORE
+    it runs); a non-research story is allowed (no limit).
+
+    Args:
+        event: Harness-neutral hook event.
+        project_root: Project root for binding + story-type resolution.
+
+    Returns:
+        The hook's :class:`~agentkit.governance.protocols.GuardVerdict`.
+    """
+    from agentkit.projectedge.runtime import ProjectEdgeResolver
+    from agentkit.telemetry.hooks.base import HookContext, HookTrigger
+    from agentkit.telemetry.hooks.budget_event_emitter import BudgetEventEmitter
+    from agentkit.telemetry.storage import StateBackendEmitter
+
+    resolved = ProjectEdgeResolver(project_root=project_root).resolve(
+        session_id=event.session_id,
+        cwd=event.cwd,
+        freshness_class=event.freshness_class,
+    )
+    if resolved.bundle is None or resolved.bundle.session is None:
+        return GuardVerdict.allow("budget_event_emitter")
+    session = resolved.bundle.session
+    story_id = session.story_id
+    run_id = session.run_id
+    if not story_id or not run_id:
+        return GuardVerdict.allow("budget_event_emitter")
+
+    story_dir = project_root / "stories" / story_id
+
+    # FIX-B: branch on the TYPED authoritative outcome BEFORE building the hook
+    # context. UNRESOLVED (backend fault OR missing record) for an active binding
+    # whose web call we cannot classify is an inconsistent state → fail-closed
+    # DENY; we must NOT downgrade it to non-research. The web tool gate (so we
+    # only block actual WebFetch/WebSearch) is applied here too.
+    tool = _event_tool(event)
+    resolution = _resolve_local_story_type(story_id, store_dir=project_root)
+    if not resolution.resolved and tool in _WEB_TOOLS:
+        return GuardVerdict.block(
+            "budget_event_emitter",
+            ViolationType.POLICY_VIOLATION,
+            "story_type_unresolved: cannot confirm the active story is "
+            "non-research or within budget (backend fault or missing record)",
+            detail={"story_id": story_id, "tool": tool},
+        )
+
+    guard = BudgetEventEmitter(
+        StateBackendEmitter(story_dir, default_project_key=session.project_key),
+    )
+    context = HookContext(
+        trigger=HookTrigger.PRE_TOOL_USE,
+        story_id=story_id,
+        run_id=run_id,
+        project_key=session.project_key,
+        principal=event.principal_kind,
+        tool=tool,
+        story_type=resolution.story_type,
+        story_type_resolved=resolution.resolved,
+    )
+    result = guard.evaluate(context)
+    guard.emit(result)
+    if result.verdict is not None:
+        return result.verdict
+    return GuardVerdict.allow("budget_event_emitter")
+
+
+def _event_command(event: HookEvent) -> str:
+    """Extract the bash command string from the event operation args.
+
+    Args:
+        event: Harness-neutral hook event.
+
+    Returns:
+        The command string, or an empty string when absent.
+    """
+    command = event.operation_args.get("command")
+    return command if isinstance(command, str) else ""
+
+
+#: Maps the harness-neutral ``operation`` back to the canonical tool name. Web
+#: tools have no dedicated ``operation`` and arrive as ``unknown_tool`` carrying
+#: an explicit ``operation_args["tool_name"]`` (e.g. ``"WebFetch"``).
+_OPERATION_TO_TOOL: dict[str, str] = {
+    "bash_command": "Bash",
+    "file_write": "Write",
+    "file_edit": "Edit",
+    "file_read": "Read",
+}
+
+
+def _event_tool(event: HookEvent) -> str:
+    """Derive the canonical tool name from the harness-neutral event.
+
+    Prefers an explicit ``operation_args["tool_name"]`` (how WebFetch/WebSearch
+    arrive, since the HookEvent ``operation`` is ``unknown_tool`` for them);
+    otherwise maps the ``operation`` back to the canonical tool name. Mirrors
+    ``CcagPermissionRuntime._tool_name_from_event`` (single convention).
+
+    AG3-036 FIX-2: a web-tool name is canonicalized (``web_fetch`` /
+    ``web-search`` / ``WEBFETCH`` / ... → ``WebFetch`` / ``WebSearch``) BEFORE it
+    is returned, so EVERY alias / casing form resolves to the canonical value the
+    ``_WEB_TOOLS`` gate and the BudgetEventEmitter compare against. A
+    casing/alias gap here would let an over-budget / unresolved research web call
+    slip past the budget guard (fail-open) — the exact hole FIX-2 closes.
+
+    Args:
+        event: Harness-neutral hook event.
+
+    Returns:
+        The canonical tool name string (e.g. ``"WebFetch"``).
+    """
+    explicit = event.operation_args.get("tool_name")
+    if isinstance(explicit, str) and explicit:
+        return canonical_web_tool(explicit) or explicit
+    canonical = _OPERATION_TO_TOOL.get(event.operation, event.operation)
+    return canonical_web_tool(canonical) or canonical
 
 
 def _run_self_protection_guard(event: HookEvent) -> HookDecision:

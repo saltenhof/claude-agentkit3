@@ -11,6 +11,8 @@ and that each guard's ``name`` / rule id is wortgleich to its FK anchor.
 
 from __future__ import annotations
 
+import pytest
+
 from agentkit.governance import runner as runner_mod
 from agentkit.governance.guard_evaluation import HookEvent
 from agentkit.governance.guards import SelfProtectionGuard, StoryCreationGuard
@@ -32,6 +34,7 @@ from agentkit.governance.principal_capabilities import (
     OperationClassifier,
     PrincipalResolver,
 )
+from agentkit.governance.principal_capabilities.operations import canonical_web_tool
 
 #: The pinned hook-id -> dedicated dispatch-function mapping (AG3-033).
 EXPECTED_DEDICATED_DISPATCH: dict[str, str] = {
@@ -163,11 +166,86 @@ def test_production_adapters_do_not_yet_emit_http_method_url() -> None:
             {"tool_name": "web_fetch", "tool_input": {"url": "https://svc/v1/stories"}}
         )
     )
-    # Both collapse to unknown_tool with EMPTY args → no method/url survives.
+    # Both collapse to unknown_tool. AG3-036 FIX-1/FIX-2: the tool NAME now
+    # survives (so the web-call budget guard can derive WebFetch/WebSearch), but
+    # neither adapter populates method/url, so HTTP detection stays unreachable
+    # through a harness today (the honest pin of ERROR C branch 2).
+    #
+    # Adapters PRESERVE the raw name verbatim (no canonicalization at the adapter
+    # edge — that is the confirmed-good tool-name preservation). Canonicalization
+    # of alias / casing forms to the canonical ``WebFetch`` / ``WebSearch`` happens
+    # downstream at the runner edge (``_event_tool``), asserted below.
     assert claude_evt.operation == "unknown_tool"
-    assert claude_evt.operation_args == {}
+    assert claude_evt.operation_args == {"tool_name": "WebFetch"}
+    assert "method" not in claude_evt.operation_args
+    assert "url" not in claude_evt.operation_args
     assert codex_evt.operation == "unknown_tool"
-    assert codex_evt.operation_args == {}
+    # FIX-2: the CODEX adapter preserves the raw ``web_fetch`` alias verbatim ...
+    assert codex_evt.operation_args == {"tool_name": "web_fetch"}
+    assert "method" not in codex_evt.operation_args
+    assert "url" not in codex_evt.operation_args
+
+    # ... and the runner edge canonicalizes BOTH the already-canonical Claude name
+    # and the Codex alias to the canonical ``WebFetch`` BEFORE the ``_WEB_TOOLS``
+    # gate (FIX-2 — no alias/casing fail-open past the budget guard).
+    assert runner_mod._event_tool(claude_evt) == "WebFetch"
+    assert runner_mod._event_tool(codex_evt) == "WebFetch"
+
+
+# ---------------------------------------------------------------------------
+# AG3-036 FIX-2: web-tool alias / casing canonicalization is pinned for ALL
+# alias forms (Claude- and Codex-shaped) so a casing/separator gap can never
+# fail OPEN past the ``_WEB_TOOLS`` budget gate (FK-68 §68.6.1 / FK-55 §55.5).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("WebFetch", "WebFetch"),
+        ("webfetch", "WebFetch"),
+        ("WEBFETCH", "WebFetch"),
+        ("web_fetch", "WebFetch"),
+        ("web-fetch", "WebFetch"),
+        ("Web Fetch", "WebFetch"),
+        ("WebSearch", "WebSearch"),
+        ("websearch", "WebSearch"),
+        ("WEBSEARCH", "WebSearch"),
+        ("web_search", "WebSearch"),
+        ("web-search", "WebSearch"),
+        ("Web Search", "WebSearch"),
+    ],
+)
+def test_web_tool_alias_canonicalization(raw: str, expected: str) -> None:
+    # The shared canonicalizer resolves every alias / casing form.
+    assert canonical_web_tool(raw) == expected
+    # And the runner edge resolves the same forms whether the name arrives via the
+    # preserved ``operation_args["tool_name"]`` (Claude/Codex adapters) ...
+    explicit_evt = HookEvent.model_validate(
+        {
+            "operation": "unknown_tool",
+            "operation_args": {"tool_name": raw},
+            "freshness_class": "guarded_read",
+            "cwd": "/proj",
+        }
+    )
+    assert runner_mod._event_tool(explicit_evt) == expected
+
+
+def test_non_web_tool_is_not_canonicalized() -> None:
+    # A non-web tool name is left untouched (returns None from the canonicalizer;
+    # the runner edge returns the raw name unchanged).
+    assert canonical_web_tool("Task") is None
+    assert canonical_web_tool("TodoWrite") is None
+    evt = HookEvent.model_validate(
+        {
+            "operation": "unknown_tool",
+            "operation_args": {"tool_name": "Task"},
+            "freshness_class": "guarded_read",
+            "cwd": "/proj",
+        }
+    )
+    assert runner_mod._event_tool(evt) == "Task"
 
 
 # ---------------------------------------------------------------------------

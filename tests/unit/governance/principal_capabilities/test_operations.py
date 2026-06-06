@@ -256,10 +256,45 @@ def test_unknown_tool_is_execute_not_mutation() -> None:
     assert _CLF.classify("MysteryTool", {}) is OperationClass.EXECUTE
     assert _CLF.classify("Task", {}) is OperationClass.EXECUTE
     assert _CLF.classify("TodoWrite", {}) is OperationClass.EXECUTE
-    assert _CLF.classify("WebFetch", {}) is OperationClass.EXECUTE
     # The four structured edit tools remain known WRITE mutations.
     for tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
         assert _CLF.classify(tool, {}) is OperationClass.WRITE
+
+
+def test_web_tools_are_known_read() -> None:
+    # AG3-036 FIX-1 / FK-55 §55.5 / FK-68 §68.6.1: a research web tool (WebFetch /
+    # WebSearch) is a KNOWN, non-mutating READ — both when the name is the
+    # operation name directly AND when it arrives as the harness ``unknown_tool``
+    # operation carrying its (alias-tolerant) name in ``args["tool_name"]``.
+    assert _CLF.classify("WebFetch", {}) is OperationClass.READ
+    assert _CLF.classify("WebSearch", {}) is OperationClass.READ
+    assert (
+        _CLF.classify("unknown_tool", {"tool_name": "WebFetch"})
+        is OperationClass.READ
+    )
+    assert _CLF.is_known("WebFetch") is True
+    assert _CLF.is_known("unknown_tool", {"tool_name": "WebSearch"}) is True
+    # A genuinely unknown tool stays UNKNOWN / inert EXECUTE.
+    assert _CLF.is_known("unknown_tool", {"todos": []}) is False
+    assert _CLF.classify("unknown_tool", {"todos": []}) is OperationClass.EXECUTE
+
+
+def test_web_tool_aliases_classify_as_read() -> None:
+    # AG3-036 FIX-2: every alias / casing form of the two web surfaces is a known
+    # READ (the canonicalization is shared with the runner edge ``_event_tool``).
+    for alias in (
+        "web_fetch",
+        "web-fetch",
+        "WEBFETCH",
+        "web_search",
+        "web-search",
+        "WEBSEARCH",
+    ):
+        assert (
+            _CLF.classify("unknown_tool", {"tool_name": alias})
+            is OperationClass.READ
+        ), alias
+        assert _CLF.is_known("unknown_tool", {"tool_name": alias}) is True, alias
 
 
 def test_curate_reachable_via_admin_only_path() -> None:

@@ -33,6 +33,53 @@ from __future__ import annotations
 import shlex
 from enum import StrEnum
 
+#: Canonical research web-tool names (FK-68 §68.6.1: WebSearch / WebFetch). These
+#: are the ONLY two web surfaces the concept budgets; both are non-mutating reads
+#: in the repo-mutation sense (FK-55 §55.5 ``read``), so the worker principal may
+#: issue them (FK-55 §55.7.2 read; FK-22 §22.5.1 research stories run AI-augmented
+#: and recurse web search). Aliases (``web_fetch`` / ``web-search`` / mixed
+#: casing) MUST canonicalize to one of these before any ``_WEB_TOOLS`` comparison
+#: (AG3-036 FIX-2 — a casing/alias gap would fail OPEN past the budget guard).
+WEB_FETCH = "WebFetch"
+WEB_SEARCH = "WebSearch"
+
+#: Alias → canonical web-tool mapping. Keyed by the case-insensitive,
+#: separator-normalized (``-``/``_``/space → ``""``) tool name so ``web_fetch``,
+#: ``web-search``, ``WEBFETCH`` and ``Web Search`` all resolve. Single source for
+#: the runner edge and the OperationClassifier (FK-68 §68.6.1 / FK-55 §55.5).
+_WEB_TOOL_ALIASES: dict[str, str] = {
+    "webfetch": WEB_FETCH,
+    "websearch": WEB_SEARCH,
+}
+
+
+def _web_alias_key(tool_name: str) -> str:
+    """Normalize a tool name to its alias-lookup key (lower, separator-stripped)."""
+    return tool_name.strip().lower().replace("-", "").replace("_", "").replace(" ", "")
+
+
+def canonical_web_tool(tool_name: str) -> str | None:
+    """Return the canonical web-tool name for ``tool_name``, or ``None``.
+
+    Canonicalizes every alias / casing form of the two budgeted web surfaces to
+    :data:`WEB_FETCH` / :data:`WEB_SEARCH` BEFORE any ``_WEB_TOOLS`` membership
+    check (AG3-036 FIX-2). ``web_fetch`` / ``web-search`` / ``WEBFETCH`` /
+    ``Web Search`` all resolve; a non-web tool returns ``None``.
+
+    Args:
+        tool_name: The raw (harness-preserved) tool name.
+
+    Returns:
+        The canonical ``"WebFetch"`` / ``"WebSearch"`` string, or ``None`` when
+        ``tool_name`` is not a web tool.
+    """
+    return _WEB_TOOL_ALIASES.get(_web_alias_key(tool_name))
+
+
+def is_web_tool(tool_name: str) -> bool:
+    """Whether ``tool_name`` is one of the budgeted web surfaces (alias-tolerant)."""
+    return canonical_web_tool(tool_name) is not None
+
 
 class OperationClass(StrEnum):
     """The six canonical AK3 operation classes (FK-55 §55.5).
@@ -181,27 +228,41 @@ class OperationClassifier:
         "file_edit": OperationClass.WRITE,
     }
 
-    def is_known(self, operation_name: str) -> bool:
+    def is_known(
+        self, operation_name: str, args: dict[str, object] | None = None
+    ) -> bool:
         """Whether the classifier can positively map ``operation_name``.
 
         FK-55 §55.6.1 distinguishes a KNOWN tool (Read/Write/Edit/Bash/git/
-        agentkit/… — mapped to a concrete operation class) from an UNKNOWN
-        permission (a tool the classifier has no rule for). The enforcement layer
-        uses this to resolve an unknown tool *mode-scharf* (story_execution ⇒
-        BLOCK + permission_request; interactive/ai_augmented ⇒ defer) instead of
-        force-fitting it to a matrix-matching ``execute`` ALLOW (the AG3-032
-        ERROR C fail-open hole). ``classify`` still returns the inert
+        agentkit/WebFetch/WebSearch/… — mapped to a concrete operation class)
+        from an UNKNOWN permission (a tool the classifier has no rule for). The
+        enforcement layer uses this to resolve an unknown tool *mode-scharf*
+        (story_execution ⇒ BLOCK + permission_request; interactive/ai_augmented ⇒
+        defer) instead of force-fitting it to a matrix-matching ``execute`` ALLOW
+        (the AG3-032 ERROR C fail-open hole). ``classify`` still returns the inert
         :attr:`OperationClass.EXECUTE` for an unknown tool (so CCAG / downstream
         keep working); this predicate is the explicit unknown signal.
 
+        A research web tool (WebFetch / WebSearch, AG3-036 FIX-1) is KNOWN: it
+        arrives as the harness ``unknown_tool`` operation carrying its canonical
+        name in ``args["tool_name"]`` (FK-68 §68.6.1) and maps to the non-mutating
+        :attr:`OperationClass.READ` (FK-55 §55.5 ``read`` — a worker may issue it,
+        §55.7.2). Recognising it here is what lets it PASS capability enforcement
+        and reach the budget hook instead of being blocked as an unknown tool.
+
         Args:
             operation_name: The tool name or harness ``operation`` value.
+            args: Optional tool arguments. Inspected for the web-tool
+                ``"tool_name"`` (how WebFetch / WebSearch arrive past the
+                ``unknown_tool`` operation).
 
         Returns:
             ``True`` iff the tool maps to a concrete operation class (structured
-            tool, harness operation, or a shell command); ``False`` for an
-            unknown tool.
+            tool, harness operation, a shell command, or a web tool); ``False``
+            for an unknown tool.
         """
+        if self._web_tool_from(operation_name, args) is not None:
+            return True
         key = operation_name.strip().lower()
         return key in self._OPERATION_MAP or key in self._TOOL_MAP or key in ("bash", "bash_command", "shell")
 
@@ -212,11 +273,20 @@ class OperationClassifier:
             operation_name: The tool name (e.g. ``"Write"``, ``"Bash"``) or the
                 harness ``operation`` value (e.g. ``"file_write"``).
             args: Tool arguments. For ``Bash`` the ``"command"`` key (or
-                ``"cmd"``) is inspected with cheap token matching only.
+                ``"cmd"``) is inspected with cheap token matching only. For a web
+                tool the ``"tool_name"`` key carries the (alias-tolerant)
+                WebFetch / WebSearch name.
 
         Returns:
             Exactly one :class:`OperationClass`.
         """
+        # AG3-036 FIX-1: a research web tool (WebFetch / WebSearch, alias-tolerant)
+        # is a non-mutating READ (FK-55 §55.5 / FK-68 §68.6.1). It arrives as the
+        # harness ``unknown_tool`` operation carrying its name in
+        # ``args["tool_name"]``; classifying it as READ lets it pass the matrix
+        # (worker READ, §55.7.2) and reach the budget hook.
+        if self._web_tool_from(operation_name, args) is not None:
+            return OperationClass.READ
         key = operation_name.strip().lower()
         if key in self._OPERATION_MAP:
             return self._OPERATION_MAP[key]
@@ -285,6 +355,26 @@ class OperationClassifier:
         if raw is None:
             raw = args.get("cmd")
         return raw.strip() if isinstance(raw, str) else ""
+
+    @staticmethod
+    def _web_tool_from(
+        operation_name: str, args: dict[str, object] | None
+    ) -> str | None:
+        """Return the canonical web-tool name for this call, or ``None``.
+
+        Resolves a web tool either from the operation name directly (``WebFetch``
+        passed as the tool name) or — the harness path — from the preserved
+        ``args["tool_name"]`` (WebFetch / WebSearch arrive as the ``unknown_tool``
+        operation, AG3-036 FIX-1). Alias / casing tolerant via
+        :func:`canonical_web_tool` (FIX-2).
+        """
+        direct = canonical_web_tool(operation_name)
+        if direct is not None:
+            return direct
+        if args is None:
+            return None
+        raw = args.get("tool_name")
+        return canonical_web_tool(raw) if isinstance(raw, str) else None
 
 
 def _reduce_operation_classes(classes: list[OperationClass]) -> OperationClass:
@@ -617,7 +707,11 @@ def _dedupe(targets: list[str]) -> list[str]:
 
 
 __all__ = [
+    "WEB_FETCH",
+    "WEB_SEARCH",
     "OperationClass",
     "OperationClassifier",
     "bash_mutation_targets",
+    "canonical_web_tool",
+    "is_web_tool",
 ]

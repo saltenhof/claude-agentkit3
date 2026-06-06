@@ -307,6 +307,31 @@ class JenkinsConfig(BaseModel):
         return self
 
 
+class ReviewConfig(BaseModel):
+    """Mandatory-reviewer-coverage configuration (FK-68 §68.3.1 / AG3-036 §2.1.5).
+
+    Authoritative source for the reviewer roles that the double-role
+    :class:`~agentkit.telemetry.hooks.review_guard.ReviewGuard` enforces per
+    worker increment (precondition for Integrity-Gate Dim 5). The runner /
+    composition edge reads ``required_roles`` here and injects the plain
+    string values into the hook, so the hook keeps its AC10 import boundary
+    (no config import inside the telemetry-hook package) while the authority
+    is NOT a forgeable harness payload.
+
+    Attributes:
+        required_roles: The reviewer roles that MUST each have a
+            ``review_compliant`` event since the last increment commit before a
+            commit is permitted. Empty (default) means no mandatory reviewer
+            coverage is configured — but for a code-producing story the runner
+            treats an empty / unavailable list as fail-closed (DENY), never a
+            silent guard-skip (FK-68 §68.3.1 / CLAUDE.md FAIL-CLOSED).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    required_roles: list[str] = []
+
+
 class PipelineConfig(BaseModel):
     """Configuration for the 4-phase pipeline.
 
@@ -319,6 +344,9 @@ class PipelineConfig(BaseModel):
             (Phase 2) is enabled for implementation stories.
         verify_layers: Ordered list of QA layers to execute during
             the implementation QA-subflow.
+        review: Mandatory-reviewer-coverage configuration (FK-68 §68.3.1 /
+            AG3-036 §2.1.5). Authoritative source of ``review.required_roles``
+            for the ReviewGuard pre-commit hook.
         features: Optional feature flags (e.g. ARE integration).
         sonarqube: SonarQube-Green-Gate environment/profile requirement
             (FK-03 §3 / FK-33 §33.6). ``None`` only for non-code-producing
@@ -347,6 +375,7 @@ class PipelineConfig(BaseModel):
     max_remediation_rounds: int = DEFAULT_MAX_REMEDIATION_ROUNDS
     exploration_mode: bool = True
     verify_layers: list[str] = list(DEFAULT_VERIFY_LAYERS)
+    review: ReviewConfig = ReviewConfig()
     features: Features = Features()
     sonarqube: SonarQubeConfig | None = None
     ci: JenkinsConfig | None = None

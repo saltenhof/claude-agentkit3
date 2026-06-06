@@ -14,6 +14,7 @@ from agentkit.config.models import (
     PipelineConfig,
     ProjectConfig,
     RepositoryConfig,
+    ReviewConfig,
     SonarQubeConfig,
     _coerce_path,
 )
@@ -68,6 +69,32 @@ class TestPipelineConfig:
     def test_strict_rejects_string_for_bool(self) -> None:
         with pytest.raises(ValidationError):
             PipelineConfig(exploration_mode="yes")  # type: ignore[arg-type]
+
+    def test_review_required_roles_default_empty(self) -> None:
+        # AG3-036 §2.1.5 / FIX-2: review.required_roles is the authoritative
+        # source for ReviewGuard; default is empty (no mandatory coverage).
+        cfg = PipelineConfig()
+        assert cfg.review.required_roles == []
+
+    def test_review_required_roles_custom(self) -> None:
+        cfg = PipelineConfig(review=ReviewConfig(required_roles=["qa", "security"]))
+        assert cfg.review.required_roles == ["qa", "security"]
+
+
+class TestReviewConfig:
+    """Tests for ReviewConfig (AG3-036 §2.1.5)."""
+
+    def test_default_is_empty(self) -> None:
+        assert ReviewConfig().required_roles == []
+
+    def test_rejects_extra_fields(self) -> None:
+        with pytest.raises(ValidationError):
+            ReviewConfig(unknown="x")  # type: ignore[call-arg]
+
+    def test_is_frozen(self) -> None:
+        cfg = ReviewConfig(required_roles=["qa"])
+        with pytest.raises(ValidationError):
+            cfg.required_roles = ["security"]  # type: ignore[misc]
 
 
 class TestRepositoryConfig:

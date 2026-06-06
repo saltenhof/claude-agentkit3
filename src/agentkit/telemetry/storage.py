@@ -34,6 +34,18 @@ class StateBackendEmitter:
         self._default_project_key = default_project_key
         self._default_source_component = default_source_component
 
+    @property
+    def story_dir(self) -> Path:
+        """Return the story working directory this emitter is bound to.
+
+        Exposed for run-scoped readers (e.g. the audit-bundle exporter) that
+        need the canonical story directory to query the state backend. Read-only.
+
+        Returns:
+            The story directory passed at construction.
+        """
+        return self._story_dir
+
     def emit(self, event: Event) -> None:
         """Append an event to canonical runtime storage. Never raises.
 

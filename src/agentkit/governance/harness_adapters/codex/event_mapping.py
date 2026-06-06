@@ -156,7 +156,17 @@ def _classify_tool(
                 cast("FreshnessClass", freshness_class),
                 {arg_name: _string_arg(tool_input, *arg_keys)},
             )
-    return "unknown_tool", "guarded_read", {}
+    # AG3-036 FIX-2: any tool without a dedicated harness-neutral operation is
+    # emitted as ``unknown_tool``, but its ORIGINAL name MUST survive the adapter
+    # via ``operation_args["tool_name"]`` (the runner's ``_event_tool``
+    # convention, mirroring the Claude adapter). FK-76 §76.5.2: Codex exposes no
+    # WebSearch/WebFetch surface, so the settings writer registers no web matcher
+    # for Codex (documented, not silent). This preserve-the-name branch is the
+    # fail-closed backstop: if a WebFetch/WebSearch name EVER reaches the Codex
+    # governance runner, ``budget_event_emitter`` can still derive the web tool
+    # and DENY a research over-budget / unresolved call rather than letting it
+    # slip through unenforced (defence in depth, no silent drop of enforcement).
+    return "unknown_tool", "guarded_read", {"tool_name": tool_name}
 
 
 def _normalize_tool_name(tool_name: str) -> str:
