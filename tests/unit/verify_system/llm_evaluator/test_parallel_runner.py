@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import threading
-import time
 
 import pytest
 
@@ -68,20 +67,30 @@ class _RoleScriptedClient:
 
 
 class _ConcurrencyProbeClient:
-    """Records max concurrent in-flight calls to prove parallelism."""
+    """Records max concurrent in-flight calls to prove parallelism.
 
-    def __init__(self, by_role: dict[str, str]) -> None:
+    A :class:`threading.Barrier` (not a wall-clock sleep) deterministically forces
+    all ``expected`` callers to be in flight simultaneously, so the assertion holds
+    regardless of host load / xdist core oversubscription. A serial runner trips the
+    barrier timeout (``BrokenBarrierError``) instead of silently observing fewer than
+    ``expected`` concurrent calls.
+    """
+
+    def __init__(self, by_role: dict[str, str], *, expected: int = 3) -> None:
         self.by_role = by_role
         self._lock = threading.Lock()
         self._active = 0
         self.max_concurrent = 0
+        self._barrier = threading.Barrier(expected)
 
     def complete(self, *, role: str, prompt: str) -> str:
         del prompt
         with self._lock:
             self._active += 1
             self.max_concurrent = max(self.max_concurrent, self._active)
-        time.sleep(0.05)
+        # Block until all expected callers have arrived: proves real concurrency
+        # without depending on timing. 5s is ample even on a saturated host.
+        self._barrier.wait(timeout=5.0)
         with self._lock:
             self._active -= 1
         return self.by_role[role]
