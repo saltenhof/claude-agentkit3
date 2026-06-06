@@ -19,11 +19,11 @@ from typing import TYPE_CHECKING
 import pytest
 from tests.e2e._helpers import seed_approved_story
 
-from agentkit.bootstrap.composition_root import build_setup_phase_handler
-from agentkit.closure.phase import (
-    ClosureConfig,
-    ClosurePhaseHandler,
+from agentkit.bootstrap.composition_root import (
+    build_closure_phase_handler,
+    build_setup_phase_handler,
 )
+from agentkit.closure.phase import ClosureConfig
 from agentkit.governance.setup_preflight_gate.phase import SetupConfig
 from agentkit.installer import InstallConfig, install_agentkit
 from agentkit.installer.paths import qa_story_dir, story_dir
@@ -185,14 +185,16 @@ class TestRealPipelineE2E:
             registry.register("implementation", NoOpHandler())  # OK: LLM phase
             registry.register(
                 "closure",
-                ClosurePhaseHandler(
+                build_closure_phase_handler(
                     ClosureConfig(
                         owner=OWNER,
                         repo=REPO,
                         issue_nr=issue.number,
                         story_dir=s_dir,
                         close_issue=True,
-                    )
+                    ),
+                    store_dir=s_dir,
+                    project_key="e2e-test",
                 ),
             )
 
@@ -297,14 +299,16 @@ class TestRealPipelineE2E:
             registry.register("implementation", NoOpHandler())  # OK: LLM phase
             registry.register(
                 "closure",
-                ClosurePhaseHandler(
+                build_closure_phase_handler(
                     ClosureConfig(
                         owner=OWNER,
                         repo=REPO,
                         issue_nr=issue.number,
                         story_dir=s_dir,
                         close_issue=True,
-                    )
+                    ),
+                    store_dir=s_dir,
+                    project_key="e2e-test",
                 ),
             )
 

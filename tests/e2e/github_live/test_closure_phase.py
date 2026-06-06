@@ -21,11 +21,11 @@ from typing import TYPE_CHECKING
 import pytest
 from tests.e2e._helpers import seed_approved_story
 
-from agentkit.bootstrap.composition_root import build_setup_phase_handler
-from agentkit.closure.phase import (
-    ClosureConfig,
-    ClosurePhaseHandler,
+from agentkit.bootstrap.composition_root import (
+    build_closure_phase_handler,
+    build_setup_phase_handler,
 )
+from agentkit.closure.phase import ClosureConfig
 from agentkit.governance.setup_preflight_gate.phase import SetupConfig
 from agentkit.installer import InstallConfig, install_agentkit
 from agentkit.installer.paths import qa_story_dir, story_dir
@@ -40,6 +40,7 @@ from agentkit.state_backend.store import (
     append_execution_event,
     save_flow_execution,
     save_phase_snapshot,
+    save_story_context,
 )
 from agentkit.story_context_manager.models import (
     PhaseSnapshot,
@@ -48,7 +49,7 @@ from agentkit.story_context_manager.models import (
     StoryContext,
 )
 from agentkit.story_context_manager.story_model import StoryStatus, WireStoryType
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.story_context_manager.types import StoryType
 from agentkit.telemetry.contract.records import ExecutionEventRecord
 from agentkit.telemetry.events import EventType
 
@@ -164,16 +165,30 @@ class TestClosurePhaseE2E:
             # (In Progress -> Done) succeeds. Closure runs standalone here,
             # so Setup's begin_progress never executed -- the story must
             # already be In Progress (real StoryService persistence, no mock).
+            # CONCEPT shares the bugfix phase profile (setup -> implementation
+            # -> closure) but skips the merge block (uses_merge=False, FK-29
+            # §29.1.1), so closure here closes the issue + runs finalization
+            # without needing a live merge/Sonar environment.
             seed_approved_story(
                 project_key="e2e-closure-test",
                 story_display_id="E2E-7001",
                 story_number=1,
-                story_type=WireStoryType.BUGFIX,
+                story_type=WireStoryType.CONCEPT,
                 title="E2E closure: closes real issue",
                 status=StoryStatus.IN_PROGRESS,
             )
 
-            # 3. Run closure handler
+            # 3. Run closure handler (wired via the composition root). The
+            # comp-root fail-closes (FIX-2) on a missing story context, so persist
+            # a context carrying ``project_root`` before wiring the handler.
+            ctx = StoryContext(
+                project_key="e2e-closure-test",
+                story_id="E2E-7001",
+                story_type=StoryType.CONCEPT,
+                execution_route=None,  # CONCEPT allows only execution_route=None
+                project_root=tmp_path,
+            )
+            save_story_context(s_dir, ctx)
             config = ClosureConfig(
                 owner=OWNER,
                 repo=REPO,
@@ -181,12 +196,8 @@ class TestClosurePhaseE2E:
                 close_issue=True,
                 story_dir=s_dir,
             )
-            handler = ClosurePhaseHandler(config)
-            ctx = StoryContext(
-                project_key="e2e-closure-test",
-                story_id="E2E-7001",
-                story_type=StoryType.BUGFIX,
-                execution_route=StoryMode.EXECUTION,
+            handler = build_closure_phase_handler(
+                config, store_dir=s_dir, project_key="e2e-closure-test"
             )
             state = PhaseState(
                 story_id="E2E-7001",
@@ -260,19 +271,22 @@ class TestClosurePhaseE2E:
             # Seed the APPROVED Story the Setup preflight gate requires.
             # Setup transitions Approved -> In Progress, closure In Progress
             # -> Done (real StoryService persistence, no mock).
+            # CONCEPT skips the merge block (uses_merge=False, FK-29 §29.1.1):
+            # closure closes the issue + runs finalization without a live
+            # merge/Sonar environment. (The setup phase still runs for real.)
             seed_approved_story(
                 project_key="e2e-closure-test",
                 story_display_id="E2E-7002",
                 story_number=2,
-                story_type=WireStoryType.IMPLEMENTATION,
+                story_type=WireStoryType.CONCEPT,
                 title="E2E full pipeline: setup to closure",
             )
 
             ctx = StoryContext(
                 project_key="e2e-closure-test",
                 story_id="E2E-7002",
-                story_type=StoryType.IMPLEMENTATION,
-                execution_route=StoryMode.EXECUTION,
+                story_type=StoryType.CONCEPT,
+                execution_route=None,  # CONCEPT allows only execution_route=None
             )
             state = PhaseState(
                 story_id="E2E-7002",
@@ -312,13 +326,15 @@ class TestClosurePhaseE2E:
                 close_issue=True,
                 story_dir=s_dir,
             )
-            closure_handler = ClosurePhaseHandler(closure_config)
+            closure_handler = build_closure_phase_handler(
+                closure_config, store_dir=s_dir, project_key="e2e-closure-test"
+            )
 
             closure_ctx = StoryContext(
                 project_key="e2e-closure-test",
                 story_id="E2E-7002",
-                story_type=StoryType.IMPLEMENTATION,
-                execution_route=StoryMode.EXECUTION,
+                story_type=StoryType.CONCEPT,
+                execution_route=None,  # CONCEPT allows only execution_route=None
             )
             closure_state = PhaseState(
                 story_id="E2E-7002",

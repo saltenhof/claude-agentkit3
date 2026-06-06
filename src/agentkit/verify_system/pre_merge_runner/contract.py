@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
+    from agentkit.verify_system.sonarqube_gate import SonarGateOutcome
     from agentkit.verify_system.sonarqube_gate.attestation import SonarAttestation
 
 
@@ -83,6 +84,18 @@ class ScanOutcome:
             ``exception_ledger_hash`` to the ledger actually used, and the
             gate/profile/scope/scanner metadata to the authoritative Sonar
             endpoints (FIX-4) — never empty-string-stamped.
+        gate_outcome: The FULL AG3-052 :class:`SonarGateOutcome` the runner
+            produced by running :func:`evaluate_sonarqube_gate` over THIS run's
+            analysis (current issues via ``issues/search``, the ledger the
+            runner holds, the issue applier + post-apply re-read over the Sonar
+            client). This is the SAME green truth as the impl-phase gate
+            (Single-Match ledger reconciler + post-apply QG/open-issue re-read +
+            Broken-Window ``overall_open_issue_count == 0`` + accepted-exception
+            transition). The Closure IntegrityGate Dim 9 consumes
+            ``gate_outcome.passed`` — it never re-derives green from the raw
+            ``attestation.quality_gate_status`` (that pre-apply status is only
+            the commit-binding stale-check input). Populated ONLY when
+            ``produced is True``; ``None`` on every fail-closed path.
     """
 
     produced: bool
@@ -90,6 +103,7 @@ class ScanOutcome:
     tree_hash: str | None = None
     reason: str | None = None
     attestation: SonarAttestation | None = None
+    gate_outcome: SonarGateOutcome | None = None
 
 
 @dataclass(frozen=True)

@@ -184,19 +184,7 @@ class ConfiguredSonarGateInputPort:
                 ``integrations.sonar`` (the gate catches ``OSError/ValueError``
                 from the re-read => terminal ``failed``).
         """
-        analysis = self.bound_analysis
-        try:
-            analysis_id = resolve_analysis_id(self.client, analysis.ce_task_id)
-            status_body = self.client.project_status(
-                analysis_id=analysis_id
-            ).json_body
-            open_issues = self._read_open_issues()
-        except SonarApiError as exc:
-            raise ValueError(f"post-apply Sonar re-read failed: {exc}") from exc
-        return PostApplyGateState(
-            quality_gate_status=_quality_gate_status(status_body),
-            overall_open_issue_count=len(open_issues),
-        )
+        return read_post_apply_state(self.client, self.bound_analysis)
 
     def _read_attestation(self) -> SonarAttestation:
         return read_commit_bound_attestation(
@@ -207,19 +195,7 @@ class ConfiguredSonarGateInputPort:
         )
 
     def _read_open_issues(self) -> tuple[SonarIssue, ...]:
-        analysis = self.bound_analysis
-        body = self.client.search_issues(
-            {
-                "componentKeys": analysis.component,
-                "branch": analysis.branch,
-                "resolved": "false",
-                "ps": "500",
-            }
-        ).json_body
-        raw_issues = body.get("issues", [])
-        if not isinstance(raw_issues, list):
-            raise SonarApiError("issues/search returned a non-list 'issues' body")
-        return tuple(_to_sonar_issue(entry) for entry in raw_issues)
+        return read_open_issues(self.client, self.bound_analysis)
 
     def _apply_accepted_issue(self, issue_key: str) -> None:
         """Transition a single-matched issue to ``Accepted`` (scoped token).
@@ -227,14 +203,77 @@ class ConfiguredSonarGateInputPort:
         FK-33 §33.6.4: the deterministic reconciler — not the worker —
         applies the exception. A failed transition is fail-closed.
         """
-        try:
-            self.client.transition_issue(issue_key, _ACCEPT_TRANSITION)
-            self.client.set_issue_tags(issue_key, _LEDGER_TAG)
-        except SonarApiError as exc:
-            raise ReconcilerApplyError(
-                f"could not transition issue {issue_key!r} to Accepted "
-                f"(FK-33 §33.6.4): {exc}"
-            ) from exc
+        build_issue_applier(self.client)(issue_key)
+
+
+def read_open_issues(
+    client: SonarClient, analysis: BoundAnalysis
+) -> tuple[SonarIssue, ...]:
+    """Read the current open (non-accepted) issues for a bound analysis.
+
+    Reused by AG3-052's gate-input adapter and the AG3-056 pre-merge scan
+    runner so there is ONE ``issues/search`` truth (no second Sonar truth).
+    The query is scoped to the analysis ``component`` + ``branch`` and to
+    ``resolved=false`` (the pre-apply scan view the reconciler matches the
+    ledger against, and — re-read post-apply — the open-non-accepted count).
+
+    Args:
+        client: Thin ``integrations.sonar`` client (scoped token).
+        analysis: The commit-bound analysis coordinates.
+
+    Returns:
+        The current open issues as transport-neutral :class:`SonarIssue`.
+
+    Raises:
+        SonarApiError: On an unreachable API or a malformed ``issues`` body.
+    """
+    body = client.search_issues(
+        {
+            "componentKeys": analysis.component,
+            "branch": analysis.branch,
+            "resolved": "false",
+            "ps": "500",
+        }
+    ).json_body
+    raw_issues = body.get("issues", [])
+    if not isinstance(raw_issues, list):
+        raise SonarApiError("issues/search returned a non-list 'issues' body")
+    return tuple(_to_sonar_issue(entry) for entry in raw_issues)
+
+
+def read_post_apply_state(
+    client: SonarClient, analysis: BoundAnalysis
+) -> PostApplyGateState:
+    """RE-READ the post-apply quality gate + open count (AG3-052 E4).
+
+    Reused by AG3-052's gate-input adapter and the AG3-056 pre-merge scan
+    runner so the post-apply re-read is ONE truth. Resolves the analysisId,
+    reads the recomputed ``project_status`` verdict and the fresh
+    open-non-accepted count.
+
+    Args:
+        client: Thin ``integrations.sonar`` client (scoped token).
+        analysis: The commit-bound analysis coordinates.
+
+    Returns:
+        The :class:`PostApplyGateState` (fresh QG status + open count).
+
+    Raises:
+        ValueError: When the post-apply re-read against Sonar fails
+            (configured-but-unreachable). Surfaced as ``ValueError`` so the
+            gate's fail-closed boundary handles it without importing
+            ``integrations.sonar``.
+    """
+    try:
+        analysis_id = resolve_analysis_id(client, analysis.ce_task_id)
+        status_body = client.project_status(analysis_id=analysis_id).json_body
+        open_issues = read_open_issues(client, analysis)
+    except SonarApiError as exc:
+        raise ValueError(f"post-apply Sonar re-read failed: {exc}") from exc
+    return PostApplyGateState(
+        quality_gate_status=_quality_gate_status(status_body),
+        overall_open_issue_count=len(open_issues),
+    )
 
 
 def _quality_gate_status(status_body: dict[str, Any]) -> str:
@@ -547,5 +586,7 @@ __all__ = [
     "build_issue_applier",
     "read_commit_bound_attestation",
     "read_last_analyzed_revision",
+    "read_open_issues",
+    "read_post_apply_state",
     "resolve_analysis_id",
 ]

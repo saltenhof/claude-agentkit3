@@ -124,6 +124,44 @@ def build_pre_merge_runners(
     return PreMergeRunners(scan=scan_runner, build_test=build_test_runner)
 
 
+def build_build_test_runner(
+    ci_config: JenkinsConfig | None,
+    repo_root: Path,
+    *,
+    ci_token: str | None = None,
+) -> BuildTestPort | None:
+    """Build ONLY the commit-bound Build/Test runner from the live CI config.
+
+    Additive companion to :func:`build_pre_merge_runners` (AG3-056 §2.1.4): the
+    Closure barrier needs a Build/Test runner WITHOUT a Sonar scan runner when
+    Sonar is DECLARED absent on a CI-present code-producing project (FK-33
+    §33.6.5 "absent != broken", AG3-053 FIX-3). This builds the same CI backend
+    and :class:`CiBuildTestRunner` as the paired wiring (no second CI truth);
+    the integrated-candidate scan + Dim 9 are then skipped by the consumer.
+
+    Args:
+        ci_config: The resolved ``ci`` (Jenkins) config stanza.
+        repo_root: Unused here (the build/test facet needs no tree/ledger read);
+            kept for signature symmetry with :func:`build_pre_merge_runners`.
+        ci_token: The resolved Jenkins token (read from env when ``None``).
+
+    Returns:
+        * ``None`` for a declared-absent CI (no ``ci`` stanza / ``available ==
+          false``).
+        * a :class:`BuildTestPort` when CI is applicable and resolvable.
+
+    Raises:
+        PreMergeRunnerUnavailableError: When CI is APPLICABLE but the endpoint /
+            token cannot be resolved (fail-closed; never a silent skip).
+    """
+    del repo_root
+    if ci_config is None or not ci_config.available:
+        return None
+    backend = _build_ci_backend(ci_config, ci_token)
+    run_cache = CandidateRunCache(backend=backend)
+    return CiBuildTestRunner(run_cache=run_cache)
+
+
 def _build_ci_backend(
     ci_config: JenkinsConfig, ci_token: str | None
 ) -> JenkinsCiBackend:
@@ -215,5 +253,6 @@ def _resolve_token(token_env: str | None, *, what: str) -> str:
 __all__ = [
     "PreMergeRunnerUnavailableError",
     "PreMergeRunners",
+    "build_build_test_runner",
     "build_pre_merge_runners",
 ]

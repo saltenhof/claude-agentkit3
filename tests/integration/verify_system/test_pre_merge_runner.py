@@ -203,6 +203,20 @@ class _StubSonarClient:
         del component, keys
         return _SonarResp({"settings": [{"key": "sonar.sources", "value": "src"}]})
 
+    def search_issues(self, params: object) -> _SonarResp:
+        # FIX-1: the runner runs the FULL AG3-052 gate over the run's analysis.
+        # An empty open-issue set + OK post-apply QG = green (no open findings).
+        del params
+        return _SonarResp({"issues": []})
+
+    def transition_issue(self, issue_key: str, transition: str) -> _SonarResp:
+        del issue_key, transition
+        return _SonarResp({})
+
+    def set_issue_tags(self, issue_key: str, tags: str) -> _SonarResp:
+        del issue_key, tags
+        return _SonarResp({})
+
 
 def _sonar_config() -> SonarQubeConfig:
     return SonarQubeConfig(
@@ -282,6 +296,9 @@ class TestPositivePath:
         assert len(att.quality_profile_hash) == 64
         assert len(att.analysis_scope_hash) == 64
         assert att.scanner_version == "5.0.1"
+        # FIX-1: the FULL AG3-052 gate ran over the run's analysis and is green.
+        assert scan.gate_outcome is not None
+        assert scan.gate_outcome.passed is True
         # ERROR-1: EVERY mandatory FK-33 §33.6.3 binding is non-empty.
         for field_name in (
             "commit_sha",

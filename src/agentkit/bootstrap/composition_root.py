@@ -20,6 +20,7 @@ Quelle:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agentkit.artifacts import (
@@ -36,8 +37,20 @@ from agentkit.verify_system.register import register_verify_producers
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
 
+    from agentkit.closure.merge_sequence import (
+        BuildTestPort,
+        MergeApplicability,
+        PreMergeScanPort,
+        RepoRunners,
+        SanityGatePort,
+    )
+    from agentkit.closure.phase import ClosurePhaseHandler, ClosureProgressStore
+    from agentkit.closure.post_merge_finalization.finalization import (
+        DocFidelityFeedbackPort,
+        GuardDeactivationPort,
+        VectorDbSyncPort,
+    )
     from agentkit.exploration.phase import ExplorationPhaseHandler
     from agentkit.failure_corpus import FailureCorpus
     from agentkit.governance.integrity_gate import IntegrityGate
@@ -708,6 +721,382 @@ def build_projection_accessor(store_dir: Path | None = None) -> ProjectionAccess
     return _ProjectionAccessor(repos)
 
 
+def build_closure_phase_handler(
+    config: object,
+    *,
+    store_dir: Path | None = None,
+    project_key: str = "",
+) -> ClosurePhaseHandler:
+    """Wire a fully-collaborated ``ClosurePhaseHandler`` (FK-29, AG3-053).
+
+    Composition root for the Closure phase (BC 7, ``story-closure``): assembles
+    the collaborators the truth-boundary-protected handler may NOT build itself
+    (DI pattern, analog ``build_setup_phase_handler`` / ``build_verify_system``).
+    The handler ORCHESTRATES the canonical FK-29 §29.1.4 sequence by CALLING
+    these capabilities; it builds no second merge/gate/Sonar/lock truth:
+
+    * ``integrity_gate`` -- :func:`build_integrity_gate` (AG3-034 verifier; its
+      Dim 9 consumes the AG3-052 Sonar capability to verify the fresh
+      attestation, FK-35 §35.2.4a).
+    * ``artifact_manager`` -- :func:`build_artifact_manager` (the only Layer-2
+      read seam for the Finding-Resolution-Gate, FK-29 §29.2).
+    * ``scan_port`` / ``build_test_port`` -- the AG3-056 Pre-Merge-Verification-
+      Runner's commit-bound ``CiSonarScanRunner`` / ``CiBuildTestRunner`` (FK-29
+      §29.1a.3 steps c/d), wired via ``build_pre_merge_runners`` over one shared
+      CI run. ``None`` for a declared-absent CI (``ci.available == false``);
+      applicable-but-unreachable raises ``PreMergeRunnerUnavailableError``
+      (fail-closed). The old fail-open ``build_sonar_gate_port_for_run`` scan path
+      is REMOVED -- AG3-053 consumes AG3-056.
+    * ``sonar_config`` -- the FK-03 ``sonarqube`` stanza, threaded into the
+      fresh-attestation Dim-9 version-drift check (FK-35 §35.2.4a item 5).
+    * ``sanity_port`` -- the fast-mode Sanity-Gate seam (FK-29 §29.1a.6).
+    * ``doc_fidelity_port`` -- level-4 doc-fidelity feedback via
+      ``verify_system.llm_evaluator`` (FK-38 §38.3.1, non-blocking).
+    * ``vectordb_sync_port`` -- the FK-13 §13.7.1 sync trigger (non-blocking).
+    * ``guard_deactivation_port`` -- ``Governance.deactivate_locks`` (FK-29 §29.5,
+      governance top surface; closure holds no lock logic).
+
+    Args:
+        config: A ``ClosureConfig`` carrying ``story_dir`` (+ optional GitHub /
+            story-service fields). The collaborator slots are overwritten here.
+        store_dir: State-backend base dir (SQLite); ``None`` => the config's
+            ``story_dir``.
+        project_key: Owning project key for the governance top surface.
+
+    Returns:
+        A wired ``ClosurePhaseHandler``.
+    """
+    from agentkit.closure.phase import ClosureConfig, ClosurePhaseHandler
+
+    if not isinstance(config, ClosureConfig):
+        msg = f"config must be a ClosureConfig; got {type(config).__name__}"
+        raise TypeError(msg)
+    base_dir = store_dir or config.story_dir or Path.cwd()
+    config.progress_store = _build_closure_progress_store(base_dir)
+    config.integrity_gate = build_integrity_gate(base_dir)
+    config.artifact_manager = build_artifact_manager(base_dir)
+    ci_config, sonar_config = _resolve_pre_merge_configs(config.story_dir)
+    config.sonar_config = sonar_config
+    # FIX-C: build a runner pair PER participating repo (each bound to ITS OWN
+    # root/ledger/tree), so every repo is verified against its own root. The
+    # single-repo path is the one-entry case (config.repos empty => the story_dir
+    # repo). The applicability is resolved once (story-type + ci/sonar facets are
+    # the same across repos for one story).
+    repo_roots = _closure_repo_roots(config, base_dir)
+    repo_runners, applicability = _build_per_repo_runners(
+        ci_config, sonar_config, repo_roots
+    )
+    config.merge_applicability = applicability
+    primary = repo_runners[repo_roots[0]]
+    config.scan_port = primary.scan_port
+    config.build_test_port = primary.build_test_port
+    config.repo_runners = repo_runners
+    config.sanity_port = _build_sanity_gate_port()
+    config.doc_fidelity_port = _build_doc_fidelity_feedback_port()
+    config.vectordb_sync_port = _build_vectordb_sync_port()
+    config.guard_deactivation_port = _build_guard_deactivation_port(
+        base_dir, project_key=project_key
+    )
+    return ClosurePhaseHandler(config)
+
+
+def _build_closure_progress_store(store_dir: Path) -> ClosureProgressStore:
+    """Build the closure checkpoint store (FK-29 §29.1.0, AC003 pipeline surface).
+
+    Phase-state mutation may only happen through a pipeline surface
+    (architecture-conformance AC003), so the closure checkpoint writes go through
+    the ``pipeline_engine`` :class:`PhaseEnvelopeStore` (over the state-backend
+    phase-envelope repository) -- NOT a direct ``save_phase_state`` import in the
+    closure BC.
+    """
+    from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+    from agentkit.state_backend.store.phase_envelope_repository import (
+        StateBackendPhaseEnvelopeRepository,
+    )
+
+    return PhaseEnvelopeStore(StateBackendPhaseEnvelopeRepository(store_dir))
+
+
+class ClosureConfigUnavailableError(Exception):
+    """The closure pre-merge config/context is broken (fail-closed, FIX-2).
+
+    Raised by :func:`_resolve_pre_merge_configs` when the story context or the
+    project config is PRESENT-but-unreadable/malformed, as opposed to a
+    DELIBERATE absence (no ``ci``/``sonarqube`` stanza or ``available == false``).
+    A broken config must never silently disable the integrated-candidate
+    verification (NO ERROR BYPASSING) -- the composition root surfaces this
+    before building the handler so the run escalates rather than merging code
+    unverified.
+    """
+
+
+def _resolve_pre_merge_configs(
+    story_dir: Path | None,
+) -> tuple[object | None, object | None]:
+    """Resolve the ``ci`` + ``sonarqube`` config stanzas (truth boundary, AG3-056).
+
+    The composition root owns the project-config read (``governance``/``closure``
+    stay free of direct config reads). Resolves the run ``StoryContext`` to find
+    the project root, then loads the ``ci`` (Jenkins) and ``sonarqube`` stanzas
+    for the AG3-056 pre-merge runner wiring + the Dim-9 version-drift check.
+
+    FIX-2 fail-closed distinction (a broken config must NEVER silently disable
+    verification, NO ERROR BYPASSING):
+
+    * DELIBERATE absence -- no ``pipeline`` stanza at all (a non-code-producing
+      project never declares CI/Sonar) -> ``(None, None)``: the runner wiring
+      treats it as a declared skip and the applicability layer (FIX-3) decides
+      per story type whether that is allowed.
+    * BROKEN config/context -- an unresolvable project root, an unreadable
+      story context, or a config that fails to load/parse -> FAIL-CLOSED
+      (:class:`ClosureConfigUnavailableError`). Never downgraded to a declared
+      absence.
+
+    A PRESENT stanza with ``available == false`` is also a deliberate absence,
+    but that is decided downstream (``build_pre_merge_runners`` returns ``None``
+    for it); here we only fail closed on a genuinely broken read.
+    """
+    from agentkit.config.loader import load_project_config
+    from agentkit.state_backend.store import facade
+
+    if story_dir is None:
+        raise ClosureConfigUnavailableError(
+            "closure config resolution requires a story_dir (FIX-2, fail-closed)"
+        )
+    try:
+        ctx = facade.load_story_context(story_dir)
+    except Exception as exc:  # noqa: BLE001 -- broken context is fail-closed, not absence
+        raise ClosureConfigUnavailableError(
+            f"story context at {story_dir} is unreadable/malformed "
+            f"(FIX-2, fail-closed -- never silently skip verification): {exc}"
+        ) from exc
+    if ctx is None or ctx.project_root is None:
+        raise ClosureConfigUnavailableError(
+            f"no resolvable story context / project root at {story_dir} "
+            "(FIX-2, fail-closed)"
+        )
+    if not _project_config_present(ctx.project_root):
+        # Deliberate absence: the project declares no AK3 config file at all
+        # (a non-code-producing project never wires a pipeline). The
+        # applicability layer (FIX-3) decides per story type whether a missing
+        # runner is allowed -- it is for concept/research, fail-closed for code.
+        return (None, None)
+    try:
+        project_config = load_project_config(ctx.project_root)
+    except Exception as exc:  # noqa: BLE001 -- broken config is fail-closed, not absence
+        raise ClosureConfigUnavailableError(
+            f"project config at {ctx.project_root} is present but "
+            f"unreadable/malformed (FIX-2, fail-closed -- a broken config never "
+            f"silently disables Sonar/CI): {exc}"
+        ) from exc
+    pipeline = getattr(project_config, "pipeline", None)
+    if pipeline is None:
+        # Deliberate absence: no pipeline stanza (non-code-producing project).
+        return (None, None)
+    return (getattr(pipeline, "ci", None), getattr(pipeline, "sonarqube", None))
+
+
+def _project_config_present(project_root: Path) -> bool:
+    """Whether the project declares an AK3 config file (vs deliberate absence)."""
+    from agentkit.config.defaults import DEFAULT_CONFIG_DIR, DEFAULT_CONFIG_FILE
+
+    return (project_root / DEFAULT_CONFIG_DIR / DEFAULT_CONFIG_FILE).is_file()
+
+
+def _build_pre_merge_runners(
+    ci_config: object | None,
+    sonar_config: object | None,
+    *,
+    repo_root: Path,
+) -> tuple[PreMergeScanPort | None, BuildTestPort | None, MergeApplicability]:
+    """Wire the AG3-056 pre-merge runners + resolve the typed applicability (FIX-3).
+
+    CONSUMES AG3-056's
+    :func:`verify_system.pre_merge_runner.runtime_wiring.build_pre_merge_runners`
+    (the old fail-open ``build_sonar_gate_port_for_run`` scan path is REMOVED).
+    The applicability is resolved HERE (the applicability layer, FIX-3) from the
+    ``ci``/``sonarqube`` availability and threaded onto the handler so a declared
+    absence never silently merges code unverified (FK-33 §33.6.5 "absent !=
+    broken"):
+
+    * CI DECLARED absent (no stanza / ``ci.available == false``) ->
+      ``(None, None, CI_ABSENT)``: for a code-producing story the handler
+      fail-closes (cannot verify => cannot merge); for concept/research the
+      block is skipped entirely (``uses_merge == False``).
+    * CI present + Sonar DECLARED absent (no stanza / ``sonarqube.available ==
+      false``) -> ``(None, build_test, SONAR_ABSENT)``: Build/Test runs (built
+      via the additive :func:`build_build_test_runner`), the integrated-candidate
+      scan + Dim 9 are skipped, the merge stays gated.
+    * CI present + Sonar present -> ``(scan, build_test, FULL)`` via
+      ``build_pre_merge_runners`` (shared single run-cache).
+    * APPLICABLE-but-unreachable (``available == true`` but the endpoint/token
+      cannot be resolved) raises ``PreMergeRunnerUnavailableError`` ->
+      fail-closed (NEVER a silent skip).
+
+    Args:
+        ci_config: The resolved ``JenkinsConfig`` (or ``None``).
+        sonar_config: The resolved ``SonarQubeConfig`` (or ``None``).
+        repo_root: The integrated-candidate repo root (tree-hash + ledger read).
+
+    Returns:
+        ``(scan_port, build_test_port, applicability)``.
+    """
+    from agentkit.closure.merge_sequence import MergeApplicability
+    from agentkit.config.models import JenkinsConfig, SonarQubeConfig
+    from agentkit.verify_system.pre_merge_runner.runtime_wiring import (
+        build_build_test_runner,
+        build_pre_merge_runners,
+    )
+
+    typed_ci = ci_config if isinstance(ci_config, JenkinsConfig) else None
+    typed_sonar = sonar_config if isinstance(sonar_config, SonarQubeConfig) else None
+
+    ci_present = typed_ci is not None and typed_ci.available
+    if not ci_present:
+        # Declared-absent CI: no Build/Test+scan runner. The handler fail-closes
+        # for code-producing stories (FIX-3); concept/research skip the block.
+        return (None, None, MergeApplicability.CI_ABSENT)
+
+    sonar_present = typed_sonar is not None and typed_sonar.available
+    if not sonar_present:
+        # CI present, Sonar declared absent: Build/Test only, scan+Dim9 skipped.
+        build_test_port = build_build_test_runner(typed_ci, repo_root)
+        return (None, build_test_port, MergeApplicability.SONAR_ABSENT)
+
+    runners = build_pre_merge_runners(typed_ci, typed_sonar, repo_root)
+    if runners is None:  # pragma: no cover - ci_present already guaranteed above
+        return (None, None, MergeApplicability.CI_ABSENT)
+    return (runners.scan, runners.build_test, MergeApplicability.FULL)
+
+
+def _closure_repo_roots(config: object, base_dir: Path) -> list[Path]:
+    """Resolve the participating repo roots for the per-repo runner wiring (FIX-C).
+
+    Mirrors the handler's ``_resolve_repos``: the configured ``ClosureRepo`` roots
+    when present, else the single story-dir repo (one entry). Order-preserving and
+    de-duplicated so each distinct root gets exactly one runner pair.
+    """
+    from agentkit.closure.phase import ClosureConfig
+
+    assert isinstance(config, ClosureConfig)  # noqa: S101 - caller validated
+    roots: list[Path] = []
+    if config.repos:
+        for repo in config.repos:
+            if repo.repo_root not in roots:
+                roots.append(repo.repo_root)
+    else:
+        roots.append(config.story_dir or base_dir)
+    return roots
+
+
+def _build_per_repo_runners(
+    ci_config: object | None,
+    sonar_config: object | None,
+    repo_roots: list[Path],
+) -> tuple[dict[Path, RepoRunners], MergeApplicability]:
+    """Build a :class:`RepoRunners` pair per repo root + the shared applicability (FIX-C).
+
+    Each repo root gets its OWN ``CiSonarScanRunner`` / ``CiBuildTestRunner``
+    (via :func:`_build_pre_merge_runners`, so its ledger + tree-hash resolver bind
+    to that root). The applicability is identical across repos (it derives from
+    the story-type + the ci/sonar facets, which are project-wide for one story);
+    it is resolved per repo and asserted consistent (a fail-closed invariant).
+    """
+    from agentkit.closure.merge_sequence import RepoRunners
+
+    runners: dict[Path, RepoRunners] = {}
+    resolved_applicability: MergeApplicability | None = None
+    for repo_root in repo_roots:
+        scan_port, build_test_port, applicability = _build_pre_merge_runners(
+            ci_config, sonar_config, repo_root=repo_root
+        )
+        if resolved_applicability is None:
+            resolved_applicability = applicability
+        elif applicability is not resolved_applicability:  # pragma: no cover
+            msg = (
+                "inconsistent pre-merge applicability across repos: "
+                f"{resolved_applicability} vs {applicability} "
+                "(the ci/sonar facets must be project-wide for one story)"
+            )
+            raise ClosureConfigUnavailableError(msg)
+        runners[repo_root] = RepoRunners(
+            scan_port=scan_port, build_test_port=build_test_port
+        )
+    # ``repo_roots`` always has at least one entry (the story-dir fallback).
+    assert resolved_applicability is not None  # noqa: S101 - non-empty roots
+    return runners, resolved_applicability
+
+
+def _build_sanity_gate_port() -> SanityGatePort:
+    """Build the fast-mode Sanity-Gate seam (FK-29 §29.1a.6).
+
+    Wires the real subprocess git backend so the adapter genuinely confirms the
+    two git-mechanic predicates (worktree clean + pre-merge rebase onto
+    ``origin/main`` OK). The third predicate ("tests green") needs the AG3-018
+    live test runner; until that is wired the gate fails closed after the git
+    checks (FAIL-CLOSED -- a fast story without a confirmed test result
+    escalates, FK-29 §29.1a.6 "Rebase-Konflikt -> Eskalation").
+    """
+    from agentkit.closure.multi_repo_saga import SubprocessGitBackend
+    from agentkit.closure.runtime_ports import ProductiveSanityGatePort
+
+    return ProductiveSanityGatePort(git_backend=SubprocessGitBackend())
+
+
+def _build_doc_fidelity_feedback_port() -> DocFidelityFeedbackPort:
+    """Build the level-4 doc-fidelity feedback seam (FK-38 §38.3.1, non-blocking).
+
+    Consumes ``verify_system.llm_evaluator`` (``role=doc_fidelity``). The level-4
+    feedback evaluation (``final_diff`` vs existing docs, FK-38 §38.3.1) has no
+    productive callable yet; the seam is honest non-blocking — it records a human
+    Warning every run until the level-4 capability lands (never a silent no-op).
+    """
+    from agentkit.closure.runtime_ports import ProductiveDocFidelityFeedbackPort
+
+    return ProductiveDocFidelityFeedbackPort()
+
+
+def _build_vectordb_sync_port() -> VectorDbSyncPort:
+    """Build the VectorDB sync seam (FK-13 §13.7.1, fire-and-forget, non-blocking).
+
+    Triggers an async ``story_sync``. The VectorDB integration is not yet
+    available in the target project; the seam is honest non-blocking — it records
+    a human Warning when the sync cannot be triggered (the STEP still runs).
+    """
+    from agentkit.closure.runtime_ports import ProductiveVectorDbSyncPort
+
+    return ProductiveVectorDbSyncPort()
+
+
+def _build_guard_deactivation_port(
+    store_dir: Path, *, project_key: str
+) -> GuardDeactivationPort:
+    """Build the guard-deactivation seam (FK-29 §29.5, governance top surface).
+
+    Delegates to ``Governance.deactivate_locks`` via a real ``Governance`` wired
+    with the state-backend lock/hook/worktree repositories. Closure holds no lock
+    logic itself (single delegation step).
+    """
+    from agentkit.closure.runtime_ports import ProductiveGuardDeactivationPort
+    from agentkit.governance import Governance
+    from agentkit.state_backend.store.governance_hook_repository import (
+        StateBackendHookRegistrationRepository,
+    )
+    from agentkit.state_backend.store.lock_record_repository import LockRecordRepository
+    from agentkit.state_backend.store.worktree_repository import (
+        StateBackendWorktreeRepository,
+    )
+
+    governance = Governance(
+        hook_repo=StateBackendHookRegistrationRepository(store_dir),
+        lock_repo=LockRecordRepository(store_dir),
+        project_key=project_key,
+        project_root=store_dir,
+        worktree_repo=StateBackendWorktreeRepository(store_dir),
+    )
+    return ProductiveGuardDeactivationPort(governance)
+
+
 def build_failure_corpus(accessor: ProjectionAccessor) -> FailureCorpus:
     """Erzeugt eine verdrahtete ``FailureCorpus``-Top-Komponente (AG3-028).
 
@@ -746,8 +1135,10 @@ def build_failure_corpus(accessor: ProjectionAccessor) -> FailureCorpus:
 
 
 __all__ = [
+    "ClosureConfigUnavailableError",
     "build_artifact_invalidation_sink",
     "build_artifact_manager",
+    "build_closure_phase_handler",
     "build_exploration_phase_handler",
     "build_failure_corpus",
     "build_integrity_gate",

@@ -16,6 +16,7 @@ from agentkit.config.models import JenkinsConfig, SonarQubeConfig
 from agentkit.verify_system.pre_merge_runner.build_test_runner import CiBuildTestRunner
 from agentkit.verify_system.pre_merge_runner.runtime_wiring import (
     PreMergeRunnerUnavailableError,
+    build_build_test_runner,
     build_pre_merge_runners,
 )
 from agentkit.verify_system.pre_merge_runner.scan_runner import CiSonarScanRunner
@@ -81,6 +82,32 @@ class TestApplicableWiring:
         monkeypatch.setenv("SONAR_TOKEN_TEST", "stok")
         runners = build_pre_merge_runners(_ci(), _sonar(), _REPO)
         assert runners is not None
+
+
+class TestBuildTestOnlyRunner:
+    """FIX-3: a CI-present, Sonar-declared-absent project gets a Build/Test runner.
+
+    The additive ``build_build_test_runner`` lets the Closure barrier run
+    Build/Test without a Sonar scan runner (SONAR_ABSENT applicability) -- a
+    deliberate Sonar absence (FK-33 §33.6.5), not a misconfiguration.
+    """
+
+    def test_ci_present_builds_build_test_runner(self) -> None:
+        runner = build_build_test_runner(_ci(), _REPO, ci_token="jtok")
+        assert isinstance(runner, CiBuildTestRunner)
+
+    def test_no_ci_stanza_returns_none(self) -> None:
+        assert build_build_test_runner(None, _REPO) is None
+
+    def test_ci_unavailable_returns_none(self) -> None:
+        assert build_build_test_runner(_ci(available=False), _REPO) is None
+
+    def test_ci_present_missing_token_fails_closed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("JENKINS_TOKEN_TEST", raising=False)
+        with pytest.raises(PreMergeRunnerUnavailableError):
+            build_build_test_runner(_ci(), _REPO)
 
 
 class TestFailClosed:

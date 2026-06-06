@@ -344,6 +344,158 @@ class TestIntegrityGateAllPassing:
         assert result.passed is True
 
 
+class _PoisonedSonarPort:
+    """A Dim-9 capability port that MUST NOT be consulted (AG3-053 fresh path).
+
+    When the Closure barrier supplies a fresh attestation, Dim 9 verifies exactly
+    it and never re-resolves via the worktree port. This port raises if called, so
+    a test fails loudly if the gate falls back to the stale worktree re-read.
+    """
+
+    def resolve_dim9_outcome(self, gate_ctx: object) -> object:
+        _ = gate_ctx
+        msg = "sonar_port consulted despite a supplied fresh attestation (no re-read!)"
+        raise AssertionError(msg)
+
+
+def _fresh_attestation_obj(commit_sha: str) -> object:
+    from agentkit.config.models import SonarQubeConfig
+    from agentkit.governance.integrity_gate.dim9_sonar import FreshAttestation
+    from agentkit.verify_system.sonarqube_gate import (
+        SonarApplicability,
+        SonarGateOutcome,
+    )
+    from agentkit.verify_system.sonarqube_gate.attestation import (
+        ATTESTATION_STATUS_READ,
+        SonarAttestation,
+    )
+
+    attestation = SonarAttestation(
+        commit_sha=commit_sha,
+        tree_hash="2222tree2222",
+        analysis_id="analysis-fresh-001",
+        ce_task_id="ce-fresh-001",
+        quality_gate_status="OK",
+        quality_gate_hash="qg-hash",
+        quality_profile_hash="qp-hash",
+        analysis_scope_hash="scope-hash",
+        new_code_definition="previous_version",
+        exception_ledger_hash="ledger-hash",
+        last_analyzed_revision=commit_sha,
+        sonarqube_version="26.4",
+        branch_plugin_version="1.23.0",
+        scanner_version="5.0.1",
+        status=ATTESTATION_STATUS_READ,
+    )
+    return FreshAttestation(
+        attestation=attestation,
+        expected_main_revision=commit_sha,
+        config=SonarQubeConfig(
+            available=True,
+            enabled=True,
+            base_url="https://sonar.example",
+            token_env="SONAR_TOKEN",
+            scanner_version="5.0.1",
+        ),
+        gate_outcome=SonarGateOutcome(
+            applicability=SonarApplicability.APPLICABLE,
+            passed=True,
+            gate_status="sonarqube_gate_passed",
+        ),
+    )
+
+
+class TestIntegrityGateFreshAttestationWiring:
+    """AG3-053: the gate verifies the FRESH attestation, never re-reading (35.2.4a)."""
+
+    def test_fresh_attestation_path_passes_dim9_without_consulting_port(
+        self, tmp_path: Path
+    ) -> None:
+        from agentkit.artifacts import EnvelopeValidator
+        from agentkit.bootstrap.composition_root import build_producer_registry
+
+        story_dir = _story_dir(tmp_path)
+        _populate_implementation_story(story_dir)
+        gate = IntegrityGate(
+            state_port=StateBackendIntegrityGateStateAdapter(),
+            envelope_validator=EnvelopeValidator(build_producer_registry()),
+            sonar_port=_PoisonedSonarPort(),  # type: ignore[arg-type]
+        )
+        result = gate.evaluate(
+            story_dir,
+            StoryType.IMPLEMENTATION,
+            fresh_attestation=_fresh_attestation_obj("1111candidate1111"),  # type: ignore[arg-type]
+        )
+        # Dim 9 passed via the fresh path; the poisoned port was never consulted.
+        assert result.passed is True
+        dim9 = result.dimension_results[IntegrityDimension.SONARQUBE_GREEN]
+        assert dim9.passed
+
+    def test_fresh_attestation_red_qg_fails_dim9_via_fresh_path(
+        self, tmp_path: Path
+    ) -> None:
+        from agentkit.artifacts import EnvelopeValidator
+        from agentkit.bootstrap.composition_root import build_producer_registry
+        from agentkit.config.models import SonarQubeConfig
+        from agentkit.governance.integrity_gate.dim9_sonar import FreshAttestation
+        from agentkit.verify_system.sonarqube_gate import (
+            SonarApplicability,
+            SonarGateOutcome,
+        )
+        from agentkit.verify_system.sonarqube_gate.attestation import (
+            ATTESTATION_STATUS_READ,
+            SonarAttestation,
+        )
+
+        story_dir = _story_dir(tmp_path)
+        _populate_implementation_story(story_dir)
+        # FIX-1: the green verdict is the FULL AG3-052 gate outcome. The
+        # attestation's pre-apply QG is only the stale-check input; a red gate
+        # outcome (post-apply re-read found it not green) fails Dim 9 closed.
+        red = SonarAttestation(
+            commit_sha="1111c1111",
+            tree_hash="2222t2222",
+            analysis_id="a-1",
+            ce_task_id="ce-1",
+            quality_gate_status="OK",
+            quality_gate_hash="qg",
+            quality_profile_hash="qp",
+            analysis_scope_hash="scope",
+            new_code_definition="previous_version",
+            exception_ledger_hash="ledger",
+            last_analyzed_revision="1111c1111",
+            sonarqube_version="26.4",
+            branch_plugin_version="1.23.0",
+            scanner_version="5.0.1",
+            status=ATTESTATION_STATUS_READ,
+        )
+        fresh = FreshAttestation(
+            attestation=red,
+            expected_main_revision="1111c1111",
+            config=SonarQubeConfig(
+                available=True, enabled=True, base_url="https://s",
+                token_env="T", scanner_version="5.0.1",
+            ),
+            gate_outcome=SonarGateOutcome(
+                applicability=SonarApplicability.APPLICABLE,
+                passed=False,
+                gate_status="failed",
+                failure_reason="red_gate: overall_open_issues_post=2",
+            ),
+        )
+        gate = IntegrityGate(
+            state_port=StateBackendIntegrityGateStateAdapter(),
+            envelope_validator=EnvelopeValidator(build_producer_registry()),
+            sonar_port=_PoisonedSonarPort(),  # type: ignore[arg-type]
+        )
+        result = gate.evaluate(
+            story_dir, StoryType.IMPLEMENTATION, fresh_attestation=fresh,  # type: ignore[arg-type]
+        )
+        assert result.passed is False
+        assert result.overall is IntegrityGateStatus.ESCALATED
+        assert result.failure_reason == SONAR_NOT_GREEN
+
+
 class TestIntegrityGateCorruptData:
     def test_corrupt_verify_decision_fails(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)

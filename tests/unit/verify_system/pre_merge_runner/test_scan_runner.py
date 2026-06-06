@@ -75,8 +75,46 @@ class TestPositivePath:
         assert outcome.commit_sha == _SHA
         assert outcome.tree_hash == FAKE_TREE_HASH
         assert outcome.reason is None
+        # FIX-1: the FULL AG3-052 gate ran over the run's analysis and is green
+        # (empty open issues + OK post-apply QG) -> carried in the outcome.
+        assert outcome.gate_outcome is not None
+        assert outcome.gate_outcome.passed is True
+        assert outcome.gate_outcome.gate_status == "sonarqube_gate_passed"
         # The run was actually triggered for the candidate (executed, not read).
         assert backend.calls == [(_BRANCH, _SHA)]
+
+    def test_full_gate_runs_red_when_post_apply_gate_red(self) -> None:
+        """FIX-1: the runner runs the FULL AG3-052 gate (not the raw QG). A red
+        post-apply quality gate yields produced=True with a NOT-green gate
+        outcome (Dim 9 consumes gate_outcome.passed, never the raw status)."""
+        backend = FakeCiBackend(result=make_ci_result())
+        client = FakeSonarClient(
+            analyzed_revision=_SHA,
+            analyses_branch=_BRANCH,
+            quality_gate_status="ERROR",
+        )
+        outcome = _runner(backend, client).produce_attestation(_candidate())
+        assert outcome.produced is True
+        assert outcome.gate_outcome is not None
+        assert outcome.gate_outcome.passed is False
+        assert outcome.gate_outcome.gate_status == "failed"
+
+    def test_full_gate_red_on_open_non_accepted_issue(self) -> None:
+        """FIX-1: Broken-Window — an open non-accepted issue (not in the empty
+        ledger) makes the gate red even with an OK QG status."""
+        backend = FakeCiBackend(result=make_ci_result())
+        client = FakeSonarClient(
+            analyzed_revision=_SHA,
+            analyses_branch=_BRANCH,
+            quality_gate_status="OK",
+            open_issues=(
+                {"key": "I-1", "rule": "py:S100", "hash": "fp1", "message": "smell"},
+            ),
+        )
+        outcome = _runner(backend, client).produce_attestation(_candidate())
+        assert outcome.produced is True
+        assert outcome.gate_outcome is not None
+        assert outcome.gate_outcome.passed is False
 
     def test_fresh_complete_attestation_is_surfaced(self) -> None:
         """FIX-1/FIX-4/ERROR-A/ERROR-B: the proven outcome carries the FRESH,

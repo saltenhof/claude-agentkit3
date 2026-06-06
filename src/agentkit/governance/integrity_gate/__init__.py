@@ -44,6 +44,7 @@ if TYPE_CHECKING:
     from agentkit.artifacts.validator import EnvelopeValidator
     from agentkit.governance.integrity_gate.dim9_sonar import (
         Dim9Resolution,
+        FreshAttestation,
         SonarDimensionPort,
     )
     from agentkit.governance.repository import IntegrityGateStatePort
@@ -147,7 +148,13 @@ class IntegrityGate:
         #: (``None`` == code story with no port wired -> fail-closed, E-C).
         self._dim9_resolution: Dim9Resolution | None = None
 
-    def evaluate(self, story_dir: Path, story_type: StoryType) -> IntegrityGateResult:
+    def evaluate(
+        self,
+        story_dir: Path,
+        story_type: StoryType,
+        *,
+        fresh_attestation: FreshAttestation | None = None,
+    ) -> IntegrityGateResult:
         """Evaluate all integrity dimensions for the given story (FK-35 §35.2).
 
         Phase 1 (mandatory pre-stage, FK-35 §35.2.3): Dim 1-2-4 must all exist.
@@ -159,6 +166,13 @@ class IntegrityGate:
         Args:
             story_dir: Story base directory.
             story_type: Type of the story being evaluated.
+            fresh_attestation: The fresh, commit-bound attestation the Closure
+                pre-merge scan (AG3-056) produced (FK-29 §29.1a.3 d). When
+                supplied, Dim 9 VERIFIES exactly this attestation (green +
+                commit-binding + config/version drift) and NEVER re-reads the
+                worktree (FK-35 §35.2.4a — "verifiziert die FRISCHE Attestation",
+                no stale local read). ``None`` keeps the legacy capability-port
+                resolution path (e.g. the non-Closure / unit-test gate).
 
         Returns:
             An :class:`IntegrityGateResult`.
@@ -167,7 +181,9 @@ class IntegrityGate:
         runtime_scope = self._resolve_scope(story_dir)
         results: dict[IntegrityDimension, DimensionResult] = {}
 
-        sonar_applicable = self._resolve_sonar_applicable(gate_ctx, story_type)
+        sonar_applicable = self._resolve_sonar_applicable(
+            gate_ctx, story_type, fresh_attestation=fresh_attestation
+        )
 
         mandatory_failure = self._run_mandatory(gate_ctx, runtime_scope, results)
         if mandatory_failure is not None:
@@ -178,7 +194,7 @@ class IntegrityGate:
         escalated = False
         for dim in dimensions_for(story_type, sonar_applicable=sonar_applicable):
             if dim is IntegrityDimension.SONARQUBE_GREEN:
-                result = self._verify_dim9(gate_ctx)
+                result = self._verify_dim9(gate_ctx, fresh_attestation)
                 results[dim] = result
                 escalated = escalated or not result.passed
                 continue
@@ -220,6 +236,8 @@ class IntegrityGate:
         self,
         gate_ctx: IntegrityGateContext,
         story_type: StoryType,
+        *,
+        fresh_attestation: FreshAttestation | None = None,
     ) -> bool:
         """Whether Dim 9 is APPLICABLE (FK-33 §33.6.5 / FK-35 §35.2.4a, E-C).
 
@@ -229,11 +247,21 @@ class IntegrityGate:
         port is the only thing that can prove a deliberate skip via
         ``available == false`` / fast).  Returns ``True`` when Dim 9 must be
         evaluated (and may fail closed), ``False`` when it is skipped.
+
+        Closure pre-merge path (FK-29 §29.1a.3 / §35.2.4a): when the barrier
+        supplies a ``fresh_attestation``, Dim 9 is APPLICABLE and verified
+        against THAT supplied attestation directly — the capability port is NOT
+        consulted (no stale worktree re-read).
         """
         from agentkit.story_context_manager.types import StoryType as _StoryType
 
         if story_type not in (_StoryType.IMPLEMENTATION, _StoryType.BUGFIX):
             return False
+        if fresh_attestation is not None:
+            # A fresh pre-merge attestation was produced: Dim 9 is APPLICABLE and
+            # verifies exactly it (no port resolution, no worktree re-read).
+            self._dim9_resolution = None
+            return True
         if self._sonar_port is None:
             # Code story but no capability wired: cannot prove a deliberate
             # skip -> APPLICABLE, and Dim 9 fails closed (E-C).
@@ -250,18 +278,30 @@ class IntegrityGate:
 
         return resolution.applicability is SonarApplicability.APPLICABLE
 
-    def _verify_dim9(self, gate_ctx: IntegrityGateContext) -> DimensionResult:
+    def _verify_dim9(
+        self,
+        gate_ctx: IntegrityGateContext,
+        fresh_attestation: FreshAttestation | None = None,
+    ) -> DimensionResult:
         """Verify Dim 9 over the resolved inputs (FK-35 §35.2.4a, E-C).
 
-        Reached only for an APPLICABLE Dim 9.  A code story without a wired
-        ``sonar_port`` (``_dim9_inputs is None``) is APPLICABLE-but-unresolvable
-        -> fail-closed ``SONAR_NOT_GREEN`` (never a silent skip).
+        Reached only for an APPLICABLE Dim 9.  Closure pre-merge path: when a
+        ``fresh_attestation`` was supplied, Dim 9 verifies exactly THAT fresh
+        attestation (green + commit-binding + config/version drift), never
+        re-reading the worktree (FK-29 §29.1a.3 / §35.2.4a).  Otherwise (legacy
+        path) it maps the capability-port resolution; a code story without a
+        wired ``sonar_port`` is APPLICABLE-but-unresolvable -> fail-closed
+        ``SONAR_NOT_GREEN`` (never a silent skip).
         """
         del gate_ctx
         from agentkit.governance.integrity_gate.dim9_sonar import (
             SONAR_NOT_GREEN,
+            verify_fresh_attestation,
             verify_sonarqube_green,
         )
+
+        if fresh_attestation is not None:
+            return verify_fresh_attestation(fresh_attestation)
 
         resolution = self._dim9_resolution
         if resolution is None:

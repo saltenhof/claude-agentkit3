@@ -29,10 +29,17 @@ Flow (AG3-056 AC1/AC2/AC4 + FIX-1..FIX-4):
    ``candidate.branch``) with revision == candidate commit (ERROR-2 — the
    branch proof IS finding the analysisId on the candidate branch;
    :func:`prove_binding` then confirms the revision).
-5. Only on proof: ``ScanOutcome(produced=True, commit_sha=<candidate>,
-   tree_hash=<proven>, attestation=<fresh, complete>)`` — the supplied
-   attestation is what the Closure IntegrityGate Dim 9 evaluates (FIX-1); it
-   MUST NOT re-read the worktree.
+5. Run the FULL AG3-052 gate over THIS run's analysis (FIX-1): the
+   Single-Match ledger reconciler + the accepted-exception transition + the
+   post-apply quality-gate / open-issue re-read + the Broken-Window
+   overall-zero criterion, via :func:`evaluate_sonarqube_gate` — the SAME
+   green truth as the impl-phase gate (no raw ``quality_gate_status``
+   shortcut, no second green truth).
+6. Only on proof: ``ScanOutcome(produced=True, commit_sha=<candidate>,
+   tree_hash=<proven>, attestation=<fresh, complete>, gate_outcome=<full
+   AG3-052 outcome>)`` — the supplied attestation + gate outcome are what the
+   Closure IntegrityGate Dim 9 evaluates (FIX-1); it MUST NOT re-read the
+   worktree and MUST NOT recompute green itself.
 
 Any failure (unreachable CI/Sonar, no analysis from the run, built-commit
 mismatch, revision/branch mismatch, unresolvable tree hash, malformed
@@ -54,9 +61,16 @@ from agentkit.integrations.sonar import SonarApiError
 from agentkit.verify_system.pre_merge_runner.binding import prove_binding
 from agentkit.verify_system.pre_merge_runner.ci_run import CiRunUnavailableError
 from agentkit.verify_system.pre_merge_runner.contract import ScanOutcome
+from agentkit.verify_system.sonarqube_gate import (
+    SonarApplicability,
+    build_issue_applier,
+    evaluate_sonarqube_gate,
+)
 from agentkit.verify_system.sonarqube_gate.adapter import (
     BoundAnalysis,
     read_commit_bound_attestation,
+    read_open_issues,
+    read_post_apply_state,
 )
 
 if TYPE_CHECKING:
@@ -69,6 +83,7 @@ if TYPE_CHECKING:
         CiRunResult,
     )
     from agentkit.verify_system.pre_merge_runner.contract import CandidateRef
+    from agentkit.verify_system.sonarqube_gate import SonarGateOutcome
     from agentkit.verify_system.sonarqube_gate.attestation import SonarAttestation
     from agentkit.verify_system.sonarqube_gate.ledger import AcceptedExceptionLedger
 
@@ -145,13 +160,14 @@ class CiSonarScanRunner:
             built_check = _check_built_commit(run, candidate.commit_sha)
             if built_check is not None:
                 return built_check
-            attestation = self._read_attestation(run, candidate)
+            built = self._read_attestation(run, candidate)
         except CiRunUnavailableError as exc:
             return ScanOutcome(produced=False, reason=f"ci_run_unavailable: {exc}")
         except SonarApiError as exc:
             return ScanOutcome(produced=False, reason=f"sonar_unreachable: {exc}")
-        if attestation is None:
+        if built is None:
             return ScanOutcome(produced=False, reason="no_analysis_from_run")
+        attestation, analysis = built
 
         proof = prove_binding(
             attestation,
@@ -159,25 +175,41 @@ class CiSonarScanRunner:
         )
         if not proof.bound:
             return ScanOutcome(produced=False, reason=proof.reason)
-        # Binding proven by Sonar: surface the FRESH, complete attestation so
-        # the consumer (Dim 9) evaluates exactly it (FIX-1) and never re-reads
-        # the worktree. commit/tree come from the proven analysis.
+
+        # FIX-1: run the FULL AG3-052 gate over THIS run's analysis (Single-Match
+        # ledger reconcile + accepted-exception transition + post-apply QG/open
+        # re-read + Broken-Window overall-zero) so the Closure Dim-9 consumes the
+        # SAME green truth as the impl-phase gate — never the raw pre-apply
+        # ``attestation.quality_gate_status``. A configured-but-unreachable Sonar
+        # on the gate re-read fails the gate closed (carried in the outcome).
+        try:
+            gate_outcome = self._evaluate_gate(attestation, analysis, candidate)
+        except SonarApiError as exc:
+            return ScanOutcome(produced=False, reason=f"sonar_unreachable: {exc}")
+
+        # Binding proven by Sonar: surface the FRESH, complete attestation AND the
+        # full gate outcome so the consumer (Dim 9) evaluates exactly them (FIX-1)
+        # and never re-reads the worktree. commit/tree come from the proven
+        # analysis.
         return ScanOutcome(
             produced=True,
             commit_sha=candidate.commit_sha,
             tree_hash=attestation.tree_hash,
             attestation=attestation,
+            gate_outcome=gate_outcome,
         )
 
     def _read_attestation(
         self, run: CiRunResult, candidate: CandidateRef
-    ) -> SonarAttestation | None:
-        """Build the run's COMPLETE commit-bound attestation (FIX-4).
+    ) -> tuple[SonarAttestation, BoundAnalysis] | None:
+        """Build the run's COMPLETE commit-bound attestation + its coordinates.
 
         Returns ``None`` when the run produced no analysis reference (no scan
         from the run) — fail-closed downstream. Otherwise REUSES AG3-052's
         :func:`read_commit_bound_attestation`, bound to the run's analysisId
-        with the candidate's proven tree hash and the ledger hash.
+        with the candidate's proven tree hash and the ledger hash, and returns
+        the :class:`BoundAnalysis` coordinates so the gate evaluation (FIX-1)
+        can re-read this run's issues / post-apply state.
         """
         if not run.ce_task_id:
             return None
@@ -217,11 +249,42 @@ class CiSonarScanRunner:
             tree_hash=tree_hash,
             scanner_version=run.scanner_version,
         )
-        return read_commit_bound_attestation(
+        attestation = read_commit_bound_attestation(
             self.client,
             self.config,
             analysis,
             exception_ledger_hash=self.ledger.content_hash(),
+        )
+        return attestation, analysis
+
+    def _evaluate_gate(
+        self,
+        attestation: SonarAttestation,
+        analysis: BoundAnalysis,
+        candidate: CandidateRef,
+    ) -> SonarGateOutcome:
+        """Run the FULL AG3-052 gate over the run's analysis (FIX-1).
+
+        Reuses :func:`evaluate_sonarqube_gate` (the impl-phase green truth):
+        the current branch-scan issues (``issues/search``), the ledger the
+        runner holds, the scoped-token issue applier and the post-apply re-read
+        — all over the same Sonar client / analysis the attestation was built
+        from. The applicability is APPLICABLE: the runner is only built for an
+        ``available == true`` Sonar on a code-producing candidate (the
+        composition root resolves declared absence to ``None`` and never builds
+        this runner). The stale-check uses the candidate commit (the analysed
+        revision the attestation is bound to), not ``main`` HEAD: the scan
+        analysed the integrated candidate (FK-29 §29.1a.3 d).
+        """
+        current_issues = read_open_issues(self.client, analysis)
+        return evaluate_sonarqube_gate(
+            applicability=SonarApplicability.APPLICABLE,
+            attestation=attestation,
+            main_head_revision=candidate.commit_sha,
+            ledger_entries=self.ledger.entries,
+            current_issues=current_issues,
+            issue_applier=build_issue_applier(self.client),
+            post_apply_reader=lambda: read_post_apply_state(self.client, analysis),
         )
 
 

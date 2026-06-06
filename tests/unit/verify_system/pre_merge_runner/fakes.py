@@ -9,7 +9,10 @@ real against them.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 from agentkit.integrations.sonar import SonarApiError
 from agentkit.verify_system.pre_merge_runner.ci_run import (
@@ -90,6 +93,10 @@ class FakeSonarClient:
     ce_carries_analysis_id: bool = True
     analyses_key: str | None = None
     analyses_branch: str | None = None
+    #: Open (non-accepted) issues the gate re-read returns. FIX-1: the FULL
+    #: AG3-052 gate runs over the run's analysis; an empty list + OK QG = green.
+    open_issues: tuple[dict[str, str], ...] = ()
+    transitions: list[tuple[str, str]] = field(default_factory=list)
 
     def ce_task(self, ce_task_id: str) -> _Body:
         del ce_task_id
@@ -183,6 +190,21 @@ class FakeSonarClient:
                 ]
             }
         )
+
+    def search_issues(self, params: Mapping[str, str]) -> _Body:
+        del params
+        self._maybe_raise("search_issues")
+        return _Body({"issues": list(self.open_issues)})
+
+    def transition_issue(self, issue_key: str, transition: str) -> _Body:
+        self._maybe_raise("transition_issue")
+        self.transitions.append((issue_key, transition))
+        return _Body({})
+
+    def set_issue_tags(self, issue_key: str, tags: str) -> _Body:
+        del issue_key, tags
+        self._maybe_raise("set_issue_tags")
+        return _Body({})
 
     def _maybe_raise(self, op: str) -> None:
         if self.raise_on == op:
