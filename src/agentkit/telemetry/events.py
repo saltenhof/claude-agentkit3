@@ -39,6 +39,12 @@ class EventType(StrEnum):
     #: (FK-68 §68.3.1 / AG3-036 §2.1.5).
     REVIEW_GUARD_INTERVENTION = "review_guard_intervention"
     LLM_CALL = "llm_call"
+    #: Canonical "review completed" fact (FK-27 §27.4.3): emitted ONLY after the
+    #: review artefact (§27.5.5) has been written successfully -- NOT on a bare
+    #: API response. The ``guard.multi_llm`` Gate 2 counts this (per mandatory
+    #: reviewer role) so it catches "review started, never completed"
+    #: (FK-37 §37.1.6). Distinct from ``llm_call`` (which fires on the pool send).
+    LLM_CALL_COMPLETE = "llm_call_complete"
 
     # Adversarial
     ADVERSARIAL_START = "adversarial_start"

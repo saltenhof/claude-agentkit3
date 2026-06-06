@@ -1,4 +1,15 @@
-"""Individual structural checks backed by the canonical state store."""
+"""Pre-check meta checks backed by the canonical state store.
+
+These are the mandatory Layer-1 pre-checks (FK-27 §27.4: the structural
+checks have the canonical run state as a precondition). They run before the
+stage-registry-driven FK-27 §27.4.1-§27.4.4 stages and are NOT part of the
+stage registry: they guard that the canonical story context / phase state /
+phase snapshots exist so the stage checks can act on real truth.
+
+Unchanged from the pre-AG3-042 ``structural/checks.py`` module (moved into
+the ``checks`` sub-package without behaviour change); the public symbols are
+re-exported from ``checks/__init__.py`` so existing importers keep working.
+"""
 
 from __future__ import annotations
 

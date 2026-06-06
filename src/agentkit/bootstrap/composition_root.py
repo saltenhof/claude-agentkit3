@@ -39,12 +39,12 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from agentkit.closure.merge_sequence import (
-        BuildTestPort,
         MergeApplicability,
         PreMergeScanPort,
         RepoRunners,
         SanityGatePort,
     )
+    from agentkit.closure.multi_repo_saga import GitBackend as RepoGitBackend
     from agentkit.closure.phase import (
         ClosurePhaseHandler,
         ClosureProgressStore,
@@ -62,15 +62,31 @@ if TYPE_CHECKING:
     from agentkit.governance.repository import SetupContextRepository
     from agentkit.governance.setup_preflight_gate.phase import SetupPhaseHandler
     from agentkit.kpi_analytics import KpiAnalytics
+    from agentkit.requirements_coverage.contract import CoverageVerdict
+    from agentkit.requirements_coverage.top import (
+        RequirementsCoverage as RequirementsCoverageProto,
+    )
     from agentkit.skills import Skills
+    from agentkit.story_context_manager.story_model import ChangeImpact
     from agentkit.telemetry.emitters import EventEmitter
     from agentkit.telemetry.projection_accessor import ProjectionAccessor
     from agentkit.verify_system.llm_evaluator.llm_client import LlmClient
+    from agentkit.verify_system.pre_merge_runner.contract import BuildTestPort
     from agentkit.verify_system.qa_cycle.invalidation import (
         ArtifactInvalidationEvent,
         ArtifactInvalidationSink,
     )
+    from agentkit.verify_system.review_completion import (
+        ReviewCompletionEvent,
+        ReviewCompletionSink,
+    )
     from agentkit.verify_system.sonarqube_gate.port import SonarGateInputPort
+    from agentkit.verify_system.structural.checker import AreGateProvider
+    from agentkit.verify_system.structural.checks import (
+        BuildTestEvidence,
+        BuildTestEvidencePort,
+    )
+    from agentkit.verify_system.structural.system_evidence import ChangeEvidence
     from agentkit.verify_system.system import VerifySystem
 
 
@@ -204,6 +220,8 @@ def build_verify_system(
     sonar_gate_port: SonarGateInputPort | None = None,
     layer2_llm_client: LlmClient | None = None,
     fast_test_runner: Callable[[Path], tuple[bool, str | None]] | None = None,
+    structural_build_test_port: BuildTestEvidencePort | None = None,
+    structural_are_provider: AreGateProvider | None = None,
 ) -> VerifySystem:
     """Erzeugt einen vollstaendig verdrahteten ``VerifySystem``.
 
@@ -258,6 +276,7 @@ def build_verify_system(
         StateBackendVerifyStoryContextAdapter,
     )
     from agentkit.verify_system.llm_evaluator.llm_client import FailClosedLlmClient
+    from agentkit.verify_system.structural.checker import FULL_STAGE_REGISTRY
     from agentkit.verify_system.system import VerifySystem
 
     manager = build_artifact_manager(store_dir)
@@ -269,9 +288,266 @@ def build_verify_system(
         story_context_port=StateBackendVerifyStoryContextAdapter(),
         sonar_gate_port=sonar_gate_port,
         invalidation_sink=build_artifact_invalidation_sink(store_dir),
+        # FIX-C (FK-27 §27.4.3 / §27.5.5): after each Layer-2 review artefact
+        # write the QA-subflow emits a canonical ``llm_call_complete`` event
+        # (per reviewer role) so ``guard.multi_llm`` counts a COMPLETED review.
+        # Without this productive sink the count is always 0 and the gate is
+        # inert/over-blocking. The telemetry import lives here, not in the BC.
+        review_completion_sink=build_review_completion_sink(store_dir),
         layer2_llm_client=resolved_llm_client,
         fast_test_runner=fast_test_runner,
+        # AG3-042: the PRODUCTIVE path wires the full FK-27 §27.4 Layer-1 stage
+        # catalogue (StructuralChecker + PolicyEngine fail-closed check).
+        stage_registry=FULL_STAGE_REGISTRY,
+        # AG3-042: the FK-27 §27.4.3 recurring guards count canonical
+        # ``execution_events`` via a port so verify-system never imports
+        # ``state_backend.store`` directly (BC-topology, AG3-035).
+        structural_telemetry_port=_StateBackendTelemetryEventCountPort(),
+        # FIX-3 (FK-33 §33.5): the BLOCKING branch/commit/push/secrets/impact
+        # checks decide on INDEPENDENT system git evidence, wired here as the
+        # productive subprocess-git provider (verify-system stays free of
+        # subprocess; the import lives in this composition root). NEVER the
+        # worker manifest.
+        structural_change_evidence_port=_SubprocessGitChangeEvidenceProvider(),
+        # FIX-1: the REAL build/test evidence port + the real ARE provider need
+        # per-run config (the project ``ci`` stanza / ``features.are``) the
+        # builder does not have, so the per-run caller (ImplementationPhaseHandler)
+        # resolves and injects them via :func:`build_structural_build_test_port`
+        # / :func:`build_structural_are_provider`. Absent here => the fail-closed
+        # default ports (build/test BLOCKING fail, ARE stage not planned), so a
+        # bare build_verify_system never over-blocks a story with a fabricated
+        # green NOR silently disables ARE.
+        structural_build_test_port=structural_build_test_port,
+        structural_are_provider=structural_are_provider,
     )
+
+
+@dataclass(frozen=True)
+class _StateBackendTelemetryEventCountPort:
+    """State-backed ``TelemetryEventQueryPort`` (FK-27 §27.4.3, AG3-042).
+
+    Counts canonical ``execution_events`` of a given type for a story via the
+    state-backend facade, scoped to ``(project_key, story_id, run_id)`` per
+    FK-33 §33.3.2 -- a recurring-guard count must not bleed across projects or
+    across prior runs of the same story. When the caller does not supply a
+    ``run_id`` the adapter resolves the ACTIVE run for ``story_dir`` (via the
+    persisted run scope) so a prior, reset, or replayed run never counts toward
+    the current guard. The ``state_backend.store`` import lives HERE (the
+    composition root), not in ``verify_system`` (BC-topology, AG3-035). Counts
+    fail soft to ``0`` on any backend error so the BLOCKING guards stay
+    fail-closed (a missing/unreadable event store yields ``0`` -> FAIL).
+    """
+
+    def count_events(
+        self,
+        story_dir: Path,
+        *,
+        story_id: str,
+        event_type: str,
+        role: str | None = None,
+        project_key: str | None = None,
+        run_id: str | None = None,
+    ) -> int:
+        """Count matching canonical ``execution_events`` (``0`` on error).
+
+        Scoped to ``(project_key, story_id, run_id)`` (FK-33 §33.3.2). When
+        ``run_id`` is ``None`` the active run for ``story_dir`` is resolved so
+        a prior run's events are excluded. When ``role`` is given, only events
+        whose ``payload['role']`` matches are counted (FK-27 §27.4.3 Gate 2:
+        ``llm_call_complete`` events carry the reviewer role in their payload).
+        """
+        from agentkit.state_backend.store import load_execution_events
+
+        resolved_run_id = run_id or self._resolve_active_run_id(story_dir)
+        if resolved_run_id is None:
+            # FIX-B (FK-33 §33.3.2 run scope, fail-CLOSED): when the run scope
+            # cannot be resolved we MUST NOT query unscoped. A
+            # ``load_execution_events(..., run_id=None)`` would count across ALL
+            # runs of the story, so the must-have-events guards
+            # (``guard.review_compliance`` / ``guard.multi_llm`` /
+            # ``guard.llm_reviews``) could PASS on a prior run's telemetry
+            # (fail-open). Returning 0 makes every BLOCKING must-have-events
+            # guard FAIL closed on an unresolvable run scope, and never lets
+            # ``guard.no_violations`` free-pass on stale events: a
+            # ``count_events`` of 0 there means "no integrity_violation visible
+            # for this run", which is the only honest reading when the run scope
+            # is unknown (the violation, if any, lives under a resolvable run).
+            return 0
+        try:
+            events = load_execution_events(
+                story_dir,
+                project_key=project_key,
+                story_id=story_id,
+                run_id=resolved_run_id,
+                event_type=event_type,
+            )
+        except Exception:  # noqa: BLE001 -- fail-soft to 0 (fail-closed guard).
+            return 0
+        if role is None:
+            return len(events)
+        return sum(
+            1
+            for event in events
+            if isinstance(getattr(event, "payload", None), dict)
+            and event.payload.get("role") == role
+        )
+
+    def run_scope_resolvable(self, story_dir: Path) -> bool:
+        """Whether the active run scope for ``story_dir`` resolves (FIX-B).
+
+        FK-33 §33.3.2: ``guard.no_violations`` PASSES on a ``0`` count, so it
+        must fail closed when the run scope is unknown rather than free-pass on
+        stale/unknown telemetry. Returns ``True`` iff the persisted run scope
+        yields a run id.
+        """
+        return self._resolve_active_run_id(story_dir) is not None
+
+    def _resolve_active_run_id(self, story_dir: Path) -> str | None:
+        """Resolve the active run id for ``story_dir`` (``None`` when unknown).
+
+        FK-33 §33.3.2 run scope: the recurring guards count events of the
+        CURRENT run only. The authoritative run correlation is the persisted
+        run scope of the story's flow execution.
+        """
+        from agentkit.state_backend.store import facade
+
+        try:
+            scope = facade.resolve_runtime_scope(story_dir)
+        except Exception:  # noqa: BLE001 -- unresolved scope -> no run filter
+            return None
+        return getattr(scope, "run_id", None)
+
+
+#: Forbidden secret-shaped file extensions in a changeset (FK-27 §27.4.2).
+_SECRET_EXTENSIONS: tuple[str, ...] = (".env", ".pem", ".key", ".pfx", ".p12")
+#: Test-file path markers used to count test files in a changeset (FK-27
+#: ``test.count``): a changed path is a test file when its name matches.
+_TEST_FILE_MARKERS: tuple[str, ...] = ("test_", "_test.", "/tests/", "tests/")
+
+
+@dataclass(frozen=True)
+class _SubprocessGitChangeEvidenceProvider:
+    """Productive ``ChangeEvidencePort`` over real ``git`` (FIX-3, FK-33 §33.5).
+
+    Collects INDEPENDENT system evidence about the story's change set by running
+    read-only ``git`` commands in the story worktree (NEVER the worker manifest):
+    the actual checked-out branch, the commit history since ``origin/main`` (the
+    base ref), the upstream-push state, the diff's changed + secret-shaped files
+    and the diff-derived actual change impact (FK-23 §23.8). The ``git`` import
+    (subprocess) lives HERE in the composition root, keeping ``verify_system``
+    free of subprocess. Any git error yields ``available=False`` so the BLOCKING
+    checks fail closed (NO ERROR BYPASSING; never a fall-back to self-report).
+    """
+
+    base_ref: str = "origin/main"
+
+    def collect(self, story_dir: Path) -> ChangeEvidence:
+        """Collect the system change evidence (``available=False`` on any error)."""
+        from agentkit.verify_system.structural.system_evidence import ChangeEvidence
+
+        branch = self._git(story_dir, "rev-parse", "--abbrev-ref", "HEAD")
+        if branch is None:
+            return ChangeEvidence(available=False)
+        base = self._merge_base(story_dir)
+        commits = self._commit_messages(story_dir, base)
+        changed = self._changed_files(story_dir, base)
+        secret_files = tuple(
+            f for f in changed if f.lower().endswith(_SECRET_EXTENSIONS)
+        )
+        actual_impact = _derive_actual_impact(changed)
+        return ChangeEvidence(
+            available=True,
+            current_branch=branch,
+            commit_messages=commits,
+            pushed=self._is_pushed(story_dir),
+            secret_files=secret_files,
+            changed_files=changed,
+            actual_impact=actual_impact,
+        )
+
+    def _merge_base(self, story_dir: Path) -> str | None:
+        """Resolve the base ref to diff against (``origin/main``, else empty)."""
+        return self._git(story_dir, "merge-base", self.base_ref, "HEAD")
+
+    def _commit_messages(self, story_dir: Path, base: str | None) -> tuple[str, ...]:
+        rng = f"{base}..HEAD" if base else "HEAD"
+        out = self._git(story_dir, "log", "--format=%B%x00", rng)
+        if out is None:
+            return ()
+        return tuple(m.strip() for m in out.split("\x00") if m.strip())
+
+    def _changed_files(self, story_dir: Path, base: str | None) -> tuple[str, ...]:
+        spec = f"{base}..HEAD" if base else "HEAD"
+        out = self._git(story_dir, "diff", "--name-only", spec)
+        if out is None:
+            return ()
+        return tuple(line.strip() for line in out.splitlines() if line.strip())
+
+    def _is_pushed(self, story_dir: Path) -> bool:
+        """Whether the branch has an upstream whose tip contains HEAD."""
+        upstream = self._git(
+            story_dir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"
+        )
+        if upstream is None:
+            return False
+        head = self._git(story_dir, "rev-parse", "HEAD")
+        upstream_sha = self._git(story_dir, "rev-parse", upstream)
+        if head is None or upstream_sha is None:
+            return False
+        # The branch is pushed when the upstream is an ancestor of (or equal to)
+        # HEAD's pushed tip; conservatively require the upstream to contain HEAD.
+        contains = self._git(
+            story_dir, "merge-base", "--is-ancestor", head, upstream
+        )
+        return contains is not None
+
+    def _git(self, story_dir: Path, *args: str) -> str | None:
+        """Run a read-only git command; return stripped stdout or ``None``."""
+        import subprocess  # noqa: PLC0415 -- comp-root owns the subprocess import
+
+        try:
+            result = subprocess.run(  # noqa: S603 -- fixed git argv, no shell
+                ["git", "-C", str(story_dir), *args],  # noqa: S607
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except OSError:
+            return None
+        if result.returncode != 0:
+            return None
+        return result.stdout.strip()
+
+
+#: Diff size threshold below which a single-component change stays ``LOCAL``.
+_LOCAL_FILE_THRESHOLD = 3
+#: Number of distinct top-level components that marks a CROSS_COMPONENT change.
+_CROSS_COMPONENT_DIRS = 2
+
+
+def _derive_actual_impact(changed_files: tuple[str, ...]) -> ChangeImpact | None:
+    """Derive the SYSTEM actual change impact from the diff (FK-23 §23.8).
+
+    A deterministic, diff-based proxy (no worker input): more distinct top-level
+    components touched => higher impact. This is the independent measurement the
+    BLOCKING ``impact.violation`` check compares against the worker's declared
+    budget. ``None`` only for an empty diff (nothing changed).
+    """
+    from agentkit.story_context_manager.story_model import ChangeImpact
+
+    if not changed_files:
+        return None
+    top_dirs = {f.split("/", 1)[0] for f in changed_files if "/" in f} or {""}
+    distinct = len(top_dirs)
+    if distinct <= 1:
+        return (
+            ChangeImpact.LOCAL
+            if len(changed_files) <= _LOCAL_FILE_THRESHOLD
+            else ChangeImpact.COMPONENT
+        )
+    if distinct == _CROSS_COMPONENT_DIRS:
+        return ChangeImpact.CROSS_COMPONENT
+    return ChangeImpact.ARCHITECTURE_IMPACT
 
 
 def build_artifact_invalidation_sink(store_dir: Path) -> ArtifactInvalidationSink:
@@ -328,6 +604,70 @@ class _TelemetryArtifactInvalidationSink:
                     "old_epoch": event.old_epoch,
                     "source_path": str(event.source_path),
                     "stale_path": str(event.stale_path),
+                },
+            )
+        )
+
+
+def build_review_completion_sink(store_dir: Path) -> ReviewCompletionSink:
+    """Build the productive ``llm_call_complete`` telemetry sink (FIX-C).
+
+    Composition-Root wiring for FK-27 §27.4.3 / §27.5.5: after each Layer-2
+    review artefact is written, the QA-subflow emits a canonical
+    ``llm_call_complete`` execution event (carrying the reviewer role) through
+    the canonical :class:`StateBackendEmitter`. This is what the
+    ``guard.multi_llm`` Gate 2 counts (per mandatory reviewer role) so the gate
+    is meaningful: it passes a genuine multi-LLM run and FAILS when reviews are
+    missing (FK-37 §37.1.6). ``verify_system`` only knows the
+    ``ReviewCompletionSink`` Protocol; the telemetry import lives HERE.
+
+    Args:
+        store_dir: Story working directory (the canonical event store root).
+
+    Returns:
+        A productive sink that emits ``llm_call_complete`` events.
+    """
+    from agentkit.telemetry.storage import StateBackendEmitter
+
+    return _TelemetryReviewCompletionSink(StateBackendEmitter(store_dir))
+
+
+@dataclass(frozen=True)
+class _TelemetryReviewCompletionSink:
+    """Adapt ``ReviewCompletionEvent`` facts onto the telemetry emitter (FIX-C).
+
+    Bridges the ``verify_system`` review-completion Protocol to the canonical
+    telemetry ``EventEmitter`` (FK-27 §27.4.3 / §27.5.5). Each completion fact
+    becomes an ``EventType.LLM_CALL_COMPLETE`` event whose payload ``role``
+    matches the ``guard.multi_llm`` per-role filter. The event is emitted ONLY
+    after the review artefact write succeeded (the caller invokes the sink after
+    a successful envelope write), per FK-27 §27.4.3. Emission never raises
+    (``StateBackendEmitter.emit`` swallows storage errors, ARCH-20); the review
+    artefact is already written, so a telemetry hiccup never corrupts QA truth.
+    The run scope is resolved by the emitter from ``store_dir`` (the SAME run
+    scope the recurring-guard count reads), so the emitted event lands under the
+    active run and the run-scoped Gate-2 count finds it (FK-33 §33.3.2).
+    """
+
+    emitter: EventEmitter
+
+    def review_completed(self, event: ReviewCompletionEvent) -> None:
+        """Emit an ``llm_call_complete`` telemetry event for one completed review.
+
+        Args:
+            event: The completion fact (story, reviewer role, artefact filename).
+        """
+        from agentkit.telemetry.events import Event, EventType
+
+        self.emitter.emit(
+            Event(
+                story_id=event.story_id,
+                event_type=EventType.LLM_CALL_COMPLETE,
+                phase="implementation",
+                source_component="verify-system",
+                payload={
+                    "role": event.role,
+                    "artifact_filename": event.artifact_filename,
                 },
             )
         )
@@ -1195,6 +1535,191 @@ def _build_guard_deactivation_port(
     return ProductiveGuardDeactivationPort(governance)
 
 
+def build_structural_build_test_port(
+    ci_config: object | None,
+    story_dir: Path,
+) -> BuildTestEvidencePort:
+    """Build the REAL Layer-1 build/test evidence port (FIX-1, FK-27 §27.4.2).
+
+    REUSES the AG3-056 commit-bound :class:`CiBuildTestRunner` (the same CI
+    Build/Test capability the closure pre-merge barrier + the fast-mode floor
+    use -- ONE build/test truth, NO new dependency). The runner reports ONE
+    green/red verdict for the integrated candidate commit, which is exactly the
+    truth ``build.compile`` AND ``build.test_execution`` (both BLOCKING) need: a
+    CI-green run proves the build compiled and the tests passed for that commit.
+    The MAJOR ``test.count`` is derived from the SYSTEM ``git diff`` (system
+    evidence, not a worker claim).
+
+    Args:
+        ci_config: The resolved ``ci`` (Jenkins) config stanza, or ``None``.
+        story_dir: The story working directory (git HEAD + diff source).
+
+    Returns:
+        * the fail-closed absent port when CI is DECLARED absent (no ``ci``
+          stanza / ``ci.available == false``): the build/test evidence is
+          unconfirmable so ``build.compile`` / ``build.test_execution`` FAIL
+          closed (NO ERROR BYPASSING; never a fabricated green).
+        * a :class:`_CiBuildTestEvidenceAdapter` over the real Build/Test port
+          when CI is applicable. An applicable-but-unreachable CI raises
+          ``PreMergeRunnerUnavailableError`` (fail-closed; never a silent skip).
+    """
+    from agentkit.config.models import JenkinsConfig
+    from agentkit.verify_system.pre_merge_runner.runtime_wiring import (
+        build_build_test_runner,
+    )
+    from agentkit.verify_system.structural.checks import ABSENT_BUILD_TEST_PORT
+
+    typed_ci = ci_config if isinstance(ci_config, JenkinsConfig) else None
+    if typed_ci is None or not typed_ci.available:
+        return ABSENT_BUILD_TEST_PORT
+    build_test_port = build_build_test_runner(typed_ci, story_dir)
+    if build_test_port is None:  # pragma: no cover - guarded by the check above
+        return ABSENT_BUILD_TEST_PORT
+    from agentkit.closure.multi_repo_saga import SubprocessGitBackend
+
+    return _CiBuildTestEvidenceAdapter(
+        build_test_port=build_test_port,
+        git_backend=SubprocessGitBackend(),
+    )
+
+
+@dataclass(frozen=True)
+class _CiBuildTestEvidenceAdapter:
+    """Adapt the AG3-056 ``BuildTestPort`` to the Layer-1 ``BuildTestEvidencePort``.
+
+    Resolves the story worktree's current HEAD into the AG3-056
+    :class:`CandidateRef` and runs the commit-bound Build/Test. The CI run's
+    single green/red verdict maps to BOTH ``build_ok`` and ``tests_green`` (a
+    CI-green run proves the build compiled and tests passed for that commit). The
+    test-file count is the SYSTEM ``git diff`` test-file count (system evidence).
+    Coverage is reported as confirmed ONLY by the CI run's green (the AG3-056
+    runner does not expose a separate coverage number; a green CI run executed
+    the suite -- coverage_report_present mirrors the green run, threshold is left
+    to the project CI). A red/unreadable run fails closed (``build_ok=False``).
+
+    Attributes:
+        build_test_port: The real AG3-056 commit-bound Build/Test port.
+        git_backend: Git read port to resolve the worktree HEAD + diff.
+    """
+
+    build_test_port: BuildTestPort
+    git_backend: RepoGitBackend
+
+    def evaluate(self, story_dir: Path) -> BuildTestEvidence | None:
+        """Run the commit-bound Build/Test for the worktree HEAD (fail-closed)."""
+        from agentkit.closure.multi_repo_saga import ClosureRepo
+        from agentkit.verify_system.pre_merge_runner.contract import CandidateRef
+        from agentkit.verify_system.structural.checks import BuildTestEvidence
+
+        repo = ClosureRepo(name=story_dir.name, repo_root=story_dir)
+        branch = self._read(repo, "rev-parse", "--abbrev-ref", "HEAD")
+        commit = self._read(repo, "rev-parse", "HEAD")
+        tree = self._read(repo, "rev-parse", "HEAD^{tree}")
+        if branch is None or commit is None or tree is None:
+            return None  # HEAD unresolvable -> evidence unconfirmable (fail-closed)
+        outcome = self.build_test_port.run(
+            CandidateRef(branch=branch, commit_sha=commit, tree_hash=tree)
+        )
+        test_file_count = self._diff_test_file_count(repo)
+        return BuildTestEvidence(
+            build_ok=outcome.green,
+            tests_green=outcome.green,
+            test_file_count=test_file_count,
+            coverage_report_present=outcome.green,
+            coverage_meets_threshold=outcome.green,
+            detail=outcome.reason,
+        )
+
+    def _diff_test_file_count(self, repo: object) -> int:
+        from agentkit.closure.multi_repo_saga import ClosureRepo
+
+        assert isinstance(repo, ClosureRepo)  # noqa: S101 - caller passes ClosureRepo
+        out = self._read(repo, "diff", "--name-only", "origin/main...HEAD")
+        if out is None:
+            out = self._read(repo, "diff", "--name-only", "HEAD")
+        if not out:
+            return 0
+        return sum(
+            1
+            for line in out.splitlines()
+            if any(marker in line for marker in _TEST_FILE_MARKERS)
+        )
+
+    def _read(self, repo: object, *args: str) -> str | None:
+        from agentkit.closure.multi_repo_saga import ClosureRepo
+
+        assert isinstance(repo, ClosureRepo)  # noqa: S101 - caller passes ClosureRepo
+        result = self.git_backend.run(repo, *args)
+        if not result.ok or not result.stdout.strip():
+            return None
+        return result.stdout.strip()
+
+
+def build_structural_are_provider(
+    are_client: object | None,
+    pipeline_config: object,
+) -> AreGateProvider:
+    """Build the REAL Layer-1 ARE provider (FIX-1, FK-27 §27.4.4).
+
+    Wraps the productive :class:`RequirementsCoverage` top-surface (AG3-030,
+    FK-40) so the ``are.gate`` stage activates IFF ``features.are == true`` and
+    the coverage verdict comes from the real ``check_gate`` dock-point. ARE is
+    NEVER silently disabled: when ``features.are`` is true the provider reports
+    ``is_enabled == True`` and the gate runs (fail-closed when the verdict is
+    unavailable, ``check_are_gate``).
+
+    Args:
+        are_client: The configured ``AreClient`` (``None`` when ARE is off).
+        pipeline_config: The project's ``PipelineConfig`` (``features.are``).
+
+    Returns:
+        An :class:`_RequirementsCoverageAreProvider` over the wired
+        ``RequirementsCoverage``.
+    """
+    from agentkit.config.models import PipelineConfig
+    from agentkit.requirements_coverage.are_client import AreClient
+    from agentkit.requirements_coverage.top import RequirementsCoverage
+
+    if not isinstance(pipeline_config, PipelineConfig):
+        msg = (
+            "pipeline_config must be a PipelineConfig; got "
+            f"{type(pipeline_config).__name__}"
+        )
+        raise TypeError(msg)
+    typed_client = are_client if isinstance(are_client, AreClient) else None
+    coverage = RequirementsCoverage(typed_client, pipeline_config)
+    return _RequirementsCoverageAreProvider(coverage)
+
+
+@dataclass(frozen=True)
+class _RequirementsCoverageAreProvider:
+    """Adapt ``RequirementsCoverage`` to the Layer-1 ``AreGateProvider`` (FIX-1).
+
+    ``is_enabled`` reflects ``features.are`` (ONE activation truth);
+    ``coverage_verdict`` delegates to the ``check_gate`` dock-point (FK-40
+    §40.5.4). A non-PASS / missing verdict drives the fail-closed ``are.gate``
+    finding (FK-27 §27.4.4).
+
+    Attributes:
+        coverage: The wired ``RequirementsCoverage`` top-surface.
+    """
+
+    coverage: RequirementsCoverageProto
+
+    @property
+    def is_enabled(self) -> bool:
+        """Return whether ``features.are`` is active."""
+        return self.coverage.is_enabled
+
+    def coverage_verdict(
+        self, story_id: str, project_key: str
+    ) -> CoverageVerdict | None:
+        """Return the ARE coverage verdict, or ``None`` when ARE is disabled."""
+        if not self.coverage.is_enabled:
+            return None
+        return self.coverage.check_gate(story_id, project_key)
+
+
 def build_failure_corpus(accessor: ProjectionAccessor) -> FailureCorpus:
     """Erzeugt eine verdrahtete ``FailureCorpus``-Top-Komponente (AG3-028).
 
@@ -1235,6 +1760,7 @@ def build_failure_corpus(accessor: ProjectionAccessor) -> FailureCorpus:
 __all__ = [
     "ClosureConfigUnavailableError",
     "build_artifact_invalidation_sink",
+    "build_review_completion_sink",
     "build_artifact_manager",
     "build_closure_phase_handler",
     "build_exploration_phase_handler",
@@ -1247,5 +1773,7 @@ __all__ = [
     "build_setup_preflight_gate",
     "build_skills",
     "build_sonar_gate_port",
+    "build_structural_are_provider",
+    "build_structural_build_test_port",
     "build_verify_system",
 ]

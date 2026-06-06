@@ -51,6 +51,7 @@ class TestEventType:
             "REVIEW_COMPLIANT",
             "REVIEW_GUARD_INTERVENTION",
             "LLM_CALL",
+            "LLM_CALL_COMPLETE",
             "ADVERSARIAL_START",
             "ADVERSARIAL_SPARRING",
             "ADVERSARIAL_TEST_CREATED",

@@ -13,14 +13,35 @@ gehoert ausdruecklich nicht in diesen Modul-Kontext.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from agentkit.core_types import PolicyVerdict
+from agentkit.story_context_manager.types import StoryType
 from agentkit.verify_system.protocols import (
     Finding,
     LayerResult,
     Severity,
     TrustClass,
 )
+from agentkit.verify_system.stage_registry.registry import StageRegistry
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+#: FK-33 §33.7.3 default MAJOR threshold (``policy.major_threshold``: 3).
+DEFAULT_MAJOR_THRESHOLD: int = 3
+
+#: FK-33 §33.7.3 per-story-type MAJOR thresholds. Code-producing story types
+#: share the canonical default (3); concept/research stories do not traverse
+#: the verify pipeline (FK-33 §33.2.4 / §33.9) but carry the default so a
+#: lookup never falls through. This is the single threshold truth that
+#: REPLACES the v2 ``max_high_findings`` scalar.
+DEFAULT_MAX_MAJOR_FINDINGS_PER_STORY_TYPE: dict[StoryType, int] = {
+    StoryType.IMPLEMENTATION: DEFAULT_MAJOR_THRESHOLD,
+    StoryType.BUGFIX: DEFAULT_MAJOR_THRESHOLD,
+    StoryType.CONCEPT: DEFAULT_MAJOR_THRESHOLD,
+    StoryType.RESEARCH: DEFAULT_MAJOR_THRESHOLD,
+}
 
 #: Trust classes whose findings are permitted to block (DK-04 §4.2 /
 #: FK-33 §33.5). Trust A (``SYSTEM``) and Trust B (``VERIFIED_LLM``) are
@@ -119,38 +140,124 @@ class PolicyEngine:
     Configurable thresholds via constructor.
     """
 
-    def __init__(self, max_major_findings: int = 0) -> None:
+    def __init__(
+        self,
+        max_major_findings: int = 0,
+        *,
+        max_major_findings_per_story_type: Mapping[StoryType, int] | None = None,
+        stage_registry: StageRegistry | None = None,
+    ) -> None:
         """Initialise the policy engine.
 
         Args:
-            max_major_findings: Maximum number of MAJOR findings tolerated
-                before they become blocking. Default ``0`` (any MAJOR
-                blocks, identical to the v2 ``max_high_findings=0``
-                threshold pre-rename).
+            max_major_findings: Backward-compatible scalar MAJOR threshold used
+                when :meth:`decide` is called WITHOUT a ``story_type``. Default
+                ``0`` (any MAJOR blocks). This is the legacy knob the existing
+                ``VerifySystem`` wiring sets; it is NOT a second truth -- it is
+                the fallback when the per-story-type model is not consulted.
+            max_major_findings_per_story_type: Per-story-type MAJOR threshold
+                model (FK-33 §33.7.3) that REPLACES the v2 ``max_high_findings``
+                scalar. Consulted by :meth:`decide` when a ``story_type`` is
+                passed. Defaults to
+                :data:`DEFAULT_MAX_MAJOR_FINDINGS_PER_STORY_TYPE`.
+            stage_registry: The stage registry (FK-33 §33.2) bound to the
+                engine for the fail-closed missing-artifact check (FK-33 §33.7:
+                a missing result for a blocking stage of a TRAVERSED layer is a
+                FAIL). Defaults to the canonical registry.
         """
         self._max_major = max_major_findings
+        self._max_major_per_type: dict[StoryType, int] = dict(
+            max_major_findings_per_story_type
+            if max_major_findings_per_story_type is not None
+            else DEFAULT_MAX_MAJOR_FINDINGS_PER_STORY_TYPE
+        )
+        self._registry = (
+            stage_registry if stage_registry is not None else StageRegistry()
+        )
 
-    def decide(self, layer_results: list[LayerResult]) -> VerifyDecision:
-        """Produce a final decision from all layer results.
+    def threshold_for(self, story_type: StoryType) -> int:
+        """Return the MAJOR threshold for ``story_type`` (FK-33 §33.7.3).
 
         Args:
-            layer_results: List of results from all QA layers.
+            story_type: The story type whose threshold to resolve.
+
+        Returns:
+            The per-story-type MAJOR threshold (``DEFAULT_MAJOR_THRESHOLD``
+            when the type carries no explicit entry).
+        """
+        return self._max_major_per_type.get(story_type, DEFAULT_MAJOR_THRESHOLD)
+
+    def decide(
+        self,
+        layer_results: list[LayerResult],
+        *,
+        story_type: StoryType | None = None,
+        max_layer_reached: int | None = None,
+        traversed_layers: frozenset[int] | None = None,
+        are_enabled: bool = False,
+    ) -> VerifyDecision:
+        """Produce a final decision from all layer results (FK-33 §33.7).
+
+        Args:
+            layer_results: List of results from all QA layers actually executed.
+            story_type: When given, the MAJOR threshold is resolved per
+                story type (FK-33 §33.7.3) and the fail-closed missing-artifact
+                check runs over the stage registry; when ``None`` the legacy
+                scalar ``max_major_findings`` is used and no missing-artifact
+                check runs (backward-compatible path).
+            max_layer_reached: The highest QA layer actually traversed
+                (1-4). Only stages whose ``layer <= max_layer_reached`` are
+                expected to have produced a result; deeper layers were never
+                started so their absence is expected (FK-33 §33.7.2). Used for
+                the fail-closed check when ``traversed_layers`` is not given;
+                ``None`` => derive from the present layer results.
+            traversed_layers: The EXACT set of QA layer numbers the route
+                planned and executed (FK-33 §33.7.2). The QA route is not always
+                contiguous: the Exploration context runs Layer 2 + Layer 4 and
+                deliberately SKIPS Layer 1 (FK-27 §27.3 / routing), so a Layer-1
+                stage must NOT be reported missing there. When supplied, a stage
+                is expected iff ``stage.layer in traversed_layers`` (authoritative
+                over the contiguous ``max_layer_reached`` heuristic). ``None`` =>
+                fall back to ``max_layer_reached`` (backward-compatible).
+            are_enabled: Whether ``features.are`` is active (FK-27 §27.4.4);
+                gates whether the ARE stage is expected for the missing-artifact
+                check.
 
         Returns:
             A ``VerifyDecision`` with the aggregated outcome
             (``PolicyVerdict.PASS`` or ``PolicyVerdict.FAIL``).
         """
         results_tuple = tuple(layer_results)
+        max_major = (
+            self.threshold_for(story_type)
+            if story_type is not None
+            else self._max_major
+        )
 
         # Flatten all findings
         all_findings: list[Finding] = []
         for lr in layer_results:
             all_findings.extend(lr.findings)
 
+        # FK-33 §33.7 fail-closed: a blocking stage of a TRAVERSED layer that
+        # produced no result is a synthetic BLOCKING SYSTEM finding (missing
+        # artifact in a completed layer == FAIL). Only when a story_type is
+        # supplied (the registry-bound path).
+        if story_type is not None:
+            all_findings.extend(
+                self._missing_stage_findings(
+                    results_tuple,
+                    story_type=story_type,
+                    max_layer_reached=max_layer_reached,
+                    traversed_layers=traversed_layers,
+                    are_enabled=are_enabled,
+                )
+            )
+
         all_findings_tuple = tuple(all_findings)
 
         # Identify blocking findings
-        blocking = _compute_blocking(all_findings, self._max_major)
+        blocking = _compute_blocking(all_findings, max_major)
         blocking_tuple = tuple(blocking)
 
         # Determine verdict — only PASS/FAIL per FK-27 §27.7.2.
@@ -174,8 +281,130 @@ class PolicyEngine:
             all_findings=all_findings_tuple,
             blocking_findings=blocking_tuple,
             summary=summary,
-            max_major_findings=self._max_major,
+            max_major_findings=max_major,
         )
+
+    def _missing_stage_findings(
+        self,
+        layer_results: tuple[LayerResult, ...],
+        *,
+        story_type: StoryType,
+        max_layer_reached: int | None,
+        traversed_layers: frozenset[int] | None = None,
+        are_enabled: bool,
+    ) -> list[Finding]:
+        """Synthesise BLOCKING findings for missing traversed-layer stages.
+
+        FK-33 §33.7 fail-closed: for every applicable BLOCKING stage whose
+        ``layer <= max_layer_reached``, a corresponding finding-bearing
+        ``LayerResult`` MUST be present. A blocking stage of a traversed layer
+        with no result is a "missing artifact in a completed layer" -> a
+        synthetic BLOCKING SYSTEM finding (NOT a silent PASS).
+
+        The result is matched by layer: a Layer-1 ``LayerResult`` (one
+        aggregated structural result) standing in for the Layer-1 stages. When
+        layer 1 was traversed but produced no result at all, EVERY blocking
+        Layer-1 stage is reported missing (fail-closed). Deeper layers
+        (2/3/4) follow the same rule against their own result presence.
+
+        Args:
+            layer_results: The results actually produced this round.
+            story_type: The story type (drives stage applicability).
+            max_layer_reached: Highest traversed layer; ``None`` => derive from
+                the present results (the max ``layer`` index 1..4 that has a
+                result; defaults to 1 when none resolvable).
+            are_enabled: Whether the ARE stage is expected (FK-27 §27.4.4).
+
+        Returns:
+            A list of synthetic BLOCKING SYSTEM findings (empty when none).
+        """
+        reached = (
+            max_layer_reached
+            if max_layer_reached is not None
+            else _derive_max_layer_reached(layer_results)
+        )
+        produced_layers = _produced_layer_numbers(layer_results)
+        findings: list[Finding] = []
+        for stage in self._registry.stages_for(story_type):
+            if not _stage_layer_traversed(
+                stage.layer, reached=reached, traversed_layers=traversed_layers
+            ):
+                continue  # Layer never traversed -> absence is expected.
+            if stage.severity is not Severity.BLOCKING:
+                continue  # Only blocking stages drive the fail-closed rule.
+            if stage.feature_gated_are and not are_enabled:
+                continue  # ARE stage only expected when features.are == true.
+            if stage.layer not in produced_layers:
+                findings.append(
+                    Finding(
+                        layer="policy",
+                        check=stage.stage_id,
+                        severity=Severity.BLOCKING,
+                        message=(
+                            f"missing artifact for blocking stage "
+                            f"{stage.stage_id!r} in traversed layer "
+                            f"{stage.layer} -> fail-closed (FK-33 §33.7)"
+                        ),
+                        trust_class=TrustClass.SYSTEM,
+                    )
+                )
+        return findings
+
+
+def _stage_layer_traversed(
+    stage_layer: int,
+    *,
+    reached: int,
+    traversed_layers: frozenset[int] | None,
+) -> bool:
+    """Whether a stage's layer was part of the executed QA route (FK-33 §33.7.2).
+
+    When ``traversed_layers`` is given it is authoritative: a stage's layer is
+    "traversed" iff it is in that set. This handles the non-contiguous
+    Exploration route (Layer 2 + Layer 4, Layer 1 SKIPPED) where a Layer-1 stage
+    must NOT be reported missing. When ``traversed_layers`` is ``None`` the
+    contiguous ``max_layer_reached`` heuristic applies (any layer <= reached is
+    treated as traversed), preserving the backward-compatible behaviour.
+
+    Args:
+        stage_layer: The stage's QA layer number.
+        reached: The highest traversed layer (contiguous heuristic).
+        traversed_layers: The exact executed-layer set, or ``None``.
+
+    Returns:
+        ``True`` iff the stage's layer was traversed by the route.
+    """
+    if traversed_layers is not None:
+        return stage_layer in traversed_layers
+    return stage_layer <= reached
+
+
+#: Canonical QA layer name -> layer number (FK-27 §27.4-§27.7 / FK-33 §33.2.2).
+_LAYER_NAME_TO_NUMBER: dict[str, int] = {
+    "structural": 1,
+    "qa_review": 2,
+    "semantic_review": 2,
+    "doc_fidelity": 2,
+    "adversarial": 3,
+    "sonarqube_gate": 1,
+    "policy": 4,
+}
+
+
+def _produced_layer_numbers(layer_results: tuple[LayerResult, ...]) -> set[int]:
+    """Return the set of QA layer numbers that produced a result this round."""
+    numbers: set[int] = set()
+    for lr in layer_results:
+        number = _LAYER_NAME_TO_NUMBER.get(lr.layer)
+        if number is not None:
+            numbers.add(number)
+    return numbers
+
+
+def _derive_max_layer_reached(layer_results: tuple[LayerResult, ...]) -> int:
+    """Derive the highest traversed layer from present results (>=1)."""
+    produced = _produced_layer_numbers(layer_results)
+    return max(produced) if produced else 1
 
 
 def _compute_blocking(

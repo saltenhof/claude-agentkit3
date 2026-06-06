@@ -43,26 +43,35 @@ Neues Modul `src/agentkit/verify_system/stage_registry/`:
 - `registry.py` — `StageRegistry.stages_for(story_type) -> list[StageDefinition]`
 - `data.py` — vollstaendige Stage-Definitionen aus FK-27 §27.4 als Konstanten
 
-Stages (mindestens, mit Severity-Klassifikation aus FK-27 §27.4.2):
+Stages (mindestens, mit Severity-Klassifikation aus FK-27 §27.4.2/§27.4.3 —
+FK-27 ist die autoritative Quelle und gewinnt bei jeder Abweichung dieser
+Zusammenfassung; die Code-/Registry-Severities in `data.py` folgen FK-27):
 - `artifact.protocol` — BLOCKING (Pflicht-Artefakt > 50 bytes)
 - `artifact.worker_manifest` — BLOCKING
-- `artifact.manifest_claims` — MAJOR
+- `artifact.manifest_claims` — BLOCKING (FK-27 §27.4.1 / FK-33 §33.3.2; die
+  frühere Zusammenfassung sagte MAJOR — FK-27 gewinnt -> BLOCKING)
 - `artifact.handover` — BLOCKING
 - `branch.story` — BLOCKING
-- `branch.commit_trailers` — MINOR
+- `branch.commit_trailers` — BLOCKING (FK-27 §27.4.2 / FK-33 §33.3.2; die
+  frühere Zusammenfassung sagte MINOR — FK-27 gewinnt -> BLOCKING)
 - `build.compile` — BLOCKING
 - `build.test_execution` — BLOCKING
 - `test.count` — MAJOR
 - `test.coverage` — MAJOR
 - `hygiene.todo_fixme` — MINOR
-- `hygiene.disabled_tests` — MAJOR
+- `hygiene.disabled_tests` — MINOR (FK-27 §27.4.2 / FK-33 §33.3.2; die frühere
+  Zusammenfassung sagte MAJOR — FK-27 gewinnt -> MINOR)
 - `hygiene.commented_code` — MINOR
 - `guard.llm_reviews` — BLOCKING (REF-036)
-- `guard.review_compliance` — BLOCKING
+- `guard.review_compliance` — MAJOR (FK-27 §27.4.3 Quelle `review_compliant`;
+  die frühere Zusammenfassung sagte BLOCKING — FK-27 gewinnt -> MAJOR)
 - `guard.no_violations` — BLOCKING
-- `guard.multi_llm` — BLOCKING (REF-036)
+- `guard.multi_llm` — BLOCKING (REF-036; zählt `llm_call_complete`-Events,
+  emittiert erst nach erfolgreichem Schreiben des Review-Artefakts, FK-27
+  §27.4.3 / §27.5.5)
 - `are.gate` — BLOCKING (nur wenn features.are=true)
-- `impact.violation` — ESCALATED (Story-Typ-spezifisch)
+- `impact.violation` — BLOCKING -> ESCALATED (FK-27 §27.4.2/§27.4.5: führt
+  immer direkt zu ESCALATED, kein Worker-Feedback-Loop)
 
 #### 2.1.2 Layer-1-Checker-Module
 

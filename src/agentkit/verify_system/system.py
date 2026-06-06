@@ -83,6 +83,11 @@ from agentkit.verify_system.protocols import (
     TrustClass,
 )
 from agentkit.verify_system.qa_cycle import integration as _qa
+from agentkit.verify_system.review_completion import (
+    NullReviewCompletionSink,
+    ReviewCompletionEvent,
+    ReviewCompletionSink,
+)
 from agentkit.verify_system.routing import QALayerKind, select_layers
 from agentkit.verify_system.sonarqube_gate.port import (
     ABSENT_SONAR_GATE_PORT,
@@ -92,15 +97,22 @@ from agentkit.verify_system.sonarqube_gate.stage_runner import (
     SonarStageResult,
     run_sonarqube_gate_stage,
 )
-from agentkit.verify_system.structural.checker import StructuralChecker
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
     from agentkit.story_context_manager.models import StoryContext
+    from agentkit.story_context_manager.types import StoryType
     from agentkit.verify_system.llm_evaluator import Layer2ReviewInput, LlmClient, ParallelEvalRunner
+    from agentkit.verify_system.protocols import TelemetryEventQueryPort
     from agentkit.verify_system.qa_cycle.invalidation import ArtifactInvalidationSink
+    from agentkit.verify_system.stage_registry.registry import StageRegistry
+    from agentkit.verify_system.structural.checker import AreGateProvider
+    from agentkit.verify_system.structural.checks import (
+        BuildTestEvidencePort,
+        ChangeEvidencePort,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +146,13 @@ class _NullStoryContextPort:
 
 
 _NULL_STORY_CONTEXT_PORT: StoryContextQueryPort = _NullStoryContextPort()
+
+#: Default Layer-2 review-completion sink (FK-27 §27.4.3 / §27.5.5): a No-op that
+#: drops ``llm_call_complete`` emissions on the test path. NOT a guard weakening:
+#: ``guard.multi_llm`` counts canonical events, so a dropped emission leaves the
+#: per-role count at 0 -> BLOCKING FAIL (fail-closed). The productive
+#: telemetry-emitting adapter is wired via ``composition_root.build_verify_system``.
+_NULL_REVIEW_COMPLETION_SINK: ReviewCompletionSink = NullReviewCompletionSink()
 
 
 @dataclass(frozen=True)
@@ -199,6 +218,13 @@ class VerifySystem:
     remediation_loop_controller: _qa.RemediationLoopController = field(
         default_factory=_qa.RemediationLoopController
     )
+    #: Layer-2 review-completion sink (FK-27 §27.4.3 / §27.5.5). After each
+    #: Layer-2 review envelope write succeeds, the QA-subflow emits an
+    #: ``llm_call_complete`` fact (per reviewer role) through this sink so the
+    #: ``guard.multi_llm`` recurring guard counts a completed review (NOT a bare
+    #: API response). Default is the No-op sink; the productive telemetry adapter
+    #: is wired via ``composition_root.build_verify_system``.
+    review_completion_sink: ReviewCompletionSink = _NULL_REVIEW_COMPLETION_SINK
 
     @property
     def layer_2(self) -> QALayer:
@@ -228,8 +254,14 @@ class VerifySystem:
         story_context_port: StoryContextQueryPort | None = None,
         sonar_gate_port: SonarGateInputPort | None = None,
         invalidation_sink: ArtifactInvalidationSink | None = None,
+        review_completion_sink: ReviewCompletionSink | None = None,
         layer2_llm_client: LlmClient | None = None,
         fast_test_runner: Callable[[Path], tuple[bool, str | None]] | None = None,
+        stage_registry: StageRegistry | None = None,
+        structural_telemetry_port: TelemetryEventQueryPort | None = None,
+        structural_build_test_port: BuildTestEvidencePort | None = None,
+        structural_are_provider: AreGateProvider | None = None,
+        structural_change_evidence_port: ChangeEvidencePort | None = None,
     ) -> VerifySystem:
         """Construct a ``VerifySystem`` with default sub-components.
 
@@ -267,6 +299,14 @@ class VerifySystem:
                 verdrahtete Telemetrie). Produktive Aufrufer reichen den
                 telemetrie-gebundenen Sink via
                 ``composition_root.build_verify_system`` ein.
+            review_completion_sink: Optionaler produktiver
+                ``ReviewCompletionSink`` (FK-27 §27.4.3 / §27.5.5): emittiert pro
+                erfolgreichem Layer-2-Review-Artefakt-Write ein
+                ``llm_call_complete``-Event (mit Reviewer-Rolle im Payload),
+                damit der ``guard.multi_llm`` Gate 2 einen abgeschlossenen Review
+                zaehlt (nicht die blosse API-Antwort). ``None`` => No-op-Sink
+                (Testpfad). Produktive Aufrufer reichen den telemetrie-gebundenen
+                Sink via ``composition_root.build_verify_system`` ein.
             layer2_llm_client: Optionaler ``LlmClient`` (AG3-043 E6, FK-27
                 §27.5). Wenn gesetzt, baut der QA-Subflow pro Run einen
                 ``ParallelEvalRunner`` (FK-44 §44.4.2) und faehrt die drei
@@ -295,12 +335,41 @@ class VerifySystem:
             )
         resolved_port = story_context_port or _NULL_STORY_CONTEXT_PORT
         resolved_sonar_port = sonar_gate_port or ABSENT_SONAR_GATE_PORT
+        # AG3-042: the FK-27 §27.4 Layer-1 stage registry is bound to BOTH the
+        # StructuralChecker (drives the checks) and the PolicyEngine (drives the
+        # fail-closed missing-artifact check, FK-33 §33.7) -- ONE registry truth
+        # shared by both sub-components (no second stage truth). The PRODUCTIVE
+        # composition root (``build_verify_system``) injects the full FK-27
+        # §27.4 catalogue together with the live telemetry / build-test / ARE
+        # ports. A bare ``create_default`` (test path) defaults to the
+        # meta-only Layer 1: the structural layer runs only the canonical-state
+        # pre-checks unless the caller wires the registry + evidence ports
+        # (preserving the pre-AG3-042 default behaviour for unit fixtures).
+        from agentkit.verify_system.stage_registry.registry import (
+            StageRegistry as _StageRegistry,
+        )
+        from agentkit.verify_system.structural.checker import StructuralChecker
+
+        # Meta-only default (empty registry) when the caller wires no registry:
+        # the structural layer runs only the canonical-state pre-checks and the
+        # policy engine demands no Layer-1 stages. The productive root injects
+        # the full FK-27 §27.4 catalogue.
+        resolved_registry: StageRegistry = (
+            stage_registry if stage_registry is not None else _StageRegistry(stages=())
+        )
+        structural_checker = StructuralChecker(
+            registry=resolved_registry,
+            telemetry=structural_telemetry_port,
+            build_test_port=structural_build_test_port,
+            are_provider=structural_are_provider,
+            change_evidence_port=structural_change_evidence_port,
+        )
         # AG3-015 / FK-44 §44.4.2: the QA layers materialize their prompts via
         # PromptRuntime.materialize_prompt and audit them via the
         # ArtifactManager. Both dependencies are injected here so no layer
         # reaches into prompt-runtime sub-modules or state_backend.store.
         return cls(
-            layer_1=StructuralChecker(),
+            layer_1=structural_checker,
             layer_2a=QaReviewReviewer(
                 artifact_manager=artifact_manager,
                 story_context_port=resolved_port,
@@ -317,7 +386,10 @@ class VerifySystem:
                 artifact_manager=artifact_manager,
                 story_context_port=resolved_port,
             ),
-            policy_engine=PolicyEngine(max_major_findings=max_major_findings),
+            policy_engine=PolicyEngine(
+                max_major_findings=max_major_findings,
+                stage_registry=resolved_registry,
+            ),
             artifact_manager=artifact_manager,
             story_context_port=resolved_port,
             sonar_gate_port=resolved_sonar_port,
@@ -334,6 +406,11 @@ class VerifySystem:
                 _qa.QaCycleLifecycle(invalidation_sink=invalidation_sink)
                 if invalidation_sink is not None
                 else _qa.QaCycleLifecycle()
+            ),
+            review_completion_sink=(
+                review_completion_sink
+                if review_completion_sink is not None
+                else _NULL_REVIEW_COMPLETION_SINK
             ),
         )
 
@@ -537,7 +614,30 @@ class VerifySystem:
         if sonar_fail_decision is not None:
             decision = sonar_fail_decision
         else:
-            decision = self.policy_engine.decide(layer_results)
+            # FIX-A (FK-33 §33.7): the PRODUCTION path passes the EFFECTIVE
+            # story type (the SAME one the layers were executed under, see
+            # _execute_layer) + max_layer_reached + ARE activation so the
+            # registry-bound fail-closed missing-stage check ALWAYS runs and the
+            # FK-33 §33.7.3 per-story-type threshold is ALWAYS used. The scalar
+            # fallback (no missing-stage check) is unreachable on this path:
+            # _effective_story_type returns IMPLEMENTATION when no StoryContext
+            # resolved, exactly mirroring the layer-execution stub, so an
+            # unresolved context fails CLOSED through the registry path instead
+            # of silently downgrading to the scalar threshold (no two-truth
+            # threshold, no fail-open edge).
+            decision = self.policy_engine.decide(
+                layer_results,
+                story_type=_effective_story_type(_story_ctx),
+                max_layer_reached=_max_layer_reached(layer_results),
+                # FIX-A: pass the EXACT executed-layer set so the fail-closed
+                # missing-stage check honours non-contiguous routes (FK-27 §27.3:
+                # Exploration runs Layer 2 + Layer 4 and SKIPS Layer 1, so a
+                # Layer-1 stage must NOT be reported missing there). Without this
+                # the registry path would over-block the legitimate exploration
+                # route once the scalar fallback is removed.
+                traversed_layers=_traversed_layers(layer_kinds),
+                are_enabled=self._structural_are_enabled(),
+            )
             # Step 6: Write policy decision artefact.
             decision_ref = self._write_policy_artifact(
                 decision=decision,
@@ -607,10 +707,19 @@ class VerifySystem:
         # FAIL + round >= max -> ESCALATE (hard, FK-27 §27.2.2
         # max_rounds_exceeded). escalated forces verdict=FAIL. The Sonar
         # fail-closed verdict traverses the SAME loop (no bypass, no fail-open).
-        escalated = _qa.evaluate_escalation(
-            self.remediation_loop_controller,
-            cycle_state,
-            decision.verdict,
+        #
+        # FIX-5 (FK-27 §27.4.2/§27.4.5): an ``impact.violation`` BLOCKING FAIL
+        # routes DIRECTLY to ESCALATED -- "Eskalation an Mensch, kein
+        # Ruecksprung", no Worker-feedback loop. The structural layer stamps
+        # ``metadata["escalated"]=True`` (checker.py); detect it here and force
+        # immediate escalation BEFORE/independent of the remediation-round
+        # ceiling, so an impact violation never loops through normal remediation.
+        escalated = _layer_escalation_requested(decision.layer_results) or (
+            _qa.evaluate_escalation(
+                self.remediation_loop_controller,
+                cycle_state,
+                decision.verdict,
+            )
         )
 
         # closure_blocked: in a remediation context with at least one open
@@ -928,6 +1037,21 @@ class VerifySystem:
                 qa_cycle_fields=qa_cycle_fields,
             )
             artifact_refs_written.append(spec.filename)
+            # FIX-C (FK-27 §27.4.3 / §27.5.5): emit ``llm_call_complete`` ONLY
+            # after the Layer-2 review artefact write above SUCCEEDED -- never on
+            # a bare API response. The role is ``result.layer`` (qa_review /
+            # semantic_review / doc_fidelity), which is exactly the per-role
+            # filter the ``guard.multi_llm`` Gate 2 counts (FK-37 §37.1.6). Only
+            # Layer-2 reviews carry a mandatory reviewer role; structural /
+            # adversarial layers do not emit completion events.
+            if kind is QALayerKind.LLM_EVALUATOR:
+                self.review_completion_sink.review_completed(
+                    ReviewCompletionEvent(
+                        story_id=story_id,
+                        role=result.layer,
+                        artifact_filename=spec.filename,
+                    )
+                )
 
     def _sonarqube_gate_failed_decision(
         self,
@@ -989,6 +1113,22 @@ class VerifySystem:
                 "remediation loop (FK-33 §33.6.3 / FK-27 §27.6a.2)."
             ),
         )
+
+    def _structural_are_enabled(self) -> bool:
+        """Return whether the structural layer's ARE gate is active (FIX-2).
+
+        FK-27 §27.4.4: the ARE stage is only expected for the fail-closed
+        missing-stage check when ``features.are == true``. The activation lives
+        on the Layer-1 ``StructuralChecker``'s ARE provider; reading it here
+        keeps ONE ARE-activation truth (no second flag). A non-structural Layer-1
+        double (test stub) has no provider -> ARE not expected (``False``).
+        """
+        from agentkit.verify_system.structural.checker import StructuralChecker
+
+        layer_1 = self.layer_1
+        if isinstance(layer_1, StructuralChecker):
+            return layer_1.are_enabled
+        return False
 
     def _layer2_pairs(
         self,
@@ -1078,7 +1218,7 @@ class VerifySystem:
             BLOCKING result if the layer raised an unexpected exception.
         """
         from agentkit.story_context_manager.models import StoryContext
-        from agentkit.story_context_manager.types import StoryMode, StoryType
+        from agentkit.story_context_manager.types import StoryMode
         from agentkit.verify_system.llm_evaluator.inputs import Layer2ReviewInput as _L2Input
 
         effective_ri = review_input if isinstance(review_input, _L2Input) else None
@@ -1089,14 +1229,17 @@ class VerifySystem:
             # Der Aufrufer (run_qa_subflow) laedt den StoryContext einmalig und
             # reicht ihn hier ein (BC-Topologie-konform).
             # Fallback auf IMPLEMENTATION-Stub wenn kein StoryContext verfuegbar
-            # (Testpfad ohne persistierten Kontext, FK-27 §27.4).
+            # (Testpfad ohne persistierten Kontext, FK-27 §27.4). FIX-A: the stub
+            # story type comes from the SAME _effective_story_type helper the
+            # policy decision uses, so the layer run and the policy decision can
+            # never diverge on the effective type (single effective-type truth).
             if story_context is not None and isinstance(story_context, StoryContext):
                 layer_ctx = story_context
             else:
                 layer_ctx = StoryContext(
                     project_key="verify-system-run",
                     story_id=story_id,
-                    story_type=StoryType.IMPLEMENTATION,
+                    story_type=_effective_story_type(story_context),
                     execution_route=StoryMode.EXECUTION,
                 )
             return layer.evaluate(layer_ctx, ctx.story_dir, review_input=effective_ri)
@@ -1210,6 +1353,94 @@ class VerifySystem:
         )
         self.artifact_manager.write(envelope)
         return _POLICY_ARTIFACT_SPEC.filename
+
+
+#: FK-27 §27.4-§27.7 / FK-33 §33.2.2 canonical QA layer name -> layer number.
+#: Mirrors the policy engine's map; used to derive ``max_layer_reached`` from
+#: the produced data-layer results on the production path (FIX-2).
+_SYSTEM_LAYER_NAME_TO_NUMBER: dict[str, int] = {
+    "structural": 1,
+    "qa_review": 2,
+    "semantic_review": 2,
+    "doc_fidelity": 2,
+    "adversarial": 3,
+    "sonarqube_gate": 1,
+    "policy": 4,
+}
+
+
+def _layer_escalation_requested(layer_results: tuple[LayerResult, ...]) -> bool:
+    """Whether any layer stamped an immediate-escalation request (FIX-5).
+
+    FK-27 §27.4.2/§27.4.5: the structural layer sets
+    ``metadata["escalated"]=True`` when an ``escalated`` stage
+    (``impact.violation``) FAILs BLOCKING. Such a finding must escalate
+    immediately to a human -- it must NOT traverse the normal remediation loop.
+    """
+    return any(lr.metadata.get("escalated") is True for lr in layer_results)
+
+
+def _effective_story_type(story_ctx: object | None) -> StoryType:
+    """Return the EFFECTIVE ``StoryType`` driving both layer execution and policy.
+
+    FIX-A (fail-closed): the production path must never re-enter the policy
+    engine's scalar fallback (which runs NO registry-bound missing-stage check,
+    FK-33 §33.7 -- a fail-open edge). The effective story type is the SAME one
+    ``_execute_layer`` commits to: the resolved ``StoryContext.story_type`` when
+    a context resolved, otherwise the ``IMPLEMENTATION`` stub used for the layer
+    run itself. Returning a concrete type unconditionally guarantees
+    ``PolicyEngine.decide`` always takes the registry path (per-story-type
+    threshold FK-33 §33.7.3 + fail-closed missing-stage check), consistent with
+    the type the layers were evaluated under. There is no genuinely-unknown
+    story type on this path: layer execution already chose IMPLEMENTATION when
+    unresolved, so the policy decision uses the identical effective type rather
+    than silently downgrading to the scalar threshold.
+    """
+    from agentkit.story_context_manager.models import StoryContext
+    from agentkit.story_context_manager.types import StoryType
+
+    if isinstance(story_ctx, StoryContext):
+        return story_ctx.story_type
+    return StoryType.IMPLEMENTATION
+
+
+def _max_layer_reached(layer_results: list[LayerResult]) -> int:
+    """Derive the highest QA layer that produced a result (FK-33 §33.7.2)."""
+    reached = [
+        _SYSTEM_LAYER_NAME_TO_NUMBER[lr.layer]
+        for lr in layer_results
+        if lr.layer in _SYSTEM_LAYER_NAME_TO_NUMBER
+    ]
+    return max(reached) if reached else 1
+
+
+#: FK-27 §27.3 / routing: QA layer KIND -> QA layer NUMBER. ``SONARQUBE_GATE`` is
+#: classificatory Layer 1 (FK-33 §33.6.3). Used to derive the exact executed-
+#: layer set for the policy engine's fail-closed missing-stage check so a
+#: non-contiguous route (Exploration: Layer 2 + Layer 4) is honoured.
+_KIND_TO_LAYER_NUMBER: dict[QALayerKind, int] = {
+    QALayerKind.STRUCTURAL: 1,
+    QALayerKind.SONARQUBE_GATE: 1,
+    QALayerKind.LLM_EVALUATOR: 2,
+    QALayerKind.ADVERSARIAL: 3,
+    QALayerKind.POLICY: 4,
+}
+
+
+def _traversed_layers(layer_kinds: tuple[QALayerKind, ...]) -> frozenset[int]:
+    """Return the EXACT set of QA layer numbers the route planned (FK-33 §33.7.2).
+
+    Maps the routed :class:`QALayerKind` tuple to the layer numbers whose stages
+    the policy engine should expect. The route is not always contiguous: the
+    Exploration context runs Layer 2 + Layer 4 and SKIPS Layer 1, so its set is
+    ``{2, 4}`` -- a Layer-1 stage is therefore not expected (and not reported
+    missing) on that path.
+    """
+    return frozenset(
+        _KIND_TO_LAYER_NUMBER[kind]
+        for kind in layer_kinds
+        if kind in _KIND_TO_LAYER_NUMBER
+    )
 
 
 def _is_fast_mode(story_ctx: object | None) -> bool:

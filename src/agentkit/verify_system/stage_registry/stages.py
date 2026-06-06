@@ -1,0 +1,88 @@
+"""Typed stage profile model for the QA-subflow stage registry.
+
+Source of truth: FK-33 §33.2.1 (typed stage profile, ``StageDefinition``)
+and FK-27 §27.4 (Layer-1 stage catalogue + severities). The
+:class:`StageDefinition` here is the AK3 code-level representation of one
+QA-subflow stage; the concrete Layer-1 instances live in
+:mod:`agentkit.verify_system.stage_registry.data`.
+
+Reuse note (no second truth): ``Severity`` and ``StoryType`` come from the
+existing single sources of truth (``agentkit.core_types.Severity`` and
+``agentkit.story_context_manager.types.StoryType``); this module does NOT
+re-type either of those vocabularies.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import StrEnum
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from agentkit.core_types import Severity
+    from agentkit.story_context_manager.types import StoryType
+
+__all__ = [
+    "ExecutionPolicy",
+    "StageDefinition",
+]
+
+
+class ExecutionPolicy(StrEnum):
+    """DSL policy controlling when a stage is invoked (FK-33 §33.2.1/§33.2.2).
+
+    Deterministic stages default to :attr:`ALWAYS` (FK-33 §33.2.2
+    "deterministic Stages: standardmaessig ``execution_policy = ALWAYS``").
+    The two conditional policies model the FK-33 §33.8 sequential gate
+    semantics where a stage only runs once an earlier gate held.
+
+    Attributes:
+        ALWAYS: Always materialised into the stage plan (the Layer-1 default).
+        IF_LAYER_PASSES: Only when the surrounding layer has not already hard
+            failed (FK-27 §27.4.2: structural checks run after the artifact
+            check PASS).
+        IF_PREVIOUS_PASS: Only when the previous stage in execution order
+            passed (FK-33 §33.8.2 gate sequencing).
+    """
+
+    ALWAYS = "ALWAYS"
+    IF_LAYER_PASSES = "IF_LAYER_PASSES"
+    IF_PREVIOUS_PASS = "IF_PREVIOUS_PASS"
+
+
+@dataclass(frozen=True)
+class StageDefinition:
+    """Typed profile of one QA-subflow stage (FK-33 §33.2.1).
+
+    Immutable value object (ARCH-29). The ``severity`` field carries the
+    FK-27 §27.4.2/§27.4.3 classification verbatim; the ``escalated`` flag
+    marks the single FK-27 §27.4.5 exception (``impact.violation`` routes to
+    ESCALATED rather than a Worker-feedback loop).
+
+    Args:
+        stage_id: Canonical check/stage id (e.g. ``"artifact.protocol"``,
+            ``"branch.story"``); FK-27 §27.4 Check-ID, also the artefact
+            filename base (FK-33 §33.2.3).
+        layer: QA-subflow layer (1-4). Layer-1 stages are the deterministic
+            structural checks (FK-33 §33.3).
+        severity: FK-27 §27.4.2/§27.4.3 severity classification
+            (``BLOCKING``/``MAJOR``/``MINOR``). A BLOCKING finding blocks the
+            QA-subflow hard (FK-27 §27.4.2).
+        applies_to: Story types for which this stage is evaluated
+            (FK-33 §33.2.4 ``applies_to``).
+        execution_policy: When the stage is invoked (FK-33 §33.2.1).
+        escalated: Whether a FAIL of this stage routes DIRECTLY to ESCALATED
+            instead of the Worker-feedback loop (FK-27 §27.4.5 exception:
+            only ``impact.violation``).
+        feature_gated_are: Whether the stage is only active when
+            ``features.are == true`` (FK-27 §27.4.4 ARE-Gate). Default
+            ``False``.
+    """
+
+    stage_id: str
+    layer: int
+    severity: Severity
+    applies_to: frozenset[StoryType]
+    execution_policy: ExecutionPolicy = ExecutionPolicy.ALWAYS
+    escalated: bool = False
+    feature_gated_are: bool = False

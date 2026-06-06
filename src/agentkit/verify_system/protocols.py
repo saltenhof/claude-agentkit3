@@ -31,8 +31,88 @@ __all__ = [
     "RunScope",
     "Severity",
     "StoryContextQueryPort",
+    "TelemetryEventQueryPort",
     "TrustClass",
 ]
+
+
+@runtime_checkable
+class TelemetryEventQueryPort(Protocol):
+    """Read-only Port for counting canonical telemetry ``execution_events``.
+
+    FK-27 §27.4.3 Recurring Guards are telemetry-based: they count
+    ``review_request`` / ``review_compliant`` / ``integrity_violation`` /
+    ``llm_call_complete`` events for a story run. The verify-system BC must NOT import
+    ``state_backend.store`` directly (AG3-035 BC-topology); the productive
+    SQLite-backed adapter is wired via
+    ``bootstrap.composition_root.build_verify_system``. The default No-op
+    port returns ``0`` for every event type so the BLOCKING REF-036 guards
+    (``guard.llm_reviews`` / ``guard.multi_llm``) FAIL CLOSED when no
+    telemetry is wired (NO ERROR BYPASSING).
+    """
+
+    def count_events(
+        self,
+        story_dir: Path,
+        *,
+        story_id: str,
+        event_type: str,
+        role: str | None = None,
+        project_key: str | None = None,
+        run_id: str | None = None,
+    ) -> int:
+        """Count canonical ``execution_events`` of ``event_type`` for the story.
+
+        FK-33 §33.3.2 scopes the recurring guards to ``(project_key, story_id,
+        run_id)`` -- a count must not bleed across projects or prior runs of the
+        same story. The caller passes ``project_key`` (from the ``StoryContext``)
+        and the adapter resolves/uses ``run_id`` for the active run; ``None`` for
+        either means "do not filter on that dimension" (the resolved run scope is
+        applied by the productive adapter).
+
+        Args:
+            story_dir: Story working directory (event store root).
+            story_id: Story display id whose events are counted.
+            event_type: The ``execution_events.event_type`` to count
+                (FK-27 §27.4.3: ``review_request`` / ``review_compliant`` /
+                ``integrity_violation`` / ``llm_call_complete``).
+            role: Optional reviewer-role payload filter (FK-27 §27.4.3 Gate 2:
+                ``llm_call_complete`` events carry the reviewer ``role`` in their
+                payload). When given, only events whose ``payload['role']``
+                matches are counted.
+            project_key: Owning project key (FK-33 run scope). ``None`` => not
+                filtered on project.
+            run_id: Active run id (FK-33 run scope). ``None`` => the adapter
+                resolves the active run for ``story_dir`` (so a prior run's
+                events never count toward the current guard).
+
+        Returns:
+            The number of matching events (``0`` when none / unresolvable).
+        """
+        ...
+
+    def run_scope_resolvable(self, story_dir: Path) -> bool:
+        """Whether the active run scope for ``story_dir`` is resolvable.
+
+        FK-33 §33.3.2 run scope (FIX-B, fail-CLOSED): the recurring guards count
+        events of the CURRENT run only. A count of ``0`` is ambiguous -- it can
+        mean "no such event in this run" OR "the run scope could not be resolved
+        so nothing was counted". For the must-have-events guards
+        (``guard.llm_reviews`` / ``guard.review_compliance`` /
+        ``guard.multi_llm``) both readings fail closed (they require a positive
+        count). But ``guard.no_violations`` PASSES on ``0``; it would therefore
+        FREE-PASS on an unresolvable scope. This probe lets that guard fail
+        closed when the run scope is unknown, so no recurring guard ever passes
+        on an unresolvable run scope.
+
+        Args:
+            story_dir: Story working directory (event store root).
+
+        Returns:
+            ``True`` iff the active run id for ``story_dir`` could be resolved;
+            ``False`` when no run scope is known (fail-closed signal).
+        """
+        ...
 
 
 @runtime_checkable

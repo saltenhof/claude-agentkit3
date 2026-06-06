@@ -507,3 +507,271 @@ def test_load_sonar_config_no_project_root_non_code_story_is_absence_none(
         assert stanza is None
     finally:
         reset_backend_cache_for_tests()
+
+
+# --- AG3-042 FIX-1/FIX-3/WARNING: structural evidence wiring ----------------
+
+
+def test_derive_actual_impact_diff_proxy() -> None:
+    """FIX-3: the SYSTEM actual-impact proxy escalates with components touched."""
+    from agentkit.bootstrap.composition_root import _derive_actual_impact
+    from agentkit.story_context_manager.story_model import ChangeImpact
+
+    assert _derive_actual_impact(()) is None
+    assert _derive_actual_impact(("pkg/a.py",)) is ChangeImpact.LOCAL
+    assert (
+        _derive_actual_impact(tuple(f"pkg/m{i}.py" for i in range(5)))
+        is ChangeImpact.COMPONENT
+    )
+    assert (
+        _derive_actual_impact(("a/x.py", "b/y.py")) is ChangeImpact.CROSS_COMPONENT
+    )
+    assert (
+        _derive_actual_impact(("a/x.py", "b/y.py", "c/z.py"))
+        is ChangeImpact.ARCHITECTURE_IMPACT
+    )
+
+
+def test_change_evidence_provider_failclosed_on_bad_base_ref(tmp_path: Path) -> None:
+    """FIX-3: the subprocess-git provider fails closed when HEAD is unresolvable.
+
+    Pointing the provider at a non-existent path makes ``git rev-parse`` fail, so
+    the evidence is ``available=False`` (the BLOCKING checks then fail closed --
+    never a fall-back to worker self-report).
+    """
+    from agentkit.bootstrap.composition_root import (
+        _SubprocessGitChangeEvidenceProvider,
+    )
+
+    missing = tmp_path / "definitely" / "not" / "a" / "repo"
+    evidence = _SubprocessGitChangeEvidenceProvider().collect(missing)
+    assert evidence.available is False
+
+
+def test_build_structural_build_test_port_absent_ci_is_failclosed(
+    tmp_path: Path,
+) -> None:
+    """FIX-1: declared-absent CI yields the fail-closed absent build/test port."""
+    from agentkit.bootstrap.composition_root import (
+        build_structural_build_test_port,
+    )
+    from agentkit.verify_system.structural.checks import ABSENT_BUILD_TEST_PORT
+
+    port = build_structural_build_test_port(None, tmp_path)
+    assert port is ABSENT_BUILD_TEST_PORT
+    assert port.evaluate(tmp_path) is None
+
+
+def test_build_structural_are_provider_activation() -> None:
+    """FIX-1: the ARE provider reflects features.are and never silently disables."""
+    from agentkit.bootstrap.composition_root import build_structural_are_provider
+    from agentkit.config.models import Features, PipelineConfig
+
+    off = PipelineConfig(features=Features(are=False))
+    provider_off = build_structural_are_provider(None, off)
+    assert provider_off.is_enabled is False
+    assert provider_off.coverage_verdict("S-1", "p") is None
+
+    on = PipelineConfig(features=Features(are=True))
+    provider_on = build_structural_are_provider(None, on)
+    assert provider_on.is_enabled is True
+
+
+def test_telemetry_count_port_run_scoped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WARNING (FK-33 §33.3.2): the count port filters by (project, story, run)."""
+    from agentkit.bootstrap import composition_root as cr
+
+    captured: dict[str, object] = {}
+
+    def _fake_load(
+        story_dir: Path,
+        *,
+        project_key: str | None = None,
+        story_id: str | None = None,
+        run_id: str | None = None,
+        event_type: str | None = None,
+    ) -> list[object]:
+        captured.update(
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            event_type=event_type,
+        )
+        return []
+
+    monkeypatch.setattr(
+        "agentkit.state_backend.store.load_execution_events", _fake_load
+    )
+    port = cr._StateBackendTelemetryEventCountPort()
+    port.count_events(
+        tmp_path,
+        story_id="S-1",
+        event_type="review_request",
+        project_key="proj",
+        run_id="run-9",
+    )
+    assert captured["project_key"] == "proj"
+    assert captured["story_id"] == "S-1"
+    assert captured["run_id"] == "run-9"
+    assert captured["event_type"] == "review_request"
+
+
+def test_telemetry_count_port_failclosed_on_unresolvable_run_scope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FIX-B (FK-33 §33.3.2): never count cross-run on an unresolvable scope.
+
+    When no ``run_id`` is supplied AND the active run scope cannot be resolved,
+    the adapter MUST NOT call ``load_execution_events(..., run_id=None)`` (which
+    counts across ALL runs, fail-open). It returns ``0`` and reports the scope as
+    unresolvable so the BLOCKING recurring guards fail closed.
+    """
+    from agentkit.bootstrap import composition_root as cr
+
+    called = {"load": False}
+
+    def _fail_load(*args: object, **kwargs: object) -> list[object]:
+        called["load"] = True
+        raise AssertionError("must not query unscoped on an unresolvable run scope")
+
+    class _NoScope:
+        story_id = "S-1"
+
+    monkeypatch.setattr(
+        "agentkit.state_backend.store.load_execution_events", _fail_load
+    )
+    monkeypatch.setattr(
+        "agentkit.state_backend.store.facade.resolve_runtime_scope",
+        lambda story_dir: _NoScope(),
+    )
+    port = cr._StateBackendTelemetryEventCountPort()
+
+    # _NoScope carries no run_id -> getattr(...) is None -> unresolvable.
+    assert port.run_scope_resolvable(tmp_path) is False
+    count = port.count_events(
+        tmp_path,
+        story_id="S-1",
+        event_type="integrity_violation",
+        project_key="proj",
+    )
+    assert count == 0
+    assert called["load"] is False
+
+
+class _FakeGitResult:
+    def __init__(self, stdout: str, returncode: int = 0) -> None:
+        self.stdout = stdout
+        self.stderr = ""
+        self.returncode = returncode
+
+    @property
+    def ok(self) -> bool:
+        return self.returncode == 0
+
+
+class _FakeGitBackend:
+    """Fake git backend: maps git argv to canned stdout (isolated unit, MOCKS)."""
+
+    def __init__(self, responses: dict[tuple[str, ...], str]) -> None:
+        self._responses = responses
+
+    def run(self, repo: object, *args: str) -> _FakeGitResult:
+        del repo
+        return _FakeGitResult(self._responses.get(args, ""))
+
+    def remove_worktree(self, repo: object) -> None:
+        del repo
+
+
+class _FakeBuildTestPort:
+    def __init__(self, *, green: bool, reason: str | None = None) -> None:
+        self._green = green
+        self._reason = reason
+
+    def run(self, candidate: object) -> object:
+        from agentkit.verify_system.pre_merge_runner.contract import BuildTestOutcome
+
+        del candidate
+        return BuildTestOutcome(green=self._green, reason=self._reason)
+
+
+def test_ci_build_test_evidence_adapter_maps_green(tmp_path: Path) -> None:
+    """FIX-1: a CI-green run maps to build_ok + tests_green; diff drives count."""
+    from agentkit.bootstrap.composition_root import _CiBuildTestEvidenceAdapter
+
+    git = _FakeGitBackend(
+        {
+            ("rev-parse", "--abbrev-ref", "HEAD"): "story/X-1",
+            ("rev-parse", "HEAD"): "abc123",
+            ("rev-parse", "HEAD^{tree}"): "tree9",
+            ("diff", "--name-only", "origin/main...HEAD"): (
+                "src/a.py\ntests/test_a.py\n"
+            ),
+        }
+    )
+    adapter = _CiBuildTestEvidenceAdapter(
+        build_test_port=_FakeBuildTestPort(green=True), git_backend=git
+    )
+    ev = adapter.evaluate(tmp_path)
+    assert ev is not None
+    assert ev.build_ok is True
+    assert ev.tests_green is True
+    assert ev.test_file_count == 1  # tests/test_a.py
+
+
+def test_ci_build_test_evidence_adapter_failclosed_red(tmp_path: Path) -> None:
+    """FIX-1: a red CI run maps to build_ok=False (BLOCKING checks fail closed)."""
+    from agentkit.bootstrap.composition_root import _CiBuildTestEvidenceAdapter
+
+    git = _FakeGitBackend(
+        {
+            ("rev-parse", "--abbrev-ref", "HEAD"): "story/X-1",
+            ("rev-parse", "HEAD"): "abc123",
+            ("rev-parse", "HEAD^{tree}"): "tree9",
+        }
+    )
+    adapter = _CiBuildTestEvidenceAdapter(
+        build_test_port=_FakeBuildTestPort(green=False, reason="tests red"),
+        git_backend=git,
+    )
+    ev = adapter.evaluate(tmp_path)
+    assert ev is not None
+    assert ev.build_ok is False
+    assert ev.tests_green is False
+
+
+def test_ci_build_test_evidence_adapter_failclosed_no_head(tmp_path: Path) -> None:
+    """FIX-1: an unresolvable HEAD yields None (evidence unconfirmable)."""
+    from agentkit.bootstrap.composition_root import _CiBuildTestEvidenceAdapter
+
+    git = _FakeGitBackend({})  # every git call returns empty -> None HEAD
+    adapter = _CiBuildTestEvidenceAdapter(
+        build_test_port=_FakeBuildTestPort(green=True), git_backend=git
+    )
+    assert adapter.evaluate(tmp_path) is None
+
+
+def test_are_provider_coverage_verdict_when_enabled() -> None:
+    """FIX-1: when ARE is enabled, coverage_verdict delegates to check_gate."""
+    from agentkit.bootstrap.composition_root import _RequirementsCoverageAreProvider
+    from agentkit.requirements_coverage.contract import (
+        AreDockpointStatus,
+        CoverageVerdict,
+    )
+
+    sentinel = CoverageVerdict(status=AreDockpointStatus.PASS, verdict="PASS")
+
+    class _FakeCoverage:
+        is_enabled = True
+
+        def check_gate(self, story_id: str, project_key: str) -> CoverageVerdict:
+            del story_id, project_key
+            return sentinel
+
+    provider = _RequirementsCoverageAreProvider(_FakeCoverage())
+    assert provider.is_enabled is True
+    assert provider.coverage_verdict("S-1", "p") is sentinel
+
+

@@ -174,6 +174,7 @@ def _make_system(
     manager: _RecordingArtifactManager | None = None,
     max_major_findings: int = 0,
     story_context_port: _SpyStoryContextPort | None = None,
+    review_completion_sink: object | None = None,
 ) -> tuple[VerifySystem, _RecordingArtifactManager]:
     recording_manager = manager or _RecordingArtifactManager()
     # W1: three distinct Layer-2 reviewers.
@@ -184,6 +185,8 @@ def _make_system(
     kwargs: dict[str, object] = {}
     if story_context_port is not None:
         kwargs["story_context_port"] = story_context_port
+    if review_completion_sink is not None:
+        kwargs["review_completion_sink"] = review_completion_sink
     vs = VerifySystem(
         layer_1=layer_1 or _RecordingLayer("structural"),
         layer_2a=_l2a,
@@ -896,3 +899,76 @@ class TestStoryContextPortInjection:
         assert vs.story_context_port is _NULL_STORY_CONTEXT_PORT
         # No-op-Port liefert None -> _execute_layer faellt auf IMPLEMENTATION-Stub.
         assert vs.story_context_port.load(Path(".")) is None
+
+
+# ---------------------------------------------------------------------------
+# FIX-C: run_qa_subflow emits llm_call_complete AFTER each Layer-2 artefact
+# write, per reviewer role (FK-27 §27.4.3 / §27.5.5) -> guard.multi_llm count.
+# ---------------------------------------------------------------------------
+
+
+class TestReviewCompletionEmission:
+    """FIX-C: ``llm_call_complete`` is emitted after Layer-2 artefact writes."""
+
+    def test_emits_completion_per_reviewer_role(self, tmp_path: Path) -> None:
+        """Three Layer-2 writes -> three completion events with the right roles.
+
+        FK-27 §27.4.3 Gate 2 counts ``llm_call_complete`` per mandatory reviewer
+        role; the emission must carry the role the guard filters on
+        (qa_review / semantic_review / doc_fidelity).
+        """
+        from agentkit.verify_system.review_completion import (
+            RecordingReviewCompletionSink,
+        )
+
+        sink = RecordingReviewCompletionSink.empty()
+        vs, _ = _make_system(review_completion_sink=sink)
+
+        vs.run_qa_subflow(
+            ctx=_make_bundle(tmp_path),
+            story_id="TEST-001",
+            qa_context=QaContext.IMPLEMENTATION_INITIAL,
+            target=_make_target(),
+        )
+
+        roles = sorted(e.role for e in sink.events)
+        assert roles == ["doc_fidelity", "qa_review", "semantic_review"]
+        assert all(e.story_id == "TEST-001" for e in sink.events)
+        # Each emission names the review artefact it followed (FK-27 §27.5.5).
+        files = sorted(e.artifact_filename for e in sink.events)
+        assert files == ["doc_fidelity.json", "qa_review.json", "semantic_review.json"]
+
+    def test_failed_reviews_emit_no_mandatory_role(self, tmp_path: Path) -> None:
+        """Failed Layer-2 reviewers do NOT emit any mandatory reviewer role.
+
+        When the Layer-2 reviewers raise, ``_execute_layer`` writes a synthetic
+        BLOCKING result whose layer name is the generic kind (``llm_evaluator``),
+        not a mandatory role. The completion emissions therefore cover NONE of
+        the mandatory roles (qa_review / semantic_review / doc_fidelity), so the
+        run-scoped Gate-2 count stays at 0 per mandatory role and
+        ``guard.multi_llm`` fails closed (FK-27 §27.4.3 / FK-37 §37.1.6).
+        """
+        from agentkit.verify_system.review_completion import (
+            RecordingReviewCompletionSink,
+        )
+
+        sink = RecordingReviewCompletionSink.empty()
+        boom = RuntimeError("reviewer crashed")
+        vs, _ = _make_system(
+            layer_2a=_RecordingLayer("qa_review", raise_exc=boom),
+            layer_2b=_RecordingLayer("semantic_review", raise_exc=boom),
+            layer_2c=_RecordingLayer("doc_fidelity", raise_exc=boom),
+            review_completion_sink=sink,
+        )
+
+        outcome = vs.run_qa_subflow(
+            ctx=_make_bundle(tmp_path),
+            story_id="TEST-001",
+            qa_context=QaContext.IMPLEMENTATION_INITIAL,
+            target=_make_target(),
+        )
+
+        assert outcome.verdict is PolicyVerdict.FAIL
+        emitted_roles = {e.role for e in sink.events}
+        mandatory = {"qa_review", "semantic_review", "doc_fidelity"}
+        assert emitted_roles.isdisjoint(mandatory)

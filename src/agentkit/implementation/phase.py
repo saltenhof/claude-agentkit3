@@ -53,6 +53,8 @@ if TYPE_CHECKING:
     from agentkit.verify_system import VerifySystem
     from agentkit.verify_system.protocols import Finding
     from agentkit.verify_system.sonarqube_gate.port import SonarGateInputPort
+    from agentkit.verify_system.structural.checker import AreGateProvider
+    from agentkit.verify_system.structural.checks import BuildTestEvidencePort
 
 logger = logging.getLogger(__name__)
 
@@ -136,11 +138,21 @@ class ImplementationPhaseHandler:
         # hard tests-green floor. Wire the SAME real AG3-056 Build/Test capability
         # the closure Sanity-Gate uses; when CI is declared absent the runner is
         # ``None`` and the fast floor fails closed (non-disableable).
+        # FIX-1 (AG3-042): wire the REAL Layer-1 build/test evidence port + the
+        # real ARE provider from the per-run config (the project ``ci`` stanza /
+        # ``features.are`` / the ARE client) so ``build.compile`` /
+        # ``build.test_execution`` evaluate REAL CI results and ``are.gate``
+        # activates IFF ``features.are``. Absent/declared-off config keeps the
+        # fail-closed default ports (build/test BLOCKING fail, ARE not planned) —
+        # never a fabricated green, never a silent ARE disable.
+        build_test_port, are_provider = _resolve_structural_evidence_ports(ctx, s_dir)
         verify_system = self._config.verify_system or build_verify_system(
             s_dir,
             sonar_gate_port=sonar_gate_port,
             max_feedback_rounds=self._config.max_feedback_rounds,
             fast_test_runner=_resolve_fast_test_runner(ctx),
+            structural_build_test_port=build_test_port,
+            structural_are_provider=are_provider,
         )
 
         # W2: Build PhaseEnvelopeView from envelope.state.payload (round 0
@@ -391,6 +403,57 @@ def _resolve_fast_test_runner(
     pipeline = getattr(project_config, "pipeline", None)
     ci_config = getattr(pipeline, "ci", None) if pipeline is not None else None
     return build_fast_test_runner(ci_config)
+
+
+def _resolve_structural_evidence_ports(
+    ctx: StoryContext,
+    story_dir: Path,
+) -> tuple[BuildTestEvidencePort | None, AreGateProvider | None]:
+    """Resolve the REAL Layer-1 build/test + ARE ports for this run (FIX-1).
+
+    The per-run caller owns the project-config read (the project ``ci`` stanza /
+    ``features.are`` / the ARE client). It then asks the composition root to wire
+    the REAL ports:
+
+    * ``build.compile`` / ``build.test_execution`` evaluate REAL CI results via
+      the AG3-056 commit-bound Build/Test runner (fail-closed absent default when
+      CI is declared absent -- never a fabricated green).
+    * ``are.gate`` activates IFF ``features.are == true`` via the real
+      ``RequirementsCoverage`` provider (never silently disabled).
+
+    Without a resolvable project root (e.g. a standalone test run) ``(None,
+    None)`` keeps the fail-closed default ports.
+
+    Args:
+        ctx: The run :class:`StoryContext`.
+        story_dir: The story working directory (git HEAD/diff source).
+
+    Returns:
+        ``(build_test_port, are_provider)`` -- either may be ``None`` (keep the
+        fail-closed default).
+
+    Raises:
+        ConfigError: When the project config cannot be loaded for a run with a
+            resolvable project root (propagated fail-closed, never a silent skip).
+    """
+    if ctx.project_root is None:
+        return (None, None)
+    from agentkit.bootstrap.composition_root import (
+        build_structural_are_provider,
+        build_structural_build_test_port,
+    )
+    from agentkit.config.loader import load_project_config
+
+    project_config = load_project_config(ctx.project_root)
+    pipeline = getattr(project_config, "pipeline", None)
+    ci_config = getattr(pipeline, "ci", None) if pipeline is not None else None
+    build_test_port = build_structural_build_test_port(ci_config, story_dir)
+    are_provider = (
+        build_structural_are_provider(None, pipeline)
+        if pipeline is not None
+        else None
+    )
+    return (build_test_port, are_provider)
 
 
 def _build_phase_envelope_view(envelope: PhaseEnvelope) -> PhaseEnvelopeView | None:
