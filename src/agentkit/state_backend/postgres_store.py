@@ -34,7 +34,7 @@ from agentkit.state_backend.paths import (
 from agentkit.state_backend.schema_bootstrap import ensure_versioned_schema
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Sequence
 
     from agentkit.state_backend.scope import RuntimeStateScope
 
@@ -183,7 +183,7 @@ class _CompatConnection:
     def execute(
         self,
         query: str,
-        params: tuple[object, ...] = (),
+        params: Sequence[object] = (),
     ) -> psycopg.Cursor[dict[str, Any]]:
         normalized = query.replace("?", "%s")
         return self._conn.execute(normalized, params)
@@ -468,6 +468,22 @@ def _ensure_schema(conn: _CompatConnection) -> None:
     _ensure_reporting_indexes(conn)
     _ensure_story_identity_constraints(conn)
     _ensure_failure_corpus_constraints(conn)
+    _ensure_analytics_migration(conn)
+
+
+def _ensure_analytics_migration(conn: _CompatConnection) -> None:
+    """Run the analytics MigrationRunner so it is wired in production (FK-62 §62.4).
+
+    The canonical typed analytics DDL lives in ``postgres_schema.sql`` and is
+    already applied above; the MigrationRunner records logical analytics version
+    ``3.4`` in the idempotent ``schema_versions`` cursor (FK-62 §62.4.3). Its
+    ``CREATE TABLE IF NOT EXISTS`` statements are no-ops here (the typed tables
+    exist), so there is no second DDL truth — only the version cursor is written.
+    A double run records nothing new (proven idempotent).
+    """
+    from agentkit.state_backend.migration import MigrationRunner
+
+    MigrationRunner().run(conn)
 
 
 def _story_id_for(story_dir: Path) -> str | None:

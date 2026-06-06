@@ -8,12 +8,27 @@ AG3-029 Pass-3: signatures aligned to BC-16 §BC 16 Z. 1579 (W-A fix).
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 
 from agentkit.kpi_analytics.catalog import KpiCatalog, KpiCollectionPoint, KpiDefinition, KpiDomain, KpiGranularity
 from agentkit.kpi_analytics.errors import AnalyticsNotConfiguredError
+from agentkit.kpi_analytics.fact_store import FactStory, PeriodFilter
 from agentkit.kpi_analytics.top import KpiAnalytics
-from agentkit.kpi_analytics.views import RefreshStatus
+from agentkit.kpi_analytics.views import DashboardViewStatus, RefreshStatus
+
+
+class _DictFactStore:
+    """Minimal FactStore double returning canned fact_story rows."""
+
+    def __init__(self, stories: list[FactStory]) -> None:
+        self._stories = stories
+
+    def list_fact_stories(
+        self, project_key: str, period: PeriodFilter | None = None
+    ) -> list[FactStory]:
+        return [s for s in self._stories if s.project_key == project_key]
 
 
 def _make_catalog_with_one_kpi() -> KpiCatalog:
@@ -89,6 +104,47 @@ def test_get_dashboard_view_raises_when_no_fact_store() -> None:
 
     with pytest.raises(AnalyticsNotConfiguredError):
         analytics.get_dashboard_view("tenant-a", "board")
+
+
+def test_get_dashboard_view_reads_factstore_story_rows() -> None:
+    """AG3-038 AC7: get_dashboard_view reads real fact_story data."""
+    story = FactStory(
+        project_key="tenant-a",
+        story_id="AG3-001",
+        story_type="implementation",
+        story_size="L",
+        started_at=datetime(2026, 6, 5, tzinfo=UTC),
+        qa_rounds=3,
+        agentkit_version="3.19.0",
+        agentkit_commit="abc",
+    )
+    analytics = KpiAnalytics(
+        catalog=KpiCatalog(), fact_store=_DictFactStore([story])
+    )
+
+    view = analytics.get_dashboard_view("tenant-a", "story")
+
+    assert view.status == DashboardViewStatus.OK
+    assert len(view.rows) == 1
+    assert view.rows[0]["story_id"] == "AG3-001"
+
+
+def test_get_dashboard_view_empty_when_no_data() -> None:
+    """AC7: an empty fact set yields an EMPTY view (status OK), not a stub error."""
+    analytics = KpiAnalytics(catalog=KpiCatalog(), fact_store=_DictFactStore([]))
+
+    view = analytics.get_dashboard_view("tenant-a", "story")
+
+    assert view.status == DashboardViewStatus.OK
+    assert view.rows == []
+
+
+def test_get_dashboard_view_unwired_kind_fails_closed() -> None:
+    """Period-rollup views are follow-up; requesting one fails closed, not empty."""
+    analytics = KpiAnalytics(catalog=KpiCatalog(), fact_store=_DictFactStore([]))
+
+    with pytest.raises(NotImplementedError):
+        analytics.get_dashboard_view("tenant-a", "pipeline")
 
 
 def test_query_raises_not_implemented() -> None:

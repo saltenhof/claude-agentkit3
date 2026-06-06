@@ -27,13 +27,23 @@ Diese Story liefert das **Schema-Layer**: Tabellen + FactStore-Sub mit minimaler
 
 ### 2.1 In Scope
 
-#### 2.1.1 PostgreSQL analytics-Schema (FK-62 §62.2)
+#### 2.1.1 Analytics-Fact-Tabellen im aktiven versionierten Schema (FK-62 §62.2)
 
-`src/agentkit/state_backend/postgres_schema.sql` wird um neue Schema-Definition erweitert:
+**Schema-Placement-Entscheidung (konzeptkonform per FK-18 §18.9a):** Die
+Analytics-Fact-Tabellen sind *logische* Analytics-Tabellen im **aktiven
+versionierten Schema** (`ak3_v<slug>` in Postgres, `agentkit_<slug>.sqlite` in
+SQLite). Es wird **kein** physisches Top-Level-`CREATE SCHEMA analytics`
+angelegt: ein solches waere cross-version-shared und wuerde die
+Side-by-Side-Versionierungs-Invariante (FK-18 §18.9a) brechen. Der
+`analytics.`-Prefix in den folgenden DDL-Skizzen ist eine logische
+Gruppierungsnotiz, kein zweites Postgres-Schema. Die kanonische, typisierte
+DDL-Wahrheit liegt in `postgres_schema.sql`; die SQLite-DDL-Wahrheit ist die
+Migration `versions/v_3_4_analytics.sql` (via `MigrationRunner`).
+
+`src/agentkit/state_backend/postgres_schema.sql` wird um die Fact-Tabellen
+erweitert:
 
 ```sql
-CREATE SCHEMA IF NOT EXISTS analytics;
-
 CREATE TABLE IF NOT EXISTS analytics.fact_story (
     project_key VARCHAR NOT NULL,
     story_id VARCHAR NOT NULL,
@@ -101,18 +111,31 @@ CREATE TABLE IF NOT EXISTS analytics.fact_corpus_period (
     PRIMARY KEY (project_key, period_start)
 );
 
+-- FK-62 §62.2.7: projekt-skopierter generischer Key-Value-Sync-Cursor.
+-- KEIN globaler Refresh-Zeiger ueber Projekte hinweg. Bekannte Keys:
+-- last_event_id, last_synced_at, schema_version.
 CREATE TABLE IF NOT EXISTS analytics.sync_state (
-    table_name VARCHAR PRIMARY KEY,
-    last_synced_at TIMESTAMPTZ NOT NULL,
-    last_synced_event_id UUID NULL
+    project_key VARCHAR NOT NULL,
+    key VARCHAR NOT NULL,
+    value_int BIGINT NULL,
+    value_text VARCHAR NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (project_key, key)
 );
 
+-- FK-62 §62.2.6 / FK-61 §61.4.3: Guard-Invocation-Scratchpad. Wochen-Key-Grain
+-- traegt Reset + Weekly-Rollup; invocations/blocks sind die
+-- Violation-Rate-Komponenten, die der RefreshWorker nach fact_guard_period
+-- uebertraegt.
 CREATE TABLE IF NOT EXISTS analytics.guard_invocation_counters (
     project_key VARCHAR NOT NULL,
-    guard_id VARCHAR NOT NULL,
-    counter_value BIGINT NOT NULL,
-    last_updated_at TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (project_key, guard_id)
+    story_id VARCHAR NOT NULL,
+    guard_key VARCHAR NOT NULL,
+    week_start VARCHAR NOT NULL,
+    invocations BIGINT NOT NULL DEFAULT 0,
+    blocks BIGINT NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (project_key, story_id, guard_key, week_start)
 );
 ```
 
@@ -135,7 +158,8 @@ class FactStore:
     def list_fact_pool(self, project_key: str, period: PeriodFilter) -> list[FactPoolPeriod]: ...
     def list_fact_pipeline(self, project_key: str, period: PeriodFilter) -> list[FactPipelinePeriod]: ...
     def list_fact_corpus(self, project_key: str, period: PeriodFilter) -> list[FactCorpusPeriod]: ...
-    def get_sync_state(self, table_name: str) -> SyncState | None: ...
+    def get_sync_state(self, project_key: str, key: str) -> SyncState | None: ...
+    def upsert_sync_state(self, state: SyncState) -> None: ...
     def upsert_fact_story(self, fact: FactStory) -> None: ...
     # weitere upsert-Methoden analog
 ```
@@ -163,7 +187,20 @@ Diese Story sollte fertig sein, nachdem AG3-023 die Heuristik bereits entfernt h
 
 #### 2.1.6 KpiAnalytics-Integration
 
-`KpiAnalytics.refresh_analytics` aus AG3-029 (Stub) bekommt jetzt Zugriff auf FactStore via `__init__`. Voller Refresh-Mechanismus (Dirty-Set, Re-Aggregation) ist weiter `NotImplementedError` mit Verweis auf Folge-Story.
+`KpiAnalytics.refresh_analytics` aus AG3-029 (Stub) bekommt jetzt Zugriff auf FactStore via `__init__`.
+
+**Reconciliation mit AG3-029-Contract:** `refresh_analytics` folgt dem in
+AG3-029 etablierten `RefreshStatus`-Contract. Ist FactStore ODER RefreshWorker
+nicht konfiguriert, liefert die Methode ein explizites `RefreshStatus.SKIPPED`
+(kein silent Empty-Success — AG3-029 Deep-Review). Der in AG3-038 verkabelte
+`build_kpi_analytics`-Pfad injiziert den FactStore, laesst aber
+`refresh_worker=None` (RefreshWorker ist Folge-Story), faellt also genau in den
+SKIPPED-Fall. Der *interne* Vollausbau-Pfad (Dirty-Set, Re-Aggregation) — nur
+erreichbar wenn beide Abhaengigkeiten vorhanden sind — bleibt
+`NotImplementedError` mit Verweis auf die Folge-Story. SKIPPED bei fehlender
+Infrastruktur ist damit der korrekte, AG3-029-konforme Status; ein Regress auf
+`NotImplementedError` fuer den konfigurierten-ohne-Worker-Fall wuerde AG3-029
+brechen.
 
 `KpiAnalytics.get_dashboard_view` kann FactStore lesen — Stub wird auf Read-Pfade verkabelt, die existing-Tabellen lesen koennen. (Vollausbau separate Story.)
 
@@ -207,7 +244,7 @@ Diese Story sollte fertig sein, nachdem AG3-023 die Heuristik bereits entfernt h
 
 ## 4. Akzeptanzkriterien
 
-1. **PostgreSQL `analytics`-Schema existiert** mit den fuenf Fact-Tabellen, `sync_state` und `guard_invocation_counters`.
+1. **Logische Analytics-Tabellen im aktiven versionierten Schema existieren** — die fuenf Fact-Tabellen, `sync_state` und `guard_invocation_counters` liegen im aktiven versionierten Schema (kein physisches Top-Level-`CREATE SCHEMA analytics`; FK-18 §18.9a). `sync_state` ist der projekt-skopierte `(project_key, key)`-Key-Value-Cursor (FK-62 §62.2.7), `guard_invocation_counters` das wochen-gekeyte `(project_key, story_id, guard_key, week_start)`-Scratchpad (FK-62 §62.2.6 / FK-61 §61.4.3).
 2. **SQLite-Aequivalent**: gleichnamige Tabellen ohne Schema-Prefix; Tests laufen parametrisiert.
 3. **`FactStore`-Klasse existiert** mit Lese-Methoden fuer alle fuenf Fact-Tabellen plus `get_sync_state` plus `upsert_fact_story` (analog fuer andere).
 4. **Pydantic-Modelle** fuer jedes Fact-Record (frozen, extra forbid).

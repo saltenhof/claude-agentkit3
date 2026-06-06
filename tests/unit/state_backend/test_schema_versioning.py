@@ -44,11 +44,15 @@ def test_schema_version_helpers_derive_versioned_names() -> None:
     # AG3-039: 3.17.0 -> 3.18.0 (project_registry table; Installer-Checkpoint 7
     # State-Backend-Registrierung, FK-50 §50.3 CP 7, formal.installer.entities,
     # FK-18 §18.9a)
-    assert state_config.SCHEMA_VERSION == "3.18.0"
+    # AG3-038: 3.18.0 -> 3.19.0 (analytics fact tables fact_story/
+    # fact_guard_period/fact_pool_period/fact_pipeline_period/fact_corpus_period
+    # + sync_state + guard_invocation_counters scratchpad; kpi-and-dashboard BC,
+    # FK-62 §62.2.1-62.2.7, FK-60 §60.3.4, FK-18 §18.9a)
+    assert state_config.SCHEMA_VERSION == "3.19.0"
     assert state_config.versioned_postgres_schema_name("3.0.0") == "ak3_v3_0_0"
     assert state_config.versioned_sqlite_db_file("3.0.0") == "agentkit_3_0_0.sqlite"
-    assert state_config.versioned_postgres_schema_name() == "ak3_v3_18_0"
-    assert state_config.versioned_sqlite_db_file() == "agentkit_3_18_0.sqlite"
+    assert state_config.versioned_postgres_schema_name() == "ak3_v3_19_0"
+    assert state_config.versioned_sqlite_db_file() == "agentkit_3_19_0.sqlite"
 
 
 def test_schema_version_rejects_non_semver() -> None:

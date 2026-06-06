@@ -1,8 +1,8 @@
 story_id: AG3-038
 title: "PostgreSQL analytics-Schema + 5 Fact-Tabellen + sync_state + Migrations-Strategie"
 type: implementation
-status: ready
-phase: setup
+status: completed
+phase: closure
 created: "2026-05-16"
 size: L
 depends_on:

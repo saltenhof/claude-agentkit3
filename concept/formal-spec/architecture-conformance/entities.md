@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: architecture-conformance
 spec_kind: entity-set
-version: 27
+version: 28
 prose_refs:
   - concept/technical-design/01_systemkontext_und_architekturprinzipien.md
   - concept/technical-design/07_komponentenarchitektur_und_architekturkonformanz.md
@@ -89,6 +89,14 @@ hinter `adversarial_orchestrator` und vor `policy_engine` einsortiert
 sub_exposed, damit die drei Lifecycle-Gate-Punkte (QA-Subflow hier;
 Setup-green-main FK-22 / Closure-Dim-9 FK-29/FK-35 als Konsumenten,
 AG3-034) die Capability-API aufrufen koennen. Keine gelockerte Regel.
+Version 28 ergaenzt `agentkit.state_backend.migration` als module_prefix
+des boundary_modules `state_backend_drivers` (AG3-038): der idempotente
+Schema-MigrationRunner (FK-62 §62.4, FK-18 §18.9a) ist ein T-Bluttyp-
+Driver wie `postgres_store`/`sqlite_store`/`schema_bootstrap`. Er fuehrt
+versionierte DDL gegen rohe Connections aus, nutzt den Same-Boundary-
+Helper `postgres_store.iter_sql_statements` (reines SQL-Statement-
+Splitting) und den `shared`-Helper `now_iso`. Reine Modul-Prefix-
+Erweiterung, keine gelockerte Regel.
 
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
@@ -1488,6 +1496,7 @@ boundary_modules:
       - agentkit.state_backend.sqlite_store
       - agentkit.state_backend.config
       - agentkit.state_backend.schema_bootstrap
+      - agentkit.state_backend.migration
     importable_by:
       - architecture-conformance.boundary.state_backend_repository
     may_import_component_groups: []

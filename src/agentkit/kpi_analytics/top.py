@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 from agentkit.kpi_analytics.errors import AnalyticsNotConfiguredError
 from agentkit.kpi_analytics.views import (
     DashboardView,
+    DashboardViewStatus,
     DesignTokens,
     KpiResult,
     RefreshResult,
@@ -25,6 +26,7 @@ from agentkit.kpi_analytics.views import (
 
 if TYPE_CHECKING:
     from agentkit.kpi_analytics.catalog import KpiCatalog, KpiDefinition
+    from agentkit.kpi_analytics.fact_store import FactStore
 
 
 class KpiAnalytics:
@@ -53,7 +55,7 @@ class KpiAnalytics:
     def __init__(
         self,
         catalog: KpiCatalog,
-        fact_store: object | None = None,
+        fact_store: FactStore | None = None,
         refresh_worker: object | None = None,
     ) -> None:
         self._catalog = catalog
@@ -101,28 +103,51 @@ class KpiAnalytics:
         )
 
     def get_dashboard_view(self, project_key: str, view_kind: str) -> DashboardView:
-        """Retrieve a named dashboard view.
+        """Retrieve a named dashboard view by reading FactStore (AG3-038).
 
         BC-16 §BC 16 Z. 1582: ``get_dashboard_view(project_key, view_kind)``.
         When FactStore is not configured, raises AnalyticsNotConfiguredError.
 
+        AG3-038 wires the ``story`` view kind onto the real ``fact_story`` read
+        path: it returns one row per completed story for ``project_key``. An
+        empty result yields an EMPTY view (status OK) — never a hardcoded empty
+        stub. FAIL-CLOSED (story §7): a missing fact table propagates the
+        repository error rather than degrading to an empty view. Other view
+        kinds (period rollups) are delivered by the follow-up RefreshWorker
+        story; requesting one now fails closed with NotImplementedError rather
+        than silently returning empty data.
+
         Args:
             project_key: Project scope.
-            view_kind: Identifier of the requested dashboard view kind.
+            view_kind: Identifier of the requested dashboard view kind. ``story``
+                is wired in AG3-038; others are follow-up.
 
         Returns:
-            DashboardView payload.
+            DashboardView payload populated from FactStore (rows empty only when
+            the underlying fact data is genuinely empty).
 
         Raises:
             AnalyticsNotConfiguredError: When FactStore is not configured.
+            NotImplementedError: For view kinds not yet wired (period rollups).
         """
         if self._fact_store is None:
             raise AnalyticsNotConfiguredError(
                 "DashboardView requires FactStore; implemented in AG3-038+"
             )
-        del project_key, view_kind
-        raise NotImplementedError(  # pragma: no cover
-            "KpiAnalytics.get_dashboard_view full path requires FactStore"
+        if view_kind != "story":
+            raise NotImplementedError(
+                f"DashboardView kind {view_kind!r} requires the RefreshWorker "
+                "follow-up story; only 'story' is wired in AG3-038"
+            )
+        facts = self._fact_store.list_fact_stories(project_key)
+        rows: list[dict[str, object]] = [
+            fact.model_dump(mode="json") for fact in facts
+        ]
+        return DashboardView(
+            view_name=view_kind,
+            project_key=project_key,
+            status=DashboardViewStatus.OK,
+            rows=rows,
         )
 
     def query(self, project_key: str, sql: str) -> KpiResult:

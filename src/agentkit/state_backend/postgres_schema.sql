@@ -753,3 +753,129 @@
             PRIMARY KEY (project_key),
             UNIQUE (project_root)
         );
+
+        -- AG3-038 (FK-62 §62.2.1-62.2.7, FK-60 §60.3.4): analytics fact tables
+        -- + sync_state + guard_invocation_counters scratchpad. Schema-/DB-Owner
+        -- kpi-and-dashboard; canonical Postgres + SQLite test-parallel schema
+        -- with IDENTICAL semantics (sqlite_store._ensure_analytics_tables).
+        --
+        -- SCHEMA PLACEMENT DECISION (deviation from story §8 "analytics. prefix"):
+        -- FK-60 §60.3 sketches a logical ``analytics`` schema next to ``runtime``.
+        -- AK3's persistence reality (FK-18 §18.9a, AG3-005/AG3-053) is ONE versioned
+        -- schema per SCHEMA_VERSION (``ak3_v<slug>``), selected via search_path; ALL
+        -- ~18 existing tables live flat in it and NO separate ``analytics``/``runtime``
+        -- schema exists anywhere. A top-level ``CREATE SCHEMA analytics`` would be a
+        -- single, cross-version-SHARED namespace, breaking the side-by-side
+        -- versioning invariant (each version must own an isolated table set). So the
+        -- fact tables join the SAME versioned schema as every other table, exactly
+        -- as story §2.1.4 already mandates for SQLite (no schema prefix there). The
+        -- ``analytics.`` prefix in story §2.1.1 is treated as a logical-grouping note,
+        -- not a literal second Postgres schema. Columns/PKs follow story §2.1.1
+        -- (the binding spec's curated KPI subset) verbatim. TIMESTAMPTZ for instants
+        -- matches the project_registry/runs temporal convention; SQLite uses ISO-8601
+        -- TEXT (no native timestamptz affinity), the mapper roundtrips datetime.
+        --
+        -- Mandantenregel (FK-62 §62.2): project_key is the leading scope key.
+        CREATE TABLE IF NOT EXISTS fact_story (
+            project_key               TEXT NOT NULL,
+            story_id                  TEXT NOT NULL,
+            story_type                TEXT NOT NULL,
+            story_size                TEXT NOT NULL,
+            story_mode                TEXT,
+            started_at                TIMESTAMPTZ NOT NULL,
+            completed_at              TIMESTAMPTZ,
+            qa_rounds                 INTEGER NOT NULL,
+            compaction_count          INTEGER,
+            llm_call_count            INTEGER,
+            adversarial_findings      INTEGER,
+            adversarial_tests_created INTEGER,
+            files_changed             INTEGER,
+            feedback_converged        BOOLEAN,
+            phase_setup_ms            BIGINT,
+            phase_implementation_ms   BIGINT,
+            phase_closure_ms          BIGINT,
+            are_gate_status           TEXT,
+            agentkit_version          TEXT NOT NULL,
+            agentkit_commit           TEXT NOT NULL,
+            PRIMARY KEY (project_key, story_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_fact_story_project_completed
+            ON fact_story (project_key, completed_at);
+
+        CREATE TABLE IF NOT EXISTS fact_guard_period (
+            project_key      TEXT NOT NULL,
+            guard_id         TEXT NOT NULL,
+            period_start     TIMESTAMPTZ NOT NULL,
+            period_end       TIMESTAMPTZ NOT NULL,
+            invocation_count BIGINT NOT NULL,
+            violation_count  BIGINT NOT NULL,
+            PRIMARY KEY (project_key, guard_id, period_start)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_fact_guard_period_project_start
+            ON fact_guard_period (project_key, period_start);
+
+        CREATE TABLE IF NOT EXISTS fact_pool_period (
+            project_key        TEXT NOT NULL,
+            llm_role           TEXT NOT NULL,
+            period_start       TIMESTAMPTZ NOT NULL,
+            period_end         TIMESTAMPTZ NOT NULL,
+            call_count         BIGINT NOT NULL,
+            token_input_total  BIGINT NOT NULL,
+            token_output_total BIGINT NOT NULL,
+            avg_latency_ms     BIGINT,
+            PRIMARY KEY (project_key, llm_role, period_start)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_fact_pool_period_project_start
+            ON fact_pool_period (project_key, period_start);
+
+        CREATE TABLE IF NOT EXISTS fact_pipeline_period (
+            project_key                 TEXT NOT NULL,
+            period_start                TIMESTAMPTZ NOT NULL,
+            period_end                  TIMESTAMPTZ NOT NULL,
+            stories_completed           INTEGER NOT NULL,
+            stories_escalated           INTEGER NOT NULL,
+            avg_qa_rounds               NUMERIC,
+            avg_phase_implementation_ms BIGINT,
+            PRIMARY KEY (project_key, period_start)
+        );
+
+        CREATE TABLE IF NOT EXISTS fact_corpus_period (
+            project_key        TEXT NOT NULL,
+            period_start       TIMESTAMPTZ NOT NULL,
+            period_end         TIMESTAMPTZ NOT NULL,
+            incidents_recorded INTEGER NOT NULL,
+            patterns_promoted  INTEGER NOT NULL,
+            checks_approved    INTEGER NOT NULL,
+            PRIMARY KEY (project_key, period_start)
+        );
+
+        -- FK-62 §62.2.7: project-scoped generic key-value sync cursor. NO global
+        -- refresh pointer across projects (FK-62/FK-60). Known keys:
+        -- last_event_id, last_synced_at, schema_version. value_int/value_text
+        -- are the two payload slots; a given key uses exactly one.
+        CREATE TABLE IF NOT EXISTS sync_state (
+            project_key TEXT NOT NULL,
+            key         TEXT NOT NULL,
+            value_int   BIGINT,
+            value_text  TEXT,
+            updated_at  TIMESTAMPTZ NOT NULL,
+            PRIMARY KEY (project_key, key)
+        );
+
+        -- FK-62 §62.2.6 / FK-61 §61.4.3 scratchpad written from the hook
+        -- hot-path; the RefreshWorker (follow-up story) drains it into
+        -- fact_guard_period. Weekly key grain supports reset + weekly rollup;
+        -- invocations/blocks are the violation-rate components.
+        CREATE TABLE IF NOT EXISTS guard_invocation_counters (
+            project_key TEXT NOT NULL,
+            story_id    TEXT NOT NULL,
+            guard_key   TEXT NOT NULL,
+            week_start  TEXT NOT NULL,
+            invocations BIGINT NOT NULL DEFAULT 0,
+            blocks      BIGINT NOT NULL DEFAULT 0,
+            updated_at  TIMESTAMPTZ NOT NULL,
+            PRIMARY KEY (project_key, story_id, guard_key, week_start)
+        );

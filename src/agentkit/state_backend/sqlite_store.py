@@ -952,6 +952,29 @@ def _ensure_runtime_tables_part3(conn: sqlite3.Connection) -> None:
         END;
         """
     )
+    _ensure_analytics_tables(conn)
+
+
+def _ensure_analytics_tables(conn: sqlite3.Connection) -> None:
+    """Create the AG3-038 analytics fact tables + sync_state + scratchpad.
+
+    SINGLE SOURCE OF TRUTH for the SQLite analytics DDL is the versioned
+    migration ``state_backend/migration/versions/v_3_4_analytics.sql``, applied
+    here through the ``MigrationRunner`` (FK-62 §62.4). Running it from the
+    canonical schema bootstrap means the migration is wired in production — not
+    dead module/test-only code — and records logical analytics version ``3.4`` in
+    the idempotent ``schema_versions`` cursor (FK-62 §62.4.3). The DDL is itself
+    idempotent (``CREATE TABLE IF NOT EXISTS``), so a re-run is a no-op.
+
+    SQLite has no schema concept, so the tables carry no ``analytics.`` prefix
+    and live in the active versioned schema (story §2.1.4 / §8). Timestamps are
+    ISO-8601 TEXT; the mapper roundtrips ``datetime`` against both backends.
+
+    Mandantenregel (FK-62 §62.2): project_key is the leading scope key.
+    """
+    from agentkit.state_backend.migration import MigrationRunner
+
+    MigrationRunner().run(conn)
 
 
 def _ensure_story_identity_migration(conn: sqlite3.Connection) -> None:

@@ -61,6 +61,7 @@ if TYPE_CHECKING:
     from agentkit.governance.integrity_gate.dim9_sonar import SonarDimensionPort
     from agentkit.governance.repository import SetupContextRepository
     from agentkit.governance.setup_preflight_gate.phase import SetupPhaseHandler
+    from agentkit.kpi_analytics import KpiAnalytics
     from agentkit.skills import Skills
     from agentkit.telemetry.emitters import EventEmitter
     from agentkit.telemetry.projection_accessor import ProjectionAccessor
@@ -119,6 +120,33 @@ def build_artifact_manager(store_dir: Path) -> ArtifactManager:
     validator = EnvelopeValidator(registry)
     repository = StateBackendArtifactRepository(store_dir)
     return ArtifactManager(repository, validator)
+
+
+def build_kpi_analytics(store_dir: Path) -> KpiAnalytics:
+    """Wire a ``KpiAnalytics`` facade onto the real FactStore (AG3-038).
+
+    Composition-Root for the analytics read path: binds the StateBackend fact
+    repository onto the FactStore and injects it into ``KpiAnalytics``, so
+    ``get_dashboard_view`` reads the canonical fact tables (FK-62 §62.3). The
+    consumer BC knows only the ``FactRepository`` Protocol (AC8); the concrete
+    adapter is bound here. ``refresh_worker`` stays ``None`` until the follow-up
+    RefreshWorker story, so ``refresh_analytics`` returns SKIPPED (FAIL-CLOSED).
+
+    Args:
+        store_dir: State-backend base dir (SQLite stores under
+            ``store_dir/.agentkit/...``; Postgres ignores it).
+
+    Returns:
+        A ``KpiAnalytics`` facade with a live FactStore read path.
+    """
+    from agentkit.kpi_analytics import KpiAnalytics, KpiCatalog
+    from agentkit.kpi_analytics.fact_store import FactStore
+    from agentkit.state_backend.store.fact_repository import (
+        StateBackendFactRepository,
+    )
+
+    fact_store = FactStore(StateBackendFactRepository(store_dir))
+    return KpiAnalytics(catalog=KpiCatalog(), fact_store=fact_store)
 
 
 def build_exploration_phase_handler(

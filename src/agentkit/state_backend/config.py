@@ -117,7 +117,21 @@ SCHEMA_OVERRIDE_ALLOWED_ENV = "AGENTKIT_PG_SCHEMA_OVERRIDE_ALLOWED"
 # last_upgraded_at NULL. Idempotent side-by-side migration via the
 # versioned-schema pattern (FK-18 §18.9a): a fresh ak3_v3_18_0 schema /
 # agentkit_3_18_0.sqlite file is created; the old 3.17.0 DB is never touched.
-SCHEMA_VERSION = "3.18.0"
+# AG3-038 (FK-62 §62.2.1-62.2.7, FK-60 §60.3.4): 3.18.0 -> 3.19.0 (analytics
+# fact tables fact_story/fact_guard_period/fact_pool_period/fact_pipeline_period/
+# fact_corpus_period + sync_state + guard_invocation_counters scratchpad added;
+# kpi-and-dashboard BC analytics schema layer. Canonical Postgres + SQLite
+# test-parallel schema with IDENTICAL column/PK semantics; tables join the SINGLE
+# versioned schema (no separate top-level ``analytics`` schema — that would be
+# cross-version-shared and break the side-by-side invariant; see the placement
+# note in postgres_schema.sql). project_key is the leading scope key on every
+# fact/scratchpad table (FK-62 §62.2 Mandantenregel). The MigrationRunner
+# (state_backend.migration, FK-62 §62.4) records this as logical analytics
+# version 3.4 in the idempotent ``schema_versions`` cursor. Idempotent
+# side-by-side migration via the versioned-schema pattern (FK-18 §18.9a) — a
+# fresh ak3_v3_19_0 schema / agentkit_3_19_0.sqlite file is created; the old
+# 3.18.0 DB is never touched.
+SCHEMA_VERSION = "3.19.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 # AG3-051: reserved test-schema namespace. Disjoint from the production schema
 # name (``ak3_v<slug>``), so a test override can never resolve onto production
