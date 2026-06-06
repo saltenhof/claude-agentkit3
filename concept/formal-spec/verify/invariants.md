@@ -8,6 +8,7 @@ spec_kind: invariant-set
 version: 1
 prose_refs:
   - concept/technical-design/27_verify_pipeline_closure_orchestration.md
+  - concept/technical-design/33_deterministische_checks_stage_registry_policy_engine.md
   - concept/technical-design/37_verify_context_und_qa_bundle.md
   - concept/technical-design/38_verify_feedback_und_doctreue_schleife.md
   - concept/domain-design/02-pipeline-orchestrierung.md

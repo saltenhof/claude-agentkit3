@@ -105,6 +105,12 @@ formal_refs:
   - formal.verify.events
   - formal.verify.invariants
   - formal.verify.scenarios
+  - formal.sonar-accept-application.entities
+  - formal.sonar-accept-application.commands
+  - formal.sonar-accept-application.events
+  - formal.sonar-accept-application.state-machine
+  - formal.sonar-accept-application.scenarios
+  - formal.sonar-accept-application.invariants
 ---
 
 # 27 — QA-Subflow innerhalb Implementation: Schichten und QA-Zyklus
@@ -640,7 +646,7 @@ aendert sich nichts; es kommt nur ein Abfolge-Schritt hinzu.
 - **Green-Definition, Attestation, Accepted-Ledger:** FK-33 §33.6.3 /
   §33.6.4 (Owner). Gruen = Quality Gate OK auf der
   Overall-Code-Invariante (keine offenen, nicht-akzeptierten Issues im
-  gesamten Scope); bewusst `Accepted`-Issues (Sechs-Augen, FK-33 §33.6.4)
+  gesamten Scope); bewusst `Accepted`-Issues (Accepted nach FK-27 §27.6b)
   zaehlen nicht.
 - **Rot → Remediation:** Hat das Gate Violations, geht die Story in den
   bestehenden Remediation-Loop des QA-Subflows zurueck (Feedback →
@@ -675,6 +681,88 @@ und das `sonarqube_gate` ist an diesem Lifecycle-Punkt **NOT_APPLICABLE**
 (FK-33 §33.6.5) — es wird nicht ausgewertet. Begruendung: Der Mensch reviewt
 das Inhaltliche selbst; die fachliche Tabelle der OUT/MOD-Substeps liegt
 kanonisch in FK-24 §24.3.4 (keine Duplikation hier).
+
+## 27.6b Accept-Self-Assessment (synchroner, worker-initiierter Schritt)
+
+<!-- PROSE-FORMAL: formal.sonar-accept-application.entities, formal.sonar-accept-application.commands, formal.sonar-accept-application.events, formal.sonar-accept-application.state-machine, formal.sonar-accept-application.scenarios, formal.sonar-accept-application.invariants -->
+
+### 27.6b.1 Einordnung und Abgrenzung
+
+Das **Accept-Self-Assessment** ist der **fachliche Owner-Schritt** fuer die
+bewusste Einzelfall-Akzeptanz einer SonarQube-Regel (World 2 des
+Zwei-Welten-Modells: gegen ein bewusst justierbares Scope-/Issue-Urteil, nicht
+gegen das feste Regelkatalog-Baseline der World 1). FK-33 §33.6.4 ownt nur die
+**Gate-Semantik** „`Accepted` zaehlt gruen", den **Reconciler-Vertrag** und das
+**Ledger-Schema**; **wie** eine Akzeptanz zustande kommt, ist hier definiert und
+wird von FK-33 §33.6.4 und FK-35 §35.2.4a per Referenz konsumiert (Single
+Source of Truth — keine zweite Beschreibung des Verfahrens).
+
+Der Schritt ist bewusst **lean** gehalten: keine manipulationssichere,
+kryptografische oder „Festungs"-Mechanik. Die einzige strukturelle Kontrolle
+ist, dass der Worker **keine** Sonar-Admin-Rechte hat — den `Accepted`-Schalter
+setzt ausschliesslich AK3 (§27.6b.4).
+
+**Abgrenzung zum Haupt-QA-Pass:** Das Accept-Self-Assessment ist **nicht** der
+QA-Review (Schicht 2, §27.5: Korrektheit) und **nicht** das Adversarial-Testing
+(Schicht 3, §27.6: Break-it). Es ist ein **eigenstaendiger, vom Worker selbst
+ausgeloester** Schritt, den der Worker **jederzeit waehrend seiner Arbeit** vor
+dem finalen Verify anstossen kann (ein Self-Assessment **vor** dem finalen
+SonarQube-Gate, §27.6a). Es nutzt zwar die LLM-Ressourcen des verify-system,
+darf aber die beiden Haupt-QA-Bewertungen (Reviewer/Adversarial) nicht mit der
+Accept-Entscheidung belasten.
+
+### 27.6b.2 Ablauf (synchron, Quorum = Worker + 2 LLMs, Einstimmigkeit)
+
+1. **Worker-Request (synchron):** Der Worker richtet eine synchrone Anfrage an
+   eine AK3-Schnittstelle des verify-system („darf das akzeptiert werden?") und
+   liefert mindestens: die **Sonar-Regel** (`rule_key`), die **Code-Datei**
+   (`file_path`) bzw. Klasse, in der das Issue erhoben wurde, sowie seine
+   **Begruendung** (`rationale`).
+2. **Zwei unabhaengige LLMs:** AK3 befragt **zwei verschiedene Modelle** mit
+   **demselben** Prompt aus **einem** Prompt-Template. Einzige injizierte
+   Variable ist die **Worker-Begruendung plus der Issue-Kontext**. Der Prompt
+   ist **nicht** skeptisch/adversarial formuliert; er stellt das **Ziel** in den
+   Mittelpunkt: hochwertige Software, ein faires, konstruktives Ringen um die
+   Frage „was hebt die Softwarequalitaet?" — **weder** kuenstliches Sonar-Gruen
+   **noch** reflexhafte Ablehnung. Zwei verschiedene Modelle mit demselben
+   zielorientierten Prompt sind die Unabhaengigkeitsgrundlage (nicht zwei
+   skeptische Gegen-Gutachten).
+3. **Votum je LLM:** Jedes LLM liefert **yes/no + Begruendung**.
+4. **Beide yes → Accepted:** Stimmen **beide** LLMs zu, setzt **AK3** das Issue
+   auf `Accepted` (der Worker hat keine Admin-Rechte — AK3 kippt den Schalter;
+   das ist die gesamte Kontrolle). AK3 schreibt den Ledger-Eintrag gemaess dem
+   FK-33 §33.6.4 Ledger-Schema (Owner FK-33; hier nicht feldweise wiederholt).
+5. **Mindestens ein no → sofortiges Feedback:** Lehnt **eines** der LLMs ab,
+   gehen **beide** Begruendungen **unmittelbar** als Feedback an den Worker
+   zurueck; er bessert/refactored **jetzt** (synchrones, sofortiges Feedback
+   vermeidet einen erzwungenen separaten Remediation-Zyklus).
+
+**Quorum:** Der vorschlagende Worker (seine Begruendung ist seine Stimme) plus
+die zwei LLMs; **Einstimmigkeit**. **Kein** Akteur akzeptiert sich selbst — der
+Worker kann den Schalter nicht kippen, AK3 tut es nur bei beidseitigem yes.
+
+### 27.6b.3 Failure-Corpus-Signal (leicht)
+
+AK3 zaehlt **ueber alle Stories hinweg** (nie pro Einzelstory), wie haeufig eine
+Sonar-Regel akzeptiert wird. Ueberschreitet der Anteil der Stories, die
+mindestens ein Issue einer Regel akzeptieren, einen **konfigurierbaren
+Schwellwert**, wird die Regel zum **Signal an den Failure-Corpus** („Regel/
+Profil/Scope vermutlich fehlkonfiguriert"). Der Schwellwert ist ein
+Config-Wert (`sonarqube.accept_frequency_fc_threshold`, Default in FK-03
+§3.4.2) — er wird hier nur referenziert, nicht zweitkopiert. Die
+Signal-Mechanik und die Verankerung im Corpus liegen bei FK-41 §41.10; das
+leichte Prozess-Fidelity-Signal kann auch vom Integrity-Gate geschrieben werden
+(FK-35 §35.2.4a).
+
+### 27.6b.4 Schnittstelle und Owner
+
+Die Request-Schnittstelle gehoert dem verify-system (Capability `VerifySystem`).
+Das `Accepted`-Setzen ist eine **AK3-Aktion mit scoped Admin-Token** (FK-33
+§33.6.4 Reconciler-Vertrag) — der Worker bleibt ohne Admin-Rechte. Der
+Lebenszyklus eines Accept-Antrags (`requested → pending → accepted | rejected`,
+Einstimmigkeitsregel) ist formal im dedizierten Kontext
+`formal.sonar-accept-application.*` (Kommandos `apply`/`approve`/`reject`,
+State-Machine, Invarianten) normiert.
 
 ## 27.7 Schicht 4: Policy-Evaluation
 

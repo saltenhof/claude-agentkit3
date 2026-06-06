@@ -181,6 +181,7 @@ sonarqube:
   quality_gate:
     default_profile: "resources/target_project/sonar/ak3-default-gate.json"  # ausgeliefertes Default-Profil (SSOT)
     overrides_allowed: true   # Projektverantwortlicher darf eigenes Regelwerk setzen
+  accept_frequency_fc_threshold: 0.25  # Anteil der Stories, ab dem eine haeufig akzeptierte Regel zum Failure-Corpus-Signal wird (FK-27 §27.6b, FK-41 §41.10)
 ```
 
 #### SonarQube-Stanza (`sonarqube`) — Felder und Validierung
@@ -201,6 +202,7 @@ Pflicht-Laufzeitabhaengigkeit (FK-10 §10.2.2).
 | `plugins.community_branch.min_version` | str (SemVer) | Mindestversion des **Community Branch Plugin** (harte Abhaengigkeit, da Community Edition keine native Branch-Analyse hat; FK-33 §33.6.3). |
 | `quality_gate.default_profile` | str (Pfad) | Verweis auf das ausgelieferte Default-Quality-Gate-Profil unter `resources/target_project/` (SSOT). Traegt BEIDE Conditions: New-Code UND Overall-Code (FK-33 §33.6.3 Overall-Code-Invariante). |
 | `quality_gate.overrides_allowed` | bool | Ob der Projektverantwortliche das Default-Profil durch ein eigenes Regelwerk ersetzen darf (Default `true`). |
+| `accept_frequency_fc_threshold` | float (0..1) | Anteil der Stories (gemessen **ueber alle Stories**, nie pro Einzelstory), ab dem eine wiederholt akzeptierte Sonar-Regel zum **Failure-Corpus-Signal** wird (Default `0.25`). Verfahren/Owner: Accept-Self-Assessment (FK-27 §27.6b); Corpus-Verankerung: FK-41 §41.10. |
 
 **Pydantic v2-Validierung** (`SonarQubeConfig` als frozen-Modell,
 `extra="forbid"`, eingebunden in `PipelineConfig`):
@@ -239,10 +241,26 @@ gepinnt (FK-33 §33.6.3):
 
 - **Quality-Gate-Hash** (die aktiven Gate-Conditions),
 - **Quality-Profile-Hash** (das aktive Regelprofil),
-- **Analysis-Scope-Hash** (`sonar.sources`/`sonar.inclusions`/
-  `sonar.exclusions`),
+- **Analysis-Scope-Hash** — dekomponiert (siehe unten): in den
+  Baseline-Hash fliesst nur der **Projekt-Default-Scope**
+  (`sonar.sources` plus die Default-Exclusions des ausgelieferten
+  Profils) ein; **pro Scan zusaetzlich gesetzte Exclusions** sind World 2
+  und gehen durch den Accept-Schritt, nicht in den Baseline-Hash,
 - **New-Code-Definition** (Referenz-Branch / Datum / Tage),
 - **Plugin-Version** des Community Branch Plugin.
+
+**Dekomposition des Analysis-Scope-Hash (Zwei-Welten-Modell):** Der
+Analyse-Scope zerfaellt in zwei fachlich verschiedene Anteile. Der
+**Projekt-Default-Scope** (`sonar.sources` plus die **Default-Exclusions** des
+ausgelieferten Profils) gehoert zur **World 1 / Baseline** — er fliesst in den
+Config-Baseline-Hash ein und wird gegen den erwarteten Baseline-Wert auf
+**Gleichheit** geprueft (Drift = gegen ein anderes Regelwerk gemessen → FAIL,
+FK-33 §33.6.4; Owner des Erwartungswerts: project-management FK-73). **Pro Scan
+zusaetzlich gesetzte Exclusions** (ueber den Default hinaus) gehoeren zur
+**World 2** — sie sind ein bewusst justierbares Urteil und durchlaufen den
+**Accept-Self-Assessment-Schritt** des verify-system (FK-27 §27.6b), nicht die
+Baseline-Gleichheit. So bleibt „was ist der feste Massstab?" von „was wurde
+bewusst angepasst?" sauber getrennt.
 
 Stimmt der Config-Hash der Attestation nicht mit dem erwarteten Wert des
 Projekts ueberein, wurde gegen ein anderes Regelwerk vermessen — das
@@ -437,6 +455,7 @@ Fehlende Konfigurationsfelder werden fail-closed behandelt:
 | Structural Check: Min Structural-Größe | 500 Bytes | fest im Code | FK-06-077 |
 | Structural Check: Min Check-Anzahl | 5 | fest im Code | FK-06-077 |
 | Integrity Gate: Min Decision-Größe | 200 Bytes | fest im Code | FK-06-078 |
+| Sonar-Accept-Frequenz → Failure-Corpus-Signal | 0.25 (25 %) | `sonarqube.accept_frequency_fc_threshold` | FK-27 §27.6b, FK-41 §41.10 |
 | Governance-Beobachtung: Risikoscore-Schwelle | 30 | `governance.risk_threshold` | — |
 | Governance-Beobachtung: Window-Breite | 50 Events | `governance.window_size` | — |
 | Governance-Beobachtung: Cooldown | 300 Sekunden | `governance.cooldown_s` | FK-06-128 |

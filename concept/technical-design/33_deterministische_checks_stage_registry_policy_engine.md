@@ -100,6 +100,8 @@ formal_refs:
   - formal.story-closure.events
   - formal.story-closure.invariants
   - formal.story-closure.scenarios
+  - formal.verify.invariants
+  - formal.sonar-accept-application.invariants
 ---
 
 # 33 — Deterministische Checks, Stage-Registry und Policy-Engine
@@ -616,7 +618,18 @@ Laufzeit-Abhängigkeiten **FK-10 §10.2.2** als Pflicht geführt. Das
 `resources/target_project/` (SSOT); der Projektverantwortliche darf es durch
 ein eigenes Regelwerk ersetzen.
 
-### 33.6.4 Bewusste Einzelfall-Ausnahmen (Accepted) — Sechs-Augen-Prinzip
+### 33.6.4 Bewusste Einzelfall-Ausnahmen (Accepted) — zielorientiertes Quorum
+
+**Zwei-Welten-Einordnung:** Das feste Regelwerk (Quality Gate + Quality Profile
++ Tool-Versionen + **projekt-default Analyse-Scope** + New-Code-Definition) ist
+World 1 — als Config-Baseline-Hash gepinnt (FK-03 Config-Hash; Owner des
+Erwartungswerts: project-management FK-73). Eine bewusste **Issue-Akzeptanz**
+oder eine **ueber den Default hinausgehende Scope-Abweichung** ist World 2 — ein
+bewusst justierbares Urteil, das den Accept-Schritt durchlaeuft (§33.6.4
+unten, Verfahren in FK-27 §27.6b). Der `analysis_scope_hash` ist entsprechend
+dekomponiert: der **Projekt-Default-Scope** zaehlt zur Baseline-Gleichheit
+(World 1), **pro Scan zusaetzlich gesetzte Exclusions** sind World 2 und gehen
+durch den Accept-Schritt (FK-03 Config-Hash).
 
 Eine SonarQube-Regel kann im Einzelfall keinen Clean-Code-Mehrwert haben (z.B.
 eine bewusst nicht weiter zerlegte Methode, deren Aufteilung künstlich wäre und
@@ -625,24 +638,27 @@ gesetzt werden — dann zählt es nicht mehr ins Quality Gate und das Gate ist
 wieder grün. Das ist kein Bypass, sondern der von SonarQube vorgesehene
 Mechanismus für bewusste Ausnahmen, **aber streng gated**:
 
-- **Sechs-Augen-Prinzip (gehärtet):** Eine Akzeptanz gilt nur, wenn der
-  **vorschlagende Agent plus zwei unabhängige QS-Agents** zustimmen. „Unabhängig"
-  ist normativ: **unterschiedliche Modelle bzw. mindestens unterschiedliche
-  Review-Prompts** (drei gleiche Modelle mit gleichem Prompt sind korrelierte,
-  keine unabhängigen Prüfer), darunter ein **adversariales Gegenvotum** („warum
-  darf das *nicht* akzeptiert werden?"). Kein Agent darf seine eigene
-  Remediation/Ausnahme approven. Pro Projekt/Regel gilt ein **Exception-Budget**;
-  häufige Akzeptanz derselben Regel **eskaliert** (Hinweis auf falsch
-  konfiguriertes Profil/Scope statt Einzelfall).
-- **Quelle der Wahrheit = versioniertes Repo-Artefakt mit robuster Identität:**
-  Issue-Identität in SonarQube ist *nicht* stabil (Match über Regel, Line-Hash,
-  Zeilennummer, Message, verschobene Blöcke) — ein Ledger-Eintrag, der nur
-  `issueKey` oder Datei+Zeile speichert, bricht bei Refactor/Formatter/
-  Message-Änderung. Ein Eintrag führt daher mindestens: `rule_key`, `file_path`,
-  `normalized_code_fingerprint`, `expected_message_pattern`, semantische
-  Begründung, `approved_by[3]`, `approved_commit`, `expiry`/`review_after`,
-  `scope` (`branch-only` | `main-eligible`). Der Ledger-Hash ist Teil der
-  Attestation (§33.6.3).
+- **Wie eine Akzeptanz zustande kommt — Verfahren liegt im verify-system:** Das
+  **prozessuale Verfahren**, durch das eine Regel ueberhaupt `Accepted` werden
+  darf, ist **kanonisch in FK-27 §27.6b** definiert (formal:
+  `formal.sonar-accept-application.*`) — **Single Source of Truth, hier nicht
+  zweitbeschrieben**. FK-33 setzt nur die **Gate-Semantik** „eine durch den
+  Accept-Schritt bestaetigte `Accepted`-Regel zaehlt nicht ins Quality Gate" und
+  braucht dafuer das Ergebnis (ein gueltiger Ledger-Eintrag), nicht das
+  Zustandekommen.
+- **Quelle der Wahrheit = versioniertes Repo-Artefakt mit robuster Identität
+  (Ledger-Schema, Owner FK-33):** Issue-Identität in SonarQube ist *nicht*
+  stabil (Match über Regel, Line-Hash, Zeilennummer, Message, verschobene
+  Blöcke) — ein Ledger-Eintrag, der nur `issueKey` oder Datei+Zeile speichert,
+  bricht bei Refactor/Formatter/Message-Änderung. Das **kanonische
+  Ledger-Schema** (Owner: FK-33; von FK-27 §27.6b und den formalen Specs nur
+  referenziert, keine abweichenden Feldnamen) fuehrt je Eintrag mindestens:
+  `rule_key`, `file_path`, `normalized_code_fingerprint`,
+  `expected_message_pattern`, semantische Begründung (`rationale`),
+  `approved_by` (genau drei distinkte, unabhaengige Zustimmer: der vorschlagende
+  Worker plus zwei LLM-Voten), `approved_commit`, `expiry`/`review_after`, `scope`
+  (`branch-only` | `main-eligible`). Der Ledger-Hash ist Teil der Attestation
+  (§33.6.3).
 - **Deterministischer Reconciler, Single-Match, fail-closed:** Ein
   deterministischer Pipeline-Schritt (scoped Token mit „Administer Issues"; der
   Worker/Agent hat **keine** Issue-Admin-Rechte) wendet eine Ausnahme **nur an,
@@ -653,11 +669,12 @@ Mechanismus für bewusste Ausnahmen, **aber streng gated**:
   erneut gegen `main` (sonst kann Branch grün sein und `main` beim nächsten Scan
   rot werden).
 
-Die prozessuale Verankerung des Sechs-Augen-Quorums (welche QS-Agents, wie das
-Quorum erhoben und gegen das Repo-Artefakt durchgesetzt wird) ist
-Governance-seitig zu detaillieren und hier bewusst als Forward-Reference offen
-gehalten; FK-33 ownt nur die Gate-Semantik „Accepted zählt grün" und den
-Reconciler-Vertrag.
+<!-- PROSE-FORMAL: formal.sonar-accept-application.invariants, formal.verify.invariants -->
+
+Die prozessuale Verankerung des Quorums liegt im **verify-system, FK-27 §27.6b**
+(formal: `formal.sonar-accept-application.*`). FK-33 ownt nur die Gate-Semantik
+„Accepted zählt grün", den Reconciler-Vertrag und das Ledger-Schema; das
+Verfahren selbst wird nicht hier zweitbeschrieben (Single Source of Truth).
 
 Der Closure-seitige Integrated-Candidate-Scan und der Post-Merge-Reconcile gegen
 `main` (§33.6.3, §33.6.4) werden in der Closure-Sequenz (FK-29) als

@@ -98,7 +98,32 @@ Filterung wird im control_plane_http als Middleware durchgesetzt —
 hier in FK-73 nicht beschrieben. FK-73 beschreibt nur, **woher**
 `project_key` kommt: aus `Project.key`.
 
-## 73.6 Abgrenzung zu Bootstrap
+## 73.6 Owner des erwarteten SonarQube-Config-Baseline-Hash
+
+Der **erwartete SonarQube-Config-Baseline-Hash** eines Projekts (World 1 des
+Zwei-Welten-Modells: das feste Regelwerk — Quality Gate, Quality Profile,
+Tool-Versionen, **Projekt-Default-Analyse-Scope** und New-Code-Definition,
+verdichtet zum Config-Hash gemaess FK-03) ist ein **projekt-gebundener
+Erwartungswert** und gehoert zu den `configuration`-Feldern der Project-Entitaet
+(§73.1). Project-Management ist dessen **dauerhafter Owner**:
+
+- **Halten/Pflegen:** Der Erwartungswert wird pro Projekt im
+  `project_registry`/`projects`-Storage (§73.4) gefuehrt und ist die autoritative
+  Vergleichsbasis fuer das Integrity-Gate Dimension 9 (FK-35 §35.2.4a, Pruefpunkt
+  „World-1-Baseline-Gleichheit") und das SonarQube-Green-Gate (FK-33 §33.6.3/
+  §33.6.4).
+- **Operator-Re-Baseline:** Eine bewusste Aenderung am Regelwerk (Quality Gate,
+  Profil, Default-Scope oder New-Code-Definition) ist ein **Policy-Change**. Der
+  neue Baseline-Hash wird erst **nach erfolgreichem main-Rescan-Gruen** als neuer
+  Erwartungswert uebernommen (operator-getriggerte Re-Baseline). So setzt keine
+  Story auf einem nach altem Regelwerk gruenen, nach neuem Regelwerk aber
+  ungemessenen `main` auf.
+- **Abgrenzung:** Die **Gate-Semantik** und der **Reconciler/Ledger** liegen bei
+  FK-33; die **initiale Erfassung** des Baseline-Hash beim Setup ist
+  Installer-Input (FK-50 CP 7/CP 10d). FK-73 ownt ausschliesslich den
+  **dauerhaften Erwartungswert** und die Re-Baseline-Aktion.
+
+## 73.7 Abgrenzung zu Bootstrap
 
 Bootstrap (FK-50/FK-51) installiert AK3 auf einem System. Nach
 Bootstrap ist die Maschine lauffaehig, hat aber noch kein Projekt.

@@ -50,7 +50,10 @@ invariants:
     rule: the gate result is read as a commit-bound attestation by analysisId or ceTaskId and never as a bare projectKey live-read, so a stale green for an outdated commit cannot pass the gate
   - id: deterministic-checks.invariant.ledger-application-single-match-or-fail-closed
     scope: process
-    rule: an accepted-exception ledger entry is applied only when exactly one current Sonar issue matches it; zero or more than one match fails the reconciler closed and requires renewed six-eyes approval
+    rule: an accepted-exception ledger entry is applied only when exactly one current Sonar issue matches it; zero or more than one match fails the reconciler closed and requires a renewed accept-self-assessment approval (worker plus two goal-oriented LLMs, unanimity; FK-27 27.6b)
+  - id: deterministic-checks.invariant.analysis-scope-default-is-baseline-deviation-is-accept-step
+    scope: process
+    rule: the analysis-scope-hash is decomposed; the project-default scope (sonar.sources plus default exclusions) belongs to world 1 and is checked for baseline equality against the project-expected baseline-hash, while per-scan exclusions beyond the default belong to world 2 and go through the accept-self-assessment step rather than baseline equality
   - id: deterministic-checks.invariant.passed-requires-sonarqube-gate-passed
     scope: outcome
     rule: for APPLICABLE Sonar flows (impl/bugfix with sonarqube.available true and mode not fast) the terminal passed status is reachable only via sonarqube_gate_passed -> policy_evaluated -> passed; the policy engine may aggregate a PASS only after the gate verdict status sonarqube_gate_passed has been reached, and every fail-closed branch (red gate, stale/unreadable attestation, already-failed prior layer, zero/multi-match ledger reconciliation) routes directly into the terminal failed without traversing policy_evaluated, so no PASS trace can bypass the SonarQube green gate

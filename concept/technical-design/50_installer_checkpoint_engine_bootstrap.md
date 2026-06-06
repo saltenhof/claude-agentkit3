@@ -494,22 +494,31 @@ Hinweis auf den fehlgeschlagenen Conformance-Schritt.
 **3. Config-Drift-Behandlung (Policy-Change → voller main-Rescan):**
 
 Eine **manuelle SonarQube-Admin-Aenderung** an Quality Gate,
-Quality Profile, Analysis-Scope oder New-Code-Definition aendert die
-Bedeutung von „gruen". Solche Aenderungen werden ueber den **Config-Hash**
-(FK-03, Bestandteil der Attestation) erkannt: weicht der aktuelle
-Server-Config-Hash vom registrierten Erwartungswert (`project_registry`,
-CP 7) ab, gilt das als **„Policy-Change, der einen vollstaendigen
-main-Rescan erfordert"**. Der Checkpoint markiert den Drift, aktualisiert
-den erwarteten Config-Hash erst nach erfolgreichem main-Rescan-Gruen und
-stellt sicher, dass keine Story auf einem nach altem Regelwerk gruenen,
-nach neuem Regelwerk aber ungemessenen `main` aufsetzt.
+Quality Profile, **Projekt-Default-Analysis-Scope** oder New-Code-Definition
+aendert die Bedeutung von „gruen". Solche Aenderungen werden ueber den
+**Config-Baseline-Hash** (FK-03, Bestandteil der Attestation, World 1) erkannt:
+weicht der aktuelle Server-Config-Hash vom registrierten Erwartungswert ab, gilt
+das als **„Policy-Change, der einen vollstaendigen main-Rescan erfordert"**. Der
+Checkpoint markiert den Drift und uebernimmt den neuen Baseline-Hash erst nach
+erfolgreichem main-Rescan-Gruen, sodass keine Story auf einem nach altem
+Regelwerk gruenen, nach neuem Regelwerk aber ungemessenen `main` aufsetzt.
+
+**Ownership des Erwartungswerts:** Die **initiale Erfassung** des
+Baseline-Hash erfolgt hier im Installer (CP 7 Registrierung / CP 10d
+Conformance) als **Input**. **Dauerhafter Owner** des erwarteten Baseline-Hash
+und der **Operator-Re-Baseline** ist hingegen **project-management (FK-73
+§73.6)** — der Erwartungswert lebt in den `configuration`-Feldern der
+Project-Entitaet. Pro Scan zusaetzlich gesetzte Scope-Exclusions (ueber den
+Default hinaus) sind World 2 und durchlaufen den Accept-Schritt (FK-27 §27.6b),
+nicht die Baseline-Gleichheit.
 
 **Abhängigkeiten:** CP 5 (Pipeline-Config), CP 7 (State-Backend-
 Registrierung — Config-Hash-Erwartungswert).
 
 **Referenzen:** FK-03 (`sonarqube`-Config + Config-Hash), FK-33
-(Gate-Semantik, Accepted-Ledger), FK-10 §10.2.2 (Pflicht-Laufzeit-
-Abhaengigkeit).
+(Gate-Semantik, Accepted-Ledger), FK-73 §73.6 (Owner des erwarteten
+Baseline-Hash + Operator-Re-Baseline), FK-27 §27.6b (Accept-Self-Assessment fuer
+World-2-Scope-Abweichungen), FK-10 §10.2.2 (Pflicht-Laufzeit-Abhaengigkeit).
 
 **Idempotenz:** Verfuegbarkeits-/Versions-/Plugin-Pruefung ist read-only.
 Der Conformance-Self-Test legt ausschliesslich ein wegwerfbares

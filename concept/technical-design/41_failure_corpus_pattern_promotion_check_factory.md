@@ -24,6 +24,7 @@ prose_anchor_policy: strict
 formal_refs:
   - formal.deterministic-checks.invariants
   - formal.deterministic-checks.scenarios
+  - formal.sonar-accept-application.invariants
 glossary:
   exported_terms:
     - id: failure-pattern
@@ -718,6 +719,34 @@ agentkit failure-corpus effectiveness-report
 # Alle aktiven Checks anzeigen
 agentkit failure-corpus list-checks --status active
 ```
+
+## 41.10 Sonar-Accept-Frequenz als Failure-Corpus-Signal
+
+<!-- PROSE-FORMAL: formal.sonar-accept-application.invariants -->
+
+Der Accept-Self-Assessment-Schritt des verify-system (FK-27 §27.6b) erzeugt ein
+**leichtes Signal** an den Failure Corpus, wenn eine SonarQube-Regel auffaellig
+oft akzeptiert wird. Gemessen wird die **Akzeptanz-Frequenz pro Regel ueber die
+Menge ALLER Stories** — nie innerhalb einer einzelnen Story. Konkret: der
+**Anteil der Stories, die mindestens ein Issue einer gegebenen Regel
+akzeptieren**.
+
+Ueberschreitet dieser Anteil einen **konfigurierbaren Schwellwert**
+(`sonarqube.accept_frequency_fc_threshold`, Default in FK-03 §3.4.2), wird die
+Regel zum **Eingangssignal des Corpus** mit der Lesart „Regel/Profil/Scope
+vermutlich fehlkonfiguriert" — also ein systemischer Hinweis, kein Einzelfall.
+Der Schwellwert ist ein reiner Config-Wert; er wird hier nur referenziert und
+nicht zweitkopiert (Single Source of Truth).
+
+Das Signal ist ein **Incident-Eingang** im Sinne von §41.4 (Kategorie
+`policy_violation`, Quelle „Sonar-Accept-Frequenz"); es ist **kein** Pattern und
+**kein** Check. Die normale Promotion- und Freigabekette (§41.5/§41.6) bleibt
+unveraendert: erst menschliche Bestaetigung macht daraus ein Pattern, erst eine
+freigegebene Check-Story einen wirksamen Guard. Geschrieben werden darf das
+Signal vom verify-system (Accept-Schritt) oder — als leichter Prozess-Fidelity-
+Befund am Merge-Gate — vom Integrity-Gate (FK-35 §35.2.4a). Es findet **keine**
+manipulationssichere oder „Festungs"-Mechanik statt; das Signal ist bewusst
+leichtgewichtig.
 
 ---
 

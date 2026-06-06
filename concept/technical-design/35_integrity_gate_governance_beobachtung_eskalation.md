@@ -299,16 +299,26 @@ das Gate ein deterministischer Verifizierer und kein zweiter Scanner.
    `projectKey`-Live-Read) und ist OK auf der Overall-Code-Condition
    („keine offenen, nicht-akzeptierten Issues im gesamten Scope"), nicht
    nur auf New Code (FK-33 §33.6.3).
-4. **Exception-Ledger-Hash stimmt:** Der in der Attestation hinterlegte
-   Ledger-Hash entspricht dem versionierten Accepted-Ledger (FK-33
-   §33.6.4) — so ist belegt, dass nur bewusst gated-akzeptierte Ausnahmen
-   (Sechs-Augen) gruen gezaehlt wurden und der Ledger nicht zwischen Scan
-   und Gate veraendert wurde.
-5. **Tool-/Config-Versionen stimmen:** Quality-Gate-Hash,
-   Quality-Profile-Hash, Analysis-Scope-Hash, New-Code-Definition sowie
-   die Versionen von SonarQube, Community Branch Plugin und Scanner
-   entsprechen den fuer das Projekt erwarteten Werten (FK-03
-   `sonarqube`-Config + Config-Hash). Drift hier bedeutet, dass gegen ein
+4. **Leichter Prozess-Fidelity-Check der Akzeptanzen (Ledger vorhanden/
+   konsistent):** Der in der Attestation hinterlegte Ledger-Hash entspricht
+   dem versionierten Accepted-Ledger (FK-33 §33.6.4) — so ist belegt, dass
+   gruen gezaehlte Akzeptanzen **den Accept-Schritt durchlaufen haben**
+   (FK-27 §27.6b: Worker plus zwei zielorientierte LLMs, Einstimmigkeit) und
+   der Ledger zwischen Scan und Gate nicht veraendert wurde. Dies ist ein
+   **bewusst leichter** Prozess-Treue-Befund — **keine** manipulationssichere/
+   kryptografische „Festungs"-Mechanik. An dieser Stelle darf das
+   Integrity-Gate auch das **Failure-Corpus-Signal** zur Sonar-Accept-Frequenz
+   schreiben (FK-41 §41.10), wenn eine Regel ueber alle Stories hinweg
+   oberhalb des konfigurierten Schwellwerts akzeptiert wird (FK-03 §3.4.2).
+5. **World-1-Baseline-Gleichheit (festes Regelwerk):** Quality-Gate-Hash,
+   Quality-Profile-Hash, **Projekt-Default-Analysis-Scope-Hash**,
+   New-Code-Definition sowie die Versionen von SonarQube, Community Branch
+   Plugin und Scanner entsprechen dem fuer das Projekt **erwarteten
+   Baseline-Wert** (FK-03 Config-Hash; Owner des Erwartungswerts:
+   project-management FK-73, operator-re-baseline; initiale Erfassung FK-50
+   CP 7/CP 10d). Es wird auf **Baseline-Gleichheit** geprueft — pro Scan
+   zusaetzliche Scope-Abweichungen (World 2) gehoeren in den Accept-Schritt
+   (#4), nicht hierher. Drift gegen die Baseline bedeutet, dass gegen ein
    anderes Regelwerk vermessen wurde — FAIL.
 
 **Story-Typ-Geltung:** Nur `implementation` und `bugfix`. Concept- und

@@ -45,7 +45,13 @@ invariants:
     rule: the dimension 9 attestation must bind to the merge commit_sha and tree_hash of the integrated candidate (tree_hash(scan) == tree_hash(merge)) and the Quality Gate must be OK on the overall-code invariant read by analysisId
   - id: integrity-gate.invariant.dimension9_requires_ledger_and_version_match
     scope: process
-    rule: dimension 9 passes only when the attestation exception-ledger-hash matches the versioned accepted-ledger AND the quality-gate-hash, quality-profile-hash, analysis-scope-hash, new-code-definition and SonarQube, branch-plugin and scanner versions match the project-expected values; any drift fails the dimension
+    rule: dimension 9 passes only when the attestation exception-ledger-hash matches the versioned accepted-ledger AND the world-1 baseline (quality-gate-hash, quality-profile-hash, project-default analysis-scope-hash, new-code-definition and SonarQube, branch-plugin and scanner versions) matches the project-expected baseline-hash per dimension9_world1_baseline_equality; per-scan scope deviations beyond the default are world 2 and go through the accept step, not the whole-scope baseline match; any world-1 drift fails the dimension
+  - id: integrity-gate.invariant.dimension9_accept_ledger_is_light_process_fidelity
+    scope: process
+    rule: the dimension 9 ledger check is a light process-fidelity check that green-counted acceptances went through the accept-self-assessment step (worker plus two goal-oriented LLMs, unanimity) and that the ledger was not changed between scan and gate; it is deliberately light with no tamper-proof or cryptographic fortress mechanism, and the gate may write the failure-corpus accept-frequency signal here
+  - id: integrity-gate.invariant.dimension9_world1_baseline_equality
+    scope: process
+    rule: the dimension 9 version match is a world-1 baseline-equality check of the fixed ruleset (quality-gate-hash, quality-profile-hash, project-default analysis-scope-hash, new-code-definition and tool versions) against the project-expected baseline-hash owned by project-management; per-scan scope deviations beyond the default are world 2 and go through the accept step, not baseline equality
   - id: integrity-gate.invariant.dimension9_applies_to_code_stories_only
     scope: mode
     rule: dimension 9 is evaluated only for implementation and bugfix stories; concept and research stories have no merge and no analyzed code and skip the dimension
