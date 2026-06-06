@@ -1,8 +1,8 @@
 story_id: AG3-053
 title: "Closure-Phasen-Orchestrierung: Finding-Resolution-Gate -> Pre-Merge-Scan-und-Merge-Block (Sonar-Scan -> IntegrityGate -> Push -> ff-Merge -> Reconcile) -> Post-Merge-Finalization im ClosurePhaseHandler verdrahten (FK-29 §29.1/§29.1a/§29.1.4)"
 type: implementation
-status: blocked
-phase: setup
+status: completed
+phase: closure
 created: "2026-06-04"
 size: L
 depends_on:

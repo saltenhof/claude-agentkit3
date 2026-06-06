@@ -1,0 +1,11 @@
+story_id: AG3-056
+title: "Pre-Merge-Verification-Runner — Build/Test + Sonar-Scan auf dem integrierten Kandidaten (commit-gebunden, via CI), Vorbedingung fuer AG3-053 Closure"
+type: implementation
+status: completed
+phase: closure
+created: "2026-06-04"
+size: L
+depends_on:
+  - AG3-052
+unblocks:
+  - AG3-053

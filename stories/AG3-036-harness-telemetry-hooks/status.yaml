@@ -1,8 +1,8 @@
 story_id: AG3-036
 title: "Harness-Telemetrie-Hooks (AgentLifecycle, Commit, ReviewSentinel, ReviewGuard, BudgetEmitter, DriftCheck, Divergence) + JSONL-Audit-Bundle"
 type: implementation
-status: ready
-phase: setup
+status: in_progress
+phase: implementation
 created: "2026-05-16"
 size: L
 depends_on:

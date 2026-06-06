@@ -1,8 +1,8 @@
 story_id: AG3-018
 title: "Fast-Modus konzeptionell und im Code aufnehmen"
 type: implementation
-status: ready
-phase: setup
+status: completed
+phase: closure
 created: "2026-05-06"
 size: L
 depends_on:
