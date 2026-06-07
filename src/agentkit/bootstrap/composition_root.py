@@ -58,6 +58,7 @@ if TYPE_CHECKING:
         VectorDbSyncPort,
     )
     from agentkit.exploration.change_frame import ChangeFrame
+    from agentkit.exploration.drafting import ExplorationDrafting
     from agentkit.exploration.mandate.fine_design import FineDesignRoundOutcome
     from agentkit.exploration.phase import ExplorationPhaseHandler
     from agentkit.exploration.review import ExplorationReview
@@ -319,6 +320,7 @@ def build_exploration_phase_handler(
     from agentkit.exploration.phase import (
         ExplorationPhaseHandler as _ExplorationPhaseHandler,
     )
+    from agentkit.installer.paths import project_root_for_story_dir
     from agentkit.state_backend.store.exploration_change_frame_repository import (
         StateBackendExplorationChangeFrameAdapter,
     )
@@ -336,6 +338,20 @@ def build_exploration_phase_handler(
         writer=adapter, clock=lambda: datetime.now(UTC)
     )
     telemetry = MandateTelemetry(StateBackendEmitter(story_dir))
+    # AG3-055 produce->consume loop: wire the productive ExplorationDrafting A-core
+    # (CONSUMER) + the draft-presence reader so the handler drives the typed loop
+    # (consume a present worker draft vs emit a spawn order). The project root is
+    # derived from the canonical ``<project_root>/stories/<story_id>`` layout; an
+    # off-layout story_dir leaves drafting unwired (the handler keeps the
+    # fail-closed branch rather than materializing a prompt against an unknown
+    # root). The worker-runner resolves the authoritative StoryContext at draft
+    # time (ERROR-2 scope cross-check).
+    project_root = project_root_for_story_dir(story_dir)
+    drafting = (
+        _build_exploration_drafting(story_dir, project_root=project_root)
+        if project_root is not None
+        else None
+    )
     return _ExplorationPhaseHandler(
         change_frame_reader=adapter,
         run_scope_resolver=adapter,
@@ -346,6 +362,104 @@ def build_exploration_phase_handler(
         fine_design=fine_design,
         freeze_marker=freeze_marker,
         telemetry=telemetry,
+        drafting=drafting,
+        draft_presence=adapter if drafting is not None else None,
+    )
+
+
+def build_exploration_drafting(
+    story_dir: Path,
+    ctx: StoryContext,
+) -> ExplorationDrafting:
+    """Wire the productive ``ExplorationDrafting`` sub (AG3-055, FK-23 §23.3).
+
+    Composition root for the exploration-worker drafting (BC 5,
+    ``exploration-and-design``, ``ExplorationDrafting`` sub). Wires the
+    bloodgroup-A core to its three boundary ports with PRODUCTIVE adapters:
+
+    * the LLM/worker boundary -- the
+      :class:`StateBackendExplorationWorkerRunner` that materializes
+      ``worker-exploration.md`` over the AG3-044 worker-spawn path
+      (``WorkerSession`` -> ``PromptRuntime``, FK-44; the selector picks
+      ``worker-exploration`` for an EXPLORATION ``execution_route``) and reads
+      back the worker's raw seven-part draft. No parallel spawn path;
+    * the ENTWURF-envelope persistence -- :class:`ArtifactChangeFrameSink` over
+      the productive :class:`ArtifactManager` (the AG3-045-registered producer);
+    * the protected change-frame FILE writer -- the AG3-045
+      :class:`StateBackendExplorationChangeFrameAdapter` (writes
+      ``_temp/qa/{story_id}/change_frame.json``, the very path the AG3-045
+      handler's reader consumes -- closing the produce->consume loop).
+
+    The A-core imports none of these I/O sources directly (ARCH-22 / ARCH-31).
+    The drafting is the PRODUCER; the AG3-045 handler (built by
+    :func:`build_exploration_phase_handler`) is the CONSUMER/VALIDATOR of the
+    same artifact -- there is NO engine-/handler-side change-frame generation.
+
+    Args:
+        story_dir: Story working directory (worker spawn context + the
+            ``_temp/qa/{story_id}/`` change-frame location).
+        ctx: The authoritative story context for the run (drives the prompt
+            materialization + the worker spawn; carries ``project_root``).
+
+    Returns:
+        A wired :class:`ExplorationDrafting` ready to produce the change-frame.
+
+    Raises:
+        ProjectError: When ``ctx.project_root`` is unset (the prompt runtime
+            needs it to materialize ``worker-exploration.md``; fail-closed).
+    """
+    from agentkit.exceptions import ProjectError
+
+    if ctx.project_root is None:
+        raise ProjectError(
+            "Exploration drafting requires ctx.project_root to materialize the "
+            "worker-exploration prompt (FK-44); refusing fail-closed.",
+            detail={"story_id": ctx.story_id, "story_dir": str(story_dir)},
+        )
+    return _build_exploration_drafting(story_dir, project_root=ctx.project_root)
+
+
+def _build_exploration_drafting(
+    story_dir: Path, *, project_root: Path,
+) -> ExplorationDrafting:
+    """Wire the productive ``ExplorationDrafting`` from ``story_dir`` + root.
+
+    Shared wiring for :func:`build_exploration_drafting` (ctx-driven) and
+    :func:`build_exploration_phase_handler` (story_dir-driven; the handler is
+    built at run start before any per-call ``StoryContext`` is in hand, and the
+    productive worker-runner resolves the authoritative ``StoryContext`` from
+    ``story_dir`` at draft time -- with the ERROR-2 scope cross-check). The three
+    boundary ports are the productive adapters; the A-core imports none of these
+    I/O sources directly (ARCH-22 / ARCH-31).
+
+    Args:
+        story_dir: Story working directory (worker spawn context + the
+            ``_temp/qa/{story_id}/`` change-frame location).
+        project_root: The project root the prompt runtime materializes against
+            (FK-44).
+
+    Returns:
+        A wired :class:`ExplorationDrafting`.
+    """
+    from agentkit.exploration.drafting import ExplorationDrafting as _Drafting
+    from agentkit.exploration.drafting.persistence import ArtifactChangeFrameSink
+    from agentkit.prompt_runtime import PromptRuntime
+    from agentkit.state_backend.store.exploration_change_frame_repository import (
+        StateBackendExplorationChangeFrameAdapter,
+    )
+    from agentkit.state_backend.store.exploration_worker_runner import (
+        StateBackendExplorationWorkerRunner,
+    )
+
+    manager = build_artifact_manager(story_dir)
+    prompt_runtime = PromptRuntime(project_root, manager)
+    worker_runner = StateBackendExplorationWorkerRunner(story_dir, prompt_runtime)
+    sink = ArtifactChangeFrameSink(manager)
+    writer = StateBackendExplorationChangeFrameAdapter(manager)
+    return _Drafting(
+        worker_runner=worker_runner,
+        change_frame_sink=sink,
+        change_frame_writer=writer,
     )
 
 
@@ -2331,6 +2445,7 @@ __all__ = [
     "build_review_completion_sink",
     "build_artifact_manager",
     "build_closure_phase_handler",
+    "build_exploration_drafting",
     "build_exploration_phase_handler",
     "build_exploration_review",
     "build_failure_corpus",

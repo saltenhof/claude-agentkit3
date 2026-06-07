@@ -184,14 +184,59 @@ def test_valid_change_frame_does_not_release_the_gate(tmp_path: Path) -> None:
     assert exploration_gate_approved(ctx, result.updated_state).passed is False
 
 
-def test_on_enter_without_change_frame_escalates_fail_closed(
+def test_on_enter_no_frame_no_draft_emits_worker_spawn(
     tmp_path: Path,
 ) -> None:
+    """AG3-055 loop: no change-frame and no worker draft -> emit a typed spawn.
+
+    The productive handler wires the drafting + draft-presence ports, so the
+    no-change-frame case is no longer a dead-end ESCALATED: with no worker draft
+    present yet, the handler EMITS a typed ``SpawnRequest`` (WORKER / INITIAL)
+    into ``agents_to_spawn`` and returns ``IN_PROGRESS`` (spawn-and-await), the
+    AG3-044/054 engine re-entry mechanism. The gate stays denied (no fake APPROVE).
+    """
+    from agentkit.core_types import SpawnKind, SpawnReason
+
     sd = _story_dir(tmp_path)
     _bind_flow(sd)
     ctx = _ctx(sd)
 
     result = build_exploration_phase_handler(sd).on_enter(ctx, _envelope())
+
+    assert result.status is PhaseStatus.IN_PROGRESS
+    state = result.updated_state
+    assert state is not None
+    assert len(state.agents_to_spawn) == 1
+    order = state.agents_to_spawn[0]
+    assert order.kind is SpawnKind.WORKER
+    assert order.spawn_reason is SpawnReason.INITIAL
+    assert order.target_id == "AG3-045"
+    payload = state.payload
+    assert isinstance(payload, ExplorationPayload)
+    assert payload.gate_status is ExplorationGateStatus.PENDING
+    assert exploration_gate_approved(ctx, state).passed is False
+
+
+def test_on_enter_without_drafting_wired_escalates_fail_closed(
+    tmp_path: Path,
+) -> None:
+    """Legacy plumbing-only construction (no drafting/presence) -> ESCALATED.
+
+    When neither the drafting core nor the draft-presence port is wired the
+    no-change-frame branch keeps the original fail-closed ESCALATED with the
+    AG3-055 message (no pseudo-draft, no silent pass).
+    """
+    sd = _story_dir(tmp_path)
+    _bind_flow(sd)
+    ctx = _ctx(sd)
+    adapter = StateBackendExplorationChangeFrameAdapter(build_artifact_manager(sd))
+    handler = ExplorationPhaseHandler(
+        change_frame_reader=adapter,
+        run_scope_resolver=adapter,
+        config=ExplorationConfig(story_dir=sd),
+    )
+
+    result = handler.on_enter(ctx, _envelope())
 
     assert result.status is PhaseStatus.ESCALATED
     assert any("AG3-055" in e for e in result.errors)

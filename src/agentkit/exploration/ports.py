@@ -79,6 +79,35 @@ class ChangeFrameReader(Protocol):
 
 
 @runtime_checkable
+class WorkerDraftPresenceReader(Protocol):
+    """Report whether the exploration worker has written a raw draft (fail-closed).
+
+    AG3-055 produce->consume loop: when no validated change-frame is persisted
+    yet, the phase handler must decide between CONSUMING a worker draft (the
+    worker already ran) and EMITTING a spawn order (the worker has not run). The
+    decision is a boundary READ -- "did the spawned worker write its raw draft
+    to ``_temp/qa/{story_id}/change_frame.draft.json``?" -- which the bloodgroup-A
+    handler must not perform itself (ARCH-22 / ARCH-31). This port answers it; the
+    concrete adapter is wired at the composition-root. It NEVER parses / validates
+    the draft (that is :class:`~agentkit.exploration.drafting.drafting.ExplorationDrafting`'s
+    job, via its worker-runner port); it only reports presence.
+    """
+
+    def worker_draft_present(self, story_dir: Path, *, story_id: str) -> bool:
+        """Return whether a worker raw draft exists for the (story_dir, story).
+
+        Args:
+            story_dir: The story working directory (resolves
+                ``_temp/qa/{story_id}/``).
+            story_id: The story display id.
+
+        Returns:
+            ``True`` when the worker raw draft file exists, ``False`` otherwise.
+        """
+        ...
+
+
+@runtime_checkable
 class ChangeFrameWriter(Protocol):
     """Materialize the change-frame FILE on disk via the boundary FS port.
 
@@ -160,4 +189,5 @@ __all__ = [
     "ChangeFrameWriter",
     "DeclaredImpactReader",
     "RunScopeResolver",
+    "WorkerDraftPresenceReader",
 ]

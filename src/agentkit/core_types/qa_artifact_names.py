@@ -102,6 +102,16 @@ GUARDRAIL_FILE: str = "guardrail.json"
 #: (shared protection mechanism, FK-23 §23.4.3 / FK-31 §31.3).
 CHANGE_FRAME_FILE: str = "change_frame.json"
 
+#: Filename of the RAW worker change-frame draft (FK-23 §23.3.2 step 6 output),
+#: under ``_temp/qa/{story_id}/``. The exploration worker (AG3-055) emits its
+#: seven-part draft here; the productive ``ExplorationWorkerRunner`` adapter reads
+#: it back across the LLM/worker boundary, and the ``ExplorationDrafting`` core
+#: validates it and writes the canonical ``change_frame.json`` (above). Kept
+#: SEPARATE from the canonical file so the worker's raw, pre-validation output is
+#: never confused with the protected, validated change-frame the AG3-045 handler
+#: consumes. Cross-cutting SSOT for the wire string.
+CHANGE_FRAME_DRAFT_FILE: str = "change_frame.draft.json"
+
 #: POSIX-relative root segment of the Layer-3 adversarial sandbox (AG3-044,
 #: FK-48 §48.1): adversarial spawns write tests under
 #: ``_temp/adversarial/{story_id}/{epoch}/``. Cross-cutting SSOT for the wire
@@ -126,6 +136,7 @@ __all__ = [
     "ADVERSARIAL_SANDBOX_PREFIX",
     "ADVERSARIAL_STAGE",
     "ALL_QA_ARTIFACT_FILES",
+    "CHANGE_FRAME_DRAFT_FILE",
     "CHANGE_FRAME_FILE",
     "DOC_FIDELITY_FILE",
     "DOC_FIDELITY_PRODUCER",

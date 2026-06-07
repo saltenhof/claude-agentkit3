@@ -139,8 +139,15 @@ def test_on_enter_validates_persisted_change_frame(tmp_path: Path) -> None:
     assert exploration_gate_approved(ctx, result.updated_state).passed is False
 
 
-def test_on_enter_without_change_frame_escalates(tmp_path: Path) -> None:
-    """No worker-produced change-frame -> fail-closed ESCALATED, gate closed."""
+def test_on_enter_without_change_frame_emits_worker_spawn(tmp_path: Path) -> None:
+    """No change-frame + no worker draft -> AG3-055 spawn-and-await, gate closed.
+
+    The productive handler drives the AG3-055 produce->consume loop: with no
+    worker draft present it EMITS a typed exploration-worker ``SpawnRequest`` and
+    returns ``IN_PROGRESS`` (not a dead-end ESCALATED). The gate stays denied.
+    """
+    from agentkit.core_types import SpawnKind
+
     story_dir = _story_dir(tmp_path)
     _bind_flow(story_dir)
     ctx = _ctx(story_dir)
@@ -148,7 +155,11 @@ def test_on_enter_without_change_frame_escalates(tmp_path: Path) -> None:
     handler = build_exploration_phase_handler(story_dir)
     result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(_state()))
 
-    assert result.status is PhaseStatus.ESCALATED
+    assert result.status is PhaseStatus.IN_PROGRESS
+    assert result.updated_state is not None
+    assert [o.kind for o in result.updated_state.agents_to_spawn] == [
+        SpawnKind.WORKER
+    ]
     assert exploration_gate_approved(ctx, result.updated_state).passed is False
 
 

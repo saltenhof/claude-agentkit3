@@ -1,7 +1,8 @@
 story_id: AG3-055
 title: "Exploration-Worker — worker-exploration.md-Ausfuehrung erzeugt den echten ChangeFrame (BC exploration-and-design)"
 type: implementation
-status: blocked
+status: completed
+phase: closure
 created: "2026-06-05"
 size: L
 depends_on:

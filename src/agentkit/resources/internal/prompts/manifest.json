@@ -20,7 +20,7 @@
     },
     "worker-exploration": {
       "relpath": "internal/prompts/worker-exploration.md",
-      "sha256": "91a967e498124d0028096743c053f0224dac8ab1261e884f2e1ac7b5bdfe37c9"
+      "sha256": "677a5371862dfe5dd01172d18fe0b2df2bcdb62d359697c86fe20728242e892e"
     },
     "worker-remediation": {
       "relpath": "internal/prompts/worker-remediation.md",

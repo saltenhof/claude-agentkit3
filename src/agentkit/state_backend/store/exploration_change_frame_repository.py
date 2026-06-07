@@ -33,7 +33,10 @@ from typing import TYPE_CHECKING
 
 from agentkit.artifacts.errors import ArtifactNotFoundError
 from agentkit.core_types import ArtifactClass
-from agentkit.core_types.qa_artifact_names import CHANGE_FRAME_FILE
+from agentkit.core_types.qa_artifact_names import (
+    CHANGE_FRAME_DRAFT_FILE,
+    CHANGE_FRAME_FILE,
+)
 from agentkit.exceptions import CorruptStateError
 from agentkit.exploration.change_frame import ChangeFrame
 from agentkit.exploration.register import EXPLORATION_ENTWURF_STAGE
@@ -132,6 +135,25 @@ class StateBackendExplorationChangeFrameAdapter:
                 },
             )
         return frame
+
+    def worker_draft_present(self, story_dir: Path, *, story_id: str) -> bool:
+        """Whether the worker raw draft exists under ``_temp/qa/{story_id}/``.
+
+        Satisfies ``exploration.ports.WorkerDraftPresenceReader``: a pure boundary
+        presence read the bloodgroup-A handler uses to decide consume-vs-spawn. It
+        does NOT parse / validate the draft (that is the drafting core's job via
+        its worker-runner port); it only reports whether the file exists.
+
+        Args:
+            story_dir: The story working directory (resolves
+                ``_temp/qa/{story_id}/``).
+            story_id: The story display id.
+
+        Returns:
+            ``True`` when ``change_frame.draft.json`` exists, else ``False``.
+        """
+        qa_dir = resolve_qa_story_dir(story_dir, story_id=story_id)
+        return (qa_dir / CHANGE_FRAME_DRAFT_FILE).is_file()
 
     def write_change_frame_file(
         self, story_dir: Path, *, story_id: str, run_id: str, frame: ChangeFrame

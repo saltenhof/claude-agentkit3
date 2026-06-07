@@ -19,8 +19,25 @@ already-persisted change-frame -- it never fabricates one:
     ``ESCALATED``, gate ``REJECTED`` (architecture conflict; FK-23 §23.5 /
     FK-45 §45.3). There is NO path to ``APPROVED`` without a Stage-1 PASS
     (NO ERROR BYPASSING);
-* no change-frame is persisted yet -> fail-closed ESCALATED rejection with a
-  clear "exploration drafting requires AG3-055" message (no pseudo-draft).
+* no change-frame is persisted yet -> the AG3-055 produce->consume loop (this is
+  what closes AG3-045's dead-end "drafting requires AG3-055" escalation):
+
+  - a worker DRAFT exists (the spawned worker already ran and wrote its raw
+    ``change_frame.draft.json``) -> invoke :class:`ExplorationDrafting` to
+    consume / validate (``ChangeFrame.from_payload``) / persist the canonical
+    ``change_frame.json``, re-read it, then proceed to the mandate flow + gate;
+  - else -> EMIT a typed :class:`SpawnRequest` (``SpawnKind.WORKER`` +
+    ``SpawnReason.INITIAL``) into ``PhaseState.agents_to_spawn`` and return
+    ``IN_PROGRESS`` (the AG3-044/054 engine re-entry mechanism the orchestrator
+    reacts to): the orchestrator spawns the exploration worker and re-invokes the
+    phase. This is a spawn-and-await, NOT a dead-end fail-closed escalation.
+
+  The handler ORCHESTRATES (emit-spawn vs consume) but performs no worker I/O
+  itself: it asks the :class:`WorkerDraftPresenceReader` port whether a draft
+  exists and delegates the consume to the :class:`ExplorationDrafting` A-core
+  (which uses its own boundary ports). When the drafting / presence ports are NOT
+  wired (legacy plumbing-only construction) the branch stays the original
+  fail-closed ESCALATED with ``_NO_CHANGE_FRAME_MESSAGE`` (no pseudo-draft).
 
 The persistence / run correlation runs through injected boundary ports
 (``ports.ChangeFrameReader`` / ``ports.RunScopeResolver``); the bloodgroup-A
@@ -36,7 +53,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from agentkit.core_types import ExplorationGateStatus, PauseReason
+from agentkit.core_types import (
+    ExplorationGateStatus,
+    PauseReason,
+    SpawnKind,
+    SpawnReason,
+    SpawnRequest,
+)
 from agentkit.pipeline_engine.lifecycle import HandlerResult
 from agentkit.story_context_manager.models import (
     ExplorationPayload,
@@ -49,6 +72,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.exploration.change_frame import ChangeFrame
+    from agentkit.exploration.drafting.drafting import ExplorationDrafting
     from agentkit.exploration.freeze import DesignFreezeMarker
     from agentkit.exploration.mandate.classification import MandateClassification
     from agentkit.exploration.mandate.fine_design import (
@@ -60,6 +84,7 @@ if TYPE_CHECKING:
         ChangeFrameReader,
         DeclaredImpactReader,
         RunScopeResolver,
+        WorkerDraftPresenceReader,
     )
     from agentkit.exploration.review import ExplorationGateResult, ExplorationReview
     from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
@@ -116,6 +141,26 @@ _FINE_DESIGN_UNAVAILABLE_REACTION = (
 
 
 @dataclass(frozen=True)
+class _DraftingLoopResult:
+    """Outcome of the no-change-frame produce->consume loop (AG3-055).
+
+    Either a terminal :class:`HandlerResult` (a spawn-and-await ``IN_PROGRESS``,
+    a fail-closed escalation, or a drafting failure) OR -- when ``terminal`` is
+    ``None`` -- the freshly consumed-and-re-read :class:`ChangeFrame` to continue
+    into the mandate flow + exit-gate.
+
+    Attributes:
+        terminal: A terminal handler result, or ``None`` to continue with
+            ``change_frame``.
+        change_frame: The re-read change-frame (only meaningful when ``terminal``
+            is ``None``).
+    """
+
+    terminal: HandlerResult | None = None
+    change_frame: ChangeFrame | None = None
+
+
+@dataclass(frozen=True)
 class _MandateRouting:
     """Internal carrier for the mandate-routing decision (AG3-047).
 
@@ -161,6 +206,8 @@ class ExplorationPhaseHandler:
         fine_design: FineDesignSubprocess | None = None,
         freeze_marker: DesignFreezeMarker | None = None,
         telemetry: MandateTelemetry | None = None,
+        drafting: ExplorationDrafting | None = None,
+        draft_presence: WorkerDraftPresenceReader | None = None,
     ) -> None:
         """Initialize the handler.
 
@@ -194,6 +241,15 @@ class ExplorationPhaseHandler:
             telemetry: The mandate telemetry emitter (AG3-047, FK-25 §25.8).
                 Required when ``mandate_classification`` is wired (the four
                 events are emitted at their routing points).
+            drafting: The AG3-055 :class:`ExplorationDrafting` core (the
+                consume/validate/persist A-core). When wired together with
+                ``draft_presence``, ``on_enter`` drives the produce->consume loop:
+                a present worker draft is CONSUMED here; no draft EMITS a typed
+                spawn order. ``None`` (with ``draft_presence`` ``None``) keeps the
+                legacy fail-closed ESCALATED branch.
+            draft_presence: The :class:`WorkerDraftPresenceReader` boundary port
+                reporting whether the worker wrote its raw draft. Required to
+                drive the produce->consume loop; ``None`` keeps the legacy branch.
         """
         self._reader = change_frame_reader
         self._run_scope = run_scope_resolver
@@ -204,6 +260,8 @@ class ExplorationPhaseHandler:
         self._fine_design = fine_design
         self._freeze_marker = freeze_marker
         self._telemetry = telemetry
+        self._drafting = drafting
+        self._draft_presence = draft_presence
 
     def on_enter(self, ctx: StoryContext, envelope: PhaseEnvelope) -> HandlerResult:
         """Validate the persisted change-frame and run the three-stage exit-gate.
@@ -221,9 +279,12 @@ class ExplorationPhaseHandler:
             ``COMPLETED`` (gate ``APPROVED``) when all gate stages passed;
             ``ESCALATED`` when Stage 2a hit the round limit (gate ``PENDING``,
             story stays in exploration) or the gate ``REJECTED`` (gate
-            ``REJECTED``); ``ESCALATED`` (fail-closed) when no change-frame is
-            present; ``FAILED`` when not configured with a ``story_dir`` or when
-            no review is wired.
+            ``REJECTED``); ``IN_PROGRESS`` with a typed ``agents_to_spawn`` order
+            when no change-frame and no worker draft exist yet (AG3-055
+            spawn-and-await); ``ESCALATED`` (fail-closed) when no change-frame is
+            present and the drafting loop is not wired (or a draft was rejected);
+            ``FAILED`` when not configured with a ``story_dir`` or when no review
+            is wired.
 
         Raises:
             CorruptStateError: When no bound ``FlowExecution`` with a ``run_id``
@@ -245,15 +306,26 @@ class ExplorationPhaseHandler:
             story_id=ctx.story_id, run_id=run_id
         )
         if change_frame is None:
-            # Fail-closed: no worker-produced change-frame -> escalate. No
-            # pseudo-draft, no fake APPROVED (Option Y; FK-23 §23.3).
-            return HandlerResult(
-                status=PhaseStatus.ESCALATED,
-                errors=(_NO_CHANGE_FRAME_MESSAGE,),
-                updated_state=self._exploration_state(
-                    state, PhaseStatus.ESCALATED, ExplorationGateStatus.PENDING
-                ),
+            # AG3-055 produce->consume loop: no validated change-frame yet ->
+            # CONSUME a present worker draft, else EMIT a typed spawn order and
+            # await (NOT a dead-end escalation). Closes AG3-045's "requires
+            # AG3-055" gap. Returns a HandlerResult to await / a re-read frame.
+            loop = self._drive_drafting_loop(
+                ctx, state, story_dir=story_dir, run_id=run_id
             )
+            if loop.terminal is not None:
+                return loop.terminal
+            change_frame = loop.change_frame
+            if change_frame is None:
+                # Defensive: a consumed draft must yield a re-readable frame; if
+                # not, fail closed rather than proceed without an artifact.
+                return HandlerResult(
+                    status=PhaseStatus.ESCALATED,
+                    errors=(_NO_CHANGE_FRAME_MESSAGE,),
+                    updated_state=self._exploration_state(
+                        state, PhaseStatus.ESCALATED, ExplorationGateStatus.PENDING
+                    ),
+                )
 
         if self._review is None:
             # Fail-closed: a valid frame but no gate wired -> never auto-APPROVE.
@@ -315,6 +387,150 @@ class ExplorationPhaseHandler:
                 state, change_frame, story_dir=story_dir, run_id=run_id
             )
         return self._map_gate_result(state, gate_result)
+
+    def _drive_drafting_loop(
+        self,
+        ctx: StoryContext,
+        state: PhaseState,
+        *,
+        story_dir: Path,
+        run_id: str,
+    ) -> _DraftingLoopResult:
+        """Run the AG3-055 produce->consume loop for the no-change-frame case.
+
+        Decision (the handler ORCHESTRATES; it does no worker I/O itself):
+
+        * the drafting / presence ports are NOT wired -> legacy fail-closed
+          ESCALATED with ``_NO_CHANGE_FRAME_MESSAGE`` (no pseudo-draft);
+        * a worker DRAFT is present -> CONSUME it via :class:`ExplorationDrafting`
+          (validate + persist the canonical change-frame), re-read the persisted
+          frame via the reader and continue (``terminal=None``);
+        * no draft -> EMIT a typed ``SpawnRequest`` and return ``IN_PROGRESS``
+          (spawn-and-await; the orchestrator spawns the worker and re-invokes).
+
+        Args:
+            ctx: The story context for this run.
+            state: The incoming phase state.
+            story_dir: The story working directory.
+            run_id: The bound run id.
+
+        Returns:
+            A :class:`_DraftingLoopResult`: a terminal handler result, or the
+            re-read change-frame to continue.
+        """
+        if self._drafting is None or self._draft_presence is None:
+            # Legacy plumbing-only construction: no producer wired -> keep the
+            # original fail-closed escalation (Option Y; FK-23 §23.3).
+            return _DraftingLoopResult(
+                terminal=HandlerResult(
+                    status=PhaseStatus.ESCALATED,
+                    errors=(_NO_CHANGE_FRAME_MESSAGE,),
+                    updated_state=self._exploration_state(
+                        state, PhaseStatus.ESCALATED, ExplorationGateStatus.PENDING
+                    ),
+                )
+            )
+        if not self._draft_presence.worker_draft_present(
+            story_dir, story_id=ctx.story_id
+        ):
+            # The worker has not run yet -> emit a typed spawn order and await.
+            return _DraftingLoopResult(
+                terminal=self._emit_worker_spawn(state, story_id=ctx.story_id)
+            )
+        # The worker already ran: CONSUME its draft (validate + persist), then
+        # re-read the canonical frame the gate consumes.
+        return self._consume_worker_draft(
+            ctx, state, story_dir=story_dir, run_id=run_id
+        )
+
+    def _emit_worker_spawn(
+        self, state: PhaseState, *, story_id: str
+    ) -> HandlerResult:
+        """Emit a typed exploration-worker spawn order and return IN_PROGRESS.
+
+        AG3-044/054 mechanism (FK-20 §20.5.1 / FK-45 §45.3): the spawn order is a
+        typed :class:`SpawnRequest` written into ``PhaseState.agents_to_spawn``
+        (the SINGLE typed truth). The engine persists it and re-yields; the
+        orchestrator spawns the exploration worker (``SpawnKind.WORKER`` over the
+        AG3-044 worker-spawn path with the exploration prompt) and re-invokes the
+        phase. There is no EXPLORATION ``SpawnKind`` (the prompt selector picks
+        ``worker-exploration`` for the EXPLORATION route). NOT a phase change.
+
+        Args:
+            state: The incoming phase state.
+            story_id: The story display id (spawn correlation ``target_id``).
+
+        Returns:
+            An ``IN_PROGRESS`` ``HandlerResult`` carrying the spawn order.
+        """
+        spawn_order = SpawnRequest(
+            kind=SpawnKind.WORKER,
+            spawn_reason=SpawnReason.INITIAL,
+            target_id=story_id,
+        )
+        awaiting_state = self._exploration_state(
+            state, PhaseStatus.IN_PROGRESS, ExplorationGateStatus.PENDING
+        ).model_copy(update={"agents_to_spawn": [spawn_order]})
+        return HandlerResult(
+            status=PhaseStatus.IN_PROGRESS,
+            yield_status=PauseReason.AWAITING_DESIGN_REVIEW.value,
+            updated_state=awaiting_state,
+        )
+
+    def _consume_worker_draft(
+        self,
+        ctx: StoryContext,
+        state: PhaseState,
+        *,
+        story_dir: Path,
+        run_id: str,
+    ) -> _DraftingLoopResult:
+        """Consume the present worker draft and re-read the persisted frame.
+
+        Delegates the validate + persist to the injected
+        :class:`ExplorationDrafting` A-core (which orchestrates its own boundary
+        ports: the worker-runner reads the raw draft, the sink + writer persist
+        the ENTWURF envelope + protected file). The handler then re-reads the
+        canonical frame via the reader. A :class:`DraftingError` (empty / foreign
+        / invalid draft) escalates fail-closed (no artifact left behind).
+
+        Args:
+            ctx: The story context for this run.
+            state: The incoming phase state.
+            story_dir: The story working directory.
+            run_id: The bound run id.
+
+        Returns:
+            A :class:`_DraftingLoopResult` with the re-read frame, or a terminal
+            fail-closed escalation.
+        """
+        from agentkit.exploration.drafting.drafting import (
+            DraftingError,
+            ExplorationDraftRequest,
+        )
+
+        try:
+            self._drafting.draft(  # type: ignore[union-attr]
+                ExplorationDraftRequest(
+                    ctx=ctx,
+                    story_dir=story_dir,
+                    run_id=run_id,
+                    invocation_id=f"exploration-{run_id}",
+                )
+            )
+        except DraftingError as exc:
+            return _DraftingLoopResult(
+                terminal=self._escalate(
+                    state,
+                    f"Exploration worker draft rejected fail-closed: {exc}",
+                    "exploration_draft_rejected: worker must re-produce a valid "
+                    "FK-23 ChangeFrame draft",
+                )
+            )
+        change_frame = self._reader.load_change_frame(
+            story_id=ctx.story_id, run_id=run_id
+        )
+        return _DraftingLoopResult(change_frame=change_frame)
 
     def _classify_and_route(
         self,

@@ -312,18 +312,22 @@ class TestSmokeImplementationStory:
 class TestSmokeExplorationMode:
     """Smoke test: Implementation story with EXPLORATION mode (Option Y).
 
-    AG3-045 delivers only the deterministic plumbing; the content drafting is
-    AG3-055 and the gate review is AG3-046. With no worker-produced change-frame
-    the real handler is honestly fail-closed: the pipeline ESCALATES at the
-    exploration phase instead of fake-completing to closure. The 4-phase
-    completion path is pending AG3-055 (drafting) + AG3-046 (review).
+    AG3-045 delivers the deterministic plumbing; the content drafting is AG3-055
+    and the gate review is AG3-046. With no worker-produced change-frame AND no
+    worker draft yet, the productive handler drives the AG3-055 produce->consume
+    loop: it EMITS a typed exploration-worker ``SpawnRequest`` and YIELDS (the
+    orchestrator spawns the worker and resumes) instead of fake-completing to
+    closure or dead-ending. No pseudo-draft is fabricated (NO ERROR BYPASSING).
     """
 
-    def test_exploration_mode_escalates_without_change_frame(
+    def test_exploration_mode_yields_for_worker_spawn_without_change_frame(
         self,
         tmp_path: Path,
     ) -> None:
-        """EXPLORATION mode stops at exploration fail-closed (pending AG3-055)."""
+        """EXPLORATION mode yields at exploration to spawn the worker (AG3-055)."""
+        from agentkit.core_types import SpawnKind
+        from agentkit.state_backend.store.facade import load_phase_state
+
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
         _install_project(project_dir)
@@ -340,11 +344,16 @@ class TestSmokeExplorationMode:
 
         result = run_pipeline(ctx, s_dir, registry, workflow)
 
-        # Honest fail-closed: no fake-approve, no silent completion to closure.
-        assert result.final_status == "escalated"
+        # Spawn-and-await: no fake-approve, no silent completion to closure.
+        assert result.final_status == "yielded"
         assert result.final_phase == "exploration"
         assert result.phases_executed == ("setup", "exploration")
         assert "closure" not in result.phases_executed
+        # The typed spawn order was persisted for the orchestrator to execute.
+        persisted = load_phase_state(s_dir)
+        assert persisted is not None
+        assert persisted.phase == "exploration"
+        assert [o.kind for o in persisted.agents_to_spawn] == [SpawnKind.WORKER]
 
     def test_exploration_mode_records_exploration_attempt(
         self,
@@ -366,7 +375,7 @@ class TestSmokeExplorationMode:
         registry = _exploration_registry_for_workflow(workflow, s_dir)
         result = run_pipeline(ctx, s_dir, registry, workflow)
 
-        assert result.final_status == "escalated"
+        assert result.final_status == "yielded"
         assert len(load_attempts(s_dir, "exploration")) >= 1
         # No pseudo-draft is fabricated: no change_frame.json is written by
         # the handler (the worker AG3-055 would write it; it is absent here).
