@@ -36,6 +36,14 @@ from agentkit.core_types.qa_artifact_names import (
 if TYPE_CHECKING:
     from agentkit.artifacts import ProducerRegistry
 
+#: Canonical producer name stamped on adversarial-sandbox envelopes (AG3-044,
+#: FK-48 §48.1). The Layer-3 adversarial spawn writes its sandbox under
+#: ``_temp/adversarial/{story_id}/{epoch}/`` as ``ADVERSARIAL_TEST_SANDBOX``.
+ADVERSARIAL_SANDBOX_PRODUCER: Final[str] = "qa-adversarial-sandbox"
+
+#: Stage id of the adversarial-sandbox artifact (envelope ``stage`` field).
+ADVERSARIAL_SANDBOX_STAGE: Final[str] = "qa-adversarial"
+
 # (ArtifactClass, Producer-Name, ProducerType) — Single Source of Truth
 # fuer die verify-system-Producer. Eine Aenderung dieser Liste ist
 # eine Konzept-Aenderung und muss in FK-27 nachgezogen werden.
@@ -63,6 +71,14 @@ _VERIFY_PRODUCERS: Final[tuple[tuple[ArtifactClass, str, ProducerType], ...]] = 
     # deterministic stage sequenced after Layer 3, producer ``qa-sonarqube-gate``.
     (ArtifactClass.QA, "qa-sonarqube-gate", ProducerType.DETERMINISTIC),
     (ArtifactClass.QA, VERIFY_DECISION_PRODUCER, ProducerType.DETERMINISTIC),
+    # Layer 3 adversarial sandbox (AG3-044, FK-48 §48.1): the spawned
+    # adversarial worker writes sandbox tests under the protected
+    # ``_temp/adversarial/{story_id}/{epoch}/`` path.
+    (
+        ArtifactClass.ADVERSARIAL_TEST_SANDBOX,
+        ADVERSARIAL_SANDBOX_PRODUCER,
+        ProducerType.WORKER,
+    ),
 )
 
 
@@ -81,4 +97,8 @@ def register_verify_producers(registry: ProducerRegistry) -> None:
         registry.register(artifact_class, name, producer_type)
 
 
-__all__ = ["register_verify_producers"]
+__all__ = [
+    "ADVERSARIAL_SANDBOX_PRODUCER",
+    "ADVERSARIAL_SANDBOX_STAGE",
+    "register_verify_producers",
+]

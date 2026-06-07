@@ -170,6 +170,13 @@ class EngineResult:
             ``status == "phase_completed"`` and a valid transition exists).
         errors: Error detail messages.
         attempt_id: Unique identifier for this execution attempt.
+        suggested_reaction: Typed escalation-reaction carrier propagated from
+            the terminal :class:`HandlerResult` (AG3-044 AC6, FK-26 §26.11.2).
+            When a handler ESCALATES/BLOCKS with a concrete recommended reaction
+            (e.g. a BLOCKED worker manifest's blocker details), the engine
+            forwards it here so production callers read the structured blocker
+            payload rather than only the human-summary ``errors`` string.
+            ``None`` when the handler produced no such recommendation.
     """
 
     status: str
@@ -179,6 +186,7 @@ class EngineResult:
     errors: tuple[str, ...] = ()
     attempt_id: str | None = None
     updated_context: StoryContext | None = None
+    suggested_reaction: str | None = None
 
 
 def _evaluate_transitions(
@@ -509,6 +517,103 @@ def _handle_completed_result(
     )
 
 
+def _handle_reentry_result(
+    engine: PipelineEngine,
+    ctx: StoryContext,
+    state: PhaseState,
+    result: HandlerResult,
+    attempt_id: str,
+    *,
+    started_at: datetime,
+    resume_trigger: str | None,
+) -> EngineResult:
+    """Persist an IN_PROGRESS handler result carrying ``agents_to_spawn``.
+
+    FK-20 §20.5.1 / FK-45 §45.3: the subflow-internal remediation loop does NOT
+    transition the phase. The Implementation handler returns ``IN_PROGRESS``
+    with ``agents_to_spawn=[remediation_worker]`` (NOT ``PAUSED`` — there is no
+    ``AWAITING_REMEDIATION`` PauseReason; the phase stays its own active phase).
+    The engine persists that state (preserving ``agents_to_spawn`` so the
+    orchestrator can read the spawn order) and reports ``"yielded"`` so the
+    orchestrator spawns the worker and re-invokes the phase — no phase change.
+
+    Args:
+        engine: The pipeline engine.
+        ctx: The run story context.
+        state: The current phase state (pre-handler).
+        result: The handler result (status IN_PROGRESS, agents_to_spawn set).
+        attempt_id: The current attempt id.
+        started_at: Attempt start timestamp.
+        resume_trigger: Optional resume trigger string.
+
+    Returns:
+        An ``EngineResult`` with ``status="yielded"`` for orchestrator re-entry.
+    """
+    phase_name = state.phase
+    finished_at = datetime.now(tz=UTC)
+    run_id = engine._runtime.resolve_run_id(ctx)
+    attempt_nr = engine._runtime.attempt_number(attempt_id)
+    detail: dict[str, object] | None = None
+    if result.artifacts_produced:
+        detail = {"artifacts_produced": list(result.artifacts_produced)}
+    if resume_trigger is not None:
+        detail = detail or {}
+        detail["resume_trigger"] = resume_trigger
+
+    attempt_record = _build_attempt_record(
+        run_id=run_id,
+        phase=phase_name,
+        attempt_nr=attempt_nr,
+        outcome=AttemptOutcome.YIELDED,
+        failure_cause=None,
+        started_at=started_at,
+        ended_at=finished_at,
+        detail=detail,
+    )
+
+    source = result.updated_state or state
+    reentry_state = PhaseState(
+        story_id=state.story_id,
+        phase=phase_name,
+        status=PhaseStatus.IN_PROGRESS,
+        payload=source.payload,
+        memory=source.memory,
+        errors=list(result.errors),
+        attempt_id=attempt_id,
+        # Preserve the typed spawn order so the orchestrator reads it (FK-45
+        # §45.3). Dropping it here would make the spawn dead — fail-open.
+        agents_to_spawn=list(source.agents_to_spawn),
+    )
+
+    # FK-39 §39.4.4: AttemptRecord ZUERST, dann PhaseState
+    save_phase_completion(
+        engine._story_dir,
+        envelope=_WrapState(reentry_state),
+        attempt_record=attempt_record,
+    )
+
+    engine._runtime.record_flow_execution(
+        ctx,
+        phase_name,
+        attempt_id,
+        status="YIELDED",
+        node_id=phase_name,
+    )
+    engine._runtime.record_node_outcome(
+        ctx,
+        phase_name,
+        attempt_id,
+        outcome="YIELD",
+    )
+    return EngineResult(
+        status="yielded",
+        phase=phase_name,
+        yield_status=result.yield_status,
+        attempt_id=attempt_id,
+        updated_context=result.updated_context or ctx,
+    )
+
+
 def _handle_paused_result(
     engine: PipelineEngine,
     ctx: StoryContext,
@@ -708,6 +813,11 @@ def _handle_terminal_result(
         errors=result.errors,
         attempt_id=attempt_id,
         updated_context=result.updated_context,
+        # AG3-044 AC6 (FK-26 §26.11.2): propagate the typed escalation reaction
+        # to the caller. A BLOCKED/ESCALATED handler carries the structured
+        # blocker payload here; dropping it would leave production callers with
+        # only the human-summary errors string (fail-open on the model).
+        suggested_reaction=result.suggested_reaction,
     )
 
 
@@ -739,6 +849,23 @@ def _process_handler_result_impl(
         )
     if result.status == PhaseStatus.PAUSED:
         return _handle_paused_result(
+            engine,
+            ctx,
+            state,
+            result,
+            attempt_id,
+            started_at=started_at,
+            resume_trigger=resume_trigger,
+        )
+    # FK-20 §20.5.1: a subflow-internal remediation continuation returns
+    # IN_PROGRESS with agents_to_spawn set (no phase transition). The engine
+    # persists it and re-yields to the orchestrator for the spawn.
+    if (
+        result.status == PhaseStatus.IN_PROGRESS
+        and result.updated_state is not None
+        and result.updated_state.agents_to_spawn
+    ):
+        return _handle_reentry_result(
             engine,
             ctx,
             state,

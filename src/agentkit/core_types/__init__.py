@@ -37,7 +37,12 @@ from agentkit.core_types.qa_artifact_names import (
 from agentkit.core_types.qa_context import QaContext
 from agentkit.core_types.severity import Severity
 from agentkit.core_types.story import StoryMode, StorySize
-from agentkit.core_types.worker import BlockingCategory, SpawnReason
+from agentkit.core_types.worker import (
+    BlockingCategory,
+    SpawnKind,
+    SpawnReason,
+    SpawnRequest,
+)
 
 __all__ = [
     "ALL_QA_ARTIFACT_FILES",
@@ -63,7 +68,9 @@ __all__ = [
     "VERIFY_DECISION_STAGE",
     "QaContext",
     "Severity",
+    "SpawnKind",
     "SpawnReason",
+    "SpawnRequest",
     "StoryDependencyKind",
     "StoryMode",
     "StorySize",

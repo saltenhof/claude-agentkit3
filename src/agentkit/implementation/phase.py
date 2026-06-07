@@ -13,18 +13,38 @@ W2 (AG3-026 Re-Review): ``ImplementationPhaseHandler`` builds a
 ``PhaseEnvelopeView`` from ``envelope.state.payload`` and passes it
 into ``verify_system.run_qa_subflow``, avoiding a ``pipeline_engine``
 import inside ``verify_system``.
+
+AG3-044 (FK-26 §26.11.2 / FK-20 §20.5.1):
+
+* BLOCKED-exit -- ``on_enter`` reads ``worker-manifest.json`` FIRST (before any
+  QA-subflow). A ``BLOCKED`` manifest returns ``PhaseStatus.ESCALATED`` with the
+  blocker details in ``suggested_reaction`` and runs NO QA-subflow (invariant
+  ``worker_blocked_escalates``; NO ERROR BYPASSING -- the check is unconditional).
+* Orchestrator-Trennlinie -- the handler no longer runs an inline ``while True``
+  remediation loop. One QA-subflow run per ``on_enter``: PASS -> COMPLETED,
+  FAIL+CONTINUE_REMEDIATION -> ``IN_PROGRESS`` with
+  ``agents_to_spawn=[remediation_worker]`` (subflow-internal, no phase change),
+  FAIL+ESCALATE -> ESCALATED.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from agentkit.artifacts import ArtifactReference
-from agentkit.core_types import ArtifactClass, QaContext
+from agentkit.core_types import (
+    ArtifactClass,
+    QaContext,
+    SpawnKind,
+    SpawnReason,
+    SpawnRequest,
+)
 from agentkit.core_types.qa_artifact_names import ALL_QA_ARTIFACT_FILES
 from agentkit.exceptions import CorruptStateError
+from agentkit.implementation.manifest import WorkerManifest, WorkerManifestStatus
 from agentkit.installer.paths import resolve_qa_story_dir
 from agentkit.pipeline_engine.lifecycle import HandlerResult
 from agentkit.state_backend.store import (
@@ -107,6 +127,15 @@ class ImplementationPhaseHandler:
                     QaContext.IMPLEMENTATION_INITIAL,
                 ),
             )
+
+        # AG3-044 (FK-26 §26.11.2): BLOCKED-exit is checked FIRST, before any
+        # QA-subflow. NO ERROR BYPASSING -- this is the unconditional first
+        # action of on_enter; a BLOCKED manifest can never reach the QA-subflow.
+        # Invariant worker_blocked_escalates holds on the real handler path.
+        blocked_result = self._blocked_exit_result(state, s_dir)
+        if blocked_result is not None:
+            return blocked_result
+
         save_story_context(s_dir, ctx)
 
         flow = load_flow_execution(s_dir)
@@ -161,136 +190,171 @@ class ImplementationPhaseHandler:
 
         qa_rounds = state.memory.implementation.qa_feedback_rounds
         current_context = _verify_context_for(qa_rounds)
-        artifacts: list[str] = []
         previous_findings: tuple[Finding, ...] = ()
+        attempt_nr = qa_rounds + 1
 
-        while True:
-            attempt_nr = qa_rounds + 1
+        # AG3-044 Orchestrator-Trennlinie (FK-20 §20.5.1): NO inline while-True.
+        # The QA-subflow runs ONCE per on_enter. The subflow-internal remediation
+        # loop is the orchestrator's job: on a FAIL below the ceiling the handler
+        # sets agents_to_spawn=[remediation_worker] and returns control (the
+        # engine re-yields, no phase change); on escalation it returns ESCALATED.
+        # E1: run_qa_subflow is the ONLY ArtifactEnvelope write path and the ONLY
+        # layer-execution path; its outcome carries the full VerifyDecision AND
+        # the resolved QA-cycle identities (FK-27 §27.2.1).
+        ctx_bundle = VerifyContextBundle(
+            run_id=flow.run_id,
+            story_dir=s_dir,
+            phase_envelope=phase_envelope_view,
+            attempt=attempt_nr,
+            project_root=ctx.project_root,
+        )
+        target = ArtifactReference(
+            artifact_class=ArtifactClass.WORKER,
+            story_id=ctx.story_id,
+            run_id=flow.run_id,
+            record_key=f"envelopes/worker/{ctx.story_id}/{attempt_nr}",
+        )
+        outcome: _QaSubflowOutcome = verify_system.run_qa_subflow(
+            ctx_bundle,
+            ctx.story_id,
+            current_context,
+            target,
+            previous_findings=previous_findings,
+        )
+        # E1: Artifact names come from FK-27 §27.7 (deterministic).
+        artifacts = list(ALL_QA_ARTIFACT_FILES)
 
-            # E1: run_qa_subflow is the ONLY ArtifactEnvelope write path
-            # and the ONLY layer-execution path. The returned
-            # QaSubflowOutcome carries the full VerifyDecision AND the resolved
-            # QA-cycle identities (qa_cycle_id, round, evidence_epoch,
-            # fingerprint) — the state owner persists ALL four (FK-27 §27.2.1).
-            ctx_bundle = VerifyContextBundle(
-                run_id=flow.run_id,
-                story_dir=s_dir,
-                phase_envelope=phase_envelope_view,
-                attempt=attempt_nr,
-                project_root=ctx.project_root,
+        # E1: persist ALL FOUR QA-cycle identities resolved by the subflow into
+        # the PhaseState payload (FK-27 §27.2.1 "im Story-State persistiert").
+        awaiting_state = _state_with_payload(
+            state,
+            QaCycleStatus.AWAITING_QA,
+            current_context,
+            qa_feedback_rounds=qa_rounds,
+            qa_cycle_round=outcome.qa_cycle_round,
+            qa_cycle_id=outcome.qa_cycle_id,
+            evidence_epoch=outcome.evidence_epoch,
+            evidence_fingerprint=outcome.evidence_fingerprint,
+        )
+
+        # FK-69 path: feed decision from outcome (no second layer run).
+        decision = outcome.decision
+        projection_dir = resolve_qa_story_dir(
+            s_dir,
+            story_id=ctx.story_id,
+            project_root=ctx.project_root,
+        )
+        # FK-69 §69.4 / AG3-035 #5: QA-Read-Models werden ueber den
+        # ProjectionAccessor als fachliche Schreibgrenze persistiert (nicht
+        # direkt via state_backend-Fassade). Die atomare Driver-Transaktion
+        # bleibt im injizierten Batch-Port gekapselt (Befund D Option i).
+        from agentkit.bootstrap.composition_root import build_projection_accessor
+
+        accessor = build_projection_accessor(s_dir)
+        accessor.record_qa_layer_artifacts(
+            s_dir,
+            layer_results=decision.layer_results,
+            attempt_nr=attempt_nr,
+            projection_dir=projection_dir,
+        )
+        record_verify_decision(
+            s_dir,
+            decision=decision,
+            attempt_nr=attempt_nr,
+            projection_dir=projection_dir,
+        )
+
+        if decision.passed:
+            logger.info("QA-subflow passed for %s", ctx.story_id)
+            return HandlerResult(
+                status=PhaseStatus.COMPLETED,
+                artifacts_produced=tuple(dict.fromkeys(artifacts)),
+                updated_state=_state_with_payload(
+                    awaiting_state,
+                    QaCycleStatus.PASS,
+                    current_context,
+                    qa_feedback_rounds=qa_rounds,
+                    qa_cycle_round=outcome.qa_cycle_round,
+                    qa_cycle_id=outcome.qa_cycle_id,
+                    evidence_epoch=outcome.evidence_epoch,
+                    evidence_fingerprint=outcome.evidence_fingerprint,
+                ),
             )
-            target = ArtifactReference(
-                artifact_class=ArtifactClass.WORKER,
-                story_id=ctx.story_id,
-                run_id=flow.run_id,
-                record_key=f"envelopes/worker/{ctx.story_id}/{attempt_nr}",
-            )
-            outcome: _QaSubflowOutcome = verify_system.run_qa_subflow(
-                ctx_bundle,
+
+        # E3: escalation is OWNED by the RemediationLoopController inside the
+        # subflow; the handler consumes outcome.escalated verbatim (no duplicated
+        # qa_rounds >= max check). FK-27 §27.2.2 max_rounds_exceeded -> ESCALATE.
+        if outcome.escalated:
+            error_msgs = _feedback_errors(outcome)
+            logger.warning(
+                "QA-subflow escalated for %s after %d rounds",
                 ctx.story_id,
-                current_context,
-                target,
-                previous_findings=previous_findings,
+                outcome.qa_cycle_round,
             )
-            # E1: Artifact names come from FK-27 §27.7 (deterministic).
-            artifacts.extend(ALL_QA_ARTIFACT_FILES)
-
-            # E1: persist ALL FOUR QA-cycle identities resolved by the subflow
-            # into the PhaseState payload (FK-27 §27.2.1 "im Story-State
-            # persistiert"). awaiting_state carries the cycle so a crash between
-            # the subflow and the terminal write keeps the identities durable.
-            awaiting_state = _state_with_payload(
-                state,
-                QaCycleStatus.AWAITING_QA,
-                current_context,
-                qa_feedback_rounds=qa_rounds,
-                qa_cycle_round=outcome.qa_cycle_round,
-                qa_cycle_id=outcome.qa_cycle_id,
-                evidence_epoch=outcome.evidence_epoch,
-                evidence_fingerprint=outcome.evidence_fingerprint,
-            )
-            # Refresh the view from the persisted identities so the NEXT round's
-            # subflow sees the active cycle (advance_qa_cycle, not start_cycle).
-            phase_envelope_view = _build_phase_envelope_view_from_state(
-                awaiting_state
+            return HandlerResult(
+                status=PhaseStatus.ESCALATED,
+                errors=tuple(error_msgs),
+                artifacts_produced=tuple(dict.fromkeys(artifacts)),
+                updated_state=_state_with_payload(
+                    awaiting_state,
+                    QaCycleStatus.ESCALATED,
+                    current_context,
+                    qa_feedback_rounds=qa_rounds,
+                    qa_cycle_round=outcome.qa_cycle_round,
+                    qa_cycle_id=outcome.qa_cycle_id,
+                    evidence_epoch=outcome.evidence_epoch,
+                    evidence_fingerprint=outcome.evidence_fingerprint,
+                ),
             )
 
-            # FK-69 path: feed decision from outcome (no second layer run).
-            decision = outcome.decision
-            projection_dir = resolve_qa_story_dir(
-                s_dir,
-                story_id=ctx.story_id,
-                project_root=ctx.project_root,
-            )
-            # FK-69 §69.4 / AG3-035 #5: QA-Read-Models werden ueber den
-            # ProjectionAccessor als fachliche Schreibgrenze persistiert (nicht
-            # direkt via state_backend-Fassade). Die atomare Driver-Transaktion
-            # bleibt im injizierten Batch-Port gekapselt (Befund D Option i).
-            from agentkit.bootstrap.composition_root import build_projection_accessor
-
-            accessor = build_projection_accessor(s_dir)
-            accessor.record_qa_layer_artifacts(
-                s_dir,
-                layer_results=decision.layer_results,
-                attempt_nr=attempt_nr,
-                projection_dir=projection_dir,
-            )
-            record_verify_decision(
-                s_dir,
-                decision=decision,
-                attempt_nr=attempt_nr,
-                projection_dir=projection_dir,
-            )
-
-            if decision.passed:
-                logger.info("QA-subflow passed for %s", ctx.story_id)
-                return HandlerResult(
-                    status=PhaseStatus.COMPLETED,
-                    artifacts_produced=tuple(dict.fromkeys(artifacts)),
-                    updated_state=_state_with_payload(
-                        awaiting_state,
-                        QaCycleStatus.PASS,
-                        current_context,
-                        qa_feedback_rounds=qa_rounds,
-                        qa_cycle_round=outcome.qa_cycle_round,
-                        qa_cycle_id=outcome.qa_cycle_id,
-                        evidence_epoch=outcome.evidence_epoch,
-                        evidence_fingerprint=outcome.evidence_fingerprint,
+        # CONTINUE_REMEDIATION (FAIL below the ceiling): orchestrator-trennlinie.
+        # Set agents_to_spawn=[remediation_worker] and return IN_PROGRESS so the
+        # orchestrator spawns a remediation worker (SpawnReason.REMEDIATION) and
+        # re-invokes the phase — a subflow-internal iteration, NOT a phase change
+        # (FK-20 §20.5.1). The persisted qa_feedback_rounds is incremented for
+        # the next round; carry this round's findings forward (FK-34).
+        next_rounds = qa_rounds + 1
+        remediation_state = _state_with_payload(
+            awaiting_state,
+            QaCycleStatus.AWAITING_REMEDIATION,
+            QaContext.IMPLEMENTATION_REMEDIATION,
+            qa_feedback_rounds=next_rounds,
+            qa_cycle_round=outcome.qa_cycle_round,
+            qa_cycle_id=outcome.qa_cycle_id,
+            evidence_epoch=outcome.evidence_epoch,
+            evidence_fingerprint=outcome.evidence_fingerprint,
+        )
+        # AG3-044 (FK-27 §27.6 / FK-48 §48.2): carry the Layer-3 adversarial
+        # spawn orders the QA-subflow derived from this round's BLOCKING Layer-2
+        # findings ALONGSIDE the remediation worker order. Both are typed
+        # ``SpawnRequest`` entries in the SINGLE ``agents_to_spawn`` truth
+        # (FK-45 §45.3); the orchestrator spawns the adversarial worker (writing
+        # into the protected sandbox already materialised by the subflow) plus
+        # the remediation worker on phase re-entry. No dead path.
+        remediation_state = remediation_state.model_copy(
+            update={
+                "agents_to_spawn": [
+                    SpawnRequest(
+                        kind=SpawnKind.WORKER,
+                        spawn_reason=SpawnReason.REMEDIATION,
+                        target_id=ctx.story_id,
                     ),
-                )
-
-            # E3: escalation is OWNED by the RemediationLoopController inside the
-            # subflow; the handler consumes outcome.escalated verbatim (no
-            # duplicated qa_rounds >= max check). FK-27 §27.2.2 max_rounds.
-            if outcome.escalated:
-                error_msgs = _feedback_errors(outcome)
-                logger.warning(
-                    "QA-subflow escalated for %s after %d rounds",
-                    ctx.story_id,
-                    outcome.qa_cycle_round,
-                )
-                return HandlerResult(
-                    status=PhaseStatus.ESCALATED,
-                    errors=tuple(error_msgs),
-                    artifacts_produced=tuple(dict.fromkeys(artifacts)),
-                    updated_state=_state_with_payload(
-                        awaiting_state,
-                        QaCycleStatus.ESCALATED,
-                        current_context,
-                        qa_feedback_rounds=qa_rounds,
-                        qa_cycle_round=outcome.qa_cycle_round,
-                        qa_cycle_id=outcome.qa_cycle_id,
-                        evidence_epoch=outcome.evidence_epoch,
-                        evidence_fingerprint=outcome.evidence_fingerprint,
-                    ),
-                )
-
-            # FAIL below the ceiling -> next remediation round. Carry this
-            # round's findings forward so the FindingResolutionAssessor can
-            # classify them next round (FK-34, closure_blocked).
-            previous_findings = decision.all_findings
-            qa_rounds += 1
-            current_context = QaContext.IMPLEMENTATION_REMEDIATION
+                    *outcome.adversarial_spawn,
+                ],
+            },
+        )
+        logger.info(
+            "QA-subflow FAIL below ceiling for %s -> remediation spawn (round %d)",
+            ctx.story_id,
+            next_rounds,
+        )
+        return HandlerResult(
+            status=PhaseStatus.IN_PROGRESS,
+            yield_status="awaiting_remediation",
+            errors=tuple(_feedback_errors(outcome)),
+            artifacts_produced=tuple(dict.fromkeys(artifacts)),
+            updated_state=remediation_state,
+        )
 
     def on_exit(self, _ctx: StoryContext, _envelope: PhaseEnvelope) -> None:
         """No-op for implementation phase."""
@@ -305,6 +369,71 @@ class ImplementationPhaseHandler:
 
         del trigger
         return self.on_enter(ctx, envelope)
+
+    def _blocked_exit_result(
+        self,
+        state: PhaseState,
+        story_dir: Path,
+    ) -> HandlerResult | None:
+        """BLOCKED-exit gate (FK-26 §26.11.2): read worker-manifest.json FIRST.
+
+        Reads ``worker-manifest.json`` from the story dir BEFORE any QA-subflow
+        (NO ERROR BYPASSING -- this is the unconditional first action). On
+        ``status == BLOCKED`` returns ``PhaseStatus.ESCALATED`` with the blocker
+        details (``blocking_issue`` / ``blocking_category`` /
+        ``recommended_next_action``) carried in the TYPED
+        ``HandlerResult.suggested_reaction`` field (AG3-044 AC6, FK-26 §26.11.2)
+        -- not smuggled through ``errors[0]``. ``errors`` carries only a plain
+        human summary line. The QA-subflow is NEVER started in that case
+        (invariant ``worker_blocked_escalates``).
+
+        A missing/unreadable/non-BLOCKED manifest returns ``None`` (the normal
+        QA-subflow path proceeds). A manifest present but schema-invalid is a
+        hard error (fail-closed) -- a worker exit is never silently ignored.
+
+        Args:
+            state: The current phase state.
+            story_dir: The story working directory.
+
+        Returns:
+            A BLOCKED ``HandlerResult.ESCALATED`` when the manifest declares
+            BLOCKED; ``None`` otherwise.
+
+        Raises:
+            CorruptStateError: When ``worker-manifest.json`` exists but is not
+                valid JSON / not a valid WorkerManifest (fail-closed).
+        """
+        manifest = _read_worker_manifest(story_dir)
+        if manifest is None or manifest.status is not WorkerManifestStatus.BLOCKED:
+            return None
+        suggested_reaction = _blocked_suggested_reaction(manifest)
+        logger.warning(
+            "Worker BLOCKED for %s (%s) -> ESCALATED, NO QA-subflow",
+            manifest.story_id,
+            manifest.blocking_category,
+        )
+        # AG3-044 AC6 (FK-26 §26.11.2): the structured blocker details live in
+        # the TYPED ``suggested_reaction`` field; ``errors`` carries only a plain
+        # human summary (no structured JSON smuggled through errors[0]).
+        category = (
+            manifest.blocking_category.value
+            if manifest.blocking_category is not None
+            else "unknown"
+        )
+        human_summary = (
+            f"Worker BLOCKED ({category}): {manifest.blocking_issue}"
+        )
+        return HandlerResult(
+            status=PhaseStatus.ESCALATED,
+            errors=(human_summary,),
+            suggested_reaction=suggested_reaction,
+            yield_status=None,
+            updated_state=_state_with_payload(
+                state,
+                QaCycleStatus.ESCALATED,
+                QaContext.IMPLEMENTATION_INITIAL,
+            ),
+        )
 
 
 def _resolve_sonar_gate_port(
@@ -509,6 +638,76 @@ def _verify_context_for(qa_feedback_rounds: int) -> QaContext:
     if qa_feedback_rounds == 0:
         return QaContext.IMPLEMENTATION_INITIAL
     return QaContext.IMPLEMENTATION_REMEDIATION
+
+
+#: Worker-manifest filename (FK-27 §27.4.1 / FK-26 §26.8). Same file the
+#: Layer-1 ``artifact.worker_manifest`` check reads -- one source of truth.
+_WORKER_MANIFEST_FILENAME = "worker-manifest.json"
+
+
+def _read_worker_manifest(story_dir: Path) -> WorkerManifest | None:
+    """Read + parse ``worker-manifest.json`` from the story dir (fail-closed).
+
+    Args:
+        story_dir: The story working directory.
+
+    Returns:
+        The parsed :class:`WorkerManifest`, or ``None`` when the file is absent
+        (no worker exit recorded yet -- the QA-subflow path proceeds).
+
+    Raises:
+        CorruptStateError: When the file exists but is not valid JSON / not a
+            valid WorkerManifest. A present-but-invalid worker exit is a hard
+            error, never silently ignored (CLAUDE.md FAIL-CLOSED).
+    """
+    path = story_dir / _WORKER_MANIFEST_FILENAME
+    if not path.is_file():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
+        raise CorruptStateError(
+            f"{_WORKER_MANIFEST_FILENAME} is not valid JSON (FK-26 §26.8)",
+            detail={"story_dir": str(story_dir), "error": str(exc)},
+        ) from exc
+    try:
+        return WorkerManifest.model_validate(raw)
+    except ValueError as exc:
+        raise CorruptStateError(
+            f"{_WORKER_MANIFEST_FILENAME} is not a valid WorkerManifest "
+            "(FK-26 §26.8.2)",
+            detail={"story_dir": str(story_dir), "error": str(exc)},
+        ) from exc
+
+
+def _blocked_suggested_reaction(manifest: WorkerManifest) -> str:
+    """Build the ESCALATED ``suggested_reaction`` from a BLOCKED manifest.
+
+    FK-26 §26.11.2: the ``suggested_reaction`` carries the blocker details
+    (``blocking_issue`` / ``blocking_category`` / ``recommended_next_action``)
+    so the orchestrator can react. The BLOCKED required-field validator
+    guarantees all three are present (fail-closed).
+
+    Args:
+        manifest: The BLOCKED worker manifest.
+
+    Returns:
+        A serialized ``suggested_reaction`` JSON string (FK-26 §26.11.2 shape).
+    """
+    payload = {
+        "action": (
+            "Worker blocked by external constraint. Review blocker details "
+            "and resolve before re-running."
+        ),
+        "blocking_issue": manifest.blocking_issue,
+        "blocking_category": (
+            manifest.blocking_category.value
+            if manifest.blocking_category is not None
+            else None
+        ),
+        "recommended_next_action": manifest.recommended_next_action,
+    }
+    return json.dumps(payload, sort_keys=True, ensure_ascii=False)
 
 
 def _feedback_errors(outcome: _QaSubflowOutcome) -> list[str]:

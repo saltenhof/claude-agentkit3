@@ -27,6 +27,7 @@ from agentkit.core_types import (
     ExplorationGateStatus,
     PauseReason,
     QaContext,
+    SpawnRequest,
 )
 from agentkit.story_context_manager.sizing import StorySize, estimate_size
 from agentkit.story_context_manager.story_model import WireStoryMode
@@ -442,6 +443,13 @@ class PhaseState(BaseModel):
     review_round: int = 0
     errors: list[str] = Field(default_factory=list)
     attempt_id: str | None = None
+    #: Engine-control spawn orders the orchestrator must execute on phase
+    #: re-entry (FK-20 §20.5.1 / FK-45 §45.3). The Implementation phase handler
+    #: sets this to ``[remediation_worker]`` on a subflow FAIL below the round
+    #: ceiling; the AdversarialSpawner sets ``[adversarial ...]`` for Layer-3
+    #: mandatory targets. Empty when no spawn is pending. This is the SINGLE
+    #: typed truth for the spawn order — no untyped second channel.
+    agents_to_spawn: list[SpawnRequest] = Field(default_factory=list)
 
     @field_validator("phase")
     @classmethod

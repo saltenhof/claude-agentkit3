@@ -29,6 +29,7 @@ from agentkit.artifacts import (
     ProducerRegistry,
 )
 from agentkit.exploration.register import register_exploration_producers
+from agentkit.implementation.register import register_implementation_producers
 from agentkit.prompt_runtime.register import register_prompt_runtime_producers
 from agentkit.state_backend.store.artifact_repository import (
     StateBackendArtifactRepository,
@@ -95,10 +96,12 @@ def build_producer_registry() -> ProducerRegistry:
     BC-Init-Hooks auf.
 
     Current state: ``register_exploration_producers`` (AG3-045,
-    ``ArtifactClass.ENTWURF``), ``register_verify_producers`` (AG3-023) and
+    ``ArtifactClass.ENTWURF``), ``register_implementation_producers`` (AG3-044,
+    ``ArtifactClass.HANDOVER``), ``register_verify_producers`` (AG3-023 +
+    AG3-044 ``ArtifactClass.ADVERSARIAL_TEST_SANDBOX``) and
     ``register_prompt_runtime_producers`` (AG3-015, FK-44 §44.6 --
     ``ArtifactClass.PROMPT_AUDIT``) are wired. Further BC-init hooks
-    (worker, telemetry, governance, closure ...) are added analogously in their
+    (telemetry, governance, closure ...) are added analogously in their
     follow-up stories.
 
     Returns:
@@ -110,6 +113,7 @@ def build_producer_registry() -> ProducerRegistry:
     """
     registry = ProducerRegistry()
     register_exploration_producers(registry)
+    register_implementation_producers(registry)
     register_prompt_runtime_producers(registry)
     register_verify_producers(registry)
     return registry

@@ -43,6 +43,12 @@ class PipelineRunResult:
         errors: Error messages collected during the run.
         yielded: ``True`` if the pipeline yielded and needs a resume.
         yield_status: Descriptive yield reason (only when yielded).
+        suggested_reaction: Typed escalation-reaction carrier propagated from
+            the terminal :class:`EngineResult` (AG3-044 AC6, FK-26 §26.11.2).
+            Set on a ``"failed"``/``"escalated"``/``"blocked"`` run when the
+            handler recommended a concrete reaction (e.g. BLOCKED-manifest
+            blocker details); ``None`` otherwise. Production callers read this
+            structured payload instead of only the human-summary ``errors``.
     """
 
     story_id: str
@@ -52,6 +58,7 @@ class PipelineRunResult:
     errors: tuple[str, ...] = ()
     yielded: bool = False
     yield_status: str | None = None
+    suggested_reaction: str | None = None
 
 
 def run_pipeline(
@@ -153,6 +160,10 @@ def run_pipeline(
                 final_status=result.status,
                 final_phase=result.phase,
                 errors=result.errors,
+                # AG3-044 AC6 (FK-26 §26.11.2): forward the typed escalation
+                # reaction end-to-end so the production caller gets the
+                # structured blocker payload, not only the human-summary errors.
+                suggested_reaction=result.suggested_reaction,
             )
 
         # phase_completed -- advance to next phase

@@ -33,6 +33,13 @@ class HandlerResult:
         errors: Error messages if the phase FAILED.
         updated_context: Updated story context (if the handler modified it).
         updated_state: Updated phase state (if the handler modified it).
+        suggested_reaction: Typed escalation-reaction carrier (AG3-044 AC6,
+            FK-26 §26.11.2). When a handler ESCALATES with a concrete
+            recommended reaction (e.g. a BLOCKED worker manifest's blocker
+            details), it populates this field rather than smuggling structured
+            data through ``errors[0]``. ``None`` when there is no such
+            recommendation. The orchestrator reads this typed field to decide
+            how to react to the escalation.
     """
 
     status: PhaseStatus
@@ -41,6 +48,7 @@ class HandlerResult:
     errors: tuple[str, ...] = ()
     updated_context: StoryContext | None = None
     updated_state: PhaseState | None = None
+    suggested_reaction: str | None = None
 
 
 @runtime_checkable

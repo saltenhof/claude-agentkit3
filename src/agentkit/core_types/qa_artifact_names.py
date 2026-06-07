@@ -102,6 +102,15 @@ GUARDRAIL_FILE: str = "guardrail.json"
 #: (shared protection mechanism, FK-23 §23.4.3 / FK-31 §31.3).
 CHANGE_FRAME_FILE: str = "change_frame.json"
 
+#: POSIX-relative root segment of the Layer-3 adversarial sandbox (AG3-044,
+#: FK-48 §48.1): adversarial spawns write tests under
+#: ``_temp/adversarial/{story_id}/{epoch}/``. Cross-cutting SSOT for the wire
+#: string: the AdversarialSpawner uses it, the QA-artifact protection
+#: (``governance.guard_system.protected_paths``) registers the prefix as a
+#: Protected-Path. The literal must NOT live in the protected governance
+#: namespace (truth boundary), so it lives here and is re-exported there.
+ADVERSARIAL_SANDBOX_PREFIX: str = "_temp/adversarial/"
+
 #: Alle 6 FK-27 §27.7-Artefakt-Dateinamen als Schutzmenge (FK-31 §31.3).
 ALL_QA_ARTIFACT_FILES: tuple[str, ...] = (
     _STRUCTURAL_FILE,
@@ -114,6 +123,7 @@ ALL_QA_ARTIFACT_FILES: tuple[str, ...] = (
 
 __all__ = [
     "ADVERSARIAL_PRODUCER",
+    "ADVERSARIAL_SANDBOX_PREFIX",
     "ADVERSARIAL_STAGE",
     "ALL_QA_ARTIFACT_FILES",
     "CHANGE_FRAME_FILE",

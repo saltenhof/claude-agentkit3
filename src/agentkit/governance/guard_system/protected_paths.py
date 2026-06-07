@@ -34,6 +34,7 @@ from agentkit.core_types.plane_artifact_names import (
     SELF_PROTECTION_SYMLINK_DIR_PARTS,
 )
 from agentkit.core_types.qa_artifact_names import (
+    ADVERSARIAL_SANDBOX_PREFIX,
     ALL_QA_ARTIFACT_FILES,
     CHANGE_FRAME_FILE,
     GUARDRAIL_FILE,
@@ -78,6 +79,32 @@ PROTECTED_GOVERNANCE_FREEZE_EXPORT: str = GOVERNANCE_FREEZE_EXPORT_RELPATH
 #: literal lives in ``core_types.qa_artifact_names`` (truth boundary -- no literal
 #: in the protected governance namespace).
 PROTECTED_CHANGE_FRAME: str = CHANGE_FRAME_FILE
+
+#: Layer-3 adversarial sandbox prefix (AG3-044, FK-48 §48.1). All adversarial
+#: spawns write under ``_temp/adversarial/{story_id}/{epoch}/``; this prefix is a
+#: Protected-Path (AG3-023) so an ordinary worker cannot tamper with adversarial
+#: test evidence. The path literal lives in ``core_types.qa_artifact_names``
+#: (truth boundary -- no literal in the protected governance namespace).
+PROTECTED_ADVERSARIAL_SANDBOX_PREFIX: str = ADVERSARIAL_SANDBOX_PREFIX
+
+
+def is_adversarial_sandbox_path(relpath: str) -> bool:
+    """Whether ``relpath`` is under the protected adversarial sandbox (AG3-044).
+
+    FK-48 §48.1 / AG3-023: paths under ``_temp/adversarial/`` are Protected-Paths
+    so adversarial test evidence is tamper-protected. The check is POSIX-relative
+    and prefix-based; backslashes are normalised so a Windows-style path resolves
+    identically (fail-closed: a non-matching path is NOT protected).
+
+    Args:
+        relpath: A POSIX-relative path (e.g. ``_temp/adversarial/AG3-044/1``).
+
+    Returns:
+        ``True`` iff the path is under the adversarial sandbox prefix.
+    """
+    normalised = relpath.replace("\\", "/").lstrip("./")
+    return normalised.startswith(PROTECTED_ADVERSARIAL_SANDBOX_PREFIX)
+
 
 # ---------------------------------------------------------------------------
 # Self-Protection-Pfad-Registry (FK-30 §30.5.4 / FK-15 §15.7.1).
@@ -154,6 +181,7 @@ __all__ = [
     "ALL_QA_ARTIFACT_FILES",
     "GUARDRAIL_FILE",
     "LAYER_ARTIFACT_FILES",
+    "PROTECTED_ADVERSARIAL_SANDBOX_PREFIX",
     "PROTECTED_CHANGE_FRAME",
     "PROTECTED_GOVERNANCE_FREEZE_EXPORT",
     "PROTECTED_QA_ARTIFACTS",
@@ -165,4 +193,5 @@ __all__ = [
     "STORY_DB_DIR_SEGMENT",
     "STORY_DB_SUFFIXES",
     "VERIFY_DECISION_FILE",
+    "is_adversarial_sandbox_path",
 ]

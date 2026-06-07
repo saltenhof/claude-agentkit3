@@ -51,6 +51,7 @@ from agentkit.core_types import (
     PolicyVerdict,
     QaContext,
     Severity,
+    SpawnKind,
     SpawnReason,
     StoryDependencyKind,
     StoryMode,
@@ -205,6 +206,11 @@ _SPAWN_REASON_EXPECTED: Final[Mapping[str, str]] = {
     "INITIAL": "initial",
     "PAUSED_RETRY": "paused_retry",
     "REMEDIATION": "remediation",
+}
+
+_SPAWN_KIND_EXPECTED: Final[Mapping[str, str]] = {
+    "WORKER": "worker",
+    "ADVERSARIAL": "adversarial",
 }
 
 
@@ -367,4 +373,11 @@ def test_spawn_reason_wire_values() -> None:
     """bc-cut §BC 6 + FK-26 §26.2 — drei lower-case SpawnReason-Werte."""
     _assert_wire_contract(
         SpawnReason, _SPAWN_REASON_EXPECTED, expected_count=3,
+    )
+
+
+def test_spawn_kind_wire_values() -> None:
+    """FK-45 §45.3 — zwei lower-case SpawnKind-Werte (worker/adversarial)."""
+    _assert_wire_contract(
+        SpawnKind, _SPAWN_KIND_EXPECTED, expected_count=2,
     )

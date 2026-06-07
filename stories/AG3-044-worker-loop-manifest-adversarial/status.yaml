@@ -1,8 +1,8 @@
 story_id: AG3-044
 title: "WorkerSession + WorkerLoop + HandoverPackager + WorkerManifest + BLOCKED-Exit + Adversarial-Spawn"
 type: implementation
-status: blocked
-phase: setup
+status: completed
+phase: closure
 created: "2026-05-16"
 size: L
 depends_on:

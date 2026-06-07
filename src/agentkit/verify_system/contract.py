@@ -27,7 +27,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
-from agentkit.core_types import PolicyVerdict
+from agentkit.core_types import PolicyVerdict, SpawnRequest
 from agentkit.verify_system.policy_engine.engine import VerifyDecision
 from agentkit.verify_system.protocols import LayerResult
 from agentkit.verify_system.remediation.feedback import RemediationFeedback
@@ -331,6 +331,16 @@ class QaSubflowOutcome(BaseModel):
             previous-round findings block closure in a remediation context
             (FK-34 §34.9.4 / DK-04 §4.6, AG3-041 §2.1.6). Consumed by the
             closure phase in a follow-up story.
+        adversarial_spawn: Typed Layer-3 adversarial spawn orders derived from
+            this round's BLOCKING Layer-2 findings (FK-27 §27.6 / FK-48 §48.2).
+            Each :class:`SpawnRequest` is an ``ADVERSARIAL`` worker order the
+            state owner (``ImplementationPhaseHandler``) writes into
+            ``PhaseState.agents_to_spawn`` so the orchestrator spawns the
+            adversarial worker on phase re-entry. Empty when Layer 3 was not
+            routed (e.g. Exploration / fast) or Layer 2 produced no BLOCKING
+            finding. The protected sandbox + ``ADVERSARIAL_TEST_SANDBOX``
+            envelope are materialised by ``run_qa_subflow`` as a side effect of
+            building these orders (the spawn is non-dead on the real QA path).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=True)
@@ -346,6 +356,7 @@ class QaSubflowOutcome(BaseModel):
     evidence_fingerprint: str | None = None
     escalated: bool = False
     closure_blocked: bool = False
+    adversarial_spawn: tuple[SpawnRequest, ...] = ()
 
 
 __all__ = [

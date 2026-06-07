@@ -33,7 +33,7 @@ from agentkit.artifacts import (
     Producer,
     ProducerId,
 )
-from agentkit.core_types import ArtifactClass, PolicyVerdict, QaContext
+from agentkit.core_types import ArtifactClass, PolicyVerdict, QaContext, SpawnRequest
 from agentkit.verify_system._artifact_specs import (
     ARTIFACT_CLASS_TO_TARGET_TYPE as _ARTIFACT_CLASS_TO_TARGET_TYPE,
 )
@@ -56,6 +56,7 @@ from agentkit.verify_system._artifact_specs import _LayerArtifactSpec
 from agentkit.verify_system.adversarial_orchestrator.challenger import (
     AdversarialChallenger,
 )
+from agentkit.verify_system.adversarial_orchestrator.spawn import AdversarialSpawner
 from agentkit.verify_system.contract import (
     QaSubflowOutcome,
     VerifyContextBundle,
@@ -225,6 +226,16 @@ class VerifySystem:
     #: API response). Default is the No-op sink; the productive telemetry adapter
     #: is wired via ``composition_root.build_verify_system``.
     review_completion_sink: ReviewCompletionSink = _NULL_REVIEW_COMPLETION_SINK
+    #: Layer-3 adversarial spawner (FK-27 §27.6 / FK-48 §48.2, AG3-044). After
+    #: Layer 2 yields BLOCKING findings, ``run_qa_subflow`` derives mandatory
+    #: :class:`AdversarialTarget` from them, materialises the protected sandbox +
+    #: ``ADVERSARIAL_TEST_SANDBOX`` envelope and carries the resulting
+    #: ``agents_to_spawn`` orders out through ``QaSubflowOutcome.adversarial_spawn``
+    #: so the orchestrator spawns the adversarial worker on phase re-entry. This
+    #: is the productive wiring that makes the spawn non-dead on the real QA path
+    #: (it is no longer reached only by hand-wired tests). ``None`` keeps the pure
+    #: passthrough (no spawn derivation) for unit fixtures.
+    adversarial_spawner: AdversarialSpawner | None = None
 
     @property
     def layer_2(self) -> QALayer:
@@ -364,6 +375,15 @@ class VerifySystem:
             are_provider=structural_are_provider,
             change_evidence_port=structural_change_evidence_port,
         )
+        # AG3-044 (FK-27 §27.6 / FK-48 §48.2): the adversarial spawner is wired
+        # by default (it only needs the producer-bound ArtifactManager). It is
+        # held BOTH on the Layer-3 challenger (so ``derive_adversarial_targets``
+        # turns BLOCKING Layer-2 findings into mandatory targets) AND on the
+        # VerifySystem (so ``run_qa_subflow`` calls ``request_spawn`` to
+        # materialise the protected sandbox + carry the spawn orders out). This
+        # is the end-to-end wiring that makes the spawn reachable on the real QA
+        # path -- no dead path.
+        adversarial_spawner = AdversarialSpawner(artifact_manager)
         # AG3-015 / FK-44 §44.4.2: the QA layers materialize their prompts via
         # PromptRuntime.materialize_prompt and audit them via the
         # ArtifactManager. Both dependencies are injected here so no layer
@@ -385,6 +405,7 @@ class VerifySystem:
             layer_3=AdversarialChallenger(
                 artifact_manager=artifact_manager,
                 story_context_port=resolved_port,
+                spawner=adversarial_spawner,
             ),
             policy_engine=PolicyEngine(
                 max_major_findings=max_major_findings,
@@ -412,6 +433,7 @@ class VerifySystem:
                 if review_completion_sink is not None
                 else _NULL_REVIEW_COMPLETION_SINK
             ),
+            adversarial_spawner=adversarial_spawner,
         )
 
     # ------------------------------------------------------------------
@@ -732,6 +754,16 @@ class VerifySystem:
         # of truth here.
         closure_blocked = resolution_map_has_open_findings(resolution_map)
 
+        # AG3-044 (FK-27 §27.6 / FK-48 §48.2): after Layer 2 yields BLOCKING
+        # findings the Layer-3 adversarial spawn is REQUESTED on the real QA
+        # path -- derive mandatory targets from those findings, materialise the
+        # protected sandbox + ``ADVERSARIAL_TEST_SANDBOX`` envelope, and carry
+        # the typed spawn orders out. Only when Layer 3 was routed (IMPLEMENTATION
+        # context); Exploration / fast skip Layer 3 and produce no spawn order.
+        adversarial_spawn = self._derive_adversarial_spawn(
+            ctx, story_id, layer_kinds, layer_results
+        )
+
         # Step 9: Return QaSubflowOutcome (public DTO, AK11 / §2.1.3). The cycle
         # is always resolved (FK-27 §27.2.2 idle -> awaiting_qa), so all four
         # identity fields are surfaced for the state owner to persist.
@@ -747,7 +779,64 @@ class VerifySystem:
             evidence_fingerprint=cycle_state.evidence_fingerprint,
             escalated=escalated,
             closure_blocked=closure_blocked,
+            adversarial_spawn=adversarial_spawn,
         )
+
+    def _derive_adversarial_spawn(
+        self,
+        ctx: VerifyContextBundle,
+        story_id: str,
+        layer_kinds: tuple[QALayerKind, ...],
+        layer_results: list[LayerResult],
+    ) -> tuple[SpawnRequest, ...]:
+        """Build the Layer-3 adversarial spawn orders (FK-27 §27.6 / FK-48 §48.2).
+
+        Collects the BLOCKING findings of this round's Layer-2 reviewers
+        (``qa_review`` / ``semantic_review`` / ``doc_fidelity``), derives one
+        mandatory :class:`AdversarialTarget` per finding via the Layer-3
+        challenger, then asks the wired :class:`AdversarialSpawner` to
+        materialise the protected sandbox + ``ADVERSARIAL_TEST_SANDBOX`` envelope
+        and produce the typed ``agents_to_spawn`` orders. This is the productive
+        bridge that makes the spawn reachable on the real QA path (no dead path).
+
+        Returns an empty tuple when Layer 3 was not routed (Exploration / fast),
+        when no spawner is wired (unit fixtures), or when Layer 2 produced no
+        BLOCKING finding. Per FK-27 §27.6 the adversarial spawn fires only on the
+        real QA path when Layer-2 yields BLOCKING findings with test anchors.
+
+        Args:
+            ctx: The run-time verify-context bundle (sandbox scope / run id).
+            story_id: The authoritative story display id (the one
+                ``run_qa_subflow`` was invoked with), used to scope the sandbox.
+            layer_kinds: The routed layer kinds (Layer 3 routed iff
+                ``ADVERSARIAL`` is present).
+            layer_results: The collected layer results of this round.
+
+        Returns:
+            The typed adversarial spawn orders (possibly empty).
+        """
+        if QALayerKind.ADVERSARIAL not in layer_kinds:
+            return ()
+        spawner = self.adversarial_spawner
+        if spawner is None:
+            return ()
+        layer2_blocking = [
+            finding
+            for result in layer_results
+            if result.layer in _LAYER_2_ROLE_NAMES
+            for finding in result.findings
+            if finding.severity is Severity.BLOCKING
+        ]
+        targets = spawner.derive_targets(layer2_blocking)
+        if not targets:
+            return ()
+        request = spawner.request_spawn(ctx, targets, story_id=story_id)
+        logger.info(
+            "adversarial spawn requested (FK-27 §27.6): story_id=%s targets=%d",
+            story_id,
+            len(targets),
+        )
+        return request.agents_to_spawn
 
     # ------------------------------------------------------------------
     # Fast-mode floor (AG3-018, FK-24 §24.3.4)
@@ -1353,6 +1442,14 @@ class VerifySystem:
         )
         self.artifact_manager.write(envelope)
         return _POLICY_ARTIFACT_SPEC.filename
+
+
+#: FK-27 §27.5 Layer-2 reviewer role names (qa_review / semantic_review /
+#: doc_fidelity). Used to collect the Layer-2 BLOCKING findings the adversarial
+#: spawn derives mandatory targets from (FK-27 §27.6 / FK-48 §48.2, AG3-044).
+_LAYER_2_ROLE_NAMES: frozenset[str] = frozenset(
+    {"qa_review", "semantic_review", "doc_fidelity"}
+)
 
 
 #: FK-27 §27.4-§27.7 / FK-33 §33.2.2 canonical QA layer name -> layer number.
