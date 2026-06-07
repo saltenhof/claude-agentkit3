@@ -7,13 +7,21 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
+
+from agentkit.governance.errors import StoryModeResolutionError
 from agentkit.governance.setup_preflight_gate.context_builder import (
     _extract_mode,
     _extract_story_type,
+    build_internal_story_context,
     build_story_context,
 )
 from agentkit.integrations.github.issues import IssueData
-from agentkit.story_context_manager.story_model import WireStoryMode
+from agentkit.story_context_manager.story_model import (
+    Story,
+    WireStoryMode,
+    WireStoryType,
+)
 from agentkit.story_context_manager.types import (
     ImplementationContract,
     StoryType,
@@ -22,7 +30,35 @@ from agentkit.story_context_manager.types import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-    import pytest
+
+def _internal_story(
+    *,
+    story_display_id: str = "AG3-200",
+    story_type: WireStoryType = WireStoryType.CONCEPT,
+    title: str = "Refine the domain concept",
+) -> Story:
+    """Build a non-code-producing ``Story`` record (StoryService stammdaten)."""
+    return Story(
+        project_key="test-project",
+        story_number=200,
+        story_display_id=story_display_id,
+        title=title,
+        story_type=story_type,
+        participating_repos=["repo"],
+        labels=["concept"],
+    )
+
+
+class _FakeStoryServiceWithRecord:
+    """Minimal StoryService stub exposing ``get_story`` for the internal path."""
+
+    def __init__(self, story: Story | None) -> None:
+        self._story = story
+        self.issue_calls = 0
+
+    def get_story(self, story_display_id: str) -> Story | None:
+        del story_display_id
+        return self._story
 
 
 def _make_issue(
@@ -230,3 +266,64 @@ class TestBuildStoryContext:
         ctx = build_story_context("owner", "repo", 42, tmp_path, "test-project")
         # Concept profile's default mode is None (no execution_route)
         assert ctx.execution_route is None
+
+
+class TestBuildInternalStoryContext:
+    """AG3-054 PART B (#2): an internal story builds its context WITHOUT GitHub."""
+
+    def test_internal_context_does_not_call_get_issue(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    ) -> None:
+        """An internal story context is built from StoryService -- never GitHub.
+
+        ``get_issue`` is patched to RAISE: if the internal path touched GitHub at
+        all the test would fail. It must build the context purely from the
+        authoritative ``StoryService`` record.
+        """
+
+        def _explode(owner: str, repo: str, nr: int) -> object:
+            del owner, repo, nr
+            raise AssertionError("get_issue must NOT be called for an internal story")
+
+        monkeypatch.setattr(
+            "agentkit.governance.setup_preflight_gate.context_builder.get_issue",
+            _explode,
+        )
+        service = _FakeStoryServiceWithRecord(_internal_story())
+
+        ctx = build_internal_story_context(
+            tmp_path,
+            "test-project",
+            "AG3-200",
+            story_service=service,  # type: ignore[arg-type]
+        )
+
+        assert ctx.story_type is StoryType.CONCEPT
+        assert ctx.title == "Refine the domain concept"
+        assert ctx.project_root == tmp_path
+        assert ctx.issue_nr is None
+        assert ctx.mode is WireStoryMode.STANDARD
+
+    def test_internal_context_unknown_story_fails_closed(
+        self, tmp_path: Path,
+    ) -> None:
+        """A wired service that does not know the story fails closed (no fabrication)."""
+        service = _FakeStoryServiceWithRecord(None)
+        with pytest.raises(StoryModeResolutionError):
+            build_internal_story_context(
+                tmp_path,
+                "test-project",
+                "AG3-404",
+                story_service=service,  # type: ignore[arg-type]
+            )
+
+    def test_internal_context_standalone_builds_minimal_concept(
+        self, tmp_path: Path,
+    ) -> None:
+        """No wired service (standalone) builds a minimal CONCEPT context, no GitHub."""
+        ctx = build_internal_story_context(
+            tmp_path, "test-project", "AG3-201", story_service=None
+        )
+        assert ctx.story_type is StoryType.CONCEPT
+        assert ctx.project_root == tmp_path
+        assert ctx.issue_nr is None

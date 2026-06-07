@@ -28,6 +28,7 @@ from agentkit.artifacts import (
     EnvelopeValidator,
     ProducerRegistry,
 )
+from agentkit.exceptions import PipelineError
 from agentkit.exploration.register import register_exploration_producers
 from agentkit.implementation.register import register_implementation_producers
 from agentkit.prompt_runtime.register import register_prompt_runtime_producers
@@ -66,6 +67,9 @@ if TYPE_CHECKING:
     from agentkit.governance.repository import SetupContextRepository
     from agentkit.governance.setup_preflight_gate.phase import SetupPhaseHandler
     from agentkit.kpi_analytics import KpiAnalytics
+    from agentkit.pipeline_engine.engine import PipelineEngine
+    from agentkit.pipeline_engine.lifecycle import HandlerResult, PhaseHandlerRegistry
+    from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
     from agentkit.requirements_coverage.contract import CoverageVerdict
     from agentkit.requirements_coverage.top import (
         RequirementsCoverage as RequirementsCoverageProto,
@@ -73,6 +77,7 @@ if TYPE_CHECKING:
     from agentkit.skills import Skills
     from agentkit.story_context_manager.models import StoryContext
     from agentkit.story_context_manager.story_model import ChangeImpact
+    from agentkit.story_context_manager.types import StoryType
     from agentkit.telemetry.emitters import EventEmitter
     from agentkit.telemetry.projection_accessor import ProjectionAccessor
     from agentkit.verify_system.llm_evaluator.llm_client import LlmClient
@@ -1437,6 +1442,336 @@ def _build_closure_progress_store(store_dir: Path) -> ClosureProgressStore:
     return PhaseEnvelopeStore(StateBackendPhaseEnvelopeRepository(store_dir))
 
 
+def build_pipeline_handler_registry(
+    story_dir: Path,
+    *,
+    story_type: StoryType,
+    project_key: str = "",
+    setup_config: object | None = None,
+) -> PhaseHandlerRegistry:
+    """Wire ONE ``PhaseHandlerRegistry`` for a story run (AG3-054, FK-20 §20.1.1).
+
+    Pure WIRING over the phase-owning self-registration surfaces (bc-cut-decisions
+    BC 5/6/7): the exploration / implementation / closure BCs own their handler
+    internals; this composition-root function only registers the per-story-type
+    subset of handlers at ONE registry instance and threads the shared foundation
+    collaborator (``story_dir``) through each phase's own build function. It pulls
+    NO handler / gate / merge / QA innards into a central plan (no God-composition).
+
+    The registered subset follows the typed workflow for the story type
+    (:func:`~agentkit.process.language.definitions.resolve_workflow`); only phases
+    actually present in that workflow get a handler:
+
+    * ``setup`` -> :func:`build_setup_phase_handler`
+    * ``exploration`` (implementation-mode only) -> the AG3-045
+      :class:`ExplorationPhaseHandler` via :func:`build_exploration_phase_handler`
+    * ``implementation`` -> the AG3-026 ``ImplementationPhaseHandler`` (QA-subflow
+      already wired in ``implementation/phase.py``)
+    * ``closure`` -> the AG3-053 ``ClosurePhaseHandler`` via
+      :func:`build_closure_phase_handler`
+
+    Args:
+        story_dir: The story working directory (shared foundation collaborator
+            threaded into each phase build function -- e.g. the ``PhaseEnvelopeStore``
+            / state-backend read seams the handlers consume).
+        story_type: The story type whose typed workflow decides which phases are
+            present (and therefore which handlers are registered).
+        project_key: Owning project key (threaded to the closure governance seam).
+        setup_config: The run-specific ``SetupConfig`` carrying the authoritative
+            GitHub coordinates the Setup handler needs (E1). The PRODUCTIVE path
+            (``build_pipeline_engine`` <- dispatch) ALWAYS supplies a real config
+            built by :func:`build_setup_config_for_run`. ``None`` registers a
+            FAIL-CLOSED setup handler (E4) -- never a runnable dummy. A non-setup
+            follow-up dispatch (which never enters setup) is fine; if setup is
+            ever entered without a resolved real config it ESCALATES rather than
+            running against empty/dummy coordinates.
+
+    Returns:
+        A ``PhaseHandlerRegistry`` with exactly the workflow's phase handlers.
+    """
+    from agentkit.closure.phase import ClosureConfig
+    from agentkit.implementation.phase import (
+        ImplementationConfig,
+        ImplementationPhaseHandler,
+    )
+    from agentkit.pipeline_engine.lifecycle import PhaseHandlerRegistry
+    from agentkit.process.language.definitions import resolve_workflow
+
+    workflow = resolve_workflow(story_type)
+    phases = set(workflow.phase_names)
+    registry = PhaseHandlerRegistry()
+
+    if "setup" in phases:
+        # E4 fix (#4): NEVER register a runnable dummy setup config on the
+        # productive path. A resolved real ``SetupConfig`` => the real handler; a
+        # ``None`` config (the run's coordinates were not resolvable, or a
+        # follow-up dispatch never resolved them) => a FAIL-CLOSED setup handler
+        # that escalates if entered, so setup can never run against empty/dummy
+        # owner/repo/issue. A non-setup follow-up dispatch never enters it.
+        if setup_config is not None:
+            setup_handler: object = build_setup_phase_handler(
+                setup_config,
+                store_dir=story_dir,
+            )
+        else:
+            setup_handler = _UnresolvedSetupCoordinatesHandler()
+        registry.register("setup", setup_handler)  # type: ignore[arg-type]
+    if "exploration" in phases:
+        registry.register("exploration", build_exploration_phase_handler(story_dir))
+    if "implementation" in phases:
+        registry.register(
+            "implementation",
+            ImplementationPhaseHandler(ImplementationConfig(story_dir=story_dir)),
+        )
+    if "closure" in phases:
+        registry.register(
+            "closure",
+            build_closure_phase_handler(
+                ClosureConfig(story_dir=story_dir),
+                store_dir=story_dir,
+                project_key=project_key,
+            ),
+        )
+    return registry
+
+
+class _UnresolvedSetupCoordinatesHandler:
+    """Fail-closed setup handler registered when no real config resolved (E4/#4).
+
+    Registered in place of the real :class:`SetupPhaseHandler` when
+    ``build_pipeline_handler_registry`` received ``setup_config=None`` (the run's
+    authoritative coordinates could not be resolved, or a non-setup follow-up
+    dispatch never resolved them). Registering this instead of a runnable dummy
+    ``SetupConfig(owner="", repo="", issue_nr=0)`` guarantees the productive setup
+    path can NEVER run against empty/dummy coordinates: a non-setup follow-up
+    dispatch (which never enters setup) is unaffected, but any attempt to actually
+    ENTER setup ESCALATES fail-closed (FK-20 §20.8.2 / ZERO DEBT -- no second
+    source of truth, no enterable dummy on the productive path). Satisfies the
+    ``PhaseHandler`` protocol.
+    """
+
+    _REASON = (
+        "Setup cannot run: the run's authoritative setup coordinates were not "
+        "resolved when the registry was built (no real SetupConfig). The "
+        "fresh-setup-start dispatch must resolve them first (FK-20 §20.8.2); a "
+        "dummy owner/repo/issue is never permitted on the productive path "
+        "(fail-closed; E4/#4)."
+    )
+
+    def _escalation(self) -> HandlerResult:
+        from agentkit.pipeline_engine.lifecycle import HandlerResult
+        from agentkit.story_context_manager.models import PhaseStatus
+
+        return HandlerResult(
+            status=PhaseStatus.ESCALATED,
+            errors=(self._REASON,),
+            suggested_reaction="setup_coordinates_unresolved",
+        )
+
+    def on_enter(self, ctx: StoryContext, envelope: PhaseEnvelope) -> HandlerResult:
+        """Escalate fail-closed: setup must never run on unresolved coordinates."""
+        _ = ctx, envelope
+        return self._escalation()
+
+    def on_exit(self, ctx: StoryContext, envelope: PhaseEnvelope) -> None:
+        """No-op exit (the phase escalated before doing any work)."""
+        _ = ctx, envelope
+
+    def on_resume(
+        self, ctx: StoryContext, envelope: PhaseEnvelope, trigger: str
+    ) -> HandlerResult:
+        """Escalate fail-closed on resume too (coordinates still unresolved)."""
+        _ = ctx, envelope, trigger
+        return self._escalation()
+
+
+def build_pipeline_engine(
+    story_dir: Path,
+    *,
+    story_type: StoryType,
+    project_key: str = "",
+    setup_config: object | None = None,
+) -> PipelineEngine:
+    """Wire a ``PipelineEngine`` for a story run (AG3-054, FK-20 §20.1.1).
+
+    Resolves the typed workflow for ``story_type`` and constructs the engine over
+    the :func:`build_pipeline_handler_registry` wiring. The engine itself is the
+    existing deterministic interpreter (AG3-earlier) -- this is pure composition,
+    no new engine / transition / handler mechanic.
+
+    Args:
+        story_dir: The story working directory (engine persistence root).
+        story_type: The story type whose typed workflow the engine interprets.
+        project_key: Owning project key (threaded to the closure governance seam).
+        setup_config: The run-specific ``SetupConfig`` carrying the authoritative
+            GitHub coordinates (E1 fix). The PRODUCTIVE caller resolves it from the
+            run ``StoryContext`` via :func:`build_setup_config_for_run` and passes
+            it here; it is threaded into the Setup handler so setup never runs
+            against empty owner/repo/issue. ``None`` falls back to the
+            test-boundary config (dispatch-contract tests only).
+
+    Returns:
+        A wired ``PipelineEngine``.
+    """
+    from agentkit.pipeline_engine.engine import PipelineEngine
+    from agentkit.process.language.definitions import resolve_workflow
+
+    workflow = resolve_workflow(story_type)
+    registry = build_pipeline_handler_registry(
+        story_dir,
+        story_type=story_type,
+        project_key=project_key,
+        setup_config=setup_config,
+    )
+    return PipelineEngine(workflow, registry, story_dir)
+
+
+class SetupCoordinatesUnavailableError(PipelineError):
+    """The run's authoritative GitHub setup coordinates cannot be resolved (E1).
+
+    Raised by :func:`build_setup_config_for_run` when a run that requires setup
+    cannot have its authoritative ``owner`` / ``repo`` / ``issue_nr`` resolved
+    from the run ``StoryContext`` + the project config. FAIL-CLOSED: setup must
+    never run against empty/dummy coordinates (it would read the wrong / no GitHub
+    issue), so the dispatch rejects the setup start rather than fabricating
+    coordinates (ZERO DEBT / FIX-THE-MODEL -- no second source of truth).
+
+    Subclasses :class:`~agentkit.exceptions.PipelineError` so the dispatch's
+    fail-closed engine-build guard (which already maps ``PipelineError`` to a
+    normalized rejection) surfaces it as a setup-start rejection.
+    """
+
+
+def _story_is_github_backed(ctx: StoryContext) -> bool:
+    """Whether the run's story type is GitHub-backed (code-producing; E5).
+
+    SSOT criterion: a GitHub-backed story is a CODE-PRODUCING story
+    (implementation/bugfix). Per the canonical ``StoryTypeProfile`` those are the
+    types with ``uses_worktree`` / ``uses_merge`` true -- the only ones that
+    create a ``story/{story_id}`` branch + worktree and merge to ``main`` against
+    a real GitHub repo (FK-12 §12.7.1 "GitHub-Operationen in der Pipeline":
+    Setup/Worker/Closure contact GitHub only for these). CONCEPT/RESEARCH are
+    INTERNAL stories (``uses_worktree=False``, ``uses_merge=False``): they
+    legitimately carry no GitHub issue and must NOT be blocked on missing GitHub
+    coordinates. The axis is read from the authoritative
+    ``is_code_producing_story`` SSOT, never a re-derived flag.
+
+    Args:
+        ctx: The run's story context.
+
+    Returns:
+        ``True`` iff the story type is GitHub-backed (implementation/bugfix).
+    """
+    from agentkit.verify_system.sonarqube_gate import is_code_producing_story
+
+    return is_code_producing_story(ctx.story_type)
+
+
+def build_setup_config_for_run(ctx: StoryContext) -> object:
+    """Build the run's authoritative ``SetupConfig`` from the StoryContext (E1/E5).
+
+    The authoritative per-run coordinates are sourced from the SINGLE truths that
+    already own them -- NOT fabricated here. For a GitHub-backed (code-producing)
+    story they are:
+
+    * ``issue_nr`` -- the run ``StoryContext.issue_nr`` (the GitHub issue input
+      captured at story creation; for a GitHub-backed story it MUST be a real
+      positive issue number, ``> 0`` -- ``0``/``None`` is rejected, E5).
+    * ``project_root`` -- the run ``StoryContext.project_root``.
+    * ``owner`` / ``repo`` -- the project config (``project.yaml`` ->
+      ``github_owner`` / ``github_repo``), loaded from the run's project root.
+      GitHub coordinates are deployment config, owned by the project, not the
+      per-story context (FK-12 §12.1.1: GitHub is the code backend, the project
+      owns the repo coordinates).
+
+    For an INTERNAL story (CONCEPT/RESEARCH; not code-producing, E5) the setup
+    handler never creates a GitHub worktree or merges, so it requires NO GitHub
+    coordinates: this returns a config with no owner/repo/issue and
+    ``create_worktree=False``. A legitimate internal story is therefore NEVER
+    fail-closed-blocked for a missing issue/owner/repo.
+
+    FAIL-CLOSED (GitHub-backed only): if ``project_root`` / a positive
+    ``issue_nr`` / ``github_owner`` / ``github_repo`` cannot be resolved for a
+    GitHub-backed story, this raises :class:`SetupCoordinatesUnavailableError`. A
+    code-producing run that requires setup must never run against empty/bogus
+    coordinates (it would read the wrong / no GitHub issue). The caller (dispatch)
+    maps this to a fail-closed setup rejection.
+
+    Args:
+        ctx: The run's story context.
+
+    Returns:
+        A ``SetupConfig`` for the run (real GitHub coords for a GitHub-backed
+        story; a GitHub-free internal config for a non-code-producing story).
+
+    Raises:
+        SetupCoordinatesUnavailableError: When the authoritative GitHub
+            coordinates of a GitHub-backed story cannot be resolved (fail-closed;
+            never a dummy). Never raised for an internal story.
+    """
+    from agentkit.governance.setup_preflight_gate.phase import SetupConfig
+
+    if ctx.project_root is None:
+        raise SetupCoordinatesUnavailableError(
+            "cannot resolve setup coordinates: the run StoryContext has no "
+            "project_root (fail-closed; E1)."
+        )
+
+    if not _story_is_github_backed(ctx):
+        # Internal (non-code-producing) story: setup needs NO GitHub coordinates.
+        # No worktree/merge is created (FK-12 §12.7.1), so owner/repo/issue stay
+        # empty and ``create_worktree`` is off -- never a fail-closed block (E5).
+        return SetupConfig(
+            owner="",
+            repo="",
+            issue_nr=0,
+            project_root=ctx.project_root,
+            create_worktree=False,
+        )
+
+    # GitHub-backed (code-producing) story: real positive issue + owner/repo.
+    if ctx.issue_nr is None or ctx.issue_nr <= 0:
+        raise SetupCoordinatesUnavailableError(
+            "cannot resolve setup coordinates: a GitHub-backed story requires a "
+            f"positive issue_nr (> 0), got {ctx.issue_nr!r} (fail-closed; E5).",
+        )
+    owner, repo = _resolve_github_owner_repo(ctx.project_root)
+    return SetupConfig(
+        owner=owner,
+        repo=repo,
+        issue_nr=ctx.issue_nr,
+        project_root=ctx.project_root,
+    )
+
+
+def _resolve_github_owner_repo(project_root: Path) -> tuple[str, str]:
+    """Resolve the project's authoritative GitHub owner/repo (fail-closed; E1/E5).
+
+    Loads the project config (``project.yaml``) and returns its ``github_owner``
+    / ``github_repo``. A broken/absent config, or a config that declares no
+    owner/repo, raises :class:`SetupCoordinatesUnavailableError` so a
+    GitHub-backed setup never runs against empty coordinates.
+    """
+    from agentkit.config.loader import load_project_config
+
+    try:
+        project_config = load_project_config(project_root)
+    except Exception as exc:  # noqa: BLE001 -- broken/absent config is fail-closed
+        raise SetupCoordinatesUnavailableError(
+            "cannot resolve setup coordinates: the project config at "
+            f"{project_root} is unreadable/absent (fail-closed; E1): {exc}",
+        ) from exc
+    owner = project_config.github_owner
+    repo = project_config.github_repo
+    if not owner or not repo:
+        raise SetupCoordinatesUnavailableError(
+            "cannot resolve setup coordinates: the project config declares no "
+            "github_owner/github_repo (fail-closed; E1 -- setup must not run "
+            "against empty GitHub coordinates).",
+        )
+    return owner, repo
+
+
 class ClosureConfigUnavailableError(Exception):
     """The closure pre-merge config/context is broken (fail-closed, FIX-2).
 
@@ -1991,6 +2326,7 @@ def build_failure_corpus(accessor: ProjectionAccessor) -> FailureCorpus:
 
 __all__ = [
     "ClosureConfigUnavailableError",
+    "SetupCoordinatesUnavailableError",
     "build_artifact_invalidation_sink",
     "build_review_completion_sink",
     "build_artifact_manager",
@@ -2000,8 +2336,11 @@ __all__ = [
     "build_failure_corpus",
     "build_integrity_gate",
     "build_phase_state_residue_probe",
+    "build_pipeline_engine",
+    "build_pipeline_handler_registry",
     "build_producer_registry",
     "build_projection_accessor",
+    "build_setup_config_for_run",
     "build_setup_phase_handler",
     "build_setup_preflight_gate",
     "build_skills",

@@ -20,7 +20,11 @@ from psycopg.rows import dict_row
 from agentkit.boundary.filesystem import atomic_write_json, load_json_object
 from agentkit.boundary.shared.time import now_iso
 from agentkit.core_types.qa_artifact_names import VERIFY_DECISION_FILE
-from agentkit.exceptions import CorruptStateError
+from agentkit.exceptions import (
+    ControlPlaneBindingCollisionError,
+    ControlPlaneClaimCollisionError,
+    CorruptStateError,
+)
 from agentkit.state_backend.config import (
     STATE_DATABASE_URL_ENV,
     load_state_backend_config,
@@ -371,6 +375,24 @@ def _schema_alter_statements() -> tuple[str, ...]:
             "AND existing.phase = 'implementation')"
         ),
         "DELETE FROM phase_snapshots WHERE phase = 'verify'",
+        # AG3-054 (SCHEMA_VERSION 3.20.0, FK-91 / FK-22 §22.9): leased,
+        # owner-scoped claim. A fresh schema gets these from CREATE TABLE; an
+        # existing same-version schema gets them idempotently here. TEXT (not
+        # TIMESTAMPTZ) for claimed_at matches the table's other instants
+        # (created_at/updated_at) so the lease-expiry compare and the CAS
+        # exact-match roundtrip through plain ISO-8601 text.
+        (
+            "ALTER TABLE control_plane_operations "
+            "ADD COLUMN IF NOT EXISTS claimed_by TEXT"
+        ),
+        (
+            "ALTER TABLE control_plane_operations "
+            "ADD COLUMN IF NOT EXISTS claimed_at TEXT"
+        ),
+        (
+            "CREATE INDEX IF NOT EXISTS control_plane_operations_run_idx "
+            "ON control_plane_operations (project_key, story_id, run_id)"
+        ),
         # Legacy ``attempt_records``-Tabelle ist mit Schema 3.5.0 entfernt
         # (AG3-025 Re-Review-Befund 2). Keine Migrations-Updates mehr.
     )
@@ -1855,16 +1877,38 @@ def load_story_execution_lock_global_row(
 
 
 def save_control_plane_operation_global_row(row: dict[str, Any]) -> None:
-    """Persist a control-plane-operation row dict globally."""
+    """Persist a control-plane-operation row dict globally.
+
+    NOTE (AG3-054): this is the legacy upsert kept for direct test/contract use.
+    The PRODUCTIVE terminal write goes through
+    :func:`finalize_control_plane_operation_global_row` (ownership-scoped CAS), so
+    a non-owner can never clobber a terminal/foreign row. The upsert always clears
+    ``claimed_by`` (a stored row carries no live owner once it is saved as a
+    terminal result).
+
+    ERROR-3 fix (AG3-054): the upsert is CONDITIONAL -- it REFUSES to overwrite a
+    row whose ``status='claimed'`` (a live, owned lease). Only the owner's
+    ownership-scoped finalize/release may transition a claimed row. So a
+    ``complete_phase`` / ``fail_phase`` (or any non-owner save) reusing a live
+    ``start_phase`` op_id can no longer overwrite the claimed row and steal/destroy
+    its ownership. The collision is surfaced fail-closed via
+    :class:`ControlPlaneClaimCollisionError` (NO ERROR BYPASSING -- it is never a
+    silent no-op). A fresh insert and an update of a TERMINAL (non-claimed) row are
+    unaffected.
+
+    Raises:
+        ControlPlaneClaimCollisionError: When the row already exists and is still
+            ``claimed`` (the upsert would have clobbered a live lease).
+    """
 
     with _connect_global() as conn:
-        conn.execute(
+        cursor = conn.execute(
             """
             INSERT INTO control_plane_operations (
                 op_id, project_key, story_id, run_id, session_id,
                 operation_kind, phase, status, response_json,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                created_at, updated_at, claimed_by, claimed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (op_id) DO UPDATE SET
                 project_key = EXCLUDED.project_key,
                 story_id = EXCLUDED.story_id,
@@ -1874,7 +1918,10 @@ def save_control_plane_operation_global_row(row: dict[str, Any]) -> None:
                 phase = EXCLUDED.phase,
                 status = EXCLUDED.status,
                 response_json = EXCLUDED.response_json,
-                updated_at = EXCLUDED.updated_at
+                updated_at = EXCLUDED.updated_at,
+                claimed_by = EXCLUDED.claimed_by,
+                claimed_at = EXCLUDED.claimed_at
+            WHERE control_plane_operations.status <> 'claimed'
             """,
             (
                 row["op_id"],
@@ -1888,8 +1935,614 @@ def save_control_plane_operation_global_row(row: dict[str, Any]) -> None:
                 row["response_json"],
                 row["created_at"],
                 row["updated_at"],
+                row.get("claimed_by"),
+                row.get("claimed_at"),
             ),
         )
+        # rowcount == 1 on a fresh insert or a qualifying (non-claimed) update;
+        # rowcount == 0 ONLY when the conflicting row is still ``claimed`` and the
+        # WHERE blocked the overwrite. Fail-closed: a live claimed lease was hit.
+        if int(cursor.rowcount) == 0:
+            raise ControlPlaneClaimCollisionError(
+                "control-plane operation save refused: op_id "
+                f"{row['op_id']!r} is held by a LIVE 'claimed' lease; only the "
+                "owner's finalize/release may transition it. A non-owner save "
+                "(e.g. complete/fail reusing a live start's op_id) must not "
+                "clobber the claim (AG3-054 ERROR-3, fail-closed).",
+            )
+
+
+def claim_control_plane_operation_global_row(row: dict[str, Any]) -> bool:
+    """Atomically claim an op_id, inserting only if absent (AG3-054 leased claim).
+
+    Performs a single ``INSERT ... ON CONFLICT (op_id) DO NOTHING`` with
+    ``status='claimed'`` and the per-call ``claimed_by`` / ``claimed_at`` lease, so
+    exactly ONE concurrent caller wins the claim for a given ``op_id``; the loser
+    sees zero affected rows and must inspect the row (terminal => replay,
+    live claim => in-flight rejection, expired claim => CAS takeover). The claim
+    happens BEFORE dispatch, so a loser never dispatches.
+
+    Returns:
+        ``True`` iff this caller inserted the row (won the claim); ``False`` when
+        the op_id already existed (a concurrent/earlier caller owns it).
+    """
+
+    with _connect_global() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO control_plane_operations (
+                op_id, project_key, story_id, run_id, session_id,
+                operation_kind, phase, status, response_json,
+                created_at, updated_at, claimed_by, claimed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (op_id) DO NOTHING
+            """,
+            (
+                row["op_id"],
+                row["project_key"],
+                row["story_id"],
+                row["run_id"],
+                row["session_id"],
+                row["operation_kind"],
+                row["phase"],
+                row["status"],
+                row["response_json"],
+                row["created_at"],
+                row["updated_at"],
+                row.get("claimed_by"),
+                row.get("claimed_at"),
+            ),
+        )
+        return int(cursor.rowcount) == 1
+
+
+def takeover_control_plane_operation_global_row(
+    row: dict[str, Any],
+    *,
+    observed_claimed_by: str | None,
+    observed_claimed_at: str | None,
+) -> bool:
+    """CAS-take over an EXPIRED claim (AG3-054 leased claim).
+
+    Atomically re-stamps the lease to this caller ONLY if the row is still the
+    exact ``claimed`` placeholder the caller observed (same ``claimed_by`` /
+    ``claimed_at``). A concurrent winner that already finalized, released or took
+    over changed one of those, so the CAS affects zero rows and this caller loses
+    the takeover race (treated as an in-flight loser; it does NOT dispatch).
+
+    Returns:
+        ``True`` iff this caller took over the expired claim (rowcount == 1).
+    """
+
+    with _connect_global() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE control_plane_operations
+            SET claimed_by = ?, claimed_at = ?, updated_at = ?
+            WHERE op_id = ?
+              AND status = 'claimed'
+              AND claimed_by IS NOT DISTINCT FROM ?
+              AND claimed_at IS NOT DISTINCT FROM ?
+            """,
+            (
+                row.get("claimed_by"),
+                row.get("claimed_at"),
+                row["updated_at"],
+                row["op_id"],
+                observed_claimed_by,
+                observed_claimed_at,
+            ),
+        )
+        return int(cursor.rowcount) == 1
+
+
+def finalize_control_plane_operation_global_row(
+    row: dict[str, Any],
+    *,
+    owner_token: str,
+    owner_claimed_at: str | None = None,
+) -> bool:
+    """Ownership-scoped terminal write of a claimed op (AG3-054 leased claim).
+
+    Writes the terminal status + response_json and CLEARS ``claimed_by`` ONLY when
+    the row is still ``claimed`` by ``owner_token``. If another owner finalized or
+    took over the (expired) claim in between, the CAS affects zero rows and this
+    caller must NOT overwrite the foreign/terminal row -- it returns ``False`` so
+    the runtime surfaces a replay/rejection instead.
+
+    WARNING-4 fix (#4): when ``owner_claimed_at`` (the RAW lease epoch the owner
+    stamped) is given, the CAS also matches ``claimed_at`` (raw column) so it
+    scopes to THIS lease generation -- a reused token / post-takeover stale owner
+    cannot match a NEWER lease. ``None`` keeps the legacy owner-only CAS.
+
+    Returns:
+        ``True`` iff this owner's terminal write applied (rowcount == 1).
+    """
+
+    epoch_clause, epoch_params = _owner_epoch_cas_clause(owner_claimed_at)
+    with _connect_global() as conn:
+        cursor = conn.execute(
+            f"""
+            UPDATE control_plane_operations
+            SET status = ?, response_json = ?, updated_at = ?,
+                run_id = ?, session_id = ?, phase = ?,
+                claimed_by = NULL, claimed_at = NULL
+            WHERE op_id = ?
+              AND status = 'claimed'
+              AND claimed_by = ?{epoch_clause}
+            """,  # noqa: S608 -- epoch_clause is a constant fragment, not user data
+            (
+                row["status"],
+                row["response_json"],
+                row["updated_at"],
+                row["run_id"],
+                row["session_id"],
+                row["phase"],
+                row["op_id"],
+                owner_token,
+                *epoch_params,
+            ),
+        )
+        return int(cursor.rowcount) == 1
+
+
+def _owner_epoch_cas_clause(
+    owner_claimed_at: str | None,
+) -> tuple[str, tuple[str, ...]]:
+    """Build the optional lease-epoch CAS fragment (AG3-054 WARNING-4, #4).
+
+    When ``owner_claimed_at`` is given, returns a SQL fragment matching the RAW
+    ``claimed_at`` column plus its bind parameter, so the ownership CAS scopes to
+    THIS lease generation. When ``None`` (legacy administrative callers), returns
+    an empty fragment so the CAS stays owner-only (backward compatible). The
+    fragment is a fixed string with NO interpolated user data.
+    """
+    if owner_claimed_at is None:
+        return "", ()
+    return "\n              AND claimed_at IS NOT DISTINCT FROM ?", (owner_claimed_at,)
+
+
+def _insert_session_binding_row(conn: _CompatConnection, row: dict[str, Any]) -> None:
+    """Run-scoped insert/upsert of one session-run-binding row (AG3-054 sweep).
+
+    The binding is keyed by ``session_id`` (one row per session) but carries
+    ``(project_key, story_id, run_id)``. The conditional upsert creates the row when
+    absent and updates it ONLY when the existing row already belongs to the SAME
+    ``(project_key, story_id, run_id)``. A live binding for a DIFFERENT run that has
+    since rebound the same ``session_id`` is NEVER overwritten: the
+    ``DO UPDATE ... WHERE`` predicate is false, the statement touches zero rows, and
+    a still-present foreign row makes this raise
+    :class:`ControlPlaneBindingCollisionError` so the WHOLE atomic transaction rolls
+    back (no foreign-binding clobber).
+
+    Raises:
+        ControlPlaneBindingCollisionError: When the session is bound to a DIFFERENT
+            ``(project_key, story_id, run_id)`` (the upsert refused to overwrite).
+    """
+    cursor = conn.execute(
+        """
+        INSERT INTO session_run_bindings (
+            session_id, project_key, story_id, run_id, principal_type,
+            worktree_roots_json, binding_version, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (session_id) DO UPDATE SET
+            principal_type = EXCLUDED.principal_type,
+            worktree_roots_json = EXCLUDED.worktree_roots_json,
+            binding_version = EXCLUDED.binding_version,
+            updated_at = EXCLUDED.updated_at
+        WHERE session_run_bindings.project_key = EXCLUDED.project_key
+          AND session_run_bindings.story_id = EXCLUDED.story_id
+          AND session_run_bindings.run_id = EXCLUDED.run_id
+        """,
+        (
+            row["session_id"],
+            row["project_key"],
+            row["story_id"],
+            row["run_id"],
+            row["principal_type"],
+            row["worktree_roots_json"],
+            row["binding_version"],
+            row["updated_at"],
+        ),
+    )
+    if int(cursor.rowcount) == 0:
+        # Zero rows == a conflicting row exists whose run did NOT match (a fresh
+        # insert affects 1 row; a run-matched update affects 1 row). Confirm a
+        # foreign row is present and fail closed -- never silently overwrite it.
+        raise ControlPlaneBindingCollisionError(
+            "control-plane session-binding save refused: session "
+            f"{row['session_id']!r} is bound to a DIFFERENT run than "
+            f"({row['project_key']!r}, {row['story_id']!r}, {row['run_id']!r}); a "
+            "stale/late operation for an old run must not overwrite a live "
+            "binding that has since rebound the same session_id (AG3-054 "
+            "run-scoping, fail-closed).",
+        )
+
+
+def _run_scoped_delete_session_binding_row(
+    conn: _CompatConnection,
+    *,
+    session_id: str,
+    project_key: str,
+    story_id: str,
+    run_id: str,
+) -> None:
+    """Run-scoped delete of one session-run-binding row (AG3-054 sweep).
+
+    Deletes the binding ONLY when its ``(project_key, story_id, run_id)`` matches the
+    closing run. When the session has since been rebound to a DIFFERENT run, the
+    live binding is left untouched and this raises
+    :class:`ControlPlaneBindingCollisionError` so the WHOLE atomic teardown rolls
+    back (no foreign run's regime is torn down). A missing binding is a benign no-op
+    (idempotent closure).
+
+    Raises:
+        ControlPlaneBindingCollisionError: When a live binding exists for the
+            session but belongs to a DIFFERENT run.
+    """
+    cursor = conn.execute(
+        """
+        DELETE FROM session_run_bindings
+        WHERE session_id = ? AND project_key = ? AND story_id = ? AND run_id = ?
+        """,
+        (session_id, project_key, story_id, run_id),
+    )
+    if int(cursor.rowcount) == 1:
+        return
+    # Nothing matched the closing run: either there is no binding at all (benign
+    # no-op) or a FOREIGN run rebound this session. Probe to distinguish.
+    foreign = conn.execute(
+        "SELECT run_id FROM session_run_bindings WHERE session_id = ?",
+        (session_id,),
+    ).fetchone()
+    if foreign is not None:
+        raise ControlPlaneBindingCollisionError(
+            "control-plane session-binding delete refused: session "
+            f"{session_id!r} is bound to run {foreign['run_id']!r}, not the "
+            f"closing run {run_id!r}; closure must not tear down a foreign run's "
+            "live binding (AG3-054 run-scoping, fail-closed).",
+        )
+
+
+def _insert_story_execution_lock_row(
+    conn: _CompatConnection, row: dict[str, Any]
+) -> None:
+    """Insert/upsert one story-execution-lock row on an EXISTING connection (#1)."""
+    conn.execute(
+        """
+        INSERT INTO story_execution_locks (
+            project_key, story_id, run_id, lock_type, status,
+            worktree_roots_json, binding_version, activated_at,
+            updated_at, deactivated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (project_key, story_id, run_id, lock_type) DO UPDATE SET
+            story_id = EXCLUDED.story_id,
+            status = EXCLUDED.status,
+            worktree_roots_json = EXCLUDED.worktree_roots_json,
+            binding_version = EXCLUDED.binding_version,
+            activated_at = EXCLUDED.activated_at,
+            updated_at = EXCLUDED.updated_at,
+            deactivated_at = EXCLUDED.deactivated_at
+        """,
+        (
+            row["project_key"],
+            row["story_id"],
+            row["run_id"],
+            row["lock_type"],
+            row["status"],
+            row["worktree_roots_json"],
+            row["binding_version"],
+            row["activated_at"],
+            row["updated_at"],
+            row["deactivated_at"],
+        ),
+    )
+
+
+def finalize_control_plane_start_phase_global_row(
+    *,
+    op_row: dict[str, Any],
+    owner_token: str,
+    owner_claimed_at: str | None = None,
+    binding_row: dict[str, Any] | None,
+    lock_rows: Sequence[dict[str, Any]],
+    event_rows: Sequence[dict[str, Any]],
+) -> bool:
+    """Atomically CAS-finalize a start_phase AND materialize its side effects (#1).
+
+    ERROR-1 fix (#1): the ownership CAS finalize and the start_phase side effects
+    (session binding, story/QA locks, lifecycle events) are applied in ONE
+    connection / ONE transaction, gated on STILL owning the claim. The CAS finalize
+    runs FIRST: ``UPDATE ... WHERE op_id=? AND status='claimed' AND claimed_by=?``.
+
+    * rowcount == 1 -> this owner still holds the claim: the binding / locks /
+      events are inserted on the SAME connection and the whole transaction commits
+      atomically. The terminal op and its canonical side effects appear together.
+    * rowcount == 0 -> the claim was lost/taken-over (a slow owner whose lease
+      expired and was finalized by a concurrent takeover): NOTHING is materialized
+      and the transaction is rolled back (the ``with`` block raises before commit),
+      so the loser writes NO duplicate/conflicting binding / lock / event. The
+      runtime then surfaces the winner's terminal row as a replay.
+
+    The loser therefore never writes canonical side effects -- materialization is
+    ownership-gated and atomic with the finalize (FK-22 §22.9, FK-91).
+
+    Args:
+        op_row: The terminal control-plane operation row (committed result).
+        owner_token: This caller's lease owner token (the CAS scope).
+        owner_claimed_at: This caller's RAW lease epoch; when given, the ownership
+            CAS also matches ``claimed_at`` so it scopes to THIS lease generation
+            (WARNING-4, #4). ``None`` keeps the legacy owner-only CAS.
+        binding_row: The session-run-binding row to materialize, or ``None`` for a
+            fast story (no story-scoped binding).
+        lock_rows: The story-execution / qa-artifact-write lock rows (empty for a
+            fast story).
+        event_rows: The lifecycle execution-event rows (empty for a fast story).
+
+    AG3-054 run-scoping sweep: the binding INSERT is RUN-scoped
+    (:func:`_insert_session_binding_row`). A start finalize for an OLD run can never
+    overwrite a live binding that has since rebound the same ``session_id`` to a
+    DIFFERENT run -- the conditional upsert raises
+    :class:`ControlPlaneBindingCollisionError` and the whole transaction rolls back.
+
+    Returns:
+        ``True`` iff this owner's terminal write applied and the side effects were
+        materialized atomically; ``False`` when the claim was lost (nothing written).
+
+    Raises:
+        ControlPlaneBindingCollisionError: When the binding would overwrite a
+            FOREIGN run's live binding (nothing committed; the binding intact).
+    """
+
+    class _NotOwnerError(RuntimeError):
+        """Internal sentinel: abort + roll back when the ownership CAS loses."""
+
+    epoch_clause, epoch_params = _owner_epoch_cas_clause(owner_claimed_at)
+    try:
+        with _connect_global() as conn:
+            cursor = conn.execute(
+                f"""
+                UPDATE control_plane_operations
+                SET status = ?, response_json = ?, updated_at = ?,
+                    run_id = ?, session_id = ?, phase = ?,
+                    claimed_by = NULL, claimed_at = NULL
+                WHERE op_id = ?
+                  AND status = 'claimed'
+                  AND claimed_by = ?{epoch_clause}
+                """,  # noqa: S608 -- epoch_clause is a constant fragment
+                (
+                    op_row["status"],
+                    op_row["response_json"],
+                    op_row["updated_at"],
+                    op_row["run_id"],
+                    op_row["session_id"],
+                    op_row["phase"],
+                    op_row["op_id"],
+                    owner_token,
+                    *epoch_params,
+                ),
+            )
+            if int(cursor.rowcount) != 1:
+                # Lost the ownership CAS: roll back so NO side effect is written.
+                raise _NotOwnerError
+            if binding_row is not None:
+                _insert_session_binding_row(conn, binding_row)
+            for lock_row in lock_rows:
+                _insert_story_execution_lock_row(conn, lock_row)
+            for event_row in event_rows:
+                _insert_execution_event_row(conn, event_row)
+    except _NotOwnerError:
+        return False
+    return True
+
+
+def _conditional_upsert_control_plane_op_row(
+    conn: _CompatConnection, row: dict[str, Any]
+) -> None:
+    """Conditionally upsert a terminal op row on an EXISTING connection (ERROR-2).
+
+    Shares the conditional-upsert semantics of
+    :func:`save_control_plane_operation_global_row` (it REFUSES to overwrite a row
+    that is still ``status='claimed'`` -- a live, owned lease) but runs on a
+    CALLER-supplied connection so the op-row write and the mutation's side effects
+    commit (or roll back) in ONE transaction. The collision is surfaced via
+    :class:`ControlPlaneClaimCollisionError` raised INSIDE the transaction, so the
+    enclosing ``with _connect_global()`` block re-raises before ``commit`` and the
+    already-issued side-effect statements are rolled back -- no orphan binding /
+    lock / event survives a collision (AG3-054 ERROR-2, fail-closed atomicity).
+
+    Raises:
+        ControlPlaneClaimCollisionError: When the conflicting row is still
+            ``claimed`` (the upsert would have clobbered a live lease).
+    """
+    cursor = conn.execute(
+        """
+        INSERT INTO control_plane_operations (
+            op_id, project_key, story_id, run_id, session_id,
+            operation_kind, phase, status, response_json,
+            created_at, updated_at, claimed_by, claimed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (op_id) DO UPDATE SET
+            project_key = EXCLUDED.project_key,
+            story_id = EXCLUDED.story_id,
+            run_id = EXCLUDED.run_id,
+            session_id = EXCLUDED.session_id,
+            operation_kind = EXCLUDED.operation_kind,
+            phase = EXCLUDED.phase,
+            status = EXCLUDED.status,
+            response_json = EXCLUDED.response_json,
+            updated_at = EXCLUDED.updated_at,
+            claimed_by = EXCLUDED.claimed_by,
+            claimed_at = EXCLUDED.claimed_at
+        WHERE control_plane_operations.status <> 'claimed'
+        """,
+        (
+            row["op_id"],
+            row["project_key"],
+            row["story_id"],
+            row["run_id"],
+            row["session_id"],
+            row["operation_kind"],
+            row["phase"],
+            row["status"],
+            row["response_json"],
+            row["created_at"],
+            row["updated_at"],
+            row.get("claimed_by"),
+            row.get("claimed_at"),
+        ),
+    )
+    if int(cursor.rowcount) == 0:
+        raise ControlPlaneClaimCollisionError(
+            "control-plane operation save refused: op_id "
+            f"{row['op_id']!r} is held by a LIVE 'claimed' lease; only the "
+            "owner's finalize/release may transition it. A non-owner save "
+            "(e.g. complete/fail/closure reusing a live start's op_id) must not "
+            "clobber the claim (AG3-054 ERROR-3, fail-closed).",
+        )
+
+
+def commit_control_plane_operation_with_side_effects_global_row(
+    *,
+    op_row: dict[str, Any],
+    binding_to_save: dict[str, Any] | None,
+    binding_to_delete: dict[str, Any] | None,
+    lock_rows: Sequence[dict[str, Any]],
+    event_rows: Sequence[dict[str, Any]],
+) -> None:
+    """Atomically commit a terminal op AND its side effects in ONE transaction (#2).
+
+    ERROR-2 fix (#2): ``complete_phase`` / ``fail_phase`` (the admitted-phase
+    mutation) and ``complete_closure`` (standard + fast teardown) previously wrote
+    their side effects (session-binding create/delete, lock records, lifecycle
+    events) via SEPARATE ``_connect_global()`` transactions and THEN called the
+    conditional op-row upsert -- which raises :class:`ControlPlaneClaimCollisionError`
+    when it would clobber a LIVE ``claimed`` start lease. By then the side effects
+    were already committed -> orphan state (e.g. a deleted binding / deactivated
+    lock while the live claim survived and the result was a rejection).
+
+    This function applies the conditional op-row upsert AND all side effects on the
+    SAME connection / ONE transaction, with the collision gate running FIRST: a
+    collision raises before any commit, so the whole transaction (including every
+    side effect) rolls back. The mutation is therefore atomic -- a collision leaves
+    NO side effect written and the live claimed row intact (FK-22 §22.9).
+
+    Args:
+        op_row: The terminal control-plane operation row (committed result).
+        binding_to_save: A session-run-binding row to RUN-scoped-upsert, or ``None``
+            (the complete/fail standard path materializes one; closure never does).
+            A foreign-run conflict raises :class:`ControlPlaneBindingCollisionError`.
+        binding_to_delete: A run-scoped delete spec dict (``session_id`` +
+            ``project_key`` + ``story_id`` + ``run_id``) whose binding must be
+            removed, or ``None`` (closure removes the binding; complete/fail never
+            does). A foreign-run live binding is left untouched and raises
+            :class:`ControlPlaneBindingCollisionError`.
+        lock_rows: The story/QA lock rows to upsert (empty when none apply).
+        event_rows: The lifecycle execution-event rows to append (empty for none).
+
+    Raises:
+        ControlPlaneClaimCollisionError: When ``op_row`` collides with a LIVE
+            ``claimed`` lease (nothing is committed; the live claim is intact).
+        ControlPlaneBindingCollisionError: When the binding save/delete would touch
+            a FOREIGN run's live binding (nothing committed; the binding intact).
+    """
+    with _connect_global() as conn:
+        # Collision gate FIRST: a live-claim collision raises here, BEFORE any side
+        # effect is durable, so the transaction rolls back with zero orphan state.
+        _conditional_upsert_control_plane_op_row(conn, op_row)
+        if binding_to_save is not None:
+            _insert_session_binding_row(conn, binding_to_save)
+        if binding_to_delete is not None:
+            # Run-scoped delete: a foreign run's live binding raises and rolls back
+            # the WHOLE transaction (no foreign teardown, no orphan op/lock/event).
+            _run_scoped_delete_session_binding_row(
+                conn,
+                session_id=str(binding_to_delete["session_id"]),
+                project_key=str(binding_to_delete["project_key"]),
+                story_id=str(binding_to_delete["story_id"]),
+                run_id=str(binding_to_delete["run_id"]),
+            )
+        for lock_row in lock_rows:
+            _insert_story_execution_lock_row(conn, lock_row)
+        for event_row in event_rows:
+            _insert_execution_event_row(conn, event_row)
+
+
+def release_control_plane_operation_global_row(
+    op_id: str,
+    *,
+    owner_token: str,
+    owner_claimed_at: str | None = None,
+) -> None:
+    """Ownership-scoped release of a claimed op (AG3-054 leased claim).
+
+    Deletes the row ONLY when it is still ``claimed`` by ``owner_token``. NEVER an
+    unconditional delete: a terminal row (``status != 'claimed'``) and another
+    owner's claim are both left untouched, so a release on the exception/rejection
+    path can never delete a foreign or committed result. Idempotent.
+
+    WARNING-4 fix (#4): when ``owner_claimed_at`` (the RAW lease epoch the owner
+    stamped) is given, the delete CAS also matches ``claimed_at`` so it scopes to
+    THIS lease generation -- a stale owner (reused token / post-takeover) cannot
+    delete a NEWER lease. ``None`` keeps the legacy owner-only CAS.
+    """
+
+    epoch_clause, epoch_params = _owner_epoch_cas_clause(owner_claimed_at)
+    with _connect_global() as conn:
+        conn.execute(
+            f"""
+            DELETE FROM control_plane_operations
+            WHERE op_id = ? AND status = 'claimed' AND claimed_by = ?{epoch_clause}
+            """,  # noqa: S608 -- epoch_clause is a constant fragment, not user data
+            (op_id, owner_token, *epoch_params),
+        )
+
+
+def delete_control_plane_operation_global_row(op_id: str) -> None:
+    """Unconditional delete of a control-plane-operation row by op_id.
+
+    Retained for administrative recovery only (it ignores ownership/status). The
+    PRODUCTIVE release path uses
+    :func:`release_control_plane_operation_global_row` (ownership-scoped).
+    Idempotent: deleting an absent op_id is a no-op.
+    """
+
+    with _connect_global() as conn:
+        conn.execute(
+            "DELETE FROM control_plane_operations WHERE op_id = ?",
+            (op_id,),
+        )
+
+
+def has_committed_control_plane_operation_for_run_global_row(
+    project_key: str,
+    story_id: str,
+    run_id: str,
+) -> bool:
+    """Whether a committed setup ``phase_start`` exists for THIS run (AG3-054 #3).
+
+    ERROR-3 fix (#3): admission evidence must prove an admitted START, not merely
+    that ANY committed op exists for the run. A committed ``phase_complete`` /
+    ``closure_complete`` with no committed start would otherwise bootstrap
+    admission from thin air. The probe is therefore narrowed to the ONLY operation
+    the pre-start guard gates: a ``committed`` ``phase_start`` of phase ``setup``
+    for the exact ``(project_key, story_id, run_id)``. A ``claimed`` placeholder,
+    a ``rejected`` row, and a non-setup / non-start committed op are NOT evidence.
+    """
+
+    with _connect_global() as conn:
+        row = conn.execute(
+            """
+            SELECT 1 FROM control_plane_operations
+            WHERE project_key = ? AND story_id = ? AND run_id = ?
+              AND status = 'committed'
+              AND operation_kind = 'phase_start'
+              AND phase = 'setup'
+            LIMIT 1
+            """,
+            (project_key, story_id, run_id),
+        ).fetchone()
+    return row is not None
 
 
 def load_control_plane_operation_global_row(

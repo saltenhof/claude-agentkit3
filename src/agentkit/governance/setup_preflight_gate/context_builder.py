@@ -177,6 +177,87 @@ def build_story_context(
     )
 
 
+def build_internal_story_context(
+    project_root: Path,
+    project_key: str,
+    story_id: str,
+    *,
+    story_service: StoryService | None = None,
+) -> StoryContext:
+    """Build a ``StoryContext`` for an INTERNAL (non-code-producing) story (#2).
+
+    ERROR-2 fix (FK-12 §12.7.1): an internal story (CONCEPT/RESEARCH) has no
+    GitHub worktree/merge and therefore NO GitHub coordinates. It must NEVER hit
+    GitHub: this path builds the context from the AUTHORITATIVE ``StoryService``
+    record (the operative truth for an internal story's stammdaten) and the
+    state-backend, WITHOUT calling :func:`get_issue`. There is no dummy
+    owner/repo/issue passed into a GitHub-reading code path.
+
+    The story-type / mode / title / size are read from the ``StoryService``
+    record. Fail-closed (CLAUDE.md FAIL-CLOSED): a wired service that does not
+    know the story raises :class:`StoryModeResolutionError` -- an internal setup
+    must not fabricate stammdaten for an unknown story. When no service is wired
+    (standalone/legacy), the caller-supplied initial context is the fallback and
+    a minimal CONCEPT context is built (no GitHub, the documented absent-service
+    case).
+
+    Args:
+        project_root: Path to the target project root.
+        project_key: The project key.
+        story_id: The story display ID.
+        story_service: The authoritative ``StoryService``. When wired the
+            stammdaten are read from its record; when ``None`` a minimal internal
+            context is built (standalone/legacy).
+
+    Returns:
+        A ``StoryContext`` for the internal story, built without GitHub.
+
+    Raises:
+        StoryModeResolutionError: When a service is wired but the story record
+            is missing.
+    """
+    if story_service is None:
+        # Standalone/legacy: no authoritative record. Build a minimal internal
+        # context (CONCEPT, standard) -- still NO GitHub read.
+        return StoryContext(
+            project_key=project_key,
+            story_number=_story_number_from_id(story_id) or 0,
+            story_id=story_id,
+            story_type=StoryType.CONCEPT,
+            execution_route=get_profile(StoryType.CONCEPT).default_mode,
+            mode=WireStoryMode.STANDARD,
+            project_root=project_root,
+            created_at=datetime.now(tz=UTC),
+        )
+
+    story = story_service.get_story(story_id)
+    if story is None:
+        raise StoryModeResolutionError(
+            f"cannot build the internal story context: story {story_id!r} is not "
+            "in the StoryService store (fail-closed -- an internal setup must not "
+            "fabricate stammdaten or read GitHub for an unknown story; "
+            "FK-12 §12.7.1).",
+            detail={"story_display_id": story_id},
+        )
+    story_type = StoryType(story.story_type.value)
+    profile = get_profile(story_type)
+    story_mode = story.mode if story.mode is not None else WireStoryMode.STANDARD
+    return StoryContext(
+        project_key=project_key,
+        story_number=_story_number_from_id(story_id) or story.story_number,
+        story_id=story_id,
+        story_type=story_type,
+        execution_route=profile.default_mode,
+        mode=story_mode,
+        title=story.title,
+        story_size=story.size,
+        project_root=project_root,
+        participating_repos=list(story.participating_repos),
+        labels=list(story.labels),
+        created_at=datetime.now(tz=UTC),
+    )
+
+
 def _story_number_from_id(story_id: str) -> int | None:
     suffix = story_id.rsplit("-", maxsplit=1)[-1]
     if not suffix.isdigit():

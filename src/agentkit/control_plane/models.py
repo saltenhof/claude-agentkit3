@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agentkit.telemetry.events import EventType
 
@@ -150,14 +150,93 @@ class EdgeBundle(BaseModel):
     tombstone_worktree_roots: list[str] = Field(default_factory=list)
 
 
+class PhaseDispatchResult(BaseModel):
+    """Normalized single-phase dispatch result (FK-45 §45.1.2 / §45.3).
+
+    Returned by the deterministic phase dispatch and carried back on the
+    control-plane mutation response so the calling orchestrator-skill reads the
+    structured phase outcome (phase-state + orchestrator reaction) WITHOUT a
+    second state-read path. One dispatch call == exactly one phase run.
+
+    ``reaction`` mirrors the FK-45 §45.3 reaction table outcome class
+    (``run_worker`` / ``advance`` / ``await_external`` / ``escalate`` /
+    ``rejected``). ``next_phase`` is only suggested on a ``phase_completed``
+    result; the orchestrator (not the dispatch) decides whether to call it.
+    A ``rejected`` dispatch (pre-start guard / invalid transition) carries
+    ``rejection_reason`` and never entered the phase handler.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    phase: str
+    status: Literal[
+        "phase_completed",
+        "yielded",
+        "failed",
+        "escalated",
+        "blocked",
+        "rejected",
+    ]
+    reaction: Literal[
+        "run_worker",
+        "advance",
+        "await_external",
+        "escalate",
+        "rejected",
+    ]
+    dispatched: bool
+    next_phase: str | None = None
+    yield_status: str | None = None
+    rejection_reason: str | None = None
+    errors: tuple[str, ...] = ()
+
+
 class ControlPlaneMutationResult(BaseModel):
     """Shared response body for mutations, sync, and op reconciliation."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    status: Literal["committed", "replayed", "synced"]
+    status: Literal["committed", "replayed", "synced", "rejected"]
     op_id: str
     operation_kind: str
     run_id: str | None = None
     phase: str | None = None
-    edge_bundle: EdgeBundle
+    #: ``None`` ONLY for a fail-closed REJECTED start (AG3-054; FK-20 §20.8.2).
+    #: A rejected start materializes NO story-scoped guard regime -- no session
+    #: binding, no lock-records, no ``phase_start`` edge bundle -- so there is no
+    #: bundle to carry and the rejection is NOT stored as a committed op (a later
+    #: retry re-evaluates once Approved+READY). Every committed / replayed /
+    #: synced result still carries an authoritative ``edge_bundle``; the rejection
+    #: travels on ``phase_dispatch``.
+    edge_bundle: EdgeBundle | None = None
+    #: AG3-054: the normalized single-phase dispatch outcome (FK-45 §45.1.2).
+    #: ``None`` for non-dispatch operations (closure-complete, edge-sync) and
+    #: for replays of pre-AG3-054 records; present on every ``start_phase``
+    #: dispatch so the one truth carries both the idempotent edge bundle and the
+    #: phase result without a second response path.
+    phase_dispatch: PhaseDispatchResult | None = None
+
+    @model_validator(mode="after")
+    def _edge_bundle_optionality_is_bound_to_rejection(self) -> ControlPlaneMutationResult:
+        """Enforce: ``edge_bundle`` is ``None`` ONLY for a ``rejected`` result.
+
+        The field was widened to optional solely so a fail-closed REJECTED start
+        (AG3-054; FK-20 §20.8.2) can travel without materializing a story-scoped
+        edge bundle. That optionality must NOT leak to success statuses: a
+        ``committed`` / ``replayed`` / ``synced`` result with ``edge_bundle=None``
+        would let the project-edge client silently skip publishing an
+        authoritative bundle (a fail-open activation gap). Conversely a
+        ``rejected`` result MUST carry no bundle (it materialized none). Enforced
+        at the model boundary (FAIL-CLOSED, fix the model).
+        """
+        if self.status == "rejected":
+            if self.edge_bundle is not None:
+                msg = "a 'rejected' ControlPlaneMutationResult must not carry an edge_bundle"
+                raise ValueError(msg)
+        elif self.edge_bundle is None:
+            msg = (
+                f"a {self.status!r} ControlPlaneMutationResult must carry an "
+                "edge_bundle (None is allowed only for 'rejected')"
+            )
+            raise ValueError(msg)
+        return self

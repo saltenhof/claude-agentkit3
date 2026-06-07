@@ -213,6 +213,14 @@
             UNIQUE (project_key, hook_event_name, matcher, command)
         );
 
+        -- AG3-054 (FK-91, FK-22 §22.9): leased, owner-scoped claim. ``status``
+        -- stays the terminal-vs-claimed discriminator ('claimed' = in-flight
+        -- reservation; 'committed'/'rejected'/'replayed'/'synced' = terminal).
+        -- claimed_by holds the per-call owner token of an in-flight claim;
+        -- claimed_at is the lease start instant (TEXT/ISO-8601, matching the
+        -- table's other instants so the expiry compare and the CAS exact-match
+        -- roundtrip through plain text -- no psycopg datetime drift). Both are
+        -- NULL on a terminal row (finalize clears claimed_by).
         CREATE TABLE IF NOT EXISTS control_plane_operations (
             op_id TEXT PRIMARY KEY,
             project_key TEXT NOT NULL,
@@ -224,8 +232,13 @@
             status TEXT NOT NULL,
             response_json TEXT NOT NULL,
             created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            updated_at TEXT NOT NULL,
+            claimed_by TEXT,
+            claimed_at TEXT
         );
+
+        CREATE INDEX IF NOT EXISTS control_plane_operations_run_idx
+            ON control_plane_operations (project_key, story_id, run_id);
 
         CREATE TABLE IF NOT EXISTS story_metrics (
             project_key TEXT NOT NULL,

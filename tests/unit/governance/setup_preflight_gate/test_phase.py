@@ -248,10 +248,15 @@ class TestSetupPhaseHandlerWorktree:
                 "agentkit.governance.setup_preflight_gate.phase.run_preflight",
                 return_value=_make_preflight_pass(),
             ),
+            # AG3-054 (#2): a CONCEPT (non-code-producing) story builds its context
+            # via build_internal_story_context (NO GitHub), not build_story_context.
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.build_story_context",
+                "agentkit.governance.setup_preflight_gate.phase.build_internal_story_context",
                 return_value=enriched,
             ),
+            patch(
+                "agentkit.governance.setup_preflight_gate.phase.build_story_context",
+            ) as mock_github_ctx,
             patch(
                 "agentkit.governance.setup_preflight_gate.phase.setup_worktrees"
             ) as mock_setup,
@@ -260,6 +265,129 @@ class TestSetupPhaseHandlerWorktree:
 
         assert result.status == PhaseStatus.COMPLETED
         mock_setup.assert_not_called()
+        # The GitHub-reading context builder was NEVER called for a concept story.
+        mock_github_ctx.assert_not_called()
+
+    def test_internal_story_setup_does_not_call_get_issue(
+        self, tmp_path: Path
+    ) -> None:
+        """AG3-054 (#2): an internal RESEARCH story setup never contacts GitHub.
+
+        ``get_issue`` (the GitHub boundary that ``build_story_context`` calls) is
+        patched to RAISE: the internal path uses ``build_internal_story_context``,
+        so ``get_issue`` is never invoked and setup still succeeds.
+        """
+        cfg = SetupConfig(
+            owner="",
+            repo="",
+            issue_nr=0,
+            project_root=tmp_path,
+            story_id="AG3-700",
+            create_worktree=False,
+            story_service=_NoOpStoryService(),  # type: ignore[arg-type]
+        )
+        handler = SetupPhaseHandler(cfg, context_repository=_RecordingContextRepo())  # type: ignore[arg-type]
+        ctx = _make_story_context(
+            story_id="AG3-700",
+            story_type=StoryType.RESEARCH,
+            project_root=tmp_path,
+        )
+        state = _make_phase_state(story_id="AG3-700")
+        enriched = _make_story_context(
+            story_id="AG3-700",
+            story_type=StoryType.RESEARCH,
+            project_root=tmp_path,
+        )
+
+        def _explode_get_issue(owner: str, repo: str, nr: int) -> object:
+            del owner, repo, nr
+            raise AssertionError("get_issue must NOT be called for an internal story")
+
+        with (
+            patch(
+                "agentkit.governance.setup_preflight_gate.phase.run_preflight",
+                return_value=_make_preflight_pass(),
+            ),
+            patch(
+                "agentkit.governance.setup_preflight_gate.context_builder.get_issue",
+                _explode_get_issue,
+            ),
+            patch(
+                "agentkit.governance.setup_preflight_gate.phase."
+                "build_internal_story_context",
+                return_value=enriched,
+            ) as mock_internal,
+            patch(
+                "agentkit.governance.setup_preflight_gate.phase.setup_worktrees"
+            ) as mock_setup,
+        ):
+            result = handler.on_enter(
+                ctx, PhaseEnvelopeStore.make_fresh_envelope(state)
+            )
+
+        assert result.status == PhaseStatus.COMPLETED
+        mock_internal.assert_called_once()
+        mock_setup.assert_not_called()
+
+    def test_code_producing_story_setup_reads_the_issue(
+        self, tmp_path: Path
+    ) -> None:
+        """AG3-054 (#2): a code-producing story still reads the GitHub issue."""
+        cfg = SetupConfig(
+            owner="owner",
+            repo="repo",
+            issue_nr=5,
+            project_root=tmp_path,
+            story_id="AG3-005",
+            create_worktree=False,
+            story_service=_NoOpStoryService(),  # type: ignore[arg-type]
+        )
+        handler = SetupPhaseHandler(cfg, context_repository=_RecordingContextRepo())  # type: ignore[arg-type]
+        ctx = _make_story_context(
+            story_id="AG3-005",
+            story_type=StoryType.IMPLEMENTATION,
+            project_root=tmp_path,
+        )
+        state = _make_phase_state(story_id="AG3-005")
+        enriched = _make_story_context(story_id="AG3-005", project_root=tmp_path)
+
+        from agentkit.governance.setup_preflight_gate.green_main import (
+            MainGreenResult,
+            MainGreenStatus,
+        )
+
+        with (
+            patch(
+                "agentkit.governance.setup_preflight_gate.phase.run_preflight",
+                return_value=_make_preflight_pass(),
+            ),
+            patch(
+                "agentkit.governance.setup_preflight_gate.phase.build_story_context",
+                return_value=enriched,
+            ) as mock_github_ctx,
+            patch(
+                "agentkit.governance.setup_preflight_gate.phase."
+                "build_internal_story_context",
+            ) as mock_internal,
+            # A code-producing story evaluates the green-main precondition; stub it
+            # GREEN so this test isolates the GitHub-vs-internal routing assertion.
+            patch(
+                "agentkit.governance.setup_preflight_gate.green_main."
+                "check_main_green_precondition",
+                return_value=MainGreenResult(status=MainGreenStatus.GREEN),
+            ),
+            patch(
+                "agentkit.governance.setup_preflight_gate.phase.setup_worktrees"
+            ),
+        ):
+            result = handler.on_enter(
+                ctx, PhaseEnvelopeStore.make_fresh_envelope(state)
+            )
+
+        assert result.status == PhaseStatus.COMPLETED
+        # The code-producing path uses the GitHub-reading builder, not the internal one.
+        mock_github_ctx.assert_called_once()
+        mock_internal.assert_not_called()
 
     def test_create_worktree_failure_returns_failed(
         self, tmp_path: Path

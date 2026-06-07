@@ -15,6 +15,7 @@ from agentkit.control_plane.models import (
     ControlPlaneMutationResult,
     EdgeBundle,
     EdgePointer,
+    PhaseDispatchResult,
     SessionRunBindingView,
     StoryExecutionLockView,
     TelemetryEventAccepted,
@@ -442,6 +443,70 @@ def test_post_phase_start_returns_created() -> None:
     body = json.loads(response.body)
     assert body["operation_kind"] == "phase_start"
     assert runtime.calls == [("start:run-100", "setup")]
+
+
+class _RejectingRuntimeService(ControlPlaneRuntimeService):
+    """Runtime stub whose ``start_phase`` returns a fail-closed rejection."""
+
+    def start_phase(
+        self,
+        *,
+        run_id: str,
+        phase: str,
+        request: object,
+    ) -> ControlPlaneMutationResult:
+        del request
+        return ControlPlaneMutationResult(
+            status="rejected",
+            op_id="op-rejected-http",
+            operation_kind="phase_start",
+            run_id=run_id,
+            phase=phase,
+            edge_bundle=None,
+            phase_dispatch=PhaseDispatchResult(
+                phase=phase,
+                status="rejected",
+                reaction="rejected",
+                dispatched=False,
+                rejection_reason="StoryStatus is not Approved (Tor 1).",
+            ),
+        )
+
+
+def test_post_phase_start_rejection_returns_conflict() -> None:
+    """AG3-054 (FK-20 §20.8.2): a fail-closed REJECTED start is 409, not 201.
+
+    A rejection materialized no run state; it must never be reported as a
+    201 CREATED success (which would imply the run was admitted). The HTTP
+    layer maps it to 409 Conflict and serializes the (``edge_bundle=None``)
+    result without crashing; the rejection detail rides on ``phase_dispatch``.
+    """
+    app = ControlPlaneApplication(
+        telemetry_service=_FakeTelemetryService(),
+        runtime_service=_RejectingRuntimeService(),
+        story_service=_FakeStoryService(),
+    )
+
+    response = app.handle_request(
+        method="POST",
+        path="/v1/story-runs/run-100/phases/setup/start",
+        body=json.dumps(
+            {
+                "project_key": "tenant-a",
+                "story_id": "AG3-100",
+                "session_id": "sess-001",
+                "principal_type": "orchestrator",
+                "worktree_roots": ["T:/worktrees/ag3-100"],
+            },
+        ).encode("utf-8"),
+    )
+
+    assert response.status_code == HTTPStatus.CONFLICT
+    body = json.loads(response.body)
+    assert body["status"] == "rejected"
+    assert body["edge_bundle"] is None
+    assert body["phase_dispatch"]["dispatched"] is False
+    assert body["phase_dispatch"]["status"] == "rejected"
 
 
 def test_post_project_edge_sync_returns_ok() -> None:
@@ -936,6 +1001,116 @@ def test_phase_runtime_unavailable_returns_service_unavailable() -> None:
         response,
         error_code="phase_mutation_unavailable",
         message="phase backend unavailable",
+    )
+
+
+# ---------------------------------------------------------------------------
+# AG3-054 PART D (#4): a ConfigError (backend requirement) -> structured 503
+# ---------------------------------------------------------------------------
+
+
+_CONFIG_ERROR_MESSAGE = "The control-plane runtime requires the Postgres state backend"
+
+
+def _config_error_app() -> ControlPlaneApplication:
+    from agentkit.exceptions import ConfigError
+
+    runtime = _FakeRuntimeService()
+    runtime.error = ConfigError(_CONFIG_ERROR_MESSAGE)
+    return ControlPlaneApplication(
+        telemetry_service=_FakeTelemetryService(),
+        runtime_service=runtime,
+    )
+
+
+def test_config_error_on_phase_start_returns_structured_503() -> None:
+    """PART D (#4): a ConfigError from the Postgres gate -> 503, not an uncaught 500."""
+    response = _config_error_app().handle_request(
+        method="POST",
+        path="/v1/story-runs/run-100/phases/setup/start",
+        body=json.dumps(
+            {
+                "project_key": "tenant-a",
+                "story_id": "AG3-100",
+                "session_id": "sess-001",
+                "principal_type": "orchestrator",
+                "worktree_roots": ["T:/worktrees/ag3-100"],
+            },
+        ).encode("utf-8"),
+    )
+
+    assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE
+    _assert_error(
+        response,
+        error_code="phase_mutation_unavailable",
+        message=_CONFIG_ERROR_MESSAGE,
+    )
+
+
+def test_config_error_on_phase_complete_returns_structured_503() -> None:
+    response = _config_error_app().handle_request(
+        method="POST",
+        path="/v1/story-runs/run-100/phases/setup/complete",
+        body=json.dumps(
+            {
+                "project_key": "tenant-a",
+                "story_id": "AG3-100",
+                "session_id": "sess-001",
+                "principal_type": "orchestrator",
+                "worktree_roots": ["T:/worktrees/ag3-100"],
+            },
+        ).encode("utf-8"),
+    )
+
+    assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE
+    _assert_error(
+        response,
+        error_code="phase_mutation_unavailable",
+        message=_CONFIG_ERROR_MESSAGE,
+    )
+
+
+def test_config_error_on_phase_fail_returns_structured_503() -> None:
+    response = _config_error_app().handle_request(
+        method="POST",
+        path="/v1/story-runs/run-100/phases/setup/fail",
+        body=json.dumps(
+            {
+                "project_key": "tenant-a",
+                "story_id": "AG3-100",
+                "session_id": "sess-001",
+                "principal_type": "orchestrator",
+                "worktree_roots": ["T:/worktrees/ag3-100"],
+            },
+        ).encode("utf-8"),
+    )
+
+    assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE
+    _assert_error(
+        response,
+        error_code="phase_mutation_unavailable",
+        message=_CONFIG_ERROR_MESSAGE,
+    )
+
+
+def test_config_error_on_closure_returns_structured_503() -> None:
+    response = _config_error_app().handle_request(
+        method="POST",
+        path="/v1/story-runs/run-100/closure/complete",
+        body=json.dumps(
+            {
+                "project_key": "tenant-a",
+                "story_id": "AG3-100",
+                "session_id": "sess-001",
+            },
+        ).encode("utf-8"),
+    )
+
+    assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE
+    _assert_error(
+        response,
+        error_code="closure_unavailable",
+        message=_CONFIG_ERROR_MESSAGE,
     )
 
 

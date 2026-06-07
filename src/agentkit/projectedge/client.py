@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
+from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
@@ -75,14 +76,81 @@ class HttpsJsonTransport:
             ) as response:
                 response_body = response.read()
         except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(
-                f"control-plane request failed with HTTP {exc.code}: {detail}",
-            ) from exc
+            return self._handle_http_error(exc)
         data = json.loads(response_body.decode("utf-8"))
         if not isinstance(data, dict):
             raise RuntimeError("control-plane response must be a JSON object")
         return data
+
+    @staticmethod
+    def _handle_http_error(exc: urllib.error.HTTPError) -> dict[str, object]:
+        """Map an ``HTTPError`` to a structured rejection or re-raise.
+
+        AG3-054 (FK-20 §20.8.2): the control plane returns HTTP 409 Conflict for a
+        fail-closed REJECTED mutation (pre-start-guard denial / invalid first-call
+        / illegal transition; see ``http.py``). That 409 body is a structured
+        :class:`ControlPlaneMutationResult` with ``status == "rejected"`` -- it is
+        a legitimate, expected outcome, NOT a transport failure. We parse it and
+        RETURN the structured object so the official client surfaces the rejection
+        (and the ``edge_bundle is None`` publish-skip applies on the real path).
+        Every OTHER HTTP error (and any 409 whose body is not a rejected mutation
+        result) still raises ``RuntimeError`` -- no silent fallback.
+
+        Args:
+            exc: The raised ``HTTPError``.
+
+        Returns:
+            The decoded rejected mutation result body (a JSON object).
+
+        Raises:
+            RuntimeError: For any non-409 error, or a 409 whose body is not a
+                rejected control-plane mutation result.
+        """
+        detail = exc.read().decode("utf-8", errors="replace")
+        if exc.code == HTTPStatus.CONFLICT:
+            rejected = _parse_rejected_conflict_body(detail)
+            if rejected is not None:
+                return rejected
+        raise RuntimeError(
+            f"control-plane request failed with HTTP {exc.code}: {detail}",
+        )
+
+
+def _parse_rejected_conflict_body(detail: str) -> dict[str, object] | None:
+    """Validate a 409 body as a conforming rejected mutation result (W8).
+
+    A 409 is the expected transport for a fail-closed REJECTED mutation, whose
+    body is a structured :class:`ControlPlaneMutationResult` with
+    ``status == "rejected"`` and ``edge_bundle is None``. The body is partly
+    attacker-influenced (the rejection_reason echoes request-derived text), so it
+    is STRICTLY validated against the model before being trusted: it must parse,
+    ``model_validate`` to a ``ControlPlaneMutationResult``, carry
+    ``status == "rejected"`` AND ``edge_bundle is None``. A malformed / non-
+    conforming 409 returns ``None`` so the caller RAISES (no bogus result is ever
+    returned as if it were a legitimate rejection).
+
+    Args:
+        detail: The raw decoded 409 response body.
+
+    Returns:
+        The validated rejected-result body (a JSON object), or ``None`` when the
+        body is not a conforming rejected mutation result.
+    """
+    from pydantic import ValidationError
+
+    try:
+        body = json.loads(detail)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(body, dict):
+        return None
+    try:
+        parsed = ControlPlaneMutationResult.model_validate(body)
+    except ValidationError:
+        return None
+    if parsed.status != "rejected" or parsed.edge_bundle is not None:
+        return None
+    return body
 
 
 class LocalEdgePublisher:
@@ -197,7 +265,8 @@ class ProjectEdgeClient:
             path=f"/v1/project-edge/operations/{op_id}",
         )
         result = ControlPlaneMutationResult.model_validate(data)
-        self._publisher.publish(result.edge_bundle)
+        if result.edge_bundle is not None:
+            self._publisher.publish(result.edge_bundle)
         return result
 
     def _post_and_publish(
@@ -208,7 +277,12 @@ class ProjectEdgeClient:
     ) -> ControlPlaneMutationResult:
         data = self._transport.send(method="POST", path=path, payload=payload)
         result = ControlPlaneMutationResult.model_validate(data)
-        self._publisher.publish(result.edge_bundle)
+        # AG3-054 (FK-20 §20.8.2): a fail-closed REJECTED start carries no edge
+        # bundle (it materialized no run state). There is nothing to publish
+        # locally -- publishing must be skipped so the local edge is not activated
+        # for a run the control plane denied.
+        if result.edge_bundle is not None:
+            self._publisher.publish(result.edge_bundle)
         return result
 
 

@@ -24,6 +24,7 @@ from agentkit.control_plane.models import (
 )
 from agentkit.control_plane.runtime import ControlPlaneRuntimeService
 from agentkit.control_plane.telemetry import ControlPlaneTelemetryService
+from agentkit.exceptions import ConfigError
 from agentkit.kpi_analytics.dashboard import DashboardService
 from agentkit.story.service import StoryService
 
@@ -548,6 +549,10 @@ class ControlPlaneApplication:
                 correlation_id=correlation_id,
                 detail=exc.errors(),
             )
+        except ConfigError as exc:
+            return _backend_requirement_response(
+                "phase_mutation_unavailable", exc, correlation_id
+            )
         except RuntimeError as exc:
             logger.warning("Control-plane phase mutation unavailable: %s", exc)
             return _error_response(
@@ -556,8 +561,20 @@ class ControlPlaneApplication:
                 message=str(exc),
                 correlation_id=correlation_id,
             )
+        # AG3-054 (FK-20 §20.8.2): a fail-closed REJECTED start (pre-start-guard
+        # denial / invalid first-call / illegal transition) materialized NO run
+        # state. It must NOT be reported as a 201 CREATED success (which would
+        # imply the run was admitted/started); surface it as 409 Conflict so the
+        # caller never treats the run as activated. ``edge_bundle`` is ``None`` on
+        # a rejection -- the serializer handles it; the rejection detail travels
+        # on ``phase_dispatch``.
+        status = (
+            HTTPStatus.CONFLICT
+            if result.status == "rejected"
+            else HTTPStatus.CREATED
+        )
         return _json_response(
-            HTTPStatus.CREATED,
+            status,
             result.model_dump(mode="json"),
             correlation_id=correlation_id,
         )
@@ -582,6 +599,10 @@ class ControlPlaneApplication:
                 message="Invalid closure payload",
                 correlation_id=correlation_id,
                 detail=exc.errors(),
+            )
+        except ConfigError as exc:
+            return _backend_requirement_response(
+                "closure_unavailable", exc, correlation_id
             )
         except RuntimeError as exc:
             logger.warning("Control-plane closure unavailable: %s", exc)
@@ -613,6 +634,10 @@ class ControlPlaneApplication:
                 correlation_id=correlation_id,
                 detail=exc.errors(),
             )
+        except ConfigError as exc:
+            return _backend_requirement_response(
+                "project_edge_sync_unavailable", exc, correlation_id
+            )
         except RuntimeError as exc:
             logger.warning("Project-edge sync unavailable: %s", exc)
             return _error_response(
@@ -634,6 +659,10 @@ class ControlPlaneApplication:
     ) -> HttpResponse:
         try:
             result = self._runtime_service.get_operation(op_id)
+        except ConfigError as exc:
+            return _backend_requirement_response(
+                "project_edge_reconcile_unavailable", exc, correlation_id
+            )
         except RuntimeError as exc:
             logger.warning("Project-edge reconcile unavailable: %s", exc)
             return _error_response(
@@ -947,6 +976,29 @@ def _error_response(
         payload,
         correlation_id=correlation_id,
         headers=headers,
+    )
+
+
+def _backend_requirement_response(
+    error_code: str,
+    exc: ConfigError,
+    correlation_id: str,
+) -> HttpResponse:
+    """Map a backend-requirement ``ConfigError`` to a structured 503 (AG3-054 #4).
+
+    The Postgres gate (``_require_postgres_backend_on_first_use``) raises
+    ``ConfigError`` (a subclass of ``AgentKitError``, NOT ``RuntimeError``) when
+    the control-plane store is unavailable. Without an explicit catch it would
+    escape the handler as an uncaught 500. The control plane is a backend
+    requirement, so it surfaces as a 503 Service Unavailable with a clear body and
+    a stable ``error_code`` (FK-22 §22.9; fail-closed but a structured response).
+    """
+    logger.warning("Control-plane backend requirement unmet: %s", exc)
+    return _error_response(
+        HTTPStatus.SERVICE_UNAVAILABLE,
+        error_code=error_code,
+        message=str(exc),
+        correlation_id=correlation_id,
     )
 
 

@@ -97,6 +97,35 @@ class PreconditionError(PipelineError):
     """
 
 
+class ControlPlaneClaimCollisionError(AgentKitError):
+    """A non-owner control-plane save collided with a LIVE ``claimed`` lease.
+
+    AG3-054 ERROR-3: raised when the legacy control-plane operation upsert would
+    have overwritten a row that is still ``claimed`` (a live, owned lease). Only
+    the owner's ownership-scoped finalize/release may transition a claimed row, so
+    a ``complete_phase`` / ``fail_phase`` (or any non-owner save) reusing a live
+    ``start_phase`` op_id must NOT clobber and steal/destroy its ownership. The
+    runtime surfaces this fail-closed as a ``rejected`` mutation result.
+    """
+
+
+class ControlPlaneBindingCollisionError(AgentKitError):
+    """A control-plane binding write/delete collided with a FOREIGN run's binding.
+
+    AG3-054 (run-scoping sweep): the session-run-binding is keyed by ``session_id``
+    (one row per session) but carries ``(project_key, story_id, run_id)``. A
+    control-plane side-effect that creates/overwrites or deletes "the binding for
+    this session" must NEVER touch a live binding that belongs to a DIFFERENT run
+    which has since rebound the same ``session_id``. When a binding SAVE
+    (start finalize / complete / fail) would overwrite, or a binding DELETE
+    (closure teardown) would remove, a binding whose ``(project_key, story_id,
+    run_id)`` does not match the operating run, the store refuses fail-closed and
+    raises this error so the WHOLE atomic transaction rolls back (no foreign
+    binding clobber, no orphan teardown). The runtime surfaces it as a ``rejected``
+    mutation result, mirroring :class:`ControlPlaneClaimCollisionError`.
+    """
+
+
 class ProjectError(AgentKitError):
     """Project model or discovery error.
 

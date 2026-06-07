@@ -1,8 +1,8 @@
 story_id: AG3-054
 title: "Produktiver 4-Phasen-Pipeline-Composition-Root: PhaseHandlerRegistry-WIRING (phasen-eigene Selbstregistrierung) + Control-Plane-Einzelphasen-Dispatch + fail-closed Pre-Start-Guard (StoryStatus=Approved + ExecutionPlanning READY/Scheduling) vor dem Fresh-Run-Setup-Dispatch (FK-45 §45.1.2 Dispatch, FK-20 §20.1.1/§20.8.2 Registry+Start-Guard, FK-70 §70.8, FK-91 §91.1a API-Endpunkt)"
 type: implementation
-status: blocked
-phase: setup
+status: completed
+phase: closure
 created: "2026-06-04"
 size: L
 depends_on:

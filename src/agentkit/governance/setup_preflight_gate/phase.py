@@ -29,7 +29,10 @@ from typing import TYPE_CHECKING
 
 from agentkit.config.loader import load_project_config
 from agentkit.exceptions import ConfigError, WorktreeError
-from agentkit.governance.setup_preflight_gate.context_builder import build_story_context
+from agentkit.governance.setup_preflight_gate.context_builder import (
+    build_internal_story_context,
+    build_story_context,
+)
 from agentkit.governance.setup_preflight_gate.preflight import run_preflight
 from agentkit.governance.setup_preflight_gate.worktree import setup_worktrees
 from agentkit.installer.paths import story_dir
@@ -168,19 +171,7 @@ class SetupPhaseHandler:
         if preflight_error is not None:
             return preflight_error
 
-        # FIX-1 (FK-24 §24.3.3): the operative ``mode`` comes from the
-        # AUTHORITATIVE StoryService record, not GitHub labels. Pass the resolved
-        # service so ``build_story_context`` reads ``Story.mode`` (fail-closed on
-        # a missing record).
-        enriched = build_story_context(
-            owner=cfg.owner,
-            repo=cfg.repo,
-            issue_nr=cfg.issue_nr,
-            project_root=cfg.project_root,
-            project_key=ctx.project_key,
-            story_id=cfg.story_id or ctx.story_id,
-            story_service=story_service,
-        )
+        enriched = self._build_enriched_context(cfg, ctx, story_service)
 
         s_dir = story_dir(cfg.project_root, enriched.story_id)
         s_dir.mkdir(parents=True, exist_ok=True)
@@ -235,6 +226,48 @@ class SetupPhaseHandler:
             status=PhaseStatus.COMPLETED,
             artifacts_produced=tuple(artifacts),
             updated_context=enriched,
+        )
+
+    def _build_enriched_context(
+        self,
+        cfg: SetupConfig,
+        ctx: StoryContext,
+        story_service: StoryService,
+    ) -> StoryContext:
+        """Build the enriched StoryContext WITHOUT GitHub for internal stories (#2).
+
+        ERROR-2 fix (FK-12 §12.7.1): a code-producing story (implementation/bugfix)
+        is GitHub-backed -- its context is read from the GitHub issue
+        (``build_story_context`` -> ``get_issue``). An INTERNAL story
+        (CONCEPT/RESEARCH) has no worktree/merge and NO GitHub coordinates, so it
+        must NOT contact GitHub: it is built from the authoritative ``StoryService``
+        record (``build_internal_story_context``), never via a dummy
+        owner/repo/issue passed into a GitHub-reading path. The same authoritative
+        criterion as the dispatch / setup-config path is used
+        (``is_code_producing_story``).
+
+        FIX-1 (FK-24 §24.3.3): for the code-producing path the operative ``mode``
+        still comes from the authoritative ``StoryService`` record, not labels.
+        """
+        from agentkit.verify_system.sonarqube_gate.applicability import (
+            is_code_producing_story,
+        )
+
+        if not is_code_producing_story(ctx.story_type):
+            return build_internal_story_context(
+                project_root=cfg.project_root,
+                project_key=ctx.project_key,
+                story_id=cfg.story_id or ctx.story_id,
+                story_service=story_service,
+            )
+        return build_story_context(
+            owner=cfg.owner,
+            repo=cfg.repo,
+            issue_nr=cfg.issue_nr,
+            project_root=cfg.project_root,
+            project_key=ctx.project_key,
+            story_id=cfg.story_id or ctx.story_id,
+            story_service=story_service,
         )
 
     def _acquire_mode_lock(

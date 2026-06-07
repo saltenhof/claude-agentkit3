@@ -1,0 +1,725 @@
+"""Deterministic single-phase dispatch + fail-closed pre-start guard (AG3-054).
+
+This module is the productive wiring between the control-plane API entrypoint
+(FK-91 §91.1a) and the deterministic ``PipelineEngine`` (FK-20 §20.1.1):
+
+* :func:`dispatch_phase` runs EXACTLY ONE phase per call (FK-45 §45.1.2). It
+  resolves the story's ``PhaseHandlerRegistry`` / ``PipelineEngine`` (the
+  composition-root wiring), derives ``start`` vs ``resume`` from the persisted
+  phase-state (FK-45 §45.2), runs the engine, and returns the normalized phase
+  result + orchestrator reaction (FK-45 §45.3). The engine's own
+  phase-transition-enforcement (preconditions / guards / transition graph) is
+  CALLED, not rebuilt.
+
+* :class:`PreStartGuard` is the fail-closed pre-start run-admission guard
+  (FK-20 §20.8.2, FK-70 §70.8,
+  ``story-workflow.invariant.phase_start_requires_release_and_readiness``). It
+  fires ONLY before the fresh-run setup start (first call, no phase-state,
+  phase=setup) and CONSUMES (does not own) two owner surfaces: Tor 1 = persisted
+  ``StoryStatus == Approved`` via the story-service; Tor 2 = computed
+  ``PlanningStatus == READY`` + an explicit scheduling admission via
+  execution-planning ``assess_readiness``. Missing Approved OR READY OR
+  admission -- or an unresolvable / erroring surface -- rejects the setup start
+  fail-closed (never default-to-allow). Persisted ``StoryStatus`` (lifecycle) and
+  computed ``PlanningStatus`` (READY/BLOCKED) are kept as orthogonal axes;
+  READY/BLOCKED are never treated as or written back as a ``StoryStatus``.
+
+Layering: this module lives in ``control_plane`` (an adapter boundary that may
+import any component group). The deterministic ``pipeline_engine`` (BC 1) does
+NOT import ``control_plane`` -- the dispatch reaches INTO the engine, never the
+reverse, so the no-cycle rule (AC 11) holds.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Protocol
+
+from agentkit.control_plane.models import PhaseDispatchResult
+from agentkit.exceptions import PipelineError
+from agentkit.story_context_manager.models import (
+    PhaseName,
+    PhaseState,
+    PhaseStatus,
+)
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
+
+    from agentkit.pipeline_engine.engine import EngineResult, PipelineEngine
+    from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
+    from agentkit.process.language.model import EdgeRule, WorkflowDefinition
+    from agentkit.story_context_manager.models import StoryContext
+
+
+# ---------------------------------------------------------------------------
+# Pre-start guard surfaces (consumed, not owned)
+# ---------------------------------------------------------------------------
+
+
+class ApprovalReader(Protocol):
+    """Tor 1 read port: the persisted lifecycle ``StoryStatus`` of a story.
+
+    Implemented by the AK3 story-service (BC 3, AG3-014). The guard CONSUMES the
+    authoritative persisted status; it never writes story status truth.
+    """
+
+    def is_approved(self, project_key: str, story_display_id: str) -> bool:
+        """Return ``True`` iff the persisted ``StoryStatus`` is ``Approved``.
+
+        Fail-closed: an unresolvable story (or any read error) must surface as a
+        non-approval (``False``) or raise -- never silently approve.
+        """
+        ...
+
+
+class SchedulingAdmissionReader(Protocol):
+    """Tor 2 read port: computed ``PlanningStatus`` READY + scheduling admission.
+
+    Implemented over execution-planning ``assess_readiness`` (BC 14, FK-70). The
+    guard CONSUMES the computed readiness/scheduling truth; it builds no scheduler
+    and no readiness logic of its own.
+    """
+
+    def is_ready_and_admitted(self, project_key: str, story_display_id: str) -> bool:
+        """Return ``True`` iff the story is computed READY AND scheduling-admitted.
+
+        Fail-closed: an unresolvable assessment (or any read error) must surface
+        as ``False`` or raise -- never silently admit.
+        """
+        ...
+
+
+@dataclass(frozen=True)
+class PreStartGuard:
+    """Fail-closed run-admission guard for the fresh-run setup start (AG3-054).
+
+    Consumes the two owner surfaces and collapses NEITHER axis into the other:
+    persisted ``StoryStatus`` (lifecycle, Tor 1) and computed ``PlanningStatus``
+    + scheduling admission (Tor 2) are evaluated independently. Either gate
+    missing -- or unresolvable -- rejects the start fail-closed.
+
+    Attributes:
+        approval_reader: Tor 1 surface (persisted ``StoryStatus == Approved``).
+        scheduling_reader: Tor 2 surface (computed READY + scheduling admission).
+    """
+
+    approval_reader: ApprovalReader
+    scheduling_reader: SchedulingAdmissionReader
+
+    def evaluate(
+        self,
+        *,
+        project_key: str,
+        story_display_id: str,
+    ) -> str | None:
+        """Evaluate run-admission for a fresh-run setup start.
+
+        Args:
+            project_key: Owning project key.
+            story_display_id: The story's display id (e.g. ``"AG3-054"``).
+
+        Returns:
+            ``None`` when the start is admitted (Approved AND READY+admission);
+            otherwise a human-readable rejection reason string. Any surface that
+            raises is mapped to a fail-closed rejection reason -- never to
+            admission.
+        """
+        # Tor 1 -- persisted lifecycle release (fail-closed on any read error).
+        try:
+            approved = self.approval_reader.is_approved(project_key, story_display_id)
+        except Exception as exc:  # noqa: BLE001 -- fail-closed: never default-allow
+            return (
+                "Pre-start guard rejected setup start: the persisted StoryStatus "
+                f"could not be resolved ({exc}); fail-closed (FK-20 §20.8.2)."
+            )
+        if not approved:
+            return (
+                "Pre-start guard rejected setup start: StoryStatus is not "
+                "Approved (Tor 1, fachliche Freigabe fehlt; FK-20 §20.8.2)."
+            )
+
+        # Tor 2 -- computed READY + scheduling admission (orthogonal axis).
+        try:
+            admitted = self.scheduling_reader.is_ready_and_admitted(
+                project_key, story_display_id
+            )
+        except Exception as exc:  # noqa: BLE001 -- fail-closed: never default-allow
+            return (
+                "Pre-start guard rejected setup start: execution-planning "
+                f"readiness/scheduling could not be resolved ({exc}); "
+                "fail-closed (FK-70 §70.8)."
+            )
+        if not admitted:
+            return (
+                "Pre-start guard rejected setup start: ExecutionPlanning does not "
+                "report computed PlanningStatus READY with a scheduling admission "
+                "(Tor 2; FK-70 §70.6.1/§70.8)."
+            )
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Single-phase dispatch
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PhaseDispatcher:
+    """Deterministic single-phase dispatcher (FK-45 §45.1.2).
+
+    Owns no engine / transition / handler mechanic: it resolves the run's engine,
+    applies the pre-start guard before the fresh-run setup start, derives
+    start-vs-resume from the persisted phase-state, runs EXACTLY ONE phase through
+    the engine, and normalizes the engine result. PAUSED/ESCALATED never starts a
+    follow-up phase (the dispatch returns; the orchestrator decides next).
+
+    Attributes:
+        engine_factory: Resolves a wired ``PipelineEngine`` for a story run
+            (composition-root ``build_pipeline_engine``). Injected so tests drive
+            the productive composition without a self-build.
+        guard_factory: Resolves the fail-closed pre-start run-admission guard FOR
+            THIS RUN (E7 fix): both Tor-1 (approval) and Tor-2 (scheduling)
+            readers must read from the RUN'S authoritative store/project root, not
+            cwd. The dispatcher is built once but ``dispatch`` carries the run
+            ``ctx``, so the guard is resolved per run from ``ctx`` (e.g. its
+            ``project_root``). The factory is consulted ONLY before a fresh-run
+            setup start.
+        resume_trigger_resolver: Maps a phase mutation request's ``detail`` to the
+            resume trigger string for a same-phase resume of a PAUSED phase.
+    """
+
+    engine_factory: Callable[[StoryContext], PipelineEngine]
+    guard_factory: Callable[[StoryContext], PreStartGuard]
+    resume_trigger_resolver: Callable[[dict[str, object]], str | None] = field(
+        default=lambda detail: _default_resume_trigger(detail)
+    )
+    #: E1: a fresh-setup-start precheck that returns a rejection reason when the
+    #: run's authoritative GitHub setup coordinates cannot be resolved (so setup is
+    #: never dispatched against empty/dummy coordinates), or ``None`` to admit. The
+    #: productive factory wires the real resolver; the default no-op is for the
+    #: dispatch-contract tests that STUB the setup boundary (no real GitHub).
+    setup_coordinates_check: Callable[[StoryContext], str | None] = field(
+        default=lambda ctx: None
+    )
+
+    def dispatch(
+        self,
+        *,
+        ctx: StoryContext,
+        phase: str,
+        story_dir: Path,
+        run_id: str,
+        run_admitted: bool,
+        detail: dict[str, object] | None = None,
+    ) -> PhaseDispatchResult:
+        """Dispatch exactly ONE phase for a story run (FK-45 §45.1.2 / §45.3).
+
+        Args:
+            ctx: The run's story context (carries ``story_id``, ``story_type``,
+                ``project_key``).
+            phase: The requested phase name (``setup`` / ``exploration`` /
+                ``implementation`` / ``closure``).
+            story_dir: The story working directory (engine persistence root).
+            run_id: The authoritative run id of THIS dispatch. Identifies the run
+                whose admission the caller evaluated; carried for diagnostics and
+                to keep the admission decision unambiguously RUN-scoped (AG3-054
+                ERROR-1).
+            run_admitted: Whether THIS exact run is already admitted, decided
+                RUN-scoped by the caller (control-plane ``_run_admission_evidence``:
+                a run-matched session binding OR a committed setup ``phase_start``
+                for ``(project, story, run_id)``). This is the ONLY input to the
+                fresh-setup / first-call ADMISSION gate -- story-scoped phase-state
+                (``existing``) is NOT consulted for admission, so an OLD run's
+                phase-state for the SAME story (e.g. after ``reset-escalation``,
+                which mints a new run id but reuses the per-story story_dir) can
+                never make a NEW, un-admitted run "not fresh" and thereby SKIP the
+                fail-closed pre-start guard (the fail-open this fix closes).
+                Story-scoped phase-state still drives the engine's transition /
+                resume MECHANICS below -- only the admission gate is run-scoped.
+            detail: Optional request detail (resume trigger resolution).
+
+        Returns:
+            A normalized :class:`PhaseDispatchResult`. A pre-start-guard rejection
+            or an invalid first-call phase is ``status="rejected"`` with no engine
+            entry; otherwise the engine outcome is normalized to the FK-45 §45.3
+            reaction.
+        """
+        from agentkit.process.language.definitions import resolve_workflow
+
+        del run_id  # RUN scope is carried by ``run_admitted``; id kept for clarity.
+        detail = detail or {}
+        workflow = resolve_workflow(ctx.story_type)
+        phase_names = tuple(workflow.phase_names)
+        existing = _load_phase_state(ctx, story_dir, phase_names)
+
+        # First-call enforcement (FK-45 §45.2 step 5, RUN-scoped -- AG3-054 #2):
+        # a NON-setup start for a run with NO run-scoped admission evidence is the
+        # first call of an un-admitted run and is REJECTED -- only ``setup`` may
+        # start a fresh run. This is keyed on ``run_admitted`` (run-scoped), NOT on
+        # ``existing is None`` (story-scoped): a NEW un-admitted run must not be able
+        # to jump straight to implementation/closure by riding a SIBLING run's
+        # story-scoped phase-state.
+        if not run_admitted and phase != PhaseName.SETUP.value:
+            return _rejected(
+                phase,
+                "First call for this run has no run-scoped admission evidence; "
+                f"only 'setup' may start a fresh run, not {phase!r} "
+                "(FK-45 §45.2 / AG3-054 ERROR-1).",
+            )
+
+        # Fresh-setup decision (RUN-scoped -- AG3-054 #2): a setup start is FRESH
+        # (the fail-closed Approved+READY pre-start guard MUST fire) UNLESS THIS run
+        # is already admitted. An admitted run re-running setup (a retry / in-flight
+        # replay) is NOT re-guarded. Story-scoped phase-state is deliberately NOT
+        # consulted here.
+        is_fresh_setup_start = not run_admitted and phase == PhaseName.SETUP.value
+        if is_fresh_setup_start:
+            # E7 fix: the run-admission guard reads Tor 1 (approval) + Tor 2
+            # (scheduling) from the RUN'S authoritative store, resolved per run
+            # from ``ctx`` -- never a once-built cwd-rooted guard.
+            rejection = self.guard_factory(ctx).evaluate(
+                project_key=ctx.project_key,
+                story_display_id=ctx.story_id,
+            )
+            if rejection is not None:
+                return _rejected(phase, rejection)
+
+            # E1 fix: a FRESH setup start must have authoritative GitHub
+            # coordinates -- setup must NEVER run against empty/dummy coordinates.
+            # This precheck is scoped to the fresh-setup start (the only phase that
+            # consumes them); a non-setup follow-up is not blocked by missing
+            # coordinates (its setup handler is never entered).
+            coord_rejection = self.setup_coordinates_check(ctx)
+            if coord_rejection is not None:
+                return _rejected(phase, coord_rejection)
+
+        # The engine is built AFTER the first-call/guard/coordinate checks. The
+        # productive engine factory resolves the run's REAL ``SetupConfig``
+        # (owner/repo/issue) from ``ctx`` and threads it into the setup handler.
+        try:
+            engine = self.engine_factory(ctx)
+        except PipelineError as exc:
+            return _rejected(phase, str(exc))
+
+        # Phase-transition-enforcement (FK-45 §45.2 step 2-4): a forward request to
+        # a DIFFERENT phase is legal only along a workflow edge from the persisted
+        # phase, only when that phase already COMPLETED, AND only when that edge's
+        # GUARD is satisfied for this story/ctx. Resume of the same phase is not a
+        # transition (handled below). Fail-closed: an out-of-graph jump, a
+        # not-yet-completed predecessor, or a guard-rejected edge never enters the
+        # phase.
+        if existing is not None and existing.phase != phase:
+            transition_rejection = _enforce_transition(workflow, ctx, existing, phase)
+            if transition_rejection is not None:
+                return _rejected(phase, transition_rejection)
+
+        # E5 fix (FK-45 §45.2): a SAME-phase start is legal ONLY as a
+        # PAUSED-resume. A same-phase request whose persisted status is anything
+        # else must NOT fall through to ``run_phase`` (which would re-run the
+        # handler's ``on_enter`` on stale state -- e.g. a duplicate
+        # ``/phases/setup/start`` after setup COMPLETED re-executing setup). A
+        # COMPLETED same-phase request is rejected as an idempotent
+        # already-completed no-op; a FAILED/ESCALATED/BLOCKED same-phase request
+        # is rejected fail-closed (recovery is the operator-CLI's job, FK-45
+        # §45.4, out of scope here). Only PAUSED proceeds (the resume below).
+        if (
+            existing is not None
+            and existing.phase == phase
+            and existing.status != PhaseStatus.PAUSED
+        ):
+            return _rejected(
+                phase,
+                _same_phase_reentry_reason(phase, existing.status),
+            )
+
+        envelope = _build_envelope(existing, ctx, phase)
+        is_resume = (
+            existing is not None
+            and existing.phase == phase
+            and existing.status == PhaseStatus.PAUSED
+        )
+        if is_resume:
+            trigger = self.resume_trigger_resolver(detail)
+            if trigger is None:
+                return _rejected(
+                    phase,
+                    f"Resume of PAUSED phase {phase!r} requires a resume trigger "
+                    "in request detail (FK-45 §45.2).",
+                )
+            result = engine.resume_phase(ctx, envelope, trigger)
+        else:
+            result = engine.run_phase(ctx, envelope)
+        return _normalize(result)
+
+
+def _default_resume_trigger(detail: dict[str, object]) -> str | None:
+    """Read the resume trigger from a phase mutation request detail."""
+    trigger = detail.get("resume_trigger")
+    return trigger if isinstance(trigger, str) and trigger else None
+
+
+def _load_phase_state(
+    ctx: StoryContext,
+    story_dir: Path,
+    phase_names: tuple[str, ...],
+) -> PhaseState | None:
+    """Load the most recent persisted phase-state for the run, or ``None``.
+
+    Reads through the ``PhaseEnvelopeStore`` (the engine's own persistence facade
+    -- one truth). The canonical phase-state row is keyed by ``(story_id, phase)``;
+    the dispatch probes every workflow phase (in workflow order) so a resumed /
+    advanced run is found regardless of which phase it last persisted.
+    """
+    from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+    from agentkit.state_backend.store.phase_envelope_repository import (
+        StateBackendPhaseEnvelopeRepository,
+    )
+
+    store = PhaseEnvelopeStore(StateBackendPhaseEnvelopeRepository(story_dir))
+    latest: PhaseState | None = None
+    for phase_name in phase_names:
+        try:
+            phase_enum = PhaseName(phase_name)
+        except ValueError:
+            continue
+        envelope = store.load(ctx.story_id, phase_enum)
+        if envelope is not None:
+            latest = envelope.state
+    return latest
+
+
+def _enforce_transition(
+    workflow: WorkflowDefinition,
+    ctx: StoryContext,
+    existing: PhaseState,
+    phase: str,
+) -> str | None:
+    """Validate a forward phase transition against the typed workflow graph.
+
+    FK-45 §45.2: a transition to a DIFFERENT phase is legal only when (a) a
+    workflow edge exists from the persisted phase to the requested phase, (b) the
+    persisted phase already reached ``COMPLETED``, AND (c) that edge's GUARD is
+    satisfied for this story/ctx. The guard check enforces the modus-dependent
+    semantic preconditions (FK-45 §45.2 "Semantische Preconditions"): e.g. the
+    guarded ``setup -> exploration`` edge (``mode_is_exploration``) keeps an
+    execution-route story out of exploration (exploration-skip), and the guarded
+    ``exploration -> implementation`` edge (``exploration_gate_approved``) keeps
+    an un-approved gate out of implementation. Returns a rejection reason string
+    when illegal, or ``None`` when the transition is admissible.
+
+    The guard evaluation DELEGATES to the workflow's own typed transition guards
+    (``EdgeRule.guard(ctx, state)``) -- the same predicate the engine's
+    ``_evaluate_transitions`` runs on the forward edge -- so no second partial
+    copy of the transition logic is built.
+    """
+    edges = workflow.get_transitions_from(existing.phase)
+    targets = {edge.target for edge in edges}
+    if phase not in targets:
+        return (
+            f"Invalid phase transition {existing.phase!r} -> {phase!r}: not a "
+            f"workflow edge (allowed: {sorted(targets)}; FK-45 §45.2)."
+        )
+    if existing.status != PhaseStatus.COMPLETED:
+        return (
+            f"Invalid phase transition {existing.phase!r} -> {phase!r}: the "
+            f"predecessor phase is {existing.status.value!r}, not 'completed' "
+            "(FK-45 §45.2)."
+        )
+    # W9 fix: mirror the engine's ``_evaluate_transitions`` EXACTLY. The engine
+    # iterates the outgoing edges in definition order (``get_transitions_from``
+    # already returns them priority-sorted) and SELECTS THE FIRST whose guard
+    # passes -- regardless of that edge's target. A transition to the requested
+    # phase is therefore admissible ONLY when that first-passing edge targets the
+    # requested phase. Admitting whenever *any* edge to the target passes would
+    # admit a transition the engine would never select (it would have taken an
+    # earlier-passing edge to a DIFFERENT phase first). An unguarded edge passes
+    # immediately, so it is the first-passing edge in its slot.
+    selected = _first_passing_edge(edges, ctx, existing)
+    if selected is None:
+        return (
+            f"Invalid phase transition {existing.phase!r} -> {phase!r}: no "
+            "outgoing transition guard is satisfied for this story, so the "
+            "engine would select no edge (FK-45 §45.2 semantic precondition)."
+        )
+    if selected.target == phase:
+        return None
+    return (
+        f"Invalid phase transition {existing.phase!r} -> {phase!r}: the engine "
+        f"would select the first-passing edge to {selected.target!r} "
+        f"(guard {_guard_name(selected.guard)!r}), not the requested phase "
+        f"{phase!r} (FK-45 §45.2 -- dispatch mirrors engine edge ordering)."
+    )
+
+
+def _first_passing_edge(
+    edges: tuple[EdgeRule, ...],
+    ctx: StoryContext,
+    state: PhaseState,
+) -> EdgeRule | None:
+    """Return the FIRST outgoing edge whose guard passes (engine semantics).
+
+    Byte-for-byte the selection rule of the engine's ``_evaluate_transitions``
+    (FK-45 §45.2): iterate the (priority-ordered) outgoing edges and return the
+    first one with no guard or a passing guard; ``None`` when none passes.
+    """
+    for edge in edges:
+        if edge.guard is None:
+            return edge
+        if edge.guard(ctx, state).passed:
+            return edge
+    return None
+
+
+def _same_phase_reentry_reason(phase: str, status: PhaseStatus) -> str:
+    """Build the rejection reason for an illegal same-phase re-entry (E5)."""
+    if status == PhaseStatus.COMPLETED:
+        return (
+            f"Phase {phase!r} already completed for this run; a same-phase start "
+            "is legal only as a PAUSED-resume. Rejecting the duplicate start "
+            "(idempotent already-completed, no re-execution; FK-45 §45.2)."
+        )
+    return (
+        f"Phase {phase!r} is {status.value!r} for this run; a same-phase start is "
+        "legal only as a PAUSED-resume. Recovery of a failed/escalated/blocked "
+        "phase is the operator-recovery CLI's job (FK-45 §45.4), not a re-start "
+        "via the standard entrypoint (fail-closed; FK-45 §45.2)."
+    )
+
+
+def _guard_name(guard_fn: object) -> str:
+    """Return a guard's registered name (or its ``repr``) for diagnostics."""
+    return str(getattr(guard_fn, "guard_name", guard_fn))
+
+
+def _build_envelope(
+    existing: PhaseState | None,
+    ctx: StoryContext,
+    phase: str,
+) -> PhaseEnvelope:
+    """Build the engine envelope for the requested phase.
+
+    Resume / same-phase re-entry uses the persisted state; a forward transition
+    or a fresh start wraps a PENDING state for the requested phase.
+    """
+    from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+
+    if existing is not None and existing.phase == phase:
+        return PhaseEnvelopeStore.make_fresh_envelope(existing)
+    fresh = PhaseState(
+        story_id=ctx.story_id,
+        phase=phase,
+        status=PhaseStatus.PENDING,
+    )
+    return PhaseEnvelopeStore.make_fresh_envelope(fresh)
+
+
+# Engine ``EngineResult.status`` -> normalized (status, reaction). The reaction
+# follows the FK-45 §45.3 reaction table outcome class.
+_REACTION_BY_STATUS: dict[str, tuple[str, str]] = {
+    "phase_completed": ("phase_completed", "advance"),
+    "yielded": ("yielded", "await_external"),
+    "failed": ("failed", "escalate"),
+    "escalated": ("escalated", "escalate"),
+    "blocked": ("blocked", "escalate"),
+}
+
+
+def _normalize(result: EngineResult) -> PhaseDispatchResult:
+    """Normalize an engine result to the FK-45 §45.3 dispatch contract."""
+    status, reaction = _REACTION_BY_STATUS.get(
+        result.status, ("failed", "escalate")
+    )
+    # A completed phase that suggests a next phase is the orchestrator's signal to
+    # run the next worker; a completed terminal phase (no next) just advances.
+    if status == "phase_completed" and result.next_phase is not None:
+        reaction = "run_worker"
+    return PhaseDispatchResult(
+        phase=result.phase,
+        status=status,
+        reaction=reaction,
+        dispatched=True,
+        next_phase=result.next_phase,
+        yield_status=result.yield_status,
+        errors=tuple(result.errors),
+    )
+
+
+def _rejected(phase: str, reason: str) -> PhaseDispatchResult:
+    """Build a fail-closed rejection result (no engine entry)."""
+    return PhaseDispatchResult(
+        phase=phase,
+        status="rejected",
+        reaction="rejected",
+        dispatched=False,
+        rejection_reason=reason,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Productive default surfaces
+# ---------------------------------------------------------------------------
+
+
+def build_story_service_approval_reader(
+    store_dir: Path | None = None,
+) -> ApprovalReader:
+    """Build the productive Tor 1 reader over the AK3 story-service (AG3-014).
+
+    E7 fix: the persisted ``StoryStatus`` is read from the RUN'S store, not cwd.
+    The story-service is rooted at ``store_dir`` (the run's project/store root) via
+    its ``StateBackendStoryRepository``, so an Approved run is not wrongly rejected
+    -- nor a colliding cwd story wrongly admitted.
+    """
+    from agentkit.state_backend.store.story_repository import (
+        StateBackendStoryRepository,
+    )
+    from agentkit.story_context_manager.service import StoryService
+    from agentkit.story_context_manager.story_model import StoryStatus
+
+    service = StoryService(
+        story_repository=StateBackendStoryRepository(store_dir),
+    )
+
+    @dataclass(frozen=True)
+    class _StoryServiceApprovalReader:
+        def is_approved(self, project_key: str, story_display_id: str) -> bool:
+            del project_key
+            story = service.get_story(story_display_id)
+            if story is None:
+                return False
+            return story.status is StoryStatus.APPROVED
+
+    return _StoryServiceApprovalReader()
+
+
+def build_execution_planning_admission_reader(
+    store_dir: Path | None = None,
+) -> SchedulingAdmissionReader:
+    """Build the productive Tor 2 reader over execution-planning ``assess_readiness``.
+
+    READY + scheduling admission is consumed as: the story appears in the
+    assessment's ``next_ready`` wave with ``is_ready=True`` (FK-70 §70.6.1/§70.6.4
+    -- ``next_ready`` is the computed READY + practical-parallelism-admitted set).
+    """
+    from agentkit.execution_planning.lifecycle import assess_readiness
+    from agentkit.state_backend.store.parallelization_config_repository import (
+        StateBackendParallelizationConfigRepository,
+    )
+    from agentkit.state_backend.store.planning_story_repository import (
+        StateBackendPlanningStoryRepository,
+    )
+    from agentkit.state_backend.store.story_dependency_repository import (
+        StateBackendStoryDependencyRepository,
+    )
+
+    story_repo = StateBackendPlanningStoryRepository(store_dir)
+    dep_repo = StateBackendStoryDependencyRepository(store_dir)
+    config_repo = StateBackendParallelizationConfigRepository(store_dir)
+
+    @dataclass(frozen=True)
+    class _ExecutionPlanningAdmissionReader:
+        def is_ready_and_admitted(
+            self, project_key: str, story_display_id: str
+        ) -> bool:
+            assessment = assess_readiness(
+                project_key=project_key,
+                story_repo=story_repo,
+                dep_repo=dep_repo,
+                config_repo=config_repo,
+            )
+            return any(
+                ws.story_id == story_display_id and ws.is_ready
+                for ws in assessment.next_ready
+            )
+
+    return _ExecutionPlanningAdmissionReader()
+
+
+def build_pre_start_guard(store_dir: Path | None = None) -> PreStartGuard:
+    """Build the productive fail-closed pre-start guard (Tor 1 + Tor 2).
+
+    E7 fix: BOTH the approval (Tor 1) and scheduling (Tor 2) readers are rooted at
+    the run's ``store_dir`` so the admission decision reads the run's authoritative
+    store (SINGLE SOURCE OF TRUTH), never cwd.
+    """
+    return PreStartGuard(
+        approval_reader=build_story_service_approval_reader(store_dir),
+        scheduling_reader=build_execution_planning_admission_reader(store_dir),
+    )
+
+
+def build_phase_dispatcher() -> PhaseDispatcher:
+    """Build the productive single-phase dispatcher over the composition root.
+
+    The engine factory resolves a wired ``PipelineEngine`` per run via
+    ``build_pipeline_engine`` (one truth; no self-build). ``story_dir`` is derived
+    from the story context's ``project_root`` + story id. E1 fix: the productive
+    engine factory builds a REAL ``SetupConfig`` from the run ``ctx`` (the GitHub
+    coordinates resolved from the run's project config), never an empty dummy.
+
+    E7 fix: the pre-start run-admission guard is resolved PER RUN from ``ctx`` so
+    both Tor-1 (approval) and Tor-2 (scheduling) readers read from the RUN'S
+    authoritative store/project root, not cwd.
+    """
+    from agentkit.bootstrap.composition_root import (
+        SetupCoordinatesUnavailableError,
+        build_pipeline_engine,
+        build_setup_config_for_run,
+    )
+
+    def _engine_factory(ctx: StoryContext) -> PipelineEngine:
+        story_dir = _resolve_story_dir(ctx)
+        # E1: thread the run's REAL ``SetupConfig`` (owner/repo/issue from ``ctx``)
+        # into the engine. The setup handler is built eagerly with the rest of the
+        # registry; a non-setup dispatch never enters it, so unresolvable
+        # coordinates here must NOT block a legitimate follow-up phase. The
+        # fail-closed REJECTION of a FRESH SETUP start on unresolvable coordinates
+        # is enforced separately in :meth:`PhaseDispatcher.dispatch` (the
+        # ``_require_setup_coordinates`` precheck), where the requested phase is
+        # known. So: best-effort here, hard-reject there.
+        try:
+            setup_config: object | None = build_setup_config_for_run(ctx)
+        except SetupCoordinatesUnavailableError:
+            setup_config = None
+        return build_pipeline_engine(
+            story_dir,
+            story_type=ctx.story_type,
+            project_key=ctx.project_key,
+            setup_config=setup_config,
+        )
+
+    def _guard_factory(ctx: StoryContext) -> PreStartGuard:
+        # The run's store root is its project root (the SINGLE store the run
+        # uses). Both admission reads target it (E7).
+        return build_pre_start_guard(ctx.project_root)
+
+    def _require_setup_coordinates(ctx: StoryContext) -> str | None:
+        # E1: a FRESH setup start MUST have authoritative GitHub coordinates;
+        # never run setup against empty/dummy coordinates. Returns a rejection
+        # reason when unresolvable, else ``None``.
+        try:
+            build_setup_config_for_run(ctx)
+        except SetupCoordinatesUnavailableError as exc:
+            return str(exc)
+        return None
+
+    return PhaseDispatcher(
+        engine_factory=_engine_factory,
+        guard_factory=_guard_factory,
+        setup_coordinates_check=_require_setup_coordinates,
+    )
+
+
+def _resolve_story_dir(ctx: StoryContext) -> Path:
+    """Resolve the story working directory from the run context (fail-closed)."""
+    from agentkit.installer.paths import story_dir
+
+    if ctx.project_root is None:
+        raise PipelineError(
+            "Cannot dispatch a phase without a resolved project_root on the "
+            "StoryContext (fail-closed).",
+            detail={"story_id": ctx.story_id},
+        )
+    return story_dir(ctx.project_root, ctx.story_id)

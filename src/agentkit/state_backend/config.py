@@ -129,9 +129,15 @@ SCHEMA_OVERRIDE_ALLOWED_ENV = "AGENTKIT_PG_SCHEMA_OVERRIDE_ALLOWED"
 # (state_backend.migration, FK-62 §62.4) records this as logical analytics
 # version 3.4 in the idempotent ``schema_versions`` cursor. Idempotent
 # side-by-side migration via the versioned-schema pattern (FK-18 §18.9a) — a
-# fresh ak3_v3_19_0 schema / agentkit_3_19_0.sqlite file is created; the old
-# 3.18.0 DB is never touched.
-SCHEMA_VERSION = "3.19.0"
+# fresh ak3_v3_20_0 schema / agentkit_3_20_0.sqlite file is created; the old
+# 3.19.0 DB is never touched.
+#
+# 3.20.0 (AG3-054): control_plane_operations gains claimed_by / claimed_at for
+# the leased, owner-scoped claim (FK-91, FK-22 §22.9). A fresh schema gets the
+# columns from CREATE TABLE; an existing same-version schema gets them via the
+# idempotent ALTER TABLE ... ADD COLUMN IF NOT EXISTS statements in
+# postgres_store._schema_alter_statements (FK-62 §62.4 strategy).
+SCHEMA_VERSION = "3.20.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 # AG3-051: reserved test-schema namespace. Disjoint from the production schema
 # name (``ak3_v<slug>``), so a test override can never resolve onto production
