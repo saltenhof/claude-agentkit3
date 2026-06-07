@@ -1,8 +1,8 @@
 story_id: AG3-046
 title: "ExplorationReview: dreistufiges Exit-Gate (Dokumententreue/Design-Review/Design-Challenge)"
 type: implementation
-status: blocked
-phase: setup
+status: completed
+phase: closure
 created: "2026-05-16"
 size: L
 depends_on:

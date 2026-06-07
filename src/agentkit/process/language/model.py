@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Protocol
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
-    from agentkit.process.language.gates import Gate
+    from agentkit.process.language.gates import ExplorationGateStageSpec, Gate
     from agentkit.process.language.guards import GuardFn
     from agentkit.story_context_manager.models import PhaseState, StoryContext
 
@@ -90,12 +90,27 @@ class OverridePolicy:
 
 @dataclass(frozen=True)
 class YieldPoint:
-    """A point where the pipeline yields control and waits for external input."""
+    """A point where the pipeline yields control and waits for external input.
+
+    Args:
+        status: The status string set when yielding.
+        resume_triggers: Events that can resume execution.
+        required_artifacts: Artifacts that must be present before resuming.
+        timeout_policy: Optional timeout policy name.
+        gate_stage: Optional typed exploration-gate stage this yield-point maps
+            to (FK-23 §23.5, AG3-046). The exploration yield-points
+            ``design_review`` / ``design_challenge`` carry their
+            :class:`~agentkit.process.language.gates.ExplorationGateStageSpec`
+            so the imperative topology and the typed three-stage gate model
+            never drift apart (exploration-and-design.B3). ``None`` for
+            non-exploration yield-points.
+    """
 
     status: str
     resume_triggers: tuple[str, ...] = ()
     required_artifacts: tuple[str, ...] = ()
     timeout_policy: str | None = None
+    gate_stage: ExplorationGateStageSpec | None = None
 
 
 @dataclass(frozen=True)

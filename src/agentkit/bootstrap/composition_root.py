@@ -57,6 +57,7 @@ if TYPE_CHECKING:
         VectorDbSyncPort,
     )
     from agentkit.exploration.phase import ExplorationPhaseHandler
+    from agentkit.exploration.review import ExplorationReview
     from agentkit.failure_corpus import FailureCorpus
     from agentkit.governance.integrity_gate import IntegrityGate
     from agentkit.governance.integrity_gate.dim9_sonar import SonarDimensionPort
@@ -68,6 +69,7 @@ if TYPE_CHECKING:
         RequirementsCoverage as RequirementsCoverageProto,
     )
     from agentkit.skills import Skills
+    from agentkit.story_context_manager.models import StoryContext
     from agentkit.story_context_manager.story_model import ChangeImpact
     from agentkit.telemetry.emitters import EventEmitter
     from agentkit.telemetry.projection_accessor import ProjectionAccessor
@@ -111,8 +113,13 @@ def build_producer_registry() -> ProducerRegistry:
         Reihenfolge der Init-Hooks ist deterministisch (BC-alphabetisch
         bzw. Capability-Reihenfolge). Jeder Hook ist idempotent.
     """
+    from agentkit.exploration.review.register import (
+        register_exploration_review_producers,
+    )
+
     registry = ProducerRegistry()
     register_exploration_producers(registry)
+    register_exploration_review_producers(registry)
     register_implementation_producers(registry)
     register_prompt_runtime_producers(registry)
     register_verify_producers(registry)
@@ -169,10 +176,75 @@ def build_kpi_analytics(store_dir: Path) -> KpiAnalytics:
     return KpiAnalytics(catalog=KpiCatalog(), fact_store=fact_store)
 
 
+def build_exploration_review(
+    ctx: StoryContext,
+    story_dir: Path,
+    *,
+    llm_client: LlmClient | None = None,
+) -> ExplorationReview:
+    """Wire the three-stage exploration exit-gate (AG3-046, FK-23 §23.5).
+
+    Composition root for :class:`ExplorationReview`: builds the Stage 1
+    document-fidelity checker and the Stage 2a design-review runner over the
+    Layer-2 :class:`StructuredEvaluator`, the
+    :class:`PromptRuntimeMaterializer` (FK-44 §44.4.2 prompt source) and the
+    :class:`ArtifactReviewResultSink` (QA-artifact persistence). Stage 2b
+    design-challenge is wired as ``None`` (mandate-gated activation is AG3-047).
+
+    The LLM transport defaults to the fail-closed :class:`FailClosedLlmClient`
+    (no LLM pool is wired productively yet, FK-11 follow-up): every gate stage
+    then FAILS CLOSED at the LLM boundary rather than silently approving (NO
+    ERROR BYPASSING). Once the pool adapter exists the caller injects it here.
+
+    Args:
+        ctx: The story context for the run (carries ``project_root`` /
+            ``story_id``; required by the prompt materializer).
+        story_dir: Story working directory (run-scope + artifact store root).
+        llm_client: Optional Layer-2 LLM transport. ``None`` => the fail-closed
+            :class:`FailClosedLlmClient` (gate fails closed until a pool exists).
+
+    Returns:
+        A wired :class:`ExplorationReview`.
+    """
+    from agentkit.exploration.review.design_review import DesignReviewRunner
+    from agentkit.exploration.review.doc_fidelity import DocFidelityChecker
+    from agentkit.exploration.review.persistence import ArtifactReviewResultSink
+    from agentkit.exploration.review.review import ExplorationReview as _Review
+    from agentkit.state_backend.store.verify_story_context_repository import (
+        StateBackendVerifyStoryContextAdapter,
+    )
+    from agentkit.verify_system.llm_evaluator.llm_client import FailClosedLlmClient
+    from agentkit.verify_system.llm_evaluator.prompt_materializer import (
+        PromptRuntimeMaterializer,
+    )
+    from agentkit.verify_system.llm_evaluator.structured_evaluator import (
+        StructuredEvaluator,
+    )
+
+    manager = build_artifact_manager(story_dir)
+    client = llm_client or FailClosedLlmClient()
+    materializer = PromptRuntimeMaterializer(
+        ctx=ctx,
+        story_dir=story_dir,
+        artifact_manager=manager,
+        story_context_port=StateBackendVerifyStoryContextAdapter(),
+    )
+    evaluator = StructuredEvaluator(client, materializer)
+    sink = ArtifactReviewResultSink(manager)
+    return _Review(
+        stage1_doc_fidelity=DocFidelityChecker(evaluator, sink),
+        stage2a_design_review=DesignReviewRunner(evaluator, sink),
+        stage2b_design_challenge=None,
+        artifact_manager=manager,
+    )
+
+
 def build_exploration_phase_handler(
     story_dir: Path,
+    *,
+    review: ExplorationReview | None = None,
 ) -> ExplorationPhaseHandler:
-    """Wire the registrable ``ExplorationPhaseHandler`` surface (AG3-045 / Option Y).
+    """Wire the registrable ``ExplorationPhaseHandler`` surface (AG3-045/AG3-046).
 
     Composition root for the exploration-phase handler (BC 5,
     ``exploration-and-design``): wires the bloodgroup-A handler to the
@@ -184,14 +256,21 @@ def build_exploration_phase_handler(
     Per PO decision 2026-06-05 ("Option Y") the handler produces NO change-frame:
     it consumes / validates the change-frame persisted by the exploration worker
     (AG3-055). Without a valid change-frame the phase is fail-closed (ESCALATED).
-    The **productive registration** of this handler on the
-    ``PhaseHandlerRegistry`` is owned by AG3-054; this builder only provides the
-    registrable surface.
+
+    AG3-046: when a valid change-frame is present the handler runs the three-stage
+    exit-gate (:class:`ExplorationReview`). The review is built per-run (it needs
+    the ``StoryContext`` for the prompt materializer) via
+    :func:`build_exploration_review`; the productive per-run injection +
+    ``PhaseHandlerRegistry`` registration is owned by AG3-054. ``review=None``
+    (the default here) fails closed: a valid frame with no review wired returns
+    ``FAILED`` (never auto-APPROVE, NO ERROR BYPASSING).
 
     Args:
         story_dir: Story working directory (bound ``FlowExecution`` + the read
             surface root). Passed to the adapter's ``ArtifactManager`` and the
             handler config.
+        review: Optional pre-built three-stage exit-gate. ``None`` fails closed
+            on a valid change-frame (AG3-054 injects the per-run review).
 
     Returns:
         A wired ``ExplorationPhaseHandler``.
@@ -212,6 +291,7 @@ def build_exploration_phase_handler(
     return _ExplorationPhaseHandler(
         change_frame_reader=adapter,
         run_scope_resolver=adapter,
+        review=review,
         config=ExplorationConfig(story_dir=story_dir),
     )
 
@@ -1768,6 +1848,7 @@ __all__ = [
     "build_artifact_manager",
     "build_closure_phase_handler",
     "build_exploration_phase_handler",
+    "build_exploration_review",
     "build_failure_corpus",
     "build_integrity_gate",
     "build_phase_state_residue_probe",

@@ -28,7 +28,7 @@ from agentkit.process.language.model import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from agentkit.process.language.gates import Gate
+    from agentkit.process.language.gates import ExplorationGateStageSpec, Gate
     from agentkit.process.language.guards import GuardFn
     from agentkit.story_context_manager.models import PhaseState, StoryContext
 
@@ -214,6 +214,7 @@ class WorkflowBuilder:
         resume_triggers: list[str] | None = None,
         required_artifacts: list[str] | None = None,
         timeout_policy: str | None = None,
+        gate_stage: ExplorationGateStageSpec | None = None,
     ) -> Self:
         """Add a yield point to the current phase.
 
@@ -226,6 +227,12 @@ class WorkflowBuilder:
             resume_triggers: Events that can resume execution.
             required_artifacts: Artifacts that must be present before resuming.
             timeout_policy: Optional timeout policy name.
+            gate_stage: Optional typed exploration-gate stage this yield-point
+                maps to (FK-23 §23.5, AG3-046). Carries the
+                :class:`~agentkit.process.language.gates.ExplorationGateStageSpec`
+                for the ``design_review`` / ``design_challenge`` yield-points so
+                the imperative topology stays bound to the typed three-stage
+                gate model (exploration-and-design.B3).
 
         Returns:
             ``self`` for fluent chaining.
@@ -240,6 +247,7 @@ class WorkflowBuilder:
             resume_triggers=tuple(resume_triggers) if resume_triggers else (),
             required_artifacts=tuple(required_artifacts) if required_artifacts else (),
             timeout_policy=timeout_policy,
+            gate_stage=gate_stage,
         )
         self._current_phase.yield_points.append(yp)
         return self

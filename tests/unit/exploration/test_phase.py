@@ -1,10 +1,13 @@
-"""Unit tests for ExplorationPhaseHandler (AC1; Option Y consume/validate).
+"""Unit tests for ExplorationPhaseHandler (AC1/AC7; Option Y consume/validate).
 
-AG3-045 (Option Y, PO 2026-06-05): the handler CONSUMES / VALIDATES a
-worker-produced change-frame (AG3-055); it never fabricates one. Covered:
+Option Y (PO 2026-06-05): the handler CONSUMES / VALIDATES a worker-produced
+change-frame (AG3-055); it never fabricates one. AG3-046 replaced the AG3-045
+provisional "pause awaiting review" branch with the three-stage
+``ExplorationReview`` exit-gate. Covered here (the gate-driven outcomes live in
+``tests/integration/pipeline/exploration``; these cover the plumbing edges):
 
-* a valid persisted change-frame -> PAUSED awaiting design review, gate PENDING
-  (NOT approved -- no fake APPROVED; the gate guard still denies);
+* a valid persisted change-frame but NO review wired -> fail-closed ``FAILED``
+  (never auto-APPROVE; the gate guard still denies);
 * no change-frame -> fail-closed ESCALATED (the gate guard denies);
 * unconfigured ``story_dir`` -> FAILED;
 * no bound ``FlowExecution`` -> ``CorruptStateError`` (via the adapter).
@@ -35,7 +38,7 @@ from agentkit.bootstrap.composition_root import (
     build_artifact_manager,
     build_exploration_phase_handler,
 )
-from agentkit.core_types import ArtifactClass, ExplorationGateStatus, PauseReason
+from agentkit.core_types import ArtifactClass, ExplorationGateStatus
 from agentkit.core_types.qa_artifact_names import CHANGE_FRAME_FILE
 from agentkit.exceptions import CorruptStateError
 from agentkit.exploration.phase import ExplorationConfig, ExplorationPhaseHandler
@@ -141,9 +144,16 @@ def test_handler_satisfies_protocol(tmp_path: Path) -> None:
     )
 
 
-def test_on_enter_with_valid_change_frame_pauses_for_review(
+def test_on_enter_valid_frame_without_review_fails_closed(
     tmp_path: Path,
 ) -> None:
+    """AC7: provisional gone. A valid frame but no review wired -> FAILED.
+
+    The default ``build_exploration_phase_handler`` wires ``review=None`` (the
+    per-run review is injected by AG3-054). With a valid change-frame but no gate
+    to run, the handler fails closed -- it NEVER auto-APPROVEs (NO ERROR
+    BYPASSING). The gate-driven outcomes are covered in the integration tests.
+    """
     sd = _story_dir(tmp_path)
     _bind_flow(sd)
     # The AG3-055 worker analogue persists the FK-23 fixture change-frame.
@@ -153,11 +163,10 @@ def test_on_enter_with_valid_change_frame_pauses_for_review(
 
     result = build_exploration_phase_handler(sd).on_enter(_ctx(sd), _envelope())
 
-    assert result.status is PhaseStatus.PAUSED
-    assert result.yield_status == PauseReason.AWAITING_DESIGN_REVIEW.value
+    assert result.status is PhaseStatus.FAILED
     payload = result.updated_state.payload
     assert isinstance(payload, ExplorationPayload)
-    # No fake APPROVED -- the gate stays PENDING until AG3-046's review.
+    # No fake APPROVED -- the gate stays PENDING.
     assert payload.gate_status is ExplorationGateStatus.PENDING
 
 
@@ -279,10 +288,11 @@ def test_on_resume_revalidates(tmp_path: Path) -> None:
     persist_example_change_frame(
         build_artifact_manager(sd), story_dir=sd, run_id=_RUN_ID
     )
+    # on_resume re-runs on_enter idempotently; with review=None it fails closed.
     result = build_exploration_phase_handler(sd).on_resume(
         _ctx(sd), _envelope(), "resume-trigger"
     )
-    assert result.status is PhaseStatus.PAUSED
+    assert result.status is PhaseStatus.FAILED
     payload = result.updated_state.payload
     assert isinstance(payload, ExplorationPayload)
     assert payload.gate_status is ExplorationGateStatus.PENDING

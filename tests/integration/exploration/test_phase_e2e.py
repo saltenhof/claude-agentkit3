@@ -21,7 +21,7 @@ from agentkit.bootstrap.composition_root import (
     build_artifact_manager,
     build_exploration_phase_handler,
 )
-from agentkit.core_types import ArtifactClass, ExplorationGateStatus, PauseReason
+from agentkit.core_types import ArtifactClass, ExplorationGateStatus
 from agentkit.core_types.qa_artifact_names import CHANGE_FRAME_FILE
 from agentkit.exploration.register import EXPLORATION_ENTWURF_STAGE
 from agentkit.installer.paths import resolve_qa_story_dir
@@ -128,12 +128,14 @@ def test_on_enter_validates_persisted_change_frame(tmp_path: Path) -> None:
     assert on_disk["run_id"] == _RUN_ID
 
     ctx = _ctx(story_dir)
+    # Default handler wires review=None (the per-run review is injected by
+    # AG3-054). With a valid change-frame but no gate to run, the handler fails
+    # closed -- it NEVER auto-APPROVEs. The gate-driven outcomes (APPROVED /
+    # escalation / REJECTED) are covered in tests/integration/pipeline/exploration.
     handler = build_exploration_phase_handler(story_dir)
     result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(_state()))
 
-    # Valid change-frame -> pause for review; the gate is NOT released yet.
-    assert result.status is PhaseStatus.PAUSED
-    assert result.yield_status == PauseReason.AWAITING_DESIGN_REVIEW.value
+    assert result.status is PhaseStatus.FAILED
     assert exploration_gate_approved(ctx, result.updated_state).passed is False
 
 

@@ -6,6 +6,10 @@ from typing import TYPE_CHECKING
 
 from agentkit.exceptions import WorkflowError
 from agentkit.process.language.builder import Workflow
+from agentkit.process.language.gates import (
+    ExplorationGateStage,
+    ExplorationGateStageSpec,
+)
 from agentkit.process.language.guards import (
     GuardResult,
     exploration_gate_approved,
@@ -58,11 +62,29 @@ def _build_implementation_workflow() -> WorkflowDefinition:
             on="awaiting_design_review",
             resume_triggers=["design_approved", "design_rejected"],
             required_artifacts=["design_artifact"],
+            # FK-23 §23.5.2: Stage 2a design-review is a required gate stage; a
+            # FAIL rolls the change-frame back to an editable draft (FK-25
+            # §25.4.2) for the next remediation round (AG3-046).
+            gate_stage=ExplorationGateStageSpec(
+                stage_id=ExplorationGateStage.DESIGN_REVIEW,
+                yield_point="design_review",
+                required=True,
+                rollback_on_fail=True,
+            ),
         )
         .yield_to(
             "design_challenge",
             on="awaiting_design_challenge",
             resume_triggers=["challenge_resolved"],
+            # FK-23 §23.5.3: Stage 2b design-challenge is the OPTIONAL third
+            # stage (mandate-gated; activation deferred to AG3-047). It does not
+            # roll the change-frame back by itself.
+            gate_stage=ExplorationGateStageSpec(
+                stage_id=ExplorationGateStage.DESIGN_CHALLENGE,
+                yield_point="design_challenge",
+                required=False,
+                rollback_on_fail=False,
+            ),
         )
         .phase("implementation")
         .max_remediation_rounds(3)
