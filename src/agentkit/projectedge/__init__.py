@@ -8,16 +8,20 @@ from agentkit.projectedge.client import (
     ProjectEdgeClient,
 )
 from agentkit.projectedge.runtime import (
+    ChangeFrameFreezeState,
     ProjectEdgeResolver,
     ResolvedEdgeState,
     build_project_edge_client,
+    read_change_frame_freeze_state,
 )
 
 __all__ = [
+    "ChangeFrameFreezeState",
     "HttpsJsonTransport",
     "LocalEdgePublisher",
     "ProjectEdgeResolver",
     "ProjectEdgeClient",
     "ResolvedEdgeState",
     "build_project_edge_client",
+    "read_change_frame_freeze_state",
 ]

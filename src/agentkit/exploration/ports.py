@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.exploration.change_frame import ChangeFrame
+    from agentkit.story_context_manager.story_model import ChangeImpact
 
 
 @runtime_checkable
@@ -118,4 +119,45 @@ class ChangeFrameWriter(Protocol):
         ...
 
 
-__all__ = ["ChangeFrameReader", "ChangeFrameWriter", "RunScopeResolver"]
+@runtime_checkable
+class DeclaredImpactReader(Protocol):
+    """Resolve the authoritative DECLARED change impact of a story (fail-closed).
+
+    FK-25 §25.7.1 (Klasse 4) compares the change-frame's actual impact against
+    the story's DECLARED ``change_impact``. That value lives on the
+    :class:`~agentkit.story_context_manager.story_model.Story` model (the GitHub
+    input / story stammdaten) -- NOT on ``StoryContext`` (runtime model) nor on
+    the 2-value ``ImplementationContract``. The bloodgroup-A exploration core
+    must not read the story store directly (ARCH-22 / ARCH-31); it resolves the
+    declared impact through this injected boundary port, whose concrete adapter
+    (state-backend ``StoryRepository`` read) is wired at the composition-root.
+
+    Fail-closed (FIX-THE-MODEL, no second source of truth, no fail-open default,
+    FK-25 §25.7.1): when the declared impact cannot be resolved (no such story /
+    unreadable store) the implementation RAISES rather than defaulting to
+    ``LOCAL`` -- absence is an error, never a silent autonomous pass.
+    """
+
+    def declared_change_impact(self, *, story_id: str) -> ChangeImpact:
+        """Return the story's declared change impact (fail-closed).
+
+        Args:
+            story_id: The story display id.
+
+        Returns:
+            The authoritative declared :class:`ChangeImpact` from the story
+            stammdaten.
+
+        Raises:
+            Exception: When the story / its declared impact cannot be resolved
+                (fail-closed; never a silent ``LOCAL`` default).
+        """
+        ...
+
+
+__all__ = [
+    "ChangeFrameReader",
+    "ChangeFrameWriter",
+    "DeclaredImpactReader",
+    "RunScopeResolver",
+]

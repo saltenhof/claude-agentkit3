@@ -334,3 +334,74 @@ def test_build_project_edge_client_uses_local_control_plane_config(
     publisher = client._publisher
     assert transport._base_url == "https://127.0.0.1:9443"
     assert publisher._project_root == tmp_path
+
+
+# --- read_change_frame_freeze_state (FK-23 §23.4.3, AG3-047) ----------------
+# Fail-closed reader: only an ABSENT file is editable-by-default; every present
+# but ambiguous state is "unreadable" so the guard blocks (NO ERROR BYPASSING).
+
+
+def test_freeze_state_absent_when_no_file(tmp_path: Path) -> None:
+    from agentkit.projectedge.runtime import read_change_frame_freeze_state
+
+    assert read_change_frame_freeze_state(tmp_path / "change_frame.json") == "absent"
+
+
+def test_freeze_state_frozen_true(tmp_path: Path) -> None:
+    from agentkit.projectedge.runtime import read_change_frame_freeze_state
+
+    path = tmp_path / "change_frame.json"
+    path.write_text(json.dumps({"frozen": True}), encoding="utf-8")
+    assert read_change_frame_freeze_state(path) == "frozen"
+
+
+def test_freeze_state_frozen_false_is_editable(tmp_path: Path) -> None:
+    from agentkit.projectedge.runtime import read_change_frame_freeze_state
+
+    path = tmp_path / "change_frame.json"
+    path.write_text(json.dumps({"frozen": False}), encoding="utf-8")
+    assert read_change_frame_freeze_state(path) == "editable"
+
+
+def test_freeze_state_missing_flag_is_unreadable(tmp_path: Path) -> None:
+    """``{}`` has no freeze decision -> unknown -> fail-closed (not editable)."""
+    from agentkit.projectedge.runtime import read_change_frame_freeze_state
+
+    path = tmp_path / "change_frame.json"
+    path.write_text(json.dumps({}), encoding="utf-8")
+    assert read_change_frame_freeze_state(path) == "unreadable"
+
+
+def test_freeze_state_non_bool_flag_is_unreadable(tmp_path: Path) -> None:
+    """A truthy-but-not-True flag (``"true"`` / ``null``) must NOT read editable."""
+    from agentkit.projectedge.runtime import read_change_frame_freeze_state
+
+    for raw in ('{"frozen": "true"}', '{"frozen": null}', '{"frozen": 1}'):
+        path = tmp_path / "change_frame.json"
+        path.write_text(raw, encoding="utf-8")
+        assert read_change_frame_freeze_state(path) == "unreadable"
+
+
+def test_freeze_state_non_object_json_is_unreadable(tmp_path: Path) -> None:
+    from agentkit.projectedge.runtime import read_change_frame_freeze_state
+
+    path = tmp_path / "change_frame.json"
+    path.write_text("[1, 2, 3]", encoding="utf-8")
+    assert read_change_frame_freeze_state(path) == "unreadable"
+
+
+def test_freeze_state_garbage_json_is_unreadable(tmp_path: Path) -> None:
+    from agentkit.projectedge.runtime import read_change_frame_freeze_state
+
+    path = tmp_path / "change_frame.json"
+    path.write_text("{not json", encoding="utf-8")
+    assert read_change_frame_freeze_state(path) == "unreadable"
+
+
+def test_freeze_state_directory_at_path_is_unreadable(tmp_path: Path) -> None:
+    """A directory at the change-frame path is present-but-not-a-file -> unknown."""
+    from agentkit.projectedge.runtime import read_change_frame_freeze_state
+
+    path = tmp_path / "change_frame.json"
+    path.mkdir()
+    assert read_change_frame_freeze_state(path) == "unreadable"

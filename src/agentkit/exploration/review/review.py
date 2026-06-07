@@ -107,16 +107,26 @@ class ExplorationReview:
         self._stage2b = stage2b_design_challenge
         self._artifact_manager = artifact_manager
 
-    def run(self, change_frame: ChangeFrame) -> ExplorationGateResult:
+    def run(
+        self, change_frame: ChangeFrame, *, run_design_challenge: bool = True
+    ) -> ExplorationGateResult:
         """Run the three stages in the concept-normative order (FK-23 §23.5).
 
         Args:
             change_frame: The validated worker change-frame (FK-23 §23.4).
+            run_design_challenge: Mandate-gating for the OPTIONAL Stage-2b design
+                challenge (FK-23 §23.5.3 / FK-25 §25.4.2 step G; AG3-047). When
+                ``True`` (the default -- preserves the prior behaviour) and a
+                Stage-2b runner is wired, Stage 2b runs. When ``False`` the
+                adversarial challenge is skipped for this run regardless of
+                wiring (the mandate class did not warrant it). The classifier
+                computes this flag from
+                :attr:`~agentkit.exploration.mandate.classification.MandateClassificationResult.run_design_challenge`.
 
         Returns:
             The aggregate :class:`ExplorationGateResult`. ``overall_status`` is
             ``APPROVED`` only after a Stage-1 PASS, a Stage-2a PASS and (when
-            wired) a Stage-2b PASS.
+            run) a Stage-2b PASS.
 
         Raises:
             StructuredEvaluatorError: On an unparseable / schema-violating LLM
@@ -159,9 +169,13 @@ class ExplorationReview:
                 review_rounds=stage2a.review_rounds,
             )
 
-        # --- Stage 2b: design challenge (optional) ------------------------
+        # --- Stage 2b: design challenge (optional, mandate-gated) ---------
+        # FK-25 §25.4.2 / AG3-047: the adversarial challenge runs only when the
+        # mandate class warrants it (``run_design_challenge``) AND a runner is
+        # wired. A gated-off challenge is NOT a skip of a required stage -- it is
+        # the concept-normative conditional Stage G (FK-23 §23.5.3 "OPTIONAL").
         stage2b: DesignChallengeResult | None = None
-        if self._stage2b is not None:
+        if run_design_challenge and self._stage2b is not None:
             stage2b = self._stage2b.run(change_frame, (stage1, stage2a))
             if stage2b.status != "pass":
                 return ExplorationGateResult(

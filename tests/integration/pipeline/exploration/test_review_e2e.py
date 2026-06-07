@@ -20,7 +20,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from tests.exploration_change_frame_fixture import persist_example_change_frame
+from tests.exploration_change_frame_fixture import (
+    EXAMPLE_RUN_ID,
+    example_change_frame,
+    persist_example_change_frame,
+)
 from tests.unit.exploration.review.scripted import (
     ScriptedLlmClient,
     build_real_sink,
@@ -44,12 +48,18 @@ from agentkit.state_backend.store import (
     reset_backend_cache_for_tests,
     save_flow_execution,
 )
+from agentkit.state_backend.store.story_repository import StateBackendStoryRepository
 from agentkit.story_context_manager.models import (
     ExplorationPayload,
     PhaseName,
     PhaseState,
     PhaseStatus,
     StoryContext,
+)
+from agentkit.story_context_manager.story_model import (
+    ChangeImpact,
+    Story,
+    WireStoryType,
 )
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
@@ -104,6 +114,25 @@ def _bind_flow(story_dir: Path) -> None:
             status="IN_PROGRESS",
         ),
     )
+    # AG3-047: the handler now classifies the mandate before the gate and reads
+    # the story's declared change_impact (fail-closed). Persist the story with a
+    # high declared impact so the Klasse-4 check never escalates -- these AG3-046
+    # tests assert the GATE outcomes, not the mandate routing. The frame used by
+    # ``_run`` is the TRIVIAL variant (no ``approval_needed`` open point) so the
+    # mandate classifies TRIVIAL and the flow reaches the review (the productive
+    # fine-design evaluator is fail-closed -- ERROR-1 -- and would otherwise
+    # escalate a fine-design frame before the gate).
+    StateBackendStoryRepository(story_dir).save(
+        Story(
+            project_key="test-project",
+            story_number=45,
+            story_display_id="AG3-045",
+            title="Exploration review e2e",
+            story_type=WireStoryType.IMPLEMENTATION,
+            participating_repos=["repo-a"],
+            change_impact=ChangeImpact.ARCHITECTURE_IMPACT,
+        )
+    )
 
 
 def _state() -> PhaseState:
@@ -129,12 +158,69 @@ def _review(
     )
 
 
+def _persist_trivial_frame(story_dir: Path) -> None:
+    """Persist a TRIVIAL variant of the example frame (no approval_needed).
+
+    A frame with no ``open_points.approval_needed`` classifies as TRIVIAL, so the
+    mandate flow proceeds straight to the review -- letting these tests assert the
+    GATE outcomes without the (fail-closed) productive fine-design evaluator
+    escalating first (ERROR-1).
+    """
+    from agentkit.artifacts import (
+        ArtifactEnvelope,
+        EnvelopeStatus,
+        Producer,
+        ProducerId,
+        ProducerType,
+    )
+    from agentkit.core_types import ArtifactClass
+    from agentkit.exploration.change_frame import OpenPoints
+    from agentkit.exploration.register import (
+        EXPLORATION_ENTWURF_PRODUCER,
+        EXPLORATION_ENTWURF_STAGE,
+    )
+    from agentkit.state_backend.store.exploration_change_frame_repository import (
+        StateBackendExplorationChangeFrameAdapter,
+    )
+
+    frame = example_change_frame(story_id="AG3-045", run_id=EXAMPLE_RUN_ID).model_copy(
+        update={
+            "open_points": OpenPoints(
+                decided=["Adapter pattern instead of direct integration."],
+                assumptions=["Broker API supports WebSocket streaming."],
+                approval_needed=[],
+            )
+        }
+    )
+    manager = build_artifact_manager(story_dir)
+    manager.write(
+        ArtifactEnvelope(
+            schema_version="3.0",
+            story_id="AG3-045",
+            run_id=_RUN_ID,
+            stage=EXPLORATION_ENTWURF_STAGE,
+            attempt=1,
+            producer=Producer(
+                type=ProducerType.WORKER,
+                name=EXPLORATION_ENTWURF_PRODUCER,
+                id=ProducerId(f"{EXPLORATION_ENTWURF_PRODUCER}-{_RUN_ID}"),
+            ),
+            started_at=frame.created_at,
+            finished_at=frame.created_at,
+            status=EnvelopeStatus.PASS,
+            artifact_class=ArtifactClass.ENTWURF,
+            payload=frame.model_dump(mode="json"),
+        )
+    )
+    StateBackendExplorationChangeFrameAdapter(manager).write_change_frame_file(
+        story_dir, story_id="AG3-045", run_id=_RUN_ID, frame=frame
+    )
+
+
 def _run(
     story_dir: Path, ctx: StoryContext, review: ExplorationReview
 ) -> HandlerResult:
-    persist_example_change_frame(
-        build_artifact_manager(story_dir), story_dir=story_dir, run_id=_RUN_ID
-    )
+    _persist_trivial_frame(story_dir)
     handler = build_exploration_phase_handler(story_dir, review=review)
     return handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(_state()))
 
@@ -195,7 +281,21 @@ def test_stage1_fail_rejects_and_blocks_implementation(tmp_path: Path) -> None:
 
 
 def test_stage2b_fail_rejects_and_blocks_implementation(tmp_path: Path) -> None:
-    """A wired Stage-2b FAIL (stage 1+2a passed) -> ESCALATED + gate REJECTED."""
+    """A wired Stage-2b FAIL (stage 1+2a passed) -> ESCALATED + gate REJECTED.
+
+    This is a pure AG3-046 GATE test: it isolates the Stage-2b challenge by
+    building the handler WITHOUT the mandate classifier, so
+    ``run_design_challenge`` defaults to ``True`` and Stage 2b runs (the
+    mandate-gating of Stage 2b is covered by the AG3-047 mandate tests).
+    """
+    from agentkit.exploration.phase import (
+        ExplorationConfig,
+        ExplorationPhaseHandler,
+    )
+    from agentkit.state_backend.store.exploration_change_frame_repository import (
+        StateBackendExplorationChangeFrameAdapter,
+    )
+
     sd = _story_dir(tmp_path)
     _bind_flow(sd)
     ctx = _ctx(sd)
@@ -210,8 +310,16 @@ def test_stage2b_fail_rejects_and_blocks_implementation(tmp_path: Path) -> None:
         stage2b_design_challenge=DesignChallengeRunner(evaluator, sink),
         artifact_manager=build_artifact_manager(sd),
     )
+    _persist_trivial_frame(sd)
+    adapter = StateBackendExplorationChangeFrameAdapter(build_artifact_manager(sd))
+    handler = ExplorationPhaseHandler(
+        change_frame_reader=adapter,
+        run_scope_resolver=adapter,
+        review=review,
+        config=ExplorationConfig(story_dir=sd),
+    )
 
-    result = _run(sd, ctx, review)
+    result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(_state()))
 
     assert result.status is PhaseStatus.ESCALATED
     payload = result.updated_state.payload

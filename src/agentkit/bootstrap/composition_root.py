@@ -56,6 +56,8 @@ if TYPE_CHECKING:
         GuardDeactivationPort,
         VectorDbSyncPort,
     )
+    from agentkit.exploration.change_frame import ChangeFrame
+    from agentkit.exploration.mandate.fine_design import FineDesignRoundOutcome
     from agentkit.exploration.phase import ExplorationPhaseHandler
     from agentkit.exploration.review import ExplorationReview
     from agentkit.failure_corpus import FailureCorpus
@@ -265,6 +267,27 @@ def build_exploration_phase_handler(
     (the default here) fails closed: a valid frame with no review wired returns
     ``FAILED`` (never auto-APPROVE, NO ERROR BYPASSING).
 
+    AG3-047: the handler is additionally wired with the mandate-classification
+    collaborators (FK-25 §25.3-25.8): :class:`MandateClassification` (over the
+    :class:`ScopeExplosionDetector` + :class:`ImpactExceedanceChecker`), the
+    :class:`FineDesignSubprocess` skeleton, the :class:`DesignFreezeMarker`
+    (freeze-on-PASS, FK-23 §23.4.3), the :class:`MandateTelemetry` emitter wired
+    to the canonical :class:`StateBackendEmitter`, and the ``DeclaredImpactReader``
+    boundary port (state-backend ``StoryRepository`` read of the story's declared
+    ``change_impact``). The bloodgroup-A core imports none of these I/O sources
+    directly; the telemetry / state-backend / clock wiring lives HERE.
+
+    The fine-design subprocess is wired with the PRODUCTIVE, fail-closed
+    :class:`_UnavailableFineDesignEvaluator`: the full FK-25 §25.5 multi-LLM
+    fine-design discussion is a FOLLOW-UP story, so the productive wiring must NOT
+    fabricate convergence. The evaluator therefore raises
+    :class:`FineDesignEvaluatorUnavailableError` on every round (FK-25 §25.5.4
+    non-reachability), so a class-2 (fine_design) story ESCALATES to a human with
+    the ``fine_design_required`` reaction instead of silently reaching APPROVED /
+    freeze with no real fine-design (ZERO DEBT / FAIL-CLOSED). The
+    :class:`FineDesignSubprocess` shell stays intact and converges WHEN a real /
+    scripted evaluator is injected (the unit/integration tests inject one).
+
     Args:
         story_dir: Story working directory (bound ``FlowExecution`` + the read
             surface root). Passed to the adapter's ``ArtifactManager`` and the
@@ -273,8 +296,18 @@ def build_exploration_phase_handler(
             on a valid change-frame (AG3-054 injects the per-run review).
 
     Returns:
-        A wired ``ExplorationPhaseHandler``.
+        A wired ``ExplorationPhaseHandler`` (incl. the AG3-047 mandate flow).
     """
+    from datetime import UTC, datetime
+
+    from agentkit.exploration.freeze import DesignFreezeMarker
+    from agentkit.exploration.mandate import (
+        FineDesignSubprocess,
+        ImpactExceedanceChecker,
+        MandateClassification,
+        ScopeExplosionDetector,
+    )
+    from agentkit.exploration.mandate.telemetry import MandateTelemetry
     from agentkit.exploration.phase import (
         ExplorationConfig,
     )
@@ -284,16 +317,131 @@ def build_exploration_phase_handler(
     from agentkit.state_backend.store.exploration_change_frame_repository import (
         StateBackendExplorationChangeFrameAdapter,
     )
+    from agentkit.telemetry.storage import StateBackendEmitter
 
     adapter = StateBackendExplorationChangeFrameAdapter(
         build_artifact_manager(story_dir)
     )
+    mandate = MandateClassification(
+        scope_detector=ScopeExplosionDetector(),
+        impact_checker=ImpactExceedanceChecker(),
+    )
+    fine_design = FineDesignSubprocess(_UnavailableFineDesignEvaluator())
+    freeze_marker = DesignFreezeMarker(
+        writer=adapter, clock=lambda: datetime.now(UTC)
+    )
+    telemetry = MandateTelemetry(StateBackendEmitter(story_dir))
     return _ExplorationPhaseHandler(
         change_frame_reader=adapter,
         run_scope_resolver=adapter,
         review=review,
         config=ExplorationConfig(story_dir=story_dir),
+        mandate_classification=mandate,
+        declared_impact_reader=_StateBackendDeclaredImpactReader(story_dir),
+        fine_design=fine_design,
+        freeze_marker=freeze_marker,
+        telemetry=telemetry,
     )
+
+
+@dataclass(frozen=True)
+class _StateBackendDeclaredImpactReader:
+    """State-backed ``DeclaredImpactReader`` (FK-25 §25.7.1, AG3-047).
+
+    Resolves the story's authoritative declared ``change_impact`` via the
+    state-backend :class:`StateBackendStoryRepository` (the GitHub-input story
+    stammdaten). The bloodgroup-A exploration core never reads the story store
+    directly; this composition-root adapter owns the read.
+
+    FAIL-CLOSED (FK-25 §25.7.1 / FIX-THE-MODEL): an absent / unresolvable story
+    RAISES ``CorruptStateError`` rather than defaulting to ``LOCAL`` -- the
+    declared impact is the load-bearing input of the Klasse-4 check and must
+    never be silently fabricated (no second source of truth, no fail-open).
+
+    Attributes:
+        store_dir: State-backend base dir (SQLite); Postgres ignores it.
+    """
+
+    store_dir: Path
+
+    def declared_change_impact(self, *, story_id: str) -> ChangeImpact:
+        """Return the story's declared change impact (fail-closed).
+
+        Args:
+            story_id: The story display id.
+
+        Returns:
+            The authoritative declared :class:`ChangeImpact`.
+
+        Raises:
+            CorruptStateError: When the story (or its declared impact) cannot be
+                resolved (never a silent ``LOCAL`` default).
+        """
+        from agentkit.exceptions import CorruptStateError
+        from agentkit.state_backend.store.story_repository import (
+            StateBackendStoryRepository,
+        )
+
+        story = StateBackendStoryRepository(self.store_dir).get_by_display_id(
+            story_id
+        )
+        if story is None:
+            raise CorruptStateError(
+                "Cannot resolve declared change_impact: no persisted story for "
+                "the exploration mandate Klasse-4 check (FK-25 §25.7.1, "
+                "fail-closed -- no LOCAL default).",
+                detail={"story_id": story_id},
+            )
+        return story.change_impact
+
+
+@dataclass(frozen=True)
+class _UnavailableFineDesignEvaluator:
+    """Productive fail-closed fine-design evaluator (AG3-047, FK-25 §25.5.4).
+
+    FK-25 §25.5 / story AG3-047 §2.1.4: the full multi-LLM fine-design discussion
+    (ChatGPT-mandatory acquire/send/release over the LLM hub) is a deliberate
+    FOLLOW-UP story. The PRODUCTIVE wiring must therefore NOT fabricate a
+    converged outcome for a class-2 (fine_design) frame -- that would let a story
+    with unresolved design points reach APPROVED / freeze with no real
+    fine-design (an Attrappe passing as productive core logic, forbidden).
+
+    This evaluator instead raises :class:`FineDesignEvaluatorUnavailableError` on
+    every round -- the honest FK-25 §25.5.4 non-reachability signal ("steht kein
+    LLM zur Verfuegung ... Eskalation an den Menschen"). The
+    :class:`FineDesignSubprocess` shell does NOT swallow it; the exploration
+    phase handler escalates the class-2 story fail-closed with the
+    ``fine_design_required`` reaction. The follow-up story injects the real
+    ChatGPT-mandatory multi-LLM evaluator here; the orchestration shell
+    (:class:`FineDesignSubprocess`) stays unchanged and converges with it.
+    """
+
+    def run_round(
+        self, change_frame: ChangeFrame, *, round_number: int
+    ) -> FineDesignRoundOutcome:
+        """Raise fail-closed: no real fine-design evaluator is wired yet.
+
+        Args:
+            change_frame: The change-frame being refined (unused; no real
+                discussion is held).
+            round_number: The 1-based round number (unused).
+
+        Raises:
+            FineDesignEvaluatorUnavailableError: Always -- the productive
+                multi-LLM evaluator is a follow-up (FK-25 §25.5.4). Never returns
+                a fabricated convergence (ZERO DEBT / FAIL-CLOSED).
+        """
+        from agentkit.exploration.mandate.fine_design import (
+            FineDesignEvaluatorUnavailableError,
+        )
+
+        del change_frame, round_number
+        msg = (
+            "fine-design evaluator unavailable: the productive multi-LLM "
+            "fine-design discussion (FK-25 §25.5) is a follow-up story; "
+            "escalating the class-2 frame fail-closed (FK-25 §25.5.4)"
+        )
+        raise FineDesignEvaluatorUnavailableError(msg)
 
 
 def build_verify_system(

@@ -20,13 +20,22 @@ production.
 from __future__ import annotations
 
 from agentkit.exploration.change_frame import ChangeFrame
+from agentkit.exploration.freeze import DesignFreezeMarker
 from agentkit.exploration.phase import ExplorationConfig, ExplorationPhaseHandler
-from agentkit.exploration.ports import ChangeFrameReader, RunScopeResolver
+from agentkit.exploration.ports import (
+    ChangeFrameReader,
+    ChangeFrameWriter,
+    DeclaredImpactReader,
+    RunScopeResolver,
+)
 from agentkit.exploration.register import register_exploration_producers
 
 __all__ = [
     "ChangeFrame",
     "ChangeFrameReader",
+    "ChangeFrameWriter",
+    "DeclaredImpactReader",
+    "DesignFreezeMarker",
     "ExplorationConfig",
     "ExplorationPhaseHandler",
     "RunScopeResolver",

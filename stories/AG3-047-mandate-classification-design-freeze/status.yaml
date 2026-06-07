@@ -1,8 +1,8 @@
 story_id: AG3-047
 title: "MandateClassification + DesignFreezeMarker + Exploration-Telemetrie-Events"
 type: implementation
-status: blocked
-phase: setup
+status: completed
+phase: closure
 created: "2026-05-16"
 size: M
 depends_on:

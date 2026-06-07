@@ -27,7 +27,66 @@ if TYPE_CHECKING:
 
 FreshnessClass = Literal["baseline_read", "guarded_read", "mutation"]
 OperatingMode = Literal["ai_augmented", "story_execution", "binding_invalid"]
+#: Tri-state result of resolving the persisted exploration change-frame freeze
+#: state (FK-23 §23.4.3, AG3-047):
+#:
+#: * ``"absent"``  -- no change-frame file persisted yet: the frame is editable
+#:   (known, NOT frozen) -- the legitimate pre-freeze worker-draft state
+#:   (FK-25 §25.4.2);
+#: * ``"frozen"``  -- the persisted frame carries ``frozen: true``;
+#: * ``"editable"`` -- the persisted frame exists and carries ``frozen: false``;
+#: * ``"unreadable"`` -- the file exists but cannot be read / parsed (an ERROR,
+#:   not an absence): the freeze state is UNKNOWN and the guard fails closed.
+ChangeFrameFreezeState = Literal["absent", "frozen", "editable", "unreadable"]
 _SYNC_LOCK_STALE_AFTER = timedelta(seconds=30)
+
+
+def read_change_frame_freeze_state(change_frame_path: Path) -> ChangeFrameFreezeState:
+    """Resolve the persisted change-frame freeze state from its file (FK-23 §23.4.3).
+
+    The exploration worker / freeze marker materializes
+    ``_temp/qa/{story_id}/change_frame.json``; this boundary reader inspects that
+    file's ``frozen`` flag so the productive guard-context builder can key the
+    change-frame protection on the PERSISTED freeze state (AG3-047). It is the
+    R-boundary FS read for the bloodgroup-A ``guard_evaluation`` core (which owns
+    the path policy and passes the concrete path in).
+
+    Fail-closed (ZERO DEBT): ONLY an absent file is the legitimate pre-freeze
+    editable state (``"absent"``). Anything that is present but whose freeze
+    state cannot be read UNAMBIGUOUSLY is an ERROR, returned as ``"unreadable"``
+    so the guard blocks the write rather than treating an unknown state as "not
+    frozen". That includes: a path that exists but is not a regular file (e.g. a
+    directory), garbage / non-object JSON, and a ``frozen`` field that is missing
+    or not a real boolean (``{}`` / ``{"frozen": null}`` / ``{"frozen": "true"}``
+    must NOT be silently read as editable). Only an explicit ``frozen: false``
+    is ``"editable"``; only an explicit ``frozen: true`` is ``"frozen"``.
+
+    Args:
+        change_frame_path: Absolute path of the story's ``change_frame.json``.
+
+    Returns:
+        The :data:`ChangeFrameFreezeState` tri-state (+ ``"unreadable"`` error
+        state).
+    """
+    if not change_frame_path.exists():
+        return "absent"
+    if not change_frame_path.is_file():
+        # Present but not a regular file (e.g. a directory) -> unknown.
+        return "unreadable"
+    try:
+        payload = _load_json(change_frame_path)
+    except (OSError, ValueError, RuntimeError):
+        # Present but unreadable/garbage -> unknown freeze state (fail-closed).
+        return "unreadable"
+    if not isinstance(payload, dict):
+        return "unreadable"
+    frozen = payload.get("frozen")
+    if frozen is True:
+        return "frozen"
+    if frozen is False:
+        return "editable"
+    # Present but the freeze flag is missing / not a real bool -> unknown.
+    return "unreadable"
 
 
 @dataclass(frozen=True)

@@ -7,6 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
+from agentkit.core_types.qa_artifact_names import CHANGE_FRAME_FILE
 from agentkit.governance.guards.artifact_guard import ArtifactGuard
 from agentkit.governance.guards.branch_guard import BranchGuard
 from agentkit.governance.guards.scope_guard import ScopeGuard
@@ -21,6 +22,7 @@ from agentkit.projectedge.runtime import (
     FreshnessClass,
     ProjectEdgeResolver,
     ResolvedEdgeState,
+    read_change_frame_freeze_state,
 )
 
 Operation = Literal[
@@ -89,7 +91,7 @@ def evaluate_pre_tool_use(event: HookEvent, *, project_root: Path) -> GuardVerdi
         cwd=event.cwd,
         freshness_class=freshness_class,
     )
-    context.update(_guard_context(event, resolved))
+    context.update(_guard_context(event, resolved, project_root=project_root))
 
     if (
         resolved.operating_mode == "binding_invalid"
@@ -121,6 +123,8 @@ def _normalize_event(
 def _guard_context(
     event: HookEvent,
     resolved: ResolvedEdgeState,
+    *,
+    project_root: Path,
 ) -> dict[str, object]:
     story_id = ""
     principal_type = ""
@@ -134,13 +138,61 @@ def _guard_context(
             resolved.bundle.qa_lock is not None
             and resolved.bundle.qa_lock.status == "ACTIVE"
         )
-    return {
+    context: dict[str, object] = {
         "operating_mode": resolved.operating_mode,
         "principal_kind": event.principal_kind,
         "active_story_id": story_id,
         "principal_type": principal_type,
         "qa_artifact_lock_known": qa_lock_known,
         "qa_artifact_lock_active": qa_lock_active,
+    }
+    context.update(
+        _change_frame_freeze_signals(story_id, project_root=project_root)
+    )
+    return context
+
+
+def _change_frame_freeze_signals(
+    story_id: str,
+    *,
+    project_root: Path,
+) -> dict[str, object]:
+    """Resolve the persisted change-frame freeze signals (FK-23 §23.4.3, AG3-047).
+
+    The ``ArtifactGuard`` keys the exploration change-frame protection on two
+    guard-context signals (``change_frame_frozen`` / ``change_frame_freeze_known``).
+    The productive guard-context builder feeds them from the PERSISTED
+    ``_temp/qa/{story_id}/change_frame.json`` freeze state via the ``projectedge``
+    R-boundary read (this A-core owns the path policy, the boundary owns the FS
+    read). Fail-closed semantics (AG3-047):
+
+    * no file yet OR an explicitly NOT-frozen file -> ``freeze_known=True`` +
+      ``frozen=False`` (the legitimate pre-freeze editable draft is allowed,
+      FK-25 §25.4.2);
+    * a frozen file -> ``freeze_known=True`` + ``frozen=True`` (the write is
+      blocked);
+    * an UNREADABLE file (error, not absence) -> ``freeze_known`` is LEFT UNSET
+      so the guard blocks fail-closed (the unknown freeze state is never read as
+      "not frozen", ARCH-48 default deny).
+
+    Args:
+        story_id: The active story display id (empty outside story execution).
+        project_root: The project root resolving ``_temp/qa/{story_id}/``.
+
+    Returns:
+        The freeze guard-context signals (possibly empty when no story scope or
+        when the state is unreadable).
+    """
+    if not story_id:
+        return {}
+    change_frame_path = qa_story_dir(project_root, story_id) / CHANGE_FRAME_FILE
+    state = read_change_frame_freeze_state(change_frame_path)
+    if state == "unreadable":
+        # Unknown freeze state -> leave freeze_known unset -> guard blocks.
+        return {}
+    return {
+        "change_frame_freeze_known": True,
+        "change_frame_frozen": state == "frozen",
     }
 
 

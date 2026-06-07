@@ -147,3 +147,87 @@ def test_stage2b_fail_rejects(ctx: StoryContext, story_dir: Path) -> None:
     assert result.overall_status is ExplorationGateStatus.REJECTED
     assert result.stage2b_result is not None
     assert result.stage2b_result.status == "fail"
+
+
+def _wired_challenge_review(
+    ctx: StoryContext,
+    story_dir: Path,
+    *,
+    doc_fidelity: list[str],
+    semantic_review: list[str],
+) -> tuple[ExplorationReview, ScriptedLlmClient]:
+    """A review with a WIRED Stage-2b design challenge (for the gating tests)."""
+    client = ScriptedLlmClient(
+        doc_fidelity=doc_fidelity, semantic_review=semantic_review
+    )
+    evaluator = build_scripted_evaluator(ctx, client)
+    sink = build_real_sink(story_dir)
+    review = ExplorationReview(
+        stage1_doc_fidelity=DocFidelityChecker(evaluator, sink),
+        stage2a_design_review=DesignReviewRunner(evaluator, sink),
+        stage2b_design_challenge=DesignChallengeRunner(evaluator, sink),
+        artifact_manager=build_artifact_manager(story_dir),
+    )
+    return review, client
+
+
+def test_gating_off_suppresses_wired_stage2b(
+    ctx: StoryContext, story_dir: Path
+) -> None:
+    """WARNING-4 (a): run_design_challenge=False suppresses a WIRED Stage 2b.
+
+    Even with a Stage-2b runner wired, ``run_design_challenge=False`` skips the
+    optional adversarial pass; Stage 1 and Stage 2a still run, so an all-PASS
+    run is APPROVED without ever invoking the challenge LLM.
+    """
+    review, client = _wired_challenge_review(
+        ctx, story_dir, doc_fidelity=["PASS"], semantic_review=["PASS"]
+    )
+
+    result = review.run(example_change_frame(), run_design_challenge=False)
+
+    assert result.overall_status is ExplorationGateStatus.APPROVED
+    assert result.stage2b_result is None
+    # Only Stage 1 + Stage 2a ran; the challenge LLM was NEVER invoked.
+    assert client.calls == [
+        ReviewerRole.DOC_FIDELITY.value,
+        ReviewerRole.SEMANTIC_REVIEW.value,
+    ]
+
+
+def test_gating_off_cannot_bypass_stage1_fail(
+    ctx: StoryContext, story_dir: Path
+) -> None:
+    """WARNING-4 (a): suppressing Stage 2b cannot bypass a Stage-1 FAIL.
+
+    ``run_design_challenge=False`` only gates the OPTIONAL Stage 2b. It is no
+    route to APPROVED: a Stage-1 FAIL still REJECTS the gate (NO ERROR BYPASSING).
+    """
+    review, _ = _wired_challenge_review(
+        ctx, story_dir, doc_fidelity=["FAIL"], semantic_review=[]
+    )
+
+    result = review.run(example_change_frame(), run_design_challenge=False)
+
+    assert result.overall_status is ExplorationGateStatus.REJECTED
+    assert result.stage2a_result is None
+    assert result.stage2b_result is None
+
+
+def test_gating_on_forces_wired_stage2b_fail(
+    ctx: StoryContext, story_dir: Path
+) -> None:
+    """WARNING-4 (b): run_design_challenge=True cannot skip a wired Stage 2b.
+
+    A class that warrants the challenge (fine-design / escalating) forces Stage 2b
+    when one is wired; a Stage-2b FAIL then REJECTS the gate.
+    """
+    review, _ = _wired_challenge_review(
+        ctx, story_dir, doc_fidelity=["PASS"], semantic_review=["PASS", "FAIL"]
+    )
+
+    result = review.run(example_change_frame(), run_design_challenge=True)
+
+    assert result.overall_status is ExplorationGateStatus.REJECTED
+    assert result.stage2b_result is not None
+    assert result.stage2b_result.status == "fail"
