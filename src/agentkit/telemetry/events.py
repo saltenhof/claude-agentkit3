@@ -9,6 +9,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 
 class EventType(StrEnum):
@@ -73,6 +77,22 @@ class EventType(StrEnum):
     DOC_FIDELITY_CHECK = "doc_fidelity_check"
     VECTORDB_SEARCH = "vectordb_search"
     COMPACTION_EVENT = "compaction_event"
+
+    # Exploration / mandate (FK-25 §25.8). The active emitters live in the
+    # exploration-and-design BC (e.g. AG3-046); this BC owns the catalogue
+    # values and their mandatory-payload contracts only.
+    MANDATE_CLASSIFICATION = "mandate_classification"
+    FINE_DESIGN_DECISION = "fine_design_decision"
+    SCOPE_EXPLOSION_CHECK = "scope_explosion_check"
+    #: Impact-exceedance comparison (FK-25 §25.7). Distinct from the structural
+    #: ``IMPACT_VIOLATION_CHECK`` (FK-33/FK-61 §61.4.2): the latter compares
+    #: declared vs. actual impact in the QA structural layer, this one is the
+    #: exploration-phase class-4 mandate exceedance check.
+    IMPACT_EXCEEDANCE_CHECK = "impact_exceedance_check"
+
+    # Governance risk window (FK-68 §68.9.2 preflight sentinel). Emitted by the
+    # preflight sentinel when the preflight stream is unbalanced.
+    PREFLIGHT_COMPLIANCE_VIOLATION = "preflight_compliance_violation"
     #: A cycle-bound QA artefact was invalidated (moved to ``stale/``) when a
     #: new atomic QA cycle began (FK-27 §27.2.3 / AG3-041 §2.1.3).
     ARTIFACT_INVALIDATED = "artifact_invalidated"
@@ -132,3 +152,143 @@ class Event:
             "payload": self.payload,
             "run_id": self.run_id,
         }
+
+
+# ---------------------------------------------------------------------------
+# Mandatory payload contracts per EventType (FK-61 §61.12.2, FK-25 §25.8)
+# ---------------------------------------------------------------------------
+#
+# ``ExecutionEventRecord.payload`` stays ``dict[str, object]`` (no per-type
+# subclass explosion). The mandatory event-specific fields are pinned here as an
+# explicit, typed contract so producers can be validated fail-closed at the
+# write boundary. Only events with mandatory event-specific fields appear; an
+# event absent from this map carries no mandatory payload fields.
+#
+# The field *names* are the canonical wire keys (ARCH-55, English-only). The
+# concept-level value types (e.g. ``blocked_dimensions: list[IntegrityDimension]``,
+# ``verdict: LlmEnvelopeStatus``) are documented in FK-61 §61.12.2 / FK-25 §25.8;
+# this validator enforces field *presence* (FAIL-CLOSED), not cross-BC value
+# typing, to keep the AC8 import boundary (telemetry imports no governance enum).
+
+MANDATORY_PAYLOAD_FIELDS: Mapping[EventType, tuple[str, ...]] = {
+    # FK-27 §27.4.3 — review-completion fact. ``guard.multi_llm`` Gate 2 counts
+    # this per mandatory reviewer ``role`` (FK-37 §37.1.6), so ``role`` is the
+    # load-bearing wire key and is mandatory (an unlabelled completion is
+    # uncountable -> FAIL-CLOSED). Added by AG3-042, reconciled here.
+    EventType.LLM_CALL_COMPLETE: ("role",),
+    # FK-61 §61.12.2 — enriched payloads on existing events
+    EventType.INTEGRITY_VIOLATION: ("stage",),
+    # ``review_response.verdict`` carries the LLM envelope status (PASS/REWORK/
+    # FAIL, FK-61 §61.12.2). Presence is mandatory; value typing stays at the
+    # producer (review_guard.py).
+    EventType.REVIEW_RESPONSE: ("verdict",),
+    # FK-61 §61.12.1 — new event payloads
+    EventType.VECTORDB_SEARCH: (
+        "total_hits",
+        "hits_above_threshold",
+        "hits_classified_conflict",
+        "threshold_value",
+    ),
+    EventType.COMPACTION_EVENT: ("story_id",),
+    EventType.IMPACT_VIOLATION_CHECK: (
+        "declared_impact",
+        "actual_impact",
+        "result",
+    ),
+    EventType.DOC_FIDELITY_CHECK: ("level", "result"),
+    # FK-25 §25.8 — exploration / mandate events
+    EventType.MANDATE_CLASSIFICATION: (
+        "escalation_class",
+        "decision_summary",
+        "story_id",
+        "run_id",
+    ),
+    EventType.FINE_DESIGN_DECISION: (
+        "decision_id",
+        "question",
+        "decision",
+        "llm_responses",
+        "normative_basis",
+        "story_id",
+    ),
+    EventType.SCOPE_EXPLOSION_CHECK: ("status", "indicators", "story_id"),
+    EventType.IMPACT_EXCEEDANCE_CHECK: (
+        "declared",
+        "actual",
+        "exceeded",
+        "story_id",
+    ),
+}
+
+# ``integrity_gate_result`` / ``are_gate_result`` are documented in FK-61
+# §61.12.2 with enriched payloads but are not (yet) members of this BC's
+# ``EventType`` catalogue (their producers live in governance / ARE). Their
+# mandatory fields are pinned by string key so ``validate_event_payload`` can be
+# called for them from their owning producer without importing this BC's enum
+# being a prerequisite. The story §2.1.4 names these explicitly.
+MANDATORY_PAYLOAD_FIELDS_BY_NAME: Mapping[str, tuple[str, ...]] = {
+    "integrity_gate_result": ("blocked_dimensions",),
+    "are_gate_result": ("covered", "required", "coverage_ratio"),
+}
+
+
+class EventPayloadContractError(ValueError):
+    """Raised when an event payload is missing a mandatory field (FAIL-CLOSED).
+
+    FK-61 §61.12.2 / FK-25 §25.8 pin mandatory event-specific fields per event
+    type. A producer that omits one is a programming/contract error and must
+    fail closed rather than persist an under-specified event.
+
+    Args:
+        event_type: The event type (canonical wire string) being validated.
+        missing: The mandatory field names that were absent.
+    """
+
+    def __init__(self, event_type: str, missing: tuple[str, ...]) -> None:
+        super().__init__(
+            f"Event {event_type!r} is missing mandatory payload field(s): "
+            f"{', '.join(missing)}. FAIL-CLOSED: every mandatory field per "
+            "EventType must be present (FK-61 §61.12.2 / FK-25 §25.8)."
+        )
+        self.event_type = event_type
+        self.missing = missing
+
+
+def validate_event_payload(
+    event_type: EventType | str,
+    payload: Mapping[str, object],
+) -> None:
+    """Validate that ``payload`` carries every mandatory field for ``event_type``.
+
+    FAIL-CLOSED contract enforcement (story §2.1.4 / AC4): a missing mandatory
+    field raises :class:`EventPayloadContractError`. Event types without
+    mandatory event-specific fields validate trivially (no-op).
+
+    Args:
+        event_type: The event type to validate against. Accepts the
+            ``EventType`` enum or the canonical wire string (so producers of
+            cross-BC events such as ``integrity_gate_result`` / ``are_gate_result``
+            can validate without importing this BC's enum).
+        payload: The event payload to check for mandatory fields.
+
+    Raises:
+        EventPayloadContractError: If any mandatory field is absent.
+    """
+    required: tuple[str, ...]
+    wire_value: str
+    if isinstance(event_type, EventType):
+        wire_value = event_type.value
+        required = MANDATORY_PAYLOAD_FIELDS.get(event_type, ())
+    else:
+        wire_value = event_type
+        # A wire string may match a catalogue member or a by-name-only contract.
+        try:
+            required = MANDATORY_PAYLOAD_FIELDS.get(EventType(event_type), ())
+        except ValueError:
+            required = MANDATORY_PAYLOAD_FIELDS_BY_NAME.get(event_type, ())
+    if not required:
+        required = MANDATORY_PAYLOAD_FIELDS_BY_NAME.get(wire_value, required)
+
+    missing = tuple(field_name for field_name in required if field_name not in payload)
+    if missing:
+        raise EventPayloadContractError(wire_value, missing)

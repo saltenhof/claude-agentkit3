@@ -1,8 +1,8 @@
 story_id: AG3-037
 title: "TelemetryContract + neue Event-Typen + Risk-Window NormalizedEvent"
 type: implementation
-status: ready
-phase: setup
+status: completed
+phase: closure
 created: "2026-05-16"
 size: M
 depends_on:

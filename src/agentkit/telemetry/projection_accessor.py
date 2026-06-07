@@ -44,6 +44,7 @@ if TYPE_CHECKING:
         ProjectionRepositories,
     )
     from agentkit.telemetry.projection_records import ProjectionRecord
+    from agentkit.telemetry.risk_window.normalized_event import NormalizedEvent
     from agentkit.verify_system.protocols import LayerResult
 
 
@@ -458,6 +459,11 @@ class ProjectionAccessor:
         purged_rows[ProjectionKind.FC_INCIDENTS] = self._repos.fc_incidents.purge_run(
             project_key, story_id, run_id
         )
+        # AG3-037 (FK-68 §68.8): the run's risk-window rows are part of a full
+        # reset. risk_window is an FK-68 telemetry read-model (NOT an FK-69
+        # ProjectionKind, FK-69 §69.3), so it is purged here but not counted in
+        # the FK-69 ProjectionKind-keyed purged_rows map.
+        self._repos.risk_window.purge_run(project_key, story_id, run_id)
 
         # Best-effort NUR fuer phase_state_projection: dessen Alt-Schema-Varianten
         # (fehlende project_key/run_id-Spalten, nicht garantiert bootstrappte
@@ -519,6 +525,21 @@ class ProjectionAccessor:
             attempt_nr=attempt_nr,
             projection_dir=projection_dir,
         )
+
+    def record_risk_window_event(self, event: NormalizedEvent) -> None:
+        """Persist one ``NormalizedEvent`` into the FK-68 §68.8 risk window.
+
+        Dedicated risk-window write path (FK-68 §68.8.0: the sensor layer writes
+        ``NormalizedEvent``s via the accessor). The Risk-Window is an FK-68
+        telemetry-owned rolling-window read-model — NOT one of the seven FK-69
+        ``ProjectionKind`` tables (FK-69 §69.3) — so it uses a dedicated method,
+        analogous to ``record_fc_incident`` / ``record_qa_layer_artifacts``,
+        instead of the generic ``write_projection``. Append-only.
+
+        Args:
+            event: The normalized risk-window event to append.
+        """
+        self._repos.risk_window.record(event)
 
 
 __all__ = [

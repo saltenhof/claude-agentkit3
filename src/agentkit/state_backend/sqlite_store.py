@@ -504,6 +504,24 @@ def _ensure_schema_runtime_tables(conn: sqlite3.Connection) -> None:
             metadata_json    TEXT NOT NULL DEFAULT '{}',
             PRIMARY KEY (project_key, run_id, attempt_no, stage_id, finding_id)
         );
+
+        -- AG3-037 (FK-68 §68.8): governance risk window. Schema-Owner
+        -- telemetry-and-events, DB-Owner telemetry-and-events via
+        -- ProjectionAccessor.record_risk_window_event. Append-only rolling
+        -- window of NormalizedEvents the (out-of-scope) GovernanceObserver
+        -- later scores. event_id is unique within a run.
+        CREATE TABLE IF NOT EXISTS risk_window (
+            project_key       TEXT NOT NULL,
+            story_id          TEXT NOT NULL,
+            run_id            TEXT NOT NULL,
+            event_id          TEXT NOT NULL,
+            risk_category     TEXT NOT NULL,
+            severity          TEXT NOT NULL,
+            observed_at       TEXT NOT NULL,
+            source_event_type TEXT NOT NULL,
+            payload_excerpt_json TEXT NOT NULL DEFAULT '{}',
+            PRIMARY KEY (project_key, run_id, event_id)
+        );
         """
     )
     _ensure_runtime_tables_part2(conn)

@@ -166,4 +166,44 @@ class StateBackendEmitter:
 def _next_event_id() -> str:
     return f"evt-{uuid.uuid4().hex}"
 
-__all__ = ["StateBackendEmitter"]
+
+class StateBackendExecutionEventReader:
+    """Run-scoped ``ExecutionEventReader`` over the canonical event stream.
+
+    Adapter wiring the ``telemetry.contract`` port to
+    ``state_backend.store.load_execution_events`` (FK-68 §68.4 evaluates against
+    ``execution_events``). Bound to one ``(story_dir, project_key, story_id)``
+    scope at construction; ``read_run_events`` filters by ``run_id``.
+
+    The contract module imports this Protocol-compatible adapter only via DI
+    (composition root / Integrity-Gate), never directly (AC8 import boundary).
+
+    Args:
+        story_dir: Story working directory for the state backend.
+        project_key: Mandatory FK-68 project scope key.
+        story_id: Story whose events are read.
+    """
+
+    def __init__(self, story_dir: Path, *, project_key: str, story_id: str) -> None:
+        self._story_dir = story_dir
+        self._project_key = project_key
+        self._story_id = story_id
+
+    def read_run_events(self, run_id: str) -> list[ExecutionEventRecord]:
+        """Return all execution events for ``run_id`` in this story scope.
+
+        Args:
+            run_id: The run whose events to load.
+
+        Returns:
+            All ``ExecutionEventRecord``s for the run (possibly empty).
+        """
+        return load_execution_events(
+            self._story_dir,
+            project_key=self._project_key,
+            story_id=self._story_id,
+            run_id=run_id,
+        )
+
+
+__all__ = ["StateBackendEmitter", "StateBackendExecutionEventReader"]

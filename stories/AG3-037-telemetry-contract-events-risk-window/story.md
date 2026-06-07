@@ -27,6 +27,22 @@ THEME-007 aus `stories/_priorisierungsempfehlung.md`. Befunde:
 
 Diese Story liefert den TelemetryContract als Pruef-Modul, ergaenzt die fehlenden EventTypes und implementiert NormalizedEvent fuer das Risk-Window.
 
+**Scope-Charakter (autoritativ, vom holistischen Review entschieden):** AG3-037
+ist eine **Library-/Surface-Story**. Sie liefert eine *konsumierbare* Oberflaeche:
+das `TelemetryContract`-Modul (4 Regeln), den `PreflightSentinel`, den
+Payload-Validator `validate_event_payload`, den `EventNormalizer` und die
+Risk-Window-Persistenz (`record_risk_window_event`). Alle diese Deliverables sind
+fachlich vollstaendig und getestet (kein Dead-Module-Claim). Die **Konsumption**
+durch das Integrity-Gate (Dim 8 Telemetrie-Compliance, FK-68 §68.10) sowie die
+**aktiven Domain-Emitter** (z.B. `mandate_classification`, `llm_call`-Pflicht in
+den Produktionspfaden) sind bewusst auf **Folge-Stories** verschoben — sie haben
+ihren eigenen Blast-Radius in `governance/integrity_gate` und die jeweiligen
+BCs. Diese Story baut die Grundlage; sie verdrahtet sie nicht in das Gate (das
+waere ein eigener Story-Scope). So bleibt der Library-Scope ehrlich und es
+entsteht kein fail-open-Modul: die hier in Scope befindlichen Funktionen
+(`validate_event_payload` raised; Preflight-Sentinel persistiert auch bei leerem
+Stream; Normalizer; Risk-Window-Schreibstelle) sind alle echt funktional.
+
 ## 2. Scope
 
 ### 2.1 In Scope
@@ -101,7 +117,9 @@ class NormalizedEvent(BaseModel):
     Normalisierte Form eines ExecutionEventRecord fuer das Governance-Risk-Window.
     Reduziert die Vielfalt von EventType auf wenige Risikodimensionen.
     """
-    event_id: UUID
+    event_id: str   # consistent with ExecutionEventRecord.event_id: str (canonical
+                    # event ID, FK-68 §68.2.1). Not migrated to UUID: that would be a
+                    # cross-codebase change to the canonical event-id type, out of scope.
     story_id: str
     run_id: str
     risk_category: RiskCategory   # StrEnum: SECURITY, INTEGRITY, OPERATIONAL, BUDGET
@@ -121,7 +139,7 @@ class EventNormalizer:
         ...
 ```
 
-Risk-Window-Persistenz via `ProjectionAccessor.write_projection(WORKFLOW_METRICS, normalized_event)` (oder neue ProjectionKind `RISK_WINDOW` falls praktikabler — Entscheidung im Schnitt; Default-Empfehlung: separate ProjectionKind `RISK_WINDOW` in AG3-035 erweitern).
+Risk-Window-Persistenz via dedizierter `ProjectionAccessor.record_risk_window_event(normalized_event)`-Methode, die in eine eigene `risk_window`-Tabelle schreibt. **Keine** neue `ProjectionKind RISK_WINDOW`: das Risk-Window ist ein FK-68-Telemetrie-Sensor-Read-Model und kein FK-69-Read-Model. FK-69 §69.3 bleibt unveraendert bei **exakt 7** Read-Model-Tabellen; ein 8tes `ProjectionKind` wuerde diese Invariante verletzen. Die dedizierte Methode + Tabelle haelt das Risk-Window sauber von den FK-69-Read-Models getrennt (FIX THE MODEL: klarer Owner, keine Vermischung der zwei Read-Model-Familien).
 
 GovernanceObserver-Scoring (`governance-and-guards.A1`) bleibt **out of scope** (nicht in der Erst-Welle). Diese Story stellt nur die Schreibstelle bereit.
 
@@ -136,6 +154,14 @@ GovernanceObserver-Scoring (`governance-and-guards.A1`) bleibt **out of scope** 
 
 ### 2.2 Out of Scope
 
+- **Integrity-Gate Dim 8 Telemetrie-Compliance-Verdrahtung (FK-68 §68.10)** —
+  die *Konsumption* von `TelemetryContract.check_all` durch das Integrity-Gate
+  ist eine eigene Folge-Story mit Blast-Radius in `governance/integrity_gate`.
+  AG3-037 liefert nur die konsumierbare Oberflaeche, nicht die Gate-Anbindung.
+- **Aktive Produktions-Emitter** der vom Contract geprueften Events
+  (`agent_start/end`-Paarung im echten Pfad, `llm_call`-Pflichtrollen,
+  `mandate_classification` etc.) — Aufgabe der jeweiligen Domain-Stories
+  (z.B. AG3-046). AG3-037 stellt EventType-Werte + Pflicht-Payload-Vertraege bereit.
 - GovernanceObserver (`governance-and-guards.A1`) — bewusst nicht in der Erst-Welle
 - Workflow-Metriken-Felder Vollausbau (`B3`) — Folge-Story (adversarial_findings, adversarial_tests_created, files_changed, agentkit_commit als Pflicht-Felder)
 - SSE-Topic-Mapping-Korrektur (`B5`) — Folge-Story
@@ -170,7 +196,7 @@ GovernanceObserver-Scoring (`governance-and-guards.A1`) bleibt **out of scope** 
 4. **`validate_event_payload(event_type, payload)`** prueft Pflicht-Felder pro EventType; missing -> Exception.
 5. **`NormalizedEvent` und `EventNormalizer.normalize` existieren** und liefern `NormalizedEvent | None`. Mapping: `agent_start`/`agent_end` -> OPERATIONAL; `integrity_violation` -> INTEGRITY; `review_divergence` -> INTEGRITY; `web_call_attempted` -> BUDGET (in research-Stories).
 6. **`RiskCategory`-StrEnum** mit Werten `SECURITY`, `INTEGRITY`, `OPERATIONAL`, `BUDGET`.
-7. **`ProjectionKind`-Erweiterung um `RISK_WINDOW`** (Aenderung in AG3-035 nachgezogen); EventNormalizer schreibt NormalizedEvents dorthin.
+7. **Dedizierte `ProjectionAccessor.record_risk_window_event(...)`-Schreibstelle + eigene `risk_window`-Tabelle**; der `EventNormalizer` schreibt NormalizedEvents ueber diese Methode dorthin. **Kein** neues `ProjectionKind RISK_WINDOW`: FK-69 §69.3 bleibt bei exakt 7 Read-Model-Tabellen (das Risk-Window ist ein FK-68-Telemetrie-Sensor-Read-Model, kein 8tes FK-69-Read-Model). Rationale: getrennter Owner haelt die FK-68- und FK-69-Read-Model-Familien sauber entkoppelt und schuetzt die FK-69-7er-Invariante.
 8. **Architecture-Conformance**: `telemetry.contract` und `telemetry.risk_window` importieren nur aus `agentkit.core_types`, `agentkit.telemetry`, `agentkit.artifacts`; keine Cross-BC-Aufrufe.
 9. **Pflichtbefehle gruen**: pytest unit + integration + contract; mypy --strict; ruff clean; Coverage haelt 85%.
 

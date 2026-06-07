@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from agentkit.state_backend.store.fc_incident_repository import (
         FCIncidentsRepository,
     )
+    from agentkit.telemetry.risk_window.normalized_event import NormalizedEvent
     from agentkit.verify_system.protocols import LayerResult
     from agentkit.verify_system.stage_registry.records import (
         QAFindingRecord,
@@ -160,6 +161,29 @@ class StoryMetricsRepository(Protocol):
 
 
 @runtime_checkable
+class RiskWindowRepository(Protocol):
+    """Schreib-/Purge-Adapter fuer ``risk_window`` (FK-68 §68.8, AG3-037).
+
+    Schema-Owner + DB-Owner: telemetry-and-events. Append-only Rolling-Window
+    von ``NormalizedEvent``s; Schreibpfad ausschliesslich ueber
+    ``ProjectionAccessor.record_risk_window_event``.
+    """
+
+    def record(self, event: NormalizedEvent) -> None:
+        """Persistiere einen ``NormalizedEvent`` (append-only)."""
+        ...
+
+    def purge_run(
+        self,
+        project_key: str,
+        story_id: str,
+        run_id: str,
+    ) -> int:
+        """Loesche alle risk_window-Zeilen fuer (project_key, story_id, run_id)."""
+        ...
+
+
+@runtime_checkable
 class PhaseStateProjectionRepository(Protocol):
     """Schreib-/Lese-/Purge-Adapter fuer ``phase_state_projection`` (FK-39 §39.7).
 
@@ -229,6 +253,7 @@ class ProjectionRepositories:
         qa_layer_batch: Atomarer QA-Layer-Batch-Schreibpfad (fachlicher
             Eintrittspunkt des QA-Subflows via ``record_qa_layer_artifacts``).
         fc_incidents: Adapter fuer ``fc_incidents`` (AG3-028, FK-41 §41.3.1).
+        risk_window: Adapter fuer ``risk_window`` (AG3-037, FK-68 §68.8).
     """
 
     qa_stage_results: QAStageResultsRepository
@@ -237,6 +262,7 @@ class ProjectionRepositories:
     phase_state_projection: PhaseStateProjectionRepository
     qa_layer_batch: QALayerBatchWriter
     fc_incidents: FCIncidentsRepository
+    risk_window: RiskWindowRepository
 
 
 # ---------------------------------------------------------------------------
@@ -888,6 +914,124 @@ class FacadeStoryMetricsRepository:
             return int(cursor.rowcount)
 
 
+class FacadeRiskWindowRepository:
+    """Duenner Adapter fuer ``risk_window`` (FK-68 §68.8, AG3-037).
+
+    Schema-Owner + DB-Owner: telemetry-and-events. Append-only Rolling-Window
+    von ``NormalizedEvent``s, das der (out-of-scope) GovernanceObserver spaeter
+    scort. Schreibpfad ausschliesslich ueber
+    ``ProjectionAccessor.record_risk_window_event``.
+
+    Args:
+        story_dir: Basisverzeichnis fuer SQLite; ignoriert bei Postgres.
+    """
+
+    def __init__(self, story_dir: Path | None = None) -> None:
+        self._story_dir: Path = story_dir or Path.cwd()
+
+    def record(self, event: NormalizedEvent) -> None:
+        """Persistiere einen ``NormalizedEvent`` (append-only, idempotent).
+
+        Args:
+            event: Der zu persistierende normalisierte Risk-Window-Event.
+        """
+        row: dict[str, Any] = {
+            "project_key": "",  # filled below from event scope
+            "story_id": event.story_id,
+            "run_id": event.run_id,
+            "event_id": event.event_id,
+            "risk_category": event.risk_category.value,
+            "severity": event.severity.value,
+            "observed_at": event.observed_at.isoformat(),
+            "source_event_type": event.source_event_type.value,
+            "payload_excerpt_json": json.dumps(event.payload_excerpt, sort_keys=True),
+        }
+        # NormalizedEvent carries no project_key (FK-68 events are run-scoped via
+        # run_id); the rolling window keys on (project_key, run_id, event_id) for
+        # mandant isolation. project_key is resolved from the run scope.
+        row["project_key"] = self._resolve_project_key(event)
+        if _is_postgres():
+            self._pg_record(row)
+        else:
+            self._sqlite_record(row)
+
+    def _resolve_project_key(self, event: NormalizedEvent) -> str:
+        from agentkit.state_backend.store import resolve_runtime_scope
+
+        scope = resolve_runtime_scope(self._story_dir)
+        if scope.project_key and scope.story_id == event.story_id:
+            return scope.project_key
+        # FAIL-CLOSED: a risk-window row without a project_key would escape
+        # mandant isolation (FK-68 §68.2.1 mandant rule).
+        raise RuntimeError(
+            "Cannot resolve project_key for risk_window event "
+            f"{event.event_id!r} (story_id={event.story_id!r}); the rolling "
+            "window must be mandant-scoped (FK-68 §68.2.1)."
+        )
+
+    def _sqlite_record(self, row: dict[str, Any]) -> None:
+        with _sqlite_connect_qa(self._story_dir) as conn:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO risk_window (
+                    project_key, story_id, run_id, event_id, risk_category,
+                    severity, observed_at, source_event_type, payload_excerpt_json
+                ) VALUES (
+                    :project_key, :story_id, :run_id, :event_id, :risk_category,
+                    :severity, :observed_at, :source_event_type,
+                    :payload_excerpt_json
+                )
+                """,
+                row,
+            )
+
+    def _pg_record(self, row: dict[str, Any]) -> None:
+        with _postgres_connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO risk_window (
+                    project_key, story_id, run_id, event_id, risk_category,
+                    severity, observed_at, source_event_type, payload_excerpt_json
+                ) VALUES (
+                    %(project_key)s, %(story_id)s, %(run_id)s, %(event_id)s,
+                    %(risk_category)s, %(severity)s, %(observed_at)s,
+                    %(source_event_type)s, %(payload_excerpt_json)s
+                )
+                ON CONFLICT (project_key, run_id, event_id) DO NOTHING
+                """,
+                row,
+            )
+
+    def purge_run(self, project_key: str, story_id: str, run_id: str) -> int:
+        """Loesche alle risk_window-Zeilen fuer (project_key, story_id, run_id).
+
+        FK-69 §69.10.1 Reset-Regel (analog): ein vollstaendiger Reset entfernt
+        alle Risk-Window-Zeilen des betroffenen run_id. Gibt die Anzahl
+        geloeschter Zeilen zurueck.
+        """
+        if _is_postgres():
+            return self._pg_purge(project_key, story_id, run_id)
+        return self._sqlite_purge(project_key, story_id, run_id)
+
+    def _sqlite_purge(self, project_key: str, story_id: str, run_id: str) -> int:
+        with _sqlite_connect_qa(self._story_dir) as conn:
+            cursor = conn.execute(
+                "DELETE FROM risk_window "
+                "WHERE project_key=? AND story_id=? AND run_id=?",
+                (project_key, story_id, run_id),
+            )
+            return int(cursor.rowcount)
+
+    def _pg_purge(self, project_key: str, story_id: str, run_id: str) -> int:
+        with _postgres_connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM risk_window "
+                "WHERE project_key=%s AND story_id=%s AND run_id=%s",
+                (project_key, story_id, run_id),
+            )
+            return int(cursor.rowcount)
+
+
 class FacadePhaseStateProjectionRepository:
     """Duenner Adapter fuer phase_state_projection.
 
@@ -1003,6 +1147,7 @@ def build_projection_repositories(store_dir: Path | None = None) -> ProjectionRe
         phase_state_projection=FacadePhaseStateProjectionRepository(store_dir),
         qa_layer_batch=FacadeQALayerBatchWriter(),
         fc_incidents=StateBackendFCIncidentsRepository(store_dir),
+        risk_window=FacadeRiskWindowRepository(store_dir),
     )
 
 
@@ -1011,12 +1156,14 @@ __all__ = [
     "FacadeQAFindingsRepository",
     "FacadeQALayerBatchWriter",
     "FacadeQAStageResultsRepository",
+    "FacadeRiskWindowRepository",
     "FacadeStoryMetricsRepository",
     "PhaseStateProjectionRepository",
     "ProjectionRepositories",
     "QAFindingsRepository",
     "QALayerBatchWriter",
     "QAStageResultsRepository",
+    "RiskWindowRepository",
     "StoryMetricsRepository",
     "build_projection_repositories",
 ]

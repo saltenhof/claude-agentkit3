@@ -338,6 +338,23 @@
             PRIMARY KEY (project_key, run_id, attempt_no, stage_id, finding_id)
         );
 
+        -- AG3-037 (FK-68 §68.8): governance risk window. Schema-Owner +
+        -- DB-Owner telemetry-and-events via
+        -- ProjectionAccessor.record_risk_window_event. Append-only rolling
+        -- window of NormalizedEvents; event_id unique within a run.
+        CREATE TABLE IF NOT EXISTS risk_window (
+            project_key TEXT NOT NULL,
+            story_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            event_id TEXT NOT NULL,
+            risk_category TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            observed_at TEXT NOT NULL,
+            source_event_type TEXT NOT NULL,
+            payload_excerpt_json TEXT NOT NULL DEFAULT '{}',
+            PRIMARY KEY (project_key, run_id, event_id)
+        );
+
         -- AG3-028 (FK-41 §41.3.1, FK-69): fc_incidents. Schema-Owner
         -- failure-corpus, DB-Owner telemetry-and-events via ProjectionAccessor.
         -- Append-only (genau ein Datensatz pro incident_id). Schreibpfad
