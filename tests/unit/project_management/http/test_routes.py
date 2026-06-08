@@ -48,6 +48,13 @@ class _StoryListStub:
         return list(self._stories)
 
 
+class _NoopTenantScopeMiddleware:
+    """Passthrough stub: all project-scoped paths pass without DB access (AG3-090)."""
+
+    def validate(self, *, method: str, route_path: str, correlation_id: str) -> None:
+        return None
+
+
 def _app(
     repository: _InMemoryProjectRepository,
     *,
@@ -66,6 +73,7 @@ def _app(
             repos_in_use_checker=_no_repos_in_use,
             detail_service=detail_service,
         ),
+        tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
     )
 
 
@@ -404,7 +412,10 @@ def test_patch_configuration_repos_in_use_returns_validation_failed() -> None:
         repository=repository,
         repos_in_use_checker=_checker,
     )
-    app = ControlPlaneApplication(project_routes=routes)
+    app = ControlPlaneApplication(
+        project_routes=routes,
+        tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
+    )
 
     response = app.handle_request(
         method="PATCH",
@@ -446,7 +457,10 @@ def test_patch_configuration_repos_not_in_use_succeeds() -> None:
         repository=repository,
         repos_in_use_checker=_checker,
     )
-    app = ControlPlaneApplication(project_routes=routes)
+    app = ControlPlaneApplication(
+        project_routes=routes,
+        tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
+    )
 
     response = app.handle_request(
         method="PATCH",

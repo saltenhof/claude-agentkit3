@@ -385,6 +385,17 @@ class _FakeDashboardService(DashboardService):
         )
 
 
+class _NoopTenantScopeMiddleware:
+    """Passthrough tenant-scope stub: all project_keys pass (no real DB access).
+
+    Used by tests that exercise paths which now require project_key in the URL
+    (AG3-090) but do not test tenant-scope validation itself.
+    """
+
+    def validate(self, *, method: str, route_path: str, correlation_id: str) -> None:
+        return None
+
+
 def test_post_telemetry_event_returns_created() -> None:
     service = _FakeTelemetryService()
     app = ControlPlaneApplication(
@@ -423,11 +434,12 @@ def test_post_phase_start_returns_created() -> None:
         telemetry_service=_FakeTelemetryService(),
         runtime_service=runtime,
         story_service=_FakeStoryService(),
+        tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
     )
 
     response = app.handle_request(
         method="POST",
-        path="/v1/story-runs/run-100/phases/setup/start",
+        path="/v1/projects/tenant-a/story-runs/run-100/phases/setup/start",
         body=json.dumps(
             {
                 "project_key": "tenant-a",
@@ -485,11 +497,12 @@ def test_post_phase_start_rejection_returns_conflict() -> None:
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_RejectingRuntimeService(),
         story_service=_FakeStoryService(),
+        tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
     )
 
     response = app.handle_request(
         method="POST",
-        path="/v1/story-runs/run-100/phases/setup/start",
+        path="/v1/projects/tenant-a/story-runs/run-100/phases/setup/start",
         body=json.dumps(
             {
                 "project_key": "tenant-a",
@@ -539,6 +552,7 @@ def test_post_phase_complete_and_fail_route_to_runtime() -> None:
         telemetry_service=_FakeTelemetryService(),
         runtime_service=runtime,
         story_service=_FakeStoryService(),
+        tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
     )
     payload = json.dumps(
         {
@@ -552,12 +566,12 @@ def test_post_phase_complete_and_fail_route_to_runtime() -> None:
 
     complete_response = app.handle_request(
         method="POST",
-        path="/v1/story-runs/run-100/phases/setup/complete",
+        path="/v1/projects/tenant-a/story-runs/run-100/phases/setup/complete",
         body=payload,
     )
     fail_response = app.handle_request(
         method="POST",
-        path="/v1/story-runs/run-100/phases/setup/fail",
+        path="/v1/projects/tenant-a/story-runs/run-100/phases/setup/fail",
         body=payload,
     )
 
@@ -575,11 +589,12 @@ def test_post_closure_complete_returns_created() -> None:
         telemetry_service=_FakeTelemetryService(),
         runtime_service=runtime,
         story_service=_FakeStoryService(),
+        tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
     )
 
     response = app.handle_request(
         method="POST",
-        path="/v1/story-runs/run-100/closure/complete",
+        path="/v1/projects/tenant-a/story-runs/run-100/closure/complete",
         body=json.dumps(
             {
                 "project_key": "tenant-a",
@@ -829,11 +844,12 @@ def test_get_dashboard_board_returns_project_scoped_columns() -> None:
         runtime_service=_FakeRuntimeService(),
         story_service=_FakeStoryService(),
         dashboard_service=dashboard_service,
+        tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
     )
 
     response = app.handle_request(
         method="GET",
-        path="/v1/dashboard/board?project_key=tenant-a",
+        path="/v1/projects/tenant-a/dashboard/board",
         body=b"",
     )
 
@@ -851,11 +867,12 @@ def test_get_dashboard_story_metrics_returns_project_scoped_metrics() -> None:
         runtime_service=_FakeRuntimeService(),
         story_service=_FakeStoryService(),
         dashboard_service=dashboard_service,
+        tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
     )
 
     response = app.handle_request(
         method="GET",
-        path="/v1/dashboard/story-metrics?project_key=tenant-a",
+        path="/v1/projects/tenant-a/dashboard/story-metrics",
         body=b"",
     )
 
@@ -891,11 +908,12 @@ def test_invalid_phase_payload_returns_bad_request() -> None:
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
+        tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
     )
 
     response = app.handle_request(
         method="POST",
-        path="/v1/story-runs/run-100/phases/setup/start",
+        path="/v1/projects/tenant-a/story-runs/run-100/phases/setup/start",
         body=json.dumps({"story_id": "AG3-100"}).encode("utf-8"),
     )
 
@@ -911,11 +929,12 @@ def test_invalid_closure_payload_returns_bad_request() -> None:
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
+        tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
     )
 
     response = app.handle_request(
         method="POST",
-        path="/v1/story-runs/run-100/closure/complete",
+        path="/v1/projects/tenant-a/story-runs/run-100/closure/complete",
         body=json.dumps({"story_id": "AG3-100"}).encode("utf-8"),
     )
 
@@ -980,11 +999,12 @@ def test_phase_runtime_unavailable_returns_service_unavailable() -> None:
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),
         runtime_service=runtime,
+        tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
     )
 
     response = app.handle_request(
         method="POST",
-        path="/v1/story-runs/run-100/phases/setup/start",
+        path="/v1/projects/tenant-a/story-runs/run-100/phases/setup/start",
         body=json.dumps(
             {
                 "project_key": "tenant-a",
@@ -1020,6 +1040,7 @@ def _config_error_app() -> ControlPlaneApplication:
     return ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),
         runtime_service=runtime,
+        tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
     )
 
 
@@ -1027,7 +1048,7 @@ def test_config_error_on_phase_start_returns_structured_503() -> None:
     """PART D (#4): a ConfigError from the Postgres gate -> 503, not an uncaught 500."""
     response = _config_error_app().handle_request(
         method="POST",
-        path="/v1/story-runs/run-100/phases/setup/start",
+        path="/v1/projects/tenant-a/story-runs/run-100/phases/setup/start",
         body=json.dumps(
             {
                 "project_key": "tenant-a",
@@ -1050,7 +1071,7 @@ def test_config_error_on_phase_start_returns_structured_503() -> None:
 def test_config_error_on_phase_complete_returns_structured_503() -> None:
     response = _config_error_app().handle_request(
         method="POST",
-        path="/v1/story-runs/run-100/phases/setup/complete",
+        path="/v1/projects/tenant-a/story-runs/run-100/phases/setup/complete",
         body=json.dumps(
             {
                 "project_key": "tenant-a",
@@ -1073,7 +1094,7 @@ def test_config_error_on_phase_complete_returns_structured_503() -> None:
 def test_config_error_on_phase_fail_returns_structured_503() -> None:
     response = _config_error_app().handle_request(
         method="POST",
-        path="/v1/story-runs/run-100/phases/setup/fail",
+        path="/v1/projects/tenant-a/story-runs/run-100/phases/setup/fail",
         body=json.dumps(
             {
                 "project_key": "tenant-a",
@@ -1096,7 +1117,7 @@ def test_config_error_on_phase_fail_returns_structured_503() -> None:
 def test_config_error_on_closure_returns_structured_503() -> None:
     response = _config_error_app().handle_request(
         method="POST",
-        path="/v1/story-runs/run-100/closure/complete",
+        path="/v1/projects/tenant-a/story-runs/run-100/closure/complete",
         body=json.dumps(
             {
                 "project_key": "tenant-a",
@@ -1155,7 +1176,7 @@ def test_serve_control_plane_runs_and_closes_server(monkeypatch: pytest.MonkeyPa
         def server_close(self) -> None:
             captured["closed"] = True
 
-    monkeypatch.setattr("agentkit.control_plane.http.ThreadingHTTPSServer", _FakeServer)
+    monkeypatch.setattr("agentkit.control_plane_http.app.ThreadingHTTPSServer", _FakeServer)
 
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),
