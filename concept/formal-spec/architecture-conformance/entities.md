@@ -1245,6 +1245,7 @@ boundary_modules:
     bloodgroup: R
     boundary_kind: entry_boundary
     module_prefixes:
+      - agentkit.control_plane_http
       - agentkit.control_plane.http
     importable_by:
       - architecture-conformance.boundary.cli

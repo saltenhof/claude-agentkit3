@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 from http import HTTPStatus
 
-from agentkit.control_plane_http.bc_route_response import (
+from agentkit.control_plane.models import (
     BcRouteResponse,
     bc_json_response,
     bc_unavailable_response,

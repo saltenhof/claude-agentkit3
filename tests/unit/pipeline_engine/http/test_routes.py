@@ -18,7 +18,7 @@ _CORR = "test-corr-pe-001"
 
 
 def _json(response: object) -> object:
-    from agentkit.control_plane_http.bc_route_response import BcRouteResponse
+    from agentkit.control_plane.models import BcRouteResponse
 
     assert isinstance(response, BcRouteResponse)
     return json.loads(response.body)

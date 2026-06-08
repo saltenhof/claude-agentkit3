@@ -22,7 +22,7 @@ _KPI_DIMENSIONS = ("stories", "guards", "pools", "pipeline", "corpus")
 
 
 def _json(response: object) -> object:
-    from agentkit.control_plane_http.bc_route_response import BcRouteResponse
+    from agentkit.control_plane.models import BcRouteResponse
 
     assert isinstance(response, BcRouteResponse)
     return json.loads(response.body)
