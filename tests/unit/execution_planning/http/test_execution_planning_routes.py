@@ -126,6 +126,13 @@ def _story(number: int, *, status: str = "defined") -> StoryRefForPlanning:
     )
 
 
+class _NoopTenantScopeMiddleware:
+    """Passthrough stub: all project-scoped paths pass without DB access (AG3-090)."""
+
+    def validate(self, *, method: str, route_path: str, correlation_id: str) -> None:
+        return None
+
+
 def _app(
     *,
     dep_repo: _DepRepo | None = None,
@@ -143,7 +150,10 @@ def _app(
         dependency_repository=dep_repo or _DepRepo(),
         config_repository=config_repo or _ConfigRepo(),
     )
-    return ControlPlaneApplication(planning_routes=routes)
+    return ControlPlaneApplication(
+        planning_routes=routes,
+        tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
+    )
 
 
 def _json(body: bytes) -> dict[str, object]:

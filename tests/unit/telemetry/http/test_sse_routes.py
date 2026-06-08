@@ -35,6 +35,13 @@ class _InMemoryTokenRepository:
         del project_key, token_id
 
 
+class _NoopTenantScopeMiddleware:
+    """Passthrough stub: all project-scoped paths pass without DB access (AG3-090)."""
+
+    def validate(self, *, method: str, route_path: str, correlation_id: str) -> None:
+        return None
+
+
 class _FakeProjectEventSource:
     def __init__(self) -> None:
         self.records = [
@@ -76,7 +83,10 @@ def _record(
 
 def test_project_events_endpoint_returns_sse_stream_and_filters_project() -> None:
     source = _FakeProjectEventSource()
-    app = ControlPlaneApplication(telemetry_routes=TelemetryRoutes(source))
+    app = ControlPlaneApplication(
+        telemetry_routes=TelemetryRoutes(source),
+        tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
+    )
 
     response = app.handle_request(
         method="GET",
@@ -96,7 +106,10 @@ def test_project_events_endpoint_returns_sse_stream_and_filters_project() -> Non
 
 
 def test_project_events_endpoint_rejects_unknown_topics() -> None:
-    app = ControlPlaneApplication(telemetry_routes=TelemetryRoutes(_FakeProjectEventSource()))
+    app = ControlPlaneApplication(
+        telemetry_routes=TelemetryRoutes(_FakeProjectEventSource()),
+        tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
+    )
 
     response = app.handle_request(
         method="GET",

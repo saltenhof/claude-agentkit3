@@ -57,6 +57,13 @@ def _header(response: HttpResponse, name: str) -> str:
     raise AssertionError(f"Missing header {name}")
 
 
+class _NoopTenantScopeMiddleware:
+    """Passthrough stub: all project-scoped paths pass without DB access (AG3-090)."""
+
+    def validate(self, *, method: str, route_path: str, correlation_id: str) -> None:
+        return None
+
+
 def _app(tmp_path: Path) -> tuple[ControlPlaneApplication, _InMemoryTokenRepository]:
     credentials = StrategistCredentialStore(tmp_path / "auth.json")
     credentials.set_password("secret", username="strategist")
@@ -71,6 +78,7 @@ def _app(tmp_path: Path) -> tuple[ControlPlaneApplication, _InMemoryTokenReposit
     return ControlPlaneApplication(
         auth_routes=routes,
         auth_middleware=middleware,
+        tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
     ), tokens
 
 
