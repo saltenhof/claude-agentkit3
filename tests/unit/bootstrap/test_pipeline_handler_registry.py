@@ -86,15 +86,23 @@ class TestRegistryWiring:
             {"setup", "exploration", "implementation", "closure"}
         )
 
-    def test_bugfix_registers_no_exploration(self, tmp_path: Path) -> None:
-        """A bugfix story has no exploration phase, so none is registered."""
+    def test_bugfix_registers_exploration_phase(self, tmp_path: Path) -> None:
+        """A bugfix story's WORKFLOW includes exploration (AG3-057, FK-23 §23.1).
+
+        The BUGFIX_WORKFLOW now carries the exploration phase so that a
+        trigger-fired EXPLORATION-route bugfix can run it.  The registry
+        therefore registers exploration for bugfix stories.  An EXECUTION-route
+        bugfix never enters the exploration phase at runtime (routing_rules
+        removes it from the effective phase list), but the handler must be
+        registered because the workflow definition carries the phase.
+        """
         story_dir = _persist_ctx(tmp_path, StoryType.BUGFIX)
         registry = build_pipeline_handler_registry(
             story_dir, story_type=StoryType.BUGFIX
         )
-        assert "exploration" not in registry.registered_phases
+        assert "exploration" in registry.registered_phases
         assert registry.registered_phases == frozenset(
-            {"setup", "implementation", "closure"}
+            {"setup", "exploration", "implementation", "closure"}
         )
 
     @pytest.mark.parametrize(

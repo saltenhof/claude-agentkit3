@@ -394,6 +394,12 @@ def _schema_alter_statements() -> tuple[str, ...]:
         ),
         # Legacy ``attempt_records``-Tabelle ist mit Schema 3.5.0 entfernt
         # (AG3-025 Re-Review-Befund 2). Keine Migrations-Updates mehr.
+        # AG3-057: Trigger 3 input column for existing Postgres schemas that
+        # pre-date the postgres_schema.sql addition.  Idempotent via IF NOT EXISTS.
+        (
+            "ALTER TABLE stories "
+            "ADD COLUMN IF NOT EXISTS new_structures BOOLEAN NOT NULL DEFAULT FALSE"
+        ),
     )
 
 

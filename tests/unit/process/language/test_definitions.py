@@ -72,14 +72,21 @@ class TestWorkflowPhases:
         )
         assert "verify" not in IMPLEMENTATION_WORKFLOW.phase_names
 
-    def test_bugfix_has_three_phases_no_exploration(self) -> None:
-        """Bugfix workflow has 3 phases without exploration."""
+    def test_bugfix_has_four_phases_including_exploration(self) -> None:
+        """Bugfix workflow has 4 phases including exploration (AG3-057, FK-23 §23.1).
+
+        A bugfix can route into Exploration mode when one of the four triggers
+        fires.  The BUGFIX_WORKFLOW therefore carries the exploration phase so
+        that routing_rules can remove it for EXECUTION-route bugfixes (same
+        mechanism as for implementation stories).
+        """
         assert BUGFIX_WORKFLOW.phase_names == (
             "setup",
+            "exploration",
             "implementation",
             "closure",
         )
-        assert "exploration" not in BUGFIX_WORKFLOW.phase_names
+        assert "exploration" in BUGFIX_WORKFLOW.phase_names
         assert "verify" not in BUGFIX_WORKFLOW.phase_names
 
     def test_concept_has_three_phases(self) -> None:

@@ -392,6 +392,8 @@ class StoryService:
             owner=request.owner,
             risk=request.risk,
             labels=list(request.labels),
+            # AG3-057 ERROR-2 fix: persist Trigger 3 input from CreateStoryInput.
+            new_structures=request.new_structures,
             created_at=datetime.now(UTC),
         )
         default_spec = StorySpecification(need=None, solution=None, acceptance=[])
@@ -872,6 +874,9 @@ def _create_story_body(request: CreateStoryInput, op_id: str) -> dict[str, objec
         "owner": request.owner,
         "risk": request.risk.value,
         "labels": sorted(request.labels),
+        # AG3-057 ERROR-2 fix: include Trigger 3 input in idempotency snapshot so
+        # that a replay with a different new_structures value is caught as a mismatch.
+        "new_structures": request.new_structures,
         "op_id": op_id,
     }
 
@@ -896,6 +901,11 @@ def _story_to_internal_snapshot(story: Story) -> dict[str, object]:
         **wire,
         "_story_uuid": str(story.story_uuid),
         "_story_number": story.story_number,
+        # AG3-057 residual fix: new_structures is an internal Trigger-3 flag, not
+        # part of the public wire summary.  Persist it explicitly so that
+        # _story_from_cached_payload() can reconstruct the field faithfully on
+        # idempotent replay (otherwise cached replay always returns False).
+        "new_structures": story.new_structures,
     }
 
 
@@ -949,6 +959,9 @@ def _story_from_cached_payload(payload: dict[str, object]) -> Story | None:
             labels=[str(lb) for lb in _to_list(payload.get("labels"))],
             wave=int(str(payload.get("wave", 0))),
             critical_path=bool(payload.get("critical_path", False)),
+            # AG3-057 ERROR-2 fix: restore Trigger 3 input from idempotency snapshot.
+            # Fail-closed default False for legacy snapshots without this field.
+            new_structures=bool(payload.get("new_structures", False)),
             created_at=(
                 datetime.fromisoformat(str(payload["created_at"]))
                 if payload.get("created_at")

@@ -59,18 +59,20 @@ PROFILES: dict[StoryType, StoryTypeProfile] = {
         uses_worktree=True,
         uses_full_qa=True,
         uses_merge=True,
-        # FK-23 §23.1: the scope of mode determination is the implementing story
-        # types Implementation AND Bugfix. A bugfix with e.g. ``Concept
-        # Quality=Low`` may route into exploration mode (FK-21 §21.3.3 /
-        # exploration-and-design.C3). ``default_mode`` stays EXECUTION (a bugfix
-        # is explorative only when a trigger fires); ``phases`` stays unchanged --
-        # the exploration phase is inserted solely via the mode switch
-        # (routing_rules), not via the profile phase tuple.
+        # FK-23 §23.1 / AG3-057: a bugfix can route into Exploration mode when
+        # one of the four triggers fires.  ``default_mode`` stays EXECUTION
+        # (a bugfix is explorative only when a trigger fires explicitly).
+        # ``phases`` now includes ``"exploration"`` so that
+        # ``routing_rules.get_phases_for_story`` can remove it for
+        # EXECUTION-route bugfixes (same mechanism as for implementation stories,
+        # no special-casing needed).  The BUGFIX_WORKFLOW definition was updated
+        # in sync (definitions.py) to carry the exploration phase and its
+        # transitions (setup→exploration, exploration→implementation).
         allowed_modes=(StoryMode.EXECUTION, StoryMode.EXPLORATION),
         default_mode=StoryMode.EXECUTION,
         allowed_implementation_contracts=(),
         default_implementation_contract=None,
-        phases=("setup", "implementation", "closure"),
+        phases=("setup", "exploration", "implementation", "closure"),
     ),
     StoryType.CONCEPT: StoryTypeProfile(
         story_type=StoryType.CONCEPT,

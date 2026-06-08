@@ -134,12 +134,22 @@ class TestImplementationTransitions:
 
 
 class TestBugfixTransitions:
-    """Transition tests for the bugfix workflow."""
+    """Transition tests for the bugfix workflow (AG3-057: exploration now included).
+
+    A bugfix can route into Exploration mode when one of the four triggers fires
+    (FK-23 §23.1 / AG3-057).  The workflow therefore mirrors the implementation
+    workflow's routing structure: setup can go to either exploration or
+    implementation depending on execution_route.
+    """
 
     @pytest.mark.parametrize(
         ("source", "target"),
         [
+            # EXECUTION-route: setup → implementation (direct)
             ("setup", "implementation"),
+            # EXPLORATION-route: setup → exploration → implementation → closure
+            ("setup", "exploration"),
+            ("exploration", "implementation"),
             ("implementation", "closure"),
         ],
     )
@@ -148,7 +158,7 @@ class TestBugfixTransitions:
         source: str,
         target: str,
     ) -> None:
-        """Each valid transition is defined in the bugfix workflow."""
+        """Each valid transition is defined in the bugfix workflow (AG3-057)."""
         targets = _get_transition_targets(BUGFIX_WORKFLOW, source)
         assert target in targets
 
@@ -176,16 +186,21 @@ class TestBugfixTransitions:
         targets = _get_transition_targets(BUGFIX_WORKFLOW, source)
         assert target not in targets
 
-    def test_no_exploration_transitions(self) -> None:
-        """Bugfix workflow has no transitions involving exploration."""
+    def test_exploration_transitions_present(self) -> None:
+        """Bugfix workflow now carries exploration transitions (AG3-057, FK-23 §23.1)."""
         all_pairs = _get_all_transition_pairs(BUGFIX_WORKFLOW)
-        for source, target in all_pairs:
-            assert source != "exploration"
-            assert target != "exploration"
+        exploration_as_target = [p for p in all_pairs if p[1] == "exploration"]
+        exploration_as_source = [p for p in all_pairs if p[0] == "exploration"]
+        assert len(exploration_as_target) == 1, (
+            "setup→exploration transition must be present"
+        )
+        assert len(exploration_as_source) == 1, (
+            "exploration→implementation transition must be present"
+        )
 
     def test_total_transition_count(self) -> None:
-        """Bugfix workflow has exactly 2 transitions."""
-        assert len(BUGFIX_WORKFLOW.transitions) == 2
+        """Bugfix workflow has exactly 4 transitions (AG3-057: mirrors impl workflow)."""
+        assert len(BUGFIX_WORKFLOW.transitions) == 4
 
 
 # ---------------------------------------------------------------------------

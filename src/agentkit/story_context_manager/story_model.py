@@ -198,6 +198,12 @@ class Story(BaseModel):
     blocker: str | None = None
     labels: list[str] = Field(default_factory=list)
 
+    # AG3-057: Trigger 3 input — whether the story introduces new code/module
+    # structures (FK-22 §22.8.1 Trigger 3). Persisted on the Story record as the
+    # authoritative owner (FIX THE MODEL). Fail-closed default False: absence
+    # counts as "no new structures"; the trigger does not fire on an absent field.
+    new_structures: bool = False
+
     # -- Read-model joins (not stored in stories table, joined from others) --
     dependencies: list[str] = Field(default_factory=list)  # list of story_display_id
     qa_rounds: int = 0
@@ -258,6 +264,7 @@ class CreateStoryInput(BaseModel):
     owner: str = ""
     risk: RiskLevel = RiskLevel.LOW
     labels: list[str] = Field(default_factory=list)
+    new_structures: bool = False
 
     @field_validator("title")
     @classmethod

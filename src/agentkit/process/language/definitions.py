@@ -105,19 +105,59 @@ def _build_implementation_workflow() -> WorkflowDefinition:
 
 
 def _build_bugfix_workflow() -> WorkflowDefinition:
+    """Build the workflow definition for bugfix stories.
+
+    AG3-057 (FK-23 §23.1): a bugfix can run in Exploration mode when one of
+    the four triggers fires.  The workflow therefore mirrors the implementation
+    workflow: setup can route to exploration OR directly to implementation
+    depending on ``execution_route``.  The routing is determined by the same
+    ``mode_is_exploration`` / ``_mode_is_not_exploration`` guards used by the
+    implementation workflow; ``routing_rules.get_phases_for_story`` will then
+    remove the ``exploration`` phase for EXECUTION-mode bugfixes (same
+    mechanism as for implementation stories — no separate code path needed).
+    """
     return (
         Workflow("bugfix")
         .phase("setup")
         .guard(preflight_passed)
+        .phase("exploration")
+        .yield_to(
+            "design_review",
+            on="awaiting_design_review",
+            resume_triggers=["design_approved", "design_rejected"],
+            required_artifacts=["design_artifact"],
+            # FK-23 §23.5.2: Stage 2a design-review is a required gate stage.
+            gate_stage=ExplorationGateStageSpec(
+                stage_id=ExplorationGateStage.DESIGN_REVIEW,
+                yield_point="design_review",
+                required=True,
+                rollback_on_fail=True,
+            ),
+        )
+        .yield_to(
+            "design_challenge",
+            on="awaiting_design_challenge",
+            resume_triggers=["challenge_resolved"],
+            # FK-23 §23.5.3: Stage 2b design-challenge is optional.
+            gate_stage=ExplorationGateStageSpec(
+                stage_id=ExplorationGateStage.DESIGN_CHALLENGE,
+                yield_point="design_challenge",
+                required=False,
+                rollback_on_fail=False,
+            ),
+        )
         .phase("implementation")
         .max_remediation_rounds(3)
         .phase("closure")
         .substates(["merging", "cleanup", "reporting"])
-        .transition("setup", "implementation")
+        .transition("setup", "exploration", guard=mode_is_exploration)
+        .transition("setup", "implementation", guard=_mode_is_not_exploration)
+        .transition("exploration", "implementation", guard=exploration_gate_approved)
         .transition("implementation", "closure", guard=implementation_completed)
         .hooks(
             pre_transition=["log_transition"],
             post_transition=["emit_telemetry"],
+            on_yield=["notify_yield"],
             on_escalate=["notify_escalation"],
         )
         .build()
