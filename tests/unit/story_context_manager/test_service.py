@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import pytest
 
+from agentkit.governance.principal_capabilities.principals import Principal
 from agentkit.project_management.entities import Project, ProjectConfiguration
 from agentkit.story_context_manager.errors import (
     ForbiddenError,
@@ -31,6 +32,14 @@ from agentkit.story_context_manager.story_model import (
     WireStoryType,
 )
 from agentkit.story_context_manager.story_repository import InMemoryStoryRepository
+from agentkit.story_exit import (
+    AdmissibilityAssessment,
+    AlternativeReview,
+    ExitClass,
+    ExitReason,
+    StoryExitRecord,
+    TerminalState,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
@@ -107,6 +116,37 @@ def _create_story(
             repos=repos or ["ak3"],
         ),
         op_id=op_id,
+    )
+
+
+def _story_exit_record(story_id: str) -> StoryExitRecord:
+    from datetime import UTC, datetime
+
+    return StoryExitRecord(
+        exit_id="exit-1",
+        project_key="ak3",
+        story_id=story_id,
+        run_id="run-1",
+        session_id="sess-1",
+        reason=ExitReason.SOLUTION_VIABILITY_REQUIRES_HUMAN_DESIGN,
+        principal=Principal.HUMAN_CLI,
+        terminal_state=TerminalState.CANCELLED,
+        exit_class=ExitClass.VIABILITY_HANDOFF,
+        admissibility_assessment=AdmissibilityAssessment(
+            normal_difficulty_excluded=True,
+            mere_agent_uncertainty_excluded=True,
+            usual_remediation_excluded=True,
+            split_or_replan_excluded=True,
+        ),
+        alternative_review=AlternativeReview(
+            standard_contract_checked=True,
+            standard_contract_rejection_reason="filled",
+            reclassification_checked=True,
+            reclassification_rejection_reason="filled",
+            split_checked=True,
+            split_rejection_reason="filled",
+        ),
+        created_at=datetime(2026, 6, 9, 12, 0, tzinfo=UTC),
     )
 
 
@@ -364,6 +404,82 @@ def test_complete_story_without_begin_progress_raises() -> None:
 
     with pytest.raises(InvalidStatusTransitionError):
         svc.complete_story(story.story_display_id)
+
+
+def test_administrative_story_exit_cancel_in_progress_is_gated() -> None:
+    svc = _make_service()
+    story = _create_story(svc, op_id="op-create")
+    svc.approve_story(story.story_display_id, op_id="op-approve")
+    svc.begin_progress(story.story_display_id)
+
+    cancelled = svc.administratively_cancel_for_story_exit(
+        story.story_display_id,
+        story_exit_record=_story_exit_record(story.story_display_id),
+        story_exit_operation_committed=True,
+        principal=Principal.HUMAN_CLI,
+        op_id="exit-1",
+    )
+
+    assert cancelled.status == StoryStatus.CANCELLED
+    assert cancelled.blocker == "Story-Exit viability handoff (exit-1)"
+
+
+def test_administrative_story_exit_cancel_is_idempotent_on_cancelled() -> None:
+    svc = _make_service()
+    story = _create_story(svc, op_id="op-create")
+    svc.approve_story(story.story_display_id, op_id="op-approve")
+    svc.begin_progress(story.story_display_id)
+    record = _story_exit_record(story.story_display_id)
+
+    first = svc.administratively_cancel_for_story_exit(
+        story.story_display_id,
+        story_exit_record=record,
+        story_exit_operation_committed=True,
+        principal=Principal.HUMAN_CLI,
+        op_id="exit-1",
+    )
+    second = svc.administratively_cancel_for_story_exit(
+        story.story_display_id,
+        story_exit_record=record,
+        story_exit_operation_committed=True,
+        principal=Principal.HUMAN_CLI,
+        op_id="exit-1",
+    )
+
+    assert first.status == StoryStatus.CANCELLED
+    assert second.status == StoryStatus.CANCELLED
+
+
+def test_administrative_story_exit_cancel_requires_committed_fence() -> None:
+    svc = _make_service()
+    story = _create_story(svc, op_id="op-create")
+    svc.approve_story(story.story_display_id, op_id="op-approve")
+    svc.begin_progress(story.story_display_id)
+
+    with pytest.raises(ForbiddenError, match="committed"):
+        svc.administratively_cancel_for_story_exit(
+            story.story_display_id,
+            story_exit_record=_story_exit_record(story.story_display_id),
+            story_exit_operation_committed=False,
+            principal=Principal.HUMAN_CLI,
+            op_id="exit-1",
+        )
+
+
+def test_administrative_story_exit_cancel_rejects_non_human_principal() -> None:
+    svc = _make_service()
+    story = _create_story(svc, op_id="op-create")
+    svc.approve_story(story.story_display_id, op_id="op-approve")
+    svc.begin_progress(story.story_display_id)
+
+    with pytest.raises(ForbiddenError, match="human_cli"):
+        svc.administratively_cancel_for_story_exit(
+            story.story_display_id,
+            story_exit_record=_story_exit_record(story.story_display_id),
+            story_exit_operation_committed=True,
+            principal=Principal.ORCHESTRATOR,
+            op_id="exit-1",
+        )
 
 
 def test_begin_progress_emits_event() -> None:

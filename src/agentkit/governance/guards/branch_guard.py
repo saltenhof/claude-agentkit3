@@ -24,6 +24,7 @@ class BranchGuard:
         "agentkit run-phase closure",
         "agentkit reset-story",
         "agentkit split-story",
+        "agentkit exit-story",
     )
     _GIT_INTERNAL_SEGMENTS: tuple[str, ...] = (
         ".git",

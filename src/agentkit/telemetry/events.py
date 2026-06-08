@@ -69,6 +69,8 @@ class EventType(StrEnum):
     SESSION_RUN_BINDING_REMOVED = "session_run_binding_removed"
     STORY_EXECUTION_REGIME_ACTIVATED = "story_execution_regime_activated"
     STORY_EXECUTION_REGIME_DEACTIVATED = "story_execution_regime_deactivated"
+    STORY_EXIT_BINDING_REVOKED = "story_exit_binding_revoked"
+    STORY_EXIT_COMPLETED = "story_exit_completed"
     BINDING_INVALID_DETECTED = "binding_invalid_detected"
     LOCAL_EDGE_BUNDLE_MATERIALIZED = "local_edge_bundle_materialized"
     EDGE_OPERATION_RECONCILED = "edge_operation_reconciled"

@@ -140,6 +140,34 @@ def build_artifact_manager(store_dir: Path) -> ArtifactManager:
     return ArtifactManager(repository, validator)
 
 
+def build_story_exit_service(*, project_key: str) -> object:
+    """Build the productive FK-58 story-exit service."""
+
+    from agentkit.control_plane.repository import ControlPlaneRuntimeRepository
+    from agentkit.governance.runner import Governance
+    from agentkit.state_backend.store.governance_hook_repository import (
+        StateBackendHookRegistrationRepository,
+    )
+    from agentkit.state_backend.store.lock_record_repository import LockRecordRepository
+    from agentkit.state_backend.store.worktree_repository import (
+        StateBackendWorktreeRepository,
+    )
+    from agentkit.story_context_manager.service import StoryService
+    from agentkit.story_exit.service import StoryExitService
+
+    governance = Governance(
+        hook_repo=StateBackendHookRegistrationRepository(),
+        lock_repo=LockRecordRepository(),
+        project_key=project_key,
+        worktree_repo=StateBackendWorktreeRepository(),
+    )
+    return StoryExitService(
+        control_plane_repository=ControlPlaneRuntimeRepository(),
+        story_service=StoryService(),
+        governance=governance,
+    )
+
+
 def build_kpi_analytics(store_dir: Path) -> KpiAnalytics:
     """Wire a ``KpiAnalytics`` facade onto the real FactStore (AG3-038).
 

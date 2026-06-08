@@ -230,6 +230,21 @@ class _FakeOps:
             for op in self._state.operations.values()
         )
 
+    def has_committed_story_exit_for_run(
+        self,
+        project_key: str,
+        story_id: str,
+        run_id: str,
+    ) -> bool:
+        return any(
+            op.status == "committed"
+            and op.operation_kind == "story_exit"
+            and op.project_key == project_key
+            and op.story_id == story_id
+            and op.run_id == run_id
+            for op in self._state.operations.values()
+        )
+
     def save(self, record: ControlPlaneOperationRecord) -> None:
         # ERROR-3 (#3): the legacy upsert REFUSES to overwrite a row that is still
         # LIVE ``claimed`` (a live, owned lease). Mirrors the real store's
@@ -356,6 +371,7 @@ def _repository(state: _RepoState) -> ControlPlaneRuntimeRepository:
         commit_operation_with_side_effects=ops.commit_with_side_effects,
         release_operation=ops.release,
         has_committed_operation_for_run=ops.has_committed_for_run,
+        has_committed_story_exit_operation_for_run=ops.has_committed_story_exit_for_run,
         delete_operation=ops.delete,
         load_binding=state.bindings.get,
         save_binding=lambda record: state.bindings.__setitem__(
@@ -2438,12 +2454,56 @@ def test_new_run_admitted_by_committed_op_for_that_run() -> None:
     assert "op-complete-admitted-by-op" in state.operations
 
 
+def test_committed_story_exit_preferentially_blocks_same_run_admission() -> None:
+    """FK-58: story_exit terminal marker wins over binding/start evidence."""
+
+    state = _RepoState()
+    state.story_contexts[("tenant-a", "AG3-100")] = _story_context(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        mode=WireStoryMode.STANDARD,
+    )
+    _seed_admitted_run(state, run_id="run-100")
+    state.operations["op-start"] = _committed_op_for_run(
+        op_id="op-start",
+        run_id="run-100",
+    )
+    state.operations["exit-1"] = _committed_op(
+        op_id="exit-1",
+        run_id="run-100",
+        operation_kind="story_exit",
+        phase=None,
+    )
+    service = ControlPlaneRuntimeService(repository=_repository(state))
+
+    completed = service.complete_phase(
+        run_id="run-100",
+        phase="implementation",
+        request=_phase_request("op-complete-after-exit"),
+    )
+    closed = service.complete_closure(
+        run_id="run-100",
+        request=ClosureCompleteRequest(
+            project_key="tenant-a",
+            story_id="AG3-100",
+            session_id="sess-001",
+            op_id="op-closure-after-exit",
+        ),
+    )
+
+    assert completed.status == "rejected"
+    assert closed.status == "rejected"
+    assert "op-complete-after-exit" not in state.operations
+    assert "op-closure-after-exit" not in state.operations
+    assert state.bindings["sess-001"].run_id == "run-100"
+
+
 def _committed_op(
     *,
     op_id: str,
     run_id: str,
     operation_kind: str,
-    phase: str,
+    phase: str | None,
 ) -> ControlPlaneOperationRecord:
     now = datetime(2026, 6, 7, 10, 0, tzinfo=UTC)
     return ControlPlaneOperationRecord(

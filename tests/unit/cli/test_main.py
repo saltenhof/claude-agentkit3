@@ -57,6 +57,40 @@ class TestCLIMain:
         captured = capsys.readouterr()
         assert "agentkit" in captured.out.lower() or "usage" in captured.out.lower()
 
+    def test_exit_story_command_dispatches_with_required_story_reason(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_exit_story(args: SimpleNamespace, cli_args: list[str]) -> int:
+            captured["story"] = args.story
+            captured["reason"] = args.reason
+            captured["note"] = args.note
+            captured["cli_args"] = cli_args
+            return 0
+
+        monkeypatch.setattr("agentkit.cli.main._cmd_exit_story", fake_exit_story)
+
+        exit_code = main([
+            "exit-story",
+            "--story",
+            "AG3-073",
+            "--reason",
+            "solution_viability_requires_human_design",
+            "--note",
+            "handoff",
+        ])
+
+        assert exit_code == 0
+        assert captured["story"] == "AG3-073"
+        assert captured["reason"] == "solution_viability_requires_human_design"
+        assert captured["note"] == "handoff"
+
+    def test_exit_story_requires_story_and_reason(self) -> None:
+        with pytest.raises(SystemExit):
+            main(["exit-story", "--story", "AG3-073"])
+
     @pytest.mark.skipif(
         not _LINKS_AVAILABLE,
         reason="Filesystem supports neither symlinks nor directory junctions",

@@ -172,6 +172,20 @@ class TestBranchGuardAllowed:
         )
         assert v.allowed is True
 
+    def test_official_exit_story_command_allowed(self, guard: BranchGuard) -> None:
+        v = guard.evaluate(
+            "bash_command",
+            {
+                "command": (
+                    "agentkit exit-story --story AG3-073 --reason "
+                    "solution_viability_requires_human_design"
+                ),
+                "operating_mode": "story_execution",
+                "active_story_id": "AG3-073",
+            },
+        )
+        assert v.allowed is True
+
     def test_git_internal_file_mutation_is_blocked(self, guard: BranchGuard) -> None:
         v = guard.evaluate("file_write", {"file_path": "/repo/.git/index"})
         assert v.allowed is False

@@ -165,7 +165,9 @@ class _GitVerbs:
 
     #: AK3 official admin CLI verbs (FK-55 §55.5 admin_transition / §55.9 service
     #: paths): reset, split, conflict resolution, registered service paths.
-    ADMIN_SUBCOMMANDS: frozenset[str] = frozenset({"reset-story", "split-story", "resolve-conflict", "cleanup"})
+    ADMIN_SUBCOMMANDS: frozenset[str] = frozenset(
+        {"reset-story", "split-story", "exit-story", "resolve-conflict", "cleanup"}
+    )
 
     #: File-mutating shell verbs (FK-55 §55.10.2 — Bash file mutations must be
     #: recognised directly, not collapsed to ``execute``). These produce a WRITE

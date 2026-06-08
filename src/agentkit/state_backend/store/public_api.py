@@ -19,6 +19,7 @@ PUBLIC_API = (
     "finalize_control_plane_operation_global",
     "finalize_control_plane_start_phase_global",
     "has_committed_control_plane_operation_for_run_global",
+    "has_committed_story_exit_operation_for_run_global",
     "release_control_plane_operation_global",
     "takeover_control_plane_operation_global",
     "delete_session_run_binding_global",

@@ -992,6 +992,30 @@ def has_committed_control_plane_operation_for_run_global(
     )
 
 
+def has_committed_story_exit_operation_for_run_global(
+    project_key: str,
+    story_id: str,
+    run_id: str,
+) -> bool:
+    """Whether a committed story-exit terminal marker exists for THIS run."""
+
+    backend = _backend_module()
+    if not hasattr(
+        backend, "has_committed_story_exit_operation_for_run_global_row"
+    ):
+        raise RuntimeError(
+            "Control-plane story-exit terminal probe is unsupported by the active "
+            "backend"
+        )
+    return bool(
+        backend.has_committed_story_exit_operation_for_run_global_row(
+            project_key,
+            story_id,
+            run_id,
+        )
+    )
+
+
 def delete_control_plane_operation_global(op_id: str) -> None:
     """Unconditional delete of a control-plane op row (administrative recovery).
 

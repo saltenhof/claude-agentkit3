@@ -2553,6 +2553,27 @@ def has_committed_control_plane_operation_for_run_global_row(
     return row is not None
 
 
+def has_committed_story_exit_operation_for_run_global_row(
+    project_key: str,
+    story_id: str,
+    run_id: str,
+) -> bool:
+    """Whether a committed story-exit terminal marker exists for THIS run."""
+
+    with _connect_global() as conn:
+        row = conn.execute(
+            """
+            SELECT 1 FROM control_plane_operations
+            WHERE project_key = ? AND story_id = ? AND run_id = ?
+              AND status = 'committed'
+              AND operation_kind = 'story_exit'
+            LIMIT 1
+            """,
+            (project_key, story_id, run_id),
+        ).fetchone()
+    return row is not None
+
+
 def load_control_plane_operation_global_row(
     op_id: str,
 ) -> dict[str, Any] | None:

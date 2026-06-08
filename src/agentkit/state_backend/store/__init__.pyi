@@ -56,6 +56,9 @@ from agentkit.state_backend.store.facade import (
     has_committed_control_plane_operation_for_run_global as has_committed_control_plane_operation_for_run_global,
 )
 from agentkit.state_backend.store.facade import (
+    has_committed_story_exit_operation_for_run_global as has_committed_story_exit_operation_for_run_global,
+)
+from agentkit.state_backend.store.facade import (
     load_artifact_record as load_artifact_record,
 )
 from agentkit.state_backend.store.facade import (

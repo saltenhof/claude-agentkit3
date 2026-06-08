@@ -14,6 +14,7 @@ from agentkit.state_backend.store import (
     finalize_control_plane_operation_global,
     finalize_control_plane_start_phase_global,
     has_committed_control_plane_operation_for_run_global,
+    has_committed_story_exit_operation_for_run_global,
     load_control_plane_operation_global,
     load_session_run_binding_global,
     load_story_execution_lock_global,
@@ -102,6 +103,11 @@ class ControlPlaneRuntimeRepository:
     #: for THIS exact ``(project_key, story_id, run_id)``.
     has_committed_operation_for_run: Callable[[str, str, str], bool] = (
         has_committed_control_plane_operation_for_run_global
+    )
+    #: FK-58 run-terminal evidence: a committed ``story_exit`` operation marks the
+    #: run terminal/non-resumable and must be consulted before admission evidence.
+    has_committed_story_exit_operation_for_run: Callable[[str, str, str], bool] = (
+        has_committed_story_exit_operation_for_run_global
     )
     #: AG3-054: unconditional delete for administrative recovery only (the
     #: productive release path is ``release_operation``). Idempotent.

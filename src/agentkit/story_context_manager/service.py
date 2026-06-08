@@ -762,6 +762,90 @@ class StoryService:
         self._emit(story.project_key, story_display_id, wire_summary)
         return story
 
+    def administratively_cancel_for_story_exit(
+        self,
+        story_display_id: str,
+        *,
+        story_exit_record: object,
+        story_exit_operation_committed: bool,
+        principal: object,
+        op_id: str,
+        correlation_id: str = "",
+    ) -> Story:
+        """Administratively cancel an In Progress story for FK-58 story-exit.
+
+        This is the dedicated story-exit transition. It deliberately does not add
+        ``In Progress -> Cancelled`` to the generic transition table, so the
+        frontend ``cancel_story`` surface remains fail-closed for in-flight
+        stories.
+        """
+
+        if str(principal) != "human_cli":
+            raise ForbiddenError(
+                "Story-Exit administrative cancellation requires human_cli",
+                detail={"principal": str(principal)},
+            )
+        if not story_exit_operation_committed:
+            raise ForbiddenError(
+                "Story-Exit administrative cancellation requires a committed "
+                "story_exit fence operation",
+                detail={"story_id": story_display_id, "op_id": op_id},
+            )
+        if not _valid_story_exit_record(story_exit_record, story_display_id, op_id):
+            raise StoryValidationError(
+                "Invalid StoryExitRecord for administrative cancellation",
+                detail={"story_id": story_display_id, "op_id": op_id},
+            )
+
+        body: dict[str, object] = {
+            "story_id": story_display_id,
+            "op_id": op_id,
+            "exit_id": str(getattr(story_exit_record, "exit_id", "")),
+            "operation": "story_exit_admin_cancel",
+        }
+        cached, cached_payload = self._idempotency.check(op_id, body)
+        if cached:
+            assert cached_payload is not None
+            cached_story = _story_from_cached_payload(cached_payload)
+            if cached_story is not None:
+                return cached_story
+
+        story = self.get_story_or_raise(story_display_id)
+        if story.status is StoryStatus.CANCELLED:
+            self._idempotency.record(
+                op_id,
+                body,
+                _story_to_internal_snapshot(story),
+                correlation_id=correlation_id,
+            )
+            return story
+        if story.status is not StoryStatus.IN_PROGRESS:
+            raise InvalidStatusTransitionError(
+                "Story-Exit administrative cancellation is only legal from "
+                "In Progress or as an idempotent no-op on Cancelled.",
+                detail={
+                    "current_status": story.status.value,
+                    "target_status": StoryStatus.CANCELLED.value,
+                },
+            )
+
+        project = self._project_repo.get(story.project_key)
+        if project is not None and project.archived_at is not None:
+            raise ForbiddenError(
+                f"Project {story.project_key!r} is archived",
+                detail={"project_key": story.project_key},
+            )
+
+        story.status = StoryStatus.CANCELLED
+        story.blocker = f"Story-Exit viability handoff ({op_id})"
+        self._story_repo.save(story)
+        wire_summary = story_to_wire_summary(story)
+        self._idempotency.record(
+            op_id, body, _story_to_internal_snapshot(story), correlation_id=correlation_id
+        )
+        self._emit(story.project_key, story_display_id, wire_summary)
+        return story
+
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
@@ -975,6 +1059,22 @@ def _story_from_cached_payload(payload: dict[str, object]) -> Story | None:
         )
     except (KeyError, ValueError):
         return None
+
+
+def _valid_story_exit_record(
+    record: object,
+    story_display_id: str,
+    op_id: str,
+) -> bool:
+    """Validate the structural StoryExitRecord gate without owning the BC."""
+
+    return (
+        getattr(record, "producer_id", None) == "story_exit_service"
+        and getattr(record, "exit_id", None) == op_id
+        and getattr(record, "story_id", None) == story_display_id
+        and str(getattr(record, "terminal_state", "")) == "Cancelled"
+        and str(getattr(record, "exit_class", "")) == "viability_handoff"
+    )
 
 
 def _get_project_repos(project: Project | None) -> list[str]:

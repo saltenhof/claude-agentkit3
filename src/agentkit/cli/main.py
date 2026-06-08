@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -130,6 +131,18 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument(
         "--project-root", required=True, help="Target project root",
     )
+    exit_parser = subparsers.add_parser(
+        "exit-story", help="Administratively exit a bound story run",
+    )
+    exit_parser.add_argument("--story", required=True, help="Story ID")
+    exit_parser.add_argument("--reason", required=True, help="FK-58 exit reason code")
+    exit_parser.add_argument("--note", required=False, help="Optional human note")
+    exit_parser.add_argument(
+        "--ak3-principal-attest",
+        dest="ak3_principal_attest",
+        required=False,
+        help=argparse.SUPPRESS,
+    )
 
     # doctor (health check)
     subparsers.add_parser(
@@ -171,6 +184,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_uninstall(args)
     if args.command == "run-story":
         return _cmd_run_story(args)
+    if args.command == "exit-story":
+        return _cmd_exit_story(args, argv or sys.argv[1:])
     if args.command == "doctor":
         return _cmd_doctor()
     if args.command == "serve-control-plane":
@@ -361,6 +376,74 @@ def _cmd_run_story(args: argparse.Namespace) -> int:
         f"root: {args.project_root}"
     )
     print("Note: Full pipeline execution pending phase handler implementation")
+    return 0
+
+
+def _cmd_exit_story(args: argparse.Namespace, cli_args: list[str]) -> int:
+    """Handle ``agentkit exit-story``."""
+
+    from agentkit.bootstrap.composition_root import build_story_exit_service
+    from agentkit.governance.guard_evaluation import HookEvent
+    from agentkit.governance.principal_capabilities.principals import PrincipalResolver
+    from agentkit.story_exit import ExitReason, StoryExitRequest, StoryExitService
+
+    try:
+        reason = ExitReason(args.reason)
+    except ValueError:
+        print(f"exit-story failed: invalid reason code {args.reason!r}", file=sys.stderr)
+        return 1
+
+    project_key = os.environ.get("AGENTKIT_PROJECT_KEY", "").strip()
+    run_id = os.environ.get("AGENTKIT_RUN_ID", "").strip()
+    session_id = os.environ.get("AGENTKIT_SESSION_ID", "").strip()
+    if not project_key or not run_id or not session_id:
+        print(
+            "exit-story failed: AGENTKIT_PROJECT_KEY, AGENTKIT_RUN_ID and "
+            "AGENTKIT_SESSION_ID must identify the bound run.",
+            file=sys.stderr,
+        )
+        return 1
+
+    principal = PrincipalResolver().resolve(
+        HookEvent(
+            operation="bash_command",
+            freshness_class="mutation",
+            session_id=session_id,
+            cli_args=cli_args,
+            principal_kind="main",
+        )
+    )
+    service = build_story_exit_service(project_key=project_key)
+    if not isinstance(service, StoryExitService):
+        print("exit-story failed: composition root returned invalid service", file=sys.stderr)
+        return 1
+    try:
+        result = service.exit_story(
+            StoryExitRequest(
+                project_key=project_key,
+                story_id=args.story,
+                run_id=run_id,
+                session_id=session_id,
+                reason=reason,
+                note=args.note,
+                principal=principal,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"exit-story failed: {exc}", file=sys.stderr)
+        return 1
+    print(
+        json.dumps(
+            {
+                "status": "committed",
+                "exit_id": result.exit_id,
+                "story_id": result.record.story_id,
+                "operating_mode": result.operating_mode,
+                "artifact_dir": str(result.artifact_dir),
+            },
+            sort_keys=True,
+        )
+    )
     return 0
 
 

@@ -1047,6 +1047,10 @@ class _ControlPlaneRuntimeAdmissionBase:
 
         Fail-closed: no run-matched evidence => the run was never admitted.
         """
+        if self._repo.has_committed_story_exit_operation_for_run(
+            project_key, story_id, run_id
+        ):
+            return False
         binding = self._repo.load_binding(session_id)
         if (
             binding is not None
