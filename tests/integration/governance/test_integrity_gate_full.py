@@ -106,6 +106,10 @@ def _write_sonar_project_config(project_root: Path) -> None:
                 "    path: .",
                 "    language: python",
                 "pipeline:",
+                # FK-03 §3.2.1: config_version is mandatory (fail-closed).
+                "  config_version: '3.0'",
+                "  features:",
+                "    multi_llm: false",
                 "  sonarqube:",
                 "    available: true",
                 "    enabled: true",
@@ -145,6 +149,10 @@ def _write_sonar_unavailable_project_config(project_root: Path) -> None:
                 "    path: .",
                 "    language: python",
                 "pipeline:",
+                # FK-03 §3.2.1: config_version is mandatory (fail-closed).
+                "  config_version: '3.0'",
+                "  features:",
+                "    multi_llm: false",
                 "  sonarqube:",
                 "    available: false",
                 "    enabled: false",

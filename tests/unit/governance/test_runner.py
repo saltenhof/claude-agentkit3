@@ -284,7 +284,11 @@ class TestAuthoritativeRequiredRoles:
                         {"name": "r", "path": str(project_root / "r")}
                     ],
                     "story_types": ["concept"],
-                    "pipeline": {"review": {"required_roles": required_roles}},
+                    "pipeline": {
+                        "config_version": "3.0",
+                        "features": {"multi_llm": False},
+                        "review": {"required_roles": required_roles},
+                    },
                 }
             ),
             encoding="utf-8",

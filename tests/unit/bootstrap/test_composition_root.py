@@ -433,7 +433,10 @@ def test_load_sonar_config_available_false_is_declared_absence_none(
             "project_key: proj\n"
             "project_name: Proj\n"
             "repositories:\n  - name: app\n    path: .\n"
-            "pipeline:\n  sonarqube:\n"
+            "pipeline:\n"
+            "  config_version: '3.0'\n"
+            "  features:\n    multi_llm: false\n"
+            "  sonarqube:\n"
             "    available: false\n    enabled: false\n"
             "  ci:\n    available: false\n    enabled: false\n",
             encoding="utf-8",
@@ -565,14 +568,20 @@ def test_build_structural_build_test_port_absent_ci_is_failclosed(
 def test_build_structural_are_provider_activation() -> None:
     """FIX-1: the ARE provider reflects features.are and never silently disables."""
     from agentkit.bootstrap.composition_root import build_structural_are_provider
-    from agentkit.config.models import Features, PipelineConfig
+    from agentkit.config.models import SUPPORTED_CONFIG_VERSION, Features, PipelineConfig
 
-    off = PipelineConfig(features=Features(are=False))
+    off = PipelineConfig(  # type: ignore[call-arg]
+        config_version=SUPPORTED_CONFIG_VERSION,
+        features=Features(are=False, multi_llm=False),
+    )
     provider_off = build_structural_are_provider(None, off)
     assert provider_off.is_enabled is False
     assert provider_off.coverage_verdict("S-1", "p") is None
 
-    on = PipelineConfig(features=Features(are=True))
+    on = PipelineConfig(  # type: ignore[call-arg]
+        config_version=SUPPORTED_CONFIG_VERSION,
+        features=Features(are=True, multi_llm=False),
+    )
     provider_on = build_structural_are_provider(None, on)
     assert provider_on.is_enabled is True
 

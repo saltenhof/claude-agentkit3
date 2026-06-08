@@ -22,7 +22,11 @@ def _project(**pipeline_sonar: object) -> ProjectConfig:
         repositories=[RepositoryConfig(name="app", path=".")],
         # AG3-056: code-producing projects must also declare the ci stanza;
         # an explicit opt-out keeps these Sonar-focused tests isolated.
+        # config_version is mandatory (FK-03 §3.2.1); features.multi_llm=False
+        # for this single-LLM test fixture.
         pipeline={  # type: ignore[arg-type]
+            "config_version": "3.0",
+            "features": {"multi_llm": False},
             "sonarqube": pipeline_sonar,
             "ci": {"available": False, "enabled": False},
         },
@@ -129,6 +133,10 @@ class TestCrossFieldRule:
             project_name="Docs",
             repositories=[RepositoryConfig(name="app", path=".")],
             story_types=["concept", "research"],
-            pipeline={"sonarqube": {"available": True, "enabled": False}},  # type: ignore[arg-type]
+            pipeline={  # type: ignore[arg-type]
+                "config_version": "3.0",
+                "features": {"multi_llm": False},
+                "sonarqube": {"available": True, "enabled": False},
+            },
         )
         assert project.pipeline.sonarqube.enabled is False

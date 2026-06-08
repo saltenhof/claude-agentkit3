@@ -92,7 +92,12 @@ def _write_project_config(project_root: Path, *, required_roles: list[str]) -> N
                 # concept-only avoids the code-producing sonarqube/ci stanza
                 # requirement; the review.required_roles authority is what matters.
                 "story_types": ["concept"],
-                "pipeline": {"review": {"required_roles": list(required_roles)}},
+                # FK-03 §3.2.1: config_version is mandatory (fail-closed).
+                "pipeline": {
+                    "config_version": "3.0",
+                    "features": {"multi_llm": False},
+                    "review": {"required_roles": list(required_roles)},
+                },
             }
         ),
         encoding="utf-8",

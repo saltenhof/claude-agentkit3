@@ -23,7 +23,12 @@ from agentkit.requirements_coverage.top import RequirementsCoverage
 # ---------------------------------------------------------------------------
 
 def _config(are_enabled: bool = False) -> PipelineConfig:
-    return PipelineConfig(features=Features(are=are_enabled))
+    from agentkit.config.models import SUPPORTED_CONFIG_VERSION
+
+    return PipelineConfig(  # type: ignore[call-arg]
+        config_version=SUPPORTED_CONFIG_VERSION,
+        features=Features(are=are_enabled, multi_llm=False),
+    )
 
 
 def _evidence() -> AreEvidence:

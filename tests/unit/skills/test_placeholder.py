@@ -7,6 +7,8 @@ from pathlib import Path
 import pytest
 
 from agentkit.config.models import (
+    SUPPORTED_CONFIG_VERSION,
+    Features,
     JenkinsConfig,
     PipelineConfig,
     ProjectConfig,
@@ -22,7 +24,10 @@ from agentkit.skills.placeholder import PlaceholderSubstitutor
 
 #: AG3-052 E6 / AG3-056: code-producing default story_types must declare the
 #: sonarqube + ci stanzas explicitly (opt-outs for this placeholder test).
-_OPT_OUT_PIPELINE = PipelineConfig(
+#: multi_llm=False for this single-LLM fixture.
+_OPT_OUT_PIPELINE = PipelineConfig(  # type: ignore[call-arg]
+    config_version=SUPPORTED_CONFIG_VERSION,
+    features=Features(multi_llm=False),
     sonarqube=SonarQubeConfig(available=False, enabled=False),
     ci=JenkinsConfig(available=False, enabled=False),
 )
