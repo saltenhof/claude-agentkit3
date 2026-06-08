@@ -13,11 +13,12 @@ from agentkit.core_types import (
     SpawnRequest,
 )
 from agentkit.pipeline_engine.lifecycle import HandlerResult
-from agentkit.story_context_manager.models import (
+from agentkit.pipeline_engine.phase_executor import (
     ExplorationPayload,
     PhaseName,
     PhaseState,
     PhaseStatus,
+    evolve_phase_state,
 )
 
 if TYPE_CHECKING:
@@ -760,13 +761,15 @@ class ExplorationPhaseHandler:
         Returns:
             A new ``PhaseState`` for the exploration phase.
         """
-        return PhaseState(
-            story_id=state.story_id,
+        return evolve_phase_state(
+            state,
             phase=PhaseName.EXPLORATION,
             status=status,
             payload=ExplorationPayload(gate_status=gate_status),
-            memory=state.memory,
-            paused_reason=state.paused_reason,
+            pause_reason=state.pause_reason if status is PhaseStatus.PAUSED else None,
+            escalation_reason=state.escalation_reason
+            if status is PhaseStatus.ESCALATED
+            else None,
             review_round=state.review_round,
             errors=list(state.errors),
             attempt_id=state.attempt_id,

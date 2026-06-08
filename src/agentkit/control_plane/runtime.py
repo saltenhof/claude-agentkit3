@@ -33,7 +33,7 @@ from agentkit.governance.guard_system.records import StoryExecutionLockRecord
 from agentkit.governance.guard_system.story_scoped_guards import (
     should_create_story_lock_records,
 )
-from agentkit.story_context_manager.models import PhaseName
+from agentkit.pipeline_engine.phase_executor import PhaseName
 from agentkit.telemetry.contract.records import ExecutionEventRecord
 from agentkit.telemetry.events import EventType
 

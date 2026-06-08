@@ -23,7 +23,7 @@ from agentkit.closure.multi_repo_saga import (
     push_story_branches,
     teardown_worktrees,
 )
-from agentkit.story_context_manager.models import ClosureProgress
+from agentkit.pipeline_engine.phase_executor import ClosureProgress
 from agentkit.verify_system.pre_merge_runner.contract import (
     BuildTestOutcome,
     BuildTestPort,

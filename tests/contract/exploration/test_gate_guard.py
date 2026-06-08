@@ -9,14 +9,14 @@ value is re-checked automatically and cannot silently become an entry path.
 from __future__ import annotations
 
 import pytest
+from tests.phase_state_factory import make_phase_state
 
 from agentkit.core_types import ExplorationGateStatus
-from agentkit.process.language.guards import exploration_gate_approved
-from agentkit.story_context_manager.models import (
+from agentkit.pipeline_engine.phase_executor import (
     ExplorationPayload,
-    PhaseState,
     PhaseStatus,
 )
+from agentkit.process.language.guards import exploration_gate_approved
 from agentkit.story_context_manager.models import StoryContext as _StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
@@ -34,7 +34,7 @@ def _ctx() -> _StoryContext:
 def test_only_approved_releases_implementation(
     gate_status: ExplorationGateStatus,
 ) -> None:
-    state = PhaseState(
+    state = make_phase_state(
         story_id="AG3-045",
         phase="exploration",
         status=PhaseStatus.COMPLETED,
@@ -45,7 +45,7 @@ def test_only_approved_releases_implementation(
 
 
 def test_completed_without_payload_is_closed() -> None:
-    state = PhaseState(
+    state = make_phase_state(
         story_id="AG3-045",
         phase="exploration",
         status=PhaseStatus.COMPLETED,

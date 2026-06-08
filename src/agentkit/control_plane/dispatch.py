@@ -33,15 +33,20 @@ reverse, so the no-cycle rule (AC 11) holds.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
 
 from agentkit.control_plane.models import PhaseDispatchResult
 from agentkit.exceptions import PipelineError
-from agentkit.story_context_manager.models import (
+from agentkit.pipeline_engine.phase_executor import (
     PhaseName,
     PhaseState,
+    PhaseStateProducer,
     PhaseStatus,
+    build_phase_state,
+    phase_state_mode_from_context,
 )
+from agentkit.story_context_manager.story_model import WireStoryMode
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -297,7 +302,7 @@ class PhaseDispatcher:
         if state_rejection is not None:
             return _rejected(phase, state_rejection)
 
-        envelope = _build_envelope(existing, ctx, phase)
+        envelope = _build_envelope(existing, ctx, phase, engine=engine)
         run_result = _run_engine_entry(
             engine=engine,
             ctx=ctx,
@@ -532,6 +537,8 @@ def _build_envelope(
     existing: PhaseState | None,
     ctx: StoryContext,
     phase: str,
+    *,
+    engine: PipelineEngine,
 ) -> PhaseEnvelope:
     """Build the engine envelope for the requested phase.
 
@@ -542,10 +549,21 @@ def _build_envelope(
 
     if existing is not None and existing.phase == phase:
         return PhaseEnvelopeStore.make_fresh_envelope(existing)
-    fresh = PhaseState(
+    now = datetime.now(tz=UTC)
+    fresh = build_phase_state(
         story_id=ctx.story_id,
+        run_id=engine._runtime.resolve_run_id(ctx),
         phase=phase,
         status=PhaseStatus.PENDING,
+        mode=phase_state_mode_from_context(
+            execution_route=ctx.execution_route,
+            fast=ctx.mode is WireStoryMode.FAST,
+        ),
+        story_type=ctx.story_type,
+        attempt=1,
+        started_at=now,
+        phase_entered_at=now,
+        producer=PhaseStateProducer(type="script", name="dispatch-phase"),
     )
     return PhaseEnvelopeStore.make_fresh_envelope(fresh)
 

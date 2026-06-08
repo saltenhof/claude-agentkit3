@@ -20,6 +20,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.phase_state_factory import make_phase_state
 from tests.unit.closure.closure_fakes import (
     NoOpStoryService,
     RecordingBuildTestPort,
@@ -36,19 +37,19 @@ from tests.unit.closure.closure_fakes import (
 from agentkit.bootstrap.composition_root import build_artifact_manager
 from agentkit.closure.phase import ClosureConfig, ClosurePhaseHandler
 from agentkit.phase_state_store.models import FlowExecution
-from agentkit.state_backend.store import (
-    append_execution_event,
-    save_flow_execution,
-    save_phase_snapshot,
-)
-from agentkit.story_context_manager.models import (
+from agentkit.pipeline_engine.phase_executor import (
     ClosurePayload,
     ClosureProgress,
     PhaseSnapshot,
     PhaseState,
     PhaseStatus,
-    StoryContext,
 )
+from agentkit.state_backend.store import (
+    append_execution_event,
+    save_flow_execution,
+    save_phase_snapshot,
+)
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.story_model import WireStoryMode
 from agentkit.story_context_manager.types import StoryMode, StoryType
 from agentkit.telemetry.contract.records import ExecutionEventRecord
@@ -114,7 +115,7 @@ def _fast_ctx(story_id: str = "FAST-001", project_root: Path | None = None) -> S
 def _state(
     story_id: str = "FAST-001", progress: ClosureProgress | None = None
 ) -> PhaseState:
-    return PhaseState(
+    return make_phase_state(
         story_id=story_id,
         phase="closure",
         status=PhaseStatus.IN_PROGRESS,

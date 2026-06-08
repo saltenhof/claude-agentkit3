@@ -19,7 +19,8 @@ if TYPE_CHECKING:
 
     from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
     from agentkit.phase_state_store.models import FlowExecution
-    from agentkit.story_context_manager.models import PhaseState, StoryContext
+    from agentkit.pipeline_engine.phase_executor import PhaseState
+    from agentkit.story_context_manager.models import StoryContext
     from agentkit.telemetry.contract.records import ExecutionEventRecord
 
 

@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from tests.phase_state_factory import make_phase_state
+
 from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
 from agentkit.phase_state_store.models import FlowExecution
+from agentkit.pipeline_engine.phase_executor import PhaseStatus
 from agentkit.story.repository import StoryRepository
 from agentkit.story.service import StoryService
-from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import (
     ImplementationContract,
     StoryMode,
@@ -58,7 +61,7 @@ def test_list_stories_builds_project_scoped_read_model() -> None:
         repository=StoryRepository(
             list_story_contexts=lambda project_key: [context],
             load_story_context=lambda project_key, story_id: context,
-            load_phase_state=lambda story_id: PhaseState(
+            load_phase_state=lambda story_id: make_phase_state(
                 story_id=story_id,
                 phase="implementation",
                 status=PhaseStatus.IN_PROGRESS,
@@ -109,7 +112,7 @@ def test_get_story_returns_detail_with_latest_metrics() -> None:
         repository=StoryRepository(
             list_story_contexts=lambda project_key: [context],
             load_story_context=lambda project_key, story_id: context,
-            load_phase_state=lambda story_id: PhaseState(
+            load_phase_state=lambda story_id: make_phase_state(
                 story_id=story_id,
                 phase="closure",
                 status=PhaseStatus.COMPLETED,

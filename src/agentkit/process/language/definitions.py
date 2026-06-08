@@ -21,8 +21,9 @@ from agentkit.process.language.guards import (
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
+    from agentkit.pipeline_engine.phase_executor import PhaseState
     from agentkit.process.language.model import WorkflowDefinition
-    from agentkit.story_context_manager.models import PhaseState, StoryContext
+    from agentkit.story_context_manager.models import StoryContext
 
 
 @guard(

@@ -13,8 +13,6 @@ Source of truth: FK-39 §39.1 / §39.3; bc-cut-decisions.md §BC 1 Layer 1
 
 from __future__ import annotations
 
-import os
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
@@ -24,17 +22,12 @@ if TYPE_CHECKING:
     from agentkit.pipeline_engine.phase_envelope.repository import (
         PhaseEnvelopeRepository,
     )
-    from agentkit.story_context_manager.models import PhaseName, PhaseState
+    from agentkit.pipeline_engine.phase_executor.models import PhaseName, PhaseState
 
 
 def _build_runtime(*, origin: PhaseOrigin) -> RuntimeMetadata:
     """Construct a fresh RuntimeMetadata for the current process."""
-    return RuntimeMetadata(
-        origin=origin,
-        loaded_at=datetime.now(tz=UTC) if origin is PhaseOrigin.LOADED else None,
-        process_id=os.getpid(),
-        worker_id=os.environ.get("AGENTKIT_WORKER_ID"),
-    )
+    return RuntimeMetadata(origin=origin)
 
 
 class PhaseEnvelopeStore:
@@ -46,7 +39,7 @@ class PhaseEnvelopeStore:
     1. On ``save``: only ``envelope.state`` (durable) is written;
        ``envelope.runtime`` (ephemeral) is silently discarded.
     2. On ``load``: a fresh ``RuntimeMetadata`` with ``origin=LOADED`` is
-       constructed from the current process context, not read from storage.
+       constructed locally, not read from storage.
     3. On fresh start (no stored state): ``load`` returns ``None``.
 
     Args:
@@ -119,7 +112,7 @@ class PhaseEnvelopeStore:
 
         Used by the runner when starting a fresh phase (no prior
         persistent state). The runtime is constructed with
-        ``origin=PhaseOrigin.NEW`` and ``loaded_at=None``.
+        ``origin=PhaseOrigin.NEW``.
 
         Args:
             state: The freshly created PhaseState.

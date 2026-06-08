@@ -15,7 +15,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from agentkit.story_context_manager.models import PhaseState, StoryContext
+    from agentkit.pipeline_engine.phase_executor import PhaseState
+    from agentkit.story_context_manager.models import StoryContext
 
 
 @dataclass(frozen=True)
@@ -113,7 +114,7 @@ def preflight_passed(ctx: StoryContext, state: PhaseState) -> GuardResult:
     Returns:
         ``GuardResult.PASS()`` if setup is completed, ``FAIL`` otherwise.
     """
-    from agentkit.story_context_manager.models import PhaseStatus
+    from agentkit.pipeline_engine.phase_executor import PhaseStatus
 
     if state.phase == "setup" and state.status == PhaseStatus.COMPLETED:
         return GuardResult.PASS()
@@ -151,7 +152,7 @@ def exploration_gate_approved(
         otherwise.
     """
     from agentkit.core_types import ExplorationGateStatus
-    from agentkit.story_context_manager.models import (
+    from agentkit.pipeline_engine.phase_executor import (
         ExplorationPayload,
         PhaseName,
         PhaseStatus,
@@ -191,7 +192,7 @@ def implementation_completed(ctx: StoryContext, state: PhaseState) -> GuardResul
     Returns:
         ``GuardResult.PASS()`` if implementation is completed, ``FAIL`` otherwise.
     """
-    from agentkit.story_context_manager.models import PhaseStatus
+    from agentkit.pipeline_engine.phase_executor import PhaseStatus
 
     if state.phase == "implementation" and state.status == PhaseStatus.COMPLETED:
         return GuardResult.PASS()
@@ -223,7 +224,7 @@ def implementation_qa_needs_remediation(
         ``GuardResult.PASS()`` if implementation needs remediation,
         ``GuardResult.FAIL`` if implementation completed successfully.
     """
-    from agentkit.story_context_manager.models import PhaseStatus
+    from agentkit.pipeline_engine.phase_executor import PhaseStatus
 
     if state.phase == "implementation" and state.status != PhaseStatus.COMPLETED:
         return GuardResult.PASS()

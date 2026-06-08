@@ -8,10 +8,8 @@ Source of truth: FK-39 §39.3 -- concept/technical-design/39_phase_state_persist
 
 from __future__ import annotations
 
-from datetime import datetime
+from dataclasses import dataclass
 from enum import StrEnum
-
-from pydantic import BaseModel, ConfigDict
 
 
 class PhaseOrigin(StrEnum):
@@ -26,26 +24,16 @@ class PhaseOrigin(StrEnum):
     LOADED = "loaded"
 
 
-class RuntimeMetadata(BaseModel):
+@dataclass(frozen=True, slots=True)
+class RuntimeMetadata:
     """Ephemeral metadata attached to a PhaseEnvelope at runtime.
 
     This object is NEVER persisted. It is constructed fresh on every
     ``PhaseEnvelopeStore.load`` or when a new envelope is created by
-    the runner. Its purpose is to carry process-local context (PID,
-    worker identity, load timestamp) without polluting durable PhaseState.
+    the runner.
 
     Attributes:
         origin: Whether the envelope was freshly created or loaded.
-        loaded_at: UTC timestamp of when the state was loaded from
-            storage. ``None`` when ``origin`` is ``NEW``.
-        process_id: OS process ID of the current process.
-        worker_id: Worker identifier from ``AGENTKIT_WORKER_ID`` env var,
-            or ``None`` when running outside a worker context.
     """
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
     origin: PhaseOrigin
-    loaded_at: datetime | None = None
-    process_id: int
-    worker_id: str | None = None

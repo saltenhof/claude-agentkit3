@@ -38,15 +38,15 @@ if TYPE_CHECKING:
         NodeExecutionLedger,
         OverrideRecord,
     )
+    from agentkit.pipeline_engine.phase_executor.models import (
+        PhaseSnapshot,
+        PhaseState,
+    )
     from agentkit.pipeline_engine.phase_executor.records import AttemptRecord
     from agentkit.project_management.entities import Project
     from agentkit.requirements_coverage.models import StoryAreLink
     from agentkit.skills.binding import SkillBinding
-    from agentkit.story_context_manager.models import (
-        PhaseSnapshot,
-        PhaseState,
-        StoryContext,
-    )
+    from agentkit.story_context_manager.models import StoryContext
     from agentkit.telemetry.contract.records import ExecutionEventRecord
     from agentkit.verify_system.policy_engine.engine import VerifyDecision
     from agentkit.verify_system.protocols import LayerResult
@@ -419,11 +419,11 @@ def phase_state_to_row(state: PhaseState) -> dict[str, Any]:
         "story_id": state.story_id,
         "phase": state.phase,
         "status": state.status.value,
-        "paused_reason": state.paused_reason,
+        "paused_reason": state.pause_reason,
         "review_round": state.review_round,
         "attempt_id": state.attempt_id,
         "errors_json": dump_json(state.errors),
-        "payload_json": dump_json(state.model_dump(mode="json")),
+        "payload_json": dump_json(state.model_dump(mode="json", by_alias=True)),
     }
 
 
@@ -433,7 +433,7 @@ def phase_state_payload_to_record(
 ) -> PhaseState:
     """Deserialize a ``PhaseState`` from its JSON payload."""
 
-    from agentkit.story_context_manager.models import PhaseState as _PhaseState
+    from agentkit.pipeline_engine.phase_executor import PhaseState as _PhaseState
 
     try:
         return _PhaseState.model_validate(json.loads(payload_json))
@@ -467,7 +467,7 @@ def phase_snapshot_payload_to_record(
 ) -> PhaseSnapshot:
     """Deserialize a ``PhaseSnapshot`` from its JSON payload."""
 
-    from agentkit.story_context_manager.models import PhaseSnapshot as _PhaseSnapshot
+    from agentkit.pipeline_engine.phase_executor import PhaseSnapshot as _PhaseSnapshot
 
     try:
         return _PhaseSnapshot.model_validate(json.loads(payload_json))
@@ -481,7 +481,7 @@ def phase_snapshot_payload_to_record(
 def phase_snapshot_completed(snapshot: PhaseSnapshot) -> bool:
     """Return True if the snapshot's status is COMPLETED."""
 
-    from agentkit.story_context_manager.models import PhaseStatus as _PhaseStatus
+    from agentkit.pipeline_engine.phase_executor import PhaseStatus as _PhaseStatus
 
     return snapshot.status == _PhaseStatus.COMPLETED
 
@@ -530,10 +530,10 @@ def attempt_row_to_record(row: dict[str, Any]) -> AttemptRecord:
 
     from agentkit.core_types.attempt import AttemptOutcome as _AttemptOutcome
     from agentkit.core_types.attempt import FailureCause as _FailureCause
+    from agentkit.pipeline_engine.phase_executor import PhaseName as _PhaseName
     from agentkit.pipeline_engine.phase_executor.records import (
         AttemptRecord as _AttemptRecord,
     )
-    from agentkit.story_context_manager.models import PhaseName as _PhaseName
 
     started_raw = row["started_at"]
     ended_raw = row["ended_at"]

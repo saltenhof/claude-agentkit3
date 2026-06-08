@@ -8,17 +8,26 @@ of a workflow until completion, yield, failure, or escalation.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from agentkit.exceptions import CorruptStateError
 from agentkit.pipeline_engine.engine import PipelineEngine
 from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.pipeline_engine.phase_executor import (
+    PhaseName,
+    PhaseStateProducer,
+    PhaseStatus,
+    build_phase_state,
+    phase_state_mode_from_context,
+)
+from agentkit.pipeline_engine.runtime_state import EngineRuntimeState
 from agentkit.process.language.definitions import resolve_workflow
 from agentkit.state_backend.store import save_phase_state
 from agentkit.state_backend.store.phase_envelope_repository import (
     StateBackendPhaseEnvelopeRepository,
 )
-from agentkit.story_context_manager.models import PhaseName, PhaseState, PhaseStatus
+from agentkit.story_context_manager.story_model import WireStoryMode
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -125,10 +134,29 @@ def run_pipeline(
         )
 
     if envelope is None:
-        fresh_state = PhaseState(
+        now = datetime.now(tz=UTC)
+        runtime = getattr(engine, "_runtime", None)
+        run_id = (
+            runtime.resolve_run_id(story_context)
+            if isinstance(runtime, EngineRuntimeState)
+            else EngineRuntimeState(resolved_workflow, story_dir).resolve_run_id(
+                story_context,
+            )
+        )
+        fresh_state = build_phase_state(
             story_id=story_context.story_id,
+            run_id=run_id,
             phase=first_phase_name,
             status=PhaseStatus.PENDING,
+            mode=phase_state_mode_from_context(
+                execution_route=story_context.execution_route,
+                fast=story_context.mode is WireStoryMode.FAST,
+            ),
+            story_type=story_context.story_type,
+            attempt=1,
+            started_at=now,
+            phase_entered_at=now,
+            producer=PhaseStateProducer(type="script", name="run-pipeline"),
         )
         save_phase_state(story_dir, fresh_state)
         envelope = PhaseEnvelopeStore.make_fresh_envelope(fresh_state)
@@ -177,10 +205,18 @@ def run_pipeline(
             )
 
         # Create state for next phase and wrap in fresh envelope
-        next_state = PhaseState(
+        now = datetime.now(tz=UTC)
+        next_state = build_phase_state(
             story_id=story_context.story_id,
+            run_id=envelope.state.run_id,
             phase=result.next_phase,
             status=PhaseStatus.PENDING,
+            mode=envelope.state.mode,
+            story_type=story_context.story_type,
+            attempt=1,
+            started_at=envelope.state.started_at,
+            phase_entered_at=now,
+            producer=PhaseStateProducer(type="script", name="run-pipeline"),
         )
         save_phase_state(story_dir, next_state)
         envelope = PhaseEnvelopeStore.make_fresh_envelope(next_state)

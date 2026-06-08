@@ -20,6 +20,13 @@ from agentkit.core_types import PauseReason
 from agentkit.core_types.attempt import AttemptOutcome, FailureCause
 from agentkit.exceptions import PipelineError
 from agentkit.pipeline_engine.phase_envelope.errors import InvalidPauseReasonError
+from agentkit.pipeline_engine.phase_executor import (
+    PhaseName,
+    PhaseSnapshot,
+    PhaseState,
+    PhaseStatus,
+    evolve_phase_state,
+)
 from agentkit.pipeline_engine.phase_executor.records import AttemptRecord
 from agentkit.pipeline_engine.phase_executor.save_phase_completion import (
     save_phase_completion,
@@ -31,36 +38,32 @@ from agentkit.state_backend.store import (
     save_phase_snapshot,
     save_story_context,
 )
-from agentkit.story_context_manager.models import (
-    PhaseName,
-    PhaseSnapshot,
-    PhaseState,
-    PhaseStatus,
-    StoryContext,
-)
+
+if TYPE_CHECKING:
+    from agentkit.story_context_manager.models import StoryContext
 
 
-def _yield_point_matches_paused_reason(
+def _yield_point_matches_pause_reason(
     yield_point_status: str,
-    paused_reason: PauseReason | None,
+    pause_reason: PauseReason | None,
 ) -> bool:
     """Vergleicht den Yield-Point-Status mit dem persistierten PauseReason.
 
     ``yield_points[].status`` ist seit AG3-021 weiterhin ein freier String
-    im DSL-Vertrag (``YieldPoint``-Dataclass); ``paused_reason`` ist ein
+    im DSL-Vertrag (``YieldPoint``-Dataclass); ``pause_reason`` ist ein
     typisiertes ``PauseReason``-Enum. Der Vergleich erfolgt deshalb ueber
     die Wire-Repraesentation und nutzt ``from_yield_status``, damit
     Synonyme aus AG3-021 §2.1.4 ebenfalls greifen.
     """
-    if paused_reason is None:
+    if pause_reason is None:
         return False
     try:
-        return PauseReason.from_yield_status(yield_point_status) is paused_reason
+        return PauseReason.from_yield_status(yield_point_status) is pause_reason
     except ValueError:
         return False
 
 
-def _coerce_paused_reason(
+def _coerce_pause_reason(
     raw: str | PauseReason | None,
     *,
     phase_name: str,
@@ -273,12 +276,12 @@ def _completed_state_for(
     result: HandlerResult,
 ) -> PhaseState:
     source_state = result.updated_state or state
-    return PhaseState(
-        story_id=state.story_id,
+    return evolve_phase_state(
+        source_state,
         phase=state.phase,
         status=PhaseStatus.COMPLETED,
-        payload=source_state.payload,
-        memory=source_state.memory,
+        pause_reason=None,
+        escalation_reason=None,
         errors=list(result.errors),
         attempt_id=attempt_id,
     )
@@ -323,6 +326,7 @@ def _handle_guard_failure_result(
     ]
     retry_result = engine._apply_retry_policy(
         ctx,
+        state,
         phase_def,
         attempt_id,
         failure_reasons=failure_reasons,
@@ -352,10 +356,12 @@ def _handle_guard_failure_result(
         ended_at=finished_at,
         detail=detail if detail else None,
     )
-    new_state = PhaseState(
-        story_id=state.story_id,
+    new_state = evolve_phase_state(
+        state,
         phase=phase_name,
         status=PhaseStatus.FAILED,
+        pause_reason=None,
+        escalation_reason=None,
         errors=failure_reasons,
         attempt_id=attempt_id,
     )
@@ -572,12 +578,12 @@ def _handle_reentry_result(
     )
 
     source = result.updated_state or state
-    reentry_state = PhaseState(
-        story_id=state.story_id,
+    reentry_state = evolve_phase_state(
+        source,
         phase=phase_name,
         status=PhaseStatus.IN_PROGRESS,
-        payload=source.payload,
-        memory=source.memory,
+        pause_reason=None,
+        escalation_reason=None,
         errors=list(result.errors),
         attempt_id=attempt_id,
         # Preserve the typed spawn order so the orchestrator reads it (FK-45
@@ -629,13 +635,13 @@ def _handle_paused_result(
     # Migrationsgruenden akzeptieren wir hier weiterhin freie Strings vom
     # Handler und mappen sie via from_yield_status auf das normierte Enum.
     # Unbekannte Werte fuehren zu PipelineError (fail-closed).
-    paused_reason = _coerce_paused_reason(result.yield_status, phase_name=phase_name)
+    pause_reason = _coerce_pause_reason(result.yield_status, phase_name=phase_name)
 
     finished_at = datetime.now(tz=UTC)
 
     # AG3-025 §2.1.4: AttemptRecord traegt outcome=YIELDED, failure_cause=None.
-    # paused_reason lebt AUSSCHLIESSLICH in PhaseEnvelope.state.paused_reason
-    # (AG3-024 Owner). Kein paused_reason/yield_status in detail.
+    # pause_reason lives exclusively in PhaseEnvelope.state.pause_reason.
+    # No pause_reason/yield_status in AttemptRecord.detail.
     run_id = engine._runtime.resolve_run_id(ctx)
     attempt_nr = engine._runtime.attempt_number(attempt_id)
     detail: dict[str, object] | None = None
@@ -656,13 +662,13 @@ def _handle_paused_result(
         detail=detail,
     )
 
-    paused_state = PhaseState(
-        story_id=state.story_id,
+    source = result.updated_state or state
+    paused_state = evolve_phase_state(
+        source,
         phase=phase_name,
         status=PhaseStatus.PAUSED,
-        payload=(result.updated_state or state).payload,
-        memory=(result.updated_state or state).memory,
-        paused_reason=paused_reason,
+        pause_reason=pause_reason,
+        escalation_reason=None,
         attempt_id=attempt_id,
     )
 
@@ -737,6 +743,7 @@ def _handle_terminal_result(
     if result.status == PhaseStatus.FAILED:
         retry_result = engine._apply_retry_policy(
             ctx,
+            state,
             phase_def,
             attempt_id,
             failure_reasons=result.errors,
@@ -748,12 +755,15 @@ def _handle_terminal_result(
             return retry_result
 
     finished_at = datetime.now(tz=UTC)
-    terminal_state = PhaseState(
-        story_id=state.story_id,
+    source = result.updated_state or state
+    terminal_state = evolve_phase_state(
+        source,
         phase=phase_name,
         status=result.status,
-        payload=(result.updated_state or state).payload,
-        memory=(result.updated_state or state).memory,
+        pause_reason=None,
+        escalation_reason=source.escalation_reason
+        if result.status is PhaseStatus.ESCALATED
+        else None,
         errors=list(result.errors),
         attempt_id=attempt_id,
     )
@@ -999,6 +1009,7 @@ class PipelineEngine:
 
         policy_skip_reason = self._should_skip_for_execution_policy(
             ctx,
+            state,
             phase_def,
         )
         if policy_skip_reason is not None:
@@ -1024,10 +1035,12 @@ class PipelineEngine:
         )
         if not can_enter:
             finished_at = datetime.now(tz=UTC)
-            blocked_state = PhaseState(
-                story_id=state.story_id,
+            blocked_state = evolve_phase_state(
+                state,
                 phase=phase_name,
                 status=PhaseStatus.BLOCKED,
+                pause_reason=None,
+                escalation_reason=None,
                 errors=failure_reasons,
                 attempt_id=attempt_id,
             )
@@ -1096,6 +1109,7 @@ class PipelineEngine:
         except Exception as exc:
             return self._handle_handler_exception(
                 ctx,
+                state,
                 phase_name,
                 attempt_id,
                 [],
@@ -1168,14 +1182,14 @@ class PipelineEngine:
             )
 
         # 2. Verify trigger is valid for a yield point.
-        # Seit AG3-021 ist state.paused_reason ein PauseReason-Enum; im
+        # Seit AG3-021 ist state.pause_reason ein PauseReason-Enum; im
         # YieldPoint-Vertrag bleibt yp.status ein freier String, wir
         # vergleichen daher Wire-strings via from_yield_status, damit das
         # Synonym-Mapping aus Story §2.1.4 auch hier greift.
         valid_trigger = False
         for yp in phase_def.yield_points:
-            if not _yield_point_matches_paused_reason(
-                yp.status, state.paused_reason,
+            if not _yield_point_matches_pause_reason(
+                yp.status, state.pause_reason,
             ):
                 continue
             if trigger in yp.resume_triggers:
@@ -1188,8 +1202,8 @@ class PipelineEngine:
                 phase=phase_name,
                 errors=(
                     f"Invalid resume trigger '{trigger}' for phase "
-                    f"'{phase_name}' with paused_reason "
-                    f"'{state.paused_reason}'",
+                    f"'{phase_name}' with pause_reason "
+                    f"'{state.pause_reason}'",
                 ),
             )
 
@@ -1203,6 +1217,7 @@ class PipelineEngine:
         except Exception as exc:
             return self._handle_handler_exception(
                 ctx,
+                state,
                 phase_name,
                 attempt_id,
                 [],
@@ -1272,6 +1287,7 @@ class PipelineEngine:
     def _handle_handler_exception(
         self,
         ctx: StoryContext,
+        state: PhaseState,
         phase_name: str,
         attempt_id: str,
         guard_evals: list[dict[str, object]],
@@ -1303,6 +1319,7 @@ class PipelineEngine:
         if phase_def is not None:
             retry_result = self._apply_retry_policy(
                 ctx,
+                state,
                 phase_def,
                 attempt_id,
                 failure_reasons=(error_msg,),
@@ -1312,10 +1329,12 @@ class PipelineEngine:
                 return retry_result
 
         finished_at = datetime.now(tz=UTC)
-        failed_state = PhaseState(
-            story_id=story_id,
+        failed_state = evolve_phase_state(
+            state,
             phase=phase_name,
             status=PhaseStatus.FAILED,
+            pause_reason=None,
+            escalation_reason=None,
             errors=[error_msg],
             attempt_id=attempt_id,
         )
@@ -1376,6 +1395,7 @@ class PipelineEngine:
     def _should_skip_for_execution_policy(
         self,
         ctx: StoryContext,
+        state: PhaseState,
         phase_def: PhaseDefinition,
     ) -> str | None:
         """Evaluate whether the node should be skipped due to execution policy."""
@@ -1440,10 +1460,12 @@ class PipelineEngine:
         """Complete the current node without invoking a handler."""
 
         phase_name = state.phase
-        completed_state = PhaseState(
-            story_id=state.story_id,
+        completed_state = evolve_phase_state(
+            state,
             phase=phase_name,
             status=PhaseStatus.COMPLETED,
+            pause_reason=None,
+            escalation_reason=None,
             errors=list(errors),
             attempt_id=attempt_id,
         )
@@ -1590,6 +1612,7 @@ class PipelineEngine:
     def _apply_retry_policy(
         self,
         ctx: StoryContext,
+        state: PhaseState,
         phase_def: PhaseDefinition,
         attempt_id: str,
         *,
@@ -1614,10 +1637,12 @@ class PipelineEngine:
             return None
 
         phase_name = phase_def.name
-        failed_state = PhaseState(
-            story_id=ctx.story_id,
+        failed_state = evolve_phase_state(
+            state,
             phase=phase_name,
             status=PhaseStatus.FAILED,
+            pause_reason=None,
+            escalation_reason=None,
             errors=list(failure_reasons),
             attempt_id=attempt_id,
         )

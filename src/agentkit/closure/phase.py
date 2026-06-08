@@ -37,16 +37,17 @@ from agentkit.core_types.closure import ClosureVerdict
 from agentkit.exceptions import IntegrationError
 from agentkit.installer.paths import resolve_qa_story_dir
 from agentkit.pipeline_engine.lifecycle import HandlerResult
-from agentkit.state_backend.store import (
-    load_phase_snapshot,
-    save_story_context,
-)
-from agentkit.story_context_manager.models import (
+from agentkit.pipeline_engine.phase_executor import (
     ClosurePayload,
     ClosureProgress,
     PhaseState,
     PhaseStatus,
     QaCycleStatus,
+    evolve_phase_state,
+)
+from agentkit.state_backend.store import (
+    load_phase_snapshot,
+    save_story_context,
 )
 from agentkit.story_context_manager.types import get_profile
 
@@ -210,7 +211,7 @@ class ClosurePhaseHandler:
             return HandlerResult(status=PhaseStatus.FAILED, errors=tuple(missing))
 
         progress = _resume_progress(envelope)
-        return self._run_sequence(ctx, s_dir, prior_phases, progress)
+        return self._run_sequence(ctx, s_dir, envelope.state, prior_phases, progress)
 
     def on_resume(
         self, ctx: StoryContext, envelope: PhaseEnvelope, trigger: str,
@@ -241,7 +242,7 @@ class ClosurePhaseHandler:
         save_story_context(s_dir, ctx)
         prior_phases = self._prior_phases(ctx)
         progress = _resume_progress(envelope)
-        return self._run_sequence(ctx, s_dir, prior_phases, progress)
+        return self._run_sequence(ctx, s_dir, envelope.state, prior_phases, progress)
 
     def on_exit(self, _ctx: StoryContext, _envelope: PhaseEnvelope) -> None:
         """No-op for closure phase.
@@ -276,6 +277,7 @@ class ClosurePhaseHandler:
         self,
         ctx: StoryContext,
         s_dir: Path,
+        source_state: PhaseState,
         prior_phases: tuple[str, ...],
         progress: ClosureProgress,
     ) -> HandlerResult:
@@ -292,7 +294,13 @@ class ClosurePhaseHandler:
         # Skipped (and the merge booleans set directly true) for concept/research
         # (FK-29 §29.1.1), and skipped when already recovered (merge_done true).
         if not progress.merge_done:
-            merge_outcome = self._reach_merge_done(ctx, s_dir, uses_merge, progress)
+            merge_outcome = self._reach_merge_done(
+                ctx,
+                s_dir,
+                source_state,
+                uses_merge,
+                progress,
+            )
             if isinstance(merge_outcome, HandlerResult):
                 return merge_outcome
             progress = merge_outcome
@@ -305,7 +313,7 @@ class ClosurePhaseHandler:
             transition_error = _transition_story_done(cfg, ctx.story_id)
             if transition_error is not None:
                 return transition_error
-            progress = _persist(store, ctx, progress, story_closed=True)
+            progress = _persist(store, source_state, progress, story_closed=True)
         else:
             gh_warnings = []
 
@@ -317,7 +325,7 @@ class ClosurePhaseHandler:
             return metrics_or_error
         metrics = metrics_or_error
         if not progress.metrics_written:
-            progress = _persist(store, ctx, progress, metrics_written=True)
+            progress = _persist(store, source_state, progress, metrics_written=True)
 
         # Steps 6-9: post-merge finalization (non-blocking). FIX-5: idempotent --
         # if postflight already ran (``postflight_done``) it is NOT re-run; the
@@ -326,7 +334,7 @@ class ClosurePhaseHandler:
         finalization: FinalizationResult | None = None
         if not progress.postflight_done:
             finalization = self._run_finalization(ctx, s_dir, progress.story_closed)
-            progress = _persist(store, ctx, progress, postflight_done=True)
+            progress = _persist(store, source_state, progress, postflight_done=True)
 
         finalization_warnings = finalization.warnings if finalization is not None else ()
 
@@ -354,13 +362,14 @@ class ClosurePhaseHandler:
         return HandlerResult(
             status=PhaseStatus.COMPLETED,
             artifacts_produced=(str(report_path),),
-            updated_state=_closure_state(ctx.story_id, progress, PhaseStatus.COMPLETED),
+            updated_state=_closure_state(source_state, progress, PhaseStatus.COMPLETED),
         )
 
     def _reach_merge_done(
         self,
         ctx: StoryContext,
         s_dir: Path,
+        source_state: PhaseState,
         uses_merge: bool,
         progress: ClosureProgress,
     ) -> ClosureProgress | HandlerResult:
@@ -371,13 +380,13 @@ class ClosurePhaseHandler:
             # the three merge booleans are set directly true (FK-29 §29.1.1).
             return _persist(
                 store,
-                ctx,
+                source_state,
                 progress,
                 integrity_passed=True,
                 story_branch_pushed=True,
                 merge_done=True,
             )
-        return self._run_merge_block(ctx, s_dir, progress)
+        return self._run_merge_block(ctx, s_dir, source_state, progress)
 
     def _store(self) -> ClosureProgressStore:
         """Return the wired checkpoint store (guaranteed non-None at this point)."""
@@ -389,6 +398,7 @@ class ClosurePhaseHandler:
         self,
         ctx: StoryContext,
         s_dir: Path,
+        source_state: PhaseState,
         progress: ClosureProgress,
     ) -> ClosureProgress | HandlerResult:
         """Run the Finding-Gate + locked merge block for an impl/bugfix story."""
@@ -400,7 +410,7 @@ class ClosurePhaseHandler:
         # CI/9-dim block) so the CI-absent applicability gate does not apply.
         # Route straight to the merge block, which dispatches fast -> Sanity-Gate.
         if _is_fast_mode(ctx):
-            return self._run_fast_merge_block(ctx, s_dir, progress)
+            return self._run_fast_merge_block(ctx, s_dir, source_state, progress)
 
         # FIX-3: model declared-absence at the applicability layer. A
         # code-producing story whose CI is declared absent has no Build/Test+scan
@@ -410,6 +420,7 @@ class ClosurePhaseHandler:
         if cfg.merge_applicability is MergeApplicability.CI_ABSENT:
             return self._escalated(
                 ctx,
+                source_state,
                 progress,
                 (
                     "pre-merge CI is declared absent for a code-producing story: "
@@ -437,6 +448,7 @@ class ClosurePhaseHandler:
         if run_id is None:
             return self._escalated(
                 ctx,
+                source_state,
                 progress,
                 (
                     "Finding-Resolution-Gate: cannot resolve the runtime run scope "
@@ -449,7 +461,10 @@ class ClosurePhaseHandler:
         )
         if not gate.passed:
             return self._escalated(
-                ctx, progress, (gate.blocking_reason or "finding resolution failed",)
+                ctx,
+                source_state,
+                progress,
+                (gate.blocking_reason or "finding resolution failed",),
             )
 
         # Step 3: Pre-Merge-Scan-and-Merge-Block (scan -> gate -> push -> merge).
@@ -464,7 +479,7 @@ class ClosurePhaseHandler:
 
         def _checkpoint(block_progress: ClosureProgress) -> None:
             carried.progress = _persist_block_progress(
-                store, ctx, carried.progress, block_progress
+                store, source_state, carried.progress, block_progress
             )
 
         block = run_pre_merge_and_merge_block(
@@ -484,15 +499,18 @@ class ClosurePhaseHandler:
         )
         # Persist the durable checkpoints the block reached (idempotent with the
         # in-flight checkpoints above), BEFORE deciding the verdict.
-        progress = _persist_block_progress(store, ctx, carried.progress, block.progress)
+        progress = _persist_block_progress(
+            store, source_state, carried.progress, block.progress
+        )
         if block.status is MergeBlockStatus.ESCALATED:
-            return self._escalated(ctx, progress, tuple(block.errors))
+            return self._escalated(ctx, source_state, progress, tuple(block.errors))
         return progress
 
     def _run_fast_merge_block(
         self,
         ctx: StoryContext,
         s_dir: Path,
+        source_state: PhaseState,
         progress: ClosureProgress,
     ) -> ClosureProgress | HandlerResult:
         """Run the fast-mode merge block (FK-29 §29.1a.6, FK-24 §24.3.4).
@@ -520,7 +538,7 @@ class ClosurePhaseHandler:
 
         def _checkpoint(block_progress: ClosureProgress) -> None:
             carried.progress = _persist_block_progress(
-                store, ctx, carried.progress, block_progress
+                store, source_state, carried.progress, block_progress
             )
 
         block = run_fast_merge_block(
@@ -532,9 +550,11 @@ class ClosurePhaseHandler:
             checkpoint=_checkpoint,
             progress=progress,
         )
-        progress = _persist_block_progress(store, ctx, carried.progress, block.progress)
+        progress = _persist_block_progress(
+            store, source_state, carried.progress, block.progress
+        )
         if block.status is MergeBlockStatus.ESCALATED:
-            return self._escalated(ctx, progress, tuple(block.errors))
+            return self._escalated(ctx, source_state, progress, tuple(block.errors))
         return progress
 
     def _run_finalization(
@@ -595,12 +615,13 @@ class ClosurePhaseHandler:
     def _escalated(
         self,
         ctx: StoryContext,
+        source_state: PhaseState,
         progress: ClosureProgress,
         errors: tuple[str, ...],
     ) -> HandlerResult:
         """Build an ESCALATED result, persisting the reached progress."""
         self._store().save_state(
-            _closure_state(ctx.story_id, progress, PhaseStatus.ESCALATED)
+            _closure_state(source_state, progress, PhaseStatus.ESCALATED)
         )
         logger.error("Closure ESCALATED for story=%s: %s", ctx.story_id, errors)
         return HandlerResult(status=PhaseStatus.ESCALATED, errors=errors)
@@ -634,20 +655,24 @@ def _resume_progress(envelope: PhaseEnvelope) -> ClosureProgress:
 
 
 def _closure_state(
-    story_id: str, progress: ClosureProgress, status: PhaseStatus
+    source_state: PhaseState, progress: ClosureProgress, status: PhaseStatus
 ) -> PhaseState:
     """Build the closure ``PhaseState`` carrying the current progress."""
-    return PhaseState(
-        story_id=story_id,
+    return evolve_phase_state(
+        source_state,
         phase="closure",
         status=status,
         payload=ClosurePayload(progress=progress),
+        pause_reason=None,
+        escalation_reason=source_state.escalation_reason
+        if status is PhaseStatus.ESCALATED
+        else None,
     )
 
 
 def _persist(
     store: ClosureProgressStore,
-    ctx: StoryContext,
+    source_state: PhaseState,
     progress: ClosureProgress,
     **updates: bool,
 ) -> ClosureProgress:
@@ -660,13 +685,13 @@ def _persist(
     is rejected structurally.
     """
     updated = progress.model_copy(update=updates)
-    store.save_state(_closure_state(ctx.story_id, updated, PhaseStatus.IN_PROGRESS))
+    store.save_state(_closure_state(source_state, updated, PhaseStatus.IN_PROGRESS))
     return updated
 
 
 def _persist_block_progress(
     store: ClosureProgressStore,
-    ctx: StoryContext,
+    source_state: PhaseState,
     progress: ClosureProgress,
     block_progress: ClosureProgress,
 ) -> ClosureProgress:
@@ -685,7 +710,7 @@ def _persist_block_progress(
             "merge_done": progress.merge_done or block_progress.merge_done,
         }
     )
-    store.save_state(_closure_state(ctx.story_id, merged, PhaseStatus.IN_PROGRESS))
+    store.save_state(_closure_state(source_state, merged, PhaseStatus.IN_PROGRESS))
     return merged
 
 

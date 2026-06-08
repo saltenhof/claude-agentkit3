@@ -9,9 +9,16 @@ from pathlib import Path  # noqa: TCH003 — used at runtime by tmp_path fixture
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.phase_state_factory import make_phase_state
 
 from agentkit.boundary.filesystem import atomic_write_json, read_projection_json_object
 from agentkit.exceptions import CorruptStateError
+from agentkit.pipeline_engine.phase_executor import (
+    PhaseName,
+    PhaseSnapshot,
+    PhaseState,
+    PhaseStatus,
+)
 from agentkit.pipeline_engine.phase_executor.records import AttemptRecord
 from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.state_backend.sqlite_store import state_db_path_for
@@ -26,12 +33,7 @@ from agentkit.state_backend.store import (
     save_phase_state,
     save_story_context,
 )
-from agentkit.story_context_manager.models import (
-    PhaseSnapshot,
-    PhaseState,
-    PhaseStatus,
-    StoryContext,
-)
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
@@ -72,7 +74,7 @@ def _bootstrap_context(story_dir: Path) -> StoryContext:
 
 def _make_state() -> PhaseState:
     """Create a minimal PhaseState for testing."""
-    return PhaseState(
+    return make_phase_state(
         story_id="TEST-001",
         phase="setup",
         status=PhaseStatus.IN_PROGRESS,
@@ -101,8 +103,6 @@ def _make_attempt(
 ) -> AttemptRecord:
     """Create an AttemptRecord for testing (AG3-025 schema)."""
     from agentkit.core_types.attempt import AttemptOutcome, FailureCause
-    from agentkit.story_context_manager.models import PhaseName
-
     fc = FailureCause(failure_cause) if failure_cause is not None else None
     return AttemptRecord(
         run_id=run_id,

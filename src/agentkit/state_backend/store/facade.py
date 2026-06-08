@@ -46,17 +46,17 @@ if TYPE_CHECKING:
         NodeExecutionLedger,
         OverrideRecord,
     )
+    from agentkit.pipeline_engine.phase_executor.models import (
+        PhaseSnapshot,
+        PhaseState,
+    )
     from agentkit.pipeline_engine.phase_executor.records import AttemptRecord
     from agentkit.project_management.entities import Project
     from agentkit.requirements_coverage.models import (
         StoryAreLink,
         StoryAreLinkKind,
     )
-    from agentkit.story_context_manager.models import (
-        PhaseSnapshot,
-        PhaseState,
-        StoryContext,
-    )
+    from agentkit.story_context_manager.models import StoryContext
     from agentkit.telemetry.contract.records import ExecutionEventRecord
     from agentkit.verify_system.policy_engine.engine import VerifyDecision
     from agentkit.verify_system.protocols import LayerResult

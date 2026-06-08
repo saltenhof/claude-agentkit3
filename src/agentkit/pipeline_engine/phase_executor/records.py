@@ -12,7 +12,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from agentkit.core_types.attempt import AttemptOutcome, FailureCause
-from agentkit.story_context_manager.models import PhaseName
+from agentkit.pipeline_engine.phase_executor.models import PhaseName
 
 __all__ = ("AttemptRecord",)
 

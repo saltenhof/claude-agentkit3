@@ -21,7 +21,7 @@ from agentkit.state_backend.store.facade import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.story_context_manager.models import PhaseName, PhaseState
+    from agentkit.pipeline_engine.phase_executor import PhaseName, PhaseState
 
 
 class StateBackendPhaseEnvelopeRepository:

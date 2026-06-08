@@ -18,18 +18,19 @@ from pathlib import Path
 
 import pytest
 import yaml
+from tests.phase_state_factory import make_phase_state
 
 from agentkit.control_plane.dispatch import _enforce_transition, _normalize
 from agentkit.core_types import ExplorationGateStatus
 from agentkit.pipeline_engine.engine import EngineResult
-from agentkit.process.language.definitions import resolve_workflow
-from agentkit.story_context_manager.models import (
+from agentkit.pipeline_engine.phase_executor import (
     ExplorationPayload,
     PhaseName,
     PhaseState,
     PhaseStatus,
-    StoryContext,
 )
+from agentkit.process.language.definitions import resolve_workflow
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 _SPEC_ROOT = (
@@ -66,7 +67,7 @@ def _formal_phase_edges() -> set[tuple[str, str]]:
 
 
 def _completed(phase: str) -> PhaseState:
-    return PhaseState(story_id="AG3-001", phase=phase, status=PhaseStatus.COMPLETED)
+    return make_phase_state(story_id="AG3-001", phase=phase, status=PhaseStatus.COMPLETED)
 
 
 def _ctx(*, route: StoryMode = StoryMode.EXECUTION) -> StoryContext:
@@ -98,7 +99,7 @@ def _state_for_edge(src: str) -> PhaseState:
     whose :class:`ExplorationPayload` carries ``gate_status == APPROVED``.
     """
     if src == PhaseName.EXPLORATION.value:
-        return PhaseState(
+        return make_phase_state(
             story_id="AG3-001",
             phase=src,
             status=PhaseStatus.COMPLETED,
@@ -184,7 +185,7 @@ class TestInvalidTransitionsRejected:
     def test_transition_from_not_completed_predecessor_rejected(self) -> None:
         """A valid edge is still rejected when the predecessor is not COMPLETED."""
         workflow = resolve_workflow(StoryType.BUGFIX)
-        not_done = PhaseState(
+        not_done = make_phase_state(
             story_id="AG3-001", phase="setup", status=PhaseStatus.PAUSED
         )
         rejection = _enforce_transition(workflow, _ctx(), not_done, "implementation")

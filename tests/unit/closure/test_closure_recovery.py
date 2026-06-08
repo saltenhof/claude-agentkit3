@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.phase_state_factory import make_phase_state
 from tests.unit.closure.closure_fakes import (
     NoOpStoryService,
     RecordingBuildTestPort,
@@ -38,20 +39,19 @@ from agentkit.core_types.qa_artifact_names import (
 )
 from agentkit.phase_state_store.models import FlowExecution
 from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.pipeline_engine.phase_executor import (
+    ClosurePayload,
+    ClosureProgress,
+    PhaseSnapshot,
+    PhaseStatus,
+)
 from agentkit.state_backend.store import (
     append_execution_event,
     load_phase_state,
     save_flow_execution,
     save_phase_snapshot,
 )
-from agentkit.story_context_manager.models import (
-    ClosurePayload,
-    ClosureProgress,
-    PhaseSnapshot,
-    PhaseState,
-    PhaseStatus,
-    StoryContext,
-)
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 from agentkit.telemetry.contract.records import ExecutionEventRecord
 from agentkit.telemetry.events import EventType
@@ -192,7 +192,7 @@ def _ctx(tmp_path: Path, story_id: str = "TEST-001") -> StoryContext:
 
 
 def _envelope(story_id: str, progress: ClosureProgress) -> object:
-    state = PhaseState(
+    state = make_phase_state(
         story_id=story_id,
         phase="closure",
         status=PhaseStatus.IN_PROGRESS,

@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from agentkit.story_context_manager.models import PhaseName, PhaseState
+    from agentkit.pipeline_engine.phase_executor.models import PhaseName, PhaseState
 
 
 @runtime_checkable

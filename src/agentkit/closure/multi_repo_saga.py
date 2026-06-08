@@ -12,7 +12,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol
 
 from agentkit.exceptions import WorktreeError
-from agentkit.story_context_manager.models import (
+from agentkit.pipeline_engine.phase_executor import (
     ClosureProgress,
     MultiRepoClosureState,
 )

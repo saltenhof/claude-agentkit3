@@ -1373,8 +1373,8 @@ def build_phase_state_residue_probe(
         ``check(project_root, story_display_id) -> bool`` (True == residue).
     """
     from agentkit.installer.paths import story_dir
+    from agentkit.pipeline_engine.phase_executor import PhaseStatus
     from agentkit.state_backend.store import facade
-    from agentkit.story_context_manager.models import PhaseStatus
 
     _ = store_dir  # facade resolves the active backend itself.
     stalled = {
@@ -1658,7 +1658,7 @@ class _UnresolvedSetupCoordinatesHandler:
 
     def _escalation(self) -> HandlerResult:
         from agentkit.pipeline_engine.lifecycle import HandlerResult
-        from agentkit.story_context_manager.models import PhaseStatus
+        from agentkit.pipeline_engine.phase_executor import PhaseStatus
 
         return HandlerResult(
             status=PhaseStatus.ESCALATED,

@@ -27,9 +27,10 @@ from typing import TYPE_CHECKING, Protocol
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
+    from agentkit.pipeline_engine.phase_executor import PhaseState
     from agentkit.process.language.gates import ExplorationGateStageSpec, Gate
     from agentkit.process.language.guards import GuardFn
-    from agentkit.story_context_manager.models import PhaseState, StoryContext
+    from agentkit.story_context_manager.models import StoryContext
 
 
 class FlowLevel(StrEnum):

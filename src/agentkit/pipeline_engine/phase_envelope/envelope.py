@@ -9,20 +9,23 @@ Source of truth: FK-39 §39.1 / §39.3
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from agentkit.pipeline_engine.phase_envelope.runtime import RuntimeMetadata
-from agentkit.story_context_manager.models import PhaseState
+if TYPE_CHECKING:
+    from agentkit.pipeline_engine.phase_envelope.runtime import RuntimeMetadata
+    from agentkit.pipeline_engine.phase_executor.models import PhaseState
 
 
-class PhaseEnvelope(BaseModel):
+@dataclass(frozen=True, slots=True)
+class PhaseEnvelope:
     """Combines durable PhaseState with ephemeral RuntimeMetadata.
 
     The two halves have different lifetimes:
 
     - ``state``: persisted via ``PhaseEnvelopeStore.save``; survives crashes.
     - ``runtime``: process-local only; reconstructed on every load with fresh
-      values (``origin=LOADED``, current PID, load timestamp).
+      values (``origin=LOADED``).
 
     The model is frozen so that handlers cannot accidentally mutate it in
     place -- they must return an updated ``PhaseState`` via ``HandlerResult``.
@@ -31,8 +34,6 @@ class PhaseEnvelope(BaseModel):
         state: Durable phase state (persisted).
         runtime: Ephemeral runtime metadata (never persisted).
     """
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
 
     state: PhaseState
     runtime: RuntimeMetadata

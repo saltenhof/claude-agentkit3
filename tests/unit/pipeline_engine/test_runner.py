@@ -9,9 +9,10 @@ import pytest
 
 from agentkit.exceptions import CorruptStateError
 from agentkit.pipeline_engine.engine import EngineResult
+from agentkit.pipeline_engine.phase_executor import PhaseState, PhaseStatus
 from agentkit.pipeline_engine.runner import run_pipeline
 from agentkit.process.language.model import FlowDefinition, NodeDefinition
-from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:

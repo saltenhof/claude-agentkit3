@@ -5,11 +5,13 @@ Tests use a real in-memory stub repository -- no mocks.
 
 from __future__ import annotations
 
+from tests.phase_state_factory import make_phase_state
+
 from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
 from agentkit.pipeline_engine.phase_envelope.repository import PhaseEnvelopeRepository
 from agentkit.pipeline_engine.phase_envelope.runtime import PhaseOrigin
 from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-from agentkit.story_context_manager.models import PhaseName, PhaseState, PhaseStatus
+from agentkit.pipeline_engine.phase_executor import PhaseName, PhaseState, PhaseStatus
 
 
 class _InMemoryRepository:
@@ -38,7 +40,7 @@ def _fresh_state(
     story_id: str = "AG3-024",
     phase: str = "setup",
 ) -> PhaseState:
-    return PhaseState(
+    return make_phase_state(
         story_id=story_id,
         phase=phase,
         status=PhaseStatus.PENDING,
@@ -54,7 +56,7 @@ def test_load_returns_none_when_no_state() -> None:
 
 
 def test_load_returns_envelope_with_origin_loaded() -> None:
-    """load() returns an envelope with origin=LOADED and non-None loaded_at."""
+    """load() returns an envelope with origin=LOADED."""
     repo = _InMemoryRepository()
     state = _fresh_state()
     repo.save_state(state)
@@ -64,7 +66,6 @@ def test_load_returns_envelope_with_origin_loaded() -> None:
 
     assert envelope is not None
     assert envelope.runtime.origin is PhaseOrigin.LOADED
-    assert envelope.runtime.loaded_at is not None
     assert envelope.state.story_id == "AG3-024"
 
 
@@ -93,7 +94,7 @@ def test_roundtrip_runtime_not_persisted() -> None:
     repo = _InMemoryRepository()
     store = PhaseEnvelopeStore(repo)
 
-    state = PhaseState(
+    state = make_phase_state(
         story_id="ROUND-1",
         phase="setup",
         status=PhaseStatus.PENDING,
@@ -101,7 +102,6 @@ def test_roundtrip_runtime_not_persisted() -> None:
     # Wrap with NEW origin
     fresh_envelope = PhaseEnvelopeStore.make_fresh_envelope(state)
     assert fresh_envelope.runtime.origin is PhaseOrigin.NEW
-    assert fresh_envelope.runtime.loaded_at is None
 
     store.save(fresh_envelope)
 
@@ -109,7 +109,6 @@ def test_roundtrip_runtime_not_persisted() -> None:
     assert loaded is not None
     # Key invariant: runtime is reconstructed, origin=LOADED
     assert loaded.runtime.origin is PhaseOrigin.LOADED
-    assert loaded.runtime.loaded_at is not None
     # Durable state is preserved
     assert loaded.state.story_id == "ROUND-1"
     assert loaded.state.status is PhaseStatus.PENDING
@@ -132,9 +131,8 @@ def test_exists_true_after_save() -> None:
 
 
 def test_make_fresh_envelope_has_origin_new() -> None:
-    """make_fresh_envelope creates an envelope with origin=NEW and no loaded_at."""
+    """make_fresh_envelope creates an envelope with origin=NEW."""
     state = _fresh_state()
     envelope = PhaseEnvelopeStore.make_fresh_envelope(state)
     assert isinstance(envelope, PhaseEnvelope)
     assert envelope.runtime.origin is PhaseOrigin.NEW
-    assert envelope.runtime.loaded_at is None

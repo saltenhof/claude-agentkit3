@@ -16,8 +16,8 @@ from agentkit.state_backend.store import save_attempt, save_phase_state
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from agentkit.pipeline_engine.phase_executor.models import PhaseState
     from agentkit.pipeline_engine.phase_executor.records import AttemptRecord
-    from agentkit.story_context_manager.models import PhaseState
 
 __all__ = ("EnvelopeWithState", "save_phase_completion")
 

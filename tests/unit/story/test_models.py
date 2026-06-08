@@ -7,9 +7,10 @@ from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
+from tests.phase_state_factory import make_phase_state
 
 from agentkit.core_types import PauseReason
-from agentkit.story_context_manager.models import (
+from agentkit.pipeline_engine.phase_executor import (
     ClosurePayload,
     ClosureProgress,
     MultiRepoClosureState,
@@ -17,8 +18,8 @@ from agentkit.story_context_manager.models import (
     PhaseSnapshot,
     PhaseState,
     PhaseStatus,
-    StoryContext,
 )
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.sizing import StorySize
 from agentkit.story_context_manager.story_model import WireStoryMode
 from agentkit.story_context_manager.types import (
@@ -65,7 +66,7 @@ class TestPhaseName:
 
     def test_verify_is_not_valid_phase_state(self) -> None:
         with pytest.raises(ValidationError):
-            PhaseState(
+            make_phase_state(
                 story_id="AG3-001",
                 phase="verify",
                 status=PhaseStatus.PENDING,
@@ -441,7 +442,7 @@ class TestPhaseState:
     """Tests for the PhaseState model."""
 
     def test_minimal_creation(self) -> None:
-        state = PhaseState(
+        state = make_phase_state(
             story_id="AG3-001",
             phase="setup",
             status=PhaseStatus.PENDING,
@@ -449,29 +450,29 @@ class TestPhaseState:
         assert state.story_id == "AG3-001"
         assert state.phase == "setup"
         assert state.status == PhaseStatus.PENDING
-        assert state.paused_reason is None
+        assert state.pause_reason is None
         assert state.review_round == 0
         assert state.errors == []
         assert state.attempt_id is None
 
     def test_full_creation(self) -> None:
-        state = PhaseState(
+        state = make_phase_state(
             story_id="AG3-001",
             phase="implementation",
             status=PhaseStatus.PAUSED,
-            paused_reason=PauseReason.GOVERNANCE_INCIDENT,
+            pause_reason=PauseReason.GOVERNANCE_INCIDENT,
             review_round=2,
             errors=["Test coverage below threshold"],
             attempt_id="attempt-abc123",
         )
-        assert state.paused_reason == PauseReason.GOVERNANCE_INCIDENT
+        assert state.pause_reason == PauseReason.GOVERNANCE_INCIDENT
         assert state.review_round == 2
         assert state.errors == ["Test coverage below threshold"]
         assert state.attempt_id == "attempt-abc123"
 
     def test_mutable_update(self) -> None:
         """PhaseState is mutable -- status changes during execution."""
-        state = PhaseState(
+        state = make_phase_state(
             story_id="AG3-001",
             phase="setup",
             status=PhaseStatus.PENDING,
@@ -480,7 +481,7 @@ class TestPhaseState:
         assert state.status == PhaseStatus.IN_PROGRESS
 
     def test_serialization_roundtrip(self) -> None:
-        state = PhaseState(
+        state = make_phase_state(
             story_id="AG3-001",
             phase="implementation",
             status=PhaseStatus.FAILED,
@@ -495,8 +496,8 @@ class TestPhaseState:
         assert restored.errors == state.errors
 
     def test_default_errors_are_independent(self) -> None:
-        s1 = PhaseState(story_id="A", phase="setup", status=PhaseStatus.PENDING)
-        s2 = PhaseState(story_id="B", phase="closure", status=PhaseStatus.PENDING)
+        s1 = make_phase_state(story_id="A", phase="setup", status=PhaseStatus.PENDING)
+        s2 = make_phase_state(story_id="B", phase="closure", status=PhaseStatus.PENDING)
         assert s1.errors is not s2.errors
 
 

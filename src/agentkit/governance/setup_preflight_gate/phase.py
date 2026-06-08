@@ -37,8 +37,8 @@ from agentkit.governance.setup_preflight_gate.preflight import run_preflight
 from agentkit.governance.setup_preflight_gate.worktree import setup_worktrees
 from agentkit.installer.paths import story_dir
 from agentkit.pipeline_engine.lifecycle import HandlerResult
+from agentkit.pipeline_engine.phase_executor import PhaseStatus
 from agentkit.state_backend.paths import CONTEXT_EXPORT_FILE
-from agentkit.story_context_manager.models import PhaseStatus
 from agentkit.story_context_manager.types import get_profile
 from agentkit.utils.git import remove_worktree
 

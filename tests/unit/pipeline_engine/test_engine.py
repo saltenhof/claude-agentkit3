@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.phase_state_factory import make_phase_state
 
 from agentkit.core_types import PauseReason
 from agentkit.core_types.attempt import AttemptOutcome
@@ -31,6 +32,7 @@ from agentkit.pipeline_engine.lifecycle import (
     PhaseHandlerRegistry,
 )
 from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.pipeline_engine.phase_executor import PhaseState, PhaseStatus
 from agentkit.process.language.builder import Workflow
 from agentkit.process.language.guards import GuardResult, guard
 from agentkit.process.language.model import ExecutionPolicy
@@ -41,7 +43,7 @@ from agentkit.state_backend.store import (
     read_phase_state_record,
     reset_backend_cache_for_tests,
 )
-from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 from agentkit.telemetry.events import EventType
 
@@ -255,7 +257,7 @@ class TestRunPhaseNormal:
     ) -> None:
         """run_phase with NoOpHandler returns phase_completed."""
         engine = PipelineEngine(simple_workflow, simple_registry, story_dir)  # type: ignore[arg-type]
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.PENDING,
         )
@@ -273,7 +275,7 @@ class TestRunPhaseNormal:
     ) -> None:
         """run_phase creates an AttemptRecord in phase-runs/ directory."""
         engine = PipelineEngine(simple_workflow, simple_registry, story_dir)  # type: ignore[arg-type]
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.PENDING,
         )
@@ -293,7 +295,7 @@ class TestRunPhaseNormal:
     ) -> None:
         """run_phase saves PhaseState after execution."""
         engine = PipelineEngine(simple_workflow, simple_registry, story_dir)  # type: ignore[arg-type]
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.PENDING,
         )
@@ -337,7 +339,7 @@ class TestRunPhaseNormal:
             "exploration", PausingHandler("awaiting_design_review"),
         )
         engine = PipelineEngine(workflow, registry, story_dir)
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001", phase="exploration",
             status=PhaseStatus.PENDING,
         )
@@ -408,7 +410,7 @@ class TestRunPhaseNormal:
         engine = PipelineEngine(workflow, registry, story_dir)
 
         # First: run phase to get PAUSED
-        initial_state = PhaseState(
+        initial_state = make_phase_state(
             story_id="TEST-001", phase="exploration",
             status=PhaseStatus.PENDING,
         )
@@ -416,10 +418,10 @@ class TestRunPhaseNormal:
         assert yield_result.status == "yielded"
 
         # Then: resume
-        paused_state = PhaseState(
+        paused_state = make_phase_state(
             story_id="TEST-001", phase="exploration",
             status=PhaseStatus.PAUSED,
-            paused_reason=PauseReason.AWAITING_DESIGN_REVIEW,
+            pause_reason=PauseReason.AWAITING_DESIGN_REVIEW,
         )
         resume_result = engine.resume_phase(
             story_ctx, _make_envelope(paused_state), "approved",
@@ -456,7 +458,7 @@ class TestGuardAndPrecondition:
         registry.register("closure", NoOpHandler())
         engine = PipelineEngine(workflow, registry, story_dir)
 
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001", phase="closure",
             status=PhaseStatus.PENDING,
         )
@@ -482,7 +484,7 @@ class TestGuardAndPrecondition:
         registry.register("closure", NoOpHandler())
         engine = PipelineEngine(workflow, registry, story_dir)
 
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001", phase="closure",
             status=PhaseStatus.PENDING,
         )
@@ -509,7 +511,7 @@ class TestExecutionPoliciesAndOverrides:
         registry.register("setup", tracking)
         engine = PipelineEngine(workflow, registry, story_dir)
 
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001",
             phase="setup",
             status=PhaseStatus.PENDING,
@@ -545,7 +547,7 @@ class TestExecutionPoliciesAndOverrides:
         registry.register("closure", FailResultHandler(("qa failed",)))
         engine = PipelineEngine(workflow, registry, story_dir)
 
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001",
             phase="closure",
             status=PhaseStatus.PENDING,
@@ -595,7 +597,7 @@ class TestExecutionPoliciesAndOverrides:
             ),
         )
 
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001",
             phase="implementation",
             status=PhaseStatus.PENDING,
@@ -642,7 +644,7 @@ class TestExecutionPoliciesAndOverrides:
             ),
         )
 
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001",
             phase="implementation",
             status=PhaseStatus.PENDING,
@@ -678,7 +680,7 @@ class TestExecutionPoliciesAndOverrides:
         registry.register("implementation", NoOpHandler())
         engine = PipelineEngine(workflow, registry, story_dir)
 
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001", phase="implementation",
             status=PhaseStatus.PENDING,
         )
@@ -699,7 +701,7 @@ class TestExecutionPoliciesAndOverrides:
             .transition("setup", "closure", guard=_always_pass)
             .build()
         )
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.COMPLETED,
         )
@@ -720,7 +722,7 @@ class TestExecutionPoliciesAndOverrides:
             .transition("setup", "closure", guard=_always_fail)
             .build()
         )
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.COMPLETED,
         )
@@ -742,7 +744,7 @@ class TestExecutionPoliciesAndOverrides:
             .transition("setup", "implementation", guard=_always_pass)
             .build()
         )
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.COMPLETED,
         )
@@ -770,7 +772,7 @@ class TestPipelineRobustness:
         registry.register("setup", NoOpHandler())
         engine = PipelineEngine(workflow, registry, story_dir)
 
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001", phase="closure",
             status=PhaseStatus.PENDING,
         )
@@ -788,7 +790,7 @@ class TestPipelineRobustness:
         # Deliberately NOT registering a handler
         engine = PipelineEngine(workflow, registry, story_dir)
 
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.PENDING,
         )
@@ -814,7 +816,7 @@ class TestPipelineRobustness:
         registry.register("setup", NoOpHandler())
         engine = PipelineEngine(workflow, registry, story_dir)
 
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.IN_PROGRESS,
         )
@@ -842,10 +844,10 @@ class TestPipelineRobustness:
         registry.register("exploration", PausingHandler("awaiting_design_review"))
         engine = PipelineEngine(workflow, registry, story_dir)
 
-        paused_state = PhaseState(
+        paused_state = make_phase_state(
             story_id="TEST-001", phase="exploration",
             status=PhaseStatus.PAUSED,
-            paused_reason=PauseReason.AWAITING_DESIGN_REVIEW,
+            pause_reason=PauseReason.AWAITING_DESIGN_REVIEW,
         )
         result = engine.resume_phase(
             story_ctx, _make_envelope(paused_state), "invalid_trigger",
@@ -864,7 +866,7 @@ class TestPipelineRobustness:
         registry.register("setup", FailingHandler("Boom!"))
         engine = PipelineEngine(workflow, registry, story_dir)
 
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.PENDING,
         )
@@ -894,7 +896,7 @@ class TestPipelineRobustness:
         registry.register("setup", FailingHandler("Kaboom!"))
         engine = PipelineEngine(workflow, registry, story_dir)
 
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.PENDING,
         )
@@ -920,7 +922,7 @@ class TestPipelineRobustness:
         )
         engine = PipelineEngine(workflow, registry, story_dir)
 
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001", phase="implementation",
             status=PhaseStatus.PENDING,
         )
@@ -935,7 +937,7 @@ class TestPipelineRobustness:
     ) -> None:
         """can_enter_phase on phase without preconditions returns True."""
         workflow = Workflow("no-precond").phase("setup").build()
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.PENDING,
         )
@@ -960,7 +962,7 @@ class TestPipelineRobustness:
                 .precondition(_always_fail)
             .build()
         )
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001", phase="closure",
             status=PhaseStatus.PENDING,
         )
@@ -992,7 +994,7 @@ class TestTransitionEvaluation:
     ) -> None:
         """Phase with valid transition sets next_phase in result."""
         engine = PipelineEngine(simple_workflow, simple_registry, story_dir)  # type: ignore[arg-type]
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.PENDING,
         )
@@ -1009,7 +1011,7 @@ class TestTransitionEvaluation:
     ) -> None:
         """Terminal phase (no outgoing transitions) has next_phase=None."""
         engine = PipelineEngine(simple_workflow, simple_registry, story_dir)  # type: ignore[arg-type]
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001", phase="closure",
             status=PhaseStatus.PENDING,
         )
@@ -1030,7 +1032,7 @@ class TestTransitionEvaluation:
             .transition("setup", "implementation")
             .build()
         )
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.COMPLETED,
         )
@@ -1049,7 +1051,7 @@ class TestTransitionEvaluation:
             .phase("closure")
             .build()
         )
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001", phase="closure",
             status=PhaseStatus.COMPLETED,
         )
@@ -1067,7 +1069,7 @@ class TestTransitionEvaluation:
         registry.register("setup", NoOpHandler())
         engine = PipelineEngine(workflow, registry, story_dir)
 
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.PENDING,
         )
@@ -1087,7 +1089,7 @@ class TestTransitionEvaluation:
         registry.register("setup", NoOpHandler())
         engine = PipelineEngine(workflow, registry, story_dir)
 
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.PENDING,
         )
@@ -1116,7 +1118,7 @@ class TestTransitionEvaluation:
         registry.register("setup", NoOpHandler())
         engine = PipelineEngine(workflow, registry, story_dir)
 
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.PENDING,
         )
@@ -1147,7 +1149,7 @@ class TestTransitionEvaluation:
         registry.register("closure", NoOpHandler())
         engine = PipelineEngine(workflow, registry, story_dir)
 
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.PENDING,
         )
@@ -1176,7 +1178,7 @@ class TestTransitionEvaluation:
     ) -> None:
         """can_enter_phase on unknown phase returns (True, [])."""
         workflow = Workflow("minimal").phase("setup").build()
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001", phase="setup",
             status=PhaseStatus.PENDING,
         )
@@ -1220,7 +1222,7 @@ class TestRuntimeTelemetry:
         registry.register("setup", NoOpHandler())
         engine = PipelineEngine(workflow, registry, story_dir)
 
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001",
             phase="setup",
             status=PhaseStatus.PENDING,
@@ -1282,7 +1284,7 @@ class TestRuntimeTelemetry:
             ),
         )
 
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001",
             phase="implementation",
             status=PhaseStatus.PENDING,
@@ -1331,7 +1333,7 @@ class TestRuntimeTelemetry:
         registry.register("closure", FailResultHandler(("qa failed",)))
         engine = PipelineEngine(workflow, registry, story_dir)
 
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001",
             phase="closure",
             status=PhaseStatus.PENDING,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from tests.phase_state_factory import make_phase_state
 
 from agentkit.exceptions import PipelineError
 from agentkit.pipeline_engine.lifecycle import (
@@ -12,7 +13,8 @@ from agentkit.pipeline_engine.lifecycle import (
     PhaseHandlerRegistry,
 )
 from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
+from agentkit.pipeline_engine.phase_executor import PhaseState, PhaseStatus
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 
@@ -28,7 +30,7 @@ def _make_ctx() -> StoryContext:
 
 def _make_state() -> PhaseState:
     """Create a minimal PhaseState for testing."""
-    return PhaseState(
+    return make_phase_state(
         story_id="TEST-001",
         phase="setup",
         status=PhaseStatus.PENDING,

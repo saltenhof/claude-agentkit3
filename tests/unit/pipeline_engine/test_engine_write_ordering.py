@@ -9,15 +9,17 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from tests.phase_state_factory import make_phase_state
 
 from agentkit.core_types.attempt import AttemptOutcome, FailureCause
 from agentkit.pipeline_engine.engine import PipelineEngine
 from agentkit.pipeline_engine.lifecycle import HandlerResult, PhaseHandlerRegistry
 from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.pipeline_engine.phase_executor import PhaseState, PhaseStatus
 from agentkit.process.language.builder import Workflow
 from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
@@ -195,7 +197,7 @@ class TestCompletedResultWriteOrdering:
         log: list[tuple[str, Any]] = []
         _instrument_engine(engine, monkeypatch, log)
 
-        state = PhaseState(story_id="WO-001", phase="setup", status=PhaseStatus.PENDING)
+        state = make_phase_state(story_id="WO-001", phase="setup", status=PhaseStatus.PENDING)
         result = engine.run_phase(story_ctx, _make_envelope(state))  # type: ignore[arg-type]
 
         assert result.status == "phase_completed"
@@ -224,7 +226,7 @@ class TestCompletedResultWriteOrdering:
         log: list[tuple[str, Any]] = []
         _instrument_engine(engine, monkeypatch, log)
 
-        state = PhaseState(story_id="WO-001", phase="setup", status=PhaseStatus.PENDING)
+        state = make_phase_state(story_id="WO-001", phase="setup", status=PhaseStatus.PENDING)
         engine.run_phase(story_ctx, _make_envelope(state))  # type: ignore[arg-type]
 
         attempt_records = [v for k, v in log if k == "save_attempt"]
@@ -267,7 +269,7 @@ class TestTerminalResultWriteOrdering:
         log: list[tuple[str, Any]] = []
         _instrument_engine(engine, monkeypatch, log)
 
-        state = PhaseState(story_id="WO-001", phase="setup", status=PhaseStatus.PENDING)
+        state = make_phase_state(story_id="WO-001", phase="setup", status=PhaseStatus.PENDING)
         engine.run_phase(story_ctx, _make_envelope(state))  # type: ignore[arg-type]
 
         save_calls = [k for k, _ in log if k in ("save_attempt", "save_phase_state")]
@@ -309,7 +311,7 @@ class TestGuardFailureResultWriteOrdering:
         log: list[tuple[str, Any]] = []
         _instrument_engine(engine, monkeypatch, log)
 
-        state = PhaseState(story_id="WO-001", phase="setup", status=PhaseStatus.PENDING)
+        state = make_phase_state(story_id="WO-001", phase="setup", status=PhaseStatus.PENDING)
         result = engine.run_phase(story_ctx, _make_envelope(state))  # type: ignore[arg-type]
 
         assert result.status == "failed"
@@ -350,7 +352,7 @@ class TestPausedResultWriteOrdering:
         log: list[tuple[str, Any]] = []
         _instrument_engine(engine, monkeypatch, log)
 
-        state = PhaseState(story_id="WO-001", phase="setup", status=PhaseStatus.PENDING)
+        state = make_phase_state(story_id="WO-001", phase="setup", status=PhaseStatus.PENDING)
         result = engine.run_phase(story_ctx, _make_envelope(state))  # type: ignore[arg-type]
 
         assert result.status == "yielded"
@@ -383,7 +385,7 @@ class TestCrashSafetyInvariant:
         log: list[tuple[str, Any]] = []
         _instrument_engine(engine, monkeypatch, log, crash_on_save_attempt=True)
 
-        state = PhaseState(story_id="WO-001", phase="setup", status=PhaseStatus.PENDING)
+        state = make_phase_state(story_id="WO-001", phase="setup", status=PhaseStatus.PENDING)
         with pytest.raises(RuntimeError, match="Simulated crash"):
             engine.run_phase(story_ctx, _make_envelope(state))  # type: ignore[arg-type]
 

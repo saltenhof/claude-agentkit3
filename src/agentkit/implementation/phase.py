@@ -47,18 +47,19 @@ from agentkit.exceptions import CorruptStateError
 from agentkit.implementation.manifest import WorkerManifest, WorkerManifestStatus
 from agentkit.installer.paths import resolve_qa_story_dir
 from agentkit.pipeline_engine.lifecycle import HandlerResult
-from agentkit.state_backend.store import (
-    load_flow_execution,
-    record_verify_decision,
-    save_story_context,
-)
-from agentkit.story_context_manager.models import (
+from agentkit.pipeline_engine.phase_executor import (
     ImplementationPayload,
     ImplementationPhaseMemory,
     PhaseMemory,
     PhaseState,
     PhaseStatus,
     QaCycleStatus,
+    evolve_phase_state,
+)
+from agentkit.state_backend.store import (
+    load_flow_execution,
+    record_verify_decision,
+    save_story_context,
 )
 from agentkit.verify_system.contract import PhaseEnvelopeView, VerifyContextBundle
 from agentkit.verify_system.contract import QaSubflowOutcome as _QaSubflowOutcome
@@ -618,7 +619,7 @@ def _build_phase_envelope_view_from_state(
         ``PhaseEnvelopeView`` with the four QA-cycle fields, or ``None`` when
         the payload is not an ``ImplementationPayload`` or no cycle is active.
     """
-    from agentkit.story_context_manager.models import ImplementationPayload
+    from agentkit.pipeline_engine.phase_executor import ImplementationPayload
 
     payload = state.payload
     if not isinstance(payload, ImplementationPayload):
@@ -768,8 +769,8 @@ def _state_with_payload(
                 qa_feedback_rounds=qa_feedback_rounds,
             ),
         )
-    return PhaseState(
-        story_id=state.story_id,
+    return evolve_phase_state(
+        state,
         phase="implementation",
         status=state.status,
         payload=ImplementationPayload(
@@ -781,7 +782,8 @@ def _state_with_payload(
             evidence_fingerprint=evidence_fingerprint,
         ),
         memory=memory,
-        paused_reason=state.paused_reason,
+        pause_reason=state.pause_reason,
+        escalation_reason=state.escalation_reason,
         review_round=state.review_round,
         errors=list(state.errors),
         attempt_id=state.attempt_id,

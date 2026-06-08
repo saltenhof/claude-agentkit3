@@ -2,8 +2,8 @@
 
 Verifiziert:
 1. AttemptRecord traegt outcome=YIELDED, failure_cause=None.
-2. paused_reason lebt NUR in PhaseEnvelope.state.paused_reason.
-3. AttemptRecord.detail enthaelt KEIN paused_reason, KEIN pause_reason,
+2. pause_reason lebt NUR in PhaseEnvelope.state.pause_reason.
+3. AttemptRecord.detail enthaelt KEIN pause_reason, KEIN pause_reason,
    KEIN yield_status.
 """
 
@@ -12,16 +12,18 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from tests.phase_state_factory import make_phase_state
 
 from agentkit.core_types import PauseReason
 from agentkit.core_types.attempt import AttemptOutcome
 from agentkit.pipeline_engine.engine import PipelineEngine
 from agentkit.pipeline_engine.lifecycle import HandlerResult, PhaseHandlerRegistry
 from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.pipeline_engine.phase_executor import PhaseState, PhaseStatus
 from agentkit.process.language.builder import Workflow
 from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
@@ -113,7 +115,7 @@ def _run_paused_phase(
     monkeypatch.setattr(_spc, "save_attempt", _fake_save_attempt)
     monkeypatch.setattr(_spc, "save_phase_state", _fake_save_phase_state)
 
-    state = PhaseState(story_id="YS-001", phase="setup", status=PhaseStatus.PENDING)
+    state = make_phase_state(story_id="YS-001", phase="setup", status=PhaseStatus.PENDING)
     result = engine.run_phase(story_ctx, _make_envelope(state))  # type: ignore[arg-type]
     assert result.status == "yielded", f"Expected 'yielded', got {result.status!r}"
 
@@ -147,19 +149,19 @@ class TestYieldedSplit:
         record: AttemptRecord = attempt_calls[0][1]
         assert record.failure_cause is None
 
-    def test_attempt_record_detail_has_no_paused_reason(
+    def test_attempt_record_detail_has_no_pause_reason(
         self,
         story_dir: Path,
         story_ctx: StoryContext,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """AG3-025 §2.1.4: kein paused_reason/pause_reason/yield_status in detail."""
+        """AG3-025 §2.1.4: kein pause_reason/pause_reason/yield_status in detail."""
         attempt_calls, _ = _run_paused_phase(story_dir, story_ctx, monkeypatch)
 
         record: AttemptRecord = attempt_calls[0][1]
         detail = record.detail or {}
-        assert "paused_reason" not in detail, (
-            f"detail must not contain 'paused_reason'; got {detail!r}"
+        assert "pause_reason" not in detail, (
+            f"detail must not contain 'pause_reason'; got {detail!r}"
         )
         assert "pause_reason" not in detail, (
             f"detail must not contain 'pause_reason'; got {detail!r}"
@@ -168,18 +170,18 @@ class TestYieldedSplit:
             f"detail must not contain 'yield_status'; got {detail!r}"
         )
 
-    def test_phase_state_has_paused_reason(
+    def test_phase_state_has_pause_reason(
         self,
         story_dir: Path,
         story_ctx: StoryContext,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """paused_reason lebt NUR in PhaseState (AG3-024 Owner)."""
+        """pause_reason lebt NUR in PhaseState (AG3-024 Owner)."""
         _, phase_state_calls = _run_paused_phase(story_dir, story_ctx, monkeypatch)
 
         assert len(phase_state_calls) == 1
         persisted_state: PhaseState = phase_state_calls[0][1]
-        assert persisted_state.paused_reason == PauseReason.AWAITING_DESIGN_REVIEW
+        assert persisted_state.pause_reason == PauseReason.AWAITING_DESIGN_REVIEW
 
     def test_write_ordering_attempt_before_state(
         self,
@@ -218,7 +220,7 @@ class TestYieldedSplit:
         monkeypatch.setattr(_spc2, "save_attempt", _fake_save_attempt)
         monkeypatch.setattr(_spc2, "save_phase_state", _fake_save_phase_state)
 
-        state = PhaseState(story_id="YS-001", phase="setup", status=PhaseStatus.PENDING)
+        state = make_phase_state(story_id="YS-001", phase="setup", status=PhaseStatus.PENDING)
         engine.run_phase(story_ctx, _make_envelope(state))  # type: ignore[arg-type]
 
         save_keys = [k for k, _ in all_calls if k in ("save_attempt", "save_phase_state")]

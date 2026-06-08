@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.artifacts import ArtifactManager
-    from agentkit.story_context_manager.models import PhaseState
+    from agentkit.pipeline_engine.phase_executor import PhaseState
     from agentkit.verify_system.contract import VerifyContextBundle
     from agentkit.verify_system.protocols import Finding
 
