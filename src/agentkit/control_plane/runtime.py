@@ -1079,8 +1079,9 @@ class _ControlPlaneRuntimeAdmissionBase:
         phase: str,
         request: PhaseMutationRequest,
         operation_kind: str,
+        phase_dispatch: PhaseDispatchResult | None = None,
     ) -> ControlPlaneMutationResult:
-        del run_id, phase, request, operation_kind
+        del run_id, phase, request, operation_kind, phase_dispatch
         raise NotImplementedError
 
 

@@ -354,7 +354,8 @@ class ModeLockRepository:
                 if "locked" not in str(exc).lower():
                     raise
                 last_error = exc
-                backoff_seconds = _SQLITE_BUSY_BACKOFF_SECONDS * (attempt + 1)
+                backoff_multiplier = attempt + 1
+                backoff_seconds = _SQLITE_BUSY_BACKOFF_SECONDS * backoff_multiplier
                 time.sleep(backoff_seconds)
         if last_error is not None:
             raise last_error
