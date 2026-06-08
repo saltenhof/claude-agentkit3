@@ -126,6 +126,9 @@ _PROJECT_STORY_FIELD_KEY = re.compile(
     r"^/v1/projects/(?P<project_key>[^/]+)/stories/(?P<story_id>[^/]+)"
     r"/fields/(?P<field_key>[^/]+)$",
 )
+_PROJECT_STORY_SEARCH = re.compile(
+    r"^/v1/projects/(?P<project_key>[^/]+)/stories/search$",
+)
 _PROJECT_DASHBOARD_BOARD = re.compile(
     r"^/v1/projects/(?P<project_key>[^/]+)/dashboard/board$",
 )
@@ -463,20 +466,32 @@ class ControlPlaneApplication:
         if project_response is not None:
             return _project_response_to_http_response(project_response)
 
-        # Story context routes (project-scoped stories, search):
-        story_response = self._story_routes.handle_get(
-            route_path, correlation_id, query,
-        )
-        if story_response is not None:
-            return _story_response_to_http_response(story_response)
-
         # --- Project-scoped URL convention (FK-72 §72.8.1) ---
+        # All story access flows exclusively through /v1/projects/{key}/stories/...
+        # so that every story operation passes through TenantScopeMiddleware (AC2/AC3).
+        # Legacy bare /v1/stories paths are intentionally NOT delegated here.
+
+        # GET /v1/projects/{key}/stories/search?q=...
+        # Must match before /stories/{id} to avoid "search" being treated as story_id.
+        story_search_match = _PROJECT_STORY_SEARCH.match(route_path)
+        if story_search_match is not None:
+            return self._handle_get_story_search(
+                story_search_match.group("project_key"), query, correlation_id,
+            )
 
         # GET /v1/projects/{key}/stories (collection)
         stories_match = _PROJECT_STORIES_COLLECTION.match(route_path)
         if stories_match is not None:
             project_key = stories_match.group("project_key")
             return self._handle_get_stories(project_key, correlation_id)
+
+        # GET /v1/projects/{key}/stories/{id}/fields
+        # Must match before /stories/{id} (more specific pattern).
+        story_fields_match = _PROJECT_STORY_FIELDS.match(route_path)
+        if story_fields_match is not None:
+            return self._handle_get_story_fields(
+                story_fields_match.group("story_id"), correlation_id,
+            )
 
         # GET /v1/projects/{key}/stories/{id}
         story_detail_match = _PROJECT_STORY_DETAIL.match(route_path)
@@ -485,13 +500,6 @@ class ControlPlaneApplication:
                 story_detail_match.group("story_id"),
                 story_detail_match.group("project_key"),
                 correlation_id,
-            )
-
-        # GET /v1/projects/{key}/stories/{id}/fields
-        story_fields_match = _PROJECT_STORY_FIELDS.match(route_path)
-        if story_fields_match is not None:
-            return self._handle_get_story_fields(
-                story_fields_match.group("story_id"), correlation_id,
             )
 
         # GET /v1/projects/{key}/dashboard/board
@@ -566,11 +574,8 @@ class ControlPlaneApplication:
         if project_response is not None:
             return _project_response_to_http_response(project_response)
 
-        story_response = self._story_routes.handle_post(
-            route_path, payload, correlation_id,
-        )
-        if story_response is not None:
-            return _story_response_to_http_response(story_response)
+        # NOTE: story_routes.handle_post is NOT called with the raw route_path.
+        # Story mutations are only reachable via project-scoped paths (AC2/AC3).
 
         hub_response = self._hub_routes.handle_post(
             route_path, payload, correlation_id,
@@ -694,7 +699,7 @@ class ControlPlaneApplication:
         if planning_response is not None:
             return _planning_response_to_http_response(planning_response)
 
-        # Project-scoped story field PUT:
+        # Project-scoped story field PUT (only route; bare /v1/stories/... is not exposed):
         field_match = _PROJECT_STORY_FIELD_KEY.match(route_path)
         if field_match is not None:
             sr = self._story_routes.handle_put(
@@ -711,12 +716,6 @@ class ControlPlaneApplication:
                 message=_NOT_FOUND_MESSAGE,
                 correlation_id=correlation_id,
             )
-
-        story_response = self._story_routes.handle_put(
-            route_path, payload, correlation_id,
-        )
-        if story_response is not None:
-            return _story_response_to_http_response(story_response)
 
         return _error_response(
             HTTPStatus.NOT_FOUND,
@@ -761,7 +760,7 @@ class ControlPlaneApplication:
         if project_response is not None:
             return _project_response_to_http_response(project_response)
 
-        # Project-scoped story PATCH:
+        # Project-scoped story PATCH (only route; bare /v1/stories/... is not exposed):
         story_detail_match = _PROJECT_STORY_DETAIL.match(route_path)
         if story_detail_match is not None:
             sr = self._story_routes.handle_patch(
@@ -777,12 +776,6 @@ class ControlPlaneApplication:
                 message=_NOT_FOUND_MESSAGE,
                 correlation_id=correlation_id,
             )
-
-        story_response = self._story_routes.handle_patch(
-            route_path, payload, correlation_id,
-        )
-        if story_response is not None:
-            return _story_response_to_http_response(story_response)
 
         return _error_response(
             HTTPStatus.NOT_FOUND,
@@ -1067,6 +1060,27 @@ class ControlPlaneApplication:
             f"/v1/stories/{story_id}/fields",
             correlation_id,
             {},
+        )
+        if result is not None:
+            return _story_response_to_http_response(result)
+        return _error_response(
+            HTTPStatus.NOT_FOUND,
+            error_code="not_found",
+            message=_NOT_FOUND_MESSAGE,
+            correlation_id=correlation_id,
+        )
+
+    def _handle_get_story_search(
+        self,
+        project_key: str,
+        query: dict[str, list[str]],
+        correlation_id: str,
+    ) -> HttpResponse:
+        """GET /v1/projects/{key}/stories/search?q=... (project-scoped, tenant-checked)."""
+        result = self._story_routes.handle_get(
+            f"/v1/projects/{project_key}/stories/search",
+            correlation_id,
+            query,
         )
         if result is not None:
             return _story_response_to_http_response(result)
