@@ -1,21 +1,4 @@
-"""Verbatim Layer-1 stage definitions copied from FK-27 §27.4 / FK-33.
-
-Every severity below is copied VERBATIM from the FK-27 §27.4 tables
-(§27.4.1 Artefakt-Pruefung, §27.4.2 Structural Checks, §27.4.3 Recurring
-Guards, §27.4.4 ARE-Gate). Where the AG3-042 story summary table
-(§2.1.1) and FK-27 §27.4.2 disagree on a severity, **FK-27 wins** (it is
-the cited authoritative source): notably ``hygiene.disabled_tests`` is
-**MINOR** per FK-27 §27.4.2 (the story summary said MAJOR).
-
-Applicability (FK-33 §33.2.2/§33.2.4): all Layer-1 deterministic stages
-apply to the code-producing story types ``implementation`` and ``bugfix``.
-Concept/research stories do NOT traverse the verify pipeline (FK-33
-§33.2.4 / §33.9) and therefore carry none of these stages.
-
-REF-036 / FK-27 §27.4.3: ``guard.llm_reviews`` and ``guard.multi_llm`` are
-two SEPARATE BLOCKING gates (the two-stage LLM-review check); they are
-deliberately distinct ``StageDefinition`` entries, never merged.
-"""
+"""Verbatim Layer-1 stage definitions copied from FK-27 §27.4 / FK-33."""
 
 from __future__ import annotations
 

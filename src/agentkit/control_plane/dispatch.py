@@ -91,6 +91,25 @@ class SchedulingAdmissionReader(Protocol):
         ...
 
 
+def _approval_resolution_error(exc: Exception) -> str:
+    return "".join(
+        (
+            "Pre-start guard rejected setup start: the persisted StoryStatus ",
+            f"could not be resolved ({exc}); fail-closed (FK-20 §20.8.2).",
+        )
+    )
+
+
+def _scheduling_resolution_error(exc: Exception) -> str:
+    return "".join(
+        (
+            "Pre-start guard rejected setup start: execution-planning ",
+            f"readiness/scheduling could not be resolved ({exc}); ",
+            "fail-closed (FK-70 §70.8).",
+        )
+    )
+
+
 @dataclass(frozen=True)
 class PreStartGuard:
     """Fail-closed run-admission guard for the fresh-run setup start (AG3-054).
@@ -129,15 +148,15 @@ class PreStartGuard:
         # Tor 1 -- persisted lifecycle release (fail-closed on any read error).
         try:
             approved = self.approval_reader.is_approved(project_key, story_display_id)
-        except Exception as exc:  # noqa: BLE001 -- fail-closed: never default-allow
-            return (
-                "Pre-start guard rejected setup start: the persisted StoryStatus "
-                f"could not be resolved ({exc}); fail-closed (FK-20 §20.8.2)."
-            )
+        # Fail-closed: never default-allow.
+        except Exception as exc:  # noqa: BLE001
+            return _approval_resolution_error(exc)
         if not approved:
-            return (
-                "Pre-start guard rejected setup start: StoryStatus is not "
-                "Approved (Tor 1, fachliche Freigabe fehlt; FK-20 §20.8.2)."
+            return "".join(
+                (
+                    "Pre-start guard rejected setup start: StoryStatus is not ",
+                    "Approved (Tor 1, fachliche Freigabe fehlt; FK-20 §20.8.2).",
+                )
             )
 
         # Tor 2 -- computed READY + scheduling admission (orthogonal axis).
@@ -145,17 +164,16 @@ class PreStartGuard:
             admitted = self.scheduling_reader.is_ready_and_admitted(
                 project_key, story_display_id
             )
-        except Exception as exc:  # noqa: BLE001 -- fail-closed: never default-allow
-            return (
-                "Pre-start guard rejected setup start: execution-planning "
-                f"readiness/scheduling could not be resolved ({exc}); "
-                "fail-closed (FK-70 §70.8)."
-            )
+        # Fail-closed: never default-allow.
+        except Exception as exc:  # noqa: BLE001
+            return _scheduling_resolution_error(exc)
         if not admitted:
-            return (
-                "Pre-start guard rejected setup start: ExecutionPlanning does not "
-                "report computed PlanningStatus READY with a scheduling admission "
-                "(Tor 2; FK-70 §70.6.1/§70.8)."
+            return "".join(
+                (
+                    "Pre-start guard rejected setup start: ExecutionPlanning ",
+                    "does not report computed PlanningStatus READY with a ",
+                    "scheduling admission (Tor 2; FK-70 §70.6.1/§70.8).",
+                )
             )
         return None
 
@@ -254,46 +272,11 @@ class PhaseDispatcher:
         phase_names = tuple(workflow.phase_names)
         existing = _load_phase_state(ctx, story_dir, phase_names)
 
-        # First-call enforcement (FK-45 §45.2 step 5, RUN-scoped -- AG3-054 #2):
-        # a NON-setup start for a run with NO run-scoped admission evidence is the
-        # first call of an un-admitted run and is REJECTED -- only ``setup`` may
-        # start a fresh run. This is keyed on ``run_admitted`` (run-scoped), NOT on
-        # ``existing is None`` (story-scoped): a NEW un-admitted run must not be able
-        # to jump straight to implementation/closure by riding a SIBLING run's
-        # story-scoped phase-state.
-        if not run_admitted and phase != PhaseName.SETUP.value:
-            return _rejected(
-                phase,
-                "First call for this run has no run-scoped admission evidence; "
-                f"only 'setup' may start a fresh run, not {phase!r} "
-                "(FK-45 §45.2 / AG3-054 ERROR-1).",
-            )
-
-        # Fresh-setup decision (RUN-scoped -- AG3-054 #2): a setup start is FRESH
-        # (the fail-closed Approved+READY pre-start guard MUST fire) UNLESS THIS run
-        # is already admitted. An admitted run re-running setup (a retry / in-flight
-        # replay) is NOT re-guarded. Story-scoped phase-state is deliberately NOT
-        # consulted here.
-        is_fresh_setup_start = not run_admitted and phase == PhaseName.SETUP.value
-        if is_fresh_setup_start:
-            # E7 fix: the run-admission guard reads Tor 1 (approval) + Tor 2
-            # (scheduling) from the RUN'S authoritative store, resolved per run
-            # from ``ctx`` -- never a once-built cwd-rooted guard.
-            rejection = self.guard_factory(ctx).evaluate(
-                project_key=ctx.project_key,
-                story_display_id=ctx.story_id,
-            )
-            if rejection is not None:
-                return _rejected(phase, rejection)
-
-            # E1 fix: a FRESH setup start must have authoritative GitHub
-            # coordinates -- setup must NEVER run against empty/dummy coordinates.
-            # This precheck is scoped to the fresh-setup start (the only phase that
-            # consumes them); a non-setup follow-up is not blocked by missing
-            # coordinates (its setup handler is never entered).
-            coord_rejection = self.setup_coordinates_check(ctx)
-            if coord_rejection is not None:
-                return _rejected(phase, coord_rejection)
+        admission_rejection = self._admission_rejection(
+            ctx=ctx, phase=phase, run_admitted=run_admitted
+        )
+        if admission_rejection is not None:
+            return _rejected(phase, admission_rejection)
 
         # The engine is built AFTER the first-call/guard/coordinate checks. The
         # productive engine factory resolves the run's REAL ``SetupConfig``
@@ -310,48 +293,100 @@ class PhaseDispatcher:
         # transition (handled below). Fail-closed: an out-of-graph jump, a
         # not-yet-completed predecessor, or a guard-rejected edge never enters the
         # phase.
-        if existing is not None and existing.phase != phase:
-            transition_rejection = _enforce_transition(workflow, ctx, existing, phase)
-            if transition_rejection is not None:
-                return _rejected(phase, transition_rejection)
-
-        # E5 fix (FK-45 §45.2): a SAME-phase start is legal ONLY as a
-        # PAUSED-resume. A same-phase request whose persisted status is anything
-        # else must NOT fall through to ``run_phase`` (which would re-run the
-        # handler's ``on_enter`` on stale state -- e.g. a duplicate
-        # ``/phases/setup/start`` after setup COMPLETED re-executing setup). A
-        # COMPLETED same-phase request is rejected as an idempotent
-        # already-completed no-op; a FAILED/ESCALATED/BLOCKED same-phase request
-        # is rejected fail-closed (recovery is the operator-CLI's job, FK-45
-        # §45.4, out of scope here). Only PAUSED proceeds (the resume below).
-        if (
-            existing is not None
-            and existing.phase == phase
-            and existing.status != PhaseStatus.PAUSED
-        ):
-            return _rejected(
-                phase,
-                _same_phase_reentry_reason(phase, existing.status),
-            )
+        state_rejection = _state_reentry_rejection(workflow, ctx, existing, phase)
+        if state_rejection is not None:
+            return _rejected(phase, state_rejection)
 
         envelope = _build_envelope(existing, ctx, phase)
-        is_resume = (
-            existing is not None
-            and existing.phase == phase
-            and existing.status == PhaseStatus.PAUSED
+        run_result = _run_engine_entry(
+            engine=engine,
+            ctx=ctx,
+            envelope=envelope,
+            phase=phase,
+            existing=existing,
+            detail=detail,
+            resume_trigger_resolver=self.resume_trigger_resolver,
         )
-        if is_resume:
-            trigger = self.resume_trigger_resolver(detail)
-            if trigger is None:
-                return _rejected(
-                    phase,
-                    f"Resume of PAUSED phase {phase!r} requires a resume trigger "
-                    "in request detail (FK-45 §45.2).",
-                )
-            result = engine.resume_phase(ctx, envelope, trigger)
-        else:
-            result = engine.run_phase(ctx, envelope)
-        return _normalize(result)
+        if isinstance(run_result, PhaseDispatchResult):
+            return run_result
+        return _normalize(run_result)
+
+    def _admission_rejection(
+        self,
+        *,
+        ctx: StoryContext,
+        phase: str,
+        run_admitted: bool,
+    ) -> str | None:
+        first_call_rejection = _first_call_rejection(phase, run_admitted)
+        if first_call_rejection is not None:
+            return first_call_rejection
+        if run_admitted or phase != PhaseName.SETUP.value:
+            return None
+        rejection = self.guard_factory(ctx).evaluate(
+            project_key=ctx.project_key,
+            story_display_id=ctx.story_id,
+        )
+        if rejection is not None:
+            return rejection
+        return self.setup_coordinates_check(ctx)
+
+
+def _first_call_rejection(phase: str, run_admitted: bool) -> str | None:
+    if run_admitted or phase == PhaseName.SETUP.value:
+        return None
+    return "".join(
+        (
+            "First call for this run has no run-scoped admission evidence; ",
+            f"only 'setup' may start a fresh run, not {phase!r} ",
+            "(FK-45 §45.2 / AG3-054 ERROR-1).",
+        )
+    )
+
+
+def _state_reentry_rejection(
+    workflow: WorkflowDefinition,
+    ctx: StoryContext,
+    existing: PhaseState | None,
+    phase: str,
+) -> str | None:
+    if existing is None:
+        return None
+    if existing.phase != phase:
+        return _enforce_transition(workflow, ctx, existing, phase)
+    if existing.status == PhaseStatus.PAUSED:
+        return None
+    return _same_phase_reentry_reason(phase, existing.status)
+
+
+def _run_engine_entry(
+    *,
+    engine: PipelineEngine,
+    ctx: StoryContext,
+    envelope: PhaseEnvelope,
+    phase: str,
+    existing: PhaseState | None,
+    detail: dict[str, object],
+    resume_trigger_resolver: Callable[[dict[str, object]], str | None],
+) -> EngineResult | PhaseDispatchResult:
+    if not _is_paused_resume(existing, phase):
+        return engine.run_phase(ctx, envelope)
+    trigger = resume_trigger_resolver(detail)
+    if trigger is None:
+        return _rejected(
+            phase,
+            f"Resume of PAUSED phase {phase!r} requires a resume trigger "
+            "in request detail (FK-45 §45.2).",
+        )
+    return engine.resume_phase(ctx, envelope, trigger)
+
+
+def _is_paused_resume(existing: PhaseState | None, phase: str) -> bool:
+    return (
+        existing is not None
+        and existing.phase == phase
+        and existing.status == PhaseStatus.PAUSED
+    )
 
 
 def _default_resume_trigger(detail: dict[str, object]) -> str | None:

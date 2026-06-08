@@ -150,8 +150,59 @@ class _ClaimOutcome:
         return self.result
 
 
-class ControlPlaneRuntimeService:
-    """Implement control-plane mutations with idempotent op replay."""
+def _start_binding_collision_reason(
+    phase: str, exc: ControlPlaneBindingCollisionError
+) -> str:
+    return "".join(
+        (
+            f"phase_start({phase}) rejected: {exc}. A start for this run ",
+            "must not overwrite a foreign run's live binding (AG3-054 ",
+            "run-scoping, fail-closed).",
+        )
+    )
+
+
+def _claimed_operation_rejection_reason(
+    operation_kind: str, op_id: str, operation_label: str
+) -> str:
+    suffix = (
+        "A complete/fail reusing a live start's op_id must not clobber the claim "
+        if operation_label == "complete/fail"
+        else ""
+    )
+    return "".join(
+        (
+            f"{operation_kind} rejected: op_id {op_id!r} is held by a LIVE ",
+            "'claimed' start lease; only its owner's finalize/release may ",
+            f"transition it. {suffix}(AG3-054 ERROR-3, fail-closed).",
+        )
+    )
+
+
+def _phase_binding_collision_reason(
+    operation_kind: str, exc: ControlPlaneBindingCollisionError
+) -> str:
+    return "".join(
+        (
+            f"{operation_kind} rejected: {exc}. A {operation_kind} for an ",
+            "old run must not overwrite a foreign run's live binding ",
+            "(AG3-054 run-scoping, fail-closed).",
+        )
+    )
+
+
+def _closure_binding_collision_reason(exc: ControlPlaneBindingCollisionError) -> str:
+    return "".join(
+        (
+            f"closure_complete rejected: {exc}. A closure for an old run ",
+            "must not tear down a foreign run's live binding (AG3-054 ",
+            "run-scoping, fail-closed).",
+        )
+    )
+
+
+class _ControlPlaneRuntimeAdmissionBase:
+    """Start-phase admission and dispatch support for the runtime service."""
 
     def __init__(
         self,
@@ -329,16 +380,13 @@ class ControlPlaneRuntimeService:
             self._release_my_claim_best_effort(
                 request.op_id, owner_token, owner_claimed_at
             )
+            reason = _start_binding_collision_reason(phase, exc)
             return _rejection_result(
                 op_id=request.op_id,
                 operation_kind="phase_start",
                 run_id=run_id,
                 phase=phase,
-                reason=(
-                    f"phase_start({phase}) rejected: {exc}. A start for this run "
-                    "must not overwrite a foreign run's live binding (AG3-054 "
-                    "run-scoping, fail-closed)."
-                ),
+                reason=reason,
                 dispatch_phase=phase,
             )
         except BaseException:
@@ -894,18 +942,15 @@ class ControlPlaneRuntimeService:
             #: finalize/release may transition a claimed row), so this
             #: complete/fail reusing a live start's op_id is rejected fail-closed
             #: -- it never steals/destroys the start's ownership.
+            reason = _claimed_operation_rejection_reason(
+                operation_kind, request.op_id, "complete/fail"
+            )
             return _rejection_result(
                 op_id=request.op_id,
                 operation_kind=operation_kind,
                 run_id=run_id,
                 phase=phase,
-                reason=(
-                    f"{operation_kind} rejected: op_id {request.op_id!r} is held "
-                    "by a LIVE 'claimed' start lease; only its owner's "
-                    "finalize/release may transition it. A complete/fail reusing "
-                    "a live start's op_id must not clobber the claim (AG3-054 "
-                    "ERROR-3, fail-closed)."
-                ),
+                reason=reason,
             )
         except ControlPlaneBindingCollisionError as exc:
             #: AG3-054 run-scoping sweep: the binding SAVE would overwrite a live
@@ -914,16 +959,13 @@ class ControlPlaneRuntimeService:
             #: rolled back -- NO binding overwrite, NO lock change, NO events, NO
             #: stored op. A complete/fail for an old run must never clobber a foreign
             #: run's live binding.
+            reason = _phase_binding_collision_reason(operation_kind, exc)
             return _rejection_result(
                 op_id=request.op_id,
                 operation_kind=operation_kind,
                 run_id=run_id,
                 phase=phase,
-                reason=(
-                    f"{operation_kind} rejected: {exc}. A {operation_kind} for an "
-                    "old run must not overwrite a foreign run's live binding "
-                    "(AG3-054 run-scoping, fail-closed)."
-                ),
+                reason=reason,
             )
 
     def _run_was_admitted(
@@ -1017,6 +1059,34 @@ class ControlPlaneRuntimeService:
             project_key, story_id, run_id
         )
 
+    def _load_existing_operation(
+        self,
+        op_id: str,
+    ) -> ControlPlaneMutationResult | None:
+        del op_id
+        raise NotImplementedError
+
+    def _story_scoped_materialization_enabled(
+        self, request: PhaseMutationRequest
+    ) -> bool:
+        del request
+        raise NotImplementedError
+
+    def _mutate_phase(
+        self,
+        *,
+        run_id: str,
+        phase: str,
+        request: PhaseMutationRequest,
+        operation_kind: str,
+    ) -> ControlPlaneMutationResult:
+        del run_id, phase, request, operation_kind
+        raise NotImplementedError
+
+
+class ControlPlaneRuntimeService(_ControlPlaneRuntimeAdmissionBase):
+    """Implement control-plane mutations with idempotent op replay."""
+
     def complete_closure(
         self,
         *,
@@ -1087,17 +1157,15 @@ class ControlPlaneRuntimeService:
             #: lease; the store refused to clobber it. A closure reusing a live
             #: start's op_id is rejected fail-closed (consistent with
             #: complete/fail), never stealing the start's ownership.
+            reason = _claimed_operation_rejection_reason(
+                "closure_complete", request.op_id, "closure"
+            )
             return _rejection_result(
                 op_id=request.op_id,
                 operation_kind="closure_complete",
                 run_id=run_id,
                 phase="closure",
-                reason=(
-                    f"closure_complete rejected: op_id {request.op_id!r} is held "
-                    "by a LIVE 'claimed' start lease; only its owner's "
-                    "finalize/release may transition it (AG3-054 ERROR-3, "
-                    "fail-closed)."
-                ),
+                reason=reason,
                 dispatch_phase="closure",
             )
         except ControlPlaneBindingCollisionError as exc:
@@ -1108,16 +1176,13 @@ class ControlPlaneRuntimeService:
             #: INACTIVE locks were written and NO deactivation events were emitted. A
             #: stale closure for an old run must never tear down a foreign run's live
             #: regime.
+            reason = _closure_binding_collision_reason(exc)
             return _rejection_result(
                 op_id=request.op_id,
                 operation_kind="closure_complete",
                 run_id=run_id,
                 phase="closure",
-                reason=(
-                    f"closure_complete rejected: {exc}. A closure for an old run "
-                    "must not tear down a foreign run's live binding (AG3-054 "
-                    "run-scoping, fail-closed)."
-                ),
+                reason=reason,
                 dispatch_phase="closure",
             )
 

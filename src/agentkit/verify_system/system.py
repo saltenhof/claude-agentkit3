@@ -1,22 +1,4 @@
-"""Top-Surface of the verify-system Bounded Context.
-
-``VerifySystem`` is the Capability-A-Top-Komponente of the BC
-``verify-system`` (FK-07 §7.4.2, FK-27, ``concept/_meta/bc-cut-decisions.md``
-§"BC 2: verify-system"). Cross-BC callers (e.g. ``agentkit.implementation``)
-MUST go through this facade and MUST NOT import sub-components such as
-``policy_engine.PolicyEngine`` or ``adversarial_orchestrator.challenger.
-AdversarialChallenger`` directly (Sichtbarkeitsregel, AC001).
-
-Normative contract (BC-Cut + FK-27 + formal.verify.commands):
-``run_qa_subflow(ctx, story_id, qa_context, target) -> QaSubflowOutcome``
-(AG3-026 Pass-2 Befund A: was PolicyVerdict).
-
-Quelle:
-  - AG3-026 §2.1.1 -- VerifySystem-Top-Klasse
-  - ``concept/_meta/bc-cut-decisions.md §BC 2 verify-system``
-  - ``concept/_meta/bc-cut-decisions.md §QA-Subflow-Vertrag``
-  - FK-27 §27.3 (QA-Subflow-Top)
-"""
+"""Top surface of the verify-system bounded context."""
 
 from __future__ import annotations
 
@@ -34,25 +16,7 @@ from agentkit.artifacts import (
     ProducerId,
 )
 from agentkit.core_types import ArtifactClass, PolicyVerdict, QaContext, SpawnRequest
-from agentkit.verify_system._artifact_specs import (
-    ARTIFACT_CLASS_TO_TARGET_TYPE as _ARTIFACT_CLASS_TO_TARGET_TYPE,
-)
-from agentkit.verify_system._artifact_specs import (
-    LAYER_1_ARTIFACTS as _LAYER_1_ARTIFACTS,
-)
-from agentkit.verify_system._artifact_specs import (
-    LAYER_2_SPECS as _LAYER_2_SPECS,
-)
-from agentkit.verify_system._artifact_specs import (
-    LAYER_3_ARTIFACTS as _LAYER_3_ARTIFACTS,
-)
-from agentkit.verify_system._artifact_specs import (
-    POLICY_ARTIFACT_SPEC as _POLICY_ARTIFACT_SPEC,
-)
-from agentkit.verify_system._artifact_specs import (
-    SONARQUBE_GATE_ARTIFACTS as _SONARQUBE_GATE_ARTIFACTS,
-)
-from agentkit.verify_system._artifact_specs import _LayerArtifactSpec
+from agentkit.verify_system import _artifact_specs
 from agentkit.verify_system.adversarial_orchestrator.challenger import (
     AdversarialChallenger,
 )
@@ -62,6 +26,10 @@ from agentkit.verify_system.contract import (
     VerifyContextBundle,
     VerifyTarget,
     _QaSubflowExecutionResult,
+)
+from agentkit.verify_system.defaults import (
+    VerifySystemDefaultOptions,
+    resolve_default_options,
 )
 from agentkit.verify_system.errors import (
     LayerExecutionError,
@@ -106,14 +74,7 @@ if TYPE_CHECKING:
     from agentkit.story_context_manager.models import StoryContext
     from agentkit.story_context_manager.types import StoryType
     from agentkit.verify_system.llm_evaluator import Layer2ReviewInput, LlmClient, ParallelEvalRunner
-    from agentkit.verify_system.protocols import TelemetryEventQueryPort
-    from agentkit.verify_system.qa_cycle.invalidation import ArtifactInvalidationSink
     from agentkit.verify_system.stage_registry.registry import StageRegistry
-    from agentkit.verify_system.structural.checker import AreGateProvider
-    from agentkit.verify_system.structural.checks import (
-        BuildTestEvidencePort,
-        ChangeEvidencePort,
-    )
 
 logger = logging.getLogger(__name__)
 
@@ -260,37 +221,14 @@ class VerifySystem:
         cls,
         *,
         artifact_manager: ArtifactManager,
-        max_major_findings: int = 0,
-        max_feedback_rounds: int | None = None,
-        story_context_port: StoryContextQueryPort | None = None,
-        sonar_gate_port: SonarGateInputPort | None = None,
-        invalidation_sink: ArtifactInvalidationSink | None = None,
-        review_completion_sink: ReviewCompletionSink | None = None,
-        layer2_llm_client: LlmClient | None = None,
-        fast_test_runner: Callable[[Path], tuple[bool, str | None]] | None = None,
-        stage_registry: StageRegistry | None = None,
-        structural_telemetry_port: TelemetryEventQueryPort | None = None,
-        structural_build_test_port: BuildTestEvidencePort | None = None,
-        structural_are_provider: AreGateProvider | None = None,
-        structural_change_evidence_port: ChangeEvidencePort | None = None,
+        defaults: VerifySystemDefaultOptions | None = None,
+        **overrides: object,
     ) -> VerifySystem:
         """Construct a ``VerifySystem`` with default sub-components."""
         return _create_default(
             cls,
             artifact_manager=artifact_manager,
-            max_major_findings=max_major_findings,
-            max_feedback_rounds=max_feedback_rounds,
-            story_context_port=story_context_port,
-            sonar_gate_port=sonar_gate_port,
-            invalidation_sink=invalidation_sink,
-            review_completion_sink=review_completion_sink,
-            layer2_llm_client=layer2_llm_client,
-            fast_test_runner=fast_test_runner,
-            stage_registry=stage_registry,
-            structural_telemetry_port=structural_telemetry_port,
-            structural_build_test_port=structural_build_test_port,
-            structural_are_provider=structural_are_provider,
-            structural_change_evidence_port=structural_change_evidence_port,
+            defaults=resolve_default_options(defaults, overrides),
         )
 
     # ------------------------------------------------------------------
@@ -519,7 +457,7 @@ class VerifySystem:
             # NOT_APPLICABLE_FAST: drop the stage entirely.
             return None
         gate_result = stage_result.layer_result
-        for spec in _SONARQUBE_GATE_ARTIFACTS:
+        for spec in _artifact_specs.SONARQUBE_GATE_ARTIFACTS:
             self._write_layer_envelope(
                 spec=spec,
                 result=gate_result,
@@ -648,7 +586,7 @@ class VerifySystem:
 
     def _layer2_pairs(
         self,
-    ) -> tuple[tuple[QALayer, _LayerArtifactSpec], ...]:
+) -> tuple[tuple[QALayer, _artifact_specs._LayerArtifactSpec], ...]:
         """Return (reviewer, spec) pairs for the three Layer-2 reviewers.
 
         Returns:
@@ -656,9 +594,9 @@ class VerifySystem:
             semantic_review, doc_fidelity in that order.
         """
         return (
-            (self.layer_2a, _LAYER_2_SPECS[0]),
-            (self.layer_2b, _LAYER_2_SPECS[1]),
-            (self.layer_2c, _LAYER_2_SPECS[2]),
+            (self.layer_2a, _artifact_specs.LAYER_2_SPECS[0]),
+            (self.layer_2b, _artifact_specs.LAYER_2_SPECS[1]),
+            (self.layer_2c, _artifact_specs.LAYER_2_SPECS[2]),
         )
 
     def _resolve_verify_target(
@@ -677,10 +615,17 @@ class VerifySystem:
             VerifyTargetUnknownError: If the artifact_class has no known
                 mapping to ``VerifyTargetType``.
         """
-        target_type = _ARTIFACT_CLASS_TO_TARGET_TYPE.get(target.artifact_class)
+        target_type = _artifact_specs.ARTIFACT_CLASS_TO_TARGET_TYPE.get(
+            target.artifact_class
+        )
         if target_type is None:
-            known = ", ".join(str(c) for c in _ARTIFACT_CLASS_TO_TARGET_TYPE)
-            msg = f"Cannot resolve VerifyTargetType for artifact_class={target.artifact_class!r}. Known classes: {known}"
+            known = ", ".join(
+                str(c) for c in _artifact_specs.ARTIFACT_CLASS_TO_TARGET_TYPE
+            )
+            msg = (
+                "Cannot resolve VerifyTargetType for "
+                f"artifact_class={target.artifact_class!r}. Known classes: {known}"
+            )
             raise VerifyTargetUnknownError(msg)
 
         return VerifyTarget(
@@ -781,7 +726,7 @@ class VerifySystem:
     def _write_layer_envelope(
         self,
         *,
-        spec: _LayerArtifactSpec,
+        spec: _artifact_specs._LayerArtifactSpec,
         result: LayerResult,
         ctx: VerifyContextBundle,
         story_id: str,
@@ -852,13 +797,14 @@ class VerifySystem:
             schema_version="3.0",
             story_id=story_id,
             run_id=ctx.run_id,
-            stage=_POLICY_ARTIFACT_SPEC.stage,
+            stage=_artifact_specs.POLICY_ARTIFACT_SPEC.stage,
             attempt=ctx.attempt,
             producer=Producer(
-                type=_POLICY_ARTIFACT_SPEC.producer_type,
-                name=_POLICY_ARTIFACT_SPEC.producer_name,
+                type=_artifact_specs.POLICY_ARTIFACT_SPEC.producer_type,
+                name=_artifact_specs.POLICY_ARTIFACT_SPEC.producer_name,
                 id=ProducerId(
-                    f"{_POLICY_ARTIFACT_SPEC.producer_name}-{ctx.run_id}-{ctx.attempt}"
+                    f"{_artifact_specs.POLICY_ARTIFACT_SPEC.producer_name}-"
+                    f"{ctx.run_id}-{ctx.attempt}"
                 ),
             ),
             started_at=datetime.fromisoformat(now_str),
@@ -868,7 +814,7 @@ class VerifySystem:
             payload=payload,
         )
         self.artifact_manager.write(envelope)
-        return _POLICY_ARTIFACT_SPEC.filename
+        return _artifact_specs.POLICY_ARTIFACT_SPEC.filename
 
 
 
@@ -929,7 +875,7 @@ def _run_fast_floor(
     )
 
     self._write_layer_envelope(
-        spec=_LAYER_1_ARTIFACTS[0],
+            spec=_artifact_specs.LAYER_1_ARTIFACTS[0],
         result=floor_result,
         ctx=ctx,
         story_id=story_id,
@@ -962,7 +908,7 @@ def _run_fast_floor(
     return QaSubflowOutcome(
         verdict=verdict,
         decision=decision,
-        artifact_refs=(_LAYER_1_ARTIFACTS[0].filename,),
+            artifact_refs=(_artifact_specs.LAYER_1_ARTIFACTS[0].filename,),
         attempt_nr=ctx.attempt,
         qa_cycle_round=cycle_state.round,
         feedback=None,
@@ -1029,7 +975,7 @@ def _run_data_layer_kind(
             qa_cycle_round=qa_cycle_round,
             previous_findings=previous_findings,
         )
-        pairs = list(zip(results, _LAYER_2_SPECS, strict=True))
+        pairs = list(zip(results, _artifact_specs.LAYER_2_SPECS, strict=True))
     else:
         layer_instance = self._layer_for_kind(kind)
         result = self._execute_layer(
@@ -1070,19 +1016,7 @@ def _create_default(
     cls: type[VerifySystem],
     *,
     artifact_manager: ArtifactManager,
-    max_major_findings: int = 0,
-    max_feedback_rounds: int | None = None,
-    story_context_port: StoryContextQueryPort | None = None,
-    sonar_gate_port: SonarGateInputPort | None = None,
-    invalidation_sink: ArtifactInvalidationSink | None = None,
-    review_completion_sink: ReviewCompletionSink | None = None,
-    layer2_llm_client: LlmClient | None = None,
-    fast_test_runner: Callable[[Path], tuple[bool, str | None]] | None = None,
-    stage_registry: StageRegistry | None = None,
-    structural_telemetry_port: TelemetryEventQueryPort | None = None,
-    structural_build_test_port: BuildTestEvidencePort | None = None,
-    structural_are_provider: AreGateProvider | None = None,
-    structural_change_evidence_port: ChangeEvidencePort | None = None,
+    defaults: VerifySystemDefaultOptions,
 ) -> VerifySystem:
     """Construct a ``VerifySystem`` with default sub-components.
 
@@ -1154,8 +1088,8 @@ def _create_default(
             "agentkit.bootstrap.composition_root.build_verify_system "
             "for the wired default.",
         )
-    resolved_port = story_context_port or _NULL_STORY_CONTEXT_PORT
-    resolved_sonar_port = sonar_gate_port or ABSENT_SONAR_GATE_PORT
+    resolved_port = defaults.story_context_port or _NULL_STORY_CONTEXT_PORT
+    resolved_sonar_port = defaults.sonar_gate_port or ABSENT_SONAR_GATE_PORT
     # AG3-042: the FK-27 §27.4 Layer-1 stage registry is bound to BOTH the
     # StructuralChecker (drives the checks) and the PolicyEngine (drives the
     # fail-closed missing-artifact check, FK-33 §33.7) -- ONE registry truth
@@ -1176,14 +1110,16 @@ def _create_default(
     # policy engine demands no Layer-1 stages. The productive root injects
     # the full FK-27 §27.4 catalogue.
     resolved_registry: StageRegistry = (
-        stage_registry if stage_registry is not None else _StageRegistry(stages=())
+        defaults.stage_registry
+        if defaults.stage_registry is not None
+        else _StageRegistry(stages=())
     )
     structural_checker = StructuralChecker(
         registry=resolved_registry,
-        telemetry=structural_telemetry_port,
-        build_test_port=structural_build_test_port,
-        are_provider=structural_are_provider,
-        change_evidence_port=structural_change_evidence_port,
+        telemetry=defaults.structural_telemetry_port,
+        build_test_port=defaults.structural_build_test_port,
+        are_provider=defaults.structural_are_provider,
+        change_evidence_port=defaults.structural_change_evidence_port,
     )
     # AG3-044 (FK-27 §27.6 / FK-48 §48.2): the adversarial spawner is wired
     # by default (it only needs the producer-bound ArtifactManager). It is
@@ -1218,29 +1154,29 @@ def _create_default(
             spawner=adversarial_spawner,
         ),
         policy_engine=PolicyEngine(
-            max_major_findings=max_major_findings,
+            max_major_findings=defaults.max_major_findings,
             stage_registry=resolved_registry,
         ),
         artifact_manager=artifact_manager,
         story_context_port=resolved_port,
         sonar_gate_port=resolved_sonar_port,
-        layer2_llm_client=layer2_llm_client,
-        fast_test_runner=fast_test_runner,
+        layer2_llm_client=defaults.layer2_llm_client,
+        fast_test_runner=defaults.fast_test_runner,
         remediation_loop_controller=(
             _qa.RemediationLoopController(
-                max_feedback_rounds=max_feedback_rounds
+                max_feedback_rounds=defaults.max_feedback_rounds
             )
-            if max_feedback_rounds is not None
+            if defaults.max_feedback_rounds is not None
             else _qa.RemediationLoopController()
         ),
         qa_cycle_lifecycle=(
-            _qa.QaCycleLifecycle(invalidation_sink=invalidation_sink)
-            if invalidation_sink is not None
+            _qa.QaCycleLifecycle(invalidation_sink=defaults.invalidation_sink)
+            if defaults.invalidation_sink is not None
             else _qa.QaCycleLifecycle()
         ),
         review_completion_sink=(
-            review_completion_sink
-            if review_completion_sink is not None
+            defaults.review_completion_sink
+            if defaults.review_completion_sink is not None
             else _NULL_REVIEW_COMPLETION_SINK
         ),
         adversarial_spawner=adversarial_spawner,
@@ -1670,7 +1606,9 @@ def _is_fast_mode(story_ctx: object | None) -> bool:
     return isinstance(story_ctx, StoryContext) and story_ctx.mode is WireStoryMode.FAST
 
 
-def _kind_to_single_artifacts(kind: QALayerKind) -> tuple[_LayerArtifactSpec, ...]:
+def _kind_to_single_artifacts(
+    kind: QALayerKind,
+) -> tuple[_artifact_specs._LayerArtifactSpec, ...]:
     """Return the single-artefact specs for Layer 1 or Layer 3 (module helper).
 
     Layer 2 is handled separately via ``VerifySystem._layer2_pairs``. Kept at
@@ -1684,9 +1622,9 @@ def _kind_to_single_artifacts(kind: QALayerKind) -> tuple[_LayerArtifactSpec, ..
         Tuple with one ``_LayerArtifactSpec``.
     """
     if kind is QALayerKind.STRUCTURAL:
-        return _LAYER_1_ARTIFACTS
+        return _artifact_specs.LAYER_1_ARTIFACTS
     if kind is QALayerKind.ADVERSARIAL:
-        return _LAYER_3_ARTIFACTS
+        return _artifact_specs.LAYER_3_ARTIFACTS
     msg = f"_kind_to_single_artifacts called with non-single kind {kind!r}"
     raise ValueError(msg)  # pragma: no cover
 

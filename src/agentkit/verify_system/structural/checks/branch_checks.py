@@ -41,6 +41,7 @@ __all__ = [
 
 #: FK-22 §22 / FK-27 §27.4.2: the canonical per-story branch name prefix.
 _STORY_BRANCH_PREFIX = "story/"
+_BRANCH_COMMIT_TRAILERS_CHECK = "branch.commit_trailers"
 
 
 def _finding(check: str, severity: Severity, message: str) -> Finding:
@@ -121,17 +122,17 @@ def check_branch_commit_trailers(
     del story_dir
     if not evidence.available:
         return _unconfirmable(
-            "branch.commit_trailers", severity, "FK-27 §27.4.2"
+            _BRANCH_COMMIT_TRAILERS_CHECK, severity, "FK-27 §27.4.2"
         )
     if not evidence.commit_messages:
         return _finding(
-            "branch.commit_trailers", severity,
+            _BRANCH_COMMIT_TRAILERS_CHECK, severity,
             "no commits on the story branch since base-ref (FK-27 §27.4.2)",
         )
     untagged = [msg for msg in evidence.commit_messages if ctx.story_id not in msg]
     if untagged:
         return _finding(
-            "branch.commit_trailers", severity,
+            _BRANCH_COMMIT_TRAILERS_CHECK, severity,
             f"{len(untagged)} commit(s) do not carry story id {ctx.story_id!r} "
             "(FK-27 §27.4.2)",
         )

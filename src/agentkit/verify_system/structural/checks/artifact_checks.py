@@ -34,6 +34,7 @@ __all__ = [
 _PROTOCOL_FILE = "protocol.md"
 _WORKER_MANIFEST_FILE = "worker-manifest.json"
 _HANDOVER_FILE = "handover.json"
+_ARTIFACT_HANDOVER_CHECK = "artifact.handover"
 #: FK-27 §27.4.1: ``protocol.md`` must be larger than 50 bytes.
 _PROTOCOL_MIN_BYTES = 50
 #: FK-26 §26.7.3 handover mandatory fields (the FULL handover contract, NOT a
@@ -216,25 +217,25 @@ def check_artifact_handover(
     path = story_dir / _HANDOVER_FILE
     if not path.is_file():
         return _finding(
-            "artifact.handover", severity,
+            _ARTIFACT_HANDOVER_CHECK, severity,
             f"{_HANDOVER_FILE} is missing (FK-27 §27.4.1)", path,
         )
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
         return _finding(
-            "artifact.handover", severity,
+            _ARTIFACT_HANDOVER_CHECK, severity,
             f"{_HANDOVER_FILE} is not valid JSON: {exc} (FK-27 §27.4.1)", path,
         )
     if not isinstance(payload, dict):
         return _finding(
-            "artifact.handover", severity,
+            _ARTIFACT_HANDOVER_CHECK, severity,
             f"{_HANDOVER_FILE} must be a JSON object (FK-26 §26.7.2)", path,
         )
     missing = [key for key in _HANDOVER_REQUIRED_KEYS if key not in payload]
     if missing:
         return _finding(
-            "artifact.handover", severity,
+            _ARTIFACT_HANDOVER_CHECK, severity,
             f"{_HANDOVER_FILE} missing required handover fields {missing} "
             "(FK-26 §26.7.3)",
             path,

@@ -39,6 +39,8 @@ __all__ = [
     "check_test_count",
 ]
 
+_TEST_COVERAGE_CHECK = "test.coverage"
+
 
 @dataclass(frozen=True)
 class BuildTestEvidence:
@@ -229,18 +231,18 @@ def check_test_coverage(
     evidence = port.evaluate(story_dir)
     if evidence is None:
         return _finding(
-            "test.coverage", severity,
+            _TEST_COVERAGE_CHECK, severity,
             "no build/test runner wired; coverage unconfirmable -> "
             "fail-closed (FK-27 §27.4.2)",
         )
     if not evidence.coverage_report_present:
         return _finding(
-            "test.coverage", severity,
+            _TEST_COVERAGE_CHECK, severity,
             "coverage report missing (FK-27 §27.4.2 test.coverage)",
         )
     if not evidence.coverage_meets_threshold:
         return _finding(
-            "test.coverage", severity,
+            _TEST_COVERAGE_CHECK, severity,
             "coverage below threshold (FK-27 §27.4.2 test.coverage)",
         )
     return None

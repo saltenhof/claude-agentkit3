@@ -110,9 +110,12 @@ def evaluate_finding_resolution_gate(
             # First-round stories (no remediation) DO still produce all three
             # Layer-2 envelopes (run_qa_subflow always writes them), so an
             # absent one here is a real gap -> fail-closed (FK-29 §29.2.4).
-            reason = (
-                f"Finding-Resolution-Gate: Layer-2 artefact for stage "
-                f"{stage!r} is missing (cannot verify finding resolution)."
+            reason = "".join(
+                (
+                    "Finding-Resolution-Gate: Layer-2 artefact for stage ",
+                    repr(stage),
+                    " is missing (cannot verify finding resolution).",
+                )
             )
             return FindingResolutionVerdict(
                 passed=False,
@@ -126,12 +129,16 @@ def evaluate_finding_resolution_gate(
             open_keys = sorted(
                 f"{layer}:{check}" for (layer, check), _status in resolution_map.items()
             )
+            reason = "".join(
+                (
+                    f"Finding-Resolution-Gate: stage {stage!r} has unresolved ",
+                    "findings (partially_resolved/not_resolved): ",
+                    f"{open_keys}.",
+                )
+            )
             return FindingResolutionVerdict(
                 passed=False,
-                blocking_reason=(
-                    f"Finding-Resolution-Gate: stage {stage!r} has unresolved "
-                    f"findings (partially_resolved/not_resolved): {open_keys}."
-                ),
+                blocking_reason=reason,
             )
     return FindingResolutionVerdict(passed=True)
 

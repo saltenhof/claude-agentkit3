@@ -1,21 +1,4 @@
-"""Layer-1 structural check functions (FK-27 §27.4 / FK-33 §33.3).
-
-Re-exports:
-
-* the mandatory pre-check meta checks (``check_context_exists`` etc.) -- kept
-  for backward-compat with pre-AG3-042 importers,
-* the FK-27 §27.4.1-§27.4.4 stage check functions grouped by category
-  (artifact / branch / build-test / hygiene / recurring-guards / are-gate /
-  impact-violation),
-* the build/test evidence port (default fail-closed) consumed by the
-  build/test checks.
-
-Each stage check has the uniform signature
-``check_<name>(ctx: StoryContext, story_dir: Path, *, severity: Severity, ...)``;
-the severity is supplied by the stage registry (single severity truth). The
-``StructuralChecker`` dispatches each registry stage to its check here, so no
-check is dead code.
-"""
+"""Layer-1 structural check exports (FK-27 §27.4 / FK-33 §33.3)."""
 
 from __future__ import annotations
 

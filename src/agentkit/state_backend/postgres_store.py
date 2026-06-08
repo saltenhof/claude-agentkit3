@@ -2061,6 +2061,7 @@ def finalize_control_plane_operation_global_row(
 
     epoch_clause, epoch_params = _owner_epoch_cas_clause(owner_claimed_at)
     with _connect_global() as conn:
+        # epoch_clause is a constant fragment, not user data.
         cursor = conn.execute(
             f"""
             UPDATE control_plane_operations
@@ -2070,7 +2071,7 @@ def finalize_control_plane_operation_global_row(
             WHERE op_id = ?
               AND status = 'claimed'
               AND claimed_by = ?{epoch_clause}
-            """,  # noqa: S608 -- epoch_clause is a constant fragment, not user data
+            """,  # noqa: S608
             (
                 row["status"],
                 row["response_json"],
@@ -2489,11 +2490,12 @@ def release_control_plane_operation_global_row(
 
     epoch_clause, epoch_params = _owner_epoch_cas_clause(owner_claimed_at)
     with _connect_global() as conn:
+        # epoch_clause is a constant fragment, not user data.
         conn.execute(
             f"""
             DELETE FROM control_plane_operations
             WHERE op_id = ? AND status = 'claimed' AND claimed_by = ?{epoch_clause}
-            """,  # noqa: S608 -- epoch_clause is a constant fragment, not user data
+            """,  # noqa: S608
             (op_id, owner_token, *epoch_params),
         )
 

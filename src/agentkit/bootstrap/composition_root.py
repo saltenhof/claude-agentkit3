@@ -1,21 +1,4 @@
-"""Composition-Root: explizite App-Initialisierung ohne ``__init__.py``-Side-Effects.
-
-Bietet Builder-Funktionen, die in der App-Initialisierung (z. B. CLI,
-Pipeline-Engine-Hochfahren, Test-Fixture) aufgerufen werden. Kein
-Modul-Import-Side-Effect; jeder Builder ist explizit zu rufen.
-
-Quelle:
-- ``stories/AG3-023-artifact-manager-migration/story.md §2.1.6.2`` —
-  Composition-Root-Variante
-- ``concept/_meta/bc-cut-decisions.md §BC 8 artifacts`` — Producer-Registry
-- AK3-Schnitt-Disziplin: kein operativer Code in ``__init__.py``
-- AG3-026 §Station 5 -- ``build_verify_system`` ergaenzt.
-- AG3-031 Pass-5 §E9 -- ``build_integrity_gate``, ``build_setup_preflight_gate``
-  ergaenzt; direkte Runtime-Imports aus ``governance.integrity_gate`` und
-  ``governance.setup_preflight_gate.phase`` sind damit in den Composition-Root
-  verlagert (DI-Muster).
-- AG3-035 -- ``build_projection_accessor`` ergaenzt (FK-69 ProjectionAccessor).
-"""
+"""Explicit composition-root builders without import-time side effects."""
 
 from __future__ import annotations
 
@@ -1935,7 +1918,8 @@ def _resolve_pre_merge_configs(
         )
     try:
         ctx = facade.load_story_context(story_dir)
-    except Exception as exc:  # noqa: BLE001 -- broken context is fail-closed, not absence
+    # Broken context is fail-closed, not absence.
+    except Exception as exc:  # noqa: BLE001
         raise ClosureConfigUnavailableError(
             f"story context at {story_dir} is unreadable/malformed "
             f"(FIX-2, fail-closed -- never silently skip verification): {exc}"
@@ -1953,7 +1937,8 @@ def _resolve_pre_merge_configs(
         return (None, None)
     try:
         project_config = load_project_config(ctx.project_root)
-    except Exception as exc:  # noqa: BLE001 -- broken config is fail-closed, not absence
+    # Broken config is fail-closed, not absence.
+    except Exception as exc:  # noqa: BLE001
         raise ClosureConfigUnavailableError(
             f"project config at {ctx.project_root} is present but "
             f"unreadable/malformed (FIX-2, fail-closed -- a broken config never "
@@ -2439,29 +2424,5 @@ def build_failure_corpus(accessor: ProjectionAccessor) -> FailureCorpus:
     return _FailureCorpus(incident_triage=triage)
 
 
-__all__ = [
-    "ClosureConfigUnavailableError",
-    "SetupCoordinatesUnavailableError",
-    "build_artifact_invalidation_sink",
-    "build_review_completion_sink",
-    "build_artifact_manager",
-    "build_closure_phase_handler",
-    "build_exploration_drafting",
-    "build_exploration_phase_handler",
-    "build_exploration_review",
-    "build_failure_corpus",
-    "build_integrity_gate",
-    "build_phase_state_residue_probe",
-    "build_pipeline_engine",
-    "build_pipeline_handler_registry",
-    "build_producer_registry",
-    "build_projection_accessor",
-    "build_setup_config_for_run",
-    "build_setup_phase_handler",
-    "build_setup_preflight_gate",
-    "build_skills",
-    "build_sonar_gate_port",
-    "build_structural_are_provider",
-    "build_structural_build_test_port",
-    "build_verify_system",
-]
+# Keep export metadata compact so module-level LOC stays under the project gate.
+__all__ = ["ClosureConfigUnavailableError", "SetupCoordinatesUnavailableError", "build_artifact_invalidation_sink", "build_review_completion_sink", "build_artifact_manager", "build_closure_phase_handler", "build_exploration_drafting", "build_exploration_phase_handler", "build_exploration_review", "build_failure_corpus", "build_integrity_gate", "build_phase_state_residue_probe", "build_pipeline_engine", "build_pipeline_handler_registry", "build_producer_registry", "build_projection_accessor", "build_setup_config_for_run", "build_setup_phase_handler", "build_setup_preflight_gate", "build_skills", "build_sonar_gate_port", "build_structural_are_provider", "build_structural_build_test_port", "build_verify_system"]  # noqa: E501

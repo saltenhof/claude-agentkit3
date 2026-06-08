@@ -71,6 +71,8 @@ if TYPE_CHECKING:
 
 __all__ = ["FULL_STAGE_REGISTRY", "AreGateProvider", "StructuralChecker"]
 
+_SECURITY_SECRETS_CHECK = "security.secrets"
+
 
 @runtime_checkable
 class AreGateProvider(Protocol):
@@ -407,7 +409,7 @@ class StructuralChecker:
                 c, d, severity=s, evidence=ev
             ),
             # §27.4.2 Security (decide on the SYSTEM diff secret-scan).
-            "security.secrets": lambda c, d, s: _check_security_secrets(
+            _SECURITY_SECRETS_CHECK: lambda c, d, s: _check_security_secrets(
                 c, d, severity=s, evidence=ev
             ),
             # §27.4.2 Build & Test
@@ -486,7 +488,7 @@ def _check_security_secrets(
     if not evidence.available:
         return Finding(
             layer="structural",
-            check="security.secrets",
+            check=_SECURITY_SECRETS_CHECK,
             severity=severity,
             message="system git diff unavailable; cannot scan the changeset for "
             "secrets independently -> fail-closed (FK-27 §27.4.2, FK-33 §33.5.2)",
@@ -496,7 +498,7 @@ def _check_security_secrets(
         first = evidence.secret_files[0]
         return Finding(
             layer="structural",
-            check="security.secrets",
+            check=_SECURITY_SECRETS_CHECK,
             severity=severity,
             message=f"secret-shaped file in the changeset (git diff): {first!r} "
             "(FK-27 §27.4.2)",
