@@ -85,6 +85,14 @@ def build_verify_decision_artifact(
             }
             for finding in decision.blocking_findings
         ],
+        "warnings": [
+            {
+                "stage_id": warning.stage_id,
+                "detail": warning.detail,
+                "source_artifact": warning.source_artifact,
+            }
+            for warning in decision.warnings
+        ],
         "all_findings_count": len(decision.all_findings),
         "summary": decision.summary,
         "attempt_nr": attempt_nr,

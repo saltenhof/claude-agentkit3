@@ -78,6 +78,15 @@ def _trust_can_block(finding: Finding) -> bool:
 
 
 @dataclass(frozen=True)
+class PolicyWarning:
+    """Non-blocking policy warning surfaced in the verify decision."""
+
+    stage_id: str
+    detail: str
+    source_artifact: str
+
+
+@dataclass(frozen=True)
 class VerifyDecision:
     """Final decision from the policy engine.
 
@@ -104,6 +113,7 @@ class VerifyDecision:
     blocking_findings: tuple[Finding, ...]
     summary: str
     max_major_findings: int = 0
+    warnings: tuple[PolicyWarning, ...] = ()
 
     @property
     def status(self) -> str:
@@ -195,6 +205,7 @@ class PolicyEngine:
         max_layer_reached: int | None = None,
         traversed_layers: frozenset[int] | None = None,
         are_enabled: bool = False,
+        context_sufficiency_artifact: Mapping[str, object] | None = None,
     ) -> VerifyDecision:
         """Produce a final decision from all layer results (FK-33 §33.7).
 
@@ -255,6 +266,7 @@ class PolicyEngine:
             )
 
         all_findings_tuple = tuple(all_findings)
+        warnings = _context_sufficiency_warnings(context_sufficiency_artifact)
 
         # Identify blocking findings
         blocking = _compute_blocking(all_findings, max_major)
@@ -282,6 +294,7 @@ class PolicyEngine:
             blocking_findings=blocking_tuple,
             summary=summary,
             max_major_findings=max_major,
+            warnings=warnings,
         )
 
     def _missing_stage_findings(
@@ -323,18 +336,20 @@ class PolicyEngine:
             if max_layer_reached is not None
             else _derive_max_layer_reached(layer_results)
         )
-        produced_layers = _produced_layer_numbers(layer_results)
+        produced_stage_ids = _produced_stage_ids(layer_results, self._registry)
         findings: list[Finding] = []
         for stage in self._registry.stages_for(story_type):
+            if stage.stage_id == "policy":
+                continue  # policy produces the aggregate decision itself.
             if not _stage_layer_traversed(
                 stage.layer, reached=reached, traversed_layers=traversed_layers
             ):
                 continue  # Layer never traversed -> absence is expected.
-            if stage.severity is not Severity.BLOCKING:
+            if not stage.effective_blocking:
                 continue  # Only blocking stages drive the fail-closed rule.
             if stage.feature_gated_are and not are_enabled:
                 continue  # ARE stage only expected when features.are == true.
-            if stage.layer not in produced_layers:
+            if stage.stage_id not in produced_stage_ids:
                 findings.append(
                     Finding(
                         layer="policy",
@@ -342,8 +357,9 @@ class PolicyEngine:
                         severity=Severity.BLOCKING,
                         message=(
                             f"missing artifact for blocking stage "
-                            f"{stage.stage_id!r} in traversed layer "
-                            f"{stage.layer} -> fail-closed (FK-33 §33.7)"
+                            f"{stage.stage_id!r} with producer "
+                            f"{stage.producer!r} in traversed layer {stage.layer} "
+                            "-> fail-closed (FK-33 §33.7)"
                         ),
                         trust_class=TrustClass.SYSTEM,
                     )
@@ -379,32 +395,64 @@ def _stage_layer_traversed(
     return stage_layer <= reached
 
 
-#: Canonical QA layer name -> layer number (FK-27 §27.4-§27.7 / FK-33 §33.2.2).
-_LAYER_NAME_TO_NUMBER: dict[str, int] = {
-    "structural": 1,
-    "qa_review": 2,
-    "semantic_review": 2,
-    "doc_fidelity": 2,
-    "adversarial": 3,
-    "sonarqube_gate": 1,
-    "policy": 4,
-}
-
-
-def _produced_layer_numbers(layer_results: tuple[LayerResult, ...]) -> set[int]:
-    """Return the set of QA layer numbers that produced a result this round."""
-    numbers: set[int] = set()
+def _produced_stage_ids(
+    layer_results: tuple[LayerResult, ...],
+    registry: StageRegistry,
+) -> set[str]:
+    """Return produced stage IDs from layer results and registry metadata."""
+    produced: set[str] = set()
     for lr in layer_results:
-        number = _LAYER_NAME_TO_NUMBER.get(lr.layer)
-        if number is not None:
-            numbers.add(number)
-    return numbers
+        metadata_stage_ids = lr.metadata.get("stage_ids")
+        if isinstance(metadata_stage_ids, (list, tuple, set, frozenset)):
+            produced.update(str(stage_id) for stage_id in metadata_stage_ids)
+        for stage in registry.stages:
+            if lr.layer == stage.stage_id or lr.layer == _legacy_result_name(stage):
+                produced.add(stage.stage_id)
+    return produced
 
 
 def _derive_max_layer_reached(layer_results: tuple[LayerResult, ...]) -> int:
     """Derive the highest traversed layer from present results (>=1)."""
-    produced = _produced_layer_numbers(layer_results)
+    registry = StageRegistry()
+    produced = {
+        stage.layer
+        for stage_id in _produced_stage_ids(layer_results, registry)
+        if (stage := registry.stage_for_id(stage_id)) is not None
+    }
     return max(produced) if produced else 1
+
+
+def _legacy_result_name(stage: object) -> str:
+    """Return the legacy result name for a registered stage."""
+    from agentkit.verify_system.stage_registry.stages import StageDefinition
+
+    if not isinstance(stage, StageDefinition):  # pragma: no cover
+        return ""
+    if stage.stage_id.endswith("_impl"):
+        return stage.stage_id.removesuffix("_impl")
+    return stage.stage_id
+
+
+def _context_sufficiency_warnings(
+    artifact: Mapping[str, object] | None,
+) -> tuple[PolicyWarning, ...]:
+    """Fail-open warning extraction for optional context sufficiency input."""
+    if artifact is None:
+        return ()
+    sufficiency = artifact.get("sufficiency")
+    if not isinstance(sufficiency, str):
+        return ()
+    if sufficiency == "sufficient":
+        return ()
+    gaps = artifact.get("gaps")
+    gap_count = len(gaps) if isinstance(gaps, list) else 0
+    return (
+        PolicyWarning(
+            stage_id="context_sufficiency",
+            detail=f"Context sufficiency: {sufficiency}; {gap_count} gaps identified",
+            source_artifact="context_sufficiency.json",
+        ),
+    )
 
 
 def _compute_blocking(

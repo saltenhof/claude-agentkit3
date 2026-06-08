@@ -15,6 +15,16 @@ from agentkit.verify_system.structural.checks.branch_checks import (
     check_completion_commit,
     check_completion_push,
 )
+from agentkit.verify_system.structural.checks.bugfix_checks import (
+    ABSENT_BUGFIX_EVIDENCE_PORT,
+    BugfixEvidence,
+    BugfixEvidencePort,
+    check_bugfix_green_evidence,
+    check_bugfix_red_evidence,
+    check_bugfix_red_green_consistency,
+    check_bugfix_reproducer_manifest,
+    check_bugfix_suite_evidence,
+)
 from agentkit.verify_system.structural.checks.build_test_checks import (
     ABSENT_BUILD_TEST_PORT,
     BuildTestEvidence,
@@ -54,10 +64,13 @@ from agentkit.verify_system.structural.system_evidence import (
 
 __all__ = [
     "ABSENT_BUILD_TEST_PORT",
+    "ABSENT_BUGFIX_EVIDENCE_PORT",
     "ABSENT_CHANGE_EVIDENCE_PORT",
     "MANDATORY_REVIEWER_ROLES",
     "BuildTestEvidence",
     "BuildTestEvidencePort",
+    "BugfixEvidence",
+    "BugfixEvidencePort",
     "ChangeEvidence",
     "ChangeEvidencePort",
     "check_are_gate",
@@ -70,6 +83,11 @@ __all__ = [
     "check_branch_story",
     "check_build_compile",
     "check_build_test_execution",
+    "check_bugfix_green_evidence",
+    "check_bugfix_red_evidence",
+    "check_bugfix_red_green_consistency",
+    "check_bugfix_reproducer_manifest",
+    "check_bugfix_suite_evidence",
     "check_completion_commit",
     "check_completion_push",
     "check_context_exists",

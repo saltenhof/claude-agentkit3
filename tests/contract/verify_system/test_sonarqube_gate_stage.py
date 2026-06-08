@@ -18,6 +18,7 @@ from typing import Any
 
 import yaml
 
+from agentkit.core_types.qa_artifact_names import SONARQUBE_GATE_PRODUCER
 from agentkit.verify_system.sonarqube_gate import (
     SONARQUBE_GATE_STAGE,
     AcceptedExceptionLedgerEntry,
@@ -102,7 +103,7 @@ class TestStageRegistryEntry:
         assert SONARQUBE_GATE_STAGE.applies_to == frozenset({"implementation", "bugfix"})
 
     def test_producer(self) -> None:
-        assert SONARQUBE_GATE_STAGE.producer == "qa-sonarqube-gate"
+        assert SONARQUBE_GATE_STAGE.producer == SONARQUBE_GATE_PRODUCER
 
     def test_stage_fields_match_formal_entity(self) -> None:
         """The stage definition exposes exactly the formal entity's attributes."""

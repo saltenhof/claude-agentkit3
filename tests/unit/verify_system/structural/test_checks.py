@@ -8,6 +8,13 @@ from pathlib import Path
 
 from agentkit.bootstrap.composition_root import build_artifact_manager
 from agentkit.phase_state_store.models import FlowExecution
+from agentkit.pipeline_engine.phase_executor.models import (
+    PhaseSnapshot,
+    PhaseState,
+    PhaseStateMode,
+    PhaseStateProducer,
+    PhaseStatus,
+)
 from agentkit.state_backend.sqlite_store import state_db_path_for
 from agentkit.state_backend.store import (
     record_layer_artifacts,
@@ -16,12 +23,7 @@ from agentkit.state_backend.store import (
     save_phase_state,
     save_story_context,
 )
-from agentkit.story_context_manager.models import (
-    PhaseSnapshot,
-    PhaseState,
-    PhaseStatus,
-    StoryContext,
-)
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 from agentkit.verify_system.artifacts import write_layer_artifacts
 from agentkit.verify_system.protocols import LayerResult, Severity, TrustClass
@@ -64,6 +66,26 @@ def _save_snapshot(story_dir: Path, phase: str) -> None:
             artifacts=[],
             evidence={},
         ),
+    )
+
+
+def _phase_state() -> PhaseState:
+    now = datetime.now(tz=UTC)
+    return PhaseState(
+        schema_version="4.0",
+        story_id="TEST-001",
+        run_id="00000000-0000-0000-0000-000000000001",
+        phase="implementation",
+        status=PhaseStatus.IN_PROGRESS,
+        mode=PhaseStateMode.EXECUTION,
+        story_type=StoryType.IMPLEMENTATION,
+        attempt=1,
+        started_at=now,
+        phase_entered_at=now,
+        pause_reason=None,
+        escalation_reason=None,
+        warnings=[],
+        producer=PhaseStateProducer(type="system", name="test"),
     )
 
 
@@ -197,11 +219,7 @@ class TestCheckNoCorruptState:
         _save_context(story_dir)
         save_phase_state(
             story_dir,
-            PhaseState(
-                story_id="TEST-001",
-                phase="implementation",
-                status=PhaseStatus.IN_PROGRESS,
-            ),
+            _phase_state(),
         )
         assert check_no_corrupt_state(story_dir) is None
 
@@ -210,11 +228,7 @@ class TestCheckNoCorruptState:
         _save_context(story_dir)
         save_phase_state(
             story_dir,
-            PhaseState(
-                story_id="TEST-001",
-                phase="implementation",
-                status=PhaseStatus.IN_PROGRESS,
-            ),
+            _phase_state(),
         )
         with sqlite3.connect(state_db_path_for(story_dir)) as conn:
             conn.execute("UPDATE phase_states SET payload_json = 'not json'")

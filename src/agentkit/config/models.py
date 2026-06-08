@@ -7,6 +7,7 @@ These models represent the structure of a target project's
 from __future__ import annotations
 
 import re
+from importlib import import_module
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -452,28 +453,42 @@ class OrchestratorGuardConfig(BaseModel):
     blocked_files: list[str] = []
 
 
-class StageOverrideConfig(BaseModel):
-    """Per-stage policy override (FK-03 §3.1).
+class StageOverride(BaseModel):
+    """Per-stage policy override (FK-33 §33.2.4).
 
-    Allows project-level overrides of stage-level blocking behaviour.
+    Only ``blocking`` is overrideable. Layer, kind, applies_to and producer
+    remain owned by the stage registry.
 
     Attributes:
-        blocking: Whether the stage is blocking (fail-closed). If ``None``
-            the stage-registry default applies.
+        blocking: Whether the stage is blocking.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    blocking: bool | None = None
+    blocking: bool
 
 
 class PolicyConfig(BaseModel):
-    """Pipeline policy configuration (FK-03 §3.1, FK-05-209).
+    """Top-level stage policy configuration (FK-33 §33.2.4).
+
+    Attributes:
+        stage_overrides: Per-stage blocking overrides keyed by stage ID.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    stage_overrides: dict[str, StageOverride] = {}
+
+
+StageOverrideConfig = StageOverride
+
+
+class PipelinePolicyConfig(BaseModel):
+    """Pipeline policy threshold configuration (FK-03 §3.1, FK-05-209).
 
     Attributes:
         major_threshold: Number of major QA findings above which the story
             is escalated (FK-05-209). Default ``3``.
-        stage_overrides: Per-stage blocking overrides keyed by stage ID.
         required_stages: Stage IDs that are always required regardless of
             story type. Empty list means use stage-registry defaults.
     """
@@ -481,7 +496,6 @@ class PolicyConfig(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     major_threshold: int = 3
-    stage_overrides: dict[str, StageOverrideConfig] = {}
     required_stages: list[str] = []
 
 
@@ -584,7 +598,7 @@ class PipelineConfig(BaseModel):
         llm_roles: LLM provider assignments per pipeline role (FK-01 §1.3
             P5 / FK-03 §3.1). Required when ``features.multi_llm=True``.
         orchestrator_guard: Orchestrator guard blocklist (FK-03 §3.1).
-        policy: Pipeline policy configuration (FK-03 §3.1).
+        policy: Pipeline threshold configuration (FK-03 §3.1).
         vectordb: VectorDB connection and tuning (FK-03 §3.1). Required when
             ``features.vectordb=True``.
         telemetry: Telemetry and web-call budget (FK-03 §3.1).
@@ -621,7 +635,7 @@ class PipelineConfig(BaseModel):
     features: Features = Features()
     llm_roles: LlmRolesConfig | None = None
     orchestrator_guard: OrchestratorGuardConfig = OrchestratorGuardConfig()
-    policy: PolicyConfig = PolicyConfig()
+    policy: PipelinePolicyConfig = PipelinePolicyConfig()
     vectordb: VectorDbConfig | None = None
     telemetry: TelemetryConfig = TelemetryConfig()
     governance: GovernanceConfig = GovernanceConfig()
@@ -714,6 +728,7 @@ class ProjectConfig(BaseModel):
         story_types: Allowed story types for this project.
         github_owner: GitHub organisation or user owning the repo.
         github_repo: GitHub repository name.
+        policy: Top-level verify-stage overrides (FK-33 §33.2.4).
     """
 
     model_config = ConfigDict(strict=True, extra="forbid")
@@ -723,10 +738,31 @@ class ProjectConfig(BaseModel):
     project_prefix: str | None = None
     repositories: list[RepositoryConfig]
     pipeline: PipelineConfig
+    policy: PolicyConfig = PolicyConfig()
     story_types: list[str] = list(DEFAULT_STORY_TYPES)
     github_owner: str | None = None
     github_repo: str | None = None
     are: AreConfig | None = None
+
+    @model_validator(mode="after")
+    def _validate_stage_overrides_known(self) -> ProjectConfig:
+        """FK-33 §33.2.4: stage overrides must target known registry stages."""
+        if not self.policy.stage_overrides:
+            return self
+        registry_mod = import_module("agentkit.verify_system.stage_registry")
+        registry = registry_mod.StageRegistry()
+        unknown = [
+            stage_id
+            for stage_id in self.policy.stage_overrides
+            if registry.stage_for_id(stage_id) is None
+        ]
+        if unknown:
+            msg = (
+                "policy.stage_overrides contains unknown stage ID(s): "
+                f"{', '.join(sorted(unknown))} (FK-33 §33.2.4, fail-closed)"
+            )
+            raise ValueError(msg)
+        return self
 
     @model_validator(mode="after")
     def _validate_are_section_when_enabled(self) -> ProjectConfig:

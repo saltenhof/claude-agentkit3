@@ -120,18 +120,38 @@ def test_request_spawn_fails_closed_on_unprotected_path(
 
 def test_apply_to_state_sets_agents_to_spawn(tmp_path: Path) -> None:
     """apply_to_state writes the spawn orders into PhaseState.agents_to_spawn."""
-    from agentkit.story_context_manager.models import PhaseState, PhaseStatus
+    from datetime import UTC, datetime
+
+    from agentkit.pipeline_engine.phase_executor.models import (
+        PhaseState,
+        PhaseStateMode,
+        PhaseStateProducer,
+        PhaseStatus,
+    )
+    from agentkit.story_context_manager.types import StoryType
 
     story_dir = tmp_path / "AG3-044"
     story_dir.mkdir()
     spawner = _spawner(tmp_path)
     targets = spawner.derive_targets([_finding(Severity.BLOCKING)])
     request = spawner.request_spawn(_ctx(story_dir), targets)
+    now = datetime.now(tz=UTC)
 
     state = PhaseState(
+        schema_version="4.0",
         story_id="AG3-044",
+        run_id="00000000-0000-0000-0000-000000000001",
         phase="implementation",
         status=PhaseStatus.IN_PROGRESS,
+        mode=PhaseStateMode.EXECUTION,
+        story_type=StoryType.IMPLEMENTATION,
+        attempt=1,
+        started_at=now,
+        phase_entered_at=now,
+        pause_reason=None,
+        escalation_reason=None,
+        warnings=[],
+        producer=PhaseStateProducer(type="system", name="test"),
     )
     updated = request.apply_to_state(state)
     assert len(updated.agents_to_spawn) == 1

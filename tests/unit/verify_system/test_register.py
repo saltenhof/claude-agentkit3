@@ -11,8 +11,11 @@ mit dem AG3-023-Bestandspfad registriert.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from agentkit.artifacts import ProducerRegistry, ProducerType
 from agentkit.core_types import ArtifactClass
+from agentkit.core_types.qa_artifact_names import SONARQUBE_GATE_PRODUCER
 from agentkit.verify_system.register import register_verify_producers
 
 #: Erwartete Producer-Liste nach AG3-026 Re-Review.
@@ -24,10 +27,11 @@ EXPECTED_QA_PRODUCERS: frozenset[str] = frozenset(
         "verify-system.layer-2-doc-fidelity",
         "verify-system.layer-2-llm",  # AG3-023-Bestand
         "verify-system.layer-3-adversarial",
-        "qa-sonarqube-gate",  # AG3-052 (FK-33 §33.6 SonarQube-Green-Gate)
+        SONARQUBE_GATE_PRODUCER,
         "verify-system.layer-4-policy",
     }
 )
+_OLD_SONAR_LITERAL = "qa-" + "sonarqube-gate"
 
 
 def test_register_verify_producers_adds_expected_qa_producers() -> None:
@@ -57,3 +61,14 @@ def test_layer_1_and_4_are_deterministic() -> None:
     assert types_by_name["verify-system.layer-2-doc-fidelity"] is ProducerType.LLM_REVIEWER
     assert types_by_name["verify-system.layer-3-adversarial"] is ProducerType.LLM_REVIEWER
     assert types_by_name["verify-system.layer-4-policy"] is ProducerType.DETERMINISTIC
+
+
+def test_sonarqube_producer_literal_only_lives_in_ssot() -> None:
+    root = Path(__file__).parents[3]
+    offenders = []
+    for path in (root / "src").rglob("*.py"):
+        if path.name == "qa_artifact_names.py":
+            continue
+        if _OLD_SONAR_LITERAL in path.read_text(encoding="utf-8"):
+            offenders.append(path.relative_to(root).as_posix())
+    assert offenders == []

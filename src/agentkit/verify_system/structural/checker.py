@@ -27,8 +27,10 @@ from agentkit.verify_system.protocols import (
 )
 from agentkit.verify_system.stage_registry.registry import StageRegistry
 from agentkit.verify_system.structural.checks import (
+    ABSENT_BUGFIX_EVIDENCE_PORT,
     ABSENT_BUILD_TEST_PORT,
     ABSENT_CHANGE_EVIDENCE_PORT,
+    BugfixEvidencePort,
     BuildTestEvidencePort,
     ChangeEvidencePort,
     check_are_gate,
@@ -38,6 +40,11 @@ from agentkit.verify_system.structural.checks import (
     check_artifact_worker_manifest,
     check_branch_commit_trailers,
     check_branch_story,
+    check_bugfix_green_evidence,
+    check_bugfix_red_evidence,
+    check_bugfix_red_green_consistency,
+    check_bugfix_reproducer_manifest,
+    check_bugfix_suite_evidence,
     check_build_compile,
     check_build_test_execution,
     check_completion_commit,
@@ -193,6 +200,7 @@ class StructuralChecker:
         registry: StageRegistry | None = None,
         telemetry: TelemetryEventQueryPort | None = None,
         build_test_port: BuildTestEvidencePort | None = None,
+        bugfix_port: BugfixEvidencePort | None = None,
         are_provider: AreGateProvider | None = None,
         change_evidence_port: ChangeEvidencePort | None = None,
     ) -> None:
@@ -200,6 +208,9 @@ class StructuralChecker:
         self._telemetry = telemetry if telemetry is not None else _NULL_TELEMETRY_PORT
         self._build_test_port = (
             build_test_port if build_test_port is not None else ABSENT_BUILD_TEST_PORT
+        )
+        self._bugfix_port = (
+            bugfix_port if bugfix_port is not None else ABSENT_BUGFIX_EVIDENCE_PORT
         )
         self._are_provider = (
             are_provider if are_provider is not None else _ABSENT_ARE_PROVIDER
@@ -271,10 +282,12 @@ class StructuralChecker:
         evidence = self._change_evidence_port.collect(story_dir)
         dispatch = self._dispatch(evidence)
         escalated = False
+        stage_ids_run: list[str] = []
         for stage in self._registry.layer1_stages_for(
             ctx.story_type, are_enabled=self._are_provider.is_enabled
         ):
             checks_run += 1
+            stage_ids_run.append(stage.stage_id)
             finding = self._run_stage(stage, dispatch, ctx, story_dir)
             if finding is not None:
                 findings.append(finding)
@@ -282,7 +295,16 @@ class StructuralChecker:
                     escalated = True
 
         passed = not any(f.severity == Severity.BLOCKING for f in findings)
-        metadata: dict[str, object] = {"total_checks": checks_run}
+        metadata: dict[str, object] = {
+            "total_checks": checks_run,
+            "stage_ids": tuple(stage_ids_run),
+            "stage_producers": {
+                stage.stage_id: stage.producer
+                for stage in self._registry.layer1_stages_for(
+                    ctx.story_type, are_enabled=self._are_provider.is_enabled
+                )
+            },
+        }
         if escalated:
             # FK-27 §27.4.5: impact.violation routes directly to ESCALATED.
             metadata["escalated"] = True
@@ -378,6 +400,7 @@ class StructuralChecker:
         """
         tel = self._telemetry
         bt = self._build_test_port
+        bugfix = self._bugfix_port
         are = self._are_provider
         ev = evidence
 
@@ -422,6 +445,22 @@ class StructuralChecker:
             "test.count": lambda c, d, s: check_test_count(c, d, severity=s, port=bt),
             "test.coverage": lambda c, d, s: check_test_coverage(
                 c, d, severity=s, port=bt
+            ),
+            # FK-26 §26.9 Bugfix Red-Green-Suite
+            "bugfix.reproducer_manifest": lambda c, d, s: (
+                check_bugfix_reproducer_manifest(c, d, severity=s, port=bugfix)
+            ),
+            "bugfix.red_evidence": lambda c, d, s: check_bugfix_red_evidence(
+                c, d, severity=s, port=bugfix
+            ),
+            "bugfix.green_evidence": lambda c, d, s: check_bugfix_green_evidence(
+                c, d, severity=s, port=bugfix
+            ),
+            "bugfix.suite_evidence": lambda c, d, s: check_bugfix_suite_evidence(
+                c, d, severity=s, port=bugfix
+            ),
+            "bugfix.red_green_consistency": lambda c, d, s: (
+                check_bugfix_red_green_consistency(c, d, severity=s, port=bugfix)
             ),
             # §27.4.2 Code-Hygiene (scan the SYSTEM diff changed files).
             "hygiene.todo_fixme": lambda c, d, s: check_hygiene_todo_fixme(

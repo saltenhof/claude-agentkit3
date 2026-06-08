@@ -18,13 +18,18 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from agentkit.core_types import Severity
+from agentkit.core_types.qa_artifact_names import STRUCTURAL_PRODUCER
+from agentkit.verify_system.protocols import TrustClass
+
 if TYPE_CHECKING:
-    from agentkit.core_types import Severity
     from agentkit.story_context_manager.types import StoryType
 
 __all__ = [
     "ExecutionPolicy",
+    "StageKind",
     "StageDefinition",
+    "StageOverridePolicy",
 ]
 
 
@@ -48,6 +53,22 @@ class ExecutionPolicy(StrEnum):
     ALWAYS = "ALWAYS"
     IF_LAYER_PASSES = "IF_LAYER_PASSES"
     IF_PREVIOUS_PASS = "IF_PREVIOUS_PASS"
+
+
+class StageKind(StrEnum):
+    """Typed execution kind of a QA stage (FK-33 §33.2.1)."""
+
+    DETERMINISTIC = "deterministic"
+    LLM_EVALUATION = "llm_evaluation"
+    AGENT = "agent"
+    POLICY = "policy"
+
+
+class StageOverridePolicy(StrEnum):
+    """Override scope for stage-level project policy (FK-33 §33.2.4)."""
+
+    BLOCKING_ONLY = "blocking_only"
+    NONE = "none"
 
 
 @dataclass(frozen=True)
@@ -83,6 +104,28 @@ class StageDefinition:
     layer: int
     severity: Severity
     applies_to: frozenset[StoryType]
+    kind: StageKind = StageKind.DETERMINISTIC
+    trust_class: TrustClass | None = TrustClass.SYSTEM
+    producer: str = STRUCTURAL_PRODUCER
+    override_policy: StageOverridePolicy = StageOverridePolicy.BLOCKING_ONLY
     execution_policy: ExecutionPolicy = ExecutionPolicy.ALWAYS
     escalated: bool = False
     feature_gated_are: bool = False
+    _blocking_override: bool | None = None
+
+    @property
+    def id(self) -> str:
+        """FK-33 ``id`` alias for the canonical code field ``stage_id``."""
+        return self.stage_id
+
+    @property
+    def default_blocking(self) -> bool:
+        """Return whether the registry default blocks on failure."""
+        return self.severity is Severity.BLOCKING
+
+    @property
+    def effective_blocking(self) -> bool:
+        """Return the blocking value after a project override, if any."""
+        if self._blocking_override is not None:
+            return self._blocking_override
+        return self.default_blocking

@@ -91,6 +91,61 @@ class TestLoadProjectConfig:
         assert len(config.repositories) == 1
         assert config.repositories[0].name == "backend"
 
+    def test_loads_top_level_policy_stage_overrides(self, tmp_path: Path) -> None:
+        data = {
+            "project_key": "test-project",
+            "project_name": "test-project",
+            "repositories": [{"name": "backend", "path": "/opt/backend"}],
+            "pipeline": {
+                "config_version": "3.0",
+                "features": {"multi_llm": False},
+                "sonarqube": {"available": False, "enabled": False},
+                "ci": {"available": False, "enabled": False},
+            },
+            "policy": {"stage_overrides": {"adversarial": {"blocking": False}}},
+        }
+        self._write_config(tmp_path, data)
+        config = load_project_config(tmp_path)
+        assert config.policy.stage_overrides["adversarial"].blocking is False
+
+    def test_unknown_stage_override_fails_closed(self, tmp_path: Path) -> None:
+        data = {
+            "project_key": "test-project",
+            "project_name": "test-project",
+            "repositories": [{"name": "backend", "path": "/opt/backend"}],
+            "pipeline": {
+                "config_version": "3.0",
+                "features": {"multi_llm": False},
+                "sonarqube": {"available": False, "enabled": False},
+                "ci": {"available": False, "enabled": False},
+            },
+            "policy": {"stage_overrides": {"unknown.stage": {"blocking": False}}},
+        }
+        self._write_config(tmp_path, data)
+        with pytest.raises(ConfigError, match="unknown stage"):
+            load_project_config(tmp_path)
+
+    def test_forbidden_stage_override_field_fails_closed(self, tmp_path: Path) -> None:
+        data = {
+            "project_key": "test-project",
+            "project_name": "test-project",
+            "repositories": [{"name": "backend", "path": "/opt/backend"}],
+            "pipeline": {
+                "config_version": "3.0",
+                "features": {"multi_llm": False},
+                "sonarqube": {"available": False, "enabled": False},
+                "ci": {"available": False, "enabled": False},
+            },
+            "policy": {
+                "stage_overrides": {
+                    "adversarial": {"blocking": False, "producer": "other"}
+                }
+            },
+        }
+        self._write_config(tmp_path, data)
+        with pytest.raises(ConfigError, match="Extra inputs"):
+            load_project_config(tmp_path)
+
     def test_loads_full_config(self, tmp_path: Path) -> None:
         data = {
             "project_key": "full",

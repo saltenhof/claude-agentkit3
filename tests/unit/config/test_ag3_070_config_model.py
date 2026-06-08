@@ -26,6 +26,7 @@ from agentkit.config import (
     LlmRolesConfig,
     OrchestratorGuardConfig,
     PipelineConfig,
+    PipelinePolicyConfig,
     PolicyConfig,
     ProjectConfig,
     SonarQubeConfig,
@@ -36,6 +37,7 @@ from agentkit.config.loader import load_project_config
 from agentkit.config.models import (
     Features,
     JenkinsConfig,
+    StageOverride,
     StageOverrideConfig,
 )
 from agentkit.exceptions import ConfigError
@@ -424,37 +426,33 @@ class TestPolicyConfig:
     """AC4: policy stanza with FK-03 defaults."""
 
     def test_defaults(self) -> None:
-        """PolicyConfig defaults: major_threshold=3, empty stage_overrides, empty required_stages."""
+        """Top-level PolicyConfig defaults to no stage overrides."""
         cfg = PolicyConfig()
-        assert cfg.major_threshold == 3
         assert cfg.stage_overrides == {}
-        assert cfg.required_stages == []
 
     def test_stage_override_config(self) -> None:
         """StageOverrideConfig allows overriding blocking per stage."""
         override = StageOverrideConfig(blocking=False)
         assert override.blocking is False
 
-    def test_stage_override_default_none(self) -> None:
-        """StageOverrideConfig.blocking=None means 'use registry default'."""
-        override = StageOverrideConfig()
-        assert override.blocking is None
+    def test_stage_override_requires_blocking(self) -> None:
+        """StageOverride requires an explicit blocking value."""
+        with pytest.raises(ValidationError):
+            StageOverride()
 
     def test_policy_with_stage_overrides(self) -> None:
         """PolicyConfig accepts stage_overrides dict."""
         cfg = PolicyConfig(
-            major_threshold=5,
             stage_overrides={"adversarial": StageOverrideConfig(blocking=False)},
         )
-        assert cfg.major_threshold == 5
         assert cfg.stage_overrides["adversarial"].blocking is False
 
     def test_pipeline_config_has_policy(self) -> None:
-        """PipelineConfig carries policy stanza with correct defaults."""
+        """PipelineConfig carries threshold policy stanza with correct defaults."""
         cfg = PipelineConfig(
             config_version=SUPPORTED_CONFIG_VERSION, features=Features(multi_llm=False)
         )
-        assert isinstance(cfg.policy, PolicyConfig)
+        assert isinstance(cfg.policy, PipelinePolicyConfig)
         assert cfg.policy.major_threshold == 3
 
 
@@ -802,7 +800,7 @@ class TestLoaderWithNewStanzas:
         assert cfg.pipeline.telemetry.web_call_warning == 250
 
     def test_load_with_policy_stanza(self, tmp_path: Path) -> None:
-        """Loader correctly parses policy stanza."""
+        """Loader correctly parses pipeline threshold and top-level stage policy."""
         _write_yaml_config(
             tmp_path,
             {
@@ -815,16 +813,18 @@ class TestLoaderWithNewStanzas:
                     "features": {"multi_llm": False},
                     "policy": {
                         "major_threshold": 5,
-                        "stage_overrides": {
-                            "adversarial": {"blocking": False},
-                        },
+                    },
+                },
+                "policy": {
+                    "stage_overrides": {
+                        "adversarial": {"blocking": False},
                     },
                 },
             },
         )
         cfg = load_project_config(tmp_path)
         assert cfg.pipeline.policy.major_threshold == 5
-        assert cfg.pipeline.policy.stage_overrides["adversarial"].blocking is False
+        assert cfg.policy.stage_overrides["adversarial"].blocking is False
 
     def test_load_with_orchestrator_guard_stanza(self, tmp_path: Path) -> None:
         """Loader correctly parses orchestrator_guard stanza."""

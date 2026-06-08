@@ -29,6 +29,7 @@ from agentkit.core_types.qa_artifact_names import (
     DOC_FIDELITY_PRODUCER,
     QA_REVIEW_PRODUCER,
     SEMANTIC_REVIEW_PRODUCER,
+    SONARQUBE_GATE_PRODUCER,
     STRUCTURAL_PRODUCER,
     VERIFY_DECISION_PRODUCER,
 )
@@ -56,8 +57,8 @@ ADVERSARIAL_SANDBOX_STAGE: Final[str] = "qa-adversarial"
 # verify_system.artifacts) registriert.
 # Producer names reference the cross-cutting SSOT
 # ``core_types.qa_artifact_names`` (no second naming truth, AG3-034 R2-H); the
-# legacy ``verify-system.layer-2-llm`` and the ``qa-sonarqube-gate`` producer are
-# not QA-layer SSOT members and stay literal here.
+# legacy ``verify-system.layer-2-llm`` producer is not a QA-layer SSOT member and
+# stays literal here.
 _VERIFY_PRODUCERS: Final[tuple[tuple[ArtifactClass, str, ProducerType], ...]] = (
     (ArtifactClass.QA, STRUCTURAL_PRODUCER, ProducerType.DETERMINISTIC),
     # Layer 2 -- AG3-026 §AK7: drei FK-27 §27.7-Artefakte
@@ -68,8 +69,8 @@ _VERIFY_PRODUCERS: Final[tuple[tuple[ArtifactClass, str, ProducerType], ...]] = 
     (ArtifactClass.QA, "verify-system.layer-2-llm", ProducerType.LLM_REVIEWER),
     (ArtifactClass.QA, ADVERSARIAL_PRODUCER, ProducerType.LLM_REVIEWER),
     # SonarQube-Green-Gate (FK-33 §33.6 / §33.2.2, AG3-052): Layer-1
-    # deterministic stage sequenced after Layer 3, producer ``qa-sonarqube-gate``.
-    (ArtifactClass.QA, "qa-sonarqube-gate", ProducerType.DETERMINISTIC),
+    # deterministic stage sequenced after Layer 3.
+    (ArtifactClass.QA, SONARQUBE_GATE_PRODUCER, ProducerType.DETERMINISTIC),
     (ArtifactClass.QA, VERIFY_DECISION_PRODUCER, ProducerType.DETERMINISTIC),
     # Layer 3 adversarial sandbox (AG3-044, FK-48 §48.1): the spawned
     # adversarial worker writes sandbox tests under the protected

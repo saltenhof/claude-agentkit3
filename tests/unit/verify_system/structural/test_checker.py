@@ -5,12 +5,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+from agentkit.pipeline_engine.phase_executor.models import PhaseSnapshot, PhaseStatus
 from agentkit.state_backend.store import save_phase_snapshot, save_story_context
-from agentkit.story_context_manager.models import (
-    PhaseSnapshot,
-    PhaseStatus,
-    StoryContext,
-)
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType, get_profile
 from agentkit.verify_system.protocols import QALayer, Severity
 from agentkit.verify_system.structural.checker import StructuralChecker

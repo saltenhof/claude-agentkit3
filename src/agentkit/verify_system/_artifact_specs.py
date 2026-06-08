@@ -24,6 +24,7 @@ from agentkit.core_types.qa_artifact_names import (
     QA_REVIEW_STAGE,
     SEMANTIC_REVIEW_PRODUCER,
     SEMANTIC_REVIEW_STAGE,
+    SONARQUBE_GATE_PRODUCER,
     STRUCTURAL_PRODUCER,
     STRUCTURAL_STAGE,
     VERIFY_DECISION_FILE,
@@ -87,12 +88,12 @@ LAYER_3_ARTIFACTS: tuple[_LayerArtifactSpec, ...] = (
     ),
 )
 
-#: SonarQube-Green-Gate artefact (FK-33 §33.2.3; producer ``qa-sonarqube-gate``).
+#: SonarQube-Green-Gate artefact (FK-33 §33.2.3).
 SONARQUBE_GATE_ARTIFACTS: tuple[_LayerArtifactSpec, ...] = (
     _LayerArtifactSpec(
         filename="sonarqube_gate.json",
-        stage="qa-sonarqube-gate",
-        producer_name="qa-sonarqube-gate",
+        stage="sonarqube_gate",
+        producer_name=SONARQUBE_GATE_PRODUCER,
         producer_type=ProducerType.DETERMINISTIC,
     ),
 )

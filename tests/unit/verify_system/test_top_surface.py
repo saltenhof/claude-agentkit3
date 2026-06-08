@@ -22,6 +22,7 @@ from agentkit.artifacts import (
     ArtifactReference,
 )
 from agentkit.core_types import ArtifactClass, PolicyVerdict, QaContext, Severity
+from agentkit.story_context_manager.types import StoryType
 from agentkit.verify_system import (
     QaSubflowOutcome,
     VerifyContextBundle,
@@ -30,6 +31,7 @@ from agentkit.verify_system import (
 )
 from agentkit.verify_system.policy_engine.engine import PolicyEngine
 from agentkit.verify_system.protocols import Finding, LayerResult, TrustClass
+from agentkit.verify_system.stage_registry import StageRegistry
 
 if TYPE_CHECKING:
     from agentkit.verify_system.adversarial_orchestrator.challenger import (
@@ -59,10 +61,20 @@ class _RecordingLayer:
         raise_exc: Exception | None = None,
     ) -> None:
         self._name = name
+        metadata: dict[str, object] = {}
+        if name == "structural":
+            registry = StageRegistry()
+            metadata["stage_ids"] = tuple(
+                stage.stage_id
+                for stage in registry.layer1_stages_for(
+                    StoryType.IMPLEMENTATION, are_enabled=False
+                )
+            )
         self._result = result or LayerResult(
             layer=name,
             passed=True,
             findings=(),
+            metadata=metadata,
         )
         self._raise_exc = raise_exc
         self.calls: list[tuple[object, Path]] = []
@@ -308,7 +320,7 @@ class TestRunQaSubflowImplementationHappyPath:
             "qa-layer-semantic-review",
             "qa-layer-doc-fidelity",
             "qa-layer-adversarial",
-            "qa-sonarqube-gate",
+            "sonarqube_gate",
             "qa-policy-decision",
         }
 

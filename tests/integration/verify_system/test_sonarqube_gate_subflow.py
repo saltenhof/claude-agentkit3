@@ -34,6 +34,7 @@ import pytest
 
 from agentkit.artifacts import ArtifactEnvelope, ArtifactManager, ArtifactReference
 from agentkit.core_types import ArtifactClass, PolicyVerdict, QaContext
+from agentkit.story_context_manager.types import StoryType
 from agentkit.verify_system import VerifyContextBundle, VerifySystem
 from agentkit.verify_system.policy_engine.engine import PolicyEngine
 from agentkit.verify_system.protocols import LayerResult
@@ -44,6 +45,7 @@ from agentkit.verify_system.sonarqube_gate import (
     SonarIssue,
 )
 from agentkit.verify_system.sonarqube_gate.port import PostApplyGateState, SonarGateInputs
+from agentkit.verify_system.stage_registry import StageRegistry
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -89,7 +91,16 @@ class _RecordingLayer:
         return self._name
 
     def evaluate(self, ctx: object, story_dir: Path, *, review_input: object = None) -> LayerResult:  # noqa: ARG002
-        return LayerResult(layer=self._name, passed=True, findings=())
+        metadata: dict[str, object] = {}
+        if self._name == "structural":
+            registry = StageRegistry()
+            metadata["stage_ids"] = tuple(
+                stage.stage_id
+                for stage in registry.layer1_stages_for(
+                    StoryType.IMPLEMENTATION, are_enabled=False
+                )
+            )
+        return LayerResult(layer=self._name, passed=True, findings=(), metadata=metadata)
 
 
 class _RecordingArtifactManager(ArtifactManager):
@@ -229,7 +240,7 @@ def _run(vs: VerifySystem, tmp_path: Path) -> object:
 
 
 def _gate_envelope(manager: _RecordingArtifactManager) -> ArtifactEnvelope:
-    gate = [e for e in manager.written_envelopes if e.stage == "qa-sonarqube-gate"]
+    gate = [e for e in manager.written_envelopes if e.stage == "sonarqube_gate"]
     assert len(gate) == 1
     return gate[0]
 
@@ -377,7 +388,7 @@ class TestNotApplicableFlows:
 
         This test pins ONLY AG3-052's own contract: at a fast resolution the
         ``sonarqube_gate`` stage is dropped entirely — no gate ``LayerResult``,
-        no ``qa-sonarqube-gate`` envelope, no Sonar verdict feeding the policy.
+        no Sonar gate envelope, no Sonar verdict feeding the policy.
         The state machine knows no ``not_applicable_fast`` Sonar status.
 
         SCOPE BOUNDARY (NOT AG3-052): the FULL fast-mode QA-subflow TERMINAL —
@@ -407,7 +418,7 @@ class TestNotApplicableFlows:
 
         # AG3-052 contract: the sonarqube_gate stage produced NOTHING.
         gate_envelopes = [
-            e for e in manager.written_envelopes if e.stage == "qa-sonarqube-gate"
+            e for e in manager.written_envelopes if e.stage == "sonarqube_gate"
         ]
         assert gate_envelopes == []  # stage dropped: no Sonar artefact
         # No Sonar LayerResult fed the decision (no sonarqube layer in results).

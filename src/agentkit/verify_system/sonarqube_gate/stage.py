@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from agentkit.verify_system.stage_registry import StageRegistry
+
 
 @dataclass(frozen=True)
 class SonarStageDefinition:
@@ -42,18 +44,27 @@ class SonarStageDefinition:
     override_policy: str
 
 
-#: The canonical ``sonarqube_gate`` stage definition (FK-33 §33.2.2).
+_REGISTRY_STAGE = StageRegistry().stage_for_id("sonarqube_gate")
+if _REGISTRY_STAGE is None:  # pragma: no cover - canonical registry invariant
+    msg = "sonarqube_gate missing from StageRegistry"
+    raise RuntimeError(msg)
+
+#: Compatibility view of the canonical registry-owned ``sonarqube_gate`` stage.
 SONARQUBE_GATE_STAGE = SonarStageDefinition(
-    stage_id="sonarqube_gate",
-    layer=1,
-    kind="deterministic",
-    applies_to=frozenset({"implementation", "bugfix"}),
-    blocking=True,
-    trust_class="A",
-    producer="qa-sonarqube-gate",
+    stage_id=_REGISTRY_STAGE.stage_id,
+    layer=_REGISTRY_STAGE.layer,
+    kind=_REGISTRY_STAGE.kind.value,
+    applies_to=frozenset(story_type.value for story_type in _REGISTRY_STAGE.applies_to),
+    blocking=_REGISTRY_STAGE.effective_blocking,
+    trust_class=(
+        _REGISTRY_STAGE.trust_class.value
+        if _REGISTRY_STAGE.trust_class is not None
+        else ""
+    ),
+    producer=_REGISTRY_STAGE.producer,
     sequence_after="adversarial",
-    execution_policy="ALWAYS",
-    override_policy="NON_SKIPPABLE",
+    execution_policy=_REGISTRY_STAGE.execution_policy.value,
+    override_policy=_REGISTRY_STAGE.override_policy.value,
 )
 
 
