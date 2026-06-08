@@ -14,6 +14,7 @@ import pytest
 from pydantic import ValidationError
 
 from agentkit.config.models import (
+    SUPPORTED_CONFIG_VERSION,
     JenkinsConfig,
     ProjectConfig,
     RepositoryConfig,
@@ -30,7 +31,12 @@ def _project(ci: object) -> ProjectConfig:
         project_key="acme",
         project_name="Acme",
         repositories=[RepositoryConfig(name="app", path=".")],
-        pipeline={"sonarqube": _OPT_OUT_SONAR, "ci": ci},  # type: ignore[arg-type]
+        pipeline={  # type: ignore[arg-type]
+            "config_version": SUPPORTED_CONFIG_VERSION,
+            "features": {"multi_llm": False},
+            "sonarqube": _OPT_OUT_SONAR,
+            "ci": ci,
+        },
     )
 
 
@@ -72,7 +78,11 @@ class TestCiCodeProducingRule:
                 project_key="acme",
                 project_name="Acme",
                 repositories=[RepositoryConfig(name="app", path=".")],
-                pipeline={"sonarqube": _OPT_OUT_SONAR},  # type: ignore[arg-type]
+                pipeline={  # type: ignore[arg-type]
+                    "config_version": SUPPORTED_CONFIG_VERSION,
+                    "features": {"multi_llm": False},
+                    "sonarqube": _OPT_OUT_SONAR,
+                },
             )
 
     def test_codeproducing_available_enabled_with_endpoint_ok(self) -> None:
@@ -106,10 +116,19 @@ class TestCiCodeProducingRule:
             )
 
     def test_non_codeproducing_may_omit_ci(self) -> None:
+        """Non-code-producing project may omit the ci stanza.
+
+        pipeline is required (FK-03 §3.2.1); a minimal pipeline with only
+        config_version is sufficient for a non-code-producing project.
+        """
         cfg = ProjectConfig(
             project_key="acme",
             project_name="Acme",
             repositories=[],
             story_types=["concept", "research"],
+            pipeline={  # type: ignore[arg-type]
+                "config_version": SUPPORTED_CONFIG_VERSION,
+                "features": {"multi_llm": False},
+            },
         )
         assert cfg.pipeline.ci is None

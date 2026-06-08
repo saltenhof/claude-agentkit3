@@ -233,9 +233,12 @@ def _write_project_config(root: Path, *, available: bool) -> None:
         "project_key: proj\n"
         "project_name: Proj\n"
         "repositories:\n  - name: app\n    path: .\n"
-        # AG3-056: code-producing project must declare the ci stanza too;
-        # an explicit opt-out keeps this Sonar-wiring test isolated.
-        "pipeline:\n  ci:\n    available: false\n    enabled: false\n"
+        # FK-03 §3.2.1: config_version is mandatory (fail-closed); AG3-056:
+        # code-producing project must declare the ci stanza too (opt-out here).
+        "pipeline:\n"
+        "  config_version: '3.0'\n"
+        "  features:\n    multi_llm: false\n"
+        "  ci:\n    available: false\n    enabled: false\n"
         "  sonarqube:\n" + sonar,
         encoding="utf-8",
     )

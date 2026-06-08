@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 from agentkit.config.models import (
+    SUPPORTED_CONFIG_VERSION,
+    Features,
     JenkinsConfig,
     PipelineConfig,
     ProjectConfig,
@@ -135,7 +137,9 @@ def _make_project_config(repo_path: Path) -> ProjectConfig:
         repositories=[RepositoryConfig(name="repo", path=repo_path)],
         # AG3-052 E6 / AG3-056: code-producing default story_types => declare
         # the sonarqube + ci stanzas explicitly.
-        pipeline=PipelineConfig(
+        pipeline=PipelineConfig(  # type: ignore[call-arg]
+            config_version=SUPPORTED_CONFIG_VERSION,
+            features=Features(multi_llm=False),
             sonarqube=SonarQubeConfig(available=False, enabled=False),
             ci=_OPT_OUT_CI,
         ),
@@ -687,7 +691,9 @@ class TestSetupPhaseGreenMain:
             project_key="test-project",
             project_name="Test Project",
             repositories=[RepositoryConfig(name="repo", path=tmp_path)],
-            pipeline=PipelineConfig(
+            pipeline=PipelineConfig(  # type: ignore[call-arg]
+                config_version=SUPPORTED_CONFIG_VERSION,
+                features=Features(multi_llm=False),
                 sonarqube=SonarQubeConfig(
                     available=available,
                     enabled=available,
@@ -803,7 +809,9 @@ class TestSetupPhaseGreenMain:
                     project_key="test-project",
                     project_name="Test Project",
                     repositories=[RepositoryConfig(name="repo", path=tmp_path)],
-                    pipeline=PipelineConfig(
+                    pipeline=PipelineConfig(  # type: ignore[call-arg]
+                        config_version=SUPPORTED_CONFIG_VERSION,
+                        features=Features(multi_llm=False),
                         sonarqube=SonarQubeConfig(available=False, enabled=False),
                         ci=_OPT_OUT_CI,
                     ),

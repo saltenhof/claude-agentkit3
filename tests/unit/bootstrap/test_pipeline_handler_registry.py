@@ -232,7 +232,11 @@ def _write_project_config(
         # A code-producing project MUST declare explicit ``sonarqube`` and ``ci``
         # stanzas (FK-03 §3 / AG3-056, under ``pipeline``); use the
         # deliberate-absent opt-outs to keep the config minimal but valid.
+        # config_version is mandatory (FK-03 §3.2.1); multi_llm=False for this
+        # single-LLM test fixture.
         payload["pipeline"] = {
+            "config_version": "3.0",
+            "features": {"multi_llm": False},
             "sonarqube": {"available": False, "enabled": False},
             "ci": {"available": False, "enabled": False},
         }

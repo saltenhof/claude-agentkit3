@@ -74,7 +74,11 @@ class TestLoadProjectConfig:
             ],
             # AG3-052 E6 / AG3-056: code-producing default story_types must
             # declare the sonarqube + ci stanzas explicitly (here: opt-outs).
+            # config_version is mandatory (FK-03 §3.2.1); multi_llm=False for
+            # this single-LLM test fixture.
             "pipeline": {
+                "config_version": "3.0",
+                "features": {"multi_llm": False},
                 "sonarqube": {"available": False, "enabled": False},
                 "ci": {"available": False, "enabled": False},
             },
@@ -101,6 +105,8 @@ class TestLoadProjectConfig:
                 },
             ],
             "pipeline": {
+                "config_version": "3.0",
+                "features": {"multi_llm": False},
                 "max_feedback_rounds": 5,
                 "max_remediation_rounds": 1,
                 "exploration_mode": False,

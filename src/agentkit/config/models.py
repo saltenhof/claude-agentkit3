@@ -26,20 +26,66 @@ from agentkit.config.defaults import (
     DEFAULT_VERIFY_LAYERS,
 )
 
+#: The single supported ``config_version`` value for ``project.yaml``.
+#: FK-03 §3.2.1 / §3.3.4: pipeline-config versioning area (separate from
+#: artefact-envelope ``schema_version`` which is owned by ``ArtifactEnvelope``
+#: and ``ChangeFrame`` in their respective BCs).
+SUPPORTED_CONFIG_VERSION: str = "3.0"
+
+#: Required LLM roles when ``features.multi_llm`` is ``True`` (FK-03 §3.2.1).
+REQUIRED_LLM_ROLES: frozenset[str] = frozenset(
+    {
+        "qa_review",
+        "semantic_review",
+        "adversarial_sparring",
+        "doc_fidelity",
+        "governance_adjudication",
+    }
+)
+
 
 class Features(BaseModel):
-    """Optional feature flags for a target project.
+    """Feature flags for a target project (FK-03 §3.1).
+
+    Carries all six feature flags as well as the optional ARE flag.
+    Cross-field invariant: ``e2e_assertions`` requires ``db``.
 
     Attributes:
         are: Whether the Agent Requirements Engine (ARE) integration
             is enabled. When ``False`` (default), all
             ``RequirementsCoverage`` top-surface methods are no-ops
             that return ``SKIPPED`` results (FK-40 §40.2).
+        multi_repo: Whether multi-repository support is enabled.
+        vectordb: Whether VectorDB integration is enabled.
+        multi_llm: Whether multi-LLM role assignment is enabled.
+            Default ``True`` (FK-01 §1.3 P5 / FK-03 §3.1 mandate: multi-LLM
+            is the expected production mode).  When ``True`` a populated
+            ``llm_roles`` stanza is required on ``PipelineConfig``.
+        telemetry: Whether telemetry collection is enabled.
+        db: Whether the database backend is enabled.
+        e2e_assertions: Whether end-to-end assertion checks are enabled.
+            Requires ``db=True`` (fail-closed cross-field rule).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     are: bool = False
+    multi_repo: bool = False
+    vectordb: bool = False
+    multi_llm: bool = True
+    telemetry: bool = True
+    db: bool = False
+    e2e_assertions: bool = False
+
+    @model_validator(mode="after")
+    def _validate_e2e_assertions_requires_db(self) -> Features:
+        """FK-03 §3.2.1: ``e2e_assertions`` requires ``db`` (fail-closed)."""
+        if self.e2e_assertions and not self.db:
+            raise ValueError(
+                "features.e2e_assertions=True requires features.db=True "
+                "(FK-03 §3.2.1, fail-closed cross-field rule)"
+            )
+        return self
 
 
 class AreConfig(BaseModel):
@@ -166,6 +212,11 @@ class SonarQubeConfig(BaseModel):
             enabled`` so a produced attestation never carries an empty scanner
             version (fail-closed). The CI/pre-merge path carries the scanner
             version from the producing CI run instead (AG3-056).
+        accept_frequency_fc_threshold: Fraction of stories (measured across
+            ALL stories, never per individual story) at or above which a
+            repeatedly accepted Sonar rule becomes a Failure-Corpus signal
+            (FK-27 §27.6b, FK-41 §41.10). Must be in the range [0.0, 1.0].
+            Default ``0.25`` (FK-03 §3.1).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -178,6 +229,19 @@ class SonarQubeConfig(BaseModel):
     plugins: SonarQubePluginsConfig = SonarQubePluginsConfig()
     quality_gate: SonarQubeQualityGateConfig = SonarQubeQualityGateConfig()
     scanner_version: str | None = None
+    accept_frequency_fc_threshold: float = 0.25
+
+    @field_validator("accept_frequency_fc_threshold")
+    @classmethod
+    def _check_accept_frequency_fc_threshold(cls, value: float) -> float:
+        """FK-03 §3.1: ``accept_frequency_fc_threshold`` must be in [0.0, 1.0]."""
+        if value < 0.0 or value > 1.0:
+            msg = (
+                "sonarqube.accept_frequency_fc_threshold must be in [0.0, 1.0]; "
+                f"got {value!r} (FK-03 §3.1, FK-27 §27.6b)"
+            )
+            raise ValueError(msg)
+        return value
 
     @field_validator("min_version")
     @classmethod
@@ -332,10 +396,179 @@ class ReviewConfig(BaseModel):
     required_roles: list[str] = []
 
 
+class LlmRolesConfig(BaseModel):
+    """LLM provider assignments per pipeline role (FK-01 §1.3 P5 / FK-03 §3.1).
+
+    Maps each pipeline role to the LLM provider name that fulfils it.
+    Required when ``features.multi_llm=True``; the five roles
+    ``qa_review``, ``semantic_review``, ``adversarial_sparring``,
+    ``doc_fidelity``, and ``governance_adjudication`` are mandatory.
+
+    This is the single source of truth for role-to-provider assignment.
+    ``ReviewConfig.required_roles`` (reviewer coverage enforcement in the
+    ReviewGuard) and ``LlmRolesConfig`` (LLM provider assignment per role)
+    serve distinct purposes and are not parallel duplicates.
+
+    Attributes:
+        worker: Provider for the main implementation worker.
+        qa_review: Provider for QA review (mandatory).
+        semantic_review: Provider for semantic/guardrail review (mandatory).
+        adversarial_sparring: Provider for adversarial edge-case testing
+            (mandatory).
+        doc_fidelity: Provider for documentation fidelity review (mandatory).
+        governance_adjudication: Provider for governance adjudication
+            (mandatory).
+        story_creation_review: Optional provider for story creation review.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="allow")
+
+    worker: str | None = None
+    qa_review: str
+    semantic_review: str
+    adversarial_sparring: str
+    doc_fidelity: str
+    governance_adjudication: str
+    story_creation_review: str | None = None
+
+
+class OrchestratorGuardConfig(BaseModel):
+    """Orchestrator guard path/extension/file blocklist (FK-03 §3.1).
+
+    Defines paths, extensions, and files that the orchestrator guard
+    blocks from agent modification. An empty blocklist means the guard
+    is effectively disabled (a warning-level condition at runtime).
+
+    Attributes:
+        blocked_paths: Path prefixes blocked from agent writes.
+        blocked_extensions: File extensions blocked from agent writes.
+        blocked_files: Specific filenames blocked from agent writes.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    blocked_paths: list[str] = []
+    blocked_extensions: list[str] = []
+    blocked_files: list[str] = []
+
+
+class StageOverrideConfig(BaseModel):
+    """Per-stage policy override (FK-03 §3.1).
+
+    Allows project-level overrides of stage-level blocking behaviour.
+
+    Attributes:
+        blocking: Whether the stage is blocking (fail-closed). If ``None``
+            the stage-registry default applies.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    blocking: bool | None = None
+
+
+class PolicyConfig(BaseModel):
+    """Pipeline policy configuration (FK-03 §3.1, FK-05-209).
+
+    Attributes:
+        major_threshold: Number of major QA findings above which the story
+            is escalated (FK-05-209). Default ``3``.
+        stage_overrides: Per-stage blocking overrides keyed by stage ID.
+        required_stages: Stage IDs that are always required regardless of
+            story type. Empty list means use stage-registry defaults.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    major_threshold: int = 3
+    stage_overrides: dict[str, StageOverrideConfig] = {}
+    required_stages: list[str] = []
+
+
+class VectorDbConfig(BaseModel):
+    """VectorDB connection and tuning configuration (FK-03 §3.1, FK-05-018/020).
+
+    Attributes:
+        similarity_threshold: Minimum cosine similarity score for a
+            VectorDB candidate to be forwarded to LLM evaluation (FK-05-018).
+            Default ``0.7``.
+        max_llm_candidates: Maximum number of VectorDB candidates passed to
+            LLM evaluation per query (FK-05-020). Default ``5``.
+        host: VectorDB server hostname or IP.
+        port: VectorDB server port.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    similarity_threshold: float = 0.7
+    max_llm_candidates: int = 5
+    host: str | None = None
+    port: int | None = None
+
+
+class TelemetryConfig(BaseModel):
+    """Telemetry and web-call budget configuration (FK-03 §3.1, FK-08-019).
+
+    Attributes:
+        web_call_limit: Hard limit on outbound web calls per story run,
+            applicable only for Research-type stories (FK-08-019). Default
+            ``200``.
+        web_call_warning: Soft warning threshold for outbound web calls
+            per story run (FK-08-019). Default ``180``. Must be less than
+            ``web_call_limit``.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    web_call_limit: int = 200
+    web_call_warning: int = 180
+
+    @model_validator(mode="after")
+    def _validate_warning_below_limit(self) -> TelemetryConfig:
+        """``web_call_warning`` must be less than ``web_call_limit``."""
+        if self.web_call_warning >= self.web_call_limit:
+            raise ValueError(
+                f"telemetry.web_call_warning ({self.web_call_warning}) must be "
+                f"less than telemetry.web_call_limit ({self.web_call_limit}) "
+                "(FK-08-019)"
+            )
+        return self
+
+
+class GovernanceConfig(BaseModel):
+    """Governance observation configuration (FK-03 §3.1, FK-06-128).
+
+    Attributes:
+        risk_threshold: Risk score at or above which an event is considered
+            an incident candidate. Default ``30``.
+        window_size: Rolling window width in events for risk aggregation.
+            Default ``50``.
+        cooldown_s: Cooldown in seconds between LLM adjudications of the
+            same governance type (FK-06-128). Default ``300``.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    risk_threshold: int = 30
+    window_size: int = 50
+    cooldown_s: int = 300
+
+
 class PipelineConfig(BaseModel):
     """Configuration for the 4-phase pipeline.
 
+    Carries the mandatory ``config_version`` field for the ``project.yaml``
+    config-versioning area (FK-03 §3.2.1 / §3.3.4). This is the single
+    ``config_version`` owner for the Pipeline-Config versioning area.
+    The DB-schema version (``state_backend.config.SCHEMA_VERSION``) is a
+    separate, independent versioning area — the two must NOT be conflated.
+
     Attributes:
+        config_version: Mandatory ``project.yaml`` format version.  Must be
+            provided explicitly — there is no silent default (FK-03 §3.2.1,
+            fail-closed).  Must equal ``"3.0"``; any other value raises
+            ``ValueError`` at model-validation time, which
+            ``load_project_config`` surfaces as a ``ConfigError``.
         max_feedback_rounds: Maximum QA feedback cycles before
             escalation.
         max_remediation_rounds: Maximum remediation attempts per
@@ -347,7 +580,15 @@ class PipelineConfig(BaseModel):
         review: Mandatory-reviewer-coverage configuration (FK-68 §68.3.1 /
             AG3-036 §2.1.5). Authoritative source of ``review.required_roles``
             for the ReviewGuard pre-commit hook.
-        features: Optional feature flags (e.g. ARE integration).
+        features: Feature flags (FK-03 §3.1).
+        llm_roles: LLM provider assignments per pipeline role (FK-01 §1.3
+            P5 / FK-03 §3.1). Required when ``features.multi_llm=True``.
+        orchestrator_guard: Orchestrator guard blocklist (FK-03 §3.1).
+        policy: Pipeline policy configuration (FK-03 §3.1).
+        vectordb: VectorDB connection and tuning (FK-03 §3.1). Required when
+            ``features.vectordb=True``.
+        telemetry: Telemetry and web-call budget (FK-03 §3.1).
+        governance: Governance observation configuration (FK-03 §3.1).
         sonarqube: SonarQube-Green-Gate environment/profile requirement
             (FK-03 §3 / FK-33 §33.6). ``None`` only for non-code-producing
             projects; a code-producing project (``story_types`` include
@@ -369,16 +610,53 @@ class PipelineConfig(BaseModel):
             explicit ``available: false`` opt-out stays legal.
     """
 
-    model_config = ConfigDict(strict=True)
+    model_config = ConfigDict(strict=True, extra="forbid")
 
+    config_version: str
     max_feedback_rounds: int = DEFAULT_MAX_FEEDBACK_ROUNDS
     max_remediation_rounds: int = DEFAULT_MAX_REMEDIATION_ROUNDS
     exploration_mode: bool = True
     verify_layers: list[str] = list(DEFAULT_VERIFY_LAYERS)
     review: ReviewConfig = ReviewConfig()
     features: Features = Features()
+    llm_roles: LlmRolesConfig | None = None
+    orchestrator_guard: OrchestratorGuardConfig = OrchestratorGuardConfig()
+    policy: PolicyConfig = PolicyConfig()
+    vectordb: VectorDbConfig | None = None
+    telemetry: TelemetryConfig = TelemetryConfig()
+    governance: GovernanceConfig = GovernanceConfig()
     sonarqube: SonarQubeConfig | None = None
     ci: JenkinsConfig | None = None
+
+    @field_validator("config_version")
+    @classmethod
+    def _check_config_version(cls, value: str) -> str:
+        """FK-03 §3.2.1: reject unknown ``config_version`` fail-closed.
+
+        The loader catches this ``ValueError`` and surfaces it as a
+        ``ConfigError`` (``load_project_config``). No silent default to an
+        unknown version is permitted (FAIL-CLOSED).
+        """
+        if value != SUPPORTED_CONFIG_VERSION:
+            raise ValueError(
+                f"Unsupported config_version: {value!r}. "
+                f"Expected {SUPPORTED_CONFIG_VERSION!r} (FK-03 §3.2.1, "
+                "fail-closed: unknown version is a hard error, not a warning). "
+                "The installer handles migration between config versions "
+                "(AG3-089)."
+            )
+        return value
+
+    @model_validator(mode="after")
+    def _validate_multi_llm_requires_llm_roles(self) -> PipelineConfig:
+        """FK-03 §3.2.1: ``features.multi_llm=True`` requires ``llm_roles``."""
+        if self.features.multi_llm and self.llm_roles is None:
+            raise ValueError(
+                "pipeline.features.multi_llm=True requires a 'llm_roles' "
+                "stanza (FK-03 §3.2.1 / FK-01 §1.3 P5, fail-closed: no default "
+                "role-to-provider assignment)"
+            )
+        return self
 
 
 def _coerce_path(value: Any) -> Path:
@@ -417,6 +695,11 @@ class ProjectConfig(BaseModel):
     This is the top-level model parsed from
     ``.agentkit/config/project.yaml``.
 
+    ``config_version`` is owned by ``PipelineConfig`` (FK-03 §3.2.1 /
+    §3.3.4 Pipeline-Config versioning area). ``ProjectConfig`` reaches it
+    via ``ProjectConfig.pipeline.config_version`` and carries no second
+    version field (single owner, SSOT).
+
     Attributes:
         project_key: Stable technical key of the target project.
         project_name: Display name of the target project.
@@ -424,7 +707,10 @@ class ProjectConfig(BaseModel):
             ``{{project_prefix}}``). Defaults to ``project_key.upper()`` when
             not provided.
         repositories: List of repositories managed by this project.
-        pipeline: Pipeline behaviour configuration.
+        pipeline: Pipeline behaviour configuration (carries
+            ``config_version``). Required — no silent default (FK-03 §3.2.1
+            fail-closed: omitting the pipeline stanza / config_version is a
+            hard error, not a warning).
         story_types: Allowed story types for this project.
         github_owner: GitHub organisation or user owning the repo.
         github_repo: GitHub repository name.
@@ -436,7 +722,7 @@ class ProjectConfig(BaseModel):
     project_name: str
     project_prefix: str | None = None
     repositories: list[RepositoryConfig]
-    pipeline: PipelineConfig = PipelineConfig()
+    pipeline: PipelineConfig
     story_types: list[str] = list(DEFAULT_STORY_TYPES)
     github_owner: str | None = None
     github_repo: str | None = None

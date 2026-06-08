@@ -140,9 +140,13 @@ def test_resolver_performs_bounded_sync_for_stale_bundle(tmp_path: Path, monkeyp
             "repositories:\n"
             "  - name: app\n"
             "    path: .\n"
+            # FK-03 §3.2.1: config_version is mandatory (fail-closed).
             # AG3-052 E6 / AG3-056: code-producing default story_types =>
             # declare the sonarqube + ci stanzas explicitly (opt-outs).
             "pipeline:\n"
+            "  config_version: '3.0'\n"
+            "  features:\n"
+            "    multi_llm: false\n"
             "  sonarqube:\n"
             "    available: false\n"
             "    enabled: false\n"

@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from agentkit.config.models import (
+    SUPPORTED_CONFIG_VERSION,
+    Features,
     JenkinsConfig,
     PipelineConfig,
     ProjectConfig,
@@ -20,18 +22,26 @@ _OPT_OUT_CI = JenkinsConfig(available=False, enabled=False)
 
 
 def _pipeline(**kwargs: object) -> PipelineConfig:
-    """PipelineConfig with explicit sonarqube + ci opt-outs (E6 / AG3-056)."""
+    """PipelineConfig with explicit config_version, sonarqube + ci opt-outs (E6 / AG3-056).
+
+    Uses ``features=Features(multi_llm=False)`` by default for single-LLM fixtures.
+    """
+    kwargs.setdefault("features", Features(multi_llm=False))
     return PipelineConfig(  # type: ignore[arg-type]
-        sonarqube=_OPT_OUT_SONAR, ci=_OPT_OUT_CI, **kwargs
+        config_version=SUPPORTED_CONFIG_VERSION,
+        sonarqube=_OPT_OUT_SONAR,
+        ci=_OPT_OUT_CI,
+        **kwargs,
     )
 
 
 def _minimal_config(**overrides: object) -> ProjectConfig:
     """Create a minimal ProjectConfig with optional overrides.
 
-    Injects an explicit sonarqube opt-out by default (AG3-052 E6) unless the
-    caller overrides ``pipeline`` or ``story_types`` to a non-code-producing
-    set.
+    Injects an explicit pipeline by default (FK-03 §3.2.1: pipeline is a
+    required field, no silent default). The default pipeline uses sonarqube +
+    ci opt-outs (AG3-052 E6 / AG3-056) so the fixture is valid for both
+    code-producing and non-code-producing story types.
     """
     defaults: dict[str, object] = {
         "project_key": "test-project",
@@ -39,11 +49,7 @@ def _minimal_config(**overrides: object) -> ProjectConfig:
         "repositories": [RepositoryConfig(name="r", path=Path("/tmp"))],
     }
     defaults.update(overrides)
-    story_types = defaults.get("story_types")
-    codeproducing = story_types is None or bool(
-        {"implementation", "bugfix"}.intersection(story_types)  # type: ignore[arg-type]
-    )
-    if codeproducing and "pipeline" not in defaults:
+    if "pipeline" not in defaults:
         defaults["pipeline"] = _pipeline()
     return ProjectConfig(**defaults)  # type: ignore[arg-type]
 

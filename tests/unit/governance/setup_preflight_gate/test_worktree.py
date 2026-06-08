@@ -8,6 +8,8 @@ from unittest.mock import call, patch
 import pytest
 
 from agentkit.config.models import (
+    SUPPORTED_CONFIG_VERSION,
+    Features,
     JenkinsConfig,
     PipelineConfig,
     ProjectConfig,
@@ -37,7 +39,9 @@ def _project_config(tmp_path: Path, repo_names: list[str]) -> ProjectConfig:
         ],
         # AG3-052 E6 / AG3-056: code-producing default story_types => declare
         # the sonarqube + ci stanzas explicitly (opt-outs here).
-        pipeline=PipelineConfig(
+        pipeline=PipelineConfig(  # type: ignore[call-arg]
+            config_version=SUPPORTED_CONFIG_VERSION,
+            features=Features(multi_llm=False),
             sonarqube=SonarQubeConfig(available=False, enabled=False),
             ci=JenkinsConfig(available=False, enabled=False),
         ),

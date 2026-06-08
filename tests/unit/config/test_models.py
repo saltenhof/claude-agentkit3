@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from agentkit.config.models import (
+    SUPPORTED_CONFIG_VERSION,
     AreConfig,
     Features,
     JenkinsConfig,
@@ -29,9 +30,19 @@ _OPT_OUT_CI = JenkinsConfig(available=False, enabled=False)
 
 
 def _opt_out_pipeline(**kwargs: object) -> PipelineConfig:
-    """Build a PipelineConfig with explicit sonarqube + ci opt-outs."""
+    """Build a PipelineConfig with explicit config_version, sonarqube + ci opt-outs.
+
+    Uses ``features=Features(multi_llm=False)`` by default for fixtures that do
+    not test multi-LLM behaviour (single-LLM mode, no llm_roles required).
+    """
+    from agentkit.config.models import SUPPORTED_CONFIG_VERSION, Features
+
+    kwargs.setdefault("features", Features(multi_llm=False))
     return PipelineConfig(  # type: ignore[arg-type]
-        sonarqube=_OPT_OUT_SONAR, ci=_OPT_OUT_CI, **kwargs
+        config_version=SUPPORTED_CONFIG_VERSION,
+        sonarqube=_OPT_OUT_SONAR,
+        ci=_OPT_OUT_CI,
+        **kwargs,
     )
 
 
@@ -39,7 +50,9 @@ class TestPipelineConfig:
     """Tests for PipelineConfig."""
 
     def test_defaults(self) -> None:
-        cfg = PipelineConfig()
+        cfg = PipelineConfig(  # type: ignore[call-arg]
+            config_version="3.0", features=Features(multi_llm=False)
+        )
         assert cfg.max_feedback_rounds == 3
         assert cfg.max_remediation_rounds == 2
         assert cfg.exploration_mode is True
@@ -51,7 +64,9 @@ class TestPipelineConfig:
         ]
 
     def test_custom_values(self) -> None:
-        cfg = PipelineConfig(
+        cfg = PipelineConfig(  # type: ignore[call-arg]
+            config_version=SUPPORTED_CONFIG_VERSION,
+            features=Features(multi_llm=False),
             max_feedback_rounds=5,
             max_remediation_rounds=1,
             exploration_mode=False,
@@ -73,11 +88,17 @@ class TestPipelineConfig:
     def test_review_required_roles_default_empty(self) -> None:
         # AG3-036 §2.1.5 / FIX-2: review.required_roles is the authoritative
         # source for ReviewGuard; default is empty (no mandatory coverage).
-        cfg = PipelineConfig()
+        cfg = PipelineConfig(  # type: ignore[call-arg]
+            config_version=SUPPORTED_CONFIG_VERSION, features=Features(multi_llm=False)
+        )
         assert cfg.review.required_roles == []
 
     def test_review_required_roles_custom(self) -> None:
-        cfg = PipelineConfig(review=ReviewConfig(required_roles=["qa", "security"]))
+        cfg = PipelineConfig(  # type: ignore[call-arg]
+            config_version=SUPPORTED_CONFIG_VERSION,
+            features=Features(multi_llm=False),
+            review=ReviewConfig(required_roles=["qa", "security"]),
+        )
         assert cfg.review.required_roles == ["qa", "security"]
 
 
@@ -221,7 +242,7 @@ class TestAreSectionRequiredWhenEnabled:
             project_key="p",
             project_name="P",
             repositories=[],
-            pipeline=_opt_out_pipeline(features=Features(are=False)),
+            pipeline=_opt_out_pipeline(features=Features(are=False, multi_llm=False)),
         )
         assert cfg.are is None
 
@@ -231,7 +252,10 @@ class TestAreSectionRequiredWhenEnabled:
                 project_key="p",
                 project_name="P",
                 repositories=[],
-                pipeline=PipelineConfig(features=Features(are=True)),
+                pipeline=PipelineConfig(  # type: ignore[call-arg]
+                    config_version=SUPPORTED_CONFIG_VERSION,
+                    features=Features(are=True, multi_llm=False),
+                ),
             )
 
     def test_enabled_with_are_section_ok(self) -> None:
@@ -239,7 +263,7 @@ class TestAreSectionRequiredWhenEnabled:
             project_key="p",
             project_name="P",
             repositories=[],
-            pipeline=_opt_out_pipeline(features=Features(are=True)),
+            pipeline=_opt_out_pipeline(features=Features(are=True, multi_llm=False)),
             are=AreConfig(mcp_server="https://are.example.com/mcp"),
         )
         assert cfg.are is not None
@@ -249,13 +273,23 @@ class TestSonarqubeDeclaredExplicitly:
     """AG3-052 E6 / FK-03 §3: code-producing project must declare sonarqube."""
 
     def test_codeproducing_without_sonarqube_stanza_raises(self) -> None:
-        """Omitted stanza on a code-producing project => fail-closed ValueError."""
+        """Omitted sonarqube stanza on a code-producing project => fail-closed ValueError.
+
+        pipeline is required (FK-03 §3.2.1); the stanza is provided but without
+        a sonarqube key to isolate the sonarqube fail-closed rule.
+        """
         with pytest.raises(ValidationError, match="must DECLARE the 'sonarqube'"):
             ProjectConfig(
                 project_key="p",
                 project_name="P",
                 repositories=[RepositoryConfig(name="r", path=Path("/tmp"))],
-                # default story_types are code-producing; pipeline.sonarqube omitted
+                # pipeline provided but sonarqube stanza omitted — fail-closed
+                pipeline=PipelineConfig(  # type: ignore[call-arg]
+                    config_version=SUPPORTED_CONFIG_VERSION,
+                    features=Features(multi_llm=False),
+                    ci=_OPT_OUT_CI,
+                    # sonarqube intentionally absent
+                ),
             )
 
     def test_codeproducing_with_explicit_available_false_ok(self) -> None:
@@ -275,7 +309,9 @@ class TestSonarqubeDeclaredExplicitly:
             project_key="p",
             project_name="P",
             repositories=[RepositoryConfig(name="r", path=Path("/tmp"))],
-            pipeline=PipelineConfig(
+            pipeline=PipelineConfig(  # type: ignore[call-arg]
+                config_version=SUPPORTED_CONFIG_VERSION,
+                features=Features(multi_llm=False),
                 sonarqube=SonarQubeConfig(
                     available=True,
                     enabled=True,
@@ -290,12 +326,20 @@ class TestSonarqubeDeclaredExplicitly:
         assert cfg.pipeline.sonarqube.available is True
 
     def test_non_codeproducing_may_omit_sonarqube(self) -> None:
-        """Concept/research-only projects may omit the stanza entirely."""
+        """Concept/research-only projects may omit the sonarqube stanza.
+
+        pipeline is required (FK-03 §3.2.1); a minimal pipeline with only
+        config_version is sufficient for a non-code-producing project.
+        """
         cfg = ProjectConfig(
             project_key="p",
             project_name="P",
             repositories=[],
             story_types=["concept", "research"],
+            pipeline=PipelineConfig(  # type: ignore[call-arg]
+                config_version=SUPPORTED_CONFIG_VERSION,
+                features=Features(multi_llm=False),
+            ),
         )
         assert cfg.pipeline.sonarqube is None
 

@@ -18,6 +18,7 @@ from agentkit.config.defaults import (
     DEFAULT_STORY_TYPES,
     DEFAULT_VERIFY_LAYERS,
 )
+from agentkit.config.models import SUPPORTED_CONFIG_VERSION
 from agentkit.exceptions import InstallationError, ProjectError
 from agentkit.installer.codex_settings import write_codex_settings
 from agentkit.installer.file_ops import (
@@ -363,6 +364,26 @@ def _build_project_yaml(config: InstallConfig) -> dict[str, object]:
 
     story_types = list(DEFAULT_STORY_TYPES)
     pipeline: dict[str, object] = {
+        # FK-03 §3.2.1: config_version is mandatory (fail-closed). The installer
+        # always emits the current supported version so every scaffold is
+        # immediately loadable by the loader without silent omission.
+        "config_version": SUPPORTED_CONFIG_VERSION,
+        # FK-01 §1.3 P5 / FK-03 §3.1: multi_llm is a mandatory production default
+        # (true). The scaffold emits the canonical FK-03 §3.1 example llm_roles
+        # block so the freshly installed project is immediately FK-conformant.
+        # Operators who are not yet ready for multi-LLM routing must consciously
+        # set multi_llm: false and remove the llm_roles stanza — a deliberate opt-
+        # out, not an automatic install default.
+        "features": {"multi_llm": True},
+        "llm_roles": {
+            "worker": "claude",
+            "qa_review": "chatgpt",
+            "semantic_review": "gemini",
+            "adversarial_sparring": "grok",
+            "doc_fidelity": "gemini",
+            "governance_adjudication": "gemini",
+            "story_creation_review": "chatgpt",
+        },
         "max_feedback_rounds": DEFAULT_MAX_FEEDBACK_ROUNDS,
         "max_remediation_rounds": DEFAULT_MAX_REMEDIATION_ROUNDS,
         "exploration_mode": True,
