@@ -27,6 +27,8 @@ from agentkit.state_backend.config import resolve_schema_name
 if TYPE_CHECKING:
     import psycopg
 
+_GLOBAL_DDL_LOCK_KEY = "agentkit_postgres_global_ddl"
+
 
 def ensure_versioned_schema(conn: psycopg.Connection[Any]) -> None:
     """Create and select the resolved versioned schema on a raw connection.
@@ -40,8 +42,12 @@ def ensure_versioned_schema(conn: psycopg.Connection[Any]) -> None:
             connection for the remainder of its lifetime.
     """
 
+    conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (_GLOBAL_DDL_LOCK_KEY,))
+    conn.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
     schema = resolve_schema_name()
-    conn.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(schema)))
+    conn.execute(
+        sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(schema))
+    )
     conn.execute(
         sql.SQL("SET search_path TO {}, public").format(sql.Identifier(schema)),
     )

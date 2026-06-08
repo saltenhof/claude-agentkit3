@@ -265,7 +265,6 @@ def _ensure_versioned_schema(conn: _CompatConnection) -> None:
 
 def _schema_alter_statements() -> tuple[str, ...]:
     return (
-        "CREATE EXTENSION IF NOT EXISTS pgcrypto",
         "ALTER TABLE story_contexts ADD COLUMN IF NOT EXISTS story_uuid UUID",
         "ALTER TABLE story_contexts ADD COLUMN IF NOT EXISTS story_number INTEGER",
         (
