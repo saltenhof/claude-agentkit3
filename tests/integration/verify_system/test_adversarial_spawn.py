@@ -8,6 +8,7 @@ ArtifactManager (sqlite) and the challenger->spawner wiring.
 from __future__ import annotations
 
 import dataclasses
+import subprocess
 from typing import TYPE_CHECKING
 
 import pytest
@@ -82,6 +83,24 @@ def _layer2_findings() -> list[Finding]:
             trust_class=TrustClass.VERIFIED_LLM,
         ),
     ]
+
+
+def _git(args: list[str], cwd: Path) -> None:
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True)
+
+
+def _init_story_worktree(story_dir: Path) -> None:
+    """Initialise the real git boundary required by QA-cycle fingerprinting."""
+    story_dir.mkdir(parents=True, exist_ok=True)
+    if not any(story_dir.iterdir()):
+        (story_dir / ".ak3-baseline").write_text("baseline\n", encoding="utf-8")
+    _git(["init", "-b", "main"], story_dir)
+    _git(["config", "user.email", "t@example.com"], story_dir)
+    _git(["config", "user.name", "Test"], story_dir)
+    _git(["add", "."], story_dir)
+    _git(["commit", "-m", "base"], story_dir)
+    _git(["update-ref", "refs/remotes/origin/main", "HEAD"], story_dir)
+    _git(["checkout", "-b", "story-branch"], story_dir)
 
 
 def test_layer2_findings_to_agents_to_spawn(tmp_path: Path) -> None:
@@ -214,7 +233,7 @@ def test_real_qa_subflow_layer2_blocking_to_agents_to_spawn(tmp_path: Path) -> N
     typed spawn order out through ``QaSubflowOutcome.adversarial_spawn``.
     """
     story_dir = tmp_path / "AG3-044"
-    story_dir.mkdir()
+    _init_story_worktree(story_dir)
     manager = build_artifact_manager(tmp_path)
     system = VerifySystem.create_default(artifact_manager=manager)
     # Replace ONLY the qa_review Layer-2 reviewer with a blocking double; the
@@ -284,7 +303,7 @@ def test_real_qa_subflow_impl_route_no_blocking_layer2_no_spawn(tmp_path: Path) 
     (no spurious spawn on a clean Layer-2).
     """
     story_dir = tmp_path / "AG3-044"
-    story_dir.mkdir()
+    _init_story_worktree(story_dir)
     manager = build_artifact_manager(tmp_path)
     system = VerifySystem.create_default(artifact_manager=manager)
     system = dataclasses.replace(
@@ -313,7 +332,7 @@ def test_real_qa_subflow_exploration_route_no_spawn(tmp_path: Path) -> None:
     the spawn is scoped to the Layer-3 route (FK-27 §27.3).
     """
     story_dir = tmp_path / "AG3-044"
-    story_dir.mkdir()
+    _init_story_worktree(story_dir)
     manager = build_artifact_manager(tmp_path)
     system = VerifySystem.create_default(artifact_manager=manager)
 
@@ -359,6 +378,7 @@ def _bind_engine_story_dir(tmp_path: Path) -> Path:
             status="IN_PROGRESS",
         ),
     )
+    _init_story_worktree(story_dir)
     return story_dir
 
 
