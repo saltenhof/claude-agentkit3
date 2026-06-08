@@ -444,9 +444,15 @@ class TestSmokeBugfixStory:
         assert "setup" in result.phases_executed
         assert "implementation" in result.phases_executed
 
-    def test_bugfix_workflow_has_no_exploration_phase(self) -> None:
-        """BUGFIX_WORKFLOW does not define an exploration phase."""
-        assert "exploration" not in BUGFIX_WORKFLOW.phase_names
+    def test_bugfix_workflow_includes_exploration_phase(self) -> None:
+        """BUGFIX_WORKFLOW includes exploration (AG3-057, FK-23 §23.1).
+
+        An EXECUTION-route bugfix still runs setup->implementation->closure
+        (routing_rules removes the exploration phase for EXECUTION mode).
+        The workflow DEFINITION includes it so that an EXPLORATION-route
+        bugfix (trigger-fired) can run exploration as well.
+        """
+        assert "exploration" in BUGFIX_WORKFLOW.phase_names
 
 
 # ---------------------------------------------------------------------------

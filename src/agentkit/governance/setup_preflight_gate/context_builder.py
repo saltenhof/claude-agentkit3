@@ -6,11 +6,16 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from agentkit.governance.errors import StoryModeResolutionError
+from agentkit.governance.setup_preflight_gate.mode_determination import determine_mode
 from agentkit.integrations.github.issues import get_issue
 from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.sizing import estimate_size
-from agentkit.story_context_manager.story_model import WireStoryMode
-from agentkit.story_context_manager.types import StoryMode, StoryType, get_profile
+from agentkit.story_context_manager.story_model import (
+    ChangeImpact,
+    ConceptQuality,
+    WireStoryMode,
+)
+from agentkit.story_context_manager.types import StoryType, get_profile
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -109,6 +114,58 @@ def _resolve_authoritative_mode(
     return story.mode if story.mode is not None else WireStoryMode.STANDARD
 
 
+def _resolve_trigger_inputs(
+    story_service: StoryService | None,
+    story_display_id: str,
+) -> tuple[ChangeImpact | None, ConceptQuality | None, bool, tuple[str, ...]]:
+    """Resolve the 4-trigger inputs from the authoritative StoryService record.
+
+    AG3-057 (FK-22 §22.8.1): trigger inputs are read from the Story stammdaten
+    record and its StorySpecification (Single Source of Truth).  When no
+    StoryService is wired (standalone / legacy path) the trigger inputs are
+    unknown; returning ``None`` for ``change_impact`` and ``concept_quality``
+    causes ``determine_mode`` to fail-closed (→ Exploration via Trigger 2 / 4
+    WARNING branch).  An empty ``concept_paths`` tuple causes Trigger 1 to fire
+    (fail-closed).
+
+    ``concept_paths`` is the runtime projection of
+    ``StorySpecification.concept_refs`` (AC8).  ``concept_refs`` remains the
+    persistence owner; ``concept_paths`` is the typed run-time value consumed by
+    the sandbox guard in :func:`~.mode_determination._has_valid_concept_paths`.
+
+    Args:
+        story_service: The authoritative ``StoryService`` (``None`` =>
+            standalone/legacy; fail-closed defaults apply).
+        story_display_id: The story display ID used to look the record up.
+
+    Returns:
+        A 4-tuple of ``(change_impact, concept_quality, new_structures,
+        concept_paths)`` where ``change_impact`` and ``concept_quality`` are
+        ``None`` when the record is unavailable (fail-closed → Exploration) and
+        ``concept_paths`` is an empty tuple when the spec is absent or
+        ``concept_refs`` is None/empty (fail-closed → Trigger 1 fires).
+    """
+    if story_service is None:
+        # No record available; fail-closed: None signals "unknown" to determine_mode.
+        return None, None, False, ()
+
+    detail = story_service.get_story_detail(story_display_id)
+    if detail is None:
+        # Record absent; fail-closed: None signals "unknown".
+        return None, None, False, ()
+
+    story, spec = detail
+    # AC8: project StorySpecification.concept_refs → concept_paths.
+    # Empty tuple when spec absent or refs genuinely absent (fail-closed → Trigger 1).
+    concept_paths: tuple[str, ...] = (
+        tuple(ref for ref in spec.concept_refs if ref)
+        if spec is not None and spec.concept_refs
+        else ()
+    )
+
+    return story.change_impact, story.concept_quality, story.new_structures, concept_paths
+
+
 def build_story_context(
     owner: str,
     repo: str,
@@ -151,8 +208,6 @@ def build_story_context(
     issue = get_issue(owner, repo, issue_nr)
 
     story_type = _extract_story_type(issue.labels)
-    profile = get_profile(story_type)
-    mode: StoryMode | None = profile.default_mode
 
     resolved_story_id = story_id if story_id is not None else f"STORY-{issue_nr}"
     story_mode = _resolve_authoritative_mode(
@@ -160,13 +215,51 @@ def build_story_context(
     )
     story_number = _story_number_from_id(resolved_story_id) or issue.number
 
+    # AG3-057: build a preliminary context without execution_route to derive the
+    # trigger-input fields, then call determine_mode for the real route.
+    # For the standalone/GitHub path, trigger inputs are not available from the
+    # issue itself — they come from the StoryService record.  When no service is
+    # wired, we fall back to fail-closed defaults (execution_route=EXPLORATION
+    # for implementing types via determine_mode's Trigger 1: no concept_paths).
+    change_impact_val, concept_quality_val, new_structures_val, concept_paths_val = (
+        _resolve_trigger_inputs(story_service, resolved_story_id)
+    )
+
+    # Build a minimal context shell to pass to determine_mode.
+    _shell = StoryContext(
+        project_key=project_key,
+        story_number=story_number,
+        story_id=resolved_story_id,
+        story_type=story_type,
+        # Temporary: allowed_modes validator requires a valid route; use profile
+        # default so the shell validates, then we overwrite via determine_mode.
+        execution_route=get_profile(story_type).default_mode,
+        mode=story_mode,
+        change_impact=change_impact_val,
+        concept_quality=concept_quality_val,
+        new_structures=new_structures_val,
+        concept_paths=concept_paths_val,
+        issue_nr=issue.number,
+        title=issue.title,
+        story_size=estimate_size(list(issue.labels), issue.title),
+        project_root=project_root,
+        participating_repos=[repo],
+        labels=list(issue.labels),
+        created_at=datetime.now(tz=UTC),
+    )
+    real_route = determine_mode(_shell, project_root=project_root)
+
     return StoryContext(
         project_key=project_key,
         story_number=story_number,
         story_id=resolved_story_id,
         story_type=story_type,
-        execution_route=mode,
+        execution_route=real_route,
         mode=story_mode,
+        change_impact=change_impact_val,
+        concept_quality=concept_quality_val,
+        new_structures=new_structures_val,
+        concept_paths=concept_paths_val,
         issue_nr=issue.number,
         title=issue.title,
         story_size=estimate_size(list(issue.labels), issue.title),
@@ -219,19 +312,22 @@ def build_internal_story_context(
     if story_service is None:
         # Standalone/legacy: no authoritative record. Build a minimal internal
         # context (CONCEPT, standard) -- still NO GitHub read.
+        _concept_profile = get_profile(StoryType.CONCEPT)
         return StoryContext(
             project_key=project_key,
             story_number=_story_number_from_id(story_id) or 0,
             story_id=story_id,
             story_type=StoryType.CONCEPT,
-            execution_route=get_profile(StoryType.CONCEPT).default_mode,
+            # determine_mode returns None for CONCEPT — use the profile default
+            # directly (no trigger evaluation needed for non-implementing types).
+            execution_route=_concept_profile.default_mode,
             mode=WireStoryMode.STANDARD,
             project_root=project_root,
             created_at=datetime.now(tz=UTC),
         )
 
-    story = story_service.get_story(story_id)
-    if story is None:
+    detail = story_service.get_story_detail(story_id)
+    if detail is None:
         raise StoryModeResolutionError(
             f"cannot build the internal story context: story {story_id!r} is not "
             "in the StoryService store (fail-closed -- an internal setup must not "
@@ -239,16 +335,55 @@ def build_internal_story_context(
             "FK-12 §12.7.1).",
             detail={"story_display_id": story_id},
         )
+    story, spec = detail
     story_type = StoryType(story.story_type.value)
-    profile = get_profile(story_type)
     story_mode = story.mode if story.mode is not None else WireStoryMode.STANDARD
+
+    # Resolve trigger inputs from the authoritative Story record + spec (AC8).
+    change_impact_val: ChangeImpact | None = story.change_impact
+    concept_quality_val: ConceptQuality | None = story.concept_quality
+    new_structures_val = story.new_structures
+    # AC8: project StorySpecification.concept_refs → concept_paths.
+    # Fail-closed: empty tuple when spec absent or refs genuinely absent
+    # (Trigger 1 fires for implementing stories without concept references).
+    concept_paths_val: tuple[str, ...] = (
+        tuple(ref for ref in spec.concept_refs if ref)
+        if spec is not None and spec.concept_refs
+        else ()
+    )
+
+    # AG3-057: Build a preliminary shell to drive determine_mode.
+    _shell = StoryContext(
+        project_key=project_key,
+        story_number=_story_number_from_id(story_id) or story.story_number,
+        story_id=story_id,
+        story_type=story_type,
+        execution_route=get_profile(story_type).default_mode,
+        mode=story_mode,
+        change_impact=change_impact_val,
+        concept_quality=concept_quality_val,
+        new_structures=new_structures_val,
+        concept_paths=concept_paths_val,
+        title=story.title,
+        story_size=story.size,
+        project_root=project_root,
+        participating_repos=list(story.participating_repos),
+        labels=list(story.labels),
+        created_at=datetime.now(tz=UTC),
+    )
+    real_route = determine_mode(_shell, project_root=project_root)
+
     return StoryContext(
         project_key=project_key,
         story_number=_story_number_from_id(story_id) or story.story_number,
         story_id=story_id,
         story_type=story_type,
-        execution_route=profile.default_mode,
+        execution_route=real_route,
         mode=story_mode,
+        change_impact=change_impact_val,
+        concept_quality=concept_quality_val,
+        new_structures=new_structures_val,
+        concept_paths=concept_paths_val,
         title=story.title,
         story_size=story.size,
         project_root=project_root,

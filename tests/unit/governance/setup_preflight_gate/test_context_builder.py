@@ -18,12 +18,16 @@ from agentkit.governance.setup_preflight_gate.context_builder import (
 )
 from agentkit.integrations.github.issues import IssueData
 from agentkit.story_context_manager.story_model import (
+    ChangeImpact,
+    ConceptQuality,
     Story,
+    StorySpecification,
     WireStoryMode,
     WireStoryType,
 )
 from agentkit.story_context_manager.types import (
     ImplementationContract,
+    StoryMode,
     StoryType,
 )
 
@@ -50,7 +54,7 @@ def _internal_story(
 
 
 class _FakeStoryServiceWithRecord:
-    """Minimal StoryService stub exposing ``get_story`` for the internal path."""
+    """Minimal StoryService stub exposing ``get_story`` and ``get_story_detail``."""
 
     def __init__(self, story: Story | None) -> None:
         self._story = story
@@ -59,6 +63,15 @@ class _FakeStoryServiceWithRecord:
     def get_story(self, story_display_id: str) -> Story | None:
         del story_display_id
         return self._story
+
+    def get_story_detail(
+        self, story_display_id: str
+    ) -> tuple[Story, object] | None:
+        del story_display_id
+        if self._story is None:
+            return None
+        # No spec in the minimal stub — concept_paths will be empty (fail-closed).
+        return self._story, None
 
 
 def _make_issue(
@@ -327,3 +340,337 @@ class TestBuildInternalStoryContext:
         assert ctx.story_type is StoryType.CONCEPT
         assert ctx.project_root == tmp_path
         assert ctx.issue_nr is None
+
+
+# ---------------------------------------------------------------------------
+# ERROR-4: Tests for real build-path contract — concept_refs → concept_paths
+# ---------------------------------------------------------------------------
+
+
+def _impl_story(
+    *,
+    story_display_id: str = "AG3-300",
+    change_impact: ChangeImpact = ChangeImpact.LOCAL,
+    concept_quality: ConceptQuality = ConceptQuality.HIGH,
+    new_structures: bool = False,
+) -> Story:
+    """Build an implementation-type Story for contract tests."""
+    return Story(
+        project_key="test-project",
+        story_number=300,
+        story_display_id=story_display_id,
+        title="Implementation story",
+        story_type=WireStoryType.IMPLEMENTATION,
+        participating_repos=["repo"],
+        labels=["implementation"],
+        change_impact=change_impact,
+        concept_quality=concept_quality,
+        new_structures=new_structures,
+    )
+
+
+class _FakeStoryServiceWithSpec:
+    """Minimal StoryService stub that returns a Story with an optional spec.
+
+    Used to test the real build-path contract: spec.concept_refs → concept_paths.
+    """
+
+    def __init__(
+        self,
+        story: Story | None,
+        spec: StorySpecification | None = None,
+    ) -> None:
+        self._story = story
+        self._spec = spec
+
+    def get_story(self, story_display_id: str) -> Story | None:
+        del story_display_id
+        return self._story
+
+    def get_story_detail(
+        self, story_display_id: str
+    ) -> tuple[Story, StorySpecification | None] | None:
+        del story_display_id
+        if self._story is None:
+            return None
+        return self._story, self._spec
+
+
+class TestConceptRefsToConceptPathsProjection:
+    """ERROR-4: Real build-path contract — StorySpecification.concept_refs → concept_paths.
+
+    AC8: concept_refs is the persistence owner; concept_paths is the runtime
+    projection.  Valid refs must NOT fire Trigger 1; absent refs must fail closed.
+    """
+
+    def test_internal_path_valid_concept_refs_do_not_fire_trigger_1(
+        self, tmp_path: Path
+    ) -> None:
+        """build_internal_story_context: valid spec.concept_refs → concept_paths populated
+        → Trigger 1 does NOT fire → execution_route is EXECUTION (AC8).
+
+        This proves the projection is actually wired: a story that would route to
+        Exploration via Trigger 1 (no concept paths) instead routes to Execution
+        when the spec carries valid refs.
+        """
+        concept_file = tmp_path / "concept.md"
+        concept_file.write_text("# Real concept doc", encoding="utf-8")
+
+        spec = StorySpecification(
+            need=None,
+            solution=None,
+            acceptance=[],
+            concept_refs=[str(concept_file)],
+        )
+        service = _FakeStoryServiceWithSpec(
+            _impl_story(
+                change_impact=ChangeImpact.LOCAL,
+                concept_quality=ConceptQuality.HIGH,
+                new_structures=False,
+            ),
+            spec=spec,
+        )
+        ctx = build_internal_story_context(
+            tmp_path,
+            "test-project",
+            "AG3-300",
+            story_service=service,  # type: ignore[arg-type]
+        )
+
+        # All triggers neutral + valid concept_paths → Execution.
+        assert ctx.execution_route is StoryMode.EXECUTION
+        # concept_paths is populated with the spec ref.
+        assert str(concept_file) in ctx.concept_paths
+
+    def test_internal_path_absent_concept_refs_fires_trigger_1(
+        self, tmp_path: Path
+    ) -> None:
+        """build_internal_story_context: absent spec.concept_refs → concept_paths=()
+        → Trigger 1 fires → execution_route is EXPLORATION (fail-closed, AC8).
+
+        This proves fail-closed behavior: a story with no concept refs in its
+        spec routes to Exploration via Trigger 1.
+        """
+        # Spec with no concept_refs (genuinely absent, not a stub shortcut).
+        spec = StorySpecification(need=None, solution=None, acceptance=[], concept_refs=None)
+        service = _FakeStoryServiceWithSpec(
+            _impl_story(
+                change_impact=ChangeImpact.LOCAL,
+                concept_quality=ConceptQuality.HIGH,
+                new_structures=False,
+            ),
+            spec=spec,
+        )
+        ctx = build_internal_story_context(
+            tmp_path,
+            "test-project",
+            "AG3-301",
+            story_service=service,  # type: ignore[arg-type]
+        )
+
+        # No concept_refs → concept_paths=() → Trigger 1 fires → Exploration.
+        assert ctx.execution_route is StoryMode.EXPLORATION
+        assert ctx.concept_paths == ()
+
+    def test_internal_path_no_spec_fires_trigger_1(
+        self, tmp_path: Path
+    ) -> None:
+        """build_internal_story_context: spec=None → concept_paths=()
+        → Trigger 1 fires → execution_route is EXPLORATION (fail-closed).
+        """
+        service = _FakeStoryServiceWithSpec(
+            _impl_story(
+                change_impact=ChangeImpact.LOCAL,
+                concept_quality=ConceptQuality.HIGH,
+                new_structures=False,
+            ),
+            spec=None,
+        )
+        ctx = build_internal_story_context(
+            tmp_path,
+            "test-project",
+            "AG3-302",
+            story_service=service,  # type: ignore[arg-type]
+        )
+
+        # No spec → concept_paths=() → Trigger 1 fires → Exploration.
+        assert ctx.execution_route is StoryMode.EXPLORATION
+        assert ctx.concept_paths == ()
+
+    def test_github_path_no_service_fires_trigger_1(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """build_story_context without story_service: concept_paths=() (fail-closed).
+
+        No StoryService → no spec available → concept_paths stays empty →
+        Trigger 1 fires for implementing story types.
+        """
+        monkeypatch.setattr(
+            "agentkit.governance.setup_preflight_gate.context_builder.get_issue",
+            lambda owner, repo, nr: _make_issue(labels=("implementation",)),
+        )
+        ctx = build_story_context(
+            "owner", "repo", 42, tmp_path, "test-project", story_service=None
+        )
+        # No service → no concept_paths → Trigger 1 → Exploration.
+        assert ctx.execution_route is StoryMode.EXPLORATION
+        assert ctx.concept_paths == ()
+
+    def test_github_path_with_service_and_valid_concept_refs_do_not_fire_trigger_1(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """build_story_context with service + valid spec.concept_refs → EXECUTION.
+
+        This proves the GitHub build path also correctly projects concept_refs
+        into concept_paths via _resolve_trigger_inputs.
+        """
+        concept_file = tmp_path / "doc.md"
+        concept_file.write_text("# Concept doc", encoding="utf-8")
+
+        spec = StorySpecification(
+            need=None,
+            solution=None,
+            acceptance=[],
+            concept_refs=[str(concept_file)],
+        )
+        service = _FakeStoryServiceWithSpec(
+            _impl_story(
+                story_display_id="STORY-42",
+                change_impact=ChangeImpact.LOCAL,
+                concept_quality=ConceptQuality.HIGH,
+                new_structures=False,
+            ),
+            spec=spec,
+        )
+        monkeypatch.setattr(
+            "agentkit.governance.setup_preflight_gate.context_builder.get_issue",
+            lambda owner, repo, nr: _make_issue(number=42, labels=()),
+        )
+        ctx = build_story_context(
+            "owner", "repo", 42, tmp_path, "test-project",
+            story_id="STORY-42",
+            story_service=service,  # type: ignore[arg-type]
+        )
+        # Valid concept_refs wired through service → Trigger 1 does NOT fire → Execution.
+        assert ctx.execution_route is StoryMode.EXECUTION
+        assert str(concept_file) in ctx.concept_paths
+
+
+class TestNewStructuresPersistenceRoundTrip:
+    """ERROR-4: new_structures field round-trips through service create and idempotency.
+
+    Reproducing test for ERROR-2: StoryService.create_story must persist
+    new_structures=True into the Story record; idempotency body must include it
+    so a replay with a different value raises IdempotencyMismatchError.
+    """
+
+    def test_create_story_persists_new_structures_true(self) -> None:
+        """create_story with new_structures=True stores the flag on the Story record."""
+        from agentkit.project_management.entities import Project, ProjectConfiguration
+        from agentkit.story_context_manager.idempotency import (
+            InMemoryIdempotencyKeyRepository,
+        )
+        from agentkit.story_context_manager.service import StoryService
+        from agentkit.story_context_manager.story_repository import (
+            InMemoryStoryRepository,
+        )
+
+        class _ProjRepo:
+            def get(self, key: str) -> Project | None:
+                if key == "ak3":
+                    return Project(
+                        key="ak3",
+                        name="AgentKit 3",
+                        story_id_prefix="AK3",
+                        configuration=ProjectConfiguration(
+                            repo_url="",
+                            default_branch="main",
+                            default_worker_count=1,
+                            repositories=["ak3"],
+                        ),
+                    )
+                return None
+
+        svc = StoryService(
+            story_repository=InMemoryStoryRepository(),
+            project_repository=_ProjRepo(),  # type: ignore[arg-type]
+            idempotency_repository=InMemoryIdempotencyKeyRepository(),
+            event_emitter=lambda *a: None,
+        )
+        from agentkit.story_context_manager.story_model import CreateStoryInput
+
+        story = svc.create_story(
+            CreateStoryInput(
+                project_key="ak3",
+                title="Story with new_structures",
+                story_type=WireStoryType.IMPLEMENTATION,
+                repos=["ak3"],
+                new_structures=True,
+            ),
+            op_id="op-ns-001",
+        )
+        assert story.new_structures is True
+
+    def test_create_story_idempotency_body_includes_new_structures(self) -> None:
+        """new_structures is part of the idempotency body; a mismatch raises an error.
+
+        This is the direct reproducing test for ERROR-2: creating the same op_id
+        with a different new_structures value must raise IdempotencyMismatchError.
+        """
+        from agentkit.project_management.entities import Project, ProjectConfiguration
+        from agentkit.story_context_manager.errors import IdempotencyMismatchError
+        from agentkit.story_context_manager.idempotency import (
+            InMemoryIdempotencyKeyRepository,
+        )
+        from agentkit.story_context_manager.service import StoryService
+        from agentkit.story_context_manager.story_model import CreateStoryInput
+        from agentkit.story_context_manager.story_repository import (
+            InMemoryStoryRepository,
+        )
+
+        class _ProjRepo:
+            def get(self, key: str) -> Project | None:
+                if key == "ak3":
+                    return Project(
+                        key="ak3",
+                        name="AgentKit 3",
+                        story_id_prefix="AK3",
+                        configuration=ProjectConfiguration(
+                            repo_url="",
+                            default_branch="main",
+                            default_worker_count=1,
+                            repositories=["ak3"],
+                        ),
+                    )
+                return None
+
+        svc = StoryService(
+            story_repository=InMemoryStoryRepository(),
+            project_repository=_ProjRepo(),  # type: ignore[arg-type]
+            idempotency_repository=InMemoryIdempotencyKeyRepository(),
+            event_emitter=lambda *a: None,
+        )
+
+        # First create with new_structures=False.
+        svc.create_story(
+            CreateStoryInput(
+                project_key="ak3",
+                title="Same story",
+                story_type=WireStoryType.IMPLEMENTATION,
+                repos=["ak3"],
+                new_structures=False,
+            ),
+            op_id="op-idem-ns-001",
+        )
+        # Second call with same op_id but different new_structures → mismatch.
+        with pytest.raises(IdempotencyMismatchError):
+            svc.create_story(
+                CreateStoryInput(
+                    project_key="ak3",
+                    title="Same story",
+                    story_type=WireStoryType.IMPLEMENTATION,
+                    repos=["ak3"],
+                    new_structures=True,  # different!
+                ),
+                op_id="op-idem-ns-001",
+            )

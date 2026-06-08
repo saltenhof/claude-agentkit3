@@ -621,6 +621,9 @@
             labels JSONB NOT NULL,
             wave INTEGER NOT NULL,
             critical_path BOOLEAN NOT NULL,
+            -- AG3-057: Trigger 3 input — new code/module structures introduced.
+            -- Default FALSE = fail-closed: absence does not trigger Exploration.
+            new_structures BOOLEAN NOT NULL DEFAULT FALSE,
             created_at TIMESTAMPTZ NULL,
             completed_at TIMESTAMPTZ NULL,
             PRIMARY KEY (story_uuid),

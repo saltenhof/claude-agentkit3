@@ -1,9 +1,12 @@
-"""Tests for the Bugfix story-type profile (AC6).
+"""Tests for the Bugfix story-type profile (AC6, AG3-057).
 
-FK-23 §23.1: the mode-determination applies to Implementation AND Bugfix; a
-Bugfix with low concept quality may route to exploration mode. The profile must
-therefore allow ``StoryMode.EXPLORATION`` while keeping ``EXECUTION`` the
-default and the profile ``phases`` tuple unchanged.
+FK-23 §23.1 / AG3-057: the mode-determination applies to Implementation AND
+Bugfix; a bugfix with a trigger (e.g. low concept quality / architecture impact)
+routes into Exploration mode.  The profile must:
+- allow ``StoryMode.EXPLORATION`` (unchanged since before AG3-057)
+- keep ``EXECUTION`` as the default mode
+- include ``"exploration"`` in the phases tuple (AG3-057: the workflow carries
+  the exploration phase so routing_rules can remove it for EXECUTION-mode bugs)
 """
 
 from __future__ import annotations
@@ -29,11 +32,17 @@ def test_bugfix_default_mode_stays_execution() -> None:
     assert get_profile(StoryType.BUGFIX).default_mode is StoryMode.EXECUTION
 
 
-def test_bugfix_phases_unchanged() -> None:
-    # Exploration is injected via the mode switch (routing_rules), NOT via the
-    # profile phases tuple (AG3-045 §2.1.5).
+def test_bugfix_phases_include_exploration() -> None:
+    """AG3-057: bugfix profile phases now include exploration (FK-23 §23.1).
+
+    The exploration phase is included in the profile so that
+    ``routing_rules.get_phases_for_story`` can remove it for EXECUTION-route
+    bugfixes via the same mechanism used for implementation stories — no
+    separate code path needed.
+    """
     assert get_profile(StoryType.BUGFIX).phases == (
         "setup",
+        "exploration",
         "implementation",
         "closure",
     )

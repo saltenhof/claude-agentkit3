@@ -30,7 +30,11 @@ from agentkit.core_types import (
     SpawnRequest,
 )
 from agentkit.story_context_manager.sizing import StorySize, estimate_size
-from agentkit.story_context_manager.story_model import WireStoryMode
+from agentkit.story_context_manager.story_model import (
+    ChangeImpact,
+    ConceptQuality,
+    WireStoryMode,
+)
 from agentkit.story_context_manager.types import (
     ImplementationContract,
     StoryMode,
@@ -348,6 +352,37 @@ class StoryContext(BaseModel):
     participating_repos: list[str] = Field(default_factory=list)
     labels: list[str] = Field(default_factory=list)
     created_at: datetime | None = None
+
+    # AG3-057: 4-trigger mode-determination inputs (FK-22 §22.8.1).
+    # Projected from the authoritative Story stammdaten at context-build time.
+    # Re-uses existing Story fields (change_impact / concept_quality), adds the
+    # two still-missing run-time fields (new_structures / vectordb_conflict_resolved).
+
+    #: Projected from ``Story.change_impact`` (authoritative owner: story_model).
+    #: ``None`` when the field could not be resolved (fail-closed -> Exploration).
+    change_impact: ChangeImpact | None = None
+
+    #: Projected from ``Story.concept_quality`` (authoritative owner: story_model).
+    #: ``None`` when the field could not be resolved (fail-closed -> Exploration).
+    concept_quality: ConceptQuality | None = None
+
+    #: Whether the story introduces new code / module structures.
+    #: Projected from ``Story.new_structures`` (AG3-057, FK-22 §22.8.1 Trigger 3).
+    #: Fail-closed default ``False``: absence of the field does NOT trigger
+    #: Exploration (no new structures assumed), but also does not mask a real True.
+    new_structures: bool = False
+
+    #: Whether a VektorDB conflict has been detected and acknowledged for this story.
+    #: Consumed from ``Story.vectordb_conflict_resolved`` (authoritative producer:
+    #: AG3-068, FK-21 §21.12). This story only READS the value — no persistence
+    #: here. Fail-closed default ``False``/absent (AG3-068 not yet merged).
+    vectordb_conflict_resolved: bool = False
+
+    #: Runtime projection of ``StorySpecification.concept_refs`` as a tuple of
+    #: path strings. Used by ``_has_valid_concept_paths`` (FK-22 §22.8.1 Trigger 1).
+    #: ``concept_refs`` in the StorySpec remains the persistence owner; this field
+    #: is the typed run-time view for the sandbox guard (no second persistence truth).
+    concept_paths: tuple[str, ...] = ()
 
     @model_validator(mode="before")
     @classmethod

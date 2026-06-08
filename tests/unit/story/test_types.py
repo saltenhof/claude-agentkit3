@@ -134,7 +134,10 @@ class TestProfiles:
         assert p.default_mode == StoryMode.EXECUTION
         assert p.allowed_implementation_contracts == ()
         assert p.default_implementation_contract is None
-        assert p.phases == ("setup", "implementation", "closure")
+        # AG3-057: exploration is now in the bugfix profile phases so that
+        # routing_rules can remove it for EXECUTION-route bugfixes (same
+        # mechanism as for implementation stories).
+        assert p.phases == ("setup", "exploration", "implementation", "closure")
 
     def test_concept_profile(self) -> None:
         p = PROFILES[StoryType.CONCEPT]

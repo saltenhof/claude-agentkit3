@@ -627,6 +627,51 @@ def test_get_story_fields_not_found_raises() -> None:
         svc.get_story_fields("AK3-999")
 
 
+# ---------------------------------------------------------------------------
+# AG3-057 residual: new_structures preserved across idempotent cached replay
+# ---------------------------------------------------------------------------
+
+
+def test_create_story_idempotent_replay_preserves_new_structures() -> None:
+    """Second call with the same op_id must return new_structures=True.
+
+    Regression test for the AG3-057 residual bug where
+    _story_to_internal_snapshot() omitted new_structures, so
+    _story_from_cached_payload() always reconstructed it as False.
+    """
+    svc = _make_service()
+
+    first = svc.create_story(
+        CreateStoryInput(
+            project_key="ak3",
+            title="Trigger 3 replay story",
+            story_type=WireStoryType.IMPLEMENTATION,
+            repos=["ak3"],
+            new_structures=True,
+        ),
+        op_id="op-replay-new-structures",
+    )
+
+    # Idempotent replay: same op_id → must return cached result
+    second = svc.create_story(
+        CreateStoryInput(
+            project_key="ak3",
+            title="Trigger 3 replay story",
+            story_type=WireStoryType.IMPLEMENTATION,
+            repos=["ak3"],
+            new_structures=True,
+        ),
+        op_id="op-replay-new-structures",
+    )
+
+    assert first.new_structures is True, "First call must return new_structures=True"
+    assert second.new_structures is True, (
+        "Cached replay must also return new_structures=True "
+        "(failed before fix: _story_to_internal_snapshot omitted new_structures)"
+    )
+    assert first.story_uuid == second.story_uuid, "Must be same story (idempotent)"
+
+
 def test_get_story_detail_returns_story_and_spec() -> None:
     """create_story must persist a default StorySpecification (Befund 2).
 
