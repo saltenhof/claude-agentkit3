@@ -502,24 +502,41 @@ def _new_code_definition(status_body: dict[str, Any]) -> str:
     """
     project_status = status_body.get("projectStatus")
     if isinstance(project_status, dict):
-        periods = project_status.get("periods")
-        if isinstance(periods, list):
-            for entry in periods:
-                if isinstance(entry, dict):
-                    mode = entry.get("mode")
-                    if isinstance(mode, str) and mode:
-                        return mode
-        period = project_status.get("period")  # legacy singular (older servers)
-        if isinstance(period, dict):
-            mode = period.get("mode")
-            if isinstance(mode, str) and mode:
-                return mode
+        mode = _new_code_mode_from_project_status(project_status)
+        if mode:
+            return mode
     raise SonarApiError(
         "qualitygates/project_status carried no new-code period mode "
         "(neither projectStatus.periods[] nor the legacy projectStatus.period "
         "yielded a non-empty mode); cannot bind new_code_definition "
         "(FK-33 §33.6.3, fail-closed — ERROR-1)"
     )
+
+
+def _new_code_mode_from_project_status(project_status: dict[str, Any]) -> str:
+    """Return the new-code mode from current or legacy project-status shapes."""
+    return _mode_from_periods(project_status.get("periods")) or _mode_from_period(
+        project_status.get("period")
+    )
+
+
+def _mode_from_periods(periods: object) -> str:
+    """Return the first non-empty mode from a Sonar ``periods`` array."""
+    if not isinstance(periods, list):
+        return ""
+    for entry in periods:
+        mode = _mode_from_period(entry)
+        if mode:
+            return mode
+    return ""
+
+
+def _mode_from_period(period: object) -> str:
+    """Return a non-empty Sonar period mode, or ``""`` when absent/malformed."""
+    if not isinstance(period, dict):
+        return ""
+    mode = period.get("mode")
+    return mode if isinstance(mode, str) and mode else ""
 
 
 def _required_server_version(client: SonarClient) -> str:

@@ -1,39 +1,13 @@
 """Closure phase handler -- orchestrates the canonical closure sequence (FK-29).
 
-This handler ORCHESTRATES the FK-29 §29.1/§29.1.4 closure sequence for a story.
-It builds NO second merge, gate, Sonar or lock truth -- it CALLS the existing
-capabilities in the normative order:
+The handler calls the existing Finding-Resolution-Gate, pre-merge block, story
+transition, metrics writer, and post-merge finalization in order. It owns no
+second merge, gate, Sonar, lock, or metrics truth; collaborators are injected by
+the composition root.
 
-* the Finding-Resolution-Gate (``agentkit.closure.gates``, FK-29 §29.2);
-* the Pre-Merge-Scan-and-Merge-Block (``agentkit.closure.merge_sequence``, FK-29
-  §29.1a): integrated-candidate scan (produces the fresh attestation) -> the
-  AG3-034 IntegrityGate (verifies it, FK-35 §35.2.4a) -> the AG3-009 saga
-  (push/ff-merge/reconcile);
-* the post-merge finalization steps 6-9 (``agentkit.closure.post_merge_finalization``,
-  FK-29 §29.1.4): doc-fidelity feedback -> postflight -> VectorDB sync -> guard
-  deactivation (all non-blocking, FK-29 §29.3.2).
-
-Canonical order (impl/bugfix, FK-29 §29.1.4):
-
-1. prior-phase validation (incl. ``qa_cycle_status == pass``);
-2. Finding-Resolution-Gate (ESCALATED on an unresolved finding);
-3. Pre-Merge-Scan-and-Merge-Block (ESCALATED on scan/gate/push/merge failure);
-4. story status Done (``story_closed``);
-5. metrics (``metrics_written``);
-6-9. post-merge finalization (``postflight_done`` marks "postflight ran").
-
-Concept/Research stories (typed via ``StoryTypeProfile.uses_merge``) skip the
-Finding-Resolution-Gate, the IntegrityGate and the whole locked block;
-``integrity_passed`` / ``story_branch_pushed`` / ``merge_done`` are set ``true``
-directly (FK-29 §29.1.1) and the finalization steps 4-9 run normally.
-
-``ClosureProgress`` is the single recovery truth (FK-29 §29.1.0): each substate
-boolean is persisted to the phase state BEFORE the next irreversible side effect;
-``on_resume`` dispatches over those booleans (FK-29 §29.1.3) and never re-runs a
-completed irreversible substate.
-
-Collaborators are injected (DI) -- the composition root
-(``build_closure_phase_handler``) wires them; the handler builds none itself.
+``ClosureProgress`` is the single recovery truth and is persisted before the
+next irreversible side effect. Concept/research stories skip merge-only gates via
+the typed story profile and still run finalization.
 """
 
 from __future__ import annotations

@@ -1,61 +1,13 @@
 """Closure merge sequence (FK-29 §29.1a / §29.1.4, BC 7 ``MergeSequence``).
 
-Thin orchestration of the Pre-Merge-Scan-and-Merge-Block under the
-merge-serialization lock. This module OWNS the canonical pre-push green barrier
-ORDER only -- it builds no second merge, gate, Sonar or lock truth. It CONSUMES
-the AG3-056 Pre-Merge-Verification-Runner contract
-(``agentkit.verify_system.pre_merge_runner.contract``) for the commit-bound
-Build/Test + Sonar scan ports; the dependency direction is strictly
-``closure -> verify_system.pre_merge_runner`` (never the reverse). It runs, in
-the strict locked order (FK-29 §29.1a.3, NO ERROR BYPASSING):
+Owns the canonical pre-push green barrier order under the merge lock. The block
+captures the locked base, integrates main, verifies the integrated candidate via
+Build/Test plus Sonar, binds scan commit/tree to the merge candidate, runs the
+IntegrityGate, rechecks the base lease, then delegates push/ff-merge/CAS update
+to the closure saga. Fast mode replaces that full barrier with the Sanity-Gate.
 
-1. **lock** -- capture ``locked_sha`` of the current ``origin/main`` (the CAS/lease
-   base for the later ff-update), then fetch and assert ``origin/main`` still
-   equals ``locked_sha`` (lock drift => re-setup the whole block);
-2. **integrate-latest-main** into the story branch (the "integrated candidate")
-   over the injected :class:`GitBackend`;
-3. **clean workspace** -- ``git clean -xfd`` + assert ``git status --porcelain``
-   is empty, so the scan measures exactly the committed tree;
-4. **capture** the integrated-candidate ``commit_sha`` + ``tree_hash`` (the
-   binding the scan attestation and the later merge must both match), build the
-   AG3-056 :class:`CandidateRef` from it;
-5. **Build/Test** on the integrated candidate via the injected, commit-bound
-   AG3-056 :class:`BuildTestPort` (a red/aborted/unreachable run escalates --
-   NEVER a silent merge without a confirmed build);
-6. **Sonar scan** on the integrated candidate via the AG3-056
-   :class:`PreMergeScanPort` -- PRODUCES the fresh, commit-bound attestation
-   (``ScanOutcome.attestation``) carrying the Sonar-proven ``commit_sha`` +
-   ``tree_hash``;
-7. **tree+commit binding** (E3) -- assert ``scan.produced`` AND
-   ``scan.commit_sha == candidate.commit_sha`` AND ``scan.tree_hash ==
-   candidate.tree_hash`` (the attested revision IS the revision about to be
-   merged); any mismatch / absence escalates (no sham verification);
-8. **IntegrityGate** Dim 1-9 -- VERIFIES the FRESH ``ScanOutcome.attestation``
-   (Dim 9, FK-35 §35.2.4a) AFTER the scan and BEFORE the push; the barrier
-   passes the fresh attestation to ``IntegrityGate.evaluate`` so Dim 9 evaluates
-   exactly it and never re-reads the worktree; a FAIL escalates;
-9. **CAS guard** -- re-assert ``origin/main == locked_sha`` (main drifted since
-   the lock => re-setup the block, never merge against a stale base);
-10. **Saga + atomic CAS push** -- the AG3-009 multi-repo closure saga building
-    blocks perform the story-branch push and the ff-only merge; the final
-    ``origin/main`` update is an ATOMIC compare-and-swap against ``locked_sha``
-    (``git push --force-with-lease=main:<locked_sha>``, E4): a concurrent advance
-    is a fail-closed escalation with rollback, NEVER a clobber (FK-29 §29.1.5
-    ff_only; ``--force-with-lease`` to the exact locked sha is a CAS, not a
-    history rewrite).
-
-Checkpoint timing (E5, FK-29 §29.1.0/§29.1.3): the block returns its reached
-:class:`ClosureProgress`; ``story_branch_pushed`` is set ONLY after the push
-succeeded and ``merge_done`` ONLY after the CAS main-update succeeded on ALL
-repos. The caller persists each checkpoint AFTER its side-effect succeeds, so a
-crash mid-side-effect never marks it done; ``on_resume`` re-runs only the
-incomplete substate (no double-merge). The locked block is ATOMAR: it has NO
-intra-lock sub-checkpoints beyond those durable booleans.
-
-In ``mode == fast`` (§29.1a.6) the integrate/build/test/scan and the
-nine-dimension IntegrityGate are replaced by the Sanity-Gate (tests green +
-worktree clean + pre-merge rebase OK); a sanity violation / rebase conflict
-escalates.
+Progress is persisted only after durable side effects succeed, so resume never
+marks an incomplete push or merge as done.
 """
 
 from __future__ import annotations

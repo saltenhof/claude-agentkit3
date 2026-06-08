@@ -274,166 +274,23 @@ class VerifySystem:
         structural_are_provider: AreGateProvider | None = None,
         structural_change_evidence_port: ChangeEvidencePort | None = None,
     ) -> VerifySystem:
-        """Construct a ``VerifySystem`` with default sub-components.
-
-        Builds all sub-components with sensible defaults.
-        ``artifact_manager`` ist **Pflicht-Argument** (AG3-026 §2.1.4 +
-        Re-Review-Befund 3): ein fehlender ArtifactManager war
-        Story-explizit als Fail-closed-Pfad markiert; eine stille
-        No-Op-Variante hatte unbemerkt QA-Wahrheit verworfen.
-
-        Args:
-            artifact_manager: ``ArtifactManager`` fuer Artefakt-Writes.
-                **Pflicht**. Aufrufer, die einen Test-Stub brauchen,
-                liefern einen Recording-Test-Double; produktive Aufrufer
-                nutzen ``bootstrap.composition_root.build_verify_system``.
-            max_major_findings: Threshold for the policy engine. Mirrors
-                :class:`PolicyEngine` -- MAJOR findings beyond this count
-                turn into blocking findings (FK-27 §27.4.2 / §27.7.2).
-            max_feedback_rounds: Ceiling for the subflow-internal remediation
-                loop (FK-03 §3.4.2 / FK-38; resolved from the pipeline config by
-                ``build_verify_system``). ``None`` => the controller's default
-                (3). The :class:`RemediationLoopController` is the hard owner of
-                the ceiling — it is NOT bypassable (NO ERROR BYPASSING).
-            story_context_port: Optionaler ``StoryContextQueryPort`` (AG3-035).
-                Wenn ``None``, wird der No-op-Port genutzt (Fallback auf den
-                IMPLEMENTATION-Stub in ``_execute_layer``). Produktive Aufrufer
-                reichen den state-backed Adapter via
-                ``composition_root.build_verify_system`` ein.
-            sonar_gate_port: Optionaler ``SonarGateInputPort`` (AG3-052,
-                FK-33 §33.6). Wenn ``None``, wird der Absent-Sonar-Port
-                genutzt (``sonarqube.available == false`` => Stage SKIP).
-            invalidation_sink: Optionaler produktiver
-                ``ArtifactInvalidationSink`` (FK-27 §27.2.3 / AG3-041 §2.1.3):
-                emittiert pro ``stale/``-Move ein ``artifact_invalidated``-
-                Telemetrie-Event. ``None`` => No-op-Sink (Testpfad ohne
-                verdrahtete Telemetrie). Produktive Aufrufer reichen den
-                telemetrie-gebundenen Sink via
-                ``composition_root.build_verify_system`` ein.
-            review_completion_sink: Optionaler produktiver
-                ``ReviewCompletionSink`` (FK-27 §27.4.3 / §27.5.5): emittiert pro
-                erfolgreichem Layer-2-Review-Artefakt-Write ein
-                ``llm_call_complete``-Event (mit Reviewer-Rolle im Payload),
-                damit der ``guard.multi_llm`` Gate 2 einen abgeschlossenen Review
-                zaehlt (nicht die blosse API-Antwort). ``None`` => No-op-Sink
-                (Testpfad). Produktive Aufrufer reichen den telemetrie-gebundenen
-                Sink via ``composition_root.build_verify_system`` ein.
-            layer2_llm_client: Optionaler ``LlmClient`` (AG3-043 E6, FK-27
-                §27.5). Wenn gesetzt, baut der QA-Subflow pro Run einen
-                ``ParallelEvalRunner`` (FK-44 §44.4.2) und faehrt die drei
-                LLM-Bewertungen WIRKLICH (kein Rueckfall auf die
-                deterministischen Stub-Reviewer); ``None`` => Reviewer-Pfad.
-                Produktiv via ``composition_root.build_verify_system``.
-            fast_test_runner: Optional fast-mode tests-green floor runner
-                (AG3-018, FK-24 §24.3.4). In ``mode == fast`` the QA-subflow
-                degenerates to Layer 1 (structural) + the hard tests-green floor
-                and SKIPS Layers 2-4 + the feedback loop. The runner is the SAME
-                mechanism the closure Sanity-Gate uses; ``None`` => the floor is
-                unconfirmable and the fast subflow FAILS CLOSED.
-
-        Returns:
-            A frozen ``VerifySystem`` with default-configured sub-components.
-
-        Raises:
-            VerifySystemError: when ``artifact_manager`` is ``None``.
-        """
-        if artifact_manager is None:
-            raise VerifySystemError(
-                "VerifySystem.create_default() requires an ArtifactManager "
-                "(AG3-026 §2.1.4 fail-closed). Use "
-                "agentkit.bootstrap.composition_root.build_verify_system "
-                "for the wired default.",
-            )
-        resolved_port = story_context_port or _NULL_STORY_CONTEXT_PORT
-        resolved_sonar_port = sonar_gate_port or ABSENT_SONAR_GATE_PORT
-        # AG3-042: the FK-27 §27.4 Layer-1 stage registry is bound to BOTH the
-        # StructuralChecker (drives the checks) and the PolicyEngine (drives the
-        # fail-closed missing-artifact check, FK-33 §33.7) -- ONE registry truth
-        # shared by both sub-components (no second stage truth). The PRODUCTIVE
-        # composition root (``build_verify_system``) injects the full FK-27
-        # §27.4 catalogue together with the live telemetry / build-test / ARE
-        # ports. A bare ``create_default`` (test path) defaults to the
-        # meta-only Layer 1: the structural layer runs only the canonical-state
-        # pre-checks unless the caller wires the registry + evidence ports
-        # (preserving the pre-AG3-042 default behaviour for unit fixtures).
-        from agentkit.verify_system.stage_registry.registry import (
-            StageRegistry as _StageRegistry,
-        )
-        from agentkit.verify_system.structural.checker import StructuralChecker
-
-        # Meta-only default (empty registry) when the caller wires no registry:
-        # the structural layer runs only the canonical-state pre-checks and the
-        # policy engine demands no Layer-1 stages. The productive root injects
-        # the full FK-27 §27.4 catalogue.
-        resolved_registry: StageRegistry = (
-            stage_registry if stage_registry is not None else _StageRegistry(stages=())
-        )
-        structural_checker = StructuralChecker(
-            registry=resolved_registry,
-            telemetry=structural_telemetry_port,
-            build_test_port=structural_build_test_port,
-            are_provider=structural_are_provider,
-            change_evidence_port=structural_change_evidence_port,
-        )
-        # AG3-044 (FK-27 §27.6 / FK-48 §48.2): the adversarial spawner is wired
-        # by default (it only needs the producer-bound ArtifactManager). It is
-        # held BOTH on the Layer-3 challenger (so ``derive_adversarial_targets``
-        # turns BLOCKING Layer-2 findings into mandatory targets) AND on the
-        # VerifySystem (so ``run_qa_subflow`` calls ``request_spawn`` to
-        # materialise the protected sandbox + carry the spawn orders out). This
-        # is the end-to-end wiring that makes the spawn reachable on the real QA
-        # path -- no dead path.
-        adversarial_spawner = AdversarialSpawner(artifact_manager)
-        # AG3-015 / FK-44 §44.4.2: the QA layers materialize their prompts via
-        # PromptRuntime.materialize_prompt and audit them via the
-        # ArtifactManager. Both dependencies are injected here so no layer
-        # reaches into prompt-runtime sub-modules or state_backend.store.
-        return cls(
-            layer_1=structural_checker,
-            layer_2a=QaReviewReviewer(
-                artifact_manager=artifact_manager,
-                story_context_port=resolved_port,
-            ),
-            layer_2b=SemanticReviewer(
-                artifact_manager=artifact_manager,
-                story_context_port=resolved_port,
-            ),
-            layer_2c=DocFidelityReviewer(
-                artifact_manager=artifact_manager,
-                story_context_port=resolved_port,
-            ),
-            layer_3=AdversarialChallenger(
-                artifact_manager=artifact_manager,
-                story_context_port=resolved_port,
-                spawner=adversarial_spawner,
-            ),
-            policy_engine=PolicyEngine(
-                max_major_findings=max_major_findings,
-                stage_registry=resolved_registry,
-            ),
+        """Construct a ``VerifySystem`` with default sub-components."""
+        return _create_default(
+            cls,
             artifact_manager=artifact_manager,
-            story_context_port=resolved_port,
-            sonar_gate_port=resolved_sonar_port,
+            max_major_findings=max_major_findings,
+            max_feedback_rounds=max_feedback_rounds,
+            story_context_port=story_context_port,
+            sonar_gate_port=sonar_gate_port,
+            invalidation_sink=invalidation_sink,
+            review_completion_sink=review_completion_sink,
             layer2_llm_client=layer2_llm_client,
             fast_test_runner=fast_test_runner,
-            remediation_loop_controller=(
-                _qa.RemediationLoopController(
-                    max_feedback_rounds=max_feedback_rounds
-                )
-                if max_feedback_rounds is not None
-                else _qa.RemediationLoopController()
-            ),
-            qa_cycle_lifecycle=(
-                _qa.QaCycleLifecycle(invalidation_sink=invalidation_sink)
-                if invalidation_sink is not None
-                else _qa.QaCycleLifecycle()
-            ),
-            review_completion_sink=(
-                review_completion_sink
-                if review_completion_sink is not None
-                else _NULL_REVIEW_COMPLETION_SINK
-            ),
-            adversarial_spawner=adversarial_spawner,
+            stage_registry=stage_registry,
+            structural_telemetry_port=structural_telemetry_port,
+            structural_build_test_port=structural_build_test_port,
+            structural_are_provider=structural_are_provider,
+            structural_change_evidence_port=structural_change_evidence_port,
         )
 
     # ------------------------------------------------------------------
@@ -485,301 +342,15 @@ class VerifySystem:
         review_input: object | None = None,
         previous_findings: tuple[Finding, ...] = (),
     ) -> QaSubflowOutcome:
-        """Execute the full QA-subflow and return a structured outcome.
-
-        Steps:
-        1. Resolve ``target`` to an internal ``VerifyTarget`` (fail-closed
-           on unknown target_type).
-        2. Select layers via ``select_layers(qa_context)``.
-        3. Execute each selected layer in order; wrap unexpected exceptions
-           in ``LayerExecutionError`` and aggregate as BLOCKING findings.
-           Layer 2 (LLM_EVALUATOR) runs three distinct reviewers (W1);
-           each produces its own ``LayerResult`` and its own envelope.
-        4. Write a QA artefact via ``ArtifactManager`` for each executed layer.
-        5. Run the policy engine over all collected ``LayerResult`` instances.
-        6. Write the policy decision artefact.
-        7. Return a ``QaSubflowOutcome`` carrying the verdict, full
-           ``VerifyDecision``, artifact filenames, attempt counter, and
-           optional remediation feedback (AG3-026 Pass-2 §Befund-A).
-
-        Cross-BC callers (e.g. ``agentkit.implementation``) MUST use
-        ``outcome.verdict`` for the PASS/FAIL gate and feed
-        ``outcome.decision`` into the FK-69 recording path
-        (``record_layer_artifacts`` / ``record_verify_decision``) -- no
-        second layer-execution is needed.
-
-        Args:
-            ctx: Run-time context bundle (run_id, story_dir, phase_envelope,
-                attempt).
-            story_id: Story display-ID (e.g. ``AG3-042``).
-            qa_context: Invocation context that controls layer selection.
-            target: Typed reference to the artefact under review.
-            review_input: Optional ``Layer2ReviewInput`` with the four FK-27
-                text inputs for Layer-2 reviewers (story_spec, diff_summary,
-                concept_excerpt, handover). When ``None``, a default empty
-                ``Layer2ReviewInput()`` is used (Layer-2 reviewers will emit
-                a MAJOR ``layer2_input.missing`` finding). Pass a populated
-                instance once Workers produce handover artefacts (THEME-009).
-            previous_findings: Findings from the prior remediation round (the
-                state owner / phase handler carries them forward). In a
-                remediation context they are matched against this round's
-                findings by :class:`FindingResolutionAssessor` (FK-34 / DK-04
-                §4.6); a still-open (NOT_RESOLVED / PARTIALLY_RESOLVED) previous
-                finding sets ``closure_blocked`` (AG3-041 §2.1.6). Empty in the
-                initial round.
-
-        Returns:
-            ``QaSubflowOutcome`` with ``verdict``, ``decision``,
-            ``artifact_refs``, ``attempt_nr``, ``qa_cycle_round`` and
-            optional ``feedback``.
-
-        Raises:
-            VerifyTargetUnknownError: If the target's artifact_class
-                cannot be mapped to a ``VerifyTargetType``.
-        """
-        # Step 1: Resolve target (fail-closed on unknown type).
-        verify_target = self._resolve_verify_target(target)
-
-        # Step 1b: Normalise review_input -- default to empty when None.
-        # Layer-2 reviewers require a Layer2ReviewInput instance (fail-closed).
-        # Until Workers produce handover artefacts (THEME-009), pass empty
-        # strings so reviewers emit MAJOR layer2_input.missing, not silent PASS.
-        from agentkit.verify_system.llm_evaluator.inputs import Layer2ReviewInput as _L2Input
-
-        effective_review_input: _L2Input = (
-            review_input
-            if isinstance(review_input, _L2Input)
-            else _L2Input()
-        )
-
-        # Step 1c: Resolve StoryContext via the injected query port (AG3-035
-        # echter Drift-Fix). KEIN direkter ``state_backend.store``-Import mehr in
-        # verify_system; der konkrete Adapter wird im composition_root verdrahtet
-        # (BC-Topologie: verify-system haengt am Port, nicht an state_backend).
-        # No-op-Port liefert None -> _execute_layer faellt auf IMPLEMENTATION-Stub.
-        _story_ctx = self.story_context_port.load(ctx.story_dir)
-
-        # AG3-018 (FK-24 §24.3.4 Mode-Profil): in ``mode == fast`` the QA-subflow
-        # degenerates to Layer 1 (structural) + the hard tests-green floor and
-        # SKIPS Layers 2 (LLM), 3 (adversarial), 4 (policy), the Sonar gate AND
-        # the feedback/remediation loop. The floor is non-disableable: a red test
-        # (or an unconfirmable result) is a fail-closed FAIL (NO ERROR BYPASSING).
-        if _is_fast_mode(_story_ctx):
-            return self._run_fast_floor(
-                ctx=ctx,
-                story_id=story_id,
-                story_ctx=_story_ctx,
-            )
-
-        # Step 2: Select layers.
-        layer_kinds = select_layers(qa_context)
-
-        # Step 3 + 4: Execute layers in order and write artefacts.
-        layer_results: list[LayerResult] = []
-        artifact_refs_written: list[str] = []
-        now_str = _qa.utc_now_iso()
-
-        # AG3-041 §2.1.7: drive the QA-cycle lifecycle. First call (no active
-        # cycle) -> start_cycle (round 1, epoch 1). Remediation context with an
-        # active cycle -> advance_qa_cycle (round/epoch +1, recompute
-        # fingerprint, invalidate the 11/12 cycle-bound artefacts, FK-27
-        # §27.2.3). The resulting identities are embedded into every QA artefact
-        # written below. When no phase-envelope view is present (idle / legacy
-        # callers), fall back to the previously-supplied fields (no cycle).
-        cycle_state = _qa.resolve_qa_cycle_state(
-            self.qa_cycle_lifecycle, ctx, story_id, qa_context
-        )
-        qa_cycle_fields = _qa.qa_cycle_state_to_fields(cycle_state)
-
-        sonar_fail_decision: VerifyDecision | None = None
-        for kind in layer_kinds:
-            if kind is QALayerKind.POLICY:
-                # Policy runs after all data layers; handled in step 5/6.
-                continue
-
-            if kind is QALayerKind.SONARQUBE_GATE:
-                sonar_fail_decision = self._run_sonarqube_gate_kind(
-                    ctx=ctx,
-                    story_id=story_id,
-                    now_str=now_str,
-                    qa_cycle_fields=qa_cycle_fields,
-                    layer_results=layer_results,
-                    artifact_refs_written=artifact_refs_written,
-                )
-                if sonar_fail_decision is not None:
-                    # FK-33 §33.6.3: an APPLICABLE gate fail-closed routes
-                    # DIRECTLY to failed WITHOUT policy aggregation. It does NOT
-                    # bypass the remediation loop (FK-27 §27.6a.2): the FAIL is
-                    # fed through the SAME escalation path below (break, do not
-                    # return). No decision.json on this path (the gate envelope
-                    # is the verdict carrier).
-                    break
-                continue
-
-            self._run_data_layer_kind(
-                kind=kind,
-                ctx=ctx,
-                story_id=story_id,
-                now_str=now_str,
-                qa_cycle_fields=qa_cycle_fields,
-                effective_review_input=effective_review_input,
-                story_ctx=_story_ctx,
-                layer_results=layer_results,
-                artifact_refs_written=artifact_refs_written,
-                qa_cycle_round=cycle_state.round,
-                previous_findings=previous_findings,
-            )
-
-        # Step 5: Policy decision. On a Sonar fail-closed short-circuit the
-        # gate's BLOCKING SYSTEM finding is authoritative (FK-33 §33.6.3): no
-        # policy aggregation, no decision.json.
-        if sonar_fail_decision is not None:
-            decision = sonar_fail_decision
-        else:
-            # FIX-A (FK-33 §33.7): the PRODUCTION path passes the EFFECTIVE
-            # story type (the SAME one the layers were executed under, see
-            # _execute_layer) + max_layer_reached + ARE activation so the
-            # registry-bound fail-closed missing-stage check ALWAYS runs and the
-            # FK-33 §33.7.3 per-story-type threshold is ALWAYS used. The scalar
-            # fallback (no missing-stage check) is unreachable on this path:
-            # _effective_story_type returns IMPLEMENTATION when no StoryContext
-            # resolved, exactly mirroring the layer-execution stub, so an
-            # unresolved context fails CLOSED through the registry path instead
-            # of silently downgrading to the scalar threshold (no two-truth
-            # threshold, no fail-open edge).
-            decision = self.policy_engine.decide(
-                layer_results,
-                story_type=_effective_story_type(_story_ctx),
-                max_layer_reached=_max_layer_reached(layer_results),
-                # FIX-A: pass the EXACT executed-layer set so the fail-closed
-                # missing-stage check honours non-contiguous routes (FK-27 §27.3:
-                # Exploration runs Layer 2 + Layer 4 and SKIPS Layer 1, so a
-                # Layer-1 stage must NOT be reported missing there). Without this
-                # the registry path would over-block the legitimate exploration
-                # route once the scalar fallback is removed.
-                traversed_layers=_traversed_layers(layer_kinds),
-                are_enabled=self._structural_are_enabled(),
-            )
-            # Step 6: Write policy decision artefact.
-            decision_ref = self._write_policy_artifact(
-                decision=decision,
-                ctx=ctx,
-                story_id=story_id,
-                now_str=now_str,
-                qa_cycle_fields=qa_cycle_fields,
-            )
-            artifact_refs_written.append(decision_ref)
-
-        # Build internal result detail (retained for internal diagnostics).
-        all_findings = tuple(f for lr in layer_results for f in lr.findings)
-        _detail = _QaSubflowExecutionResult(
-            verdict=decision.verdict,
-            stage_results=tuple(layer_results),
-            artifact_refs_written=tuple(artifact_refs_written),
-            blocking_failures=sum(
-                1 for f in all_findings if f.severity == Severity.BLOCKING
-            ),
-            major_failures=sum(
-                1 for f in all_findings if f.severity == Severity.MAJOR
-            ),
-            minor_failures=sum(
-                1 for f in all_findings if f.severity == Severity.MINOR
-            ),
-        )
-
-        logger.info(
-            "run_qa_subflow completed: story=%s qa_context=%s verdict=%s "
-            "target_type=%s layers_run=%d",
+        """Execute the full QA-subflow and return a structured outcome."""
+        return _run_qa_subflow(
+            self,
+            ctx,
             story_id,
             qa_context,
-            decision.verdict,
-            verify_target.target_type,
-            len(layer_results),
-        )
-
-        # Step 7: Build remediation feedback when FAIL (AG3-026 Pass-2 §Befund-A).
-        # FK-34 / DK-04 §4.6 (AG3-041 §2.1.5/§2.1.6): in a remediation context
-        # the FindingResolutionAssessor classifies each previous-round finding
-        # (FULLY/PARTIALLY/NOT_RESOLVED) against this round; the resolution map
-        # feeds build_feedback so has_open_findings() drives closure_blocked.
-        from agentkit.verify_system.remediation.feedback import build_feedback
-        from agentkit.verify_system.remediation.finding_resolution import (
-            resolution_map_has_open_findings,
-        )
-
-        # AG3-043 E5: the deterministic assessor is the baseline; the Layer-2
-        # LLM resolution verdicts (carried in each Layer-2 LayerResult.metadata)
-        # are merged into the SAME map so a still-open LLM verdict
-        # (partially_resolved / not_resolved) reaches the canonical closure
-        # block -- not just the audit metadata. Fail-closed merge: the more-open
-        # status wins per (layer, check) key.
-        resolution_map = _qa.merge_llm_finding_resolutions(
-            _qa.assess_finding_resolution(
-                qa_context, previous_findings, decision.all_findings
-            ),
-            tuple(decision.layer_results),
-        )
-        feedback = build_feedback(
-            decision, story_id, ctx.attempt, finding_resolution=resolution_map
-        )
-
-        # Step 8: AG3-041 §2.1.7 -- run the remediation loop controller AFTER
-        # the policy engine (or the Sonar fail-closed decision, FK-27 §27.6a.2).
-        # PASS -> CONTINUE_TO_CLOSURE; FAIL + round < max -> CONTINUE_REMEDIATION;
-        # FAIL + round >= max -> ESCALATE (hard, FK-27 §27.2.2
-        # max_rounds_exceeded). escalated forces verdict=FAIL. The Sonar
-        # fail-closed verdict traverses the SAME loop (no bypass, no fail-open).
-        #
-        # FIX-5 (FK-27 §27.4.2/§27.4.5): an ``impact.violation`` BLOCKING FAIL
-        # routes DIRECTLY to ESCALATED -- "Eskalation an Mensch, kein
-        # Ruecksprung", no Worker-feedback loop. The structural layer stamps
-        # ``metadata["escalated"]=True`` (checker.py); detect it here and force
-        # immediate escalation BEFORE/independent of the remediation-round
-        # ceiling, so an impact violation never loops through normal remediation.
-        escalated = _layer_escalation_requested(decision.layer_results) or (
-            _qa.evaluate_escalation(
-                self.remediation_loop_controller,
-                cycle_state,
-                decision.verdict,
-            )
-        )
-
-        # closure_blocked: in a remediation context with at least one open
-        # (NOT_RESOLVED / PARTIALLY_RESOLVED) previous finding (FK-34 §34.9.4 /
-        # DK-04 §4.6, AG3-041 §2.1.6). Derived DIRECTLY from the finding-
-        # resolution assessment and INDEPENDENT of the policy verdict: a PASS
-        # verdict produces no feedback object, but a still-open (e.g.
-        # PARTIALLY_RESOLVED) previous finding must still block closure
-        # (no fail-open toward closure). The feedback object is not the source
-        # of truth here.
-        closure_blocked = resolution_map_has_open_findings(resolution_map)
-
-        # AG3-044 (FK-27 §27.6 / FK-48 §48.2): after Layer 2 yields BLOCKING
-        # findings the Layer-3 adversarial spawn is REQUESTED on the real QA
-        # path -- derive mandatory targets from those findings, materialise the
-        # protected sandbox + ``ADVERSARIAL_TEST_SANDBOX`` envelope, and carry
-        # the typed spawn orders out. Only when Layer 3 was routed (IMPLEMENTATION
-        # context); Exploration / fast skip Layer 3 and produce no spawn order.
-        adversarial_spawn = self._derive_adversarial_spawn(
-            ctx, story_id, layer_kinds, layer_results
-        )
-
-        # Step 9: Return QaSubflowOutcome (public DTO, AK11 / §2.1.3). The cycle
-        # is always resolved (FK-27 §27.2.2 idle -> awaiting_qa), so all four
-        # identity fields are surfaced for the state owner to persist.
-        return QaSubflowOutcome(
-            verdict=PolicyVerdict.FAIL if escalated else decision.verdict,
-            decision=decision,
-            artifact_refs=tuple(artifact_refs_written),
-            attempt_nr=ctx.attempt,
-            qa_cycle_round=cycle_state.round,
-            feedback=feedback,
-            qa_cycle_id=cycle_state.qa_cycle_id,
-            evidence_epoch=cycle_state.evidence_epoch,
-            evidence_fingerprint=cycle_state.evidence_fingerprint,
-            escalated=escalated,
-            closure_blocked=closure_blocked,
-            adversarial_spawn=adversarial_spawn,
+            target,
+            review_input=review_input,
+            previous_findings=previous_findings,
         )
 
     def _derive_adversarial_spawn(
@@ -849,96 +420,12 @@ class VerifySystem:
         story_id: str,
         story_ctx: StoryContext | None,
     ) -> QaSubflowOutcome:
-        """Run the fast-mode QA floor: Layer 1 (structural) + tests-green.
-
-        FK-24 §24.3.4 Mode-Profil: in ``mode == fast`` the QA-subflow degenerates
-        to Layer 1 (deterministic structural checks) AND the hard, non-disableable
-        tests-green floor. Layers 2-4, the Sonar gate and the feedback/remediation
-        loop are SKIPPED (``OUT``). The floor PASSes only when BOTH the structural
-        layer passes AND the injected ``fast_test_runner`` confirms tests green.
-
-        FAIL-CLOSED (NO ERROR BYPASSING): a red test -> FAIL; an unconfirmable
-        result (no ``fast_test_runner`` wired) -> FAIL. The cycle is still
-        resolved (idle -> ``start_cycle``) so the four identity fields are
-        surfaced for the state owner; there is no remediation/escalation loop on
-        the fast path (the human accompanies the story).
-
-        Args:
-            ctx: Run-time context bundle.
-            story_id: Story display-ID.
-            story_ctx: The pre-resolved fast-mode ``StoryContext``.
-
-        Returns:
-            A ``QaSubflowOutcome`` carrying the floor verdict (PASS/FAIL).
-        """
-        now_str = _qa.utc_now_iso()
-        cycle_state = self.qa_cycle_lifecycle.start_cycle(ctx.story_dir)
-        qa_cycle_fields = _qa.qa_cycle_state_to_fields(cycle_state)
-
-        structural = self._execute_layer(
-            self.layer_1, ctx, story_id, QALayerKind.STRUCTURAL, story_context=story_ctx
-        )
-        tests_finding = self._fast_tests_green_finding(ctx.story_dir)
-        floor_findings = (
-            (*structural.findings, tests_finding)
-            if tests_finding is not None
-            else structural.findings
-        )
-        floor_passed = structural.passed and tests_finding is None
-        floor_result = LayerResult(
-            layer=self.layer_1.name,
-            passed=floor_passed,
-            findings=floor_findings,
-            metadata={
-                **structural.metadata,
-                "fast_mode": True,
-                "tests_green": tests_finding is None,
-            },
-        )
-
-        self._write_layer_envelope(
-            spec=_LAYER_1_ARTIFACTS[0],
-            result=floor_result,
+        """Run the fast-mode QA floor: Layer 1 (structural) + tests-green."""
+        return _run_fast_floor(
+            self,
             ctx=ctx,
             story_id=story_id,
-            now_str=now_str,
-            qa_cycle_fields=qa_cycle_fields,
-        )
-
-        verdict = PolicyVerdict.PASS if floor_passed else PolicyVerdict.FAIL
-        summary = (
-            "fast-mode QA floor PASS (structural + tests green)"
-            if floor_passed
-            else "fast-mode QA floor FAIL (structural or tests-green floor not met)"
-        )
-        decision = VerifyDecision(
-            passed=floor_passed,
-            verdict=verdict,
-            layer_results=(floor_result,),
-            all_findings=floor_findings,
-            blocking_findings=tuple(
-                f for f in floor_findings if f.severity == Severity.BLOCKING
-            ),
-            summary=summary,
-        )
-        logger.info(
-            "run_qa_subflow fast-mode floor: story=%s verdict=%s tests_green=%s",
-            story_id,
-            verdict,
-            tests_finding is None,
-        )
-        return QaSubflowOutcome(
-            verdict=verdict,
-            decision=decision,
-            artifact_refs=(_LAYER_1_ARTIFACTS[0].filename,),
-            attempt_nr=ctx.attempt,
-            qa_cycle_round=cycle_state.round,
-            feedback=None,
-            qa_cycle_id=cycle_state.qa_cycle_id,
-            evidence_epoch=cycle_state.evidence_epoch,
-            evidence_fingerprint=cycle_state.evidence_fingerprint,
-            escalated=False,
-            closure_blocked=False,
+            story_ctx=story_ctx,
         )
 
     def _fast_tests_green_finding(self, story_dir: Path) -> Finding | None:
@@ -1066,81 +553,21 @@ class VerifySystem:
         qa_cycle_round: int,
         previous_findings: tuple[Finding, ...],
     ) -> None:
-        """Execute a non-gate data layer and write its envelope(s).
-
-        Extracted from :meth:`run_qa_subflow` (S3776) without behaviour change.
-
-        * ``LLM_EVALUATOR`` (AG3-043): when an ``layer2_runner`` is wired, runs
-          the three parallel LLM evaluations (FK-27 §27.5.1); otherwise falls
-          back to the three deterministic Layer-2 reviewers. Either way it
-          produces three ``LayerResult`` (one per role) and three envelopes.
-        * STRUCTURAL / ADVERSARIAL: resolves the single layer instance, executes
-          it once and writes its single artefact spec(s).
-
-        Args:
-            kind: The (non-POLICY, non-SONARQUBE_GATE) layer kind to run.
-            ctx: Run-time context bundle.
-            story_id: Story display-ID.
-            now_str: Pre-computed ISO timestamp for envelope writes.
-            qa_cycle_fields: QA-cycle identity fields embedded in payloads.
-            effective_review_input: Normalised Layer-2 review input.
-            story_ctx: Pre-resolved ``StoryContext`` (or ``None``).
-            layer_results: Mutable accumulator of layer results (appended in
-                place).
-            artifact_refs_written: Mutable accumulator of artefact filenames
-                (appended in place).
-            qa_cycle_round: 1-based QA-cycle round (``> 1`` => remediation;
-                passed to the LLM runner for finding-resolution).
-            previous_findings: Prior-round findings carried into the LLM
-                runner's remediation bundle (DK-04 §4.6).
-        """
-        if kind is QALayerKind.LLM_EVALUATOR:
-            results = _run_layer2(
-                self,
-                ctx=ctx,
-                story_id=story_id,
-                kind=kind,
-                effective_review_input=effective_review_input,
-                story_ctx=story_ctx,
-                qa_cycle_round=qa_cycle_round,
-                previous_findings=previous_findings,
-            )
-            pairs = list(zip(results, _LAYER_2_SPECS, strict=True))
-        else:
-            layer_instance = self._layer_for_kind(kind)
-            result = self._execute_layer(
-                layer_instance, ctx, story_id, kind,
-                review_input=effective_review_input,
-                story_context=story_ctx,
-            )
-            pairs = [(result, spec) for spec in _kind_to_single_artifacts(kind)]
-
-        for result, spec in pairs:
-            layer_results.append(result)
-            self._write_layer_envelope(
-                spec=spec,
-                result=result,
-                ctx=ctx,
-                story_id=story_id,
-                now_str=now_str,
-                qa_cycle_fields=qa_cycle_fields,
-            )
-            artifact_refs_written.append(spec.filename)
-            # FIX-C (FK-27 §27.4.3 / §27.5.5): emit ``llm_call_complete`` ONLY
-            # after the Layer-2 review artefact write above SUCCEEDED -- never on
-            # a bare API response. The role is ``result.layer`` (qa_review /
-            # semantic_review / doc_fidelity), which is exactly the per-role
-            # filter the ``guard.multi_llm`` Gate 2 counts (FK-37 §37.1.6). Only
-            # Layer-2 reviews carry a mandatory reviewer role; structural /
-            # adversarial layers do not emit completion events.
-            if kind is QALayerKind.LLM_EVALUATOR:
-                self.review_completion_sink.review_completed(
-                    ReviewCompletionEvent(
-                        story_id=story_id,
-                        role=result.layer,
-                        artifact_filename=spec.filename,
-                    )
-                )
+        """Execute a non-gate data layer and write its envelope(s)."""
+        _run_data_layer_kind(
+            self,
+            kind=kind,
+            ctx=ctx,
+            story_id=story_id,
+            now_str=now_str,
+            qa_cycle_fields=qa_cycle_fields,
+            effective_review_input=effective_review_input,
+            story_ctx=story_ctx,
+            layer_results=layer_results,
+            artifact_refs_written=artifact_refs_written,
+            qa_cycle_round=qa_cycle_round,
+            previous_findings=previous_findings,
+        )
 
     def _sonarqube_gate_failed_decision(
         self,
@@ -1444,6 +871,689 @@ class VerifySystem:
         return _POLICY_ARTIFACT_SPEC.filename
 
 
+
+
+def _run_fast_floor(
+    system: VerifySystem,
+    *,
+    ctx: VerifyContextBundle,
+    story_id: str,
+    story_ctx: StoryContext | None,
+) -> QaSubflowOutcome:
+    """Run the fast-mode QA floor: Layer 1 (structural) + tests-green.
+
+    FK-24 §24.3.4 Mode-Profil: in ``mode == fast`` the QA-subflow degenerates
+    to Layer 1 (deterministic structural checks) AND the hard, non-disableable
+    tests-green floor. Layers 2-4, the Sonar gate and the feedback/remediation
+    loop are SKIPPED (``OUT``). The floor PASSes only when BOTH the structural
+    layer passes AND the injected ``fast_test_runner`` confirms tests green.
+
+    FAIL-CLOSED (NO ERROR BYPASSING): a red test -> FAIL; an unconfirmable
+    result (no ``fast_test_runner`` wired) -> FAIL. The cycle is still
+    resolved (idle -> ``start_cycle``) so the four identity fields are
+    surfaced for the state owner; there is no remediation/escalation loop on
+    the fast path (the human accompanies the story).
+
+    Args:
+        ctx: Run-time context bundle.
+        story_id: Story display-ID.
+        story_ctx: The pre-resolved fast-mode ``StoryContext``.
+
+    Returns:
+        A ``QaSubflowOutcome`` carrying the floor verdict (PASS/FAIL).
+    """
+    self = system
+    now_str = _qa.utc_now_iso()
+    cycle_state = self.qa_cycle_lifecycle.start_cycle(ctx.story_dir)
+    qa_cycle_fields = _qa.qa_cycle_state_to_fields(cycle_state)
+
+    structural = self._execute_layer(
+        self.layer_1, ctx, story_id, QALayerKind.STRUCTURAL, story_context=story_ctx
+    )
+    tests_finding = self._fast_tests_green_finding(ctx.story_dir)
+    floor_findings = (
+        (*structural.findings, tests_finding)
+        if tests_finding is not None
+        else structural.findings
+    )
+    floor_passed = structural.passed and tests_finding is None
+    floor_result = LayerResult(
+        layer=self.layer_1.name,
+        passed=floor_passed,
+        findings=floor_findings,
+        metadata={
+            **structural.metadata,
+            "fast_mode": True,
+            "tests_green": tests_finding is None,
+        },
+    )
+
+    self._write_layer_envelope(
+        spec=_LAYER_1_ARTIFACTS[0],
+        result=floor_result,
+        ctx=ctx,
+        story_id=story_id,
+        now_str=now_str,
+        qa_cycle_fields=qa_cycle_fields,
+    )
+
+    verdict = PolicyVerdict.PASS if floor_passed else PolicyVerdict.FAIL
+    summary = (
+        "fast-mode QA floor PASS (structural + tests green)"
+        if floor_passed
+        else "fast-mode QA floor FAIL (structural or tests-green floor not met)"
+    )
+    decision = VerifyDecision(
+        passed=floor_passed,
+        verdict=verdict,
+        layer_results=(floor_result,),
+        all_findings=floor_findings,
+        blocking_findings=tuple(
+            f for f in floor_findings if f.severity == Severity.BLOCKING
+        ),
+        summary=summary,
+    )
+    logger.info(
+        "run_qa_subflow fast-mode floor: story=%s verdict=%s tests_green=%s",
+        story_id,
+        verdict,
+        tests_finding is None,
+    )
+    return QaSubflowOutcome(
+        verdict=verdict,
+        decision=decision,
+        artifact_refs=(_LAYER_1_ARTIFACTS[0].filename,),
+        attempt_nr=ctx.attempt,
+        qa_cycle_round=cycle_state.round,
+        feedback=None,
+        qa_cycle_id=cycle_state.qa_cycle_id,
+        evidence_epoch=cycle_state.evidence_epoch,
+        evidence_fingerprint=cycle_state.evidence_fingerprint,
+        escalated=False,
+        closure_blocked=False,
+    )
+
+
+def _run_data_layer_kind(
+    system: VerifySystem,
+    *,
+    kind: QALayerKind,
+    ctx: VerifyContextBundle,
+    story_id: str,
+    now_str: str,
+    qa_cycle_fields: dict[str, object],
+    effective_review_input: object | None,
+    story_ctx: object | None,
+    layer_results: list[LayerResult],
+    artifact_refs_written: list[str],
+    qa_cycle_round: int,
+    previous_findings: tuple[Finding, ...],
+) -> None:
+    """Execute a non-gate data layer and write its envelope(s).
+
+    Extracted from :meth:`run_qa_subflow` (S3776) without behaviour change.
+
+    * ``LLM_EVALUATOR`` (AG3-043): when an ``layer2_runner`` is wired, runs
+      the three parallel LLM evaluations (FK-27 §27.5.1); otherwise falls
+      back to the three deterministic Layer-2 reviewers. Either way it
+      produces three ``LayerResult`` (one per role) and three envelopes.
+    * STRUCTURAL / ADVERSARIAL: resolves the single layer instance, executes
+      it once and writes its single artefact spec(s).
+
+    Args:
+        kind: The (non-POLICY, non-SONARQUBE_GATE) layer kind to run.
+        ctx: Run-time context bundle.
+        story_id: Story display-ID.
+        now_str: Pre-computed ISO timestamp for envelope writes.
+        qa_cycle_fields: QA-cycle identity fields embedded in payloads.
+        effective_review_input: Normalised Layer-2 review input.
+        story_ctx: Pre-resolved ``StoryContext`` (or ``None``).
+        layer_results: Mutable accumulator of layer results (appended in
+            place).
+        artifact_refs_written: Mutable accumulator of artefact filenames
+            (appended in place).
+        qa_cycle_round: 1-based QA-cycle round (``> 1`` => remediation;
+            passed to the LLM runner for finding-resolution).
+        previous_findings: Prior-round findings carried into the LLM
+            runner's remediation bundle (DK-04 §4.6).
+    """
+    self = system
+    if kind is QALayerKind.LLM_EVALUATOR:
+        results = _run_layer2(
+            self,
+            ctx=ctx,
+            story_id=story_id,
+            kind=kind,
+            effective_review_input=effective_review_input,
+            story_ctx=story_ctx,
+            qa_cycle_round=qa_cycle_round,
+            previous_findings=previous_findings,
+        )
+        pairs = list(zip(results, _LAYER_2_SPECS, strict=True))
+    else:
+        layer_instance = self._layer_for_kind(kind)
+        result = self._execute_layer(
+            layer_instance, ctx, story_id, kind,
+            review_input=effective_review_input,
+            story_context=story_ctx,
+        )
+        pairs = [(result, spec) for spec in _kind_to_single_artifacts(kind)]
+
+    for result, spec in pairs:
+        layer_results.append(result)
+        self._write_layer_envelope(
+            spec=spec,
+            result=result,
+            ctx=ctx,
+            story_id=story_id,
+            now_str=now_str,
+            qa_cycle_fields=qa_cycle_fields,
+        )
+        artifact_refs_written.append(spec.filename)
+        # FIX-C (FK-27 §27.4.3 / §27.5.5): emit ``llm_call_complete`` ONLY
+        # after the Layer-2 review artefact write above SUCCEEDED -- never on
+        # a bare API response. The role is ``result.layer`` (qa_review /
+        # semantic_review / doc_fidelity), which is exactly the per-role
+        # filter the ``guard.multi_llm`` Gate 2 counts (FK-37 §37.1.6). Only
+        # Layer-2 reviews carry a mandatory reviewer role; structural /
+        # adversarial layers do not emit completion events.
+        if kind is QALayerKind.LLM_EVALUATOR:
+            self.review_completion_sink.review_completed(
+                ReviewCompletionEvent(
+                    story_id=story_id,
+                    role=result.layer,
+                    artifact_filename=spec.filename,
+                )
+            )
+
+def _create_default(
+    cls: type[VerifySystem],
+    *,
+    artifact_manager: ArtifactManager,
+    max_major_findings: int = 0,
+    max_feedback_rounds: int | None = None,
+    story_context_port: StoryContextQueryPort | None = None,
+    sonar_gate_port: SonarGateInputPort | None = None,
+    invalidation_sink: ArtifactInvalidationSink | None = None,
+    review_completion_sink: ReviewCompletionSink | None = None,
+    layer2_llm_client: LlmClient | None = None,
+    fast_test_runner: Callable[[Path], tuple[bool, str | None]] | None = None,
+    stage_registry: StageRegistry | None = None,
+    structural_telemetry_port: TelemetryEventQueryPort | None = None,
+    structural_build_test_port: BuildTestEvidencePort | None = None,
+    structural_are_provider: AreGateProvider | None = None,
+    structural_change_evidence_port: ChangeEvidencePort | None = None,
+) -> VerifySystem:
+    """Construct a ``VerifySystem`` with default sub-components.
+
+    Builds all sub-components with sensible defaults.
+    ``artifact_manager`` ist **Pflicht-Argument** (AG3-026 §2.1.4 +
+    Re-Review-Befund 3): ein fehlender ArtifactManager war
+    Story-explizit als Fail-closed-Pfad markiert; eine stille
+    No-Op-Variante hatte unbemerkt QA-Wahrheit verworfen.
+
+    Args:
+        artifact_manager: ``ArtifactManager`` fuer Artefakt-Writes.
+            **Pflicht**. Aufrufer, die einen Test-Stub brauchen,
+            liefern einen Recording-Test-Double; produktive Aufrufer
+            nutzen ``bootstrap.composition_root.build_verify_system``.
+        max_major_findings: Threshold for the policy engine. Mirrors
+            :class:`PolicyEngine` -- MAJOR findings beyond this count
+            turn into blocking findings (FK-27 §27.4.2 / §27.7.2).
+        max_feedback_rounds: Ceiling for the subflow-internal remediation
+            loop (FK-03 §3.4.2 / FK-38; resolved from the pipeline config by
+            ``build_verify_system``). ``None`` => the controller's default
+            (3). The :class:`RemediationLoopController` is the hard owner of
+            the ceiling — it is NOT bypassable (NO ERROR BYPASSING).
+        story_context_port: Optionaler ``StoryContextQueryPort`` (AG3-035).
+            Wenn ``None``, wird der No-op-Port genutzt (Fallback auf den
+            IMPLEMENTATION-Stub in ``_execute_layer``). Produktive Aufrufer
+            reichen den state-backed Adapter via
+            ``composition_root.build_verify_system`` ein.
+        sonar_gate_port: Optionaler ``SonarGateInputPort`` (AG3-052,
+            FK-33 §33.6). Wenn ``None``, wird der Absent-Sonar-Port
+            genutzt (``sonarqube.available == false`` => Stage SKIP).
+        invalidation_sink: Optionaler produktiver
+            ``ArtifactInvalidationSink`` (FK-27 §27.2.3 / AG3-041 §2.1.3):
+            emittiert pro ``stale/``-Move ein ``artifact_invalidated``-
+            Telemetrie-Event. ``None`` => No-op-Sink (Testpfad ohne
+            verdrahtete Telemetrie). Produktive Aufrufer reichen den
+            telemetrie-gebundenen Sink via
+            ``composition_root.build_verify_system`` ein.
+        review_completion_sink: Optionaler produktiver
+            ``ReviewCompletionSink`` (FK-27 §27.4.3 / §27.5.5): emittiert pro
+            erfolgreichem Layer-2-Review-Artefakt-Write ein
+            ``llm_call_complete``-Event (mit Reviewer-Rolle im Payload),
+            damit der ``guard.multi_llm`` Gate 2 einen abgeschlossenen Review
+            zaehlt (nicht die blosse API-Antwort). ``None`` => No-op-Sink
+            (Testpfad). Produktive Aufrufer reichen den telemetrie-gebundenen
+            Sink via ``composition_root.build_verify_system`` ein.
+        layer2_llm_client: Optionaler ``LlmClient`` (AG3-043 E6, FK-27
+            §27.5). Wenn gesetzt, baut der QA-Subflow pro Run einen
+            ``ParallelEvalRunner`` (FK-44 §44.4.2) und faehrt die drei
+            LLM-Bewertungen WIRKLICH (kein Rueckfall auf die
+            deterministischen Stub-Reviewer); ``None`` => Reviewer-Pfad.
+            Produktiv via ``composition_root.build_verify_system``.
+        fast_test_runner: Optional fast-mode tests-green floor runner
+            (AG3-018, FK-24 §24.3.4). In ``mode == fast`` the QA-subflow
+            degenerates to Layer 1 (structural) + the hard tests-green floor
+            and SKIPS Layers 2-4 + the feedback loop. The runner is the SAME
+            mechanism the closure Sanity-Gate uses; ``None`` => the floor is
+            unconfirmable and the fast subflow FAILS CLOSED.
+
+    Returns:
+        A frozen ``VerifySystem`` with default-configured sub-components.
+
+    Raises:
+        VerifySystemError: when ``artifact_manager`` is ``None``.
+    """
+    if artifact_manager is None:
+        raise VerifySystemError(
+            "VerifySystem.create_default() requires an ArtifactManager "
+            "(AG3-026 §2.1.4 fail-closed). Use "
+            "agentkit.bootstrap.composition_root.build_verify_system "
+            "for the wired default.",
+        )
+    resolved_port = story_context_port or _NULL_STORY_CONTEXT_PORT
+    resolved_sonar_port = sonar_gate_port or ABSENT_SONAR_GATE_PORT
+    # AG3-042: the FK-27 §27.4 Layer-1 stage registry is bound to BOTH the
+    # StructuralChecker (drives the checks) and the PolicyEngine (drives the
+    # fail-closed missing-artifact check, FK-33 §33.7) -- ONE registry truth
+    # shared by both sub-components (no second stage truth). The PRODUCTIVE
+    # composition root (``build_verify_system``) injects the full FK-27
+    # §27.4 catalogue together with the live telemetry / build-test / ARE
+    # ports. A bare ``create_default`` (test path) defaults to the
+    # meta-only Layer 1: the structural layer runs only the canonical-state
+    # pre-checks unless the caller wires the registry + evidence ports
+    # (preserving the pre-AG3-042 default behaviour for unit fixtures).
+    from agentkit.verify_system.stage_registry.registry import (
+        StageRegistry as _StageRegistry,
+    )
+    from agentkit.verify_system.structural.checker import StructuralChecker
+
+    # Meta-only default (empty registry) when the caller wires no registry:
+    # the structural layer runs only the canonical-state pre-checks and the
+    # policy engine demands no Layer-1 stages. The productive root injects
+    # the full FK-27 §27.4 catalogue.
+    resolved_registry: StageRegistry = (
+        stage_registry if stage_registry is not None else _StageRegistry(stages=())
+    )
+    structural_checker = StructuralChecker(
+        registry=resolved_registry,
+        telemetry=structural_telemetry_port,
+        build_test_port=structural_build_test_port,
+        are_provider=structural_are_provider,
+        change_evidence_port=structural_change_evidence_port,
+    )
+    # AG3-044 (FK-27 §27.6 / FK-48 §48.2): the adversarial spawner is wired
+    # by default (it only needs the producer-bound ArtifactManager). It is
+    # held BOTH on the Layer-3 challenger (so ``derive_adversarial_targets``
+    # turns BLOCKING Layer-2 findings into mandatory targets) AND on the
+    # VerifySystem (so ``run_qa_subflow`` calls ``request_spawn`` to
+    # materialise the protected sandbox + carry the spawn orders out). This
+    # is the end-to-end wiring that makes the spawn reachable on the real QA
+    # path -- no dead path.
+    adversarial_spawner = AdversarialSpawner(artifact_manager)
+    # AG3-015 / FK-44 §44.4.2: the QA layers materialize their prompts via
+    # PromptRuntime.materialize_prompt and audit them via the
+    # ArtifactManager. Both dependencies are injected here so no layer
+    # reaches into prompt-runtime sub-modules or state_backend.store.
+    return cls(
+        layer_1=structural_checker,
+        layer_2a=QaReviewReviewer(
+            artifact_manager=artifact_manager,
+            story_context_port=resolved_port,
+        ),
+        layer_2b=SemanticReviewer(
+            artifact_manager=artifact_manager,
+            story_context_port=resolved_port,
+        ),
+        layer_2c=DocFidelityReviewer(
+            artifact_manager=artifact_manager,
+            story_context_port=resolved_port,
+        ),
+        layer_3=AdversarialChallenger(
+            artifact_manager=artifact_manager,
+            story_context_port=resolved_port,
+            spawner=adversarial_spawner,
+        ),
+        policy_engine=PolicyEngine(
+            max_major_findings=max_major_findings,
+            stage_registry=resolved_registry,
+        ),
+        artifact_manager=artifact_manager,
+        story_context_port=resolved_port,
+        sonar_gate_port=resolved_sonar_port,
+        layer2_llm_client=layer2_llm_client,
+        fast_test_runner=fast_test_runner,
+        remediation_loop_controller=(
+            _qa.RemediationLoopController(
+                max_feedback_rounds=max_feedback_rounds
+            )
+            if max_feedback_rounds is not None
+            else _qa.RemediationLoopController()
+        ),
+        qa_cycle_lifecycle=(
+            _qa.QaCycleLifecycle(invalidation_sink=invalidation_sink)
+            if invalidation_sink is not None
+            else _qa.QaCycleLifecycle()
+        ),
+        review_completion_sink=(
+            review_completion_sink
+            if review_completion_sink is not None
+            else _NULL_REVIEW_COMPLETION_SINK
+        ),
+        adversarial_spawner=adversarial_spawner,
+    )
+
+
+def _run_qa_subflow(
+    system: VerifySystem,
+    ctx: VerifyContextBundle,
+    story_id: str,
+    qa_context: QaContext,
+    target: ArtifactReference,
+    *,
+    review_input: object | None = None,
+    previous_findings: tuple[Finding, ...] = (),
+) -> QaSubflowOutcome:
+    """Execute the full QA-subflow and return a structured outcome.
+
+    Steps:
+    1. Resolve ``target`` to an internal ``VerifyTarget`` (fail-closed
+       on unknown target_type).
+    2. Select layers via ``select_layers(qa_context)``.
+    3. Execute each selected layer in order; wrap unexpected exceptions
+       in ``LayerExecutionError`` and aggregate as BLOCKING findings.
+       Layer 2 (LLM_EVALUATOR) runs three distinct reviewers (W1);
+       each produces its own ``LayerResult`` and its own envelope.
+    4. Write a QA artefact via ``ArtifactManager`` for each executed layer.
+    5. Run the policy engine over all collected ``LayerResult`` instances.
+    6. Write the policy decision artefact.
+    7. Return a ``QaSubflowOutcome`` carrying the verdict, full
+       ``VerifyDecision``, artifact filenames, attempt counter, and
+       optional remediation feedback (AG3-026 Pass-2 §Befund-A).
+
+    Cross-BC callers (e.g. ``agentkit.implementation``) MUST use
+    ``outcome.verdict`` for the PASS/FAIL gate and feed
+    ``outcome.decision`` into the FK-69 recording path
+    (``record_layer_artifacts`` / ``record_verify_decision``) -- no
+    second layer-execution is needed.
+
+    Args:
+        ctx: Run-time context bundle (run_id, story_dir, phase_envelope,
+            attempt).
+        story_id: Story display-ID (e.g. ``AG3-042``).
+        qa_context: Invocation context that controls layer selection.
+        target: Typed reference to the artefact under review.
+        review_input: Optional ``Layer2ReviewInput`` with the four FK-27
+            text inputs for Layer-2 reviewers (story_spec, diff_summary,
+            concept_excerpt, handover). When ``None``, a default empty
+            ``Layer2ReviewInput()`` is used (Layer-2 reviewers will emit
+            a MAJOR ``layer2_input.missing`` finding). Pass a populated
+            instance once Workers produce handover artefacts (THEME-009).
+        previous_findings: Findings from the prior remediation round (the
+            state owner / phase handler carries them forward). In a
+            remediation context they are matched against this round's
+            findings by :class:`FindingResolutionAssessor` (FK-34 / DK-04
+            §4.6); a still-open (NOT_RESOLVED / PARTIALLY_RESOLVED) previous
+            finding sets ``closure_blocked`` (AG3-041 §2.1.6). Empty in the
+            initial round.
+
+    Returns:
+        ``QaSubflowOutcome`` with ``verdict``, ``decision``,
+        ``artifact_refs``, ``attempt_nr``, ``qa_cycle_round`` and
+        optional ``feedback``.
+
+    Raises:
+        VerifyTargetUnknownError: If the target's artifact_class
+            cannot be mapped to a ``VerifyTargetType``.
+    """
+    self = system
+    # Step 1: Resolve target (fail-closed on unknown type).
+    verify_target = self._resolve_verify_target(target)
+
+    # Step 1b: Normalise review_input -- default to empty when None.
+    # Layer-2 reviewers require a Layer2ReviewInput instance (fail-closed).
+    # Until Workers produce handover artefacts (THEME-009), pass empty
+    # strings so reviewers emit MAJOR layer2_input.missing, not silent PASS.
+    from agentkit.verify_system.llm_evaluator.inputs import Layer2ReviewInput as _L2Input
+
+    effective_review_input: _L2Input = (
+        review_input
+        if isinstance(review_input, _L2Input)
+        else _L2Input()
+    )
+
+    # Step 1c: Resolve StoryContext via the injected query port (AG3-035
+    # echter Drift-Fix). KEIN direkter ``state_backend.store``-Import mehr in
+    # verify_system; der konkrete Adapter wird im composition_root verdrahtet
+    # (BC-Topologie: verify-system haengt am Port, nicht an state_backend).
+    # No-op-Port liefert None -> _execute_layer faellt auf IMPLEMENTATION-Stub.
+    _story_ctx = self.story_context_port.load(ctx.story_dir)
+
+    # AG3-018 (FK-24 §24.3.4 Mode-Profil): in ``mode == fast`` the QA-subflow
+    # degenerates to Layer 1 (structural) + the hard tests-green floor and
+    # SKIPS Layers 2 (LLM), 3 (adversarial), 4 (policy), the Sonar gate AND
+    # the feedback/remediation loop. The floor is non-disableable: a red test
+    # (or an unconfirmable result) is a fail-closed FAIL (NO ERROR BYPASSING).
+    if _is_fast_mode(_story_ctx):
+        return self._run_fast_floor(
+            ctx=ctx,
+            story_id=story_id,
+            story_ctx=_story_ctx,
+        )
+
+    # Step 2: Select layers.
+    layer_kinds = select_layers(qa_context)
+
+    # Step 3 + 4: Execute layers in order and write artefacts.
+    layer_results: list[LayerResult] = []
+    artifact_refs_written: list[str] = []
+    now_str = _qa.utc_now_iso()
+
+    # AG3-041 §2.1.7: drive the QA-cycle lifecycle. First call (no active
+    # cycle) -> start_cycle (round 1, epoch 1). Remediation context with an
+    # active cycle -> advance_qa_cycle (round/epoch +1, recompute
+    # fingerprint, invalidate the 11/12 cycle-bound artefacts, FK-27
+    # §27.2.3). The resulting identities are embedded into every QA artefact
+    # written below. When no phase-envelope view is present (idle / legacy
+    # callers), fall back to the previously-supplied fields (no cycle).
+    cycle_state = _qa.resolve_qa_cycle_state(
+        self.qa_cycle_lifecycle, ctx, story_id, qa_context
+    )
+    qa_cycle_fields = _qa.qa_cycle_state_to_fields(cycle_state)
+
+    sonar_fail_decision: VerifyDecision | None = None
+    for kind in layer_kinds:
+        if kind is QALayerKind.POLICY:
+            # Policy runs after all data layers; handled in step 5/6.
+            continue
+
+        if kind is QALayerKind.SONARQUBE_GATE:
+            sonar_fail_decision = self._run_sonarqube_gate_kind(
+                ctx=ctx,
+                story_id=story_id,
+                now_str=now_str,
+                qa_cycle_fields=qa_cycle_fields,
+                layer_results=layer_results,
+                artifact_refs_written=artifact_refs_written,
+            )
+            if sonar_fail_decision is not None:
+                # FK-33 §33.6.3: an APPLICABLE gate fail-closed routes
+                # DIRECTLY to failed WITHOUT policy aggregation. It does NOT
+                # bypass the remediation loop (FK-27 §27.6a.2): the FAIL is
+                # fed through the SAME escalation path below (break, do not
+                # return). No decision.json on this path (the gate envelope
+                # is the verdict carrier).
+                break
+            continue
+
+        self._run_data_layer_kind(
+            kind=kind,
+            ctx=ctx,
+            story_id=story_id,
+            now_str=now_str,
+            qa_cycle_fields=qa_cycle_fields,
+            effective_review_input=effective_review_input,
+            story_ctx=_story_ctx,
+            layer_results=layer_results,
+            artifact_refs_written=artifact_refs_written,
+            qa_cycle_round=cycle_state.round,
+            previous_findings=previous_findings,
+        )
+
+    # Step 5: Policy decision. On a Sonar fail-closed short-circuit the
+    # gate's BLOCKING SYSTEM finding is authoritative (FK-33 §33.6.3): no
+    # policy aggregation, no decision.json.
+    if sonar_fail_decision is not None:
+        decision = sonar_fail_decision
+    else:
+        # FIX-A (FK-33 §33.7): the PRODUCTION path passes the EFFECTIVE
+        # story type (the SAME one the layers were executed under, see
+        # _execute_layer) + max_layer_reached + ARE activation so the
+        # registry-bound fail-closed missing-stage check ALWAYS runs and the
+        # FK-33 §33.7.3 per-story-type threshold is ALWAYS used. The scalar
+        # fallback (no missing-stage check) is unreachable on this path:
+        # _effective_story_type returns IMPLEMENTATION when no StoryContext
+        # resolved, exactly mirroring the layer-execution stub, so an
+        # unresolved context fails CLOSED through the registry path instead
+        # of silently downgrading to the scalar threshold (no two-truth
+        # threshold, no fail-open edge).
+        decision = self.policy_engine.decide(
+            layer_results,
+            story_type=_effective_story_type(_story_ctx),
+            max_layer_reached=_max_layer_reached(layer_results),
+            # FIX-A: pass the EXACT executed-layer set so the fail-closed
+            # missing-stage check honours non-contiguous routes (FK-27 §27.3:
+            # Exploration runs Layer 2 + Layer 4 and SKIPS Layer 1, so a
+            # Layer-1 stage must NOT be reported missing there). Without this
+            # the registry path would over-block the legitimate exploration
+            # route once the scalar fallback is removed.
+            traversed_layers=_traversed_layers(layer_kinds),
+            are_enabled=self._structural_are_enabled(),
+        )
+        # Step 6: Write policy decision artefact.
+        decision_ref = self._write_policy_artifact(
+            decision=decision,
+            ctx=ctx,
+            story_id=story_id,
+            now_str=now_str,
+            qa_cycle_fields=qa_cycle_fields,
+        )
+        artifact_refs_written.append(decision_ref)
+
+    # Build internal result detail (retained for internal diagnostics).
+    all_findings = tuple(f for lr in layer_results for f in lr.findings)
+    _detail = _QaSubflowExecutionResult(
+        verdict=decision.verdict,
+        stage_results=tuple(layer_results),
+        artifact_refs_written=tuple(artifact_refs_written),
+        blocking_failures=sum(
+            1 for f in all_findings if f.severity == Severity.BLOCKING
+        ),
+        major_failures=sum(
+            1 for f in all_findings if f.severity == Severity.MAJOR
+        ),
+        minor_failures=sum(
+            1 for f in all_findings if f.severity == Severity.MINOR
+        ),
+    )
+
+    logger.info(
+        "run_qa_subflow completed: story=%s qa_context=%s verdict=%s "
+        "target_type=%s layers_run=%d",
+        story_id,
+        qa_context,
+        decision.verdict,
+        verify_target.target_type,
+        len(layer_results),
+    )
+
+    # Step 7: Build remediation feedback when FAIL (AG3-026 Pass-2 §Befund-A).
+    # FK-34 / DK-04 §4.6 (AG3-041 §2.1.5/§2.1.6): in a remediation context
+    # the FindingResolutionAssessor classifies each previous-round finding
+    # (FULLY/PARTIALLY/NOT_RESOLVED) against this round; the resolution map
+    # feeds build_feedback so has_open_findings() drives closure_blocked.
+    from agentkit.verify_system.remediation.feedback import build_feedback
+    from agentkit.verify_system.remediation.finding_resolution import (
+        resolution_map_has_open_findings,
+    )
+
+    # AG3-043 E5: the deterministic assessor is the baseline; the Layer-2
+    # LLM resolution verdicts (carried in each Layer-2 LayerResult.metadata)
+    # are merged into the SAME map so a still-open LLM verdict
+    # (partially_resolved / not_resolved) reaches the canonical closure
+    # block -- not just the audit metadata. Fail-closed merge: the more-open
+    # status wins per (layer, check) key.
+    resolution_map = _qa.merge_llm_finding_resolutions(
+        _qa.assess_finding_resolution(
+            qa_context, previous_findings, decision.all_findings
+        ),
+        tuple(decision.layer_results),
+    )
+    feedback = build_feedback(
+        decision, story_id, ctx.attempt, finding_resolution=resolution_map
+    )
+
+    # Step 8: AG3-041 §2.1.7 -- run the remediation loop controller AFTER
+    # the policy engine (or the Sonar fail-closed decision, FK-27 §27.6a.2).
+    # PASS -> CONTINUE_TO_CLOSURE; FAIL + round < max -> CONTINUE_REMEDIATION;
+    # FAIL + round >= max -> ESCALATE (hard, FK-27 §27.2.2
+    # max_rounds_exceeded). escalated forces verdict=FAIL. The Sonar
+    # fail-closed verdict traverses the SAME loop (no bypass, no fail-open).
+    #
+    # FIX-5 (FK-27 §27.4.2/§27.4.5): an ``impact.violation`` BLOCKING FAIL
+    # routes DIRECTLY to ESCALATED -- "Eskalation an Mensch, kein
+    # Ruecksprung", no Worker-feedback loop. The structural layer stamps
+    # ``metadata["escalated"]=True`` (checker.py); detect it here and force
+    # immediate escalation BEFORE/independent of the remediation-round
+    # ceiling, so an impact violation never loops through normal remediation.
+    escalated = _layer_escalation_requested(decision.layer_results) or (
+        _qa.evaluate_escalation(
+            self.remediation_loop_controller,
+            cycle_state,
+            decision.verdict,
+        )
+    )
+
+    # closure_blocked: in a remediation context with at least one open
+    # (NOT_RESOLVED / PARTIALLY_RESOLVED) previous finding (FK-34 §34.9.4 /
+    # DK-04 §4.6, AG3-041 §2.1.6). Derived DIRECTLY from the finding-
+    # resolution assessment and INDEPENDENT of the policy verdict: a PASS
+    # verdict produces no feedback object, but a still-open (e.g.
+    # PARTIALLY_RESOLVED) previous finding must still block closure
+    # (no fail-open toward closure). The feedback object is not the source
+    # of truth here.
+    closure_blocked = resolution_map_has_open_findings(resolution_map)
+
+    # AG3-044 (FK-27 §27.6 / FK-48 §48.2): after Layer 2 yields BLOCKING
+    # findings the Layer-3 adversarial spawn is REQUESTED on the real QA
+    # path -- derive mandatory targets from those findings, materialise the
+    # protected sandbox + ``ADVERSARIAL_TEST_SANDBOX`` envelope, and carry
+    # the typed spawn orders out. Only when Layer 3 was routed (IMPLEMENTATION
+    # context); Exploration / fast skip Layer 3 and produce no spawn order.
+    adversarial_spawn = self._derive_adversarial_spawn(
+        ctx, story_id, layer_kinds, layer_results
+    )
+
+    # Step 9: Return QaSubflowOutcome (public DTO, AK11 / §2.1.3). The cycle
+    # is always resolved (FK-27 §27.2.2 idle -> awaiting_qa), so all four
+    # identity fields are surfaced for the state owner to persist.
+    return QaSubflowOutcome(
+        verdict=PolicyVerdict.FAIL if escalated else decision.verdict,
+        decision=decision,
+        artifact_refs=tuple(artifact_refs_written),
+        attempt_nr=ctx.attempt,
+        qa_cycle_round=cycle_state.round,
+        feedback=feedback,
+        qa_cycle_id=cycle_state.qa_cycle_id,
+        evidence_epoch=cycle_state.evidence_epoch,
+        evidence_fingerprint=cycle_state.evidence_fingerprint,
+        escalated=escalated,
+        closure_blocked=closure_blocked,
+        adversarial_spawn=adversarial_spawn,
+    )
 #: FK-27 §27.5 Layer-2 reviewer role names (qa_review / semantic_review /
 #: doc_fidelity). Used to collect the Layer-2 BLOCKING findings the adversarial
 #: spawn derives mandatory targets from (FK-27 §27.6 / FK-48 §48.2, AG3-044).

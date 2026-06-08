@@ -857,7 +857,8 @@ class _SubprocessGitChangeEvidenceProvider:
         import subprocess  # noqa: PLC0415 -- comp-root owns the subprocess import
 
         try:
-            result = subprocess.run(  # noqa: S603 -- fixed git argv, no shell
+            # Fixed git argv, no shell.
+            result = subprocess.run(  # noqa: S603
                 ["git", "-C", str(story_dir), *args],  # noqa: S607
                 capture_output=True,
                 text=True,
