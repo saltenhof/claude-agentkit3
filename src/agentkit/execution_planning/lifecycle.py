@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Protocol
 
 from agentkit.execution_planning.dependency_graph import DependencyGraph
 from agentkit.execution_planning.entities import (
+    ExecutionWave,
+    ExecutionWaveLifecycle,
     ParallelizationConfig,
     ReadinessAssessment,
     StoryDependency,
@@ -31,7 +33,7 @@ if TYPE_CHECKING:
 
 
 class PlanningStoryRepository(Protocol):
-    """Story read port needed by execution planning."""
+    """Story reader needed by execution planning."""
 
     def get(self, project_key: str, story_id: str) -> StoryRefForPlanning | None:
         """Load one story for planning."""
@@ -122,3 +124,21 @@ def assess_readiness(
         stories,
         config,
     )
+
+
+def mark_wave_after_results(
+    wave: ExecutionWave,
+    *,
+    completed_story_ids: set[str],
+    failed_story_ids: set[str],
+) -> ExecutionWave:
+    """Derive the wave lifecycle after pure story result inputs."""
+
+    wave_story_ids = {story.story_id for story in wave.stories}
+    if wave_story_ids & failed_story_ids:
+        return wave.model_copy(update={"lifecycle": ExecutionWaveLifecycle.COLLAPSED})
+    if wave_story_ids and wave_story_ids <= completed_story_ids:
+        return wave.model_copy(update={"lifecycle": ExecutionWaveLifecycle.COMPLETED})
+    if wave_story_ids & completed_story_ids:
+        return wave.model_copy(update={"lifecycle": ExecutionWaveLifecycle.ACTIVE})
+    return wave

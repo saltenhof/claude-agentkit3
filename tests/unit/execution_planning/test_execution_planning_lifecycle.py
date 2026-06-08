@@ -6,10 +6,13 @@ from datetime import UTC, datetime
 import pytest
 
 from agentkit.execution_planning.entities import (
+    ExecutionWave,
+    ExecutionWaveLifecycle,
     ParallelizationConfig,
     StoryDependency,
     StoryDependencyKind,
     StoryRefForPlanning,
+    WaveStory,
 )
 from agentkit.execution_planning.errors import (
     StoryDependencyConflictError,
@@ -19,6 +22,7 @@ from agentkit.execution_planning.errors import (
 from agentkit.execution_planning.lifecycle import (
     add_dependency,
     assess_readiness,
+    mark_wave_after_results,
     remove_dependency,
 )
 
@@ -219,3 +223,42 @@ def test_assess_readiness_uses_default_parallel_config() -> None:
     )
 
     assert [story.story_id for story in result.next_ready] == ["AK3-002"]
+
+
+def test_execution_wave_collapses_on_partial_failure() -> None:
+    wave = ExecutionWave(
+        project_key="tenant-a",
+        wave_id="tenant-a:planned:AK3-001,AK3-002",
+        lifecycle=ExecutionWaveLifecycle.ACTIVE,
+        stories=(
+            WaveStory(
+                story_id="AK3-001",
+                story_number=1,
+                title="Story 1",
+                wave=0,
+                is_ready=True,
+            ),
+            WaveStory(
+                story_id="AK3-002",
+                story_number=2,
+                title="Story 2",
+                wave=0,
+                is_ready=True,
+            ),
+        ),
+    )
+
+    collapsed = mark_wave_after_results(
+        wave,
+        completed_story_ids={"AK3-001"},
+        failed_story_ids={"AK3-002"},
+    )
+    completed = mark_wave_after_results(
+        wave,
+        completed_story_ids={"AK3-001", "AK3-002"},
+        failed_story_ids=set(),
+    )
+
+    assert collapsed.lifecycle is ExecutionWaveLifecycle.COLLAPSED
+    assert completed.lifecycle is ExecutionWaveLifecycle.COMPLETED
+    assert collapsed.project_key == "tenant-a"

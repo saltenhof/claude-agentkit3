@@ -6,11 +6,16 @@ from agentkit.execution_planning.dependency_graph import DependencyGraph
 from agentkit.execution_planning.entities import StoryDependency, StoryDependencyKind
 
 
-def _edge(story_id: str, depends_on: str) -> StoryDependency:
+def _edge(
+    story_id: str,
+    depends_on: str,
+    *,
+    kind: StoryDependencyKind = StoryDependencyKind.HARD_STORY_DEPENDENCY,
+) -> StoryDependency:
     return StoryDependency(
         story_id=story_id,
         depends_on_story_id=depends_on,
-        kind=StoryDependencyKind.HARD_STORY_DEPENDENCY,
+        kind=kind,
         created_at=datetime.now(UTC),
     )
 
@@ -74,3 +79,28 @@ def test_empty_graph_has_no_cycle_or_layers() -> None:
 
     assert graph.has_cycle() == (False, [])
     assert graph.topological_layers() == []
+
+
+def test_dependency_graph_preserves_edge_kind_for_feasibility() -> None:
+    graph = DependencyGraph(
+        [
+            _edge(
+                "AK3-002",
+                "AK3-001",
+                kind=StoryDependencyKind.SOFT_STORY_DEPENDENCY,
+            ),
+            _edge(
+                "AK3-002",
+                "AK3-003",
+                kind=StoryDependencyKind.HARD_STORY_DEPENDENCY,
+            ),
+        ],
+    )
+
+    edge_kinds = {edge.kind for edge in graph.direct_predecessor_edges("AK3-002")}
+
+    assert edge_kinds == {
+        StoryDependencyKind.SOFT_STORY_DEPENDENCY,
+        StoryDependencyKind.HARD_STORY_DEPENDENCY,
+    }
+    assert graph.direct_hard_predecessors("AK3-002") == {"AK3-003"}

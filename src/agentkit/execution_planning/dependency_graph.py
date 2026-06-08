@@ -5,10 +5,24 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from typing import TYPE_CHECKING
 
+from agentkit.core_types import StoryDependencyKind
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from agentkit.execution_planning.entities import StoryDependency
+
+HARD_BLOCKING_DEPENDENCY_KINDS = frozenset(
+    {
+        StoryDependencyKind.HARD_STORY_DEPENDENCY,
+        StoryDependencyKind.SERIAL_EXECUTION_CONSTRAINT,
+        StoryDependencyKind.MUTEX_CONSTRAINT,
+        StoryDependencyKind.SHARED_CONTRACT_DEPENDENCY,
+        StoryDependencyKind.SHARED_FILE_CONFLICT,
+        StoryDependencyKind.EXTERNAL_DEPENDENCY,
+        StoryDependencyKind.HUMAN_GATE_DEPENDENCY,
+    },
+)
 
 
 class DependencyGraph:
@@ -18,11 +32,13 @@ class DependencyGraph:
         self._nodes: set[str] = set()
         self._successors: dict[str, set[str]] = defaultdict(set)
         self._predecessors: dict[str, set[str]] = defaultdict(set)
+        self._predecessor_edges: dict[str, list[StoryDependency]] = defaultdict(list)
         for edge in edges:
             self._nodes.add(edge.story_id)
             self._nodes.add(edge.depends_on_story_id)
             self._successors[edge.depends_on_story_id].add(edge.story_id)
             self._predecessors[edge.story_id].add(edge.depends_on_story_id)
+            self._predecessor_edges[edge.story_id].append(edge)
 
     @property
     def nodes(self) -> set[str]:
@@ -34,6 +50,30 @@ class DependencyGraph:
         """Return direct predecessor story ids for one story."""
 
         return set(self._predecessors.get(story_id, set()))
+
+    def direct_predecessor_edges(self, story_id: str) -> tuple[StoryDependency, ...]:
+        """Return direct predecessor edges with their dependency kind."""
+
+        return tuple(
+            sorted(
+                self._predecessor_edges.get(story_id, []),
+                key=lambda edge: (
+                    edge.depends_on_story_id,
+                    edge.story_id,
+                    edge.kind.value,
+                    edge.created_at.isoformat(),
+                ),
+            ),
+        )
+
+    def direct_hard_predecessors(self, story_id: str) -> set[str]:
+        """Return direct predecessor ids that block feasibility."""
+
+        return {
+            edge.depends_on_story_id
+            for edge in self._predecessor_edges.get(story_id, [])
+            if edge.kind in HARD_BLOCKING_DEPENDENCY_KINDS
+        }
 
     def transitive_predecessors(self, story_id: str) -> set[str]:
         """Return all predecessor story ids reachable against edge direction."""
