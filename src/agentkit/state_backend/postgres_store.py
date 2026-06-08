@@ -484,6 +484,7 @@ def _ensure_failure_corpus_constraints(conn: _CompatConnection) -> None:
 
 
 def _ensure_schema(conn: _CompatConnection) -> None:
+    conn.execute("SELECT pg_advisory_xact_lock(hashtext('agentkit_postgres_schema_ddl'))")
     conn.executescript(_schema_create_script())
     for statement in _schema_alter_statements():
         conn.execute(statement)

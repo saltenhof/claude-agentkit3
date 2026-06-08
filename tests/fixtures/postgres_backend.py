@@ -55,6 +55,7 @@ _REGISTRY_TABLE = "ak3_test_schema_registry"
 # matches the resolver's reserved namespace (config._TEST_SCHEMA_NAME_PATTERN).
 _TEST_SCHEMA_PATTERN = re.compile(r"^ak3test_[a-z0-9_]+$")
 _TTL_SWEEP_INTERVAL = "24 hours"
+_PUBLIC_DDL_LOCK_KEY = "agentkit_postgres_test_public_ddl"
 
 
 def _find_free_port() -> int:
@@ -94,15 +95,19 @@ def _worker_schema_name(testrun_uid: str) -> str:
 
 
 def _ensure_registry_table(conn: psycopg.Connection[Any]) -> None:
-    conn.execute(
-        sql.SQL(
-            "CREATE TABLE IF NOT EXISTS public.{} ("
-            "schema_name TEXT PRIMARY KEY, "
-            "run_token TEXT, "
-            "created_at TIMESTAMPTZ NOT NULL DEFAULT now()"
-            ")",
-        ).format(sql.Identifier(_REGISTRY_TABLE)),
-    )
+    conn.execute("SELECT pg_advisory_lock(hashtext(%s))", (_PUBLIC_DDL_LOCK_KEY,))
+    try:
+        conn.execute(
+            sql.SQL(
+                "CREATE TABLE IF NOT EXISTS public.{} ("
+                "schema_name TEXT PRIMARY KEY, "
+                "run_token TEXT, "
+                "created_at TIMESTAMPTZ NOT NULL DEFAULT now()"
+                ")",
+            ).format(sql.Identifier(_REGISTRY_TABLE)),
+        )
+    finally:
+        conn.execute("SELECT pg_advisory_unlock(hashtext(%s))", (_PUBLIC_DDL_LOCK_KEY,))
 
 
 def _sweep_stale_test_schemas(url: str) -> None:
