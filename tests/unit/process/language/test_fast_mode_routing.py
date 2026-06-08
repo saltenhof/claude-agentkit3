@@ -9,10 +9,12 @@ implementation/bugfix).
 from __future__ import annotations
 
 import pytest
+from tests.phase_state_factory import make_phase_state
 
+from agentkit.pipeline_engine.phase_executor import PhaseState, PhaseStatus
 from agentkit.process.language.definitions import IMPLEMENTATION_WORKFLOW
 from agentkit.process.language.guards import mode_is_exploration
-from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.routing_rules import (
     get_phases_for_story,
     should_run_exploration,
@@ -37,7 +39,11 @@ def _ctx(
 
 
 def _setup_completed_state() -> PhaseState:
-    return PhaseState(story_id="AG3-001", phase="setup", status=PhaseStatus.COMPLETED)
+    return make_phase_state(
+        story_id="AG3-001",
+        phase="setup",
+        status=PhaseStatus.COMPLETED,
+    )
 
 
 def test_fast_story_never_routes_to_exploration_guard() -> None:

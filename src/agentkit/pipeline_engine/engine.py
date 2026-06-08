@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 from agentkit.core_types import PauseReason
 from agentkit.core_types.attempt import AttemptOutcome, FailureCause
+from agentkit.core_types.override import OverrideType
 from agentkit.exceptions import PipelineError
 from agentkit.pipeline_engine.phase_envelope.errors import InvalidPauseReasonError
 from agentkit.pipeline_engine.phase_executor import (
@@ -268,6 +269,25 @@ def _evaluate_phase_guards(
                 }
             )
     return evaluations
+
+
+def _override_allowed(override_type: OverrideType, policy: OverridePolicy) -> bool:
+    """Return whether a node policy admits an override type."""
+
+    match override_type:
+        case OverrideType.SKIP_NODE:
+            return policy.allow_skip
+        case OverrideType.FORCE_GATE_PASS:
+            return policy.allow_force_pass
+        case OverrideType.FORCE_GATE_FAIL:
+            return policy.allow_force_fail
+        case OverrideType.JUMP_TO:
+            return policy.allow_jump
+        case OverrideType.TRUNCATE_FLOW:
+            return policy.allow_truncate
+        case OverrideType.FREEZE_RETRIES:
+            return policy.allow_freeze_retries
+    raise PipelineError(f"Unknown override type: {override_type!r}")
 
 
 def _completed_state_for(
@@ -1549,8 +1569,8 @@ class PipelineEngine:
 
         for record in reversed(self._runtime.iter_active_overrides(ctx)):
             if (
-                record.override_type == "skip_node"
-                and phase_def.override_policy.allow_skip
+                record.override_type is OverrideType.SKIP_NODE
+                and _override_allowed(record.override_type, phase_def.override_policy)
                 and record.target_node_id in (None, state.phase)
             ):
                 self._runtime.consume_override(ctx, record)
@@ -1568,8 +1588,8 @@ class PipelineEngine:
                 )
 
             if (
-                record.override_type == "jump_to"
-                and phase_def.override_policy.allow_jump
+                record.override_type is OverrideType.JUMP_TO
+                and _override_allowed(record.override_type, phase_def.override_policy)
             ):
                 destination: str | None = record.target_node_id
                 if destination and self._workflow.get_node(destination) is not None:
@@ -1601,9 +1621,10 @@ class PipelineEngine:
         if not override_policy.allow_freeze_retries:
             return False
         for record in reversed(self._runtime.iter_active_overrides(ctx)):
-            if record.override_type == "freeze_retries" and record.target_node_id in (
-                None,
-                phase_name,
+            if (
+                record.override_type is OverrideType.FREEZE_RETRIES
+                and _override_allowed(record.override_type, override_policy)
+                and record.target_node_id in (None, phase_name)
             ):
                 self._runtime.consume_override(ctx, record)
                 return True

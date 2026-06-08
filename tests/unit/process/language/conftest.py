@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 import pytest
+from tests.phase_state_factory import make_phase_state
 
 from agentkit.core_types import ExplorationGateStatus
+from agentkit.pipeline_engine.phase_executor import (
+    ExplorationPayload,
+    PhaseState,
+    PhaseStatus,
+)
 from agentkit.process.language.gates import Gate, GateStage
 from agentkit.process.language.guards import GuardResult
 from agentkit.process.language.model import (
@@ -14,12 +20,7 @@ from agentkit.process.language.model import (
     TransitionRule,
     WorkflowDefinition,
 )
-from agentkit.story_context_manager.models import (
-    ExplorationPayload,
-    PhaseState,
-    PhaseStatus,
-    StoryContext,
-)
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if False:  # TYPE_CHECKING — avoid import for type checkers only
@@ -51,7 +52,7 @@ def execution_story_context() -> StoryContext:
 @pytest.fixture()
 def minimal_phase_state() -> PhaseState:
     """A minimal PhaseState in setup/PENDING."""
-    return PhaseState(
+    return make_phase_state(
         story_id="TEST-001",
         phase="setup",
         status=PhaseStatus.PENDING,
@@ -61,7 +62,7 @@ def minimal_phase_state() -> PhaseState:
 @pytest.fixture()
 def completed_setup_state() -> PhaseState:
     """A PhaseState where setup is COMPLETED."""
-    return PhaseState(
+    return make_phase_state(
         story_id="TEST-001",
         phase="setup",
         status=PhaseStatus.COMPLETED,
@@ -76,7 +77,7 @@ def completed_exploration_state() -> PhaseState:
     releases implementation when its ``ExplorationPayload.gate_status`` is
     ``APPROVED``; the payload is part of the state that does so.
     """
-    return PhaseState(
+    return make_phase_state(
         story_id="TEST-001",
         phase="exploration",
         status=PhaseStatus.COMPLETED,
@@ -87,7 +88,7 @@ def completed_exploration_state() -> PhaseState:
 @pytest.fixture()
 def completed_implementation_state() -> PhaseState:
     """A PhaseState where implementation is COMPLETED."""
-    return PhaseState(
+    return make_phase_state(
         story_id="TEST-001",
         phase="implementation",
         status=PhaseStatus.COMPLETED,

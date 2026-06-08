@@ -46,6 +46,10 @@ from agentkit.pipeline_engine.phase_executor import (
     build_phase_state,
     phase_state_mode_from_context,
 )
+from agentkit.process.language.phase_transitions import (
+    allowed_phase_transition_targets,
+    is_valid_phase_transition,
+)
 from agentkit.story_context_manager.story_model import WireStoryMode
 
 if TYPE_CHECKING:
@@ -454,12 +458,23 @@ def _enforce_transition(
     ``_evaluate_transitions`` runs on the forward edge -- so no second partial
     copy of the transition logic is built.
     """
+    from_phase = str(existing.phase)
+    if not is_valid_phase_transition(existing.phase, phase):
+        return (
+            f"Invalid phase transition from_phase={from_phase!r} "
+            f"to_phase={phase!r} from_status={existing.status.value!r}: not in "
+            "the derived phase-transition superset "
+            f"(allowed transitions from {from_phase!r}: "
+            f"{allowed_phase_transition_targets(existing.phase)}; FK-45 §45.2)."
+        )
     edges = workflow.get_transitions_from(existing.phase)
     targets = {edge.target for edge in edges}
     if phase not in targets:
         return (
-            f"Invalid phase transition {existing.phase!r} -> {phase!r}: not a "
-            f"workflow edge (allowed: {sorted(targets)}; FK-45 §45.2)."
+            f"Invalid phase transition from_phase={from_phase!r} "
+            f"to_phase={phase!r} from_status={existing.status.value!r}: not a "
+            f"workflow edge (allowed transitions: {sorted(targets)}; "
+            "FK-45 §45.2)."
         )
     if existing.status != PhaseStatus.COMPLETED:
         return (

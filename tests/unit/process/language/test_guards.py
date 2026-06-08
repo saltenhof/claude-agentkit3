@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import pytest
+from tests.phase_state_factory import make_phase_state
 
+from agentkit.pipeline_engine.phase_executor import PhaseState, PhaseStatus
 from agentkit.process.language.guards import (
     GuardResult,
     exploration_gate_approved,
@@ -12,7 +14,7 @@ from agentkit.process.language.guards import (
     mode_is_exploration,
     preflight_passed,
 )
-from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryType
 
 
@@ -141,7 +143,7 @@ class TestExplorationGateApproved:
     def test_fails_when_exploration_pending(
         self, minimal_story_context: StoryContext,
     ) -> None:
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001",
             phase="exploration",
             status=PhaseStatus.PENDING,
@@ -178,7 +180,7 @@ class TestImplementationCompleted:
     def test_fails_when_implementation_in_progress(
         self, minimal_story_context: StoryContext,
     ) -> None:
-        state = PhaseState(
+        state = make_phase_state(
             story_id="TEST-001",
             phase="implementation",
             status=PhaseStatus.IN_PROGRESS,

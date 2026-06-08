@@ -24,6 +24,7 @@ from agentkit.core_types.failure_corpus import (
     IncidentStatus,
     PatternStatus,
 )
+from agentkit.core_types.override import OverrideType
 from agentkit.core_types.pause_reason import PauseReason
 from agentkit.core_types.policy_verdict import PolicyVerdict
 from agentkit.core_types.qa_artifact_names import (
@@ -60,6 +61,7 @@ __all__ = [
     "IncidentStatus",
     "LAYER_ARTIFACT_FILES",
     "MergePolicy",
+    "OverrideType",
     "PatternStatus",
     "PauseReason",
     "PolicyVerdict",

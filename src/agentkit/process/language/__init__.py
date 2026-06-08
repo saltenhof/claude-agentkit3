@@ -39,6 +39,11 @@ from agentkit.process.language.model import (
     WorkflowDefinition,
     YieldPoint,
 )
+from agentkit.process.language.phase_transitions import (
+    PHASE_TRANSITION_GRAPH,
+    allowed_phase_transition_targets,
+    is_valid_phase_transition,
+)
 from agentkit.process.language.recovery import (
     DEFAULT_RECOVERY_CONTRACT,
     FieldSource,
@@ -65,6 +70,9 @@ __all__ = [
     "OverridePolicy",
     "StepExecutionContext",
     "StepResult",
+    "PHASE_TRANSITION_GRAPH",
+    "is_valid_phase_transition",
+    "allowed_phase_transition_targets",
     # guards
     "GuardResult",
     "GuardFn",

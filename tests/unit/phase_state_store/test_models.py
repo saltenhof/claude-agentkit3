@@ -5,10 +5,18 @@ from __future__ import annotations
 import dataclasses
 from datetime import UTC, datetime
 
+import pytest
+
+from agentkit.core_types import OverrideType
+from agentkit.exceptions import CorruptStateError
 from agentkit.phase_state_store import (
     FlowExecution,
     NodeExecutionLedger,
     OverrideRecord,
+)
+from agentkit.state_backend.store.mappers import (
+    override_record_to_row,
+    override_row_to_record,
 )
 
 
@@ -78,12 +86,70 @@ class TestOverrideRecord:
             run_id="run-1",
             flow_id="verify",
             target_node_id="qa_review",
-            override_type="skip_node",
+            override_type=OverrideType.SKIP_NODE,
             actor_type="human",
             actor_id="owner",
             reason="known flaky dependency outage",
             created_at=created_at,
         )
-        assert record.override_type == "skip_node"
+        assert record.override_type is OverrideType.SKIP_NODE
         assert record.target_node_id == "qa_review"
         assert record.created_at is created_at
+
+    def test_wire_string_is_normalized_to_enum(self) -> None:
+        record = OverrideRecord(
+            override_id="ovr-1",
+            project_key="proj",
+            story_id="ST-1",
+            run_id="run-1",
+            flow_id="verify",
+            target_node_id="qa_review",
+            override_type=OverrideType.SKIP_NODE.value,  # type: ignore[arg-type]
+            actor_type="human",
+            actor_id="owner",
+            reason="known flaky dependency outage",
+            created_at=datetime.now(tz=UTC),
+        )
+
+        assert record.override_type is OverrideType.SKIP_NODE
+
+    def test_mapper_round_trips_override_type_as_text_wire(self) -> None:
+        created_at = datetime.now(tz=UTC)
+        record = OverrideRecord(
+            override_id="ovr-1",
+            project_key="proj",
+            story_id="ST-1",
+            run_id="run-1",
+            flow_id="verify",
+            target_node_id="qa_review",
+            override_type=OverrideType.JUMP_TO,
+            actor_type="human",
+            actor_id="owner",
+            reason="operator jump",
+            created_at=created_at,
+        )
+
+        row = override_record_to_row(record)
+        loaded = override_row_to_record(row)
+
+        assert row["override_type"] == "jump_to"
+        assert loaded.override_type is OverrideType.JUMP_TO
+
+    def test_unknown_persisted_override_type_fails_closed(self) -> None:
+        row = {
+            "override_id": "ovr-bad",
+            "project_key": "proj",
+            "story_id": "ST-1",
+            "run_id": "run-1",
+            "flow_id": "verify",
+            "target_node_id": "qa_review",
+            "override_type": "resume",
+            "actor_type": "human",
+            "actor_id": "owner",
+            "reason": "bad persisted value",
+            "created_at": datetime.now(tz=UTC).isoformat(),
+            "consumed_at": None,
+        }
+
+        with pytest.raises(CorruptStateError, match="unknown value"):
+            override_row_to_record(row)

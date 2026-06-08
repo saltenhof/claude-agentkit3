@@ -18,6 +18,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+from agentkit.core_types.override import OverrideType
+
 
 @dataclass(frozen=True)
 class FlowExecution:
@@ -63,9 +65,14 @@ class OverrideRecord:
     run_id: str
     flow_id: str
     target_node_id: str | None
-    override_type: str
+    override_type: OverrideType
     actor_type: str
     actor_id: str
     reason: str
     created_at: datetime
     consumed_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        """Normalize wire strings to the closed override enum."""
+
+        object.__setattr__(self, "override_type", OverrideType(str(self.override_type)))

@@ -12,11 +12,16 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from agentkit.pipeline_engine.phase_executor import PhaseName
 from agentkit.process.language.definitions import (
     BUGFIX_WORKFLOW,
     CONCEPT_WORKFLOW,
     IMPLEMENTATION_WORKFLOW,
     RESEARCH_WORKFLOW,
+)
+from agentkit.process.language.phase_transitions import (
+    PHASE_TRANSITION_GRAPH,
+    is_valid_phase_transition,
 )
 
 if TYPE_CHECKING:
@@ -31,6 +36,73 @@ def _get_transition_targets(wf: WorkflowDefinition, source: str) -> set[str]:
 def _get_all_transition_pairs(wf: WorkflowDefinition) -> set[tuple[str, str]]:
     """Get all (source, target) pairs defined in the workflow."""
     return {(t.source, t.target) for t in wf.transitions}
+
+
+def _all_workflow_transition_pairs() -> set[tuple[PhaseName, PhaseName]]:
+    return {
+        (PhaseName(edge.source), PhaseName(edge.target))
+        for workflow in (
+            IMPLEMENTATION_WORKFLOW,
+            BUGFIX_WORKFLOW,
+            CONCEPT_WORKFLOW,
+            RESEARCH_WORKFLOW,
+        )
+        for phase in workflow.phase_names
+        for edge in workflow.get_transitions_from(phase)
+    }
+
+
+class TestPhaseTransitionGraph:
+    """Tests for the derived FK-45 phase transition superset."""
+
+    def test_graph_is_exact_union_of_all_workflow_edges(self) -> None:
+        graph_pairs = {
+            (source, target)
+            for source, targets in PHASE_TRANSITION_GRAPH.items()
+            for target in targets
+        }
+
+        assert graph_pairs == _all_workflow_transition_pairs()
+
+    def test_graph_contains_expected_superset_edges(self) -> None:
+        assert _all_workflow_transition_pairs() == {
+            (PhaseName.SETUP, PhaseName.EXPLORATION),
+            (PhaseName.SETUP, PhaseName.IMPLEMENTATION),
+            (PhaseName.EXPLORATION, PhaseName.IMPLEMENTATION),
+            (PhaseName.IMPLEMENTATION, PhaseName.CLOSURE),
+        }
+
+    @pytest.mark.parametrize("phase", list(PhaseName))
+    def test_same_phase_is_not_a_graph_transition_but_valid_for_resume(
+        self,
+        phase: PhaseName,
+    ) -> None:
+        assert is_valid_phase_transition(phase, phase) is True
+
+    @pytest.mark.parametrize(
+        ("source", "target", "expected"),
+        [
+            (source, target, source == target or (source, target) in {
+                (PhaseName.SETUP, PhaseName.EXPLORATION),
+                (PhaseName.SETUP, PhaseName.IMPLEMENTATION),
+                (PhaseName.EXPLORATION, PhaseName.IMPLEMENTATION),
+                (PhaseName.IMPLEMENTATION, PhaseName.CLOSURE),
+            })
+            for source in PhaseName
+            for target in PhaseName
+        ],
+    )
+    def test_full_phase_transition_matrix(
+        self,
+        source: PhaseName,
+        target: PhaseName,
+        expected: bool,
+    ) -> None:
+        assert is_valid_phase_transition(source, target) is expected
+
+    def test_unknown_phase_value_fails_closed(self) -> None:
+        assert is_valid_phase_transition("verify", PhaseName.IMPLEMENTATION) is False
+        assert is_valid_phase_transition(PhaseName.SETUP, "verify") is False
 
 
 # ---------------------------------------------------------------------------

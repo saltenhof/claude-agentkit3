@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.phase_state_factory import make_phase_state
 
 from agentkit.control_plane.dispatch import (
     PhaseDispatcher,
@@ -25,16 +26,14 @@ from agentkit.pipeline_engine.lifecycle import (
     NoOpHandler,
     PhaseHandlerRegistry,
 )
+from agentkit.pipeline_engine.phase_executor import PhaseState, PhaseStatus
 from agentkit.process.language.definitions import resolve_workflow
 from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.state_backend.store import (
     reset_backend_cache_for_tests,
     save_story_context,
 )
-from agentkit.story_context_manager.models import (
-    PhaseStatus,
-    StoryContext,
-)
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
@@ -135,12 +134,17 @@ class _AlwaysAdmittedReader:
 # ---------------------------------------------------------------------------
 
 
-def _ctx(story_dir: Path, *, story_type: StoryType = StoryType.IMPLEMENTATION) -> StoryContext:
+def _ctx(
+    story_dir: Path,
+    *,
+    story_type: StoryType = StoryType.IMPLEMENTATION,
+    execution_route: StoryMode | None = StoryMode.EXECUTION,
+) -> StoryContext:
     ctx = StoryContext(
         project_key="test-project",
         story_id="AG3-700",
         story_type=story_type,
-        execution_route=StoryMode.EXECUTION,
+        execution_route=execution_route,
         project_root=story_dir.parent,
     )
     save_story_context(story_dir, ctx)
@@ -268,7 +272,12 @@ class TestSinglePhaseDispatch:
         assert result.status == "rejected"
         assert result.dispatched is False
         assert result.reaction == "rejected"
-        assert "Invalid phase transition" in (result.rejection_reason or "")
+        reason = result.rejection_reason or ""
+        assert "Invalid phase transition" in reason
+        assert "from_phase='setup'" in reason
+        assert "to_phase='closure'" in reason
+        assert "from_status='completed'" in reason
+        assert "allowed transitions" in reason
 
     def test_escalated_phase_does_not_start_follow_up(self, tmp_path: Path) -> None:
         """An ESCALATED implementation result yields no next_phase (no closure start)."""
@@ -495,6 +504,82 @@ class TestStoryTypeSwitch:
 
         assert result.next_phase == "implementation"
 
+    @pytest.mark.parametrize(
+        "story_type",
+        [StoryType.IMPLEMENTATION, StoryType.BUGFIX],
+    )
+    def test_implementation_and_bugfix_exploration_mode_enter_exploration(
+        self,
+        tmp_path: Path,
+        story_type: StoryType,
+    ) -> None:
+        """AC5 correction: implementation and bugfix exploration routes admit."""
+        story_dir = tmp_path / f"stories/{story_type.value}" / "AG3-700"
+        story_dir.mkdir(parents=True)
+        ctx = _ctx(
+            story_dir,
+            story_type=story_type,
+            execution_route=StoryMode.EXPLORATION,
+        )
+        spy = _SpyExplorationHandler()
+        dispatcher = _dispatcher(story_dir, overrides={"exploration": spy})
+        dispatcher.dispatch(
+            ctx=ctx,
+            phase="setup",
+            story_dir=story_dir,
+            run_id=_RUN_ID,
+            run_admitted=False,
+        )
+
+        result = dispatcher.dispatch(
+            ctx=ctx,
+            phase="exploration",
+            story_dir=story_dir,
+            run_id=_RUN_ID,
+            run_admitted=True,
+        )
+
+        assert result.dispatched is True
+        assert result.status == "phase_completed"
+        assert spy.entered is True
+
+    @pytest.mark.parametrize(
+        "story_type",
+        [StoryType.CONCEPT, StoryType.RESEARCH],
+    )
+    def test_concept_and_research_reject_setup_to_exploration(
+        self,
+        tmp_path: Path,
+        story_type: StoryType,
+    ) -> None:
+        """AC5 correction: non-implementation workflows reject exploration entry."""
+        story_dir = tmp_path / f"stories/{story_type.value}" / "AG3-700"
+        story_dir.mkdir(parents=True)
+        ctx = _ctx(story_dir, story_type=story_type, execution_route=None)
+        spy = _SpyExplorationHandler()
+        dispatcher = _dispatcher(story_dir, overrides={"exploration": spy})
+        dispatcher.dispatch(
+            ctx=ctx,
+            phase="setup",
+            story_dir=story_dir,
+            run_id=_RUN_ID,
+            run_admitted=False,
+        )
+
+        result = dispatcher.dispatch(
+            ctx=ctx,
+            phase="exploration",
+            story_dir=story_dir,
+            run_id=_RUN_ID,
+            run_admitted=True,
+        )
+
+        assert result.status == "rejected"
+        assert result.dispatched is False
+        assert result.reaction == "rejected"
+        assert "not a workflow edge" in (result.rejection_reason or "")
+        assert spy.entered is False
+
 
 class _SpyExplorationHandler:
     """A handler that records whether the exploration phase was ever entered."""
@@ -690,8 +775,6 @@ class TestTransitionGuardEnforcement:
             FlowDefinition,
             NodeDefinition,
         )
-        from agentkit.story_context_manager.models import PhaseState
-
         story_dir = tmp_path / "stories" / "AG3-700"
         story_dir.mkdir(parents=True)
         ctx = _ctx(story_dir)
@@ -725,7 +808,7 @@ class TestTransitionGuardEnforcement:
                 ),
             ),
         )
-        completed_setup = PhaseState(
+        completed_setup = make_phase_state(
             story_id=ctx.story_id,
             phase="setup",
             status=PhaseStatus.COMPLETED,
@@ -759,8 +842,6 @@ class TestTransitionGuardEnforcement:
             FlowDefinition,
             NodeDefinition,
         )
-        from agentkit.story_context_manager.models import PhaseState
-
         story_dir = tmp_path / "stories" / "AG3-700"
         story_dir.mkdir(parents=True)
         ctx = _ctx(story_dir)
@@ -793,7 +874,7 @@ class TestTransitionGuardEnforcement:
                 ),
             ),
         )
-        completed_setup = PhaseState(
+        completed_setup = make_phase_state(
             story_id=ctx.story_id,
             phase="setup",
             status=PhaseStatus.COMPLETED,
@@ -827,8 +908,6 @@ class TestTransitionGuardEnforcement:
             FlowDefinition,
             NodeDefinition,
         )
-        from agentkit.story_context_manager.models import PhaseState
-
         story_dir = tmp_path / "stories" / "AG3-700"
         story_dir.mkdir(parents=True)
         ctx = _ctx(story_dir)
@@ -851,7 +930,7 @@ class TestTransitionGuardEnforcement:
                 ),
             ),
         )
-        completed_setup = PhaseState(
+        completed_setup = make_phase_state(
             story_id=ctx.story_id,
             phase="setup",
             status=PhaseStatus.COMPLETED,

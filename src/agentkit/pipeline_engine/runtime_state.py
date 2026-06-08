@@ -262,7 +262,7 @@ class EngineRuntimeState:
             payload={
                 "flow_id": record.flow_id,
                 "node_id": record.target_node_id,
-                "override_type": record.override_type,
+                "override_type": record.override_type.value,
                 "actor_type": record.actor_type,
                 "override_id": record.override_id,
             },

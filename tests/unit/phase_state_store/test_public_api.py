@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import agentkit.phase_state_store as phase_state_store_api
 import agentkit.state_backend.store as state_backend_store
+from agentkit.core_types import OverrideType
 from agentkit.phase_state_store import (
     FlowExecution,
     NodeExecutionLedger,
@@ -26,7 +27,7 @@ def test_load_override_records_delegates_to_state_backend(tmp_path: Path) -> Non
             run_id="run-1",
             flow_id="verify",
             target_node_id="qa-review",
-            override_type="skip_node",
+            override_type=OverrideType.SKIP_NODE,
             actor_type="human",
             actor_id="owner",
             reason="known issue",
@@ -109,7 +110,7 @@ def test_save_override_record_delegates_to_state_backend(tmp_path: Path) -> None
         run_id="run-1",
         flow_id="verify",
         target_node_id=None,
-        override_type="resume",
+        override_type=OverrideType.FREEZE_RETRIES,
         actor_type="system",
         actor_id="orchestrator",
         reason="retry window open",

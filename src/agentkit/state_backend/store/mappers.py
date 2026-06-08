@@ -802,7 +802,7 @@ def override_record_to_row(record: OverrideRecord) -> dict[str, Any]:
         "run_id": record.run_id,
         "flow_id": record.flow_id,
         "target_node_id": record.target_node_id,
-        "override_type": record.override_type,
+        "override_type": record.override_type.value,
         "actor_type": record.actor_type,
         "actor_id": record.actor_id,
         "reason": record.reason,
@@ -816,7 +816,18 @@ def override_row_to_record(row: dict[str, Any]) -> OverrideRecord:
 
     from datetime import datetime
 
+    from agentkit.core_types.override import OverrideType
     from agentkit.phase_state_store.models import OverrideRecord as _OverrideRecord
+
+    raw_override_type = str(row["override_type"])
+    try:
+        override_type = OverrideType(raw_override_type)
+    except ValueError as exc:
+        raise CorruptStateError(
+            f"override_records.override_type has unknown value "
+            f"{raw_override_type!r}; fail-closed",
+            detail={"override_type": raw_override_type},
+        ) from exc
 
     return _OverrideRecord(
         override_id=str(row["override_id"]),
@@ -827,7 +838,7 @@ def override_row_to_record(row: dict[str, Any]) -> OverrideRecord:
         target_node_id=(
             str(row["target_node_id"]) if row["target_node_id"] is not None else None
         ),
-        override_type=str(row["override_type"]),
+        override_type=override_type,
         actor_type=str(row["actor_type"]),
         actor_id=str(row["actor_id"]),
         reason=str(row["reason"]),

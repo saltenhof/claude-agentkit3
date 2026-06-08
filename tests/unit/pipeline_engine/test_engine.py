@@ -6,13 +6,14 @@ pipeline robustness, and transition evaluation.
 
 from __future__ import annotations
 
+import inspect
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.core_types import PauseReason
+from agentkit.core_types import OverrideType, PauseReason
 from agentkit.core_types.attempt import AttemptOutcome
 from agentkit.exceptions import PipelineError
 from agentkit.phase_state_store import (
@@ -57,6 +58,13 @@ if TYPE_CHECKING:
 def _make_envelope(state: PhaseState) -> PhaseEnvelope:
     """Wrap a PhaseState in a fresh PhaseEnvelope for test calls."""
     return PhaseEnvelopeStore.make_fresh_envelope(state)
+
+
+def test_engine_override_evaluation_uses_enum_members() -> None:
+    source = inspect.getsource(PipelineEngine)
+
+    assert 'override_type == "' not in source
+    assert "override_type == '" not in source
 
 
 # ---------------------------------------------------------------------------
@@ -589,7 +597,7 @@ class TestExecutionPoliciesAndOverrides:
                 run_id=engine._runtime.resolve_run_id(story_ctx),
                 flow_id="override-skip",
                 target_node_id="implementation",
-                override_type="skip_node",
+                override_type=OverrideType.SKIP_NODE,
                 actor_type="human",
                 actor_id="tester",
                 reason="operator skip",
@@ -636,7 +644,7 @@ class TestExecutionPoliciesAndOverrides:
                 run_id=engine._runtime.resolve_run_id(story_ctx),
                 flow_id="override-jump",
                 target_node_id="closure",
-                override_type="jump_to",
+                override_type=OverrideType.JUMP_TO,
                 actor_type="human",
                 actor_id="tester",
                 reason="operator jump",
@@ -1276,7 +1284,7 @@ class TestRuntimeTelemetry:
                 run_id=engine._runtime.resolve_run_id(story_ctx),
                 flow_id="telemetry-override",
                 target_node_id="closure",
-                override_type="jump_to",
+                override_type=OverrideType.JUMP_TO,
                 actor_type="human",
                 actor_id="tester",
                 reason="jump to closure",

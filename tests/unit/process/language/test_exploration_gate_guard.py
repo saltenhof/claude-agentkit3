@@ -7,13 +7,15 @@ implementation — the persisted ``ExplorationPayload.gate_status`` must be
 
 from __future__ import annotations
 
+from tests.phase_state_factory import make_phase_state
+
 from agentkit.core_types import ExplorationGateStatus
-from agentkit.process.language.guards import exploration_gate_approved
-from agentkit.story_context_manager.models import (
+from agentkit.pipeline_engine.phase_executor import (
     ExplorationPayload,
     PhaseState,
     PhaseStatus,
 )
+from agentkit.process.language.guards import exploration_gate_approved
 from agentkit.story_context_manager.models import StoryContext as _StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
@@ -33,7 +35,7 @@ def _state(
     payload: ExplorationPayload | None,
     phase: str = "exploration",
 ) -> PhaseState:
-    return PhaseState(
+    return make_phase_state(
         story_id="AG3-045", phase=phase, status=status, payload=payload
     )
 

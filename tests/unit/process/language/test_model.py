@@ -24,7 +24,8 @@ from agentkit.process.language.model import (
 )
 
 if TYPE_CHECKING:
-    from agentkit.story_context_manager.models import PhaseState, StoryContext
+    from agentkit.pipeline_engine.phase_executor import PhaseState
+    from agentkit.story_context_manager.models import StoryContext
 
 
 class TestYieldPoint:
