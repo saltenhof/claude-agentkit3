@@ -113,6 +113,14 @@ _EXPECTED_MANDATORY_FIELDS: dict[EventType, tuple[str, ...]] = {
     EventType.LLM_CALL_COMPLETE: ("role",),
     EventType.INTEGRITY_VIOLATION: ("stage",),
     EventType.REVIEW_RESPONSE: ("verdict",),
+    EventType.REVIEW_DIVERGENCE: (
+        "story_id",
+        "reviewer_a",
+        "reviewer_b",
+        "divergent",
+        "quorum_triggered",
+        "final_verdict",
+    ),
     EventType.VECTORDB_SEARCH: (
         "total_hits",
         "hits_above_threshold",

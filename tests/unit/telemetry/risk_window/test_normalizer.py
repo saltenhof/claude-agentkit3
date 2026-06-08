@@ -101,6 +101,30 @@ def test_payload_excerpt_keeps_known_keys_only() -> None:
     assert result.payload_excerpt == {"guard": "orchestrator_guard", "detail": "blocked"}
 
 
+def test_review_divergence_excerpt_uses_fk34_fields_only() -> None:
+    record = _record(
+        "review_divergence",
+        payload={
+            "reviewer_a": "qa",
+            "reviewer_b": "security",
+            "divergent": True,
+            "quorum_triggered": True,
+            "final_verdict": "FAIL",
+        },
+    )
+
+    result = EventNormalizer().normalize(record)
+
+    assert result is not None
+    assert result.payload_excerpt == {
+        "reviewer_a": "qa",
+        "reviewer_b": "security",
+        "divergent": True,
+        "quorum_triggered": True,
+        "final_verdict": "FAIL",
+    }
+
+
 # ---------------------------------------------------------------------------
 # normalize_and_record write site (AC7 — write only)
 # ---------------------------------------------------------------------------

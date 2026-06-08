@@ -45,6 +45,14 @@ def test_impact_violation_and_exceedance_are_distinct() -> None:
 _VALID_PAYLOADS: dict[EventType | str, dict[str, object]] = {
     EventType.INTEGRITY_VIOLATION: {"stage": "escape_detection"},
     EventType.REVIEW_RESPONSE: {"verdict": "PASS"},
+    EventType.REVIEW_DIVERGENCE: {
+        "story_id": "AG3-001",
+        "reviewer_a": "qa",
+        "reviewer_b": "security",
+        "divergent": True,
+        "quorum_triggered": True,
+        "final_verdict": "FAIL",
+    },
     EventType.VECTORDB_SEARCH: {
         "total_hits": 3,
         "hits_above_threshold": 1,
@@ -112,3 +120,11 @@ def test_event_without_mandatory_fields_is_noop() -> None:
 def test_empty_payload_for_required_event_raises() -> None:
     with pytest.raises(EventPayloadContractError):
         validate_event_payload(EventType.INTEGRITY_VIOLATION, {})
+
+
+def test_review_divergence_missing_final_verdict_raises() -> None:
+    payload = dict(_VALID_PAYLOADS[EventType.REVIEW_DIVERGENCE])
+    del payload["final_verdict"]
+    with pytest.raises(EventPayloadContractError) as exc:
+        validate_event_payload(EventType.REVIEW_DIVERGENCE, payload)
+    assert exc.value.missing == ("final_verdict",)

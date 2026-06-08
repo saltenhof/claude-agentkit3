@@ -182,6 +182,15 @@ MANDATORY_PAYLOAD_FIELDS: Mapping[EventType, tuple[str, ...]] = {
     # FAIL, FK-61 §61.12.2). Presence is mandatory; value typing stays at the
     # producer (review_guard.py).
     EventType.REVIEW_RESPONSE: ("verdict",),
+    # FK-34 §34.8.4 — review-pair divergence fact with optional quorum result.
+    EventType.REVIEW_DIVERGENCE: (
+        "story_id",
+        "reviewer_a",
+        "reviewer_b",
+        "divergent",
+        "quorum_triggered",
+        "final_verdict",
+    ),
     # FK-61 §61.12.1 — new event payloads
     EventType.VECTORDB_SEARCH: (
         "total_hits",
