@@ -58,8 +58,8 @@ erfolgt anschließend kontrolliert über den Konzept-Approval-Flow
 
 ### D6 — story_metrics `check_ref` + `ProjectionFilter` + Outcome-Population
 - **Kontext:** Von AG3-078 (CP2/CP3/CP4). `story_metrics`-Schema `check_ref`+Outcome-Spalten (FK-69 §69.8, closure); `ProjectionFilter.check_ref`/`since_days` (telemetry); Outcome-Population aus echten verify/closure-Runs (nahe AG3-079). KEIN Owner.
-- **Empfehlung:** ein gebündeltes Cut-Item (closure+telemetry).
-- **Entscheidung:** _TBD_ · **Ziel-Konzept:** FK-69 / telemetry-and-events · **Status:** OFFEN
+- **ENTSCHEIDUNG (PO 2026-06-09): JA** — selbstlernende, datengetriebene QA ist gewünscht. Gebündeltes Cut-Item **AG3-108** anlegen: closure `story_metrics` `check_ref`+Outcome-Spalten (beide Stores), telemetry `ProjectionFilter` `check_ref`/`since_days`, Outcome-Population aus echten verify/closure-Runs.
+- **Ziel-Konzept:** FK-69 §69.8 / telemetry-and-events · **Status:** ENTSCHIEDEN → **Story `AG3-108` angelegt** (`stories/AG3-108-story-check-outcome-metrics/`); offene Modellfrage „Per-Check-Tabelle vs. story_metrics-Aggregat" ist in der Story als „gegen FK-69 §69.8 verifizieren / sonst STOPP" markiert. Codex-Review + Implementierung offen (PO-Go).
 
 ### D7 — Login-Pause
 - **Kontext:** Von AG3-065. `PauseReason`-Enum-Erweiterung (FK-39 §39.2.2) + Phase-Runner-Pause-Wiring für FK-11 §11.2.3 Login-Fehler. KEIN Owner.

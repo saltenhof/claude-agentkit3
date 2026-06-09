@@ -143,4 +143,5 @@ Welle 0 ist frei von diesen Abhaengigkeiten → Implementierung kann sofort star
 
 ### Neue Cut-Items aus Entscheidungen (AG3-106+)
 - **AG3-106** harness-posttool-outcome-adapter (S, BC harness-integration) — aus D2 (PO 2026-06-09). Claude-Code-/Codex-Adapter füllen `HookEvent.post_tool_outcome` beim PostToolUse → Worker-Health sieht echte Tool-/Commit-Fehler. Story angelegt; Implementierung offen (PO-Go).
-- (geplant aus D1) Code-Cut-Item: `PhaseStatus.BLOCKED` aus Live-Enum entfernen (pipeline_engine) — noch nicht als Story angelegt.
+- **AG3-107** remove-phasestatus-blocked-live (M, pipeline_engine+bootstrap) — aus D1 (PO 2026-06-09). `PhaseStatus.BLOCKED` aus Live-Enum + komplette `"blocked"`-Terminal-Vertragskette; Audit `AttemptOutcome.BLOCKED`/`PRECONDITION_FAILED` bleibt. Story angelegt + Codex-APPROVE; Implementierung offen.
+- **AG3-108** story-check-outcome-metrics (M, story-closure+telemetry) — aus D6 (PO 2026-06-09). Per-Check-Outcome-Projektion (FK-69 §69.8) + ProjectionFilter check_ref/since_days + Population aus echten verify/closure-Runs. Story angelegt; Codex-Review + Implementierung offen.
