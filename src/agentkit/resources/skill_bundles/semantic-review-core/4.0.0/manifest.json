@@ -1,0 +1,10 @@
+{
+  "bundle_id": "semantic-review-core",
+  "bundle_version": "4.0.0",
+  "manifest_digest": "2557a1e34fafd37220345e7c7c2b77c2f424eb38b45f1fa90f8d08442eebc8fc",
+  "profile": "CORE",
+  "skill_name": "semantic-review",
+  "variants": {
+    "CORE": "semantic-review"
+  }
+}

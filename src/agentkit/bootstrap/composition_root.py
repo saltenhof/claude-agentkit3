@@ -1177,7 +1177,12 @@ def build_skills(
 
     bundle_store = _SkillBundleStore(store_root=bundle_store_root)
     repository = StateBackendSkillBindingRepository(store_dir)
-    return _Skills(bundle_store=bundle_store, binding_repo=repository)
+    projection_accessor = build_projection_accessor(store_dir)
+    return _Skills(
+        bundle_store=bundle_store,
+        binding_repo=repository,
+        projection_accessor=projection_accessor,
+    )
 
 
 def build_integrity_gate(store_dir: Path | None = None) -> IntegrityGate:

@@ -76,6 +76,14 @@ class UnknownPlaceholderError(SkillError):
     """
 
 
+class SkillQualityMetricSourceUnavailableError(SkillError):
+    """Raised when quality metrics are requested without a projection accessor."""
+
+
+class UnknownSkillNameError(SkillError):
+    """Raised when quality metrics are requested for a non-catalogued skill."""
+
+
 class SkillBundleNotFoundError(SkillError):
     """Raised when ``SkillBundleStore.get_bundle`` cannot locate a bundle with
     the requested ``bundle_id``.

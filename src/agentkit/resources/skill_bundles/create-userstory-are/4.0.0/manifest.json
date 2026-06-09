@@ -1,0 +1,10 @@
+{
+  "bundle_id": "create-userstory-are",
+  "bundle_version": "4.0.0",
+  "manifest_digest": "779863029440f751cdec43bd5338aa7fb403fc4b8c3ba142afb947ccd498f704",
+  "profile": "ARE",
+  "skill_name": "create-userstory",
+  "variants": {
+    "ARE": "create-userstory"
+  }
+}

@@ -6,7 +6,7 @@ Covers:
 - bind_skill fail-closed paths
 - resolve_binding
 - list_bound_skills
-- collect_quality_metrics raises NotImplementedError
+- collect_quality_metrics fails closed without a projection accessor
 
 Platform note (FK-43 §43.4.1.1): the binding is a thin directory link — a
 symbolic link on POSIX, a Windows directory junction. A junction needs no
@@ -24,12 +24,14 @@ from pathlib import Path
 
 import pytest
 
+from agentkit.skills import SourceWindow
 from agentkit.skills.binding import SkillBindingMode, SkillLifecycleStatus
 from agentkit.skills.bundle_store import SkillBundleStore
 from agentkit.skills.errors import (
     SkillBindingFailedError,
     SkillBundleDigestMismatchError,
     SkillProfileNotSupportedError,
+    SkillQualityMetricSourceUnavailableError,
 )
 from agentkit.skills.links import (
     create_directory_link,
@@ -961,13 +963,11 @@ class TestListBoundSkills:
 # ---------------------------------------------------------------------------
 
 class TestCollectQualityMetrics:
-    def test_raises_not_implemented_error(self) -> None:
+    def test_requires_projection_accessor(self) -> None:
         skills = _make_skills()
-        with pytest.raises(NotImplementedError, match="follow-up story"):
-            skills.collect_quality_metrics("implement")
-
-    def test_error_message_references_theme(self) -> None:
-        skills = _make_skills()
-        with pytest.raises(NotImplementedError) as exc_info:
-            skills.collect_quality_metrics("semantic-review")
-        assert "telemetry" in str(exc_info.value).lower() or "THEME" in str(exc_info.value)
+        with pytest.raises(SkillQualityMetricSourceUnavailableError):
+            skills.collect_quality_metrics(
+                "semantic-review",
+                project_key="AK3",
+                source_window=SourceWindow(),
+            )

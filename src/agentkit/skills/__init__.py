@@ -26,7 +26,9 @@ from agentkit.skills.errors import (
     SkillBundleNotFoundError,
     SkillError,
     SkillProfileNotSupportedError,
+    SkillQualityMetricSourceUnavailableError,
     UnknownPlaceholderError,
+    UnknownSkillNameError,
 )
 from agentkit.skills.links import (
     create_directory_link,
@@ -35,16 +37,19 @@ from agentkit.skills.links import (
     remove_directory_link,
 )
 from agentkit.skills.placeholder import PlaceholderSubstitutor
+from agentkit.skills.quality_metric import AttributionState, SkillQualityMetric, SourceWindow
 from agentkit.skills.repository import (
     InMemorySkillBindingRepository,
     SkillBindingRepository,
 )
-from agentkit.skills.top import SkillQualityMetric, Skills
+from agentkit.skills.top import Skills
 
 __all__ = [
     # Top-surface
     "Skills",
+    "AttributionState",
     "SkillQualityMetric",
+    "SourceWindow",
     # Binding
     "HarnessKind",
     "SkillBinding",
@@ -71,6 +76,8 @@ __all__ = [
     "SkillBindingFailedError",
     "SkillBundleDigestMismatchError",
     "SkillBundleNotFoundError",
+    "SkillQualityMetricSourceUnavailableError",
     "SkillProfileNotSupportedError",
+    "UnknownSkillNameError",
     "UnknownPlaceholderError",
 ]

@@ -1,13 +1,39 @@
-# Execute User Story — 5-Phase Deterministic Pipeline
+# Execute User Story — 4-Phase Deterministic Pipeline
 
-Orchestrator skill that manages the complete execution cycle for a user story.
+Orchestrator skill that manages the complete execution cycle for a user story:
+Setup, Exploration, Implementation including the QA subflow, and Closure.
 Mechanical checks and closure are handled by deterministic Python modules.
 Agents do only creative work (implementation, semantic code review).
+
+There is explicitly no standalone `verify` top-phase. `VerifySystem` is a
+capability called inside the Implementation-phase QA subflow. When QA requires
+remediation, the orchestrator stays inside the Implementation phase and repeats
+`POST /phases/implementation/start`; it does not switch to a verify phase.
 
 **Invocation:** `/execute-userstory <STORY-ID>`
 
 **Mode:** Orchestrator — this skill implements NOTHING itself. It spawns and coordinates
 sub-agents exclusively. Source code is NEVER read by the orchestrator.
+
+---
+
+## FK-43 §43.3.3 Canonical Eight-Step Orchestration
+
+The orchestration sequence is exactly this eight-step flow:
+
+1. Liest freigegebene Story aus dem AK3-Story-Backend.
+2. Ruft `POST /phases/setup/start` auf.
+3. Liest Phase-State -> spawnt Worker (oder Exploration-Worker).
+4. Wartet auf Worker-Ende.
+5. Ruft `POST /phases/implementation/start` auf — der QA-Subflow laeuft Subflow-intern in der Implementation-Phase und ruft die Capability `VerifySystem` (FK-27).
+6. Liest Phase-State -> bei `qa_cycle_status: awaiting_remediation`: spawnt Remediation-Worker und ruft `POST /phases/implementation/start` erneut auf (Subflow-Loop, kein Phasenwechsel).
+7. Bei `qa_cycle_status: pass` (Implementation COMPLETED): ruft `POST /phases/closure/start` auf.
+8. Bei Eskalation: stoppt und informiert Mensch.
+
+This eight-step flow is the top-level contract for `/execute-userstory`. The
+only top-level phases are Setup, Exploration, Implementation, and Closure. The
+implementation QA loop is a subflow; `VerifySystem` is a capability within that
+subflow, not a fifth phase.
 
 ---
 

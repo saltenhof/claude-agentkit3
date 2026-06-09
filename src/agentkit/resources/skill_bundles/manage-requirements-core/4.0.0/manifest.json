@@ -1,0 +1,10 @@
+{
+  "bundle_id": "manage-requirements-core",
+  "bundle_version": "4.0.0",
+  "manifest_digest": "263b437bc8e3f294cf571a1836d4f898c0b2c8933bd7152fbd4f24f25f06135b",
+  "profile": "CORE",
+  "skill_name": "manage-requirements",
+  "variants": {
+    "CORE": "manage-requirements"
+  }
+}

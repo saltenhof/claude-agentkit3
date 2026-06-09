@@ -6,8 +6,8 @@ Implements the four top-level methods defined in FK-43 §43.1 and FK-50 CP8:
   (symlink on POSIX, directory junction on Windows; FK-43 §43.4.1/§43.4.1.1)
 * ``resolve_binding``   — lookup of an existing binding
 * ``list_bound_skills`` — project-scoped listing
-* ``collect_quality_metrics`` — contract slot; raises NotImplementedError
-  until the telemetry follow-up story (THEME-007).
+* ``collect_quality_metrics`` — projection-backed fail-closed skill quality
+  aggregation (FK-43 §43.6.2).
 """
 
 from __future__ import annotations
@@ -36,12 +36,18 @@ from agentkit.skills.links import (
     is_directory_link,
     remove_directory_link,
 )
+from agentkit.skills.quality_metric import (
+    SkillQualityMetric,
+    SourceWindow,
+    collect_quality_metrics,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path  # noqa: TC003  # used only in annotations (from __future__ annotations)
 
     from agentkit.skills.bundle_store import SkillBundleStore
     from agentkit.skills.repository import SkillBindingRepository
+    from agentkit.telemetry.projection_accessor import ProjectionAccessor
 
 # ---------------------------------------------------------------------------
 # Harness-specific binding paths  (FK-43 §43.4.1, FK-30 §30.11)
@@ -311,19 +317,6 @@ def _remove_links_honest(link_paths: list[Path]) -> list[Path]:
 
 
 # ---------------------------------------------------------------------------
-# SkillQualityMetric placeholder type
-# ---------------------------------------------------------------------------
-
-class SkillQualityMetric:
-    """Result type for ``Skills.collect_quality_metrics``.
-
-    Defined here as a forward-compatible placeholder. The full model
-    (telemetry projections, failure-corpus analysis) is implemented in a
-    follow-up story (THEME-007 / FK-43 §43.6.2).
-    """
-
-
-# ---------------------------------------------------------------------------
 # Skills top-surface
 # ---------------------------------------------------------------------------
 
@@ -336,7 +329,7 @@ class Skills:
       junction on Windows) with multi-harness support
     * ``resolve_binding`` — lookup
     * ``list_bound_skills`` — project-scoped listing
-    * ``collect_quality_metrics`` — raises NotImplementedError until THEME-007
+    * ``collect_quality_metrics`` — reads telemetry projections fail-closed
 
     Invariant enforced: ``project_binding_is_link_only``
     (formal.skills-and-bundles.invariants). File-copying is forbidden.
@@ -344,15 +337,19 @@ class Skills:
     Args:
         bundle_store: Systemwide registry of available skill bundles.
         binding_repo: Storage port for ``SkillBinding`` persistence.
+        projection_accessor: Optional telemetry projection read boundary for
+            skill-quality aggregation.
     """
 
     def __init__(
         self,
         bundle_store: SkillBundleStore,
         binding_repo: SkillBindingRepository,
+        projection_accessor: ProjectionAccessor | None = None,
     ) -> None:
         self._bundle_store = bundle_store
         self._binding_repo = binding_repo
+        self._projection_accessor = projection_accessor
 
     # ------------------------------------------------------------------
     # bind_skill
@@ -659,19 +656,23 @@ class Skills:
     # collect_quality_metrics
     # ------------------------------------------------------------------
 
-    def collect_quality_metrics(self, skill_name: str) -> SkillQualityMetric:
+    def collect_quality_metrics(
+        self,
+        skill_name: str,
+        *,
+        project_key: str,
+        source_window: SourceWindow,
+    ) -> SkillQualityMetric:
         """Return quality metrics for a skill (FK-43 §43.6.2).
 
-        Raises:
-            NotImplementedError: Always. Full implementation requires a
-                telemetry/failure-corpus data source and is deferred to a
-                follow-up story (THEME-007 / FK-43 §43.6.2). A missing or
-                empty metric would falsely suggest "all OK" (FK-43 §43.6.2);
-                therefore this method MUST raise rather than return a
-                zeroed-out stub.
+        The aggregation reads story metrics and ``FC_INCIDENTS`` exclusively via
+        ``Telemetry.ProjectionAccessor.read_projection``. Current source records
+        do not carry skill/version attribution, so the returned model reports
+        ``bundle_version=None`` and ``attribution=UNATTRIBUTABLE``.
         """
-        del skill_name  # consumed by follow-up story
-        raise NotImplementedError(
-            "SkillQualityMetric requires telemetry/failure-corpus data — "
-            "follow-up story (THEME-007 / FK-43 §43.6.2)"
+        return collect_quality_metrics(
+            skill_name,
+            project_key=project_key,
+            source_window=source_window,
+            projection_accessor=self._projection_accessor,
         )

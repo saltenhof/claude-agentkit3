@@ -1,0 +1,10 @@
+{
+  "bundle_id": "execute-userstory-are",
+  "bundle_version": "4.0.0",
+  "manifest_digest": "394bf9db8f06a8abbcd775eaa6c599aa7ef51a3fc4ba5508e4dc9e9132cf5445",
+  "profile": "ARE",
+  "skill_name": "execute-userstory",
+  "variants": {
+    "ARE": "execute-userstory"
+  }
+}

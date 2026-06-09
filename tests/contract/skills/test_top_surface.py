@@ -52,7 +52,8 @@ class TestSkillsSignatures:
     def test_init_signature(self) -> None:
         sig = inspect.signature(Skills.__init__)
         params = list(sig.parameters)
-        assert params == ["self", "bundle_store", "binding_repo"]
+        assert params == ["self", "bundle_store", "binding_repo", "projection_accessor"]
+        assert sig.parameters["projection_accessor"].default is None
 
     def test_bind_skill_signature(self) -> None:
         """FK-43 §43.1: bind_skill takes exactly self, skill_name, bundle_root, project_root."""
@@ -87,7 +88,9 @@ class TestSkillsSignatures:
     def test_collect_quality_metrics_signature(self) -> None:
         sig = inspect.signature(Skills.collect_quality_metrics)
         params = list(sig.parameters)
-        assert params == ["self", "skill_name"]
+        assert params == ["self", "skill_name", "project_key", "source_window"]
+        assert sig.parameters["project_key"].kind is inspect.Parameter.KEYWORD_ONLY
+        assert sig.parameters["source_window"].kind is inspect.Parameter.KEYWORD_ONLY
 
 
 # ---------------------------------------------------------------------------
