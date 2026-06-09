@@ -3,7 +3,38 @@
 from __future__ import annotations
 
 import pytest
-from tests.fixtures.postgres_backend import _is_reapable_test_container
+from tests.fixtures import postgres_backend
+
+
+def test_explicit_postgres_url_rejects_reserved_production_port() -> None:
+    with pytest.raises(RuntimeError, match="reserved production standard port 5432"):
+        postgres_backend._ensure_explicit_postgres_url_uses_test_port(
+            "postgresql://agentkit:test@localhost:5432/agentkit_test",
+        )
+
+
+def test_explicit_postgres_url_accepts_non_standard_test_port() -> None:
+    postgres_backend._ensure_explicit_postgres_url_uses_test_port(
+        "postgresql://agentkit:test@localhost:15432/agentkit_test",
+    )
+
+
+def test_find_free_port_rerolls_reserved_production_port(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ports = iter([5432, 15432])
+
+    monkeypatch.setattr(
+        postgres_backend,
+        "_find_socket_port",
+        lambda: next(ports),
+    )
+
+    assert postgres_backend._find_free_port() == 15432
+
+
+def test_non_reserved_test_postgres_port_is_accepted() -> None:
+    assert postgres_backend._ensure_non_reserved_test_postgres_port(15432) == 15432
 
 
 @pytest.mark.parametrize(
@@ -40,7 +71,7 @@ def test_is_reapable_test_container_requires_fixture_marker_and_age(
     expected: bool,
 ) -> None:
     assert (
-        _is_reapable_test_container(
+        postgres_backend._is_reapable_test_container(
             name,
             label_value,
             age_seconds,

@@ -37,6 +37,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 import psycopg
 import pytest
@@ -65,6 +66,11 @@ _TEST_POSTGRES_CONTAINER_LABEL_VALUE = "1"
 _TEST_POSTGRES_CONTAINER_NAME_PREFIX = "ak3-postgres-"
 _TEST_POSTGRES_CONTAINER_NAME_PATTERN = re.compile(r"^ak3-postgres-[0-9a-f]{12}$")
 _TEST_POSTGRES_CONTAINER_TTL_SECONDS = 2 * 60 * 60
+_RESERVED_PRODUCTION_POSTGRES_PORT = 5432
+_RESERVED_PRODUCTION_POSTGRES_PORT_ERROR = (
+    "tests must not run against the reserved production standard port 5432; "
+    f"point {STATE_DATABASE_URL_ENV} at a non-5432 ephemeral test instance"
+)
 _DOCKER_TIMESTAMP_PATTERN = re.compile(
     r"^(?P<prefix>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})"
     r"(?:\.(?P<fraction>\d+))?"
@@ -72,10 +78,44 @@ _DOCKER_TIMESTAMP_PATTERN = re.compile(
 )
 
 
-def _find_free_port() -> int:
+def _ensure_non_reserved_test_postgres_port(port: int | None) -> int:
+    """Return *port* unless it is the reserved production Postgres port."""
+    if port is None:
+        raise RuntimeError(
+            "Postgres-backed tests must use an explicit non-5432 ephemeral port; "
+            f"point {STATE_DATABASE_URL_ENV} at a non-5432 ephemeral test instance",
+        )
+    if port == _RESERVED_PRODUCTION_POSTGRES_PORT:
+        raise RuntimeError(_RESERVED_PRODUCTION_POSTGRES_PORT_ERROR)
+    return port
+
+
+def _ensure_explicit_postgres_url_uses_test_port(url: str) -> None:
+    """Fail closed if an explicit test Postgres URL targets production port 5432."""
+    try:
+        port = urlparse(url).port
+    except ValueError as exc:
+        raise RuntimeError(
+            f"Invalid {STATE_DATABASE_URL_ENV} port in explicit Postgres test URL.",
+        ) from exc
+    _ensure_non_reserved_test_postgres_port(port)
+
+
+def _find_socket_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
+
+
+def _find_free_port() -> int:
+    for _ in range(100):
+        port = _find_socket_port()
+        if port == _RESERVED_PRODUCTION_POSTGRES_PORT:
+            continue
+        return _ensure_non_reserved_test_postgres_port(port)
+    raise RuntimeError(
+        "Could not allocate a non-5432 ephemeral Postgres test port after 100 attempts.",
+    )
 
 
 def _is_explicit_postgres_env() -> bool:
@@ -313,6 +353,7 @@ def _truncate_schema(url: str, schema: str) -> None:
 def postgres_container_url() -> Iterator[str]:
     if _is_explicit_postgres_env():
         url = str(os.environ[STATE_DATABASE_URL_ENV])
+        _ensure_explicit_postgres_url_uses_test_port(url)
         _sweep_stale_test_schemas(url)
         yield url
         return
