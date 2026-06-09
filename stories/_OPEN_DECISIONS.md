@@ -40,8 +40,8 @@ erfolgt anschließend kontrolliert über den Konzept-Approval-Flow
 
 ### D3 — Runtime-Execution-Purge-Port (FK-53 §53.7.5)
 - **Kontext:** Von AG3-071. Kanonischer Purge für FlowExecution/NodeExecutionLedger/Attempt/Override/GuardDecision/PhaseState am `phase_state_store`-Owner. Existiert nicht; AG3-071 (Reset, Welle 4) konsumiert fail-closed. KEIN Owner.
-- **Empfehlung:** neues Cut-Item vor Welle 4.
-- **Entscheidung:** _TBD_ · **Ziel-Konzept:** FK-53 · **Status:** OFFEN
+- **ENTSCHEIDUNG (PO 2026-06-09): JA — koordinierter Purge-Port, Purge je Owner-BC dediziert** (kein God-Purge, Reset koordiniert). FK-53 spezifiziert den Purge fachlich vollstaendig (§53.6.2/§53.7.5/§53.9.1/§53.10); nur die **Realisierungsform** (per-Owner + Port) war offen → chirurgisch in FK-53 §53.7.5 ergaenzt. Story **AG3-109** angelegt.
+- **Ziel-Konzept:** FK-53 §53.7.5 (Realisierungs-Nachzug, **angewandt**) · **Status:** ENTSCHIEDEN → Story AG3-109 angelegt; Codex-Review + Implementierung offen.
 
 ### D4 — FK-35 Eskalationsmechanik
 - **Kontext:** Von AG3-097. Typisierter `escalation_class`/`infra_unavailable`-Phase-State-Carrier + PAUSED/Resume-Wiring. AG3-059-Fieldset deckt es nicht; FK-25 §25.5.4 delegiert an FK-35. KEIN Owner.

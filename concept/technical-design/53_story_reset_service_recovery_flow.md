@@ -234,6 +234,13 @@ Purge-Domaene:
 **Regel:** Kein verbleibendes Objekt dieses Schritts darf einen
 spaeteren Neustart, Resume oder Guard-Entscheid beeinflussen.
 
+**Realisierung (Ownership):** Der Runtime-Purge wird **je Owner-Bounded-Context
+dediziert** ausgefuehrt — jeder Owner entfernt seine eigenen Laufzeitobjekte
+ueber seine eigene Store-/Repository-API. Der Reset-Service ruft diese
+Owner-Purges **koordiniert** ueber einen schmalen `RuntimeExecutionPurgePort`
+auf; es gibt **keinen** zentralen Loescher, der direkt in fremde
+BC-Stores greift. Jeder Owner-Purge ist idempotent (§53.9.1).
+
 ### 53.7.6 Schritt 6: Read Models und Analytics purgen
 
 Nach dem Runtime-Purge entfernt der Service alle daraus abgeleiteten
