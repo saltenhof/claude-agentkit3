@@ -10,8 +10,14 @@ import pytest
 from tests.phase_state_factory import make_phase_state
 
 from agentkit.artifacts import ArtifactEnvelope, ArtifactManager, ArtifactReference
+from agentkit.bootstrap.composition_root import build_artifact_manager
 from agentkit.core_types import PolicyVerdict, QaContext
-from agentkit.core_types.qa_artifact_names import ALL_QA_ARTIFACT_FILES
+from agentkit.core_types.qa_artifact_names import (
+    ALL_QA_ARTIFACT_FILES,
+    HANDOVER_FILE,
+    PROTOCOL_FILE,
+    WORKER_MANIFEST_FILE,
+)
 from agentkit.implementation.phase import (
     ImplementationConfig,
     ImplementationPhaseHandler,
@@ -32,11 +38,16 @@ from agentkit.state_backend.store import (
     save_phase_snapshot,
     save_story_context,
 )
+from agentkit.state_backend.store.verify_story_context_repository import (
+    StateBackendVerifyStoryContextAdapter,
+)
 from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType, get_profile
+from agentkit.verify_system import VerifySystem
 from agentkit.verify_system.contract import QaSubflowOutcome, VerifyContextBundle
 from agentkit.verify_system.policy_engine.engine import PolicyEngine
 from agentkit.verify_system.protocols import LayerResult
+from agentkit.verify_system.structural.system_evidence import ChangeEvidence
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -280,6 +291,29 @@ class _RecordingVerifySystem:
         return _make_fail_outcome(attempt_nr=ctx.attempt, escalated=escalated)
 
 
+class _StaticChangeEvidencePort:
+    """Returns fixed System change evidence for VerifySystem.create_default tests."""
+
+    def collect(self, story_dir: Path) -> ChangeEvidence:
+        del story_dir
+        return ChangeEvidence(
+            available=True,
+            changed_files=("tests/test_story.py",),
+        )
+
+
+def _make_real_verify_system(
+    story_dir: Path, *, max_major_findings: int = 0, max_feedback_rounds: int | None = None
+) -> VerifySystem:
+    return VerifySystem.create_default(
+        artifact_manager=build_artifact_manager(story_dir),
+        max_major_findings=max_major_findings,
+        max_feedback_rounds=max_feedback_rounds,
+        story_context_port=StateBackendVerifyStoryContextAdapter(),
+        structural_change_evidence_port=_StaticChangeEvidencePort(),
+    )
+
+
 @pytest.fixture(autouse=True)
 def sqlite_backend_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
@@ -405,8 +439,31 @@ def _setup_complete_story_dir(
     )
     # Add a coverage artefact so QaReviewReviewer skips coverage_unknown.
     (tmp_path / ".coverage").write_text("", encoding="utf-8")
+    _write_required_worker_artifacts(story_dir)
 
     return story_dir
+
+
+def _write_required_worker_artifacts(story_dir: Path) -> None:
+    source_file = story_dir / "src" / "agentkit" / "done.py"
+    source_file.parent.mkdir(parents=True, exist_ok=True)
+    source_file.write_text("DONE = True\n", encoding="utf-8")
+    (story_dir / HANDOVER_FILE).write_text("handover\n", encoding="utf-8")
+    (story_dir / PROTOCOL_FILE).write_text("protocol\n", encoding="utf-8")
+    (story_dir / WORKER_MANIFEST_FILE).write_text(
+        json.dumps(
+            {
+                "story_id": "TEST-001",
+                "run_id": "run-implementation-001",
+                "status": "completed",
+                "completed_at": datetime(2026, 1, 1, tzinfo=UTC).isoformat(),
+                "files_changed": ["src/agentkit/done.py"],
+                "tests_added": ["tests/test_story.py"],
+                "acceptance_criteria_status": {"AC1": "done"},
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 class TestImplementationPhaseHandler:
@@ -545,6 +602,7 @@ class TestImplementationPhaseHandler:
 
     def test_failed_result_contains_feedback_text(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
+        _write_required_worker_artifacts(story_dir)
         save_story_context(story_dir, _make_context())
         save_flow_execution(
             story_dir,
@@ -560,7 +618,11 @@ class TestImplementationPhaseHandler:
         )
         # E3: round ceiling 1 -> a FAIL at round 1 escalates immediately
         # (the controller owns the ceiling; >= 1 is enforced).
-        config = ImplementationConfig(story_dir=story_dir, max_feedback_rounds=1)
+        config = ImplementationConfig(
+            story_dir=story_dir,
+            max_feedback_rounds=1,
+            verify_system=_make_real_verify_system(story_dir, max_feedback_rounds=1),
+        )
         handler = ImplementationPhaseHandler(config)
         ctx = _make_context()
         state = _make_state()
@@ -589,18 +651,8 @@ class TestImplementationPhaseHandler:
         # it builds a VerifySystem WITHOUT layer2_llm_client (create_default,
         # the deterministic-reviewer path). The productive LLM path is covered
         # by tests/integration/verify_system/test_layer2_e2e.py.
-        from agentkit.bootstrap.composition_root import build_artifact_manager
-        from agentkit.state_backend.store.verify_story_context_repository import (
-            StateBackendVerifyStoryContextAdapter,
-        )
-        from agentkit.verify_system import VerifySystem
-
         story_dir = _setup_complete_story_dir(tmp_path)
-        verify_system = VerifySystem.create_default(
-            artifact_manager=build_artifact_manager(story_dir),
-            max_major_findings=3,
-            story_context_port=StateBackendVerifyStoryContextAdapter(),
-        )
+        verify_system = _make_real_verify_system(story_dir, max_major_findings=3)
         config = ImplementationConfig(story_dir=story_dir, verify_system=verify_system)
         handler = ImplementationPhaseHandler(config)
         ctx = _make_context()
@@ -664,6 +716,7 @@ class TestImplementationPhaseHandler:
 
     def test_verify_decision_json_written_on_fail(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
+        _write_required_worker_artifacts(story_dir)
         save_story_context(story_dir, _make_context())
         save_flow_execution(
             story_dir,
@@ -677,7 +730,11 @@ class TestImplementationPhaseHandler:
                 status="IN_PROGRESS",
             ),
         )
-        config = ImplementationConfig(story_dir=story_dir, max_feedback_rounds=1)
+        config = ImplementationConfig(
+            story_dir=story_dir,
+            max_feedback_rounds=1,
+            verify_system=_make_real_verify_system(story_dir, max_feedback_rounds=1),
+        )
         handler = ImplementationPhaseHandler(config)
         ctx = _make_context()
         state = _make_state()

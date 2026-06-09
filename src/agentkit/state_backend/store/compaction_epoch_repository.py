@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -12,6 +13,21 @@ from agentkit.boundary.shared.time import now_iso
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+
+_SQLITE_INIT_LOCKS_GUARD = threading.Lock()
+_SQLITE_INIT_LOCKS: dict[Path, threading.Lock] = {}
+
+
+def _sqlite_init_lock(db_path: Path) -> threading.Lock:
+    """Return the process-local initialization lock for a SQLite database."""
+    key = db_path.resolve()
+    with _SQLITE_INIT_LOCKS_GUARD:
+        lock = _SQLITE_INIT_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _SQLITE_INIT_LOCKS[key] = lock
+        return lock
 
 
 def _is_postgres() -> bool:
@@ -61,11 +77,12 @@ def _sqlite_connect(store_dir: Path) -> Iterator[sqlite3.Connection]:
     conn = sqlite3.connect(str(db_path), timeout=30.0, isolation_level=None)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA busy_timeout = 30000")
-    current_mode = conn.execute("PRAGMA journal_mode").fetchone()
-    if current_mode is None or str(current_mode[0]).lower() != "wal":
-        conn.execute("PRAGMA journal_mode=WAL")
+    with _sqlite_init_lock(db_path):
+        current_mode = conn.execute("PRAGMA journal_mode").fetchone()
+        if current_mode is None or str(current_mode[0]).lower() != "wal":
+            conn.execute("PRAGMA journal_mode=WAL")
+        sqlite_store._ensure_schema(conn)
     conn.execute("PRAGMA foreign_keys = ON")
-    sqlite_store._ensure_schema(conn)
     try:
         yield conn
     finally:

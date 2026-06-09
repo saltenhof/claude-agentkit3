@@ -19,7 +19,10 @@ from typing import TYPE_CHECKING, Protocol
 
 from agentkit.closure.execution_report.records import ExecutionReport
 from agentkit.closure.execution_report.writer import write_execution_report
-from agentkit.closure.gates import evaluate_finding_resolution_gate
+from agentkit.closure.gates import (
+    evaluate_finding_resolution_gate,
+    evaluate_implementation_evidence_gate,
+)
 from agentkit.closure.merge_sequence import (
     ClosureRepo,
     MergeApplicability,
@@ -40,6 +43,7 @@ from agentkit.pipeline_engine.lifecycle import HandlerResult
 from agentkit.pipeline_engine.phase_executor import (
     ClosurePayload,
     ClosureProgress,
+    EscalationReason,
     PhaseState,
     PhaseStatus,
     QaCycleStatus,
@@ -74,6 +78,7 @@ if TYPE_CHECKING:
     from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
     from agentkit.story_context_manager.models import StoryContext
     from agentkit.story_context_manager.service import StoryService
+    from agentkit.verify_system.structural.system_evidence import ChangeEvidencePort
 
 logger = logging.getLogger(__name__)
 
@@ -171,6 +176,7 @@ class ClosureConfig:
     merge_applicability: MergeApplicability = MergeApplicability.FULL
     repo_runners: object | None = None
     mode_lock_release_port: ModeLockReleasePort | None = None
+    change_evidence_port: ChangeEvidencePort | None = None
 
 
 class ClosurePhaseHandler:
@@ -204,6 +210,12 @@ class ClosurePhaseHandler:
             )
         s_dir = cfg.story_dir
         save_story_context(s_dir, ctx)
+
+        terminality_error = self._validate_implementation_terminality(
+            ctx, s_dir, envelope.state, _resume_progress(envelope)
+        )
+        if terminality_error is not None:
+            return terminality_error
 
         prior_phases = self._prior_phases(ctx)
         missing = _validate_prior_phases(s_dir, prior_phases)
@@ -240,6 +252,11 @@ class ClosurePhaseHandler:
             )
         s_dir = cfg.story_dir
         save_story_context(s_dir, ctx)
+        terminality_error = self._validate_implementation_terminality(
+            ctx, s_dir, envelope.state, _resume_progress(envelope)
+        )
+        if terminality_error is not None:
+            return terminality_error
         prior_phases = self._prior_phases(ctx)
         progress = _resume_progress(envelope)
         return self._run_sequence(ctx, s_dir, envelope.state, prior_phases, progress)
@@ -272,6 +289,49 @@ class ClosurePhaseHandler:
         if ctx.mode is WireStoryMode.FAST:
             return tuple(p for p in prior if p != "exploration")
         return prior
+
+    def _validate_implementation_terminality(
+        self,
+        ctx: StoryContext,
+        s_dir: Path,
+        source_state: PhaseState,
+        progress: ClosureProgress,
+    ) -> HandlerResult | None:
+        """Block impl/bugfix closure before prior validation when evidence is absent."""
+        from agentkit.story_context_manager.types import StoryType
+        if ctx.story_type not in (StoryType.IMPLEMENTATION, StoryType.BUGFIX):
+            return None
+        if ctx.closure_allowed is False:
+            return self._escalated(
+                ctx,
+                source_state,
+                progress,
+                (
+                    "Implementation-Evidence-Gate: closure_allowed=false after "
+                    "exploration; implementation execution is still required "
+                    "(FK-24 §24.5.2 / §24.8.2).",
+                ),
+                reason=EscalationReason.IMPLEMENTATION_REQUIRED_AFTER_EXPLORATION,
+            )
+        if self._config.change_evidence_port is None:
+            return None
+        gate = evaluate_implementation_evidence_gate(
+            story_type=ctx.story_type,
+            story_dir=s_dir,
+            change_evidence=self._config.change_evidence_port.collect(s_dir),
+        )
+        if gate.passed:
+            return None
+        return self._escalated(
+            ctx,
+            source_state,
+            progress,
+            (
+                gate.blocking_reason
+                or "Implementation-Evidence-Gate: implementation evidence missing.",
+            ),
+            reason=EscalationReason.IMPLEMENTATION_REQUIRED_AFTER_EXPLORATION,
+        )
 
     def _run_sequence(
         self,
@@ -618,13 +678,20 @@ class ClosurePhaseHandler:
         source_state: PhaseState,
         progress: ClosureProgress,
         errors: tuple[str, ...],
+        *,
+        reason: EscalationReason | None = None,
     ) -> HandlerResult:
         """Build an ESCALATED result, persisting the reached progress."""
-        self._store().save_state(
-            _closure_state(source_state, progress, PhaseStatus.ESCALATED)
-        )
+        state = _closure_state(source_state, progress, PhaseStatus.ESCALATED)
+        if reason is not None:
+            state = evolve_phase_state(state, escalation_reason=reason)
+        self._store().save_state(state)
         logger.error("Closure ESCALATED for story=%s: %s", ctx.story_id, errors)
-        return HandlerResult(status=PhaseStatus.ESCALATED, errors=errors)
+        return HandlerResult(
+            status=PhaseStatus.ESCALATED,
+            errors=errors,
+            updated_state=state,
+        )
 
 
 # ----------------------------------------------------------------------

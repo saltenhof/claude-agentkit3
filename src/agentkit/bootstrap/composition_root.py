@@ -1601,6 +1601,7 @@ def build_closure_phase_handler(
         base_dir, project_key=project_key
     )
     config.mode_lock_release_port = _build_mode_lock_release_port(base_dir)
+    config.change_evidence_port = _SubprocessGitChangeEvidenceProvider()
     return ClosurePhaseHandler(config)
 
 

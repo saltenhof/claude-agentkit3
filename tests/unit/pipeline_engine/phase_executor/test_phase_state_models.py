@@ -95,6 +95,13 @@ def test_pause_reason_wire_key_roundtrip_uses_uppercase_enum_value() -> None:
     assert restored.pause_reason is PauseReason.AWAITING_DESIGN_REVIEW
 
 
+def test_escalation_reason_includes_implementation_required_after_exploration() -> None:
+    assert (
+        EscalationReason.IMPLEMENTATION_REQUIRED_AFTER_EXPLORATION.value
+        == "implementation_required_after_exploration"
+    )
+
+
 def test_runtime_metadata_and_envelope_are_frozen_dataclasses() -> None:
     runtime = RuntimeMetadata(origin=PhaseOrigin.LOADED)
     state = PhaseState(**_state_data())

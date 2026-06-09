@@ -30,10 +30,13 @@ from agentkit.core_types.policy_verdict import PolicyVerdict
 from agentkit.core_types.qa_artifact_names import (
     ALL_QA_ARTIFACT_FILES,
     GUARDRAIL_FILE,
+    HANDOVER_FILE,
     LAYER_ARTIFACT_FILES,
+    PROTOCOL_FILE,
     QA_LAYER2_FILES,
     VERIFY_DECISION_FILE,
     VERIFY_DECISION_STAGE,
+    WORKER_MANIFEST_FILE,
 )
 from agentkit.core_types.qa_context import QaContext
 from agentkit.core_types.severity import Severity
@@ -58,6 +61,7 @@ __all__ = [
     "FailureCategory",
     "FailureCause",
     "GUARDRAIL_FILE",
+    "HANDOVER_FILE",
     "IncidentStatus",
     "LAYER_ARTIFACT_FILES",
     "MergePolicy",
@@ -65,9 +69,11 @@ __all__ = [
     "PatternStatus",
     "PauseReason",
     "PolicyVerdict",
+    "PROTOCOL_FILE",
     "QA_LAYER2_FILES",
     "VERIFY_DECISION_FILE",
     "VERIFY_DECISION_STAGE",
+    "WORKER_MANIFEST_FILE",
     "QaContext",
     "Severity",
     "SpawnKind",

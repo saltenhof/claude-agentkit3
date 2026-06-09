@@ -20,6 +20,7 @@ from agentkit.pipeline_engine.phase_executor import (
     PhaseStatus,
     evolve_phase_state,
 )
+from agentkit.state_backend.store import save_story_context
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -91,6 +92,8 @@ _FINE_DESIGN_UNAVAILABLE_REACTION = (
     "fine_design_required: real fine-design evaluator not yet available "
     "(follow-up); operator intervention required (FK-25 §25.5 / §25.5.4)"
 )
+
+_EXPLORATION_SUMMARY_FILE = "exploration-summary.md"
 
 
 @dataclass(frozen=True)
@@ -337,7 +340,7 @@ class ExplorationPhaseHandler:
         )
         if gate_result.overall_status is ExplorationGateStatus.APPROVED:
             return self._approved_with_freeze(
-                state, change_frame, story_dir=story_dir, run_id=run_id
+                ctx, state, change_frame, story_dir=story_dir, run_id=run_id
             )
         return self._map_gate_result(state, gate_result)
 
@@ -615,6 +618,7 @@ class ExplorationPhaseHandler:
 
     def _approved_with_freeze(
         self,
+        ctx: StoryContext,
         state: PhaseState,
         change_frame: ChangeFrame,
         *,
@@ -644,8 +648,34 @@ class ExplorationPhaseHandler:
                 story_id=change_frame.story_id,
                 run_id=run_id,
             )
+        summary_path: Path | None = None
+        if _requires_implementation_after_exploration(ctx):
+            try:
+                summary_path = _write_exploration_summary(story_dir, change_frame)
+            except OSError as exc:
+                return HandlerResult(
+                    status=PhaseStatus.FAILED,
+                    errors=(f"Failed to write {_EXPLORATION_SUMMARY_FILE}: {exc}",),
+                    updated_state=self._exploration_state(
+                        state, PhaseStatus.FAILED, ExplorationGateStatus.APPROVED
+                    ),
+                )
+            save_story_context(
+                story_dir,
+                ctx.model_copy(
+                    update={
+                        "implementation_required": True,
+                        "closure_allowed": False,
+                        "story_done": False,
+                        "exploration_completed": True,
+                        "execution_pending": True,
+                    }
+                ),
+            )
+        artifacts = (str(summary_path),) if summary_path is not None else ()
         return HandlerResult(
             status=PhaseStatus.COMPLETED,
+            artifacts_produced=artifacts,
             updated_state=self._exploration_state(
                 state, PhaseStatus.COMPLETED, ExplorationGateStatus.APPROVED
             ),
@@ -796,6 +826,69 @@ def _rejection_reason(gate_result: ExplorationGateResult) -> str:
         "Exploration exit-gate REJECTED: design review/challenge FAILED "
         "(design_review_rejected, FK-23 §23.5). Operator intervention required."
     )
+
+
+def _requires_implementation_after_exploration(ctx: StoryContext) -> bool:
+    """Whether exploration completion must schedule an execution follow-up."""
+    from agentkit.story_context_manager.types import StoryType
+
+    return ctx.story_type in (StoryType.IMPLEMENTATION, StoryType.BUGFIX)
+
+
+def _write_exploration_summary(story_dir: Path, change_frame: ChangeFrame) -> Path:
+    """Write the human-readable exploration summary aggregate (FK-24 §24.9)."""
+    story_dir.mkdir(parents=True, exist_ok=True)
+    path = story_dir / _EXPLORATION_SUMMARY_FILE
+    path.write_text(_exploration_summary_markdown(change_frame), encoding="utf-8")
+    return path
+
+
+def _exploration_summary_markdown(change_frame: ChangeFrame) -> str:
+    """Render the deterministic summary from the structured change-frame."""
+    investigated = (
+        [change_frame.goal_and_scope.changes]
+        + list(change_frame.affected_building_blocks.affected)
+        + list(change_frame.conformance_statement.reference_documents)
+    )
+    decided = (
+        [change_frame.solution_direction.pattern]
+        + list(change_frame.open_points.decided)
+    )
+    open_points = (
+        list(change_frame.open_points.assumptions)
+        + list(change_frame.open_points.approval_needed)
+    )
+    return "\n".join(
+        (
+            f"# Exploration Summary: {change_frame.story_id}",
+            "",
+            "## Investigated",
+            _markdown_list(investigated),
+            "",
+            "## Decided",
+            _markdown_list(decided),
+            "",
+            "## Open",
+            _markdown_list(open_points),
+            "",
+            "## Mandatory Next Phase",
+            "- Implementation execution must run next.",
+            "",
+            "## Why Not Yet Complete",
+            "- Exploration produced design evidence only; implementation "
+            "evidence is still required before verify, closure, merge, issue "
+            "close, or project Done.",
+            "",
+        )
+    )
+
+
+def _markdown_list(items: list[str]) -> str:
+    """Render a stable markdown list with an explicit empty marker."""
+    values = [item for item in items if item.strip()]
+    if not values:
+        return "- None recorded."
+    return "\n".join(f"- {item}" for item in values)
 
 
 __all__ = ["ExplorationConfig", "ExplorationPhaseHandler"]

@@ -105,6 +105,15 @@ class StoryContext(BaseModel):
     #: is the typed run-time view for the sandbox guard (no second persistence truth).
     concept_paths: tuple[str, ...] = ()
 
+    #: Follow-up state after approved exploration for implementation/bugfix
+    #: stories (FK-24 §24.5.2). ``None`` means not applicable for this story
+    #: type; exploration sets explicit booleans only for code-producing stories.
+    implementation_required: bool | None = None
+    closure_allowed: bool | None = None
+    story_done: bool | None = None
+    exploration_completed: bool | None = None
+    execution_pending: bool | None = None
+
     @model_validator(mode="before")
     @classmethod
     def _normalize_contract_defaults(cls, data: Any) -> Any:

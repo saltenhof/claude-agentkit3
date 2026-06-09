@@ -50,10 +50,13 @@ from agentkit.core_types import ArtifactClass
 from agentkit.core_types.qa_artifact_names import (
     DOC_FIDELITY_PRODUCER,
     DOC_FIDELITY_STAGE,
+    HANDOVER_FILE,
+    PROTOCOL_FILE,
     QA_REVIEW_PRODUCER,
     QA_REVIEW_STAGE,
     SEMANTIC_REVIEW_PRODUCER,
     SEMANTIC_REVIEW_STAGE,
+    WORKER_MANIFEST_FILE,
 )
 from agentkit.installer.paths import qa_story_dir
 from agentkit.phase_state_store.models import FlowExecution
@@ -61,6 +64,7 @@ from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
 from agentkit.pipeline_engine.phase_executor import (
     ClosurePayload,
     ClosureProgress,
+    EscalationReason,
     PhaseSnapshot,
     PhaseState,
     PhaseStatus,
@@ -76,6 +80,7 @@ from agentkit.story_context_manager.story_model import WireStoryMode
 from agentkit.story_context_manager.types import StoryMode, StoryType
 from agentkit.telemetry.contract.records import ExecutionEventRecord
 from agentkit.telemetry.events import EventType
+from agentkit.verify_system.structural.system_evidence import ChangeEvidence
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -260,6 +265,47 @@ def _write_all_layer2(
         )
 
 
+class _StaticChangeEvidencePort:
+    """Returns fixed independent System change evidence."""
+
+    def __init__(self, evidence: ChangeEvidence) -> None:
+        self.evidence = evidence
+        self.calls: list[Path] = []
+
+    def collect(self, story_dir: Path) -> ChangeEvidence:
+        self.calls.append(story_dir)
+        return self.evidence
+
+
+class _RecordingStoryService(NoOpStoryService):
+    """Records whether closure attempted to mark the story Done."""
+
+    def __init__(self) -> None:
+        self.completed: list[str] = []
+
+    def complete_story(self, story_id: str) -> None:
+        self.completed.append(story_id)
+
+
+def _write_required_worker_artifacts(story_dir: Path, story_id: str = "TEST-001") -> None:
+    (story_dir / HANDOVER_FILE).write_text("handover\n", encoding="utf-8")
+    (story_dir / PROTOCOL_FILE).write_text("protocol\n", encoding="utf-8")
+    (story_dir / WORKER_MANIFEST_FILE).write_text(
+        json.dumps(
+            {
+                "story_id": story_id,
+                "run_id": _run_id_for(story_id),
+                "status": "completed",
+                "completed_at": datetime(2026, 1, 1, tzinfo=UTC).isoformat(),
+                "files_changed": ["src/agentkit/done.py"],
+                "tests_added": [],
+                "acceptance_criteria_status": {"AC1": "done"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def _run_id_for(story_id: str) -> str:
     return f"run-{story_id.lower()}"
 
@@ -348,6 +394,94 @@ class TestImplClosureHappyPath:
         assert guard.calls == ["guard"]
         # The saga ran a push (story-branch) -> merge truth is the saga.
         assert any(cmd[:1] == ("push",) for cmd in git.commands)
+
+    def test_closure_blocks_exploration_only_implementation_story(
+        self, tmp_path: Path
+    ) -> None:
+        """FK-24 §24.12: exploration-only implementation cannot enter merge."""
+        s_dir = _prepare_impl_story(tmp_path, phases=("setup", "exploration"))
+        service = _RecordingStoryService()
+        config = _impl_config(s_dir)
+        config.story_service = service  # type: ignore[assignment]
+        scan = RecordingScanPort()
+        build = RecordingBuildTestPort()
+        integrity = RecordingIntegrityGate()
+        config.scan_port = scan
+        config.build_test_port = build
+        config.integrity_gate = integrity  # type: ignore[assignment]
+        ctx = _make_ctx(project_root=tmp_path).model_copy(
+            update={
+                "implementation_required": True,
+                "closure_allowed": False,
+                "story_done": False,
+                "exploration_completed": True,
+                "execution_pending": True,
+            }
+        )
+
+        result = ClosurePhaseHandler(config).on_enter(
+            ctx, PhaseEnvelopeStore.make_fresh_envelope(_make_state())
+        )
+
+        assert result.status is PhaseStatus.ESCALATED
+        assert result.updated_state.escalation_reason is (
+            EscalationReason.IMPLEMENTATION_REQUIRED_AFTER_EXPLORATION
+        )
+        assert scan.calls == []
+        assert build.calls == []
+        assert integrity.calls == []
+        assert service.completed == []
+
+    def test_issue_cannot_be_closed_for_implementation_without_execution(
+        self, tmp_path: Path
+    ) -> None:
+        """FK-24 §24.12: terminality block prevents issue close and Done."""
+        s_dir = _prepare_impl_story(tmp_path, phases=("setup", "exploration"))
+        service = _RecordingStoryService()
+        config = _impl_config(s_dir)
+        config.close_issue = True
+        config.owner = "owner"
+        config.repo = "repo"
+        config.issue_nr = 123
+        config.story_service = service  # type: ignore[assignment]
+        ctx = _make_ctx(project_root=tmp_path).model_copy(
+            update={"closure_allowed": False, "execution_pending": True}
+        )
+
+        result = ClosurePhaseHandler(config).on_enter(
+            ctx, PhaseEnvelopeStore.make_fresh_envelope(_make_state())
+        )
+
+        assert result.status is PhaseStatus.ESCALATED
+        assert service.completed == []
+
+    def test_closure_runs_normally_with_real_implementation_evidence(
+        self, tmp_path: Path
+    ) -> None:
+        """Positive counter-probe: real implementation evidence permits closure."""
+        s_dir = _prepare_impl_story(tmp_path)
+        _write_required_worker_artifacts(s_dir)
+        manager = build_artifact_manager(s_dir)
+        _write_all_layer2(manager, story_id="TEST-001", run_id=_run_id_for("TEST-001"))
+        config = _impl_config(s_dir)
+        config.artifact_manager = manager
+        config.change_evidence_port = _StaticChangeEvidencePort(
+            ChangeEvidence(available=True, changed_files=("src/agentkit/done.py",))
+        )
+        ctx = _make_ctx(project_root=tmp_path).model_copy(
+            update={
+                "implementation_required": False,
+                "closure_allowed": True,
+                "story_done": False,
+                "execution_pending": False,
+            }
+        )
+
+        result = ClosurePhaseHandler(config).on_enter(
+            ctx, PhaseEnvelopeStore.make_fresh_envelope(_make_state())
+        )
+
+        assert result.status is PhaseStatus.COMPLETED
 
     def test_scan_runs_before_gate_runs_before_push(self, tmp_path: Path) -> None:
         """AC#3: scan -> gate -> push order is structural (single shared log)."""

@@ -122,6 +122,14 @@ CHANGE_FRAME_FILE: str = "change_frame.json"
 #: consumes. Cross-cutting SSOT for the wire string.
 CHANGE_FRAME_DRAFT_FILE: str = "change_frame.draft.json"
 
+#: Canonical worker handover filenames (FK-27 §27.4.1). These are cross-cutting
+#: wire strings used by implementation handover production, structural artifact
+#: checks, and terminality gates. FK-27 remains the semantic owner; this module
+#: owns only the filename SSOT.
+PROTOCOL_FILE: str = "protocol.md"
+WORKER_MANIFEST_FILE: str = "worker-manifest.json"
+HANDOVER_FILE: str = "handover.json"
+
 #: POSIX-relative root segment of the Layer-3 adversarial sandbox (AG3-044,
 #: FK-48 §48.1): adversarial spawns write tests under
 #: ``_temp/adversarial/{story_id}/{epoch}/``. Cross-cutting SSOT for the wire
@@ -159,8 +167,10 @@ __all__ = [
     "DOC_FIDELITY_PRODUCER",
     "DOC_FIDELITY_STAGE",
     "GUARDRAIL_FILE",
+    "HANDOVER_FILE",
     "LAYER_ARTIFACT_FILES",
     "POLICY_PRODUCER",
+    "PROTOCOL_FILE",
     "QA_LAYER2_FILES",
     "QA_REVIEW_PRODUCER",
     "QA_REVIEW_STAGE",
@@ -173,4 +183,5 @@ __all__ = [
     "VERIFY_DECISION_FILE",
     "VERIFY_DECISION_PRODUCER",
     "VERIFY_DECISION_STAGE",
+    "WORKER_MANIFEST_FILE",
 ]

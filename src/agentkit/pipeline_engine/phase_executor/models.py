@@ -59,6 +59,9 @@ class PhaseStateMode(StrEnum):
 class EscalationReason(StrEnum):
     WORKER_BLOCKED = "worker_blocked"
     MAX_ROUNDS_EXCEEDED = "max_rounds_exceeded"
+    IMPLEMENTATION_REQUIRED_AFTER_EXPLORATION = (
+        "implementation_required_after_exploration"
+    )
     PREFLIGHT_FAIL = "preflight_fail"
     INTEGRITY_FAIL = "integrity_fail"
     MERGE_FAIL = "merge_fail"

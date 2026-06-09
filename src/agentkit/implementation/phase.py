@@ -42,12 +42,16 @@ from agentkit.core_types import (
     SpawnReason,
     SpawnRequest,
 )
-from agentkit.core_types.qa_artifact_names import ALL_QA_ARTIFACT_FILES
+from agentkit.core_types.qa_artifact_names import (
+    ALL_QA_ARTIFACT_FILES,
+    WORKER_MANIFEST_FILE,
+)
 from agentkit.exceptions import CorruptStateError
 from agentkit.implementation.manifest import WorkerManifest, WorkerManifestStatus
 from agentkit.installer.paths import resolve_qa_story_dir
 from agentkit.pipeline_engine.lifecycle import HandlerResult
 from agentkit.pipeline_engine.phase_executor import (
+    EscalationReason,
     ImplementationPayload,
     ImplementationPhaseMemory,
     PhaseMemory,
@@ -267,6 +271,7 @@ class ImplementationPhaseHandler:
 
         if decision.passed:
             logger.info("QA-subflow passed for %s", ctx.story_id)
+            save_story_context(s_dir, _implementation_completed_context(ctx))
             return HandlerResult(
                 status=PhaseStatus.COMPLETED,
                 artifacts_produced=tuple(dict.fromkeys(artifacts)),
@@ -287,6 +292,24 @@ class ImplementationPhaseHandler:
         # qa_rounds >= max check). FK-27 §27.2.2 max_rounds_exceeded -> ESCALATE.
         if outcome.escalated:
             error_msgs = _feedback_errors(outcome)
+            escalated_state = _state_with_payload(
+                awaiting_state,
+                QaCycleStatus.ESCALATED,
+                current_context,
+                qa_feedback_rounds=qa_rounds,
+                qa_cycle_round=outcome.qa_cycle_round,
+                qa_cycle_id=outcome.qa_cycle_id,
+                evidence_epoch=outcome.evidence_epoch,
+                evidence_fingerprint=outcome.evidence_fingerprint,
+            )
+            if _is_implementation_required_after_exploration(outcome):
+                escalated_state = evolve_phase_state(
+                    escalated_state,
+                    status=PhaseStatus.ESCALATED,
+                    escalation_reason=(
+                        EscalationReason.IMPLEMENTATION_REQUIRED_AFTER_EXPLORATION
+                    ),
+                )
             logger.warning(
                 "QA-subflow escalated for %s after %d rounds",
                 ctx.story_id,
@@ -296,16 +319,7 @@ class ImplementationPhaseHandler:
                 status=PhaseStatus.ESCALATED,
                 errors=tuple(error_msgs),
                 artifacts_produced=tuple(dict.fromkeys(artifacts)),
-                updated_state=_state_with_payload(
-                    awaiting_state,
-                    QaCycleStatus.ESCALATED,
-                    current_context,
-                    qa_feedback_rounds=qa_rounds,
-                    qa_cycle_round=outcome.qa_cycle_round,
-                    qa_cycle_id=outcome.qa_cycle_id,
-                    evidence_epoch=outcome.evidence_epoch,
-                    evidence_fingerprint=outcome.evidence_fingerprint,
-                ),
+                updated_state=escalated_state,
             )
 
         # CONTINUE_REMEDIATION (FAIL below the ceiling): orchestrator-trennlinie.
@@ -645,7 +659,7 @@ def _verify_context_for(qa_feedback_rounds: int) -> QaContext:
 
 #: Worker-manifest filename (FK-27 §27.4.1 / FK-26 §26.8). Same file the
 #: Layer-1 ``artifact.worker_manifest`` check reads -- one source of truth.
-_WORKER_MANIFEST_FILENAME = "worker-manifest.json"
+_WORKER_MANIFEST_FILENAME = WORKER_MANIFEST_FILE
 
 
 def _read_worker_manifest(story_dir: Path) -> WorkerManifest | None:
@@ -728,6 +742,30 @@ def _feedback_errors(outcome: _QaSubflowOutcome) -> list[str]:
     if feedback is not None:
         errors.append(str(feedback.to_prompt_text()))
     return errors
+
+
+def _is_implementation_required_after_exploration(outcome: _QaSubflowOutcome) -> bool:
+    """Whether the QA-subflow failed at the FK-24 terminality precondition."""
+    return any(
+        finding.check == "implementation_evidence.required_after_exploration"
+        for finding in outcome.decision.all_findings
+    )
+
+
+def _implementation_completed_context(ctx: StoryContext) -> StoryContext:
+    """Return ``StoryContext`` with implementation follow-up flags resolved."""
+    from agentkit.story_context_manager.types import StoryType
+
+    if ctx.story_type not in (StoryType.IMPLEMENTATION, StoryType.BUGFIX):
+        return ctx
+    return ctx.model_copy(
+        update={
+            "implementation_required": False,
+            "closure_allowed": True,
+            "story_done": False,
+            "execution_pending": False,
+        }
+    )
 
 
 def _state_with_payload(

@@ -42,6 +42,8 @@ from agentkit.telemetry.emitters import MemoryEmitter
 from agentkit.telemetry.events import EventType
 
 if TYPE_CHECKING:
+    import pytest
+
     from agentkit.exploration.change_frame import ChangeFrame
     from agentkit.exploration.review import ExplorationGateResult
 
@@ -337,6 +339,68 @@ def test_fine_design_class_forces_stage2b_design_challenge() -> None:
     assert review.run_design_challenge_seen == [True]
 
 
+def test_exploration_for_implementation_sets_execution_pending(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FK-24 §24.12: approved implementation exploration sets follow-up flags."""
+    _enable_sqlite(monkeypatch)
+    story_dir = tmp_path / "stories" / _STORY_ID
+    story_dir.mkdir(parents=True)
+    handler = ExplorationPhaseHandler(
+        change_frame_reader=_FixedReader(_trivial_frame()),
+        run_scope_resolver=_FixedRunScope(),
+        review=_ScriptedReview(_dummy_approved()),  # type: ignore[arg-type]
+        config=ExplorationConfig(story_dir=story_dir),
+    )
+
+    result = handler.on_enter(
+        _ctx().model_copy(update={"project_root": tmp_path}), _envelope()
+    )
+
+    from agentkit.state_backend.store import load_story_context
+
+    persisted = load_story_context(story_dir)
+    assert result.status is PhaseStatus.COMPLETED
+    assert persisted is not None
+    assert persisted.implementation_required is True
+    assert persisted.closure_allowed is False
+    assert persisted.story_done is False
+    assert persisted.exploration_completed is True
+    assert persisted.execution_pending is True
+
+
+def test_exploration_writes_human_readable_summary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FK-24 §24.12: implementation exploration writes exploration-summary.md."""
+    _enable_sqlite(monkeypatch)
+    story_dir = tmp_path / "stories" / _STORY_ID
+    story_dir.mkdir(parents=True)
+    handler = ExplorationPhaseHandler(
+        change_frame_reader=_FixedReader(_trivial_frame()),
+        run_scope_resolver=_FixedRunScope(),
+        review=_ScriptedReview(_dummy_approved()),  # type: ignore[arg-type]
+        config=ExplorationConfig(story_dir=story_dir),
+    )
+
+    result = handler.on_enter(
+        _ctx().model_copy(update={"project_root": tmp_path}), _envelope()
+    )
+
+    summary = story_dir / "exploration-summary.md"
+    assert result.status is PhaseStatus.COMPLETED
+    assert summary.is_file()
+    text = summary.read_text(encoding="utf-8")
+    for section in (
+        "## Investigated",
+        "## Decided",
+        "## Open",
+        "## Mandatory Next Phase",
+        "## Why Not Yet Complete",
+    ):
+        assert section in text
+
+
 def _dummy_ref() -> object:
     from agentkit.artifacts.reference import ArtifactReference
     from agentkit.core_types import ArtifactClass
@@ -362,3 +426,12 @@ def _dummy_approved() -> object:
         overall_status=ExplorationGateStatus.APPROVED,
         review_rounds=1,
     )
+
+
+def _enable_sqlite(monkeypatch: pytest.MonkeyPatch) -> None:
+    from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+    from agentkit.state_backend.store import reset_backend_cache_for_tests
+
+    monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
+    monkeypatch.setenv(ALLOW_SQLITE_ENV, "1")
+    reset_backend_cache_for_tests()

@@ -15,6 +15,11 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
+from agentkit.core_types.qa_artifact_names import (
+    HANDOVER_FILE,
+    PROTOCOL_FILE,
+    WORKER_MANIFEST_FILE,
+)
 from agentkit.verify_system.protocols import Finding, TrustClass
 
 if TYPE_CHECKING:
@@ -31,9 +36,9 @@ __all__ = [
 ]
 
 #: FK-27 §27.4.1 worker artifact filenames (story-dir relative).
-_PROTOCOL_FILE = "protocol.md"
-_WORKER_MANIFEST_FILE = "worker-manifest.json"
-_HANDOVER_FILE = "handover.json"
+_PROTOCOL_FILE = PROTOCOL_FILE
+_WORKER_MANIFEST_FILE = WORKER_MANIFEST_FILE
+_HANDOVER_FILE = HANDOVER_FILE
 _ARTIFACT_HANDOVER_CHECK = "artifact.handover"
 #: FK-27 §27.4.1: ``protocol.md`` must be larger than 50 bytes.
 _PROTOCOL_MIN_BYTES = 50

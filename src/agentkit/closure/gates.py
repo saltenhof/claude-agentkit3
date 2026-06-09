@@ -37,6 +37,10 @@ from agentkit.core_types.qa_artifact_names import (
     QA_REVIEW_STAGE,
     SEMANTIC_REVIEW_STAGE,
 )
+from agentkit.verify_system.implementation_evidence_gate import (
+    ImplementationEvidenceVerdict,
+    evaluate_implementation_evidence_gate,
+)
 from agentkit.verify_system.remediation.finding_resolution import (
     resolution_map_from_metadata,
     resolution_map_has_open_findings,
@@ -145,5 +149,7 @@ def evaluate_finding_resolution_gate(
 
 __all__ = [
     "FindingResolutionVerdict",
+    "ImplementationEvidenceVerdict",
     "evaluate_finding_resolution_gate",
+    "evaluate_implementation_evidence_gate",
 ]

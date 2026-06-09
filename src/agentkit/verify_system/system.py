@@ -36,6 +36,9 @@ from agentkit.verify_system.errors import (
     VerifySystemError,
     VerifyTargetUnknownError,
 )
+from agentkit.verify_system.implementation_evidence_gate import (
+    evaluate_implementation_evidence_gate,
+)
 from agentkit.verify_system.llm_evaluator.reviewer import (
     DocFidelityReviewer,
     QaReviewReviewer,
@@ -68,6 +71,10 @@ from agentkit.verify_system.sonarqube_gate.stage_runner import (
 )
 from agentkit.verify_system.stage_registry.registry import StageRegistry
 from agentkit.verify_system.stage_registry.stages import StageKind
+from agentkit.verify_system.structural.system_evidence import (
+    ABSENT_CHANGE_EVIDENCE_PORT,
+    ChangeEvidencePort,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -198,6 +205,12 @@ class VerifySystem:
     #: (it is no longer reached only by hand-wired tests). ``None`` keeps the pure
     #: passthrough (no spawn derivation) for unit fixtures.
     adversarial_spawner: AdversarialSpawner | None = None
+    #: Independent System/Trust-B change evidence used by the FK-24
+    #: implementation terminality precondition. This is the same port type the
+    #: structural Layer-1 checks use; production wires the git-backed provider.
+    implementation_change_evidence_port: ChangeEvidencePort = (
+        ABSENT_CHANGE_EVIDENCE_PORT
+    )
 
     @property
     def layer_2(self) -> QALayer:
@@ -1181,6 +1194,79 @@ def _create_default(
             else _NULL_REVIEW_COMPLETION_SINK
         ),
         adversarial_spawner=adversarial_spawner,
+        implementation_change_evidence_port=(
+            defaults.structural_change_evidence_port
+            if defaults.structural_change_evidence_port is not None
+            else ABSENT_CHANGE_EVIDENCE_PORT
+        ),
+    )
+
+
+def _evaluate_implementation_terminality_precondition(
+    system: VerifySystem,
+    *,
+    ctx: VerifyContextBundle,
+    story_id: str,
+    story_ctx: StoryContext | None,
+    qa_context: QaContext,
+) -> QaSubflowOutcome | None:
+    """Run the FK-24 implementation-evidence gate before implementation QA."""
+    if qa_context not in (
+        QaContext.IMPLEMENTATION_INITIAL,
+        QaContext.IMPLEMENTATION_REMEDIATION,
+    ):
+        return None
+    if story_ctx is None:
+        return None
+    if _is_fast_mode(story_ctx):
+        return None
+    story_type = story_ctx.story_type
+    evidence = system.implementation_change_evidence_port.collect(ctx.story_dir)
+    gate = evaluate_implementation_evidence_gate(
+        story_type=story_type,
+        story_dir=ctx.story_dir,
+        change_evidence=evidence,
+    )
+    if gate.passed:
+        return None
+    reason = (
+        gate.blocking_reason
+        or "Implementation-Evidence-Gate: implementation evidence is missing."
+    )
+    finding = Finding(
+        layer="structural",
+        check="implementation_evidence.required_after_exploration",
+        severity=Severity.BLOCKING,
+        message=reason,
+        trust_class=TrustClass.SYSTEM,
+        file_path=str(ctx.story_dir),
+    )
+    layer_result = LayerResult(
+        layer="structural",
+        passed=False,
+        findings=(finding,),
+        metadata={"terminality_precondition": "implementation_evidence"},
+    )
+    decision = VerifyDecision(
+        passed=False,
+        verdict=PolicyVerdict.FAIL,
+        layer_results=(layer_result,),
+        all_findings=(finding,),
+        blocking_findings=(finding,),
+        summary=reason,
+    )
+    logger.warning(
+        "implementation evidence precondition failed: story=%s reason=%s",
+        story_id,
+        reason,
+    )
+    return QaSubflowOutcome(
+        verdict=PolicyVerdict.FAIL,
+        decision=decision,
+        artifact_refs=(),
+        attempt_nr=ctx.attempt,
+        qa_cycle_round=0,
+        escalated=True,
     )
 
 
@@ -1268,6 +1354,16 @@ def _run_qa_subflow(
     # (BC-Topologie: verify-system haengt am Port, nicht an state_backend).
     # No-op-Port liefert None -> _execute_layer faellt auf IMPLEMENTATION-Stub.
     _story_ctx = self.story_context_port.load(ctx.story_dir)
+
+    implementation_gate = _evaluate_implementation_terminality_precondition(
+        self,
+        ctx=ctx,
+        story_id=story_id,
+        story_ctx=_story_ctx,
+        qa_context=qa_context,
+    )
+    if implementation_gate is not None:
+        return implementation_gate
 
     # AG3-018 (FK-24 §24.3.4 Mode-Profil): in ``mode == fast`` the QA-subflow
     # degenerates to Layer 1 (structural) + the hard tests-green floor and

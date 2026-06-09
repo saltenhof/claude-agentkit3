@@ -22,7 +22,8 @@ from agentkit.artifacts import (
     ArtifactReference,
 )
 from agentkit.core_types import ArtifactClass, PolicyVerdict, QaContext, Severity
-from agentkit.story_context_manager.types import StoryType
+from agentkit.story_context_manager.models import StoryContext
+from agentkit.story_context_manager.types import StoryMode, StoryType
 from agentkit.verify_system import (
     QaSubflowOutcome,
     VerifyContextBundle,
@@ -32,6 +33,7 @@ from agentkit.verify_system import (
 from agentkit.verify_system.policy_engine.engine import PolicyEngine
 from agentkit.verify_system.protocols import Finding, LayerResult, TrustClass
 from agentkit.verify_system.stage_registry import StageRegistry
+from agentkit.verify_system.structural.system_evidence import ChangeEvidence
 
 if TYPE_CHECKING:
     from agentkit.verify_system.adversarial_orchestrator.challenger import (
@@ -186,6 +188,7 @@ def _make_system(
     manager: _RecordingArtifactManager | None = None,
     max_major_findings: int = 0,
     story_context_port: _SpyStoryContextPort | None = None,
+    implementation_change_evidence_port: object | None = None,
     review_completion_sink: object | None = None,
 ) -> tuple[VerifySystem, _RecordingArtifactManager]:
     recording_manager = manager or _RecordingArtifactManager()
@@ -207,6 +210,11 @@ def _make_system(
         layer_3=layer_3 or _RecordingLayer("adversarial"),
         policy_engine=PolicyEngine(max_major_findings=max_major_findings),
         artifact_manager=recording_manager,
+        **(
+            {"implementation_change_evidence_port": implementation_change_evidence_port}
+            if implementation_change_evidence_port is not None
+            else {}
+        ),
         **kwargs,  # type: ignore[arg-type]
     )
     return vs, recording_manager
@@ -911,6 +919,128 @@ class TestStoryContextPortInjection:
         assert vs.story_context_port is _NULL_STORY_CONTEXT_PORT
         # No-op-Port liefert None -> _execute_layer faellt auf IMPLEMENTATION-Stub.
         assert vs.story_context_port.load(Path(".")) is None
+
+
+class _StaticChangeEvidencePort:
+    """Returns a fixed Trust-B change evidence object."""
+
+    def __init__(self, evidence: ChangeEvidence) -> None:
+        self.evidence = evidence
+        self.calls: list[Path] = []
+
+    def collect(self, story_dir: Path) -> ChangeEvidence:
+        self.calls.append(story_dir)
+        return self.evidence
+
+
+class TestImplementationEvidencePrecondition:
+    """AG3-058: implementation QA rejects exploration-only terminality."""
+
+    def test_verify_rejects_exploration_only_implementation_story(
+        self, tmp_path: Path
+    ) -> None:
+        ctx = _implementation_ctx(StoryType.IMPLEMENTATION)
+        port = _StaticChangeEvidencePort(
+            ChangeEvidence(available=True, changed_files=("exploration-summary.md",))
+        )
+        vs, manager = _make_system(
+            story_context_port=_SpyStoryContextPort(ctx),
+            implementation_change_evidence_port=port,
+        )
+
+        outcome = vs.run_qa_subflow(
+            ctx=_make_bundle(tmp_path),
+            story_id="TEST-001",
+            qa_context=QaContext.IMPLEMENTATION_INITIAL,
+            target=_make_target(),
+        )
+
+        assert outcome.verdict is PolicyVerdict.FAIL
+        assert outcome.escalated is True
+        assert manager.written_envelopes == []
+        assert port.calls == [tmp_path]
+
+    def test_verify_rejects_exploration_only_bugfix_story(
+        self, tmp_path: Path
+    ) -> None:
+        ctx = _implementation_ctx(StoryType.BUGFIX)
+        port = _StaticChangeEvidencePort(
+            ChangeEvidence(available=True, changed_files=("change_frame.json",))
+        )
+        vs, _ = _make_system(
+            story_context_port=_SpyStoryContextPort(ctx),
+            implementation_change_evidence_port=port,
+        )
+
+        outcome = vs.run_qa_subflow(
+            ctx=_make_bundle(tmp_path),
+            story_id="TEST-001",
+            qa_context=QaContext.IMPLEMENTATION_INITIAL,
+            target=_make_target(),
+        )
+
+        assert outcome.verdict is PolicyVerdict.FAIL
+        assert outcome.escalated is True
+
+    def test_verify_runs_normally_with_real_implementation_evidence(
+        self, tmp_path: Path
+    ) -> None:
+        _write_required_worker_artifacts(tmp_path)
+        ctx = _implementation_ctx(StoryType.IMPLEMENTATION)
+        port = _StaticChangeEvidencePort(
+            ChangeEvidence(available=True, changed_files=("src/agentkit/done.py",))
+        )
+        vs, manager = _make_system(
+            story_context_port=_SpyStoryContextPort(ctx),
+            implementation_change_evidence_port=port,
+        )
+
+        outcome = vs.run_qa_subflow(
+            ctx=_make_bundle(tmp_path),
+            story_id="TEST-001",
+            qa_context=QaContext.IMPLEMENTATION_INITIAL,
+            target=_make_target(),
+        )
+
+        assert outcome.verdict is PolicyVerdict.PASS
+        assert manager.written_envelopes
+
+
+def _implementation_ctx(story_type: StoryType) -> StoryContext:
+    return StoryContext(
+        project_key="test-project",
+        story_id="TEST-001",
+        story_type=story_type,
+        execution_route=StoryMode.EXECUTION,
+    )
+
+
+def _write_required_worker_artifacts(story_dir: Path) -> None:
+    import json
+    from datetime import UTC, datetime
+
+    from agentkit.core_types.qa_artifact_names import (
+        HANDOVER_FILE,
+        PROTOCOL_FILE,
+        WORKER_MANIFEST_FILE,
+    )
+
+    (story_dir / HANDOVER_FILE).write_text("handover\n", encoding="utf-8")
+    (story_dir / PROTOCOL_FILE).write_text("protocol\n", encoding="utf-8")
+    (story_dir / WORKER_MANIFEST_FILE).write_text(
+        json.dumps(
+            {
+                "story_id": "TEST-001",
+                "run_id": "run-test-001",
+                "status": "completed",
+                "completed_at": datetime(2026, 1, 1, tzinfo=UTC).isoformat(),
+                "files_changed": ["src/agentkit/done.py"],
+                "tests_added": [],
+                "acceptance_criteria_status": {"AC1": "done"},
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 # ---------------------------------------------------------------------------
