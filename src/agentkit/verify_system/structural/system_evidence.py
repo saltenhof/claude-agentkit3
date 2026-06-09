@@ -63,8 +63,10 @@ class ChangeEvidence:
             ``HEAD`` (the branch is published to the remote). Independent of
             any worker claim.
         secret_files: Changed paths (``git diff --name-only``) that match a
-            forbidden secret extension (``.env`` / ``.pem`` / ``.key`` ...),
-            computed over the SYSTEM diff.
+            forbidden secret filename or extension, computed over the SYSTEM
+            diff via the shared guard-system secret pattern source.
+        secret_content_hits: Changed-path references whose added diff lines
+            match the shared content secret patterns.
         changed_files: All changed paths in the diff (``git diff --name-only``
             since the base ref), for the hygiene scans.
         actual_impact: The SYSTEM-computed actual change impact (FK-23 §23.8),
@@ -76,6 +78,7 @@ class ChangeEvidence:
     commit_messages: tuple[str, ...] = ()
     pushed: bool = False
     secret_files: tuple[str, ...] = ()
+    secret_content_hits: tuple[str, ...] = ()
     changed_files: tuple[str, ...] = ()
     actual_impact: ChangeImpact | None = None
 

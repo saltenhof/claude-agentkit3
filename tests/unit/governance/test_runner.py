@@ -27,6 +27,8 @@ if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
+    from agentkit.governance.guard_system.records import GuardDecision
+
 _TYPE_TO_WIRE = {
     "implementation": WireStoryType.IMPLEMENTATION,
     "bugfix": WireStoryType.BUGFIX,
@@ -57,6 +59,14 @@ class _AlwaysBlockGuard:
         return GuardVerdict.block(
             self.name, ViolationType.POLICY_VIOLATION, "blocked",
         )
+
+
+class _DecisionSink:
+    def __init__(self) -> None:
+        self.decisions: list[GuardDecision] = []
+
+    def append(self, decision: GuardDecision) -> None:
+        self.decisions.append(decision)
 
 
 class TestGuardRunnerAllAllow:
@@ -98,6 +108,28 @@ class TestGuardRunnerCollectAll:
         assert allowed is False
         assert len(verdicts) == 2
         assert all(not v.allowed for v in verdicts)
+
+    def test_guard_decisions_are_appended_when_scope_is_present(self) -> None:
+        sink = _DecisionSink()
+        runner = GuardRunner(
+            guards=[_AlwaysAllowGuard(), _AlwaysBlockGuard()],
+            decision_repo=sink,
+        )
+        runner.is_allowed(
+            "any_op",
+            {
+                "project_key": "proj",
+                "active_story_id": "AG3-087",
+                "run_id": "run-1",
+                "flow_id": "flow-1",
+            },
+        )
+
+        assert [d.guard_key for d in sink.decisions] == [
+            "always_allow",
+            "always_block",
+        ]
+        assert {d.project_key for d in sink.decisions} == {"proj"}
 
 
 class TestGuardRunnerEmpty:

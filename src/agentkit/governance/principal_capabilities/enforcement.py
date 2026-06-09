@@ -68,6 +68,10 @@ from agentkit.governance.principal_capabilities.operations import (
     OperationClass,
     bash_mutation_targets,
 )
+from agentkit.governance.principal_capabilities.principals import Principal
+from agentkit.governance.principal_capabilities.service_paths import (
+    is_official_service_path,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -99,6 +103,7 @@ class EnforcementOutcome(Enum):
     """
 
     ALLOW = auto()
+    ALLOW_VIA_OFFICIAL_SERVICE_PATH = auto()
     DENY = auto()
     UNCLASSIFIED_MUTATION = auto()
     UNRESOLVED = auto()
@@ -233,6 +238,16 @@ class CapabilityEnforcement:
             base = self._matrix.is_allowed(principal, op_class, path_class)
             verdict = self._freeze.apply(base, principal, story_id or "", op_class)
             if verdict.decision is CapabilityDecision.DENY:
+                if _service_path_override_allowed(
+                    event, principal, op_class, path_class
+                ):
+                    return CapabilityResult(
+                        EnforcementOutcome.ALLOW_VIA_OFFICIAL_SERVICE_PATH,
+                        CapabilityVerdict.allow(
+                            "attested official service path",
+                            rule_id="FK-55-55.10.3-step-8",
+                        ),
+                    )
                 return CapabilityResult(EnforcementOutcome.DENY, verdict)
         # An unclassified MUTATION target is a fail-closed BLOCK in ALL modes
         # (FK-55 §55.10.2); it precedes the §55.6.1 unknown-permission rule (an
@@ -301,7 +316,10 @@ class CapabilityEnforcement:
         UNKNOWN_PERMISSION outcome are resolved mode-scharf by the caller, not by
         this gate (the caller may still dispatch CCAG on the defer path).
         """
-        return result.outcome is EnforcementOutcome.ALLOW
+        return result.outcome in (
+            EnforcementOutcome.ALLOW,
+            EnforcementOutcome.ALLOW_VIA_OFFICIAL_SERVICE_PATH,
+        )
 
     def _classify_targets(
         self,
@@ -357,6 +375,32 @@ def _candidate_paths(event: HookEvent) -> list[str]:
     if isinstance(command, str) and command:
         candidates.extend(bash_mutation_targets(command))
     return candidates
+
+
+def _service_path_override_allowed(
+    event: HookEvent,
+    principal: Principal,
+    op_class: OperationClass,
+    path_class: PathClass,
+) -> bool:
+    """Whether an explicit service-path override may turn a service DENY to allow."""
+    from agentkit.governance.principal_capabilities.paths import PathClass as Pc
+
+    if principal not in {
+        Principal.PIPELINE_DETERMINISTIC,
+        Principal.ADMIN_SERVICE,
+        Principal.HUMAN_CLI,
+    }:
+        return False
+    if op_class not in _MUTATING_OP_CLASSES:
+        return False
+    if path_class not in {
+        Pc.GIT_INTERNAL,
+        Pc.GOVERNANCE_PLANE,
+        Pc.CONTENT_PLANE,
+    }:
+        return False
+    return is_official_service_path(event, principal)
 
 
 __all__ = [

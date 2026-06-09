@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
+from uuid import uuid4
 
 from agentkit.governance.errors import LockRecordNotFoundError
+from agentkit.governance.guard_system.records import GuardDecision, GuardDecisionOutcome
 from agentkit.governance.hook_registration import HookId
 from agentkit.governance.locks import DeactivationResult, LockRecordId
 from agentkit.governance.principal_capabilities.operations import (
@@ -34,6 +37,12 @@ if TYPE_CHECKING:
     from agentkit.state_backend.store.lock_record_repository import LockRecordRepository
 
 type HookDecision = GuardVerdict
+
+
+class _GuardDecisionSink(Protocol):
+    def append(self, decision: GuardDecision) -> None:
+        """Append one guard decision."""
+        ...
 
 #: Canonical tool names that count as a research web call (FK-68 §68.6.1). Used at
 #: the runner edge to gate the BudgetEventEmitter dispatch (fail-closed on an
@@ -99,8 +108,10 @@ class GuardRunner:
 
     def __init__(
         self, guards: list[GovernanceGuard] | None = None,
+        decision_repo: _GuardDecisionSink | None = None,
     ) -> None:
         self._guards: list[GovernanceGuard] = list(guards) if guards else []
+        self._decision_repo = decision_repo
 
     def register(self, guard: GovernanceGuard) -> None:
         """Add a guard to the evaluation pipeline.
@@ -125,7 +136,9 @@ class GuardRunner:
         Returns:
             List of ``GuardVerdict`` instances, one per registered guard.
         """
-        return [g.evaluate(operation, context) for g in self._guards]
+        verdicts = [g.evaluate(operation, context) for g in self._guards]
+        self._append_guard_decisions(verdicts, context)
+        return verdicts
 
     def is_allowed(
         self, operation: str, context: dict[str, object],
@@ -146,6 +159,39 @@ class GuardRunner:
         verdicts = self.evaluate(operation, context)
         allowed = all(v.allowed for v in verdicts)
         return allowed, verdicts
+
+    def _append_guard_decisions(
+        self,
+        verdicts: list[GuardVerdict],
+        context: dict[str, object],
+    ) -> None:
+        """Append guard decisions when a state-backed audit sink is wired."""
+        if self._decision_repo is None:
+            return
+        scope = _decision_scope(context)
+        if scope is None:
+            return
+        project_key, story_id, run_id, flow_id, node_id = scope
+        for verdict in verdicts:
+            self._decision_repo.append(
+                GuardDecision(
+                    project_key=project_key,
+                    story_id=story_id,
+                    run_id=run_id,
+                    flow_id=flow_id,
+                    guard_decision_id=str(uuid4()),
+                    guard_key=verdict.guard_name,
+                    outcome=(
+                        GuardDecisionOutcome.PASS
+                        if verdict.allowed
+                        else GuardDecisionOutcome.ERROR
+                    ),
+                    decided_at=datetime.now(UTC),
+                    node_id=node_id,
+                    reason=verdict.message,
+                    evidence_ref=_evidence_ref(verdict),
+                )
+            )
 
 
 class Governance:
@@ -1540,6 +1586,38 @@ def _hook_ids_for_phase(phase: str) -> frozenset[str]:
     if phase == "post":
         return POST_HOOK_IDS
     return frozenset()
+
+
+def _decision_scope(
+    context: dict[str, object],
+) -> tuple[str, str, str, str, str | None] | None:
+    project_key = context.get("project_key")
+    story_id = context.get("active_story_id") or context.get("story_id")
+    run_id = context.get("run_id")
+    if not (
+        isinstance(project_key, str)
+        and isinstance(story_id, str)
+        and isinstance(run_id, str)
+        and project_key
+        and story_id
+        and run_id
+    ):
+        return None
+    flow_id = context.get("flow_id")
+    node_id = context.get("node_id")
+    return (
+        project_key,
+        story_id,
+        run_id,
+        flow_id if isinstance(flow_id, str) and flow_id else "hook",
+        node_id if isinstance(node_id, str) and node_id else None,
+    )
+
+
+def _evidence_ref(verdict: GuardVerdict) -> str | None:
+    detail = verdict.detail or {}
+    ref = detail.get("evidence_ref")
+    return ref if isinstance(ref, str) else None
 
 
 __all__ = [

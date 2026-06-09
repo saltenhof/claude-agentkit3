@@ -321,6 +321,22 @@ class IntegrityGateStatePort(Protocol):
         """
         ...
 
+    def has_active_conflict_freeze(
+        self,
+        story_dir: Path,
+        scope: RuntimeStateScope | None,
+    ) -> bool:
+        """Return whether the story currently has an active conflict-freeze."""
+        ...
+
+    def has_conflict_freeze_proof(
+        self,
+        story_dir: Path,
+        scope: RuntimeStateScope | None,
+    ) -> bool:
+        """Return whether the active run has a persisted conflict-freeze proof."""
+        ...
+
 
 @runtime_checkable
 class SetupContextRepository(Protocol):

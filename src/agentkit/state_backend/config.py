@@ -141,7 +141,7 @@ SCHEMA_OVERRIDE_ALLOWED_ENV = "AGENTKIT_PG_SCHEMA_OVERRIDE_ALLOWED"
 # compaction recovery epochs. Fresh schemas get the table from the canonical
 # Postgres/SQLite DDL; existing schemas get the idempotent v3.5 MigrationRunner
 # migration and schema_versions cursor entry.
-SCHEMA_VERSION = "3.21.0"
+SCHEMA_VERSION = "3.22.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 # AG3-051: reserved test-schema namespace. Disjoint from the production schema
 # name (``ak3_v<slug>``), so a test override can never resolve onto production

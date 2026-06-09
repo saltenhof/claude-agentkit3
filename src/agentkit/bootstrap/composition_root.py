@@ -784,8 +784,6 @@ class _StateBackendTelemetryEventCountPort:
         return getattr(scope, "run_id", None)
 
 
-#: Forbidden secret-shaped file extensions in a changeset (FK-27 §27.4.2).
-_SECRET_EXTENSIONS: tuple[str, ...] = (".env", ".pem", ".key", ".pfx", ".p12")
 #: Test-file path markers used to count test files in a changeset (FK-27
 #: ``test.count``): a changed path is a test file when its name matches.
 _TEST_FILE_MARKERS: tuple[str, ...] = ("test_", "_test.", "/tests/", "tests/")
@@ -817,9 +815,8 @@ class _SubprocessGitChangeEvidenceProvider:
         base = self._merge_base(story_dir)
         commits = self._commit_messages(story_dir, base)
         changed = self._changed_files(story_dir, base)
-        secret_files = tuple(
-            f for f in changed if f.lower().endswith(_SECRET_EXTENSIONS)
-        )
+        secret_files = self._secret_files(changed)
+        secret_content_hits = self._secret_content_hits(story_dir, base)
         actual_impact = _derive_actual_impact(changed)
         return ChangeEvidence(
             available=True,
@@ -827,6 +824,7 @@ class _SubprocessGitChangeEvidenceProvider:
             commit_messages=commits,
             pushed=self._is_pushed(story_dir),
             secret_files=secret_files,
+            secret_content_hits=secret_content_hits,
             changed_files=changed,
             actual_impact=actual_impact,
         )
@@ -848,6 +846,29 @@ class _SubprocessGitChangeEvidenceProvider:
         if out is None:
             return ()
         return tuple(line.strip() for line in out.splitlines() if line.strip())
+
+    def _secret_files(self, changed: tuple[str, ...]) -> tuple[str, ...]:
+        from agentkit.governance.guard_system.secret_patterns import (
+            find_secret_file_hits,
+        )
+
+        return tuple(hit.path for hit in find_secret_file_hits(changed))
+
+    def _secret_content_hits(
+        self,
+        story_dir: Path,
+        base: str | None,
+    ) -> tuple[str, ...]:
+        from agentkit.governance.guard_system.secret_scan import scan_paths_and_diff
+
+        spec = f"{base}..HEAD" if base else "HEAD"
+        out = self._git(story_dir, "diff", "--unified=0", "--no-ext-diff", spec)
+        if out is None:
+            return ()
+        result = scan_paths_and_diff((), out)
+        return tuple(
+            f"{hit.path}:{hit.pattern.value}" for hit in result.content_hits
+        )
 
     def _is_pushed(self, story_dir: Path) -> bool:
         """Whether the branch has an upstream whose tip contains HEAD."""

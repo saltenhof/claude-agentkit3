@@ -79,6 +79,7 @@ if TYPE_CHECKING:
 __all__ = ["FULL_STAGE_REGISTRY", "AreGateProvider", "StructuralChecker"]
 
 _SECURITY_SECRETS_CHECK = "security.secrets"
+_SECURITY_SECRETS_CONTENT_CHECK = "security.secrets_content"
 
 
 @runtime_checkable
@@ -435,6 +436,9 @@ class StructuralChecker:
             _SECURITY_SECRETS_CHECK: lambda c, d, s: _check_security_secrets(
                 c, d, severity=s, evidence=ev
             ),
+            _SECURITY_SECRETS_CONTENT_CHECK: lambda c, d, s: (
+                _check_security_secrets_content(c, d, severity=s, evidence=ev)
+            ),
             # §27.4.2 Build & Test
             "build.compile": lambda c, d, s: check_build_compile(
                 c, d, severity=s, port=bt
@@ -543,6 +547,41 @@ def _check_security_secrets(
             "(FK-27 §27.4.2)",
             trust_class=TrustClass.SYSTEM,
             file_path=str(story_dir / first),
+        )
+    return None
+
+
+def _check_security_secrets_content(
+    ctx: StoryContext,
+    story_dir: Path,
+    *,
+    severity: Severity,
+    evidence: ChangeEvidence,
+) -> Finding | None:
+    """FK-15 §15.5.2 ``security.secrets_content``: no secret content in diff."""
+    from agentkit.verify_system.protocols import TrustClass
+
+    del ctx
+    if not evidence.available:
+        return Finding(
+            layer="structural",
+            check=_SECURITY_SECRETS_CONTENT_CHECK,
+            severity=severity,
+            message="system git diff unavailable; cannot scan diff content for "
+            "secrets independently -> fail-closed (FK-15 §15.5.2)",
+            trust_class=TrustClass.SYSTEM,
+        )
+    if evidence.secret_content_hits:
+        first = evidence.secret_content_hits[0]
+        path = first.split(":", maxsplit=1)[0]
+        return Finding(
+            layer="structural",
+            check=_SECURITY_SECRETS_CONTENT_CHECK,
+            severity=severity,
+            message=f"secret-shaped content in the changeset (git diff): {first!r} "
+            "(FK-15 §15.5.2)",
+            trust_class=TrustClass.SYSTEM,
+            file_path=str(story_dir / path),
         )
     return None
 

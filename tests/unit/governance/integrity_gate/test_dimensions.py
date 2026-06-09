@@ -288,6 +288,7 @@ def test_all_dimensions_pass_for_implementation(tmp_path: Path) -> None:
         IntegrityDimension.NO_ADVERSARIAL,
         IntegrityDimension.NO_VERIFY,
         IntegrityDimension.TIMESTAMP_INVERSION,
+        IntegrityDimension.CONFLICT_FREEZE_PROOF,
     }
 
 

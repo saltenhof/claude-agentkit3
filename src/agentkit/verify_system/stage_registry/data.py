@@ -100,6 +100,11 @@ LAYER_1_STAGES: tuple[StageDefinition, ...] = (
         Severity.BLOCKING,
         execution_policy=ExecutionPolicy.IF_LAYER_PASSES,
     ),
+    _stage(
+        "security.secrets_content",
+        Severity.BLOCKING,
+        execution_policy=ExecutionPolicy.IF_LAYER_PASSES,
+    ),
     # §27.4.2 Build & Test
     _stage(
         "build.compile",

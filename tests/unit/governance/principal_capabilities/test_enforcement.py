@@ -321,6 +321,56 @@ def test_freeze_overrides_allow(tmp_path: Path) -> None:
     assert result.outcome is EnforcementOutcome.DENY
 
 
+def test_pipeline_closure_service_path_allows_git_mutation(tmp_path: Path) -> None:
+    event = _event(
+        tmp_path,
+        principal_kind="main",
+        session_id="run-1",
+        cli_args=[_ATTEST, "pipeline_deterministic"],
+        operation_args={
+            "file_path": ".git/index",
+            "service_path": "agentkit run-phase closure",
+        },
+    )
+    result = _enforcement(tmp_path).evaluate(
+        event, project_root=tmp_path, story_id=_STORY, story_scope_roots=_SCOPE
+    )
+    assert result.outcome is EnforcementOutcome.ALLOW_VIA_OFFICIAL_SERVICE_PATH
+
+
+def test_admin_reset_story_service_path_allows_git_mutation(tmp_path: Path) -> None:
+    for principal in ("admin_service", "human_cli"):
+        event = _event(
+            tmp_path,
+            principal_kind="main",
+            session_id="run-1",
+            cli_args=[_ATTEST, principal],
+            operation_args={
+                "file_path": ".git/index",
+                "service_path": "agentkit reset-story",
+            },
+        )
+        result = _enforcement(tmp_path).evaluate(
+            event, project_root=tmp_path, story_id=_STORY, story_scope_roots=_SCOPE
+        )
+        assert result.outcome is EnforcementOutcome.ALLOW_VIA_OFFICIAL_SERVICE_PATH
+
+
+def test_bash_spoofed_service_path_is_not_official(tmp_path: Path) -> None:
+    event = _event(
+        tmp_path,
+        operation="bash_command",
+        principal_kind="main",
+        session_id="run-1",
+        cli_args=[_ATTEST, "pipeline_deterministic"],
+        operation_args={"command": "agentkit run-phase closure && git commit -m x"},
+    )
+    result = _enforcement(tmp_path).evaluate(
+        event, project_root=tmp_path, story_id=_STORY, story_scope_roots=_SCOPE
+    )
+    assert result.outcome is EnforcementOutcome.DENY
+
+
 def test_should_run_ccag_gate(tmp_path: Path) -> None:
     # AK7: CCAG (step 7) runs ONLY when the capability outcome is ALLOW.
     event = _event(

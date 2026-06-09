@@ -158,6 +158,7 @@ def dimensions_for(
         IntegrityDimension.NO_ADVERSARIAL,
         IntegrityDimension.NO_VERIFY,
         IntegrityDimension.TIMESTAMP_INVERSION,
+        IntegrityDimension.CONFLICT_FREEZE_PROOF,
         IntegrityDimension.SONARQUBE_GREEN,
     )
     is_code = story_type in _CODE_TYPES
@@ -431,6 +432,8 @@ def evaluate_dimension(
         return _check_adversarial(gate_ctx, state_port, runtime_scope)
     if dimension is IntegrityDimension.NO_VERIFY:
         return _check_qa_subflow_flow_end(gate_ctx, state_port, runtime_scope)
+    if dimension is IntegrityDimension.CONFLICT_FREEZE_PROOF:
+        return _check_conflict_freeze_proof(gate_ctx, state_port, runtime_scope)
     return _check_timestamp_causality(gate_ctx, state_port, runtime_scope)
 
 
@@ -587,6 +590,46 @@ def _check_qa_subflow_flow_end(
         dimension=dim,
         passed=True,
         detail="QA-subflow flow_end is PolicyVerdict.PASS",
+    )
+
+
+def _check_conflict_freeze_proof(
+    gate_ctx: IntegrityGateContext,
+    state_port: IntegrityGateStatePort,
+    runtime_scope: RuntimeStateScope | None,
+) -> DimensionResult:
+    """Fail closed when an active conflict-freeze lacks a persisted proof."""
+    from agentkit.governance.integrity_gate import DimensionResult
+
+    dim = IntegrityDimension.CONFLICT_FREEZE_PROOF
+    try:
+        freeze_reader = getattr(state_port, "has_active_conflict_freeze", None)
+        proof_reader = getattr(state_port, "has_conflict_freeze_proof", None)
+        if freeze_reader is None or proof_reader is None:
+            return DimensionResult(
+                dimension=dim,
+                passed=True,
+                detail="No conflict_freeze reader wired for this state port",
+            )
+        frozen = freeze_reader(gate_ctx.story_dir, runtime_scope)
+        if not frozen:
+            return DimensionResult(
+                dimension=dim,
+                passed=True,
+                detail="No conflict_freeze active for this run",
+            )
+        if proof_reader(gate_ctx.story_dir, runtime_scope):
+            return DimensionResult(
+                dimension=dim,
+                passed=True,
+                detail="Conflict-freeze proof record present",
+            )
+    except CorruptStateError as exc:
+        return _fail(dim, dim.value, f"corrupt state: {exc}")
+    return _fail(
+        dim,
+        dim.value,
+        "conflict_freeze active but no persisted proof record exists",
     )
 
 

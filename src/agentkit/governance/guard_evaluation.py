@@ -130,11 +130,15 @@ def _guard_context(
     project_root: Path,
 ) -> dict[str, object]:
     story_id = ""
+    context_project_key = ""
+    context_run_id = ""
     principal_type = ""
     qa_lock_active = False
     qa_lock_known = False
     if resolved.bundle is not None and resolved.bundle.session is not None:
         story_id = resolved.bundle.session.story_id
+        context_project_key = resolved.bundle.session.project_key
+        context_run_id = resolved.bundle.session.run_id
         principal_type = resolved.bundle.session.principal_type
         qa_lock_known = resolved.bundle.qa_lock is not None
         qa_lock_active = (
@@ -145,6 +149,8 @@ def _guard_context(
         "operating_mode": resolved.operating_mode,
         "principal_kind": event.principal_kind,
         "active_story_id": story_id,
+        "project_key": context_project_key if story_id else "",
+        "run_id": context_run_id if story_id else "",
         "principal_type": principal_type,
         "qa_artifact_lock_known": qa_lock_known,
         "qa_artifact_lock_active": qa_lock_active,

@@ -25,8 +25,8 @@ from agentkit.governance.setup_preflight_gate.preflight import (
 from agentkit.story_context_manager.types import StoryType
 
 
-def test_nine_integrity_dimension_ids_are_canonical_fk35() -> None:
-    # FK-35 §35.2.4 canonical IDs/FAIL-codes (verified against FK-35).
+def test_integrity_dimension_ids_are_canonical_fk35_plus_fk55() -> None:
+    # FK-35 §35.2.4 canonical IDs plus FK-55 conflict-freeze proof.
     assert [d.value for d in IntegrityDimension] == [
         "NO_QA_ARTIFACTS",
         "CONTEXT_INVALID",
@@ -36,6 +36,7 @@ def test_nine_integrity_dimension_ids_are_canonical_fk35() -> None:
         "NO_ADVERSARIAL",
         "NO_VERIFY",
         "TIMESTAMP_INVERSION",
+        "CONFLICT_FREEZE_PROOF",
         "SONARQUBE_GREEN",
     ]
 
@@ -87,6 +88,7 @@ def test_dimensions_for_code_applicable_is_full_nine() -> None:
         IntegrityDimension.NO_ADVERSARIAL,
         IntegrityDimension.NO_VERIFY,
         IntegrityDimension.TIMESTAMP_INVERSION,
+        IntegrityDimension.CONFLICT_FREEZE_PROOF,
         IntegrityDimension.SONARQUBE_GREEN,
     )
 
@@ -102,10 +104,13 @@ def test_dimensions_for_code_not_applicable_drops_dim9() -> None:
 def test_dimensions_for_noncode_drops_code_only_and_dim9() -> None:
     # Concept/research never evaluate Dim 3/5/6/7/9 (the structural-artifact,
     # LLM/adversarial, verify and Sonar dimensions are code-only — concept/
-    # research have no structural QA layer).  Only the universal timestamp
-    # causality dimension remains post-mandatory.
+    # research have no structural QA layer).  Universal timestamp causality and
+    # FK-55 conflict-freeze proof remain post-mandatory.
     dims = dimensions_for(StoryType.CONCEPT, sonar_applicable=True)
-    assert dims == (IntegrityDimension.TIMESTAMP_INVERSION,)
+    assert dims == (
+        IntegrityDimension.TIMESTAMP_INVERSION,
+        IntegrityDimension.CONFLICT_FREEZE_PROOF,
+    )
     assert IntegrityDimension.SONARQUBE_GREEN not in dims
     assert IntegrityDimension.STRUCTURAL_SHALLOW not in dims
 

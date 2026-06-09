@@ -16,6 +16,16 @@ if [ ${#CHANGED[@]} -eq 0 ]; then
     exit 0
 fi
 
+PYTHON="${PYTHON:-$REPO_ROOT/.venv/Scripts/python.exe}"
+if [ ! -x "$PYTHON" ]; then
+    PYTHON="$REPO_ROOT/.venv/Scripts/python"
+fi
+
+export PYTHONPATH="$REPO_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
+
+echo "[pre-commit] Running global secret scan..."
+"$PYTHON" -m agentkit.governance.guard_system.secret_scan --staged --repo-root "$REPO_ROOT"
+
 needs_concept_validation=0
 for f in "${CHANGED[@]}"; do
     case "$f" in
@@ -31,8 +41,6 @@ if [ "$needs_concept_validation" -eq 0 ]; then
 fi
 
 echo "[pre-commit] Concept changes detected; running validators..."
-
-PYTHON="${PYTHON:-python}"
 
 set +e
 "$PYTHON" scripts/ci/check_concept_frontmatter.py

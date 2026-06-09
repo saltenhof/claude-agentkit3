@@ -262,5 +262,44 @@ class StateBackendIntegrityGateStateAdapter:
             return None
         return envelope
 
+    def has_active_conflict_freeze(
+        self,
+        story_dir: Path,
+        scope: RuntimeStateScope | None,
+    ) -> bool:
+        """Return whether the story currently has an active conflict-freeze."""
+        del scope
+        ctx = facade.load_story_context(story_dir)
+        if ctx is None:
+            return False
+        from agentkit.state_backend.store.freeze_repository import FreezeRepository
+
+        return FreezeRepository(story_dir).read_freeze(ctx.story_id) is not None
+
+    def has_conflict_freeze_proof(
+        self,
+        story_dir: Path,
+        scope: RuntimeStateScope | None,
+    ) -> bool:
+        """Return whether the active run has a persisted conflict-freeze proof."""
+        resolved = scope
+        if resolved is None:
+            try:
+                resolved = facade.resolve_runtime_scope(story_dir)
+            except Exception:  # noqa: BLE001 -- unresolvable scope has no proof
+                return False
+        from agentkit.state_backend.store.conflict_freeze_proof_repository import (
+            ConflictFreezeProofRepository,
+        )
+
+        if resolved.run_id is None:
+            return False
+        proof = ConflictFreezeProofRepository(story_dir).latest_for_run(
+            resolved.project_key,
+            resolved.story_id,
+            resolved.run_id,
+        )
+        return proof is not None
+
 
 __all__ = ["StateBackendIntegrityGateStateAdapter"]

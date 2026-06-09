@@ -714,6 +714,7 @@ class TestIntegrityGateWithRecordingPort:
             IntegrityDimension.NO_ADVERSARIAL,
             IntegrityDimension.NO_VERIFY,
             IntegrityDimension.TIMESTAMP_INVERSION,
+            IntegrityDimension.CONFLICT_FREEZE_PROOF,
             IntegrityDimension.SONARQUBE_GREEN,
         }
         assert IntegrityDimension.STRUCTURAL_SHALLOW not in result.dimension_results

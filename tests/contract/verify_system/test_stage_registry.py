@@ -33,6 +33,7 @@ _EXPECTED_SEVERITY: dict[str, Severity] = {
     "completion.push": Severity.BLOCKING,
     # §27.4.2 Security
     "security.secrets": Severity.BLOCKING,
+    "security.secrets_content": Severity.BLOCKING,
     # §27.4.2 Build & Test
     "build.compile": Severity.BLOCKING,
     "build.test_execution": Severity.BLOCKING,

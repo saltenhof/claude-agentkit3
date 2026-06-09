@@ -744,6 +744,78 @@
             PRIMARY KEY (story_id)
         );
 
+        CREATE TABLE IF NOT EXISTS guard_decisions (
+            project_key       TEXT NOT NULL,
+            story_id          TEXT NOT NULL,
+            run_id            TEXT NOT NULL,
+            flow_id           TEXT NOT NULL,
+            guard_decision_id TEXT NOT NULL,
+            guard_key         TEXT NOT NULL,
+            outcome           TEXT NOT NULL CHECK (outcome IN (
+                'PASS', 'WARNING', 'ERROR'
+            )),
+            decided_at        TIMESTAMPTZ NOT NULL,
+            node_id           TEXT,
+            reason            TEXT,
+            evidence_ref      TEXT,
+            PRIMARY KEY (project_key, run_id, guard_decision_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_guard_decisions_story_run
+            ON guard_decisions (project_key, story_id, run_id);
+
+        CREATE TABLE IF NOT EXISTS conflict_freeze_proofs (
+            project_key             TEXT NOT NULL,
+            story_id                TEXT NOT NULL,
+            run_id                  TEXT NOT NULL,
+            proof_id                TEXT NOT NULL,
+            activated_at            TIMESTAMPTZ NOT NULL,
+            blocked_principal       TEXT NOT NULL,
+            resolution_service_path TEXT NOT NULL,
+            PRIMARY KEY (project_key, story_id, run_id, proof_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_conflict_freeze_proofs_story_run
+            ON conflict_freeze_proofs (project_key, story_id, run_id);
+
+        CREATE TABLE IF NOT EXISTS story_custom_field_definitions (
+            project_key                 TEXT NOT NULL,
+            field_key                   TEXT NOT NULL,
+            display_name                TEXT NOT NULL,
+            field_type                  TEXT NOT NULL CHECK (field_type IN (
+                'text', 'number', 'boolean', 'enum', 'date', 'json'
+            )),
+            provider                    TEXT NOT NULL,
+            provider_field_ref          TEXT NOT NULL,
+            is_required                 BOOLEAN NOT NULL,
+            is_writable_by_agentkit     BOOLEAN NOT NULL,
+            allowed_values              JSONB NOT NULL,
+            PRIMARY KEY (project_key, field_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS story_custom_field_values (
+            project_key             TEXT NOT NULL,
+            story_id                TEXT NOT NULL,
+            field_key               TEXT NOT NULL,
+            value                   TEXT NOT NULL,
+            value_status            TEXT NOT NULL CHECK (value_status IN (
+                'present', 'missing', 'invalid', 'conflict'
+            )),
+            source                  TEXT NOT NULL CHECK (source IN (
+                'provider', 'agentkit', 'human'
+            )),
+            last_synced_at          TIMESTAMPTZ,
+            last_written_by         TEXT,
+            provider_sync_status    TEXT NOT NULL CHECK (provider_sync_status IN (
+                'in_sync', 'pending', 'failed', 'not_writable'
+            )),
+            conflict_detected       BOOLEAN NOT NULL,
+            last_sync_attempt_at    TIMESTAMPTZ,
+            PRIMARY KEY (project_key, story_id, field_key),
+            FOREIGN KEY (project_key, field_key)
+                REFERENCES story_custom_field_definitions(project_key, field_key)
+        );
+
         -- AG3-034 (FK-24 §24.3.3, FK-22 §22.3.1 Check 10): project_mode_lock.
         -- Projektweiter Control-Plane Mode-Lock fuer die Fast/Standard-Mutual-
         -- Exclusion. AG3-034 stellt NUR den Read-Pfad fuer Preflight-Check 10

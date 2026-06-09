@@ -27,7 +27,7 @@ from agentkit.core_types.qa_artifact_names import (
 
 
 class IntegrityDimension(StrEnum):
-    """The nine canonical FK-35 §35.2.4 integrity dimensions (AG3-034 T1)."""
+    """Canonical integrity dimensions."""
 
     NO_QA_ARTIFACTS = "NO_QA_ARTIFACTS"
     CONTEXT_INVALID = "CONTEXT_INVALID"
@@ -37,6 +37,7 @@ class IntegrityDimension(StrEnum):
     NO_ADVERSARIAL = "NO_ADVERSARIAL"
     NO_VERIFY = "NO_VERIFY"
     TIMESTAMP_INVERSION = "TIMESTAMP_INVERSION"
+    CONFLICT_FREEZE_PROOF = "CONFLICT_FREEZE_PROOF"
     SONARQUBE_GREEN = "SONARQUBE_GREEN"
 
 

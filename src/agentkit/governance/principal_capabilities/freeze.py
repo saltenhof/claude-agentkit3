@@ -111,6 +111,15 @@ class FreezeStore(Protocol):
 
 
 @runtime_checkable
+class ConflictFreezeProofStore(Protocol):
+    """Canonical conflict-freeze proof persistence contract."""
+
+    def save(self, record: object) -> None:
+        """Persist the canonical conflict-freeze proof record."""
+        ...
+
+
+@runtime_checkable
 class LocalFreezeExport(Protocol):
     """Local hook-readable freeze-export boundary (FK-55 §55.10.5 / FK-31 §31.2.7).
 
@@ -170,13 +179,27 @@ class ConflictFreezeOverlay:
         store: FreezeStore | None = None,
         *,
         local_export: LocalFreezeExport | None = None,
+        proof_store: ConflictFreezeProofStore | None = None,
+        project_key: str | None = None,
+        run_id: str | None = None,
     ) -> None:
         self._store = store
         self._local_export = local_export
+        self._proof_store = proof_store
+        self._project_key = project_key
+        self._run_id = run_id
 
     # -- activation / release ------------------------------------------------
 
-    def freeze(self, story_id: str, *, reason: str, freeze_version: int) -> None:
+    def freeze(
+        self,
+        story_id: str,
+        *,
+        reason: str,
+        freeze_version: int,
+        blocked_principal: str | None = None,
+        resolution_service_path: str | None = None,
+    ) -> None:
         """Activate a conflict-freeze for ``story_id`` with dual materialization.
 
         FK-55 §55.10.5 atomic ordering: persist the canonical backend record
@@ -186,6 +209,8 @@ class ConflictFreezeOverlay:
             story_id: Canonical story identifier.
             reason: HARD-STOP signal (e.g. ``"normative_conflict"``).
             freeze_version: Monotonic freeze version for the local export.
+            blocked_principal: Principal blocked by the freeze proof.
+            resolution_service_path: Official path used for resolution.
         """
         frozen_at = _frozen_at_now()
         if self._store is not None:
@@ -202,6 +227,12 @@ class ConflictFreezeOverlay:
                 freeze_reason=reason,
                 freeze_version=freeze_version,
             )
+        self._write_proof(
+            story_id,
+            activated_at=frozen_at,
+            blocked_principal=blocked_principal,
+            resolution_service_path=resolution_service_path,
+        )
 
     def release(self, story_id: str) -> None:
         """Release a freeze: clear the backend record and remove the export."""
@@ -315,6 +346,42 @@ class ConflictFreezeOverlay:
         version = payload.get("freeze_version")
         return version if isinstance(version, int) else None
 
+    def _write_proof(
+        self,
+        story_id: str,
+        *,
+        activated_at: str,
+        blocked_principal: str | None,
+        resolution_service_path: str | None,
+    ) -> None:
+        """Persist a proof when all proof dependencies are wired."""
+        if (
+            self._proof_store is None
+            or self._project_key is None
+            or self._run_id is None
+            or blocked_principal is None
+            or resolution_service_path is None
+        ):
+            return
+        from datetime import datetime
+        from uuid import uuid4
+
+        from agentkit.governance.guard_system.records import (
+            ConflictFreezeProofRecord,
+        )
+
+        self._proof_store.save(
+            ConflictFreezeProofRecord(
+                project_key=self._project_key,
+                story_id=story_id,
+                run_id=self._run_id,
+                proof_id=str(uuid4()),
+                activated_at=datetime.fromisoformat(activated_at),
+                blocked_principal=blocked_principal,
+                resolution_service_path=resolution_service_path,
+            )
+        )
+
 
 def _record_freeze_version(record: object) -> int | None:
     """Extract ``freeze_version`` from a backend record (duck-typed / mapping)."""
@@ -327,6 +394,7 @@ def _record_freeze_version(record: object) -> int | None:
 __all__ = [
     "FREEZE_EXPORT_RELPATH",
     "ConflictFreezeOverlay",
+    "ConflictFreezeProofStore",
     "FreezeStore",
     "LocalFreezeExport",
 ]

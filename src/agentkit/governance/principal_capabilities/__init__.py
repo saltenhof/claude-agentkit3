@@ -33,6 +33,9 @@ from agentkit.governance.principal_capabilities.principals import (
     Principal,
     PrincipalResolver,
 )
+from agentkit.governance.principal_capabilities.service_paths import (
+    is_official_service_path,
+)
 
 __all__ = [
     "CapabilityDecision",
@@ -49,4 +52,5 @@ __all__ = [
     "PathClassifier",
     "Principal",
     "PrincipalResolver",
+    "is_official_service_path",
 ]
