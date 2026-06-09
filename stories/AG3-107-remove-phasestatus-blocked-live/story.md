@@ -24,7 +24,8 @@
 2. **Precondition-Fail-Setz-Stelle umbiegen (`engine.py:1061`):** Live-`status = FAILED` statt `BLOCKED`. Der AttemptRecord bleibt **unveraendert** `outcome=AttemptOutcome.BLOCKED` + `failure_cause=FailureCause.PRECONDITION_FAILED` (`engine.py:1073-1074`) — die „blocked"-Info bleibt also auf der Audit-Achse erhalten, nur der Live-Status wird FAILED.
 3. **Status→x-Maps bereinigen:** die `PhaseStatus.BLOCKED`-Eintraege aus `_engine_status_for` (`:728`), `_outcome_for_terminal` (`:737`) und `_failure_cause_for_terminal` (`:745-746`) entfernen (sie sind nach Wegfall des Live-`BLOCKED` tot; die `.get(...)`-Defaults bleiben).
 4. **Residue-Set bereinigen:** `PhaseStatus.BLOCKED` aus `composition_root.py:1479` entfernen — der Precondition-Fail endet jetzt als `FAILED` und ist damit schon terminal abgedeckt (Verhalten unveraendert).
-5. **Worker-Blocked NICHT anfassen:** `implementation/phase.py:407` (`HandlerResult.ESCALATED`) und alle ESCALATED-Pfade bleiben unveraendert.
+4c. **Öffentliche Terminal-Status-Surfaces (Precondition-Fail):** der Precondition-Fail schreibt/returnt heute auch **öffentlich** `"BLOCKED"`/`"blocked"` — `record_flow_execution(status="BLOCKED")` (`engine.py:1090`), `record_flow_end(status="BLOCKED")` (`engine.py:1104`), `EngineResult(status="blocked")` (`engine.py:1108`). Diese auf `FAILED`/`failed` umstellen (Audit `AttemptOutcome.BLOCKED`/`PRECONDITION_FAILED` bleibt erhalten); den bestehenden Test `tests/unit/pipeline_engine/test_engine.py:500` (assert `"blocked"`) entsprechend anpassen.
+5. **Worker-Blocked NICHT anfassen:** `implementation/phase.py` (`HandlerResult.ESCALATED`, ~Z. 427) und alle ESCALATED-Pfade bleiben unveraendert.
 6. **Negativpfad-/Übergangs-Tests** an der Zustandsmaschine.
 
 ### 2.2 Out of Scope (mit Owner)
@@ -38,6 +39,7 @@
 2. Precondition-Fail (`_can_enter_phase` false) setzt Live-`status = FAILED` (Test gegen `engine.py`-Pfad).
 3. Der AttemptRecord des Precondition-Fail traegt unveraendert `outcome=AttemptOutcome.BLOCKED` + `failure_cause=FailureCause.PRECONDITION_FAILED` (Test) — Audit-Information erhalten.
 4. Die bereinigten Maps liefern keine `PhaseStatus.BLOCKED`-Verzweigung mehr; Verhalten fuer alle real auftretenden terminalen Status (FAILED/ESCALATED) unveraendert (Test).
+4c. **Öffentliche Terminal-Status:** für den Precondition-Fail liefern `record_flow_execution`/`record_flow_end` und `EngineResult` `FAILED`/`failed` statt `"BLOCKED"`/`"blocked"`; `AttemptOutcome.BLOCKED`/`PRECONDITION_FAILED` unveraendert (Test inkl. Anpassung `tests/unit/pipeline_engine/test_engine.py:500`).
 5. Setup-Residue-Erkennung unveraendert (Precondition-Fail endet terminal als FAILED; kein Regress, Test).
 6. Worker-Blocked bleibt `ESCALATED` (Regressionstest gegen `implementation/phase.py`-Pfad — beweist, dass diese Story den Worker-Pfad nicht beruehrt).
 7. ARCH-55; `mypy src` (+ `--platform linux`) sauber (Enum-Entfernung zieht keine offenen `match`/Vergleiche nach sich).

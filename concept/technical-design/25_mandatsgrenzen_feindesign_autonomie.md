@@ -646,7 +646,7 @@ autonom getroffen werden. Dies ist ein **operativer Fehler**, keine
 Pause: Der Feindesign-Subprozess wird nach beschränktem Retry
 abgebrochen und die Iteration endet mit `status: FAILED`; die operative
 Ursache wird im `AttemptRecord` (`failure_cause`) dokumentiert. Kein
-`PAUSED` und kein eigener `infra_unavailable`-Zustand — die Story kann
+`PAUSED` und kein eigener Sonder-Eskalationscode — die Story kann
 nach Wiederherstellung der Infrastruktur neu angestoßen werden.
 
 ### 25.5.5 Entscheidungsprotokoll

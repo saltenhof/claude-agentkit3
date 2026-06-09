@@ -11,6 +11,8 @@
 
 ---
 
+> **[D4-Override 2026-06-09 — verbindlich, ersetzt die Infra-Modellierung in dieser Story]:** Nicht-Erreichbarkeit / „Multi-LLM-Quorum nicht erreichbar" ist ein **operativer Fehler**, **kein** `PAUSED`: bounded Retry → `status: FAILED` (Ursache im `AttemptRecord.failure_cause`). Es gibt **kein** `escalation_class: "infra_unavailable"`, **keine** PAUSED/Infra-Triple und **keinen** FK-35-`infra_unavailable`-Carrier. Alle untenstehenden Stellen, die für die Nicht-Erreichbarkeit `status: PAUSED` / `escalation_class: "infra_unavailable"` / die Triple nennen (insb. §1, §2.1.3, §2.2, AC4), sind damit **überholt** und beim Bau dieser Story auf `FAILED` zu überführen — inklusive des Docstrings `src/agentkit/exploration/mandate/fine_design.py:12` und der dortigen `infra_unavailable`-Beschreibung. Die `*_send`-Hook-/10-Runden-Frage (D5) bleibt wie unten: nur normative Leitplanke im Feindesign-Adapter, **kein** harter Block. Quelle: `stories/_OPEN_DECISIONS.md` D4/D5.
+
 ## 1. Kontext / Ist-Zustand (belegt)
 
 - **ai_augmented-Integrity-Gate-Abgrenzung UNVOLLSTAENDIG (schwach):** der `binding_invalid`-fail-closed-Block fuer Mutationen ist real (`governance/guard_evaluation.py:96-105`). Die negative Abgrenzung „kein Integrity-Gate im ai_augmented-Modus" ist nur **implizit** (das Integrity-Gate `IntegrityGate.evaluate` nimmt `story_dir`/`story_type`, aber **keinen** `operating_mode` — `governance/integrity_gate/__init__.py:151`). Es fehlt eine **explizite** Mode-Pruefung, die einen versehentlichen Aufruf im `ai_augmented`-Modus hart und typisiert ausschliesst (Gap FK-56 §56.7a/§56.10).
