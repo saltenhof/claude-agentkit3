@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from collections.abc import Collection, Sequence
     from pathlib import Path
 
-FAILURE_STATUSES: frozenset[str] = frozenset({"FAILED", "ESCALATED", "BLOCKED"})
+FAILURE_STATUSES: frozenset[str] = frozenset({"FAILED", "ESCALATED"})
 
 
 class _ProjectionAccessorProtocol(Protocol):

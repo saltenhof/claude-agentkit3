@@ -3,7 +3,7 @@
 AG3-029 Pass-3: Tests pin FK-64 §64.11-compliant behaviour after ERROR-1 fix.
 - _COLUMN_ORDER uses FK-64 Title-Case values (Backlog/Approved/In Progress/Done/Cancelled).
 - get_board() groups stories via _LIFECYCLE_TO_COLUMN mapping (not raw lifecycle_status).
-- stories with "active" map to "In Progress", "done" maps to "Done", "blocked" maps to "Cancelled".
+- stories with "active" map to "In Progress", "done" maps to "Done", "failed" maps to "Cancelled".
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ class _FakeStoryService(StoryService):
                     story_type=StoryType.BUGFIX,
                     execution_route=StoryMode.EXECUTION,
                     story_size=StorySize.L,
-                    lifecycle_status="blocked",
+                    lifecycle_status="failed",
                 ),
             ],
         )
@@ -72,7 +72,7 @@ def test_lifecycle_to_column_mapping_covers_common_statuses() -> None:
     """_LIFECYCLE_TO_COLUMN covers the common lifecycle_status values."""
     assert _LIFECYCLE_TO_COLUMN["active"] == "In Progress"
     assert _LIFECYCLE_TO_COLUMN["done"] == "Done"
-    assert _LIFECYCLE_TO_COLUMN["blocked"] == "Cancelled"
+    assert _LIFECYCLE_TO_COLUMN["failed"] == "Cancelled"
     assert _LIFECYCLE_TO_COLUMN["defined"] == "Backlog"
     assert _LIFECYCLE_TO_COLUMN["approved"] == "Approved"
 
@@ -80,7 +80,7 @@ def test_lifecycle_to_column_mapping_covers_common_statuses() -> None:
 def test_get_board_groups_stories_by_fk64_column() -> None:
     """get_board() maps lifecycle_status via _LIFECYCLE_TO_COLUMN to FK-64 columns.
 
-    "active" -> "In Progress", "done" -> "Done", "blocked" -> "Cancelled".
+    "active" -> "In Progress", "done" -> "Done", "failed" -> "Cancelled".
     Pass-4 ERROR-1: all five FK-64 columns are always emitted, even when empty.
     FK-64 column order is preserved.
     """
@@ -107,7 +107,7 @@ def test_get_board_groups_stories_by_fk64_column() -> None:
     done = next(c for c in response.columns if c.status == "Done")
     assert [s.story_id for s in done.stories] == ["AG3-101"]
 
-    # "blocked" -> "Cancelled"
+    # "failed" -> "Cancelled"
     cancelled = next(c for c in response.columns if c.status == "Cancelled")
     assert [s.story_id for s in cancelled.stories] == ["AG3-102"]
 

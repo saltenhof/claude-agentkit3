@@ -118,7 +118,7 @@ def test_final_status_classification_is_deterministic_and_fail_closed() -> None:
         story_metrics=[
             _StoryMetric("AK3", "2026-06-02T10:00:00+00:00", "done", 1),
             _StoryMetric("AK3", "2026-06-03T10:00:00+00:00", " MERGED ", 1),
-            _StoryMetric("AK3", "2026-06-04T10:00:00+00:00", "blocked", 1),
+            _StoryMetric("AK3", "2026-06-04T10:00:00+00:00", "failed", 1),
             _StoryMetric("AK3", "2026-06-05T10:00:00+00:00", "Escalated", 1),
             _StoryMetric("AK3", "2026-06-06T10:00:00+00:00", "mystery", 1),
         ],
