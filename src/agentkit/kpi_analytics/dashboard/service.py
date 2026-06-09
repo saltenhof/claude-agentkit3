@@ -58,7 +58,6 @@ _LIFECYCLE_TO_COLUMN: dict[str, str] = {
     "cancelled": _COL_CANCELLED,
     "escalated": _COL_CANCELLED,
     "failed": _COL_CANCELLED,
-    "blocked": _COL_CANCELLED,
 }
 
 

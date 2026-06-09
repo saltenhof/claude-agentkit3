@@ -10,7 +10,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from agentkit.kpi_analytics.dashboard.service import _COLUMN_ORDER, _LIFECYCLE_TO_COLUMN, DashboardService
+from agentkit.kpi_analytics.dashboard.service import (
+    _COLUMN_ORDER,
+    _LIFECYCLE_TO_COLUMN,
+    DashboardService,
+    _map_lifecycle_to_column,
+)
 from agentkit.story.models import StoryListResponse, StoryMetricsView, StorySummary
 from agentkit.story.service import StoryService
 from agentkit.story_context_manager.sizing import StorySize
@@ -75,6 +80,11 @@ def test_lifecycle_to_column_mapping_covers_common_statuses() -> None:
     assert _LIFECYCLE_TO_COLUMN["failed"] == "Cancelled"
     assert _LIFECYCLE_TO_COLUMN["defined"] == "Backlog"
     assert _LIFECYCLE_TO_COLUMN["approved"] == "Approved"
+
+
+def test_unmapped_lifecycle_status_defaults_to_cancelled() -> None:
+    """Unknown lifecycle_status values default to the Cancelled column."""
+    assert _map_lifecycle_to_column("blocked") == "Cancelled"
 
 
 def test_get_board_groups_stories_by_fk64_column() -> None:
