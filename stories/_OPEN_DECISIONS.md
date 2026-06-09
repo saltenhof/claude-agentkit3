@@ -178,3 +178,4 @@ Hostiler Review der D1–D5-Aufräumung; Befunde eingearbeitet:
 - **A1**: Kataloge ok; verbleibende Drift in **AG3-059** (fertige Story) bewusst **historisch belassen** (PO); D1-Befund als „Vor-Entscheidungs-Stand" markiert.
 - **A3**: FK-25:649 `infra_unavailable`-Token entfernt; **AG3-097** (Backlog) per **D4-Override-Kopfnotiz** auf FAILED gestellt (überholt PAUSED/infra-Triple unten inkl. `fine_design.py:12`); volle Inline-Umstellung beim Bau von AG3-097.
 - **C**: AG3-107 um die **öffentlichen** Terminal-Status-Surfaces (`engine.py:1090/1104/1108` + `test_engine.py:500`) ergänzt.
+- **C Runde 3** (finale Re-Review `job-3750f5cc`: A3/B grün, C noch offen): AG3-107 zusätzlich um die **Downstream-Vertragskette** `"blocked"` erweitert — `_REACTION_BY_STATUS` (`dispatch.py:593`), `PhaseDispatchResult.status` (`control_plane/models.py:257`), `PipelineRunResult.final_status` (`runner.py:48/184`) + Tests; `grep`-Vollständigkeit gefordert.
