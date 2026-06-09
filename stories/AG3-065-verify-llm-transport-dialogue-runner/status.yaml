@@ -1,0 +1,11 @@
+story_id: AG3-065
+title: "Verify-LLM-Transport + DialogueRunner + Timeouts"
+type: implementation
+status: draft
+phase: review_pending
+created: "2026-06-07"
+size: L
+depends_on:
+  - AG3-043
+  - AG3-075
+unblocks: []

@@ -1,0 +1,12 @@
+story_id: AG3-082
+title: "KPI-Refresh-Worker (sync_analytics/purge_story_analytics/_percentile)"
+type: implementation
+status: draft
+phase: review_pending
+created: "2026-06-07"
+size: L
+depends_on:
+  - AG3-038
+  - AG3-081
+unblocks:
+  - AG3-083

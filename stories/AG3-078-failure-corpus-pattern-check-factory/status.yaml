@@ -1,0 +1,22 @@
+story_id: AG3-078
+title: "Failure-Corpus Stufe 2/3 (Pattern-Promotion + Check-Factory + Effectiveness + CLI, FK-41 §41.5-§41.10): Clustering/Promotion-Writer, 6-Schritt-Check-Factory, Auto-Deaktivierung, failure-corpus-CLI, Sonar-Accept-Frequenz-Signal"
+type: implementation
+status: draft
+phase: review_pending
+created: "2026-06-07"
+size: L
+depends_on:
+  # AG3-028: failure_corpus top-surface predecessor (real build-order edge).
+  # AG3-070: project-config owner of the SonarQubeConfig model that must carry
+  #          accept_frequency_fc_threshold (CP1) — real build-order edge to the
+  #          config-owner BC. AG3-070 must be extended to ADD the field (see
+  #          story.md §2.2/CP1); AG3-078 references it fail-closed, never copies it.
+  # AG3-081 REMOVED: it was added under the false premise that AG3-081 delivers
+  #          the story_metrics schema / ProjectionFilter extensions. It does NOT
+  #          (its scope is BC14/BC15 events, telemetry-evidence wiring, the
+  #          phase_state_projection record, guard counters, reset-purge delta).
+  #          Those fields (CP2/CP3) have no in-scope owner today and are tracked
+  #          as cross-story action items, not as a depends_on edge to AG3-081.
+  - AG3-028
+  - AG3-070
+unblocks: []

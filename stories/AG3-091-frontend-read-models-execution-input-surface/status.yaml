@@ -1,0 +1,13 @@
+story_id: AG3-091
+title: "API/Event-Katalog-Endpunkte (Frontend-Read-Models + Execution-Limits-Read)"
+type: implementation
+status: draft
+phase: review_pending
+created: "2026-06-07"
+size: L
+depends_on:
+  - AG3-090
+  - AG3-098
+  - AG3-100
+  - AG3-077
+unblocks: []

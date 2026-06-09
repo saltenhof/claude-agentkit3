@@ -1,0 +1,10 @@
+story_id: AG3-102
+title: "Konzept-Nachzug — Producer-/Envelope-Wire-Werte + Namens-/Tabellenkonventionen"
+type: concept
+status: draft
+phase: review_pending
+created: "2026-06-07"
+size: M
+depends_on:
+  - AG3-022
+unblocks: []

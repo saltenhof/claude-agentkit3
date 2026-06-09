@@ -1,0 +1,12 @@
+story_id: AG3-083
+title: "KPI-Katalog (40 KPIs) + Fact-Table-Spaltensaetze nach §62.2"
+type: implementation
+status: draft
+phase: review_pending
+created: "2026-06-07"
+size: L
+depends_on:
+  - AG3-038
+  - AG3-081
+unblocks:
+  - AG3-082

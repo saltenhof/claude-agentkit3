@@ -1,0 +1,11 @@
+story_id: AG3-072
+title: "StorySplitService + Split-Plan + Dependency-Rebinding"
+type: implementation
+status: draft
+phase: review_pending
+created: "2026-06-07"
+size: M
+depends_on:
+  - AG3-032
+  - AG3-068
+unblocks: []

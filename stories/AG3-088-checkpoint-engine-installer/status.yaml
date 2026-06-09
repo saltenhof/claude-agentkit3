@@ -1,0 +1,12 @@
+story_id: AG3-088
+title: "Checkpoint-Engine-Installer (FlowDefinition statt God-File)"
+type: implementation
+status: draft
+phase: review_pending
+created: "2026-06-07"
+size: L
+depends_on:
+  - AG3-001
+  - AG3-006
+  - AG3-070
+unblocks: []

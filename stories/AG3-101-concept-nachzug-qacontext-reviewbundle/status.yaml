@@ -1,0 +1,10 @@
+story_id: AG3-101
+title: "Konzept-Nachzug — VerifyContext -> QaContext und ContextBundle/ReviewBundle"
+type: concept
+status: draft
+phase: review_pending
+created: "2026-06-07"
+size: S
+depends_on:
+  - AG3-067
+unblocks: []

@@ -1,0 +1,11 @@
+story_id: AG3-063
+title: "ConformanceService (4 Fidelity-Ebenen) + Manifest-Indexer + Size-Control"
+type: implementation
+status: draft
+phase: review_pending
+created: "2026-06-07"
+size: L
+depends_on:
+  - AG3-043
+  - AG3-061
+unblocks: []

@@ -1,0 +1,11 @@
+story_id: AG3-087
+title: "Secret-Detection-Vollausbau + Audit-Tabellen + Servicepfad/Freeze-Nachweis"
+type: implementation
+status: draft
+phase: review_pending
+created: "2026-06-07"
+size: M
+depends_on:
+  - AG3-032
+  - AG3-034
+unblocks: []

@@ -1,0 +1,12 @@
+story_id: AG3-099
+title: "PlanningProposal/Ingest + Rulebook + Persistenz-Schemafamilien (FK-70 §70.7-§70.10.2): Agent->AK3-Handover-Vertrag + proposal_ingest, Rulebook-Compile (rulebook_revision), neun fehlende plus migriertes dependency_edge = zehn Persistenz-Schemafamilien ueber den eigenen BC-9-Planning-Projektions-Schreibpfad (nicht der FK-69-ProjectionAccessor), acht BC14-Audit-Events"
+type: implementation
+status: draft
+phase: review_pending
+created: "2026-06-07"
+size: L
+depends_on:
+  - AG3-098
+  - AG3-081
+unblocks:
+  - AG3-100

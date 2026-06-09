@@ -1,0 +1,11 @@
+story_id: AG3-095
+title: "execute-userstory-Orchestrator-Skill + Skill-Katalog-Vollstaendigkeit + Quality-Metric"
+type: implementation
+status: draft
+phase: review_pending
+created: "2026-06-07"
+size: L
+depends_on:
+  - AG3-027
+  - AG3-048
+unblocks: []

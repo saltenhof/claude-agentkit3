@@ -1,0 +1,12 @@
+story_id: AG3-086
+title: "Hook-/Guard-Vollausbau (WebCallBudgetGuard, skill_usage_check, Prompt-Integrity, TTL→ESCALATED)"
+type: implementation
+status: draft
+phase: review_pending
+created: "2026-06-07"
+size: L
+depends_on:
+  - AG3-013
+  - AG3-080
+  - AG3-081
+unblocks: []

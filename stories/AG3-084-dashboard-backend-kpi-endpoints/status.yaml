@@ -1,0 +1,12 @@
+story_id: AG3-084
+title: "Dashboard-Backend (/api/kpi/*, /api/live/stories) + Trust-Boundary-Fix"
+type: implementation
+status: draft
+phase: review_pending
+created: "2026-06-07"
+size: M
+depends_on:
+  - AG3-082
+  - AG3-091
+unblocks:
+  - AG3-092

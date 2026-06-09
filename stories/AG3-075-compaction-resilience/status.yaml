@@ -1,0 +1,11 @@
+story_id: AG3-075
+title: "Compaction-Resilience (Resume-Capsule/Spawn-Spec/Epoch-Store/Recovery-Hooks)"
+type: implementation
+status: draft
+phase: review_pending
+created: "2026-06-07"
+size: L
+depends_on:
+  - AG3-024
+  - AG3-015
+unblocks: []

@@ -1,0 +1,12 @@
+story_id: AG3-090
+title: "BFF-Topologie-Vollausbau (control_plane_http + 8 fehlende BC-http/-Module)"
+type: implementation
+status: draft
+phase: review_pending
+created: "2026-06-07"
+size: L
+depends_on:
+  - AG3-002
+unblocks:
+  - AG3-091
+  - AG3-093

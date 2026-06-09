@@ -1,0 +1,15 @@
+story_id: AG3-061
+title: "Evidence-Assembly Core (EvidenceAssembler / AuthorityClass / BundleManifest / CLI)"
+type: implementation
+status: draft
+phase: review_pending
+created: "2026-06-07"
+size: L
+depends_on:
+  - AG3-022
+  - AG3-026
+  - AG3-044
+unblocks:
+  - AG3-062
+  - AG3-063
+  - AG3-067

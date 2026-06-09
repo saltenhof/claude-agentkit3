@@ -1,0 +1,14 @@
+OVERALL CHANGES-REQUESTED
+
+**Per-Dimension Verdict**
+- Konzept-Vollstaendigkeit: FAIL
+- AC-Schaerfe: FAIL
+- Klarheit: FAIL
+- Kontext-Sinnhaftigkeit: FAIL
+
+**Remaining Must-Fix ERRORs**
+1. `next` reason fields are removed from AG3-091, but the defer-to-AG3-100 route is not genuinely buildable yet. AG3-091 claims AG3-100 will add the missing formal Reason entity, but current AG3-100 only scopes `GET .../execution-input/next` plus Triage-Begruendung and has no FK-72 §72.14.3 / `frontend-contracts.entity.*` requirement. Evidence: [AG3-091 story.md](T:/codebase/claude-agentkit3/stories/AG3-091-frontend-read-models-execution-input-surface/story.md:44), [AG3-091 story.md](T:/codebase/claude-agentkit3/stories/AG3-091-frontend-read-models-execution-input-surface/story.md:83), [AG3-100 story.md](T:/codebase/claude-agentkit3/stories/AG3-100-evaluate-scheduling-execution-input-surface/story.md:30), [AG3-100 story.md](T:/codebase/claude-agentkit3/stories/AG3-100-evaluate-scheduling-execution-input-surface/story.md:47). Fix: AG3-100 must explicitly own the formal `next` response/reason entity and contract binding, or AG3-091 must not claim that prerequisite is routed.
+
+2. AG3-091 is not metadata-consistent as “read-layer only”. The body excludes `snapshot|next`, but `status.yaml` still titles the story as `Frontend-Read-Models + Execution-Input-Surface`; the story index also still assigns AG3-091 `/execution-input/snapshot|next|limits`. Evidence: [status.yaml](T:/codebase/claude-agentkit3/stories/AG3-091-frontend-read-models-execution-input-surface/status.yaml:2), [story index](T:/codebase/claude-agentkit3/var/concept-gap-analysis/_STORY_INDEX.md:116). Fix: align metadata/index naming/scope to `Frontend-Read-Models + Execution-Limits-Read`; sole `snapshot|next` owner remains AG3-100.
+
+3. The remaining AG3-091 coverage endpoints are still not concretely bound to formal frontend entities. AG3-091 says all endpoints have existing formal entities, but `coverage/stories/{id}/acceptance` and `are-evidence` are only described as “coverage forms”; FK-40 says their payload is `StoryAreLink` plus ARE live status, while `frontend-contracts.entities` only shows `story_specification` / `story_evidence`, which do not obviously model that payload. Evidence: [AG3-091 story.md](T:/codebase/claude-agentkit3/stories/AG3-091-frontend-read-models-execution-input-surface/story.md:38), [AG3-091 story.md](T:/codebase/claude-agentkit3/stories/AG3-091-frontend-read-models-execution-input-surface/story.md:41), [FK-40](T:/codebase/claude-agentkit3/concept/technical-design/40_are_integration_anforderungsvollstaendigkeit.md:450), [entities.md](T:/codebase/claude-agentkit3/concept/formal-spec/frontend-contracts/entities.md:341). Fix: name the exact existing `frontend-contracts.entity.*` for both endpoints, or move/add the missing formal entity under the correct owner before implementation.

@@ -1,0 +1,11 @@
+story_id: AG3-073
+title: "Story-Exit + Human-Takeover (exit-story, exit_gate, Dossier)"
+type: implementation
+status: draft
+phase: review_pending
+created: "2026-06-07"
+size: L
+depends_on:
+  - AG3-032
+  - AG3-053
+unblocks: []

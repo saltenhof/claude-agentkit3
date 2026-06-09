@@ -1,0 +1,95 @@
+# AG3-104: Konzept-Nachzug — PROJECT_STRUCTURE/BC-Registry-Konsolidierung + ARCH-55-Sprachfixes
+
+**Typ:** Concept (doc-only)
+**Groesse:** M
+**Bounded Context:** querschnittlich — `architecture-conformance`/Komponentenschnitt (FK-07), `harness-integration` (FK-76 / PROJECT_STRUCTURE BC-Registry), `project-management` (FK-73 SonarQube-Baseline-Hash), Verzeichnis-/Namenskonventionen (FK-92 `slugify`), `failure-corpus` (ARCH-55-Enum-/Schema-Spiegel). FK-/PROJECT_STRUCTURE-Prosa an die bewusste BC-Cut-Realitaet angleichen; reine Code-Fixes namentlich an die zustaendige Code-Story bzw. (wo kein Backlog-Owner existiert) an eine benannte PO-Eskalation spiegeln. **Doc-only: NUR `concept/`- und `PROJECT_STRUCTURE.md`-Prosa wird geaendert. Kein `src/`-/`tests/`-Diff.**
+**Quell-Konzepte (autoritativ):**
+- `FK-07 §7.4 / §7.4.1` — Provided-Contract-Port-Nomenklatur (Tabellen §7.4.1–§7.4.6) + Shared-Komponente `WorktreeManager`/`WorktreePort` (`07_komponentenarchitektur_und_architekturkonformanz.md:83`, `:91`)
+- `FK-76 §76.3 / §76.8 / §76.9` — `harness-integration` als BC, kosmetische Paketverschiebung (§76.3, `76_agent_harness_integration.md:151`), benannte oeffentliche Surface (§76.8, `:306`), normative Importrichtung (§76.9)
+- `FK-73 §73.6` — Owner des erwarteten SonarQube-Config-Baseline-Hash: `configuration`-Feld der **Project-Entitaet**, Owner **project-management** (`73_project_management.md:101`, `:107`)
+- `FK-92 §92.4` — `slugify`-Owner fuer Story-Dir-Slugs (`92_verzeichnis_namenskonventionen.md:90`, `:95`)
+- `PROJECT_STRUCTURE.md` — verbindliche BC-/Verzeichnisstruktur (heute „16-BC-Schnitt", `PROJECT_STRUCTURE.md:89`)
+- `concept/_meta/bc-cut-decisions.md` (AUTORITATIV) — Shared `WorktreeManager` mit Owner `story_context_manager` (`bc-cut-decisions.md:275`, `:278`)
+- `concept/technical-design/_meta/bounded-contexts.yaml` — Registry kennt `harness-integration` bereits (`bounded-contexts.yaml:245`)
+
+---
+
+## 1. Kontext / Ist-Zustand (belegt)
+
+**FK-07 §7.4 Port-Nomenklatur (UNVOLLSTAENDIG, aspirational):** §7.4.1–§7.4.6 benennen ueber alle Tabellen hinweg 35 Provided-Contract-Port-Namen. Die meisten existieren **nicht als literale Symbole** im Code; die real existierenden Ports tragen abweichende Namen. Belege: der in §7.4.1 (`:87`) genannte `StoryContextPort` existiert **nicht** als Symbol — das reale Pendant heisst `StoryContextQueryPort` (`src/agentkit/verify_system/system.py:122` `_NullStoryContextPort`, `:149` Typ-Alias; gespiegelt in `src/agentkit/exploration/ports.py:10`). Reale Protocol-Ports tragen funktionsbezogene Namen, nicht die FK-07-Contract-Namen (`exploration/ports.py:36` `RunScopeResolver`, `:57` `ChangeFrameReader`, `:82` `WorkerDraftPresenceReader`, `:111` `ChangeFrameWriter`, `:152` `DeclaredImpactReader`; `closure/runtime_ports.py:100/198/222/244/271`). FK-07 §7.6/§7.7.4 erklaeren die Port-/Repository-Konformanz selbst als „noch im Umbau, normativ aber nicht vollumfaenglich maschinell erzwungen" — die Port-Nomenklatur ist bekannt **aspirational**.
+
+**FK-07 §7.4.1 WorktreeManager (ABWEICHEND, aber Owner existiert):** Es gibt **keinen** Top-Level-Namespace `src/agentkit/worktree_manager/`; Worktree-Logik ist auf `governance/setup_preflight_gate/worktree.py` (Setup) und `closure/multi_repo_saga.py` (Merge/Teardown) verstreut, `WorktreePort` existiert nicht. Die Soll-Struktur ist normativ klar: `bc-cut-decisions.md:275-283` modelliert `WorktreeManager` als **shared component** (`agentkit.worktree_manager`, `component_kind: shared`, `allowed_importers: PipelineEngine, StoryContextManager`) mit **explizitem Owner** `owner_group_id: architecture-conformance.group.story_context_manager` (`bc-cut-decisions.md:278`). PROJECT_STRUCTURE.md fuehrt den shared-BC bereits (`PROJECT_STRUCTURE.md:213`, `:290`). Die Konsolidierung ist also ein Code-Drift gegen ein **bestehendes, geownetes** Soll — nicht ein owner-loser Befund.
+
+**FK-76 (BC-Registry-Inkonsistenz in PROJECT_STRUCTURE):** Die Registry kennt `harness-integration` bereits als vollwertigen BC (`bounded-contexts.yaml:245-265`, mit `owns: HarnessAdapter/HarnessPort/HarnessSettings/HarnessInvocation/HarnessCapability/SubAgentSpawn`). PROJECT_STRUCTURE.md ist dazu **inkonsistent**: Z. 89 behauptet weiter „16 fachliche Bounded Contexts", die Baum-Aufzaehlung (BC 1–16, `:93`–`:204`) und die Verantwortungstabelle (`:274`–`:289`) fuehren `harness-integration` **nicht**. Der Code liegt unter `src/agentkit/governance/harness_adapters/`; FK-76 §76.3 (`76_agent_harness_integration.md:151-155`) markiert die physische Verschiebung nach `agentkit.harness_integration` ausdruecklich als **kosmetisch** (Paketname = BC-Name) und als Folge-Story-faehig — verbindlich sind BC-Zugehoerigkeit (dieses Doc) und Importrichtung (§76.9). Die oeffentliche Port-Surface ist hingegen **benannt und verbindlich** (§76.8, `:306-308`: `HarnessPort`, `HarnessInvocation`, `HarnessHookEnvelope`, `HarnessCapability`, `HarnessAdapterResult` plus Settings-Writer) und existiert noch **nicht** als benannte Symbole — sie ist kein optionaler Sammelhinweis, sondern eine geownete Code-Soll-Surface.
+
+**FK-73 §73.6 (FEHLT, Owner = project-management):** Der erwartete SonarQube-Config-Baseline-Hash (World 1) soll laut FK-73 §73.6 (`73_project_management.md:101-108`) ein `configuration`-Feld der **Project-Entitaet** (§73.1) sein; **dauerhafter Owner ist project-management** (`:107-108`). `ProjectConfiguration` (`src/agentkit/project_management/entities.py:14-55`) traegt **kein** Baseline-Hash-Feld (nur `repo_url`/`default_branch`/`are_url`/`default_worker_count`/`repositories`). Das Integrity-Gate bestaetigt das Fehlen ausdruecklich (`src/agentkit/governance/integrity_gate/dim9_drift.py:19-32`: „there is currently NO captured/registered baseline … the state backend stores no expected config-hash … deliberately does NOT fabricate one"). **Kein Backlog-Owner:** Die project-management-GAP-Analyse (`stories/project-management-gap-analyse.md` §4) listet die offenen Luecken (project_detail/mode_lock/story_counters/concept_anchors/Postgres/Wire-Status) — das Baseline-Hash-`configuration`-Feld ist **nicht** darunter. AG3-070 ownt ausschliesslich `project.yaml`/`project-config` (config_version, sonarqube-Stanza), **nicht** die Project-Entitaet — AG3-070 liefert dieses Feld also nicht.
+
+**FK-92 §92.4 `slugify` (FEHLT):** Keine `slugify`-Funktion im Code (Grep `def slugify` -> 0). FK-92 §92.4 (`92_verzeichnis_namenskonventionen.md:90-99`) definiert den Algorithmus fuer Story-**Verzeichnis**-Namen `{story_id}_{slug}` (§92.2/`:65`). Die Story-Dir-Erzeugung gehoert fachlich zur Story-Creation/Export-Verantwortung; AG3-068 ownt den `story.md`-Export + `story_creation`-Modul (FK-21 §21.11), enumeriert `slugify`/Story-Dir-Naming aber **nicht** explizit in seinem Scope.
+
+**ARCH-55-Code-Verstoss (Spiegel an failure-corpus / AG3-078):** Deutsche Enum-Werte und korrespondierende DB-CHECK-Constraints im `failure-corpus`-BC:
+- `PromotionRule` deutsch (`wiederholung`/`hohe_schwere`/`checkbarkeit`, `src/agentkit/failure_corpus/pattern.py:50-52`).
+- `PatternRiskLevel` deutsch (`mittel`/`hoch`/`kritisch`, `pattern.py:58-60`).
+- `FalsePositiveRisk` deutsch (`niedrig`/`mittel`/`hoch`, `src/agentkit/failure_corpus/check_proposal.py:56-58`).
+- DB-CHECK-Constraints spiegeln dieselben deutschen Werte (`src/agentkit/state_backend/sqlite_store.py:800-805` `promotion_rule`/`risk_level`).
+Alle vier sind reine Code-/Schema-Fixes desselben BC, nicht doc-only.
+
+## 2. Scope
+
+### 2.1 In Scope (nur FK-/PROJECT_STRUCTURE-Prosa; Owner pro Wert; Zielartefakt pro Spiegelung)
+
+1. **FK-07 §7.4 Port-Nomenklatur als Aspiration kennzeichnen** (konsistent mit §7.6/§7.7.4): die benannten Provided-Contract-Port-Namen sind Zielbild, nicht durchgaengig implementiert/erzwungen. Die realen Ports namentlich gegenueberstellen (`StoryContextQueryPort` statt `StoryContextPort`; `RunScopeResolver`/`ChangeFrameReader`/… in `exploration/ports.py`; `closure/runtime_ports.py`). **Owner pro Wert:** Doku-Angleichung (hier). Eine etwaige Vereinheitlichung der Port-Namen im Code ist **Code-Folgearbeit ohne aktuellen Backlog-Owner** -> als PO-Eskalation in §2.2/CP markiert; **kein** Code-Fix in dieser Story.
+2. **FK-07 §7.4.1 WorktreeManager-Drift dokumentieren:** Soll-Schnitt (shared `agentkit.worktree_manager`, `bc-cut-decisions.md:275-283`) gegen die verstreute Realitaet (`governance/setup_preflight_gate/worktree.py`, `closure/multi_repo_saga.py`) sichtbar machen. **Owner pro Wert:** Soll-Struktur und Soll-Owner stehen bereits fest — Owner ist `story_context_manager` (`owner_group_id: architecture-conformance.group.story_context_manager`, `bc-cut-decisions.md:278`). Die Konsolidierung ist ein **Code-Drift gegen ein bestehendes, geownetes Soll**; FK-/PROJECT_STRUCTURE-Prosa bleibt beim Soll-Schnitt, der Drift wird als offener Code-Punkt **mit benanntem BC-Owner (story-lifecycle/story_context_manager)** vermerkt. **Zielartefakt:** keine fremde Story-Datei; der Drift ist als PO-Eskalation gegen den story-lifecycle-BC zu fuehren (CP, §2.2), da keine konkrete Backlog-Story den Umzug traegt.
+3. **FK-76 / PROJECT_STRUCTURE BC-Registry konsistent nachziehen:** `harness-integration` in PROJECT_STRUCTURE.md als BC fuehren — konkret in **drei** Stellen zugleich (Konsistenzpflicht): (a) BC-Zaehlung `:89` von „16" auf „17" angleichen, (b) den BC in die Baum-Aufzaehlung (`:93`–`:204`) aufnehmen (realer Ort `governance/harness_adapters/` benannt, BC-Name `harness-integration` gemaess `bounded-contexts.yaml:245`), (c) eine Zeile in die Verantwortungstabelle (`:274`–`:289`) ergaenzen. Die kosmetische Paketverschiebung nach `agentkit.harness_integration` (FK-76 §76.3) als optionale Code-Folge kennzeichnen; die **benannte Port-Surface** (§76.8) als geownete Code-Soll-Surface mit benanntem Owner fuehren. **Owner pro Wert:** BC-Zugehoerigkeit + Zaehlung/Baum/Tabelle -> Doku (hier); Paketverschiebung + Port-Surface (`HarnessPort`/`HarnessInvocation`/`HarnessHookEnvelope`/`HarnessCapability`/`HarnessAdapterResult`) -> **Code-Owner = `harness-integration`-BC** (`bounded-contexts.yaml:245`), zu fuehren als benannte Code-Folge-Story; da heute keine solche Story existiert, **als PO-Eskalation in §2.2/CP markiert** (kein optionaler Sammelhinweis).
+4. **FK-73 §73.6 SonarQube-Baseline-Hash — Owner-Verortung dokumentieren:** in der FK-73-/PROJECT_STRUCTURE-Prosa festhalten, dass der erwartete Baseline-Hash ein `configuration`-Feld der **Project-Entitaet** (Owner **project-management**) sein soll und heute fehlt. **Owner pro Wert:** **FEHLT-Code-Befund**, Code-Owner ist der **project-management-BC** (`ProjectConfiguration`/Project-Entitaet). **Kein** bestehender Backlog-Owner (GAP-Analyse §4 fuehrt das Feld nicht; AG3-070 ist `project-config`, nicht project-management) -> **als benannte PO-Eskalation gegen project-management** in §2.2/CP gefuehrt. **Kein** Feld-Bau hier; **kein** Claim, AG3-070 liefere es.
+5. **FK-92 §92.4 `slugify`-Owner dokumentieren:** in der FK-92-Prosa festhalten, dass `slugify` (Story-Dir-Slugs) zur Story-Creation/Verzeichnis-Konventions-Verantwortung gehoert und heute fehlt. **Owner pro Wert:** Code-Home ist der Story-Creation-BC (AG3-068 ownt `story_creation`/`story.md`-Export, FK-21 §21.11). Da AG3-068 `slugify`/Story-Dir-Naming **nicht** explizit in seinem Scope enumeriert, wird der Bedarf als **Cross-Story-Voraussetzung gegen AG3-068** gefuehrt (CP, §2.2) — entweder AG3-068-Scope um `slugify` erweitern oder eigene Verzeichnis-Konventions-Story. **Kein** Implementierungs-Claim hier.
+6. **ARCH-55-Code-Fix spiegeln (failure-corpus -> AG3-078):** alle deutschen Werte des `failure-corpus`-BC als ein ARCH-55-Code-/Schema-Fix an **AG3-078** (Failure-Corpus Stufe 2/3) spiegeln: `PromotionRule` (`pattern.py:50-52`), `PatternRiskLevel` (`pattern.py:58-60`), `FalsePositiveRisk` (`check_proposal.py:56-58`) **und** die korrespondierenden SQLite-CHECK-Constraints (`sqlite_store.py:800-805`). AG3-078 ist Schema-Owner von `fc_patterns`/`fc_check_proposals` und damit der **einzige** Code-Owner dieser Werte. **Zielartefakt der Spiegelung:** Hinweis im Remediation-Report `remediation-r1.md` als benannte Cross-Story-Voraussetzung; **kein** Eingriff in `stories/AG3-078-*/` aus dieser Story. **Kein** Code-Diff hier.
+7. **ARCH-55-Konsistenz:** keine deutschen Code-Identifier/Keys in der angepassten FK-/PROJECT_STRUCTURE-Prosa einfuehren.
+
+### 2.2 Out of Scope (mit benanntem Owner / Eskalationszielartefakt)
+- **WorktreeManager-Konsolidierung (Code):** Owner-BC `story-lifecycle`/`story_context_manager` (`bc-cut-decisions.md:278`); kein konkreter Backlog-Eintrag -> **PO-Eskalation CP1** (Code-Folge-Story gegen story-lifecycle anlegen).
+- **`harness_integration`-Paketverschiebung + Port-Surface (Code):** Owner-BC `harness-integration` (`bounded-contexts.yaml:245`); kein Backlog-Eintrag -> **PO-Eskalation CP2** (Code-Folge-Story; Port-Surface §76.8 ist verbindliche Soll-Surface).
+- **SonarQube-Baseline-Hash-`configuration`-Feld (Code):** Owner-BC `project-management`; kein Backlog-Eintrag (GAP-Analyse §4) -> **PO-Eskalation CP3** (Code-Story gegen project-management; **nicht** AG3-070).
+- **`slugify`-Implementierung (Code):** Code-Home Story-Creation-BC; nicht im AG3-068-Scope enumeriert -> **Cross-Story-Voraussetzung CP4** (AG3-068-Scope erweitern oder dedizierte Konventions-Story).
+- **Deutsche `failure-corpus`-Enum-/CHECK-Werte (Code/Schema):** Owner-Story **AG3-078** -> **Cross-Story-Voraussetzung CP5** (Spiegel-Hinweis im Remediation-Report).
+- Jegliche `src/`-/`tests/`-Aenderung.
+
+## 3. Akzeptanzkriterien
+1. **FK-07 §7.4** ist als Aspiration markiert (konsistent §7.6/§7.7.4); die realen Ports sind namentlich gegenuebergestellt (mind. `StoryContextQueryPort` statt `StoryContextPort` sowie die Protocol-Ports aus `exploration/ports.py`/`closure/runtime_ports.py`). Der WorktreeManager-Drift ist dokumentiert **und mit dem bestehenden Soll-Owner** `story_context_manager` (`bc-cut-decisions.md:278`) verortet, nicht als owner-loser Befund.
+2. **PROJECT_STRUCTURE.md** ist fuer `harness-integration` an **allen drei** Stellen konsistent nachgezogen: BC-Zaehlung (`:89`, „16" -> „17"), Baum-Aufzaehlung und Verantwortungstabelle; realer Ort `governance/harness_adapters/` benannt; Paketverschiebung als optionale Code-Folge, Port-Surface (§76.8) als **verbindliche** geownete Code-Soll-Surface (Owner-BC `harness-integration`) gekennzeichnet.
+3. **FK-73 §73.6** (Baseline-Hash) traegt den korrekten Code-Owner **project-management/Project-Entitaet** (nicht AG3-070); **FK-92 §92.4** (`slugify`) traegt den korrekten Code-Home **Story-Creation-BC** (AG3-068 als Kandidat, mit explizitem Hinweis, dass `slugify` heute nicht in dessen Scope ist). Beide Befunde sind nicht als implementiert behauptet.
+4. Die deutschen `failure-corpus`-Werte (`PromotionRule`/`PatternRiskLevel`/`FalsePositiveRisk` **und** die SQLite-CHECK-Constraints) sind vollstaendig als ein ARCH-55-Code-/Schema-Fix an **AG3-078** gespiegelt (Vermerk im Remediation-Report); nicht hier codiert, kein Wert ausgelassen.
+5. **Owner pro Wert** ist fuer jeden Befund benannt (Doku-Angleichung vs. Code-Fix-Spiegel); **kein offener Owner-Konflikt** verbleibt — jeder Code-Bedarf ohne Backlog-Owner ist explizit als nummerierte PO-Eskalation (CP1–CP3) bzw. Cross-Story-Voraussetzung (CP4–CP5) ausgewiesen.
+6. Kein deutscher Code-Identifier/Key in der angepassten Prosa eingefuehrt (ARCH-55).
+7. **Doc-only-Gate gruen:** `.venv\Scripts\python scripts/ci/check_concept_frontmatter.py` gruen, `.venv\Scripts\python scripts/ci/compile_formal_specs.py` gruen, lokale Remote-Gate-Vorpruefung `pwsh scripts/ci/check_remote_gates.ps1` gruen **und** `git diff -- src tests` liefert **leer** (kein `src/`-/`tests/`-Diff).
+
+## 4. Definition of Done
+- AK 1-7 erfuellt; giftige Codex-Review PASS; Konzept-/PROJECT_STRUCTURE-Prosa-Aenderung + Commit erst nach Execution-Plan-Freigabe.
+
+## 5. Guardrail-Referenzen
+- **FIX THE MODEL / SINGLE SOURCE OF TRUTH:** PROJECT_STRUCTURE/BC-Registry sind die eine Struktur-Wahrheit; `harness-integration` wird konsistent (Zaehlung+Baum+Tabelle) anerkannt statt als zweite, undokumentierte Realitaet belassen.
+- **STRUKTURREGELN VERBINDLICH:** WorktreeManager-Soll-Schnitt (shared, Owner story_context_manager) bleibt normativ; der Drift wird als Code-Bedarf gegen den **bestehenden** Owner sichtbar, nicht weggeschrieben und nicht als owner-los deklariert.
+- **ARCH-55:** deutsche Enum-/Schema-Werte des failure-corpus-BC sind ein Code-Verstoss -> vollstaendiger Spiegel an AG3-078, nicht in der FK kaschiert.
+- **NO ERROR BYPASSING / ZERO DEBT:** FEHLT-Code-Befunde (Baseline-Hash, slugify) werden nicht in dieser doc-only-Story versteckt-implementiert; offene Punkte ohne Backlog-Owner werden als benannte PO-Eskalation/Cross-Story-Voraussetzung gefuehrt, nicht still liegengelassen.
+- **WARNING-SEMANTIK:** Jeder owner-lose Code-Bedarf ist ein aktiv an den PO zu spiegelnder Handlungsauftrag (CP1–CP5), kein weggeklickter Hinweis.
+
+## 6. Hinweise fuer den Sub-Agent
+- Read T:/codebase/claude-agentkit3/CLAUDE.md first — all project rules apply to you.
+- **Doc-only-Scope:** Nur `concept/`-Dateien (FK-07/FK-73/FK-76/FK-92) und `PROJECT_STRUCTURE.md`-Prosa anpassen. `src/`/`tests/` bleiben unveraendert (`git diff -- src tests` muss leer sein).
+- FK-07-Ports/WorktreeManager: Port-Nomenklatur ist FK-eigen-aspirational; WorktreeManager hat bereits den Soll-Owner `story_context_manager` (`bc-cut-decisions.md:278`) — den Drift gegen diesen **bestehenden** Owner verorten, nicht als „kein Owner" deklarieren.
+- ARCH-55-Enum-/CHECK-Fix gehoert in **AG3-078** (Code), nicht hierher — und vollstaendig (pattern.py + check_proposal.py + sqlite_store.py CHECKs).
+- Baseline-Hash (FK-73 §73.6) ist **project-management** (Project-Entitaet), **nicht** AG3-070 (`project-config`). Nicht behaupten, AG3-070 liefere das Feld.
+- NICHT die Code-Dateien (`entities.py`/`pattern.py`/`check_proposal.py`/`sqlite_store.py`/`ports.py`) anfassen; **keine** anderen Story-Dateien (AG3-068/070/078) editieren — Spiegelung erfolgt als Vermerk im Remediation-Report.
+- AK2 NICHT veraendern, `.mcp.json` NICHT anfassen, **kein Commit** ohne expliziten Auftrag.
+- „done" nur mit Beleg: Diff-Zusammenfassung der Story-/Konzept-/PROJECT_STRUCTURE-Dateien; gruene Doc-only-Gates (Frontmatter-Check, Formal-Spec-Compile, Remote-Gate-Vorpruefung) + leerer `src/`/`tests/`-Diff.
+
+---
+
+## Globale Akzeptanzkriterien (verbindlich)
+
+Zusaetzlich zu den obigen Akzeptanzkriterien gelten die **globalen Akzeptanzkriterien**
+aus `stories/_GLOBAL_ACCEPTANCE.md` (Single Source of Truth):
+
+- **GAC-1:** `scripts/ci/check_architecture_conformance.py` laeuft mit **0 Errors**
+  (Exit 0, fail-closed) — `PYTHONPATH=src .venv\Scripts\python scripts/ci/check_architecture_conformance.py`.
+- **GAC-2:** Die Architektur-Guardrails `guardrails/architecture-guardrails.md`
+  (ARCH-NN) werden eingehalten; Konflikt = hart stoppen und melden.

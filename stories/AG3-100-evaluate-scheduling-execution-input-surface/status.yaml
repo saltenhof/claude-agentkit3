@@ -1,0 +1,12 @@
+story_id: AG3-100
+title: "evaluate_scheduling-Pflichtaufruf + Execution-Input-Top-Surface + Invarianten (FK-70 §70.8/§70.8a/§70.11, FK-20 §20.8.2): ExecutionPlanning.evaluate_scheduling als PipelineEngine-Pflichtaufruf vor jedem Story-Start, lebende snapshot/next-Doppel-Surface, §70.11-Invarianten inkl. Zyklus-Quarantaene/Eskalation"
+type: implementation
+status: draft
+phase: review_pending
+created: "2026-06-07"
+size: M
+depends_on:
+  - AG3-098
+  - AG3-099
+  - AG3-054
+unblocks: []

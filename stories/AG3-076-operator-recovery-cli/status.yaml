@@ -1,0 +1,13 @@
+story_id: AG3-076
+title: "Operator-/Recovery-CLI (run-phase/resume/reset-escalation/cleanup/status/query): die FK-45/04/10-Operator-Oberflaeche an bestehende Services andocken (kein Service-Neubau)"
+type: implementation
+status: draft
+phase: review_pending
+created: "2026-06-07"
+size: M
+depends_on:
+  - AG3-054
+  - AG3-071
+  - AG3-072
+  - AG3-073
+unblocks: []

@@ -1,0 +1,11 @@
+story_id: AG3-105
+title: "Task-Management-UI (Freestyle-To-Do, nicht pipeline-gemanagt)"
+type: implementation
+status: draft
+phase: review_pending
+created: "2026-06-07"
+size: M
+depends_on:
+  - AG3-093
+  - AG3-096
+unblocks: []

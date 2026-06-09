@@ -1,0 +1,12 @@
+story_id: AG3-069
+title: "Integration-Stabilization-Maschinerie (Manifest/Approval/Budget/Gate/Overlay)"
+type: implementation
+status: draft
+phase: review_pending
+created: "2026-06-07"
+size: L
+depends_on:
+  - AG3-064
+  - AG3-067
+  - AG3-070
+unblocks: []

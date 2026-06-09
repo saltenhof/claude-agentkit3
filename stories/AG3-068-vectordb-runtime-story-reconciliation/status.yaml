@@ -1,0 +1,10 @@
+story_id: AG3-068
+title: "VektorDB-Laufzeit + zweistufiger Story-Abgleich + repo_affinity + Export"
+type: implementation
+status: draft
+phase: review_pending
+created: "2026-06-07"
+size: L
+depends_on:
+  - AG3-070
+unblocks: []

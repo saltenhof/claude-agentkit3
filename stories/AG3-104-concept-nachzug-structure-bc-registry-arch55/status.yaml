@@ -1,0 +1,10 @@
+story_id: AG3-104
+title: "Konzept-Nachzug — PROJECT_STRUCTURE/BC-Registry-Konsolidierung + ARCH-55-Sprachfixes"
+type: concept
+status: draft
+phase: review_pending
+created: "2026-06-07"
+size: M
+depends_on:
+  - AG3-102
+unblocks: []

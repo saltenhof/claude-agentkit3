@@ -1,0 +1,16 @@
+story_id: AG3-070
+title: "Config-Modell-Vollausbau + Schema-Katalog + schema_version"
+type: implementation
+status: draft
+phase: review_pending
+created: "2026-06-07"
+size: L
+depends_on:
+  - AG3-005
+unblocks:
+  - AG3-068
+  - AG3-069
+  - AG3-078
+  - AG3-088
+  - AG3-089
+  - AG3-103

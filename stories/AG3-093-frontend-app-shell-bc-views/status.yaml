@@ -1,0 +1,14 @@
+story_id: AG3-093
+title: "Frontend-App-Shell + BC-aligned Views"
+type: implementation
+status: draft
+phase: review_pending
+created: "2026-06-07"
+size: L
+depends_on:
+  - AG3-090
+  - AG3-091
+  - AG3-092
+unblocks:
+  - AG3-094
+  - AG3-105

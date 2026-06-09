@@ -1,0 +1,11 @@
+story_id: AG3-103
+title: "Konzept-Nachzug — Schema-Katalog-Realitaet + Defaults/Schwellwerte + interne FK-Widersprueche"
+type: concept
+status: draft
+phase: review_pending
+created: "2026-06-07"
+size: M
+depends_on:
+  - AG3-070
+  - AG3-085
+unblocks: []
