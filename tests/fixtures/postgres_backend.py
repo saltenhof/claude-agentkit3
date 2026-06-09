@@ -14,8 +14,10 @@ Schema lifecycle (honest, three-tiered cleanup — story §2.1.5):
   and DROPs it (``DROP SCHEMA ... CASCADE`` + registry delete) on a clean finalizer.
 * **Session-start sweep**: drops only registry schemas older than 24h (DB-side
   clock) as a crash backstop.
-* **Structural**: the default Docker path runs ``--rm`` and discards the whole
-  container anyway; registry + sweep are belt-and-suspenders for a shared CI DB.
+* **Structural**: the default Docker path removes the container and its anonymous
+  data volume via ``docker rm -f -v`` on clean teardown. It also labels test
+  containers and runs a label/name-scoped TTL reaper at session start, so
+  containers left behind by crashed sessions are removed on the next run.
 
 The ``runtoken`` is the xdist-provided ``testrun_uid`` (identical across all
 workers of ONE run, unique between runs) — no self-built controller->worker
@@ -25,6 +27,7 @@ running serially without xdist).
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -32,6 +35,7 @@ import socket
 import subprocess
 import time
 import uuid
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import psycopg
@@ -56,6 +60,16 @@ _REGISTRY_TABLE = "ak3_test_schema_registry"
 _TEST_SCHEMA_PATTERN = re.compile(r"^ak3test_[a-z0-9_]+$")
 _TTL_SWEEP_INTERVAL = "24 hours"
 _PUBLIC_DDL_LOCK_KEY = "agentkit_postgres_test_public_ddl"
+_TEST_POSTGRES_CONTAINER_LABEL = "ak3-test-postgres"
+_TEST_POSTGRES_CONTAINER_LABEL_VALUE = "1"
+_TEST_POSTGRES_CONTAINER_NAME_PREFIX = "ak3-postgres-"
+_TEST_POSTGRES_CONTAINER_NAME_PATTERN = re.compile(r"^ak3-postgres-[0-9a-f]{12}$")
+_TEST_POSTGRES_CONTAINER_TTL_SECONDS = 2 * 60 * 60
+_DOCKER_TIMESTAMP_PATTERN = re.compile(
+    r"^(?P<prefix>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})"
+    r"(?:\.(?P<fraction>\d+))?"
+    r"(?P<tz>Z|[+-]\d{2}:\d{2})$",
+)
 
 
 def _find_free_port() -> int:
@@ -68,6 +82,130 @@ def _is_explicit_postgres_env() -> bool:
     return os.environ.get(STATE_BACKEND_ENV) == "postgres" and bool(
         os.environ.get(STATE_DATABASE_URL_ENV),
     )
+
+
+def _is_reapable_test_container(
+    name: str,
+    label_value: str | None,
+    age_seconds: float,
+    ttl_seconds: float = _TEST_POSTGRES_CONTAINER_TTL_SECONDS,
+) -> bool:
+    """Return whether a Docker container belongs to this fixture and is stale."""
+    has_test_label = label_value == _TEST_POSTGRES_CONTAINER_LABEL_VALUE
+    has_legacy_test_name = _TEST_POSTGRES_CONTAINER_NAME_PATTERN.fullmatch(name) is not None
+    return age_seconds > ttl_seconds and (has_test_label or has_legacy_test_name)
+
+
+def _normalize_container_name(raw_name: object) -> str:
+    return str(raw_name).removeprefix("/")
+
+
+def _parse_docker_timestamp(raw_value: object) -> datetime | None:
+    raw_text = str(raw_value)
+    if not raw_text or raw_text.startswith("0001-"):
+        return None
+
+    match = _DOCKER_TIMESTAMP_PATTERN.fullmatch(raw_text)
+    if match is None:
+        return None
+
+    timezone_suffix = "+00:00" if match["tz"] == "Z" else match["tz"]
+    fraction = match["fraction"]
+    if fraction is None:
+        normalized = f"{match['prefix']}{timezone_suffix}"
+    else:
+        normalized = f"{match['prefix']}.{fraction[:6].ljust(6, '0')}{timezone_suffix}"
+    return datetime.fromisoformat(normalized).astimezone(UTC)
+
+
+def _container_started_or_created_at(container: dict[str, Any]) -> datetime | None:
+    state = container.get("State")
+    state_data = state if isinstance(state, dict) else {}
+    return _parse_docker_timestamp(state_data.get("StartedAt")) or _parse_docker_timestamp(
+        container.get("Created"),
+    )
+
+
+def _docker_container_ids(docker: str, docker_filter: str) -> list[str]:
+    result = subprocess.run(
+        [
+            docker,
+            "ps",
+            "-a",
+            "--filter",
+            docker_filter,
+            "--format",
+            "{{.ID}}\t{{.Names}}",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return []
+    return [line.split("\t", maxsplit=1)[0] for line in result.stdout.splitlines() if line.strip()]
+
+
+def _inspect_container(docker: str, container_id: str) -> dict[str, Any] | None:
+    result = subprocess.run(
+        [docker, "inspect", container_id],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+
+    try:
+        containers = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(containers, list) or not containers or not isinstance(containers[0], dict):
+        return None
+    return containers[0]
+
+
+def _container_label_value(container: dict[str, Any]) -> str | None:
+    config = container.get("Config")
+    config_data = config if isinstance(config, dict) else {}
+    labels = config_data.get("Labels")
+    labels_data = labels if isinstance(labels, dict) else {}
+    value = labels_data.get(_TEST_POSTGRES_CONTAINER_LABEL)
+    return str(value) if value is not None else None
+
+
+def _sweep_stale_test_postgres_containers(docker: str) -> None:
+    """Remove stale fixture-owned Postgres containers and anonymous volumes."""
+    container_ids = {
+        *_docker_container_ids(
+            docker,
+            f"label={_TEST_POSTGRES_CONTAINER_LABEL}={_TEST_POSTGRES_CONTAINER_LABEL_VALUE}",
+        ),
+        *_docker_container_ids(docker, f"name={_TEST_POSTGRES_CONTAINER_NAME_PREFIX}"),
+    }
+    now = datetime.now(UTC)
+
+    for container_id in container_ids:
+        container = _inspect_container(docker, container_id)
+        if container is None:
+            continue
+        name = _normalize_container_name(container.get("Name", ""))
+        created_or_started_at = _container_started_or_created_at(container)
+        if created_or_started_at is None:
+            continue
+        age_seconds = (now - created_or_started_at).total_seconds()
+        if not _is_reapable_test_container(
+            name,
+            _container_label_value(container),
+            age_seconds,
+        ):
+            continue
+        subprocess.run(
+            [docker, "rm", "-f", "-v", container_id],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
 
 
 def _sanitize_schema_token(raw: str) -> str:
@@ -187,6 +325,8 @@ def postgres_container_url() -> Iterator[str]:
             "or a local docker installation.",
         )
 
+    _sweep_stale_test_postgres_containers(docker)
+
     port = _find_free_port()
     container_name = f"ak3-postgres-{uuid.uuid4().hex[:12]}"
     user = "agentkit"
@@ -202,6 +342,8 @@ def postgres_container_url() -> Iterator[str]:
             "--rm",
             "--name",
             container_name,
+            "--label",
+            f"{_TEST_POSTGRES_CONTAINER_LABEL}={_TEST_POSTGRES_CONTAINER_LABEL_VALUE}",
             "-e",
             f"POSTGRES_USER={user}",
             "-e",
@@ -254,7 +396,7 @@ def postgres_container_url() -> Iterator[str]:
         yield url
     finally:
         subprocess.run(
-            [docker, "rm", "-f", container_name],
+            [docker, "rm", "-f", "-v", container_name],
             check=False,
             capture_output=True,
             text=True,
