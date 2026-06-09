@@ -1193,6 +1193,29 @@ component_groups:
     # sondern im story_context_manager.
 
   # -----------------------------------------------------------------------
+  # BC 18: task-management
+  # -----------------------------------------------------------------------
+
+  - id: architecture-conformance.group.task_management
+    name: TaskManagement
+    bloodgroup: A
+    module_prefixes:
+      - agentkit.task_management
+    parent_group_id: null
+    exposure: top
+    top_surface_modules: []
+    component_kind: domain
+    # Owner von Task/TaskLink-Zustand und -Verlinkung (FK-77, AG3-096).
+    # Reine Zustands-/Verlinkungs-Verwaltung: KEINE Pipeline-/Phasen-/
+    # Gate-/Worktree-Kopplung (FK-77 §77.6) — importiert weder
+    # pipeline_engine noch Phase-/Gate-Orchestrierung; ein Task wird nie
+    # an die PipelineEngine uebergeben. Persistenz (tm_tasks/tm_task_links)
+    # via boundary.state_backend_repository; dedizierter Task-Persistenz-
+    # Port analog record_fc_incident, ohne Aufweitung des FK-69-
+    # ProjectionKind (AG3-096 AK8 = Ausweg a). Bereits in
+    # _meta/bounded-contexts.yaml + domain-registry.yaml registriert.
+
+  # -----------------------------------------------------------------------
   # Shared: WorktreeManager (owner: story-lifecycle, cross-BC)
   # -----------------------------------------------------------------------
 
