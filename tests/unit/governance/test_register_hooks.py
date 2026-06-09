@@ -367,6 +367,57 @@ class TestRegisterHooksSettingsMaterialisation:
         assert all("matcher" in e and "command" in e for e in pre_entries)
         assert all("matcher" in e and "command" in e for e in post_entries)
 
+    def test_health_monitor_post_hooks_materialized_for_both_harnesses(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """AG3-106: PostToolUse feeds worker health; Claude also registers failure."""
+        import json
+
+        repo = _RecordingHookRepo()
+        gov = _make_governance(repo, project_root=tmp_path)
+        definitions = [
+            HookDefinition(
+                hook_event_name=HookEventName.POST_TOOL_USE,
+                matcher="Bash",
+                command="agentkit-hook-claude post health_monitor",
+            ),
+            HookDefinition(
+                hook_event_name=HookEventName.POST_TOOL_USE_FAILURE,
+                matcher="Bash",
+                command="agentkit-hook-claude post health_monitor",
+            ),
+        ]
+
+        gov.register_hooks(definitions)  # type: ignore[union-attr]
+
+        claude = json.loads(
+            (tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8")
+        )
+        codex = json.loads(
+            (tmp_path / ".codex" / "hooks.json").read_text(encoding="utf-8")
+        )
+        assert {
+            entry["command"]
+            for entry in claude["hooks"]["PostToolUse"]
+            if entry["matcher"] == "Bash"
+        } == {"agentkit-hook-claude post health_monitor"}
+        assert {
+            entry["command"]
+            for entry in claude["hooks"]["PostToolUseFailure"]
+            if entry["matcher"] == "Bash"
+        } == {"agentkit-hook-claude post health_monitor"}
+
+        codex_post = codex["hooks"]["PostToolUse"][0]
+        assert codex_post["matcher"] == "Bash"
+        assert codex_post["hooks"] == [
+            {
+                "type": "command",
+                "command": "agentkit-hook-codex post health_monitor",
+            }
+        ]
+        assert "PostToolUseFailure" not in codex["hooks"]
+
     def test_broken_settings_json_raises(self, tmp_path: Path) -> None:
         """Broken existing .claude/settings.json raises (fail-closed FK-30 §30.3.1 Z.339)."""
         settings_path = tmp_path / ".claude" / "settings.json"

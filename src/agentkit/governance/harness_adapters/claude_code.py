@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from typing import Literal
 
 from pydantic import (
     BaseModel,
@@ -26,6 +27,9 @@ from pydantic import (
 from agentkit.governance.guard_evaluation import (
     HookEvent,
     PrincipalKind,
+)
+from agentkit.governance.harness_adapters.post_tool_outcome import (
+    map_post_tool_outcome,
 )
 from agentkit.governance.runner import Governance, parse_hook_wrapper_args
 
@@ -72,9 +76,60 @@ class ClaudeCodeHookEvent(BaseModel):
         return value if isinstance(value, str) else None
 
 
-def to_neutral_event(claude_event: ClaudeCodeHookEvent) -> HookEvent:
+class ClaudeCodePostToolEvent(BaseModel):
+    """Claude Code post-tool hook payload."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    hook_event_name: Literal["PostToolUse", "PostToolUseFailure"]
+    tool_name: str
+    tool_input: dict[str, object] = {}
+    cwd: str = ""
+    session_id: str | None = None
+    is_subagent: bool = False
+    tool_response: object = None
+    error: object = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _apply_defaults(cls, value: object) -> object:
+        if isinstance(value, dict) and "cwd" not in value:
+            updated = dict(value)
+            updated["cwd"] = str(Path.cwd())
+            return updated
+        return value
+
+    @field_validator("tool_name")
+    @classmethod
+    def _validate_tool_name(cls, value: str) -> str:
+        if not value:
+            raise ValueError("tool_name must be a non-empty string")
+        return value
+
+    @field_validator("tool_input", mode="before")
+    @classmethod
+    def _coerce_tool_input(cls, value: object) -> dict[str, object]:
+        return value if isinstance(value, dict) else {}
+
+    @field_validator("cwd", mode="before")
+    @classmethod
+    def _default_cwd(cls, value: object) -> str:
+        if isinstance(value, str) and value:
+            return value
+        return str(Path.cwd())
+
+    @field_validator("session_id", mode="before")
+    @classmethod
+    def _coerce_session_id(cls, value: object) -> str | None:
+        return value if isinstance(value, str) else None
+
+
+def to_neutral_event(
+    claude_event: ClaudeCodeHookEvent | ClaudeCodePostToolEvent,
+) -> HookEvent:
     """Map a Claude Code hook payload to the harness-neutral event model."""
     principal_kind: PrincipalKind = "subagent" if claude_event.is_subagent else "main"
+    post_tool_outcome = _post_tool_outcome(claude_event)
     if claude_event.tool_name == "Bash":
         return HookEvent(
             operation="bash_command",
@@ -83,6 +138,7 @@ def to_neutral_event(claude_event: ClaudeCodeHookEvent) -> HookEvent:
             cwd=claude_event.cwd,
             session_id=claude_event.session_id,
             principal_kind=principal_kind,
+            post_tool_outcome=post_tool_outcome,
         )
     if claude_event.tool_name == "Write":
         return HookEvent(
@@ -94,6 +150,7 @@ def to_neutral_event(claude_event: ClaudeCodeHookEvent) -> HookEvent:
             cwd=claude_event.cwd,
             session_id=claude_event.session_id,
             principal_kind=principal_kind,
+            post_tool_outcome=post_tool_outcome,
         )
     if claude_event.tool_name == "Edit":
         return HookEvent(
@@ -105,6 +162,7 @@ def to_neutral_event(claude_event: ClaudeCodeHookEvent) -> HookEvent:
             cwd=claude_event.cwd,
             session_id=claude_event.session_id,
             principal_kind=principal_kind,
+            post_tool_outcome=post_tool_outcome,
         )
     if claude_event.tool_name in _READ_ONLY_TOOLS:
         return HookEvent(
@@ -116,6 +174,7 @@ def to_neutral_event(claude_event: ClaudeCodeHookEvent) -> HookEvent:
             cwd=claude_event.cwd,
             session_id=claude_event.session_id,
             principal_kind=principal_kind,
+            post_tool_outcome=post_tool_outcome,
         )
     # AG3-036 FIX-1: any tool without a dedicated harness-neutral operation
     # (WebFetch / WebSearch and every other unmapped tool) is emitted as
@@ -130,6 +189,18 @@ def to_neutral_event(claude_event: ClaudeCodeHookEvent) -> HookEvent:
         cwd=claude_event.cwd,
         session_id=claude_event.session_id,
         principal_kind=principal_kind,
+        post_tool_outcome=post_tool_outcome,
+    )
+
+
+def _post_tool_outcome(
+    claude_event: ClaudeCodeHookEvent | ClaudeCodePostToolEvent,
+) -> dict[str, object] | None:
+    if not isinstance(claude_event, ClaudeCodePostToolEvent):
+        return None
+    return map_post_tool_outcome(
+        claude_event.tool_response,
+        fallback_error=claude_event.error,
     )
 
 
@@ -153,7 +224,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         raw = sys.stdin.read()
-        claude_event = _parse_hook_event(raw)
+        claude_event = _parse_hook_event(raw, phase=selector.phase)
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -194,8 +265,14 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _parse_hook_event(raw: str) -> ClaudeCodeHookEvent:
+def _parse_hook_event(
+    raw: str,
+    *,
+    phase: str = "pre",
+) -> ClaudeCodeHookEvent | ClaudeCodePostToolEvent:
     try:
+        if phase == "post":
+            return ClaudeCodePostToolEvent.model_validate_json(raw)
         return ClaudeCodeHookEvent.model_validate_json(raw)
     except ValidationError as exc:
         message = str(exc)
@@ -208,6 +285,7 @@ def _parse_hook_event(raw: str) -> ClaudeCodeHookEvent:
 
 __all__ = [
     "ClaudeCodeHookEvent",
+    "ClaudeCodePostToolEvent",
     "main",
     "to_neutral_event",
 ]

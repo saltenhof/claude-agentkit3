@@ -185,6 +185,24 @@ class TestGovernanceHookRepositoryRoundtrip:
         assert listed[0].matcher == "Agent|Bash|*_send"
         assert listed[0].command == "agentkit-hook-claude post telemetry"
 
+    def test_post_tool_use_failure_event_roundtrips(
+        self,
+        repo: StateBackendHookRegistrationRepository,
+    ) -> None:
+        defn = HookDefinition(
+            hook_event_name=HookEventName.POST_TOOL_USE_FAILURE,
+            matcher="Bash",
+            command="agentkit-hook-claude post health_monitor",
+        )
+
+        result = repo.register(_PROJECT_KEY, [defn])
+        listed = repo.list_for_project(_PROJECT_KEY)
+
+        assert result.errors == []
+        assert listed[0].hook_event_name == HookEventName.POST_TOOL_USE_FAILURE
+        assert listed[0].matcher == "Bash"
+        assert listed[0].command == "agentkit-hook-claude post health_monitor"
+
 
 # ---------------------------------------------------------------------------
 # Tests: idempotency / UNIQUE constraint on (project_key, hook_event_name, matcher)

@@ -31,6 +31,7 @@ class HookEventName(StrEnum):
 
     PRE_TOOL_USE = "PreToolUse"
     POST_TOOL_USE = "PostToolUse"
+    POST_TOOL_USE_FAILURE = "PostToolUseFailure"
 
 
 class HookId(StrEnum):

@@ -61,6 +61,35 @@ def test_failed_git_commit_through_post_engine_updates_hook_conflict(
     assert (tmp_path / "_temp" / "qa" / "AG3-080" / AGENT_HEALTH_FILE).is_file()
 
 
+def test_successful_git_commit_through_post_engine_does_not_update_hook_conflict(
+    tmp_path: Path,
+    _sqlite_backend: None,
+) -> None:
+    repository = StateBackendWorkerHealthRepository(tmp_path)
+    event = HookEvent(
+        operation="bash_command",
+        freshness_class="mutation",
+        operation_args={
+            "story_id": "AG3-080",
+            "worker_id": "worker-1",
+            "command": "git commit -m change",
+        },
+    )
+
+    state = apply_post_tool_use(
+        event=event,
+        outcome=PostToolOutcome(exit_code=0),
+        repository=repository,
+        project_root=tmp_path,
+    )
+
+    persisted = repository.load(story_id="AG3-080", worker_id="worker-1")
+    assert persisted is not None
+    assert state.hook_failures == []
+    assert persisted.score_components.hook_conflict == 0
+    assert persisted.total_score == 0
+
+
 def test_agent_health_export_is_idempotent_and_tool_log_trims(
     tmp_path: Path,
     _sqlite_backend: None,

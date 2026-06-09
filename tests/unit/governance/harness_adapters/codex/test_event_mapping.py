@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 import json
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agentkit.governance.harness_adapters.codex.cli import _parse_hook_event
@@ -8,11 +10,15 @@ from agentkit.governance.harness_adapters.codex.event_mapping import (
     CodexHookEvent,
     to_neutral_event,
 )
+from agentkit.governance.protocols import GuardVerdict
+from agentkit.implementation.worker_health import PostToolOutcome
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     import pytest
+
+    from agentkit.governance.guard_evaluation import HookEvent
+
+_FIXTURE_DIR = Path(__file__).parents[4] / "fixtures" / "harness_post_tool"
 
 
 def test_parse_hook_event_accepts_codex_aliases_and_defaults_cwd(
@@ -53,6 +59,117 @@ def test_parse_hook_event_rejects_invalid_payload_shapes() -> None:
         assert "tool_input" in str(exc)
     else:  # pragma: no cover
         raise AssertionError("Expected RuntimeError")
+
+
+def test_codex_post_tool_use_fixture_matches_schema_and_maps_contract() -> None:
+    payload = json.loads(
+        (_FIXTURE_DIR / "codex_post_tool_use_success.json").read_text(
+            encoding="utf-8",
+        )
+    )
+    schema = json.loads(
+        (
+            _FIXTURE_DIR / "codex_post_tool_use.command.input.schema.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert schema["properties"]["hook_event_name"]["const"] == "PostToolUse"
+    assert set(schema["required"]).issubset(payload)
+    assert payload["hook_event_name"] == "PostToolUse"
+
+    event = to_neutral_event(
+        _parse_hook_event(json.dumps(payload), phase="post"),
+    )
+
+    assert event.operation == "bash_command"
+    assert event.operation_args == {"command": "git status"}
+    assert event.post_tool_outcome == {
+        "exit_code": 0,
+        "stdout": "On branch main\n",
+        "stderr": "",
+        "tool_result": {
+            "exit_code": 0,
+            "stdout": "On branch main\n",
+            "stderr": "",
+        },
+    }
+    PostToolOutcome.model_validate(event.post_tool_outcome)
+
+
+def test_codex_post_tool_use_failure_fixture_maps_contract() -> None:
+    raw = (_FIXTURE_DIR / "codex_post_tool_use_failure.json").read_text(
+        encoding="utf-8",
+    )
+    event = to_neutral_event(_parse_hook_event(raw, phase="post"))
+
+    assert event.operation == "bash_command"
+    assert event.operation_args == {"command": "git commit -m change"}
+    assert event.post_tool_outcome == {
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "policy violation: commit blocked",
+        "tool_result": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr": "policy violation: commit blocked",
+        },
+    }
+    PostToolOutcome.model_validate(event.post_tool_outcome)
+
+
+def test_codex_partial_post_payload_defaults_and_string_response() -> None:
+    event = to_neutral_event(
+        _parse_hook_event(
+            json.dumps(
+                {
+                    "hook_event_name": "PostToolUse",
+                    "tool_name": "Bash",
+                    "tool_input": {"command": "git status"},
+                    "tool_response": "plain output",
+                },
+            ),
+            phase="post",
+        )
+    )
+
+    assert event.post_tool_outcome == {
+        "exit_code": None,
+        "stdout": "plain output",
+        "stderr": "",
+        "tool_result": None,
+    }
+    PostToolOutcome.model_validate(event.post_tool_outcome)
+
+
+def test_codex_phase_aware_cli_sends_post_outcome_to_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agentkit.governance.harness_adapters.codex.cli import main
+
+    raw = (_FIXTURE_DIR / "codex_post_tool_use_success.json").read_text(
+        encoding="utf-8",
+    )
+    captured: list[tuple[str, HookEvent, str]] = []
+
+    def _spy(
+        hook_id: str,
+        event: HookEvent,
+        phase: str = "pre",
+        project_root: object = None,
+    ) -> GuardVerdict:
+        _ = project_root
+        captured.append((hook_id, event, phase))
+        return GuardVerdict.allow("health_monitor")
+
+    monkeypatch.setattr("sys.stdin", io.StringIO(raw))
+    monkeypatch.setattr(
+        "agentkit.governance.runner.Governance.run_hook",
+        staticmethod(_spy),
+    )
+
+    assert main(["post", "health_monitor"]) == 0
+    assert captured[0][0] == "health_monitor"
+    assert captured[0][2] == "post"
+    assert captured[0][1].post_tool_outcome is not None
 
 
 def test_to_neutral_event_maps_mutating_codex_tools() -> None:

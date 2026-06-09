@@ -212,6 +212,7 @@ _KNOWN_MATCHER_TOKENS: frozenset[str] = (
 # Codex hook-handler shape (§2.1.3, FK-76 §76.5.2): three-level
 # ``hooks`` -> event -> matcher-group -> handler ``{type: "command", command}``.
 _CODEX_HANDLER_TYPE = "command"
+_CODEX_UNSUPPORTED_EVENTS = frozenset({"PostToolUseFailure"})
 
 
 class CodexMatcherMapping:
@@ -415,6 +416,12 @@ class CodexSettingsWriter:
 
         for defn in hook_definitions:
             event_key = defn.hook_event_name.value  # "PreToolUse" / "PostToolUse"
+            if event_key in _CODEX_UNSUPPORTED_EVENTS:
+                self.diagnostics.append(
+                    f"{event_key} is not supported by Codex hooks — no Codex "
+                    "hook written for this Claude-only failure event.",
+                )
+                continue
             mapping = map_claude_matcher(defn.matcher)
             if mapping.dropped_tokens:
                 self.diagnostics.append(

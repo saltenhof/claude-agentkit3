@@ -23,6 +23,7 @@ from agentkit.governance.harness_adapters.codex.decision_mapping import (
 )
 from agentkit.governance.harness_adapters.codex.event_mapping import (
     CodexHookEvent,
+    CodexPostToolEvent,
     to_neutral_event,
 )
 from agentkit.governance.runner import Governance, parse_hook_wrapper_args
@@ -47,7 +48,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     try:
-        codex_event = _parse_hook_event(sys.stdin.read())
+        codex_event = _parse_hook_event(sys.stdin.read(), phase=selector.phase)
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -75,8 +76,14 @@ def main(argv: list[str] | None = None) -> int:
     return codex_exit_code(output)
 
 
-def _parse_hook_event(raw: str) -> CodexHookEvent:
+def _parse_hook_event(
+    raw: str,
+    *,
+    phase: str = "pre",
+) -> CodexHookEvent | CodexPostToolEvent:
     try:
+        if phase == "post":
+            return CodexPostToolEvent.model_validate_json(raw)
         return CodexHookEvent.model_validate_json(raw)
     except ValidationError as exc:
         message = str(exc)

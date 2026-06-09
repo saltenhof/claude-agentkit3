@@ -57,6 +57,14 @@ def _post(matcher: str, hook_id: str) -> HookDefinition:
     )
 
 
+def _post_failure(matcher: str, hook_id: str) -> HookDefinition:
+    return HookDefinition(
+        hook_event_name=HookEventName.POST_TOOL_USE_FAILURE,
+        matcher=matcher,
+        command=f"agentkit-hook-claude post {hook_id}",
+    )
+
+
 def _read_hooks(tmp_path: Path) -> dict[str, object]:
     path = tmp_path / ".codex" / "hooks.json"
     return json.loads(path.read_text(encoding="utf-8"))
@@ -238,6 +246,16 @@ class TestEmptyMatcherNonApplicability:
         writer = CodexSettingsWriter(tmp_path)
         writer.write([_pre("Bash|Read", "orchestrator_guard")])
         assert any("dropped" in d and "Read" in d for d in writer.diagnostics)
+
+    def test_post_tool_use_failure_is_claude_only_for_codex(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        writer = CodexSettingsWriter(tmp_path)
+        writer.write([_post_failure("Bash", "health_monitor")])
+        data = _read_hooks(tmp_path)
+        assert data["hooks"] == {}
+        assert any("PostToolUseFailure" in d for d in writer.diagnostics)
 
 
 # ---------------------------------------------------------------------------

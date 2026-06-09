@@ -213,7 +213,7 @@
         -- them and silently dropped guards.
         CREATE TABLE IF NOT EXISTS governance_hook_registrations (
             project_key      VARCHAR NOT NULL,
-            hook_event_name  VARCHAR NOT NULL CHECK (hook_event_name IN ('PreToolUse','PostToolUse')),
+            hook_event_name  VARCHAR NOT NULL CHECK (hook_event_name IN ('PreToolUse','PostToolUse','PostToolUseFailure')),
             matcher          TEXT NOT NULL,
             command          TEXT NOT NULL,
             registered_at    TIMESTAMPTZ NOT NULL,

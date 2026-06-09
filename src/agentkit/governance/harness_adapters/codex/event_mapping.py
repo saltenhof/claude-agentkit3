@@ -12,6 +12,9 @@ from agentkit.governance.guard_evaluation import (
     Operation,
     PrincipalKind,
 )
+from agentkit.governance.harness_adapters.post_tool_outcome import (
+    map_post_tool_outcome,
+)
 
 if TYPE_CHECKING:
     from agentkit.projectedge.runtime import FreshnessClass
@@ -128,7 +131,57 @@ class CodexHookEvent(BaseModel):
         return value if isinstance(value, str) else None
 
 
-def to_neutral_event(codex_event: CodexHookEvent) -> HookEvent:
+class CodexPostToolEvent(BaseModel):
+    """Codex PostToolUse hook payload accepted by the AK3 adapter."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True, populate_by_name=True)
+
+    hook_event_name: Literal["PostToolUse"]
+    tool_name: str
+    tool_input: dict[str, object] = {}
+    tool_response: object = None
+    cwd: str = ""
+    session_id: str | None = None
+    is_subagent: bool = False
+    principal_kind: PrincipalKind | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_aliases(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        updated = dict(value)
+        for canonical, aliases in _ALIASES.items():
+            _copy_first_alias(updated, canonical, aliases)
+        updated.setdefault("cwd", str(Path.cwd()))
+        return updated
+
+    @field_validator("tool_name")
+    @classmethod
+    def _validate_tool_name(cls, value: str) -> str:
+        if not value:
+            raise ValueError("tool_name must be a non-empty string")
+        return value
+
+    @field_validator("tool_input", mode="before")
+    @classmethod
+    def _coerce_tool_input(cls, value: object) -> dict[str, object]:
+        return value if isinstance(value, dict) else {}
+
+    @field_validator("cwd", mode="before")
+    @classmethod
+    def _default_cwd(cls, value: object) -> str:
+        if isinstance(value, str) and value:
+            return value
+        return str(Path.cwd())
+
+    @field_validator("session_id", mode="before")
+    @classmethod
+    def _coerce_session_id(cls, value: object) -> str | None:
+        return value if isinstance(value, str) else None
+
+
+def to_neutral_event(codex_event: CodexHookEvent | CodexPostToolEvent) -> HookEvent:
     """Map a Codex hook payload to the harness-neutral event model."""
     operation, freshness_class, operation_args = _classify_tool(
         codex_event.tool_name,
@@ -141,6 +194,7 @@ def to_neutral_event(codex_event: CodexHookEvent) -> HookEvent:
         cwd=codex_event.cwd,
         session_id=codex_event.session_id,
         principal_kind=_principal_kind(codex_event),
+        post_tool_outcome=_post_tool_outcome(codex_event),
     )
 
 
@@ -187,10 +241,18 @@ def _copy_first_alias(
         value[canonical] = value.pop(alias)
 
 
-def _principal_kind(codex_event: CodexHookEvent) -> PrincipalKind:
+def _principal_kind(codex_event: CodexHookEvent | CodexPostToolEvent) -> PrincipalKind:
     if codex_event.principal_kind is not None:
         return codex_event.principal_kind
     return "subagent" if codex_event.is_subagent else "main"
+
+
+def _post_tool_outcome(
+    codex_event: CodexHookEvent | CodexPostToolEvent,
+) -> dict[str, object] | None:
+    if not isinstance(codex_event, CodexPostToolEvent):
+        return None
+    return map_post_tool_outcome(codex_event.tool_response)
 
 
 def _string_arg(tool_input: dict[str, object], *keys: str) -> str:
@@ -203,5 +265,6 @@ def _string_arg(tool_input: dict[str, object], *keys: str) -> str:
 
 __all__ = [
     "CodexHookEvent",
+    "CodexPostToolEvent",
     "to_neutral_event",
 ]

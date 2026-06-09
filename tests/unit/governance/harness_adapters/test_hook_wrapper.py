@@ -51,6 +51,24 @@ _CLAUDE_ALLOW_EVENT = json.dumps(
 _CODEX_ALLOW_EVENT = json.dumps(
     {"tool": "read_file", "arguments": {"path": "a.py"}, "cwd": "."}
 )
+_CLAUDE_POST_ALLOW_EVENT = json.dumps(
+    {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Read",
+        "tool_input": {"file_path": "a.py"},
+        "tool_response": {},
+        "cwd": ".",
+    }
+)
+_CODEX_POST_ALLOW_EVENT = json.dumps(
+    {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "read_file",
+        "tool_input": {"path": "a.py"},
+        "tool_response": {},
+        "cwd": ".",
+    }
+)
 
 _CLAUDE_BLOCK_EVENT = json.dumps(
     {
@@ -151,7 +169,7 @@ class TestDispatcherAllHookIds:
         tmp_path: Path,
         hook_id: str,
     ) -> None:
-        monkeypatch.setattr("sys.stdin", io.StringIO(_CLAUDE_ALLOW_EVENT))
+        monkeypatch.setattr("sys.stdin", io.StringIO(_CLAUDE_POST_ALLOW_EVENT))
         monkeypatch.chdir(tmp_path)
         result = claude_main(["post", hook_id])
         assert result == 0, f"Expected 0 (ALLOW) for post/{hook_id}"
@@ -163,7 +181,7 @@ class TestDispatcherAllHookIds:
         tmp_path: Path,
         hook_id: str,
     ) -> None:
-        monkeypatch.setattr("sys.stdin", io.StringIO(_CODEX_ALLOW_EVENT))
+        monkeypatch.setattr("sys.stdin", io.StringIO(_CODEX_POST_ALLOW_EVENT))
         monkeypatch.chdir(tmp_path)
         result = codex_main(["post", hook_id])
         assert result == 0, f"Expected 0 (ALLOW) for post/{hook_id}"

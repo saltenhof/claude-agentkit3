@@ -141,6 +141,31 @@ def _collect_all_state_backend_store_imports(source: str) -> list[str]:
     return violations
 
 
+def _collect_imports_matching(source: str, forbidden: tuple[str, ...]) -> list[str]:
+    tree = ast.parse(source)
+    lines = source.splitlines()
+    violations: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if any(
+                    alias.name == item or alias.name.startswith(f"{item}.")
+                    for item in forbidden
+                ):
+                    violations.append(lines[node.lineno - 1].strip())
+            continue
+        if isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            imported_names = {alias.name for alias in node.names}
+            if any(
+                module == item or module.startswith(f"{item}.") for item in forbidden
+            ):
+                violations.append(lines[node.lineno - 1].strip())
+            if "PostToolOutcome" in imported_names:
+                violations.append(lines[node.lineno - 1].strip())
+    return violations
+
+
 class TestGovernanceNoModuleLevelStateBackendImports:
     """Governance modules must not have module-level imports from agentkit.state_backend.store.
 
@@ -200,3 +225,20 @@ class TestGovernanceNoModuleLevelStateBackendImports:
             f"agentkit.governance.runner contains forbidden module-level imports "
             f"from agentkit.state_backend.store: {violations}"
         )
+
+    def test_harness_adapters_do_not_import_worker_health_contract(self) -> None:
+        modules = [
+            "agentkit.governance.harness_adapters.claude_code",
+            "agentkit.governance.harness_adapters.codex.event_mapping",
+            "agentkit.governance.harness_adapters.post_tool_outcome",
+        ]
+        violations: dict[str, list[str]] = {}
+        for module in modules:
+            src = _source_path(module)
+            found = _collect_imports_matching(
+                src.read_text(encoding="utf-8"),
+                ("agentkit.implementation",),
+            )
+            if found:
+                violations[module] = found
+        assert violations == {}

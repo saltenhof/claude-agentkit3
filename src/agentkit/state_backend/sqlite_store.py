@@ -517,7 +517,7 @@ def _ensure_schema_runtime_tables(conn: sqlite3.Connection) -> None:
         -- (project_key, hook_event_name, matcher, command) per FK-30 §30.3.1.
         CREATE TABLE IF NOT EXISTS governance_hook_registrations (
             project_key      TEXT NOT NULL,
-            hook_event_name  TEXT NOT NULL CHECK (hook_event_name IN ('PreToolUse','PostToolUse')),
+            hook_event_name  TEXT NOT NULL CHECK (hook_event_name IN ('PreToolUse','PostToolUse','PostToolUseFailure')),
             matcher          TEXT NOT NULL,
             command          TEXT NOT NULL,
             registered_at    TEXT NOT NULL,

@@ -1,0 +1,18 @@
+{
+  "session_id": "abc123",
+  "transcript_path": "/Users/example/.claude/projects/repo/session.jsonl",
+  "cwd": ".",
+  "permission_mode": "default",
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "git status"
+  },
+  "tool_response": {
+    "exit_code": 0,
+    "stdout": "On branch main\n",
+    "stderr": ""
+  },
+  "tool_use_id": "toolu_01ABC123",
+  "duration_ms": 12
+}
