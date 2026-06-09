@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 from unittest.mock import call, patch
 
@@ -91,6 +92,12 @@ def test_setup_worktrees_creates_one_worktree_per_participating_repo(
             branch="story/AG3-010",
             base_ref="main",
         )
+        marker = tmp_path / repo_name / "worktrees" / "AG3-010" / ".agentkit-story.json"
+        payload = json.loads(marker.read_text(encoding="utf-8"))
+        assert payload["story_id"] == "AG3-010"
+        assert payload["project_key"] == "test-project"
+        assert payload["run_id"] == "AG3-010"
+        assert "created_at" in payload
 
 
 def test_setup_worktrees_fails_for_unknown_participating_repo(

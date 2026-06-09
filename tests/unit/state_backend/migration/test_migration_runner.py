@@ -22,12 +22,12 @@ def _open(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
-def test_first_run_applies_v3_4_and_creates_fact_tables(tmp_path: Path) -> None:
+def test_first_run_applies_v3_4_and_v3_5_and_creates_tables(tmp_path: Path) -> None:
     conn = _open(tmp_path / "m.sqlite")
     try:
         applied = MigrationRunner().run(conn)
         conn.commit()
-        assert applied == ["3.4"]
+        assert applied == ["3.4", "3.5"]
         tables = {
             str(row[0])
             for row in conn.execute(
@@ -42,6 +42,7 @@ def test_first_run_applies_v3_4_and_creates_fact_tables(tmp_path: Path) -> None:
             "fact_corpus_period",
             "sync_state",
             "guard_invocation_counters",
+            "compaction_epochs",
             "schema_versions",
         } <= tables
     finally:
@@ -54,7 +55,7 @@ def test_double_run_is_idempotent_no_error_no_dup_no_drop(tmp_path: Path) -> Non
 
     conn = _open(db_path)
     try:
-        assert runner.run(conn) == ["3.4"]
+        assert runner.run(conn) == ["3.4", "3.5"]
         # Insert a row to prove the second run does NOT drop/recreate the table.
         conn.execute(
             "INSERT INTO fact_corpus_period (project_key, period_start, "
@@ -70,9 +71,13 @@ def test_double_run_is_idempotent_no_error_no_dup_no_drop(tmp_path: Path) -> Non
         # Second run: nothing new applied, no error.
         assert runner.run(conn) == []
         conn.commit()
-        # Cursor has exactly one row for 3.4 (no duplicate).
+        # Cursor has exactly one row for each version (no duplicate).
         count = conn.execute(
             "SELECT COUNT(*) FROM schema_versions WHERE version = '3.4'"
+        ).fetchone()[0]
+        assert count == 1
+        count = conn.execute(
+            "SELECT COUNT(*) FROM schema_versions WHERE version = '3.5'"
         ).fetchone()[0]
         assert count == 1
         # Data survived -> no DROP/RECREATE happened.
@@ -92,5 +97,6 @@ def test_applied_versions_reports_recorded_cursor(tmp_path: Path) -> None:
         runner.run(conn)
         conn.commit()
         assert "3.4" in runner.applied_versions(conn)
+        assert "3.5" in runner.applied_versions(conn)
     finally:
         conn.close()

@@ -51,11 +51,13 @@ def test_schema_version_helpers_derive_versioned_names() -> None:
     # AG3-054: 3.19.0 -> 3.20.0 (control_plane_operations gains claimed_by /
     # claimed_at for the leased, owner-scoped claim; FK-91, FK-22 §22.9,
     # FK-18 §18.9a)
-    assert state_config.SCHEMA_VERSION == "3.20.0"
+    # AG3-075: 3.20.0 -> 3.21.0 (compaction_epochs table; FK-36 story-scoped
+    # compaction recovery epoch store, FK-18 §18.9a)
+    assert state_config.SCHEMA_VERSION == "3.21.0"
     assert state_config.versioned_postgres_schema_name("3.0.0") == "ak3_v3_0_0"
     assert state_config.versioned_sqlite_db_file("3.0.0") == "agentkit_3_0_0.sqlite"
-    assert state_config.versioned_postgres_schema_name() == "ak3_v3_20_0"
-    assert state_config.versioned_sqlite_db_file() == "agentkit_3_20_0.sqlite"
+    assert state_config.versioned_postgres_schema_name() == "ak3_v3_21_0"
+    assert state_config.versioned_sqlite_db_file() == "agentkit_3_21_0.sqlite"
 
 
 def test_schema_version_rejects_non_semver() -> None:

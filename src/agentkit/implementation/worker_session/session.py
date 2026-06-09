@@ -198,6 +198,7 @@ class WorkerSession:
             story_type=story_ctx.story_type,
             execution_route=story_ctx.execution_route,
             spawn_reason=context.spawn_reason,
+            round_nr=attempt,
         )
         template_name = select_template_name(
             story_ctx.story_type,

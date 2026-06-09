@@ -137,7 +137,11 @@ SCHEMA_OVERRIDE_ALLOWED_ENV = "AGENTKIT_PG_SCHEMA_OVERRIDE_ALLOWED"
 # columns from CREATE TABLE; an existing same-version schema gets them via the
 # idempotent ALTER TABLE ... ADD COLUMN IF NOT EXISTS statements in
 # postgres_store._schema_alter_statements (FK-62 §62.4 strategy).
-SCHEMA_VERSION = "3.20.0"
+# 3.21.0 (AG3-075): compaction_epochs table added for FK-36 story-scoped
+# compaction recovery epochs. Fresh schemas get the table from the canonical
+# Postgres/SQLite DDL; existing schemas get the idempotent v3.5 MigrationRunner
+# migration and schema_versions cursor entry.
+SCHEMA_VERSION = "3.21.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 # AG3-051: reserved test-schema namespace. Disjoint from the production schema
 # name (``ak3_v<slug>``), so a test override can never resolve onto production

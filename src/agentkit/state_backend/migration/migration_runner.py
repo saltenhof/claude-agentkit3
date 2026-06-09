@@ -37,7 +37,10 @@ if TYPE_CHECKING:
 _VERSIONS_DIR = Path(__file__).with_name("versions")
 
 # Ordered registry of (schema_version, ddl_file). New migrations append here.
-_MIGRATIONS: tuple[tuple[str, str], ...] = (("3.4", "v_3_4_analytics.sql"),)
+_MIGRATIONS: tuple[tuple[str, str], ...] = (
+    ("3.4", "v_3_4_analytics.sql"),
+    ("3.5", "v_3_5_compaction_epochs.sql"),
+)
 
 
 class _MigrationCursor(Protocol):

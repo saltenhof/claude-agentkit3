@@ -8,11 +8,14 @@ one equal worktree per participating repository, all using branch
 from __future__ import annotations
 
 import contextlib
+import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from agentkit.boundary.shared.time import now_iso
 from agentkit.exceptions import WorktreeError
 from agentkit.utils.git import branch_exists, create_worktree, remove_worktree
+from agentkit.utils.io import atomic_write_text
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -87,6 +90,12 @@ def setup_worktrees(
                 base_ref=base_ref,
             )
             created.append((repo_root, result))
+            write_story_marker(
+                result.worktree_path,
+                story_id=story_id,
+                project_key=context.project_key,
+                run_id=result.worktree_path.name,
+            )
     except WorktreeError:
         for repo_root, result in reversed(created):
             with contextlib.suppress(WorktreeError):
@@ -94,6 +103,29 @@ def setup_worktrees(
         raise
 
     return [result for _, result in created]
+
+
+def write_story_marker(
+    worktree_path: Path,
+    *,
+    story_id: str,
+    project_key: str,
+    run_id: str,
+) -> Path:
+    """Write the FK-36 story marker used by PostCompact epoch scoping."""
+    marker_path = worktree_path / ".agentkit-story.json"
+    payload = {
+        "story_id": story_id,
+        "project_key": project_key,
+        "run_id": run_id,
+        "created_at": now_iso(),
+    }
+    atomic_write_text(
+        marker_path,
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        newline="",
+    )
+    return marker_path
 
 
 def setup_worktree(

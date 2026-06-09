@@ -314,10 +314,11 @@ class PromptRuntime:
         """
         if render_mode == "static":
             return self._materialize_static(
+                ctx=ctx,
+                config=config,
                 run_id=run_id,
                 invocation_id=invocation_id,
                 template_name=template_name,
-                story_id=ctx.story_id,
                 attempt=attempt,
             )
         if render_mode == "rendered":
@@ -351,6 +352,12 @@ class PromptRuntime:
             run_id=run_id,
             invocation_id=invocation_id,
         )
+        self._write_compaction_artifacts(
+            ctx,
+            config,
+            prompt_file=materialized.prompt_path,
+            agent_type_base=template_name,
+        )
         audit_hash = PromptAuditHash(
             template_sha256=prompt.template_sha256,
             render_input_digest=prompt.render_input_digest,
@@ -382,10 +389,11 @@ class PromptRuntime:
     def _materialize_static(
         self,
         *,
+        ctx: StoryContext,
+        config: ComposeConfig,
         run_id: str,
         invocation_id: str,
         template_name: str,
-        story_id: str,
         attempt: int,
     ) -> PromptInstance:
         static: StaticMaterializedPromptInstance = (
@@ -395,6 +403,12 @@ class PromptRuntime:
                 invocation_id=invocation_id,
                 template_name=template_name,
             )
+        )
+        self._write_compaction_artifacts(
+            ctx,
+            config,
+            prompt_file=static.prompt_path,
+            agent_type_base=template_name,
         )
         binding = resolve_run_prompt_binding(self._project_root, run_id)
         template_relpath = prompt_template_relpath_from_binding(
@@ -416,7 +430,7 @@ class PromptRuntime:
             self._project_root,
         ).as_posix()
         reference = self._persist_audit(
-            story_id=story_id,
+            story_id=ctx.story_id,
             run_id=run_id,
             invocation_id=invocation_id,
             attempt=attempt,
@@ -433,6 +447,27 @@ class PromptRuntime:
             render_mode="static",
             audit_hash=audit_hash,
             audit_reference=reference,
+        )
+
+    def _write_compaction_artifacts(
+        self,
+        ctx: StoryContext,
+        config: ComposeConfig,
+        *,
+        prompt_file: Path,
+        agent_type_base: str,
+    ) -> None:
+        """Produce FK-36 compaction artifacts beside the canonical prompt."""
+        from agentkit.pipeline_engine.compaction_resilience import (
+            write_compaction_artifacts,
+        )
+
+        write_compaction_artifacts(
+            ctx,
+            config,
+            project_root=self._project_root,
+            prompt_file=prompt_file,
+            agent_type_base=agent_type_base,
         )
 
     def _persist_audit(

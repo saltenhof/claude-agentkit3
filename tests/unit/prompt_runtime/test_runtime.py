@@ -24,6 +24,11 @@ from agentkit.installer.paths import (
     PROMPT_BUNDLE_STORE_ENV,
     prompt_bundle_store_dir,
 )
+from agentkit.pipeline_engine.compaction_resilience.models import SpawnSpec
+from agentkit.pipeline_engine.compaction_resilience.paths import (
+    resume_capsule_path,
+    spawn_spec_path,
+)
 from agentkit.prompt_runtime.composer import ComposeConfig
 from agentkit.prompt_runtime.pins import PromptRunPin
 from agentkit.prompt_runtime.register import register_prompt_runtime_producers
@@ -265,6 +270,18 @@ class TestMaterializePrompt:
             tmp_path / ".agentkit" / "prompts" / "run-1" / "inv-1" / "prompt.md"
         )
         assert instance.prompt_path.is_file()
+        spawn_key = "worker-implementation--story=AG3-001--r1"
+        spec_path = spawn_spec_path(tmp_path, "AG3-001", spawn_key)
+        capsule_path = resume_capsule_path(tmp_path, "AG3-001", spawn_key)
+        assert spec_path.is_file()
+        assert capsule_path.is_file()
+        spec = SpawnSpec.model_validate_json(spec_path.read_text(encoding="utf-8"))
+        assert spec.project_key == "test-project"
+        assert spec.spawn_key == spawn_key
+        assert spec.prompt_file == instance.prompt_path
+        assert len(spec.prompt_hash) == 64
+        assert len(spec.resume_capsule_hash) == 64
+        assert "Guardrail Invariants" in capsule_path.read_text(encoding="utf-8")
         # Audit record is retrievable via the ArtifactManager.
         assert instance.audit_reference.artifact_class is ArtifactClass.PROMPT_AUDIT
         loaded = manager.read(instance.audit_reference)
