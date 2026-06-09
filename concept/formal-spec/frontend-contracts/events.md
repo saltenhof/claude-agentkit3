@@ -130,7 +130,7 @@ events:
       - name: phase_status
         kind: enum
         required: true
-        values: [IN_PROGRESS, COMPLETED, FAILED, ESCALATED, PAUSED]
+        values: [PENDING, IN_PROGRESS, COMPLETED, FAILED, ESCALATED, PAUSED]
 
   # ---- Topic: gates --------------------------------------------------
 

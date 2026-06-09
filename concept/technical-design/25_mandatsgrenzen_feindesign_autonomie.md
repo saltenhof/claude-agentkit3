@@ -556,8 +556,8 @@ Diskrepanzen.
 bevorzugter zweiter Berater; steht Qwen nicht zur Verfügung, kann
 ein anderes verfügbares LLM (Gemini, Grok) als Ersatz eingesetzt
 werden. Steht kein zweites LLM zur Verfügung, gilt die
-Nicht-Erreichbarkeits-Regel (§25.5.4): Abbruch, Eskalation an
-den Menschen.
+Nicht-Erreichbarkeits-Regel (§25.5.4): beschränktes Retry, dann
+Abbruch mit `FAILED`.
 
 Claude führt, entscheidet und verantwortet. Die externen LLMs
 beraten — Claude übernimmt oder verwirft deren Empfehlungen
@@ -642,13 +642,12 @@ Enforcement-Logik.
 **Nicht-Erreichbarkeit:** Wenn ein LLM nicht antwortet (Hub meldet
 keine Response), wird der Feindesign-Subprozess abgebrochen. Die
 Klasse-2-Entscheidung kann ohne Multi-Perspektiven-Absicherung nicht
-autonom getroffen werden. Dies ist ein **operativer Fehler**, kein
-pausierbarer Wartezustand: Die Iteration wird an den Menschen
-eskaliert: `status: ESCALATED`,
-`escalation_class: "infra_unavailable"`,
-`escalation_reason: "Multi-LLM-Quorum nicht erreichbar"`.
-Dies ist ein eigener Eskalationscode — kein Rückfall auf `domain_gap`
-oder `normative_conflict`, da die Ursache operativ, nicht fachlich ist.
+autonom getroffen werden. Dies ist ein **operativer Fehler**, keine
+Pause: Der Feindesign-Subprozess wird nach beschränktem Retry
+abgebrochen und die Iteration endet mit `status: FAILED`; die operative
+Ursache wird im `AttemptRecord` (`failure_cause`) dokumentiert. Kein
+`PAUSED` und kein eigener `infra_unavailable`-Zustand — die Story kann
+nach Wiederherstellung der Infrastruktur neu angestoßen werden.
 
 ### 25.5.5 Entscheidungsprotokoll
 

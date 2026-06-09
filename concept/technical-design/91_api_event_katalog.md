@@ -432,6 +432,7 @@ Payload-Formate einfuehren.
 
 | Status | Bedeutung | Kapitel |
 |--------|----------|---------|
+| `PENDING` | Phase angelegt, noch nicht gestartet (Pre-Dispatch) | 39.2.1 |
 | `IN_PROGRESS` | Phase läuft | 20.3.2 |
 | `COMPLETED` | Phase erfolgreich abgeschlossen | 20.3.2 |
 | `FAILED` | Phase gescheitert (z.B. Preflight) | 20.3.2 |

@@ -134,8 +134,8 @@ erfolgt anschließend kontrolliert über den Konzept-Approval-Flow
 | X9 | FK-15 §15.4.3 Branch-Guard-als-Secret-Owner-Drift | 102 | AG3-087 | OFFEN |
 | X10 | FK-93 worker_health-Defaults (Konzept-Abgleich; FK-49 ist Schema-Owner) | 103 | AG3-080 | OFFEN |
 | X11 | AG3-099-Wording: `EventTypeId`→`EventType`, „integrity-dim8"-Token raus, Emitter-Split | 099-Body | AG3-081 | OFFEN |
-| X12 | FK-39 §39.2.2 PAUSE zu menschen-zentriert; PAUSE = Übergabe des prozessualen Handles Maschine→Orchestrator-Agent (kooperativer Kontrollfluss), KEIN Fehler-/Menschen-Zustand. Resume regulär über **Service-/API-Pfad (Project Edge Client)** (FK-45 §45.3/FK-91 §91.1a) — `agentkit resume` ist nur der Operator-Recovery-Adapter; Mensch nur bei explizit menschlich-normierten Sonderfällen (GOVERNANCE_INCIDENT, Scope-Explosion FK-20/FK-35). [Codex job-d96d6a42 CHANGES-REQUESTED: Wording entsprechend nachschärfen, NICHT absolut „Infra nie PAUSED" allein behaupten — Konflikt löst sich erst mit X13.] | FK-39 §39.2.2 (chirurgisch) | D4-Diskussion 2026-06-09 | ANGEWANDT (Codex-Review ausstehend) |
-| X13 | FK-25 §25.5.4 „Nicht-Erreichbarkeit → PAUSED + escalation_class infra_unavailable" ist falsch — Nicht-Erreichbarkeit ist ein **Fehler** (Retry → FAILED), keine Pause; `infra_unavailable`-Pause-Klasse entfällt | FK-25 §25.5.4 (chirurgisch) | D4-Entscheidung 2026-06-09 | ANGEWANDT — ESCALATED (Codex-Review ausstehend) |
+| X12 | FK-39 §39.2.2 PAUSE zu menschen-zentriert; PAUSE = Übergabe des prozessualen Handles Maschine→Orchestrator-Agent (kooperativer Kontrollfluss), KEIN Fehler-/Menschen-Zustand. Resume regulär über **Service-/API-Pfad (Project Edge Client)** (FK-45 §45.3/FK-91 §91.1a) — `agentkit resume` ist nur der Operator-Recovery-Adapter; Mensch nur bei explizit menschlich-normierten Sonderfällen (GOVERNANCE_INCIDENT, Scope-Explosion FK-20/FK-35). [Codex job-d96d6a42 CHANGES-REQUESTED: Wording entsprechend nachschärfen, NICHT absolut „Infra nie PAUSED" allein behaupten — Konflikt löst sich erst mit X13.] | FK-39 §39.2.2 (chirurgisch) | D4-Diskussion 2026-06-09 | ANGEWANDT — Codex APPROVE (A2) |
+| X13 | FK-25 §25.5.4 „Nicht-Erreichbarkeit → PAUSED + escalation_class infra_unavailable" ist falsch — Nicht-Erreichbarkeit ist ein **Fehler** (Retry → FAILED), keine Pause; `infra_unavailable`-Pause-Klasse entfällt | FK-25 §25.5.4 (chirurgisch) | D4-Entscheidung 2026-06-09 | ANGEWANDT — FAILED (PO 1b; Codex job-d2ccdbc3) |
 
 ---
 
@@ -162,3 +162,13 @@ erfolgt anschließend kontrolliert über den Konzept-Approval-Flow
 1. Entscheidung hier eintragen (`Entscheidung:` füllen, Status → ENTSCHIEDEN).
 2. Konzept-Edit über den Approval-Flow: Codex absegnen (write=false) → Edit `concept/...` → Codex re-review → GAC-1/Concept-Gates grün → push. Status → ÜBERFÜHRT.
 3. Code-Umsetzung (falls nötig) als reguläre Story/Cut-Item (AG3-106+) im üblichen Codex-auf-main-Loop. Status → ERLEDIGT.
+
+---
+
+## Review-Nachtrag — Codex `job-d2ccdbc3` (2026-06-09)
+Hostiler Review der D1–D5-Aufräumung; Befunde eingearbeitet:
+- **A2** FK-39 §39.2.2 PAUSE-Wording: **APPROVE** (unverändert).
+- **A1** FK-39 §39.2.1 `PENDING`: korrekt, aber Katalog-Drift → `PENDING` zusätzlich in **FK-91 §91.5** und **`concept/formal-spec/frontend-contracts/events.md`** ergänzt.
+- **A3** FK-25 §25.5.4: ESCALATED ließ einen ungültigen freien `escalation_reason` stehen (FK-39-Enum geschlossen). PO-Entscheidung **1b** → auf **`FAILED`** umgestellt (beschränktes Retry → FAILED; `infra_unavailable`/escalation_reason-Freistring entfernt; §25.5-Summary angeglichen).
+- **B** AG3-106: APPROVE-WITH-NITS → `PostToolUseFailure`/`HookEventName`-Notiz in §6 ergänzt.
+- **C** AG3-107: war auf falscher Code-Lesung gebaut (BLOCKED ≠ Worker-Blocked). **Neu gefasst:** `PhaseStatus.BLOCKED` = Live-Status für **Precondition-Fail** (`engine.py:1061`) → `FAILED`; Audit behält `AttemptOutcome.BLOCKED`/`PRECONDITION_FAILED`; Worker-Blocked (= ESCALATED, FK-26/FK-45) unangetastet.

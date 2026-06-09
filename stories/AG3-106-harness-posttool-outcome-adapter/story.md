@@ -70,6 +70,7 @@ Anknuepfungspunkte: `HookEvent` (`guard_evaluation.py:38`), `Governance.run_hook
 - dict-Form **exakt** = `PostToolOutcome` (`exit_code/stdout/stderr/tool_result`, `extra="forbid"`), keine Zusatz-Keys.
 - `PostToolOutcome` NICHT in den Adapter importieren; Validierung bleibt in `governance/runner.py`.
 - Pre-Tool-Mapping-Pfad nicht brechen; nur Post-Outcome-Zweig + Registrierung ergaenzen.
+- **Falls Claude fehlgeschlagene Befehle als `PostToolUseFailure` liefert:** `HookEventName` (`governance/hook_registration.py:24`) + DB-CHECK (`state_backend/sqlite_store.py:465`, `store/governance_hook_repository.py`) lassen heute nur `PreToolUse`/`PostToolUse` zu — die Aufnahme von `PostToolUseFailure` (Enum + CHECK-Constraint) ist dann Teil dieses Scopes.
 - AK2 NICHT veraendern; `.mcp.json` NICHT anfassen; `concept/**`/`stories/**` nicht im Code-Commit; Paket-Rename OUT OF SCOPE.
 - „done" nur mit Beleg: Diff, gruene Pflichtbefehle, Test-Namen (Claude/Codex-Mapping, Failure-Variante, Vertrags-Validierung, Registrierung, phase-aware Parsing, `hook_conflict>0`, malformed).
 
