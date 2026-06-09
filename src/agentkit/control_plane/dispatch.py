@@ -537,7 +537,7 @@ def _same_phase_reentry_reason(phase: str, status: PhaseStatus) -> str:
         )
     return (
         f"Phase {phase!r} is {status.value!r} for this run; a same-phase start is "
-        "legal only as a PAUSED-resume. Recovery of a failed/escalated/blocked "
+        "legal only as a PAUSED-resume. Recovery of a failed/escalated "
         "phase is the operator-recovery CLI's job (FK-45 §45.4), not a re-start "
         "via the standard entrypoint (fail-closed; FK-45 §45.2)."
     )
@@ -590,7 +590,6 @@ _REACTION_BY_STATUS: dict[str, tuple[str, str]] = {
     "yielded": ("yielded", "await_external"),
     "failed": ("failed", "escalate"),
     "escalated": ("escalated", "escalate"),
-    "blocked": ("blocked", "escalate"),
 }
 
 

@@ -243,7 +243,6 @@ class TestReactionNormalization:
             ("yielded", None, "yielded", "await_external"),
             ("escalated", None, "escalated", "escalate"),
             ("failed", None, "failed", "escalate"),
-            ("blocked", None, "blocked", "escalate"),
         ],
     )
     def test_engine_status_maps_to_fk45_reaction(

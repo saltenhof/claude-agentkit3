@@ -179,7 +179,6 @@ def _derive_lifecycle_status(
     if phase_state is not None and phase_state.status.value in {
         "in_progress",
         "paused",
-        "blocked",
         "failed",
         "escalated",
     }:

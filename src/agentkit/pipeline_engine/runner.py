@@ -46,15 +46,14 @@ class PipelineRunResult:
         story_id: Identifier of the story that was executed.
         phases_executed: Ordered tuple of phase names that were entered.
         final_status: Terminal status -- one of ``"completed"``,
-            ``"failed"``, ``"escalated"``, ``"blocked"``, or
-            ``"yielded"``.
+            ``"failed"``, ``"escalated"``, or ``"yielded"``.
         final_phase: Name of the last phase that was executed.
         errors: Error messages collected during the run.
         yielded: ``True`` if the pipeline yielded and needs a resume.
         yield_status: Descriptive yield reason (only when yielded).
         suggested_reaction: Typed escalation-reaction carrier propagated from
             the terminal :class:`EngineResult` (AG3-044 AC6, FK-26 §26.11.2).
-            Set on a ``"failed"``/``"escalated"``/``"blocked"`` run when the
+            Set on a ``"failed"``/``"escalated"`` run when the
             handler recommended a concrete reaction (e.g. BLOCKED-manifest
             blocker details); ``None`` otherwise. Production callers read this
             structured payload instead of only the human-summary ``errors``.
@@ -181,7 +180,7 @@ def run_pipeline(
                 yield_status=result.yield_status,
             )
 
-        if result.status in ("failed", "escalated", "blocked"):
+        if result.status in ("failed", "escalated"):
             return PipelineRunResult(
                 story_id=story_context.story_id,
                 phases_executed=tuple(phases_executed),

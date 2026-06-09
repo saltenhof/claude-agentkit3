@@ -152,7 +152,7 @@ def test_run_pipeline_returns_yielded_result(
     assert result.final_phase == "setup"
 
 
-@pytest.mark.parametrize("status", ["failed", "escalated", "blocked"])
+@pytest.mark.parametrize("status", ["failed", "escalated"])
 def test_run_pipeline_returns_terminal_engine_statuses(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

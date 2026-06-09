@@ -1476,7 +1476,6 @@ def build_phase_state_residue_probe(
         PhaseStatus.FAILED,
         PhaseStatus.PAUSED,
         PhaseStatus.ESCALATED,
-        PhaseStatus.BLOCKED,
     }
     fresh_current_run = {PhaseStatus.PENDING, PhaseStatus.IN_PROGRESS}
 

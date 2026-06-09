@@ -14,7 +14,7 @@ import pytest
 from tests.phase_state_factory import make_phase_state
 
 from agentkit.core_types import OverrideType, PauseReason
-from agentkit.core_types.attempt import AttemptOutcome
+from agentkit.core_types.attempt import AttemptOutcome, FailureCause
 from agentkit.exceptions import PipelineError
 from agentkit.phase_state_store import (
     OverrideRecord,
@@ -25,7 +25,10 @@ from agentkit.phase_state_store import (
 from agentkit.pipeline_engine.engine import (
     PipelineEngine,
     _can_enter_phase,
+    _engine_status_for,
     _evaluate_transitions,
+    _failure_cause_for_terminal,
+    _outcome_for_terminal,
 )
 from agentkit.pipeline_engine.lifecycle import (
     HandlerResult,
@@ -65,6 +68,22 @@ def test_engine_override_evaluation_uses_enum_members() -> None:
 
     assert 'override_type == "' not in source
     assert "override_type == '" not in source
+
+
+def test_terminal_status_maps_keep_failed_and_escalated_behavior() -> None:
+    assert _engine_status_for(PhaseStatus.FAILED) == "failed"
+    assert _outcome_for_terminal(PhaseStatus.FAILED) == AttemptOutcome.FAILED
+    assert (
+        _failure_cause_for_terminal(PhaseStatus.FAILED)
+        == FailureCause.HANDLER_REPORTED_FAILED
+    )
+
+    assert _engine_status_for(PhaseStatus.ESCALATED) == "escalated"
+    assert _outcome_for_terminal(PhaseStatus.ESCALATED) == AttemptOutcome.ESCALATED
+    assert (
+        _failure_cause_for_terminal(PhaseStatus.ESCALATED)
+        == FailureCause.HANDLER_REPORTED_ESCALATED
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -473,12 +492,12 @@ class TestGuardAndPrecondition:
         result = engine.run_phase(story_ctx, _make_envelope(state))
         assert result.status == "phase_completed"
 
-    def test_precondition_violated_blocks(
+    def test_precondition_violated_fails_live_status_but_keeps_blocked_audit(
         self,
         story_dir: Path,
         story_ctx: StoryContext,
     ) -> None:
-        """run_phase with violated precondition returns blocked."""
+        """Precondition failure is live FAILED while audit remains BLOCKED."""
         workflow = (
             Workflow("precond-fail")
             .phase("setup")
@@ -497,7 +516,34 @@ class TestGuardAndPrecondition:
             status=PhaseStatus.PENDING,
         )
         result = engine.run_phase(story_ctx, _make_envelope(state))
-        assert result.status == "blocked"
+        assert result.status == "failed"
+
+        loaded = read_phase_state_record(story_dir)
+        assert loaded is not None
+        assert loaded.status == PhaseStatus.FAILED
+
+        attempts = load_attempts(story_dir, "closure")
+        assert len(attempts) == 1
+        assert attempts[0].outcome == AttemptOutcome.BLOCKED
+        assert attempts[0].failure_cause == FailureCause.PRECONDITION_FAILED
+
+        flow = load_flow_execution(story_dir)
+        assert flow is not None
+        assert flow.status == "FAILED"
+
+        events = load_execution_events(
+            story_dir,
+            project_key=story_ctx.project_key,
+            story_id=story_ctx.story_id,
+            run_id=flow.run_id,
+        )
+        assert [event.event_type for event in events] == [
+            EventType.AGENT_START.value,
+            EventType.FLOW_START.value,
+            EventType.NODE_RESULT.value,
+            EventType.FLOW_END.value,
+        ]
+        assert events[3].payload["status"] == "FAILED"
 
 
 class TestExecutionPoliciesAndOverrides:

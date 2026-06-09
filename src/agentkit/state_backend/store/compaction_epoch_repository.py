@@ -60,7 +60,10 @@ def _sqlite_connect(store_dir: Path) -> Iterator[sqlite3.Connection]:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path), timeout=30.0, isolation_level=None)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout = 30000")
+    current_mode = conn.execute("PRAGMA journal_mode").fetchone()
+    if current_mode is None or str(current_mode[0]).lower() != "wal":
+        conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys = ON")
     sqlite_store._ensure_schema(conn)
     try:

@@ -40,7 +40,6 @@ class TestPhaseStatus:
             PhaseStatus.COMPLETED,
             PhaseStatus.FAILED,
             PhaseStatus.ESCALATED,
-            PhaseStatus.BLOCKED,
         }
 
     def test_string_values(self) -> None:
@@ -50,7 +49,6 @@ class TestPhaseStatus:
         assert PhaseStatus.COMPLETED.value == "completed"
         assert PhaseStatus.FAILED.value == "failed"
         assert PhaseStatus.ESCALATED.value == "escalated"
-        assert PhaseStatus.BLOCKED.value == "blocked"
 
 
 class TestPhaseName:

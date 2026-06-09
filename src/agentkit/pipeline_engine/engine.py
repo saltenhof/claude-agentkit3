@@ -166,7 +166,7 @@ class EngineResult:
 
     Args:
         status: One of ``"phase_completed"``, ``"yielded"``, ``"failed"``,
-            ``"escalated"``, or ``"blocked"``.
+            or ``"escalated"``.
         phase: Name of the current or just-completed phase.
         yield_status: Descriptive yield reason (only when
             ``status == "yielded"``).
@@ -725,7 +725,6 @@ def _engine_status_for(result_status: PhaseStatus) -> str:
     status_map = {
         PhaseStatus.FAILED: "failed",
         PhaseStatus.ESCALATED: "escalated",
-        PhaseStatus.BLOCKED: "blocked",
     }
     return status_map.get(result_status, "failed")
 
@@ -734,7 +733,6 @@ def _outcome_for_terminal(result_status: PhaseStatus) -> AttemptOutcome:
     outcome_map = {
         PhaseStatus.FAILED: AttemptOutcome.FAILED,
         PhaseStatus.ESCALATED: AttemptOutcome.ESCALATED,
-        PhaseStatus.BLOCKED: AttemptOutcome.BLOCKED,
     }
     return outcome_map.get(result_status, AttemptOutcome.FAILED)
 
@@ -742,8 +740,6 @@ def _outcome_for_terminal(result_status: PhaseStatus) -> AttemptOutcome:
 def _failure_cause_for_terminal(result_status: PhaseStatus) -> FailureCause:
     if result_status == PhaseStatus.ESCALATED:
         return FailureCause.HANDLER_REPORTED_ESCALATED
-    if result_status == PhaseStatus.BLOCKED:
-        return FailureCause.WORKER_BLOCKED
     return FailureCause.HANDLER_REPORTED_FAILED
 
 
@@ -974,7 +970,7 @@ class PipelineEngine:
 
         Steps:
             1. Look up current phase definition in workflow.
-            2. Evaluate preconditions -- if ANY fails, return ``"blocked"``.
+            2. Evaluate preconditions -- if ANY fails, return ``"failed"``.
             3. Get handler from registry.
             4. Call ``handler.on_enter(ctx, state)``.
             5. Based on ``HandlerResult``:
@@ -982,7 +978,7 @@ class PipelineEngine:
                  if any guard fails return ``"failed"``, otherwise save
                  snapshot and evaluate transitions for next phase.
                - PAUSED: save state with yield_status, return ``"yielded"``.
-               - FAILED/ESCALATED/BLOCKED: save state, return matching status.
+               - FAILED/ESCALATED: save state, return matching status.
             6. Persist state and attempt record (AttemptRecord BEFORE PhaseState).
 
         Args:
@@ -1055,10 +1051,10 @@ class PipelineEngine:
         )
         if not can_enter:
             finished_at = datetime.now(tz=UTC)
-            blocked_state = evolve_phase_state(
+            failed_state = evolve_phase_state(
                 state,
                 phase=phase_name,
-                status=PhaseStatus.BLOCKED,
+                status=PhaseStatus.FAILED,
                 pause_reason=None,
                 escalation_reason=None,
                 errors=failure_reasons,
@@ -1080,14 +1076,14 @@ class PipelineEngine:
             # record_flow_execution erst danach.
             save_phase_completion(
                 self._story_dir,
-                envelope=_WrapState(blocked_state),
+                envelope=_WrapState(failed_state),
                 attempt_record=attempt,
             )
             self._runtime.record_flow_execution(
                 ctx,
                 phase_name,
                 attempt_id,
-                status="BLOCKED",
+                status="FAILED",
                 node_id=phase_name,
                 finished_at=finished_at,
             )
@@ -1101,11 +1097,11 @@ class PipelineEngine:
                 ctx,
                 phase_name,
                 attempt_id,
-                status="BLOCKED",
+                status="FAILED",
                 node_id=phase_name,
             )
             return EngineResult(
-                status="blocked",
+                status="failed",
                 phase=phase_name,
                 errors=tuple(failure_reasons),
                 attempt_id=attempt_id,

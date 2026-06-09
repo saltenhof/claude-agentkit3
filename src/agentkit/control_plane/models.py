@@ -259,7 +259,6 @@ class PhaseDispatchResult(BaseModel):
         "yielded",
         "failed",
         "escalated",
-        "blocked",
         "rejected",
     ]
     reaction: Literal[

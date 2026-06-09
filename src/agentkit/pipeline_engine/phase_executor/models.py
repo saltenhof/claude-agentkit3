@@ -41,7 +41,6 @@ class PhaseStatus(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
     ESCALATED = "escalated"
-    BLOCKED = "blocked"
 
 
 class PhaseName(StrEnum):
