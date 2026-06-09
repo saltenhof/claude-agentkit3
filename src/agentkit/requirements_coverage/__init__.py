@@ -11,13 +11,17 @@ from agentkit.requirements_coverage.contract import (
     AreRequirementType,
     ContextLoadResult,
     CoverageVerdict,
+    EvidenceCoverage,
     EvidenceProducer,
     EvidenceSubmitResult,
     EvidenceType,
     LinkResult,
 )
 from agentkit.requirements_coverage.errors import (
-    AreCapabilityNotImplementedError,
+    AreClientDecodeError,
+    AreClientError,
+    AreClientHttpError,
+    AreClientResponseError,
     AreConfigurationError,
     StoryAreLinkConflictError,
     StoryAreLinkError,
@@ -30,13 +34,14 @@ from agentkit.requirements_coverage.top import RequirementsCoverage
 __all__ = [
     # Top-surface
     "RequirementsCoverage",
-    # AreClient skeleton
+    # AreClient
     "AreClient",
     # Contract enums
     "AreDockpointStatus",
     "AreRequirementType",
     "EvidenceType",
     "EvidenceProducer",
+    "EvidenceCoverage",
     # Contract models
     "AreRequirement",
     "AreContext",
@@ -46,8 +51,11 @@ __all__ = [
     "EvidenceSubmitResult",
     "CoverageVerdict",
     # Errors
+    "AreClientDecodeError",
+    "AreClientError",
+    "AreClientHttpError",
+    "AreClientResponseError",
     "AreConfigurationError",
-    "AreCapabilityNotImplementedError",
     # Legacy StoryAreLink surface (unchanged)
     "StoryAreLink",
     "StoryAreLinkKind",

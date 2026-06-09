@@ -25,13 +25,17 @@ class AreConfigurationError(AgentKitError):
     """
 
 
-class AreCapabilityNotImplementedError(AgentKitError):
-    """Raised when an ARE dock-point is called but not yet implemented.
+class AreClientError(AgentKitError):
+    """Base error for ARE REST client failures."""
 
-    This is a contract-slot sentinel for AG3-030. When ARE is enabled
-    and an ``AreClient`` is present, the full dock-point body has not
-    been wired up yet (follow-up stories, THEME-009). No pipeline path
-    should call a dock-point with ARE enabled in production until the
-    corresponding follow-up story has replaced this exception with real
-    logic.
-    """
+
+class AreClientHttpError(AreClientError):
+    """Raised when the ARE HTTP transport returns or raises an HTTP error."""
+
+
+class AreClientDecodeError(AreClientError):
+    """Raised when an ARE response cannot be decoded as valid JSON."""
+
+
+class AreClientResponseError(AreClientError):
+    """Raised when an ARE response has an unexpected contract shape."""

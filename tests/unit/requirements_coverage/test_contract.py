@@ -15,6 +15,7 @@ from agentkit.requirements_coverage.contract import (
     AreRequirementType,
     ContextLoadResult,
     CoverageVerdict,
+    EvidenceCoverage,
     EvidenceProducer,
     EvidenceSubmitResult,
     EvidenceType,
@@ -66,6 +67,15 @@ class TestEvidenceProducer:
 
     def test_two_members(self) -> None:
         assert len(EvidenceProducer) == 2
+
+
+class TestEvidenceCoverage:
+    def test_values(self) -> None:
+        assert EvidenceCoverage.FULL == "FULL"
+        assert EvidenceCoverage.PARTIAL == "PARTIAL"
+
+    def test_two_members(self) -> None:
+        assert len(EvidenceCoverage) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -156,6 +166,7 @@ class TestAreEvidence:
         assert ev.requirement_id == "REQ-42"
         assert ev.evidence_type == EvidenceType.TEST_REPORT
         assert ev.produced_by == EvidenceProducer.WORKER
+        assert ev.coverage is EvidenceCoverage.FULL
 
     def test_frozen(self) -> None:
         ev = AreEvidence(
@@ -232,6 +243,27 @@ class TestCoverageVerdict:
     def test_pass_verdict(self) -> None:
         r = CoverageVerdict(status=AreDockpointStatus.PASS, verdict="PASS")
         assert r.verdict == "PASS"
+        assert r.uncovered_requirements == ()
+        assert r.reason is None
+
+    def test_fail_with_uncovered_and_reason(self) -> None:
+        requirement = AreRequirement(
+            requirement_id="REQ-1",
+            requirement_type=AreRequirementType.SYSTEM,
+            summary="Missing",
+            description=None,
+            must_cover=True,
+            acceptance_criteria=[],
+            recurring=False,
+        )
+        r = CoverageVerdict(
+            status=AreDockpointStatus.FAIL,
+            verdict="FAIL",
+            uncovered_requirements=(requirement,),
+            reason="missing_evidence",
+        )
+        assert r.uncovered_requirements == (requirement,)
+        assert r.reason == "missing_evidence"
 
     def test_frozen(self) -> None:
         r = CoverageVerdict(status=AreDockpointStatus.SKIPPED, verdict=None)

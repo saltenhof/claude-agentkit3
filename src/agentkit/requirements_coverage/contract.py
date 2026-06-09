@@ -47,6 +47,13 @@ class EvidenceProducer(StrEnum):
     QA = "QA"
 
 
+class EvidenceCoverage(StrEnum):
+    """Coverage strength declared for submitted evidence."""
+
+    FULL = "FULL"
+    PARTIAL = "PARTIAL"
+
+
 class AreRequirement(BaseModel):
     """A single requirement fetched from ARE.
 
@@ -95,6 +102,7 @@ class AreEvidence(BaseModel):
         evidence_ref: Concrete reference (test locator, commit SHA,
             artifact path, or free text).
         produced_by: Which agent role submitted this evidence.
+        coverage: Whether this evidence documents full or partial coverage.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -103,6 +111,7 @@ class AreEvidence(BaseModel):
     evidence_type: EvidenceType
     evidence_ref: str
     produced_by: EvidenceProducer
+    coverage: EvidenceCoverage = EvidenceCoverage.FULL
 
 
 class LinkResult(BaseModel):
@@ -117,6 +126,7 @@ class LinkResult(BaseModel):
 
     status: AreDockpointStatus
     reason: str | None = None
+    linked_count: int = 0
 
 
 class ContextLoadResult(BaseModel):
@@ -126,12 +136,16 @@ class ContextLoadResult(BaseModel):
         status: Dock-point execution status.
         are_bundle_ref: Path or identifier of the persisted ARE bundle
             artefact, or ``None`` when skipped/unavailable.
+        requirement_count: Number of requirements loaded into the bundle.
+        reason: Optional fail/skipped explanation.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     status: AreDockpointStatus
     are_bundle_ref: str | None = None
+    requirement_count: int = 0
+    reason: str | None = None
 
 
 class EvidenceSubmitResult(BaseModel):
@@ -144,6 +158,7 @@ class EvidenceSubmitResult(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     status: AreDockpointStatus
+    reason: str | None = None
 
 
 class CoverageVerdict(BaseModel):
@@ -153,9 +168,13 @@ class CoverageVerdict(BaseModel):
         status: Dock-point execution status.
         verdict: ``"PASS"`` or ``"FAIL"`` when gate ran; ``None`` when
             skipped.
+        uncovered_requirements: Requirements without evidence.
+        reason: Optional fail/skipped explanation.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     status: AreDockpointStatus
     verdict: str | None = None
+    uncovered_requirements: tuple[AreRequirement, ...] = ()
+    reason: str | None = None

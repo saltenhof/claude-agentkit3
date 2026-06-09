@@ -50,6 +50,58 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
+def test_structural_are_provider_gets_configured_are_client(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AG3-077: Layer-1 provider receives the real client from ProjectConfig.are."""
+
+    from agentkit.config.models import (
+        SUPPORTED_CONFIG_VERSION,
+        AreConfig,
+        Features,
+        JenkinsConfig,
+        PipelineConfig,
+        ProjectConfig,
+        RepositoryConfig,
+        SonarQubeConfig,
+    )
+    from agentkit.implementation.phase import _resolve_structural_evidence_ports
+
+    project = ProjectConfig(
+        project_key="ak3",
+        project_name="AK3",
+        repositories=[RepositoryConfig(name="repo", path=tmp_path)],
+        pipeline=PipelineConfig(  # type: ignore[call-arg]
+            config_version=SUPPORTED_CONFIG_VERSION,
+            features=Features(are=True, multi_llm=False),
+            sonarqube=SonarQubeConfig(available=False, enabled=False),
+            ci=JenkinsConfig(available=False, enabled=False),
+        ),
+        are=AreConfig(
+            mcp_server="are-mcp",
+            rest_base_url="https://are.example.com",
+            auth_token="token",
+        ),
+    )
+    monkeypatch.setattr("agentkit.config.loader.load_project_config", lambda _root: project)
+
+    ctx = StoryContext(
+        project_key="ak3",
+        story_id="AG3-077",
+        story_number=77,
+        story_type=StoryType.IMPLEMENTATION,
+        execution_route=StoryMode.EXECUTION,
+        project_root=tmp_path,
+        participating_repos=["repo"],
+    )
+
+    _build_port, are_provider = _resolve_structural_evidence_ports(ctx, tmp_path)
+
+    assert are_provider is not None
+    assert are_provider.are_client.base_url == "https://are.example.com"
+
+
 class _RecordingArtifactManager(ArtifactManager):
     """ArtifactManager test double that records write() calls.
 

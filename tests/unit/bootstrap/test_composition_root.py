@@ -586,6 +586,115 @@ def test_build_structural_are_provider_activation() -> None:
     assert provider_on.is_enabled is True
 
 
+def test_are_client_construction_from_project_config(tmp_path: Path) -> None:
+    from agentkit.bootstrap.composition_root import (
+        build_are_client_from_project_config,
+        build_structural_are_provider,
+    )
+    from agentkit.config.models import (
+        AreConfig,
+        JenkinsConfig,
+        ProjectConfig,
+        RepositoryConfig,
+        SonarQubeConfig,
+    )
+    from agentkit.requirements_coverage.are_client import AreClient
+
+    def _project(rest_base_url: str | None, *, enabled: bool) -> ProjectConfig:
+        from agentkit.config.models import SUPPORTED_CONFIG_VERSION, Features, PipelineConfig
+
+        return ProjectConfig(
+            project_key="ak3",
+            project_name="AK3",
+            repositories=[RepositoryConfig(name="repo", path=tmp_path)],
+            pipeline=PipelineConfig(  # type: ignore[call-arg]
+                config_version=SUPPORTED_CONFIG_VERSION,
+                features=Features(are=enabled, multi_llm=False),
+                sonarqube=SonarQubeConfig(available=False, enabled=False),
+                ci=JenkinsConfig(available=False, enabled=False),
+            ),
+            are=AreConfig(
+                mcp_server="are-mcp",
+                rest_base_url=rest_base_url,
+                auth_token="token",
+            )
+            if enabled
+            else None,
+        )
+
+    off_client = build_are_client_from_project_config(_project(None, enabled=False))
+    assert off_client is None
+
+    client = build_are_client_from_project_config(
+        _project("https://are.example.com", enabled=True)
+    )
+    assert isinstance(client, AreClient)
+    assert client.base_url == "https://are.example.com"
+    assert client.auth_token == "token"
+
+    missing_url = _project(None, enabled=True)
+    assert build_are_client_from_project_config(missing_url) is None
+    provider = build_structural_are_provider(None, missing_url.pipeline, store_dir=tmp_path)
+    verdict = provider.coverage_verdict("AG3-077", "ak3")
+    assert verdict is not None
+    assert verdict.reason == "are_gate_unavailable"
+
+
+def test_build_setup_phase_handler_wires_are_bundle_loader(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agentkit.bootstrap import composition_root as cr
+    from agentkit.config.models import (
+        SUPPORTED_CONFIG_VERSION,
+        AreConfig,
+        Features,
+        JenkinsConfig,
+        PipelineConfig,
+        ProjectConfig,
+        RepositoryConfig,
+        SonarQubeConfig,
+    )
+    from agentkit.governance.setup_preflight_gate.phase import SetupConfig
+
+    project = ProjectConfig(
+        project_key="ak3",
+        project_name="AK3",
+        repositories=[RepositoryConfig(name="repo", path=tmp_path)],
+        pipeline=PipelineConfig(  # type: ignore[call-arg]
+            config_version=SUPPORTED_CONFIG_VERSION,
+            features=Features(are=True, multi_llm=False),
+            sonarqube=SonarQubeConfig(available=False, enabled=False),
+            ci=JenkinsConfig(available=False, enabled=False),
+        ),
+        are=AreConfig(
+            mcp_server="are-mcp",
+            rest_base_url="https://are.example.com",
+            auth_token="token",
+        ),
+    )
+    monkeypatch.setattr(cr, "load_project_config", lambda _root: project, raising=False)
+    monkeypatch.setattr(
+        "agentkit.config.loader.load_project_config",
+        lambda _root: project,
+    )
+
+    handler = cr.build_setup_phase_handler(
+        SetupConfig(
+            owner="owner",
+            repo="repo",
+            issue_nr=77,
+            project_root=tmp_path,
+            story_id="AG3-077",
+        )
+    )
+
+    loader = handler._are_bundle_loader
+    client = loader._are_client
+    assert client.base_url == "https://are.example.com"
+    assert client.auth_token == "token"
+
+
 def test_telemetry_count_port_run_scoped(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -782,5 +891,4 @@ def test_are_provider_coverage_verdict_when_enabled() -> None:
     provider = _RequirementsCoverageAreProvider(_FakeCoverage())
     assert provider.is_enabled is True
     assert provider.coverage_verdict("S-1", "p") is sentinel
-
 

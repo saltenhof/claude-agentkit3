@@ -569,6 +569,7 @@ def _resolve_structural_evidence_ports(
     if ctx.project_root is None:
         return (None, None)
     from agentkit.bootstrap.composition_root import (
+        build_are_client_from_project_config,
         build_structural_are_provider,
         build_structural_build_test_port,
     )
@@ -578,8 +579,9 @@ def _resolve_structural_evidence_ports(
     pipeline = getattr(project_config, "pipeline", None)
     ci_config = getattr(pipeline, "ci", None) if pipeline is not None else None
     build_test_port = build_structural_build_test_port(ci_config, story_dir)
+    are_client = build_are_client_from_project_config(project_config)
     are_provider = (
-        build_structural_are_provider(None, pipeline)
+        build_structural_are_provider(are_client, pipeline, store_dir=ctx.project_root)
         if pipeline is not None
         else None
     )

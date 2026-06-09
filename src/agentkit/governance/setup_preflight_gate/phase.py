@@ -25,7 +25,7 @@ from __future__ import annotations
 import contextlib
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from agentkit.config.loader import load_project_config
 from agentkit.exceptions import ConfigError, WorktreeError
@@ -37,7 +37,14 @@ from agentkit.governance.setup_preflight_gate.preflight import run_preflight
 from agentkit.governance.setup_preflight_gate.worktree import setup_worktrees
 from agentkit.installer.paths import story_dir
 from agentkit.pipeline_engine.lifecycle import HandlerResult
-from agentkit.pipeline_engine.phase_executor import PhaseStatus
+from agentkit.pipeline_engine.phase_executor import (
+    AreBundleSignal,
+    AreBundleStatus,
+    PhaseState,
+    PhaseStatus,
+    SetupPayload,
+    evolve_phase_state,
+)
 from agentkit.state_backend.paths import CONTEXT_EXPORT_FILE
 from agentkit.story_context_manager.types import get_profile
 from agentkit.utils.git import remove_worktree
@@ -51,6 +58,7 @@ if TYPE_CHECKING:
     from agentkit.governance.setup_preflight_gate.green_main import MainGreenPort
     from agentkit.governance.setup_preflight_gate.preflight import PreflightCheckResult
     from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
+    from agentkit.requirements_coverage.contract import ContextLoadResult
     from agentkit.state_backend.store.mode_lock_repository import (
         ModeLockRecord,
         ModeLockRepository,
@@ -59,6 +67,18 @@ if TYPE_CHECKING:
     from agentkit.story_context_manager.service import StoryService
 
 logger = logging.getLogger(__name__)
+
+
+class AreBundleLoaderPort(Protocol):
+    """Setup collaborator for loading the ARE bundle."""
+
+    def load_context(
+        self,
+        story_id: str,
+        project_key: str,
+        run_id: str,
+    ) -> ContextLoadResult:
+        """Load and persist the ARE bundle for the setup run."""
 
 
 @dataclass
@@ -120,6 +140,7 @@ class SetupPhaseHandler:
         *,
         mode_lock_repository: ModeLockRepository | None = None,
         green_main_port: MainGreenPort | None = None,
+        are_bundle_loader: AreBundleLoaderPort | None = None,
         residue_probe: Callable[[Path, str], bool] | None = None,
     ) -> None:
         self._config = config
@@ -127,6 +148,7 @@ class SetupPhaseHandler:
         self._dependency_repo: StoryDependencyRepository | None = dependency_repository
         self._mode_lock_repo = mode_lock_repository
         self._green_main_port = green_main_port
+        self._are_bundle_loader = are_bundle_loader
         self._residue_probe = residue_probe
 
     def on_enter(self, ctx: StoryContext, envelope: PhaseEnvelope) -> HandlerResult:
@@ -179,6 +201,21 @@ class SetupPhaseHandler:
 
         artifacts: list[str] = [str(s_dir / CONTEXT_EXPORT_FILE)]
 
+        updated_state: PhaseState | None = None
+        bundle_step = self._load_are_bundle(enriched, envelope.state)
+        if bundle_step is not None:
+            bundle_result, updated_state = bundle_step
+            if bundle_result.are_bundle_ref is not None:
+                artifacts.append(bundle_result.are_bundle_ref)
+            if bundle_result.status.name in {"FAIL", "ERROR"}:
+                return HandlerResult(
+                    status=PhaseStatus.FAILED,
+                    errors=(bundle_result.reason or "are_bundle: FAILED",),
+                    artifacts_produced=tuple(artifacts),
+                    updated_context=enriched,
+                    updated_state=updated_state,
+                )
+
         # FK-22 §22.4c: green-main precondition AFTER the story-type weiche and
         # BEFORE worktree creation — a red main must not even produce a worktree.
         green_main_error = self._check_green_main(cfg, enriched)
@@ -226,6 +263,7 @@ class SetupPhaseHandler:
             status=PhaseStatus.COMPLETED,
             artifacts_produced=tuple(artifacts),
             updated_context=enriched,
+            updated_state=updated_state,
         )
 
     def _build_enriched_context(
@@ -408,6 +446,39 @@ class SetupPhaseHandler:
                 f"{result.cleanup_proposal}",
             ),
         )
+
+    def _load_are_bundle(
+        self,
+        enriched: StoryContext,
+        state: PhaseState,
+    ) -> tuple[ContextLoadResult, PhaseState] | None:
+        """Run the deterministic ARE bundle setup step when wired."""
+
+        if self._are_bundle_loader is None:
+            return None
+        result = self._are_bundle_loader.load_context(
+            enriched.story_id,
+            enriched.project_key,
+            state.run_id,
+        )
+        status = (
+            AreBundleStatus.SKIPPED
+            if result.status.name == "SKIPPED"
+            else AreBundleStatus.LOADED
+            if result.status.name == "PASS"
+            else AreBundleStatus.FAILED
+        )
+        payload = state.payload if isinstance(state.payload, SetupPayload) else SetupPayload()
+        updated_payload = payload.model_copy(
+            update={
+                "are_bundle": AreBundleSignal(
+                    status=status,
+                    requirement_count=result.requirement_count,
+                )
+            }
+        )
+        updated_state = evolve_phase_state(state, payload=updated_payload)
+        return result, updated_state
 
 
 def _sonar_available(project_root: Path) -> bool:

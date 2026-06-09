@@ -51,7 +51,17 @@ class TestRequirementsCoverageSignatures:
     def test_init_signature(self) -> None:
         sig = inspect.signature(RequirementsCoverage.__init__)
         params = list(sig.parameters)
-        assert params == ["self", "are_client", "pipeline_config"]
+        assert params == [
+            "self",
+            "are_client",
+            "pipeline_config",
+            "link_repository",
+            "story_context_provider",
+            "artifact_manager",
+            "scope_mapping",
+            "audit_root",
+        ]
+        assert sig.parameters["link_repository"].kind is inspect.Parameter.KEYWORD_ONLY
 
 
 # ---------------------------------------------------------------------------

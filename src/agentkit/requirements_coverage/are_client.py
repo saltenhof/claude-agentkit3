@@ -1,82 +1,152 @@
-"""AreClient — REST adapter skeleton for the Agent Requirements Engine.
-
-BC-internal sub of ``agentkit.requirements_coverage`` (FK-40 §40.4).
-The full HTTP implementation is deferred to follow-up stories; every
-method raises ``NotImplementedError`` with an explicit follow-up reference.
-"""
+"""REST adapter for the Agent Requirements Engine (ARE)."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import json
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Protocol
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
-if TYPE_CHECKING:
-    from agentkit.requirements_coverage.contract import (
-        AreContext,
-        AreRequirement,
-        CoverageVerdict,
-        EvidenceSubmitResult,
-        EvidenceType,
-    )
+from pydantic import ValidationError
+
+from agentkit.requirements_coverage.contract import (
+    AreContext,
+    AreDockpointStatus,
+    AreRequirement,
+    CoverageVerdict,
+    EvidenceSubmitResult,
+    EvidenceType,
+)
+from agentkit.requirements_coverage.errors import (
+    AreClientDecodeError,
+    AreClientError,
+    AreClientHttpError,
+    AreClientResponseError,
+)
+
+
+@dataclass(frozen=True)
+class AreHttpResponse:
+    """HTTP response returned by the injected ARE transport."""
+
+    status_code: int
+    body: bytes
+
+
+class AreHttpTransport(Protocol):
+    """Transport port used by :class:`AreClient`."""
+
+    def request(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: dict[str, str],
+        body: bytes | None = None,
+    ) -> AreHttpResponse:
+        """Execute one HTTP request."""
+
+
+class UrlLibAreHttpTransport:
+    """urllib-based ARE transport used in production wiring."""
+
+    def request(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: dict[str, str],
+        body: bytes | None = None,
+    ) -> AreHttpResponse:
+        """Execute one HTTP request via :mod:`urllib.request`."""
+
+        request = Request(url, data=body, headers=headers, method=method)
+        try:
+            with urlopen(request, timeout=30) as response:  # noqa: S310 - configured URL
+                return AreHttpResponse(
+                    status_code=int(response.status),
+                    body=response.read(),
+                )
+        except HTTPError as exc:
+            raise AreClientHttpError(
+                f"ARE HTTP {exc.code} for {method} {url}"
+            ) from exc
+        except URLError as exc:
+            raise AreClientHttpError(f"ARE HTTP request failed for {method} {url}: {exc}") from exc
 
 
 class AreClient:
-    """REST client stub for the ARE API (FK-40 §40.4).
-
-    Communicates with the external Agent Requirements Engine REST API.
-    All method bodies are deferred to follow-up implementation stories.
+    """REST client for the ARE API (FK-40 §40.4).
 
     Args:
         base_url: Base URL of the ARE REST API.
         auth_token: Optional bearer token for authenticated requests.
+        transport: Optional HTTP transport port for tests and alternate runtimes.
     """
 
-    def __init__(self, base_url: str, auth_token: str | None = None) -> None:
-        self._base_url = base_url
+    def __init__(
+        self,
+        base_url: str,
+        auth_token: str | None = None,
+        *,
+        transport: AreHttpTransport | None = None,
+    ) -> None:
+        self._base_url = base_url.rstrip("/")
         self._auth_token = auth_token
+        self._transport = transport or UrlLibAreHttpTransport()
+
+    @property
+    def base_url(self) -> str:
+        """Return the configured ARE base URL."""
+
+        return self._base_url
+
+    @property
+    def auth_token(self) -> str | None:
+        """Return the configured bearer token."""
+
+        return self._auth_token
 
     def list_requirements(self, story_id: str, scope: str) -> list[AreRequirement]:
-        """List requirements for a story in a given scope (dock-point 1).
+        """List requirements for a story in a given scope."""
 
-        Args:
-            story_id: AK3-internal story identifier.
-            scope: ARE scope string derived from repo or module mapping.
-
-        Returns:
-            List of ``AreRequirement`` objects matching the scope.
-
-        Raises:
-            NotImplementedError: Always — full body is a follow-up story.
-        """
-        raise NotImplementedError("AreClient.list_requirements is follow-up")
+        data = self._request_json(
+            "GET",
+            "/requirements",
+            query={"story_id": story_id, "scope": scope},
+        )
+        return _parse_requirement_list(data, field="requirements")
 
     def get_recurring(self, scope: str, story_type: str) -> list[AreRequirement]:
-        """Get recurring mandatory requirements for a scope and story type (dock-point 1).
+        """Get recurring mandatory requirements for a scope and story type."""
 
-        Args:
-            scope: ARE scope string.
-            story_type: AK3 story type (e.g. ``"implementation"``).
-
-        Returns:
-            List of recurring ``AreRequirement`` objects.
-
-        Raises:
-            NotImplementedError: Always — full body is a follow-up story.
-        """
-        raise NotImplementedError("AreClient.get_recurring is follow-up")
+        data = self._request_json(
+            "GET",
+            "/requirements/recurring",
+            query={"scope": scope, "story_type": story_type},
+        )
+        return _parse_requirement_list(data, field="requirements")
 
     def load_context(self, story_id: str) -> AreContext:
-        """Load must-cover requirements context for a story (dock-point 2).
+        """Load must-cover requirements context for a story."""
 
-        Args:
-            story_id: AK3-internal story identifier.
-
-        Returns:
-            ``AreContext`` with the fetched requirements.
-
-        Raises:
-            NotImplementedError: Always — full body is a follow-up story.
-        """
-        raise NotImplementedError("AreClient.load_context is follow-up")
+        data = self._request_json("GET", f"/stories/{story_id}/context")
+        try:
+            if isinstance(data, list):
+                return AreContext(
+                    requirements=[AreRequirement.model_validate(item) for item in data],
+                    loaded_at=datetime.now(UTC),
+                )
+            if not isinstance(data, dict):
+                raise TypeError("ARE context response must be an object or list")
+            if "loaded_at" not in data:
+                data = {**data, "loaded_at": datetime.now(UTC).isoformat()}
+            return AreContext.model_validate(data)
+        except (TypeError, ValidationError) as exc:
+            raise AreClientResponseError("Invalid ARE context response") from exc
 
     def submit_evidence(
         self,
@@ -85,33 +155,90 @@ class AreClient:
         evidence_type: EvidenceType,
         evidence_ref: str,
     ) -> EvidenceSubmitResult:
-        """Submit evidence for a requirement (dock-point 3).
+        """Submit evidence for a requirement."""
 
-        Args:
-            story_id: AK3-internal story identifier.
-            requirement_id: ARE-side requirement identifier.
-            evidence_type: Classification of the evidence.
-            evidence_ref: Concrete reference (test locator, commit SHA,
-                artifact path, or free text).
-
-        Returns:
-            ``EvidenceSubmitResult`` confirming the submission.
-
-        Raises:
-            NotImplementedError: Always — full body is a follow-up story.
-        """
-        raise NotImplementedError("AreClient.submit_evidence is follow-up")
+        data = self._request_json(
+            "POST",
+            f"/stories/{story_id}/evidence",
+            payload={
+                "requirement_id": requirement_id,
+                "evidence_type": evidence_type.value,
+                "evidence_ref": evidence_ref,
+            },
+        )
+        try:
+            if data is None:
+                return EvidenceSubmitResult(status=AreDockpointStatus.PASS)
+            if not isinstance(data, dict):
+                raise TypeError("ARE evidence response must be an object")
+            return EvidenceSubmitResult.model_validate(data)
+        except (TypeError, ValidationError) as exc:
+            raise AreClientResponseError("Invalid ARE evidence response") from exc
 
     def check_gate(self, story_id: str) -> CoverageVerdict:
-        """Check the ARE gate for a story (dock-point 4).
+        """Check the ARE gate for a story."""
 
-        Args:
-            story_id: AK3-internal story identifier.
+        data = self._request_json("GET", f"/stories/{story_id}/gate")
+        try:
+            if not isinstance(data, dict):
+                raise TypeError("ARE gate response must be an object")
+            return CoverageVerdict.model_validate(data)
+        except (TypeError, ValidationError) as exc:
+            raise AreClientResponseError("Invalid ARE gate response") from exc
 
-        Returns:
-            ``CoverageVerdict`` with PASS or FAIL and coverage details.
+    def _request_json(
+        self,
+        method: str,
+        path: str,
+        *,
+        query: dict[str, str] | None = None,
+        payload: dict[str, object] | None = None,
+    ) -> object:
+        url = f"{self._base_url}{path}"
+        if query:
+            url = f"{url}?{urlencode(query)}"
+        headers = {"Accept": "application/json"}
+        body: bytes | None = None
+        if payload is not None:
+            headers["Content-Type"] = "application/json"
+            body = json.dumps(payload, sort_keys=True).encode("utf-8")
+        if self._auth_token:
+            headers["Authorization"] = f"Bearer {self._auth_token}"
 
-        Raises:
-            NotImplementedError: Always — full body is a follow-up story.
-        """
-        raise NotImplementedError("AreClient.check_gate is follow-up")
+        try:
+            response = self._transport.request(method, url, headers=headers, body=body)
+        except AreClientError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - transport boundary
+            raise AreClientHttpError(f"ARE transport failed for {method} {url}: {exc}") from exc
+
+        if response.status_code < 200 or response.status_code >= 300:
+            raise AreClientHttpError(
+                f"ARE HTTP {response.status_code} for {method} {url}"
+            )
+        if not response.body:
+            return None
+        try:
+            return json.loads(response.body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise AreClientDecodeError(f"ARE response is not valid JSON for {method} {url}") from exc
+
+
+def _parse_requirement_list(data: object, *, field: str) -> list[AreRequirement]:
+    try:
+        items = data
+        if isinstance(data, dict):
+            items = data.get(field)
+        if not isinstance(items, list):
+            raise TypeError("ARE requirement list response must be a list")
+        return [AreRequirement.model_validate(item) for item in items]
+    except (TypeError, ValidationError) as exc:
+        raise AreClientResponseError("Invalid ARE requirement list response") from exc
+
+
+__all__ = [
+    "AreClient",
+    "AreHttpResponse",
+    "AreHttpTransport",
+    "UrlLibAreHttpTransport",
+]

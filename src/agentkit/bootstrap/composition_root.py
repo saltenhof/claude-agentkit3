@@ -15,6 +15,9 @@ from agentkit.exceptions import PipelineError
 from agentkit.exploration.register import register_exploration_producers
 from agentkit.implementation.register import register_implementation_producers
 from agentkit.prompt_runtime.register import register_prompt_runtime_producers
+from agentkit.requirements_coverage.register import (
+    register_requirements_coverage_producers,
+)
 from agentkit.state_backend.store.artifact_repository import (
     StateBackendArtifactRepository,
 )
@@ -113,6 +116,7 @@ def build_producer_registry() -> ProducerRegistry:
     register_exploration_review_producers(registry)
     register_implementation_producers(registry)
     register_prompt_runtime_producers(registry)
+    register_requirements_coverage_producers(registry)
     register_verify_producers(registry)
     return registry
 
@@ -1326,6 +1330,28 @@ def build_setup_preflight_gate() -> SetupContextRepository:
     return StateBackendSetupContextAdapter()
 
 
+def build_are_client_from_project_config(project_config: object) -> object | None:
+    """Construct the ARE client from the single ProjectConfig ARE truth."""
+
+    from agentkit.config.models import ProjectConfig
+    from agentkit.requirements_coverage.are_client import AreClient
+
+    if not isinstance(project_config, ProjectConfig):
+        msg = (
+            "project_config must be a ProjectConfig; got "
+            f"{type(project_config).__name__}"
+        )
+        raise TypeError(msg)
+    if not project_config.pipeline.features.are:
+        return None
+    if project_config.are is None or not project_config.are.rest_base_url:
+        return None
+    return AreClient(
+        project_config.are.rest_base_url,
+        project_config.are.auth_token,
+    )
+
+
 def build_setup_phase_handler(
     config: object,
     *,
@@ -1353,21 +1379,36 @@ def build_setup_phase_handler(
     Returns:
         A wired ``SetupPhaseHandler``.
     """
+    from agentkit.config.loader import load_project_config
     from agentkit.governance.setup_preflight_gate.phase import (
         SetupConfig,
         SetupPhaseHandler,
     )
+    from agentkit.requirements_coverage.top import RequirementsCoverage
     from agentkit.state_backend.store.mode_lock_repository import ModeLockRepository
+    from agentkit.state_backend.store.story_are_link_repository import (
+        StateBackendStoryAreLinkRepository,
+    )
 
     if not isinstance(config, SetupConfig):
         msg = f"config must be a SetupConfig; got {type(config).__name__}"
         raise TypeError(msg)
+    project_config = load_project_config(config.project_root)
+    are_client = build_are_client_from_project_config(project_config)
+    are_bundle_loader = RequirementsCoverage(
+        are_client,  # type: ignore[arg-type]
+        project_config.pipeline,
+        link_repository=StateBackendStoryAreLinkRepository(config.project_root),
+        artifact_manager=build_artifact_manager(config.project_root),
+        audit_root=config.project_root,
+    )
     return SetupPhaseHandler(
         config,
         build_setup_preflight_gate(),
         dependency_repository=dependency_repository,  # type: ignore[arg-type]
         mode_lock_repository=ModeLockRepository(config.project_root),
         green_main_port=green_main_port,  # type: ignore[arg-type]
+        are_bundle_loader=are_bundle_loader,
         residue_probe=build_phase_state_residue_probe(
             store_dir or config.project_root
         ),
@@ -2353,6 +2394,8 @@ class _CiBuildTestEvidenceAdapter:
 def build_structural_are_provider(
     are_client: object | None,
     pipeline_config: object,
+    *,
+    store_dir: Path | None = None,
 ) -> AreGateProvider:
     """Build the REAL Layer-1 ARE provider (FIX-1, FK-27 §27.4.4).
 
@@ -2374,6 +2417,9 @@ def build_structural_are_provider(
     from agentkit.config.models import PipelineConfig
     from agentkit.requirements_coverage.are_client import AreClient
     from agentkit.requirements_coverage.top import RequirementsCoverage
+    from agentkit.state_backend.store.story_are_link_repository import (
+        StateBackendStoryAreLinkRepository,
+    )
 
     if not isinstance(pipeline_config, PipelineConfig):
         msg = (
@@ -2382,7 +2428,13 @@ def build_structural_are_provider(
         )
         raise TypeError(msg)
     typed_client = are_client if isinstance(are_client, AreClient) else None
-    coverage = RequirementsCoverage(typed_client, pipeline_config)
+    coverage = RequirementsCoverage(
+        typed_client,
+        pipeline_config,
+        link_repository=StateBackendStoryAreLinkRepository(store_dir),
+        artifact_manager=build_artifact_manager(store_dir or Path.cwd()),
+        audit_root=store_dir,
+    )
     return _RequirementsCoverageAreProvider(coverage)
 
 
@@ -2400,6 +2452,12 @@ class _RequirementsCoverageAreProvider:
     """
 
     coverage: RequirementsCoverageProto
+
+    @property
+    def are_client(self) -> object | None:
+        """Return the injected ARE client for wiring tests."""
+
+        return getattr(self.coverage, "_are_client", None)
 
     @property
     def is_enabled(self) -> bool:

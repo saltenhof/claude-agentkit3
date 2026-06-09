@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from agentkit.pipeline_engine.phase_executor.models import (
     PHASE_STATE_SCHEMA_VERSION,
+    AreBundleSignal,
+    AreBundleStatus,
     ClosurePayload,
     ClosureProgress,
     EscalationReason,
@@ -29,6 +31,8 @@ from agentkit.pipeline_engine.phase_executor.models import (
 from agentkit.pipeline_engine.phase_executor.records import AttemptRecord
 
 __all__ = [
+    "AreBundleSignal",
+    "AreBundleStatus",
     "AttemptRecord",
     "ClosurePayload",
     "ClosureProgress",

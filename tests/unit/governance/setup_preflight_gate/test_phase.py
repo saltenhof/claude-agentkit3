@@ -30,8 +30,14 @@ from agentkit.governance.setup_preflight_gate.phase import SetupConfig, SetupPha
 from agentkit.governance.setup_preflight_gate.worktree import WorktreeResult
 from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
 from agentkit.pipeline_engine.phase_executor import (
+    AreBundleStatus,
     PhaseState,
     PhaseStatus,
+    SetupPayload,
+)
+from agentkit.requirements_coverage.contract import (
+    AreDockpointStatus,
+    ContextLoadResult,
 )
 from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
@@ -832,3 +838,203 @@ class TestSetupPhaseGreenMain:
         record = reader("test-project")
         assert seen == ["test-project"]
         assert record is not None
+
+
+class TestSetupPhaseAreBundle:
+    """ARE bundle setup step (AG3-077 / FK-22 §22.4b)."""
+
+    def test_loaded_signal_after_context_before_worktree(self, tmp_path: Path) -> None:
+        events: list[str] = []
+
+        class _ContextRepo(_RecordingContextRepo):
+            def save(self, story_dir: Path, ctx: StoryContext) -> None:
+                events.append("context_saved")
+                super().save(story_dir, ctx)
+
+        class _Loader:
+            def load_context(
+                self,
+                story_id: str,
+                project_key: str,
+                run_id: str,
+            ) -> ContextLoadResult:
+                del story_id, project_key, run_id
+                events.append("are_bundle")
+                return ContextLoadResult(
+                    status=AreDockpointStatus.PASS,
+                    are_bundle_ref="are_bundle_ref",
+                    requirement_count=2,
+                )
+
+        cfg = SetupConfig(
+            owner="owner",
+            repo="repo",
+            issue_nr=1,
+            project_root=tmp_path,
+            story_id="AG3-001",
+            create_worktree=True,
+            story_service=_NoOpStoryService(),  # type: ignore[arg-type]
+        )
+        handler = SetupPhaseHandler(
+            cfg,
+            context_repository=_ContextRepo(),  # type: ignore[arg-type]
+            are_bundle_loader=_Loader(),
+        )
+        ctx = _make_story_context(project_root=tmp_path)
+        state = _make_phase_state()
+        enriched = _make_story_context(project_root=tmp_path)
+
+        def _worktrees(*args: object, **kwargs: object) -> list[WorktreeResult]:
+            del args, kwargs
+            events.append("worktree")
+            return [_make_worktree_result(tmp_path)]
+
+        with (
+            patch(
+                "agentkit.governance.setup_preflight_gate.phase.run_preflight",
+                return_value=_make_preflight_pass(),
+            ),
+            patch(
+                "agentkit.governance.setup_preflight_gate.phase.build_story_context",
+                return_value=enriched,
+            ),
+            patch(
+                "agentkit.governance.setup_preflight_gate.phase.load_project_config",
+                return_value=_make_project_config(tmp_path),
+            ),
+            patch(
+                "agentkit.governance.setup_preflight_gate.phase.setup_worktrees",
+                _worktrees,
+            ),
+        ):
+            result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
+
+        assert result.status is PhaseStatus.COMPLETED
+        assert events == ["context_saved", "are_bundle", "worktree", "context_saved"]
+        assert "are_bundle_ref" in result.artifacts_produced
+        assert result.updated_state is not None
+        payload = result.updated_state.payload
+        assert isinstance(payload, SetupPayload)
+        assert payload.are_bundle is not None
+        assert payload.are_bundle.status is AreBundleStatus.LOADED
+        assert payload.are_bundle.requirement_count == 2
+
+    def test_skipped_signal_allows_setup_to_continue(self, tmp_path: Path) -> None:
+        class _Loader:
+            def load_context(
+                self,
+                story_id: str,
+                project_key: str,
+                run_id: str,
+            ) -> ContextLoadResult:
+                del story_id, project_key, run_id
+                return ContextLoadResult(
+                    status=AreDockpointStatus.SKIPPED,
+                    reason="feature_disabled",
+                )
+
+        cfg = SetupConfig(
+            owner="owner",
+            repo="repo",
+            issue_nr=2,
+            project_root=tmp_path,
+            story_id="AG3-002",
+            create_worktree=False,
+            story_service=_NoOpStoryService(),  # type: ignore[arg-type]
+        )
+        handler = SetupPhaseHandler(
+            cfg,
+            context_repository=_RecordingContextRepo(),  # type: ignore[arg-type]
+            are_bundle_loader=_Loader(),
+        )
+        ctx = _make_story_context(story_id="AG3-002", project_root=tmp_path)
+        state = _make_phase_state(story_id="AG3-002")
+        enriched = _make_story_context(story_id="AG3-002", project_root=tmp_path)
+
+        with (
+            patch(
+                "agentkit.governance.setup_preflight_gate.phase.run_preflight",
+                return_value=_make_preflight_pass(),
+            ),
+            patch(
+                "agentkit.governance.setup_preflight_gate.phase.build_story_context",
+                return_value=enriched,
+            ),
+            patch(
+                "agentkit.governance.setup_preflight_gate.phase.load_project_config",
+                return_value=_make_project_config(tmp_path),
+            ),
+        ):
+            result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
+
+        assert result.status is PhaseStatus.COMPLETED
+        assert result.updated_state is not None
+        payload = result.updated_state.payload
+        assert isinstance(payload, SetupPayload)
+        assert payload.are_bundle is not None
+        assert payload.are_bundle.status is AreBundleStatus.SKIPPED
+
+    def test_failed_signal_aborts_before_worker_paths(self, tmp_path: Path) -> None:
+        begin_calls: list[str] = []
+
+        class _StoryService:
+            def begin_progress(self, story_id: str, *, correlation_id: str = "") -> object:
+                del correlation_id
+                begin_calls.append(story_id)
+                return object()
+
+        class _Loader:
+            def load_context(
+                self,
+                story_id: str,
+                project_key: str,
+                run_id: str,
+            ) -> ContextLoadResult:
+                del story_id, project_key, run_id
+                return ContextLoadResult(
+                    status=AreDockpointStatus.FAIL,
+                    reason="are_gate_unavailable",
+                )
+
+        cfg = SetupConfig(
+            owner="owner",
+            repo="repo",
+            issue_nr=3,
+            project_root=tmp_path,
+            story_id="AG3-003",
+            create_worktree=True,
+            story_service=_StoryService(),  # type: ignore[arg-type]
+        )
+        handler = SetupPhaseHandler(
+            cfg,
+            context_repository=_RecordingContextRepo(),  # type: ignore[arg-type]
+            are_bundle_loader=_Loader(),
+        )
+        ctx = _make_story_context(story_id="AG3-003", project_root=tmp_path)
+        state = _make_phase_state(story_id="AG3-003")
+        enriched = _make_story_context(story_id="AG3-003", project_root=tmp_path)
+
+        with (
+            patch(
+                "agentkit.governance.setup_preflight_gate.phase.run_preflight",
+                return_value=_make_preflight_pass(),
+            ),
+            patch(
+                "agentkit.governance.setup_preflight_gate.phase.build_story_context",
+                return_value=enriched,
+            ),
+            patch(
+                "agentkit.governance.setup_preflight_gate.phase.setup_worktrees",
+            ) as mock_worktrees,
+        ):
+            result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
+
+        assert result.status is PhaseStatus.FAILED
+        assert result.errors == ("are_gate_unavailable",)
+        assert begin_calls == []
+        mock_worktrees.assert_not_called()
+        assert result.updated_state is not None
+        payload = result.updated_state.payload
+        assert isinstance(payload, SetupPayload)
+        assert payload.are_bundle is not None
+        assert payload.are_bundle.status is AreBundleStatus.FAILED

@@ -94,10 +94,28 @@ class QaCycleStatus(StrEnum):
     ESCALATED = "escalated"
 
 
+class AreBundleStatus(StrEnum):
+    """Setup ARE bundle load status (FK-22 §22.4b)."""
+
+    LOADED = "LOADED"
+    SKIPPED = "SKIPPED"
+    FAILED = "FAILED"
+
+
+class AreBundleSignal(BaseModel):
+    """Typed Setup payload signal for the ARE bundle step."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    status: AreBundleStatus
+    requirement_count: int = Field(ge=0)
+
+
 class SetupPayload(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     phase_type: Literal["setup"] = "setup"
+    are_bundle: AreBundleSignal | None = None
 
 
 class ExplorationPayload(BaseModel):
@@ -436,6 +454,8 @@ def _participating_repos_from_context(info: ValidationInfo) -> list[str] | None:
 
 
 __all__ = [
+    "AreBundleSignal",
+    "AreBundleStatus",
     "ClosurePayload",
     "ClosureProgress",
     "EscalationReason",
