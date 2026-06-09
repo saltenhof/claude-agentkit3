@@ -13,9 +13,9 @@ nur In-Wave-Kanten (057-105) bestimmen die Reihenfolge.
 | Welle | Stories |
 |---|---|
 | **0** (sofort startbar) | AG3-057, 059, 060, 061, 064, 066, 070, 073, 075, 077, 080, 087, 090, 095, 096, 098, 102 |
-| **1** | AG3-058, 062, 063, 065, 067, 068, 074, 078, 081, 088, 092, 104 |
+| **1** | AG3-058, 062, 063, 065, 067, 068, 074, 078, 081, 088, 092, 104, **106**, **107**, **108** *(NEU, s. u.)* |
 | **2** | AG3-069, 072, 079, 083, 085, 086, 089, 097, 099, 101 |
-| **3** | AG3-082, 100, 103 |
+| **3** | AG3-082, 100, 103, **109** *(NEU, s. u.)* |
 | **4** | AG3-071, 091 |
 | **5** | AG3-076, 084, 093 |
 | **6** | AG3-094, 105 |
@@ -142,7 +142,26 @@ Welle 0 ist frei von diesen Abhaengigkeiten → Implementierung kann sofort star
 - Siehe `stories/_OPEN_DECISIONS.md` (D1–D15 No-Owner/Konzept-Entscheidungen, E1–E4 Scope-Erweiterungen, X1–X11 doc-only-Drifts, I1–I4 Index-Korrekturen).
 
 ### Neue Cut-Items aus Entscheidungen (AG3-106+)
-- **AG3-106** harness-posttool-outcome-adapter (S, BC harness-integration) — aus D2 (PO 2026-06-09). Claude-Code-/Codex-Adapter füllen `HookEvent.post_tool_outcome` beim PostToolUse → Worker-Health sieht echte Tool-/Commit-Fehler. Story angelegt; Implementierung offen (PO-Go).
+- **AG3-106** harness-posttool-outcome-adapter (M, BC harness-integration) — aus D2 (PO 2026-06-09). Claude-Code-/Codex-Adapter füllen `HookEvent.post_tool_outcome` beim PostToolUse → Worker-Health sieht echte Tool-/Commit-Fehler. Story angelegt; Implementierung offen (PO-Go).
 - **AG3-107** remove-phasestatus-blocked-live (M, pipeline_engine+bootstrap) — aus D1 (PO 2026-06-09). `PhaseStatus.BLOCKED` aus Live-Enum + komplette `"blocked"`-Terminal-Vertragskette; Audit `AttemptOutcome.BLOCKED`/`PRECONDITION_FAILED` bleibt. Story angelegt + Codex-APPROVE; Implementierung offen.
 - **AG3-108** per-check-outcome-read-model (L, verify-system+telemetry+closure) — aus D6 (PO 2026-06-09; nach Codex-Review `job-74f78cbe` neu geschnitten). verify-system emittiert Per-Check-Outcome (check_id/triggered/clean/overridden) zur QA-Zeit; FK-69-Read-Model-Eintrag (Owner verify-system) via Approval-Flow; ProjectionFilter check_id/since_days; Override→check_id-Korrelation; closure nur Aggregator. Story (L) angelegt; Codex-Re-Review + Implementierung offen.
 - **AG3-109** runtime-execution-purge-port (M, pipeline/governance/telemetry/artifacts + Port; Konsument AG3-071) — aus D3 (PO 2026-06-09). Koordinierter Per-Owner-Purge der Runtime-Execution-Entitaeten (FK-53 §53.6.2/§53.7.5), idempotent, verify-clean-state. FK-53 §53.7.5 um Per-Owner-Port-Realisierung ergänzt. Story angelegt; Codex-Review + Implementierung offen.
+
+### AG3-106..109 — Wellen-/Abhängigkeits-Einordnung (PO 2026-06-09)
+
+Alle `depends_on` der vier neuen Cut-Items zeigen auf **bereits gebaute** (Welle-0 / Vorwellen-) Stories → **keiner blockiert Welle 0**. Neue In-Wave-Kanten siehe „unblocks".
+
+| Story | Größe | Welle | depends_on (Status) | unblocks (neue Kante) | Review |
+|---|---|---|---|---|---|
+| **AG3-106** harness-posttool-outcome-adapter | M | **1** | AG3-080 (W0 ✅) | — (macht Worker-Health-`hook_conflict` „scharf"; kein Hard-Blocker) | APPROVE |
+| **AG3-107** remove-phasestatus-blocked-live | M | **1** | AG3-059/060 (W0 ✅) | — (Modell-Bereinigung; **früh**, da Engine-Blast-Radius) | APPROVE |
+| **AG3-108** per-check-outcome-read-model | L | **1** | verify-system-QA-Emission (AG3-064/066 W0 ✅) + FK-69-Konzept-Eintrag (= Story-AC1, Approval-Flow) | **AG3-078** (`report_effectiveness`) → **AG3-078 `depends_on` AG3-108** | APPROVE-WITH-NITS |
+| **AG3-109** runtime-execution-purge-port | M | **3** | Owner-Persistenz-Repos (✅; `purge_run` teils vorhanden) | **AG3-071** (Welle 4, story-reset) → **AG3-071 `depends_on` AG3-109** | offen |
+
+**Begründung der Slots:**
+- **AG3-106 → Welle 1:** Konsument Worker-Health (AG3-080) ist Welle 0/fertig; die Story komplettiert nur die Datenzufuhr. Lauffähig ab sofort, kein Downstream-Blocker.
+- **AG3-107 → Welle 1 (früh):** reine Modell-Korrektur an der Zustandsmaschine (pipeline_engine). Früh ziehen, bevor weitere Engine-Arbeit auf dem alten `BLOCKED`/`"blocked"`-Stand aufsetzt. Deps (AG3-059/060) Welle 0.
+- **AG3-108 → Welle 1, VOR AG3-078:** liefert das Datensubstrat für den Failure-Corpus-Lernloop (`report_effectiveness`). Damit bekommt **AG3-078** eine **neue In-Wave-Kante `depends_on AG3-108`** (beide Welle 1; 108 zuerst). verify-system-QA-Fläche ist gebaut; der FK-69-Read-Model-Eintrag ist Story-interner erster Schritt (Approval-Flow).
+- **AG3-109 → Welle 3 (spätester sicherer Slot vor Welle 4):** Deps (Owner-Persistenz) sind gebaut, **kann ab Welle 1 laufen**; **muss vor Welle 4** stehen, weil **AG3-071** (story-reset) es fail-closed konsumiert. Neue Kante **AG3-071 `depends_on AG3-109`**.
+
+**Metadaten-Nachzug bei Implementierung:** `AG3-078.depends_on += AG3-108` und `AG3-071.depends_on += AG3-109` in den jeweiligen `status.yaml`/Index eintragen (sonst In-Wave-Reihenfolge nicht erzwungen).
