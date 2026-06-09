@@ -17,11 +17,15 @@ erfolgt anschließend kontrolliert über den Konzept-Approval-Flow
 
 ### D1 — `PhaseStatus`: 5 normierte vs. 7 reale Werte
 - **Kontext:** FK-39 §39.2.1 normiert 5 Werte (`IN_PROGRESS`/`COMPLETED`/`FAILED`/`ESCALATED`/`PAUSED`); der Code trägt 7 (zusätzlich `PENDING`, `BLOCKED`), produktiv genutzt in 4 Engine-Modulen (composition_root, control_plane/dispatch, pipeline_engine/runner, engine). AG3-059 hat `status` typisiert, die Wertemenge bewusst nicht verändert.
-- **Optionen:** **A** = Konzept an Realität anpassen (FK-39 nimmt `PENDING`/`BLOCKED` auf; doc-only, kein Code-Risiko). **B** = Code auf 5 Werte reduzieren (breite, riskante Zustandsmaschinen-Änderung, eigenes Code-Cut-Item).
-- **Empfehlung:** **A** (Fix-the-Model: Konzept an validierte Laufzeit angleichen).
-- **Entscheidung:** _TBD_
-- **Ziel-Konzept:** FK-39 §39.2.1 (doc-only).
-- **Status:** OFFEN
+- **Befund (verifiziert 2026-06-09):** Konzept trennt zwei Achsen: Live-Status (§39.2.1, 5 Werte) vs. `AttemptOutcome` (§39.4.2, inkl. `BLOCKED`/`YIELDED`, Audit-Achse). `PENDING` existiert im Konzept nur als `ExplorationGateStatus`-Sub-Status (§39.2.3), nicht als Live-Status. `BLOCKED` existiert im Konzept als `AttemptOutcome.BLOCKED` + `FailureCause.WORKER_BLOCKED` — NICHT als Live-Status. Reale Code-Stellen: `PhaseStatus.BLOCKED` wird nur an EINER Stelle gesetzt (`engine.py:1061`, Worker-blocked-Ergebnis) und sofort auf `AttemptOutcome.BLOCKED`/`FailureCause.WORKER_BLOCKED` (`engine.py:737/745`) + final_status `"blocked"` (`engine.py:728`) gemappt, terminal im Setup-Residue-Set (`composition_root.py:1479`). `PhaseStatus.PENDING` wird bei jedem frischen Phase-Start gesetzt (`dispatch.py:572`, `runner.py:150/213`) und als `fresh_current_run` gelesen (`composition_root.py:1481`).
+- **ENTSCHEIDUNG (PO 2026-06-09):**
+  - **`PENDING` → ins Konzept nachziehen.** Sinnvoller Live-Zustand („angelegt, noch nicht gestartet"). FK-39 §39.2.1 Live-Status-Liste auf 6 Werte: `PENDING, IN_PROGRESS, COMPLETED, FAILED, ESCALATED, PAUSED`. Doc-only.
+  - **`BLOCKED` → NICHT in die Live-`PhaseStatus`-Achse.** PO-Begründung: Der Live-Lebenszyklus ist durch in_progress/completed/failed/escalated/paused erschöpfend; „blockiert ohne Eskalation" ist gegen FAILED/ESCALATED unklar abgegrenzt und ohne Mehrwert (externe Vorbedingung → Retry → final FAILED). `BLOCKED` bleibt auf der Audit-Achse (`AttemptOutcome.BLOCKED` + `FailureCause.WORKER_BLOCKED`, konzept-sanktioniert §39.4.2/3). Code: `PhaseStatus.BLOCKED` aus dem Live-Enum entfernen; Worker-blocked-Ergebnis setzt Live-Status `FAILED`, der Worker-blocked-Marker erzeugt weiterhin `AttemptOutcome.BLOCKED`/`FailureCause.WORKER_BLOCKED` im AttemptRecord (Ableitung künftig aus einem Worker-Signal, nicht mehr aus dem Live-Status).
+- **Resultierende Arbeitspakete:**
+  - **Doc-only:** FK-39 §39.2.1 `status`-Liste um `PENDING` ergänzen (Konzept-Approval-Flow). Ziel: PhaseStatus-Nachzug (101/103).
+  - **Code-Cut-Item (AG3-106+):** `PhaseStatus.BLOCKED` aus Live-Enum entfernen + Setz-/Map-Stellen umbiegen (`engine.py:1061/728/737/745`, `composition_root.py:1479`); `AttemptOutcome.BLOCKED` über ein Worker-Signal erhalten. Blast-Radius pipeline_engine → eigener broad Verify-Lauf.
+- **Ziel-Konzept:** FK-39 §39.2.1.
+- **Status:** ENTSCHIEDEN — FK-39 §39.2.1 (`PENDING`) **angewandt**; `BLOCKED`-Entfernung als Story **AG3-107** angelegt. (Codex-Review beider ausstehend.)
 
 ---
 
@@ -29,8 +33,10 @@ erfolgt anschließend kontrolliert über den Konzept-Approval-Flow
 
 ### D2 — `harness-integration`-BC + FK-76 PostToolOutcome-Adapter + §76.8 Port-Surface
 - **Kontext:** Von AG3-080 (PostToolOutcome-Befüllung Claude/Codex → exit_code/stderr) und AG3-104 CP2 (`harness_integration`-Package + FK-76 §76.8). Ohne Adapter bleibt der Worker-Health-`hook_conflict`-Beitrag aus echten Commit-Failures 0. KEIN Owner.
-- **Empfehlung:** neues Cut-Item AG3-106 „harness-integration BC + PostTool-Outcome-Adapter".
-- **Entscheidung:** _TBD_ · **Ziel-Konzept:** FK-76 · **Status:** OFFEN
+- **Befund:** Der BC `harness-integration` (BC 17) EXISTIERT bereits im Konzept (`bounded-contexts.yaml:245-265`, `owns: HarnessAdapter/HarnessPort`); governance-and-guards + installation-and-bootstrap schließen harness-Adapter explizit aus → Ownership unstrittig. Fehlt nur als Code-Package (keine Story baut es). Abnehmer `WorkerHealth-Signal` liegt in BC 3 implementation-phase (gebaut, AG3-080). Neutraler Vertrag `PostToolOutcome` liegt heute beim Abnehmer (`implementation/worker_health/models.py:53`).
+- **ENTSCHEIDUNG (PO 2026-06-09):** Aufteilung auf zwei BCs bestätigt: **Sensor (harness-spezifischer `HarnessAdapter`, je Harness Claude Code/Codex) + dünnes Bindeglied (`HarnessPort`) → BC 17 harness-integration** (neues Code-Package); **Abnehmer bleibt BC 3 implementation-phase**. Neutraler Vertrag `PostToolOutcome` **bleibt beim Abnehmer** (implementation als Port-Definition; der harness-integration-Adapter hängt davon ab und erzeugt ihn — hexagonal korrekte Richtung Adapter→Domäne). → **Neue Story AG3-106 anlegen.**
+- **Verfeinerter Befund (beim Story-Anlegen):** Die Adapter `claude_code`/`codex` EXISTIEREN (FK-76 §76.3, „implementiert", `governance/harness_adapters/`); `HookEvent.post_tool_outcome: dict|None` existiert (`guard_evaluation.py:57`, Kommentar: „adapters own populating it"); der Abnehmer validiert abnehmerseitig (`runner.py:683`). Die Lücke ist also klein und genau benannt: die Adapter mappen den PostToolUse-Outcome (`exit_code/stdout/stderr/tool_result`) nicht in `post_tool_outcome`. → Story ist **S**, kein neuer BC-Aufbau.
+- **Ziel-Konzept:** FK-76 §76.2/§76.3/§76.4/§76.9 · **Status:** ENTSCHIEDEN → **Story `AG3-106` angelegt** (`stories/AG3-106-harness-posttool-outcome-adapter/`), Implementierung offen (PO-Go).
 
 ### D3 — Runtime-Execution-Purge-Port (FK-53 §53.7.5)
 - **Kontext:** Von AG3-071. Kanonischer Purge für FlowExecution/NodeExecutionLedger/Attempt/Override/GuardDecision/PhaseState am `phase_state_store`-Owner. Existiert nicht; AG3-071 (Reset, Welle 4) konsumiert fail-closed. KEIN Owner.
@@ -39,13 +45,16 @@ erfolgt anschließend kontrolliert über den Konzept-Approval-Flow
 
 ### D4 — FK-35 Eskalationsmechanik
 - **Kontext:** Von AG3-097. Typisierter `escalation_class`/`infra_unavailable`-Phase-State-Carrier + PAUSED/Resume-Wiring. AG3-059-Fieldset deckt es nicht; FK-25 §25.5.4 delegiert an FK-35. KEIN Owner.
-- **Empfehlung:** neues Cut-Item.
-- **Entscheidung:** _TBD_ · **Ziel-Konzept:** FK-35 · **Status:** OFFEN
+- **Diskussion/Befund (PO 2026-06-09):** Infrastruktur-Ausfall ist ein **Fehlerfall**, kein Sonderzustand. Transiente Infra → bounded Retry+Backoff am Schnittstellen-Adapter → wenn's nicht kommt, normales `FAILED`. Ein eigener `infra_unavailable`-Live-Zustand bringt **keinen prozessualen Unterschied** (der einzige theoretische Unterschied — Auto-Resume desselben Runs — bräuchte einen Infra-Health-Wächter, der nicht gerechtfertigt ist). Klarstellung dabei: **PAUSE ist kein Fehler-/Menschen-Mechanismus**, sondern die Übergabe des prozessualen Handles von AgentKit an den Orchestrator-Agent (kooperativer Kontrollfluss); Infra/Fehler haben damit nichts zu tun.
+- **ENTSCHEIDUNG (PO 2026-06-09): ABGELEHNT — bestätigt.** Kein Infra-Sonderzustand. Nicht-Erreichbarkeit/Infra = **Fehler, keine Pause**. Fehler → Retry+Backoff am Adapter → `FAILED`.
+- **Konzept-Konflikt (von Codex `job-d96d6a42` gefunden):** FK-25 §25.5.4 modelliert „Nicht-Erreichbarkeit → `status: PAUSED, escalation_class: 'infra_unavailable'`" — das **widerspricht** dieser Entscheidung und ist zu korrigieren (→ X13). `escalation_class: infra_unavailable` entfällt für diesen Fall. (Login-Fehler FK-11 §11.2.3 ist ein **separater** Fall = D7, hier NICHT mitentschieden.)
+- **Folgeaufgaben:** (1) doc-only FK-25 §25.5.4 korrigieren (X13); (2) Mini-Check: bounded Retry an den externen Adaptern vorhanden?
+- **Ziel-Konzept:** FK-25 §25.5.4 (+ FK-39 §39.2.2 via X12) · **Status:** ABGELEHNT (Konzept-Korrektur offen).
 
 ### D5 — FK-30 `*_send`-Send-Count-Hook
 - **Kontext:** Von AG3-097. Real-Time-11th-send-Block über `HookEvent.operation` (kennt kein `llm_send`). AG3-086 deckt budget/skill_usage/prompt-integrity/CCAG, nicht `*_send`. KEIN Owner.
-- **Empfehlung:** neues Cut-Item oder Scope-Zuweisung an AG3-086.
-- **Entscheidung:** _TBD_ · **Ziel-Konzept:** FK-30 · **Status:** OFFEN
+- **ENTSCHEIDUNG (PO 2026-06-09): ABGELEHNT.** Die LLM-Diskussion ist ein Skill + Infrastruktur. AgentKit bricht die Rundenzahl (3/5/10/20) NICHT hart ab, sondern gibt nur **normative Leitplanken** vor. Kein harter `*_send`-Real-Time-Block, keine `llm_send`-Operation-Klasse. Bestehende `*_send`-Telemetrie + Budget-Guard bleiben; das Rundenlimit lebt als normative Leitplanke im Skill.
+- **Ziel-Konzept:** FK-30 §30.3.2 **geprüft** (2026-06-09): definiert `*_send` nur als Telemetrie-/`review_guard`-Matcher, **kein** harter Block → **keine Konzept-Änderung nötig**. · **Status:** ABGELEHNT (erledigt).
 
 ### D6 — story_metrics `check_ref` + `ProjectionFilter` + Outcome-Population
 - **Kontext:** Von AG3-078 (CP2/CP3/CP4). `story_metrics`-Schema `check_ref`+Outcome-Spalten (FK-69 §69.8, closure); `ProjectionFilter.check_ref`/`since_days` (telemetry); Outcome-Population aus echten verify/closure-Runs (nahe AG3-079). KEIN Owner.
@@ -125,6 +134,8 @@ erfolgt anschließend kontrolliert über den Konzept-Approval-Flow
 | X9 | FK-15 §15.4.3 Branch-Guard-als-Secret-Owner-Drift | 102 | AG3-087 | OFFEN |
 | X10 | FK-93 worker_health-Defaults (Konzept-Abgleich; FK-49 ist Schema-Owner) | 103 | AG3-080 | OFFEN |
 | X11 | AG3-099-Wording: `EventTypeId`→`EventType`, „integrity-dim8"-Token raus, Emitter-Split | 099-Body | AG3-081 | OFFEN |
+| X12 | FK-39 §39.2.2 PAUSE zu menschen-zentriert; PAUSE = Übergabe des prozessualen Handles Maschine→Orchestrator-Agent (kooperativer Kontrollfluss), KEIN Fehler-/Menschen-Zustand. Resume regulär über **Service-/API-Pfad (Project Edge Client)** (FK-45 §45.3/FK-91 §91.1a) — `agentkit resume` ist nur der Operator-Recovery-Adapter; Mensch nur bei explizit menschlich-normierten Sonderfällen (GOVERNANCE_INCIDENT, Scope-Explosion FK-20/FK-35). [Codex job-d96d6a42 CHANGES-REQUESTED: Wording entsprechend nachschärfen, NICHT absolut „Infra nie PAUSED" allein behaupten — Konflikt löst sich erst mit X13.] | FK-39 §39.2.2 (chirurgisch) | D4-Diskussion 2026-06-09 | ANGEWANDT (Codex-Review ausstehend) |
+| X13 | FK-25 §25.5.4 „Nicht-Erreichbarkeit → PAUSED + escalation_class infra_unavailable" ist falsch — Nicht-Erreichbarkeit ist ein **Fehler** (Retry → FAILED), keine Pause; `infra_unavailable`-Pause-Klasse entfällt | FK-25 §25.5.4 (chirurgisch) | D4-Entscheidung 2026-06-09 | ANGEWANDT — ESCALATED (Codex-Review ausstehend) |
 
 ---
 

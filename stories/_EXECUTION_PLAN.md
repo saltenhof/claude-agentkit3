@@ -140,3 +140,7 @@ Welle 0 ist frei von diesen Abhaengigkeiten → Implementierung kann sofort star
 
 ### Offene Entscheidungspunkte
 - Siehe `stories/_OPEN_DECISIONS.md` (D1–D15 No-Owner/Konzept-Entscheidungen, E1–E4 Scope-Erweiterungen, X1–X11 doc-only-Drifts, I1–I4 Index-Korrekturen).
+
+### Neue Cut-Items aus Entscheidungen (AG3-106+)
+- **AG3-106** harness-posttool-outcome-adapter (S, BC harness-integration) — aus D2 (PO 2026-06-09). Claude-Code-/Codex-Adapter füllen `HookEvent.post_tool_outcome` beim PostToolUse → Worker-Health sieht echte Tool-/Commit-Fehler. Story angelegt; Implementierung offen (PO-Go).
+- (geplant aus D1) Code-Cut-Item: `PhaseStatus.BLOCKED` aus Live-Enum entfernen (pipeline_engine) — noch nicht als Story angelegt.

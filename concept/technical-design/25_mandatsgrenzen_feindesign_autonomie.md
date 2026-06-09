@@ -642,8 +642,9 @@ Enforcement-Logik.
 **Nicht-Erreichbarkeit:** Wenn ein LLM nicht antwortet (Hub meldet
 keine Response), wird der Feindesign-Subprozess abgebrochen. Die
 Klasse-2-Entscheidung kann ohne Multi-Perspektiven-Absicherung nicht
-autonom getroffen werden. Die Entscheidung wird an den Menschen
-eskaliert: `status: PAUSED`,
+autonom getroffen werden. Dies ist ein **operativer Fehler**, kein
+pausierbarer Wartezustand: Die Iteration wird an den Menschen
+eskaliert: `status: ESCALATED`,
 `escalation_class: "infra_unavailable"`,
 `escalation_reason: "Multi-LLM-Quorum nicht erreichbar"`.
 Dies ist ein eigener Eskalationscode — kein Rückfall auf `domain_gap`

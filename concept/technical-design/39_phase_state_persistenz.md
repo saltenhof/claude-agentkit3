@@ -233,7 +233,7 @@ Uppercase (`POST_IMPLEMENTATION`, `POST_REMEDIATION`).
 | `story_id` | String | Eindeutige Story-ID (z.B. `"ODIN-042"`) |
 | `run_id` | String (UUID) | Eindeutige ID des aktuellen Pipeline-Durchlaufs |
 | `phase` | Enum | Aktuelle Phase: setup, exploration, implementation, closure. [Entscheidung 2026-05-01: `verify` entfaellt als Top-Phase — QA-Subflow laeuft intern in `implementation`.] |
-| `status` | Enum | IN_PROGRESS, COMPLETED, FAILED, ESCALATED, PAUSED |
+| `status` | Enum | PENDING, IN_PROGRESS, COMPLETED, FAILED, ESCALATED, PAUSED. `PENDING` = Phase angelegt, aber noch nicht gestartet (Pre-Dispatch). |
 | `mode` | Enum | execution, exploration, fast. Für die nicht-fast Standard-Familie (`execution`/`exploration`, nach Mode-Routing gesetzt) ist `mode` fachlich der Wire-Name der Intra-Run-Achse `execution_route` gemaess FK-59/FK-24 §24.3.2, **nicht** `operating_mode`. `fast` (AG3-018, FK-24 §24.3.3/§24.3.4) ist ein gleichrangiger Story-Modus und **kein** `execution_route`-Wert: `mode` ist seit der Entkopplung in FK-24 §24.3.2 nicht mehr blosser `execution_route`-Alias. `fast` ist mit `exploration` wechselseitig ausschliessend. Für Concept/Research-Stories immer `"execution"` — diese Story-Typen unterstützen weder Exploration- noch Fast-Mode; der Phase Runner setzt `mode = "execution"` ohne Mode-Routing-Prüfung. |
 | `story_type` | Enum | implementation, bugfix, concept, research |
 | `attempt` | Integer | Aktueller Durchlauf (beginnt bei 1) |
@@ -271,11 +271,23 @@ class PauseReason(StrEnum):
 | `AWAITING_DESIGN_CHALLENGE` | Exploration-Phase | Design-Review hat Einwände erhoben (Design-Challenge). Pipeline pausiert, bis der Challenge-Prozess abgeschlossen ist. |
 | `GOVERNANCE_INCIDENT` | Jede Phase | Governance-Observer hat einen kritischen Incident erkannt (kein harter Verstoß). Pipeline pausiert sofort, Mensch muss intervenieren und den Incident klären. |
 
-**Abgrenzung:** `PAUSED` mit einem PauseReason ist ein
-**vorübergehender** Zustand — die Pipeline kann nach Klärung
-fortgesetzt werden (`agentkit resume`). `ESCALATED` ist ein
-**dauerhafter** Stopp der aktuellen Iteration — Ursache muss
-behoben werden, bevor ein neuer Run gestartet wird.
+**Abgrenzung:** `PAUSED` ist **kein Fehlerzustand** und **nicht
+inhärent ein Wartet-auf-Mensch-Zustand**, sondern ein
+**vorübergehender, kooperativer Kontrollfluss-Übergabepunkt**: AgentKit
+übergibt den prozessualen Handle für eine definierte Teilstrecke
+außerhalb der deterministischen Maschine. Der `PauseReason` benennt
+diese Teilstrecke. Nach Abschluss löst der Orchestrator-Agent den
+offiziellen Resume-/Re-Entry-Pfad aus, regulär über Service-Resume bzw.
+den `Project Edge Client`; `agentkit resume` ist der
+Operator-Recovery-Adapter. Ein Mensch ist nur bei ausdrücklich
+menschlich normierten Sonderfällen beteiligt, insbesondere
+`GOVERNANCE_INCIDENT` sowie Mandats-/Governance-Entscheidungen.
+Demgegenüber ist `ESCALATED` ein **dauerhafter** Stopp der aktuellen
+Iteration wegen Fehler/Mandatsgrenze. Laufzeit- und
+Infrastrukturfehler dürfen nicht stillschweigend als `PAUSED`
+modelliert werden; sie brauchen entweder einen explizit normierten
+Interventionspfad oder laufen über Retry/Failure nach
+`FAILED`/`ESCALATED`.
 
 ### 39.2.3 PhasePayload (discriminated union, phase-spezifisch)
 
