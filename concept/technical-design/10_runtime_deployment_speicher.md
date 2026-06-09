@@ -375,11 +375,33 @@ Portbereich-Schema:
   9900-9999   DevOps- und Infrastruktur-Services
 ```
 
+#### Standardport 5432 — verbindliche Belegung (PO-Entscheidung 2026-06-09)
+
+Der PostgreSQL-Standardport 5432 ist **ausschliesslich** der **nativen,
+auf dem Host installierten** PostgreSQL-Instanz vorbehalten — das ist die
+**Produktions-State-Backend-DB** von AgentKit. Diese Instanz ist
+**Voraussetzung** der Erstinstallation: der Installer (FK-50, CP7) setzt
+ein **erreichbares** zentrales State-Backend voraus und schreibt seinen
+Projekt-Record dort hinein — er **provisioniert die PostgreSQL-Instanz
+selbst nicht** (Server/Rolle/DB sind operative Vorbedingung; fehlende
+Erreichbarkeit laesst CP7 fail-closed scheitern). Sie ist die einzige DB,
+die 5432 belegen darf.
+
+- AgentKit startet/betreibt **keine eigene (Docker-)PostgreSQL auf 5432**.
+  Ein Container, der 5432 belegt, ist ein Fehlbetrieb, kein Sollzustand.
+- **Test-Datenbanken laufen ausschliesslich auf Nicht-Standard-(ephemeren)
+  Ports** und niemals auf 5432 (siehe Test-Fixture
+  `tests/fixtures/postgres_backend.py`: zufaelliger freier Port, wegwerfbar,
+  plus Fail-closed-Ablehnung von 5432 als Testziel).
+- Die produktive DSN (`AGENTKIT_STATE_DATABASE_URL`, Backend
+  `AGENTKIT_STATE_BACKEND=postgres`) zeigt auf diese native 5432-Instanz;
+  Konfigurationsvorlage in `.env.example`.
+
 ### 10.7.2 Service-Tabelle
 
 | Port | Service | Kategorie | Protokoll | Pflicht/Optional | Autostart |
 |------|---------|-----------|-----------|-----------------|-----------|
-| 5432 | PostgreSQL / zentrales DBMS | Dateninfrastruktur | TCP | Pflicht (State-Backend) | Zentraler Dienst |
+| 5432 | PostgreSQL / zentrales DBMS (**native Host-Instanz, exklusiv**; Produktions-State-Backend; Tests nutzen Nicht-Standard-Ports) | Dateninfrastruktur | TCP | Pflicht (State-Backend) | Zentraler Dienst |
 | 9100 | ChatGPT Pool | LLM-Pool | MCP (HTTP+SSE) | Optional (mind. 1 Pool Pflicht) | Windows Startup `.pyw` |
 | 9200 | Gemini Pool | LLM-Pool | MCP (HTTP+SSE) | Optional | Windows Startup `.pyw` |
 | 9300 | Qwen Pool | LLM-Pool | MCP (HTTP+SSE) | Optional | Windows Startup `.pyw` |
