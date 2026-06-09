@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -84,6 +85,34 @@ def test_install_creates_claude_and_codex_settings(tmp_path: Path) -> None:
     assert result.success is True
     assert (tmp_path / ".claude" / "settings.json").is_file()
     assert (tmp_path / ".codex" / "config.toml").is_file()
+    assert (tmp_path / ".codex" / "hooks.json").is_file()
+    claude_settings = json.loads(
+        (tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8")
+    )
+    codex_hooks = json.loads(
+        (tmp_path / ".codex" / "hooks.json").read_text(encoding="utf-8")
+    )
+    assert {
+        entry["command"]
+        for entry in claude_settings["hooks"]["PostToolUse"]
+        if entry["matcher"] == "Bash"
+    } == {"agentkit-hook-claude post health_monitor"}
+    assert {
+        entry["command"]
+        for entry in claude_settings["hooks"]["PostToolUseFailure"]
+        if entry["matcher"] == "Bash"
+    } == {"agentkit-hook-claude post health_monitor"}
+    assert codex_hooks["hooks"]["PostToolUse"] == [
+        {
+            "matcher": "Bash",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": "agentkit-hook-codex post health_monitor",
+                }
+            ],
+        }
+    ]
     assert "agentkit-hook-codex" in (
         tmp_path / ".codex" / "config.toml"
     ).read_text(encoding="utf-8")

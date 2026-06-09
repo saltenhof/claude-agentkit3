@@ -12,7 +12,10 @@ from agentkit.governance.harness_adapters.claude_code import (
     to_neutral_event,
 )
 from agentkit.governance.protocols import GuardVerdict, ViolationType
-from agentkit.implementation.worker_health import PostToolOutcome
+from agentkit.implementation.worker_health import PostToolOutcome, apply_post_tool_use
+from agentkit.state_backend.store.worker_health_repository import (
+    StateBackendWorkerHealthRepository,
+)
 
 if TYPE_CHECKING:
     import pytest
@@ -156,6 +159,82 @@ def test_claude_phase_aware_cli_sends_post_outcome_to_runner(
     assert captured[0][0] == "health_monitor"
     assert captured[0][2] == "post"
     assert captured[0][1].post_tool_outcome is not None
+
+
+def test_claude_post_tool_input_malformed_fails_closed_without_runner_or_health_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: list[HookEvent] = []
+    malformed = json.dumps(
+        {
+            "hook_event_name": "PostToolUseFailure",
+            "tool_name": "Bash",
+            "tool_input": ["git commit -m change"],
+            "error": {"exit_code": 1},
+            "cwd": str(tmp_path),
+        }
+    )
+
+    def _spy(
+        hook_id: str,
+        event: HookEvent,
+        phase: str = "pre",
+        project_root: object = None,
+    ) -> GuardVerdict:
+        _ = hook_id, phase, project_root
+        captured.append(event)
+        return GuardVerdict.allow("health_monitor")
+
+    monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
+    monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
+    monkeypatch.setenv("AGENTKIT_STORY_ID", "AG3-106")
+    monkeypatch.setenv("AGENTKIT_WORKER_ID", "worker-1")
+    monkeypatch.setattr("sys.stdin", io.StringIO(malformed))
+    monkeypatch.setattr(
+        "agentkit.governance.runner.Governance.run_hook",
+        staticmethod(_spy),
+    )
+
+    assert main(["post", "health_monitor"]) == 2
+    assert captured == []
+    repository = StateBackendWorkerHealthRepository(tmp_path)
+    assert repository.load(story_id="AG3-106", worker_id="worker-1") is None
+    assert not (tmp_path / "_temp" / "qa" / "AG3-106").exists()
+
+
+def test_claude_well_formed_failed_git_commit_post_updates_hook_conflict(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
+    monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
+    repository = StateBackendWorkerHealthRepository(tmp_path)
+    raw = (_FIXTURE_DIR / "claude_post_tool_use_failure.json").read_text(
+        encoding="utf-8",
+    )
+    event = to_neutral_event(_parse_hook_event(raw, phase="post")).model_copy(
+        update={
+            "operation_args": {
+                "story_id": "AG3-106",
+                "worker_id": "worker-1",
+                "command": "git commit -m change",
+            }
+        }
+    )
+    assert event.post_tool_outcome is not None
+
+    state = apply_post_tool_use(
+        event=event,
+        outcome=PostToolOutcome.model_validate(event.post_tool_outcome),
+        repository=repository,
+        project_root=tmp_path,
+    )
+
+    assert state.score_components.hook_conflict > 0
+    persisted = repository.load(story_id="AG3-106", worker_id="worker-1")
+    assert persisted is not None
+    assert persisted.score_components.hook_conflict > 0
 
 
 def test_to_neutral_event_maps_mutating_tools() -> None:

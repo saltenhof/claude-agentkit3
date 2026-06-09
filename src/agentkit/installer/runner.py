@@ -1142,7 +1142,21 @@ def install_agentkit(config: InstallConfig) -> InstallResult:
     # active half of
     # ``formal.installer.invariant.state_backend_registration_precedes_bundle_binding``
     # (story §2.1.4; FK-50 §50.3 CP 7 before CP 8/CP 9, §50.4 FAILED => abort).
-    created.extend(_deploy_static_resource_files(resources_dir, root))
+    active_binding_paths = _default_governance_hook_settings_paths(root)
+    active_binding_before = _file_digests(active_binding_paths)
+    static_created = _deploy_static_resource_files(resources_dir, root)
+    created.extend(
+        rel
+        for rel in static_created
+        if root / rel not in active_binding_paths
+    )
+    created.extend(
+        _register_default_governance_hooks(
+            config,
+            root,
+            before=active_binding_before,
+        )
+    )
 
     # AG3-048 (FK-43 §43.4.1.1): git-ignore the harness link bind points in the
     # TARGET project BEFORE any link is created (Codex-r7-r2). Git and backups
@@ -1230,6 +1244,68 @@ def _resolve_registration_repo(
     )
 
     return StateBackendProjectRegistrationRepository(root)
+
+
+def _register_default_governance_hooks(
+    config: InstallConfig,
+    root: Path,
+    *,
+    before: dict[Path, str] | None = None,
+) -> list[str]:
+    """Register default project hooks through Governance and settings writers."""
+
+    from agentkit.governance.default_hook_definitions import (
+        build_default_hook_definitions,
+    )
+    from agentkit.governance.runner import Governance
+    from agentkit.state_backend.store.governance_hook_repository import (
+        StateBackendHookRegistrationRepository,
+    )
+    from agentkit.state_backend.store.lock_record_repository import LockRecordRepository
+    from agentkit.state_backend.store.worktree_repository import (
+        StateBackendWorktreeRepository,
+    )
+
+    watched_paths = _default_governance_hook_settings_paths(root)
+    before_digests = before or _file_digests(watched_paths)
+    governance = Governance(
+        hook_repo=StateBackendHookRegistrationRepository(root),
+        lock_repo=LockRecordRepository(root),
+        project_key=config.project_key,
+        project_root=root,
+        worktree_repo=StateBackendWorktreeRepository(root),
+    )
+    result = governance.register_hooks(build_default_hook_definitions())
+    if result.errors:
+        raise InstallationError(
+            "Default governance hook registration failed.",
+            detail={"errors": [str(error) for error in result.errors]},
+        )
+    after = _file_digests(watched_paths)
+    return [
+        str(path.relative_to(root))
+        for path in watched_paths
+        if before_digests.get(path) != after.get(path)
+    ]
+
+
+def _default_governance_hook_settings_paths(root: Path) -> tuple[Path, ...]:
+    """Return settings files materialized by default hook registration."""
+
+    return (
+        root / ".claude" / "settings.json",
+        root / ".codex" / "hooks.json",
+    )
+
+
+def _file_digests(paths: tuple[Path, ...]) -> dict[Path, str]:
+    """Return content digests for existing files in ``paths``."""
+
+    return {
+        path: hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in paths
+        if path.is_file()
+    }
 
 
 def _run_cp7_state_backend_registration(
@@ -1694,6 +1770,7 @@ def uninstall_agentkit(project_root: Path) -> UninstallResult:
     # Detach skill links FIRST (Codex-r7-r2) so the bind-point dirs become empty
     # and removable; a junction is detached without recursing into its target.
     removed.extend(_remove_skill_link_bindpoints(project_root))
+    removed.extend(_remove_file(project_root / CODEX_DIR / "hooks.json", project_root))
     removed.extend(_remove_file(codex_config_path(project_root), project_root))
     removed.extend(_remove_file(claude_settings_path(project_root), project_root))
     removed.extend(_remove_empty_dir(project_root / CLAUDE_DIR / "context", project_root))

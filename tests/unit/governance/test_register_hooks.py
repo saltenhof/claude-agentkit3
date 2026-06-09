@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from agentkit.governance.default_hook_definitions import build_default_hook_definitions
 from agentkit.governance.hook_registration import (
     HookDefinition,
     HookEventName,
@@ -371,23 +372,28 @@ class TestRegisterHooksSettingsMaterialisation:
         self,
         tmp_path: Path,
     ) -> None:
-        """AG3-106: PostToolUse feeds worker health; Claude also registers failure."""
+        """AG3-106: production defaults feed worker health post hooks."""
         import json
 
         repo = _RecordingHookRepo()
         gov = _make_governance(repo, project_root=tmp_path)
-        definitions = [
-            HookDefinition(
-                hook_event_name=HookEventName.POST_TOOL_USE,
-                matcher="Bash",
-                command="agentkit-hook-claude post health_monitor",
+        definitions = build_default_hook_definitions()
+
+        assert {
+            (defn.hook_event_name, defn.matcher, defn.command)
+            for defn in definitions
+        } >= {
+            (
+                HookEventName.POST_TOOL_USE,
+                "Bash",
+                "agentkit-hook-claude post health_monitor",
             ),
-            HookDefinition(
-                hook_event_name=HookEventName.POST_TOOL_USE_FAILURE,
-                matcher="Bash",
-                command="agentkit-hook-claude post health_monitor",
+            (
+                HookEventName.POST_TOOL_USE_FAILURE,
+                "Bash",
+                "agentkit-hook-claude post health_monitor",
             ),
-        ]
+        }
 
         gov.register_hooks(definitions)  # type: ignore[union-attr]
 

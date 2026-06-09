@@ -108,8 +108,10 @@ class ClaudeCodePostToolEvent(BaseModel):
 
     @field_validator("tool_input", mode="before")
     @classmethod
-    def _coerce_tool_input(cls, value: object) -> dict[str, object]:
-        return value if isinstance(value, dict) else {}
+    def _validate_tool_input(cls, value: object) -> dict[str, object]:
+        if isinstance(value, dict):
+            return value
+        raise ValueError("tool_input must be a JSON object")
 
     @field_validator("cwd", mode="before")
     @classmethod
