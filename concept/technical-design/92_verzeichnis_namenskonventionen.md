@@ -34,7 +34,7 @@ komponentenorientierten Namespace-Regel:
 |-------|-----------|
 | Komponentenname statt Technikname | Namespaces werden nach fachlicher Verantwortung benannt (`pipeline_engine`, `guard_system`, `conformance_service`) |
 | Snake Case fuer Pakete | Paketnamen sind klein und `snake_case` |
-| Subkomponenten als Unterpakete | Beispiel: `pipeline_engine/setup_phase/` |
+| Subkomponenten als Unterpakete | Beispiel: `governance/setup_preflight_gate/` |
 | Adapter bleiben unter `integrations/` | Externe Systemgrenzen bleiben technisch gebuendelt |
 | Kein Sammelbecken `utils` fuer Fachlogik | Fachwissen gehoert in Komponenten, nicht in neutrale Hilfspakete |
 

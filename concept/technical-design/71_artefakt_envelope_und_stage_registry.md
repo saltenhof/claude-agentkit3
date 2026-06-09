@@ -119,11 +119,11 @@ Envelope trägt Metadaten, die das Integrity-Gate validiert.
   "stage": "qa_structural",
   "attempt": 1,
   "producer": {
-    "type": "script",
-    "name": "qa-structural-check"
+    "type": "DETERMINISTIC",
+    "name": "verify-system.layer-1-structural"
   },
-  "started_at": "2026-03-16T14:00:00+01:00",
-  "finished_at": "2026-03-16T14:01:23+01:00",
+  "started_at": "2026-03-16T13:00:00+00:00",
+  "finished_at": "2026-03-16T13:01:23+00:00",
   "status": "PASS",
   "...": "stage-spezifische Felder"
 }
@@ -138,10 +138,10 @@ Envelope trägt Metadaten, die das Integrity-Gate validiert.
 | `run_id` | String | UUID v4 |
 | `stage` | String | Einer der definierten Stage-IDs |
 | `attempt` | Integer | ≥ 1 |
-| `producer.type` | String | `"script"` oder `"agent"` |
-| `producer.name` | String | Bekannter Producer-Name |
-| `started_at` | String | ISO 8601 mit Zeitzone |
-| `finished_at` | String | ISO 8601, ≥ started_at |
+| `producer.type` | String | `WORKER`, `LLM_REVIEWER` oder `DETERMINISTIC` |
+| `producer.name` | String | Bekannter kanonischer Producer-Name |
+| `started_at` | String | ISO 8601, UTC-Offset 0, fail-closed |
+| `finished_at` | String | ISO 8601, UTC-Offset 0, ≥ started_at, fail-closed |
 | `status` | String | `PASS`, `FAIL`, `WARN`, `ERROR` |
 
 **Mapping LLM-Check-Status zu Artefakt-Status:**
@@ -163,15 +163,29 @@ pro Check einen von drei Werten: `PASS`, `PASS_WITH_CONCERNS`, `FAIL`
 **Producer-Registry** (welcher Producer darf welchen Export
 materialisieren):
 
+Die folgenden Export-Zuordnungen sind illustrativ. Kanonische
+`producer.name`-Werte fuer QA-Layer sind die Producer-IDs aus FK-27 §27.7
+(`verify-system.layer-1-structural`,
+`verify-system.layer-2-qa-review`,
+`verify-system.layer-2-semantic-review`,
+`verify-system.layer-2-doc-fidelity`,
+`verify-system.layer-2-context-sufficiency`,
+`verify-system.layer-3-adversarial`,
+`verify-system.layer-1-sonarqube-gate`,
+`verify-system.layer-2-concept-feedback`,
+`verify-system.layer-1-research-quality`,
+`verify-system.layer-4-policy`). FK-35 §35.2.4 nennt Producer nur
+illustrativ; daraus entsteht keine zweite Namenswahrheit.
+
 | Export-Artefakt | Erlaubter Producer |
 |-----------------|-------------------|
-| `structural.json` | `qa-structural-check` |
-| `policy.json` / Legacy-Export `decision.json` | `qa-policy-engine` |
+| `structural.json` | `verify-system.layer-1-structural` |
+| `policy.json` / Legacy-Export `decision.json` | `verify-system.layer-4-policy` |
 | `phase-state.json` | `run-phase` (Export der `phase_state_projection`) |
 | `context.json` | `compute-story-context` (Export aus `StoryContext`) |
-| `qa_review.json` | `qa-llm-review` |
-| `semantic_review.json` | `qa-semantic-review` |
-| `adversarial.json` | `qa-adversarial` |
+| `qa_review.json` | `verify-system.layer-2-qa-review` |
+| `semantic_review.json` | `verify-system.layer-2-semantic-review` |
+| `adversarial.json` | `verify-system.layer-3-adversarial` |
 | `closure.json` | `story-closure` |
 | `are_bundle.json` | `qa-are-context-loader` |
 
@@ -204,4 +218,3 @@ und Policy-Aggregation.
 Fuer BC 8 (artifacts) gilt: Das Envelope-Feld `stage` nimmt eine
 bekannte Stage-ID auf. Die Validierung, welche IDs zulaessig sind,
 obliegt verify-system.
-

@@ -51,7 +51,9 @@ glossary:
     - id: harness-adapter
       definition: >
         Harness-spezifische Mediationsschicht (Bluttyp AT) pro Agent-Harness
-        unter agentkit.harness_integration.{claude_code,codex}. Mappt
+        im Soll-Namespace agentkit.harness_integration.{claude_code,codex}.
+        Die aktuelle Code-Verortung liegt unter
+        agentkit.governance.harness_adapters. Mappt
         harness-native Mechanik (Tool-Namen, stdin/stdout, Exit-Codes, Settings-
         Format) auf das harness-neutrale Modell und zurueck. Enthaelt keine
         Guard-Regeln und trifft keine Policy.
@@ -141,18 +143,19 @@ Aktuelle Adapter:
 
 | Adapter | Status | Modul-Pfad |
 |---|---|---|
-| `claude_code` | implementiert | `agentkit.harness_integration.claude_code` (Migration aus `governance.harness_adapters`) |
-| `codex` | implementiert (CLI `agentkit-hook-codex`) | `agentkit.harness_integration.codex` (Migration aus `governance.harness_adapters`) |
+| `claude_code` | implementiert | Soll: `agentkit.harness_integration.claude_code`; aktuell: `agentkit.governance.harness_adapters.claude_code` |
+| `codex` | implementiert (CLI `agentkit-hook-codex`) | Soll: `agentkit.harness_integration.codex`; aktuell: `agentkit.governance.harness_adapters.codex` |
 
 Weitere Harnesses (Qwen Code, Gemini-CLI, …) folgen demselben Pattern. Es gibt
 **keine Plugin-Registry** und **keine Capability-Selection-Policy** — jeder
 Adapter ist ein fest verdrahtetes Sub-Modul.
 
 > **Code-Verortung (Hinweis, nicht normativ fuer die Konzept-Sicht):** Die
-> physische Verschiebung von `agentkit.governance.harness_adapters` nach
-> `agentkit.harness_integration` ist kosmetisch (Paketname = BC-Name) und kann
-> als eigene Folge-Story erfolgen. Verbindlich ist die BC-**Zugehoerigkeit**
-> (dieses Doc) und die Importrichtung (§76.9), nicht der Verzeichnisname.
+> reale Code-Verortung ist heute `agentkit.governance.harness_adapters`. Die
+> physische Verschiebung nach `agentkit.harness_integration` ist kosmetisch
+> (Paketname = BC-Name) und kann als eigene Folge-Story erfolgen. Verbindlich
+> ist die BC-**Zugehoerigkeit** (dieses Doc) und die Importrichtung (§76.9),
+> nicht der Verzeichnisname.
 
 ## 76.4 Adapter-Vertrag
 
@@ -309,7 +312,8 @@ FK-76 bleibt eine **duenne** BC (keine „God-Foundation"):
 
 ## 76.9 Importrichtung (normativ)
 
-- `harness_integration` **importiert** harness-neutrale Contracts aus
+- `harness_integration` (aktuell physisch `governance.harness_adapters`)
+  **importiert** harness-neutrale Contracts aus
   `governance` (z. B. `HookDefinition`, `HookEvent`, `GuardVerdict`).
 - `governance` **importiert** `harness_integration` **nicht** im Kern; wo
   `register_hooks` die Settings materialisiert, geschieht das ueber einen

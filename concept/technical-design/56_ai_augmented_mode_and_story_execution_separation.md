@@ -140,6 +140,14 @@ Er ist:
 Damit darf ein stale oder verloren gegangener Session-Zustand nicht als
 vermeintlich persistente Story-Semantik weiterleben.
 
+**Soll-Namespace der Mode-Resolution:** Der BC-Cut und
+`PROJECT_STRUCTURE.md` verorten den `OperatingModeResolver` unter
+`agentkit.story_context_manager.operating_mode_resolver`. Heutige
+Code-Anteile in `governance.guard_evaluation` und `projectedge.runtime`
+sind eine Code-Verzeichnis-Divergenz; die fachliche Richtung bleibt
+`story_context_manager/operating_mode_resolver/`. Die Code-Angleichung
+wird durch AG3-097 gespiegelt.
+
 ## 56.4 Principals im Moduskontext
 
 Der Hauptagent ist nicht immer derselbe technische Principal.

@@ -80,6 +80,9 @@ Enthaelt stabile Projekt-, Story- und Kontextdaten.
 - `story_custom_field_definitions`
 - `story_custom_field_values`
 
+`story_custom_field_definitions` und `story_custom_field_values` sind
+seit AG3-087 im Backend-Schema vorhanden.
+
 ### 18.3.2 Execution
 
 **Owner:** `pipeline_engine`
@@ -89,8 +92,8 @@ Enthaelt die operative Ablaufwahrheit.
 **Tabellen:**
 
 - `flow_executions`
-- `node_executions`
-- `attempt_records`
+- `node_execution_ledgers`
+- `attempts`
 
 ### 18.3.3 Governance
 
@@ -103,6 +106,8 @@ Enthaelt explizite Eingriffe und Entscheidungen.
 - `override_records`
 - `guard_decisions`
 
+`guard_decisions` ist seit AG3-087 im Backend-Schema vorhanden.
+
 ### 18.3.4 Artifacts
 
 **Owner:** `artifact_manager`
@@ -111,7 +116,7 @@ Enthaelt typisierte Artefakt-Referenzen und Provenienz.
 
 **Tabellen:**
 
-- `artifact_records`
+- `artifact_envelopes`
 
 ### 18.3.5 Telemetry
 
@@ -134,8 +139,10 @@ Enthaelt nur rebuildbare Lesemodelle.
 
 **Tabellen:**
 
-- `phase_state_projection`
-- `kpi_projections`
+- `phase_states`
+- `phase_snapshots`
+- `kpi_projections` (offener Code-Bedarf AG3-081/AG3-083; nicht im
+  aktuellen Backend-Schema vorhanden)
 
 ## 18.4 Tabellen pro Entität
 
@@ -147,14 +154,15 @@ Enthaelt nur rebuildbare Lesemodelle.
 | `StoryCustomFieldDefinition` | `story_custom_field_definitions` | kanonisch |
 | `StoryCustomFieldValue` | `story_custom_field_values` | kanonisch |
 | `FlowExecution` | `flow_executions` | kanonisch |
-| `NodeExecution` | `node_executions` | kanonisch |
-| `AttemptRecord` | `attempt_records` | kanonisch append-only |
+| `NodeExecution` | `node_execution_ledgers` | kanonisch |
+| `AttemptRecord` | `attempts` | kanonisch append-only |
 | `OverrideRecord` | `override_records` | kanonisch append-only |
 | `GuardDecision` | `guard_decisions` | kanonisch append-only |
-| `ArtifactRecord` | `artifact_records` | kanonisch |
+| `ArtifactRecord` | `artifact_envelopes` | kanonisch |
 | `ExecutionEvent` | `execution_events` | runtime-nahe Beobachtung und Audit, append-only pro gültiger Umsetzung |
-| `PhaseState` | `phase_state_projection` | Projektion |
-| `KpiProjection` | `kpi_projections` | Projektion |
+| `PhaseState` | `phase_states` | aktuelle Projektion |
+| `PhaseSnapshot` | `phase_snapshots` | abgeschlossene Phasenprojektion |
+| `KpiProjection` | `kpi_projections` | offene Projektion; Code-Bedarf AG3-081/AG3-083 |
 
 ## 18.5 Relationale Leitentscheidung pro Tabelle
 
@@ -164,8 +172,8 @@ Enthaelt nur rebuildbare Lesemodelle.
 - `stories`
 - `story_custom_field_definitions`
 - `flow_executions`
-- `node_executions`
-- `attempt_records`
+- `node_execution_ledgers`
+- `attempts`
 - `override_records`
 - `guard_decisions`
 
@@ -176,7 +184,7 @@ Zeitachsen oder harte Filter-/Join-Felder.
 
 - `story_contexts`
 - `story_custom_field_values`
-- `artifact_records`
+- `artifact_envelopes`
 - `execution_events`
 
 **Grund:** Diese Tabellen enthalten fachlich variable, aber dennoch
@@ -206,14 +214,14 @@ kanonische Payloads wie:
 
 - `flow_executions`:
   Root pro `(project_key, run_id, flow_id)`
-- `node_executions`:
+- `node_execution_ledgers`:
   referenziert `flow_executions` per `(project_key, run_id, flow_id)`
-- `attempt_records`:
+- `attempts`:
   referenziert `flow_executions` per `(project_key, run_id, flow_id)`
 
 ### 18.6.3 Governance / Artifacts / Telemetry
 
-- `override_records`, `guard_decisions`, `artifact_records`,
+- `override_records`, `guard_decisions`, `artifact_envelopes`,
   `execution_events` referenzieren fachlich mindestens:
   `project_key`, `story_id`, `run_id`
 - falls vorhanden zusaetzlich:
@@ -245,8 +253,8 @@ kanonische Payloads wie:
 | Tabelle | Fachlicher Identitätskandidat | Unique-Regeln |
 |---------|-------------------------------|---------------|
 | `flow_executions` | `(project_key, run_id, flow_id)` | pro Run genau ein Flow je `flow_id` |
-| `node_executions` | `(project_key, run_id, flow_id, node_id)` | pro Flow genau ein aktueller Node-Ledger je `node_id` |
-| `attempt_records` | `(project_key, run_id, flow_id, phase, attempt_no)` | `attempt_no` innerhalb von `(run_id, flow_id, phase)` eindeutig |
+| `node_execution_ledgers` | `(project_key, run_id, flow_id, node_id)` | pro Flow genau ein aktueller Node-Ledger je `node_id` |
+| `attempts` | `(project_key, run_id, flow_id, phase, attempt_no)` | `attempt_no` innerhalb von `(run_id, flow_id, phase)` eindeutig |
 
 ### 18.6a.3 Governance / Artifacts / Telemetry
 
@@ -254,15 +262,16 @@ kanonische Payloads wie:
 |---------|-------------------------------|---------------|
 | `override_records` | `(project_key, run_id, flow_id, override_id)` | `override_id` innerhalb des Flow-Kontexts eindeutig |
 | `guard_decisions` | `(project_key, run_id, flow_id, guard_decision_id)` | jede Guard-Entscheidung hat eigene Identität |
-| `artifact_records` | `(project_key, run_id, artifact_id)` | `artifact_id` innerhalb eines Runs eindeutig |
+| `artifact_envelopes` | `(project_key, run_id, artifact_id)` | `artifact_id` innerhalb eines Runs eindeutig |
 | `execution_events` | `(project_key, run_id, event_id)` | `event_id` innerhalb eines Runs eindeutig |
 
 ### 18.6a.4 Read Models
 
 | Tabelle | Fachlicher Identitätskandidat | Unique-Regeln |
 |---------|-------------------------------|---------------|
-| `phase_state_projection` | `(project_key, story_id, run_id)` | genau eine aktuelle Projektion pro Run |
-| `kpi_projections` | `(project_key, projection_key)` | `projection_key` pro Projekt eindeutig |
+| `phase_states` | `(project_key, story_id, run_id)` | genau eine aktuelle Projektion pro Run |
+| `phase_snapshots` | `(project_key, story_id, run_id, phase)` | höchstens ein Snapshot je Run und Phase |
+| `kpi_projections` | `(project_key, projection_key)` | Zielregel fuer AG3-081/AG3-083; `projection_key` pro Projekt eindeutig |
 
 ## 18.6b Mutierbarkeit und Lebenszyklusregeln
 
@@ -274,21 +283,22 @@ kanonische Payloads wie:
 | `story_custom_field_definitions` | selten update-fähig | Definitionen ändern sich kontrolliert |
 | `story_custom_field_values` | update-fähig | aktueller Feldwert wird überschrieben |
 | `flow_executions` | update-fähig | laufender Zustand mutiert bis terminal |
-| `node_executions` | update-fähig | Ledger je Node wird fortgeschrieben |
-| `attempt_records` | append-only | nach dem Schreiben keine fachliche Mutation |
+| `node_execution_ledgers` | update-fähig | Ledger je Node wird fortgeschrieben |
+| `attempts` | append-only | nach dem Schreiben keine fachliche Mutation |
 | `override_records` | append-mostly | nur `consumed_at` darf nachträglich gesetzt werden |
 | `guard_decisions` | append-only | Entscheidung ist nach Persistenz unveränderlich |
-| `artifact_records` | update-fähig | Status/Integrity/Freeze dürfen fortgeschrieben werden |
+| `artifact_envelopes` | update-fähig | Status/Integrity/Freeze dürfen fortgeschrieben werden |
 | `execution_events` | append-only innerhalb eines Runs | Event darf nach Persistenz nicht verändert werden, wird aber bei vollständigem Story-Reset physisch gelöscht |
-| `phase_state_projection` | replace/update | vollständig rebuildbar |
-| `kpi_projections` | replace/update | vollständig rebuildbar |
+| `phase_states` | replace/update | vollständig rebuildbar |
+| `phase_snapshots` | replace/update | vollständig rebuildbar |
+| `kpi_projections` | replace/update | Zielregel fuer AG3-081/AG3-083; vollständig rebuildbar |
 
 ## 18.6c Append-only-Regeln
 
 Die folgenden Tabellen sind fachlich append-only und dürfen nach
 Persistenz nicht inhaltlich umgeschrieben werden:
 
-- `attempt_records`
+- `attempts`
 - `guard_decisions`
 
 Sonderfall:
@@ -308,11 +318,11 @@ folgender Richtung:
 - `stories` → `story_contexts`
 - `stories` → `story_custom_field_values`
 - `stories` → `flow_executions`
-- `flow_executions` → `node_executions`
-- `flow_executions` → `attempt_records`
+- `flow_executions` → `node_execution_ledgers`
+- `flow_executions` → `attempts`
 - `flow_executions` → `override_records`
 - `flow_executions` → `guard_decisions`
-- `flow_executions` → `artifact_records`
+- `flow_executions` → `artifact_envelopes`
 - `flow_executions` → `execution_events`
 
 **Regel:** Projektionstabellen zeigen fachlich nach unten auf
@@ -335,8 +345,8 @@ kanonische Tabellen, nie umgekehrt.
 | Tabelle | Pflichtspalten |
 |---------|----------------|
 | `flow_executions` | `project_key`, `story_id`, `run_id`, `flow_id`, `flow_level`, `owner_component`, `status`, `attempt_no`, `started_at` |
-| `node_executions` | `project_key`, `story_id`, `run_id`, `flow_id`, `node_id`, `attempt_no`, `outcome`, `started_at` |
-| `attempt_records` | `project_key`, `story_id`, `run_id`, `flow_id`, `phase`, `attempt_no`, `outcome`, `started_at`, `ended_at` |
+| `node_execution_ledgers` | `project_key`, `story_id`, `run_id`, `flow_id`, `node_id`, `attempt_no`, `outcome`, `started_at` |
+| `attempts` | `project_key`, `story_id`, `run_id`, `flow_id`, `phase`, `attempt_no`, `outcome`, `started_at`, `ended_at` |
 
 ### 18.6e.3 Governance
 
@@ -349,7 +359,7 @@ kanonische Tabellen, nie umgekehrt.
 
 | Tabelle | Pflichtspalten |
 |---------|----------------|
-| `artifact_records` | `project_key`, `story_id`, `run_id`, `artifact_id`, `artifact_class`, `artifact_kind`, `artifact_format`, `artifact_status`, `produced_in_phase`, `producer_component`, `producer_trust`, `protection_level`, `frozen`, `integrity_verified`, `created_at`, `storage_ref` |
+| `artifact_envelopes` | `project_key`, `story_id`, `run_id`, `artifact_id`, `artifact_class`, `artifact_kind`, `artifact_format`, `artifact_status`, `produced_in_phase`, `producer_component`, `producer_trust`, `protection_level`, `frozen`, `integrity_verified`, `created_at`, `storage_ref` |
 
 ### 18.6e.5 Telemetry
 
@@ -361,8 +371,9 @@ kanonische Tabellen, nie umgekehrt.
 
 | Tabelle | Pflichtspalten |
 |---------|----------------|
-| `phase_state_projection` | `project_key`, `story_id`, `run_id`, `phase`, `status`, `updated_at` |
-| `kpi_projections` | `project_key`, `projection_key`, `metric_name`, `metric_value`, `computed_at` |
+| `phase_states` | `project_key`, `story_id`, `run_id`, `phase`, `status`, `updated_at` |
+| `phase_snapshots` | `project_key`, `story_id`, `run_id`, `phase`, `status`, `completed_at` |
+| `kpi_projections` | `project_key`, `projection_key`, `metric_name`, `metric_value`, `computed_at` (Zielspalten fuer AG3-081/AG3-083) |
 
 ## 18.6f Optionale Spalten nach Fachregel
 
@@ -375,17 +386,17 @@ gesetzt und deshalb logisch optional:
 | `story_contexts` | `scope_keys`, `concept_refs`, `guardrail_refs`, `external_sources`, `related_story_ids`, `story_semantics` | nur wenn Setup/Exploration diese Daten liefert |
 | `story_custom_field_values` | `value`, `value_status`, `last_synced_at`, `last_written_by`, `last_sync_attempt_at` | nur wenn Feld belegt oder Sync stattgefunden hat |
 | `flow_executions` | `current_node_id`, `finished_at` | nur im Lauf oder nach terminalem Abschluss |
-| `node_executions` | `finished_at`, `resume_trigger`, `backtrack_target` | nur bei Abschluss/Yield/Ruecksprung |
-| `attempt_records` | `failure_cause` | nur bei nicht erfolgreichem Outcome |
+| `node_execution_ledgers` | `finished_at`, `resume_trigger`, `backtrack_target` | nur bei Abschluss/Yield/Ruecksprung |
+| `attempts` | `failure_cause` | nur bei nicht erfolgreichem Outcome |
 | `override_records` | `target_node_id`, `consumed_at` | knotenspezifisch bzw. nach Konsum |
 | `guard_decisions` | `node_id`, `reason`, `evidence_ref` | falls nodebezogen oder begruendet/evidenzgestuetzt |
-| `artifact_records` | `attempt_no`, `qa_cycle_id`, `qa_cycle_round`, `evidence_epoch`, `finished_at` | nur fuer QA-/attemptgebundene Artefakte |
+| `artifact_envelopes` | `attempt_no`, `qa_cycle_id`, `qa_cycle_round`, `evidence_epoch`, `finished_at` | nur fuer QA-/attemptgebundene Artefakte |
 | `execution_events` | `flow_id`, `node_id`, `event_payload_ref` | nur wenn Event fachlich darauf bezogen ist |
-| `kpi_projections` | `window_start`, `window_end` | nur bei fensterbezogenen Kennzahlen |
+| `kpi_projections` | `window_start`, `window_end` | Zielspalten fuer AG3-081/AG3-083; nur bei fensterbezogenen Kennzahlen |
 
 ## 18.7 Projektionen
 
-### 18.7.1 `phase_state_projection`
+### 18.7.1 `phase_states` und `phase_snapshots`
 
 Lesemodell fuer:
 
@@ -396,6 +407,10 @@ Lesemodell fuer:
 **Regel:** Kein Single Source of Truth.
 
 ### 18.7.2 `kpi_projections`
+
+`kpi_projections` ist als Read-Model fachlich vorgesehen, aber im
+aktuellen Backend-Schema noch nicht vorhanden. Umsetzung und Schema-Owner
+liegen bei AG3-081/AG3-083.
 
 Lesemodell fuer:
 
@@ -580,8 +595,8 @@ Migrationen einfacher und bleibt näher am fachlichen Modell.
 | Tabelle | Primärschlüssel |
 |---------|-----------------|
 | `flow_executions` | `(project_key, run_id, flow_id)` |
-| `node_executions` | `(project_key, run_id, flow_id, node_id)` |
-| `attempt_records` | `(project_key, run_id, flow_id, phase, attempt_no)` |
+| `node_execution_ledgers` | `(project_key, run_id, flow_id, node_id)` |
+| `attempts` | `(project_key, run_id, flow_id, phase, attempt_no)` |
 
 ### 18.12.3 Governance / Artifacts / Telemetry
 
@@ -589,15 +604,16 @@ Migrationen einfacher und bleibt näher am fachlichen Modell.
 |---------|-----------------|
 | `override_records` | `(project_key, run_id, flow_id, override_id)` |
 | `guard_decisions` | `(project_key, run_id, flow_id, guard_decision_id)` |
-| `artifact_records` | `(project_key, run_id, artifact_id)` |
+| `artifact_envelopes` | `(project_key, run_id, artifact_id)` |
 | `execution_events` | `(project_key, run_id, event_id)` |
 
 ### 18.12.4 Read Models
 
 | Tabelle | Primärschlüssel |
 |---------|-----------------|
-| `phase_state_projection` | `(project_key, story_id, run_id)` |
-| `kpi_projections` | `(project_key, projection_key)` |
+| `phase_states` | `(project_key, story_id, run_id)` |
+| `phase_snapshots` | `(project_key, story_id, run_id, phase)` |
+| `kpi_projections` | `(project_key, projection_key)` (Zielregel fuer AG3-081/AG3-083) |
 
 ## 18.13 Fremdschlüssel
 
@@ -612,13 +628,13 @@ modelliert.
 | `story_custom_field_values` | `stories(project_key, story_display_id)` |
 | `story_custom_field_values` | `story_custom_field_definitions(project_key, field_key)` |
 | `flow_executions` | `stories(project_key, story_display_id)` |
-| `node_executions` | `flow_executions(project_key, run_id, flow_id)` |
-| `attempt_records` | `flow_executions(project_key, run_id, flow_id)` |
+| `node_execution_ledgers` | `flow_executions(project_key, run_id, flow_id)` |
+| `attempts` | `flow_executions(project_key, run_id, flow_id)` |
 | `override_records` | `flow_executions(project_key, run_id, flow_id)` |
 | `guard_decisions` | `flow_executions(project_key, run_id, flow_id)` |
-| `artifact_records` | `flow_executions(project_key, run_id, flow_id)` |
+| `artifact_envelopes` | `flow_executions(project_key, run_id, flow_id)` |
 | `execution_events` | `flow_executions(project_key, run_id, flow_id)` nur wenn `flow_id` gesetzt ist |
-| `phase_state_projection` | `flow_executions(project_key, run_id, flow_id)` fachlich indirekt; technisch auch nur über `(project_key, story_id, run_id)` zulässig |
+| `phase_states` | `flow_executions(project_key, run_id, flow_id)` fachlich indirekt; technisch auch nur über `(project_key, story_id, run_id)` zulässig |
 
 **Regel:** Für optionale Beziehungen wie `execution_events.flow_id` oder
 `node_id` sind nullable FK-Pfade zulässig. Ein Event muss nicht immer
@@ -648,14 +664,15 @@ projektgescopte Edge kann keine Endpunkte aus einem anderen Projekt binden.
 | `stories` | Lookup nach `project_key, status` |
 | `story_custom_field_values` | Lookup nach `project_key, field_key` |
 | `flow_executions` | Lookup nach `project_key, story_id`; Lookup nach `project_key, status` |
-| `node_executions` | Lookup nach `project_key, run_id, flow_id`; Lookup nach `project_key, story_id` |
-| `attempt_records` | Lookup nach `project_key, story_id`; Zeitachsen-Lookup nach `started_at` |
+| `node_execution_ledgers` | Lookup nach `project_key, run_id, flow_id`; Lookup nach `project_key, story_id` |
+| `attempts` | Lookup nach `project_key, story_id`; Zeitachsen-Lookup nach `started_at` |
 | `override_records` | offene Overrides nach `project_key, run_id, flow_id, consumed_at` |
 | `guard_decisions` | Lookup nach `project_key, guard_key, decided_at` |
-| `artifact_records` | Lookup nach `project_key, story_id`; Lookup nach `project_key, artifact_kind`; Lookup nach `project_key, run_id` |
+| `artifact_envelopes` | Lookup nach `project_key, story_id`; Lookup nach `project_key, artifact_kind`; Lookup nach `project_key, run_id` |
 | `execution_events` | Zeitachsen-Lookup nach `project_key, run_id, occurred_at`; Lookup nach `project_key, event_type`; optional nach `project_key, story_id, occurred_at` |
-| `phase_state_projection` | Lookup nach `project_key, story_id`; Lookup nach `project_key, status` |
-| `kpi_projections` | Lookup nach `project_key, metric_name`; optional Fenster-Lookup |
+| `phase_states` | Lookup nach `project_key, story_id`; Lookup nach `project_key, status` |
+| `phase_snapshots` | Lookup nach `project_key, story_id`; Lookup nach `project_key, phase` |
+| `kpi_projections` | Zielindex fuer AG3-081/AG3-083: Lookup nach `project_key, metric_name`; optional Fenster-Lookup |
 
 ### 18.14.2 JSONB-Indizes
 
@@ -664,7 +681,7 @@ regelmäßig gefiltert werden:
 
 - `story_contexts` auf ausgewählte Kontextfelder
 - `story_custom_field_values.value`
-- `artifact_records` auf variable Artefakt-Metadaten, falls nötig
+- `artifact_envelopes` auf variable Artefakt-Metadaten, falls nötig
 - `execution_events` auf Event-Payload nur bei nachgewiesenem Bedarf
 
 **Regel:** JSONB wird nicht reflexartig mit GIN indiziert. Erst
@@ -689,7 +706,7 @@ Die folgenden Regeln sind als Datenbank-Constraints abzubilden:
 ### 18.15.3 Zeitregeln
 
 - `finished_at >= started_at`, falls `finished_at` gesetzt ist
-- `ended_at >= started_at` bei `attempt_records`
+- `ended_at >= started_at` bei `attempts`
 - `consumed_at >= created_at`, falls `consumed_at` gesetzt ist
 - `last_refreshed_at >= created_at` bei `story_contexts`
 
@@ -702,8 +719,8 @@ Wertemengen aus FK-17 zu definieren:
 - `registration_status`
 - `story_type`
 - `mode`
-- `status`-Spalten in `stories`, `flow_executions`, `phase_state_projection`
-- `outcome`-Spalten in `node_executions`, `attempt_records`, `guard_decisions`
+- `status`-Spalten in `stories`, `flow_executions`, `phase_states`
+- `outcome`-Spalten in `node_execution_ledgers`, `attempts`, `guard_decisions`
 - `override_type`
 - `actor_type`
 - `artifact_status`
@@ -722,13 +739,14 @@ Runtime-Daten physisch. Die relationale Abbildung muss diesen Reset
 Pflichtumfang des Reset:
 
 - `flow_executions`
-- `node_executions`
-- `attempt_records`
+- `node_execution_ledgers`
+- `attempts`
 - `override_records`
 - `guard_decisions`
-- umsetzungsbezogene `artifact_records`
+- umsetzungsbezogene `artifact_envelopes`
 - `execution_events`
-- `phase_state_projection`
+- `phase_states`
+- `phase_snapshots`
 
 **Normative Regel:** Nach Reset darf kein verbliebener Datensatz aus
 diesen Tabellen den neuen Story-Start blockieren oder Guards/Detectoren
@@ -759,9 +777,10 @@ separater Export-/Archivpfad.
 
 ### 18.16.4 Projektionen
 
-`phase_state_projection` und `kpi_projections` dürfen jederzeit aus den
-kanonischen Daten neu aufgebaut werden. `phase_state_projection` wird
-beim vollständigen Story-Reset immer mit entfernt.
+`phase_states` und `phase_snapshots` dürfen jederzeit aus den kanonischen
+Daten neu aufgebaut werden. Beide werden beim vollständigen Story-Reset
+immer mit entfernt. `kpi_projections` ist weiterhin offener Code-Bedarf
+fuer AG3-081/AG3-083 und wird hier nur als Ziel-Read-Model benannt.
 
 ### 18.16.5 Retention
 
