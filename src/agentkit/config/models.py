@@ -26,6 +26,7 @@ from agentkit.config.defaults import (
     DEFAULT_STORY_TYPES,
     DEFAULT_VERIFY_LAYERS,
 )
+from agentkit.config.worker_health import WorkerHealthConfig
 
 #: The single supported ``config_version`` value for ``project.yaml``.
 #: FK-03 §3.2.1 / §3.3.4: pipeline-config versioning area (separate from
@@ -729,6 +730,8 @@ class ProjectConfig(BaseModel):
         github_owner: GitHub organisation or user owning the repo.
         github_repo: GitHub repository name.
         policy: Top-level verify-stage overrides (FK-33 §33.2.4).
+        worker_health: Mandatory worker-health monitor configuration (FK-49).
+            There is no disable field; the monitor is part of the runtime.
     """
 
     model_config = ConfigDict(strict=True, extra="forbid")
@@ -743,6 +746,7 @@ class ProjectConfig(BaseModel):
     github_owner: str | None = None
     github_repo: str | None = None
     are: AreConfig | None = None
+    worker_health: WorkerHealthConfig = WorkerHealthConfig()
 
     @model_validator(mode="after")
     def _validate_stage_overrides_known(self) -> ProjectConfig:

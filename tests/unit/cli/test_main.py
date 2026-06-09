@@ -91,6 +91,32 @@ class TestCLIMain:
         with pytest.raises(SystemExit):
             main(["exit-story", "--story", "AG3-073"])
 
+    def test_watch_worker_command_dispatches(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_watch_worker(args: SimpleNamespace) -> int:
+            captured["story_id"] = args.story_id
+            captured["project_root"] = args.project_root
+            return 0
+
+        monkeypatch.setattr("agentkit.cli.main._cmd_watch_worker", fake_watch_worker)
+
+        exit_code = main([
+            "watch-worker",
+            "AG3-080",
+            "--project-root",
+            "T:/codebase/claude-agentkit3",
+        ])
+
+        assert exit_code == 0
+        assert captured == {
+            "story_id": "AG3-080",
+            "project_root": "T:/codebase/claude-agentkit3",
+        }
+
     @pytest.mark.skipif(
         not _LINKS_AVAILABLE,
         reason="Filesystem supports neither symlinks nor directory junctions",

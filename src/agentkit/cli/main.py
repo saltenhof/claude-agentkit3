@@ -131,6 +131,15 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument(
         "--project-root", required=True, help="Target project root",
     )
+    watch_worker_parser = subparsers.add_parser(
+        "watch-worker", help="Run the worker-health LLM assessment sidecar",
+    )
+    watch_worker_parser.add_argument("story_id", help="Story ID to watch")
+    watch_worker_parser.add_argument(
+        "--project-root",
+        default=".",
+        help="Project root containing the AgentKit state backend",
+    )
     exit_parser = subparsers.add_parser(
         "exit-story", help="Administratively exit a bound story run",
     )
@@ -184,6 +193,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_uninstall(args)
     if args.command == "run-story":
         return _cmd_run_story(args)
+    if args.command == "watch-worker":
+        return _cmd_watch_worker(args)
     if args.command == "exit-story":
         return _cmd_exit_story(args, argv or sys.argv[1:])
     if args.command == "doctor":
@@ -377,6 +388,25 @@ def _cmd_run_story(args: argparse.Namespace) -> int:
     )
     print("Note: Full pipeline execution pending phase handler implementation")
     return 0
+
+
+def _cmd_watch_worker(args: argparse.Namespace) -> int:
+    """Handle ``agentkit watch-worker`` sidecar command."""
+
+    from pathlib import Path
+
+    from agentkit.implementation.worker_health.sidecar import (
+        run_worker_health_sidecar,
+    )
+
+    try:
+        return run_worker_health_sidecar(
+            args.story_id,
+            project_root=Path(args.project_root),
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"watch-worker failed: {exc}", file=sys.stderr)
+        return 1
 
 
 def _cmd_exit_story(args: argparse.Namespace, cli_args: list[str]) -> int:

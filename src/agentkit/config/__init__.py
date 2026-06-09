@@ -36,6 +36,7 @@ from agentkit.config.models import (
     TelemetryConfig,
     VectorDbConfig,
 )
+from agentkit.config.worker_health import WorkerHealthConfig
 
 __all__ = [
     "AreConfig",
@@ -60,6 +61,7 @@ __all__ = [
     "StageOverrideConfig",
     "TelemetryConfig",
     "VectorDbConfig",
+    "WorkerHealthConfig",
     "find_project_root",
     "load_project_config",
 ]

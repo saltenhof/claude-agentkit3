@@ -8,6 +8,7 @@ information is collected.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -561,6 +562,8 @@ def run_hook(
     if invalid is not None:
         return invalid
     if phase == "post":
+        if hook_id == "health_monitor":
+            return _run_health_monitor_post(event, project_root=project_root or Path.cwd())
         # AG3-036 (FK-68 §68.3.1) FIX-1: the double-role ReviewGuard and the
         # BudgetEventEmitter no longer live in the post phase — a PostToolUse
         # DENY cannot block an action that already ran (fail-open). They are now
@@ -592,6 +595,8 @@ def run_hook(
         return _run_budget_event_emitter(
             event, project_root=project_root or Path.cwd()
         )
+    if hook_id == "health_monitor":
+        return _run_health_monitor_pre(event, project_root=project_root or Path.cwd())
 
     # AG3-033 (governance-and-guards.C5): two hooks now own dedicated guard
     # modules instead of the pauschal `evaluate_pre_tool_use` dispatch. They run
@@ -614,6 +619,83 @@ def run_hook(
     from agentkit.governance.guard_evaluation import evaluate_pre_tool_use
 
     return evaluate_pre_tool_use(event, project_root=project_root or Path.cwd())
+
+
+def _run_health_monitor_post(event: HookEvent, *, project_root: Path) -> HookDecision:
+    """Dispatch the PostToolUse health monitor."""
+
+    story_id = _health_story_id(event)
+    if story_id == "":
+        return GuardVerdict.allow("health_monitor")
+    if event.post_tool_outcome is None:
+        return GuardVerdict.allow("health_monitor")
+    from agentkit.implementation.worker_health import PostToolOutcome, apply_post_tool_use
+    from agentkit.state_backend.store.worker_health_repository import (
+        StateBackendWorkerHealthRepository,
+    )
+
+    outcome = PostToolOutcome.model_validate(event.post_tool_outcome)
+    repository = StateBackendWorkerHealthRepository(project_root)
+    apply_post_tool_use(
+        event=event,
+        outcome=outcome,
+        repository=repository,
+        project_root=project_root,
+        story_id=story_id,
+        worker_id=_health_worker_id(event),
+    )
+    return GuardVerdict.allow("health_monitor")
+
+
+def _run_health_monitor_pre(event: HookEvent, *, project_root: Path) -> HookDecision:
+    """Dispatch the PreToolUse health intervention gate."""
+
+    story_id = _health_story_id(event)
+    if story_id == "":
+        return GuardVerdict.allow("health_monitor")
+    from agentkit.implementation.worker_health.interventions import (
+        intervention_decision_result,
+    )
+    from agentkit.state_backend.store.worker_health_repository import (
+        StateBackendWorkerHealthRepository,
+    )
+
+    repository = StateBackendWorkerHealthRepository(project_root)
+    state = repository.load(story_id=story_id, worker_id=_health_worker_id(event))
+    if state is None:
+        return GuardVerdict.allow("health_monitor")
+    result = intervention_decision_result(state)
+    repository.save(result.state)
+    if result.exit_code == 0:
+        return GuardVerdict.allow("health_monitor")
+    return GuardVerdict.block(
+        "health_monitor",
+        ViolationType.POLICY_VIOLATION,
+        result.message,
+        detail={
+            "story_id": state.story_id,
+            "worker_id": state.worker_id,
+            "score": state.total_score,
+        },
+    )
+
+
+def _health_story_id(event: HookEvent) -> str:
+    value = event.operation_args.get("story_id")
+    if isinstance(value, str) and value:
+        return value
+    return os.environ.get("AGENTKIT_STORY_ID", "")
+
+
+def _health_worker_id(event: HookEvent) -> str:
+    value = event.operation_args.get("worker_id")
+    if isinstance(value, str) and value:
+        return value
+    return (
+        os.environ.get("AGENTKIT_WORKER_ID", "")
+        or event.session_id
+        or "worker"
+    )
 
 
 def _run_review_guard(event: HookEvent, *, project_root: Path) -> HookDecision:
@@ -1476,4 +1558,3 @@ __all__ = [
 
 # DeactivationResult and LockRecordId are imported at the top of the file
 # and live in governance.locks; re-exported here for convenience.
-

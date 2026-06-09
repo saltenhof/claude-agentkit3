@@ -52,6 +52,9 @@ class HookEvent(BaseModel):
     parent_session_id: str | None = None
     cli_args: list[str] | None = None
     principal_kind: PrincipalKind = "main"
+    # Harness-neutral PostToolUse outcome payload. Harness-specific adapters own
+    # filling it; the worker-health engine validates it against PostToolOutcome.
+    post_tool_outcome: dict[str, object] | None = None
 
     @model_validator(mode="before")
     @classmethod
