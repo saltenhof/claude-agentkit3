@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from pydantic import ValidationError
 
-from agentkit.story_context_manager.models import ImplementationPayload
+from agentkit.pipeline_engine.phase_executor import ImplementationPayload
 
 _VALID_QA_CYCLE_ID = "a1b2c3d4e5f6"  # 12 lowercase hex chars
 _VALID_SHA256 = "a" * 64  # 64 lowercase hex chars

@@ -12,6 +12,7 @@ import subprocess
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.phase_state_factory import make_phase_state
 
 from agentkit.artifacts import ArtifactReference
 from agentkit.bootstrap.composition_root import build_artifact_manager
@@ -27,6 +28,9 @@ from agentkit.phase_state_store.models import FlowExecution
 from agentkit.pipeline_engine.engine import PipelineEngine
 from agentkit.pipeline_engine.lifecycle import PhaseHandlerRegistry
 from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.pipeline_engine.phase_executor import (
+    PhaseStatus,
+)
 from agentkit.process.language.definitions import IMPLEMENTATION_WORKFLOW
 from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.state_backend.store import (
@@ -35,11 +39,7 @@ from agentkit.state_backend.store import (
     save_flow_execution,
     save_story_context,
 )
-from agentkit.story_context_manager.models import (
-    PhaseState,
-    PhaseStatus,
-    StoryContext,
-)
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 from agentkit.verify_system.adversarial_orchestrator.challenger import (
     AdversarialChallenger,
@@ -125,7 +125,7 @@ def test_layer2_findings_to_agents_to_spawn(tmp_path: Path) -> None:
     assert is_adversarial_sandbox_path(rel)
 
     # agents_to_spawn is written into the PhaseState (FK-45 §45.3).
-    state = PhaseState(
+    state = make_phase_state(
         story_id="AG3-044", phase="implementation", status=PhaseStatus.IN_PROGRESS
     )
     updated = request.apply_to_state(state)
@@ -266,7 +266,7 @@ def test_real_qa_subflow_layer2_blocking_to_agents_to_spawn(tmp_path: Path) -> N
     assert envelope.payload["sandbox_path"].startswith("_temp/adversarial/")
 
     # The spawn order writes into PhaseState.agents_to_spawn (FK-45 §45.3).
-    state = PhaseState(
+    state = make_phase_state(
         story_id="AG3-044", phase="implementation", status=PhaseStatus.IN_PROGRESS
     )
     updated = state.model_copy(update={"agents_to_spawn": list(outcome.adversarial_spawn)})
@@ -414,7 +414,7 @@ def test_engine_persists_remediation_and_adversarial_spawn(tmp_path: Path) -> No
     registry.register("implementation", ImplementationPhaseHandler(config))
     engine = PipelineEngine(IMPLEMENTATION_WORKFLOW, registry, story_dir)
 
-    state = PhaseState(
+    state = make_phase_state(
         story_id="AG3-044", phase="implementation", status=PhaseStatus.IN_PROGRESS
     )
     envelope = PhaseEnvelopeStore.make_fresh_envelope(state)

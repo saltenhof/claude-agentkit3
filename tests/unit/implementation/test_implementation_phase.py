@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.phase_state_factory import make_phase_state
 
 from agentkit.artifacts import ArtifactEnvelope, ArtifactManager, ArtifactReference
 from agentkit.core_types import PolicyVerdict, QaContext
@@ -19,6 +20,11 @@ from agentkit.installer.paths import qa_story_dir
 from agentkit.phase_state_store.models import FlowExecution
 from agentkit.pipeline_engine.lifecycle import PhaseHandler
 from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.pipeline_engine.phase_executor import (
+    PhaseSnapshot,
+    PhaseState,
+    PhaseStatus,
+)
 from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.state_backend.store import (
     reset_backend_cache_for_tests,
@@ -26,12 +32,7 @@ from agentkit.state_backend.store import (
     save_phase_snapshot,
     save_story_context,
 )
-from agentkit.story_context_manager.models import (
-    PhaseSnapshot,
-    PhaseState,
-    PhaseStatus,
-    StoryContext,
-)
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType, get_profile
 from agentkit.verify_system.contract import QaSubflowOutcome, VerifyContextBundle
 from agentkit.verify_system.policy_engine.engine import PolicyEngine
@@ -285,7 +286,7 @@ def _make_context(
 
 def _make_state(review_round: int = 0) -> PhaseState:
     """Build a minimal PhaseState for the implementation phase."""
-    return PhaseState(
+    return make_phase_state(
         story_id="TEST-001",
         phase="implementation",
         status=PhaseStatus.IN_PROGRESS,
@@ -445,7 +446,7 @@ class TestImplementationPhaseHandler:
         result = handler.on_enter(ctx, _make_envelope(state))
         assert result.status == PhaseStatus.COMPLETED
         payload = result.updated_state.payload
-        from agentkit.story_context_manager.models import ImplementationPayload
+        from agentkit.pipeline_engine.phase_executor import ImplementationPayload
 
         assert isinstance(payload, ImplementationPayload)
         assert payload.qa_cycle_id is not None

@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.phase_state_factory import make_phase_state
 
 from agentkit.core_types import (
     PolicyVerdict,
@@ -30,6 +31,10 @@ from agentkit.phase_state_store.models import FlowExecution
 from agentkit.pipeline_engine.engine import PipelineEngine
 from agentkit.pipeline_engine.lifecycle import HandlerResult, PhaseHandlerRegistry
 from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.pipeline_engine.phase_executor import (
+    PhaseStatus,
+    QaCycleStatus,
+)
 from agentkit.process.language.definitions import IMPLEMENTATION_WORKFLOW
 from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.state_backend.store import (
@@ -38,12 +43,7 @@ from agentkit.state_backend.store import (
     save_flow_execution,
     save_story_context,
 )
-from agentkit.story_context_manager.models import (
-    PhaseState,
-    PhaseStatus,
-    QaCycleStatus,
-    StoryContext,
-)
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 from agentkit.verify_system.contract import QaSubflowOutcome
 from agentkit.verify_system.policy_engine.engine import PolicyEngine
@@ -165,7 +165,7 @@ def test_qa_fail_below_ceiling_sets_remediation_spawn(tmp_path: Path) -> None:
         verify_system=_FailVerifySystem(),  # type: ignore[arg-type]
     )
     handler = ImplementationPhaseHandler(config)
-    state = PhaseState(
+    state = make_phase_state(
         story_id="AG3-044", phase="implementation", status=PhaseStatus.IN_PROGRESS
     )
     envelope = PhaseEnvelopeStore.make_fresh_envelope(state)
@@ -239,7 +239,7 @@ def test_engine_persists_agents_to_spawn_and_yields_without_transition(
     registry.register("implementation", _ReentryHandler())
     engine = PipelineEngine(workflow, registry, story_dir)
 
-    state = PhaseState(
+    state = make_phase_state(
         story_id="AG3-044", phase="implementation", status=PhaseStatus.IN_PROGRESS
     )
     envelope = PhaseEnvelopeStore.make_fresh_envelope(state)

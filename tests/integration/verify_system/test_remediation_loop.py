@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING
 
 from agentkit.artifacts import ArtifactEnvelope, ArtifactManager, ArtifactReference
 from agentkit.core_types import ArtifactClass, PolicyVerdict, QaContext
+from agentkit.story_context_manager.types import StoryType
 from agentkit.verify_system import VerifyContextBundle, VerifySystem
 from agentkit.verify_system.contract import PhaseEnvelopeView
 from agentkit.verify_system.policy_engine.engine import PolicyEngine
@@ -39,12 +40,22 @@ from agentkit.verify_system.qa_cycle.invalidation import (
 )
 from agentkit.verify_system.qa_cycle.lifecycle import QaCycleLifecycle
 from agentkit.verify_system.remediation.loop_counter import RemediationLoopController
+from agentkit.verify_system.stage_registry import StageRegistry
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 _STORY_ID = "AG3-041"
 _MAX_ROUNDS = 3
+_STRUCTURAL_STAGE_METADATA = {
+    "stage_ids": tuple(
+        stage.stage_id
+        for stage in StageRegistry().layer1_stages_for(
+            StoryType.IMPLEMENTATION, are_enabled=False
+        )
+    )
+    + ("sonarqube_gate",)
+}
 
 
 def _git(args: list[str], cwd: Path) -> None:
@@ -80,7 +91,14 @@ class _ConfigurableLayer:
         self, ctx: object, story_dir: Path, *, review_input: object = None
     ) -> LayerResult:  # noqa: ARG002
         if not self._fail:
-            return LayerResult(layer=self._name, passed=True, findings=())
+            return LayerResult(
+                layer=self._name,
+                passed=True,
+                findings=(),
+                metadata=(
+                    _STRUCTURAL_STAGE_METADATA if self._name == "structural" else {}
+                ),
+            )
         finding = Finding(
             layer=self._name,
             check="always_fails",
@@ -88,7 +106,14 @@ class _ConfigurableLayer:
             message="seeded failure",
             trust_class=TrustClass.SYSTEM,
         )
-        return LayerResult(layer=self._name, passed=False, findings=(finding,))
+        return LayerResult(
+            layer=self._name,
+            passed=False,
+            findings=(finding,),
+            metadata=(
+                _STRUCTURAL_STAGE_METADATA if self._name == "structural" else {}
+            ),
+        )
 
 
 class _SeveritySwitchLayer:
@@ -125,6 +150,9 @@ class _SeveritySwitchLayer:
             layer=self._name,
             passed=self._severity is not Severity.BLOCKING,
             findings=(finding,),
+            metadata=(
+                _STRUCTURAL_STAGE_METADATA if self._name == "structural" else {}
+            ),
         )
 
 

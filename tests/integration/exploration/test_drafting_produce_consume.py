@@ -26,6 +26,7 @@ from tests.exploration_worker_result_fixture import (
     ReplayExplorationWorkerRunner,
     recorded_worker_payload,
 )
+from tests.phase_state_factory import make_phase_state
 
 from agentkit.bootstrap.composition_root import (
     build_artifact_manager,
@@ -45,6 +46,10 @@ from agentkit.exploration.phase import _NO_CHANGE_FRAME_MESSAGE
 from agentkit.installer.paths import resolve_qa_story_dir
 from agentkit.phase_state_store.models import FlowExecution
 from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.pipeline_engine.phase_executor import (
+    ExplorationPayload,
+    PhaseStatus,
+)
 from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.state_backend.store import (
     reset_backend_cache_for_tests,
@@ -54,12 +59,7 @@ from agentkit.state_backend.store import (
 from agentkit.state_backend.store.exploration_change_frame_repository import (
     StateBackendExplorationChangeFrameAdapter,
 )
-from agentkit.story_context_manager.models import (
-    ExplorationPayload,
-    PhaseState,
-    PhaseStatus,
-    StoryContext,
-)
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
@@ -115,7 +115,7 @@ def _bind_flow(story_dir: Path) -> None:
 
 def _envelope() -> object:
     return PhaseEnvelopeStore.make_fresh_envelope(
-        PhaseState(
+        make_phase_state(
             story_id=_STORY_ID,
             phase="exploration",
             status=PhaseStatus.IN_PROGRESS,

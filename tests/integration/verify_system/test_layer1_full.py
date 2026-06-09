@@ -16,15 +16,16 @@ from typing import TYPE_CHECKING
 import pytest
 
 from agentkit.core_types import PolicyVerdict
-from agentkit.state_backend.store import save_phase_snapshot, save_story_context
-from agentkit.story_context_manager.models import (
+from agentkit.pipeline_engine.phase_executor import (
     PhaseSnapshot,
     PhaseStatus,
-    StoryContext,
 )
+from agentkit.state_backend.store import save_phase_snapshot, save_story_context
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.story_model import ChangeImpact
 from agentkit.story_context_manager.types import StoryMode, StoryType, get_profile
 from agentkit.verify_system.policy_engine.engine import PolicyEngine
+from agentkit.verify_system.protocols import LayerResult
 from agentkit.verify_system.stage_registry import StageRegistry
 from agentkit.verify_system.structural.checker import StructuralChecker
 from agentkit.verify_system.structural.checks import BuildTestEvidence
@@ -128,6 +129,10 @@ _GREEN_BT = _Bt(
 )
 
 
+def _sonarqube_gate_pass() -> LayerResult:
+    return LayerResult(layer="sonarqube_gate", passed=True, findings=())
+
+
 def _simulate_story_dir(tmp_path: Path, *, declared: str) -> Path:
     story_dir = tmp_path / "stories" / _STORY_ID
     story_dir.mkdir(parents=True, exist_ok=True)
@@ -197,7 +202,9 @@ def test_clean_story_layer1_pass_and_policy_pass(tmp_path: Path) -> None:
     assert layer1.passed is True, [f.check + ":" + f.message for f in layer1.findings]
 
     decision = PolicyEngine().decide(
-        [layer1], story_type=ctx.story_type, max_layer_reached=1
+        [layer1, _sonarqube_gate_pass()],
+        story_type=ctx.story_type,
+        max_layer_reached=1,
     )
     assert decision.verdict is PolicyVerdict.PASS
 
@@ -211,7 +218,9 @@ def test_broken_blocking_stage_drives_policy_fail(tmp_path: Path) -> None:
     assert layer1.passed is False
 
     decision = PolicyEngine().decide(
-        [layer1], story_type=ctx.story_type, max_layer_reached=1
+        [layer1, _sonarqube_gate_pass()],
+        story_type=ctx.story_type,
+        max_layer_reached=1,
     )
     assert decision.verdict is PolicyVerdict.FAIL
     assert any(f.check == "artifact.protocol" for f in decision.blocking_findings)
@@ -226,7 +235,9 @@ def test_impact_violation_escalates(tmp_path: Path) -> None:
     assert layer1.metadata.get("escalated") is True
 
     decision = PolicyEngine().decide(
-        [layer1], story_type=ctx.story_type, max_layer_reached=1
+        [layer1, _sonarqube_gate_pass()],
+        story_type=ctx.story_type,
+        max_layer_reached=1,
     )
     assert decision.verdict is PolicyVerdict.FAIL
 

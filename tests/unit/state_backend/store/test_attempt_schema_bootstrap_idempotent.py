@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from agentkit.core_types.attempt import AttemptOutcome, FailureCause
+from agentkit.pipeline_engine.phase_executor import PhaseName
 from agentkit.pipeline_engine.phase_executor.records import AttemptRecord
 from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.state_backend.sqlite_store import _connect, state_db_path_for
@@ -23,7 +24,6 @@ from agentkit.state_backend.store import (
     reset_backend_cache_for_tests,
     save_attempt,
 )
-from agentkit.story_context_manager.models import PhaseName
 
 if TYPE_CHECKING:
     from collections.abc import Generator

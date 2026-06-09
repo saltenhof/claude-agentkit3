@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from tests.exploration_change_frame_fixture import EXAMPLE_RUN_ID, example_change_frame
+from tests.phase_state_factory import make_phase_state
 
 from agentkit.core_types import ExplorationGateStatus
 from agentkit.exploration.change_frame import AffectedBuildingBlocks, OpenPoints
@@ -30,12 +31,11 @@ from agentkit.exploration.mandate.scope_detector import ScopeExplosionDetector
 from agentkit.exploration.mandate.telemetry import MandateTelemetry
 from agentkit.exploration.phase import ExplorationConfig, ExplorationPhaseHandler
 from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-from agentkit.story_context_manager.models import (
+from agentkit.pipeline_engine.phase_executor import (
     ExplorationPayload,
-    PhaseState,
     PhaseStatus,
-    StoryContext,
 )
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.story_model import ChangeImpact
 from agentkit.story_context_manager.types import StoryMode, StoryType
 from agentkit.telemetry.emitters import MemoryEmitter
@@ -133,7 +133,7 @@ def _ctx() -> StoryContext:
 
 def _envelope() -> object:
     return PhaseEnvelopeStore.make_fresh_envelope(
-        PhaseState(
+        make_phase_state(
             story_id=_STORY_ID,
             phase="exploration",
             status=PhaseStatus.IN_PROGRESS,

@@ -33,6 +33,10 @@ from agentkit.governance.integrity_gate import (
 )
 from agentkit.governance.integrity_gate.dim9_sonar import SONAR_NOT_GREEN
 from agentkit.phase_state_store.models import FlowExecution
+from agentkit.pipeline_engine.phase_executor import (
+    PhaseSnapshot,
+    PhaseStatus,
+)
 from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.state_backend.store import (
     record_layer_artifacts,
@@ -42,11 +46,7 @@ from agentkit.state_backend.store import (
     save_phase_snapshot,
     save_story_context,
 )
-from agentkit.story_context_manager.models import (
-    PhaseSnapshot,
-    PhaseStatus,
-    StoryContext,
-)
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.story_model import WireStoryMode
 from agentkit.story_context_manager.types import StoryMode, StoryType
 from agentkit.verify_system.artifacts import (

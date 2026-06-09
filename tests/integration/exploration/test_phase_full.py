@@ -25,6 +25,7 @@ from tests.exploration_change_frame_fixture import (
     EXAMPLE_CREATED_AT,
     example_change_frame,
 )
+from tests.phase_state_factory import make_phase_state
 from tests.unit.exploration.review.scripted import (
     ScriptedLlmClient,
     build_real_sink,
@@ -60,6 +61,11 @@ from agentkit.exploration.review.review import ExplorationReview
 from agentkit.installer.paths import resolve_qa_story_dir
 from agentkit.phase_state_store.models import FlowExecution
 from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.pipeline_engine.phase_executor import (
+    ExplorationPayload,
+    PhaseState,
+    PhaseStatus,
+)
 from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.state_backend.store import (
     load_execution_events,
@@ -70,12 +76,7 @@ from agentkit.state_backend.store.exploration_change_frame_repository import (
     StateBackendExplorationChangeFrameAdapter,
 )
 from agentkit.state_backend.store.story_repository import StateBackendStoryRepository
-from agentkit.story_context_manager.models import (
-    ExplorationPayload,
-    PhaseState,
-    PhaseStatus,
-    StoryContext,
-)
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.story_model import (
     ChangeImpact,
     Story,
@@ -175,7 +176,7 @@ def _persist_frame(manager: object, story_dir: Path, frame: ChangeFrame) -> None
 
 
 def _state() -> PhaseState:
-    return PhaseState(
+    return make_phase_state(
         story_id=_STORY_ID,
         phase="exploration",
         status=PhaseStatus.IN_PROGRESS,

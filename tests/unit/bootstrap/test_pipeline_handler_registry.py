@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.phase_state_factory import make_phase_state
 
 from agentkit.bootstrap.composition_root import (
     build_pipeline_engine,
@@ -176,10 +177,7 @@ class TestRegistryWiring:
         """
         from agentkit.governance.setup_preflight_gate.phase import SetupPhaseHandler
         from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-        from agentkit.story_context_manager.models import (
-            PhaseState,
-            PhaseStatus,
-        )
+        from agentkit.pipeline_engine.phase_executor import PhaseStatus
 
         story_dir = _persist_ctx(tmp_path, StoryType.IMPLEMENTATION)
         registry = build_pipeline_handler_registry(
@@ -201,7 +199,7 @@ class TestRegistryWiring:
             project_root=tmp_path,
         )
         envelope = PhaseEnvelopeStore.make_fresh_envelope(
-            PhaseState(
+            make_phase_state(
                 story_id="AG3-901", phase="setup", status=PhaseStatus.PENDING
             )
         )

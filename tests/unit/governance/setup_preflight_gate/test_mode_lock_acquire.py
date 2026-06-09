@@ -19,8 +19,9 @@ from agentkit.governance.setup_preflight_gate.phase import (
     SetupConfig,
     SetupPhaseHandler,
 )
+from agentkit.pipeline_engine.phase_executor import PhaseStatus
 from agentkit.state_backend.store.mode_lock_repository import ModeLockConflictError
-from agentkit.story_context_manager.models import PhaseStatus, StoryContext
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.story_model import WireStoryMode
 from agentkit.story_context_manager.types import StoryMode, StoryType
 

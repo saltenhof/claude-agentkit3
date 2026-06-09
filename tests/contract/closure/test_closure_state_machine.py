@@ -16,7 +16,7 @@ import pytest
 import yaml
 
 from agentkit.closure.phase import ClosureVerdict
-from agentkit.story_context_manager.models import ClosureProgress
+from agentkit.pipeline_engine.phase_executor import ClosureProgress
 
 _SPEC_ROOT = (
     Path(__file__).resolve().parents[3]

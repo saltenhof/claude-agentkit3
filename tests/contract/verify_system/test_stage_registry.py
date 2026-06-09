@@ -51,6 +51,12 @@ _EXPECTED_SEVERITY: dict[str, Severity] = {
     "are.gate": Severity.BLOCKING,
     # §27.4.2 Impact (BLOCKING; routes to ESCALATED per §27.4.5)
     "impact.violation": Severity.BLOCKING,
+    # Bugfix-only evidence gates
+    "bugfix.reproducer_manifest": Severity.BLOCKING,
+    "bugfix.red_evidence": Severity.BLOCKING,
+    "bugfix.green_evidence": Severity.BLOCKING,
+    "bugfix.suite_evidence": Severity.BLOCKING,
+    "bugfix.red_green_consistency": Severity.BLOCKING,
 }
 
 
@@ -104,18 +110,32 @@ def test_are_gate_is_feature_gated() -> None:
 
 
 def test_code_producing_applicability() -> None:
-    """All stages apply to implementation + bugfix; none to concept/research."""
+    """General stages apply to implementation+bugfix; bugfix gates only to bugfix."""
     for stage in LAYER_1_STAGES:
-        assert stage.applies_to == frozenset(
-            (StoryType.IMPLEMENTATION, StoryType.BUGFIX)
-        )
+        if stage.stage_id.startswith("bugfix."):
+            assert stage.applies_to == frozenset((StoryType.BUGFIX,))
+        else:
+            assert stage.applies_to == frozenset(
+                (StoryType.IMPLEMENTATION, StoryType.BUGFIX)
+            )
 
 
-def test_registry_stages_for_concept_research_empty() -> None:
-    """FK-33 §33.2.4 / §33.9: concept/research carry no Layer-1 stages."""
+def test_registry_stages_for_concept_research_are_story_type_specific() -> None:
+    """Concept/research stages stay scoped to their own story types."""
     registry = StageRegistry()
-    assert registry.stages_for(StoryType.CONCEPT) == []
-    assert registry.stages_for(StoryType.RESEARCH) == []
+    assert [stage.stage_id for stage in registry.stages_for(StoryType.CONCEPT)] == [
+        "concept_feedback"
+    ]
+    assert registry.layer1_stages_for(StoryType.CONCEPT, are_enabled=False) == []
+    assert [stage.stage_id for stage in registry.stages_for(StoryType.RESEARCH)] == [
+        "research_quality"
+    ]
+    assert [
+        stage.stage_id
+        for stage in registry.layer1_stages_for(
+            StoryType.RESEARCH, are_enabled=False
+        )
+    ] == ["research_quality"]
 
 
 def test_registry_layer1_are_gating() -> None:

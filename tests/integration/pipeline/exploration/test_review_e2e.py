@@ -25,6 +25,7 @@ from tests.exploration_change_frame_fixture import (
     example_change_frame,
     persist_example_change_frame,
 )
+from tests.phase_state_factory import make_phase_state
 from tests.unit.exploration.review.scripted import (
     ScriptedLlmClient,
     build_real_sink,
@@ -42,6 +43,12 @@ from agentkit.exploration.review.doc_fidelity import DocFidelityChecker
 from agentkit.exploration.review.review import ExplorationReview
 from agentkit.phase_state_store.models import FlowExecution
 from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.pipeline_engine.phase_executor import (
+    ExplorationPayload,
+    PhaseName,
+    PhaseState,
+    PhaseStatus,
+)
 from agentkit.process.language.guards import exploration_gate_approved
 from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.state_backend.store import (
@@ -49,13 +56,7 @@ from agentkit.state_backend.store import (
     save_flow_execution,
 )
 from agentkit.state_backend.store.story_repository import StateBackendStoryRepository
-from agentkit.story_context_manager.models import (
-    ExplorationPayload,
-    PhaseName,
-    PhaseState,
-    PhaseStatus,
-    StoryContext,
-)
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.story_model import (
     ChangeImpact,
     Story,
@@ -136,7 +137,7 @@ def _bind_flow(story_dir: Path) -> None:
 
 
 def _state() -> PhaseState:
-    return PhaseState(
+    return make_phase_state(
         story_id="AG3-045",
         phase="exploration",
         status=PhaseStatus.IN_PROGRESS,

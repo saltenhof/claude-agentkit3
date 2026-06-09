@@ -29,6 +29,7 @@ from agentkit.pipeline_engine.lifecycle import (
     NoOpHandler,
     PhaseHandlerRegistry,
 )
+from agentkit.pipeline_engine.phase_executor import PhaseStatus
 from agentkit.pipeline_engine.runner import PipelineRunResult, run_pipeline
 from agentkit.process.language.definitions import (
     BUGFIX_WORKFLOW,
@@ -43,10 +44,7 @@ from agentkit.state_backend.store import (
     read_story_context_record,
     save_story_context,
 )
-from agentkit.story_context_manager.models import (
-    PhaseStatus,
-    StoryContext,
-)
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:

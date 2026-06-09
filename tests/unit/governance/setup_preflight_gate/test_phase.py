@@ -14,6 +14,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
+from tests.phase_state_factory import make_phase_state
+
 from agentkit.config.models import (
     SUPPORTED_CONFIG_VERSION,
     Features,
@@ -27,7 +29,11 @@ from agentkit.exceptions import WorktreeError
 from agentkit.governance.setup_preflight_gate.phase import SetupConfig, SetupPhaseHandler
 from agentkit.governance.setup_preflight_gate.worktree import WorktreeResult
 from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-from agentkit.story_context_manager.models import PhaseState, PhaseStatus, StoryContext
+from agentkit.pipeline_engine.phase_executor import (
+    PhaseState,
+    PhaseStatus,
+)
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
@@ -123,7 +129,7 @@ def _make_story_context(
 
 
 def _make_phase_state(story_id: str = "AG3-001") -> PhaseState:
-    return PhaseState(
+    return make_phase_state(
         story_id=story_id,
         phase="setup",
         status=PhaseStatus.IN_PROGRESS,

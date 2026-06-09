@@ -12,6 +12,7 @@ import json
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.phase_state_factory import make_phase_state
 
 from agentkit.implementation.phase import (
     ImplementationConfig,
@@ -21,6 +22,9 @@ from agentkit.phase_state_store.models import FlowExecution
 from agentkit.pipeline_engine.engine import PipelineEngine
 from agentkit.pipeline_engine.lifecycle import PhaseHandlerRegistry
 from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.pipeline_engine.phase_executor import (
+    PhaseStatus,
+)
 from agentkit.process.language.definitions import IMPLEMENTATION_WORKFLOW
 from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.state_backend.store import (
@@ -28,11 +32,7 @@ from agentkit.state_backend.store import (
     save_flow_execution,
     save_story_context,
 )
-from agentkit.story_context_manager.models import (
-    PhaseState,
-    PhaseStatus,
-    StoryContext,
-)
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
@@ -111,7 +111,7 @@ def test_blocked_manifest_escalates_without_qa_subflow(tmp_path: Path) -> None:
         verify_system=_ExplodingVerifySystem(),  # type: ignore[arg-type]
     )
     handler = ImplementationPhaseHandler(config)
-    state = PhaseState(
+    state = make_phase_state(
         story_id="AG3-044", phase="implementation", status=PhaseStatus.IN_PROGRESS
     )
     envelope = PhaseEnvelopeStore.make_fresh_envelope(state)
@@ -171,7 +171,7 @@ def test_engine_propagates_suggested_reaction_to_caller(tmp_path: Path) -> None:
     registry.register("implementation", ImplementationPhaseHandler(config))
     engine = PipelineEngine(IMPLEMENTATION_WORKFLOW, registry, story_dir)
 
-    state = PhaseState(
+    state = make_phase_state(
         story_id="AG3-044", phase="implementation", status=PhaseStatus.IN_PROGRESS
     )
     envelope = PhaseEnvelopeStore.make_fresh_envelope(state)
@@ -231,7 +231,7 @@ def test_non_blocked_manifest_does_not_short_circuit(tmp_path: Path) -> None:
         verify_system=_ExplodingVerifySystem(),  # type: ignore[arg-type]
     )
     handler = ImplementationPhaseHandler(config)
-    state = PhaseState(
+    state = make_phase_state(
         story_id="AG3-044", phase="implementation", status=PhaseStatus.IN_PROGRESS
     )
     envelope = PhaseEnvelopeStore.make_fresh_envelope(state)

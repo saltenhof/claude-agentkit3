@@ -13,12 +13,14 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from tests.phase_state_factory import make_phase_state
 
 from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
 from agentkit.phase_state_store.models import FlowExecution
+from agentkit.pipeline_engine.phase_executor import PhaseState
 from agentkit.state_backend import postgres_store
 from agentkit.state_backend.store import facade
-from agentkit.story_context_manager.models import PhaseState, StoryContext
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.telemetry.contract.records import ExecutionEventRecord
 
 if TYPE_CHECKING:
@@ -120,16 +122,20 @@ def test_load_story_contexts_global_reads_multiple_payloads(monkeypatch: pytest.
 
 
 def test_load_phase_state_global_reads_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    payload_json = make_phase_state(
+        story_id="AG3-100",
+        phase="implementation",
+        status="in_progress",
+        review_round=0,
+        errors=[],
+    ).model_dump_json()
     monkeypatch.setattr(
         postgres_store,
         "_connect_global",
         lambda: _fake_global(
             [
                 {
-                    "payload_json": (
-                        '{"story_id":"AG3-100","phase":"implementation",'
-                        '"status":"in_progress","review_round":0,"errors":[]}'
-                    ),
+                    "payload_json": payload_json,
                 },
             ],
         ),

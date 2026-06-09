@@ -28,9 +28,10 @@ from agentkit.pipeline_engine.lifecycle import (
     NoOpHandler,
     PhaseHandlerRegistry,
 )
+from agentkit.pipeline_engine.phase_executor import PhaseStatus
 from agentkit.process.language.definitions import resolve_workflow
 from agentkit.state_backend.store import save_story_context
-from agentkit.story_context_manager.models import PhaseStatus, StoryContext
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:

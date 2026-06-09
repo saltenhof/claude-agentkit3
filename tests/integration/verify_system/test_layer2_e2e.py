@@ -20,6 +20,7 @@ import pytest
 
 from agentkit.artifacts import ArtifactEnvelope, ArtifactManager, ArtifactReference
 from agentkit.core_types import ArtifactClass, PolicyVerdict, QaContext
+from agentkit.story_context_manager.types import StoryType
 from agentkit.verify_system import VerifyContextBundle, VerifySystem
 from agentkit.verify_system.contract import PhaseEnvelopeView
 from agentkit.verify_system.llm_evaluator.inputs import Layer2ReviewInput
@@ -30,6 +31,7 @@ from agentkit.verify_system.llm_evaluator.structured_evaluator import (
 )
 from agentkit.verify_system.policy_engine.engine import PolicyEngine
 from agentkit.verify_system.protocols import Finding, Severity, TrustClass
+from agentkit.verify_system.stage_registry import StageRegistry
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -42,6 +44,15 @@ _QA_PASS = [
         "silent_data_loss", "backward_compat", "observability", "doc_impact",
     )
 ]
+_STRUCTURAL_STAGE_METADATA = {
+    "stage_ids": tuple(
+        stage.stage_id
+        for stage in StageRegistry().layer1_stages_for(
+            StoryType.IMPLEMENTATION, are_enabled=False
+        )
+    )
+    + ("sonarqube_gate",)
+}
 
 
 class _RecordingArtifactManager(ArtifactManager):
@@ -152,7 +163,14 @@ class _PassingLayer:
         from agentkit.verify_system.protocols import LayerResult
 
         del ctx, story_dir, review_input
-        return LayerResult(layer=self._name, passed=True, findings=())
+        return LayerResult(
+            layer=self._name,
+            passed=True,
+            findings=(),
+            metadata=(
+                _STRUCTURAL_STAGE_METADATA if self._name == "structural" else {}
+            ),
+        )
 
 
 def _bundle(tmp_path: Path) -> VerifyContextBundle:

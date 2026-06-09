@@ -56,6 +56,8 @@ _EXPECTED_EVENT_VALUES = {
     "session_run_binding_removed",
     "story_execution_regime_activated",
     "story_execution_regime_deactivated",
+    "story_exit_binding_revoked",
+    "story_exit_completed",
     "binding_invalid_detected",
     "local_edge_bundle_materialized",
     "edge_operation_reconciled",

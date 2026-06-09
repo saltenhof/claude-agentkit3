@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from tests.exploration_change_frame_fixture import persist_example_change_frame
+from tests.phase_state_factory import make_phase_state
 
 from agentkit.bootstrap.composition_root import (
     build_artifact_manager,
@@ -27,18 +28,18 @@ from agentkit.exploration.register import EXPLORATION_ENTWURF_STAGE
 from agentkit.installer.paths import resolve_qa_story_dir
 from agentkit.phase_state_store.models import FlowExecution
 from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.pipeline_engine.phase_executor import (
+    ExplorationPayload,
+    PhaseState,
+    PhaseStatus,
+)
 from agentkit.process.language.guards import exploration_gate_approved
 from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.state_backend.store import (
     reset_backend_cache_for_tests,
     save_flow_execution,
 )
-from agentkit.story_context_manager.models import (
-    ExplorationPayload,
-    PhaseState,
-    PhaseStatus,
-    StoryContext,
-)
+from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
@@ -93,7 +94,7 @@ def _bind_flow(story_dir: Path) -> None:
 
 
 def _state() -> PhaseState:
-    return PhaseState(
+    return make_phase_state(
         story_id="AG3-045",
         phase="exploration",
         status=PhaseStatus.IN_PROGRESS,
@@ -166,7 +167,7 @@ def test_on_enter_without_change_frame_emits_worker_spawn(tmp_path: Path) -> Non
 def test_negative_gate_keeps_implementation_closed(tmp_path: Path) -> None:
     """A COMPLETED exploration phase whose gate is not APPROVED stays closed."""
     ctx = _ctx(_story_dir(tmp_path))
-    not_approved = PhaseState(
+    not_approved = make_phase_state(
         story_id="AG3-045",
         phase="exploration",
         status=PhaseStatus.COMPLETED,
