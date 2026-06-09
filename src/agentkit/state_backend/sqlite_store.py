@@ -409,6 +409,61 @@ def _ensure_schema_runtime_tables(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS stories_project_key_number_idx
             ON stories (project_key, story_number);
 
+        -- AG3-096 (FK-77): task-management canonical state. Tasks are not
+        -- pipeline-managed; this schema stores only task state and typed links.
+        CREATE TABLE IF NOT EXISTS tm_tasks (
+            project_key TEXT NOT NULL,
+            task_id TEXT NOT NULL,
+            kind TEXT NOT NULL CHECK (kind IN ('reminder', 'actionable')),
+            type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            body TEXT NOT NULL,
+            priority TEXT NOT NULL CHECK (priority IN ('low', 'normal', 'high')),
+            status TEXT NOT NULL CHECK (status IN ('open', 'done', 'dismissed')),
+            origin TEXT NOT NULL CHECK (origin IN (
+                'closure', 'verify', 'governance', 'human'
+            )),
+            source_story_id TEXT,
+            execution_report_ref TEXT,
+            created_at TEXT NOT NULL,
+            resolved_at TEXT,
+            resolved_by TEXT CHECK (resolved_by IS NULL OR resolved_by IN ('human', 'agent')),
+            PRIMARY KEY (project_key, task_id),
+            CHECK (
+                length(task_id) >= 12
+                AND substr(task_id, 1, 3) = 'TM-'
+                AND substr(task_id, 4, 4) NOT GLOB '*[^0-9]*'
+                AND substr(task_id, 8, 1) = '-'
+                AND length(substr(task_id, 9)) >= 4
+                AND substr(task_id, 9) NOT GLOB '*[^0-9]*'
+            ),
+            CHECK (
+                (status = 'open' AND resolved_at IS NULL AND resolved_by IS NULL)
+                OR (
+                    status IN ('done', 'dismissed')
+                    AND resolved_at IS NOT NULL
+                    AND resolved_by IS NOT NULL
+                )
+            )
+        );
+
+        CREATE TABLE IF NOT EXISTS tm_task_links (
+            project_key TEXT NOT NULL,
+            task_id TEXT NOT NULL,
+            target_kind TEXT NOT NULL CHECK (target_kind IN ('task', 'story')),
+            target_id TEXT NOT NULL,
+            kind TEXT NOT NULL CHECK (kind IN (
+                'relates_to', 'spawned_story', 'duplicate_of'
+            )),
+            PRIMARY KEY (project_key, task_id, target_kind, target_id, kind),
+            FOREIGN KEY (project_key, task_id)
+                REFERENCES tm_tasks(project_key, task_id)
+                ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS tm_task_links_target_idx
+            ON tm_task_links (project_key, target_kind, target_id);
+
         CREATE TABLE IF NOT EXISTS story_specifications (
             story_uuid TEXT NOT NULL,
             need TEXT,

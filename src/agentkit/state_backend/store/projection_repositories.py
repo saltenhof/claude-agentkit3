@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from agentkit.state_backend.store.fc_incident_repository import (
         FCIncidentsRepository,
     )
+    from agentkit.state_backend.store.task_repository import TaskRepository
     from agentkit.telemetry.risk_window.normalized_event import NormalizedEvent
     from agentkit.verify_system.protocols import LayerResult
     from agentkit.verify_system.stage_registry.records import (
@@ -254,6 +255,7 @@ class ProjectionRepositories:
             Eintrittspunkt des QA-Subflows via ``record_qa_layer_artifacts``).
         fc_incidents: Adapter fuer ``fc_incidents`` (AG3-028, FK-41 §41.3.1).
         risk_window: Adapter fuer ``risk_window`` (AG3-037, FK-68 §68.8).
+        tasks: Adapter for ``tm_tasks`` and ``tm_task_links`` (FK-77).
     """
 
     qa_stage_results: QAStageResultsRepository
@@ -263,6 +265,7 @@ class ProjectionRepositories:
     qa_layer_batch: QALayerBatchWriter
     fc_incidents: FCIncidentsRepository
     risk_window: RiskWindowRepository
+    tasks: TaskRepository
 
 
 # ---------------------------------------------------------------------------
@@ -1139,6 +1142,7 @@ def build_projection_repositories(store_dir: Path | None = None) -> ProjectionRe
     from agentkit.state_backend.store.fc_incident_repository import (
         StateBackendFCIncidentsRepository,
     )
+    from agentkit.state_backend.store.task_repository import StateBackendTaskRepository
 
     return ProjectionRepositories(
         qa_stage_results=FacadeQAStageResultsRepository(store_dir),
@@ -1148,6 +1152,7 @@ def build_projection_repositories(store_dir: Path | None = None) -> ProjectionRe
         qa_layer_batch=FacadeQALayerBatchWriter(),
         fc_incidents=StateBackendFCIncidentsRepository(store_dir),
         risk_window=FacadeRiskWindowRepository(store_dir),
+        tasks=StateBackendTaskRepository(store_dir),
     )
 
 

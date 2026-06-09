@@ -53,11 +53,13 @@ def test_schema_version_helpers_derive_versioned_names() -> None:
     # FK-18 §18.9a)
     # AG3-075: 3.20.0 -> 3.21.0 (compaction_epochs table; FK-36 story-scoped
     # compaction recovery epoch store, FK-18 §18.9a)
-    assert state_config.SCHEMA_VERSION == "3.22.0"
+    # AG3-096: 3.22.0 -> 3.23.0 (tm_tasks + tm_task_links tables;
+    # task-management BC, FK-77 state and typed links, FK-18 §18.9a)
+    assert state_config.SCHEMA_VERSION == "3.23.0"
     assert state_config.versioned_postgres_schema_name("3.0.0") == "ak3_v3_0_0"
     assert state_config.versioned_sqlite_db_file("3.0.0") == "agentkit_3_0_0.sqlite"
-    assert state_config.versioned_postgres_schema_name() == "ak3_v3_22_0"
-    assert state_config.versioned_sqlite_db_file() == "agentkit_3_22_0.sqlite"
+    assert state_config.versioned_postgres_schema_name() == "ak3_v3_23_0"
+    assert state_config.versioned_sqlite_db_file() == "agentkit_3_23_0.sqlite"
 
 
 def test_schema_version_rejects_non_semver() -> None:

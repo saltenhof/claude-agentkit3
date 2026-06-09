@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     from agentkit.state_backend.store.projection_repositories import (
         ProjectionRepositories,
     )
+    from agentkit.task_management.models import Task, TaskLink, TaskListFilter, TaskTargetKind
     from agentkit.telemetry.projection_records import ProjectionRecord
     from agentkit.telemetry.risk_window.normalized_event import NormalizedEvent
     from agentkit.verify_system.protocols import LayerResult
@@ -325,6 +326,74 @@ class ProjectionAccessor:
             Die vergebene ``IncidentId`` (``FC-YYYY-NNNN``).
         """
         return self._repos.fc_incidents.record_incident(draft)
+
+    def record_task(self, task: Task) -> None:
+        """Persist one task-management ``Task`` through the dedicated FK-77 port.
+
+        This path is intentionally not a ``ProjectionKind``. FK-69 keeps the
+        seven-value enum strict; task-management uses its own typed repository
+        boundary while still being written through the accessor-owned state
+        backend port.
+        """
+        from agentkit.task_management.models import Task as _Task
+
+        if not isinstance(task, _Task):
+            raise ProjectionRecordTypeMismatchError(
+                kind="tm_tasks",
+                expected=_Task,
+                received=type(task),
+            )
+        self._repos.tasks.write_task(task)
+
+    def get_task(self, project_key: str, task_id: str) -> Task | None:
+        """Load one task by project-scoped identity."""
+        return self._repos.tasks.get_task(project_key, task_id)
+
+    def list_tasks(
+        self,
+        project_key: str,
+        *,
+        filter: TaskListFilter | None = None,  # noqa: A002
+    ) -> list[Task]:
+        """List tasks within one explicit project partition."""
+        return self._repos.tasks.list_tasks(project_key, filter=filter)
+
+    def record_task_link(self, link: TaskLink) -> None:
+        """Persist one task-management ``TaskLink`` through the dedicated FK-77 port."""
+        from agentkit.task_management.models import TaskLink as _TaskLink
+
+        if not isinstance(link, _TaskLink):
+            raise ProjectionRecordTypeMismatchError(
+                kind="tm_task_links",
+                expected=_TaskLink,
+                received=type(link),
+            )
+        self._repos.tasks.write_task_link(link)
+
+    def delete_task_link(self, link: TaskLink) -> bool:
+        """Delete one task-management link through the dedicated FK-77 port."""
+        from agentkit.task_management.models import TaskLink as _TaskLink
+
+        if not isinstance(link, _TaskLink):
+            raise ProjectionRecordTypeMismatchError(
+                kind="tm_task_links",
+                expected=_TaskLink,
+                received=type(link),
+            )
+        return self._repos.tasks.delete_task_link(link)
+
+    def list_tasks_for_target(
+        self,
+        project_key: str,
+        target_kind: TaskTargetKind,
+        target_id: str,
+    ) -> list[Task]:
+        """List tasks linked to one target inside the explicit project partition."""
+        return self._repos.tasks.list_tasks_for_target(project_key, target_kind, target_id)
+
+    def story_target_exists(self, project_key: str, story_id: str) -> bool:
+        """Return whether a project-scoped story target exists."""
+        return self._repos.tasks.story_target_exists(project_key, story_id)
 
     def read_projection(
         self,
