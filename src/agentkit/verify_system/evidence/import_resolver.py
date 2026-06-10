@@ -36,9 +36,13 @@ TS_DYNAMIC = re.compile(r"""import\s*\(\s*['"]([^'"]+)['"]\s*\)""", re.MULTILINE
 JAVA_IMPORT = re.compile(r"^import\s+(?:static\s+)?([\w.]+(?:\.\*)?)\s*;", re.MULTILINE | re.ASCII)
 JAVA_PACKAGE = re.compile(r"^package\s+([\w.]+)\s*;", re.MULTILINE | re.ASCII)
 JAVA_TYPE_REFERENCE = re.compile(
-    r"\b(?:extends|implements|new|private|protected|public|final)\s+([A-Z][A-Za-z0-9_]*)\b"
+    r"\b(?:extends|implements|new|private|protected|public|final)\s+([A-Z][\w]*)\b",
+    re.ASCII,
 )
-JAVA_CLASS_DECL = re.compile(r"\b(?:class|interface|enum|record)\s+([A-Z][A-Za-z0-9_]*)\b")
+JAVA_CLASS_DECL = re.compile(
+    r"\b(?:class|interface|enum|record)\s+([A-Z][\w]*)\b",
+    re.ASCII,
+)
 SPRING_SCAN = re.compile(
     r"@(?:SpringBootApplication|ComponentScan|Import|EntityScan|EnableJpaRepositories)\s*\(([^)]*)\)",
     re.MULTILINE | re.DOTALL,

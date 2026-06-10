@@ -318,7 +318,10 @@ class ControlPlaneApplication:
         self._auth_routes = r.auth_routes or _build_default_auth_routes(auth_middleware)
         self._auth_middleware = auth_middleware
         self._tenant_scope = tenant_scope_middleware or TenantScopeMiddleware()
-        # Eight new BC routes (AG3-090):
+        self._init_bc_routes(r)
+
+    def _init_bc_routes(self, r: ControlPlaneApplicationRoutes) -> None:
+        """Initialise the eight AG3-090 BC route handlers (extracted to reduce S3776 complexity)."""
         self._pipeline_engine_routes = (
             r.pipeline_engine_routes or _build_default_pipeline_engine_routes()
         )
