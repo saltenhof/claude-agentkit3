@@ -5,6 +5,37 @@ from __future__ import annotations
 import pytest
 from tests.fixtures import postgres_backend
 
+from agentkit.state_backend.config import STATE_BACKEND_ENV, STATE_DATABASE_URL_ENV
+
+
+def test_explicit_postgres_env_uses_import_time_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(postgres_backend, "_EXPLICIT_BACKEND_AT_IMPORT", "postgres")
+    monkeypatch.setattr(
+        postgres_backend,
+        "_EXPLICIT_URL_AT_IMPORT",
+        "postgresql://agentkit:test@localhost:15432/agentkit_test",
+    )
+    monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
+    monkeypatch.delenv(STATE_DATABASE_URL_ENV, raising=False)
+
+    assert postgres_backend._is_explicit_postgres_env() is True
+
+
+def test_non_postgres_import_snapshot_ignores_later_live_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(postgres_backend, "_EXPLICIT_BACKEND_AT_IMPORT", "sqlite")
+    monkeypatch.setattr(postgres_backend, "_EXPLICIT_URL_AT_IMPORT", None)
+    monkeypatch.setenv(STATE_BACKEND_ENV, "postgres")
+    monkeypatch.setenv(
+        STATE_DATABASE_URL_ENV,
+        "postgresql://agentkit:test@localhost:15432/agentkit_test",
+    )
+
+    assert postgres_backend._is_explicit_postgres_env() is False
+
 
 def test_explicit_postgres_url_rejects_reserved_production_port() -> None:
     with pytest.raises(RuntimeError, match="reserved production standard port 5432"):

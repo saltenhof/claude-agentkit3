@@ -51,6 +51,10 @@ _POSTGRES_INDEPENDENT_INTEGRATION_NODEIDS: tuple[str, ...] = (
     "installer/test_skills_binding.py::"
     "test_no_skill_config_fails_closed_when_bundles_unprovisioned",
 )
+_POSTGRES_INDEPENDENT_INTEGRATION_FILES: tuple[str, ...] = (
+    "/integration/pipeline_engine/test_blocked_exit.py",
+    "/integration/pipeline_engine/test_orchestrator_trennlinie.py",
+)
 
 
 def _is_postgres_integration_item(path: str, nodeid: str) -> bool:
@@ -67,6 +71,8 @@ def _is_postgres_integration_item(path: str, nodeid: str) -> bool:
         before any StateBackend/DB access.
     """
     if not any(allow in path for allow in _POSTGRES_INTEGRATION_ALLOW_PATHS):
+        return False
+    if any(skip in path for skip in _POSTGRES_INDEPENDENT_INTEGRATION_FILES):
         return False
     return not any(
         nodeid.endswith(skip) for skip in _POSTGRES_INDEPENDENT_INTEGRATION_NODEIDS

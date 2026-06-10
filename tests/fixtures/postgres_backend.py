@@ -71,6 +71,8 @@ _RESERVED_PRODUCTION_POSTGRES_PORT_ERROR = (
     "tests must not run against the reserved production standard port 5432; "
     f"point {STATE_DATABASE_URL_ENV} at a non-5432 ephemeral test instance"
 )
+_EXPLICIT_BACKEND_AT_IMPORT = os.environ.get(STATE_BACKEND_ENV)
+_EXPLICIT_URL_AT_IMPORT = os.environ.get(STATE_DATABASE_URL_ENV)
 _DOCKER_TIMESTAMP_PATTERN = re.compile(
     r"^(?P<prefix>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})"
     r"(?:\.(?P<fraction>\d+))?"
@@ -119,9 +121,7 @@ def _find_free_port() -> int:
 
 
 def _is_explicit_postgres_env() -> bool:
-    return os.environ.get(STATE_BACKEND_ENV) == "postgres" and bool(
-        os.environ.get(STATE_DATABASE_URL_ENV),
-    )
+    return _EXPLICIT_BACKEND_AT_IMPORT == "postgres" and bool(_EXPLICIT_URL_AT_IMPORT)
 
 
 def _is_reapable_test_container(
@@ -352,7 +352,7 @@ def _truncate_schema(url: str, schema: str) -> None:
 @pytest.fixture(scope="session")
 def postgres_container_url() -> Iterator[str]:
     if _is_explicit_postgres_env():
-        url = str(os.environ[STATE_DATABASE_URL_ENV])
+        url = str(_EXPLICIT_URL_AT_IMPORT)
         _ensure_explicit_postgres_url_uses_test_port(url)
         _sweep_stale_test_schemas(url)
         yield url
