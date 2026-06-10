@@ -1,7 +1,6 @@
 """Capability enforcement pipeline (FK-55 §55.10.3 steps 1-5 + step 7 CCAG gate).
 
-:class:`CapabilityEnforcement` runs the normed FK-55 §55.10.3 evaluation order
-for a single hook event:
+:class:`CapabilityEnforcement` runs the normed FK-55 §55.10.3 evaluation order:
 
 1. resolve the :class:`Principal` (fail-closed, harness-context only — §55.3a)
 2. normalize the tool call to an :class:`OperationClass`
@@ -9,49 +8,24 @@ for a single hook event:
 4. consult the hard capability matrix
 5. apply the conflict-freeze overlay
 
-The evaluation engages for EVERY hook event (FK-55 §55.10.3 / formal
-``evaluate-principal-operation`` is allowed in ``normal``, ``story_scoped`` and
-``frozen`` status). Absence of an active story binding is ``normal`` mode, NOT a
-skip (AG3-032 ERROR 2 — never fail-open). The result is a five-way
+The evaluation engages for EVERY hook event. Absence of an active story binding
+is ``normal`` mode, NOT a skip (AG3-032 ERROR 2 — never fail-open). Five-way
 :class:`EnforcementOutcome`:
 
-- ``DENY``       — a hard matrix / freeze block. Hard in ALL modes; CCAG must
-                   not run and cannot soften it (governance-and-guards.B5 /
-                   invariant ``ccag_never_elevates_hard_capabilities``).
+- ``DENY``       — hard matrix / freeze block; CCAG cannot soften it.
 - ``ALLOW``      — the matrix (post-freeze) permits the operation.
-- ``UNCLASSIFIED_MUTATION`` — a *mutating* operation (write / git_mutation /
-                   curate / admin_transition) that did not resolve to an explicit
-                   matrix ALLOW because at least one target could not be
-                   classified to a PathClass — INCLUDING the case where no
-                   concrete target was extracted at all (missing / empty /
-                   ambiguous target). Per FK-55 §55.10.2 an unclassifiable
-                   mutation is a fail-closed BLOCK in ALL modes — NOT a deferral.
-                   The §55.6.1 unknown-permission rule is a DIFFERENT case (it
-                   applies only AFTER the capability zone is known) and must never
-                   be used to wave through an unclassified mutation. The caller
-                   blocks this regardless of mode (AG3-032 ERROR 2).
-- ``UNRESOLVED`` — a genuinely non-actionable event: a target could not be
-                   classified but the operation is NON-mutating (a pure read /
-                   plain exec with no discernible file/mutation target). The
-                   caller resolves this *mode-scharf* (§55.6.1): in
-                   ``story_execution`` it is a fail-closed BLOCK (opening a
-                   permission_request); outside a story run it may defer to the
-                   mode rule / CCAG (no hard block).
-- ``UNKNOWN_PERMISSION`` — the TOOL itself is unknown to the classifier (no
-                   concrete operation class to grant). The matrix is NOT consulted
-                   for an ALLOW (AG3-032 ERROR C — an unknown worker tool in story
-                   scope must not be allowed). A hard matrix / freeze DENY still
-                   PRECEDES this. The caller resolves it mode-scharf (§55.6.1):
-                   ``story_execution`` ⇒ BLOCK + ``permission_request_opened``;
-                   ``interactive_admin`` / ``ai_augmented`` ⇒ defer to an external
-                   prompt.
+- ``UNCLASSIFIED_MUTATION`` — mutating operation whose target could not be
+                   classified (FK-55 §55.10.2): fail-closed BLOCK in ALL modes.
+                   The §55.6.1 unknown-permission rule must never override this.
+- ``UNRESOLVED`` — non-mutating event with unclassifiable target (pure read /
+                   plain exec). Resolved mode-scharf (§55.6.1): in
+                   ``story_execution`` a fail-closed BLOCK; elsewhere may defer.
+- ``UNKNOWN_PERMISSION`` — TOOL unknown to the classifier; matrix NOT consulted
+                   for ALLOW (AG3-032 ERROR C). A hard DENY still precedes this.
+                   Resolved mode-scharf: ``story_execution`` ⇒ BLOCK; else defer.
 
-Step 6 (official service paths / mode rule) is deliberately rudimentary in this
-story (AG3-032 §2.1.4 — out of scope; follow-up Fast-Modus story). Because the
-service-path validator is deferred, the matrix itself is fail-closed for the
-dangerous service-principal cells (see ``matrix_data``). Step 7 (CCAG, FK-30
-§30.2.6) runs ONLY on an ``ALLOW`` outcome — surfaced via
-:meth:`should_run_ccag`.
+Step 6 (official service paths) is rudimentary (AG3-032 §2.1.4 — out of scope).
+Step 7 (CCAG, FK-30 §30.2.6) runs ONLY on ``ALLOW`` — see :meth:`should_run_ccag`.
 """
 
 from __future__ import annotations

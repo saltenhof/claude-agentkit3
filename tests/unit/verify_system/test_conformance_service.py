@@ -643,40 +643,14 @@ def test_layer2_integration_no_doc_fidelity_bypass_when_result_is_none() -> None
     a BLOCKING LayerResult rather than calling runner.evaluate(DOC_FIDELITY)
     directly (which would bypass ConformanceService.check_fidelity).
     """
-    from agentkit.verify_system.llm_evaluator.bundle import ReviewBundle
     from agentkit.verify_system.llm_evaluator.layer2_integration import (
         _run_impl_fidelity,
     )
     from agentkit.verify_system.protocols import Severity
 
-    class _NeverCalledRunner:
-        """Runner that must never be called for DOC_FIDELITY in this test."""
+    result = _run_impl_fidelity(doc_fidelity_result=None)
 
-        def evaluate(self, *args: object, **kwargs: object) -> object:
-            raise AssertionError(
-                "runner.evaluate() was called — DOC_FIDELITY bypass still exists"
-            )
-
-    bundle = ReviewBundle(
-        story_id="TEST-003",
-        story_brief_excerpt="brief",
-        acceptance_criteria=[],
-        diff_summary="diff",
-        diff_content="content",
-        concept_refs=[],
-        previous_findings=None,
-        qa_cycle_round=1,
-    )
-
-    result = _run_impl_fidelity(
-        _NeverCalledRunner(),  # type: ignore[arg-type]
-        bundle=bundle,
-        qa_cycle_round=1,
-        previous_findings=(),
-        doc_fidelity_result=None,
-    )
-
-    # Must be BLOCKING (fail-closed) and must NOT have called the runner
+    # Must be BLOCKING (fail-closed) — no runner call path exists in the new signature
     assert result.passed is False
     blocking = [f for f in result.findings if f.severity is Severity.BLOCKING]
     assert blocking, "Expected at least one BLOCKING finding"

@@ -855,10 +855,9 @@ class TestSetupPhaseAreBundle:
             def load_context(
                 self,
                 story_id: str,
-                project_key: str,
                 run_id: str,
             ) -> ContextLoadResult:
-                del story_id, project_key, run_id
+                del story_id, run_id
                 events.append("are_bundle")
                 return ContextLoadResult(
                     status=AreDockpointStatus.PASS,
@@ -924,10 +923,9 @@ class TestSetupPhaseAreBundle:
             def load_context(
                 self,
                 story_id: str,
-                project_key: str,
                 run_id: str,
             ) -> ContextLoadResult:
-                del story_id, project_key, run_id
+                del story_id, run_id
                 return ContextLoadResult(
                     status=AreDockpointStatus.SKIPPED,
                     reason="feature_disabled",
@@ -987,10 +985,9 @@ class TestSetupPhaseAreBundle:
             def load_context(
                 self,
                 story_id: str,
-                project_key: str,
                 run_id: str,
             ) -> ContextLoadResult:
-                del story_id, project_key, run_id
+                del story_id, run_id
                 return ContextLoadResult(
                     status=AreDockpointStatus.FAIL,
                     reason="are_gate_unavailable",

@@ -142,6 +142,108 @@ def _row_to_task(row: dict[str, Any]) -> Task:
 class StateBackendTaskRepository:
     """SQLite/Postgres-backed task-management repository."""
 
+    # SQL statements are class-level to keep module top-level LOC within budget.
+    _SQLITE_UPSERT_TASK: str = """
+    INSERT INTO tm_tasks (
+        project_key, task_id, kind, type, title, body, priority, status, origin,
+        source_story_id, execution_report_ref, created_at, resolved_at, resolved_by
+    ) VALUES (
+        :project_key, :task_id, :kind, :type, :title, :body, :priority, :status,
+        :origin, :source_story_id, :execution_report_ref, :created_at,
+        :resolved_at, :resolved_by
+    )
+    ON CONFLICT(project_key, task_id) DO UPDATE SET
+        kind = excluded.kind,
+        type = excluded.type,
+        title = excluded.title,
+        body = excluded.body,
+        priority = excluded.priority,
+        status = excluded.status,
+        origin = excluded.origin,
+        source_story_id = excluded.source_story_id,
+        execution_report_ref = excluded.execution_report_ref,
+        created_at = excluded.created_at,
+        resolved_at = excluded.resolved_at,
+        resolved_by = excluded.resolved_by
+"""
+    _PG_UPSERT_TASK: str = """
+    INSERT INTO tm_tasks (
+        project_key, task_id, kind, type, title, body, priority, status, origin,
+        source_story_id, execution_report_ref, created_at, resolved_at, resolved_by
+    ) VALUES (
+        %(project_key)s, %(task_id)s, %(kind)s, %(type)s, %(title)s, %(body)s,
+        %(priority)s, %(status)s, %(origin)s, %(source_story_id)s,
+        %(execution_report_ref)s, %(created_at)s, %(resolved_at)s, %(resolved_by)s
+    )
+    ON CONFLICT(project_key, task_id) DO UPDATE SET
+        kind = EXCLUDED.kind,
+        type = EXCLUDED.type,
+        title = EXCLUDED.title,
+        body = EXCLUDED.body,
+        priority = EXCLUDED.priority,
+        status = EXCLUDED.status,
+        origin = EXCLUDED.origin,
+        source_story_id = EXCLUDED.source_story_id,
+        execution_report_ref = EXCLUDED.execution_report_ref,
+        created_at = EXCLUDED.created_at,
+        resolved_at = EXCLUDED.resolved_at,
+        resolved_by = EXCLUDED.resolved_by
+"""
+    _SQLITE_INSERT_LINK: str = """
+    INSERT INTO tm_task_links (
+        project_key, task_id, target_kind, target_id, kind
+    ) VALUES (
+        :project_key, :task_id, :target_kind, :target_id, :kind
+    )
+    ON CONFLICT(project_key, task_id, target_kind, target_id, kind) DO NOTHING
+"""
+    _PG_INSERT_LINK: str = """
+    INSERT INTO tm_task_links (
+        project_key, task_id, target_kind, target_id, kind
+    ) VALUES (
+        %(project_key)s, %(task_id)s, %(target_kind)s, %(target_id)s, %(kind)s
+    )
+    ON CONFLICT(project_key, task_id, target_kind, target_id, kind) DO NOTHING
+"""
+    _SQLITE_DELETE_LINK: str = """
+    DELETE FROM tm_task_links
+    WHERE project_key = :project_key
+      AND task_id = :task_id
+      AND target_kind = :target_kind
+      AND target_id = :target_id
+      AND kind = :kind
+"""
+    _PG_DELETE_LINK: str = """
+    DELETE FROM tm_task_links
+    WHERE project_key = %(project_key)s
+      AND task_id = %(task_id)s
+      AND target_kind = %(target_kind)s
+      AND target_id = %(target_id)s
+      AND kind = %(kind)s
+"""
+    _SQLITE_SELECT_TASKS_FOR_TARGET: str = """
+    SELECT t.*
+    FROM tm_tasks t
+    JOIN tm_task_links l
+      ON l.project_key = t.project_key
+     AND l.task_id = t.task_id
+    WHERE l.project_key = ?
+      AND l.target_kind = ?
+      AND l.target_id = ?
+    ORDER BY t.created_at ASC, t.task_id ASC
+"""
+    _PG_SELECT_TASKS_FOR_TARGET: str = """
+    SELECT t.*
+    FROM tm_tasks t
+    JOIN tm_task_links l
+      ON l.project_key = t.project_key
+     AND l.task_id = t.task_id
+    WHERE l.project_key = %s
+      AND l.target_kind = %s
+      AND l.target_id = %s
+    ORDER BY t.created_at ASC, t.task_id ASC
+"""
+
     def __init__(self, store_dir: Path | None = None) -> None:
         from pathlib import Path as _Path
 
@@ -206,11 +308,11 @@ class StateBackendTaskRepository:
 
     def _sqlite_write_task(self, row: dict[str, object]) -> None:
         with _sqlite_connect_qa(self._store_dir) as conn:
-            conn.execute(_SQLITE_UPSERT_TASK, row)
+            conn.execute(self._SQLITE_UPSERT_TASK, row)
 
     def _pg_write_task(self, row: dict[str, object]) -> None:
         with _postgres_connect() as conn:
-            conn.execute(_PG_UPSERT_TASK, row)
+            conn.execute(self._PG_UPSERT_TASK, row)
 
     def _sqlite_get_task(self, project_key: str, task_id: str) -> Task | None:
         with _sqlite_connect_qa(self._store_dir) as conn:
@@ -258,20 +360,20 @@ class StateBackendTaskRepository:
 
     def _sqlite_write_task_link(self, row: dict[str, object]) -> None:
         with _sqlite_connect_qa(self._store_dir) as conn:
-            conn.execute(_SQLITE_INSERT_LINK, row)
+            conn.execute(self._SQLITE_INSERT_LINK, row)
 
     def _pg_write_task_link(self, row: dict[str, object]) -> None:
         with _postgres_connect() as conn:
-            conn.execute(_PG_INSERT_LINK, row)
+            conn.execute(self._PG_INSERT_LINK, row)
 
     def _sqlite_delete_task_link(self, row: dict[str, object]) -> bool:
         with _sqlite_connect_qa(self._store_dir) as conn:
-            cursor = conn.execute(_SQLITE_DELETE_LINK, row)
+            cursor = conn.execute(self._SQLITE_DELETE_LINK, row)
             return int(cursor.rowcount) > 0
 
     def _pg_delete_task_link(self, row: dict[str, object]) -> bool:
         with _postgres_connect() as conn:
-            cursor = conn.execute(_PG_DELETE_LINK, row)
+            cursor = conn.execute(self._PG_DELETE_LINK, row)
             return int(cursor.rowcount) > 0
 
     def _sqlite_list_tasks_for_target(
@@ -282,7 +384,7 @@ class StateBackendTaskRepository:
     ) -> list[Task]:
         with _sqlite_connect_qa(self._store_dir) as conn:
             rows = conn.execute(
-                _SQLITE_SELECT_TASKS_FOR_TARGET,
+                self._SQLITE_SELECT_TASKS_FOR_TARGET,
                 (project_key, target_kind.value, target_id),
             ).fetchall()
         return [_row_to_task(dict(row)) for row in rows]
@@ -295,7 +397,7 @@ class StateBackendTaskRepository:
     ) -> list[Task]:
         with _postgres_connect() as conn:
             rows = conn.execute(
-                _PG_SELECT_TASKS_FOR_TARGET,
+                self._PG_SELECT_TASKS_FOR_TARGET,
                 (project_key, target_kind.value, target_id),
             ).fetchall()
         return [_row_to_task(dict(row)) for row in rows]
@@ -341,116 +443,4 @@ def _build_task_where(
     return f"WHERE {' AND '.join(clauses)}", params
 
 
-_SQLITE_UPSERT_TASK = """
-    INSERT INTO tm_tasks (
-        project_key, task_id, kind, type, title, body, priority, status, origin,
-        source_story_id, execution_report_ref, created_at, resolved_at, resolved_by
-    ) VALUES (
-        :project_key, :task_id, :kind, :type, :title, :body, :priority, :status,
-        :origin, :source_story_id, :execution_report_ref, :created_at,
-        :resolved_at, :resolved_by
-    )
-    ON CONFLICT(project_key, task_id) DO UPDATE SET
-        kind = excluded.kind,
-        type = excluded.type,
-        title = excluded.title,
-        body = excluded.body,
-        priority = excluded.priority,
-        status = excluded.status,
-        origin = excluded.origin,
-        source_story_id = excluded.source_story_id,
-        execution_report_ref = excluded.execution_report_ref,
-        created_at = excluded.created_at,
-        resolved_at = excluded.resolved_at,
-        resolved_by = excluded.resolved_by
-"""
-
-_PG_UPSERT_TASK = """
-    INSERT INTO tm_tasks (
-        project_key, task_id, kind, type, title, body, priority, status, origin,
-        source_story_id, execution_report_ref, created_at, resolved_at, resolved_by
-    ) VALUES (
-        %(project_key)s, %(task_id)s, %(kind)s, %(type)s, %(title)s, %(body)s,
-        %(priority)s, %(status)s, %(origin)s, %(source_story_id)s,
-        %(execution_report_ref)s, %(created_at)s, %(resolved_at)s, %(resolved_by)s
-    )
-    ON CONFLICT(project_key, task_id) DO UPDATE SET
-        kind = EXCLUDED.kind,
-        type = EXCLUDED.type,
-        title = EXCLUDED.title,
-        body = EXCLUDED.body,
-        priority = EXCLUDED.priority,
-        status = EXCLUDED.status,
-        origin = EXCLUDED.origin,
-        source_story_id = EXCLUDED.source_story_id,
-        execution_report_ref = EXCLUDED.execution_report_ref,
-        created_at = EXCLUDED.created_at,
-        resolved_at = EXCLUDED.resolved_at,
-        resolved_by = EXCLUDED.resolved_by
-"""
-
-_SQLITE_INSERT_LINK = """
-    INSERT INTO tm_task_links (
-        project_key, task_id, target_kind, target_id, kind
-    ) VALUES (
-        :project_key, :task_id, :target_kind, :target_id, :kind
-    )
-    ON CONFLICT(project_key, task_id, target_kind, target_id, kind) DO NOTHING
-"""
-
-_PG_INSERT_LINK = """
-    INSERT INTO tm_task_links (
-        project_key, task_id, target_kind, target_id, kind
-    ) VALUES (
-        %(project_key)s, %(task_id)s, %(target_kind)s, %(target_id)s, %(kind)s
-    )
-    ON CONFLICT(project_key, task_id, target_kind, target_id, kind) DO NOTHING
-"""
-
-_SQLITE_DELETE_LINK = """
-    DELETE FROM tm_task_links
-    WHERE project_key = :project_key
-      AND task_id = :task_id
-      AND target_kind = :target_kind
-      AND target_id = :target_id
-      AND kind = :kind
-"""
-
-_PG_DELETE_LINK = """
-    DELETE FROM tm_task_links
-    WHERE project_key = %(project_key)s
-      AND task_id = %(task_id)s
-      AND target_kind = %(target_kind)s
-      AND target_id = %(target_id)s
-      AND kind = %(kind)s
-"""
-
-_SQLITE_SELECT_TASKS_FOR_TARGET = """
-    SELECT t.*
-    FROM tm_tasks t
-    JOIN tm_task_links l
-      ON l.project_key = t.project_key
-     AND l.task_id = t.task_id
-    WHERE l.project_key = ?
-      AND l.target_kind = ?
-      AND l.target_id = ?
-    ORDER BY t.created_at ASC, t.task_id ASC
-"""
-
-_PG_SELECT_TASKS_FOR_TARGET = """
-    SELECT t.*
-    FROM tm_tasks t
-    JOIN tm_task_links l
-      ON l.project_key = t.project_key
-     AND l.task_id = t.task_id
-    WHERE l.project_key = %s
-      AND l.target_kind = %s
-      AND l.target_id = %s
-    ORDER BY t.created_at ASC, t.task_id ASC
-"""
-
-
-__all__ = [
-    "StateBackendTaskRepository",
-    "TaskRepository",
-]
+__all__ = ["StateBackendTaskRepository", "TaskRepository"]  # fmt: skip

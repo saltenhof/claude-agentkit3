@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Annotated, Any, Literal
@@ -379,52 +380,66 @@ def phase_state_mode_from_context(
     return PhaseStateMode(execution_route.value)
 
 
-def build_phase_state(
-    *,
-    story_id: str,
-    run_id: str,
-    phase: str | PhaseName,
-    status: PhaseStatus,
-    mode: PhaseStateMode,
-    story_type: StoryType,
-    attempt: int,
-    started_at: datetime,
-    phase_entered_at: datetime,
-    producer: PhaseStateProducer | dict[str, str],
-    pause_reason: PauseReason | None = None,
-    escalation_reason: EscalationReason | None = None,
-    payload: PhasePayload | None = None,
-    memory: PhaseMemory | None = None,
-    review_round: int = 0,
-    errors: list[str] | None = None,
-    warnings: list[str] | None = None,
-    attempt_id: str | None = None,
-    agents_to_spawn: list[SpawnRequest] | None = None,
-) -> PhaseState:
-    """Construct a complete PhaseState without duplicating FK-39 defaults."""
+@dataclass(frozen=True)
+class PhaseStateSpec:
+    """Complete specification for constructing a :class:`PhaseState`.
 
+    Groups all required and optional fields into a single typed object so
+    that :func:`build_phase_state_from_spec` stays below the S107
+    parameter-count threshold.  Pass this spec to
+    :func:`build_phase_state_from_spec` for construction.
+    """
+
+    story_id: str
+    run_id: str
+    phase: str | PhaseName
+    status: PhaseStatus
+    mode: PhaseStateMode
+    story_type: StoryType
+    attempt: int
+    started_at: datetime
+    phase_entered_at: datetime
+    producer: PhaseStateProducer | dict[str, str]
+    pause_reason: PauseReason | None = None
+    escalation_reason: EscalationReason | None = None
+    payload: PhasePayload | None = None
+    memory: PhaseMemory | None = None
+    review_round: int = 0
+    errors: list[str] | None = None
+    warnings: list[str] | None = None
+    attempt_id: str | None = None
+    agents_to_spawn: list[SpawnRequest] | None = None
+
+
+def build_phase_state_from_spec(spec: PhaseStateSpec) -> PhaseState:
+    """Construct a complete PhaseState from a :class:`PhaseStateSpec`.
+
+    Single-argument entry point that satisfies S107.  Callers should construct
+    a :class:`PhaseStateSpec` and pass it here.
+    """
     return PhaseState(
         schema_version=PHASE_STATE_SCHEMA_VERSION,
-        story_id=story_id,
-        run_id=run_id,
-        phase=phase,
-        status=status,
-        mode=mode,
-        story_type=story_type,
-        attempt=attempt,
-        started_at=started_at,
-        phase_entered_at=phase_entered_at,
-        pause_reason=pause_reason,
-        escalation_reason=escalation_reason,
-        payload=payload,
-        memory=memory or PhaseMemory(),
-        review_round=review_round,
-        errors=errors or [],
-        warnings=warnings or [],
-        producer=producer,
-        attempt_id=attempt_id,
-        agents_to_spawn=agents_to_spawn or [],
+        story_id=spec.story_id,
+        run_id=spec.run_id,
+        phase=spec.phase,
+        status=spec.status,
+        mode=spec.mode,
+        story_type=spec.story_type,
+        attempt=spec.attempt,
+        started_at=spec.started_at,
+        phase_entered_at=spec.phase_entered_at,
+        pause_reason=spec.pause_reason,
+        escalation_reason=spec.escalation_reason,
+        payload=spec.payload,
+        memory=spec.memory or PhaseMemory(),
+        review_round=spec.review_round,
+        errors=spec.errors or [],
+        warnings=spec.warnings or [],
+        producer=spec.producer,
+        attempt_id=spec.attempt_id,
+        agents_to_spawn=spec.agents_to_spawn or [],
     )
+
 
 
 def evolve_phase_state(state: PhaseState, **updates: object) -> PhaseState:
@@ -477,7 +492,8 @@ __all__ = [
     "PhaseStatus",
     "QaCycleStatus",
     "SetupPayload",
-    "build_phase_state",
+    "PhaseStateSpec",
+    "build_phase_state_from_spec",
     "evolve_phase_state",
     "phase_state_mode_from_context",
 ]

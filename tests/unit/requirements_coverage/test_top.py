@@ -189,7 +189,7 @@ def test_disabled_paths_skip_without_writes() -> None:
     coverage = RequirementsCoverage(None, _config(False), link_repository=repo)
 
     assert coverage.link_requirements("AG3-077", "ak3").status is AreDockpointStatus.SKIPPED
-    assert coverage.load_context("AG3-077", "ak3", "run").status is AreDockpointStatus.SKIPPED
+    assert coverage.load_context("AG3-077", "run").status is AreDockpointStatus.SKIPPED
     assert coverage.submit_evidence("AG3-077", _evidence()).status is AreDockpointStatus.SKIPPED
     assert coverage.check_gate("AG3-077", "ak3").status is AreDockpointStatus.SKIPPED
     assert repo.add_calls == []
@@ -236,7 +236,7 @@ def test_load_context_persists_bundle_via_artifact_manager_and_reads_links() -> 
         artifact_manager=artifacts,  # type: ignore[arg-type]
     )
 
-    result = coverage.load_context("AG3-077", "ak3", "run-1")
+    result = coverage.load_context("AG3-077", "run-1")
 
     assert result.status is AreDockpointStatus.PASS
     assert result.requirement_count == 1
@@ -333,7 +333,7 @@ def test_load_and_check_are_read_only_for_story_are_link() -> None:
         link_repository=repo,
     )
 
-    coverage.load_context("AG3-077", "ak3", "run-1")
+    coverage.load_context("AG3-077", "run-1")
     coverage.check_gate("AG3-077", "ak3")
 
     assert repo.add_calls == []

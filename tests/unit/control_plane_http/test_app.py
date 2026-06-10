@@ -21,7 +21,11 @@ from agentkit.control_plane.http import ControlPlaneApplication as CompatCPA
 from agentkit.control_plane.http import HttpResponse as CompatHttpResponse
 
 # AC1: canonical namespace is owner
-from agentkit.control_plane_http.app import ControlPlaneApplication, HttpResponse
+from agentkit.control_plane_http.app import (
+    ControlPlaneApplication,
+    ControlPlaneApplicationRoutes,
+    HttpResponse,
+)
 from agentkit.pipeline_engine.http.routes import PipelineEngineRoutes
 from agentkit.telemetry.http.routes import TelemetryRouteResponse
 
@@ -237,22 +241,24 @@ def _make_app(
     from agentkit.verify_system.http.routes import VerifySystemRoutes
 
     return ControlPlaneApplication(
-        project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
-        story_routes=_FakeStoryContextRoutes(),  # type: ignore[arg-type]
-        concept_routes=_FakeConceptRoutes(),  # type: ignore[arg-type]
-        hub_routes=_FakeHubRoutes(),  # type: ignore[arg-type]
-        planning_routes=_FakePlanningRoutes(),  # type: ignore[arg-type]
-        telemetry_routes=telemetry_routes or _FakeTelemetryRoutes(),  # type: ignore[arg-type]
-        auth_routes=_FakeAuthRoutes(),  # type: ignore[arg-type]
+        routes=ControlPlaneApplicationRoutes(
+            project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
+            story_routes=_FakeStoryContextRoutes(),  # type: ignore[arg-type]
+            concept_routes=_FakeConceptRoutes(),  # type: ignore[arg-type]
+            hub_routes=_FakeHubRoutes(),  # type: ignore[arg-type]
+            planning_routes=_FakePlanningRoutes(),  # type: ignore[arg-type]
+            telemetry_routes=telemetry_routes or _FakeTelemetryRoutes(),  # type: ignore[arg-type]
+            auth_routes=_FakeAuthRoutes(),  # type: ignore[arg-type]
+            pipeline_engine_routes=pipeline_engine_routes or PipelineEngineRoutes(service_available=True),
+            verify_system_routes=VerifySystemRoutes(service_available=True),
+            governance_routes=GovernanceRoutes(service_available=True),
+            closure_routes=ClosureRoutes(service_available=True),
+            artifacts_routes=ArtifactsRoutes(service_available=True),
+            kpi_analytics_routes=KpiAnalyticsRoutes(service_available=True),
+            failure_corpus_routes=FailureCorpusRoutes(service_available=True),
+            requirements_coverage_routes=RequirementsCoverageRoutes(service_available=True),
+        ),
         tenant_scope_middleware=tenant_scope or _NoopTenantScope(),  # type: ignore[arg-type]
-        pipeline_engine_routes=pipeline_engine_routes or PipelineEngineRoutes(service_available=True),
-        verify_system_routes=VerifySystemRoutes(service_available=True),
-        governance_routes=GovernanceRoutes(service_available=True),
-        closure_routes=ClosureRoutes(service_available=True),
-        artifacts_routes=ArtifactsRoutes(service_available=True),
-        kpi_analytics_routes=KpiAnalyticsRoutes(service_available=True),
-        failure_corpus_routes=FailureCorpusRoutes(service_available=True),
-        requirements_coverage_routes=RequirementsCoverageRoutes(service_available=True),
     )
 
 
@@ -581,22 +587,24 @@ def _make_app_with_real_story_routes(
     from agentkit.verify_system.http.routes import VerifySystemRoutes
 
     return ControlPlaneApplication(
-        project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
-        story_routes=_make_story_routes(),  # type: ignore[arg-type]
-        concept_routes=_FakeConceptRoutes(),  # type: ignore[arg-type]
-        hub_routes=_FakeHubRoutes(),  # type: ignore[arg-type]
-        planning_routes=_FakePlanningRoutes(),  # type: ignore[arg-type]
-        telemetry_routes=_FakeTelemetryRoutes(),  # type: ignore[arg-type]
-        auth_routes=_FakeAuthRoutes(),  # type: ignore[arg-type]
+        routes=ControlPlaneApplicationRoutes(
+            project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
+            story_routes=_make_story_routes(),  # type: ignore[arg-type]
+            concept_routes=_FakeConceptRoutes(),  # type: ignore[arg-type]
+            hub_routes=_FakeHubRoutes(),  # type: ignore[arg-type]
+            planning_routes=_FakePlanningRoutes(),  # type: ignore[arg-type]
+            telemetry_routes=_FakeTelemetryRoutes(),  # type: ignore[arg-type]
+            auth_routes=_FakeAuthRoutes(),  # type: ignore[arg-type]
+            pipeline_engine_routes=PipelineEngineRoutes(service_available=True),
+            verify_system_routes=VerifySystemRoutes(service_available=True),
+            governance_routes=GovernanceRoutes(service_available=True),
+            closure_routes=ClosureRoutes(service_available=True),
+            artifacts_routes=ArtifactsRoutes(service_available=True),
+            kpi_analytics_routes=KpiAnalyticsRoutes(service_available=True),
+            failure_corpus_routes=FailureCorpusRoutes(service_available=True),
+            requirements_coverage_routes=RequirementsCoverageRoutes(service_available=True),
+        ),
         tenant_scope_middleware=tenant_scope or _NoopTenantScope(),  # type: ignore[arg-type]
-        pipeline_engine_routes=PipelineEngineRoutes(service_available=True),
-        verify_system_routes=VerifySystemRoutes(service_available=True),
-        governance_routes=GovernanceRoutes(service_available=True),
-        closure_routes=ClosureRoutes(service_available=True),
-        artifacts_routes=ArtifactsRoutes(service_available=True),
-        kpi_analytics_routes=KpiAnalyticsRoutes(service_available=True),
-        failure_corpus_routes=FailureCorpusRoutes(service_available=True),
-        requirements_coverage_routes=RequirementsCoverageRoutes(service_available=True),
     )
 
 

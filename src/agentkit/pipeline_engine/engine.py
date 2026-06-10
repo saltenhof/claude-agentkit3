@@ -1025,7 +1025,6 @@ class PipelineEngine:
 
         policy_skip_reason = self._should_skip_for_execution_policy(
             ctx,
-            state,
             phase_def,
         )
         if policy_skip_reason is not None:
@@ -1130,7 +1129,6 @@ class PipelineEngine:
                 attempt_id,
                 [],
                 exc,
-                story_id=state.story_id,
                 started_at=started_at,
             )
 
@@ -1238,7 +1236,6 @@ class PipelineEngine:
                 attempt_id,
                 [],
                 exc,
-                story_id=state.story_id,
                 started_at=started_at,
             )
 
@@ -1309,7 +1306,6 @@ class PipelineEngine:
         guard_evals: list[dict[str, object]],
         exc: Exception,
         *,
-        story_id: str,
         started_at: datetime,
     ) -> EngineResult:
         """Handle an exception raised by a phase handler.
@@ -1411,7 +1407,6 @@ class PipelineEngine:
     def _should_skip_for_execution_policy(
         self,
         ctx: StoryContext,
-        state: PhaseState,
         phase_def: PhaseDefinition,
     ) -> str | None:
         """Evaluate whether the node should be skipped due to execution policy."""

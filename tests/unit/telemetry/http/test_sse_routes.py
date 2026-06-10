@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from agentkit.auth.middleware import AuthMiddleware
 from agentkit.auth.sessions import InMemorySessionStore
 from agentkit.control_plane.http import ControlPlaneApplication, HttpResponse
+from agentkit.control_plane_http.app import ControlPlaneApplicationRoutes
 from agentkit.telemetry.contract.records import ExecutionEventRecord
 from agentkit.telemetry.http.routes import TelemetryRoutes
 
@@ -84,7 +85,7 @@ def _record(
 def test_project_events_endpoint_returns_sse_stream_and_filters_project() -> None:
     source = _FakeProjectEventSource()
     app = ControlPlaneApplication(
-        telemetry_routes=TelemetryRoutes(source),
+        routes=ControlPlaneApplicationRoutes(telemetry_routes=TelemetryRoutes(source)),
         tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
     )
 
@@ -107,7 +108,9 @@ def test_project_events_endpoint_returns_sse_stream_and_filters_project() -> Non
 
 def test_project_events_endpoint_rejects_unknown_topics() -> None:
     app = ControlPlaneApplication(
-        telemetry_routes=TelemetryRoutes(_FakeProjectEventSource()),
+        routes=ControlPlaneApplicationRoutes(
+            telemetry_routes=TelemetryRoutes(_FakeProjectEventSource())
+        ),
         tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
     )
 
@@ -129,8 +132,10 @@ def test_project_events_endpoint_requires_auth_when_middleware_is_enabled() -> N
         token_repository=_InMemoryTokenRepository(),
     )
     app = ControlPlaneApplication(
+        routes=ControlPlaneApplicationRoutes(
+            telemetry_routes=TelemetryRoutes(_FakeProjectEventSource())
+        ),
         auth_middleware=middleware,
-        telemetry_routes=TelemetryRoutes(_FakeProjectEventSource()),
     )
 
     response = app.handle_request(

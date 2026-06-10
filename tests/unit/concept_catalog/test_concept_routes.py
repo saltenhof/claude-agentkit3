@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from agentkit.concept_catalog.http.routes import ConceptCatalogRoutes
 from agentkit.concept_catalog.index import ConceptIndex
 from agentkit.control_plane.http import ControlPlaneApplication
+from agentkit.control_plane_http.app import ControlPlaneApplicationRoutes
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -26,7 +27,9 @@ def _write_doc(
 def _app(root: Path) -> ControlPlaneApplication:
     index = ConceptIndex(root)
     index.load()
-    return ControlPlaneApplication(concept_routes=ConceptCatalogRoutes(index))
+    return ControlPlaneApplication(
+        routes=ControlPlaneApplicationRoutes(concept_routes=ConceptCatalogRoutes(index))
+    )
 
 
 def _fixture_root(tmp_path: Path) -> Path:

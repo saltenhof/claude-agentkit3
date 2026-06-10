@@ -37,7 +37,7 @@ class ClosureRoutes:
     def handle_get(
         self,
         route_path: str,
-        query: dict[str, list[str]],
+        _query: dict[str, list[str]],
         correlation_id: str,
     ) -> ClosureRouteResponse | None:
         """Handle closure GET routes or return None."""
@@ -59,7 +59,7 @@ class ClosureRoutes:
     def handle_post(
         self,
         route_path: str,
-        payload: object,
+        _payload: object,
         correlation_id: str,
     ) -> ClosureRouteResponse | None:
         """Handle closure POST routes or return None."""

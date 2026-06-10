@@ -4,6 +4,7 @@ import json
 from http import HTTPStatus
 
 from agentkit.control_plane.http import ControlPlaneApplication
+from agentkit.control_plane_http.app import ControlPlaneApplicationRoutes
 from agentkit.project_management.entities import Project, ProjectConfiguration
 from agentkit.project_management.http.routes import ProjectManagementRoutes
 
@@ -68,10 +69,12 @@ def _app(
         story_service=_StoryListStub(stories),
     )
     return ControlPlaneApplication(
-        project_routes=ProjectManagementRoutes(
-            repository=repository,
-            repos_in_use_checker=_no_repos_in_use,
-            detail_service=detail_service,
+        routes=ControlPlaneApplicationRoutes(
+            project_routes=ProjectManagementRoutes(
+                repository=repository,
+                repos_in_use_checker=_no_repos_in_use,
+                detail_service=detail_service,
+            ),
         ),
         tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
     )
@@ -413,7 +416,7 @@ def test_patch_configuration_repos_in_use_returns_validation_failed() -> None:
         repos_in_use_checker=_checker,
     )
     app = ControlPlaneApplication(
-        project_routes=routes,
+        routes=ControlPlaneApplicationRoutes(project_routes=routes),
         tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
     )
 
@@ -458,7 +461,7 @@ def test_patch_configuration_repos_not_in_use_succeeds() -> None:
         repos_in_use_checker=_checker,
     )
     app = ControlPlaneApplication(
-        project_routes=routes,
+        routes=ControlPlaneApplicationRoutes(project_routes=routes),
         tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
     )
 

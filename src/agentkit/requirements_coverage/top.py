@@ -120,7 +120,7 @@ class RequirementsCoverage:
             )
         return LinkResult(status=AreDockpointStatus.PASS, linked_count=linked_count)
 
-    def load_context(self, story_id: str, project_key: str, run_id: str) -> ContextLoadResult:
+    def load_context(self, story_id: str, run_id: str) -> ContextLoadResult:
         """Dock-point 2: load and persist the ARE context bundle."""
 
         if not self.is_enabled:

@@ -21,10 +21,11 @@ from agentkit.pipeline_engine.phase_executor.models import (
     PhaseState,
     PhaseStateMode,
     PhaseStateProducer,
+    PhaseStateSpec,
     PhaseStatus,
     QaCycleStatus,
     SetupPayload,
-    build_phase_state,
+    build_phase_state_from_spec,
     evolve_phase_state,
     phase_state_mode_from_context,
 )
@@ -53,7 +54,8 @@ __all__ = [
     "PhaseStatus",
     "QaCycleStatus",
     "SetupPayload",
-    "build_phase_state",
+    "PhaseStateSpec",
+    "build_phase_state_from_spec",
     "evolve_phase_state",
     "phase_state_mode_from_context",
 ]

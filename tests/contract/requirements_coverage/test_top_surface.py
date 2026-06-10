@@ -36,7 +36,7 @@ class TestRequirementsCoverageSignatures:
     def test_load_context_signature(self) -> None:
         sig = inspect.signature(RequirementsCoverage.load_context)
         params = list(sig.parameters)
-        assert params == ["self", "story_id", "project_key", "run_id"]
+        assert params == ["self", "story_id", "run_id"]
 
     def test_submit_evidence_signature(self) -> None:
         sig = inspect.signature(RequirementsCoverage.submit_evidence)

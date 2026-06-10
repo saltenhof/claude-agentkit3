@@ -41,43 +41,18 @@ if TYPE_CHECKING:
     from agentkit.auth.http.routes import AuthRouteResponse, AuthRoutes
     from agentkit.auth.middleware import AuthMiddleware
     from agentkit.closure.http.routes import ClosureRoutes
-    from agentkit.concept_catalog.http.routes import (
-        ConceptCatalogRoutes,
-        ConceptRouteResponse,
-    )
-    from agentkit.execution_planning.http.routes import (
-        ExecutionPlanningRouteResponse,
-        ExecutionPlanningRoutes,
-    )
-    from agentkit.failure_corpus.http.routes import (
-        FailureCorpusRoutes,
-    )
+    from agentkit.concept_catalog.http.routes import ConceptCatalogRoutes, ConceptRouteResponse
+    from agentkit.execution_planning.http.routes import ExecutionPlanningRouteResponse, ExecutionPlanningRoutes
+    from agentkit.failure_corpus.http.routes import FailureCorpusRoutes
     from agentkit.governance.http.routes import GovernanceRoutes
-    from agentkit.kpi_analytics.http.routes import (
-        KpiAnalyticsRoutes,
-    )
-    from agentkit.multi_llm_hub.http.routes import (
-        MultiLlmHubRouteResponse,
-        MultiLlmHubRoutes,
-    )
-    from agentkit.pipeline_engine.http.routes import (
-        PipelineEngineRoutes,
-    )
-    from agentkit.project_management.http.routes import (
-        ProjectManagementRoutes,
-        ProjectRouteResponse,
-    )
-    from agentkit.requirements_coverage.http.routes import (
-        RequirementsCoverageRoutes,
-    )
-    from agentkit.story_context_manager.http.routes import (
-        StoryContextRoutes,
-        StoryRouteResponse,
-    )
+    from agentkit.kpi_analytics.http.routes import KpiAnalyticsRoutes
+    from agentkit.multi_llm_hub.http.routes import MultiLlmHubRouteResponse, MultiLlmHubRoutes
+    from agentkit.pipeline_engine.http.routes import PipelineEngineRoutes
+    from agentkit.project_management.http.routes import ProjectManagementRoutes, ProjectRouteResponse
+    from agentkit.requirements_coverage.http.routes import RequirementsCoverageRoutes
+    from agentkit.story_context_manager.http.routes import StoryContextRoutes, StoryRouteResponse
     from agentkit.telemetry.http.routes import TelemetryRouteResponse, TelemetryRoutes
-    from agentkit.verify_system.http.routes import (
-        VerifySystemRoutes,
-    )
+    from agentkit.verify_system.http.routes import VerifySystemRoutes
 
 logger = logging.getLogger(__name__)
 
@@ -272,6 +247,38 @@ class HttpResponse:
 
 
 # ---------------------------------------------------------------------------
+# ControlPlaneApplicationRoutes — groups all BC-route dependencies (S107)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ControlPlaneApplicationRoutes:
+    """Optional route-bundle for :class:`ControlPlaneApplication`.
+
+    Collects all 15 BC-route and middleware route overrides into a single
+    typed object so that the constructor stays within the S107 parameter-count
+    limit.  Every field defaults to ``None``; missing entries are filled with
+    their respective ``_build_default_*`` helpers at construction time.
+    """
+
+    project_routes: ProjectManagementRoutes | None = None
+    story_routes: StoryContextRoutes | None = None
+    concept_routes: ConceptCatalogRoutes | None = None
+    hub_routes: MultiLlmHubRoutes | None = None
+    planning_routes: ExecutionPlanningRoutes | None = None
+    telemetry_routes: TelemetryRoutes | None = None
+    auth_routes: AuthRoutes | None = None
+    pipeline_engine_routes: PipelineEngineRoutes | None = None
+    verify_system_routes: VerifySystemRoutes | None = None
+    governance_routes: GovernanceRoutes | None = None
+    closure_routes: ClosureRoutes | None = None
+    artifacts_routes: ArtifactsRoutes | None = None
+    kpi_analytics_routes: KpiAnalyticsRoutes | None = None
+    failure_corpus_routes: FailureCorpusRoutes | None = None
+    requirements_coverage_routes: RequirementsCoverageRoutes | None = None
+
+
+# ---------------------------------------------------------------------------
 # ControlPlaneApplication
 # ---------------------------------------------------------------------------
 
@@ -287,64 +294,50 @@ class ControlPlaneApplication:
     def __init__(
         self,
         *,
+        routes: ControlPlaneApplicationRoutes | None = None,
         telemetry_service: ControlPlaneTelemetryService | None = None,
         runtime_service: ControlPlaneRuntimeService | None = None,
         story_service: StoryService | None = None,
         dashboard_service: DashboardService | None = None,
-        project_routes: ProjectManagementRoutes | None = None,
-        story_routes: StoryContextRoutes | None = None,
-        concept_routes: ConceptCatalogRoutes | None = None,
-        hub_routes: MultiLlmHubRoutes | None = None,
-        planning_routes: ExecutionPlanningRoutes | None = None,
-        telemetry_routes: TelemetryRoutes | None = None,
-        auth_routes: AuthRoutes | None = None,
         auth_middleware: AuthMiddleware | None = None,
         tenant_scope_middleware: TenantScopeMiddleware | None = None,
-        # Eight new BC routes (AG3-090):
-        pipeline_engine_routes: PipelineEngineRoutes | None = None,
-        verify_system_routes: VerifySystemRoutes | None = None,
-        governance_routes: GovernanceRoutes | None = None,
-        closure_routes: ClosureRoutes | None = None,
-        artifacts_routes: ArtifactsRoutes | None = None,
-        kpi_analytics_routes: KpiAnalyticsRoutes | None = None,
-        failure_corpus_routes: FailureCorpusRoutes | None = None,
-        requirements_coverage_routes: RequirementsCoverageRoutes | None = None,
     ) -> None:
+        r = routes or ControlPlaneApplicationRoutes()
         self._telemetry_service = telemetry_service or ControlPlaneTelemetryService()
         self._runtime_service = runtime_service or ControlPlaneRuntimeService()
         self._story_service = story_service or StoryService()
         self._dashboard_service = dashboard_service or DashboardService(
             story_service=self._story_service,
         )
-        self._project_routes = project_routes or _build_default_project_routes()
-        self._story_routes = story_routes or _build_default_story_routes()
-        self._concept_routes = concept_routes or _build_default_concept_routes()
-        self._hub_routes = hub_routes or _build_default_hub_routes()
-        self._planning_routes = planning_routes or _build_default_planning_routes()
-        self._telemetry_routes = telemetry_routes or _build_default_telemetry_routes()
-        self._auth_routes = auth_routes or _build_default_auth_routes(auth_middleware)
+        self._project_routes = r.project_routes or _build_default_project_routes()
+        self._story_routes = r.story_routes or _build_default_story_routes()
+        self._concept_routes = r.concept_routes or _build_default_concept_routes()
+        self._hub_routes = r.hub_routes or _build_default_hub_routes()
+        self._planning_routes = r.planning_routes or _build_default_planning_routes()
+        self._telemetry_routes = r.telemetry_routes or _build_default_telemetry_routes()
+        self._auth_routes = r.auth_routes or _build_default_auth_routes(auth_middleware)
         self._auth_middleware = auth_middleware
         self._tenant_scope = tenant_scope_middleware or TenantScopeMiddleware()
-        # Eight new BC routes:
+        # Eight new BC routes (AG3-090):
         self._pipeline_engine_routes = (
-            pipeline_engine_routes or _build_default_pipeline_engine_routes()
+            r.pipeline_engine_routes or _build_default_pipeline_engine_routes()
         )
         self._verify_system_routes = (
-            verify_system_routes or _build_default_verify_system_routes()
+            r.verify_system_routes or _build_default_verify_system_routes()
         )
         self._governance_routes = (
-            governance_routes or _build_default_governance_routes()
+            r.governance_routes or _build_default_governance_routes()
         )
-        self._closure_routes = closure_routes or _build_default_closure_routes()
-        self._artifacts_routes = artifacts_routes or _build_default_artifacts_routes()
+        self._closure_routes = r.closure_routes or _build_default_closure_routes()
+        self._artifacts_routes = r.artifacts_routes or _build_default_artifacts_routes()
         self._kpi_analytics_routes = (
-            kpi_analytics_routes or _build_default_kpi_analytics_routes()
+            r.kpi_analytics_routes or _build_default_kpi_analytics_routes()
         )
         self._failure_corpus_routes = (
-            failure_corpus_routes or _build_default_failure_corpus_routes()
+            r.failure_corpus_routes or _build_default_failure_corpus_routes()
         )
         self._requirements_coverage_routes = (
-            requirements_coverage_routes
+            r.requirements_coverage_routes
             or _build_default_requirements_coverage_routes()
         )
 
@@ -365,6 +358,24 @@ class ControlPlaneApplication:
         if route_path == "/healthz":
             return self._handle_healthz(method, correlation_id)
 
+        middleware_block = self._run_middleware(
+            method, route_path, request_headers, correlation_id
+        )
+        if middleware_block is not None:
+            return middleware_block
+
+        return self._dispatch_method(
+            method, route_path, query, body, correlation_id, request_headers
+        )
+
+    def _run_middleware(
+        self,
+        method: str,
+        route_path: str,
+        request_headers: Mapping[str, str] | None,
+        correlation_id: str,
+    ) -> HttpResponse | None:
+        """Run auth and tenant-scope middleware; return a response to short-circuit or None."""
         if self._auth_middleware is not None:
             auth_result = self._auth_middleware.authorize(
                 method=method,
@@ -386,13 +397,22 @@ class ControlPlaneApplication:
             )
             if isinstance(tenant_result, HttpResponse):
                 return tenant_result
+        return None
 
+    def _dispatch_method(
+        self,
+        method: str,
+        route_path: str,
+        query: dict[str, list[str]],
+        body: bytes,
+        correlation_id: str,
+        request_headers: Mapping[str, str] | None,
+    ) -> HttpResponse:
+        """Dispatch to the correct HTTP-method handler."""
         if method == "GET":
             return self._handle_get_request(route_path, query, correlation_id)
-
         if method == "DELETE":
             return self._handle_delete_request(route_path, correlation_id)
-
         payload = _decode_json_body(body, correlation_id)
         if isinstance(payload, HttpResponse):
             return payload

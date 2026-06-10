@@ -9,6 +9,7 @@ from agentkit.auth.http.routes import AuthRoutes
 from agentkit.auth.middleware import AuthMiddleware
 from agentkit.auth.sessions import InMemorySessionStore
 from agentkit.control_plane.http import ControlPlaneApplication, HttpResponse
+from agentkit.control_plane_http.app import ControlPlaneApplicationRoutes
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -76,7 +77,7 @@ def _app(tmp_path: Path) -> tuple[ControlPlaneApplication, _InMemoryTokenReposit
     )
     middleware = AuthMiddleware(session_store=sessions, token_repository=tokens)
     return ControlPlaneApplication(
-        auth_routes=routes,
+        routes=ControlPlaneApplicationRoutes(auth_routes=routes),
         auth_middleware=middleware,
         tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
     ), tokens

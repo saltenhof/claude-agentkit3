@@ -43,8 +43,11 @@ from agentkit.pipeline_engine.phase_executor import (
     PhaseState,
     PhaseStateProducer,
     PhaseStatus,
-    build_phase_state,
     phase_state_mode_from_context,
+)
+from agentkit.pipeline_engine.phase_executor.models import (
+    PhaseStateSpec,
+    build_phase_state_from_spec,
 )
 from agentkit.process.language.phase_transitions import (
     allowed_phase_transition_targets,
@@ -565,20 +568,22 @@ def _build_envelope(
     if existing is not None and existing.phase == phase:
         return PhaseEnvelopeStore.make_fresh_envelope(existing)
     now = datetime.now(tz=UTC)
-    fresh = build_phase_state(
-        story_id=ctx.story_id,
-        run_id=engine._runtime.resolve_run_id(ctx),
-        phase=phase,
-        status=PhaseStatus.PENDING,
-        mode=phase_state_mode_from_context(
-            execution_route=ctx.execution_route,
-            fast=ctx.mode is WireStoryMode.FAST,
-        ),
-        story_type=ctx.story_type,
-        attempt=1,
-        started_at=now,
-        phase_entered_at=now,
-        producer=PhaseStateProducer(type="script", name="dispatch-phase"),
+    fresh = build_phase_state_from_spec(
+        PhaseStateSpec(
+            story_id=ctx.story_id,
+            run_id=engine._runtime.resolve_run_id(ctx),
+            phase=phase,
+            status=PhaseStatus.PENDING,
+            mode=phase_state_mode_from_context(
+                execution_route=ctx.execution_route,
+                fast=ctx.mode is WireStoryMode.FAST,
+            ),
+            story_type=ctx.story_type,
+            attempt=1,
+            started_at=now,
+            phase_entered_at=now,
+            producer=PhaseStateProducer(type="script", name="dispatch-phase"),
+        )
     )
     return PhaseEnvelopeStore.make_fresh_envelope(fresh)
 

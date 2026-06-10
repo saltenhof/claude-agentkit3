@@ -56,9 +56,9 @@ SECRET_FILE_PATTERNS: tuple[SecretPattern, ...] = (
 )
 
 SECRET_CONTENT_PATTERNS: tuple[SecretPattern, ...] = (
-    SecretPattern(SecretPatternKind.CONTENT_PREFIX, "AK" "IA"),
-    SecretPattern(SecretPatternKind.CONTENT_PREFIX, "gh" "p_"),
-    SecretPattern(SecretPatternKind.CONTENT_PREFIX, "sk" "-"),
+    SecretPattern(SecretPatternKind.CONTENT_PREFIX, "AKIA"),
+    SecretPattern(SecretPatternKind.CONTENT_PREFIX, "ghp_"),
+    SecretPattern(SecretPatternKind.CONTENT_PREFIX, "sk-"),
 )
 
 

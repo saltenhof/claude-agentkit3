@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from agentkit.verify_system.llm_evaluator.bundle import ReviewBundle, build_review_bundle
+from agentkit.verify_system.llm_evaluator.bundle import build_review_bundle
 from agentkit.verify_system.llm_evaluator.structured_evaluator import (
     LlmVerdict,
     ReviewerRole,
@@ -96,10 +96,6 @@ def run_layer2_llm(
         qa_cycle_round,
     )
     doc_result = _run_impl_fidelity(
-        runner,
-        bundle=bundle,
-        qa_cycle_round=qa_cycle_round,
-        previous_findings=previous_findings,
         doc_fidelity_result=doc_fidelity_result,
     )
     return (
@@ -239,11 +235,7 @@ def _to_layer_result(
 
 
 def _run_impl_fidelity(
-    runner: ParallelEvalRunner,
     *,
-    bundle: ReviewBundle,
-    qa_cycle_round: int,
-    previous_findings: tuple[Finding, ...],
     doc_fidelity_result: StructuredEvaluatorResult | LayerResult | None,
 ) -> LayerResult:
     """Return the implementation-fidelity layer result.

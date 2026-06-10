@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from agentkit.control_plane.http import ControlPlaneApplication
+from agentkit.control_plane_http.app import ControlPlaneApplicationRoutes
 from agentkit.core_types import StoryDependencyKind
 from agentkit.execution_planning.entities import StoryDependency
 from agentkit.project_management.entities import ProjectConfiguration
@@ -75,10 +76,12 @@ def _app(tmp_path: Path) -> ControlPlaneApplication:
         story_service=_story_service(tmp_path),
     )
     return ControlPlaneApplication(
-        project_routes=ProjectManagementRoutes(
-            repository=project_repo,
-            repos_in_use_checker=_no_repos_in_use,
-            detail_service=detail_service,
+        routes=ControlPlaneApplicationRoutes(
+            project_routes=ProjectManagementRoutes(
+                repository=project_repo,
+                repos_in_use_checker=_no_repos_in_use,
+                detail_service=detail_service,
+            ),
         ),
     )
 

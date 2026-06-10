@@ -37,7 +37,7 @@ class GovernanceRoutes:
     def handle_get(
         self,
         route_path: str,
-        query: dict[str, list[str]],
+        _query: dict[str, list[str]],
         correlation_id: str,
     ) -> GovernanceRouteResponse | None:
         """Handle governance GET routes or return None."""
@@ -59,7 +59,7 @@ class GovernanceRoutes:
     def handle_post(
         self,
         route_path: str,
-        payload: object,
+        _payload: object,
         correlation_id: str,
     ) -> GovernanceRouteResponse | None:
         """Handle governance POST routes or return None."""

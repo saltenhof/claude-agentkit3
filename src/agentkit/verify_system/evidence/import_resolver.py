@@ -18,8 +18,15 @@ if TYPE_CHECKING:
 
 
 PY_IMPORT = re.compile(r"^(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))", re.MULTILINE)
-TS_STATIC_IMPORT = re.compile(
-    r"""import\s+(?:type\s+)?(?:\{(?P<named>[^}]*)\}|[\w*]+(?:\s*,\s*\{(?P<named2>[^}]*)\})?)\s+from\s+['"]([^'"]+)['"]""",
+# Two simpler patterns cover the two TS static-import forms (split to avoid S5843):
+# Form A: import [type] { named } from 'path'
+TS_STATIC_IMPORT_NAMED = re.compile(
+    r"""import\s+(?:type\s+)?\{(?P<named>[^}]*)\}\s+from\s+['"](?P<path_a>[^'"]+)['"]""",
+    re.MULTILINE,
+)
+# Form B: import [type] default[, { named2 }] from 'path'
+TS_STATIC_IMPORT_DEFAULT = re.compile(
+    r"""import\s+(?:type\s+)?[\w*]+(?:\s*,\s*\{(?P<named2>[^}]*)\})?\s+from\s+['"](?P<path_b>[^'"]+)['"]""",
     re.MULTILINE,
 )
 TS_SIDE_EFFECT = re.compile(r"""import\s+['"]([^'"]+)['"]""", re.MULTILINE)
@@ -29,9 +36,9 @@ TS_DYNAMIC = re.compile(r"""import\s*\(\s*['"]([^'"]+)['"]\s*\)""", re.MULTILINE
 JAVA_IMPORT = re.compile(r"^import\s+(?:static\s+)?([\w.]+(?:\.\*)?)\s*;", re.MULTILINE)
 JAVA_PACKAGE = re.compile(r"^package\s+([\w.]+)\s*;", re.MULTILINE)
 JAVA_TYPE_REFERENCE = re.compile(
-    r"\b(?:extends|implements|new|private|protected|public|final)\s+([A-Z][A-Za-z0-9_]*)\b"
+    r"\b(?:extends|implements|new|private|protected|public|final)\s+([A-Z]\w*)\b"
 )
-JAVA_CLASS_DECL = re.compile(r"\b(?:class|interface|enum|record)\s+([A-Z][A-Za-z0-9_]*)\b")
+JAVA_CLASS_DECL = re.compile(r"\b(?:class|interface|enum|record)\s+([A-Z]\w*)\b")
 SPRING_SCAN = re.compile(
     r"@(?:SpringBootApplication|ComponentScan|Import|EntityScan|EnableJpaRepositories)\s*\(([^)]*)\)",
     re.MULTILINE | re.DOTALL,
@@ -174,9 +181,12 @@ class ImportResolver:
 
     def _resolve_ts_static_patterns(self, source: Path, content: str) -> list[ResolvedImport]:
         results: list[ResolvedImport] = []
-        for match in TS_STATIC_IMPORT.finditer(content):
-            named_import = _first_named_import(match.groupdict().get("named") or match.groupdict().get("named2"))
-            results.extend(self._ts_results_for_specifier(source, match.group(3), match.group(0), named_import))
+        for match in TS_STATIC_IMPORT_NAMED.finditer(content):
+            named_import = _first_named_import(match.groupdict().get("named"))
+            results.extend(self._ts_results_for_specifier(source, match.group("path_a"), match.group(0), named_import))
+        for match in TS_STATIC_IMPORT_DEFAULT.finditer(content):
+            named_import = _first_named_import(match.groupdict().get("named2"))
+            results.extend(self._ts_results_for_specifier(source, match.group("path_b"), match.group(0), named_import))
         return results
 
     def _resolve_ts_pattern(

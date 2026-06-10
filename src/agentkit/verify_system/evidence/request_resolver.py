@@ -74,7 +74,7 @@ def parse_preflight_response(raw_response: str) -> list[ReviewerRequest]:
                 MAX_REQUESTS,
             )
         return [ReviewerRequest(**item) for item in raw_requests[:MAX_REQUESTS]]
-    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+    except (KeyError, TypeError, ValueError) as exc:
         logger.warning("Preflight response could not be parsed: %s", exc)
         return []
 

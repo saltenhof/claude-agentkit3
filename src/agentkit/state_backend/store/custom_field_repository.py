@@ -103,6 +103,101 @@ def _postgres_connect() -> Iterator[Any]:
 class StoryCustomFieldRepository:
     """SQLite/Postgres-backed custom-field definition/value repository."""
 
+    # SQL statements are class-level to keep module top-level LOC within budget.
+    _SQLITE_DEFINITION_UPSERT: str = """
+    INSERT INTO story_custom_field_definitions (
+        project_key, field_key, display_name, field_type, provider,
+        provider_field_ref, is_required, is_writable_by_agentkit, allowed_values
+    ) VALUES (
+        :project_key, :field_key, :display_name, :field_type, :provider,
+        :provider_field_ref, :is_required, :is_writable_by_agentkit,
+        :allowed_values
+    )
+    ON CONFLICT (project_key, field_key) DO UPDATE SET
+        display_name=excluded.display_name,
+        field_type=excluded.field_type,
+        provider=excluded.provider,
+        provider_field_ref=excluded.provider_field_ref,
+        is_required=excluded.is_required,
+        is_writable_by_agentkit=excluded.is_writable_by_agentkit,
+        allowed_values=excluded.allowed_values
+"""
+    _PG_DEFINITION_UPSERT: str = """
+    INSERT INTO story_custom_field_definitions (
+        project_key, field_key, display_name, field_type, provider,
+        provider_field_ref, is_required, is_writable_by_agentkit, allowed_values
+    ) VALUES (
+        %(project_key)s, %(field_key)s, %(display_name)s, %(field_type)s,
+        %(provider)s, %(provider_field_ref)s, %(is_required)s,
+        %(is_writable_by_agentkit)s, CAST(%(allowed_values)s AS jsonb)
+    )
+    ON CONFLICT (project_key, field_key) DO UPDATE SET
+        display_name=excluded.display_name,
+        field_type=excluded.field_type,
+        provider=excluded.provider,
+        provider_field_ref=excluded.provider_field_ref,
+        is_required=excluded.is_required,
+        is_writable_by_agentkit=excluded.is_writable_by_agentkit,
+        allowed_values=excluded.allowed_values
+"""
+    _SQLITE_DEFINITION_SELECT: str = """
+    SELECT * FROM story_custom_field_definitions
+    WHERE project_key=:project_key AND field_key=:field_key
+"""
+    _PG_DEFINITION_SELECT: str = """
+    SELECT * FROM story_custom_field_definitions
+    WHERE project_key=%(project_key)s AND field_key=%(field_key)s
+"""
+    _SQLITE_VALUE_UPSERT: str = """
+    INSERT INTO story_custom_field_values (
+        project_key, story_id, field_key, value, value_status, source,
+        last_synced_at, last_written_by, provider_sync_status, conflict_detected,
+        last_sync_attempt_at
+    ) VALUES (
+        :project_key, :story_id, :field_key, :value, :value_status, :source,
+        :last_synced_at, :last_written_by, :provider_sync_status,
+        :conflict_detected, :last_sync_attempt_at
+    )
+    ON CONFLICT (project_key, story_id, field_key) DO UPDATE SET
+        value=excluded.value,
+        value_status=excluded.value_status,
+        source=excluded.source,
+        last_synced_at=excluded.last_synced_at,
+        last_written_by=excluded.last_written_by,
+        provider_sync_status=excluded.provider_sync_status,
+        conflict_detected=excluded.conflict_detected,
+        last_sync_attempt_at=excluded.last_sync_attempt_at
+"""
+    _PG_VALUE_UPSERT: str = """
+    INSERT INTO story_custom_field_values (
+        project_key, story_id, field_key, value, value_status, source,
+        last_synced_at, last_written_by, provider_sync_status, conflict_detected,
+        last_sync_attempt_at
+    ) VALUES (
+        %(project_key)s, %(story_id)s, %(field_key)s, %(value)s,
+        %(value_status)s, %(source)s, %(last_synced_at)s, %(last_written_by)s,
+        %(provider_sync_status)s, %(conflict_detected)s, %(last_sync_attempt_at)s
+    )
+    ON CONFLICT (project_key, story_id, field_key) DO UPDATE SET
+        value=excluded.value,
+        value_status=excluded.value_status,
+        source=excluded.source,
+        last_synced_at=excluded.last_synced_at,
+        last_written_by=excluded.last_written_by,
+        provider_sync_status=excluded.provider_sync_status,
+        conflict_detected=excluded.conflict_detected,
+        last_sync_attempt_at=excluded.last_sync_attempt_at
+"""
+    _SQLITE_VALUE_SELECT: str = """
+    SELECT * FROM story_custom_field_values
+    WHERE project_key=:project_key AND story_id=:story_id AND field_key=:field_key
+"""
+    _PG_VALUE_SELECT: str = """
+    SELECT * FROM story_custom_field_values
+    WHERE project_key=%(project_key)s AND story_id=%(story_id)s
+      AND field_key=%(field_key)s
+"""
+
     def __init__(self, store_dir: Path | None = None) -> None:
         self._store_dir = store_dir or Path.cwd()
 
@@ -110,10 +205,10 @@ class StoryCustomFieldRepository:
         """Upsert one custom field definition."""
         if _is_postgres():
             with _postgres_connect() as conn:
-                conn.execute(_PG_DEFINITION_UPSERT, _definition_row(definition))
+                conn.execute(self._PG_DEFINITION_UPSERT, _definition_row(definition))
             return
         with _sqlite_connect(self._store_dir) as conn:
-            conn.execute(_SQLITE_DEFINITION_UPSERT, _definition_row(definition))
+            conn.execute(self._SQLITE_DEFINITION_UPSERT, _definition_row(definition))
 
     def get_definition(
         self,
@@ -124,20 +219,20 @@ class StoryCustomFieldRepository:
         params = {"project_key": project_key, "field_key": field_key}
         if _is_postgres():
             with _postgres_connect() as conn:
-                row = conn.execute(_PG_DEFINITION_SELECT, params).fetchone()
+                row = conn.execute(self._PG_DEFINITION_SELECT, params).fetchone()
         else:
             with _sqlite_connect(self._store_dir) as conn:
-                row = conn.execute(_SQLITE_DEFINITION_SELECT, params).fetchone()
+                row = conn.execute(self._SQLITE_DEFINITION_SELECT, params).fetchone()
         return None if row is None else _definition_from_row(dict(row))
 
     def save_value(self, value: StoryCustomFieldValue) -> None:
         """Upsert one custom field value without changing ownership rules."""
         if _is_postgres():
             with _postgres_connect() as conn:
-                conn.execute(_PG_VALUE_UPSERT, _value_row(value))
+                conn.execute(self._PG_VALUE_UPSERT, _value_row(value))
             return
         with _sqlite_connect(self._store_dir) as conn:
-            conn.execute(_SQLITE_VALUE_UPSERT, _value_row(value))
+            conn.execute(self._SQLITE_VALUE_UPSERT, _value_row(value))
 
     def write_agentkit_value(self, value: StoryCustomFieldValue) -> None:
         """Write a value through the AgentKit single-writer bar."""
@@ -187,113 +282,12 @@ class StoryCustomFieldRepository:
         }
         if _is_postgres():
             with _postgres_connect() as conn:
-                row = conn.execute(_PG_VALUE_SELECT, params).fetchone()
+                row = conn.execute(self._PG_VALUE_SELECT, params).fetchone()
         else:
             with _sqlite_connect(self._store_dir) as conn:
-                row = conn.execute(_SQLITE_VALUE_SELECT, params).fetchone()
+                row = conn.execute(self._SQLITE_VALUE_SELECT, params).fetchone()
         return None if row is None else _value_from_row(dict(row))
 
-
-_SQLITE_DEFINITION_UPSERT = """
-    INSERT INTO story_custom_field_definitions (
-        project_key, field_key, display_name, field_type, provider,
-        provider_field_ref, is_required, is_writable_by_agentkit, allowed_values
-    ) VALUES (
-        :project_key, :field_key, :display_name, :field_type, :provider,
-        :provider_field_ref, :is_required, :is_writable_by_agentkit,
-        :allowed_values
-    )
-    ON CONFLICT (project_key, field_key) DO UPDATE SET
-        display_name=excluded.display_name,
-        field_type=excluded.field_type,
-        provider=excluded.provider,
-        provider_field_ref=excluded.provider_field_ref,
-        is_required=excluded.is_required,
-        is_writable_by_agentkit=excluded.is_writable_by_agentkit,
-        allowed_values=excluded.allowed_values
-"""
-
-_PG_DEFINITION_UPSERT = """
-    INSERT INTO story_custom_field_definitions (
-        project_key, field_key, display_name, field_type, provider,
-        provider_field_ref, is_required, is_writable_by_agentkit, allowed_values
-    ) VALUES (
-        %(project_key)s, %(field_key)s, %(display_name)s, %(field_type)s,
-        %(provider)s, %(provider_field_ref)s, %(is_required)s,
-        %(is_writable_by_agentkit)s, CAST(%(allowed_values)s AS jsonb)
-    )
-    ON CONFLICT (project_key, field_key) DO UPDATE SET
-        display_name=excluded.display_name,
-        field_type=excluded.field_type,
-        provider=excluded.provider,
-        provider_field_ref=excluded.provider_field_ref,
-        is_required=excluded.is_required,
-        is_writable_by_agentkit=excluded.is_writable_by_agentkit,
-        allowed_values=excluded.allowed_values
-"""
-
-_SQLITE_DEFINITION_SELECT = """
-    SELECT * FROM story_custom_field_definitions
-    WHERE project_key=:project_key AND field_key=:field_key
-"""
-
-_PG_DEFINITION_SELECT = """
-    SELECT * FROM story_custom_field_definitions
-    WHERE project_key=%(project_key)s AND field_key=%(field_key)s
-"""
-
-_SQLITE_VALUE_UPSERT = """
-    INSERT INTO story_custom_field_values (
-        project_key, story_id, field_key, value, value_status, source,
-        last_synced_at, last_written_by, provider_sync_status, conflict_detected,
-        last_sync_attempt_at
-    ) VALUES (
-        :project_key, :story_id, :field_key, :value, :value_status, :source,
-        :last_synced_at, :last_written_by, :provider_sync_status,
-        :conflict_detected, :last_sync_attempt_at
-    )
-    ON CONFLICT (project_key, story_id, field_key) DO UPDATE SET
-        value=excluded.value,
-        value_status=excluded.value_status,
-        source=excluded.source,
-        last_synced_at=excluded.last_synced_at,
-        last_written_by=excluded.last_written_by,
-        provider_sync_status=excluded.provider_sync_status,
-        conflict_detected=excluded.conflict_detected,
-        last_sync_attempt_at=excluded.last_sync_attempt_at
-"""
-
-_PG_VALUE_UPSERT = """
-    INSERT INTO story_custom_field_values (
-        project_key, story_id, field_key, value, value_status, source,
-        last_synced_at, last_written_by, provider_sync_status, conflict_detected,
-        last_sync_attempt_at
-    ) VALUES (
-        %(project_key)s, %(story_id)s, %(field_key)s, %(value)s,
-        %(value_status)s, %(source)s, %(last_synced_at)s, %(last_written_by)s,
-        %(provider_sync_status)s, %(conflict_detected)s, %(last_sync_attempt_at)s
-    )
-    ON CONFLICT (project_key, story_id, field_key) DO UPDATE SET
-        value=excluded.value,
-        value_status=excluded.value_status,
-        source=excluded.source,
-        last_synced_at=excluded.last_synced_at,
-        last_written_by=excluded.last_written_by,
-        provider_sync_status=excluded.provider_sync_status,
-        conflict_detected=excluded.conflict_detected,
-        last_sync_attempt_at=excluded.last_sync_attempt_at
-"""
-
-_SQLITE_VALUE_SELECT = """
-    SELECT * FROM story_custom_field_values
-    WHERE project_key=:project_key AND story_id=:story_id AND field_key=:field_key
-"""
-
-_PG_VALUE_SELECT = """
-    SELECT * FROM story_custom_field_values
-    WHERE project_key=%(project_key)s AND story_id=%(story_id)s
-      AND field_key=%(field_key)s
-"""
 
 
 def _definition_row(definition: StoryCustomFieldDefinition) -> dict[str, object]:

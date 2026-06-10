@@ -82,8 +82,13 @@ def run_worker_health_sidecar(
     config: WorkerHealthConfig | None = None,
     iterations: int | None = None,
 ) -> int:
-    """Poll the state backend and resolve pending LLM assessments."""
+    """Poll the state backend and resolve pending LLM assessments.
 
+    Returns:
+        0 on clean shutdown (idle timeout or requested iterations completed).
+        1 when the story state was never found during the entire run (indicates
+        the story may not exist or the state backend is unavailable).
+    """
     worker_health = config or WorkerHealthConfig()
     repo = repository or StateBackendWorkerHealthRepository(project_root)
     client = assessment_client or HubWorkerHealthAssessmentClient(
@@ -91,9 +96,12 @@ def run_worker_health_sidecar(
     )
     loops = 0
     idle_since = utc_now()
+    state_found = False
     while iterations is None or loops < iterations:
         loops += 1
         state = repo.load_latest_for_story(story_id)
+        if state is not None:
+            state_found = True
         if state is not None and state.llm_assessment.status == LlmAssessmentStatus.PENDING:
             _resolve_pending_assessment(
                 state,
@@ -108,7 +116,6 @@ def run_worker_health_sidecar(
                 state,
                 repository=repo,
                 project_root=project_root,
-                config=worker_health,
                 idle_since=idle_since,
             )
         if iterations is not None:
@@ -116,7 +123,9 @@ def run_worker_health_sidecar(
         if (utc_now() - idle_since).total_seconds() >= worker_health.sidecar.idle_shutdown_seconds:
             return 0
         time.sleep(worker_health.sidecar.poll_interval_seconds)
-    return 0
+    # Iterations-bounded exit: return 1 if the story state was never found
+    # (indicates story not in state backend), 0 for normal completion.
+    return 0 if state_found else 1
 
 
 def parse_loop_probability(text: str) -> int | None:
@@ -215,7 +224,6 @@ def _refresh_expired_assessment(
     *,
     repository: WorkerHealthStateRepository,
     project_root: Path,
-    config: WorkerHealthConfig,
     idle_since: datetime,
 ) -> datetime:
     now = utc_now()

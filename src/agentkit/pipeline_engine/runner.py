@@ -12,14 +12,17 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from agentkit.exceptions import CorruptStateError
-from agentkit.pipeline_engine.engine import PipelineEngine
+from agentkit.pipeline_engine.engine import EngineResult, PipelineEngine
 from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
 from agentkit.pipeline_engine.phase_executor import (
     PhaseName,
     PhaseStateProducer,
     PhaseStatus,
-    build_phase_state,
     phase_state_mode_from_context,
+)
+from agentkit.pipeline_engine.phase_executor.models import (
+    PhaseStateSpec,
+    build_phase_state_from_spec,
 )
 from agentkit.pipeline_engine.runtime_state import EngineRuntimeState
 from agentkit.process.language.definitions import resolve_workflow
@@ -98,17 +101,31 @@ def run_pipeline(
     Returns:
         A :class:`PipelineRunResult` summarising the execution.
     """
-    # 1. Resolve workflow if not provided
     resolved_workflow = workflow or resolve_workflow(story_context.story_type)
-
-    # 2. Create engine and envelope store
     engine = PipelineEngine(resolved_workflow, handler_registry, story_dir)
-    repository = StateBackendPhaseEnvelopeRepository(story_dir)
-    envelope_store = PhaseEnvelopeStore(repository)
+    envelope_store = PhaseEnvelopeStore(StateBackendPhaseEnvelopeRepository(story_dir))
 
-    # 3. Load or create initial envelope (fail-closed on corrupt state)
+    initial = _load_or_create_initial_envelope(
+        story_context, story_dir, resolved_workflow, engine, envelope_store
+    )
+    if isinstance(initial, PipelineRunResult):
+        return initial
+    return _run_phase_loop(story_context, story_dir, engine, initial)
+
+
+def _load_or_create_initial_envelope(
+    story_context: StoryContext,
+    story_dir: Path,
+    resolved_workflow: WorkflowDefinition,
+    engine: PipelineEngine,
+    envelope_store: PhaseEnvelopeStore,
+) -> PhaseEnvelope | PipelineRunResult:
+    """Load an existing envelope or create a fresh one for the first phase.
+
+    Returns a :class:`PipelineRunResult` on corrupt-state error, or a
+    :class:`PhaseEnvelope` ready for the phase loop.
+    """
     first_phase_name = resolved_workflow.phases[0].name
-    # Attempt to derive a PhaseName from the workflow's first phase name
     try:
         first_phase = PhaseName(first_phase_name)
     except ValueError:
@@ -132,17 +149,18 @@ def run_pipeline(
             ),
         )
 
-    if envelope is None:
-        now = datetime.now(tz=UTC)
-        runtime = getattr(engine, "_runtime", None)
-        run_id = (
-            runtime.resolve_run_id(story_context)
-            if isinstance(runtime, EngineRuntimeState)
-            else EngineRuntimeState(resolved_workflow, story_dir).resolve_run_id(
-                story_context,
-            )
-        )
-        fresh_state = build_phase_state(
+    if envelope is not None:
+        return envelope
+
+    now = datetime.now(tz=UTC)
+    runtime = getattr(engine, "_runtime", None)
+    run_id = (
+        runtime.resolve_run_id(story_context)
+        if isinstance(runtime, EngineRuntimeState)
+        else EngineRuntimeState(resolved_workflow, story_dir).resolve_run_id(story_context)
+    )
+    fresh_state = build_phase_state_from_spec(
+        PhaseStateSpec(
             story_id=story_context.story_id,
             run_id=run_id,
             phase=first_phase_name,
@@ -157,12 +175,20 @@ def run_pipeline(
             phase_entered_at=now,
             producer=PhaseStateProducer(type="script", name="run-pipeline"),
         )
-        save_phase_state(story_dir, fresh_state)
-        envelope = PhaseEnvelopeStore.make_fresh_envelope(fresh_state)
+    )
+    save_phase_state(story_dir, fresh_state)
+    return PhaseEnvelopeStore.make_fresh_envelope(fresh_state)
 
-    # 4. Run phase loop
+
+def _run_phase_loop(
+    story_context: StoryContext,
+    story_dir: Path,
+    engine: PipelineEngine,
+    envelope: PhaseEnvelope,
+) -> PipelineRunResult:
+    """Drive the engine through sequential phases until a terminal result."""
     phases_executed: list[str] = []
-    max_iterations = 20  # safety limit
+    max_iterations = 20
 
     for _ in range(max_iterations):
         result = engine.run_phase(story_context, envelope)
@@ -170,57 +196,31 @@ def run_pipeline(
         if result.updated_context is not None:
             story_context = result.updated_context
 
-        if result.status == "yielded":
-            return PipelineRunResult(
-                story_id=story_context.story_id,
-                phases_executed=tuple(phases_executed),
-                final_status="yielded",
-                final_phase=result.phase,
-                yielded=True,
-                yield_status=result.yield_status,
-            )
+        terminal = _check_terminal_result(story_context, result, phases_executed)
+        if terminal is not None:
+            return terminal
 
-        if result.status in ("failed", "escalated"):
-            return PipelineRunResult(
-                story_id=story_context.story_id,
-                phases_executed=tuple(phases_executed),
-                final_status=result.status,
-                final_phase=result.phase,
-                errors=result.errors,
-                # AG3-044 AC6 (FK-26 §26.11.2): forward the typed escalation
-                # reaction end-to-end so the production caller gets the
-                # structured blocker payload, not only the human-summary errors.
-                suggested_reaction=result.suggested_reaction,
-            )
-
-        # phase_completed -- advance to next phase
-        if result.next_phase is None:
-            # Terminal phase reached -- pipeline complete
-            return PipelineRunResult(
-                story_id=story_context.story_id,
-                phases_executed=tuple(phases_executed),
-                final_status="completed",
-                final_phase=result.phase,
-            )
-
-        # Create state for next phase and wrap in fresh envelope
+        # Advance to next phase (result.next_phase is not None here — checked in _check_terminal_result)
         now = datetime.now(tz=UTC)
-        next_state = build_phase_state(
-            story_id=story_context.story_id,
-            run_id=envelope.state.run_id,
-            phase=result.next_phase,
-            status=PhaseStatus.PENDING,
-            mode=envelope.state.mode,
-            story_type=story_context.story_type,
-            attempt=1,
-            started_at=envelope.state.started_at,
-            phase_entered_at=now,
-            producer=PhaseStateProducer(type="script", name="run-pipeline"),
+        next_phase = result.next_phase
+        assert next_phase is not None  # guaranteed by _check_terminal_result returning None
+        next_state = build_phase_state_from_spec(
+            PhaseStateSpec(
+                story_id=story_context.story_id,
+                run_id=envelope.state.run_id,
+                phase=next_phase,
+                status=PhaseStatus.PENDING,
+                mode=envelope.state.mode,
+                story_type=story_context.story_type,
+                attempt=1,
+                started_at=envelope.state.started_at,
+                phase_entered_at=now,
+                producer=PhaseStateProducer(type="script", name="run-pipeline"),
+            )
         )
         save_phase_state(story_dir, next_state)
         envelope = PhaseEnvelopeStore.make_fresh_envelope(next_state)
 
-    # Safety limit reached
     return PipelineRunResult(
         story_id=story_context.story_id,
         phases_executed=tuple(phases_executed),
@@ -228,3 +228,41 @@ def run_pipeline(
         final_phase=phases_executed[-1] if phases_executed else "",
         errors=("Max iteration limit reached",),
     )
+
+
+def _check_terminal_result(
+    story_context: StoryContext,
+    result: EngineResult,
+    phases_executed: list[str],
+) -> PipelineRunResult | None:
+    """Return a terminal PipelineRunResult for yield/fail/complete, or None to continue."""
+    if result.status == "yielded":
+        return PipelineRunResult(
+            story_id=story_context.story_id,
+            phases_executed=tuple(phases_executed),
+            final_status="yielded",
+            final_phase=result.phase,
+            yielded=True,
+            yield_status=result.yield_status,
+        )
+
+    if result.status in ("failed", "escalated"):
+        return PipelineRunResult(
+            story_id=story_context.story_id,
+            phases_executed=tuple(phases_executed),
+            final_status=result.status,
+            final_phase=result.phase,
+            errors=result.errors,
+            # AG3-044 AC6 (FK-26 §26.11.2): forward typed escalation reaction.
+            suggested_reaction=result.suggested_reaction,
+        )
+
+    if result.next_phase is None:
+        return PipelineRunResult(
+            story_id=story_context.story_id,
+            phases_executed=tuple(phases_executed),
+            final_status="completed",
+            final_phase=result.phase,
+        )
+
+    return None

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from agentkit.control_plane_http.app import (
     ControlPlaneApplication,
+    ControlPlaneApplicationRoutes,
     HttpResponse,
     serve_control_plane,
 )
@@ -20,6 +21,7 @@ from agentkit.control_plane_http.tenant_scope import TenantScopeMiddleware
 
 __all__ = [
     "ControlPlaneApplication",
+    "ControlPlaneApplicationRoutes",
     "HttpResponse",
     "TenantScopeMiddleware",
     "serve_control_plane",

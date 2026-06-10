@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from http import HTTPStatus
 
 from agentkit.control_plane.http import ControlPlaneApplication
+from agentkit.control_plane_http.app import ControlPlaneApplicationRoutes
 from agentkit.execution_planning.entities import (
     ParallelizationConfig,
     StoryDependency,
@@ -151,7 +152,7 @@ def _app(
         config_repository=config_repo or _ConfigRepo(),
     )
     return ControlPlaneApplication(
-        planning_routes=routes,
+        routes=ControlPlaneApplicationRoutes(planning_routes=routes),
         tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
     )
 

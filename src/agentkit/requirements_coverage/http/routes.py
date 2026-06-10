@@ -24,6 +24,7 @@ from agentkit.control_plane.models import (
 _COVERAGE_ROOT = re.compile(
     r"^/v1/projects/(?P<project_key>[^/]+)/coverage(?:/(?P<rest>.*))?$"
 )
+_COVERAGE_UNAVAILABLE = "coverage_unavailable"
 _COVERAGE_ARE_EVIDENCE = re.compile(
     r"^/v1/projects/(?P<project_key>[^/]+)/coverage/stories/(?P<story_id>[^/]+)/are-evidence$"
 )
@@ -44,7 +45,7 @@ class RequirementsCoverageRoutes:
     def handle_get(
         self,
         route_path: str,
-        query: dict[str, list[str]],
+        _query: dict[str, list[str]],
         correlation_id: str,
     ) -> RequirementsCoverageRouteResponse | None:
         """Handle requirements-coverage GET routes or return None.
@@ -59,7 +60,7 @@ class RequirementsCoverageRoutes:
         if are_match is not None:
             if not self.service_available:
                 return bc_unavailable_response(
-                    "coverage_unavailable",
+                    _COVERAGE_UNAVAILABLE,
                     message="Requirements-coverage service is not available",
                     correlation_id=correlation_id,
                 )
@@ -79,7 +80,7 @@ class RequirementsCoverageRoutes:
             return None
         if not self.service_available:
             return bc_unavailable_response(
-                "coverage_unavailable",
+                _COVERAGE_UNAVAILABLE,
                 message="Requirements-coverage service is not available",
                 correlation_id=correlation_id,
             )
@@ -92,7 +93,7 @@ class RequirementsCoverageRoutes:
     def handle_post(
         self,
         route_path: str,
-        payload: object,
+        _payload: object,
         correlation_id: str,
     ) -> RequirementsCoverageRouteResponse | None:
         """Handle requirements-coverage POST routes or return None."""
@@ -102,7 +103,7 @@ class RequirementsCoverageRoutes:
             return None
         if not self.service_available:
             return bc_unavailable_response(
-                "coverage_unavailable",
+                _COVERAGE_UNAVAILABLE,
                 message="Requirements-coverage service is not available",
                 correlation_id=correlation_id,
             )

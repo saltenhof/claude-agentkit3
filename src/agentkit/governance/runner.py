@@ -608,63 +608,57 @@ def run_hook(
     if invalid is not None:
         return invalid
     if phase == "post":
+        # AG3-036 (FK-68 §68.3.1) FIX-1: ReviewGuard/BudgetEventEmitter moved
+        # to PreToolUse. Every post hook is observational only.
         if hook_id == "health_monitor":
             return _run_health_monitor_post(event, project_root=project_root or Path.cwd())
-        # AG3-036 (FK-68 §68.3.1) FIX-1: the double-role ReviewGuard and the
-        # BudgetEventEmitter no longer live in the post phase — a PostToolUse
-        # DENY cannot block an action that already ran (fail-open). They are now
-        # PreToolUse blocking hooks (see the PRE branch below). Every post hook
-        # stays observational (allow at the GuardVerdict level).
         return GuardVerdict.allow(hook_id)
 
-    # FK-55 §55.10.3 / §30.2.6 (governance-and-guards.B5): the hard
-    # Principal-Capability matrix + conflict-freeze overlay run BEFORE the legacy
-    # guard chain and BEFORE CCAG. A capability DENY is hard — CCAG is never
-    # consulted and cannot soften it (invariant ccag_never_elevates_hard_capabilities).
-    capability_block = _run_capability_enforcement(
-        event, project_root=project_root or Path.cwd()
-    )
+    return _dispatch_pre_hook(hook_id, event, project_root=project_root or Path.cwd())
+
+
+def _dispatch_pre_hook(
+    hook_id: str,
+    event: HookEvent,
+    *,
+    project_root: Path,
+) -> HookDecision:
+    """Dispatch a validated pre-hook through the FK-55 enforcement chain.
+
+    Ordering (FK-55 §55.10.3 / governance-and-guards.B5):
+    1. Capability enforcement (hard DENY — CCAG never softens it).
+    2. Dedicated pre-hooks (review_guard, budget_event_emitter, health_monitor,
+       self_protection, story_creation_guard).
+    3. CCAG gatekeeper (FK-42 §42.5.2 — last pre-hook).
+    4. Generic guard evaluation chain (all other hooks).
+    """
+    # Step 1: hard capability matrix + freeze overlay (FK-55 §55.10.3).
+    capability_block = _run_capability_enforcement(event, project_root=project_root)
     if capability_block is not None:
         return capability_block
 
-    # AG3-036 (FK-68 §68.3.1) FIX-1/FIX-3: the two double-role telemetry guards
-    # are dispatched AFTER capability enforcement so the AG3-032 fail-closed
-    # ordering is NOT regressed (a hard capability DENY / UNCLASSIFIED_MUTATION /
-    # binding_invalid block still precedes them). A DENY here blocks the
-    # PreToolUse operation BEFORE it runs (a commit / web call is never
-    # executed). The authoritative roles (review) and story type (budget) are
-    # resolved at this runner edge from the LOCAL state — never a forgeable
-    # operation_args payload.
+    # Step 2: dedicated hooks (AG3-036 FIX-1/FIX-3 — run after capability check).
     if hook_id == "review_guard":
-        return _run_review_guard(event, project_root=project_root or Path.cwd())
+        return _run_review_guard(event, project_root=project_root)
     if hook_id == "budget_event_emitter":
-        return _run_budget_event_emitter(
-            event, project_root=project_root or Path.cwd()
-        )
+        return _run_budget_event_emitter(event, project_root=project_root)
     if hook_id == "health_monitor":
-        return _run_health_monitor_pre(event, project_root=project_root or Path.cwd())
+        return _run_health_monitor_pre(event, project_root=project_root)
 
-    # AG3-033 (governance-and-guards.C5): two hooks now own dedicated guard
-    # modules instead of the pauschal `evaluate_pre_tool_use` dispatch. They run
-    # AFTER the capability enforcement (a hard DENY / UNCLASSIFIED_MUTATION /
-    # binding_invalid block above still precedes them — AG3-032 fail-closed
-    # ordering is NOT regressed) and pre-empt the generic chain only for their
-    # own hook id. ``self_protection`` (FK-30 §30.5.4) and
-    # ``story_creation_guard`` (FK-31 §31.5) are dispatched here; every other
-    # hook (branch_guard, qa_agent_guard, scope_guard via guard_evaluation,
-    # ccag_gatekeeper, ...) keeps its current path unchanged.
+    # Step 2b: dedicated guard modules (AG3-033 / governance-and-guards.C5).
     if hook_id == HookId.SELF_PROTECTION.value:
         return _run_self_protection_guard(event)
     if hook_id == HookId.STORY_CREATION_GUARD.value:
         return _run_story_creation_guard(event)
 
-    # CCAG is the last PreToolUse hook — dispatched separately (FK-42 §42.5.2)
+    # Step 3: CCAG — last pre-hook (FK-42 §42.5.2).
     if hook_id == "ccag_gatekeeper":
         return _run_ccag_hook(event)
 
+    # Step 4: generic guard evaluation chain.
     from agentkit.governance.guard_evaluation import evaluate_pre_tool_use
 
-    return evaluate_pre_tool_use(event, project_root=project_root or Path.cwd())
+    return evaluate_pre_tool_use(event, project_root=project_root)
 
 
 def _run_health_monitor_post(event: HookEvent, *, project_root: Path) -> HookDecision:

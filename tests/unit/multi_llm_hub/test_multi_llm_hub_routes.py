@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from http import HTTPStatus
 
 from agentkit.control_plane.http import ControlPlaneApplication
+from agentkit.control_plane_http.app import ControlPlaneApplicationRoutes
 from agentkit.multi_llm_hub.entities import (
     HubBackendMetric,
     HubBackendName,
@@ -123,7 +124,9 @@ class _FakeHubClient:
 
 
 def _app(client: _FakeHubClient) -> ControlPlaneApplication:
-    return ControlPlaneApplication(hub_routes=MultiLlmHubRoutes(client))
+    return ControlPlaneApplication(
+        routes=ControlPlaneApplicationRoutes(hub_routes=MultiLlmHubRoutes(client))
+    )
 
 
 def _json_body(response_body: bytes) -> dict[str, object]:

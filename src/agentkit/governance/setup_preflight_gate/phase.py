@@ -75,7 +75,6 @@ class AreBundleLoaderPort(Protocol):
     def load_context(
         self,
         story_id: str,
-        project_key: str,
         run_id: str,
     ) -> ContextLoadResult:
         """Load and persist the ARE bundle for the setup run."""
@@ -458,16 +457,14 @@ class SetupPhaseHandler:
             return None
         result = self._are_bundle_loader.load_context(
             enriched.story_id,
-            enriched.project_key,
             state.run_id,
         )
-        status = (
-            AreBundleStatus.SKIPPED
-            if result.status.name == "SKIPPED"
-            else AreBundleStatus.LOADED
-            if result.status.name == "PASS"
-            else AreBundleStatus.FAILED
-        )
+        if result.status.name == "SKIPPED":
+            status = AreBundleStatus.SKIPPED
+        elif result.status.name == "PASS":
+            status = AreBundleStatus.LOADED
+        else:
+            status = AreBundleStatus.FAILED
         payload = state.payload if isinstance(state.payload, SetupPayload) else SetupPayload()
         updated_payload = payload.model_copy(
             update={

@@ -463,7 +463,19 @@ def _ensure_schema_runtime_tables(conn: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS tm_task_links_target_idx
             ON tm_task_links (project_key, target_kind, target_id);
+        """
+    )
+    _ensure_schema_core_tables_b(conn)
 
+
+def _ensure_schema_core_tables_b(conn: sqlite3.Connection) -> None:
+    """Create story-spec, artifact, and QA tables (schema part 1b).
+
+    Split from ``_ensure_schema_runtime_tables`` to keep each function below the
+    S138 300-LOC limit.  Pure structural split — idempotent ``executescript``.
+    """
+    conn.executescript(
+        """
         CREATE TABLE IF NOT EXISTS story_specifications (
             story_uuid TEXT NOT NULL,
             need TEXT,

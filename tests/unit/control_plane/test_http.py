@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, cast
 
 from agentkit.control_plane.http import (
     ControlPlaneApplication,
+    ControlPlaneApplicationRoutes,
     HttpResponse,
     serve_control_plane,
 )
@@ -721,7 +722,7 @@ def test_get_stories_legacy_path_returns_404() -> None:
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
-        story_routes=fake_routes,
+        routes=ControlPlaneApplicationRoutes(story_routes=fake_routes),
     )
 
     response = app.handle_request(
@@ -743,7 +744,7 @@ def test_get_story_legacy_detail_path_returns_404() -> None:
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
-        story_routes=fake_routes,
+        routes=ControlPlaneApplicationRoutes(story_routes=fake_routes),
     )
 
     response = app.handle_request(
@@ -762,7 +763,7 @@ def test_get_stories_legacy_bare_path_returns_404() -> None:
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
-        story_routes=_FakeStoryContextRoutes(),
+        routes=ControlPlaneApplicationRoutes(story_routes=_FakeStoryContextRoutes()),
     )
 
     response = app.handle_request(
@@ -781,7 +782,7 @@ def test_get_missing_story_legacy_path_returns_404() -> None:
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
-        story_routes=_FakeStoryContextRoutes(),
+        routes=ControlPlaneApplicationRoutes(story_routes=_FakeStoryContextRoutes()),
     )
 
     response = app.handle_request(
@@ -801,7 +802,7 @@ def test_patch_story_legacy_path_returns_404() -> None:
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
-        story_routes=fake_routes,
+        routes=ControlPlaneApplicationRoutes(story_routes=fake_routes),
     )
 
     response = app.handle_request(
@@ -822,7 +823,7 @@ def test_put_story_field_legacy_path_returns_404() -> None:
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
-        story_routes=fake_routes,
+        routes=ControlPlaneApplicationRoutes(story_routes=fake_routes),
     )
 
     response = app.handle_request(
