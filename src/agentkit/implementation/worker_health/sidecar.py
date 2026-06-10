@@ -99,25 +99,16 @@ def run_worker_health_sidecar(
     state_found = False
     while iterations is None or loops < iterations:
         loops += 1
-        state = repo.load_latest_for_story(story_id)
-        if state is not None:
+        idle_since, found = _poll_once(
+            story_id,
+            repo=repo,
+            assessment_client=client,
+            project_root=project_root,
+            config=worker_health,
+            idle_since=idle_since,
+        )
+        if found:
             state_found = True
-        if state is not None and state.llm_assessment.status == LlmAssessmentStatus.PENDING:
-            _resolve_pending_assessment(
-                state,
-                repository=repo,
-                assessment_client=client,
-                project_root=project_root,
-                config=worker_health,
-            )
-            idle_since = utc_now()
-        elif state is not None:
-            idle_since = _refresh_expired_assessment(
-                state,
-                repository=repo,
-                project_root=project_root,
-                idle_since=idle_since,
-            )
         if iterations is not None:
             continue
         if (utc_now() - idle_since).total_seconds() >= worker_health.sidecar.idle_shutdown_seconds:
@@ -126,6 +117,37 @@ def run_worker_health_sidecar(
     # Iterations-bounded exit: return 1 if the story state was never found
     # (indicates story not in state backend), 0 for normal completion.
     return 0 if state_found else 1
+
+
+def _poll_once(
+    story_id: str,
+    *,
+    repo: WorkerHealthStateRepository,
+    assessment_client: WorkerHealthAssessmentClient,
+    project_root: Path,
+    config: WorkerHealthConfig,
+    idle_since: datetime,
+) -> tuple[datetime, bool]:
+    """Execute one poll cycle and return (idle_since, state_found)."""
+    state = repo.load_latest_for_story(story_id)
+    if state is None:
+        return idle_since, False
+    if state.llm_assessment.status == LlmAssessmentStatus.PENDING:
+        _resolve_pending_assessment(
+            state,
+            repository=repo,
+            assessment_client=assessment_client,
+            project_root=project_root,
+            config=config,
+        )
+        return utc_now(), True
+    new_idle_since = _refresh_expired_assessment(
+        state,
+        repository=repo,
+        project_root=project_root,
+        idle_since=idle_since,
+    )
+    return new_idle_since, True
 
 
 def parse_loop_probability(text: str) -> int | None:

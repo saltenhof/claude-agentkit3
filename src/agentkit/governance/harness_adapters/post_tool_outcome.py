@@ -21,7 +21,7 @@ _EXIT_CODE_KEYS = (
 _STDOUT_KEYS = ("stdout", "stdout_text", "output", "text")
 _STDERR_KEYS = ("stderr", "stderr_text", "error", "message")
 _EXIT_CODE_PATTERN = re.compile(
-    r"(?:exit|status|return)(?:\s+code)?\s*[=:]?\s*(-?\d+)",
+    r"(?:exit|status|return)(?:[ \t]+code)?[ \t]*[=:]?[ \t]*(-?[0-9]+)",
     re.IGNORECASE,
 )
 

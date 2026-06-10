@@ -25,6 +25,7 @@ _COVERAGE_ROOT = re.compile(
     r"^/v1/projects/(?P<project_key>[^/]+)/coverage(?:/(?P<rest>.*))?$"
 )
 _COVERAGE_UNAVAILABLE = "coverage_unavailable"
+_COVERAGE_UNAVAILABLE_MESSAGE = "Requirements-coverage service is not available"
 _COVERAGE_ARE_EVIDENCE = re.compile(
     r"^/v1/projects/(?P<project_key>[^/]+)/coverage/stories/(?P<story_id>[^/]+)/are-evidence$"
 )
@@ -61,7 +62,7 @@ class RequirementsCoverageRoutes:
             if not self.service_available:
                 return bc_unavailable_response(
                     _COVERAGE_UNAVAILABLE,
-                    message="Requirements-coverage service is not available",
+                    message=_COVERAGE_UNAVAILABLE_MESSAGE,
                     correlation_id=correlation_id,
                 )
             return bc_json_response(
@@ -81,7 +82,7 @@ class RequirementsCoverageRoutes:
         if not self.service_available:
             return bc_unavailable_response(
                 _COVERAGE_UNAVAILABLE,
-                message="Requirements-coverage service is not available",
+                message=_COVERAGE_UNAVAILABLE_MESSAGE,
                 correlation_id=correlation_id,
             )
         return bc_json_response(
@@ -104,7 +105,7 @@ class RequirementsCoverageRoutes:
         if not self.service_available:
             return bc_unavailable_response(
                 _COVERAGE_UNAVAILABLE,
-                message="Requirements-coverage service is not available",
+                message=_COVERAGE_UNAVAILABLE_MESSAGE,
                 correlation_id=correlation_id,
             )
         return bc_json_response(

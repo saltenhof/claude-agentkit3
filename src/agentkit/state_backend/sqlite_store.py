@@ -603,7 +603,7 @@ def _ensure_schema_core_tables_b(conn: sqlite3.Connection) -> None:
 
 
 def _ensure_runtime_tables_part2(conn: sqlite3.Connection) -> None:
-    """Create failure-corpus, lock and remaining runtime tables (schema part 2b).
+    """Create failure-corpus incident tables (schema part 2b).
 
     Split out of ``_ensure_schema_runtime_tables`` so neither function exceeds the
     300-LOC limit (python:S138, Codex/Sonar): the AG3-028 failure-corpus DDL
@@ -726,7 +726,20 @@ def _ensure_runtime_tables_part2(conn: sqlite3.Connection) -> None:
             next_seq          INTEGER NOT NULL,
             PRIMARY KEY (year)
         );
+        """
+    )
+    _ensure_runtime_tables_part2b(conn)
 
+
+def _ensure_runtime_tables_part2b(conn: sqlite3.Connection) -> None:
+    """Create lock, binding, governance and custom-field tables (schema part 2b-II).
+
+    Split out of ``_ensure_runtime_tables_part2`` so neither function exceeds the
+    300-LOC limit (python:S138, Codex/Sonar). Pure structural split — identische
+    DDL, idempotenter ``executescript``-Aufruf.
+    """
+    conn.executescript(
+        """
         -- AG3-031 Pass-7: DDL consolidated from lock_record_repository.py into
         -- the canonical schema bootstrap (symmetric with Postgres).
         -- PK corrected to (project_key, story_id, run_id, lock_type) per

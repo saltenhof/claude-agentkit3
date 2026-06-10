@@ -98,7 +98,7 @@ def _required_implementation_artifact_error(story_dir: Path) -> str | None:
     except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
         return (
             f"Implementation-Evidence-Gate: {WORKER_MANIFEST_FILE} is not "
-            + f"valid JSON: {exc} (FK-24 §24.6)."
+            f"valid JSON: {exc} (FK-24 §24.6)."
         )
     try:
         from agentkit.implementation.manifest import WorkerManifest
@@ -107,7 +107,7 @@ def _required_implementation_artifact_error(story_dir: Path) -> str | None:
     except ValueError as exc:
         return (
             f"Implementation-Evidence-Gate: {WORKER_MANIFEST_FILE} is not a "
-            + f"valid WorkerManifest: {exc} (FK-24 §24.6)."
+            f"valid WorkerManifest: {exc} (FK-24 §24.6)."
         )
     return None
 

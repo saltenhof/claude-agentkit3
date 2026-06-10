@@ -486,6 +486,15 @@ class ControlPlaneApplication:
         if project_response is not None:
             return _project_response_to_http_response(project_response)
 
+        return self._dispatch_project_scoped_get(route_path, query, correlation_id)
+
+    def _dispatch_project_scoped_get(
+        self,
+        route_path: str,
+        query: dict[str, list[str]],
+        correlation_id: str,
+    ) -> HttpResponse:
+        """Dispatch project-scoped GET routes (stories, dashboard, BC, legacy)."""
         # --- Project-scoped URL convention (FK-72 §72.8.1) ---
         # All story access flows exclusively through /v1/projects/{key}/stories/...
         # so that every story operation passes through TenantScopeMiddleware (AC2/AC3).
@@ -502,8 +511,7 @@ class ControlPlaneApplication:
         # GET /v1/projects/{key}/stories (collection)
         stories_match = _PROJECT_STORIES_COLLECTION.match(route_path)
         if stories_match is not None:
-            project_key = stories_match.group("project_key")
-            return self._handle_get_stories(project_key, correlation_id)
+            return self._handle_get_stories(stories_match.group("project_key"), correlation_id)
 
         # GET /v1/projects/{key}/stories/{id}/fields
         # Must match before /stories/{id} (more specific pattern).
@@ -525,14 +533,14 @@ class ControlPlaneApplication:
         # GET /v1/projects/{key}/dashboard/board
         board_match = _PROJECT_DASHBOARD_BOARD.match(route_path)
         if board_match is not None:
-            project_key = board_match.group("project_key")
-            return self._handle_get_dashboard_board(project_key, correlation_id)
+            return self._handle_get_dashboard_board(board_match.group("project_key"), correlation_id)
 
         # GET /v1/projects/{key}/dashboard/story-metrics
         metrics_match = _PROJECT_DASHBOARD_STORY_METRICS.match(route_path)
         if metrics_match is not None:
-            project_key = metrics_match.group("project_key")
-            return self._handle_get_dashboard_story_metrics(project_key, correlation_id)
+            return self._handle_get_dashboard_story_metrics(
+                metrics_match.group("project_key"), correlation_id,
+            )
 
         # Eight new BC GET routes (project-scoped):
         bc_get = self._dispatch_new_bc_get(route_path, query, correlation_id)

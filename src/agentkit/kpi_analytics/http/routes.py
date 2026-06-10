@@ -81,9 +81,9 @@ class KpiAnalyticsRoutes:
 
     def handle_post(
         self,
-        route_path: str,
+        _route_path: str,
         _payload: object,
-        correlation_id: str,
+        _correlation_id: str,
     ) -> KpiAnalyticsRouteResponse | None:
         """Handle KPI POST routes or return None (KPI is read-only)."""
         # KPI surface is read-only; POST not routed here.
