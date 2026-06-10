@@ -4,6 +4,7 @@ import json
 import subprocess
 from dataclasses import replace
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agentkit.core_types.qa_artifact_names import (
@@ -19,18 +20,25 @@ from agentkit.verify_system.protocols import RunScope
 from agentkit.verify_system.structural.system_evidence import ChangeEvidence
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from agentkit.verify_system.system import VerifySystem
+
+
+_AK3_REPO_ROOT = Path(__file__).resolve().parents[2]
+_AK3_COMMIT_REFUSAL = (
+    "integration fixture refused to git-commit into the AK3 repository"
+)
 
 
 class GitDiffChangeEvidencePort:
     """Test port that reads independent git diff evidence from the story worktree."""
 
     def collect(self, story_dir: Path) -> ChangeEvidence:
+        story_toplevel = _isolated_story_toplevel(story_dir)
+        if story_toplevel is None:
+            return ChangeEvidence(available=False)
         result = subprocess.run(
             ["git", "diff", "--name-only", "origin/main..HEAD"],
-            cwd=story_dir,
+            cwd=story_toplevel,
             check=False,
             capture_output=True,
             text=True,
@@ -152,7 +160,10 @@ def write_implementation_qa_preconditions(
 def init_git_story_worktree(story_dir: Path) -> None:
     """Initialize a minimal story git worktree with an origin/main baseline."""
     story_dir.mkdir(parents=True, exist_ok=True)
-    if _is_git_worktree(story_dir):
+    _refuse_ak3_story_dir(story_dir)
+    existing_toplevel = _git_toplevel(story_dir)
+    if existing_toplevel is not None and _same_path(existing_toplevel, story_dir):
+        _refuse_ak3_git_toplevel(existing_toplevel)
         return
     (story_dir / ".ak3-baseline").write_text("baseline\n", encoding="utf-8")
     for args in (
@@ -171,45 +182,93 @@ def init_git_story_worktree(story_dir: Path) -> None:
             capture_output=True,
             text=True,
         )
+    initialized_toplevel = _git_toplevel(story_dir)
+    if initialized_toplevel is None or not _same_path(initialized_toplevel, story_dir):
+        msg = f"integration fixture failed to initialize isolated git repo at {story_dir}"
+        raise RuntimeError(msg)
+    _refuse_ak3_git_toplevel(initialized_toplevel)
 
 
 def _ensure_git_implementation_change(story_dir: Path) -> None:
     """Commit one implementation file when the fixture repo has no impl diff."""
-    if not _is_git_worktree(story_dir):
-        return
-    existing = _git_output(["diff", "--name-only", "origin/main..HEAD"], story_dir)
+    init_git_story_worktree(story_dir)
+    story_toplevel = _require_isolated_story_toplevel(story_dir)
+    existing = _git_output(["diff", "--name-only", "origin/main..HEAD"], story_toplevel)
     if existing is None:
-        return
+        msg = "integration fixture story git repo has no origin/main baseline"
+        raise RuntimeError(msg)
     if any(_counts_as_implementation_path(line) for line in existing.splitlines()):
         return
-    source = story_dir / "src" / "agentkit" / "fixture_impl.py"
+    source = story_toplevel / "src" / "agentkit" / "fixture_impl.py"
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_text("FIXTURE_IMPL = True\n", encoding="utf-8")
+    commit_toplevel = _require_isolated_story_toplevel(story_dir)
+    _refuse_ak3_git_toplevel(commit_toplevel)
     subprocess.run(
-        ["git", "add", "-f", source.relative_to(story_dir).as_posix()],
-        cwd=story_dir,
+        ["git", "add", "-f", source.relative_to(commit_toplevel).as_posix()],
+        cwd=commit_toplevel,
         check=True,
         capture_output=True,
         text=True,
     )
     subprocess.run(
         ["git", "commit", "-m", "test fixture implementation change"],
-        cwd=story_dir,
+        cwd=commit_toplevel,
         check=True,
         capture_output=True,
         text=True,
     )
 
 
-def _is_git_worktree(story_dir: Path) -> bool:
+def _isolated_story_toplevel(story_dir: Path) -> Path | None:
+    toplevel = _git_toplevel(story_dir)
+    if toplevel is None:
+        return None
+    _refuse_ak3_git_toplevel(toplevel)
+    if not _same_path(toplevel, story_dir):
+        return None
+    return toplevel
+
+
+def _require_isolated_story_toplevel(story_dir: Path) -> Path:
+    toplevel = _git_toplevel(story_dir)
+    if toplevel is None:
+        msg = f"integration fixture story directory is not a git worktree: {story_dir}"
+        raise RuntimeError(msg)
+    _refuse_ak3_git_toplevel(toplevel)
+    if not _same_path(toplevel, story_dir):
+        msg = f"integration fixture git toplevel is not story_dir: {toplevel}"
+        raise RuntimeError(msg)
+    return toplevel
+
+
+def _git_toplevel(story_dir: Path) -> Path | None:
+    if not story_dir.exists():
+        return None
     result = subprocess.run(
-        ["git", "rev-parse", "--is-inside-work-tree"],
+        ["git", "rev-parse", "--show-toplevel"],
         cwd=story_dir,
         check=False,
         capture_output=True,
         text=True,
     )
-    return result.returncode == 0 and result.stdout.strip() == "true"
+    if result.returncode != 0:
+        return None
+    return Path(result.stdout.strip()).resolve()
+
+
+def _refuse_ak3_story_dir(story_dir: Path) -> None:
+    if _same_path(story_dir, _AK3_REPO_ROOT):
+        raise RuntimeError(_AK3_COMMIT_REFUSAL)
+
+
+def _refuse_ak3_git_toplevel(toplevel: Path) -> None:
+    if _same_path(toplevel, _AK3_REPO_ROOT):
+        raise RuntimeError(_AK3_COMMIT_REFUSAL)
+
+
+def _same_path(left: Path, right: Path) -> bool:
+    return left.resolve() == right.resolve()
 
 
 def _git_output(args: list[str], story_dir: Path) -> str | None:
