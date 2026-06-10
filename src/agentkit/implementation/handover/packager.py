@@ -28,7 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from agentkit.artifacts import ArtifactEnvelope, ProducerType
 from agentkit.artifacts.envelope import ENVELOPE_SCHEMA_VERSION
 from agentkit.artifacts.producer import Producer, ProducerId
-from agentkit.core_types import ArtifactClass, EnvelopeStatus
+from agentkit.core_types import HANDOVER_FILE, ArtifactClass, EnvelopeStatus
 from agentkit.implementation.register import (
     IMPLEMENTATION_HANDOVER_PRODUCER,
     IMPLEMENTATION_HANDOVER_STAGE,
@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     from agentkit.implementation.worker_session.session import WorkerSession
 
 #: Canonical handover filename read by the Layer-1 ``artifact.handover`` check.
-HANDOVER_FILENAME = "handover.json"
+HANDOVER_FILENAME = HANDOVER_FILE
 
 
 class ACStatus(StrEnum):

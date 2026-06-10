@@ -19,6 +19,7 @@ import json
 import re
 from typing import TYPE_CHECKING
 
+from agentkit.core_types import WORKER_MANIFEST_FILE
 from agentkit.verify_system.protocols import Finding, TrustClass
 
 if TYPE_CHECKING:
@@ -34,7 +35,6 @@ __all__ = [
     "check_hygiene_todo_fixme",
 ]
 
-_WORKER_MANIFEST_FILE = "worker-manifest.json"
 #: FK-27 §27.4.2 ``hygiene.todo_fixme`` markers.
 _TODO_FIXME_RE = re.compile(r"\b(TODO|FIXME)\b")
 #: FK-27 §27.4.2 ``hygiene.disabled_tests`` markers (Java + Python).
@@ -70,7 +70,7 @@ def _changed_files(story_dir: Path, evidence: ChangeEvidence | None) -> list[Pat
 
 def _manifest_declared_files(story_dir: Path) -> list[str]:
     """Read the worker manifest's declared files (fallback only, fail-soft)."""
-    path = story_dir / _WORKER_MANIFEST_FILE
+    path = story_dir / WORKER_MANIFEST_FILE
     try:
         manifest = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError, OSError):

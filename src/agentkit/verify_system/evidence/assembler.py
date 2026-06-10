@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from agentkit.core_types import HANDOVER_FILE, WORKER_MANIFEST_FILE
 from agentkit.verify_system.evidence.authority import AuthorityClass, BundleEntry
 from agentkit.verify_system.evidence.bundle_manifest import BundleManifest
 from agentkit.verify_system.evidence.repo_context import RepoContext
@@ -39,7 +40,7 @@ _NEIGHBOR_EXTENSIONS = frozenset({
     ".yml",
 })
 _CONFIG_EXTENSIONS = frozenset({".json", ".toml", ".yaml", ".yml"})
-_WORKER_HINT_FILES = ("handover.json", "worker-manifest.json")
+_WORKER_HINT_FILES = (HANDOVER_FILE, WORKER_MANIFEST_FILE)
 _PATH_KEYS = frozenset({
     "file",
     "file_path",

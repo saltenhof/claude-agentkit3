@@ -15,6 +15,7 @@ drive the orchestration.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -36,6 +37,11 @@ from tests.unit.closure.closure_fakes import (
 
 from agentkit.bootstrap.composition_root import build_artifact_manager
 from agentkit.closure.phase import ClosureConfig, ClosurePhaseHandler
+from agentkit.core_types.qa_artifact_names import (
+    HANDOVER_FILE,
+    PROTOCOL_FILE,
+    WORKER_MANIFEST_FILE,
+)
 from agentkit.phase_state_store.models import FlowExecution
 from agentkit.pipeline_engine.phase_executor import (
     ClosurePayload,
@@ -54,6 +60,7 @@ from agentkit.story_context_manager.story_model import WireStoryMode
 from agentkit.story_context_manager.types import StoryMode, StoryType
 from agentkit.telemetry.contract.records import ExecutionEventRecord
 from agentkit.telemetry.events import EventType
+from agentkit.verify_system.structural.system_evidence import ChangeEvidence
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -166,7 +173,36 @@ def _prepare(tmp_path: Path, story_id: str = "FAST-001") -> Path:
             payload={},
         ),
     )
+    _write_required_worker_artifacts(s_dir, story_id=story_id)
     return s_dir
+
+
+def _write_required_worker_artifacts(story_dir: Path, story_id: str) -> None:
+    (story_dir / HANDOVER_FILE).write_text("handover\n", encoding="utf-8")
+    (story_dir / PROTOCOL_FILE).write_text("protocol\n", encoding="utf-8")
+    (story_dir / WORKER_MANIFEST_FILE).write_text(
+        json.dumps(
+            {
+                "story_id": story_id,
+                "run_id": f"run-{story_id.lower()}",
+                "status": "completed",
+                "completed_at": datetime(2026, 1, 1, tzinfo=UTC).isoformat(),
+                "files_changed": ["src/agentkit/done.py"],
+                "tests_added": [],
+                "acceptance_criteria_status": {"AC1": "done"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+class _StaticChangeEvidencePort:
+    def collect(self, story_dir: Path) -> ChangeEvidence:
+        del story_dir
+        return ChangeEvidence(
+            available=True,
+            changed_files=("src/agentkit/done.py",),
+        )
 
 
 def _fast_config(
@@ -191,6 +227,7 @@ def _fast_config(
         git_backend=git_backend or StubGitBackend(),
         progress_store=build_progress_store(s_dir),  # type: ignore[arg-type]
         mode_lock_release_port=release_port,  # type: ignore[arg-type]
+        change_evidence_port=_StaticChangeEvidencePort(),
     )
 
 

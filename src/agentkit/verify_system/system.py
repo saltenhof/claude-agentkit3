@@ -1217,9 +1217,16 @@ def _evaluate_implementation_terminality_precondition(
     ):
         return None
     if story_ctx is None:
-        return None
-    if _is_fast_mode(story_ctx):
-        return None
+        return _implementation_terminality_blocked_outcome(
+            ctx=ctx,
+            story_id=story_id,
+            reason=(
+                "Implementation-Evidence-Gate: StoryContext is missing for "
+                "implementation QA; cannot prove FK-24 implementation "
+                "terminality -> fail-closed "
+                "(IMPLEMENTATION_REQUIRED_AFTER_EXPLORATION)."
+            ),
+        )
     story_type = story_ctx.story_type
     evidence = system.implementation_change_evidence_port.collect(ctx.story_dir)
     gate = evaluate_implementation_evidence_gate(
@@ -1233,6 +1240,20 @@ def _evaluate_implementation_terminality_precondition(
         gate.blocking_reason
         or "Implementation-Evidence-Gate: implementation evidence is missing."
     )
+    return _implementation_terminality_blocked_outcome(
+        ctx=ctx,
+        story_id=story_id,
+        reason=reason,
+    )
+
+
+def _implementation_terminality_blocked_outcome(
+    *,
+    ctx: VerifyContextBundle,
+    story_id: str,
+    reason: str,
+) -> QaSubflowOutcome:
+    """Build the fail-closed AG3-058 terminality outcome."""
     finding = Finding(
         layer="structural",
         check="implementation_evidence.required_after_exploration",

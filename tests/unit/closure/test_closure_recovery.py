@@ -8,6 +8,7 @@ re-run. There is no deterministic FAILED anymore.
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -32,10 +33,13 @@ from agentkit.core_types import ArtifactClass
 from agentkit.core_types.qa_artifact_names import (
     DOC_FIDELITY_PRODUCER,
     DOC_FIDELITY_STAGE,
+    HANDOVER_FILE,
+    PROTOCOL_FILE,
     QA_REVIEW_PRODUCER,
     QA_REVIEW_STAGE,
     SEMANTIC_REVIEW_PRODUCER,
     SEMANTIC_REVIEW_STAGE,
+    WORKER_MANIFEST_FILE,
 )
 from agentkit.phase_state_store.models import FlowExecution
 from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
@@ -55,6 +59,7 @@ from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 from agentkit.telemetry.contract.records import ExecutionEventRecord
 from agentkit.telemetry.events import EventType
+from agentkit.verify_system.structural.system_evidence import ChangeEvidence
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -118,7 +123,36 @@ def _prepare(tmp_path: Path, story_id: str = "TEST-001") -> Path:
         ),
     )
     _write_all_layer2(build_artifact_manager(s_dir), story_id=story_id)
+    _write_required_worker_artifacts(s_dir, story_id=story_id)
     return s_dir
+
+
+def _write_required_worker_artifacts(story_dir: Path, story_id: str) -> None:
+    (story_dir / HANDOVER_FILE).write_text("handover\n", encoding="utf-8")
+    (story_dir / PROTOCOL_FILE).write_text("protocol\n", encoding="utf-8")
+    (story_dir / WORKER_MANIFEST_FILE).write_text(
+        json.dumps(
+            {
+                "story_id": story_id,
+                "run_id": f"run-{story_id.lower()}",
+                "status": "completed",
+                "completed_at": datetime(2026, 1, 1, tzinfo=UTC).isoformat(),
+                "files_changed": ["src/agentkit/done.py"],
+                "tests_added": [],
+                "acceptance_criteria_status": {"AC1": "done"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+class _StaticChangeEvidencePort:
+    def collect(self, story_dir: Path) -> ChangeEvidence:
+        del story_dir
+        return ChangeEvidence(
+            available=True,
+            changed_files=("src/agentkit/done.py",),
+        )
 
 
 def _write_all_layer2(manager: ArtifactManager, *, story_id: str) -> None:
@@ -178,6 +212,7 @@ def _config(
         guard_deactivation_port=RecordingGuardDeactivationPort(),
         git_backend=git,
         progress_store=build_progress_store(s_dir),  # type: ignore[arg-type]
+        change_evidence_port=_StaticChangeEvidencePort(),
     )
 
 
@@ -496,6 +531,7 @@ class TestClosureResume:
             guard_deactivation_port=guard,
             git_backend=StubGitBackend(),
             progress_store=build_progress_store(s_dir),  # type: ignore[arg-type]
+            change_evidence_port=_StaticChangeEvidencePort(),
         )
         handler = ClosurePhaseHandler(config)
         # First run to completion so a metrics projection exists (postflight_done

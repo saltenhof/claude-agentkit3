@@ -43,6 +43,7 @@ import hashlib
 import subprocess
 from typing import TYPE_CHECKING
 
+from agentkit.core_types import HANDOVER_FILE
 from agentkit.verify_system.errors import VerifySystemError
 
 if TYPE_CHECKING:
@@ -67,7 +68,7 @@ _SECTION_FILES = "## files"
 _SECTION_HANDOVER = "## handover"
 
 #: Story-relative handover artefact contributing to the fingerprint.
-_HANDOVER_FILENAME = "handover.json"
+_HANDOVER_FILENAME = HANDOVER_FILE
 
 #: Fixed marker emitted in place of a content hash for a path that is in the
 #: change-set but has no readable bytes (a working-tree deletion). Using a

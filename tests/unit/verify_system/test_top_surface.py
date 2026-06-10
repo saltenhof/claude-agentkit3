@@ -150,6 +150,7 @@ def _git_worktree(tmp_path: Path) -> None:
     _git("add", ".")
     _git("commit", "-m", "base")
     _git("update-ref", "refs/remotes/origin/main", "HEAD")
+    _write_required_worker_artifacts(tmp_path)
 
 
 # ---------------------------------------------------------------------------
@@ -198,10 +199,14 @@ def _make_system(
     _l2b = layer_2b or _RecordingLayer("semantic_review")
     _l2c = layer_2c or _RecordingLayer("doc_fidelity")
     kwargs: dict[str, object] = {}
-    if story_context_port is not None:
-        kwargs["story_context_port"] = story_context_port
+    kwargs["story_context_port"] = story_context_port or _SpyStoryContextPort(
+        _implementation_ctx(StoryType.IMPLEMENTATION)
+    )
     if review_completion_sink is not None:
         kwargs["review_completion_sink"] = review_completion_sink
+    change_port = implementation_change_evidence_port or _StaticChangeEvidencePort(
+        ChangeEvidence(available=True, changed_files=("src/agentkit/done.py",))
+    )
     vs = VerifySystem(
         layer_1=layer_1 or _RecordingLayer("structural"),
         layer_2a=_l2a,
@@ -210,11 +215,7 @@ def _make_system(
         layer_3=layer_3 or _RecordingLayer("adversarial"),
         policy_engine=PolicyEngine(max_major_findings=max_major_findings),
         artifact_manager=recording_manager,
-        **(
-            {"implementation_change_evidence_port": implementation_change_evidence_port}
-            if implementation_change_evidence_port is not None
-            else {}
-        ),
+        implementation_change_evidence_port=change_port,  # type: ignore[arg-type]
         **kwargs,  # type: ignore[arg-type]
     )
     return vs, recording_manager
@@ -935,6 +936,26 @@ class _StaticChangeEvidencePort:
 
 class TestImplementationEvidencePrecondition:
     """AG3-058: implementation QA rejects exploration-only terminality."""
+
+    def test_verify_blocks_implementation_when_story_context_missing(
+        self, tmp_path: Path
+    ) -> None:
+        vs, manager = _make_system(story_context_port=_SpyStoryContextPort(None))
+
+        outcome = vs.run_qa_subflow(
+            ctx=_make_bundle(tmp_path),
+            story_id="TEST-001",
+            qa_context=QaContext.IMPLEMENTATION_INITIAL,
+            target=_make_target(),
+        )
+
+        assert outcome.verdict is PolicyVerdict.FAIL
+        assert outcome.escalated is True
+        assert manager.written_envelopes == []
+        assert any(
+            "StoryContext is missing" in finding.message
+            for finding in outcome.decision.all_findings
+        )
 
     def test_verify_rejects_exploration_only_implementation_story(
         self, tmp_path: Path

@@ -72,6 +72,7 @@ from agentkit.pipeline_engine.phase_executor import (
 from agentkit.state_backend.store import (
     append_execution_event,
     load_phase_state,
+    load_story_context,
     save_flow_execution,
     save_phase_snapshot,
 )
@@ -206,6 +207,8 @@ def _prepare_impl_story(
         _save_snapshot(s_dir, phase, story_id=story_id)
     _save_flow(s_dir, story_id=story_id)
     _append_agent_start_event(s_dir, story_id=story_id)
+    if "implementation" in phases:
+        _write_required_worker_artifacts(s_dir, story_id=story_id)
     return s_dir
 
 
@@ -321,6 +324,7 @@ def _impl_config(
     vectordb: RecordingVectorDbSyncPort | None = None,
     guard: RecordingGuardDeactivationPort | None = None,
     git_backend: StubGitBackend | None = None,
+    change_evidence: ChangeEvidence | None = None,
 ) -> ClosureConfig:
     """Build a fully-collaborated ClosureConfig with recording stubs."""
     manager = build_artifact_manager(s_dir)
@@ -338,6 +342,13 @@ def _impl_config(
         guard_deactivation_port=guard or RecordingGuardDeactivationPort(),
         git_backend=git_backend or StubGitBackend(),
         progress_store=build_progress_store(s_dir),  # type: ignore[arg-type]
+        change_evidence_port=_StaticChangeEvidencePort(
+            change_evidence
+            or ChangeEvidence(
+                available=True,
+                changed_files=("src/agentkit/done.py",),
+            )
+        ),
     )
 
 
@@ -375,6 +386,12 @@ class TestImplClosureHappyPath:
             guard_deactivation_port=guard,
             git_backend=git,
             progress_store=build_progress_store(s_dir),  # type: ignore[arg-type]
+            change_evidence_port=_StaticChangeEvidencePort(
+                ChangeEvidence(
+                    available=True,
+                    changed_files=("src/agentkit/done.py",),
+                )
+            ),
         )
         handler = ClosurePhaseHandler(config)
         ctx = _make_ctx(project_root=tmp_path)
@@ -394,6 +411,30 @@ class TestImplClosureHappyPath:
         assert guard.calls == ["guard"]
         # The saga ran a push (story-branch) -> merge truth is the saga.
         assert any(cmd[:1] == ("push",) for cmd in git.commands)
+
+    def test_successful_closure_persists_story_done_agreeing_with_progress(
+        self, tmp_path: Path
+    ) -> None:
+        s_dir = _prepare_impl_story(tmp_path)
+        manager = build_artifact_manager(s_dir)
+        _write_all_layer2(manager, story_id="TEST-001", run_id=_run_id_for("TEST-001"))
+        config = _impl_config(s_dir)
+        config.artifact_manager = manager
+        ctx = _make_ctx(project_root=tmp_path).model_copy(
+            update={"story_done": False}
+        )
+
+        result = ClosurePhaseHandler(config).on_enter(
+            ctx, PhaseEnvelopeStore.make_fresh_envelope(_make_state())
+        )
+
+        assert result.status is PhaseStatus.COMPLETED
+        state = load_phase_state(s_dir)
+        assert isinstance(state.payload, ClosurePayload)
+        assert state.payload.progress.story_closed is True
+        persisted = load_story_context(s_dir)
+        assert persisted is not None
+        assert persisted.story_done is True
 
     def test_closure_blocks_exploration_only_implementation_story(
         self, tmp_path: Path
@@ -416,6 +457,46 @@ class TestImplClosureHappyPath:
                 "story_done": False,
                 "exploration_completed": True,
                 "execution_pending": True,
+            }
+        )
+
+        result = ClosurePhaseHandler(config).on_enter(
+            ctx, PhaseEnvelopeStore.make_fresh_envelope(_make_state())
+        )
+
+        assert result.status is PhaseStatus.ESCALATED
+        assert result.updated_state.escalation_reason is (
+            EscalationReason.IMPLEMENTATION_REQUIRED_AFTER_EXPLORATION
+        )
+        assert scan.calls == []
+        assert build.calls == []
+        assert integrity.calls == []
+        assert service.completed == []
+        persisted = load_story_context(s_dir)
+        assert persisted is not None
+        assert persisted.story_done is False
+
+    def test_closure_blocks_absent_port_without_closure_allowed_false(
+        self, tmp_path: Path
+    ) -> None:
+        """AG3-058 review: absent Trust-B evidence port cannot allow closure."""
+        s_dir = _prepare_impl_story(tmp_path)
+        manager = build_artifact_manager(s_dir)
+        _write_all_layer2(manager, story_id="TEST-001", run_id=_run_id_for("TEST-001"))
+        service = _RecordingStoryService()
+        scan = RecordingScanPort()
+        build = RecordingBuildTestPort()
+        integrity = RecordingIntegrityGate()
+        config = _impl_config(s_dir, scan=scan, build_test=build, integrity=integrity)
+        config.artifact_manager = manager
+        config.story_service = service  # type: ignore[assignment]
+        config.change_evidence_port = None
+        ctx = _make_ctx(project_root=tmp_path).model_copy(
+            update={
+                "implementation_required": False,
+                "closure_allowed": True,
+                "story_done": False,
+                "execution_pending": False,
             }
         )
 
@@ -916,6 +997,12 @@ class TestImplClosureEscalation:
             git_backend=StubGitBackend(),
             progress_store=build_progress_store(s_dir),  # type: ignore[arg-type]
             merge_applicability=MergeApplicability.FULL,
+            change_evidence_port=_StaticChangeEvidencePort(
+                ChangeEvidence(
+                    available=True,
+                    changed_files=("src/agentkit/done.py",),
+                )
+            ),
         )
         handler = ClosurePhaseHandler(config)
         result = handler.on_enter(
@@ -953,6 +1040,12 @@ class TestImplClosureEscalation:
             git_backend=git,
             progress_store=build_progress_store(s_dir),  # type: ignore[arg-type]
             merge_applicability=MergeApplicability.CI_ABSENT,
+            change_evidence_port=_StaticChangeEvidencePort(
+                ChangeEvidence(
+                    available=True,
+                    changed_files=("src/agentkit/done.py",),
+                )
+            ),
         )
         handler = ClosurePhaseHandler(config)
         result = handler.on_enter(
@@ -993,6 +1086,12 @@ class TestImplClosureEscalation:
             git_backend=git,
             progress_store=build_progress_store(s_dir),  # type: ignore[arg-type]
             merge_applicability=MergeApplicability.SONAR_ABSENT,
+            change_evidence_port=_StaticChangeEvidencePort(
+                ChangeEvidence(
+                    available=True,
+                    changed_files=("src/agentkit/done.py",),
+                )
+            ),
         )
         handler = ClosurePhaseHandler(config)
         result = handler.on_enter(
@@ -1575,6 +1674,12 @@ class TestCheckpointAndConfig:
             vectordb_sync_port=RecordingVectorDbSyncPort(),
             guard_deactivation_port=RecordingGuardDeactivationPort(),
             progress_store=build_progress_store(s_dir),  # type: ignore[arg-type]
+            change_evidence_port=_StaticChangeEvidencePort(
+                ChangeEvidence(
+                    available=True,
+                    changed_files=("src/agentkit/done.py",),
+                )
+            ),
         )
         handler = ClosurePhaseHandler(config)
         result = handler.on_enter(
@@ -1628,6 +1733,7 @@ class TestPriorPhaseValidation:
         s_dir.mkdir(parents=True)
         _save_snapshot(s_dir, "setup")
         _save_snapshot(s_dir, "implementation")
+        _write_required_worker_artifacts(s_dir)
         config = _impl_config(s_dir)
         handler = ClosurePhaseHandler(config)
         result = handler.on_enter(
@@ -1642,6 +1748,7 @@ class TestPriorPhaseValidation:
         s_dir.mkdir(parents=True)
         for phase in ("setup", "exploration"):
             _save_snapshot(s_dir, phase, story_id="TEST-102")
+        _write_required_worker_artifacts(s_dir, story_id="TEST-102")
         save_phase_snapshot(
             s_dir,
             PhaseSnapshot(

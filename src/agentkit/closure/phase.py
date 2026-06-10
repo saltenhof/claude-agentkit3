@@ -54,6 +54,9 @@ from agentkit.state_backend.store import (
     save_story_context,
 )
 from agentkit.story_context_manager.types import get_profile
+from agentkit.verify_system.structural.system_evidence import (
+    ABSENT_CHANGE_EVIDENCE_PORT,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -313,12 +316,13 @@ class ClosurePhaseHandler:
                 ),
                 reason=EscalationReason.IMPLEMENTATION_REQUIRED_AFTER_EXPLORATION,
             )
-        if self._config.change_evidence_port is None:
-            return None
+        change_evidence_port = (
+            self._config.change_evidence_port or ABSENT_CHANGE_EVIDENCE_PORT
+        )
         gate = evaluate_implementation_evidence_gate(
             story_type=ctx.story_type,
             story_dir=s_dir,
-            change_evidence=self._config.change_evidence_port.collect(s_dir),
+            change_evidence=change_evidence_port.collect(s_dir),
         )
         if gate.passed:
             return None
@@ -373,8 +377,10 @@ class ClosurePhaseHandler:
             transition_error = _transition_story_done(cfg, ctx.story_id)
             if transition_error is not None:
                 return transition_error
+            ctx = _persist_story_done(s_dir, ctx)
             progress = _persist(store, source_state, progress, story_closed=True)
         else:
+            ctx = _persist_story_done(s_dir, ctx)
             gh_warnings = []
 
         # Step 5: metrics (FIX-5: idempotent). If already written, LOAD the
@@ -1143,6 +1149,15 @@ def _resume_run_id(s_dir: Path) -> str | None:
         return resolve_runtime_scope(s_dir).run_id or None
     except Exception:  # noqa: BLE001 -- best-effort scope read for the metrics key
         return None
+
+
+def _persist_story_done(s_dir: Path, ctx: StoryContext) -> StoryContext:
+    """Persist the authoritative story terminal flag after Done is reached."""
+    if ctx.story_done is True:
+        return ctx
+    updated = ctx.model_copy(update={"story_done": True})
+    save_story_context(s_dir, updated)
+    return updated
 
 
 def _transition_story_done(

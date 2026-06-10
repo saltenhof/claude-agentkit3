@@ -20,6 +20,8 @@ Konzept-Anker:
 
 from __future__ import annotations
 
+from agentkit.core_types.qa_artifact_names import HANDOVER_FILE
+
 #: Wiederkehrende Verzeichnis-Segmente (Sonar S1192 — Literal nur einmal).
 _AGENTKIT_DIR = ".agentkit"
 _CLAUDE_DIR = ".claude"
@@ -30,7 +32,7 @@ CONTENT_PLANE_FILES: tuple[str, ...] = (
     "context.json",
     "are_bundle.json",
     "are-bundle.json",
-    "handover.json",
+    HANDOVER_FILE,
 )
 
 #: Control-Plane-Artefakt-Dateinamen (FK-55 §55.4: phase_state_projection,

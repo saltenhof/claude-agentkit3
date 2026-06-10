@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
+from agentkit.core_types import WORKER_MANIFEST_FILE
 from agentkit.story_context_manager.story_model import ChangeImpact
 from agentkit.verify_system.protocols import Finding, TrustClass
 
@@ -35,8 +36,6 @@ if TYPE_CHECKING:
     from agentkit.verify_system.structural.system_evidence import ChangeEvidence
 
 __all__ = ["check_impact_violation"]
-
-_WORKER_MANIFEST_FILE = "worker-manifest.json"
 
 #: Canonical FK-23 §23.8 impact ordering (ascending). Used to compare declared
 #: vs. actual impact.
@@ -70,7 +69,7 @@ def _declared_budget(story_dir: Path) -> ChangeImpact | None:
     intent the worker committed to, against which the SYSTEM-measured actual
     impact is compared. ``None`` when absent/unparseable.
     """
-    path = story_dir / _WORKER_MANIFEST_FILE
+    path = story_dir / WORKER_MANIFEST_FILE
     try:
         manifest = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError, OSError):

@@ -26,6 +26,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
+from agentkit.core_types import PROTOCOL_FILE, VERIFY_DECISION_FILE
+from agentkit.core_types.qa_artifact_names import LAYER_ARTIFACT_FILES
 from agentkit.installer.paths import qa_story_dir
 from agentkit.state_backend.store import (
     load_execution_events,
@@ -44,8 +46,8 @@ if TYPE_CHECKING:
 #: impl/bugfix need the full structural+decision+context set; concept/research
 #: only ``context.json`` (no QA-subflow). FK-29 §29.3.1.
 _CODE_REQUIRED_ARTIFACTS: tuple[str, ...] = (
-    "structural.json",
-    "decision.json",
+    LAYER_ARTIFACT_FILES["structural"],
+    VERIFY_DECISION_FILE,
     "context.json",
 )
 _NON_CODE_REQUIRED_ARTIFACTS: tuple[str, ...] = ("context.json",)
@@ -203,7 +205,7 @@ def run_postflight_checks(
 def _check_story_dir_exists(story_dir: Path) -> PostflightCheck:
     """``story_dir_exists``: the story directory and ``protocol.md`` exist."""
     has_dir = story_dir.is_dir()
-    has_protocol = (story_dir / "protocol.md").is_file()
+    has_protocol = (story_dir / PROTOCOL_FILE).is_file()
     passed = has_dir and has_protocol
     detail = "" if passed else f"story_dir={story_dir} dir={has_dir} protocol={has_protocol}"
     return PostflightCheck(check="story_dir_exists", passed=passed, detail=detail)

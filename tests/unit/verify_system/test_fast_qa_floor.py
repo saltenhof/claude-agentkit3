@@ -8,18 +8,26 @@ is a fail-closed FAIL (NO ERROR BYPASSING).
 
 from __future__ import annotations
 
+import json
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
 
 from agentkit.artifacts import ArtifactEnvelope, ArtifactManager, ArtifactReference
 from agentkit.core_types import ArtifactClass, PolicyVerdict, QaContext
+from agentkit.core_types.qa_artifact_names import (
+    HANDOVER_FILE,
+    PROTOCOL_FILE,
+    WORKER_MANIFEST_FILE,
+)
 from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.story_model import WireStoryMode
 from agentkit.story_context_manager.types import StoryMode, StoryType
 from agentkit.verify_system import VerifyContextBundle, VerifySystem
 from agentkit.verify_system.policy_engine.engine import PolicyEngine
 from agentkit.verify_system.protocols import LayerResult
+from agentkit.verify_system.structural.system_evidence import ChangeEvidence
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -43,6 +51,7 @@ def _git_worktree(tmp_path: Path) -> None:
     _git("add", ".")
     _git("commit", "-m", "base")
     _git("update-ref", "refs/remotes/origin/main", "HEAD")
+    _write_required_worker_artifacts(tmp_path)
 
 
 class _RecordingLayer:
@@ -89,12 +98,23 @@ class _FastStoryContextPort:
         )
 
 
+class _StaticChangeEvidencePort:
+    def __init__(self, evidence: ChangeEvidence) -> None:
+        self.evidence = evidence
+        self.calls: list[Path] = []
+
+    def collect(self, story_dir: Path) -> ChangeEvidence:
+        self.calls.append(story_dir)
+        return self.evidence
+
+
 def _make_fast_system(
     *,
     layer_1: _RecordingLayer | None = None,
     layer_2a: _RecordingLayer | None = None,
     layer_3: _RecordingLayer | None = None,
     fast_test_runner: Callable[[Path], tuple[bool, str | None]] | None = None,
+    implementation_change_evidence_port: _StaticChangeEvidencePort | None = None,
 ) -> tuple[VerifySystem, _RecordingLayer, _RecordingLayer, _RecordingLayer]:
     l1 = layer_1 or _RecordingLayer("structural")
     l2a = layer_2a or _RecordingLayer("qa_review")
@@ -109,8 +129,36 @@ def _make_fast_system(
         artifact_manager=_RecordingArtifactManager(),
         story_context_port=_FastStoryContextPort(),
         fast_test_runner=fast_test_runner,
+        implementation_change_evidence_port=(
+            implementation_change_evidence_port
+            or _StaticChangeEvidencePort(
+                ChangeEvidence(
+                    available=True,
+                    changed_files=("src/agentkit/done.py",),
+                )
+            )
+        ),
     )
     return vs, l1, l2a, l3
+
+
+def _write_required_worker_artifacts(story_dir: Path) -> None:
+    (story_dir / HANDOVER_FILE).write_text("handover\n", encoding="utf-8")
+    (story_dir / PROTOCOL_FILE).write_text("protocol\n", encoding="utf-8")
+    (story_dir / WORKER_MANIFEST_FILE).write_text(
+        json.dumps(
+            {
+                "story_id": "TEST-001",
+                "run_id": "run-test-001",
+                "status": "completed",
+                "completed_at": datetime(2026, 1, 1, tzinfo=UTC).isoformat(),
+                "files_changed": ["src/agentkit/done.py"],
+                "tests_added": [],
+                "acceptance_criteria_status": {"AC1": "done"},
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def _bundle(tmp_path: Path) -> VerifyContextBundle:
@@ -191,3 +239,25 @@ def test_fast_floor_structural_failure_fails(tmp_path: Path) -> None:
         target=_target(),
     )
     assert outcome.verdict is PolicyVerdict.FAIL
+
+
+def test_fast_mode_impl_exploration_only_blocks_before_floor(tmp_path: Path) -> None:
+    evidence_port = _StaticChangeEvidencePort(
+        ChangeEvidence(available=True, changed_files=("exploration-summary.md",))
+    )
+    vs, l1, _l2a, _l3 = _make_fast_system(
+        fast_test_runner=lambda _d: (True, None),
+        implementation_change_evidence_port=evidence_port,
+    )
+
+    outcome = vs.run_qa_subflow(
+        ctx=_bundle(tmp_path),
+        story_id="TEST-001",
+        qa_context=QaContext.IMPLEMENTATION_INITIAL,
+        target=_target(),
+    )
+
+    assert outcome.verdict is PolicyVerdict.FAIL
+    assert outcome.escalated is True
+    assert l1.calls == 0
+    assert evidence_port.calls == [tmp_path]
