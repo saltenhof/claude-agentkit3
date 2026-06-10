@@ -33,6 +33,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
+import re
 from enum import StrEnum
 from typing import TYPE_CHECKING, Final, Protocol, runtime_checkable
 
@@ -49,8 +51,21 @@ from agentkit.verify_system.remediation.finding_resolution import (
 
 if TYPE_CHECKING:
     from agentkit.story_context_manager.models import StoryContext
+    from agentkit.telemetry.emitters import EventEmitter
     from agentkit.verify_system.llm_evaluator.bundle import ReviewBundle
     from agentkit.verify_system.llm_evaluator.llm_client import LlmClient
+
+logger = logging.getLogger(__name__)
+
+#: Schema hint injected on retry when the first attempt failed to parse (FK-11 §11.4.4).
+_SCHEMA_RETRY_HINT: Final[str] = (
+    "\n\n## Response Format Reminder (RETRY)\n"
+    "The previous response could not be parsed as a JSON array of check objects.\n"
+    "You MUST respond with ONLY a valid JSON array. Each entry must have:\n"
+    '  {"check_id": "<id>", "status": "PASS|PASS_WITH_CONCERNS|FAIL", '
+    '"reason": "<one-liner>", "description": "<optional>"}\n'
+    "No prose, no markdown fences around the array, just the raw JSON array."
+)
 
 #: Prefix of a remediation finding-resolution check-id (FK-34 §34.9.5).
 _FINDING_RESOLUTION_PREFIX: Final[str] = "finding_resolution_"
@@ -257,6 +272,11 @@ class StructuredEvaluatorResult(BaseModel):
             remediation mode (FK-34 §34.9).
         raw_response_hash: SHA-256 over the raw LLM output (audit).
         template_sha256: SHA-256 of the materialized prompt template (audit).
+        rendered_prompt: The fully rendered prompt sent to the LLM (FK-11
+            §11.4.6 full logging; ``None`` if logging was skipped).
+        raw_response: The full raw LLM response text (FK-11 §11.4.6 full
+            logging; ``None`` if logging was skipped).
+        retry_count: Number of LLM calls made (1 = no retry, 2 = one retry).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -267,6 +287,9 @@ class StructuredEvaluatorResult(BaseModel):
     finding_resolutions: dict[FindingKey, FindingResolutionStatus]
     raw_response_hash: str
     template_sha256: str
+    rendered_prompt: str | None = None
+    raw_response: str | None = None
+    retry_count: int = 1
 
 
 class StructuredEvaluator:
@@ -276,12 +299,21 @@ class StructuredEvaluator:
     :class:`~agentkit.verify_system.llm_evaluator.llm_client.LlmClient` port
     and the prompt materializer. The evaluator is pure apart from the injected
     LLM call and the prompt-runtime materialization side effect.
+
+    FK-11 §11.4.4 three-stage response processing (exact order, fail-closed):
+    1. Prompt template includes explicit JSON format spec (contract/golden test).
+    2. Extract JSON block from possibly-embedded text (```json or [{).
+    3. Regex fallback per check (status/reason/description from free text).
+    All stages fail → exactly 1 retry with schema hint → fail-closed.
+    Max 2 LLM calls per evaluation (hard cap).
     """
 
     def __init__(
         self,
         llm_client: LlmClient,
         prompt_materializer: _PromptMaterializer,
+        *,
+        event_emitter: EventEmitter | None = None,
     ) -> None:
         """Initialise the evaluator.
 
@@ -292,9 +324,12 @@ class StructuredEvaluator:
                 ``PromptRuntime.materialize_prompt`` (FK-44 §44.4.2). Injected
                 so the evaluator never reaches into prompt-runtime sub-modules
                 nor reads a resource file directly.
+            event_emitter: Optional telemetry emitter for ``llm_call`` events
+                (FK-11 §11.4.6). ``None`` => no event emitted (skipped cleanly).
         """
         self._llm_client = llm_client
         self._materialize = prompt_materializer
+        self._event_emitter = event_emitter
 
     def evaluate(
         self,
@@ -306,6 +341,9 @@ class StructuredEvaluator:
         template_override: str | None = None,
     ) -> StructuredEvaluatorResult:
         """Evaluate one role against the review bundle (fail-closed).
+
+        Implements FK-11 §11.4.4 three-stage response processing with max-2-call
+        retry and FK-11 §11.4.6 full logging (prompt + response + telemetry event).
 
         Args:
             role: The reviewer role to run.
@@ -324,8 +362,7 @@ class StructuredEvaluator:
 
         Raises:
             StructuredEvaluatorError: On an unparseable / schema-violating
-                response, an unknown check-id, or an invalid resolution
-                (fail-closed, FK-34 §34.5.1).
+                response after 2 attempts (fail-closed, FK-34 §34.5.1).
             LlmClientError: If the LLM transport fails (propagated; fail-closed).
         """
         ctx, story_id = self._materialize.context_for(bundle)
@@ -339,50 +376,345 @@ class StructuredEvaluator:
                 f"{json.dumps(sorted(expected_check_ids), ensure_ascii=False)}"
             )
 
-        raw_response = self._llm_client.complete(role=role.value, prompt=full_prompt)
-        if not raw_response.strip():
-            raise LlmClientError(
-                f"LlmClient returned empty completion for role={role.value!r} "
-                "(FK-34 §34.5.1 fail-closed)."
-            )
-
-        response = self._parse_response(raw_response, role)
         mandatory, resolution_required = self._required_check_ids(
             role, previous_findings, qa_cycle_round, expected_check_ids
         )
-        self._validate_completeness(role, response, mandatory, resolution_required)
-        findings, resolutions, verdict = self._aggregate(role, response)
-        raw_hash = hashlib.sha256(raw_response.encode("utf-8")).hexdigest()
-        return StructuredEvaluatorResult(
+
+        # --- FK-11 §11.4.4: max 2 LLM calls (1 initial + 1 schema-hint retry) ---
+        # The retry applies to PARSE failures (Stages 2/3 cannot extract a valid
+        # structure). Completeness/resolution failures (correct parse but wrong
+        # check IDs) are immediate fail-closed (no retry). This preserves the
+        # original fail-closed contract for content validation while adding the
+        # FK-11 §11.4.4 parse-retry only where it helps.
+        last_parse_error: StructuredEvaluatorError | None = None
+        raw_response: str = ""
+        retry_count = 0
+        current_prompt = full_prompt
+
+        for attempt in range(2):  # max 2 LLM calls
+            retry_count = attempt + 1
+            raw_response = self._llm_client.complete(role=role.value, prompt=current_prompt)
+            if not raw_response.strip():
+                raise LlmClientError(
+                    f"LlmClient returned empty completion for role={role.value!r} "
+                    "(FK-34 §34.5.1 fail-closed)."
+                )
+
+            # Stage 2/3: try to parse a valid LlmEvaluatorResponse.
+            parse_error: StructuredEvaluatorError | None = None
+            response = None
+            try:
+                response = self._parse_response_three_stage(
+                    raw_response, role, mandatory | resolution_required
+                )
+            except StructuredEvaluatorError as exc:
+                parse_error = exc
+
+            if parse_error is not None:
+                last_parse_error = parse_error
+                if attempt == 0:
+                    logger.warning(
+                        "StructuredEvaluator parse failed for role=%r (attempt 1/%d); "
+                        "retrying with schema hint: %s",
+                        role.value,
+                        2,
+                        parse_error,
+                    )
+                    current_prompt = full_prompt + _SCHEMA_RETRY_HINT
+                continue  # next attempt
+
+            # Parse succeeded — now validate completeness (no retry on this).
+            assert response is not None
+            self._validate_completeness(role, response, mandatory, resolution_required)
+
+            # All good — build result and emit telemetry.
+            findings, resolutions, verdict = self._aggregate(role, response)
+            raw_hash = hashlib.sha256(raw_response.encode("utf-8")).hexdigest()
+            self._emit_llm_call_event(
+                role=role,
+                bundle=bundle,
+                retry=attempt,
+                check_count=len(response.checks),
+                status="pass",
+            )
+            return StructuredEvaluatorResult(
+                role=role,
+                verdict=verdict,
+                findings=tuple(findings),
+                finding_resolutions=resolutions,
+                raw_response_hash=raw_hash,
+                template_sha256=template_sha256,
+                rendered_prompt=full_prompt,
+                raw_response=raw_response,
+                retry_count=retry_count,
+            )
+
+        # Both parse attempts failed — fail-closed
+        self._emit_llm_call_event(
             role=role,
-            verdict=verdict,
-            findings=tuple(findings),
-            finding_resolutions=resolutions,
-            raw_response_hash=raw_hash,
-            template_sha256=template_sha256,
+            bundle=bundle,
+            retry=1,
+            check_count=0,
+            status="fail",
+        )
+        raise StructuredEvaluatorError(
+            f"LLM response for role={role.value!r} unparseable after 2 attempts "
+            f"(FK-11 §11.4.4 fail-closed). Last parse error: {last_parse_error}"
+        ) from last_parse_error
+
+    @staticmethod
+    def _parse_response_three_stage(
+        raw_response: str,
+        role: ReviewerRole,
+        expected_ids: frozenset[str],
+    ) -> LlmEvaluatorResponse:
+        """Three-stage response parsing (FK-11 §11.4.4, fail-closed).
+
+        Stage 1: Template JSON format contract (enforced via contract/golden test
+            on the prompt template; this method is Stage 2+3 execution only).
+        Stage 2: Extract JSON block from possibly-embedded text (```json or [{),
+            json.loads → list[CheckResult].
+        Stage 3: Regex fallback per check (status/reason/description from free
+            text), with correct check_id mapping from ``expected_ids``.
+
+        All stages fail → :class:`StructuredEvaluatorError` (caller handles retry).
+
+        Args:
+            raw_response: The raw LLM completion text.
+            role: The reviewer role (for error messages).
+            expected_ids: All expected check-ids (base + resolution); used in
+                Stage 3 to assign ``check_id`` correctly.
+
+        Returns:
+            Validated :class:`LlmEvaluatorResponse`.
+
+        Raises:
+            StructuredEvaluatorError: If all stages fail (fail-closed).
+        """
+        # Stage 2: Extract JSON block and deserialise.
+        stage2_error: Exception | None = None
+        try:
+            return StructuredEvaluator._stage2_extract_json(raw_response, role)
+        except StructuredEvaluatorError as exc:
+            stage2_error = exc
+
+        # Stage 3: Regex fallback.
+        try:
+            return StructuredEvaluator._stage3_regex_fallback(raw_response, role, expected_ids)
+        except StructuredEvaluatorError as exc3:
+            # Both Stage 2 and Stage 3 failed.
+            raise StructuredEvaluatorError(
+                f"LLM response for role={role.value!r} failed all parse stages "
+                f"(FK-11 §11.4.4 fail-closed). "
+                f"Stage 2: {stage2_error}; Stage 3: {exc3}"
+            ) from exc3
+
+    @staticmethod
+    def _stage2_extract_json(raw_response: str, role: ReviewerRole) -> LlmEvaluatorResponse:
+        """Stage 2: Extract JSON block from possibly-embedded text.
+
+        Handles both:
+        - A response that starts with a JSON array directly.
+        - A response with a ```json ... ``` fenced block.
+        - A response with an unenclosed JSON array starting with ``[{``.
+
+        Args:
+            raw_response: Raw LLM completion text.
+            role: Reviewer role (for error messages).
+
+        Returns:
+            Validated :class:`LlmEvaluatorResponse`.
+
+        Raises:
+            StructuredEvaluatorError: If no valid JSON array can be extracted.
+        """
+        text = raw_response.strip()
+
+        # Try direct JSON parse first (whole response is pure JSON).
+        candidates: list[str] = []
+
+        # 1. Try the whole response as JSON.
+        candidates.append(text)
+
+        # 2. Extract from ```json ... ``` fenced block.
+        fence_match = re.search(r"```json\s*(.*?)```", text, re.DOTALL)
+        if fence_match:
+            candidates.append(fence_match.group(1).strip())
+
+        # 3. Extract from first "[{" to last "}]" pattern.
+        bracket_match = re.search(r"(\[\{.*?\}\])", text, re.DOTALL)
+        if bracket_match:
+            candidates.append(bracket_match.group(1).strip())
+
+        # 4. Extract from the first "[" to the last matching "]".
+        first_bracket = text.find("[")
+        last_bracket = text.rfind("]")
+        if first_bracket != -1 and last_bracket > first_bracket:
+            candidates.append(text[first_bracket : last_bracket + 1])
+
+        last_error: Exception | None = None
+        for candidate in candidates:
+            try:
+                parsed = json.loads(candidate)
+            except json.JSONDecodeError as exc:
+                last_error = exc
+                continue
+            if not isinstance(parsed, list):
+                last_error = TypeError(f"Expected JSON array, got {type(parsed).__name__}")
+                continue
+            try:
+                return LlmEvaluatorResponse(checks=tuple(parsed))
+            except ValidationError as exc:
+                last_error = exc
+                continue
+
+        raise StructuredEvaluatorError(
+            f"Stage 2: LLM response for role={role.value!r} contains no valid "
+            f"JSON array of check objects (FK-11 §11.4.4). Last error: {last_error}"
         )
 
     @staticmethod
-    def _parse_response(
-        raw_response: str, role: ReviewerRole
+    def _stage3_regex_fallback(
+        raw_response: str,
+        role: ReviewerRole,
+        expected_ids: frozenset[str],
     ) -> LlmEvaluatorResponse:
-        """Parse the raw LLM text into a validated response (fail-closed)."""
-        try:
-            parsed = json.loads(raw_response)
-        except json.JSONDecodeError as exc:
-            msg = f"LLM response for role={role.value!r} is not valid JSON (FK-34 §34.5.1 fail-closed): {exc}"
-            raise StructuredEvaluatorError(msg) from exc
-        if not isinstance(parsed, list):
-            msg = (
-                f"LLM response for role={role.value!r} must be a JSON array of "
-                f"check objects (FK-34 §34.2); got {type(parsed).__name__}."
+        """Stage 3: Regex fallback — extract check fields from free text.
+
+        Parses ``status``, ``reason``, and ``description`` from free-text LLM
+        output and maps them to ``CheckResult`` objects with correct ``check_id``
+        assignment. Uses ``expected_ids`` as the mapping source.
+
+        Args:
+            raw_response: Raw LLM completion text.
+            role: Reviewer role (for error messages).
+            expected_ids: All required check-ids (maps position to id).
+
+        Returns:
+            :class:`LlmEvaluatorResponse` with regex-extracted checks.
+
+        Raises:
+            StructuredEvaluatorError: If no checks can be extracted.
+        """
+        text = raw_response
+
+        # Pattern: look for status values near known check-id strings or
+        # in sequential blocks.
+        checks: list[dict[str, object]] = []
+        status_pattern = re.compile(
+            r"\b(PASS_WITH_CONCERNS|PASS|FAIL)\b", re.IGNORECASE
+        )
+        reason_pattern = re.compile(
+            r'"reason"\s*:\s*"([^"]*)"', re.IGNORECASE
+        )
+        desc_pattern = re.compile(
+            r'"description"\s*:\s*"([^"]*)"', re.IGNORECASE
+        )
+
+        # Try to extract per-check_id from text by finding the check_id mention.
+        sorted_ids = sorted(expected_ids)
+        for check_id in sorted_ids:
+            # Find the region of text mentioning this check_id.
+            cid_pos = text.find(check_id)
+            if cid_pos == -1:
+                continue
+            # Look in the 500 chars around the check_id mention.
+            region = text[max(0, cid_pos - 50) : cid_pos + 500]
+            status_match = status_pattern.search(region)
+            if not status_match:
+                continue
+            status_raw = status_match.group(1).upper()
+            # Normalise
+            if status_raw not in ("PASS", "FAIL", "PASS_WITH_CONCERNS"):
+                continue
+            reason_match = reason_pattern.search(region)
+            reason = reason_match.group(1) if reason_match else ""
+            desc_match = desc_pattern.search(region)
+            description = desc_match.group(1) if desc_match else ""
+            checks.append({
+                "check_id": check_id,
+                "status": status_raw,
+                "reason": reason,
+                "description": description,
+            })
+
+        if not checks:
+            # Last resort: find status values and zip with sorted ids.
+            statuses = status_pattern.findall(text)
+            if len(statuses) >= len(sorted_ids):
+                for idx, check_id in enumerate(sorted_ids):
+                    checks.append({
+                        "check_id": check_id,
+                        "status": statuses[idx].upper(),
+                        "reason": "",
+                        "description": "",
+                    })
+
+        if not checks:
+            raise StructuredEvaluatorError(
+                f"Stage 3: LLM response for role={role.value!r} contains no "
+                "recognisable check entries even via regex fallback "
+                "(FK-11 §11.4.4 fail-closed)."
             )
-            raise StructuredEvaluatorError(msg)
+
         try:
-            return LlmEvaluatorResponse(checks=tuple(parsed))
+            return LlmEvaluatorResponse(checks=tuple(checks))
         except ValidationError as exc:
-            msg = f"LLM response for role={role.value!r} violates the CheckResult schema (FK-34 §34.2 fail-closed): {exc}"
-            raise StructuredEvaluatorError(msg) from exc
+            raise StructuredEvaluatorError(
+                f"Stage 3: regex-extracted checks for role={role.value!r} failed "
+                f"schema validation: {exc}"
+            ) from exc
+
+    def _emit_llm_call_event(
+        self,
+        *,
+        role: ReviewerRole,
+        bundle: ReviewBundle,
+        retry: int,
+        check_count: int,
+        status: str,
+    ) -> None:
+        """Emit the ``llm_call`` telemetry event (FK-11 §11.4.6b).
+
+        Silently skipped if no emitter is injected or emission fails
+        (telemetry is never a pipeline blocker).
+
+        Args:
+            role: The evaluated role.
+            bundle: The review bundle (carries story_id).
+            retry: 0 = first attempt, 1 = retry.
+            check_count: Number of parsed checks (0 on failure).
+            status: ``"pass"`` or ``"fail"``.
+        """
+        if self._event_emitter is None:
+            return
+        try:
+            from agentkit.telemetry.events import Event, EventType
+
+            pool = getattr(self._llm_client, "_resolver", None)
+            pool_name: str = "unknown"
+            try:
+                if pool is not None:
+                    resolved = pool.resolve(role.value)
+                    pool_name = str(resolved)
+            except Exception:  # noqa: BLE001
+                pass
+
+            event = Event(
+                story_id=bundle.story_id,
+                event_type=EventType.LLM_CALL,
+                source_component="structured_evaluator",
+                payload={
+                    "pool": pool_name,
+                    "role": role.value,
+                    "retry": retry,
+                    "check_count": check_count,
+                    "status": status,
+                },
+            )
+            self._event_emitter.emit(event)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to emit llm_call telemetry event: %s", exc)
 
     @staticmethod
     def _required_check_ids(

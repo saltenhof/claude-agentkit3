@@ -23,6 +23,8 @@ from agentkit.multi_llm_hub.entities import (
     HubSessionLease,
 )
 from agentkit.multi_llm_hub.errors import (
+    HubAcquireQueuedError,
+    HubLoginRequiredError,
     HubSessionNotFoundError,
     HubUnavailableError,
     MultiLlmHubError,
@@ -49,7 +51,22 @@ class JsonTransport(Protocol):
         method: str,
         path: str,
         payload: Mapping[str, object] | None = None,
+        *,
+        timeout: float | None = None,
     ) -> dict[str, object]:
+        """Make a JSON request.
+
+        Args:
+            method: HTTP method (GET/POST/...).
+            path: Request path relative to the base URL.
+            payload: Optional request body as a mapping.
+            timeout: Per-request timeout in seconds. ``None`` => use the
+                transport's constructor default (backward-compatible; no
+                existing caller breaks).
+
+        Returns:
+            Parsed JSON response as a dict.
+        """
         ...
 
 
@@ -65,7 +82,22 @@ class UrllibJsonTransport:
         method: str,
         path: str,
         payload: Mapping[str, object] | None = None,
+        *,
+        timeout: float | None = None,
     ) -> dict[str, object]:
+        """Make a JSON HTTP request.
+
+        Args:
+            method: HTTP method.
+            path: Request path relative to the base URL.
+            payload: Optional JSON body.
+            timeout: Per-request timeout in seconds. ``None`` => constructor
+                default (FK-11 §11.6.1 additive, backward-compatible).
+
+        Returns:
+            Parsed JSON response.
+        """
+        effective_timeout = timeout if timeout is not None else self._timeout
         body = json.dumps(payload, sort_keys=True).encode("utf-8") if payload is not None else None
         request = urllib.request.Request(
             url=f"{self._base_url}{path}",
@@ -74,7 +106,7 @@ class UrllibJsonTransport:
             headers={"Content-Type": "application/json"},
         )
         try:
-            with urllib.request.urlopen(request, timeout=self._timeout) as response:
+            with urllib.request.urlopen(request, timeout=effective_timeout) as response:
                 response_body = response.read()
         except urllib.error.HTTPError as exc:
             raise _hub_error_from_http_error(exc) from exc
@@ -95,7 +127,33 @@ class HubClientProtocol(Protocol):
     def health(self) -> HubHealth: ...
     def pool_status(self) -> list[HubBackendMetric]: ...
     def list_sessions(self, *, include_inactive: bool = ...) -> list[HubSession]: ...
-    def acquire(self, *, owner: str, description: str, llms: list[HubBackendName]) -> HubSessionLease: ...
+    def acquire(
+        self,
+        *,
+        owner: str,
+        description: str,
+        llms: list[HubBackendName],
+        timeout: float | None = ...,
+    ) -> HubSessionLease:
+        """Acquire a Hub session lease.
+
+        Args:
+            owner: Owner identifier.
+            description: Human-readable description of the session purpose.
+            llms: Requested LLM backends.
+            timeout: Per-request timeout in seconds. ``None`` => transport default.
+
+        Returns:
+            Granted :class:`HubSessionLease`.
+
+        Raises:
+            HubAcquireQueuedError: When the Hub signals ``status == "queued"``
+                (no slot granted yet); the caller must retry.
+            HubUnavailableError: On transient Hub unavailability.
+            MultiLlmHubError: On other Hub errors.
+        """
+        ...
+
     def send(
         self,
         *,
@@ -104,8 +162,33 @@ class HubClientProtocol(Protocol):
         message: str | None = ...,
         target: HubBackendName | None = ...,
         targets: dict[HubBackendName, str] | None = ...,
-    ) -> dict[HubBackendName, HubMessage]: ...
-    def release(self, *, session_id: str, token: str) -> None: ...
+        timeout: float | None = ...,
+    ) -> dict[HubBackendName, HubMessage]:
+        """Send a message through the Hub.
+
+        Args:
+            session_id: Active session identifier.
+            token: Session authentication token.
+            message: Optional broadcast message.
+            target: Optional single-backend target.
+            targets: Optional per-backend messages.
+            timeout: Per-request timeout in seconds. ``None`` => transport default.
+
+        Returns:
+            Per-backend :class:`HubMessage` map.
+        """
+        ...
+
+    def release(self, *, session_id: str, token: str, timeout: float | None = ...) -> None:
+        """Release a Hub session lease.
+
+        Args:
+            session_id: Active session identifier.
+            token: Session authentication token.
+            timeout: Per-request timeout in seconds. ``None`` => transport default.
+        """
+        ...
+
     def resume(self, *, session_id: str) -> HubSessionLease: ...
 
 
@@ -152,18 +235,47 @@ class HubClient:
         owner: str,
         description: str,
         llms: list[HubBackendName],
+        timeout: float | None = None,
     ) -> HubSessionLease:
-        """Acquire a Hub session lease."""
+        """Acquire a Hub session lease.
 
+        Detects a ``status == "queued"`` wire response (no slot granted) and
+        raises :class:`HubAcquireQueuedError` BEFORE attempting to parse a lease
+        (FK-11 §11.2.3 Zeile 187 / §11.6.1). The return type is always
+        :class:`HubSessionLease` (no Union) — a queued state is an exception,
+        keeping the AG3-079-stable port surface.
+
+        Args:
+            owner: Owner identifier.
+            description: Human-readable description.
+            llms: Requested LLM backends.
+            timeout: Per-request timeout (``None`` => transport default).
+
+        Returns:
+            Granted :class:`HubSessionLease`.
+
+        Raises:
+            HubAcquireQueuedError: When the Hub signals ``status == "queued"``.
+            HubUnavailableError: On transient Hub unavailability.
+            MultiLlmHubError: On other Hub errors.
+        """
         payload: dict[str, object] = {
             "owner": owner,
             "description": description,
         }
         if llms:
             payload["llms"] = list(llms)
-        return HubSessionLease.model_validate(
-            _lease_payload(self._request("POST", "/api/session/acquire", payload)),
-        )
+        raw = self._request("POST", "/api/session/acquire", payload, timeout=timeout)
+        # FK-11 §11.2.3 Zeile 187: detect queued response BEFORE _lease_payload,
+        # which would KeyError on a missing session_id/token.
+        if raw.get("status") == "queued":
+            wait_seconds = raw.get("estimated_wait_seconds")
+            estimated: float | None = float(wait_seconds) if isinstance(wait_seconds, (int, float)) else None
+            raise HubAcquireQueuedError(
+                "Hub acquire returned queued status — no slot granted yet",
+                estimated_wait_seconds=estimated,
+            )
+        return HubSessionLease.model_validate(_lease_payload(raw))
 
     def send(
         self,
@@ -173,9 +285,21 @@ class HubClient:
         message: str | None = None,
         target: HubBackendName | None = None,
         targets: dict[HubBackendName, str] | None = None,
+        timeout: float | None = None,
     ) -> dict[HubBackendName, HubMessage]:
-        """Send a message through the Hub and return per-backend messages."""
+        """Send a message through the Hub and return per-backend messages.
 
+        Args:
+            session_id: Active session identifier.
+            token: Session authentication token.
+            message: Optional broadcast message.
+            target: Optional single-backend target.
+            targets: Optional per-backend messages.
+            timeout: Per-request timeout (``None`` => transport default).
+
+        Returns:
+            Per-backend :class:`HubMessage` map.
+        """
         payload: dict[str, object] = {
             "session_id": session_id,
             "token": token,
@@ -190,7 +314,7 @@ class HubClient:
                 for backend, backend_message in targets.items()
             }
 
-        data = self._request("POST", "/api/session/send", payload)
+        data = self._request("POST", "/api/session/send", payload, timeout=timeout)
         responses = _object_map(data.get("responses"))
         sent_at = datetime.now(UTC)
         return {
@@ -203,18 +327,30 @@ class HubClient:
             for backend, raw_response in responses.items()
         }
 
-    def release(self, *, session_id: str, token: str) -> None:
-        """Release a Hub session lease."""
+    def release(self, *, session_id: str, token: str, timeout: float | None = None) -> None:
+        """Release a Hub session lease.
 
+        Args:
+            session_id: Active session identifier.
+            token: Session authentication token.
+            timeout: Per-request timeout (``None`` => transport default).
+        """
         self._request(
             "POST",
             "/api/session/release",
             {"session_id": session_id, "token": token},
+            timeout=timeout,
         )
 
     def resume(self, *, session_id: str) -> HubSessionLease:
-        """Resume a previously released Hub session."""
+        """Resume a previously released Hub session.
 
+        Args:
+            session_id: Session identifier to resume.
+
+        Returns:
+            Renewed :class:`HubSessionLease`.
+        """
         return HubSessionLease.model_validate(
             _lease_payload(
                 self._request("POST", "/api/session/resume", {"session_id": session_id}),
@@ -226,9 +362,10 @@ class HubClient:
         method: str,
         path: str,
         payload: Mapping[str, object] | None = None,
+        timeout: float | None = None,
     ) -> dict[str, object]:
         try:
-            return self._transport.request(method, path, payload)
+            return self._transport.request(method, path, payload, timeout=timeout)
         except MultiLlmHubError:
             raise
         except (OSError, json.JSONDecodeError, ValidationError) as exc:
@@ -236,19 +373,40 @@ class HubClient:
 
 
 def _hub_error_from_http_error(exc: urllib.error.HTTPError) -> MultiLlmHubError:
+    """Map an HTTP error to a typed MultiLlmHubError subclass.
+
+    Reads the typed ``error_code`` field from the response payload
+    (routes.py:364-366) — NOT the ``error`` message — so canonical route codes
+    (``hub_session_not_found``, ``hub_login_required``, ``hub_unavailable``,
+    ``hub_error``) are dispatched to distinct exception types. This fixes the
+    wire-key mismatch where the old code read ``payload.get("error")`` (the
+    human-readable message) instead of the typed ``error_code`` field.
+
+    Backward-compatible: unknown/missing ``error_code`` falls back to the
+    prior behaviour (5xx → HubUnavailableError, 4xx → MultiLlmHubError).
+
+    Args:
+        exc: The HTTP error from urllib.
+
+    Returns:
+        A typed :class:`MultiLlmHubError` subclass.
+    """
     detail = exc.read().decode("utf-8", errors="replace")
     try:
         payload = json.loads(detail)
     except json.JSONDecodeError:
         payload = {}
     if isinstance(payload, dict):
-        code = payload.get("error")
-        message = payload.get("detail")
-        if code == "unknown_session":
-            return HubSessionNotFoundError(str(message or "Hub session not found"))
-        if exc.code >= 500:
-            return HubUnavailableError(str(message or detail or f"Hub HTTP {exc.code}"))
-        return MultiLlmHubError(str(message or detail or f"Hub HTTP {exc.code}"))
+        # Read the TYPED error_code (routes.py:364-366), not the human message.
+        error_code = payload.get("error_code")
+        message = payload.get("error") or payload.get("detail") or detail or f"Hub HTTP {exc.code}"
+        if error_code == "hub_session_not_found":
+            return HubSessionNotFoundError(str(message))
+        if error_code == "hub_login_required":
+            return HubLoginRequiredError(str(message))
+        if error_code in ("hub_unavailable", "hub_error") or exc.code >= 500:
+            return HubUnavailableError(str(message))
+        return MultiLlmHubError(str(message))
     if exc.code >= 500:
         return HubUnavailableError(detail or f"Hub HTTP {exc.code}")
     return MultiLlmHubError(detail or f"Hub HTTP {exc.code}")

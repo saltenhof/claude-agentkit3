@@ -183,35 +183,54 @@ def test_doc_fidelity_single_check() -> None:
 
 
 def test_non_json_response_raises_structured_evaluator_error() -> None:
+    # FK-11 §11.4.4: non-JSON text goes through all 3 stages (2 LLM calls),
+    # then fails closed with a StructuredEvaluatorError.
     client = _ScriptedLlmClient("this is not json")
     evaluator = StructuredEvaluator(client, _StubMaterializer())
-    with pytest.raises(StructuredEvaluatorError, match="not valid JSON"):
+    with pytest.raises(StructuredEvaluatorError):
         evaluator.evaluate(ReviewerRole.SEMANTIC_REVIEW, _bundle(), None, 1)
+    # Two LLM calls: initial attempt + one schema-hint retry (max 2, FK-11 §11.4.4).
+    assert len(client.calls) == 2  # noqa: PLR2004
 
 
 def test_non_array_response_raises_structured_evaluator_error() -> None:
+    # FK-11 §11.4.4: dict response (not array) goes through all stages, then fails.
     client = _ScriptedLlmClient(json.dumps({"check_id": "systemic_adequacy"}))
     evaluator = StructuredEvaluator(client, _StubMaterializer())
-    with pytest.raises(StructuredEvaluatorError, match="must be a JSON array"):
+    with pytest.raises(StructuredEvaluatorError):
         evaluator.evaluate(ReviewerRole.SEMANTIC_REVIEW, _bundle(), None, 1)
+    assert len(client.calls) == 2  # noqa: PLR2004
 
 
 def test_unknown_status_value_raises() -> None:
+    # FK-11 §11.4.4: CheckResult schema violation → all stages fail → fail-closed.
     client = _ScriptedLlmClient(
         json.dumps([{"check_id": "systemic_adequacy", "status": "MAYBE"}])
     )
     evaluator = StructuredEvaluator(client, _StubMaterializer())
-    with pytest.raises(StructuredEvaluatorError, match="CheckResult schema"):
+    with pytest.raises(StructuredEvaluatorError):
         evaluator.evaluate(ReviewerRole.SEMANTIC_REVIEW, _bundle(), None, 1)
+    assert len(client.calls) == 2  # noqa: PLR2004
 
 
-def test_extra_field_in_check_raises_forbid() -> None:
+def test_extra_field_in_check_stage2_fails_stage3_recovers() -> None:
+    """FK-11 §11.4.4: extra field causes Stage 2 Pydantic failure; Stage 3
+    regex fallback recovers the meaningful check (PASS for systemic_adequacy).
+
+    With 3-stage processing, a response with extra fields is not immediately
+    rejected: Stage 2 fails the schema validation, but Stage 3 regex extracts
+    the valid status/check_id and produces a correct result. This is the
+    FK-11 §11.4.4 contract: the fallback chain exists precisely to recover
+    from partially-malformed LLM responses.
+    """
     client = _ScriptedLlmClient(
         json.dumps([{"check_id": "systemic_adequacy", "status": "PASS", "junk": 1}])
     )
     evaluator = StructuredEvaluator(client, _StubMaterializer())
-    with pytest.raises(StructuredEvaluatorError, match="CheckResult schema"):
-        evaluator.evaluate(ReviewerRole.SEMANTIC_REVIEW, _bundle(), None, 1)
+    result = evaluator.evaluate(ReviewerRole.SEMANTIC_REVIEW, _bundle(), None, 1)
+    assert result.verdict is LlmVerdict.PASS
+    # Only one LLM call needed — Stage 3 recovered on attempt 1.
+    assert len(client.calls) == 1
 
 
 def test_unknown_check_id_for_role_raises() -> None:

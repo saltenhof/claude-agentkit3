@@ -335,6 +335,20 @@ def _unavailable_response(message: str, correlation_id: str) -> MultiLlmHubRoute
     )
 
 
+def _login_required_response(message: str, correlation_id: str) -> MultiLlmHubRouteResponse:
+    """Return a login-required error response (FK-11 §11.2.3 Zeile 191).
+
+    Distinct from hub_unavailable: the operator must log in before the session
+    can proceed. The canonical error_code is ``hub_login_required`` (ARCH-55).
+    """
+    return _error_response(
+        HTTPStatus.INTERNAL_SERVER_ERROR,
+        error_code="hub_login_required",
+        message=message,
+        correlation_id=correlation_id,
+    )
+
+
 def _not_found_response(message: str, correlation_id: str) -> MultiLlmHubRouteResponse:
     return _error_response(
         HTTPStatus.NOT_FOUND,

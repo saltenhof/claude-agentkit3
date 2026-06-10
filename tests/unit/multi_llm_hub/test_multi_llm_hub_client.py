@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 class _FakeTransport:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, dict[str, object] | None]] = []
+        self.timeout_calls: list[float | None] = []
         self.responses: dict[tuple[str, str], dict[str, object] | Exception] = {}
 
     def request(
@@ -21,9 +22,12 @@ class _FakeTransport:
         method: str,
         path: str,
         payload: Mapping[str, object] | None = None,
+        *,
+        timeout: float | None = None,
     ) -> dict[str, object]:
         payload_dict = dict(payload) if payload is not None else None
         self.calls.append((method, path, payload_dict))
+        self.timeout_calls.append(timeout)
         response = self.responses[(method, path)]
         if isinstance(response, Exception):
             raise response
