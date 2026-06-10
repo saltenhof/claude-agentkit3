@@ -236,6 +236,11 @@ def build_exploration_review(
     from agentkit.state_backend.store.verify_story_context_repository import (
         StateBackendVerifyStoryContextAdapter,
     )
+    from agentkit.telemetry.storage import StateBackendEmitter
+    from agentkit.verify_system.conformance_service import (
+        ConformanceService,
+        StructuredEvaluatorConformanceAdapter,
+    )
     from agentkit.verify_system.llm_evaluator.llm_client import FailClosedLlmClient
     from agentkit.verify_system.llm_evaluator.prompt_materializer import (
         PromptRuntimeMaterializer,
@@ -254,8 +259,17 @@ def build_exploration_review(
     )
     evaluator = StructuredEvaluator(client, materializer)
     sink = ArtifactReviewResultSink(manager)
+    conformance = ConformanceService(
+        StructuredEvaluatorConformanceAdapter(evaluator),
+        emitter=StateBackendEmitter(story_dir),
+    )
     return _Review(
-        stage1_doc_fidelity=DocFidelityChecker(evaluator, sink),
+        stage1_doc_fidelity=DocFidelityChecker(
+            evaluator,
+            sink,
+            story_context=ctx,
+            conformance_service=conformance,
+        ),
         stage2a_design_review=DesignReviewRunner(evaluator, sink),
         stage2b_design_challenge=None,
         artifact_manager=manager,
@@ -641,6 +655,7 @@ def build_verify_system(
     from agentkit.state_backend.store.verify_story_context_repository import (
         StateBackendVerifyStoryContextAdapter,
     )
+    from agentkit.telemetry.storage import StateBackendEmitter
     from agentkit.verify_system.llm_evaluator.llm_client import FailClosedLlmClient
     from agentkit.verify_system.structural.checker import FULL_STAGE_REGISTRY
     from agentkit.verify_system.system import VerifySystem
@@ -660,6 +675,7 @@ def build_verify_system(
         # Without this productive sink the count is always 0 and the gate is
         # inert/over-blocking. The telemetry import lives here, not in the BC.
         review_completion_sink=build_review_completion_sink(store_dir),
+        conformance_emitter=StateBackendEmitter(store_dir),
         layer2_llm_client=resolved_llm_client,
         fast_test_runner=fast_test_runner,
         # AG3-042: the PRODUCTIVE path wires the full FK-27 §27.4 Layer-1 stage

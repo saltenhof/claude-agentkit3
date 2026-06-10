@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
+    from agentkit.telemetry.emitters import EventEmitter
     from agentkit.verify_system.llm_evaluator import LlmClient
     from agentkit.verify_system.protocols import (
         StoryContextQueryPort,
@@ -36,6 +37,7 @@ class VerifySystemDefaultOptions:
     sonar_gate_port: SonarGateInputPort | None = None
     invalidation_sink: ArtifactInvalidationSink | None = None
     review_completion_sink: ReviewCompletionSink | None = None
+    conformance_emitter: EventEmitter | None = None
     layer2_llm_client: LlmClient | None = None
     fast_test_runner: Callable[[Path], tuple[bool, str | None]] | None = None
     stage_registry: StageRegistry | None = None
@@ -81,6 +83,10 @@ def resolve_default_options(
         review_completion_sink=cast(
             "ReviewCompletionSink | None",
             overrides.get("review_completion_sink", config.review_completion_sink),
+        ),
+        conformance_emitter=cast(
+            "EventEmitter | None",
+            overrides.get("conformance_emitter", config.conformance_emitter),
         ),
         layer2_llm_client=cast(
             "LlmClient | None",

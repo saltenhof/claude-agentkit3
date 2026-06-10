@@ -302,6 +302,7 @@ class StructuredEvaluator:
         bundle: ReviewBundle,
         previous_findings: list[Finding] | None,
         qa_cycle_round: int,
+        expected_check_ids: frozenset[str] | None = None,
     ) -> StructuredEvaluatorResult:
         """Evaluate one role against the review bundle (fail-closed).
 
@@ -325,6 +326,11 @@ class StructuredEvaluator:
         ctx, story_id = self._materialize.context_for(bundle)
         prompt_text, template_sha256 = self._materialize.render(role, ctx, story_id)
         full_prompt = f"{prompt_text}\n\n## Review Bundle (JSON)\n{bundle.to_prompt_json()}"
+        if expected_check_ids is not None:
+            full_prompt = (
+                f"{full_prompt}\n\n## Expected Check IDs\n"
+                f"{json.dumps(sorted(expected_check_ids), ensure_ascii=False)}"
+            )
 
         raw_response = self._llm_client.complete(role=role.value, prompt=full_prompt)
         if not raw_response.strip():
@@ -335,7 +341,7 @@ class StructuredEvaluator:
 
         response = self._parse_response(raw_response, role)
         mandatory, resolution_required = self._required_check_ids(
-            role, previous_findings, qa_cycle_round
+            role, previous_findings, qa_cycle_round, expected_check_ids
         )
         self._validate_completeness(role, response, mandatory, resolution_required)
         findings, resolutions, verdict = self._aggregate(role, response)
@@ -376,6 +382,7 @@ class StructuredEvaluator:
         role: ReviewerRole,
         previous_findings: list[Finding] | None,
         qa_cycle_round: int,
+        expected_check_ids: frozenset[str] | None,
     ) -> tuple[frozenset[str], frozenset[str]]:
         """Return ``(mandatory_base, required_resolution)`` check-ids for the round.
 
@@ -389,7 +396,7 @@ class StructuredEvaluator:
         ``semantic_review`` evaluator its own, etc. Both sets are mandatory and
         exact-match enforced by :meth:`_validate_completeness` (fail-closed).
         """
-        mandatory = _ROLE_CHECK_IDS[role]
+        mandatory = expected_check_ids if expected_check_ids is not None else _ROLE_CHECK_IDS[role]
         if qa_cycle_round < 2 or not previous_findings:
             return mandatory, frozenset()
         resolution_ids = frozenset(

@@ -569,6 +569,27 @@ class GovernanceConfig(BaseModel):
     cooldown_s: int = 300
 
 
+class ConformanceConfig(BaseModel):
+    """ConformanceService prompt-size thresholds (FK-32 §32.4b.3)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    file_upload_threshold: int = 50 * 1024
+    hard_limit: int = 500 * 1024
+
+    @model_validator(mode="after")
+    def _validate_thresholds(self) -> ConformanceConfig:
+        """Require positive, ordered conformance size thresholds."""
+        if self.file_upload_threshold <= 0:
+            raise ValueError("conformance.file_upload_threshold must be > 0")
+        if self.hard_limit <= self.file_upload_threshold:
+            raise ValueError(
+                "conformance.hard_limit must be greater than "
+                "conformance.file_upload_threshold"
+            )
+        return self
+
+
 class PipelineConfig(BaseModel):
     """Configuration for the 4-phase pipeline.
 
@@ -604,6 +625,8 @@ class PipelineConfig(BaseModel):
             ``features.vectordb=True``.
         telemetry: Telemetry and web-call budget (FK-03 §3.1).
         governance: Governance observation configuration (FK-03 §3.1).
+        conformance: ConformanceService size-threshold configuration
+            (FK-32 §32.4b.3).
         sonarqube: SonarQube-Green-Gate environment/profile requirement
             (FK-03 §3 / FK-33 §33.6). ``None`` only for non-code-producing
             projects; a code-producing project (``story_types`` include
@@ -640,6 +663,7 @@ class PipelineConfig(BaseModel):
     vectordb: VectorDbConfig | None = None
     telemetry: TelemetryConfig = TelemetryConfig()
     governance: GovernanceConfig = GovernanceConfig()
+    conformance: ConformanceConfig = ConformanceConfig()
     sonarqube: SonarQubeConfig | None = None
     ci: JenkinsConfig | None = None
 

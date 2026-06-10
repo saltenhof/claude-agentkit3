@@ -79,6 +79,9 @@ class EventType(StrEnum):
     DOC_FIDELITY_CHECK = "doc_fidelity_check"
     VECTORDB_SEARCH = "vectordb_search"
     COMPACTION_EVENT = "compaction_event"
+    CONFORMANCE_ASSESSMENT_STARTED = "conformance_assessment_started"
+    CONFORMANCE_LEVEL_EVALUATED = "conformance_level_evaluated"
+    CONFORMANCE_ASSESSMENT_COMPLETED = "conformance_assessment_completed"
 
     # Exploration / mandate (FK-25 §25.8). The active emitters live in the
     # exploration-and-design BC (e.g. AG3-046); this BC owns the catalogue
@@ -207,6 +210,24 @@ MANDATORY_PAYLOAD_FIELDS: Mapping[EventType, tuple[str, ...]] = {
         "result",
     ),
     EventType.DOC_FIDELITY_CHECK: ("level", "result"),
+    EventType.CONFORMANCE_ASSESSMENT_STARTED: (
+        "assessment_id",
+        "level",
+        "story_id",
+        "run_id",
+    ),
+    EventType.CONFORMANCE_LEVEL_EVALUATED: (
+        "assessment_id",
+        "level",
+        "status",
+        "reason",
+    ),
+    EventType.CONFORMANCE_ASSESSMENT_COMPLETED: (
+        "assessment_id",
+        "level",
+        "status",
+        "references_used",
+    ),
     # FK-25 §25.8 — exploration / mandate events
     EventType.MANDATE_CLASSIFICATION: (
         "escalation_class",

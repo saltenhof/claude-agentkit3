@@ -23,10 +23,11 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from agentkit.verify_system.llm_evaluator.bundle import build_review_bundle
+from agentkit.verify_system.llm_evaluator.bundle import ReviewBundle, build_review_bundle
 from agentkit.verify_system.llm_evaluator.structured_evaluator import (
     LlmVerdict,
     ReviewerRole,
+    StructuredEvaluatorResult,
 )
 from agentkit.verify_system.protocols import (
     Finding,
@@ -42,9 +43,6 @@ from agentkit.verify_system.remediation.finding_resolution import (
 if TYPE_CHECKING:
     from agentkit.verify_system.llm_evaluator.inputs import Layer2ReviewInput
     from agentkit.verify_system.llm_evaluator.parallel_runner import ParallelEvalRunner
-    from agentkit.verify_system.llm_evaluator.structured_evaluator import (
-        StructuredEvaluatorResult,
-    )
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +61,7 @@ def run_layer2_llm(
     story_id: str,
     qa_cycle_round: int,
     previous_findings: tuple[Finding, ...],
+    doc_fidelity_result: StructuredEvaluatorResult | LayerResult | None = None,
 ) -> tuple[LayerResult, LayerResult, LayerResult]:
     """Run the three-role LLM Layer-2 and map results to LayerResults.
 
@@ -90,9 +89,26 @@ def run_layer2_llm(
         qa_cycle_round=qa_cycle_round,
         previous_findings=prev_list,
     )
-    results = runner.run(bundle, prev_list, qa_cycle_round)
-    return tuple(  # type: ignore[return-value]  # exactly three roles, fixed order
-        _to_layer_result(role, results[role]) for role in _ROLE_ORDER
+    results = runner.run_roles(
+        (ReviewerRole.QA_REVIEW, ReviewerRole.SEMANTIC_REVIEW),
+        bundle,
+        prev_list,
+        qa_cycle_round,
+    )
+    doc_result = _run_impl_fidelity(
+        runner,
+        bundle=bundle,
+        qa_cycle_round=qa_cycle_round,
+        previous_findings=previous_findings,
+        doc_fidelity_result=doc_fidelity_result,
+    )
+    return (
+        _to_layer_result(ReviewerRole.QA_REVIEW, results[ReviewerRole.QA_REVIEW]),
+        _to_layer_result(
+            ReviewerRole.SEMANTIC_REVIEW,
+            results[ReviewerRole.SEMANTIC_REVIEW],
+        ),
+        doc_result,
     )
 
 
@@ -103,6 +119,7 @@ def run_layer2_llm_failclosed(
     story_id: str,
     qa_cycle_round: int,
     previous_findings: tuple[Finding, ...],
+    doc_fidelity_result: StructuredEvaluatorResult | LayerResult | None = None,
 ) -> tuple[LayerResult, LayerResult, LayerResult]:
     """Run the LLM Layer-2 and convert any runner failure to BLOCKING results.
 
@@ -130,6 +147,7 @@ def run_layer2_llm_failclosed(
             story_id=story_id,
             qa_cycle_round=qa_cycle_round,
             previous_findings=previous_findings,
+            doc_fidelity_result=doc_fidelity_result,
         )
     except Exception as exc:  # noqa: BLE001 -- fail-closed: any failure blocks
         error_msg = f"Layer 2 LLM evaluation failed: {type(exc).__name__}: {exc}"
@@ -218,6 +236,30 @@ def _to_layer_result(
         findings=result.findings,
         metadata=metadata,
     )
+
+
+def _run_impl_fidelity(
+    runner: ParallelEvalRunner,
+    *,
+    bundle: ReviewBundle,
+    qa_cycle_round: int,
+    previous_findings: tuple[Finding, ...],
+    doc_fidelity_result: StructuredEvaluatorResult | LayerResult | None,
+) -> LayerResult:
+    """Return the implementation-fidelity layer result."""
+    if isinstance(doc_fidelity_result, LayerResult):
+        return doc_fidelity_result
+    if isinstance(doc_fidelity_result, StructuredEvaluatorResult):
+        return _to_layer_result(ReviewerRole.DOC_FIDELITY, doc_fidelity_result)
+    if doc_fidelity_result is None:
+        result = runner.evaluate(
+            ReviewerRole.DOC_FIDELITY,
+            bundle,
+            list(previous_findings) if previous_findings else None,
+            qa_cycle_round,
+        )
+        return _to_layer_result(ReviewerRole.DOC_FIDELITY, result)
+    raise TypeError("doc_fidelity_result must be a StructuredEvaluatorResult or LayerResult")
 
 
 __all__ = [

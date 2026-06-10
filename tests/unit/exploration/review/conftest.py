@@ -7,6 +7,7 @@ Real components + tmp_path: the artifact store is a real sqlite backend so the
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 import pytest
@@ -42,6 +43,36 @@ def story_dir(tmp_path: Path) -> Path:
     sd = tmp_path / "stories" / STORY_ID
     sd.mkdir(parents=True, exist_ok=True)
     return sd
+
+
+@pytest.fixture(autouse=True)
+def manifest_index(tmp_path: Path) -> None:
+    """Create the curated manifest-index required by ConformanceService."""
+    guardrails = tmp_path / "_guardrails"
+    docs = tmp_path / "concepts"
+    guardrails.mkdir(parents=True, exist_ok=True)
+    docs.mkdir(parents=True, exist_ok=True)
+    (docs / "trading-architecture.md").write_text(
+        "# Trading Architecture\nAdapter pattern is allowed.\n",
+        encoding="utf-8",
+    )
+    (guardrails / "manifest-index.json").write_text(
+        json.dumps(
+            {
+                "documents": [
+                    {
+                        "path": "concepts/trading-architecture.md",
+                        "scope": "architecture",
+                        "modules": ["trading-engine", "*"],
+                        "story_types": ["implementation", "bugfix"],
+                        "tags": ["design", "*"],
+                    }
+                ]
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
 
 
 @pytest.fixture

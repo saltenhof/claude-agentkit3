@@ -17,6 +17,7 @@ Proves:
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 import pytest
@@ -88,7 +89,36 @@ def sqlite_backend_env(
 def _story_dir(tmp_path: Path) -> Path:
     sd = tmp_path / "stories" / "AG3-045"
     sd.mkdir(parents=True, exist_ok=True)
+    _write_manifest_index(tmp_path)
     return sd
+
+
+def _write_manifest_index(project_root: Path) -> None:
+    guardrails = project_root / "_guardrails"
+    docs = project_root / "concepts"
+    guardrails.mkdir(parents=True, exist_ok=True)
+    docs.mkdir(parents=True, exist_ok=True)
+    (docs / "trading-architecture.md").write_text(
+        "# Trading Architecture\nAdapter pattern is allowed.\n",
+        encoding="utf-8",
+    )
+    (guardrails / "manifest-index.json").write_text(
+        json.dumps(
+            {
+                "documents": [
+                    {
+                        "path": "concepts/trading-architecture.md",
+                        "scope": "architecture",
+                        "modules": ["trading-engine", "*"],
+                        "story_types": ["implementation"],
+                        "tags": ["design", "*"],
+                    }
+                ]
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
 
 
 def _ctx(story_dir: Path) -> StoryContext:
@@ -152,7 +182,7 @@ def _review(
     evaluator = build_scripted_evaluator(ctx, client)
     sink = build_real_sink(story_dir)
     return ExplorationReview(
-        stage1_doc_fidelity=DocFidelityChecker(evaluator, sink),
+        stage1_doc_fidelity=DocFidelityChecker(evaluator, sink, story_context=ctx),
         stage2a_design_review=DesignReviewRunner(evaluator, sink),
         stage2b_design_challenge=None,
         artifact_manager=build_artifact_manager(story_dir),
@@ -306,7 +336,7 @@ def test_stage2b_fail_rejects_and_blocks_implementation(tmp_path: Path) -> None:
     evaluator = build_scripted_evaluator(ctx, client)
     sink = build_real_sink(sd)
     review = ExplorationReview(
-        stage1_doc_fidelity=DocFidelityChecker(evaluator, sink),
+        stage1_doc_fidelity=DocFidelityChecker(evaluator, sink, story_context=ctx),
         stage2a_design_review=DesignReviewRunner(evaluator, sink),
         stage2b_design_challenge=DesignChallengeRunner(evaluator, sink),
         artifact_manager=build_artifact_manager(sd),

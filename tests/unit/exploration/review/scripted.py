@@ -70,6 +70,20 @@ def _check_json(check_id: str, status: str) -> str:
     return json.dumps([_check_obj(check_id, status)])
 
 
+def _check_id_for_prompt(role: str, prompt: str) -> str:
+    """Resolve the expected check-id from a conformance-aware prompt."""
+    marker = "## Expected Check IDs"
+    if marker in prompt:
+        _, expected = prompt.rsplit(marker, maxsplit=1)
+        parsed = json.loads(expected.strip())
+        assert isinstance(parsed, list)
+        assert len(parsed) == 1
+        value = parsed[0]
+        assert isinstance(value, str)
+        return value
+    return _ROLE_CHECK_ID[ReviewerRole(role)]
+
+
 class ScriptedLlmClient:
     """A ``LlmClient`` double returning scripted verdicts per role (LLM grenze).
 
@@ -114,12 +128,11 @@ class ScriptedLlmClient:
                 few verdicts -- surfaces an orchestration bug rather than hiding
                 it behind a default PASS).
         """
-        del prompt
         self.calls.append(role)
         script = self._scripts[role]
         assert script, f"no scripted verdict left for role {role!r}"
         verdict = script.pop(0)
-        check_id = _ROLE_CHECK_ID[ReviewerRole(role)]
+        check_id = _check_id_for_prompt(role, prompt)
         return _check_json(check_id, verdict)
 
 

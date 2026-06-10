@@ -16,6 +16,7 @@ from agentkit.config.models import (
     REQUIRED_LLM_ROLES,
     SUPPORTED_CONFIG_VERSION,
     AreConfig,
+    ConformanceConfig,
     Features,
     GovernanceConfig,
     JenkinsConfig,
@@ -40,6 +41,7 @@ from agentkit.config.worker_health import WorkerHealthConfig
 
 __all__ = [
     "AreConfig",
+    "ConformanceConfig",
     "Features",
     "GovernanceConfig",
     "JenkinsConfig",

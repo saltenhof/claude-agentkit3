@@ -82,7 +82,12 @@ if TYPE_CHECKING:
 
     from agentkit.story_context_manager.models import StoryContext
     from agentkit.story_context_manager.types import StoryType
+    from agentkit.telemetry.emitters import EventEmitter
+    from agentkit.verify_system.conformance_service import FidelityContext
     from agentkit.verify_system.llm_evaluator import Layer2ReviewInput, LlmClient, ParallelEvalRunner
+    from agentkit.verify_system.llm_evaluator.structured_evaluator import (
+        StructuredEvaluatorResult,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -175,6 +180,7 @@ class VerifySystem:
     sonar_gate_port: SonarGateInputPort = ABSENT_SONAR_GATE_PORT
     layer2_runner: ParallelEvalRunner | None = None
     layer2_llm_client: LlmClient | None = None
+    conformance_emitter: EventEmitter | None = None
     #: Fast-mode tests-green floor runner (AG3-018, FK-24 §24.3.4). A callable
     #: ``runner(story_dir) -> (green, reason)`` — the SAME tests-green mechanism
     #: the closure Sanity-Gate uses (``ProductiveSanityGatePort.test_runner``),
@@ -1175,6 +1181,7 @@ def _create_default(
         story_context_port=resolved_port,
         sonar_gate_port=resolved_sonar_port,
         layer2_llm_client=defaults.layer2_llm_client,
+        conformance_emitter=defaults.conformance_emitter,
         fast_test_runner=defaults.fast_test_runner,
         remediation_loop_controller=(
             _qa.RemediationLoopController(
@@ -1829,12 +1836,27 @@ def _run_layer2(
         )
 
     review_input = _normalise_layer2_input(effective_review_input)
+    conformance_context = _build_impl_conformance_context(
+        review_input,
+        story_id=story_id,
+        run_id=ctx.run_id,
+        story_ctx=story_ctx,
+        story_dir=ctx.story_dir,
+        previous_findings=previous_findings,
+        qa_cycle_round=qa_cycle_round,
+    )
+    doc_fidelity_result = _run_impl_conformance(
+        system,
+        runner=runner,
+        conformance_context=conformance_context,
+    )
     return run_layer2_llm_failclosed(
         runner,
         review_input,
         story_id=story_id,
         qa_cycle_round=qa_cycle_round,
         previous_findings=previous_findings,
+        doc_fidelity_result=doc_fidelity_result,
     )
 
 
@@ -1846,6 +1868,135 @@ def _normalise_layer2_input(effective_review_input: object | None) -> Layer2Revi
         effective_review_input
         if isinstance(effective_review_input, _L2Input)
         else _L2Input()
+    )
+
+
+def _build_impl_conformance_context(
+    review_input: Layer2ReviewInput,
+    *,
+    story_id: str,
+    run_id: str,
+    story_ctx: object | None,
+    story_dir: Path,
+    previous_findings: tuple[Finding, ...],
+    qa_cycle_round: int,
+) -> FidelityContext | None:
+    """Build the implementation-fidelity context when StoryContext is available."""
+    from agentkit.story_context_manager.models import StoryContext
+    from agentkit.story_context_manager.types import StoryType
+    from agentkit.verify_system.conformance_service import FidelityContext
+    from agentkit.verify_system.llm_evaluator.bundle import build_review_bundle
+
+    if not isinstance(story_ctx, StoryContext):
+        return None
+    review_bundle = build_review_bundle(
+        review_input,
+        story_id=story_id,
+        qa_cycle_round=qa_cycle_round,
+        previous_findings=list(previous_findings) if previous_findings else None,
+    )
+    subject = "\n\n".join(
+        (
+            review_input.story_spec,
+            review_input.diff_summary,
+            review_input.concept_excerpt,
+            review_input.handover,
+        )
+    )
+    project_root = story_ctx.project_root or story_dir
+    module = story_ctx.participating_repos[0] if story_ctx.participating_repos else "*"
+    story_type = (
+        story_ctx.story_type.value
+        if story_ctx.story_type is not None
+        else StoryType.IMPLEMENTATION.value
+    )
+    return FidelityContext(
+        story_id=story_id,
+        run_id=run_id,
+        project_root=project_root,
+        story_type=story_type,
+        module=module,
+        subject=subject,
+        story_description=story_ctx.title,
+        tags=("impl", "document-fidelity"),
+        review_bundle=review_bundle,
+        previous_findings=previous_findings,
+        qa_cycle_round=qa_cycle_round,
+    )
+
+
+def _run_impl_conformance(
+    system: VerifySystem,
+    *,
+    runner: ParallelEvalRunner,
+    conformance_context: FidelityContext | None,
+) -> LayerResult | None:
+    """Run implementation fidelity through ConformanceService when context exists."""
+    if conformance_context is None:
+        return None
+    from agentkit.verify_system.conformance_service import (
+        ConformanceService,
+        FidelityLevel,
+        StructuredEvaluatorConformanceAdapter,
+    )
+    from agentkit.verify_system.llm_evaluator.structured_evaluator import (
+        ReviewerRole,
+        StructuredEvaluatorResult,
+    )
+
+    service = ConformanceService(
+        StructuredEvaluatorConformanceAdapter(runner),
+        emitter=system.conformance_emitter,
+    )
+    fidelity = service.check_fidelity(FidelityLevel.IMPL, conformance_context)
+    if isinstance(fidelity.evaluator_result, StructuredEvaluatorResult):
+        return _layer_result_from_structured_doc_fidelity(fidelity.evaluator_result)
+    return LayerResult(
+        layer=ReviewerRole.DOC_FIDELITY.value,
+        passed=False,
+        findings=fidelity.findings
+        or (
+            Finding(
+                layer=ReviewerRole.DOC_FIDELITY.value,
+                check="impl_fidelity",
+                severity=Severity.BLOCKING,
+                message=fidelity.reason,
+                trust_class=TrustClass.SYSTEM,
+            ),
+        ),
+        metadata={"verdict": "FAIL", "reason": fidelity.reason},
+    )
+
+
+def _layer_result_from_structured_doc_fidelity(
+    result: StructuredEvaluatorResult,
+) -> LayerResult:
+    """Map the structured doc-fidelity result without importing layer2 glue."""
+    from agentkit.verify_system.llm_evaluator.structured_evaluator import LlmVerdict
+    from agentkit.verify_system.remediation.finding_resolution import (
+        LLM_RESOLUTION_METADATA_KEY,
+        serialize_resolution_map,
+    )
+
+    verdict = result.verdict
+    findings = result.findings
+    raw_hash = result.raw_response_hash
+    template_hash = result.template_sha256
+    finding_resolutions = result.finding_resolutions
+    metadata: dict[str, object] = {
+        "verdict": verdict.value,
+        "raw_response_hash": raw_hash,
+        "template_sha256": template_hash,
+    }
+    if finding_resolutions:
+        metadata[LLM_RESOLUTION_METADATA_KEY] = serialize_resolution_map(
+            finding_resolutions
+        )
+    return LayerResult(
+        layer="doc_fidelity",
+        passed=verdict is not LlmVerdict.FAIL,
+        findings=findings,
+        metadata=metadata,
     )
 
 

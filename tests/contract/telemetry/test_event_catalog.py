@@ -66,6 +66,9 @@ _EXPECTED_EVENT_VALUES = {
     "doc_fidelity_check",
     "vectordb_search",
     "compaction_event",
+    "conformance_assessment_started",
+    "conformance_level_evaluated",
+    "conformance_assessment_completed",
     # Exploration / mandate (FK-25 §25.8, AG3-037)
     "mandate_classification",
     "fine_design_decision",
@@ -132,6 +135,24 @@ _EXPECTED_MANDATORY_FIELDS: dict[EventType, tuple[str, ...]] = {
     EventType.COMPACTION_EVENT: ("story_id",),
     EventType.IMPACT_VIOLATION_CHECK: ("declared_impact", "actual_impact", "result"),
     EventType.DOC_FIDELITY_CHECK: ("level", "result"),
+    EventType.CONFORMANCE_ASSESSMENT_STARTED: (
+        "assessment_id",
+        "level",
+        "story_id",
+        "run_id",
+    ),
+    EventType.CONFORMANCE_LEVEL_EVALUATED: (
+        "assessment_id",
+        "level",
+        "status",
+        "reason",
+    ),
+    EventType.CONFORMANCE_ASSESSMENT_COMPLETED: (
+        "assessment_id",
+        "level",
+        "status",
+        "references_used",
+    ),
     EventType.MANDATE_CLASSIFICATION: (
         "escalation_class",
         "decision_summary",

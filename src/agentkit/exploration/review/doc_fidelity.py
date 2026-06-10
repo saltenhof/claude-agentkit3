@@ -18,21 +18,31 @@ The result is strictly binary ``pass`` / ``fail`` (FK-23 §23.5.1):
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+import json
+from typing import TYPE_CHECKING, Literal, cast
 
 from pydantic import BaseModel, ConfigDict
 
 from agentkit.artifacts.reference import ArtifactReference
 from agentkit.exploration.review.bundle import build_change_frame_bundle
+from agentkit.story_context_manager.types import StoryType
+from agentkit.verify_system.conformance_service import (
+    ConformanceService,
+    ConformanceVerdict,
+    FidelityContext,
+    FidelityLevel,
+    StructuredEvaluatorConformanceAdapter,
+)
 from agentkit.verify_system.llm_evaluator.structured_evaluator import (
-    LlmVerdict,
     ReviewerRole,
+    StructuredEvaluatorResult,
 )
 from agentkit.verify_system.protocols import Finding
 
 if TYPE_CHECKING:
     from agentkit.exploration.change_frame import ChangeFrame
     from agentkit.exploration.review.persistence import ReviewResultSink
+    from agentkit.story_context_manager.models import StoryContext
     from agentkit.verify_system.llm_evaluator.structured_evaluator import (
         StructuredEvaluator,
     )
@@ -53,7 +63,7 @@ class DocFidelityResult(BaseModel):
 
     status: Literal["pass", "fail"]
     findings: tuple[Finding, ...]
-    evaluator_result_ref: ArtifactReference
+    evaluator_result_ref: ArtifactReference | None
 
 
 class DocFidelityChecker:
@@ -69,6 +79,9 @@ class DocFidelityChecker:
         self,
         structured_evaluator: StructuredEvaluator,
         result_sink: ReviewResultSink,
+        *,
+        story_context: StoryContext | None = None,
+        conformance_service: ConformanceService | None = None,
     ) -> None:
         """Initialize the checker.
 
@@ -78,8 +91,11 @@ class DocFidelityChecker:
             result_sink: Persistence port that stores the evaluator result as a
                 QA artifact and returns its typed reference (DI).
         """
-        self._evaluator = structured_evaluator
         self._sink = result_sink
+        self._story_context = story_context
+        self._conformance = conformance_service or ConformanceService(
+            StructuredEvaluatorConformanceAdapter(structured_evaluator)
+        )
 
     def check(self, change_frame: ChangeFrame) -> DocFidelityResult:
         """Run the binary document-fidelity check on the change-frame.
@@ -97,26 +113,81 @@ class DocFidelityChecker:
             LlmClientError: If the LLM transport fails (propagated fail-closed).
         """
         bundle = build_change_frame_bundle(change_frame, review_round=1)
-        result = self._evaluator.evaluate(
-            role=ReviewerRole.DOC_FIDELITY,
-            bundle=bundle,
-            previous_findings=None,
-            qa_cycle_round=1,
+        fidelity = self._conformance.check_fidelity(
+            FidelityLevel.DESIGN,
+            _context_from_change_frame(
+                change_frame,
+                bundle=bundle,
+                story_context=self._story_context,
+            ),
         )
-        ref = self._sink.persist(
-            change_frame=change_frame,
-            stage=ReviewerRole.DOC_FIDELITY.value,
-            review_round=1,
-            evaluator_result=result,
+        evaluator_result = cast(
+            "StructuredEvaluatorResult | None", fidelity.evaluator_result
         )
+        ref: ArtifactReference | None = None
+        if evaluator_result is not None:
+            ref = self._sink.persist(
+                change_frame=change_frame,
+                stage=ReviewerRole.DOC_FIDELITY.value,
+                review_round=1,
+                evaluator_result=evaluator_result,
+            )
         status: Literal["pass", "fail"] = (
-            "pass" if result.verdict is LlmVerdict.PASS else "fail"
+            "pass"
+            if fidelity.conformance_verdict is ConformanceVerdict.PASS
+            else "fail"
         )
         return DocFidelityResult(
             status=status,
-            findings=result.findings,
+            findings=fidelity.findings,
             evaluator_result_ref=ref,
         )
+
+
+def _context_from_change_frame(
+    change_frame: ChangeFrame,
+    *,
+    bundle: object,
+    story_context: StoryContext | None,
+) -> FidelityContext:
+    """Project the exploration change-frame into a conformance context."""
+    project_root = (
+        story_context.project_root
+        if story_context is not None and story_context.project_root is not None
+        else None
+    )
+    if project_root is None:
+        msg = "DocFidelityChecker requires story_context.project_root for manifest-index lookup"
+        raise ValueError(msg)
+    module = _module_from_change_frame(change_frame)
+    story_type = (
+        story_context.story_type.value
+        if story_context is not None
+        else StoryType.IMPLEMENTATION.value
+    )
+    subject = json.dumps(
+        change_frame.model_dump(mode="json"),
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    return FidelityContext(
+        story_id=change_frame.story_id,
+        run_id=change_frame.run_id,
+        project_root=project_root,
+        story_type=story_type,
+        module=module,
+        subject=subject,
+        story_description=change_frame.goal_and_scope.changes,
+        tags=("design", "document-fidelity"),
+        review_bundle=bundle,
+    )
+
+
+def _module_from_change_frame(change_frame: ChangeFrame) -> str:
+    affected = change_frame.affected_building_blocks.affected
+    if not affected:
+        return "*"
+    return affected[0].split("/", maxsplit=1)[0]
 
 
 __all__ = ["DocFidelityChecker", "DocFidelityResult"]

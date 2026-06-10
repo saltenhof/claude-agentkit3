@@ -44,7 +44,7 @@ def _review(
     sink = build_real_sink(story_dir)
     manager = build_artifact_manager(story_dir)
     review = ExplorationReview(
-        stage1_doc_fidelity=DocFidelityChecker(evaluator, sink),
+        stage1_doc_fidelity=DocFidelityChecker(evaluator, sink, story_context=ctx),
         stage2a_design_review=DesignReviewRunner(evaluator, sink),
         stage2b_design_challenge=challenge,
         artifact_manager=manager,
@@ -116,7 +116,7 @@ def test_optional_stage2b_runs_when_wired(
     evaluator = build_scripted_evaluator(ctx, client)
     sink = build_real_sink(story_dir)
     review = ExplorationReview(
-        stage1_doc_fidelity=DocFidelityChecker(evaluator, sink),
+        stage1_doc_fidelity=DocFidelityChecker(evaluator, sink, story_context=ctx),
         stage2a_design_review=DesignReviewRunner(evaluator, sink),
         stage2b_design_challenge=DesignChallengeRunner(evaluator, sink),
         artifact_manager=build_artifact_manager(story_dir),
@@ -136,7 +136,7 @@ def test_stage2b_fail_rejects(ctx: StoryContext, story_dir: Path) -> None:
     evaluator = build_scripted_evaluator(ctx, client)
     sink = build_real_sink(story_dir)
     review = ExplorationReview(
-        stage1_doc_fidelity=DocFidelityChecker(evaluator, sink),
+        stage1_doc_fidelity=DocFidelityChecker(evaluator, sink, story_context=ctx),
         stage2a_design_review=DesignReviewRunner(evaluator, sink),
         stage2b_design_challenge=DesignChallengeRunner(evaluator, sink),
         artifact_manager=build_artifact_manager(story_dir),
@@ -163,7 +163,7 @@ def _wired_challenge_review(
     evaluator = build_scripted_evaluator(ctx, client)
     sink = build_real_sink(story_dir)
     review = ExplorationReview(
-        stage1_doc_fidelity=DocFidelityChecker(evaluator, sink),
+        stage1_doc_fidelity=DocFidelityChecker(evaluator, sink, story_context=ctx),
         stage2a_design_review=DesignReviewRunner(evaluator, sink),
         stage2b_design_challenge=DesignChallengeRunner(evaluator, sink),
         artifact_manager=build_artifact_manager(story_dir),

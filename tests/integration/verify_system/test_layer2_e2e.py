@@ -116,7 +116,30 @@ def _git_worktree(tmp_path: Path) -> Path:
     _git("add", ".")
     _git("commit", "-m", "base")
     _git("update-ref", "refs/remotes/origin/main", "HEAD")
+    _write_manifest_index(tmp_path)
     return tmp_path
+
+
+def _write_manifest_index(project_root: Path) -> None:
+    reference_path = project_root / "concepts" / "architecture.md"
+    reference_path.parent.mkdir(parents=True, exist_ok=True)
+    reference_path.write_text("# Architecture\n\nImplementation guardrail.\n", encoding="utf-8")
+    manifest_path = project_root / "_guardrails" / "manifest-index.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps({
+            "documents": [
+                {
+                    "path": "concepts/architecture.md",
+                    "scope": "architecture",
+                    "modules": ["*"],
+                    "story_types": ["implementation"],
+                    "tags": ["*"],
+                }
+            ],
+        }),
+        encoding="utf-8",
+    )
 
 
 def _make_system(

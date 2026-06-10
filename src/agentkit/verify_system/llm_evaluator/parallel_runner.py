@@ -97,9 +97,19 @@ class ParallelEvalRunner:
             ParallelEvalError: If any role's evaluation raises (fail-closed;
                 wraps the first encountered cause).
         """
+        return self.run_roles(tuple(ReviewerRole), bundle, previous_findings, qa_cycle_round)
+
+    def run_roles(
+        self,
+        roles: tuple[ReviewerRole, ...],
+        bundle: ReviewBundle,
+        previous_findings: list[Finding] | None,
+        qa_cycle_round: int,
+    ) -> dict[ReviewerRole, StructuredEvaluatorResult]:
+        """Run selected roles in parallel and return their results."""
         results: dict[ReviewerRole, StructuredEvaluatorResult] = {}
         with concurrent.futures.ThreadPoolExecutor(
-            max_workers=self._max_workers,
+            max_workers=min(self._max_workers, len(roles)),
             thread_name_prefix="layer2-eval",
         ) as pool:
             future_to_role = {
@@ -110,7 +120,7 @@ class ParallelEvalRunner:
                     previous_findings,
                     qa_cycle_round,
                 ): role
-                for role in ReviewerRole
+                for role in roles
             }
             for future in concurrent.futures.as_completed(future_to_role):
                 role = future_to_role[future]
@@ -121,6 +131,23 @@ class ParallelEvalRunner:
                     msg = f"Layer-2 evaluation for role={role.value!r} failed (FK-34 §34.5.1 fail-closed): {detail}"
                     raise ParallelEvalError(msg) from exc
         return results
+
+    def evaluate(
+        self,
+        role: ReviewerRole,
+        bundle: ReviewBundle,
+        previous_findings: list[Finding] | None,
+        qa_cycle_round: int,
+        expected_check_ids: frozenset[str] | None = None,
+    ) -> StructuredEvaluatorResult:
+        """Evaluate one role through the shared StructuredEvaluator."""
+        return self._evaluator.evaluate(
+            role,
+            bundle,
+            previous_findings,
+            qa_cycle_round,
+            expected_check_ids,
+        )
 
 
 __all__ = ["ParallelEvalError", "ParallelEvalRunner"]

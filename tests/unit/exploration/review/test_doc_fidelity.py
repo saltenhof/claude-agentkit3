@@ -29,7 +29,9 @@ def _checker(
 ) -> tuple[DocFidelityChecker, ScriptedLlmClient]:
     client = ScriptedLlmClient(doc_fidelity=[verdict])
     checker = DocFidelityChecker(
-        build_scripted_evaluator(ctx, client), build_real_sink(story_dir)
+        build_scripted_evaluator(ctx, client),
+        build_real_sink(story_dir),
+        story_context=ctx,
     )
     return checker, client
 

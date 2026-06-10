@@ -107,7 +107,36 @@ def sqlite_backend_env(
 def _story_dir(tmp_path: Path) -> Path:
     story_dir = tmp_path / "stories" / _STORY_ID
     story_dir.mkdir(parents=True, exist_ok=True)
+    _write_manifest_index(tmp_path)
     return story_dir
+
+
+def _write_manifest_index(project_root: Path) -> None:
+    guardrails = project_root / "_guardrails"
+    docs = project_root / "concepts"
+    guardrails.mkdir(parents=True, exist_ok=True)
+    docs.mkdir(parents=True, exist_ok=True)
+    (docs / "trading-architecture.md").write_text(
+        "# Trading Architecture\nAdapter pattern is allowed.\n",
+        encoding="utf-8",
+    )
+    (guardrails / "manifest-index.json").write_text(
+        json.dumps(
+            {
+                "documents": [
+                    {
+                        "path": "concepts/trading-architecture.md",
+                        "scope": "architecture",
+                        "modules": ["*", "one"],
+                        "story_types": ["implementation"],
+                        "tags": ["design", "*"],
+                    }
+                ]
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
 
 
 def _ctx(story_dir: Path) -> StoryContext:
@@ -190,7 +219,7 @@ def _passing_review(ctx: StoryContext, story_dir: Path) -> ExplorationReview:
     evaluator = build_scripted_evaluator(ctx, client)
     sink = build_real_sink(story_dir)
     return ExplorationReview(
-        stage1_doc_fidelity=DocFidelityChecker(evaluator, sink),
+        stage1_doc_fidelity=DocFidelityChecker(evaluator, sink, story_context=ctx),
         stage2a_design_review=DesignReviewRunner(evaluator, sink),
         stage2b_design_challenge=None,
         artifact_manager=build_artifact_manager(story_dir),
