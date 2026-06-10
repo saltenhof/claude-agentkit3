@@ -43,6 +43,21 @@ class ConformanceManifestError(ValueError):
     """Raised when the curated manifest index is missing or invalid."""
 
 
+class ConformanceTier2NotSupportedError(RuntimeError):
+    """Raised by an adapter that has no file-capable transport boundary.
+
+    The conformance Tier-2 path writes temporary files and passes them as
+    ``merge_paths`` to the evaluator port.  The
+    :class:`StructuredEvaluatorConformanceAdapter` routes through the
+    file-free Layer-2 ``LlmClient`` (FK-34 / FK-11 §11.5.1) which is
+    deliberately file-free; the file-capable MCP transport is owned by
+    AG3-065 which is not yet built.  Rather than silently discarding the
+    paths and sending pointer text, the adapter raises this error so the
+    :class:`ConformanceService` can fail-closed (FAIL without LLM call)
+    and surface the deferral explicitly.
+    """
+
+
 @dataclass(frozen=True)
 class ConformanceEvaluation:
     """Result returned by the injected fidelity evaluator port."""
@@ -70,6 +85,17 @@ class ConformanceEvaluationPort(Protocol):
         """Evaluate one fidelity level."""
         ...
 
+    def supports_file_upload(self) -> bool:
+        """Return whether this adapter can deliver ``merge_paths`` to the LLM.
+
+        Adapters backed by a file-free transport (e.g. the Layer-2
+        ``LlmClient`` until AG3-065 provides the file-capable MCP boundary)
+        MUST return ``False``.  The :class:`ConformanceService` uses this to
+        fail-closed on Tier-2 payloads rather than silently degrading to
+        pointer text.
+        """
+        ...
+
 
 class _ManifestDocument(BaseModel):
     """One curated manifest-index entry."""
@@ -91,17 +117,56 @@ class _ManifestIndex(BaseModel):
     documents: tuple[_ManifestDocument, ...] = Field(min_length=1)
 
 
+#: Level-specific prompt template names for the conformance evaluator (FK-32 §32.3).
+#: The ``impl`` level reuses the established Layer-2 doc-fidelity template
+#: (``qa-doc-fidelity``); the other three levels have their own level-appropriate
+#: templates so a real LLM receives instructions matching the expected check_id.
+_CONFORMANCE_TEMPLATE_FOR_LEVEL: dict[FidelityLevel, str] = {
+    FidelityLevel.GOAL: "qa-conformance-goal",
+    FidelityLevel.DESIGN: "qa-conformance-design",
+    FidelityLevel.IMPL: "qa-doc-fidelity",
+    FidelityLevel.FEEDBACK: "qa-conformance-feedback",
+}
+
+
 class StructuredEvaluatorConformanceAdapter:
-    """Reuse the existing StructuredEvaluator as the single doc-fidelity reviewer."""
+    """Reuse the existing StructuredEvaluator as the single doc-fidelity reviewer.
+
+    This adapter wraps a ``StructuredEvaluator`` (or duck-typed equivalent such
+    as ``ParallelEvalRunner``) and maps all four :class:`FidelityLevel` values
+    onto ``ReviewerRole.DOC_FIDELITY`` with a level-specific prompt template
+    override so that a real LLM receives the correct check-id instruction per
+    level (ERROR 2 fix: goal/design/feedback levels use dedicated templates that
+    instruct the matching ``{level}_fidelity`` check_id; impl continues to use
+    the established ``qa-doc-fidelity`` template).
+
+    File-upload (Tier-2) is NOT supported by this adapter: the Layer-2
+    ``LlmClient`` port is deliberately file-free (FK-34 / FK-11 §11.5.1).
+    The file-capable MCP transport is owned by AG3-065.  Callers that would
+    require file upload must check :meth:`supports_file_upload` and handle the
+    ``False`` case fail-closed — the adapter itself raises
+    :class:`ConformanceTier2NotSupportedError` when ``merge_paths`` is non-empty
+    (ERROR 1 fix: no silent discard).
+    """
 
     def __init__(self, evaluator: Any) -> None:
         """Initialize the adapter.
 
         Args:
-            evaluator: Existing ``StructuredEvaluator`` instance. The type is
-                kept structural to avoid a second reviewer abstraction.
+            evaluator: Existing ``StructuredEvaluator`` or ``ParallelEvalRunner``
+                instance. The type is kept structural to avoid a second reviewer
+                abstraction.
         """
         self._evaluator = evaluator
+
+    def supports_file_upload(self) -> bool:
+        """Return ``False``: this adapter has no file-capable transport boundary.
+
+        The underlying Layer-2 ``LlmClient`` is deliberately file-free
+        (FK-34 / FK-11 §11.5.1).  The file-capable MCP transport that would
+        enable Tier-2 conformance is deferred to AG3-065.
+        """
+        return False
 
     def evaluate(
         self,
@@ -113,8 +178,36 @@ class StructuredEvaluatorConformanceAdapter:
         expected_check_id: str,
         merge_paths: Sequence[Path],
     ) -> ConformanceEvaluation:
-        """Evaluate via ``ReviewerRole.DOC_FIDELITY`` and the existing bundle."""
-        del merge_paths
+        """Evaluate via ``ReviewerRole.DOC_FIDELITY`` with a level-specific template.
+
+        Args:
+            level: The fidelity level being assessed.
+            context: Fidelity assessment context.
+            subject: Subject text (inline, Tier-1 path only).
+            references: Reference documents text (inline, Tier-1 path only).
+            expected_check_id: The expected check_id for this level
+                (e.g. ``goal_fidelity``).
+            merge_paths: Temp-file paths for Tier-2 uploads.  This adapter has
+                no file-capable transport boundary; a non-empty sequence raises
+                :class:`ConformanceTier2NotSupportedError` (fail-closed, no
+                silent discard).  File-capable transport is deferred to AG3-065.
+
+        Returns:
+            :class:`ConformanceEvaluation` with the LLM verdict.
+
+        Raises:
+            ConformanceTier2NotSupportedError: When ``merge_paths`` is non-empty
+                (Tier-2 file upload not supported until AG3-065).
+        """
+        if merge_paths:
+            raise ConformanceTier2NotSupportedError(
+                f"Tier-2 file upload is not supported by "
+                f"StructuredEvaluatorConformanceAdapter: the Layer-2 LlmClient "
+                f"is deliberately file-free (FK-34 / FK-11 §11.5.1). "
+                f"File-capable transport is deferred to AG3-065. "
+                f"merge_paths={[str(p) for p in merge_paths]!r}"
+            )
+        template_name = _CONFORMANCE_TEMPLATE_FOR_LEVEL[level]
         bundle = _bundle_for_context(context, subject=subject, references=references)
         result = self._evaluator.evaluate(
             role=ReviewerRole.DOC_FIDELITY,
@@ -124,6 +217,7 @@ class StructuredEvaluatorConformanceAdapter:
             ),
             qa_cycle_round=context.qa_cycle_round,
             expected_check_ids=frozenset({expected_check_id}),
+            template_override=template_name,
         )
         return ConformanceEvaluation(
             verdict=_verdict_from_llm(result.verdict),
@@ -192,6 +286,33 @@ class ConformanceService:
                     f"({self._hard_limit} bytes)."
                 ),
                 description="LLM call blocked: payload too large for conformance.",
+                references_used=references_used,
+            )
+            self._emit_level_evaluated(assessment_id, context, result)
+            self._emit_assessment_completed(assessment_id, context, result)
+            return result
+
+        # Tier-2: payload exceeds inline threshold but is below hard limit.
+        # Check whether the evaluator supports file upload before writing temp
+        # files. If not, fail-closed immediately without an LLM call (no
+        # LLM_CALL event — no LLM was invoked). The file-capable transport is
+        # deferred to AG3-065. (ERROR 1 fix.)
+        if (
+            data_size >= self._file_upload_threshold
+            and not self._evaluator.supports_file_upload()
+        ):
+            result = self._fail_result(
+                level,
+                reason=(
+                    f"Tier-2 file upload required ({data_size} bytes "
+                    f">= threshold {self._file_upload_threshold} bytes) but the "
+                    "configured evaluator has no file-capable transport boundary. "
+                    "File-capable transport is deferred to AG3-065."
+                ),
+                description=(
+                    "Conformance Tier-2 blocked: no file-capable LLM transport "
+                    "(AG3-065 not yet built)."
+                ),
                 references_used=references_used,
             )
             self._emit_level_evaluated(assessment_id, context, result)
@@ -523,6 +644,7 @@ __all__ = [
     "ConformanceEvaluationPort",
     "ConformanceManifestError",
     "ConformanceService",
+    "ConformanceTier2NotSupportedError",
     "FILE_UPLOAD_THRESHOLD_BYTES",
     "HARD_LIMIT_BYTES",
     "StructuredEvaluatorConformanceAdapter",

@@ -203,10 +203,14 @@ class StubMaterializer:
         return self._ctx, self._ctx.story_id
 
     def render(
-        self, role: ReviewerRole, ctx: StoryContext, story_id: str
+        self,
+        role: ReviewerRole,
+        ctx: StoryContext,
+        story_id: str,
+        template_override: str | None = None,
     ) -> tuple[str, str]:
         """Return a fixed ``(prompt_text, template_sha256)``."""
-        del ctx, story_id
+        del ctx, story_id, template_override
         return f"PROMPT[{role.value}]", "0" * 64
 
 

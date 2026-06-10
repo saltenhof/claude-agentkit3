@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
+    from agentkit.config.models import ConformanceConfig
     from agentkit.telemetry.emitters import EventEmitter
     from agentkit.verify_system.llm_evaluator import LlmClient
     from agentkit.verify_system.protocols import (
@@ -38,6 +39,7 @@ class VerifySystemDefaultOptions:
     invalidation_sink: ArtifactInvalidationSink | None = None
     review_completion_sink: ReviewCompletionSink | None = None
     conformance_emitter: EventEmitter | None = None
+    conformance_config: ConformanceConfig | None = None
     layer2_llm_client: LlmClient | None = None
     fast_test_runner: Callable[[Path], tuple[bool, str | None]] | None = None
     stage_registry: StageRegistry | None = None
@@ -87,6 +89,10 @@ def resolve_default_options(
         conformance_emitter=cast(
             "EventEmitter | None",
             overrides.get("conformance_emitter", config.conformance_emitter),
+        ),
+        conformance_config=cast(
+            "ConformanceConfig | None",
+            overrides.get("conformance_config", config.conformance_config),
         ),
         layer2_llm_client=cast(
             "LlmClient | None",

@@ -85,7 +85,11 @@ class PromptRuntimeMaterializer:
         return self.ctx, self.ctx.story_id
 
     def render(
-        self, role: ReviewerRole, ctx: StoryContext, story_id: str
+        self,
+        role: ReviewerRole,
+        ctx: StoryContext,
+        story_id: str,
+        template_override: str | None = None,
     ) -> tuple[str, str]:
         """Materialize the role prompt and return ``(prompt_text, template_sha256)``.
 
@@ -95,9 +99,13 @@ class PromptRuntimeMaterializer:
         the materialized prompt text.
 
         Args:
-            role: The reviewer role.
+            role: The reviewer role (used to select the template when
+                ``template_override`` is ``None``).
             ctx: The story context (carries ``project_root``).
             story_id: Story display-ID (must match the run scope, fail-closed).
+            template_override: When set, use this logical template name instead
+                of the role's default (FK-32 conformance levels use level-specific
+                templates over the DOC_FIDELITY role; ``None`` => role default).
 
         Returns:
             ``(prompt_text, template_sha256)``.
@@ -124,7 +132,7 @@ class PromptRuntimeMaterializer:
                 "(fail-closed identity check)."
             )
         runtime = PromptRuntime(ctx.project_root, self.artifact_manager)
-        template_name = template_name_for_role(role)
+        template_name = template_override if template_override is not None else template_name_for_role(role)
         try:
             runtime.ensure_run_pin(run_scope.run_id)
             instance = runtime.materialize_prompt(

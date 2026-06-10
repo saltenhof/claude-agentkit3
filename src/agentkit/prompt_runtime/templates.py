@@ -17,6 +17,9 @@ def _build_templates() -> dict[str, str]:
         "qa-semantic-review",
         "qa-doc-fidelity",
         "qa-adversarial-review",
+        "qa-conformance-goal",
+        "qa-conformance-design",
+        "qa-conformance-feedback",
     )
     return {name: load_prompt_template(name) for name in names}
 

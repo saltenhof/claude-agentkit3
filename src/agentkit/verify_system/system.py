@@ -80,6 +80,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
+    from agentkit.config.models import ConformanceConfig
     from agentkit.story_context_manager.models import StoryContext
     from agentkit.story_context_manager.types import StoryType
     from agentkit.telemetry.emitters import EventEmitter
@@ -181,6 +182,11 @@ class VerifySystem:
     layer2_runner: ParallelEvalRunner | None = None
     layer2_llm_client: LlmClient | None = None
     conformance_emitter: EventEmitter | None = None
+    #: FK-32 §32.4b.3 prompt-size thresholds for the ConformanceService. ``None``
+    #: => the service's built-in defaults (50 KB / 500 KB) are used.  Set to
+    #: ``project_config.pipeline.conformance`` to make ``pipeline.yaml`` thresholds
+    #: effective for impl-fidelity conformance assessments (ERROR 4 fix).
+    conformance_config: ConformanceConfig | None = None
     #: Fast-mode tests-green floor runner (AG3-018, FK-24 §24.3.4). A callable
     #: ``runner(story_dir) -> (green, reason)`` — the SAME tests-green mechanism
     #: the closure Sanity-Gate uses (``ProductiveSanityGatePort.test_runner``),
@@ -1182,6 +1188,7 @@ def _create_default(
         sonar_gate_port=resolved_sonar_port,
         layer2_llm_client=defaults.layer2_llm_client,
         conformance_emitter=defaults.conformance_emitter,
+        conformance_config=defaults.conformance_config,
         fast_test_runner=defaults.fast_test_runner,
         remediation_loop_controller=(
             _qa.RemediationLoopController(
@@ -1944,9 +1951,16 @@ def _run_impl_conformance(
         StructuredEvaluatorResult,
     )
 
+    conformance_kwargs: dict[str, int] = {}
+    if system.conformance_config is not None:
+        conformance_kwargs["file_upload_threshold"] = (
+            system.conformance_config.file_upload_threshold
+        )
+        conformance_kwargs["hard_limit"] = system.conformance_config.hard_limit
     service = ConformanceService(
         StructuredEvaluatorConformanceAdapter(runner),
         emitter=system.conformance_emitter,
+        **conformance_kwargs,
     )
     fidelity = service.check_fidelity(FidelityLevel.IMPL, conformance_context)
     if isinstance(fidelity.evaluator_result, StructuredEvaluatorResult):

@@ -6,15 +6,19 @@ import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+import pytest
+
 from agentkit.telemetry.emitters import MemoryEmitter
 from agentkit.telemetry.events import EventType
 from agentkit.verify_system.conformance_service import (
     ConformanceEvaluation,
     ConformanceService,
+    ConformanceTier2NotSupportedError,
     ConformanceVerdict,
     FidelityContext,
     FidelityFailureAction,
     FidelityLevel,
+    StructuredEvaluatorConformanceAdapter,
     identify_references,
 )
 
@@ -28,6 +32,10 @@ class _RecordingEvaluator:
     verdict: ConformanceVerdict = ConformanceVerdict.PASS
     calls: list[dict[str, object]] = field(default_factory=list)
     paths_seen_during_call: tuple[Path, ...] = ()
+
+    def supports_file_upload(self) -> bool:
+        """Return True so tests that probe Tier-2 can pass merge_paths through."""
+        return True
 
     def evaluate(
         self,
@@ -229,3 +237,288 @@ def test_tier3_fails_without_llm_call_or_truncation(tmp_path: Path) -> None:
     completed = emitter.query("AG3-063", EventType.CONFORMANCE_ASSESSMENT_COMPLETED)
     assert evaluated[-1].payload["status"] == "FAIL"
     assert completed[-1].payload["status"] == "FAIL"
+
+
+# ---------------------------------------------------------------------------
+# AG3-063 Remediation: ERROR 1 — Tier-2 file boundary
+# ---------------------------------------------------------------------------
+
+
+def test_tier2_fails_closed_when_adapter_has_no_file_transport(tmp_path: Path) -> None:
+    """ERROR 1 fix: Tier-2 path fails closed when adapter has no file-capable transport.
+
+    StructuredEvaluatorConformanceAdapter.supports_file_upload() returns False.
+    ConformanceService must NOT silently discard merge_paths but FAIL CLOSED,
+    emitting level.evaluated + assessment.completed (status=FAIL) but NO
+    llm_call event (no LLM was invoked).
+    """
+    _write_manifest(tmp_path, content="r" * 128)
+
+    class _FakeEval:
+        """Fake underlying evaluator that would be called if the adapter forwarded."""
+
+        def __init__(self) -> None:
+            self.called = False
+
+        def evaluate(self, **_: object) -> ConformanceEvaluation:  # type: ignore[override]
+            self.called = True
+            return ConformanceEvaluation(
+                verdict=ConformanceVerdict.PASS, reason="ok", description="ok"
+            )
+
+    fake = _FakeEval()
+    adapter = StructuredEvaluatorConformanceAdapter(fake)
+    assert adapter.supports_file_upload() is False
+
+    emitter = MemoryEmitter()
+    service = ConformanceService(
+        adapter,
+        emitter=emitter,
+        file_upload_threshold=10,  # tiny threshold to force Tier-2
+        hard_limit=10_000,
+    )
+
+    result = service.check_fidelity(
+        FidelityLevel.IMPL,
+        _context(tmp_path, subject="s" * 64),
+    )
+
+    assert result.conformance_verdict is ConformanceVerdict.FAIL
+    assert "AG3-065" in result.reason
+    assert fake.called is False  # LLM was never called
+    assert emitter.query("AG3-063", EventType.LLM_CALL) == []  # no llm_call event
+    evaluated = emitter.query("AG3-063", EventType.CONFORMANCE_LEVEL_EVALUATED)
+    completed = emitter.query("AG3-063", EventType.CONFORMANCE_ASSESSMENT_COMPLETED)
+    assert evaluated[-1].payload["status"] == "FAIL"
+    assert completed[-1].payload["status"] == "FAIL"
+
+
+def test_structured_evaluator_adapter_raises_on_nonempty_merge_paths(
+    tmp_path: Path,
+) -> None:
+    """ERROR 1 adapter-level test: StructuredEvaluatorConformanceAdapter raises
+    ConformanceTier2NotSupportedError when merge_paths is non-empty (not silently
+    dropped). The Layer-2 LlmClient is file-free; file upload deferred to AG3-065.
+    """
+
+    class _FakeEval:
+        """Stub evaluator that records whether it was called."""
+
+        def __init__(self) -> None:
+            self.called = False
+
+        def evaluate(self, **_: object) -> ConformanceEvaluation:  # type: ignore[override]
+            self.called = True
+            return ConformanceEvaluation(
+                verdict=ConformanceVerdict.PASS, reason="ok", description="ok"
+            )
+
+    fake = _FakeEval()
+    adapter = StructuredEvaluatorConformanceAdapter(fake)
+
+    dummy_path = tmp_path / "dummy.txt"
+    dummy_path.write_text("x", encoding="utf-8")
+
+    with pytest.raises(ConformanceTier2NotSupportedError, match="AG3-065"):
+        adapter.evaluate(
+            level=FidelityLevel.IMPL,
+            context=_context(tmp_path),
+            subject="subject",
+            references="refs",
+            expected_check_id="impl_fidelity",
+            merge_paths=(dummy_path,),
+        )
+
+    assert fake.called is False
+
+
+# ---------------------------------------------------------------------------
+# AG3-063 Remediation: ERROR 2 — Level-specific prompt rendering
+# ---------------------------------------------------------------------------
+
+
+def test_adapter_uses_level_specific_template_for_each_fidelity_level(
+    tmp_path: Path,
+) -> None:
+    """ERROR 2 fix: StructuredEvaluatorConformanceAdapter passes a level-specific
+    template_override to the underlying evaluator for each FidelityLevel so that a
+    real LLM receives instructions matching the expected check_id (not impl_fidelity
+    for all levels).
+    """
+    from agentkit.verify_system.conformance_service.service import (
+        _CONFORMANCE_TEMPLATE_FOR_LEVEL,
+    )
+
+    @dataclass
+    class _CapturingEval:
+        """Records the template_override passed per evaluate() call."""
+
+        calls: list[dict[str, object]] = field(default_factory=list)
+
+        def evaluate(  # type: ignore[override]
+            self,
+            *,
+            role: object,
+            bundle: object,
+            previous_findings: object,
+            qa_cycle_round: int,
+            expected_check_ids: object,
+            template_override: str | None = None,
+        ) -> object:
+            from agentkit.verify_system.llm_evaluator.structured_evaluator import (
+                LlmVerdict,
+                ReviewerRole,
+                StructuredEvaluatorResult,
+            )
+
+            self.calls.append({"template_override": template_override, "expected_check_ids": expected_check_ids})
+            return StructuredEvaluatorResult(
+                role=ReviewerRole.DOC_FIDELITY,
+                verdict=LlmVerdict.PASS,
+                findings=(),
+                finding_resolutions={},
+                raw_response_hash="a" * 64,
+                template_sha256="b" * 64,
+            )
+
+    capturing = _CapturingEval()
+    adapter = StructuredEvaluatorConformanceAdapter(capturing)
+
+    ctx = _context(tmp_path)
+    for level in FidelityLevel:
+        capturing.calls.clear()
+        adapter.evaluate(
+            level=level,
+            context=ctx,
+            subject="subject",
+            references="refs",
+            expected_check_id=f"{level.value}_fidelity",
+            merge_paths=(),
+        )
+        assert len(capturing.calls) == 1
+        call = capturing.calls[0]
+        expected_template = _CONFORMANCE_TEMPLATE_FOR_LEVEL[level]
+        assert call["template_override"] == expected_template, (
+            f"Level {level.value}: expected template {expected_template!r}, "
+            f"got {call['template_override']!r}"
+        )
+        expected_check_id = frozenset({f"{level.value}_fidelity"})
+        assert call["expected_check_ids"] == expected_check_id, (
+            f"Level {level.value}: expected check_ids {expected_check_id}, "
+            f"got {call['expected_check_ids']!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# AG3-063 Remediation: ERROR 4 — ConformanceConfig wiring
+# ---------------------------------------------------------------------------
+
+
+def test_configured_threshold_changes_tier_boundary(tmp_path: Path) -> None:
+    """ERROR 4 fix: a configured file_upload_threshold takes effect on check_fidelity.
+
+    The service uses the injected threshold, not just the default 50KB constant.
+    With threshold=5 and subject of 10 bytes, Tier-2 is triggered.  Because the
+    recording evaluator supports_file_upload() (returns True by default for
+    _RecordingEvaluator), it actually receives merge_paths — proving the threshold
+    was applied.
+    """
+    _write_manifest(tmp_path, content="r" * 10)
+
+    class _FileCapableEvaluator:
+        """Recording evaluator that claims file upload support."""
+
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+            self.paths_seen: tuple[Path, ...] = ()
+
+        def supports_file_upload(self) -> bool:
+            return True
+
+        def evaluate(
+            self,
+            *,
+            level: FidelityLevel,
+            context: FidelityContext,
+            subject: str,
+            references: str,
+            expected_check_id: str,
+            merge_paths: Sequence[Path],
+        ) -> ConformanceEvaluation:
+            del context
+            self.paths_seen = tuple(merge_paths)
+            self.calls.append({"level": level, "merge_paths": tuple(merge_paths)})
+            return ConformanceEvaluation(
+                verdict=ConformanceVerdict.PASS,
+                reason="ok",
+                description="ok",
+            )
+
+    evaluator = _FileCapableEvaluator()
+    # Construct the service with a small custom threshold (simulating
+    # project_config.pipeline.conformance.file_upload_threshold = 5)
+    service = ConformanceService(
+        evaluator,
+        emitter=MemoryEmitter(),
+        file_upload_threshold=5,
+        hard_limit=500_000,
+    )
+
+    result = service.check_fidelity(
+        FidelityLevel.IMPL,
+        _context(tmp_path, subject="s" * 20),  # 20 bytes > threshold 5
+    )
+
+    assert result.conformance_verdict is ConformanceVerdict.PASS
+    assert len(evaluator.paths_seen) == 2  # tier-2 files were created and passed
+    assert evaluator.calls[0]["level"] is FidelityLevel.IMPL
+
+
+# ---------------------------------------------------------------------------
+# AG3-063 Remediation: ERROR 3 — No DOC_FIDELITY bypass in layer2_integration
+# ---------------------------------------------------------------------------
+
+
+def test_layer2_integration_no_doc_fidelity_bypass_when_result_is_none() -> None:
+    """ERROR 3 fix: when doc_fidelity_result is None, _run_impl_fidelity returns
+    a BLOCKING LayerResult rather than calling runner.evaluate(DOC_FIDELITY)
+    directly (which would bypass ConformanceService.check_fidelity).
+    """
+    from agentkit.verify_system.llm_evaluator.bundle import ReviewBundle
+    from agentkit.verify_system.llm_evaluator.layer2_integration import (
+        _run_impl_fidelity,
+    )
+    from agentkit.verify_system.protocols import Severity
+
+    class _NeverCalledRunner:
+        """Runner that must never be called for DOC_FIDELITY in this test."""
+
+        def evaluate(self, *args: object, **kwargs: object) -> object:
+            raise AssertionError(
+                "runner.evaluate() was called — DOC_FIDELITY bypass still exists"
+            )
+
+    bundle = ReviewBundle(
+        story_id="TEST-003",
+        story_brief_excerpt="brief",
+        acceptance_criteria=[],
+        diff_summary="diff",
+        diff_content="content",
+        concept_refs=[],
+        previous_findings=None,
+        qa_cycle_round=1,
+    )
+
+    result = _run_impl_fidelity(
+        _NeverCalledRunner(),  # type: ignore[arg-type]
+        bundle=bundle,
+        qa_cycle_round=1,
+        previous_findings=(),
+        doc_fidelity_result=None,
+    )
+
+    # Must be BLOCKING (fail-closed) and must NOT have called the runner
+    assert result.passed is False
+    blocking = [f for f in result.findings if f.severity is Severity.BLOCKING]
+    assert blocking, "Expected at least one BLOCKING finding"
+    assert any("check_fidelity" in f.message for f in blocking)

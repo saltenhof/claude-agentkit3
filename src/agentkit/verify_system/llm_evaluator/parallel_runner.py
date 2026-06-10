@@ -139,6 +139,7 @@ class ParallelEvalRunner:
         previous_findings: list[Finding] | None,
         qa_cycle_round: int,
         expected_check_ids: frozenset[str] | None = None,
+        template_override: str | None = None,
     ) -> StructuredEvaluatorResult:
         """Evaluate one role through the shared StructuredEvaluator."""
         return self._evaluator.evaluate(
@@ -147,6 +148,7 @@ class ParallelEvalRunner:
             previous_findings,
             qa_cycle_round,
             expected_check_ids,
+            template_override,
         )
 
 

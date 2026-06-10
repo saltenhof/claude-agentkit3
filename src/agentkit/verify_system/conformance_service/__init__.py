@@ -17,6 +17,7 @@ from agentkit.verify_system.conformance_service.service import (
     ConformanceEvaluationPort,
     ConformanceManifestError,
     ConformanceService,
+    ConformanceTier2NotSupportedError,
     StructuredEvaluatorConformanceAdapter,
     identify_references,
 )
@@ -26,6 +27,7 @@ __all__ = [
     "ConformanceEvaluationPort",
     "ConformanceManifestError",
     "ConformanceService",
+    "ConformanceTier2NotSupportedError",
     "ConformanceVerdict",
     "FidelityContext",
     "FidelityFailureAction",

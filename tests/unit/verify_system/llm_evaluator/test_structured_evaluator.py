@@ -70,11 +70,16 @@ class _StubMaterializer:
         return ctx, bundle.story_id
 
     def render(
-        self, role: ReviewerRole, ctx: StoryContext, story_id: str
+        self,
+        role: ReviewerRole,
+        ctx: StoryContext,
+        story_id: str,
+        template_override: str | None = None,
     ) -> tuple[str, str]:
         del ctx, story_id
         self.rendered_roles.append(role)
-        return f"{self.template_text}:{role.value}", self.template_sha
+        name = template_override if template_override is not None else role.value
+        return f"{self.template_text}:{name}", self.template_sha
 
 
 def _bundle(story_id: str = "AG3-043", qa_cycle_round: int = 1) -> ReviewBundle:

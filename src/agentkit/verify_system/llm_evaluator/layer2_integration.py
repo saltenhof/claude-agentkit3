@@ -246,19 +246,36 @@ def _run_impl_fidelity(
     previous_findings: tuple[Finding, ...],
     doc_fidelity_result: StructuredEvaluatorResult | LayerResult | None,
 ) -> LayerResult:
-    """Return the implementation-fidelity layer result."""
+    """Return the implementation-fidelity layer result.
+
+    The result MUST have been produced by ``ConformanceService.check_fidelity``
+    and supplied here as a :class:`LayerResult` or
+    :class:`StructuredEvaluatorResult` (ERROR 3 fix: no second
+    ``ReviewerRole.DOC_FIDELITY`` evaluation path outside the service).
+    When ``doc_fidelity_result`` is ``None`` the caller failed to build a
+    :class:`~agentkit.verify_system.conformance_service.FidelityContext` —
+    the layer fails closed with a BLOCKING result rather than falling back to
+    a direct runner evaluation (FAIL-CLOSED, NO ERROR BYPASSING).
+    """
     if isinstance(doc_fidelity_result, LayerResult):
         return doc_fidelity_result
     if isinstance(doc_fidelity_result, StructuredEvaluatorResult):
         return _to_layer_result(ReviewerRole.DOC_FIDELITY, doc_fidelity_result)
     if doc_fidelity_result is None:
-        result = runner.evaluate(
-            ReviewerRole.DOC_FIDELITY,
-            bundle,
-            list(previous_findings) if previous_findings else None,
-            qa_cycle_round,
+        # FAIL-CLOSED: no FidelityContext could be built for this run (e.g. no
+        # StoryContext).  A direct runner.evaluate(DOC_FIDELITY) call here would
+        # bypass ConformanceService.check_fidelity (the single entry for impl
+        # fidelity), violating SSOT and creating a second undocumented path.
+        # Instead, return a BLOCKING result so the policy engine produces a
+        # definitive FAIL without any second impl-fidelity evaluation path.
+        message = (
+            "impl_fidelity layer failed closed: no FidelityContext was available "
+            "for this run (StoryContext unresolvable). "
+            "Implementation-fidelity must always be evaluated through "
+            "ConformanceService.check_fidelity — no direct DOC_FIDELITY fallback "
+            "(FAIL-CLOSED, NO ERROR BYPASSING)."
         )
-        return _to_layer_result(ReviewerRole.DOC_FIDELITY, result)
+        return _blocking_result("doc_fidelity", message)
     raise TypeError("doc_fidelity_result must be a StructuredEvaluatorResult or LayerResult")
 
 

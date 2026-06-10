@@ -31,7 +31,7 @@ def test_prompt_manifest_exists() -> None:
 
 def test_prompt_manifest_exposes_bundle_identity() -> None:
     assert prompt_bundle_id() == "internal-bootstrap-prompts"
-    assert prompt_bundle_version() == "3"
+    assert prompt_bundle_version() == "4"
     assert len(prompt_manifest_sha256()) == 64
 
 

@@ -43,6 +43,7 @@ if TYPE_CHECKING:
         GuardDeactivationPort,
         VectorDbSyncPort,
     )
+    from agentkit.config.models import ConformanceConfig
     from agentkit.exploration.change_frame import ChangeFrame
     from agentkit.exploration.drafting import ExplorationDrafting
     from agentkit.exploration.mandate.fine_design import FineDesignRoundOutcome
@@ -204,6 +205,7 @@ def build_exploration_review(
     story_dir: Path,
     *,
     llm_client: LlmClient | None = None,
+    conformance_config: ConformanceConfig | None = None,
 ) -> ExplorationReview:
     """Wire the three-stage exploration exit-gate (AG3-046, FK-23 §23.5).
 
@@ -225,6 +227,10 @@ def build_exploration_review(
         story_dir: Story working directory (run-scope + artifact store root).
         llm_client: Optional Layer-2 LLM transport. ``None`` => the fail-closed
             :class:`FailClosedLlmClient` (gate fails closed until a pool exists).
+        conformance_config: Optional FK-32 §32.4b.3 prompt-size thresholds.
+            ``None`` => the service's built-in defaults (50 KB / 500 KB) are used.
+            Pass ``project_config.pipeline.conformance`` to make the configured
+            thresholds effective for this exploration review.
 
     Returns:
         A wired :class:`ExplorationReview`.
@@ -259,9 +265,14 @@ def build_exploration_review(
     )
     evaluator = StructuredEvaluator(client, materializer)
     sink = ArtifactReviewResultSink(manager)
+    conformance_kwargs: dict[str, int] = {}
+    if conformance_config is not None:
+        conformance_kwargs["file_upload_threshold"] = conformance_config.file_upload_threshold
+        conformance_kwargs["hard_limit"] = conformance_config.hard_limit
     conformance = ConformanceService(
         StructuredEvaluatorConformanceAdapter(evaluator),
         emitter=StateBackendEmitter(story_dir),
+        **conformance_kwargs,
     )
     return _Review(
         stage1_doc_fidelity=DocFidelityChecker(

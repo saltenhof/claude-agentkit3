@@ -303,6 +303,7 @@ class StructuredEvaluator:
         previous_findings: list[Finding] | None,
         qa_cycle_round: int,
         expected_check_ids: frozenset[str] | None = None,
+        template_override: str | None = None,
     ) -> StructuredEvaluatorResult:
         """Evaluate one role against the review bundle (fail-closed).
 
@@ -313,6 +314,10 @@ class StructuredEvaluator:
                 their identity is used to validate ``finding_resolution_*``
                 check-ids. ``None`` / empty in the initial round.
             qa_cycle_round: 1-based QA-cycle round (``> 1`` => remediation).
+            expected_check_ids: Override the role's default check-id whitelist.
+            template_override: Use this logical template name instead of the
+                role's default (FK-32 conformance levels use level-specific
+                templates over the DOC_FIDELITY role; ``None`` => role default).
 
         Returns:
             The validated :class:`StructuredEvaluatorResult`.
@@ -324,7 +329,9 @@ class StructuredEvaluator:
             LlmClientError: If the LLM transport fails (propagated; fail-closed).
         """
         ctx, story_id = self._materialize.context_for(bundle)
-        prompt_text, template_sha256 = self._materialize.render(role, ctx, story_id)
+        prompt_text, template_sha256 = self._materialize.render(
+            role, ctx, story_id, template_override
+        )
         full_prompt = f"{prompt_text}\n\n## Review Bundle (JSON)\n{bundle.to_prompt_json()}"
         if expected_check_ids is not None:
             full_prompt = (
@@ -612,9 +619,23 @@ class _PromptMaterializer(Protocol):
         ...
 
     def render(
-        self, role: ReviewerRole, ctx: StoryContext, story_id: str
+        self,
+        role: ReviewerRole,
+        ctx: StoryContext,
+        story_id: str,
+        template_override: str | None = None,
     ) -> tuple[str, str]:
-        """Return ``(prompt_text, template_sha256)`` for ``role``."""
+        """Return ``(prompt_text, template_sha256)`` for ``role``.
+
+        Args:
+            role: The reviewer role (used to select the template when
+                ``template_override`` is ``None``).
+            ctx: The resolved story context.
+            story_id: Story display-ID.
+            template_override: When set, use this logical template name
+                instead of the role's default template (FK-32 conformance
+                levels use level-specific templates over DOC_FIDELITY role).
+        """
         ...
 
 

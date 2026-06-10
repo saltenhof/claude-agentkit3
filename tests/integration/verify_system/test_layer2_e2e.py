@@ -86,8 +86,14 @@ class _StubMaterializer:
         )
         return ctx, story_id
 
-    def render(self, role: ReviewerRole, ctx: object, story_id: str) -> tuple[str, str]:
-        del ctx, story_id
+    def render(
+        self,
+        role: ReviewerRole,
+        ctx: object,
+        story_id: str,
+        template_override: str | None = None,
+    ) -> tuple[str, str]:
+        del ctx, story_id, template_override
         return f"PROMPT:{role.value}", "a" * 64
 
 
