@@ -410,6 +410,165 @@ def test_adapter_uses_level_specific_template_for_each_fidelity_level(
 
 
 # ---------------------------------------------------------------------------
+# AG3-063 Remediation: NIT (ERROR 2 strengthening) — real prompt materialization
+# ---------------------------------------------------------------------------
+
+
+def test_adapter_rendered_prompt_instructs_level_appropriate_check(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """NIT (ERROR 2 strengthening): the rendered prompt for each FidelityLevel
+    instructs the LLM with the level-appropriate check_id, not a generic one.
+
+    Materializes the ACTUAL rendered prompt (via the real PromptRuntime + a
+    project-bound bundle) for each level (goal/design/feedback/impl) and asserts:
+    - goal template asks for ``goal_fidelity``
+    - design template asks for ``design_fidelity``
+    - feedback template asks for ``feedback_fidelity``
+    - impl template (qa-doc-fidelity) asks for ``impl_fidelity``
+
+    Proves that a real LLM would be asked the right question per level, not just
+    that the override string is plumbed to the evaluator parameter.
+    """
+    import json
+    from hashlib import sha256 as _sha256
+
+    from agentkit.artifacts import ArtifactManager, EnvelopeValidator, ProducerRegistry
+    from agentkit.installer.paths import PROMPT_BUNDLE_STORE_ENV, prompt_bundle_store_dir
+    from agentkit.prompt_runtime.register import register_prompt_runtime_producers
+    from agentkit.prompt_runtime.resources import (
+        PROJECT_LOCK_RELPATH,
+        load_prompt_template,
+    )
+    from agentkit.story_context_manager.models import StoryContext
+    from agentkit.story_context_manager.types import StoryMode, StoryType
+    from agentkit.verify_system.conformance_service.service import (
+        _CONFORMANCE_TEMPLATE_FOR_LEVEL,
+    )
+    from agentkit.verify_system.llm_evaluator.bundle import build_review_bundle
+    from agentkit.verify_system.llm_evaluator.inputs import Layer2ReviewInput
+    from agentkit.verify_system.llm_evaluator.prompt_materializer import (
+        PromptRuntimeMaterializer,
+    )
+    from agentkit.verify_system.llm_evaluator.structured_evaluator import ReviewerRole
+    from agentkit.verify_system.protocols import RunScope
+
+    # Collect the real template text for all four conformance levels.
+    template_names = list(_CONFORMANCE_TEMPLATE_FOR_LEVEL.values())
+    templates: dict[str, str] = {name: load_prompt_template(name) for name in template_names}
+
+    # Write a project-bound prompt bundle for these four templates.
+    bundle_dir = prompt_bundle_store_dir(
+        "conformance-bound", "1", store_root=tmp_path / "prompt-bundles"
+    )
+    (bundle_dir / "internal" / "prompts").mkdir(parents=True)
+    for name, content in templates.items():
+        (bundle_dir / "internal" / "prompts" / f"{name}.md").write_text(
+            content, encoding="utf-8"
+        )
+    entries = {
+        name: {
+            "relpath": f"internal/prompts/{name}.md",
+            "sha256": _sha256(content.encode("utf-8")).hexdigest(),
+        }
+        for name, content in templates.items()
+    }
+    manifest_text = json.dumps(
+        {"bundle_id": "conformance-bound", "bundle_version": "1", "templates": entries}
+    )
+    (bundle_dir / "manifest.json").write_text(manifest_text, encoding="utf-8")
+    lock_dir = tmp_path / PROJECT_LOCK_RELPATH.parent
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    (tmp_path / PROJECT_LOCK_RELPATH).write_text(
+        json.dumps(
+            {
+                "bundle_id": "conformance-bound",
+                "bundle_version": "1",
+                "binding_root": "prompts",
+                "manifest_file": "manifest.json",
+                "manifest_sha256": _sha256(manifest_text.encode("utf-8")).hexdigest(),
+                "templates": entries,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(PROMPT_BUNDLE_STORE_ENV, str(tmp_path / "prompt-bundles"))
+    monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
+    monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
+
+    from agentkit.state_backend.store import reset_backend_cache_for_tests
+
+    reset_backend_cache_for_tests()
+    from agentkit.state_backend.store.artifact_repository import (
+        StateBackendArtifactRepository,
+    )
+
+    registry = ProducerRegistry()
+    register_prompt_runtime_producers(registry)
+    manager = ArtifactManager(
+        repository=StateBackendArtifactRepository(store_dir=tmp_path),
+        validator=EnvelopeValidator(registry),
+    )
+
+    ctx = StoryContext(
+        project_key="test",
+        story_id="AG3-063",
+        story_type=StoryType.IMPLEMENTATION,
+        execution_route=StoryMode.EXECUTION,
+        project_root=tmp_path,
+    )
+
+    class _FixedScope:
+        def load(self, story_dir: object) -> None:
+            return None
+
+        def resolve_run_scope(self, story_dir: object) -> RunScope:
+            return RunScope(run_id="run-1", story_id="AG3-063", attempt=1)
+
+    materializer = PromptRuntimeMaterializer(
+        ctx=ctx,
+        story_dir=tmp_path,
+        artifact_manager=manager,
+        story_context_port=_FixedScope(),
+    )
+    bundle = build_review_bundle(
+        Layer2ReviewInput(story_spec="b"), story_id="AG3-063", qa_cycle_round=1
+    )
+    resolved_ctx, story_id = materializer.context_for(bundle)
+
+    # Map each FidelityLevel to its expected check_id keyword in the rendered prompt.
+    level_to_check_id = {
+        FidelityLevel.GOAL: "goal_fidelity",
+        FidelityLevel.DESIGN: "design_fidelity",
+        FidelityLevel.IMPL: "impl_fidelity",
+        FidelityLevel.FEEDBACK: "feedback_fidelity",
+    }
+
+    for level, expected_check_id in level_to_check_id.items():
+        template_name = _CONFORMANCE_TEMPLATE_FOR_LEVEL[level]
+        rendered, _sha = materializer.render(
+            ReviewerRole.DOC_FIDELITY, resolved_ctx, story_id,
+            template_override=template_name,
+        )
+        assert expected_check_id in rendered, (
+            f"Level {level.value!r}: rendered prompt from template "
+            f"{template_name!r} does not contain check_id {expected_check_id!r} — "
+            f"a real LLM would NOT be asked the right question."
+        )
+        # Confirm none of the OTHER level check_ids leak in (no cross-contamination).
+        # The impl level shares the qa-doc-fidelity template so skip its cross-check.
+        if level is not FidelityLevel.IMPL:
+            for _other_level, other_check_id in level_to_check_id.items():
+                if other_check_id != expected_check_id:
+                    assert other_check_id not in rendered, (
+                        f"Level {level.value!r}: rendered prompt unexpectedly contains "
+                        f"{other_check_id!r} from another level — cross-contamination."
+                    )
+
+
+# ---------------------------------------------------------------------------
 # AG3-063 Remediation: ERROR 4 — ConformanceConfig wiring
 # ---------------------------------------------------------------------------
 

@@ -613,6 +613,7 @@ def build_verify_system(
     fast_test_runner: Callable[[Path], tuple[bool, str | None]] | None = None,
     structural_build_test_port: BuildTestEvidencePort | None = None,
     structural_are_provider: AreGateProvider | None = None,
+    conformance_config: ConformanceConfig | None = None,
 ) -> VerifySystem:
     """Erzeugt einen vollstaendig verdrahteten ``VerifySystem``.
 
@@ -657,6 +658,13 @@ def build_verify_system(
             fail-closed Client jeden ``complete``-Aufruf fehl -> Layer 2
             FAIL-CLOSED (kein stiller Skip, FK-34 §34.5.1). Sobald der
             Pool-Adapter existiert, reicht der Aufrufer ihn hier ein.
+        conformance_config: Optional FK-32 §32.4b.3 prompt-size thresholds
+            from the per-run ``ProjectConfig.pipeline.conformance`` stanza.
+            ``None`` => the ConformanceService's built-in defaults (50 KB /
+            500 KB) are used. Pass
+            ``project_config.pipeline.conformance`` to make the configured
+            thresholds effective for impl-fidelity assessments (ERROR 4 fix,
+            AG3-063 remediation 2).
 
     Returns:
         ``VerifySystem`` mit allen fuenf Sub-Komponenten und einem
@@ -687,6 +695,7 @@ def build_verify_system(
         # inert/over-blocking. The telemetry import lives here, not in the BC.
         review_completion_sink=build_review_completion_sink(store_dir),
         conformance_emitter=StateBackendEmitter(store_dir),
+        conformance_config=conformance_config,
         layer2_llm_client=resolved_llm_client,
         fast_test_runner=fast_test_runner,
         # AG3-042: the PRODUCTIVE path wires the full FK-27 §27.4 Layer-1 stage

@@ -73,6 +73,7 @@ if TYPE_CHECKING:
     from datetime import datetime
     from pathlib import Path
 
+    from agentkit.config.models import ConformanceConfig
     from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
     from agentkit.story_context_manager.models import StoryContext
     from agentkit.verify_system import VerifySystem
@@ -180,6 +181,12 @@ class ImplementationPhaseHandler:
         # fail-closed default ports (build/test BLOCKING fail, ARE not planned) —
         # never a fabricated green, never a silent ARE disable.
         build_test_port, are_provider = _resolve_structural_evidence_ports(ctx, s_dir)
+        # ERROR 4 fix (AG3-063 remediation 2): pass the per-run ConformanceConfig
+        # so ConformanceService.check_fidelity() uses configured thresholds from
+        # project_config.pipeline.conformance (FK-32 §32.4b.3) instead of the
+        # built-in defaults. The same load_project_config pattern already used by
+        # _resolve_sonar_gate_port / _resolve_structural_evidence_ports above.
+        conformance_config = _resolve_conformance_config(ctx)
         verify_system = self._config.verify_system or build_verify_system(
             s_dir,
             sonar_gate_port=sonar_gate_port,
@@ -187,6 +194,7 @@ class ImplementationPhaseHandler:
             fast_test_runner=_resolve_fast_test_runner(ctx),
             structural_build_test_port=build_test_port,
             structural_are_provider=are_provider,
+            conformance_config=conformance_config,
         )
 
         # W2: Build PhaseEnvelopeView from envelope.state.payload (round 0
@@ -600,6 +608,46 @@ def _resolve_structural_evidence_ports(
         else None
     )
     return (build_test_port, are_provider)
+
+
+def _resolve_conformance_config(
+    ctx: StoryContext,
+) -> ConformanceConfig | None:
+    """Resolve the FK-32 §32.4b.3 conformance thresholds for this run.
+
+    Loads the project's ``pipeline.conformance`` stanza from
+    ``ctx.project_root`` (the same ``load_project_config`` call already used
+    by :func:`_resolve_sonar_gate_port` and
+    :func:`_resolve_structural_evidence_ports`). Returns ``None`` when no
+    project root is available so the ConformanceService falls back to its
+    built-in defaults (50 KB / 500 KB).
+
+    When a project root IS present the loaded ``ConformanceConfig`` always
+    carries the fully-validated stanza — even when the project YAML omits the
+    ``conformance`` key the model supplies the defaults. Propagation of
+    ``ConfigError`` / ``ValueError`` from ``load_project_config`` is
+    deliberate (fail-closed, NO ERROR BYPASSING).
+
+    Args:
+        ctx: The run :class:`StoryContext` carrying ``project_root``.
+
+    Returns:
+        The per-run ``ConformanceConfig`` from the project pipeline config,
+        or ``None`` when ``ctx.project_root`` is unset.
+
+    Raises:
+        ConfigError: When the project config cannot be loaded.  Propagated
+            fail-closed (never downgraded to a silent ``None``).
+    """
+    if ctx.project_root is None:
+        return None
+    from agentkit.config.loader import load_project_config
+
+    project_config = load_project_config(ctx.project_root)
+    pipeline = getattr(project_config, "pipeline", None)
+    if pipeline is None:
+        return None
+    return getattr(pipeline, "conformance", None)
 
 
 def _build_phase_envelope_view(envelope: PhaseEnvelope) -> PhaseEnvelopeView | None:
