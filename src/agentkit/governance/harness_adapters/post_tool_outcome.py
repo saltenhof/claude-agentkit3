@@ -21,8 +21,8 @@ _EXIT_CODE_KEYS = (
 _STDOUT_KEYS = ("stdout", "stdout_text", "output", "text")
 _STDERR_KEYS = ("stderr", "stderr_text", "error", "message")
 _EXIT_CODE_PATTERN = re.compile(
-    r"(?:exit|status|return)(?:[ \t]+code)?[ \t]*[=:]?[ \t]*(-?[0-9]+)",
-    re.IGNORECASE,
+    r"(?:exit|status|return)(?: +code)? *[=:]? *(-?\d+)",
+    re.IGNORECASE | re.ASCII,
 )
 
 
@@ -66,7 +66,11 @@ def _extract_exit_code(
         parsed = _coerce_exit_code(response_fields.get(key))
         if parsed is not None:
             return parsed
-    match = _EXIT_CODE_PATTERN.search(fallback_text)
+    # Normalise all whitespace (including newlines) to single spaces before
+    # matching so patterns like "status:\n1" are still detected.  str.split()
+    # is linear and handles every whitespace variant — no regex backtracking.
+    normalised = " ".join(fallback_text.split())
+    match = _EXIT_CODE_PATTERN.search(normalised)
     if match is None:
         return None
     return int(match.group(1))

@@ -735,8 +735,8 @@ def _ensure_runtime_tables_part2b(conn: sqlite3.Connection) -> None:
     """Create lock, binding, governance and custom-field tables (schema part 2b-II).
 
     Split out of ``_ensure_runtime_tables_part2`` so neither function exceeds the
-    300-LOC limit (python:S138, Codex/Sonar). Pure structural split — identische
-    DDL, idempotenter ``executescript``-Aufruf.
+    300-LOC limit (python:S138, Codex/Sonar). Pure structural split — identical
+    DDL, idempotent ``executescript`` call.
     """
     conn.executescript(
         """
