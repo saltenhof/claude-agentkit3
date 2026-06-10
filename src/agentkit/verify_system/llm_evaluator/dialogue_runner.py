@@ -359,13 +359,19 @@ class DialogueRunner:
             from agentkit.artifacts.envelope import ArtifactEnvelope
             from agentkit.artifacts.producer import Producer, ProducerId, ProducerType
             from agentkit.core_types import ArtifactClass, EnvelopeStatus
+            from agentkit.verify_system.register import VERIFY_LAYER2_DIALOGUE_AUDIT_PRODUCER
 
             now = datetime.now(UTC)
             role_slug = role.replace("_", "-")
             record_key = f"dialogue-transcript-{role_slug}-{run_id}-{attempt:03d}"
+            # ERROR 4 fix: use the registered canonical PROMPT_AUDIT producer name
+            # (VERIFY_LAYER2_DIALOGUE_AUDIT_PRODUCER, registered in
+            # register_verify_producers). The transcript is deterministic audit
+            # evidence — not an LLM verdict — so ProducerType.DETERMINISTIC matches
+            # the ArtifactClass.PROMPT_AUDIT semantics (validator.py §85).
             producer = Producer(
-                type=ProducerType.LLM_REVIEWER,
-                name=f"dialogue-runner-{role_slug}",
+                type=ProducerType.DETERMINISTIC,
+                name=VERIFY_LAYER2_DIALOGUE_AUDIT_PRODUCER,
                 id=ProducerId(record_key),
             )
             turns_payload = [

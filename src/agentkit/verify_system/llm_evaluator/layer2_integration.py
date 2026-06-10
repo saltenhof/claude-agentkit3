@@ -62,6 +62,8 @@ def run_layer2_llm(
     qa_cycle_round: int,
     previous_findings: tuple[Finding, ...],
     doc_fidelity_result: StructuredEvaluatorResult | LayerResult | None = None,
+    run_id: str | None = None,
+    run_attempt: int = 1,
 ) -> tuple[LayerResult, LayerResult, LayerResult]:
     """Run the three-role LLM Layer-2 and map results to LayerResults.
 
@@ -72,6 +74,11 @@ def run_layer2_llm(
         qa_cycle_round: 1-based QA-cycle round (``> 1`` => remediation).
         previous_findings: Prior-round findings for the remediation prompt
             section (DK-04 §4.6); empty in the initial round.
+        doc_fidelity_result: Pre-computed doc-fidelity result from the
+            ConformanceService (or ``None`` for fail-closed fallback).
+        run_id: Optional run-correlation ID for prompt-audit persistence
+            (FK-11 §11.4.6a / ERROR 3 fix). ``None`` => skipped.
+        run_attempt: 1-based attempt counter for prompt-audit envelopes.
 
     Returns:
         Three :class:`LayerResult` instances in the canonical role order
@@ -94,6 +101,8 @@ def run_layer2_llm(
         bundle,
         prev_list,
         qa_cycle_round,
+        run_id=run_id,
+        run_attempt=run_attempt,
     )
     doc_result = _run_impl_fidelity(
         doc_fidelity_result=doc_fidelity_result,
@@ -116,6 +125,8 @@ def run_layer2_llm_failclosed(
     qa_cycle_round: int,
     previous_findings: tuple[Finding, ...],
     doc_fidelity_result: StructuredEvaluatorResult | LayerResult | None = None,
+    run_id: str | None = None,
+    run_attempt: int = 1,
 ) -> tuple[LayerResult, LayerResult, LayerResult]:
     """Run the LLM Layer-2 and convert any runner failure to BLOCKING results.
 
@@ -131,6 +142,11 @@ def run_layer2_llm_failclosed(
         story_id: Story display-ID.
         qa_cycle_round: 1-based QA-cycle round.
         previous_findings: Prior-round findings (remediation context).
+        doc_fidelity_result: Pre-computed doc-fidelity result from the
+            ConformanceService (or ``None`` for fail-closed fallback).
+        run_id: Optional run-correlation ID for prompt-audit persistence
+            (FK-11 §11.4.6a / ERROR 3 fix). ``None`` => skipped.
+        run_attempt: 1-based attempt counter for prompt-audit envelopes.
 
     Returns:
         Three :class:`LayerResult` in canonical role order; all BLOCKING on a
@@ -144,6 +160,8 @@ def run_layer2_llm_failclosed(
             qa_cycle_round=qa_cycle_round,
             previous_findings=previous_findings,
             doc_fidelity_result=doc_fidelity_result,
+            run_id=run_id,
+            run_attempt=run_attempt,
         )
     except Exception as exc:  # noqa: BLE001 -- fail-closed: any failure blocks
         error_msg = f"Layer 2 LLM evaluation failed: {type(exc).__name__}: {exc}"

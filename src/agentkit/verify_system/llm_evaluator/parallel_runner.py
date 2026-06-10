@@ -80,6 +80,9 @@ class ParallelEvalRunner:
         bundle: ReviewBundle,
         previous_findings: list[Finding] | None,
         qa_cycle_round: int,
+        *,
+        run_id: str | None = None,
+        run_attempt: int = 1,
     ) -> dict[ReviewerRole, StructuredEvaluatorResult]:
         """Run all three roles in parallel and return their results.
 
@@ -88,6 +91,10 @@ class ParallelEvalRunner:
             previous_findings: Prior-round findings for remediation mode
                 (passed through to each role's evaluator). ``None`` initially.
             qa_cycle_round: 1-based QA-cycle round (``> 1`` => remediation).
+            run_id: Optional run-correlation ID for prompt-audit persistence
+                (FK-11 §11.4.6a). ``None`` => prompt-audit persistence skipped.
+            run_attempt: 1-based attempt counter for prompt-audit envelopes
+                (default 1).
 
         Returns:
             A mapping ``ReviewerRole -> StructuredEvaluatorResult`` with exactly
@@ -97,7 +104,14 @@ class ParallelEvalRunner:
             ParallelEvalError: If any role's evaluation raises (fail-closed;
                 wraps the first encountered cause).
         """
-        return self.run_roles(tuple(ReviewerRole), bundle, previous_findings, qa_cycle_round)
+        return self.run_roles(
+            tuple(ReviewerRole),
+            bundle,
+            previous_findings,
+            qa_cycle_round,
+            run_id=run_id,
+            run_attempt=run_attempt,
+        )
 
     def run_roles(
         self,
@@ -105,8 +119,21 @@ class ParallelEvalRunner:
         bundle: ReviewBundle,
         previous_findings: list[Finding] | None,
         qa_cycle_round: int,
+        *,
+        run_id: str | None = None,
+        run_attempt: int = 1,
     ) -> dict[ReviewerRole, StructuredEvaluatorResult]:
-        """Run selected roles in parallel and return their results."""
+        """Run selected roles in parallel and return their results.
+
+        Args:
+            roles: The roles to evaluate in parallel.
+            bundle: The immutable review bundle.
+            previous_findings: Prior-round findings (remediation mode).
+            qa_cycle_round: 1-based QA-cycle round.
+            run_id: Optional run-correlation ID for prompt-audit persistence
+                (FK-11 §11.4.6a / ERROR 3 fix). ``None`` => skipped.
+            run_attempt: 1-based attempt counter for prompt-audit envelopes.
+        """
         results: dict[ReviewerRole, StructuredEvaluatorResult] = {}
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=min(self._max_workers, len(roles)),
@@ -119,6 +146,10 @@ class ParallelEvalRunner:
                     bundle,
                     previous_findings,
                     qa_cycle_round,
+                    None,  # expected_check_ids
+                    None,  # template_override
+                    run_id=run_id,
+                    run_attempt=run_attempt,
                 ): role
                 for role in roles
             }
@@ -140,8 +171,24 @@ class ParallelEvalRunner:
         qa_cycle_round: int,
         expected_check_ids: frozenset[str] | None = None,
         template_override: str | None = None,
+        *,
+        run_id: str | None = None,
+        run_attempt: int = 1,
     ) -> StructuredEvaluatorResult:
-        """Evaluate one role through the shared StructuredEvaluator."""
+        """Evaluate one role through the shared StructuredEvaluator.
+
+        Args:
+            role: The reviewer role to run.
+            bundle: The immutable review input bundle.
+            previous_findings: Prior-round findings (remediation context).
+            qa_cycle_round: 1-based QA-cycle round.
+            expected_check_ids: Override the role's default check-id whitelist.
+            template_override: Use this logical template name instead of the
+                role's default.
+            run_id: Optional run-correlation ID for prompt-audit persistence
+                (FK-11 §11.4.6a / ERROR 3 fix). ``None`` => skipped.
+            run_attempt: 1-based attempt counter for prompt-audit envelopes.
+        """
         return self._evaluator.evaluate(
             role,
             bundle,
@@ -149,6 +196,8 @@ class ParallelEvalRunner:
             qa_cycle_round,
             expected_check_ids,
             template_override,
+            run_id=run_id,
+            run_attempt=run_attempt,
         )
 
 

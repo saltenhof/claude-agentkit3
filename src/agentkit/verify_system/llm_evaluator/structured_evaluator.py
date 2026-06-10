@@ -35,6 +35,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Final, Protocol, runtime_checkable
@@ -42,7 +43,10 @@ from typing import TYPE_CHECKING, Final, Protocol, runtime_checkable
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from agentkit.verify_system.errors import VerifySystemError
-from agentkit.verify_system.llm_evaluator.llm_client import LlmClientError
+from agentkit.verify_system.llm_evaluator.llm_client import (
+    TOTAL_TIMEOUT_SECONDS,
+    LlmClientError,
+)
 from agentkit.verify_system.protocols import Finding, Severity, TrustClass
 from agentkit.verify_system.remediation.finding_resolution import (
     FindingKey,
@@ -410,6 +414,16 @@ class StructuredEvaluator:
         #
         # FK-11 §11.4.6b: one llm_call telemetry event is emitted PER complete()
         # call — including transport-exception attempts and parse-failed attempts.
+        #
+        # ERROR 1 fix: measure wall-clock elapsed from the START of evaluate()
+        # so that the whole evaluate() call (including the schema-retry 2nd
+        # complete()) is bounded by TOTAL_TIMEOUT_SECONDS.  Before issuing the
+        # 2nd complete() call, we check whether the first already consumed the
+        # budget; if so we refuse fail-closed (raise) rather than starting a
+        # second full ~2500s send.  (The per-call budget is enforced inside
+        # HubLlmClient.complete() for the individual acquire/send/release ops;
+        # this is the cross-call bound owned by the evaluator.)
+        eval_start = time.monotonic()
         last_parse_error: StructuredEvaluatorError | None = None
         raw_response: str = ""
         retry_count = 0
@@ -417,6 +431,17 @@ class StructuredEvaluator:
 
         for attempt in range(2):  # max 2 LLM calls
             retry_count = attempt + 1
+            # ERROR 1 fix: before the schema-retry (2nd attempt), check whether
+            # the first complete() already exhausted the evaluate()-level budget.
+            if attempt == 1:
+                elapsed = time.monotonic() - eval_start
+                if elapsed >= TOTAL_TIMEOUT_SECONDS:
+                    raise LlmClientError(
+                        f"StructuredEvaluator TOTAL_TIMEOUT_SECONDS budget "
+                        f"exhausted after first complete() attempt "
+                        f"(elapsed={elapsed:.1f}s >= {TOTAL_TIMEOUT_SECONDS}s): "
+                        "schema-retry refused (FK-11 §11.4.4 fail-closed)."
+                    )
             # Transport call — emit telemetry event for EVERY attempt, including
             # exceptions (FK-11 §11.4.6b: one event per complete() call).
             try:
@@ -757,13 +782,19 @@ class StructuredEvaluator:
             from agentkit.artifacts.envelope import ArtifactEnvelope
             from agentkit.artifacts.producer import Producer, ProducerId, ProducerType
             from agentkit.core_types import ArtifactClass, EnvelopeStatus
+            from agentkit.verify_system.register import VERIFY_LAYER2_PROMPT_AUDIT_PRODUCER
 
             now = datetime.now(UTC)
             role_slug = result.role.value.replace("_", "-")
             record_key = f"verify-layer2-{role_slug}-{run_id}-{attempt:03d}"
+            # ERROR 2 fix: use the registered canonical PROMPT_AUDIT producer name
+            # (VERIFY_LAYER2_PROMPT_AUDIT_PRODUCER, registered in
+            # register_verify_producers). The audit record is deterministic
+            # evidence — not an LLM verdict — so ProducerType.DETERMINISTIC matches
+            # the ArtifactClass.PROMPT_AUDIT semantics (validator.py §85).
             producer = Producer(
-                type=ProducerType.LLM_REVIEWER,
-                name=f"structured-evaluator-{role_slug}",
+                type=ProducerType.DETERMINISTIC,
+                name=VERIFY_LAYER2_PROMPT_AUDIT_PRODUCER,
                 id=ProducerId(record_key),
             )
             envelope = ArtifactEnvelope(

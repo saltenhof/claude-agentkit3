@@ -1857,6 +1857,10 @@ def _run_layer2(
         runner=runner,
         conformance_context=conformance_context,
     )
+    # ERROR 3 fix: propagate ctx.run_id / ctx.attempt so prompt-audit envelopes
+    # are keyed to the current run (FK-11 §11.4.6a).  Without these, the
+    # StructuredEvaluator silently skips persistence even when artifact_manager
+    # is injected (persist_prompt_audit guards on run_id presence).
     return run_layer2_llm_failclosed(
         runner,
         review_input,
@@ -1864,6 +1868,8 @@ def _run_layer2(
         qa_cycle_round=qa_cycle_round,
         previous_findings=previous_findings,
         doc_fidelity_result=doc_fidelity_result,
+        run_id=ctx.run_id,
+        run_attempt=ctx.attempt,
     )
 
 
@@ -2058,5 +2064,12 @@ def _resolve_layer2_runner(
         artifact_manager=system.artifact_manager,
         story_context_port=system.story_context_port,
     )
-    evaluator = StructuredEvaluator(system.layer2_llm_client, materializer)
+    # ERROR 3 fix: inject system.artifact_manager so prompt-audit envelopes are
+    # persisted via the real ArtifactManager (FK-11 §11.4.6a). Without this the
+    # StructuredEvaluator silently skips persistence on every production run.
+    evaluator = StructuredEvaluator(
+        system.layer2_llm_client,
+        materializer,
+        artifact_manager=system.artifact_manager,
+    )
     return ParallelEvalRunner(evaluator)

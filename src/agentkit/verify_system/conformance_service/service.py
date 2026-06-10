@@ -209,6 +209,9 @@ class StructuredEvaluatorConformanceAdapter:
             )
         template_name = _CONFORMANCE_TEMPLATE_FOR_LEVEL[level]
         bundle = _bundle_for_context(context, subject=subject, references=references)
+        # ERROR 3 fix: propagate context.run_id so the evaluator can persist the
+        # prompt-audit envelope keyed to the current run (FK-11 §11.4.6a).
+        # FidelityContext does not carry an attempt counter; default to 1.
         result = self._evaluator.evaluate(
             role=ReviewerRole.DOC_FIDELITY,
             bundle=bundle,
@@ -218,6 +221,8 @@ class StructuredEvaluatorConformanceAdapter:
             qa_cycle_round=context.qa_cycle_round,
             expected_check_ids=frozenset({expected_check_id}),
             template_override=template_name,
+            run_id=context.run_id,
+            run_attempt=1,
         )
         return ConformanceEvaluation(
             verdict=_verdict_from_llm(result.verdict),

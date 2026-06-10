@@ -364,7 +364,10 @@ def test_adapter_uses_level_specific_template_for_each_fidelity_level(
             qa_cycle_round: int,
             expected_check_ids: object,
             template_override: str | None = None,
+            run_id: str | None = None,
+            run_attempt: int = 1,
         ) -> object:
+            del run_id, run_attempt  # not captured by this test double
             from agentkit.verify_system.llm_evaluator.structured_evaluator import (
                 LlmVerdict,
                 ReviewerRole,
