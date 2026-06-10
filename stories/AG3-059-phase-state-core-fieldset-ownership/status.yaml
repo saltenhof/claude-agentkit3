@@ -1,8 +1,8 @@
 story_id: AG3-059
 title: "PhaseStateCore-Feldsatz + Ownership-Korrektur + Wire-Key pause_reason (FK-39 §39.1.1/§39.2.1/§39.2.5/§39.7): fehlende Core-Felder ergaenzen, RuntimeMetadata-Strenge, Schema-Ownership nach pipeline_engine.phase_executor"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
 created: "2026-06-07"
 size: M
 depends_on:

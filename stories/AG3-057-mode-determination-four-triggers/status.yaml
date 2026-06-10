@@ -1,8 +1,8 @@
 story_id: AG3-057
 title: "Deterministische Modus-Ermittlung (4-Trigger-Modell, FK-22 §22.8 / FK-23 §23.2): execution_route real aus Triggern + VektorDB-Konflikt-Vorrang ableiten statt Story-Typ-Default"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
 created: "2026-06-07"
 size: L
 depends_on:

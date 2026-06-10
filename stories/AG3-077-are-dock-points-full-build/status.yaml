@@ -1,8 +1,8 @@
 story_id: AG3-077
 title: "ARE-Vollausbau (4 Dock-Points, AreClient-HTTP + Konfig-Konstruktion/Injektion, are_bundle.json, StoryAreLink-Schreibwege, FK-40 §40.2/§40.4/§40.5/§40.5b + FK-22 §22.4b): die vier Andock-Punkte + der REST-Adapter real statt Stubs (inkl. Verdrahtung aus ProjectConfig.are), Bundle-Persistenz + Gate-Verdikt"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
 created: "2026-06-07"
 size: L
 depends_on:

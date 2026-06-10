@@ -1,8 +1,8 @@
 story_id: AG3-058
 title: "Terminalitaets-Precondition IMPLEMENTATION_REQUIRED_AFTER_EXPLORATION (FK-24 §24.5.2/§24.7.1/§24.8.2/§24.9/§24.14): Verify/Closure blockieren exploration-only fuer impl/bugfix fail-closed; Folge-Zustands-Flags + Pflichtartefakt exploration-summary.md + Pflicht-Negativtests"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
 created: "2026-06-07"
 size: M
 depends_on:

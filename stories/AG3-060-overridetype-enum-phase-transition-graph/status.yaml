@@ -1,8 +1,8 @@
 story_id: AG3-060
 title: "OverrideType-Enum + Phase-Transition-Graph is_valid_phase_transition (FK-20 §20.1.5, FK-17 §17.3.10, FK-45 §45.2): Override-Arten als geschlossenes StrEnum + normierter PHASE_TRANSITION_GRAPH als benannte Bausteine im Phase-Runner"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
 created: "2026-06-07"
 size: M
 depends_on:

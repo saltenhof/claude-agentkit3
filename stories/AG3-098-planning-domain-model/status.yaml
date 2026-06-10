@@ -1,8 +1,8 @@
 story_id: AG3-098
 title: "Planning-Domaenenmodell BlockingCondition/Feasibility-vs-Scheduling/PlanDerivation/Wave (FK-70 §70.4-§70.6): typisierte Blocker + BLOCKED_*-Status, can_parallelize vs may_parallelize_now, PlanDerivation-Outputs, ExecutionWave-Lifecycle, Human/External-Gates"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
 created: "2026-06-07"
 size: L
 depends_on:

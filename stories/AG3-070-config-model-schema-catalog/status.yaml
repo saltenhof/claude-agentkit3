@@ -1,8 +1,8 @@
 story_id: AG3-070
 title: "Config-Modell-Vollausbau + Schema-Katalog + schema_version"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
 created: "2026-06-07"
 size: L
 depends_on:

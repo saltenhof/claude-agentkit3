@@ -164,4 +164,31 @@ Alle `depends_on` der vier neuen Cut-Items zeigen auf **bereits gebaute** (Welle
 - **AG3-108 → Welle 1, VOR AG3-078:** liefert das Datensubstrat für den Failure-Corpus-Lernloop (`report_effectiveness`). Damit bekommt **AG3-078** eine **neue In-Wave-Kante `depends_on AG3-108`** (beide Welle 1; 108 zuerst). verify-system-QA-Fläche ist gebaut; der FK-69-Read-Model-Eintrag ist Story-interner erster Schritt (Approval-Flow).
 - **AG3-109 → Welle 3 (spätester sicherer Slot vor Welle 4):** Deps (Owner-Persistenz) sind gebaut, **kann ab Welle 1 laufen**; **muss vor Welle 4** stehen, weil **AG3-071** (story-reset) es fail-closed konsumiert. Neue Kante **AG3-071 `depends_on AG3-109`**.
 
-**Metadaten-Nachzug bei Implementierung:** `AG3-078.depends_on += AG3-108` und `AG3-071.depends_on += AG3-109` in den jeweiligen `status.yaml`/Index eintragen (sonst In-Wave-Reihenfolge nicht erzwungen).
+**Metadaten-Nachzug bei Implementierung:** `AG3-078.depends_on += AG3-108` und `AG3-071.depends_on += AG3-109` in den jeweiligen `status.yaml`/Index eintragen (sonst In-Wave-Reihenfolge nicht erzwungen). — **ERLEDIGT 2026-06-10** (beide `status.yaml` ergänzt).
+
+---
+
+## STAND 2026-06-10 (autoritativ, ersetzt aeltere Stand-Notizen)
+
+### Gate-Lage (erstmals vollstaendig gruen)
+- **Jenkins** baut jetzt `main` (vorher fest auf stale Branch `chore/sonar-cleanup` gepinnt — Job-Config korrigiert) und ist **gruen** (Build 283 SUCCESS, `blue`).
+- **CI-Postgres** stabil: Heisenbug (Worker-Env-Vergiftung der `postgres_container_url`-Fixture unter xdist) behoben; CI-Container `agentkit-postgres-ci-55432` (agentkit:agentkit) verifiziert; eingebettetes Jenkins-Skript von `:5432` auf `:55432` korrigiert.
+- **Sonar** Quality Gate **OK** (violations=0, critical=0, security_hotspots=0): Cleanup von 53 Code-Smells + 1 ReDoS-Hotspot root-cause, ohne Suppressions; Hotspot regulaer als REVIEWED/SAFE triagiert.
+- **Produktions-DB-Policy:** native Windows-PostgreSQL auf Standardport 5432 ist exklusive Produktions-State-Backend (FK-10 §10.7); Test-DBs nur auf Nicht-5432-Ports (fail-closed Guard).
+
+### Welle 0 — alle auf `main` gepusht & status.yaml=completed
+AG3-057/059/060/061/064/066/070/073/075/077/080/087/090/095/096/098/102.
+(AG3-095 ohne eigenstaendigen hostile Review committet — Nachreview empfohlen.)
+
+### Welle 1 — laufend
+- **Gepusht & review-clean:** AG3-106, AG3-107, AG3-058, AG3-062, AG3-063, AG3-065.
+- **Offen:** AG3-067 (naechste), 068, 074, 078 (nach 108), 081, 088, 092, 104 (doc-only), 108 (Spec review-clean, Impl offen).
+
+### Arbeitsmodus (aktualisiert 2026-06-10)
+- **Implementierung + Remediation: Sonnet-Sub-Agents** (Agent-Tool, live Tree auf `main`); **Review + Re-Review: Codex** (read-only). Loop bis Codex nichts Relevantes mehr findet.
+- **NO-STUBS-Klausel (verbindlich):** Tests gegen ECHTE interne Collaborators (ArtifactManager/ProducerRegistry, State-Stores, Envelopes, Composition-Root) — kein Fake, der den realen Validierungs-/Repository-Pfad umgeht; Fakes nur an echten externen Grenzen (LLM/Hub).
+- Pro abgeschlossener Story: `docs(stories)`-State-Commit (status.yaml=completed/closure) getrennt vom Code-Commit.
+- Single-Code-Writer auf dem Live-Tree; vor jedem Push vollstaendige ausgehende Commit-Liste + Tree-Sauberkeit pruefen.
+
+### Offene Konzept-Luecke (WARNING, Owner faellig)
+- **AG3-065 §7:** Login-Required-Pipeline-Pause hat keinen Owner — braucht neuen `PauseReason`-Member (FK-39 §39.2.2) + Phase-Runner-Pause-Verdrahtung. AG3-065 liefert nur den getypten Transport-Ausgang `LoginRequiredError`. Als neue Story/Scope-Erweiterung zu schneiden.

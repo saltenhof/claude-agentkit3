@@ -1,8 +1,8 @@
 story_id: AG3-064
 title: "Stage-Registry-Vollausbau (Layer 2/3/4 + concept/research + Bugfix-Red-Green + Trust/Producer/Override)"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
 created: "2026-06-07"
 size: L
 depends_on:

@@ -1,8 +1,8 @@
 story_id: AG3-066
 title: "Review-Paar-Divergenz + Quorum/Tiebreaker (normalize_verdict)"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
 created: "2026-06-07"
 size: M
 depends_on:

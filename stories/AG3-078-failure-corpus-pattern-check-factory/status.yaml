@@ -17,6 +17,10 @@ depends_on:
   #          phase_state_projection record, guard counters, reset-purge delta).
   #          Those fields (CP2/CP3) have no in-scope owner today and are tracked
   #          as cross-story action items, not as a depends_on edge to AG3-081.
+  # AG3-108: per-check-outcome read-model (verify-system-emitted). AG3-078's
+  #          report_effectiveness consumes the per-check outcome corpus that
+  #          AG3-108 materializes — in-wave edge (Welle 1); AG3-108 lands first.
   - AG3-028
   - AG3-070
+  - AG3-108
 unblocks: []

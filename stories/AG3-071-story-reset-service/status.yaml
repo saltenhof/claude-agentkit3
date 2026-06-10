@@ -10,4 +10,8 @@ depends_on:
   - AG3-035
   - AG3-081
   - AG3-082
+  # AG3-109: runtime-execution-purge-port. AG3-071 fail-closed consumes the
+  #          coordinated per-owner runtime-execution purge AG3-109 delivers
+  #          (FK-53 §53.6.2/§53.7.5) — AG3-109 must land before AG3-071 (Welle 3→4).
+  - AG3-109
 unblocks: []

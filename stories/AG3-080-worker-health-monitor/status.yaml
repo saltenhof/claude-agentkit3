@@ -1,8 +1,8 @@
 story_id: AG3-080
 title: "Worker-Health-Monitor (harness-neutrale Scoring-/Interventions-Engine + Sidecar, FK-49 §49.1.1-§49.1.7): compute_health_score/intervention_decision/AgentHealthState, classify_commit_failure, watch-worker-Sidecar, worker_health-Config"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
 created: "2026-06-07"
 size: L
 depends_on:
