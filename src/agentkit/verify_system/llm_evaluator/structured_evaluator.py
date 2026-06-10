@@ -437,9 +437,10 @@ class StructuredEvaluator:
         # bind the evaluator deadline in the per-evaluation ContextVar
         # (``_EVAL_DEADLINE_CV``) and RESET it in the finally block below.
         # The ContextVar is concurrency-safe across the ThreadPoolExecutor
-        # used by ParallelEvalRunner: each submitted task copies the
-        # caller's context at submit-time, and the finally-reset prevents
-        # leakage to the NEXT task reusing the same worker thread.
+        # used by ParallelEvalRunner: a plain executor does NOT copy the
+        # submitter's context, so isolation comes from binding the deadline
+        # HERE (inside the worker thread, per evaluation) plus the finally-reset
+        # below, which prevents leakage to the NEXT task reusing the worker.
         # ``HubLlmClient.complete()`` reads ``_EVAL_DEADLINE_CV`` so it
         # never reads another role's deadline. The LlmClient Protocol port
         # ``complete(*, role, prompt)->str`` stays unchanged.

@@ -44,10 +44,11 @@ logger = logging.getLogger(__name__)
 #:
 #: Each :meth:`StructuredEvaluator.evaluate` call sets this ContextVar at
 #: entry and resets it in a ``finally`` block via :func:`bind_eval_deadline`.
-#: Because :class:`~concurrent.futures.ThreadPoolExecutor` *copies* the
-#: calling context into each worker thread at submit-time, and each
-#: ``evaluate()`` resets the var on exit, concurrent roles on SHARED threads
-#: never see each other's deadline value — no instance-attribute race.
+#: A plain :class:`~concurrent.futures.ThreadPoolExecutor` does NOT copy the
+#: submitter's context into worker threads; isolation here does not rely on
+#: that. Instead, ``evaluate()`` binds the deadline *inside* the worker thread
+#: and resets it on exit, so concurrent roles — even on a SHARED, reused pool
+#: thread — never see each other's deadline value — no instance-attribute race.
 #:
 #: :class:`HubLlmClient.complete` reads this var (falling back to a fresh
 #: per-call budget when unset). The ``LlmClient`` Protocol port
