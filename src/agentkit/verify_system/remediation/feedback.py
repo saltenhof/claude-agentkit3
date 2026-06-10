@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from agentkit.verify_system.protocols import Finding, Severity
+from agentkit.verify_system.protocols import Finding, Severity, TrustClass
 from agentkit.verify_system.remediation.finding_resolution import (
     FindingKey,
     FindingResolutionStatus,
@@ -133,6 +133,7 @@ def build_feedback(
     round_nr: int,
     *,
     finding_resolution: dict[FindingKey, FindingResolutionStatus] | None = None,
+    extra_blocking_findings: tuple[Finding, ...] = (),
 ) -> RemediationFeedback | None:
     """Build remediation feedback from a verify decision.
 
@@ -152,19 +153,64 @@ def build_feedback(
     Returns:
         ``RemediationFeedback`` if the decision failed, otherwise ``None``.
     """
-    if decision.passed:
+    if decision.passed and not extra_blocking_findings:
         return None
 
     advisory = tuple(
         f for f in decision.all_findings
         if f.severity != Severity.BLOCKING
     )
+    blocking = (*decision.blocking_findings, *extra_blocking_findings)
 
     return RemediationFeedback(
         story_id=story_id,
         round_nr=round_nr,
-        blocking_findings=decision.blocking_findings,
+        blocking_findings=blocking,
         advisory_findings=advisory,
-        summary=decision.summary,
+        summary=_summary_with_extra_findings(decision.summary, extra_blocking_findings),
         finding_resolution=dict(finding_resolution) if finding_resolution else {},
+    )
+
+
+def mandatory_target_findings_from_adversarial(
+    adversarial_payload: dict[str, object],
+) -> tuple[Finding, ...]:
+    """Map unmet mandatory adversarial targets to real ``Finding`` objects."""
+    raw_results = adversarial_payload.get("mandatory_target_results")
+    if not isinstance(raw_results, list):
+        return ()
+    findings: list[Finding] = []
+    for raw in raw_results:
+        if not isinstance(raw, dict):
+            continue
+        status = str(raw.get("status", "")).upper()
+        if status in {"TESTED", "UNRESOLVABLE"}:
+            continue
+        target_id = str(raw.get("target_id") or raw.get("id") or "mandatory_target")
+        detail = str(raw.get("detail") or raw.get("reason") or "target was not tested")
+        findings.append(
+            Finding(
+                layer="adversarial",
+                check=target_id,
+                severity=Severity.BLOCKING,
+                message=(
+                    "Mandatory adversarial target not fulfilled: "
+                    f"{target_id} (status={status or 'MISSING'}; {detail})"
+                ),
+                trust_class=TrustClass.VERIFIED_LLM,
+                suggestion="Cover this mandatory adversarial target or mark it UNRESOLVABLE with evidence.",
+            )
+        )
+    return tuple(findings)
+
+
+def _summary_with_extra_findings(
+    summary: str,
+    extra_blocking_findings: tuple[Finding, ...],
+) -> str:
+    if not extra_blocking_findings:
+        return summary
+    return (
+        f"{summary} Mandatory adversarial target feedback added: "
+        f"{len(extra_blocking_findings)} blocking finding(s)."
     )

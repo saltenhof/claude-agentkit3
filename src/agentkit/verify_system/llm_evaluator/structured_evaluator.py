@@ -37,7 +37,6 @@ import logging
 import re
 import time
 from datetime import UTC, datetime
-from enum import StrEnum
 from typing import TYPE_CHECKING, Final, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -48,6 +47,16 @@ from agentkit.verify_system.llm_evaluator.llm_client import (
     TOTAL_TIMEOUT_SECONDS,
     LlmClientError,
     bind_eval_deadline,
+)
+from agentkit.verify_system.llm_evaluator.roles import (
+    DOC_FIDELITY_CHECK_IDS,
+    QA_REVIEW_CHECK_IDS,
+    ROLE_CHECK_IDS,
+    ROLE_TEMPLATE,
+    SEMANTIC_REVIEW_CHECK_IDS,
+    STATUS_SEVERITY,
+    LlmVerdict,
+    ReviewerRole,
 )
 from agentkit.verify_system.protocols import Finding, Severity, TrustClass
 from agentkit.verify_system.remediation.finding_resolution import (
@@ -127,99 +136,12 @@ def _parse_finding_resolution_key(suffix: str) -> FindingKey:
     return (parts[0], parts[1])
 
 
-class LlmVerdict(StrEnum):
-    """LLM-domain verdict of a single evaluation role (FK-34 §34.2).
-
-    Domain values that the ``ProducerRegistry.map_llm_status_to_envelope_status``
-    maps onto ``EnvelopeStatus`` (FK-71 §71.2). ``PASS_WITH_CONCERNS`` does not
-    block in the regular checks (FK-05-166) but is blocking for
-    finding-resolution checks (FK-34 §34.9.4).
-
-    Attributes:
-        PASS: All checks passed.
-        FAIL: At least one regular check failed (blocking, FK-05-164).
-        PASS_WITH_CONCERNS: Passed with non-blocking concerns.
-    """
-
-    PASS = "PASS"
-    FAIL = "FAIL"
-    PASS_WITH_CONCERNS = "PASS_WITH_CONCERNS"
-
-
-class ReviewerRole(StrEnum):
-    """The three Layer-2 evaluation roles (FK-27 §27.5 / FK-34 §34.2).
-
-    Attributes:
-        QA_REVIEW: 12-check QA review (FK-27 §27.5.2).
-        SEMANTIC_REVIEW: 1-check systemic-adequacy review (FK-34 §34.2.3).
-        DOC_FIDELITY: 1-check implementation-fidelity review (FK-34 §34.2.4).
-    """
-
-    QA_REVIEW = "qa_review"
-    SEMANTIC_REVIEW = "semantic_review"
-    DOC_FIDELITY = "doc_fidelity"
-
-
-#: The 12 canonical qa_review check-ids (FK-27 §27.5.2 / FK-34 §34.9.5).
-#: SINGLE SOURCE OF TRUTH for the qa_review whitelist; the prompt template and
-#: the contract test pin against these (no second list).
-QA_REVIEW_CHECK_IDS: Final[frozenset[str]] = frozenset({
-    "ac_fulfilled",
-    "impl_fidelity",
-    "scope_compliance",
-    "impact_violation",
-    "arch_conformity",
-    "proportionality",
-    "error_handling",
-    "authz_logic",
-    "silent_data_loss",
-    "backward_compat",
-    "observability",
-    "doc_impact",
-})
-
-#: The single semantic_review check-id (FK-34 §34.2.3).
-SEMANTIC_REVIEW_CHECK_IDS: Final[frozenset[str]] = frozenset({"systemic_adequacy"})
-
-#: The single doc_fidelity check-id (FK-34 §34.2.4).
-DOC_FIDELITY_CHECK_IDS: Final[frozenset[str]] = frozenset({"impl_fidelity"})
-
-#: Role -> expected static check-id whitelist (FK-34 §34.9.5 base set per role).
-_ROLE_CHECK_IDS: Final[dict[ReviewerRole, frozenset[str]]] = {
-    ReviewerRole.QA_REVIEW: QA_REVIEW_CHECK_IDS,
-    ReviewerRole.SEMANTIC_REVIEW: SEMANTIC_REVIEW_CHECK_IDS,
-    ReviewerRole.DOC_FIDELITY: DOC_FIDELITY_CHECK_IDS,
-}
-
-#: Role -> logical prompt-template name (FK-44 §44.4.2 / story.md §2.1.1).
-_ROLE_TEMPLATE: Final[dict[ReviewerRole, str]] = {
-    ReviewerRole.QA_REVIEW: "qa-review",
-    ReviewerRole.SEMANTIC_REVIEW: "qa-semantic-review",
-    ReviewerRole.DOC_FIDELITY: "qa-doc-fidelity",
-}
-
 #: LLM resolution wire-string -> FindingResolutionStatus (FK-34 §34.9.4).
 _RESOLUTION_WIRE: Final[dict[str, FindingResolutionStatus]] = {
     "fully_resolved": FindingResolutionStatus.FULLY_RESOLVED,
     "partially_resolved": FindingResolutionStatus.PARTIALLY_RESOLVED,
     "not_resolved": FindingResolutionStatus.NOT_RESOLVED,
 }
-
-#: LLM check-status -> finding severity for FAIL/PASS_WITH_CONCERNS checks.
-#: PASS produces no finding. A FAIL maps to ``BLOCKING`` (not ``MAJOR``):
-#: FK-33 §33.8.2 / FK-34 §34.2.5 require that **every** Layer-2 FAIL blocks the
-#: Schicht-2 -> Schicht-3 gate HARD and *schwellenunabhaengig* ("jeder FAIL
-#: blockiert, FK-05-164") -- NOT gated on ``max_major_findings``. A Layer-2
-#: role is a *blocking stage* (FK-33 §33.7.2), so its FAIL maps to the
-#: unconditional ``BLOCKING`` severity; the PolicyEngine (the single blocking
-#: SSOT) blocks on any ``BLOCKING`` finding regardless of trust class or
-#: threshold. ``PASS_WITH_CONCERNS`` is ``MINOR`` (never blocking; surfaced for
-#: the policy engine + adversarial layer, FK-05-166).
-_STATUS_SEVERITY: Final[dict[LlmVerdict, Severity]] = {
-    LlmVerdict.FAIL: Severity.BLOCKING,
-    LlmVerdict.PASS_WITH_CONCERNS: Severity.MINOR,
-}
-
 
 class StructuredEvaluatorError(VerifySystemError):
     """Raised when the LLM response is not a valid evaluation result (fail-closed).
@@ -414,36 +336,30 @@ class StructuredEvaluator:
             role, previous_findings, qa_cycle_round, expected_check_ids
         )
 
-        # --- FK-11 §11.4.4: max 2 LLM calls (1 initial + 1 schema-hint retry) ---
-        # The retry applies to PARSE failures (Stages 2/3 cannot extract a valid
-        # structure). Completeness/resolution failures (correct parse but wrong
-        # check IDs) are immediate fail-closed (no retry). This preserves the
-        # original fail-closed contract for content validation while adding the
-        # FK-11 §11.4.4 parse-retry only where it helps.
-        #
-        # FK-11 §11.4.6b: one llm_call telemetry event is emitted PER complete()
-        # call — including transport-exception attempts and parse-failed attempts.
-        #
-        # ERROR 1 fix: measure wall-clock elapsed from the START of evaluate()
-        # so that the whole evaluate() call (including the schema-retry 2nd
-        # complete()) is bounded by TOTAL_TIMEOUT_SECONDS.  Before issuing the
-        # 2nd complete() call, we check whether the first already consumed the
-        # budget; if so we refuse fail-closed (raise) rather than starting a
-        # second full ~2500s send.  (The per-call budget is enforced inside
-        # HubLlmClient.complete() for the individual acquire/send/release ops;
-        # this is the cross-call bound owned by the evaluator.)
-        #
-        # NEAR-BOUNDARY / CONCURRENCY fix (ERROR 1, AG3-065 rem-4):
-        # bind the evaluator deadline in the per-evaluation ContextVar
-        # (``_EVAL_DEADLINE_CV``) and RESET it in the finally block below.
-        # The ContextVar is concurrency-safe across the ThreadPoolExecutor
-        # used by ParallelEvalRunner: a plain executor does NOT copy the
-        # submitter's context, so isolation comes from binding the deadline
-        # HERE (inside the worker thread, per evaluation) plus the finally-reset
-        # below, which prevents leakage to the NEXT task reusing the worker.
-        # ``HubLlmClient.complete()`` reads ``_EVAL_DEADLINE_CV`` so it
-        # never reads another role's deadline. The LlmClient Protocol port
-        # ``complete(*, role, prompt)->str`` stays unchanged.
+        return self._evaluate_with_retry(
+            role=role,
+            bundle=bundle,
+            full_prompt=full_prompt,
+            template_sha256=template_sha256,
+            mandatory=mandatory,
+            resolution_required=resolution_required,
+            run_id=run_id,
+            run_attempt=run_attempt,
+        )
+
+    def _evaluate_with_retry(
+        self,
+        *,
+        role: ReviewerRole,
+        bundle: ReviewBundle,
+        full_prompt: str,
+        template_sha256: str,
+        mandatory: frozenset[str],
+        resolution_required: frozenset[str],
+        run_id: str | None,
+        run_attempt: int,
+    ) -> StructuredEvaluatorResult:
+        """Run the bounded max-two-call parse retry loop."""
         eval_start = time.monotonic()
         eval_deadline = eval_start + TOTAL_TIMEOUT_SECONDS
         _cv_token = bind_eval_deadline(eval_deadline)
@@ -455,74 +371,26 @@ class StructuredEvaluator:
 
             for attempt in range(2):  # max 2 LLM calls
                 retry_count = attempt + 1
-                # ERROR 1 fix: before the schema-retry (2nd attempt), check whether
-                # the first complete() already exhausted the evaluate()-level budget.
-                if attempt == 1:
-                    elapsed = time.monotonic() - eval_start
-                    if elapsed >= TOTAL_TIMEOUT_SECONDS:
-                        raise LlmClientError(
-                            f"StructuredEvaluator TOTAL_TIMEOUT_SECONDS budget "
-                            f"exhausted after first complete() attempt "
-                            f"(elapsed={elapsed:.1f}s >= {TOTAL_TIMEOUT_SECONDS}s): "
-                            "schema-retry refused (FK-11 §11.4.4 fail-closed)."
-                        )
-                # Transport call — emit telemetry event for EVERY attempt, including
-                # exceptions (FK-11 §11.4.6b: one event per complete() call).
-                try:
-                    raw_response = self._llm_client.complete(
-                        role=role.value, prompt=current_prompt
-                    )
-                except LlmClientError:
-                    self._emit_llm_call_event(
-                        role=role,
-                        bundle=bundle,
-                        retry=attempt,
-                        check_count=0,
-                        status="transport_error",
-                    )
-                    raise
-                if not raw_response.strip():
-                    self._emit_llm_call_event(
-                        role=role,
-                        bundle=bundle,
-                        retry=attempt,
-                        check_count=0,
-                        status="empty_response",
-                    )
-                    raise LlmClientError(
-                        f"LlmClient returned empty completion for role={role.value!r} "
-                        "(FK-34 §34.5.1 fail-closed)."
-                    )
-
-                # Stage 2/3: try to parse a valid LlmEvaluatorResponse.
-                parse_error: StructuredEvaluatorError | None = None
-                response = None
-                try:
-                    response = self._parse_response_three_stage(
-                        raw_response, role, mandatory | resolution_required
-                    )
-                except StructuredEvaluatorError as exc:
-                    parse_error = exc
+                self._raise_if_retry_budget_exhausted(attempt, eval_start)
+                raw_response = self._complete_attempt(
+                    role=role,
+                    bundle=bundle,
+                    prompt=current_prompt,
+                    attempt=attempt,
+                )
+                response, parse_error = self._parse_attempt(
+                    raw_response, role, mandatory | resolution_required
+                )
 
                 if parse_error is not None:
                     last_parse_error = parse_error
-                    # Emit event for this failed parse attempt.
-                    self._emit_llm_call_event(
+                    current_prompt = self._prompt_after_parse_failure(
                         role=role,
                         bundle=bundle,
-                        retry=attempt,
-                        check_count=0,
-                        status="parse_fail",
+                        full_prompt=full_prompt,
+                        attempt=attempt,
+                        parse_error=parse_error,
                     )
-                    if attempt == 0:
-                        logger.warning(
-                            "StructuredEvaluator parse failed for role=%r (attempt 1/%d); "
-                            "retrying with schema hint: %s",
-                            role.value,
-                            2,
-                            parse_error,
-                        )
-                        current_prompt = full_prompt + _SCHEMA_RETRY_HINT
                     continue  # next attempt
 
                 # Parse succeeded — now validate completeness (no retry on this).
@@ -575,6 +443,91 @@ class StructuredEvaluator:
             # the next task reusing this worker thread (concurrency-safe,
             # AG3-065 rem-4 ERROR 1 fix).
             _EVAL_DEADLINE_CV.reset(_cv_token)
+
+    @staticmethod
+    def _raise_if_retry_budget_exhausted(attempt: int, eval_start: float) -> None:
+        if attempt != 1:
+            return
+        elapsed = time.monotonic() - eval_start
+        if elapsed < TOTAL_TIMEOUT_SECONDS:
+            return
+        raise LlmClientError(
+            f"StructuredEvaluator TOTAL_TIMEOUT_SECONDS budget exhausted after "
+            f"first complete() attempt (elapsed={elapsed:.1f}s >= "
+            f"{TOTAL_TIMEOUT_SECONDS}s): schema-retry refused "
+            "(FK-11 §11.4.4 fail-closed)."
+        )
+
+    def _complete_attempt(
+        self,
+        *,
+        role: ReviewerRole,
+        bundle: ReviewBundle,
+        prompt: str,
+        attempt: int,
+    ) -> str:
+        try:
+            raw_response = self._llm_client.complete(role=role.value, prompt=prompt)
+        except LlmClientError:
+            self._emit_llm_call_event(
+                role=role,
+                bundle=bundle,
+                retry=attempt,
+                check_count=0,
+                status="transport_error",
+            )
+            raise
+        if raw_response.strip():
+            return raw_response
+        self._emit_llm_call_event(
+            role=role,
+            bundle=bundle,
+            retry=attempt,
+            check_count=0,
+            status="empty_response",
+        )
+        raise LlmClientError(
+            f"LlmClient returned empty completion for role={role.value!r} "
+            "(FK-34 §34.5.1 fail-closed)."
+        )
+
+    def _parse_attempt(
+        self,
+        raw_response: str,
+        role: ReviewerRole,
+        expected_ids: frozenset[str],
+    ) -> tuple[LlmEvaluatorResponse | None, StructuredEvaluatorError | None]:
+        try:
+            return self._parse_response_three_stage(raw_response, role, expected_ids), None
+        except StructuredEvaluatorError as exc:
+            return None, exc
+
+    def _prompt_after_parse_failure(
+        self,
+        *,
+        role: ReviewerRole,
+        bundle: ReviewBundle,
+        full_prompt: str,
+        attempt: int,
+        parse_error: StructuredEvaluatorError,
+    ) -> str:
+        self._emit_llm_call_event(
+            role=role,
+            bundle=bundle,
+            retry=attempt,
+            check_count=0,
+            status="parse_fail",
+        )
+        if attempt != 0:
+            return full_prompt
+        logger.warning(
+            "StructuredEvaluator parse failed for role=%r (attempt 1/%d); "
+            "retrying with schema hint: %s",
+            role.value,
+            2,
+            parse_error,
+        )
+        return full_prompt + _SCHEMA_RETRY_HINT
 
     @staticmethod
     def _parse_response_three_stage(
@@ -656,9 +609,10 @@ class StructuredEvaluator:
             candidates.append(fence_match.group(1).strip())
 
         # 3. Extract from first "[{" to last "}]" pattern.
-        bracket_match = re.search(r"(\[\{.*?\}\])", text, re.DOTALL)
-        if bracket_match:
-            candidates.append(bracket_match.group(1).strip())
+        array_start = text.find("[{")
+        array_end = text.rfind("}]")
+        if array_start != -1 and array_end > array_start:
+            candidates.append(text[array_start : array_end + 2].strip())
 
         # 4. Extract from the first "[" to the last matching "]".
         first_bracket = text.find("[")
@@ -728,41 +682,19 @@ class StructuredEvaluator:
         # Try to extract per-check_id from text by finding the check_id mention.
         sorted_ids = sorted(expected_ids)
         for check_id in sorted_ids:
-            # Find the region of text mentioning this check_id.
-            cid_pos = text.find(check_id)
-            if cid_pos == -1:
-                continue
-            # Look in the 500 chars around the check_id mention.
-            region = text[max(0, cid_pos - 50) : cid_pos + 500]
-            status_match = status_pattern.search(region)
-            if not status_match:
-                continue
-            status_raw = status_match.group(1).upper()
-            # Normalise
-            if status_raw not in ("PASS", "FAIL", "PASS_WITH_CONCERNS"):
-                continue
-            reason_match = reason_pattern.search(region)
-            reason = reason_match.group(1) if reason_match else ""
-            desc_match = desc_pattern.search(region)
-            description = desc_match.group(1) if desc_match else ""
-            checks.append({
-                "check_id": check_id,
-                "status": status_raw,
-                "reason": reason,
-                "description": description,
-            })
+            check = _extract_check_near_id(
+                text,
+                check_id,
+                status_pattern=status_pattern,
+                reason_pattern=reason_pattern,
+                desc_pattern=desc_pattern,
+            )
+            if check is not None:
+                checks.append(check)
 
         if not checks:
             # Last resort: find status values and zip with sorted ids.
-            statuses = status_pattern.findall(text)
-            if len(statuses) >= len(sorted_ids):
-                for idx, check_id in enumerate(sorted_ids):
-                    checks.append({
-                        "check_id": check_id,
-                        "status": statuses[idx].upper(),
-                        "reason": "",
-                        "description": "",
-                    })
+            checks.extend(_sequential_status_checks(text, sorted_ids, status_pattern))
 
         if not checks:
             raise StructuredEvaluatorError(
@@ -956,7 +888,7 @@ class StructuredEvaluator:
         ``semantic_review`` evaluator its own, etc. Both sets are mandatory and
         exact-match enforced by :meth:`_validate_completeness` (fail-closed).
         """
-        mandatory = expected_check_ids if expected_check_ids is not None else _ROLE_CHECK_IDS[role]
+        mandatory = expected_check_ids if expected_check_ids is not None else ROLE_CHECK_IDS[role]
         if qa_cycle_round < 2 or not previous_findings:
             return mandatory, frozenset()
         resolution_ids = frozenset(
@@ -1099,7 +1031,7 @@ class StructuredEvaluator:
     @staticmethod
     def _finding_from_check(role: ReviewerRole, check: CheckResult) -> Finding:
         """Build a verify-system :class:`Finding` from a non-PASS check."""
-        severity = _STATUS_SEVERITY[check.status]
+        severity = STATUS_SEVERITY[check.status]
         message = check.reason or check.description or f"{check.check_id}: {check.status}"
         return Finding(
             layer=role.value,
@@ -1137,6 +1069,54 @@ class StructuredEvaluator:
             trust_class=TrustClass.VERIFIED_LLM,
         )
 
+
+def _extract_check_near_id(
+    text: str,
+    check_id: str,
+    *,
+    status_pattern: re.Pattern[str],
+    reason_pattern: re.Pattern[str],
+    desc_pattern: re.Pattern[str],
+) -> dict[str, object] | None:
+    """Extract one free-text check block anchored at a known check id."""
+    cid_pos = text.find(check_id)
+    if cid_pos == -1:
+        return None
+    region = text[max(0, cid_pos - 50) : cid_pos + 500]
+    status_match = status_pattern.search(region)
+    if not status_match:
+        return None
+    status_raw = status_match.group(1).upper()
+    if status_raw not in {"PASS", "FAIL", "PASS_WITH_CONCERNS"}:
+        return None
+    reason_match = reason_pattern.search(region)
+    desc_match = desc_pattern.search(region)
+    return {
+        "check_id": check_id,
+        "status": status_raw,
+        "reason": reason_match.group(1) if reason_match else "",
+        "description": desc_match.group(1) if desc_match else "",
+    }
+
+
+def _sequential_status_checks(
+    text: str,
+    sorted_ids: list[str],
+    status_pattern: re.Pattern[str],
+) -> list[dict[str, object]]:
+    """Map positional free-text status mentions to sorted check ids."""
+    statuses = status_pattern.findall(text)
+    if len(statuses) < len(sorted_ids):
+        return []
+    return [
+        {
+            "check_id": check_id,
+            "status": statuses[idx].upper(),
+            "reason": "",
+            "description": "",
+        }
+        for idx, check_id in enumerate(sorted_ids)
+    ]
 
 
 def _verdict(has_blocking: bool, has_concern: bool) -> LlmVerdict:
@@ -1202,7 +1182,7 @@ def template_name_for_role(role: ReviewerRole) -> str:
     Returns:
         The logical template name (e.g. ``"qa-review"``).
     """
-    return _ROLE_TEMPLATE[role]
+    return ROLE_TEMPLATE[role]
 
 
 __all__ = [

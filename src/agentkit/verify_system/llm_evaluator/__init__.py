@@ -15,22 +15,28 @@ AG3-065 additions: ``HubLlmClient`` (concrete Hub adapter, injectable),
 
 from __future__ import annotations
 
-from agentkit.verify_system.llm_evaluator.bundle import (
-    MAX_BUNDLE_TOTAL_BYTES,
-    MAX_DIFF_CONTENT_BYTES,
+from agentkit.verify_system.llm_evaluator.bundle import (  # noqa: F401
+    BUNDLE_TOKEN_LIMIT,
     ReviewBundle,
     build_review_bundle,
 )
-from agentkit.verify_system.llm_evaluator.dialogue_runner import (
+from agentkit.verify_system.llm_evaluator.context_sufficiency import (  # noqa: F401
+    CONTEXT_SUFFICIENCY_FILE,
+    ContextSufficiencyArtifact,
+    ContextSufficiencyBuilder,
+    ContextSufficiencyResult,
+    SufficiencyLevel,
+)
+from agentkit.verify_system.llm_evaluator.dialogue_runner import (  # noqa: F401
     DialogueResult,
     DialogueRunner,
     DialogueTurn,
 )
-from agentkit.verify_system.llm_evaluator.inputs import (
+from agentkit.verify_system.llm_evaluator.inputs import (  # noqa: F401
     Layer2InputMissingError,
     Layer2ReviewInput,
 )
-from agentkit.verify_system.llm_evaluator.llm_client import (
+from agentkit.verify_system.llm_evaluator.llm_client import (  # noqa: F401
     ACQUIRE_TIMEOUT_SECONDS,
     MAX_ACQUIRE_RETRIES,
     RELEASE_TIMEOUT_SECONDS,
@@ -43,14 +49,14 @@ from agentkit.verify_system.llm_evaluator.llm_client import (
     LoginRequiredError,
     RolePoolResolver,
 )
-from agentkit.verify_system.llm_evaluator.parallel_runner import (
+from agentkit.verify_system.llm_evaluator.parallel_runner import (  # noqa: F401
     ParallelEvalError,
     ParallelEvalRunner,
 )
-from agentkit.verify_system.llm_evaluator.prompt_materializer import (
+from agentkit.verify_system.llm_evaluator.prompt_materializer import (  # noqa: F401
     PromptRuntimeMaterializer,
 )
-from agentkit.verify_system.llm_evaluator.structured_evaluator import (
+from agentkit.verify_system.llm_evaluator.structured_evaluator import (  # noqa: F401
     DOC_FIDELITY_CHECK_IDS,
     QA_REVIEW_CHECK_IDS,
     SEMANTIC_REVIEW_CHECK_IDS,
@@ -64,39 +70,4 @@ from agentkit.verify_system.llm_evaluator.structured_evaluator import (
     template_name_for_role,
 )
 
-__all__ = [
-    "ACQUIRE_TIMEOUT_SECONDS",
-    "DOC_FIDELITY_CHECK_IDS",
-    "MAX_ACQUIRE_RETRIES",
-    "MAX_BUNDLE_TOTAL_BYTES",
-    "MAX_DIFF_CONTENT_BYTES",
-    "QA_REVIEW_CHECK_IDS",
-    "RELEASE_TIMEOUT_SECONDS",
-    "SEMANTIC_REVIEW_CHECK_IDS",
-    "SEND_TIMEOUT_SECONDS",
-    "TOTAL_TIMEOUT_SECONDS",
-    "CheckResult",
-    "DialogueResult",
-    "DialogueRunner",
-    "DialogueTurn",
-    "FailClosedLlmClient",
-    "HubLlmClient",
-    "Layer2InputMissingError",
-    "Layer2ReviewInput",
-    "LlmClient",
-    "LlmClientError",
-    "LlmEvaluatorResponse",
-    "LlmVerdict",
-    "LoginRequiredError",
-    "ParallelEvalError",
-    "ParallelEvalRunner",
-    "PromptRuntimeMaterializer",
-    "ReviewBundle",
-    "ReviewerRole",
-    "RolePoolResolver",
-    "StructuredEvaluator",
-    "StructuredEvaluatorError",
-    "StructuredEvaluatorResult",
-    "build_review_bundle",
-    "template_name_for_role",
-]
+__all__ = ["ACQUIRE_TIMEOUT_SECONDS", "BUNDLE_TOKEN_LIMIT", "CONTEXT_SUFFICIENCY_FILE", "DOC_FIDELITY_CHECK_IDS", "MAX_ACQUIRE_RETRIES", "QA_REVIEW_CHECK_IDS", "RELEASE_TIMEOUT_SECONDS", "SEMANTIC_REVIEW_CHECK_IDS", "SEND_TIMEOUT_SECONDS", "TOTAL_TIMEOUT_SECONDS", "CheckResult", "ContextSufficiencyArtifact", "ContextSufficiencyBuilder", "ContextSufficiencyResult", "DialogueResult", "DialogueRunner", "DialogueTurn", "FailClosedLlmClient", "HubLlmClient", "Layer2InputMissingError", "Layer2ReviewInput", "LlmClient", "LlmClientError", "LlmEvaluatorResponse", "LlmVerdict", "LoginRequiredError", "ParallelEvalError", "ParallelEvalRunner", "PromptRuntimeMaterializer", "ReviewBundle", "ReviewerRole", "RolePoolResolver", "StructuredEvaluator", "StructuredEvaluatorError", "StructuredEvaluatorResult", "SufficiencyLevel", "build_review_bundle", "template_name_for_role"]  # noqa: E501

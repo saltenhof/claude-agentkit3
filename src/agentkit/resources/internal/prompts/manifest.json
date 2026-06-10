@@ -57,6 +57,10 @@
     "qa-conformance-feedback": {
       "relpath": "internal/prompts/qa-conformance-feedback.md",
       "sha256": "0bfd809a9cac9f6a632c4fa7d266031c40a1d238068dfa95b4ac52cc7a3444ae"
+    },
+    "doc-fidelity-feedback": {
+      "relpath": "internal/prompts/doc-fidelity-feedback.md",
+      "sha256": "1bef05f595107c2c72532c417e4b73424900cfa00ebff389992f7ef26b25042f"
     }
   }
 }

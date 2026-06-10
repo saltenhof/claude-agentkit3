@@ -17,6 +17,7 @@ from agentkit.core_types import ArtifactClass
 from agentkit.core_types.qa_artifact_names import (
     ADVERSARIAL_PRODUCER,
     ADVERSARIAL_STAGE,
+    CONTEXT_SUFFICIENCY_PRODUCER,
     DOC_FIDELITY_FILE,
     DOC_FIDELITY_PRODUCER,
     DOC_FIDELITY_STAGE,
@@ -76,6 +77,13 @@ LAYER_2_SPECS: tuple[_LayerArtifactSpec, ...] = (
         producer_name=DOC_FIDELITY_PRODUCER,
         producer_type=ProducerType.LLM_REVIEWER,
     ),
+)
+
+CONTEXT_SUFFICIENCY_ARTIFACT_SPEC = _LayerArtifactSpec(
+    filename="context_sufficiency.json",
+    stage="context_sufficiency",
+    producer_name=CONTEXT_SUFFICIENCY_PRODUCER,
+    producer_type=ProducerType.DETERMINISTIC,
 )
 
 #: Layer 3 -- single artefact ``adversarial.json``

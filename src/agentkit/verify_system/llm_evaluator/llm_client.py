@@ -315,8 +315,6 @@ class HubLlmClient:
             LoginRequiredError: If the Hub requires operator login.
         """
         from agentkit.multi_llm_hub.errors import (
-            HubSessionNotFoundError,
-            HubUnavailableError,
             MultiLlmHubError,
         )
 
@@ -343,7 +341,7 @@ class HubLlmClient:
                 send_retries_used=send_retries_used,
                 deadline=deadline,
             )
-        except (HubSessionNotFoundError, HubUnavailableError, MultiLlmHubError) as exc:
+        except MultiLlmHubError as exc:
             raise LlmClientError(
                 f"HubLlmClient send failed for role={role!r} pool={pool!r}: {exc}"
             ) from exc
@@ -499,7 +497,7 @@ class HubLlmClient:
                     f"Hub pool {pool!r} requires operator login during retry send",
                     operator_hint=f"pool={pool!r}: login required",
                 ) from exc2
-            except (HubUnavailableError, HubSessionNotFoundError, MultiLlmHubError) as exc2:
+            except MultiLlmHubError as exc2:
                 raise LlmClientError(
                     f"HubLlmClient retry send also failed for pool={pool!r}: {exc2}"
                 ) from exc2

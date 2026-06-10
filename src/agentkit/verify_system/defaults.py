@@ -40,6 +40,7 @@ class VerifySystemDefaultOptions:
     review_completion_sink: ReviewCompletionSink | None = None
     conformance_emitter: EventEmitter | None = None
     conformance_config: ConformanceConfig | None = None
+    layer2_bundle_token_limit: int = 32_000
     layer2_llm_client: LlmClient | None = None
     fast_test_runner: Callable[[Path], tuple[bool, str | None]] | None = None
     stage_registry: StageRegistry | None = None
@@ -93,6 +94,13 @@ def resolve_default_options(
         conformance_config=cast(
             "ConformanceConfig | None",
             overrides.get("conformance_config", config.conformance_config),
+        ),
+        layer2_bundle_token_limit=cast(
+            "int",
+            overrides.get(
+                "layer2_bundle_token_limit",
+                config.layer2_bundle_token_limit,
+            ),
         ),
         layer2_llm_client=cast(
             "LlmClient | None",

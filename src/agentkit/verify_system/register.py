@@ -26,6 +26,7 @@ from agentkit.artifacts import ProducerType
 from agentkit.core_types import ArtifactClass
 from agentkit.core_types.qa_artifact_names import (
     ADVERSARIAL_PRODUCER,
+    CONTEXT_SUFFICIENCY_PRODUCER,
     DOC_FIDELITY_PRODUCER,
     QA_REVIEW_PRODUCER,
     SEMANTIC_REVIEW_PRODUCER,
@@ -71,6 +72,11 @@ _VERIFY_PRODUCERS: Final[tuple[tuple[ArtifactClass, str, ProducerType], ...]] = 
     (ArtifactClass.QA, QA_REVIEW_PRODUCER, ProducerType.LLM_REVIEWER),
     (ArtifactClass.QA, SEMANTIC_REVIEW_PRODUCER, ProducerType.LLM_REVIEWER),
     (ArtifactClass.QA, DOC_FIDELITY_PRODUCER, ProducerType.LLM_REVIEWER),
+    (
+        ArtifactClass.QA,
+        CONTEXT_SUFFICIENCY_PRODUCER,
+        ProducerType.DETERMINISTIC,
+    ),
     # Layer 2 (Bestand AG3-023, write_layer_artifacts/_decision-Pfad)
     (ArtifactClass.QA, "verify-system.layer-2-llm", ProducerType.LLM_REVIEWER),
     (ArtifactClass.QA, ADVERSARIAL_PRODUCER, ProducerType.LLM_REVIEWER),

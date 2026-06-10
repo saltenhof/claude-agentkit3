@@ -170,8 +170,6 @@ class DialogueRunner:
         """
         from agentkit.multi_llm_hub.errors import (
             HubLoginRequiredError,
-            HubSessionNotFoundError,
-            HubUnavailableError,
             MultiLlmHubError,
         )
 
@@ -206,7 +204,7 @@ class DialogueRunner:
                         f"Hub pool {pool!r} requires operator login during dialogue",
                         operator_hint=f"pool={pool!r}: login required",
                     ) from exc
-                except (HubSessionNotFoundError, HubUnavailableError, MultiLlmHubError) as exc:
+                except MultiLlmHubError as exc:
                     raise LlmClientError(
                         f"DialogueRunner send failed for role={role!r} pool={pool!r}: {exc}"
                     ) from exc

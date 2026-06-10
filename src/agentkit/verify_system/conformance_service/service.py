@@ -125,7 +125,7 @@ _CONFORMANCE_TEMPLATE_FOR_LEVEL: dict[FidelityLevel, str] = {
     FidelityLevel.GOAL: "qa-conformance-goal",
     FidelityLevel.DESIGN: "qa-conformance-design",
     FidelityLevel.IMPL: "qa-doc-fidelity",
-    FidelityLevel.FEEDBACK: "qa-conformance-feedback",
+    FidelityLevel.FEEDBACK: "doc-fidelity-feedback",
 }
 
 

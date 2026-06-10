@@ -590,6 +590,22 @@ class ConformanceConfig(BaseModel):
         return self
 
 
+class Layer2Config(BaseModel):
+    """Layer-2 review bundle configuration (FK-37 §37.3.2)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    bundle_token_limit: int = 32_000
+
+    @field_validator("bundle_token_limit")
+    @classmethod
+    def _check_bundle_token_limit(cls, value: int) -> int:
+        """Require a positive per-field bundle packing limit."""
+        if value <= 0:
+            raise ValueError("layer2.bundle_token_limit must be > 0")
+        return value
+
+
 class PipelineConfig(BaseModel):
     """Configuration for the 4-phase pipeline.
 
@@ -627,6 +643,7 @@ class PipelineConfig(BaseModel):
         governance: Governance observation configuration (FK-03 §3.1).
         conformance: ConformanceService size-threshold configuration
             (FK-32 §32.4b.3).
+        layer2: Layer-2 review bundle packing configuration.
         sonarqube: SonarQube-Green-Gate environment/profile requirement
             (FK-03 §3 / FK-33 §33.6). ``None`` only for non-code-producing
             projects; a code-producing project (``story_types`` include
@@ -664,6 +681,7 @@ class PipelineConfig(BaseModel):
     telemetry: TelemetryConfig = TelemetryConfig()
     governance: GovernanceConfig = GovernanceConfig()
     conformance: ConformanceConfig = ConformanceConfig()
+    layer2: Layer2Config = Layer2Config()
     sonarqube: SonarQubeConfig | None = None
     ci: JenkinsConfig | None = None
 

@@ -21,6 +21,7 @@ wiring point. The handler never builds these itself (DI / truth boundary).
 from __future__ import annotations
 
 import logging
+import subprocess
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
     from agentkit.state_backend.store.mode_lock_repository import ModeLockRepository
     from agentkit.story_context_manager.models import StoryContext
     from agentkit.story_context_manager.types import StoryType
+    from agentkit.verify_system.conformance_service import FidelityResult
     from agentkit.verify_system.pre_merge_runner.contract import BuildTestPort
 
 logger = logging.getLogger(__name__)
@@ -198,24 +200,34 @@ class ProductiveSanityGatePort:
 class ProductiveDocFidelityFeedbackPort:
     """Level-4 doc-fidelity feedback seam (FK-38 §38.3.1, non-blocking).
 
-    Consumes ``verify_system.llm_evaluator`` (``role=doc_fidelity``). The level-4
-    feedback evaluation (``final_diff`` vs existing docs) has no productive
-    callable yet (FK-38 §38.3.1 / AG3-026 builds only the QA-subflow roles). The
-    step is MANDATORY but NON-BLOCKING: rather than silently no-op, this seam
-    records a human Warning every run until the level-4 capability lands.
+    Consumes ``ConformanceService.check_fidelity(level=feedback)`` over the
+    existing structured doc-fidelity evaluator. The step is mandatory but
+    non-blocking: FAIL yields a human warning and failure-corpus incident
+    candidate, never a closure blockade.
     """
 
     def evaluate_feedback_fidelity(
         self, ctx: StoryContext, story_dir: Path
     ) -> tuple[bool, str | None]:
-        """Run the level-4 feedback check; non-blocking Warning when unavailable."""
-        del ctx, story_dir
-        return (
-            False,
-            "level-4 doc-fidelity feedback has no productive "
-            "verify_system.llm_evaluator feedback callable yet (FK-38 §38.3.1) "
-            "-- human review whether existing docs need updating",
-        )
+        """Run the level-4 feedback check through the conformance facade."""
+        try:
+            result = _run_feedback_fidelity_conformance(ctx, story_dir)
+        except Exception as exc:  # noqa: BLE001 -- post-merge step is non-blocking
+            logger.warning("feedback fidelity evaluation failed: %s", exc)
+            return (
+                False,
+                "feedback_fidelity evaluator failed; failure-corpus incident "
+                f"candidate: {type(exc).__name__}: {exc}",
+            )
+        from agentkit.verify_system.conformance_service import ConformanceVerdict
+
+        if result.conformance_verdict is ConformanceVerdict.FAIL:
+            return (
+                False,
+                "feedback_fidelity FAIL; failure-corpus incident candidate: "
+                f"{result.reason}",
+            )
+        return (True, None)
 
 
 @dataclass(frozen=True)
@@ -238,6 +250,104 @@ class ProductiveVectorDbSyncPort:
             "VectorDB sync (story_sync, FK-13 §13.7.1) has no productive "
             "integration yet -- closed story not yet indexed for retrieval",
         )
+
+
+def _run_feedback_fidelity_conformance(
+    ctx: StoryContext,
+    story_dir: Path,
+) -> FidelityResult:
+    """Run FK-38 feedback fidelity through ``ConformanceService``."""
+    from agentkit.artifacts import ArtifactManager, EnvelopeValidator, ProducerRegistry
+    from agentkit.prompt_runtime.register import register_prompt_runtime_producers
+    from agentkit.state_backend.store.artifact_repository import (
+        StateBackendArtifactRepository,
+    )
+    from agentkit.state_backend.store.verify_story_context_repository import (
+        StateBackendVerifyStoryContextAdapter,
+    )
+    from agentkit.telemetry.storage import StateBackendEmitter
+    from agentkit.verify_system.conformance_service import (
+        ConformanceService,
+        FidelityContext,
+        FidelityLevel,
+        StructuredEvaluatorConformanceAdapter,
+    )
+    from agentkit.verify_system.llm_evaluator.llm_client import FailClosedLlmClient
+    from agentkit.verify_system.llm_evaluator.prompt_materializer import (
+        PromptRuntimeMaterializer,
+    )
+    from agentkit.verify_system.llm_evaluator.structured_evaluator import (
+        StructuredEvaluator,
+    )
+
+    project_root = ctx.project_root or _project_root_for_feedback(story_dir)
+    registry = ProducerRegistry()
+    register_prompt_runtime_producers(registry)
+    manager = ArtifactManager(
+        repository=StateBackendArtifactRepository(store_dir=story_dir),
+        validator=EnvelopeValidator(registry),
+    )
+    materializer = PromptRuntimeMaterializer(
+        ctx=ctx,
+        story_dir=story_dir,
+        artifact_manager=manager,
+        story_context_port=StateBackendVerifyStoryContextAdapter(),
+    )
+    evaluator = StructuredEvaluator(FailClosedLlmClient(), materializer)
+    service = ConformanceService(
+        StructuredEvaluatorConformanceAdapter(evaluator),
+        emitter=StateBackendEmitter(story_dir),
+    )
+    context = FidelityContext(
+        story_id=ctx.story_id,
+        run_id=_run_id_for_feedback(story_dir),
+        project_root=project_root,
+        story_type=ctx.story_type.value,
+        module=ctx.participating_repos[0] if ctx.participating_repos else "*",
+        subject=_read_final_diff(project_root),
+        story_description=ctx.title,
+        tags=("feedback", "document-fidelity"),
+        qa_cycle_round=1,
+    )
+    return service.check_fidelity(FidelityLevel.FEEDBACK, context)
+
+
+def _project_root_for_feedback(story_dir: Path) -> Path:
+    if story_dir.parent.name == "stories":
+        return story_dir.parent.parent
+    return story_dir
+
+
+def _run_id_for_feedback(story_dir: Path) -> str:
+    try:
+        from agentkit.state_backend.store import resolve_runtime_scope
+
+        scope = resolve_runtime_scope(story_dir)
+    except Exception:  # noqa: BLE001 -- non-blocking fallback correlation
+        return "feedback-fidelity"
+    return str(getattr(scope, "run_id", None) or "feedback-fidelity")
+
+
+def _read_final_diff(project_root: Path) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(project_root), "diff", "--stat", "HEAD~1..HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        detail = subprocess.run(
+            ["git", "-C", str(project_root), "diff", "HEAD~1..HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        if detail.returncode == 0 and detail.stdout.strip():
+            return detail.stdout
+        return result.stdout
+    return "No final git diff could be resolved for feedback_fidelity."
 
 
 @dataclass(frozen=True)

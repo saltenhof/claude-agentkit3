@@ -85,7 +85,11 @@ if TYPE_CHECKING:
     from agentkit.story_context_manager.types import StoryType
     from agentkit.telemetry.emitters import EventEmitter
     from agentkit.verify_system.conformance_service import FidelityContext
+    from agentkit.verify_system.evidence.bundle_manifest import BundleManifest
     from agentkit.verify_system.llm_evaluator import Layer2ReviewInput, LlmClient, ParallelEvalRunner
+    from agentkit.verify_system.llm_evaluator.context_sufficiency import (
+        ContextSufficiencyResult,
+    )
     from agentkit.verify_system.llm_evaluator.structured_evaluator import (
         StructuredEvaluatorResult,
     )
@@ -187,6 +191,7 @@ class VerifySystem:
     #: ``project_config.pipeline.conformance`` to make ``pipeline.yaml`` thresholds
     #: effective for impl-fidelity conformance assessments (ERROR 4 fix).
     conformance_config: ConformanceConfig | None = None
+    layer2_bundle_token_limit: int = 32_000
     #: Fast-mode tests-green floor runner (AG3-018, FK-24 §24.3.4). A callable
     #: ``runner(story_dir) -> (green, reason)`` — the SAME tests-green mechanism
     #: the closure Sanity-Gate uses (``ProductiveSanityGatePort.test_runner``),
@@ -516,6 +521,8 @@ class VerifySystem:
         artifact_refs_written: list[str],
         qa_cycle_round: int,
         previous_findings: tuple[Finding, ...],
+        arch_references: str = "",
+        evidence_manifest: BundleManifest | dict[str, object] | str | None = None,
     ) -> None:
         """Execute a non-gate data layer and write its envelope(s)."""
         _run_data_layer_kind(
@@ -531,6 +538,8 @@ class VerifySystem:
             artifact_refs_written=artifact_refs_written,
             qa_cycle_round=qa_cycle_round,
             previous_findings=previous_findings,
+            arch_references=arch_references,
+            evidence_manifest=evidence_manifest,
         )
 
     def _sonarqube_gate_failed_decision(
@@ -842,6 +851,71 @@ class VerifySystem:
         self.artifact_manager.write(envelope)
         return _artifact_specs.POLICY_ARTIFACT_SPEC.filename
 
+    def _run_context_sufficiency_pre_step(
+        self,
+        *,
+        ctx: VerifyContextBundle,
+        story_id: str,
+        now_str: str,
+        qa_cycle_fields: dict[str, object],
+        review_input: object | None,
+        story_ctx: object | None,
+    ) -> ContextSufficiencyResult:
+        """Build and persist ``context_sufficiency.json`` before Layer 2."""
+        from agentkit.story_context_manager.models import StoryContext
+        from agentkit.verify_system.llm_evaluator.context_sufficiency import (
+            ContextSufficiencyBuilder,
+            SufficiencyLevel,
+        )
+        from agentkit.verify_system.llm_evaluator.inputs import Layer2ReviewInput
+
+        effective_input = (
+            review_input
+            if isinstance(review_input, Layer2ReviewInput)
+            else Layer2ReviewInput()
+        )
+        worktree_root = (
+            story_ctx.project_root
+            if isinstance(story_ctx, StoryContext) and story_ctx.project_root is not None
+            else None
+        )
+        builder = ContextSufficiencyBuilder.from_story_dir(
+            story_id=story_id,
+            story_dir=ctx.story_dir,
+            worktree_root=worktree_root,
+        )
+        result = builder.build(
+            effective_input,
+            caller_diff_summary=builder.caller_diff_summary(),
+            caller_evidence_manifest=builder.caller_evidence_manifest(),
+        )
+        payload = result.artifact.model_dump(mode="json")
+        payload.update(qa_cycle_fields)
+        spec = _artifact_specs.CONTEXT_SUFFICIENCY_ARTIFACT_SPEC
+        envelope = ArtifactEnvelope(
+            schema_version="3.0",
+            story_id=story_id,
+            run_id=ctx.run_id,
+            stage=spec.stage,
+            attempt=ctx.attempt,
+            producer=Producer(
+                type=spec.producer_type,
+                name=spec.producer_name,
+                id=ProducerId(f"{spec.producer_name}-{ctx.run_id}-{ctx.attempt}"),
+            ),
+            started_at=datetime.fromisoformat(now_str),
+            finished_at=datetime.fromisoformat(now_str),
+            status=(
+                EnvelopeStatus.PASS
+                if result.sufficiency is SufficiencyLevel.SUFFICIENT
+                else EnvelopeStatus.WARN
+            ),
+            artifact_class=ArtifactClass.QA,
+            payload=payload,
+        )
+        self.artifact_manager.write(envelope)
+        return result
+
 
 
 
@@ -960,6 +1034,8 @@ def _run_data_layer_kind(
     artifact_refs_written: list[str],
     qa_cycle_round: int,
     previous_findings: tuple[Finding, ...],
+    arch_references: str = "",
+    evidence_manifest: BundleManifest | dict[str, object] | str | None = None,
 ) -> None:
     """Execute a non-gate data layer and write its envelope(s).
 
@@ -1000,6 +1076,8 @@ def _run_data_layer_kind(
             story_ctx=story_ctx,
             qa_cycle_round=qa_cycle_round,
             previous_findings=previous_findings,
+            arch_references=arch_references,
+            evidence_manifest=evidence_manifest,
         )
         pairs = list(zip(results, _artifact_specs.LAYER_2_SPECS, strict=True))
     else:
@@ -1189,6 +1267,7 @@ def _create_default(
         layer2_llm_client=defaults.layer2_llm_client,
         conformance_emitter=defaults.conformance_emitter,
         conformance_config=defaults.conformance_config,
+        layer2_bundle_token_limit=defaults.layer2_bundle_token_limit,
         fast_test_runner=defaults.fast_test_runner,
         remediation_loop_controller=(
             _qa.RemediationLoopController(
@@ -1419,6 +1498,9 @@ def _run_qa_subflow(
     layer_results: list[LayerResult] = []
     artifact_refs_written: list[str] = []
     now_str = _qa.utc_now_iso()
+    context_sufficiency_artifact: dict[str, object] | None = None
+    layer2_arch_references = ""
+    layer2_evidence_manifest: BundleManifest | dict[str, object] | str | None = None
 
     # AG3-041 §2.1.7: drive the QA-cycle lifecycle. First call (no active
     # cycle) -> start_cycle (round 1, epoch 1). Remediation context with an
@@ -1457,6 +1539,25 @@ def _run_qa_subflow(
                 break
             continue
 
+        if kind is QALayerKind.LLM_EVALUATOR:
+            sufficiency = self._run_context_sufficiency_pre_step(
+                ctx=ctx,
+                story_id=story_id,
+                now_str=now_str,
+                qa_cycle_fields=qa_cycle_fields,
+                review_input=effective_review_input,
+                story_ctx=_story_ctx,
+            )
+            effective_review_input = sufficiency.enriched_input
+            layer2_arch_references = sufficiency.arch_references
+            layer2_evidence_manifest = sufficiency.evidence_manifest
+            context_sufficiency_artifact = sufficiency.artifact.model_dump(
+                mode="json"
+            )
+            artifact_refs_written.append(
+                _artifact_specs.CONTEXT_SUFFICIENCY_ARTIFACT_SPEC.filename
+            )
+
         self._run_data_layer_kind(
             kind=kind,
             ctx=ctx,
@@ -1469,6 +1570,8 @@ def _run_qa_subflow(
             artifact_refs_written=artifact_refs_written,
             qa_cycle_round=cycle_state.round,
             previous_findings=previous_findings,
+            arch_references=layer2_arch_references,
+            evidence_manifest=layer2_evidence_manifest,
         )
 
     # Step 5: Policy decision. On a Sonar fail-closed short-circuit the
@@ -1500,6 +1603,7 @@ def _run_qa_subflow(
             # route once the scalar fallback is removed.
             traversed_layers=_traversed_layers(layer_kinds),
             are_enabled=self._structural_are_enabled(),
+            context_sufficiency_artifact=context_sufficiency_artifact,
         )
         # Step 6: Write policy decision artefact.
         decision_ref = self._write_policy_artifact(
@@ -1560,8 +1664,18 @@ def _run_qa_subflow(
         ),
         tuple(decision.layer_results),
     )
+    mandatory_target_findings = _mandatory_target_feedback_findings(
+        self,
+        story_id=story_id,
+        run_id=ctx.run_id,
+        qa_cycle_round=cycle_state.round,
+    )
     feedback = build_feedback(
-        decision, story_id, ctx.attempt, finding_resolution=resolution_map
+        decision,
+        story_id,
+        ctx.attempt,
+        finding_resolution=resolution_map,
+        extra_blocking_findings=mandatory_target_findings,
     )
 
     # Step 8: AG3-041 §2.1.7 -- run the remediation loop controller AFTER
@@ -1639,6 +1753,35 @@ def _layer_escalation_requested(layer_results: tuple[LayerResult, ...]) -> bool:
     immediately to a human -- it must NOT traverse the normal remediation loop.
     """
     return any(lr.metadata.get("escalated") is True for lr in layer_results)
+
+
+def _mandatory_target_feedback_findings(
+    system: VerifySystem,
+    *,
+    story_id: str,
+    run_id: str,
+    qa_cycle_round: int,
+) -> tuple[Finding, ...]:
+    """Load Layer-3 mandatory target results and map unmet targets for feedback."""
+    if qa_cycle_round < 2:
+        return ()
+    from agentkit.artifacts import ArtifactNotFoundError
+    from agentkit.core_types.qa_artifact_names import ADVERSARIAL_STAGE
+    from agentkit.verify_system.remediation.feedback import (
+        mandatory_target_findings_from_adversarial,
+    )
+
+    try:
+        envelope = system.artifact_manager.read_latest(
+            story_id=story_id,
+            run_id=run_id,
+            artifact_class=ArtifactClass.QA,
+            stage=ADVERSARIAL_STAGE,
+        )
+    except (ArtifactNotFoundError, AttributeError):
+        return ()
+    payload = envelope.payload or {}
+    return mandatory_target_findings_from_adversarial(dict(payload))
 
 
 def _effective_story_type(story_ctx: object | None) -> StoryType:
@@ -1783,6 +1926,8 @@ def _run_layer2(
     story_ctx: object | None,
     qa_cycle_round: int,
     previous_findings: tuple[Finding, ...],
+    arch_references: str = "",
+    evidence_manifest: BundleManifest | dict[str, object] | str | None = None,
 ) -> tuple[LayerResult, LayerResult, LayerResult]:
     """Return the three Layer-2 role results (qa/semantic/doc) in canonical order.
 
@@ -1851,6 +1996,9 @@ def _run_layer2(
         story_dir=ctx.story_dir,
         previous_findings=previous_findings,
         qa_cycle_round=qa_cycle_round,
+        arch_references=arch_references,
+        evidence_manifest=evidence_manifest,
+        bundle_token_limit=system.layer2_bundle_token_limit,
     )
     doc_fidelity_result = _run_impl_conformance(
         system,
@@ -1870,6 +2018,9 @@ def _run_layer2(
         doc_fidelity_result=doc_fidelity_result,
         run_id=ctx.run_id,
         run_attempt=ctx.attempt,
+        arch_references=arch_references,
+        evidence_manifest=evidence_manifest,
+        bundle_token_limit=system.layer2_bundle_token_limit,
     )
 
 
@@ -1893,6 +2044,9 @@ def _build_impl_conformance_context(
     story_dir: Path,
     previous_findings: tuple[Finding, ...],
     qa_cycle_round: int,
+    arch_references: str,
+    evidence_manifest: BundleManifest | dict[str, object] | str | None,
+    bundle_token_limit: int,
 ) -> FidelityContext | None:
     """Build the implementation-fidelity context when StoryContext is available."""
     from agentkit.story_context_manager.models import StoryContext
@@ -1907,6 +2061,9 @@ def _build_impl_conformance_context(
         story_id=story_id,
         qa_cycle_round=qa_cycle_round,
         previous_findings=list(previous_findings) if previous_findings else None,
+        arch_references=arch_references,
+        evidence_manifest=evidence_manifest,
+        bundle_token_limit=bundle_token_limit,
     )
     subject = "\n\n".join(
         (

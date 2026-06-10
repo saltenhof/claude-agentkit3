@@ -15,7 +15,10 @@ from pathlib import Path
 
 from agentkit.artifacts import ProducerRegistry, ProducerType
 from agentkit.core_types import ArtifactClass
-from agentkit.core_types.qa_artifact_names import SONARQUBE_GATE_PRODUCER
+from agentkit.core_types.qa_artifact_names import (
+    CONTEXT_SUFFICIENCY_PRODUCER,
+    SONARQUBE_GATE_PRODUCER,
+)
 from agentkit.verify_system.register import register_verify_producers
 
 #: Erwartete Producer-Liste nach AG3-026 Re-Review.
@@ -25,6 +28,7 @@ EXPECTED_QA_PRODUCERS: frozenset[str] = frozenset(
         "verify-system.layer-2-qa-review",
         "verify-system.layer-2-semantic-review",
         "verify-system.layer-2-doc-fidelity",
+        CONTEXT_SUFFICIENCY_PRODUCER,
         "verify-system.layer-2-llm",  # AG3-023-Bestand
         "verify-system.layer-3-adversarial",
         SONARQUBE_GATE_PRODUCER,
@@ -59,6 +63,7 @@ def test_layer_1_and_4_are_deterministic() -> None:
     assert types_by_name["verify-system.layer-2-qa-review"] is ProducerType.LLM_REVIEWER
     assert types_by_name["verify-system.layer-2-semantic-review"] is ProducerType.LLM_REVIEWER
     assert types_by_name["verify-system.layer-2-doc-fidelity"] is ProducerType.LLM_REVIEWER
+    assert types_by_name[CONTEXT_SUFFICIENCY_PRODUCER] is ProducerType.DETERMINISTIC
     assert types_by_name["verify-system.layer-3-adversarial"] is ProducerType.LLM_REVIEWER
     assert types_by_name["verify-system.layer-4-policy"] is ProducerType.DETERMINISTIC
 

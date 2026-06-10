@@ -292,8 +292,8 @@ class TestRunQaSubflowImplementationHappyPath:
         assert len(l2c.calls) == 1
         assert len(l3.calls) == 1
 
-    def test_artifact_manager_receives_seven_writes(self, tmp_path: Path) -> None:
-        """Layer 1 (1) + Layer 2 (3) + Layer 3 (1) + sonarqube_gate (1) + Policy (1) = 7.
+    def test_artifact_manager_receives_eight_writes(self, tmp_path: Path) -> None:
+        """Layer 1 (1) + context sufficiency (1) + Layer 2 (3) + Layer 3 (1) + sonarqube_gate (1) + Policy (1) = 8.
 
         AG3-052 / FK-33 §33.8.3: the sonarqube_gate stage is sequenced
         after adversarial and writes its own ``sonarqube_gate.json``
@@ -309,10 +309,10 @@ class TestRunQaSubflowImplementationHappyPath:
             target=_make_target(),
         )
 
-        assert len(manager.written_envelopes) == 7  # noqa: PLR2004
+        assert len(manager.written_envelopes) == 8  # noqa: PLR2004
 
     def test_artifact_stages_match_fk27(self, tmp_path: Path) -> None:
-        """AG3-026 §AK7 + AG3-052: stages cover the seven QA artefacts."""
+        """AG3-026 §AK7 + AG3-052 + AG3-067: stages cover the QA artefacts."""
         vs, manager = _make_system()
 
         vs.run_qa_subflow(
@@ -325,6 +325,7 @@ class TestRunQaSubflowImplementationHappyPath:
         stages = {e.stage for e in manager.written_envelopes}
         assert stages == {
             "qa-layer-structural",
+            "context_sufficiency",
             "qa-layer-qa-review",
             "qa-layer-semantic-review",
             "qa-layer-doc-fidelity",
@@ -378,7 +379,7 @@ class TestRunQaSubflowImplementationHappyPath:
         assert policy_envs[0].producer.name == "verify-system.layer-4-policy"
         assert outcome.verdict is PolicyVerdict.PASS
 
-    def test_implementation_remediation_also_writes_seven(
+    def test_implementation_remediation_also_writes_eight(
         self, tmp_path: Path
     ) -> None:
         vs, manager = _make_system()
@@ -390,7 +391,7 @@ class TestRunQaSubflowImplementationHappyPath:
             target=_make_target(),
         )
 
-        assert len(manager.written_envelopes) == 7  # noqa: PLR2004
+        assert len(manager.written_envelopes) == 8  # noqa: PLR2004
 
 
 # ---------------------------------------------------------------------------
@@ -433,8 +434,8 @@ class TestRunQaSubflowExplorationHappyPath:
         assert len(l2c.calls) == 1, "LLM-Evaluator doc_fidelity must run for Exploration"
         assert len(l3.calls) == 0, "Adversarial layer must NOT run for Exploration"
 
-    def test_artifact_manager_receives_four_writes(self, tmp_path: Path) -> None:
-        """AG3-026 §AK7: Layer 2 (3 Artefakte) + Policy (1) = 4 Envelopes."""
+    def test_artifact_manager_receives_five_writes(self, tmp_path: Path) -> None:
+        """AG3-067: context sufficiency (1) + Layer 2 (3) + Policy (1) = 5."""
         vs, manager = _make_system()
 
         vs.run_qa_subflow(
@@ -444,9 +445,9 @@ class TestRunQaSubflowExplorationHappyPath:
             target=_make_target(ArtifactClass.ENTWURF),
         )
 
-        assert len(manager.written_envelopes) == 4  # noqa: PLR2004
+        assert len(manager.written_envelopes) == 5  # noqa: PLR2004
 
-    def test_exploration_remediation_also_writes_four(
+    def test_exploration_remediation_also_writes_five(
         self, tmp_path: Path
     ) -> None:
         vs, manager = _make_system()
@@ -458,7 +459,7 @@ class TestRunQaSubflowExplorationHappyPath:
             target=_make_target(ArtifactClass.ENTWURF),
         )
 
-        assert len(manager.written_envelopes) == 4  # noqa: PLR2004
+        assert len(manager.written_envelopes) == 5  # noqa: PLR2004
 
 
 # ---------------------------------------------------------------------------
@@ -708,7 +709,7 @@ class TestQaSubflowOutcomeCarriesDecision:
         assert len(decision.layer_results) == 6  # noqa: PLR2004  # 1+3+1+1
 
     def test_outcome_carries_artifact_refs(self, tmp_path: Path) -> None:
-        """outcome.artifact_refs contains the seven QA artefact filenames."""
+        """outcome.artifact_refs contains the QA artefact filenames."""
         vs, _ = _make_system()
         outcome = vs.run_qa_subflow(
             ctx=_make_bundle(tmp_path),
@@ -718,6 +719,7 @@ class TestQaSubflowOutcomeCarriesDecision:
         )
         assert set(outcome.artifact_refs) == {
             "structural.json",
+            "context_sufficiency.json",
             "qa_review.json",
             "semantic_review.json",
             "doc_fidelity.json",

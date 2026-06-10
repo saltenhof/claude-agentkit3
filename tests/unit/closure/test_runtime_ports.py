@@ -206,14 +206,14 @@ def test_sanity_gate_runner_red_escalates(tmp_path: Path) -> None:
 
 
 def test_doc_fidelity_feedback_is_nonblocking_warning(tmp_path: Path) -> None:
-    """Level-4 doc-fidelity always runs and surfaces a Warning (no silent skip)."""
+    """Level-4 feedback fidelity returns a non-blocking warning on FAIL."""
     port = ProductiveDocFidelityFeedbackPort()
 
     passed, warning = port.evaluate_feedback_fidelity(None, tmp_path)  # type: ignore[arg-type]
 
     assert not passed
     assert warning is not None
-    assert "doc-fidelity" in warning
+    assert "feedback_fidelity" in warning
 
 
 def test_vectordb_sync_is_nonblocking_warning(tmp_path: Path) -> None:

@@ -187,6 +187,7 @@ class ImplementationPhaseHandler:
         # built-in defaults. The same load_project_config pattern already used by
         # _resolve_sonar_gate_port / _resolve_structural_evidence_ports above.
         conformance_config = _resolve_conformance_config(ctx)
+        layer2_bundle_token_limit = _resolve_layer2_bundle_token_limit(ctx)
         verify_system = self._config.verify_system or build_verify_system(
             s_dir,
             sonar_gate_port=sonar_gate_port,
@@ -195,6 +196,7 @@ class ImplementationPhaseHandler:
             structural_build_test_port=build_test_port,
             structural_are_provider=are_provider,
             conformance_config=conformance_config,
+            layer2_bundle_token_limit=layer2_bundle_token_limit,
         )
 
         # W2: Build PhaseEnvelopeView from envelope.state.payload (round 0
@@ -648,6 +650,19 @@ def _resolve_conformance_config(
     if pipeline is None:
         return None
     return getattr(pipeline, "conformance", None)
+
+
+def _resolve_layer2_bundle_token_limit(ctx: StoryContext) -> int:
+    """Resolve ``pipeline.layer2.bundle_token_limit`` for Layer-2 packing."""
+    if ctx.project_root is None:
+        return 32_000
+    from agentkit.config.loader import load_project_config
+
+    project_config = load_project_config(ctx.project_root)
+    pipeline = getattr(project_config, "pipeline", None)
+    layer2 = getattr(pipeline, "layer2", None) if pipeline is not None else None
+    limit = getattr(layer2, "bundle_token_limit", 32_000)
+    return int(limit)
 
 
 def _build_phase_envelope_view(envelope: PhaseEnvelope) -> PhaseEnvelopeView | None:

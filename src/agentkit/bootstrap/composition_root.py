@@ -614,6 +614,7 @@ def build_verify_system(
     structural_build_test_port: BuildTestEvidencePort | None = None,
     structural_are_provider: AreGateProvider | None = None,
     conformance_config: ConformanceConfig | None = None,
+    layer2_bundle_token_limit: int = 32_000,
 ) -> VerifySystem:
     """Erzeugt einen vollstaendig verdrahteten ``VerifySystem``.
 
@@ -665,6 +666,8 @@ def build_verify_system(
             ``project_config.pipeline.conformance`` to make the configured
             thresholds effective for impl-fidelity assessments (ERROR 4 fix,
             AG3-063 remediation 2).
+        layer2_bundle_token_limit: Per-field section-aware Layer-2 packing
+            limit from ``ProjectConfig.pipeline.layer2.bundle_token_limit``.
 
     Returns:
         ``VerifySystem`` mit allen fuenf Sub-Komponenten und einem
@@ -696,6 +699,7 @@ def build_verify_system(
         review_completion_sink=build_review_completion_sink(store_dir),
         conformance_emitter=StateBackendEmitter(store_dir),
         conformance_config=conformance_config,
+        layer2_bundle_token_limit=layer2_bundle_token_limit,
         layer2_llm_client=resolved_llm_client,
         fast_test_runner=fast_test_runner,
         # AG3-042: the PRODUCTIVE path wires the full FK-27 §27.4 Layer-1 stage

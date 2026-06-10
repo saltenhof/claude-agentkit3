@@ -7,7 +7,11 @@ from __future__ import annotations
 
 from agentkit.verify_system.policy_engine.engine import PolicyEngine
 from agentkit.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
-from agentkit.verify_system.remediation.feedback import RemediationFeedback, build_feedback
+from agentkit.verify_system.remediation.feedback import (
+    RemediationFeedback,
+    build_feedback,
+    mandatory_target_findings_from_adversarial,
+)
 
 
 def _finding(
@@ -226,3 +230,60 @@ class TestFindingResolutionInFeedback:
         fb = build_feedback(decision, "TEST-001", 2, finding_resolution=resolution)
         assert fb is not None
         assert fb.has_open_findings() is True
+
+
+class TestMandatoryTargetFeedback:
+    """FK-38 §38.1.4 mandatory-target feedback mapping."""
+
+    def test_unmet_target_maps_to_real_blocking_finding(self) -> None:
+        findings = mandatory_target_findings_from_adversarial(
+            {
+                "mandatory_target_results": [
+                    {
+                        "target_id": "target.wrong_phase",
+                        "status": "NOT_TESTED",
+                        "detail": "no adversarial test covered this target",
+                    }
+                ]
+            }
+        )
+
+        assert len(findings) == 1
+        finding = findings[0]
+        assert finding.layer == "adversarial"
+        assert finding.check == "target.wrong_phase"
+        assert finding.severity is Severity.BLOCKING
+        assert finding.trust_class is TrustClass.VERIFIED_LLM
+        assert "NOT_TESTED" in finding.message
+
+    def test_tested_and_unresolvable_targets_do_not_map_to_findings(self) -> None:
+        findings = mandatory_target_findings_from_adversarial(
+            {
+                "mandatory_target_results": [
+                    {"target_id": "target.a", "status": "TESTED"},
+                    {"target_id": "target.b", "status": "UNRESOLVABLE"},
+                ]
+            }
+        )
+
+        assert findings == ()
+
+    def test_extra_mandatory_target_findings_create_feedback_on_pass(self) -> None:
+        decision = PolicyEngine().decide([LayerResult(layer="policy", passed=True)])
+        mandatory = mandatory_target_findings_from_adversarial(
+            {
+                "mandatory_target_results": [
+                    {"target_id": "target.a", "status": "FAILED"},
+                ]
+            }
+        )
+
+        feedback = build_feedback(
+            decision,
+            "TEST-001",
+            2,
+            extra_blocking_findings=mandatory,
+        )
+
+        assert feedback is not None
+        assert feedback.blocking_findings[0].check == "target.a"

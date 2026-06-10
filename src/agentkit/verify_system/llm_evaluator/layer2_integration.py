@@ -41,6 +41,7 @@ from agentkit.verify_system.remediation.finding_resolution import (
 )
 
 if TYPE_CHECKING:
+    from agentkit.verify_system.evidence.bundle_manifest import BundleManifest
     from agentkit.verify_system.llm_evaluator.inputs import Layer2ReviewInput
     from agentkit.verify_system.llm_evaluator.parallel_runner import ParallelEvalRunner
 
@@ -64,6 +65,9 @@ def run_layer2_llm(
     doc_fidelity_result: StructuredEvaluatorResult | LayerResult | None = None,
     run_id: str | None = None,
     run_attempt: int = 1,
+    arch_references: str = "",
+    evidence_manifest: BundleManifest | dict[str, object] | str | None = None,
+    bundle_token_limit: int = 32_000,
 ) -> tuple[LayerResult, LayerResult, LayerResult]:
     """Run the three-role LLM Layer-2 and map results to LayerResults.
 
@@ -79,6 +83,9 @@ def run_layer2_llm(
         run_id: Optional run-correlation ID for prompt-audit persistence
             (FK-11 §11.4.6a / ERROR 3 fix). ``None`` => skipped.
         run_attempt: 1-based attempt counter for prompt-audit envelopes.
+        arch_references: Architecture references loaded by ContextSufficiencyBuilder.
+        evidence_manifest: Evidence-assembly manifest loaded caller-side.
+        bundle_token_limit: Per-field Layer-2 packing limit.
 
     Returns:
         Three :class:`LayerResult` instances in the canonical role order
@@ -95,6 +102,9 @@ def run_layer2_llm(
         story_id=story_id,
         qa_cycle_round=qa_cycle_round,
         previous_findings=prev_list,
+        arch_references=arch_references,
+        evidence_manifest=evidence_manifest,
+        bundle_token_limit=bundle_token_limit,
     )
     results = runner.run_roles(
         (ReviewerRole.QA_REVIEW, ReviewerRole.SEMANTIC_REVIEW),
@@ -127,6 +137,9 @@ def run_layer2_llm_failclosed(
     doc_fidelity_result: StructuredEvaluatorResult | LayerResult | None = None,
     run_id: str | None = None,
     run_attempt: int = 1,
+    arch_references: str = "",
+    evidence_manifest: BundleManifest | dict[str, object] | str | None = None,
+    bundle_token_limit: int = 32_000,
 ) -> tuple[LayerResult, LayerResult, LayerResult]:
     """Run the LLM Layer-2 and convert any runner failure to BLOCKING results.
 
@@ -162,6 +175,9 @@ def run_layer2_llm_failclosed(
             doc_fidelity_result=doc_fidelity_result,
             run_id=run_id,
             run_attempt=run_attempt,
+            arch_references=arch_references,
+            evidence_manifest=evidence_manifest,
+            bundle_token_limit=bundle_token_limit,
         )
     except Exception as exc:  # noqa: BLE001 -- fail-closed: any failure blocks
         error_msg = f"Layer 2 LLM evaluation failed: {type(exc).__name__}: {exc}"
