@@ -22,6 +22,7 @@ Quelle:
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import time
 from dataclasses import dataclass
@@ -34,6 +35,26 @@ if TYPE_CHECKING:
     from agentkit.multi_llm_hub.entities import HubBackendName, HubSessionLease
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Per-evaluation deadline ContextVar (ERROR 1 concurrency fix, AG3-065 rem-4)
+# ---------------------------------------------------------------------------
+
+#: Per-evaluation monotonic deadline (ContextVar, concurrency-safe).
+#:
+#: Each :meth:`StructuredEvaluator.evaluate` call sets this ContextVar at
+#: entry and resets it in a ``finally`` block via :func:`bind_eval_deadline`.
+#: Because :class:`~concurrent.futures.ThreadPoolExecutor` *copies* the
+#: calling context into each worker thread at submit-time, and each
+#: ``evaluate()`` resets the var on exit, concurrent roles on SHARED threads
+#: never see each other's deadline value — no instance-attribute race.
+#:
+#: :class:`HubLlmClient.complete` reads this var (falling back to a fresh
+#: per-call budget when unset). The ``LlmClient`` Protocol port
+#: ``complete(*, role, prompt)->str`` stays unchanged.
+_EVAL_DEADLINE_CV: contextvars.ContextVar[float | None] = contextvars.ContextVar(
+    "agentkit_eval_deadline", default=None
+)
 
 # ---------------------------------------------------------------------------
 # Per-operation timeout constants (FK-11 §11.6.1)
@@ -54,6 +75,11 @@ TOTAL_TIMEOUT_SECONDS: float = 2500.0
 #: Maximum number of acquire retries when the Hub returns a queued response.
 #: (FK-11 §11.6.1 Zeile 553/556: "max 5 Versuche")
 MAX_ACQUIRE_RETRIES: int = 5
+
+#: Best-effort release floor in seconds (ERROR 2 fix, AG3-065 rem-4): even
+#: when the evaluator budget is exhausted, release is attempted with at
+#: least this much time so the hub can ACK the release and not leak sessions.
+_RELEASE_FLOOR_SECONDS: float = 1.0
 
 
 class LlmClientError(VerifySystemError):
@@ -238,22 +264,17 @@ class HubLlmClient:
         self._hub = hub
         self._resolver = resolver
         self._owner = owner
-        # Evaluator-level deadline (monotonic clock); set by the evaluator via
-        # ``set_eval_deadline`` before running the first complete() so that
-        # sub-operation timeouts are clamped to the remaining budget instead of
-        # a fresh TOTAL_TIMEOUT_SECONDS window on each call (ERROR 1 near-boundary
-        # fix, AG3-065 remediation 3). ``None`` means no external deadline set.
-        self._eval_deadline: float | None = None
 
     def set_eval_deadline(self, deadline: float) -> None:
-        """Set the evaluator-level monotonic deadline for all subsequent calls.
+        """Set the evaluator-level monotonic deadline via the per-evaluation ContextVar.
 
-        Called by :func:`~agentkit.verify_system.llm_evaluator.structured_evaluator._set_eval_deadline`
-        before the first ``complete()`` so that all sub-operation timeouts inside
-        this client are clamped to ``min(per_op_constant, remaining_budget)``.
-        This bounds the whole ``evaluate()`` wall-clock to approximately
-        ``TOTAL_TIMEOUT_SECONDS`` even when the first call returns just under the
-        limit (NEAR-BOUNDARY fix, ERROR 1).
+        **Deprecated direct caller** — the preferred path is
+        :func:`~agentkit.verify_system.llm_evaluator.llm_client.bind_eval_deadline`
+        used by :class:`~agentkit.verify_system.llm_evaluator.structured_evaluator.StructuredEvaluator`
+        which resets the ContextVar in a ``finally`` block (concurrency-safe).
+        Calling this method directly from test code is safe for single-threaded
+        unit tests; the ContextVar value is visible only in the calling thread's
+        context copy.
 
         The ``LlmClient`` Protocol port ``complete(*, role, prompt)->str`` stays
         unchanged; this method is an optional capability on the concrete class.
@@ -261,7 +282,7 @@ class HubLlmClient:
         Args:
             deadline: Monotonic-clock deadline (from ``time.monotonic()``).
         """
-        self._eval_deadline = deadline
+        _EVAL_DEADLINE_CV.set(deadline)
 
     def complete(self, *, role: str, prompt: str) -> str:
         """Run a single LLM completion via the Multi-LLM Hub.
@@ -300,15 +321,15 @@ class HubLlmClient:
 
         pool = self._resolver.resolve(role)
         description = f"agentkit-verify role={role}"
-        # Clamp deadline to the evaluator-level deadline when set (NEAR-BOUNDARY
-        # fix): prevents a 2nd call from getting a fresh TOTAL_TIMEOUT_SECONDS
-        # window when the first call consumed most of the budget.
+        # Clamp deadline to the per-evaluation deadline from the ContextVar
+        # (concurrency-safe NEAR-BOUNDARY fix, ERROR 1, AG3-065 rem-4):
+        # _EVAL_DEADLINE_CV is set per-evaluation in StructuredEvaluator.evaluate()
+        # and reset in finally, so concurrent roles on the same ThreadPoolExecutor
+        # thread never share a deadline value — each call sees only its own
+        # evaluation's deadline.
         fresh_deadline = time.monotonic() + TOTAL_TIMEOUT_SECONDS
-        deadline = (
-            min(fresh_deadline, self._eval_deadline)
-            if self._eval_deadline is not None
-            else fresh_deadline
-        )
+        cv_deadline = _EVAL_DEADLINE_CV.get()
+        deadline = min(fresh_deadline, cv_deadline) if cv_deadline is not None else fresh_deadline
 
         lease = self._acquire_with_queue_retry(pool, description, deadline=deadline)
         send_retries_used = 0
@@ -326,7 +347,7 @@ class HubLlmClient:
                 f"HubLlmClient send failed for role={role!r} pool={pool!r}: {exc}"
             ) from exc
         finally:
-            self._safe_release(lease.session_id, lease.token)
+            self._safe_release(lease.session_id, lease.token, deadline=deadline)
 
     def _acquire_with_queue_retry(
         self,
@@ -460,7 +481,7 @@ class HubLlmClient:
                     f"HubLlmClient send failed after max retries for pool={pool!r}: {exc}"
                 ) from exc
             # One retry: release old slot, acquire new, send again.
-            self._safe_release(lease.session_id, lease.token)
+            self._safe_release(lease.session_id, lease.token, deadline=deadline)
             remaining_after_release = deadline - time.monotonic()
             # Need budget for at least acquire + send.
             if remaining_after_release <= ACQUIRE_TIMEOUT_SECONDS:
@@ -482,7 +503,7 @@ class HubLlmClient:
                     f"HubLlmClient retry send also failed for pool={pool!r}: {exc2}"
                 ) from exc2
             finally:
-                self._safe_release(new_lease.session_id, new_lease.token)
+                self._safe_release(new_lease.session_id, new_lease.token, deadline=deadline)
         except MultiLlmHubError as exc:
             raise LlmClientError(
                 f"HubLlmClient send hub-error for pool={pool!r}: {exc}"
@@ -540,26 +561,77 @@ class HubLlmClient:
             )
         return msg.text
 
-    def _safe_release(self, session_id: str, token: str) -> None:
+    def _safe_release(
+        self,
+        session_id: str,
+        token: str,
+        *,
+        deadline: float | None = None,
+    ) -> None:
         """Release the session lease, swallowing errors (best-effort).
 
         FK-11 §11.2.3 Zeile 192: release is always attempted, even on error.
         Failures here are logged but never re-raised.
 
+        The release timeout is clamped to ``min(RELEASE_TIMEOUT_SECONDS,
+        remaining_budget)`` when a ``deadline`` is provided (ERROR 2 fix,
+        AG3-065 rem-4): near a TOTAL boundary, acquire/send are already
+        clamped but an unclamped release could still add up to 10s beyond
+        the evaluator budget. A best-effort floor of 1.0s is preserved so
+        release is never passed a zero/negative timeout that could cause
+        the hub transport to hang or error without completing the release
+        (release MUST always be attempted in ``finally``).
+
         Args:
             session_id: Session identifier.
             token: Authentication token.
+            deadline: Monotonic-clock deadline for the overall call budget.
+                When ``None`` (legacy call-site without deadline), falls
+                back to the full ``RELEASE_TIMEOUT_SECONDS``.
         """
+        if deadline is not None:
+            remaining = deadline - time.monotonic()
+            effective_timeout = max(
+                _RELEASE_FLOOR_SECONDS,
+                min(RELEASE_TIMEOUT_SECONDS, remaining),
+            )
+        else:
+            effective_timeout = RELEASE_TIMEOUT_SECONDS
         try:
             self._hub.release(
                 session_id=session_id,
                 token=token,
-                timeout=RELEASE_TIMEOUT_SECONDS,
+                timeout=effective_timeout,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "HubLlmClient release failed for session=%r: %s", session_id, exc
             )
+
+
+def bind_eval_deadline(deadline: float) -> contextvars.Token[float | None]:
+    """Bind the per-evaluation deadline in the current execution context.
+
+    Called by :meth:`StructuredEvaluator.evaluate` at entry; the returned
+    token MUST be reset in a ``finally`` block via
+    ``_EVAL_DEADLINE_CV.reset(token)`` so the deadline never leaks to
+    subsequent tasks on the same thread.
+
+    Because :class:`~concurrent.futures.ThreadPoolExecutor` copies the
+    calling context into each worker thread at submit-time, but tasks on
+    the same reused thread share the same context copy, leakage is only
+    prevented by explicit reset. This function sets the var and returns
+    the token needed for reset.
+
+    Args:
+        deadline: Monotonic-clock deadline for the whole ``evaluate()``
+            call (``time.monotonic() + TOTAL_TIMEOUT_SECONDS``).
+
+    Returns:
+        A :class:`~contextvars.Token` that must be passed to
+        ``_EVAL_DEADLINE_CV.reset(token)`` in the ``finally`` block.
+    """
+    return _EVAL_DEADLINE_CV.set(deadline)
 
 
 __all__ = [
@@ -574,4 +646,6 @@ __all__ = [
     "RolePoolResolver",
     "SEND_TIMEOUT_SECONDS",
     "TOTAL_TIMEOUT_SECONDS",
+    "_EVAL_DEADLINE_CV",
+    "bind_eval_deadline",
 ]

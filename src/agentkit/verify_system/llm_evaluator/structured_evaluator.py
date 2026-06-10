@@ -44,8 +44,10 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from agentkit.verify_system.errors import VerifySystemError
 from agentkit.verify_system.llm_evaluator.llm_client import (
+    _EVAL_DEADLINE_CV,
     TOTAL_TIMEOUT_SECONDS,
     LlmClientError,
+    bind_eval_deadline,
 )
 from agentkit.verify_system.protocols import Finding, Severity, TrustClass
 from agentkit.verify_system.remediation.finding_resolution import (
@@ -431,139 +433,147 @@ class StructuredEvaluator:
         # HubLlmClient.complete() for the individual acquire/send/release ops;
         # this is the cross-call bound owned by the evaluator.)
         #
-        # NEAR-BOUNDARY fix (ERROR 1): communicate the evaluator-level deadline
-        # to HubLlmClient so even when elapsed < TOTAL (first call returned just
-        # under the limit), the 2nd complete() is bounded by the REMAINING budget,
-        # not a fresh TOTAL_TIMEOUT_SECONDS window. This is done by setting
-        # ``_eval_deadline`` on the client instance (not a new port parameter —
-        # the LlmClient Protocol ``complete(*, role, prompt)->str`` is unchanged).
+        # NEAR-BOUNDARY / CONCURRENCY fix (ERROR 1, AG3-065 rem-4):
+        # bind the evaluator deadline in the per-evaluation ContextVar
+        # (``_EVAL_DEADLINE_CV``) and RESET it in the finally block below.
+        # The ContextVar is concurrency-safe across the ThreadPoolExecutor
+        # used by ParallelEvalRunner: each submitted task copies the
+        # caller's context at submit-time, and the finally-reset prevents
+        # leakage to the NEXT task reusing the same worker thread.
+        # ``HubLlmClient.complete()`` reads ``_EVAL_DEADLINE_CV`` so it
+        # never reads another role's deadline. The LlmClient Protocol port
+        # ``complete(*, role, prompt)->str`` stays unchanged.
         eval_start = time.monotonic()
         eval_deadline = eval_start + TOTAL_TIMEOUT_SECONDS
-        # Propagate the evaluator-level deadline to the client so per-call
-        # sub-operation timeouts are clamped to the remaining budget.
-        _set_eval_deadline(self._llm_client, eval_deadline)
-        last_parse_error: StructuredEvaluatorError | None = None
-        raw_response: str = ""
-        retry_count = 0
-        current_prompt = full_prompt
+        _cv_token = bind_eval_deadline(eval_deadline)
+        try:
+            last_parse_error: StructuredEvaluatorError | None = None
+            raw_response: str = ""
+            retry_count = 0
+            current_prompt = full_prompt
 
-        for attempt in range(2):  # max 2 LLM calls
-            retry_count = attempt + 1
-            # ERROR 1 fix: before the schema-retry (2nd attempt), check whether
-            # the first complete() already exhausted the evaluate()-level budget.
-            if attempt == 1:
-                elapsed = time.monotonic() - eval_start
-                if elapsed >= TOTAL_TIMEOUT_SECONDS:
+            for attempt in range(2):  # max 2 LLM calls
+                retry_count = attempt + 1
+                # ERROR 1 fix: before the schema-retry (2nd attempt), check whether
+                # the first complete() already exhausted the evaluate()-level budget.
+                if attempt == 1:
+                    elapsed = time.monotonic() - eval_start
+                    if elapsed >= TOTAL_TIMEOUT_SECONDS:
+                        raise LlmClientError(
+                            f"StructuredEvaluator TOTAL_TIMEOUT_SECONDS budget "
+                            f"exhausted after first complete() attempt "
+                            f"(elapsed={elapsed:.1f}s >= {TOTAL_TIMEOUT_SECONDS}s): "
+                            "schema-retry refused (FK-11 §11.4.4 fail-closed)."
+                        )
+                # Transport call — emit telemetry event for EVERY attempt, including
+                # exceptions (FK-11 §11.4.6b: one event per complete() call).
+                try:
+                    raw_response = self._llm_client.complete(
+                        role=role.value, prompt=current_prompt
+                    )
+                except LlmClientError:
+                    self._emit_llm_call_event(
+                        role=role,
+                        bundle=bundle,
+                        retry=attempt,
+                        check_count=0,
+                        status="transport_error",
+                    )
+                    raise
+                if not raw_response.strip():
+                    self._emit_llm_call_event(
+                        role=role,
+                        bundle=bundle,
+                        retry=attempt,
+                        check_count=0,
+                        status="empty_response",
+                    )
                     raise LlmClientError(
-                        f"StructuredEvaluator TOTAL_TIMEOUT_SECONDS budget "
-                        f"exhausted after first complete() attempt "
-                        f"(elapsed={elapsed:.1f}s >= {TOTAL_TIMEOUT_SECONDS}s): "
-                        "schema-retry refused (FK-11 §11.4.4 fail-closed)."
+                        f"LlmClient returned empty completion for role={role.value!r} "
+                        "(FK-34 §34.5.1 fail-closed)."
                     )
-            # Transport call — emit telemetry event for EVERY attempt, including
-            # exceptions (FK-11 §11.4.6b: one event per complete() call).
-            try:
-                raw_response = self._llm_client.complete(
-                    role=role.value, prompt=current_prompt
-                )
-            except LlmClientError:
-                self._emit_llm_call_event(
-                    role=role,
-                    bundle=bundle,
-                    retry=attempt,
-                    check_count=0,
-                    status="transport_error",
-                )
-                raise
-            if not raw_response.strip():
-                self._emit_llm_call_event(
-                    role=role,
-                    bundle=bundle,
-                    retry=attempt,
-                    check_count=0,
-                    status="empty_response",
-                )
-                raise LlmClientError(
-                    f"LlmClient returned empty completion for role={role.value!r} "
-                    "(FK-34 §34.5.1 fail-closed)."
-                )
 
-            # Stage 2/3: try to parse a valid LlmEvaluatorResponse.
-            parse_error: StructuredEvaluatorError | None = None
-            response = None
-            try:
-                response = self._parse_response_three_stage(
-                    raw_response, role, mandatory | resolution_required
-                )
-            except StructuredEvaluatorError as exc:
-                parse_error = exc
-
-            if parse_error is not None:
-                last_parse_error = parse_error
-                # Emit event for this failed parse attempt.
-                self._emit_llm_call_event(
-                    role=role,
-                    bundle=bundle,
-                    retry=attempt,
-                    check_count=0,
-                    status="parse_fail",
-                )
-                if attempt == 0:
-                    logger.warning(
-                        "StructuredEvaluator parse failed for role=%r (attempt 1/%d); "
-                        "retrying with schema hint: %s",
-                        role.value,
-                        2,
-                        parse_error,
+                # Stage 2/3: try to parse a valid LlmEvaluatorResponse.
+                parse_error: StructuredEvaluatorError | None = None
+                response = None
+                try:
+                    response = self._parse_response_three_stage(
+                        raw_response, role, mandatory | resolution_required
                     )
-                    current_prompt = full_prompt + _SCHEMA_RETRY_HINT
-                continue  # next attempt
+                except StructuredEvaluatorError as exc:
+                    parse_error = exc
 
-            # Parse succeeded — now validate completeness (no retry on this).
-            assert response is not None
-            self._validate_completeness(role, response, mandatory, resolution_required)
+                if parse_error is not None:
+                    last_parse_error = parse_error
+                    # Emit event for this failed parse attempt.
+                    self._emit_llm_call_event(
+                        role=role,
+                        bundle=bundle,
+                        retry=attempt,
+                        check_count=0,
+                        status="parse_fail",
+                    )
+                    if attempt == 0:
+                        logger.warning(
+                            "StructuredEvaluator parse failed for role=%r (attempt 1/%d); "
+                            "retrying with schema hint: %s",
+                            role.value,
+                            2,
+                            parse_error,
+                        )
+                        current_prompt = full_prompt + _SCHEMA_RETRY_HINT
+                    continue  # next attempt
 
-            # All good — build result and emit telemetry.
-            findings, resolutions, verdict = self._aggregate(role, response)
-            raw_hash = hashlib.sha256(raw_response.encode("utf-8")).hexdigest()
-            self._emit_llm_call_event(
-                role=role,
-                bundle=bundle,
-                retry=attempt,
-                check_count=len(response.checks),
-                status="pass",
-            )
-            audit_status = self._persist_prompt_audit(
-                role=role,
-                story_id=bundle.story_id,
-                run_id=run_id,
-                attempt=run_attempt,
-                rendered_prompt=full_prompt,
-                raw_response=raw_response,
-                raw_response_hash=hashlib.sha256(raw_response.encode("utf-8")).hexdigest(),
-                template_sha256=template_sha256,
-                retry_count=retry_count,
-            )
-            result = StructuredEvaluatorResult(
-                role=role,
-                verdict=verdict,
-                findings=tuple(findings),
-                finding_resolutions=resolutions,
-                raw_response_hash=raw_hash,
-                template_sha256=template_sha256,
-                rendered_prompt=full_prompt,
-                raw_response=raw_response,
-                retry_count=retry_count,
-                prompt_audit_status=audit_status,
-            )
-            return result
+                # Parse succeeded — now validate completeness (no retry on this).
+                assert response is not None
+                self._validate_completeness(role, response, mandatory, resolution_required)
 
-        # Both parse attempts failed — fail-closed (events already emitted above
-        # for each attempt, so no additional event here).
-        raise StructuredEvaluatorError(
-            f"LLM response for role={role.value!r} unparseable after 2 attempts "
-            f"(FK-11 §11.4.4 fail-closed). Last parse error: {last_parse_error}"
-        ) from last_parse_error
+                # All good — build result and emit telemetry.
+                findings, resolutions, verdict = self._aggregate(role, response)
+                raw_hash = hashlib.sha256(raw_response.encode("utf-8")).hexdigest()
+                self._emit_llm_call_event(
+                    role=role,
+                    bundle=bundle,
+                    retry=attempt,
+                    check_count=len(response.checks),
+                    status="pass",
+                )
+                audit_status = self._persist_prompt_audit(
+                    role=role,
+                    story_id=bundle.story_id,
+                    run_id=run_id,
+                    attempt=run_attempt,
+                    rendered_prompt=full_prompt,
+                    raw_response=raw_response,
+                    raw_response_hash=hashlib.sha256(raw_response.encode("utf-8")).hexdigest(),
+                    template_sha256=template_sha256,
+                    retry_count=retry_count,
+                )
+                result = StructuredEvaluatorResult(
+                    role=role,
+                    verdict=verdict,
+                    findings=tuple(findings),
+                    finding_resolutions=resolutions,
+                    raw_response_hash=raw_hash,
+                    template_sha256=template_sha256,
+                    rendered_prompt=full_prompt,
+                    raw_response=raw_response,
+                    retry_count=retry_count,
+                    prompt_audit_status=audit_status,
+                )
+                return result
+
+            # Both parse attempts failed — fail-closed (events already emitted above
+            # for each attempt, so no additional event here).
+            raise StructuredEvaluatorError(
+                f"LLM response for role={role.value!r} unparseable after 2 attempts "
+                f"(FK-11 §11.4.4 fail-closed). Last parse error: {last_parse_error}"
+            ) from last_parse_error
+        finally:
+            # Reset the per-evaluation deadline ContextVar so it never leaks to
+            # the next task reusing this worker thread (concurrency-safe,
+            # AG3-065 rem-4 ERROR 1 fix).
+            _EVAL_DEADLINE_CV.reset(_cv_token)
 
     @staticmethod
     def _parse_response_three_stage(
@@ -1126,31 +1136,6 @@ class StructuredEvaluator:
             trust_class=TrustClass.VERIFIED_LLM,
         )
 
-
-def _set_eval_deadline(llm_client: object, deadline: float) -> None:
-    """Communicate the evaluator-level deadline to a supporting LLM client.
-
-    If the client exposes a ``set_eval_deadline`` method (e.g.
-    :class:`~agentkit.verify_system.llm_evaluator.llm_client.HubLlmClient`),
-    call it so per-call sub-operation timeouts are clamped to the remaining
-    evaluator budget. This does NOT alter the ``LlmClient`` Protocol port
-    (``complete(*, role, prompt)->str`` stays unchanged) — it is an optional
-    capability advertised by the concrete implementation.
-
-    The NEAR-BOUNDARY fix (ERROR 1): without this, a first ``complete()`` call
-    returning just under ``TOTAL_TIMEOUT_SECONDS`` would allow a second call
-    with a fresh ``TOTAL_TIMEOUT_SECONDS`` budget, doubling the intended bound.
-    With the deadline propagated, ``HubLlmClient.complete()`` uses
-    ``min(fresh_budget, eval_deadline)`` so the second call is bounded by the
-    remaining evaluator budget.
-
-    Args:
-        llm_client: The injected LLM client (any object).
-        deadline: Monotonic-clock deadline for the whole ``evaluate()`` call.
-    """
-    setter = getattr(llm_client, "set_eval_deadline", None)
-    if callable(setter):
-        setter(deadline)
 
 
 def _verdict(has_blocking: bool, has_concern: bool) -> LlmVerdict:

@@ -352,68 +352,63 @@ class TestError1WholeEvaluateTotalBound:
     def test_near_boundary_hub_client_deadline_clamped(self) -> None:
         """ERROR 1 near-boundary: HubLlmClient.complete() deadline is clamped to eval deadline.
 
-        When the evaluator sets the eval deadline on HubLlmClient via
-        set_eval_deadline(), the per-call deadline inside complete() is
-        min(fresh_TOTAL, eval_deadline). A second call starting at time T where
-        T is just under the eval_deadline will have a deadline that expires
-        quickly (remaining budget), not a fresh TOTAL_TIMEOUT_SECONDS window.
+        The per-call deadline inside complete() is min(fresh_TOTAL, cv_deadline).
+        A second call starting just under the eval_deadline will have a deadline that
+        expires quickly (remaining budget), not a fresh TOTAL_TIMEOUT_SECONDS window.
         This bounds the whole evaluate() wall-clock to ~TOTAL_TIMEOUT_SECONDS.
+
+        AG3-065 rem-4: the deadline is now stored in the per-evaluation ContextVar
+        ``_EVAL_DEADLINE_CV`` (not as an instance attribute) so concurrent roles on the
+        same ThreadPoolExecutor thread cannot clobber each other's deadline.
         """
-        from agentkit.verify_system.llm_evaluator.llm_client import HubLlmClient
-
-        hub = _FakeHub()
-        # First acquire/send/release succeeds, returns garbage for parse fail.
-        hub.acquire_responses.append(_lease())
-        hub.send_responses.append(_msg("NOT_JSON"))
-        # Second acquire/send/release would also succeed if reached.
-        hub.acquire_responses.append(_lease())
-        hub.send_responses.append(_msg(_all_pass_semantic()))
-
-        class _FixedResolver:
-            def resolve(self, role: str) -> str:  # noqa: ARG002
-                return "chatgpt"
-
-        client = HubLlmClient(hub, _FixedResolver())
-
-        # Set eval_deadline to just 0.5s from now — a very tight budget.
-        tight_deadline = time.monotonic() + 0.5
-        client.set_eval_deadline(tight_deadline)
-
-        # The first complete() must respect the deadline (will acquire/send/release
-        # quickly in the fake hub). After the first call, the remaining budget
-        # may be <= 0, so the 2nd complete() inside evaluate() should be blocked
-        # either by the evaluator's own elapsed >= TOTAL guard (if we've mocked time)
-        # or by the client's clamped deadline causing an immediate timeout.
-        # Here we verify the set_eval_deadline mechanism itself: the client
-        # correctly records and uses the deadline.
-        assert client._eval_deadline == tight_deadline, (
-            "set_eval_deadline must store the deadline on the client instance"
+        from agentkit.verify_system.llm_evaluator.llm_client import (
+            _EVAL_DEADLINE_CV,
+        )
+        from agentkit.verify_system.llm_evaluator.llm_client import (
+            TOTAL_TIMEOUT_SECONDS as _TOTAL,
         )
 
-        # Verify that when a second call is made after the deadline, the clamped
-        # deadline is <= now (i.e., min(fresh, eval_deadline) <= now).
-        # This is a deterministic check on the clamping logic.
+        # Set a deadline in the past — complete() should immediately see remaining <= 0.
         now = time.monotonic()
-        # Simulate: eval_deadline is in the past (tight_deadline is ~0.5s ago
-        # if this test runs slowly, but we ensure it by direct arithmetic).
         past_deadline = now - 1.0
-        client.set_eval_deadline(past_deadline)
-        fresh = now + TOTAL_TIMEOUT_SECONDS
-        clamped = min(fresh, client._eval_deadline)  # type: ignore[arg-type]
-        assert clamped <= now, (
-            "When eval_deadline is in the past, the clamped deadline must be <= now, "
-            "meaning the 2nd complete() will immediately exhaust its budget."
-        )
+        token = _EVAL_DEADLINE_CV.set(past_deadline)
+        try:
+            cv_deadline = _EVAL_DEADLINE_CV.get()
+            assert cv_deadline == past_deadline, (
+                "ContextVar must store the deadline set by bind_eval_deadline/set_eval_deadline"
+            )
+            fresh = time.monotonic() + _TOTAL
+            clamped = min(fresh, cv_deadline)
+            assert clamped <= time.monotonic(), (
+                "When eval_deadline is in the past, clamped deadline must be <= now, "
+                "meaning complete() will immediately exhaust its budget."
+            )
+        finally:
+            _EVAL_DEADLINE_CV.reset(token)
 
     def test_hub_client_set_eval_deadline_accepted(self) -> None:
-        """ERROR 1: HubLlmClient.set_eval_deadline() is callable and stores deadline."""
-        from agentkit.verify_system.llm_evaluator.llm_client import HubLlmClient
+        """ERROR 1: HubLlmClient.set_eval_deadline() is callable and sets the ContextVar.
+
+        AG3-065 rem-4: the deadline is now stored in ``_EVAL_DEADLINE_CV`` (not
+        an instance attribute) so it is concurrency-safe across ThreadPoolExecutor
+        threads. ``set_eval_deadline()`` calls ``_EVAL_DEADLINE_CV.set(deadline)``
+        so the value is visible within the current thread context.
+        """
+        from agentkit.verify_system.llm_evaluator.llm_client import (
+            _EVAL_DEADLINE_CV,
+            HubLlmClient,
+        )
 
         hub = _FakeHub()
         client = HubLlmClient(hub, _StaticResolver())
         deadline = time.monotonic() + 100.0
+        # set_eval_deadline now stores deadline in the ContextVar, not instance.
         client.set_eval_deadline(deadline)
-        assert client._eval_deadline == deadline
+        assert _EVAL_DEADLINE_CV.get() == deadline, (
+            "set_eval_deadline must update the per-evaluation ContextVar"
+        )
+        # Clean up the ContextVar after this test to prevent leakage.
+        _EVAL_DEADLINE_CV.set(None)  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
