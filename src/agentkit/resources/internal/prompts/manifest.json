@@ -1,6 +1,6 @@
 {
   "bundle_id": "internal-bootstrap-prompts",
-  "bundle_version": "2",
+  "bundle_version": "3",
   "templates": {
     "worker-implementation": {
       "relpath": "internal/prompts/worker-implementation.md",
@@ -41,6 +41,10 @@
     "qa-adversarial-review": {
       "relpath": "internal/prompts/qa-adversarial-review.md",
       "sha256": "99b5c524d4ce8bfed1cd48bd2aec810b1211e67a4537295c679b7c26073b2e58"
+    },
+    "review-preflight": {
+      "relpath": "internal/prompts/review-preflight.md",
+      "sha256": "6f22aab99965aa4d9e770311b0b88cc90cd3dc733ec10f5e5763b9052069f9e7"
     }
   }
 }

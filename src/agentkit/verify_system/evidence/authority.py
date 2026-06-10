@@ -8,10 +8,16 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 CONFIDENCE_PRIORITY: dict[str, int] = {
+    "RESOLVED_IMPORT": 5,
+    "RESOLVED_ALIAS": 4,
     "EXACT": 4,
+    "BARREL_CONTEXT": 3,
     "HIGH": 3,
+    "SAME_PACKAGE_HEURISTIC": 2,
     "MEDIUM": 2,
+    "SPRING_SCAN_HEURISTIC": 1,
     "LOW": 1,
+    "UNRESOLVED_DYNAMIC": 0,
 }
 
 
