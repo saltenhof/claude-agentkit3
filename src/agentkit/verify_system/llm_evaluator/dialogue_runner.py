@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 import time
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
 
@@ -38,6 +38,7 @@ from agentkit.verify_system.llm_evaluator.llm_client import (
 )
 
 if TYPE_CHECKING:
+    from agentkit.artifacts import ArtifactManager
     from agentkit.multi_llm_hub.client import HubClientProtocol
     from agentkit.multi_llm_hub.entities import HubBackendName, HubSessionLease
     from agentkit.verify_system.llm_evaluator.llm_client import RolePoolResolver
@@ -130,7 +131,10 @@ class DialogueRunner:
         *,
         role: str,
         prompts: list[str],
-        artifact_manager: Any | None = None,
+        artifact_manager: ArtifactManager | None = None,
+        story_id: str | None = None,
+        run_id: str | None = None,
+        attempt: int = 1,
     ) -> DialogueResult:
         """Run a multi-turn dialogue session.
 
@@ -138,11 +142,24 @@ class DialogueRunner:
         Hub session (acquire once → send N times → release). The number of
         turns is bounded by both ``len(prompts)`` and ``max_turns``.
 
+        The full transcript (every turn with role/content/ts) is persisted via
+        ``ArtifactManager.write()`` as a ``PROMPT_AUDIT`` envelope when an
+        ``ArtifactManager``, ``story_id`` and ``run_id`` are provided
+        (FK-11 §11.5.2 "Vollständiger Transcript"). When the ``ArtifactManager``
+        is absent, ``logging_status`` is ``"skipped"`` (clean; never silently
+        swallowed).
+
         Args:
             role: The reviewer role wire-string (used to resolve the pool).
             prompts: Ordered list of user prompts to send.
             artifact_manager: Optional ``ArtifactManager`` for transcript
-                persistence (FK-11 §11.5.2). ``None`` → ``skipped``.
+                persistence via ``write()`` (FK-11 §11.5.2). ``None`` →
+                ``skipped``.
+            story_id: Story display-ID for the audit envelope. ``None`` →
+                ``skipped`` even when ``artifact_manager`` is provided.
+            run_id: Run-correlation ID for the audit envelope. ``None`` →
+                ``skipped`` even when ``artifact_manager`` is provided.
+            attempt: 1-based attempt counter for the audit envelope (default 1).
 
         Returns:
             :class:`DialogueResult` with the full ordered transcript.
@@ -216,6 +233,9 @@ class DialogueRunner:
             pool=str(pool),
             transcript=transcript_tuple,
             artifact_manager=artifact_manager,
+            story_id=story_id,
+            run_id=run_id,
+            attempt=attempt,
         )
 
         return DialogueResult(
@@ -296,70 +316,92 @@ class DialogueRunner:
         role: str,
         pool: str,
         transcript: tuple[DialogueTurn, ...],
-        artifact_manager: Any | None,
+        artifact_manager: ArtifactManager | None,
+        story_id: str | None = None,
+        run_id: str | None = None,
+        attempt: int = 1,
     ) -> str:
-        """Persist the full transcript via the ArtifactManager (FK-11 §11.5.2).
+        """Persist the full transcript via ``ArtifactManager.write()`` (FK-11 §11.5.2).
 
         FK-11 §11.5.2 Zeile 494/532: "Vollständiger Transcript (Prompt + Response
-        pro Turn)" — persisted via the prompt_audit/ArtifactManager machinery,
-        NOT a parallel log channel.
+        pro Turn)" — persisted via the prompt_audit/ArtifactManager machinery via
+        ``ArtifactManager.write()`` with a proper ``ArtifactEnvelope``. A parallel
+        loose-JSON channel is explicitly forbidden (SSOT rule, ERROR 5).
+
+        The ``skipped`` path is ONLY for a genuinely absent ``ArtifactManager``
+        or missing run-correlation (``story_id``/``run_id``). A real
+        ``ArtifactManager`` that does not have ``write()`` will raise at
+        construction time (Pydantic protocol enforcement).
 
         Args:
             role: The dialogue role.
             pool: The pool backend name used.
-            transcript: The ordered dialogue transcript.
-            artifact_manager: Optional ArtifactManager. ``None`` → ``"skipped"``.
+            transcript: The ordered dialogue transcript (every turn with
+                role/content/ts).
+            artifact_manager: Optional ``ArtifactManager``. ``None`` →
+                ``"skipped"`` (clean; FK-11 §11.5.2).
+            story_id: Story display-ID for the envelope. ``None`` →
+                ``"skipped"`` (run-correlation unavailable).
+            run_id: Run-correlation ID for the envelope. ``None`` →
+                ``"skipped"`` (run-correlation unavailable).
+            attempt: 1-based attempt counter for the envelope (default 1).
 
         Returns:
-            ``"persisted"`` on success, ``"skipped"`` when no artifact_manager,
-            ``"error"`` on persistence failure.
+            ``"persisted"`` on success, ``"skipped"`` when pre-conditions
+            absent, ``"error"`` on persistence failure.
         """
         if artifact_manager is None:
             return "skipped"
+        if not story_id or not run_id:
+            return "skipped"
 
         try:
-            import json as _json
+            from agentkit.artifacts.envelope import ArtifactEnvelope
+            from agentkit.artifacts.producer import Producer, ProducerId, ProducerType
+            from agentkit.core_types import ArtifactClass, EnvelopeStatus
 
-            # Build a dialogue-transcript record for the ArtifactManager.
-            # We write it as a JSON artifact under the prompt-audit machinery.
-            # The exact artifact class/envelope is owned by the prompt_runtime BC;
-            # here we log the raw transcript as a best-effort audit record.
-            record: dict[str, object] = {
-                "role": role,
-                "pool": pool,
-                "turn_count": len([t for t in transcript if t.role == "user"]),
-                "turns": [
-                    {
-                        "role": t.role,
-                        "content": t.content,
-                        "ts": t.ts.isoformat(),
-                    }
-                    for t in transcript
-                ],
-            }
-            # Use the artifact_manager's write method if it supports raw JSON.
-            # If the manager does not support a raw write, we log a warning and
-            # return "skipped" — no parallel channel, no crash.
-            if hasattr(artifact_manager, "write_raw"):
-                artifact_manager.write_raw(
-                    "dialogue_transcript",
-                    _json.dumps(record, ensure_ascii=False, indent=2).encode("utf-8"),
-                )
-                return "persisted"
-            # Fallback: log at DEBUG level (the transcript is in memory via
-            # DialogueResult.transcript; formal persistence requires a proper
-            # ArtifactClass for dialogue transcripts, which is out of scope).
-            logger.debug(
-                "DialogueRunner: ArtifactManager does not support write_raw; "
-                "transcript logging skipped (role=%r pool=%r turns=%d)",
-                role,
-                pool,
-                len(transcript),
+            now = datetime.now(UTC)
+            role_slug = role.replace("_", "-")
+            record_key = f"dialogue-transcript-{role_slug}-{run_id}-{attempt:03d}"
+            producer = Producer(
+                type=ProducerType.LLM_REVIEWER,
+                name=f"dialogue-runner-{role_slug}",
+                id=ProducerId(record_key),
             )
-            return "skipped"
+            turns_payload = [
+                {
+                    "role": t.role,
+                    "content": t.content,
+                    "ts": t.ts.isoformat(),
+                }
+                for t in transcript
+            ]
+            envelope = ArtifactEnvelope(
+                schema_version="3.0",
+                story_id=story_id,
+                run_id=run_id,
+                stage="layer2-dialogue",
+                attempt=attempt,
+                producer=producer,
+                started_at=now,
+                finished_at=now,
+                status=EnvelopeStatus.PASS,
+                artifact_class=ArtifactClass.PROMPT_AUDIT,
+                payload={
+                    "role": role,
+                    "pool": pool,
+                    "turn_count": len([t for t in transcript if t.role == "user"]),
+                    "turns": turns_payload,
+                },
+            )
+            artifact_manager.write(envelope)
+            return "persisted"
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "DialogueRunner: transcript persistence failed: %s", exc
+                "DialogueRunner: transcript persistence failed (role=%r pool=%r): %s",
+                role,
+                pool,
+                exc,
             )
             return "error"
 

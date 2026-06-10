@@ -246,6 +246,12 @@ class HubLlmClient:
         acquire → send → release (in finally), with queued-acquire retry,
         send-timeout retry with new slot, and lease-expired re-acquire.
 
+        The TOTAL_TIMEOUT_SECONDS budget is maintained from the moment this
+        method is entered; every acquire/send/release sub-operation is
+        clamped to min(per_op_constant, remaining_budget). A retry is
+        refused (fail-closed → LlmClientError) when the remaining budget
+        cannot cover the next operation.
+
         Args:
             role: The reviewer role wire-string.
             prompt: The materialized prompt text.
@@ -254,8 +260,8 @@ class HubLlmClient:
             The raw response text from the Hub backend.
 
         Raises:
-            LlmClientError: On transport failure, pool unreachable, or
-                exhausted retries.
+            LlmClientError: On transport failure, pool unreachable,
+                exhausted retries, or TOTAL_TIMEOUT_SECONDS exceeded.
             LoginRequiredError: If the Hub requires operator login.
         """
         from agentkit.multi_llm_hub.errors import (
@@ -268,7 +274,7 @@ class HubLlmClient:
         description = f"agentkit-verify role={role}"
         deadline = time.monotonic() + TOTAL_TIMEOUT_SECONDS
 
-        lease = self._acquire_with_queue_retry(pool, description)
+        lease = self._acquire_with_queue_retry(pool, description, deadline=deadline)
         send_retries_used = 0
         try:
             return self._send_with_retry(
@@ -290,18 +296,26 @@ class HubLlmClient:
         self,
         pool: HubBackendName,
         description: str,
+        *,
+        deadline: float,
     ) -> HubSessionLease:
         """Acquire a session lease, retrying up to MAX_ACQUIRE_RETRIES if queued.
+
+        Each attempt's timeout is clamped to ``min(ACQUIRE_TIMEOUT_SECONDS,
+        remaining_budget)``. A new attempt is refused with
+        :class:`LlmClientError` when the remaining budget is exhausted.
 
         Args:
             pool: The target pool backend.
             description: Human-readable session description.
+            deadline: Monotonic clock deadline for the overall call budget.
 
         Returns:
             A granted :class:`~agentkit.multi_llm_hub.entities.HubSessionLease`.
 
         Raises:
-            LlmClientError: After MAX_ACQUIRE_RETRIES exhaustion or Hub error.
+            LlmClientError: After MAX_ACQUIRE_RETRIES exhaustion, budget
+                exhaustion, or Hub error.
         """
         from agentkit.multi_llm_hub.errors import (
             HubAcquireQueuedError,
@@ -310,12 +324,19 @@ class HubLlmClient:
         )
 
         for attempt in range(1, MAX_ACQUIRE_RETRIES + 1):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise LlmClientError(
+                    f"HubLlmClient TOTAL_TIMEOUT_SECONDS exhausted before acquire "
+                    f"(attempt {attempt}, pool={pool!r}) — fail-closed"
+                )
+            effective_timeout = min(ACQUIRE_TIMEOUT_SECONDS, remaining)
             try:
                 return self._hub.acquire(
                     owner=self._owner,
                     description=description,
                     llms=[pool],
-                    timeout=ACQUIRE_TIMEOUT_SECONDS,
+                    timeout=effective_timeout,
                 )
             except HubAcquireQueuedError as exc:
                 wait = exc.estimated_wait_seconds
@@ -363,19 +384,24 @@ class HubLlmClient:
         - lease_expired/session-not-found → new acquire, second send.
         Both count under the send max-1 retry budget (hard cap).
 
+        Each send is clamped to ``min(SEND_TIMEOUT_SECONDS, remaining_budget)``.
+        A retry is refused when the remaining budget cannot cover the next
+        operation (fail-closed → :class:`LlmClientError`).
+
         Args:
             lease: The current active session lease.
             pool: The target pool backend.
             prompt: The materialized prompt.
             description: Session description for re-acquire.
             send_retries_used: Number of send retries already used.
-            deadline: Monotonic time deadline for the entire call.
+            deadline: Monotonic time deadline for the entire call budget.
 
         Returns:
             The raw response text.
 
         Raises:
-            LlmClientError: On exhausted retries or unrecoverable Hub error.
+            LlmClientError: On exhausted retries, budget exhaustion, or
+                unrecoverable Hub error.
             LoginRequiredError: On Hub login-required error.
         """
         from agentkit.multi_llm_hub.errors import (
@@ -386,7 +412,7 @@ class HubLlmClient:
         )
 
         try:
-            return self._do_send(lease, pool, prompt)
+            return self._do_send(lease, pool, prompt, deadline=deadline)
         except HubLoginRequiredError as exc:
             raise LoginRequiredError(
                 f"Hub pool {pool!r} requires operator login during send",
@@ -399,13 +425,17 @@ class HubLlmClient:
                 ) from exc
             # One retry: release old slot, acquire new, send again.
             self._safe_release(lease.session_id, lease.token)
-            if time.monotonic() >= deadline:
+            remaining_after_release = deadline - time.monotonic()
+            # Need budget for at least acquire + send.
+            if remaining_after_release <= ACQUIRE_TIMEOUT_SECONDS:
                 raise LlmClientError(
-                    f"HubLlmClient TOTAL_TIMEOUT exceeded during retry for pool={pool!r}"
+                    f"HubLlmClient TOTAL_TIMEOUT_SECONDS budget insufficient for "
+                    f"retry acquire+send (remaining={remaining_after_release:.1f}s, "
+                    f"pool={pool!r}) — fail-closed"
                 ) from exc
-            new_lease = self._acquire_with_queue_retry(pool, description)
+            new_lease = self._acquire_with_queue_retry(pool, description, deadline=deadline)
             try:
-                return self._do_send(new_lease, pool, prompt)
+                return self._do_send(new_lease, pool, prompt, deadline=deadline)
             except HubLoginRequiredError as exc2:
                 raise LoginRequiredError(
                     f"Hub pool {pool!r} requires operator login during retry send",
@@ -422,26 +452,46 @@ class HubLlmClient:
                 f"HubLlmClient send hub-error for pool={pool!r}: {exc}"
             ) from exc
 
-    def _do_send(self, lease: HubSessionLease, pool: HubBackendName, prompt: str) -> str:
+    def _do_send(
+        self,
+        lease: HubSessionLease,
+        pool: HubBackendName,
+        prompt: str,
+        *,
+        deadline: float,
+    ) -> str:
         """Execute a single send and extract the text response.
+
+        The send timeout is clamped to ``min(SEND_TIMEOUT_SECONDS,
+        remaining_budget)``; if the remaining budget has already expired,
+        :class:`LlmClientError` is raised immediately (fail-closed).
 
         Args:
             lease: Active session lease.
             pool: Target backend pool.
             prompt: Prompt text.
+            deadline: Monotonic clock deadline for the overall call budget.
 
         Returns:
             The raw response text from the pool backend.
 
         Raises:
-            LlmClientError: If the response is missing or has an error status.
+            LlmClientError: If the response is missing, has an error status,
+                or the total budget is already exhausted.
         """
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise LlmClientError(
+                f"HubLlmClient TOTAL_TIMEOUT_SECONDS exhausted before send "
+                f"(pool={pool!r}) — fail-closed"
+            )
+        effective_send_timeout = min(SEND_TIMEOUT_SECONDS, remaining)
         messages = self._hub.send(
             session_id=lease.session_id,
             token=lease.token,
             message=prompt,
             target=pool,
-            timeout=SEND_TIMEOUT_SECONDS,
+            timeout=effective_send_timeout,
         )
         msg = messages.get(pool)
         if msg is None:

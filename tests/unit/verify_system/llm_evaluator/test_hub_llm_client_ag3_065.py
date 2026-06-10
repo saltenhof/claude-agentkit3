@@ -11,10 +11,11 @@ exception per story guardrails — only LLM/Hub boundary is faked).
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from agentkit.artifacts.envelope import ArtifactEnvelope
 from agentkit.multi_llm_hub.entities import HubMessage, HubSessionLease
 from agentkit.multi_llm_hub.errors import (
     HubAcquireQueuedError,
@@ -697,54 +698,114 @@ def test_dialogue_runner_release_failure_not_propagated() -> None:
     assert result.turn_count == 1
 
 
-def test_dialogue_runner_persist_transcript_with_write_raw() -> None:
-    """AC7: transcript persistence via write_raw ArtifactManager."""
+def test_dialogue_runner_persist_transcript_via_artifact_manager_write() -> None:
+    """ERROR 5 fix: transcript persisted via ArtifactManager.write() (not write_raw).
+
+    ArtifactManager.write_raw() does NOT exist -- the real API is write(ArtifactEnvelope).
+    This test proves the full transcript (all turns with role/content/ts) is
+    persisted via write() when story_id + run_id are provided, and that the
+    payload contains every turn.
+    """
     hub = _FakeHub()
     hub.acquire_responses.append(hub._make_lease())
-    hub.send_responses.append(_chat_response("R"))
+    hub.send_responses.append(_chat_response("R1"))
+    hub.send_responses.append(_chat_response("R2"))
 
-    class _FakeArtifactManager:
+    class _RealApiArtifactManager:
         def __init__(self) -> None:
-            self.written: list[tuple[str, bytes]] = []
+            self.written: list[Any] = []
 
-        def write_raw(self, name: str, data: bytes) -> None:
-            self.written.append((name, data))
+        def write(self, envelope: object) -> None:
+            assert isinstance(envelope, ArtifactEnvelope)
+            self.written.append(envelope)
 
-    mgr = _FakeArtifactManager()
+    mgr = _RealApiArtifactManager()
     runner = DialogueRunner(hub, _StaticResolver("chatgpt"))
-    result = runner.run(role="qa_review", prompts=["P"], artifact_manager=mgr)
+    result = runner.run(
+        role="qa_review",
+        prompts=["P1", "P2"],
+        artifact_manager=mgr,
+        story_id="AG3-065",
+        run_id="run-42",
+        attempt=1,
+    )
 
     assert result.logging_status == "persisted"
     assert len(mgr.written) == 1
-    assert mgr.written[0][0] == "dialogue_transcript"
+    envelope = mgr.written[0]
+    assert envelope.story_id == "AG3-065"
+    assert envelope.run_id == "run-42"
+    # All 4 turns (2 user + 2 assistant) must be in the payload.
+    assert envelope.payload is not None
+    turns = envelope.payload["turns"]
+    assert len(turns) == 4  # type: ignore[arg-type]
+    assert turns[0]["role"] == "user"  # type: ignore[index]
+    assert turns[1]["role"] == "assistant"  # type: ignore[index]
 
 
 def test_dialogue_runner_persist_transcript_error_returns_error_status() -> None:
-    """AC7: persistence failure → 'error' status (not propagated)."""
+    """AC7 / ERROR 5: persistence failure → 'error' status (not propagated)."""
     hub = _FakeHub()
     hub.acquire_responses.append(hub._make_lease())
     hub.send_responses.append(_chat_response("R"))
 
     class _BrokenArtifactManager:
-        def write_raw(self, name: str, data: bytes) -> None:
+        def write(self, envelope: object) -> None:
             raise RuntimeError("disk full")
 
     runner = DialogueRunner(hub, _StaticResolver("chatgpt"))
-    result = runner.run(role="qa_review", prompts=["P"], artifact_manager=_BrokenArtifactManager())
+    result = runner.run(
+        role="qa_review",
+        prompts=["P"],
+        artifact_manager=_BrokenArtifactManager(),  # type: ignore[arg-type]
+        story_id="AG3-065",
+        run_id="run-42",
+    )
 
     assert result.logging_status == "error"
 
 
-def test_dialogue_runner_persist_transcript_no_write_raw_returns_skipped() -> None:
-    """AC7: ArtifactManager without write_raw → 'skipped' (not crash)."""
+def test_dialogue_runner_no_artifact_manager_returns_skipped_regardless_of_ids() -> None:
+    """ERROR 5: missing ArtifactManager → 'skipped' even when story_id/run_id given."""
     hub = _FakeHub()
     hub.acquire_responses.append(hub._make_lease())
     hub.send_responses.append(_chat_response("R"))
 
-    class _NoWriteRawManager:
-        pass  # No write_raw method
-
     runner = DialogueRunner(hub, _StaticResolver("chatgpt"))
-    result = runner.run(role="qa_review", prompts=["P"], artifact_manager=_NoWriteRawManager())
+    result = runner.run(
+        role="qa_review",
+        prompts=["P"],
+        artifact_manager=None,
+        story_id="AG3-065",
+        run_id="run-42",
+    )
 
     assert result.logging_status == "skipped"
+
+
+def test_dialogue_runner_missing_run_id_returns_skipped() -> None:
+    """ERROR 5: ArtifactManager present but no run_id -> 'skipped' (clean)."""
+    hub = _FakeHub()
+    hub.acquire_responses.append(hub._make_lease())
+    hub.send_responses.append(_chat_response("R"))
+
+    class _RealApiArtifactManager:
+        def __init__(self) -> None:
+            self.written: list[Any] = []
+
+        def write(self, envelope: object) -> None:
+            assert isinstance(envelope, ArtifactEnvelope)
+            self.written.append(envelope)
+
+    mgr = _RealApiArtifactManager()
+    runner = DialogueRunner(hub, _StaticResolver("chatgpt"))
+    result = runner.run(
+        role="qa_review",
+        prompts=["P"],
+        artifact_manager=mgr,  # type: ignore[arg-type]
+        story_id="AG3-065",
+        run_id=None,  # missing → skipped
+    )
+
+    assert result.logging_status == "skipped"
+    assert len(mgr.written) == 0  # nothing written

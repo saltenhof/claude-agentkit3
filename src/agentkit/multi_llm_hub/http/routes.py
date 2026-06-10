@@ -18,7 +18,12 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from agentkit.multi_llm_hub.config import load_multi_llm_hub_config
 from agentkit.multi_llm_hub.entities import HubBackendName
-from agentkit.multi_llm_hub.errors import HubSessionNotFoundError, HubUnavailableError, MultiLlmHubError
+from agentkit.multi_llm_hub.errors import (
+    HubLoginRequiredError,
+    HubSessionNotFoundError,
+    HubUnavailableError,
+    MultiLlmHubError,
+)
 from agentkit.multi_llm_hub.sse_stream import iter_hub_sse_stream, parse_hub_topics
 
 if TYPE_CHECKING:
@@ -223,6 +228,8 @@ class MultiLlmHubRoutes:
             return _not_found_response(str(exc), correlation_id)
         except HubUnavailableError as exc:
             return _unavailable_response(str(exc), correlation_id)
+        except HubLoginRequiredError as exc:
+            return _login_required_response(str(exc), correlation_id)
         except MultiLlmHubError as exc:
             return _hub_error_response(str(exc), correlation_id)
         return _mutation_response(

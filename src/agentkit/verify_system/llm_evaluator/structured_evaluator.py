@@ -35,6 +35,7 @@ import hashlib
 import json
 import logging
 import re
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Final, Protocol, runtime_checkable
 
@@ -50,6 +51,7 @@ from agentkit.verify_system.remediation.finding_resolution import (
 )
 
 if TYPE_CHECKING:
+    from agentkit.artifacts import ArtifactManager
     from agentkit.story_context_manager.models import StoryContext
     from agentkit.telemetry.emitters import EventEmitter
     from agentkit.verify_system.llm_evaluator.bundle import ReviewBundle
@@ -314,6 +316,7 @@ class StructuredEvaluator:
         prompt_materializer: _PromptMaterializer,
         *,
         event_emitter: EventEmitter | None = None,
+        artifact_manager: ArtifactManager | None = None,
     ) -> None:
         """Initialise the evaluator.
 
@@ -326,10 +329,15 @@ class StructuredEvaluator:
                 nor reads a resource file directly.
             event_emitter: Optional telemetry emitter for ``llm_call`` events
                 (FK-11 §11.4.6). ``None`` => no event emitted (skipped cleanly).
+            artifact_manager: Optional ``ArtifactManager`` for persisting the
+                full rendered prompt + raw response as a
+                ``PROMPT_AUDIT`` envelope (FK-11 §11.4.6a). ``None`` =>
+                persistence skipped (clean ``skipped`` status).
         """
         self._llm_client = llm_client
         self._materialize = prompt_materializer
         self._event_emitter = event_emitter
+        self._artifact_manager = artifact_manager
 
     def evaluate(
         self,
@@ -339,11 +347,19 @@ class StructuredEvaluator:
         qa_cycle_round: int,
         expected_check_ids: frozenset[str] | None = None,
         template_override: str | None = None,
+        *,
+        run_id: str | None = None,
+        run_attempt: int = 1,
     ) -> StructuredEvaluatorResult:
         """Evaluate one role against the review bundle (fail-closed).
 
         Implements FK-11 §11.4.4 three-stage response processing with max-2-call
         retry and FK-11 §11.4.6 full logging (prompt + response + telemetry event).
+
+        The full rendered prompt + raw response are persisted via the injected
+        ``ArtifactManager`` as a ``PROMPT_AUDIT`` envelope (FK-11 §11.4.6a)
+        when both ``artifact_manager`` and ``run_id`` are available; otherwise a
+        clean ``skipped`` status is recorded.
 
         Args:
             role: The reviewer role to run.
@@ -356,6 +372,11 @@ class StructuredEvaluator:
             template_override: Use this logical template name instead of the
                 role's default (FK-32 conformance levels use level-specific
                 templates over the DOC_FIDELITY role; ``None`` => role default).
+            run_id: Optional run correlation ID for the prompt-audit envelope.
+                When ``None``, prompt-audit persistence is skipped cleanly.
+            run_attempt: The 1-based run-attempt counter for the prompt-audit
+                envelope (default 1). Named ``run_attempt`` to avoid shadowing
+                the inner LLM-call-attempt loop variable.
 
         Returns:
             The validated :class:`StructuredEvaluatorResult`.
@@ -386,6 +407,9 @@ class StructuredEvaluator:
         # check IDs) are immediate fail-closed (no retry). This preserves the
         # original fail-closed contract for content validation while adding the
         # FK-11 §11.4.4 parse-retry only where it helps.
+        #
+        # FK-11 §11.4.6b: one llm_call telemetry event is emitted PER complete()
+        # call — including transport-exception attempts and parse-failed attempts.
         last_parse_error: StructuredEvaluatorError | None = None
         raw_response: str = ""
         retry_count = 0
@@ -393,8 +417,29 @@ class StructuredEvaluator:
 
         for attempt in range(2):  # max 2 LLM calls
             retry_count = attempt + 1
-            raw_response = self._llm_client.complete(role=role.value, prompt=current_prompt)
+            # Transport call — emit telemetry event for EVERY attempt, including
+            # exceptions (FK-11 §11.4.6b: one event per complete() call).
+            try:
+                raw_response = self._llm_client.complete(
+                    role=role.value, prompt=current_prompt
+                )
+            except LlmClientError:
+                self._emit_llm_call_event(
+                    role=role,
+                    bundle=bundle,
+                    retry=attempt,
+                    check_count=0,
+                    status="transport_error",
+                )
+                raise
             if not raw_response.strip():
+                self._emit_llm_call_event(
+                    role=role,
+                    bundle=bundle,
+                    retry=attempt,
+                    check_count=0,
+                    status="empty_response",
+                )
                 raise LlmClientError(
                     f"LlmClient returned empty completion for role={role.value!r} "
                     "(FK-34 §34.5.1 fail-closed)."
@@ -412,6 +457,14 @@ class StructuredEvaluator:
 
             if parse_error is not None:
                 last_parse_error = parse_error
+                # Emit event for this failed parse attempt.
+                self._emit_llm_call_event(
+                    role=role,
+                    bundle=bundle,
+                    retry=attempt,
+                    check_count=0,
+                    status="parse_fail",
+                )
                 if attempt == 0:
                     logger.warning(
                         "StructuredEvaluator parse failed for role=%r (attempt 1/%d); "
@@ -437,7 +490,7 @@ class StructuredEvaluator:
                 check_count=len(response.checks),
                 status="pass",
             )
-            return StructuredEvaluatorResult(
+            result = StructuredEvaluatorResult(
                 role=role,
                 verdict=verdict,
                 findings=tuple(findings),
@@ -448,15 +501,16 @@ class StructuredEvaluator:
                 raw_response=raw_response,
                 retry_count=retry_count,
             )
+            self._persist_prompt_audit(
+                result=result,
+                story_id=bundle.story_id,
+                run_id=run_id,
+                attempt=run_attempt,
+            )
+            return result
 
-        # Both parse attempts failed — fail-closed
-        self._emit_llm_call_event(
-            role=role,
-            bundle=bundle,
-            retry=1,
-            check_count=0,
-            status="fail",
-        )
+        # Both parse attempts failed — fail-closed (events already emitted above
+        # for each attempt, so no additional event here).
         raise StructuredEvaluatorError(
             f"LLM response for role={role.value!r} unparseable after 2 attempts "
             f"(FK-11 §11.4.4 fail-closed). Last parse error: {last_parse_error}"
@@ -664,6 +718,86 @@ class StructuredEvaluator:
                 f"Stage 3: regex-extracted checks for role={role.value!r} failed "
                 f"schema validation: {exc}"
             ) from exc
+
+    def _persist_prompt_audit(
+        self,
+        *,
+        result: StructuredEvaluatorResult,
+        story_id: str,
+        run_id: str | None,
+        attempt: int,
+    ) -> str:
+        """Persist the full rendered prompt + raw response via ArtifactManager.write().
+
+        FK-11 §11.4.6a: the full prompt and raw response MUST be persisted via
+        the prompt-audit / ArtifactManager machinery — NOT a parallel loose-JSON
+        channel. A clean ``"skipped"`` status is returned when:
+        - no ``ArtifactManager`` was injected, or
+        - ``run_id`` is absent (run-correlation unavailable).
+
+        Args:
+            result: The :class:`StructuredEvaluatorResult` carrying the
+                rendered prompt and raw response.
+            story_id: Story display-ID for the envelope.
+            run_id: Run-correlation ID; ``None`` yields a ``skipped`` status.
+            attempt: 1-based attempt counter for the envelope.
+
+        Returns:
+            ``"persisted"`` on success, ``"skipped"`` when pre-conditions
+            are absent, ``"error"`` on persistence failure.
+        """
+        if self._artifact_manager is None:
+            return "skipped"
+        if not run_id:
+            return "skipped"
+        if result.rendered_prompt is None or result.raw_response is None:
+            return "skipped"
+
+        try:
+            from agentkit.artifacts.envelope import ArtifactEnvelope
+            from agentkit.artifacts.producer import Producer, ProducerId, ProducerType
+            from agentkit.core_types import ArtifactClass, EnvelopeStatus
+
+            now = datetime.now(UTC)
+            role_slug = result.role.value.replace("_", "-")
+            record_key = f"verify-layer2-{role_slug}-{run_id}-{attempt:03d}"
+            producer = Producer(
+                type=ProducerType.LLM_REVIEWER,
+                name=f"structured-evaluator-{role_slug}",
+                id=ProducerId(record_key),
+            )
+            envelope = ArtifactEnvelope(
+                schema_version="3.0",
+                story_id=story_id,
+                run_id=run_id,
+                stage="layer2-llm-eval",
+                attempt=attempt,
+                producer=producer,
+                started_at=now,
+                finished_at=now,
+                status=EnvelopeStatus.PASS,
+                artifact_class=ArtifactClass.PROMPT_AUDIT,
+                payload={
+                    "role": result.role.value,
+                    "rendered_prompt": result.rendered_prompt,
+                    "raw_response": result.raw_response,
+                    "raw_response_hash": result.raw_response_hash,
+                    "template_sha256": result.template_sha256,
+                    "retry_count": result.retry_count,
+                },
+            )
+            self._artifact_manager.write(envelope)
+            return "persisted"
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "StructuredEvaluator: prompt-audit persistence failed for "
+                "role=%r story_id=%r run_id=%r: %s",
+                result.role.value,
+                story_id,
+                run_id,
+                exc,
+            )
+            return "error"
 
     def _emit_llm_call_event(
         self,
