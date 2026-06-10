@@ -113,6 +113,21 @@ def test_spawn_key_parse_fail_open_without_story_segment() -> None:
     assert parsed.round == 2
 
 
+def test_spawn_round_pattern_is_ascii_only() -> None:
+    """_SPAWN_ROUND_PATTERN must match ASCII digits only (re.ASCII).
+
+    Unicode decimal digits (e.g. Arabic-Indic ١ = '1') must NOT match
+    so that round parsing is identical to the original [1-9][0-9]* behavior.
+    """
+    # ASCII round segments must still parse correctly.
+    assert parse_spawn_key("worker--story=AG3-001--r1") is not None
+    assert parse_spawn_key("worker--story=AG3-001--r99") is not None
+    # Unicode digit in round segment must be rejected.
+    # ١ is ARABIC-INDIC DIGIT ONE (decimal value 1, matched by \d without re.ASCII).
+    unicode_round = "worker--story=AG3-001--r١"
+    assert parse_spawn_key(unicode_round) is None
+
+
 def test_resume_capsule_is_structured_bounded_and_has_guardrails(tmp_path: Path) -> None:
     prompt = _write_prompt(tmp_path, "# full prompt\nDO-NOT-COPY-ME\n")
     capsule = build_resume_capsule(

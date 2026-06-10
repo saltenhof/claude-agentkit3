@@ -9,7 +9,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 _AGENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9-]+$")
-_SPAWN_ROUND_PATTERN = re.compile(r"^r(?P<round>[1-9]\d*)$")
+_SPAWN_ROUND_PATTERN = re.compile(r"^r(?P<round>[1-9]\d*)$", re.ASCII)
 
 
 class SpawnKey(BaseModel):

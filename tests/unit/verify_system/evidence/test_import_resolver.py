@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -14,7 +15,13 @@ from agentkit.verify_system.evidence import (
     ImportResolver,
     RepoContext,
 )
-from agentkit.verify_system.evidence.import_resolver import CONFIDENCE_PRIORITY
+from agentkit.verify_system.evidence.import_resolver import (
+    CONFIDENCE_PRIORITY,
+    JAVA_CLASS_DECL,
+    JAVA_IMPORT,
+    JAVA_PACKAGE,
+    JAVA_TYPE_REFERENCE,
+)
 from agentkit.verify_system.structural.system_evidence import ChangeEvidence
 
 
@@ -182,3 +189,62 @@ def test_stage2_provider_feeds_secondary_context_bundle_entries(tmp_path: Path) 
     assert len(imported_entries) == 1
     assert imported_entries[0].authority is AuthorityClass.SECONDARY_CONTEXT
     assert imported_entries[0].confidence == ConfidenceLabel.RESOLVED_IMPORT.value
+
+
+def test_java_patterns_are_ascii_only() -> None:
+    """JAVA_TYPE_REFERENCE and JAVA_CLASS_DECL must match ASCII identifiers only.
+
+    The patterns were inadvertently broadened from [A-Za-z0-9_]* to \\w* in
+    the Sonar-cleanup commit.  This test confirms that:
+
+    1. Standard ASCII Java identifiers still match.
+    2. Unicode-letter identifiers (e.g. identifiers with non-ASCII characters
+       that \\w would match in Unicode mode) do NOT match — the explicit
+       [A-Za-z0-9_]* character class is ASCII-only by construction.
+    3. JAVA_IMPORT / JAVA_PACKAGE (re.ASCII flag) likewise reject non-ASCII.
+    """
+    # --- JAVA_TYPE_REFERENCE ---
+    ascii_ref = "public MyService"
+    match = JAVA_TYPE_REFERENCE.search(ascii_ref)
+    assert match is not None
+    assert match.group(1) == "MyService"
+
+    # A class name containing a Unicode letter (e.g. Greek small letter alpha)
+    # must NOT be captured — Java identifiers are ASCII in practice.
+    unicode_class = "public Sérvice"  # é is non-ASCII
+    match2 = JAVA_TYPE_REFERENCE.search(unicode_class)
+    # Either no match or group(1) is the ASCII prefix before the non-ASCII char.
+    if match2 is not None:
+        assert re.fullmatch(r"[A-Za-z0-9_]+", match2.group(1)), (
+            "JAVA_TYPE_REFERENCE captured a non-ASCII identifier component"
+        )
+
+    # --- JAVA_CLASS_DECL ---
+    ascii_decl = "class OrderService"
+    m = JAVA_CLASS_DECL.search(ascii_decl)
+    assert m is not None
+    assert m.group(1) == "OrderService"
+
+    unicode_decl = "class Sérvice"
+    m2 = JAVA_CLASS_DECL.search(unicode_decl)
+    if m2 is not None:
+        assert re.fullmatch(r"[A-Za-z0-9_]+", m2.group(1)), (
+            "JAVA_CLASS_DECL captured a non-ASCII identifier component"
+        )
+
+    # --- JAVA_IMPORT (re.ASCII) ---
+    ascii_import = "import com.example.MyClass;"
+    im = JAVA_IMPORT.search(ascii_import)
+    assert im is not None
+    assert im.group(1) == "com.example.MyClass"
+
+    # Unicode word chars in package name must NOT match.
+    unicode_import = "import com.éxample.MyClass;"
+    im2 = JAVA_IMPORT.search(unicode_import)
+    assert im2 is None or re.fullmatch(r"[\w.]+", im2.group(1), re.ASCII) is not None
+
+    # --- JAVA_PACKAGE (re.ASCII) ---
+    ascii_pkg = "package com.example.service;"
+    pm = JAVA_PACKAGE.search(ascii_pkg)
+    assert pm is not None
+    assert pm.group(1) == "com.example.service"

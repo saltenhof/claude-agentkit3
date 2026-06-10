@@ -82,7 +82,7 @@ def test_sidecar_timeout_marks_failed_delta_zero(
     assert maybe_request_llm_assessment(state) is True
     repository.save(state)
 
-    run_worker_health_sidecar(
+    exit_code = run_worker_health_sidecar(
         "AG3-080",
         project_root=tmp_path,
         repository=repository,
@@ -91,9 +91,34 @@ def test_sidecar_timeout_marks_failed_delta_zero(
     )
 
     updated = repository.load(story_id="AG3-080", worker_id="worker-1")
+    assert exit_code == 0  # state was found; failure is in the assessment, not the sidecar
     assert updated is not None
     assert updated.llm_assessment.status is LlmAssessmentStatus.FAILED
     assert updated.llm_assessment.delta == 0
+
+
+def test_sidecar_returns_1_when_story_state_never_found(
+    tmp_path: Path,
+    _sqlite_backend: None,
+) -> None:
+    """Bounded run with no state for the story yields exit code 1.
+
+    This verifies the deliberate contract: 0 = ran/healthy (state found and
+    processed), 1 = story state never seen during the entire run (indicates the
+    story does not exist in the state backend or the backend is unavailable).
+    """
+    repository = StateBackendWorkerHealthRepository(tmp_path)
+    # Deliberately do NOT save any state for "AG3-NOSUCH".
+
+    exit_code = run_worker_health_sidecar(
+        "AG3-NOSUCH",
+        project_root=tmp_path,
+        repository=repository,
+        assessment_client=_FakeAssessmentClient(probability=50),
+        iterations=3,  # run three loops — still no state found
+    )
+
+    assert exit_code == 1
 
 
 def test_scoring_continues_without_sidecar_result() -> None:
