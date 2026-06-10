@@ -55,3 +55,50 @@ def test_truncate_bundle_dispatches_to_markdown() -> None:
 
     assert result.kind is PackingKind.MARKDOWN
     assert result.truncated is True
+
+
+def test_truncate_bundle_without_priorities_is_still_section_aware() -> None:
+    """AC9: no second begin/end truncation path -- always section-aware MARKDOWN."""
+    content = "\n\n".join(
+        [
+            "## Section A\n" + "a" * 500,
+            "## Section B\n" + "b" * 500,
+            "## Section C\n" + "c" * 500,
+        ]
+    )
+
+    result = truncate_bundle(content, limit=700)
+
+    # The dispatcher delegates to section-aware packing even with no priorities;
+    # there is no longer a FALLBACK begin/end byte excerpt.
+    assert result.kind is PackingKind.MARKDOWN
+    assert result.truncated is True
+    # Whole sections are dropped as placeholders -- never a mid-content cut.
+    assert "omitted" in result.content
+    assert not hasattr(PackingKind, "FALLBACK")
+
+
+def test_truncate_bundle_below_limit_passes_through() -> None:
+    """A small field is returned verbatim (untruncated), not excerpted."""
+    result = truncate_bundle("# Tiny\nshort body", limit=10_000)
+
+    assert result.kind is PackingKind.MARKDOWN
+    assert result.truncated is False
+    assert result.content == "# Tiny\nshort body"
+
+
+def test_pack_markdown_placeholder_overflow_caps_section_aware() -> None:
+    """Degenerate overflow (many tiny sections) stays section-aware, no byte cut."""
+    # Hundreds of tiny sections whose omission placeholders alone exceed a small
+    # limit -- exercises the _section_aware_cap branch.
+    content = "\n\n".join(f"## Heading number {i}\nbody{i}" for i in range(400))
+
+    result = pack_markdown(content, limit=200)
+
+    assert result.truncated is True
+    assert len(result.content) <= 200
+    # The cap keeps whole placeholder lines + a single marker; it never slices a
+    # placeholder mid-line (every retained '[Section ... omitted' line is whole).
+    for line in result.content.splitlines():
+        if line.startswith("[Section"):
+            assert line.endswith("]")

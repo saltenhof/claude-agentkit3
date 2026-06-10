@@ -508,6 +508,97 @@ class TestProductiveSetupConfigComposition:
         assert config.project_root == tmp_path
 
 
+class _RecordingLlmClient:
+    """A fake-but-REAL ``LlmClient`` (AG3-067 AC7 composition test).
+
+    Not a stub-that-raises: it implements the ``complete(*, role, prompt) -> str``
+    port and records each call, so a test can prove the productive feedback port
+    received a NON-None client that would run a REAL evaluation (it is NOT the
+    fail-closed :class:`FailClosedLlmClient`).
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    def complete(self, *, role: str, prompt: str) -> str:
+        self.calls.append((role, prompt))
+        return '{"checks": {"feedback_fidelity": "PASS"}}'
+
+
+class TestLayer2ClientThreadingAC7:
+    """AG3-067 AC7: the SAME Layer-2 client reaches BOTH QA-subflow and closure.
+
+    The productive bug: ``build_verify_system`` accepts ``layer2_llm_client`` but
+    the pipeline composition never threaded it, so in production the closure
+    feedback-fidelity port still fell back to ``FailClosedLlmClient`` (no real
+    evaluation). These tests pin the end-to-end threading: a real (fake-but-real)
+    client injected into ``build_pipeline_handler_registry`` /
+    ``build_pipeline_engine`` reaches BOTH the implementation handler (->
+    ``build_verify_system`` Layer-2 path) AND the closure level-4
+    ``ProductiveDocFidelityFeedbackPort`` -- the EXACT same instance (single
+    source of truth), never the fail-closed fallback.
+    """
+
+    def test_registry_threads_client_into_impl_and_closure(
+        self, tmp_path: Path
+    ) -> None:
+        from agentkit.verify_system.llm_evaluator.llm_client import FailClosedLlmClient
+
+        client = _RecordingLlmClient()
+        story_dir = _persist_ctx(tmp_path, StoryType.IMPLEMENTATION)
+        registry = build_pipeline_handler_registry(
+            story_dir,
+            story_type=StoryType.IMPLEMENTATION,
+            layer2_llm_client=client,
+        )
+
+        # Implementation handler carries the SAME client (-> build_verify_system).
+        impl = registry.get_handler("implementation")
+        assert impl._config.layer2_llm_client is client  # type: ignore[attr-defined]
+
+        # Closure feedback port receives the SAME NON-None client -- and it is NOT
+        # the fail-closed fallback, so it runs a REAL evaluation.
+        closure = registry.get_handler("closure")
+        port = closure._config.doc_fidelity_port  # type: ignore[attr-defined]
+        assert port is not None
+        assert port.llm_client is client
+        assert not isinstance(port.llm_client, FailClosedLlmClient)
+
+    def test_no_client_falls_back_to_failclosed_at_both_seams(
+        self, tmp_path: Path
+    ) -> None:
+        """Honest default: no injected client -> fail-closed at both seams (not None-skip)."""
+        story_dir = _persist_ctx(tmp_path, StoryType.IMPLEMENTATION)
+        registry = build_pipeline_handler_registry(
+            story_dir, story_type=StoryType.IMPLEMENTATION
+        )
+        impl = registry.get_handler("implementation")
+        # ImplementationConfig carries None; build_verify_system then wires the
+        # FailClosedLlmClient internally (Layer 2 still RUNS, fails closed).
+        assert impl._config.layer2_llm_client is None  # type: ignore[attr-defined]
+        closure = registry.get_handler("closure")
+        port = closure._config.doc_fidelity_port  # type: ignore[attr-defined]
+        # The port's default is None -> the port's own FailClosedLlmClient default
+        # inside _run_feedback_fidelity_conformance (the seam still RUNS).
+        assert port is not None
+        assert port.llm_client is None
+
+    def test_engine_threads_client_into_closure_feedback_port(
+        self, tmp_path: Path
+    ) -> None:
+        """End-to-end through build_pipeline_engine: same client at the closure port."""
+        client = _RecordingLlmClient()
+        story_dir = _persist_ctx(tmp_path, StoryType.IMPLEMENTATION)
+        engine = build_pipeline_engine(
+            story_dir,
+            story_type=StoryType.IMPLEMENTATION,
+            layer2_llm_client=client,
+        )
+        registry = engine._registry  # type: ignore[attr-defined]
+        port = registry.get_handler("closure")._config.doc_fidelity_port  # type: ignore[attr-defined]
+        assert port.llm_client is client
+
+
 class TestEngineWiring:
     """build_pipeline_engine composes the engine over the wired registry."""
 

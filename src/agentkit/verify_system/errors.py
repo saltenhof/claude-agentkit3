@@ -35,6 +35,20 @@ class LayerExecutionError(VerifySystemError):
     """
 
 
+class MandatoryTargetReadError(VerifySystemError):
+    """Raised when the Layer-3 adversarial artifact cannot be read soundly.
+
+    Fail-closed (AG3-067 AC8 remediation): mandatory-target feedback findings are
+    BLOCKING extra findings fed into the remediation loop (FK-38 §38.1.4). A
+    genuinely-absent ``adversarial.json`` (``ArtifactNotFoundError``) correctly
+    means "no targets" (the adversarial stage did not run / produced nothing). But
+    any OTHER read failure — a broken envelope, an unreadable payload, a missing
+    artifact_manager precondition — must NOT silently vanish as "no targets":
+    that would drop a mandatory target the remediation loop needs. Such a broken
+    state is surfaced as a hard error (FAIL-CLOSED) rather than swallowed.
+    """
+
+
 class ResolutionMetadataError(VerifySystemError):
     """Raised when the Layer-2 finding-resolution metadata is malformed.
 
@@ -51,6 +65,7 @@ class ResolutionMetadataError(VerifySystemError):
 
 __all__ = [
     "LayerExecutionError",
+    "MandatoryTargetReadError",
     "ResolutionMetadataError",
     "VerifySystemError",
     "VerifyTargetUnknownError",

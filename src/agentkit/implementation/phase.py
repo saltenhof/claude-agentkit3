@@ -77,6 +77,7 @@ if TYPE_CHECKING:
     from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
     from agentkit.story_context_manager.models import StoryContext
     from agentkit.verify_system import VerifySystem
+    from agentkit.verify_system.llm_evaluator.llm_client import LlmClient
     from agentkit.verify_system.protocols import Finding
     from agentkit.verify_system.sonarqube_gate.port import SonarGateInputPort
     from agentkit.verify_system.structural.checker import AreGateProvider
@@ -94,11 +95,19 @@ class ImplementationConfig:
         max_feedback_rounds: Maximum QA feedback rounds before escalation.
         verify_system: Optional pre-wired ``VerifySystem`` instance;
             if ``None``, built via ``composition_root.build_verify_system``.
+        layer2_llm_client: Optional Layer-2 LLM transport (AG3-067 AC7). The
+            composition root threads the SAME client it injects into the closure
+            level-4 feedback port through here into ``build_verify_system`` so the
+            productive QA-subflow Layer-2 reviewers and the post-merge
+            feedback-fidelity evaluator share ONE transport (single source of
+            truth). ``None`` => ``build_verify_system`` wires the fail-closed
+            :class:`FailClosedLlmClient` (Layer 2 still RUNS and fails closed).
     """
 
     story_dir: Path | None = None
     max_feedback_rounds: int = 3
     verify_system: VerifySystem | None = None
+    layer2_llm_client: LlmClient | None = None
 
 
 class ImplementationPhaseHandler:
@@ -197,6 +206,11 @@ class ImplementationPhaseHandler:
             structural_are_provider=are_provider,
             conformance_config=conformance_config,
             layer2_bundle_token_limit=layer2_bundle_token_limit,
+            # AG3-067 AC7: thread the composition-root-injected Layer-2 transport
+            # so the productive QA-subflow Layer-2 reviewers use the SAME client
+            # the closure level-4 feedback port receives (single source of truth;
+            # ``None`` => fail-closed FailClosedLlmClient inside build_verify_system).
+            layer2_llm_client=self._config.layer2_llm_client,
         )
 
         # W2: Build PhaseEnvelopeView from envelope.state.payload (round 0

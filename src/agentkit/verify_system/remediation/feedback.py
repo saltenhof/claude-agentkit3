@@ -175,14 +175,45 @@ def build_feedback(
 def mandatory_target_findings_from_adversarial(
     adversarial_payload: dict[str, object],
 ) -> tuple[Finding, ...]:
-    """Map unmet mandatory adversarial targets to real ``Finding`` objects."""
+    """Map unmet mandatory adversarial targets to real ``Finding`` objects.
+
+    AC8 remediation r2 (FAIL-CLOSED): the ``mandatory_target_results`` key being
+    GENUINELY ABSENT means the adversarial stage tracked no mandatory targets ->
+    no findings (``()``). But a PRESENT key with a wrong shape (not a list) — or a
+    list ENTRY that is not a mapping — is a broken artifact, NOT "no targets":
+    silently dropping it would lose a BLOCKING mandatory target the remediation
+    loop needs. Such a present-but-broken shape raises
+    :class:`MandatoryTargetReadError` instead of being swallowed, consistent with
+    the present-but-None-payload guard in
+    :func:`agentkit.verify_system.system._mandatory_target_feedback_findings`.
+
+    Raises:
+        MandatoryTargetReadError: When ``mandatory_target_results`` is present but
+            not a list, or a list entry is present but not a mapping.
+    """
+    from agentkit.verify_system.errors import MandatoryTargetReadError
+
+    if "mandatory_target_results" not in adversarial_payload:
+        # Key genuinely absent -> the adversarial stage tracked no mandatory
+        # targets. This is a valid "no targets" state, not a broken artifact.
+        return ()
     raw_results = adversarial_payload.get("mandatory_target_results")
     if not isinstance(raw_results, list):
-        return ()
+        raise MandatoryTargetReadError(
+            "The adversarial artifact carries a 'mandatory_target_results' key but "
+            f"its shape is broken: expected a list, got {type(raw_results).__name__}. "
+            "A present-but-malformed mandatory_target_results must not silently drop "
+            "a mandatory target (FAIL-CLOSED)."
+        )
     findings: list[Finding] = []
     for raw in raw_results:
         if not isinstance(raw, dict):
-            continue
+            raise MandatoryTargetReadError(
+                "The adversarial artifact's 'mandatory_target_results' contains an "
+                f"entry of the wrong shape: expected a mapping, got {type(raw).__name__}. "
+                "A present-but-malformed mandatory-target entry must not silently "
+                "drop a mandatory target (FAIL-CLOSED)."
+            )
         status = str(raw.get("status", "")).upper()
         if status in {"TESTED", "UNRESOLVABLE"}:
             continue

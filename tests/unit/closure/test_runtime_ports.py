@@ -205,8 +205,44 @@ def test_sanity_gate_runner_red_escalates(tmp_path: Path) -> None:
     assert outcome.reason == "3 tests failed"
 
 
-def test_doc_fidelity_feedback_is_nonblocking_warning(tmp_path: Path) -> None:
-    """Level-4 feedback fidelity returns a non-blocking warning on FAIL."""
+def test_doc_fidelity_feedback_accepts_injected_layer2_client() -> None:
+    """The level-4 feedback port carries the SAME injectable Layer-2 LlmClient.
+
+    AG3-067 def-1: the productive feedback path is NOT hard-wired to
+    ``FailClosedLlmClient`` anymore -- the composition root injects the SAME
+    Layer-2 transport ``build_verify_system`` resolves, so when the productive
+    pool lands (AG3-070) this seam runs a real verdict through the SAME
+    ``ConformanceService.check_fidelity(level=feedback)`` path. The end-to-end
+    REAL evaluation (PASS vs FAIL verdict) is proved in
+    ``tests/integration/closure/test_feedback_fidelity_real_eval.py``; here we
+    only assert the wiring seam is injectable (no hard-coded transport).
+    """
+
+    @dataclass
+    class _FakeRealClient:
+        def complete(self, *, role: str, prompt: str) -> str:
+            del role, prompt
+            return "[]"
+
+    injected = _FakeRealClient()
+    port = ProductiveDocFidelityFeedbackPort(llm_client=injected)
+
+    assert port.llm_client is injected
+    # The default (no injection) stays fail-closed but the field exists -- the
+    # transport is a seam, not a hard-coded FailClosedLlmClient inside the method.
+    assert ProductiveDocFidelityFeedbackPort().llm_client is None
+
+
+def test_doc_fidelity_feedback_setup_failure_is_nonblocking_warning(
+    tmp_path: Path,
+) -> None:
+    """A setup-time failure (no state backend) is a NON-BLOCKING warning, not a raise.
+
+    With a bare ``tmp_path`` (no manifest-index / no run scope) the conformance
+    stack cannot be built; the post-merge step must surface that as a human
+    Warning + failure-corpus incident candidate, never a closure blockade
+    (FK-38 §38.3). This guards the non-blocking contract for the degraded path.
+    """
     port = ProductiveDocFidelityFeedbackPort()
 
     passed, warning = port.evaluate_feedback_fidelity(None, tmp_path)  # type: ignore[arg-type]

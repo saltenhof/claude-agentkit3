@@ -71,6 +71,15 @@ class _RecordingArtifactManager(ArtifactManager):
             record_key=f"recording/{envelope.stage}/{envelope.attempt}",
         )
 
+    def read_latest(self, **_kwargs: object) -> ArtifactEnvelope:
+        # No adversarial artifact is written in these scenarios -> genuinely
+        # absent (ArtifactNotFoundError). Mandatory-target feedback read is
+        # fail-closed (AG3-067 def-5): only a genuinely-absent artifact means
+        # "no targets", so the double signals absence honestly.
+        from agentkit.artifacts import ArtifactNotFoundError
+
+        raise ArtifactNotFoundError("no artifact recorded by the test double")
+
 
 class _StubMaterializer:
     def context_for(self, bundle: object) -> tuple[object, str]:

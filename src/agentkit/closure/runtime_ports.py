@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from agentkit.story_context_manager.models import StoryContext
     from agentkit.story_context_manager.types import StoryType
     from agentkit.verify_system.conformance_service import FidelityResult
+    from agentkit.verify_system.llm_evaluator.llm_client import LlmClient
     from agentkit.verify_system.pre_merge_runner.contract import BuildTestPort
 
 logger = logging.getLogger(__name__)
@@ -200,18 +201,42 @@ class ProductiveSanityGatePort:
 class ProductiveDocFidelityFeedbackPort:
     """Level-4 doc-fidelity feedback seam (FK-38 §38.3.1, non-blocking).
 
-    Consumes ``ConformanceService.check_fidelity(level=feedback)`` over the
-    existing structured doc-fidelity evaluator. The step is mandatory but
-    non-blocking: FAIL yields a human warning and failure-corpus incident
-    candidate, never a closure blockade.
+    Runs a REAL level-4 evaluation through the SAME productive
+    ``ConformanceService.check_fidelity(level=feedback)`` path the Layer-2
+    reviewers use: the ``StructuredEvaluator`` over the injected Layer-2
+    :class:`LlmClient` (``role=doc_fidelity``), the ``doc-fidelity-feedback.md``
+    prompt (``expected_checks=["feedback_fidelity"]``), evaluating the final diff
+    against the existing project docs (FK-38 §38.3.1).
+
+    The ``llm_client`` is the SAME transport ``build_verify_system`` resolves for
+    Layer 2 (composition-root injected). Until the productive LLM pool lands
+    (AG3-070 ``RolePoolResolver``) that transport is the fail-closed
+    :class:`FailClosedLlmClient`; the conformance service then returns a real
+    ``FidelityResult(conformance_verdict=FAIL)`` (NOT an exception-to-warning) and
+    once a pool is wired the EXACT same path yields a genuine PASS/FAIL verdict —
+    no second doc-fidelity logic, no hard-coded transport.
+
+    The step is mandatory but NON-BLOCKING (FK-38 §38.3): a FAIL verdict (or a
+    setup-time failure) yields a human Warning + failure-corpus incident
+    candidate, never a closure blockade (the story is already merged).
+
+    Attributes:
+        llm_client: The Layer-2 LLM transport (composition-root injected; the
+            same one Layer-2 reviewers use). ``None`` => the fail-closed
+            :class:`FailClosedLlmClient` default, so the level-4 evaluation still
+            RUNS and returns a real FAIL verdict rather than silently skipping.
     """
+
+    llm_client: LlmClient | None = None
 
     def evaluate_feedback_fidelity(
         self, ctx: StoryContext, story_dir: Path
     ) -> tuple[bool, str | None]:
         """Run the level-4 feedback check through the conformance facade."""
         try:
-            result = _run_feedback_fidelity_conformance(ctx, story_dir)
+            result = _run_feedback_fidelity_conformance(
+                ctx, story_dir, llm_client=self.llm_client
+            )
         except Exception as exc:  # noqa: BLE001 -- post-merge step is non-blocking
             logger.warning("feedback fidelity evaluation failed: %s", exc)
             return (
@@ -255,8 +280,17 @@ class ProductiveVectorDbSyncPort:
 def _run_feedback_fidelity_conformance(
     ctx: StoryContext,
     story_dir: Path,
+    *,
+    llm_client: LlmClient | None = None,
 ) -> FidelityResult:
-    """Run FK-38 feedback fidelity through ``ConformanceService``."""
+    """Run FK-38 feedback fidelity through ``ConformanceService``.
+
+    The ``llm_client`` is the SAME Layer-2 transport ``build_verify_system``
+    resolves (composition-root injected). When ``None`` it defaults to the
+    fail-closed :class:`FailClosedLlmClient` so the evaluation still RUNS and
+    returns a real ``FidelityResult`` (the service maps a fail-closed transport
+    to a FAIL verdict internally — never an exception-to-warning at this seam).
+    """
     from agentkit.artifacts import ArtifactManager, EnvelopeValidator, ProducerRegistry
     from agentkit.prompt_runtime.register import register_prompt_runtime_producers
     from agentkit.state_backend.store.artifact_repository import (
@@ -293,7 +327,8 @@ def _run_feedback_fidelity_conformance(
         artifact_manager=manager,
         story_context_port=StateBackendVerifyStoryContextAdapter(),
     )
-    evaluator = StructuredEvaluator(FailClosedLlmClient(), materializer)
+    resolved_client = llm_client if llm_client is not None else FailClosedLlmClient()
+    evaluator = StructuredEvaluator(resolved_client, materializer)
     service = ConformanceService(
         StructuredEvaluatorConformanceAdapter(evaluator),
         emitter=StateBackendEmitter(story_dir),

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING
@@ -15,6 +16,8 @@ from agentkit.verify_system.llm_evaluator.packing import BUNDLE_TOKEN_LIMIT
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 CONTEXT_SUFFICIENCY_FILE: str = "context_sufficiency.json"
 CONTEXT_SUFFICIENCY_STAGE: str = "context_sufficiency"
@@ -180,7 +183,18 @@ class ContextSufficiencyBuilder:
             return ""
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError) as exc:
+            # Fail-OPEN per FK-33 §33.7.4 (sufficiency is a non-blocking pre-step):
+            # a broken handover.json degrades the field to "missing" (a Warning),
+            # never a hard crash. But the root-cause is PRESERVED in the log rather
+            # than erased silently (FAIL-CLOSED evidence discipline, AG3-067 def-6).
+            logger.warning(
+                "context-sufficiency: handover.json at %s is unreadable/invalid "
+                "(%s: %s); field degraded to 'missing'",
+                path,
+                type(exc).__name__,
+                exc,
+            )
             return ""
         return json.dumps(payload, sort_keys=True, ensure_ascii=False)
 
@@ -297,9 +311,27 @@ def _load_context_json(story_dir: Path) -> dict[str, object]:
         return {}
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError) as exc:
+        # Fail-OPEN (FK-33 §33.7.4): a broken context.json degrades the
+        # caller-side reference paths to "missing" (Warning), not a crash. The
+        # root cause is logged, never erased silently (AG3-067 def-6).
+        logger.warning(
+            "context-sufficiency: context.json at %s is unreadable/invalid "
+            "(%s: %s); caller-side fields degraded to 'missing'",
+            path,
+            type(exc).__name__,
+            exc,
+        )
         return {}
-    return payload if isinstance(payload, dict) else {}
+    if not isinstance(payload, dict):
+        logger.warning(
+            "context-sufficiency: context.json at %s is not a JSON object "
+            "(got %s); caller-side fields degraded to 'missing'",
+            path,
+            type(payload).__name__,
+        )
+        return {}
+    return payload
 
 
 def _parse_evidence_manifest(value: object) -> BundleManifest | dict[str, object] | str | None:
@@ -318,9 +350,21 @@ def _parse_evidence_manifest(value: object) -> BundleManifest | dict[str, object
 
 
 def _read_text(path: Path) -> str:
+    if not path.is_file():
+        return ""
     try:
-        return path.read_text(encoding="utf-8") if path.is_file() else ""
-    except OSError:
+        return path.read_text(encoding="utf-8")
+    except OSError as exc:
+        # Fail-OPEN (FK-33 §33.7.4): an unreadable concept/story source degrades
+        # the field to "missing" (Warning), not a crash. The root cause is logged
+        # rather than erased silently (AG3-067 def-6).
+        logger.warning(
+            "context-sufficiency: source file %s is unreadable (%s: %s); "
+            "field degraded to 'missing'",
+            path,
+            type(exc).__name__,
+            exc,
+        )
         return ""
 
 

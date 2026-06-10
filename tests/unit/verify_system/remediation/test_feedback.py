@@ -5,6 +5,9 @@ Wertebereich seit AG3-021: ``Severity`` ist BLOCKING/MAJOR/MINOR.
 
 from __future__ import annotations
 
+import pytest
+
+from agentkit.verify_system.errors import MandatoryTargetReadError
 from agentkit.verify_system.policy_engine.engine import PolicyEngine
 from agentkit.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
 from agentkit.verify_system.remediation.feedback import (
@@ -287,3 +290,40 @@ class TestMandatoryTargetFeedback:
 
         assert feedback is not None
         assert feedback.blocking_findings[0].check == "target.a"
+
+    def test_absent_key_means_no_targets(self) -> None:
+        """A GENUINELY-absent key -> no targets (valid 'no mandatory targets')."""
+        assert mandatory_target_findings_from_adversarial({}) == ()
+        # Other keys present, but the mandatory_target_results key itself absent.
+        assert (
+            mandatory_target_findings_from_adversarial({"other": "value"}) == ()
+        )
+
+    def test_present_but_non_list_fails_closed(self) -> None:
+        """A PRESENT key with a non-list shape -> FAIL-CLOSED (r2)."""
+        with pytest.raises(MandatoryTargetReadError) as exc_info:
+            mandatory_target_findings_from_adversarial(
+                {"mandatory_target_results": {"target_id": "x", "status": "FAILED"}}
+            )
+        assert "FAIL-CLOSED" in str(exc_info.value)
+
+    def test_present_but_none_value_fails_closed(self) -> None:
+        """A PRESENT key with an explicit None value -> FAIL-CLOSED (r2).
+
+        ``None`` is present-but-broken (not a list), NOT a genuinely-absent key.
+        """
+        with pytest.raises(MandatoryTargetReadError):
+            mandatory_target_findings_from_adversarial(
+                {"mandatory_target_results": None}
+            )
+
+    def test_list_entry_wrong_shape_fails_closed(self) -> None:
+        """A list ENTRY that is not a mapping -> FAIL-CLOSED (r2).
+
+        Previously such an entry was silently skipped, which could drop a
+        mandatory target. It now fails closed.
+        """
+        with pytest.raises(MandatoryTargetReadError):
+            mandatory_target_findings_from_adversarial(
+                {"mandatory_target_results": ["not-a-mapping"]}
+            )

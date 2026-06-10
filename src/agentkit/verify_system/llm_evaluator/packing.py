@@ -11,11 +11,18 @@ TRUNCATION_MARKER: str = "[...PACKED by section-aware bundle packing (FK-37 §37
 
 
 class PackingKind(StrEnum):
-    """Packing strategy applied to a bundle field."""
+    """Packing strategy applied to a bundle field.
+
+    There is exactly ONE truncation mechanism (section-aware packing, FK-37
+    §37.3 / DK-11 "Sufficiency-Checks sind nur so gut wie das Packing"): the
+    legacy begin/end byte ``FALLBACK`` path was removed (AG3-067 AC9 — no second
+    truncation path). ``MARKDOWN`` packs whole sections; ``CODE`` packs whole
+    hunks/blocks. Even the degenerate overflow case stays section-aware
+    (whole-placeholder-line boundary), never a mid-content byte cut.
+    """
 
     MARKDOWN = "markdown"
     CODE = "code"
-    FALLBACK = "fallback"
 
 
 @dataclass(frozen=True)
@@ -77,8 +84,11 @@ def pack_markdown(
             )
     packed = "\n\n".join(packed_parts)
     if len(packed) > limit:
-        packed = _middle_fallback(packed, limit)
-        protocol.append("section placeholders exceeded limit; applied fallback excerpt")
+        packed = _section_aware_cap(packed, limit)
+        protocol.append(
+            "section placeholders exceeded limit; dropped trailing whole sections "
+            "(section-aware, no mid-content cut)"
+        )
     return PackingResult(
         content=packed,
         truncated=True,
@@ -131,8 +141,11 @@ def pack_code(
     ]
     packed = "\n\n".join(packed_parts).rstrip()
     if len(packed) > limit:
-        packed = _middle_fallback(packed, limit)
-        protocol.append("code placeholders exceeded limit; applied fallback excerpt")
+        packed = _section_aware_cap(packed, limit)
+        protocol.append(
+            "code placeholders exceeded limit; dropped trailing whole blocks "
+            "(section-aware, no mid-content cut)"
+        )
     return PackingResult(
         content=packed,
         truncated=True,
@@ -149,26 +162,21 @@ def truncate_bundle(
     limit: int = BUNDLE_TOKEN_LIMIT,
     priority_headings: tuple[str, ...] | None = None,
 ) -> PackingResult:
-    """Dispatch to section-aware Markdown packing or deterministic fallback."""
+    """Dispatch a bundle field to the SINGLE section-aware packing mechanism.
+
+    FK-37 §37.3 keeps ``truncate_bundle()`` as the back-compatible dispatcher
+    entry point, but AG3-067 AC9 removes the second (begin/end byte) truncation
+    path: this dispatcher ALWAYS delegates to section-aware :func:`pack_markdown`
+    (DK-11 "wenn stumpf gekürzt wird, beurteilt der Builder die Qualität eines
+    bereits verzerrten Bundles"). ``priority_headings`` is optional — ``None`` is
+    normalised to an empty tuple (still section-aware, just unprioritised). There
+    is no mid-content excerpt fallback anymore.
+    """
     _validate_limit(limit)
-    if priority_headings is not None:
-        return pack_markdown(content, limit=limit, priority_headings=priority_headings)
-    if len(content) <= limit:
-        return PackingResult(
-            content=content,
-            truncated=False,
-            original_chars=len(content),
-            packed_chars=len(content),
-            kind=PackingKind.FALLBACK,
-        )
-    packed = _middle_fallback(content, limit)
-    return PackingResult(
-        content=packed,
-        truncated=True,
-        original_chars=len(content),
-        packed_chars=len(packed),
-        kind=PackingKind.FALLBACK,
-        protocol=("fallback beginning/end excerpt applied",),
+    return pack_markdown(
+        content,
+        limit=limit,
+        priority_headings=priority_headings or (),
     )
 
 
@@ -213,13 +221,32 @@ def _section_title(section: str) -> str:
     return first.lstrip("#").strip() or "preamble"
 
 
-def _middle_fallback(content: str, limit: int) -> str:
-    marker = f"\n{TRUNCATION_MARKER}\n"
+def _section_aware_cap(content: str, limit: int) -> str:
+    """Cap an over-limit packed body at a whole-section boundary (no byte cut).
+
+    Reached only in the degenerate case where even the section placeholders join
+    longer than ``limit`` (e.g. thousands of tiny sections). Keeps the SINGLE
+    section-aware mechanism (AG3-067 AC9): whole ``\\n\\n``-delimited sections are
+    retained from the front until the budget (including a trailing marker) is
+    exhausted, then a single marker is appended. It NEVER slices mid-content
+    (no begin/end byte excerpt), so a section is either fully present or fully
+    dropped — keeping the bundle undistorted for the sufficiency check (DK-11).
+    """
+    marker = f"\n{TRUNCATION_MARKER}"
     if limit <= len(marker):
         return marker[:limit]
-    half = (limit - len(marker)) // 2
-    tail = limit - len(marker) - half
-    return content[:half].rstrip() + marker + content[-tail:].lstrip()
+    budget = limit - len(marker)
+    sections = content.split("\n\n")
+    kept: list[str] = []
+    used = 0
+    for section in sections:
+        section_cost = len(section) + (2 if kept else 0)
+        if used + section_cost > budget:
+            break
+        kept.append(section)
+        used += section_cost
+    body = "\n\n".join(kept).rstrip()
+    return (body + marker) if body else marker.lstrip("\n")
 
 
 def _validate_limit(limit: int) -> None:

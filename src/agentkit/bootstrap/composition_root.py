@@ -1569,6 +1569,7 @@ def build_closure_phase_handler(
     *,
     store_dir: Path | None = None,
     project_key: str = "",
+    layer2_llm_client: LlmClient | None = None,
 ) -> ClosurePhaseHandler:
     """Wire a fully-collaborated ``ClosurePhaseHandler`` (FK-29, AG3-053).
 
@@ -1605,6 +1606,11 @@ def build_closure_phase_handler(
         store_dir: State-backend base dir (SQLite); ``None`` => the config's
             ``story_dir``.
         project_key: Owning project key for the governance top surface.
+        layer2_llm_client: The Layer-2 LLM transport (the same one passed to
+            ``build_verify_system``), injected into the level-4 doc-fidelity
+            feedback seam so it runs a REAL evaluation through the shared
+            ``ConformanceService`` path. ``None`` => the fail-closed default
+            (the seam still runs and yields a real FAIL verdict).
 
     Returns:
         A wired ``ClosurePhaseHandler``.
@@ -1635,7 +1641,7 @@ def build_closure_phase_handler(
     config.build_test_port = primary.build_test_port
     config.repo_runners = repo_runners
     config.sanity_port = _build_sanity_gate_port(ci_config)
-    config.doc_fidelity_port = _build_doc_fidelity_feedback_port()
+    config.doc_fidelity_port = _build_doc_fidelity_feedback_port(layer2_llm_client)
     config.vectordb_sync_port = _build_vectordb_sync_port()
     config.guard_deactivation_port = _build_guard_deactivation_port(
         base_dir, project_key=project_key
@@ -1681,6 +1687,7 @@ def build_pipeline_handler_registry(
     story_type: StoryType,
     project_key: str = "",
     setup_config: object | None = None,
+    layer2_llm_client: LlmClient | None = None,
 ) -> PhaseHandlerRegistry:
     """Wire ONE ``PhaseHandlerRegistry`` for a story run (AG3-054, FK-20 §20.1.1).
 
@@ -1718,6 +1725,15 @@ def build_pipeline_handler_registry(
             follow-up dispatch (which never enters setup) is fine; if setup is
             ever entered without a resolved real config it ESCALATES rather than
             running against empty/dummy coordinates.
+        layer2_llm_client: The Layer-2 LLM transport (AG3-067 AC7). Threaded into
+            BOTH the implementation handler (-> ``build_verify_system`` -> the
+            QA-subflow Layer-2 reviewers) AND the closure handler (-> the level-4
+            ``ProductiveDocFidelityFeedbackPort``) so ONE transport reaches both
+            the verify-system Layer-2 path and the closure feedback port (single
+            source of truth). ``None`` => the fail-closed
+            :class:`FailClosedLlmClient` default inside ``build_verify_system`` /
+            the feedback port (the seams still RUN and fail closed; honest until
+            the productive LLM pool lands, AG3-070).
 
     Returns:
         A ``PhaseHandlerRegistry`` with exactly the workflow's phase handlers.
@@ -1754,7 +1770,13 @@ def build_pipeline_handler_registry(
     if "implementation" in phases:
         registry.register(
             "implementation",
-            ImplementationPhaseHandler(ImplementationConfig(story_dir=story_dir)),
+            ImplementationPhaseHandler(
+                ImplementationConfig(
+                    story_dir=story_dir,
+                    # AG3-067 AC7: same transport as the closure feedback port.
+                    layer2_llm_client=layer2_llm_client,
+                )
+            ),
         )
     if "closure" in phases:
         registry.register(
@@ -1763,6 +1785,9 @@ def build_pipeline_handler_registry(
                 ClosureConfig(story_dir=story_dir),
                 store_dir=story_dir,
                 project_key=project_key,
+                # AG3-067 AC7: the SAME Layer-2 transport build_verify_system uses
+                # reaches the level-4 ProductiveDocFidelityFeedbackPort here.
+                layer2_llm_client=layer2_llm_client,
             ),
         )
     return registry
@@ -1824,6 +1849,7 @@ def build_pipeline_engine(
     story_type: StoryType,
     project_key: str = "",
     setup_config: object | None = None,
+    layer2_llm_client: LlmClient | None = None,
 ) -> PipelineEngine:
     """Wire a ``PipelineEngine`` for a story run (AG3-054, FK-20 §20.1.1).
 
@@ -1842,6 +1868,11 @@ def build_pipeline_engine(
             it here; it is threaded into the Setup handler so setup never runs
             against empty owner/repo/issue. ``None`` falls back to the
             test-boundary config (dispatch-contract tests only).
+        layer2_llm_client: The Layer-2 LLM transport (AG3-067 AC7). Threaded
+            through :func:`build_pipeline_handler_registry` into BOTH the
+            verify-system Layer-2 path and the closure level-4 feedback port so a
+            single transport reaches both. ``None`` => the fail-closed default
+            inside both seams (honest until the productive pool lands, AG3-070).
 
     Returns:
         A wired ``PipelineEngine``.
@@ -1855,6 +1886,7 @@ def build_pipeline_engine(
         story_type=story_type,
         project_key=project_key,
         setup_config=setup_config,
+        layer2_llm_client=layer2_llm_client,
     )
     return PipelineEngine(workflow, registry, story_dir)
 
@@ -2283,17 +2315,29 @@ def build_fast_test_runner(
     )
 
 
-def _build_doc_fidelity_feedback_port() -> DocFidelityFeedbackPort:
+def _build_doc_fidelity_feedback_port(
+    layer2_llm_client: LlmClient | None = None,
+) -> DocFidelityFeedbackPort:
     """Build the level-4 doc-fidelity feedback seam (FK-38 §38.3.1, non-blocking).
 
-    Consumes ``verify_system.llm_evaluator`` (``role=doc_fidelity``). The level-4
-    feedback evaluation (``final_diff`` vs existing docs, FK-38 §38.3.1) has no
-    productive callable yet; the seam is honest non-blocking — it records a human
-    Warning every run until the level-4 capability lands (never a silent no-op).
+    Runs a REAL level-4 evaluation through the SAME productive
+    ``ConformanceService.check_fidelity(level=feedback)`` path the Layer-2
+    reviewers use (``role=doc_fidelity``, prompt ``doc-fidelity-feedback.md``,
+    ``expected_checks=["feedback_fidelity"]``), evaluating the final diff vs the
+    existing project docs (FK-38 §38.3.1). The Layer-2 ``llm_client`` is injected
+    here so this seam shares the EXACT transport ``build_verify_system`` resolves
+    — when the productive LLM pool lands (AG3-070) both paths get it; until then
+    the fail-closed default yields a real FAIL verdict (non-blocking Warning +
+    failure-corpus incident candidate), never a silent no-op.
+
+    Args:
+        layer2_llm_client: The Layer-2 LLM transport (same one passed to
+            ``build_verify_system``). ``None`` => the fail-closed default inside
+            the port, so the evaluation still RUNS.
     """
     from agentkit.closure.runtime_ports import ProductiveDocFidelityFeedbackPort
 
-    return ProductiveDocFidelityFeedbackPort()
+    return ProductiveDocFidelityFeedbackPort(llm_client=layer2_llm_client)
 
 
 def _build_vectordb_sync_port() -> VectorDbSyncPort:
