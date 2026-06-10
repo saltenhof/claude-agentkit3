@@ -46,6 +46,9 @@ from agentkit.verify_system.sonarqube_gate import (
 )
 from agentkit.verify_system.sonarqube_gate.port import PostApplyGateState, SonarGateInputs
 from agentkit.verify_system.stage_registry import StageRegistry
+from integration.implementation_evidence_support import (
+    bind_implementation_qa_preconditions,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -224,7 +227,10 @@ def _system(port: object, manager: _RecordingArtifactManager) -> VerifySystem:
 
 
 def _run(vs: VerifySystem, tmp_path: Path) -> object:
-    return vs.run_qa_subflow(
+    system = bind_implementation_qa_preconditions(
+        vs, tmp_path, story_id="TEST-001", run_id="run-1", project_root=tmp_path
+    )
+    return system.run_qa_subflow(
         ctx=VerifyContextBundle(
             run_id="run-1", story_dir=tmp_path, phase_envelope=None, attempt=1
         ),

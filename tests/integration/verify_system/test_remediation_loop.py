@@ -29,7 +29,8 @@ from typing import TYPE_CHECKING
 
 from agentkit.artifacts import ArtifactEnvelope, ArtifactManager, ArtifactReference
 from agentkit.core_types import ArtifactClass, PolicyVerdict, QaContext
-from agentkit.story_context_manager.types import StoryType
+from agentkit.story_context_manager.models import StoryContext
+from agentkit.story_context_manager.types import StoryMode, StoryType
 from agentkit.verify_system import VerifyContextBundle, VerifySystem
 from agentkit.verify_system.contract import PhaseEnvelopeView
 from agentkit.verify_system.policy_engine.engine import PolicyEngine
@@ -41,6 +42,11 @@ from agentkit.verify_system.qa_cycle.invalidation import (
 from agentkit.verify_system.qa_cycle.lifecycle import QaCycleLifecycle
 from agentkit.verify_system.remediation.loop_counter import RemediationLoopController
 from agentkit.verify_system.stage_registry import StageRegistry
+from integration.implementation_evidence_support import (
+    GitDiffChangeEvidencePort,
+    StaticStoryContextPort,
+    write_implementation_qa_preconditions,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -56,6 +62,18 @@ _STRUCTURAL_STAGE_METADATA = {
     )
     + ("sonarqube_gate",)
 }
+
+
+def _story_context_port() -> StaticStoryContextPort:
+    return StaticStoryContextPort(
+        StoryContext(
+            project_key="test-project",
+            story_id=_STORY_ID,
+            story_type=StoryType.IMPLEMENTATION,
+            execution_route=StoryMode.EXECUTION,
+        ),
+        run_id="run-1",
+    )
 
 
 def _git(args: list[str], cwd: Path) -> None:
@@ -74,6 +92,9 @@ def _init_repo(root: Path) -> None:
     (root / "feature.py").write_text("y = 2\n", encoding="utf-8")
     _git(["add", "."], root)
     _git(["commit", "-m", "feature"], root)
+    write_implementation_qa_preconditions(
+        root, story_id=_STORY_ID, run_id="run-1", project_root=root
+    )
 
 
 class _ConfigurableLayer:
@@ -185,6 +206,8 @@ def _build_system(*, fail: bool, sink: RecordingArtifactInvalidationSink) -> Ver
         remediation_loop_controller=RemediationLoopController(
             max_feedback_rounds=_MAX_ROUNDS
         ),
+        story_context_port=_story_context_port(),
+        implementation_change_evidence_port=GitDiffChangeEvidencePort(),
     )
 
 
@@ -205,6 +228,8 @@ def _build_system_with_layer1(
         remediation_loop_controller=RemediationLoopController(
             max_feedback_rounds=_MAX_ROUNDS
         ),
+        story_context_port=_story_context_port(),
+        implementation_change_evidence_port=GitDiffChangeEvidencePort(),
     )
 
 

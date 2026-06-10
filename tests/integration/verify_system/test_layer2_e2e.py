@@ -32,6 +32,9 @@ from agentkit.verify_system.llm_evaluator.structured_evaluator import (
 from agentkit.verify_system.policy_engine.engine import PolicyEngine
 from agentkit.verify_system.protocols import Finding, Severity, TrustClass
 from agentkit.verify_system.stage_registry import StageRegistry
+from integration.implementation_evidence_support import (
+    bind_implementation_qa_preconditions,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -206,6 +209,9 @@ def test_all_three_roles_pass_yields_pass(_git_worktree: Path) -> None:
     })
     manager = _RecordingArtifactManager()
     vs = _make_system(client, manager)
+    vs = bind_implementation_qa_preconditions(
+        vs, tmp_path, story_id="TEST-001", run_id="run-001"
+    )
     outcome = vs.run_qa_subflow(
         ctx=_bundle(tmp_path),
         story_id="TEST-001",
@@ -233,6 +239,9 @@ def test_one_role_fail_fails_subflow(_git_worktree: Path) -> None:
     })
     manager = _RecordingArtifactManager()
     vs = _make_system(client, manager)
+    vs = bind_implementation_qa_preconditions(
+        vs, tmp_path, story_id="TEST-001", run_id="run-001"
+    )
     outcome = vs.run_qa_subflow(
         ctx=_bundle(tmp_path),
         story_id="TEST-001",
@@ -267,6 +276,9 @@ def test_llm_transport_failure_is_failclosed_blocking(_git_worktree: Path) -> No
         policy_engine=PolicyEngine(max_major_findings=0),
         artifact_manager=manager,
         layer2_runner=runner,
+    )
+    vs = bind_implementation_qa_preconditions(
+        vs, tmp_path, story_id="TEST-001", run_id="run-001"
     )
     outcome = vs.run_qa_subflow(
         ctx=_bundle(tmp_path),
@@ -317,6 +329,9 @@ def test_llm_partially_resolved_blocks_closure_via_ssot(_git_worktree: Path) -> 
     })
     manager = _RecordingArtifactManager()
     vs = _make_system(client, manager)
+    vs = bind_implementation_qa_preconditions(
+        vs, tmp_path, story_id="TEST-001", run_id="run-001"
+    )
     # Active cycle so the remediation context advances to round 2.
     from datetime import UTC, datetime
 

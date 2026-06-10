@@ -307,7 +307,7 @@ def test_implementation_sonar_unavailable_is_deliberate_absence_skip(
     # absence -> build_sonar_gate_port_for_run returns None -> Dim 9
     # NOT_APPLICABLE skip (FK-33 §33.6.5 "absent != broken").  This is the ONLY
     # legitimate Dim-9 skip for a code-producing story (an unresolvable
-    # project_root would instead fail closed, R4-C/A2).  The eight non-Sonar
+    # project_root would instead fail closed, R4-C/A2).  The nine non-Sonar
     # dimensions pass; Dim 9 is absent from the result, gate PASSES.
     project_root = tmp_path / "project"
     project_root.mkdir(parents=True, exist_ok=True)
@@ -333,6 +333,7 @@ def test_implementation_sonar_unavailable_is_deliberate_absence_skip(
         IntegrityDimension.NO_ADVERSARIAL,
         IntegrityDimension.NO_VERIFY,
         IntegrityDimension.TIMESTAMP_INVERSION,
+        IntegrityDimension.CONFLICT_FREEZE_PROOF,
     }
 
 

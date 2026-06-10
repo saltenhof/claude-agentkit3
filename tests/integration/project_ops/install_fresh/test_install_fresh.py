@@ -21,6 +21,8 @@ from agentkit.installer.paths import (
     prompt_bundle_store_dir,
 )
 
+_INTERNAL_PROMPT_BUNDLE_VERSION = "3"
+
 
 @pytest.mark.integration
 class TestInstallFresh:
@@ -81,7 +83,7 @@ class TestInstallFresh:
         bundled = (
             prompt_bundle_store_dir(
                 "internal-bootstrap-prompts",
-                "2",
+                _INTERNAL_PROMPT_BUNDLE_VERSION,
                 store_root=_prompt_bundle_store_root(root),
             )
             / "internal"
@@ -101,7 +103,7 @@ class TestInstallFresh:
         lock_path = root / ".agentkit" / "config" / "prompt-bundle.lock.json"
         lock = json.loads(lock_path.read_text(encoding="utf-8"))
         assert lock["bundle_id"] == "internal-bootstrap-prompts"
-        assert lock["bundle_version"] == "2"
+        assert lock["bundle_version"] == _INTERNAL_PROMPT_BUNDLE_VERSION
         assert lock["binding_root"] == "prompts"
         assert lock["manifest_file"] == "manifest.json"
         assert "manifest_sha256" in lock
@@ -257,7 +259,9 @@ class TestInstallFresh:
         root = _as_path(tmp_path)
         install_agentkit(_make_install_config(root, project_name="test-project"))
 
-        assert calls == [("internal-bootstrap-prompts", "2")]
+        assert calls == [
+            ("internal-bootstrap-prompts", _INTERNAL_PROMPT_BUNDLE_VERSION)
+        ]
         lock_path = root / ".agentkit" / "config" / "prompt-bundle.lock.json"
         assert lock_path.is_file()
 

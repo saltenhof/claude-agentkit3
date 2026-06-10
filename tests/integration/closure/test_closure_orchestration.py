@@ -57,6 +57,10 @@ from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 from agentkit.telemetry.contract.records import ExecutionEventRecord
 from agentkit.telemetry.events import EventType
+from integration.implementation_evidence_support import (
+    init_git_story_worktree,
+    write_implementation_qa_preconditions,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -78,6 +82,7 @@ def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, No
 def _prepare(tmp_path: Path, story_id: str = "TEST-001") -> Path:
     s_dir = tmp_path / "stories" / story_id
     s_dir.mkdir(parents=True)
+    init_git_story_worktree(s_dir)
     for phase in ("setup", "exploration", "implementation"):
         save_phase_snapshot(
             s_dir,
@@ -121,8 +126,15 @@ def _prepare(tmp_path: Path, story_id: str = "TEST-001") -> Path:
     # FIX-2: the comp-root reads the persisted story context to resolve the
     # project root; a deliberately-absent project config (no .agentkit dir under
     # tmp_path) keeps the AG3-056 runners declared-absent (None) without a
-    # fail-closed config error.
-    save_story_context(s_dir, _ctx(tmp_path, story_id=story_id))
+    # fail-closed config error. AG3-058 also requires real worker delivery
+    # artifacts plus independent git change evidence before implementation
+    # closure may proceed.
+    write_implementation_qa_preconditions(
+        s_dir,
+        story_id=story_id,
+        run_id=f"run-{story_id.lower()}",
+        project_root=tmp_path,
+    )
     return s_dir
 
 

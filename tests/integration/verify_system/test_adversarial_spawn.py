@@ -48,6 +48,9 @@ from agentkit.verify_system.adversarial_orchestrator.spawn import AdversarialSpa
 from agentkit.verify_system.contract import VerifyContextBundle
 from agentkit.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
 from agentkit.verify_system.system import VerifySystem
+from integration.implementation_evidence_support import (
+    bind_implementation_qa_preconditions,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -239,6 +242,9 @@ def test_real_qa_subflow_layer2_blocking_to_agents_to_spawn(tmp_path: Path) -> N
     # Replace ONLY the qa_review Layer-2 reviewer with a blocking double; the
     # adversarial spawner stays the real one create_default wired.
     system = dataclasses.replace(system, layer_2a=_BlockingQaReviewLayer())
+    system = bind_implementation_qa_preconditions(
+        system, story_dir, story_id="AG3-044", run_id="run-1"
+    )
     assert system.adversarial_spawner is not None
 
     ctx = VerifyContextBundle(run_id="run-1", story_dir=story_dir, attempt=1)
@@ -312,6 +318,9 @@ def test_real_qa_subflow_impl_route_no_blocking_layer2_no_spawn(tmp_path: Path) 
         layer_2b=_PassingLayer("semantic_review"),
         layer_2c=_PassingLayer("doc_fidelity"),
     )
+    system = bind_implementation_qa_preconditions(
+        system, story_dir, story_id="AG3-044", run_id="run-1"
+    )
 
     ctx = VerifyContextBundle(run_id="run-1", story_dir=story_dir, attempt=1)
     outcome = system.run_qa_subflow(
@@ -335,6 +344,9 @@ def test_real_qa_subflow_exploration_route_no_spawn(tmp_path: Path) -> None:
     _init_story_worktree(story_dir)
     manager = build_artifact_manager(tmp_path)
     system = VerifySystem.create_default(artifact_manager=manager)
+    system = bind_implementation_qa_preconditions(
+        system, story_dir, story_id="AG3-044", run_id="run-1"
+    )
 
     ctx = VerifyContextBundle(run_id="run-1", story_dir=story_dir, attempt=1)
     outcome = system.run_qa_subflow(
@@ -403,6 +415,9 @@ def test_engine_persists_remediation_and_adversarial_spawn(tmp_path: Path) -> No
     # Replace ONLY the qa_review Layer-2 reviewer with a blocking double; the
     # adversarial spawner stays the real one create_default wired.
     system = dataclasses.replace(system, layer_2a=_BlockingQaReviewLayer())
+    system = bind_implementation_qa_preconditions(
+        system, story_dir, story_id="AG3-044", run_id="run-1"
+    )
     assert system.adversarial_spawner is not None
 
     config = ImplementationConfig(
