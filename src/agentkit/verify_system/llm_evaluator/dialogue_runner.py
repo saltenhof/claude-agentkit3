@@ -359,19 +359,18 @@ class DialogueRunner:
             from agentkit.artifacts.envelope import ArtifactEnvelope
             from agentkit.artifacts.producer import Producer, ProducerId, ProducerType
             from agentkit.core_types import ArtifactClass, EnvelopeStatus
-            from agentkit.verify_system.register import VERIFY_LAYER2_DIALOGUE_AUDIT_PRODUCER
+            from agentkit.prompt_runtime.audit import PROMPT_AUDIT_PRODUCER_NAME
 
             now = datetime.now(UTC)
             role_slug = role.replace("_", "-")
             record_key = f"dialogue-transcript-{role_slug}-{run_id}-{attempt:03d}"
-            # ERROR 4 fix: use the registered canonical PROMPT_AUDIT producer name
-            # (VERIFY_LAYER2_DIALOGUE_AUDIT_PRODUCER, registered in
-            # register_verify_producers). The transcript is deterministic audit
-            # evidence — not an LLM verdict — so ProducerType.DETERMINISTIC matches
-            # the ArtifactClass.PROMPT_AUDIT semantics (validator.py §85).
+            # AG3-065 remediation 3: route via the concept-owned producer
+            # ``prompt-runtime.materialization`` (no invented producers).
+            # Role-specific stage ensures unique DB key per dialogue role:
+            # key = (story_id, run_id, stage, attempt, artifact_class, producer_name).
             producer = Producer(
                 type=ProducerType.DETERMINISTIC,
-                name=VERIFY_LAYER2_DIALOGUE_AUDIT_PRODUCER,
+                name=PROMPT_AUDIT_PRODUCER_NAME,
                 id=ProducerId(record_key),
             )
             turns_payload = [
@@ -382,11 +381,13 @@ class DialogueRunner:
                 }
                 for t in transcript
             ]
+            # Role-specific stage for unique DB key per dialogue role.
+            stage = f"layer2-dialogue-audit-{role_slug}"
             envelope = ArtifactEnvelope(
                 schema_version="3.0",
                 story_id=story_id,
                 run_id=run_id,
-                stage="layer2-dialogue",
+                stage=stage,
                 attempt=attempt,
                 producer=producer,
                 started_at=now,

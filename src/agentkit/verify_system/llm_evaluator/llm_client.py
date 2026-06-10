@@ -238,6 +238,30 @@ class HubLlmClient:
         self._hub = hub
         self._resolver = resolver
         self._owner = owner
+        # Evaluator-level deadline (monotonic clock); set by the evaluator via
+        # ``set_eval_deadline`` before running the first complete() so that
+        # sub-operation timeouts are clamped to the remaining budget instead of
+        # a fresh TOTAL_TIMEOUT_SECONDS window on each call (ERROR 1 near-boundary
+        # fix, AG3-065 remediation 3). ``None`` means no external deadline set.
+        self._eval_deadline: float | None = None
+
+    def set_eval_deadline(self, deadline: float) -> None:
+        """Set the evaluator-level monotonic deadline for all subsequent calls.
+
+        Called by :func:`~agentkit.verify_system.llm_evaluator.structured_evaluator._set_eval_deadline`
+        before the first ``complete()`` so that all sub-operation timeouts inside
+        this client are clamped to ``min(per_op_constant, remaining_budget)``.
+        This bounds the whole ``evaluate()`` wall-clock to approximately
+        ``TOTAL_TIMEOUT_SECONDS`` even when the first call returns just under the
+        limit (NEAR-BOUNDARY fix, ERROR 1).
+
+        The ``LlmClient`` Protocol port ``complete(*, role, prompt)->str`` stays
+        unchanged; this method is an optional capability on the concrete class.
+
+        Args:
+            deadline: Monotonic-clock deadline (from ``time.monotonic()``).
+        """
+        self._eval_deadline = deadline
 
     def complete(self, *, role: str, prompt: str) -> str:
         """Run a single LLM completion via the Multi-LLM Hub.
@@ -251,6 +275,10 @@ class HubLlmClient:
         clamped to min(per_op_constant, remaining_budget). A retry is
         refused (fail-closed → LlmClientError) when the remaining budget
         cannot cover the next operation.
+
+        When an evaluator-level deadline has been set via :meth:`set_eval_deadline`,
+        the per-call deadline is further clamped to the remaining evaluator budget
+        (NEAR-BOUNDARY fix, ERROR 1).
 
         Args:
             role: The reviewer role wire-string.
@@ -272,7 +300,15 @@ class HubLlmClient:
 
         pool = self._resolver.resolve(role)
         description = f"agentkit-verify role={role}"
-        deadline = time.monotonic() + TOTAL_TIMEOUT_SECONDS
+        # Clamp deadline to the evaluator-level deadline when set (NEAR-BOUNDARY
+        # fix): prevents a 2nd call from getting a fresh TOTAL_TIMEOUT_SECONDS
+        # window when the first call consumed most of the budget.
+        fresh_deadline = time.monotonic() + TOTAL_TIMEOUT_SECONDS
+        deadline = (
+            min(fresh_deadline, self._eval_deadline)
+            if self._eval_deadline is not None
+            else fresh_deadline
+        )
 
         lease = self._acquire_with_queue_retry(pool, description, deadline=deadline)
         send_retries_used = 0

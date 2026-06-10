@@ -283,6 +283,12 @@ class StructuredEvaluatorResult(BaseModel):
         raw_response: The full raw LLM response text (FK-11 §11.4.6 full
             logging; ``None`` if logging was skipped).
         retry_count: Number of LLM calls made (1 = no retry, 2 = one retry).
+        prompt_audit_status: Status of the prompt-audit persistence attempt
+            (FK-11 §11.4.6a): ``"persisted"`` on success, ``"skipped"`` when
+            pre-conditions are absent (no manager / no run_id), ``"error"`` on
+            a write rejection by the ArtifactManager. A manager-present
+            rejection is logged via logger.warning AND surfaced here (never
+            silently swallowed, ERROR 4 fix).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -296,6 +302,7 @@ class StructuredEvaluatorResult(BaseModel):
     rendered_prompt: str | None = None
     raw_response: str | None = None
     retry_count: int = 1
+    prompt_audit_status: str = "skipped"
 
 
 class StructuredEvaluator:
@@ -423,7 +430,18 @@ class StructuredEvaluator:
         # second full ~2500s send.  (The per-call budget is enforced inside
         # HubLlmClient.complete() for the individual acquire/send/release ops;
         # this is the cross-call bound owned by the evaluator.)
+        #
+        # NEAR-BOUNDARY fix (ERROR 1): communicate the evaluator-level deadline
+        # to HubLlmClient so even when elapsed < TOTAL (first call returned just
+        # under the limit), the 2nd complete() is bounded by the REMAINING budget,
+        # not a fresh TOTAL_TIMEOUT_SECONDS window. This is done by setting
+        # ``_eval_deadline`` on the client instance (not a new port parameter —
+        # the LlmClient Protocol ``complete(*, role, prompt)->str`` is unchanged).
         eval_start = time.monotonic()
+        eval_deadline = eval_start + TOTAL_TIMEOUT_SECONDS
+        # Propagate the evaluator-level deadline to the client so per-call
+        # sub-operation timeouts are clamped to the remaining budget.
+        _set_eval_deadline(self._llm_client, eval_deadline)
         last_parse_error: StructuredEvaluatorError | None = None
         raw_response: str = ""
         retry_count = 0
@@ -515,6 +533,17 @@ class StructuredEvaluator:
                 check_count=len(response.checks),
                 status="pass",
             )
+            audit_status = self._persist_prompt_audit(
+                role=role,
+                story_id=bundle.story_id,
+                run_id=run_id,
+                attempt=run_attempt,
+                rendered_prompt=full_prompt,
+                raw_response=raw_response,
+                raw_response_hash=hashlib.sha256(raw_response.encode("utf-8")).hexdigest(),
+                template_sha256=template_sha256,
+                retry_count=retry_count,
+            )
             result = StructuredEvaluatorResult(
                 role=role,
                 verdict=verdict,
@@ -525,12 +554,7 @@ class StructuredEvaluator:
                 rendered_prompt=full_prompt,
                 raw_response=raw_response,
                 retry_count=retry_count,
-            )
-            self._persist_prompt_audit(
-                result=result,
-                story_id=bundle.story_id,
-                run_id=run_id,
-                attempt=run_attempt,
+                prompt_audit_status=audit_status,
             )
             return result
 
@@ -747,61 +771,82 @@ class StructuredEvaluator:
     def _persist_prompt_audit(
         self,
         *,
-        result: StructuredEvaluatorResult,
+        role: ReviewerRole,
         story_id: str,
         run_id: str | None,
         attempt: int,
+        rendered_prompt: str | None,
+        raw_response: str | None,
+        raw_response_hash: str,
+        template_sha256: str,
+        retry_count: int,
     ) -> str:
         """Persist the full rendered prompt + raw response via ArtifactManager.write().
 
         FK-11 §11.4.6a: the full prompt and raw response MUST be persisted via
         the prompt-audit / ArtifactManager machinery — NOT a parallel loose-JSON
-        channel. A clean ``"skipped"`` status is returned when:
+        channel (AG3-065 §2.1.8a / §2.1.5 "kein paralleler Log-Kanal"). Routed
+        via the concept-owned ``prompt-runtime.materialization`` producer
+        (registered in ``prompt_runtime.register``) with a role-specific stage
+        id to avoid DB-key collisions across the three Layer-2 roles (ERROR 2
+        fix: key is (story_id, run_id, stage, attempt, artifact_class,
+        producer_name) — using stage=f"layer2-prompt-audit-{role_slug}" gives
+        each role a unique row).
+
+        A clean ``"skipped"`` status is returned only when:
         - no ``ArtifactManager`` was injected, or
         - ``run_id`` is absent (run-correlation unavailable).
 
+        A manager-present write rejection is logged AND returned as ``"error"``
+        (never silently swallowed, ERROR 4 fix for StructuredEvaluator).
+
         Args:
-            result: The :class:`StructuredEvaluatorResult` carrying the
-                rendered prompt and raw response.
+            role: The reviewer role (used to derive the role-specific stage).
             story_id: Story display-ID for the envelope.
             run_id: Run-correlation ID; ``None`` yields a ``skipped`` status.
             attempt: 1-based attempt counter for the envelope.
+            rendered_prompt: The fully rendered prompt sent to the LLM.
+            raw_response: The full raw LLM response text.
+            raw_response_hash: SHA-256 of the raw response.
+            template_sha256: SHA-256 of the prompt template.
+            retry_count: Number of LLM calls made.
 
         Returns:
             ``"persisted"`` on success, ``"skipped"`` when pre-conditions
-            are absent, ``"error"`` on persistence failure.
+            are absent, ``"error"`` on a write rejection.
         """
         if self._artifact_manager is None:
             return "skipped"
         if not run_id:
             return "skipped"
-        if result.rendered_prompt is None or result.raw_response is None:
+        if rendered_prompt is None or raw_response is None:
             return "skipped"
 
         try:
             from agentkit.artifacts.envelope import ArtifactEnvelope
             from agentkit.artifacts.producer import Producer, ProducerId, ProducerType
             from agentkit.core_types import ArtifactClass, EnvelopeStatus
-            from agentkit.verify_system.register import VERIFY_LAYER2_PROMPT_AUDIT_PRODUCER
+            from agentkit.prompt_runtime.audit import PROMPT_AUDIT_PRODUCER_NAME
 
             now = datetime.now(UTC)
-            role_slug = result.role.value.replace("_", "-")
+            role_slug = role.value.replace("_", "-")
+            # Role-specific stage ensures unique DB key per role:
+            # key = (story_id, run_id, stage, attempt, artifact_class, producer_name)
+            stage = f"layer2-prompt-audit-{role_slug}"
             record_key = f"verify-layer2-{role_slug}-{run_id}-{attempt:03d}"
-            # ERROR 2 fix: use the registered canonical PROMPT_AUDIT producer name
-            # (VERIFY_LAYER2_PROMPT_AUDIT_PRODUCER, registered in
-            # register_verify_producers). The audit record is deterministic
-            # evidence — not an LLM verdict — so ProducerType.DETERMINISTIC matches
-            # the ArtifactClass.PROMPT_AUDIT semantics (validator.py §85).
+            # Route via the concept-owned producer (no new producers invented,
+            # AG3-065 §2.1.8a): ``prompt-runtime.materialization`` is already
+            # registered by ``register_prompt_runtime_producers``.
             producer = Producer(
                 type=ProducerType.DETERMINISTIC,
-                name=VERIFY_LAYER2_PROMPT_AUDIT_PRODUCER,
+                name=PROMPT_AUDIT_PRODUCER_NAME,
                 id=ProducerId(record_key),
             )
             envelope = ArtifactEnvelope(
                 schema_version="3.0",
                 story_id=story_id,
                 run_id=run_id,
-                stage="layer2-llm-eval",
+                stage=stage,
                 attempt=attempt,
                 producer=producer,
                 started_at=now,
@@ -809,12 +854,12 @@ class StructuredEvaluator:
                 status=EnvelopeStatus.PASS,
                 artifact_class=ArtifactClass.PROMPT_AUDIT,
                 payload={
-                    "role": result.role.value,
-                    "rendered_prompt": result.rendered_prompt,
-                    "raw_response": result.raw_response,
-                    "raw_response_hash": result.raw_response_hash,
-                    "template_sha256": result.template_sha256,
-                    "retry_count": result.retry_count,
+                    "role": role.value,
+                    "rendered_prompt": rendered_prompt,
+                    "raw_response": raw_response,
+                    "raw_response_hash": raw_response_hash,
+                    "template_sha256": template_sha256,
+                    "retry_count": retry_count,
                 },
             )
             self._artifact_manager.write(envelope)
@@ -823,7 +868,7 @@ class StructuredEvaluator:
             logger.warning(
                 "StructuredEvaluator: prompt-audit persistence failed for "
                 "role=%r story_id=%r run_id=%r: %s",
-                result.role.value,
+                role.value,
                 story_id,
                 run_id,
                 exc,
@@ -1080,6 +1125,32 @@ class StructuredEvaluator:
             message=message,
             trust_class=TrustClass.VERIFIED_LLM,
         )
+
+
+def _set_eval_deadline(llm_client: object, deadline: float) -> None:
+    """Communicate the evaluator-level deadline to a supporting LLM client.
+
+    If the client exposes a ``set_eval_deadline`` method (e.g.
+    :class:`~agentkit.verify_system.llm_evaluator.llm_client.HubLlmClient`),
+    call it so per-call sub-operation timeouts are clamped to the remaining
+    evaluator budget. This does NOT alter the ``LlmClient`` Protocol port
+    (``complete(*, role, prompt)->str`` stays unchanged) — it is an optional
+    capability advertised by the concrete implementation.
+
+    The NEAR-BOUNDARY fix (ERROR 1): without this, a first ``complete()`` call
+    returning just under ``TOTAL_TIMEOUT_SECONDS`` would allow a second call
+    with a fresh ``TOTAL_TIMEOUT_SECONDS`` budget, doubling the intended bound.
+    With the deadline propagated, ``HubLlmClient.complete()`` uses
+    ``min(fresh_budget, eval_deadline)`` so the second call is bounded by the
+    remaining evaluator budget.
+
+    Args:
+        llm_client: The injected LLM client (any object).
+        deadline: Monotonic-clock deadline for the whole ``evaluate()`` call.
+    """
+    setter = getattr(llm_client, "set_eval_deadline", None)
+    if callable(setter):
+        setter(deadline)
 
 
 def _verdict(has_blocking: bool, has_concern: bool) -> LlmVerdict:

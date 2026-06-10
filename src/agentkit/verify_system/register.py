@@ -45,17 +45,6 @@ ADVERSARIAL_SANDBOX_PRODUCER: Final[str] = "qa-adversarial-sandbox"
 #: Stage id of the adversarial-sandbox artifact (envelope ``stage`` field).
 ADVERSARIAL_SANDBOX_STAGE: Final[str] = "qa-adversarial"
 
-# ---- AG3-065 PROMPT_AUDIT producers ----------------------------------------
-#: Canonical producer name for Layer-2 LLM-evaluator prompt-audit envelopes
-#: (FK-11 §11.4.6a / AG3-065). Deterministic: the evaluator deterministically
-#: captures the exact prompt text and raw response it sent/received — the audit
-#: record itself is not an LLM verdict.
-VERIFY_LAYER2_PROMPT_AUDIT_PRODUCER: Final[str] = "verify-system.layer2-prompt-audit"
-
-#: Canonical producer name for Layer-2 DialogueRunner transcript audit envelopes
-#: (FK-11 §11.5.2 / AG3-065). Deterministic for the same reason as above.
-VERIFY_LAYER2_DIALOGUE_AUDIT_PRODUCER: Final[str] = "verify-system.layer2-dialogue-audit"
-
 # (ArtifactClass, Producer-Name, ProducerType) — Single Source of Truth
 # fuer die verify-system-Producer. Eine Aenderung dieser Liste ist
 # eine Konzept-Aenderung und muss in FK-27 nachgezogen werden.
@@ -70,6 +59,12 @@ VERIFY_LAYER2_DIALOGUE_AUDIT_PRODUCER: Final[str] = "verify-system.layer2-dialog
 # ``core_types.qa_artifact_names`` (no second naming truth, AG3-034 R2-H); the
 # legacy ``verify-system.layer-2-llm`` producer is not a QA-layer SSOT member and
 # stays literal here.
+#
+# AG3-065 (remediation 3): Layer-2 prompt-audit and dialogue-audit records are
+# persisted via the concept-owned ``prompt-runtime.materialization`` producer
+# (registered in ``prompt_runtime.register``) — no separate verify-system
+# PROMPT_AUDIT producers needed. Role-unique DB keys are achieved via
+# role-specific stage ids (e.g. ``layer2-prompt-audit-qa-review``).
 _VERIFY_PRODUCERS: Final[tuple[tuple[ArtifactClass, str, ProducerType], ...]] = (
     (ArtifactClass.QA, STRUCTURAL_PRODUCER, ProducerType.DETERMINISTIC),
     # Layer 2 -- AG3-026 §AK7: drei FK-27 §27.7-Artefakte
@@ -91,12 +86,6 @@ _VERIFY_PRODUCERS: Final[tuple[tuple[ArtifactClass, str, ProducerType], ...]] = 
         ADVERSARIAL_SANDBOX_PRODUCER,
         ProducerType.WORKER,
     ),
-    # AG3-065 prompt-audit producers for Layer-2 LLM evaluations (FK-11 §11.4.6a
-    # / §11.5.2): deterministic capture of the exact prompt+response / transcript;
-    # the audit record is not an LLM verdict, hence DETERMINISTIC type (matching
-    # the PROMPT_AUDIT semantics of ArtifactClass.PROMPT_AUDIT validator.py:85).
-    (ArtifactClass.PROMPT_AUDIT, VERIFY_LAYER2_PROMPT_AUDIT_PRODUCER, ProducerType.DETERMINISTIC),
-    (ArtifactClass.PROMPT_AUDIT, VERIFY_LAYER2_DIALOGUE_AUDIT_PRODUCER, ProducerType.DETERMINISTIC),
 )
 
 
@@ -118,7 +107,5 @@ def register_verify_producers(registry: ProducerRegistry) -> None:
 __all__ = [
     "ADVERSARIAL_SANDBOX_PRODUCER",
     "ADVERSARIAL_SANDBOX_STAGE",
-    "VERIFY_LAYER2_DIALOGUE_AUDIT_PRODUCER",
-    "VERIFY_LAYER2_PROMPT_AUDIT_PRODUCER",
     "register_verify_producers",
 ]
