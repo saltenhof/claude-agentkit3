@@ -522,6 +522,7 @@ def _cmd_evidence_assemble(args: argparse.Namespace) -> int:
     from agentkit.verify_system.evidence import (
         EvidenceAssembler,
         EvidenceAssemblyError,
+        ImportResolver,
     )
 
     story_dir = Path(args.story_dir)
@@ -540,6 +541,7 @@ def _cmd_evidence_assemble(args: argparse.Namespace) -> int:
                 evidence_by_repo=evidence_by_repo,
                 repo_paths={repo_id: repo.repo_path for repo_id, repo in repos.items()},
             ),
+            import_evidence_provider=ImportResolver.from_repo_contexts(repos),
         )
         result = assembler.assemble(story_dir=story_dir)
         output_dir.mkdir(parents=True, exist_ok=True)

@@ -130,6 +130,38 @@ def test_all_seven_handlers_resolve_real_requests(tmp_path: Path) -> None:
     assert all(result.status == "RESOLVED" for result in results)
 
 
+def test_need_concept_source_uses_repo_root_for_real_stories_layout(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    story_dir = tmp_path / "stories" / "AG3-062"
+    story_dir.mkdir(parents=True)
+    concept_dir = tmp_path / "concept" / "technical-design"
+    concept_dir.mkdir(parents=True)
+    (concept_dir / "fk-47.md").write_text("# Review Request Dialog\n", encoding="utf-8")
+    other_story_dir = tmp_path / "stories" / "AG3-061"
+    other_story_dir.mkdir()
+    (other_story_dir / "story.md").write_text("# Evidence Assembler Foundation\n", encoding="utf-8")
+    resolver = RequestResolver({"app": repo}, "app", story_dir=story_dir)
+
+    results = resolver.resolve_all([
+        ReviewerRequest(
+            type=RequestType.NEED_CONCEPT_SOURCE,
+            target="Review Request Dialog",
+            reason="needed",
+        ),
+        ReviewerRequest(
+            type=RequestType.NEED_CONCEPT_SOURCE,
+            target="Evidence Assembler Foundation",
+            reason="needed",
+        ),
+    ])
+
+    assert [result.status for result in results] == ["RESOLVED", "RESOLVED"]
+    assert results[0].file_path is not None
+    assert results[0].file_path.endswith("concept/technical-design/fk-47.md")
+    assert results[1].file_path is not None
+    assert results[1].file_path.endswith("stories/AG3-061/story.md")
+
+
 def test_d3_rule_returns_unresolved_for_zero_and_multiple_matches(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     (repo.repo_path / "src" / "other_schema.py").write_text("class UserSchema:\n    pass\n", encoding="utf-8")

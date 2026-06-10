@@ -91,7 +91,11 @@ class PreflightTurn:
             {"resolved_count": sum(1 for result in results if result.status == "RESOLVED")},
         )
         review_response = self._sender.send(
-            prompt=render_review_prompt(review_prompt, results),
+            prompt=render_review_prompt(
+                review_prompt,
+                results,
+                bundle_manifest_header=assembly.manifest.render_prompt_header(),
+            ),
             merge_paths=extended_paths,
         )
         return PreflightTurnResult(
@@ -130,11 +134,19 @@ def render_preflight_prompt(bundle_manifest_header: str, story_id: str) -> str:
     )
 
 
-def render_review_prompt(review_prompt: str, results: Sequence[RequestResult]) -> str:
-    """Append deterministic preflight request outcomes to the review prompt."""
+def render_review_prompt(
+    review_prompt: str,
+    results: Sequence[RequestResult],
+    *,
+    bundle_manifest_header: str | None = None,
+) -> str:
+    """Append manifest authority and preflight outcomes to the review prompt."""
+    prompt_parts = [
+        part for part in (bundle_manifest_header, review_prompt) if part is not None
+    ]
     if not results:
-        return review_prompt
-    lines = [review_prompt, "", "## Preflight Request Results", ""]
+        return "\n\n".join(prompt_parts)
+    lines = ["\n\n".join(prompt_parts), "", "## Preflight Request Results", ""]
     for result in results:
         target = result.request.target
         lines.append(f"- {result.request.type.value} {target}: {result.status}")

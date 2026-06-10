@@ -103,13 +103,17 @@ def test_preflight_turn_with_valid_answer_extends_paths_and_balances_telemetry(t
         emitter=emitter,
     )
 
-    result = turn.run(story_id="AG3-062", assembly=_assembly(), review_prompt="review")
+    assembly = _assembly()
+    result = turn.run(story_id="AG3-062", assembly=assembly, review_prompt="review")
 
     assert result.extended_paths == (Path("src/app.py"), Path("src/context.py"))
     assert sender.merge_paths == [
         (Path("src/app.py"),),
         (Path("src/app.py"), Path("src/context.py")),
     ]
+    assert "## Bundle Content" in sender.prompts[-1]
+    assert "PRIMARY_IMPLEMENTATION" in sender.prompts[-1]
+    assert f"Manifest-Hash: {assembly.manifest.manifest_hash}" in sender.prompts[-1]
     assert result.review_response == "review complete"
     assert [event.event_type for event in emitter.all_events] == [
         EventType.PREFLIGHT_REQUEST,

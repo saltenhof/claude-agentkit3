@@ -183,7 +183,8 @@ class RequestResolver:
     def _resolve_concept_source(self, request: ReviewerRequest) -> RequestResult:
         """Resolve a concept or story heading by text match."""
         pattern = re.compile(rf"^#+\s+.*{re.escape(request.target)}.*$", re.MULTILINE)
-        roots = (self._story_dir.parent / "concept", self._story_dir.parent / "stories", self._story_dir)
+        project_root = _project_root_for_story_dir(self._story_dir)
+        roots = (project_root / "concept", project_root / "stories", self._story_dir)
         files = (
             file_path
             for root in roots
@@ -355,6 +356,13 @@ def _is_under(path: Path, root: Path) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _project_root_for_story_dir(story_dir: Path) -> Path:
+    resolved = story_dir.resolve()
+    if resolved.parent.name == "stories":
+        return resolved.parent.parent
+    return resolved.parent
 
 
 def _elapsed_ms(start: float) -> int:
