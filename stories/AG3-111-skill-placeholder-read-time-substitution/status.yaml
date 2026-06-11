@@ -5,8 +5,16 @@ status: draft
 phase: backlog
 created: "2026-06-11"
 size: L
+# depends_on AG3-110 is now a COMPLETED precondition (producer + substitute_spawn_header
+# resolver landed on main 39c67bc, Fable-verified). AG3-110 re-scoped to completed: its
+# producer/resolver-function acceptance is green; the production-delivery E2E (AG3-110 AC4:
+# real spawn header carries token, guard allows) is delegated to AG3-111 as cross-story
+# closure. No deadlock: AG3-111 depends only on completed stories (AG3-027, AG3-048, AG3-110).
+# AG3-048 added: AG3-111 hooks the materialization step into the CP-8 skill binding +
+# self-atomic junction teardown + .gitignore hygiene that AG3-048 (completed) delivered.
 depends_on:
   - AG3-027
+  - AG3-048
   - AG3-110
 unblocks:
   - AG3-086
