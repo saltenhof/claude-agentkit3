@@ -1,9 +1,10 @@
 story_id: AG3-088
 title: "Checkpoint-Engine-Installer (FlowDefinition statt God-File)"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
 created: "2026-06-07"
+completed: "2026-06-11"
 size: L
 depends_on:
   - AG3-001
