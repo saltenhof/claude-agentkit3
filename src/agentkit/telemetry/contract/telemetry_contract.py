@@ -162,9 +162,9 @@ class TelemetryContract:
 
         Every required reviewer role must have produced at least one
         ``review_request``, and the run's ``review_compliant`` count must equal
-        the ``review_request`` count exactly. FK-68 §68.4 mandates "Jeder
-        review_request muss ein review_compliant haben" — a strict one-to-one
-        pairing. An overcount (extra/malformed ``review_compliant`` events) is a
+        the ``review_request`` count exactly. FK-68 §68.4 mandates a strict
+        one-to-one pairing: every ``review_request`` must have exactly one
+        ``review_compliant``. An overcount (extra/malformed ``review_compliant`` events) is a
         violation, not a pass (NO ERROR BYPASSING): the count must match, not
         merely meet a lower bound.
 
