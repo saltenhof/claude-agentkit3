@@ -6,7 +6,7 @@ phase: review_pending
 created: "2026-06-07"
 size: L
 # PAUSED 2026-06-11: implementation is review-green through r4 (4 remediation rounds, dual
-# Codex+Fable review) and the guard CODE is on main (cherry-pick cb7e36e; no branch/worktree).
+# Codex+Fable review) and the guard CODE is on main (commit cb7e36e).
 # The prompt_integrity guard is correct/fail-closed across all 3 stages. Stage-2 (story_execution)
 # validates agent_spawn_skill_proof against .installed-manifest.json (FK-31 §31.7.4).
 # DEPENDENCY STATUS: the manifest PRODUCER + resolver function (AG3-110) is COMPLETED on main.
