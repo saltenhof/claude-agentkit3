@@ -8,6 +8,12 @@ from agentkit.story_context_manager.display_id import format_story_display_id
 from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.routing_rules import get_phases_for_story
 from agentkit.story_context_manager.sizing import StorySize
+from agentkit.story_context_manager.terminal_state import (
+    ExitClass,
+    TerminalState,
+    derive_terminal_state,
+    validate_exit_class_constraints,
+)
 from agentkit.story_context_manager.types import (
     ImplementationContract,
     StoryMode,
@@ -32,13 +38,17 @@ __all__ = [
     "PhaseSnapshot",
     "PhaseState",
     "PhaseStatus",
+    "ExitClass",
     "ImplementationContract",
     "StoryContext",
     "StoryMode",
     "StorySize",
     "StoryType",
     "StoryTypeProfile",
+    "TerminalState",
+    "derive_terminal_state",
     "format_story_display_id",
     "get_phases_for_story",
     "get_profile",
+    "validate_exit_class_constraints",
 ]

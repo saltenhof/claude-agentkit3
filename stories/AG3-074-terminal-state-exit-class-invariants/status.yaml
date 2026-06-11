@@ -1,8 +1,9 @@
 story_id: AG3-074
 title: "Ergebnisachse terminal_state + exit_class-Invarianten + Pflichttests"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
+completed: "2026-06-12"
 created: "2026-06-07"
 size: M
 depends_on:
