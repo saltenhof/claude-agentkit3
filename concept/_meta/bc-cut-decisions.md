@@ -89,7 +89,7 @@ Der oeffentliche Vertrag von VerifySystem:
 class VerifySystem:
     def run_qa_subflow(
         self,
-        ctx: StoryContext,
+        ctx: VerifyContextBundle,
         story_id: str,
         qa_context: QaContext,
         target: ArtifactReference,
