@@ -1,9 +1,10 @@
 story_id: AG3-089
 title: "Upgrade/Migration + CustomizationFootprint"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
 created: "2026-06-07"
+completed: "2026-06-11"
 size: L
 depends_on:
   - AG3-070
