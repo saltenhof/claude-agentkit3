@@ -129,6 +129,8 @@ def _story_to_sqlite_row(story: Story) -> dict[str, object]:
         "critical_path": 1 if story.critical_path else 0,
         # AG3-057: Trigger 3 input (new_structures).
         "new_structures": 1 if story.new_structures else 0,
+        # AG3-068: VectorDB-conflict producer flag (FK-21 §21.12).
+        "vectordb_conflict_resolved": 1 if story.vectordb_conflict_resolved else 0,
         "created_at": story.created_at.isoformat() if story.created_at else None,
         "completed_at": story.completed_at.isoformat() if story.completed_at else None,
     }
@@ -159,6 +161,9 @@ def _sqlite_row_to_story(row: dict[str, Any]) -> Story:
         # AG3-057: Trigger 3 input (new_structures). Fail-closed default 0/False
         # when the column is absent (older schema rows without the column).
         new_structures=bool(row.get("new_structures", 0)),
+        # AG3-068: VectorDB-conflict producer flag. Fail-closed default 0/False
+        # when the column is absent (older schema rows without the column).
+        vectordb_conflict_resolved=bool(row.get("vectordb_conflict_resolved", 0)),
         created_at=(
             datetime.fromisoformat(str(row["created_at"]))
             if row["created_at"]
@@ -235,6 +240,8 @@ def _story_to_pg_row(story: Story) -> dict[str, object]:
         "critical_path": story.critical_path,
         # AG3-057: Trigger 3 input (new_structures).
         "new_structures": story.new_structures,
+        # AG3-068: VectorDB-conflict producer flag (FK-21 §21.12).
+        "vectordb_conflict_resolved": story.vectordb_conflict_resolved,
         "created_at": story.created_at.isoformat() if story.created_at else None,
         "completed_at": story.completed_at.isoformat() if story.completed_at else None,
     }
@@ -268,6 +275,9 @@ def _pg_row_to_story(row: dict[str, Any]) -> Story:
         # AG3-057: Trigger 3 input (new_structures). Fail-closed default False
         # when column absent (older schema rows without the column).
         new_structures=bool(row.get("new_structures", False)),
+        # AG3-068: VectorDB-conflict producer flag. Fail-closed default False
+        # when column absent (older schema rows without the column).
+        vectordb_conflict_resolved=bool(row.get("vectordb_conflict_resolved", False)),
         created_at=(
             datetime.fromisoformat(str(row["created_at"]))
             if row["created_at"]
@@ -377,6 +387,8 @@ def _migrate_stories_table_sqlite(conn: sqlite3.Connection) -> None:
     and safe to call on every connection.
 
     AG3-057: adds ``new_structures INTEGER NOT NULL DEFAULT 0`` (Trigger 3 input).
+    AG3-068: adds ``vectordb_conflict_resolved INTEGER NOT NULL DEFAULT 0``
+    (FK-21 §21.12 producer flag).
     """
     existing_columns = {
         row[1]
@@ -385,6 +397,11 @@ def _migrate_stories_table_sqlite(conn: sqlite3.Connection) -> None:
     if "new_structures" not in existing_columns:
         conn.execute(
             "ALTER TABLE stories ADD COLUMN new_structures INTEGER NOT NULL DEFAULT 0"
+        )
+    if "vectordb_conflict_resolved" not in existing_columns:
+        conn.execute(
+            "ALTER TABLE stories ADD COLUMN "
+            "vectordb_conflict_resolved INTEGER NOT NULL DEFAULT 0"
         )
 
 
@@ -436,6 +453,9 @@ def _ensure_story_tables_sqlite(conn: sqlite3.Connection) -> None:
             -- AG3-057: Trigger 3 input — new code/module structures introduced.
             -- Default 0 (False) = fail-closed: absence does not trigger Exploration.
             new_structures INTEGER NOT NULL DEFAULT 0,
+            -- AG3-068: VectorDB-conflict producer flag (FK-21 §21.12).
+            -- Default 0 (False) = fail-closed: only a resolved stage-2 conflict sets it.
+            vectordb_conflict_resolved INTEGER NOT NULL DEFAULT 0,
             created_at TEXT,
             completed_at TEXT,
             PRIMARY KEY (story_uuid),
@@ -867,13 +887,13 @@ def _sqlite_upsert_story(
             title, story_type, status, size, mode, epic, module,
             participating_repos_json, change_impact, concept_quality,
             owner, risk, blocker, labels_json, wave, critical_path,
-            new_structures, created_at, completed_at
+            new_structures, vectordb_conflict_resolved, created_at, completed_at
         ) VALUES (
             :story_uuid, :project_key, :story_number, :story_display_id,
             :title, :story_type, :status, :size, :mode, :epic, :module,
             :participating_repos_json, :change_impact, :concept_quality,
             :owner, :risk, :blocker, :labels_json, :wave, :critical_path,
-            :new_structures, :created_at, :completed_at
+            :new_structures, :vectordb_conflict_resolved, :created_at, :completed_at
         )
         ON CONFLICT(story_uuid) DO UPDATE SET
             title = excluded.title,
@@ -893,6 +913,7 @@ def _sqlite_upsert_story(
             wave = excluded.wave,
             critical_path = excluded.critical_path,
             new_structures = excluded.new_structures,
+            vectordb_conflict_resolved = excluded.vectordb_conflict_resolved,
             created_at = excluded.created_at,
             completed_at = excluded.completed_at
         """,
@@ -908,7 +929,7 @@ def _pg_upsert_story(conn: Any, row: dict[str, object]) -> None:
             title, story_type, status, size, mode, epic, module,
             participating_repos, change_impact, concept_quality,
             owner, risk, blocker, labels, wave, critical_path,
-            new_structures, created_at, completed_at
+            new_structures, vectordb_conflict_resolved, created_at, completed_at
         ) VALUES (
             %(story_uuid)s, %(project_key)s, %(story_number)s,
             %(story_display_id)s, %(title)s, %(story_type)s, %(status)s,
@@ -916,7 +937,8 @@ def _pg_upsert_story(conn: Any, row: dict[str, object]) -> None:
             %(participating_repos)s::jsonb, %(change_impact)s,
             %(concept_quality)s, %(owner)s, %(risk)s, %(blocker)s,
             %(labels)s::jsonb, %(wave)s, %(critical_path)s,
-            %(new_structures)s, %(created_at)s, %(completed_at)s
+            %(new_structures)s, %(vectordb_conflict_resolved)s,
+            %(created_at)s, %(completed_at)s
         )
         ON CONFLICT(story_uuid) DO UPDATE SET
             title = EXCLUDED.title,
@@ -936,6 +958,7 @@ def _pg_upsert_story(conn: Any, row: dict[str, object]) -> None:
             wave = EXCLUDED.wave,
             critical_path = EXCLUDED.critical_path,
             new_structures = EXCLUDED.new_structures,
+            vectordb_conflict_resolved = EXCLUDED.vectordb_conflict_resolved,
             created_at = EXCLUDED.created_at,
             completed_at = EXCLUDED.completed_at
         """,

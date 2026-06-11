@@ -143,7 +143,10 @@ SCHEMA_OVERRIDE_ALLOWED_ENV = "AGENTKIT_PG_SCHEMA_OVERRIDE_ALLOWED"
 # migration and schema_versions cursor entry.
 # 3.23.0 (AG3-096): tm_tasks + tm_task_links tables added for FK-77
 # task-management state and typed links.
-SCHEMA_VERSION = "3.24.0"
+# 3.25.0 (AG3-068): stories.vectordb_conflict_resolved column added (FK-21 §21.12
+# producer flag). Fresh schemas get it from the canonical Postgres/SQLite DDL;
+# existing schemas get the idempotent additive ALTER TABLE migration.
+SCHEMA_VERSION = "3.25.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 # AG3-051: reserved test-schema namespace. Disjoint from the production schema
 # name (``ak3_v<slug>``), so a test override can never resolve onto production

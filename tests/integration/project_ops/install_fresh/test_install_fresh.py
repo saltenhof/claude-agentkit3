@@ -21,7 +21,7 @@ from agentkit.installer.paths import (
     prompt_bundle_store_dir,
 )
 
-_INTERNAL_PROMPT_BUNDLE_VERSION = "4"
+_INTERNAL_PROMPT_BUNDLE_VERSION = "5"
 
 
 @pytest.mark.integration

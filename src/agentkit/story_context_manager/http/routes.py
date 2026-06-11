@@ -30,6 +30,7 @@ from agentkit.story_context_manager.errors import (
     ForbiddenFieldError,
     IdempotencyMismatchError,
     InvalidStatusTransitionError,
+    ReconciliationEvidenceMissingError,
     StoryNotFoundError,
     StoryProjectNotFoundError,
     StoryValidationError,
@@ -277,7 +278,21 @@ class StoryContextRoutes:
         if isinstance(op_id, StoryRouteResponse):
             return op_id
 
-        request_or_error = _parse_create_story_input(body, correlation_id)
+        # FK-21 §21.4 / §21.12 / §21.13 (AG3-068 FIX-1): the agent-facing create
+        # path is NON-BYPASSABLE. It MUST carry the typed reconciliation evidence
+        # (proof the fail-closed Weaviate reconciliation ran + repo-affinity fed
+        # participating_repos). Without it, the create is blocked fail-closed BEFORE
+        # any persistence — a story can never be created here while silently
+        # skipping the Weaviate check / affinity feed. There is no in-body escape
+        # hatch: the Zone-2/admin exemption (FK-21 §21.13.2) calls the StoryService
+        # in-process, not this route.
+        enforced_or_error = _enforce_reconciliation(body, correlation_id)
+        if isinstance(enforced_or_error, StoryRouteResponse):
+            return enforced_or_error
+
+        request_or_error = _parse_create_story_input(
+            enforced_or_error, correlation_id
+        )
         if isinstance(request_or_error, StoryRouteResponse):
             return request_or_error
 
@@ -494,6 +509,10 @@ _ERROR_CODE_MAP: dict[type[Exception], tuple[HTTPStatus, str]] = {
     ForbiddenFieldError: (HTTPStatus.UNPROCESSABLE_ENTITY, "forbidden_field"),
     InvalidStatusTransitionError: (HTTPStatus.UNPROCESSABLE_ENTITY, "invalid_transition"),
     IdempotencyMismatchError: (HTTPStatus.CONFLICT, "idempotency_mismatch"),
+    ReconciliationEvidenceMissingError: (
+        HTTPStatus.UNPROCESSABLE_ENTITY,
+        "reconciliation_evidence_missing",
+    ),
 }
 
 
@@ -566,18 +585,106 @@ def _require_dict(
     return cast("dict[str, object]", payload)
 
 
+# Transport-level keys that are NOT part of ``CreateStoryInput`` content.
+# ``reconciliation`` is the AG3-068 (FK-21 §21.4/§21.13) fail-closed precondition
+# channel, consumed by ``_enforce_reconciliation`` and stripped before the body
+# is validated as story content.
+_NON_CONTENT_KEYS: frozenset[str] = frozenset({"op_id", "reconciliation"})
+
+
+def _enforce_reconciliation(
+    body: dict[str, object], correlation_id: str
+) -> dict[str, object] | StoryRouteResponse:
+    """Fail-closed reconciliation gate for the agent-facing create path.
+
+    The body MUST carry a typed ``reconciliation`` evidence block
+    (FK-21 §21.4/§21.12). The grounded ``vectordb_conflict_resolved`` flag and
+    the repo-affinity ``participating_repos`` (``repos``) are PROJECTED from the
+    evidence into the body, so the persisted story cannot diverge from the
+    reconciliation outcome (FIX-THE-MODEL).
+
+    There is deliberately NO in-body bypass on this route. FK-21 §21.13.2 routes
+    the Zone-2/admin exemption to a DIFFERENT entry: those callers (Zone-2
+    pipeline scripts, Kap. 41; the official admin StorySplit/StoryReset service,
+    Kap. 54) invoke the authoritative ``StoryService`` / ``StoryCreationReconciler``
+    IN-PROCESS ("dürfen den AK3-Story-Service direkt zur Story-Anlage aufrufen"),
+    not this agent-facing HTTP boundary. A body-settable grant string would be a
+    second, spoofable copy of an authorization decision the ``StoryCreationGuard``
+    (FK-31 §31.5 / FK-21 §21.13) already owns at the harness PreToolUse boundary
+    via a resolved ``Principal`` — exactly the kind of "second operative truth"
+    AK3 forbids (FIX-THE-MODEL). So the HTTP route is non-bypassable: evidence or
+    fail-closed, no escape hatch.
+
+    Args:
+        body: The raw request body.
+        correlation_id: Correlation id for the error response.
+
+    Returns:
+        The evidence-projected body to validate as story content, or a
+        fail-closed error response when the evidence is absent / inconsistent.
+    """
+    raw_evidence = body.get("reconciliation")
+    if raw_evidence is None:
+        return _error_response(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            error_code="reconciliation_evidence_missing",
+            message=(
+                "POST /v1/stories requires VectorDB reconciliation evidence "
+                "(FK-21 §21.4/§21.12): a Weaviate outage or a missing reconciliation "
+                "blocks story creation fail-closed. Provide a 'reconciliation' block. "
+                "Zone-2/admin direct creation (FK-21 §21.13.2) does not use this "
+                "agent-facing route; it calls the StoryService in-process."
+            ),
+            correlation_id=correlation_id,
+        )
+    if not isinstance(raw_evidence, dict):
+        return _error_response(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            error_code="reconciliation_evidence_missing",
+            message="'reconciliation' must be a JSON object",
+            correlation_id=correlation_id,
+        )
+
+    from pydantic import ValidationError
+
+    from agentkit.story_creation.reconciliation_evidence import ReconciliationEvidence
+
+    try:
+        evidence = ReconciliationEvidence.model_validate(raw_evidence)
+    except ValidationError as exc:
+        first = exc.errors()[0]
+        location = ".".join(str(part) for part in first.get("loc", ()))
+        return _error_response(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            error_code="reconciliation_evidence_missing",
+            message=(
+                f"reconciliation evidence is invalid: "
+                f"{location}: {first.get('msg', 'invalid value')}".rstrip(": ")
+            ),
+            correlation_id=correlation_id,
+        )
+
+    # Project the GROUNDED flag + affinity into the body (SSOT): the persisted
+    # story follows the reconciliation outcome, not an unchecked caller value.
+    projected: dict[str, object] = dict(body)
+    projected["vectordb_conflict_resolved"] = evidence.vectordb_conflict_resolved
+    if evidence.participating_repos:
+        projected["repos"] = list(evidence.participating_repos)
+    return projected
+
+
 def _parse_create_story_input(
     body: dict[str, object], correlation_id: str
 ) -> CreateStoryInput | StoryRouteResponse:
     """Parse the create-story request body into a typed ``CreateStoryInput``.
 
-    Builds a payload dict (without ``op_id``) and lets Pydantic do the
-    enum coercion, optionality and constraint checks in one step.  All
-    Pydantic ``ValidationError``s are mapped to a HTTP 400.
+    Builds a payload dict (without the transport-level / reconciliation keys)
+    and lets Pydantic do the enum coercion, optionality and constraint checks
+    in one step.  All Pydantic ``ValidationError``s are mapped to a HTTP 400.
     """
     from pydantic import ValidationError
 
-    payload = {k: v for k, v in body.items() if k != "op_id"}
+    payload = {k: v for k, v in body.items() if k not in _NON_CONTENT_KEYS}
     try:
         return CreateStoryInput.model_validate(payload)
     except ValidationError as exc:

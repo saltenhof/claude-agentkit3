@@ -20,6 +20,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Weaviate story-knowledge-base runtime (FK-13 §13.2). Optional: the integration
+# adapter guards the import and fails closed when the package is absent.
+weaviate = [
+    "weaviate-client>=4.0",
+]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
@@ -68,6 +73,14 @@ strict = true
 packages = ["agentkit"]
 mypy_path = ["src", "tools"]
 plugins = ["pydantic.mypy"]
+
+# Weaviate is an OPTIONAL, untyped dependency (FK-13 §13.2). The integration
+# adapter guards its import; mypy must not fail when the package (or its stubs)
+# is absent. This is the documented optional-dependency seam, not a blanket
+# silence — only the ``weaviate.*`` namespace is exempted.
+[[tool.mypy.overrides]]
+module = ["weaviate.*"]
+ignore_missing_imports = true
 
 [tool.ruff]
 src = ["src", "tests"]

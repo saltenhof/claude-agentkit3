@@ -353,6 +353,7 @@ def _impl_story(
     change_impact: ChangeImpact = ChangeImpact.LOCAL,
     concept_quality: ConceptQuality = ConceptQuality.HIGH,
     new_structures: bool = False,
+    vectordb_conflict_resolved: bool = False,
 ) -> Story:
     """Build an implementation-type Story for contract tests."""
     return Story(
@@ -366,6 +367,7 @@ def _impl_story(
         change_impact=change_impact,
         concept_quality=concept_quality,
         new_structures=new_structures,
+        vectordb_conflict_resolved=vectordb_conflict_resolved,
     )
 
 
@@ -496,6 +498,78 @@ class TestConceptRefsToConceptPathsProjection:
         # No spec → concept_paths=() → Trigger 1 fires → Exploration.
         assert ctx.execution_route is StoryMode.EXPLORATION
         assert ctx.concept_paths == ()
+
+    def test_internal_path_vectordb_conflict_projects_and_forces_exploration(
+        self, tmp_path: Path
+    ) -> None:
+        """AG3-068 (FK-21 §21.12): build_internal_story_context projects the
+        authoritative ``vectordb_conflict_resolved`` flag into the StoryContext,
+        and a resolved conflict forces Exploration even when all OTHER triggers
+        are neutral (Trigger 1 satisfied via valid concept_refs).
+
+        This proves the projection is actually wired through the real build path:
+        the ONLY difference from the Execution baseline below is the flag.
+        """
+        concept_file = tmp_path / "concept.md"
+        concept_file.write_text("# Real concept doc", encoding="utf-8")
+        spec = StorySpecification(
+            need=None,
+            solution=None,
+            acceptance=[],
+            concept_refs=[str(concept_file)],
+        )
+        service = _FakeStoryServiceWithSpec(
+            _impl_story(
+                change_impact=ChangeImpact.LOCAL,
+                concept_quality=ConceptQuality.HIGH,
+                new_structures=False,
+                vectordb_conflict_resolved=True,
+            ),
+            spec=spec,
+        )
+        ctx = build_internal_story_context(
+            tmp_path,
+            "test-project",
+            "AG3-303",
+            story_service=service,  # type: ignore[arg-type]
+        )
+
+        # The flag is projected onto the authoritative StoryContext...
+        assert ctx.vectordb_conflict_resolved is True
+        # ...and forces Exploration despite all other triggers being neutral.
+        assert ctx.execution_route is StoryMode.EXPLORATION
+
+    def test_internal_path_no_vectordb_conflict_allows_execution(
+        self, tmp_path: Path
+    ) -> None:
+        """AG3-068 baseline: with the conflict flag False and all triggers
+        neutral, the route stays Execution — isolating the flag's effect."""
+        concept_file = tmp_path / "concept.md"
+        concept_file.write_text("# Real concept doc", encoding="utf-8")
+        spec = StorySpecification(
+            need=None,
+            solution=None,
+            acceptance=[],
+            concept_refs=[str(concept_file)],
+        )
+        service = _FakeStoryServiceWithSpec(
+            _impl_story(
+                change_impact=ChangeImpact.LOCAL,
+                concept_quality=ConceptQuality.HIGH,
+                new_structures=False,
+                vectordb_conflict_resolved=False,
+            ),
+            spec=spec,
+        )
+        ctx = build_internal_story_context(
+            tmp_path,
+            "test-project",
+            "AG3-304",
+            story_service=service,  # type: ignore[arg-type]
+        )
+
+        assert ctx.vectordb_conflict_resolved is False
+        assert ctx.execution_route is StoryMode.EXECUTION
 
     def test_github_path_no_service_fires_trigger_1(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path

@@ -64,3 +64,18 @@ class StoryConcurrencyConflictError(StoryError):
 
     ``error_code`` maps to ``conflict`` (HTTP 409).
     """
+
+
+class ReconciliationEvidenceMissingError(StoryError):
+    """Raised when an agent-facing create omits the VectorDB reconciliation proof.
+
+    The agent-facing ``POST /v1/stories`` path must carry the typed
+    reconciliation evidence (FK-21 §21.4 / §21.12) — proof that the fail-closed
+    Weaviate reconciliation ran and that repo-affinity fed
+    ``participating_repos``. Without that evidence (and without a direct-create
+    grant for Zone-2/admin callers, FK-21 §21.13.2) the create is blocked
+    fail-closed; a story can never be persisted while silently bypassing the
+    reconciliation.
+
+    ``error_code`` maps to ``reconciliation_evidence_missing`` (HTTP 422).
+    """

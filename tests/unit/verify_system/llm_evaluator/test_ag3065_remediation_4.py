@@ -51,7 +51,10 @@ from agentkit.verify_system.llm_evaluator.llm_client import (
     HubLlmClient,
     bind_eval_deadline,
 )
-from agentkit.verify_system.llm_evaluator.parallel_runner import ParallelEvalRunner
+from agentkit.verify_system.llm_evaluator.parallel_runner import (
+    LAYER2_ROLES,
+    ParallelEvalRunner,
+)
 from agentkit.verify_system.llm_evaluator.structured_evaluator import (
     DOC_FIDELITY_CHECK_IDS,
     QA_REVIEW_CHECK_IDS,
@@ -332,8 +335,9 @@ class TestError1ConcurrentDeadlineIsolation:
         wall_start = time.monotonic()
         results = runner.run(_bundle(), None, 1)
 
-        # All three roles must succeed.
-        assert set(results.keys()) == set(ReviewerRole)
+        # All three Layer-2 roles must succeed (the AG3-068 story_creation_review
+        # role is NOT part of the parallel QA-subflow run).
+        assert set(results.keys()) == set(LAYER2_ROLES)
         assert all(r.verdict is LlmVerdict.PASS for r in results.values())
 
         # Each thread observed a CV deadline during its send().

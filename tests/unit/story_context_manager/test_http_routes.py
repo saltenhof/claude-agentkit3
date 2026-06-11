@@ -70,6 +70,22 @@ def _correlation_header(resp: StoryRouteResponse) -> str:
 
 CORR = "test-corr-001"
 
+# AG3-068 (FK-21 §21.4/§21.12/§21.13): the agent-facing POST /v1/stories is
+# fail-closed and requires typed reconciliation evidence — there is NO in-body
+# escape hatch (the Zone-2/admin exemption of §21.13.2 calls the StoryService
+# in-process, not this route). These routing/error-contract tests are not about
+# the gate itself, so they carry a minimal VALID evidence block to get past it;
+# the dedicated reconciliation-gate tests (incl. the no-magic-string regression)
+# live in tests/integration/story_creation/test_create_route_reconciliation.py.
+_RECON: dict[str, object] = {
+    "weaviate_ready": True,
+    "total_hits": 0,
+    "hits_above_threshold": 0,
+    "hits_classified_conflict": 0,
+    "threshold_value": 0.7,
+    "verdict": "PASS",
+}
+
 # ---------------------------------------------------------------------------
 # GET /v1/stories (list)
 # ---------------------------------------------------------------------------
@@ -123,6 +139,7 @@ def test_post_stories_creates_story() -> None:
             "title": "New story",
             "type": "implementation",
             "repos": ["ak3"],
+            "reconciliation": _RECON,
         },
         CORR,
     )
@@ -155,6 +172,7 @@ def test_post_stories_unknown_project_returns_400() -> None:
             "title": "T",
             "type": "implementation",
             "repos": ["r"],
+            "reconciliation": _RECON,
         },
         CORR,
     )
@@ -172,6 +190,7 @@ def test_post_stories_invalid_story_type_returns_400() -> None:
             "title": "T",
             "type": "invalid_type",
             "repos": ["r"],
+            "reconciliation": _RECON,
         },
         CORR,
     )
@@ -201,6 +220,7 @@ def test_get_story_detail_returns_200() -> None:
             "title": "Detail story",
             "type": "implementation",
             "repos": ["ak3"],
+            "reconciliation": _RECON,
         },
         CORR,
     )
@@ -236,6 +256,7 @@ def test_get_story_fields_returns_wire_dict() -> None:
             "title": "Fields test",
             "type": "implementation",
             "repos": ["ak3"],
+            "reconciliation": _RECON,
         },
         CORR,
     )
@@ -279,6 +300,7 @@ def test_search_stories_returns_matching_stories() -> None:
             "title": "Implement service backend",
             "type": "implementation",
             "repos": ["ak3"],
+            "reconciliation": _RECON,
         },
         CORR,
     )
@@ -290,6 +312,7 @@ def test_search_stories_returns_matching_stories() -> None:
             "title": "Fix preflight logic",
             "type": "bugfix",
             "repos": ["ak3"],
+            "reconciliation": _RECON,
         },
         CORR,
     )
@@ -321,6 +344,7 @@ def _setup_story(routes: StoryContextRoutes) -> str:
             "title": "Setup story",
             "type": "implementation",
             "repos": ["ak3"],
+            "reconciliation": _RECON,
         },
         CORR,
     )

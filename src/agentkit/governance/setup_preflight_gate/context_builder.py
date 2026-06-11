@@ -117,7 +117,7 @@ def _resolve_authoritative_mode(
 def _resolve_trigger_inputs(
     story_service: StoryService | None,
     story_display_id: str,
-) -> tuple[ChangeImpact | None, ConceptQuality | None, bool, tuple[str, ...]]:
+) -> tuple[ChangeImpact | None, ConceptQuality | None, bool, bool, tuple[str, ...]]:
     """Resolve the 4-trigger inputs from the authoritative StoryService record.
 
     AG3-057 (FK-22 §22.8.1): trigger inputs are read from the Story stammdaten
@@ -139,20 +139,22 @@ def _resolve_trigger_inputs(
         story_display_id: The story display ID used to look the record up.
 
     Returns:
-        A 4-tuple of ``(change_impact, concept_quality, new_structures,
-        concept_paths)`` where ``change_impact`` and ``concept_quality`` are
-        ``None`` when the record is unavailable (fail-closed → Exploration) and
-        ``concept_paths`` is an empty tuple when the spec is absent or
-        ``concept_refs`` is None/empty (fail-closed → Trigger 1 fires).
+        A 5-tuple of ``(change_impact, concept_quality, new_structures,
+        vectordb_conflict_resolved, concept_paths)`` where ``change_impact`` and
+        ``concept_quality`` are ``None`` when the record is unavailable
+        (fail-closed → Exploration), ``vectordb_conflict_resolved`` projects the
+        authoritative AG3-068 producer flag (default ``False`` when the record
+        is absent), and ``concept_paths`` is an empty tuple when the spec is
+        absent or ``concept_refs`` is None/empty (fail-closed → Trigger 1 fires).
     """
     if story_service is None:
         # No record available; fail-closed: None signals "unknown" to determine_mode.
-        return None, None, False, ()
+        return None, None, False, False, ()
 
     detail = story_service.get_story_detail(story_display_id)
     if detail is None:
         # Record absent; fail-closed: None signals "unknown".
-        return None, None, False, ()
+        return None, None, False, False, ()
 
     story, spec = detail
     # AC8: project StorySpecification.concept_refs → concept_paths.
@@ -163,7 +165,13 @@ def _resolve_trigger_inputs(
         else ()
     )
 
-    return story.change_impact, story.concept_quality, story.new_structures, concept_paths
+    return (
+        story.change_impact,
+        story.concept_quality,
+        story.new_structures,
+        story.vectordb_conflict_resolved,
+        concept_paths,
+    )
 
 
 def build_story_context(
@@ -221,9 +229,13 @@ def build_story_context(
     # issue itself — they come from the StoryService record.  When no service is
     # wired, we fall back to fail-closed defaults (execution_route=EXPLORATION
     # for implementing types via determine_mode's Trigger 1: no concept_paths).
-    change_impact_val, concept_quality_val, new_structures_val, concept_paths_val = (
-        _resolve_trigger_inputs(story_service, resolved_story_id)
-    )
+    (
+        change_impact_val,
+        concept_quality_val,
+        new_structures_val,
+        vectordb_conflict_resolved_val,
+        concept_paths_val,
+    ) = _resolve_trigger_inputs(story_service, resolved_story_id)
 
     # Build a minimal context shell to pass to determine_mode.
     _shell = StoryContext(
@@ -238,6 +250,7 @@ def build_story_context(
         change_impact=change_impact_val,
         concept_quality=concept_quality_val,
         new_structures=new_structures_val,
+        vectordb_conflict_resolved=vectordb_conflict_resolved_val,
         concept_paths=concept_paths_val,
         issue_nr=issue.number,
         title=issue.title,
@@ -259,6 +272,7 @@ def build_story_context(
         change_impact=change_impact_val,
         concept_quality=concept_quality_val,
         new_structures=new_structures_val,
+        vectordb_conflict_resolved=vectordb_conflict_resolved_val,
         concept_paths=concept_paths_val,
         issue_nr=issue.number,
         title=issue.title,
@@ -343,6 +357,9 @@ def build_internal_story_context(
     change_impact_val: ChangeImpact | None = story.change_impact
     concept_quality_val: ConceptQuality | None = story.concept_quality
     new_structures_val = story.new_structures
+    # AG3-068 (FK-21 §21.12): project the authoritative VectorDB-conflict producer
+    # flag so determine_mode reads the SSOT instead of the fail-closed default.
+    vectordb_conflict_resolved_val = story.vectordb_conflict_resolved
     # AC8: project StorySpecification.concept_refs → concept_paths.
     # Fail-closed: empty tuple when spec absent or refs genuinely absent
     # (Trigger 1 fires for implementing stories without concept references).
@@ -363,6 +380,7 @@ def build_internal_story_context(
         change_impact=change_impact_val,
         concept_quality=concept_quality_val,
         new_structures=new_structures_val,
+        vectordb_conflict_resolved=vectordb_conflict_resolved_val,
         concept_paths=concept_paths_val,
         title=story.title,
         story_size=story.size,
@@ -383,6 +401,7 @@ def build_internal_story_context(
         change_impact=change_impact_val,
         concept_quality=concept_quality_val,
         new_structures=new_structures_val,
+        vectordb_conflict_resolved=vectordb_conflict_resolved_val,
         concept_paths=concept_paths_val,
         title=story.title,
         story_size=story.size,

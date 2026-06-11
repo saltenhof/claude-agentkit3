@@ -632,6 +632,9 @@
             -- AG3-057: Trigger 3 input — new code/module structures introduced.
             -- Default FALSE = fail-closed: absence does not trigger Exploration.
             new_structures BOOLEAN NOT NULL DEFAULT FALSE,
+            -- AG3-068: VectorDB-conflict producer flag (FK-21 §21.12).
+            -- Default FALSE = fail-closed: only a resolved stage-2 conflict sets it.
+            vectordb_conflict_resolved BOOLEAN NOT NULL DEFAULT FALSE,
             created_at TIMESTAMPTZ NULL,
             completed_at TIMESTAMPTZ NULL,
             PRIMARY KEY (story_uuid),

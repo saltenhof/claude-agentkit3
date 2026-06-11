@@ -204,6 +204,14 @@ class Story(BaseModel):
     # counts as "no new structures"; the trigger does not fire on an absent field.
     new_structures: bool = False
 
+    # AG3-068 (FK-21 §21.12 / §21.4.1): VectorDB-conflict signal — set True ONLY
+    # when the two-stage reconciliation reported a stage-2 FAIL conflict that was
+    # resolved by ADAPTING (not discarding) the story. AG3-068 is the authoritative
+    # PRODUCER of this flag; AG3-057's determine_mode is the CONSUMER. Single source
+    # of truth on the Story record (FIX THE MODEL, no shadow field). Fail-closed
+    # default False/absent: a PASS or an unresolved conflict leaves it False.
+    vectordb_conflict_resolved: bool = False
+
     # -- Read-model joins (not stored in stories table, joined from others) --
     dependencies: list[str] = Field(default_factory=list)  # list of story_display_id
     qa_rounds: int = 0
@@ -265,6 +273,10 @@ class CreateStoryInput(BaseModel):
     risk: RiskLevel = RiskLevel.LOW
     labels: list[str] = Field(default_factory=list)
     new_structures: bool = False
+    # AG3-068 (FK-21 §21.12): producer output of the two-stage reconciliation.
+    # Default False/absent (no conflict resolved); set True only by a resolved
+    # stage-2 conflict during story creation.
+    vectordb_conflict_resolved: bool = False
 
     @field_validator("title")
     @classmethod

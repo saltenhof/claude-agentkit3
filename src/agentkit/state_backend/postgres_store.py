@@ -400,6 +400,13 @@ def _schema_alter_statements() -> tuple[str, ...]:
             "ALTER TABLE stories "
             "ADD COLUMN IF NOT EXISTS new_structures BOOLEAN NOT NULL DEFAULT FALSE"
         ),
+        # AG3-068: VectorDB-conflict producer flag column for existing Postgres
+        # schemas that pre-date the postgres_schema.sql addition (FK-21 §21.12).
+        # Idempotent via IF NOT EXISTS.
+        (
+            "ALTER TABLE stories ADD COLUMN IF NOT EXISTS "
+            "vectordb_conflict_resolved BOOLEAN NOT NULL DEFAULT FALSE"
+        ),
     )
 
 

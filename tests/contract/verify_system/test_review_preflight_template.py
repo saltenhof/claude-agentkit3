@@ -20,7 +20,7 @@ def test_review_preflight_template_manifest_entry_hash_matches_resource() -> Non
     template_path = MANIFEST_PATH.parent.parent.parent / Path(entry["relpath"])
     content = template_path.read_text(encoding="utf-8")
 
-    assert manifest["bundle_version"] == "4"
+    assert manifest["bundle_version"] == "5"
     assert entry["relpath"] == "internal/prompts/review-preflight.md"
     assert hashlib.sha256(content.encode("utf-8")).hexdigest() == entry["sha256"]
     assert load_prompt_template("review-preflight") == content

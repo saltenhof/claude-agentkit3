@@ -619,6 +619,19 @@ def _create_story_via_app(app: ControlPlaneApplication, project_key: str = "proj
             "title": "Test story",
             "type": "implementation",
             "repos": [project_key],
+            # AG3-068 (FK-21 §21.4/§21.12): the agent-facing create path is
+            # fail-closed without typed reconciliation evidence. This setup helper
+            # carries a minimal VALID evidence block to get past the gate (there
+            # is no in-body escape hatch; §21.13.2 Zone-2/admin direct creation
+            # uses the StoryService in-process, not this route).
+            "reconciliation": {
+                "weaviate_ready": True,
+                "total_hits": 0,
+                "hits_above_threshold": 0,
+                "hits_classified_conflict": 0,
+                "threshold_value": 0.7,
+                "verdict": "PASS",
+            },
         }).encode(),
     )
     assert resp.status_code == 201, f"Story creation failed: {resp.status_code} {resp.body}"

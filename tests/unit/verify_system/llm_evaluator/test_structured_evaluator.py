@@ -178,6 +178,69 @@ def test_doc_fidelity_single_check() -> None:
 
 
 # ---------------------------------------------------------------------------
+# AG3-068: story_creation_review role (FK-11 §11.5.1 / FK-21 §21.4.1)
+# ---------------------------------------------------------------------------
+
+
+def test_story_creation_review_role_is_registered_in_maps() -> None:
+    """AC4: the new role is wired into the SHARED role maps (no 2nd path)."""
+    from agentkit.verify_system.llm_evaluator.roles import (
+        ROLE_CHECK_IDS,
+        ROLE_TEMPLATE,
+        STORY_CREATION_REVIEW_CHECK_IDS,
+    )
+
+    assert ReviewerRole.STORY_CREATION_REVIEW.value == "story_creation_review"
+    assert frozenset(("conflict_assessment",)) == STORY_CREATION_REVIEW_CHECK_IDS
+    assert ROLE_CHECK_IDS[ReviewerRole.STORY_CREATION_REVIEW] == frozenset(
+        ("conflict_assessment",)
+    )
+    assert ROLE_TEMPLATE[ReviewerRole.STORY_CREATION_REVIEW] == "vectordb-conflict"
+
+
+def test_story_creation_review_conflict_assessment_pass() -> None:
+    """AC4: evaluate(story_creation_review) validates the conflict_assessment check."""
+    client = _ScriptedLlmClient(
+        json.dumps(
+            [{"check_id": "conflict_assessment", "status": "PASS", "reason": "distinct"}]
+        )
+    )
+    evaluator = StructuredEvaluator(client, _StubMaterializer())
+    result = evaluator.evaluate(ReviewerRole.STORY_CREATION_REVIEW, _bundle(), None, 1)
+    assert result.verdict is LlmVerdict.PASS
+    assert result.role is ReviewerRole.STORY_CREATION_REVIEW
+
+
+def test_story_creation_review_conflict_fail_blocks() -> None:
+    """AC4/AC3: a duplicate/overlap conflict yields a FAIL verdict (one check)."""
+    client = _ScriptedLlmClient(
+        json.dumps(
+            [
+                {
+                    "check_id": "conflict_assessment",
+                    "status": "FAIL",
+                    "reason": "duplicate of AG3-010",
+                }
+            ]
+        )
+    )
+    evaluator = StructuredEvaluator(client, _StubMaterializer())
+    result = evaluator.evaluate(ReviewerRole.STORY_CREATION_REVIEW, _bundle(), None, 1)
+    assert result.verdict is LlmVerdict.FAIL
+    assert result.findings[0].check == "conflict_assessment"
+
+
+def test_story_creation_review_rejects_unknown_check_id_fail_closed() -> None:
+    """Fail-closed: an off-whitelist check-id is rejected (exact-cover contract)."""
+    client = _ScriptedLlmClient(
+        json.dumps([{"check_id": "systemic_adequacy", "status": "PASS", "reason": "x"}])
+    )
+    evaluator = StructuredEvaluator(client, _StubMaterializer())
+    with pytest.raises(StructuredEvaluatorError):
+        evaluator.evaluate(ReviewerRole.STORY_CREATION_REVIEW, _bundle(), None, 1)
+
+
+# ---------------------------------------------------------------------------
 # Fail-closed: invalid JSON / schema / unknown ids (AK5)
 # ---------------------------------------------------------------------------
 

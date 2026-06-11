@@ -175,7 +175,7 @@ class TestComposePrompt:
         assert isinstance(result, ComposedPrompt)
         assert result.content != ""
         assert result.prompt_bundle_id == "internal-bootstrap-prompts"
-        assert result.prompt_bundle_version == "4"
+        assert result.prompt_bundle_version == "5"
         assert len(result.prompt_manifest_sha256) == 64
         assert result.logical_prompt_id == "prompt.worker-implementation"
         assert result.template_name == "worker-implementation"

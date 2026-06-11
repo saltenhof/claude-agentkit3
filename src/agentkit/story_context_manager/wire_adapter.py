@@ -54,6 +54,7 @@ def story_to_wire_summary(story: Story) -> dict[str, object]:
         "repos": list(story.participating_repos),
         "change_impact": story.change_impact.value,
         "concept_quality": story.concept_quality.value,
+        "vectordb_conflict_resolved": story.vectordb_conflict_resolved,
         "owner": story.owner,
         "wave": story.wave,
         "critical_path": story.critical_path,

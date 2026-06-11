@@ -165,6 +165,33 @@ def main(argv: list[str] | None = None) -> int:
     control_plane_parser.add_argument("--port", type=int, default=9080)
     control_plane_parser.add_argument("--certfile", required=True)
     control_plane_parser.add_argument("--keyfile")
+    # AG3-068 (FK-21 §21.11): deterministic story.md export + batch repair.
+    export_story_md_parser = subparsers.add_parser(
+        "export-story-md",
+        help="Deterministically export a story as story.md (FK-21 §21.11)",
+    )
+    export_story_md_parser.add_argument("--story-id", required=True)
+    export_story_md_parser.add_argument("--story-dir", required=True)
+    export_story_md_parser.add_argument(
+        "--project-root",
+        required=False,
+        help="Project root carrying .agentkit/config/project.yaml (Weaviate host/port).",
+    )
+    repair_story_md_parser = subparsers.add_parser(
+        "repair-story-md",
+        help="Scan, validate and re-export defective/missing story.md files (FK-21 §21.11.6)",
+    )
+    repair_story_md_parser.add_argument(
+        "--stories-root",
+        required=True,
+        help="The stories/ directory holding {PREFIX}-* story sub-directories.",
+    )
+    repair_story_md_parser.add_argument(
+        "--project-root",
+        required=False,
+        help="Project root carrying .agentkit/config/project.yaml (Weaviate host/port).",
+    )
+
     evidence_parser = subparsers.add_parser(
         "evidence",
         help="Evidence assembly commands",
@@ -201,6 +228,10 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_doctor()
     if args.command == "serve-control-plane":
         return _cmd_serve_control_plane(args)
+    if args.command == "export-story-md":
+        return _cmd_export_story_md(args)
+    if args.command == "repair-story-md":
+        return _cmd_repair_story_md(args)
     if args.command == "evidence" and args.evidence_command == "assemble":
         return _cmd_evidence_assemble(args)
 
@@ -512,6 +543,98 @@ def _cmd_serve_control_plane(args: argparse.Namespace) -> int:
         keyfile=Path(args.keyfile) if args.keyfile is not None else None,
     )
     return 0
+
+
+def _build_weaviate_index(project_root: str | None) -> object:
+    """Build the Weaviate story-index shim from the consumed vectordb config.
+
+    The ``vectordb`` config stanza is owned exclusively by AG3-070; this only
+    CONSUMES host/port. Fails closed when Weaviate / weaviate-client is absent.
+    """
+    from agentkit.integrations.vectordb import WeaviateStoryAdapter
+    from agentkit.story_creation.weaviate_index import WeaviateStoryIndex
+    from agentkit.vectordb.wait_for_weaviate import _resolve_host_port
+
+    host, port = _resolve_host_port(project_root)
+    adapter = WeaviateStoryAdapter.connect(host=host, port=port)
+    return WeaviateStoryIndex(adapter)
+
+
+def _build_story_attributes() -> object:
+    """Build the authoritative AK3 story read surface (``StoryService``).
+
+    Extracted as a seam so the CLI export/repair handlers can be exercised with
+    an in-memory story source without a live state backend (mocks exception: the
+    Weaviate / story-backend boundary).
+    """
+    from agentkit.story_context_manager.service import StoryService
+
+    return StoryService()
+
+
+def _cmd_export_story_md(args: argparse.Namespace) -> int:
+    """Handle ``agentkit export-story-md`` (FK-21 §21.11)."""
+    from pathlib import Path
+
+    from agentkit.integrations.vectordb import VectorDbError
+    from agentkit.story_creation.story_md_export import export_story_md
+
+    try:
+        index = _build_weaviate_index(args.project_root)
+    except VectorDbError as exc:
+        print(f"export-story-md failed [VectorDbUnavailable]: {exc}", file=sys.stderr)
+        return 1
+
+    result = export_story_md(
+        args.story_id,
+        Path(args.story_dir),
+        story_attributes=_build_story_attributes(),  # type: ignore[arg-type]
+        index=index,  # type: ignore[arg-type]  # structural StoryIndexPort
+    )
+    print(
+        json.dumps(
+            {
+                "success": result.success,
+                "story_md_path": result.story_md_path,
+                "file_size_bytes": result.file_size_bytes,
+                "error": result.error,
+            },
+            sort_keys=True,
+        )
+    )
+    return 0 if result.success else 1
+
+
+def _cmd_repair_story_md(args: argparse.Namespace) -> int:
+    """Handle ``agentkit repair-story-md`` (FK-21 §21.11.6)."""
+    from pathlib import Path
+
+    from agentkit.integrations.vectordb import VectorDbError
+    from agentkit.story_creation.repair_story_md import repair_story_md
+
+    try:
+        index = _build_weaviate_index(args.project_root)
+    except VectorDbError as exc:
+        print(f"repair-story-md failed [VectorDbUnavailable]: {exc}", file=sys.stderr)
+        return 1
+
+    report = repair_story_md(
+        Path(args.stories_root),
+        story_attributes=_build_story_attributes(),  # type: ignore[arg-type]
+        index=index,  # type: ignore[arg-type]  # structural StoryIndexPort
+    )
+    print(
+        json.dumps(
+            {
+                "checked": report.checked,
+                "repaired": report.repaired,
+                "errors": report.errors,
+                "error_details": report.error_details,
+            },
+            sort_keys=True,
+        )
+    )
+    return 0 if report.errors == 0 else 1
 
 
 def _cmd_evidence_assemble(args: argparse.Namespace) -> int:

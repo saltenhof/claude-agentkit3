@@ -17,6 +17,7 @@ from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType
 from agentkit.verify_system.llm_evaluator.bundle import ReviewBundle
 from agentkit.verify_system.llm_evaluator.parallel_runner import (
+    LAYER2_ROLES,
     ParallelEvalError,
     ParallelEvalRunner,
 )
@@ -133,7 +134,9 @@ def test_run_returns_all_three_roles() -> None:
     evaluator = StructuredEvaluator(_RoleScriptedClient(_PASS_BY_ROLE), _StubMaterializer())
     runner = ParallelEvalRunner(evaluator)
     results = runner.run(_bundle(), None, 1)
-    assert set(results.keys()) == set(ReviewerRole)
+    # The QA-subflow Layer-2 run covers exactly the three Layer-2 roles; the
+    # AG3-068 story_creation_review role is NOT part of the parallel run.
+    assert set(results.keys()) == set(LAYER2_ROLES)
     assert all(r.verdict is LlmVerdict.PASS for r in results.values())
 
 

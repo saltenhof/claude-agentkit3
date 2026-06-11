@@ -1,6 +1,6 @@
 {
   "bundle_id": "internal-bootstrap-prompts",
-  "bundle_version": "4",
+  "bundle_version": "5",
   "templates": {
     "worker-implementation": {
       "relpath": "internal/prompts/worker-implementation.md",
@@ -61,6 +61,10 @@
     "doc-fidelity-feedback": {
       "relpath": "internal/prompts/doc-fidelity-feedback.md",
       "sha256": "1bef05f595107c2c72532c417e4b73424900cfa00ebff389992f7ef26b25042f"
+    },
+    "vectordb-conflict": {
+      "relpath": "internal/prompts/vectordb-conflict.md",
+      "sha256": "9839bc1f1b0ab608c02046da99000f72c8714776ff91b7364cb28f0f30bafac8"
     }
   }
 }

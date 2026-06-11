@@ -39,6 +39,17 @@ if TYPE_CHECKING:
 #: Layer-2 runs exactly the three FK-27 §27.5.1 roles in parallel.
 _MAX_WORKERS: int = 3
 
+#: The three Layer-2 QA-subflow roles (FK-27 §27.5.1). The ``ReviewerRole`` enum
+#: ALSO carries ``story_creation_review`` (AG3-068, story-creation reconciliation
+#: -- NOT a QA-subflow role), so the runner pins this explicit triple instead of
+#: ``tuple(ReviewerRole)`` to keep the parallel Layer-2 run at exactly the three
+#: QA roles.
+LAYER2_ROLES: tuple[ReviewerRole, ...] = (
+    ReviewerRole.QA_REVIEW,
+    ReviewerRole.SEMANTIC_REVIEW,
+    ReviewerRole.DOC_FIDELITY,
+)
+
 
 class ParallelEvalError(VerifySystemError):
     """Raised when any of the three parallel Layer-2 evaluations fails.
@@ -105,7 +116,7 @@ class ParallelEvalRunner:
                 wraps the first encountered cause).
         """
         return self.run_roles(
-            tuple(ReviewerRole),
+            LAYER2_ROLES,
             bundle,
             previous_findings,
             qa_cycle_round,

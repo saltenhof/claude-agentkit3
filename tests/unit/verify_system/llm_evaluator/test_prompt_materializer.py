@@ -38,10 +38,16 @@ from agentkit.verify_system.protocols import RunScope
 if TYPE_CHECKING:
     from pathlib import Path
 
-#: The three real Layer-2 prompt templates (W4: all three, not just qa-review),
+#: The real per-role prompt templates (W4: all roles, not just qa-review),
 #: loaded from the canonical resources so the materialize path is proved for the
-#: REAL prompt content of every role.
-_REAL_TEMPLATE_NAMES = ("qa-review", "qa-semantic-review", "qa-doc-fidelity")
+#: REAL prompt content of every role -- including the AG3-068
+#: story_creation_review template (``vectordb-conflict``).
+_REAL_TEMPLATE_NAMES = (
+    "qa-review",
+    "qa-semantic-review",
+    "qa-doc-fidelity",
+    "vectordb-conflict",
+)
 
 
 def _real_templates() -> dict[str, str]:
@@ -125,6 +131,7 @@ _ROLE_EXPECTED_CHECK = {
     ReviewerRole.QA_REVIEW: sorted(QA_REVIEW_CHECK_IDS)[0],
     ReviewerRole.SEMANTIC_REVIEW: next(iter(SEMANTIC_REVIEW_CHECK_IDS)),
     ReviewerRole.DOC_FIDELITY: next(iter(DOC_FIDELITY_CHECK_IDS)),
+    ReviewerRole.STORY_CREATION_REVIEW: "conflict_assessment",
 }
 
 

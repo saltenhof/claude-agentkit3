@@ -249,6 +249,57 @@ def test_state_backend_allocates_story_numbers_monotone_sequence(
     ]
 
 
+def test_state_backend_vectordb_conflict_flag_sqlite_roundtrip(
+    tmp_path: Path,
+) -> None:
+    """AG3-068 (FK-21 §21.12): the ``vectordb_conflict_resolved`` producer flag
+    round-trips through the REAL SQLite state-backend repository.
+
+    The InMemory repo proves the service contract; this proves the SQLite
+    persistence path (``_story_to_sqlite_row`` / ``_sqlite_row_to_story`` /
+    the migrated column) faithfully writes and reads the flag — both True and
+    the fail-closed False default.
+    """
+    facade.reset_backend_cache_for_tests()
+    project_repository = StateBackendProjectRepository(tmp_path)
+    project_repository.save(
+        create_project(
+            "tenant-a", "Tenant A", "AK3", _configuration(),
+            repositories=["https://example.test/repo.git"],
+        ),
+    )
+    service = _service(project_repository=project_repository, store_dir=tmp_path)
+
+    service.create_story(
+        CreateStoryInput(
+            project_key="tenant-a",
+            title="Conflict-resolved story",
+            type=WireStoryType.IMPLEMENTATION,
+            repos=["https://example.test/repo.git"],
+            vectordb_conflict_resolved=True,
+        ),
+        op_id="op-flag-true",
+    )
+    service.create_story(
+        CreateStoryInput(
+            project_key="tenant-a",
+            title="Plain story",
+            type=WireStoryType.IMPLEMENTATION,
+            repos=["https://example.test/repo.git"],
+        ),
+        op_id="op-flag-default",
+    )
+
+    # Read back through a FRESH SQLite repository instance (no in-memory cache).
+    facade.reset_backend_cache_for_tests()
+    reloaded = StateBackendStoryRepository(tmp_path)
+    flagged = reloaded.get_by_display_id("AK3-001")
+    plain = reloaded.get_by_display_id("AK3-002")
+    assert flagged is not None and plain is not None
+    assert flagged.vectordb_conflict_resolved is True
+    assert plain.vectordb_conflict_resolved is False
+
+
 def test_state_backend_concurrent_allocation_is_gap_free(tmp_path: Path) -> None:
     """C2: a REAL concurrent proof that ``create_story_atomic`` is race-safe.
 

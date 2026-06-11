@@ -394,6 +394,8 @@ class StoryService:
             labels=list(request.labels),
             # AG3-057 ERROR-2 fix: persist Trigger 3 input from CreateStoryInput.
             new_structures=request.new_structures,
+            # AG3-068 (FK-21 §21.12): persist the VectorDB-conflict producer flag.
+            vectordb_conflict_resolved=request.vectordb_conflict_resolved,
             created_at=datetime.now(UTC),
         )
         default_spec = StorySpecification(need=None, solution=None, acceptance=[])
@@ -961,6 +963,9 @@ def _create_story_body(request: CreateStoryInput, op_id: str) -> dict[str, objec
         # AG3-057 ERROR-2 fix: include Trigger 3 input in idempotency snapshot so
         # that a replay with a different new_structures value is caught as a mismatch.
         "new_structures": request.new_structures,
+        # AG3-068: include the VectorDB-conflict producer flag so a replay with a
+        # different value is caught as a mismatch.
+        "vectordb_conflict_resolved": request.vectordb_conflict_resolved,
         "op_id": op_id,
     }
 
@@ -990,6 +995,10 @@ def _story_to_internal_snapshot(story: Story) -> dict[str, object]:
         # _story_from_cached_payload() can reconstruct the field faithfully on
         # idempotent replay (otherwise cached replay always returns False).
         "new_structures": story.new_structures,
+        # AG3-068: vectordb_conflict_resolved is an internal producer flag, not
+        # part of the public wire summary; persist it explicitly so cached replay
+        # reconstructs it faithfully.
+        "vectordb_conflict_resolved": story.vectordb_conflict_resolved,
     }
 
 
@@ -1046,6 +1055,11 @@ def _story_from_cached_payload(payload: dict[str, object]) -> Story | None:
             # AG3-057 ERROR-2 fix: restore Trigger 3 input from idempotency snapshot.
             # Fail-closed default False for legacy snapshots without this field.
             new_structures=bool(payload.get("new_structures", False)),
+            # AG3-068: restore the VectorDB-conflict producer flag; fail-closed
+            # default False for legacy snapshots without this field.
+            vectordb_conflict_resolved=bool(
+                payload.get("vectordb_conflict_resolved", False)
+            ),
             created_at=(
                 datetime.fromisoformat(str(payload["created_at"]))
                 if payload.get("created_at")

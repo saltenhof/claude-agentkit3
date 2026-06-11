@@ -17,11 +17,19 @@ class LlmVerdict(StrEnum):
 
 
 class ReviewerRole(StrEnum):
-    """The three Layer-2 evaluation roles (FK-27 §27.5 / FK-34 §34.2)."""
+    """The Layer-2 evaluation roles (FK-27 §27.5 / FK-34 §34.2).
+
+    The three QA-subflow roles (``qa_review`` / ``semantic_review`` /
+    ``doc_fidelity``) plus the story-creation conflict-assessment role
+    (``story_creation_review``, FK-11 §11.5.1 / FK-21 §21.4.1). The latter
+    reuses the SAME evaluator transport -- it is NOT a second LLM-evaluator
+    path; it only adds its role / check / template to the shared maps.
+    """
 
     QA_REVIEW = "qa_review"
     SEMANTIC_REVIEW = "semantic_review"
     DOC_FIDELITY = "doc_fidelity"
+    STORY_CREATION_REVIEW = "story_creation_review"
 
 
 QA_REVIEW_CHECK_IDS: Final[frozenset[str]] = frozenset({
@@ -41,17 +49,22 @@ QA_REVIEW_CHECK_IDS: Final[frozenset[str]] = frozenset({
 
 SEMANTIC_REVIEW_CHECK_IDS: Final[frozenset[str]] = frozenset({"systemic_adequacy"})
 DOC_FIDELITY_CHECK_IDS: Final[frozenset[str]] = frozenset({"impl_fidelity"})
+#: Single conflict-assessment check for the story-creation reconciliation
+#: (FK-11 §11.5.1 / FK-21 §21.4.1: 1 check, duplicate / overlap).
+STORY_CREATION_REVIEW_CHECK_IDS: Final[frozenset[str]] = frozenset({"conflict_assessment"})
 
 ROLE_CHECK_IDS: Final[dict[ReviewerRole, frozenset[str]]] = {
     ReviewerRole.QA_REVIEW: QA_REVIEW_CHECK_IDS,
     ReviewerRole.SEMANTIC_REVIEW: SEMANTIC_REVIEW_CHECK_IDS,
     ReviewerRole.DOC_FIDELITY: DOC_FIDELITY_CHECK_IDS,
+    ReviewerRole.STORY_CREATION_REVIEW: STORY_CREATION_REVIEW_CHECK_IDS,
 }
 
 ROLE_TEMPLATE: Final[dict[ReviewerRole, str]] = {
     ReviewerRole.QA_REVIEW: "qa-review",
     ReviewerRole.SEMANTIC_REVIEW: "qa-semantic-review",
     ReviewerRole.DOC_FIDELITY: "qa-doc-fidelity",
+    ReviewerRole.STORY_CREATION_REVIEW: "vectordb-conflict",
 }
 
 STATUS_SEVERITY: Final[dict[LlmVerdict, Severity]] = {
@@ -67,6 +80,7 @@ __all__ = [
     "ROLE_TEMPLATE",
     "SEMANTIC_REVIEW_CHECK_IDS",
     "STATUS_SEVERITY",
+    "STORY_CREATION_REVIEW_CHECK_IDS",
     "LlmVerdict",
     "ReviewerRole",
 ]

@@ -21,6 +21,14 @@ def _build_templates() -> dict[str, str]:
         "qa-conformance-design",
         "qa-conformance-feedback",
         "doc-fidelity-feedback",
+        # ARCH-55 note: the internal LLM prompt bodies (this whole template set,
+        # including ``vectordb-conflict``) are German by an established repo-wide
+        # convention -- every sibling prompt (qa-review, qa-semantic-review, ...)
+        # is German Fachprosa. ``vectordb-conflict`` follows that convention
+        # rather than introducing a lone English prompt; its operational wire
+        # tokens (``check_id``, status values ``PASS|PASS_WITH_CONCERNS|FAIL``,
+        # the role id ``story_creation_review``) are English.
+        "vectordb-conflict",
     )
     return {name: load_prompt_template(name) for name in names}
 

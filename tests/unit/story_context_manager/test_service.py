@@ -788,6 +788,73 @@ def test_create_story_idempotent_replay_preserves_new_structures() -> None:
     assert first.story_uuid == second.story_uuid, "Must be same story (idempotent)"
 
 
+# ---------------------------------------------------------------------------
+# AG3-068: vectordb_conflict_resolved is a typed, persisted Story field
+# ---------------------------------------------------------------------------
+
+
+def test_vectordb_conflict_resolved_persists_as_typed_field() -> None:
+    """AC5: the flag is a typed, persisted Story attribute (no shadow field)."""
+    svc = _make_service()
+    created = svc.create_story(
+        CreateStoryInput(
+            project_key="ak3",
+            title="Story with resolved vectordb conflict",
+            story_type=WireStoryType.IMPLEMENTATION,
+            repos=["ak3"],
+            vectordb_conflict_resolved=True,
+        ),
+        op_id="op-vectordb-flag",
+    )
+    assert created.vectordb_conflict_resolved is True
+    loaded = svc.get_story(created.story_display_id)
+    assert loaded is not None
+    assert loaded.vectordb_conflict_resolved is True
+
+
+def test_vectordb_conflict_resolved_replay_preserves_flag() -> None:
+    """Idempotent replay reconstructs the flag faithfully (not a default False)."""
+    svc = _make_service()
+    first = svc.create_story(
+        CreateStoryInput(
+            project_key="ak3",
+            title="Vectordb flag replay story",
+            story_type=WireStoryType.IMPLEMENTATION,
+            repos=["ak3"],
+            vectordb_conflict_resolved=True,
+        ),
+        op_id="op-vectordb-flag-replay",
+    )
+    second = svc.create_story(
+        CreateStoryInput(
+            project_key="ak3",
+            title="Vectordb flag replay story",
+            story_type=WireStoryType.IMPLEMENTATION,
+            repos=["ak3"],
+            vectordb_conflict_resolved=True,
+        ),
+        op_id="op-vectordb-flag-replay",
+    )
+    assert first.vectordb_conflict_resolved is True
+    assert second.vectordb_conflict_resolved is True
+    assert first.story_uuid == second.story_uuid
+
+
+def test_vectordb_conflict_resolved_defaults_false() -> None:
+    """A PASS / unset path leaves the flag False (fail-closed default)."""
+    svc = _make_service()
+    created = svc.create_story(
+        CreateStoryInput(
+            project_key="ak3",
+            title="Story without conflict",
+            story_type=WireStoryType.IMPLEMENTATION,
+            repos=["ak3"],
+        ),
+        op_id="op-no-conflict",
+    )
+    assert created.vectordb_conflict_resolved is False
+
+
 def test_get_story_detail_returns_story_and_spec() -> None:
     """create_story must persist a default StorySpecification (Befund 2).
 
