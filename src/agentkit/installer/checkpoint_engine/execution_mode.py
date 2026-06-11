@@ -7,7 +7,7 @@ converge to ``SKIPPED``/``PASS`` when already satisfied and to ``UPDATED`` on a
 digest delta). ``dry_run`` and ``verify`` are read-only modes that MUST NOT
 mutate the filesystem, the state backend or any binding (FK-50 §50.2).
 
-The mode is a typed enum rather than a string flag (TYPISIERT STATT STRINGS,
+The mode is a typed enum rather than a string flag (typed-not-strings guardrail,
 story §5): a handler branches on :meth:`ExecutionMode.mutations_allowed` instead
 of comparing free strings.
 """
