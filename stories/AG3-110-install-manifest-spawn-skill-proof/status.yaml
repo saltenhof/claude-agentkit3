@@ -1,10 +1,18 @@
 story_id: AG3-110
 title: "Install-Manifest-Producer: agent_spawn_skill_proof-Token + autorisierte Prompt-Pfade + Template-Manifest-Hash in .installed-manifest.json (FK-31 §31.7.4) inkl. Setup-seitiger skill_proof-Bereitstellung am Spawn-Header"
 type: implementation
-status: draft
-phase: backlog
+status: blocked
+phase: review_pending
 created: "2026-06-11"
 size: M
+# Producer + spawn-proof resolver implemented + committed on main (39c67bc); Fable verify:
+# producer/schema/idempotence/fail-closed correct, gates green, 100% changed-line coverage.
+# BLOCKED on AG3-111: the resolver is never invoked in production (skill binding is link-only,
+# nothing substitutes SKILL.md at read-time — the 4 FK-03 placeholders are equally unresolved).
+# AG3-111 builds that read-time substitution-delivery surface. Once AG3-111 lands, the combined
+# E2E (install -> substituted skill -> real header carries token -> AG3-086 guard Stage-2 allows)
+# completes AG3-110 + AG3-086. No formal depends_on AG3-111 edge (would cycle: AG3-111 depends_on
+# AG3-110); tracked as blocked-pending-AG3-111.
 depends_on:
   - AG3-006
   - AG3-088

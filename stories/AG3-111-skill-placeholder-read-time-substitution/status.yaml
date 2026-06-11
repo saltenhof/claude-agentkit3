@@ -1,0 +1,12 @@
+story_id: AG3-111
+title: "Read-Time-Skill-Platzhalter-Substitution / materialisierte Skill-Variante: Auslieferung der Platzhalter-Aufloesung (FK-43 §43.4.2) so dass {{project_key}}..{{AGENT_SPAWN_SKILL_PROOF}} vor dem Harness-Read aufgeloest sind (heute null Produktions-Aufrufer; betrifft alle 4 FK-03-Platzhalter + den AG3-110-Spawn-Proof)"
+type: implementation
+status: draft
+phase: backlog
+created: "2026-06-11"
+size: L
+depends_on:
+  - AG3-027
+  - AG3-110
+unblocks:
+  - AG3-086
