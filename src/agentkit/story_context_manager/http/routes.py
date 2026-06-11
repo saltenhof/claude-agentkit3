@@ -607,7 +607,7 @@ def _enforce_reconciliation(
     the Zone-2/admin exemption to a DIFFERENT entry: those callers (Zone-2
     pipeline scripts, Kap. 41; the official admin StorySplit/StoryReset service,
     Kap. 54) invoke the authoritative ``StoryService`` / ``StoryCreationReconciler``
-    IN-PROCESS ("dürfen den AK3-Story-Service direkt zur Story-Anlage aufrufen"),
+    IN-PROCESS ("may call the AK3 story service directly to create stories"),
     not this agent-facing HTTP boundary. A body-settable grant string would be a
     second, spoofable copy of an authorization decision the ``StoryCreationGuard``
     (FK-31 §31.5 / FK-21 §21.13) already owns at the harness PreToolUse boundary

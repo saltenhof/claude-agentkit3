@@ -1,15 +1,15 @@
 """State-backend adapter exposing StoryContext loads as a verify-system port.
 
-AG3-035 (echter Drift-Fix): ermoeglicht es ``verify_system.VerifySystem``, einen
-``StoryContext`` aufzuloesen, ohne ``agentkit.state_backend.store`` direkt zu
-importieren (BC-Topologie). Der Adapter erfuellt
-``verify_system.protocols.StoryContextQueryPort`` und wird via
-``bootstrap.composition_root.build_verify_system`` verdrahtet.
+AG3-035 (real drift fix): lets ``verify_system.VerifySystem`` resolve a
+``StoryContext`` without importing ``agentkit.state_backend.store`` directly
+(BC topology). The adapter satisfies
+``verify_system.protocols.StoryContextQueryPort`` and is wired via
+``bootstrap.composition_root.build_verify_system``.
 
-Analog zu ``setup_context_repository.StateBackendSetupContextAdapter`` und
-``integrity_gate_repository.StateBackendIntegrityGateStateAdapter`` (Pass-5 Fix
-E9): konsumierende BCs duerfen nicht selbst aus ``state_backend.store``
-importieren; der Adapter kapselt den ``facade``-Aufruf.
+Analogous to ``setup_context_repository.StateBackendSetupContextAdapter`` and
+``integrity_gate_repository.StateBackendIntegrityGateStateAdapter`` (Pass-5 fix
+E9): consuming BCs may not import from ``state_backend.store`` themselves;
+the adapter encapsulates the ``facade`` call.
 """
 
 from __future__ import annotations
@@ -27,36 +27,36 @@ if TYPE_CHECKING:
 
 
 class StateBackendVerifyStoryContextAdapter:
-    """Adapter, der ``verify_system.protocols.StoryContextQueryPort`` erfuellt.
+    """Adapter satisfying ``verify_system.protocols.StoryContextQueryPort``.
 
-    Delegiert das Laden an ``facade.load_story_context`` und die
-    Run-Korrelation an ``facade.resolve_runtime_scope`` (AG3-015, FK-44
-    §44.4.2). Konsumierende BCs duerfen nicht selbst aus
-    ``state_backend.store`` importieren; dieser Adapter kapselt den
-    ``facade``-Aufruf.
+    Delegates loading to ``facade.load_story_context`` and the
+    run correlation to ``facade.resolve_runtime_scope`` (AG3-015, FK-44
+    §44.4.2). Consuming BCs may not import from
+    ``state_backend.store`` themselves; this adapter encapsulates the
+    ``facade`` call.
     """
 
     def load(self, story_dir: Path) -> StoryContext | None:
-        """Lade den persistierten ``StoryContext`` fuer ``story_dir``.
+        """Load the persisted ``StoryContext`` for ``story_dir``.
 
         Args:
-            story_dir: Story-Arbeitsverzeichnis.
+            story_dir: Story working directory.
 
         Returns:
-            Der ``StoryContext`` oder ``None``, wenn keiner persistiert ist.
+            The ``StoryContext`` or ``None`` when none is persisted.
         """
         return facade.load_story_context(story_dir)
 
     def resolve_run_scope(self, story_dir: Path) -> RunScope | None:
-        """Loese die Run-Korrelation (run_id, story_id, attempt) auf.
+        """Resolve the run correlation (run_id, story_id, attempt).
 
         Args:
-            story_dir: Story-Arbeitsverzeichnis.
+            story_dir: Story working directory.
 
         Returns:
-            Ein ``RunScope`` oder ``None``, wenn keine eindeutige
-            Run-Korrelation aufloesbar ist (kein Flow-/Context-State oder
-            kein ``run_id``); dann wird der Prompt-Audit uebersprungen.
+            A ``RunScope`` or ``None`` when no unique
+            run correlation is resolvable (no flow/context state or
+            no ``run_id``); then the prompt audit is skipped.
         """
         try:
             scope = facade.resolve_runtime_scope(story_dir)

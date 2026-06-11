@@ -4,9 +4,9 @@ Central types for the 4-layer QA system. All result types are frozen
 dataclasses (ARCH-29). Business results via return types, not
 exceptions (ARCH-20).
 
-Severity stammt seit AG3-021 aus ``agentkit.core_types`` und nutzt das
-FK-27-normative Vokabular BLOCKING/MAJOR/MINOR (kein
-CRITICAL/HIGH/MEDIUM/LOW/INFO mehr).
+Since AG3-021, Severity comes from ``agentkit.core_types`` and uses the
+FK-27-normative vocabulary BLOCKING/MAJOR/MINOR (no more
+CRITICAL/HIGH/MEDIUM/LOW/INFO).
 """
 
 from __future__ import annotations
@@ -118,40 +118,40 @@ class TelemetryEventQueryPort(Protocol):
 
 @runtime_checkable
 class StoryContextQueryPort(Protocol):
-    """Read-only Port zum Aufloesen eines ``StoryContext`` fuer die QA-Auswertung.
+    """Read-only port for resolving a ``StoryContext`` for QA evaluation.
 
-    AG3-035 (echter Drift-Fix): eliminiert den direkten
-    ``agentkit.state_backend.store``-Import innerhalb von ``verify_system``. Der
-    konkrete Adapter lebt im state-backend-BC und wird via
-    ``bootstrap.composition_root.build_verify_system`` verdrahtet. BC-Topologie:
-    ``verify-system`` haengt von diesem Port ab, nicht von ``state_backend.store``.
+    AG3-035 (real drift fix): eliminates the direct
+    ``agentkit.state_backend.store`` import inside ``verify_system``. The
+    concrete adapter lives in the state-backend BC and is wired via
+    ``bootstrap.composition_root.build_verify_system``. BC topology:
+    ``verify-system`` depends on this port, not on ``state_backend.store``.
     """
 
     def load(self, story_dir: Path) -> StoryContext | None:
-        """Lade den persistierten ``StoryContext`` fuer ``story_dir``.
+        """Load the persisted ``StoryContext`` for ``story_dir``.
 
         Args:
-            story_dir: Story-Arbeitsverzeichnis.
+            story_dir: Story working directory.
 
         Returns:
-            Der ``StoryContext`` oder ``None``, wenn keiner persistiert ist.
+            The ``StoryContext`` or ``None`` if none is persisted.
         """
         ...
 
     def resolve_run_scope(self, story_dir: Path) -> RunScope | None:
-        """Loese die Run-Korrelation (run_id, attempt) fuer ``story_dir`` auf.
+        """Resolve the run correlation (run_id, attempt) for ``story_dir``.
 
-        AG3-015 (FK-44 §44.4.2): der Prompt-Audit-Pfad braucht die
-        authoritative Run-Korrelation, um ueber ``PromptRuntime`` zu
-        materialisieren -- **ohne** direkten ``state_backend.store``-Import in
-        ``verify_system``. Der konkrete Adapter lebt im state-backend-BC.
+        AG3-015 (FK-44 §44.4.2): the prompt-audit path needs the
+        authoritative run correlation in order to materialize via
+        ``PromptRuntime`` -- **without** a direct ``state_backend.store`` import in
+        ``verify_system``. The concrete adapter lives in the state-backend BC.
 
         Args:
-            story_dir: Story-Arbeitsverzeichnis.
+            story_dir: Story working directory.
 
         Returns:
-            Ein ``RunScope`` oder ``None``, wenn keine Run-Korrelation
-            aufloesbar ist (dann wird der Prompt-Audit uebersprungen).
+            A ``RunScope`` or ``None`` if no run correlation is
+            resolvable (in which case the prompt audit is skipped).
         """
         ...
 
@@ -237,7 +237,7 @@ class Finding:
 class LayerResult:
     """Result of a single QA layer evaluation.
 
-    Fachliches Ergebnis via Return-Type, nicht Exception (ARCH-20).
+    Business result via return type, not exception (ARCH-20).
 
     Args:
         layer: Name of the layer that produced this result.

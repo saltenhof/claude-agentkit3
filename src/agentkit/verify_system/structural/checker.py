@@ -406,7 +406,7 @@ class StructuralChecker:
         ev = evidence
 
         return {
-            # §27.4.1 Artefakt-Pruefung
+            # §27.4.1 Artifact check
             "artifact.protocol": lambda c, d, s: check_artifact_protocol(
                 c, d, severity=s
             ),

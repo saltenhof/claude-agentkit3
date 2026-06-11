@@ -21,7 +21,7 @@ The *actual* impact is DERIVED from the change-frame here. FK-25 §25.6.2 maps
 the change-frame to scope inputs via ``affected_building_blocks.affected`` (there
 is no ``affected_modules`` field); the contract-change breadth refines the
 estimate. This is a deterministic SIGNAL on non-deterministic worker input
-(FK-25 §25.4.1 "Signale, keine Beweise"), not a measured fact.
+(FK-25 §25.4.1 "signals, not proofs"), not a measured fact.
 """
 
 from __future__ import annotations

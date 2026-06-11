@@ -550,12 +550,11 @@ def load_attempts(
 ) -> list[AttemptRecord]:
     """Load AttemptRecords for a story+phase, optionally narrowed to a run.
 
-    Fail-closed: invalide DB-Zeilen (CHECK-Constraint-Drift,
-    Schema-Mismatch zwischen Backend und Mapper, korrupte JSON-Payloads)
-    propagieren ``pydantic.ValidationError`` / ``ValueError`` an den
-    Aufrufer. Frueher hat ein ``except`` defective rows still
-    geschluckt — das maskierte echte Inkonsistenzen
-    (vgl. AG3-025 Re-Review Befund 1).
+    Fail-closed: invalid DB rows (CHECK-constraint drift, schema mismatch
+    between backend and mapper, corrupt JSON payloads) propagate
+    ``pydantic.ValidationError`` / ``ValueError`` to the caller. An earlier
+    ``except`` silently swallowed defective rows — that masked real
+    inconsistencies (cf. AG3-025 re-review finding 1).
     """
 
     rows = _backend_module().load_attempt_rows(story_dir, phase, run_id=run_id)

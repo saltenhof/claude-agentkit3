@@ -2,7 +2,7 @@
 
 The ``evidence_fingerprint`` is a SHA-256 hex digest over the canonicalised
 content of the story branch's code delta against ``origin/main``. It is the
-*content* integrity signal of an atomic QA cycle (FK-27 §27.2.1, Entscheidung
+*content* integrity signal of an atomic QA cycle (FK-27 §27.2.1, decision
 2026-04-08 Element 19): the same code-state ALWAYS yields the same fingerprint,
 a changed code-state yields a different one. ``evidence_epoch`` (a timestamp)
 is a separate field and is NOT computed here.
@@ -32,8 +32,8 @@ Subprocess failures (no git, detached tree, missing ref) FAIL CLOSED: they
 raise :class:`FingerprintComputationError` rather than silently degrading to a
 weaker signal (NO ERROR BYPASSING).
 
-Quelle:
-  - FK-27 §27.2.1 -- evidence_fingerprint (SHA-256, Inhaltsintegritaet)
+Source:
+  - FK-27 §27.2.1 -- evidence_fingerprint (SHA-256, content integrity)
   - AG3-041 §2.1.2 -- compute_evidence_fingerprint
 """
 

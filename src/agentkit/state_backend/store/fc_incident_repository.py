@@ -1,29 +1,29 @@
-"""fc_incidents-Repository-Adapter (FK-41 §41.3.1, FK-69 §69.9, AG3-028 KONFLIKT-2).
+"""fc_incidents repository adapter (FK-41 §41.3.1, FK-69 §69.9, AG3-028 CONFLICT-2).
 
-Der DB-Owner-seitige Adapter fuer ``fc_incidents``. Liegt — wie die uebrigen
-FK-69-Repos — auf der Accessor-Seite in ``state_backend/store`` und wird via
-``ProjectionRepositories`` in den ``ProjectionAccessor`` injiziert. Der
-``failure_corpus``-BC kennt diesen Adapter NICHT (AC#6); er schreibt/liest
-ausschliesslich ueber den ``ProjectionAccessor``.
+The DB-owner-side adapter for ``fc_incidents``. Lives — like the other
+FK-69 repos — on the accessor side in ``state_backend/store`` and is injected
+via ``ProjectionRepositories`` into the ``ProjectionAccessor``. The
+``failure_corpus`` BC does NOT know this adapter (AC#6); it writes/reads
+exclusively via the ``ProjectionAccessor``.
 
-Codex-r2 Remediation 2026-06-01 (User-Entscheidung: incident_id GLOBAL eindeutig):
-- Schema exakt nach FK-41 §41.3.1 (project_key NOT NULL, incident_id
+Codex-r2 remediation 2026-06-01 (user decision: incident_id GLOBALLY unique):
+- Schema exactly per FK-41 §41.3.1 (project_key NOT NULL, incident_id
   FC-YYYY-NNNN, run_id NOT NULL, role, phase, model, symptom, evidence list[str],
   recorded_at, status, optional tags/impact/pattern_ref).
-- ``project_key`` ist Pflicht und wird in ``read``/``purge_run`` **zwingend**
-  gefiltert (fehlt project_key -> ValueError, FAIL-CLOSED). FK-41 §41.3.1:
-  "Abfragen sind stets projektgebunden".
-- ``incident_id`` (``FC-YYYY-NNNN``) ist **global eindeutig** (PK
-  ``incident_id`` allein) und wird ueber einen **globalen Per-Jahr-Zaehler**
-  (``fc_incident_counters`` gekeyt auf ``year`` allein) vergeben.
-- Die Allokation laeuft race-sicher in EINEM atomaren Statement (kein
-  SELECT-dann-INSERT-TOCTOU): Postgres ``INSERT ... ON CONFLICT(year) DO UPDATE
+- ``project_key`` is mandatory and is **always** filtered in
+  ``read``/``purge_run`` (missing project_key -> ValueError, FAIL-CLOSED). FK-41
+  §41.3.1: "queries are always project-bound".
+- ``incident_id`` (``FC-YYYY-NNNN``) is **globally unique** (PK
+  ``incident_id`` alone) and is allocated via a **global per-year counter**
+  (``fc_incident_counters`` keyed on ``year`` alone).
+- The allocation runs race-safely in ONE atomic statement (no
+  SELECT-then-INSERT TOCTOU): Postgres ``INSERT ... ON CONFLICT(year) DO UPDATE
   SET next_seq = fc_incident_counters.next_seq + 1 RETURNING next_seq - 1``
-  (deckt den Initial-Row-Fall mit ab); SQLite ``BEGIN IMMEDIATE`` + dasselbe
-  atomare UPSERT mit ``RETURNING`` (SQLite >= 3.35).
+  (also covers the initial-row case); SQLite ``BEGIN IMMEDIATE`` + the same
+  atomic UPSERT with ``RETURNING`` (SQLite >= 3.35).
 
-``fc_incidents`` ist append-only (genau ein Datensatz pro ``incident_id``,
-FK-41 §41.3.1): INSERT, kein UPSERT.
+``fc_incidents`` is append-only (exactly one record per ``incident_id``,
+FK-41 §41.3.1): INSERT, no UPSERT.
 """
 
 from __future__ import annotations
@@ -46,14 +46,14 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class FCIncidentsRepository(Protocol):
-    """Schreib-/Lese-/Purge-Adapter fuer ``fc_incidents`` (FK-69 §69.9).
+    """Write/read/purge adapter for ``fc_incidents`` (FK-69 §69.9).
 
-    Schema-Owner: failure-corpus (FK-41 §41.3.1).
-    DB-Owner: telemetry-and-events via ProjectionAccessor.
+    Schema owner: failure-corpus (FK-41 §41.3.1).
+    DB owner: telemetry-and-events via ProjectionAccessor.
     """
 
     def record_incident(self, draft: IncidentDraft) -> IncidentId:
-        """Allokiere FC-YYYY-NNNN, persistiere (append-only INSERT), gib id zurueck."""
+        """Allocate FC-YYYY-NNNN, persist (append-only INSERT), return the id."""
         ...
 
     def read(
@@ -63,7 +63,7 @@ class FCIncidentsRepository(Protocol):
         story_id: str | None = None,
         run_id: str | None = None,
     ) -> list[Incident]:
-        """Lade Incidents; ``project_key`` ist Pflicht (FK-41 §41.3.1)."""
+        """Load incidents; ``project_key`` is mandatory (FK-41 §41.3.1)."""
         ...
 
     def purge_run(
@@ -72,17 +72,17 @@ class FCIncidentsRepository(Protocol):
         story_id: str,
         run_id: str,
     ) -> int:
-        """Loesche alle fc_incidents-Zeilen fuer (project_key, story_id, run_id).
+        """Delete all fc_incidents rows for (project_key, story_id, run_id).
 
-        FK-41 §41.3 / FK-69 §69.9: ein vollstaendiger Story-Reset loescht alle
-        ``fc_incidents``-Zeilen des betroffenen ``run_id``. Projektgebunden
-        (project_key Pflicht). Gibt die Anzahl geloeschter Zeilen.
+        FK-41 §41.3 / FK-69 §69.9: a full story reset deletes all
+        ``fc_incidents`` rows of the affected ``run_id``. Project-bound
+        (project_key mandatory). Returns the number of deleted rows.
         """
         ...
 
 
 def _draft_to_row(draft: IncidentDraft, incident_id: str) -> dict[str, Any]:
-    """Serialisiere einen ``IncidentDraft`` + vergebene id in eine fc_incidents-Zeile."""
+    """Serialize an ``IncidentDraft`` + allocated id into an fc_incidents row."""
     return {
         "project_key": draft.project_key,
         "incident_id": incident_id,
@@ -104,7 +104,7 @@ def _draft_to_row(draft: IncidentDraft, incident_id: str) -> dict[str, Any]:
 
 
 def _row_to_record(row: dict[str, Any]) -> Incident:
-    """Deserialisiere eine fc_incidents-Zeile in einen ``Incident``."""
+    """Deserialize an fc_incidents row into an ``Incident``."""
     from datetime import datetime
 
     from agentkit.core_types import FailureCategory, IncidentStatus
@@ -115,8 +115,8 @@ def _row_to_record(row: dict[str, Any]) -> Incident:
         IncidentSeverity,
     )
 
-    # Postgres JSON-Spalten liefert psycopg bereits als list/dict zurueck;
-    # SQLite TEXT als JSON-String. Beide Faelle robust behandeln.
+    # psycopg already returns Postgres JSON columns as list/dict; SQLite
+    # returns TEXT as a JSON string. Handle both cases robustly.
     evidence = _decode_json_list(row["evidence_json"])
     tags_raw = row.get("tags")
     tags = _decode_json_list(tags_raw) if tags_raw is not None else None
@@ -150,9 +150,9 @@ def _row_to_record(row: dict[str, Any]) -> Incident:
 def _decode_json_list(raw: object) -> list[str]:
     """Decode a JSON ``list[str]`` column (SQLite TEXT or Postgres JSON).
 
-    FAIL-CLOSED (NO ERROR BYPASSING): ein Nicht-String-Element ist korrupte
-    Persistenz und wird NICHT still via ``str()`` koerziert, sondern als Fehler
-    gemeldet. ``evidence``/``tags`` sind laut FK-41 §41.4.1 ``list[str]``.
+    FAIL-CLOSED (NO ERROR BYPASSING): a non-string element is corrupt
+    persistence and is NOT silently coerced via ``str()`` but reported as an
+    error. ``evidence``/``tags`` are ``list[str]`` per FK-41 §41.4.1.
     """
     if raw is None:
         return []
@@ -177,20 +177,20 @@ def _decode_json_list(raw: object) -> list[str]:
 
 
 def _require_project_key(project_key: str | None) -> str:
-    """FAIL-CLOSED: ``project_key`` ist Pflicht (FK-41 §41.3.1, projektgebunden)."""
+    """FAIL-CLOSED: ``project_key`` is mandatory (FK-41 §41.3.1, project-bound)."""
     if not project_key:
         raise ValueError(
             "fc_incidents queries require a project_key (FK-41 §41.3.1: "
-            "Abfragen sind stets projektgebunden)"
+            "queries are always project-bound)"
         )
     return project_key
 
 
 class StateBackendFCIncidentsRepository:
-    """Duenner Adapter fuer ``fc_incidents`` (SQLite + Postgres).
+    """Thin adapter for ``fc_incidents`` (SQLite + Postgres).
 
     Args:
-        store_dir: Basisverzeichnis fuer SQLite; ignoriert bei Postgres.
+        store_dir: Base directory for SQLite; ignored for Postgres.
     """
 
     def __init__(self, store_dir: Path | None = None) -> None:
@@ -198,14 +198,14 @@ class StateBackendFCIncidentsRepository:
 
         self._store_dir: Path = store_dir or _Path.cwd()
 
-    # -- Schreiben + id-Allokation -----------------------------------------
+    # -- Write + id allocation ---------------------------------------------
 
     def record_incident(self, draft: IncidentDraft) -> IncidentId:
-        """Allokiere FC-YYYY-NNNN und persistiere (append-only) in einer Transaktion.
+        """Allocate FC-YYYY-NNNN and persist (append-only) in one transaction.
 
-        FK-41 §41.3.1: global eindeutig, gap-free pro Jahr (Counter gekeyt auf
-        ``year`` allein), race-sicher. Gibt die
-        vergebene ``IncidentId`` zurueck.
+        FK-41 §41.3.1: globally unique, gap-free per year (counter keyed on
+        ``year`` alone), race-safe. Returns the
+        allocated ``IncidentId``.
         """
         from agentkit.failure_corpus.types import IncidentId
 
@@ -218,17 +218,16 @@ class StateBackendFCIncidentsRepository:
         return IncidentId(incident_id)
 
     def _sqlite_record(self, draft: IncidentDraft, year: int) -> str:
-        # _sqlite_connect_qa fuehrt zuerst den Schema-Bootstrap aus und haelt die
-        # Verbindung bereits in einer offenen Transaktion (commit am Block-Ende).
-        # BEGIN IMMEDIATE nimmt sofort den RESERVED-Write-Lock (analog AG3-050
-        # create_story_atomic) und serialisiert konkurrierende Erst-/Folge-
-        # Allokationen ueber busy_timeout. Allokation (ein atomares UPSERT mit
-        # RETURNING) + INSERT laufen in EINER Transaktion auf EINER Verbindung.
+        # _sqlite_connect_qa first runs the schema bootstrap and already holds
+        # the connection in an open transaction (commit at block end).
+        # BEGIN IMMEDIATE immediately takes the RESERVED write lock (analogous to
+        # AG3-050 create_story_atomic) and serializes competing first/follow-up
+        # allocations via busy_timeout. Allocation (one atomic UPSERT with
+        # RETURNING) + INSERT run in ONE transaction on ONE connection.
         with _sqlite_connect_qa(self._store_dir) as conn:
-            # _sqlite_connect_qa hat ueber den Schema-Bootstrap evtl. eine
-            # implizite Transaktion offen; sauber committen, bevor wir den
-            # expliziten Write-Lock nehmen (sonst "transaction within a
-            # transaction").
+            # _sqlite_connect_qa may, via the schema bootstrap, have an implicit
+            # transaction open; commit cleanly before we take the explicit
+            # write lock (otherwise "transaction within a transaction").
             conn.commit()
             conn.execute("BEGIN IMMEDIATE")
             seq = self._sqlite_allocate_seq(conn, year)
@@ -239,9 +238,9 @@ class StateBackendFCIncidentsRepository:
 
     @staticmethod
     def _sqlite_allocate_seq(conn: Any, year: int) -> int:
-        # Ein atomares Statement: deckt Initial-Row (VALUES 2 -> RETURNING 1) und
-        # Folge-Allokation (next_seq+1 -> RETURNING vorheriges next_seq) ab. Kein
-        # SELECT-dann-INSERT-TOCTOU. SQLite >= 3.35 unterstuetzt RETURNING.
+        # One atomic statement: covers the initial row (VALUES 2 -> RETURNING 1)
+        # and follow-up allocation (next_seq+1 -> RETURNING previous next_seq). No
+        # SELECT-then-INSERT TOCTOU. SQLite >= 3.35 supports RETURNING.
         cursor = conn.execute(
             "INSERT INTO fc_incident_counters (year, next_seq) VALUES (?, 2) "
             "ON CONFLICT (year) DO UPDATE SET "
@@ -261,11 +260,11 @@ class StateBackendFCIncidentsRepository:
 
     @staticmethod
     def _pg_allocate_seq(conn: Any, year: int) -> int:
-        # Ein atomares Statement: der Initial-Row-Fall (Zeile fehlt) wird ueber
-        # den VALUES(...,2)-Zweig abgedeckt, der Folgefall ueber DO UPDATE. Kein
-        # SELECT ... FOR UPDATE auf einer evtl. fehlenden Zeile (der alte Bug:
-        # FOR UPDATE sperrt bei fehlender Zeile nichts -> zwei Txns lieferten
-        # FC-YYYY-0001). RETURNING liefert die zugewiesene Nummer atomar.
+        # One atomic statement: the initial-row case (row missing) is covered by
+        # the VALUES(...,2) branch, the follow-up case by DO UPDATE. No
+        # SELECT ... FOR UPDATE on a possibly missing row (the old bug:
+        # FOR UPDATE locks nothing on a missing row -> two txns returned
+        # FC-YYYY-0001). RETURNING yields the allocated number atomically.
         cursor = conn.execute(
             "INSERT INTO fc_incident_counters (year, next_seq) VALUES (%s, 2) "
             "ON CONFLICT (year) DO UPDATE SET "
@@ -275,7 +274,7 @@ class StateBackendFCIncidentsRepository:
         )
         return int(cursor.fetchone()["allocated_seq"])
 
-    # -- Lesen --------------------------------------------------------------
+    # -- Read ---------------------------------------------------------------
 
     def read(
         self,
@@ -284,7 +283,7 @@ class StateBackendFCIncidentsRepository:
         story_id: str | None = None,
         run_id: str | None = None,
     ) -> list[Incident]:
-        """Lade Incidents; ``project_key`` ist Pflicht (FAIL-CLOSED)."""
+        """Load incidents; ``project_key`` is mandatory (FAIL-CLOSED)."""
         pk = _require_project_key(project_key)
         if _is_postgres():
             return self._pg_read(project_key=pk, story_id=story_id, run_id=run_id)
@@ -345,10 +344,10 @@ class StateBackendFCIncidentsRepository:
     # -- Purge --------------------------------------------------------------
 
     def purge_run(self, project_key: str, story_id: str, run_id: str) -> int:
-        """Loesche alle fc_incidents-Zeilen fuer (project_key, story_id, run_id).
+        """Delete all fc_incidents rows for (project_key, story_id, run_id).
 
-        FK-41 §41.3 / FK-69 §69.9: aktives Loeschen, kein Query-Filter-Trick.
-        ``project_key`` ist Pflicht und wird gefiltert (FAIL-CLOSED).
+        FK-41 §41.3 / FK-69 §69.9: active deletion, no query-filter trick.
+        ``project_key`` is mandatory and is filtered (FAIL-CLOSED).
         """
         pk = _require_project_key(project_key)
         if _is_postgres():
@@ -375,7 +374,7 @@ class StateBackendFCIncidentsRepository:
 
 
 def _format_incident_id(year: int, seq: int) -> str:
-    """Formatiere eine fc_incidents-id als ``FC-YYYY-NNNN`` (FK-41 §41.3.1/§41.4.1)."""
+    """Format an fc_incidents id as ``FC-YYYY-NNNN`` (FK-41 §41.3.1/§41.4.1)."""
     return f"FC-{year:04d}-{seq:04d}"
 
 

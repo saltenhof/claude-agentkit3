@@ -12,7 +12,7 @@ Architecture rules:
   QA-cycle identity fields from ``PhaseEnvelope.state.payload`` without
   importing the ``pipeline_engine`` BC (W2 / BC-Topology-Fix).
 
-Quelle:
+Source:
   - AG3-026 §2.1.1 -- VerifyContextBundle, VerifyTarget
   - AG3-026 §2.1.3 -- QaSubflowExecutionResult (optional internal detail)
   - ``concept/_meta/bc-cut-decisions.md §BC 2 verify-system``

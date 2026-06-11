@@ -3,8 +3,8 @@
 FK-42 §42.4.2 step 5 / FK-55 §55.9a / §55.10.9a: a CCAG ``permission_request``
 that elapses without a human decision does NOT hang the run forever — the run is
 deterministically set to ``ESCALATED``. Expiry is materialised LAZILY at the next
-relevant hook / CLI access (FK-55 §55.10.9a: "nicht durch einen permanenten
-Daemon erzwungen, sondern lazy").
+relevant hook / CLI access (FK-55 §55.10.9a: "not enforced by a permanent
+daemon, but lazily").
 
 This module wires the expiry to the AUTHORITATIVE run-status source (the durable
 ``PhaseState.status`` owned by the phase executor, FK-39) — NOT a shadow field.

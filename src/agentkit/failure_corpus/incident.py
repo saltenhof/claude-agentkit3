@@ -1,22 +1,22 @@
-"""Incident-Modelle des Failure-Corpus-BC (FK-41 §41.3.1/§41.4.1).
+"""Incident models of the failure-corpus BC (FK-41 §41.3.1/§41.4.1).
 
-Blatt-Modul (KONFLIKT-2, AG3-028): ``Incident`` ist der Record-Typ, den der
-``ProjectionAccessor`` ueber das ``_KIND_TO_RECORD_TYPE``-Mapping fuer
-``ProjectionKind.FC_INCIDENTS`` aufloest. Damit dort kein Import-Zyklus
-``failure_corpus`` <-> ``telemetry`` entsteht, importiert dieses Modul
-ausschliesslich Foundation-Typen (``core_types``) und die BC-eigenen
-``types`` — analog ``verify_system.stage_registry.records``, das telemetry
-importiert, ohne telemetry zu importieren.
+Leaf module (KONFLIKT-2, AG3-028): ``Incident`` is the record type that the
+``ProjectionAccessor`` resolves via the ``_KIND_TO_RECORD_TYPE`` mapping for
+``ProjectionKind.FC_INCIDENTS``. So that no import cycle
+``failure_corpus`` <-> ``telemetry`` arises there, this module imports only
+foundation types (``core_types``) and the BC-owned ``types`` — analogous to
+``verify_system.stage_registry.records``, which references telemetry without
+importing telemetry.
 
-Schema-Treue zu FK-41 §41.3.1/§41.4.1 (Codex-r1 Remediation 2026-06-01):
-- Pflichtfelder: project_key, incident_id (FC-YYYY-NNNN), run_id, story_id,
+Schema fidelity to FK-41 §41.3.1/§41.4.1 (Codex-r1 remediation 2026-06-01):
+- Required fields: project_key, incident_id (FC-YYYY-NNNN), run_id, story_id,
   category, severity, phase, role, model, symptom, evidence (list[str]),
   recorded_at, incident_status.
 - Optional: tags, impact, pattern_ref.
-- ``evidence`` ist eine Liste von Strings (FK-41 §41.4.1), kein dict.
-- ``incident_id`` wird DB-seitig in der Schreibtransaktion vergeben
-  (``FC-YYYY-NNNN``, global eindeutig, gap-free pro Jahr); die Triage erzeugt
-  daher zunaechst einen ``IncidentDraft`` ohne id.
+- ``evidence`` is a list of strings (FK-41 §41.4.1), not a dict.
+- ``incident_id`` is assigned DB-side within the write transaction
+  (``FC-YYYY-NNNN``, globally unique, gap-free per year); the triage therefore
+  first produces an ``IncidentDraft`` without an id.
 """
 
 from __future__ import annotations
@@ -29,17 +29,17 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from agentkit.core_types import FailureCategory, IncidentStatus
 from agentkit.failure_corpus.types import IncidentId, IncidentRole, IncidentSeverity
 
-# FK-41 §41.3.1/§41.4.1: incident_id ist ``FC-YYYY-NNNN`` (Jahr 4-stellig,
-# Sequenz mindestens 4-stellig). Codex-r2: FAIL-CLOSED erzwingen.
+# FK-41 §41.3.1/§41.4.1: incident_id is ``FC-YYYY-NNNN`` (year 4 digits,
+# sequence at least 4 digits). Codex-r2: enforce FAIL-CLOSED.
 _INCIDENT_ID_PATTERN = re.compile(r"^FC-\d{4}-\d{4,}$")
 
 
 def _validate_evidence_list(value: object) -> list[str]:
-    """FAIL-CLOSED: evidence MUSS eine Liste von Strings sein (FK-41 §41.4.1).
+    """FAIL-CLOSED: evidence MUST be a list of strings (FK-41 §41.4.1).
 
-    Pydantic v2 wuerde ein ``dict`` sonst je nach Modus still durchwinken oder
-    unklar koerzieren. Codex-r2: explizit hart machen — dict/freie JSON ist ein
-    Vertragsbruch.
+    Otherwise Pydantic v2 would, depending on mode, silently wave a ``dict``
+    through or coerce it unclearly. Codex-r2: make it explicitly hard — a
+    dict/free JSON is a contract violation.
     """
     if not isinstance(value, list):
         raise ValueError(  # noqa: TRY004 — pydantic wraps ValueError into ValidationError
@@ -51,7 +51,7 @@ def _validate_evidence_list(value: object) -> list[str]:
 
 
 def _validate_incident_id(value: str) -> str:
-    """FAIL-CLOSED: incident_id MUSS ``FC-YYYY-NNNN`` sein (FK-41 §41.3.1)."""
+    """FAIL-CLOSED: incident_id MUST be ``FC-YYYY-NNNN`` (FK-41 §41.3.1)."""
     if _INCIDENT_ID_PATTERN.fullmatch(value) is None:
         raise ValueError(
             f"incident_id must match FC-YYYY-NNNN (FK-41 §41.3.1), got {value!r}"
@@ -60,34 +60,34 @@ def _validate_incident_id(value: str) -> str:
 
 
 class IncidentCandidate(BaseModel):
-    """Eingehender Incident-Kandidat (Input fuer ``record_incident``, FK-41 §41.4.1/§41.4.2).
+    """Incoming incident candidate (input for ``record_incident``, FK-41 §41.4.1/§41.4.2).
 
-    Frozen/extra-forbid: ein Kandidat ist ein unveraenderlicher Eingabewert; ein
-    unbekanntes Zusatzfeld ist ein Vertragsbruch (FAIL-CLOSED).
+    Frozen/extra-forbid: a candidate is an immutable input value; an unknown
+    additional field is a contract violation (FAIL-CLOSED).
 
-    Neben den FK-41-§41.4.1-Persistenzfeldern traegt der Kandidat die
-    **Gate-Inputs** fuer die Aufnahmekriterien (FK-41 §41.4.3): ``merge_blocked``
-    und ``rework_minutes``. Diese werden NICHT in ``fc_incidents`` gespeichert —
-    sie steuern nur die ``IngressCriteria``-Entscheidung.
+    Besides the FK-41 §41.4.1 persistence fields, the candidate carries the
+    **gate inputs** for the admission criteria (FK-41 §41.4.3): ``merge_blocked``
+    and ``rework_minutes``. These are NOT stored in ``fc_incidents`` — they only
+    drive the ``IngressCriteria`` decision.
 
     Attributes:
-        project_key: Projekt-Schluessel (Pflicht; Abfragen sind stets
-            projektgebunden, FK-41 §41.3.1).
-        story_id: Story-Anker des Incidents.
-        run_id: Run-Anker (Pflicht, FK-41 §41.3.1).
-        category: Failure-Kategorie (FK-41 §41.4.1, 12 Werte).
-        severity: Incident-Schwere (FK-41 §41.3.1, 4 Stufen).
-        phase: Betroffene Pipeline-Phase.
-        role: Ausfuehrender Akteur (worker | qa | governance, FK-41 §41.3.1).
-        model: Verwendetes LLM-Modell.
-        symptom: Freitextbeschreibung des Fehlerbildes.
-        evidence: Liste von Evidenz-Strings (FK-41 §41.4.1).
-        tags: Optionale Schlagworte.
-        impact: Optionale Auswirkungsbeschreibung.
-        merge_blocked: Gate-Input (FK-41 §41.4.3) — ob der Befund den Merge
-            blockiert hat. NICHT persistiert.
-        rework_minutes: Gate-Input (FK-41 §41.4.3) — Rework-Aufwand in Minuten.
-            NICHT persistiert.
+        project_key: Project key (required; queries are always project-bound,
+            FK-41 §41.3.1).
+        story_id: Story anchor of the incident.
+        run_id: Run anchor (required, FK-41 §41.3.1).
+        category: Failure category (FK-41 §41.4.1, 12 values).
+        severity: Incident severity (FK-41 §41.3.1, 4 levels).
+        phase: Affected pipeline phase.
+        role: Acting actor (worker | qa | governance, FK-41 §41.3.1).
+        model: LLM model used.
+        symptom: Free-text description of the error picture.
+        evidence: List of evidence strings (FK-41 §41.4.1).
+        tags: Optional keywords.
+        impact: Optional impact description.
+        merge_blocked: Gate input (FK-41 §41.4.3) — whether the finding blocked
+            the merge. NOT persisted.
+        rework_minutes: Gate input (FK-41 §41.4.3) — rework effort in minutes.
+            NOT persisted.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -104,7 +104,7 @@ class IncidentCandidate(BaseModel):
     evidence: list[str] = Field(default_factory=list)
     tags: list[str] | None = None
     impact: str | None = None
-    # Gate-Inputs (FK-41 §41.4.3) — nicht Bestandteil von fc_incidents.
+    # Gate inputs (FK-41 §41.4.3) — not part of fc_incidents.
     merge_blocked: bool = False
     rework_minutes: int = 0
 
@@ -115,13 +115,13 @@ class IncidentCandidate(BaseModel):
 
 
 class IncidentDraft(BaseModel):
-    """Normalisierter, noch nicht persistierter Incident (vor id-Allokation).
+    """Normalized, not-yet-persisted incident (before id allocation).
 
-    Traegt alle FK-41-§41.3.1-Persistenzfelder ausser ``incident_id`` (das wird
-    DB-seitig in der Schreibtransaktion als ``FC-YYYY-NNNN`` vergeben) und
-    ``recorded_at`` ist gesetzt (Normalisierungszeitpunkt). Die Gate-Inputs des
-    Kandidaten (``merge_blocked``/``rework_minutes``) sind hier bewusst NICHT
-    mehr enthalten — sie sind kein Persistenz- und kein Read-Model-Bestandteil.
+    Carries all FK-41 §41.3.1 persistence fields except ``incident_id`` (which is
+    assigned DB-side within the write transaction as ``FC-YYYY-NNNN``) and
+    ``recorded_at`` is set (normalization timestamp). The candidate's gate inputs
+    (``merge_blocked``/``rework_minutes``) are deliberately NOT included here
+    anymore — they are neither a persistence nor a read-model part.
 
     Frozen/extra-forbid.
     """
@@ -151,28 +151,28 @@ class IncidentDraft(BaseModel):
 
 
 class Incident(BaseModel):
-    """Persistierter Incident (FK-41 §41.3.1, fc_incidents-Zeile).
+    """Persisted incident (FK-41 §41.3.1, fc_incidents row).
 
-    Frozen/extra-forbid: ein Incident ist append-only (genau ein Datensatz pro
-    ``incident_id``); nach der Normalisierung wird er nicht mehr veraendert.
+    Frozen/extra-forbid: an incident is append-only (exactly one record per
+    ``incident_id``); after normalization it is no longer modified.
 
     Attributes:
-        project_key: Projekt-Schluessel (Pflicht, FK-41 §41.3.1).
-        incident_id: Eindeutige Incident-Identitaet (PK, Format ``FC-YYYY-NNNN``).
-        run_id: Run-Anker (Pflicht, FK-41 §41.3.1).
-        story_id: Story-Anker.
-        category: Failure-Kategorie.
-        severity: Incident-Schwere.
-        phase: Betroffene Pipeline-Phase.
-        role: Ausfuehrender Akteur (worker | qa | governance).
-        model: Verwendetes LLM-Modell.
-        symptom: Symptombeschreibung (normalisiert).
-        evidence: Liste von Evidenz-Strings.
-        recorded_at: Erfassungszeitpunkt.
-        incident_status: Lebenszyklus-Zustand (Default ``OBSERVED``, FK-41 §41.3.1).
-        tags: Optionale Schlagworte.
-        impact: Optionale Auswirkungsbeschreibung.
-        pattern_ref: Optionaler Verweis auf fc_patterns.pattern_id (nach Clustering).
+        project_key: Project key (required, FK-41 §41.3.1).
+        incident_id: Unique incident identity (PK, format ``FC-YYYY-NNNN``).
+        run_id: Run anchor (required, FK-41 §41.3.1).
+        story_id: Story anchor.
+        category: Failure category.
+        severity: Incident severity.
+        phase: Affected pipeline phase.
+        role: Acting actor (worker | qa | governance).
+        model: LLM model used.
+        symptom: Symptom description (normalized).
+        evidence: List of evidence strings.
+        recorded_at: Recording timestamp.
+        incident_status: Lifecycle state (default ``OBSERVED``, FK-41 §41.3.1).
+        tags: Optional keywords.
+        impact: Optional impact description.
+        pattern_ref: Optional reference to fc_patterns.pattern_id (after clustering).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")

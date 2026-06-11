@@ -1,20 +1,20 @@
-"""FailureCorpus-Top-Komponente (FK-41 §41.1).
+"""FailureCorpus top component (FK-41 §41.1).
 
-Vollstaendige Vertrags-Surface mit sechs Methoden. Nur ``record_incident`` ist
-in dieser Story (AG3-028) funktional — es ist der Empfaenger-Vertrag, den andere
-BCs (governance-and-guards / verify-system / story-closure) brauchen. Die fuenf
-uebrigen Methoden werfen ``NotImplementedError`` mit Begruendung + Verweis auf
-ihre Folge-Story (ZERO DEBT: Vertrags-Slot, nicht halbfertig).
+Complete contract surface with six methods. Only ``record_incident`` is
+functional in this story (AG3-028) — it is the receiver contract that other BCs
+(governance-and-guards / verify-system / story-closure) need. The five remaining
+methods raise ``NotImplementedError`` with a rationale + reference to their
+follow-up story (ZERO DEBT: contract slot, not half-finished).
 
-Folge-Stories:
-- ``suggest_patterns``/``confirm_pattern``: PatternPromotion-Sub
-  (failure-corpus.A4, nach THEME-009 / LlmEvaluator).
-- ``derive_check``/``approve_check``: CheckFactory-Sub (failure-corpus.A5).
-- ``report_effectiveness``: Effectiveness-Tracking (failure-corpus.A7).
+Follow-up stories:
+- ``suggest_patterns``/``confirm_pattern``: PatternPromotion sub
+  (failure-corpus.A4, after THEME-009 / LlmEvaluator).
+- ``derive_check``/``approve_check``: CheckFactory sub (failure-corpus.A5).
+- ``report_effectiveness``: effectiveness tracking (failure-corpus.A7).
 
-Quellen:
-- FK-41 §41.1 -- sechs Top-Methoden
-- bc-cut-decisions §BC 13 -- Top-Surface, Subs
+Sources:
+- FK-41 §41.1 -- six top methods
+- bc-cut-decisions §BC 13 -- top surface, subs
 """
 
 from __future__ import annotations
@@ -32,11 +32,11 @@ if TYPE_CHECKING:
 
 
 class PatternDecision(StrEnum):
-    """Menschliche Entscheidung ueber einen Pattern-Kandidaten (FK-41 §41.1).
+    """Human decision over a pattern candidate (FK-41 §41.1).
 
     Attributes:
-        ACCEPTED: Pattern bestaetigt.
-        REJECTED: Pattern verworfen.
+        ACCEPTED: Pattern confirmed.
+        REJECTED: Pattern rejected.
     """
 
     ACCEPTED = "accepted"
@@ -44,11 +44,11 @@ class PatternDecision(StrEnum):
 
 
 class CheckApprovalDecision(StrEnum):
-    """Menschliche Entscheidung ueber einen Check-Vorschlag (FK-41 §41.1).
+    """Human decision over a check proposal (FK-41 §41.1).
 
     Attributes:
-        APPROVED: Check freigegeben.
-        REJECTED: Check verworfen.
+        APPROVED: Check approved.
+        REJECTED: Check rejected.
     """
 
     APPROVED = "approved"
@@ -56,7 +56,7 @@ class CheckApprovalDecision(StrEnum):
 
 
 class PatternCandidate(BaseModel):
-    """Vorschlag aus dem Clustering (FK-41 Pattern-Lifecycle, Folge-Story)."""
+    """Proposal from the clustering (FK-41 pattern lifecycle, follow-up story)."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -64,7 +64,7 @@ class PatternCandidate(BaseModel):
 
 
 class FailurePattern(BaseModel):
-    """Bestaetigter Pattern (Lifecycle-Stufe ``accepted``, Folge-Story)."""
+    """Confirmed pattern (lifecycle stage ``accepted``, follow-up story)."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -72,7 +72,7 @@ class FailurePattern(BaseModel):
 
 
 class CheckProposal(BaseModel):
-    """Generierter Check-Vorschlag (FK-41 CheckFactory, Folge-Story)."""
+    """Generated check proposal (FK-41 CheckFactory, follow-up story)."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -80,7 +80,7 @@ class CheckProposal(BaseModel):
 
 
 class EffectivenessReport(BaseModel):
-    """Aggregat-Bericht ueber ein Wirksamkeits-Window (Folge-Story)."""
+    """Aggregate report over an effectiveness window (follow-up story)."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -88,12 +88,12 @@ class EffectivenessReport(BaseModel):
 
 
 class FailureCorpus:
-    """Top-Komponente des Failure-Corpus-BC (FK-41 §41.1).
+    """Top component of the failure-corpus BC (FK-41 §41.1).
 
     Args:
-        incident_triage: Die funktionale IncidentTriage-Sub (AG3-028).
-        pattern_promotion: Stub-Slot fuer die PatternPromotion-Sub (Folge-Story).
-        check_factory: Stub-Slot fuer die CheckFactory-Sub (Folge-Story).
+        incident_triage: The functional IncidentTriage sub (AG3-028).
+        pattern_promotion: Stub slot for the PatternPromotion sub (follow-up story).
+        check_factory: Stub slot for the CheckFactory sub (follow-up story).
     """
 
     def __init__(
@@ -107,34 +107,34 @@ class FailureCorpus:
         self._check_factory = check_factory
 
     def record_incident(self, candidate: IncidentCandidate) -> IncidentId:
-        """Nimmt einen Incident-Kandidaten auf und persistiert ihn (FK-41 §41.1).
+        """Admits an incident candidate and persists it (FK-41 §41.1).
 
-        Delegiert an die ``IncidentTriage`` (IngressCriteria -> Normalizer ->
-        ``write_projection(FC_INCIDENTS, incident)``). Empfaenger-Vertrag fuer
+        Delegates to the ``IncidentTriage`` (IngressCriteria -> Normalizer ->
+        ``write_projection(FC_INCIDENTS, incident)``). Receiver contract for
         governance-and-guards / verify-system / story-closure.
 
         Args:
-            candidate: Eingehender Incident-Kandidat.
+            candidate: Incoming incident candidate.
 
         Returns:
-            Die vergebene ``IncidentId``.
+            The assigned ``IncidentId``.
 
         Raises:
-            IncidentRejectedError: Wenn die IngressCriteria den Kandidaten
-                verwerfen (FAIL-CLOSED).
+            IncidentRejectedError: If the IngressCriteria reject the candidate
+                (FAIL-CLOSED).
         """
         return self._incident_triage.ingest(candidate)
 
     def suggest_patterns(self) -> list[PatternCandidate]:
-        """NOT IMPLEMENTED — PatternPromotion-Sub (Folge-Story failure-corpus.A4).
+        """NOT IMPLEMENTED — PatternPromotion sub (follow-up story failure-corpus.A4).
 
         Raises:
-            NotImplementedError: PatternPromotion braucht LlmEvaluator (THEME-009)
-                und ist nicht Teil von AG3-028.
+            NotImplementedError: PatternPromotion needs LlmEvaluator (THEME-009)
+                and is not part of AG3-028.
         """
         raise NotImplementedError(
-            "suggest_patterns gehoert zur PatternPromotion-Sub (failure-corpus.A4, "
-            "Folge-Story nach THEME-009/LlmEvaluator) und ist in AG3-028 nicht im Scope."
+            "suggest_patterns belongs to the PatternPromotion sub (failure-corpus.A4, "
+            "follow-up story after THEME-009/LlmEvaluator) and is out of scope in AG3-028."
         )
 
     def confirm_pattern(
@@ -142,32 +142,32 @@ class FailureCorpus:
         pattern_id: PatternId,
         decision: PatternDecision,
     ) -> FailurePattern:
-        """NOT IMPLEMENTED — PatternPromotion-Sub (Folge-Story failure-corpus.A4).
+        """NOT IMPLEMENTED — PatternPromotion sub (follow-up story failure-corpus.A4).
 
         Args:
-            pattern_id: Pattern-Identitaet.
-            decision: Menschliche Entscheidung.
+            pattern_id: Pattern identity.
+            decision: Human decision.
 
         Raises:
-            NotImplementedError: PatternPromotion ist nicht Teil von AG3-028.
+            NotImplementedError: PatternPromotion is not part of AG3-028.
         """
         raise NotImplementedError(
-            "confirm_pattern gehoert zur PatternPromotion-Sub (failure-corpus.A4, "
-            "Folge-Story) und ist in AG3-028 nicht im Scope."
+            "confirm_pattern belongs to the PatternPromotion sub (failure-corpus.A4, "
+            "follow-up story) and is out of scope in AG3-028."
         )
 
     def derive_check(self, pattern_id: PatternId) -> CheckProposal:
-        """NOT IMPLEMENTED — CheckFactory-Sub (Folge-Story failure-corpus.A5).
+        """NOT IMPLEMENTED — CheckFactory sub (follow-up story failure-corpus.A5).
 
         Args:
-            pattern_id: Pattern-Identitaet, aus der ein Check abgeleitet wuerde.
+            pattern_id: Pattern identity from which a check would be derived.
 
         Raises:
-            NotImplementedError: CheckFactory ist nicht Teil von AG3-028.
+            NotImplementedError: CheckFactory is not part of AG3-028.
         """
         raise NotImplementedError(
-            "derive_check gehoert zur CheckFactory-Sub (failure-corpus.A5, "
-            "Folge-Story) und ist in AG3-028 nicht im Scope."
+            "derive_check belongs to the CheckFactory sub (failure-corpus.A5, "
+            "follow-up story) and is out of scope in AG3-028."
         )
 
     def approve_check(
@@ -175,32 +175,32 @@ class FailureCorpus:
         check_id: CheckId,
         decision: CheckApprovalDecision,
     ) -> CheckProposal:
-        """NOT IMPLEMENTED — CheckFactory-Sub (Folge-Story failure-corpus.A5).
+        """NOT IMPLEMENTED — CheckFactory sub (follow-up story failure-corpus.A5).
 
         Args:
-            check_id: Check-Identitaet.
-            decision: Menschliche Freigabe-Entscheidung.
+            check_id: Check identity.
+            decision: Human approval decision.
 
         Raises:
-            NotImplementedError: CheckFactory ist nicht Teil von AG3-028.
+            NotImplementedError: CheckFactory is not part of AG3-028.
         """
         raise NotImplementedError(
-            "approve_check gehoert zur CheckFactory-Sub (failure-corpus.A5, "
-            "Folge-Story) und ist in AG3-028 nicht im Scope."
+            "approve_check belongs to the CheckFactory sub (failure-corpus.A5, "
+            "follow-up story) and is out of scope in AG3-028."
         )
 
     def report_effectiveness(self, window_days: int = 90) -> EffectivenessReport:
-        """NOT IMPLEMENTED — Effectiveness-Tracking (Folge-Story failure-corpus.A7).
+        """NOT IMPLEMENTED — effectiveness tracking (follow-up story failure-corpus.A7).
 
         Args:
-            window_days: Betrachtungsfenster in Tagen.
+            window_days: Observation window in days.
 
         Raises:
-            NotImplementedError: Effectiveness-Tracking ist nicht Teil von AG3-028.
+            NotImplementedError: Effectiveness tracking is not part of AG3-028.
         """
         raise NotImplementedError(
-            "report_effectiveness gehoert zum Effectiveness-Tracking "
-            "(failure-corpus.A7, Folge-Story) und ist in AG3-028 nicht im Scope."
+            "report_effectiveness belongs to Effectiveness tracking "
+            "(failure-corpus.A7, follow-up story) and is out of scope in AG3-028."
         )
 
 

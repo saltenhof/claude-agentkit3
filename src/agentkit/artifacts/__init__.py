@@ -1,21 +1,21 @@
-"""agentkit.artifacts — Foundation-Layer fuer typisierte Artefakt-Envelopes.
+"""agentkit.artifacts — foundation layer for typed artifact envelopes.
 
-Top-Surface-Re-Export des Artefakt-BCs (AG3-022 + AG3-023):
+Top-surface re-export of the artifact BC (AG3-022 + AG3-023):
 
-- `ArtifactEnvelope` — Pydantic-v2-Modell fuer Artefakt-Envelopes
-- `ArtifactClass` — re-export aus core_types (FK-71 §71.1.1)
-- `EnvelopeStatus` — re-export aus core_types (FK-71 §71.2)
-- `ArtifactReference` — getypte Referenz auf ein Artefakt
-- `ArtifactRepository` — Protocol fuer Persistenz-Backend
-- `ArtifactManager` — Top-Surface write/read/exists (AG3-023)
-- `ArtifactNotFoundError` — fail-closed bei fehlendem Artefakt
-- `Producer`, `ProducerType`, `ProducerId` — Producer-Typen
-- `EnvelopeValidator` — fuenf-stufiger Envelope-Validator
-- `ProducerRegistry` — Registry der erlaubten Producer
+- `ArtifactEnvelope` — Pydantic-v2 model for artifact envelopes
+- `ArtifactClass` — re-export from core_types (FK-71 §71.1.1)
+- `EnvelopeStatus` — re-export from core_types (FK-71 §71.2)
+- `ArtifactReference` — typed reference to an artifact
+- `ArtifactRepository` — Protocol for the persistence backend
+- `ArtifactManager` — top-surface write/read/exists (AG3-023)
+- `ArtifactNotFoundError` — fail-closed on a missing artifact
+- `Producer`, `ProducerType`, `ProducerId` — producer types
+- `EnvelopeValidator` — five-step envelope validator
+- `ProducerRegistry` — registry of the allowed producers
 
-Architecture-Conformance: Dieses Paket importiert **ausschliesslich**
-aus `agentkit.core_types`. Keine Importe aus `agentkit.state_backend`,
-`agentkit.verify_system` oder `agentkit.governance`.
+Architecture conformance: this package imports **exclusively** from
+`agentkit.core_types`. No imports from `agentkit.state_backend`,
+`agentkit.verify_system` or `agentkit.governance`.
 """
 
 from __future__ import annotations

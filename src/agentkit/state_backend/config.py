@@ -41,25 +41,25 @@ SCHEMA_OVERRIDE_ALLOWED_ENV = "AGENTKIT_PG_SCHEMA_OVERRIDE_ALLOWED"
 # evidence_json = list[str], recorded_at, tags/impact/pattern_ref; new
 # fc_incident_counters table for gap-free FC-YYYY-NNNN allocation).
 # AG3-028 Codex-r2 Remediation 2026-06-01: 3.10.0 -> 3.11.0 (incident_id GLOBAL
-# unique — PK = incident_id allein statt (project_key, incident_id);
-# fc_incident_counters auf year allein gekeyt statt (project_key, year);
-# DB-CHECKs fuer FC-YYYY-NNNN-Format und evidence_json = JSON-Array). PK-/
-# Counter-Struktur aendert sich -> erneuter Side-by-Side-Bump (FK-18 §18.9a):
-# ein frisches ak3_v3_11_0 schema / agentkit_3_11_0.sqlite wird erzeugt; die
-# alte DB bleibt unangetastet.
-# AG3-028 Codex-r3/r4 Remediation 2026-06-01: 3.11.0 -> 3.12.0. r3 hat die
-# fc_incidents-CHECKs verschaerft (incident_id == FC-YYYY-NNNN mit >=4-stelliger
-# Ziffern-Sequenz; evidence_json = JSON-Array AUS STRINGS via Postgres-jsonpath),
-# OHNE Version-Bump. Da CREATE TABLE IF NOT EXISTS eine bestehende Tabelle nicht
-# ersetzt, behielten bereits gebootete 3.11.0-DBs die alten (schwaecheren)
-# Constraints (zwei DBs gleicher Version, divergentes Schema). Der Bump auf
-# 3.12.0 stellt den Side-by-Side-Vertrag (FK-18 §18.9a) wieder her: die
-# verschaerften Constraints landen frisch in ak3_v3_12_0 / agentkit_3_12_0.sqlite.
-# AG3-028 Codex-r6 Remediation 2026-06-01: 3.12.0 -> 3.13.0. Auch fuer die
-# OPTIONALE Spalte tags wird jetzt die JSON-Array-AUS-STRINGS-Form DB-seitig
-# erzwungen (Postgres-CHECK via jsonpath; SQLite Array-CHECK + Element-Trigger).
-# Zuvor liessen sich tags='"x"'/'{"k":"v"}' als Nicht-Array durchschmuggeln.
-# Constraint-Aenderung -> Side-by-Side-Bump (FK-18 §18.9a): frisch in
+# unique — PK = incident_id alone instead of (project_key, incident_id);
+# fc_incident_counters keyed on year alone instead of (project_key, year);
+# DB CHECKs for the FC-YYYY-NNNN format and evidence_json = JSON array). The PK/
+# counter structure changes -> another side-by-side bump (FK-18 §18.9a):
+# a fresh ak3_v3_11_0 schema / agentkit_3_11_0.sqlite is created; the
+# old DB stays untouched.
+# AG3-028 Codex-r3/r4 Remediation 2026-06-01: 3.11.0 -> 3.12.0. r3 tightened the
+# fc_incidents CHECKs (incident_id == FC-YYYY-NNNN with a >=4-digit
+# digit sequence; evidence_json = JSON array OF STRINGS via Postgres jsonpath),
+# WITHOUT a version bump. Since CREATE TABLE IF NOT EXISTS does not replace an
+# existing table, already-booted 3.11.0 DBs kept the old (weaker)
+# constraints (two DBs of the same version, divergent schema). The bump to
+# 3.12.0 restores the side-by-side contract (FK-18 §18.9a): the
+# tightened constraints land fresh in ak3_v3_12_0 / agentkit_3_12_0.sqlite.
+# AG3-028 Codex-r6 Remediation 2026-06-01: 3.12.0 -> 3.13.0. The OPTIONAL column
+# tags is now also forced into the JSON-ARRAY-OF-STRINGS form on the DB side
+# (Postgres CHECK via jsonpath; SQLite array CHECK + element trigger).
+# Previously tags='"x"'/'{"k":"v"}' could be smuggled through as a non-array.
+# Constraint change -> side-by-side bump (FK-18 §18.9a): fresh in
 # ak3_v3_13_0 / agentkit_3_13_0.sqlite.
 # AG3-048: 3.13.0 -> 3.14.0 (skill_bindings table added; agent-skills BC
 # persistence, FK-43 §43.4.1 Link-Bindungsvertrag, bc-cut-decisions.md §BC 11.
@@ -73,8 +73,8 @@ SCHEMA_OVERRIDE_ALLOWED_ENV = "AGENTKIT_PG_SCHEMA_OVERRIDE_ALLOWED"
 # §18.9a) — a fresh ak3_v3_14_0 schema / agentkit_3_14_0.sqlite file is created;
 # the old 3.13.0 DB is never touched.
 # AG3-040 Sub-Block (b): 3.14.0 -> 3.15.0 (fc_patterns + fc_check_proposals
-# tables added; FK-41 §41.3.2/§41.3.3, FK-69 §69.3. Schema-Owner failure-corpus,
-# DB-Owner telemetry-and-events. Canonical Postgres (JSONB/jsonpath CHECK) +
+# tables added; FK-41 §41.3.2/§41.3.3, FK-69 §69.3. Schema owner failure-corpus,
+# DB owner telemetry-and-events. Canonical Postgres (JSONB/jsonpath CHECK) +
 # SQLite test-parallel schema with identical semantics. fc_patterns: PK
 # pattern_id (FP-NNNN), CHECK on status (4 pattern-status values), category (12
 # FailureCategory values), promotion_rule (3), risk_level (3), confirmed_by =
@@ -88,8 +88,8 @@ SCHEMA_OVERRIDE_ALLOWED_ENV = "AGENTKIT_PG_SCHEMA_OVERRIDE_ALLOWED"
 # versioned-schema pattern (FK-18 §18.9a) — a fresh ak3_v3_15_0 schema /
 # agentkit_3_15_0.sqlite file is created; the old 3.14.0 DB is never touched.
 # AG3-032 (FK-55 §55.8/§55.10.5, FK-31 §31.2.7): 3.15.0 -> 3.16.0
-# (governance_freeze_records table added; Principal-Capability-Modell. Schema-/
-# DB-Owner governance-and-guards. Canonical Postgres + SQLite test-parallel
+# (governance_freeze_records table added; principal-capability model. Schema/
+# DB owner governance-and-guards. Canonical Postgres + SQLite test-parallel
 # schema with IDENTICAL DDL. The table is the canonical (truth) side of the dual
 # conflict-freeze materialization; the local .agentkit/governance/freeze.json
 # export carries a matching freeze_version. Columns: story_id PK, frozen_at,
@@ -97,10 +97,10 @@ SCHEMA_OVERRIDE_ALLOWED_ENV = "AGENTKIT_PG_SCHEMA_OVERRIDE_ALLOWED"
 # versioned-schema pattern (FK-18 §18.9a): a fresh ak3_v3_16_0 schema /
 # agentkit_3_16_0.sqlite file is created; the old 3.15.0 DB is never touched.
 # AG3-034 (FK-24 §24.3.3, FK-22 §22.3.1 Check 10): 3.16.0 -> 3.17.0
-# (project_mode_lock table added; projektweiter Control-Plane Mode-Lock fuer die
-# Fast/Standard-Mutual-Exclusion. AG3-034 stellt NUR den Read-Pfad fuer
-# Preflight-Check 10 (no_competing_story_mode_active) her — die atomare Setzung
-# beim Story-Start ist AG3-018-Folge (story.md §2.1.2 / §2.2). Schema-/DB-Owner
+# (project_mode_lock table added; project-wide control-plane mode lock for the
+# fast/standard mutual exclusion. AG3-034 provides ONLY the read path for
+# preflight check 10 (no_competing_story_mode_active) — the atomic setting
+# at story start is an AG3-018 follow-up (story.md §2.1.2 / §2.2). Schema/DB owner
 # governance-and-guards. Canonical Postgres + SQLite test-parallel schema with
 # IDENTICAL DDL: project_key PK, active_mode NULL|execution|exploration|fast
 # (CHECK), holder_count >= 0 (CHECK), updated_at. Idempotent side-by-side
@@ -125,7 +125,7 @@ SCHEMA_OVERRIDE_ALLOWED_ENV = "AGENTKIT_PG_SCHEMA_OVERRIDE_ALLOWED"
 # versioned schema (no separate top-level ``analytics`` schema — that would be
 # cross-version-shared and break the side-by-side invariant; see the placement
 # note in postgres_schema.sql). project_key is the leading scope key on every
-# fact/scratchpad table (FK-62 §62.2 Mandantenregel). The MigrationRunner
+# fact/scratchpad table (FK-62 §62.2 tenancy rule). The MigrationRunner
 # (state_backend.migration, FK-62 §62.4) records this as logical analytics
 # version 3.4 in the idempotent ``schema_versions`` cursor. Idempotent
 # side-by-side migration via the versioned-schema pattern (FK-18 §18.9a) — a

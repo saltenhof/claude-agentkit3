@@ -1,21 +1,21 @@
-"""CheckProposal-Modell des Failure-Corpus-BC (FK-41 §41.3.3).
+"""CheckProposal model of the failure-corpus BC (FK-41 §41.3.3).
 
-Blatt-Modul (analog ``incident.py``/``pattern.py``): ``CheckProposal`` ist der
-Record-Typ der ``fc_check_proposals``-Tabelle. Importiert ausschliesslich
-Foundation-Typen (``core_types``), damit kein Import-Zyklus ``failure_corpus``
-<-> ``telemetry`` entsteht.
+Leaf module (analogous to ``incident.py``/``pattern.py``): ``CheckProposal`` is
+the record type of the ``fc_check_proposals`` table. Imports exclusively
+foundation types (``core_types``) so that no import cycle ``failure_corpus``
+<-> ``telemetry`` arises.
 
-Schema-Treue zu FK-41 §41.3.3:
-- Pflichtfelder: project_key, check_id (CHK-NNNN), status (check-status),
-  pattern_ref (-> fc_patterns.pattern_id), invariant, check_type (6 Werte),
+Schema fidelity to FK-41 §41.3.3:
+- Required fields: project_key, check_id (CHK-NNNN), status (check-status),
+  pattern_ref (-> fc_patterns.pattern_id), invariant, check_type (6 values),
   pipeline_stage, pipeline_layer, owner, false_positive_risk, positive_fixtures,
   negative_fixtures, created_at.
 - Optional: approved_at, approved_by, rejected_reason,
   effectiveness_last_checked_at, true_positives_90d, false_positives_90d.
 
-AG3-040 Sub-Block (b): liefert NUR das Record-Modell + Repository-Skelett. Der
-funktionale Producer (``CheckFactory``) und die Check-Ableitungs-Logik sind Out
-of Scope (FK-41 §41.6, Folge-Story).
+AG3-040 sub-block (b): delivers ONLY the record model + repository skeleton. The
+functional producer (``CheckFactory``) and the check-derivation logic are out of
+scope (FK-41 §41.6, follow-up story).
 """
 
 from __future__ import annotations
@@ -29,29 +29,34 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from agentkit.core_types import CheckStatus, CheckType
 
-# FK-41 §41.3.3:265-266: positive_/negative_fixtures sind JSON-Arrays von
-# {description, expected}-Objekten. FAIL-CLOSED erzwingen (symmetrisch zum
-# DB-CHECK/Trigger fc_check_proposals_*_fixtures_shape) — die DB darf keinen
-# fixtures-Wert halten, den der Repo-Decoder nicht lesen kann.
+# FK-41 §41.3.3:265-266: positive_/negative_fixtures are JSON arrays of
+# {description, expected} objects. Enforced FAIL-CLOSED (symmetrical to the
+# DB CHECK/trigger fc_check_proposals_*_fixtures_shape) — the DB may not hold a
+# fixtures value the repo decoder cannot read.
 _REQUIRED_FIXTURE_KEYS = ("description", "expected")
 
-# FK-41 §41.3.3:282: ``approved`` wird durch menschliche Freigabe erreicht;
-# ``active`` ist ein Vorwaerts-Uebergang aus ``approved``. Beide Status setzen
-# daher ``approved_by = human`` voraus (automatische Freigaben unzulaessig).
+# FK-41 §41.3.3:282: ``approved`` is reached by human release; ``active`` is a
+# forward transition from ``approved``. Both statuses therefore require
+# ``approved_by = human`` (automatic releases are not permitted).
 _HUMAN_APPROVAL_STATUSES = frozenset({CheckStatus.APPROVED, CheckStatus.ACTIVE})
 
-# FK-41 §41.3.3: check_id ist ``CHK-NNNN`` (Sequenz mindestens 4-stellig).
-# FAIL-CLOSED erzwingen (symmetrisch zum DB-CHECK fc_check_proposals_id_format).
-# ASCII-only via ``\d`` + ``re.ASCII``: ohne Flag matcht ``\d`` Unicode-Ziffern
-# (z. B. ``CHK-１２３４`` mit Fullwidth-Ziffern), der DB-CHECK aber nur ``[0-9]``.
-# ``re.ASCII`` beschraenkt ``\d`` auf ASCII-Ziffern und haelt damit alle drei
-# Schichten (Pydantic, SQLite, Postgres) deckungsgleich (FK-41 fail-closed,
-# rejects Unicode-Ziffern) und erfuellt zugleich Sonar python:S6353.
+# FK-41 §41.3.3: check_id is ``CHK-NNNN`` (sequence at least 4 digits).
+# Enforced FAIL-CLOSED (symmetrical to the DB CHECK fc_check_proposals_id_format).
+# ASCII-only via ``\d`` + ``re.ASCII``: without the flag ``\d`` matches Unicode
+# digits (e.g. ``CHK-１２３４`` with fullwidth digits), but the DB CHECK only
+# ``[0-9]``. ``re.ASCII`` restricts ``\d`` to ASCII digits and thus keeps all
+# three layers (Pydantic, SQLite, Postgres) congruent (FK-41 fail-closed,
+# rejects Unicode digits) and at the same time satisfies Sonar python:S6353.
 _CHECK_ID_PATTERN = re.compile(r"^CHK-\d{4,}$", re.ASCII)
 
 
 class FalsePositiveRisk(StrEnum):
-    """False-Positive-Risiko eines Check-Proposals (FK-41 §41.3.3)."""
+    """False-positive risk of a check proposal (FK-41 §41.3.3).
+
+    Wire values (``niedrig``/``mittel``/``hoch``) are frozen FK-41 contract
+    strings persisted in the ``false_positive_risk`` column; they are not
+    English-renamed here (ARCH-55 out of scope — concept-level change).
+    """
 
     NIEDRIG = "niedrig"
     MITTEL = "mittel"
@@ -59,7 +64,7 @@ class FalsePositiveRisk(StrEnum):
 
 
 def _validate_check_id(value: str) -> str:
-    """FAIL-CLOSED: check_id MUSS ``CHK-NNNN`` sein (FK-41 §41.3.3)."""
+    """FAIL-CLOSED: check_id MUST be ``CHK-NNNN`` (FK-41 §41.3.3)."""
     if _CHECK_ID_PATTERN.fullmatch(value) is None:
         raise ValueError(
             f"check_id must match CHK-NNNN (FK-41 §41.3.3), got {value!r}"
@@ -68,7 +73,7 @@ def _validate_check_id(value: str) -> str:
 
 
 def _validate_fixtures(value: object, field_name: str) -> list[dict[str, Any]]:
-    """FAIL-CLOSED: fixtures MUSS list[{description, expected}] sein (FK-41 §41.3.3)."""
+    """FAIL-CLOSED: fixtures MUST be list[{description, expected}] (FK-41 §41.3.3)."""
     if not isinstance(value, list):
         raise ValueError(  # noqa: TRY004 — pydantic wraps ValueError into ValidationError
             f"{field_name} must be a JSON array of objects (FK-41 §41.3.3), "
@@ -90,31 +95,31 @@ def _validate_fixtures(value: object, field_name: str) -> list[dict[str, Any]]:
 
 
 class CheckProposalRecord(BaseModel):
-    """Persistiertes Check-Proposal (FK-41 §41.3.3, fc_check_proposals-Zeile).
+    """Persisted check proposal (FK-41 §41.3.3, fc_check_proposals row).
 
-    Frozen/extra-forbid: ein unbekanntes Zusatzfeld ist ein Vertragsbruch
+    Frozen/extra-forbid: an unknown extra field is a contract breach
     (FAIL-CLOSED).
 
     Attributes:
-        check_id: Eindeutige Check-Identitaet (PK, Format ``CHK-NNNN``).
-        project_key: Projekt-Schluessel (Pflicht, FK-41 §41.3.3).
-        status: Check-Lebenszyklus (check-status, 5 Werte).
-        pattern_ref: Verweis auf fc_patterns.pattern_id (Pflicht).
-        invariant: Deterministische Regelaussage (abgeleitet aus Pattern).
-        check_type: Check-Typ (6 FK-41-Werte).
-        pipeline_stage: Ziel-Stage in der Verify-Pipeline.
-        pipeline_layer: Ziel-Layer (1 = Structural, 2 = LLM-Eval, ...).
-        owner: Team-Identifier.
+        check_id: Unique check identity (PK, format ``CHK-NNNN``).
+        project_key: Project key (required, FK-41 §41.3.3).
+        status: Check lifecycle (check-status, 5 values).
+        pattern_ref: Reference to fc_patterns.pattern_id (required).
+        invariant: Deterministic rule statement (derived from the pattern).
+        check_type: Check type (6 FK-41 values).
+        pipeline_stage: Target stage in the verify pipeline.
+        pipeline_layer: Target layer (1 = structural, 2 = LLM eval, ...).
+        owner: Team identifier.
         false_positive_risk: niedrig | mittel | hoch.
-        positive_fixtures: JSON-Array mit ``{description, expected}``.
-        negative_fixtures: JSON-Array mit ``{description, expected}``.
-        created_at: Erstellungszeitpunkt.
-        approved_at: Optionaler Freigabe-Zeitpunkt.
-        approved_by: ``human`` bei Freigabe (automatische Freigaben unzulaessig).
-        rejected_reason: Optionaler Ablehnungsgrund.
-        effectiveness_last_checked_at: Optionaler Wirksamkeits-Pruefzeitpunkt.
-        true_positives_90d: Optionaler 90-Tage-True-Positive-Zaehler.
-        false_positives_90d: Optionaler 90-Tage-False-Positive-Zaehler.
+        positive_fixtures: JSON array with ``{description, expected}``.
+        negative_fixtures: JSON array with ``{description, expected}``.
+        created_at: Creation timestamp.
+        approved_at: Optional release timestamp.
+        approved_by: ``human`` on release (automatic releases not permitted).
+        rejected_reason: Optional rejection reason.
+        effectiveness_last_checked_at: Optional effectiveness-check timestamp.
+        true_positives_90d: Optional 90-day true-positive counter.
+        false_positives_90d: Optional 90-day false-positive counter.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -156,10 +161,10 @@ class CheckProposalRecord(BaseModel):
 
     @model_validator(mode="after")
     def _check_human_approval(self) -> CheckProposalRecord:
-        """FAIL-CLOSED: ``approved``/``active`` erfordert ``approved_by = human`` (FK-41 §41.3.3:282).
+        """FAIL-CLOSED: ``approved``/``active`` requires ``approved_by = human`` (FK-41 §41.3.3:282).
 
-        Spiegelt den konditionalen DB-CHECK ``fc_check_proposals_approved_human``
-        auf beiden Backends: automatische Freigaben sind unzulaessig.
+        Mirrors the conditional DB CHECK ``fc_check_proposals_approved_human``
+        on both backends: automatic releases are not permitted.
         """
         if self.status in _HUMAN_APPROVAL_STATUSES and self.approved_by != "human":
             raise ValueError(

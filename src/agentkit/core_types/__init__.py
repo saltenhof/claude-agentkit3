@@ -1,13 +1,13 @@
-"""Core-Type-Enums (Foundation-Modul).
+"""Core-type enums (foundation module).
 
-Single Source of Truth fuer alle Cross-Cutting-StrEnum-Typen, die von
-mehreren Bounded Contexts gleichzeitig benoetigt werden. Dieses Modul
-darf von KEINEM anderen Modul importieren (kein zyklischer Import);
-es ist ein Bluttyp-0-Foundation-Modul.
+Single source of truth for all cross-cutting StrEnum types that are
+needed by multiple bounded contexts at once. This module may import
+from NO other module (no circular import); it is a blood-type-0
+foundation module.
 
-Story-Anker: AG3-021 (Typisierte Kern-Enums). Wertelisten und
-Wire-Strings sind in AG3-021 §2.1.1.1 normativ; jeder Member wird
-durch den Contract-Test in `tests/contract/core_types/` gepinnt.
+Story anchor: AG3-021 (typed core enums). Value lists and wire strings
+are normative in AG3-021 §2.1.1.1; every member is pinned by the
+contract test in `tests/contract/core_types/`.
 """
 
 from __future__ import annotations

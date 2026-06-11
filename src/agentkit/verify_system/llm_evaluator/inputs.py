@@ -17,8 +17,8 @@ handover artefacts (THEME-009), the ``ImplementationPhaseHandler`` passes a
 ``Layer2ReviewInput`` with empty strings -- Layer-2 reviewers then emit a
 MAJOR finding with code ``"layer2_input.missing"`` rather than silently PASS.
 
-Sichtbarkeitsregel (AC001): importiert ausschliesslich von
-``verify_system.llm_evaluator.*`` und ``verify_system.system``.
+Visibility rule (AC001): imports exclusively from
+``verify_system.llm_evaluator.*`` and ``verify_system.system``.
 """
 
 from __future__ import annotations

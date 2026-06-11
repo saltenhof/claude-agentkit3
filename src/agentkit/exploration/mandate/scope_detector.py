@@ -7,19 +7,19 @@ decision, FK-25 §25.6.3).
 
 FK-25 §25.6.2 compares the change-frame against the story spec. The indicators
 that the concept marks ``HIGH`` and that are derivable from the change-frame
-ALONE (no story-spec comparison; FK-25 §25.4.1 "Signale, keine Beweise") are:
+ALONE (no story-spec comparison; FK-25 §25.4.1 "signals, not proofs") are:
 
 * ``affected_building_blocks`` -- a large number of affected building blocks
-  (FK-25 §25.6.2 indicator 1, "Betroffene Bausteine");
+  (FK-25 §25.6.2 indicator 1, "affected building blocks");
 * ``unplanned_contracts`` -- a broad cross-array contract-change surface
-  (FK-25 §25.6.2 indicator 2, "Ungeplante Schnittstellen");
+  (FK-25 §25.6.2 indicator 2, "unplanned interfaces");
 * ``cross_module_contract`` -- contract changes spread across MULTIPLE contract
-  dimensions AND many affected blocks (FK-25 §25.6.2 indicator 3, "Vertrags-
-  aenderungen an nicht-deklarierten Modulen").
+  dimensions AND many affected blocks (FK-25 §25.6.2 indicator 3, "contract
+  changes on non-declared modules").
 
 These are deterministic SIGNALS on non-deterministic worker input. The
-thresholds are concept-anchored Richtwerte (FK-25 §25.6.2). >= 2 HIGH indicators
-=> ``triggered=True`` (Klasse 3).
+thresholds are concept-anchored reference values (FK-25 §25.6.2). >= 2 HIGH
+indicators => ``triggered=True`` (Klasse 3).
 """
 
 from __future__ import annotations
@@ -33,11 +33,11 @@ if TYPE_CHECKING:
     from agentkit.exploration.change_frame import ChangeFrame
 
 #: A change frame touching more than this many building blocks signals a large
-#: footprint (FK-25 §25.6.2 indicator 1 "> 50% mehr als erwartet", here applied
-#: change-frame-internally as an absolute Richtwert without the story baseline).
+#: footprint (FK-25 §25.6.2 indicator 1 "> 50% more than expected", here applied
+#: change-frame-internally as an absolute reference value without the story baseline).
 _AFFECTED_BLOCKS_HIGH_THRESHOLD: Final[int] = 5
 #: More than this many total contract changes (across the four arrays) signals
-#: an unplanned-contract explosion (FK-25 §25.6.2 indicator 2 "> 2 ungeplant").
+#: an unplanned-contract explosion (FK-25 §25.6.2 indicator 2 "> 2 unplanned").
 _UNPLANNED_CONTRACTS_HIGH_THRESHOLD: Final[int] = 4
 #: Contract changes spread over at least this many of the four contract
 #: dimensions signal cross-module contract reach (FK-25 §25.6.2 indicator 3).
@@ -48,7 +48,7 @@ _CROSS_MODULE_AFFECTED_THRESHOLD: Final[int] = 3
 
 
 class ScopeIndicatorWeight(StrEnum):
-    """Indicator weight (FK-25 §25.6.2 "Gewicht"). HIGH indicators count."""
+    """Indicator weight (FK-25 §25.6.2 "weight"). HIGH indicators count."""
 
     HIGH = "high"
     MEDIUM = "medium"

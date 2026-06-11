@@ -1,6 +1,6 @@
 """FineDesignSubprocess -- the Klasse-2 fine-design skeleton (FK-25 §25.5).
 
-FK-25 §25.5 (Schritt J) resolves a Klasse-2 finding (a technical fine-design
+FK-25 §25.5 (step J) resolves a Klasse-2 finding (a technical fine-design
 decision within the normative frame) through an ITERATIVE multi-LLM discussion
 led by the harness agent (ChatGPT mandatory, Qwen preferred), bounded at 10
 rounds, converging to a documented decision.
@@ -11,14 +11,14 @@ The FULL multi-LLM discussion (ChatGPT-mandatory acquire/send/release over the
 LLM hub, ``llm_session_stats`` post-hoc verification, hook-based round
 enforcement, the non-reachability escalation ``infra_unavailable``) is a
 deliberate FOLLOW-UP story (AG3-047 §2.2 out-of-scope). This class provides the
-deterministic GERUEST:
+deterministic SCAFFOLD:
 
 * a bounded loop of at most ``max_rounds`` rounds (default 10, FK-25 §25.5.1);
 * ONE injected :class:`FineDesignEvaluator` call per round (the single-LLM
   stand-in for the future multi-LLM exchange -- NO secret multi-LLM invention);
 * termination as ``converged`` (an evaluator round reports convergence) or
   ``max_rounds_exceeded`` (the round ceiling was hit without convergence,
-  FK-25 §25.5.1 "Nach Runde 10 terminiert der Agent").
+  FK-25 §25.5.1 "after round 10 the agent terminates").
 
 The evaluator is an injected boundary port so the bloodgroup-A core performs no
 LLM transport itself; the productive multi-LLM adapter replaces the single-call
@@ -34,7 +34,7 @@ from pydantic import BaseModel, ConfigDict
 if TYPE_CHECKING:
     from agentkit.exploration.change_frame import ChangeFrame
 
-#: Default round ceiling (FK-25 §25.5.1: "Maximal 10 Runden").
+#: Default round ceiling (FK-25 §25.5.1: "at most 10 rounds").
 DEFAULT_MAX_ROUNDS: Final[int] = 10
 
 
@@ -43,8 +43,8 @@ class FineDesignEvaluatorUnavailableError(RuntimeError):
 
     Raised by a :class:`FineDesignEvaluator` whose advising-LLM backend is not
     reachable / not yet wired, i.e. the FK-25 §25.5.4 non-reachability case
-    ("steht kein zweites LLM zur Verfuegung ... Abbruch, Eskalation an den
-    Menschen"). This is NOT a failure to converge (that is a real, completed
+    ("no second LLM is available ... abort, escalation to the human"). This is
+    NOT a failure to converge (that is a real, completed
     discussion that hit the round limit); it is the honest signal that no real
     fine-design discussion could be held at all. The bounded subprocess shell
     deliberately does NOT swallow this error -- it propagates so the caller

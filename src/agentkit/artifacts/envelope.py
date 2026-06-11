@@ -1,29 +1,29 @@
-"""ArtifactEnvelope — typisiertes Artefakt-Envelope-Modell.
+"""ArtifactEnvelope — typed artifact-envelope model.
 
-Abgrenzung der Schema-Versionen
---------------------------------
-- ``ENVELOPE_SCHEMA_VERSION = "3.0"`` — Wire-Schema-Version dieses
-  Envelope-Formats (FK-71 §71.2). Diese Konstante gehoert dem
-  ``agentkit.artifacts``-BC und ist unveraenderlich durch externe
-  Storage-Schema-Migrationen.
+Distinction of the schema versions
+-----------------------------------
+- ``ENVELOPE_SCHEMA_VERSION = "3.0"`` — wire-schema version of this
+  envelope format (FK-71 §71.2). This constant belongs to the
+  ``agentkit.artifacts`` BC and is immutable to external
+  storage-schema migrations.
 
-- ``agentkit.state_backend.config.SCHEMA_VERSION`` (z.B. ``"3.3.0"``) —
-  Storage-Schema-Version der Postgres-/SQLite-Persistenzschicht (FK-18
-  §18.9a). Die beiden Versionen sind bewusst getrennt; ein Drift der
-  Storage-Version aendert nicht den Envelope-Wire-String.
+- ``agentkit.state_backend.config.SCHEMA_VERSION`` (e.g. ``"3.3.0"``) —
+  storage-schema version of the Postgres/SQLite persistence layer (FK-18
+  §18.9a). The two versions are deliberately separate; a drift of the
+  storage version does not change the envelope wire string.
 
-Pflichtfelder und Validatoren (FK-71 §71.2, AG3-022 §2.1.2):
+Required fields and validators (FK-71 §71.2, AG3-022 §2.1.2):
 
-- ``schema_version`` — ``Literal["3.0"]`` (kein Drift mit state_backend)
-- ``story_id`` — Story-Display-ID, Pattern ``^[A-Z][A-Z0-9]+-\\d+$``
-- ``run_id`` — Run-Korrelation
-- ``stage`` — Stage-ID (String; StageRegistry-Bindung in THEME-009)
-- ``attempt`` — Versuchszaehler (>= 1)
-- ``producer`` — typisierter Producer
-- ``started_at`` / ``finished_at`` — UTC-Timestamps; ``finished_at >= started_at``
-- ``status`` — ``EnvelopeStatus`` aus ``core_types``
-- ``artifact_class`` — ``ArtifactClass`` aus ``core_types``
-- ``payload`` — optionale Nutzdaten
+- ``schema_version`` — ``Literal["3.0"]`` (no drift with state_backend)
+- ``story_id`` — story display id, pattern ``^[A-Z][A-Z0-9]+-\\d+$``
+- ``run_id`` — run correlation
+- ``stage`` — stage id (string; StageRegistry binding in THEME-009)
+- ``attempt`` — attempt counter (>= 1)
+- ``producer`` — typed producer
+- ``started_at`` / ``finished_at`` — UTC timestamps; ``finished_at >= started_at``
+- ``status`` — ``EnvelopeStatus`` from ``core_types``
+- ``artifact_class`` — ``ArtifactClass`` from ``core_types``
+- ``payload`` — optional payload data
 """
 
 from __future__ import annotations
@@ -38,9 +38,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from agentkit.artifacts.producer import Producer
 from agentkit.core_types import ArtifactClass, EnvelopeStatus
 
-#: Wire-Schema-Version des ArtifactEnvelope-Formats (FK-71 §71.2).
-#: Nicht verwechseln mit ``agentkit.state_backend.config.SCHEMA_VERSION``
-#: (Storage-Schema-Version).
+#: Wire-schema version of the ArtifactEnvelope format (FK-71 §71.2).
+#: Not to be confused with ``agentkit.state_backend.config.SCHEMA_VERSION``
+#: (storage-schema version).
 ENVELOPE_SCHEMA_VERSION: Final[str] = "3.0"
 
 #: Story-Display-ID-Pattern (``{PREFIX}-{NNN}``, FK-02 §2.3.1). SINGLE SOURCE OF
@@ -54,30 +54,30 @@ ENVELOPE_SCHEMA_VERSION: Final[str] = "3.0"
 #: embedded newline, control characters or surrounding whitespace are rejected.
 STORY_ID_PATTERN: Final[re.Pattern[str]] = re.compile(r"\A[A-Z][A-Z0-9]+-\d+\Z")
 _STORY_ID_PATTERN: re.Pattern[str] = STORY_ID_PATTERN
-#: Stage-ID-Pattern: lowercase Start, alphanumerisch mit ``-``/``_``
-#: (kebab/snake), 1-64 Zeichen. Bindung an die StageRegistry erfolgt in
-#: THEME-009; bis dahin gilt mindestens dieses Strukturpattern.
+#: Stage-id pattern: lowercase start, alphanumeric with ``-``/``_``
+#: (kebab/snake), 1-64 characters. Binding to the StageRegistry happens in
+#: THEME-009; until then at least this structural pattern applies.
 _STAGE_ID_PATTERN: re.Pattern[str] = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 
 
 class ArtifactEnvelope(BaseModel):
-    """Pydantic-v2-Modell fuer ein typisiertes Artefakt-Envelope.
+    """Pydantic-v2 model for a typed artifact envelope.
 
-    Alle Instanzen sind immutabel (``frozen=True``) und lassen keine
-    unbekannten Felder zu (``extra="forbid"``).
+    All instances are immutable (``frozen=True``) and allow no unknown
+    fields (``extra="forbid"``).
 
     Attributes:
-        schema_version: Wire-Schema-Version; immer ``"3.0"``.
-        story_id: Story-Display-ID (z.B. ``AG3-042``).
-        run_id: Run-Korrelations-ID.
-        stage: Stage-ID (freier String; StageRegistry-Bindung folgt).
-        attempt: Versuchszaehler, muss >= 1 sein.
-        producer: Getypter Producer-Record.
-        started_at: Startzeitpunkt (UTC).
-        finished_at: Endzeitpunkt (UTC); muss >= ``started_at`` sein.
-        status: Envelope-Status aus ``EnvelopeStatus``.
-        artifact_class: Erzeugerklasse aus ``ArtifactClass``.
-        payload: Optionale Nutzdaten (beliebige JSON-serialisierbare Daten).
+        schema_version: Wire-schema version; always ``"3.0"``.
+        story_id: Story display id (e.g. ``AG3-042``).
+        run_id: Run correlation id.
+        stage: Stage id (free string; StageRegistry binding follows).
+        attempt: Attempt counter, must be >= 1.
+        producer: Typed producer record.
+        started_at: Start time (UTC).
+        finished_at: End time (UTC); must be >= ``started_at``.
+        status: Envelope status from ``EnvelopeStatus``.
+        artifact_class: Producer class from ``ArtifactClass``.
+        payload: Optional payload data (any JSON-serializable data).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -110,9 +110,9 @@ class ArtifactEnvelope(BaseModel):
     def _validate_stage(cls, v: str) -> str:
         if not _STAGE_ID_PATTERN.match(v):
             msg = (
-                f"stage '{v}' entspricht nicht dem Pattern "
+                f"stage '{v}' does not match pattern "
                 r"'^[a-z][a-z0-9_-]{0,63}$' "
-                "(kleinbuchstaben, kebab/snake, 1-64 Zeichen)"
+                "(lowercase, kebab/snake, 1-64 characters)"
             )
             raise ValueError(msg)
         return v
@@ -121,32 +121,31 @@ class ArtifactEnvelope(BaseModel):
     @classmethod
     def _validate_attempt(cls, v: int) -> int:
         if v < 1:
-            msg = f"attempt muss >= 1 sein, erhalten: {v}"
+            msg = f"attempt must be >= 1, received: {v}"
             raise ValueError(msg)
         return v
 
     @field_validator("started_at", "finished_at")
     @classmethod
     def _validate_utc(cls, v: datetime) -> datetime:
-        """Erzwingt tz-aware Datetimes mit UTC-Offset.
+        """Enforce tz-aware datetimes with a UTC offset.
 
-        FK-71 §71.2 verlangt ISO-8601-Timestamps mit Zeitzone; AG3-022
-        Story-§2.1.2 spezifiziert UTC. Naive Datetimes oder Non-UTC-
-        Offsets sind fail-closed verboten, damit Audit- und
-        Reproduzierbarkeitspruefungen nicht an Zeitzonen-Drift
-        scheitern.
+        FK-71 §71.2 requires ISO-8601 timestamps with a timezone; AG3-022
+        story §2.1.2 specifies UTC. Naive datetimes or non-UTC offsets are
+        fail-closed forbidden so that audit and reproducibility checks do
+        not fail on timezone drift.
         """
         if v.tzinfo is None:
             msg = (
-                f"timestamp muss tz-aware sein, naive datetime nicht "
-                f"zulaessig: {v!r}"
+                f"timestamp must be tz-aware, naive datetime not "
+                f"allowed: {v!r}"
             )
             raise ValueError(msg)
         offset = v.utcoffset()
         if offset is None or offset != timedelta(0):
             msg = (
-                f"timestamp muss UTC-Offset 0 haben (FK-71 §71.2), "
-                f"erhalten: {v!r} mit Offset {offset}"
+                f"timestamp must have UTC offset 0 (FK-71 §71.2), "
+                f"received: {v!r} with offset {offset}"
             )
             raise ValueError(msg)
         return v
@@ -156,21 +155,20 @@ class ArtifactEnvelope(BaseModel):
     def _validate_payload_json_serialisable(
         cls, v: dict[str, Any] | None,
     ) -> dict[str, Any] | None:
-        """Erzwingt JSON-Serialisierbarkeit des Payloads.
+        """Enforce JSON-serializability of the payload.
 
-        Pydantic v2 lehnt dict-Inhalte mit beliebigen Python-Objekten
-        nicht automatisch ab. Diese Validator-Pruefung versucht eine
-        kanonische JSON-Serialisierung und schlaegt fail-closed fehl,
-        sobald ein Wert nicht JSON-konvertierbar ist — passt zur
-        Wire-Pflicht aus AG3-022 §2.1.2 ("Pydantic-konforme
-        Serialisierung").
+        Pydantic v2 does not automatically reject dict contents with
+        arbitrary Python objects. This validator check attempts a
+        canonical JSON serialization and fails closed as soon as a value
+        is not JSON-convertible — matching the wire requirement from
+        AG3-022 §2.1.2 ("Pydantic-conformant serialization").
         """
         if v is None:
             return v
         try:
             json.dumps(v, sort_keys=True, default=None)
         except TypeError as exc:
-            msg = f"payload ist nicht JSON-serialisierbar: {exc}. Erlaubt sind nur Werte, die json.dumps verarbeiten kann."
+            msg = f"payload is not JSON-serializable: {exc}. Only values that json.dumps can process are allowed."
             raise ValueError(msg) from exc
         return v
 
@@ -178,8 +176,8 @@ class ArtifactEnvelope(BaseModel):
     def _validate_finished_at(self) -> ArtifactEnvelope:
         if self.finished_at < self.started_at:
             msg = (
-                f"finished_at ({self.finished_at}) muss >= started_at "
-                f"({self.started_at}) sein"
+                f"finished_at ({self.finished_at}) must be >= started_at "
+                f"({self.started_at})"
             )
             raise ValueError(msg)
         return self

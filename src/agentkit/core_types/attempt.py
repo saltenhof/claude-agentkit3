@@ -1,12 +1,12 @@
-"""AttemptOutcome und FailureCause — Audit-Log-Klassifikation.
+"""AttemptOutcome and FailureCause — audit-log classification.
 
 Source of truth:
-- AttemptOutcome: FK-39 §39.4.2, Z. 391-402.
-- FailureCause: FK-39 §39.4.3, Z. 404-422 (16 Werte).
+- AttemptOutcome: FK-39 §39.4.2, lines 391-402.
+- FailureCause: FK-39 §39.4.3, lines 404-422 (16 values).
 
-`AttemptRecord` dokumentiert jeden Phase-Durchlauf typisiert. Die
-`AttemptRecord`-Schema-Anpassung selbst gehoert zu AG3-025; diese
-Datei stellt nur die Enum-Verfuegbarkeit her.
+`AttemptRecord` documents every phase run in a typed manner. The
+`AttemptRecord` schema adjustment itself belongs to AG3-025; this file
+only provides the enum availability.
 """
 
 from __future__ import annotations
@@ -15,16 +15,16 @@ from enum import StrEnum
 
 
 class AttemptOutcome(StrEnum):
-    """Phase-Durchlauf-Ergebnis pro FK-39 §39.4.2.
+    """Phase-run outcome per FK-39 §39.4.2.
 
     Attributes:
-        COMPLETED: Phase-Versuch erfolgreich abgeschlossen.
-        FAILED: Phase-Versuch fehlgeschlagen (Remediation moeglich).
-        ESCALATED: Phase-Versuch eskaliert (menschliche Intervention).
-        SKIPPED: Phase wurde uebersprungen (z.B. Exploration im
-            Execution-Mode).
-        YIELDED: Phase in PAUSED-Zustand uebergegangen.
-        BLOCKED: Phase durch Guard oder Precondition blockiert.
+        COMPLETED: Phase attempt completed successfully.
+        FAILED: Phase attempt failed (remediation possible).
+        ESCALATED: Phase attempt escalated (human intervention).
+        SKIPPED: Phase was skipped (e.g. exploration in execution
+            mode).
+        YIELDED: Phase transitioned to the PAUSED state.
+        BLOCKED: Phase blocked by a guard or precondition.
     """
 
     COMPLETED = "COMPLETED"
@@ -36,31 +36,30 @@ class AttemptOutcome(StrEnum):
 
 
 class FailureCause(StrEnum):
-    """Failure-Ursache pro FK-39 §39.4.3 (16 Werte).
+    """Failure cause per FK-39 §39.4.3 (16 values).
 
-    Verbindlich ist FK-39 §39.4.3; der historische Story-Header sprach
-    von 15 Werten — die Konzept-Tabelle hat 16.
+    FK-39 §39.4.3 is authoritative; the historical story header spoke of
+    15 values — the concept table has 16.
 
     Attributes:
-        GUARD_REJECTED: Transition-Guard hat den Phaseneintritt abgelehnt.
-        STRUCTURAL_CHECK_FAIL: Verify-Schicht 1 (deterministisch)
-            fehlgeschlagen.
-        SEMANTIC_REVIEW_FAIL: Verify-Schicht 2 (LLM-Review) fehlgeschlagen.
-        ADVERSARIAL_FINDING: Verify-Schicht 3 (Adversarial) hat Befunde.
-        POLICY_FAIL: Verify-Schicht 4 (Policy Engine) hat FAIL entschieden.
-        WORKER_BLOCKED: Worker meldet unloesbaren Constraint.
-        INTEGRITY_FAIL: Integrity-Gate in Closure fehlgeschlagen.
-        MERGE_FAIL: Merge-Konflikt in Closure.
-        PREFLIGHT_FAIL: Preflight-Checks in Setup fehlgeschlagen.
-        MAX_ROUNDS_EXCEEDED: Feedback-Runden-Limit erreicht.
-        TIMEOUT: Phase hat Zeitlimit ueberschritten.
-        GUARD_FAILED: Guard-Funktion hat eine unerwartete Exception
-            geworfen (technischer Fehler).
-        HANDLER_EXCEPTION: Unerwartete Exception im Phase-Handler.
-        PRECONDITION_FAILED: Semantische Precondition nicht erfuellt
+        GUARD_REJECTED: Transition guard rejected the phase entry.
+        STRUCTURAL_CHECK_FAIL: Verify layer 1 (deterministic) failed.
+        SEMANTIC_REVIEW_FAIL: Verify layer 2 (LLM review) failed.
+        ADVERSARIAL_FINDING: Verify layer 3 (adversarial) has findings.
+        POLICY_FAIL: Verify layer 4 (policy engine) decided FAIL.
+        WORKER_BLOCKED: Worker reports an unsolvable constraint.
+        INTEGRITY_FAIL: Integrity gate in closure failed.
+        MERGE_FAIL: Merge conflict in closure.
+        PREFLIGHT_FAIL: Preflight checks in setup failed.
+        MAX_ROUNDS_EXCEEDED: Feedback-round limit reached.
+        TIMEOUT: Phase exceeded the time limit.
+        GUARD_FAILED: Guard function raised an unexpected exception
+            (technical error).
+        HANDLER_EXCEPTION: Unexpected exception in the phase handler.
+        PRECONDITION_FAILED: Semantic precondition not fulfilled
             (FK-45 §45.2).
-        HANDLER_REPORTED_FAILED: Handler hat selbst FAILED gemeldet.
-        HANDLER_REPORTED_ESCALATED: Handler hat selbst ESCALATED gemeldet.
+        HANDLER_REPORTED_FAILED: Handler reported FAILED itself.
+        HANDLER_REPORTED_ESCALATED: Handler reported ESCALATED itself.
     """
 
     GUARD_REJECTED = "GUARD_REJECTED"

@@ -1,13 +1,13 @@
-"""Value-Types des Failure-Corpus-BC (FK-41 §41.1/§41.3.1/§41.4).
+"""Value types of the failure-corpus BC (FK-41 §41.1/§41.3.1/§41.4).
 
-Blatt-Modul: importiert ausschliesslich stdlib. Keine Abhaengigkeit zu
-telemetry, state_backend oder anderen BCs (Bluttyp-0-naehe; FK-41 §41.1).
+Leaf module: imports only stdlib. No dependency on telemetry, state_backend or
+other BCs (blood-type-0 proximity; FK-41 §41.1).
 
-Quellen:
+Sources:
 - FK-41 §41.3.1 -- IncidentRole (worker | qa | governance)
 - FK-41 §41.4 -- IncidentSeverity (FK-41 §41.3.1: niedrig/mittel/hoch/kritisch;
-  hier als stabile englische Wire-Werte low/medium/high/critical, 4 Stufen)
-- bc-cut-decisions §BC 13 failure-corpus -- Value-Type-Identitaeten
+  here as stable English wire values low/medium/high/critical, 4 levels)
+- bc-cut-decisions §BC 13 failure-corpus -- value-type identities
 """
 
 from __future__ import annotations
@@ -15,8 +15,8 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import NewType
 
-# Stabile fachliche Identitaeten (FK-41 §41.1). NewType statt blossem ``str``,
-# damit IncidentId/PatternId/CheckId nicht vermischbar sind (Typdisziplin).
+# Stable business identities (FK-41 §41.1). NewType instead of a bare ``str``,
+# so that IncidentId/PatternId/CheckId are not interchangeable (type discipline).
 # Format: IncidentId = "FC-YYYY-NNNN" (FK-41 §41.3.1/§41.4.1).
 IncidentId = NewType("IncidentId", str)
 PatternId = NewType("PatternId", str)
@@ -24,24 +24,24 @@ CheckId = NewType("CheckId", str)
 
 
 class IncidentSeverity(StrEnum):
-    """Schwere eines Incidents pro FK-41 §41.3.1/§41.4 (vier Stufen).
+    """Severity of an incident per FK-41 §41.3.1/§41.4 (four levels).
 
-    Eigenstaendige Failure-Corpus-Skala (4 Stufen, fachliche Auswirkung), nicht
-    zu verwechseln mit der verify-system-``core_types.Severity``
-    (BLOCKING/MAJOR/MINOR, 3 Stufen, FK-27 QA-Finding-Blockingness).
+    Independent failure-corpus scale (4 levels, business impact), not to be
+    confused with the verify-system ``core_types.Severity``
+    (BLOCKING/MAJOR/MINOR, 3 levels, FK-27 QA finding blockingness).
 
-    FK-41 §41.3.1 nennt die Stufen ``niedrig | mittel | hoch | kritisch``; hier
-    als stabile englische Wire-Werte (analog ``FailureCategory``). Es gibt in
-    ``core_types`` aktuell KEINE 4-stufige Incident-Severity-Enum als SSOT — die
-    dort vorhandene ``Severity`` ist die FK-27-QA-Skala mit anderer Semantik und
-    nur 3 Werten. Diese Enum ist daher die FK-41-§41.3.1-treue SSOT fuer die
-    ``fc_incidents.severity``-Spalte. Siehe Worker-Notiz (AG3-021-Frage).
+    FK-41 §41.3.1 names the levels ``niedrig | mittel | hoch | kritisch``; here
+    as stable English wire values (analogous to ``FailureCategory``). There is
+    currently NO 4-level incident-severity enum in ``core_types`` as SSOT — the
+    ``Severity`` present there is the FK-27 QA scale with different semantics and
+    only 3 values. This enum is therefore the FK-41 §41.3.1-faithful SSOT for the
+    ``fc_incidents.severity`` column. See worker note (AG3-021 question).
 
     Attributes:
-        LOW: geringe Auswirkung (FK-41 ``niedrig``).
-        MEDIUM: mittlere Auswirkung (FK-41 ``mittel``).
-        HIGH: hohe Auswirkung (FK-41 ``hoch``).
-        CRITICAL: kritische Auswirkung (FK-41 ``kritisch``).
+        LOW: low impact (FK-41 ``niedrig``).
+        MEDIUM: medium impact (FK-41 ``mittel``).
+        HIGH: high impact (FK-41 ``hoch``).
+        CRITICAL: critical impact (FK-41 ``kritisch``).
     """
 
     LOW = "low"
@@ -51,15 +51,15 @@ class IncidentSeverity(StrEnum):
 
 
 class IncidentRole(StrEnum):
-    """Ausfuehrender Akteur eines Incidents pro FK-41 §41.3.1.
+    """Acting actor of an incident per FK-41 §41.3.1.
 
-    Genau die drei FK-41-§41.3.1-Werte (``worker | qa | governance``). Die
-    ``fc_incidents.role``-Spalte CHECK-constrained sich auf diese Werte.
+    Exactly the three FK-41 §41.3.1 values (``worker | qa | governance``). The
+    ``fc_incidents.role`` column CHECK-constrains itself to these values.
 
     Attributes:
-        WORKER: Implementierender Worker-Agent.
-        QA: QA-/Verify-Akteur.
-        GOVERNANCE: Governance-Beobachtung.
+        WORKER: Implementing worker agent.
+        QA: QA/verify actor.
+        GOVERNANCE: Governance observation.
     """
 
     WORKER = "worker"

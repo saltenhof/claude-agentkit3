@@ -58,14 +58,14 @@ def _harness_skill_dir(project_root: Path, harness: HarnessKind) -> Path:
 
     * Claude Code: ``{project_root}/.claude/skills/``
     * Codex:       ``{project_root}/.codex/skills/``
-      (FK-30 §30.11 Codex-Bindungspunkt; path convention follows FK-30
+      (FK-30 §30.11 Codex binding point; path convention follows FK-30
       §30.11 as interpreted in AG3-027; update if FK-30 mandates a
       different path in a future revision)
     """
     if harness == HarnessKind.CLAUDE_CODE:
         return project_root / ".claude" / "skills"
     if harness == HarnessKind.CODEX:
-        return project_root / ".codex" / "skills"  # FK-30 §30.11 Codex-Bindungspunkt
+        return project_root / ".codex" / "skills"  # FK-30 §30.11 Codex binding point
     # Exhaustive — StrEnum ensures only known values pass.
     msg = f"Unknown harness: {harness}"  # pragma: no cover
     raise ValueError(msg)  # pragma: no cover
@@ -363,21 +363,20 @@ class Skills:
     ) -> None:
         """Bind a skill bundle to a project via harness-specific links.
 
-        Pass-2 (Codex giftig 2026-05-24): strikt FK-43 §43.4.1 + FK-50 CP8 —
-        Signatur ist genau die drei Pflicht-Parameter; keine zusaetzlichen
-        Kwargs. Links werden pro Pflicht-Harness erzeugt (Claude Code +
-        Codex aus FK-43 §43.4.1 AK4; Multi-Harness-Pflicht ab Tag 1).
+        Pass-2 (Codex giftig 2026-05-24): strictly FK-43 §43.4.1 + FK-50 CP8 —
+        the signature is exactly the three mandatory parameters; no additional
+        kwargs. Links are created per mandatory harness (Claude Code +
+        Codex from FK-43 §43.4.1 AK4; multi-harness mandatory from day one).
 
-        Plattformabhaengig (FK-43 §43.4.1.1): ein Symlink auf POSIX, eine
-        Directory Junction auf Windows. Die Junction braucht keinen Developer
-        Mode; der tatsaechlich verwendete Modus wird im ``SkillBinding``
-        persistiert.
+        Platform-dependent (FK-43 §43.4.1.1): a symlink on POSIX, a directory
+        junction on Windows. The junction needs no Developer Mode; the mode
+        actually used is persisted in the ``SkillBinding``.
 
         Lifecycle (formal.skills-and-bundles.state-machine):
         REQUESTED -> PROFILE_RESOLVED -> BUNDLE_SELECTED -> BOUND -> VERIFIED.
-        Profile-/Bundle-Resolution ist Caller-Vorarbeit (FK-50 CP6/CP7);
-        ``bind_skill`` empfaengt einen konkreten ``bundle_root`` und durchlaeuft
-        die Lifecycle-Stages deterministisch zur Persistenz.
+        Profile/bundle resolution is caller preparation (FK-50 CP6/CP7);
+        ``bind_skill`` receives a concrete ``bundle_root`` and walks the
+        lifecycle stages deterministically to persistence.
 
         Invariant ``project_binding_is_link_only``: no file-copying is
         permitted. If the OS link call fails, ``SkillBindingFailedError`` is
@@ -411,7 +410,7 @@ class Skills:
         pinned_at = datetime.now(tz=UTC)
         bid = _binding_id_for(effective_project_key, skill_name)
 
-        # Multi-harness Pflicht ab Tag 1 (FK-43 §43.4.1 AK4).
+        # Multi-harness mandatory from day one (FK-43 §43.4.1 AK4).
         harnesses: tuple[HarnessKind, ...] = (HarnessKind.CLAUDE_CODE, HarnessKind.CODEX)
         canonical_target = (
             _harness_skill_dir(project_root, HarnessKind.CLAUDE_CODE) / skill_name

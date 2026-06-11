@@ -1,11 +1,11 @@
-"""Failure-Corpus-BC: Top-Surface + IncidentTriage (FK-41, AG3-028).
+"""Failure-corpus BC: top-surface + IncidentTriage (FK-41, AG3-028).
 
-Re-Export der oeffentlichen Vertrags-Surface. Nur ``record_incident`` ist in
-dieser Story funktional; die uebrigen Top-Methoden sind Vertrags-Slots fuer
-Folge-Stories (PatternPromotion/CheckFactory).
+Re-export of the public contract surface. Only ``record_incident`` is
+functional in this story; the remaining top methods are contract slots for
+follow-up stories (PatternPromotion/CheckFactory).
 
-``IncidentStatus`` ist die kanonische SSOT in ``agentkit.core_types`` (KONFLIKT-1)
-und wird hier nur durchgereicht.
+``IncidentStatus`` is the canonical SSOT in ``agentkit.core_types`` (CONFLICT-1)
+and is only passed through here.
 """
 
 from __future__ import annotations

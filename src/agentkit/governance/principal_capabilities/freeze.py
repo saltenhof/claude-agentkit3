@@ -23,8 +23,8 @@ writes the backend record first, then the export (atomic ordering, §55.10.5).
 
 BOTH materializations are consulted on every read (:meth:`is_frozen`). A
 stale / missing / mismatched local export versus the backend record is NOT a
-silent pass: per §55.10.5 "Ein Call mit veraltetem oder fehlendem Freeze-Kontext
-wird blockiert" the overlay treats any disagreement as *frozen* (fail-closed —
+silent pass: per §55.10.5 "a call with a stale or missing freeze context is
+blocked" the overlay treats any disagreement as *frozen* (fail-closed —
 block mutations).
 
 AK10 (AG3-032): this package imports only ``core_types`` and
@@ -161,7 +161,7 @@ def _frozen_at_now() -> str:
 
 
 class ConflictFreezeOverlay:
-    """Applies the storybezogenen conflict-freeze on top of a base verdict.
+    """Applies the story-scoped conflict-freeze on top of a base verdict.
 
     Args:
         store: Canonical freeze persistence (the truth side of the dual
@@ -255,8 +255,8 @@ class ConflictFreezeOverlay:
         - both agree there IS a freeze AND the freeze_versions match → ``True``.
         - any disagreement (one says frozen and the other is missing / for a
           different story / a mismatched freeze_version) → ``True`` (a stale or
-          incomplete freeze context blocks — §55.10.5 "veraltet oder fehlend
-          → blockiert").
+          incomplete freeze context blocks — §55.10.5 "stale or missing
+          → blocked").
 
         When the overlay is wired with only one side (no backend store, or no
         local export — test/degraded wiring) that single side is authoritative.

@@ -1,18 +1,18 @@
-"""StorySize und StoryMode — Story-Stammdaten-Enums.
+"""StorySize and StoryMode — story master-data enums.
 
 Source of truth:
 - StorySize: DK-10 §10.4 — concept/domain-design/10-story-lifecycle-und-erstellung.md
-  (5 Stufen XS/S/M/L/XL; kein XXL, kein epic).
+  (5 levels XS/S/M/L/XL; no XXL, no epic).
 - StoryMode: FK-24 §24.3.2 — concept/technical-design/24_story_type_mode_terminalitaet.md.
 
-`execution_route` ist `StoryMode | None`; nicht-implementierende Storys
-tragen `None`, nicht einen eigenen Sentinel-Enum-Wert. Die zulaessigen
-StoryMode-Werte sind in der Klasse selbst dokumentiert.
+`execution_route` is `StoryMode | None`; non-implementing stories carry
+`None`, not a dedicated sentinel enum value. The permitted StoryMode
+values are documented in the class itself.
 
-Der Fast/Standard-Modus (AG3-018) ist eine SEPARATE Achse (FK-24
-§24.3.3) und gehoert NICHT in ``StoryMode``/``execution_route``. Er wird
-ueber ``WireStoryMode`` (story_model) gefuehrt und am Runtime-Context als
-``StoryContext.mode`` durchgereicht.
+The fast/standard mode (AG3-018) is a SEPARATE axis (FK-24 §24.3.3) and
+does NOT belong in ``StoryMode``/``execution_route``. It is carried via
+``WireStoryMode`` (story_model) and passed through on the runtime context
+as ``StoryContext.mode``.
 """
 
 from __future__ import annotations
@@ -21,16 +21,16 @@ from enum import StrEnum
 
 
 class StorySize(StrEnum):
-    """Story-Groesse pro DK-10 §10.4.
+    """Story size per DK-10 §10.4.
 
-    Wire-Wert ist identisch zum Python-Member (upper-case).
+    Wire value is identical to the Python member (upper-case).
 
     Attributes:
-        XS: 1-2 Dateien, 1 Modul, kein neuer Test noetig.
-        S: 3-10 Dateien, 1 Modul, wenige Unit-Tests.
-        M: 10-30 Dateien, 1-2 Module, Unit- und Integrationstests.
-        L: 30-80 Dateien, 2-4 Module, Unit/Integration/E2E.
-        XL: 80+ Dateien, 4+ Module, Architekturwirksam.
+        XS: 1-2 files, 1 module, no new test needed.
+        S: 3-10 files, 1 module, few unit tests.
+        M: 10-30 files, 1-2 modules, unit and integration tests.
+        L: 30-80 files, 2-4 modules, unit/integration/E2E.
+        XL: 80+ files, 4+ modules, architecture-affecting.
     """
 
     XS = "XS"
@@ -41,21 +41,21 @@ class StorySize(StrEnum):
 
 
 class StoryMode(StrEnum):
-    """Execution-Route fuer einen governenden Story-Lauf.
+    """Execution route for a governing story run.
 
-    Genau zwei Werte; `execution_route` ist `StoryMode | None` und
-    traegt `None` fuer nicht-implementierende Storys (FK-24 §24.3.2:
+    Exactly two values; `execution_route` is `StoryMode | None` and
+    carries `None` for non-implementing stories (FK-24 §24.3.2:
     `execution` / `exploration` / `None`).
 
-    Achtung: `mode`/`execution_route` darf nicht mit `operating_mode`
-    aus FK-56 verwechselt werden — letzteres trennt `ai_augmented`
-    und `story_execution`. Ebenso ist der Fast/Standard-Modus (AG3-018,
-    FK-24 §24.3.3) eine SEPARATE Achse und KEIN ``execution_route``-Wert;
-    er wird ueber ``WireStoryMode`` / ``StoryContext.mode`` gefuehrt.
+    Note: `mode`/`execution_route` must not be confused with
+    `operating_mode` from FK-56 — the latter separates `ai_augmented`
+    and `story_execution`. Likewise the fast/standard mode (AG3-018,
+    FK-24 §24.3.3) is a SEPARATE axis and NOT an ``execution_route`` value;
+    it is carried via ``WireStoryMode`` / ``StoryContext.mode``.
 
     Attributes:
-        EXECUTION: Direkter Execution-Pfad ohne Exploration-Vorlauf.
-        EXPLORATION: Exploration-Pfad als Vorlauf vor Implementation.
+        EXECUTION: Direct execution path without an exploration prelude.
+        EXPLORATION: Exploration path as a prelude before implementation.
     """
 
     EXECUTION = "execution"

@@ -1,10 +1,10 @@
-"""Write-ordering helper for phasenabschliessende Persistenz.
+"""Write-ordering helper for phase-completing persistence.
 
 Canonical implementation of FK-39 §39.4.4: AttemptRecord BEFORE PhaseState.
 
-Crash-Safety-Invariante: bei Crash zwischen den beiden Schreibvorgaengen
-bleibt der AttemptRecord lesbar und der PhaseState zeigt den vorherigen
-Stand. Recovery-Logik kann darauf aufsetzen.
+Crash-safety invariant: on a crash between the two writes the AttemptRecord
+stays readable and the PhaseState shows the previous state. Recovery logic
+can build on that.
 """
 
 from __future__ import annotations
@@ -44,13 +44,13 @@ def save_phase_completion(
 ) -> None:
     """Persist AttemptRecord BEFORE PhaseState (FK-39 §39.4.4 write-ordering).
 
-    This is the single canonical call site that enforces the phasenabschliessende
+    This is the single canonical call site that enforces the phase-completing
     write ordering: ``save_attempt`` first, then ``save_phase_state``.
 
-    Crash-Safety-Invariante: bei Crash zwischen den beiden Schreibvorgaengen
-    bleibt der AttemptRecord in der DB und der PhaseState zeigt noch den
-    vorherigen Stand. Recovery-Logik liest den AttemptRecord und setzt auf
-    dem letzten bekannten PhaseState auf (FK-39 §39.4.4 Z. 431-437).
+    Crash-safety invariant: on a crash between the two writes the AttemptRecord
+    stays in the DB and the PhaseState still shows the previous state. Recovery
+    logic reads the AttemptRecord and builds on the last known PhaseState
+    (FK-39 §39.4.4 lines 431-437).
 
     Args:
         story_dir: Root directory for this story's persistent state.
@@ -60,5 +60,5 @@ def save_phase_completion(
         attempt_record: The ``AttemptRecord`` documenting this attempt; always
             written first.
     """
-    save_attempt(story_dir, attempt_record)       # AttemptRecord ZUERST
-    save_phase_state(story_dir, envelope.state)   # PhaseState DANACH
+    save_attempt(story_dir, attempt_record)       # AttemptRecord FIRST
+    save_phase_state(story_dir, envelope.state)   # PhaseState AFTERWARDS

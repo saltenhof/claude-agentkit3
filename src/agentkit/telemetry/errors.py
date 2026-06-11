@@ -15,7 +15,7 @@ __all__ = (
 class ProjectionRecordTypeMismatchError(TypeError):
     """Raised when a ``ProjectionRecord`` type does not match the expected ``ProjectionKind``.
 
-    Per FK-69 §69.4 (Schreib-Ownership): each ProjectionKind maps to exactly
+    Per FK-69 §69.4 (write ownership): each ProjectionKind maps to exactly
     one Record type. Passing the wrong record type is a programming error
     (FAIL-CLOSED: raise, never silently coerce).
 

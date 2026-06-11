@@ -3,9 +3,9 @@
 The :class:`SelfProtectionGuard` blocks a mutation of the governance
 infrastructure by a principal the concept does not grant for the targeted zone.
 It is **always active**, independent of the operating mode (FK-30 §30.5.4
-"Dieser Hook ist immer aktiv"). It is a Schicht-A (threat-level-1+2) guard: it
+"this hook is always active"). It is a layer-A (threat-level-1+2) guard: it
 acts on the structured target keys and on the *visible* Bash mutation targets
-(FK-55 §55.10.2); active obfuscation (Schicht B) is out of scope.
+(FK-55 §55.10.2); active obfuscation (layer B) is out of scope.
 
 Protected targets come exclusively from the ``SELF_PROTECTION_*`` registry in
 :mod:`agentkit.governance.guard_system.protected_paths` (SINGLE SOURCE OF TRUTH;
@@ -23,7 +23,7 @@ the :class:`PathClassifier` (lock-records, edge-bundle / freeze exports,
   governance-plane and git internals. FK-15 §15.4.1 / §15.7.3 + FK-30 §30.3.3
   ground :attr:`Principal.PIPELINE_DETERMINISTIC` (Zone-2 scripts),
   :attr:`Principal.ADMIN_SERVICE` (official reset/split/resolve) and
-  :attr:`Principal.HUMAN_CLI` (the FK-15 §15.4.1 "Mensch über Admin/CLI" path).
+  :attr:`Principal.HUMAN_CLI` (the FK-15 §15.4.1 "human via Admin/CLI" path).
 
 Runtime dispatch is wired in
 :func:`agentkit.governance.runner._run_self_protection_guard` for the
@@ -88,8 +88,8 @@ class SelfProtectionGuard:
     )
 
     #: governance zone — lock-records / governance config / manifest / git.
-    #: FK-15 §15.4.1 ("Lock-Record erstellen/beenden": Pipeline-Skript ✅, Mensch
-    #: ✅ über Admin/CLI) + FK-30 §30.3.3 (official reset/split service path).
+    #: FK-15 §15.4.1 ("create/end lock record": pipeline script yes, human yes
+    #: via Admin/CLI) + FK-30 §30.3.3 (official reset/split service path).
     _GOVERNANCE_PRINCIPALS: frozenset[Principal] = frozenset(
         {
             Principal.PIPELINE_DETERMINISTIC,

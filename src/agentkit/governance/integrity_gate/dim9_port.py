@@ -1,7 +1,7 @@
 """Productive Dimension-9 Sonar port (FK-35 §35.2.4a, consumes AG3-052).
 
 The IntegrityGate Dim 9 only **verifies** a commit-bound ``sonarqube_gate``
-attestation (FK-35 §35.2.4a "verifiziert nur — vermisst nicht neu").  This
+attestation (FK-35 §35.2.4a "verifies only — never re-scans").  This
 module wires the productive :class:`SonarDimensionPort` the composition root
 hands to the gate for live Closure runs by **consuming the AG3-052 capability**
 end-to-end — there is NO hand-rolled attestation loader and NO second gate

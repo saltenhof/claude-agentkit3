@@ -1,8 +1,8 @@
 """Worker type definitions for spawn and coordination.
 
-``SpawnReason`` wird seit AG3-021 aus ``agentkit.core_types``
-re-exportiert. Die kanonische Definition liegt im Foundation-Modul;
-diese Datei haelt nur den BC-Stable-Importpfad fuer Worker-Konsumenten.
+Since AG3-021, ``SpawnReason`` is re-exported from ``agentkit.core_types``.
+The canonical definition lives in the foundation module;
+this file only holds the BC-stable import path for worker consumers.
 """
 
 from __future__ import annotations

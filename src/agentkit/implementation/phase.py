@@ -6,8 +6,8 @@ as the ONLY ArtifactEnvelope write path AND the ONLY layer-execution
 path. ``run_qa_subflow`` now returns ``QaSubflowOutcome`` which carries
 the full ``VerifyDecision``; the FK-69 path is fed directly from
 ``outcome.decision`` -- no second cycle run needed. QA-Read-Models are
-written via ``ProjectionAccessor.record_qa_layer_artifacts`` (fachliche
-Schreibgrenze, AG3-035 #5); ``record_verify_decision`` persists the decision.
+written via ``ProjectionAccessor.record_qa_layer_artifacts`` (domain
+write boundary, AG3-035 #5); ``record_verify_decision`` persists the decision.
 
 W2 (AG3-026 Re-Review): ``ImplementationPhaseHandler`` builds a
 ``PhaseEnvelopeView`` from ``envelope.state.payload`` and passes it
@@ -254,7 +254,7 @@ class ImplementationPhaseHandler:
         artifacts = list(ALL_QA_ARTIFACT_FILES)
 
         # E1: persist ALL FOUR QA-cycle identities resolved by the subflow into
-        # the PhaseState payload (FK-27 §27.2.1 "im Story-State persistiert").
+        # the PhaseState payload (FK-27 §27.2.1 "persisted in the story state").
         awaiting_state = _state_with_payload(
             state,
             QaCycleStatus.AWAITING_QA,
@@ -273,10 +273,10 @@ class ImplementationPhaseHandler:
             story_id=ctx.story_id,
             project_root=ctx.project_root,
         )
-        # FK-69 §69.4 / AG3-035 #5: QA-Read-Models werden ueber den
-        # ProjectionAccessor als fachliche Schreibgrenze persistiert (nicht
-        # direkt via state_backend-Fassade). Die atomare Driver-Transaktion
-        # bleibt im injizierten Batch-Port gekapselt (Befund D Option i).
+        # FK-69 §69.4 / AG3-035 #5: QA-Read-Models are persisted via the
+        # ProjectionAccessor as the domain write boundary (not directly via the
+        # state_backend facade). The atomic driver transaction stays encapsulated
+        # in the injected batch port (finding D option i).
         from agentkit.bootstrap.composition_root import build_projection_accessor
 
         accessor = build_projection_accessor(s_dir)

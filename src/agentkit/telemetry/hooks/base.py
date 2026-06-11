@@ -17,8 +17,8 @@ one harness-neutral shape:
   :class:`~agentkit.telemetry.hooks.review_guard.ReviewGuard`, an optional
   :class:`~agentkit.governance.protocols.GuardVerdict`.
 
-The hooks are observational by default (FK-68 §68.6.0 "Telemetrie-Hooks sind
-rein observational"). Only ReviewGuard additionally carries a guard verdict,
+The hooks are observational by default (FK-68 §68.6.0 "telemetry hooks are
+purely observational"). Only ReviewGuard additionally carries a guard verdict,
 because the story (AG3-036 §2.1.5) mandates its double role. The web-call budget
 block is NO LONGER a telemetry double role: AG3-086 moved it to the single
 governance owner :class:`agentkit.governance.guard_system.WebCallBudgetGuard`

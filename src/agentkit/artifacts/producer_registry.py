@@ -1,28 +1,28 @@
-"""ProducerRegistry — Register der erlaubten Artefakt-Producer.
+"""ProducerRegistry — register of the allowed artifact producers.
 
-Registriert pro `ArtifactClass` die erlaubten Producer-Namen und deren
-Typen. Beinhaltet das LLM-Status-Mapping nach FK-71 §71.2.
+Registers, per `ArtifactClass`, the allowed producer names and their
+types. Includes the LLM-status mapping per FK-71 §71.2.
 
-Init-Mechanik (AG3-022 §2.1.5.1):
-- Der Konstruktor seeded alle `ArtifactClass`-Werte mit leerem
-  Producer-Dict (Klassen-Seed; aktuell neun Werte inkl. ``prompt_audit``,
+Init mechanics (AG3-022 §2.1.5.1):
+- The constructor seeds all `ArtifactClass` values with an empty
+  producer dict (class seed; currently nine values incl. ``prompt_audit``,
   AG3-015).
-- Keine konkreten Producer sind in AG3-022 registriert; dies erfolgt
-  in AG3-023 durch BC-spezifische Init-Hooks.
-- `validate(envelope)` ist fail-closed: unbekannte Producer-Namen
-  werfen `ProducerNotRegisteredError`.
+- No concrete producers are registered in AG3-022; this happens in
+  AG3-023 through BC-specific init hooks.
+- `validate(envelope)` is fail-closed: unknown producer names raise
+  `ProducerNotRegisteredError`.
 
-LLM-Status-Mapping (FK-71 §71.2, Z. 145-161):
+LLM-status mapping (FK-71 §71.2, lines 145-161):
 - ``"PASS"``              -> ``EnvelopeStatus.PASS``
-- ``"PASS_WITH_CONCERNS"``-> ``EnvelopeStatus.WARN`` (nur LLM-Wire-String)
+- ``"PASS_WITH_CONCERNS"``-> ``EnvelopeStatus.WARN`` (LLM wire string only)
 - ``"FAIL"``              -> ``EnvelopeStatus.FAIL``
 - ``"ERROR"``             -> ``EnvelopeStatus.ERROR``
 - ``"TIMEOUT"``           -> ``EnvelopeStatus.ERROR``
-- Unbekannte Strings      -> ``LlmStatusMappingError`` (fail-closed)
+- Unknown strings         -> ``LlmStatusMappingError`` (fail-closed)
 
-`PASS_WITH_CONCERNS` ist ausschliesslich LLM-Check-Wire-String.
-Er wird hier zu `EnvelopeStatus.WARN` gemappt — keine Wiedereinfuehrung
-in PolicyVerdict oder Policy-Engine (AG3-021 §2.1.1.2).
+`PASS_WITH_CONCERNS` is exclusively an LLM-check wire string. It is
+mapped here to `EnvelopeStatus.WARN` — no reintroduction into
+PolicyVerdict or the policy engine (AG3-021 §2.1.1.2).
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ if TYPE_CHECKING:
     from agentkit.artifacts.producer import ProducerType
 
 # ---------------------------------------------------------------------------
-# LLM-Status-Mapping als Klassen-Konstante (FK-71 §71.2 Z. 145-161)
+# LLM-status mapping as a class constant (FK-71 §71.2 lines 145-161)
 # ---------------------------------------------------------------------------
 
 _LLM_STATUS_MAPPING: Final[dict[str, EnvelopeStatus]] = {
@@ -54,22 +54,22 @@ _LLM_STATUS_MAPPING: Final[dict[str, EnvelopeStatus]] = {
 
 
 class ProducerRegistry:
-    """Registry der erlaubten Artefakt-Producer pro ArtifactClass.
+    """Registry of the allowed artifact producers per ArtifactClass.
 
-    Wird zur App-Initialisierung mit `register(...)` befuellt und danach
-    read-only verwendet (kein Thread-Safety-Overhead noetig).
+    Populated with `register(...)` at app initialization and used
+    read-only afterwards (no thread-safety overhead needed).
 
-    Beispiel::
+    Example::
 
         registry = ProducerRegistry()
         registry.register(ArtifactClass.QA, "qa-structural", ProducerType.DETERMINISTIC)
-        registry.validate(envelope)  # wirft ProducerNotRegisteredError wenn unbekannt
+        registry.validate(envelope)  # raises ProducerNotRegisteredError if unknown
     """
 
     def __init__(self) -> None:
-        # Klassen-Seed: alle ArtifactClass-Werte als Keys, jeweils mit leerem
-        # Producer-Dict (AG3-022 §2.1.5.1). Iteriert ueber das Enum, bleibt
-        # damit automatisch in Sync mit Enum-Erweiterungen (z. B. AG3-015
+        # Class seed: all ArtifactClass values as keys, each with an empty
+        # producer dict (AG3-022 §2.1.5.1). Iterates over the enum, so it
+        # stays automatically in sync with enum extensions (e.g. AG3-015
         # ``prompt_audit``).
         self._producers: dict[ArtifactClass, dict[str, ProducerType]] = {
             ac: {} for ac in ArtifactClass
@@ -81,79 +81,79 @@ class ProducerRegistry:
         producer_name: str,
         producer_type: ProducerType,
     ) -> None:
-        """Registriert einen Producer fuer eine ArtifactClass.
+        """Register a producer for an ArtifactClass.
 
         Args:
-            artifact_class: Artefaktklasse, fuer die dieser Producer gilt.
-            producer_name: Kanonischer Producer-Name (z.B. ``qa-structural``).
-            producer_type: Typ des Producers (WORKER / LLM_REVIEWER / DETERMINISTIC).
+            artifact_class: Artifact class for which this producer applies.
+            producer_name: Canonical producer name (e.g. ``qa-structural``).
+            producer_type: Type of the producer (WORKER / LLM_REVIEWER / DETERMINISTIC).
         """
         self._producers[artifact_class][producer_name] = producer_type
 
     def validate(self, envelope: ArtifactEnvelope) -> None:
-        """Prueft, ob der Producer im Envelope registriert ist (fail-closed).
+        """Check whether the producer in the envelope is registered (fail-closed).
 
-        Es werden BEIDE Aspekte gegen die Registry geprueft:
-        1. Der Producer-Name muss fuer die gegebene ``ArtifactClass``
-           registriert sein.
-        2. Der ``ProducerType`` im Envelope muss mit dem registrierten
-           Typ uebereinstimmen — sonst kann ein Producer-Name still
-           seinen Typ drehen (Defense in depth gegen Drift).
+        BOTH aspects are checked against the registry:
+        1. The producer name must be registered for the given
+           ``ArtifactClass``.
+        2. The ``ProducerType`` in the envelope must match the
+           registered type — otherwise a producer name could silently
+           flip its type (defense in depth against drift).
 
         Args:
-            envelope: Das zu pruefende ArtifactEnvelope.
+            envelope: The ArtifactEnvelope to check.
 
         Raises:
-            ProducerNotRegisteredError: Wenn der Producer-Name fuer die
-                gegebene ArtifactClass nicht registriert ist.
-            ProducerTypeMismatchError: Wenn der Producer-Name registriert
-                ist, aber sein im Envelope angegebener Typ vom
-                registrierten Typ abweicht.
+            ProducerNotRegisteredError: When the producer name is not
+                registered for the given ArtifactClass.
+            ProducerTypeMismatchError: When the producer name is
+                registered, but its type given in the envelope differs
+                from the registered type.
         """
         allowed = self._producers[envelope.artifact_class]
         registered_type = allowed.get(envelope.producer.name)
         if registered_type is None:
             msg = (
-                f"Producer '{envelope.producer.name}' ist fuer "
-                f"ArtifactClass '{envelope.artifact_class}' nicht registriert. "
-                f"Bekannte Producer: {set(allowed.keys()) or '{}'}"
+                f"Producer '{envelope.producer.name}' is not registered for "
+                f"ArtifactClass '{envelope.artifact_class}'. "
+                f"Known producers: {set(allowed.keys()) or '{}'}"
             )
             raise ProducerNotRegisteredError(msg)
         if registered_type is not envelope.producer.type:
             msg = (
-                f"Producer '{envelope.producer.name}' ist fuer ArtifactClass "
-                f"'{envelope.artifact_class}' als '{registered_type.value}' "
-                f"registriert, Envelope behauptet aber "
-                f"'{envelope.producer.type.value}' (Typ-Drift)."
+                f"Producer '{envelope.producer.name}' is registered for "
+                f"ArtifactClass '{envelope.artifact_class}' as "
+                f"'{registered_type.value}', but the envelope claims "
+                f"'{envelope.producer.type.value}' (type drift)."
             )
             raise ProducerTypeMismatchError(msg)
 
     def map_llm_status_to_envelope_status(self, llm_status: str) -> EnvelopeStatus:
-        """Mappt einen LLM-Check-Status auf `EnvelopeStatus` (FK-71 §71.2).
+        """Map an LLM check status to `EnvelopeStatus` (FK-71 §71.2).
 
         Args:
-            llm_status: LLM-Wire-String (z.B. ``"PASS_WITH_CONCERNS"``).
+            llm_status: LLM wire string (e.g. ``"PASS_WITH_CONCERNS"``).
 
         Returns:
-            Entsprechender `EnvelopeStatus`.
+            Corresponding `EnvelopeStatus`.
 
         Raises:
-            LlmStatusMappingError: Bei unbekanntem LLM-Status (fail-closed).
+            LlmStatusMappingError: On an unknown LLM status (fail-closed).
         """
         try:
             return _LLM_STATUS_MAPPING[llm_status]
         except KeyError:
             known = list(_LLM_STATUS_MAPPING.keys())
-            msg = f"Unbekannter LLM-Check-Status '{llm_status}'. Bekannte Werte: {known}"
+            msg = f"Unknown LLM check status '{llm_status}'. Known values: {known}"
             raise LlmStatusMappingError(msg) from None
 
     def known_producers(self, artifact_class: ArtifactClass) -> set[str]:
-        """Gibt alle registrierten Producer-Namen fuer eine ArtifactClass zurueck.
+        """Return all registered producer names for an ArtifactClass.
 
         Args:
-            artifact_class: Artefaktklasse, fuer die Producer abgefragt werden.
+            artifact_class: Artifact class for which producers are queried.
 
         Returns:
-            Menge der registrierten Producer-Namen (leer wenn keine registriert).
+            Set of registered producer names (empty if none registered).
         """
         return set(self._producers[artifact_class].keys())

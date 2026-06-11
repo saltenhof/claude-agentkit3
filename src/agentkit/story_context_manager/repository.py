@@ -29,7 +29,7 @@ class StoryContextRepository(Protocol):
         project_key: str,
         story_number: int,
     ) -> StoryContext | None:
-        """Load a story by fachliche identity."""
+        """Load a story by domain identity."""
 
     def get_by_story_uuid(self, story_uuid: UUID) -> StoryContext | None:
         """Load a story by technical identity."""

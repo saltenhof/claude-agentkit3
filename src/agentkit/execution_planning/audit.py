@@ -1,6 +1,6 @@
 """BC14 planning audit-event emission (FK-70 §70.10.3, FK-68 §68.2.2).
 
-The fachliche BC14 audit producer. It emits the eight planning audit events at
+The domain BC14 audit producer. It emits the eight planning audit events at
 the respective planning decisions through the EXISTING generic emitter
 infrastructure (``telemetry.EventEmitter`` / ``StateBackendEmitter``) against the
 AG3-081-delivered ``EventType`` catalogue values and their mandatory-payload

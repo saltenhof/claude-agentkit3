@@ -1,64 +1,62 @@
-"""Fehlerklassen des Artefakt-BCs (agentkit.artifacts).
+"""Error classes of the artifact BC (agentkit.artifacts).
 
-Alle Envelope-Validierungsfehler erben von `EnvelopeValidationError` (Basis).
-Sub-Klassen koennen fachlich differenziert werden:
+All envelope-validation errors inherit from `EnvelopeValidationError` (base).
+Subclasses can be differentiated by concern:
 
-- `ProducerNotRegisteredError` — fail-closed bei unbekanntem Producer-Namen
-- `ProducerTypeMismatchError` — fail-closed bei Typ-Drift gegen Registry
-- `EnvelopeFieldError` — Pflichtfeld-Verletzung oder Matrix-Bruch
-- `LlmStatusMappingError` — unbekannter LLM-Check-Status
-- `ArtifactNotFoundError` — Artefakt-Lookup schlaegt fehl (ArtifactManager.read)
+- `ProducerNotRegisteredError` — fail-closed on an unknown producer name
+- `ProducerTypeMismatchError` — fail-closed on a type drift against the registry
+- `EnvelopeFieldError` — required-field violation or matrix break
+- `LlmStatusMappingError` — unknown LLM check status
+- `ArtifactNotFoundError` — artifact lookup fails (ArtifactManager.read)
 
-FK-71 §71.2 (Fehlermodell), bc-cut-decisions.md §BC 8.
+FK-71 §71.2 (error model), bc-cut-decisions.md §BC 8.
 """
 
 from __future__ import annotations
 
 
 class EnvelopeValidationError(Exception):
-    """Basis-Fehler fuer alle Envelope-Validierungsprobleme."""
+    """Base error for all envelope-validation problems."""
 
 
 class ProducerNotRegisteredError(EnvelopeValidationError):
-    """Producer-Name ist fuer die gegebene ArtifactClass nicht registriert.
+    """Producer name is not registered for the given ArtifactClass.
 
-    Wird von `ProducerRegistry.validate` geworfen (fail-closed).
+    Raised by `ProducerRegistry.validate` (fail-closed).
     """
 
 
 class ProducerTypeMismatchError(EnvelopeValidationError):
-    """Producer-Name ist registriert, aber mit anderem ``ProducerType``.
+    """Producer name is registered, but with a different ``ProducerType``.
 
-    Beispiel: registriert als ``DETERMINISTIC``, Envelope behauptet
-    ``LLM_REVIEWER``. Wird von `ProducerRegistry.validate` geworfen
-    (fail-closed), damit ein Producer-Name nicht still seinen Typ
-    drehen kann.
+    Example: registered as ``DETERMINISTIC``, but the envelope claims
+    ``LLM_REVIEWER``. Raised by `ProducerRegistry.validate` (fail-closed)
+    so a producer name cannot silently flip its type.
     """
 
 
 class EnvelopeFieldError(EnvelopeValidationError):
-    """Pflichtfeld-Verletzung oder Matrix-Inkonsistenz im Envelope.
+    """Required-field violation or matrix inconsistency in the envelope.
 
-    Beispiele:
+    Examples:
     - `attempt < 1`
     - `finished_at < started_at`
-    - `status` ist fuer `artifact_class` laut Matrix nicht erlaubt.
+    - `status` is not allowed for `artifact_class` per the matrix.
     """
 
 
 class LlmStatusMappingError(EnvelopeValidationError):
-    """Unbekannter LLM-Check-Status kann nicht gemappt werden (fail-closed).
+    """Unknown LLM check status cannot be mapped (fail-closed).
 
-    Wird von `ProducerRegistry.map_llm_status_to_envelope_status` geworfen.
+    Raised by `ProducerRegistry.map_llm_status_to_envelope_status`.
     """
 
 
 class ArtifactNotFoundError(Exception):
-    """Artefakt-Lookup anhand einer ArtifactReference schlaegt fehl.
+    """Artifact lookup by an ArtifactReference fails.
 
-    Wird von ``ArtifactManager.read`` geworfen, wenn kein Eintrag fuer
-    die gegebene Reference im Backend vorhanden ist (fail-closed; kein
-    silent None-Return).
+    Raised by ``ArtifactManager.read`` when no entry for the given
+    Reference exists in the backend (fail-closed; no silent None return).
 
     bc-cut-decisions.md §BC 8, FK-71 §71.2.
     """

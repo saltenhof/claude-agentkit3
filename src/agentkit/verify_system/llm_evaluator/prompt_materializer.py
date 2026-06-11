@@ -17,7 +17,7 @@ This adapter is wired by the composition root together with the concrete
 then ``VerifySystem.layer2_runner`` stays ``None`` and Layer 2 runs the
 deterministic reviewers (fail-closed, no silent skip).
 
-Quelle:
+Source:
   - FK-44 §44.4.2 / §44.6 -- materialize_prompt + audit
   - FK-34 -- StructuredEvaluator prompt source
 """
@@ -28,7 +28,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from agentkit.exceptions import ProjectError
-from agentkit.prompt_runtime import ComposeConfig, PromptRuntime
 from agentkit.verify_system.llm_evaluator.llm_client import LlmClientError
 from agentkit.verify_system.llm_evaluator.structured_evaluator import (
     template_name_for_role,
@@ -131,6 +130,12 @@ class PromptRuntimeMaterializer:
                 f"Run-scope story_id {run_scope.story_id!r} != {story_id!r} "
                 "(fail-closed identity check)."
             )
+        # Local import to break the import cycle prompt_runtime -> ... ->
+        # verify_system.system -> ... -> prompt_materializer: ``ComposeConfig``/
+        # ``PromptRuntime`` are only needed at call time, so resolving them here
+        # keeps module load order independent of prompt_runtime init order.
+        from agentkit.prompt_runtime import ComposeConfig, PromptRuntime
+
         runtime = PromptRuntime(ctx.project_root, self.artifact_manager)
         template_name = template_override if template_override is not None else template_name_for_role(role)
         try:

@@ -100,29 +100,29 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class _NullStoryContextPort:
-    """No-op ``StoryContextQueryPort``: liefert immer ``None``.
+    """No-op ``StoryContextQueryPort``: always returns ``None``.
 
-    Default fuer ``VerifySystem`` ohne injizierten state-backed Adapter
-    (Testpfad ohne DB). Erhaelt das historische Fallback-Verhalten auf den
-    IMPLEMENTATION-Stub in ``_execute_layer`` (AG3-035).
+    Default for ``VerifySystem`` without an injected state-backed adapter
+    (test path without DB). Preserves the historical fallback behaviour onto the
+    IMPLEMENTATION stub in ``_execute_layer`` (AG3-035).
     """
 
     def load(self, story_dir: Path) -> StoryContext | None:
-        """Return ``None``; der No-op-Port ignoriert ``story_dir``.
+        """Return ``None``; the no-op port ignores ``story_dir``.
 
         Args:
-            story_dir: Story-Arbeitsverzeichnis (vom No-op-Port nicht konsumiert).
+            story_dir: Story working directory (not consumed by the no-op port).
         """
-        del story_dir  # No-op-Port nutzt den Pfad nicht (Protocol-Param, S1172).
+        del story_dir  # No-op port does not use the path (protocol param, S1172).
         return None
 
     def resolve_run_scope(self, story_dir: Path) -> RunScope | None:
-        """Return ``None``; ohne State-Backend ist keine Run-Korrelation bekannt.
+        """Return ``None``; without a state backend no run correlation is known.
 
         Args:
-            story_dir: Story-Arbeitsverzeichnis (vom No-op-Port nicht konsumiert).
+            story_dir: Story working directory (not consumed by the no-op port).
         """
-        del story_dir  # No-op-Port nutzt den Pfad nicht (Protocol-Param, S1172).
+        del story_dir  # No-op port does not use the path (protocol param, S1172).
         return None
 
 
@@ -138,7 +138,7 @@ _NULL_REVIEW_COMPLETION_SINK: ReviewCompletionSink = NullReviewCompletionSink()
 
 @dataclass(frozen=True)
 class VerifySystem:
-    """Top-Surface of the verify-system Capability-BC.
+    """Top surface of the verify-system Capability-BC.
 
     Holds the sub-components that the BC composes internally. Cross-BC
     consumers obtain instances through :meth:`create_default` and call
@@ -154,18 +154,18 @@ class VerifySystem:
     Attributes:
         layer_1: Layer-1 deterministic structural checker.
             Must satisfy :class:`QALayer` protocol.
-        layer_2a: Layer-2a QA-review reviewer (Testqualitaet/Coverage).
-        layer_2b: Layer-2b semantic reviewer (Konzept-Treue/Naming).
-        layer_2c: Layer-2c doc-fidelity reviewer (Docstrings/ADR).
+        layer_2a: Layer-2a QA-review reviewer (test quality/coverage).
+        layer_2b: Layer-2b semantic reviewer (concept fidelity/naming).
+        layer_2c: Layer-2c doc-fidelity reviewer (docstrings/ADR).
         layer_3: Layer-3 adversarial orchestrator.
             Must satisfy :class:`QALayer` protocol.
         policy_engine: Layer-4 deterministic aggregator.
         artifact_manager: ArtifactManager for writing QA artefacts.
-        story_context_port: Injizierter Read-Port zum Aufloesen des
-            ``StoryContext`` (AG3-035). Default ist ein No-op-Port; der
-            produktive state-backed Adapter wird via
-            ``composition_root.build_verify_system`` verdrahtet. Eliminiert den
-            direkten ``state_backend.store``-Import in ``run_qa_subflow``.
+        story_context_port: Injected read-port for resolving the
+            ``StoryContext`` (AG3-035). Default is a no-op port; the
+            productive state-backed adapter is wired via
+            ``composition_root.build_verify_system``. Eliminates the
+            direct ``state_backend.store`` import in ``run_qa_subflow``.
         adversarial_challenger: Backward-compatible alias for ``layer_3``;
             kept to avoid breaking AG3-023/AG3-024 consumers.
         sonar_gate_port: Read-port resolving the SonarQube-Green-Gate
@@ -725,12 +725,12 @@ class VerifySystem:
         effective_ri = review_input if isinstance(review_input, _L2Input) else None
 
         try:
-            # AG3-035: StoryContext wird via Injection uebergeben
-            # (story_context-Parameter), nicht via direktem state_backend.store-Import.
-            # Der Aufrufer (run_qa_subflow) laedt den StoryContext einmalig und
-            # reicht ihn hier ein (BC-Topologie-konform).
-            # Fallback auf IMPLEMENTATION-Stub wenn kein StoryContext verfuegbar
-            # (Testpfad ohne persistierten Kontext, FK-27 §27.4). FIX-A: the stub
+            # AG3-035: the StoryContext is passed via injection
+            # (story_context parameter), not via a direct state_backend.store import.
+            # The caller (run_qa_subflow) loads the StoryContext once and
+            # passes it in here (BC-topology-conformant).
+            # Fallback onto the IMPLEMENTATION stub when no StoryContext is available
+            # (test path without persisted context, FK-27 §27.4). FIX-A: the stub
             # story type comes from the SAME _effective_story_type helper the
             # policy decision uses, so the layer run and the policy decision can
             # never diverge on the effective type (single effective-type truth).
@@ -773,17 +773,17 @@ class VerifySystem:
         now_str: str,
         qa_cycle_fields: dict[str, object],
     ) -> None:
-        """Schreibt ein einzelnes Layer-Envelope via ArtifactManager.
+        """Write a single layer envelope via the ArtifactManager.
 
-        AG3-026 §AK7: pro Layer-Artefakt-Spec eine eigene
-        ``ArtifactEnvelope`` mit dem zugehoerigen Producer + Stage.
-        W1: Layer-2 Envelopes tragen jetzt eigenstaendige LayerResult-
-        Payloads pro Reviewer (kein synthetic Payload-Repeat mehr).
+        AG3-026 §AK7: one ``ArtifactEnvelope`` per layer-artifact spec
+        with the associated producer + stage.
+        W1: Layer-2 envelopes now carry standalone LayerResult
+        payloads per reviewer (no more synthetic payload repeat).
 
-        AG3-026 §AK8: QA-Zyklus-Felder (``qa_cycle_id``,
+        AG3-026 §AK8: QA-cycle fields (``qa_cycle_id``,
         ``qa_cycle_round``, ``evidence_epoch``, ``evidence_fingerprint``)
-        werden aus ``ctx.phase_envelope`` (jetzt ``PhaseEnvelopeView``)
-        in jede Envelope-Payload eingebettet, sofern dort gesetzt.
+        are embedded from ``ctx.phase_envelope`` (now ``PhaseEnvelopeView``)
+        into each envelope payload, when set there.
         """
         payload = _qa.serialize_layer_result_payload(result, ctx.attempt)
         payload.update(qa_cycle_fields)
@@ -817,12 +817,12 @@ class VerifySystem:
         now_str: str,
         qa_cycle_fields: dict[str, object],
     ) -> str:
-        """Schreibt das Policy-Decision-Envelope (``decision.json``).
+        """Write the policy-decision envelope (``decision.json``).
 
-        AG3-026 §AK7: Filename ist ``decision.json`` (kanonisch nach FK-27 §27.7;
-        Stage ``qa-policy-decision``; nicht die alte Dash-Form ``verify-decision.json``
+        AG3-026 §AK7: the filename is ``decision.json`` (canonical per FK-27 §27.7;
+        stage ``qa-policy-decision``; not the old dash form ``verify-decision.json``
         / ``qa-verify-decision``).
-        QA-Zyklus-Felder werden analog Layer-Artefakten eingebettet.
+        QA-cycle fields are embedded analogously to layer artifacts.
 
         Returns:
             ``"decision.json"`` (FK-27 §27.7 / AG3-026 §AK7).
@@ -1138,16 +1138,16 @@ def _create_default(
     """Construct a ``VerifySystem`` with default sub-components.
 
     Builds all sub-components with sensible defaults.
-    ``artifact_manager`` ist **Pflicht-Argument** (AG3-026 §2.1.4 +
-    Re-Review-Befund 3): ein fehlender ArtifactManager war
-    Story-explizit als Fail-closed-Pfad markiert; eine stille
-    No-Op-Variante hatte unbemerkt QA-Wahrheit verworfen.
+    ``artifact_manager`` is a **mandatory argument** (AG3-026 §2.1.4 +
+    re-review finding 3): a missing ArtifactManager was
+    story-explicitly marked as a fail-closed path; a silent
+    no-op variant would silently discard QA truth.
 
     Args:
-        artifact_manager: ``ArtifactManager`` fuer Artefakt-Writes.
-            **Pflicht**. Aufrufer, die einen Test-Stub brauchen,
-            liefern einen Recording-Test-Double; produktive Aufrufer
-            nutzen ``bootstrap.composition_root.build_verify_system``.
+        artifact_manager: ``ArtifactManager`` for artifact writes.
+            **Mandatory**. Callers that need a test stub
+            supply a recording test double; productive callers
+            use ``bootstrap.composition_root.build_verify_system``.
         max_major_findings: Threshold for the policy engine. Mirrors
             :class:`PolicyEngine` -- MAJOR findings beyond this count
             turn into blocking findings (FK-27 §27.4.2 / §27.7.2).
@@ -1156,35 +1156,35 @@ def _create_default(
             ``build_verify_system``). ``None`` => the controller's default
             (3). The :class:`RemediationLoopController` is the hard owner of
             the ceiling — it is NOT bypassable (NO ERROR BYPASSING).
-        story_context_port: Optionaler ``StoryContextQueryPort`` (AG3-035).
-            Wenn ``None``, wird der No-op-Port genutzt (Fallback auf den
-            IMPLEMENTATION-Stub in ``_execute_layer``). Produktive Aufrufer
-            reichen den state-backed Adapter via
-            ``composition_root.build_verify_system`` ein.
-        sonar_gate_port: Optionaler ``SonarGateInputPort`` (AG3-052,
-            FK-33 §33.6). Wenn ``None``, wird der Absent-Sonar-Port
-            genutzt (``sonarqube.available == false`` => Stage SKIP).
-        invalidation_sink: Optionaler produktiver
+        story_context_port: Optional ``StoryContextQueryPort`` (AG3-035).
+            When ``None``, the no-op port is used (fallback onto the
+            IMPLEMENTATION stub in ``_execute_layer``). Productive callers
+            pass in the state-backed adapter via
+            ``composition_root.build_verify_system``.
+        sonar_gate_port: Optional ``SonarGateInputPort`` (AG3-052,
+            FK-33 §33.6). When ``None``, the absent-Sonar port is
+            used (``sonarqube.available == false`` => stage SKIP).
+        invalidation_sink: Optional productive
             ``ArtifactInvalidationSink`` (FK-27 §27.2.3 / AG3-041 §2.1.3):
-            emittiert pro ``stale/``-Move ein ``artifact_invalidated``-
-            Telemetrie-Event. ``None`` => No-op-Sink (Testpfad ohne
-            verdrahtete Telemetrie). Produktive Aufrufer reichen den
-            telemetrie-gebundenen Sink via
-            ``composition_root.build_verify_system`` ein.
-        review_completion_sink: Optionaler produktiver
-            ``ReviewCompletionSink`` (FK-27 §27.4.3 / §27.5.5): emittiert pro
-            erfolgreichem Layer-2-Review-Artefakt-Write ein
-            ``llm_call_complete``-Event (mit Reviewer-Rolle im Payload),
-            damit der ``guard.multi_llm`` Gate 2 einen abgeschlossenen Review
-            zaehlt (nicht die blosse API-Antwort). ``None`` => No-op-Sink
-            (Testpfad). Produktive Aufrufer reichen den telemetrie-gebundenen
-            Sink via ``composition_root.build_verify_system`` ein.
-        layer2_llm_client: Optionaler ``LlmClient`` (AG3-043 E6, FK-27
-            §27.5). Wenn gesetzt, baut der QA-Subflow pro Run einen
-            ``ParallelEvalRunner`` (FK-44 §44.4.2) und faehrt die drei
-            LLM-Bewertungen WIRKLICH (kein Rueckfall auf die
-            deterministischen Stub-Reviewer); ``None`` => Reviewer-Pfad.
-            Produktiv via ``composition_root.build_verify_system``.
+            emits an ``artifact_invalidated`` telemetry event per
+            ``stale/`` move. ``None`` => no-op sink (test path without
+            wired telemetry). Productive callers pass in the
+            telemetry-bound sink via
+            ``composition_root.build_verify_system``.
+        review_completion_sink: Optional productive
+            ``ReviewCompletionSink`` (FK-27 §27.4.3 / §27.5.5): emits an
+            ``llm_call_complete`` event (with the reviewer role in the
+            payload) per successful Layer-2 review-artifact write,
+            so the ``guard.multi_llm`` Gate 2 counts a completed review
+            (not the bare API response). ``None`` => no-op sink
+            (test path). Productive callers pass in the telemetry-bound
+            sink via ``composition_root.build_verify_system``.
+        layer2_llm_client: Optional ``LlmClient`` (AG3-043 E6, FK-27
+            §27.5). When set, the QA-subflow builds a
+            ``ParallelEvalRunner`` (FK-44 §44.4.2) per run and REALLY runs
+            the three LLM evaluations (no fallback onto the
+            deterministic stub reviewers); ``None`` => reviewer path.
+            Productively via ``composition_root.build_verify_system``.
         fast_test_runner: Optional fast-mode tests-green floor runner
             (AG3-018, FK-24 §24.3.4). In ``mode == fast`` the QA-subflow
             degenerates to Layer 1 (structural) + the hard tests-green floor
@@ -1493,10 +1493,10 @@ def _run_qa_subflow(
     )
 
     # Step 1c: Resolve StoryContext via the injected query port (AG3-035
-    # echter Drift-Fix). KEIN direkter ``state_backend.store``-Import mehr in
-    # verify_system; der konkrete Adapter wird im composition_root verdrahtet
-    # (BC-Topologie: verify-system haengt am Port, nicht an state_backend).
-    # No-op-Port liefert None -> _execute_layer faellt auf IMPLEMENTATION-Stub.
+    # real drift fix). NO direct ``state_backend.store`` import anymore in
+    # verify_system; the concrete adapter is wired in the composition_root
+    # (BC topology: verify-system depends on the port, not on state_backend).
+    # The no-op port returns None -> _execute_layer falls back to the IMPLEMENTATION stub.
     _story_ctx = self.story_context_port.load(ctx.story_dir)
 
     implementation_gate = _evaluate_implementation_terminality_precondition(
@@ -1716,8 +1716,8 @@ def _run_qa_subflow(
     # fail-closed verdict traverses the SAME loop (no bypass, no fail-open).
     #
     # FIX-5 (FK-27 §27.4.2/§27.4.5): an ``impact.violation`` BLOCKING FAIL
-    # routes DIRECTLY to ESCALATED -- "Eskalation an Mensch, kein
-    # Ruecksprung", no Worker-feedback loop. The structural layer stamps
+    # routes DIRECTLY to ESCALATED -- "escalation to a human, no
+    # return jump", no worker-feedback loop. The structural layer stamps
     # ``metadata["escalated"]=True`` (checker.py); detect it here and force
     # immediate escalation BEFORE/independent of the remediation-round
     # ceiling, so an impact violation never loops through normal remediation.
@@ -2002,7 +2002,7 @@ def _run_layer2(
     2. Otherwise, a wired ``system.layer2_llm_client`` (productive default,
        ``build_verify_system``) -> build a PER-RUN runner with the run's
        ``StoryContext`` + ``PromptRuntimeMaterializer`` (FK-44 §44.4.2) and run
-       the three evaluations. "Reviews finden IMMER statt" (FK-27 §27.5): when
+       the three evaluations. "Reviews ALWAYS take place" (FK-27 §27.5): when
        the run's ``StoryContext`` is unresolvable the reviews still RUN and
        FAIL-CLOSED (three BLOCKING results), never a silent stub fallback.
     3. Only when NEITHER is wired -> the historical deterministic Layer-2

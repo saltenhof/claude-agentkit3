@@ -1792,14 +1792,14 @@ def _run_capability_enforcement(
       capability zone is known and must not be used to defer an unclassified
       mutation; or
     - an UNRESOLVED (non-mutating, target-less) event WHEN a story-execution
-      binding is active (FK-55 §55.10.2 fail-closed BLOCK; §55.6.1 mode-scharf).
+      binding is active (FK-55 §55.10.2 fail-closed BLOCK; §55.6.1 mode-specific).
     - a capability-layer evaluation fault (e.g. a corrupt / stale dual freeze
       export) — mapped to a hard BLOCK rather than an escaping runtime fault
       (FK-55 §55.10.5 / FK-31 §31.2.7, AG3-032 ERROR 6).
 
     Returns ``None`` when the operation is matrix-permitted (ALLOW — proceed to
     CCAG, step 7) OR when a NON-mutating target is unclassifiable OUTSIDE a story
-    run (the §55.6.1 unknown-permission rule is mode-scharf: in
+    run (the §55.6.1 unknown-permission rule is mode-specific: in
     interactive/ai_augmented mode the unknown non-mutating target defers to the
     legacy guards / CCAG / external prompt rather than hard-blocking generic
     interactive work). The deferred step 6 mode-rule (B3 / AG3-018) is what would
@@ -1860,12 +1860,12 @@ def _run_capability_enforcement(
         # (FK-55 §55.10.2). normal mode is NOT a fail-open escape (ERROR 2).
         return _capability_block(result.verdict)
     if result.outcome is EnforcementOutcome.UNKNOWN_PERMISSION:
-        # FK-55 §55.6.1 mode-scharf (AG3-032 ERROR C / FK-55 §55.10.1/§55.10.4):
+        # FK-55 §55.6.1 mode-specific (AG3-032 ERROR C / FK-55 §55.10.1/§55.10.4):
         # an UNKNOWN tool resolves by the THREE locally-derived mode buckets.
         return _resolve_mode_scoped_block(context, event, result.verdict, project_root)
     if result.outcome is EnforcementOutcome.UNRESOLVED:
         # A non-mutating unclassifiable / target-less event resolves by the SAME
-        # three mode buckets (FK-55 §55.10.2 / §55.6.1 mode-scharf): a binding-
+        # three mode buckets (FK-55 §55.10.2 / §55.6.1 mode-specific): a binding-
         # invalid edge must fail-closed here too — it must NOT defer to CCAG.
         return _resolve_mode_scoped_block(context, event, result.verdict, project_root)
     return None
@@ -1918,7 +1918,7 @@ def _resolve_capability_hull(
     except Exception:  # noqa: BLE001 -- a capability fault -> no hull -> CCAG fail-closed
         return None
     # CCAG (FK-55 §55.10.3 step 10) is reachable on an ALLOW and on the two
-    # mode-scharf defer outcomes (UNKNOWN_PERMISSION / UNRESOLVED). A hard DENY /
+    # mode-specific defer outcomes (UNKNOWN_PERMISSION / UNRESOLVED). A hard DENY /
     # UNCLASSIFIED_MUTATION already blocked in step 1 and never reaches CCAG. The
     # hull is attached to every CCAG-reachable result by the capability layer.
     if result.outcome not in (
@@ -1939,7 +1939,7 @@ def _resolve_mode_scoped_block(
 ) -> HookDecision | None:
     """Resolve an UNKNOWN_PERMISSION / UNRESOLVED outcome by execution-mode bucket.
 
-    FK-55 §55.6.1 mode-scharf with the §55.10.1/§55.10.4 fail-closed correction
+    FK-55 §55.6.1 mode-specific with the §55.10.1/§55.10.4 fail-closed correction
     for inconsistent bindings. Three exhaustive buckets:
 
     - ``story_execution``: a coherent autonomous run. Open a GRANTABLE

@@ -13,7 +13,7 @@ Routing rules (normative source: ``concept/_meta/bc-cut-decisions.md
   Reduced layer set: LLM-Evaluator (2) + Policy (4). Design-review
   only; no structural or adversarial checks (BC-Cut: Exploration-Vertrag).
 
-Quelle: AG3-026 §2.1.2, ``concept/_meta/bc-cut-decisions.md §QA-Subflow-Vertrag``
+Source: AG3-026 §2.1.2, ``concept/_meta/bc-cut-decisions.md §QA-Subflow-Vertrag``
 """
 
 from __future__ import annotations

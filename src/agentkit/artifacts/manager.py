@@ -1,16 +1,16 @@
-"""ArtifactManager — Top-Surface fuer Artefakt-Lese-/Schreib-Koordination.
+"""ArtifactManager — top-surface for artifact read/write coordination.
 
-Einziger autorisierter Schreib-Einstiegspunkt fuer Artefakt-Persistenz im
-Artefakt-BC. Alle Producer-BCs schreiben ausschliesslich ueber diese
-Klasse; direkter Zugriff auf ``ArtifactRepository``-Implementierungen ist
-nur innerhalb des ``state_backend``-BC erlaubt.
+The only authorized write entrypoint for artifact persistence in the
+artifact BC. All producer BCs write exclusively through this class;
+direct access to ``ArtifactRepository`` implementations is only allowed
+within the ``state_backend`` BC.
 
-Fail-closed-Semantik:
-- ``write`` validiert den Envelope vor der Persistenz; partial writes
-  sind nicht moeglich.
-- ``read`` wirft ``ArtifactNotFoundError`` bei Nicht-Existenz (kein
-  silent None-Return).
-- ``exists`` ist der einzige lesende Pfad ohne Fehler-Garantie.
+Fail-closed semantics:
+- ``write`` validates the envelope before persistence; partial writes
+  are not possible.
+- ``read`` raises ``ArtifactNotFoundError`` on non-existence (no silent
+  None return).
+- ``exists`` is the only reading path without an error guarantee.
 
 bc-cut-decisions.md §BC 8, FK-71 §71.2.
 """
@@ -30,19 +30,19 @@ if TYPE_CHECKING:
 
 
 class ArtifactManager:
-    """Top-Surface fuer typisierte Artefakt-Persistenz.
+    """Top-surface for typed artifact persistence.
 
-    Koordiniert Validierung (``EnvelopeValidator``) und Persistenz
-    (``ArtifactRepository``). Kein Producer-BC soll den Repository-
-    Adapter direkt benutzen; stattdessen erhaelt er einen
-    ArtifactManager via Dependency-Injection.
+    Coordinates validation (``EnvelopeValidator``) and persistence
+    (``ArtifactRepository``). No producer BC should use the repository
+    adapter directly; instead it receives an ArtifactManager via
+    dependency injection.
 
     Args:
-        repository: Persistenz-Backend (SQLite oder Postgres).
-        validator: Envelope-Validator (fuenf Pruefschritte, AG3-022).
+        repository: Persistence backend (SQLite or Postgres).
+        validator: Envelope validator (five check steps, AG3-022).
 
-    Performance-Hinweis: ``write`` macht kein zusaetzliches
-    ``read``-Roundtrip nach dem Schreiben (kein Double-Hit).
+    Performance note: ``write`` does no additional ``read`` roundtrip
+    after writing (no double hit).
     """
 
     def __init__(
@@ -54,48 +54,48 @@ class ArtifactManager:
         self._validator = validator
 
     def write(self, envelope: ArtifactEnvelope) -> ArtifactReference:
-        """Validiert und persistiert einen ArtifactEnvelope.
+        """Validate and persist an ArtifactEnvelope.
 
-        Schritt 1: ``EnvelopeValidator.validate`` — schlaegt fail-closed
-            bei jeder Validierungsverletzung (kein partial write).
-        Schritt 2: ``ArtifactRepository.write_envelope`` — atomare
-            Persistenz.
+        Step 1: ``EnvelopeValidator.validate`` — fails closed on any
+            validation violation (no partial write).
+        Step 2: ``ArtifactRepository.write_envelope`` — atomic
+            persistence.
 
         Args:
-            envelope: Zu persistierender ArtifactEnvelope mit allen
-                Pflichtfeldern.
+            envelope: ArtifactEnvelope to persist, with all required
+                fields.
 
         Returns:
-            ``ArtifactReference`` — opake Referenz auf den Eintrag.
+            ``ArtifactReference`` — opaque reference to the entry.
 
         Raises:
-            ProducerNotRegisteredError: Wenn der Producer unbekannt ist.
-            ProducerTypeMismatchError: Wenn der Producer-Typ nicht stimmt.
-            EnvelopeFieldError: Wenn ein Pflichtfeld ungueltig ist.
-            Exception: Backend-Fehler aus der Repository-Implementierung.
+            ProducerNotRegisteredError: When the producer is unknown.
+            ProducerTypeMismatchError: When the producer type is wrong.
+            EnvelopeFieldError: When a required field is invalid.
+            Exception: Backend error from the repository implementation.
         """
-        # Schritt 1: Validierung — fail-closed, wirft spezifische Exception.
+        # Step 1: validation — fail-closed, raises a specific exception.
         self._validator.validate(envelope)
-        # Schritt 2: atomare Persistenz — kein Read-Roundtrip danach.
+        # Step 2: atomic persistence — no read roundtrip afterwards.
         return self._repository.write_envelope(envelope)
 
     def read(self, reference: ArtifactReference) -> ArtifactEnvelope:
-        """Laedt einen ArtifactEnvelope anhand seiner Reference.
+        """Load an ArtifactEnvelope by its Reference.
 
         Args:
-            reference: Opake Reference (Rueckgabe von ``write``).
+            reference: Opaque Reference (return value of ``write``).
 
         Returns:
-            Gespeicherter ArtifactEnvelope.
+            Stored ArtifactEnvelope.
 
         Raises:
-            ArtifactNotFoundError: Wenn kein Artefakt mit dieser
-                Reference existiert (fail-closed; kein silent None).
+            ArtifactNotFoundError: When no artifact with this Reference
+                exists (fail-closed; no silent None).
         """
         result = self._repository.read_envelope(reference)
         if result is None:
             msg = (
-                f"Kein Artefakt gefunden fuer Reference: "
+                f"No artifact found for reference: "
                 f"artifact_class={reference.artifact_class!r}, "
                 f"story_id={reference.story_id!r}, "
                 f"run_id={reference.run_id!r}, "
@@ -112,20 +112,20 @@ class ArtifactManager:
         artifact_class: ArtifactClass,
         stage: str,
     ) -> ArtifactEnvelope:
-        """Laedt den hoechsten-attempt-Envelope im (story, run, class, stage)-Scope.
+        """Load the highest-attempt envelope in the (story, run, class, stage) scope.
 
         Args:
-            story_id: Story-Display-ID.
-            run_id: Run-Korrelations-ID; ``None`` matched ueber alle Runs.
-            artifact_class: Erzeugerklasse-Filter.
-            stage: Stage-Filter.
+            story_id: Story display id.
+            run_id: Run correlation id; ``None`` matches across all runs.
+            artifact_class: Producer-class filter.
+            stage: Stage filter.
 
         Returns:
-            ``ArtifactEnvelope`` mit dem hoechsten ``attempt`` im Scope.
+            ``ArtifactEnvelope`` with the highest ``attempt`` in the scope.
 
         Raises:
-            ArtifactNotFoundError: Wenn kein Envelope im Scope existiert
-                (fail-closed; kein silent None).
+            ArtifactNotFoundError: When no envelope exists in the scope
+                (fail-closed; no silent None).
         """
         result = self._repository.find_latest_envelope(
             story_id=story_id,
@@ -135,7 +135,7 @@ class ArtifactManager:
         )
         if result is None:
             msg = (
-                "Kein Artefakt im Scope: "
+                "No artifact in scope: "
                 f"story_id={story_id!r}, run_id={run_id!r}, "
                 f"artifact_class={artifact_class!r}, stage={stage!r}"
             )
@@ -143,16 +143,16 @@ class ArtifactManager:
         return result
 
     def exists(self, reference: ArtifactReference) -> bool:
-        """Prueft, ob ein Artefakt mit dieser Reference existiert.
+        """Check whether an artifact with this Reference exists.
 
-        Read-only-Pfad ohne Fehlergarantie (Backend-Fehler propagieren
-        direkt aus der Repository-Implementierung).
+        Read-only path without an error guarantee (backend errors
+        propagate directly from the repository implementation).
 
         Args:
-            reference: Opake Reference.
+            reference: Opaque Reference.
 
         Returns:
-            True wenn vorhanden, False sonst.
+            True if present, False otherwise.
         """
         return self._repository.exists_envelope(reference)
 

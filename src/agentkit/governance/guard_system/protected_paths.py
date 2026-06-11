@@ -1,28 +1,29 @@
-"""Protected-Path-Konstanten fuer den QA-Artefakt-Schutz.
+"""Protected-path constants for the QA artifact protection.
 
-Kanonischer Ort: ``agentkit.governance.guard_system.protected_paths``.
+Canonical location: ``agentkit.governance.guard_system.protected_paths``.
 
-Begruendung (FK-31 §31.3 + bc-cut-decisions.md §BC 4 + Refactor-Liste Pkt. 24):
-- Die Konstanten konfigurieren den ``qa-artifact-protection``-Hook des
-  GuardSystems (FK-31 §31.3, Z. 420-487).
-- BC-Cut §BC 4 positioniert das GuardSystem unter ``agentkit.governance.guard_system``.
-- Refactor-Pkt. 24: "PROTECTED_ARTIFACTS-Liste gehoert zur Hook-Konfiguration
-  in BC 4 (governance.guard_system), nicht zu artifacts oder state_backend".
+Rationale (FK-31 §31.3 + bc-cut-decisions.md §BC 4 + refactor list item 24):
+- The constants configure the ``qa-artifact-protection`` hook of the
+  GuardSystem (FK-31 §31.3, lines 420-487).
+- BC-Cut §BC 4 positions the GuardSystem under ``agentkit.governance.guard_system``.
+- Refactor item 24: "the PROTECTED_ARTIFACTS list belongs to the hook
+  configuration in BC 4 (governance.guard_system), not to artifacts or
+  state_backend".
 
-Truth-Boundary-Disziplin: ``agentkit.governance`` ist
-``protected_module_prefix`` laut
-``concept/formal-spec/truth-boundary-checker/invariants.md`` Z. 24-52.
-Die Wire-String-Literale ("structural.json", "decision.json", ...)
-duerfen daher nicht **in** diesem Modul stehen. Sie leben als
-Cross-Cutting-Konstanten in ``agentkit.core_types.qa_artifact_names``
-und werden hier nur zur Tuple-Konfiguration des Hooks importiert.
+Truth-boundary discipline: ``agentkit.governance`` is a
+``protected_module_prefix`` per
+``concept/formal-spec/truth-boundary-checker/invariants.md`` lines 24-52.
+The wire string literals ("structural.json", "decision.json", ...)
+therefore must not reside **in** this module. They live as cross-cutting
+constants in ``agentkit.core_types.qa_artifact_names`` and are only imported
+here for the tuple configuration of the hook.
 
-Quelle:
+Source:
 - FK-31 §31.3 — ``concept/technical-design/31_branch_guard_orchestrator_guard_artefaktschutz.md``
-  (Z. 420-487)
-- ``concept/_meta/bc-cut-decisions.md §BC 4`` — Z. 285-338
-- ``concept/_meta/bc-cut-decisions.md §BC 8 Refactor-Liste Pkt. 24`` — Z. 1900
-- ``concept/formal-spec/truth-boundary-checker/invariants.md`` Z. 24-52
+  (lines 420-487)
+- ``concept/_meta/bc-cut-decisions.md §BC 4`` — lines 285-338
+- ``concept/_meta/bc-cut-decisions.md §BC 8 refactor list item 24`` — line 1900
+- ``concept/formal-spec/truth-boundary-checker/invariants.md`` lines 24-52
 """
 
 from __future__ import annotations
@@ -43,22 +44,22 @@ from agentkit.core_types.qa_artifact_names import (
 )
 from agentkit.state_backend.paths import STATE_DB_DIR, STATE_DB_FILE
 
-#: Schutzliste aller QA-Artefakt-Dateinamen (FK-31 §31.3 + FK-27 §27.7).
-#: Schreibzugriff durch Sub-Agents auf diese Dateien ist im GuardSystem
-#: geblockt, solange der QA-Artifact-Lock aktiv ist (FK-31 §31.3).
-#: Enthaelt alle 6 FK-27-Artefakte + das Guardrail-Artefakt.
+#: Protection list of all QA artifact filenames (FK-31 §31.3 + FK-27 §27.7).
+#: Write access by sub-agents to these files is blocked in the GuardSystem as
+#: long as the QA artifact lock is active (FK-31 §31.3).
+#: Contains all 6 FK-27 artifacts + the guardrail artifact.
 PROTECTED_QA_ARTIFACTS: tuple[str, ...] = (
     *ALL_QA_ARTIFACT_FILES,
     GUARDRAIL_FILE,
 )
 
-#: Lokaler Conflict-Freeze-Export (AG3-032, FK-55 §55.10.5 / FK-31 §31.2.7).
-#: Projekt-relativer Pfad der dualen Freeze-Materialisierung; gehoert zur
-#: ``governance_plane`` (FK-55 §55.4) und darf nur ueber offizielle Servicepfade
-#: mutiert werden. Hier als geschuetzter Governance-Pfad registriert (AG3-023).
-#: Das Pfad-Literal lebt in ``core_types.plane_artifact_names`` (SINGLE SOURCE OF
-#: TRUTH / Truth-Boundary) und wird hier nur re-exportiert — kein Literal in
-#: diesem geschuetzten governance-Modul.
+#: Local conflict-freeze export (AG3-032, FK-55 §55.10.5 / FK-31 §31.2.7).
+#: Project-relative path of the dual freeze materialization; belongs to the
+#: ``governance_plane`` (FK-55 §55.4) and may be mutated only via official service
+#: paths. Registered here as a protected governance path (AG3-023).
+#: The path literal lives in ``core_types.plane_artifact_names`` (SINGLE SOURCE OF
+#: TRUTH / truth boundary) and is only re-exported here — no literal in this
+#: protected governance module.
 PROTECTED_GOVERNANCE_FREEZE_EXPORT: str = GOVERNANCE_FREEZE_EXPORT_RELPATH
 
 #: Exploration change-frame artifact (FK-23 §23.4.3).
@@ -107,71 +108,71 @@ def is_adversarial_sandbox_path(relpath: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Self-Protection-Pfad-Registry (FK-30 §30.5.4 / FK-15 §15.7.1).
+# Self-protection path registry (FK-30 §30.5.4 / FK-15 §15.7.1).
 #
-# Der ``SelfProtectionGuard`` (AG3-033) bezieht seine geschuetzten Pfade
-# ausschliesslich von hier — kein governance-Modul haelt eine zweite Wahrheit
-# fuer Protected-Pfade (CLAUDE.md SINGLE SOURCE OF TRUTH; durchgesetzt von
-# ``scripts/ci/check_concept_code_contracts.py``). Die Pfad-Literale leben in
-# ``core_types.plane_artifact_names`` bzw. ``state_backend.paths`` und werden hier
-# nur re-exportiert / zu Konfigurations-Tupeln zusammengezogen.
+# The ``SelfProtectionGuard`` (AG3-033) sources its protected paths exclusively
+# from here — no governance module holds a second truth for protected paths
+# (CLAUDE.md SINGLE SOURCE OF TRUTH; enforced by
+# ``scripts/ci/check_concept_code_contracts.py``). The path literals live in
+# ``core_types.plane_artifact_names`` or ``state_backend.paths`` and are only
+# re-exported / collected into configuration tuples here.
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
-# Self-Protection-ZONEN (FK-30 §30.5.4 / FK-15 §15.7.x).
+# Self-protection ZONES (FK-30 §30.5.4 / FK-15 §15.7.x).
 #
-# Der ``SelfProtectionGuard`` (AG3-033) wendet je geschuetzter Zone eine
-# eigene, konzept-verankerte Principal-Whitelist an (FK-31 §31.5.4 implizit per
-# FK-15 §15.7.3 „Nur Pipeline-Skripte (Zone 2) schreiben Lock-Records"). Kein
-# pauschaler Trio-Whitelist mehr. Die Zonen werden hier als Pfad-Mengen
-# definiert; die Zone→Principal-Policy ist Owner des Guards (Geschaeftslogik).
+# The ``SelfProtectionGuard`` (AG3-033) applies a separate, concept-anchored
+# principal whitelist per protected zone (FK-31 §31.5.4 implicitly via
+# FK-15 §15.7.3 "Only pipeline scripts (zone 2) write lock records"). No blanket
+# trio whitelist anymore. The zones are defined here as path sets; the
+# zone->principal policy is owned by the guard (business logic).
 # ---------------------------------------------------------------------------
 
-#: ZONE „harness" — harness-spezifische Hook-Settings-Dateien (FK-30 §30.5.4 /
-#: FK-76 §76.5) und CCAG-/Skill-Symlink-Verzeichnisse (FK-15 §15.7.1). Diese
-#: Bindungspunkte werden ausschliesslich vom Installer (FK-30 §30.3.1 „Aufrufer:
-#: Installer"; FK-50 CP 9) ueber ``register_hooks`` materialisiert — ein
-#: deterministischer Zone-2-Prozess. Exakte Datei-Tupel.
+#: ZONE "harness" — harness-specific hook-settings files (FK-30 §30.5.4 /
+#: FK-76 §76.5) and CCAG/skill symlink directories (FK-15 §15.7.1). These
+#: binding points are materialized exclusively by the installer (FK-30 §30.3.1
+#: "caller: installer"; FK-50 CP 9) via ``register_hooks`` — a deterministic
+#: zone-2 process. Exact file tuples.
 SELF_PROTECTION_HARNESS_FILE_PARTS: tuple[tuple[str, ...], ...] = (
     *SELF_PROTECTION_HOOK_SETTINGS_PARTS,
 )
 
-#: ZONE „harness" — Verzeichnis-Praefixe (CCAG-Regeln / Skill-Symlinks, FK-15
-#: §15.7.1). Jede Mutation UNTER einem dieser Verzeichnisse gehoert zur
-#: harness-Zone.
+#: ZONE "harness" — directory prefixes (CCAG rules / skill symlinks, FK-15
+#: §15.7.1). Every mutation UNDER one of these directories belongs to the
+#: harness zone.
 SELF_PROTECTION_HARNESS_DIR_PARTS: tuple[tuple[str, ...], ...] = (
     *SELF_PROTECTION_SYMLINK_DIR_PARTS,
 )
 
-#: ZONE „governance" — Governance-Konfiguration / Installer-Manifest (FK-30
+#: ZONE "governance" — governance configuration / installer manifest (FK-30
 #: §30.5.4: ``.agentkit/config/project.yaml``, ``.installed-manifest.json``).
-#: Diese gehoeren — wie Lock-Records und Edge-Bundles — zur Governance-Wahrheit
-#: und unterliegen derselben Pipeline-/Admin-Whitelist (FK-15 §15.4.1 Zeile
-#: „Zentralen Workflow-State mutieren" / „Lock-Record erstellen/beenden").
+#: These belong — like lock records and edge bundles — to the governance truth
+#: and are subject to the same pipeline/admin whitelist (FK-15 §15.4.1 line
+#: "mutate central workflow state" / "create/end lock record").
 SELF_PROTECTION_GOVERNANCE_FILE_PARTS: tuple[tuple[str, ...], ...] = (
     *SELF_PROTECTION_CONFIG_FILE_PARTS,
 )
 
-#: Aggregat aller geschuetzten exakten Datei-Pfade (Rueckwaerts-Kompatibilitaet /
-#: „ist dieser Pfad ueberhaupt geschuetzt"-Pruefung). Vereinigung der harness- und
-#: governance-Zonen.
+#: Aggregate of all protected exact file paths (backward compatibility /
+#: "is this path protected at all" check). Union of the harness and governance
+#: zones.
 SELF_PROTECTION_PROTECTED_FILE_PARTS: tuple[tuple[str, ...], ...] = (
     *SELF_PROTECTION_HARNESS_FILE_PARTS,
     *SELF_PROTECTION_GOVERNANCE_FILE_PARTS,
 )
 
-#: Aggregat aller geschuetzten Verzeichnis-Praefixe (FK-30 §30.5.4). Derzeit
-#: deckungsgleich mit der harness-Zone (CCAG-/Skill-Symlinks); die
-#: Governance-Plane-Verzeichnisse (``_temp/governance``, ``.agent-guard``, ``.git``)
-#: deckt der ``PathClassifier`` ueber Pfadklassen ab, nicht ueber diese Tupel.
+#: Aggregate of all protected directory prefixes (FK-30 §30.5.4). Currently
+#: congruent with the harness zone (CCAG/skill symlinks); the governance-plane
+#: directories (``_temp/governance``, ``.agent-guard``, ``.git``) are covered by
+#: the ``PathClassifier`` via path classes, not via these tuples.
 SELF_PROTECTION_PROTECTED_DIR_PARTS: tuple[tuple[str, ...], ...] = (
     *SELF_PROTECTION_HARNESS_DIR_PARTS,
 )
 
-#: Story-Backend-Verzeichnis-Segment (``.agentkit``) und SQLite-Suffixe, ueber
-#: die der ``StoryCreationGuard`` (AG3-033) einen direkten Story-DB-INSERT
-#: erkennt (FK-21 §21.13 / FK-31 §31.5). Quelle: ``state_backend.paths`` — kein
-#: zweites Literal im governance-Modul.
+#: Story-backend directory segment (``.agentkit``) and SQLite suffixes by which
+#: the ``StoryCreationGuard`` (AG3-033) detects a direct story-DB INSERT
+#: (FK-21 §21.13 / FK-31 §31.5). Source: ``state_backend.paths`` — no second
+#: literal in the governance module.
 STORY_DB_DIR_SEGMENT: str = STATE_DB_DIR
 STORY_DB_SUFFIXES: tuple[str, ...] = tuple(
     sorted({"." + STATE_DB_FILE.rsplit(".", 1)[-1], ".sqlite"})

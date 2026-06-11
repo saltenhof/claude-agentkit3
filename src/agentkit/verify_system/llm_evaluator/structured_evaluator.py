@@ -21,12 +21,12 @@ carry ``finding_resolution_{finding_id}`` checks (FK-34 §34.9.5); each maps to
 a :class:`~agentkit.verify_system.remediation.finding_resolution.FindingResolutionStatus`
 (AG3-041) in :attr:`StructuredEvaluatorResult.finding_resolutions`.
 
-Quelle:
-  - FK-34 §34.2 -- drei Rollen, Antwort-Schema, Aggregation
-  - FK-34 §34.5.1 -- Fehlerbehandlung (fail-closed, kein valides JSON -> FAIL)
-  - FK-34 §34.9 / DK-04 §4.6 -- Finding-Resolution im Remediation-Modus
-  - FK-27 §27.5.2 -- die 12 qa_review Check-IDs
-  - FK-44 §44.4.2 -- Prompt-Lookup via PromptRuntime.materialize_prompt
+Source:
+  - FK-34 §34.2 -- three roles, response schema, aggregation
+  - FK-34 §34.5.1 -- error handling (fail-closed, no valid JSON -> FAIL)
+  - FK-34 §34.9 / DK-04 §4.6 -- finding resolution in remediation mode
+  - FK-27 §27.5.2 -- the 12 qa_review check IDs
+  - FK-44 §44.4.2 -- prompt lookup via PromptRuntime.materialize_prompt
 """
 
 from __future__ import annotations
@@ -728,7 +728,7 @@ class StructuredEvaluator:
 
         FK-11 §11.4.6a: the full prompt and raw response MUST be persisted via
         the prompt-audit / ArtifactManager machinery — NOT a parallel loose-JSON
-        channel (AG3-065 §2.1.8a / §2.1.5 "kein paralleler Log-Kanal"). Routed
+        channel (AG3-065 §2.1.8a / §2.1.5 "no parallel log channel"). Routed
         via the concept-owned ``prompt-runtime.materialization`` producer
         (registered in ``prompt_runtime.register``) with a role-specific stage
         id to avoid DB-key collisions across the three Layer-2 roles (ERROR 2
@@ -882,7 +882,7 @@ class StructuredEvaluator:
         mandatory. In remediation mode (``qa_cycle_round > 1`` with previous
         findings) every previous finding *belonging to this role* additionally
         requires its ``finding_resolution_{layer}:{check}`` check (FK-34 §34.9:
-        "Bewerte pro Finding, ob es resolved ist"). A finding belongs to the
+        "evaluate per finding whether it is resolved"). A finding belongs to the
         role that produced it (``finding.layer == role.value``) -- the
         ``qa_review`` evaluator resolves ``qa_review`` findings, the
         ``semantic_review`` evaluator its own, etc. Both sets are mandatory and
@@ -968,7 +968,7 @@ class StructuredEvaluator:
                     # blocking. Emit a BLOCKING finding (the policy engine acts
                     # on findings) regardless of the LLM check.status, because a
                     # partially_resolved reports PASS_WITH_CONCERNS yet still
-                    # blocks hard (FK-34 §34.9.4 Sonderregel).
+                    # blocks hard (FK-34 §34.9.4 special rule).
                     has_blocking = True
                     findings.append(self._resolution_finding(role, check, status))
                 continue
@@ -1053,7 +1053,7 @@ class StructuredEvaluator:
         severity is ``BLOCKING`` regardless of the LLM check.status (which is
         ``PASS_WITH_CONCERNS`` for partially_resolved). Mapped to the
         unconditional ``BLOCKING`` so the PolicyEngine blocks
-        *schwellenunabhaengig* (FK-34 §34.9.4 Sonderregel) -- a partially
+        *threshold-independently* (FK-34 §34.9.4 special rule) -- a partially
         resolved finding is a hard blocker, not a threshold-gated MAJOR.
         """
         message = (

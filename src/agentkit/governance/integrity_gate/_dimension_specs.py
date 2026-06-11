@@ -69,7 +69,7 @@ ADVERSARIAL_EXPECTED_END = 1
 #: Envelope statuses that mean a Layer-2 review did NOT produce a result
 #: (FK-35 §35.2.4 Dim 5 "Status != SKIPPED").  AK3 has no ``SKIPPED`` status; a
 #: genuinely skipped review writes NO envelope at all, and ``ERROR`` means
-#: "Infrastruktur-Fehler (kein LLM-Ergebnis)" (FK-71) — i.e. no review result.
+#: "infrastructure error (no LLM result)" (FK-71) — i.e. no review result.
 NON_REVIEW_STATUSES: frozenset[EnvelopeStatus] = frozenset({EnvelopeStatus.ERROR})
 
 #: §35.2.3 pre-stage FAIL-codes (kept distinct from the §35.2.4 dimension IDs:

@@ -1,10 +1,10 @@
-"""StoryDependencyKind — Story-Abhaengigkeitskanten.
+"""StoryDependencyKind — story dependency edges.
 
 Source of truth: FK-70 §70.4.2 — concept/technical-design/70_story_planung_abhaengigkeiten_ausfuehrungsplanung.md
-(Z. 211-220, acht Werte).
+(lines 211-220, eight values).
 
-Ersetzt das v2-Vokabular ``blocks/derives_from/branches_off`` (drei
-Werte) vollstaendig.
+Fully replaces the v2 vocabulary ``blocks/derives_from/branches_off``
+(three values).
 """
 
 from __future__ import annotations
@@ -13,22 +13,22 @@ from enum import StrEnum
 
 
 class StoryDependencyKind(StrEnum):
-    """Story-Abhaengigkeitskante pro FK-70 §70.4.2.
+    """Story dependency edge per FK-70 §70.4.2.
 
-    `soft_story_dependency` ist KEIN harter Topologie-Blocker; sie
-    beeinflusst Priorisierung/Scheduling, darf aber keine Story von
-    `READY` auf nicht-ausfuehrbar setzen.
+    `soft_story_dependency` is NOT a hard topology blocker; it influences
+    prioritization/scheduling but may never move a story from `READY` to
+    non-executable.
 
     Attributes:
-        HARD_STORY_DEPENDENCY: Harte Voraussetzung; Story bleibt
-            blockiert bis Vorgaenger `completed`.
-        SOFT_STORY_DEPENDENCY: Weicher Hint fuer Scheduling.
-        SERIAL_EXECUTION_CONSTRAINT: Erzwingt sequenzielle Ausfuehrung.
-        MUTEX_CONSTRAINT: Mutex zwischen zwei Stories.
-        SHARED_CONTRACT_DEPENDENCY: Gemeinsamer Vertrag (Schema/API).
-        SHARED_FILE_CONFLICT: Beruehren dieselben Dateien.
-        EXTERNAL_DEPENDENCY: Externe Abhaengigkeit (Lib, Tool, Service).
-        HUMAN_GATE_DEPENDENCY: Wartet auf menschliche Entscheidung.
+        HARD_STORY_DEPENDENCY: Hard precondition; story stays blocked
+            until the predecessor is `completed`.
+        SOFT_STORY_DEPENDENCY: Soft hint for scheduling.
+        SERIAL_EXECUTION_CONSTRAINT: Enforces sequential execution.
+        MUTEX_CONSTRAINT: Mutex between two stories.
+        SHARED_CONTRACT_DEPENDENCY: Shared contract (schema/API).
+        SHARED_FILE_CONFLICT: Touch the same files.
+        EXTERNAL_DEPENDENCY: External dependency (lib, tool, service).
+        HUMAN_GATE_DEPENDENCY: Waits for a human decision.
     """
 
     HARD_STORY_DEPENDENCY = "hard_story_dependency"

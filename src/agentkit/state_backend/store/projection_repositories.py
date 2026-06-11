@@ -1,21 +1,21 @@
-"""ProjectionRepositories: Protokoll-Definitionen und duenne Adapter fuer FK-69-Tabellen.
+"""ProjectionRepositories: protocol definitions and thin adapters for FK-69 tables.
 
-Jedes Repository-Protocol definiert die Schreib- und Lese-Grenze fuer eine
-FK-69-Tabellenfamilie. Die konkreten Implementierungen kapseln die bestehenden
-facade-Funktionen ohne neue operative Wahrheit einzufuehren.
+Each repository protocol defines the write and read boundary for one
+FK-69 table family. The concrete implementations encapsulate the existing
+facade functions without introducing a new operative truth.
 
 Architecture Conformance (AC#7):
-- ``ProjectionAccessor`` in ``agentkit.telemetry`` darf NICHT direkt aus
-  ``agentkit.state_backend.store.facade`` importieren.
-- Stattdessen werden diese Repository-Protocols via ``ProjectionRepositories``
-  (Dependency-Injection-Dataclass) injiziert.
-- Konkrete Implementierungen liegen hier (DB-Schicht), Accessor in ``telemetry``.
+- ``ProjectionAccessor`` in ``agentkit.telemetry`` may NOT import directly from
+  ``agentkit.state_backend.store.facade``.
+- Instead these repository protocols are injected via ``ProjectionRepositories``
+  (a dependency-injection dataclass).
+- Concrete implementations live here (DB layer), the accessor in ``telemetry``.
 
-Quellen:
-- FK-69 §69.3 -- Tabellenumfang
-- FK-69 §69.4 -- Schreib-Ownership und Writer-Komponenten
-- FK-69 §69.10.1 -- Reset-Purge-Regel (run_id-scoped)
-- AG3-035 §2.1.1 -- ProjectionRepositories-Dataclass
+Sources:
+- FK-69 §69.3 -- table scope
+- FK-69 §69.4 -- write ownership and writer components
+- FK-69 §69.10.1 -- reset-purge rule (run_id-scoped)
+- AG3-035 §2.1.1 -- ProjectionRepositories dataclass
 """
 
 from __future__ import annotations
@@ -51,14 +51,14 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class QAStageResultsRepository(Protocol):
-    """Schreib-/Lese-/Purge-Adapter fuer ``qa_stage_results`` (FK-69 §69.6).
+    """Write/read/purge adapter for ``qa_stage_results`` (FK-69 §69.6).
 
-    Schema-Owner: verify-system (FK-33).
-    DB-Owner: telemetry-and-events via ProjectionAccessor.
+    Schema owner: verify-system (FK-33).
+    DB owner: telemetry-and-events via ProjectionAccessor.
     """
 
     def write(self, record: QAStageResultRecord) -> None:
-        """Persistiere einen einzelnen QAStageResultRecord."""
+        """Persist a single QAStageResultRecord."""
         ...
 
     def read(
@@ -70,7 +70,7 @@ class QAStageResultsRepository(Protocol):
         attempt_no: int | None = None,
         stage_id: str | None = None,
     ) -> list[QAStageResultRecord]:
-        """Lade QAStageResultRecords mit optionalen Filtern."""
+        """Load QAStageResultRecords with optional filters."""
         ...
 
     def purge_run(
@@ -79,24 +79,24 @@ class QAStageResultsRepository(Protocol):
         story_id: str,
         run_id: str,
     ) -> int:
-        """Loesche alle qa_stage_results fuer (project_key, story_id, run_id).
+        """Delete all qa_stage_results for (project_key, story_id, run_id).
 
-        FK-69 §69.10.1: ein vollstaendiger Reset entfernt alle Zeilen des
-        betroffenen run_id. Gibt die Anzahl geloeschter Zeilen zurueck.
+        FK-69 §69.10.1: a full reset removes all rows of the
+        affected run_id. Returns the number of deleted rows.
         """
         ...
 
 
 @runtime_checkable
 class QAFindingsRepository(Protocol):
-    """Schreib-/Lese-/Purge-Adapter fuer ``qa_findings`` (FK-69 §69.7).
+    """Write/read/purge adapter for ``qa_findings`` (FK-69 §69.7).
 
-    Schema-Owner: verify-system (FK-33).
-    DB-Owner: telemetry-and-events via ProjectionAccessor.
+    Schema owner: verify-system (FK-33).
+    DB owner: telemetry-and-events via ProjectionAccessor.
     """
 
     def write(self, record: QAFindingRecord) -> None:
-        """Persistiere einen einzelnen QAFindingRecord."""
+        """Persist a single QAFindingRecord."""
         ...
 
     def read(
@@ -108,7 +108,7 @@ class QAFindingsRepository(Protocol):
         attempt_no: int | None = None,
         stage_id: str | None = None,
     ) -> list[QAFindingRecord]:
-        """Lade QAFindingRecords mit optionalen Filtern."""
+        """Load QAFindingRecords with optional filters."""
         ...
 
     def purge_run(
@@ -117,24 +117,24 @@ class QAFindingsRepository(Protocol):
         story_id: str,
         run_id: str,
     ) -> int:
-        """Loesche alle qa_findings fuer (project_key, story_id, run_id).
+        """Delete all qa_findings for (project_key, story_id, run_id).
 
-        FK-69 §69.10.1: ein vollstaendiger Reset entfernt alle Zeilen des
-        betroffenen run_id. Gibt die Anzahl geloeschter Zeilen zurueck.
+        FK-69 §69.10.1: a full reset removes all rows of the
+        affected run_id. Returns the number of deleted rows.
         """
         ...
 
 
 @runtime_checkable
 class StoryMetricsRepository(Protocol):
-    """Schreib-/Lese-/Purge-Adapter fuer ``story_metrics`` (FK-69 §69.8).
+    """Write/read/purge adapter for ``story_metrics`` (FK-69 §69.8).
 
-    Schema-Owner: story-closure (FK-29 §29.6).
-    DB-Owner: telemetry-and-events via ProjectionAccessor.
+    Schema owner: story-closure (FK-29 §29.6).
+    DB owner: telemetry-and-events via ProjectionAccessor.
     """
 
     def write(self, record: StoryMetricsRecord) -> None:
-        """Persistiere (upsert) einen StoryMetricsRecord."""
+        """Persist (upsert) a StoryMetricsRecord."""
         ...
 
     def read(
@@ -144,7 +144,7 @@ class StoryMetricsRepository(Protocol):
         story_id: str | None = None,
         run_id: str | None = None,
     ) -> list[StoryMetricsRecord]:
-        """Lade StoryMetricsRecords mit optionalen Filtern."""
+        """Load StoryMetricsRecords with optional filters."""
         ...
 
     def purge_run(
@@ -153,25 +153,25 @@ class StoryMetricsRepository(Protocol):
         story_id: str,
         run_id: str,
     ) -> int:
-        """Loesche alle story_metrics fuer (project_key, story_id, run_id).
+        """Delete all story_metrics for (project_key, story_id, run_id).
 
-        FK-69 §69.10.1: ein vollstaendiger Reset entfernt alle Zeilen des
-        betroffenen run_id. Gibt die Anzahl geloeschter Zeilen zurueck.
+        FK-69 §69.10.1: a full reset removes all rows of the
+        affected run_id. Returns the number of deleted rows.
         """
         ...
 
 
 @runtime_checkable
 class RiskWindowRepository(Protocol):
-    """Schreib-/Purge-Adapter fuer ``risk_window`` (FK-68 §68.8, AG3-037).
+    """Write/purge adapter for ``risk_window`` (FK-68 §68.8, AG3-037).
 
-    Schema-Owner + DB-Owner: telemetry-and-events. Append-only Rolling-Window
-    von ``NormalizedEvent``s; Schreibpfad ausschliesslich ueber
+    Schema owner + DB owner: telemetry-and-events. Append-only rolling window
+    of ``NormalizedEvent``s; the write path is exclusively via
     ``ProjectionAccessor.record_risk_window_event``.
     """
 
     def record(self, event: NormalizedEvent) -> None:
-        """Persistiere einen ``NormalizedEvent`` (append-only)."""
+        """Persist a ``NormalizedEvent`` (append-only)."""
         ...
 
     def purge_run(
@@ -180,18 +180,18 @@ class RiskWindowRepository(Protocol):
         story_id: str,
         run_id: str,
     ) -> int:
-        """Loesche alle risk_window-Zeilen fuer (project_key, story_id, run_id)."""
+        """Delete all risk_window rows for (project_key, story_id, run_id)."""
         ...
 
 
 @runtime_checkable
 class PhaseStateProjectionRepository(Protocol):
-    """Schreib-/Lese-/Purge-Adapter fuer ``phase_state_projection`` (FK-39 §39.7).
+    """Write/read/purge adapter for ``phase_state_projection`` (FK-39 §39.7).
 
-    Schema-Owner: pipeline-framework (FK-39).
-    DB-Owner: telemetry-and-events via ProjectionAccessor.
-    Hinweis: Schreib-Owner ist pipeline_engine.PhaseExecutor; hier nur
-    Purge-Pfad fuer ProjectionAccessor.
+    Schema owner: pipeline-framework (FK-39).
+    DB owner: telemetry-and-events via ProjectionAccessor.
+    Note: the write owner is pipeline_engine.PhaseExecutor; here only the
+    purge path for ProjectionAccessor.
     """
 
     def purge_run(
@@ -200,10 +200,10 @@ class PhaseStateProjectionRepository(Protocol):
         story_id: str,
         run_id: str,
     ) -> int:
-        """Loesche alle phase_state_projection-Zeilen fuer (project_key, story_id, run_id).
+        """Delete all phase_state_projection rows for (project_key, story_id, run_id).
 
-        FK-69 §69.10.1: ein vollstaendiger Reset entfernt alle Zeilen des
-        betroffenen run_id. Gibt die Anzahl geloeschter Zeilen zurueck.
+        FK-69 §69.10.1: a full reset removes all rows of the
+        affected run_id. Returns the number of deleted rows.
         """
         ...
 
@@ -234,14 +234,14 @@ class GuardCounterPurgePort(Protocol):
 
 @runtime_checkable
 class QALayerBatchWriter(Protocol):
-    """Atomarer Batch-Schreibpfad fuer QA-Layer-Artefakte (FK-69 §69.4, AG3-035 #5).
+    """Atomic batch write path for QA-layer artifacts (FK-69 §69.4, AG3-035 #5).
 
-    Fachlicher Eintrittspunkt fuer den QA-Subflow: schreibt qa_stage_results +
-    qa_findings + die Quell-artifact_records in EINER Driver-Transaktion. Der
-    ``ProjectionAccessor`` delegiert hierhin (``record_qa_layer_artifacts``),
-    ohne die Transaktion zu zerteilen (Befund D Option i: Transaktion bleibt im
-    Driver). Die konkrete Impl kapselt den facade-/Driver-Batch -- der Accessor
-    in ``agentkit.telemetry`` kennt keine facade-Details (AC#7).
+    The domain entry point for the QA-subflow: writes qa_stage_results +
+    qa_findings + the source artifact_records in ONE driver transaction. The
+    ``ProjectionAccessor`` delegates here (``record_qa_layer_artifacts``),
+    without splitting the transaction (finding D option i: the transaction stays
+    in the driver). The concrete impl encapsulates the facade/driver batch -- the
+    accessor in ``agentkit.telemetry`` knows no facade details (AC#7).
     """
 
     def persist_layer_artifacts(
@@ -252,7 +252,7 @@ class QALayerBatchWriter(Protocol):
         attempt_nr: int,
         projection_dir: Path | None = None,
     ) -> tuple[str, ...]:
-        """Persistiere QA-Layer-Ergebnisse atomar; gibt die Artefakt-IDs zurueck."""
+        """Persist QA-layer results atomically; returns the artifact IDs."""
         ...
 
 
@@ -263,22 +263,22 @@ class QALayerBatchWriter(Protocol):
 
 @dataclass(frozen=True)
 class ProjectionRepositories:
-    """Buendelt alle FK-69-Repository-Instanzen fuer ``ProjectionAccessor``.
+    """Bundles all FK-69 repository instances for ``ProjectionAccessor``.
 
-    Wird in der Composition-Root (``agentkit.bootstrap.composition_root``)
-    instanziiert und per Dependency-Injection in ``ProjectionAccessor``
-    eingereicht. Der Accessor darf NICHT selbst Repository-Implementierungen
-    instantiieren (AC#7 -- kein direkter facade-Import im Accessor).
+    Instantiated in the composition root (``agentkit.bootstrap.composition_root``)
+    and handed into ``ProjectionAccessor`` via dependency injection. The
+    accessor may NOT instantiate repository implementations itself
+    (AC#7 -- no direct facade import in the accessor).
 
     Attributes:
-        qa_stage_results: Adapter fuer ``qa_stage_results``.
-        qa_findings: Adapter fuer ``qa_findings``.
-        story_metrics: Adapter fuer ``story_metrics``.
-        phase_state_projection: Adapter fuer ``phase_state_projection``.
-        qa_layer_batch: Atomarer QA-Layer-Batch-Schreibpfad (fachlicher
-            Eintrittspunkt des QA-Subflows via ``record_qa_layer_artifacts``).
-        fc_incidents: Adapter fuer ``fc_incidents`` (AG3-028, FK-41 §41.3.1).
-        risk_window: Adapter fuer ``risk_window`` (AG3-037, FK-68 §68.8).
+        qa_stage_results: Adapter for ``qa_stage_results``.
+        qa_findings: Adapter for ``qa_findings``.
+        story_metrics: Adapter for ``story_metrics``.
+        phase_state_projection: Adapter for ``phase_state_projection``.
+        qa_layer_batch: Atomic QA-layer batch write path (the domain
+            entry point of the QA-subflow via ``record_qa_layer_artifacts``).
+        fc_incidents: Adapter for ``fc_incidents`` (AG3-028, FK-41 §41.3.1).
+        risk_window: Adapter for ``risk_window`` (AG3-037, FK-68 §68.8).
         tasks: Adapter for ``tm_tasks`` and ``tm_task_links`` (FK-77).
         guard_counter_purge: Reset-purge seam for ``guard_invocation_counters``
             (AG3-081, FK-61 §61.4.3 Trigger 4). Drains the story's guard counters
@@ -297,12 +297,12 @@ class ProjectionRepositories:
 
 
 # ---------------------------------------------------------------------------
-# Backend-Hilfsfunktionen (gemeinsam fuer konkrete Implementierungen)
+# Backend helper functions (shared by the concrete implementations)
 # ---------------------------------------------------------------------------
 
 
 def _is_postgres() -> bool:
-    """Kanonische Backend-Selektion via load_state_backend_config (Befund C fix)."""
+    """Canonical backend selection via load_state_backend_config (finding C fix)."""
     from agentkit.state_backend.config import StateBackendKind, load_state_backend_config
 
     return load_state_backend_config().backend is StateBackendKind.POSTGRES
@@ -365,13 +365,13 @@ def _postgres_connect() -> Iterator[Any]:
     conn = psycopg.connect(_postgres_database_url(), row_factory=dict_row)
     try:
         ensure_versioned_schema(conn)
-        # Bootstrap via kanonischer Postgres-Schema-Owner (SINGLE SOURCE OF
-        # TRUTH, symmetrisch zu _sqlite_connect_qa): garantiert, dass die
-        # FK-69-Tabellen (inkl. fc_incidents, AG3-028) vorhanden sind, bevor der
-        # Projektions-Repo-Adapter schreibt/liest. Idempotent (CREATE IF NOT
-        # EXISTS). Verhindert "relation does not exist", wenn der Schreibpfad
-        # ueber den ProjectionAccessor laeuft, ohne dass zuvor ein anderer
-        # postgres_store-Call das Schema gebootet hat.
+        # Bootstrap via the canonical Postgres schema owner (SINGLE SOURCE OF
+        # TRUTH, symmetric to _sqlite_connect_qa): guarantees the
+        # FK-69 tables (incl. fc_incidents, AG3-028) exist before the
+        # projection repo adapter writes/reads. Idempotent (CREATE IF NOT
+        # EXISTS). Prevents "relation does not exist" when the write path
+        # runs via the ProjectionAccessor without a prior other
+        # postgres_store call having booted the schema.
         postgres_store._ensure_schema(postgres_store._CompatConnection(conn))
         yield conn
         conn.commit()
@@ -384,12 +384,12 @@ def _postgres_connect() -> Iterator[Any]:
 
 @contextmanager
 def _sqlite_connect_qa(store_dir: Path) -> Iterator[sqlite3.Connection]:
-    """SQLite-Verbindung fuer qa_stage_results/qa_findings Repos.
+    """SQLite connection for the qa_stage_results/qa_findings repos.
 
-    Befund B (AG3-035 Remediation): DDL-Ownership liegt jetzt in
+    Finding B (AG3-035 remediation): DDL ownership now lives in
     ``sqlite_store._ensure_schema_runtime_tables`` (SINGLE SOURCE OF TRUTH).
-    Diese Funktion bootstrappt das komplette Schema via sqlite_store._ensure_schema,
-    sodass die qa_*-Tabellen garantiert vorhanden sind.
+    This function bootstraps the complete schema via sqlite_store._ensure_schema,
+    so the qa_* tables are guaranteed to exist.
     """
     from agentkit.state_backend import sqlite_store
 
@@ -398,17 +398,17 @@ def _sqlite_connect_qa(store_dir: Path) -> Iterator[sqlite3.Connection]:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path), timeout=30.0)
     conn.row_factory = sqlite3.Row
-    # AG3-028 Codex-r2: busy_timeout FIRST, so a held write lock (z.B. die
-    # BEGIN IMMEDIATE-Allokation in fc_incident_repository) andere Writer warten
-    # laesst statt sofort SQLITE_BUSY zu werfen — race-sichere Erst-Allokation.
+    # AG3-028 Codex-r2: busy_timeout FIRST, so a held write lock (e.g. the
+    # BEGIN IMMEDIATE allocation in fc_incident_repository) makes other writers
+    # wait instead of immediately raising SQLITE_BUSY — race-safe first allocation.
     conn.execute("PRAGMA busy_timeout = 30000")
-    # Nur umschalten, wenn noch nicht WAL (der WAL-Switch achtet busy_timeout
-    # nicht; wiederholtes Setzen wuerde unter Concurrency spuriose Locks werfen).
+    # Only switch when not already WAL (the WAL switch does not honour
+    # busy_timeout; setting it repeatedly would raise spurious locks under concurrency).
     current_mode = conn.execute("PRAGMA journal_mode").fetchone()
     if current_mode is None or str(current_mode[0]).lower() != "wal":
         conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys = ON")
-    # Bootstrap via kanonischer Schema-Owner (SINGLE SOURCE OF TRUTH, Befund B)
+    # Bootstrap via the canonical schema owner (SINGLE SOURCE OF TRUTH, finding B)
     sqlite_store._ensure_schema(conn)
     try:
         yield conn
@@ -421,31 +421,31 @@ def _sqlite_connect_qa(store_dir: Path) -> Iterator[sqlite3.Connection]:
 
 
 # ---------------------------------------------------------------------------
-# Konkrete Implementierungen
+# Concrete implementations
 # ---------------------------------------------------------------------------
 
 
 class FacadeQAStageResultsRepository:
-    """Duenner Adapter fuer qa_stage_results.
+    """Thin adapter for qa_stage_results.
 
-    Write und Purge: direktes SQL (kein bestehender facade-Einzelinsert-Pfad;
-    Haupt-Batch-Pfad bleibt ``facade.record_layer_artifacts``).
-    Read: delegiert an facade fuer Backward-Kompatibilitaet.
+    Write and purge: direct SQL (no existing facade single-insert path;
+    the main batch path stays ``facade.record_layer_artifacts``).
+    Read: delegates to the facade for backward compatibility.
 
     Args:
-        story_dir: Basisverzeichnis fuer SQLite; ignoriert bei Postgres.
+        story_dir: Base directory for SQLite; ignored for Postgres.
     """
 
     def __init__(self, story_dir: Path | None = None) -> None:
         self._story_dir: Path = story_dir or Path.cwd()
 
     def write(self, record: QAStageResultRecord) -> None:
-        """Persistiere einen einzelnen QAStageResultRecord.
+        """Persist a single QAStageResultRecord.
 
-        Hinweis: Der Haupt-Schreibpfad fuer qa_stage_results laeuft
-        transaktional via ``facade.record_layer_artifacts`` (Batch-Insert inkl.
-        artifact_records). Dieser Write-Pfad ist fuer direkte Einzelinserts
-        des ProjectionAccessors vorgesehen.
+        Note: the main write path for qa_stage_results runs
+        transactionally via ``facade.record_layer_artifacts`` (batch insert incl.
+        artifact_records). This write path is intended for direct single inserts
+        from the ProjectionAccessor.
         """
         row: dict[str, Any] = {
             "project_key": record.project_key,
@@ -491,15 +491,15 @@ class FacadeQAStageResultsRepository:
             self._pg_execute_stage_upsert(conn, row)
 
     def _pg_execute_stage_upsert(self, conn: Any, row: dict[str, Any]) -> None:
-        """Fuehre qa_stage_results-Upsert auf bestehender Verbindung aus.
+        """Execute the qa_stage_results upsert on an existing connection.
 
-        Befund D (AG3-035 Remediation): Batch-Schreibpfad via Accessor-Repos.
-        Kann vom Driver (persist_layer_artifact_rows) mit eigener Transaktion
-        aufgerufen werden, ohne neue Connection zu oeffnen (SINGLE SOURCE OF TRUTH).
+        Finding D (AG3-035 remediation): batch write path via the accessor repos.
+        Can be called by the driver (persist_layer_artifact_rows) with its own
+        transaction without opening a new connection (SINGLE SOURCE OF TRUTH).
 
         Args:
-            conn: Bestehende psycopg-Verbindung (Driver-Transaktion).
-            row: Fertig serialisierte qa_stage_results-Zeile (dict).
+            conn: Existing psycopg connection (driver transaction).
+            row: Fully serialized qa_stage_results row (dict).
         """
         from agentkit.state_backend import postgres_store
 
@@ -610,9 +610,9 @@ class FacadeQAStageResultsRepository:
         return [mappers.qa_stage_result_row_to_record(row) for row in rows]
 
     def purge_run(self, project_key: str, story_id: str, run_id: str) -> int:
-        """Loesche alle qa_stage_results fuer (project_key, story_id, run_id).
+        """Delete all qa_stage_results for (project_key, story_id, run_id).
 
-        FK-69 §69.10.1 Reset-Regel: aktives Loeschen, kein Query-Filter-Trick.
+        FK-69 §69.10.1 reset rule: active deletion, no query-filter trick.
         """
         if _is_postgres():
             return self._pg_purge(project_key, story_id, run_id)
@@ -638,17 +638,17 @@ class FacadeQAStageResultsRepository:
 
 
 class FacadeQAFindingsRepository:
-    """Duenner Adapter fuer qa_findings.
+    """Thin adapter for qa_findings.
 
     Args:
-        story_dir: Basisverzeichnis fuer SQLite; ignoriert bei Postgres.
+        story_dir: Base directory for SQLite; ignored for Postgres.
     """
 
     def __init__(self, story_dir: Path | None = None) -> None:
         self._story_dir: Path = story_dir or Path.cwd()
 
     def write(self, record: QAFindingRecord) -> None:
-        """Persistiere einen QAFindingRecord."""
+        """Persist a QAFindingRecord."""
         row: dict[str, Any] = {
             "project_key": record.project_key,
             "story_id": record.story_id,
@@ -698,15 +698,15 @@ class FacadeQAFindingsRepository:
             self._pg_execute_finding_upsert(conn, row)
 
     def _pg_execute_finding_upsert(self, conn: Any, row: dict[str, Any]) -> None:
-        """Fuehre qa_findings-Upsert auf bestehender Verbindung aus.
+        """Execute the qa_findings upsert on an existing connection.
 
-        Befund D (AG3-035 Remediation): Batch-Schreibpfad via Accessor-Repos.
-        Kann vom Driver (persist_layer_artifact_rows) mit eigener Transaktion
-        aufgerufen werden, ohne neue Connection zu oeffnen (SINGLE SOURCE OF TRUTH).
+        Finding D (AG3-035 remediation): batch write path via the accessor repos.
+        Can be called by the driver (persist_layer_artifact_rows) with its own
+        transaction without opening a new connection (SINGLE SOURCE OF TRUTH).
 
         Args:
-            conn: Bestehende psycopg-Verbindung (Driver-Transaktion).
-            row: Fertig serialisierte qa_findings-Zeile (dict).
+            conn: Existing psycopg connection (driver transaction).
+            row: Fully serialized qa_findings row (dict).
         """
         from agentkit.state_backend import postgres_store
 
@@ -720,18 +720,18 @@ class FacadeQAFindingsRepository:
         attempt_no: int,
         stage_id: str,
     ) -> None:
-        """Loesche alte qa_findings fuer (project_key, run_id, attempt_no, stage_id).
+        """Delete old qa_findings for (project_key, run_id, attempt_no, stage_id).
 
-        Befund D: Hilfsmethode fuer atomaren Batch-Schreibpfad im Driver.
-        Loescht alte Findings vor dem Neuschreiben, damit keine veralteten
-        Eintraege verbleiben (Idempotenz-Invariant des Batch-Writes).
+        Finding D: helper method for the atomic batch write path in the driver.
+        Deletes old findings before re-writing so no stale
+        entries remain (the idempotency invariant of the batch write).
 
         Args:
-            conn: Bestehende psycopg-Verbindung (Driver-Transaktion).
-            project_key: Projekt-Schluessel.
-            run_id: Run-ID.
-            attempt_no: Attempt-Nummer.
-            stage_id: Layer/Stage-ID.
+            conn: Existing psycopg connection (driver transaction).
+            project_key: Project key.
+            run_id: Run id.
+            attempt_no: Attempt number.
+            stage_id: Layer/stage id.
         """
         from agentkit.state_backend import postgres_store
 
@@ -854,9 +854,9 @@ class FacadeQAFindingsRepository:
         return [mappers.qa_finding_row_to_record(row) for row in rows]
 
     def purge_run(self, project_key: str, story_id: str, run_id: str) -> int:
-        """Loesche alle qa_findings fuer (project_key, story_id, run_id).
+        """Delete all qa_findings for (project_key, story_id, run_id).
 
-        FK-69 §69.10.1 Reset-Regel: aktives Loeschen, kein Query-Filter-Trick.
+        FK-69 §69.10.1 reset rule: active deletion, no query-filter trick.
         """
         if _is_postgres():
             return self._pg_purge(project_key, story_id, run_id)
@@ -882,19 +882,19 @@ class FacadeQAFindingsRepository:
 
 
 class FacadeStoryMetricsRepository:
-    """Duenner Adapter fuer story_metrics ueber facade-Funktionen.
+    """Thin adapter for story_metrics over facade functions.
 
     Args:
-        story_dir: Basisverzeichnis fuer SQLite; ignoriert bei Postgres.
+        story_dir: Base directory for SQLite; ignored for Postgres.
     """
 
     def __init__(self, story_dir: Path | None = None) -> None:
         self._story_dir: Path = story_dir or Path.cwd()
 
     def write(self, record: StoryMetricsRecord) -> None:
-        """Persistiere (upsert) einen StoryMetricsRecord.
+        """Persist (upsert) a StoryMetricsRecord.
 
-        FK-29 §29.6: PostMergeFinalization ist Schema-Owner + Writer via
+        FK-29 §29.6: PostMergeFinalization is schema owner + writer via
         write_projection.
         """
         from agentkit.state_backend.store import facade
@@ -918,9 +918,9 @@ class FacadeStoryMetricsRepository:
         )
 
     def purge_run(self, project_key: str, story_id: str, run_id: str) -> int:
-        """Loesche alle story_metrics fuer (project_key, story_id, run_id).
+        """Delete all story_metrics for (project_key, story_id, run_id).
 
-        FK-69 §69.10.1 Reset-Regel: aktives Loeschen, kein Query-Filter-Trick.
+        FK-69 §69.10.1 reset rule: active deletion, no query-filter trick.
         """
         if _is_postgres():
             return self._pg_purge(project_key, story_id, run_id)
@@ -946,25 +946,25 @@ class FacadeStoryMetricsRepository:
 
 
 class FacadeRiskWindowRepository:
-    """Duenner Adapter fuer ``risk_window`` (FK-68 §68.8, AG3-037).
+    """Thin adapter for ``risk_window`` (FK-68 §68.8, AG3-037).
 
-    Schema-Owner + DB-Owner: telemetry-and-events. Append-only Rolling-Window
-    von ``NormalizedEvent``s, das der (out-of-scope) GovernanceObserver spaeter
-    scort. Schreibpfad ausschliesslich ueber
+    Schema owner + DB owner: telemetry-and-events. Append-only rolling window
+    of ``NormalizedEvent``s that the (out-of-scope) GovernanceObserver scores
+    later. The write path is exclusively via
     ``ProjectionAccessor.record_risk_window_event``.
 
     Args:
-        story_dir: Basisverzeichnis fuer SQLite; ignoriert bei Postgres.
+        story_dir: Base directory for SQLite; ignored for Postgres.
     """
 
     def __init__(self, story_dir: Path | None = None) -> None:
         self._story_dir: Path = story_dir or Path.cwd()
 
     def record(self, event: NormalizedEvent) -> None:
-        """Persistiere einen ``NormalizedEvent`` (append-only, idempotent).
+        """Persist a ``NormalizedEvent`` (append-only, idempotent).
 
         Args:
-            event: Der zu persistierende normalisierte Risk-Window-Event.
+            event: The normalized risk-window event to persist.
         """
         row: dict[str, Any] = {
             "project_key": "",  # filled below from event scope
@@ -1034,11 +1034,11 @@ class FacadeRiskWindowRepository:
             )
 
     def purge_run(self, project_key: str, story_id: str, run_id: str) -> int:
-        """Loesche alle risk_window-Zeilen fuer (project_key, story_id, run_id).
+        """Delete all risk_window rows for (project_key, story_id, run_id).
 
-        FK-69 §69.10.1 Reset-Regel (analog): ein vollstaendiger Reset entfernt
-        alle Risk-Window-Zeilen des betroffenen run_id. Gibt die Anzahl
-        geloeschter Zeilen zurueck.
+        FK-69 §69.10.1 reset rule (analogous): a full reset removes
+        all risk-window rows of the affected run_id. Returns the number of
+        deleted rows.
         """
         if _is_postgres():
             return self._pg_purge(project_key, story_id, run_id)
@@ -1064,23 +1064,23 @@ class FacadeRiskWindowRepository:
 
 
 class FacadePhaseStateProjectionRepository:
-    """Duenner Adapter fuer phase_state_projection.
+    """Thin adapter for phase_state_projection.
 
-    Schema-Owner: pipeline-framework (FK-39 §39.7).
-    Dieser Adapter stellt nur den Purge-Pfad bereit (kein Write: schreibt
-    pipeline_engine.PhaseExecutor; kein Read via ProjectionAccessor derzeit).
+    Schema owner: pipeline-framework (FK-39 §39.7).
+    This adapter provides only the purge path (no write: pipeline_engine.
+    PhaseExecutor writes; no read via ProjectionAccessor currently).
 
     Args:
-        story_dir: Basisverzeichnis fuer SQLite; ignoriert bei Postgres.
+        story_dir: Base directory for SQLite; ignored for Postgres.
     """
 
     def __init__(self, story_dir: Path | None = None) -> None:
         self._story_dir: Path = story_dir or Path.cwd()
 
     def purge_run(self, project_key: str, story_id: str, run_id: str) -> int:
-        """Loesche alle phase_state_projection-Zeilen fuer (project_key, story_id, run_id).
+        """Delete all phase_state_projection rows for (project_key, story_id, run_id).
 
-        FK-69 §69.10.1 Reset-Regel: aktives Loeschen.
+        FK-69 §69.10.1 reset rule: active deletion.
         """
         if _is_postgres():
             return self._pg_purge(project_key, story_id, run_id)
@@ -1127,12 +1127,12 @@ class FacadePhaseStateProjectionRepository:
 
 
 class FacadeQALayerBatchWriter:
-    """Atomarer QA-Layer-Batch-Adapter (FK-69 §69.4, AG3-035 #5).
+    """Atomic QA-layer batch adapter (FK-69 §69.4, AG3-035 #5).
 
-    Kapselt ``facade.record_layer_artifacts`` -- den bestehenden atomaren
-    Driver-Batch (qa_stage_results + qa_findings + artifact_records in EINER
-    Transaktion). Liegt in der DB-Schicht; der ``ProjectionAccessor`` in
-    ``agentkit.telemetry`` delegiert hierhin, ohne facade direkt zu kennen (AC#7).
+    Encapsulates ``facade.record_layer_artifacts`` -- the existing atomic
+    driver batch (qa_stage_results + qa_findings + artifact_records in ONE
+    transaction). Lives in the DB layer; the ``ProjectionAccessor`` in
+    ``agentkit.telemetry`` delegates here without knowing the facade directly (AC#7).
     """
 
     def persist_layer_artifacts(
@@ -1143,7 +1143,7 @@ class FacadeQALayerBatchWriter:
         attempt_nr: int,
         projection_dir: Path | None = None,
     ) -> tuple[str, ...]:
-        """Delegiere an den atomaren facade-/Driver-Batch und gib Artefakt-IDs zurueck."""
+        """Delegate to the atomic facade/driver batch and return the artifact IDs."""
         from agentkit.state_backend.store.facade import record_layer_artifacts
 
         return record_layer_artifacts(
@@ -1186,17 +1186,17 @@ class StateBackendGuardCounterPurgeAdapter:
 
 
 def build_projection_repositories(store_dir: Path | None = None) -> ProjectionRepositories:
-    """Erzeugt eine vollstaendig verdrahtete ``ProjectionRepositories``-Instanz.
+    """Build a fully wired ``ProjectionRepositories`` instance.
 
-    Composition-Root-Hilfsfunktion, genutzt von
+    A composition-root helper, used by
     ``agentkit.bootstrap.composition_root.build_projection_accessor``.
 
     Args:
-        store_dir: Basisverzeichnis des State-Backends. Nur fuer SQLite relevant;
-            Postgres ignoriert den Pfad.
+        store_dir: Base directory of the state backend. Only relevant for SQLite;
+            Postgres ignores the path.
 
     Returns:
-        ``ProjectionRepositories`` mit allen konkreten Adapter-Instanzen.
+        ``ProjectionRepositories`` with all concrete adapter instances.
     """
     from agentkit.state_backend.store.fc_incident_repository import (
         StateBackendFCIncidentsRepository,

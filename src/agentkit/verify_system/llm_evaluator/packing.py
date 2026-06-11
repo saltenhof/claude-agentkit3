@@ -14,7 +14,7 @@ class PackingKind(StrEnum):
     """Packing strategy applied to a bundle field.
 
     There is exactly ONE truncation mechanism (section-aware packing, FK-37
-    §37.3 / DK-11 "Sufficiency-Checks sind nur so gut wie das Packing"): the
+    §37.3 / DK-11 "sufficiency checks are only as good as the packing"): the
     legacy begin/end byte ``FALLBACK`` path was removed (AG3-067 AC9 — no second
     truncation path). ``MARKDOWN`` packs whole sections; ``CODE`` packs whole
     hunks/blocks. Even the degenerate overflow case stays section-aware
@@ -167,8 +167,8 @@ def truncate_bundle(
     FK-37 §37.3 keeps ``truncate_bundle()`` as the back-compatible dispatcher
     entry point, but AG3-067 AC9 removes the second (begin/end byte) truncation
     path: this dispatcher ALWAYS delegates to section-aware :func:`pack_markdown`
-    (DK-11 "wenn stumpf gekürzt wird, beurteilt der Builder die Qualität eines
-    bereits verzerrten Bundles"). ``priority_headings`` is optional — ``None`` is
+    (DK-11 "when content is bluntly truncated, the builder judges the quality of
+    an already distorted bundle"). ``priority_headings`` is optional — ``None`` is
     normalised to an empty tuple (still section-aware, just unprioritised). There
     is no mid-content excerpt fallback anymore.
     """

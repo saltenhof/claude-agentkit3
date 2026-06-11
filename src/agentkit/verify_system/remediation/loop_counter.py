@@ -18,10 +18,10 @@ State-machine mapping (FK-27 §27.2.2):
 ``max_feedback_rounds`` is configurable but NEVER bypassable: a FAIL at the
 ceiling always escalates (NO ERROR BYPASSING).
 
-Quelle:
-  - FK-38 -- Remediation-Loop
+Source:
+  - FK-38 -- remediation loop
   - FK-27 §27.2.2 / §27.6a.2 -- max_rounds_exceeded -> escalated
-  - FK-03 §3.4.2 -- max_feedback_rounds Default 3
+  - FK-03 §3.4.2 -- max_feedback_rounds default 3
   - AG3-041 §2.1.4 -- RemediationLoopController, RemediationDecision
 """
 

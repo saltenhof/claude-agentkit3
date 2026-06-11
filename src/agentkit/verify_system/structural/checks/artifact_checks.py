@@ -1,4 +1,4 @@
-"""Artifact checks (FK-27 §27.4.1 Artefakt-Pruefung).
+"""Artifact checks (FK-27 §27.4.1 artifact check).
 
 These are the precondition artifact checks of Layer 1: the worker's
 file-based deliverables must exist and be well-formed before the structural
@@ -208,7 +208,7 @@ def check_artifact_handover(
     (``changes_summary``, ``increments``, ``assumptions``, ``existing_tests``,
     ``risks_for_qa``, ``drift_log``, ``acceptance_criteria_status``) -- NOT a
     reduced placeholder. A missing field is a BLOCKING schema violation
-    (FK-27 §27.4.1: "Schema-Verletzung" -> FAIL).
+    (FK-27 §27.4.1: "schema violation" -> FAIL).
 
     Args:
         ctx: Story context (unused; uniform signature).

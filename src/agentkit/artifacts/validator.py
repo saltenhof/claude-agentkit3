@@ -1,24 +1,24 @@
-"""EnvelopeValidator — fuenf-stufige Envelope-Validierung.
+"""EnvelopeValidator — five-step envelope validation.
 
-Eigenstaendige Klasse (entkoppelt von ArtifactEnvelope-Pydantic-Validierung),
-da sie zusaetzliche Cross-Field-Checks gegen externe Wahrheiten erlaubt
-(z.B. ProducerRegistry).
+A standalone class (decoupled from ArtifactEnvelope Pydantic validation),
+since it allows additional cross-field checks against external truths
+(e.g. ProducerRegistry).
 
-Pruefschritte (AG3-022 §2.1.6.2) in genau dieser Reihenfolge:
+Check steps (AG3-022 §2.1.6.2) in exactly this order:
 
-1. Pydantic-Schema (durch Pydantic-v2 bereits erzwungen; ungueltige
-   Envelopes erreichen diesen Validator nicht).
-2. Producer registriert fuer `envelope.artifact_class`
+1. Pydantic schema (already enforced by Pydantic v2; invalid envelopes
+   do not reach this validator).
+2. Producer registered for `envelope.artifact_class`
    (-> `ProducerNotRegisteredError`).
-3. `attempt >= 1` (redundant fail-closed; durch Pydantic schon geprueft)
+3. `attempt >= 1` (redundant fail-closed; already checked by Pydantic)
    (-> `EnvelopeFieldError`).
-4. `status` vs. `artifact_class` gemaess Matrix §2.1.6.1
+4. `status` vs. `artifact_class` per matrix §2.1.6.1
    (-> `EnvelopeFieldError`).
-5. `finished_at >= started_at` (redundant fail-closed; durch Pydantic schon)
+5. `finished_at >= started_at` (redundant fail-closed; already by Pydantic)
    (-> `EnvelopeFieldError`).
 
-Bei erstem Fehler wird abgebrochen (fail-closed). Es werden immer die
-spezifischen Sub-Exceptions geworfen, nie `EnvelopeValidationError` direkt.
+On the first error it aborts (fail-closed). The specific sub-exceptions
+are always raised, never `EnvelopeValidationError` directly.
 """
 
 from __future__ import annotations
@@ -95,59 +95,58 @@ _ALLOWED_STATUSES: dict[ArtifactClass, frozenset[EnvelopeStatus]] = {
 
 
 class EnvelopeValidator:
-    """Fuenf-stufiger Envelope-Validator (AG3-022 §2.1.6.2).
+    """Five-step envelope validator (AG3-022 §2.1.6.2).
 
-    Entkoppelt von ArtifactEnvelope-Pydantic-Validierung, um
-    Cross-Field-Checks gegen externe Wahrheiten (ProducerRegistry) zu
-    ermoeglichen.
+    Decoupled from ArtifactEnvelope Pydantic validation to enable
+    cross-field checks against external truths (ProducerRegistry).
 
     Args:
-        registry: ProducerRegistry fuer Producer-Lookup (Schritt 2).
+        registry: ProducerRegistry for the producer lookup (step 2).
     """
 
     def __init__(self, registry: ProducerRegistry) -> None:
         self._registry = registry
 
     def validate(self, envelope: ArtifactEnvelope) -> None:
-        """Validiert ein ArtifactEnvelope in fuenf Schritten (fail-closed).
+        """Validate an ArtifactEnvelope in five steps (fail-closed).
 
-        Schritt 1: Pydantic-Schema (bereits durch Pydantic-v2 erzwungen;
-            ungueltige Envelopes erreichen diesen Validator nicht).
-        Schritt 2: Producer ist fuer `envelope.artifact_class` registriert.
-        Schritt 3: `attempt >= 1` (redundant fail-closed).
-        Schritt 4: `status` vs. `artifact_class` Matrix-Konsistenz.
-        Schritt 5: `finished_at >= started_at` (redundant fail-closed).
+        Step 1: Pydantic schema (already enforced by Pydantic v2;
+            invalid envelopes do not reach this validator).
+        Step 2: Producer is registered for `envelope.artifact_class`.
+        Step 3: `attempt >= 1` (redundant fail-closed).
+        Step 4: `status` vs. `artifact_class` matrix consistency.
+        Step 5: `finished_at >= started_at` (redundant fail-closed).
 
         Args:
-            envelope: Das zu pruefende ArtifactEnvelope.
+            envelope: The ArtifactEnvelope to check.
 
         Raises:
-            ProducerNotRegisteredError: Schritt 2 — Producer unbekannt.
-            EnvelopeFieldError: Schritt 3/4/5 — Feld-Invariante verletzt.
+            ProducerNotRegisteredError: Step 2 — producer unknown.
+            EnvelopeFieldError: Step 3/4/5 — field invariant violated.
         """
-        # Schritt 2: Producer registriert?
-        # Wirft ProducerNotRegisteredError (fail-closed).
+        # Step 2: producer registered?
+        # Raises ProducerNotRegisteredError (fail-closed).
         self._registry.validate(envelope)
 
-        # Schritt 3: attempt >= 1 (redundant fail-closed)
+        # Step 3: attempt >= 1 (redundant fail-closed)
         if envelope.attempt < 1:
-            msg = f"attempt muss >= 1 sein, erhalten: {envelope.attempt}"
+            msg = f"attempt must be >= 1, received: {envelope.attempt}"
             raise EnvelopeFieldError(msg)
 
-        # Schritt 4: status vs. artifact_class Matrix
+        # Step 4: status vs. artifact_class matrix
         allowed = _ALLOWED_STATUSES[envelope.artifact_class]
         if envelope.status not in allowed:
             msg = (
-                f"EnvelopeStatus '{envelope.status}' ist fuer "
-                f"ArtifactClass '{envelope.artifact_class}' nicht erlaubt. "
-                f"Erlaubte Status: {sorted(s.value for s in allowed)}"
+                f"EnvelopeStatus '{envelope.status}' is not allowed for "
+                f"ArtifactClass '{envelope.artifact_class}'. "
+                f"Allowed statuses: {sorted(s.value for s in allowed)}"
             )
             raise EnvelopeFieldError(msg)
 
-        # Schritt 5: finished_at >= started_at (redundant fail-closed)
+        # Step 5: finished_at >= started_at (redundant fail-closed)
         if envelope.finished_at < envelope.started_at:
             msg = (
-                f"finished_at ({envelope.finished_at}) muss >= started_at "
-                f"({envelope.started_at}) sein"
+                f"finished_at ({envelope.finished_at}) must be >= started_at "
+                f"({envelope.started_at})"
             )
             raise EnvelopeFieldError(msg)

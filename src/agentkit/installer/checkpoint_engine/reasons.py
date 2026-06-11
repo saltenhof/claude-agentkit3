@@ -22,7 +22,7 @@ REASON_VECTORDB_DISABLED: Final = "vectordb_disabled"
 #: CP 10c skipped because ``features.are: false``.
 REASON_ARE_DISABLED: Final = "are_disabled"
 #: CP 10c agentic mode: at least one ARE scope mapping is unresolved. The
-#: fachliche ``PENDING_SELECTION`` metadata travels in ``detail``/handler
+#: domain-level ``PENDING_SELECTION`` metadata travels in ``detail``/handler
 #: payload (no status neologism — FK-50 §50.4, story §2.1.2).
 REASON_PENDING_SELECTION: Final = "pending_selection"
 #: Idempotent re-run: the checkpoint was already satisfied, nothing changed.

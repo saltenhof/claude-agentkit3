@@ -62,11 +62,11 @@ class InstalledManifest(BaseModel):
         agent_spawn_skill_proof: The authoritative, install-stable spawn skill-proof
             token (Q1: per-install random, reused unchanged across re-installs).
         authorized_prompt_paths: The install-known authorized prompt template paths of
-            the bound prompt bundle (FK-31 §31.7.4 "die autorisierten Prompt-Pfade").
+            the bound prompt bundle (FK-31 §31.7.4 "the authorized prompt paths").
         template_manifest_hash: The folded SHA-256 over the bound skill-bundle SKILL.md
             template digests AND the prompt-bundle template digests (FK-31 §31.7.4
-            "Template-Dateien ... werden bei Installation in den Manifest-Hash
-            einbezogen"). Binds the proof to the installed template integrity.
+            "template files ... are included in the manifest hash at install time").
+            Binds the proof to the installed template integrity.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -146,14 +146,14 @@ def fold_template_manifest_hash(
 ) -> str:
     """Fold skill-bundle + prompt-bundle template digests into ONE manifest hash.
 
-    FK-31 §31.7.4: "Template-Dateien liegen im Skill-Verzeichnis und werden bei
-    Installation in den Manifest-Hash einbezogen." We do NOT invent a new hash — we
+    FK-31 §31.7.4: "template files live in the skill directory and are included in
+    the manifest hash at install time." We do NOT invent a new hash — we
     fold the digests the install path already has:
 
     * the prompt-bundle template ``sha256`` digests (from the CP 8 prompt-bundle
       manifest, ``_load_prompt_bundle_manifest`` ``templates[*].sha256``), and
     * the SHA-256 of each bound skill bundle's ``SKILL.md`` template file (the skill
-      verzeichnis templates).
+      directory templates).
 
     The inputs are sorted by a stable key before hashing so the result is order-
     independent and deterministic across installs.

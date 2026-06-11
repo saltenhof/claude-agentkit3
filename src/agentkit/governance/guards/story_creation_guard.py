@@ -23,7 +23,7 @@ or a direct-create principal grounded in FK-31 §31.5.4 —
 :attr:`Principal.PIPELINE_DETERMINISTIC` (Zone-2 scripts, Kap. 41) and
 :attr:`Principal.ADMIN_SERVICE` (official StorySplit/StoryReset, Kap. 54 / FK-30
 §30.3.3 pt. 4). ``human_cli`` is deliberately EXCLUDED: a human creates stories
-through the skill (FK-21 §21.1 "primär skill-gesteuert"), never via a raw
+through the skill (FK-21 §21.1 "primarily skill-driven"), never via a raw
 principal bypass.
 
 Skill-marker convention (read ONLY from structural channels, never agent
@@ -31,7 +31,7 @@ prompt/command text — FK-55 §55.3a): the CLI arg ``--via-skill=create-usersto
 in ``HookEvent.cli_args`` or the HTTP header ``X-Skill: create-userstory``.
 
 .. warning:: THE MARKER IS A CONVENTION, NOT AN ATTESTATION (FK-55 §55.1a). A
-   malicious agent CAN spoof ``--via-skill`` / ``X-Skill`` — that is Stufe-3
+   malicious agent CAN spoof ``--via-skill`` / ``X-Skill`` — that is level-3
    evasion, OUT OF SCOPE by design. The fail-closed teeth against an unattested
    agent are the principal whitelist (a worker / sub-agent is never a
    direct-create principal), not the spoofable marker.
@@ -72,7 +72,7 @@ RULE_ID = "FK-31 §31.5"
 #: Guard identifier (matches the FK-30 §30.5.1 hook id ``story_creation_guard``).
 GUARD_NAME = "story_creation_guard"
 
-#: Opaque block reason (FK-31 §31.5.3 "blockiert sie mit opaker Fehlermeldung").
+#: Opaque block reason (FK-31 §31.5.3 "blocks it with an opaque error message").
 BLOCK_REASON = "story_creation_must_go_through_create_userstory_skill"
 
 #: Canonical skill id of the official story-creation skill (FK-21 §21.13.2).
@@ -107,7 +107,7 @@ class StoryCreationGuard:
     #: (Failure-Corpus, Kap. 41) and the official admin StorySplit/StoryReset
     #: service (Kap. 54, FK-30 §30.3.3 pt. 4) may create a story directly at the
     #: AK3-Story-Service. ``human_cli`` is deliberately EXCLUDED (FK-21 §21.1
-    #: "primär skill-gesteuert" — a human passes through the skill marker only).
+    #: "primarily skill-driven" — a human passes through the skill marker only).
     _DIRECT_CREATE_PRINCIPALS: frozenset[Principal] = frozenset(
         {
             Principal.PIPELINE_DETERMINISTIC,

@@ -1,12 +1,12 @@
-"""Typisierte Exceptions des Failure-Corpus-BC (DK-07 §7.3.6 / FK-41 §41.4.3).
+"""Typed exceptions of the failure-corpus BC (DK-07 §7.3.6 / FK-41 §41.4.3).
 
-FAIL-CLOSED: IngressCriteria-Reject ist eine Exception mit strukturierten
-``reason_codes`` — kein stilles Verwerfen (Guardrail FAIL CLOSED, AG3-028 AK#3).
+FAIL-CLOSED: an IngressCriteria reject is an exception with structured
+``reason_codes`` — no silent discarding (guardrail FAIL CLOSED, AG3-028 AK#3).
 
-ZERO DEBT (Codex-r2 Remediation): jeder ``IncidentRejectReason`` ist von der
-``IngressCriteria``-Implementierung tatsaechlich erreichbar; es gibt keinen
-toten reason_code mehr. Das frühere ``BELOW_MIN_SEVERITY`` ist entfernt — DK-07
-§7.3.6 ist explizit ein reines ODER (Severity ist KEIN harter Floor mehr).
+ZERO DEBT (Codex-r2 remediation): every ``IncidentRejectReason`` is actually
+reachable from the ``IngressCriteria`` implementation; there is no dead
+reason_code anymore. The former ``BELOW_MIN_SEVERITY`` is removed — DK-07
+§7.3.6 is explicitly a pure OR (severity is NO hard floor anymore).
 """
 
 from __future__ import annotations
@@ -15,18 +15,18 @@ from enum import StrEnum
 
 
 class IncidentRejectReason(StrEnum):
-    """Strukturierter Grund, warum die IngressCriteria einen Kandidaten verwirft.
+    """Structured reason why the IngressCriteria reject a candidate.
 
-    Die reason_codes spiegeln exakt die implementierten DK-07-§7.3.6-Kriterien
-    (reines ODER der vier Aufnahme-Trigger) plus die Exact-Duplicate-Dedup.
+    The reason_codes mirror exactly the implemented DK-07 §7.3.6 criteria
+    (pure OR of the four admission triggers) plus the exact-duplicate dedup.
 
     Attributes:
-        NOT_SIGNIFICANT: KEINES der vier DK-07-§7.3.6-Aufnahmekriterien greift —
-            d.h. severity < MEDIUM UND nicht Merge-blockiert UND Rework <= 30min
-            UND der Fehlertyp ist bereits im Corpus (nicht neu). Reines ODER:
-            ein einziges erfülltes Kriterium genügt zur Aufnahme.
-        DUPLICATE_WINDOW: Exakter Duplikat eines bereits im Zeitfenster
-            persistierten Incidents (Dedup; separater Reject-Grund).
+        NOT_SIGNIFICANT: NONE of the four DK-07 §7.3.6 admission criteria apply —
+            i.e. severity < MEDIUM AND not merge-blocking AND rework <= 30min
+            AND the error type is already in the corpus (not novel). Pure OR:
+            a single satisfied criterion is enough for admission.
+        DUPLICATE_WINDOW: Exact duplicate of an incident already persisted within
+            the time window (dedup; separate reject reason).
     """
 
     NOT_SIGNIFICANT = "not_significant"
@@ -34,22 +34,22 @@ class IncidentRejectReason(StrEnum):
 
 
 class FailureCorpusError(Exception):
-    """Basisklasse fuer alle Failure-Corpus-Fehler."""
+    """Base class for all failure-corpus errors."""
 
 
 class IncidentRejectedError(FailureCorpusError):
-    """Ein Incident-Kandidat wurde von den IngressCriteria abgewiesen.
+    """An incident candidate was rejected by the IngressCriteria.
 
-    Traegt die strukturierten ``reason_codes``, damit Aufrufer-BCs deterministisch
-    auf den Grund reagieren koennen (statt String-Parsing).
+    Carries the structured ``reason_codes`` so that caller BCs can react
+    deterministically to the reason (instead of string parsing).
 
     Args:
-        reason_codes: Nicht-leere Sequenz der ausloesenden Gruende.
-        detail: Optionale menschenlesbare Zusatzbeschreibung.
+        reason_codes: Non-empty sequence of the triggering reasons.
+        detail: Optional human-readable additional description.
 
     Raises:
-        ValueError: Wenn ``reason_codes`` leer ist (FAIL-CLOSED: ein Reject ohne
-            Grund ist ein Modellfehler).
+        ValueError: If ``reason_codes`` is empty (FAIL-CLOSED: a reject without
+            a reason is a model error).
     """
 
     def __init__(

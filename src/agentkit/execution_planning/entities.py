@@ -1,7 +1,7 @@
 """Domain entities for execution planning.
 
-``StoryDependencyKind`` wird seit AG3-021 aus ``agentkit.core_types``
-importiert und nutzt das FK-70-§70.4.2-normative 8-Werte-Vokabular.
+``StoryDependencyKind`` has been imported from ``agentkit.core_types``
+since AG3-021 and uses the FK-70 §70.4.2-normative 8-value vocabulary.
 """
 
 from __future__ import annotations

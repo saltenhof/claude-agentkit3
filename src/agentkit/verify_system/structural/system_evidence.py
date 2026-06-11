@@ -1,15 +1,15 @@
 """Independent SYSTEM evidence for the BLOCKING Layer-1 checks (FK-33 §33.5).
 
-FK-33 §33.5.1/§33.5.2 Kernregel: a BLOCKING (or MAJOR) structural check may
+FK-33 §33.5.1/§33.5.2 core rule: a BLOCKING (or MAJOR) structural check may
 only decide on Trust-A (authoritative system) or Trust-B (system-emitted)
 evidence -- NEVER on Trust-C ``WORKER_ASSERTION`` (the worker's own
-``worker-manifest.json``). "Klasse C darf nie blocking sein ... Der Agent darf
-seine eigene Pruefung nicht bestehen koennen" (FK-07-008).
+``worker-manifest.json``). "Class C may never be blocking ... the agent must
+not be able to pass its own check" (FK-07-008).
 
 The branch / commit-history / push / secret-scan / impact BLOCKING checks
 therefore decide on INDEPENDENT system evidence collected here (real ``git``
 in production), NOT on the worker manifest. ``git`` branch/commit/diff data is
-Trust B ("System-emittierte Daten ... Commit-Historie, Build-Ergebnis",
+Trust B ("system-emitted data ... commit history, build result",
 FK-33 §33.5.1). The actual change impact (FK-23 §23.8) is computed from the
 SYSTEM diff, not read back from what the worker declared.
 

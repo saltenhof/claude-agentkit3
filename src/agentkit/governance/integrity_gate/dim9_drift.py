@@ -3,9 +3,9 @@
 FK-35 §35.2.4a item 5 requires Dimension 9 to confirm that the fresh
 attestation's ``quality_gate_hash`` / ``quality_profile_hash`` /
 ``analysis_scope_hash`` / ``new_code_definition`` AND the SonarQube /
-Community-Branch-Plugin / Scanner versions "entsprechen den fuer das Projekt
-erwarteten Werten (FK-03 ``sonarqube``-Config + Config-Hash). Drift hier
-bedeutet, dass gegen ein anderes Regelwerk vermessen wurde — FAIL."
+Community-Branch-Plugin / Scanner versions "match the values expected for the
+project (FK-03 ``sonarqube`` config + config hash). Drift here means the analysis
+was measured against a different rule set — FAIL."
 
 This module verifies the part of that rule that has an AUTHORITATIVE expected
 source in code today: the TOOL VERSIONS, which are directly derivable from the

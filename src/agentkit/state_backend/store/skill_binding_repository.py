@@ -7,23 +7,23 @@ Productive persistence for the agent-skills BC ``SkillBinding`` records
 
 Design (mirrors ``fc_incident_repository.py`` / ``artifact_repository.py``):
 
-- Postgres ist die kanonische Wahrheit (concept/domain-design
-  /05-telemetrie-und-metriken.md §5); SQLite zieht das IDENTISCHE Schema als
-  Test-Parallel-Pfad mit (nur unter ``AGENTKIT_ALLOW_SQLITE=1``). Kein
-  gleichberechtigter Dual-Backend-Betrieb.
-- Die ``skill_bindings``-DDL ist SINGLE SOURCE OF TRUTH in
-  ``postgres_schema.sql`` (Postgres) bzw. ``sqlite_store._ensure_schema``
-  (SQLite). Dieser Adapter fuehrt KEINE zweite DDL-Wahrheit; er bootstrappt das
-  kanonische Schema und schreibt/liest nur.
-- ``save`` ist ein UPSERT auf der natuerlichen Schluessel-Spalte
-  ``(project_key, skill_name)`` (FK-43: pro Projekt+Skill genau eine Bindung).
-- Fail-closed: bei korrupten Zeilen propagiert die Mapper-Exception
-  (NO ERROR BYPASSING); keine stillen ``None``-Returns bei Backend-Fehlern.
+- Postgres is the canonical truth (concept/domain-design
+  /05-telemetrie-und-metriken.md §5); SQLite carries the IDENTICAL schema as a
+  test-parallel path (only under ``AGENTKIT_ALLOW_SQLITE=1``). No
+  co-equal dual-backend operation.
+- The ``skill_bindings`` DDL is SINGLE SOURCE OF TRUTH in
+  ``postgres_schema.sql`` (Postgres) resp. ``sqlite_store._ensure_schema``
+  (SQLite). This adapter keeps NO second DDL truth; it bootstraps the
+  canonical schema and only writes/reads.
+- ``save`` is an UPSERT on the natural key column
+  ``(project_key, skill_name)`` (FK-43: exactly one binding per project+skill).
+- Fail-closed: on corrupt rows the mapper exception propagates
+  (NO ERROR BYPASSING); no silent ``None`` returns on backend errors.
 
 Architecture Conformance:
-    Der ``agent-skills``-BC kennt diesen Adapter NICHT (er importiert nur das
-    ``SkillBindingRepository``-Protocol). Die Verdrahtung erfolgt im
-    Composition-Root (``build_skills``).
+    The ``agent-skills`` BC does NOT know this adapter (it only imports the
+    ``SkillBindingRepository`` protocol). The wiring happens in the
+    composition root (``build_skills``).
 """
 
 from __future__ import annotations
@@ -92,8 +92,8 @@ def _sqlite_db_path(store_dir: Path) -> Path:
 def _sqlite_connect(store_dir: Path) -> Iterator[sqlite3.Connection]:
     """Open a SQLite connection and bootstrap the canonical schema.
 
-    DDL-Ownership liegt in ``sqlite_store._ensure_schema`` (SINGLE SOURCE OF
-    TRUTH); diese Funktion garantiert nur, dass ``skill_bindings`` vorhanden ist.
+    DDL ownership lives in ``sqlite_store._ensure_schema`` (SINGLE SOURCE OF
+    TRUTH); this function only guarantees that ``skill_bindings`` exists.
     """
     from agentkit.state_backend import sqlite_store
 

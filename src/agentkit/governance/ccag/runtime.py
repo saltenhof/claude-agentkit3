@@ -1,9 +1,9 @@
-"""CcagPermissionRuntime — lernfaehige Permission-Schicht fuer Tool-Calls.
+"""CcagPermissionRuntime — learnable permission layer for tool calls.
 
 Top surface: ``evaluate(hook_event: HookEvent) -> CcagDecision``.
 
-This module implements FK-42 §42.1 (Architektur) and §42.2.5 (modus-scharfe
-Entscheidung).  It is NOT part of the GuardSystem — it is a separate Sub
+This module implements FK-42 §42.1 (architecture) and §42.2.5 (mode-sharp
+decision).  It is NOT part of the GuardSystem — it is a separate Sub
 within the ``governance-and-guards`` BC (PROJECT_STRUCTURE.md §ccag_permission_runtime).
 
 Evaluation order (FK-42 §42.2.1 / F-42-015):

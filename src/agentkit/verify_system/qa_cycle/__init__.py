@@ -4,7 +4,7 @@ Internal sub-package: NOT a cross-BC surface. Holds the atomic QA-cycle
 lifecycle (:class:`QaCycleLifecycle`), the deterministic evidence-fingerprint
 computation and the cycle-bound artefact invalidation (FK-27 §27.2.3).
 
-Quelle: FK-27 §27.2 / AG3-041.
+Source: FK-27 §27.2 / AG3-041.
 """
 
 from __future__ import annotations

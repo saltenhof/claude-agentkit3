@@ -1,8 +1,8 @@
 """Story type definitions and pipeline routing profiles.
 
-``StoryMode`` und ``StorySize`` werden seit AG3-021 aus
-``agentkit.core_types`` re-exportiert. Lokale Definitionen existieren
-nicht mehr; alle Importer arbeiten gegen den Core-Typ.
+``StoryMode`` and ``StorySize`` are, since AG3-021, re-exported from
+``agentkit.core_types``. Local definitions no longer exist; all importers
+work against the core type.
 """
 
 from __future__ import annotations

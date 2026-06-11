@@ -18,11 +18,11 @@ is ``normal`` mode, NOT a skip (AG3-032 ERROR 2 — never fail-open). Five-way
                    classified (FK-55 §55.10.2): fail-closed BLOCK in ALL modes.
                    The §55.6.1 unknown-permission rule must never override this.
 - ``UNRESOLVED`` — non-mutating event with unclassifiable target (pure read /
-                   plain exec). Resolved mode-scharf (§55.6.1): in
+                   plain exec). Resolved mode-specific (§55.6.1): in
                    ``story_execution`` a fail-closed BLOCK; elsewhere may defer.
 - ``UNKNOWN_PERMISSION`` — TOOL unknown to the classifier; matrix NOT consulted
                    for ALLOW (AG3-032 ERROR C). A hard DENY still precedes this.
-                   Resolved mode-scharf: ``story_execution`` ⇒ BLOCK; else defer.
+                   Resolved mode-specific: ``story_execution`` ⇒ BLOCK; else defer.
 
 Step 6 (official service paths) is rudimentary (AG3-032 §2.1.4 — out of scope).
 Step 7 (CCAG, FK-30 §30.2.6) runs ONLY on ``ALLOW`` — see :meth:`should_run_ccag`.
@@ -71,7 +71,7 @@ class EnforcementOutcome(Enum):
     ``UNKNOWN_PERMISSION`` (AG3-032 ERROR C / FK-55 §55.6.1): the tool itself is
     UNKNOWN to the classifier — it has no concrete operation class the matrix can
     grant. The matrix must NOT be used to ALLOW it; the caller resolves it
-    mode-scharf (``story_execution`` ⇒ BLOCK + ``permission_request_opened``;
+    mode-specific (``story_execution`` ⇒ BLOCK + ``permission_request_opened``;
     ``interactive_admin`` / ``ai_augmented`` ⇒ defer to an external prompt). A
     hard matrix / freeze DENY still PRECEDES this (e.g. an unknown tool aimed at
     ``.git`` is a hard DENY); the unknown-permission signal only resolves the
@@ -93,7 +93,7 @@ _UNCLASSIFIED_RULE_ID = "FK-55-55.10.2"
 
 #: Reason emitted for an UNKNOWN tool that is not otherwise hard-denied (FK-55
 #: §55.6.1). The verdict is a fail-closed DENY (the caller resolves it
-#: mode-scharf: story_execution ⇒ BLOCK + permission_request; else defer).
+#: mode-specific: story_execution ⇒ BLOCK + permission_request; else defer).
 UNKNOWN_PERMISSION_REASON = "unknown_permission"
 _UNKNOWN_PERMISSION_RULE_ID = "FK-55-55.6.1"
 
@@ -233,7 +233,7 @@ class CapabilityEnforcement:
             missing / empty / ambiguous target): the caller blocks it in ALL
             modes (FK-55 §55.10.2). An ``UNRESOLVED`` outcome is an
             unclassifiable target on a non-mutating operation: the caller decides
-            mode-scharf (story-scoped ⇒ block; otherwise defer to CCAG).
+            mode-specific (story-scoped ⇒ block; otherwise defer to CCAG).
         """
         root = project_root or Path(event.cwd or ".")
         # Step 1: resolve principal (fail-closed, harness-context only).
@@ -276,7 +276,7 @@ class CapabilityEnforcement:
         # Step 4 + 5: hard matrix then freeze overlay, per target. First DENY
         # wins; an unclassified target is resolved after the loop — as an
         # UNCLASSIFIED_MUTATION (block-all-modes) for ANY mutating op, else an
-        # UNRESOLVED (mode-scharf) non-mutating event.
+        # UNRESOLVED (mode-specific) non-mutating event.
         unresolved = False
         for path_class in path_classes:
             if path_class is None:
@@ -304,7 +304,7 @@ class CapabilityEnforcement:
         if unresolved and op_class in _MUTATING_OP_CLASSES:
             return self._unresolved_result(op_class)
         # FK-42 §42.2.4: the capability hull is computed for EVERY outcome that can
-        # reach CCAG (ALLOW + the mode-scharf defer outcomes UNKNOWN_PERMISSION /
+        # reach CCAG (ALLOW + the mode-specific defer outcomes UNKNOWN_PERMISSION /
         # UNRESOLVED). No hard DENY fired here, so the hull's matrix/freeze
         # verdicts are ``allow`` (a DENY / UNCLASSIFIED_MUTATION already returned
         # above and never reaches CCAG). An unclassified target is recorded as the
@@ -320,7 +320,7 @@ class CapabilityEnforcement:
         )
         # Per FK-55 §55.6.1 an UNKNOWN tool resolves to UNKNOWN_PERMISSION (the
         # matrix is NOT consulted for an ALLOW) — the caller resolves it
-        # mode-scharf and may defer to CCAG.
+        # mode-specific and may defer to CCAG.
         if not is_known:
             return CapabilityResult(
                 EnforcementOutcome.UNKNOWN_PERMISSION,
@@ -330,7 +330,7 @@ class CapabilityEnforcement:
                 hull=hull,
             )
         # A KNOWN op with an unclassifiable NON-mutating target is a genuinely
-        # non-actionable event (UNRESOLVED) the caller resolves mode-scharf (it may
+        # non-actionable event (UNRESOLVED) the caller resolves mode-specific (it may
         # defer to CCAG, so it carries the hull too).
         if unresolved:
             return CapabilityResult(
@@ -413,13 +413,13 @@ class CapabilityEnforcement:
         admin_transition) that does not resolve to an explicit matrix ALLOW is a
         hard BLOCK in ALL modes (``UNCLASSIFIED_MUTATION``) — REGARDLESS of
         whether a concrete target was extracted. A mutation with a missing /
-        empty / ambiguous target is exactly the case §55.10.2 fail-closes ("Kann
-        ein Ziel nicht billig und kanonisch aufgeloest werden, ist die
-        Entscheidung fail-closed BLOCK"); the §55.6.1 unknown-permission deferral
+        empty / ambiguous target is exactly the case §55.10.2 fail-closes ("If a
+        target cannot be resolved cheaply and canonically, the decision is
+        fail-closed BLOCK"); the §55.6.1 unknown-permission deferral
         must never apply to it (the `has_concrete_target` precondition was the
         AG3-032 ERROR 2 fail-open hole). Only a genuinely NON-mutating, target-less
         op (READ, or EXECUTE with no protected-zone indication) remains a
-        non-actionable event the caller resolves mode-scharf (``UNRESOLVED``).
+        non-actionable event the caller resolves mode-specific (``UNRESOLVED``).
         Both carry the same fail-closed ``unclassified_target`` DENY verdict; the
         outcome differs so the caller knows whether deferral is admissible.
         """
@@ -439,7 +439,7 @@ class CapabilityEnforcement:
         FK-30 §30.2.6 / FK-55 §55.10.3 step 10: CCAG is consulted last and only
         within the already-permitted capability zone. A hard DENY and an
         UNCLASSIFIED_MUTATION are final blocks; an UNRESOLVED outcome and an
-        UNKNOWN_PERMISSION outcome are resolved mode-scharf by the caller, not by
+        UNKNOWN_PERMISSION outcome are resolved mode-specific by the caller, not by
         this gate (the caller may still dispatch CCAG on the defer path).
         """
         return result.outcome in (

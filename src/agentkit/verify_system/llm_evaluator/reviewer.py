@@ -1,16 +1,16 @@
-"""Layer-2 LLM-Reviewer fuer den QA-Subflow (FK-27 §27.4-§27.6 + §27.7).
+"""Layer-2 LLM reviewers for the QA subflow (FK-27 §27.4-§27.6 + §27.7).
 
-Drei eigenstaendige Reviewer-Klassen gemaess W1 (AG3-026 Re-Review)
-mit echter deterministischer Prueflogik (AG3-026 Pass-2 §Befund-B):
+Three standalone reviewer classes per W1 (AG3-026 re-review)
+with real deterministic check logic (AG3-026 Pass-2 §Befund-B):
 
-- ``QaReviewReviewer``: Prueft Testqualitaet, Coverage, Edge-Cases.
-  Layer-Tag: ``qa_review``. Artefakt: ``qa_review.json``.
-- ``SemanticReviewer``: Prueft Konzept-Treue, Naming, fachliche
-  Korrektheit. Layer-Tag: ``semantic_review``. Artefakt:
+- ``QaReviewReviewer``: checks test quality, coverage, edge cases.
+  Layer tag: ``qa_review``. Artifact: ``qa_review.json``.
+- ``SemanticReviewer``: checks concept fidelity, naming, functional
+  correctness. Layer tag: ``semantic_review``. Artifact:
   ``semantic_review.json``.
-- ``DocFidelityReviewer``: Prueft Docstring-Vollstaendigkeit,
-  ADR-/Konzept-Querverweise, OpenAPI-Konsistenz. Layer-Tag:
-  ``doc_fidelity``. Artefakt: ``doc_fidelity.json``.
+- ``DocFidelityReviewer``: checks docstring completeness,
+  ADR/concept cross-references, OpenAPI consistency. Layer tag:
+  ``doc_fidelity``. Artifact: ``doc_fidelity.json``.
 
 AG3-026 Pass-3 ERROR-5: All three reviewers now accept a ``review_input``
 (``Layer2ReviewInput``) kwarg. When ``review_input is None``, the reviewer
@@ -18,13 +18,13 @@ raises ``Layer2InputMissingError`` (fail-closed per FK-27 §27.4-§27.6).
 When ``review_input`` has empty fields, a MAJOR finding with code
 ``"layer2_input.missing"`` is emitted instead of silent PASS.
 
-Alle drei Reviewer sind deterministische Regel-Pruefe (Pass-2
-§Befund-B). Der ``LLMClient``-Slot ist fuer AG3-043 vorgesehen; wenn
-ein Client uebergeben wird, wird ``NotImplementedError`` ausgeloest.
+All three reviewers are deterministic rule checks (Pass-2
+§Befund-B). The ``LLMClient`` slot is reserved for AG3-043; if
+a client is passed, ``NotImplementedError`` is raised.
 
-Sichtbarkeitsregel (AC001): Aufrufer ausserhalb von ``verify_system``
-duerfen nur ``VerifySystem`` importieren, nicht diese Klassen direkt.
-``system.py`` verdrahtet sie intern ueber ``create_default``.
+Visibility rule (AC001): callers outside ``verify_system``
+may only import ``VerifySystem``, not these classes directly.
+``system.py`` wires them internally via ``create_default``.
 """
 
 from __future__ import annotations
@@ -148,17 +148,17 @@ def _all_empty(review_input: Layer2ReviewInput) -> bool:
 
 
 class QaReviewReviewer(PromptAuditMixin):
-    """Layer 2a: Deterministic QA reviewer (Testqualitaet, Coverage, Edge-Cases).
+    """Layer 2a: Deterministic QA reviewer (test quality, coverage, edge cases).
 
-    FK-27 §27.5 (sinngemaess). Prueft:
-    - Test-Datei-Praesenz via ``diff_summary``/``handover`` (wenn review_input
-      vorhanden); Fallback auf ``story_dir`` wenn leer.
-    - Edge-Case-Tiefe (< 3 test functions referenced == thin suite).
-    - Coverage-Schwellwert via ``handover``-Text (Regex); MAJOR wenn fehlend.
+    FK-27 §27.5 (analogously). Checks:
+    - test-file presence via ``diff_summary``/``handover`` (when review_input
+      is present); fallback to ``story_dir`` when empty.
+    - edge-case depth (< 3 test functions referenced == thin suite).
+    - coverage threshold via ``handover`` text (regex); MAJOR when missing.
 
-    Profil: ``qa_review``. Artefakt: ``qa_review.json``.
+    Profile: ``qa_review``. Artifact: ``qa_review.json``.
 
-    LLM-Augmentation ist AG3-043; ``llm_client`` ist reservierter Slot.
+    LLM augmentation is AG3-043; ``llm_client`` is a reserved slot.
     Satisfies the :class:`~agentkit.verify_system.protocols.QALayer` protocol.
 
     Attributes:
@@ -188,8 +188,8 @@ class QaReviewReviewer(PromptAuditMixin):
         """
         if llm_client is not None:
             msg = (
-                "LLM-Augmentation fuer QaReviewReviewer ist in AG3-043 implementiert. "
-                "Bis dahin muss llm_client=None bleiben."
+                "LLM augmentation for QaReviewReviewer is implemented in AG3-043. "
+                "Until then llm_client must remain None."
             )
             raise NotImplementedError(msg)
         super().__init__(
@@ -382,9 +382,9 @@ class QaReviewReviewer(PromptAuditMixin):
 
 
 class SemanticReviewer(PromptAuditMixin):
-    """Layer 2b: Deterministic semantic reviewer (Konzept-Treue, Naming).
+    """Layer 2b: Deterministic semantic reviewer (concept fidelity, naming).
 
-    FK-27 §27.4 (sinngemaess). Prueft:
+    FK-27 §27.4 (analogously). Checks:
     - TODO/FIXME/XXX markers in ``diff_summary``/``handover`` (text-based
       when review_input is provided; fallback to filesystem scan).
     - Dangling concept references in ``story_spec``/``handover``
@@ -392,9 +392,9 @@ class SemanticReviewer(PromptAuditMixin):
     - Naming conventions (snake_case functions, PascalCase classes) via
       filesystem scan on ``story_dir`` (unchanged).
 
-    Profil: ``semantic_review``. Artefakt: ``semantic_review.json``.
+    Profile: ``semantic_review``. Artifact: ``semantic_review.json``.
 
-    LLM-Augmentation ist AG3-043; ``llm_client`` ist reservierter Slot.
+    LLM augmentation is AG3-043; ``llm_client`` is a reserved slot.
     Satisfies the :class:`~agentkit.verify_system.protocols.QALayer` protocol.
 
     Attributes:
@@ -424,8 +424,8 @@ class SemanticReviewer(PromptAuditMixin):
         """
         if llm_client is not None:
             msg = (
-                "LLM-Augmentation fuer SemanticReviewer ist in AG3-043 implementiert. "
-                "Bis dahin muss llm_client=None bleiben."
+                "LLM augmentation for SemanticReviewer is implemented in AG3-043. "
+                "Until then llm_client must remain None."
             )
             raise NotImplementedError(msg)
         super().__init__(
@@ -683,22 +683,22 @@ class SemanticReviewer(PromptAuditMixin):
 
 
 class DocFidelityReviewer(PromptAuditMixin):
-    """Layer 2c: Deterministic doc-fidelity reviewer (Docstrings/ADR).
+    """Layer 2c: Deterministic doc-fidelity reviewer (docstrings/ADR).
 
-    FK-27 §27.6 (sinngemaess). Prueft:
-    - Docstring-Vollstaendigkeit: jede public Funktion/Klasse braucht
-      einen Docstring (filesystem scan).
-    - ADR-/Konzept-Anchor: jede public Klasse braucht einen FK-XX/DK-XX
-      Anchor im Docstring oder Modul-Header.
-    - Pydantic-Konfiguration: BaseModel-Subklassen benoetigen
-      ``model_config = ConfigDict(extra="forbid", frozen=True)`` (oder
-      ``extra="forbid"`` mindestens).
+    FK-27 §27.6 (analogously). Checks:
+    - docstring completeness: every public function/class needs
+      a docstring (filesystem scan).
+    - ADR/concept anchor: every public class needs an FK-XX/DK-XX
+      anchor in the docstring or module header.
+    - Pydantic configuration: BaseModel subclasses need
+      ``model_config = ConfigDict(extra="forbid", frozen=True)`` (or
+      ``extra="forbid"`` at minimum).
     - handover: presence of docstring references in handover text
       (text-based, when review_input provided).
 
-    Profil: ``doc_fidelity``. Artefakt: ``doc_fidelity.json``.
+    Profile: ``doc_fidelity``. Artifact: ``doc_fidelity.json``.
 
-    LLM-Augmentation ist AG3-043; ``llm_client`` ist reservierter Slot.
+    LLM augmentation is AG3-043; ``llm_client`` is a reserved slot.
     Satisfies the :class:`~agentkit.verify_system.protocols.QALayer` protocol.
 
     Attributes:
@@ -728,8 +728,8 @@ class DocFidelityReviewer(PromptAuditMixin):
         """
         if llm_client is not None:
             msg = (
-                "LLM-Augmentation fuer DocFidelityReviewer ist in AG3-043 implementiert. "
-                "Bis dahin muss llm_client=None bleiben."
+                "LLM augmentation for DocFidelityReviewer is implemented in AG3-043. "
+                "Until then llm_client must remain None."
             )
             raise NotImplementedError(msg)
         super().__init__(

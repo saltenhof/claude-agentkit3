@@ -1,17 +1,17 @@
-"""FailureCategory und IncidentStatus — Failure-Corpus-Klassifikation.
+"""FailureCategory and IncidentStatus — failure-corpus classification.
 
 Source of truth:
 - FailureCategory: FK-41 §41.4.1 — concept/technical-design/41_failure_corpus_pattern_promotion_check_factory.md
-  (12 Werte). Abgeglichen mit bc-cut-decisions §BC 13.
-- IncidentStatus: FK-41 §41.3.1 + Glossar `exported_terms.incident-status.values`
-  (4 Werte: observed/promoted/closed_one_off/archived). AG3-028 KONFLIKT-1
-  (User-Entscheidung 2026-06-01) ersetzt den frueheren Sammel-Enum
-  ``PromotionStatus`` (ein Enum fuer drei Entitaeten) durch drei
-  entitaets-scoped Lifecycle-Enums. ``IncidentStatus`` ist der einzige Enum
-  mit funktionalem Producer (``record_incident``/``fc_incidents.incident_status``)
-  und wird daher in dieser Story materialisiert; ``PatternStatus``/``CheckStatus``
-  folgen mit ihren Producern (PatternPromotion/CheckFactory) in Folge-Stories
-  (ZERO DEBT: kein toter Code).
+  (12 values). Reconciled with bc-cut-decisions §BC 13.
+- IncidentStatus: FK-41 §41.3.1 + glossary `exported_terms.incident-status.values`
+  (4 values: observed/promoted/closed_one_off/archived). AG3-028 CONFLICT-1
+  (user decision 2026-06-01) replaces the earlier umbrella enum
+  ``PromotionStatus`` (one enum for three entities) with three
+  entity-scoped lifecycle enums. ``IncidentStatus`` is the only enum
+  with a functional producer (``record_incident``/``fc_incidents.incident_status``)
+  and is therefore materialized in this story; ``PatternStatus``/``CheckStatus``
+  follow with their producers (PatternPromotion/CheckFactory) in follow-up
+  stories (ZERO DEBT: no dead code).
 """
 
 from __future__ import annotations
@@ -20,25 +20,25 @@ from enum import StrEnum
 
 
 class FailureCategory(StrEnum):
-    """Failure-Kategorie pro FK-41 §41.4.1 (12 Werte).
+    """Failure category per FK-41 §41.4.1 (12 values).
 
-    Die untenstehende Liste ist abschliessend; aeltere, repo-historisch
-    kursierende Werte sind nicht Bestandteil von FK-41 §41.4.1 und
-    entfallen ersatzlos.
+    The list below is exhaustive; older values circulating from repo
+    history are not part of FK-41 §41.4.1 and are dropped without
+    replacement.
 
     Attributes:
-        SCOPE_DRIFT: Story-Scope ueberschritten oder verlassen.
-        ARCHITECTURE_VIOLATION: Architektur-Konzept verletzt.
-        EVIDENCE_FABRICATION: Belege fabriziert oder manipuliert.
-        HALLUCINATION: LLM-Halluzination (erfundene Fakten).
-        TEST_OMISSION: Pflichttests weggelassen.
-        ASSERTION_WEAKNESS: Tests zu schwach (False-Negative-Risiko).
-        UNSAFE_REFACTOR: Refactoring ohne Sicherungsnetz.
-        POLICY_VIOLATION: Guardrail- oder Policy-Verstoss.
-        TOOL_MISUSE: Falsche Tool-Verwendung durch Worker.
-        STATE_DESYNC: Inkonsistenter State (Code vs. Telemetrie vs. Doc).
-        REQUIREMENTS_MISS: ARE-Anforderung uebersehen.
-        REVIEW_EVASION: Review-Pflicht umgangen.
+        SCOPE_DRIFT: Story scope exceeded or left.
+        ARCHITECTURE_VIOLATION: Architecture concept violated.
+        EVIDENCE_FABRICATION: Evidence fabricated or manipulated.
+        HALLUCINATION: LLM hallucination (invented facts).
+        TEST_OMISSION: Mandatory tests omitted.
+        ASSERTION_WEAKNESS: Tests too weak (false-negative risk).
+        UNSAFE_REFACTOR: Refactoring without a safety net.
+        POLICY_VIOLATION: Guardrail or policy violation.
+        TOOL_MISUSE: Wrong tool usage by the worker.
+        STATE_DESYNC: Inconsistent state (code vs. telemetry vs. doc).
+        REQUIREMENTS_MISS: ARE requirement overlooked.
+        REVIEW_EVASION: Review obligation circumvented.
     """
 
     SCOPE_DRIFT = "scope_drift"
@@ -56,20 +56,20 @@ class FailureCategory(StrEnum):
 
 
 class IncidentStatus(StrEnum):
-    """Incident-Lebenszyklus pro FK-41 §41.3.1 + Glossar ``incident-status``.
+    """Incident lifecycle per FK-41 §41.3.1 + glossary ``incident-status``.
 
-    Die untenstehende Liste ist abschliessend (4 Werte). Uebergaenge sind
-    ausschliesslich vorwaertsgerichtet. AG3-028 KONFLIKT-1: ersetzt den
-    frueheren Sammel-Enum ``PromotionStatus``.
+    The list below is exhaustive (4 values). Transitions are exclusively
+    forward-directed. AG3-028 CONFLICT-1: replaces the earlier umbrella
+    enum ``PromotionStatus``.
 
     Attributes:
-        OBSERVED: erfasst und klassifiziert — Pflichtfelder werden beim
-            Schreiben erzwungen, einen unklassifizierten Roh-Zustand gibt es
-            nicht (Default fuer neue Incidents).
-        PROMOTED: in ein Pattern uebernommen (zusaetzlich aus gesetztem
-            ``pattern_ref`` ableitbar).
-        CLOSED_ONE_OFF: geprueft, kein Praeventionswert.
-        ARCHIVED: nur noch historisch relevant.
+        OBSERVED: Recorded and classified — required fields are enforced
+            on write, there is no unclassified raw state (default for new
+            incidents).
+        PROMOTED: Adopted into a pattern (additionally derivable from a set
+            ``pattern_ref``).
+        CLOSED_ONE_OFF: Reviewed, no prevention value.
+        ARCHIVED: Only historically relevant.
     """
 
     OBSERVED = "observed"
@@ -79,25 +79,25 @@ class IncidentStatus(StrEnum):
 
 
 class PatternStatus(StrEnum):
-    """Pattern-Lebenszyklus pro FK-41 §41.3.2 + Glossar ``pattern-status``.
+    """Pattern lifecycle per FK-41 §41.3.2 + glossary ``pattern-status``.
 
-    Die untenstehende Liste ist abschliessend (4 Werte). Uebergaenge sind
-    ausschliesslich vorwaertsgerichtet. AG3-028 KONFLIKT-1: einer der drei
-    entitaets-scoped Lifecycle-Enums, die den frueheren Sammel-Enum
-    ``PromotionStatus`` ersetzen. Der Fortschritt eines abgeleiteten Checks ist
-    KEIN Pattern-Zustand, sondern ueber ``check_ref`` auf :class:`CheckStatus`
-    ableitbar (FK-41 §41.3.2).
+    The list below is exhaustive (4 values). Transitions are exclusively
+    forward-directed. AG3-028 CONFLICT-1: one of the three entity-scoped
+    lifecycle enums that replace the earlier umbrella enum
+    ``PromotionStatus``. The progress of a derived check is NOT a pattern
+    state, but is derivable via ``check_ref`` to :class:`CheckStatus`
+    (FK-41 §41.3.2).
 
-    Materialisiert mit AG3-040 Sub-Block (b) (fc_patterns-Tabelle + Repository-
-    Skelett); der funktionale Producer (``PatternPromotion``) folgt in einer
-    Folge-Story (FK-41 §41.5), die volle Promotion-Logik ist Out of Scope.
+    Materialized with AG3-040 sub-block (b) (fc_patterns table + repository
+    skeleton); the functional producer (``PatternPromotion``) follows in a
+    follow-up story (FK-41 §41.5), the full promotion logic is out of scope.
 
     Attributes:
-        CANDIDATE: aus Clustering vorgeschlagen, noch nicht bestaetigt.
-        ACCEPTED: menschlich bestaetigt, Check-Ableitung moeglich. Kein Pattern
-            wird ``accepted`` ohne ``confirmed_by = human`` (FK-41 §41.3.2).
-        REJECTED: im Review verworfen.
-        RETIRED: nicht mehr relevant.
+        CANDIDATE: Proposed from clustering, not yet confirmed.
+        ACCEPTED: Human-confirmed, check derivation possible. No pattern
+            becomes ``accepted`` without ``confirmed_by = human`` (FK-41 §41.3.2).
+        REJECTED: Discarded in review.
+        RETIRED: No longer relevant.
     """
 
     CANDIDATE = "candidate"
@@ -107,27 +107,27 @@ class PatternStatus(StrEnum):
 
 
 class CheckStatus(StrEnum):
-    """Check-Lebenszyklus pro FK-41 §41.3.3 + Glossar ``check-status``.
+    """Check lifecycle per FK-41 §41.3.3 + glossary ``check-status``.
 
-    Die untenstehende Liste ist abschliessend (5 Werte). Uebergaenge sind
-    ausschliesslich vorwaertsgerichtet, ausser dem menschlichen Rueckruf einer
-    Auto-Deaktivierung (FK-41 §41.6.7). AG3-028 KONFLIKT-1: einer der drei
-    entitaets-scoped Lifecycle-Enums, die den frueheren Sammel-Enum
-    ``PromotionStatus`` ersetzen.
+    The list below is exhaustive (5 values). Transitions are exclusively
+    forward-directed, except the human recall of an auto-deactivation
+    (FK-41 §41.6.7). AG3-028 CONFLICT-1: one of the three entity-scoped
+    lifecycle enums that replace the earlier umbrella enum
+    ``PromotionStatus``.
 
-    Materialisiert mit AG3-040 Sub-Block (b) (fc_check_proposals-Tabelle +
-    Repository-Skelett); der funktionale Producer (``CheckFactory``) folgt in
-    einer Folge-Story (FK-41 §41.6), die volle Check-Factory-Logik ist Out of
-    Scope.
+    Materialized with AG3-040 sub-block (b) (fc_check_proposals table +
+    repository skeleton); the functional producer (``CheckFactory``) follows
+    in a follow-up story (FK-41 §41.6), the full check-factory logic is out
+    of scope.
 
     Attributes:
-        DRAFT: Spezifikation erstellt.
-        APPROVED: menschlich freigegeben (``approved_by = human``, FK-41
+        DRAFT: Specification created.
+        APPROVED: Human-approved (``approved_by = human``, FK-41
             §41.3.3).
-        ACTIVE: in der Pipeline aktiv (wird zwangslaeufig auf Wirksamkeit
-            erfasst — kein separater Beobachtungszustand).
-        REJECTED: im Review verworfen.
-        RETIRED: deaktiviert (irrelevant oder zu viele False Positives).
+        ACTIVE: Active in the pipeline (its effectiveness is necessarily
+            recorded — no separate observation state).
+        REJECTED: Discarded in review.
+        RETIRED: Deactivated (irrelevant or too many false positives).
     """
 
     DRAFT = "draft"
@@ -138,14 +138,14 @@ class CheckStatus(StrEnum):
 
 
 class CheckType(StrEnum):
-    """Check-Typ eines generierten Check-Proposals pro FK-41 §41.3.3/§41.6.3.
+    """Check type of a generated check proposal per FK-41 §41.3.3/§41.6.3.
 
-    Die untenstehende Liste ist abschliessend (6 Werte). Der Check-Typ wird in
-    FK-41 §41.6.3 deterministisch (kein LLM) aus der Fehlerkategorie zugeordnet.
+    The list below is exhaustive (6 values). The check type is assigned in
+    FK-41 §41.6.3 deterministically (no LLM) from the failure category.
 
-    Materialisiert mit AG3-040 Sub-Block (b) (fc_check_proposals-Tabelle +
-    Repository-Skelett); die deterministische Typ-Zuordnung (FK-41 §41.6.3) ist
-    Aufgabe der ``CheckFactory``-Folge-Story (Out of Scope).
+    Materialized with AG3-040 sub-block (b) (fc_check_proposals table +
+    repository skeleton); the deterministic type assignment (FK-41 §41.6.3) is
+    the task of the ``CheckFactory`` follow-up story (out of scope).
 
     Attributes:
         CHANGED_FILE_POLICY: scope_drift / unsafe_refactor.

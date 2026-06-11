@@ -3,21 +3,21 @@
 When a new atomic QA cycle begins (``advance_qa_cycle()``), every cycle-bound
 QA artefact written under ``_temp/qa/{story_id}/`` is moved to
 ``_temp/qa/{story_id}/stale/{old_epoch}/`` so it can never be consumed by a
-later remediation round (FK-27 §27.2.3 "Artefakt-Invalidierung"). A missing
+later remediation round (FK-27 §27.2.3 "artifact invalidation"). A missing
 file is skipped without error; each successful move emits an
 ``artifact_invalidated`` invalidation record through the injected
 :class:`ArtifactInvalidationSink`.
 
-Pinned filename set (FK-27 §27.2.3 table). The prose says "11 Dateien" but the
+Pinned filename set (FK-27 §27.2.3 table). The prose says "11 files" but the
 normative table lists **12** rows; the table is operative, so all 12 are
 pinned and the count discrepancy is recorded here and surfaced to the caller.
 The contract test ``tests/contract/verify_system/test_qa_cycle.py`` pins this
 exact tuple against FK-27 §27.2.3.
 
-Quelle:
-  - FK-27 §27.2.3 -- Artefakt-Invalidierung (Datei-Tabelle, ``stale/``-Move)
-  - FK-27 §27.6a.3 -- ``sonarqube_gate.json`` ist zyklusgebunden
-  - AG3-041 §2.1.3 -- Invalidierungslogik + ``artifact_invalidated``-Telemetrie
+Source:
+  - FK-27 §27.2.3 -- artifact invalidation (file table, ``stale/`` move)
+  - FK-27 §27.6a.3 -- ``sonarqube_gate.json`` is cycle-bound
+  - AG3-041 §2.1.3 -- invalidation logic + ``artifact_invalidated`` telemetry
 """
 
 from __future__ import annotations

@@ -4,7 +4,7 @@ FK-35 §35.2.3 (mandatory-artifact pre-stage) + §35.2.4 (nine dimensions).
 Each dimension verifies the EXACT FK-35 §35.2.4(a) condition against the
 canonical QA ``ArtifactEnvelope`` (``artifact_envelopes``) — producer / status /
 payload depth / threshold — not merely artifact existence (AG3-034 Remediation
-E-A, ZERO DEBT "prueft Pflichtfelder, nicht nur Existenz").
+E-A, ZERO DEBT "verifies mandatory fields, not only existence").
 
 | Dim | ID (FK-35 §35.2.4)  | Verified condition (FK-35 §35.2.4)                 |
 |-----|---------------------|----------------------------------------------------|
@@ -759,7 +759,7 @@ def _check_timestamp_causality(
     state_port: IntegrityGateStatePort,
     runtime_scope: RuntimeStateScope | None,
 ) -> DimensionResult:
-    """Dim 8 — timestamp causality (FK-35 §35.2.4 Z. 274).
+    """Dim 8 — timestamp causality (FK-35 §35.2.4 line 274).
 
     FK-35 §35.2.4: ``ArtifactRecord(context).finished_at <
     ArtifactRecord(decision).finished_at`` — the CONTEXT record must have been
@@ -800,7 +800,7 @@ def _timestamp_violation(
 ) -> str | None:
     """Return a detail string when context/decision causality is violated (Dim 8).
 
-    FK-35 §35.2.4 Z. 274 anchors Dim 8 on ``ArtifactRecord(context).finished_at
+    FK-35 §35.2.4 line 274 anchors Dim 8 on ``ArtifactRecord(context).finished_at
     < ArtifactRecord(decision).finished_at``: the context (built at setup) must
     pre-date the policy decision (the QA-subflow flow_end).  A decision
     finalised at or before the context's completion is a causality inversion

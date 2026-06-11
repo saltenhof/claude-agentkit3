@@ -1,18 +1,18 @@
-"""PauseReason — Grund eines PAUSED-Phase-Zustandes.
+"""PauseReason — reason for a PAUSED phase state.
 
 Source of truth: FK-39 §39.2.2 — concept/technical-design/39_phase_state_persistenz.md
-(Glossar-Eintrag Z. 62-69 und Beschreibung in §39.2.2).
+(glossary entry lines 62-69 and description in §39.2.2).
 
-Genau drei normierte Werte; jeder andere String ist ungueltig und wird
-vom Phase Runner fail-closed abgewiesen (siehe `from_yield_status`).
+Exactly three normalized values; any other string is invalid and is
+rejected fail-closed by the phase runner (see `from_yield_status`).
 
-Konzept-Drift-Notiz (AG3-021 Codex-Review): FK-39 §39.2.2 enthaelt im
-Code-Beispiel lowercase Wire-Strings, das FK-39-Glossar (Z. 62-69)
-nutzt UPPER_SNAKE_CASE. Die Story AG3-021 §2.1.1.1 traegt die
-UPPER_SNAKE_CASE-Variante normativ; konsistent mit
+Concept-drift note (AG3-021 Codex review): FK-39 §39.2.2 contains
+lowercase wire strings in the code example, the FK-39 glossary (lines
+62-69) uses UPPER_SNAKE_CASE. Story AG3-021 §2.1.1.1 carries the
+UPPER_SNAKE_CASE variant normatively; consistent with
 QaContext/AttemptOutcome/FailureCause/EnvelopeStatus (upper-case).
-Die Konzept-Inkonsistenz im FK-39-Code-Block ist im Story-Bericht
-gemeldet.
+The concept inconsistency in the FK-39 code block is reported in the
+story report.
 """
 
 from __future__ import annotations
@@ -24,10 +24,10 @@ from typing import TYPE_CHECKING, Final
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-# Synonym-Tabelle aus AG3-021 §2.1.4 — mappt historisch beobachtete
-# Free-String-Werte auf die drei normierten PauseReason-Member.
-# Vergleich ist case-insensitive (auf der Input-Seite); Schluessel sind
-# bereits lowercase.
+# Synonym table from AG3-021 §2.1.4 — maps historically observed
+# free-string values onto the three normalized PauseReason members.
+# Comparison is case-insensitive (on the input side); keys are already
+# lowercase.
 _YIELD_STATUS_SYNONYMS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "awaiting_design_review": "AWAITING_DESIGN_REVIEW",
@@ -44,15 +44,15 @@ _YIELD_STATUS_SYNONYMS: Final[Mapping[str, str]] = MappingProxyType(
 
 
 class PauseReason(StrEnum):
-    """Drei normierte Werte fuer `phase_state.paused_reason`.
+    """Three normalized values for `phase_state.paused_reason`.
 
     Attributes:
-        AWAITING_DESIGN_REVIEW: Entwurfsartefakt wartet auf Design-Review
-            (Exploration-Phase).
-        AWAITING_DESIGN_CHALLENGE: Design-Review hat Einwaende erhoben,
-            Pipeline pausiert bis Challenge-Prozess abgeschlossen.
-        GOVERNANCE_INCIDENT: Governance-Observer hat kritischen Incident
-            erkannt; Mensch muss intervenieren.
+        AWAITING_DESIGN_REVIEW: Draft artifact waits for the design review
+            (exploration phase).
+        AWAITING_DESIGN_CHALLENGE: Design review raised objections, the
+            pipeline pauses until the challenge process is complete.
+        GOVERNANCE_INCIDENT: Governance observer detected a critical
+            incident; a human must intervene.
     """
 
     AWAITING_DESIGN_REVIEW = "AWAITING_DESIGN_REVIEW"
@@ -61,23 +61,23 @@ class PauseReason(StrEnum):
 
     @classmethod
     def from_yield_status(cls, raw: str) -> PauseReason:
-        """Map a free-form yield-status string to a normierten PauseReason.
+        """Map a free-form yield-status string to a normalized PauseReason.
 
-        Vorgesehen fuer den Migrationspfad v2 -> v3, in dem `result.yield_status`
-        noch als freier String herumgereicht wird (siehe AG3-021 §2.1.4).
-        Akzeptiert sowohl Synonyme aus dem Bestand
-        (z.B. ``"design_review_pending"``) als auch den normierten
-        Wire-Wert selbst (``"AWAITING_DESIGN_REVIEW"``).
+        Intended for the v2 -> v3 migration path, in which
+        `result.yield_status` is still passed around as a free string (see
+        AG3-021 §2.1.4). Accepts both legacy synonyms (e.g.
+        ``"design_review_pending"``) and the normalized wire value itself
+        (``"AWAITING_DESIGN_REVIEW"``).
 
         Args:
-            raw: Beliebiger Yield-Status-String.
+            raw: Any yield-status string.
 
         Returns:
-            Der zugehoerige ``PauseReason``-Wert.
+            The corresponding ``PauseReason`` value.
 
         Raises:
-            ValueError: Wenn ``raw`` weder ein Synonym noch ein
-                normierter Wert ist (fail-closed; kein Default).
+            ValueError: When ``raw`` is neither a synonym nor a normalized
+                value (fail-closed; no default).
         """
         if not raw:
             raise ValueError(

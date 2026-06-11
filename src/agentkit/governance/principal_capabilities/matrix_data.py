@@ -116,11 +116,11 @@ def _build_allow_sets() -> dict[Pr, tuple[frozenset[tuple[Op, Pc]], str]]:
         (Pc.CODEBASE_OUT_OF_SCOPE, Pc.CODEBASE_STORY_SCOPE, Pc.CONTROL_PLANE),
     )
 
-    # pipeline_deterministic (FK-55 §55.7 "deterministische AgentKit-Skripte mit
-    # offizieller Mutationshoheit" + §31.2.8): official mutation authority over
+    # pipeline_deterministic (FK-55 §55.7 "deterministic AgentKit scripts with
+    # official mutation authority" + §31.2.8): official mutation authority over
     # the planes it owns — BUT the dangerous git_internal mutations are only
-    # privileged via an official service path (§31.2.8 ".git: nur ueber
-    # deklarierte AgentKit-Pfade"; §55.10.7). The service-path validator is
+    # privileged via an official service path (§31.2.8 ".git: only via
+    # declared AgentKit paths"; §55.10.7). The service-path validator is
     # deferred (AG3-032 §2.2), so git_internal MUTATIONS are DENY here
     # (fail-closed); git_internal READ stays allowed.
     pipeline_allow = (
@@ -140,8 +140,8 @@ def _build_allow_sets() -> dict[Pr, tuple[frozenset[tuple[Op, Pc]], str]]:
     )
 
     # human_cli (FK-55 §31.2.8 / §55.9): acts via OFFICIAL COMMANDS, not via free
-    # direct mutation. §31.2.8 ".git: nie frei, sondern nur ueber AgentKit-
-    # Kommandos"; governance/content/git mutations therefore require the official
+    # direct mutation. §31.2.8 ".git: never free, but only via AgentKit
+    # commands"; governance/content/git mutations therefore require the official
     # service path (deferred — AG3-032 §2.2). Until then the matrix DENIES those
     # direct mutations (fail-closed) while keeping: admin_transition on the
     # repo_admin_surface (that IS the official-command surface), full authority

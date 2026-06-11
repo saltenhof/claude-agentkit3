@@ -4,10 +4,10 @@ Takes LayerResults from all layers, applies trust weighting, and
 produces a final PASS/FAIL decision per FK-27 §27.7.2. No LLM, no
 side effects (ARCH-12).
 
-PolicyVerdict ist seit AG3-021 ein StrEnum aus ``agentkit.core_types``
-mit nur zwei Werten: PASS und FAIL. Der LLM-Check-Status am
-Envelope-Rand (AG3-022, FK-71) ist eine getrennte Werteliste und
-gehoert ausdruecklich nicht in diesen Modul-Kontext.
+Since AG3-021, PolicyVerdict is a StrEnum from ``agentkit.core_types``
+with only two values: PASS and FAIL. The LLM check status at the
+envelope edge (AG3-022, FK-71) is a separate value list and
+explicitly does not belong in this module's context.
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ DEFAULT_MAX_MAJOR_FINDINGS_PER_STORY_TYPE: dict[StoryType, int] = {
 #: FK-33 §33.5). Trust A (``SYSTEM``) and Trust B (``VERIFIED_LLM``) are
 #: authoritative enough to block; Trust C (``WORKER_ASSERTION``) is the
 #: worker's own self-report and — per the DK-04 §4.2 / FK-33 §33.5.2
-#: Kernregel "Klasse C darf nie blocking sein" (FK-07-008) — must NEVER
+#: core rule "class C may never be blocking" (FK-07-008) — must NEVER
 #: block: the agent must not be able to pass its own check. This frozenset
 #: is the single source of truth for "may a finding of this trust class
 #: contribute a blocking decision"; both blocking rules in
@@ -94,8 +94,8 @@ class VerifyDecision:
 
     Args:
         passed: Whether the overall verification passed.
-        verdict: Endentscheidung als ``PolicyVerdict``-Enum
-            (``PASS`` oder ``FAIL``).
+        verdict: Final decision as a ``PolicyVerdict`` enum
+            (``PASS`` or ``FAIL``).
         layer_results: Tuple of all layer results that contributed.
         all_findings: Flattened tuple of all findings from all layers.
         blocking_findings: Tuple of findings that caused failure.
@@ -117,11 +117,11 @@ class VerifyDecision:
 
     @property
     def status(self) -> str:
-        """Wire-Repraesentation des Verdicts.
+        """Wire representation of the verdict.
 
-        Liefert ausschliesslich ``"PASS"`` oder ``"FAIL"`` gemaess
-        FK-27 §27.7.2 und ``PolicyVerdict`` (AG3-021); weitere
-        Zwischenwerte sind nicht zulaessig.
+        Returns exclusively ``"PASS"`` or ``"FAIL"`` per
+        FK-27 §27.7.2 and ``PolicyVerdict`` (AG3-021); no other
+        intermediate values are permitted.
         """
         return self.verdict.value
 
@@ -134,13 +134,13 @@ class PolicyEngine:
     1. A ``Severity.BLOCKING`` finding whose trust class *may block*
        (Trust A ``SYSTEM`` or Trust B ``VERIFIED_LLM``, see
        :func:`_trust_can_block`) -> FAIL. ``BLOCKING`` is the *unconditional*,
-       *schwellenunabhaengige* severity (FK-27 §27.4.2): such a finding blocks
+       *threshold-independent* severity (FK-27 §27.4.2): such a finding blocks
        the QA-subflow hard, independent of ``max_major_findings``. This covers
        both the Trust-A structural/Sonar blockers AND a Trust-B Layer-2 FAIL --
-       FK-33 §33.8.2 / FK-34 §34.2.5: "jeder [Layer-2] FAIL blockiert
+       FK-33 §33.8.2 / FK-34 §34.2.5: "every [Layer-2] FAIL blocks
        (FK-05-164)", which is threshold-independent. A Trust-C
        (``WORKER_ASSERTION``) finding NEVER blocks here (DK-04 §4.2 / FK-33
-       §33.5.2 Kernregel "Klasse C darf nie blocking sein", FK-07-008) -- the
+       §33.5.2 core rule "class C may never be blocking", FK-07-008) -- the
        worker must not be able to pass its own check. This is the SINGLE
        blocking truth; there is no second gate.
     2. More than ``max_major_findings`` MAJOR findings (any blocking-eligible
@@ -465,15 +465,15 @@ def _compute_blocking(
     Trust A ``SYSTEM`` / Trust B ``VERIFIED_LLM``) are ever considered. Trust C
     (``WORKER_ASSERTION``) findings are filtered out up front and can NEVER
     contribute a blocking decision, neither via the BLOCKING-severity rule nor
-    via the MAJOR-threshold rule (DK-04 §4.2 / FK-33 §33.5.2 Kernregel "Klasse
-    C darf nie blocking sein", FK-07-008). This single trust filter is the one
+    via the MAJOR-threshold rule (DK-04 §4.2 / FK-33 §33.5.2 core rule "class
+    C may never be blocking", FK-07-008). This single trust filter is the one
     place the trust-class rule lives (no second blocking truth, FIX THE MODEL).
 
     Rules (applied to blocking-eligible findings only):
     - Any ``Severity.BLOCKING`` finding blocks immediately and
-      *schwellenunabhaengig* (FK-27 §27.4.2): ``BLOCKING`` is the unconditional
+      *threshold-independently* (FK-27 §27.4.2): ``BLOCKING`` is the unconditional
       severity. This realises both the Trust-A structural/Sonar block AND the
-      FK-33 §33.8.2 / FK-34 §34.2.5 "jeder Layer-2 FAIL blockiert" rule (a
+      FK-33 §33.8.2 / FK-34 §34.2.5 "every Layer-2 FAIL blocks" rule (a
       Layer-2 FAIL maps to a Trust-B ``BLOCKING`` finding, not a
       threshold-gated MAJOR).
     - If total MAJOR findings exceed ``max_major``, all MAJOR findings block.

@@ -5,14 +5,14 @@
 eight, no synthetic ninth value (AG3-032 AK3 / FK-55 §55.4).
 
 :class:`PathClassifier` normalizes a target path to exactly one class using only
-cheap prefix / suffix matching (FK-55 §55.10.2 Performance-Regel — no semantic
+cheap prefix / suffix matching (FK-55 §55.10.2 performance rule — no semantic
 shell interpretation). If no rule matches, :meth:`PathClassifier.classify`
 returns ``None`` — the *unclassified sentinel*. There is no 9th wire
 :class:`PathClass` and no 9th matrix column: the enforcement turns an
-unclassified target into a hard ``BLOCK`` directly (FK-55 §55.10.2: "Kann ein
-Ziel nicht billig und kanonisch aufgeloest werden, ist die Entscheidung
-fail-closed BLOCK"). Returning a sentinel — rather than a synthetic enum member —
-keeps the matrix at the canonical 8 columns while staying fail-closed.
+unclassified target into a hard ``BLOCK`` directly (FK-55 §55.10.2: "If a target
+cannot be resolved cheaply and canonically, the decision is fail-closed BLOCK").
+Returning a sentinel — rather than a synthetic enum member — keeps the matrix at
+the canonical 8 columns while staying fail-closed.
 
 Story scope (FK-55 §55.7.1) is the set of participating-repo / worktree roots,
 project-local story working dirs and registered sandboxes — NOT a substring
@@ -61,12 +61,12 @@ class PathClass(StrEnum):
 
 
 #: Content-plane artifact basenames (FK-55 §55.4). Wire strings live in
-#: ``core_types.plane_artifact_names`` (Truth-Boundary: governance modules may
-#: not hold these literals). Orchestrator-gesperrt.
+#: ``core_types.plane_artifact_names`` (truth boundary: governance modules may
+#: not hold these literals). Orchestrator-locked.
 _CONTENT_PLANE_FILES: frozenset[str] = frozenset(CONTENT_PLANE_FILES)
 
 #: Control-plane artifact basenames (FK-55 §55.4). Wire strings live in
-#: ``core_types.plane_artifact_names``. Orchestrator-lesbar.
+#: ``core_types.plane_artifact_names``. Orchestrator-readable.
 _CONTROL_PLANE_FILES: frozenset[str] = frozenset(CONTROL_PLANE_FILES)
 
 #: QA-artifact basenames that are content of the QA-Subflow (FK-27). They live
@@ -79,8 +79,8 @@ _QA_ARTIFACT_FILES: frozenset[str] = frozenset(
 #: hook-settings (``.claude/settings.json``, ``.codex/config.toml``,
 #: ``.codex/hooks.json``) plus governance config / installer manifest
 #: (``.agentkit/config/project.yaml``, ``.installed-manifest.json``). They are
-#: "Guardrail-Zustaende" in the FK-55 §55.4 sense — platform self-governance
-#: state that "nur offizielle Servicepfade" may mutate — and therefore classify
+#: "guardrail states" in the FK-55 §55.4 sense — platform self-governance
+#: state that "only official service paths" may mutate — and therefore classify
 #: as :attr:`PathClass.GOVERNANCE_PLANE` (AG3-033: closes the dead-whitelist
 #: inconsistency where these paths were UNCLASSIFIED and hard-blocked for ALL
 #: principals before the SelfProtectionGuard could narrow by zone). Wire literals
@@ -94,7 +94,7 @@ _SELF_PROTECTION_FILE_PARTS: tuple[tuple[str, ...], ...] = (
 #: Self-protection registry DIRECTORY-prefix segment tuples (FK-30 §30.5.4 /
 #: FK-15 §15.7.1): the CCAG-rule / skill-symlink dirs (``.agentkit/ccag/rules``,
 #: ``.claude/ccag/rules``, ``.claude/skills``). A mutation UNDER any of these is
-#: governance-plane (FK-55 §55.4 Guardrail-Zustaende). Same canonical source.
+#: governance-plane (FK-55 §55.4 guardrail states). Same canonical source.
 _SELF_PROTECTION_DIR_PARTS: tuple[tuple[str, ...], ...] = (
     *SELF_PROTECTION_SYMLINK_DIR_PARTS,
 )
@@ -167,7 +167,7 @@ class PathClassifier:
 
     @staticmethod
     def _is_governance_plane(segments: list[str]) -> bool:
-        # _temp/governance/**, Lock-Exporte, Guardrail-Zustaende (FK-55 §55.4).
+        # _temp/governance/**, lock exports, guardrail states (FK-55 §55.4).
         if ".agentkit" in segments and "governance" in segments:
             return True
         if ".agent-guard" in segments:
@@ -176,8 +176,8 @@ class PathClassifier:
             return True
         # Self-protection registry (FK-30 §30.5.4): harness hook-settings,
         # CCAG-/skill-symlink dirs and governance config / installer manifest are
-        # "Guardrail-Zustaende" (FK-55 §55.4 governance_plane: "nur offizielle
-        # Servicepfade"). Precise: exact files + dir-prefix runs only — NOT all of
+        # "guardrail states" (FK-55 §55.4 governance_plane: "only official
+        # service paths"). Precise: exact files + dir-prefix runs only — NOT all of
         # ``.claude``/``.codex`` (arbitrary harness working files stay
         # unclassified). AG3-033: this makes the capability matrix coherent
         # (worker DENY, official principals ALLOW) so the SelfProtectionGuard can
@@ -188,12 +188,12 @@ class PathClassifier:
 
     @staticmethod
     def _is_qa_sandbox(segments: list[str]) -> bool:
-        # _temp/adversarial/{story_id}/, ephemere QA-Arbeitsbereiche (FK-55 §55.4).
+        # _temp/adversarial/{story_id}/, ephemeral QA work areas (FK-55 §55.4).
         return "_temp" in segments and "adversarial" in segments
 
     @staticmethod
     def _is_repo_admin_surface(segments: list[str], story_id: str | None) -> bool:
-        # Story-Status/Story-Attribute im AK3-Story-Backend; Split-/Reset-Aktionen.
+        # Story status / story attributes in the AK3 story backend; split/reset actions.
         if "stories" not in segments:
             return False
         if story_id is None:
@@ -241,7 +241,7 @@ class PathClassifier:
 
     @staticmethod
     def _is_productive_codebase(segments: list[str]) -> bool:
-        # Produktive Repo-Pfade ausserhalb des Story-Scope (FK-55 §55.4).
+        # Productive repo paths outside the story scope (FK-55 §55.4).
         return "src" in segments or "tests" in segments
 
 

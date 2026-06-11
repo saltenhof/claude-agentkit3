@@ -1,19 +1,19 @@
-"""fc_patterns-Repository-Adapter (FK-41 §41.3.2, FK-69 §69.3, AG3-040 Sub-Block (b)).
+"""fc_patterns repository adapter (FK-41 §41.3.2, FK-69 §69.3, AG3-040 Sub-Block (b)).
 
-Der DB-Owner-seitige Adapter fuer ``fc_patterns``. Liegt — wie die uebrigen
-FK-69-Repos — auf der Accessor-Seite in ``state_backend/store`` (boundary
-``state_backend_repository``). Schema-Owner ist ``failure-corpus`` (FK-41
-§41.3.2); DB-Owner ist ``telemetry-and-events``.
+The DB-owner-side adapter for ``fc_patterns``. Lives — like the other
+FK-69 repos — on the accessor side in ``state_backend/store`` (boundary
+``state_backend_repository``). The schema owner is ``failure-corpus`` (FK-41
+§41.3.2); the DB owner is ``telemetry-and-events``.
 
-AG3-040 Sub-Block (b) liefert NUR Tabelle + Repository-Skelett (minimaler CRUD-
-Roundtrip: ``save``/``load``/``list_for_project``). Die PatternPromotion-Full-
-Logik (Clustering, Schwellwerte, Recompute) bleibt Out of Scope (FK-41 §41.5,
-Folge-Story). Es gibt deshalb noch keinen funktionalen Producer und keine
-Verdrahtung in den ``ProjectionAccessor``; der Adapter ist eigenstaendig
-instanziierbar (analog ``StateBackendFCIncidentsRepository``).
+AG3-040 Sub-Block (b) provides ONLY a table + repository skeleton (minimal CRUD
+round-trip: ``save``/``load``/``list_for_project``). The full PatternPromotion
+logic (clustering, thresholds, recompute) stays Out of Scope (FK-41 §41.5,
+follow-up story). There is therefore no functional producer yet and no
+wiring into the ``ProjectionAccessor``; the adapter is independently
+instantiable (analogous to ``StateBackendFCIncidentsRepository``).
 
-``save`` ist ein Upsert auf ``pattern_id`` (ein FailurePatternRecord wird im Laufe der
-Promotion fortgeschrieben — anders als der append-only ``fc_incidents``).
+``save`` is an upsert on ``pattern_id`` (a FailurePatternRecord is updated over the
+course of promotion — unlike the append-only ``fc_incidents``).
 """
 
 from __future__ import annotations
@@ -35,27 +35,27 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class FcPatternRepository(Protocol):
-    """Schreib-/Lese-Adapter fuer ``fc_patterns`` (FK-41 §41.3.2, FK-69 §69.3).
+    """Write/read adapter for ``fc_patterns`` (FK-41 §41.3.2, FK-69 §69.3).
 
-    Schema-Owner: failure-corpus (FK-41 §41.3.2).
-    DB-Owner: telemetry-and-events.
+    Schema owner: failure-corpus (FK-41 §41.3.2).
+    DB owner: telemetry-and-events.
     """
 
     def save(self, pattern: FailurePatternRecord) -> None:
-        """Persistiere (upsert auf ``pattern_id``) ein FailurePatternRecord."""
+        """Persist (upsert on ``pattern_id``) a FailurePatternRecord."""
         ...
 
     def load(self, pattern_id: str) -> FailurePatternRecord | None:
-        """Lade ein FailurePatternRecord per ``pattern_id`` oder ``None``."""
+        """Load a FailurePatternRecord by ``pattern_id`` or ``None``."""
         ...
 
     def list_for_project(self, project_key: str) -> list[FailurePatternRecord]:
-        """Liste alle FailurePatterns eines Projekts (FK-41 §41.3.2: projektgebunden)."""
+        """List all FailurePatterns of a project (FK-41 §41.3.2: project-bound)."""
         ...
 
 
 def _pattern_to_row(pattern: FailurePatternRecord) -> dict[str, Any]:
-    """Serialisiere ein ``FailurePatternRecord`` in eine fc_patterns-Zeile."""
+    """Serialize a ``FailurePatternRecord`` into an fc_patterns row."""
     return {
         "pattern_id": pattern.pattern_id,
         "project_key": pattern.project_key,
@@ -77,7 +77,7 @@ def _pattern_to_row(pattern: FailurePatternRecord) -> dict[str, Any]:
 
 
 def _row_to_pattern(row: dict[str, Any]) -> FailurePatternRecord:
-    """Deserialisiere eine fc_patterns-Zeile in ein ``FailurePatternRecord``."""
+    """Deserialize an fc_patterns row into a ``FailurePatternRecord``."""
     from datetime import datetime
 
     from agentkit.core_types import FailureCategory, PatternStatus
@@ -119,8 +119,8 @@ def _row_to_pattern(row: dict[str, Any]) -> FailurePatternRecord:
 def _decode_str_list(raw: object) -> list[str]:
     """Decode a JSON ``list[str]`` column (SQLite TEXT or Postgres JSON).
 
-    FAIL-CLOSED (NO ERROR BYPASSING): ein Nicht-String-Element ist korrupte
-    Persistenz und wird als Fehler gemeldet (FK-41 §41.3.2 list[str]).
+    FAIL-CLOSED (NO ERROR BYPASSING): a non-string element is corrupt
+    persistence and is reported as an error (FK-41 §41.3.2 list[str]).
     """
     if raw is None:
         return []
@@ -144,10 +144,10 @@ def _decode_str_list(raw: object) -> list[str]:
 
 
 class StateBackendFcPatternRepository:
-    """Duenner Adapter fuer ``fc_patterns`` (SQLite + Postgres).
+    """Thin adapter for ``fc_patterns`` (SQLite + Postgres).
 
     Args:
-        store_dir: Basisverzeichnis fuer SQLite; ignoriert bei Postgres.
+        store_dir: Base directory for SQLite; ignored for Postgres.
     """
 
     def __init__(self, store_dir: Path | None = None) -> None:
@@ -155,10 +155,10 @@ class StateBackendFcPatternRepository:
 
         self._store_dir: Path = store_dir or _Path.cwd()
 
-    # -- Schreiben ----------------------------------------------------------
+    # -- Write --------------------------------------------------------------
 
     def save(self, pattern: FailurePatternRecord) -> None:
-        """Persistiere (upsert auf ``pattern_id``) ein FailurePatternRecord."""
+        """Persist (upsert on ``pattern_id``) a FailurePatternRecord."""
         row = _pattern_to_row(pattern)
         if _is_postgres():
             with _postgres_connect() as conn:
@@ -167,10 +167,10 @@ class StateBackendFcPatternRepository:
             with _sqlite_connect_qa(self._store_dir) as conn:
                 conn.execute(_SQLITE_UPSERT, row)
 
-    # -- Lesen --------------------------------------------------------------
+    # -- Read ---------------------------------------------------------------
 
     def load(self, pattern_id: str) -> FailurePatternRecord | None:
-        """Lade ein FailurePatternRecord per ``pattern_id`` oder ``None``."""
+        """Load a FailurePatternRecord by ``pattern_id`` or ``None``."""
         if _is_postgres():
             with _postgres_connect() as conn:
                 row = conn.execute(
@@ -186,7 +186,7 @@ class StateBackendFcPatternRepository:
         return _row_to_pattern(dict(row)) if row is not None else None
 
     def list_for_project(self, project_key: str) -> list[FailurePatternRecord]:
-        """Liste alle FailurePatterns eines Projekts (FK-41 §41.3.2: projektgebunden)."""
+        """List all FailurePatterns of a project (FK-41 §41.3.2: project-bound)."""
         if _is_postgres():
             with _postgres_connect() as conn:
                 rows = conn.execute(

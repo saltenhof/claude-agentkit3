@@ -14,10 +14,10 @@ not silently drop that role. The exception is re-raised wrapped in
 :class:`ParallelEvalError` so the caller (``VerifySystem``) turns Layer 2 into
 a BLOCKING failure -- there is no partial / best-effort Layer-2 result.
 
-Quelle:
-  - FK-27 §27.5.1 -- drei parallele LLM-Bewertungen
-  - FK-11 §11.7 -- ThreadPoolExecutor (technische Umsetzung)
-  - FK-34 §34.5.1 -- fail-closed (kein stiller Skip)
+Source:
+  - FK-27 §27.5.1 -- three parallel LLM evaluations
+  - FK-11 §11.7 -- ThreadPoolExecutor (technical implementation)
+  - FK-34 §34.5.1 -- fail-closed (no silent skip)
 """
 
 from __future__ import annotations

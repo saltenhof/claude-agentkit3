@@ -2,7 +2,7 @@
 
 Dimension 9 **verifies** the commit-bound ``sonarqube_gate`` attestation that
 the (out-of-scope) Closure pre-merge scan produced — it **never runs a Sonar
-scan of its own** (FK-35 §35.2.4a "verifiziert nur — vermisst nicht neu").  All
+scan of its own** (FK-35 §35.2.4a "verifies only — never re-scans").  All
 Sonar semantics (commit-binding/stale-check, Broken-Window green criterion,
 ledger reconcile, 3-state applicability) live in the
 ``verify_system.sonarqube_gate`` capability (AG3-052); this module is a thin

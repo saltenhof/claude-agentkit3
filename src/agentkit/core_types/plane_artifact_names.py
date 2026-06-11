@@ -1,33 +1,33 @@
-"""Wire-String-Konstanten fuer Content-/Control-Plane-Artefakt-Dateinamen.
+"""Wire-string constants for content/control-plane artifact filenames.
 
-Cross-Cutting-Datenwerte (analog ``qa_artifact_names``): die kanonischen
-Dateinamen der Content- und Control-Plane-Artefakte aus FK-55 §55.4. Sie liegen
-hier (core_types), NICHT im geschuetzten ``agentkit.governance``-Namespace, weil
-einige dieser Strings in
+Cross-cutting data values (analogous to ``qa_artifact_names``): the canonical
+filenames of the content- and control-plane artifacts from FK-55 §55.4. They
+live here (core_types), NOT in the protected ``agentkit.governance`` namespace,
+because some of these strings are listed in
 ``concept/formal-spec/truth-boundary-checker/invariants.md``
-(``forbidden_json_truth_filenames`` / ``forbidden_json_truth_globs``) gelistet
-sind und in protected modules literal nicht vorkommen duerfen.
+(``forbidden_json_truth_filenames`` / ``forbidden_json_truth_globs``) and may
+not appear literally in protected modules.
 
-Aufrufer:
-- ``agentkit.governance.principal_capabilities.paths`` — importiert die Strings
-  zur Pfadklassifikation (FK-55 §55.4) und haelt die Literale damit aus dem
-  governance-Namespace heraus (Truth-Boundary-Conformance).
+Callers:
+- ``agentkit.governance.principal_capabilities.paths`` — imports the strings
+  for path classification (FK-55 §55.4), keeping the literals out of the
+  governance namespace (truth-boundary conformance).
 
-Konzept-Anker:
-- ``FK-55 §55.4`` — Pfad-/Objektklassen (content_plane / control_plane).
-- ``concept/formal-spec/truth-boundary-checker/invariants.md`` Z. 24-54.
+Concept anchors:
+- ``FK-55 §55.4`` — path/object classes (content_plane / control_plane).
+- ``concept/formal-spec/truth-boundary-checker/invariants.md`` lines 24-54.
 """
 
 from __future__ import annotations
 
 from agentkit.core_types.qa_artifact_names import HANDOVER_FILE
 
-#: Wiederkehrende Verzeichnis-Segmente (Sonar S1192 — Literal nur einmal).
+#: Recurring directory segments (Sonar S1192 — literal only once).
 _AGENTKIT_DIR = ".agentkit"
 _CLAUDE_DIR = ".claude"
 
-#: Content-Plane-Artefakt-Dateinamen (FK-55 §55.4: context.json, are_bundle.json,
-#: handover-/bundle-artige Inhaltsartefakte). Orchestrator-gesperrt.
+#: Content-plane artifact filenames (FK-55 §55.4: context.json, are_bundle.json,
+#: handover-/bundle-like content artifacts). Orchestrator-locked.
 CONTENT_PLANE_FILES: tuple[str, ...] = (
     "context.json",
     "are_bundle.json",
@@ -35,8 +35,8 @@ CONTENT_PLANE_FILES: tuple[str, ...] = (
     HANDOVER_FILE,
 )
 
-#: Control-Plane-Artefakt-Dateinamen (FK-55 §55.4: phase_state_projection,
-#: Marker, reduzierte Steuerungsartefakte). Orchestrator-lesbar.
+#: Control-plane artifact filenames (FK-55 §55.4: phase_state_projection,
+#: markers, reduced control artifacts). Orchestrator-readable.
 CONTROL_PLANE_FILES: tuple[str, ...] = (
     "phase_state_projection.json",
     "phase-state-projection.json",
@@ -46,65 +46,65 @@ CONTROL_PLANE_FILES: tuple[str, ...] = (
     "mode.json",
 )
 
-#: Kanonischer Governance-Plane-Pfad der dualen Conflict-Freeze-Materialisierung
-#: (FK-55 §55.10.5 / FK-31 §31.2.7 / AG3-023): die lokale, hook-lesbare
-#: ``freeze.json``-Projektion des kanonischen Backend-Freeze-Records. Liegt hier
-#: (core_types) als SINGLE SOURCE OF TRUTH, damit weder der geschuetzte
-#: ``agentkit.governance``-Namespace noch das ``state_backend`` das Pfad-Literal
-#: dupliziert (CLAUDE.md SINGLE SOURCE OF TRUTH / Truth-Boundary, FK-55 §55.4
-#: governance_plane). Projekt-relativer POSIX-Pfad; ``GOVERNANCE_FREEZE_EXPORT_PARTS``
-#: ist dieselbe Wahrheit als Segment-Tupel fuer ``pathlib``-basierte Aufrufer.
+#: Canonical governance-plane path of the dual conflict-freeze materialization
+#: (FK-55 §55.10.5 / FK-31 §31.2.7 / AG3-023): the local, hook-readable
+#: ``freeze.json`` projection of the canonical backend freeze record. Lives here
+#: (core_types) as SINGLE SOURCE OF TRUTH so that neither the protected
+#: ``agentkit.governance`` namespace nor the ``state_backend`` duplicates the
+#: path literal (CLAUDE.md SINGLE SOURCE OF TRUTH / truth boundary, FK-55 §55.4
+#: governance_plane). Project-relative POSIX path; ``GOVERNANCE_FREEZE_EXPORT_PARTS``
+#: is the same truth as a segment tuple for ``pathlib``-based callers.
 GOVERNANCE_FREEZE_EXPORT_PARTS: tuple[str, ...] = (
     _AGENTKIT_DIR,
     "governance",
     "freeze.json",
 )
 
-#: Projekt-relativer POSIX-Pfad-String derselben Freeze-Export-Wahrheit (FK-55
-#: §55.10.5). Aus ``GOVERNANCE_FREEZE_EXPORT_PARTS`` abgeleitet — kein zweites
-#: Literal.
+#: Project-relative POSIX path string of the same freeze-export truth (FK-55
+#: §55.10.5). Derived from ``GOVERNANCE_FREEZE_EXPORT_PARTS`` — no second
+#: literal.
 GOVERNANCE_FREEZE_EXPORT_RELPATH: str = "/".join(GOVERNANCE_FREEZE_EXPORT_PARTS)
 
 
 # ---------------------------------------------------------------------------
-# Self-Protection-Pfade (FK-30 §30.5.4 / FK-15 §15.7.1) — SINGLE SOURCE.
+# Self-protection paths (FK-30 §30.5.4 / FK-15 §15.7.1) — SINGLE SOURCE.
 #
-# Der Governance-Selbstschutz (FK-30 §30.5.4) schuetzt eine feste Menge von
-# Hook-Settings-, CCAG-Symlink-, Konfigurations-, Manifest- und Lock-/Edge-
-# Bundle-Pfaden vor jeder Mutation durch nicht-offizielle Principals. Die
-# zugehoerigen Pfad-Literale leben hier (core_types) als SINGLE SOURCE OF TRUTH,
-# damit der geschuetzte ``agentkit.governance``-Namespace (insbesondere der
-# ``SelfProtectionGuard``) keine zweite Wahrheit fuer geschuetzte Pfade haelt
-# (CLAUDE.md SINGLE SOURCE OF TRUTH / Truth-Boundary, FK-55 §55.4 governance_plane).
+# The governance self-protection (FK-30 §30.5.4) protects a fixed set of
+# hook-settings, CCAG-symlink, configuration, manifest and lock-/edge-bundle
+# paths from any mutation by non-official principals. The associated path
+# literals live here (core_types) as SINGLE SOURCE OF TRUTH so that the
+# protected ``agentkit.governance`` namespace (in particular the
+# ``SelfProtectionGuard``) holds no second truth for protected paths
+# (CLAUDE.md SINGLE SOURCE OF TRUTH / truth boundary, FK-55 §55.4 governance_plane).
 #
-# Die Pfadklasse ``governance_plane`` (``.agentkit/governance``, ``_temp/governance``,
-# ``.agent-guard``) und ``git_internal`` (``.git``) deckt der PathClassifier bereits
-# ab (FK-55 §55.4). Die folgenden Pfade liegen NICHT in der Pfadklassifikation,
-# weil sie harness-spezifische Bindungspunkte sind — der SelfProtectionGuard ist
-# ihr Owner und klassifiziert sie ueber diese Segment-Tupel.
+# The path class ``governance_plane`` (``.agentkit/governance``, ``_temp/governance``,
+# ``.agent-guard``) and ``git_internal`` (``.git``) are already covered by the
+# PathClassifier (FK-55 §55.4). The following paths are NOT in the path
+# classification, because they are harness-specific binding points — the
+# SelfProtectionGuard is their owner and classifies them via these segment tuples.
 # ---------------------------------------------------------------------------
 
-#: Harness-spezifische Hook-Settings-Dateien (FK-30 §30.5.4 / FK-76 §76.5):
-#: Claude-Code ``.claude/settings.json`` (FK-76 §76.5.1) sowie die beiden
-#: Codex-Dateien — die allgemeine Codex-Konfiguration ``.codex/config.toml`` und
-#: die produktive Codex-HOOK-Settings-Datei ``.codex/hooks.json`` (FK-76 §76.5.2;
-#: ``CodexSettingsWriter.settings_path``). FK-30 §30.5.4 fuehrt nur das harness-
-#: neutrale „harness-eigenes Aequivalent" und verweist fuer die konkrete Datei auf
-#: FK-76 §76.5; dort ist ``.codex/hooks.json`` die normative Hook-Settings-Datei,
-#: ueber die der Agent die Hooks deaktivieren koennte — daher ebenfalls geschuetzt.
-#: Jeder Eintrag ist ein projekt-relatives POSIX-Segment-Tupel.
+#: Harness-specific hook-settings files (FK-30 §30.5.4 / FK-76 §76.5):
+#: Claude Code ``.claude/settings.json`` (FK-76 §76.5.1) as well as the two
+#: Codex files — the general Codex configuration ``.codex/config.toml`` and
+#: the productive Codex HOOK settings file ``.codex/hooks.json`` (FK-76 §76.5.2;
+#: ``CodexSettingsWriter.settings_path``). FK-30 §30.5.4 only mentions the
+#: harness-neutral "harness-own equivalent" and refers for the concrete file to
+#: FK-76 §76.5; there ``.codex/hooks.json`` is the normative hook-settings file
+#: through which the agent could disable the hooks — hence also protected.
+#: Each entry is a project-relative POSIX segment tuple.
 SELF_PROTECTION_HOOK_SETTINGS_PARTS: tuple[tuple[str, ...], ...] = (
     (_CLAUDE_DIR, "settings.json"),
     (".codex", "config.toml"),
     (".codex", "hooks.json"),
 )
 
-#: CCAG-Regel- und Skill-Symlink-Verzeichnisse (FK-30 §30.5.4 / FK-15 §15.7.1):
-#: der kanonische CCAG-Regelpfad ``.agentkit/ccag/rules`` (FK-15 §15.7.1 erste
-#: Zeile der geschuetzten Pfade — der eigentliche Owner-Pfad, nicht nur sein
-#: Symlink), der harness-spezifische Symlink ``.claude/ccag/rules`` (Symlink auf
-#: den kanonischen Pfad) und ``.claude/skills`` (CCAG-/Skill-Symlink-Targets).
-#: Verzeichnis-Praefixe — jede Mutation UNTER diesen Pfaden ist geschuetzt.
+#: CCAG-rule and skill symlink directories (FK-30 §30.5.4 / FK-15 §15.7.1):
+#: the canonical CCAG rule path ``.agentkit/ccag/rules`` (FK-15 §15.7.1 first
+#: line of the protected paths — the actual owner path, not just its symlink),
+#: the harness-specific symlink ``.claude/ccag/rules`` (symlink to the canonical
+#: path) and ``.claude/skills`` (CCAG-/skill symlink targets).
+#: Directory prefixes — any mutation UNDER these paths is protected.
 SELF_PROTECTION_SYMLINK_DIR_PARTS: tuple[tuple[str, ...], ...] = (
     (_AGENTKIT_DIR, "ccag", "rules"),
     (_CLAUDE_DIR, "ccag", "rules"),
@@ -112,31 +112,30 @@ SELF_PROTECTION_SYMLINK_DIR_PARTS: tuple[tuple[str, ...], ...] = (
 )
 
 # ---------------------------------------------------------------------------
-# Install-Manifest-Kontrakt (FK-31 §31.7.4 / AG3-110) — SINGLE SOURCE OF TRUTH.
+# Install-manifest contract (FK-31 §31.7.4 / AG3-110) — SINGLE SOURCE OF TRUTH.
 #
-# ``.installed-manifest.json`` (Projekt-Root) traegt das Spawn-Skill-Proof-Token
-# unter dem Top-Level-Key ``agent_spawn_skill_proof``. Producer (BC
-# installation-and-bootstrap, ``installer.installed_manifest``) und Read-Time-
-# Substitutor (BC agent-skills, ``skills.placeholder``) teilen sich diesen
-# Kontrakt; das Konsument (BC governance-and-guards, AG3-086 prompt-integrity guard)
-# keyt auf dieselben Literale. Sie leben hier (core_types, BC-neutral, Foundation),
-# damit weder agent-skills auf installer noch installer auf agent-skills eine
-# operative Kontrakt-Abhaengigkeit aufbauen muss (keine BC-Rueckkante /
-# Zyklusvermeidung) und kein Modul ein zweites Literal haelt
-# (CLAUDE.md SINGLE SOURCE OF TRUTH). Ein Contract-Test pinnt diese Werte gegen den
-# realen AG3-086-Reader.
+# ``.installed-manifest.json`` (project root) carries the spawn-skill-proof token
+# under the top-level key ``agent_spawn_skill_proof``. The producer (BC
+# installation-and-bootstrap, ``installer.installed_manifest``) and the read-time
+# substitutor (BC agent-skills, ``skills.placeholder``) share this contract; the
+# consumer (BC governance-and-guards, AG3-086 prompt-integrity guard) keys on the
+# same literals. They live here (core_types, BC-neutral, foundation) so that
+# neither agent-skills on installer nor installer on agent-skills must build an
+# operative contract dependency (no BC back-edge / cycle avoidance) and no module
+# holds a second literal (CLAUDE.md SINGLE SOURCE OF TRUTH). A contract test pins
+# these values against the real AG3-086 reader.
 # ---------------------------------------------------------------------------
 
-#: Projekt-Root-Dateiname des installierten Manifests (FK-31 §31.7.4).
+#: Project-root filename of the installed manifest (FK-31 §31.7.4).
 INSTALLED_MANIFEST_FILENAME: str = ".installed-manifest.json"
 
-#: Top-Level-JSON-Key des autoritativen Spawn-Skill-Proof-Tokens (FK-31 §31.7.4).
-#: Byte-identisch zum AG3-086-Consumer-Key (``governance/runner.py``
-#: ``_MANIFEST_SKILL_PROOF_KEY``) — der einzige gueltige Manifest-Key fuer den Token.
+#: Top-level JSON key of the authoritative spawn-skill-proof token (FK-31 §31.7.4).
+#: Byte-identical to the AG3-086 consumer key (``governance/runner.py``
+#: ``_MANIFEST_SKILL_PROOF_KEY``) — the only valid manifest key for the token.
 AGENT_SPAWN_SKILL_PROOF_KEY: str = "agent_spawn_skill_proof"
 
-#: Kanonische Governance-Konfigurations-/Manifest-Dateien (FK-30 §30.5.4):
-#: ``.agentkit/config/project.yaml`` und ``.installed-manifest.json``.
+#: Canonical governance configuration/manifest files (FK-30 §30.5.4):
+#: ``.agentkit/config/project.yaml`` and ``.installed-manifest.json``.
 SELF_PROTECTION_CONFIG_FILE_PARTS: tuple[tuple[str, ...], ...] = (
     (_AGENTKIT_DIR, "config", "project.yaml"),
     (INSTALLED_MANIFEST_FILENAME,),

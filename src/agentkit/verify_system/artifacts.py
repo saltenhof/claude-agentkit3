@@ -1,29 +1,28 @@
 """QA artifact persistence via ArtifactManager (AG3-023 §AK12).
 
-Diese Top-Surface ist ausschliesslich Konsumer der ``ArtifactManager``-API
-aus dem ``agentkit.artifacts``-BC. Sie importiert **keine**
-``agentkit.state_backend.store``-Funktionen — der Aufrufer
-(``implementation/phase.py`` oder ein Test) muss die Manager-Instanz und
-die Scope-Felder explizit liefern. Damit ist der von der Story (Z. 287
-+ Z. 316) geforderte BC-Schnitt eingehalten: verify_system nutzt
-ausschliesslich ``ArtifactManager.write/read`` als Persistenz-Facade.
+This top-surface is exclusively a consumer of the ``ArtifactManager`` API
+from the ``agentkit.artifacts`` BC. It imports **no**
+``agentkit.state_backend.store`` functions — the caller
+(``implementation/phase.py`` or a test) must supply the manager instance and
+the scope fields explicitly. This keeps the BC cut required by the story
+(line 287 + line 316): verify_system uses
+``ArtifactManager.write/read`` exclusively as the persistence facade.
 
-Funktionen:
-  - ``write_layer_artifacts``: pro bekanntem QA-Layer einen Envelope via
-    ``manager.write`` schreiben (UPSERT in artifact_envelopes).
-  - ``write_verify_decision_artifacts``: einen Verify-Decision-Envelope
-    via ``manager.write`` schreiben.
-  - ``load_verify_decision_artifact``: liest den hoechsten-attempt
-    Envelope per ``manager.read_latest`` und gibt
-    ``(VERIFY_DECISION_FILE, payload)`` zurueck.
+Functions:
+  - ``write_layer_artifacts``: write one envelope per known QA layer via
+    ``manager.write`` (UPSERT into artifact_envelopes).
+  - ``write_verify_decision_artifacts``: write one verify-decision envelope
+    via ``manager.write``.
+  - ``load_verify_decision_artifact``: read the highest-attempt
+    envelope via ``manager.read_latest`` and return
+    ``(VERIFY_DECISION_FILE, payload)``.
 
-Die FK-69-Materialisierung (qa_stage_results, qa_findings,
-decision_records) und das Projektionsfile sind **nicht** Aufgabe dieses
-Moduls; sie laufen im Orchestrator (implementation/phase.py) via
+The FK-69 materialization (qa_stage_results, qa_findings,
+decision_records) and the projection file are **not** the task of this
+module; they run in the orchestrator (implementation/phase.py) via
 ``state_backend.record_layer_artifacts`` / ``record_verify_decision``.
-Beide Pfade sind idempotent (UPSERT in artifact_envelopes; UPSERT in
-den FK-69-Tabellen), so dass ein Re-Run keine divergente Wahrheit
-erzeugt.
+Both paths are idempotent (UPSERT into artifact_envelopes; UPSERT into
+the FK-69 tables), so that a re-run produces no divergent truth.
 """
 
 from __future__ import annotations
@@ -104,21 +103,21 @@ def write_layer_artifacts(
     layer_results: tuple[LayerResult, ...],
     attempt_nr: int,
 ) -> tuple[str, ...]:
-    """Schreibt pro bekanntem QA-Layer einen ArtifactEnvelope via Manager.
+    """Write one ArtifactEnvelope per known QA layer via the manager.
 
     Args:
-        manager: Injizierte ArtifactManager-Instanz.
-        story_id: Story-Display-ID (z.B. ``AG3-901``).
-        run_id: Run-Korrelations-ID.
-        layer_results: Layer-Ergebnisse aus dem QA-Subflow.
-        attempt_nr: Versuchszaehler (>= 1).
+        manager: Injected ArtifactManager instance.
+        story_id: Story display ID (e.g. ``AG3-901``).
+        run_id: Run correlation ID.
+        layer_results: Layer results from the QA subflow.
+        attempt_nr: Attempt counter (>= 1).
 
     Returns:
-        Tuple der Projektions-Filenamen je geschriebenem Layer
-        (analog zur bisherigen Signatur).
+        Tuple of the projection file names per written layer
+        (analogous to the previous signature).
 
     Raises:
-        ProducerNotRegisteredError / EnvelopeFieldError: aus
+        ProducerNotRegisteredError / EnvelopeFieldError: from
             ``ArtifactManager.write`` (fail-closed).
     """
 
@@ -158,10 +157,10 @@ def write_verify_decision_artifacts(
     decision: VerifyDecision,
     attempt_nr: int,
 ) -> tuple[str, ...]:
-    """Schreibt einen Verify-Decision-Envelope via ArtifactManager.
+    """Write one verify-decision envelope via the ArtifactManager.
 
     Raises:
-        ProducerNotRegisteredError / EnvelopeFieldError: aus
+        ProducerNotRegisteredError / EnvelopeFieldError: from
             ``ArtifactManager.write`` (fail-closed).
     """
 
@@ -194,16 +193,16 @@ def load_verify_decision_artifact(
     story_id: str,
     run_id: str | None = None,
 ) -> tuple[str, dict[str, object]] | None:
-    """Liest den letzten Verify-Decision-Envelope via ``manager.read_latest``.
+    """Read the latest verify-decision envelope via ``manager.read_latest``.
 
     Args:
-        manager: Injizierte ArtifactManager-Instanz.
-        story_id: Story-Display-ID.
-        run_id: Run-Korrelations-ID; ``None`` matched ueber alle runs.
+        manager: Injected ArtifactManager instance.
+        story_id: Story display ID.
+        run_id: Run correlation ID; ``None`` matches across all runs.
 
     Returns:
-        ``(VERIFY_DECISION_FILE, payload)`` oder ``None`` wenn kein
-        Envelope existiert.
+        ``(VERIFY_DECISION_FILE, payload)`` or ``None`` if no
+        envelope exists.
     """
     try:
         envelope = manager.read_latest(
@@ -228,7 +227,7 @@ def _utc_now() -> datetime:
 def _write_projection(path: Path, payload: dict[str, object]) -> None:
     """Atomically write a JSON projection file, creating parent dirs as needed.
 
-    Beibehalten fuer Tests, die das Projektions-Verhalten direkt pruefen.
+    Kept for tests that check the projection behavior directly.
     """
 
     path.parent.mkdir(parents=True, exist_ok=True)

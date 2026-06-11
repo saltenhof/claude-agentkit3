@@ -1,13 +1,13 @@
-"""ArtifactClass und EnvelopeStatus — Artefakt-Klassifikation.
+"""ArtifactClass and EnvelopeStatus — artifact classification.
 
 Source of truth:
-- ArtifactClass: FK-71 §71.1.1, Z. 90-99 (acht Artefaktklassen, lower-case)
-  plus ``prompt_audit`` (AG3-015, FK-44 §44.6 — Prompt-Audit-Records).
-- EnvelopeStatus: FK-71 §71.2, Z. 145 (PASS/FAIL/WARN/ERROR, upper-case).
+- ArtifactClass: FK-71 §71.1.1, lines 90-99 (eight artifact classes, lower-case)
+  plus ``prompt_audit`` (AG3-015, FK-44 §44.6 — prompt-audit records).
+- EnvelopeStatus: FK-71 §71.2, line 145 (PASS/FAIL/WARN/ERROR, upper-case).
 
-Wire-Werte fuer ArtifactClass sind lowercase und konsistent mit dem
-Postgres-CHECK-Constraint aus AG3-023 §2.1.4 (um ``prompt_audit``
-erweitert in AG3-015).
+Wire values for ArtifactClass are lowercase and consistent with the
+Postgres CHECK constraint from AG3-023 §2.1.4 (extended with
+``prompt_audit`` in AG3-015).
 """
 
 from __future__ import annotations
@@ -16,18 +16,19 @@ from enum import StrEnum
 
 
 class ArtifactClass(StrEnum):
-    """Erzeugerklasse eines Artefakts pro FK-71 §71.1.1.
+    """Producer class of an artifact per FK-71 §71.1.1.
 
     Attributes:
-        WORKER: Worker-Agent-Output (worker-manifest, protocol, Code).
-        QA: QA-Subflow-Output (structural, policy, semantic_review).
-        PIPELINE: Pipeline-Runner-Output (story_contexts, flow_executions).
-        TELEMETRY: Telemetrie-Events / Export-Bundle.
-        GOVERNANCE: Guard-/Integrity-Gate-Output.
-        ENTWURF: Worker-Entwurfsartefakt (Exploration-Phase).
-        HANDOVER: Worker-Handover (Implementation-Phase).
-        ADVERSARIAL_TEST_SANDBOX: Adversarial-Test-Sandbox-Verzeichnis.
-        PROMPT_AUDIT: Prompt-Runtime-Audit-Record (FK-44 §44.6, AG3-015).
+        WORKER: Worker-agent output (worker-manifest, protocol, code).
+        QA: QA-subflow output (structural, policy, semantic_review).
+        PIPELINE: Pipeline-runner output (story_contexts, flow_executions).
+        TELEMETRY: Telemetry events / export bundle.
+        GOVERNANCE: Guard / integrity-gate output.
+        ENTWURF: Worker draft artifact (exploration phase). Wire value
+            ``"entwurf"`` is a frozen contract string (FK-71 §71.1.1).
+        HANDOVER: Worker handover (implementation phase).
+        ADVERSARIAL_TEST_SANDBOX: Adversarial-test sandbox directory.
+        PROMPT_AUDIT: Prompt-runtime audit record (FK-44 §44.6, AG3-015).
     """
 
     WORKER = "worker"
@@ -42,16 +43,16 @@ class ArtifactClass(StrEnum):
 
 
 class EnvelopeStatus(StrEnum):
-    """Artefakt-Envelope-Status pro FK-71 §71.2.
+    """Artifact-envelope status per FK-71 §71.2.
 
-    LLM-Check-Status ``PASS_WITH_CONCERNS`` wird beim Aggregieren auf
-    ``WARN`` gemappt — dieses Mapping lebt in AG3-022, nicht hier.
+    The LLM check status ``PASS_WITH_CONCERNS`` is mapped to ``WARN``
+    during aggregation — this mapping lives in AG3-022, not here.
 
     Attributes:
-        PASS: Check bestanden.
-        FAIL: Check nicht bestanden — blockiert Story.
-        WARN: Aggregat eines ``PASS_WITH_CONCERNS``-LLM-Status.
-        ERROR: Infrastruktur-Fehler (kein LLM-Ergebnis).
+        PASS: Check passed.
+        FAIL: Check not passed — blocks the story.
+        WARN: Aggregate of a ``PASS_WITH_CONCERNS`` LLM status.
+        ERROR: Infrastructure error (no LLM result).
     """
 
     PASS = "PASS"

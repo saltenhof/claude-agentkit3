@@ -3,11 +3,11 @@
 Blood group: T (infrastructure_driver)
 Owner:       state-backend BC
 
-Migration AG3-023: PROTECTED_QA_ARTIFACTS, LAYER_ARTIFACT_FILES und
-VERIFY_DECISION_FILE wurden nach
-``agentkit.governance.guard_system.protected_paths`` verschoben
-(FK-31 §31.3 + bc-cut-decisions.md §BC 4, Refactor-Liste Pkt. 24).
-Kein Re-Export-Shim hier (Zero-Debt-Regel).
+Migration AG3-023: PROTECTED_QA_ARTIFACTS, LAYER_ARTIFACT_FILES and
+VERIFY_DECISION_FILE were moved to
+``agentkit.governance.guard_system.protected_paths``
+(FK-31 §31.3 + bc-cut-decisions.md §BC 4, refactor list item 24).
+No re-export shim here (zero-debt rule).
 """
 
 from __future__ import annotations

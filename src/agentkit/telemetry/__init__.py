@@ -27,9 +27,9 @@ from agentkit.telemetry.projection_accessor import (
 from agentkit.telemetry.storage import StateBackendEmitter
 
 if TYPE_CHECKING:
-    # Lazy zur Laufzeit (siehe __getattr__): ProjectionRecord referenziert
-    # StoryMetricsRecord (story-closure). Eager-Import wuerde den Zyklus
-    # telemetry <-> closure beim Package-Init reaktivieren.
+    # Lazy at runtime (see __getattr__): ProjectionRecord references
+    # StoryMetricsRecord (story-closure). An eager import would reactivate the
+    # telemetry <-> closure cycle during package init.
     from agentkit.telemetry.projection_records import ProjectionRecord
 
 __all__ = [
@@ -51,21 +51,21 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:
-    """Lazy Laufzeit-Aufloesung von ``ProjectionRecord`` (PEP 562).
+    """Lazy runtime resolution of ``ProjectionRecord`` (PEP 562).
 
-    ``ProjectionRecord`` ist ein reiner Typing-Alias ueber story-closure-eigene
-    Record-Typen. Lazy-Aufloesung verhindert, dass ein Import von
-    ``agentkit.telemetry`` (bzw. des Submoduls ``telemetry.events``) das
-    story-closure-Package beim Init nachzieht (Anti-circular-import).
+    ``ProjectionRecord`` is a pure typing alias over story-closure-owned
+    record types. Lazy resolution prevents an import of
+    ``agentkit.telemetry`` (or the submodule ``telemetry.events``) from
+    pulling in the story-closure package at init time (anti-circular-import).
 
     Args:
-        name: Angefragter Modul-Attributname.
+        name: Requested module attribute name.
 
     Returns:
-        Den ``ProjectionRecord``-Union-Typ.
+        The ``ProjectionRecord`` union type.
 
     Raises:
-        AttributeError: Fuer alle anderen Namen.
+        AttributeError: For all other names.
     """
     if name == "ProjectionRecord":
         from agentkit.telemetry.projection_records import ProjectionRecord

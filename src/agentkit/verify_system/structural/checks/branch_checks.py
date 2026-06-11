@@ -1,13 +1,13 @@
 """Branch & completion checks (FK-27 §27.4.2 / FK-33 §33.3.2).
 
-These are BLOCKING checks, so per the FK-33 §33.5.2 Kernregel ("Klasse C darf
-nie blocking sein", FK-07-008) they MUST decide on INDEPENDENT system evidence,
+These are BLOCKING checks, so per the FK-33 §33.5.2 core rule ("class C may
+never be blocking", FK-07-008) they MUST decide on INDEPENDENT system evidence,
 NOT on the worker's ``worker-manifest.json`` (a Trust-C self-report). They
 therefore consult the :class:`ChangeEvidence` collected by the system git
 provider (real ``git`` in production): the actual checked-out branch, the real
 commit history since the base ref, and the real push state. ``git``
-branch/commit data is Trust B (FK-33 §33.5.1 "System-emittierte Daten ...
-Commit-Historie"); the findings are ``SYSTEM`` (blocking-eligible).
+branch/commit data is Trust B (FK-33 §33.5.1 "system-emitted data ...
+commit history"); the findings are ``SYSTEM`` (blocking-eligible).
 
 The expected branch ``story/{story_id}`` comes from the authoritative
 ``StoryContext.story_id`` (single source of truth). The worker manifest is NOT

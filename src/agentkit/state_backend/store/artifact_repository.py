@@ -1,25 +1,25 @@
-"""StateBackendArtifactRepository — SQLite/Postgres-Implementierung von ArtifactRepository.
+"""StateBackendArtifactRepository — SQLite/Postgres implementation of ArtifactRepository.
 
-Konkrete Implementierung des ``ArtifactRepository``-Protocols aus
-``agentkit.artifacts.repository`` fuer den state_backend-BC.
+Concrete implementation of the ``ArtifactRepository`` protocol from
+``agentkit.artifacts.repository`` for the state_backend BC.
 
-Design-Entscheidungen:
-- Backend-Switch per Env-Var ``AGENTKIT_STATE_BACKEND`` (sqlite/postgres),
-  analog zu ``story_repository.py``.
-- Record-Key ist ein deterministischer Compound-Key aus den Identitaetsfeldern:
+Design decisions:
+- Backend switch via env var ``AGENTKIT_STATE_BACKEND`` (sqlite/postgres),
+  analogous to ``story_repository.py``.
+- The record key is a deterministic compound key of the identity fields:
   ``<story_id>|<run_id>|<stage>|<attempt>|<artifact_class>|<producer_name>``
-  -> gleiche Felder = gleicher Key -> exists/read idempotent.
-- UNIQUE-Constraint auf dem Primaerschluessel blockt Doppelt-Insert.
-  ``write_envelope`` nutzt INSERT OR IGNORE (SQLite) / ON CONFLICT DO NOTHING
-  (Postgres) -- idempotent bei gleichen Identitaetsfeldern.
-- Fail-closed: kein silent None-Return bei Backend-Fehler; Exceptions
-  propagieren direkt.
+  -> same fields = same key -> exists/read idempotent.
+- A UNIQUE constraint on the primary key blocks a double insert.
+  ``write_envelope`` uses INSERT OR IGNORE (SQLite) / ON CONFLICT DO NOTHING
+  (Postgres) -- idempotent for the same identity fields.
+- Fail-closed: no silent None return on a backend error; exceptions
+  propagate directly.
 
-Quellen:
-- AG3-023 §2.1.2 — ArtifactRepository-Vertrag
-- AG3-023 §2.1.4 — Schema-Spalten und Constraints
-- AG3-023 §2.1.4.2 — Idempotenz
-- FK-18 §18.9a — Side-by-Side-DB pro SCHEMA_VERSION
+Sources:
+- AG3-023 §2.1.2 — ArtifactRepository contract
+- AG3-023 §2.1.4 — schema columns and constraints
+- AG3-023 §2.1.4.2 — idempotency
+- FK-18 §18.9a — side-by-side DB per SCHEMA_VERSION
 """
 
 from __future__ import annotations
@@ -399,24 +399,24 @@ def _postgres_connect() -> Iterator[Any]:
 
 
 class StateBackendArtifactRepository:
-    """SQLite/Postgres-Implementierung des ArtifactRepository-Protocols.
+    """SQLite/Postgres implementation of the ArtifactRepository protocol.
 
-    Backend wird per ``AGENTKIT_STATE_BACKEND``-Env-Var gewaehlt
-    (``sqlite`` oder ``postgres``).
+    The backend is selected via the ``AGENTKIT_STATE_BACKEND`` env var
+    (``sqlite`` or ``postgres``).
 
-    Die Reference ist deterministisch: gleiche Identitaetsfelder ->
-    gleicher ``record_key`` -> exists/read idempotent. Doppelt-Insert
-    wird per UNIQUE-Constraint auf dem Primaerschluessel verhindert
-    (INSERT OR IGNORE fuer SQLite, ON CONFLICT DO NOTHING fuer Postgres).
+    The reference is deterministic: same identity fields ->
+    same ``record_key`` -> exists/read idempotent. A double insert
+    is prevented by a UNIQUE constraint on the primary key
+    (INSERT OR IGNORE for SQLite, ON CONFLICT DO NOTHING for Postgres).
 
     Args:
-        store_dir: Basisverzeichnis fuer das State-Backend (enthaelt
-            ``.agentkit/``). Nur fuer SQLite relevant. Default: cwd.
+        store_dir: Base directory for the state backend (contains
+            ``.agentkit/``). Only relevant for SQLite. Default: cwd.
 
     Architecture Conformance:
-        Dieses Modul ist der einzige ``state_backend``-interne Konsument
-        der ArtifactEnvelope/Reference-Modelle. Es importiert diese
-        direkt aus ``agentkit.artifacts`` (nicht ueber die Fassade).
+        This module is the only ``state_backend``-internal consumer
+        of the ArtifactEnvelope/Reference models. It imports them
+        directly from ``agentkit.artifacts`` (not via the facade).
     """
 
     def __init__(self, store_dir: Path | None = None) -> None:
@@ -427,23 +427,23 @@ class StateBackendArtifactRepository:
     # ------------------------------------------------------------------
 
     def write_envelope(self, envelope: ArtifactEnvelope) -> ArtifactReference:
-        """Persistiert einen validen ArtifactEnvelope (UPSERT).
+        """Persist a valid ArtifactEnvelope (UPSERT).
 
-        Fail-closed gegen divergente Wahrheit: bei gleichem Primary-Key
+        Fail-closed against divergent truth: on the same primary key
         (story_id, run_id, stage, attempt, artifact_class, producer_name)
-        UPDATEt der Aufruf alle nicht-Key-Spalten auf die aktuellen
-        Envelope-Werte. So bleibt ``artifact_envelopes`` die einzige
-        Source-of-Truth und kann nicht auseinanderlaufen mit der
-        Projektion (AG3-023 §AK4, Re-Review-Befund 2).
+        the call UPDATEs all non-key columns to the current
+        envelope values. This keeps ``artifact_envelopes`` the single
+        source of truth so it cannot diverge from the
+        projection (AG3-023 §AK4, re-review finding 2).
 
         Args:
-            envelope: Vollstaendig validierter ArtifactEnvelope.
+            envelope: Fully validated ArtifactEnvelope.
 
         Returns:
-            Deterministische ArtifactReference.
+            Deterministic ArtifactReference.
 
         Raises:
-            Exception: Backend-Fehler (I/O, Constraint-Verletzung).
+            Exception: Backend error (I/O, constraint violation).
         """
         reference = _reference_from_envelope(envelope)
         if _is_postgres():
@@ -533,13 +533,13 @@ class StateBackendArtifactRepository:
         """Return the highest-attempt envelope matching the scope (or None).
 
         Args:
-            story_id: Story-Display-ID.
-            run_id: Run-Korrelations-ID (None matched ueber alle runs).
-            artifact_class: Erzeugerklasse-Filter.
-            stage: Stage-Filter (z.B. ``qa-policy-decision``).
+            story_id: Story display id.
+            run_id: Run correlation id (None matches across all runs).
+            artifact_class: Producer-class filter.
+            stage: Stage filter (e.g. ``qa-policy-decision``).
 
         Returns:
-            Latest ``ArtifactEnvelope`` oder ``None``.
+            Latest ``ArtifactEnvelope`` or ``None``.
         """
         if _is_postgres():
             return self._pg_find_latest(story_id, run_id, artifact_class, stage)
@@ -699,13 +699,13 @@ class StateBackendArtifactRepository:
     # ------------------------------------------------------------------
 
     def read_envelope(self, reference: ArtifactReference) -> ArtifactEnvelope | None:
-        """Laedt einen ArtifactEnvelope anhand seiner Reference.
+        """Load an ArtifactEnvelope by its reference.
 
         Args:
-            reference: Deterministischer Record-Key aus ``write_envelope``.
+            reference: Deterministic record key from ``write_envelope``.
 
         Returns:
-            ArtifactEnvelope wenn vorhanden, sonst None.
+            ArtifactEnvelope if present, else None.
         """
         try:
             story_id, run_id, stage, attempt, artifact_class_str, producer_name = (
@@ -770,13 +770,13 @@ class StateBackendArtifactRepository:
     # ------------------------------------------------------------------
 
     def exists_envelope(self, reference: ArtifactReference) -> bool:
-        """Prueft Existenz eines Envelopes anhand seiner Reference.
+        """Check the existence of an envelope by its reference.
 
         Args:
-            reference: Deterministischer Record-Key.
+            reference: Deterministic record key.
 
         Returns:
-            True wenn vorhanden, False sonst.
+            True if present, False otherwise.
         """
         try:
             story_id, run_id, stage, attempt, artifact_class_str, producer_name = (

@@ -264,7 +264,7 @@ def evaluate_scheduling(
         scheduling_hint: Optional rulebook hint that may only narrow the batch (#7).
 
     Returns:
-        The ``EvaluateSchedulingResult`` (bereit/blockiert/defer).
+        The ``EvaluateSchedulingResult`` (ready/blocked/defer).
     """
     project_stories = [story for story in stories if story.project_key == project_key]
     resolved_completed = (

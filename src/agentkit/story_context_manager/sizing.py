@@ -1,8 +1,8 @@
 """Story sizing logic.
 
-``StorySize`` wird seit AG3-021 aus ``agentkit.core_types`` re-exportiert
-und nutzt das DK-10-normative Vokabular XS/S/M/L/XL (keine
-small/medium/large/epic mehr).
+``StorySize`` is, since AG3-021, re-exported from ``agentkit.core_types``
+and uses the DK-10-normative vocabulary XS/S/M/L/XL (no more
+small/medium/large/epic).
 """
 
 from __future__ import annotations
@@ -29,19 +29,19 @@ _MEDIUM_KEYWORDS: frozenset[str] = frozenset(
 
 
 def estimate_size(labels: list[str], title: str) -> StorySize:
-    """Schaetze die ``StorySize`` aus Label- und Titel-Heuristiken.
+    """Estimate the ``StorySize`` from label and title heuristics.
 
-    Label-Prefix ``size:`` schlaegt die Titel-Heuristik. Akzeptierte
-    Label-Werte sind case-insensitive Varianten der ``StorySize``-Member
-    (XS, S, M, L, XL). Titel mit groesseren-Refactor-Keywords -> L;
-    Titel mit Integrations-/Framework-Keywords -> M; ansonsten -> S.
+    The ``size:`` label prefix beats the title heuristic. Accepted
+    label values are case-insensitive variants of the ``StorySize`` members
+    (XS, S, M, L, XL). A title with larger-refactor keywords -> L;
+    a title with integration/framework keywords -> M; otherwise -> S.
 
     Args:
-        labels: Labels aus dem Story-Erstellungspfad.
-        title: Story-Titel.
+        labels: Labels from the story-creation path.
+        title: Story title.
 
     Returns:
-        Die geschaetzte ``StorySize``.
+        The estimated ``StorySize``.
     """
 
     for label in labels:

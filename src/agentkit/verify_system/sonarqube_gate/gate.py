@@ -136,14 +136,14 @@ def evaluate_sonarqube_gate(
     A stale/unreadable attestation, a 0/>1 ledger match, a failed apply, or a
     missing post-apply re-read fails closed DIRECTLY.
 
-    E4 (rot->grün through the accept, no AK subtraction): once the reconciler
+    E4 (red->green through the accept, no AK subtraction): once the reconciler
     has transitioned the single-matched issues to ``Accepted``, SonarQube
     itself recomputes the quality gate (Accepted issues drop out). The gate
     therefore RE-READS the resulting verdict + the fresh open-non-accepted
     count via ``post_apply_reader`` and evaluates green against THAT — it does
     NOT subtract accepted keys from a stale pre-apply count (FK-33 §33.6.3:
-    "AK liest den Gate-Status, interpretiert aber keine Einzelregeln nach";
-    §33.6.4: "Accepted zaehlt gruen"). The attestation's pre-apply
+    "AK reads the gate status but does not re-interpret individual rules";
+    §33.6.4: "Accepted counts as green"). The attestation's pre-apply
     ``quality_gate_status`` is used ONLY for the commit-binding stale-check,
     never for the green verdict.
 

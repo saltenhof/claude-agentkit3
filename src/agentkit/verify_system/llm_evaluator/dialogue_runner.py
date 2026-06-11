@@ -6,8 +6,8 @@ the ``DialogueRunner`` does NO schema validation and never auto-FAILs a check.
 
 An ordered transcript is maintained in-memory (:class:`DialogueResult`).
 Additionally, the full transcript (prompt + response per turn) is persisted via
-the ``prompt_audit`` / ``ArtifactManager`` machinery (FK-11 §11.5.2 Zeile
-494/532 "separates Logging" / "Vollständiger Transcript"). A missing
+the ``prompt_audit`` / ``ArtifactManager`` machinery (FK-11 §11.5.2 line
+494/532 "separate logging" / "full transcript"). A missing
 ``ArtifactManager`` yields a clean ``skipped`` status (never silently swallowed).
 
 Transport error protocol is the same as :class:`HubLlmClient`:
@@ -15,9 +15,9 @@ Transport error protocol is the same as :class:`HubLlmClient`:
 - max_turns enforced as a hard upper bound.
 - No schema validation / no auto-FAIL.
 
-Quelle:
-  - FK-11 §11.5.2 -- DialogueRunner (mehrturnig, Freiformat)
-  - FK-11 §11.2.3 -- Acquire/Send/Release-Fehlerprotokoll
+Source:
+  - FK-11 §11.5.2 -- DialogueRunner (multi-turn, free-format)
+  - FK-11 §11.2.3 -- acquire/send/release error protocol
 """
 
 from __future__ import annotations
@@ -145,7 +145,7 @@ class DialogueRunner:
         The full transcript (every turn with role/content/ts) is persisted via
         ``ArtifactManager.write()`` as a ``PROMPT_AUDIT`` envelope when an
         ``ArtifactManager``, ``story_id`` and ``run_id`` are provided
-        (FK-11 §11.5.2 "Vollständiger Transcript"). When the ``ArtifactManager``
+        (FK-11 §11.5.2 "full transcript"). When the ``ArtifactManager``
         is absent, ``logging_status`` is ``"skipped"`` (clean; never silently
         swallowed).
 
@@ -296,7 +296,7 @@ class DialogueRunner:
         raise LlmClientError(f"DialogueRunner acquire unreachable (pool={pool!r})")  # pragma: no cover
 
     def _safe_release(self, session_id: str, token: str) -> None:
-        """Release session, swallowing errors (best-effort, FK-11 §11.2.3 Zeile 192)."""
+        """Release session, swallowing errors (best-effort, FK-11 §11.2.3 line 192)."""
         try:
             self._hub.release(
                 session_id=session_id,
@@ -321,8 +321,8 @@ class DialogueRunner:
     ) -> str:
         """Persist the full transcript via ``ArtifactManager.write()`` (FK-11 §11.5.2).
 
-        FK-11 §11.5.2 Zeile 494/532: "Vollständiger Transcript (Prompt + Response
-        pro Turn)" — persisted via the prompt_audit/ArtifactManager machinery via
+        FK-11 §11.5.2 line 494/532: "full transcript (prompt + response
+        per turn)" — persisted via the prompt_audit/ArtifactManager machinery via
         ``ArtifactManager.write()`` with a proper ``ArtifactEnvelope``. A parallel
         loose-JSON channel is explicitly forbidden (SSOT rule, ERROR 5).
 

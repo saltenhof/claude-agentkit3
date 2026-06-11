@@ -12,10 +12,10 @@ iff its verdict is ``FAIL`` (a single FAIL blocks); ``PASS_WITH_CONCERNS`` does
 not block. The findings are carried through verbatim from the evaluator so the
 policy engine and the adversarial layer see them (FK-05-166).
 
-Quelle:
-  - FK-27 §27.5.1 -- drei parallele Bewertungen, Layer-2-Slot
-  - FK-34 §34.2.5 -- Aggregation (ein FAIL blockiert)
-  - story.md §2.1.7 -- VerifySystem-Integration
+Source:
+  - FK-27 §27.5.1 -- three parallel evaluations, Layer-2 slot
+  - FK-34 §34.2.5 -- aggregation (a single FAIL blocks)
+  - story.md §2.1.7 -- VerifySystem integration
 """
 
 from __future__ import annotations
@@ -194,8 +194,8 @@ def blocking_layer2_results(
 ) -> tuple[LayerResult, LayerResult, LayerResult]:
     """Return three BLOCKING Layer-2 ``LayerResult`` (one per role), fail-closed.
 
-    Used when Layer 2 must run but cannot (FK-27 §27.5 "Reviews finden IMMER
-    statt"): e.g. an LLM client is wired but the run ``StoryContext`` is
+    Used when Layer 2 must run but cannot (FK-27 §27.5 "reviews ALWAYS
+    happen"): e.g. an LLM client is wired but the run ``StoryContext`` is
     unresolvable. Each role yields a BLOCKING SYSTEM finding so the policy
     engine produces a definitive FAIL -- never a silent skip or stub fallback
     (NO ERROR BYPASSING).

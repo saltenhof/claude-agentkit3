@@ -520,10 +520,10 @@ def attempt_row_to_record(row: dict[str, Any]) -> AttemptRecord:
     Fail-closed: invalid rows (failure_cause_consistency violation, etc.)
     raise ``pydantic.ValidationError`` which propagates to the caller.
 
-    Handhabt beide Backend-Repraesentationen der Datums-/JSON-Felder:
-    - SQLite liefert TEXT-Spalten als ``str`` (ISO-Format / JSON-Literal)
-    - Postgres liefert ``TIMESTAMPTZ`` direkt als ``datetime`` und
-      ``JSONB`` direkt als ``dict`` (psycopg dict_row auto-decode).
+    Handles both backend representations of the date/JSON fields:
+    - SQLite returns TEXT columns as ``str`` (ISO format / JSON literal)
+    - Postgres returns ``TIMESTAMPTZ`` directly as ``datetime`` and
+      ``JSONB`` directly as ``dict`` (psycopg dict_row auto-decode).
     """
 
     from datetime import datetime

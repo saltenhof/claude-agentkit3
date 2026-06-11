@@ -1,13 +1,13 @@
-"""LLM-gestützte CCAG-Regelgeneralisierung als Vorschlag (FK-42 §42.3 / F-42-039).
+"""LLM-assisted CCAG rule generalization as a proposal (FK-42 §42.3 / F-42-039).
 
 FK-42 §42.3 / §42.3.1 (F-42-039) / §42.3.3 / §42.4.2: from a single permitted
 tool call OR a natural-language intent, an LLM produces a generalized rule
 PROPOSAL (regex + filled ``tool`` / ``allow_pattern`` / ``description``). The
 proposal is a DRAFT only — it is NEVER persisted by the LLM call alone. A
 persistent rule in ``approved.yaml`` (with ``learned_from`` / ``learned_at``)
-arises ONLY after an explicit human Promote/Confirm decision (§42.3.1 "ohne
-explizite Bestaetigung werden keine Regeln gespeichert"; §42.4.2 "keine Dauerregel
-ohne separate Promote-Entscheidung"). The first positive decision on an open
+arises ONLY after an explicit human Promote/Confirm decision (§42.3.1 "without
+explicit confirmation no rules are stored"; §42.4.2 "no permanent rule without a
+separate Promote decision"). The first positive decision on an open
 permission case is only a single-case / lease, never an automatic permanent rule.
 
 Architecture note: the LLM transport is consumed through the minimal
@@ -166,7 +166,7 @@ class RuleGeneralizer:
         Args:
             intent_or_call: The original single permitted tool call (e.g.
                 ``"git push -u origin story/ODIN-042"``) OR a natural-language
-                intent (e.g. ``"Worker soll alle Story-Branches pushen"``).
+                intent (e.g. ``"Worker should push all story branches"``).
 
         Returns:
             A :class:`RuleProposal` draft (NOT persisted).

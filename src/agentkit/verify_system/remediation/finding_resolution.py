@@ -15,9 +15,9 @@ in remediation mode (FK-34 "Finding-Resolution (Remediation-Runde)"); the full
 LLM integration is AG3-043. Here only the matching/classification logic and the
 previous-findings context handoff are provided (AG3-041 §2.1.5).
 
-Quelle:
-  - FK-34 -- Finding-Resolution (Remediation-Runde), StructuredEvaluator
-  - DK-04 §4.6 -- Remediation-Modus mit Vorrunden-Findings
+Source:
+  - FK-34 -- finding resolution (remediation round), StructuredEvaluator
+  - DK-04 §4.6 -- remediation mode with previous-round findings
   - AG3-041 §2.1.5 -- FindingResolutionAssessor, FindingResolutionStatus
 """
 

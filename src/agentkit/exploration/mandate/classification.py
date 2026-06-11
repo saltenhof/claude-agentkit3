@@ -2,8 +2,8 @@
 
 FK-25 §25.4.1 classifies each unresolved design decision into one of four
 escalation classes, in the fail-closed check order *Klasse 1 -> 3 -> 4 -> 2*
-("die restriktivste Klasse zuerst, damit kein Fall zu frueh als autonom
-aufgeloest wird"). The FIRST hit wins.
+("the most restrictive class first, so that no case is resolved as autonomous
+too early"). The FIRST hit wins.
 
 English class names / values (ARCH-55) and their FK-25 mapping
 --------------------------------------------------------------
@@ -20,13 +20,13 @@ MandateClass        FK-25       meaning
 ==================  ==========  =========================================
 
 \\* FK-25 Klasse 1 (domain_gap / normative_conflict) is a purely SEMANTIC,
-LLM-judged escalation ("Klasse 1 ... durchgehend semantische Einschaetzungen",
+LLM-judged escalation ("Klasse 1 ... consistently semantic assessments",
 FK-25 §25.4.1) and is NOT derivable from the change-frame deterministically. The
 deterministic classifier therefore cannot raise Klasse 1 from change-frame
 signals alone; in the absence of a scope/impact/fine-design signal the decision
 is the autonomous, non-blocking path -- modelled here as ``TRIVIAL`` (the
 "straight to review, no mandate block" route, story AG3-047 handler integration).
-The LLM-judged Klasse-1 detection is owned by the H2 nachklassifikation
+The LLM-judged Klasse-1 detection is owned by the H2 reclassification
 (FK-25 §25.4.3, a follow-up LLM step), not by this deterministic signal layer.
 
 Check order (FK-25 §25.4.1, first hit wins)
@@ -202,7 +202,7 @@ class MandateClassification:
         proxy is a non-empty ``open_points.approval_needed`` -- explicitly
         flagged points that still need a (design-level) decision within the
         frame. A frame with no such open point is method-local (trivial). The
-        full semantic Klasse-2 detection is the H2 nachklassifikation
+        full semantic Klasse-2 detection is the H2 reclassification
         (FK-25 §25.4.3), a follow-up LLM step.
 
         Args:

@@ -18,12 +18,12 @@ handler (pipeline-engine BC) persists the returned view into the payload via
 its ``PhaseEnvelopeStore``. The lifecycle thus has no second state truth -- it
 computes the next identity tuple and hands it back to the state owner.
 
-Quelle:
-  - FK-27 §27.2.1 -- Identitaetsfelder (qa_cycle_id, qa_cycle_round,
+Source:
+  - FK-27 §27.2.1 -- identity fields (qa_cycle_id, qa_cycle_round,
     evidence_epoch, evidence_fingerprint)
-  - FK-27 §27.2.2 -- State-Machine (idle -> awaiting_qa -> ... -> pass |
+  - FK-27 §27.2.2 -- state machine (idle -> awaiting_qa -> ... -> pass |
     awaiting_remediation -> escalated)
-  - FK-27 §27.2.3 -- Artefakt-Invalidierung beim Zyklusstart
+  - FK-27 §27.2.3 -- artifact invalidation at cycle start
   - AG3-041 §2.1.1 -- QaCycleLifecycle
 """
 

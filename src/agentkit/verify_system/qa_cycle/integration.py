@@ -5,7 +5,7 @@ facade class focused). They drive the :class:`QaCycleLifecycle` for a single
 subflow run and project the resulting identities into QA-artefact payload
 fields. No state is held here; the caller owns persistence (the phase handler).
 
-Quelle: FK-27 §27.2 / AG3-041 §2.1.7.
+Source: FK-27 §27.2 / AG3-041 §2.1.7.
 """
 
 from __future__ import annotations

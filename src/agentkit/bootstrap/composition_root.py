@@ -97,8 +97,7 @@ if TYPE_CHECKING:
 
 
 def build_producer_registry() -> ProducerRegistry:
-    """Erzeugt eine frische ``ProducerRegistry`` und ruft alle bekannten
-    BC-Init-Hooks auf.
+    """Create a fresh ``ProducerRegistry`` and call all known BC init hooks.
 
     Current state: ``register_exploration_producers`` (AG3-045,
     ``ArtifactClass.ENTWURF``), ``register_implementation_producers`` (AG3-044,
@@ -110,11 +109,11 @@ def build_producer_registry() -> ProducerRegistry:
     follow-up stories.
 
     Returns:
-        Eine ``ProducerRegistry`` mit allen heute bekannten Producern.
+        A ``ProducerRegistry`` with all producers known today.
 
     Notes:
-        Reihenfolge der Init-Hooks ist deterministisch (BC-alphabetisch
-        bzw. Capability-Reihenfolge). Jeder Hook ist idempotent.
+        The order of the init hooks is deterministic (BC-alphabetical or
+        capability order). Every hook is idempotent.
     """
     from agentkit.exploration.review.register import (
         register_exploration_review_producers,
@@ -131,21 +130,21 @@ def build_producer_registry() -> ProducerRegistry:
 
 
 def build_artifact_manager(store_dir: Path) -> ArtifactManager:
-    """Erzeugt einen vollstaendig verdrahteten ``ArtifactManager``.
+    """Create a fully wired ``ArtifactManager``.
 
-    Composition-Root fuer den Artefakt-Schreib-/Lese-Pfad: bindet die
-    Producer-Registry, den Envelope-Validator und das
-    StateBackend-Repository zusammen. Konsument-BCs (z. B.
-    ``verify_system.artifacts``) erhalten den Manager via DI und kennen
-    die Repository-Implementierung nicht.
+    Composition root for the artifact write/read path: binds the
+    producer registry, the envelope validator and the StateBackend
+    repository together. Consumer BCs (e.g. ``verify_system.artifacts``)
+    receive the manager via DI and do not know the repository
+    implementation.
 
     Args:
-        store_dir: Basisverzeichnis des State-Backends (SQLite legt
-            unter ``store_dir/.agentkit/...`` an; Postgres ignoriert
-            den Pfad).
+        store_dir: Base directory of the state backend (SQLite stores
+            under ``store_dir/.agentkit/...``; Postgres ignores the
+            path).
 
     Returns:
-        ``ArtifactManager`` mit allen verify-Producern registriert.
+        ``ArtifactManager`` with all verify producers registered.
     """
     registry = build_producer_registry()
     validator = EnvelopeValidator(registry)
@@ -204,7 +203,7 @@ def build_kpi_analytics(store_dir: Path, *, project_key: str) -> KpiAnalytics:
         store_dir: State-backend base dir (SQLite stores under
             ``store_dir/.agentkit/...``; Postgres ignores it).
         project_key: The project scope the analytics source reads (FK-62 §62.2
-            Mandantenregel: analytics is per-project isolable).
+            tenant rule: analytics is per-project isolable).
 
     Returns:
         A ``KpiAnalytics`` facade with a live FactStore read path AND a real
@@ -597,8 +596,8 @@ class _UnavailableFineDesignEvaluator:
     fine-design (an Attrappe passing as productive core logic, forbidden).
 
     This evaluator instead raises :class:`FineDesignEvaluatorUnavailableError` on
-    every round -- the honest FK-25 §25.5.4 non-reachability signal ("steht kein
-    LLM zur Verfuegung ... Eskalation an den Menschen"). The
+    every round -- the honest FK-25 §25.5.4 non-reachability signal ("no LLM is
+    available ... escalation to the human"). The
     :class:`FineDesignSubprocess` shell does NOT swallow it; the exploration
     phase handler escalates the class-2 story fail-closed with the
     ``fine_design_required`` reaction. The follow-up story injects the real
@@ -647,49 +646,49 @@ def build_verify_system(
     conformance_config: ConformanceConfig | None = None,
     layer2_bundle_token_limit: int = 32_000,
 ) -> VerifySystem:
-    """Erzeugt einen vollstaendig verdrahteten ``VerifySystem``.
+    """Create a fully wired ``VerifySystem``.
 
-    Composition-Root fuer die QA-Subflow-Top-Surface (AG3-026):
-    instanziiert alle fuenf Sub-Komponenten und verdrahtet einen echten
-    ``ArtifactManager`` (inkl. ProducerRegistry) als Persistenz-Facade.
+    Composition root for the QA-subflow top-surface (AG3-026):
+    instantiates all five sub-components and wires a real
+    ``ArtifactManager`` (incl. ProducerRegistry) as the persistence facade.
 
-    AG3-035 (echter Drift-Fix): verdrahtet zusaetzlich den
-    ``StateBackendVerifyStoryContextAdapter`` als ``story_context_port``, damit
-    ``verify_system`` den ``StoryContext`` ueber einen Port aufloest statt via
-    direktem ``state_backend.store``-Import (BC-Topologie).
+    AG3-035 (real drift fix): additionally wires the
+    ``StateBackendVerifyStoryContextAdapter`` as ``story_context_port`` so
+    ``verify_system`` resolves the ``StoryContext`` via a port instead of a
+    direct ``state_backend.store`` import (BC topology).
 
-    AG3-052 (FK-33 §33.6): der ``sonarqube_gate``-Andockpunkt nutzt einen
-    ``SonarGateInputPort``. Bei ``sonarqube.available == true`` reicht der
-    Aufrufer (Pipeline-Engine) den produktiven
-    :class:`ConfiguredSonarGateInputPort` ueber ``sonar_gate_port`` ein (gebaut
-    via :func:`build_sonar_gate_port` mit den per-Run aufgeloesten
-    Koordinaten); ohne Injektion bleibt der Absent-Default-Port aktiv
-    (``available == false`` => Stage SKIP). So bleibt ein
-    konfiguriert-aber-unerreichbares Sonar fail-closed, ohne dass dieser
-    Builder die per-Story-Koordinaten kennen muss.
+    AG3-052 (FK-33 §33.6): the ``sonarqube_gate`` docking point uses a
+    ``SonarGateInputPort``. When ``sonarqube.available == true`` the caller
+    (pipeline engine) passes in the productive
+    :class:`ConfiguredSonarGateInputPort` via ``sonar_gate_port`` (built via
+    :func:`build_sonar_gate_port` with the per-run resolved coordinates);
+    without injection the absent-default port stays active
+    (``available == false`` => stage SKIP). This keeps a
+    configured-but-unreachable Sonar fail-closed without this builder having to
+    know the per-story coordinates.
 
     Args:
-        store_dir: Basisverzeichnis des State-Backends. Wird an
-            ``build_artifact_manager`` durchgereicht.
-        max_major_findings: Schwellenwert fuer die PolicyEngine (Anzahl
-            tolerierter MAJOR-Findings; 0 = jedes MAJOR blockiert).
-        max_feedback_rounds: Ceiling fuer den Subflow-internen Remediation-Loop
-            (FK-03 §3.4.2 / FK-38, ``policy.max_feedback_rounds``). Der Aufrufer
-            (Phase-Handler) loest ihn aus der Pipeline-Config auf und reicht ihn
-            ein; ``None`` => Controller-Default (3). Der
-            ``RemediationLoopController`` ist der harte Owner der Schranke
-            (nicht ueberspringbar, NO ERROR BYPASSING).
-        sonar_gate_port: Optionaler produktiver ``SonarGateInputPort``
-            (FK-33 §33.6). ``None`` => Absent-Default-Port.
-        layer2_llm_client: Optionaler ``LlmClient`` (AG3-043 E6, FK-27 §27.5).
-            ``None`` => der Composition-Root verdrahtet den fail-closed
-            :class:`FailClosedLlmClient`, damit Layer 2 im Default-Pfad WIRKLICH
-            laeuft (drei parallele LLM-Bewertungen) statt still auf die
-            deterministischen Stub-Reviewer zurueckzufallen. Solange die
-            konkrete LLM-Pool-Auswahl (FK-11, Folge-Story) fehlt, schlaegt der
-            fail-closed Client jeden ``complete``-Aufruf fehl -> Layer 2
-            FAIL-CLOSED (kein stiller Skip, FK-34 §34.5.1). Sobald der
-            Pool-Adapter existiert, reicht der Aufrufer ihn hier ein.
+        store_dir: Base directory of the state backend. Passed through to
+            ``build_artifact_manager``.
+        max_major_findings: Threshold for the PolicyEngine (number of
+            tolerated MAJOR findings; 0 = every MAJOR blocks).
+        max_feedback_rounds: Ceiling for the subflow-internal remediation loop
+            (FK-03 §3.4.2 / FK-38, ``policy.max_feedback_rounds``). The caller
+            (phase handler) resolves it from the pipeline config and passes it
+            in; ``None`` => controller default (3). The
+            ``RemediationLoopController`` is the hard owner of the bound (not
+            skippable, NO ERROR BYPASSING).
+        sonar_gate_port: Optional productive ``SonarGateInputPort``
+            (FK-33 §33.6). ``None`` => absent-default port.
+        layer2_llm_client: Optional ``LlmClient`` (AG3-043 E6, FK-27 §27.5).
+            ``None`` => the composition root wires the fail-closed
+            :class:`FailClosedLlmClient` so Layer 2 in the default path REALLY
+            runs (three parallel LLM evaluations) instead of silently falling
+            back to the deterministic stub reviewers. As long as the concrete
+            LLM-pool selection (FK-11, follow-up story) is missing, the
+            fail-closed client fails every ``complete`` call -> Layer 2
+            FAIL-CLOSED (no silent skip, FK-34 §34.5.1). Once the pool adapter
+            exists, the caller passes it in here.
         conformance_config: Optional FK-32 §32.4b.3 prompt-size thresholds
             from the per-run ``ProjectConfig.pipeline.conformance`` stanza.
             ``None`` => the ConformanceService's built-in defaults (50 KB /
@@ -701,9 +700,9 @@ def build_verify_system(
             limit from ``ProjectConfig.pipeline.layer2.bundle_token_limit``.
 
     Returns:
-        ``VerifySystem`` mit allen fuenf Sub-Komponenten und einem
-        vollstaendig verdrahteten ``ArtifactManager`` sowie einem produktiv
-        verdrahteten Layer-2-LLM-Client (E6).
+        ``VerifySystem`` with all five sub-components and a fully wired
+        ``ArtifactManager`` as well as a productively wired Layer-2 LLM
+        client (E6).
     """
     from agentkit.state_backend.store.verify_story_context_repository import (
         StateBackendVerifyStoryContextAdapter,
@@ -1218,27 +1217,27 @@ def build_skills(
     *,
     bundle_store_root: Path | None = None,
 ) -> Skills:
-    """Erzeugt eine vollstaendig verdrahtete ``Skills``-Top-Surface (AG3-048).
+    """Create a fully wired ``Skills`` top-surface (AG3-048).
 
-    Composition-Root fuer den agent-skills-BC (FK-43, bc-cut-decisions.md §BC 11
-    + §BC 12), analog ``build_artifact_manager``: bindet den systemweiten
-    ``SkillBundleStore`` und das produktive
-    ``StateBackendSkillBindingRepository`` zu einer ``Skills``-Instanz. Aufrufer
-    (Installer, runtime, Tests) erhalten ``Skills`` ueber DI und kennen die
-    Repository-Implementierung nicht.
+    Composition root for the agent-skills BC (FK-43, bc-cut-decisions.md §BC 11
+    + §BC 12), analogous to ``build_artifact_manager``: binds the system-wide
+    ``SkillBundleStore`` and the productive
+    ``StateBackendSkillBindingRepository`` into a ``Skills`` instance. Callers
+    (installer, runtime, tests) receive ``Skills`` via DI and do not know the
+    repository implementation.
 
-    Architecture Conformance: ``agentkit.skills`` importiert NICHT aus
-    ``state_backend.store``; die Verdrahtung der State-Backend-Persistenz
-    geschieht ausschliesslich hier im Composition-Root.
+    Architecture conformance: ``agentkit.skills`` does NOT import from
+    ``state_backend.store``; the wiring of the state-backend persistence
+    happens exclusively here in the composition root.
 
     Args:
-        store_dir: Basisverzeichnis des State-Backends (SQLite legt unter
-            ``store_dir/.agentkit/...`` an; Postgres ignoriert den Pfad).
-        bundle_store_root: Optionaler Override fuer den systemweiten
-            Skill-Bundle-Store. ``None`` -> Plattform-Default (FK-43 §43.5.2).
+        store_dir: Base directory of the state backend (SQLite stores under
+            ``store_dir/.agentkit/...``; Postgres ignores the path).
+        bundle_store_root: Optional override for the system-wide
+            skill-bundle store. ``None`` -> platform default (FK-43 §43.5.2).
 
     Returns:
-        ``Skills`` mit ``SkillBundleStore`` + ``StateBackendSkillBindingRepository``.
+        ``Skills`` with ``SkillBundleStore`` + ``StateBackendSkillBindingRepository``.
     """
     from agentkit.skills import Skills as _Skills
     from agentkit.skills.bundle_store import SkillBundleStore as _SkillBundleStore
@@ -1257,37 +1256,37 @@ def build_skills(
 
 
 def build_integrity_gate(store_dir: Path | None = None) -> IntegrityGate:
-    """Erzeugt einen vollstaendig verdrahteten ``IntegrityGate``.
+    """Create a fully wired ``IntegrityGate``.
 
-    Composition-Root fuer die Closure-Phase (AG3-031 Pass-5 Fix E9):
-    Instanziiert ``StateBackendIntegrityGateStateAdapter`` als ``state_port``.
+    Composition root for the closure phase (AG3-031 Pass-5 Fix E9):
+    instantiates ``StateBackendIntegrityGateStateAdapter`` as ``state_port``.
 
-    AG3-034 (Finding E / Remediation E-F): verdrahtet zusaetzlich den
-    ``EnvelopeValidator``, sodass die Pflicht-Artefakt-Vorstufe die
-    Envelope-Pflichtfeldpruefung (FK-71 §71.2) fuer **jedes** Pflicht-QA-Artefakt
-    (Structural Dim 1 + Decision Dim 4) ausfuehrt (``ENVELOPE_VIOLATION`` bei
-    Verstoss).  Die Dimensionen lesen die kanonischen QA-Envelopes selbst ueber
-    den ``state_port`` (FK-35 §35.2.4 Producer/Status/Tiefe).
+    AG3-034 (Finding E / Remediation E-F): additionally wires the
+    ``EnvelopeValidator`` so the required-artifact pre-stage runs the
+    envelope required-field check (FK-71 §71.2) for **every** required QA
+    artifact (Structural Dim 1 + Decision Dim 4) (``ENVELOPE_VIOLATION`` on a
+    violation).  The dimensions read the canonical QA envelopes themselves via
+    the ``state_port`` (FK-35 §35.2.4 producer/status/depth).
 
-    Dimension 9 (SONARQUBE_GREEN, R2-C/A2): verdrahtet den produktiven
-    ``ProductiveSonarDimensionPort``, der die AG3-052-Capability KONSUMIERT
-    (``build_sonar_gate_port_for_run`` + ``evaluate_sonarqube_gate``) — keine
-    eigene Attestation-Mechanik, kein None-Stub-Loader.  Die Capability loest die
-    Applicability aus ``sonarqube.available`` + Story-``mode`` + Story-Typ auf
-    (``available == false`` / fast / non-code => nicht-anwendbar, Dim 9
-    entfaellt).  Fuer einen APPLICABLE impl/bugfix-Run liest
-    ``build_sonar_gate_port_for_run`` das commit-gebundene Scan-Artefakt; ist es
-    abwesend (der integrierte Pre-Merge-Scan FK-29 §29.1a ist OOS), liefert die
-    Capability einen fail-closed APPLICABLE-Port (``attestation = None``) und
-    ``evaluate_sonarqube_gate`` ein ``failed``-Outcome -> Dim 9 **fail-closed**
-    (``SONAR_NOT_GREEN``/ESCALATED), NIEMALS Skip.
+    Dimension 9 (SONARQUBE_GREEN, R2-C/A2): wires the productive
+    ``ProductiveSonarDimensionPort``, which CONSUMES the AG3-052 capability
+    (``build_sonar_gate_port_for_run`` + ``evaluate_sonarqube_gate``) — no
+    own attestation mechanic, no None-stub loader.  The capability resolves the
+    applicability from ``sonarqube.available`` + story ``mode`` + story type
+    (``available == false`` / fast / non-code => not-applicable, Dim 9
+    is omitted).  For an APPLICABLE impl/bugfix run
+    ``build_sonar_gate_port_for_run`` reads the commit-bound scan artifact; if
+    it is absent (the integrated pre-merge scan FK-29 §29.1a is OOS), the
+    capability yields a fail-closed APPLICABLE port (``attestation = None``) and
+    ``evaluate_sonarqube_gate`` a ``failed`` outcome -> Dim 9 **fail-closed**
+    (``SONAR_NOT_GREEN``/ESCALATED), NEVER a skip.
 
     Args:
-        store_dir: Basisverzeichnis des State-Backends (SQLite); Postgres
-            ignoriert den Pfad.  ``None`` => Default-Store des Repositories.
+        store_dir: Base directory of the state backend (SQLite); Postgres
+            ignores the path.  ``None`` => the repository's default store.
 
     Returns:
-        ``IntegrityGate`` mit State-Port + Envelope-Validierung + Dim-9-Port.
+        ``IntegrityGate`` with state port + envelope validation + Dim-9 port.
     """
     from agentkit.governance.integrity_gate import IntegrityGate as _IntegrityGate
     from agentkit.state_backend.store.integrity_gate_repository import (
@@ -1410,15 +1409,15 @@ def _load_sonar_config(gate_ctx: object) -> object | None:
 
 
 def build_setup_preflight_gate() -> SetupContextRepository:
-    """Erzeugt einen verdrahteten ``SetupContextRepository``-Adapter.
+    """Create a wired ``SetupContextRepository`` adapter.
 
-    Composition-Root fuer die Setup-Phase (AG3-031 Pass-5 Fix E9):
-    Instanziiert ``StateBackendSetupContextAdapter`` und gibt ihn als
-    ``SetupContextRepository`` zurueck.  Aufrufer reichen ihn via
-    ``SetupPhaseHandler(config, context_repository=...)`` ein.
+    Composition root for the setup phase (AG3-031 Pass-5 Fix E9):
+    instantiates ``StateBackendSetupContextAdapter`` and returns it as a
+    ``SetupContextRepository``.  Callers pass it in via
+    ``SetupPhaseHandler(config, context_repository=...)``.
 
     Returns:
-        ``StateBackendSetupContextAdapter`` als ``SetupContextRepository``.
+        ``StateBackendSetupContextAdapter`` as a ``SetupContextRepository``.
     """
     from agentkit.state_backend.store.setup_context_repository import (
         StateBackendSetupContextAdapter,
@@ -1566,23 +1565,23 @@ def build_phase_state_residue_probe(
 
 
 def build_projection_accessor(store_dir: Path | None = None) -> ProjectionAccessor:
-    """Erzeugt einen vollstaendig verdrahteten ``ProjectionAccessor``.
+    """Create a fully wired ``ProjectionAccessor``.
 
-    Composition-Root fuer den FK-69-Projektions-Schreib-/Lese-Pfad (AG3-035):
-    Instanziiert alle vier Repository-Adapter und reicht sie via
-    ``ProjectionRepositories``-Dataclass in den ``ProjectionAccessor`` ein.
-    Konsument-BCs (z. B. ``story_closure.PostMergeFinalization``) erhalten
-    den Accessor via DI und kennen die Repository-Implementierungen nicht.
+    Composition root for the FK-69 projection write/read path (AG3-035):
+    instantiates all four repository adapters and passes them via the
+    ``ProjectionRepositories`` dataclass into the ``ProjectionAccessor``.
+    Consumer BCs (e.g. ``story_closure.PostMergeFinalization``) receive the
+    accessor via DI and do not know the repository implementations.
 
-    Architecture Conformance (AC#7): ProjectionAccessor importiert keine
-    konkreten Implementierungen aus ``state_backend.store.facade``.
+    Architecture conformance (AC#7): ProjectionAccessor imports no concrete
+    implementations from ``state_backend.store.facade``.
 
     Args:
-        store_dir: Basisverzeichnis des State-Backends. Nur fuer SQLite relevant;
-            Postgres ignoriert den Pfad.
+        store_dir: Base directory of the state backend. Only relevant for
+            SQLite; Postgres ignores the path.
 
     Returns:
-        ``ProjectionAccessor`` mit allen vier Repository-Adaptern.
+        ``ProjectionAccessor`` with all four repository adapters.
     """
     from agentkit.state_backend.store.projection_repositories import (
         build_projection_repositories,
@@ -2708,23 +2707,23 @@ class _RequirementsCoverageAreProvider:
 
 
 def build_failure_corpus(accessor: ProjectionAccessor) -> FailureCorpus:
-    """Erzeugt eine verdrahtete ``FailureCorpus``-Top-Komponente (AG3-028).
+    """Create a wired ``FailureCorpus`` top component (AG3-028).
 
-    Composition-Root fuer den Failure-Corpus-BC (FK-41 §41.1/§41.4). Verdrahtet
-    die ``IncidentTriage`` mit Default-Normalizer und -IngressCriteria und reicht
-    den ``ProjectionAccessor`` sowohl als schmalen ``IncidentWriterPort``
-    (``record_fc_incident`` -> ``IncidentId``, FK-41 §41.3.1) als auch als
-    ``ProjectionReaderPort`` (Corpus-Neuheit, FK-41 §41.4.3) ein (FK-69 §69.9).
-    ``failure_corpus`` kennt die fc_incidents-DB-Repo-Adapter NICHT (KONFLIKT-2,
-    AC#6): Persistenz/Lesen laufen ueber den ``ProjectionAccessor``.
+    Composition root for the failure-corpus BC (FK-41 §41.1/§41.4). Wires the
+    ``IncidentTriage`` with a default normalizer and IngressCriteria and passes
+    the ``ProjectionAccessor`` in both as a narrow ``IncidentWriterPort``
+    (``record_fc_incident`` -> ``IncidentId``, FK-41 §41.3.1) and as a
+    ``ProjectionReaderPort`` (corpus novelty, FK-41 §41.4.3) (FK-69 §69.9).
+    ``failure_corpus`` does NOT know the fc_incidents DB repo adapter
+    (CONFLICT-2, AC#6): persistence/reading runs via the ``ProjectionAccessor``.
 
     Args:
-        accessor: Der ``ProjectionAccessor`` als Schreib-/Lesegrenze (erfuellt
-            ``IncidentWriterPort`` und ``ProjectionReaderPort`` per Strukturtyping).
+        accessor: The ``ProjectionAccessor`` as the write/read boundary (fulfils
+            ``IncidentWriterPort`` and ``ProjectionReaderPort`` by structural typing).
 
     Returns:
-        ``FailureCorpus`` mit funktionalem ``record_incident``; die uebrigen
-        Top-Methoden sind Vertrags-Slots (NotImplementedError, Folge-Stories).
+        ``FailureCorpus`` with a functional ``record_incident``; the remaining
+        top methods are contract slots (NotImplementedError, follow-up stories).
     """
     from agentkit.failure_corpus import (
         FailureCorpus as _FailureCorpus,

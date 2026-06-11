@@ -108,10 +108,10 @@ class MainGreenPort(Protocol):
 
 
 _CLEANUP_PROPOSAL = (
-    "start_independent_cleanup_worker (out_of_story, blame_free): main muss "
-    "fuer sich gruen sein, bevor eine neue Story aufsetzt (Broken-Window). "
-    "Vorschlag: eigenstaendiger Cleanup-Remediation-Worker ausserhalb dieses "
-    "Story-Scopes (FK-22 §22.4c.3)."
+    "start_independent_cleanup_worker (out_of_story, blame_free): main must "
+    "be green for itself before a new story sets up (Broken-Window). "
+    "Proposal: an independent cleanup-remediation worker outside this "
+    "story scope (FK-22 §22.4c.3)."
 )
 
 

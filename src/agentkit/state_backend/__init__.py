@@ -1,13 +1,13 @@
-"""Driver-Schicht der State-Persistenz.
+"""Driver layer of state persistence.
 
-Module:
-    store   -- Compatibility-Facade waehlt Driver via Config
-    paths   -- Filesystem-Pfad-Konstanten
-    scope   -- Persistenz-Identitaet (StateScope/RuntimeStateScope)
+Modules:
+    store   -- compatibility facade selects the driver via config
+    paths   -- filesystem path constants
+    scope   -- persistence identity (StateScope/RuntimeStateScope)
     config  -- StateBackendKind, load_state_backend_config
-    postgres_store, sqlite_store -- konkrete Driver
+    postgres_store, sqlite_store -- concrete drivers
 
-Importiere direkt aus dem passenden Submodul, nicht aus diesem Paket.
+Import directly from the matching submodule, not from this package.
 """
 
 from __future__ import annotations

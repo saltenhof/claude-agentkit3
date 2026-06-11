@@ -1,4 +1,4 @@
-"""Permission-Request — blockiert Tool-Call, setzt Run auf PAUSED.
+"""Permission request — blocks the tool call, sets the run to PAUSED.
 
 When the CCAG runtime encounters an unknown permission in ``story_execution``
 mode (FK-42 §42.2.5), it cannot invoke a host prompt dialog.  Instead it
@@ -11,10 +11,10 @@ creates a PermissionRequest that:
 3. Has a TTL (``expires_at``).  When the TTL elapses without a human decision,
    the request is implicitly DENIED.
 
-Akzeptanzkriterium 2: "erscheint im State-Backend" — fulfilled by
+Acceptance criterion 2: "appears in the state backend" — fulfilled by
 :class:`PermissionRequestStore` writing to a dedicated SQLite table.
 
-FK-42 §42.2.5 reference: mode-scharfe Entscheidung in story_execution.
+FK-42 §42.2.5 reference: mode-specific decision in story_execution.
 Frontend-UI is out-of-scope for AG3-013 (reserved for follow-up story).
 """
 

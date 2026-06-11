@@ -100,7 +100,7 @@ def should_create_story_lock_records(ctx: StoryContext) -> bool:
 
     Story lock-records are part of the story-scoped activation (FK-22 §22.7 /
     FK-24 §24.3.4): created for a standard governing run, NOT created for a fast
-    story ("Lock-Records werden nicht angelegt"). Mirrors
+    story ("lock records are not created"). Mirrors
     :func:`should_activate_story_scoped_guards`.
 
     Args:

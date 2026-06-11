@@ -1,8 +1,8 @@
 """Template selection based on story type, execution route, and spawn reason.
 
-``spawn_reason`` ist seit AG3-021 ein typisiertes ``SpawnReason``-Enum
-(``agentkit.core_types``) statt eines freien Strings. Aufrufer muessen
-ein ``SpawnReason``-Member uebergeben.
+``spawn_reason`` is, since AG3-021, a typed ``SpawnReason`` enum
+(``agentkit.core_types``) instead of a free string. Callers must pass a
+``SpawnReason`` member.
 """
 
 from __future__ import annotations
@@ -28,23 +28,22 @@ def select_template_name(
     """Resolve the worker prompt template name for the given context.
 
     Args:
-        story_type: Story-Typ-Kennzeichen aus ``StoryContext``.
-        execution_route: Story-Mode-Route (Implementation-Pfad).
-        mode: Legacy-Alias fuer ``execution_route``; bleibt aus
-            Kompatibilitaet bestehen.
-        spawn_reason: ``SpawnReason``-Enum, das die aktuelle
-            Spawn-Phase klassifiziert (``INITIAL`` / ``PAUSED_RETRY``
-            / ``REMEDIATION``). Pflicht: typisiertes Enum.
+        story_type: Story-type marker from ``StoryContext``.
+        execution_route: Story-mode route (implementation path).
+        mode: Legacy alias for ``execution_route``; kept for
+            compatibility.
+        spawn_reason: ``SpawnReason`` enum classifying the current
+            spawn phase (``INITIAL`` / ``PAUSED_RETRY``
+            / ``REMEDIATION``). Mandatory: typed enum.
 
     Returns:
-        Der Name der Worker-Prompt-Vorlage.
+        The name of the worker prompt template.
     """
     route = execution_route if execution_route is not None else mode
 
-    # Fail-closed runtime guard (AG3-021 §AC11): SpawnReason muss
-    # zur Laufzeit ein echtes Enum-Member sein. Freie Strings wuerden
-    # an der ``is``-Pruefung still vorbeilaufen und auf den falschen
-    # Pfad routen.
+    # Fail-closed runtime guard (AG3-021 §AC11): SpawnReason must be a
+    # real enum member at runtime. Free strings would silently slip past
+    # the ``is`` check and route onto the wrong path.
     if not isinstance(spawn_reason, SpawnReason):
         msg = (
             f"spawn_reason must be SpawnReason, got "

@@ -48,13 +48,13 @@ def _yield_point_matches_pause_reason(
     yield_point_status: str,
     pause_reason: PauseReason | None,
 ) -> bool:
-    """Vergleicht den Yield-Point-Status mit dem persistierten PauseReason.
+    """Compare the yield-point status against the persisted PauseReason.
 
-    ``yield_points[].status`` ist seit AG3-021 weiterhin ein freier String
-    im DSL-Vertrag (``YieldPoint``-Dataclass); ``pause_reason`` ist ein
-    typisiertes ``PauseReason``-Enum. Der Vergleich erfolgt deshalb ueber
-    die Wire-Repraesentation und nutzt ``from_yield_status``, damit
-    Synonyme aus AG3-021 §2.1.4 ebenfalls greifen.
+    ``yield_points[].status`` is, since AG3-021, still a free string in the
+    DSL contract (``YieldPoint`` dataclass); ``pause_reason`` is a typed
+    ``PauseReason`` enum. The comparison therefore goes through the wire
+    representation and uses ``from_yield_status`` so that synonyms from
+    AG3-021 §2.1.4 are honoured too.
     """
     if pause_reason is None:
         return False
@@ -71,23 +71,23 @@ def _coerce_pause_reason(
 ) -> PauseReason | None:
     """Convert handler yield_status into a typed PauseReason or None.
 
-    Aufrufer (Phase Handler) duerfen seit AG3-021 entweder einen
-    ``PauseReason`` direkt oder einen freien String liefern, der via
-    ``PauseReason.from_yield_status`` (Story §2.1.4) auf das normierte
-    Enum gemappt wird. Unbekannte Strings sind fail-closed: sie werfen
-    ``PipelineError``, der Handler-Vertrag haelt damit den Vertrag aus
-    FK-39 §39.2.2 (nur drei zulaessige Pause-Reasons).
+    Callers (phase handlers) may, since AG3-021, supply either a
+    ``PauseReason`` directly or a free string that is mapped onto the
+    normalised enum via ``PauseReason.from_yield_status`` (Story §2.1.4).
+    Unknown strings are fail-closed: they raise ``PipelineError``, so the
+    handler contract upholds the contract from FK-39 §39.2.2 (only three
+    permitted pause reasons).
 
     Args:
-        raw: Vom Handler geliefertes Yield-Status-Datum (Optional).
-        phase_name: Phase-Name fuer aussagekraeftige Fehlermeldungen.
+        raw: The yield-status datum supplied by the handler (optional).
+        phase_name: Phase name for meaningful error messages.
 
     Returns:
-        Den normierten ``PauseReason`` oder ``None``, wenn der Handler
-        keinen Yield-Grund gemeldet hat.
+        The normalised ``PauseReason``, or ``None`` when the handler
+        reported no yield reason.
 
     Raises:
-        PipelineError: Wenn ``raw`` ein nicht-zulaessiger String ist.
+        PipelineError: When ``raw`` is an impermissible string.
     """
     if raw is None:
         return None
@@ -385,11 +385,10 @@ def _handle_guard_failure_result(
         errors=failure_reasons,
         attempt_id=attempt_id,
     )
-    # FK-39 §39.4.4 Crash-Safety: AttemptRecord ZUERST (vor allen weiteren
-    # phasenabschliessenden Schreibvorgaengen). record_flow_execution darf
-    # erst NACH save_phase_completion durabel werden, sonst kann ein Crash
-    # einen "FAILED"-Flow-Eintrag ohne korrespondierenden AttemptRecord
-    # hinterlassen.
+    # FK-39 §39.4.4 crash safety: AttemptRecord FIRST (before all further
+    # phase-completing writes). record_flow_execution must only become durable
+    # AFTER save_phase_completion, otherwise a crash could leave a "FAILED" flow
+    # entry without a corresponding AttemptRecord.
     save_phase_completion(
         engine._story_dir,
         envelope=_WrapState(new_state),
@@ -490,11 +489,11 @@ def _handle_completed_result(
         ended_at=finished_at,
         detail=detail,
     )
-    # FK-39 §39.4.4 Crash-Safety: AttemptRecord ZUERST.
-    # save_phase_snapshot und record_flow_execution duerfen erst NACH
-    # save_phase_completion durabel werden, sonst kann ein Crash dazu
-    # fuehren, dass ein Phase-Snapshot mit "COMPLETED" existiert ohne
-    # korrespondierenden AttemptRecord — Recovery liefe dann blind.
+    # FK-39 §39.4.4 crash safety: AttemptRecord FIRST.
+    # save_phase_snapshot and record_flow_execution must only become durable
+    # AFTER save_phase_completion, otherwise a crash could lead to a phase
+    # snapshot with "COMPLETED" existing without a corresponding AttemptRecord —
+    # recovery would then run blind.
     save_phase_completion(
         engine._story_dir,
         envelope=_WrapState(completed_state),
@@ -611,7 +610,7 @@ def _handle_reentry_result(
         agents_to_spawn=list(source.agents_to_spawn),
     )
 
-    # FK-39 §39.4.4: AttemptRecord ZUERST, dann PhaseState
+    # FK-39 §39.4.4: AttemptRecord FIRST, then PhaseState
     save_phase_completion(
         engine._story_dir,
         envelope=_WrapState(reentry_state),
@@ -651,10 +650,10 @@ def _handle_paused_result(
     resume_trigger: str | None,
 ) -> EngineResult:
     phase_name = state.phase
-    # AG3-021 §2.1.4: yield_status wird typisiert via PauseReason. Aus
-    # Migrationsgruenden akzeptieren wir hier weiterhin freie Strings vom
-    # Handler und mappen sie via from_yield_status auf das normierte Enum.
-    # Unbekannte Werte fuehren zu PipelineError (fail-closed).
+    # AG3-021 §2.1.4: yield_status is typed via PauseReason. For migration
+    # reasons we still accept free strings from the handler here and map them
+    # via from_yield_status onto the normalised enum. Unknown values lead to
+    # PipelineError (fail-closed).
     pause_reason = _coerce_pause_reason(result.yield_status, phase_name=phase_name)
 
     finished_at = datetime.now(tz=UTC)
@@ -692,7 +691,7 @@ def _handle_paused_result(
         attempt_id=attempt_id,
     )
 
-    # FK-39 §39.4.4: AttemptRecord ZUERST, dann PhaseState
+    # FK-39 §39.4.4: AttemptRecord FIRST, then PhaseState
     save_phase_completion(
         engine._story_dir,
         envelope=_WrapState(paused_state),
@@ -805,7 +804,7 @@ def _handle_terminal_result(
         ended_at=finished_at,
         detail=detail,
     )
-    # FK-39 §39.4.4: AttemptRecord ZUERST, dann PhaseState
+    # FK-39 §39.4.4: AttemptRecord FIRST, then PhaseState
     save_phase_completion(
         engine._story_dir,
         envelope=_WrapState(terminal_state),
@@ -1196,10 +1195,10 @@ class PipelineEngine:
             )
 
         # 2. Verify trigger is valid for a yield point.
-        # Seit AG3-021 ist state.pause_reason ein PauseReason-Enum; im
-        # YieldPoint-Vertrag bleibt yp.status ein freier String, wir
-        # vergleichen daher Wire-strings via from_yield_status, damit das
-        # Synonym-Mapping aus Story §2.1.4 auch hier greift.
+        # Since AG3-021 state.pause_reason is a PauseReason enum; in the
+        # YieldPoint contract yp.status stays a free string, so we compare
+        # wire strings via from_yield_status so the synonym mapping from
+        # Story §2.1.4 applies here too.
         valid_trigger = False
         for yp in phase_def.yield_points:
             if not _yield_point_matches_pause_reason(
@@ -1367,7 +1366,7 @@ class PipelineEngine:
             ended_at=finished_at,
             detail=detail,
         )
-        # FK-39 §39.4.4: AttemptRecord ZUERST, dann PhaseState
+        # FK-39 §39.4.4: AttemptRecord FIRST, then PhaseState
         save_phase_completion(
             self._story_dir,
             envelope=_WrapState(failed_state),

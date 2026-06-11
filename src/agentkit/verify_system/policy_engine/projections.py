@@ -3,10 +3,10 @@
 Blood group: A (pure — no I/O, no side-effects)
 Owner BC:    verify-system / policy-engine
 
-EnvelopeStatus-Werte stammen seit AG3-021 aus ``agentkit.core_types``
-und bestehen aus exakt ``PASS``, ``FAIL``, ``WARN``, ``ERROR``.
-Die Werteliste ist abschliessend; weitere Kombinationen sind hier nicht
-zulaessig (siehe FK-71 fuer das LLM-Mapping im Envelope-Kontext).
+Since AG3-021, EnvelopeStatus values come from ``agentkit.core_types``
+and consist of exactly ``PASS``, ``FAIL``, ``WARN``, ``ERROR``.
+The value list is final; further combinations are not permitted
+here (see FK-71 for the LLM mapping in the envelope context).
 """
 
 from __future__ import annotations
@@ -102,9 +102,9 @@ def build_verify_decision_artifact(
 def verify_decision_passed(data: dict[str, object]) -> bool:
     """Evaluate PASS semantics for decision envelopes.
 
-    ``PolicyVerdict`` enthaelt seit AG3-021 ausschliesslich ``PASS`` und
-    ``FAIL`` (FK-27 §27.7.2); jeder andere Wert ist ungueltig und
-    liefert ``False``.
+    Since AG3-021, ``PolicyVerdict`` contains exclusively ``PASS`` and
+    ``FAIL`` (FK-27 §27.7.2); any other value is invalid and
+    returns ``False``.
     """
 
     status = data.get("status")
@@ -118,9 +118,9 @@ def verify_decision_passed(data: dict[str, object]) -> bool:
 def envelope_status_from_verdict(verdict: PolicyVerdict) -> EnvelopeStatus:
     """Map a ``PolicyVerdict`` to its ``EnvelopeStatus`` projection.
 
-    Diese Hilfsfunktion bildet das policy-seitige PASS/FAIL auf das
-    Envelope-seitige PASS/FAIL ab und ist absichtlich trivial — alle
-    Warning-/Concern-Logik sitzt am Envelope-Rand (AG3-022,
+    This helper maps the policy-side PASS/FAIL onto the
+    envelope-side PASS/FAIL and is deliberately trivial — all
+    warning/concern logic sits at the envelope edge (AG3-022,
     ProducerRegistry).
     """
 

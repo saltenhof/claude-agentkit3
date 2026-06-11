@@ -206,7 +206,7 @@ MANDATORY_PAYLOAD_FIELDS: Mapping[EventType, tuple[str, ...]] = {
     # ``integrity_violation`` carrying ``guard`` (the emitting guard) and
     # ``detail`` (the block reason). These two are mandatory for EVERY
     # ``integrity_violation`` (FK-30 §30.7.3). The ``stage`` field is
-    # prompt-integrity-specific (FK-61 §61.12.2 "fuer prompt_integrity_guard")
+    # prompt-integrity-specific (FK-61 §61.12.2 "for prompt_integrity_guard")
     # and is enforced CONDITIONALLY (only for ``guard="prompt_integrity_guard"``)
     # by :func:`validate_event_payload` — see ``INTEGRITY_VIOLATION_PROMPT_GUARD``
     # and ``INTEGRITY_VIOLATION_STAGES`` below. AG3-086 introduced the first

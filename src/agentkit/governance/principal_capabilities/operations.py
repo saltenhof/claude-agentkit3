@@ -13,7 +13,7 @@ interpreter (``bash -c '<script>'``), a command substitution or other evasion is
 treated as a plain ``execute`` — OUT OF SCOPE by design, not waved through by a
 fabricated target. An unknown tool is an UNKNOWN PERMISSION, not a mutation
 (FK-55 §55.6.1): it classifies as the inert :attr:`OperationClass.EXECUTE` so the
-enforcement pipeline resolves it mode-scharf (see :meth:`OperationClassifier.is_known`).
+enforcement pipeline resolves it mode-specific (see :meth:`OperationClassifier.is_known`).
 
 For ``Bash`` the classifier neither collapses every non-git command to
 ``execute`` nor looks only at the LEADING command. The string is split on
@@ -54,7 +54,7 @@ WEB_SEARCH = "WebSearch"
 #: dedicated authority is the permanently active ``prompt_integrity_guard``, which
 #: validates the spawn schema / template) + FK-55 §55.6 (no meaningful path-class).
 #: Recognising it here keeps it a KNOWN operation (never the
-#: ``unknown_permission`` mode-scharf block) so the enforcement layer can route it
+#: ``unknown_permission`` mode-specific block) so the enforcement layer can route it
 #: to that dedicated guard rather than a path-matrix DENY.
 SUBAGENT_SPAWN_TOOL = "Agent"
 
@@ -148,10 +148,10 @@ class _GitVerbs:
     reference them as class attributes. Built once at import; no per-call cost.
     """
 
-    #: Unconditionally read-only git subcommands (FK-55 §55.5: "lesende Git-/
-    #: Shell-Aufrufe" → read). ``branch`` is deliberately NOT here: a bare/listing
+    #: Unconditionally read-only git subcommands (FK-55 §55.5: "read-only git/
+    #: shell invocations" → read). ``branch`` is deliberately NOT here: a bare/listing
     #: ``git branch`` is READ but any creating/renaming/deleting/setting form is a
-    #: GIT_MUTATION (FK-55 §55.5 "Branch-/Worktree-Aenderung"); see
+    #: GIT_MUTATION (FK-55 §55.5 "branch/worktree mutation"); see
     #: :func:`_is_git_read` / :func:`_branch_is_read`.
     READ_SUBCOMMANDS: frozenset[str] = frozenset({"status", "log", "diff", "show", "rev-parse", "ls-files", "blame"})
 
@@ -249,13 +249,13 @@ class OperationClassifier:
        (redirect / mutating verb → WRITE) vs plain exec. ANY mutating
        sub-command wins.
     4. Unknown tool → :attr:`OperationClass.EXECUTE` (an unknown permission, not
-       a mutation — resolved mode-scharf downstream, FK-55 §55.6.1).
+       a mutation — resolved mode-specific downstream, FK-55 §55.6.1).
     """
 
     #: Tool-name → operation-class mapping for the harness's structured tools
     #: (FK-55 §55.5 examples). Keys are compared case-insensitively. Only the four
     #: structured edit tools are KNOWN mutations; every other (unknown) tool is an
-    #: unknown permission resolved mode-scharf as ``execute`` (FK-55 §55.6.1).
+    #: unknown permission resolved mode-specific as ``execute`` (FK-55 §55.6.1).
     _TOOL_MAP: dict[str, OperationClass] = {
         "read": OperationClass.READ,
         "grep": OperationClass.READ,
@@ -283,7 +283,7 @@ class OperationClassifier:
         FK-55 §55.6.1 distinguishes a KNOWN tool (Read/Write/Edit/Bash/git/
         agentkit/WebFetch/WebSearch/… — mapped to a concrete operation class)
         from an UNKNOWN permission (a tool the classifier has no rule for). The
-        enforcement layer uses this to resolve an unknown tool *mode-scharf*
+        enforcement layer uses this to resolve an unknown tool *mode-specific*
         (story_execution ⇒ BLOCK + permission_request; interactive/ai_augmented ⇒
         defer) instead of force-fitting it to a matrix-matching ``execute`` ALLOW
         (the AG3-032 ERROR C fail-open hole). ``classify`` still returns the inert
@@ -313,7 +313,7 @@ class OperationClassifier:
         # FK-31 §31.7 / FK-91 §91.4: the ``Agent`` sub-agent spawn is a KNOWN
         # control-plane operation (routed to the prompt_integrity guard + CCAG),
         # never an unknown permission. Recognising it here stops the §55.6.1
-        # mode-scharf unknown-permission block from intercepting it before its
+        # mode-specific unknown-permission block from intercepting it before its
         # dedicated guard runs.
         if is_subagent_spawn(operation_name, args):
             return True
@@ -350,7 +350,7 @@ class OperationClassifier:
             return self._classify_shell(args)
         # Unknown tool: an UNKNOWN PERMISSION, not a mutation (FK-55 §55.6.1).
         # EXECUTE is the inert non-mutating class so the enforcement pipeline
-        # resolves it mode-scharf (via :meth:`is_known` → UNKNOWN_PERMISSION)
+        # resolves it mode-specific (via :meth:`is_known` → UNKNOWN_PERMISSION)
         # rather than treating it as an unclassified mutation. The classifier
         # does NOT consult the matrix for an unknown tool — the enforcement layer
         # signals UNKNOWN_PERMISSION before any ALLOW (AG3-032 ERROR C).
@@ -463,7 +463,7 @@ def _classify_git(tokens: list[str]) -> OperationClass:
         return OperationClass.READ
     # Any non-read git subcommand (commit, push, checkout, ``branch -D``,
     # ``branch <new>``, worktree add/remove, ...) is a git mutation (FK-55 §55.5
-    # git_mutation = "Commit, Push, Branch-/Worktree-Aenderung").
+    # git_mutation = "commit, push, branch/worktree mutation").
     return OperationClass.GIT_MUTATION
 
 

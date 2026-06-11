@@ -32,13 +32,13 @@ QUALITY_GATE_OK = "OK"
 ATTESTATION_STATUS_READ = "READ"
 
 #: Mandatory attestation fields for a ``status == "READ"`` attestation —
-#: derived from the FK-33 §33.6.3 binding set ("Attestation, gebunden an
-#: ``commit_sha``, ``tree_hash``, ``analysisId``, den Quality-Gate-/
-#: Quality-Profile-Hash und die Versionen (SonarQube, Branch-Plugin,
-#: Scanner)") plus the always-present read coordinates (``ce_task_id``,
+#: derived from the FK-33 §33.6.3 binding set ("attestation, bound to
+#: ``commit_sha``, ``tree_hash``, ``analysisId``, the quality-gate /
+#: quality-profile hash and the versions (SonarQube, branch plugin,
+#: scanner)") plus the always-present read coordinates (``ce_task_id``,
 #: ``quality_gate_status``, ``last_analyzed_revision``), the analysis-scope
-#: hash, and the ledger hash (FK-33 §33.6.4: "Der Ledger-Hash ist Teil der
-#: Attestation"). A READ attestation that carries an empty value for ANY of
+#: hash, and the ledger hash (FK-33 §33.6.4: "the ledger hash is part of the
+#: attestation"). A READ attestation that carries an empty value for ANY of
 #: these is systemically rejected (fail-closed, ERROR-1) — it could otherwise
 #: be silently produced when a Sonar field was absent and read as "".
 #:

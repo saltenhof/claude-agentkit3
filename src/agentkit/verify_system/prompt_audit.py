@@ -15,7 +15,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from agentkit.exceptions import ProjectError
-from agentkit.prompt_runtime import ComposeConfig, PromptRuntime
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -69,6 +68,12 @@ def materialize_qa_prompt_audit(
         story_dir.relative_to(ctx.project_root)
     except ValueError:
         return {"status": "skipped", "reason": "story_dir_outside_project_root"}
+
+    # Local import to break the import cycle prompt_runtime -> ... ->
+    # verify_system.system -> challenger -> prompt_audit_support -> prompt_audit:
+    # ``ComposeConfig``/``PromptRuntime`` are only needed at call time, so resolving
+    # them here keeps module load order independent of prompt_runtime init order.
+    from agentkit.prompt_runtime import ComposeConfig, PromptRuntime
 
     invocation_id = f"verify-{layer_name}-attempt-{run_scope.attempt:03d}"
     runtime = PromptRuntime(ctx.project_root, artifact_manager)

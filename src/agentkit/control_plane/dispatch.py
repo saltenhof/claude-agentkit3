@@ -15,8 +15,8 @@ This module is the productive wiring between the control-plane API entrypoint
   (FK-20 §20.8.2, FK-70 §70.8,
   ``story-workflow.invariant.phase_start_requires_release_and_readiness``). It
   fires ONLY before the fresh-run setup start (first call, no phase-state,
-  phase=setup) and CONSUMES (does not own) two owner surfaces: Tor 1 = persisted
-  ``StoryStatus == Approved`` via the story-service; Tor 2 = computed
+  phase=setup) and CONSUMES (does not own) two owner surfaces: Gate 1 = persisted
+  ``StoryStatus == Approved`` via the story-service; Gate 2 = computed
   ``PlanningStatus == READY`` + an explicit scheduling admission via the
   execution-planning ``evaluate_scheduling`` top-surface (AG3-100 migration off the
   legacy ``assess_readiness`` source -- one admission truth). Missing Approved OR
@@ -73,7 +73,7 @@ if TYPE_CHECKING:
 
 
 class ApprovalReader(Protocol):
-    """Tor 1 read port: the persisted lifecycle ``StoryStatus`` of a story.
+    """Gate 1 read port: the persisted lifecycle ``StoryStatus`` of a story.
 
     Implemented by the AK3 story-service (BC 3, AG3-014). The guard CONSUMES the
     authoritative persisted status; it never writes story status truth.
@@ -89,7 +89,7 @@ class ApprovalReader(Protocol):
 
 
 class SchedulingAdmissionReader(Protocol):
-    """Tor 2 read port: computed ``PlanningStatus`` READY + scheduling admission.
+    """Gate 2 read port: computed ``PlanningStatus`` READY + scheduling admission.
 
     Implemented over execution-planning ``evaluate_scheduling`` (BC 14, FK-70 §70.8;
     AG3-100 migration from the legacy ``assess_readiness`` source). The guard
@@ -131,13 +131,13 @@ class PreStartGuard:
     """Fail-closed run-admission guard for the fresh-run setup start (AG3-054).
 
     Consumes the two owner surfaces and collapses NEITHER axis into the other:
-    persisted ``StoryStatus`` (lifecycle, Tor 1) and computed ``PlanningStatus``
-    + scheduling admission (Tor 2) are evaluated independently. Either gate
+    persisted ``StoryStatus`` (lifecycle, Gate 1) and computed ``PlanningStatus``
+    + scheduling admission (Gate 2) are evaluated independently. Either gate
     missing -- or unresolvable -- rejects the start fail-closed.
 
     Attributes:
-        approval_reader: Tor 1 surface (persisted ``StoryStatus == Approved``).
-        scheduling_reader: Tor 2 surface (computed READY + scheduling admission).
+        approval_reader: Gate 1 surface (persisted ``StoryStatus == Approved``).
+        scheduling_reader: Gate 2 surface (computed READY + scheduling admission).
     """
 
     approval_reader: ApprovalReader
@@ -161,7 +161,7 @@ class PreStartGuard:
             raises is mapped to a fail-closed rejection reason -- never to
             admission.
         """
-        # Tor 1 -- persisted lifecycle release (fail-closed on any read error).
+        # Gate 1 -- persisted lifecycle release (fail-closed on any read error).
         try:
             approved = self.approval_reader.is_approved(project_key, story_display_id)
         # Fail-closed: never default-allow.
@@ -171,11 +171,11 @@ class PreStartGuard:
             return "".join(
                 (
                     "Pre-start guard rejected setup start: StoryStatus is not ",
-                    "Approved (Tor 1, fachliche Freigabe fehlt; FK-20 §20.8.2).",
+                    "Approved (Gate 1, business release missing; FK-20 §20.8.2).",
                 )
             )
 
-        # Tor 2 -- computed READY + scheduling admission (orthogonal axis).
+        # Gate 2 -- computed READY + scheduling admission (orthogonal axis).
         try:
             admitted = self.scheduling_reader.is_ready_and_admitted(
                 project_key, story_display_id
@@ -188,7 +188,7 @@ class PreStartGuard:
                 (
                     "Pre-start guard rejected setup start: ExecutionPlanning ",
                     "does not report computed PlanningStatus READY with a ",
-                    "scheduling admission (Tor 2; FK-70 §70.6.1/§70.8).",
+                    "scheduling admission (Gate 2; FK-70 §70.6.1/§70.8).",
                 )
             )
         return None
@@ -214,7 +214,7 @@ class PhaseDispatcher:
             (composition-root ``build_pipeline_engine``). Injected so tests drive
             the productive composition without a self-build.
         guard_factory: Resolves the fail-closed pre-start run-admission guard FOR
-            THIS RUN (E7 fix): both Tor-1 (approval) and Tor-2 (scheduling)
+            THIS RUN (E7 fix): both Gate-1 (approval) and Gate-2 (scheduling)
             readers must read from the RUN'S authoritative store/project root, not
             cwd. The dispatcher is built once but ``dispatch`` carries the run
             ``ctx``, so the guard is resolved per run from ``ctx`` (e.g. its
@@ -452,8 +452,8 @@ def _enforce_transition(
     FK-45 §45.2: a transition to a DIFFERENT phase is legal only when (a) a
     workflow edge exists from the persisted phase to the requested phase, (b) the
     persisted phase already reached ``COMPLETED``, AND (c) that edge's GUARD is
-    satisfied for this story/ctx. The guard check enforces the modus-dependent
-    semantic preconditions (FK-45 §45.2 "Semantische Preconditions"): e.g. the
+    satisfied for this story/ctx. The guard check enforces the mode-dependent
+    semantic preconditions (FK-45 §45.2 "semantic preconditions"): e.g. the
     guarded ``setup -> exploration`` edge (``mode_is_exploration``) keeps an
     execution-route story out of exploration (exploration-skip), and the guarded
     ``exploration -> implementation`` edge (``exploration_gate_approved``) keeps
@@ -641,7 +641,7 @@ def _rejected(phase: str, reason: str) -> PhaseDispatchResult:
 def build_story_service_approval_reader(
     store_dir: Path | None = None,
 ) -> ApprovalReader:
-    """Build the productive Tor 1 reader over the AK3 story-service (AG3-014).
+    """Build the productive Gate 1 reader over the AK3 story-service (AG3-014).
 
     E7 fix: the persisted ``StoryStatus`` is read from the RUN'S store, not cwd.
     The story-service is rooted at ``store_dir`` (the run's project/store root) via
@@ -673,13 +673,13 @@ def build_story_service_approval_reader(
 def build_execution_planning_admission_reader(
     store_dir: Path | None = None,
 ) -> SchedulingAdmissionReader:
-    """Build the productive Tor 2 reader over execution-planning ``evaluate_scheduling``.
+    """Build the productive Gate 2 reader over execution-planning ``evaluate_scheduling``.
 
     AG3-100 (FK-70 §70.8 / FK-20 §20.8.2): the admission gate consumes the SINGLE
     ``evaluate_scheduling`` top-surface -- the mandatory call the ``PipelineEngine``
     must make before any story start. READY + scheduling admission is consumed as:
     the story is a ``ready_candidate`` of the evaluation. This MIGRATES the one
-    Tor-2 admission path off the legacy ``assess_readiness`` source; no second
+    Gate-2 admission path off the legacy ``assess_readiness`` source; no second
     parallel admission/scheduling truth is built (the legacy ``assess_readiness``
     surface keeps serving the dashboard ``planning/next-ready`` detail endpoint, but
     is no longer the admission source).
@@ -754,9 +754,9 @@ def build_execution_planning_admission_reader(
 
 
 def build_pre_start_guard(store_dir: Path | None = None) -> PreStartGuard:
-    """Build the productive fail-closed pre-start guard (Tor 1 + Tor 2).
+    """Build the productive fail-closed pre-start guard (Gate 1 + Gate 2).
 
-    E7 fix: BOTH the approval (Tor 1) and scheduling (Tor 2) readers are rooted at
+    E7 fix: BOTH the approval (Gate 1) and scheduling (Gate 2) readers are rooted at
     the run's ``store_dir`` so the admission decision reads the run's authoritative
     store (SINGLE SOURCE OF TRUTH), never cwd.
     """
@@ -776,7 +776,7 @@ def build_phase_dispatcher() -> PhaseDispatcher:
     coordinates resolved from the run's project config), never an empty dummy.
 
     E7 fix: the pre-start run-admission guard is resolved PER RUN from ``ctx`` so
-    both Tor-1 (approval) and Tor-2 (scheduling) readers read from the RUN'S
+    both Gate-1 (approval) and Gate-2 (scheduling) readers read from the RUN'S
     authoritative store/project root, not cwd.
     """
     from agentkit.bootstrap.composition_root import (

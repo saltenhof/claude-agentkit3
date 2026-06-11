@@ -1,10 +1,10 @@
-"""QaContext — verify-system Aufruf-Kontext.
+"""QaContext — verify-system call context.
 
-Source of truth: ``concept/_meta/bc-cut-decisions.md`` §QaContext-Werte (Z. 84-95).
+Source of truth: ``concept/_meta/bc-cut-decisions.md`` §QaContext values (lines 84-95).
 
-Beschreibt, in welcher Phase und welcher QA-Runde der Subflow gerade
-laeuft. Ersetzt den v2-Namen ``VerifyContext`` (nur zwei Werte) durch
-ein viergliedriges StrEnum.
+Describes in which phase and which QA round the subflow is currently
+running. Replaces the v2 name ``VerifyContext`` (only two values) with a
+four-member StrEnum.
 """
 
 from __future__ import annotations
@@ -13,15 +13,15 @@ from enum import StrEnum
 
 
 class QaContext(StrEnum):
-    """Aufruf-Kontext des Verify-System-QA-Subflows.
+    """Call context of the verify-system QA subflow.
 
     Attributes:
-        IMPLEMENTATION_INITIAL: Erster QA-Lauf in der Implementation-Phase.
-        IMPLEMENTATION_REMEDIATION: Re-QA-Lauf nach Remediation in der
-            Implementation-Phase.
-        EXPLORATION_INITIAL: Erster QA-Lauf am Exploration-Exit-Gate.
-        EXPLORATION_REMEDIATION: Re-QA-Lauf nach Remediation in der
-            Exploration-Phase.
+        IMPLEMENTATION_INITIAL: First QA run in the implementation phase.
+        IMPLEMENTATION_REMEDIATION: Re-QA run after remediation in the
+            implementation phase.
+        EXPLORATION_INITIAL: First QA run at the exploration exit-gate.
+        EXPLORATION_REMEDIATION: Re-QA run after remediation in the
+            exploration phase.
     """
 
     IMPLEMENTATION_INITIAL = "IMPLEMENTATION_INITIAL"

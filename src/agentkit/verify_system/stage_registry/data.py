@@ -69,7 +69,7 @@ def _make_layer_1_stages() -> tuple[StageDefinition, ...]:
     Severities are VERBATIM from FK-27 §27.4.
     """
     return (
-        # --- §27.4.1 Artefakt-Pruefung (precondition) ----------------------------
+        # --- §27.4.1 Artifact check (precondition) ----------------------------
         _stage("artifact.protocol", Severity.BLOCKING),
         _stage("artifact.worker_manifest", Severity.BLOCKING),
         # §27.4.1: artifact.manifest_claims is BLOCKING in FK-27 §27.4.1 AND

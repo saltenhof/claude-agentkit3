@@ -8,7 +8,7 @@ what makes the worker handover write path work in production, not just in a
 locally-seeded test registry.
 
 Source:
-- ``FK-26 §26.7`` — Handover-Paket (worker -> QA-subflow handover).
+- ``FK-26 §26.7`` — handover package (worker -> QA-subflow handover).
 - ``FK-71 §71.1.1`` — HANDOVER artifact class (worker handover artifact).
 - ``stories/AG3-023-artifact-manager-migration/story.md §2.1.6.1`` — dedicated
   ``register.py`` init-hook per BC.

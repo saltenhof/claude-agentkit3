@@ -2,7 +2,7 @@
 
 The interactive two-stage VectorDB reconciliation (FK-21 §21.4) and the human
 conflict-resolution loop run in the ``create-userstory`` skill layer (FK-21 §21.1
-"primär skill-gesteuert", §21.13). The agent-facing HTTP create path
+"primarily skill-driven", §21.13). The agent-facing HTTP create path
 (``POST /v1/stories``) must therefore NOT be able to persist a story without
 proof that the deterministic, fail-closed reconciliation actually ran. This
 module owns that proof as a typed, self-validating model.

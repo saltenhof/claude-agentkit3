@@ -1,6 +1,6 @@
-"""ArtifactReference — getypte Referenz auf ein Artefakt.
+"""ArtifactReference — typed reference to an artifact.
 
-Quelle: FK-71 Glossar (Eintrag `ArtifactReference`),
+Source: FK-71 glossary (entry `ArtifactReference`),
 bc-cut-decisions.md §BC 8.
 """
 
@@ -12,16 +12,16 @@ from agentkit.core_types import ArtifactClass
 
 
 class ArtifactReference(BaseModel):
-    """Eindeutige Referenz auf ein gespeichertes Artefakt.
+    """Unique reference to a stored artifact.
 
-    Alle Felder sind Pflicht und identifizieren das Artefakt kanonisch.
-    Die Instanz ist immutabel (`frozen=True`).
+    All fields are mandatory and identify the artifact canonically.
+    The instance is immutable (`frozen=True`).
 
     Attributes:
-        artifact_class: Erzeugerklasse des referenzierten Artefakts.
-        story_id: Story-Display-ID (z.B. ``AG3-042``).
-        run_id: Run-Korrelations-ID.
-        record_key: Kanonischer Pfad oder Record-Identifier im Storage.
+        artifact_class: Producer class of the referenced artifact.
+        story_id: Story display ID (e.g. ``AG3-042``).
+        run_id: Run correlation ID.
+        record_key: Canonical path or record identifier in storage.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")

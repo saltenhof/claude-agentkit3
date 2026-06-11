@@ -392,8 +392,8 @@ def _schema_alter_statements() -> tuple[str, ...]:
             "CREATE INDEX IF NOT EXISTS control_plane_operations_run_idx "
             "ON control_plane_operations (project_key, story_id, run_id)"
         ),
-        # Legacy ``attempt_records``-Tabelle ist mit Schema 3.5.0 entfernt
-        # (AG3-025 Re-Review-Befund 2). Keine Migrations-Updates mehr.
+        # The legacy ``attempt_records`` table was removed with schema 3.5.0
+        # (AG3-025 re-review finding 2). No more migration updates.
         # AG3-057: Trigger 3 input column for existing Postgres schemas that
         # pre-date the postgres_schema.sql addition.  Idempotent via IF NOT EXISTS.
         (
@@ -764,7 +764,7 @@ def load_story_context_by_story_number_row(
     project_key: str,
     story_number: int,
 ) -> dict[str, Any] | None:
-    """Return one story-context row by fachliche identity."""
+    """Return one story-context row by domain identity."""
 
     del store_dir
     with _connect_global() as conn:
@@ -1436,10 +1436,10 @@ def read_phase_snapshot_row(story_dir: Path, phase: str) -> dict[str, Any] | Non
 def save_attempt_row(story_dir: Path, row: dict[str, Any]) -> None:
     """Persist an attempt row dict to the ``attempts`` table (Schema 3.5.0).
 
-    ``story_id`` wird aus ``story_dir`` abgeleitet, damit AttemptRecords
-    persistenzseitig story-scoped sind (FK-39 §39.4.1).  Idempotent:
-    ``INSERT ... ON CONFLICT DO UPDATE`` ueberschreibt die Zeile bei
-    Re-Write mit demselben ``(story_id, run_id, phase, attempt)``-Key.
+    ``story_id`` is derived from ``story_dir`` so AttemptRecords are
+    story-scoped on the persistence side (FK-39 §39.4.1).  Idempotent:
+    ``INSERT ... ON CONFLICT DO UPDATE`` overwrites the row on a
+    re-write with the same ``(story_id, run_id, phase, attempt)`` key.
     """
     story_id = _story_id_for(story_dir)
     if story_id is None:
@@ -1482,10 +1482,10 @@ def load_attempt_rows(
 ) -> list[dict[str, Any]]:
     """Return attempt row dicts for a story+phase from ``attempts``.
 
-    Filtert auf ``story_id`` (aus ``story_dir`` abgeleitet) und ``phase``.
-    Optional ``run_id`` engt zusaetzlich auf einen Run ein — von
-    ``EngineRuntimeState.generate_attempt_id`` genutzt, um Versuche pro
-    Run zu zaehlen und nicht ueber Runs hinweg.
+    Filters on ``story_id`` (derived from ``story_dir``) and ``phase``.
+    An optional ``run_id`` additionally narrows to a single run — used by
+    ``EngineRuntimeState.generate_attempt_id`` to count attempts per
+    run and not across runs.
     """
     story_id = _story_id_for(story_dir)
     if story_id is None:
@@ -2973,14 +2973,14 @@ def persist_layer_artifact_rows(
     Each element has keys: ``layer``, ``artifact_name``, ``producer_component``,
     ``payload``, ``passed``, ``recorded_at``, ``stage_row``, ``finding_rows``.
 
-    Befund D (AG3-035 Remediation): FK-69-Zeilen-Persistenz laeuft ueber die
-    treibereigenen Upsert-/Delete-Funktionen (``pg_execute_stage_upsert``,
-    ``pg_execute_finding_upsert``, ``pg_delete_findings_for_scope`` in diesem
-    Modul). Transaktion bleibt im Driver (FAIL-CLOSED: Stage+Findings+
-    artifact_records atomar in EINER Transaktion). Die Accessor-Repos
-    (boundary.state_backend_repository) delegieren ihren Postgres-Schreibpfad
-    an dieselben Funktionen -- die SQL lebt genau einmal im Treiber (SSOT;
-    AC010: der Treiber importiert kein Repository).
+    Finding D (AG3-035 remediation): FK-69 row persistence runs through the
+    driver-owned upsert/delete functions (``pg_execute_stage_upsert``,
+    ``pg_execute_finding_upsert``, ``pg_delete_findings_for_scope`` in this
+    module). The transaction stays in the driver (FAIL-CLOSED: stage+findings+
+    artifact_records atomic in ONE transaction). The accessor repos
+    (boundary.state_backend_repository) delegate their Postgres write path
+    to the same functions -- the SQL lives exactly once in the driver (SSOT;
+    AC010: the driver imports no repository).
     """
     story_id = _story_id_for(story_dir)
     if story_id is None:

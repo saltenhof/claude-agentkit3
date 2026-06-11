@@ -18,7 +18,7 @@ dispatch helpers are dead code in a real install. This source therefore wires:
 - a PreToolUse ``skill_usage_check`` guard on ``Bash`` (ad-hoc methodology
   detection, FK-43 §43.6.2 / F-43-030);
 - a PreToolUse ``prompt_integrity`` guard on every ``Agent`` sub-agent spawn
-  (FK-31 §31.7 — permanently active, mode-scharf).
+  (FK-31 §31.7 — permanently active, mode-specific).
 
 ARCH-55: hook identifiers and matcher tokens are English.
 """

@@ -1,11 +1,11 @@
-"""Producer-Typen fuer das Artefakt-BC (agentkit.artifacts).
+"""Producer types for the artifact BC (agentkit.artifacts).
 
-Definitionen:
-- `ProducerType` — StrEnum mit WORKER / LLM_REVIEWER / DETERMINISTIC
-- `ProducerId` — NewType fuer typsichere Instanz-IDs
-- `Producer` — Pydantic-Modell mit Pflichtfeldern
+Definitions:
+- `ProducerType` — StrEnum with WORKER / LLM_REVIEWER / DETERMINISTIC
+- `ProducerId` — NewType for type-safe instance ids
+- `Producer` — Pydantic model with required fields
 
-Quelle: bc-cut-decisions.md §BC 8, FK-71 §71.2.
+Source: bc-cut-decisions.md §BC 8, FK-71 §71.2.
 """
 
 from __future__ import annotations
@@ -17,12 +17,12 @@ from pydantic import BaseModel, ConfigDict
 
 
 class ProducerType(StrEnum):
-    """Erzeuger-Kategorie eines Artefakt-Producers.
+    """Producer category of an artifact producer.
 
     Attributes:
-        WORKER: Worker-Agent (Implementierung, Entwurf, Handover).
-        LLM_REVIEWER: LLM-basierter Gutachter (QA-Semantik, Guard-Review).
-        DETERMINISTIC: Deterministischer Pruefschritt (Structural, Policy).
+        WORKER: Worker agent (implementation, draft, handover).
+        LLM_REVIEWER: LLM-based reviewer (QA semantics, guard review).
+        DETERMINISTIC: Deterministic check step (structural, policy).
     """
 
     WORKER = "WORKER"
@@ -30,18 +30,18 @@ class ProducerType(StrEnum):
     DETERMINISTIC = "DETERMINISTIC"
 
 
-#: Typsichere Instanz-ID eines Producers (z.B. "worker-impl-run-42").
+#: Type-safe instance id of a producer (e.g. "worker-impl-run-42").
 ProducerId = NewType("ProducerId", str)
 
 
 class Producer(BaseModel):
-    """Getypter Producer eines Artefakts (bc-cut-decisions.md §BC 8).
+    """Typed producer of an artifact (bc-cut-decisions.md §BC 8).
 
     Attributes:
-        type: Kategorie des Producers (WORKER / LLM_REVIEWER / DETERMINISTIC).
-        name: Kanonischer Name (z.B. ``qa-semantic-reviewer``).
-        id: Eindeutige Instanz-ID dieser Producer-Instanz.
-        version: Optionale Tool- oder Bundle-Version.
+        type: Category of the producer (WORKER / LLM_REVIEWER / DETERMINISTIC).
+        name: Canonical name (e.g. ``qa-semantic-reviewer``).
+        id: Unique instance id of this producer instance.
+        version: Optional tool or bundle version.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")

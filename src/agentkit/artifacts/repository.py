@@ -1,12 +1,12 @@
-"""ArtifactRepository — Protocol fuer Artefakt-Persistenz.
+"""ArtifactRepository — Protocol for artifact persistence.
 
-Bounded-Context-Grenze: Der ``agentkit.artifacts``-BC definiert das
-Protocol; konkrete Implementierungen liegen in
-``agentkit.state_backend.store.artifact_repository``. Das Protocol
-selbst importiert **ausschliesslich** aus ``agentkit.artifacts`` und
-``agentkit.core_types`` (keine Backend-Importe im Contract-Modul).
+Bounded-context boundary: the ``agentkit.artifacts`` BC defines the
+Protocol; concrete implementations live in
+``agentkit.state_backend.store.artifact_repository``. The Protocol
+itself imports **exclusively** from ``agentkit.artifacts`` and
+``agentkit.core_types`` (no backend imports in the contract module).
 
-bc-cut-decisions.md §BC 8 — ArtifactManager-Vertrag.
+bc-cut-decisions.md §BC 8 — ArtifactManager contract.
 """
 
 from __future__ import annotations
@@ -21,39 +21,39 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class ArtifactRepository(Protocol):
-    """Protocol fuer typisierte Artefakt-Persistenz.
+    """Protocol for typed artifact persistence.
 
-    Implementierungen in ``agentkit.state_backend.store.artifact_repository``
-    (SQLite, Postgres). Das Protocol ist ausschliesslich von
-    ``ArtifactManager`` und Tests zu importieren — niemals von Producern
-    oder Consumern direkt.
+    Implementations live in ``agentkit.state_backend.store.artifact_repository``
+    (SQLite, Postgres). The Protocol is to be imported exclusively by
+    ``ArtifactManager`` and tests — never by producers or consumers
+    directly.
 
-    Methoden:
-        write_envelope: Schreibt einen validen ArtifactEnvelope; gibt
-            eine ArtifactReference zurueck.
-        read_envelope: Laedt einen Envelope anhand einer Reference;
-            gibt ``None`` bei Nicht-Existenz.
-        find_latest_envelope: Sucht den hoechsten ``attempt`` fuer eine
-            (story_id, run_id, artifact_class, stage)-Scope und gibt den
-            Envelope oder ``None`` zurueck.
-        exists_envelope: Prueft Existenz ohne Volllesen.
+    Methods:
+        write_envelope: Writes a valid ArtifactEnvelope; returns an
+            ArtifactReference.
+        read_envelope: Loads an envelope by a Reference; returns
+            ``None`` on non-existence.
+        find_latest_envelope: Finds the highest ``attempt`` for a
+            (story_id, run_id, artifact_class, stage) scope and returns
+            the envelope or ``None``.
+        exists_envelope: Checks existence without a full read.
     """
 
     def write_envelope(
         self,
         envelope: ArtifactEnvelope,
     ) -> ArtifactReference:
-        """Persistiert einen validen ArtifactEnvelope (fail-closed).
+        """Persist a valid ArtifactEnvelope (fail-closed).
 
         Args:
-            envelope: Vollstaendig validierter ArtifactEnvelope.
+            envelope: Fully validated ArtifactEnvelope.
 
         Returns:
-            Opake Reference auf den geschriebenen Eintrag.
+            Opaque reference to the written entry.
 
         Raises:
-            Exception: Implementierungs-spezifischer Fehler bei
-                I/O-Problemen oder Constraint-Verletzungen.
+            Exception: Implementation-specific error on I/O problems or
+                constraint violations.
         """
         ...
 
@@ -61,13 +61,13 @@ class ArtifactRepository(Protocol):
         self,
         reference: ArtifactReference,
     ) -> ArtifactEnvelope | None:
-        """Laedt einen ArtifactEnvelope anhand seiner Reference.
+        """Load an ArtifactEnvelope by its Reference.
 
         Args:
-            reference: Opake Reference (Rueckgabe von ``write_envelope``).
+            reference: Opaque Reference (return value of ``write_envelope``).
 
         Returns:
-            ArtifactEnvelope wenn vorhanden, sonst ``None``.
+            ArtifactEnvelope if present, otherwise ``None``.
         """
         ...
 
@@ -79,16 +79,16 @@ class ArtifactRepository(Protocol):
         artifact_class: ArtifactClass,
         stage: str,
     ) -> ArtifactEnvelope | None:
-        """Findet den Envelope mit dem hoechsten ``attempt`` im Scope.
+        """Find the envelope with the highest ``attempt`` in the scope.
 
         Args:
-            story_id: Story-Display-ID.
-            run_id: Run-Korrelations-ID; ``None`` matched ueber alle Runs.
-            artifact_class: Erzeugerklasse-Filter.
-            stage: Stage-Filter (z.B. ``qa-policy-decision``).
+            story_id: Story display id.
+            run_id: Run correlation id; ``None`` matches across all runs.
+            artifact_class: Producer-class filter.
+            stage: Stage filter (e.g. ``qa-policy-decision``).
 
         Returns:
-            Latest ``ArtifactEnvelope`` oder ``None``.
+            Latest ``ArtifactEnvelope`` or ``None``.
         """
         ...
 
@@ -96,13 +96,13 @@ class ArtifactRepository(Protocol):
         self,
         reference: ArtifactReference,
     ) -> bool:
-        """Prueft, ob ein Artefakt mit dieser Reference existiert.
+        """Check whether an artifact with this Reference exists.
 
         Args:
-            reference: Opake Reference.
+            reference: Opaque Reference.
 
         Returns:
-            True wenn vorhanden, False sonst.
+            True if present, False otherwise.
         """
         ...
 

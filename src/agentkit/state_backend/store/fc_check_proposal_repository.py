@@ -1,17 +1,17 @@
-"""fc_check_proposals-Repository-Adapter (FK-41 §41.3.3, FK-69 §69.3, AG3-040 (b)).
+"""fc_check_proposals repository adapter (FK-41 §41.3.3, FK-69 §69.3, AG3-040 (b)).
 
-Der DB-Owner-seitige Adapter fuer ``fc_check_proposals``. Liegt — wie die
-uebrigen FK-69-Repos — auf der Accessor-Seite in ``state_backend/store``
-(boundary ``state_backend_repository``). Schema-Owner ist ``failure-corpus``
-(FK-41 §41.3.3); DB-Owner ist ``telemetry-and-events``.
+The DB-owner-side adapter for ``fc_check_proposals``. Lives — like the
+other FK-69 repos — on the accessor side in ``state_backend/store``
+(boundary ``state_backend_repository``). The schema owner is ``failure-corpus``
+(FK-41 §41.3.3); the DB owner is ``telemetry-and-events``.
 
-AG3-040 Sub-Block (b) liefert NUR Tabelle + Repository-Skelett (minimaler CRUD-
-Roundtrip: ``save``/``load``/``list_for_pattern``). Die CheckFactory-Full-Logik
-(Ableitung, Wirksamkeitspruefung) bleibt Out of Scope (FK-41 §41.6, Folge-
-Story). ``save`` ist ein Upsert auf ``check_id``.
+AG3-040 Sub-Block (b) provides ONLY a table + repository skeleton (minimal CRUD
+round-trip: ``save``/``load``/``list_for_pattern``). The full CheckFactory logic
+(derivation, effectiveness check) stays Out of Scope (FK-41 §41.6, follow-up
+story). ``save`` is an upsert on ``check_id``.
 
-``pattern_ref`` ist ein FK auf ``fc_patterns(pattern_id)``: ein Proposal ohne
-existierendes Pattern wird DB-seitig fail-closed abgelehnt (FK-41 §41.3.3).
+``pattern_ref`` is an FK to ``fc_patterns(pattern_id)``: a proposal without an
+existing pattern is rejected fail-closed on the DB side (FK-41 §41.3.3).
 """
 
 from __future__ import annotations
@@ -33,27 +33,27 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class FcCheckProposalRepository(Protocol):
-    """Schreib-/Lese-Adapter fuer ``fc_check_proposals`` (FK-41 §41.3.3).
+    """Write/read adapter for ``fc_check_proposals`` (FK-41 §41.3.3).
 
-    Schema-Owner: failure-corpus (FK-41 §41.3.3).
-    DB-Owner: telemetry-and-events.
+    Schema owner: failure-corpus (FK-41 §41.3.3).
+    DB owner: telemetry-and-events.
     """
 
     def save(self, proposal: CheckProposalRecord) -> None:
-        """Persistiere (upsert auf ``check_id``) ein CheckProposalRecord."""
+        """Persist (upsert on ``check_id``) a CheckProposalRecord."""
         ...
 
     def load(self, check_id: str) -> CheckProposalRecord | None:
-        """Lade ein CheckProposalRecord per ``check_id`` oder ``None``."""
+        """Load a CheckProposalRecord by ``check_id`` or ``None``."""
         ...
 
     def list_for_pattern(self, pattern_ref: str) -> list[CheckProposalRecord]:
-        """Liste alle CheckProposals zu einem ``pattern_ref`` (FK-41 §41.3.3)."""
+        """List all CheckProposals for a ``pattern_ref`` (FK-41 §41.3.3)."""
         ...
 
 
 def _proposal_to_row(proposal: CheckProposalRecord) -> dict[str, Any]:
-    """Serialisiere ein ``CheckProposalRecord`` in eine fc_check_proposals-Zeile."""
+    """Serialize a ``CheckProposalRecord`` into an fc_check_proposals row."""
     return {
         "check_id": proposal.check_id,
         "project_key": proposal.project_key,
@@ -84,7 +84,7 @@ def _proposal_to_row(proposal: CheckProposalRecord) -> dict[str, Any]:
 
 
 def _row_to_proposal(row: dict[str, Any]) -> CheckProposalRecord:
-    """Deserialisiere eine fc_check_proposals-Zeile in ein ``CheckProposalRecord``."""
+    """Deserialize an fc_check_proposals row into a ``CheckProposalRecord``."""
     from datetime import datetime
 
     from agentkit.core_types import CheckStatus, CheckType
@@ -145,7 +145,7 @@ def _row_to_proposal(row: dict[str, Any]) -> CheckProposalRecord:
 def _decode_dict_list(raw: object) -> list[dict[str, Any]]:
     """Decode a JSON ``list[dict]`` column (SQLite TEXT or Postgres JSON).
 
-    FAIL-CLOSED: ein Nicht-Objekt-Element ist korrupte Persistenz (FK-41
+    FAIL-CLOSED: a non-object element is corrupt persistence (FK-41
     §41.3.3 fixtures = ``{description, expected}``).
     """
     if raw is None:
@@ -169,10 +169,10 @@ def _decode_dict_list(raw: object) -> list[dict[str, Any]]:
 
 
 class StateBackendFcCheckProposalRepository:
-    """Duenner Adapter fuer ``fc_check_proposals`` (SQLite + Postgres).
+    """Thin adapter for ``fc_check_proposals`` (SQLite + Postgres).
 
     Args:
-        store_dir: Basisverzeichnis fuer SQLite; ignoriert bei Postgres.
+        store_dir: Base directory for SQLite; ignored for Postgres.
     """
 
     def __init__(self, store_dir: Path | None = None) -> None:
@@ -180,10 +180,10 @@ class StateBackendFcCheckProposalRepository:
 
         self._store_dir: Path = store_dir or _Path.cwd()
 
-    # -- Schreiben ----------------------------------------------------------
+    # -- Write --------------------------------------------------------------
 
     def save(self, proposal: CheckProposalRecord) -> None:
-        """Persistiere (upsert auf ``check_id``) ein CheckProposalRecord."""
+        """Persist (upsert on ``check_id``) a CheckProposalRecord."""
         row = _proposal_to_row(proposal)
         if _is_postgres():
             with _postgres_connect() as conn:
@@ -192,10 +192,10 @@ class StateBackendFcCheckProposalRepository:
             with _sqlite_connect_qa(self._store_dir) as conn:
                 conn.execute(_SQLITE_UPSERT, row)
 
-    # -- Lesen --------------------------------------------------------------
+    # -- Read ---------------------------------------------------------------
 
     def load(self, check_id: str) -> CheckProposalRecord | None:
-        """Lade ein CheckProposalRecord per ``check_id`` oder ``None``."""
+        """Load a CheckProposalRecord by ``check_id`` or ``None``."""
         if _is_postgres():
             with _postgres_connect() as conn:
                 row = conn.execute(
@@ -211,7 +211,7 @@ class StateBackendFcCheckProposalRepository:
         return _row_to_proposal(dict(row)) if row is not None else None
 
     def list_for_pattern(self, pattern_ref: str) -> list[CheckProposalRecord]:
-        """Liste alle CheckProposals zu einem ``pattern_ref`` (FK-41 §41.3.3)."""
+        """List all CheckProposals for a ``pattern_ref`` (FK-41 §41.3.3)."""
         if _is_postgres():
             with _postgres_connect() as conn:
                 rows = conn.execute(

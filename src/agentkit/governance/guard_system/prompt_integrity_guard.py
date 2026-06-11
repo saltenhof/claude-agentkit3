@@ -1,4 +1,4 @@
-"""PromptIntegrityGuard — modus-scharfe Spawn-Integritaet (FK-31 §31.7).
+"""PromptIntegrityGuard — mode-specific spawn integrity (FK-31 §31.7).
 
 PreToolUse hook intercepting EVERY ``Agent`` tool call (sub-agent spawn) before
 execution to prevent unauthorized spawning, prompt injection, governance bypass
@@ -172,7 +172,7 @@ class PromptIntegrityDecision:
 
 
 class PromptIntegrityGuard:
-    """Modus-scharfe spawn-integrity guard (FK-31 §31.7).
+    """Mode-specific spawn-integrity guard (FK-31 §31.7).
 
     Args:
         emitter: Telemetry emitter used to persist the ``integrity_violation``
@@ -186,7 +186,7 @@ class PromptIntegrityGuard:
         self._emitter = emitter
 
     def evaluate(self, observation: SpawnObservation) -> PromptIntegrityDecision:
-        """Run the three FK-31 §31.7.2 stages mode-scharf.
+        """Run the three FK-31 §31.7.2 stages mode-specific.
 
         Args:
             observation: The harness-neutral spawn observation.
@@ -207,7 +207,7 @@ class PromptIntegrityGuard:
         if _has_escape_pattern(scan_text):
             return self._block(observation, PromptIntegrityStage.ESCAPE_DETECTION)
 
-        # Stage 2 — spawn-schema validation (mode-scharf).
+        # Stage 2 — spawn-schema validation (mode-specific).
         header = parse_spawn_header(observation.description)
         schema_ok = (
             self._story_execution_schema_ok(header, observation)

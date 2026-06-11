@@ -11,13 +11,13 @@ This module defines the **port** (``LlmClient`` protocol), the
 (injectable, fail-closed until a productive ``RolePoolResolver`` is injected),
 and the ``RolePoolResolver`` port (FK-75 §75.3).
 
-Quelle:
-  - FK-34 -- LLM-Bewertungen-Runtime (StructuredEvaluator, drei Rollen)
-  - FK-11 §11.5.1 -- StructuredEvaluator (CheckResult-basiert)
-  - FK-34 §34.5.1 -- Fehlerbehandlung (fail-closed: Pool/Antwort-Fehler -> FAIL)
-  - FK-11 §11.2.3 -- Acquire/Send/Release-Fehlerprotokoll
-  - FK-11 §11.6.1 -- Timeouts (acquire 30s / send 2400s / release 10s)
-  - FK-75 §75.3 -- Routing-Owner (Resolver injiziert, nicht im Transport)
+Source:
+  - FK-34 -- LLM-evaluations runtime (StructuredEvaluator, three roles)
+  - FK-11 §11.5.1 -- StructuredEvaluator (CheckResult-based)
+  - FK-34 §34.5.1 -- error handling (fail-closed: pool/response error -> FAIL)
+  - FK-11 §11.2.3 -- acquire/send/release error protocol
+  - FK-11 §11.6.1 -- timeouts (acquire 30s / send 2400s / release 10s)
+  - FK-75 §75.3 -- routing owner (resolver injected, not in the transport)
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ RELEASE_TIMEOUT_SECONDS: float = 10.0
 TOTAL_TIMEOUT_SECONDS: float = 2500.0
 
 #: Maximum number of acquire retries when the Hub returns a queued response.
-#: (FK-11 §11.6.1 Zeile 553/556: "max 5 Versuche")
+#: (FK-11 §11.6.1 line 553/556: "max 5 attempts")
 MAX_ACQUIRE_RETRIES: int = 5
 
 #: Best-effort release floor in seconds (ERROR 2 fix, AG3-065 rem-4): even
@@ -91,12 +91,12 @@ class LlmClientError(VerifySystemError):
     (which signals an *invalid response shape*): this error means the call did
     not produce any usable text at all (pool unreachable, timeout, empty
     completion). Both are fail-closed -- the evaluator never silently treats a
-    failed LLM call as a PASS (FK-34 §34.5.1: "Jedes FAIL ist fail-closed").
+    failed LLM call as a PASS (FK-34 §34.5.1: "every FAIL is fail-closed").
     """
 
 
 class LoginRequiredError(LlmClientError):
-    """Raised when the Hub pool requires operator login (FK-11 §11.2.3 Zeile 191).
+    """Raised when the Hub pool requires operator login (FK-11 §11.2.3 line 191).
 
     Distinct transport exit: the operator MUST log in before the pipeline can
     proceed. Subclasses :class:`LlmClientError` so existing fail-closed catch
@@ -105,7 +105,7 @@ class LoginRequiredError(LlmClientError):
 
     The Pipeline-Pause wiring itself (new PauseReason member + phase-runner
     PAUSED state) is an open, uncut concept gap (story §2.2 / §7); this class
-    delivers only the typed, abgreifbaren transport exit.
+    delivers only the typed, distinguishable transport exit.
 
     Attributes:
         operator_hint: Human-readable hint indicating which pool needs login.
@@ -150,7 +150,7 @@ class LlmClient(Protocol):
                 (FK-34 §34.5.1).
             LoginRequiredError: If the Hub signals that operator login is
                 required. Subclass of :class:`LlmClientError` — existing
-                fail-closed catches block, but the distinct type is abgreifbar.
+                fail-closed catches block, but the distinct type is distinguishable.
         """
         ...
 
@@ -190,12 +190,12 @@ class FailClosedLlmClient:
 
     AG3-043 E6 / story.md §2.2: the concrete LLM-pool adapter (which pool /
     provider answers a role) is a follow-up story. Until it is wired, the
-    composition root still wires Layer 2 to RUN (FK-27 §27.5 "Reviews finden
-    IMMER statt") -- with this client. Every ``complete`` call raises
+    composition root still wires Layer 2 to RUN (FK-27 §27.5 "Reviews ALWAYS
+    take place") -- with this client. Every ``complete`` call raises
     :class:`LlmClientError`, so Layer 2 fails closed (the QA-subflow blocks the
     story, NO ERROR BYPASSING) instead of silently falling back to the
     deterministic stub reviewers. This is the correct fail-closed default per
-    FK-34 §34.5.1 ("Pool nicht erreichbar -> FAIL"): a missing transport is a
+    FK-34 §34.5.1 ("pool unreachable -> FAIL"): a missing transport is a
     hard FAIL, never a silent skip or a quietly-degraded review.
 
     Attributes:
@@ -204,8 +204,8 @@ class FailClosedLlmClient:
 
     reason: str = (
         "No LLM pool is configured for Layer-2 evaluations yet "
-        "(FK-11 LLM-Pool-Auswahl is a follow-up story, story.md §2.2). "
-        "Layer 2 fails closed (FK-34 §34.5.1 'Pool nicht erreichbar -> FAIL')."
+        "(FK-11 LLM-pool selection is a follow-up story, story.md §2.2). "
+        "Layer 2 fails closed (FK-34 §34.5.1 'pool unreachable -> FAIL')."
     )
 
     def complete(self, *, role: str, prompt: str) -> str:
@@ -237,7 +237,7 @@ class HubLlmClient:
       times; exhaustion → :class:`LlmClientError`.
     - Send-timeout: exactly 1 retry with a new slot.
     - ``lease_expired`` / session-not-found: 1 re-acquire + 1 send.
-    - Login-required: :class:`LoginRequiredError` (subclass, abgreifbar).
+    - Login-required: :class:`LoginRequiredError` (subclass, distinguishable).
     - Pool unreachable / rejected: :class:`LlmClientError` (fail-closed).
     - Release: always in a ``finally`` block.
 
@@ -569,7 +569,7 @@ class HubLlmClient:
     ) -> None:
         """Release the session lease, swallowing errors (best-effort).
 
-        FK-11 §11.2.3 Zeile 192: release is always attempted, even on error.
+        FK-11 §11.2.3 line 192: release is always attempted, even on error.
         Failures here are logged but never re-raised.
 
         The release timeout is clamped to ``min(RELEASE_TIMEOUT_SECONDS,

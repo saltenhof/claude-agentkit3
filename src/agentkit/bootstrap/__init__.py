@@ -1,12 +1,11 @@
-"""Bootstrap-Paket: Composition-Root und einmalige App-Initialisierung.
+"""Bootstrap package: composition root and one-time app initialization.
 
-Dieses Paket buendelt die explizite, side-effect-freie Bootstrap-
-Mechanik. Konsumenten sollen ``build_producer_registry()`` (oder
-analoge Builder) aufrufen, statt sich auf ``__init__.py``-Side-Effects
-zu verlassen.
+This package bundles the explicit, side-effect-free bootstrap mechanics.
+Consumers should call ``build_producer_registry()`` (or analogous builders)
+rather than relying on ``__init__.py`` side effects.
 
 Stories:
-- AG3-023 §2.1.6.2 — Composition-Root mit ``build_producer_registry``
+- AG3-023 §2.1.6.2 — composition root with ``build_producer_registry``
 """
 
 from __future__ import annotations

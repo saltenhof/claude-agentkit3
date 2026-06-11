@@ -279,12 +279,12 @@ class StateBackendHookRegistrationRepository:
         with _sqlite_connect(self._store_dir) as conn:
             for defn in definitions:
                 try:
-                    # AG3-031 Hotfix 2026-05-25 (Governance-Loch): Identitaet ist
-                    # das 4-Tupel (project_key, hook_event_name, matcher, command).
-                    # FK-30 §30.3.1 registriert mehrere Hooks mit demselben matcher
-                    # (z. B. "Bash" fuer branch_guard UND story_creation_guard);
-                    # ein 3-Tupel-PK ohne command kollabierte sie und verwarf Guards.
-                    # Pre-check: exaktes 4-Tupel bereits vorhanden -> idempotent skip.
+                    # AG3-031 hotfix 2026-05-25 (governance gap): the identity is
+                    # the 4-tuple (project_key, hook_event_name, matcher, command).
+                    # FK-30 §30.3.1 registers multiple hooks with the same matcher
+                    # (e.g. "Bash" for branch_guard AND story_creation_guard);
+                    # a 3-tuple PK without command collapsed them and dropped guards.
+                    # Pre-check: exact 4-tuple already present -> idempotent skip.
                     existing = conn.execute(
                         """
                         SELECT 1 FROM governance_hook_registrations
@@ -350,11 +350,11 @@ class StateBackendHookRegistrationRepository:
         with _postgres_connect() as conn:
             for defn in definitions:
                 try:
-                    # AG3-031 Hotfix 2026-05-25 (Governance-Loch): Identitaet ist
-                    # das 4-Tupel (project_key, hook_event_name, matcher, command).
-                    # FK-30 §30.3.1 registriert mehrere Hooks mit demselben matcher;
-                    # ein 3-Tupel-PK ohne command kollabierte sie und verwarf Guards.
-                    # Pre-check: exaktes 4-Tupel bereits vorhanden -> idempotent skip.
+                    # AG3-031 hotfix 2026-05-25 (governance gap): the identity is
+                    # the 4-tuple (project_key, hook_event_name, matcher, command).
+                    # FK-30 §30.3.1 registers multiple hooks with the same matcher;
+                    # a 3-tuple PK without command collapsed them and dropped guards.
+                    # Pre-check: exact 4-tuple already present -> idempotent skip.
                     existing = conn.execute(
                         """
                         SELECT 1 FROM governance_hook_registrations

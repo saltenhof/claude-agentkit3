@@ -113,7 +113,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             story_type TEXT NOT NULL,
             -- execution_route is nullable since AG3-021: non-implementing
             -- story types (concept/research) carry NULL instead of a
-            -- sentinel value (siehe AG3-021 §2.1.1.1 StoryMode-Werte).
+            -- sentinel value (see AG3-021 §2.1.1.1 StoryMode values).
             execution_route TEXT,
             implementation_contract TEXT,
             issue_nr INTEGER,
@@ -536,10 +536,10 @@ def _ensure_schema_core_tables_b(conn: sqlite3.Connection) -> None:
             PRIMARY KEY (project_key, hook_event_name, matcher)
         );
 
-        -- AG3-035 Befund-B: qa_stage_results/qa_findings DDL verschoben von
-        -- projection_repositories._ensure_sqlite_qa_schema hierher.
-        -- Schema-Owner fuer SQLite-DDL ist sqlite_store (SINGLE SOURCE OF TRUTH).
-        -- Symmetrisch zu Postgres-Schema (postgres_schema.sql §69.6/§69.7).
+        -- AG3-035 finding B: qa_stage_results/qa_findings DDL moved here from
+        -- projection_repositories._ensure_sqlite_qa_schema.
+        -- The schema owner for SQLite DDL is sqlite_store (SINGLE SOURCE OF TRUTH).
+        -- Symmetric to the Postgres schema (postgres_schema.sql §69.6/§69.7).
         CREATE TABLE IF NOT EXISTS qa_stage_results (
             project_key      TEXT NOT NULL,
             story_id         TEXT NOT NULL,
@@ -608,18 +608,18 @@ def _ensure_runtime_tables_part2(conn: sqlite3.Connection) -> None:
     Split out of ``_ensure_schema_runtime_tables`` so neither function exceeds the
     300-LOC limit (python:S138, Codex/Sonar): the AG3-028 failure-corpus DDL
     (fc_incidents, fc_incident_counters, element-type triggers) pushed the combined
-    function over the threshold. Pure structural split — identische DDL, zwei
-    idempotente ``executescript``-Aufrufe.
+    function over the threshold. Pure structural split — identical DDL, two
+    idempotent ``executescript`` calls.
     """
     conn.executescript(
         """
-        -- AG3-028 (FK-41 §41.3.1, FK-69): fc_incidents. Schema-Owner
-        -- failure-corpus, DB-Owner telemetry-and-events via ProjectionAccessor.
-        -- Append-only (genau ein Datensatz pro incident_id). Schema exakt nach
-        -- FK-41 §41.3.1 (Codex-r1 Remediation 2026-06-01): project_key NOT NULL,
-        -- incident_id PK im Format FC-YYYY-NNNN, run_id NOT NULL, role CHECK,
-        -- phase/model/symptom NOT NULL, evidence_json = Liste von Strings.
-        -- Symmetrisch zu postgres_schema.sql.
+        -- AG3-028 (FK-41 §41.3.1, FK-69): fc_incidents. Schema owner
+        -- failure-corpus, DB owner telemetry-and-events via ProjectionAccessor.
+        -- Append-only (exactly one record per incident_id). Schema exactly per
+        -- FK-41 §41.3.1 (Codex-r1 remediation 2026-06-01): project_key NOT NULL,
+        -- incident_id PK in the FC-YYYY-NNNN format, run_id NOT NULL, role CHECK,
+        -- phase/model/symptom NOT NULL, evidence_json = list of strings.
+        -- Symmetric to postgres_schema.sql.
         CREATE TABLE IF NOT EXISTS fc_incidents (
             project_key      TEXT NOT NULL,
             incident_id      TEXT NOT NULL,
@@ -648,33 +648,33 @@ def _ensure_runtime_tables_part2(conn: sqlite3.Connection) -> None:
             tags             TEXT,
             impact           TEXT,
             pattern_ref      TEXT,
-            -- Codex-r2 (User-Entscheidung 2026-06-01): incident_id ist GLOBAL
-            -- eindeutig (kein Projekt-Segment, keine per-project-Nummerierung).
-            -- PK = incident_id allein; project_key bleibt NOT-NULL-Spalte und
-            -- read/purge filtern weiterhin zwingend nach project_key (r1-Fix).
-            -- Die FC-YYYY-NNNN-Nummern stammen aus einem globalen Per-Jahr-
-            -- Zaehler (fc_incident_counters, gekeyt auf year allein).
-            -- incident_id == FC-YYYY-NNNN (NNNN >= 4 Stellen, NUR Ziffern). Der
-            -- Prefix-GLOB erzwingt FC-YYYY- + >=4 Ziffern; das NOT GLOB auf der
-            -- Sequenz (ab Pos. 9) verbietet ein Nicht-Ziffern-Suffix wie
-            -- "...0001x". Spiegelt den Pydantic-Validator (Jahr 4-stellig,
-            -- Sequenz mindestens 4 Ziffern, nur Ziffern).
+            -- Codex-r2 (user decision 2026-06-01): incident_id is GLOBALLY
+            -- unique (no project segment, no per-project numbering).
+            -- PK = incident_id alone; project_key stays a NOT-NULL column and
+            -- read/purge still mandatorily filter by project_key (r1 fix).
+            -- The FC-YYYY-NNNN numbers come from a global per-year
+            -- counter (fc_incident_counters, keyed on year alone).
+            -- incident_id == FC-YYYY-NNNN (NNNN >= 4 digits, DIGITS ONLY). The
+            -- prefix GLOB enforces FC-YYYY- + >=4 digits; the NOT GLOB on the
+            -- sequence (from pos. 9) forbids a non-digit suffix like
+            -- "...0001x". Mirrors the Pydantic validator (year 4 digits,
+            -- sequence at least 4 digits, digits only).
             CONSTRAINT fc_incidents_id_format
                 CHECK (incident_id GLOB
                        'FC-[0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9]*'
                        AND substr(incident_id, 9) NOT GLOB '*[^0-9]*'),
-            -- evidence_json = JSON-Array. Der Array-Typ wird per CHECK erzwungen;
-            -- der Element-Typ (list[str], FK-41 §41.4.1) DB-seitig per
-            -- BEFORE-Trigger (json_each, siehe unten) — ein CHECK kann JSON-Arrays
-            -- nicht elementweise pruefen. Damit ist die DB symmetrisch zum
-            -- Postgres-jsonpath-CHECK fail-closed (auch gegen Direktinserts).
+            -- evidence_json = JSON array. The array type is enforced via CHECK;
+            -- the element type (list[str], FK-41 §41.4.1) on the DB side via a
+            -- BEFORE trigger (json_each, see below) — a CHECK cannot validate
+            -- JSON array elements element-wise. This makes the DB symmetric to
+            -- the Postgres jsonpath CHECK and fail-closed (even against direct inserts).
             CONSTRAINT fc_incidents_evidence_is_array
                 CHECK (json_valid(evidence_json)
                        AND json_type(evidence_json) = 'array'),
-            -- tags ist optional; wenn gesetzt ein JSON-Array (Element-Typ
-            -- list[str] erzwingt der BEFORE-Trigger unten). NULL erlaubt. Ohne
-            -- diesen CHECK wuerde json_each einen Scalar/Objekt faelschlich als
-            -- text-Rows durchwinken (Codex-r6).
+            -- tags is optional; when set, a JSON array (element type
+            -- list[str] is enforced by the BEFORE trigger below). NULL allowed. Without
+            -- this CHECK, json_each would wrongly wave a scalar/object through as
+            -- text rows (Codex-r6).
             CONSTRAINT fc_incidents_tags_is_array
                 CHECK (tags IS NULL
                        OR (json_valid(tags) AND json_type(tags) = 'array')),
@@ -687,12 +687,12 @@ def _ensure_runtime_tables_part2(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_fc_incidents_incident_status
             ON fc_incidents (incident_status);
 
-        -- AG3-028 (Codex-r5): evidence_json/tags MUESSEN JSON-Arrays AUS STRINGS
-        -- sein (FK-41 §41.4.1 list[str]). Ein CHECK kann Array-Elemente nicht
-        -- iterieren; ein BEFORE-Trigger mit json_each schon. RAISE(ABORT) macht
-        -- den Insert/Update fail-closed bei einem Nicht-String-Element — DB-Ebene,
-        -- unabhaengig von Pydantic (deckt Direktinserts ab; symmetrisch zum
-        -- Postgres-jsonpath-CHECK).
+        -- AG3-028 (Codex-r5): evidence_json/tags MUST be JSON arrays OF STRINGS
+        -- (FK-41 §41.4.1 list[str]). A CHECK cannot iterate array elements;
+        -- a BEFORE trigger with json_each can. RAISE(ABORT) makes the
+        -- insert/update fail-closed on a non-string element — at the DB level,
+        -- independent of Pydantic (covers direct inserts; symmetric to the
+        -- Postgres jsonpath CHECK).
         CREATE TRIGGER IF NOT EXISTS trg_fc_incidents_strarray_insert
         BEFORE INSERT ON fc_incidents
         WHEN EXISTS (SELECT 1 FROM json_each(NEW.evidence_json) AS e
@@ -717,10 +717,10 @@ def _ensure_runtime_tables_part2(conn: sqlite3.Connection) -> None:
                 'evidence_json/tags must be a JSON array of strings (FK-41 §41.4.1)');
         END;
 
-        -- AG3-028 (Codex-r2): GLOBALER Per-Jahr-Zaehler fuer die global
-        -- eindeutige FC-YYYY-NNNN-Allokation (PK = year allein, KEIN
-        -- project_key). Race-sicher in EINEM atomaren UPSERT mit RETURNING
-        -- (SQLite >= 3.35), unter BEGIN IMMEDIATE serialisiert.
+        -- AG3-028 (Codex-r2): GLOBAL per-year counter for the globally
+        -- unique FC-YYYY-NNNN allocation (PK = year alone, NO
+        -- project_key). Race-safe in ONE atomic UPSERT with RETURNING
+        -- (SQLite >= 3.35), serialized under BEGIN IMMEDIATE.
         CREATE TABLE IF NOT EXISTS fc_incident_counters (
             year              INTEGER NOT NULL,
             next_seq          INTEGER NOT NULL,
@@ -759,13 +759,13 @@ def _ensure_runtime_tables_part2b(conn: sqlite3.Connection) -> None:
         );
 
         -- AG3-048 (FK-43 §43.4.1, bc-cut-decisions.md §BC 11): skill_bindings.
-        -- Schema-Owner agent-skills (SkillBinding entity, AG3-027); DB-Owner
-        -- state_backend. Postgres ist kanonisch, dieses SQLite-Schema ist der
-        -- Test-Parallel-Pfad mit IDENTISCHER DDL (symmetrisch zu
-        -- postgres_schema.sql). Spalten spiegeln EXAKT das SkillBinding-Modell
-        -- (kein manifest_digest, das Modell ist Owner der Shape). Upsert auf
-        -- (project_key, skill_name). status deckt ALLE SECHS
-        -- SkillLifecycleStatus-Werte ab (FAIL-CLOSED CHECK).
+        -- Schema owner agent-skills (SkillBinding entity, AG3-027); DB owner
+        -- state_backend. Postgres is canonical, this SQLite schema is the
+        -- test-parallel path with IDENTICAL DDL (symmetric to
+        -- postgres_schema.sql). Columns mirror the SkillBinding model EXACTLY
+        -- (no manifest_digest, the model owns the shape). Upsert on
+        -- (project_key, skill_name). status covers ALL SIX
+        -- SkillLifecycleStatus values (FAIL-CLOSED CHECK).
         CREATE TABLE IF NOT EXISTS skill_bindings (
             binding_id       TEXT NOT NULL,
             project_key      TEXT NOT NULL,
@@ -787,11 +787,11 @@ def _ensure_runtime_tables_part2b(conn: sqlite3.Connection) -> None:
             ON skill_bindings (project_key, skill_name);
 
         -- AG3-032 (FK-55 §55.8 / §55.10.5, FK-31 §31.2.7): governance_freeze_records.
-        -- Test-Parallel-Pfad mit IDENTISCHER DDL zu postgres_schema.sql (Postgres
-        -- ist kanonisch). Kanonische (Wahrheits-)Seite der dualen Conflict-Freeze-
-        -- Materialisierung; die lokale .agentkit/governance/freeze.json ist der
-        -- hook-schnelle Export mit identischem freeze_version. Genau ein aktiver
-        -- Freeze pro Story (PK story_id).
+        -- Test-parallel path with IDENTICAL DDL to postgres_schema.sql (Postgres
+        -- is canonical). Canonical (truth) side of the dual conflict-freeze
+        -- materialization; the local .agentkit/governance/freeze.json is the
+        -- hook-fast export with an identical freeze_version. Exactly one active
+        -- freeze per story (PK story_id).
         CREATE TABLE IF NOT EXISTS governance_freeze_records (
             story_id        TEXT NOT NULL,
             frozen_at       TEXT NOT NULL,
@@ -877,12 +877,12 @@ def _ensure_runtime_tables_part2b(conn: sqlite3.Connection) -> None:
         );
 
         -- AG3-034 (FK-24 §24.3.3, FK-22 §22.3.1 Check 10): project_mode_lock.
-        -- Test-Parallel-Pfad mit IDENTISCHER DDL zu postgres_schema.sql (Postgres
-        -- ist kanonisch). Projektweiter Mode-Lock fuer die Fast/Standard-Mutual-
-        -- Exclusion; AG3-034 stellt NUR den Read-Pfad fuer Preflight-Check 10 her
-        -- (atomare Setzung = AG3-018-Folge, story.md §2.1.2 / §2.2). active_mode
-        -- liegt auf der entkoppelten fast/standard-mode-Achse (WireStoryMode,
-        -- FK-24 §24.3.3), NICHT auf der execution_route-Achse. NULL = idle.
+        -- Test-parallel path with IDENTICAL DDL to postgres_schema.sql (Postgres
+        -- is canonical). Project-wide mode lock for the fast/standard mutual
+        -- exclusion; AG3-034 provides ONLY the read path for preflight check 10
+        -- (atomic setting = AG3-018 follow-up, story.md §2.1.2 / §2.2). active_mode
+        -- lives on the decoupled fast/standard-mode axis (WireStoryMode,
+        -- FK-24 §24.3.3), NOT on the execution_route axis. NULL = idle.
         -- holder_count >= 0.
         CREATE TABLE IF NOT EXISTS project_mode_lock (
             project_key    TEXT NOT NULL,
@@ -895,17 +895,17 @@ def _ensure_runtime_tables_part2b(conn: sqlite3.Connection) -> None:
         );
 
         -- AG3-039 (FK-50 §50.3 CP 7, formal.installer.entities
-        -- §project-registration): project_registry. Test-Parallel-Pfad zu
-        -- postgres_schema.sql (Postgres ist kanonisch).
-        -- Kanonische State-Backend-Registrierung fuer Installer-Checkpoint 7.
-        -- project_root ist UNIQUE (genau eine Registrierung pro Filesystem-Root);
-        -- runtime_profile ist auf die RuntimeProfile-Wire-Werte (core | are)
-        -- eingeschraenkt. last_verified_at / last_upgraded_at bleiben NULL bis
-        -- verify-project / ein Upgrade-Rerun sie setzen. Die Zeit-Spalten sind
-        -- ISO-8601 TEXT, konsistent zur SQLite-Timestamp-Konvention der anderen
-        -- AK3-Tabellen (SQLite hat keine native timestamptz-Affinitaet); der
-        -- kanonische Postgres-Pfad nutzt dagegen TIMESTAMPTZ (story §2.1.1). Der
-        -- Mapper roundtrippt datetime gegen beide Backends.
+        -- §project-registration): project_registry. Test-parallel path to
+        -- postgres_schema.sql (Postgres is canonical).
+        -- Canonical state-backend registration for installer checkpoint 7.
+        -- project_root is UNIQUE (exactly one registration per filesystem root);
+        -- runtime_profile is restricted to the RuntimeProfile wire values
+        -- (core | are). last_verified_at / last_upgraded_at stay NULL until
+        -- verify-project / an upgrade rerun set them. The time columns are
+        -- ISO-8601 TEXT, consistent with the SQLite timestamp convention of the
+        -- other AK3 tables (SQLite has no native timestamptz affinity); the
+        -- canonical Postgres path uses TIMESTAMPTZ instead (story §2.1.1). The
+        -- mapper round-trips datetime against both backends.
         CREATE TABLE IF NOT EXISTS project_registry (
             project_key      TEXT NOT NULL,
             project_root     TEXT NOT NULL,
@@ -933,20 +933,20 @@ def _ensure_runtime_tables_part3(conn: sqlite3.Connection) -> None:
     Split out of ``_ensure_runtime_tables_part2`` so neither function exceeds the
     300-LOC limit (python:S138, Codex/Sonar): the AG3-040 Sub-Block (b) DDL
     (fc_patterns, fc_check_proposals incl. element-type trigger) pushed part2 over
-    the threshold. Pure structural split — identische DDL, idempotenter
-    ``executescript``-Aufruf. Test-Parallel-Pfad zu ``postgres_schema.sql``
-    (Postgres ist kanonisch; FK-41 §41.3.2/§41.3.3, FK-69 §69.3).
+    the threshold. Pure structural split — identical DDL, idempotent
+    ``executescript`` call. Test-parallel path to ``postgres_schema.sql``
+    (Postgres is canonical; FK-41 §41.3.2/§41.3.3, FK-69 §69.3).
     """
     conn.executescript(
         """
         -- AG3-040 Sub-Block (b) (FK-41 §41.3.2, FK-69 §69.3): fc_patterns.
-        -- Schema-Owner failure-corpus. Test-Parallel-Pfad mit IDENTISCHER
-        -- Semantik zu postgres_schema.sql (Postgres ist kanonisch). status =
-        -- pattern-status (4 Werte), category = FailureCategory (12 Werte),
-        -- promotion_rule/risk_level mit den FK-41-Enums. incident_refs = JSON-
-        -- Array von incident_id-Strings (Element-Typ list[str] via BEFORE-Trigger,
-        -- da ein CHECK Array-Elemente nicht iterieren kann). NUR Tabelle +
-        -- Repository-Skelett; Writer (PatternPromotion) ist Out of Scope.
+        -- Schema owner failure-corpus. Test-parallel path with IDENTICAL
+        -- semantics to postgres_schema.sql (Postgres is canonical). status =
+        -- pattern-status (4 values), category = FailureCategory (12 values),
+        -- promotion_rule/risk_level with the FK-41 enums. incident_refs = JSON
+        -- array of incident_id strings (element type list[str] via BEFORE trigger,
+        -- since a CHECK cannot iterate array elements). ONLY table +
+        -- repository skeleton; the writer (PatternPromotion) is Out of Scope.
         CREATE TABLE IF NOT EXISTS fc_patterns (
             pattern_id        TEXT NOT NULL,
             project_key       TEXT NOT NULL,
@@ -971,27 +971,27 @@ def _ensure_runtime_tables_part3(conn: sqlite3.Connection) -> None:
             confirmed_at      TEXT,
             confirmed_by      TEXT CHECK (confirmed_by IS NULL OR confirmed_by = 'human'),
             owner             TEXT,
-            -- check_ref ist FK auf fc_check_proposals(check_id) (FK-41 §41.3.2:234).
-            -- Zirkulaere FK mit fc_check_proposals.pattern_ref: SQLite erlaubt die
-            -- Forward-Referenz in CREATE TABLE (FK-Ziel wird erst bei Benutzung
-            -- aufgeloest), und _connect setzt PRAGMA foreign_keys = ON (erzwingt
-            -- die FK identisch zu pattern_ref). Beide Refs sind nullable.
+            -- check_ref is an FK to fc_check_proposals(check_id) (FK-41 §41.3.2:234).
+            -- Circular FK with fc_check_proposals.pattern_ref: SQLite allows the
+            -- forward reference in CREATE TABLE (the FK target is resolved only on
+            -- use), and _connect sets PRAGMA foreign_keys = ON (enforces
+            -- the FK identically to pattern_ref). Both refs are nullable.
             check_ref         TEXT REFERENCES fc_check_proposals(check_id),
             retired_at        TEXT,
-            -- pattern_id == FP-NNNN (NNNN >= 4 Stellen, NUR Ziffern). Der
-            -- Prefix-GLOB erzwingt FP- + >=4 Ziffern; das NOT GLOB ab Pos. 4
-            -- verbietet ein Nicht-Ziffern-Suffix.
+            -- pattern_id == FP-NNNN (NNNN >= 4 digits, DIGITS ONLY). The
+            -- prefix GLOB enforces FP- + >=4 digits; the NOT GLOB from pos. 4
+            -- forbids a non-digit suffix.
             CONSTRAINT fc_patterns_id_format
                 CHECK (pattern_id GLOB 'FP-[0-9][0-9][0-9][0-9]*'
                        AND substr(pattern_id, 4) NOT GLOB '*[^0-9]*'),
-            -- incident_refs = JSON-Array (Array-Typ per CHECK; Element-Typ
-            -- list[str] erzwingt der BEFORE-Trigger unten).
+            -- incident_refs = JSON array (array type via CHECK; element type
+            -- list[str] enforced by the BEFORE trigger below).
             CONSTRAINT fc_patterns_incident_refs_is_array
                 CHECK (json_valid(incident_refs)
                        AND json_type(incident_refs) = 'array'),
-            -- FK-41 §41.3.2:239: kein Pattern wechselt in 'accepted' ohne
-            -- confirmed_by = 'human' (FAIL-CLOSED, Lifecycle-Invariante;
-            -- spiegelt Postgres fc_patterns_accepted_human + Pydantic-Validator).
+            -- FK-41 §41.3.2:239: no pattern transitions into 'accepted' without
+            -- confirmed_by = 'human' (FAIL-CLOSED, lifecycle invariant;
+            -- mirrors Postgres fc_patterns_accepted_human + Pydantic validator).
             CONSTRAINT fc_patterns_accepted_human
                 CHECK (status <> 'accepted' OR confirmed_by IS 'human'),
             PRIMARY KEY (pattern_id)
@@ -1003,8 +1003,8 @@ def _ensure_runtime_tables_part3(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_fc_patterns_status
             ON fc_patterns (status);
 
-        -- incident_refs MUSS ein JSON-Array AUS STRINGS sein (FK-41 §41.3.2).
-        -- Symmetrisch zum Postgres-jsonpath-CHECK + fc_incidents-Trigger.
+        -- incident_refs MUST be a JSON array OF STRINGS (FK-41 §41.3.2).
+        -- Symmetric to the Postgres jsonpath CHECK + fc_incidents trigger.
         CREATE TRIGGER IF NOT EXISTS trg_fc_patterns_strarray_insert
         BEFORE INSERT ON fc_patterns
         WHEN EXISTS (SELECT 1 FROM json_each(NEW.incident_refs) AS e
@@ -1024,12 +1024,12 @@ def _ensure_runtime_tables_part3(conn: sqlite3.Connection) -> None:
         END;
 
         -- AG3-040 Sub-Block (b) (FK-41 §41.3.3, FK-69 §69.3): fc_check_proposals.
-        -- Schema-Owner failure-corpus. Test-Parallel-Pfad mit IDENTISCHER
-        -- Semantik zu postgres_schema.sql. status = check-status (5 Werte),
-        -- check_type = 6 FK-41-Werte, false_positive_risk = niedrig|mittel|hoch.
-        -- pattern_ref ist FK auf fc_patterns(pattern_id). positive_/negative_
-        -- fixtures = JSON-Arrays. NUR Tabelle + Repository-Skelett; Writer
-        -- (CheckFactory) ist Out of Scope.
+        -- Schema owner failure-corpus. Test-parallel path with IDENTICAL
+        -- semantics to postgres_schema.sql. status = check-status (5 values),
+        -- check_type = 6 FK-41 values, false_positive_risk = niedrig|mittel|hoch.
+        -- pattern_ref is an FK to fc_patterns(pattern_id). positive_/negative_
+        -- fixtures = JSON arrays. ONLY table + repository skeleton; the writer
+        -- (CheckFactory) is Out of Scope.
         CREATE TABLE IF NOT EXISTS fc_check_proposals (
             check_id              TEXT NOT NULL,
             project_key           TEXT NOT NULL,
@@ -1057,22 +1057,22 @@ def _ensure_runtime_tables_part3(conn: sqlite3.Connection) -> None:
             effectiveness_last_checked_at TEXT,
             true_positives_90d    INTEGER,
             false_positives_90d   INTEGER,
-            -- check_id == CHK-NNNN (NNNN >= 4 Stellen, NUR Ziffern).
+            -- check_id == CHK-NNNN (NNNN >= 4 digits, DIGITS ONLY).
             CONSTRAINT fc_check_proposals_id_format
                 CHECK (check_id GLOB 'CHK-[0-9][0-9][0-9][0-9]*'
                        AND substr(check_id, 5) NOT GLOB '*[^0-9]*'),
-            -- positive_/negative_fixtures = JSON-Array (Array-Typ per CHECK;
-            -- Element-Shape {description, expected} erzwingt der BEFORE-Trigger
-            -- unten, da ein CHECK Array-Elemente nicht iterieren kann).
+            -- positive_/negative_fixtures = JSON array (array type via CHECK;
+            -- the {description, expected} element shape is enforced by the BEFORE
+            -- trigger below, since a CHECK cannot iterate array elements).
             CONSTRAINT fc_check_proposals_positive_fixtures_is_array
                 CHECK (json_valid(positive_fixtures)
                        AND json_type(positive_fixtures) = 'array'),
             CONSTRAINT fc_check_proposals_negative_fixtures_is_array
                 CHECK (json_valid(negative_fixtures)
                        AND json_type(negative_fixtures) = 'array'),
-            -- FK-41 §41.3.3:282: approved_by muss 'human' sein; 'active' erbt die
-            -- Pflicht (Vorwaerts-Uebergang aus 'approved'). FAIL-CLOSED, spiegelt
-            -- Postgres fc_check_proposals_approved_human + Pydantic-Validator.
+            -- FK-41 §41.3.3:282: approved_by must be 'human'; 'active' inherits the
+            -- requirement (forward transition from 'approved'). FAIL-CLOSED, mirrors
+            -- Postgres fc_check_proposals_approved_human + Pydantic validator.
             CONSTRAINT fc_check_proposals_approved_human
                 CHECK (status NOT IN ('approved', 'active')
                        OR approved_by IS 'human'),
@@ -1088,13 +1088,13 @@ def _ensure_runtime_tables_part3(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_fc_check_proposals_status
             ON fc_check_proposals (status);
 
-        -- positive_/negative_fixtures MUESSEN JSON-Arrays von {description,
-        -- expected}-Objekten sein (FK-41 §41.3.3:265-266). Ein CHECK kann
-        -- Array-Elemente nicht iterieren; ein BEFORE-Trigger mit json_each schon.
-        -- RAISE(ABORT) macht Insert/Update fail-closed bei einem Element, das
-        -- KEIN Objekt ist oder einen Pflicht-Key vermissen laesst. Damit kann die
-        -- DB keinen fixtures-Wert halten, den der Repo-Decoder ablehnt
-        -- (symmetrisch zum Postgres-jsonpath-CHECK *_fixtures_shape).
+        -- positive_/negative_fixtures MUST be JSON arrays of {description,
+        -- expected} objects (FK-41 §41.3.3:265-266). A CHECK cannot
+        -- iterate array elements; a BEFORE trigger with json_each can.
+        -- RAISE(ABORT) makes insert/update fail-closed on an element that
+        -- is NOT an object or is missing a required key. This means the
+        -- DB cannot hold a fixtures value that the repo decoder rejects
+        -- (symmetric to the Postgres jsonpath CHECK *_fixtures_shape).
         CREATE TRIGGER IF NOT EXISTS trg_fc_check_proposals_fixtures_insert
         BEFORE INSERT ON fc_check_proposals
         WHEN EXISTS (
@@ -1295,10 +1295,10 @@ def _ensure_four_phase_migration(conn: sqlite3.Connection) -> None:
         WHERE phase = 'verify'
         """,
     )
-    # Legacy ``attempt_records``-Tabelle ist mit Schema 3.5.0 entfernt
-    # (siehe AG3-025 Re-Review-Befund 2): keine Migrations-Updates mehr
-    # auf der Alt-Tabelle. ``attempts`` ist die neue Quelle und wird
-    # nicht von der 'verify' -> 'implementation'-Konsolidierung beruehrt.
+    # The legacy ``attempt_records`` table was removed with schema 3.5.0
+    # (see AG3-025 re-review finding 2): no more migration updates
+    # on the old table. ``attempts`` is the new source and is
+    # not touched by the 'verify' -> 'implementation' consolidation.
 
 
 def _ensure_default_projects_for_story_contexts(conn: sqlite3.Connection) -> None:
@@ -1656,7 +1656,7 @@ def load_story_context_by_story_number_row(
     project_key: str,
     story_number: int,
 ) -> dict[str, Any] | None:
-    """Return one story-context row by fachliche identity."""
+    """Return one story-context row by domain identity."""
 
     with _connect(_project_store_dir(store_dir)) as conn:
         row = conn.execute(

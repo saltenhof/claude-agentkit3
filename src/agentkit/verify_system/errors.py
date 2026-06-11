@@ -4,7 +4,7 @@ All exceptions in this module descend from ``VerifySystemError`` so that
 callers can catch the entire BC's exception surface with a single
 ``except VerifySystemError`` clause if needed.
 
-Quelle: AG3-026 §2.1.4 -- Fail-Closed-Wege.
+Source: AG3-026 §2.1.4 -- fail-closed paths.
 """
 
 from __future__ import annotations

@@ -225,7 +225,7 @@ class SkillUsageCheckGuard:
             return SkillUsageDecision(verdict=GuardVerdict.allow(self.name))
 
         # The skill's precondition must be met for the norm to apply (F-43-030
-        # "sofern deren Voraussetzung erfuellt ist").
+        # "provided its precondition is met").
         if not self._precondition_met(rule.precondition, observation):
             return SkillUsageDecision(verdict=GuardVerdict.allow(self.name))
 

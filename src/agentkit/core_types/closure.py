@@ -1,13 +1,13 @@
-"""ClosureVerdict und MergePolicy — Closure-Phase-Enums.
+"""ClosureVerdict and MergePolicy — closure-phase enums.
 
 Source of truth:
 - ClosureVerdict: ``concept/_meta/bc-cut-decisions.md`` §BC 8 Closure-Top
-  (Z. 558-560, StrEnum COMPLETED/ESCALATED).
+  (lines 558-560, StrEnum COMPLETED/ESCALATED).
 - MergePolicy: FK-29 §29.1.5 — concept/technical-design/29_closure_sequence.md
-  (Z. 351-358, ff_only/no_ff).
+  (lines 351-358, ff_only/no_ff).
 
-Aktive Verwendung dieser Enums in `closure/`-Modulen ist Aufgabe
-spaeter Stories (THEME-005 ff.).
+Active use of these enums in `closure/` modules is the task of later stories
+(THEME-005 ff.).
 """
 
 from __future__ import annotations
@@ -16,12 +16,12 @@ from enum import StrEnum
 
 
 class ClosureVerdict(StrEnum):
-    """Closure-Endentscheidung pro bc-cut-decisions §BC 8.
+    """Final closure decision per bc-cut-decisions §BC 8.
 
     Attributes:
-        COMPLETED: Closure erfolgreich abgeschlossen (Merge + Push + Cleanup).
-        ESCALATED: Closure eskaliert (Merge-Konflikt, Integrity-Fail,
-            manuelle Intervention noetig).
+        COMPLETED: Closure completed successfully (merge + push + cleanup).
+        ESCALATED: Closure escalated (merge conflict, integrity fail,
+            manual intervention required).
     """
 
     COMPLETED = "COMPLETED"
@@ -29,11 +29,11 @@ class ClosureVerdict(StrEnum):
 
 
 class MergePolicy(StrEnum):
-    """Erlaubte Closure-Merge-Policies pro FK-29 §29.1.5.
+    """Permitted closure merge policies per FK-29 §29.1.5.
 
     Attributes:
-        FF_ONLY: Fast-Forward-Merge ohne Merge-Commit (Default).
-        NO_FF: Merge mit explizitem Merge-Commit (offizieller Fallback).
+        FF_ONLY: Fast-forward merge without a merge commit (default).
+        NO_FF: Merge with an explicit merge commit (official fallback).
     """
 
     FF_ONLY = "ff_only"

@@ -6,10 +6,10 @@ brief, acceptance criteria, the diff summary/content, concept anchors and --
 in the remediation round -- the previous round's findings (FK-34 §34.9 /
 DK-04 §4.6).
 
-Quelle:
+Source:
   - FK-37 §37.1 -- six semantic ContextBundle fields.
   - FK-37 §37.3 -- section-aware packing and truncation protocol.
-  - FK-34 §34.9 / DK-04 §4.6 -- Remediation-Modus (previous_findings)
+  - FK-34 §34.9 / DK-04 §4.6 -- remediation mode (previous_findings)
 """
 
 from __future__ import annotations

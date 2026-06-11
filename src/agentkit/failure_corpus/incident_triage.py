@@ -1,31 +1,30 @@
-"""IncidentTriage-Sub des Failure-Corpus-BC (FK-41 §41.4 / DK-07 §7.3.6).
+"""IncidentTriage sub of the failure-corpus BC (FK-41 §41.4 / DK-07 §7.3.6).
 
-Drei deterministische Schritte (AG3-028 AK#5):
-1. IngressCriteria   -- Aufnahmekriterien DK-07 §7.3.6 (FAIL-CLOSED via
+Three deterministic steps (AG3-028 AK#5):
+1. IngressCriteria   -- admission criteria DK-07 §7.3.6 (FAIL-CLOSED via
    IncidentRejectedError)
-2. IncidentNormalizer -- Whitespace-/Length-Normalisierung + recorded_at
+2. IncidentNormalizer -- whitespace/length normalization + recorded_at
 3. IncidentWriterPort.record_fc_incident(draft) -> IncidentId
 
-Persistenz und Lesen laufen ausschliesslich ueber die injizierten Ports
-(FK-69 §69.9). ``failure_corpus`` importiert KEIN ``state_backend.store`` (AC#6).
+Persistence and reading run exclusively via the injected ports
+(FK-69 §69.9). ``failure_corpus`` imports NO ``state_backend.store`` (AC#6).
 
-IngressCriteria-Kombinator-Semantik (DK-07 §7.3.6 — Codex-r2 Remediation):
-  DK-07 §7.3.6 ist autoritativ und explizit ein **reines ODER**. Ein Incident
-  wird aufgenommen, wenn MINDESTENS EINES der vier Kriterien gilt:
+IngressCriteria combinator semantics (DK-07 §7.3.6 — Codex-r2 remediation):
+  DK-07 §7.3.6 is authoritative and explicitly a **pure OR**. An incident is
+  admitted if AT LEAST ONE of the four criteria holds:
 
     ADMIT  <=>  severity >= MEDIUM
                 OR merge_blocked
                 OR rework_minutes > 30
-                OR is_novel (Corpus-Neuheit)
+                OR is_novel (corpus novelty)
 
-  - Severity ist KEIN harter Floor mehr: z.B. ``LOW + merge_blocked`` wird
-    aufgenommen (der frühere AND-Floor verwarf das faelschlich).
-  - REJECT (``NOT_SIGNIFICANT``) genau dann, wenn KEINES der vier Kriterien
-    greift.
-  - Zusaetzlich (separat, vor der ODER-Pruefung): exakter Duplikat im
-    Zeitfenster -> REJECT ``DUPLICATE_WINDOW`` (Dedup; haelt den Korpus klein).
-  - Corpus-Neuheit (``is_novel``) wird gegen die persistierten ``fc_incidents``
-    geprueft (gleiches (project_key, category) noch nicht vorhanden -> neu).
+  - Severity is NO hard floor anymore: e.g. ``LOW + merge_blocked`` is
+    admitted (the former AND-floor rejected that wrongly).
+  - REJECT (``NOT_SIGNIFICANT``) exactly when NONE of the four criteria apply.
+  - Additionally (separate, before the OR check): exact duplicate within the
+    time window -> REJECT ``DUPLICATE_WINDOW`` (dedup; keeps the corpus small).
+  - Corpus novelty (``is_novel``) is checked against the persisted
+    ``fc_incidents`` (same (project_key, category) not yet present -> novel).
 """
 
 from __future__ import annotations
@@ -40,7 +39,7 @@ from agentkit.failure_corpus.types import IncidentId, IncidentSeverity
 if TYPE_CHECKING:
     from agentkit.failure_corpus.ports import IncidentWriterPort, ProjectionReaderPort
 
-# Ordnung der Incident-Severity-Stufen fuer den Mindest-Severity-Vergleich.
+# Ordering of the incident severity levels for the minimum-severity comparison.
 _SEVERITY_RANK: dict[IncidentSeverity, int] = {
     IncidentSeverity.LOW: 0,
     IncidentSeverity.MEDIUM: 1,
@@ -48,42 +47,42 @@ _SEVERITY_RANK: dict[IncidentSeverity, int] = {
     IncidentSeverity.CRITICAL: 3,
 }
 
-# Default-Mindest-Severity (FK-41 §41.4.3: mindestens "mittel" == MEDIUM).
+# Default minimum severity (FK-41 §41.4.3: at least "medium" == MEDIUM).
 _DEFAULT_MIN_SEVERITY = IncidentSeverity.MEDIUM
-# Rework-Schwelle (FK-41 §41.4.3: "Ueber 30 Minuten").
+# Rework threshold (FK-41 §41.4.3: "over 30 minutes").
 _REWORK_THRESHOLD_MIN = 30
 
 
 def _now() -> datetime:
-    """Aktueller UTC-Zeitpunkt (Seiteneffekt am Rand der Triage)."""
+    """Current UTC timestamp (side effect at the edge of the triage)."""
     return datetime.now(tz=UTC)
 
 
 class IncidentNormalizer:
-    """Default-Normalisierung eines Incident-Kandidaten (FK-41 §41.4).
+    """Default normalization of an incident candidate (FK-41 §41.4).
 
-    Schaerft NICHT die Kategorie (``category`` ist Pflicht im Kandidaten),
-    sondern normalisiert ``symptom`` (Whitespace-Kollaps, Trim, Laengen-Cap)
-    und setzt ``recorded_at``.
+    Does NOT sharpen the category (``category`` is required in the candidate),
+    but normalizes ``symptom`` (whitespace collapse, trim, length cap) and sets
+    ``recorded_at``.
 
     Args:
-        max_symptom_length: Maximale Laenge des normalisierten ``symptom``.
+        max_symptom_length: Maximum length of the normalized ``symptom``.
     """
 
     def __init__(self, *, max_symptom_length: int = 2000) -> None:
         self._max_symptom_length = max_symptom_length
 
     def normalize_symptom(self, symptom: str) -> str:
-        """Whitespace-Kollaps + Trim + Laengen-Cap (deterministisch).
+        """Whitespace collapse + trim + length cap (deterministic).
 
-        Wird sowohl beim Erzeugen des Drafts als auch fuer die Dedup-Signatur
-        (exakter Duplikat) verwendet, damit beide identisch normalisieren.
+        Used both when producing the draft and for the dedup signature (exact
+        duplicate), so that both normalize identically.
 
         Args:
-            symptom: Roher Symptomtext.
+            symptom: Raw symptom text.
 
         Returns:
-            Normalisierter Symptomtext.
+            Normalized symptom text.
         """
         return " ".join(symptom.split())[: self._max_symptom_length]
 
@@ -93,15 +92,15 @@ class IncidentNormalizer:
         *,
         recorded_at: datetime,
     ) -> IncidentDraft:
-        """Erzeuge einen normalisierten ``IncidentDraft`` (noch ohne id).
+        """Produce a normalized ``IncidentDraft`` (still without an id).
 
         Args:
-            candidate: Eingehender Kandidat.
-            recorded_at: Erfassungszeitpunkt (von der Triage gesetzt).
+            candidate: Incoming candidate.
+            recorded_at: Recording timestamp (set by the triage).
 
         Returns:
-            Normalisierter ``IncidentDraft`` (Status ``OBSERVED``); ``incident_id``
-            wird erst DB-seitig in der Schreibtransaktion vergeben.
+            Normalized ``IncidentDraft`` (status ``OBSERVED``); ``incident_id``
+            is only assigned DB-side within the write transaction.
         """
         normalized_symptom = self.normalize_symptom(candidate.symptom)
         return IncidentDraft(
@@ -122,21 +121,20 @@ class IncidentNormalizer:
 
 
 class IngressCriteria:
-    """Aufnahmekriterien fuer Incident-Kandidaten (DK-07 §7.3.6).
+    """Admission criteria for incident candidates (DK-07 §7.3.6).
 
-    Kombinator-Semantik (siehe Modul-Docstring): reines ODER. ADMIT iff
+    Combinator semantics (see module docstring): pure OR. ADMIT iff
     ``severity >= min_severity`` OR ``merge_blocked`` OR ``rework > 30`` OR
-    ``is_novel``. Verwerfen ist FAIL-CLOSED ueber ``IncidentRejectedError`` mit
-    erreichbaren ``reason_codes`` — kein stilles Ignorieren. Zusaetzlich wird ein
-    exakter Duplikat (``is_duplicate``) separat als ``DUPLICATE_WINDOW``
-    verworfen.
+    ``is_novel``. Rejection is FAIL-CLOSED via ``IncidentRejectedError`` with
+    reachable ``reason_codes`` — no silent ignoring. Additionally, an exact
+    duplicate (``is_duplicate``) is rejected separately as ``DUPLICATE_WINDOW``.
 
     Args:
-        min_severity: Severity-Schwelle des ersten ODER-Kriteriums (Default
-            ``MEDIUM``; DK-07 §7.3.6 "Severity mindestens mittel"). KEIN harter
-            Floor — nur eines von vier ODER-Kriterien.
-        rework_threshold_min: Rework-Schwelle in Minuten (Default 30; DK-07
-            §7.3.6 "Ueber 30 Minuten").
+        min_severity: Severity threshold of the first OR criterion (default
+            ``MEDIUM``; DK-07 §7.3.6 "severity at least medium"). NO hard floor —
+            just one of four OR criteria.
+        rework_threshold_min: Rework threshold in minutes (default 30; DK-07
+            §7.3.6 "over 30 minutes").
     """
 
     def __init__(
@@ -155,30 +153,29 @@ class IngressCriteria:
         is_novel: bool,
         is_duplicate: bool = False,
     ) -> None:
-        """Prueft den Kandidaten; wirft bei Reject ``IncidentRejectedError``.
+        """Checks the candidate; raises ``IncidentRejectedError`` on reject.
 
         Args:
-            candidate: Zu pruefender Kandidat (inkl. Gate-Inputs ``merge_blocked``
-                und ``rework_minutes``).
-            is_novel: Corpus-Neuheit (DK-07 §7.3.6: Fehlertyp noch nicht im
-                Corpus vertreten). Vom Aufrufer aus dem persistierten Corpus
-                ermittelt.
-            is_duplicate: Exakter Duplikat eines bereits im Zeitfenster
-                persistierten Incidents (Dedup). Vom Aufrufer ermittelt.
+            candidate: Candidate to check (incl. gate inputs ``merge_blocked``
+                and ``rework_minutes``).
+            is_novel: Corpus novelty (DK-07 §7.3.6: error type not yet present in
+                the corpus). Determined by the caller from the persisted corpus.
+            is_duplicate: Exact duplicate of an incident already persisted within
+                the time window (dedup). Determined by the caller.
 
         Raises:
-            IncidentRejectedError: ``DUPLICATE_WINDOW`` bei exaktem Duplikat;
-                ``NOT_SIGNIFICANT``, wenn KEINES der vier DK-07-§7.3.6-Kriterien
-                greift (reines ODER).
+            IncidentRejectedError: ``DUPLICATE_WINDOW`` on exact duplicate;
+                ``NOT_SIGNIFICANT`` when NONE of the four DK-07 §7.3.6 criteria
+                apply (pure OR).
         """
-        # Dedup zuerst: exakter Duplikat im Zeitfenster -> verwerfen.
+        # Dedup first: exact duplicate within the time window -> reject.
         if is_duplicate:
             raise IncidentRejectedError(
                 (IncidentRejectReason.DUPLICATE_WINDOW,),
                 detail="exact duplicate of an incident already in the time window",
             )
 
-        # Reines ODER der vier DK-07-§7.3.6-Aufnahmekriterien.
+        # Pure OR of the four DK-07 §7.3.6 admission criteria.
         admit = (
             _SEVERITY_RANK[candidate.severity] >= _SEVERITY_RANK[self._min_severity]
             or candidate.merge_blocked
@@ -199,14 +196,14 @@ class IngressCriteria:
 
 
 class IncidentTriage:
-    """Aufnahme-Sub des Failure-Corpus (FK-41 §41.4).
+    """Admission sub of the failure corpus (FK-41 §41.4).
 
     Args:
-        normalizer: Normalisierer fuer akzeptierte Kandidaten.
-        criteria: Aufnahmekriterien (FK-41 §41.4.3).
-        writer: Schmale fc-Schreib-Sicht auf den ``ProjectionAccessor`` (gibt die
-            DB-seitig vergebene ``IncidentId`` zurueck, FK-41 §41.3.1).
-        reader: Schmale Lese-Sicht fuer die Corpus-Neuheit (FK-41 §41.4.3).
+        normalizer: Normalizer for accepted candidates.
+        criteria: Admission criteria (FK-41 §41.4.3).
+        writer: Narrow fc write view onto the ``ProjectionAccessor`` (returns the
+            DB-side assigned ``IncidentId``, FK-41 §41.3.1).
+        reader: Narrow read view for the corpus novelty (FK-41 §41.4.3).
     """
 
     def __init__(
@@ -222,20 +219,20 @@ class IncidentTriage:
         self._reader = reader
 
     def ingest(self, candidate: IncidentCandidate) -> IncidentId:
-        """Nimmt einen Kandidaten auf, normalisiert und persistiert ihn.
+        """Admits a candidate, normalizes and persists it.
 
-        Ablauf (FK-41 §41.4): Corpus-Neuheit ermitteln -> IngressCriteria ->
+        Flow (FK-41 §41.4): determine corpus novelty -> IngressCriteria ->
         Normalizer -> record_fc_incident.
 
         Args:
-            candidate: Eingehender Incident-Kandidat.
+            candidate: Incoming incident candidate.
 
         Returns:
-            Die DB-seitig vergebene ``IncidentId`` (``FC-YYYY-NNNN``).
+            The DB-side assigned ``IncidentId`` (``FC-YYYY-NNNN``).
 
         Raises:
-            IncidentRejectedError: Wenn die IngressCriteria den Kandidaten
-                verwerfen (FAIL-CLOSED, mit ``reason_codes``).
+            IncidentRejectedError: If the IngressCriteria reject the candidate
+                (FAIL-CLOSED, with ``reason_codes``).
         """
         existing = self._read_corpus(candidate)
         is_novel = not any(
@@ -250,15 +247,15 @@ class IncidentTriage:
         return self._writer.record_fc_incident(draft)
 
     def _read_corpus(self, candidate: IncidentCandidate) -> list[object]:
-        """Lese den projektgebundenen Corpus-Ausschnitt (FAIL-CLOSED).
+        """Read the project-bound corpus slice (FAIL-CLOSED).
 
-        FK-41 §41.4.3 / DK-07 §7.3.6: Corpus-Abfragen sind stets projektgebunden.
+        FK-41 §41.4.3 / DK-07 §7.3.6: corpus queries are always project-bound.
 
         Args:
-            candidate: Der zu pruefende Kandidat.
+            candidate: The candidate to check.
 
         Returns:
-            Die persistierten ``fc_incidents``-Zeilen dieses Projekts.
+            The persisted ``fc_incidents`` rows of this project.
         """
         from agentkit.telemetry.projection_accessor import (
             ProjectionFilter,
@@ -275,20 +272,20 @@ class IncidentTriage:
     def _is_exact_duplicate(
         self, candidate: IncidentCandidate, existing: list[object]
     ) -> bool:
-        """Exakter Duplikat im Zeitfenster (Dedup, DK-07 §7.3.6).
+        """Exact duplicate within the time window (dedup, DK-07 §7.3.6).
 
-        Ein Duplikat ist ein bereits persistierter Incident desselben Projekts mit
-        identischer fachlicher Signatur (story_id, run_id, category, severity,
-        phase, role, model, normalisiertes symptom). ``fc_incidents`` haelt nur
-        Incidents lebender Runs (vollstaendiger Reset purged sie, FK-41 §41.3) —
-        der persistierte Corpus IST damit das Dedup-Zeitfenster.
+        A duplicate is an already persisted incident of the same project with an
+        identical business signature (story_id, run_id, category, severity,
+        phase, role, model, normalized symptom). ``fc_incidents`` holds only
+        incidents of live runs (a full reset purges them, FK-41 §41.3) — the
+        persisted corpus IS thus the dedup time window.
 
         Args:
-            candidate: Der zu pruefende Kandidat.
-            existing: Bereits gelesene projektgebundene Corpus-Zeilen.
+            candidate: The candidate to check.
+            existing: Already read project-bound corpus rows.
 
         Returns:
-            ``True``, wenn die normalisierte Signatur bereits im Corpus liegt.
+            ``True`` if the normalized signature is already in the corpus.
         """
         symptom = self._normalizer.normalize_symptom(candidate.symptom)
         signature = (
@@ -305,7 +302,7 @@ class IncidentTriage:
 
     @staticmethod
     def _row_signature(row: object) -> tuple[object, ...]:
-        """Fachliche Signatur einer persistierten fc_incidents-Zeile (Dedup)."""
+        """Business signature of a persisted fc_incidents row (dedup)."""
         return (
             getattr(row, "story_id", None),
             getattr(row, "run_id", None),

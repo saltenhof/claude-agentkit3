@@ -19,9 +19,9 @@ class Severity(StrEnum):
     member names; the contract test pins each value.
 
     Attributes:
-        BLOCKING: Hartes Hindernis — Story darf nicht weiter.
-        MAJOR: Schwerer Befund — sammelt fuer Policy-Aggregation.
-        MINOR: Weicher Befund — fliesst in Hygiene-Telemetrie.
+        BLOCKING: Hard obstacle — the story may not proceed.
+        MAJOR: Serious finding — collected for policy aggregation.
+        MINOR: Soft finding — flows into hygiene telemetry.
     """
 
     BLOCKING = "BLOCKING"

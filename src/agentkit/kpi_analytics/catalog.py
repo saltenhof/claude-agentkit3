@@ -35,34 +35,34 @@ class KpiDomain(StrEnum):
     """
 
     STORY_SIZING = "STORY_SIZING"
-    """Domaene 1: Story-Dimensionierung und Pipeline-Steuerung"""
+    """Domain 1: story sizing and pipeline control"""
 
     LLM_SELECTION = "LLM_SELECTION"
-    """Domaene 2: LLM-Selektion und -Performance"""
+    """Domain 2: LLM selection and performance"""
 
     GOVERNANCE = "GOVERNANCE"
-    """Domaene 3: Governance-Gesundheit"""
+    """Domain 3: governance health"""
 
     DOC_FIDELITY = "DOC_FIDELITY"
-    """Domaene 4: Dokumententreue und Konzept-Konformitaet"""
+    """Domain 4: document fidelity and concept conformance"""
 
     QA_EFFECTIVENESS = "QA_EFFECTIVENESS"
-    """Domaene 5: QA-Effektivitaet"""
+    """Domain 5: QA effectiveness"""
 
     REVIEW_QUALITY = "REVIEW_QUALITY"
-    """Domaene 6: Review-Qualitaet und Evidence Assembly"""
+    """Domain 6: review quality and evidence assembly"""
 
     VECTORDB = "VECTORDB"
-    """Domaene 7: VektorDB und Wissensmanagement"""
+    """Domain 7: vector DB and knowledge management"""
 
     ARE_INTEGRATION = "ARE_INTEGRATION"
-    """Domaene 8: ARE-Integration"""
+    """Domain 8: ARE integration"""
 
     FAILURE_CORPUS = "FAILURE_CORPUS"
-    """Domaene 9: Failure Corpus und Lernschleife"""
+    """Domain 9: failure corpus and learning loop"""
 
     PROCESS_EFFICIENCY = "PROCESS_EFFICIENCY"
-    """Domaene 10: Prozess-Effizienz und Trends"""
+    """Domain 10: process efficiency and trends"""
 
 
 class CatalogStatus(StrEnum):

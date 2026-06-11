@@ -4,7 +4,7 @@ Called once from the composition root (app bootstrap) before any
 pipeline run, mirroring ``verify_system.register.register_verify_producers``
 (AG3-023 §2.1.6.1). Keeps registration out of the package ``__init__``.
 
-FK-44 §44.6 (audit persistence via ArtifactManager); Entscheidung 1 of
+FK-44 §44.6 (audit persistence via ArtifactManager); decision 1 of
 AG3-015 (producer ``prompt_runtime`` for ``ArtifactClass.PROMPT_AUDIT``).
 """
 
