@@ -86,7 +86,7 @@ Implementierungs-Sammelcontainer waeren.
 Der normative Top-Level-Schnitt ist definiert in
 `concept/formal-spec/architecture-conformance/entities.md`.
 
-**Sollzustand:** 16 fachliche Bounded Contexts + shared + Boundary-Module (schema_version 2)
+**Sollzustand:** 17 fachliche Bounded Contexts + shared + Boundary-Module (schema_version 2)
 
 ```text
 src/agentkit/
@@ -209,6 +209,12 @@ src/agentkit/
     dashboard/                 # Dashboard: Story-Liste, Board, Live-Sichten
     design_system/             # DesignSystem: Dashboard-Designsystem
 
+  # ---- BC 17: harness-integration ----
+  # Soll-Namespace: agentkit.harness_integration (FK-76 §76.3, kosmetisch);
+  # reale Code-Verortung heute unter governance/harness_adapters/ (s.u.).
+  governance/
+    harness_adapters/          # HarnessAdapters [BC harness-integration]: harness-spezifische AT-Mediation (claude_code, codex), Settings-Writer; reale Code-Heimat des BC (Soll: agentkit.harness_integration, FK-76 §76.3)
+
   # ---- Shared ----
   worktree_manager/            # WorktreeManager [shared]: Worktree-/Branch-Lifecycle
 
@@ -287,6 +293,7 @@ Normativer Schnitt gemaess `concept/formal-spec/architecture-conformance/entitie
 | `execution_planning/` | Planungsmodell, Proposal-Ingest, Bereitschaftspruefung, Scheduling-Policy, Plan-Ableitung (BC 14) | Nutzt StoryContext, Integrationen |
 | `requirements_coverage/` | ARE-Client, Story-zu-Requirement-Mapping, ARE-Integration (BC 15) | Nutzt Integrationen |
 | `kpi_analytics/` | KPI-Katalog, Faktentabellen, Aggregation, Dashboard-Serving (BC 16) | Nutzt Telemetrie |
+| `governance/harness_adapters/` | Harness-Integration: harness-spezifische Adapter (claude_code, codex), CLI-Wrapper, Settings-Schemas (.claude/settings.json, .codex/hooks.json), Sub-Agent-/Hybrid-Lifecycle; trifft keine Policy (BC 17 `harness-integration`, `bounded-contexts.yaml:245`) | Importiert harness-neutrale Contracts aus `governance`; wird von `installation-and-bootstrap` und `prompt-runtime` ueber den `HarnessPort` genutzt (FK-76 §76.9). Reale Code-Heimat heute `governance/harness_adapters/`; Soll-Paket `agentkit.harness_integration` (kosmetisch, FK-76 §76.3) |
 | `worktree_manager/` | Worktree- und Branch-Lifecycle [shared] | Wird von Pipeline, StoryContextManager genutzt |
 | `cli/` | CLI-Entrypoints und Command-Routing [boundary: entry_boundary, R] | Ruft fachliche Top-Level-Namespaces auf; nichts importiert cli von innen |
 | `control_plane/` | HTTP-Transport, Pydantic-Modelle, Runtime-Service, Repository, Telemetrie [boundary: entry_boundary + adapter_boundary, R] | http.py ist entry_boundary; models/records/runtime/repository/telemetry sind adapter_boundary |
@@ -296,6 +303,29 @@ Normativer Schnitt gemaess `concept/formal-spec/architecture-conformance/entitie
 | `boundary/filesystem/` | Filesystem-Writer und Atomic-Write-Helpers [boundary: infrastructure_io, R] | Trennt Builder (A) von Writer; A-BCs importieren keinen direkten Filesystem-I/O |
 | `config/` | Pydantic-v2-Konfigurationsmodelle, Loader, Schema-Validierung [boundary: config_foundation, R] | Wird gelesen, nie geschrieben; keine Domain-Logik |
 | `shared/` | Fachneutrale Basistypen, Exceptions, stateless Hilfen [boundary: shared_foundation, A] | Importiert nichts Fachliches und keine Boundary-Module mit I/O |
+
+> **Hinweis BC 17 `harness-integration` — Code-Soll vs. Code-Realitaet:**
+> Die Registry kennt `harness-integration` bereits als vollwertigen BC
+> (`concept/technical-design/_meta/bounded-contexts.yaml:245`, `owns:
+> HarnessAdapter/HarnessPort/HarnessSettings/HarnessInvocation/
+> HarnessCapability/SubAgentSpawn`); diese Tabelle und die Baum-Aufzaehlung
+> ziehen das jetzt konsistent nach (BC-Zaehlung „17"). Zwei abgrenzbare
+> Code-Folgen:
+>
+> - **Paketverschiebung nach `agentkit.harness_integration` (FK-76 §76.3):
+>   OPTIONAL.** Sie ist ausdruecklich **kosmetisch** (Paketname = BC-Name);
+>   verbindlich sind die BC-Zugehoerigkeit (dieses Doc) und die
+>   Importrichtung (FK-76 §76.9), nicht der Verzeichnisname. Reale
+>   Code-Heimat bleibt bis dahin `src/agentkit/governance/harness_adapters/`.
+> - **Oeffentliche Port-Surface (FK-76 §76.8): VERBINDLICH und geownet.**
+>   `HarnessPort`, `HarnessInvocation`, `HarnessHookEnvelope`,
+>   `HarnessCapability`, `HarnessAdapterResult` plus die Settings-Writer
+>   sind eine **geownete Code-Soll-Surface** (Owner-BC `harness-integration`,
+>   `bounded-contexts.yaml:245`) und existieren noch **nicht** als benannte
+>   Symbole — kein optionaler Sammelhinweis. Da heute **keine** Code-Folge-
+>   Story diese Surface traegt, ist sie als nummerierte PO-Eskalation (CP2)
+>   gefuehrt (Remediation-Report AG3-104); **kein** Code-Fix in dieser
+>   doc-only-Story.
 
 ### Boundary-Module (schema_version 2)
 

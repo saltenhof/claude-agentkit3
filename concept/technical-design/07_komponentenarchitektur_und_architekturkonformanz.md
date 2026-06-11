@@ -80,6 +80,43 @@ Volldefinition mit Heuristiken, Erkennungstests und Beispielen:
 
 ## 7.4 Normativer Top-Level-Schnitt
 
+> **Aspirations-Hinweis zur Port-Nomenklatur (§7.4.1–§7.4.6):** Die in
+> den Spalten „Provided Contracts" gefuehrten Port-Namen sind **Zielbild
+> (aspirational)**, nicht durchgaengig als literale Code-Symbole
+> implementiert oder maschinell erzwungen. Das ist konsistent mit §7.6
+> (Repository-Regel „noch im Umbau, normativ aber nicht vollumfaenglich
+> maschinell erzwungen") und §7.7.4 (vollstaendige Repository-Konformanz
+> je A-Komponente „bewusst noch nicht voll maschinell erzwungen"). Die
+> real existierenden Ports tragen heute teils abweichende, funktions-
+> bezogene Namen. Belege:
+>
+> - Der in §7.4.1 genannte `StoryContextPort` existiert **nicht** als
+>   Symbol. Das reale Pendant heisst `StoryContextQueryPort` (Protocol-
+>   Definition `src/agentkit/verify_system/protocols.py:120`; verwendet in
+>   `src/agentkit/verify_system/system.py:102` `_NullStoryContextPort`,
+>   `:129` Default-Alias, `:185` Feld; gespiegelt in
+>   `src/agentkit/exploration/ports.py:10`).
+> - Reale Protocol-Ports der Exploration-Phase tragen funktionsbezogene
+>   Namen statt der FK-07-Contract-Namen:
+>   `src/agentkit/exploration/ports.py:36` `RunScopeResolver`,
+>   `:57` `ChangeFrameReader`, `:82` `WorkerDraftPresenceReader`,
+>   `:111` `ChangeFrameWriter`, `:152` `DeclaredImpactReader`.
+> - Die Closure-Runtime-Ports tragen ebenfalls funktionsbezogene,
+>   nicht die §7.4-Contract-Namen
+>   (`src/agentkit/closure/runtime_ports.py:104` `ProductiveSanityGatePort`,
+>   `:202` `ProductiveDocFidelityFeedbackPort`,
+>   `:260` `ProductiveVectorDbSyncPort`,
+>   `:390` `ProductiveTelemetryEvidencePort`,
+>   `:495` `ProductiveGuardDeactivationPort`,
+>   `:522` `ProductiveGuardCounterFlushPort`,
+>   `:563` `ProductiveModeLockReleasePort`).
+>
+> **Owner pro Wert:** Die Doku-Angleichung (dieser Hinweis) erfolgt hier.
+> Eine etwaige spaetere Vereinheitlichung der Port-Namen im Code ist
+> **Code-Folgearbeit ohne aktuellen Backlog-Owner** und wird **nicht** in
+> einer doc-only-Story gefixt; sie ist als PO-Eskalation gegen die
+> jeweils betroffenen BCs zu fuehren (vgl. Remediation-Report AG3-104).
+
 ### 7.4.1 Story- und Ausfuehrungskern
 
 | Komponente | Blutgruppe | Fachliche Verantwortung | Provided Contracts |
@@ -89,6 +126,29 @@ Volldefinition mit Heuristiken, Erkennungstests und Beispielen:
 | `PipelineEngine` | A | owns `FlowExecution`, `NodeExecution`, `AttemptRecord` und den 4-Phasen-Kontrollfluss (Setup, Exploration, Implementation inkl. QA-Subflow, Closure) | `StoryExecutionPort`, `RunTransitionPort` |
 | `StoryExecutionLifecycleService` | A | owns Session-/Run-Binding, Story-Execution-Lock, Edge-Bundle-Metadaten und idempotente Lifecycle-Mutationen | `SessionBindingPort`, `StoryExecutionLockPort`, `EdgeBundlePort`, `ExecutionLifecycleMutationPort` |
 | `WorktreeManager` | A | owns Worktree- und Branch-Lifecycle fuer Story-Ausfuehrungen und administrative Story-Eingriffe | `WorktreePort` |
+
+> **Drift-Hinweis `WorktreeManager` (Soll-Schnitt steht, Code weicht ab —
+> Owner existiert bereits):** Der **Soll-Schnitt** ist eine **shared
+> Komponente** `agentkit.worktree_manager` (`bc-cut-decisions.md:275-283`:
+> `component_kind: shared`, `allowed_importers: PipelineEngine,
+> StoryContextManager`, exportierte Symbole `WorktreeManager.create`/
+> `.merge`/`.cleanup`/`.exists`) mit **explizitem Owner**
+> `owner_group_id: architecture-conformance.group.story_context_manager`
+> (`bc-cut-decisions.md:278`). PROJECT_STRUCTURE.md fuehrt den shared-BC
+> bereits (`PROJECT_STRUCTURE.md:219`, `:297`). Der Port-Name `WorktreePort`
+> ist — wie der Aspirations-Hinweis oben — Zielbild und existiert noch
+> nicht als literales Symbol. **Code-Realitaet (Drift):** Es gibt heute
+> **keinen** Top-Level-Namespace `src/agentkit/worktree_manager/`; die
+> Worktree-Logik ist verstreut auf
+> `src/agentkit/governance/setup_preflight_gate/worktree.py` (Setup) und
+> `src/agentkit/closure/multi_repo_saga.py` (Merge/Teardown). **Owner pro
+> Wert:** Die FK-/PROJECT_STRUCTURE-Prosa bleibt beim Soll-Schnitt; der
+> Drift ist ein **Code-Bedarf gegen den bestehenden, geowneten Soll-Owner
+> `story_context_manager`** (BC `story-lifecycle`) — **nicht** ein
+> owner-loser Befund. Da keine konkrete Backlog-Story den Umzug traegt,
+> wird der Code-Bedarf als nummerierte PO-Eskalation (CP1) gegen
+> `story-lifecycle`/`story_context_manager` gefuehrt (Remediation-Report
+> AG3-104); **kein** Code-Fix in dieser doc-only-Story.
 
 ### 7.4.2 Governance- und QA-Kern
 
