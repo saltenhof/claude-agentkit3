@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from agentkit.core_types.plane_artifact_names import INSTALLED_MANIFEST_FILENAME
+
 AGENTKIT_DIR: str = ".agentkit"
 CLAUDE_DIR: str = ".claude"
 CODEX_DIR: str = ".codex"
@@ -20,6 +22,12 @@ TEMP_DIR: str = "_temp"
 QA_DIR: str = f"{TEMP_DIR}/qa"
 PROJECT_CONFIG_FILE: str = "project.yaml"
 CONTROL_PLANE_CONFIG_FILE: str = "control-plane.json"
+#: Project-root install manifest carrying the spawn skill-proof token, the
+#: authorized prompt paths and the template-manifest hash (FK-31 §31.7.4). It is
+#: the AUTHORITATIVE artifact the AG3-086 prompt-integrity guard reads at
+#: ``project_root / ".installed-manifest.json"``. Re-exported from the BC-neutral
+#: ``core_types`` SINGLE SOURCE OF TRUTH (no second literal; never a second path).
+INSTALLED_MANIFEST_FILE: str = INSTALLED_MANIFEST_FILENAME
 CLAUDE_SETTINGS_FILE: str = "settings.json"
 CODEX_CONFIG_FILE: str = "config.toml"
 PROMPT_BUNDLE_LOCK_FILE: str = "prompt-bundle.lock.json"
@@ -56,6 +64,17 @@ def project_config_path(project_root: Path) -> Path:
 
 def control_plane_config_path(project_root: Path) -> Path:
     return project_root / CONFIG_DIR / CONTROL_PLANE_CONFIG_FILE
+
+
+def installed_manifest_path(project_root: Path) -> Path:
+    """Return the canonical install-manifest path (FK-31 §31.7.4).
+
+    The file lives at the project ROOT (``.installed-manifest.json``), NOT under
+    ``.agentkit/config/`` — this matches the exact path the AG3-086 prompt-integrity
+    guard reads (``governance/runner.py`` ``_installed_skill_proof``) so producer and
+    consumer agree on one location.
+    """
+    return project_root / INSTALLED_MANIFEST_FILE
 
 
 def default_prompt_bundle_store_root() -> Path:
@@ -158,6 +177,7 @@ __all__ = [
     "CODEX_DIR",
     "CONTROL_PLANE_CONFIG_FILE",
     "HOOKS_DIR",
+    "INSTALLED_MANIFEST_FILE",
     "MANIFESTS_DIR",
     "PHASE_RUNS_DIR",
     "PHASE_STATE_FILE",
@@ -178,6 +198,7 @@ __all__ = [
     "config_dir",
     "control_plane_config_path",
     "default_prompt_bundle_store_root",
+    "installed_manifest_path",
     "manifests_dir",
     "prompt_instance_dir",
     "prompt_pin_dir",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -16,7 +17,10 @@ from agentkit.config.models import (
     SonarQubeConfig,
 )
 from agentkit.skills.errors import UnknownPlaceholderError
-from agentkit.skills.placeholder import PlaceholderSubstitutor
+from agentkit.skills.placeholder import (
+    SPAWN_SKILL_PROOF_PLACEHOLDER,
+    PlaceholderSubstitutor,
+)
 
 # ---------------------------------------------------------------------------
 # Helper
@@ -152,3 +156,75 @@ class TestUnknownPlaceholderError:
         # Substitution should raise on the first bad token it encounters.
         with pytest.raises(UnknownPlaceholderError):
             self.sub.substitute("{{gh_owner}} {{nope}} {{project_key}}", self.cfg)
+
+    def test_config_only_substitute_rejects_spawn_proof(self) -> None:
+        # AG3-110: the manifest-fed placeholder is NOT resolvable on the config-only
+        # path; substitute() treats it as unknown (only substitute_spawn_header reads
+        # the manifest).
+        with pytest.raises(UnknownPlaceholderError):
+            self.sub.substitute("{{AGENT_SPAWN_SKILL_PROOF}}", self.cfg)
+
+
+# ---------------------------------------------------------------------------
+# AG3-110 — manifest-fed spawn-proof header bridge (FK-31 §31.7.4 / FK-43 §43.4.2)
+# ---------------------------------------------------------------------------
+
+_STORY_EXECUTION_HEADER = (
+    "AGENTKIT-SUBAGENT-V1 mode=story_execution role=story-worker "
+    "story_id=AG3-110 skill_proof={{AGENT_SPAWN_SKILL_PROOF}}"
+)
+
+
+def _write_manifest(root: Path, token: str) -> None:
+    (root / ".installed-manifest.json").write_text(
+        json.dumps({"agent_spawn_skill_proof": token}), encoding="utf-8"
+    )
+
+
+class TestSpawnHeaderSubstitution:
+    def setup_method(self) -> None:
+        self.sub = PlaceholderSubstitutor()
+        self.cfg = _project_config()
+
+    def test_resolves_manifest_token_into_header(self, tmp_path: Path) -> None:
+        # AC3 positive: the resolved header carries the real token, not the literal.
+        _write_manifest(tmp_path, "deadbeefcafe0123")
+        result = self.sub.substitute_spawn_header(
+            _STORY_EXECUTION_HEADER, self.cfg, tmp_path
+        )
+        assert "skill_proof=deadbeefcafe0123" in result
+        assert SPAWN_SKILL_PROOF_PLACEHOLDER not in result
+
+    def test_resolves_four_fk03_placeholders_too(self, tmp_path: Path) -> None:
+        _write_manifest(tmp_path, "tok")
+        content = (
+            "key={{project_key}} proof={{AGENT_SPAWN_SKILL_PROOF}}"
+        )
+        result = self.sub.substitute_spawn_header(content, self.cfg, tmp_path)
+        assert result == "key=my-proj proof=tok"
+
+    def test_missing_manifest_fails_closed_no_dummy(self, tmp_path: Path) -> None:
+        # AC3 negative / FAIL-CLOSED: no manifest -> the placeholder is NOT replaced
+        # by a dummy/empty token; the resolution raises so the header stays unresolved.
+        with pytest.raises(UnknownPlaceholderError):
+            self.sub.substitute_spawn_header(
+                _STORY_EXECUTION_HEADER, self.cfg, tmp_path
+            )
+
+    def test_empty_token_fails_closed(self, tmp_path: Path) -> None:
+        # An installed manifest with an EMPTY token is treated as no token (fail-closed).
+        _write_manifest(tmp_path, "")
+        with pytest.raises(UnknownPlaceholderError):
+            self.sub.substitute_spawn_header(
+                _STORY_EXECUTION_HEADER, self.cfg, tmp_path
+            )
+
+    def test_content_without_proof_placeholder_resolves_without_manifest(
+        self, tmp_path: Path
+    ) -> None:
+        # Freestyle/other content that does NOT carry the proof placeholder still
+        # resolves the four FK-03 placeholders even with no manifest installed.
+        result = self.sub.substitute_spawn_header(
+            "key={{project_key}}", self.cfg, tmp_path
+        )
+        assert result == "key=my-proj"

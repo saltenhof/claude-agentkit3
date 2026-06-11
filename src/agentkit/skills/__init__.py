@@ -36,7 +36,10 @@ from agentkit.skills.links import (
     platform_binding_mode,
     remove_directory_link,
 )
-from agentkit.skills.placeholder import PlaceholderSubstitutor
+from agentkit.skills.placeholder import (
+    SPAWN_SKILL_PROOF_PLACEHOLDER,
+    PlaceholderSubstitutor,
+)
 from agentkit.skills.quality_metric import AttributionState, SkillQualityMetric, SourceWindow
 from agentkit.skills.repository import (
     InMemorySkillBindingRepository,
@@ -68,6 +71,7 @@ __all__ = [
     "remove_directory_link",
     # Placeholder
     "PlaceholderSubstitutor",
+    "SPAWN_SKILL_PROOF_PLACEHOLDER",
     # Repository
     "InMemorySkillBindingRepository",
     "SkillBindingRepository",

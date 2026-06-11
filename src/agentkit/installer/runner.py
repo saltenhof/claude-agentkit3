@@ -648,6 +648,71 @@ def _deploy_prompt_bindings(target_root: Path, prompt_source_dir: Path) -> list[
     return created
 
 
+def _prompt_template_digests(manifest: dict[str, object]) -> dict[str, str]:
+    """Extract ``template_name -> sha256`` from a prompt-bundle manifest.
+
+    The CP 8 prompt-bundle manifest's ``templates`` map carries one entry per template
+    with ``relpath`` and ``sha256``. Returns only the names whose ``sha256`` is a
+    non-empty string (fail-soft on a malformed entry — the structural manifest checks
+    in ``_load_prompt_bundle_manifest`` already fail closed on a non-dict ``templates``).
+    """
+    templates = manifest.get("templates")
+    if not isinstance(templates, dict):  # pragma: no cover - guarded upstream
+        return {}
+    digests: dict[str, str] = {}
+    for name, entry in templates.items():
+        if isinstance(entry, dict):
+            sha = entry.get("sha256")
+            if isinstance(sha, str) and sha:
+                digests[str(name)] = sha
+    return digests
+
+
+def _prompt_template_relpaths(manifest: dict[str, object]) -> list[str]:
+    """Extract the authorized prompt template ``relpath`` values (FK-31 §31.7.4)."""
+    templates = manifest.get("templates")
+    if not isinstance(templates, dict):  # pragma: no cover - guarded upstream
+        return []
+    relpaths: list[str] = []
+    for entry in templates.values():
+        if isinstance(entry, dict):
+            relpath = entry.get("relpath")
+            if isinstance(relpath, str) and relpath:
+                relpaths.append(relpath)
+    return relpaths
+
+
+def _write_installed_manifest(
+    target_root: Path,
+    *,
+    manifest: dict[str, object],
+    resolved_skill_bundles: list[tuple[str, Path]],
+) -> str | None:
+    """Write the project-root ``.installed-manifest.json`` (FK-31 §31.7.4, AG3-110).
+
+    The install-time PRODUCER of the manifest the AG3-086 prompt-integrity guard reads.
+    Mirrors the idempotent root-JSON pattern of ``_write_control_plane_config`` — the
+    content is deterministic (``sort_keys=True``) and the write is content-guarded via
+    ``_write_text_if_changed`` (no rewrite when unchanged). The skill-proof token is
+    install-stable: ``build_installed_manifest`` reuses the persisted token when one
+    is already on disk (FK-51), so a re-install never re-rolls it and the idempotency
+    guard then sees identical content.
+    """
+    from agentkit.installer.installed_manifest import build_installed_manifest
+    from agentkit.installer.paths import installed_manifest_path
+
+    content = build_installed_manifest(
+        target_root,
+        prompt_template_digests=_prompt_template_digests(manifest),
+        authorized_prompt_paths=_prompt_template_relpaths(manifest),
+        skill_bundle_roots=resolved_skill_bundles,
+    ).to_canonical_json()
+    manifest_path = installed_manifest_path(target_root)
+    if not _write_text_if_changed(manifest_path, content):
+        return None
+    return str(manifest_path.relative_to(target_root))
+
+
 def _write_control_plane_config(target_root: Path) -> str | None:
     config_path = control_plane_config_path(target_root)
     content = (
@@ -1112,7 +1177,19 @@ def deploy_post_registration_artifacts(config: InstallConfig, root: Path) -> lis
     # The prompt-bundle lock (``PromptRuntime.update_binding``) is owned by the
     # CP 8 handler (FK-50 §50.5, story AC6 second binding path); it is NOT written
     # here so there is a single, explicit ``update_binding`` call site.
-    _ = (manifest, manifest_text)  # consumed by the CP 8 handler's binding step
+    _ = manifest_text  # consumed by the CP 8 handler's binding step
+    # AG3-110 (FK-31 §31.7.4): write the project-root ``.installed-manifest.json``
+    # carrying the spawn skill-proof token, the authorized prompt paths and the
+    # folded template-manifest hash. This is the install-time PRODUCER the AG3-086
+    # prompt-integrity guard reads at Stage 2; without it every story_execution
+    # spawn fails closed. Idempotent + install-stable (the token is reused unchanged
+    # on re-install). The CP 8 mutations-allowed guard (cp07_to_09.py) ensures this
+    # runs only in register mode, never in dry_run/verify.
+    installed_manifest = _write_installed_manifest(
+        root, manifest=manifest, resolved_skill_bundles=resolved_skill_bundles
+    )
+    if installed_manifest is not None:
+        created.append(installed_manifest)
     control_plane_config = _write_control_plane_config(root)
     if control_plane_config is not None:
         created.append(control_plane_config)

@@ -111,18 +111,44 @@ SELF_PROTECTION_SYMLINK_DIR_PARTS: tuple[tuple[str, ...], ...] = (
     (_CLAUDE_DIR, "skills"),
 )
 
+# ---------------------------------------------------------------------------
+# Install-Manifest-Kontrakt (FK-31 §31.7.4 / AG3-110) — SINGLE SOURCE OF TRUTH.
+#
+# ``.installed-manifest.json`` (Projekt-Root) traegt das Spawn-Skill-Proof-Token
+# unter dem Top-Level-Key ``agent_spawn_skill_proof``. Producer (BC
+# installation-and-bootstrap, ``installer.installed_manifest``) und Read-Time-
+# Substitutor (BC agent-skills, ``skills.placeholder``) teilen sich diesen
+# Kontrakt; das Konsument (BC governance-and-guards, AG3-086 prompt-integrity guard)
+# keyt auf dieselben Literale. Sie leben hier (core_types, BC-neutral, Foundation),
+# damit weder agent-skills auf installer noch installer auf agent-skills eine
+# operative Kontrakt-Abhaengigkeit aufbauen muss (keine BC-Rueckkante /
+# Zyklusvermeidung) und kein Modul ein zweites Literal haelt
+# (CLAUDE.md SINGLE SOURCE OF TRUTH). Ein Contract-Test pinnt diese Werte gegen den
+# realen AG3-086-Reader.
+# ---------------------------------------------------------------------------
+
+#: Projekt-Root-Dateiname des installierten Manifests (FK-31 §31.7.4).
+INSTALLED_MANIFEST_FILENAME: str = ".installed-manifest.json"
+
+#: Top-Level-JSON-Key des autoritativen Spawn-Skill-Proof-Tokens (FK-31 §31.7.4).
+#: Byte-identisch zum AG3-086-Consumer-Key (``governance/runner.py``
+#: ``_MANIFEST_SKILL_PROOF_KEY``) — der einzige gueltige Manifest-Key fuer den Token.
+AGENT_SPAWN_SKILL_PROOF_KEY: str = "agent_spawn_skill_proof"
+
 #: Kanonische Governance-Konfigurations-/Manifest-Dateien (FK-30 §30.5.4):
 #: ``.agentkit/config/project.yaml`` und ``.installed-manifest.json``.
 SELF_PROTECTION_CONFIG_FILE_PARTS: tuple[tuple[str, ...], ...] = (
     (_AGENTKIT_DIR, "config", "project.yaml"),
-    (".installed-manifest.json",),
+    (INSTALLED_MANIFEST_FILENAME,),
 )
 
 __all__ = [
+    "AGENT_SPAWN_SKILL_PROOF_KEY",
     "CONTENT_PLANE_FILES",
     "CONTROL_PLANE_FILES",
     "GOVERNANCE_FREEZE_EXPORT_PARTS",
     "GOVERNANCE_FREEZE_EXPORT_RELPATH",
+    "INSTALLED_MANIFEST_FILENAME",
     "SELF_PROTECTION_CONFIG_FILE_PARTS",
     "SELF_PROTECTION_HOOK_SETTINGS_PARTS",
     "SELF_PROTECTION_SYMLINK_DIR_PARTS",
