@@ -10,6 +10,7 @@ finding-resolution handling run for real (no core stubbing).
 from __future__ import annotations
 
 import json
+import time
 
 import pytest
 
@@ -504,3 +505,103 @@ def test_finding_resolution_id_not_in_round_one_whitelist() -> None:
     # unexpected -> exact-cover failure.
     with pytest.raises(StructuredEvaluatorError, match="not an exact cover"):
         evaluator.evaluate(ReviewerRole.QA_REVIEW, _bundle(qa_cycle_round=1), None, 1)
+
+
+# ---------------------------------------------------------------------------
+# Stage-2 JSON-array extraction (FK-11 §11.4.4) — linear, ReDoS-safe.
+#
+# The ``[{`` .. ``}]`` array-block extraction (candidate #3) used to be a
+# backtracking regex ``re.search(r"(\[\{.*?\}\])", text, re.DOTALL)`` with
+# polynomial runtime on adversarial input (Sonar security hotspot). It was
+# replaced by an anchored ``str.find("[{")`` / ``str.rfind("}]")`` slice, which
+# is linear and cannot backtrack. These tests pin both the preserved matching
+# semantics for the accepted inputs and the ReDoS-safety.
+# ---------------------------------------------------------------------------
+
+
+def _single_semantic_array_json() -> str:
+    """A single semantic_adequacy PASS check as a JSON-array string."""
+    return json.dumps([{"check_id": "systemic_adequacy", "status": "PASS", "reason": "ok"}])
+
+
+def test_stage2_extracts_array_block_embedded_in_prose() -> None:
+    """An array block wrapped in prose is recovered identically to before.
+
+    The accepted-input semantics of the linear ``[{`` .. ``}]`` extraction match
+    the previous backtracking regex: a single embedded JSON array is sliced from
+    the first ``[{`` to the final ``}]`` and parsed.
+    """
+    array = _single_semantic_array_json()
+    response = f"Here is my review:\n{array}\nThat is all."
+    client = _ScriptedLlmClient(response)
+    evaluator = StructuredEvaluator(client, _StubMaterializer())
+    result = evaluator.evaluate(ReviewerRole.SEMANTIC_REVIEW, _bundle(), None, 1)
+    assert result.verdict is LlmVerdict.PASS
+    # Recovered on the first call — no schema-retry needed.
+    assert len(client.calls) == 1
+
+
+def test_stage2_extracts_array_block_in_json_fence() -> None:
+    """A ```json fenced array is recovered identically to before."""
+    array = _single_semantic_array_json()
+    response = f"```json\n{array}\n```"
+    client = _ScriptedLlmClient(response)
+    evaluator = StructuredEvaluator(client, _StubMaterializer())
+    result = evaluator.evaluate(ReviewerRole.SEMANTIC_REVIEW, _bundle(), None, 1)
+    assert result.verdict is LlmVerdict.PASS
+    assert len(client.calls) == 1
+
+
+_CHK = '{"check_id": "systemic_adequacy", "status": "PASS", "reason": "ok"}'
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        # Pure array — candidate #1 (whole text) wins.
+        f"[{_CHK}]",
+        # Single embedded array — candidate #3 ("[{" .. "}]") slice == the
+        # previous regex capture.
+        f"prefix [{_CHK}] suffix",
+        # "[" then a newline before "{" (no literal "[{") — candidate #4
+        # (first "[" .. last "]") recovers it.
+        f"note [\n {_CHK}\n] tail",
+    ],
+)
+def test_stage2_extract_json_matches_accepted_inputs(response: str) -> None:
+    """The linear extractor accepts the same single-array inputs as the regex."""
+    parsed = StructuredEvaluator._stage2_extract_json(response, ReviewerRole.SEMANTIC_REVIEW)
+    assert len(parsed.checks) == 1
+    assert parsed.checks[0].check_id == "systemic_adequacy"
+    assert parsed.checks[0].status is LlmVerdict.PASS
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        "garbage with no json at all",
+        "lone bracket ] then [ nothing parseable",
+    ],
+)
+def test_stage2_extract_json_rejects_non_array_inputs(response: str) -> None:
+    """Inputs the regex rejected are still rejected (fail-closed)."""
+    with pytest.raises(StructuredEvaluatorError, match="no valid"):
+        StructuredEvaluator._stage2_extract_json(response, ReviewerRole.SEMANTIC_REVIEW)
+
+
+def test_stage2_extract_json_is_linear_on_pathological_input() -> None:
+    """A previously-pathological ``[{``-repeated input now completes fast.
+
+    The old backtracking regex ``(\\[\\{.*?\\}\\])`` exhibited polynomial
+    runtime on ``"[{" * n`` (no closing ``}]``); the linear find/rfind slice
+    completes in well under a second even for a large input, proving the ReDoS
+    backtracking path is gone.
+    """
+    pathological = "[{" * 50_000  # many array starts, never a "}]"
+    start = time.perf_counter()
+    with pytest.raises(StructuredEvaluatorError, match="no valid"):
+        StructuredEvaluator._stage2_extract_json(pathological, ReviewerRole.SEMANTIC_REVIEW)
+    elapsed = time.perf_counter() - start
+    # The linear path is ~microseconds; the old regex took multiple seconds at
+    # a fraction of this size. A 1.0s ceiling is a very generous regression guard.
+    assert elapsed < 1.0
