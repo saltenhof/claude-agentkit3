@@ -1,9 +1,10 @@
 story_id: AG3-081
 title: "Event-Vollausbau (BC14/BC15-EventTypes, Telemetry-Evidence-Wiring, Reset-Purge-Delta)"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
 created: "2026-06-07"
+completed: "2026-06-11"
 size: L
 depends_on:
   - AG3-035
