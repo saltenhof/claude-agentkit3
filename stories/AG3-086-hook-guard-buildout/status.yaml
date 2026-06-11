@@ -5,15 +5,17 @@ status: blocked
 phase: review_pending
 created: "2026-06-07"
 size: L
-# PAUSED 2026-06-11: implementation is review-green through r4 (4 remediation rounds,
-# dual Codex+Fable review) — the prompt_integrity guard is correct/fail-closed across all
-# 3 stages. BUT Stage-2 (story_execution) validates agent_spawn_skill_proof against the
-# installed manifest .installed-manifest.json (FK-31 §31.7.4), and NO story produces that
-# manifest token (consumer exists, producer missing). Activating this guard by default
-# (FIX B installs the prompt_integrity hook) without the producer would fail-closed ALL
-# story_execution worker spawns in production. New producer story AG3-110 added; AG3-086
-# is blocked on it and resumes (rebase branch story/AG3-086 -> verify Stage-2 E2E against
-# the real produced manifest -> merge) once AG3-110 is completed.
+# PAUSED 2026-06-11: implementation is review-green through r4 (4 remediation rounds, dual
+# Codex+Fable review) and the guard CODE is on main (cherry-pick cb7e36e; no branch/worktree).
+# The prompt_integrity guard is correct/fail-closed across all 3 stages. Stage-2 (story_execution)
+# validates agent_spawn_skill_proof against .installed-manifest.json (FK-31 §31.7.4).
+# DEPENDENCY STATUS: the manifest PRODUCER + resolver function (AG3-110) is COMPLETED on main.
+# The remaining blocker is AG3-111 — the production read-time substitution DELIVERY (materialized
+# skill variant) that makes the real spawn header carry the resolved token; without it the header
+# carries the literal {{AGENT_SPAWN_SKILL_PROOF}} and Stage-2 fail-closes ALL story_execution
+# spawns. AG3-086 RESUMES only after AG3-111 AC4 passes: the combined AG3-111 E2E (install ->
+# substituted variant at the real bind point -> header carries token -> AG3-086 Stage-2 allows /
+# blocks forged+missing) proves AG3-111 + AG3-110 + AG3-086 together; then flip AG3-086 to completed.
 depends_on:
   - AG3-013
   - AG3-080
