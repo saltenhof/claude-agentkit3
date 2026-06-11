@@ -43,6 +43,21 @@ from enum import StrEnum
 WEB_FETCH = "WebFetch"
 WEB_SEARCH = "WebSearch"
 
+#: Canonical sub-agent-spawn tool name (FK-31 §31.7; FK-91 §91.4 hook catalog).
+#: The ``Agent`` tool is a control-plane *orchestration* operation, NOT a
+#: path-targeting filesystem mutation: it spawns a sub-agent and has no meaningful
+#: ``path_class`` for the FK-55 §55.6 matrix to adjudicate. FK-91 §91.4 only
+#: CATALOGUES ``Agent`` under the ``ccag_gatekeeper`` matcher
+#: (``Bash|Write|Edit|Read|Grep|Glob|Agent``) — it documents that ``Agent`` is a
+#: matched, capability-relevant tool; it does NOT itself grant a path-matrix
+#: exemption. The path-matrix-bypass rationale is FK-31 §31.7 (the spawn's
+#: dedicated authority is the permanently active ``prompt_integrity_guard``, which
+#: validates the spawn schema / template) + FK-55 §55.6 (no meaningful path-class).
+#: Recognising it here keeps it a KNOWN operation (never the
+#: ``unknown_permission`` mode-scharf block) so the enforcement layer can route it
+#: to that dedicated guard rather than a path-matrix DENY.
+SUBAGENT_SPAWN_TOOL = "Agent"
+
 #: Alias → canonical web-tool mapping. Keyed by the case-insensitive,
 #: separator-normalized (``-``/``_``/space → ``""``) tool name so ``web_fetch``,
 #: ``web-search``, ``WEBFETCH`` and ``Web Search`` all resolve. Single source for
@@ -79,6 +94,36 @@ def canonical_web_tool(tool_name: str) -> str | None:
 def is_web_tool(tool_name: str) -> bool:
     """Whether ``tool_name`` is one of the budgeted web surfaces (alias-tolerant)."""
     return canonical_web_tool(tool_name) is not None
+
+
+def is_subagent_spawn(
+    operation_name: str, args: dict[str, object] | None = None
+) -> bool:
+    """Whether this call is the ``Agent`` sub-agent-spawn (FK-31 §31.7 / FK-91 §91.4).
+
+    The ``Agent`` tool arrives at the harness-neutral edge as the ``unknown_tool``
+    operation carrying its canonical name in ``args["tool_name"]`` (the same path
+    WebFetch / WebSearch take), or — defensively — as the literal tool name. A
+    sub-agent spawn is a control-plane orchestration operation with no path target;
+    recognising it lets the capability layer treat it as a KNOWN operation that is
+    routed to its dedicated ``prompt_integrity`` guard + CCAG instead of being
+    hard-blocked as an unknown permission or DENY-ed by the path matrix.
+
+    Args:
+        operation_name: The tool name or harness ``operation`` value.
+        args: Optional tool arguments. Inspected for the preserved
+            ``"tool_name"`` (how ``Agent`` arrives past the ``unknown_tool``
+            operation).
+
+    Returns:
+        ``True`` iff the call is an ``Agent`` sub-agent spawn.
+    """
+    if operation_name.strip() == SUBAGENT_SPAWN_TOOL:
+        return True
+    if args is None:
+        return False
+    raw = args.get("tool_name")
+    return isinstance(raw, str) and raw.strip() == SUBAGENT_SPAWN_TOOL
 
 
 class OperationClass(StrEnum):
@@ -264,6 +309,13 @@ class OperationClassifier:
             for an unknown tool.
         """
         if self._web_tool_from(operation_name, args) is not None:
+            return True
+        # FK-31 §31.7 / FK-91 §91.4: the ``Agent`` sub-agent spawn is a KNOWN
+        # control-plane operation (routed to the prompt_integrity guard + CCAG),
+        # never an unknown permission. Recognising it here stops the §55.6.1
+        # mode-scharf unknown-permission block from intercepting it before its
+        # dedicated guard runs.
+        if is_subagent_spawn(operation_name, args):
             return True
         key = operation_name.strip().lower()
         return key in self._OPERATION_MAP or key in self._TOOL_MAP or key in ("bash", "bash_command", "shell")
@@ -709,11 +761,13 @@ def _dedupe(targets: list[str]) -> list[str]:
 
 
 __all__ = [
+    "SUBAGENT_SPAWN_TOOL",
     "WEB_FETCH",
     "WEB_SEARCH",
     "OperationClass",
     "OperationClassifier",
     "bash_mutation_targets",
     "canonical_web_tool",
+    "is_subagent_spawn",
     "is_web_tool",
 ]

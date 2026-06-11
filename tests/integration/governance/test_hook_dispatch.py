@@ -133,7 +133,8 @@ def test_ccag_hook_still_routes_to_ccag(
 
     seen: list[str] = []
 
-    def _spy_ccag(event: HookEvent) -> GuardVerdict:
+    def _spy_ccag(event: HookEvent, *, project_root: Path) -> GuardVerdict:
+        _ = project_root
         seen.append("ccag")
         return GuardVerdict.allow("ccag_gatekeeper")
 

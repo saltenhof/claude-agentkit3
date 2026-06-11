@@ -14,13 +14,16 @@ one harness-neutral shape:
   roles that some hooks need are injected as plain values, not imported enums.
 - :class:`HookResult` -- the immutable outcome of :meth:`TelemetryHook.evaluate`.
   It carries the telemetry events to emit and, for the double-role
-  :class:`~agentkit.telemetry.hooks.review_guard.ReviewGuard` /
-  :class:`~agentkit.telemetry.hooks.budget_event_emitter.BudgetEventEmitter`, an
-  optional :class:`~agentkit.governance.protocols.GuardVerdict`.
+  :class:`~agentkit.telemetry.hooks.review_guard.ReviewGuard`, an optional
+  :class:`~agentkit.governance.protocols.GuardVerdict`.
 
 The hooks are observational by default (FK-68 §68.6.0 "Telemetrie-Hooks sind
-rein observational"). Only ReviewGuard and BudgetEventEmitter additionally carry
-a guard verdict, because the story (§2.1.5 / §2.1.6) mandates their double role.
+rein observational"). Only ReviewGuard additionally carries a guard verdict,
+because the story (AG3-036 §2.1.5) mandates its double role. The web-call budget
+block is NO LONGER a telemetry double role: AG3-086 moved it to the single
+governance owner :class:`agentkit.governance.guard_system.WebCallBudgetGuard`
+(FK-30 §30.5.1a); the :class:`~agentkit.telemetry.hooks.budget_event_emitter.BudgetEventEmitter`
+is purely observational again and returns no verdict.
 """
 
 from __future__ import annotations

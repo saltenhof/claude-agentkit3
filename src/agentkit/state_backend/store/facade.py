@@ -1345,6 +1345,49 @@ def find_latest_qa_envelope(
     )
 
 
+def find_prompt_audit_output_hashes(
+    story_dir: Path,
+    scope: RuntimeStateScope | None,
+) -> frozenset[str]:
+    """Return all prompt-audit ``output_sha256`` digests for the run scope.
+
+    The canonical prompt-audit truth lives in ``artifact_envelopes``
+    (``ArtifactClass.PROMPT_AUDIT``, FK-44 §44.6). Each record carries
+    ``output_sha256`` -- the digest of the exact materialized prompt bytes,
+    rendered from a manifest-pinned bundle template. The set of these digests is
+    the FK-31 §31.7.4 Stage-3 baseline for the PromptIntegrityGuard: it is
+    install-pinned, NOT spawn-controlled.
+
+    Args:
+        story_dir: Story base directory (used to resolve the story_id/run_id
+            when ``scope`` is ``None``).
+        scope: Resolved runtime scope (narrows to one run_id when present).
+
+    Returns:
+        The frozenset of all ``output_sha256`` digests for the (story, run)
+        scope (empty when none materialized or the scope is unresolvable).
+    """
+    from agentkit.state_backend.store.artifact_repository import (
+        StateBackendArtifactRepository,
+    )
+
+    if scope is not None:
+        story_id, run_id = scope.story_id, scope.run_id
+    else:
+        try:
+            resolved = resolve_runtime_scope(story_dir)
+        except CorruptStateError:
+            return frozenset()
+        story_id, run_id = resolved.story_id, resolved.run_id
+    if not run_id:
+        return frozenset()
+    repository = StateBackendArtifactRepository(story_dir)
+    return repository.find_prompt_audit_output_hashes(
+        story_id=story_id,
+        run_id=run_id,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Artifact records (raw JSON payload reads)
 # ---------------------------------------------------------------------------

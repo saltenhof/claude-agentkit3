@@ -354,3 +354,35 @@ class TestExtraFields:
                 repositories=[],
                 unknown_field="oops",
             )
+
+
+class TestPermissionsConfig:
+    """AG3-086 (FK-93 §93.5a): the typed permission-request TTL config key."""
+
+    def test_default_is_fk93_1800(self) -> None:
+        from agentkit.config.models import PermissionsConfig
+
+        assert PermissionsConfig().request_ttl_s == 1800
+
+    def test_positive_value_accepted(self) -> None:
+        from agentkit.config.models import PermissionsConfig
+
+        assert PermissionsConfig(request_ttl_s=600).request_ttl_s == 600
+
+    def test_zero_rejected(self) -> None:
+        from agentkit.config.models import PermissionsConfig
+
+        with pytest.raises(ValidationError, match="positive integer"):
+            PermissionsConfig(request_ttl_s=0)
+
+    def test_negative_rejected(self) -> None:
+        from agentkit.config.models import PermissionsConfig
+
+        with pytest.raises(ValidationError, match="FK-93"):
+            PermissionsConfig(request_ttl_s=-5)
+
+    def test_extra_field_rejected(self) -> None:
+        from agentkit.config.models import PermissionsConfig
+
+        with pytest.raises(ValidationError):
+            PermissionsConfig(unknown="x")  # type: ignore[call-arg]

@@ -326,3 +326,56 @@ def test_main_returns_allow_and_block_exit_codes(
     assert main(["pre", "branch_guard"]) == 2
     out = capsys.readouterr().out
     assert "\"decision\": \"block\"" in out
+
+
+def test_main_surfaces_allow_warning_on_stderr_exit_zero(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """AG3-086 (SEVERITY-SEMANTIK / AC1): an ALLOW verdict carrying a WARNING
+    proceeds (exit 0) but mirrors the warning to stderr rather than swallowing it.
+    """
+    event = json.dumps({"tool_name": "WebFetch", "tool_input": {}, "cwd": "."})
+    monkeypatch.setattr("sys.stdin", io.StringIO(event))
+    monkeypatch.setattr(
+        "agentkit.governance.runner.Governance.run_hook",
+        staticmethod(
+            lambda hook_id, event, phase="pre", project_root=None: (
+                GuardVerdict.allow_with_warning(
+                    "web_call_budget_guard",
+                    "web_call_budget_warning: 181 >= 180 (hard limit 200)",
+                    detail={"web_call_count": 181},
+                )
+            )
+        ),
+    )
+
+    assert main(["pre", "budget"]) == 0
+    captured = capsys.readouterr()
+    # The operation proceeds: NO block payload on stdout.
+    assert captured.out == ""
+    # The warning is mirrored to stderr (not swallowed).
+    assert "\"decision\": \"allow\"" in captured.err
+    assert "web_call_budget_warning" in captured.err
+
+
+def test_main_clean_allow_emits_no_stderr(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A clean PASS allow (no warning) emits nothing — no spurious stderr noise."""
+    event = json.dumps({"tool_name": "WebFetch", "tool_input": {}, "cwd": "."})
+    monkeypatch.setattr("sys.stdin", io.StringIO(event))
+    monkeypatch.setattr(
+        "agentkit.governance.runner.Governance.run_hook",
+        staticmethod(
+            lambda hook_id, event, phase="pre", project_root=None: GuardVerdict.allow(
+                "web_call_budget_guard"
+            )
+        ),
+    )
+
+    assert main(["pre", "budget"]) == 0
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""

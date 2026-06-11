@@ -550,6 +550,37 @@ class TelemetryConfig(BaseModel):
         return self
 
 
+class PermissionsConfig(BaseModel):
+    """CCAG permission-request configuration (FK-93 §93.5a, AG3-086).
+
+    Owns the typed permission-request TTL. FK-93 §93.5a fixes the
+    permission-request TTL default at 1800s; AG3-086 introduces this typed config
+    key so the value is no longer the hard-coded ``DEFAULT_TTL_SECONDS = 600`` in
+    ``ccag.requests``. The broader FK-93 defaults reconciliation is doc-only
+    AG3-103; AG3-086 sets ONLY this one value to the FK-93-conformant default.
+
+    Attributes:
+        request_ttl_s: Seconds a CCAG ``permission_request`` stays open before TTL
+            expiry escalates the run (FK-42 §42.4.2 step 5 / FK-93 §93.5a).
+            Default ``1800`` (FK-93 §93.5a). Must be a positive integer.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    request_ttl_s: int = 1800
+
+    @field_validator("request_ttl_s")
+    @classmethod
+    def _check_positive(cls, value: int) -> int:
+        """FK-93 §93.5a: the permission-request TTL must be a positive integer."""
+        if value <= 0:
+            raise ValueError(
+                "permissions.request_ttl_s must be a positive integer; "
+                f"got {value} (FK-93 §93.5a)"
+            )
+        return value
+
+
 class GovernanceConfig(BaseModel):
     """Governance observation configuration (FK-03 §3.1, FK-06-128).
 
@@ -641,6 +672,8 @@ class PipelineConfig(BaseModel):
             ``features.vectordb=True``.
         telemetry: Telemetry and web-call budget (FK-03 §3.1).
         governance: Governance observation configuration (FK-03 §3.1).
+        permissions: CCAG permission-request configuration (FK-93 §93.5a /
+            AG3-086). Owns the typed ``request_ttl_s`` (default 1800).
         conformance: ConformanceService size-threshold configuration
             (FK-32 §32.4b.3).
         layer2: Layer-2 review bundle packing configuration.
@@ -680,6 +713,7 @@ class PipelineConfig(BaseModel):
     vectordb: VectorDbConfig | None = None
     telemetry: TelemetryConfig = TelemetryConfig()
     governance: GovernanceConfig = GovernanceConfig()
+    permissions: PermissionsConfig = PermissionsConfig()
     conformance: ConformanceConfig = ConformanceConfig()
     layer2: Layer2Config = Layer2Config()
     sonarqube: SonarQubeConfig | None = None

@@ -104,7 +104,8 @@ def test_corrupt_freeze_export_blocks_not_raises(
     _publish_story_binding(tmp_path, worktree)
     _write_corrupt_freeze_export(tmp_path)
 
-    def _spy_ccag(event: HookEvent) -> object:
+    def _spy_ccag(event: HookEvent, *, project_root: object = None) -> object:
+        _ = project_root
         raise AssertionError("CCAG must not run after a fail-closed freeze fault")
 
     monkeypatch.setattr(runner_mod, "_run_ccag_hook", _spy_ccag)
@@ -144,7 +145,8 @@ def test_freeze_repository_backend_fault_blocks_not_raises(
     monkeypatch.delenv("AGENTKIT_ALLOW_SQLITE", raising=False)
     monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
 
-    def _spy_ccag(event: HookEvent) -> object:
+    def _spy_ccag(event: HookEvent, *, project_root: object = None) -> object:
+        _ = project_root
         raise AssertionError("CCAG must not run after a fail-closed backend fault")
 
     monkeypatch.setattr(runner_mod, "_run_ccag_hook", _spy_ccag)
@@ -176,7 +178,8 @@ def test_capability_deny_blocks_before_ccag(
     worktree = str(tmp_path / "worktree")
     _publish_story_binding(tmp_path, worktree)
 
-    def _spy_ccag(event: HookEvent) -> object:
+    def _spy_ccag(event: HookEvent, *, project_root: object = None) -> object:
+        _ = project_root
         raise AssertionError("CCAG must not run after a hard capability DENY")
 
     monkeypatch.setattr(runner_mod, "_run_ccag_hook", _spy_ccag)
@@ -207,7 +210,8 @@ def test_capability_allow_proceeds_to_ccag(
 
     ccag_calls: list[str] = []
 
-    def _spy_ccag(event: HookEvent) -> object:
+    def _spy_ccag(event: HookEvent, *, project_root: object = None) -> object:
+        _ = project_root
         from agentkit.governance.protocols import GuardVerdict
 
         ccag_calls.append("ccag")
@@ -239,7 +243,8 @@ def test_capability_unclassified_target_blocks_in_story_mode(
     worktree = str(tmp_path / "worktree")
     _publish_story_binding(tmp_path, worktree)
 
-    def _spy_ccag(event: HookEvent) -> object:
+    def _spy_ccag(event: HookEvent, *, project_root: object = None) -> object:
+        _ = project_root
         raise AssertionError("CCAG must not run after a fail-closed BLOCK")
 
     monkeypatch.setattr(runner_mod, "_run_ccag_hook", _spy_ccag)
@@ -266,7 +271,8 @@ def test_capability_engages_in_normal_mode_blocks_protected_zone(
     # ERROR 2 / FK-55 §55.10.3: with NO story binding (normal mode) enforcement
     # still engages — it is NOT skipped/fail-open. A main orchestrator writing a
     # content-plane artifact is a hard DENY in normal mode too. CCAG never runs.
-    def _spy_ccag(event: HookEvent) -> object:
+    def _spy_ccag(event: HookEvent, *, project_root: object = None) -> object:
+        _ = project_root
         raise AssertionError("CCAG must not run after a hard capability DENY")
 
     monkeypatch.setattr(runner_mod, "_run_ccag_hook", _spy_ccag)
@@ -296,7 +302,8 @@ def test_capability_normal_mode_defers_unclassified_nonmutating_to_ccag(
     # WITHOUT bypassing enforcement.
     ccag_calls: list[str] = []
 
-    def _spy_ccag(event: HookEvent) -> object:
+    def _spy_ccag(event: HookEvent, *, project_root: object = None) -> object:
+        _ = project_root
         from agentkit.governance.protocols import GuardVerdict
 
         ccag_calls.append("ccag")
@@ -326,7 +333,8 @@ def test_capability_normal_mode_blocks_unclassified_mutation(
     # MUTATION target is a fail-closed BLOCK in ALL modes — normal mode is NOT a
     # fail-open escape. The §55.6.1 deferral applies only to non-mutating events.
     # CCAG must NOT be consulted.
-    def _spy_ccag(event: HookEvent) -> object:
+    def _spy_ccag(event: HookEvent, *, project_root: object = None) -> object:
+        _ = project_root
         raise AssertionError("CCAG must not run after an unclassified-mutation BLOCK")
 
     monkeypatch.setattr(runner_mod, "_run_ccag_hook", _spy_ccag)
@@ -358,7 +366,8 @@ def test_capability_unknown_tool_normal_mode_defers_to_ccag(
     # capability block). This is the over-block this rework removes.
     ccag_calls: list[str] = []
 
-    def _spy_ccag(event: HookEvent) -> object:
+    def _spy_ccag(event: HookEvent, *, project_root: object = None) -> object:
+        _ = project_root
         from agentkit.governance.protocols import GuardVerdict
 
         ccag_calls.append("ccag")
@@ -395,7 +404,8 @@ def test_capability_unknown_tool_story_mode_blocks_and_opens_request(
     worktree = str(tmp_path / "worktree")
     _publish_story_binding(tmp_path, worktree)
 
-    def _spy_ccag(event: HookEvent) -> object:
+    def _spy_ccag(event: HookEvent, *, project_root: object = None) -> object:
+        _ = project_root
         raise AssertionError("CCAG must not run after a story-mode unknown-permission block")
 
     monkeypatch.setattr(runner_mod, "_run_ccag_hook", _spy_ccag)
@@ -470,7 +480,8 @@ def test_binding_invalid_fail_closed_blocks_without_ccag(
     worktree = str(tmp_path / "worktree")
     _publish_story_binding(tmp_path, worktree, lock_status=lock_status)
 
-    def _spy_ccag(event: HookEvent) -> object:
+    def _spy_ccag(event: HookEvent, *, project_root: object = None) -> object:
+        _ = project_root
         raise AssertionError(
             "CCAG must not run for a binding_invalid fail-closed block"
         )
@@ -511,7 +522,8 @@ def test_ai_augmented_unknown_tool_still_defers_to_ccag(
     # the genuine free mode.
     ccag_calls: list[str] = []
 
-    def _spy_ccag(event: HookEvent) -> object:
+    def _spy_ccag(event: HookEvent, *, project_root: object = None) -> object:
+        _ = project_root
         from agentkit.governance.protocols import GuardVerdict
 
         ccag_calls.append("ccag")
@@ -540,7 +552,8 @@ def test_capability_normal_mode_blocks_bash_mutation_chain(
     # ERROR 4 + 2 / FK-55 §55.10.2: a chained Bash mutation under .git (hidden
     # behind a benign leading command) is recognised and blocked even in normal
     # mode. CCAG must NOT be consulted.
-    def _spy_ccag(event: HookEvent) -> object:
+    def _spy_ccag(event: HookEvent, *, project_root: object = None) -> object:
+        _ = project_root
         raise AssertionError("CCAG must not run after a hard capability BLOCK")
 
     monkeypatch.setattr(runner_mod, "_run_ccag_hook", _spy_ccag)

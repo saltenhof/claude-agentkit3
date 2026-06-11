@@ -109,6 +109,37 @@ def read_json_object(path: Path) -> dict[str, object]:
     return cast("dict[str, object]", data)
 
 
+def parse_json_object(text: str) -> dict[str, object]:
+    """Parse a JSON STRING that must hold a JSON object at the top level.
+
+    Generic in-memory parser for harness-/LLM-native JSON payloads (for example a
+    CCAG rule-generalization LLM response). Like :func:`read_json_object` this
+    lives in ``utils.io`` so protected governance modules can parse such payloads
+    without crossing the truth boundary
+    (``formal.truth-boundary-checker.invariants`` forbids ``json.load*`` inside
+    ``agentkit.governance.*``). This is NOT an AK3 story-export truth loader.
+
+    Args:
+        text: The raw JSON text to parse.
+
+    Returns:
+        The parsed object as a dict.
+
+    Raises:
+        ValueError: If *text* is not valid JSON or is not a top-level object.
+            Fail-closed: a malformed payload is never coerced to an empty dict.
+    """
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON payload: {exc}.") from exc
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"JSON payload must be an object, got {type(data).__name__}."
+        )
+    return cast("dict[str, object]", data)
+
+
 def ensure_dir(path: Path) -> Path:
     """Create a directory and all parents if they do not exist.
 

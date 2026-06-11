@@ -56,7 +56,13 @@ def test_impact_violation_and_exceedance_are_distinct() -> None:
 
 
 _VALID_PAYLOADS: dict[EventType | str, dict[str, object]] = {
-    EventType.INTEGRITY_VIOLATION: {"stage": "escape_detection"},
+    # AG3-086: ``guard``/``detail`` mandatory for every ``integrity_violation``;
+    # ``stage`` is conditional (prompt_integrity_guard only). A non-prompt guard
+    # validates WITHOUT a ``stage`` (FK-68 §68.2 / FK-61 §61.12.2).
+    EventType.INTEGRITY_VIOLATION: {
+        "guard": "skill_usage_check",
+        "detail": "blocked: use the matching skill",
+    },
     EventType.REVIEW_RESPONSE: {"verdict": "PASS"},
     EventType.REVIEW_DIVERGENCE: {
         "story_id": "AG3-001",

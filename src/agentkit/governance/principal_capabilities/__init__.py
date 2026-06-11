@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from agentkit.governance.principal_capabilities.enforcement import (
     CapabilityEnforcement,
+    CapabilityHull,
     CapabilityResult,
     EnforcementOutcome,
 )
@@ -40,6 +41,7 @@ from agentkit.governance.principal_capabilities.service_paths import (
 __all__ = [
     "CapabilityDecision",
     "CapabilityEnforcement",
+    "CapabilityHull",
     "CapabilityMatrix",
     "CapabilityResult",
     "CapabilityVerdict",

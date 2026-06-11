@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from agentkit.governance.principal_capabilities import OperationClass, OperationClassifier
-from agentkit.governance.principal_capabilities.operations import bash_mutation_targets
+from agentkit.governance.principal_capabilities.operations import (
+    bash_mutation_targets,
+    is_subagent_spawn,
+)
 
 _CLF = OperationClassifier()
 
@@ -295,6 +298,24 @@ def test_web_tool_aliases_classify_as_read() -> None:
             is OperationClass.READ
         ), alias
         assert _CLF.is_known("unknown_tool", {"tool_name": alias}) is True, alias
+
+
+def test_agent_spawn_is_known_and_recognised() -> None:
+    # FIX A (FK-31 §31.7 / FK-91 §91.4): the Agent sub-agent spawn is a KNOWN
+    # operation so it is NEVER the §55.6.1 unknown_permission block; is_subagent_spawn
+    # recognises both the harness ``unknown_tool`` carrier and the literal name.
+    assert is_subagent_spawn("unknown_tool", {"tool_name": "Agent"}) is True
+    assert is_subagent_spawn("Agent", None) is True
+    # A non-Agent operation name with no args is not a spawn (None-args branch).
+    assert is_subagent_spawn("unknown_tool", None) is False
+    assert is_subagent_spawn("unknown_tool", {"tool_name": "Bash"}) is False
+    assert is_subagent_spawn("unknown_tool", {"todos": []}) is False
+    assert _CLF.is_known("unknown_tool", {"tool_name": "Agent"}) is True
+    # It still normalises to the inert EXECUTE (the enforcement layer routes it).
+    assert (
+        _CLF.classify("unknown_tool", {"tool_name": "Agent"})
+        is OperationClass.EXECUTE
+    )
 
 
 def test_curate_reachable_via_admin_only_path() -> None:

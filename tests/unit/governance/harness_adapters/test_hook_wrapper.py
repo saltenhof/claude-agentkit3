@@ -431,10 +431,12 @@ class TestSupportedHookIdsCompleteness:
         assert SUPPORTED_HOOK_IDS == PRE_HOOK_IDS | POST_HOOK_IDS
 
     def test_pre_hook_ids_are_known(self) -> None:
-        # AG3-031 Pass-2 FK-30-Korrektur 2026-05-24: 11 FK-30 §30.5.1 values.
-        # AG3-036 FIX-1/FIX-3: the two double-role telemetry guards
-        # (review_guard, budget_event_emitter) are PreToolUse blocking hooks so a
-        # DENY blocks BEFORE the commit / web call runs.
+        # AG3-031 Pass-2 FK-30-Korrektur 2026-05-24: FK-30 §30.5.1 values.
+        # AG3-036 FIX-1: review_guard is a PreToolUse blocking double-role hook.
+        # AG3-086 (FK-30 §30.5.1a): ``budget`` blocks PreToolUse via the single
+        # governance owner WebCallBudgetGuard; the old ``budget_event_emitter``
+        # PreToolUse block double role is REMOVED (the emitter is observational
+        # PostToolUse only).
         expected = {
             "branch_guard",
             "orchestrator_guard",
@@ -445,10 +447,11 @@ class TestSupportedHookIdsCompleteness:
             "story_creation_guard",
             "budget",
             "skill_usage_check",
+            # AG3-086 (FK-31 §31.7): the new prompt-integrity spawn guard.
+            "prompt_integrity",
             "health_monitor",
             "ccag_gatekeeper",
             "review_guard",
-            "budget_event_emitter",
         }
         assert expected == PRE_HOOK_IDS
 

@@ -202,8 +202,19 @@ MANDATORY_PAYLOAD_FIELDS: Mapping[EventType, tuple[str, ...]] = {
     # load-bearing wire key and is mandatory (an unlabelled completion is
     # uncountable -> FAIL-CLOSED). Added by AG3-042, reconciled here.
     EventType.LLM_CALL_COMPLETE: ("role",),
-    # FK-61 §61.12.2 — enriched payloads on existing events
-    EventType.INTEGRITY_VIOLATION: ("stage",),
+    # FK-68 §68.2 / §68.3.1 — every guard-hook block (exit 2) emits an
+    # ``integrity_violation`` carrying ``guard`` (the emitting guard) and
+    # ``detail`` (the block reason). These two are mandatory for EVERY
+    # ``integrity_violation`` (FK-30 §30.7.3). The ``stage`` field is
+    # prompt-integrity-specific (FK-61 §61.12.2 "fuer prompt_integrity_guard")
+    # and is enforced CONDITIONALLY (only for ``guard="prompt_integrity_guard"``)
+    # by :func:`validate_event_payload` — see ``INTEGRITY_VIOLATION_PROMPT_GUARD``
+    # and ``INTEGRITY_VIOLATION_STAGES`` below. AG3-086 introduced the first
+    # non-prompt-integrity emitters (``skill_usage_check``,
+    # ``web_call_budget_guard``) which write NO ``stage``; the canonical
+    # mandatory-payload contract owner is AG3-081 (this change is producer-driven
+    # and coordinated via ``depends_on: AG3-081``).
+    EventType.INTEGRITY_VIOLATION: ("guard", "detail"),
     # ``review_response.verdict`` carries the LLM envelope status (PASS/REWORK/
     # FAIL, FK-61 §61.12.2). Presence is mandatory; value typing stays at the
     # producer (review_guard.py).
@@ -309,6 +320,24 @@ MANDATORY_PAYLOAD_FIELDS_BY_NAME: Mapping[str, tuple[str, ...]] = {
     "integrity_gate_result": ("blocked_dimensions",),
 }
 
+# ---------------------------------------------------------------------------
+# Conditional ``integrity_violation`` payload contract (FK-61 §61.12.2 / FK-68
+# §68.2). ``stage`` is NOT unconditionally mandatory for every
+# ``integrity_violation`` (that would reject the AG3-086 non-prompt-integrity
+# emitters ``skill_usage_check`` / ``web_call_budget_guard`` fail-closed). It is
+# valid and mandatory ONLY for the prompt-integrity guard, where it identifies
+# the failing check stage (FK-31 §31.7.2). For every other emitting guard a
+# ``stage`` is rejected as an invalid field for that producer.
+
+#: The ``guard`` value that owns the prompt-integrity ``stage`` field.
+INTEGRITY_VIOLATION_PROMPT_GUARD: str = "prompt_integrity_guard"
+
+#: The valid ``stage`` values for a ``prompt_integrity_guard``
+#: ``integrity_violation`` — one per check stage (FK-31 §31.7.2).
+INTEGRITY_VIOLATION_STAGES: frozenset[str] = frozenset(
+    {"escape_detection", "schema_validation", "template_integrity"}
+)
+
 
 class EventPayloadContractError(ValueError):
     """Raised when an event payload is missing a mandatory field (FAIL-CLOSED).
@@ -319,15 +348,32 @@ class EventPayloadContractError(ValueError):
 
     Args:
         event_type: The event type (canonical wire string) being validated.
-        missing: The mandatory field names that were absent.
+        missing: The mandatory field names that were absent (or, for a
+            conditionally-invalid field, the offending field name).
+        detail: Optional override message describing a conditional-field
+            violation (e.g. an invalid or forbidden ``stage`` value). When
+            ``None`` the default "missing mandatory field" message is used.
     """
 
-    def __init__(self, event_type: str, missing: tuple[str, ...]) -> None:
-        super().__init__(
-            f"Event {event_type!r} is missing mandatory payload field(s): "
-            f"{', '.join(missing)}. FAIL-CLOSED: every mandatory field per "
-            "EventType must be present (FK-61 §61.12.2 / FK-25 §25.8)."
-        )
+    def __init__(
+        self,
+        event_type: str,
+        missing: tuple[str, ...],
+        *,
+        detail: str | None = None,
+    ) -> None:
+        if detail is None:
+            message = (
+                f"Event {event_type!r} is missing mandatory payload field(s): "
+                f"{', '.join(missing)}. FAIL-CLOSED: every mandatory field per "
+                "EventType must be present (FK-61 §61.12.2 / FK-25 §25.8)."
+            )
+        else:
+            message = (
+                f"Event {event_type!r} payload contract violation: {detail}. "
+                "FAIL-CLOSED."
+            )
+        super().__init__(message)
         self.event_type = event_type
         self.missing = missing
 
@@ -370,3 +416,55 @@ def validate_event_payload(
     missing = tuple(field_name for field_name in required if field_name not in payload)
     if missing:
         raise EventPayloadContractError(wire_value, missing)
+
+    if wire_value == EventType.INTEGRITY_VIOLATION.value:
+        _validate_integrity_violation_stage(payload)
+
+
+def _validate_integrity_violation_stage(payload: Mapping[str, object]) -> None:
+    """Enforce the conditional ``stage`` contract on an ``integrity_violation``.
+
+    FK-61 §61.12.2 / FK-68 §68.2: ``stage`` is valid and mandatory ONLY for the
+    prompt-integrity guard (``guard="prompt_integrity_guard"``), where it names
+    the failing check stage (one of :data:`INTEGRITY_VIOLATION_STAGES`). For any
+    other emitting guard a ``stage`` is rejected as an invalid field for that
+    producer (FAIL-CLOSED — a mislabelled stage is a contract error, not a
+    silently-tolerated extra field).
+
+    Args:
+        payload: The ``integrity_violation`` payload (``guard``/``detail`` are
+            already presence-checked by the caller).
+
+    Raises:
+        EventPayloadContractError: When the prompt-integrity guard omits or
+            mis-values ``stage``, or when a non-prompt-integrity guard carries a
+            ``stage`` field at all.
+    """
+    guard = payload.get("guard")
+    has_stage = "stage" in payload
+    if guard == INTEGRITY_VIOLATION_PROMPT_GUARD:
+        if not has_stage:
+            raise EventPayloadContractError(
+                EventType.INTEGRITY_VIOLATION.value, ("stage",)
+            )
+        stage = payload.get("stage")
+        if stage not in INTEGRITY_VIOLATION_STAGES:
+            raise EventPayloadContractError(
+                EventType.INTEGRITY_VIOLATION.value,
+                ("stage",),
+                detail=(
+                    f"prompt_integrity_guard 'stage'={stage!r} is not one of "
+                    f"{sorted(INTEGRITY_VIOLATION_STAGES)} (FK-31 §31.7.2)"
+                ),
+            )
+    elif has_stage:
+        # ``stage`` is prompt-integrity-specific; a non-prompt-integrity guard
+        # that carries one is mislabelled (FK-61 §61.12.2). Reject fail-closed.
+        raise EventPayloadContractError(
+            EventType.INTEGRITY_VIOLATION.value,
+            ("stage",),
+            detail=(
+                f"'stage' is prompt_integrity_guard-specific but guard={guard!r} "
+                "carried it (FK-61 §61.12.2 / FK-68 §68.2)"
+            ),
+        )

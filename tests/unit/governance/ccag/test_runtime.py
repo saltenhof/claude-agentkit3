@@ -16,6 +16,7 @@ from agentkit.governance.ccag.runtime import (
     _extract_operating_mode,
 )
 from agentkit.governance.guard_evaluation import HookEvent, Operation
+from agentkit.governance.principal_capabilities import CapabilityHull
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -25,6 +26,22 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _hull() -> CapabilityHull:
+    """A pre-computed, permitting capability hull (FK-42 §42.2.4).
+
+    CCAG runs ONLY after the capability layer permitted (ALLOW). These rule-level
+    tests inject a permitting hull so the CCAG rule logic under test is reached;
+    the missing-hull / error fail-closed paths are exercised in their own tests.
+    """
+    return CapabilityHull(
+        principal_type="worker",
+        operation_class="execute",
+        path_classes=("codebase_story_scope",),
+        hard_capability_verdict="allow",
+        freeze_verdict="allow",
+    )
 
 
 def _make_event(
@@ -102,7 +119,7 @@ class TestStaticAllowRule:
         )
         runtime = CcagPermissionRuntime(rules_dir=rules_dir)
         event = _make_event(command="git push origin main")
-        decision = runtime.evaluate(event)
+        decision = runtime.evaluate(event, capability_hull=_hull())
         assert decision.kind == CcagDecisionKind.ALLOW
         assert decision.matched_rule_id == "allow-git"
 
@@ -121,7 +138,7 @@ class TestStaticAllowRule:
             cwd=".",
             principal_kind="main",
         )
-        decision = runtime.evaluate(event)
+        decision = runtime.evaluate(event, capability_hull=_hull())
         assert decision.kind == CcagDecisionKind.ALLOW
 
 
@@ -140,7 +157,7 @@ class TestBlockRule:
         )
         runtime = CcagPermissionRuntime(rules_dir=rules_dir)
         event = _make_event(command="rm -rf /tmp")
-        decision = runtime.evaluate(event)
+        decision = runtime.evaluate(event, capability_hull=_hull())
         assert decision.kind == CcagDecisionKind.BLOCK_BY_RULE
         assert decision.matched_rule_id == "deny-rm"
 
@@ -156,7 +173,7 @@ class TestBlockRule:
         )
         runtime = CcagPermissionRuntime(rules_dir=rules_dir)
         event = _make_event(command="rm -rf /tmp")
-        decision = runtime.evaluate(event)
+        decision = runtime.evaluate(event, capability_hull=_hull())
         assert decision.kind == CcagDecisionKind.BLOCK_BY_RULE
         assert decision.matched_rule_id == "deny-rm"
 
@@ -180,7 +197,7 @@ class TestUnknownPermissionStoryExecution:
             command="some-unknown-command",
             operating_mode="story_execution",
         )
-        decision = runtime.evaluate(event)
+        decision = runtime.evaluate(event, capability_hull=_hull())
         assert decision.kind == CcagDecisionKind.UNKNOWN_PERMISSION
         assert decision.permission_request is not None
         req_id = decision.permission_request.request_id
@@ -203,7 +220,7 @@ class TestUnknownPermissionStoryExecution:
             command="some-unknown-command",
             operating_mode="ai_augmented",
         )
-        decision = runtime.evaluate(event)
+        decision = runtime.evaluate(event, capability_hull=_hull())
         assert decision.kind == CcagDecisionKind.UNKNOWN_PERMISSION
         assert decision.permission_request is None
 
@@ -215,7 +232,7 @@ class TestUnknownPermissionStoryExecution:
             command="some-unknown-command",
             operating_mode="interactive_agent",
         )
-        decision = runtime.evaluate(event)
+        decision = runtime.evaluate(event, capability_hull=_hull())
         assert decision.kind == CcagDecisionKind.UNKNOWN_PERMISSION
         assert decision.permission_request is None
 
@@ -228,7 +245,7 @@ class TestUnknownPermissionStoryExecution:
             command="dangerous-unknown-op",
             operating_mode="story_execution",
         )
-        decision = runtime.evaluate(event)
+        decision = runtime.evaluate(event, capability_hull=_hull())
         # Must NOT be allow — must be unknown_permission
         assert decision.kind != CcagDecisionKind.ALLOW
         assert decision.kind == CcagDecisionKind.UNKNOWN_PERMISSION
@@ -251,7 +268,7 @@ class TestModePaths:
             command="unknown-cmd",
             operating_mode="story_execution",
         )
-        decision = runtime.evaluate(event)
+        decision = runtime.evaluate(event, capability_hull=_hull())
         assert decision.kind == CcagDecisionKind.UNKNOWN_PERMISSION
         assert decision.permission_request is not None  # request created
 
@@ -263,7 +280,7 @@ class TestModePaths:
             command="unknown-cmd",
             operating_mode="ai_augmented",
         )
-        decision = runtime.evaluate(event)
+        decision = runtime.evaluate(event, capability_hull=_hull())
         assert decision.kind == CcagDecisionKind.UNKNOWN_PERMISSION
         assert decision.permission_request is None  # no request
 
@@ -289,7 +306,7 @@ class TestModePaths:
             cwd=".",
             principal_kind="subagent",
         )
-        sub_decision = runtime.evaluate(sub_event)
+        sub_decision = runtime.evaluate(sub_event, capability_hull=_hull())
         assert sub_decision.kind == CcagDecisionKind.BLOCK_BY_RULE
 
         # Main agent: block rule is scoped to sub, so allow rule fires
@@ -300,30 +317,69 @@ class TestModePaths:
             cwd=".",
             principal_kind="main",
         )
-        main_decision = runtime.evaluate(main_event)
+        main_decision = runtime.evaluate(main_event, capability_hull=_hull())
         assert main_decision.kind == CcagDecisionKind.ALLOW
 
 
 # ---------------------------------------------------------------------------
-# Fail-open on unexpected error
+# AG3-086 AC6 — CCAG capability-hull precondition + fail-CLOSED (FK-42 §42.2.4)
 # ---------------------------------------------------------------------------
 
 
-class TestFailOpen:
-    def test_fail_open_on_corrupt_rules(self, tmp_path: Path) -> None:
+class TestCapabilityHullFailClosed:
+    def test_missing_hull_blocks_fail_closed(self, tmp_path: Path) -> None:
+        # AC6: evaluate WITHOUT a capability hull is inadmissible -> fail-closed
+        # BLOCK (never a global allow). This is the core of the fail-open removal.
+        rules_dir = tmp_path / "rules"
+        _write_rules(
+            rules_dir,
+            "global.yaml",
+            [{"id": "allow-git", "tool": "Bash", "allow_pattern": ".*"}],
+        )
+        runtime = CcagPermissionRuntime(rules_dir=rules_dir)
+        event = _make_event(command="git push origin main")
+        decision = runtime.evaluate(event, capability_hull=None)
+        assert decision.kind == CcagDecisionKind.BLOCK_BY_RULE
+        assert decision.kind != CcagDecisionKind.ALLOW
+        assert decision.matched_rule_id == "FK-42-42.2.4-missing-hull"
+
+    def test_evaluation_error_blocks_not_allows(
+        self, tmp_path: Path, monkeypatch: object
+    ) -> None:
+        # AC6: an unexpected evaluation error must FAIL-CLOSED (block), NOT the
+        # previous fail-OPEN allow. Force the internal evaluation to raise.
+        import pytest
+
+        from agentkit.governance.ccag import runtime as runtime_mod
+
         rules_dir = tmp_path / "rules"
         rules_dir.mkdir()
-        # Write invalid YAML to global.yaml
+        runtime = CcagPermissionRuntime(rules_dir=rules_dir)
+        event = _make_event(command="any-command")
+
+        def _boom(_self: object, _event: object) -> None:
+            raise RuntimeError("forced CCAG fault")
+
+        assert isinstance(monkeypatch, pytest.MonkeyPatch)
+        monkeypatch.setattr(
+            runtime_mod.CcagPermissionRuntime, "_evaluate_internal", _boom
+        )
+        decision = runtime.evaluate(event, capability_hull=_hull())
+        assert decision.kind == CcagDecisionKind.BLOCK_BY_RULE
+        assert decision.kind != CcagDecisionKind.ALLOW
+        assert decision.matched_rule_id == "FK-42-ccag-evaluation-error"
+
+    def test_corrupt_rules_do_not_fail_open(self, tmp_path: Path) -> None:
+        # Corrupt YAML degrades to an empty rule set (no exception) -> the call
+        # resolves mode-scharf, never a silent ALLOW.
+        rules_dir = tmp_path / "rules"
+        rules_dir.mkdir()
         (rules_dir / "global.yaml").write_text("[broken: {yaml", encoding="utf-8")
         runtime = CcagPermissionRuntime(rules_dir=rules_dir)
         event = _make_event(command="any-command")
-        # Corrupt YAML → empty rule set → unknown_permission (not a crash)
-        decision = runtime.evaluate(event)
-        # Should not raise; will be either allow or unknown_permission
-        assert decision.kind in (
-            CcagDecisionKind.ALLOW,
-            CcagDecisionKind.UNKNOWN_PERMISSION,
-        )
+        decision = runtime.evaluate(event, capability_hull=_hull())
+        assert decision.kind != CcagDecisionKind.ALLOW
+        assert decision.kind == CcagDecisionKind.UNKNOWN_PERMISSION
 
 
 # ---------------------------------------------------------------------------
@@ -337,5 +393,5 @@ class TestEmptyRulesDir:
         rules_dir.mkdir()
         runtime = CcagPermissionRuntime(rules_dir=rules_dir)
         event = _make_event(command="ls -la")
-        decision = runtime.evaluate(event)
+        decision = runtime.evaluate(event, capability_hull=_hull())
         assert decision.kind == CcagDecisionKind.UNKNOWN_PERMISSION

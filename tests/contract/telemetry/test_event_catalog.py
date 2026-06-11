@@ -8,10 +8,14 @@ authoritative concepts — this test is the wire-contract guardrail.
 
 from __future__ import annotations
 
+import pytest
+
 from agentkit.telemetry.events import (
     MANDATORY_PAYLOAD_FIELDS,
     MANDATORY_PAYLOAD_FIELDS_BY_NAME,
+    EventPayloadContractError,
     EventType,
+    validate_event_payload,
 )
 
 # ---------------------------------------------------------------------------
@@ -129,7 +133,11 @@ def test_impact_violation_and_exceedance_remain_distinct() -> None:
 
 _EXPECTED_MANDATORY_FIELDS: dict[EventType, tuple[str, ...]] = {
     EventType.LLM_CALL_COMPLETE: ("role",),
-    EventType.INTEGRITY_VIOLATION: ("stage",),
+    # AG3-086 / FK-68 §68.2 / §68.3.1: ``guard`` + ``detail`` are mandatory for
+    # EVERY ``integrity_violation``; ``stage`` is CONDITIONAL (valid/mandatory
+    # only for ``guard="prompt_integrity_guard"``) and is enforced by
+    # ``validate_event_payload`` rather than pinned unconditionally here.
+    EventType.INTEGRITY_VIOLATION: ("guard", "detail"),
     EventType.REVIEW_RESPONSE: ("verdict",),
     EventType.REVIEW_DIVERGENCE: (
         "story_id",
@@ -214,3 +222,86 @@ def test_mandatory_payload_fields_match_contract() -> None:
 
 def test_mandatory_payload_fields_by_name_match_contract() -> None:
     assert dict(MANDATORY_PAYLOAD_FIELDS_BY_NAME) == _EXPECTED_MANDATORY_FIELDS_BY_NAME
+
+
+# ---------------------------------------------------------------------------
+# AG3-086 AC0 — conditional ``integrity_violation`` ``stage`` contract
+# (FK-61 §61.12.2 / FK-68 §68.2). ``guard``/``detail`` mandatory for every
+# emission; ``stage`` valid/mandatory only for ``prompt_integrity_guard``.
+# ---------------------------------------------------------------------------
+
+
+def test_integrity_violation_skill_usage_validates_without_stage() -> None:
+    """A ``skill_usage_check`` block validates green WITHOUT a ``stage``."""
+    validate_event_payload(
+        EventType.INTEGRITY_VIOLATION,
+        {"guard": "skill_usage_check", "detail": "blocked: use the skill"},
+    )
+
+
+def test_integrity_violation_web_call_budget_validates_without_stage() -> None:
+    """A ``web_call_budget_guard`` block validates green WITHOUT a ``stage``."""
+    validate_event_payload(
+        EventType.INTEGRITY_VIOLATION,
+        {"guard": "web_call_budget_guard", "detail": "web_call_budget_exceeded"},
+    )
+
+
+def test_integrity_violation_prompt_guard_without_stage_fails_closed() -> None:
+    """A ``prompt_integrity_guard`` event WITHOUT ``stage`` fails closed."""
+    with pytest.raises(EventPayloadContractError):
+        validate_event_payload(
+            EventType.INTEGRITY_VIOLATION,
+            {"guard": "prompt_integrity_guard", "detail": "Operation not permitted."},
+        )
+
+
+@pytest.mark.parametrize(
+    "stage",
+    ["escape_detection", "schema_validation", "template_integrity"],
+)
+def test_integrity_violation_prompt_guard_with_valid_stage_validates(stage: str) -> None:
+    """A ``prompt_integrity_guard`` event with a valid ``stage`` validates green."""
+    validate_event_payload(
+        EventType.INTEGRITY_VIOLATION,
+        {
+            "guard": "prompt_integrity_guard",
+            "detail": "Operation not permitted.",
+            "stage": stage,
+        },
+    )
+
+
+def test_integrity_violation_prompt_guard_with_invalid_stage_fails_closed() -> None:
+    """An out-of-vocabulary ``stage`` for the prompt guard fails closed."""
+    with pytest.raises(EventPayloadContractError):
+        validate_event_payload(
+            EventType.INTEGRITY_VIOLATION,
+            {
+                "guard": "prompt_integrity_guard",
+                "detail": "Operation not permitted.",
+                "stage": "not_a_real_stage",
+            },
+        )
+
+
+def test_integrity_violation_non_prompt_guard_with_stage_fails_closed() -> None:
+    """A non-prompt-integrity guard that carries a ``stage`` fails closed."""
+    with pytest.raises(EventPayloadContractError):
+        validate_event_payload(
+            EventType.INTEGRITY_VIOLATION,
+            {
+                "guard": "skill_usage_check",
+                "detail": "blocked",
+                "stage": "schema_validation",
+            },
+        )
+
+
+def test_integrity_violation_missing_guard_fails_closed() -> None:
+    """An ``integrity_violation`` missing the mandatory ``guard`` fails closed."""
+    with pytest.raises(EventPayloadContractError):
+        validate_event_payload(
+            EventType.INTEGRITY_VIOLATION,
+            {"detail": "blocked"},
+        )

@@ -1,4 +1,11 @@
-"""Unit tests for :class:`BudgetEventEmitter` (AG3-036 AC6)."""
+"""Unit tests for the OBSERVATIONAL :class:`BudgetEventEmitter` (AG3-086).
+
+AG3-086 migration: the emitter is purely observational again (FK-68 §68.6.0).
+The blocking double role was moved to
+:class:`agentkit.governance.guard_system.WebCallBudgetGuard`. The emitter now
+NEVER returns a ``GuardVerdict`` — it only emits the ``web_call`` counter for a
+RESOLVED research web call.
+"""
 
 from __future__ import annotations
 
@@ -34,7 +41,7 @@ def _web_call(n: int) -> list[Event]:
     ]
 
 
-def test_research_web_call_emits_event_and_allows_below_limit() -> None:
+def test_research_web_call_emits_event_and_never_returns_a_verdict() -> None:
     emitter = MemoryEmitter()
     hook = BudgetEventEmitter(emitter, web_call_limit=200)
 
@@ -44,8 +51,8 @@ def test_research_web_call_emits_event_and_allows_below_limit() -> None:
     assert result.triggered is True
     assert result.events[0].event_type is EventType.WEB_CALL
     assert result.events[0].payload["over_budget"] is False
-    assert result.verdict is not None
-    assert result.verdict.allowed is True
+    # AG3-086: observational only — NO verdict (the block is the guard's).
+    assert result.verdict is None
     assert emitter.all_events[0].event_type is EventType.WEB_CALL
 
 
@@ -57,7 +64,7 @@ def test_non_research_story_is_skipped() -> None:
     assert result.verdict is None
 
 
-def test_research_budget_overrun_denies() -> None:
+def test_research_over_budget_emits_but_does_not_block() -> None:
     emitter = MemoryEmitter()
     for event in _web_call(2):
         emitter.emit(event)
@@ -65,11 +72,10 @@ def test_research_budget_overrun_denies() -> None:
 
     result = hook.evaluate(_context("research"))
 
-    # Third call exceeds the limit of 2.
+    # Third call is at/over the limit of 2 — the observational payload flags it,
+    # but the emitter NEVER blocks (no verdict). The block is the guard's job.
     assert result.events[0].payload["over_budget"] is True
-    assert result.verdict is not None
-    assert result.verdict.allowed is False
-    assert "web_call_budget_exceeded" in (result.verdict.message or "")
+    assert result.verdict is None
 
 
 def test_non_web_tool_is_skipped() -> None:
@@ -78,21 +84,17 @@ def test_non_web_tool_is_skipped() -> None:
     assert result.triggered is False
 
 
-def test_unresolved_story_type_fails_closed_deny() -> None:
-    # FIX-B: an UNRESOLVED story type on a web call must DENY, NOT downgrade to
-    # "not research" (no silent allow).
+def test_unresolved_story_type_is_skipped_no_verdict() -> None:
+    # AG3-086 migration: the emitter no longer fail-closes on an unresolved story
+    # type — that block moved to WebCallBudgetGuard. The emitter stays silent.
     hook = BudgetEventEmitter(MemoryEmitter())
     result = hook.evaluate(_context("", story_type_resolved=False))
-    assert result.triggered is True
-    assert result.verdict is not None
-    assert result.verdict.allowed is False
-    assert "story_type_unresolved" in (result.verdict.message or "")
-    # No web_call event is emitted for an unresolved state.
+    assert result.triggered is False
+    assert result.verdict is None
     assert result.events == ()
 
 
 def test_unresolved_non_web_tool_is_skipped() -> None:
-    # The unresolved fail-closed only fires for an actual web call.
     hook = BudgetEventEmitter(MemoryEmitter())
     result = hook.evaluate(
         _context("", tool="Bash", story_type_resolved=False)
@@ -106,3 +108,4 @@ def test_websearch_tool_triggers() -> None:
     result = hook.evaluate(_context("research", tool="WebSearch"))
     assert result.triggered is True
     assert result.events[0].payload["tool"] == "WebSearch"
+    assert result.verdict is None

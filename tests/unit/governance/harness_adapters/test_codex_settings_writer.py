@@ -270,14 +270,14 @@ class TestWebSurfaceExplicitGuard:
     ) -> None:
         """A web matcher records a NAMED ``no Codex tool surface`` diagnostic
         (citing FK-76 §76.5.2), not just the generic ``dropped`` line — so the
-        absent ``budget_event_emitter`` surface is a deliberate, documented
-        decision rather than a silent omission."""
+        absent budget guard surface is a deliberate, documented decision rather
+        than a silent omission (AG3-086: the block owner is WebCallBudgetGuard)."""
         writer = CodexSettingsWriter(tmp_path)
-        writer.write([_pre("WebSearch|WebFetch", "budget_event_emitter")])
+        writer.write([_pre("WebSearch|WebFetch", "budget")])
         explicit = [
             d
             for d in writer.diagnostics
-            if "NO Codex tool surface" in d and "budget_event_emitter" in d
+            if "NO Codex tool surface" in d and "WebCallBudgetGuard" in d
         ]
         assert explicit, writer.diagnostics
         assert any("FK-76" in d for d in explicit)
@@ -286,7 +286,7 @@ class TestWebSurfaceExplicitGuard:
         """The diagnostic points at the fail-closed backstop (the Codex event
         mapping preserving the tool name) — ZERO DEBT: no unenforced gap."""
         writer = CodexSettingsWriter(tmp_path)
-        writer.write([_pre("WebFetch", "budget_event_emitter")])
+        writer.write([_pre("WebFetch", "budget")])
         assert any(
             "preserves the tool name" in d and "denies" in d
             for d in writer.diagnostics

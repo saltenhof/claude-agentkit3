@@ -417,3 +417,114 @@ def test_deny_does_not_invoke_ccag_via_spy(tmp_path: Path) -> None:
     if CapabilityEnforcement.should_run_ccag(result):
         ccag_calls.append("called")
     assert ccag_calls == []  # CCAG never consulted after a hard DENY.
+
+
+# ---------------------------------------------------------------------------
+# Sub-agent spawn routing (FIX A / FK-31 §31.7 / FK-91 §91.4)
+# ---------------------------------------------------------------------------
+
+
+def _agent_spawn_event(tmp_path: Path, **kwargs: object) -> HookEvent:
+    """An ``Agent`` sub-agent spawn as it arrives at the harness-neutral edge."""
+    base: dict[str, object] = {
+        "operation": "unknown_tool",
+        "freshness_class": "guarded_read",
+        "cwd": str(tmp_path),
+        "operation_args": {"tool_name": "Agent", "description": "", "prompt": ""},
+    }
+    base.update(kwargs)
+    return HookEvent.model_validate(base)
+
+
+def test_agent_spawn_orchestrator_routes_to_allow_not_path_matrix(
+    tmp_path: Path,
+) -> None:
+    # FIX A: an orchestrator (is_subagent == false) spawning an Agent has no
+    # EXECUTE grant on the cwd path-class. The path matrix would DENY it, killing
+    # the dedicated prompt_integrity guard. FK-31 §31.7 / FK-91 §91.4: the spawn is
+    # a KNOWN control-plane operation routed PAST the path matrix to its dedicated
+    # guard -> ALLOW with a hull (so dispatch reaches prompt_integrity).
+    event = _agent_spawn_event(tmp_path, principal_kind="main", session_id="run-1")
+    result = _enforcement(tmp_path).evaluate(
+        event, project_root=tmp_path, story_id=_STORY, story_scope_roots=_SCOPE
+    )
+    assert result.outcome is EnforcementOutcome.ALLOW
+    assert result.hull is not None
+    assert result.hull.principal_type == "orchestrator"
+
+
+def test_agent_spawn_unattested_subagent_routes_to_allow(tmp_path: Path) -> None:
+    # FIX A: even an unattested sub-agent (llm_evaluator, no fs capability) spawn
+    # is routed to the dedicated guard rather than a path-matrix DENY — the spawn
+    # schema is the prompt_integrity guard's authority, not the path matrix.
+    event = _agent_spawn_event(tmp_path, principal_kind="subagent", session_id="run-1")
+    result = _enforcement(tmp_path).evaluate(
+        event, project_root=tmp_path, story_id=_STORY, story_scope_roots=_SCOPE
+    )
+    assert result.outcome is EnforcementOutcome.ALLOW
+    assert result.hull is not None
+
+
+def test_agent_spawn_is_not_unknown_permission(tmp_path: Path) -> None:
+    # FIX A: the spawn must NEVER resolve as UNKNOWN_PERMISSION (the dead-path the
+    # §55.6.1 mode-scharf block produced before the fix).
+    event = _agent_spawn_event(tmp_path, principal_kind="subagent", session_id="run-1")
+    result = _enforcement(tmp_path).evaluate(
+        event, project_root=tmp_path, story_id=_STORY, story_scope_roots=_SCOPE
+    )
+    assert result.outcome is not EnforcementOutcome.UNKNOWN_PERMISSION
+
+
+def test_non_agent_unknown_tool_still_unknown_permission(tmp_path: Path) -> None:
+    # FIX A must NOT weaken the fail-closed for genuinely-unknown tools: any tool
+    # the classifier has no rule for (and which is not the named Agent spawn) is
+    # still UNKNOWN_PERMISSION (FK-55 §55.6.1).
+    event = _agent_spawn_event(
+        tmp_path,
+        principal_kind="subagent",
+        session_id="run-1",
+        operation_args={"tool_name": "SomeRandomUnknownTool"},
+    )
+    result = _enforcement(tmp_path).evaluate(
+        event, project_root=tmp_path, story_id=_STORY, story_scope_roots=_SCOPE
+    )
+    assert result.outcome is EnforcementOutcome.UNKNOWN_PERMISSION
+
+
+def test_agent_spawn_unfrozen_story_freeze_verdict_allow(tmp_path: Path) -> None:
+    # FIX B: an Agent spawn for a NON-frozen story carries the true freeze state in
+    # the hull — freeze_verdict == "allow" (the story really is not frozen). The
+    # spawn still routes to the dedicated guard (outcome ALLOW).
+    event = _agent_spawn_event(tmp_path, principal_kind="main", session_id="run-1")
+    result = _enforcement(tmp_path).evaluate(
+        event, project_root=tmp_path, story_id=_STORY, story_scope_roots=_SCOPE
+    )
+    assert result.outcome is EnforcementOutcome.ALLOW
+    assert result.hull is not None
+    assert result.hull.freeze_verdict == "allow"
+
+
+def test_agent_spawn_frozen_story_freeze_verdict_is_not_fabricated(
+    tmp_path: Path,
+) -> None:
+    # FIX B: pre-fix the spawn hull HARDCODED freeze_verdict="allow", so a
+    # conflict-frozen principal's Agent spawn was reported as freeze-allowed even
+    # while the story was frozen. FK-42 §42.2.4 (the hull must report the ACTUAL
+    # freeze/matrix verdicts) + FK-55 §55.8.2 (the freeze exists precisely to stop
+    # an orchestrator spawning fresh sub-agents to circumvent guard barriers after
+    # a HARD STOP): the hull must surface the REAL is_frozen() state.
+    enforcement = _enforcement(tmp_path)
+    enforcement._freeze.freeze(_STORY, reason="normative_conflict", freeze_version=1)
+    event = _agent_spawn_event(tmp_path, principal_kind="main", session_id="run-1")
+    result = enforcement.evaluate(
+        event, project_root=tmp_path, story_id=_STORY, story_scope_roots=_SCOPE
+    )
+    # The spawn op-class (EXECUTE / control_plane_spawn) is OUTSIDE the freeze
+    # overlay scope (FK-55 §55.10.6 = write/git_mutation/curate/admin_transition),
+    # so the capability layer does NOT itself hard-DENY the spawn — it still routes
+    # to the dedicated guard + CCAG (outcome ALLOW). But the hull's freeze_verdict
+    # must be the NON-fabricated real state: "deny" (story is frozen), so CCAG /
+    # the §55.8.2 adjudication downstream sees a real freeze signal.
+    assert result.outcome is EnforcementOutcome.ALLOW
+    assert result.hull is not None
+    assert result.hull.freeze_verdict == "deny"

@@ -35,6 +35,12 @@ from agentkit.governance.runner import Governance, parse_hook_wrapper_args
 
 _READ_ONLY_TOOLS = frozenset({"Glob", "Grep", "Read"})
 
+#: Canonical sub-agent-spawn tool name (FK-31 §31.7 / FK-91 §91.4). Mirrors
+#: ``principal_capabilities.operations.SUBAGENT_SPAWN_TOOL`` and the runner's
+#: ``_AGENT_TOOL`` — the single convention. The dedicated ``Agent`` branch in
+#: :func:`to_neutral_event` forwards the spawn's structural fields (AG3-086 FIX A).
+_AGENT_TOOL = "Agent"
+
 
 class ClaudeCodeHookEvent(BaseModel):
     """Claude Code pre-tool hook payload."""
@@ -178,6 +184,36 @@ def to_neutral_event(
             principal_kind=principal_kind,
             post_tool_outcome=post_tool_outcome,
         )
+    if claude_event.tool_name == _AGENT_TOOL:
+        # AG3-086 FIX A: the ``Agent`` sub-agent spawn is the dedicated
+        # ``prompt_integrity`` guard's input (FK-31 §31.7). The harness-neutral
+        # ``HookEvent`` (``extra="forbid"``) has NO payload channel other than
+        # ``operation_args``, so the spawn's STRUCTURAL fields — the
+        # ``AGENTKIT-SUBAGENT-V1`` header in ``description``, the spawn ``prompt``,
+        # the authorised ``prompt_file`` (Stage 3 template) and the ``round``
+        # substitution — MUST be forwarded here. Dropping them (the generic
+        # ``unknown_tool`` branch below) blinds the guard: ``parse_spawn_header("")``
+        # → ``None`` → a Stage-2 ``schema_validation`` block for EVERY spawn,
+        # including the pipeline's own authorised story-execution worker spawns and
+        # every freestyle ``Agent`` use. ``tool_name="Agent"`` is preserved so
+        # ``is_subagent_spawn()`` still routes the spawn past the path matrix to the
+        # dedicated guard (capability layer ALLOW hull). These are STRUCTURAL spawn
+        # fields, never free prompt content the capability layer would act on.
+        return HookEvent(
+            operation="unknown_tool",
+            operation_args={
+                "tool_name": _AGENT_TOOL,
+                "description": str(claude_event.tool_input.get("description", "")),
+                "prompt": str(claude_event.tool_input.get("prompt", "")),
+                "prompt_file": str(claude_event.tool_input.get("prompt_file", "")),
+                "round": str(claude_event.tool_input.get("round", "")),
+            },
+            freshness_class="guarded_read",
+            cwd=claude_event.cwd,
+            session_id=claude_event.session_id,
+            principal_kind=principal_kind,
+            post_tool_outcome=post_tool_outcome,
+        )
     # AG3-036 FIX-1: any tool without a dedicated harness-neutral operation
     # (WebFetch / WebSearch and every other unmapped tool) is emitted as
     # ``unknown_tool``, but its canonical name MUST survive the adapter via
@@ -264,6 +300,24 @@ def main(argv: list[str] | None = None) -> int:
         }
         print(json.dumps(payload, sort_keys=True))
         return 2
+    # AG3-086 (SEVERITY-SEMANTIK / AC1): an ALLOW verdict may still carry a
+    # deferring-action WARNING (e.g. the web-call budget nearing its limit). The
+    # operation proceeds (exit 0), but the warning is surfaced to the harness on
+    # stderr so it is mirrored, not silently swallowed.
+    warning = decision.warning
+    if warning is not None:
+        print(
+            json.dumps(
+                {
+                    "decision": "allow",
+                    "guard": decision.guard_name,
+                    "warning": warning,
+                    "detail": decision.detail,
+                },
+                sort_keys=True,
+            ),
+            file=sys.stderr,
+        )
     return 0
 
 

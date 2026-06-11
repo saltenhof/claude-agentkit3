@@ -30,6 +30,7 @@ from agentkit.governance.protocols import GuardVerdict, ViolationType
 if TYPE_CHECKING:
     from agentkit.governance.guard_evaluation import HookEvent
     from agentkit.governance.hook_registration import HookDefinition, RegistrationResult
+    from agentkit.governance.principal_capabilities import CapabilityHull
     from agentkit.governance.protocols import GovernanceGuard
     from agentkit.governance.repository import (
         HookRegistrationRepository,
@@ -48,7 +49,7 @@ class _GuardDecisionSink(Protocol):
         ...
 
 #: Canonical tool names that count as a research web call (FK-68 §68.6.1). Used at
-#: the runner edge to gate the BudgetEventEmitter dispatch (fail-closed on an
+#: the runner edge to gate the WebCallBudgetGuard dispatch (fail-closed on an
 #: UNRESOLVED story type) to actual WebFetch/WebSearch operations. ``_event_tool``
 #: canonicalizes alias / casing forms (``web_fetch`` / ``web-search`` / ...) to
 #: these BEFORE this membership check (AG3-036 FIX-2 — never a fail-open gap).
@@ -64,24 +65,29 @@ PRE_HOOK_IDS = frozenset(
         "adversarial_guard",
         "self_protection",
         "story_creation_guard",
+        # AG3-086 (FK-30 §30.5.1a): the ``budget`` guard-hook blocks PreToolUse
+        # via the single block owner WebCallBudgetGuard (governance). The previous
+        # ``budget_event_emitter`` PreToolUse block double role (AG3-036 §2.1.6)
+        # is REMOVED — the emitter is observational PostToolUse only.
         "budget",
         "skill_usage_check",
+        # AG3-086 (FK-31 §31.7): the prompt-integrity guard blocks PreToolUse on
+        # every ``Agent`` sub-agent spawn (escape / schema / template).
+        "prompt_integrity",
         "health_monitor",
         "ccag_gatekeeper",
-        # AG3-036 (FK-68 §68.3.1) FIX-1/FIX-3: the two double-role telemetry
-        # guards enforce at PreToolUse so a DENY blocks BEFORE the tool runs.
-        # ``review_guard`` (§2.1.5) blocks a ``git commit`` whose mandatory
-        # reviewer roles are not covered; ``budget_event_emitter`` (§2.1.6)
-        # blocks a research web call over the hard budget. A PostToolUse DENY
-        # cannot stop an action that already ran (fail-open), so both belong in
-        # the PRE phase.
+        # AG3-036 (FK-68 §68.3.1) FIX-1: the ``review_guard`` double-role telemetry
+        # hook enforces at PreToolUse so a DENY blocks BEFORE the commit runs
+        # (§2.1.5). A PostToolUse DENY cannot stop an action that already ran.
         "review_guard",
-        "budget_event_emitter",
     }
 )
 POST_HOOK_IDS = frozenset(
     {
         "telemetry",
+        # AG3-086 (FK-30 §30.5.2): the observational ``web_call`` counter
+        # (BudgetEventEmitter) emits at PostToolUse Web. The blocking decision is
+        # the PreToolUse ``budget`` guard's (WebCallBudgetGuard).
         "budget",
         "health_monitor",
     }
@@ -612,18 +618,23 @@ def run_hook(
         return invalid
     resolved_root = project_root or Path.cwd()
     if phase == "post":
-        # AG3-036 (FK-68 §68.3.1) FIX-1: ReviewGuard/BudgetEventEmitter moved
-        # to PreToolUse. Every post hook is observational only.
+        # AG3-036 FIX-1: ReviewGuard moved to PreToolUse. AG3-086: the ``budget``
+        # PostToolUse path is the OBSERVATIONAL ``web_call`` emitter (FK-30
+        # §30.5.2 / §30.5.1a) — it emits the counter event and NEVER blocks. The
+        # blocking ``budget`` decision is the PreToolUse WebCallBudgetGuard.
         if hook_id == "health_monitor":
             return _run_health_monitor_post(event, project_root=resolved_root)
+        if hook_id == "budget":
+            return _run_budget_event_emitter_post(event, project_root=resolved_root)
         return GuardVerdict.allow(hook_id)
 
     # FK-61 §61.4.3 (AG3-081 AC5): ``run_hook`` is the ONE shared dispatch
     # collection point through which EVERY PreToolUse guard invocation flows.
     # Recording the ``guard_invocation_counters`` UPSERT HERE — around
     # ``_dispatch_pre_hook`` — covers every early-returning dedicated branch
-    # (capability enforcement, review_guard, budget_event_emitter, self_protection,
-    # story_creation_guard, ccag_gatekeeper) AND the generic ``evaluate_pre_tool_use``
+    # (capability enforcement, review_guard, budget (WebCallBudgetGuard),
+    # self_protection, story_creation_guard, ccag_gatekeeper) AND the generic
+    # ``evaluate_pre_tool_use``
     # fallback in ONE place. A placement inside ``evaluate_pre_tool_use`` alone would
     # miss the six dedicated paths and violate the "every guard-hook" rule. The
     # ``guard_key`` is derived from the dispatched ``hook_id`` (the canonical hook
@@ -731,8 +742,8 @@ def _dispatch_pre_hook(
 
     Ordering (FK-55 §55.10.3 / governance-and-guards.B5):
     1. Capability enforcement (hard DENY — CCAG never softens it).
-    2. Dedicated pre-hooks (review_guard, budget_event_emitter, health_monitor,
-       self_protection, story_creation_guard).
+    2. Dedicated pre-hooks (review_guard, budget (WebCallBudgetGuard),
+       health_monitor, self_protection, story_creation_guard).
     3. CCAG gatekeeper (FK-42 §42.5.2 — last pre-hook).
     4. Generic guard evaluation chain (all other hooks).
     """
@@ -741,11 +752,14 @@ def _dispatch_pre_hook(
     if capability_block is not None:
         return capability_block
 
-    # Step 2: dedicated hooks (AG3-036 FIX-1/FIX-3 — run after capability check).
+    # Step 2: dedicated hooks (AG3-036 FIX-1 — run after capability check).
     if hook_id == "review_guard":
         return _run_review_guard(event, project_root=project_root)
-    if hook_id == "budget_event_emitter":
-        return _run_budget_event_emitter(event, project_root=project_root)
+    if hook_id == "budget":
+        # AG3-086 (FK-30 §30.5.1a): the ``budget`` guard-hook blocks PreToolUse
+        # via WebCallBudgetGuard (single block owner). The observational
+        # ``web_call`` counter is the PostToolUse emitter, NOT this path.
+        return _run_web_call_budget_guard(event, project_root=project_root)
     if hook_id == "health_monitor":
         return _run_health_monitor_pre(event, project_root=project_root)
 
@@ -754,10 +768,17 @@ def _dispatch_pre_hook(
         return _run_self_protection_guard(event)
     if hook_id == HookId.STORY_CREATION_GUARD.value:
         return _run_story_creation_guard(event)
+    if hook_id == HookId.SKILL_USAGE_CHECK.value:
+        return _run_skill_usage_check(event, project_root=project_root)
+    if hook_id == HookId.PROMPT_INTEGRITY.value:
+        return _run_prompt_integrity_guard(event, project_root=project_root)
 
-    # Step 3: CCAG — last pre-hook (FK-42 §42.5.2).
+    # Step 3: CCAG — last pre-hook (FK-42 §42.5.2). FK-42 §42.2.4: CCAG runs ONLY
+    # with the pre-computed capability hull. The hull is resolved here (the same
+    # capability layer that ran in step 1) and threaded into CCAG; without it
+    # CCAG fails closed.
     if hook_id == "ccag_gatekeeper":
-        return _run_ccag_hook(event)
+        return _run_ccag_hook(event, project_root=project_root)
 
     # Step 4: generic guard evaluation chain.
     from agentkit.governance.guard_evaluation import evaluate_pre_tool_use
@@ -1077,7 +1098,7 @@ class _StoryTypeResolution:
     - ``RESOLVED``   — the canonical story store was read AND the record was found;
       ``story_type`` carries the authoritative value (e.g. ``"research"``).
     - ``UNRESOLVED`` — a backend fault OR a missing record. Both downstream
-      dispatch sites (ReviewGuard, BudgetEventEmitter) fail-closed on this state
+      dispatch sites (ReviewGuard, WebCallBudgetGuard) fail-closed on this state
       rather than downgrading it to "not research" / "not code-producing".
 
     Attributes:
@@ -1160,7 +1181,7 @@ def _is_code_producing_story(story_id: str, *, store_dir: Path) -> bool:
     (backend fault OR missing record) returns ``False`` here; callers that must
     fail-closed on UNRESOLVED branch on the typed
     :class:`_StoryTypeResolution` directly (see :func:`_authoritative_required_roles`
-    and :func:`_run_budget_event_emitter`) — they do NOT use this boolean as an
+    and :func:`_run_web_call_budget_guard`) — they do NOT use this boolean as an
     allow path.
 
     Args:
@@ -1173,31 +1194,164 @@ def _is_code_producing_story(story_id: str, *, store_dir: Path) -> bool:
     return _resolve_local_story_type(story_id, store_dir=store_dir).is_code_producing
 
 
-def _run_budget_event_emitter(
+def _run_web_call_budget_guard(
     event: HookEvent, *, project_root: Path
 ) -> HookDecision:
-    """Dispatch the ``budget_event_emitter`` pre-hook (FK-68 §68.6, AG3-036 FIX-3).
+    """Dispatch the ``budget`` PreToolUse guard-hook (FK-30 §30.5.1a, AG3-086).
 
-    Builds the :class:`~agentkit.telemetry.hooks.budget_event_emitter.BudgetEventEmitter`
-    over the canonical :class:`~agentkit.telemetry.storage.StateBackendEmitter`
-    for the active story. Only research stories are budget-gated; the
-    authoritative story type is resolved at this runner edge from the LOCAL
-    story context (FK-24 §24.3.2) — never from a forgeable ``operation_args``
-    payload. A research web call over the hard budget emits ``web_call`` and
-    returns a fail-closed DENY (blocking the PreToolUse WebFetch/WebSearch BEFORE
-    it runs); a non-research story is allowed (no limit).
+    Builds the :class:`~agentkit.governance.guard_system.WebCallBudgetGuard` over
+    the canonical :class:`~agentkit.telemetry.storage.StateBackendEmitter` for the
+    active story. It reads the existing web-call counter and decides fail-closed;
+    it writes NO ``web_call`` counter event (the observational PostToolUse emitter
+    owns that). Only research stories are budget-gated; the authoritative story
+    type is resolved at this runner edge from the LOCAL story context (FK-24
+    §24.3.2) — never from a forgeable ``operation_args`` payload.
+
+    Migrated behaviour (AG3-086): an UNRESOLVED story type on a web call is a
+    fail-closed BLOCK that now belongs to the GOVERNANCE owner (the guard), not
+    the telemetry emitter — no fail-open regress. A research web call at/above the
+    hard budget is a fail-closed BLOCK; both block paths emit an
+    ``integrity_violation`` block audit (``guard="web_call_budget_guard"``).
 
     Args:
         event: Harness-neutral hook event.
         project_root: Project root for binding + story-type resolution.
 
     Returns:
-        The hook's :class:`~agentkit.governance.protocols.GuardVerdict`.
+        The guard's :class:`~agentkit.governance.protocols.GuardVerdict`.
+    """
+    from agentkit.governance.guard_system import (
+        BudgetSeverity,
+        WebCallBudgetGuard,
+        WebCallBudgetObservation,
+    )
+    from agentkit.projectedge.runtime import ProjectEdgeResolver
+    from agentkit.telemetry.storage import StateBackendEmitter
+
+    tool = _event_tool(event)
+    # The budget guard only blocks actual web calls; everything else allows.
+    if tool not in _WEB_TOOLS:
+        return GuardVerdict.allow("web_call_budget_guard")
+
+    resolved = ProjectEdgeResolver(project_root=project_root).resolve(
+        session_id=event.session_id,
+        cwd=event.cwd,
+        freshness_class=event.freshness_class,
+    )
+    if resolved.bundle is None or resolved.bundle.session is None:
+        return GuardVerdict.allow("web_call_budget_guard")
+    session = resolved.bundle.session
+    story_id = session.story_id
+    run_id = session.run_id
+    if not story_id or not run_id:
+        return GuardVerdict.allow("web_call_budget_guard")
+
+    story_dir = project_root / "stories" / story_id
+    limit, warning = _web_call_thresholds(project_root)
+
+    resolution = _resolve_local_story_type(story_id, store_dir=project_root)
+    guard = WebCallBudgetGuard(
+        StateBackendEmitter(story_dir, default_project_key=session.project_key),
+        web_call_limit=limit,
+        web_call_warning=warning,
+    )
+    observation = WebCallBudgetObservation(
+        story_id=story_id,
+        run_id=run_id,
+        project_key=session.project_key,
+        tool=tool,
+        story_type=resolution.story_type,
+        story_type_resolved=resolution.resolved,
+    )
+    decision = guard.evaluate_and_emit(observation)
+    # AG3-086 FIX (AC1 / SEVERITY-SEMANTIK): the guard records a WARNING at the
+    # warning threshold (warning <= count < hard limit). The block verdict already
+    # surfaces its own message, but an ALLOW verdict would DROP the warning the
+    # guard recorded. Surface it on the allow verdict so a near-budget research web
+    # call actually warns the harness caller (a warning must not be swallowed).
+    if decision.verdict.allowed and decision.severity is BudgetSeverity.WARNING:
+        return GuardVerdict.allow_with_warning(
+            decision.verdict.guard_name,
+            (
+                f"web_call_budget_warning: {decision.web_call_count} >= "
+                f"{warning} (hard limit {limit}) — research web-call budget is "
+                "nearing the limit"
+            ),
+            detail={
+                "story_id": story_id,
+                "web_call_count": decision.web_call_count,
+                "web_call_warning": warning,
+                "web_call_limit": limit,
+                "severity": BudgetSeverity.WARNING.value,
+            },
+        )
+    return decision.verdict
+
+
+def _web_call_thresholds(project_root: Path) -> tuple[int, int]:
+    """Resolve ``(web_call_limit, web_call_warning)`` from the project config.
+
+    FK-30 §30.5.1a: the thresholds come from ``telemetry.web_call_limit`` /
+    ``telemetry.web_call_warning`` (defaults 200 / 180). The runner MAY import
+    config; the guard receives the resolved plain integers (no config import in
+    the guard). A config fault falls back fail-closed to the typed defaults so a
+    broken config never silently lifts the budget.
+    """
+    from agentkit.config.models import TelemetryConfig
+
+    try:
+        from agentkit.config.loader import load_project_config
+
+        telemetry = load_project_config(project_root).pipeline.telemetry
+    except Exception:  # noqa: BLE001 -- fall back to the typed defaults fail-closed
+        telemetry = TelemetryConfig()
+    return telemetry.web_call_limit, telemetry.web_call_warning
+
+
+def _permission_request_ttl_s(project_root: Path) -> int:
+    """Resolve the permission-request TTL from config (FK-93 §93.5a / AG3-086).
+
+    Reads the typed ``permissions.request_ttl_s`` (default 1800). A config fault
+    falls back to the typed default (the FK-93-conformant 1800) — never the
+    superseded hard-coded 600.
+    """
+    from agentkit.config.models import PermissionsConfig
+
+    try:
+        from agentkit.config.loader import load_project_config
+
+        return load_project_config(project_root).pipeline.permissions.request_ttl_s
+    except Exception:  # noqa: BLE001 -- fall back to the FK-93 typed default
+        return PermissionsConfig().request_ttl_s
+
+
+def _run_budget_event_emitter_post(
+    event: HookEvent, *, project_root: Path
+) -> HookDecision:
+    """Dispatch the ``budget`` PostToolUse observational emitter (FK-30 §30.5.2).
+
+    Builds the observational
+    :class:`~agentkit.telemetry.hooks.budget_event_emitter.BudgetEventEmitter`
+    over the canonical :class:`~agentkit.telemetry.storage.StateBackendEmitter`
+    and emits the ``web_call`` counter for a research web call. It NEVER blocks
+    (AG3-086: the budget block is the PreToolUse WebCallBudgetGuard). Always
+    returns an allow verdict.
+
+    Args:
+        event: Harness-neutral hook event.
+        project_root: Project root for binding + story-type resolution.
+
+    Returns:
+        An allow :class:`~agentkit.governance.protocols.GuardVerdict`.
     """
     from agentkit.projectedge.runtime import ProjectEdgeResolver
     from agentkit.telemetry.hooks.base import HookContext, HookTrigger
     from agentkit.telemetry.hooks.budget_event_emitter import BudgetEventEmitter
     from agentkit.telemetry.storage import StateBackendEmitter
+
+    tool = _event_tool(event)
+    if tool not in _WEB_TOOLS:
+        return GuardVerdict.allow("budget_event_emitter")
 
     resolved = ProjectEdgeResolver(project_root=project_root).resolve(
         session_id=event.session_id,
@@ -1213,28 +1367,15 @@ def _run_budget_event_emitter(
         return GuardVerdict.allow("budget_event_emitter")
 
     story_dir = project_root / "stories" / story_id
-
-    # FIX-B: branch on the TYPED authoritative outcome BEFORE building the hook
-    # context. UNRESOLVED (backend fault OR missing record) for an active binding
-    # whose web call we cannot classify is an inconsistent state → fail-closed
-    # DENY; we must NOT downgrade it to non-research. The web tool gate (so we
-    # only block actual WebFetch/WebSearch) is applied here too.
-    tool = _event_tool(event)
+    limit, _ = _web_call_thresholds(project_root)
     resolution = _resolve_local_story_type(story_id, store_dir=project_root)
-    if not resolution.resolved and tool in _WEB_TOOLS:
-        return GuardVerdict.block(
-            "budget_event_emitter",
-            ViolationType.POLICY_VIOLATION,
-            "story_type_unresolved: cannot confirm the active story is "
-            "non-research or within budget (backend fault or missing record)",
-            detail={"story_id": story_id, "tool": tool},
-        )
 
-    guard = BudgetEventEmitter(
+    emitter = BudgetEventEmitter(
         StateBackendEmitter(story_dir, default_project_key=session.project_key),
+        web_call_limit=limit,
     )
     context = HookContext(
-        trigger=HookTrigger.PRE_TOOL_USE,
+        trigger=HookTrigger.POST_TOOL_USE,
         story_id=story_id,
         run_id=run_id,
         project_key=session.project_key,
@@ -1243,11 +1384,286 @@ def _run_budget_event_emitter(
         story_type=resolution.story_type,
         story_type_resolved=resolution.resolved,
     )
-    result = guard.evaluate(context)
-    guard.emit(result)
-    if result.verdict is not None:
-        return result.verdict
+    result = emitter.evaluate(context)
+    emitter.emit(result)
     return GuardVerdict.allow("budget_event_emitter")
+
+
+def _run_skill_usage_check(
+    event: HookEvent, *, project_root: Path
+) -> HookDecision:
+    """Dispatch the ``skill_usage_check`` guard-hook (FK-43 §43.6.2 / F-43-030).
+
+    Builds the :class:`~agentkit.governance.guard_system.SkillUsageCheckGuard`,
+    CONSUMING the Skills surface (``Skills.resolve_binding``) for the "matching
+    skill exists?" check and the project config for the ``features.are``
+    precondition. On a block the guard emits an ``integrity_violation`` block
+    audit through the canonical state-backend emitter (FK-68 §68.3.1).
+
+    Outside an active story binding the guard cannot scope an audit (no
+    story/run); it allows (the F-43-030 norm is enforced inside a run).
+
+    Args:
+        event: Harness-neutral hook event.
+        project_root: Project root for binding + config + Skills resolution.
+
+    Returns:
+        The guard's :class:`~agentkit.governance.protocols.GuardVerdict`.
+    """
+    from agentkit.governance.guard_system import (
+        SkillUsageCheckGuard,
+        SkillUsageObservation,
+    )
+    from agentkit.projectedge.runtime import ProjectEdgeResolver
+    from agentkit.telemetry.storage import StateBackendEmitter
+
+    resolved = ProjectEdgeResolver(project_root=project_root).resolve(
+        session_id=event.session_id,
+        cwd=event.cwd,
+        freshness_class=event.freshness_class,
+    )
+    if resolved.bundle is None or resolved.bundle.session is None:
+        return GuardVerdict.allow("skill_usage_check")
+    session = resolved.bundle.session
+    story_id = session.story_id
+    run_id = session.run_id
+    if not story_id or not run_id:
+        return GuardVerdict.allow("skill_usage_check")
+
+    story_dir = project_root / "stories" / story_id
+    guard = SkillUsageCheckGuard(
+        _SkillBindingLookupAdapter(project_root),
+        StateBackendEmitter(story_dir, default_project_key=session.project_key),
+    )
+    observation = SkillUsageObservation(
+        story_id=story_id,
+        run_id=run_id,
+        project_key=session.project_key,
+        tool=_event_tool(event),
+        command=_event_command(event),
+        cli_args=tuple(event.cli_args or ()),
+        feature_are=_feature_are_enabled(project_root),
+    )
+    decision = guard.evaluate_and_emit(observation)
+    return decision.verdict
+
+
+class _SkillBindingLookupAdapter:
+    """Adapts ``Skills.resolve_binding`` to the guard's ``SkillBindingLookup`` port.
+
+    Consumes the Skills BC surface (FK-43 §43.1) — the guard never re-implements
+    skill-binding storage. A lookup fault fails CLOSED to "not bound" so a broken
+    Skills backend never lets the guard fabricate a block for an unverifiable
+    skill (the guard only blocks when a binding is positively resolvable).
+    """
+
+    def __init__(self, project_root: Path) -> None:
+        self._project_root = project_root
+
+    def is_bound(self, project_key: str, skill_name: str) -> bool:
+        """Return ``True`` when a project binding for ``skill_name`` resolves."""
+        _ = project_key  # the Skills surface keys on project_root.stem
+        try:
+            # Consume the agent-skills BC through its composition-root factory
+            # (the wiring of the bundle store / binding repository is owned there,
+            # not by governance — FK-43 §BC 11 / composition_root.build_skills).
+            from agentkit.bootstrap.composition_root import build_skills
+
+            skills = build_skills(self._project_root)
+            return skills.resolve_binding(self._project_root, skill_name) is not None
+        except Exception:  # noqa: BLE001 -- missing wiring / backend fault -> not-bound
+            return False
+
+
+def _feature_are_enabled(project_root: Path) -> bool:
+    """Whether ``features.are`` is enabled in the project config (FK-43 §43.3.2).
+
+    A config fault falls back to ``False`` (the FEATURE_ARE-gated skills then do
+    not apply) — a broken config never fabricates a block for an ARE skill.
+    """
+    try:
+        from agentkit.config.loader import load_project_config
+
+        return load_project_config(project_root).pipeline.features.are
+    except Exception:  # noqa: BLE001 -- config fault -> ARE precondition not met
+        return False
+
+
+#: Canonical ``Agent`` spawn tool name the prompt-integrity guard intercepts.
+_AGENT_TOOL = "Agent"
+
+#: Installed-manifest key carrying the authoritative spawn skill-proof token
+#: (FK-31 §31.7.4 — written by the AgentKit Installer; SKILL.md substitutes the
+#: ``{{AGENT_SPAWN_SKILL_PROOF}}`` placeholder with it at install time).
+_MANIFEST_SKILL_PROOF_KEY = "agent_spawn_skill_proof"
+
+
+def _run_prompt_integrity_guard(
+    event: HookEvent, *, project_root: Path
+) -> HookDecision:
+    """Dispatch the ``prompt_integrity`` guard-hook (FK-31 §31.7, AG3-086).
+
+    Intercepts every ``Agent`` sub-agent spawn. Resolves the operating mode from
+    the LOCAL exports (NOT ``operation_args``), reads the spawn description /
+    prompt, and resolves the authoritative skill-proof token + installed spawn
+    template from the installed manifest (FK-31 §31.7.4). On a block the guard
+    emits an ``integrity_violation`` (per-stage ``stage``) and returns the OPAQUE
+    block message (FK-31 §31.7.3). Non-``Agent`` tools are allowed (the guard's
+    install-time matcher is ``Agent``; defensive here too).
+
+    Args:
+        event: Harness-neutral hook event.
+        project_root: Project root for binding + manifest resolution.
+
+    Returns:
+        The guard's :class:`~agentkit.governance.protocols.GuardVerdict`.
+    """
+    from agentkit.governance.guard_system import (
+        PromptIntegrityGuard,
+        SpawnMode,
+        SpawnObservation,
+    )
+    from agentkit.projectedge.runtime import ProjectEdgeResolver
+    from agentkit.telemetry.storage import StateBackendEmitter
+
+    if _event_tool(event) != _AGENT_TOOL:
+        return GuardVerdict.allow("prompt_integrity_guard")
+
+    context = _resolve_capability_context(event, project_root=project_root)
+    # FK-31 §31.7.1: the guard is permanently active in BOTH modes. Anything that
+    # is not the autonomous story_execution run is treated as the lightweight
+    # ai_augmented (freestyle) mode (a binding_invalid / normal context never
+    # enters the full story_execution schema/template strictness).
+    mode = (
+        SpawnMode.STORY_EXECUTION
+        if context.is_story_execution
+        else SpawnMode.AI_AUGMENTED
+    )
+
+    story_id = context.story_id or ""
+    run_id = ""
+    project_key = ""
+    resolved = ProjectEdgeResolver(project_root=project_root).resolve(
+        session_id=event.session_id,
+        cwd=event.cwd,
+        freshness_class=event.freshness_class,
+    )
+    if resolved.bundle is not None and resolved.bundle.session is not None:
+        session = resolved.bundle.session
+        story_id = session.story_id or story_id
+        run_id = session.run_id
+        project_key = session.project_key
+
+    story_dir = project_root / "stories" / story_id if story_id else project_root
+    guard = PromptIntegrityGuard(
+        StateBackendEmitter(story_dir, default_project_key=project_key),
+    )
+    observation = SpawnObservation(
+        story_id=story_id,
+        run_id=run_id,
+        project_key=project_key,
+        mode=mode,
+        description=_event_str_arg(event, "description"),
+        prompt=_event_str_arg(event, "prompt"),
+        prompt_file_content=_resolve_prompt_file_content(event, project_root),
+        expected_skill_proof=_installed_skill_proof(project_root),
+        pinned_output_hashes=_pinned_prompt_output_hashes(
+            story_dir, story_id=story_id, run_id=run_id
+        ),
+    )
+    decision = guard.evaluate_and_emit(observation)
+    return decision.verdict
+
+
+def _event_str_arg(event: HookEvent, key: str) -> str:
+    """Read a string ``operation_args[key]`` (empty when absent / non-string)."""
+    value = event.operation_args.get(key)
+    return value if isinstance(value, str) else ""
+
+
+def _installed_skill_proof(project_root: Path) -> str:
+    """Resolve the authoritative spawn skill-proof token (FK-31 §31.7.4).
+
+    Reads ``.installed-manifest.json`` for the
+    ``agent_spawn_skill_proof`` token the Installer writes. Returns ``""`` when no
+    manifest / token is installed — a story_execution spawn then fails Stage 2
+    fail-closed (no proof = no valid spawn; FAIL-CLOSED). The JSON read goes
+    through the ``utils.io`` truth-boundary helper (governance modules must not
+    call ``json.load*`` directly — formal.truth-boundary-checker.invariants).
+    """
+    from agentkit.utils.io import read_json_object
+
+    manifest_path = project_root / ".installed-manifest.json"
+    try:
+        data = read_json_object(manifest_path)
+    except (OSError, ValueError):
+        return ""
+    token = data.get(_MANIFEST_SKILL_PROOF_KEY)
+    return token if isinstance(token, str) else ""
+
+
+def _resolve_prompt_file_content(
+    event: HookEvent, project_root: Path
+) -> str | None:
+    """Resolve the CONTENT of the spawn's ``prompt_file`` (PROD-A), if any.
+
+    PROD-A spawns (the authoritative SKILL.md worker-spawn shape) pass the prompt
+    body via ``prompt_file`` and carry NO inline ``prompt``. The actual prompt the
+    agent receives is the FILE CONTENT, so the guard's Stage-3 (and Stage-1)
+    comparison target is the file's bytes. Returns ``None`` when the spawn carries
+    no ``prompt_file`` (PROD-B: the inline ``prompt`` is then the target).
+
+    The file must live under the project root (no path-traversal escape). A
+    ``prompt_file`` that cannot be read returns the empty string, NOT ``None``, so
+    a story_execution spawn naming an unreadable file does not silently fall back
+    to the inline ``prompt`` -- it is treated as an empty actual prompt and
+    fails Stage 3 fail-closed (no pinned digest matches the empty digest unless
+    the pipeline genuinely materialized an empty prompt, which it never does).
+    """
+    prompt_file = _event_str_arg(event, "prompt_file")
+    if not prompt_file:
+        return None
+    candidate = (project_root / prompt_file).resolve()
+    try:
+        candidate.relative_to(project_root.resolve())
+    except ValueError:
+        return ""
+    try:
+        return candidate.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def _pinned_prompt_output_hashes(
+    story_dir: Path, *, story_id: str, run_id: str
+) -> frozenset[str]:
+    """Resolve the install-pinned Stage-3 baseline (FK-31 §31.7.4 / FK-44 §44.6).
+
+    Returns the set of prompt-audit ``output_sha256`` digests the prompt-runtime
+    persisted for the run -- the digests of the exact prompt bytes the pipeline
+    materialized from a manifest-pinned bundle template. This baseline is NOT
+    spawn-controlled, so a worker can neither author it nor satisfy Stage 3 with a
+    self-made ``prompt_file``. Returns an empty set when the scope is
+    unresolvable or nothing has been materialized -- a story_execution spawn then
+    fails Stage 3 fail-closed.
+    """
+    from agentkit.state_backend.scope import RuntimeStateScope
+    from agentkit.state_backend.store.facade import (
+        find_prompt_audit_output_hashes,
+    )
+
+    if not story_id or not run_id:
+        return frozenset()
+    scope = RuntimeStateScope(
+        project_key="",
+        story_id=story_id,
+        story_dir=story_dir,
+        run_id=run_id,
+    )
+    try:
+        return find_prompt_audit_output_hashes(story_dir, scope)
+    except Exception:  # noqa: BLE001 — fail-closed: any read error -> no baseline.
+        return frozenset()
 
 
 def _event_command(event: HookEvent) -> str:
@@ -1453,6 +1869,66 @@ def _run_capability_enforcement(
         # invalid edge must fail-closed here too — it must NOT defer to CCAG.
         return _resolve_mode_scoped_block(context, event, result.verdict, project_root)
     return None
+
+
+def _resolve_capability_hull(
+    event: HookEvent, *, project_root: Path
+) -> CapabilityHull | None:
+    """Resolve the pre-computed capability hull for CCAG (FK-42 §42.2.4).
+
+    Runs the SAME capability layer that already gated the pre-dispatch (step 1)
+    and returns its :class:`CapabilityHull` ONLY when the outcome is an ALLOW (the
+    only outcome that reaches CCAG, FK-55 §55.10.3 step 10). Any non-ALLOW outcome
+    or a capability-layer fault returns ``None`` — CCAG then fails closed (no hull
+    -> BLOCK), never a global allow. The hull is a value object; building it here
+    keeps CCAG's hull precondition explicit at the runner edge.
+    """
+    from agentkit.governance.principal_capabilities import (
+        CapabilityEnforcement,
+        CapabilityMatrix,
+        ConflictFreezeOverlay,
+        EnforcementOutcome,
+        OperationClassifier,
+        PathClassifier,
+        PrincipalResolver,
+    )
+    from agentkit.state_backend.store.freeze_repository import (
+        FreezeRepository,
+        LocalFreezeJsonExport,
+    )
+
+    enforcement = CapabilityEnforcement(
+        principal_resolver=PrincipalResolver(),
+        path_classifier=PathClassifier(),
+        op_classifier=OperationClassifier(),
+        matrix=CapabilityMatrix(),
+        freeze=ConflictFreezeOverlay(
+            FreezeRepository(project_root),
+            local_export=LocalFreezeJsonExport(project_root),
+        ),
+    )
+    context = _resolve_capability_context(event, project_root=project_root)
+    try:
+        result = enforcement.evaluate(
+            event,
+            project_root=project_root,
+            story_id=context.story_id,
+            story_scope_roots=context.scope_roots,
+        )
+    except Exception:  # noqa: BLE001 -- a capability fault -> no hull -> CCAG fail-closed
+        return None
+    # CCAG (FK-55 §55.10.3 step 10) is reachable on an ALLOW and on the two
+    # mode-scharf defer outcomes (UNKNOWN_PERMISSION / UNRESOLVED). A hard DENY /
+    # UNCLASSIFIED_MUTATION already blocked in step 1 and never reaches CCAG. The
+    # hull is attached to every CCAG-reachable result by the capability layer.
+    if result.outcome not in (
+        EnforcementOutcome.ALLOW,
+        EnforcementOutcome.ALLOW_VIA_OFFICIAL_SERVICE_PATH,
+        EnforcementOutcome.UNKNOWN_PERMISSION,
+        EnforcementOutcome.UNRESOLVED,
+    ):
+        return None
+    return result.hull
 
 
 def _resolve_mode_scoped_block(
@@ -1672,12 +2148,18 @@ def _resolve_capability_context(
     )
 
 
-def _run_ccag_hook(event: HookEvent) -> HookDecision:
+def _run_ccag_hook(event: HookEvent, *, project_root: Path) -> HookDecision:
     """Dispatch to CcagPermissionRuntime and translate decision to GuardVerdict.
 
     The CCAG runtime returns a :class:`~agentkit.governance.ccag.runtime.CcagDecision`
     which we map to the :class:`~agentkit.governance.protocols.GuardVerdict`
     type used by the hook chain.
+
+    FK-42 §42.2.4 (AG3-086): CCAG is invoked ONLY with the pre-computed capability
+    hull (the same capability layer that already ran in step 1). When the hull
+    cannot be resolved (the operation is not an ALLOW, or a capability fault),
+    CCAG must NOT be force-fed a global allow — it fails closed inside
+    ``CcagPermissionRuntime.evaluate`` (``capability_hull=None`` -> BLOCK).
 
     Translation:
         ``allow``              → ``GuardVerdict.allow("ccag_gatekeeper")``
@@ -1688,14 +2170,28 @@ def _run_ccag_hook(event: HookEvent) -> HookDecision:
 
     Args:
         event: Harness-neutral hook event.
+        project_root: Project root for the capability-hull resolution.
 
     Returns:
         A :class:`~agentkit.governance.protocols.GuardVerdict`.
     """
     from agentkit.governance.ccag.runtime import CcagDecisionKind, CcagPermissionRuntime
 
-    runtime = CcagPermissionRuntime()
-    decision = runtime.evaluate(event)
+    # AG3-086 (FK-42 §42.4.2 step 5 / FK-55 §55.10.9a): CCAG is the productive
+    # path that reads pending permission requests during a real run. Before
+    # evaluating, lazily materialise any TTL-elapsed permission request into a
+    # deterministic ESCALATED run-status (the lazy materialisation FK-55 §55.10.9a
+    # demands — no daemon). Idempotent; a fault here never converts the evaluation
+    # into a crash (the escalation is best-effort against the authoritative
+    # PhaseState, the CCAG decision proceeds regardless).
+    _escalate_expired_permission_requests(event, project_root=project_root)
+
+    hull = _resolve_capability_hull(event, project_root=project_root)
+    runtime = CcagPermissionRuntime(
+        request_db_path=_ccag_request_db_path(project_root),
+        request_ttl_s=_permission_request_ttl_s(project_root),
+    )
+    decision = runtime.evaluate(event, capability_hull=hull)
 
     if decision.kind == CcagDecisionKind.BLOCK_BY_RULE:
         return GuardVerdict.block(
@@ -1713,6 +2209,70 @@ def _run_ccag_hook(event: HookEvent) -> HookDecision:
     # already created by CcagPermissionRuntime._handle_unknown(); the CLI
     # entry points can inspect the decision.kind for exit code decisions.
     return GuardVerdict.allow("ccag_gatekeeper")
+
+
+def _ccag_request_db_path(project_root: Path) -> Path:
+    """Return the canonical CCAG permission-request store path (single owner).
+
+    The escalator and the CCAG runtime MUST read/write the SAME store so the
+    TTL-expiry escalation inspects exactly the requests CCAG creates — no second
+    request truth (FIX THE MODEL). Mirrors ``_block_with_permission_request``.
+    """
+    return project_root / ".agentkit" / "ccag" / "ccag_requests.db"
+
+
+def _escalate_expired_permission_requests(
+    event: HookEvent, *, project_root: Path
+) -> bool:
+    """Lazily escalate the run when a permission request has TTL-expired.
+
+    FK-42 §42.4.2 step 5 / FK-55 §55.10.9a: a CCAG ``permission_request`` that
+    elapses without a decision deterministically sets the authoritative
+    ``PhaseState.status`` to ``ESCALATED`` (reason
+    ``permission_request_expired``). This is the PRODUCTIVE wiring of
+    :class:`~agentkit.governance.ccag.expiry.PermissionExpiryEscalator`: it runs at
+    the CCAG hook edge (the path that reads pending requests during a real run),
+    materialising expiry LAZILY rather than via a daemon. Idempotent: an
+    already-ESCALATED state is left unchanged; no expired request -> no change.
+
+    Scoped to the active story resolved from the LOCAL edge bundle (never from
+    forgeable ``operation_args``). Outside an active story binding there is no run
+    to escalate -> no-op. Best-effort: a store / state fault is swallowed (the
+    escalation never crashes the CCAG decision path), but a successful expiry
+    deterministically escalates the authoritative run-status truth.
+
+    Args:
+        event: Harness-neutral hook event.
+        project_root: Project root for store + phase-state resolution.
+
+    Returns:
+        ``True`` when an expired request drove the run to ESCALATED.
+    """
+    scope = _guard_counter_scope(event, project_root=project_root)
+    if scope is None:
+        return False
+    _project_key, story_id = scope
+    try:
+        from agentkit.governance.ccag.expiry import PermissionExpiryEscalator
+        from agentkit.governance.ccag.requests import PermissionRequestStore
+        from agentkit.state_backend.store.phase_envelope_repository import (
+            StateBackendPhaseEnvelopeRepository,
+        )
+
+        request_store = PermissionRequestStore(_ccag_request_db_path(project_root))
+        phase_state_port = StateBackendPhaseEnvelopeRepository(
+            project_root / "stories" / story_id
+        )
+        escalator = PermissionExpiryEscalator(request_store, phase_state_port)
+        return escalator.expire_and_escalate(story_id)
+    except Exception:  # noqa: BLE001 -- lazy escalation is best-effort; never crash CCAG
+        logger.warning(
+            "permission-request TTL escalation failed for story_id=%s "
+            "(best-effort lazy materialisation; CCAG decision unaffected)",
+            story_id,
+            exc_info=True,
+        )
+        return False
 
 
 def _hook_ids_for_phase(phase: str) -> frozenset[str]:

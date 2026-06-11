@@ -38,8 +38,12 @@ if TYPE_CHECKING:
 
 RequestStatus = Literal["pending", "approved", "denied", "expired"]
 
-#: Default TTL in seconds for a permission request (10 minutes).
-DEFAULT_TTL_SECONDS: int = 600
+#: Default TTL in seconds for a permission request (FK-93 §93.5a / AG3-086:
+#: 1800s = 30 min). This is the FK-93-conformant Sollwert; the previous
+#: hard-coded 600 is superseded. The authoritative value is the typed config key
+#: ``permissions.request_ttl_s`` (``PermissionsConfig.request_ttl_s``); this
+#: constant is the in-module fallback when no config is threaded.
+DEFAULT_TTL_SECONDS: int = 1800
 
 
 class PermissionRequest(BaseModel):

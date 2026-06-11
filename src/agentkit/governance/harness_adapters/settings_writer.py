@@ -191,13 +191,13 @@ _MATCHER_MAPPABLE: dict[str, str] = {
 # ``developers.openai.com/codex/hooks``): Codex does not expose WebSearch /
 # WebFetch at all, so there is nothing to intercept and no matcher can be
 # registered. Tracked SEPARATELY from the merely-non-interceptable tokens so the
-# omission of the ``budget_event_emitter`` enforcement surface is an EXPLICIT,
-# named, guarded decision — not a silent drop bucketed with ordinary tools
-# (AG3-036 FIX-2 / FK-68 §68.6.1). The fail-closed backstop, should a web call
-# ever reach the Codex governance runner regardless, lives in the Codex event
-# mapping (``codex.event_mapping``: it preserves the tool name so
-# ``budget_event_emitter`` still DENIES an over-budget / unresolved research
-# web call).
+# omission of the budget enforcement surface is an EXPLICIT, named, guarded
+# decision — not a silent drop bucketed with ordinary tools (AG3-036 FIX-2 /
+# FK-68 §68.6.1 / AG3-086 FK-30 §30.5.1a). The fail-closed backstop, should a web
+# call ever reach the Codex governance runner regardless, lives in the Codex
+# event mapping (``codex.event_mapping``: it preserves the tool name so the
+# budget guard ``WebCallBudgetGuard`` still DENIES an over-budget / unresolved
+# research web call).
 _MATCHER_NO_CODEX_WEB_SURFACE: frozenset[str] = frozenset({"WebSearch", "WebFetch"})
 # Known §30.3.1 tokens with no Codex matcher equivalent — drop token-wise.
 _MATCHER_NOT_REPRESENTABLE: frozenset[str] = (
@@ -431,9 +431,9 @@ class CodexSettingsWriter:
                 )
                 # Web tokens are not merely non-interceptable — Codex has NO web
                 # tool surface (FK-76 §76.5.2). Emit an EXPLICIT, named guard
-                # diagnostic so the budget_event_emitter enforcement surface is
-                # documented as deliberately absent on Codex, never a silent gap
-                # (AG3-036 FIX-2 / FK-68 §68.6.1).
+                # diagnostic so the budget enforcement surface is documented as
+                # deliberately absent on Codex, never a silent gap (AG3-036 FIX-2
+                # / FK-68 §68.6.1 / AG3-086 FK-30 §30.5.1a).
                 dropped_web = [
                     t for t in mapping.dropped_tokens
                     if t in _MATCHER_NO_CODEX_WEB_SURFACE
@@ -442,11 +442,12 @@ class CodexSettingsWriter:
                     self.diagnostics.append(
                         f"{event_key} matcher {defn.matcher!r}: web tool(s) "
                         f"{dropped_web} have NO Codex tool surface "
-                        "(FK-76 §76.5.2) — budget_event_emitter is intentionally "
-                        "not registered for Codex. Fail-closed backstop: if a web "
-                        "call ever reaches the Codex runner, the Codex event "
-                        "mapping preserves the tool name so budget_event_emitter "
-                        "still denies an over-budget/unresolved research web call.",
+                        "(FK-76 §76.5.2) — the budget guard (WebCallBudgetGuard) "
+                        "is intentionally not registered for Codex. Fail-closed "
+                        "backstop: if a web call ever reaches the Codex runner, "
+                        "the Codex event mapping preserves the tool name so the "
+                        "budget guard still denies an over-budget/unresolved "
+                        "research web call.",
                     )
             if mapping.codex_matcher is None:
                 self.diagnostics.append(

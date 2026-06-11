@@ -70,6 +70,10 @@ class EscalationReason(StrEnum):
     IMPACT_VIOLATION = "impact_violation"
     DESIGN_REVIEW_REJECTED = "design_review_rejected"
     GOVERNANCE_VIOLATION = "governance_violation"
+    #: AG3-086 (FK-42 §42.4.2 step 5 / FK-55 §55.9a): a CCAG permission request's
+    #: TTL elapsed without a human decision -> the run is deterministically
+    #: ESCALATED.
+    PERMISSION_REQUEST_EXPIRED = "permission_request_expired"
 
 
 class PhaseStateProducer(BaseModel):

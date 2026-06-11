@@ -55,6 +55,11 @@ class HookId(StrEnum):
     SKILL_USAGE_CHECK = "skill_usage_check"
     HEALTH_MONITOR = "health_monitor"
     CCAG_GATEKEEPER = "ccag_gatekeeper"
+    #: AG3-086 (FK-31 §31.7): the prompt-integrity guard — a NEW PreToolUse hook
+    #: on every ``Agent`` sub-agent spawn (escape detection, spawn-schema
+    #: validation, template integrity). Not in the FK-30 §30.5.1 table; it is the
+    #: FK-31 §31.7 spawn guard, registered as its own identifier.
+    PROMPT_INTEGRITY = "prompt_integrity"
 
 
 class HookHarness(StrEnum):

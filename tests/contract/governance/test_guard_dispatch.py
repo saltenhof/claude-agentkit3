@@ -306,3 +306,36 @@ def test_skill_marker_is_a_spoofable_convention_not_attestation() -> None:
         }
     )
     assert guard.evaluate(event).allowed is True
+
+
+# ---------------------------------------------------------------------------
+# AG3-086: the new guard-hook dispatch wiring is pinned so it cannot silently
+# regress to the empty / wrong-owner pre-AG3-086 state (ZERO DEBT).
+# ---------------------------------------------------------------------------
+
+#: The AG3-086 hook-id -> dedicated dispatch-function mapping.
+AG3086_DEDICATED_DISPATCH: dict[str, str] = {
+    HookId.BUDGET.value: "_run_web_call_budget_guard",
+    HookId.SKILL_USAGE_CHECK.value: "_run_skill_usage_check",
+    HookId.PROMPT_INTEGRITY.value: "_run_prompt_integrity_guard",
+}
+
+
+def test_ag3086_dedicated_dispatch_functions_exist() -> None:
+    # Each AG3-086 hook-id has a real dedicated dispatcher on the runner (the
+    # ``budget`` block owner WebCallBudgetGuard, the skill_usage_check guard, and
+    # the prompt_integrity guard) — none falls through to the empty generic chain.
+    for hook_id, func_name in AG3086_DEDICATED_DISPATCH.items():
+        assert hook_id in {h.value for h in HookId}
+        assert hasattr(runner_mod, func_name)
+
+
+def test_ag3086_hooks_are_pretooluse_block_owners() -> None:
+    # budget / skill_usage_check / prompt_integrity are PreToolUse guard-hooks.
+    assert HookId.BUDGET.value in runner_mod.PRE_HOOK_IDS
+    assert HookId.SKILL_USAGE_CHECK.value in runner_mod.PRE_HOOK_IDS
+    assert HookId.PROMPT_INTEGRITY.value in runner_mod.PRE_HOOK_IDS
+    # ``budget`` is ALSO a PostToolUse observational emitter (web_call counter).
+    assert HookId.BUDGET.value in runner_mod.POST_HOOK_IDS
+    # The removed double-role identifier is gone.
+    assert "budget_event_emitter" not in runner_mod.PRE_HOOK_IDS

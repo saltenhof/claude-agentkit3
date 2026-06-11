@@ -58,6 +58,47 @@ class GuardVerdict:
         return cls(allowed=True, guard_name=guard_name)
 
     @classmethod
+    def allow_with_warning(
+        cls,
+        guard_name: str,
+        message: str,
+        detail: dict[str, object] | None = None,
+    ) -> GuardVerdict:
+        """Create an ALLOW verdict that also carries a WARNING (SEVERITY-SEMANTIK).
+
+        The operation proceeds (``allowed=True``, exit 0), but a deferring action
+        item is attached so the harness can surface it rather than swallow it. A
+        warning is NOT a block: ``violation_type`` stays ``None``. The ``message``
+        is the human-readable warning the harness mirrors to the caller; ``detail``
+        carries the structured warning context (e.g. the near-budget counts).
+
+        Args:
+            guard_name: Identifier of the guard issuing the verdict.
+            message: Human-readable warning to mirror to the caller.
+            detail: Optional structured warning context for audit/surfacing.
+
+        Returns:
+            A ``GuardVerdict`` with ``allowed=True`` and a warning attached.
+        """
+        return cls(
+            allowed=True,
+            guard_name=guard_name,
+            message=message,
+            detail=detail,
+        )
+
+    @property
+    def warning(self) -> str | None:
+        """Return the WARNING message on an allow verdict, else ``None``.
+
+        Only allow verdicts carry a warning (a block already surfaces its
+        ``message``). ``None`` means a clean PASS allow with no action item.
+        """
+        if self.allowed and self.message:
+            return self.message
+        return None
+
+    @classmethod
     def block(
         cls,
         guard_name: str,

@@ -317,3 +317,177 @@ class TestSchemaBootstrapIdempotent:
         assert old_db.exists()
         assert new_db.exists()
         assert old_db.name != new_db.name
+
+
+class TestFindPromptAuditOutputHashes:
+    """``find_prompt_audit_output_hashes`` (FK-44 §44.6 / FK-31 §31.7.4).
+
+    The PromptIntegrityGuard Stage-3 baseline (AG3-086): the set of all
+    prompt-audit ``output_sha256`` digests for a (story, run) -- ALL of them, not
+    just the latest, so any prompt the pipeline legitimately materialized for the
+    run (worker / qa / remediation) is an admissible baseline.
+    """
+
+    def test_returns_all_output_hashes_for_scope(
+        self, repo: StateBackendArtifactRepository
+    ) -> None:
+        # Three prompt-audit records (different invocations / attempts) for one run.
+        for attempt, digest in ((1, "a" * 64), (1, "b" * 64), (2, "c" * 64)):
+            repo.write_envelope(
+                _make_envelope(
+                    story_id="AG3-900",
+                    run_id="run-900",
+                    stage="prompt-materialization",
+                    attempt=attempt,
+                    producer_name=f"prompt-runtime.materialization-{digest[:4]}",
+                    artifact_class=ArtifactClass.PROMPT_AUDIT,
+                    payload={"output_sha256": digest},
+                )
+            )
+        result = repo.find_prompt_audit_output_hashes(
+            story_id="AG3-900", run_id="run-900"
+        )
+        assert result == frozenset({"a" * 64, "b" * 64, "c" * 64})
+
+    def test_scopes_to_story_and_run(
+        self, repo: StateBackendArtifactRepository
+    ) -> None:
+        repo.write_envelope(
+            _make_envelope(
+                story_id="AG3-900",
+                run_id="run-900",
+                stage="prompt-materialization",
+                producer_name="prompt-runtime.materialization",
+                artifact_class=ArtifactClass.PROMPT_AUDIT,
+                payload={"output_sha256": "a" * 64},
+            )
+        )
+        # A different run must NOT leak into the scope.
+        repo.write_envelope(
+            _make_envelope(
+                story_id="AG3-900",
+                run_id="run-OTHER",
+                stage="prompt-materialization",
+                producer_name="prompt-runtime.materialization",
+                artifact_class=ArtifactClass.PROMPT_AUDIT,
+                payload={"output_sha256": "z" * 64},
+            )
+        )
+        # A non-prompt-audit class with the same run must NOT leak in.
+        repo.write_envelope(
+            _make_envelope(
+                story_id="AG3-900",
+                run_id="run-900",
+                stage="impl",
+                artifact_class=ArtifactClass.QA,
+                payload={"output_sha256": "q" * 64},
+            )
+        )
+        result = repo.find_prompt_audit_output_hashes(
+            story_id="AG3-900", run_id="run-900"
+        )
+        assert result == frozenset({"a" * 64})
+
+    def test_empty_when_none_materialized(
+        self, repo: StateBackendArtifactRepository
+    ) -> None:
+        assert (
+            repo.find_prompt_audit_output_hashes(story_id="AG3-900", run_id="run-900")
+            == frozenset()
+        )
+
+    def test_ignores_records_without_output_sha256(
+        self, repo: StateBackendArtifactRepository
+    ) -> None:
+        repo.write_envelope(
+            _make_envelope(
+                story_id="AG3-900",
+                run_id="run-900",
+                stage="prompt-materialization",
+                producer_name="prompt-runtime.materialization",
+                artifact_class=ArtifactClass.PROMPT_AUDIT,
+                payload={"unrelated": "value"},
+            )
+        )
+        assert (
+            repo.find_prompt_audit_output_hashes(story_id="AG3-900", run_id="run-900")
+            == frozenset()
+        )
+
+    def test_ignores_record_with_null_payload(
+        self, repo: StateBackendArtifactRepository
+    ) -> None:
+        # A PROMPT_AUDIT record persisted with a NULL payload (payload_json IS NULL)
+        # is skipped, not a crash.
+        repo.write_envelope(
+            _make_envelope(
+                story_id="AG3-900",
+                run_id="run-900",
+                stage="prompt-materialization",
+                producer_name="prompt-runtime.materialization",
+                artifact_class=ArtifactClass.PROMPT_AUDIT,
+                payload=None,
+            )
+        )
+        assert (
+            repo.find_prompt_audit_output_hashes(story_id="AG3-900", run_id="run-900")
+            == frozenset()
+        )
+
+
+class TestFacadeFindPromptAuditOutputHashes:
+    """``facade.find_prompt_audit_output_hashes`` (the governance read seam)."""
+
+    @pytest.fixture(autouse=True)
+    def _sqlite_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
+        monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
+
+    def test_explicit_scope_returns_pinned_hashes(self, tmp_path: Path) -> None:
+        from agentkit.state_backend.scope import RuntimeStateScope
+        from agentkit.state_backend.store.facade import (
+            find_prompt_audit_output_hashes,
+        )
+
+        repo = StateBackendArtifactRepository(store_dir=tmp_path)
+        repo.write_envelope(
+            _make_envelope(
+                story_id="AG3-901",
+                run_id="run-901",
+                stage="prompt-materialization",
+                producer_name="prompt-runtime.materialization",
+                artifact_class=ArtifactClass.PROMPT_AUDIT,
+                payload={"output_sha256": "d" * 64},
+            )
+        )
+        scope = RuntimeStateScope(
+            project_key="demo",
+            story_id="AG3-901",
+            story_dir=tmp_path,
+            run_id="run-901",
+        )
+        result = find_prompt_audit_output_hashes(tmp_path, scope)
+        assert result == frozenset({"d" * 64})
+
+    def test_empty_run_id_returns_empty(self, tmp_path: Path) -> None:
+        from agentkit.state_backend.scope import RuntimeStateScope
+        from agentkit.state_backend.store.facade import (
+            find_prompt_audit_output_hashes,
+        )
+
+        scope = RuntimeStateScope(
+            project_key="demo",
+            story_id="AG3-901",
+            story_dir=tmp_path,
+            run_id=None,
+        )
+        assert find_prompt_audit_output_hashes(tmp_path, scope) == frozenset()
+
+    def test_unresolvable_scope_returns_empty(self, tmp_path: Path) -> None:
+        # scope=None with no runtime state -> CorruptStateError -> empty (fail-soft;
+        # the guard then treats Stage 3 as fail-closed downstream).
+        from agentkit.state_backend.store.facade import (
+            find_prompt_audit_output_hashes,
+        )
+
+        assert find_prompt_audit_output_hashes(tmp_path, None) == frozenset()

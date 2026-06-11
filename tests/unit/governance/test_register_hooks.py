@@ -424,6 +424,68 @@ class TestRegisterHooksSettingsMaterialisation:
         ]
         assert "PostToolUseFailure" not in codex["hooks"]
 
+    def test_default_definitions_bind_ag3_086_guards(self) -> None:
+        """AG3-086 (AC1b / AC3): the default install BINDS the AG3-086 guards.
+
+        The runner dispatches these guards, but a guard is only PERMANENTLY ACTIVE
+        in a real install when the default hook-registration path binds it. Assert
+        the production default definitions include each AG3-086 guard hook with its
+        FK-conformant event + matcher, so a default install enforces them (not just
+        the runner dispatch wiring).
+        """
+        defns = {
+            (defn.hook_event_name, defn.matcher, defn.command)
+            for defn in build_default_hook_definitions()
+        }
+
+        assert (
+            HookEventName.PRE_TOOL_USE,
+            "WebFetch|WebSearch",
+            "agentkit-hook-claude pre budget",
+        ) in defns, "PreToolUse budget guard (WebCallBudgetGuard) must be bound"
+        assert (
+            HookEventName.POST_TOOL_USE,
+            "WebFetch|WebSearch",
+            "agentkit-hook-claude post budget",
+        ) in defns, "PostToolUse observational budget emitter must be bound"
+        assert (
+            HookEventName.PRE_TOOL_USE,
+            "Bash",
+            "agentkit-hook-claude pre skill_usage_check",
+        ) in defns, "PreToolUse skill_usage_check guard must be bound"
+        assert (
+            HookEventName.PRE_TOOL_USE,
+            "Agent",
+            "agentkit-hook-claude pre prompt_integrity",
+        ) in defns, "PreToolUse prompt_integrity guard must be bound on Agent spawns"
+
+    def test_default_definitions_materialize_ag3_086_guards_into_settings(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """The bound AG3-086 guards land in the harness settings on a default install."""
+        import json
+
+        repo = _RecordingHookRepo()
+        gov = _make_governance(repo, project_root=tmp_path)
+        gov.register_hooks(build_default_hook_definitions())  # type: ignore[union-attr]
+
+        claude = json.loads(
+            (tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8")
+        )
+        pre = {
+            (entry["matcher"], entry["command"])
+            for entry in claude["hooks"]["PreToolUse"]
+        }
+        post = {
+            (entry["matcher"], entry["command"])
+            for entry in claude["hooks"]["PostToolUse"]
+        }
+        assert ("WebFetch|WebSearch", "agentkit-hook-claude pre budget") in pre
+        assert ("Bash", "agentkit-hook-claude pre skill_usage_check") in pre
+        assert ("Agent", "agentkit-hook-claude pre prompt_integrity") in pre
+        assert ("WebFetch|WebSearch", "agentkit-hook-claude post budget") in post
+
     def test_broken_settings_json_raises(self, tmp_path: Path) -> None:
         """Broken existing .claude/settings.json raises (fail-closed FK-30 §30.3.1 Z.339)."""
         settings_path = tmp_path / ".claude" / "settings.json"
@@ -491,9 +553,9 @@ class TestHookDefinitionValidation:
 
 
 class TestHookIdEnum:
-    """HookId has the canonical 11 hook IDs from FK-30 §30.5.1."""
+    """HookId has the FK-30 §30.5.1 hook IDs + AG3-086 ``prompt_integrity``."""
 
-    def test_all_eleven_hook_ids_present(self) -> None:
+    def test_all_hook_ids_present(self) -> None:
         expected = {
             "branch_guard",
             "orchestrator_guard",
@@ -506,12 +568,19 @@ class TestHookIdEnum:
             "skill_usage_check",
             "health_monitor",
             "ccag_gatekeeper",
+            # AG3-086 (FK-31 §31.7): the new prompt-integrity spawn guard.
+            "prompt_integrity",
         }
         actual = {hid.value for hid in HookId}
         assert actual == expected
 
     def test_hook_id_count(self) -> None:
-        assert len(HookId) == 11
+        # 11 FK-30 §30.5.1 ids + ccag_gatekeeper were 11; AG3-086 adds
+        # ``prompt_integrity`` (FK-31 §31.7) -> 12.
+        assert len(HookId) == 12
+
+    def test_prompt_integrity_present(self) -> None:
+        assert HookId.PROMPT_INTEGRITY.value == "prompt_integrity"
 
     def test_ccag_gatekeeper_present(self) -> None:
         assert HookId.CCAG_GATEKEEPER in HookId

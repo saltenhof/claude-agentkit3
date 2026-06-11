@@ -5,7 +5,7 @@ into the LIVE governance pipeline — capability enforcement is NOT patched out
 This complements ``test_budget_event_emitter_dispatch`` (which feeds a
 worker-attested ``HookEvent`` straight into ``run_hook`` and OWNS the budget-guard
 ALLOW/DENY proof). Here we drive the REAL adapter entry points
-(``claude_main`` / ``codex_main(["pre", "budget_event_emitter"])``) with raw hook
+(``claude_main`` / ``codex_main(["pre", "budget"])``) with raw hook
 payloads on stdin whose ``tool_name`` is a web tool. We do NOT hand-inject
 ``operation_args`` and we do NOT monkeypatch ``_run_capability_enforcement`` — the
 tool name must FLOW THROUGH ``to_neutral_event`` and the call must traverse the
@@ -138,7 +138,7 @@ def _run_claude(
 ) -> int:
     monkeypatch.chdir(project_root)  # adapter uses Path.cwd() as project_root
     monkeypatch.setattr("sys.stdin", io.StringIO(payload))
-    return claude_main(["pre", "budget_event_emitter"])
+    return claude_main(["pre", "budget"])
 
 
 def test_webfetch_name_survives_adapter_and_fails_closed(
@@ -204,7 +204,7 @@ def test_codex_backstop_web_name_survives_and_fails_closed(
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("sys.stdin", io.StringIO(_codex_webfetch_payload(worktree)))
-    exit_code = codex_main(["pre", "budget_event_emitter"])
+    exit_code = codex_main(["pre", "budget"])
 
     assert exit_code == 2  # tool name survived the Codex adapter -> fail-closed.
 
@@ -222,6 +222,6 @@ def test_codex_alias_web_name_survives_and_fails_closed(
         "sys.stdin",
         io.StringIO(_codex_webfetch_payload(worktree, tool_name="web-search")),
     )
-    exit_code = codex_main(["pre", "budget_event_emitter"])
+    exit_code = codex_main(["pre", "budget"])
 
     assert exit_code == 2

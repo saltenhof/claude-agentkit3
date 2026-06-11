@@ -26,9 +26,12 @@ Operating modes (FK-42 §42.2.5):
     - ``interactive_agent``: interactive session.
       Unknown → ``unknown_permission`` (caller shows dialog).
 
-Fail-open clause: any unexpected error returns ``allow`` to avoid blocking
-legitimate operations.  CCAG is a comfort layer — hard Guards are the last
-line of defence.
+Fail-CLOSED clause (AG3-086 / FK-42 §42.2.4, NO ERROR BYPASSING): CCAG requires a
+pre-computed capability hull. A missing hull AND any unexpected evaluation error
+both produce a fail-closed ``block_by_rule`` — NEVER a global allow. The previous
+fail-OPEN (Exception -> allow) was a security defect and is removed. CCAG remains
+a comfort layer within the already-permitted capability zone; the hard Guards are
+the last line of defence, but CCAG itself must not silently permit.
 """
 
 from __future__ import annotations
@@ -40,7 +43,11 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from agentkit.governance.ccag.requests import PermissionRequest, PermissionRequestStore
+from agentkit.governance.ccag.requests import (
+    DEFAULT_TTL_SECONDS,
+    PermissionRequest,
+    PermissionRequestStore,
+)
 from agentkit.governance.ccag.rules import (
     CcagRuleSet,
     load_rules,
@@ -50,8 +57,17 @@ from agentkit.governance.ccag.rules import (
 if TYPE_CHECKING:
     from agentkit.governance.ccag.leases import PermissionLeaseStore
     from agentkit.governance.guard_evaluation import HookEvent
+    from agentkit.governance.principal_capabilities import CapabilityHull
 
 _logger = logging.getLogger(__name__)
+
+#: Synthetic rule id surfaced when CCAG is invoked without a capability hull
+#: (FK-42 §42.2.4 fail-closed BLOCK).
+_MISSING_HULL_RULE_ID = "FK-42-42.2.4-missing-hull"
+
+#: Synthetic rule id surfaced when CCAG evaluation raises unexpectedly
+#: (fail-closed BLOCK — NO ERROR BYPASSING).
+_EVALUATION_ERROR_RULE_ID = "FK-42-ccag-evaluation-error"
 
 # ---------------------------------------------------------------------------
 # Decision model
@@ -233,11 +249,16 @@ class CcagPermissionRuntime:
         lease_store: PermissionLeaseStore | None = None,
         request_store: PermissionRequestStore | None = None,
         request_db_path: Path | None = None,
+        request_ttl_s: int = DEFAULT_TTL_SECONDS,
     ) -> None:
         self._rules_dir = Path(rules_dir) if rules_dir is not None else None
         self._lease_store = lease_store
         self._request_store = request_store
         self._request_db_path = request_db_path
+        # FK-93 §93.5a / AG3-086: the permission-request TTL is the typed config
+        # value (``permissions.request_ttl_s``, default 1800). Injected as a plain
+        # int by the runner edge; the runtime never imports config.
+        self._request_ttl_s = request_ttl_s
 
     def _get_request_store(self) -> PermissionRequestStore:
         """Return or lazily create the PermissionRequestStore."""
@@ -253,10 +274,23 @@ class CcagPermissionRuntime:
         self._request_store = PermissionRequestStore(db_path)
         return self._request_store
 
-    def evaluate(self, hook_event: HookEvent) -> CcagDecision:
+    def evaluate(
+        self,
+        hook_event: HookEvent,
+        *,
+        capability_hull: CapabilityHull | None = None,
+    ) -> CcagDecision:
         """Evaluate CCAG rules for a tool invocation event.
 
         Top surface used by the hook dispatcher (FK-42 §42.1).
+
+        FK-42 §42.2.4 (AG3-086, FAIL-CLOSED): CCAG may run ONLY after the
+        capability hull has been pre-computed (``principal_type`` / ``path_class``
+        / ``operation_class`` + the hard matrix and freeze verdicts). When
+        ``capability_hull`` is ``None`` the CCAG call is INADMISSIBLE and produces
+        a fail-closed BLOCK — NEVER a global allow. The previous fail-OPEN
+        behaviour (Exception -> allow) is REMOVED: any unexpected evaluation error
+        is mapped to a fail-closed BLOCK (NO ERROR BYPASSING).
 
         Algorithm (FK-42 §42.2):
         1. Extract tool_name and tool_input from the event.
@@ -267,23 +301,47 @@ class CcagPermissionRuntime:
 
         Args:
             hook_event: The harness-neutral :class:`HookEvent`.
+            capability_hull: The pre-computed capability hull (FK-42 §42.2.4).
+                ``None`` makes the call inadmissible -> fail-closed BLOCK.
 
         Returns:
             A :class:`CcagDecision` with kind ``allow``, ``block_by_rule``,
             or ``unknown_permission``.
         """
-        try:
-            return self._evaluate_internal(hook_event)
-        except Exception:  # noqa: BLE001
-            # Fail-open: unexpected errors must not block legitimate operations.
-            # CCAG is a comfort layer; Guards are the last line of defence.
-            _logger.exception(
-                "CCAG evaluation failed unexpectedly — fail-open for %r",
+        if capability_hull is None:
+            # FK-42 §42.2.4: no hull -> CCAG is inadmissible. Fail-closed BLOCK
+            # (never a global allow). The capability layer is the precondition;
+            # without it CCAG cannot reason about the already-permitted zone.
+            _logger.error(
+                "CCAG invoked WITHOUT a pre-computed capability hull for %r — "
+                "fail-closed BLOCK (FK-42 §42.2.4)",
                 hook_event.operation,
             )
             return CcagDecision(
-                kind=CcagDecisionKind.ALLOW,
-                reason="CCAG evaluation error — fail-open",
+                kind=CcagDecisionKind.BLOCK_BY_RULE,
+                matched_rule_id=_MISSING_HULL_RULE_ID,
+                reason=(
+                    "CCAG evaluation is inadmissible without a pre-computed "
+                    "capability hull (FK-42 §42.2.4) — fail-closed"
+                ),
+                detail={"fail_closed": True, "reason": "missing_capability_hull"},
+            )
+        try:
+            return self._evaluate_internal(hook_event)
+        except Exception:  # noqa: BLE001
+            # FAIL-CLOSED (AG3-086 / NO ERROR BYPASSING): an unexpected error must
+            # NOT be waved through as an allow. CCAG is a comfort layer, but a
+            # broken CCAG must block, not silently permit (the previous fail-OPEN
+            # was a security defect).
+            _logger.exception(
+                "CCAG evaluation failed unexpectedly — fail-closed BLOCK for %r",
+                hook_event.operation,
+            )
+            return CcagDecision(
+                kind=CcagDecisionKind.BLOCK_BY_RULE,
+                matched_rule_id=_EVALUATION_ERROR_RULE_ID,
+                reason="CCAG evaluation error — fail-closed",
+                detail={"fail_closed": True, "reason": "ccag_evaluation_error"},
             )
 
     def _evaluate_internal(self, hook_event: HookEvent) -> CcagDecision:
@@ -423,6 +481,7 @@ class CcagPermissionRuntime:
             story_id=str(hook_event.session_id or ""),
             run_id=str(hook_event.session_id or ""),
             operating_mode="story_execution",
+            ttl_seconds=self._request_ttl_s,
         )
 
     @staticmethod

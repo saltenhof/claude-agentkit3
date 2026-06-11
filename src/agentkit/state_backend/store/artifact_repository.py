@@ -615,6 +615,86 @@ class StateBackendArtifactRepository:
             return _pg_row_to_envelope(dict(row))
 
     # ------------------------------------------------------------------
+    # find_prompt_audit_output_hashes (FK-44 §44.6 / FK-31 §31.7.4)
+    # ------------------------------------------------------------------
+
+    def find_prompt_audit_output_hashes(
+        self,
+        *,
+        story_id: str,
+        run_id: str,
+    ) -> frozenset[str]:
+        """Return all prompt-audit ``output_sha256`` values for a (story, run).
+
+        The prompt-runtime materialization (``PromptRuntime.materialize_prompt``,
+        FK-44 §44.6) persists one ``ArtifactClass.PROMPT_AUDIT`` envelope per
+        spawned prompt, carrying ``output_sha256`` -- the digest of the EXACT
+        materialized prompt bytes the agent receives, provably rendered from a
+        manifest-pinned bundle template (the template digests are folded into the
+        bundle manifest hash at install). This set is the FK-31 §31.7.4 Stage-3
+        baseline: it is install-pinned and NOT spawn-controlled, so a worker can
+        neither author it nor point at a self-made file to satisfy it.
+
+        Unlike :meth:`find_latest_envelope` (single highest-attempt match per
+        stage), Stage 3 must accept ANY prompt the pipeline legitimately
+        materialized for this run (worker / qa / remediation / exploration), so
+        the full per-run scope is returned, not just the latest.
+
+        Args:
+            story_id: Story-Display-ID.
+            run_id: Run-Korrelations-ID (the prompt-audit run scope).
+
+        Returns:
+            The frozenset of all ``output_sha256`` digests for the scope (empty
+            when none materialized -- a story_execution spawn then has no pinned
+            baseline and is fail-closed blocked at Stage 3).
+        """
+        if _is_postgres():
+            rows = self._pg_prompt_audit_payloads(story_id, run_id)
+        else:
+            rows = self._sqlite_prompt_audit_payloads(story_id, run_id)
+        hashes: set[str] = set()
+        for raw_payload in rows:
+            if raw_payload is None:
+                continue
+            payload = (
+                raw_payload
+                if isinstance(raw_payload, dict)
+                else json.loads(str(raw_payload))
+            )
+            digest = payload.get("output_sha256")
+            if isinstance(digest, str) and digest:
+                hashes.add(digest)
+        return frozenset(hashes)
+
+    def _sqlite_prompt_audit_payloads(
+        self, story_id: str, run_id: str
+    ) -> list[object]:
+        with _sqlite_connect(self._store_dir) as conn:
+            cursor = conn.execute(
+                """
+                SELECT payload_json FROM artifact_envelopes
+                WHERE story_id = ? AND run_id = ? AND artifact_class = ?
+                """,
+                (story_id, run_id, ArtifactClass.PROMPT_AUDIT.value),
+            )
+            return [dict(row).get("payload_json") for row in cursor.fetchall()]
+
+    def _pg_prompt_audit_payloads(
+        self, story_id: str, run_id: str
+    ) -> list[object]:
+        with _postgres_connect() as conn:
+            _ensure_artifact_table_postgres(conn)
+            cursor = conn.execute(
+                """
+                SELECT payload_json FROM artifact_envelopes
+                WHERE story_id = %s AND run_id = %s AND artifact_class = %s
+                """,
+                (story_id, run_id, ArtifactClass.PROMPT_AUDIT.value),
+            )
+            return [dict(row).get("payload_json") for row in cursor.fetchall()]
+
+    # ------------------------------------------------------------------
     # read_envelope
     # ------------------------------------------------------------------
 
