@@ -111,6 +111,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     uninstall_parser.add_argument("--project-root", required=True)
 
+    # AG3-088 (FK-50 §50.2): the installer boundary controls. register-project
+    # runs the checkpoint engine in ``register`` mode; verify-project runs it
+    # read-only in ``verify`` mode.
+    _add_register_verify_parsers(subparsers)
+
     # run-story (minimal -- reads issue, runs pipeline)
     run_parser = subparsers.add_parser(
         "run-story", help="Run a story through the pipeline",
@@ -218,6 +223,10 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_install(args)
     if args.command == "uninstall":
         return _cmd_uninstall(args)
+    if args.command == "register-project":
+        return _cmd_register_project(args)
+    if args.command == "verify-project":
+        return _cmd_verify_project(args)
     if args.command == "run-story":
         return _cmd_run_story(args)
     if args.command == "watch-worker":
@@ -396,6 +405,125 @@ def _cmd_uninstall(args: argparse.Namespace) -> int:
 
     print(f"Uninstall failed: {'; '.join(result.errors)}", file=sys.stderr)
     return 1
+
+
+def _add_register_verify_parsers(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    """Register the ``register-project`` / ``verify-project`` subcommands (FK-50 §50.2).
+
+    Both take the same project coordinates; ``register-project`` adds a
+    ``--dry-run`` flag (plan-only, no mutation). ``verify-project`` is always
+    read-only.
+    """
+    register_parser = subparsers.add_parser(
+        "register-project",
+        help="Register a project via the installer checkpoint engine (FK-50 §50.2)",
+    )
+    register_parser.add_argument("--project-key", required=True)
+    register_parser.add_argument("--project-name", required=True)
+    register_parser.add_argument("--project-root", required=True)
+    register_parser.add_argument("--github-owner", required=False)
+    register_parser.add_argument("--github-repo", required=False)
+    register_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Plan-only: report planned checkpoint outcomes without mutating.",
+    )
+
+    verify_parser = subparsers.add_parser(
+        "verify-project",
+        help="Read-only verification of a registered project (FK-50 §50.2)",
+    )
+    verify_parser.add_argument("--project-key", required=True)
+    verify_parser.add_argument("--project-name", required=True)
+    verify_parser.add_argument("--project-root", required=True)
+    verify_parser.add_argument("--github-owner", required=False)
+    verify_parser.add_argument("--github-repo", required=False)
+
+
+def _build_engine_config(args: argparse.Namespace) -> object | None:
+    """Build the :class:`InstallConfig` for the engine-driven subcommands.
+
+    Resolves the github coordinates fail-closed (flags or origin remote) exactly
+    like ``install``. Returns ``None`` (reason already printed) on a coordinate
+    failure.
+    """
+    from agentkit.installer.repo_probe import GhCliRepoExistenceProbe
+    from agentkit.installer.runner import InstallConfig
+
+    project_root = Path(args.project_root)
+    coordinates = _resolve_github_coordinates(args, project_root)
+    if coordinates is None:
+        return None
+    github_owner, github_repo = coordinates
+    return InstallConfig(
+        project_key=args.project_key,
+        project_name=args.project_name,
+        project_root=project_root,
+        github_owner=github_owner,
+        github_repo=github_repo,
+        # CP 2 probes the live GitHub repo via the productive gh probe (FK-50
+        # §50.3 CP 2 / §50.6); a missing/unreachable repo FAILs closed.
+        repo_existence_probe=GhCliRepoExistenceProbe(),
+        # The engine boundary controls do not provision live Sonar/CI here.
+        sonarqube_available=False,
+        ci_available=False,
+    )
+
+
+def _print_checkpoint_results(result: object) -> None:
+    """Print the per-checkpoint results of an install result (one line each)."""
+    checkpoint_results = getattr(result, "checkpoint_results", None) or ()
+    for cp in checkpoint_results:
+        line = f"  {cp.checkpoint}: {cp.status.value}"
+        if cp.reason:
+            line += f" ({cp.reason})"
+        print(line)
+
+
+def _cmd_register_project(args: argparse.Namespace) -> int:
+    """Handle ``agentkit register-project`` (FK-50 §50.2)."""
+    from agentkit.exceptions import InstallationError, ProjectError
+    from agentkit.installer.bootstrap_checkpoints.orchestrator import (
+        run_checkpoint_install,
+    )
+    from agentkit.installer.checkpoint_engine.execution_mode import ExecutionMode
+
+    config = _build_engine_config(args)
+    if config is None:
+        return 1
+    mode = ExecutionMode.DRY_RUN if args.dry_run else ExecutionMode.REGISTER
+    try:
+        result = run_checkpoint_install(config, mode=mode)  # type: ignore[arg-type]
+    except (InstallationError, ProjectError) as exc:
+        print(f"register-project failed: {exc}", file=sys.stderr)
+        return 1
+    label = "planned" if args.dry_run else "registered"
+    print(f"Project {label} ({mode.value}) at {args.project_root}")
+    _print_checkpoint_results(result)
+    return 0 if result.success else 1
+
+
+def _cmd_verify_project(args: argparse.Namespace) -> int:
+    """Handle ``agentkit verify-project`` (FK-50 §50.2, read-only)."""
+    from agentkit.exceptions import InstallationError, ProjectError
+    from agentkit.installer.bootstrap_checkpoints.orchestrator import (
+        run_checkpoint_install,
+    )
+    from agentkit.installer.checkpoint_engine.execution_mode import ExecutionMode
+
+    config = _build_engine_config(args)
+    if config is None:
+        return 1
+    try:
+        result = run_checkpoint_install(config, mode=ExecutionMode.VERIFY)  # type: ignore[arg-type]
+    except (InstallationError, ProjectError) as exc:
+        print(f"verify-project failed: {exc}", file=sys.stderr)
+        return 1
+    print(f"Project verification (read-only) at {args.project_root}")
+    _print_checkpoint_results(result)
+    return 0 if result.success else 1
 
 
 def _cmd_run_story(args: argparse.Namespace) -> int:

@@ -19,20 +19,23 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from agentkit.installer.bootstrap_checkpoints.cp01_to_06 import (
+    REASON_MISSING_COORDINATES,
+    REASON_REPO_UNREACHABLE,
+)
+from agentkit.installer.checkpoint_engine import node_ids as nid
+from agentkit.installer.checkpoint_engine.node_ids import CP_02_REPO_CHECK
 from agentkit.installer.paths import (
     prompt_bundle_lock_path,
     static_prompts_dir,
 )
 from agentkit.installer.registration import (
     CP7_STATE_BACKEND_REGISTRATION,
-    REASON_INVALID_GITHUB_COORDINATES,
-    REASON_MISSING_GITHUB_COORDINATES,
     CheckpointStatus,
     RuntimeProfile,
 )
 from agentkit.installer.runner import (
     _CI_CHECKPOINT_ID,
-    _SONAR_CHECKPOINT_ID,
     MANDATORY_SKILLS,
     PROMPT_MANIFEST_FILENAME,
     InstallConfig,
@@ -141,18 +144,17 @@ def test_cp7_registration_precedes_bundle_binding(tmp_path: Path) -> None:
 
 @pytest.mark.integration
 @pytest.mark.parametrize("bad_owner", [None, "", "   "])
-def test_install_aborts_on_failed_cp7_no_bindings(
+def test_install_aborts_on_failed_cp2_no_bindings(
     tmp_path: Path, bad_owner: str | None
 ) -> None:
-    """B1: a FAILED CP 7 aborts the install BEFORE any bundle binding.
+    """B1 (AG3-088): missing/empty GitHub coordinates abort at CP 2 (fail-closed).
 
-    FK-50 §50.4 (FAILED => abort) +
-    ``installer.invariant.state_backend_registration_precedes_bundle_binding``:
-    when CP 7 fails (missing/empty mandatory GitHub coordinates), the install
-    must NOT bind any bundle, must return ``success=False`` and propagate the
-    FAILED CheckpointResult (incl. its machine-readable reason). Returning
-    success=True with active bindings against an unregistered project is
-    fail-open.
+    With the checkpoint engine (AG3-088), CP 2 (the GitHub-repo check) is the
+    fail-closed coordinate gate ordered BEFORE CP 5 (scaffold) and CP 7. Missing
+    or empty coordinates FAIL at CP 2 (``reason=missing_github_coordinates``), the
+    engine aborts, and NO scaffold / registration / binding is written — an even
+    earlier abort than the legacy CP 7 gate. ``success=False`` is returned with
+    the FAILED CheckpointResult propagated.
     """
     root = tmp_path / "proj-failclosed"
     root.mkdir()
@@ -166,16 +168,19 @@ def test_install_aborts_on_failed_cp7_no_bindings(
 
     result = install_agentkit(config)
 
-    # Install aborts: not successful, FAILED CP 7 propagated with its reason.
+    # Install aborts: not successful, FAILED CP 2 propagated with its reason.
     assert result.success is False
     assert result.checkpoint_results is not None
-    cp7 = next(
-        r
-        for r in result.checkpoint_results
-        if r.checkpoint == CP7_STATE_BACKEND_REGISTRATION
+    cp2 = next(
+        r for r in result.checkpoint_results if r.checkpoint == CP_02_REPO_CHECK
     )
-    assert cp7.status is CheckpointStatus.FAILED
-    assert cp7.reason == REASON_MISSING_GITHUB_COORDINATES
+    assert cp2.status is CheckpointStatus.FAILED
+    assert cp2.reason == REASON_MISSING_COORDINATES
+    # CP 7 never ran (CP 2 aborted earlier) — no registration was persisted.
+    assert all(
+        r.checkpoint != CP7_STATE_BACKEND_REGISTRATION
+        for r in result.checkpoint_results
+    )
     # No registration was persisted, and no skill bindings ran (no bind points).
     assert repo.get(root.stem) is None
     assert not (root / ".claude" / "skills").exists()
@@ -206,13 +211,15 @@ def test_install_aborts_on_failed_cp7_no_bindings(
         ("acme\n", "demo"),  # trailing-newline owner (ERROR-1)
     ],
 )
-def test_install_aborts_on_invalid_cp7_coordinates_no_bindings(
+def test_install_aborts_on_invalid_cp2_coordinates_no_bindings(
     tmp_path: Path, bad_owner: str, bad_repo: str
 ) -> None:
-    """AG3-039 R7 ERROR-2: a direct install with MALFORMED (present-but-invalid)
-    GitHub coordinates must fail closed — the SSOT validation at the CP 7 port is
-    enforced, so the install returns ``success=False``, propagates the FAILED
-    CP 7 with ``REASON_INVALID_GITHUB_COORDINATES`` and binds nothing.
+    """AG3-088: a direct install with MALFORMED GitHub coordinates fails closed.
+
+    The SSOT coordinate validation (``validate_github_coordinate``) is enforced at
+    the CP 2 port (ordered before CP 5/CP 7), so a present-but-invalid coordinate
+    FAILs at CP 2 (``reason=repo_unreachable`` — the malformed-coordinate case),
+    the engine aborts and binds nothing. CP 7 never runs.
     """
     root = tmp_path / "proj-invalidcoords"
     root.mkdir()
@@ -228,13 +235,15 @@ def test_install_aborts_on_invalid_cp7_coordinates_no_bindings(
 
     assert result.success is False
     assert result.checkpoint_results is not None
-    cp7 = next(
-        r
-        for r in result.checkpoint_results
-        if r.checkpoint == CP7_STATE_BACKEND_REGISTRATION
+    cp2 = next(
+        r for r in result.checkpoint_results if r.checkpoint == CP_02_REPO_CHECK
     )
-    assert cp7.status is CheckpointStatus.FAILED
-    assert cp7.reason == REASON_INVALID_GITHUB_COORDINATES
+    assert cp2.status is CheckpointStatus.FAILED
+    assert cp2.reason == REASON_REPO_UNREACHABLE
+    assert all(
+        r.checkpoint != CP7_STATE_BACKEND_REGISTRATION
+        for r in result.checkpoint_results
+    )
     # No invalid registration persisted, no harness/skill bindings deployed.
     assert repo.get(root.stem) is None
     assert not (root / ".claude" / "skills").exists()
@@ -271,19 +280,20 @@ def test_install_persists_project_registration(tmp_path: Path) -> None:
     assert len(cp7) == 1
     assert cp7[0].status is CheckpointStatus.CREATED
 
-    # AG3-056 WARNING-2: the CI preflight result is RECORDED in
-    # checkpoint_results. This config opts out of CI (ci_available=False) =>
-    # SKIPPED with a machine-readable reason (mirrors the Sonar CP recording).
+    # AG3-056 WARNING-2: the orthogonal CI preflight result is RECORDED by the
+    # install façade. This config opts out of CI (ci_available=False) => SKIPPED
+    # with a machine-readable reason.
     ci_cp = [r for r in result.checkpoint_results if r.checkpoint == _CI_CHECKPOINT_ID]
     assert len(ci_cp) == 1
     assert ci_cp[0].status is CheckpointStatus.SKIPPED
     assert ci_cp[0].reason == "not_applicable"
-    # The Sonar CP 10d result is likewise recorded (also a conscious opt-out).
+    # AG3-088: CP 10d is a branch-gated checkpoint (branch_sonarqube_enabled). With
+    # sonarqube_available=False the sonar branch does NOT fire, so CP 10d never runs
+    # and contributes no result (the applicability decision is now the flow branch).
     sonar_cp = [
-        r for r in result.checkpoint_results if r.checkpoint == _SONAR_CHECKPOINT_ID
+        r for r in result.checkpoint_results if r.checkpoint == nid.CP_10D_SONARQUBE
     ]
-    assert len(sonar_cp) == 1
-    assert sonar_cp[0].status is CheckpointStatus.SKIPPED
+    assert sonar_cp == []
 
     # AC4-ish: the registration is persisted with the correct fields.
     stored = repo.get(root.stem)

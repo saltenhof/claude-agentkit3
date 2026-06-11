@@ -39,8 +39,6 @@ from agentkit.installer.paths import (
     config_dir,
     control_plane_config_path,
     manifests_dir,
-    project_config_path,
-    prompt_bundle_lock_path,
     prompt_bundle_store_dir,
     runtime_prompts_dir,
     static_prompts_dir,
@@ -62,6 +60,7 @@ if TYPE_CHECKING:
         SonarPreflightResult,
     )
     from agentkit.installer.registration import CheckpointResult, RuntimeProfile
+    from agentkit.installer.repo_probe import RepoExistenceProbe
     from agentkit.installer.repository import ProjectRegistrationRepository
     from agentkit.integrations.jenkins import JenkinsClient
     from agentkit.integrations.sonar import SonarClient
@@ -222,6 +221,27 @@ class InstallConfig:
     # row; it defaults to ``core``.
     registration_repo: ProjectRegistrationRepository | None = None
     runtime_profile: RuntimeProfile | None = None
+    # AG3-088 (FK-50 §50.3 CP 10 / FK-03 §3.1): the installer CONSUMES the
+    # feature decision (it does not define the config model, story §2.2). These
+    # two flags drive the vectordb/ARE branch nodes of the checkpoint flow and
+    # the ``features.vectordb``/``features.are`` stanza written to project.yaml.
+    # CP 10 registers the story-knowledge-base MCP server at ``features_vectordb``
+    # and the ARE-MCP server at ``features_are`` (FK-03 §3.1 binds are.mcp_server
+    # to features.are only); both off -> CP 10 SKIPPED (vectordb_disabled).
+    features_vectordb: bool = False
+    features_are: bool = False
+    # AG3-088 (FK-50 §50.3 CP 10c): optional ARE config consumed when
+    # ``features_are`` is True — the ``are`` stanza (incl. ``mcp_server`` and the
+    # ``module_scope_map``) written into project.yaml. The installer is the
+    # write-owner of the ARE-scope mapping (FK-50 §50.3 CP 5); CP 10c consumes it.
+    are_mcp_server: str | None = None
+    are_module_scope_map: dict[str, str] | None = None
+    # AG3-088 (FK-50 §50.3 CP 2): an injectable GitHub-repo existence probe. The
+    # CP 2 checkpoint runs ``gh repo view`` via this probe; the productive CLI
+    # injects the real ``gh`` probe, tests inject a deterministic double. When
+    # ``None`` the offline path validates the coordinate FORMAT only (it never
+    # fabricates a live verification — a malformed coordinate still FAILs).
+    repo_existence_probe: RepoExistenceProbe | None = None
 
 
 @dataclass(frozen=True)
@@ -352,7 +372,14 @@ def _build_repo_entries(config: InstallConfig) -> list[dict[str, str]]:
             "name": repo["name"],
             "path": repo["path"],
         }
-        for optional_field in ("language", "test_command", "build_command"):
+        # AG3-088 (FK-50 §50.3 CP 10c): carry ``are_scope`` through so CP 10c can
+        # validate each code repo's ARE scope against ``are.module_scope_map``.
+        for optional_field in (
+            "language",
+            "test_command",
+            "build_command",
+            "are_scope",
+        ):
             if optional_field in repo:
                 entry[optional_field] = repo[optional_field]
         repos.append(entry)
@@ -374,7 +401,15 @@ def _build_project_yaml(config: InstallConfig) -> dict[str, object]:
         # Operators who are not yet ready for multi-LLM routing must consciously
         # set multi_llm: false and remove the llm_roles stanza — a deliberate opt-
         # out, not an automatic install default.
-        "features": {"multi_llm": True},
+        # AG3-088 (FK-03 §3.1): the installer CONSUMES the feature decision and
+        # writes the resulting ``features.vectordb``/``features.are`` flags so the
+        # checkpoint flow's vectordb/ARE branch nodes route consistently with the
+        # persisted config. Defaults to False (core profile, no vectordb).
+        "features": {
+            "multi_llm": True,
+            "vectordb": config.features_vectordb,
+            "are": config.features_are,
+        },
         "llm_roles": {
             "worker": "claude",
             "qa_review": "chatgpt",
@@ -420,6 +455,18 @@ def _build_project_yaml(config: InstallConfig) -> dict[str, object]:
         data["github_owner"] = config.github_owner
     if config.github_repo is not None:
         data["github_repo"] = config.github_repo
+
+    # AG3-088 (FK-50 §50.3 CP 5 / CP 10c): the installer is the write-owner of
+    # the ARE-scope mapping. When ``features_are`` is set, write the ``are``
+    # stanza (mcp_server + module_scope_map) so CP 10 registers the ARE-MCP
+    # server and CP 10c can consume the mapping. The mapping is CONSUMED, never
+    # defined here (the config-model owner is AG3-070).
+    if config.features_are:
+        are_section: dict[str, object] = {
+            "mcp_server": config.are_mcp_server or "http://localhost:8090",
+            "module_scope_map": dict(config.are_module_scope_map or {}),
+        }
+        data["are"] = are_section
 
     return data
 
@@ -599,47 +646,6 @@ def _deploy_prompt_bindings(target_root: Path, prompt_source_dir: Path) -> list[
             created.append(str(target.relative_to(target_root)))
 
     return created
-
-
-def _write_prompt_bundle_lock(
-    target_root: Path,
-    *,
-    manifest: dict[str, object],
-    manifest_text: str,
-) -> str | None:
-    """Update the project prompt-bundle binding (FK-50 §50.5).
-
-    Delegates the actual binding update to the prompt-runtime top-surface
-    ``PromptRuntime.update_binding`` (Owner-BC principle). Idempotence for
-    ``created_files`` reporting is preserved by composing the would-be lock
-    content via the shared ``build_prompt_bundle_lock_content`` and only
-    delegating when it differs from the on-disk lock. The fail-closed path
-    is not weakened: ``update_binding`` re-resolves the manifest from the
-    installer-managed central store and raises on any inconsistency.
-
-    Imported lazily to avoid an import cycle (``prompt_runtime`` imports
-    ``installer.paths``; the installer package eagerly imports this runner).
-    """
-    from agentkit.prompt_runtime.runtime import (
-        PromptRuntime,
-        build_prompt_bundle_lock_content,
-    )
-
-    bundle_id = str(manifest["bundle_id"])
-    bundle_version = str(manifest["bundle_version"])
-    desired_content = build_prompt_bundle_lock_content(
-        bundle_id=bundle_id,
-        bundle_version=bundle_version,
-        manifest_file=PROMPT_MANIFEST_FILENAME,
-        manifest_text=manifest_text,
-    )
-    lock_path = prompt_bundle_lock_path(target_root)
-    if lock_path.is_file() and (
-        lock_path.read_text(encoding="utf-8") == desired_content
-    ):
-        return None
-    PromptRuntime(target_root).update_binding(bundle_id, bundle_version)
-    return str(lock_path.relative_to(target_root))
 
 
 def _write_control_plane_config(target_root: Path) -> str | None:
@@ -1032,56 +1038,24 @@ def _ensure_link_bindpoint_gitignore(root: Path) -> str | None:
     return str(gitignore_path.relative_to(root))
 
 
-def install_agentkit(config: InstallConfig) -> InstallResult:
-    root = config.project_root
+def scaffold_project_structure(config: InstallConfig, root: Path) -> list[str]:
+    """Materialise the NEUTRAL project directory scaffold (CP 5 region).
 
-    if not root.is_dir():
-        raise ProjectError(
-            f"Project root does not exist: {root}",
-            detail={"project_root": str(root)},
-        )
+    Transferred verbatim from the legacy ``install_agentkit`` pre-CP-7 body
+    (behaviour preserved): the resources/target_project directory mirror plus
+    the empty runtime working directories. NEUTRAL structure only — no active
+    harness binding is written here (those are deferred to STRICTLY after CP 7,
+    the ``state_backend_registration_precedes_bundle_binding`` invariant).
 
-    # PREFLIGHT (Codex-r7 FINDING): resolve all mandatory skill bundles BEFORE
-    # writing anything to the project. A missing bundle is the common install
-    # failure; failing here (no project writes yet) means ``agentkit install``
-    # never leaves a half-scaffolded project on ``BundleNotFound``.
-    skills, resolved_skill_bundles = _resolve_mandatory_skill_bundles(config, root)
+    Args:
+        config: The install configuration.
+        root: The target-project root.
 
+    Returns:
+        The project-relative paths of the directories created (for reporting).
+    """
     resources_dir = _resources_target_project_dir()
-    prompt_source_dir = _resolve_prompt_source_dir(config)
-    canonical_prompt_bundle_root, manifest, manifest_text = (
-        _ensure_prompt_bundle_store_entry(prompt_source_dir)
-    )
-    # NEUTRAL STRUCTURE ONLY before CP 7 (B1-Rest, AG3-039 R4): create the
-    # directory scaffold (empty dirs, no active payload). The ACTIVE harness
-    # bindings — ``.codex/config.toml`` (Codex pre-tool-use hook config) and
-    # ``.claude/settings.json`` (Claude Code ``PreToolUse`` hook) plus their
-    # referenced hook script / guard rules — are STATIC RESOURCE FILES and must
-    # NOT be written before CP 7. Writing them ahead of CP 7 would arm active
-    # projectlocal harness bindings against a project whose central state-backend
-    # registration has not (yet) completed — a fail-open violation of
-    # ``formal.installer.invariant.state_backend_registration_precedes_bundle_binding``
-    # and story §2.1.4 ("CP 7 lookup ... before writing OTHER artefacts").
-    # The static-file deploy is therefore deferred to STRICTLY AFTER the CP 7
-    # FAILED-abort gate below. Empty directories carry no binding and may stay.
     created = _deploy_directory_structure(resources_dir, root)
-
-    # Runtime working directories that are intentionally empty right after a
-    # fresh install. Git cannot track empty directories, so they are absent
-    # from the resources/target_project scaffold and the scaffold-mirroring
-    # deploy step never creates them. The installer therefore guarantees them
-    # explicitly. This set is the mirror image of what ``uninstall_agentkit``
-    # removes (keep both in sync):
-    #   .agentkit/config    -- also receives files below; created here too
-    #   .agentkit/prompts   -- FK-44 prompt-materialization root (prompt_instance_dir)
-    #   .agentkit/manifests -- prompt-pin manifests
-    #   stories             -- story working tree
-    #   .claude/context     -- harness context dir (Claude Code)
-    # AG3-048: the ``.claude/skills`` (and ``.codex/skills``) bind points are NO
-    # LONGER created here. They are owned by the agent-skills BC: each harness
-    # skills directory is created lazily by ``Skills.bind_skill`` when the
-    # mandatory skills are bound below (FK-43 §43.4.1; BC 12). The installer no
-    # longer ``mkdir``s the skill bind point directly.
     for runtime_dir in (
         config_dir(root),
         runtime_prompts_dir(root),
@@ -1090,135 +1064,105 @@ def install_agentkit(config: InstallConfig) -> InstallResult:
         root / CLAUDE_DIR / "context",
     ):
         runtime_dir.mkdir(parents=True, exist_ok=True)
+    return created
 
-    # FK-50 CP 5: write the project config (project.yaml) FIRST. The CP 7
-    # config_digest is computed over its canonicalised content, so it must be on
-    # disk before registration. No bundle binding has happened yet.
-    yaml_path = project_config_path(root)
-    yaml_data = _build_project_yaml(config)
-    if _write_yaml_if_changed(yaml_path, yaml_data):
-        created.append(str(yaml_path.relative_to(root)))
 
-    # FK-50 CP 7 (AG3-039): State-Backend project registration. Ordered AFTER
-    # project.yaml (CP 5) and STRICTLY BEFORE every bundle binding — the prompt
-    # bundle binding (FK-50 §50.5), the skill links (CP 8) and the harness
-    # settings. This is the
-    # ``installer.invariant.state_backend_registration_precedes_bundle_binding``
-    # ordering invariant: registration in the central state backend must complete
-    # before project-local bundle bindings become active. Idempotent: same digest
-    # => SKIPPED (no re-write), divergent digest => update_upgraded, absent =>
-    # save; missing GitHub coordinates => FAILED (fail-closed, FK-50 §50.6).
-    from agentkit.installer.registration import CheckpointStatus
+def deploy_post_registration_artifacts(config: InstallConfig, root: Path) -> list[str]:
+    """Deploy the ACTIVE project-local bindings (CP 8 region, after CP 7).
 
-    cp7_result = _run_cp7_state_backend_registration(config, root, yaml_data)
-    checkpoint_results: list[CheckpointResult] = [cp7_result]
+    Transferred verbatim from the legacy ``install_agentkit`` post-CP-7 body
+    EXCEPT the governance hook registration (CP 9) and the Sonar/CI preconditions
+    (CP 10d / orthogonal CI preflight). Materialises: the static resource files
+    (active harness bindings), the harness-bind-point ``.gitignore`` entries, the
+    prompt-bundle bindings, the mandatory skill links (``Skills.bind_skill``), the
+    prompt-bundle lock (``PromptRuntime.update_binding``), the control-plane
+    config and the Codex settings.
 
-    # FK-50 §50.4: a FAILED CP 7 aborts the install BEFORE any bundle binding.
-    # This is the fail-closed half of the
-    # ``installer.invariant.state_backend_registration_precedes_bundle_binding``
-    # ordering invariant: a bundle binding must never become active against a
-    # project whose central State-Backend registration did not complete. Returning
-    # ``success=True`` here (and binding anyway) would leave the project
-    # UNREGISTERED behind active bindings (fail-open). The FAILED CheckpointResult
-    # — including its machine-readable ``reason`` — is propagated unchanged so the
-    # caller can branch on the precondition violation.
-    if cp7_result.status is CheckpointStatus.FAILED:
-        return InstallResult(
-            success=False,
-            project_root=root,
-            created_files=tuple(created),
-            errors=(cp7_result.detail or cp7_result.reason or "CP 7 registration failed.",),
-            checkpoint_results=(cp7_result,),
-        )
+    Idempotent (every sub-step is digest/content guarded). Fail-closed: a missing
+    mandatory bundle / unbindable link aborts (no partial install).
 
-    # ---- Active projectlocal bindings (FK-50 §50.5 / CP 8) — only AFTER CP 7 ----
+    Args:
+        config: The install configuration.
+        root: The target-project root.
 
-    # B1-Rest (AG3-039 R4): the static resource files include the ACTIVE harness
-    # bindings (``.codex/config.toml`` Codex hook config, ``.claude/settings.json``
-    # ``PreToolUse`` hook) plus the hook script and guard rules they reference.
-    # Deploying them here — STRICTLY AFTER the CP 7 FAILED-abort gate — guarantees
-    # no active projectlocal harness binding ever exists on disk against a project
-    # whose central state-backend registration did not complete. This is the
-    # active half of
-    # ``formal.installer.invariant.state_backend_registration_precedes_bundle_binding``
-    # (story §2.1.4; FK-50 §50.3 CP 7 before CP 8/CP 9, §50.4 FAILED => abort).
+    Returns:
+        The project-relative paths created/updated by this deploy.
+    """
+    resources_dir = _resources_target_project_dir()
+    prompt_source_dir = _resolve_prompt_source_dir(config)
+    canonical_prompt_bundle_root, manifest, manifest_text = (
+        _ensure_prompt_bundle_store_entry(prompt_source_dir)
+    )
+    skills, resolved_skill_bundles = _resolve_mandatory_skill_bundles(config, root)
+
+    created: list[str] = []
     active_binding_paths = _default_governance_hook_settings_paths(root)
-    active_binding_before = _file_digests(active_binding_paths)
     static_created = _deploy_static_resource_files(resources_dir, root)
     created.extend(
-        rel
-        for rel in static_created
-        if root / rel not in active_binding_paths
-    )
-    created.extend(
-        _register_default_governance_hooks(
-            config,
-            root,
-            before=active_binding_before,
-        )
+        rel for rel in static_created if root / rel not in active_binding_paths
     )
 
-    # AG3-048 (FK-43 §43.4.1.1): git-ignore the harness link bind points in the
-    # TARGET project BEFORE any link is created (Codex-r7-r2). Git and backups
-    # follow a Windows directory junction, so a bound `.claude/skills/` /
-    # `.codex/skills/` would otherwise be committed/backed-up as the central
-    # bundle content — violating
-    # `project_local_repo_never_contains_canonical_skill_source`. Ordering this
-    # ahead of binding guarantees a link is NEVER on disk without its ignore rule
-    # already in place. Idempotent.
     gitignore_rel = _ensure_link_bindpoint_gitignore(root)
     if gitignore_rel is not None and gitignore_rel not in created:
         created.append(gitignore_rel)
 
-    # Prompt-bundle binding (FK-50 §50.5): materialise the prompt bindings only
-    # after the project is registered in the state backend.
     created.extend(_deploy_prompt_bindings(root, canonical_prompt_bundle_root))
-
-    # AG3-048 (FK-43 §43.3.1, BC 12): bind the PRE-RESOLVED mandatory skills via
-    # the agent-skills top-surface. Resolution already happened in the preflight
-    # above (before any write), so this step only creates the links + persists
-    # the bindings, transactionally (self-atomic per skill, rollback on failure).
     _bind_resolved_skills(skills, resolved_skill_bundles, root)
 
-    prompt_lock = _write_prompt_bundle_lock(
-        root,
-        manifest=manifest,
-        manifest_text=manifest_text,
-    )
-    if prompt_lock is not None:
-        created.append(prompt_lock)
+    # The prompt-bundle lock (``PromptRuntime.update_binding``) is owned by the
+    # CP 8 handler (FK-50 §50.5, story AC6 second binding path); it is NOT written
+    # here so there is a single, explicit ``update_binding`` call site.
+    _ = (manifest, manifest_text)  # consumed by the CP 8 handler's binding step
     control_plane_config = _write_control_plane_config(root)
     if control_plane_config is not None:
         created.append(control_plane_config)
     codex_settings = write_codex_settings(root)
     if codex_settings is not None and codex_settings not in created:
         created.append(codex_settings)
+    return created
 
-    # FK-50 CP 10d (AG3-052 E5): applicability-conditional SonarQube
-    # precondition checkpoint, run after the project config is on disk.
-    # available:false => SKIPPED (reason=not_applicable, NOT FAILED);
-    # available:true => fail-closed checks (reachability/version, token role
-    # incl. Administer Issues, branch-plugin presence + conformance self-test).
-    sonar_cp = _run_cp10d_sonarqube(config, root, yaml_data)
-    checkpoint_results.append(_sonar_cp_to_checkpoint_result(sonar_cp))
 
-    # AG3-056 (FIX-5): applicability-conditional CI (Jenkins) precondition
-    # checkpoint, mirroring CP 10d. ci.available:false => SKIPPED
-    # (reason=not_applicable); ci.available:true => fail-closed checks
-    # (reachable, token authenticates, pipeline exists). A FAILED result
-    # ABORTS the install — the closure pre-merge barrier must not be promised a
-    # real CI trigger against an unverified Jenkins. The PASS/SKIPPED outcome
-    # is RECORDED in ``checkpoint_results`` (WARNING-2), mirroring the Sonar CP;
-    # a FAILED result never reaches here (it raised + aborted above).
+def run_ci_preflight_checkpoint_result(
+    config: InstallConfig, yaml_data: dict[str, object]
+) -> CheckpointResult:
+    """Run the orthogonal CI (Jenkins) preflight and map it to a result.
+
+    AG3-056 (FIX-5): the CI pre-merge precondition is applicability-conditional
+    and NOT one of the FK-50 §50.3 twelve checkpoints. It is preserved here as a
+    standalone precondition the productive ``install_agentkit`` façade still
+    enforces (ZERO DEBT — the closure pre-merge barrier must not be promised an
+    unverified Jenkins). A FAILED applicable result raises and aborts; PASS /
+    SKIPPED is recorded.
+    """
     ci_cp = _run_ci_preflight(config, yaml_data)
-    checkpoint_results.append(_ci_cp_to_checkpoint_result(ci_cp))
+    return _ci_cp_to_checkpoint_result(ci_cp)
 
-    return InstallResult(
-        success=True,
-        project_root=root,
-        created_files=tuple(created),
-        checkpoint_results=tuple(checkpoint_results),
+
+def install_agentkit(config: InstallConfig) -> InstallResult:
+    """Install AgentKit into a target project (thin checkpoint-engine façade).
+
+    AG3-088 (story AC1): a PURE delegation façade. It contains NO checkpoint
+    orchestration of its own — it only delegates the full FK-50 §50.3 checkpoint
+    sequence to the installer :class:`CheckpointEngine` via
+    ``run_checkpoint_install`` in ``register`` mode. The checkpoint order and the
+    optional branches live in the flow contract; per-checkpoint
+    idempotency/mutation lives in the handlers; the orthogonal AG3-056 CI
+    (Jenkins) precondition is owned by the engine path (``run_checkpoint_install``
+    appends it in REGISTER mode) — never by this façade.
+
+    Args:
+        config: The install configuration.
+
+    Returns:
+        The :class:`InstallResult` produced by the engine (checkpoint results
+        incl. the engine-owned CI preflight; ``success`` reflects any FAILED
+        checkpoint).
+    """
+    from agentkit.installer.bootstrap_checkpoints.orchestrator import (
+        run_checkpoint_install,
     )
+
+    return run_checkpoint_install(config)
 
 
 def _canonical_config_digest(yaml_data: dict[str, object]) -> str:

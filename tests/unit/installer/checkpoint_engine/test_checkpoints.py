@@ -1,0 +1,343 @@
+"""Per-checkpoint behaviour tests for the installer engine (AG3-088).
+
+Covers story AC3/AC4/AC5/AC6/AC7/AC8/AC10: each checkpoint returns a correct
+CheckpointResult (incl. mandatory reason on SKIP/FAIL); CP 2 is fail-closed on a
+missing/unreachable repo; CP 3/CP 4 are reserved; CP 8 calls
+``PromptRuntime.update_binding``; CP 9 calls ``Governance.register_hooks``; CP 10
+writes the target ``.mcp.json`` in register but not in dry-run/verify; CP 10c
+ARE-scope paths (pending_selection / resolved / are_disabled).
+"""
+
+from __future__ import annotations
+
+import json
+from typing import TYPE_CHECKING
+
+from tests.unit.installer.checkpoint_engine.conftest import (
+    InMemoryRegistrationRepo,
+    make_config,
+)
+
+from agentkit.installer.bootstrap_checkpoints.cp01_to_06 import (
+    REASON_REPO_UNREACHABLE,
+    cp01_package_check,
+    cp02_repo_check,
+    cp03_reserved,
+    cp04_reserved,
+)
+from agentkit.installer.bootstrap_checkpoints.cp10 import (
+    cp10_mcp_registration,
+    cp10c_are_scope_validation,
+)
+from agentkit.installer.bootstrap_checkpoints.orchestrator import (
+    build_checkpoint_context,
+    run_checkpoint_install,
+)
+from agentkit.installer.checkpoint_engine.context import ScopeInteractionMode
+from agentkit.installer.checkpoint_engine.execution_mode import ExecutionMode
+from agentkit.installer.checkpoint_engine.reasons import (
+    REASON_ARE_DISABLED,
+    REASON_PENDING_SELECTION,
+    REASON_RESERVED,
+    REASON_VECTORDB_DISABLED,
+)
+from agentkit.installer.registration import CheckpointStatus
+from agentkit.installer.repo_probe import RepoProbeResult
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import pytest
+
+
+def _ctx(config: object, mode: ExecutionMode, **kw: object) -> object:
+    return build_checkpoint_context(config, mode, **kw)  # type: ignore[arg-type]
+
+
+def _result_for(results: object, checkpoint: str) -> object:
+    return next(r for r in results if r.checkpoint == checkpoint)  # type: ignore[attr-defined]
+
+
+# --------------------------------------------------------------------------- #
+# CP 1 / CP 2 / CP 3 / CP 4
+# --------------------------------------------------------------------------- #
+
+
+def test_cp01_package_check_passes(
+    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
+) -> None:
+    config = make_config(
+        tmp_path, bundle_store_root=tmp_path / "b", registration_repo=registration_repo
+    )
+    result = cp01_package_check(_ctx(config, ExecutionMode.REGISTER))  # type: ignore[arg-type]
+    assert result.status is CheckpointStatus.PASS
+
+
+def test_cp02_fail_closed_on_missing_repo(
+    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
+) -> None:
+    """AC4: CP 2 is FAILED when the injected probe reports the repo absent."""
+
+    def _absent_probe(owner: str, repo: str) -> RepoProbeResult:
+        return RepoProbeResult(exists=False, detail=f"repo {owner}/{repo} not found")
+
+    config = make_config(
+        tmp_path,
+        bundle_store_root=tmp_path / "b",
+        registration_repo=registration_repo,
+        repo_existence_probe=_absent_probe,
+    )
+    result = cp02_repo_check(_ctx(config, ExecutionMode.REGISTER))  # type: ignore[arg-type]
+    assert result.status is CheckpointStatus.FAILED
+    assert result.reason == REASON_REPO_UNREACHABLE
+
+
+def test_cp02_pass_when_probe_confirms_repo(
+    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
+) -> None:
+    def _present_probe(owner: str, repo: str) -> RepoProbeResult:
+        return RepoProbeResult(exists=True, detail="ok")
+
+    config = make_config(
+        tmp_path,
+        bundle_store_root=tmp_path / "b",
+        registration_repo=registration_repo,
+        repo_existence_probe=_present_probe,
+    )
+    result = cp02_repo_check(_ctx(config, ExecutionMode.REGISTER))  # type: ignore[arg-type]
+    assert result.status is CheckpointStatus.PASS
+
+
+def test_cp03_and_cp04_are_reserved(
+    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
+) -> None:
+    """AC5: CP 3/CP 4 deterministically SKIPPED with reason="reserved"."""
+    config = make_config(
+        tmp_path, bundle_store_root=tmp_path / "b", registration_repo=registration_repo
+    )
+    ctx = _ctx(config, ExecutionMode.REGISTER)
+    for handler in (cp03_reserved, cp04_reserved):
+        result = handler(ctx)  # type: ignore[arg-type]
+        assert result.status is CheckpointStatus.SKIPPED
+        assert result.reason == REASON_RESERVED
+
+
+# --------------------------------------------------------------------------- #
+# CP 8 (update_binding) / CP 9 (register_hooks)
+# --------------------------------------------------------------------------- #
+
+
+def test_cp08_calls_prompt_runtime_update_binding(
+    tmp_path: Path,
+    registration_repo: InMemoryRegistrationRepo,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC6: CP 8 invokes PromptRuntime.update_binding (the second binding path)."""
+    calls: list[tuple[str, str]] = []
+    from agentkit.prompt_runtime.runtime import PromptRuntime
+
+    original = PromptRuntime.update_binding
+
+    def _spy(self: PromptRuntime, bundle_id: str, version: str) -> None:
+        calls.append((bundle_id, version))
+        original(self, bundle_id, version)
+
+    monkeypatch.setattr(PromptRuntime, "update_binding", _spy)
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    config = make_config(
+        root, bundle_store_root=tmp_path / "b", registration_repo=registration_repo
+    )
+    result = run_checkpoint_install(config, mode=ExecutionMode.REGISTER)
+    assert result.success
+    assert calls, "PromptRuntime.update_binding was not called by CP 8"
+
+
+def test_cp09_calls_governance_register_hooks(
+    tmp_path: Path,
+    registration_repo: InMemoryRegistrationRepo,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC7: CP 9 invokes Governance.register_hooks."""
+    calls: list[int] = []
+    from agentkit.governance.runner import Governance
+
+    original = Governance.register_hooks
+
+    def _spy(self: Governance, hook_definitions: object) -> object:
+        calls.append(len(hook_definitions))  # type: ignore[arg-type]
+        return original(self, hook_definitions)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Governance, "register_hooks", _spy)
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    config = make_config(
+        root, bundle_store_root=tmp_path / "b", registration_repo=registration_repo
+    )
+    result = run_checkpoint_install(config, mode=ExecutionMode.REGISTER)
+    assert result.success
+    assert calls, "Governance.register_hooks was not called by CP 9"
+
+
+# --------------------------------------------------------------------------- #
+# CP 10 — MCP registration + .mcp.json mutation (AC10)
+# --------------------------------------------------------------------------- #
+
+
+def test_cp10_skipped_when_both_features_off(
+    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
+) -> None:
+    """AC9c: both features off -> SKIPPED/reason=vectordb_disabled, no .mcp.json."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    config = make_config(
+        root, bundle_store_root=tmp_path / "b", registration_repo=registration_repo
+    )
+    ctx = _ctx(config, ExecutionMode.REGISTER)
+    # CP 5 must publish project.yaml on the run-state for CP 10 to read it.
+    from agentkit.installer.bootstrap_checkpoints.cp01_to_06 import cp05_pipeline_config
+
+    cp05_pipeline_config(ctx)  # type: ignore[arg-type]
+    result = cp10_mcp_registration(ctx)  # type: ignore[arg-type]
+    assert result.status is CheckpointStatus.SKIPPED
+    assert result.reason == REASON_VECTORDB_DISABLED
+    assert not (root / ".mcp.json").exists()
+
+
+def test_cp10_are_only_registers_are_mcp_in_target_mcp_json(
+    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
+) -> None:
+    """AC9c/AC10: ARE-only profile registers the ARE-MCP server in .mcp.json."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    config = make_config(
+        root,
+        bundle_store_root=tmp_path / "b",
+        registration_repo=registration_repo,
+        features_are=True,
+        features_vectordb=False,
+        are_module_scope_map={"app": "scope-a"},
+    )
+    result = run_checkpoint_install(config, mode=ExecutionMode.REGISTER)
+    assert result.success
+    mcp_path = root / ".mcp.json"
+    assert mcp_path.is_file()
+    servers = json.loads(mcp_path.read_text(encoding="utf-8"))["mcpServers"]
+    assert "are-mcp" in servers
+    assert "story-knowledge-base" not in servers
+
+
+def test_cp10_does_not_write_mcp_json_in_dry_run_or_verify(
+    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
+) -> None:
+    """AC10: dry_run/verify never write the target .mcp.json."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    config = make_config(
+        root,
+        bundle_store_root=tmp_path / "b",
+        registration_repo=registration_repo,
+        features_vectordb=True,
+    )
+    for mode in (ExecutionMode.DRY_RUN, ExecutionMode.VERIFY):
+        run_checkpoint_install(config, mode=mode)
+        assert not (root / ".mcp.json").exists(), mode
+
+
+# --------------------------------------------------------------------------- #
+# CP 10c — ARE-scope validation (AC8)
+# --------------------------------------------------------------------------- #
+
+
+def _are_ctx(
+    tmp_path: Path,
+    registration_repo: InMemoryRegistrationRepo,
+    *,
+    module_scope_map: dict[str, str] | None,
+    repositories: list[dict[str, str]] | None,
+    mode: ExecutionMode = ExecutionMode.REGISTER,
+    interaction: str = ScopeInteractionMode.AGENTIC,
+) -> object:
+    config = make_config(
+        tmp_path,
+        bundle_store_root=tmp_path / "b",
+        registration_repo=registration_repo,
+        features_are=True,
+        are_module_scope_map=module_scope_map,
+        repositories=repositories,
+    )
+    ctx = build_checkpoint_context(config, mode, scope_interaction_mode=interaction)
+    # Publish project.yaml + register the ARE-MCP server (CP 10 precondition).
+    from agentkit.installer.bootstrap_checkpoints.cp01_to_06 import cp05_pipeline_config
+    from agentkit.installer.bootstrap_checkpoints.cp10 import cp10_mcp_registration
+
+    cp05_pipeline_config(ctx)
+    cp10_mcp_registration(ctx)
+    return ctx
+
+
+def test_cp10c_are_disabled_is_skipped(
+    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
+) -> None:
+    """AC8: features.are=False -> CP 10c SKIPPED/reason=are_disabled."""
+    config = make_config(
+        tmp_path,
+        bundle_store_root=tmp_path / "b",
+        registration_repo=registration_repo,
+        features_are=False,
+    )
+    ctx = build_checkpoint_context(config, ExecutionMode.REGISTER)
+    result = cp10c_are_scope_validation(ctx)
+    assert result.status is CheckpointStatus.SKIPPED
+    assert result.reason == REASON_ARE_DISABLED
+
+
+def test_cp10c_pending_selection_in_agentic_mode(
+    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
+) -> None:
+    """AC8: an unmapped ARE item -> SKIPPED/reason=pending_selection (agentic)."""
+    ctx = _are_ctx(
+        tmp_path,
+        registration_repo,
+        module_scope_map={},  # nothing mapped
+        repositories=[{"name": "app", "path": ".", "are_scope": "scope-x"}],
+    )
+    result = cp10c_are_scope_validation(ctx)  # type: ignore[arg-type]
+    assert result.status is CheckpointStatus.SKIPPED
+    assert result.reason == REASON_PENDING_SELECTION
+    assert "PENDING_SELECTION" in (result.detail or "")
+
+
+def test_cp10c_resolved_mapping_idempotent_skip(
+    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
+) -> None:
+    """AC8: complete mapping -> idempotent SKIPPED (register) with reason."""
+    ctx = _are_ctx(
+        tmp_path,
+        registration_repo,
+        module_scope_map={"scope-x": "app"},
+        repositories=[{"name": "app", "path": ".", "are_scope": "scope-x"}],
+    )
+    result = cp10c_are_scope_validation(ctx)  # type: ignore[arg-type]
+    assert result.status is CheckpointStatus.SKIPPED
+    # Idempotent re-run on a complete mapping -> already_satisfied (not pending).
+    from agentkit.installer.checkpoint_engine.reasons import REASON_ALREADY_SATISFIED
+
+    assert result.reason == REASON_ALREADY_SATISFIED
+
+
+def test_cp10c_resolved_mapping_pass_in_verify(
+    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
+) -> None:
+    """AC8: complete mapping in read-only verify -> PASS."""
+    ctx = _are_ctx(
+        tmp_path,
+        registration_repo,
+        module_scope_map={"scope-x": "app"},
+        repositories=[{"name": "app", "path": ".", "are_scope": "scope-x"}],
+        mode=ExecutionMode.VERIFY,
+    )
+    result = cp10c_are_scope_validation(ctx)  # type: ignore[arg-type]
+    assert result.status is CheckpointStatus.PASS
