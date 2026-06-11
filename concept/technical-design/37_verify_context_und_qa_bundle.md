@@ -109,9 +109,10 @@ formal_refs:
 
 > **[Owner-Hinweis — Code autoritativ, FK zieht nach]** Der autoritative
 > Vertrag ist `concept/_meta/bc-cut-decisions.md:84-101` ("QA-Subflow-Vertrag")
-> und die Code-Realitaet `src/agentkit/core_types/qa_context.py:15-31`
+> und die Code-Realitaet `src/agentkit/core_types/qa_context.py:15-30`
 > (`class QaContext(StrEnum)` mit genau diesen vier Werten; der Modul-Docstring
-> vermerkt explizit "Ersetzt den v2-Namen `VerifyContext` (nur zwei Werte)").
+> vermerkt explizit "Replaces the v2 name `VerifyContext` (only two values)",
+> d. h. das v2-Enum `VerifyContext` mit nur zwei Werten ist ersetzt).
 > Dieser BC-Cut ist bewusst: der **Code ist autoritativ**, die FK-Prosa zieht
 > nach. Es wird kein Legacy-/Deprecated-Parallelbegriff `VerifyContext` neben
 > `QaContext` gefuehrt (Zero-Debt). Abgrenzung: der **eigenstaendige**
@@ -208,7 +209,7 @@ Exploration ist **nicht** mehr aus dem QA-Subflow ausgenommen — sie besitzt
 ihren eigenen, reduzierten Aufrufkontext (`EXPLORATION_*`, §37.1.5); nur der
 **Implementation**-interne Subflow wird nicht via Top-Phasenwechsel aus der
 Exploration getriggert. Autoritativ: `bc-cut-decisions.md:84-101`,
-`core_types/qa_context.py:15-31`.]
+`core_types/qa_context.py:15-30`.]
 [Entscheidung 2026-05-01: `verify_context` ist Subflow-internes Diskriminator-Feld auf `ImplementationPayload`, nicht mehr Phase-Payload-Feld auf `VerifyPayload`.]
 
 | `verify_context` | Ausloeser | QA-Tiefe | Begruendung |
@@ -312,7 +313,8 @@ elif state.verify_context in (
 ):
     # Reduzierter Design-Review-Pfad (routing.py: _EXPLORATION_LAYERS):
     # NUR Schicht 2 (LLM-Bewertung) + Schicht 4 (Policy).
-    # KEIN Structural (Schicht 1), KEIN Adversarial/SonarQube-Gate (Schicht 3).
+    # KEIN Structural (Schicht 1), KEIN Adversarial (Schicht 3),
+    # KEINE SonarQube-Gate-Stufe (nachgelagerte Layer-1-Konvergenzstufe, §37.1.5).
     layer2_results = _run_layer2_parallel(context)  # ThreadPoolExecutor
     if layer2_results.has_failure():
         return _handle_verify_failure(state, layer2_results)
@@ -339,7 +341,7 @@ keinen PAUSED-Zustand, kein agents_to_spawn und kein RUN_SEMANTIC fuer
 Layer 2. Layer 2 laeuft intern im Phase Runner.]
 
 Der QA-Subflow kennt vier Aufrufkontexte (`QaContext`,
-`bc-cut-decisions.md:84-101`, `core_types/qa_context.py:15-31`) mit
+`bc-cut-decisions.md:84-101`, `core_types/qa_context.py:15-30`) mit
 **kontextabhaengiger** Tiefe — die alte "in jedem Fall volle
 4-Schichten-Pipeline"-Pauschale gilt nur fuer den Implementation-Pfad,
 nicht fuer Exploration.
@@ -358,8 +360,9 @@ volle Schichtmenge umfasst:
 **Exploration-Pfad (`EXPLORATION_INITIAL` / `EXPLORATION_REMEDIATION`):**
 Das Exploration-Exit-Gate ruft den QA-Subflow im **reduzierten**
 Design-Review-Pfad auf — nur Schicht 2 (LLM-Bewertung) + Schicht 4
-(Policy), **ohne** Structural (Schicht 1) und **ohne**
-Adversarial/SonarQube-Gate (Schicht 3) — gemaess
+(Policy), **ohne** Structural (Schicht 1), **ohne** Adversarial
+(Schicht 3) und **ohne** die SonarQube-Gate-Stufe (nachgelagerte
+deterministische Layer-1-Konvergenzstufe, s. Hinweis unten) — gemaess
 `routing.py:65-68,74-75` (BC-Cut Exploration-Vertrag). Damit ist die
 fruehere Aussage "der QA-Subflow wird nie via Exploration aufgerufen"
 ueberholt: Exploration besitzt ihren eigenen, getrennten
