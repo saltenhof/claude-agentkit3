@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.fixtures.git_repo import ensure_git_repo
 
 from agentkit.control_plane.dispatch import PhaseDispatcher, PreStartGuard
 from agentkit.control_plane.models import PhaseMutationRequest
@@ -75,6 +76,13 @@ class _EscalatingHandler:
 
 
 def _install_project(project_dir: Path) -> None:
+    # AG3-088 CI regression (Jenkins #314): CP 11 (cp11_to_12.py, FK-50 §50.3)
+    # runs ``git config core.hooksPath`` and hard-aborts (reason
+    # ``git_config_failed``) when the target is not a git repo. Real AgentKit
+    # targets ARE git repos; a clean Linux CI agent puts ``tmp_path`` under
+    # ``/tmp`` (no ambient parent repo), so git-init the project root first via
+    # the shared helper — mirrors the unit installer tests.
+    ensure_git_repo(project_dir)
     result = install_agentkit(
         InstallConfig(
             project_key=project_dir.name,

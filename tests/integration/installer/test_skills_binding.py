@@ -26,6 +26,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from tests.fixtures.git_repo import ensure_git_repo
 
 from agentkit.exceptions import InstallationError
 from agentkit.installer.runner import (
@@ -118,6 +119,15 @@ def test_install_binds_all_mandatory_skills_as_links(tmp_path: Path) -> None:
     # shared "project" stem would leak rows between tests.
     root = tmp_path / "proj-binds-all"
     root.mkdir()
+    # AG3-088 CI regression (Jenkins #314): this COMPLETING install reaches CP 11
+    # (cp11_to_12.py, FK-50 §50.3), which runs ``git config core.hooksPath`` and
+    # hard-aborts (reason ``git_config_failed``) when the target is not a git
+    # repo. Real AgentKit targets ARE git repos; a clean Linux CI agent puts
+    # ``tmp_path`` under ``/tmp`` (no ambient parent repo). Git-init only HERE,
+    # not in ``_make_config`` — the fail-closed tests in this module abort before
+    # CP 11 and assert the project root stays EMPTY (no partial scaffold), so a
+    # ``.git`` dir must not be created for them.
+    ensure_git_repo(root)
     store = _bundle_store_with_all_skills(tmp_path)
     skills = Skills(
         bundle_store=store,

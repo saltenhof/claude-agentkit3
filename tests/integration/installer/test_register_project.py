@@ -18,6 +18,7 @@ import dataclasses
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.fixtures.git_repo import ensure_git_repo
 
 from agentkit.installer.bootstrap_checkpoints.cp01_to_06 import (
     REASON_MISSING_COORDINATES,
@@ -80,6 +81,15 @@ def _make_config(
     registration_repo: StateBackendProjectRegistrationRepository,
     extra_repo: dict[str, str] | None = None,
 ) -> InstallConfig:
+    # AG3-088 CI regression (Jenkins #314): CP 11 (cp11_to_12.py, FK-50 §50.3)
+    # runs ``git config core.hooksPath`` and hard-aborts (reason
+    # ``git_config_failed``) when the target is not a git repo. Real AgentKit
+    # targets ARE git repos; a clean Linux CI agent puts ``tmp_path`` under
+    # ``/tmp`` (no ambient parent repo), so git-init the project root first via
+    # the shared helper. Tests that assert an EARLY fail-closed abort (CP 2/CP 7,
+    # before CP 11) are unaffected; the completing installs that gate on
+    # ``result.success`` now reach CP 11 with a real repo.
+    ensure_git_repo(root)
     skills = Skills(
         bundle_store=store,
         binding_repo=StateBackendSkillBindingRepository(root),

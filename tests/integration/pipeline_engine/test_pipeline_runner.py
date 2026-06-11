@@ -18,6 +18,7 @@ import json
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.fixtures.git_repo import ensure_git_repo
 
 from agentkit.bootstrap.composition_root import build_exploration_phase_handler
 from agentkit.config.loader import load_project_config
@@ -87,6 +88,15 @@ def _install_project(project_dir: Path) -> None:
     # Windows directory junction / POSIX symlink (FK-43 §43.4.1.1), and the
     # per-test ``postgres_isolated_schema`` fixture (attached by the integration
     # conftest) TRUNCATEs the test schema so fixed story ids no longer collide.
+    #
+    # AG3-088 CI regression (Jenkins #314): this drives a COMPLETING install
+    # whose CP 11 (cp11_to_12.py, FK-50 §50.3) runs ``git config
+    # core.hooksPath`` and hard-aborts (reason ``git_config_failed``) when the
+    # target is not a git repo. Real AgentKit targets ARE git repos, and a clean
+    # Linux CI agent puts ``tmp_path`` under ``/tmp`` (no ambient parent repo),
+    # so the project root must be ``git init``-ed first — exactly as the unit
+    # installer tests do via the same shared helper.
+    ensure_git_repo(project_dir)
     install_result = install_agentkit(
         InstallConfig(
             project_key=project_dir.name,

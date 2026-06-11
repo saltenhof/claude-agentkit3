@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from tests.fixtures.git_repo import ensure_git_repo
 
 from agentkit.config import load_project_config
 from agentkit.exceptions import ProjectError
@@ -296,6 +297,15 @@ def _as_path(tmp_path: object) -> Path:
 
 
 def _make_install_config(project_root: Path, **kwargs: Any) -> InstallConfig:
+    # AG3-088 CI regression (Jenkins #314): CP 11 (cp11_to_12.py, FK-50 §50.3)
+    # runs ``git config core.hooksPath`` and hard-aborts (reason
+    # ``git_config_failed``) when the target is not a git repo. Real AgentKit
+    # targets ARE git repos; a clean Linux CI agent puts ``tmp_path`` under
+    # ``/tmp`` (no ambient parent repo), so git-init the project root first via
+    # the shared helper. The fail-closed ``test_install_fails_if_root_missing``
+    # builds its own InstallConfig with a non-existent ``root/"nope"`` (NOT via
+    # this builder), so its ``is_dir()`` precondition still trips — unaffected.
+    ensure_git_repo(project_root)
     kwargs.setdefault("project_key", kwargs.get("project_name", "test-project"))
     # AG3-039 R6 (FK-50 §50.3 CP 7): github coordinates are MANDATORY — CP 7 now
     # fails closed without them. Provide valid defaults so every fresh install
