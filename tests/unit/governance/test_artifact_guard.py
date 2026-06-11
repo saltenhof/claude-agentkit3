@@ -47,6 +47,29 @@ class TestArtifactGuardBlocked:
         assert v.allowed is False
         assert v.violation_type == ViolationType.ARTIFACT_TAMPERING
 
+    def test_subagent_write_to_adversarial_json_blocked(
+        self, guard: ArtifactGuard
+    ) -> None:
+        """AG3-079 AC5 / FK-31 §31.3: a sub-agent cannot write adversarial.json.
+
+        ``adversarial.json`` is a QA artifact (``ALL_QA_ARTIFACT_FILES``); the
+        Layer-3 sub-agent writes only into the protected sandbox and the pipeline
+        script (not the sub-agent) materialises ``_temp/qa/{story_id}/adversarial.json``
+        via the ArtifactManager. A direct sub-agent write is blocked.
+        """
+        v = guard.evaluate(
+            "file_write",
+            {
+                "file_path": "/repo/_temp/qa/AG3-079/adversarial.json",
+                "operating_mode": "story_execution",
+                "qa_artifact_lock_active": True,
+                "principal_kind": "subagent",
+                "active_story_id": "AG3-079",
+            },
+        )
+        assert v.allowed is False
+        assert v.violation_type == ViolationType.ARTIFACT_TAMPERING
+
 
 class TestArtifactGuardFrozenChangeFrame:
     """The exploration change-frame is write-protected once frozen (AG3-045 AC8)."""

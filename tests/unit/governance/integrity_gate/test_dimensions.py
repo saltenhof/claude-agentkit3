@@ -134,10 +134,28 @@ def _deep_structural_payload() -> dict[str, object]:
 
 def _default_envelopes() -> dict[str, ArtifactEnvelope]:
     """Canonical, FK-35-conformant QA envelopes for a passing impl story."""
+    # AG3-079 (FK-48 §48.1.6/§48.1.8, FK-11 §11.8.2): a conformant adversarial.json
+    # mirrors the mandatory sparring telemetry proof Dim 6 verifies (>= 1
+    # adversarial_sparring + >= 1 llm_call role=adversarial_sparring + >= 1
+    # executed test).
     big_adversarial_payload = {
-        "summary": "adversarial sparring run; "
-        + ("edge case probe " * 20),
+        "summary": "adversarial sparring run; " + ("edge case probe " * 20),
         "passed": True,
+        "tests_executed": 2,
+        "sparring": {
+            "pool": "grok",
+            "adversarial_sparring_events": 1,
+            "llm_call_sparring_events": 1,
+        },
+        # AG3-079 (FK-48 §48.1.8): the full lifecycle telemetry counts Dim 6
+        # verifies (exactly-1 start/end, >= 1 sparring/test_executed).
+        "telemetry": {
+            "adversarial_start": 1,
+            "adversarial_end": 1,
+            "adversarial_sparring": 1,
+            "adversarial_test_created": 2,
+            "adversarial_test_executed": 2,
+        },
     }
     return {
         STRUCTURAL_STAGE: _envelope(
@@ -522,6 +540,177 @@ def test_dim6_fails_when_adversarial_too_small(tmp_path: Path) -> None:
     dim6 = result.dimension_results[IntegrityDimension.NO_ADVERSARIAL]
     assert dim6.passed is False
     assert "<= 200B" in dim6.detail
+
+
+def _adversarial_payload_with_sparring(
+    *,
+    adversarial_sparring_events: int,
+    llm_call_sparring_events: int,
+    tests_executed: int,
+    telemetry: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """A >200B adversarial.json payload carrying a configurable sparring proof.
+
+    ``telemetry`` overrides the §48.1.8 lifecycle-count block; when ``None`` a
+    conformant block is used (exactly-1 start/end, >= 1 sparring/test_executed).
+    """
+    lifecycle = telemetry or {
+        "adversarial_start": 1,
+        "adversarial_end": 1,
+        "adversarial_sparring": max(adversarial_sparring_events, 1),
+        "adversarial_test_created": 1,
+        "adversarial_test_executed": max(tests_executed, 1),
+    }
+    return {
+        "summary": "adversarial sparring run; " + ("edge case probe " * 20),
+        "passed": True,
+        "tests_executed": tests_executed,
+        "sparring": {
+            "pool": "grok",
+            "adversarial_sparring_events": adversarial_sparring_events,
+            "llm_call_sparring_events": llm_call_sparring_events,
+        },
+        "telemetry": lifecycle,
+    }
+
+
+def test_dim6_fails_when_adversarial_sparring_event_missing(tmp_path: Path) -> None:
+    """AC7: missing adversarial_sparring event -> Dim 6 FAIL (fail-closed)."""
+    port = _StubPort()
+    port.envelopes[ADVERSARIAL_STAGE] = _envelope(
+        stage=ADVERSARIAL_STAGE,
+        producer_name=ADVERSARIAL_PRODUCER,
+        producer_type=ProducerType.LLM_REVIEWER,
+        payload=_adversarial_payload_with_sparring(
+            adversarial_sparring_events=0,
+            llm_call_sparring_events=1,
+            tests_executed=2,
+        ),
+    )
+    result = _gate(port).evaluate(tmp_path, StoryType.IMPLEMENTATION)
+    dim6 = result.dimension_results[IntegrityDimension.NO_ADVERSARIAL]
+    assert dim6.passed is False
+    assert "adversarial_sparring events" in dim6.detail
+
+
+def test_dim6_fails_when_llm_call_sparring_event_missing(tmp_path: Path) -> None:
+    """AC7: missing llm_call role=adversarial_sparring -> Dim 6 FAIL (fail-closed)."""
+    port = _StubPort()
+    port.envelopes[ADVERSARIAL_STAGE] = _envelope(
+        stage=ADVERSARIAL_STAGE,
+        producer_name=ADVERSARIAL_PRODUCER,
+        producer_type=ProducerType.LLM_REVIEWER,
+        payload=_adversarial_payload_with_sparring(
+            adversarial_sparring_events=1,
+            llm_call_sparring_events=0,
+            tests_executed=2,
+        ),
+    )
+    result = _gate(port).evaluate(tmp_path, StoryType.IMPLEMENTATION)
+    dim6 = result.dimension_results[IntegrityDimension.NO_ADVERSARIAL]
+    assert dim6.passed is False
+    assert "llm_call role=adversarial_sparring events" in dim6.detail
+
+
+def test_dim6_fails_when_no_test_executed(tmp_path: Path) -> None:
+    """AC7: zero executed tests -> Dim 6 FAIL (FK-48 §48.1.8 mandatory)."""
+    port = _StubPort()
+    port.envelopes[ADVERSARIAL_STAGE] = _envelope(
+        stage=ADVERSARIAL_STAGE,
+        producer_name=ADVERSARIAL_PRODUCER,
+        producer_type=ProducerType.LLM_REVIEWER,
+        payload=_adversarial_payload_with_sparring(
+            adversarial_sparring_events=1,
+            llm_call_sparring_events=1,
+            tests_executed=0,
+        ),
+    )
+    result = _gate(port).evaluate(tmp_path, StoryType.IMPLEMENTATION)
+    dim6 = result.dimension_results[IntegrityDimension.NO_ADVERSARIAL]
+    assert dim6.passed is False
+    assert "tests_executed" in dim6.detail
+
+
+def test_dim6_fails_when_two_adversarial_start_events(tmp_path: Path) -> None:
+    """AC7: two adversarial_start events -> Dim 6 FAIL (§48.1.8 exactly-1 start)."""
+    port = _StubPort()
+    port.envelopes[ADVERSARIAL_STAGE] = _envelope(
+        stage=ADVERSARIAL_STAGE,
+        producer_name=ADVERSARIAL_PRODUCER,
+        producer_type=ProducerType.LLM_REVIEWER,
+        payload=_adversarial_payload_with_sparring(
+            adversarial_sparring_events=1,
+            llm_call_sparring_events=1,
+            tests_executed=2,
+            telemetry={
+                "adversarial_start": 2,  # VIOLATION: must be exactly 1
+                "adversarial_end": 1,
+                "adversarial_sparring": 1,
+                "adversarial_test_created": 1,
+                "adversarial_test_executed": 2,
+            },
+        ),
+    )
+    result = _gate(port).evaluate(tmp_path, StoryType.IMPLEMENTATION)
+    dim6 = result.dimension_results[IntegrityDimension.NO_ADVERSARIAL]
+    assert dim6.passed is False
+    assert "adversarial_start 2 != 1" in dim6.detail
+
+
+def test_dim6_fails_when_zero_adversarial_end_events(tmp_path: Path) -> None:
+    """AC7: zero adversarial_end events -> Dim 6 FAIL (§48.1.8 exactly-1 end)."""
+    port = _StubPort()
+    port.envelopes[ADVERSARIAL_STAGE] = _envelope(
+        stage=ADVERSARIAL_STAGE,
+        producer_name=ADVERSARIAL_PRODUCER,
+        producer_type=ProducerType.LLM_REVIEWER,
+        payload=_adversarial_payload_with_sparring(
+            adversarial_sparring_events=1,
+            llm_call_sparring_events=1,
+            tests_executed=2,
+            telemetry={
+                "adversarial_start": 1,
+                "adversarial_end": 0,  # VIOLATION: must be exactly 1
+                "adversarial_sparring": 1,
+                "adversarial_test_created": 1,
+                "adversarial_test_executed": 2,
+            },
+        ),
+    )
+    result = _gate(port).evaluate(tmp_path, StoryType.IMPLEMENTATION)
+    dim6 = result.dimension_results[IntegrityDimension.NO_ADVERSARIAL]
+    assert dim6.passed is False
+    assert "adversarial_end 0 != 1" in dim6.detail
+
+
+def test_dim6_fails_when_telemetry_block_missing(tmp_path: Path) -> None:
+    """AC7: a payload without the §48.1.8 telemetry block -> Dim 6 FAIL (fail-closed)."""
+    port = _StubPort()
+    payload = _adversarial_payload_with_sparring(
+        adversarial_sparring_events=1,
+        llm_call_sparring_events=1,
+        tests_executed=2,
+    )
+    del payload["telemetry"]
+    port.envelopes[ADVERSARIAL_STAGE] = _envelope(
+        stage=ADVERSARIAL_STAGE,
+        producer_name=ADVERSARIAL_PRODUCER,
+        producer_type=ProducerType.LLM_REVIEWER,
+        payload=payload,
+    )
+    result = _gate(port).evaluate(tmp_path, StoryType.IMPLEMENTATION)
+    dim6 = result.dimension_results[IntegrityDimension.NO_ADVERSARIAL]
+    assert dim6.passed is False
+    assert "telemetry counts missing" in dim6.detail
+
+
+def test_dim6_passes_with_conformant_sparring_proof(tmp_path: Path) -> None:
+    """AC7: a conformant adversarial.json (envelope + sparring proof) stays GREEN."""
+    port = _StubPort()  # _default_envelopes already carries a conformant proof
+    result = _gate(port).evaluate(tmp_path, StoryType.IMPLEMENTATION)
+    dim6 = result.dimension_results[IntegrityDimension.NO_ADVERSARIAL]
+    assert dim6.passed is True
+    assert "sparring telemetry ok" in dim6.detail
 
 
 # ---------------------------------------------------------------------------

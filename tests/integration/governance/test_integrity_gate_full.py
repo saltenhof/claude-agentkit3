@@ -258,6 +258,23 @@ def _full_layer_results() -> tuple[LayerResult, ...]:
             findings=(),
             metadata={
                 "summary": "adversarial sparring run; " + ("edge probe " * 25),
+                # AG3-079 (FK-48 §48.1.6/§48.1.8): mirror the mandatory sparring
+                # telemetry proof Dim 6 verifies (a conformant run stays green).
+                "tests_executed": 2,
+                "sparring": {
+                    "pool": "grok",
+                    "adversarial_sparring_events": 1,
+                    "llm_call_sparring_events": 1,
+                },
+                # AG3-079 (FK-48 §48.1.8): the full lifecycle telemetry counts
+                # Dim 6 verifies (exactly-1 start/end, >= 1 sparring/test_executed).
+                "telemetry": {
+                    "adversarial_start": 1,
+                    "adversarial_end": 1,
+                    "adversarial_sparring": 1,
+                    "adversarial_test_created": 2,
+                    "adversarial_test_executed": 2,
+                },
             },
         ),
     )

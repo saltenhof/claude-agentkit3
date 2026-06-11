@@ -361,14 +361,18 @@ class VerifySystem:
         spawner = self.adversarial_spawner
         if spawner is None:
             return ()
-        layer2_blocking = [
+        # FK-48 §48.2.2 (AG3-079): mandatory targets are derived from Layer-2
+        # findings of finding_type ``assertion_weakness`` (status FAIL/
+        # PASS_WITH_CONCERNS), NOT pauschal per BLOCKING finding. Pass the FULL
+        # Layer-2 findings so the assertion_weakness filter decides; the
+        # remediation round is the QA-subflow attempt (FK-48 §48.2.2 source).
+        layer2_checks = [
             finding
             for result in layer_results
             if result.layer in _LAYER_2_ROLE_NAMES
             for finding in result.findings
-            if finding.severity is Severity.BLOCKING
         ]
-        targets = spawner.derive_targets(layer2_blocking)
+        targets = spawner.extract_mandatory_targets(layer2_checks, ctx.attempt)
         if not targets:
             return ()
         request = spawner.request_spawn(ctx, targets, story_id=story_id)
@@ -1092,6 +1096,14 @@ def _run_data_layer_kind(
 
     for result, spec in pairs:
         layer_results.append(result)
+        # FK-48 §48.1.7 (AG3-079): when a layer materialised its own canonical QA
+        # artefact (the Layer-3 runtime writes the rich ``adversarial.json`` schema
+        # 3.1 via the ArtifactManager), the subflow MUST NOT overwrite it with the
+        # generic LayerResult projection — that would discard the sparring proof /
+        # mandatory_target_results (single source of truth, FIX THE MODEL).
+        if result.metadata.get("artifact_materialized") is True:
+            artifact_refs_written.append(spec.filename)
+            continue
         self._write_layer_envelope(
             spec=spec,
             result=result,
@@ -1257,6 +1269,23 @@ def _create_default(
             artifact_manager=artifact_manager,
             story_context_port=resolved_port,
             spawner=adversarial_spawner,
+            # AG3-079 (FK-48 §48.1.6 / FK-11 §11.8): the Layer-3 runtime drives
+            # the verify-LLM-transport for the MANDATORY sparring call and writes
+            # the five adversarial telemetry events. Defaults reuse the wired
+            # layer2 transport / conformance emitter when no dedicated
+            # adversarial collaborators are supplied (single transport surface,
+            # no second pool adapter).
+            sparring_client=(
+                defaults.adversarial_sparring_client
+                if defaults.adversarial_sparring_client is not None
+                else defaults.layer2_llm_client
+            ),
+            telemetry_emitter=(
+                defaults.adversarial_telemetry_emitter
+                if defaults.adversarial_telemetry_emitter is not None
+                else defaults.conformance_emitter
+            ),
+            sparring_resolver=defaults.adversarial_sparring_resolver,
         ),
         policy_engine=PolicyEngine(
             max_major_findings=defaults.max_major_findings,

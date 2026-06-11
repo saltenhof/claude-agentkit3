@@ -37,6 +37,7 @@ from agentkit.core_types import (
 from agentkit.governance.guard_system.protected_paths import (
     is_adversarial_sandbox_path,
 )
+from agentkit.verify_system.protocols import ASSERTION_WEAKNESS_FINDING_TYPE
 from agentkit.verify_system.register import (
     ADVERSARIAL_SANDBOX_PRODUCER,
     ADVERSARIAL_SANDBOX_STAGE,
@@ -60,8 +61,11 @@ class AdversarialTarget:
 
     Attributes:
         finding_id: The originating finding id (``layer.check``).
-        source: Where the finding came from (e.g. ``"qa_review"``).
+        source: Where the finding came from (e.g. ``"qa_review round 1"``).
         normative_ref: Normative reference / finding message.
+        addressed_part: FK-48 §48.2.2 summary of what was already fixed for the
+            ``assertion_weakness`` finding (additive AG3-079 field; empty when
+            unknown).
         open_part: The concrete open negative case the worker must test.
         mandatory: Always ``True`` for derived targets (FK-48 §48.2.2).
         test_anchor: POSIX-relative sandbox file the adversarial test goes into
@@ -71,6 +75,7 @@ class AdversarialTarget:
     finding_id: str
     source: str
     normative_ref: str
+    addressed_part: str
     open_part: str
     mandatory: bool
     test_anchor: str
@@ -124,34 +129,50 @@ class AdversarialSpawner:
         """
         self._artifact_manager = artifact_manager
 
-    def derive_targets(
+    def extract_mandatory_targets(
         self,
-        layer2_findings: list[Finding],
+        layer2_checks: list[Finding],
+        remediation_round: int,
     ) -> list[AdversarialTarget]:
-        """Derive >= 1 mandatory target per BLOCKING Layer-2 finding (FK-48 §48.2).
+        """Extract mandatory adversarial targets from Layer-2 findings (FK-48 §48.2.2).
 
-        Each BLOCKING Layer-2 finding names a concrete negative case Layer 3 must
-        cover; the derived target carries a deterministic sandbox test anchor
-        (AG3-044 AC8). Non-blocking findings are inspiration only (the explorative
-        part of Layer 3) and are NOT turned into mandatory targets here.
+        FK-48 §48.2.2: a mandatory target is derived ONLY from a Layer-2 finding
+        whose ``finding_type`` is :data:`ASSERTION_WEAKNESS_FINDING_TYPE` AND
+        whose severity status is FAIL or PASS_WITH_CONCERNS — i.e. an
+        ``assertion_weakness`` finding that names a testable negative case. A
+        plain BLOCKING finding WITHOUT that finding type is NOT turned into a
+        mandatory target (it stays inspiration for the explorative part of
+        Layer 3). The status mapping follows FK-34 / FK-48 §48.2.2:
+
+        * ``Severity.BLOCKING`` -> ``FAIL`` (the check did not pass)
+        * ``Severity.MAJOR`` / ``Severity.MINOR`` -> ``PASS_WITH_CONCERNS``
+
+        Each derived target carries the FK-48 §48.2.2 ``addressed_part`` and a
+        deterministic sandbox test anchor (AG3-044 AC8).
 
         Args:
-            layer2_findings: The Layer-2 findings of the current round.
+            layer2_checks: The Layer-2 findings of the current round (incl.
+                finding-resolution context).
+            remediation_round: The current remediation round (1-based), recorded
+                in the target ``source`` (FK-48 §48.2.2 ``qa_review round N``).
 
         Returns:
-            One :class:`AdversarialTarget` per BLOCKING finding, each with a test
-            anchor (empty list when there are no blocking findings).
+            One :class:`AdversarialTarget` per ``assertion_weakness`` finding with
+            a FAIL/PASS_WITH_CONCERNS status (empty list when none qualify).
         """
         targets: list[AdversarialTarget] = []
-        for index, finding in enumerate(layer2_findings):
-            if finding.severity is not Severity.BLOCKING:
+        for index, finding in enumerate(layer2_checks):
+            if finding.finding_type != ASSERTION_WEAKNESS_FINDING_TYPE:
+                continue
+            if not _is_concern_status(finding.severity):
                 continue
             finding_id = f"{finding.layer}.{finding.check}"
             targets.append(
                 AdversarialTarget(
                     finding_id=finding_id,
-                    source=finding.layer,
+                    source=f"{finding.layer} round {remediation_round}",
                     normative_ref=finding.message,
+                    addressed_part=finding.addressed_part,
                     open_part=finding.suggestion or finding.message,
                     mandatory=True,
                     test_anchor=f"test_{finding.check}_{index}.py",
@@ -237,7 +258,17 @@ class AdversarialSpawner:
         sandbox_rel: str,
         targets: list[AdversarialTarget],
     ) -> None:
-        """Write the typed ADVERSARIAL_TEST_SANDBOX envelope (durable record)."""
+        """Write the typed ADVERSARIAL_TEST_SANDBOX envelope (durable record).
+
+        FK-48 §48.2.2/§48.2.3: the envelope payload IS the durable record the
+        adversarial Harness-Sub-Agent reads to build its prompt. It therefore
+        carries (a) every mandatory target's FULL fields — including the
+        §48.2.2 ``addressed_part`` and ``normative_ref`` so each target's
+        required test mandate (with the UNRESOLVABLE escape) is actually
+        delivered — and (b) the rendered §48.2.3 "Mandatory Targets" prompt
+        section produced by :func:`render_mandatory_targets_section`. Without
+        this the §48.2.3 section never reaches the sub-agent's prompt.
+        """
         now = datetime.now(tz=UTC)
         envelope = ArtifactEnvelope(
             schema_version=ENVELOPE_SCHEMA_VERSION,
@@ -260,14 +291,99 @@ class AdversarialSpawner:
                     {
                         "finding_id": t.finding_id,
                         "source": t.source,
+                        "normative_ref": t.normative_ref,
+                        "addressed_part": t.addressed_part,
                         "open_part": t.open_part,
+                        "mandatory": t.mandatory,
                         "test_anchor": t.test_anchor,
                     }
                     for t in targets
                 ],
+                # FK-48 §48.2.3: the rendered "Mandatory Targets" prompt section
+                # (each target's mandatory test order with the UNRESOLVABLE escape
+                # path). This is the productive carrier that delivers the section
+                # to the adversarial worker's prompt; empty string when no targets.
+                "mandatory_targets_prompt_section": render_mandatory_targets_section(
+                    targets,
+                ),
             },
         )
         self._artifact_manager.write(envelope)
+
+
+def _is_concern_status(severity: Severity) -> bool:
+    """Whether a finding severity maps to a FK-48 §48.2.2 concern status.
+
+    FK-48 §48.2.2 extracts mandatory targets only for findings whose status is
+    ``FAIL`` or ``PASS_WITH_CONCERNS``. In the AK3 ``Finding`` model the status
+    is carried by :class:`Severity`: a ``BLOCKING`` finding maps to ``FAIL`` and
+    a ``MAJOR``/``MINOR`` finding maps to ``PASS_WITH_CONCERNS`` — both qualify.
+    There is no AK3 severity that maps to a clean ``PASS`` (a passing check
+    yields no ``Finding`` at all), so this predicate is total over the enum.
+
+    Args:
+        severity: The finding's severity.
+
+    Returns:
+        ``True`` for every concrete severity (FAIL / PASS_WITH_CONCERNS).
+    """
+    return severity in (Severity.BLOCKING, Severity.MAJOR, Severity.MINOR)
+
+
+def render_mandatory_targets_section(
+    targets: list[AdversarialTarget] | tuple[AdversarialTarget, ...],
+) -> str:
+    """Render the FK-48 §48.2.3 "Mandatory Targets" adversarial-prompt section.
+
+    FK-48 §48.2.3: a "Mandatory Targets" section is appended to the adversarial
+    prompt IN ADDITION to the existing concerns-based section, and ONLY when
+    mandatory targets exist. Each target carries a mandatory test order with an
+    explicit ``UNRESOLVABLE`` escape path (the worker must either write a test
+    covering the open negative case or report ``UNRESOLVABLE: [reason]``).
+
+    Args:
+        targets: The mandatory adversarial targets to render. An empty sequence
+            yields an empty string (the section is omitted entirely, FK-48
+            §48.2.3).
+
+    Returns:
+        The rendered markdown section, or ``""`` when there are no targets.
+    """
+    if not targets:
+        return ""
+    lines: list[str] = [
+        "## Mandatory Targets (from Layer-2 findings)",
+        "",
+        "The following findings were identified in Layer 2 as "
+        "assertion_weakness with a testable negative case. You MUST address "
+        "each one individually.",
+        "",
+    ]
+    for target in targets:
+        lines.extend(
+            [
+                f"### Target: {target.finding_id}",
+                f"- **Source:** {target.source}",
+                f"- **Normative reference:** {target.normative_ref}",
+                f"- **Already addressed:** {target.addressed_part}",
+                f"- **Open negative case:** {target.open_part}",
+                "",
+                "**Mandatory:** Write a test covering the named negative case. "
+                "If the test is technically impossible, report explicitly: "
+                "`UNRESOLVABLE: [reason]`",
+                "",
+            ]
+        )
+    lines.extend(
+        [
+            "For each mandatory target your result MUST contain:",
+            "- `target_id`: the finding id",
+            '- `status`: "TESTED" | "UNRESOLVABLE"',
+            "- `test_file`: path to the test (when TESTED) or null",
+            "- `reason`: justification (when UNRESOLVABLE)",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def _story_id_from_ctx(ctx: VerifyContextBundle) -> str:
@@ -287,4 +403,5 @@ __all__ = [
     "AdversarialSpawnRequest",
     "AdversarialSpawner",
     "AdversarialTarget",
+    "render_mandatory_targets_section",
 ]

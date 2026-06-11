@@ -46,7 +46,13 @@ from agentkit.verify_system.adversarial_orchestrator.challenger import (
 )
 from agentkit.verify_system.adversarial_orchestrator.spawn import AdversarialSpawner
 from agentkit.verify_system.contract import VerifyContextBundle
-from agentkit.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
+from agentkit.verify_system.protocols import (
+    ASSERTION_WEAKNESS_FINDING_TYPE,
+    Finding,
+    LayerResult,
+    Severity,
+    TrustClass,
+)
 from agentkit.verify_system.system import VerifySystem
 from integration.implementation_evidence_support import (
     bind_implementation_qa_preconditions,
@@ -77,6 +83,10 @@ def _layer2_findings() -> list[Finding]:
             message="negative case for INV-6 not covered",
             trust_class=TrustClass.VERIFIED_LLM,
             suggestion="add a test for the wrong-phase case",
+            # FK-48 §48.2.2: only an ``assertion_weakness``-typed finding becomes
+            # a mandatory adversarial target (not pauschal per BLOCKING finding).
+            finding_type=ASSERTION_WEAKNESS_FINDING_TYPE,
+            addressed_part="fixed the happy-path assertion",
         ),
         Finding(
             layer="semantic_review",
@@ -143,7 +153,7 @@ def test_adversarial_sandbox_envelope_is_persisted(tmp_path: Path) -> None:
     story_dir.mkdir()
     manager = build_artifact_manager(tmp_path)
     spawner = AdversarialSpawner(manager)
-    targets = spawner.derive_targets(_layer2_findings())
+    targets = spawner.extract_mandatory_targets(_layer2_findings(), 1)
     ctx = VerifyContextBundle(run_id="run-1", story_dir=story_dir, attempt=1)
     request = spawner.request_spawn(ctx, targets)
 
@@ -156,6 +166,27 @@ def test_adversarial_sandbox_envelope_is_persisted(tmp_path: Path) -> None:
     assert envelope.payload is not None
     assert envelope.payload["sandbox_path"].startswith("_temp/adversarial/")
     assert request.epoch == "1"
+
+    # FIX-1 (AC0 / FK-48 §48.2.2): each mandatory target carries its
+    # addressed_part + normative_ref through the spawn envelope payload (the
+    # durable record the adversarial sub-agent reads), not just finding_id.
+    payload_targets = envelope.payload["targets"]
+    assert payload_targets, "spawn envelope must carry the mandatory targets"
+    target0 = payload_targets[0]
+    assert target0["finding_id"] == "qa_review.assertion_weakness"
+    assert target0["addressed_part"] == "fixed the happy-path assertion"
+    assert target0["normative_ref"] == "negative case for INV-6 not covered"
+    assert target0["mandatory"] is True
+
+    # FIX-1 (AC0 / FK-48 §48.2.3): the rendered "Mandatory Targets" prompt
+    # section is delivered IN the productive spawn payload (not only available
+    # via the render function in isolation). This is what reaches the adversarial
+    # worker's prompt — with the per-target test mandate + the UNRESOLVABLE path.
+    section = envelope.payload["mandatory_targets_prompt_section"]
+    assert "## Mandatory Targets" in section
+    assert "Target: qa_review.assertion_weakness" in section
+    assert "fixed the happy-path assertion" in section
+    assert "UNRESOLVABLE" in section
 
 
 def test_no_blocking_findings_no_spawn(tmp_path: Path) -> None:
@@ -172,7 +203,7 @@ def test_no_blocking_findings_no_spawn(tmp_path: Path) -> None:
             trust_class=TrustClass.VERIFIED_LLM,
         ),
     ]
-    targets = spawner.derive_targets(findings)
+    targets = spawner.extract_mandatory_targets(findings, 1)
     assert targets == []
 
 
@@ -212,6 +243,8 @@ class _BlockingQaReviewLayer:
                     message="negative case for INV-6 not covered",
                     trust_class=TrustClass.VERIFIED_LLM,
                     suggestion="add a test for the wrong-phase case",
+                    finding_type=ASSERTION_WEAKNESS_FINDING_TYPE,
+                    addressed_part="fixed the happy-path assertion",
                 ),
             ),
         )

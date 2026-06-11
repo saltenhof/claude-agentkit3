@@ -47,6 +47,25 @@ STRUCTURAL_MIN_CHECKS = 5
 DECISION_MIN_BYTES = 200
 ADVERSARIAL_MIN_BYTES = 200
 
+#: AG3-079 (FK-48 §48.1.6/§48.1.8, FK-11 §11.8.2): the Dim-6 sparring/telemetry
+#: expectations. The adversarial.json payload (the single source of truth the
+#: gate already reads — no second telemetry-read port) mirrors the emitted-event
+#: counts in its ``sparring`` proof AND its ``telemetry`` block. Dim 6 verifies
+#: the FULL FK-48 §48.1.8 expectation table against those counts:
+#:   * ``adversarial_start`` — EXACTLY 1,
+#:   * ``adversarial_end`` — EXACTLY 1,
+#:   * ``adversarial_sparring`` — >= 1 (AND >= 1 ``llm_call
+#:     role=adversarial_sparring``, FK-11 §11.8.2),
+#:   * ``adversarial_test_created`` — >= 0 (verified non-negative/consistent),
+#:   * ``adversarial_test_executed`` — >= 1.
+#: The start/end exactness is gate-verified (not merely assumed): a run that
+#: emitted two starts or zero ends fails closed.
+ADVERSARIAL_MIN_SPARRING_EVENTS = 1
+ADVERSARIAL_MIN_LLM_CALL_SPARRING_EVENTS = 1
+ADVERSARIAL_MIN_TESTS_EXECUTED = 1
+ADVERSARIAL_EXPECTED_START = 1
+ADVERSARIAL_EXPECTED_END = 1
+
 #: Envelope statuses that mean a Layer-2 review did NOT produce a result
 #: (FK-35 §35.2.4 Dim 5 "Status != SKIPPED").  AK3 has no ``SKIPPED`` status; a
 #: genuinely skipped review writes NO envelope at all, and ``ERROR`` means
@@ -109,7 +128,12 @@ MANDATORY_ENVELOPE_STAGE: dict[IntegrityDimension, str] = {
 #: Re-exported canonical QA stage/producer bindings (FK-27 §27.7) so dimension
 #: logic references them from one place.
 __all__ = [
+    "ADVERSARIAL_EXPECTED_END",
+    "ADVERSARIAL_EXPECTED_START",
     "ADVERSARIAL_MIN_BYTES",
+    "ADVERSARIAL_MIN_LLM_CALL_SPARRING_EVENTS",
+    "ADVERSARIAL_MIN_SPARRING_EVENTS",
+    "ADVERSARIAL_MIN_TESTS_EXECUTED",
     "IntegrityDimension",
     "ADVERSARIAL_PRODUCER",
     "ADVERSARIAL_STAGE",

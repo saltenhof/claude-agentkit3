@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from agentkit.config.models import ConformanceConfig
     from agentkit.telemetry.emitters import EventEmitter
     from agentkit.verify_system.llm_evaluator import LlmClient
+    from agentkit.verify_system.llm_evaluator.llm_client import RolePoolResolver
     from agentkit.verify_system.protocols import (
         StoryContextQueryPort,
         TelemetryEventQueryPort,
@@ -42,6 +43,16 @@ class VerifySystemDefaultOptions:
     conformance_config: ConformanceConfig | None = None
     layer2_bundle_token_limit: int = 32_000
     layer2_llm_client: LlmClient | None = None
+    #: AG3-079 (FK-48 §48.1.6 / FK-11 §11.8): the verify-LLM-transport the Layer-3
+    #: runtime drives for the MANDATORY ``adversarial_sparring`` call. ``None`` =>
+    #: the Layer-3 runtime is unwired and fails closed (no PASS without sparring).
+    adversarial_sparring_client: LlmClient | None = None
+    #: AG3-079 (FK-48 §48.1.8): the emitter the Layer-3 runtime writes its five
+    #: adversarial telemetry events to. ``None`` => unwired -> fail-closed.
+    adversarial_telemetry_emitter: EventEmitter | None = None
+    #: AG3-079: optional role->pool resolver to record the concrete sparring pool
+    #: label in the telemetry / ``adversarial.json`` (FK-48 §48.1.6 ``pool``).
+    adversarial_sparring_resolver: RolePoolResolver | None = None
     fast_test_runner: Callable[[Path], tuple[bool, str | None]] | None = None
     stage_registry: StageRegistry | None = None
     structural_telemetry_port: TelemetryEventQueryPort | None = None
@@ -105,6 +116,26 @@ def resolve_default_options(
         layer2_llm_client=cast(
             "LlmClient | None",
             overrides.get("layer2_llm_client", config.layer2_llm_client),
+        ),
+        adversarial_sparring_client=cast(
+            "LlmClient | None",
+            overrides.get(
+                "adversarial_sparring_client", config.adversarial_sparring_client
+            ),
+        ),
+        adversarial_telemetry_emitter=cast(
+            "EventEmitter | None",
+            overrides.get(
+                "adversarial_telemetry_emitter",
+                config.adversarial_telemetry_emitter,
+            ),
+        ),
+        adversarial_sparring_resolver=cast(
+            "RolePoolResolver | None",
+            overrides.get(
+                "adversarial_sparring_resolver",
+                config.adversarial_sparring_resolver,
+            ),
         ),
         fast_test_runner=cast(
             "Callable[[Path], tuple[bool, str | None]] | None",

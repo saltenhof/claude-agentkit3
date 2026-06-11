@@ -43,6 +43,7 @@ from agentkit.state_backend.store.verify_story_context_repository import (
 )
 from agentkit.story_context_manager.models import StoryContext
 from agentkit.story_context_manager.types import StoryMode, StoryType, get_profile
+from agentkit.telemetry.emitters import MemoryEmitter
 from agentkit.verify_system import VerifySystem
 from agentkit.verify_system.contract import QaSubflowOutcome, VerifyContextBundle
 from agentkit.verify_system.policy_engine.engine import PolicyEngine
@@ -403,6 +404,14 @@ class _StaticChangeEvidencePort:
         )
 
 
+class _FakeSparringClient:
+    """Fake AG3-065 transport (the only allowed mock boundary) for Layer 3."""
+
+    def complete(self, *, role: str, prompt: str) -> str:
+        del role, prompt
+        return "missed: empty input\nmissed: boundary value"
+
+
 def _make_real_verify_system(
     story_dir: Path, *, max_major_findings: int = 0, max_feedback_rounds: int | None = None
 ) -> VerifySystem:
@@ -412,6 +421,34 @@ def _make_real_verify_system(
         max_feedback_rounds=max_feedback_rounds,
         story_context_port=StateBackendVerifyStoryContextAdapter(),
         structural_change_evidence_port=_StaticChangeEvidencePort(),
+        # AG3-079 (FK-48 §48.1): the real Layer-3 runtime needs the sparring
+        # transport + a telemetry emitter; the harness sub-agent's sandbox
+        # evidence is seeded by ``_seed_adversarial_sandbox`` (the only mock).
+        adversarial_sparring_client=_FakeSparringClient(),
+        adversarial_telemetry_emitter=MemoryEmitter(),
+    )
+
+
+def _seed_adversarial_sandbox(story_dir: Path, *, attempt: int = 1) -> None:
+    """Seed the Layer-3 sandbox result.json (simulates the harness sub-agent).
+
+    FK-48 §48.1.7: the adversarial sub-agent writes ``result.json`` into the
+    protected sandbox; the deterministic runtime reads it. The sub-agent is the
+    only allowed mock boundary, so the unit test seeds a minimal passing result
+    with >= 1 executed test (FK-48 §48.1.8).
+    """
+    sandbox = story_dir / "_temp" / "adversarial" / "TEST-001" / str(attempt)
+    sandbox.mkdir(parents=True, exist_ok=True)
+    (sandbox / "result.json").write_text(
+        json.dumps(
+            {
+                "story_id": "TEST-001",
+                "status": "PASS",
+                "tests_executed": 1,
+                "tests": [],
+            }
+        ),
+        encoding="utf-8",
     )
 
 
@@ -753,6 +790,10 @@ class TestImplementationPhaseHandler:
         # the deterministic-reviewer path). The productive LLM path is covered
         # by tests/integration/verify_system/test_layer2_e2e.py.
         story_dir = _setup_complete_story_dir(tmp_path)
+        # AG3-079 (FK-48 §48.1.7): seed the Layer-3 sandbox evidence (the harness
+        # sub-agent is the only mock boundary) so the real adversarial runtime can
+        # PASS with >= 1 executed test instead of failing closed.
+        _seed_adversarial_sandbox(story_dir)
         verify_system = _make_real_verify_system(story_dir, max_major_findings=3)
         config = ImplementationConfig(story_dir=story_dir, verify_system=verify_system)
         handler = ImplementationPhaseHandler(config)

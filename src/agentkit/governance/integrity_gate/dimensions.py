@@ -536,10 +536,18 @@ def _check_adversarial(
     state_port: IntegrityGateStatePort,
     runtime_scope: RuntimeStateScope | None,
 ) -> DimensionResult:
-    """Dim 6 — NO_ADVERSARIAL (FK-35 §35.2.4).
+    """Dim 6 — NO_ADVERSARIAL (FK-35 §35.2.4 + FK-48 §48.1.6/§48.1.8, FK-11 §11.8.2).
 
     The adversarial envelope must exist, be > 200 bytes and carry the
-    adversarial producer.
+    adversarial producer (the existing FK-35 §35.2.4 envelope proof).
+
+    AG3-079 (FK-48 §48.1.6/§48.1.8, FK-11 §11.8.2): the SAME envelope additionally
+    proves the MANDATORY sparring telemetry — its ``adversarial.json`` payload
+    (the single source of truth the gate already reads, no second telemetry-read
+    port) mirrors the emitted-event counts. Dim 6 verifies >= 1
+    ``adversarial_sparring`` event AND >= 1 ``llm_call role=adversarial_sparring``
+    plus the FK-48 §48.1.8 mandatory ``>= 1 executed test``; a missing fact fails
+    closed.
     """
     from agentkit.governance.integrity_gate import DimensionResult
 
@@ -559,13 +567,126 @@ def _check_adversarial(
         problems.append(f"payload {byte_size}B <= {_specs.ADVERSARIAL_MIN_BYTES}B")
     if producer != _specs.ADVERSARIAL_PRODUCER:
         problems.append(f"producer {producer!r} != {_specs.ADVERSARIAL_PRODUCER!r}")
+    problems.extend(_adversarial_sparring_problems(envelope))
     if problems:
         return _fail(dim, dim.value, "adversarial: " + "; ".join(problems))
     return DimensionResult(
         dimension=dim,
         passed=True,
-        detail=f"adversarial evidence ok ({byte_size}B)",
+        detail=f"adversarial evidence + sparring telemetry ok ({byte_size}B)",
     )
+
+
+def _adversarial_sparring_problems(envelope: ArtifactEnvelope) -> list[str]:
+    """Return Dim-6 sparring-telemetry problems (FK-48 §48.1.6/§48.1.8, FK-11 §11.8.2).
+
+    Verifies the FULL FK-48 §48.1.8 expectation table carried in the
+    ``adversarial.json`` payload (the single source of truth the gate already
+    reads — no second telemetry-read port):
+
+    * ``adversarial_start`` — EXACTLY 1,
+    * ``adversarial_end`` — EXACTLY 1,
+    * ``adversarial_sparring`` — >= 1 (AND >= 1 ``llm_call
+      role=adversarial_sparring``, FK-11 §11.8.2),
+    * ``adversarial_test_created`` — >= 0 (trivially satisfied; verified
+      non-negative/consistent),
+    * ``adversarial_test_executed`` — >= 1.
+
+    Any violation fails closed (the adversarial run did not really happen as
+    specified).
+    """
+    payload = envelope.payload or {}
+    # The canonical adversarial.json (materialised by the Layer-3 runtime) carries
+    # the proof at the top level; the LayerResult projection nests it under
+    # ``metadata``. Read top-level first, fall back to ``metadata`` (ONE proof
+    # shape, two equivalent carriers — no second naming truth).
+    metadata = payload.get("metadata")
+    metadata_map = metadata if isinstance(metadata, dict) else {}
+    problems: list[str] = []
+    sparring = payload.get("sparring")
+    if not isinstance(sparring, dict):
+        sparring = metadata_map.get("sparring")
+    if not isinstance(sparring, dict):
+        return ["sparring telemetry proof missing (no 'sparring' in payload)"]
+    sparring_events = _non_negative_int(sparring.get("adversarial_sparring_events"))
+    llm_call_events = _non_negative_int(sparring.get("llm_call_sparring_events"))
+    tests_executed = _non_negative_int(
+        payload.get("tests_executed", metadata_map.get("tests_executed"))
+    )
+    if sparring_events < _specs.ADVERSARIAL_MIN_SPARRING_EVENTS:
+        problems.append(
+            f"adversarial_sparring events {sparring_events} < "
+            f"{_specs.ADVERSARIAL_MIN_SPARRING_EVENTS}"
+        )
+    if llm_call_events < _specs.ADVERSARIAL_MIN_LLM_CALL_SPARRING_EVENTS:
+        problems.append(
+            f"llm_call role=adversarial_sparring events {llm_call_events} < "
+            f"{_specs.ADVERSARIAL_MIN_LLM_CALL_SPARRING_EVENTS}"
+        )
+    if tests_executed < _specs.ADVERSARIAL_MIN_TESTS_EXECUTED:
+        problems.append(
+            f"tests_executed {tests_executed} < "
+            f"{_specs.ADVERSARIAL_MIN_TESTS_EXECUTED}"
+        )
+    problems.extend(_adversarial_lifecycle_problems(payload, metadata_map))
+    return problems
+
+
+def _adversarial_lifecycle_problems(
+    payload: dict[str, object],
+    metadata_map: dict[str, object],
+) -> list[str]:
+    """Return Dim-6 §48.1.8 lifecycle-count problems (exactly-1 start/end etc.).
+
+    Verifies the EXACT FK-48 §48.1.8 lifecycle counts from the ``telemetry``
+    block of ``adversarial.json``: ``adversarial_start`` and ``adversarial_end``
+    must be EXACTLY 1, ``adversarial_sparring``/``adversarial_test_executed``
+    must be >= their minimums and ``adversarial_test_created`` must be a
+    non-negative count (>= 0, trivially satisfied but verified consistent). The
+    block is mandatory for a conformant run — its absence fails closed (the run
+    did not record its lifecycle telemetry).
+    """
+    telemetry = payload.get("telemetry")
+    if not isinstance(telemetry, dict):
+        telemetry = metadata_map.get("telemetry")
+    if not isinstance(telemetry, dict):
+        return ["adversarial telemetry counts missing (no 'telemetry' in payload)"]
+    problems: list[str] = []
+    start = _non_negative_int(telemetry.get("adversarial_start"))
+    end = _non_negative_int(telemetry.get("adversarial_end"))
+    sparring = _non_negative_int(telemetry.get("adversarial_sparring"))
+    created = _non_negative_int(telemetry.get("adversarial_test_created"))
+    executed = _non_negative_int(telemetry.get("adversarial_test_executed"))
+    if start != _specs.ADVERSARIAL_EXPECTED_START:
+        problems.append(
+            f"adversarial_start {start} != {_specs.ADVERSARIAL_EXPECTED_START}"
+        )
+    if end != _specs.ADVERSARIAL_EXPECTED_END:
+        problems.append(
+            f"adversarial_end {end} != {_specs.ADVERSARIAL_EXPECTED_END}"
+        )
+    if sparring < _specs.ADVERSARIAL_MIN_SPARRING_EVENTS:
+        problems.append(
+            f"adversarial_sparring telemetry {sparring} < "
+            f"{_specs.ADVERSARIAL_MIN_SPARRING_EVENTS}"
+        )
+    if executed < _specs.ADVERSARIAL_MIN_TESTS_EXECUTED:
+        problems.append(
+            f"adversarial_test_executed telemetry {executed} < "
+            f"{_specs.ADVERSARIAL_MIN_TESTS_EXECUTED}"
+        )
+    if created < 0:
+        problems.append(f"adversarial_test_created telemetry {created} < 0")
+    return problems
+
+
+def _non_negative_int(value: object) -> int:
+    """Return ``value`` as a non-negative int, or ``-1`` when not a valid count."""
+    if isinstance(value, bool):
+        return -1
+    if isinstance(value, int) and value >= 0:
+        return value
+    return -1
 
 
 def _check_qa_subflow_flow_end(

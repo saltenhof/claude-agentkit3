@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
 
 __all__ = [
+    "ASSERTION_WEAKNESS_FINDING_TYPE",
     "Finding",
     "LayerResult",
     "QALayer",
@@ -186,6 +187,13 @@ class TrustClass(StrEnum):
     WORKER_ASSERTION = "C"
 
 
+#: Canonical finding-type wire value for a Layer-2 ``assertion_weakness`` finding
+#: (FK-48 §48.2.2). A Layer-2 finding tagged with this type names a testable
+#: negative case that Layer 3 (Adversarial) MUST address as a mandatory target.
+#: ARCH-55: English-only wire string; the single source of truth for the value.
+ASSERTION_WEAKNESS_FINDING_TYPE: str = "assertion_weakness"
+
+
 @dataclass(frozen=True)
 class Finding:
     """A single QA finding from any layer.
@@ -201,6 +209,16 @@ class Finding:
         file_path: Optional file path related to the finding.
         line_number: Optional line number in the file.
         suggestion: Optional suggestion for remediation.
+        finding_type: Optional FK-48 §48.2.2 finding type (additive). When set
+            to :data:`ASSERTION_WEAKNESS_FINDING_TYPE`, a Layer-2 FAIL/
+            PASS_WITH_CONCERNS finding names a testable negative case that
+            becomes a mandatory adversarial target
+            (:func:`~agentkit.verify_system.adversarial_orchestrator.spawn.extract_mandatory_targets`).
+            ``None`` keeps the legacy (untyped) finding -- a plain BLOCKING
+            finding without this type does NOT yield a mandatory target.
+        addressed_part: Optional FK-48 §48.2.2 summary of what was already
+            fixed for an ``assertion_weakness`` finding. Carried additively onto
+            the derived :class:`AdversarialTarget`; empty when unknown.
     """
 
     layer: str
@@ -211,6 +229,8 @@ class Finding:
     file_path: str | None = None
     line_number: int | None = None
     suggestion: str | None = None
+    finding_type: str | None = None
+    addressed_part: str = ""
 
 
 @dataclass(frozen=True)
