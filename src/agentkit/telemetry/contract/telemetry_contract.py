@@ -232,10 +232,10 @@ class TelemetryContract:
     ) -> ContractRuleResult:
         """Verify each configured role has an ``llm_call`` with its pool (FK-68 §68.4).
 
-        FK-68 §68.4: "Das Integrity-Gate liest ``llm_roles`` aus der
-        Pipeline-Config und prüft, ob für jede konfigurierte Rolle mindestens
-        ein ``llm_call``-Event mit dem zugeordneten ``pool``-Wert in der
-        Telemetrie vorliegt." The check is therefore against the configured
+        FK-68 §68.4: the Integrity-Gate reads ``llm_roles`` from the pipeline
+        config and checks that, for every configured role, at least one
+        ``llm_call`` event carrying the mapped ``pool`` value is present in the
+        telemetry. The check is therefore against the configured
         role→pool contract: an ``llm_call`` must carry ``payload["pool"]`` equal
         to the pool the role is mapped to. A self-reported ``payload["role"]``
         alone is NOT accepted (NO ERROR BYPASSING) — the pool is authoritative.
