@@ -1,9 +1,10 @@
 story_id: AG3-079
 title: "Adversarial-Runtime (Testausfuehrung/Sparring/Promotion/Quarantaene/adversarial.json, FK-48 §48.1-§48.2.5 + FK-11 §11.8): echte Schicht-3-Laufzeit statt Passthrough, Telemetrie + Integrity-Gate-Pflichtnachweis, Gate-Rueckkopplung Layer 3->2"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
 created: "2026-06-07"
+completed: "2026-06-11"
 size: L
 depends_on:
   - AG3-044
