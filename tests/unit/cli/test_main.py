@@ -11,6 +11,7 @@ from pathlib import Path, PurePath
 from types import SimpleNamespace
 
 import pytest
+from tests.fixtures.git_repo import ensure_git_repo
 
 from agentkit.cli.main import main
 from agentkit.skills import create_directory_link, is_directory_link
@@ -151,6 +152,9 @@ class TestCLIMain:
         )
 
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
+        # CP 11 configures core.hooksPath on the target; real targets are git
+        # repos, so provision one (else CP 11 aborts on a clean CI agent).
+        ensure_git_repo(tmp_path)
         exit_code = main([
             "install",
             "--project-key", "test-cli-project",
@@ -462,6 +466,9 @@ class TestCLIMain:
     ) -> None:
         """``uninstall`` removes AgentKit harness settings."""
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
+        # CP 11 configures core.hooksPath on the target; real targets are git
+        # repos, so provision one (else CP 11 aborts on a clean CI agent).
+        ensure_git_repo(tmp_path)
         install_code = main([
             "install",
             "--project-key", "test-cli-project",

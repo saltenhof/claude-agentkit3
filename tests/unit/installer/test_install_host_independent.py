@@ -20,6 +20,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from tests.fixtures.git_repo import ensure_git_repo
+
 from agentkit.installer.runner import (
     MANDATORY_SKILLS,
     InstallConfig,
@@ -109,7 +111,8 @@ def _config(
     registration_repo: _InMemoryRegistrationRepo | None = None,
 ) -> InstallConfig:
     root = tmp_path / "project"
-    root.mkdir(exist_ok=True)
+    # CP 11 configures core.hooksPath; real targets are git repos (see helper).
+    ensure_git_repo(root)
     return InstallConfig(
         project_key="host-indep",
         project_name="host-indep",

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.fixtures.git_repo import ensure_git_repo
 
 from agentkit.installer import InstallConfig, install_agentkit
 from agentkit.installer.runner import MANDATORY_SKILLS
@@ -92,7 +93,8 @@ def _provisioned_skills(bundle_store_root: Path) -> tuple[Skills, SkillBundleSto
 )
 def test_installer_namespace_exposes_install_api(tmp_path: Path) -> None:
     project_root = tmp_path / "project"
-    project_root.mkdir()
+    # CP 11 configures core.hooksPath; real targets are git repos (see helper).
+    ensure_git_repo(project_root)
     skills, store = _provisioned_skills(tmp_path / ".skill-bundles")
     config = InstallConfig(
         project_key="demo",

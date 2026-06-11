@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.fixtures.git_repo import ensure_git_repo
 
 from agentkit.installer.registration import ProjectRegistration, RuntimeProfile
 from agentkit.installer.runner import MANDATORY_SKILLS, InstallConfig
@@ -89,6 +90,10 @@ def make_config(
     github_repo: str | None = "demo",
 ) -> InstallConfig:
     """Build an :class:`InstallConfig` for the engine unit tests."""
+    # CP 11 (FK-50 §50.3) configures core.hooksPath on the target project; real
+    # AK3 targets ARE git repos, so the unit setup must provision one (else CP 11
+    # fails on a clean CI agent where tmp_path is not inside any repo).
+    ensure_git_repo(root)
     skills, store = _provisioned_skills(bundle_store_root)
     return InstallConfig(
         project_key=root.stem,
