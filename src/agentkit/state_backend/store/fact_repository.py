@@ -39,12 +39,13 @@ from agentkit.kpi_analytics.fact_store.models import (
     FactPipelinePeriod,
     FactPoolPeriod,
     FactStory,
+    GuardInvocationCounter,
     PeriodFilter,
     SyncState,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Sequence
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +205,57 @@ def _bool_param(value: bool | None, *, is_postgres: bool) -> Any:
     return value if is_postgres else int(value)
 
 
+def _fact_guard_params(fact: FactGuardPeriod, *, is_postgres: bool) -> dict[str, Any]:
+    return {
+        "project_key": fact.project_key,
+        "guard_id": fact.guard_id,
+        "period_start": _ts(fact.period_start, is_postgres=is_postgres),
+        "period_end": _ts(fact.period_end, is_postgres=is_postgres),
+        "invocation_count": fact.invocation_count,
+        "violation_count": fact.violation_count,
+    }
+
+
+def _fact_pool_params(fact: FactPoolPeriod, *, is_postgres: bool) -> dict[str, Any]:
+    return {
+        "project_key": fact.project_key,
+        "llm_role": fact.llm_role,
+        "period_start": _ts(fact.period_start, is_postgres=is_postgres),
+        "period_end": _ts(fact.period_end, is_postgres=is_postgres),
+        "call_count": fact.call_count,
+        "token_input_total": fact.token_input_total,
+        "token_output_total": fact.token_output_total,
+        "avg_latency_ms": fact.avg_latency_ms,
+    }
+
+
+def _fact_pipeline_params(
+    fact: FactPipelinePeriod, *, is_postgres: bool
+) -> dict[str, Any]:
+    return {
+        "project_key": fact.project_key,
+        "period_start": _ts(fact.period_start, is_postgres=is_postgres),
+        "period_end": _ts(fact.period_end, is_postgres=is_postgres),
+        "stories_completed": fact.stories_completed,
+        "stories_escalated": fact.stories_escalated,
+        "avg_qa_rounds": fact.avg_qa_rounds,
+        "avg_phase_implementation_ms": fact.avg_phase_implementation_ms,
+    }
+
+
+def _fact_corpus_params(
+    fact: FactCorpusPeriod, *, is_postgres: bool
+) -> dict[str, Any]:
+    return {
+        "project_key": fact.project_key,
+        "period_start": _ts(fact.period_start, is_postgres=is_postgres),
+        "period_end": _ts(fact.period_end, is_postgres=is_postgres),
+        "incidents_recorded": fact.incidents_recorded,
+        "patterns_promoted": fact.patterns_promoted,
+        "checks_approved": fact.checks_approved,
+    }
+
+
 def _row_to_fact_story(row: dict[str, Any]) -> FactStory:
     feedback = row["feedback_converged"]
     return FactStory(
@@ -291,6 +343,18 @@ def _row_to_fact_corpus(row: dict[str, Any]) -> FactCorpusPeriod:
     )
 
 
+def _row_to_counter(row: dict[str, Any]) -> GuardInvocationCounter:
+    return GuardInvocationCounter(
+        project_key=str(row["project_key"]),
+        story_id=str(row["story_id"]),
+        guard_key=str(row["guard_key"]),
+        week_start=str(row["week_start"]),
+        invocations=int(row["invocations"]),
+        blocks=int(row["blocks"]),
+        updated_at=_require_dt(row["updated_at"], "guard_invocation_counters.updated_at"),
+    )
+
+
 def _row_to_sync_state(row: dict[str, Any]) -> SyncState:
     return SyncState(
         project_key=str(row["project_key"]),
@@ -331,9 +395,91 @@ _FACT_STORY_UPDATE = (
 )
 
 
+_FACT_GUARD_COLUMNS = (
+    "project_key, guard_id, period_start, period_end, "
+    "invocation_count, violation_count"
+)
+_FACT_GUARD_CONFLICT = "project_key, guard_id, period_start"
+_FACT_GUARD_UPDATE = (
+    "period_end=excluded.period_end, "
+    "invocation_count=excluded.invocation_count, "
+    "violation_count=excluded.violation_count"
+)
+
+_FACT_POOL_COLUMNS = (
+    "project_key, llm_role, period_start, period_end, call_count, "
+    "token_input_total, token_output_total, avg_latency_ms"
+)
+_FACT_POOL_CONFLICT = "project_key, llm_role, period_start"
+_FACT_POOL_UPDATE = (
+    "period_end=excluded.period_end, call_count=excluded.call_count, "
+    "token_input_total=excluded.token_input_total, "
+    "token_output_total=excluded.token_output_total, "
+    "avg_latency_ms=excluded.avg_latency_ms"
+)
+
+_FACT_PIPELINE_COLUMNS = (
+    "project_key, period_start, period_end, stories_completed, "
+    "stories_escalated, avg_qa_rounds, avg_phase_implementation_ms"
+)
+_FACT_PIPELINE_CONFLICT = "project_key, period_start"
+_FACT_PIPELINE_UPDATE = (
+    "period_end=excluded.period_end, "
+    "stories_completed=excluded.stories_completed, "
+    "stories_escalated=excluded.stories_escalated, "
+    "avg_qa_rounds=excluded.avg_qa_rounds, "
+    "avg_phase_implementation_ms=excluded.avg_phase_implementation_ms"
+)
+
+_FACT_CORPUS_COLUMNS = (
+    "project_key, period_start, period_end, incidents_recorded, "
+    "patterns_promoted, checks_approved"
+)
+_FACT_CORPUS_CONFLICT = "project_key, period_start"
+_FACT_CORPUS_UPDATE = (
+    "period_end=excluded.period_end, "
+    "incidents_recorded=excluded.incidents_recorded, "
+    "patterns_promoted=excluded.patterns_promoted, "
+    "checks_approved=excluded.checks_approved"
+)
+
+_SYNC_STATE_COLUMNS = "project_key, key, value_int, value_text, updated_at"
+_SYNC_STATE_CONFLICT = "project_key, key"
+_SYNC_STATE_UPDATE = (
+    "value_int=excluded.value_int, "
+    "value_text=excluded.value_text, "
+    "updated_at=excluded.updated_at"
+)
+
+
 def _named(columns: str) -> str:
     """Turn ``a, b, c`` into the named-placeholder list ``:a, :b, :c``."""
     return ", ".join(f":{c.strip()}" for c in columns.split(","))
+
+
+def _upsert_statement(
+    *, table: str, columns: str, conflict: str, update_clause: str, is_postgres: bool
+) -> str:
+    """Build an idempotent INSERT ... ON CONFLICT DO UPDATE for the active backend."""
+    placeholders = (
+        ", ".join(f"%({c.strip()})s" for c in columns.split(","))
+        if is_postgres
+        else _named(columns)
+    )
+    return (
+        f"INSERT INTO {table} ({columns}) VALUES ({placeholders}) "
+        f"ON CONFLICT ({conflict}) DO UPDATE SET {update_clause}"
+    )
+
+
+def _sync_state_params(state: SyncState, *, is_postgres: bool) -> dict[str, Any]:
+    return {
+        "project_key": state.project_key,
+        "key": state.key,
+        "value_int": state.value_int,
+        "value_text": state.value_text,
+        "updated_at": _ts(state.updated_at, is_postgres=is_postgres),
+    }
 
 
 class StateBackendFactRepository:
@@ -455,24 +601,10 @@ class StateBackendFactRepository:
         is_pg = _is_postgres()
         self._upsert(
             table="fact_guard_period",
-            columns=(
-                "project_key, guard_id, period_start, period_end, "
-                "invocation_count, violation_count"
-            ),
-            conflict="project_key, guard_id, period_start",
-            update_clause=(
-                "period_end=excluded.period_end, "
-                "invocation_count=excluded.invocation_count, "
-                "violation_count=excluded.violation_count"
-            ),
-            params={
-                "project_key": fact.project_key,
-                "guard_id": fact.guard_id,
-                "period_start": _ts(fact.period_start, is_postgres=is_pg),
-                "period_end": _ts(fact.period_end, is_postgres=is_pg),
-                "invocation_count": fact.invocation_count,
-                "violation_count": fact.violation_count,
-            },
+            columns=_FACT_GUARD_COLUMNS,
+            conflict=_FACT_GUARD_CONFLICT,
+            update_clause=_FACT_GUARD_UPDATE,
+            params=_fact_guard_params(fact, is_postgres=is_pg),
         )
 
     def upsert_fact_pool(self, fact: FactPoolPeriod) -> None:
@@ -480,27 +612,10 @@ class StateBackendFactRepository:
         is_pg = _is_postgres()
         self._upsert(
             table="fact_pool_period",
-            columns=(
-                "project_key, llm_role, period_start, period_end, call_count, "
-                "token_input_total, token_output_total, avg_latency_ms"
-            ),
-            conflict="project_key, llm_role, period_start",
-            update_clause=(
-                "period_end=excluded.period_end, call_count=excluded.call_count, "
-                "token_input_total=excluded.token_input_total, "
-                "token_output_total=excluded.token_output_total, "
-                "avg_latency_ms=excluded.avg_latency_ms"
-            ),
-            params={
-                "project_key": fact.project_key,
-                "llm_role": fact.llm_role,
-                "period_start": _ts(fact.period_start, is_postgres=is_pg),
-                "period_end": _ts(fact.period_end, is_postgres=is_pg),
-                "call_count": fact.call_count,
-                "token_input_total": fact.token_input_total,
-                "token_output_total": fact.token_output_total,
-                "avg_latency_ms": fact.avg_latency_ms,
-            },
+            columns=_FACT_POOL_COLUMNS,
+            conflict=_FACT_POOL_CONFLICT,
+            update_clause=_FACT_POOL_UPDATE,
+            params=_fact_pool_params(fact, is_postgres=is_pg),
         )
 
     def upsert_fact_pipeline(self, fact: FactPipelinePeriod) -> None:
@@ -508,27 +623,10 @@ class StateBackendFactRepository:
         is_pg = _is_postgres()
         self._upsert(
             table="fact_pipeline_period",
-            columns=(
-                "project_key, period_start, period_end, stories_completed, "
-                "stories_escalated, avg_qa_rounds, avg_phase_implementation_ms"
-            ),
-            conflict="project_key, period_start",
-            update_clause=(
-                "period_end=excluded.period_end, "
-                "stories_completed=excluded.stories_completed, "
-                "stories_escalated=excluded.stories_escalated, "
-                "avg_qa_rounds=excluded.avg_qa_rounds, "
-                "avg_phase_implementation_ms=excluded.avg_phase_implementation_ms"
-            ),
-            params={
-                "project_key": fact.project_key,
-                "period_start": _ts(fact.period_start, is_postgres=is_pg),
-                "period_end": _ts(fact.period_end, is_postgres=is_pg),
-                "stories_completed": fact.stories_completed,
-                "stories_escalated": fact.stories_escalated,
-                "avg_qa_rounds": fact.avg_qa_rounds,
-                "avg_phase_implementation_ms": fact.avg_phase_implementation_ms,
-            },
+            columns=_FACT_PIPELINE_COLUMNS,
+            conflict=_FACT_PIPELINE_CONFLICT,
+            update_clause=_FACT_PIPELINE_UPDATE,
+            params=_fact_pipeline_params(fact, is_postgres=is_pg),
         )
 
     def upsert_fact_corpus(self, fact: FactCorpusPeriod) -> None:
@@ -536,25 +634,10 @@ class StateBackendFactRepository:
         is_pg = _is_postgres()
         self._upsert(
             table="fact_corpus_period",
-            columns=(
-                "project_key, period_start, period_end, incidents_recorded, "
-                "patterns_promoted, checks_approved"
-            ),
-            conflict="project_key, period_start",
-            update_clause=(
-                "period_end=excluded.period_end, "
-                "incidents_recorded=excluded.incidents_recorded, "
-                "patterns_promoted=excluded.patterns_promoted, "
-                "checks_approved=excluded.checks_approved"
-            ),
-            params={
-                "project_key": fact.project_key,
-                "period_start": _ts(fact.period_start, is_postgres=is_pg),
-                "period_end": _ts(fact.period_end, is_postgres=is_pg),
-                "incidents_recorded": fact.incidents_recorded,
-                "patterns_promoted": fact.patterns_promoted,
-                "checks_approved": fact.checks_approved,
-            },
+            columns=_FACT_CORPUS_COLUMNS,
+            conflict=_FACT_CORPUS_CONFLICT,
+            update_clause=_FACT_CORPUS_UPDATE,
+            params=_fact_corpus_params(fact, is_postgres=is_pg),
         )
 
     def upsert_sync_state(self, state: SyncState) -> None:
@@ -562,21 +645,33 @@ class StateBackendFactRepository:
         is_pg = _is_postgres()
         self._upsert(
             table="sync_state",
-            columns="project_key, key, value_int, value_text, updated_at",
-            conflict="project_key, key",
-            update_clause=(
-                "value_int=excluded.value_int, "
-                "value_text=excluded.value_text, "
-                "updated_at=excluded.updated_at"
-            ),
-            params={
-                "project_key": state.project_key,
-                "key": state.key,
-                "value_int": state.value_int,
-                "value_text": state.value_text,
-                "updated_at": _ts(state.updated_at, is_postgres=is_pg),
-            },
+            columns=_SYNC_STATE_COLUMNS,
+            conflict=_SYNC_STATE_CONFLICT,
+            update_clause=_SYNC_STATE_UPDATE,
+            params=_sync_state_params(state, is_postgres=is_pg),
         )
+
+    # ------------------------------------------------------------------
+    # atomic write session (FK-62 §62.3.2/§62.3.3)
+    # ------------------------------------------------------------------
+
+    @contextmanager
+    def begin_write_session(self) -> Iterator[_FactWriteSession]:
+        """Open ONE atomic transaction over the analytics tables (FK-62 §62.3.2).
+
+        Holds a single connection for the whole RefreshWorker run; commits on
+        clean exit, rolls back on any exception (no partial commit, FK-62
+        §62.3.7). The guard-counter scratchpad lives in the SAME database file /
+        instance as the fact tables, so its drain commits atomically with the
+        ``fact_guard_period`` write (FK-62 §62.2.6).
+        """
+        is_pg = _is_postgres()
+        if is_pg:
+            with _postgres_connect() as conn:
+                yield _FactWriteSession(conn, is_postgres=True)
+            return
+        with _sqlite_connect(self._store_dir) as conn:
+            yield _FactWriteSession(conn, is_postgres=False)
 
     # ------------------------------------------------------------------
     # internal engine
@@ -606,23 +701,221 @@ class StateBackendFactRepository:
         params: dict[str, Any],
     ) -> None:
         """Execute an idempotent INSERT ... ON CONFLICT DO UPDATE on ``table``."""
-        if _is_postgres():
-            placeholders = ", ".join(
-                f"%({c.strip()})s" for c in columns.split(",")
-            )
-            statement = (
-                f"INSERT INTO {table} ({columns}) VALUES ({placeholders}) "
-                f"ON CONFLICT ({conflict}) DO UPDATE SET {update_clause}"
-            )
+        is_pg = _is_postgres()
+        statement = _upsert_statement(
+            table=table,
+            columns=columns,
+            conflict=conflict,
+            update_clause=update_clause,
+            is_postgres=is_pg,
+        )
+        if is_pg:
             with _postgres_connect() as conn:
                 conn.execute(statement, params)
             return
-        statement = (
-            f"INSERT INTO {table} ({columns}) VALUES ({_named(columns)}) "
-            f"ON CONFLICT ({conflict}) DO UPDATE SET {update_clause}"
-        )
         with _sqlite_connect(self._store_dir) as conn:
             conn.execute(statement, params)
+
+
+class _FactWriteSession:
+    """One atomic transaction over the analytics tables (FK-62 §62.3.2/§62.3.3).
+
+    Bound to the single connection opened by ``begin_write_session``. Statements
+    run WITHOUT an intermediate commit; the surrounding context manager commits on
+    clean exit and rolls back on any exception. The ``replace_<table>_period``
+    ports DELETE every passed slice key and then INSERT the recomputed rows, so a
+    slice that recomputes to no row ends up absent (FK-62 §62.2.8).
+    """
+
+    def __init__(self, conn: Any, *, is_postgres: bool) -> None:
+        self._conn = conn
+        self._is_pg = is_postgres
+
+    # -- helpers ---------------------------------------------------------
+
+    def _execute(self, statement: str, params: Any) -> Any:
+        # Same call on both backends: the placeholder dialect is already baked into
+        # ``statement`` before this point (``%s`` for Postgres, ``?``/``:name`` for
+        # SQLite). The session holds the open connection so no commit happens here.
+        return self._conn.execute(statement, params)
+
+    def _delete_keys(
+        self,
+        table: str,
+        key_columns: tuple[str, ...],
+        keys: Sequence[tuple[Any, ...]],
+    ) -> None:
+        where = " AND ".join(f"{col} = ?" for col in key_columns)
+        statement = f"DELETE FROM {table} WHERE {where}"
+        if self._is_pg:
+            statement = statement.replace("?", "%s")
+        for key in self._slice_keys(keys):
+            self._execute(statement, key)
+
+    def _insert(
+        self, *, table: str, columns: str, params: dict[str, Any]
+    ) -> None:
+        placeholders = (
+            ", ".join(f"%({c.strip()})s" for c in columns.split(","))
+            if self._is_pg
+            else _named(columns)
+        )
+        statement = f"INSERT INTO {table} ({columns}) VALUES ({placeholders})"
+        self._execute(statement, params)
+
+    # -- fact_story ------------------------------------------------------
+
+    def upsert_fact_story(self, fact: FactStory) -> None:
+        """Insert-or-replace one ``fact_story`` row inside the open transaction."""
+        statement = _upsert_statement(
+            table="fact_story",
+            columns=_FACT_STORY_COLUMNS,
+            conflict="project_key, story_id",
+            update_clause=_FACT_STORY_UPDATE,
+            is_postgres=self._is_pg,
+        )
+        self._execute(statement, _fact_story_params(fact, is_postgres=self._is_pg))
+
+    def delete_fact_story(self, project_key: str, story_id: str) -> int:
+        """Delete the ``fact_story`` row of ``(project_key, story_id)``; return rows."""
+        statement = (
+            "DELETE FROM fact_story WHERE project_key = ? AND story_id = ?"
+        )
+        if self._is_pg:
+            statement = statement.replace("?", "%s")
+        cursor = self._execute(statement, (project_key, story_id))
+        return int(cursor.rowcount)
+
+    # -- period replaces (DELETE slice keys, then INSERT recomputed rows) -
+
+    def replace_guard_period(
+        self,
+        keys: Sequence[tuple[str, str, datetime]],
+        rows: list[FactGuardPeriod],
+    ) -> None:
+        """DELETE the guard-week slices, then INSERT the recomputed rows."""
+        self._delete_keys(
+            "fact_guard_period",
+            ("project_key", "guard_id", "period_start"),
+            keys,
+        )
+        for row in rows:
+            self._insert(
+                table="fact_guard_period",
+                columns=_FACT_GUARD_COLUMNS,
+                params=_fact_guard_params(row, is_postgres=self._is_pg),
+            )
+
+    def replace_pool_period(
+        self,
+        keys: Sequence[tuple[str, str, datetime]],
+        rows: list[FactPoolPeriod],
+    ) -> None:
+        """DELETE the pool-week slices, then INSERT the recomputed rows."""
+        self._delete_keys(
+            "fact_pool_period",
+            ("project_key", "llm_role", "period_start"),
+            keys,
+        )
+        for row in rows:
+            self._insert(
+                table="fact_pool_period",
+                columns=_FACT_POOL_COLUMNS,
+                params=_fact_pool_params(row, is_postgres=self._is_pg),
+            )
+
+    def replace_pipeline_period(
+        self,
+        keys: Sequence[tuple[str, datetime]],
+        rows: list[FactPipelinePeriod],
+    ) -> None:
+        """DELETE the pipeline-week slices, then INSERT the recomputed rows."""
+        self._delete_keys(
+            "fact_pipeline_period",
+            ("project_key", "period_start"),
+            keys,
+        )
+        for row in rows:
+            self._insert(
+                table="fact_pipeline_period",
+                columns=_FACT_PIPELINE_COLUMNS,
+                params=_fact_pipeline_params(row, is_postgres=self._is_pg),
+            )
+
+    def replace_corpus_period(
+        self,
+        keys: Sequence[tuple[str, datetime]],
+        rows: list[FactCorpusPeriod],
+    ) -> None:
+        """DELETE the corpus-month slices, then INSERT the recomputed rows."""
+        self._delete_keys(
+            "fact_corpus_period",
+            ("project_key", "period_start"),
+            keys,
+        )
+        for row in rows:
+            self._insert(
+                table="fact_corpus_period",
+                columns=_FACT_CORPUS_COLUMNS,
+                params=_fact_corpus_params(row, is_postgres=self._is_pg),
+            )
+
+    def _slice_keys(
+        self, keys: Sequence[tuple[Any, ...]]
+    ) -> list[tuple[object, ...]]:
+        """Bind the ``period_start`` (trailing ``datetime``) element of each key.
+
+        A period slice key ends with the period-start ``datetime`` — the SAME
+        value the recomputed row carries — so the DELETE matches the stored row
+        exactly. ``_ts`` binds it per backend (native ``datetime`` on Postgres,
+        ISO-8601 TEXT on SQLite, mirroring how the rows were written).
+        """
+        bound: list[tuple[object, ...]] = []
+        for key in keys:
+            *head, period_start = key
+            bound.append((*head, _ts(period_start, is_postgres=self._is_pg)))
+        return bound
+
+    # -- cursor ----------------------------------------------------------
+
+    def update_sync_cursor(self, state: SyncState) -> None:
+        """Upsert the ``sync_state`` cursor row inside the open transaction."""
+        statement = _upsert_statement(
+            table="sync_state",
+            columns=_SYNC_STATE_COLUMNS,
+            conflict=_SYNC_STATE_CONFLICT,
+            update_clause=_SYNC_STATE_UPDATE,
+            is_postgres=self._is_pg,
+        )
+        self._execute(statement, _sync_state_params(state, is_postgres=self._is_pg))
+
+    # -- guard-counter drain (same transaction, FK-62 §62.2.6) -----------
+
+    def read_guard_counters_for_story(
+        self, project_key: str, story_id: str
+    ) -> list[GuardInvocationCounter]:
+        """Read the story's ``guard_invocation_counters`` rows in-session."""
+        statement = (
+            "SELECT * FROM guard_invocation_counters WHERE project_key = ? "
+            "AND story_id = ? ORDER BY guard_key, week_start"
+        )
+        if self._is_pg:
+            statement = statement.replace("?", "%s")
+        rows = self._execute(statement, (project_key, story_id)).fetchall()
+        return [_row_to_counter(dict(r)) for r in rows]
+
+    def delete_guard_counters_for_story(
+        self, project_key: str, story_id: str
+    ) -> int:
+        """Delete the story's ``guard_invocation_counters`` rows in-session; return rows."""
+        statement = (
+            "DELETE FROM guard_invocation_counters WHERE project_key = ? "
+            "AND story_id = ?"
+        )
+        if self._is_pg:
+            statement = statement.replace("?", "%s")
+        cursor = self._execute(statement, (project_key, story_id))
+        return int(cursor.rowcount)
 
 
 __all__ = ["StateBackendFactRepository"]

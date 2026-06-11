@@ -7,6 +7,11 @@ built incrementally across follow-up stories (AG3-038 and beyond).
 
 from __future__ import annotations
 
+from agentkit.kpi_analytics.aggregation import (
+    AffectedPeriods,
+    RefreshTrigger,
+    RefreshWorker,
+)
 from agentkit.kpi_analytics.catalog import (
     KpiCatalog,
     KpiCollectionPoint,
@@ -22,6 +27,7 @@ from agentkit.kpi_analytics.top import KpiAnalytics
 from agentkit.kpi_analytics.views import DashboardView
 
 __all__ = [
+    "AffectedPeriods",
     "DashboardView",
     "GuardCounterService",
     "KpiAnalytics",
@@ -30,5 +36,7 @@ __all__ = [
     "KpiDefinition",
     "KpiDomain",
     "KpiGranularity",
+    "RefreshTrigger",
+    "RefreshWorker",
     "week_start_for",
 ]

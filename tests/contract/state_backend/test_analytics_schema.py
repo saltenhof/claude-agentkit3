@@ -345,6 +345,70 @@ def test_guard_invocation_counters_primary_key_is_weekly_scratchpad(
 
 
 @pytest.mark.contract
+def test_postgres_write_session_replace_delete_and_rollback(
+    tmp_path: Path, postgres_backend_env: str
+) -> None:
+    """AG3-082 AC4/AC11: the atomic write session DELETE+INSERT replace + rollback (Postgres).
+
+    Proves the new FK-62 §62.3.2 ports on the canonical backend: a clean session
+    replaces a period slice and deletes ``fact_story`` (commit on exit), and a
+    failing session rolls the WHOLE transaction back (no partial commit).
+    """
+    store = FactStore(StateBackendFactRepository(store_dir=tmp_path))
+    repo = StateBackendFactRepository(store_dir=tmp_path)
+    store.upsert_fact_story(
+        FactStory(
+            project_key="pg",
+            story_id="AG3-200",
+            story_type="implementation",
+            story_size="L",
+            started_at=_NOW,
+            qa_rounds=1,
+            agentkit_version="3.20.0",
+            agentkit_commit="abc",
+        )
+    )
+    store.upsert_fact_pool(
+        FactPoolPeriod(
+            project_key="pg",
+            llm_role="qa",
+            period_start=_NOW,
+            period_end=_LATER,
+            call_count=1,
+            token_input_total=1,
+            token_output_total=1,
+        )
+    )
+
+    replacement = FactPoolPeriod(
+        project_key="pg",
+        llm_role="qa",
+        period_start=_NOW,
+        period_end=_LATER,
+        call_count=42,
+        token_input_total=9,
+        token_output_total=9,
+    )
+    with repo.begin_write_session() as session:
+        session.replace_pool_period([("pg", "qa", _NOW)], [replacement])
+        session.delete_fact_story("pg", "AG3-200")
+
+    assert store.list_fact_pool("pg", _PERIOD)[0].call_count == 42
+    assert store.list_fact_stories("pg") == []
+
+    # Rollback: an exception inside the session reverts every write.
+    with pytest.raises(RuntimeError, match="boom"), repo.begin_write_session() as session:
+        session.replace_pool_period(
+            [("pg", "qa", _NOW)],
+            [replacement.model_copy(update={"call_count": 7})],
+        )
+        raise RuntimeError("boom")
+
+    # The committed value survives; the rolled-back replace did not take effect.
+    assert store.list_fact_pool("pg", _PERIOD)[0].call_count == 42
+
+
+@pytest.mark.contract
 def test_postgres_init_runs_migration_and_records_schema_version(
     tmp_path: Path, postgres_backend_env: str
 ) -> None:

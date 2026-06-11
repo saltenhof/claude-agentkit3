@@ -181,31 +181,54 @@ def build_story_exit_service(*, project_key: str) -> object:
     )
 
 
-def build_kpi_analytics(store_dir: Path) -> KpiAnalytics:
-    """Wire a ``KpiAnalytics`` facade onto the real FactStore (AG3-038).
+def build_kpi_analytics(store_dir: Path, *, project_key: str) -> KpiAnalytics:
+    """Wire a ``KpiAnalytics`` facade onto the real FactStore + RefreshWorker.
 
-    Composition-Root for the analytics read path: binds the StateBackend fact
-    repository onto the FactStore and injects it into ``KpiAnalytics``, so
-    ``get_dashboard_view`` reads the canonical fact tables (FK-62 §62.3). The
-    consumer BC knows only the ``FactRepository`` Protocol (AC8); the concrete
-    adapter is bound here. ``refresh_worker`` stays ``None`` until the follow-up
-    RefreshWorker story, so ``refresh_analytics`` returns SKIPPED (FAIL-CLOSED).
+    Composition-Root for the analytics path (AG3-038 read side + AG3-082 worker):
+
+    - binds the StateBackend fact repository onto the ``FactStore`` (the ONLY write
+      path into ``analytics.*``, FK-62 §62.6.2) so ``get_dashboard_view`` reads the
+      canonical fact tables;
+    - builds the productive runtime read port
+      (``StateBackendAnalyticsSource``) over the project-global ``execution_events``
+      stream and the FK-69 ``ProjectionAccessor`` (the ONLY runtime read path AND the
+      run-scoped reset purge surface, FK-62 §62.6.1 / FK-69 §69.10.1);
+    - assembles the real ``RefreshWorker`` from those two and injects it into
+      ``KpiAnalytics`` — so ``refresh_analytics`` reaches the REAL worker
+      (``trigger=CLOSURE``) instead of returning the not-configured SKIPPED.
+
+    The consumer BC knows only the ``FactRepository`` / ``AnalyticsSourcePort``
+    Protocols (AC6/AC8); the concrete adapters are bound here.
 
     Args:
         store_dir: State-backend base dir (SQLite stores under
             ``store_dir/.agentkit/...``; Postgres ignores it).
+        project_key: The project scope the analytics source reads (FK-62 §62.2
+            Mandantenregel: analytics is per-project isolable).
 
     Returns:
-        A ``KpiAnalytics`` facade with a live FactStore read path.
+        A ``KpiAnalytics`` facade with a live FactStore read path AND a real
+        RefreshWorker (no SKIPPED-not-configured branch in production).
     """
     from agentkit.kpi_analytics import KpiAnalytics, KpiCatalog
+    from agentkit.kpi_analytics.aggregation import RefreshWorker
     from agentkit.kpi_analytics.fact_store import FactStore
+    from agentkit.state_backend.store.analytics_source import (
+        StateBackendAnalyticsSource,
+    )
     from agentkit.state_backend.store.fact_repository import (
         StateBackendFactRepository,
     )
 
     fact_store = FactStore(StateBackendFactRepository(store_dir))
-    return KpiAnalytics(catalog=KpiCatalog(), fact_store=fact_store)
+    accessor = build_projection_accessor(store_dir)
+    source = StateBackendAnalyticsSource(accessor, project_key=project_key)
+    refresh_worker = RefreshWorker(fact_store, source)
+    return KpiAnalytics(
+        catalog=KpiCatalog(),
+        fact_store=fact_store,
+        refresh_worker=refresh_worker,
+    )
 
 
 def build_exploration_review(

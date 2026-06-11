@@ -19,6 +19,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from contextlib import AbstractContextManager
+
     from agentkit.kpi_analytics.fact_store.models import (
         FactCorpusPeriod,
         FactGuardPeriod,
@@ -28,7 +30,10 @@ if TYPE_CHECKING:
         PeriodFilter,
         SyncState,
     )
-    from agentkit.kpi_analytics.fact_store.repository import FactRepository
+    from agentkit.kpi_analytics.fact_store.repository import (
+        FactRepository,
+        FactWriteSession,
+    )
 
 
 class FactStore:
@@ -107,6 +112,20 @@ class FactStore:
     def upsert_sync_state(self, state: SyncState) -> None:
         """Insert-or-replace one ``sync_state`` cursor row (idempotent on PK)."""
         self._repository.upsert_sync_state(state)
+
+    # -- atomic write session (FK-62 §62.3.2/§62.3.3) -----------------------
+
+    def begin_write_session(self) -> AbstractContextManager[FactWriteSession]:
+        """Open ONE atomic write session over the analytics tables (FK-62 §62.3.2).
+
+        The RefreshWorker drives all of a ``sync_analytics`` / ``purge_story_analytics``
+        call through this single transaction (slice replaces + ``fact_story``
+        writes + guard-counter drain + cursor update). Commit on clean exit,
+        rollback on any exception — no partial commit (FK-62 §62.3.2/§62.3.7).
+        The FactStore is still the ONLY write path into ``analytics.*`` (FK-62
+        §62.6.2): the session just bundles those writes atomically.
+        """
+        return self._repository.begin_write_session()
 
 
 __all__ = ["FactStore"]

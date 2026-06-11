@@ -25,6 +25,7 @@ from agentkit.kpi_analytics.views import (
 )
 
 if TYPE_CHECKING:
+    from agentkit.kpi_analytics.aggregation import RefreshWorker
     from agentkit.kpi_analytics.catalog import KpiCatalog, KpiDefinition
     from agentkit.kpi_analytics.fact_store import FactStore
 
@@ -48,15 +49,15 @@ class KpiAnalytics:
         catalog: The KpiCatalog providing KPI definitions.
         fact_store: Optional FactStore adapter (AG3-038). When ``None``,
             operations requiring it raise ``AnalyticsNotConfiguredError``.
-        refresh_worker: Optional RefreshWorker (follow-up story after AG3-038).
-            When ``None``, ``refresh_analytics`` returns ``SKIPPED``.
+        refresh_worker: Optional RefreshWorker (AG3-082). When ``None`` (or when
+            ``fact_store`` is ``None``), ``refresh_analytics`` returns ``SKIPPED``.
     """
 
     def __init__(
         self,
         catalog: KpiCatalog,
         fact_store: FactStore | None = None,
-        refresh_worker: object | None = None,
+        refresh_worker: RefreshWorker | None = None,
     ) -> None:
         self._catalog = catalog
         self._fact_store = fact_store
@@ -82,13 +83,20 @@ class KpiAnalytics:
         When FactStore or RefreshWorker are not configured, returns an explicit
         SKIPPED result. No silent success — FAIL CLOSED per AG3-029 deep-review.
 
+        AG3-082: when both dependencies are configured, this is the Closure adapter
+        onto the real RefreshWorker — it calls ``sync_analytics`` with
+        ``trigger=RefreshTrigger.CLOSURE`` (FK-62 §62.3.1 primary trigger) without
+        information loss. The Dashboard catch-up and Reset triggers are set by their
+        own callers (dashboard start / ``purge_story_analytics``), not through this
+        facade path (story §2.1.2).
+
         Args:
             project_key: Project scope for the refresh.
             hint_story_id: Optional story scope hint for the refresh.
                 ``None`` refreshes all dirty facts for the project.
 
         Returns:
-            RefreshResult with status SKIPPED (no infrastructure), OK or FAILED.
+            RefreshResult with status SKIPPED (no infrastructure) or OK.
         """
         if self._fact_store is None or self._refresh_worker is None:
             return RefreshResult(
@@ -97,9 +105,18 @@ class KpiAnalytics:
                 refreshed_facts=0,
                 errors=[],
             )
-        del project_key, hint_story_id
-        raise NotImplementedError(  # pragma: no cover
-            "KpiAnalytics.refresh_analytics full path requires FactStore + RefreshWorker"
+        from agentkit.kpi_analytics.aggregation import RefreshTrigger
+
+        result = self._refresh_worker.sync_analytics(
+            RefreshTrigger.CLOSURE,
+            project_key,
+            hint_story_id,
+        )
+        return RefreshResult(
+            status=RefreshStatus.OK,
+            reason=result.status.value,
+            refreshed_facts=result.events_processed,
+            errors=[],
         )
 
     def get_dashboard_view(self, project_key: str, view_kind: str) -> DashboardView:

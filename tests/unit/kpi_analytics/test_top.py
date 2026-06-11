@@ -98,6 +98,60 @@ def test_refresh_analytics_with_hint_story_id_returns_skipped_when_no_infra() ->
     assert result.status == RefreshStatus.SKIPPED
 
 
+class _SpyRefreshWorker:
+    """Records the trigger/args the facade passes to ``sync_analytics`` (AC5)."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[object, str, str | None]] = []
+
+    def sync_analytics(
+        self,
+        trigger: object,
+        project_key: str,
+        hint_story_id: str | None = None,
+    ) -> object:
+        from agentkit.kpi_analytics.aggregation.models import SyncResult, SyncStatus
+
+        self.calls.append((trigger, project_key, hint_story_id))
+        return SyncResult(
+            status=SyncStatus.SYNCED,
+            trigger=trigger,  # type: ignore[arg-type]
+            events_processed=7,
+            watermark="evt-9",
+        )
+
+
+def test_refresh_analytics_calls_real_worker_with_closure_trigger() -> None:
+    """AC5: with both deps set, the facade calls the worker with CLOSURE (no info loss)."""
+    from agentkit.kpi_analytics.aggregation import RefreshTrigger
+
+    worker = _SpyRefreshWorker()
+    analytics = KpiAnalytics(
+        catalog=KpiCatalog(), fact_store=object(), refresh_worker=worker  # type: ignore[arg-type]
+    )
+
+    result = analytics.refresh_analytics("tenant-a", hint_story_id="AG3-100")
+
+    assert worker.calls == [(RefreshTrigger.CLOSURE, "tenant-a", "AG3-100")]
+    assert result.status == RefreshStatus.OK
+    assert result.refreshed_facts == 7
+    assert result.reason == "synced"
+    assert result.errors == []
+
+
+def test_refresh_analytics_no_residual_not_implemented_with_both_deps() -> None:
+    """AC5: the old NotImplementedError path is gone once both deps are wired."""
+    worker = _SpyRefreshWorker()
+    analytics = KpiAnalytics(
+        catalog=KpiCatalog(), fact_store=object(), refresh_worker=worker  # type: ignore[arg-type]
+    )
+
+    # Must not raise NotImplementedError anymore.
+    result = analytics.refresh_analytics("tenant-a")
+
+    assert result.status == RefreshStatus.OK
+
+
 def test_get_dashboard_view_raises_when_no_fact_store() -> None:
     """BC-16: get_dashboard_view(project_key, view_kind)."""
     analytics = KpiAnalytics(catalog=KpiCatalog())

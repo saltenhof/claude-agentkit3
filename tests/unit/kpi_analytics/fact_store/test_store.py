@@ -15,6 +15,7 @@ The Postgres backend of the same logic is exercised by the contract test
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -34,7 +35,10 @@ from agentkit.kpi_analytics.fact_store import (
 from agentkit.state_backend.store.fact_repository import StateBackendFactRepository
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator, Sequence
     from pathlib import Path
+
+    from agentkit.kpi_analytics.fact_store.models import GuardInvocationCounter
 
 _NOW = datetime(2026, 6, 5, 12, 0, tzinfo=UTC)
 _LATER = datetime(2026, 6, 12, 12, 0, tzinfo=UTC)
@@ -118,9 +122,64 @@ class _FakeRepository:
     def upsert_sync_state(self, state: SyncState) -> None:
         self.last_sync = state
 
+    @contextmanager
+    def begin_write_session(self) -> Iterator[_FakeWriteSession]:
+        yield _FakeWriteSession()
+
+
+class _FakeWriteSession:
+    """Minimal in-memory ``FactWriteSession`` double (Protocol shape only)."""
+
+    def upsert_fact_story(self, fact: FactStory) -> None: ...
+
+    def delete_fact_story(self, project_key: str, story_id: str) -> int:
+        return 0
+
+    def replace_guard_period(
+        self,
+        keys: Sequence[tuple[str, str, datetime]],
+        rows: list[FactGuardPeriod],
+    ) -> None: ...
+
+    def replace_pool_period(
+        self,
+        keys: Sequence[tuple[str, str, datetime]],
+        rows: list[FactPoolPeriod],
+    ) -> None: ...
+
+    def replace_pipeline_period(
+        self,
+        keys: Sequence[tuple[str, datetime]],
+        rows: list[FactPipelinePeriod],
+    ) -> None: ...
+
+    def replace_corpus_period(
+        self,
+        keys: Sequence[tuple[str, datetime]],
+        rows: list[FactCorpusPeriod],
+    ) -> None: ...
+
+    def update_sync_cursor(self, state: SyncState) -> None: ...
+
+    def read_guard_counters_for_story(
+        self, project_key: str, story_id: str
+    ) -> list[GuardInvocationCounter]:
+        return []
+
+    def delete_guard_counters_for_story(
+        self, project_key: str, story_id: str
+    ) -> int:
+        return 0
+
 
 def test_fake_repository_satisfies_protocol() -> None:
     assert isinstance(_FakeRepository(), FactRepository)
+
+
+def test_fake_write_session_satisfies_protocol() -> None:
+    from agentkit.kpi_analytics.fact_store.repository import FactWriteSession
+
+    assert isinstance(_FakeWriteSession(), FactWriteSession)
 
 
 def test_store_delegates_upsert_and_read() -> None:
