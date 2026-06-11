@@ -57,5 +57,11 @@ class TestPackageExports:
             "format_story_display_id",
             "get_phases_for_story",
             "get_profile",
+            # AG3-074 (FK-59): the consolidated result axis is re-exported from
+            # the story_context_manager namespace.
+            "ExitClass",
+            "TerminalState",
+            "derive_terminal_state",
+            "validate_exit_class_constraints",
         }
         assert set(story_pkg.__all__) == expected
