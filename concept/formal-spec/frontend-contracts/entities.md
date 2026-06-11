@@ -725,6 +725,92 @@ entities:
         required: false
         target: frontend-contracts.entity.story_summary
 
+  - id: frontend-contracts.entity.execution_input_next
+    identity: project_key
+    description: >
+      Agent-Pull-Antwort (FK-70 §70.8a.2): genau eine naechste
+      delegierbare Story (oder keine) plus maschinenlesbare
+      Triage-Begruendung. Leitet aus demselben deterministischen
+      Selektor ab wie `execution_input_snapshot` (§70.8a.3) — die
+      erste Karte des Pick-Ergebnisses. Idempotent: gleiche Eingabe
+      liefert dieselbe Antwort.
+    attributes:
+      - name: project_key
+        kind: string
+        required: true
+      - name: story
+        kind: ref
+        required: false
+        target: frontend-contracts.entity.execution_input_stack
+        notes:
+          - >
+            Die naechste delegierbare Story als Stack-Karte. Fehlt,
+            wenn nichts delegierbar ist (kein 404).
+      - name: reason
+        kind: ref
+        required: false
+        target: frontend-contracts.entity.execution_input_next_reason
+        notes:
+          - >
+            Triage-Begruendung der gewaehlten Karte. Fehlt genau dann,
+            wenn `story` fehlt.
+
+  - id: frontend-contracts.entity.execution_input_next_reason
+    identity: composite(project_key, repo_bucket)
+    description: >
+      Maschinenlesbare Triage-Begruendung fuer die vom Agent-Pull
+      gewaehlte naechste Story (FK-70 §70.8a.2): Repo-Bucket,
+      Critical-Path-Flag, verbleibende Slots pro relevantem Cap und
+      aktiver Tiebreaker.
+    attributes:
+      - name: repo_bucket
+        kind: string
+        required: true
+        notes:
+          - Repo, aus dessen Bucket die Karte gezogen wurde.
+      - name: on_critical_path
+        kind: boolean
+        required: true
+        notes:
+          - Ob die gewaehlte Story auf dem kritischen Pfad liegt.
+      - name: global_slots_left
+        kind: integer
+        required: true
+        notes:
+          - >
+            Verbleibende globale Slots zum Pick-Zeitpunkt, identisch
+            berechnet wie `execution_input_snapshot.global_slots_left`.
+      - name: repo_slots
+        kind: list<ref>
+        required: true
+        target: frontend-contracts.entity.execution_input_repo_slot
+        notes:
+          - Verbleibende Slots pro relevantem Repo/Cap.
+      - name: active_tiebreaker
+        kind: string
+        required: true
+        notes:
+          - >
+            Der angewandte Tiebreaker, normativ
+            `critical_path_desc_then_story_number_asc` (§70.8a.3).
+
+  - id: frontend-contracts.entity.execution_input_repo_slot
+    identity: composite(project_key, repo)
+    description: >
+      Verbleibende Slots eines Repos zum Pick-Zeitpunkt (FK-70
+      §70.8a.3), Teil der `execution_input_next_reason`.
+    attributes:
+      - name: repo
+        kind: string
+        required: true
+      - name: repo_slots_left
+        kind: integer
+        required: true
+        notes:
+          - >
+            `repo_parallel_cap - running_in_repo - bereits_im_pick`,
+            lower-bounded auf 0.
+
   - id: frontend-contracts.entity.execution_limits
     identity: project_key
     description: >

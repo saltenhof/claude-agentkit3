@@ -11,7 +11,9 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from agentkit.execution_planning.dependency_graph import DependencyGraph
 from agentkit.execution_planning.entities import (
+    ExecutionCapacityBudgets,
     ParallelizationConfig,
     StoryDependencyKind,
 )
@@ -25,12 +27,22 @@ from agentkit.execution_planning.lifecycle import (
     assess_readiness,
     remove_dependency,
 )
+from agentkit.execution_planning.scheduling import (
+    evaluate_scheduling,
+    next_from_snapshot,
+    select_execution_input,
+)
 
 if TYPE_CHECKING:
+    from agentkit.execution_planning.entities import StoryRefForPlanning
     from agentkit.execution_planning.lifecycle import PlanningStoryRepository
     from agentkit.execution_planning.repository import (
         ParallelizationConfigRepository,
         StoryDependencyRepository,
+    )
+    from agentkit.execution_planning.scheduling import (
+        EvaluateSchedulingResult,
+        ExecutionInputSnapshot,
     )
     from agentkit.project_management.repository import ProjectRepository
 
@@ -50,6 +62,12 @@ _NEXT_READY_PATH = re.compile(
     r"^/v1/projects/(?P<project_key>[^/]+)/planning/next-ready$",
 )
 _CONFIG_PATH = re.compile(r"^/v1/projects/(?P<project_key>[^/]+)/planning/config$")
+_EXECUTION_INPUT_SNAPSHOT_PATH = re.compile(
+    r"^/v1/projects/(?P<project_key>[^/]+)/execution-input/snapshot$",
+)
+_EXECUTION_INPUT_NEXT_PATH = re.compile(
+    r"^/v1/projects/(?P<project_key>[^/]+)/execution-input/next$",
+)
 
 
 @dataclass(frozen=True)
@@ -150,6 +168,20 @@ class ExecutionPlanningRoutes:
         if next_ready_match is not None:
             return self._handle_next_ready(
                 next_ready_match.group("project_key"),
+                correlation_id,
+            )
+
+        snapshot_match = _EXECUTION_INPUT_SNAPSHOT_PATH.match(route_path)
+        if snapshot_match is not None:
+            return self._handle_execution_input_snapshot(
+                snapshot_match.group("project_key"),
+                correlation_id,
+            )
+
+        next_match = _EXECUTION_INPUT_NEXT_PATH.match(route_path)
+        if next_match is not None:
+            return self._handle_execution_input_next(
+                next_match.group("project_key"),
                 correlation_id,
             )
 
@@ -310,6 +342,101 @@ class ExecutionPlanningRoutes:
             HTTPStatus.OK,
             result.model_dump(mode="json"),
             correlation_id=correlation_id,
+        )
+
+    def _handle_execution_input_snapshot(
+        self,
+        project_key: str,
+        correlation_id: str,
+    ) -> ExecutionPlanningRouteResponse:
+        if self._project_repository.get(project_key) is None:
+            return _not_found_response(correlation_id)
+        snapshot = self._build_execution_input_snapshot(project_key)
+        # FK-70 §70.8a.1: an empty eligible/running list is a valid 200, never a 404.
+        return _json_response(
+            HTTPStatus.OK,
+            snapshot.model_dump(mode="json"),
+            correlation_id=correlation_id,
+        )
+
+    def _handle_execution_input_next(
+        self,
+        project_key: str,
+        correlation_id: str,
+    ) -> ExecutionPlanningRouteResponse:
+        if self._project_repository.get(project_key) is None:
+            return _not_found_response(correlation_id)
+        evaluation, stories, budgets = self._evaluate_execution_input(project_key)
+        result = next_from_snapshot(
+            project_key=project_key,
+            stories=stories,
+            evaluation=evaluation,
+            budgets=budgets,
+        )
+        return _json_response(
+            HTTPStatus.OK,
+            result.model_dump(mode="json"),
+            correlation_id=correlation_id,
+        )
+
+    def _build_execution_input_snapshot(
+        self,
+        project_key: str,
+    ) -> ExecutionInputSnapshot:
+        evaluation, stories, budgets = self._evaluate_execution_input(project_key)
+        return select_execution_input(
+            project_key=project_key,
+            stories=stories,
+            evaluation=evaluation,
+            budgets=budgets,
+        )
+
+    def _evaluate_execution_input(
+        self,
+        project_key: str,
+    ) -> tuple[EvaluateSchedulingResult, list[StoryRefForPlanning], ExecutionCapacityBudgets]:
+        """Build the single ``evaluate_scheduling`` result + selector inputs (§70.8a.3).
+
+        The Execution-Input surface and the admission path consume the SAME
+        ``evaluate_scheduling`` top-surface -- no second readiness/scheduling truth.
+        """
+        stories = self._story_repository.list_for_project(project_key)
+        edges = self._dependency_repository.list_for_project(project_key)
+        budgets = self._budgets_for_project(project_key, stories)
+        evaluation = evaluate_scheduling(
+            project_key=project_key,
+            stories=stories,
+            dependency_graph=DependencyGraph(edges),
+            budgets=budgets,
+        )
+        return evaluation, stories, budgets
+
+    def _budgets_for_project(
+        self,
+        project_key: str,
+        stories: list[StoryRefForPlanning],
+    ) -> ExecutionCapacityBudgets:
+        config = self._config_repository.get(project_key)
+        if config is None:
+            active = len(
+                [
+                    story
+                    for story in stories
+                    if story.lifecycle_status.lower()
+                    not in {"done", "completed", "pass", "pass_with_warnings"}
+                ],
+            )
+            config = ParallelizationConfig(
+                project_key=project_key,
+                max_parallel_stories=max(1, active),
+            )
+        repo_cap = config.max_parallel_stories_per_repo or config.max_parallel_stories
+        return ExecutionCapacityBudgets(
+            repo_parallel_cap=repo_cap,
+            merge_risk_cap=config.max_parallel_stories,
+            api_rate_limit_cap=config.max_parallel_stories,
+            llm_pool_cap=config.max_parallel_stories,
+            ci_capacity_cap=config.max_parallel_stories,
         )
 
     def _handle_get_config(

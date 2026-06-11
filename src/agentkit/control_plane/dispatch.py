@@ -17,8 +17,10 @@ This module is the productive wiring between the control-plane API entrypoint
   fires ONLY before the fresh-run setup start (first call, no phase-state,
   phase=setup) and CONSUMES (does not own) two owner surfaces: Tor 1 = persisted
   ``StoryStatus == Approved`` via the story-service; Tor 2 = computed
-  ``PlanningStatus == READY`` + an explicit scheduling admission via
-  execution-planning ``assess_readiness``. Missing Approved OR READY OR
+  ``PlanningStatus == READY`` + an explicit scheduling admission via the
+  execution-planning ``evaluate_scheduling`` top-surface (AG3-100 migration off the
+  legacy ``assess_readiness`` source -- one admission truth). Missing Approved OR
+  READY OR
   admission -- or an unresolvable / erroring surface -- rejects the setup start
   fail-closed (never default-to-allow). Persisted ``StoryStatus`` (lifecycle) and
   computed ``PlanningStatus`` (READY/BLOCKED) are kept as orthogonal axes;
@@ -89,9 +91,11 @@ class ApprovalReader(Protocol):
 class SchedulingAdmissionReader(Protocol):
     """Tor 2 read port: computed ``PlanningStatus`` READY + scheduling admission.
 
-    Implemented over execution-planning ``assess_readiness`` (BC 14, FK-70). The
-    guard CONSUMES the computed readiness/scheduling truth; it builds no scheduler
-    and no readiness logic of its own.
+    Implemented over execution-planning ``evaluate_scheduling`` (BC 14, FK-70 §70.8;
+    AG3-100 migration from the legacy ``assess_readiness`` source). The guard
+    CONSUMES the computed readiness/scheduling truth from the SINGLE
+    ``evaluate_scheduling`` top-surface; it builds no scheduler and no readiness
+    logic of its own, and no second parallel admission/scheduling truth exists.
     """
 
     def is_ready_and_admitted(self, project_key: str, story_display_id: str) -> bool:
@@ -669,21 +673,31 @@ def build_story_service_approval_reader(
 def build_execution_planning_admission_reader(
     store_dir: Path | None = None,
 ) -> SchedulingAdmissionReader:
-    """Build the productive Tor 2 reader over execution-planning ``assess_readiness``.
+    """Build the productive Tor 2 reader over execution-planning ``evaluate_scheduling``.
 
-    READY + scheduling admission is consumed as: the story appears in the
-    assessment's ``next_ready`` wave with ``is_ready=True`` (FK-70 §70.6.1/§70.6.4
-    -- ``next_ready`` is the computed READY + practical-parallelism-admitted set).
+    AG3-100 (FK-70 §70.8 / FK-20 §20.8.2): the admission gate consumes the SINGLE
+    ``evaluate_scheduling`` top-surface -- the mandatory call the ``PipelineEngine``
+    must make before any story start. READY + scheduling admission is consumed as:
+    the story is a ``ready_candidate`` of the evaluation. This MIGRATES the one
+    Tor-2 admission path off the legacy ``assess_readiness`` source; no second
+    parallel admission/scheduling truth is built (the legacy ``assess_readiness``
+    surface keeps serving the dashboard ``planning/next-ready`` detail endpoint, but
+    is no longer the admission source).
 
-    AG3-099 (FK-70 §70.10.2): the dependency edges feeding ``assess_readiness``
-    are read from the BC-9 planning projection path (the same path planning
-    writes go to), so admission/readiness and planning writes share one source of
-    truth -- no read/write split onto the legacy ``story_dependencies`` table.
+    AG3-099 (FK-70 §70.10.2): the dependency edges feeding ``evaluate_scheduling``
+    are read from the BC-9 planning projection path (the same path planning writes
+    go to), so admission/readiness and planning writes share one source of truth --
+    no read/write split onto the legacy ``story_dependencies`` table.
     """
     from agentkit.bootstrap.composition_root import (
         build_planning_story_dependency_repository,
     )
-    from agentkit.execution_planning.lifecycle import assess_readiness
+    from agentkit.execution_planning.dependency_graph import DependencyGraph
+    from agentkit.execution_planning.entities import (
+        ExecutionCapacityBudgets,
+        ParallelizationConfig,
+    )
+    from agentkit.execution_planning.scheduling import evaluate_scheduling
     from agentkit.state_backend.store.parallelization_config_repository import (
         StateBackendParallelizationConfigRepository,
     )
@@ -702,21 +716,39 @@ def build_execution_planning_admission_reader(
     dep_repo = build_planning_story_dependency_repository(store_dir)
     config_repo = StateBackendParallelizationConfigRepository(store_dir)
 
+    def _budgets(
+        project_key: str,
+        stories: list[object],
+    ) -> ExecutionCapacityBudgets:
+        config = config_repo.get(project_key)
+        if config is None:
+            config = ParallelizationConfig(
+                project_key=project_key,
+                max_parallel_stories=max(1, len(stories)),
+            )
+        repo_cap = config.max_parallel_stories_per_repo or config.max_parallel_stories
+        return ExecutionCapacityBudgets(
+            repo_parallel_cap=repo_cap,
+            merge_risk_cap=config.max_parallel_stories,
+            api_rate_limit_cap=config.max_parallel_stories,
+            llm_pool_cap=config.max_parallel_stories,
+            ci_capacity_cap=config.max_parallel_stories,
+        )
+
     @dataclass(frozen=True)
     class _ExecutionPlanningAdmissionReader:
         def is_ready_and_admitted(
             self, project_key: str, story_display_id: str
         ) -> bool:
-            assessment = assess_readiness(
+            stories = story_repo.list_for_project(project_key)
+            edges = dep_repo.list_for_project(project_key)
+            evaluation = evaluate_scheduling(
                 project_key=project_key,
-                story_repo=story_repo,
-                dep_repo=dep_repo,
-                config_repo=config_repo,
+                stories=stories,
+                dependency_graph=DependencyGraph(edges),
+                budgets=_budgets(project_key, list(stories)),
             )
-            return any(
-                ws.story_id == story_display_id and ws.is_ready
-                for ws in assessment.next_ready
-            )
+            return evaluation.is_ready(story_display_id)
 
     return _ExecutionPlanningAdmissionReader()
 
