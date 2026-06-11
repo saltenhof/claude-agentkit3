@@ -116,6 +116,11 @@ def main(argv: list[str] | None = None) -> int:
     # read-only in ``verify`` mode.
     _add_register_verify_parsers(subparsers)
 
+    # AG3-089 (FK-51): the upgrade boundary control. upgrade-project runs the
+    # FK-51 upgrade flow THROUGH the shared checkpoint engine (engine-driven
+    # flow, not a second installer).
+    _add_upgrade_parser(subparsers)
+
     # run-story (minimal -- reads issue, runs pipeline)
     run_parser = subparsers.add_parser(
         "run-story", help="Run a story through the pipeline",
@@ -227,6 +232,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_register_project(args)
     if args.command == "verify-project":
         return _cmd_verify_project(args)
+    if args.command == "upgrade-project":
+        return _cmd_upgrade_project(args)
     if args.command == "run-story":
         return _cmd_run_story(args)
     if args.command == "watch-worker":
@@ -524,6 +531,86 @@ def _cmd_verify_project(args: argparse.Namespace) -> int:
     print(f"Project verification (read-only) at {args.project_root}")
     _print_checkpoint_results(result)
     return 0 if result.success else 1
+
+
+def _add_upgrade_parser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    """Register the ``upgrade-project`` subcommand (FK-51, AG3-089).
+
+    Runs the FK-51 upgrade flow through the shared checkpoint engine.
+    ``--dry-run`` is plan-only (read-only ``dry_run`` mode); the default is the
+    mutating ``register`` mode (``.bak`` + write config migration, hook + git-hook
+    migration). ``--target-config-version`` is the desired
+    ``pipeline.config_version`` (AG3-070 SSOT).
+    """
+    upgrade_parser = subparsers.add_parser(
+        "upgrade-project",
+        help="Run the FK-51 upgrade flow via the checkpoint engine (AG3-089)",
+    )
+    upgrade_parser.add_argument("--project-key", required=True)
+    upgrade_parser.add_argument("--project-root", required=True)
+    upgrade_parser.add_argument("--github-owner", required=False)
+    upgrade_parser.add_argument("--github-repo", required=False)
+    upgrade_parser.add_argument(
+        "--target-config-version",
+        required=True,
+        help="Desired pipeline.config_version after migration (AG3-070 SSOT).",
+    )
+    upgrade_parser.add_argument(
+        "--bundle-version-changed",
+        action="store_true",
+        help="The target bundle version differs from the bound one (FK-51 §51.3).",
+    )
+    upgrade_parser.add_argument(
+        "--explicit-binding-switch",
+        action="store_true",
+        help="Explicitly switch the binding to the new bundle/profile (§51.3.3).",
+    )
+    upgrade_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Plan-only: report the planned upgrade without mutating.",
+    )
+
+
+def _cmd_upgrade_project(args: argparse.Namespace) -> int:
+    """Handle ``agentkit upgrade-project`` (FK-51, AG3-089)."""
+    from agentkit.exceptions import InstallationError, ProjectError
+    from agentkit.installer.checkpoint_engine.execution_mode import ExecutionMode
+    from agentkit.installer.upgrade.entry import run_checkpoint_upgrade
+    from agentkit.installer.upgrade.footprint import CustomizationPreservationError
+
+    project_root = Path(args.project_root)
+    coordinates = _resolve_github_coordinates(args, project_root)
+    if coordinates is None:
+        return 1
+    github_owner, github_repo = coordinates
+    mode = ExecutionMode.DRY_RUN if args.dry_run else ExecutionMode.REGISTER
+    try:
+        result = run_checkpoint_upgrade(
+            project_root,
+            project_key=args.project_key,
+            github_owner=github_owner,
+            github_repo=github_repo,
+            target_config_version=args.target_config_version,
+            mode=mode,
+            bundle_version_changed=args.bundle_version_changed,
+            explicit_binding_switch=args.explicit_binding_switch,
+        )
+    except CustomizationPreservationError as exc:
+        # F-51-023: a detected customization blocked a non-migrating write path.
+        print(f"upgrade-project blocked (F-51-023): {exc}", file=sys.stderr)
+        return 1
+    except (InstallationError, ProjectError) as exc:
+        print(f"upgrade-project failed: {exc}", file=sys.stderr)
+        return 1
+    label = "planned" if args.dry_run else "upgraded"
+    print(
+        f"Project {label} ({mode.value}) at {args.project_root}: "
+        f"scenario {result.scenario.scenario.value!r}; {result.detail}"
+    )
+    return 0
 
 
 def _cmd_run_story(args: argparse.Namespace) -> int:

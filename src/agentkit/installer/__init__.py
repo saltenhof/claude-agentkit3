@@ -27,11 +27,20 @@ from agentkit.installer.runner import (
     install_agentkit,
     uninstall_agentkit,
 )
+from agentkit.installer.upgrade import (
+    CustomizationFootprint,
+    UpgradeResult,
+    UpgradeScenario,
+    migrate_config,
+    run_cleanup,
+    run_upgrade,
+)
 
 __all__ = [
     "CheckpointEngine",
     "CheckpointResult",
     "CheckpointStatus",
+    "CustomizationFootprint",
     "ExecutionMode",
     "GhCliRepoExistenceProbe",
     "InstallConfig",
@@ -42,8 +51,13 @@ __all__ = [
     "RepoProbeResult",
     "RuntimeProfile",
     "UninstallResult",
+    "UpgradeResult",
+    "UpgradeScenario",
     "build_installer_flow",
     "install_agentkit",
+    "migrate_config",
     "run_checkpoint_install",
+    "run_cleanup",
+    "run_upgrade",
     "uninstall_agentkit",
 ]

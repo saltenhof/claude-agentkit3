@@ -67,7 +67,7 @@ def build_checkpoint_context(
     )
 
 
-def build_checkpoint_engine() -> CheckpointEngine:
+def build_checkpoint_engine() -> CheckpointEngine[CheckpointContext]:
     """Build the :class:`CheckpointEngine` over the installer flow + registries."""
     return CheckpointEngine(
         flow=build_installer_flow(),

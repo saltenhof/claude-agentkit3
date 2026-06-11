@@ -44,7 +44,7 @@ if TYPE_CHECKING:
     from agentkit.installer.checkpoint_engine.engine import CheckpointHandler
 
 
-def build_handler_registry() -> dict[str, CheckpointHandler]:
+def build_handler_registry() -> dict[str, CheckpointHandler[CheckpointContext]]:
     """Return the node-id -> :class:`CheckpointHandler` registry."""
     return {
         nid.CP_01_PACKAGE_CHECK: cp01_package_check,

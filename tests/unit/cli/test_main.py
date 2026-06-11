@@ -543,3 +543,125 @@ class TestCLIMain:
             "certfile": str(PurePath("tls/control-plane.pem")),
             "keyfile": str(PurePath("tls/control-plane.key")),
         }
+
+    def test_upgrade_project_dispatches_register_mode(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """``upgrade-project`` routes to the engine-driven upgrade entry (FIX 1).
+
+        Proves the CLI is wired to ``run_checkpoint_upgrade`` (the engine-driven
+        boundary control), the default mode is mutating ``register`` and the
+        target version is forwarded.
+        """
+        from agentkit.installer.checkpoint_engine.execution_mode import ExecutionMode
+
+        captured: dict[str, object] = {}
+
+        def fake_upgrade(project_root: Path, **kwargs: object) -> object:
+            captured["project_root"] = project_root
+            captured.update(kwargs)
+            return SimpleNamespace(
+                scenario=SimpleNamespace(scenario=SimpleNamespace(value="unchanged")),
+                detail="ok",
+            )
+
+        monkeypatch.setattr(
+            "agentkit.installer.upgrade.entry.run_checkpoint_upgrade", fake_upgrade
+        )
+
+        exit_code = main([
+            "upgrade-project",
+            "--project-key",
+            "demo",
+            "--project-root",
+            str(tmp_path),
+            "--github-owner",
+            "acme",
+            "--github-repo",
+            "demo",
+            "--target-config-version",
+            "4.0",
+        ])
+
+        assert exit_code == 0
+        assert captured["mode"] is ExecutionMode.REGISTER
+        assert captured["target_config_version"] == "4.0"
+        assert captured["project_key"] == "demo"
+
+    def test_upgrade_project_dry_run_maps_to_dry_run_mode(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """``--dry-run`` maps to the read-only ``dry_run`` mode (no mutation)."""
+        from agentkit.installer.checkpoint_engine.execution_mode import ExecutionMode
+
+        captured: dict[str, object] = {}
+
+        def fake_upgrade(project_root: Path, **kwargs: object) -> object:
+            captured.update(kwargs)
+            return SimpleNamespace(
+                scenario=SimpleNamespace(scenario=SimpleNamespace(value="unchanged")),
+                detail="planned",
+            )
+
+        monkeypatch.setattr(
+            "agentkit.installer.upgrade.entry.run_checkpoint_upgrade", fake_upgrade
+        )
+
+        exit_code = main([
+            "upgrade-project",
+            "--project-key",
+            "demo",
+            "--project-root",
+            str(tmp_path),
+            "--github-owner",
+            "acme",
+            "--github-repo",
+            "demo",
+            "--target-config-version",
+            "4.0",
+            "--dry-run",
+        ])
+
+        assert exit_code == 0
+        assert captured["mode"] is ExecutionMode.DRY_RUN
+
+    def test_upgrade_project_reports_preservation_block(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """A F-51-023 preservation block surfaces as a non-zero exit (fail-closed)."""
+        from agentkit.installer.upgrade.footprint import (
+            CustomizationPreservationError,
+        )
+
+        def fake_upgrade(project_root: Path, **kwargs: object) -> object:
+            raise CustomizationPreservationError(
+                "blocked by F-51-023", detail={"invariant": "F-51-023"}
+            )
+
+        monkeypatch.setattr(
+            "agentkit.installer.upgrade.entry.run_checkpoint_upgrade", fake_upgrade
+        )
+
+        exit_code = main([
+            "upgrade-project",
+            "--project-key",
+            "demo",
+            "--project-root",
+            str(tmp_path),
+            "--github-owner",
+            "acme",
+            "--github-repo",
+            "demo",
+            "--target-config-version",
+            "3.0",
+        ])
+
+        assert exit_code == 1
+        assert "F-51-023" in capsys.readouterr().err

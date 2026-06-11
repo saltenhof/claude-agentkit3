@@ -3,13 +3,19 @@
 Deterministically walks the installer :class:`FlowDefinition` (a
 ``level=COMPONENT, owner="Installer"`` instance of the existing process-DSL —
 NOT a new flow engine) and executes each ``step`` node's handler, routing
-``branch`` nodes via typed feature predicates over the
-:class:`~agentkit.installer.checkpoint_engine.context.CheckpointContext`.
+``branch`` nodes via typed feature predicates over the per-run context.
 
 Control flow (order + optional branches) lives in the flow contract; per-handler
 idempotency/mutation lives in the handlers (FK-50 §50.3.1). The engine itself is
 mode-agnostic: ``register``/``dry_run``/``verify`` differ only in what the
 handlers do, which they read from ``context.mode``.
+
+The engine is GENERIC over its run-context type (``ContextT``): the installer
+flow instantiates it with :class:`CheckpointContext`, the FK-51 upgrade flow
+(AG3-089) instantiates the SAME engine with its own upgrade context. This is a
+type-level reuse of the ONE walker (no second installer / second walker, story
+§6): both contexts only have to expose the typed ``mode`` the engine reads to
+honour the register-aborts / read-only-collects contract.
 """
 
 from __future__ import annotations
@@ -23,12 +29,26 @@ from agentkit.process.language.model import NodeKind
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
-    from agentkit.installer.checkpoint_engine.context import CheckpointContext
+    from agentkit.installer.checkpoint_engine.execution_mode import ExecutionMode
     from agentkit.installer.registration import CheckpointResult
     from agentkit.process.language.model import FlowDefinition
 
 
-class CheckpointHandler(Protocol):
+class EngineContext(Protocol):
+    """Minimal contract the :class:`CheckpointEngine` requires of a run context.
+
+    The engine only reads the typed :class:`ExecutionMode` off the context (to
+    honour the register-aborts-on-FAILED vs read-only-collects contract, FK-50
+    §50.2/§50.4). Concrete contexts (installer / upgrade) carry whatever ELSE
+    their handlers need on top of this.
+    """
+
+    @property
+    def mode(self) -> ExecutionMode:
+        """The typed execution mode of this run."""
+
+
+class CheckpointHandler[ContextT: EngineContext](Protocol):
     """Execution contract for a ``step`` checkpoint node.
 
     A handler receives the immutable run context and returns exactly one
@@ -36,21 +56,25 @@ class CheckpointHandler(Protocol):
     mutation when ``context.mode.mutations_allowed`` is ``False`` (FK-50 §50.2).
     """
 
-    def __call__(self, context: CheckpointContext) -> CheckpointResult:
+    def __call__(self, context: ContextT) -> CheckpointResult:
         """Run the checkpoint and return its result."""
 
 
 #: A branch predicate selects whether the branch's guarded successor runs.
 #: It is a pure function of the (immutable) context — no side effects.
-BranchPredicate = "Callable[[CheckpointContext], bool]"
+BranchPredicate = "Callable[[EngineContext], bool]"
 
 
-class CheckpointEngine:
-    """Deterministic walker over the installer component flow.
+class CheckpointEngine[ContextT: EngineContext]:
+    """Deterministic walker over a ``level=COMPONENT`` checkpoint flow.
+
+    Generic over the run-context type so the installer flow and the FK-51
+    upgrade flow (AG3-089) reuse the SAME walker (story §6 — no second
+    installer).
 
     Args:
-        flow: The installer :class:`FlowDefinition`
-            (``level=COMPONENT, owner="Installer"``).
+        flow: The :class:`FlowDefinition`
+            (``level=COMPONENT``; installer or upgrade owner).
         handlers: Registry mapping every ``step`` node id to its
             :class:`CheckpointHandler`.
         branch_predicates: Registry mapping every ``branch`` node id to a pure
@@ -61,8 +85,8 @@ class CheckpointEngine:
     def __init__(
         self,
         flow: FlowDefinition,
-        handlers: Mapping[str, CheckpointHandler],
-        branch_predicates: Mapping[str, Callable[[CheckpointContext], bool]],
+        handlers: Mapping[str, CheckpointHandler[ContextT]],
+        branch_predicates: Mapping[str, Callable[[ContextT], bool]],
     ) -> None:
         self._flow = flow
         self._handlers = handlers
@@ -99,8 +123,8 @@ class CheckpointEngine:
                     detail={"cause": "MissingBranchPredicate", "node": node.node_id},
                 )
 
-    def run(self, context: CheckpointContext) -> tuple[CheckpointResult, ...]:
-        """Execute the installer flow in ``context.mode`` and collect results.
+    def run(self, context: ContextT) -> tuple[CheckpointResult, ...]:
+        """Execute the flow in ``context.mode`` and collect results.
 
         Walks the flow from its first node, following the single ordered edge
         out of each node. A ``branch`` node evaluates its predicate: when
@@ -156,7 +180,7 @@ class CheckpointEngine:
 
         return tuple(results)
 
-    def _route_branch(self, branch_id: str, context: CheckpointContext) -> str | None:
+    def _route_branch(self, branch_id: str, context: ContextT) -> str | None:
         """Resolve the next node out of a ``branch`` node.
 
         The branch has exactly two outgoing edges by priority: the higher
@@ -191,4 +215,9 @@ class CheckpointEngine:
         return edges[0].target
 
 
-__all__ = ["BranchPredicate", "CheckpointEngine", "CheckpointHandler"]
+__all__ = [
+    "BranchPredicate",
+    "CheckpointEngine",
+    "CheckpointHandler",
+    "EngineContext",
+]
