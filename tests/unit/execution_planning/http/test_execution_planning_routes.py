@@ -127,6 +127,31 @@ def _story(number: int, *, status: str = "defined") -> StoryRefForPlanning:
     )
 
 
+def test_routes_default_dependency_repo_is_planning_write_path() -> None:
+    """AG3-099: the default-wired dependency repository is the planning-write-path one.
+
+    With ``dependency_repository=None`` the route handler must construct the
+    BC-9 planning-write-path repository (no legacy direct ``story_dependencies``
+    write), so HTTP edge writes share the planning projection source of truth
+    (FK-70 §70.10.2). Construction is side-effect-free (no DB connect), so the
+    other repos are injected to isolate the dependency-wiring branch.
+    """
+    from agentkit.state_backend.store.planning_story_dependency_repository import (
+        PlanningWritePathStoryDependencyRepository,
+    )
+
+    routes = ExecutionPlanningRoutes(
+        project_repository=_ProjectRepo(),
+        story_repository=_StoryRepo({}),
+        dependency_repository=None,  # force the default-wiring branch
+        config_repository=_ConfigRepo(),
+    )
+    assert isinstance(
+        routes._dependency_repository,  # noqa: SLF001
+        PlanningWritePathStoryDependencyRepository,
+    )
+
+
 class _NoopTenantScopeMiddleware:
     """Passthrough stub: all project-scoped paths pass without DB access (AG3-090)."""
 

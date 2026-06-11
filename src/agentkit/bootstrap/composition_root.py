@@ -46,6 +46,9 @@ if TYPE_CHECKING:
         VectorDbSyncPort,
     )
     from agentkit.config.models import ConformanceConfig
+    from agentkit.execution_planning.persistence.accessor import (
+        PlanningProjectionAccessor,
+    )
     from agentkit.exploration.change_frame import ChangeFrame
     from agentkit.exploration.drafting import ExplorationDrafting
     from agentkit.exploration.mandate.fine_design import FineDesignRoundOutcome
@@ -65,6 +68,9 @@ if TYPE_CHECKING:
         RequirementsCoverage as RequirementsCoverageProto,
     )
     from agentkit.skills import Skills
+    from agentkit.state_backend.store.planning_story_dependency_repository import (
+        PlanningWritePathStoryDependencyRepository,
+    )
     from agentkit.story_context_manager.models import StoryContext
     from agentkit.story_context_manager.story_model import ChangeImpact
     from agentkit.story_context_manager.types import StoryType
@@ -1566,6 +1572,64 @@ def build_projection_accessor(store_dir: Path | None = None) -> ProjectionAccess
     return _ProjectionAccessor(repos)
 
 
+def build_planning_projection_accessor(
+    store_dir: Path | None = None,
+) -> PlanningProjectionAccessor:
+    """Wire the BC-9-hosted planning projection write path (FK-70 §70.10.2, AG3-099).
+
+    Composition root for the BC14 planning projection write/read boundary. Builds
+    the ten concrete planning table adapters and injects them via
+    ``PlanningProjectionRepositories`` into ``PlanningProjectionAccessor`` -- the
+    single planning write boundary. This is the owner-distinct pendant to
+    ``build_projection_accessor`` (FK-69); it does NOT touch the FK-69 accessor or
+    its seven-value ``ProjectionKind`` contract.
+
+    Args:
+        store_dir: State-backend base directory (SQLite only; Postgres ignores).
+
+    Returns:
+        A fully wired ``PlanningProjectionAccessor``.
+    """
+    from agentkit.execution_planning.persistence.accessor import (
+        PlanningProjectionAccessor as _PlanningProjectionAccessor,
+    )
+    from agentkit.state_backend.store.planning_projection_repository import (
+        build_planning_projection_repositories,
+    )
+
+    repos = build_planning_projection_repositories(store_dir)
+    return _PlanningProjectionAccessor(repos)
+
+
+def build_planning_story_dependency_repository(
+    store_dir: Path | None = None,
+) -> PlanningWritePathStoryDependencyRepository:
+    """Wire the planning-write-path ``StoryDependencyRepository`` (AG3-099 migration).
+
+    Replaces the legacy direct-facade ``StateBackendStoryDependencyRepository`` for
+    the execution-planning HTTP write path: ``add``/``remove``/``list`` route
+    through ``PlanningProjectionAccessor`` and the ``dependency_edge`` planning
+    family, so there is no direct state_backend planning write anymore (FK-70
+    §70.10.2, no double write-truth).
+
+    Args:
+        store_dir: State-backend base directory (SQLite only; Postgres ignores).
+
+    Returns:
+        A wired ``PlanningWritePathStoryDependencyRepository``.
+    """
+    from agentkit.state_backend.store.planning_projection_repository import (
+        StateBackendDependencyEdgeProjectionRepository,
+    )
+    from agentkit.state_backend.store.planning_story_dependency_repository import (
+        PlanningWritePathStoryDependencyRepository as _PlanningRepo,
+    )
+
+    accessor = build_planning_projection_accessor(store_dir)
+    edge_repo = StateBackendDependencyEdgeProjectionRepository(store_dir)
+    return _PlanningRepo(accessor=accessor, edge_repo=edge_repo)
+
+
 def build_closure_phase_handler(
     config: object,
     *,
@@ -2658,4 +2722,4 @@ def build_failure_corpus(accessor: ProjectionAccessor) -> FailureCorpus:
 
 
 # Keep export metadata compact so module-level LOC stays under the project gate.
-__all__ = ["ClosureConfigUnavailableError", "SetupCoordinatesUnavailableError", "build_artifact_invalidation_sink", "build_review_completion_sink", "build_artifact_manager", "build_closure_phase_handler", "build_exploration_drafting", "build_exploration_phase_handler", "build_exploration_review", "build_failure_corpus", "build_integrity_gate", "build_phase_state_residue_probe", "build_pipeline_engine", "build_pipeline_handler_registry", "build_producer_registry", "build_projection_accessor", "build_setup_config_for_run", "build_setup_phase_handler", "build_setup_preflight_gate", "build_skills", "build_sonar_gate_port", "build_structural_are_provider", "build_structural_build_test_port", "build_verify_system"]  # noqa: E501
+__all__ = ["ClosureConfigUnavailableError", "SetupCoordinatesUnavailableError", "build_artifact_invalidation_sink", "build_review_completion_sink", "build_artifact_manager", "build_closure_phase_handler", "build_exploration_drafting", "build_exploration_phase_handler", "build_exploration_review", "build_failure_corpus", "build_integrity_gate", "build_phase_state_residue_probe", "build_pipeline_engine", "build_pipeline_handler_registry", "build_planning_projection_accessor", "build_planning_story_dependency_repository", "build_producer_registry", "build_projection_accessor", "build_setup_config_for_run", "build_setup_phase_handler", "build_setup_preflight_gate", "build_skills", "build_sonar_gate_port", "build_structural_are_provider", "build_structural_build_test_port", "build_verify_system"]  # noqa: E501

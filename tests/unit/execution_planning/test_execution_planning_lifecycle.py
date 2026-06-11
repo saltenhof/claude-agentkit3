@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from agentkit.execution_planning.audit import PlanningAuditEmitter
 from agentkit.execution_planning.entities import (
     ExecutionWave,
     ExecutionWaveLifecycle,
@@ -25,6 +26,8 @@ from agentkit.execution_planning.lifecycle import (
     mark_wave_after_results,
     remove_dependency,
 )
+from agentkit.telemetry.emitters import MemoryEmitter
+from agentkit.telemetry.events import EventType
 
 
 @dataclass
@@ -223,6 +226,108 @@ def test_assess_readiness_uses_default_parallel_config() -> None:
     )
 
     assert [story.story_id for story in result.next_ready] == ["AK3-002"]
+
+
+def test_assess_readiness_emits_story_ready_and_blocked_audit() -> None:
+    """AC7: the readiness evaluation emits ``story_ready``/``story_blocked``.
+
+    AK3-002 hard-depends on the not-yet-done AK3-001, so AK3-001 is READY and
+    AK3-002 is BLOCKED. ``assess_readiness`` is the AG3-099 decision site for
+    these two audit events (FK-70 §70.6.1/§70.10.3).
+    """
+    story_repo = _StoryRepo(
+        {
+            ("tenant-a", "AK3-001"): _story("tenant-a", 1),
+            ("tenant-a", "AK3-002"): _story("tenant-a", 2),
+        },
+    )
+    dep_repo = _DepRepo(
+        [
+            StoryDependency(
+                story_id="AK3-002",
+                depends_on_story_id="AK3-001",
+                kind=StoryDependencyKind.HARD_STORY_DEPENDENCY,
+                created_at=datetime.now(UTC),
+            ),
+        ],
+    )
+    emitter = MemoryEmitter()
+    audit = PlanningAuditEmitter(emitter)
+
+    assess_readiness(
+        project_key="tenant-a",
+        story_repo=story_repo,
+        dep_repo=dep_repo,
+        config_repo=_ConfigRepo(),
+        audit=audit,
+    )
+
+    ready = {
+        event.story_id
+        for event in emitter.all_events
+        if event.event_type is EventType.STORY_READY
+    }
+    blocked = {
+        event.story_id
+        for event in emitter.all_events
+        if event.event_type is EventType.STORY_BLOCKED
+    }
+    assert ready == {"AK3-001"}
+    assert blocked == {"AK3-002"}
+    blocked_events = [
+        event
+        for event in emitter.all_events
+        if event.event_type is EventType.STORY_BLOCKED
+    ]
+    # story_blocked carries the mandatory reason (FK-68 §68.2.2 contract).
+    assert blocked_events[0].payload["reason"]
+
+
+def test_emit_readiness_audit_without_plan_derivation_emits_ready_only() -> None:
+    """The audit emitter guards the ``plan_derivation is None`` case (FK-70 §70.10.3).
+
+    ``ReadinessAssessment.plan_derivation`` is optional; when it is absent the
+    block-emission loop must be skipped (early return) while READY stories still
+    emit ``story_ready``. This proves the defensive guard rather than crashing on
+    ``None.blocked_set``.
+    """
+    from agentkit.execution_planning.entities import ReadinessAssessment, WaveStory
+    from agentkit.execution_planning.lifecycle import _emit_readiness_audit
+
+    assessment = ReadinessAssessment(
+        next_ready=[
+            WaveStory(
+                story_id="AK3-001", story_number=1, title="S1", wave=0, is_ready=True
+            )
+        ],
+        next_wave_after=[],
+        theoretical_parallelism=1,
+        practical_parallelism=1,
+        reason="ok",
+        plan_derivation=None,
+    )
+    emitter = MemoryEmitter()
+    _emit_readiness_audit(
+        assessment, project_key="tenant-a", audit=PlanningAuditEmitter(emitter)
+    )
+    emitted = [event.event_type for event in emitter.all_events]
+    assert emitted == [EventType.STORY_READY]
+
+
+def test_assess_readiness_without_audit_emits_nothing() -> None:
+    """No audit emitter -> readiness evaluation is silent (back-compat)."""
+    story_repo = _StoryRepo(
+        {("tenant-a", "AK3-001"): _story("tenant-a", 1)},
+    )
+    # Pure assertion: assess_readiness(audit=None) does not raise and yields a
+    # result; covered jointly with the default-config test above.
+    result = assess_readiness(
+        project_key="tenant-a",
+        story_repo=story_repo,
+        dep_repo=_DepRepo(),
+        config_repo=_ConfigRepo(),
+    )
+    assert [s.story_id for s in result.next_ready] == ["AK3-001"]
 
 
 def test_execution_wave_collapses_on_partial_failure() -> None:

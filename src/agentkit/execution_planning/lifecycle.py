@@ -26,6 +26,7 @@ from agentkit.execution_planning.readiness import (
 )
 
 if TYPE_CHECKING:
+    from agentkit.execution_planning.audit import PlanningAuditEmitter
     from agentkit.execution_planning.repository import (
         ParallelizationConfigRepository,
         StoryDependencyRepository,
@@ -99,8 +100,27 @@ def assess_readiness(
     story_repo: PlanningStoryRepository,
     dep_repo: StoryDependencyRepository,
     config_repo: ParallelizationConfigRepository,
+    audit: PlanningAuditEmitter | None = None,
 ) -> ReadinessAssessment:
-    """Build the project readiness assessment."""
+    """Build the project readiness assessment.
+
+    This is the readiness EVALUATION decision site (FK-70 §70.6.1). When an
+    ``audit`` emitter is supplied, the resulting READY/BLOCKED state of each
+    evaluated story is emitted as the ``story_ready`` / ``story_blocked`` BC14
+    audit events (FK-70 §70.10.3) -- these decisions are genuinely AG3-099-scoped
+    (readiness derivation), unlike the scheduling/gate/wave decisions which are
+    AG3-100-scoped.
+
+    Args:
+        project_key: Tenant/project scope key.
+        story_repo: Planning story reader.
+        dep_repo: Dependency-edge reader (planning projection path).
+        config_repo: Parallelization config reader.
+        audit: Optional BC14 audit emitter for ``story_ready``/``story_blocked``.
+
+    Returns:
+        The computed ``ReadinessAssessment``.
+    """
 
     stories = story_repo.list_for_project(project_key)
     edges = dep_repo.list_for_project(project_key)
@@ -118,12 +138,45 @@ def assess_readiness(
             project_key=project_key,
             max_parallel_stories=max(1, active_story_count),
         )
-    return compute_readiness(
+    assessment = compute_readiness(
         DependencyGraph(edges),
         completed_story_ids_from_statuses(stories),
         stories,
         config,
     )
+    if audit is not None:
+        _emit_readiness_audit(assessment, project_key=project_key, audit=audit)
+    return assessment
+
+
+def _emit_readiness_audit(
+    assessment: ReadinessAssessment,
+    *,
+    project_key: str,
+    audit: PlanningAuditEmitter,
+) -> None:
+    """Emit ``story_ready``/``story_blocked`` for the evaluated readiness result.
+
+    READY stories (the computed ``next_ready`` wave) emit ``story_ready``; the
+    blocked stories of the derived plan emit ``story_blocked`` with the dominant
+    blocker reason code (FK-70 §70.10.3).
+    """
+    for wave_story in assessment.next_ready:
+        audit.story_ready(story_id=wave_story.story_id, project_key=project_key)
+    plan = assessment.plan_derivation
+    if plan is None:
+        return
+    for wave_story in plan.blocked_set:
+        reason = (
+            wave_story.blocked_by[0].reason_code
+            if wave_story.blocked_by
+            else "blocked"
+        )
+        audit.story_blocked(
+            story_id=wave_story.story_id,
+            reason=reason,
+            project_key=project_key,
+        )
 
 
 def mark_wave_after_results(

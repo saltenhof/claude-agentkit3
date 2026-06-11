@@ -106,11 +106,16 @@ class ExecutionPlanningRoutes:
 
             story_repository = StateBackendPlanningStoryRepository()
         if dependency_repository is None:
-            from agentkit.state_backend.store.story_dependency_repository import (
-                StateBackendStoryDependencyRepository,
+            # AG3-099 (FK-70 §70.10.2): planning writes flow through the BC-9
+            # planning projection write path, not a direct state_backend repo
+            # write. The legacy ``StateBackendStoryDependencyRepository`` is
+            # replaced by the planning-write-path repository so there is no
+            # double write-truth for ``dependency_edge``.
+            from agentkit.bootstrap.composition_root import (
+                build_planning_story_dependency_repository,
             )
 
-            dependency_repository = StateBackendStoryDependencyRepository()
+            dependency_repository = build_planning_story_dependency_repository()
         if config_repository is None:
             from agentkit.state_backend.store.parallelization_config_repository import (
                 StateBackendParallelizationConfigRepository,

@@ -674,7 +674,15 @@ def build_execution_planning_admission_reader(
     READY + scheduling admission is consumed as: the story appears in the
     assessment's ``next_ready`` wave with ``is_ready=True`` (FK-70 §70.6.1/§70.6.4
     -- ``next_ready`` is the computed READY + practical-parallelism-admitted set).
+
+    AG3-099 (FK-70 §70.10.2): the dependency edges feeding ``assess_readiness``
+    are read from the BC-9 planning projection path (the same path planning
+    writes go to), so admission/readiness and planning writes share one source of
+    truth -- no read/write split onto the legacy ``story_dependencies`` table.
     """
+    from agentkit.bootstrap.composition_root import (
+        build_planning_story_dependency_repository,
+    )
     from agentkit.execution_planning.lifecycle import assess_readiness
     from agentkit.state_backend.store.parallelization_config_repository import (
         StateBackendParallelizationConfigRepository,
@@ -682,12 +690,16 @@ def build_execution_planning_admission_reader(
     from agentkit.state_backend.store.planning_story_repository import (
         StateBackendPlanningStoryRepository,
     )
-    from agentkit.state_backend.store.story_dependency_repository import (
-        StateBackendStoryDependencyRepository,
-    )
 
     story_repo = StateBackendPlanningStoryRepository(store_dir)
-    dep_repo = StateBackendStoryDependencyRepository(store_dir)
+    # AG3-099 FK-70 §70.10.2 (SINGLE SOURCE OF TRUTH): admission/readiness must
+    # read dependency edges from the SAME planning projection path that planning
+    # writes go to (``planning_dependency_edge``), not the legacy direct
+    # ``story_dependencies`` table. Using the legacy
+    # ``StateBackendStoryDependencyRepository`` here would split read truth from
+    # write truth -- a story READY-blocking edge written via the planning path
+    # would be invisible to admission.
+    dep_repo = build_planning_story_dependency_repository(store_dir)
     config_repo = StateBackendParallelizationConfigRepository(store_dir)
 
     @dataclass(frozen=True)
