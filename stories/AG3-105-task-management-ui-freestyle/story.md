@@ -51,8 +51,10 @@
 9. Empty-State + Fehler-Pille (Optimistic-Revert) vorhanden (Test).
 10. **Pflichtbefehle gruen:** pytest unit/integration/contract (in Chunks, `-n0`); mypy default + `--platform linux`; ruff; vier Konzept-Gates; Coverage >= 85 %. Zusaetzlich (Frontend-TS): Build + Frontend-Test-/Lint-Lauf gruen.
 
+11. **End-to-End ohne Stub (Frontend-Abnahme-Haertekriterium, verbindlich — User-Direktive 2026-06-11):** Diese Story gilt **erst dann als fertig**, wenn die Task-Management-UI **End-to-End gegen die vollstaendige reale `task_management`-Backend-Surface** verprobt ist, die sie schnittstellentechnisch benoetigt — **ohne Stubbing der Backend-/BFF-/DB-Seite**. Waehrend der Entwicklung darf der Worker-Agent die UI gegen einen Self-Stub testen; die **Abnahme** verlangt den nachgewiesenen realen Datenfluss (Task anlegen/Status setzen in der UI -> BFF/API -> echte task_management-Logik -> echter DB-Schreibvorgang -> echter DB-Lesevorgang -> die Aenderung erscheint wieder in der UI), belegt durch **echte End-to-End-Integrationstests** (kein Mock an der Backend-/DB-Grenze; echte Persistenz, echte Endpunkte). Fehlt fuer eine benoetigte Aktion das reale Backend-Endpoint, ist dessen Interface-Integration **Teil dieser Story** (Frontend + zugehoerige Backend-Interface-Arbeit), nicht ein paralleler Stub. Verbot von „Komponente gebaut, aber nicht verdrahtet".
+
 ## 4. Definition of Done
-- AK 1–10 erfuellt; giftige Codex-Review PASS; (Implementierung/Commit erst nach Execution-Plan-Freigabe **und** nach Lieferung/Gruen-Status des AG3-096-Vertrags + des Task-BFF-`http/`-Moduls — siehe §7 — diese Story wird zunaechst nur autorisiert/reviewt).
+- AK 1–11 erfuellt; giftige Codex-Review PASS; (Implementierung/Commit erst nach Execution-Plan-Freigabe **und** nach Lieferung/Gruen-Status des AG3-096-Vertrags + des Task-BFF-`http/`-Moduls — siehe §7 — diese Story wird zunaechst nur autorisiert/reviewt).
 
 ## 5. Guardrail-Referenzen
 - **FIX THE MODEL / SINGLE SOURCE OF TRUTH:** Task-Zustand/-Verlinkung leben in der `task_management`-BC (AG3-096); die UI haelt **keine** zweite Task-Wahrheit, keinen Schattenstate als Persistenz.

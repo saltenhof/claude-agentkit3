@@ -85,8 +85,10 @@ Es existiert ein **funktional vollstaendiger Prototyp**, aber als ein grosser Ap
     - **Pflicht-Remote-Gates (AGENTS.md §„Pflicht-Gates vor fertig"):** `scripts/ci/check_remote_gates.ps1` gruen — Jenkins gruen (`http://localhost:9900/job/claude-agentkit3/`) **und** Sonar Quality-Gate `OK` strikt mit `violations=0`, `critical_violations=0`, `security_hotspots=0` (`http://192.168.0.20:9901`); das Script scheitert hart bei rot (`scripts/ci/check_remote_gates.ps1:75`-`:83`).
     - Frontend-TS (Arbeitsverzeichnis = der mit dieser Story etablierte Frontend-App-Ordner; im Prototyp `frontend/prototype` ist es `npm`): `npm run build`, `npm run test`, `npm run lint` gruen (FK-72 §72.13.4: Tests nachziehen).
 
+14. **End-to-End ohne Stub (Frontend-Abnahme-Haertekriterium, verbindlich — User-Direktive 2026-06-11):** Diese Story gilt **erst dann als fertig**, wenn die App-Shell/Sichten **End-to-End gegen die vollstaendige reale Backend-Funktionalitaet** verprobt sind, die sie schnittstellentechnisch benoetigen — **ohne Stubbing der Backend-/BFF-/DB-Seite**. Waehrend der Entwicklung darf der Worker-Agent gegen einen Self-Stub testen; die **Abnahme** verlangt den nachgewiesenen realen Datenfluss (UI -> BFF/API -> echte Backend-Logik -> echter DB-Schreibvorgang -> echter DB-Lesevorgang -> zurueck in die Sicht), belegt durch **echte End-to-End-Integrationstests** (kein Mock an der Backend-/DB-Grenze; echte Persistenz, echte Endpunkte). Fehlt fuer eine benoetigte Sicht das reale Backend-Endpoint, ist dessen Interface-Integration **Teil dieser Story** (Frontend + zugehoerige Backend-Interface-Arbeit), nicht ein paralleler Stub. Verbot von „Komponente gebaut, aber nicht verdrahtet".
+
 ## 4. Definition of Done
-- AK 1–13 erfuellt; giftige Codex-Review PASS; (Implementierung/Commit erst nach Execution-Plan-Freigabe — diese Story wird zunaechst nur autorisiert/reviewt).
+- AK 1–14 erfuellt; giftige Codex-Review PASS; (Implementierung/Commit erst nach Execution-Plan-Freigabe — diese Story wird zunaechst nur autorisiert/reviewt).
 
 ## 5. Guardrail-Referenzen
 - **FIX THE MODEL / KEIN GOD-VIEW:** BC-aligned Slices + Shell-Klammer, kein UI-BC, kein Monolith (FK-72 §72.2); Cross-BC-Sichten sind Composer.

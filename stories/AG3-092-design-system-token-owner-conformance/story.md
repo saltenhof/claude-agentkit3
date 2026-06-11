@@ -64,8 +64,10 @@ Der Prototyp traegt die Design-Werte heute **nur als CSS** ohne typisierten Owne
 8. Chart-Serienfarben-Familie `chart.series.*` existiert im Owner (deckt die Prototyp-`SERIES_COLORS`, `AnalyticsView.tsx:38-51`, ab) und ist Teil des `get_design_tokens`-Outputs; ein Test belegt, dass die Familie die im Prototyp genutzten Serienfarben referenziert (Token statt Ad-hoc-Hex), damit AG3-094 sie konsumieren kann.
 9. **Pflichtbefehle gruen:** pytest unit/integration/contract (in Chunks, `-n0`); mypy default + `--platform linux`; ruff; vier Konzept-Gates; Coverage >= 85 %.
 
+10. **End-to-End ohne Stub (Frontend-Abnahme-Haertekriterium, verbindlich — User-Direktive 2026-06-11):** Diese Story gilt **erst dann als fertig**, wenn die Token-Lieferung **End-to-End gegen die reale `control_plane`-Backend-Surface** verprobt ist — **ohne Stubbing/`NotImplemented`** an der Token-Owner- oder HTTP-Grenze: ein echter Consumer-Request laeuft ueber die reale `control_plane_http`-`kpi_analytics`-Boundary an den realen Token-Owner und liefert das echte typisierte Token-Set zurueck, belegt durch einen **echten End-to-End-Integrationstest** (kein Mock an der Owner-/HTTP-Grenze; der bestehende `NotImplemented`-Stub ist nachweislich ersetzt). Verbot von „Token-Owner gebaut, aber HTTP-Surface nicht real verdrahtet".
+
 ## 4. Definition of Done
-- AK 1–9 erfuellt; giftige Codex-Review PASS; (Implementierung/Commit erst nach Execution-Plan-Freigabe — diese Story wird zunaechst nur autorisiert/reviewt).
+- AK 1–10 erfuellt; giftige Codex-Review PASS; (Implementierung/Commit erst nach Execution-Plan-Freigabe — diese Story wird zunaechst nur autorisiert/reviewt).
 
 ## 5. Guardrail-Referenzen
 - **FIX THE MODEL / SINGLE SOURCE OF TRUTH:** **ein** Token-Owner als Quelle; CSS-Tokens sind dessen gepruefte Auspraegung (Richtung Owner→CSS festgelegt), keine zweite parallel gepflegte Wertliste.

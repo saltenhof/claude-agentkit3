@@ -82,9 +82,11 @@ Charts existieren im Prototyp, aber **nicht** auf echten KPI-Endpoints und **ohn
    - Pflicht-Remote-Gates (AGENTS.md): `scripts/ci/check_remote_gates.ps1` gruen (Jenkins `http://localhost:9900/job/claude-agentkit3/` + Sonar `http://192.168.0.20:9901`; Sonar strikt `violations=0`, `critical_violations=0`, `security_hotspots=0`).
    - Frontend-TS (Arbeitsverzeichnis = der mit AG3-093 etablierte Frontend-App-Ordner, Package-Manager wie dort festgelegt; im Prototyp `frontend/prototype` ist es `npm`): `npm run build`, `npm run test`, `npm run lint` gruen.
 
+10. **End-to-End ohne Stub (Frontend-Abnahme-Haertekriterium, verbindlich — User-Direktive 2026-06-11):** Diese Story gilt **erst dann als fertig**, wenn die Dashboards/Charts/Live-Hooks **End-to-End gegen die vollstaendige reale Backend-Funktionalitaet** verprobt sind (echte KPI-Endpoints, echter SSE-Endpoint), die sie schnittstellentechnisch benoetigen — **ohne Stubbing der Backend-/BFF-/DB-Seite**. Waehrend der Entwicklung darf der Worker-Agent gegen einen Self-Stub testen; die **Abnahme** verlangt den nachgewiesenen realen Datenfluss (UI -> BFF/API -> echte Backend-Logik -> echter DB-Schreibvorgang -> echter DB-Lesevorgang/echtes SSE-Event -> zurueck in die Sicht), belegt durch **echte End-to-End-Integrationstests** (kein Mock an der Backend-/DB-Grenze; echte Persistenz, echte Endpunkte). Fehlt fuer eine benoetigte Schnittstelle das reale Backend-Endpoint, ist dessen Interface-Integration **Teil dieser Story** (Frontend + zugehoerige Backend-Interface-Arbeit), nicht ein paralleler Stub. Verbot von „Komponente gebaut, aber nicht verdrahtet".
+
 ## 4. Definition of Done
 
-- AK 1–9 erfuellt; giftige Codex-Review PASS; (Implementierung/Commit erst nach Execution-Plan-Freigabe — diese Story wird zunaechst nur autorisiert/reviewt).
+- AK 1–10 erfuellt; giftige Codex-Review PASS; (Implementierung/Commit erst nach Execution-Plan-Freigabe — diese Story wird zunaechst nur autorisiert/reviewt).
 
 ## 5. Guardrail-Referenzen
 
