@@ -83,6 +83,27 @@ class EventType(StrEnum):
     CONFORMANCE_LEVEL_EVALUATED = "conformance_level_evaluated"
     CONFORMANCE_ASSESSMENT_COMPLETED = "conformance_assessment_completed"
 
+    # Execution-Planning (BC14, FK-68 §68.2.2 Z. 380-389). AG3-081 owns the
+    # catalogue values and their mandatory-payload contracts only; the domain
+    # emitters live in the execution-planning BC (AG3-099) over the existing
+    # generic emitter infrastructure.
+    DEPENDENCY_RECORDED = "dependency_recorded"
+    STORY_READY = "story_ready"
+    STORY_BLOCKED = "story_blocked"
+    PLAN_REVISED = "plan_revised"
+    SCHEDULING_DECIDED = "scheduling_decided"
+    GATE_RESOLVED = "gate_resolved"
+    RULEBOOK_COMPILED = "rulebook_compiled"
+    WAVE_COLLAPSED = "wave_collapsed"
+
+    # ARE / Requirements (BC15, FK-68 §68.2.2 Z. 397-399). AG3-081 owns the
+    # catalogue values and their mandatory-payload contracts; the domain
+    # ARE emitters live in the requirements BC. ``are_gate_result`` is raised
+    # here from a payload-pinning-only contract to a full enum member.
+    ARE_REQUIREMENTS_LINKED = "are_requirements_linked"
+    ARE_EVIDENCE_SUBMITTED = "are_evidence_submitted"
+    ARE_GATE_RESULT = "are_gate_result"
+
     # Exploration / mandate (FK-25 §25.8). The active emitters live in the
     # exploration-and-design BC (e.g. AG3-046); this BC owns the catalogue
     # values and their mandatory-payload contracts only.
@@ -250,17 +271,42 @@ MANDATORY_PAYLOAD_FIELDS: Mapping[EventType, tuple[str, ...]] = {
         "exceeded",
         "story_id",
     ),
+    # FK-68 §68.2.2 (Z. 380-389) — BC14 Execution-Planning events. The mandatory
+    # payload fields are the audit catalogue AG3-099 emits against; AG3-081 pins
+    # them here (one mandatory set per event name, no second contract system).
+    EventType.DEPENDENCY_RECORDED: ("story_id", "depends_on_id"),
+    EventType.STORY_READY: ("story_id",),
+    EventType.STORY_BLOCKED: ("story_id", "reason"),
+    EventType.PLAN_REVISED: ("plan_id", "trigger"),
+    EventType.SCHEDULING_DECIDED: ("story_id", "wave_id", "decision"),
+    EventType.GATE_RESOLVED: ("gate_id", "result"),
+    EventType.RULEBOOK_COMPILED: ("rulebook_id",),
+    EventType.WAVE_COLLAPSED: ("wave_id", "story_count"),
+    # FK-68 §68.2.2 (Z. 397-399) — BC15 ARE / Requirements events.
+    EventType.ARE_REQUIREMENTS_LINKED: ("story_id", "requirement_count"),
+    EventType.ARE_EVIDENCE_SUBMITTED: ("story_id", "evidence_type"),
+    # ARE-payload conflict resolution (story §2.1.3 / AC2, Owner = telemetry BC):
+    # FK-68 §68.2.2 is the canonical Single Source of Truth for ``are_gate_result``
+    # (mandatory = ``story_id``, ``result``). The FK-61 §61.12.2 metric fields
+    # ``covered``/``required``/``coverage_ratio`` stay ENRICHED but OPTIONAL (NOT
+    # mandatory) — one mandatory set per event name, no second String-Map path.
+    EventType.ARE_GATE_RESULT: ("story_id", "result"),
 }
 
-# ``integrity_gate_result`` / ``are_gate_result`` are documented in FK-61
-# §61.12.2 with enriched payloads but are not (yet) members of this BC's
-# ``EventType`` catalogue (their producers live in governance / ARE). Their
-# mandatory fields are pinned by string key so ``validate_event_payload`` can be
-# called for them from their owning producer without importing this BC's enum
-# being a prerequisite. The story §2.1.4 names these explicitly.
+# ``integrity_gate_result`` is documented in FK-61 §61.12.2 with an enriched
+# payload but is not a member of this BC's ``EventType`` catalogue (its producer
+# lives in governance). Its mandatory fields are pinned by string key so
+# ``validate_event_payload`` can be called for it from its owning producer
+# without importing this BC's enum being a prerequisite.
+#
+# ``are_gate_result`` was previously pinned here (payload-pinning only); AG3-081
+# raises it to a full ``EventType`` member (see ``MANDATORY_PAYLOAD_FIELDS``
+# above). Per the §2.1.3 owner decision its mandatory set is FK-68's
+# ``story_id``/``result`` (the FK-61 metric fields stay optional/enriched), so it
+# is intentionally NO LONGER in this by-name map — exactly ONE mandatory set per
+# event name lives at the enum-keyed contract.
 MANDATORY_PAYLOAD_FIELDS_BY_NAME: Mapping[str, tuple[str, ...]] = {
     "integrity_gate_result": ("blocked_dimensions",),
-    "are_gate_result": ("covered", "required", "coverage_ratio"),
 }
 
 

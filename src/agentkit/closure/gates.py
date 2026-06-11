@@ -28,7 +28,7 @@ the caller skips it via the typed story-type switch.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from agentkit.artifacts.errors import ArtifactNotFoundError
 from agentkit.core_types import ArtifactClass
@@ -47,6 +47,8 @@ from agentkit.verify_system.remediation.finding_resolution import (
 )
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from agentkit.artifacts import ArtifactManager
 
 #: The three Layer-2 QA artefact stages the Finding-Resolution-Gate reads, in
@@ -147,9 +149,80 @@ def evaluate_finding_resolution_gate(
     return FindingResolutionVerdict(passed=True)
 
 
+# ---------------------------------------------------------------------------
+# Telemetry-Evidence-Block of the Integrity-Gate (FK-68 §68.4, AG3-081 AC3)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class TelemetryEvidenceVerdict:
+    """Outcome of the Closure Telemetry-Evidence-Block (FK-68 §68.4).
+
+    The six FK-68 §68.4 proofs are evaluated against the run's
+    ``execution_events`` stream at Closure (story §2.1.4b / AC3). A FAIL blocks
+    closure fail-closed (NO ERROR BYPASSING).
+
+    Naming discipline (story §1): this is the **Telemetry-Evidence-Block (FK-68
+    §68.4)** — NOT the IntegrityGate dimension 8 (``TIMESTAMP_INVERSION``).
+
+    Attributes:
+        passed: ``True`` only when all six FK-68 §68.4 proofs hold for the run.
+            ``False`` is a hard closure blocker (ESCALATED).
+        failing_rule_ids: The FK-68 §68.4 rule ids that failed (empty on PASS).
+        blocking_reason: A human-facing reason when ``passed`` is ``False``, else
+            ``None``.
+    """
+
+    passed: bool
+    failing_rule_ids: tuple[str, ...] = ()
+    blocking_reason: str | None = None
+
+
+class TelemetryEvidencePort(Protocol):
+    """Capability seam for the Closure Telemetry-Evidence-Block (FK-68 §68.4).
+
+    The productive adapter builds the ``TelemetryContract`` over the canonical
+    ``execution_events`` reader and runs the six-rule ``check_all`` for the run,
+    reading the authoritative review/llm/web budget from the project config (the
+    composition root owns the config truth boundary). Stubbed in tests at the
+    contract boundary.
+    """
+
+    def evaluate(
+        self, story_dir: Path, *, story_id: str, run_id: str
+    ) -> TelemetryEvidenceVerdict:
+        """Run the six FK-68 §68.4 proofs for the run; fail-closed on violation."""
+        ...
+
+
+@dataclass(frozen=True)
+class _AlwaysPassTelemetryEvidencePort:
+    """Fallback port for runs without a wired Telemetry-Evidence-Block.
+
+    Used only where the contract is not applicable (e.g. unit-test handler wiring
+    without telemetry). The productive composition root always wires the real
+    :class:`ProductiveTelemetryEvidencePort`; this default never silently softens
+    a wired contract — it exists so a non-telemetry test path is explicit.
+    """
+
+    def evaluate(
+        self, story_dir: Path, *, story_id: str, run_id: str
+    ) -> TelemetryEvidenceVerdict:
+        """Return a vacuous PASS (no contract wired)."""
+        del story_dir, story_id, run_id
+        return TelemetryEvidenceVerdict(passed=True)
+
+
+#: Shared singleton fallback (no per-call state).
+ABSENT_TELEMETRY_EVIDENCE_PORT: TelemetryEvidencePort = _AlwaysPassTelemetryEvidencePort()
+
+
 __all__ = [
+    "ABSENT_TELEMETRY_EVIDENCE_PORT",
     "FindingResolutionVerdict",
     "ImplementationEvidenceVerdict",
+    "TelemetryEvidencePort",
+    "TelemetryEvidenceVerdict",
     "evaluate_finding_resolution_gate",
     "evaluate_implementation_evidence_gate",
 ]

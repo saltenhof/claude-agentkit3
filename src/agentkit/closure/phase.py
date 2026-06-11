@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Protocol
 from agentkit.closure.execution_report.records import ExecutionReport
 from agentkit.closure.execution_report.writer import write_execution_report
 from agentkit.closure.gates import (
+    ABSENT_TELEMETRY_EVIDENCE_PORT,
     evaluate_finding_resolution_gate,
     evaluate_implementation_evidence_gate,
 )
@@ -63,6 +64,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from agentkit.artifacts import ArtifactManager
+    from agentkit.closure.gates import TelemetryEvidencePort
     from agentkit.closure.merge_sequence import (
         BuildTestPort,
         PreMergeScanPort,
@@ -118,6 +120,25 @@ class ModeLockReleasePort(Protocol):
         ...
 
 
+class GuardCounterFlushPort(Protocol):
+    """Closure flush trigger for the guard-invocation counters (FK-61 §61.4.3, AG3-081).
+
+    Trigger 1 of the four FK-61 §61.4.3 flush triggers: at Closure the story's
+    ``guard_invocation_counters`` rows are drained (read + deleted) so the
+    (follow-up) RefreshWorker (AG3-082) can re-aggregate them into
+    ``fact_guard_period``. Closure holds no counter logic itself; this seam
+    delegates to the kpi-owned ``GuardCounterService.flush_on_closure`` (wired by
+    the composition root). Non-blocking: a flush issue is a human Warning, never an
+    escalation (the story is already merged + closed).
+    """
+
+    def flush_on_closure(
+        self, story_dir: Path, *, project_key: str, story_id: str
+    ) -> tuple[bool, str | None]:
+        """Drain the story's guard counters at Closure; ``(flushed, warning)``."""
+        ...
+
+
 @dataclass
 class ClosureConfig:
     """Configuration + injected collaborators for the closure phase handler.
@@ -156,6 +177,16 @@ class ClosureConfig:
             root/ledger/tree) instead of the single ``scan_port``/
             ``build_test_port``. Single-repo is the one-entry case; ``None`` falls
             back to the single pair (one repo).
+        telemetry_evidence_port: Telemetry-Evidence-Block seam (FK-68 §68.4,
+            AG3-081). Runs the six FK-68 §68.4 proofs against the run's
+            ``execution_events`` at Closure (fail-closed). The composition root
+            wires ``ProductiveTelemetryEvidencePort``; ``None`` falls back to the
+            vacuous ``ABSENT_TELEMETRY_EVIDENCE_PORT`` (non-telemetry test path).
+        guard_counter_flush_port: Closure guard-counter flush seam (FK-61 §61.4.3
+            Trigger 1, AG3-081). Drains the story's ``guard_invocation_counters``
+            at Closure (non-blocking). The composition root wires
+            ``ProductiveGuardCounterFlushPort``; ``None`` is a no-op (standalone /
+            legacy).
     """
 
     owner: str | None = None
@@ -180,6 +211,8 @@ class ClosureConfig:
     repo_runners: object | None = None
     mode_lock_release_port: ModeLockReleasePort | None = None
     change_evidence_port: ChangeEvidencePort | None = None
+    telemetry_evidence_port: TelemetryEvidencePort | None = None
+    guard_counter_flush_port: GuardCounterFlushPort | None = None
 
 
 class ClosurePhaseHandler:
@@ -414,7 +447,18 @@ class ClosurePhaseHandler:
         # verdict (the story is already merged + closed).
         release_warnings = self._release_mode_lock(ctx, s_dir)
 
-        all_warnings = (*gh_warnings, *finalization_warnings, *release_warnings)
+        # FK-61 §61.4.3 Trigger 1 (Closure, AG3-081 AC5): drain the story's
+        # guard-invocation counters so the RefreshWorker (AG3-082) re-aggregates
+        # them into ``fact_guard_period``. Non-blocking: a flush issue is a human
+        # Warning (the story is already merged + closed).
+        counter_flush_warnings = self._flush_guard_counters(ctx, s_dir)
+
+        all_warnings = (
+            *gh_warnings,
+            *finalization_warnings,
+            *release_warnings,
+            *counter_flush_warnings,
+        )
         report_status = "completed_with_warnings" if all_warnings else "completed"
         report_path = _write_report(
             ctx,
@@ -531,6 +575,28 @@ class ClosurePhaseHandler:
                 source_state,
                 progress,
                 (gate.blocking_reason or "finding resolution failed",),
+            )
+
+        # Step 2b: Telemetry-Evidence-Block (FK-68 §68.4, AG3-081 AC3). BEFORE the
+        # irreversible merge block, the six FK-68 §68.4 proofs are evaluated
+        # against the run's ``execution_events`` stream; a violation blocks
+        # closure fail-closed (NO ERROR BYPASSING). This is the
+        # "Telemetry-Evidence-Block (FK-68 §68.4)", NOT the IntegrityGate
+        # dimension 8 (story §1 naming discipline). Skipped only when no port is
+        # wired (the non-telemetry test fallback never softens a wired contract).
+        telemetry_port = cfg.telemetry_evidence_port or ABSENT_TELEMETRY_EVIDENCE_PORT
+        telemetry_verdict = telemetry_port.evaluate(
+            s_dir, story_id=ctx.story_id, run_id=run_id
+        )
+        if not telemetry_verdict.passed:
+            return self._escalated(
+                ctx,
+                source_state,
+                progress,
+                (
+                    telemetry_verdict.blocking_reason
+                    or "Telemetry-Evidence-Block (FK-68 §68.4) failed at Closure",
+                ),
             )
 
         # Step 3: Pre-Merge-Scan-and-Merge-Block (scan -> gate -> push -> merge).
@@ -675,6 +741,41 @@ class ClosurePhaseHandler:
             )
             return (f"mode-lock release raised: {exc}",)
         if not released and warning is not None:
+            return (warning,)
+        return ()
+
+    def _flush_guard_counters(
+        self, ctx: StoryContext, s_dir: Path
+    ) -> tuple[str, ...]:
+        """Drain the story's guard-invocation counters at Closure (FK-61 §61.4.3).
+
+        Trigger 1 (Closure) of the four FK-61 §61.4.3 flush triggers. Delegates to
+        the injected :class:`GuardCounterFlushPort`; when no port is wired
+        (standalone / legacy) the step is a no-op. Any flush issue is returned as a
+        human Warning (never an escalation — the story is already merged + closed).
+
+        Args:
+            ctx: The story context.
+            s_dir: The story working directory.
+
+        Returns:
+            A tuple of human Warnings (empty on success / no-op).
+        """
+        port = self._config.guard_counter_flush_port
+        if port is None:
+            return ()
+        try:
+            flushed, warning = port.flush_on_closure(
+                s_dir, project_key=ctx.project_key, story_id=ctx.story_id
+            )
+        except Exception as exc:  # noqa: BLE001 -- non-blocking post-close step
+            logger.warning(
+                "guard-counter Closure flush failed for story=%s: %s",
+                ctx.story_id,
+                exc,
+            )
+            return (f"guard-counter Closure flush raised: {exc}",)
+        if not flushed and warning is not None:
             return (warning,)
         return ()
 

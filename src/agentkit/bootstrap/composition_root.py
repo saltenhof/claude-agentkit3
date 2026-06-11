@@ -26,6 +26,7 @@ from agentkit.verify_system.register import register_verify_producers
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from agentkit.closure.gates import TelemetryEvidencePort
     from agentkit.closure.merge_sequence import (
         MergeApplicability,
         PreMergeScanPort,
@@ -36,6 +37,7 @@ if TYPE_CHECKING:
     from agentkit.closure.phase import (
         ClosurePhaseHandler,
         ClosureProgressStore,
+        GuardCounterFlushPort,
         ModeLockReleasePort,
     )
     from agentkit.closure.post_merge_finalization.finalization import (
@@ -1648,7 +1650,42 @@ def build_closure_phase_handler(
     )
     config.mode_lock_release_port = _build_mode_lock_release_port(base_dir)
     config.change_evidence_port = _SubprocessGitChangeEvidenceProvider()
+    config.telemetry_evidence_port = _build_telemetry_evidence_port(
+        base_dir, project_key=project_key
+    )
+    config.guard_counter_flush_port = _build_guard_counter_flush_port(base_dir)
     return ClosurePhaseHandler(config)
+
+
+def _build_guard_counter_flush_port(store_dir: Path) -> GuardCounterFlushPort:
+    """Build the Closure guard-counter flush seam (FK-61 §61.4.3 Trigger 1, AG3-081).
+
+    Delegates to the kpi-owned ``GuardCounterService.flush_on_closure`` over the
+    productive state-backend counter repository. Drains the story's
+    ``guard_invocation_counters`` at Closure (the ``fact_guard_period`` drain is
+    AG3-082).
+    """
+    from agentkit.closure.runtime_ports import ProductiveGuardCounterFlushPort
+
+    return ProductiveGuardCounterFlushPort(store_dir=store_dir)
+
+
+def _build_telemetry_evidence_port(
+    store_dir: Path, *, project_key: str
+) -> TelemetryEvidencePort:
+    """Build the Closure Telemetry-Evidence-Block seam (FK-68 §68.4, AG3-081).
+
+    Runs the six FK-68 §68.4 proofs against the run's ``execution_events`` at
+    Closure (fail-closed). The authoritative review/llm/web budget config is read
+    from the project root by the port itself (truth boundary); the gate never
+    knows provider names (FK-68 §68.4: checked against configuration, not against
+    hardcoded provider names).
+    """
+    from agentkit.closure.runtime_ports import ProductiveTelemetryEvidencePort
+
+    return ProductiveTelemetryEvidencePort(
+        project_key=project_key, project_root=store_dir
+    )
 
 
 def _build_mode_lock_release_port(store_dir: Path) -> ModeLockReleasePort:

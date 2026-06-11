@@ -19,12 +19,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from agentkit.kpi_analytics.fact_store.models import (
         FactCorpusPeriod,
         FactGuardPeriod,
         FactPipelinePeriod,
         FactPoolPeriod,
         FactStory,
+        GuardInvocationCounter,
         PeriodFilter,
         SyncState,
     )
@@ -105,4 +108,69 @@ class FactRepository(Protocol):
         ...
 
 
-__all__ = ["FactRepository"]
+@runtime_checkable
+class GuardCounterRepository(Protocol):
+    """Persistence port for the ``guard_invocation_counters`` scratchpad.
+
+    FK-61 §61.4.3 / FK-62 §62.2.6: the lightweight hot-path scratchpad written by
+    the guard hooks (one UPSERT per guard call) and drained by the four flush
+    triggers (Closure, Week-Rollover, Housekeeping, full Story-Reset). The actual
+    drain into ``fact_guard_period`` is the (follow-up) RefreshWorker (AG3-082);
+    this port owns the UPSERT and the run-scoped read/delete the flush triggers
+    consume.
+
+    Fail-closed: a read against a missing table propagates the backend error — a
+    missing table is NEVER a silent empty result.
+    """
+
+    def upsert_invocation(
+        self,
+        *,
+        project_key: str,
+        story_id: str,
+        guard_key: str,
+        week_start: str,
+        blocked: bool,
+        updated_at: datetime,
+    ) -> None:
+        """UPSERT one guard invocation (``invocations += 1``; ``blocks += 1`` on block).
+
+        FK-61 §61.4.3 verbatim: ``ON CONFLICT(project_key, story_id, guard_key,
+        week_start) DO UPDATE SET invocations = invocations + 1, blocks = blocks +
+        EXCLUDED.blocks``. Idempotent only at the row-create level; each call
+        increments the running counters.
+        """
+        ...
+
+    def read_counters_for_story(
+        self, project_key: str, story_id: str
+    ) -> list[GuardInvocationCounter]:
+        """Return all counter rows for ``(project_key, story_id)`` (every week)."""
+        ...
+
+    def read_counters_for_story_before_week(
+        self, project_key: str, story_id: str, week_start: str
+    ) -> list[GuardInvocationCounter]:
+        """Return counter rows of older weeks (``week_start < week_start``)."""
+        ...
+
+    def read_counters_stale(self, cutoff: datetime) -> list[GuardInvocationCounter]:
+        """Return counter rows whose ``updated_at`` is strictly older than ``cutoff``."""
+        ...
+
+    def delete_counters_for_story(self, project_key: str, story_id: str) -> int:
+        """Delete every counter row for ``(project_key, story_id)``; return the count."""
+        ...
+
+    def delete_counters_for_story_before_week(
+        self, project_key: str, story_id: str, week_start: str
+    ) -> int:
+        """Delete older-week counter rows (``week_start < week_start``); return the count."""
+        ...
+
+    def delete_counters_stale(self, cutoff: datetime) -> int:
+        """Delete counter rows older than ``cutoff``; return the deleted count."""
+        ...
+
+
+__all__ = ["FactRepository", "GuardCounterRepository"]

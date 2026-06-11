@@ -28,6 +28,7 @@ from agentkit.bootstrap.composition_root import (
     build_artifact_manager,
     build_closure_phase_handler,
 )
+from agentkit.closure.gates import ABSENT_TELEMETRY_EVIDENCE_PORT
 from agentkit.closure.phase import ClosureConfig, ClosurePhaseHandler
 from agentkit.core_types import ArtifactClass
 from agentkit.core_types.qa_artifact_names import (
@@ -265,6 +266,11 @@ def test_e2e_impl_closure_completes(tmp_path: Path) -> None:
     config.repo_runners = None
     config.integrity_gate = RecordingIntegrityGate()  # type: ignore[assignment]
     config.git_backend = git
+    # AG3-081: the Telemetry-Evidence-Block (FK-68 §68.4) is a separate boundary
+    # (covered by its own tests); this e2e test deliberately has no project config
+    # so it stubs the block to a vacuous PASS, exactly like the scan/integrity/git
+    # boundaries above.
+    config.telemetry_evidence_port = ABSENT_TELEMETRY_EVIDENCE_PORT
     # Simulate a FULL applicability run (the recording ports stand in for the
     # AG3-056 runners a CI+Sonar-present project would wire).
     config.merge_applicability = MergeApplicability.FULL
@@ -345,6 +351,9 @@ def test_e2e_integrity_fail_aborts_before_push(tmp_path: Path) -> None:
         passed=False, failure_reason="SONAR_NOT_GREEN"
     )
     config.git_backend = git
+    # AG3-081: stub the Telemetry-Evidence-Block to PASS so this test isolates the
+    # IntegrityGate-FAIL path (the telemetry block has its own coverage).
+    config.telemetry_evidence_port = ABSENT_TELEMETRY_EVIDENCE_PORT
     config.merge_applicability = MergeApplicability.FULL
 
     result = handler.on_enter(_ctx(tmp_path), _fresh_envelope("TEST-001"))

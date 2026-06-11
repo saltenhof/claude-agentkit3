@@ -40,6 +40,7 @@ from agentkit.closure.execution_report.writer import (
     ExecutionReport,
     write_execution_report,
 )
+from agentkit.closure.gates import TelemetryEvidenceVerdict
 from agentkit.closure.multi_repo_saga import GitCommandResult
 from agentkit.closure.phase import (
     ClosureConfig,
@@ -313,6 +314,40 @@ def _run_id_for(story_id: str) -> str:
     return f"run-{story_id.lower()}"
 
 
+class _RecordingGuardCounterFlushPort:
+    """Records the Closure guard-counter flush trigger call (FK-61 §61.4.3, AG3-081)."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    def flush_on_closure(
+        self, story_dir: Path, *, project_key: str, story_id: str
+    ) -> tuple[bool, str | None]:
+        del story_dir
+        self.calls.append((project_key, story_id))
+        return (True, None)
+
+
+class _RecordingTelemetryEvidencePort:
+    """Records Telemetry-Evidence-Block calls and returns a fixed verdict (AG3-081).
+
+    A first-class fake of the closure ``TelemetryEvidencePort`` Protocol: it lets a
+    test inject a fail-closed FK-68 §68.4 verdict (or a PASS) and asserts the
+    closure path invoked it at the wired step.
+    """
+
+    def __init__(self, verdict: TelemetryEvidenceVerdict) -> None:
+        self._verdict = verdict
+        self.calls: list[tuple[str, str]] = []
+
+    def evaluate(
+        self, story_dir: Path, *, story_id: str, run_id: str
+    ) -> TelemetryEvidenceVerdict:
+        del story_dir
+        self.calls.append((story_id, run_id))
+        return self._verdict
+
+
 def _impl_config(
     s_dir: Path,
     *,
@@ -325,6 +360,8 @@ def _impl_config(
     guard: RecordingGuardDeactivationPort | None = None,
     git_backend: StubGitBackend | None = None,
     change_evidence: ChangeEvidence | None = None,
+    telemetry_evidence: _RecordingTelemetryEvidencePort | None = None,
+    guard_counter_flush: _RecordingGuardCounterFlushPort | None = None,
 ) -> ClosureConfig:
     """Build a fully-collaborated ClosureConfig with recording stubs."""
     manager = build_artifact_manager(s_dir)
@@ -349,6 +386,8 @@ def _impl_config(
                 changed_files=("src/agentkit/done.py",),
             )
         ),
+        telemetry_evidence_port=telemetry_evidence,
+        guard_counter_flush_port=guard_counter_flush,
     )
 
 
@@ -698,6 +737,95 @@ class TestImplClosureEscalation:
         assert scan.calls == ["scan"]
         assert integrity.calls == ["gate"]
         assert not any(cmd[:1] == ("push",) for cmd in git.commands)
+
+    def test_telemetry_evidence_fail_escalates_before_scan_gate_push(
+        self, tmp_path: Path
+    ) -> None:
+        """AG3-081 AC3: a Telemetry-Evidence-Block (FK-68 §68.4) FAIL escalates.
+
+        The six-rule check is wired into the Closure integrity path BEFORE the
+        merge block; a fail-closed verdict blocks closure (no scan, no gate, no
+        push) — proving the wiring, not just the standalone contract.
+        """
+        s_dir = _prepare_impl_story(tmp_path)
+        manager = build_artifact_manager(s_dir)
+        _write_all_layer2(manager, story_id="TEST-001", run_id=_run_id_for("TEST-001"))
+        scan = RecordingScanPort()
+        integrity = RecordingIntegrityGate()
+        git = StubGitBackend()
+        telemetry = _RecordingTelemetryEvidencePort(
+            TelemetryEvidenceVerdict(
+                passed=False,
+                failing_rule_ids=("FK-68 §68.4.4",),
+                blocking_reason="Telemetry-Evidence-Block (FK-68 §68.4) failed",
+            )
+        )
+        config = _impl_config(
+            s_dir,
+            scan=scan,
+            integrity=integrity,
+            git_backend=git,
+            telemetry_evidence=telemetry,
+        )
+        handler = ClosurePhaseHandler(config)
+        result = handler.on_enter(
+            _make_ctx(project_root=tmp_path),
+            PhaseEnvelopeStore.make_fresh_envelope(_make_state()),
+        )
+
+        assert result.status == PhaseStatus.ESCALATED
+        # The Telemetry-Evidence-Block ran for this run scope.
+        assert telemetry.calls == [("TEST-001", _run_id_for("TEST-001"))]
+        # Fail-closed BEFORE scan/gate/push (the merge block never ran).
+        assert scan.calls == []
+        assert integrity.calls == []
+        assert not any(cmd[:1] == ("push",) for cmd in git.commands)
+
+    def test_telemetry_evidence_pass_proceeds_to_merge_block(
+        self, tmp_path: Path
+    ) -> None:
+        """AG3-081 AC3: a Telemetry-Evidence-Block PASS proceeds to the merge block."""
+        s_dir = _prepare_impl_story(tmp_path)
+        manager = build_artifact_manager(s_dir)
+        _write_all_layer2(manager, story_id="TEST-001", run_id=_run_id_for("TEST-001"))
+        scan = RecordingScanPort()
+        integrity = RecordingIntegrityGate()
+        telemetry = _RecordingTelemetryEvidencePort(
+            TelemetryEvidenceVerdict(passed=True)
+        )
+        config = _impl_config(
+            s_dir, scan=scan, integrity=integrity, telemetry_evidence=telemetry
+        )
+        handler = ClosurePhaseHandler(config)
+        result = handler.on_enter(
+            _make_ctx(project_root=tmp_path),
+            PhaseEnvelopeStore.make_fresh_envelope(_make_state()),
+        )
+
+        assert result.status == PhaseStatus.COMPLETED
+        assert telemetry.calls == [("TEST-001", _run_id_for("TEST-001"))]
+        # The merge block ran (scan + gate) -> the PASS did not block closure.
+        assert scan.calls == ["scan"]
+        assert integrity.calls == ["gate"]
+
+    def test_closure_flushes_guard_counters_at_story_close(
+        self, tmp_path: Path
+    ) -> None:
+        """AG3-081 AC5: Closure (Trigger 1) drains the story's guard counters."""
+        s_dir = _prepare_impl_story(tmp_path)
+        manager = build_artifact_manager(s_dir)
+        _write_all_layer2(manager, story_id="TEST-001", run_id=_run_id_for("TEST-001"))
+        flush = _RecordingGuardCounterFlushPort()
+        config = _impl_config(s_dir, guard_counter_flush=flush)
+        config.artifact_manager = manager
+        result = ClosurePhaseHandler(config).on_enter(
+            _make_ctx(project_root=tmp_path),
+            PhaseEnvelopeStore.make_fresh_envelope(_make_state()),
+        )
+
+        assert result.status == PhaseStatus.COMPLETED
+        # The Closure flush trigger ran for this story scope.
+        assert flush.calls == [("test-project", "TEST-001")]
 
     def test_scan_not_produced_escalates_before_gate(self, tmp_path: Path) -> None:
         """AC#3: a non-produced attestation blocks BEFORE the gate (no gate call)."""

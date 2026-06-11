@@ -283,37 +283,113 @@ def test_llm_role_coverage_ignores_self_reported_role_without_pool() -> None:
 
 
 # ---------------------------------------------------------------------------
-# check_all aggregation
+# check_no_integrity_violation (FK-68 §68.4.4) — AG3-081 AC3
 # ---------------------------------------------------------------------------
 
 
-def test_check_all_passes_for_complete_run() -> None:
+def test_no_integrity_violation_pass_when_absent() -> None:
+    contract, _ = _contract([_event(EventType.AGENT_START)])
+    result = contract.check_no_integrity_violation(_RUN)
+    assert result.status is ContractStatus.PASS
+    assert result.rule_id == "FK-68 §68.4.4"
+
+
+def test_no_integrity_violation_fail_when_present() -> None:
+    contract, _ = _contract([_event(EventType.INTEGRITY_VIOLATION)])
+    result = contract.check_no_integrity_violation(_RUN)
+    assert result.status is ContractStatus.FAIL
+    assert "integrity_violation" in result.detail
+
+
+# ---------------------------------------------------------------------------
+# check_web_call_within_budget (FK-68 §68.4.5) — AG3-081 AC3
+# ---------------------------------------------------------------------------
+
+
+def test_web_call_within_budget_pass_when_under() -> None:
+    contract, _ = _contract([_event(EventType.WEB_CALL), _event(EventType.WEB_CALL)])
+    result = contract.check_web_call_within_budget(_RUN, 5)
+    assert result.status is ContractStatus.PASS
+    assert result.rule_id == "FK-68 §68.4.5"
+
+
+def test_web_call_within_budget_pass_when_equal() -> None:
+    contract, _ = _contract([_event(EventType.WEB_CALL), _event(EventType.WEB_CALL)])
+    result = contract.check_web_call_within_budget(_RUN, 2)
+    assert result.status is ContractStatus.PASS
+
+
+def test_web_call_within_budget_fail_when_over() -> None:
     contract, _ = _contract(
-        [
-            _event(EventType.AGENT_START),
-            _event(EventType.AGENT_END),
-            _event(EventType.REVIEW_REQUEST, role="qa"),
-            _event(EventType.REVIEW_COMPLIANT),
-            _event(EventType.PREFLIGHT_REQUEST),
-            _event(EventType.PREFLIGHT_RESPONSE),
-            _event(EventType.PREFLIGHT_COMPLIANT),
-            _event(EventType.LLM_CALL, role="qa", pool="chatgpt"),
-        ]
+        [_event(EventType.WEB_CALL), _event(EventType.WEB_CALL), _event(EventType.WEB_CALL)]
     )
-    result = contract.check_all(_RUN, {"qa"}, {"qa": "chatgpt"})
+    result = contract.check_web_call_within_budget(_RUN, 2)
+    assert result.status is ContractStatus.FAIL
+    assert "exceeds the configured web budget" in result.detail
+
+
+# ---------------------------------------------------------------------------
+# check_all aggregation (SIX rules — AG3-081 AC3)
+# ---------------------------------------------------------------------------
+
+
+def _complete_run_events() -> list[ExecutionEventRecord]:
+    return [
+        _event(EventType.AGENT_START),
+        _event(EventType.AGENT_END),
+        _event(EventType.REVIEW_REQUEST, role="qa"),
+        _event(EventType.REVIEW_COMPLIANT),
+        _event(EventType.PREFLIGHT_REQUEST),
+        _event(EventType.PREFLIGHT_RESPONSE),
+        _event(EventType.PREFLIGHT_COMPLIANT),
+        _event(EventType.LLM_CALL, role="qa", pool="chatgpt"),
+    ]
+
+
+def test_check_all_passes_for_complete_run() -> None:
+    contract, _ = _contract(_complete_run_events())
+    result = contract.check_all(_RUN, {"qa"}, {"qa": "chatgpt"}, web_call_budget=200)
     assert result.passed
     assert result.failures == ()
-    assert len(result.rule_results) == 4
+    # AC3: check_all aggregates SIX rules (four pre-existing + the two new ones).
+    assert len(result.rule_results) == 6
+    assert {r.rule_id for r in result.rule_results} == {
+        "FK-68 §68.4.1",
+        "FK-68 §68.4.2",
+        "FK-68 §68.4.3",
+        "FK-68 §68.4.4",
+        "FK-68 §68.4.5",
+        "FK-68 §68.9.2",
+    }
 
 
 def test_check_all_collects_failures() -> None:
     contract, _ = _contract([_event(EventType.AGENT_START)])
-    result = contract.check_all(_RUN, {"qa"}, {"qa": "chatgpt"})
+    result = contract.check_all(_RUN, {"qa"}, {"qa": "chatgpt"}, web_call_budget=200)
     assert not result.passed
-    # All four rules fail: agent pairing, review coverage, preflight (missing),
-    # llm coverage. The empty preflight stream is now fail-closed (FK-68 §68.9.3).
+    # The pairing, review-coverage, preflight (missing) and llm-coverage rules
+    # fail; no_integrity_violation and web_call_within_budget pass on this stream.
     failing_rules = {r.rule_id for r in result.failures}
     assert "FK-68 §68.4.1" in failing_rules
     assert "FK-68 §68.4.2" in failing_rules
     assert "FK-68 §68.9.2" in failing_rules
     assert "FK-68 §68.4.3" in failing_rules
+
+
+def test_check_all_fails_on_integrity_violation() -> None:
+    # AC3 negative class (d): an integrity_violation in an otherwise complete run
+    # fails check_all fail-closed.
+    contract, _ = _contract([*_complete_run_events(), _event(EventType.INTEGRITY_VIOLATION)])
+    result = contract.check_all(_RUN, {"qa"}, {"qa": "chatgpt"}, web_call_budget=200)
+    assert not result.passed
+    assert "FK-68 §68.4.4" in {r.rule_id for r in result.failures}
+
+
+def test_check_all_fails_on_web_budget_exceeded() -> None:
+    # AC3 negative class (e): web_call over budget fails check_all fail-closed.
+    contract, _ = _contract(
+        [*_complete_run_events(), _event(EventType.WEB_CALL), _event(EventType.WEB_CALL)]
+    )
+    result = contract.check_all(_RUN, {"qa"}, {"qa": "chatgpt"}, web_call_budget=1)
+    assert not result.passed
+    assert "FK-68 §68.4.5" in {r.rule_id for r in result.failures}

@@ -145,6 +145,8 @@ def _make_repos() -> MagicMock:
     repos.story_metrics = MagicMock()
     repos.phase_state_projection = MagicMock()
     repos.fc_incidents = MagicMock()
+    repos.guard_counter_purge = MagicMock()
+    repos.guard_counter_purge.purge_story.return_value = 0
     return repos
 
 

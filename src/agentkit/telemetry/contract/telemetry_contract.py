@@ -1,31 +1,37 @@
-"""TelemetryContract: formal telemetry-completeness rules (FK-68 §68.4/68.9/68.10).
+"""TelemetryContract: the Telemetry-Evidence-Block of the Integrity-Gate.
 
-Formal-rules repository designed to be consumed by the Integrity-Gate (Dim
-"telemetry compliance", FK-68 §68.10): it checks whether a run's telemetry is
-concept-conformant and complete. The rules read the canonical
-``execution_events`` stream (FK-68 §68.4 evaluates proofs against that stream,
-NOT an FK-69 read-model) via an injected ``ExecutionEventReader``.
+Formal-rules repository for the FK-68 §68.4 Telemetry-Evidence-Block: at Closure
+the Integrity-Gate checks whether a run's telemetry proves a complete,
+governance-conformant execution. The rules read the canonical ``execution_events``
+stream (FK-68 §68.4 evaluates proofs against that stream, NOT an FK-69
+read-model) via an injected ``ExecutionEventReader``.
 
-Scope (AG3-037): this module is the consumable *surface* — the rules, the
-preflight sentinel and the payload validator are fully functional and tested.
-The actual Integrity-Gate Dim 8 wiring (FK-68 §68.10) and the active production
-emitters are an explicit follow-up story (story §2.2), each with its own blast
-radius into ``governance/integrity_gate`` and the owning BCs.
+Naming discipline (story §1): this is the **Telemetry-Evidence-Block (FK-68
+§68.4)** — NOT the IntegrityGate dimension 8 (``TIMESTAMP_INVERSION``, FK-35
+§35.2.4). The two are distinct.
 
-Rules (story §2.1.1):
+The six FK-68 §68.4 proofs (story §2.1.4 / AC3):
 - ``check_agent_start_end_pairing`` — exactly-one ``agent_start`` paired with
   exactly-one ``agent_end`` (FK-68 §68.4 crash detection).
-- ``check_review_compliant_coverage`` — every required reviewer role produced a
-  ``review_request`` AND ``review_compliant`` count strictly equals
-  ``review_request`` count (FK-68 §68.4: "Jeder review_request muss ein
-  review_compliant haben" — strict, no overcount).
-- ``check_preflight_compliant_balance`` — preflight stream fail-closed rule
-  (FK-68 §68.9.3 / §68.10.2); delegated to the preflight sentinel. On violation
-  the injected emitter persists a ``preflight_compliance_violation`` event.
 - ``check_llm_call_role_coverage`` — for every configured role→pool mapping
   (``llm_roles``) there is at least one ``llm_call`` whose payload carries the
   associated ``pool`` value (FK-68 §68.4: checked against the configured pool,
   not a self-reported role).
+- ``check_review_compliant_coverage`` — every required reviewer role produced a
+  ``review_request`` AND ``review_compliant`` count strictly equals
+  ``review_request`` count (FK-68 §68.4: "every review_request must have a
+  review_compliant" — strict, no overcount).
+- ``check_no_integrity_violation`` — the run carries NO ``integrity_violation``
+  event (FK-68 §68.4: "no ``integrity_violation`` — no guard violated"). Any
+  occurrence is a fail-closed violation.
+- ``check_web_call_within_budget`` — the number of ``web_call`` events is within
+  the configured web budget (FK-68 §68.4 / §68.6.1: "``web_call`` <= Budget").
+- ``check_preflight_compliant_balance`` — preflight stream fail-closed rule
+  (FK-68 §68.9.3 / §68.10.2); delegated to the preflight sentinel. On violation
+  the injected emitter persists a ``preflight_compliance_violation`` event.
+
+``check_all`` aggregates all SIX proofs; the Closure integrity path invokes it
+and blocks fail-closed on any FAIL (story §2.1.4b, AC3).
 
 This module imports only from ``agentkit.core_types`` and ``agentkit.telemetry``
 (AC8 import boundary).
@@ -83,6 +89,10 @@ class ContractCheckResult(BaseModel):
 _RULE_AGENT_PAIRING = "FK-68 §68.4.1"
 _RULE_REVIEW_COVERAGE = "FK-68 §68.4.2"
 _RULE_LLM_ROLE_COVERAGE = "FK-68 §68.4.3"
+#: FK-68 §68.4: no ``integrity_violation`` event in the run's stream.
+_RULE_NO_INTEGRITY_VIOLATION = "FK-68 §68.4.4"
+#: FK-68 §68.4 / §68.6.1: ``web_call`` count within the configured web budget.
+_RULE_WEB_CALL_BUDGET = "FK-68 §68.4.5"
 #: Fail-closed guard: the run under check must match the bound authoritative
 #: scope, so a persisted preflight violation is attributed correctly.
 _RULE_PREFLIGHT_SCOPE = "FK-68 §68.9.4"
@@ -257,13 +267,83 @@ class TelemetryContract:
             f"({len(required_role_pools)} role(s))",
         )
 
+    def check_no_integrity_violation(self, run_id: str) -> ContractRuleResult:
+        """Verify the run carries no ``integrity_violation`` event (FK-68 §68.4).
+
+        FK-68 §68.4: no ``integrity_violation`` means no guard was violated; this
+        fails when an agent has tried to bypass governance. Any ``integrity_violation``
+        event in the run's ``execution_events`` stream is a fail-closed violation
+        (NO ERROR BYPASSING). The scratchpad counter never replaces this audit
+        trail (FK-61 §61.4.3: ``integrity_violation`` events stay in the stream).
+
+        Args:
+            run_id: The run to check.
+
+        Returns:
+            The rule result.
+        """
+        events = self._reader.read_run_events(run_id)
+        violations = _count(events, EventType.INTEGRITY_VIOLATION)
+        if violations == 0:
+            return rule_pass(
+                _RULE_NO_INTEGRITY_VIOLATION,
+                "no integrity_violation event in the run stream",
+            )
+        return rule_fail(
+            _RULE_NO_INTEGRITY_VIOLATION,
+            f"{violations} integrity_violation event(s) present in the run stream "
+            "(a guard was violated — fail-closed, FK-68 §68.4)",
+        )
+
+    def check_web_call_within_budget(
+        self, run_id: str, web_call_budget: int
+    ) -> ContractRuleResult:
+        """Verify the ``web_call`` count is within the configured budget (FK-68 §68.4).
+
+        FK-68 §68.4 / §68.6.1: ``web_call`` count must stay <= the budget; this
+        fails when the budget is exceeded. The count of ``web_call`` events in the run's
+        ``execution_events`` stream must not exceed the configured web budget
+        (``telemetry.web_call_limit``); the Closure caller passes the
+        authoritative budget value (the gate reads config, not a hardcoded
+        provider name). A count strictly greater than the budget is a fail-closed
+        violation.
+
+        Args:
+            run_id: The run to check.
+            web_call_budget: The configured hard web-call budget
+                (``telemetry.web_call_limit``); must be non-negative.
+
+        Returns:
+            The rule result.
+        """
+        events = self._reader.read_run_events(run_id)
+        web_calls = _count(events, EventType.WEB_CALL)
+        if web_calls <= web_call_budget:
+            return rule_pass(
+                _RULE_WEB_CALL_BUDGET,
+                f"web_call count ({web_calls}) within budget ({web_call_budget})",
+            )
+        return rule_fail(
+            _RULE_WEB_CALL_BUDGET,
+            f"web_call count ({web_calls}) exceeds the configured web budget "
+            f"({web_call_budget}) — fail-closed (FK-68 §68.4 / §68.6.1)",
+        )
+
     def check_all(
         self,
         run_id: str,
         required_review_roles: set[str],
         required_llm_role_pools: Mapping[str, str],
+        *,
+        web_call_budget: int,
     ) -> ContractCheckResult:
-        """Run every contract rule and aggregate the results.
+        """Run every Telemetry-Evidence-Block rule and aggregate the results.
+
+        Aggregates the SIX FK-68 §68.4 proofs (story §2.1.4 / AC3): (1) agent
+        start/end pairing, (2) llm_call per mandatory role, (3) review compliance,
+        (4) no integrity_violation, (5) web_call within budget, (6) preflight
+        balance. The Closure integrity path calls this and blocks fail-closed on
+        any FAIL.
 
         Args:
             run_id: The run to check.
@@ -271,9 +351,11 @@ class TelemetryContract:
             required_llm_role_pools: Configured mandatory LLM role→pool mapping
                 (the relevant slice of ``llm_roles``); each pool must be backed
                 by an ``llm_call`` carrying that pool (FK-68 §68.4).
+            web_call_budget: The configured hard web-call budget
+                (``telemetry.web_call_limit``).
 
         Returns:
-            The aggregate ``ContractCheckResult``.
+            The aggregate ``ContractCheckResult`` carrying six ``RuleResult``s.
         """
         return ContractCheckResult(
             run_id=run_id,
@@ -282,6 +364,8 @@ class TelemetryContract:
                 self.check_review_compliant_coverage(run_id, required_review_roles),
                 self.check_preflight_compliant_balance(run_id),
                 self.check_llm_call_role_coverage(run_id, required_llm_role_pools),
+                self.check_no_integrity_violation(run_id),
+                self.check_web_call_within_budget(run_id, web_call_budget),
             ),
         )
 

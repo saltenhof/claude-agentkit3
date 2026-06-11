@@ -209,6 +209,30 @@ class PhaseStateProjectionRepository(Protocol):
 
 
 @runtime_checkable
+class GuardCounterPurgePort(Protocol):
+    """Reset-purge seam for ``guard_invocation_counters`` (FK-61 §61.4.3 Trigger 4).
+
+    The guard-counter scratchpad is owned by the KPI fact-store
+    (``kpi_analytics.fact_store``), not by the FK-69 read-model accessor. To keep
+    the counter purge part of the ONE reset path (``ProjectionAccessor.purge_run``)
+    without coupling ``telemetry`` to ``kpi_analytics``, the accessor depends on
+    this thin Protocol. The concrete adapter (wired in the composition root)
+    delegates to ``GuardCounterService.flush_on_story_reset`` over the productive
+    counter repository. ``guard_invocation_counters`` is keyed by
+    ``(project_key, story_id, ...)`` and carries no ``run_id`` column (FK-61
+    §61.4.3), so the purge is story-scoped — a full Story-Reset drains every
+    weekly bucket of the story.
+    """
+
+    def purge_story(self, project_key: str, story_id: str) -> int:
+        """Drain + delete every guard-counter row for ``(project_key, story_id)``.
+
+        Returns the number of counter rows removed (FK-61 §61.4.3 Trigger 4).
+        """
+        ...
+
+
+@runtime_checkable
 class QALayerBatchWriter(Protocol):
     """Atomarer Batch-Schreibpfad fuer QA-Layer-Artefakte (FK-69 §69.4, AG3-035 #5).
 
@@ -256,6 +280,9 @@ class ProjectionRepositories:
         fc_incidents: Adapter fuer ``fc_incidents`` (AG3-028, FK-41 §41.3.1).
         risk_window: Adapter fuer ``risk_window`` (AG3-037, FK-68 §68.8).
         tasks: Adapter for ``tm_tasks`` and ``tm_task_links`` (FK-77).
+        guard_counter_purge: Reset-purge seam for ``guard_invocation_counters``
+            (AG3-081, FK-61 §61.4.3 Trigger 4). Drains the story's guard counters
+            as part of the ONE reset path (``ProjectionAccessor.purge_run``).
     """
 
     qa_stage_results: QAStageResultsRepository
@@ -266,6 +293,7 @@ class ProjectionRepositories:
     fc_incidents: FCIncidentsRepository
     risk_window: RiskWindowRepository
     tasks: TaskRepository
+    guard_counter_purge: GuardCounterPurgePort
 
 
 # ---------------------------------------------------------------------------
@@ -1126,6 +1154,37 @@ class FacadeQALayerBatchWriter:
         )
 
 
+class StateBackendGuardCounterPurgeAdapter:
+    """Reset-purge adapter for ``guard_invocation_counters`` (AG3-081, FK-61 §61.4.3).
+
+    Delegates the Trigger-4 (full Story-Reset) counter drain to the kpi-owned
+    ``GuardCounterService.flush_on_story_reset`` over the productive
+    ``StateBackendGuardCounterRepository``. This adapter is the single seam that
+    lets ``ProjectionAccessor.purge_run`` purge the guard counters as part of the
+    ONE reset path, without ``telemetry`` importing ``kpi_analytics`` directly (the
+    composition-root layer owns both packages and the wiring).
+
+    Args:
+        store_dir: Base directory for the SQLite counter store (Postgres ignores
+            it).
+    """
+
+    def __init__(self, store_dir: Path | None = None) -> None:
+        self._store_dir: Path = store_dir or Path.cwd()
+
+    def purge_story(self, project_key: str, story_id: str) -> int:
+        """Drain + delete every guard-counter row for ``(project_key, story_id)``."""
+        from agentkit.kpi_analytics import GuardCounterService
+        from agentkit.state_backend.store.guard_counter_repository import (
+            StateBackendGuardCounterRepository,
+        )
+
+        drained = GuardCounterService(
+            StateBackendGuardCounterRepository(self._store_dir)
+        ).flush_on_story_reset(project_key, story_id)
+        return len(drained)
+
+
 def build_projection_repositories(store_dir: Path | None = None) -> ProjectionRepositories:
     """Erzeugt eine vollstaendig verdrahtete ``ProjectionRepositories``-Instanz.
 
@@ -1153,6 +1212,7 @@ def build_projection_repositories(store_dir: Path | None = None) -> ProjectionRe
         fc_incidents=StateBackendFCIncidentsRepository(store_dir),
         risk_window=FacadeRiskWindowRepository(store_dir),
         tasks=StateBackendTaskRepository(store_dir),
+        guard_counter_purge=StateBackendGuardCounterPurgeAdapter(store_dir),
     )
 
 
@@ -1163,7 +1223,9 @@ __all__ = [
     "FacadeQAStageResultsRepository",
     "FacadeRiskWindowRepository",
     "FacadeStoryMetricsRepository",
+    "GuardCounterPurgePort",
     "PhaseStateProjectionRepository",
+    "StateBackendGuardCounterPurgeAdapter",
     "ProjectionRepositories",
     "QAFindingsRepository",
     "QALayerBatchWriter",

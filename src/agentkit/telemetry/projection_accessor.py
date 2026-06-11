@@ -161,10 +161,16 @@ class PurgeResult:
             story_metrics, fc_incidents) eskalieren ihre Purge-Fehler hart
             (Codex-r1, FK-69 §69.11.5). Leere Liste bedeutet: auch
             phase_state_projection erfolgreich geleert.
+        purged_guard_counters: Number of ``guard_invocation_counters`` rows drained
+            by the full Story-Reset (AG3-081, FK-61 §61.4.3 Trigger 4). The counter
+            scratchpad is owned by the KPI fact-store and keyed by
+            ``(project_key, story_id, ...)`` without a ``run_id`` column, so it is
+            tracked separately from the run-scoped FK-69 ``purged_rows`` map.
     """
 
     purged_rows: dict[ProjectionKind, int] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
+    purged_guard_counters: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -498,6 +504,12 @@ class ProjectionAccessor:
         qa_stage_results, qa_findings, story_metrics, phase_state_projection,
         fc_incidents.
 
+        AG3-081 (FK-61 §61.4.3 Trigger 4): a full Story-Reset additionally purges
+        the story's ``guard_invocation_counters`` scratchpad through this ONE reset
+        path (surfaced as ``PurgeResult.purged_guard_counters``). The counters are
+        KPI-owned and keyed without a ``run_id`` column, so they are purged
+        story-scoped (the ``fact_guard_period`` recompute is AG3-082).
+
         Args:
             project_key: Projekt-Schluessel.
             story_id: Story-ID des zurueckzusetzenden Runs.
@@ -534,6 +546,18 @@ class ProjectionAccessor:
         # the FK-69 ProjectionKind-keyed purged_rows map.
         self._repos.risk_window.purge_run(project_key, story_id, run_id)
 
+        # AG3-081 (FK-61 §61.4.3 Trigger 4): a full Story-Reset also purges the
+        # story's guard-invocation counter scratchpad through the ONE reset path
+        # (no parallel purge service). The counters are KPI-owned and keyed by
+        # (project_key, story_id, ...) WITHOUT a run_id column, so the purge is
+        # story-scoped. This is part of the mandatory reset (FK-69 §69.11.5: no
+        # state may survive a full reset; the already-aggregated fact_guard_period
+        # contributions are re-computed by AG3-082), so a failure escalates hard
+        # like the mandatory FK-69 tables rather than degrading into errors[].
+        purged_guard_counters = self._repos.guard_counter_purge.purge_story(
+            project_key, story_id
+        )
+
         # Best-effort NUR fuer phase_state_projection: dessen Alt-Schema-Varianten
         # (fehlende project_key/run_id-Spalten, nicht garantiert bootstrappte
         # Tabelle in BC-isolierten Persistenz-Sichten) sind ein dokumentierter
@@ -552,7 +576,11 @@ class ProjectionAccessor:
                 f"{type(exc).__name__}: {exc}"
             )
 
-        return PurgeResult(purged_rows=purged_rows, errors=errors)
+        return PurgeResult(
+            purged_rows=purged_rows,
+            errors=errors,
+            purged_guard_counters=purged_guard_counters,
+        )
 
     def record_qa_layer_artifacts(
         self,

@@ -148,10 +148,10 @@ def test_complete_worker_run_satisfies_check_all(tmp_path: Path) -> None:
     )
     scope = TelemetryScope(project_key=_PROJECT, story_id=_STORY, run_id=_RUN)
     contract = TelemetryContract(reader, MemoryEmitter(), scope)
-    result = contract.check_all(_RUN, {"qa"}, {"qa": "chatgpt"})
+    result = contract.check_all(_RUN, {"qa"}, {"qa": "chatgpt"}, web_call_budget=200)
 
     assert result.passed, f"Expected PASS, got failures: {result.failures}"
-    assert len(result.rule_results) == 4
+    assert len(result.rule_results) == 6
 
 
 def test_missing_agent_end_fails_check_all(tmp_path: Path) -> None:
@@ -166,7 +166,7 @@ def test_missing_agent_end_fails_check_all(tmp_path: Path) -> None:
     )
     scope = TelemetryScope(project_key=_PROJECT, story_id=_STORY, run_id=_RUN)
     result = TelemetryContract(reader, MemoryEmitter(), scope).check_all(
-        _RUN, set(), {}
+        _RUN, set(), {}, web_call_budget=200
     )
 
     assert not result.passed

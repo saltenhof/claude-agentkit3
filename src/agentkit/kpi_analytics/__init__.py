@@ -14,15 +14,21 @@ from agentkit.kpi_analytics.catalog import (
     KpiDomain,
     KpiGranularity,
 )
+from agentkit.kpi_analytics.fact_store.guard_counter import (
+    GuardCounterService,
+    week_start_for,
+)
 from agentkit.kpi_analytics.top import KpiAnalytics
 from agentkit.kpi_analytics.views import DashboardView
 
 __all__ = [
     "DashboardView",
+    "GuardCounterService",
     "KpiAnalytics",
     "KpiCatalog",
     "KpiCollectionPoint",
     "KpiDefinition",
     "KpiDomain",
     "KpiGranularity",
+    "week_start_for",
 ]

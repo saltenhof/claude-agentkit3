@@ -8,6 +8,7 @@ information is collected.
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -37,6 +38,8 @@ if TYPE_CHECKING:
     from agentkit.state_backend.store.lock_record_repository import LockRecordRepository
 
 type HookDecision = GuardVerdict
+
+logger = logging.getLogger(__name__)
 
 
 class _GuardDecisionSink(Protocol):
@@ -607,14 +610,115 @@ def run_hook(
     invalid = validate_hook_selector(phase=phase, hook_id=hook_id)
     if invalid is not None:
         return invalid
+    resolved_root = project_root or Path.cwd()
     if phase == "post":
         # AG3-036 (FK-68 §68.3.1) FIX-1: ReviewGuard/BudgetEventEmitter moved
         # to PreToolUse. Every post hook is observational only.
         if hook_id == "health_monitor":
-            return _run_health_monitor_post(event, project_root=project_root or Path.cwd())
+            return _run_health_monitor_post(event, project_root=resolved_root)
         return GuardVerdict.allow(hook_id)
 
-    return _dispatch_pre_hook(hook_id, event, project_root=project_root or Path.cwd())
+    # FK-61 §61.4.3 (AG3-081 AC5): ``run_hook`` is the ONE shared dispatch
+    # collection point through which EVERY PreToolUse guard invocation flows.
+    # Recording the ``guard_invocation_counters`` UPSERT HERE — around
+    # ``_dispatch_pre_hook`` — covers every early-returning dedicated branch
+    # (capability enforcement, review_guard, budget_event_emitter, self_protection,
+    # story_creation_guard, ccag_gatekeeper) AND the generic ``evaluate_pre_tool_use``
+    # fallback in ONE place. A placement inside ``evaluate_pre_tool_use`` alone would
+    # miss the six dedicated paths and violate the "every guard-hook" rule. The
+    # ``guard_key`` is derived from the dispatched ``hook_id`` (the canonical hook
+    # identity, not the per-verdict guard name).
+    verdict = _dispatch_pre_hook(hook_id, event, project_root=resolved_root)
+    _record_guard_invocation(hook_id, event, verdict, project_root=resolved_root)
+    return verdict
+
+
+def _record_guard_invocation(
+    hook_id: str,
+    event: HookEvent,
+    verdict: HookDecision,
+    *,
+    project_root: Path,
+) -> None:
+    """UPSERT the guard-invocation counter for one pre-hook dispatch (FK-61 §61.4.3).
+
+    Resolves the active ``(project_key, story_id)`` scope from the LOCAL edge
+    bundle (the same source the dedicated guards use) and performs ONE
+    ``guard_invocation_counters`` UPSERT (``invocations += 1``; ``blocks += 1`` on
+    a BLOCK verdict). When the Week-Rollover trigger fires (the story already
+    carries counter rows from an earlier week), the older weekly buckets of that
+    story are drained (FK-61 §61.4.3 Trigger 2).
+
+    Best-effort by design (FK-61 §61.4.3, the audit trail stays intact): the counter is the
+    volume-KPI numerator, NOT the audit trail (``integrity_violation`` events stay
+    in ``execution_events``). The guard DECISION was already computed and returned
+    by the caller; a counter persistence fault must NEVER convert an ALLOW into a
+    crash-block nor a BLOCK into an allow. A failure is logged, not raised.
+
+    A pre-hook without a resolvable story binding (``ai_augmented`` / no active
+    run) records nothing — the scratchpad is run/story-scoped (FK-61 §61.4.3 PK).
+    """
+    scope = _guard_counter_scope(event, project_root=project_root)
+    if scope is None:
+        return
+    project_key, story_id = scope
+    try:
+        from agentkit.kpi_analytics import GuardCounterService
+        from agentkit.state_backend.store.guard_counter_repository import (
+            StateBackendGuardCounterRepository,
+        )
+
+        now = datetime.now(UTC)
+        service = GuardCounterService(
+            StateBackendGuardCounterRepository(project_root)
+        )
+        # Week-Rollover (Trigger 2): drain the story's older weekly buckets before
+        # recording into the current week (a new week was entered).
+        service.flush_week_rollover(project_key, story_id, now=now)
+        service.record_invocation(
+            project_key=project_key,
+            story_id=story_id,
+            guard_key=hook_id,
+            blocked=not verdict.allowed,
+            now=now,
+        )
+    except Exception:  # noqa: BLE001 -- counter is the volume KPI, not the audit trail
+        logger.warning(
+            "guard_invocation_counters UPSERT failed for hook_id=%s story_id=%s "
+            "(best-effort scratchpad; audit trail unaffected)",
+            hook_id,
+            story_id,
+            exc_info=True,
+        )
+
+
+def _guard_counter_scope(
+    event: HookEvent, *, project_root: Path
+) -> tuple[str, str] | None:
+    """Resolve ``(project_key, story_id)`` from the LOCAL edge bundle, or ``None``.
+
+    FK-61 §61.4.3: the counter is run/story-scoped. The scope is read from the
+    same locally-materialized run context the capability/dedicated guards use
+    (``ProjectEdgeResolver``) — never from forgeable ``operation_args``. Returns
+    ``None`` when no active story binding is published (``ai_augmented`` / no run),
+    so a non-story tool call records no counter.
+    """
+    try:
+        from agentkit.projectedge.runtime import ProjectEdgeResolver
+
+        resolved = ProjectEdgeResolver(project_root=project_root).resolve(
+            session_id=event.session_id,
+            cwd=event.cwd,
+            freshness_class=event.freshness_class,
+        )
+    except Exception:  # noqa: BLE001 -- best-effort scope resolution (counter only)
+        return None
+    if resolved.bundle is None or resolved.bundle.session is None:
+        return None
+    session = resolved.bundle.session
+    if not session.project_key or not session.story_id:
+        return None
+    return session.project_key, session.story_id
 
 
 def _dispatch_pre_hook(
@@ -684,7 +788,44 @@ def _run_health_monitor_post(event: HookEvent, *, project_root: Path) -> HookDec
         story_id=story_id,
         worker_id=_health_worker_id(event),
     )
+    # FK-61 §61.4.3 Trigger 3 (AG3-081 AC5): the PostToolUse health-monitor tick is
+    # the operational periodic-maintenance path. Piggy-back the guard-counter
+    # Housekeeping sweep here: counter rows older than 24h without an update belong
+    # to aborted / escalating stories that never reached Closure (and so never hit
+    # Trigger 1). The sweep is a single bounded DELETE (the scratchpad holds only
+    # 5-10 rows/story, FK-61 §61.4.3) and is the natural cross-story stale-counter
+    # drain the health monitor — the very subsystem that detects escalation — owns.
+    _sweep_stale_guard_counters(project_root)
     return GuardVerdict.allow("health_monitor")
+
+
+def _sweep_stale_guard_counters(project_root: Path) -> None:
+    """Run the FK-61 §61.4.3 Housekeeping flush (Trigger 3); best-effort.
+
+    Drains every ``guard_invocation_counters`` row older than 24h without an
+    update (aborted / escalating stories that never reached Closure). The drained
+    rows' already-aggregated ``fact_guard_period`` contributions are re-computed by
+    the RefreshWorker (AG3-082); here only the deterministic stale-row drain runs.
+
+    Best-effort by design (FK-61 §61.4.3, the audit trail stays intact): the counter is the
+    volume-KPI numerator, not the audit trail, so a sweep fault is logged, never
+    raised — it must never convert an observational PostToolUse tick into a block.
+    """
+    try:
+        from agentkit.kpi_analytics import GuardCounterService
+        from agentkit.state_backend.store.guard_counter_repository import (
+            StateBackendGuardCounterRepository,
+        )
+
+        GuardCounterService(
+            StateBackendGuardCounterRepository(project_root)
+        ).flush_housekeeping()
+    except Exception:  # noqa: BLE001 -- housekeeping is the volume KPI, not the audit trail
+        logger.warning(
+            "guard_invocation_counters Housekeeping sweep failed "
+            "(best-effort scratchpad; audit trail unaffected)",
+            exc_info=True,
+        )
 
 
 def _run_health_monitor_pre(event: HookEvent, *, project_root: Path) -> HookDecision:

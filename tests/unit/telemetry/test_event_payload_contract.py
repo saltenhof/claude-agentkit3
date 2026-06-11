@@ -24,6 +24,19 @@ from agentkit.telemetry.events import (
         (EventType.FINE_DESIGN_DECISION, "fine_design_decision"),
         (EventType.SCOPE_EXPLOSION_CHECK, "scope_explosion_check"),
         (EventType.IMPACT_EXCEEDANCE_CHECK, "impact_exceedance_check"),
+        # BC14 Execution-Planning (FK-68 §68.2.2, AG3-081 AC1)
+        (EventType.DEPENDENCY_RECORDED, "dependency_recorded"),
+        (EventType.STORY_READY, "story_ready"),
+        (EventType.STORY_BLOCKED, "story_blocked"),
+        (EventType.PLAN_REVISED, "plan_revised"),
+        (EventType.SCHEDULING_DECIDED, "scheduling_decided"),
+        (EventType.GATE_RESOLVED, "gate_resolved"),
+        (EventType.RULEBOOK_COMPILED, "rulebook_compiled"),
+        (EventType.WAVE_COLLAPSED, "wave_collapsed"),
+        # BC15 ARE / Requirements (FK-68 §68.2.2, AG3-081 AC2)
+        (EventType.ARE_REQUIREMENTS_LINKED, "are_requirements_linked"),
+        (EventType.ARE_EVIDENCE_SUBMITTED, "are_evidence_submitted"),
+        (EventType.ARE_GATE_RESULT, "are_gate_result"),
     ],
 )
 def test_new_event_type_values(member: EventType, wire: str) -> None:
@@ -91,8 +104,25 @@ _VALID_PAYLOADS: dict[EventType | str, dict[str, object]] = {
         "exceeded": False,
         "story_id": "AG3-001",
     },
+    # BC14 Execution-Planning (FK-68 §68.2.2, AG3-081 AC1)
+    EventType.DEPENDENCY_RECORDED: {"story_id": "AG3-001", "depends_on_id": "AG3-000"},
+    EventType.STORY_READY: {"story_id": "AG3-001"},
+    EventType.STORY_BLOCKED: {"story_id": "AG3-001", "reason": "dependency"},
+    EventType.PLAN_REVISED: {"plan_id": "p1", "trigger": "scope_change"},
+    EventType.SCHEDULING_DECIDED: {
+        "story_id": "AG3-001",
+        "wave_id": "w1",
+        "decision": "scheduled",
+    },
+    EventType.GATE_RESOLVED: {"gate_id": "g1", "result": "pass"},
+    EventType.RULEBOOK_COMPILED: {"rulebook_id": "rb1"},
+    EventType.WAVE_COLLAPSED: {"wave_id": "w1", "story_count": 3},
+    # BC15 ARE / Requirements (FK-68 §68.2.2, AG3-081 AC2)
+    EventType.ARE_REQUIREMENTS_LINKED: {"story_id": "AG3-001", "requirement_count": 4},
+    EventType.ARE_EVIDENCE_SUBMITTED: {"story_id": "AG3-001", "evidence_type": "test"},
+    # §2.1.3 conflict resolution: mandatory = story_id, result (FK-68 canonical).
+    EventType.ARE_GATE_RESULT: {"story_id": "AG3-001", "result": "pass"},
     "integrity_gate_result": {"blocked_dimensions": []},
-    "are_gate_result": {"covered": 1, "required": 2, "coverage_ratio": 0.5},
 }
 
 
@@ -128,3 +158,98 @@ def test_review_divergence_missing_final_verdict_raises() -> None:
     with pytest.raises(EventPayloadContractError) as exc:
         validate_event_payload(EventType.REVIEW_DIVERGENCE, payload)
     assert exc.value.missing == ("final_verdict",)
+
+
+# ---------------------------------------------------------------------------
+# BC14 Execution-Planning per-event mandatory contract (AC1)
+# ---------------------------------------------------------------------------
+
+_BC14_EVENTS: tuple[EventType, ...] = (
+    EventType.DEPENDENCY_RECORDED,
+    EventType.STORY_READY,
+    EventType.STORY_BLOCKED,
+    EventType.PLAN_REVISED,
+    EventType.SCHEDULING_DECIDED,
+    EventType.GATE_RESOLVED,
+    EventType.RULEBOOK_COMPILED,
+    EventType.WAVE_COLLAPSED,
+)
+
+_BC15_EVENTS: tuple[EventType, ...] = (
+    EventType.ARE_REQUIREMENTS_LINKED,
+    EventType.ARE_EVIDENCE_SUBMITTED,
+    EventType.ARE_GATE_RESULT,
+)
+
+
+@pytest.mark.parametrize("event_type", _BC14_EVENTS)
+def test_bc14_event_missing_first_mandatory_field_raises(event_type: EventType) -> None:
+    # AC1: each BC14 event rejects a payload missing a mandatory field
+    # fail-closed (EventPayloadContractError).
+    full = dict(_VALID_PAYLOADS[event_type])
+    dropped = next(iter(full))
+    del full[dropped]
+    with pytest.raises(EventPayloadContractError) as exc:
+        validate_event_payload(event_type, full)
+    assert dropped in exc.value.missing
+
+
+@pytest.mark.parametrize("event_type", _BC15_EVENTS)
+def test_bc15_event_missing_first_mandatory_field_raises(event_type: EventType) -> None:
+    # AC2: each BC15 event rejects a payload missing a mandatory field fail-closed.
+    full = dict(_VALID_PAYLOADS[event_type])
+    dropped = next(iter(full))
+    del full[dropped]
+    with pytest.raises(EventPayloadContractError) as exc:
+        validate_event_payload(event_type, full)
+    assert dropped in exc.value.missing
+
+
+def test_bc15_events_are_enum_members() -> None:
+    # AC2: are_requirements_linked / are_evidence_submitted are full enum members
+    # and are_gate_result is a full member (no longer payload-pinning only).
+    values = {member.value for member in EventType}
+    assert "are_requirements_linked" in values
+    assert "are_evidence_submitted" in values
+    assert "are_gate_result" in values
+    # The wire string resolves to the enum member (full membership, not by-name).
+    assert EventType("are_gate_result") is EventType.ARE_GATE_RESULT
+
+
+def test_are_gate_result_conflict_resolved_one_mandatory_set() -> None:
+    # AC2 / §2.1.3: are_gate_result has EXACTLY ONE mandatory set: FK-68's
+    # story_id + result. The FK-61 metric fields covered/required/coverage_ratio
+    # stay OPTIONAL (enriched) — present-without-mandatory must still fail closed,
+    # and mandatory-without-metrics must pass.
+    from agentkit.telemetry.events import (
+        MANDATORY_PAYLOAD_FIELDS,
+        MANDATORY_PAYLOAD_FIELDS_BY_NAME,
+    )
+
+    assert MANDATORY_PAYLOAD_FIELDS[EventType.ARE_GATE_RESULT] == ("story_id", "result")
+    # No second String-Map path: are_gate_result must NOT live in the by-name map.
+    assert "are_gate_result" not in MANDATORY_PAYLOAD_FIELDS_BY_NAME
+
+    # Mandatory present, metrics absent -> PASS (metrics are optional/enriched).
+    validate_event_payload(
+        EventType.ARE_GATE_RESULT, {"story_id": "AG3-001", "result": "pass"}
+    )
+    # Metrics present without mandatory result -> FAIL-CLOSED (metrics are not a
+    # substitute for the mandatory FK-68 fields).
+    with pytest.raises(EventPayloadContractError) as exc:
+        validate_event_payload(
+            EventType.ARE_GATE_RESULT,
+            {"story_id": "AG3-001", "covered": 1, "required": 2, "coverage_ratio": 0.5},
+        )
+    assert "result" in exc.value.missing
+    # Mandatory present WITH enriched optional metrics -> still PASS.
+    validate_event_payload(
+        EventType.ARE_GATE_RESULT,
+        {
+            "story_id": "AG3-001",
+            "result": "pass",
+            "covered": 1,
+            "required": 2,
+            "coverage_ratio": 0.5,
+        },
+    )

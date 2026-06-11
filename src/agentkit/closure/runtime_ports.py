@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
+    from agentkit.closure.gates import TelemetryEvidenceVerdict
     from agentkit.closure.multi_repo_saga import ClosureRepo, GitBackend
     from agentkit.governance import Governance
     from agentkit.state_backend.store.mode_lock_repository import ModeLockRepository
@@ -386,6 +387,111 @@ def _read_final_diff(project_root: Path) -> str:
 
 
 @dataclass(frozen=True)
+class ProductiveTelemetryEvidencePort:
+    """Closure Telemetry-Evidence-Block seam (FK-68 §68.4, AG3-081 AC3).
+
+    Builds the ``TelemetryContract`` over the canonical
+    :class:`~agentkit.telemetry.storage.StateBackendExecutionEventReader` and runs
+    the six-rule ``check_all`` for the run. The authoritative review roles, the
+    mandatory llm role→pool slice and the web-call budget are resolved from the
+    project config (the composition root owns the config truth boundary, FK-68
+    §68.4: checked against configuration, not against hardcoded provider names).
+
+    Fail-closed: any FAIL among the six proofs yields a
+    :class:`~agentkit.closure.gates.TelemetryEvidenceVerdict` with ``passed ==
+    False`` (NO ERROR BYPASSING). A config-resolution fault is ALSO fail-closed —
+    a Closure that cannot prove the telemetry evidence must NOT merge.
+
+    Attributes:
+        project_key: The owning project key (FK-68 mandatory scope key).
+        project_root: Project root used to resolve the pipeline/telemetry config.
+    """
+
+    project_key: str
+    project_root: Path
+
+    def evaluate(
+        self, story_dir: Path, *, story_id: str, run_id: str
+    ) -> TelemetryEvidenceVerdict:
+        """Run the six FK-68 §68.4 proofs for the run (fail-closed on violation)."""
+        from agentkit.closure.gates import TelemetryEvidenceVerdict
+        from agentkit.telemetry.contract.results import TelemetryScope
+        from agentkit.telemetry.contract.telemetry_contract import TelemetryContract
+        from agentkit.telemetry.storage import (
+            StateBackendEmitter,
+            StateBackendExecutionEventReader,
+        )
+
+        try:
+            review_roles, role_pools, web_budget = self._resolve_config()
+        except Exception as exc:  # noqa: BLE001 -- fail-closed: cannot prove evidence
+            return TelemetryEvidenceVerdict(
+                passed=False,
+                blocking_reason=(
+                    "Telemetry-Evidence-Block (FK-68 §68.4): the authoritative "
+                    f"review/llm/web budget config could not be resolved ({exc}) "
+                    "-> fail-closed (cannot verify telemetry evidence -> cannot "
+                    "merge)"
+                ),
+            )
+
+        reader = StateBackendExecutionEventReader(
+            story_dir, project_key=self.project_key, story_id=story_id
+        )
+        scope = TelemetryScope(
+            project_key=self.project_key, story_id=story_id, run_id=run_id
+        )
+        contract = TelemetryContract(
+            reader,
+            StateBackendEmitter(story_dir, default_project_key=self.project_key),
+            scope,
+        )
+        result = contract.check_all(
+            run_id,
+            review_roles,
+            role_pools,
+            web_call_budget=web_budget,
+        )
+        if result.passed:
+            return TelemetryEvidenceVerdict(passed=True)
+        failing = tuple(r.rule_id for r in result.failures)
+        details = "; ".join(f"{r.rule_id}: {r.detail}" for r in result.failures)
+        return TelemetryEvidenceVerdict(
+            passed=False,
+            failing_rule_ids=failing,
+            blocking_reason=(
+                "Telemetry-Evidence-Block (FK-68 §68.4) failed at Closure "
+                f"(fail-closed): {details}"
+            ),
+        )
+
+    def _resolve_config(self) -> tuple[set[str], dict[str, str], int]:
+        """Resolve review roles, role→pool slice and the web budget from config.
+
+        FK-68 §68.4: the gate reads ``llm_roles`` + the mandatory reviewer roles
+        from the pipeline config and the web budget from ``telemetry.web_call_limit``
+        — never hardcoded provider names. The role→pool slice maps each mandatory
+        reviewer role to its assigned pool from ``llm_roles`` (only roles present
+        in ``llm_roles`` are pool-checked; reviewer-role coverage is checked
+        independently against the ``review_request`` stream).
+        """
+        from agentkit.config.loader import load_project_config
+
+        config = load_project_config(self.project_root)
+        review_roles = set(config.pipeline.review.required_roles)
+        web_budget = config.pipeline.telemetry.web_call_limit
+        role_pools: dict[str, str] = {}
+        llm_roles = config.pipeline.llm_roles
+        if llm_roles is not None:
+            assignments = llm_roles.model_dump(exclude_none=True)
+            for role in review_roles:
+                pool = assignments.get(role)
+                if isinstance(pool, str) and pool:
+                    role_pools[role] = pool
+        return review_roles, role_pools, web_budget
+
+
+@dataclass(frozen=True)
 class ProductiveGuardDeactivationPort:
     """Guard-deactivation seam (FK-29 §29.5, governance top surface).
 
@@ -409,6 +515,47 @@ class ProductiveGuardDeactivationPort:
             return (False, f"deactivate_locks raised: {exc}")
         if result.errors:
             return (False, "; ".join(result.errors))
+        return (True, None)
+
+
+@dataclass(frozen=True)
+class ProductiveGuardCounterFlushPort:
+    """Closure guard-counter flush seam (FK-61 §61.4.3 Trigger 1, AG3-081).
+
+    Delegates to the kpi-owned
+    :class:`~agentkit.kpi_analytics.fact_store.guard_counter.GuardCounterService.flush_on_closure`
+    over the productive
+    :class:`~agentkit.state_backend.store.guard_counter_repository.StateBackendGuardCounterRepository`.
+    Closure holds no counter logic itself (single delegation step). Non-blocking: a
+    flush error is surfaced as a human Warning, never an escalation (the story is
+    already merged + closed). The actual ``fact_guard_period`` drain is AG3-082;
+    this flush deterministically reads + deletes the story's counter rows.
+
+    Attributes:
+        store_dir: Base directory for the state-backend counter store.
+    """
+
+    store_dir: Path
+
+    def flush_on_closure(
+        self, story_dir: Path, *, project_key: str, story_id: str
+    ) -> tuple[bool, str | None]:
+        """Drain the story's guard counters at Closure; non-blocking Warning on error."""
+        del story_dir
+        from agentkit.kpi_analytics import GuardCounterService
+        from agentkit.state_backend.store.guard_counter_repository import (
+            StateBackendGuardCounterRepository,
+        )
+
+        try:
+            GuardCounterService(
+                StateBackendGuardCounterRepository(self.store_dir)
+            ).flush_on_closure(project_key, story_id)
+        except Exception as exc:  # noqa: BLE001 -- non-blocking post-close step
+            logger.warning(
+                "guard-counter Closure flush failed for story=%s: %s", story_id, exc
+            )
+            return (False, f"guard-counter Closure flush raised: {exc}")
         return (True, None)
 
 
@@ -470,8 +617,10 @@ class ProductiveModeLockReleasePort:
 __all__ = [
     "CiBuildTestFastRunner",
     "ProductiveDocFidelityFeedbackPort",
+    "ProductiveGuardCounterFlushPort",
     "ProductiveGuardDeactivationPort",
     "ProductiveModeLockReleasePort",
     "ProductiveSanityGatePort",
+    "ProductiveTelemetryEvidencePort",
     "ProductiveVectorDbSyncPort",
 ]

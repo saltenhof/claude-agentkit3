@@ -69,6 +69,19 @@ _EXPECTED_EVENT_VALUES = {
     "conformance_assessment_started",
     "conformance_level_evaluated",
     "conformance_assessment_completed",
+    # Execution-Planning (BC14, FK-68 §68.2.2, AG3-081)
+    "dependency_recorded",
+    "story_ready",
+    "story_blocked",
+    "plan_revised",
+    "scheduling_decided",
+    "gate_resolved",
+    "rulebook_compiled",
+    "wave_collapsed",
+    # ARE / Requirements (BC15, FK-68 §68.2.2, AG3-081)
+    "are_requirements_linked",
+    "are_evidence_submitted",
+    "are_gate_result",
     # Exploration / mandate (FK-25 §25.8, AG3-037)
     "mandate_classification",
     "fine_design_decision",
@@ -169,11 +182,29 @@ _EXPECTED_MANDATORY_FIELDS: dict[EventType, tuple[str, ...]] = {
     ),
     EventType.SCOPE_EXPLOSION_CHECK: ("status", "indicators", "story_id"),
     EventType.IMPACT_EXCEEDANCE_CHECK: ("declared", "actual", "exceeded", "story_id"),
+    # BC14 Execution-Planning (FK-68 §68.2.2, AG3-081)
+    EventType.DEPENDENCY_RECORDED: ("story_id", "depends_on_id"),
+    EventType.STORY_READY: ("story_id",),
+    EventType.STORY_BLOCKED: ("story_id", "reason"),
+    EventType.PLAN_REVISED: ("plan_id", "trigger"),
+    EventType.SCHEDULING_DECIDED: ("story_id", "wave_id", "decision"),
+    EventType.GATE_RESOLVED: ("gate_id", "result"),
+    EventType.RULEBOOK_COMPILED: ("rulebook_id",),
+    EventType.WAVE_COLLAPSED: ("wave_id", "story_count"),
+    # BC15 ARE / Requirements (FK-68 §68.2.2, AG3-081). ``are_gate_result`` is now
+    # a full enum member with the FK-68-canonical mandatory set (story §2.1.3).
+    EventType.ARE_REQUIREMENTS_LINKED: ("story_id", "requirement_count"),
+    EventType.ARE_EVIDENCE_SUBMITTED: ("story_id", "evidence_type"),
+    EventType.ARE_GATE_RESULT: ("story_id", "result"),
 }
 
+# ``are_gate_result`` is intentionally absent: AG3-081 (§2.1.3) raised it to a
+# full ``EventType`` member, so its single mandatory set lives in the enum-keyed
+# contract above (FK-68 ``story_id``/``result``); the FK-61 metric fields stay
+# optional/enriched. ``integrity_gate_result`` stays by-name (its producer lives
+# in governance, not this BC's enum).
 _EXPECTED_MANDATORY_FIELDS_BY_NAME: dict[str, tuple[str, ...]] = {
     "integrity_gate_result": ("blocked_dimensions",),
-    "are_gate_result": ("covered", "required", "coverage_ratio"),
 }
 
 
