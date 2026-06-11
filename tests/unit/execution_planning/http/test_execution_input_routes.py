@@ -151,8 +151,11 @@ class TestExecutionInputSnapshot:
             "global_slots_left",
         }
         assert body["total_ready"] == 2
-        eligible_ids = {card["story_id"] for card in body["eligible_ready"]}
+        # Cards are the nested execution_input_stack shape: story under ``story``.
+        eligible_ids = {card["story"]["story_id"] for card in body["eligible_ready"]}
         assert eligible_ids == {"S1", "S2"}
+        first_card = body["eligible_ready"][0]
+        assert set(first_card.keys()) == {"story", "predecessor", "successor"}
 
     def test_empty_eligible_list_is_200_not_404(self) -> None:
         """FK-70 §70.8a.1: an empty eligible list is a valid 200, never a 404."""
@@ -186,8 +189,10 @@ class TestExecutionInputNext:
         body = _body(response)
         assert set(body.keys()) == {"project_key", "story", "reason"}
         assert body["story"] is not None
+        # ``story`` is one execution_input_stack card: the story ref nests under ``story``.
+        assert set(body["story"].keys()) == {"story", "predecessor", "successor"}
         # The single selector picks the critical-path story first per repo bucket.
-        assert body["story"]["story_id"] in {"S1", "S2"}
+        assert body["story"]["story"]["story_id"] in {"S1", "S2"}
         assert body["reason"]["active_tiebreaker"] == (
             "critical_path_desc_then_story_number_asc"
         )

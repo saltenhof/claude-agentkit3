@@ -60,6 +60,7 @@ __all__ = [
     "ExecutionInputNextReason",
     "ExecutionInputSnapshot",
     "ExecutionInputStackCard",
+    "ExecutionInputStoryRef",
     "RepoSlotInfo",
     "SchedulingDecisionKind",
     "SchedulingTriageReason",
@@ -92,12 +93,13 @@ class WhyNotNow(BaseModel):
     detail: str | None = None
 
 
-class ExecutionInputStackCard(BaseModel):
-    """One predecessor/story/successor stack card (FK-70 §70.8a.1).
+class ExecutionInputStoryRef(BaseModel):
+    """A ``story_summary``-style story reference inside a stack card (FK-70 §70.8a.1).
 
-    Wire-bound to ``frontend-contracts.entity.execution_input_stack``: the
-    ``predecessor`` / ``successor`` carry only a story-summary-style reference
-    (id + number + title), never story detail.
+    Wire-bound to ``frontend-contracts.entity.story_summary`` as the reference shape
+    the deterministic selector owns: the story identity plus the display-relevant
+    triage fields (number, title, repo). It is a compact reference, never the full
+    Inspector story detail.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -106,8 +108,23 @@ class ExecutionInputStackCard(BaseModel):
     story_number: int = Field(ge=1)
     title: str
     repo: str | None = None
-    predecessor_story_id: str | None = None
-    successor_story_id: str | None = None
+
+
+class ExecutionInputStackCard(BaseModel):
+    """One predecessor/story/successor stack card (FK-70 §70.8a.1).
+
+    Wire-bound to ``frontend-contracts.entity.execution_input_stack``: exactly the
+    three formal refs ``story`` (required) plus optional ``predecessor`` /
+    ``successor``, each an :class:`ExecutionInputStoryRef` (a ``story_summary``-style
+    reference, never story detail). The flat-field prototype shape is inadmissible —
+    the formal entity is the authoritative wire contract.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    story: ExecutionInputStoryRef
+    predecessor: ExecutionInputStoryRef | None = None
+    successor: ExecutionInputStoryRef | None = None
 
 
 class RepoSlotInfo(BaseModel):
@@ -403,12 +420,14 @@ def next_from_snapshot(
     if not snapshot.eligible_ready:
         return ExecutionInputNext(project_key=project_key, story=None, reason=None)
     first = snapshot.eligible_ready[0]
-    repo = first.repo or _NO_REPO
-    running_in_repo = sum(1 for card in snapshot.running if (card.repo or _NO_REPO) == repo)
+    repo = first.story.repo or _NO_REPO
+    running_in_repo = sum(
+        1 for card in snapshot.running if (card.story.repo or _NO_REPO) == repo
+    )
     repo_slots_left = max(0, budgets.repo_parallel_cap - running_in_repo - 1)
     reason = ExecutionInputNextReason(
         repo_bucket=repo,
-        on_critical_path=first.story_id in set(evaluation.critical_path),
+        on_critical_path=first.story.story_id in set(evaluation.critical_path),
         global_slots_left=snapshot.global_slots_left,
         repo_slots=(RepoSlotInfo(repo=repo, repo_slots_left=repo_slots_left),),
         active_tiebreaker=_TIEBREAKER,
@@ -562,10 +581,18 @@ def _round_robin_pick(
     return picked
 
 
-def _stack_card(story: StoryRefForPlanning) -> ExecutionInputStackCard:
-    return ExecutionInputStackCard(
+def _story_ref(story: StoryRefForPlanning) -> ExecutionInputStoryRef:
+    return ExecutionInputStoryRef(
         story_id=story.story_id,
         story_number=story.story_number,
         title=story.title,
         repo=story.repo,
     )
+
+
+def _stack_card(story: StoryRefForPlanning) -> ExecutionInputStackCard:
+    # FK-70 §70.8a.1 / frontend-contracts.entity.execution_input_stack: the card is
+    # the three nested story refs. ``predecessor`` / ``successor`` stay optional and
+    # are absent here (the deterministic selector exposes the story card; the
+    # predecessor/successor stack overlay is the Read-layer's enrichment, §70.8a.5).
+    return ExecutionInputStackCard(story=_story_ref(story))

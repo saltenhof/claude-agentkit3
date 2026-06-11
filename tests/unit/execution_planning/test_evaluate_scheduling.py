@@ -278,7 +278,7 @@ class TestSingleSelectorConsistency:
             budgets=budgets,
         )
         assert nxt.story is not None
-        assert nxt.story.story_id == snapshot.eligible_ready[0].story_id
+        assert nxt.story.story.story_id == snapshot.eligible_ready[0].story.story_id
         assert nxt.reason is not None
         assert nxt.reason.active_tiebreaker == (
             "critical_path_desc_then_story_number_asc"
@@ -300,7 +300,7 @@ class TestSingleSelectorConsistency:
             project_key=_PROJECT, stories=stories, evaluation=evaluation,
             budgets=budgets,
         )
-        picked = [card.story_id for card in snapshot.eligible_ready]
+        picked = [card.story.story_id for card in snapshot.eligible_ready]
         assert len(picked) == 2
         # Round-robin: first repo-a card, then repo-b card.
         assert picked[0] in {"S1", "S2"}
@@ -321,8 +321,8 @@ class TestSingleSelectorConsistency:
             project_key=_PROJECT, stories=stories, evaluation=evaluation,
             budgets=budgets,
         )
-        picked = [card.story_id for card in snapshot.eligible_ready]
-        repos_picked = {card.repo for card in snapshot.eligible_ready}
+        picked = [card.story.story_id for card in snapshot.eligible_ready]
+        repos_picked = {card.story.repo for card in snapshot.eligible_ready}
         # One card per repo (repo-a cap=1 exhausted after one pick), both repos used.
         assert len(picked) == 2
         assert repos_picked == {"repo-a", "repo-b"}
@@ -371,8 +371,8 @@ class TestRunningStoriesExcluded:
             project_key=_PROJECT, stories=stories, evaluation=evaluation,
             budgets=budgets,
         )
-        running_ids = {card.story_id for card in snapshot.running}
-        eligible_ids = {card.story_id for card in snapshot.eligible_ready}
+        running_ids = {card.story.story_id for card in snapshot.running}
+        eligible_ids = {card.story.story_id for card in snapshot.eligible_ready}
         assert "S1" in running_ids
         assert "S1" not in eligible_ids
         # global_slots_left reduced by the one running story.
