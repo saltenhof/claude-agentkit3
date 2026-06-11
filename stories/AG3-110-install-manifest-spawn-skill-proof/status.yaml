@@ -1,0 +1,12 @@
+story_id: AG3-110
+title: "Install-Manifest-Producer: agent_spawn_skill_proof-Token + autorisierte Prompt-Pfade + Template-Manifest-Hash in .installed-manifest.json (FK-31 §31.7.4) inkl. Setup-seitiger skill_proof-Bereitstellung am Spawn-Header"
+type: implementation
+status: draft
+phase: backlog
+created: "2026-06-11"
+size: M
+depends_on:
+  - AG3-006
+  - AG3-088
+unblocks:
+  - AG3-086

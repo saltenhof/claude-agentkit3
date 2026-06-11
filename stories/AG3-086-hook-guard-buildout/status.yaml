@@ -1,12 +1,22 @@
 story_id: AG3-086
 title: "Hook-/Guard-Vollausbau (WebCallBudgetGuard, skill_usage_check, Prompt-Integrity, TTL→ESCALATED)"
 type: implementation
-status: draft
+status: blocked
 phase: review_pending
 created: "2026-06-07"
 size: L
+# PAUSED 2026-06-11: implementation is review-green through r4 (4 remediation rounds,
+# dual Codex+Fable review) — the prompt_integrity guard is correct/fail-closed across all
+# 3 stages. BUT Stage-2 (story_execution) validates agent_spawn_skill_proof against the
+# installed manifest .installed-manifest.json (FK-31 §31.7.4), and NO story produces that
+# manifest token (consumer exists, producer missing). Activating this guard by default
+# (FIX B installs the prompt_integrity hook) without the producer would fail-closed ALL
+# story_execution worker spawns in production. New producer story AG3-110 added; AG3-086
+# is blocked on it and resumes (rebase branch story/AG3-086 -> verify Stage-2 E2E against
+# the real produced manifest -> merge) once AG3-110 is completed.
 depends_on:
   - AG3-013
   - AG3-080
   - AG3-081
+  - AG3-110
 unblocks: []
