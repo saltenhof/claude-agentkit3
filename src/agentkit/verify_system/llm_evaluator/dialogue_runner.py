@@ -199,12 +199,15 @@ class DialogueRunner:
                         target=pool,
                         timeout=SEND_TIMEOUT_SECONDS,
                     )
-                except HubLoginRequiredError as exc:
-                    raise LoginRequiredError(
-                        f"Hub pool {pool!r} requires operator login during dialogue",
-                        operator_hint=f"pool={pool!r}: login required",
-                    ) from exc
                 except MultiLlmHubError as exc:
+                    # S5713: HubLoginRequiredError is a subclass of
+                    # MultiLlmHubError; one handler with an isinstance branch
+                    # preserves the distinct login handling.
+                    if isinstance(exc, HubLoginRequiredError):
+                        raise LoginRequiredError(
+                            f"Hub pool {pool!r} requires operator login during dialogue",
+                            operator_hint=f"pool={pool!r}: login required",
+                        ) from exc
                     raise LlmClientError(
                         f"DialogueRunner send failed for role={role!r} pool={pool!r}: {exc}"
                     ) from exc
@@ -284,12 +287,15 @@ class DialogueRunner:
                         f"retries (pool={pool!r} queued)"
                     ) from exc
                 time.sleep(min(wait or 1.0, 5.0))
-            except HubLoginRequiredError as exc:
-                raise LoginRequiredError(
-                    f"Hub pool {pool!r} requires operator login",
-                    operator_hint=f"pool={pool!r}: login required",
-                ) from exc
             except MultiLlmHubError as exc:
+                # S5713: collapse login (subclass) + generic (parent) into one
+                # handler. ``HubAcquireQueuedError`` (sibling, not login) is
+                # handled above with its distinct queue-retry logic.
+                if isinstance(exc, HubLoginRequiredError):
+                    raise LoginRequiredError(
+                        f"Hub pool {pool!r} requires operator login",
+                        operator_hint=f"pool={pool!r}: login required",
+                    ) from exc
                 raise LlmClientError(
                     f"DialogueRunner acquire failed for pool={pool!r}: {exc}"
                 ) from exc

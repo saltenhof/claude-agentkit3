@@ -24,6 +24,7 @@ emitter uses the same backend. No mock of the manifest/token/guard.
 
 from __future__ import annotations
 
+import subprocess
 from typing import TYPE_CHECKING
 
 import pytest
@@ -154,8 +155,22 @@ def _qa_header(token: str) -> str:
     )
 
 
+def _git_init(root: Path) -> None:
+    # Hermeticity (Jenkins #325 fix): production CP11 runs
+    # ``git -C <root> config core.hooksPath tools/hooks/``, which REQUIRES a real
+    # git repo AT ``root``. Without this, git walks UP to any ambient parent repo
+    # (non-hermetic, can pollute the real repo) and on CI's parent-less tmp dir
+    # fails with ``git_config_failed``. Initialise an isolated repo at ``root``.
+    subprocess.run(  # noqa: S603 - fixed argv, no shell
+        ["git", "init", str(root)],
+        capture_output=True,
+        check=True,
+    )
+
+
 def _install(root: Path) -> SkillBundleStore:
     root.mkdir(parents=True, exist_ok=True)
+    _git_init(root)
     store = _bundle_store_with_all_skills(root.parent)
     result = install_agentkit(_make_config(root, store=store))
     assert result.success, result
@@ -238,6 +253,7 @@ def test_idempotent_reinstall_keeps_token(tmp_path: Path) -> None:
     root = tmp_path / "proj-idem"
     store = _bundle_store_with_all_skills(tmp_path)
     root.mkdir()
+    _git_init(root)  # hermetic isolated repo for CP11 git config (Jenkins #325)
     assert install_agentkit(_make_config(root, store=store)).success
     first = read_json_object(installed_manifest_path(root))[SKILL_PROOF_KEY]
 

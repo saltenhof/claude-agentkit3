@@ -411,12 +411,15 @@ class HubLlmClient:
                 # Brief sleep between retries (not specified in FK-11 but
                 # necessary to avoid tight-loop hammering the Hub).
                 time.sleep(min(wait or 1.0, 5.0))
-            except HubLoginRequiredError as exc:
-                raise LoginRequiredError(
-                    f"Hub pool {pool!r} requires operator login",
-                    operator_hint=f"pool={pool!r}: login required",
-                ) from exc
             except MultiLlmHubError as exc:
+                # S5713: HubLoginRequiredError is a subclass of MultiLlmHubError;
+                # a single handler with an isinstance branch keeps the distinct
+                # login handling without a redundant subclass-then-parent catch.
+                if isinstance(exc, HubLoginRequiredError):
+                    raise LoginRequiredError(
+                        f"Hub pool {pool!r} requires operator login",
+                        operator_hint=f"pool={pool!r}: login required",
+                    ) from exc
                 raise LlmClientError(
                     f"HubLlmClient acquire failed for pool={pool!r}: {exc}"
                 ) from exc
@@ -469,11 +472,6 @@ class HubLlmClient:
 
         try:
             return self._do_send(lease, pool, prompt, deadline=deadline)
-        except HubLoginRequiredError as exc:
-            raise LoginRequiredError(
-                f"Hub pool {pool!r} requires operator login during send",
-                operator_hint=f"pool={pool!r}: login required",
-            ) from exc
         except (HubUnavailableError, HubSessionNotFoundError) as exc:
             if send_retries_used >= 1:
                 raise LlmClientError(
@@ -492,18 +490,29 @@ class HubLlmClient:
             new_lease = self._acquire_with_queue_retry(pool, description, deadline=deadline)
             try:
                 return self._do_send(new_lease, pool, prompt, deadline=deadline)
-            except HubLoginRequiredError as exc2:
-                raise LoginRequiredError(
-                    f"Hub pool {pool!r} requires operator login during retry send",
-                    operator_hint=f"pool={pool!r}: login required",
-                ) from exc2
             except MultiLlmHubError as exc2:
+                # S5713: collapse login (subclass) + generic (parent) into one
+                # handler with an isinstance branch (distinct handling preserved).
+                if isinstance(exc2, HubLoginRequiredError):
+                    raise LoginRequiredError(
+                        f"Hub pool {pool!r} requires operator login during retry send",
+                        operator_hint=f"pool={pool!r}: login required",
+                    ) from exc2
                 raise LlmClientError(
                     f"HubLlmClient retry send also failed for pool={pool!r}: {exc2}"
                 ) from exc2
             finally:
                 self._safe_release(new_lease.session_id, new_lease.token, deadline=deadline)
         except MultiLlmHubError as exc:
+            # S5713: the initial-send login (subclass) + generic (parent) handlers
+            # collapse into one isinstance branch. ``HubUnavailableError`` /
+            # ``HubSessionNotFoundError`` (siblings, not login) are handled above
+            # with their distinct retry logic and never reach this branch.
+            if isinstance(exc, HubLoginRequiredError):
+                raise LoginRequiredError(
+                    f"Hub pool {pool!r} requires operator login during send",
+                    operator_hint=f"pool={pool!r}: login required",
+                ) from exc
             raise LlmClientError(
                 f"HubLlmClient send hub-error for pool={pool!r}: {exc}"
             ) from exc

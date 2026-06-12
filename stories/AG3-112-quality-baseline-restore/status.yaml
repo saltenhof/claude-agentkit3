@@ -1,0 +1,9 @@
+story_id: AG3-112
+title: "Quality-Baseline-Restore (Aufraeumrunde: Jenkins + Sonar gruen)"
+type: bugfix
+status: in_progress
+phase: implementation
+created: "2026-06-12"
+size: M
+depends_on: []
+unblocks: []
