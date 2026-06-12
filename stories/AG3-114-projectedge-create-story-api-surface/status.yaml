@@ -1,8 +1,17 @@
 story_id: AG3-114
 title: "§91.1a Agent-Surface fuer Story-Create: ProjectEdgeClient.create_story + Target-Project-Tool-Entry gegen POST /v1/stories (FK-91 §91.1a, FK-21 ReconciliationEvidence) — Ersatz fuer gh issue create"
 type: implementation
-status: ready
-phase: setup
+status: blocked
+phase: implementation
+# BLOCKED 2026-06-12 on the create-time conflict adjudicator (new prerequisite story): PO decided
+# "wire the adjudicator first". The R1 implementation is solid (typed evidence, correlation header,
+# stable error contract, op_id, real evidence-missing negative) but runtime_factory uses
+# FailClosedConflictEvaluator (truthful conflict_adjudication_unavailable) because NO create-time
+# LLM conflict adjudicator owner exists — the only StructuredEvaluator is execution-scoped (needs
+# StoryContext/story_id/run_id/run-pin, absent pre-story). Plus open Codex re-review R2 items
+# (#1 outcome still caller-suppliable -> run reconcile inside the official boundary; #2 X-Correlation-Id
+# case-insensitive lookup; #4 factory VectorDbError + URLError -> stable contract). R1 work stashed;
+# resume AG3-114 after the adjudicator lands: wire it, apply R2 fixes, re-review.
 created: "2026-06-12"
 size: L
 # Herkunft: PO-Entscheidung 2026-06-12. FK-91 §91.1a Regel #9: Stories werden ausschliesslich
@@ -17,5 +26,6 @@ depends_on:
   - AG3-014
   - AG3-068
   - AG3-090
+  - AG3-115
 unblocks:
   - AG3-113

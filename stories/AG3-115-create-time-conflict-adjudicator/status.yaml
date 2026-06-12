@@ -1,0 +1,21 @@
+story_id: AG3-115
+title: "Create-Time-Conflict-Adjudicator: LLM-Konfliktbewertung (FK-21 §21.4.1 Schritt 3) im pre-story Create-Scope, entkoppelt vom execution-scoped StructuredEvaluator"
+type: implementation
+status: ready
+phase: setup
+created: "2026-06-12"
+size: L
+# Herkunft: PO-Entscheidung 2026-06-12 ("Adjudicator zuerst verdrahten") aus dem AG3-114-Review.
+# Befund (AG3-114 R1 + Codex-Re-Review): der Create-Time-LLM-Conflict-Adjudicator existiert nicht.
+# Der einzige StructuredEvaluator ist execution-scoped (PromptRuntimeMaterializer verlangt
+# StoryContext/story_id/run_id/run-pin/story-dir), die zur Anlage-Zeit alle fehlen. FK-21 §21.4.1
+# Schritt 3 uebergibt story_id/run_id an den Evaluator und setzt damit eine bereits existierende
+# Story voraus -> Konzept-Spannung, die diese Story aufloest (create-scope Evaluator-Pfad ohne
+# Story-Kontext). Diese Story baut den Owner; AG3-114 verdrahtet ihn dann (FailClosedConflictEvaluator
+# -> echter Adjudicator) und schliesst seine FK-21-§21.4-Zwei-Stufen-Reconciliation.
+depends_on:
+  - AG3-043
+  - AG3-065
+  - AG3-068
+unblocks:
+  - AG3-114
